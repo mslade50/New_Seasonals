@@ -353,7 +353,7 @@ def seasonals_chart(tick):
 
 	#5d stuff
 
-	new_df['Variance_rnk']=new_df.Fwd_mad5.rolling(window=750).rank(pct=True).round(3)*100
+	new_df['Variance_rnk']=new_df.Fwd_mad5.rank(pct=True).round(3)*100
 	new_df['Variance_rnk_MT']=new_df.Fwd_mad5_MT.rank(pct=True).round(3)*100
 	new_df['Returns_5_rnk']=new_df.Fwd_R5.rank(pct=True).round(3)*100
 	new_df['Returns_5_rnk_mt']=new_df.Fwd_R5_MT.rank(pct=True).round(3)*100
