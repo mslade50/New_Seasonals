@@ -9,6 +9,7 @@ import pandas as pd
 import streamlit as st
 import plotly.graph_objs as go
 st.title("Open Positions")
+positions=['EXPD','BLDR','EDU','WYNN','RYAAY','SIG','DOX','MRK','SLV','CME','EURUSD=X','ZW=F','WEAT','DLB','BAP']
 def seasonals_chart(tick):
 	ticker=tick
 	cycle_start=1951
@@ -513,7 +514,7 @@ def seasonals_chart(tick):
 	)
 	st.plotly_chart(fig)
 
-positions=['PAAS','DISH','EDU','BLDR','EXPD','HD','ASML','RYAAY','MLCO','WMT','TSM','MRK','SANM','LNG','EURUSD=X','NG=F']
+
 positions.sort()
 for stock in positions:
 	seasonals_chart(stock)
