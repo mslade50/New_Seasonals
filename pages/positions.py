@@ -9,7 +9,7 @@ import pandas as pd
 import streamlit as st
 import plotly.graph_objs as go
 st.title("Open Positions")
-positions=['EXPD','BLDR','EDU','WYNN','RYAAY','SIG','DOX','MRK','SLV','CME','EURUSD=X','ZW=F','WEAT','DLB','BAP','TSM']
+positions=['BLDR','SIG','SLV','EURUSD','LNG','CME','CF','WEAT','UAA','BAP','DLB']
 def seasonals_chart(tick):
 	ticker=tick
 	cycle_start=1951
