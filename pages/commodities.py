@@ -514,7 +514,6 @@ def seasonals_chart(tick):
 	)
 	st.plotly_chart(fig)
 
-megas_list=['GC=F','GLD','SI=F','SLV','PL=F','HG=F','PA=F','CL=F','USO','HO=F','NG=F','RB=F','BZ=F','ZC=F','ZO=F','KE=F','ZR=F','ZM=F',
-           'ZL=F','ZS=F','HE=F','LE=F','CC=F','KC=F','CT=F','LBS=F','SB=F']
+megas_list=['GC=F','GLD','SI=F','SLV','HG=F','CL=F','USO','ZW=F','WEAT']
 for stock in megas_list:
 	seasonals_chart(stock)
