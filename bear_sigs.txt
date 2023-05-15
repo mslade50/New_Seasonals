@@ -1,0 +1,1 @@
+['COUR', 'SYNH', 'TGI', 'DVAX', 'XP', 'HTGC', 'ARCC', 'SLM', 'MAT', 'RH', 'STZ', 'FSK', 'STR', 'CORT', 'HAS', 'CNX', 'LXP', 'NTLA', 'WB', 'CRWD', 'S', 'HR', 'PSA', 'RRC, 'PODD', 'BHAC', 'SPB', 'BIP']
