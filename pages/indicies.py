@@ -16,16 +16,24 @@ st.title("Indicies")
 def seasonals_chart(tick):
 	ticker=tick
 	cycle_start=1951
-	cycle_label='Third Year of Cycle'
+	cycle_label='Midterms'
 	cycle_var='pre_election'
 	adjust=0
 	plot_ytd="Yes"
 	all_=""
 	end_date=dt.datetime(2022,12,30)
+	this_yr_end=dt.date.today()
+
 
 	spx1=yf.Ticker(ticker)
 	spx = spx1.history(period="max",end=end_date)
-	spx_rank=spx1.history(period="max")
+	df= spx1.history(period="max")
+	df['200_MA'] = df['Close'].rolling(window=200).mean()
+	df['RSI'] = RSIIndicator(df['Close']).rsi()
+	df = df[-252:]
+	df.reset_index(inplace=True)
+	df['date_str'] = range(1,len(df)+1)
+	spx_rank=spx1.history(period="max",end=this_yr_end)
 	# Calculate trailing 5-day returns
 	spx_rank['Trailing_5d_Returns'] = (spx_rank['Close'] / spx_rank['Close'].shift(5)) - 1
 
@@ -33,10 +41,10 @@ def seasonals_chart(tick):
 	spx_rank['Trailing_21d_Returns'] = (spx_rank['Close'] / spx_rank['Close'].shift(21)) - 1
 
 	# Calculate percentile ranks for trailing 5-day returns on a rolling 750-day window
-	spx_rank['Trailing_5d_percentile_rank'] = spx_rank['Trailing_5d_Returns'].rolling(window=2000).apply(lambda x: pd.Series(x).rank(pct=True).iloc[-1])
+	spx_rank['Trailing_5d_percentile_rank'] = spx_rank['Trailing_5d_Returns'].rolling(window=750).apply(lambda x: pd.Series(x).rank(pct=True).iloc[-1])
 
 	# Calculate percentile ranks for trailing 21-day returns on a rolling 750-day window
-	spx_rank['Trailing_21d_percentile_rank'] = spx_rank['Trailing_21d_Returns'].rolling(window=2000).apply(lambda x: pd.Series(x).rank(pct=True).iloc[-1])
+	spx_rank['Trailing_21d_percentile_rank'] = spx_rank['Trailing_21d_Returns'].rolling(window=750).apply(lambda x: pd.Series(x).rank(pct=True).iloc[-1])
 
 	dr21_rank=(spx_rank['Trailing_21d_percentile_rank'][-1]*100).round(2)
 	dr5_rank=(spx_rank['Trailing_5d_percentile_rank'][-1]*100).round(2)
@@ -53,7 +61,7 @@ def seasonals_chart(tick):
 
 	#second dataframe explicity to count the number of trading days so far this year
 	now = dt.datetime.now()+timedelta(days=1)
-	days = yf.download(ticker, start="2022-12-31", end=now)
+	days = yf.download(ticker, start=end_date, end=this_yr_end)
 	days["log_return"] = np.log(days["Close"] / days["Close"].shift(1))*100
 	days['day_of_year'] = days.index.day_of_year
 	days['this_yr']=days.log_return.cumsum()
@@ -438,13 +446,21 @@ def seasonals_chart(tick):
 	dfy1=dfy.mean()
 	s3=dfy1.cumsum()
 	##Mean Return paths chart (looks like a classic 'seasonality' chart)
-	# plot2=plt.figure(2)
+
+	# Assuming df is your DataFrame and it has 'Close' column
+	df['max_rolling'] = df['Close'].rolling(window=41).max().shift(-20)
+	df['min_rolling'] = df['Close'].rolling(window=41).min().shift(-20)
+
+	df['pivot_point'] = np.where((df['Close'] == df['max_rolling']) | (df['Close'] == df['min_rolling']), df['Close'], np.nan)
+
+	# Get pivot points for the last 252 days
+	pivot_points_last_252 = df[df['pivot_point'].notna()].tail(252)
+
 	fig = go.Figure()
 
 	fig.add_trace(go.Scatter(x=s4.index, y=s4.values, mode='lines', name=cycle_label, line=dict(color='orange')))
 	if plot_ytd == 'Yes':
 	    fig.add_trace(go.Scatter(x=days2.index, y=days2['this_yr'], mode='lines', name='Year to Date', line=dict(color='green')))
-
 	y1 = max(s4.max(), days2['this_yr'].max()) if plot_ytd == 'Yes' else s4.max()
 	y0=min(s4.min(),days2['this_yr'].min(),0)
 	# Assuming 'length' variable is defined and within the range of the x-axis
@@ -452,7 +468,42 @@ def seasonals_chart(tick):
 
 	# Interpolate Y value at the specified X coordinate
 	y_value_at_length = np.interp(length_value, s4.index, s4.values)
+	s4_values = s4.values[:length]
+	this_year_values = days2['this_yr'][:length]
+	this_year_values = np.where(np.isnan(this_year_values), np.nanmean(this_year_values), this_year_values)
 
+	if np.isnan(s4_values).any() or np.isnan(this_year_values).any() or np.var(s4_values) == 0 or np.var(this_year_values) == 0:
+	    correlation_coefficient = 'N/A'
+	else:
+	    correlation_matrix = np.corrcoef(s4_values, this_year_values)
+	    correlation_coefficient = correlation_matrix[0, 1]
+	    correlation_coefficient = f"{correlation_coefficient:.2f}"
+	def sign_agreement(a, b, window):
+	    a_changes = a[window:] - a[:-window]
+	    b_changes = b[window:] - b[:-window]
+	    return np.mean(np.sign(a_changes) == np.sign(b_changes))
+
+# 	correlations = []
+# 	window_size = 5
+
+# 	for i in range(len(s4_values) - window_size + 1):
+# 		window_s4 = s4_values[i : i + window_size]
+# 		window_this_year = this_year_values[i : i + window_size]
+# 		if np.isnan(window_s4).any() or np.isnan(window_this_year).any() or np.var(window_s4) == 0 or np.var(window_this_year) == 0:
+# 			correlations.append(np.nan)
+# 		else:
+# 			correlation_matrix = np.corrcoef(window_s4, window_this_year)
+# 			correlation_coefficient = correlation_matrix[0, 1]
+# 			correlations.append(correlation_coefficient)
+
+# 	average_correlation = pd.Series(correlations).mean()
+# 	average_correlation = f"{average_correlation:.2f}"
+
+	# Calculate sign agreement for 5-day, 10-day, and 21-day forward changes
+	sign_agreement_1d = sign_agreement(s4_values, this_year_values, window=1).round(2)
+	sign_agreement_5d = sign_agreement(s4_values, this_year_values, window=5).round(2)
+	sign_agreement_10d = sign_agreement(s4_values, this_year_values, window=10).round(2)
+	sign_agreement_21d = sign_agreement(s4_values, this_year_values, window=21).round(2)
 	# Add a white dot at the specified X coordinate and the interpolated Y value
 	fig.add_trace(go.Scatter(x=[length_value], y=[y_value_at_length], mode='markers', marker=dict(color='white', size=8), name='White Dot' ,showlegend=False))
 	def text_color(value, reverse=False):
@@ -492,6 +543,15 @@ def seasonals_chart(tick):
 	    create_annotation(0.85, -0.22, f"Trailing 21 Rank: {trailing_21_rank}", text_color(trailing_21_rank, reverse=True)),
 	    create_annotation(1.04, -0.22, f"Trailing 5 Rank: {trailing_5_rank}", text_color(trailing_5_rank, reverse=True)),
 	]
+	annotations.append(
+	    create_annotation(
+		1.02,
+		1.10,
+		f"5d and 21d Concordance: {sign_agreement_5d}, {sign_agreement_21d}",
+		'white'
+	    )
+	)
+# 	annotations.append(create_annotation(0.95, 1.12, f"Average 14-Period Rolling Correlation: {average_correlation}", 'white'))
 	fig.update_layout(
 	    title=f"Mean return path for {ticker2} in years {start}-present",
 	    legend=dict(
@@ -515,7 +575,39 @@ def seasonals_chart(tick):
 	    paper_bgcolor='Black',
 	    annotations=annotations  # Use the new annotations list with colored text
 	)
+	# Create a candlestick chart
+	fig2 = go.Figure()
+
+	# Add only the Price (Candlestick) trace and the 200_MA trace
+	fig2.add_trace(go.Candlestick(x=df['date_str'],
+				     open=df['Open'],
+				     high=df['High'],
+				     low=df['Low'],
+				     close=df['Close'], name='Price'))
+
+	fig2.add_trace(go.Scatter(x=df['date_str'], y=df['200_MA'], name='200_MA', line=dict(color='purple')))
+
+	# Add pivot point rays
+	for _, row in pivot_points_last_252.iterrows():
+	    fig2.add_shape(type='line',
+			  x0=row['date_str'], y0=row['pivot_point'], x1=df['date_str'].iloc[-1], y1=row['pivot_point'],
+			  xref='x', yref='y',
+			  line=dict(color='Orange', width=1))
+
+	# Finalize layout
+	fig2.update_layout(height=800,
+			  width=1200,
+			  xaxis=dict(
+			      rangeslider=dict(
+				  visible=False
+			      )
+			  ))
+
+	fig2.update_xaxes(showgrid=False)
+	fig2.update_yaxes(showgrid=False)
+
 	st.plotly_chart(fig)
+	st.plotly_chart(fig2)
 
 megas_list=['^DJI','^RUT','^NDX','QQQ','^GSPC','SPY','^SOX','^IXIC','^RUO','^GDAXI','^FTSE','^HSI','^N225','TLT','^VIX']
 for stock in megas_list:
