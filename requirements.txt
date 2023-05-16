@@ -4,3 +4,5 @@ requests==2.26.0
 yfinance==0.1.64
 streamlit==1.21.0
 plotly==5.5.0
+ta==0.10.2
+altair==4.1.0
