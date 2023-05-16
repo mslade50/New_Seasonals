@@ -12,6 +12,7 @@ import plotly.graph_objs as go
 from plotly.subplots import make_subplots
 from ta.momentum import RSIIndicator
 
+
 st.title("Bull Signals")
 def seasonals_chart(tick):
 	ticker=tick
@@ -446,7 +447,18 @@ def seasonals_chart(tick):
 	dfy1=dfy.mean()
 	s3=dfy1.cumsum()
 	##Mean Return paths chart (looks like a classic 'seasonality' chart)
-	# plot2=plt.figure(2)
+
+	# Assuming df is your DataFrame and it has 'Close' column
+	df['max_rolling'] = df['Close'].rolling(window=41, center=True).max()
+	df['min_rolling'] = df['Close'].rolling(window=41, center=True).min()
+
+	df['pivot_point'] = np.where((df['Close'] == df['max_rolling']) | (df['Close'] == df['min_rolling']), df['Close'], np.nan)
+
+	# Remove the first and last 20 days as the rolling window cannot calculate them
+	df = df.iloc[20:-20]
+
+	# Get pivot points for the last 252 days
+	pivot_points_last_252 = df[df['pivot_point'].notna()].tail(252)
 	fig = go.Figure()
 
 	fig.add_trace(go.Scatter(x=s4.index, y=s4.values, mode='lines', name=cycle_label, line=dict(color='orange')))
@@ -578,16 +590,24 @@ def seasonals_chart(tick):
 
 	fig2.add_trace(go.Scatter(x=df['date_str'], y=df['200_MA'], name='200_MA', line=dict(color='purple')))
 
-	# Update layout
-	fig2.update_layout(
-	    title=ticker, # Replace ticker with your ticker variable
-	    title_x=0.5, # This will center the title
-	    height=800, 
-	    width=1200,
-	    xaxis=dict(showgrid=False),  # Remove grid lines
-	    yaxis=dict(showgrid=False),  # Remove grid lines
-	)
+	# Add pivot point rays
+	for _, row in pivot_points_last_252.iterrows():
+	    fig2.add_shape(type='line',
+			  x0=row['date_str'], y0=row['pivot_point'], x1=df['date_str'].iloc[-1], y1=row['pivot_point'],
+			  xref='x', yref='y',
+			  line=dict(color='Orange', width=1))
 
+	# Finalize layout
+	fig2.update_layout(height=800,
+			  width=1200
+			  xaxis=dict(
+			      rangeslider=dict(
+				  visible=False
+			      )
+			  )))
+
+	fig2.update_xaxes(showgrid=False)
+	fig2.update_yaxes(showgrid=False)
 
 	st.plotly_chart(fig)
 	st.plotly_chart(fig2)
