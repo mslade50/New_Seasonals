@@ -11,6 +11,7 @@ import streamlit as st
 import plotly.graph_objs as go
 from plotly.subplots import make_subplots
 from ta.momentum import RSIIndicator
+
 st.title("Bull Signals")
 def seasonals_chart(tick):
 	ticker=tick
