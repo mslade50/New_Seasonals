@@ -1,1 +1,1 @@
-['DB', 'FHI', 'GILD', 'CPB', 'ODFL', 'XYL', 'AFL', 'BOOT', 'LYB', 'STM', 'WAB', 'CAG', 'DOV', 'MO', 'VOYA', 'ET', 'RTX', 'DOX', 'DV', 'PEG', 'BAYRY', 'FDMT', 'ELME']
+['RVNC']
