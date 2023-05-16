@@ -11,7 +11,7 @@ import streamlit as st
 import plotly.graph_objs as go
 from plotly.subplots import make_subplots
 from ta.momentum import RSIIndicator
-import peakutils
+
 
 st.title("Bear Signals")
 def seasonals_chart(tick):
@@ -447,21 +447,18 @@ def seasonals_chart(tick):
 	dfy1=dfy.mean()
 	s3=dfy1.cumsum()
 	##Mean Return paths chart (looks like a classic 'seasonality' chart)
-	# plot2=plt.figure(2)
-	leftLenH = 20
-	rightLenH = 20
-	leftLenL = 20
-	rightLenL = 20
 
-	# Find pivot high and pivot low
-	ph_indices = peakutils.indexes(df['High'], thres=0.02/max(df['High']), min_dist=(leftLenH + rightLenH))
-	pl_indices = peakutils.indexes(-df['Low'], thres=0.02/max(-df['Low']), min_dist=(leftLenL + rightLenL))
+	# Assuming df is your DataFrame and it has 'Close' column
+	df['max_rolling'] = df['Close'].rolling(window=41, center=True).max()
+	df['min_rolling'] = df['Close'].rolling(window=41, center=True).min()
 
-	# Convert indices to dates
-	ph_dates = df.iloc[ph_indices]['date_str']
-	pl_dates = df.iloc[pl_indices]['date_str']
-	ph_values = df.iloc[ph_indices]['High']
-	pl_values = df.iloc[pl_indices]['Low']
+	df['pivot_point'] = np.where((df['Close'] == df['max_rolling']) | (df['Close'] == df['min_rolling']), df['Close'], np.nan)
+
+	# Remove the first and last 20 days as the rolling window cannot calculate them
+	df = df.iloc[20:-20]
+
+	# Get pivot points for the last 252 days
+	pivot_points_last_252 = df['pivot_point'].dropna().tail(252)
 	fig = go.Figure()
 
 	fig.add_trace(go.Scatter(x=s4.index, y=s4.values, mode='lines', name=cycle_label, line=dict(color='orange')))
@@ -592,28 +589,22 @@ def seasonals_chart(tick):
 				     close=df['Close'], name='Price'))
 
 	fig2.add_trace(go.Scatter(x=df['date_str'], y=df['200_MA'], name='200_MA', line=dict(color='purple')))
-	# Add lines to the plot
-	for date, val in zip(ph_dates, ph_values):
-	    fig2.add_shape(type="line",
-			  x0=df['date_str'].min(), y0=val, x1=df['date_str'].max(), y1=val,
-			  xref='x', yref='y',
-			  line=dict(color="orange", width=1))
 
-	for date, val in zip(pl_dates, pl_values):
-	    fig2.add_shape(type="line",
-			  x0=df['date_str'].min(), y0=val, x1=df['date_str'].max(), y1=val,
+	# Add pivot point lines
+	for pivot in pivot_points_last_252:
+	    fig2.add_shape(type='line',
+			  x0=df['date_str'].iloc[0], y0=pivot, x1=df['date_str'].iloc[-1], y1=pivot,
 			  xref='x', yref='y',
-			  line=dict(color="orange", width=1))
-	# Update layout
-	fig2.update_layout(
-	    title=ticker, # Replace ticker with your ticker variable
-	    title_x=0.5, # This will center the title
-	    height=800, 
-	    width=1200,
-	    xaxis=dict(showgrid=False),  # Remove grid lines
-	    yaxis=dict(showgrid=False),  # Remove grid lines
-	)
+			  line=dict(color='Orange', width=1))
 
+	# Finalize layout
+	fig2.update_layout(title='Price with Pivot Points',
+			  title_x=0.5,  # This will center the title
+			  height=800,
+			  width=1200)
+
+	fig2.update_xaxes(showgrid=False)
+	fig2.update_yaxes(showgrid=False)
 
 	st.plotly_chart(fig)
 	st.plotly_chart(fig2)
