@@ -3,11 +3,14 @@ import numpy as np
 import datetime as dt
 from datetime import date
 from datetime import timedelta
+import requests
 import os
 import yfinance as yf
 import pandas as pd
 import streamlit as st
 import plotly.graph_objs as go
+from plotly.subplots import make_subplots
+from ta.momentum import RSIIndicator
 
 st.title("Currency Pairs")
 def seasonals_chart(tick):
