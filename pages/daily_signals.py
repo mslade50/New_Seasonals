@@ -449,16 +449,14 @@ def seasonals_chart(tick):
 	##Mean Return paths chart (looks like a classic 'seasonality' chart)
 
 	# Assuming df is your DataFrame and it has 'Close' column
-	df['max_rolling'] = df['Close'].rolling(window=41, center=True).max()
-	df['min_rolling'] = df['Close'].rolling(window=41, center=True).min()
+	df['max_rolling'] = df['Close'].rolling(window=41).max().shift(-20)
+	df['min_rolling'] = df['Close'].rolling(window=41).min().shift(-20)
 
 	df['pivot_point'] = np.where((df['Close'] == df['max_rolling']) | (df['Close'] == df['min_rolling']), df['Close'], np.nan)
 
-	# Remove the first and last 20 days as the rolling window cannot calculate them
-	df = df.iloc[20:-20]
-
 	# Get pivot points for the last 252 days
 	pivot_points_last_252 = df[df['pivot_point'].notna()].tail(252)
+
 	fig = go.Figure()
 
 	fig.add_trace(go.Scatter(x=s4.index, y=s4.values, mode='lines', name=cycle_label, line=dict(color='orange')))
