@@ -598,9 +598,7 @@ def seasonals_chart(tick):
 			  line=dict(color='Orange', width=1))
 
 	# Finalize layout
-	fig2.update_layout(title='Price with Pivot Points',
-			  title_x=0.5,  # This will center the title
-			  height=800,
+	fig2.update_layout(height=800,
 			  width=1200)
 
 	fig2.update_xaxes(showgrid=False)
