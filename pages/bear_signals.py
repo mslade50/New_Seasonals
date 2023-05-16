@@ -27,6 +27,7 @@ def seasonals_chart(tick):
 
 	spx1=yf.Ticker(ticker)
 	spx = spx1.history(period="max",end=end_date)
+	start_year = spx.index.min().year
 	df= spx1.history(period="max",end=this_yr_end)
 	df['200_MA'] = df['Close'].rolling(window=200).mean()
 	df['RSI'] = RSIIndicator(df['Close']).rsi()
@@ -445,11 +446,26 @@ def seasonals_chart(tick):
 	dfy=pd.DataFrame(yr_master)
 	dfy1=dfy.mean()
 	s3=dfy1.cumsum()
+	dfy=pd.DataFrame(yr_master)
+	dfy1=dfy.mean()
+	s3=dfy1.cumsum()
 	##Mean Return paths chart (looks like a classic 'seasonality' chart)
 	# plot2=plt.figure(2)
 	fig = go.Figure()
+	if start_year > 2018:
+	    series_to_plot = s3
+	    y_max = max(s3.max(), days2['this_yr'].max()) if plot_ytd == 'Yes' else s3.max()
+	    y_min = min(s3.min(),days2['this_yr'].min(),0)
+	    y_value_at_length = np.interp(length_value, s3.index, s3.values)
+	    series_values = s3.values[:length]
+	else:
+	    series_to_plot = s4
+	    y_max = max(s4.max(), days2['this_yr'].max()) if plot_ytd == 'Yes' else s4.max()
+	    y_min = min(s4.min(),days2['this_yr'].min(),0)
+	    y_value_at_length = np.interp(length_value, s4.index, s4.values)
+	    series_values = s4.values[:length]
 
-	fig.add_trace(go.Scatter(x=s4.index, y=s4.values, mode='lines', name=cycle_label, line=dict(color='orange')))
+	fig.add_trace(go.Scatter(x=series_to_plot.index, y=series_to_plot.values, mode='lines', name=cycle_label, line=dict(color='orange')))
 	if plot_ytd == 'Yes':
 	    fig.add_trace(go.Scatter(x=days2.index, y=days2['this_yr'], mode='lines', name='Year to Date', line=dict(color='green')))
 	y1 = max(s4.max(), days2['this_yr'].max()) if plot_ytd == 'Yes' else s4.max()
