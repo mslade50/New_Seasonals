@@ -12,7 +12,7 @@ import plotly.graph_objs as go
 from plotly.subplots import make_subplots
 from ta.momentum import RSIIndicator
 
-st.title("Bull Signals")
+st.title("Bear Signals")
 def seasonals_chart(tick):
 	ticker=tick
 	cycle_start=1951
@@ -602,7 +602,7 @@ def seasonals_chart(tick):
 
 # Download and parse the content of the text files from the GitHub repository
 base_url = "https://raw.githubusercontent.com/mslade50/New_seasonals/main/"
-file_names = ["bull_sigs.txt"]
+file_names = ["bear_sigs.txt"]
 
 megas_list = []
 for file_name in file_names:
