@@ -1,1 +1,1 @@
-['RVNC', 'MTH', 'VIST', 'WWE', 'CREC', 'STVN', 'DHHC', 'TRCA', 'OMC', 'MRK', 'GC=F', 'WPC', 'CVII', 'MNST', 'MMC', 'ODFL', 'DV', 'ET', 'LOW', 'LYB', 'ANET', 'FHI', 'DB', 'WAB', 'XYL', 'MPLX', 'AFL', 'DOV', 'FDMT', 'RTX', 'FRO', 'PEG', 'GILD', 'CPB', 'MO', 'CAG']
+['RVNC', 'MTH', 'WWE', 'OMC', 'MRK', 'GC=F', 'WPC', 'MNST', 'MMC', 'ODFL', 'ET', 'LOW', 'LYB', 'ANET', 'FHI', 'DB', 'WAB', 'XYL', 'MPLX', 'AFL', 'DOV', 'RTX', 'FRO', 'PEG', 'GILD', 'CPB', 'MO', 'CAG']
