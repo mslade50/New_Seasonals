@@ -599,7 +599,7 @@ def seasonals_chart(tick):
 
 	# Finalize layout
 	fig2.update_layout(height=800,
-			  width=1200
+			  width=1200,
 			  xaxis=dict(
 			      rangeslider=dict(
 				  visible=False
