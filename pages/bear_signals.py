@@ -468,8 +468,8 @@ def seasonals_chart(tick):
 	fig.add_trace(go.Scatter(x=series_to_plot.index, y=series_to_plot.values, mode='lines', name=cycle_label, line=dict(color='orange')))
 	if plot_ytd == 'Yes':
 	    fig.add_trace(go.Scatter(x=days2.index, y=days2['this_yr'], mode='lines', name='Year to Date', line=dict(color='green')))
-	y1 = max(s4.max(), days2['this_yr'].max()) if plot_ytd == 'Yes' else s4.max()
-	y0=min(s4.min(),days2['this_yr'].min(),0)
+# 	y1 = max(s4.max(), days2['this_yr'].max()) if plot_ytd == 'Yes' else s4.max()
+# 	y0=min(s4.min(),days2['this_yr'].min(),0)
 	# Assuming 'length' variable is defined and within the range of the x-axis
 	length_value = length
 
@@ -479,17 +479,17 @@ def seasonals_chart(tick):
 	this_year_values = days2['this_yr'][:length]
 	this_year_values = np.where(np.isnan(this_year_values), np.nanmean(this_year_values), this_year_values)
 
-	if np.isnan(s4_values).any() or np.isnan(this_year_values).any() or np.var(s4_values) == 0 or np.var(this_year_values) == 0:
+	if np.isnan(series_values).any() or np.isnan(this_year_values).any() or np.var(series_values) == 0 or np.var(this_year_values) == 0:
 	    correlation_coefficient = 'N/A'
 	else:
-	    correlation_matrix = np.corrcoef(s4_values, this_year_values)
+	    correlation_matrix = np.corrcoef(series_values, this_year_values)
 	    correlation_coefficient = correlation_matrix[0, 1]
 	    correlation_coefficient = f"{correlation_coefficient:.2f}"
+
 	def sign_agreement(a, b, window):
 	    a_changes = a[window:] - a[:-window]
 	    b_changes = b[window:] - b[:-window]
 	    return np.mean(np.sign(a_changes) == np.sign(b_changes))
-
 # 	correlations = []
 # 	window_size = 5
 
