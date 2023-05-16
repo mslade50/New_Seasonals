@@ -11,6 +11,7 @@ import streamlit as st
 import plotly.graph_objs as go
 from plotly.subplots import make_subplots
 from ta.momentum import RSIIndicator
+import peakutils
 
 st.title("Bear Signals")
 def seasonals_chart(tick):
@@ -447,6 +448,20 @@ def seasonals_chart(tick):
 	s3=dfy1.cumsum()
 	##Mean Return paths chart (looks like a classic 'seasonality' chart)
 	# plot2=plt.figure(2)
+	leftLenH = 20
+	rightLenH = 20
+	leftLenL = 20
+	rightLenL = 20
+
+	# Find pivot high and pivot low
+	ph_indices = peakutils.indexes(df['High'], thres=0.02/max(df['High']), min_dist=(leftLenH + rightLenH))
+	pl_indices = peakutils.indexes(-df['Low'], thres=0.02/max(-df['Low']), min_dist=(leftLenL + rightLenL))
+
+	# Convert indices to dates
+	ph_dates = df.iloc[ph_indices]['date_str']
+	pl_dates = df.iloc[pl_indices]['date_str']
+	ph_values = df.iloc[ph_indices]['High']
+	pl_values = df.iloc[pl_indices]['Low']
 	fig = go.Figure()
 
 	fig.add_trace(go.Scatter(x=s4.index, y=s4.values, mode='lines', name=cycle_label, line=dict(color='orange')))
@@ -577,7 +592,18 @@ def seasonals_chart(tick):
 				     close=df['Close'], name='Price'))
 
 	fig2.add_trace(go.Scatter(x=df['date_str'], y=df['200_MA'], name='200_MA', line=dict(color='purple')))
+	# Add lines to the plot
+	for date, val in zip(ph_dates, ph_values):
+	    fig2.add_shape(type="line",
+			  x0=df['date_str'].min(), y0=val, x1=df['date_str'].max(), y1=val,
+			  xref='x', yref='y',
+			  line=dict(color="orange", width=1))
 
+	for date, val in zip(pl_dates, pl_values):
+	    fig2.add_shape(type="line",
+			  x0=df['date_str'].min(), y0=val, x1=df['date_str'].max(), y1=val,
+			  xref='x', yref='y',
+			  line=dict(color="orange", width=1))
 	# Update layout
 	fig2.update_layout(
 	    title=ticker, # Replace ticker with your ticker variable
