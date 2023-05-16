@@ -590,10 +590,10 @@ def seasonals_chart(tick):
 
 	fig2.add_trace(go.Scatter(x=df['date_str'], y=df['200_MA'], name='200_MA', line=dict(color='purple')))
 
-	# Add pivot point lines
-	for pivot in pivot_points_last_252:
-	    fig2.add_shape(type='line',
-			  x0=df['date_str'].iloc[0], y0=pivot, x1=df['date_str'].iloc[-1], y1=pivot,
+	# Add pivot point rays
+	for _, row in pivot_points_last_252.iterrows():
+	    fig.add_shape(type='line',
+			  x0=row['date_str'], y0=row['pivot_point'], x1=df['date_str'].iloc[-1], y1=row['pivot_point'],
 			  xref='x', yref='y',
 			  line=dict(color='Orange', width=1))
 
