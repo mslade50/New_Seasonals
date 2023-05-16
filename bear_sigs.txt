@@ -1,1 +1,1 @@
-['SAIA', 'JBHT', 'RLAY', 'OC', 'XP', 'CORT', 'COUR', 'S']
+['SAIA', 'JBHT', 'RLAY', 'ARNC', 'RACE', 'DBRG', 'DAR', 'TTC', 'MKTX', 'SRC', 'BKH', 'ECL', 'LAMR', 'LHX', 'OC', 'FTNT', 'PTGX', 'MMC', 'XP', 'CORT', 'COUR', 'S', 'NTLA', 'ESTC', 'SYNH', 'WDC', 'WOOF', 'STR', 'PDCO', 'INSM', 'TGI', 'HTGC', 'ARCC', 'CRWD', 'NCR', 'VRNS', 'CNX', 'FSK', 'MRVL', 'CTRA', 'YELP', 'SLM', 'HAS', 'RH', 'GO', 'PSA', 'STZ', 'BZ', 'WB', 'PODD']
