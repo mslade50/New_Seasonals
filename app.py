@@ -1,9 +1,9 @@
 import streamlit as st
-from pages import daily_signals, indicies, positions, single_names, currency_pairs, commodities, watchlist
+from pages import bull_signals, indicies, positions, single_names, currency_pairs, commodities, watchlist
 
 st.set_page_config(page_title="Multi-Page Dashboard", page_icon=":chart_with_upwards_trend:")
 
-def daily_signals_page():
+def bull_signals_page():
     st.sidebar.markdown("# Daily Signals")
     daily_signals.daily_signals_app()
 
@@ -32,7 +32,7 @@ def watchlist_page():
     watchlist.watchlist_app()
 
 page_names_to_funcs = {
-    "Daily Signals": daily_signals_page,
+    "Daily Signals": bull_signals_page,
     "Indices": indicies_page,
     "Positions": positions_page,
     "Single Names": single_names_page,
