@@ -13,16 +13,24 @@ positions=['^VIX','TREX','SIG','CME','DLB','SPY','QQQ','WYNN','USO','SLV']
 def seasonals_chart(tick):
 	ticker=tick
 	cycle_start=1951
-	cycle_label='Third Year of Cycle'
+	cycle_label='Midterms'
 	cycle_var='pre_election'
 	adjust=0
 	plot_ytd="Yes"
 	all_=""
 	end_date=dt.datetime(2022,12,30)
+	this_yr_end=dt.date.today()
+
 
 	spx1=yf.Ticker(ticker)
 	spx = spx1.history(period="max",end=end_date)
-	spx_rank=spx1.history(period="max")
+	df= spx1.history(period="max")
+	df['200_MA'] = df['Close'].rolling(window=200).mean()
+	df['RSI'] = RSIIndicator(df['Close']).rsi()
+	df = df[-252:]
+	df.reset_index(inplace=True)
+	df['date_str'] = range(1,len(df)+1)
+	spx_rank=spx1.history(period="max",end=this_yr_end)
 	# Calculate trailing 5-day returns
 	spx_rank['Trailing_5d_Returns'] = (spx_rank['Close'] / spx_rank['Close'].shift(5)) - 1
 
@@ -50,7 +58,7 @@ def seasonals_chart(tick):
 
 	#second dataframe explicity to count the number of trading days so far this year
 	now = dt.datetime.now()+timedelta(days=1)
-	days = yf.download(ticker, start="2022-12-31", end=now)
+	days = yf.download(ticker, start=end_date, end=this_yr_end)
 	days["log_return"] = np.log(days["Close"] / days["Close"].shift(1))*100
 	days['day_of_year'] = days.index.day_of_year
 	days['this_yr']=days.log_return.cumsum()
@@ -435,13 +443,21 @@ def seasonals_chart(tick):
 	dfy1=dfy.mean()
 	s3=dfy1.cumsum()
 	##Mean Return paths chart (looks like a classic 'seasonality' chart)
-	# plot2=plt.figure(2)
+
+	# Assuming df is your DataFrame and it has 'Close' column
+	df['max_rolling'] = df['Close'].rolling(window=41).max().shift(-20)
+	df['min_rolling'] = df['Close'].rolling(window=41).min().shift(-20)
+
+	df['pivot_point'] = np.where((df['Close'] == df['max_rolling']) | (df['Close'] == df['min_rolling']), df['Close'], np.nan)
+
+	# Get pivot points for the last 252 days
+	pivot_points_last_252 = df[df['pivot_point'].notna()].tail(252)
+
 	fig = go.Figure()
 
 	fig.add_trace(go.Scatter(x=s4.index, y=s4.values, mode='lines', name=cycle_label, line=dict(color='orange')))
 	if plot_ytd == 'Yes':
 	    fig.add_trace(go.Scatter(x=days2.index, y=days2['this_yr'], mode='lines', name='Year to Date', line=dict(color='green')))
-
 	y1 = max(s4.max(), days2['this_yr'].max()) if plot_ytd == 'Yes' else s4.max()
 	y0=min(s4.min(),days2['this_yr'].min(),0)
 	# Assuming 'length' variable is defined and within the range of the x-axis
@@ -556,7 +572,39 @@ def seasonals_chart(tick):
 	    paper_bgcolor='Black',
 	    annotations=annotations  # Use the new annotations list with colored text
 	)
+	# Create a candlestick chart
+	fig2 = go.Figure()
+
+	# Add only the Price (Candlestick) trace and the 200_MA trace
+	fig2.add_trace(go.Candlestick(x=df['date_str'],
+				     open=df['Open'],
+				     high=df['High'],
+				     low=df['Low'],
+				     close=df['Close'], name='Price'))
+
+	fig2.add_trace(go.Scatter(x=df['date_str'], y=df['200_MA'], name='200_MA', line=dict(color='purple')))
+
+	# Add pivot point rays
+	for _, row in pivot_points_last_252.iterrows():
+	    fig2.add_shape(type='line',
+			  x0=row['date_str'], y0=row['pivot_point'], x1=df['date_str'].iloc[-1], y1=row['pivot_point'],
+			  xref='x', yref='y',
+			  line=dict(color='Orange', width=1))
+
+	# Finalize layout
+	fig2.update_layout(height=800,
+			  width=1200,
+			  xaxis=dict(
+			      rangeslider=dict(
+				  visible=False
+			      )
+			  ))
+
+	fig2.update_xaxes(showgrid=False)
+	fig2.update_yaxes(showgrid=False)
+
 	st.plotly_chart(fig)
+	st.plotly_chart(fig2)
 
 for stock in positions:
 	seasonals_chart(stock)
