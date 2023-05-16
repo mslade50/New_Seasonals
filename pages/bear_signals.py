@@ -474,8 +474,9 @@ def seasonals_chart(tick):
 	length_value = length
 
 	# Interpolate Y value at the specified X coordinate
-	y_value_at_length = np.interp(length_value, s4.index, s4.values)
-	s4_values = s4.values[:length]
+	y_value_at_length = np.interp(length_value, series_to_plot.index, series_to_plot.values)
+	series_values = series_to_plot.values[:length]
+
 	this_year_values = days2['this_yr'][:length]
 	this_year_values = np.where(np.isnan(this_year_values), np.nanmean(this_year_values), this_year_values)
 
@@ -490,21 +491,6 @@ def seasonals_chart(tick):
 	    a_changes = a[window:] - a[:-window]
 	    b_changes = b[window:] - b[:-window]
 	    return np.mean(np.sign(a_changes) == np.sign(b_changes))
-# 	correlations = []
-# 	window_size = 5
-
-# 	for i in range(len(s4_values) - window_size + 1):
-# 		window_s4 = s4_values[i : i + window_size]
-# 		window_this_year = this_year_values[i : i + window_size]
-# 		if np.isnan(window_s4).any() or np.isnan(window_this_year).any() or np.var(window_s4) == 0 or np.var(window_this_year) == 0:
-# 			correlations.append(np.nan)
-# 		else:
-# 			correlation_matrix = np.corrcoef(window_s4, window_this_year)
-# 			correlation_coefficient = correlation_matrix[0, 1]
-# 			correlations.append(correlation_coefficient)
-
-# 	average_correlation = pd.Series(correlations).mean()
-# 	average_correlation = f"{average_correlation:.2f}"
 
 	# Calculate sign agreement for 5-day, 10-day, and 21-day forward changes
 	sign_agreement_1d = sign_agreement(s4_values, this_year_values, window=1).round(2)
