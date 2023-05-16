@@ -458,7 +458,7 @@ def seasonals_chart(tick):
 	df = df.iloc[20:-20]
 
 	# Get pivot points for the last 252 days
-	pivot_points_last_252 = df['pivot_point'].dropna().tail(252)
+	pivot_points_last_252 = df[df['pivot_point'].notna()].tail(252)
 	fig = go.Figure()
 
 	fig.add_trace(go.Scatter(x=s4.index, y=s4.values, mode='lines', name=cycle_label, line=dict(color='orange')))
