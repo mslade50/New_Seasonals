@@ -604,7 +604,7 @@ def seasonals_chart(tick):
 			      rangeslider=dict(
 				  visible=False
 			      )
-			  )))
+			  ))
 
 	fig2.update_xaxes(showgrid=False)
 	fig2.update_yaxes(showgrid=False)
