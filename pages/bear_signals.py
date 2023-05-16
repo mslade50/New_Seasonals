@@ -592,7 +592,7 @@ def seasonals_chart(tick):
 
 	# Add pivot point rays
 	for _, row in pivot_points_last_252.iterrows():
-	    fig.add_shape(type='line',
+	    fig2.add_shape(type='line',
 			  x0=row['date_str'], y0=row['pivot_point'], x1=df['date_str'].iloc[-1], y1=row['pivot_point'],
 			  xref='x', yref='y',
 			  line=dict(color='Orange', width=1))
