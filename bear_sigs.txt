@@ -1,1 +1,1 @@
-['SAIA', 'JBHT', 'RACE', 'DBRG', 'DAR', 'TTC', 'MKTX', 'SRC', 'BKH', 'ECL', 'LAMR', 'LHX', 'OC', 'FTNT', 'PTGX', 'MMC', 'CORT', 'NTLA', 'SYNH', 'WDC', 'STR', 'PDCO', 'INSM', 'TGI', 'HTGC', 'ARCC', 'NCR', 'VRNS', 'CNX', 'FSK', 'MRVL', 'CTRA', 'YELP', 'SLM', 'HAS', 'RH', 'PSA', 'STZ', 'WB', 'PODD']
+['RACE', 'ANET', 'ORA', 'SWX', 'SCI', 'ECL', 'LAMR', 'VGR', 'AMD', 'NTLA', 'SYNH', 'WDC', 'STR', 'NCR', 'FSK', 'OMI', 'MRVL', 'SLM', 'HAS', 'WB', 'ARCT', 'PTCT', 'BYD', 'TDC', 'TNET', 'SRPT', 'TGS', 'ITCI', 'FSLR']
