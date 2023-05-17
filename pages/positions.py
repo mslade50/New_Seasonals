@@ -13,7 +13,7 @@ from plotly.subplots import make_subplots
 from ta.momentum import RSIIndicator
 
 st.title("Open Positions")
-positions=['BLDR','SIG','SLV','EURUSD=X','LNG','CME','CF','WEAT','UAA','BAP','DLB']
+positions=['EXPD','MAT','SMH','WYNN','EDU','BLDR','SIG','SLV','EURUSD=X','LNG','CME','CF','WEAT','UAA','BAP','DLB']
 def seasonals_chart(tick):
 	ticker=tick
 	cycle_start=1951
