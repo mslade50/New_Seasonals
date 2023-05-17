@@ -1,1 +1,1 @@
-['RACE', 'ANET', 'ORA', 'SWX', 'SCI', 'ECL', 'LAMR', 'VGR', 'AMD', 'NTLA', 'SYNH', 'WDC', 'STR', 'NCR', 'FSK', 'OMI', 'MRVL', 'SLM', 'HAS', 'WB', 'ARCT', 'PTCT', 'BYD', 'TDC', 'TNET', 'SRPT', 'TGS', 'ITCI', 'FSLR']
+['CIVI', 'PSO', 'DVN', 'APA', 'BEN', 'RACE', 'ORA', 'SWX', 'BR', 'WTW', 'ITW', 'SCI', 'L', 'CB', 'SBLK', 'VRE', 'PRMW', 'STX', 'NTLA', 'ICLR', 'SYNH', 'MKSI', 'WDC', 'STR', 'PBR', 'HTGC', 'NTAP', 'NCR', 'FSK', 'MRVL', 'LAC', 'SLM', 'GME', 'HAS', 'WB']
