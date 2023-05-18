@@ -1,1 +1,1 @@
-['WING', 'PWR', 'LIN', 'VRTX', 'ITCI', 'MCD', 'NAC', 'CWH', 'NTRA', 'HDB', 'ET', 'LYB', 'SEM', 'TTE', 'FR', 'RL', 'BP', 'ANET', 'DB', 'XYL', 'MPLX', 'TCOM', 'NKE', 'EVH', 'RTX', 'BDX', 'LKQ', 'TT', 'PEG', 'ED', 'SO', 'GILD', 'CPB', 'CAG', 'KHC', '^DJI', 'DIA']
+['AZN', 'XENE', 'WING', 'PWR', 'NVO', 'VRTX', 'ITCI', 'TAP', 'MCD', 'PEP', 'GIS', 'NAC', 'GMAB', 'NTRA', 'BP', 'ANET', 'MPLX', 'TSCO', 'RTX', 'FRO', 'TT', 'GILD']

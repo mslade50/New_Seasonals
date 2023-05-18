@@ -1,1 +1,1 @@
-['CIVI', 'PSO', 'DVN', 'APA', 'BEN', 'RACE', 'ORA', 'SWX', 'BR', 'WTW', 'ITW', 'SCI', 'L', 'CB', 'SBLK', 'VRE', 'PRMW', 'STX', 'NTLA', 'ICLR', 'SYNH', 'MKSI', 'WDC', 'STR', 'PBR', 'HTGC', 'NTAP', 'NCR', 'FSK', 'MRVL', 'LAC', 'SLM', 'GME', 'HAS', 'WB']
+['RACE', 'BR', 'NUS', 'WTW', 'EPC', 'CB', 'PRMW', 'MTG', 'CNK', 'NTLA', 'SYNH', 'MKSI', 'WDC', 'PDCO', 'HD', 'NCR', 'FSK', 'OMI', 'LXP', 'LAC', 'GME', 'HAS', 'STZ']
