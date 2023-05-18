@@ -1,1 +1,1 @@
-['AZN', 'XENE', 'WING', 'PWR', 'NVO', 'VRTX', 'ITCI', 'TAP', 'MCD', 'PEP', 'GIS', 'NAC', 'GMAB', 'NTRA', 'BP', 'ANET', 'MPLX', 'TSCO', 'RTX', 'FRO', 'TT', 'GILD']
+['AZN', 'PWR', 'CTAS', 'TAP', 'RSG', 'PEP', 'HTHT', 'JELD', 'BOOT', 'IAC', 'IBN', 'SLM', 'CCRN', 'NTRA', 'BP', 'CUBE', 'TCOM', 'RTX', 'FRO', 'TT', 'GILD', 'CPB', 'TCEHY']

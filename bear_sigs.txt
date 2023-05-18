@@ -1,1 +1,1 @@
-['RACE', 'BR', 'NUS', 'WTW', 'EPC', 'CB', 'PRMW', 'MTG', 'CNK', 'NTLA', 'SYNH', 'MKSI', 'WDC', 'PDCO', 'HD', 'NCR', 'FSK', 'OMI', 'LXP', 'LAC', 'GME', 'HAS', 'STZ']
+['RACE', 'CUBE', 'TFX', 'SYNH', 'MKSI', 'EXPE', 'PDCO', 'HTGC', 'ARCC', 'HD', 'NCR', 'EMN', 'FSK', 'OMI', 'LXP', 'LAC', 'J', 'GME', 'COF', 'PPC', 'HAS', 'RH', 'STZ', 'HELE', 'IWM', 'VIPS']
