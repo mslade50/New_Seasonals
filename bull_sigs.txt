@@ -1,1 +1,1 @@
-['AZN', 'PWR', 'CTAS', 'TAP', 'RSG', 'PEP', 'HTHT', 'JELD', 'BOOT', 'IAC', 'IBN', 'SLM', 'CCRN', 'NTRA', 'BP', 'CUBE', 'TCOM', 'RTX', 'FRO', 'TT', 'GILD', 'CPB', 'TCEHY']
+['GPK', 'PWR', 'CTAS', 'ITCI', 'TAP', 'MCD', 'RSG', 'PEP', 'DNP', 'HTHT', 'BOOT', 'IBN', 'NTRA', 'SE', 'BP', 'CUBE', 'TCOM', 'RTX', 'FRO', 'TT', 'GILD', 'SJM', 'CPB', 'TCEHY']
