@@ -5,3 +5,4 @@ streamlit==1.21.0
 plotly==5.5.0
 ta==0.10.2
 altair==4.1.0
+requests==2.7.0
