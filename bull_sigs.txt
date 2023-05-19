@@ -1,1 +1,1 @@
-['ELF', 'MCD', 'NTRA', 'SE', 'RL', 'BP', 'CUBE', 'OSW', 'PFGC', 'TCOM', 'NKE', 'DKS', 'RTX', 'FRO', 'TT', 'GILD', 'CPB', 'TCEHY']
+['ELF', 'MCD', 'PEP', 'ETSY', 'FND', 'SE', 'CROX', 'RL', 'BP', 'CUBE', 'PERI', 'OSW', 'PFGC', 'TCOM', 'NKE', 'TSCO', 'DKS', 'RTX', 'LKQ', 'EIX', 'FRO', 'TT', 'GILD', 'SJM', 'CPB', 'TCEHY']
