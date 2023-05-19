@@ -456,6 +456,7 @@ def seasonals_chart(tick):
 
 	# Get pivot points for the last 252 days
 	pivot_points_last_252 = df[df['pivot_point'].notna()].tail(252)
+	
 	fig = go.Figure()
 
 	fig.add_trace(go.Scatter(x=s4.index, y=s4.values, mode='lines', name=cycle_label, line=dict(color='orange')))
@@ -605,9 +606,9 @@ def seasonals_chart(tick):
 
 	fig2.update_xaxes(showgrid=False)
 	fig2.update_yaxes(showgrid=False)
-
-	st.plotly_chart(fig)
-	st.plotly_chart(fig2)
+	if cycle_avg < 65:
+		st.plotly_chart(fig)
+		st.plotly_chart(fig2)
 
 # Download and parse the content of the text files from the GitHub repository
 base_url = "https://raw.githubusercontent.com/mslade50/New_seasonals/main/"
