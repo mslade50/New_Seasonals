@@ -1,5 +1,5 @@
 import streamlit as st
-from pages import bull_signals, indicies, positions, single_names, currency_pairs, commodities, watchlist
+from pages import bull_signals, indicies, positions, single_names, currency_pairs, commodities, watchlist, bullish_seasonals, bearish_seasonals
 
 st.set_page_config(page_title="Multi-Page Dashboard", page_icon=":chart_with_upwards_trend:")
 
@@ -31,6 +31,14 @@ def watchlist_page():
     st.sidebar.markdown("# Watchlist")
     watchlist.watchlist_app()
 
+def bullish_seasonals_page():
+    st.sidebar.markdown("# Bullish Seasonals")
+    bullish_seasonals.bullish_seasonals_app()
+
+def bearish_seasonals_page():
+    st.sidebar.markdown("# Bearish Seasonals")
+    bearish_seasonals.bearish_seasonals_app()
+
 page_names_to_funcs = {
     "Daily Signals": bull_signals_page,
     "Indices": indicies_page,
@@ -39,6 +47,8 @@ page_names_to_funcs = {
     "Currency Pairs": currency_pairs_page,
     "Commodities": commodities_page,
     "Watchlist": watchlist_page,
+    "Bullish Seasonals": bullish_seasonals_page,
+    "Bearish Seasonals": bearish_seasonals_page,
 }
 
 selected_page = st.sidebar.selectbox("Select a page", page_names_to_funcs.keys())
