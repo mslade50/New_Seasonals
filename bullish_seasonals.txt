@@ -1,0 +1,1 @@
+['WMT', 'GES', 'CGNX', 'LSCC', 'RMD', 'CRI', 'BSX', 'SHY', 'KO', 'ENTG', 'ENTG', 'BCRX', 'BCRX', 'LSCC', 'LSCC', 'ASML', 'PRO', 'PRO', 'AZTA', 'AZTA', 'CRL', 'CRL', 'CIB', 'CGNX', 'DHR', 'DHR', 'AVGO', 'SA', 'MRVL', 'CRI', 'GD', 'C', 'KBR', 'BSX', 'DEO', '^NYA', 'EWJ']
