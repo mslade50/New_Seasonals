@@ -13,7 +13,7 @@ from plotly.subplots import make_subplots
 from ta.momentum import RSIIndicator
 
 
-st.title("Bull Signals")
+st.title("Bullish Seasonal Signals")
 def seasonals_chart(tick):
 	ticker=tick
 	cycle_start=1951
