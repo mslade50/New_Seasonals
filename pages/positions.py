@@ -30,6 +30,7 @@ def seasonals_chart(tick):
 	spx = spx1.history(period="max",end=end_date)
 	df= spx1.history(period="max")
 	df['200_MA'] = df['Close'].rolling(window=200).mean()
+	df['200_WMA'] = df['Close'].rolling(window=965).mean()
 	df['RSI'] = RSIIndicator(df['Close']).rsi()
 	df = df[-252:]
 	df.reset_index(inplace=True)
@@ -589,6 +590,7 @@ def seasonals_chart(tick):
 				     close=df['Close'], name='Price'))
 
 	fig2.add_trace(go.Scatter(x=df['date_str'], y=df['200_MA'], name='200_MA', line=dict(color='purple')))
+	fig2.add_trace(go.Scatter(x=df['date_str'], y=df['200_WMA'], name='200_WMA', line=dict(color='red', dash='dot')))
 
 	# Add pivot point rays
 	for _, row in pivot_points_last_252.iterrows():
