@@ -60,14 +60,17 @@ def seasonals_chart(tick):
 	spx['Fwd_21dR']=spx.log_return.shift(-21).rolling(window=21).sum().round(2)
 	spx["year"] = spx.index.year
 
-	#second dataframe explicity to count the number of trading days so far this year
+	#second dataframe to count days this year and calc returns for this year so far
 	now = dt.datetime.now()+timedelta(days=1)
 	days = yf.download(ticker, start=end_date, end=this_yr_end)
-	days["log_return"] = np.log(days["Close"] / days["Close"].shift(1))*100
+	days["simple_return"] = days["Close"] / days["Close"].shift(1) - 1
+	# Calculate cumulative simple return in percentage
+	days['this_yr'] = (1 + days['simple_return']).cumprod() - 1
+	days['this_yr'] *= 100
 	days['day_of_year'] = days.index.day_of_year
-	days['this_yr']=days.log_return.cumsum()
 	days2=days.reset_index(drop=True)
 	length=len(days)+adjust
+
 
 
 	#create your list of all years
