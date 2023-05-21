@@ -609,7 +609,7 @@ def seasonals_chart(tick):
 
 	fig2.update_xaxes(showgrid=False)
 	fig2.update_yaxes(showgrid=False)
-	if df['Close'][-1]> df['200_wma'][-1] and df['200_wma'][-1]>df['200_wma'][-2] and df['RSI'][-1]<30:
+	if df['Close'][-1]> df['200_WMA'][-1] and df['200_WMA'][-1]>df['200_WMA'][-2] and df['RSI'][-1]<30:
 		st.plotly_chart(fig)
 		st.plotly_chart(fig2)
 
