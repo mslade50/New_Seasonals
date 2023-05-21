@@ -1,11 +1,11 @@
 import streamlit as st
-from pages import bull_signals, indicies, positions, single_names, currency_pairs, commodities, watchlist, bullish_seasonals, bearish_seasonals
+from pages import bull_signals, indicies, positions, single_names, currency_pairs, commodities, watchlist, bullish_seasonals, bearish_seasonals, uptrends
 
 st.set_page_config(page_title="Multi-Page Dashboard", page_icon=":chart_with_upwards_trend:")
 
 def bull_signals_page():
     st.sidebar.markdown("# Daily Signals")
-    daily_signals.daily_signals_app()
+    bull_signals.daily_signals_app()
 
 def indicies_page():
     st.sidebar.markdown("# Indices")
@@ -39,6 +39,10 @@ def bearish_seasonals_page():
     st.sidebar.markdown("# Bearish Seasonals")
     bearish_seasonals.bearish_seasonals_app()
 
+def uptrends_page():
+    st.sidebar.markdown("# Uptrends")
+    uptrends.uptrends_app()
+
 page_names_to_funcs = {
     "Daily Signals": bull_signals_page,
     "Indices": indicies_page,
@@ -49,6 +53,7 @@ page_names_to_funcs = {
     "Watchlist": watchlist_page,
     "Bullish Seasonals": bullish_seasonals_page,
     "Bearish Seasonals": bearish_seasonals_page,
+    "Uptrends": uptrends_page,
 }
 
 selected_page = st.sidebar.selectbox("Select a page", page_names_to_funcs.keys())
