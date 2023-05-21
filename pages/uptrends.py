@@ -609,9 +609,9 @@ def seasonals_chart(tick):
 
 	fig2.update_xaxes(showgrid=False)
 	fig2.update_yaxes(showgrid=False)
-  if df['Close'][-1]> df['200_wma'][-1] and df['200_wma'][-1]>df['200_wma'][-2] and df['RSI'][-1]<30:
-    st.plotly_chart(fig)
-    st.plotly_chart(fig2)
+	if df['Close'][-1]> df['200_wma'][-1] and df['200_wma'][-1]>df['200_wma'][-2] and df['RSI'][-1]<30:
+		st.plotly_chart(fig)
+		st.plotly_chart(fig2)
 
 megas_list = ["^FTSE", "USDCAD=X", "HG=F", "^NYA", "RB=F", "^NDX", "SI=F", "^DJI", "^GSPC", "^SOX", "^N225", "^DJT", "CL=F", "AUDUSD=X", "EURUSD=X", "^GDAXI", "DX-Y.NYB", "^RUT", "^BKX", "GC=F", "NG=F", "USDCHF=X", "ZW=f", "USDJPY=X", "GBPUSD=X", "USDMXN=X", "USDNOK=X", "USDTWD=X", "USDSEK=X", "USDZAR=X", "USDKRW=X", "EURCHF=X", "WEAT", "EURNOK=X", "AUDEUR=X", "NZDUSD=X", "NZDEUR=X", "ZN=F"]
 ]
