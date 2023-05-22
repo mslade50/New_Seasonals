@@ -1,1 +1,1 @@
-['SUPN', 'DVAX', 'SONY', 'NTES', 'FWONK', 'PINC', 'LQD', 'EMB', 'SYNH', 'MKSI', 'EXPE', 'FFIV', 'PDCO', 'INSM', 'DAR', 'ARCC', 'IQV', 'NCR', 'EMN', 'CTRA', 'J', 'GME', 'COF', 'UDR', 'RH', 'EQT', 'HELE', 'IWM', '^RUT', 'IWM']
+['SUPN', 'DVAX', 'SONY', 'NTES', 'PINC', 'LQD', 'EMB', 'KR', 'NTLA', 'SYNH', 'EXPE', 'FFIV', 'CYTK', 'PDCO', 'INSM', 'APPS', 'DAR', 'BOX', 'IQV', 'EMN', 'TWLO', 'CTRA', 'LAC', 'EFC', 'J', 'COF', 'RH', 'ZWS', 'EQT', 'HELE', 'IWM', '^RUT', 'IWM', 'IJR', 'KMB']
