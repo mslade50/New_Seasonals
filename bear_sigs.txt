@@ -1,1 +1,1 @@
-['SONY', 'RACE', 'TFX', 'FWONK', 'PINC', 'SYNH', 'MKSI', 'EXPE', 'PDCO', 'INSM', 'DAR', 'ARCC', 'NCR', 'EMN', 'OMI', 'LXP', 'CTRA', 'J', 'COF', 'PPC', 'IONS', 'RH', 'EQT', 'IWM', 'DRS', 'GKOS', 'JACK']
+['SUPN', 'DVAX', 'SONY', 'NTES', 'FWONK', 'PINC', 'LQD', 'EMB', 'SYNH', 'MKSI', 'EXPE', 'FFIV', 'PDCO', 'INSM', 'DAR', 'ARCC', 'IQV', 'NCR', 'EMN', 'CTRA', 'J', 'GME', 'COF', 'UDR', 'RH', 'EQT', 'HELE', 'IWM', '^RUT', 'IWM']
