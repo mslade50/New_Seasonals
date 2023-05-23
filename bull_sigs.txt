@@ -1,1 +1,1 @@
-['AZN', 'SFM', 'CCEP', 'FSLR', 'CROX', 'RL', 'BP', 'ULTA', 'CUBE', 'OSW', 'ITW', 'PFGC', 'TSCO', 'DKS', 'RTX', 'LKQ', 'EIX', 'FRO', 'GOLD', 'TT', 'GILD', 'SJM']
+['APLS', 'SFM', 'FSLR', 'CROX', 'RL', 'ULTA', 'HLT', 'OSW', 'ITW', 'PFGC', 'TCOM', 'SBUX', 'TSCO', 'DKS', 'LKQ', 'EIX', 'FRO', 'GOLD', 'GILD', 'SJM', 'TCEHY', 'XLI']
