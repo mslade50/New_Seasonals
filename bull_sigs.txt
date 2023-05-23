@@ -1,1 +1,1 @@
-['APLS', 'SFM', 'FSLR', 'CROX', 'RL', 'ULTA', 'HLT', 'OSW', 'ITW', 'PFGC', 'TCOM', 'SBUX', 'TSCO', 'DKS', 'LKQ', 'EIX', 'FRO', 'GOLD', 'GILD', 'SJM', 'TCEHY', 'XLI']
+['PEN', 'RACE', 'TXRH', 'SFM', 'HXL', 'FSLR', 'QCOM', 'VALE', 'CROX', 'RL', 'ULTA', 'CUBE', 'HLT', 'PERI', 'OSW', 'ITW', 'PFGC', 'TCOM', 'SBUX', 'TSCO', 'DKS', 'LKQ', 'EIX', 'FRO', 'GOLD', 'GILD', 'SJM', 'TCEHY', 'XLI']
