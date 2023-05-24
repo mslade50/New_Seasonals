@@ -61,7 +61,7 @@ def seasonals_chart(tick):
 	spx['Fwd_21dR']=spx.log_return.shift(-21).rolling(window=21).sum().round(2)
 	spx["year"] = spx.index.year
 
-	#second dataframe to count days this year and calc returns for this year so far
+	#second dataframe explicity to count the number of trading days so far this year
 	now = dt.datetime.now()+timedelta(days=1)
 	days = yf.download(ticker, start=end_date, end=this_yr_end)
 	days["simple_return"] = days["Close"] / days["Close"].shift(1) - 1
@@ -243,8 +243,6 @@ def seasonals_chart(tick):
 	###this process is repeated for each cycle year, and for 5d 10d and 21d forward returns. 
 	df_all_5d=pd.DataFrame(yr_master2).round(3)
 	df_all_5d_mean=df_all_5d.mean().round(2)
-	df_all_5d_mad=df_all_5d.mad().round(2)
-	df_all_5d_median=df_all_5d.median().round(2)
 	rank=df_all_5d.rank(pct=True).round(3)*100
 
 	df_mt_5d=pd.DataFrame(yr_master_mid2).round(3)
@@ -267,8 +265,6 @@ def seasonals_chart(tick):
 
 	df_all_10d=pd.DataFrame(yr_master3).round(3)
 	df_all_10d_mean=df_all_10d.mean().round(2)
-	df_all_10d_mad=df_all_10d.mad().round(2)
-	df_all_10d_median=df_all_10d.median().round(2)
 	rank3=df_all_10d.rank(pct=True).round(3)*100
 
 	df_mt_10d=pd.DataFrame(yr_master_mid3).round(3)
@@ -291,13 +287,10 @@ def seasonals_chart(tick):
 
 	df_all_21d=pd.DataFrame(yr_master4).round(3)
 	df_all_21d_mean=df_all_21d.mean().round(2)
-	df_all_21d_mad=df_all_21d.mad().round(2)
-	df_all_21d_median=df_all_21d.median().round(2)
 	rank5=df_all_21d_mean.rank(pct=True).round(3)*100
 
 	df_mt_21d=pd.DataFrame(yr_master_mid4).round(3)
 	df_mt_21d_mean=df_mt_21d.mean().round(2)
-	df_mt_21d_mad=df_mt_21d.mad().round(2)
 	df_mt_21d_median=df_mt_21d.median().round(2)
 	rank6=df_mt_21d_mean.rank(pct=True).round(3)*100
 
@@ -358,20 +351,18 @@ def seasonals_chart(tick):
 
 
 	returns=[]
-	tuples=[df_all_5d_mean,df_mt_5d_mean,df_all_5d_mad,df_mt_5d_mad,df_all_10d_mean,df_mt_10d_mean,df_all_10d_mad,df_mt_10d_mad,df_all_21d_mean,df_mt_21d_mean,df_all_21d_mad,df_mt_21d_mad]
+	tuples = [df_all_5d_mean, df_mt_5d_mean, df_all_10d_mean, df_mt_10d_mean, df_all_21d_mean, df_mt_21d_mean]
 	for data in tuples:
-		returns.append(data)
-	new_df=pd.DataFrame(returns).transpose().rename(columns={
-															0:'Fwd_R5',1:'Fwd_R5_MT',2:'Fwd_mad5',3:'Fwd_mad5_MT',
-															4:'Fwd_R10',5:'Fwd_R10_MT',6:'Fwd_mad10',7:'Fwd_mad10_MT',
-															8:'Fwd_R21',9:'Fwd_R21_MT',10:'Fwd_mad21',11:'Fwd_mad21_MT',
-
+	    returns.append(data)
+	new_df = pd.DataFrame(returns).transpose().rename(columns={
+								0:'Fwd_R5', 1:'Fwd_R5_MT', 
+								2:'Fwd_R10', 3:'Fwd_R10_MT', 
+								4:'Fwd_R21', 5:'Fwd_R21_MT',
 	})
+
 
 	#5d stuff
 
-	new_df['Variance_rnk']=new_df.Fwd_mad5.rank(pct=True).round(3)*100
-	new_df['Variance_rnk_MT']=new_df.Fwd_mad5_MT.rank(pct=True).round(3)*100
 	new_df['Returns_5_rnk']=new_df.Fwd_R5.rank(pct=True).round(3)*100
 	new_df['Returns_5_rnk_mt']=new_df.Fwd_R5_MT.rank(pct=True).round(3)*100
 
@@ -379,13 +370,9 @@ def seasonals_chart(tick):
 	r_5_mt=new_df['Fwd_R5_MT'][[length]].round(2)
 	r_5_ptile=new_df['Returns_5_rnk'][[length]].round(2)
 	r_5_ptile_mt=new_df['Returns_5_rnk_mt'][[length]].round(2)
-	variance_ptile=new_df['Variance_rnk'][[length]].round(2)
-	variance_ptile_mt=new_df['Variance_rnk_MT'][[length]].round(2)
 
 	#10d stuff
 
-	new_df['Variance_rnk_10d']=new_df.Fwd_mad10.rank(pct=True).round(3)*100
-	new_df['Variance_rnk_10d_MT']=new_df.Fwd_mad10_MT.rank(pct=True).round(3)*100
 	new_df['Returns_10_rnk']=new_df.Fwd_R10.rank(pct=True).round(3)*100
 	new_df['Returns_10_rnk_mt']=new_df.Fwd_R10_MT.rank(pct=True).round(3)*100
 
@@ -393,12 +380,8 @@ def seasonals_chart(tick):
 	r_10_mt=new_df['Fwd_R10_MT'][[length]].round(2)
 	r_10_ptile=new_df['Returns_10_rnk'][[length]].round(2)
 	r_10_ptile_mt=new_df['Returns_10_rnk_mt'][[length]].round(2)
-	variance_ptile_10=new_df['Variance_rnk_10d'][[length]].round(2)
-	variance_ptile_10_mt=new_df['Variance_rnk_10d_MT'][[length]].round(2)
 
 	#21d stuff
-	new_df['Variance_rnk_1m']=new_df.Fwd_mad21.rank(pct=True).round(3)*100
-	new_df['Variance_rnk_1m_MT']=new_df.Fwd_mad21_MT.rank(pct=True).round(3)*100
 	new_df['Returns_21_rnk']=new_df.Fwd_R21.rank(pct=True).round(3)*100
 	new_df['Returns_21_rnk_mt']=new_df.Fwd_R21_MT.rank(pct=True).round(3)*100
 
@@ -415,8 +398,6 @@ def seasonals_chart(tick):
 	r_21_mt=new_df['Fwd_R21_MT'][[length]].round(2)
 	r_21_ptile=new_df['Returns_21_rnk'][[length]].round(2)
 	r_21_ptile_mt=new_df['Returns_21_rnk_mt'][[length]].round(2)
-	variance_ptile_21=new_df['Variance_rnk_1m'][[length]].round(2)
-	variance_ptile_21_mt=new_df['Variance_rnk_1m_MT'][[length]].round(2)
 
 
 	##Output
