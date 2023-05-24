@@ -1,1 +1,1 @@
-['USDCHF=X', 'AEE', 'SAIA', 'SIG', 'EPR', 'GOOD', 'CRM', 'CRM', 'BXMT', 'BXMT', 'PEB', 'MAT', 'MAT', 'PEG', 'PEG', 'AEE', 'AEE', 'AWK', 'AWK', 'FE', 'XLU']
+['AEE', 'PEG', 'BXMT', 'XLU', 'FE', 'AWK', 'MAT', 'CRM', 'PEAK', 'LAC', 'EPR', 'GOOD', 'CRM', 'CRM', 'PEB', 'O', 'MAT', 'UTHR', 'AEE', 'AWK', 'USDCAD=X']
