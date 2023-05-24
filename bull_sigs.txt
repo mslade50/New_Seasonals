@@ -1,1 +1,1 @@
-['PEN', 'RACE', 'TXRH', 'SFM', 'HXL', 'FSLR', 'QCOM', 'VALE', 'CROX', 'RL', 'ULTA', 'CUBE', 'HLT', 'PERI', 'OSW', 'ITW', 'PFGC', 'TCOM', 'SBUX', 'TSCO', 'DKS', 'LKQ', 'EIX', 'FRO', 'GOLD', 'GILD', 'SJM', 'TCEHY', 'XLI']
+['PEN', 'WING', 'LLY', 'BL', 'CLF', 'CINF', 'MLKN', 'SBLK', 'WBA', 'JD', 'NTRA', 'SCCO', 'STM', 'LSCC', 'CROX', 'RL', 'BRKR', 'IGT', 'BP', 'MGM', 'ULTA', 'JHG', 'CUBE', 'ADI', 'ECVT', 'STLA', 'PERI', 'OSW', 'ITW', 'YUMC', 'SBUX', 'ROK', 'DKS', 'EIX', 'FRO', 'GOLD', 'BUD', 'GILD', 'PG', 'SJM', 'TCEHY', 'XLI']
