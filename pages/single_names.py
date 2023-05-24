@@ -397,8 +397,6 @@ def seasonals_chart(tick):
 	r_21_mt=new_df['Fwd_R21_MT'][[length]].round(2)
 	r_21_ptile=new_df['Returns_21_rnk'][[length]].round(2)
 	r_21_ptile_mt=new_df['Returns_21_rnk_mt'][[length]].round(2)
-	variance_ptile_21=new_df['Variance_rnk_1m'][[length]].round(2)
-	variance_ptile_21_mt=new_df['Variance_rnk_1m_MT'][[length]].round(2)
 
 
 	##Output
