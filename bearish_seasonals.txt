@@ -1,1 +1,1 @@
-['AEE', 'PEG', 'BXMT', 'XLU', 'FE', 'AWK', 'MAT', 'CRM', 'PEAK', 'LAC', 'EPR', 'GOOD', 'CRM', 'CRM', 'PEB', 'O', 'MAT', 'UTHR', 'AEE', 'AWK', 'USDCAD=X']
+['GOOD', 'AEE', 'EPR', 'PEB', 'O', 'AWK', 'PEAK', 'MAT', 'CRM', 'LAC', 'LAC', 'EQR', 'EQR', 'BGS', 'EXR', 'EXR', 'HST', 'UTHR', 'UTHR', 'VNQ']
