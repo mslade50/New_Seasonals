@@ -1,1 +1,1 @@
-['SYNH', 'APPS', 'DAR', 'ARCC', 'IRWD', 'EMN', 'CTRA', 'EFC', 'PPC', 'RH', 'EQT', 'HELE', 'SDOW', 'AMAT', 'PTCT', 'MLI', 'HWM']
+['TOL', 'TQQQ', 'QLD', 'SYNH', 'ARCC', 'IRWD', 'QGEN', 'EQT', 'SDOW', 'QTRX']
