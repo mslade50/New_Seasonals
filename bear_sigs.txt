@@ -1,1 +1,1 @@
-['TOL', 'TQQQ', 'QLD', 'SYNH', 'ARCC', 'IRWD', 'QGEN', 'EQT', 'SDOW', 'QTRX']
+['AMAT', 'TOL', 'SPB', 'DELL', 'SYNH', 'EXPE', 'DAR', 'ARCC', 'IRWD', 'QGEN', 'EQT', 'HELE', 'SDOW', 'QTRX']
