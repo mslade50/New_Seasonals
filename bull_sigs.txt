@@ -1,1 +1,1 @@
-['RDN', 'TMHC', 'MLI', 'NTRA', 'FIVE', 'CROX', 'ATI', 'BRKR', 'BP', 'ZTS', 'JHG', 'ADI', 'HLT', 'UHS', 'MPLX', 'ITW', 'FRPT', 'SBUX', 'AEM', 'PNW', 'FRO', 'OII', 'PG', 'XLI', 'GDXJ']
+['TPH', 'TMHC', 'AY', 'NTRA', 'FIVE', 'CROX', 'ATI', 'BP', 'ZTS', 'ADI', 'HLT', 'UHS', 'MPLX', 'PERI', 'OSW', 'ITW', 'AON', 'FRPT', 'YUMC', 'SBUX', 'AEM', 'KR', 'ZTO', 'PG', 'XLI', 'GDXJ']
