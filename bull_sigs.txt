@@ -1,1 +1,1 @@
-['SFM', 'GE', 'LLY', 'M', 'EVBG', 'LAZ', 'DX', 'CF', 'PSQ', 'NTRA', 'EDU', 'FND', 'SCCO', 'STM', 'FIVE', 'CROX', 'ATI', 'BRKR', 'NYT', 'IGT', 'BP', 'ZTS', 'MGM', 'ULTA', 'JHG', 'ADI', 'HLT', 'UHS', 'STLA', 'MPLX', 'OSW', 'ITW', 'AON', 'YUMC', 'SBUX', 'AEM', 'PNW', 'TJX', 'FRO', 'PG', 'XLI', 'GDXJ']
+['RDN', 'TMHC', 'MLI', 'NTRA', 'FIVE', 'CROX', 'ATI', 'BRKR', 'BP', 'ZTS', 'JHG', 'ADI', 'HLT', 'UHS', 'MPLX', 'ITW', 'FRPT', 'SBUX', 'AEM', 'PNW', 'FRO', 'OII', 'PG', 'XLI', 'GDXJ']

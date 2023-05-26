@@ -1,1 +1,1 @@
-['AMAT', 'TOL', 'SPB', 'DELL', 'SYNH', 'EXPE', 'DAR', 'ARCC', 'IRWD', 'QGEN', 'EQT', 'HELE', 'SDOW', 'QTRX']
+['LOGI', 'COHR', 'SYNH', 'EXPE', 'TEAM', 'ARCC', 'KEYS', 'BOX', 'IRWD', 'EMN', 'TSLA', 'PSTG', 'DLR', 'QGEN', 'EQT', 'HELE']
