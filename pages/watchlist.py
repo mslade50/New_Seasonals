@@ -13,7 +13,7 @@ from plotly.subplots import make_subplots
 from ta.momentum import RSIIndicator
 
 st.title("Watchlist")
-positions = ['BAP', 'CF', 'CME', 'DLB', 'DOX', 'LNG', 'MAT', 'PWR', 'SIG', 'SMH', 'STZ', 'TSM', 'UAA', 'WDC', 'WEAT', 'WYNN', 'EFC', 'EQT', 'NKE', 'MELI']
+positions = ['^VIX','BAP', 'CF', 'CME', 'DLB', 'DOX', 'LNG', 'MAT', 'PWR', 'SIG', 'SMH', 'STZ', 'TSM', 'UAA', 'WDC', 'WEAT', 'WYNN', 'EFC', 'EQT', 'NKE', 'MELI']
 
 def seasonals_chart(tick):
 	ticker=tick
