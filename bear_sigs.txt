@@ -1,1 +1,1 @@
-['HPQ', 'RNG', 'COHR', 'SYNH', 'EXPE', 'TEAM', 'KEYS', 'HD', 'BOX', 'IQV', 'IRWD', 'EMN', 'TSLA', 'EFC', 'IRT', 'QGEN', 'ZWS', 'EQT', 'HELE', 'IWM', 'NEWR']
+['MDB', 'RNG', 'COHR', 'SYNH', 'W', 'EXPE', 'TEAM', 'KEYS', 'BOX', 'IQV', 'IRWD', 'F', 'SRC', 'DLR', 'IRT', 'QGEN', 'HELE', 'LPG', 'PRTA']
