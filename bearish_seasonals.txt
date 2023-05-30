@@ -1,1 +1,1 @@
-['LAC', 'EXR', 'EQR', 'UTHR', 'BGS', 'CUBE', 'SLG', 'LAC', 'EQR', 'EXR', 'UTHR', 'LDOS', 'LDOS', 'VNQ']
+['EQR', 'EXR', 'LDOS', 'VNQ', 'CUBE', 'UTHR', 'LAC', 'SLG', 'IPGP', 'NEA', 'NEA', 'CRK', 'CL', 'CL', 'ONB', 'LDOS', 'LDOS']
