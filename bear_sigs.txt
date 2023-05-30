@@ -1,1 +1,1 @@
-['MDB', 'RNG', 'COHR', 'SYNH', 'W', 'EXPE', 'TEAM', 'KEYS', 'BOX', 'IQV', 'IRWD', 'F', 'SRC', 'DLR', 'IRT', 'QGEN', 'HELE', 'LPG', 'PRTA']
+['CVNA', 'LMND', 'W', 'F', 'DLR', 'AFRM', 'RGEN', 'SIMO', 'ALLY', 'WMS', 'NCNO', 'SRC', 'IRT', 'TEAM', 'HAS', 'BOX', 'KEYS', 'DAR', 'EXPE', 'RNG', 'HOMB', 'IQV', 'IRWD', 'HD', 'NTCT', 'TSVT', 'KRNT', 'HELE', 'ACMR', 'RCUS', 'LPG', 'SDGR']

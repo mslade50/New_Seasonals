@@ -1,1 +1,1 @@
-['CVI', 'HSIC', 'NTRA', 'SCCO', 'FIVE', 'ATI', 'RL', 'NYT', 'MGM', 'ADI', 'ECVT', 'VOYA', 'HLT', 'MPLX', 'PERI', 'OSW', 'ITW', 'YUMC', 'AEM', 'KR', 'OII', 'PEP', 'GIS', 'XLI', 'GDXJ']
+['LLY', 'HSIC', 'PETS', 'EPRT', 'VOYA', 'TW', 'NYT', 'PEP', 'ITW', 'STLA', 'HLT', 'BRKR', 'ATI', 'PERI', 'FIVE', 'YUM', 'OSW', 'AEM', 'MGM', 'BAYRY', 'NTRA', 'PROSY', 'YUMC', 'RL', 'MLCO', 'OII', 'XLI', 'GDXJ', 'HUBS', 'RCL', 'NMIH', 'PRG', 'XPO', 'EXAS', 'OLED', 'BZH', 'TTWO', 'NYCB', 'OTEX']
