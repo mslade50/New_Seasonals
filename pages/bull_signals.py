@@ -616,4 +616,7 @@ megas_list = [stock for stock in set(megas_list) if stock]
 
 # Run the script with the updated megas_list
 for stock in megas_list:
-    seasonals_chart(stock)
+	try:
+		seasonals_chart(stock)
+	except:
+		pass
