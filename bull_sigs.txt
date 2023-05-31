@@ -1,1 +1,1 @@
-['HSIC', 'PETS', 'FRPT', 'PNW', 'EPRT', 'GIS', 'VOYA', 'TW', 'IGT', 'NYT', 'PEP', 'ITW', 'STLA', 'BRKR', 'ATI', 'TWNK', 'PERI', 'FIVE', 'YUM', 'OSW', 'AEM', 'MGM', 'NTRA', 'PROSY', 'YUMC', 'RL', 'MLCO', 'OII', 'XLI', 'GDXJ', 'FSLR', 'BZH', 'GT', 'IMGN']
+['BEN', 'VAC', 'PRDO', 'CBRL', 'KTB', 'ADNT', 'X', 'STNG', 'FRPT', 'RNR', 'ECVT', 'EPRT', 'AON', 'FLS', 'PCAR', 'VOYA', 'OTIS', 'TPX', 'BWA', 'IGT', 'NYT', 'FRO', 'BRKR', 'ATI', 'TWNK', 'PERI', 'UBS', 'OSW', 'AEM', 'MGM', 'EAT', 'YUMC', 'OII', 'GT', 'IMGN']
