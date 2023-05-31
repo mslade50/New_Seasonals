@@ -1,1 +1,1 @@
-['EURCHF=X', 'VTRS', 'PENN', 'PENN', 'DECK', 'DECK', 'ULTA', 'BMY', 'BMY']
+['PENN', 'BMY', 'DECK', 'PENN', 'PENN', 'CRUS', 'DECK', 'DECK', 'EBIX', 'OMCL', 'GS', 'VLY', 'GILD', 'GILD']
