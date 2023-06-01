@@ -1,1 +1,1 @@
-['BEN', 'VAC', 'PRDO', 'CBRL', 'KTB', 'ADNT', 'X', 'STNG', 'FRPT', 'RNR', 'ECVT', 'EPRT', 'AON', 'FLS', 'PCAR', 'VOYA', 'OTIS', 'TPX', 'BWA', 'IGT', 'NYT', 'FRO', 'BRKR', 'ATI', 'TWNK', 'PERI', 'UBS', 'OSW', 'AEM', 'MGM', 'EAT', 'YUMC', 'OII', 'GT', 'IMGN']
+['NTST', 'CHH', 'CROX', 'FRPT', 'RNR', 'PNW', 'SFM', 'VOYA', 'FRO', 'BRKR', 'TWNK', 'OSW', 'MGM', 'YUMC', 'EXTR', 'ARES']

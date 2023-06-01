@@ -1,1 +1,1 @@
-['CVNA', 'LMND', 'W', 'FIVN', 'DLR', 'AFRM', 'SIMO', 'INFA', 'WMS', 'NCNO', 'SRC', 'IRT', 'BILL', 'BOX', 'KEYS', 'EXPE', 'RNG', 'IRWD', 'NTCT', 'ZWS', 'QTWO', 'TSVT', 'KRNT', 'TTMI', 'ACMR', 'ANET', 'MRVL']
+['NOVA', 'FIVN', 'AFRM', 'SIMO', 'ESS', 'INFA', 'COGT', 'SYF', 'ALLY', 'WMS', 'BILL', 'BOX', 'ARI', 'KEYS', 'UDR', 'DBRG', 'IBM', 'EXPE', 'ABR', 'RNG', 'IQV', 'CHWY', 'IRWD', 'QGEN', 'ZWS', 'QTWO', 'TSVT', 'KRNT', 'EFC', 'IWM', 'CXM']
