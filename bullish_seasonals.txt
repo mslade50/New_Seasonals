@@ -1,1 +1,1 @@
-['PENN', 'BMY', 'DECK', 'PENN', 'PENN', 'CRUS', 'DECK', 'DECK', 'EBIX', 'OMCL', 'GS', 'VLY', 'GILD', 'GILD']
+['PENN', 'EBIX', 'DECK', 'VLY', 'CRUS', 'GILD', 'GS', 'MASI', 'MASI', 'PENN', 'PENN', 'TTMI', 'DECK', 'OMCL', 'ULTA', 'ULTA', 'HSIC', 'DXCM', 'CADE', 'GILD', 'QQQ']

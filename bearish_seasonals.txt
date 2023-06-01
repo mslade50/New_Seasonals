@@ -1,1 +1,1 @@
-['CRK', 'LDOS', 'CL', 'NEA', 'BLFS', 'BLFS', 'CNX', 'NEA', 'DTE', 'ONB', 'LDOS', 'NG=F']
+['LDOS', 'NEA', 'ONB', 'BLFS', 'TEX', 'BLFS', 'BLFS', 'CNX', 'CNX', 'ETR']
