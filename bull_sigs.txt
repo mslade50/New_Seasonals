@@ -1,1 +1,1 @@
-['NTST', 'CHH', 'CROX', 'FRPT', 'RNR', 'PNW', 'SFM', 'VOYA', 'FRO', 'BRKR', 'TWNK', 'OSW', 'MGM', 'YUMC', 'EXTR', 'ARES']
+['CROX', 'FRPT', 'ECVT', 'SFM', 'XPOF', 'FRO', 'PERI', 'AEM']
