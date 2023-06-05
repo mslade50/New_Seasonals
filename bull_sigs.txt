@@ -1,1 +1,1 @@
-['CROX', 'FRPT', 'RNR', 'ECVT', 'SFM', 'XPOF', 'FRO', 'PERI']
+['YETI', 'DAVA', 'CROX', 'FRPT', 'ADI', 'SFM', 'XPOF', 'TPX', 'PERI', 'YUMC', 'BITO', 'VKTX']
