@@ -1,1 +1,1 @@
-['BLFS', 'CNX', 'RMD', 'EOG', 'TEX', 'BLFS']
+['BLFS']
