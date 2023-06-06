@@ -1,1 +1,1 @@
-['CIEN', 'ADI', 'SFM', 'GIS', 'PEP', 'PERI']
+['CIEN', 'SFM', 'XPOF', 'PEP']
