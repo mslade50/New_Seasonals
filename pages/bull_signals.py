@@ -593,7 +593,7 @@ def seasonals_chart(tick):
 	fig2.update_xaxes(showgrid=False)
 	fig2.update_yaxes(showgrid=False)
 	
-	if cycle_avg > 50:
+	if cycle_avg > 35:
 		st.plotly_chart(fig)
 		st.plotly_chart(fig2)
 
