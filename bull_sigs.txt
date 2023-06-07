@@ -1,1 +1,1 @@
-['CIEN', 'SFM', 'XPOF', 'PEP']
+['GSRM', 'WEN', 'SFM', 'CERT', 'PEP', 'AEM', 'EAT']
