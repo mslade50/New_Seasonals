@@ -1,1 +1,1 @@
-['BLFS']
+['FORM', 'RMD', 'RMD', 'CTRA', 'EURCHF=X']
