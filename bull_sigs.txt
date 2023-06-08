@@ -1,1 +1,1 @@
-['GSRM', 'WEN', 'CERT', 'PEP', 'AEM', 'NEWR', 'EAT', 'VMC']
+['CNXC', 'OXM', 'SMAR', 'GSRM', 'PEP', 'AEM', 'NEWR', 'EAT']
