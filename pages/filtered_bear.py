@@ -598,23 +598,28 @@ def seasonals_chart(tick):
 
 # Download and parse the content of the text files from the GitHub repository
 base_url = "https://raw.githubusercontent.com/mslade50/New_seasonals/main/"
-file_names = ["bear_sigs.txt"]
+file_names = ["bear_sigs.txt", "bearish_seasonals.txt"]
 
-megas_list = []
-for file_name in file_names:
+def load_tickers(file_name):
     url = base_url + file_name
     response = requests.get(url)
     if response.status_code == 200:
         content = response.text.strip()
         tickers = content.strip("[]").split(", ")
-        for ticker in tickers:
-            megas_list.append(ticker.strip("'"))
+        # Remove empty strings
+        tickers = [ticker.strip("'") for ticker in tickers if ticker.strip("'")]
+        return set(tickers)
+    else:
+        return set()
 
-# Remove duplicates and empty strings
-megas_list = [stock for stock in set(megas_list) if stock]
+megas_list = load_tickers(file_names[0])
+bearish_seasonals_list = load_tickers(file_names[1])
+
+# Get tickers present in both lists
+crosschecked_list = megas_list.intersection(bearish_seasonals_list)
 
 # Run the script with the updated megas_list
-for stock in megas_list:
+for stock in crosschecked_list:
 	try:
 		seasonals_chart(stock)
 	except:
