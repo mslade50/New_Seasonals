@@ -1,1 +1,1 @@
-['FORM', 'RMD', 'RMD', 'CTRA']
+['RMD', 'FORM', 'LOGI', 'CTRA']
