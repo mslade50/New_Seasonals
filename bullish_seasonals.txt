@@ -1,1 +1,1 @@
-['CONN', 'GPS']
+['PPG', 'ZUMZ', 'OMCL', 'MAG', 'ORA', 'TPX', 'HRL', 'COST', 'CONN', 'KTOS', 'GLNG', 'CUTR', 'OSTK', 'KNX', 'DOX', 'TSEM', 'GPS', 'MA', 'AMX', 'JAZZ', 'BYD', 'WWW', 'BIDU', 'ALK', 'BKE', 'ZUMZ', 'ZUMZ', 'MFA', 'GLNG', 'ALK', 'AMX', 'OSTK', 'FAST', 'BMY', 'BMY', 'PODD', 'LMT', 'LMT', 'ACN', 'RTX', 'TJX', 'FCF', 'WAFD', 'CUTR', 'CUTR', 'HRL', 'ZYXI', '^IXIC']

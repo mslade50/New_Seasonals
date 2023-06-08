@@ -1,1 +1,1 @@
-['AEHR', 'THC']
+['AEHR', 'THC', 'HDSN', 'JWN', 'EOG', 'PDCE', 'LOGI', 'BBWI', 'FORM', 'WCC', 'FTAI', 'BCX', 'CDNS', 'SU', 'LAUR', 'SAFE', 'AGIO', 'HLI', 'DX', 'CNX', 'PLAY', 'DENN', 'WELL', 'GSBD', 'APO', 'CTRA', 'AR', 'HR', 'RCKT', 'AM', 'UE', 'MSM', 'TXN', 'LECO', 'FWONK', 'HUM', 'ENR', 'PCRX', 'HII', 'BDX', 'PSA', 'ACRS', 'SNY', 'TAP', 'BTI', 'FNB', 'ANAB', 'TGTX', 'NG=F', 'NZDUSD=X', 'SOXL', 'VEA', 'LABD', 'ASHR', 'MCHI', 'XTL']
