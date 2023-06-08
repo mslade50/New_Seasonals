@@ -592,13 +592,12 @@ def seasonals_chart(tick):
 
 	fig2.update_xaxes(showgrid=False)
 	fig2.update_yaxes(showgrid=False)
-	if cycle_avg < 15:
-		st.plotly_chart(fig)
-		st.plotly_chart(fig2)
+	st.plotly_chart(fig)
+	st.plotly_chart(fig2)
 
 # Download and parse the content of the text files from the GitHub repository
 base_url = "https://raw.githubusercontent.com/mslade50/New_seasonals/main/"
-file_names = ["bear_sigs.txt", "bearish_seasonals.txt"]
+file_names = ["bear_sigs.txt", "kinda_bearish.txt"]
 
 def load_tickers(file_name):
     url = base_url + file_name
