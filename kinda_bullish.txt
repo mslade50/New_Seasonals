@@ -1,0 +1,1 @@
+['CENX', 'NTRA', 'PEGA', 'EDU', 'NVAX', 'GPS', 'XPO', 'ODFL', 'FND', 'DINO', 'STX', 'CORT', 'CVI', 'CONN', 'DK', 'ALGN', 'M', 'LPX', 'CNMD']
