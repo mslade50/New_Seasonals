@@ -1,1 +1,1 @@
-['CNXC', 'PEP', 'NEWR', 'RCEL', 'IGT', 'EXPI']
+['CNXC', 'PEP', 'NEWR', 'BMEA', 'IGT', 'EXPI', 'TDY', 'IDXX', 'HSIC', 'UPS', 'RMD', 'NEWR', 'TTC']
