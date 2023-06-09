@@ -1,1 +1,1 @@
-['RMD', 'FORM', 'LOGI', 'CTRA']
+['CTRA', 'LOGI', 'TOL', 'USDCHF=X', 'USDCHF=X', 'EURCHF=X', 'EURCHF=X']
