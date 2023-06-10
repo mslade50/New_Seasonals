@@ -1,1 +1,1 @@
-['MNRO', 'RVNC', 'HOLX', 'AIR', 'GEF', 'EXPI', 'TNET', 'WERN', 'PSA', 'TDY', 'IDXX', 'CHH', 'SBUX', 'HSIC', 'UPS', 'RMD', 'NEWR', 'TTC']
+['MNRO', 'RVNC', 'HOLX', 'NPO', 'AIR', 'GEF', 'EXPI', 'TNET', 'WERN', 'TDY', 'IDXX', 'CHH', 'SBUX', 'HSIC', 'UPS', 'RMD', 'NEWR', 'TTC']
