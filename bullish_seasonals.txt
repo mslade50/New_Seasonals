@@ -1,1 +1,1 @@
-['BMY', 'HRL', 'CUTR', 'ZUMZ', 'MAG', 'PEGA', 'SA', 'LMT', 'ZYXI', 'PODD', 'PDCO', 'FL', 'AMX', 'TJX', 'ACN', 'POR', 'PEGA', 'AMZN', 'AMZN', 'TROW', 'TROW', 'BN', 'PDCO', 'ANSS', 'SA', 'DCI', 'BMY', 'NFLX', 'ACN', 'ACN', 'TJX', 'TJX', 'ALKS', 'ALKS', 'FCF', 'CUTR', '^IXIC', '^NDX']
+['CUTR', 'PEGA', 'ALKS', 'BMY', 'TJX', 'AMZN', 'ACN', 'SA', 'PDCO', '^NDX', 'TROW', '^IXIC', 'DCI', 'FCF', 'BN', 'AMZN', 'KNX', 'INTU', 'TREE', 'TREE', 'TROW', 'DAR', 'ANSS', 'TXN', 'TXN', 'NFLX', 'ACN', 'BAX', 'FFIN', 'FFIN', 'TJX', 'TJX', 'RCI', 'NZDUSD=X']
