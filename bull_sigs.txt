@@ -1,1 +1,1 @@
-['RE', 'RNR', 'RVNC', 'PEP', 'GEF', 'KDNY', 'ORCL', 'CCL', 'WERN', 'TDY', 'PLD', 'UPS', 'KHC', 'RMD', 'NEWR']
+['XEL', 'RNR', 'RVNC', 'PEP', 'GDXJ', 'ARES', 'ORCL', 'IFNNY', 'PLAY', 'WERN', 'PSA', 'UHAL', 'NEWR']
