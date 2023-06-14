@@ -1,1 +1,1 @@
-['XEL', 'RNR', 'RVNC', 'PEP', 'GDXJ', 'ARES', 'ORCL', 'IFNNY', 'PLAY', 'WERN', 'PSA', 'UHAL', 'NEWR']
+['SAFE', 'CVS', 'MRTX', 'RNR', 'DNUT', 'RVNC', 'LAUR', 'GDXJ', 'SGRY', 'THC', 'AXSM', 'CRH', 'WERN', 'PSA', 'TDY', 'UHAL', 'ASLE', 'CHH', 'HSIC', 'NEWR', 'TTC']
