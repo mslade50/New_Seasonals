@@ -1,1 +1,1 @@
-['TXN', 'TREE', 'DAR', 'NZDUSD=X', 'FFIN', 'DAR', 'GOOGL', 'GOOGL', 'GOOG', 'GOOG', 'SPWR', 'FFBC', 'NZDEUR=X']
+['DAR', 'SPWR', 'GOOGL', 'GOOG', 'FFBC', 'APPS']

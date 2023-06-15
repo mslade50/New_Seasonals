@@ -1,1 +1,1 @@
-['USDCHF=X', 'USDTWD=X', 'ECL', 'DEO', 'TOL', 'THC', 'KBH', 'TOL', 'TOL', 'PHM', 'PHM', 'MCK', 'MCK', 'DUK', 'DUK', 'WEN', 'WEN', 'EVRG', 'CMA', 'CMA', 'USDCHF=X']
+['PHM', 'WEN', 'MCK', 'DUK', 'TOL', 'USDCHF=X', 'KBH', 'CMA', 'THC', 'TOL', 'SBH', 'SPGI', 'ARWR', 'ARWR', 'BA', 'BA', 'MCK', 'SRE', 'CMA']
