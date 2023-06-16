@@ -1,1 +1,1 @@
-['DAR', 'SPWR', 'GOOGL', 'GOOG', 'FFBC', 'APPS']
+['APPS', 'EXTR', 'EXTR', 'RELL', 'PRGO', 'NZDEUR=X', 'NZDEUR=X']
