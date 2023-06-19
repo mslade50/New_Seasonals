@@ -1,1 +1,1 @@
-['THC', 'TOL', 'ARWR', 'MCK', 'BA', 'SRE', 'CMA', 'SBH', 'SPGI', 'KBH', 'MEOH', 'MEOH', 'ADSK', 'ARWR', 'ARWR', 'ODP', 'IRDM', 'BA', 'BA', 'AFL', 'TMUS']
+['THC', 'ARWR', 'MCK', 'BA', 'SRE', 'CMA', 'SBH', 'KBH', 'MEOH', 'MEOH', 'ADSK', 'ARWR', 'ARWR', 'ODP', 'IRDM', 'BA', 'BA', 'AFL', 'TMUS']

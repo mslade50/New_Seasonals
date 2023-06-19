@@ -1,1 +1,1 @@
-['APPS', 'EXTR', 'EXTR', 'RELL', 'PRGO', 'NZDEUR=X', 'NZDEUR=X']
+['NZDEUR=X', 'APPS', 'EXTR', 'EXTR', 'RELL', 'PRGO', 'USDTWD=X', 'NZDEUR=X']
