@@ -1,1 +1,1 @@
-['DX', 'OFC', 'DEA', 'CRL', 'BTZ', 'HR', 'SWX', 'WD', 'TRMB', 'CHY', 'CPT', 'CRI', 'NSC', 'CSL', 'DOC', 'LIVN', 'BMO', 'ROG', 'FBP', 'RBA', 'RC', 'JLL', 'REZI', 'ZM', 'FMNB', 'LEU', 'CTRA', 'LBRT', 'JKS', 'TTNDY', 'FLYW', 'SUM', 'SOXL', 'DXC', 'KN', 'AVB', 'SPG', 'CTRE', 'ALK', 'COLD', 'FOX', 'UE', 'EPR', 'BHE', 'AMWD', 'EWZ']
+['DX', 'AZTA', 'CRL', 'BTZ', 'BKI', 'SWX', 'WD', 'TRMB', 'CPT', 'CRI', 'CSL', 'ROG', 'FBP', 'RBA', 'RC', 'REZI', 'ZM', 'FMNB', 'PLMR', 'LEU', 'BA', 'APH', 'IRM', 'VEA', 'DXC', 'KN', 'AVB', 'SPG', 'CTRE', 'ALK', 'COLD', 'FOX', 'UE', 'EPR', 'BHE', 'EWZ']

@@ -1,1 +1,1 @@
-['YETI', 'SR', 'AMLX', 'CROX', 'RNR', 'NEWR', 'PKST', 'PANW', 'BWXT', 'DBX', 'SDGR', 'CACI', 'PANW', 'MSM', 'NPO', 'SPSC', 'WERN', 'PSA', 'UHAL', 'CHH', 'HUM']
+['STRA', 'MSGS', 'RNR', 'DNUT', 'SFM', 'WPM', 'NEWR', 'GDX', 'GDXJ', 'DICE', 'DICE', 'WERN', 'PSA', 'TDY', 'SEDG', 'UHAL', 'CHH', 'HUM', 'KHC', 'CALM', 'FNV', 'SLV']
