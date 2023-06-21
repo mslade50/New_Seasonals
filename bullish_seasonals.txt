@@ -1,1 +1,1 @@
-['USDTWD=X', 'NZDEUR=X', 'EXTR', 'RELL', 'WST', 'EXTR', 'PRGO', 'PRGO']
+['PRGO', 'EXTR', 'ODFL', 'WST', 'WST', 'LSTR', 'LSTR', 'WYNN', 'WYNN', 'PZZA', 'EPC', 'O', 'UBSI']

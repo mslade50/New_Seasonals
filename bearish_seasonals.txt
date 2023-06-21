@@ -1,1 +1,1 @@
-['AFL', 'IRDM', 'KBH', 'BA', 'ARWR', 'TMUS', 'MEOH', 'MEOH', 'RRC', 'ARWR', 'ODP', 'PTC', 'ADBE', 'ADBE', 'MWA', 'CCEP']
+['CCEP', 'ARWR', 'ADBE', 'MEOH', 'PTC', 'ODP', 'ESTE', 'RRC', 'ADBE', 'MWA', 'CECO']
