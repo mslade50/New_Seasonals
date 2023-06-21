@@ -1,1 +1,1 @@
-['DX', 'AZTA', 'CRL', 'BTZ', 'BKI', 'SWX', 'WD', 'TRMB', 'CPT', 'CRI', 'CSL', 'ROG', 'FBP', 'RBA', 'RC', 'REZI', 'ZM', 'FMNB', 'PLMR', 'LEU', 'BA', 'APH', 'IRM', 'VEA', 'DXC', 'KN', 'AVB', 'SPG', 'CTRE', 'ALK', 'COLD', 'FOX', 'UE', 'EPR', 'BHE', 'EWZ']
+['DX', 'MCY', 'CRL', 'BKI', 'WD', 'CPT', 'SNDX', 'CSL', 'HNI', 'RBA', 'RC', 'REZI', 'LEU', 'AKRO', 'DXC', 'KN', 'AVB', 'SPG', 'ALK', 'COLD', 'FOX', 'BHE']

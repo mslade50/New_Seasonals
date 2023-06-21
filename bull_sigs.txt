@@ -1,1 +1,1 @@
-['STRA', 'MSGS', 'RNR', 'DNUT', 'SFM', 'WPM', 'NEWR', 'GDX', 'GDXJ', 'DICE', 'DICE', 'WERN', 'PSA', 'TDY', 'SEDG', 'UHAL', 'CHH', 'HUM', 'KHC', 'CALM', 'FNV', 'SLV']
+['ASH', 'RNR', 'DNUT', 'SFM', 'WPM', 'NEWR', 'GDX', 'SLV', 'PDCO', 'DICE', 'WERN', 'SEDG', 'UHAL', 'CHH', 'HUM', 'KHC', 'SI=F', 'SLV']
