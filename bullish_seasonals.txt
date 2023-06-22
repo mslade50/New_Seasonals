@@ -1,1 +1,1 @@
-['PRGO', 'EXTR', 'ODFL', 'WST', 'WST', 'LSTR', 'LSTR', 'WYNN', 'WYNN', 'PZZA', 'EPC', 'O', 'UBSI']
+['LSTR', 'WST', 'PZZA', 'WYNN', 'ODFL', 'ODFL', 'WERN', 'WERN', 'GBX', 'GBX', 'AMZN', 'AMZN', 'QCOM', 'WST', 'WST', 'ALNY', 'ALNY', 'LSTR', 'SLB', 'NCR', 'MANH', 'AXS', 'WYNN', 'WYNN', 'CME', 'SBRA', 'WAB', 'CTAS', 'CTAS', 'UPS', 'MAA', 'MAA', 'EPC', 'EPC', 'CP', 'CP', 'TCOM', 'SUI', 'SUI', 'CPT', 'AME', 'KIM', 'UBSI', 'UBSI', '^SOX', 'SPY', '^DJT', 'QQQ', 'SMH', 'XLK', 'XLY']

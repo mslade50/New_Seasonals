@@ -1,1 +1,1 @@
-['CCEP', 'ARWR', 'ADBE', 'MEOH', 'PTC', 'ODP', 'ESTE', 'RRC', 'ADBE', 'MWA', 'CECO']
+['ADBE', 'MWA', 'RRC', 'ESTE', 'SMCI', 'JNJ', 'PSQ', 'QID']
