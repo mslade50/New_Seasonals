@@ -1,1 +1,1 @@
-['ASH', 'RNR', 'DNUT', 'SFM', 'WPM', 'NEWR', 'GDX', 'SLV', 'PDCO', 'DICE', 'WERN', 'SEDG', 'UHAL', 'CHH', 'HUM', 'KHC', 'SI=F', 'SLV']
+['MKTX', 'RNR', 'DNUT', 'WEN', 'XPOF', 'WPM', 'GPK', 'NEWR', 'GDX', 'GVA', 'VECO', 'MRVL', 'ENPH', 'WERN', 'PSA', 'TDY', 'SEDG', 'IEX', 'PLD', 'UHAL', 'CHH', 'UPS', 'KHC', 'MEOH', 'SI=F']
