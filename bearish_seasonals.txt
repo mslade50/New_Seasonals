@@ -1,1 +1,1 @@
-['ADBE', 'MWA', 'RRC', 'ESTE', 'SMCI', 'JNJ', 'PSQ', 'QID']
+['JNJ', 'SMCI', 'SKY', 'CORT', 'CORT', 'LEA', 'PSQ', 'QID']
