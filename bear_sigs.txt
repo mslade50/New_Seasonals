@@ -1,1 +1,1 @@
-['DX', 'MCY', 'EGLE', 'NRG', 'CSL', 'PRCT', 'HNI', 'ACHC', 'RBA', 'REZI', 'PLMR', 'WCC', 'DXC', 'KN', 'SPG', 'ALK', 'FOX', 'BHE']
+['NRG', 'PLMR', 'AI', 'CFLT', 'FLNC', 'SGRY', 'APO', 'HURN', 'PCH', 'PRI', 'NOVT', 'TTEK', 'MATW', 'MMS', 'AXTA', 'Z', 'BCO', 'CCJ']

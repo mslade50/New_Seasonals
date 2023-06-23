@@ -1,1 +1,1 @@
-['MKTX', 'RNR', 'DNUT', 'WEN', 'XPOF', 'WPM', 'GPK', 'NEWR', 'GDX', 'GVA', 'VECO', 'MRVL', 'ENPH', 'WERN', 'PSA', 'TDY', 'SEDG', 'IEX', 'PLD', 'UHAL', 'CHH', 'UPS', 'KHC', 'MEOH', 'SI=F']
+['ED', 'IFF', 'NWN', 'BILI', 'HPK', 'DRQ', 'SSTK', 'RNR', 'BIIB', 'EDU', 'AXON', 'XPOF', 'WPM', 'TSM', 'CELH', 'ENPH', 'FR', 'PSA', 'SJW', 'SF', 'TDY', 'IEX', 'TXN', 'PLD', 'UHAL', 'HUM', 'SBUX', 'UPS', 'SRPT', 'KHC']
