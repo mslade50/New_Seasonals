@@ -1,1 +1,1 @@
-['NRG', 'PLMR', 'AI', 'CFLT', 'FLNC', 'SGRY', 'APO', 'HURN', 'PCH', 'PRI', 'NOVT', 'TTEK', 'MATW', 'MMS', 'AXTA', 'Z', 'BCO', 'CCJ']
+['NRG', 'PLMR']
