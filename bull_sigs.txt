@@ -1,1 +1,1 @@
-['ED', 'IFF', 'NWN', 'BILI', 'HPK', 'DRQ', 'SSTK', 'RNR', 'BIIB', 'EDU', 'AXON', 'XPOF', 'WPM', 'BXSL', 'CELH', 'CELH', 'ENPH', 'FR', 'PSA', 'SJW', 'SF', 'TDY', 'IEX', 'TXN', 'PLD', 'UHAL', 'HUM', 'SBUX', 'UPS', 'SRPT', 'KHC']
+['HCP', 'KYMR', 'PTCT', 'BAYRY', 'ACLX', 'FSLR', 'EDU', 'AXON', 'XPOF', 'AKRO', 'WPM', 'FOUR', 'MLTX', 'MLTX', 'ENPH', 'ORA', 'SJW', 'PLD', 'UHAL', 'HUM', 'SBUX', 'UPS', 'SRPT', 'SUPN', 'RMD', 'COLL']

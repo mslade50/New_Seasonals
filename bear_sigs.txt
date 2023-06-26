@@ -1,1 +1,1 @@
-['NRG', 'PLMR']
+['TREX', 'NRG', 'TRP', 'PLMR', 'NRG', 'EPR', 'KDNY']
