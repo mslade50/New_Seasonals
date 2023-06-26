@@ -1,1 +1,1 @@
-['JNJ', 'SMCI', 'SKY', 'CORT', 'CORT', 'LEA', 'PSQ', 'QID']
+['CORT', 'PSQ', 'QID', 'LEA', 'LEA', 'HOLI', 'HOLI', 'PSQ']
