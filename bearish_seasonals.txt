@@ -1,1 +1,1 @@
-['CORT', 'PSQ', 'QID', 'LEA', 'LEA', 'HOLI', 'HOLI', 'PSQ']
+['LEA', 'HOLI', 'CORT', 'CORT', 'LEA', 'PSQ']
