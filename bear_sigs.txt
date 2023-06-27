@@ -1,1 +1,1 @@
-['TREX', 'NRG', 'TRP', 'PLMR', 'NRG', 'EPR', 'KDNY']
+['DX', 'AFCG', 'PMT', 'PCH', 'HII', 'TRU', 'LRCX', 'TMHC', 'ARMK', 'ONTO', 'ETN', 'BWXT', 'CELH', 'KLIC', 'INTT', 'CVGI', 'VTOL', 'DUST', 'SLG', 'NXDT', 'SWX', 'VIAV', 'ORC', 'AAL', 'AVB', 'COLD', 'EPR', 'RCL', 'CIR']

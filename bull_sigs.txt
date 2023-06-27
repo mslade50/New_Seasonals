@@ -1,1 +1,1 @@
-['HCP', 'KYMR', 'PTCT', 'BAYRY', 'ACLX', 'FSLR', 'EDU', 'AXON', 'XPOF', 'AKRO', 'WPM', 'FOUR', 'MLTX', 'MLTX', 'ENPH', 'ORA', 'SJW', 'PLD', 'UHAL', 'HUM', 'SBUX', 'UPS', 'SRPT', 'SUPN', 'RMD', 'COLL']
+['TSEM', 'RE', 'PAAS', 'ALE', 'GDX', 'GDXJ', 'ACLX', 'FSLR', 'AKRO', 'WPM', 'PERI', 'FOUR', 'AEL', 'AEL', 'MLTX', 'ERII', 'ENPH', 'ORA', 'SJW', 'HUM', 'SBLK', 'SUPN', 'RMD']
