@@ -593,26 +593,39 @@ def seasonals_chart(tick):
 	fig2.update_xaxes(showgrid=False)
 	fig2.update_yaxes(showgrid=False)
 	
-	if cycle_avg > 35:
-		st.plotly_chart(fig)
-		st.plotly_chart(fig2)
+
+	st.plotly_chart(fig)
+	st.plotly_chart(fig2)
 
 # Download and parse the content of the text files from the GitHub repository
 base_url = "https://raw.githubusercontent.com/mslade50/New_seasonals/main/"
-file_names = ["bull_sigs.txt"]
+file_names = ["bull_sigs.txt", "bull_filter.txt"]
 
 megas_list = []
+bull_filter = []
 for file_name in file_names:
     url = base_url + file_name
     response = requests.get(url)
     if response.status_code == 200:
         content = response.text.strip()
         tickers = content.strip("[]").split(", ")
-        for ticker in tickers:
-            megas_list.append(ticker.strip("'"))
+        if file_name == "bull_sigs.txt":
+            for ticker in tickers:
+                megas_list.append(ticker.strip("'"))
+        elif file_name == "bull_filter.txt":
+            for ticker in tickers:
+                bull_filter.append(ticker.strip("'"))
+
+# Convert megas_list and bull_filter to sets to easily find intersection (common elements)
+megas_set = set(megas_list)
+bull_filter_set = set(bull_filter)
+
+# Intersection of megas_set and bull_filter_set
+intersection_list = list(megas_set & bull_filter_set)
 
 # Remove duplicates and empty strings
-megas_list = [stock for stock in set(megas_list) if stock]
+intersection_list = [stock for stock in set(intersection_list) if stock]
+
 
 # Run the script with the updated megas_list
 for stock in megas_list:
