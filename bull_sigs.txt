@@ -1,1 +1,1 @@
-['TSEM', 'RE', 'PAAS', 'ALE', 'GDX', 'GDXJ', 'ACLX', 'FSLR', 'AKRO', 'WPM', 'PERI', 'FOUR', 'AEL', 'AEL', 'MLTX', 'ERII', 'ENPH', 'ORA', 'SJW', 'HUM', 'SBLK', 'SUPN', 'RMD']
+['NVDA', 'LEGN', 'THG', 'RE', 'CB', 'KYMR', 'ED', 'XEL', 'ETR', 'ALE', 'AEP', 'IDA', 'SR', 'KDP', 'INCY', 'BOWL', 'ACLX', 'FCFS', 'LYTS', 'JGGC', 'SIGI', 'PRGS', 'AKRO', 'WPM', 'PERI', 'LGND', 'HROW', 'BZH', 'CIR', 'ENPH', 'ORA', 'SJW', 'ASLE', 'HUM', 'SBLK', 'SUPN', 'COLL']

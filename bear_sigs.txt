@@ -1,1 +1,1 @@
-['DX', 'AFCG', 'PMT', 'PCH', 'HII', 'TRU', 'LRCX', 'TMHC', 'ARMK', 'ONTO', 'ETN', 'BWXT', 'CELH', 'KLIC', 'INTT', 'CVGI', 'VTOL', 'DUST', 'SLG', 'NXDT', 'SWX', 'VIAV', 'ORC', 'AAL', 'AVB', 'COLD', 'EPR', 'RCL', 'CIR']
+['CVNA', 'FIVN', 'DX', 'PMT', 'KREF', 'BILL', 'GM', 'CSX', 'JOE', 'SNCY', 'TMHC', 'ARMK', 'ONTO', 'SSNC', 'EPR', 'CLH', 'CUBI', 'LMB', 'XLY', 'NXDT', 'LBRDA', 'LBRDK', 'HRT', 'VIAV', 'ORC', 'BXMT', 'ZM', 'AAL', 'BCSF', 'EPR', 'KDNY', 'DAL', 'VMC', 'CIR']
