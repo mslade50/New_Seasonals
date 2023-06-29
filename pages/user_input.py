@@ -412,7 +412,13 @@ def seasonals_chart(tick):
 	total_avg=((all_avg+true_cycle_rnk)/2).round(1) 
 	trailing_21_rank=dr21_rank.round(1)
 	trailing_5_rank=dr5_rank.round(1)
-
+	
+	summary=pd.concat([df_mt_5d[length],df_mt_10d[length],df_mt_21d[length]],axis=1,keys=["f5","f10","f21"])
+	summary['Years']=years_mid
+	summary=summary.dropna()
+	percent_pos_5=round(len(summary.query('f5 > 0'))/len(summary.axes[0]),3)
+	percent_pos_10=round(len(summary.query('f10 > 0'))/len(summary.axes[0]),3)
+	percent_pos_21=round(len(summary.query('f21 > 0'))/len(summary.axes[0]),3)
 
 	if ticker == '^GSPC':
 		ticker2 = 'SPX'
@@ -593,6 +599,29 @@ def seasonals_chart(tick):
 	fig2.update_xaxes(showgrid=False)
 	fig2.update_yaxes(showgrid=False)
 
+	fig3 = go.Figure()
+	# Create table trace
+	trace = go.Table(
+	    header=dict(values=list(summary.columns),
+	                fill_color='paleturquoise',
+	                align='left'),
+	    cells=dict(values=[summary["f5"], summary["f10"], summary["f21"], summary["Years"]],
+	               fill_color='lavender',
+	               align='left'))
+	
+	# Add trace to the figure
+	fig3.add_trace(trace)
+	
+	# Show the figure
+	st.plotly_chart(fig3)
+	
+	# Printing the statistics
+	st.markdown(f'''
+	Means...5d {summary["f5"].mean().round(2)},10d {summary["f10"].mean().round(2)},21d {summary["f21"].mean().round(2)}
+	Medians...5d {summary["f5"].median().round(2)},10d {summary["f10"].median().round(2)},21d {summary["f21"].median().round(2)}
+	Percent+...5d {round(percent_pos_5*100,1)}% 10d {round(percent_pos_10*100,1)}% 21d {round(percent_pos_21*100,1)}%
+	''')
+	
 	st.plotly_chart(fig)
 	st.plotly_chart(fig2)
 
