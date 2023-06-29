@@ -603,27 +603,26 @@ def seasonals_chart(tick):
 	# Create table trace
 	trace = go.Table(
 	    header=dict(values=list(summary.columns),
-	                fill_color='paleturquoise',
-	                align='left'),
+	                fill_color='black',
+	                align='left',
+		        font=dict(color='white'),
 	    cells=dict(values=[summary["f5"], summary["f10"], summary["f21"], summary["Years"]],
-	               fill_color='lavender',
-	               align='left'))
+	               fill_color='black',
+	               align='left',
+		       font=dict(color='white'))
 	
 	# Add trace to the figure
 	fig3.add_trace(trace)
-	
-	# Show the figure
-	st.plotly_chart(fig3)
-	
 	# Printing the statistics
 	st.markdown(f'''
-	Means...5d {summary["f5"].mean().round(2)},10d {summary["f10"].mean().round(2)},21d {summary["f21"].mean().round(2)}
-	Medians...5d {summary["f5"].median().round(2)},10d {summary["f10"].median().round(2)},21d {summary["f21"].median().round(2)}
-	Percent+...5d {round(percent_pos_5*100,1)}% 10d {round(percent_pos_10*100,1)}% 21d {round(percent_pos_21*100,1)}%
+	Means...5d {summary["f5"].mean().round(2)},10d {summary["f10"].mean().round(2)},21d {summary["f21"].mean().round(2)}\n\n
+	Medians...5d {summary["f5"].median().round(2)},10d {summary["f10"].median().round(2)},21d {summary["f21"].median().round(2)}\n\n
+	Percent+...5d {round(percent_pos_5*100,1)}% 10d {round(percent_pos_10*100,1)}% 21d {round(percent_pos_21*100,1)}%\n\n
 	''')
 	
 	st.plotly_chart(fig)
 	st.plotly_chart(fig2)
+	st.plotly_chart(fig3)
 
 if st.button('Plot'):
 	try:
