@@ -1,1 +1,1 @@
-['CORT', 'LEA', 'PSQ', 'CORT', 'IPGP', 'IPGP', 'TEL', 'AVGO', 'AVGO', 'HOLI', 'PFE', 'PFE', 'GBCI', 'EURUSD=X']
+['CORT', 'LEA', 'PSQ', 'CORT', 'IPGP', 'IPGP', 'TEL', 'AVGO', 'AVGO', 'HOLI', 'PFE', 'PFE', 'GBCI', 'EURUSD=X', 'EURUSD=X', 'EURCHF=X', 'EURCHF=X']
