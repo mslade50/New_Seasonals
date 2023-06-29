@@ -605,11 +605,11 @@ def seasonals_chart(tick):
 	    header=dict(values=list(summary.columns),
 	                fill_color='black',
 	                align='left',
-		        font=dict(color='white'),
+		        font=dict(color='white')),
 	    cells=dict(values=[summary["f5"], summary["f10"], summary["f21"], summary["Years"]],
 	               fill_color='black',
 	               align='left',
-		       font=dict(color='white'))
+		       font=dict(color='white')))
 	
 	# Add trace to the figure
 	fig3.add_trace(trace)
