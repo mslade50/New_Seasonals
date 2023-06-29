@@ -1,1 +1,1 @@
-['CVNA', 'FIVN', 'DX', 'PMT', 'KREF', 'BILL', 'GM', 'CSX', 'JOE', 'SNCY', 'TMHC', 'ARMK', 'ONTO', 'SSNC', 'EPR', 'CLH', 'CUBI', 'LMB', 'XLY', 'NXDT', 'LBRDA', 'LBRDK', 'HRT', 'VIAV', 'ORC', 'BXMT', 'ZM', 'AAL', 'BCSF', 'EPR', 'KDNY', 'DAL', 'VMC', 'CIR']
+['NXDT', 'DEA', 'LBRDA', 'LBRDK', 'SWX', 'HRT', 'ORC', 'JKHY', 'CTRA', 'AVB', 'COLD', 'CLB', 'KDNY', 'GBX', 'VMC', 'CIR', 'EMB']

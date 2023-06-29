@@ -1,1 +1,1 @@
-['NVDA', 'LEGN', 'THG', 'RE', 'CB', 'KYMR', 'ED', 'XEL', 'ETR', 'ALE', 'AEP', 'IDA', 'SR', 'KDP', 'INCY', 'BOWL', 'ACLX', 'FCFS', 'LYTS', 'JGGC', 'SIGI', 'PRGS', 'AKRO', 'WPM', 'PERI', 'LGND', 'HROW', 'BZH', 'CIR', 'ENPH', 'ORA', 'SJW', 'ASLE', 'HUM', 'SBLK', 'SUPN', 'COLL']
+['NVDA', 'LEGN', 'ACLX', 'FCFS', 'LYTS', 'JGGC', 'SIGI', 'PRGS', 'AKRO', 'WPM', 'PERI', 'LGND', 'HROW', 'GBX', 'ENPH', 'ORA', 'TR', 'SJW', 'HUM', 'SBLK', 'SUPN']
