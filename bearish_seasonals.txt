@@ -1,1 +1,1 @@
-['CORT', 'LEA', 'PSQ', 'CORT', 'IPGP', 'IPGP', 'TEL', 'AVGO', 'AVGO', 'HOLI', 'PFE', 'PFE', 'GBCI', 'EURUSD=X', 'EURUSD=X', 'EURCHF=X', 'EURCHF=X']
+['PFE', 'CORT', 'HOLI', 'GBCI', 'IPGP', 'AVGO', 'POOL', 'BECN', 'EVRI', 'EVRI', 'ATSG', 'ATSG', 'ITT', 'ITT', 'WCC', 'WCC', 'INSM', 'EQNR', 'TEL', 'TEL', 'AVGO', 'AVGO', 'E', 'AWI', 'CM', 'BNS', 'PWR', 'CRI', 'DLB', 'HUBB', 'IEP', 'OI', 'SIMO', 'SIMO', 'BDX', 'PFE', 'PFE', 'EURUSD=X', 'EURUSD=X', 'EURCHF=X', 'EURCHF=X', 'FXI', 'FXI', 'VEA']

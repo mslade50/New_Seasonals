@@ -1,1 +1,1 @@
-['HOG', 'CP', 'GILD', 'MU', 'CSCO', 'SBS', 'ALNY', '^NDX', 'EPC', 'ROIC', 'BKNG', 'HXL', 'CRUS', 'CEF', 'USM', '^SOX', 'PHG', 'CTAS', 'SAVA', '^DJI', 'SPY', 'BK', 'SKT', 'GBX', 'CROX', 'IT', 'RAMP', 'PKG', 'AKR', 'DIA', 'INT', 'CNI', 'BMRN', 'UPS', 'CROX', 'CROX', 'SAVA', 'SAVA', 'ROIC', 'HOG', 'SPG', 'CSCO', 'USM', 'KIM', 'SI=F', 'SI=F', 'USDNOK=X', 'USDNOK=X', 'USDTWD=X', 'USDSEK=X', 'USDSEK=X']
+['HOG', 'CSCO', 'USM', 'ROIC', 'CROX', 'SPG', 'SAVA', 'KIM', 'SI=F', 'CROX', 'NNN', 'SI=F', 'USDNOK=X', 'USDNOK=X', 'USDTWD=X', 'USDSEK=X', 'USDSEK=X']
