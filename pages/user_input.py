@@ -613,17 +613,17 @@ def seasonals_chart(tick):
 	
 	# Add trace to the figure
 	fig3.add_trace(trace)
+
+	
+	st.plotly_chart(fig)
+	st.plotly_chart(fig2)
+	st.plotly_chart(fig3)
 	# Printing the statistics
 	st.markdown(f'''
 	Means...5d {summary["f5"].mean().round(2)},10d {summary["f10"].mean().round(2)},21d {summary["f21"].mean().round(2)}\n\n
 	Medians...5d {summary["f5"].median().round(2)},10d {summary["f10"].median().round(2)},21d {summary["f21"].median().round(2)}\n\n
 	Percent+...5d {round(percent_pos_5*100,1)}% 10d {round(percent_pos_10*100,1)}% 21d {round(percent_pos_21*100,1)}%\n\n
 	''')
-	
-	st.plotly_chart(fig)
-	st.plotly_chart(fig2)
-	st.plotly_chart(fig3)
-
 if st.button('Plot'):
 	try:
 		seasonals_chart(stock)
