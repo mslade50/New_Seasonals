@@ -1,1 +1,1 @@
-['NXDT', 'DEA', 'LBRDA', 'LBRDK', 'SWX', 'HRT', 'ORC', 'JKHY', 'CTRA', 'AVB', 'COLD', 'CLB', 'KDNY', 'GBX', 'VMC', 'CIR', 'EMB']
+['SLG', 'JAMF', 'DEA', 'LBRDA', 'LBRDK', 'SWX', 'HRT', 'ORC', 'JKHY', 'BXMT', 'ALRM', 'CTRA', 'NXDT', 'AVB', 'COLD', 'ECL', 'GBPUSD=X', 'TWST', 'SNBR', 'DAL', 'GBX', 'MLM', 'VMC', 'CIR']

@@ -1,1 +1,1 @@
-['NVDA', 'LEGN', 'ACLX', 'FCFS', 'LYTS', 'JGGC', 'SIGI', 'PRGS', 'AKRO', 'WPM', 'PERI', 'LGND', 'HROW', 'GBX', 'ENPH', 'ORA', 'TR', 'SJW', 'HUM', 'SBLK', 'SUPN']
+['LEGN', 'BLCO', 'ACLX', 'FCFS', 'JGGC', 'SIGI', 'AKRO', 'WPM', 'PERI', 'LGND', 'BLCO', 'BLCO', 'ORA', 'WERN', 'SJW', 'HUM', 'SUPN', 'COLL']
