@@ -626,7 +626,7 @@ intersection_list = list(megas_set & bear_filter_set)
 intersection_list = [stock for stock in set(intersection_list) if stock]
 
 # Run the script with the updated megas_list
-for stock in megas_list:
+for stock in intersection_list:
 	try:
 		seasonals_chart(stock)
 	except:
