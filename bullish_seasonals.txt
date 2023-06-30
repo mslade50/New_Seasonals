@@ -1,1 +1,1 @@
-['HOG', 'CSCO', 'USM', 'ROIC', 'CROX', 'SPG', 'SAVA', 'KIM', 'SI=F', 'CROX', 'NNN', 'SI=F', 'USDNOK=X', 'USDNOK=X', 'USDTWD=X', 'USDSEK=X', 'USDSEK=X']
+['USDSEK=X', 'USDNOK=X', 'NNN', 'CROX', 'SI=F', '^VIX', 'USDSEK=X', 'YANG', 'YANG']
