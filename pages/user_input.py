@@ -601,13 +601,17 @@ def seasonals_chart(tick):
 
 	fig3 = go.Figure()
 	# Create table trace
+	colors_f5 = ['lightgreen' if val >= 0 else 'lightred' for val in summary['f5']]
+	colors_f10 = ['lightgreen' if val >= 0 else 'lightred' for val in summary['f10']]
+	colors_f21 = ['lightgreen' if val >= 0 else 'lightred' for val in summary['f21']]
+
 	trace = go.Table(
 	    header=dict(values=list(summary.columns),
 	                fill_color='black',
 	                align='left',
 		        font=dict(color='white')),
 	    cells=dict(values=[summary["f5"], summary["f10"], summary["f21"], summary["Years"]],
-	               fill_color='black',
+	               fill_color=[colors_f5, colors_f10, colors_f21, 'black'],
 	               align='left',
 		       font=dict(color='white')))
 	
