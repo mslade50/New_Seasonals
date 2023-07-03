@@ -1,1 +1,1 @@
-['LEGN', 'BLCO', 'ACLX', 'FCFS', 'JGGC', 'SIGI', 'AKRO', 'WPM', 'PERI', 'LGND', 'BLCO', 'BLCO', 'ORA', 'WERN', 'SJW', 'HUM', 'SUPN', 'COLL']
+['BHVN', 'ACLX', 'FCFS', 'JGGC', 'SIGI', 'AKRO', 'PERI', 'LGND', 'ORA', 'SJW', 'HUM', 'SBLK', 'SUPN', 'RMD', 'COLL', 'TRUP']
