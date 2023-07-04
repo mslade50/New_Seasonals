@@ -1,1 +1,1 @@
-['BHVN', 'ACLX', 'FCFS', 'JGGC', 'SIGI', 'AKRO', 'PERI', 'LGND', 'ORA', 'SJW', 'HUM', 'SBLK', 'SUPN', 'RMD', 'COLL', 'TRUP']
+['BHVN', 'ACLX', 'FCFS', 'JGGC', 'SIGI', 'AKRO', 'PERI', 'LGND', 'ORA', 'SJW', 'HUM', 'SBLK', 'SUPN', 'RMD', 'COLL', 'USDCAD=X', 'TRUP']
