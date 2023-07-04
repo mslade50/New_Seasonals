@@ -1,1 +1,1 @@
-['YANG', 'USDSEK=X', 'USDNOK=X', 'SI=F', '^VIX', 'IDXX', 'USDSEK=X', 'YANG']
+['YANG', 'YANG']
