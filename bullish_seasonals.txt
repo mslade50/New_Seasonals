@@ -1,1 +1,1 @@
-['YANG', 'GBPUSD=X']
+['GBPUSD=X', 'ICLR']
