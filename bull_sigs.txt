@@ -1,1 +1,1 @@
-['BHVN', 'RLI', 'BLCO', 'ACLX', 'FCFS', 'LYTS', 'JGGC', 'SIGI', 'HOLX', 'ATR', 'AKRO', 'WPM', 'PERI', 'LGND', 'ENPH', 'WERN', 'TR', 'SJW', 'HUM', 'BWA', 'SBLK', 'SUPN', 'COLL', 'FGEN']
+['BHVN', 'BLCO', 'HCA', 'CELH', 'IMGN', 'JGGC', 'HOLX', 'AXON', 'MRK', 'HROW', 'ORA', 'WERN', 'SOUHY', 'ASLE', 'HUM', 'SBUX', 'SBLK', 'SUPN', 'WPM', 'FGEN', 'NFE', 'RNGR', 'CUTR', 'DB', 'ATR', 'DEN', 'TTGT', 'MAXN', 'LVS', 'EVRI', 'LNTH', 'MRVI', 'ITOS', 'EFA', 'IEFA']

@@ -1,1 +1,1 @@
-['SWX', 'SLG', 'DEA', 'HR', 'SWX', 'PEB', 'CPT', 'JKHY', 'BXMT', 'VZ', 'ALRM', 'CTRA', 'RCUS', 'NCLH', 'NXDT', 'AVB', 'CUK', 'CCL', 'UDR', 'COLD', 'GBPUSD=X', 'DWAC', 'RIVN', 'DAL', 'GBX', 'CIR', 'SYF', 'BWA', 'CAKE', 'EMN', 'TOELY', 'IJR']
+['DEI', 'VNO', 'DEA', 'HIW', 'SWX', 'HRT', 'PEB', 'CPT', 'BPOP', 'BXMT', 'MOH', 'SMTC', 'CTRA', 'GLNG', 'SM', 'RCUS', 'DXC', 'NCLH', 'NXDT', 'AVB', 'CUK', 'CCL', 'BCSF', 'ECL', 'CLB', 'GBPUSD=X', 'IPI', 'GBX', 'CIR', 'RIVN']
