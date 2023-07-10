@@ -1,1 +1,1 @@
-['VNO', 'DEA', 'HIW', 'SWX', 'PEB', 'CPT', 'BPOP', 'BXMT', 'SMTC', 'CTRA', 'GLNG', 'SM', 'DXC', 'NXDT', 'AVB', 'CUK', 'CCL', 'BCSF', 'CLB', 'GBPUSD=X', 'SAVE', 'GBX', 'CIR']
+['KREF', 'TWST', 'JAMF', 'VNO', 'DEA', 'HIW', 'SWX', 'PEB', 'CPT', 'MOH', 'SMTC', 'BAX', 'CTRA', 'GLNG', 'SM', 'RCUS', 'DXC', 'NCLH', 'NXDT', 'SSYS', 'AVB', 'CUK', 'CCL', 'COLD', 'BCSF', 'SHO', 'GO', 'CLB', 'GBPUSD=X', 'LUV', 'GBX', 'CIR', 'RIVN', 'HELE', 'L']
