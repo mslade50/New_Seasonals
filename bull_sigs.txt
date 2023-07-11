@@ -1,1 +1,1 @@
-['NVDA', 'BHVN', 'BLCO', 'HCA', 'CELH', 'IMGN', 'HOLX', 'MRK', 'WERN', 'SOUHY', 'ASLE', 'HUM', 'SBLK', 'SUPN', 'WPM', 'COLL', 'FHI', 'FGEN', 'HOLX', 'NTRA']
+['BHVN', 'RLI', 'BLCO', 'HCA', 'CELH', 'IMGN', 'HOLX', 'MRK', 'HROW', 'ATVI', 'NSIT', 'VRDN', 'WERN', 'ASLE', 'HUM', 'SBLK', 'WPM', 'COLL', 'FGEN', 'ALL']
