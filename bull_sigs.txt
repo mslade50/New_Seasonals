@@ -1,1 +1,1 @@
-['BHVN', 'RLI', 'BLCO', 'HCA', 'CELH', 'IMGN', 'HOLX', 'MRK', 'HROW', 'ATVI', 'NSIT', 'VRDN', 'WERN', 'ASLE', 'HUM', 'SBLK', 'WPM', 'COLL', 'FGEN', 'ALL']
+['BLCO', 'HCA', 'CELH', 'HOLX', 'HROW', 'VRDN', 'WERN', 'RVNC', 'ASLE', 'COLL', 'USDCAD=X', 'FGEN', 'CVGW']

@@ -1,1 +1,1 @@
-['ZI', 'TWST', 'JAMF', 'DEI', 'VNO', 'DEA', 'BXP', 'HIW', 'CTO', 'CPT', 'BPOP', 'MOH', 'ZM', 'BAX', 'CHK', 'GLNG', 'CL=F', 'DXC', 'NCLH', 'NXDT', 'SSYS', 'OHI', 'CUK', 'CCL', 'UDR', 'ECVT', 'COLD', 'BCSF', 'SHO', 'KAR', 'ECL', 'KMT', 'GO', 'CLB', 'LAD', 'LUV', 'GBX', 'CIR', 'PRCT']
+['MCB', 'ZI', 'DEI', 'CTO', 'UTG', 'BPOP', 'PPC', 'BNL', 'ZM', 'BAX', 'CL=F', 'NXDT', 'SSYS', 'OHI', 'ECVT', 'COLD', 'BCSF', 'ECL', 'KMT', 'GO', 'CLB', 'EURUSD=X', 'LSXMK', 'GBX', 'CIR', 'DPZ', 'CSCO', 'TPVG']
