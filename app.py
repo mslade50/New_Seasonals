@@ -1,6 +1,5 @@
-User
 import streamlit as st
-from pages import bull_signals, indicies, positions, single_names, currency_pairs, commodities, watchlist, bullish_seasonals, bearish_seasonals, user_input, filtered_bull, filtered_bear
+from pages import bull_signals, indicies, variance_sim, currency_pairs, commodities, bullish_seasonals, bearish_seasonals, user_input, filtered_bull, filtered_bear
 
 st.set_page_config(page_title="Multi-Page Dashboard", page_icon=":chart_with_upwards_trend:")
 
@@ -12,13 +11,9 @@ def indicies_page():
     st.sidebar.markdown("# Indices")
     indicies.indicies_app()
 
-def positions_page():
-    st.sidebar.markdown("# Positions")
-    positions.positions_app()
-
-def single_names_page():
-    st.sidebar.markdown("# Single Names")
-    single_names.single_names_app()
+def variance_sim_page():
+    st.sidebar.markdown("# Variance Simulation")
+    variance_sim.variance_sim_app()
 
 def currency_pairs_page():
     st.sidebar.markdown("# Currency Pairs")
@@ -27,10 +22,6 @@ def currency_pairs_page():
 def commodities_page():
     st.sidebar.markdown("# Commodities")
     commodities.commodities_app()
-
-def watchlist_page():
-    st.sidebar.markdown("# Watchlist")
-    watchlist.watchlist_app()
 
 def bullish_seasonals_page():
     st.sidebar.markdown("# Bullish Seasonals")
@@ -55,15 +46,13 @@ def filtered_bear_page():
 page_names_to_funcs = {
     "Daily Signals": bull_signals_page,
     "Indices": indicies_page,
-    "Positions": positions_page,
-    "Single Names": single_names_page,
+    "Variance Simulation": variance_sim_page,  # New page
     "Currency Pairs": currency_pairs_page,
     "Commodities": commodities_page,
-    "Watchlist": watchlist_page,
     "Bullish Seasonals": bullish_seasonals_page,
     "Bearish Seasonals": bearish_seasonals_page,
     "User Input": user_input_page,
-    "Filtered Bull": filtered_bull_page,  # New line
-    "Filtered Bear": filtered_bear_page,  # New line
+    "Filtered Bull": filtered_bull_page,
+    "Filtered Bear": filtered_bear_page,
 }
 
