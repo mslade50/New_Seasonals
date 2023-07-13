@@ -1,1 +1,1 @@
-['BLCO', 'HCA', 'CELH', 'HOLX', 'HROW', 'VRDN', 'WERN', 'RVNC', 'ASLE', 'COLL', 'USDCAD=X', 'FGEN', 'CVGW']
+['RLI', 'HCA', 'CELH', 'IMGN', 'HOLX', 'HROW', 'CAMT', 'WERN', 'COLL', 'USDCAD=X', 'FGEN']

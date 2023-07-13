@@ -1,1 +1,1 @@
-['MCB', 'ZI', 'DEI', 'CTO', 'UTG', 'BPOP', 'PPC', 'BNL', 'ZM', 'BAX', 'CL=F', 'NXDT', 'SSYS', 'OHI', 'ECVT', 'COLD', 'BCSF', 'ECL', 'KMT', 'GO', 'CLB', 'EURUSD=X', 'LSXMK', 'GBX', 'CIR', 'DPZ', 'CSCO', 'TPVG']
+['ZI', 'DEI', 'HR', 'HRT', 'ORC', 'UTG', 'JKHY', 'ZM', 'VTLE', 'CL=F', 'NXDT', 'OHI', 'UDR', 'ECVT', 'COLD', 'BCSF', 'EXPE', 'IONS', 'ECL', 'KMT', 'GO', 'TNL', 'CLB', 'LSXMA', 'LSXMK', 'RIOT', 'GBX', 'CIR', 'ESMT', 'GPRE']
