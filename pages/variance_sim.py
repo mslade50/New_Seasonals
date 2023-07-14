@@ -67,6 +67,12 @@ def monte_carlo_app():
             average_realized_EV = np.mean(realized_EVs) / num_trials  # Average profit or loss per trial
             average_realized_EV_rounded = round(average_realized_EV, 2)
             st.write(f"Realized Expected Value (EV) per trade: ${average_realized_EV_rounded}")
+
+            end_values = [path[-1] for path in simulation]
+            mean_return = np.mean(end_values)
+            median_return = np.median(end_values)
+            st.write(f"Mean Total Return of Simulation: ${mean_return}")
+            st.write(f"Median Total Return of Simulation: ${median_return}")
             
             # Create DataFrame for Plotly
             df = pd.DataFrame(simulation).T
