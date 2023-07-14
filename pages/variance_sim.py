@@ -69,8 +69,8 @@ def monte_carlo_app():
             st.write(f"Realized Expected Value (EV) per trade: ${average_realized_EV_rounded}")
 
             end_values = [path[-1] for path in simulation]
-            mean_return = np.mean(end_values)
-            median_return = np.median(end_values)
+            mean_return = np.round(np.mean(end_values))
+            median_return = np.round(np.median(end_values))
             st.write(f"Mean Total Return of Simulation: ${mean_return}")
             st.write(f"Median Total Return of Simulation: ${median_return}")
             
