@@ -1,1 +1,1 @@
-['ZI', 'DEI', 'HR', 'HRT', 'ORC', 'UTG', 'JKHY', 'ZM', 'VTLE', 'CL=F', 'NXDT', 'OHI', 'UDR', 'ECVT', 'COLD', 'BCSF', 'EXPE', 'IONS', 'ECL', 'KMT', 'GO', 'TNL', 'CLB', 'LSXMA', 'LSXMK', 'RIOT', 'GBX', 'CIR', 'ESMT', 'GPRE']
+['XMTR', 'ZI', 'CTO', 'ORC', 'UTG', 'JKHY', 'TBI', 'MOH', 'CL=F', 'NXDT', 'OHI', 'UDR', 'ECVT', 'COLD', 'EXPE', 'ECL', 'GO', 'RH', 'CIR', 'ACAD', 'NS', 'FNB', 'BPOP', 'SBCF', 'MXL', 'FBP', 'AVNT', 'STLA', 'DINO', 'EOG', 'QFIN', 'TCOM', 'ALV', 'BABA', 'HYG', 'EFA', 'KWEB', 'JNK', 'IEFA', 'SJNK', 'USHY', 'KBE']
