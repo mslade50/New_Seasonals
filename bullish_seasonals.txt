@@ -1,1 +1,1 @@
-['USDTWD=X', 'USDKRW=X', 'IEF']
+['IEF', 'USDNOK=X', 'USDNOK=X', 'USDTWD=X', 'USDKRW=X', 'IEF']
