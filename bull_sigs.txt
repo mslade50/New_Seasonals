@@ -1,1 +1,1 @@
-['CELH', 'AVDL', 'CCOI', 'AXON', 'HROW', 'AEHR', 'TTD', 'ACAD', 'AEHR', 'WERN', 'SUPN', 'USDCAD=X', 'FGEN', 'YANG']
+['BHVN', 'HCA', 'AVDL', 'HOLX', 'CCOI', 'HROW', 'BKI', 'BBIO', 'ARGX', 'ARGX', 'WERN', 'APLS', 'SBLK', 'SUPN', 'EPC', 'COLL', 'USDCAD=X', 'FGEN', 'RELL']
