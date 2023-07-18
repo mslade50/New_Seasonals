@@ -1,1 +1,1 @@
-['JKHY', 'CTO', 'HRT', 'ORC', 'UTG', 'JKHY', 'MOH', 'CL=F', 'NXDT', 'OHI', 'COLD', 'EXPE', 'ECL', 'GO', 'BKI', 'BBIO', 'CIR', 'ACAD', 'LVMUY']
+['GSBD', 'FIS', 'ADM', 'DEI', 'MCB', 'CTO', 'HRT', 'ORC', 'OHI', 'TSLX', 'ECVT', 'COLD', 'EXPE', 'KMT', 'TNL', 'CLB', 'VLYPP', 'SCHW', 'AHCO', 'BBIO', 'NPO', 'CCAP', 'CIR', 'YELP', 'ACAD', 'LSI']

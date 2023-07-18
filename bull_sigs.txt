@@ -1,1 +1,1 @@
-['BHVN', 'HCA', 'AVDL', 'HOLX', 'CCOI', 'HROW', 'BKI', 'BBIO', 'ARGX', 'ARGX', 'WERN', 'APLS', 'SBLK', 'SUPN', 'EPC', 'COLL', 'USDCAD=X', 'FGEN', 'RELL']
+['BLCO', 'CELH', 'AVDL', 'CCOI', 'AXON', 'HROW', 'WERN', 'SBLK', 'SUPN', 'EPC', 'USDCAD=X', 'FGEN', 'STT']
