@@ -1,1 +1,1 @@
-['BLCO', 'CELH', 'AVDL', 'CCOI', 'AXON', 'HROW', 'WERN', 'SBLK', 'SUPN', 'EPC', 'USDCAD=X', 'FGEN', 'STT']
+['BLCO', 'OMC', 'ARGX', 'SBLK', 'USDCAD=X', 'FGEN', 'HWM', 'TT', 'ES']

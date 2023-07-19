@@ -1,1 +1,1 @@
-['GSBD', 'FIS', 'ADM', 'DEI', 'MCB', 'CTO', 'HRT', 'ORC', 'OHI', 'TSLX', 'ECVT', 'COLD', 'EXPE', 'KMT', 'TNL', 'CLB', 'VLYPP', 'SCHW', 'AHCO', 'BBIO', 'NPO', 'CCAP', 'CIR', 'YELP', 'ACAD', 'LSI']
+['DEI', 'JBGS', 'KRC', 'MCB', 'HR', 'CTO', 'MTB', 'UTG', 'BNL', 'ES', 'RGP', 'FBK', 'PRO', 'TSLX', 'PRG', 'ECVT', 'EXPE', 'ES', 'KMT', 'TNL', 'CLB', 'VLYPP', 'MCB', 'SCHW', 'USB', 'INBK', 'AHCO', 'AMAL', 'SNBR', 'BBIO', 'CIR', 'YELP', 'ACVA', 'IMVT', 'PSMT']
