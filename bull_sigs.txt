@@ -1,1 +1,1 @@
-['BHVN', 'BLCO', 'BZH', 'IMGN', 'OMC', 'FANUY', 'CCOI', 'AMX', 'TARS', 'LEGN', 'SBLK', 'EPC', 'FGEN']
+['NVDA', 'BLCO', 'IMGN', 'FANUY', 'CCOI', 'AMX', 'SGML', 'ACGL', 'CTAS', 'FOR', 'VRTX', 'HTH', 'EPC', 'FGEN', 'ICUI']
