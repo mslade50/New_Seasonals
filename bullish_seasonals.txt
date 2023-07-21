@@ -1,1 +1,1 @@
-['USDZAR=X', 'USDKRW=X', 'USDNOK=X', 'USDSEK=X', 'EURNOK=X', 'EURNOK=X', 'SHY']
+['SHY', 'EURNOK=X', 'RGLD']
