@@ -1,1 +1,1 @@
-['NVDA', 'BLCO', 'IMGN', 'FANUY', 'CCOI', 'AMX', 'SGML', 'ACGL', 'CTAS', 'FOR', 'VRTX', 'HTH', 'EPC', 'FGEN', 'ICUI']
+['NVDA', 'BLCO', 'IMGN', 'FANUY', 'CCOI', 'AMX', 'SGML', 'VRSK', 'ACGL', 'CTAS', 'FOR', 'BMI', 'ITW', 'MAR', 'VRTX', 'HTH', 'EPC', 'FGEN', 'ICUI']
