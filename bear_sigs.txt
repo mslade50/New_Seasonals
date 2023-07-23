@@ -1,1 +1,1 @@
-['DLO', 'DEI', 'LAND', 'KRC', 'CTO', 'MTB', 'CNC', 'FIS', 'SFBS', 'ADM', 'EQNR', 'VTLE', 'TSLX', 'PRG', 'ECVT', 'EXPE', 'CLB', 'VLYPP', 'CQP', 'WABC', 'SFBS', 'AMAL', 'WAL', 'FOR', 'BBIO', 'CIR', 'ARGX', 'PSTL', 'EPAC', 'HTH', 'OXM']
+['DEI', 'LAND', 'KRC', 'CTO', 'MTB', 'CNC', 'FIS', 'SFBS', 'ADM', 'EQNR', 'VTLE', 'TSLX', 'PRG', 'ECVT', 'EXPE', 'CLB', 'VLYPP', 'CQP', 'WABC', 'SFBS', 'AMAL', 'WAL', 'FOR', 'BBIO', 'CIR', 'ARGX', 'PSTL', 'EPAC', 'HTH', 'OXM']
