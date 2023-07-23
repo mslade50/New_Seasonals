@@ -1,1 +1,1 @@
-['SHY', 'EURNOK=X', 'RGLD']
+['SHY', 'RGLD']
