@@ -1,1 +1,1 @@
-['RGLD']
+['GLD', 'GLD', 'IAU', 'IAU']
