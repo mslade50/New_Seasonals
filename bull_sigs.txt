@@ -1,1 +1,1 @@
-['SNPS', 'NVDA', 'BHVN', 'BLCO', 'BZH', 'IMGN', 'FANUY', 'VRSN', 'CCOI', 'BATRK', 'VRNA', 'BRKR', 'AMX', 'SGML', 'FOR', 'BDX', 'VRDN', 'EFX', 'SUPN', 'HTH', 'FGEN', 'MX']
+['SNPS', 'BZH', 'HUBB', 'CRNC', 'FANUY', 'VRSN', 'BATRK', 'VRNA', 'AMX', 'LOGI', 'VRDN', 'HTH', 'CNYZAR=X', 'NZDZAR=X', 'FGEN']

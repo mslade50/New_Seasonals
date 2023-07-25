@@ -1,1 +1,1 @@
-['OCFC', 'DLO', 'DEI', 'KRC', 'MCB', 'MTB', 'CNC', 'FIS', 'WU', 'FBK', 'CF', 'TSLX', 'PRG', 'ECVT', 'LAUR', 'CLB', 'BOH', 'VLYPP', 'INDB', 'INBK', 'WABC', 'SFBS', 'AMAL', 'WAL', 'FOR', 'CIR', 'RILY', 'SCHL']
+['OCFC', 'DLO', 'DEI', 'KRC', 'MCB', 'MTB', 'RGP', 'CNC', 'FIS', 'MMM', 'WU', 'SPH', 'CF', 'TSLX', 'PRG', 'ECVT', 'CLB', 'CPS', 'INDB', 'INBK', 'WABC', 'AMAL', 'WAL', 'FOR', 'PKG', 'CIR', 'RILY', 'RY', 'WCN', 'NRT']
