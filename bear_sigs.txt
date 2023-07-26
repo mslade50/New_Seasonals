@@ -1,1 +1,1 @@
-['DEI', 'KRC', 'MTB', 'LHX', 'RGP', 'CNC', 'WABC', 'FIS', 'MMM', 'WU', 'CF', 'TSLX', 'ECVT', 'CLB', 'VLYPP', 'BKU', 'INBK', 'WABC', 'AMAL', 'FOR', 'PKG', 'NNN', 'RY', 'WCN', 'NRT']
+['^BKX', 'DEI', 'LAND', 'KRC', 'MTB', 'LHX', 'FFIN', 'OBK', 'RGP', 'CNC', 'WABC', 'NEE', 'FIS', 'SFBS', 'MED', 'WU', 'FFIC', 'SYY', 'CF', 'TSLX', 'PFLT', 'CLB', 'CPS', 'VLYPP', 'INDB', 'INBK', 'SBSI', 'WABC', 'PFC', 'SFBS', 'CF', 'FIBK', 'AMAL', 'UNP', 'FOR', 'VICR', 'ADP', 'GLNCY', 'RIO']
