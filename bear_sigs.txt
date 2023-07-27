@@ -1,1 +1,1 @@
-['DEI', 'JBGS', 'MTB', 'FFIN', 'OBK', 'CNC', 'WABC', 'SYY', 'CF', 'IPI', 'NCLH', 'CUK', 'CCL', 'TSLX', 'EXPE', 'LAUR', 'PFLT', 'KMT', 'CLB', 'CPS', 'INDB', 'SBSI', 'WABC', 'HAFC', 'PFC', 'SFBS', 'CNOB', 'CF', 'JOE', 'FOR', 'VICR', 'SPHR', 'LXP', 'LKFN', 'TOWN', 'PLD', 'LHX', 'RNST']
+['DEI', 'MTB', 'FFIN', 'WABC', 'SYY', 'CF', 'TSLX', 'EXPE', 'PFLT', 'CLB', 'CPS', 'SBSI', 'WABC', 'PFC', 'SFBS', 'JOE', 'FOR', 'VICR', 'INBK', 'SPHR', 'LXP', 'LKFN', 'NTST', 'ORC', 'TOWN', 'PLD', 'LHX', 'FBNC', 'BALL', 'PLCE']

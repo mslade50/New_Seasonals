@@ -1,1 +1,1 @@
-['LW', 'VRSN', 'ETNB', 'VRNA', 'VKTX', 'SGML', 'CLS', 'VRDN', 'EFX', 'SLGN', 'COLL', 'CNYZAR=X', 'NZDZAR=X', 'QURE']
+['SNPS', 'BZH', 'ACLX', 'FANUY', 'WING', 'LW', 'VRSN', 'VRNA', 'PTGX', 'VKTX', 'SGML', 'CLS', 'JOE', 'CLS', 'ENPH', 'VRDN', 'DGX', 'EFX', 'PI', 'ASLE', 'SLGN', 'COLL', 'CNYZAR=X', 'TIXT']
