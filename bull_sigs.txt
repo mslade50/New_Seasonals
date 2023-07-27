@@ -1,1 +1,1 @@
-['SNPS', 'NVDA', 'BZH', 'CRNC', 'LW', 'VRSN', 'VRNA', 'PTGX', 'SGML', 'BA', 'VICR', 'ISNPY', 'RILY', 'RUSHA', 'VRDN', 'EFX', 'SLGN', 'COLL', 'CNYZAR=X', 'NZDZAR=X', 'QURE', 'HTH']
+['LW', 'VRSN', 'ETNB', 'VRNA', 'VKTX', 'SGML', 'CLS', 'VRDN', 'EFX', 'SLGN', 'COLL', 'CNYZAR=X', 'NZDZAR=X', 'QURE']
