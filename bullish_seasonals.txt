@@ -1,1 +1,1 @@
-['GOLD', 'GLD', 'IAU', 'CHD']
+['CHD', 'CRK', 'CRK', 'GOLD', 'GOLD', 'AWK', 'AWK']
