@@ -1,1 +1,1 @@
-['AUB', 'CMA', 'JBGS', 'MTB', 'VIRT', 'FFIN', 'CF', 'EBC', 'CHK', 'AR', 'CUK', 'TSLX', 'EXPE', 'LAUR', 'CMPR', 'KMT', 'CLB', 'CPS', 'CVBF', 'TRMK', 'WABC', 'HAFC', 'PFC', 'SFBS', 'CNOB', 'JOE', 'FOR', 'CLS', 'VICR', 'EME', 'INBK', 'SPHR', 'RETA']
+['JBGS', 'MTB', 'VIRT', 'FFIN', 'CF', 'EBC', 'CHK', 'AR', 'CUK', 'TSLX', 'EXPE', 'CFB', 'LAUR', 'CPS', 'CVBF', 'WABC', 'HAFC', 'PFC', 'SFBS', 'CNOB', 'R', 'JOE', 'FOR', 'CLS', 'VICR', 'EME', 'INBK', 'SPHR', 'RETA']
