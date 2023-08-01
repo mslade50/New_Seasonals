@@ -1,1 +1,1 @@
-['JBGS', 'TNDM', 'FFIN', 'CF', 'IPI', 'CHK', 'AR', 'NCLH', 'CUK', 'CCL', 'TSLX', 'EXPE', 'LAUR', 'CMPR', 'KMT', 'CPS', 'CADHKD=X', 'CVBF', 'WABC', 'HAFC', 'PFC', 'SFBS', 'CNOB', 'R', 'MATX', 'JOE', 'CLS', 'VICR', 'EME', 'RETA', 'SIGI', 'ATR', 'ATHM']
+['JBGS', 'LNC', 'FFIN', 'WABC', 'KDP', 'FIS', 'KRP', 'CF', 'CHK', 'TSLX', 'EXPE', 'ZUO', 'LAUR', 'CMPR', 'CVBF', 'KDP', 'CARR', 'GNTX', 'MFC', 'PERI', 'ETSY']

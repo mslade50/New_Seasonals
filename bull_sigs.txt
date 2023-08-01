@@ -1,1 +1,1 @@
-['SNPS', 'LW', 'LTH', 'VRDN', 'PSA', 'DGX', 'EFX', 'PI', 'MTD', 'FGEN', 'TIXT']
+['SNPS', 'LW', 'DXCM', 'PTGX', 'LTH', 'SGML', 'KDNY', 'ANET', 'WWD', 'RVMD', 'ANET', 'OTTR', 'WWD', 'CAT', 'AESI', 'VRDN', 'PSA', 'NSP', 'DGX', 'EFX', 'CSIQ', 'PI', 'ASLE', 'FHI', 'AUDNOK=X', 'FGEN', 'HLIT', 'APLS', 'TSVT', 'BRKR']
