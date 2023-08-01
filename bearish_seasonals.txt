@@ -1,1 +1,1 @@
-['TM', 'MLM', 'ODFL', 'RRC', 'NTCT', 'BC', 'WTFC', 'CLFD', 'ICLR', 'WNC', 'TRMB', 'TPX', 'CLS', 'ODFL', 'PSO', 'TREX', 'ICLR', 'ICLR', 'TROW', 'NUVA', 'NUVA', 'TGI', 'TGI', 'TM', 'RRC', 'JAZZ', 'TRMB', 'SWX', 'SWX', 'KT', 'KT', 'SKM', 'SKM', 'ADTN', 'ARI', 'ROIC', 'WNC', 'BC', 'CLFD', 'CLFD']
+['SWX', 'SKM', 'TM', 'ODFL', 'WNC', 'CLFD', 'BC', 'RRC', 'KT', 'TRMB', 'TGI', 'TREX', 'ARI', 'ICLR', 'NUVA', 'JAZZ', 'PSO', 'ADTN', 'TROW', 'ROIC', 'ICLR', 'NUVA', 'NUVA', 'DECK', 'TGI', 'KT', 'KT', 'SKM', 'CLFD']
