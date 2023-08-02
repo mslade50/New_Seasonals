@@ -1,1 +1,1 @@
-['SWX', 'SKM', 'TM', 'ODFL', 'WNC', 'CLFD', 'BC', 'RRC', 'KT', 'TRMB', 'TGI', 'TREX', 'ARI', 'ICLR', 'NUVA', 'JAZZ', 'PSO', 'ADTN', 'TROW', 'ROIC', 'ICLR', 'NUVA', 'NUVA', 'DECK', 'TGI', 'KT', 'KT', 'SKM', 'CLFD']
+['SKM', 'KT', 'CLFD', 'TGI', 'NUVA', 'ICLR', 'DECK', 'NUVA', 'SPWR', 'KT', 'KT']
