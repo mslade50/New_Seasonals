@@ -1,1 +1,1 @@
-['JBGS', 'LNC', 'FFIN', 'WABC', 'KDP', 'FIS', 'KRP', 'CF', 'CHK', 'TSLX', 'EXPE', 'ZUO', 'LAUR', 'CMPR', 'CVBF', 'KDP', 'CARR', 'GNTX', 'MFC', 'PERI', 'ETSY']
+['CVS', 'CVBF', 'KDP', 'VRT', 'STNE', 'LEVI', 'CNQ', 'BG']
