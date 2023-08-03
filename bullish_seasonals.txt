@@ -1,1 +1,1 @@
-['RILY', 'FNV', 'PG', 'RILY', 'RILY', 'WOLF', 'FNV', 'EQR', 'ACGL', 'MAA', 'DXCM', 'EA', 'ESS', 'DUK', 'DUK', 'ATO', 'PEG', 'PEG', 'AEE', 'PG', 'PG', 'STZ', 'USDCHF=X', 'USDCHF=X', 'GDX']
+['RILY', 'DUK', 'USDCHF=X', 'PEG', 'EA', 'ACGL', 'PG', 'MRO', 'MRO', 'QDEL', 'QDEL', 'RILY', 'RILY', 'WOLF', 'WOLF', 'NAD', 'NAD', 'FNV', 'EQR', 'MAA', 'MAA', 'DXCM', 'EPD', 'NNN', 'OFC', 'OFC', 'ESS', 'ESS', 'VRTX', 'DUK', 'AEE', 'PG', 'STZ', 'USDCHF=X', 'USDCHF=X']
