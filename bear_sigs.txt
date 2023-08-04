@@ -1,1 +1,1 @@
-['TALO', 'CVBF', 'VRT', 'MTG', 'WRK', 'BG', 'LAUR', 'SM']
+['CVBF', 'VRT', 'MTG', 'HTGC', 'RDN', 'AEO', 'LAUR', 'DINO', 'SM']
