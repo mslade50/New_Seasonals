@@ -1,1 +1,1 @@
-['KT', 'SPWR', 'NUVA', 'DECK', 'KT', 'T']
+['KT', 'DECK', 'PAR', 'ENOV', 'T', 'T', 'FSLR']
