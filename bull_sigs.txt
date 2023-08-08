@@ -1,1 +1,1 @@
-['FGEN', 'DXC', 'HLIT', 'DRVN', 'SEDG', 'PI', 'APLS', 'SAGE', 'TSVT', 'CERE', 'NVCR', 'FGEN', 'MRNA', 'HASI', 'RLAY', 'GTES', 'CALX', 'SNDX', 'ABCM', 'HSIC', 'SRPT', 'SAGE', 'CPB', 'SHC', 'MRTX', 'QURE', 'OPRA', 'SAVA', 'IMGN', 'RCUS', 'XBI', 'LABU', 'CE']
+['FGEN', 'HLIT', 'NEP', 'DRVN', 'SEDG', 'PI', 'APLS', 'SAGE', 'TSVT', 'PSTG', 'AYX', 'FGEN', 'MDB', 'FIVN', 'MDT', 'HR', 'TDC', 'CPRT', 'MODG', 'CRDO', 'DDOG', 'AMKR', 'FMC', 'BYND', 'RNG', 'NSC', 'IFF', 'GIS', 'SEE', 'DXCM', 'CAG', 'ABT', 'CPB', 'PTGX', 'BERY', 'TWNK', 'RPD', 'ARWR']

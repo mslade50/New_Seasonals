@@ -1,1 +1,1 @@
-['HBAN', 'EBC', 'KRE', 'DPST', 'CVBF', 'VRT', 'HTGC', 'MPC', 'BXP', 'MTG', 'HTGC', 'KRC', 'PNR', 'LAUR', 'DINO', 'SM', 'SIG']
+['CVBF', 'VRT', 'MPC', 'DINO']
