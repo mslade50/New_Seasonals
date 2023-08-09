@@ -1,1 +1,1 @@
-['ATO', 'USDCHF=X', 'QDEL', 'VRSN', 'COHR', 'MAA', 'TMUS', 'MKSI', 'ESS', 'AAP', 'DVAX', 'NAD', 'CLF', 'VRTX', 'SNPS', 'GEN', 'MRO', 'HIW', 'AMGN', 'CDNS', 'VSAT', 'DRQ', 'GILD', 'BIIB', 'ACGL', 'MMP', 'NVG', 'RQI', 'IDXX', 'SNV', 'PRGS', 'PEGA', 'QDEL', 'SNPS', 'AAP', 'AAP', 'ATO', 'SNV', 'SNV']
+['ATO', 'QDEL', 'AAP', 'SNPS', 'SNV', 'QCOM', 'IDXX', 'IDXX', 'MPW', 'INCY', 'INCY', 'GME', 'GME', 'EMR', 'SNV']

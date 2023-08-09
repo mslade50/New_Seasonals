@@ -1,1 +1,1 @@
-['PAR', 'FSLR', 'ENOV', 'MELI', 'AGNC', 'ANGO', 'PERI', 'PRA', 'WDS', 'SLGN', 'FSLR']
+['SLGN', 'FSLR', 'WDS', 'PERI', 'PRA', 'ANGO', 'ENOV', 'ENOV', 'MELI', 'MELI', 'LRN', 'IPG']
