@@ -1,1 +1,1 @@
-['CVBF', 'VRT', 'MPC', 'DINO']
+['MPC', 'DINO', 'FNF', 'LAUR', 'TRGP', 'DINO', 'SM']
