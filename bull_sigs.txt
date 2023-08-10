@@ -1,1 +1,1 @@
-['VNT', 'FGEN', 'HLIT', 'DRVN', 'PI', 'APLS', 'SAGE', 'TSVT', 'UPST', 'PLTR', 'SMCI', 'PSTG', 'ICPT', 'GME', 'LITE', 'SSYS', 'BSY', 'CRM', 'JBGS', 'GTES', 'MODG', 'AVGO', 'RVNC', 'LZ', 'VSAT', 'DOCS', 'VNT', 'DKNG', 'PPG', 'MGNI', 'CUTR', 'SEAS', 'SGH', 'SONY', 'TERN', 'RBLX', 'CPA', 'RIVN', 'NVST', 'AVDL', 'BMBL', 'WMB']
+['FGEN', 'DNUT', 'DRVN', 'IFF', 'PI', 'SAGE', 'WWW', 'TSVT', 'RIOT', 'F', 'SONO', 'ACVA', 'DNUT', 'GM', 'USFD', 'INMD', 'MGNI', 'CPA', 'WWW', 'SIX', 'RIO', 'SYY', 'CLF', 'TPR', 'RL']

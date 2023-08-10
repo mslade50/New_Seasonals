@@ -1,1 +1,1 @@
-['MPC', 'DINO', 'FNF', 'LAUR', 'TRGP', 'DINO', 'SM']
+['RYTM', 'MPC', 'PARR', 'BP', 'BOIL', 'UNG', 'FNF', 'LAUR']
