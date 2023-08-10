@@ -1,1 +1,1 @@
-['SLGN', 'FSLR', 'WDS', 'PERI', 'PRA', 'ANGO', 'ENOV', 'ENOV', 'MELI', 'MELI', 'LRN', 'IPG']
+['MELI', 'SAIA', 'SAIA', 'ATEC', 'ATEC', 'BLNK', 'ENOV', 'ENOV', 'MELI', 'MELI', 'PXD', 'PXD', 'SEE', 'SEE', 'JAZZ', 'LRN', 'MIDD', 'WEX', 'LBTYK', 'LBTYK', 'SHEL', 'SHEL', 'DAN', 'IPG', 'LBTYA', 'LBTYA', 'LAC', 'VMW', 'VMW', 'PEB', 'WDS', 'WDS', 'SLGN', 'SLGN', 'GDXJ']

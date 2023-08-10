@@ -1,1 +1,1 @@
-['ATO', 'QDEL', 'AAP', 'SNPS', 'SNV', 'QCOM', 'IDXX', 'IDXX', 'MPW', 'INCY', 'INCY', 'GME', 'GME', 'EMR', 'SNV']
+['INCY', 'SNV', 'GME', 'QCOM', 'MPW', 'EMR', 'IDXX', 'INCY', 'GME', 'GME']
