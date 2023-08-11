@@ -1,1 +1,1 @@
-['FGEN', 'DNUT', 'DRVN', 'IFF', 'PI', 'SAGE', 'WWW', 'TSVT', 'RIOT', 'F', 'SONO', 'ACVA', 'DNUT', 'GM', 'USFD', 'INMD', 'MGNI', 'CPA', 'WWW', 'SIX', 'RIO', 'SYY', 'CLF', 'TPR', 'RL']
+['FGEN', 'DRVN', 'NVEI', 'PODD', 'WWW', 'TSVT', 'ST', 'NXPI', 'VIAV', 'CSIQ', 'DRI', 'VRRM', 'UPS', 'APTV', 'TSM', 'BTI', 'TER', 'LTHM', 'DAN', 'ADNT', 'MAXN', 'AMX', 'QFIN', 'MLCO', 'BLMN']

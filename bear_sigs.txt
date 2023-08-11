@@ -1,1 +1,1 @@
-['RYTM', 'MPC', 'PARR', 'BP', 'BOIL', 'UNG', 'FNF', 'LAUR']
+['MDRX', 'RYTM', 'MPC', 'PARR', 'WRB', 'FNF']
