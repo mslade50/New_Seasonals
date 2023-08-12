@@ -1,1 +1,1 @@
-['GME', 'INCY', 'GME', 'USDTWD=X']
+['USDTWD=X', 'GME', 'INCY', 'GME']
