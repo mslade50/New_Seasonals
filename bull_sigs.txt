@@ -1,1 +1,1 @@
-['FGEN', 'DRVN', 'NVEI', 'PODD', 'WWW', 'TSVT', 'ST', 'NXPI', 'VIAV', 'CSIQ', 'DRI', 'VRRM', 'UPS', 'APTV', 'TSM', 'BTI', 'TER', 'LTHM', 'DAN', 'ADNT', 'MAXN', 'AMX', 'QFIN', 'MLCO', 'BLMN']
+['QSR', 'FGEN', 'DRVN', 'NVEI', 'PODD', 'WWW', 'TSVT', 'NLY', 'KW', 'AVB', 'WPC', 'OMF', 'TFC', 'CPT', 'BTAI', 'POR', 'DOC', 'ILMN', 'FITB', 'VRRM', 'ENB', 'HPQ', 'WU', 'AMLX', 'SGML', 'VALE', 'WRBY', 'INTC', 'GVA', 'OPCH']
