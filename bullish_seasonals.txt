@@ -1,1 +1,1 @@
-['USDTWD=X', 'GME', 'INCY', 'GME']
+['USDTWD=X', 'GME', 'LOGI', 'CYTK', 'CYTK', 'MU', 'FTI', 'URBN', 'GRMN', 'GRMN', 'URI', 'CNX', 'CNX', 'KT', 'FRO', 'FRO', 'QQQ', 'QQQ']
