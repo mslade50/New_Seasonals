@@ -1,1 +1,1 @@
-['USDTWD=X', 'GME', 'LOGI', 'CYTK', 'CYTK', 'MU', 'FTI', 'URBN', 'GRMN', 'GRMN', 'URI', 'CNX', 'CNX', 'KT', 'FRO', 'FRO', 'QQQ', 'QQQ']
+['CYTK', 'FRO', 'GRMN', 'QQQ', 'CNX', 'KT', 'LOGI', 'ALV', 'MU', 'FTI', 'URBN', 'GRMN', 'GRMN', 'URI', 'AMD', 'CNX', 'UNFI', 'UNFI', 'FRO', 'FRO', 'SOXX', 'QQQ']

@@ -1,1 +1,1 @@
-['SLGN', 'VMW', 'MELI', 'LBTYA', 'ROK', 'WDS', 'AGNC', 'BALL', 'SJM', 'ZYXI', 'LBTYK', 'MKC', 'PXD', 'LAC', 'UGA', 'SEE', 'MIDD', 'RY', 'LULU', 'ENOV', 'JAZZ', 'PEB', 'DAN', 'WNC', 'GRBK', 'TREE', 'MELI', 'GSL', 'GSL', 'TWO', 'ADSK', 'ADSK', 'DENN', 'BALL', 'BALL', 'STWD', 'STWD', 'LBTYA', 'LAC', 'VMW', 'AXP', 'MKC', 'MKC', 'ZYXI', 'ZYXI']
+['VMW', 'BALL', 'GSL', 'MKC', 'ADSK', 'LAC', 'STWD', 'LBTYA', 'MELI', 'ZYXI', 'AXP', 'AMED', 'GRBK', 'GRBK', 'TREE', 'TREE', 'GSL', 'TWO', 'ADSK', 'ADSK', 'STWD', 'ARI', 'MKC', 'MKC', 'ZYXI', 'ZYXI']
