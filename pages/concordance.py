@@ -607,7 +607,7 @@ if response.status_code == 200:
     content = response.text.strip()
     tickers = content.strip("[]").split(", ")
     concordance_list = [ticker.strip("'") for ticker in tickers]
-
+st.write(concordance_list)
 # Run the script with the updated concordance_list
 for stock in concordance_list:
     try:
