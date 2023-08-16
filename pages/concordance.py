@@ -11,6 +11,7 @@ import streamlit as st
 import plotly.graph_objs as go
 from plotly.subplots import make_subplots
 from ta.momentum import RSIIndicator
+import ast
 
 
 st.title("Tracking Closely")
@@ -605,9 +606,9 @@ url = base_url + file_name
 response = requests.get(url)
 if response.status_code == 200:
     content = response.text.strip()
-    tickers = content.strip("[]").split(", ")
-    concordance_list = [ticker.strip("'") for ticker in tickers]
+    concordance_list = ast.literal_eval(content) # Directly converts the content to a Python list
 st.write(concordance_list)
+
 # Run the script with the updated concordance_list
 for stock in concordance_list:
     try:
