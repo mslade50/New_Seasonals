@@ -1,1 +1,1 @@
-['VMW', 'BALL', 'GSL', 'MKC', 'ADSK', 'LAC', 'STWD', 'LBTYA', 'MELI', 'ZYXI', 'AXP', 'AMED', 'GRBK', 'GRBK', 'TREE', 'TREE', 'GSL', 'TWO', 'ADSK', 'ADSK', 'STWD', 'ARI', 'MKC', 'MKC', 'ZYXI', 'ZYXI']
+['MKC', 'STWD', 'GRBK', 'TREE', 'AMED', 'ADSK', 'GSL', 'ZYXI', 'TWO', 'ARI', 'GRBK', 'GRBK', 'TREE', 'TREE', 'NLY', 'TGNA', 'KRC', 'KRC', 'ACGL', 'ACGL', 'MAIN', 'CMC', 'PNM', 'BPOP', 'HOMB', 'HOMB', 'MKC', 'MKC', 'ZYXI']

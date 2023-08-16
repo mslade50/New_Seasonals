@@ -1,1 +1,1 @@
-['CYTK', 'FRO', 'GRMN', 'QQQ', 'CNX', 'KT', 'LOGI', 'ALV', 'MU', 'FTI', 'URBN', 'GRMN', 'GRMN', 'URI', 'AMD', 'CNX', 'UNFI', 'UNFI', 'FRO', 'FRO', 'SOXX', 'QQQ']
+['AMD', 'UNFI', 'FRO', 'CNX', 'FTI', 'MU', 'GRMN', 'SOXX', 'QQQ', 'URI', 'LOGI', 'ALV', 'URBN', 'BIG', 'BIG', 'TNL', 'TNL', 'MU', 'GRMN', 'OSK', 'FRO']
