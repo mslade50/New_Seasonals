@@ -607,7 +607,6 @@ response = requests.get(url)
 if response.status_code == 200:
     content = response.text.strip()
     concordance_list = ast.literal_eval(content) # Directly converts the content to a Python list
-st.write(concordance_list)
 
 # Run the script with the updated concordance_list
 for stock in concordance_list:
