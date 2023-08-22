@@ -1,1 +1,1 @@
-['AMD', 'UNFI', 'FRO', 'CNX', 'FTI', 'MU', 'GRMN', 'SOXX', 'QQQ', 'URI', 'LOGI', 'ALV', 'URBN', 'BIG', 'BIG', 'TNL', 'TNL', 'MU', 'GRMN', 'OSK', 'FRO']
+[]

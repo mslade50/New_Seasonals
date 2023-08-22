@@ -1,1 +1,1 @@
-['MKC', 'STWD', 'GRBK', 'TREE', 'AMED', 'ADSK', 'GSL', 'ZYXI', 'TWO', 'ARI', 'GRBK', 'GRBK', 'TREE', 'TREE', 'NLY', 'TGNA', 'KRC', 'KRC', 'ACGL', 'ACGL', 'MAIN', 'CMC', 'PNM', 'BPOP', 'HOMB', 'HOMB', 'MKC', 'MKC', 'ZYXI']
+[]
