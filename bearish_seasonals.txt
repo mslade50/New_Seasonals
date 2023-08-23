@@ -1,1 +1,1 @@
-['PSQ', 'QID', 'GBCI', 'AON', 'NZDUSD=X', 'EURUSD=X', 'EURUSD=X', 'PSQ', 'PSQ', 'SPXS', 'SPXS', 'SPXU', 'SPXU', 'QID', 'QID']
+['EURUSD=X', 'QID', 'PSQ', 'SPXS', 'SPXU', 'GPS', 'WSM', 'TJX', 'TJX', 'EURUSD=X', 'EURUSD=X', 'NZDUSD=X', 'NZDUSD=X', 'PSQ', 'SPXS', 'SPXU', 'QID']
