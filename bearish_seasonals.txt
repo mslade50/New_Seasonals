@@ -1,1 +1,1 @@
-['EURUSD=X', 'XPO', 'TJX', 'NZDUSD=X', 'MASI', 'MSCI', 'H', 'EHC', 'EHC', 'IEX', 'IEX', 'SSB', 'SPXL', 'UPRO']
+['EURUSD=X', 'XPO', 'TJX', 'MASI', 'MSCI', 'H', 'EHC', 'EHC', 'IEX', 'IEX', 'SSB', 'SPXL', 'UPRO']
