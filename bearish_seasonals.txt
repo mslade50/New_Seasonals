@@ -1,1 +1,1 @@
-['EURUSD=X', 'XPO', 'TJX', 'MASI', 'MSCI', 'H', 'EHC', 'EHC', 'IEX', 'IEX', 'SSB', 'SPXL', 'UPRO']
+['EHC', 'SSB', 'IEX', 'XPO', 'THC', 'MASI', 'TREX', 'TREX', 'MSCI', 'MELI', 'CAL', 'CAL', 'ZBRA', 'WCC', 'PRO', 'PAA', 'PAA', 'TWI', 'H', 'PVH', 'EHC', 'EHC', 'CUBE', 'CNX', 'G', 'G', 'MLI', 'MLI', 'IRDM', 'TRTN', 'TRTN', 'IPG', 'NS', 'HSIC', 'EL', 'EL', 'MAG', 'MAG', 'MMS', 'HUBB', 'HUBB', 'LH', 'MAIN', 'CSGP', 'PB', 'CSIQ', 'NWL', 'LII', 'LII', 'BAC', 'BAC', 'CMA', 'SPXL', 'UPRO', 'VEA', 'GDXJ', 'GDXJ']

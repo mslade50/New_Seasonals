@@ -1,1 +1,1 @@
-['BGS', 'VMW', 'FNB', 'FMS', 'UHAL', 'LQD', 'IYE', 'LKQ', 'PTEN', 'SNN', 'SQM', 'CNQ', 'FL', 'CPRT', 'QLD', 'RYAAY', 'BYD', 'CHRW', 'FCF', 'CHRW', 'UHAL', 'ANSS', 'NAD', 'IRM', 'VGR', 'FNB', 'FCF', 'IEF']
+['FNB', 'FCF', 'UHAL', 'CHRW', 'VGR', 'ANSS', 'IRM', 'NAD', 'IEF']
