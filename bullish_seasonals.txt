@@ -1,1 +1,1 @@
-['FNB', 'FCF', 'UHAL', 'CHRW', 'VGR', 'ANSS', 'IRM', 'NAD', 'IEF']
+['PDCO']
