@@ -1,1 +1,1 @@
-['GOGO', 'ADYEY', 'M', 'DLTR', 'PCAR', 'VRRM', 'WMB', 'LYB']
+['FGEN', 'GOGO', 'ADYEY', 'FGEN', 'BOX', 'EVRG', 'HPQ', 'CNC', 'PDCO', 'LBRT', 'BRZE', 'BCPC', 'ENSG', 'WMB', 'LYB', 'DFIN']
