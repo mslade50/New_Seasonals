@@ -1,1 +1,1 @@
-['FGEN', 'GOGO', 'ADYEY', 'FGEN', 'BOX', 'EVRG', 'HPQ', 'CNC', 'PDCO', 'LBRT', 'BRZE', 'BCPC', 'ENSG', 'WMB', 'LYB', 'DFIN']
+['FGEN', 'ADYEY', 'RXO', 'PPL', 'TSN', 'LNT', 'CHRW', 'UNP', 'DGX', 'LEVI', 'WEN', 'FMC', 'DTE', 'NSC', 'CHWY', 'WEC', 'AEP', 'IRWD', 'UNH', 'EDR', 'TERN', 'DG', 'KHC', 'RNA', 'ELV', 'SILK', 'LH', 'BAX', 'XLU', 'SOBKY', 'CDW', 'LYB', 'DFIN', 'CHRD']
