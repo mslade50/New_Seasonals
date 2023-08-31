@@ -1,1 +1,1 @@
-['PDCO', 'T', 'SO', 'SO']
+['SO', 'CMP', 'SGEN', 'PZZA', 'PZZA', 'VLY', 'HOMB', 'SO', 'SO', 'NWBI']
