@@ -1,1 +1,1 @@
-['UBS', 'NCR', 'UBS']
+['AVGO', 'BIL', 'JPST']

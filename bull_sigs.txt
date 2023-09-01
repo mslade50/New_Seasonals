@@ -1,1 +1,1 @@
-['FGEN', 'ADYEY', 'RXO', 'PPL', 'TSN', 'LNT', 'CHRW', 'UNP', 'DGX', 'LEVI', 'WEN', 'FMC', 'DTE', 'NSC', 'CHWY', 'WEC', 'AEP', 'IRWD', 'UNH', 'EDR', 'TERN', 'DG', 'KHC', 'RNA', 'ELV', 'SILK', 'LH', 'BAX', 'XLU', 'SOBKY', 'CDW', 'LYB', 'DFIN', 'CHRD']
+['SHC', 'GIS', 'WBA', 'DG', 'ADYEY', 'DLTR', 'PARA', 'SONO', 'GH', 'FE', 'PNW', 'FOXA', 'CMS', 'TGNA', 'XEL', 'FOX', 'GIS', 'WBA', 'CAG', 'CPB', 'MKC', 'WBD', 'OLN', 'MDLZ', 'SOBKY', 'CDW', 'HES', 'RRC']
