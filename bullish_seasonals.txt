@@ -1,1 +1,1 @@
-['SO', 'CMP', 'SGEN', 'PZZA', 'PZZA', 'VLY', 'HOMB', 'SO', 'SO', 'NWBI']
+['SO', 'PZZA', 'VSAT', 'VSAT', 'AGNC', 'AGNC', 'BLK', 'ULTA', 'ULTA', 'SGEN', 'PRA', 'UMH', 'UMH', 'PZZA', 'AIZ', 'AIZ', 'DUK', 'T', 'T', 'VLY', 'HOMB', 'SO', 'SO', 'NWBI', 'KRE']
