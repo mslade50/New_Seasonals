@@ -1,1 +1,1 @@
-['PERI', 'CRH', 'HUBB', 'KTOS', 'WHR', 'SCVL', 'MTZ', 'MAG', 'ICLR', 'WDC', 'RRX', 'CSL', 'PFE', 'APPS', 'CELH', 'ETN', 'PODD', 'PRO', 'CPA', 'CSGP', 'GOF', 'G', 'GDXJ', 'LZB', 'TWI', 'CMI', 'WDC', 'FNV', 'KTOS', 'OII', 'OII', 'DX-Y.NYB', 'GDXJ', 'EMB', 'VCIT', 'VCIT']
+['PERI', 'CRH', 'HUBB', 'KTOS', 'WHR', 'SCVL', 'MTZ', 'MAG', 'ICLR', 'WDC', 'RRX', 'CSL', 'PFE', 'APPS', 'DX-Y.NYB', 'CELH', 'ETN', 'PODD', 'PRO', 'CPA', 'CSGP', 'GOF', 'G', 'GDXJ', 'LZB', 'TWI', 'CMI', 'WDC', 'FNV', 'KTOS', 'OII', 'OII', 'GDXJ', 'EMB', 'VCIT', 'VCIT']
