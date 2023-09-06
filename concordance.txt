@@ -1,1 +1,1 @@
-['AAPL', 'AMN', 'EXAS', 'FMS', 'LPX', 'KAR', 'DAR', 'BGS', 'DHI', 'CEF', 'VRSK', 'LSI', 'NEO', 'JBHT', 'CP', 'CRM', 'RBA', 'ACN', 'HA', 'CSGP', 'DOX', 'JPM', 'UHAL', 'OMC', 'CHD', 'WST', 'INFY', 'NUS', 'SSYS', 'IAC', 'IRDM', 'HUBB', 'LKQ', 'ATEC', 'CPA', 'MLI', 'SLM', 'CRH', 'ECL', 'NFLX']
+['AAPL', 'FMS', 'EXAS', 'BGS', 'DHI', 'CEF', 'LSI', 'NEO', 'CP', 'JBHT', 'HA', 'KW', 'CRM', 'RBA', 'ACN', 'DOX', 'CSGP', 'QQQ', 'UHAL', 'OHI', 'CHD', 'WST', 'INFY', 'NUS', 'AIZ', 'OZK', 'IAC', 'BLK', 'IRDM', 'LVS', 'HUBB', 'CRH', 'CVLT', 'NFLX', 'ORCL', 'LKQ', 'THO', 'TDW', 'ATEC', 'CPA']
