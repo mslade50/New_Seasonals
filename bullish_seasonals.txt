@@ -1,1 +1,1 @@
-['ULTA', 'T', 'UMH', 'PZZA', 'NWBI', 'SGEN', 'AGNC', 'HOMB', 'VLY', 'VSAT', 'AIZ', 'SO', 'KRE', 'VSAT', 'TM', 'BLK', 'PRA', 'MODG', 'MODG', 'BEP', 'UMH', 'BMY', 'BMY', 'L', 'D', 'D', 'AIZ', 'AIZ', 'PRU', 'T', 'T', 'POR', 'POR', 'PPL', 'PPL', 'SO', 'ES', 'ES', 'PNFP', 'PNFP', 'XLU', 'EWJ', 'EWJ']
+['T', 'UMH', 'EWJ', 'AIZ', 'BEP', 'BMY', 'D', 'VSAT', 'PPL', 'BLK', 'SO', 'L', 'POR', 'PNFP', 'PRU', 'ES', 'XLU', 'TM', 'MODG', 'PRA', 'AGNC', 'BMY', 'BMY', 'AIZ', 'T', 'PPL', 'PPL', 'ES', 'ES']

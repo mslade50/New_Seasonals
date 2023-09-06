@@ -1,1 +1,1 @@
-['GDXJ', 'VCIT', 'KTOS', 'OII', 'EMB', 'DX-Y.NYB', 'FNV', 'WDC', 'TDW', 'MDGL', 'EXAS', 'DRS', 'RTO', 'RTO', 'SLB', 'SLB', 'CRK', 'CRK', 'GD', 'VRTX', 'CNK', 'CNK', 'OII']
+['CRK', 'OII', 'EXAS', 'GD', 'RTO', 'CNK', 'MDGL', 'SLB', 'COHR', 'DRS', 'SIG', 'RTO', 'AGI', 'CRK', 'CRK', 'ITW', 'ITW', 'ABT', 'REGN', 'REGN', 'VRTX', 'VRTX', 'CNK']
