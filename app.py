@@ -1,7 +1,8 @@
 import streamlit as st
 from pages import (bull_signals, indicies, variance_sim, currency_pairs,
                    commodities, bullish_seasonals, bearish_seasonals,
-                   user_input, filtered_bull, filtered_bear, concordance) 
+                   user_input, filtered_bull, filtered_bear, concordance,
+                   mdm_fwds)
 
 st.set_page_config(page_title="Multi-Page Dashboard", page_icon=":chart_with_upwards_trend:")
 
@@ -49,6 +50,10 @@ def concordance_page():
     st.sidebar.markdown("# Concordance")
     concordance.concordance_app() # Call the appropriate function from concordance.py
 
+def mdm_fwds_page():
+    st.sidebar.markdown("# MDM Forwards")
+    mdm_fwds.mdm_fwds_app()
+
 page_names_to_funcs = {
     "Daily Signals": bull_signals_page,
     "Indices": indicies_page,
@@ -60,5 +65,6 @@ page_names_to_funcs = {
     "User Input": user_input_page,
     "Filtered Bull": filtered_bull_page,
     "Filtered Bear": filtered_bear_page,
-    "Concordance": concordance_page, # New page
+    "Concordance": concordance_page,
+    "MDM Forwards": mdm_fwds_page, # New page
 }
