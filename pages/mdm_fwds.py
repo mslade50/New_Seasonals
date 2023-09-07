@@ -13,8 +13,7 @@ def download_db():
         f.write(r.content)
 
 def app():
-    if not os.path.exists("ticker_data.db"):
-        download_db()
+    download_db()
 
     conn = sqlite3.connect("ticker_data.db")
 
