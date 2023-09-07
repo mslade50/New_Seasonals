@@ -1,1 +1,1 @@
-['CRK', 'OII', 'EXAS', 'GD', 'RTO', 'CNK', 'MDGL', 'SLB', 'COHR', 'DRS', 'SIG', 'RTO', 'AGI', 'CRK', 'CRK', 'ITW', 'ITW', 'ABT', 'REGN', 'REGN', 'VRTX', 'VRTX', 'CNK']
+['CRK', 'DRS', 'ABT', 'AGI', 'CNK', 'REGN', 'RTO', 'VRTX', 'ITW', 'LSCC', 'LSCC', 'BKR', 'INCY', 'INCY', 'ITW', 'ABC', 'ABC', 'REGN', 'REGN', 'PRMW', 'PRMW']

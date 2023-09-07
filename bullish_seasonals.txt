@@ -1,1 +1,1 @@
-['T', 'UMH', 'EWJ', 'AIZ', 'BEP', 'BMY', 'D', 'VSAT', 'PPL', 'BLK', 'SO', 'L', 'POR', 'PNFP', 'PRU', 'ES', 'XLU', 'TM', 'MODG', 'PRA', 'AGNC', 'BMY', 'BMY', 'AIZ', 'T', 'PPL', 'PPL', 'ES', 'ES']
+['T', 'BMY', 'ES', 'PPL', 'AGNC', 'AIZ', 'TTEK', 'ORA', 'ORA', 'PRA', 'ELS', 'ETR', 'ETR', 'BMY', 'BMY', 'ADC', 'ADC', 'KRG', 'USB', 'NJR', 'EIX', 'EIX', 'POR', 'POR', 'ED', 'PPL', 'ES', 'ES', 'PEP', 'PEP', 'MSTR', 'PNFP', 'THO', 'IGV', 'IYR']
