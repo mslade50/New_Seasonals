@@ -5,6 +5,7 @@ import pandas as pd
 import streamlit as st
 import plotly.express as px
 
+st.title("Forward Ranks")
 def download_db():
     url = "https://github.com/mslade50/New_Seasonals/raw/main/ticker_data.db"
     r = requests.get(url)
