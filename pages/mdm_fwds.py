@@ -29,7 +29,7 @@ def app():
     """
 
     df = pd.read_sql_query(query, conn)
-    
+    st.write(df.head())
     fig1 = px.bar(df, x='Ticker', y='F5', title='F5 Data')
     st.plotly_chart(fig1)
 
