@@ -1,1 +1,1 @@
-['AAPL', 'AMN', 'EXAS', 'KAR', 'CCL', 'LSI', 'DHI', 'BSX', 'CP', 'HA', 'AOS', 'RMBS', 'CRM', 'ROK', 'CSGP', 'UHAL', 'WST', 'INFY', 'BLK', 'OHI', 'MCD', 'THO', 'LSCC', 'HUN', 'GGG', 'HUBB', 'CRH', 'AIZ', 'CNK', 'EBS', 'MASI', 'ENOV', 'BLDR', 'MLI', 'IRDM', 'CTAS', 'LKQ', 'TDW', 'MDGL', 'SPGI']
+['BLDR', 'AMD', 'XPO', 'VSAT', 'COHR', 'SMCI']
