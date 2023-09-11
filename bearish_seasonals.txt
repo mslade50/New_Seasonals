@@ -1,1 +1,1 @@
-['INCY', 'LSCC', 'BKR', 'ABC', 'ITW', 'REGN', 'PRMW', 'LSCC', 'CRK', 'REGN', 'PRMW', 'PRMW', 'GILD', 'GILD']
+['CRK', 'PRMW', 'ABC', 'LSCC', 'GILD', 'REGN', 'WERN', 'WERN', 'RRC', 'PTEN', 'SPB', 'MIDD', 'AVGO', 'WAT', 'IP', 'PRMW', 'GILD']
