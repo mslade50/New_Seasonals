@@ -1,1 +1,1 @@
-['NXGN', 'TWNK']
+['NXGN', 'TWNK', 'ZS', 'ORCL']

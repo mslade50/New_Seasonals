@@ -1,1 +1,1 @@
-['RIOT', 'USFD', 'KN', 'BOX', 'FMC', 'VRNT', 'VIR', 'WBA', 'ADYEY', 'TSVT', 'M', 'DLTR', 'RIOT', 'ARE', 'YPF', 'LEVI', 'GEN', 'LNC', 'SJM', 'IAC', 'RTX', 'AZN', 'TSVT', 'M', 'CMC', 'VFC', 'STLD', 'OVV', 'BITO', 'KD', 'TTE']
+['VRT', 'DAL', 'INMD', 'AOS', 'KN', 'BOX', 'FMC', 'VRNT', 'VIR', 'WBA', 'ADYEY', 'TSVT', 'DLTR', 'DOCN', 'SHOO', 'SSYS', 'ORCL', 'PRVA', 'AER', 'NTRS', 'AOS', 'HSY', 'HCA', 'AAP', 'MASI', 'CLX', 'UPS', 'ASAZY', 'PRMW', 'NTLA', 'ACAD', 'LNTH']
