@@ -1,1 +1,1 @@
-['CRK', 'PRMW', 'ABC', 'LSCC', 'GILD', 'REGN', 'WERN', 'WERN', 'RRC', 'PTEN', 'SPB', 'MIDD', 'AVGO', 'WAT', 'IP', 'PRMW', 'GILD']
+['GILD', 'WERN', 'MIDD', 'PRMW', 'RRC', 'PTEN', 'WERN', 'ATEC', 'BECN', 'BCRX', 'STLD', 'OLN', 'OLN', 'SEM', 'JAZZ', 'TRMB', 'TRMB', 'SPB', 'SPB', 'VCEL', 'VCEL', 'IPGP', 'AVGO', 'AVGO', 'RF', 'RF', 'WAT', 'WAT', 'RGA', 'SON', 'SON', 'ASH', 'WBS', 'TNA']
