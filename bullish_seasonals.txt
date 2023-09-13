@@ -1,1 +1,1 @@
-['HSY', 'PEAK', 'AEE', 'ORA', 'TTEK', 'AWK', 'ADC', 'HR', 'ETR', 'DEO', 'CMG', 'NGG', 'LNT', 'ICE', 'BR', 'ORAN', 'MA', 'VNQ', 'IYR', 'AZN', 'AZN', 'ICE', 'BR', 'ECL', 'DEO', 'DEO', 'AWK', 'HSY', 'TMF', 'LQD', 'SPTL', 'BND']
+['HSY', 'ICE', 'DEO', 'AWK', 'ECL', 'AZN', 'BR', 'AZN', 'EURNOK=X', 'EURNOK=X', 'TMF', 'TMF', 'LQD', 'SPTL', 'SPTL', 'BND', 'BND']
