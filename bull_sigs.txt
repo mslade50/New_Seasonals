@@ -1,1 +1,1 @@
-['BOX', 'CHWY', 'VRNT', 'VIR', 'DG', 'ADYEY', 'TSVT', 'DLTR', 'ECL', 'BMRN', 'EPD']
+['ANF', 'VRT', 'NVO', 'BOX', 'CHWY', 'VRNT', 'VIR', 'DG', 'ADYEY', 'M', 'DLTR', 'TSEM', 'O', 'TEL', 'LRCX', 'CARG', 'LSXMA', 'ENTG', 'RCM', 'TXN', 'HD', 'MXL', 'KLAC', 'DXCM', 'AMD', 'ADP', 'SHW', 'BGS', 'PAYX', 'PLNT', 'MCHP', 'CMC', 'NUE', 'ACAD', 'EQT', 'SOXL', 'DUST']
