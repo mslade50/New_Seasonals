@@ -1,1 +1,1 @@
-['SPTL', 'TMF', 'BND', 'AZN', 'LQD', 'EURNOK=X', 'NEA', 'TMF', 'SPTL', 'SPTL', 'BND']
+['TMF', 'SPTL', 'NEA', 'BND', 'SPTL']
