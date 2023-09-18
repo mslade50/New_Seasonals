@@ -1,1 +1,1 @@
-['ANF', 'VRT', 'NVO', 'BOX', 'CHWY', 'VRNT', 'VIR', 'DG', 'ADYEY', 'M', 'DLTR', 'TSEM', 'O', 'TEL', 'LRCX', 'CARG', 'LSXMA', 'ENTG', 'RCM', 'TXN', 'HD', 'MXL', 'KLAC', 'DXCM', 'AMD', 'ADP', 'SHW', 'BGS', 'PAYX', 'PLNT', 'MCHP', 'CMC', 'NUE', 'ACAD', 'EQT', 'SOXL', 'DUST']
+['ANF', 'VRT', 'NVO', 'CRH', 'BOX', 'SEDG', 'FMC', 'CHWY', 'VIR', 'DG', 'ADYEY', 'M', 'DLTR', 'W', 'NOVA', 'SONO', 'U', 'TSCO', 'FDX', 'AEO', 'TECH', 'CVBF', 'CUTR', 'TGI', 'LEG', 'INCY', 'PACB', 'ADYEY', 'A', 'BURL', 'BBY', 'M', 'CZR', 'DNLI', 'TPIC', 'GO', 'AMLX', 'WOLF', 'TGT', 'SDGR', 'KSS', 'KRE']

@@ -1,1 +1,1 @@
-['NXGN', 'OKE', 'MU', 'NS', 'CCJ']
+['NXGN', 'SOVO', '^FTSE', 'CCJ']
