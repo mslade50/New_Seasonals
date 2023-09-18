@@ -1,1 +1,1 @@
-['TMF', 'SPTL', 'NEA', 'BND', 'SPTL']
+['SPTL']
