@@ -1,1 +1,1 @@
-['ANF', 'VRT', 'CIVI', 'BOX', 'FMC', 'CHWY', 'VIR', 'CBRL', 'DG', 'ADYEY', 'PLNT', 'DLTR', 'ELF', 'STNE', 'RVNC', 'MKC', 'CPNG', 'CNHI', 'MGM', 'WMG']
+['ANF', 'VRT', 'RIOT', 'FMC', 'CHWY', 'ILMN', 'VIR', 'ADYEY', 'DLTR', 'AMBA', 'BHVN', 'TOST', 'QDEL', 'MODG', 'CUK', 'OMC', 'CCL', 'APH', 'CPRX', 'FOLD', 'VSAT', 'SNDX', 'CHWY', 'VIR', 'NYCB', 'ETNB', 'DAWN', 'AHCO', 'EQC', 'SWTX', 'NNOX', 'LTHM', 'CDAY', 'PXD', 'ZIP', 'EOG', 'WMG', 'EBC', 'CTRA', 'MTDR', 'IMGN', 'SM', 'AR', 'XBI', 'BOIL', 'LABU']
