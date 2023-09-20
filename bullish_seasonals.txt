@@ -1,1 +1,1 @@
-['ZYXI']
+['PLD', 'ALV', 'ELME', 'ELME', 'INFY', 'CPRT', 'CPRT', 'AXS', 'BNS', 'BMO', 'DEI', 'ENB', 'ENB', 'AFL', 'DLR', 'DLR', 'ACGL', 'ACGL', 'ORAN', 'ORAN', 'AIZ', 'AIZ', 'PRU', 'HE', 'CL', 'DEO', 'DEO', 'PNFP', 'ZYXI']
