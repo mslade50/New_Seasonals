@@ -1,1 +1,1 @@
-['MRO', 'WOLF', 'ETN', 'ACHC', 'DFS', 'OPCH', 'SRPT', 'HXL', 'LBTYA', 'SBCF', 'LXU', 'GIL', 'GDXJ', 'CLDX', 'SEIC', 'NEM', 'UGI', 'TRV', 'BX', 'WST', 'INSM', 'ATI', 'NVAX', 'JCI', 'EC', 'CCRN', 'NS', 'IBKR', 'UAA', 'HAE', 'WST', 'WST', 'BLFS', 'GIL', 'ADSK', 'EAT', 'WY', 'EPD', 'REGN', 'REGN', 'JCI', 'WEN', 'SBCF']
+['WST', 'WEN', 'GIL', 'WY', 'ADSK', 'SBCF', 'EPD', 'REGN', 'EAT', 'JCI', 'HAE', 'WST', 'BLFS', 'REGN', 'VGR', 'NXGN', 'NXGN', '^VIX']
