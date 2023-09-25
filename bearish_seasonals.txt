@@ -1,1 +1,1 @@
-['WST', 'NXGN', 'REGN', 'HAE', 'BLFS', 'SSRM', 'NXGN', '^VIX', 'USDTWD=X', 'USDTWD=X', 'USDKRW=X', 'USDKRW=X']
+['USDTWD=X', 'SSRM', 'USDKRW=X', 'NXGN', '^VIX', 'PRG', 'USDMXN=X', 'USDMXN=X', 'USDTWD=X']
