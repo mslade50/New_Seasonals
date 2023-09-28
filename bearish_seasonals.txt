@@ -1,1 +1,1 @@
-['USDMXN=X', 'USDZAR=X', 'DHR', 'YANG', 'CLFD', '^VIX', '^VIX', 'USDMXN=X', 'PSQ', 'PSQ', 'QID', 'QID', 'TZA', 'TZA', 'YANG', 'YANG']
+['USDMXN=X', 'YANG', 'PSQ', '^VIX', 'QID', 'TZA', 'CLFD', 'CELH', 'TLT', 'TLT', 'USDSEK=X', 'USDZAR=X', 'PSQ', 'PSQ', 'SPXS', 'SPXU', 'QID', 'QID', 'TZA', 'TZA', 'IEF', 'IEF', 'SDS', 'YANG']
