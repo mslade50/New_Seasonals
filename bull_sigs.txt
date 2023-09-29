@@ -1,1 +1,1 @@
-['DELL', 'MTZ', 'NEP', 'IRT', 'O', 'WPC', 'MODG', 'AGR', 'BTAI', 'PTLO', 'MORF', 'FMC', 'ADC', 'NKE', 'CLX', 'HPQ', 'NEE', 'DG', 'TPR', 'ACN', 'KMX', 'FE', 'AES', 'BA', 'INMD', 'AGR', 'BTAI', 'FOLD', 'JCI', 'TRP', 'RARE', 'WDAY', 'MU', 'ACAD', '^N225']
+['CCL', 'MTZ', 'NEP', 'IRT', 'O', 'WPC', 'PTLO', 'MORF', 'FMC', 'ADC', 'NEE', 'DG', 'NVCR', 'GGAL', 'MTG', 'MTN', 'CUK', 'CCL', 'CXM', 'CYTK', 'DGX', 'HIG', 'AON', 'SNDX', 'WMT', 'AXSM', 'ELV', 'CAH', 'CHX', 'OPRA', 'CORT', 'PTEN', 'WEAT', 'SLV', 'DUOL']
