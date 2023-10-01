@@ -1,1 +1,1 @@
-['CELH', 'YANG', 'USDSEK=X', 'SPXU', 'PSQ', 'SPXS', 'QID', 'TZA', 'TLT', 'SDS', 'IEF', 'BIG', 'TLT', 'TLT', 'USDCHF=X', 'USDCHF=X', 'PSQ', 'TMF', 'TMF', 'QID', 'TZA', 'TZA', 'IEF', 'IEF', 'SPTI', 'SPTL', 'SPTL']
+['CELH', 'YANG', 'USDSEK=X', 'SPXU', 'PSQ', 'SPXS', 'QID', 'TZA', 'TLT', 'SDS', 'IEF', 'USDCHF=X', 'BIG', 'TLT', 'TLT', 'USDCHF=X', 'USDCHF=X', 'PSQ', 'TMF', 'TMF', 'QID', 'TZA', 'TZA', 'IEF', 'IEF', 'SPTI', 'SPTL', 'SPTL']
