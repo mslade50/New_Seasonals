@@ -1,1 +1,1 @@
-['NXGN', 'OVV', 'CCCS']
+['NXGN']
