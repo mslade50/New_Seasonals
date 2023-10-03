@@ -1,1 +1,1 @@
-['PSQ', 'TZA', 'QID', 'TLT', 'IEF', 'SPTL', 'TMF', 'USDCHF=X', 'BIG', 'RELL', 'RELL', 'TLT', 'TLT', 'USDCHF=X', 'USDCHF=X', 'TMF', 'TMF', 'TZA', 'IEF', 'IEF', 'SPTI', 'SPTI', 'SPTL', 'SPTL']
+['TZA', 'IEF', 'TLT', 'SPTL', 'TMF', 'RELL', 'SPTI', 'USDCHF=X', 'THC', 'APPS', 'VGR', 'TLT', 'TMF', 'TMF', 'SPTI', 'SPTI', 'SPTL', 'SPTL']
