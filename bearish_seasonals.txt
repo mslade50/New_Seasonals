@@ -1,1 +1,1 @@
-['TZA', 'IEF', 'TLT', 'SPTL', 'TMF', 'RELL', 'SPTI', 'USDCHF=X', 'THC', 'APPS', 'VGR', 'TLT', 'TMF', 'TMF', 'SPTI', 'SPTI', 'SPTL', 'SPTL']
+['SPTL', 'TMF', 'TLT', 'SPTI', 'MRO', 'MRO', 'APPS', 'APPS', 'ELME', 'ELME', 'CLF', 'CLF', 'FRT', 'FRT', 'GTY', 'GTY', 'CINF', 'CINF', 'VRSK', 'VRSK', 'VRTX', 'VRTX', 'ATO', 'ATO', 'USDCHF=X', 'TMF', 'SPTI', 'SPTL']
