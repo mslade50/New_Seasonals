@@ -1,1 +1,1 @@
-['MSCI', 'USO', 'MOS', 'ITT', 'HYG', 'AMX', 'JNK', 'LII', 'MT', 'TNA', 'MFC', 'DVA', 'BIP', 'CF', 'KTOS', 'RILY', 'LDOS', 'ZBRA', 'MOH', 'CDNS', 'NDAQ', 'EVV', 'KW', 'HUN', 'SPWR', 'LVS', 'GOOD', 'KAR', 'BRKR', 'IPGP', 'DAL', 'BX', 'G', 'HTGC', 'CLB', 'ROIC', 'LSTR', 'MDRX', 'PGX', 'FHI', 'CRL', 'ETY', 'WBD', 'ALNY', 'BKNG', 'ALL', 'SNPS', 'AGCO', 'ODFL', 'ODFL', 'RILY', 'MSCI', 'DAL', 'DAL', 'DVA', 'DVA', 'SNPS', 'IPGP', 'EVV', 'MOH', 'PGX']
+['ODFL', 'MSCI', 'RILY', 'MOH', 'SNPS', 'DAL', 'IPGP', 'EVV', 'DVA', 'PGX', 'DAL', 'AVGO', 'TSEM', 'UTHR', 'UTHR']
