@@ -1,1 +1,1 @@
-['ODFL', 'MSCI', 'RILY', 'MOH', 'SNPS', 'DAL', 'IPGP', 'EVV', 'DVA', 'PGX', 'DAL', 'AVGO', 'TSEM', 'UTHR', 'UTHR']
+['TSEM', 'UTHR', 'DAL', 'COHR', 'DVA', 'ILMN', 'AVGO', 'AVGO', 'NWBI']

@@ -1,1 +1,1 @@
-['SPTL', 'TMF', 'FRT', 'ATO', 'SPTI', 'ELME', 'VRTX', 'USDCHF=X', 'CLF', 'GTY', 'MRO', 'CINF', 'VRSK', 'APPS', 'WDC', 'WDC', 'SWX', 'SWX', 'CLF', 'DENN', 'BALL', 'FRT', 'GTY', 'VRSK', 'VRTX', 'ATO', 'ATO']
+['BALL', 'SWX', 'ATO', 'GTY', 'FRT', 'WDC', 'VRSK', 'CLF', 'VRTX', 'DINO', 'WDC', 'WDC', 'LRN', 'DENN', 'DENN', 'CMI', 'CMI', 'WM']
