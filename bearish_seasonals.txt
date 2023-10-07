@@ -1,1 +1,1 @@
-['BALL', 'SWX', 'ATO', 'GTY', 'FRT', 'WDC', 'VRSK', 'CLF', 'VRTX', 'DINO', 'WDC', 'WDC', 'LRN', 'DENN', 'DENN', 'CMI', 'CMI', 'WM']
+['SWX', 'ATO', 'GTY', 'FRT', 'WDC', 'VRSK', 'CLF', 'VRTX', 'DINO', 'WDC', 'WDC', 'LRN', 'DENN', 'DENN', 'CMI', 'CMI', 'WM']
