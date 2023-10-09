@@ -1,1 +1,1 @@
-['TSEM', 'UTHR', 'COHR', 'DVA', 'ILMN', 'AVGO', 'AVGO', 'NWBI']
+['DVA', 'AVGO', 'ILMN', 'NWBI', 'COHR', 'AVGO']

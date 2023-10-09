@@ -1,1 +1,1 @@
-['SWX', 'ATO', 'GTY', 'FRT', 'WDC', 'VRSK', 'CLF', 'VRTX', 'DINO', 'WDC', 'WDC', 'LRN', 'DENN', 'DENN', 'CMI', 'CMI', 'WM']
+['CMI', 'WDC', 'DENN', 'AA', 'HDSN', 'AEO', 'WDC', 'ELME', 'LRN', 'LRN', 'CMG', 'CMG', 'IFF', 'IFF', 'DENN', 'DENN', 'MSI', 'IBM']
