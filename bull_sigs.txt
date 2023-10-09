@@ -1,1 +1,1 @@
-['ANF', 'IVR', 'NEP', 'HASI', 'GOF', 'DRVN', 'AVD', 'WPC', 'AES', 'NTST', 'HTZ', 'DAR', 'FMC', 'EBIX', 'SJM', 'PEP', 'NEE', 'BGS', 'ENV', 'MKC', 'MAXN', 'NVCR', 'PGX', 'AEHR', 'HR', 'MC', 'WMT', 'CCK', 'DRI', 'VZ', 'LPX', 'DG', 'INCY', 'YUM', 'CHD', 'GO', 'AMLX', 'BALL', 'MRVI', 'CRWD', 'INFA']
+['ANF', 'W', 'NEP', 'DRVN', 'AVD', 'AES', 'INMD', 'ALK', 'FMC', 'BYND', 'SJM', 'AHCO', 'NEE', 'MKC', 'MAXN', 'TGTX', 'SONO', 'PROK', 'TSEM', 'AAL', 'TMDX', 'SSYS', 'UAL', 'FROG', 'HRL', 'ALNY', 'HCSG', 'FIS', 'FOUR', 'GO', 'HTHT', 'SDGR', 'TGTX', 'INFA']
