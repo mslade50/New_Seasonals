@@ -1,1 +1,1 @@
-['CMI', 'WDC', 'DENN', 'AA', 'HDSN', 'AEO', 'WDC', 'ELME', 'LRN', 'LRN', 'CMG', 'CMG', 'IFF', 'IFF', 'DENN', 'DENN', 'MSI', 'IBM']
+['WDC', 'IBM', 'HDSN', 'IFF', 'ELME', 'AA', 'MSI', 'DENN', 'AEO', 'LRN', 'CMG', 'SONY', 'OSTK', 'LRN', 'LRN', 'ABM', 'ABM', 'DENN', 'VMC', 'EQR', 'WY', 'WY', 'BXMT', 'ECL', 'ECL', 'JACK', 'EXC', 'WM', 'WM', 'GIS']

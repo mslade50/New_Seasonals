@@ -1,1 +1,1 @@
-['DVA', 'AVGO', 'ILMN', 'NWBI', 'COHR', 'AVGO']
+['AVGO', 'COHR', 'HAIN']
