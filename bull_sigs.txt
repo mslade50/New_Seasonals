@@ -1,1 +1,1 @@
-['ANF', 'W', 'NEP', 'DRVN', 'AVD', 'AES', 'INMD', 'ALK', 'FMC', 'BYND', 'SJM', 'AHCO', 'NEE', 'MKC', 'MAXN', 'TGTX', 'SONO', 'PROK', 'TSEM', 'AAL', 'TMDX', 'SSYS', 'UAL', 'FROG', 'HRL', 'ALNY', 'HCSG', 'FIS', 'FOUR', 'GO', 'HTHT', 'SDGR', 'TGTX', 'INFA']
+['NEP', 'AKRO', 'MKC', 'NEOG', 'SOVO', 'SUI', 'ETNB', 'VTYX', 'AKRO', 'INFA']
