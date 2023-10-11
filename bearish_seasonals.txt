@@ -1,1 +1,1 @@
-['WDC', 'IBM', 'HDSN', 'IFF', 'ELME', 'AA', 'MSI', 'DENN', 'AEO', 'LRN', 'CMG', 'SONY', 'OSTK', 'LRN', 'LRN', 'ABM', 'ABM', 'DENN', 'VMC', 'EQR', 'WY', 'WY', 'BXMT', 'ECL', 'ECL', 'JACK', 'EXC', 'WM', 'WM', 'GIS']
+['ECL', 'GIS', 'WY', 'ABM', 'DENN', 'VMC', 'WM', 'LRN', 'EQR', 'SONY', 'DINO', 'GIII', 'EXPE', 'BKR', 'TWI', 'TWI', 'OMCL', 'LRN', 'LRN', 'GIL', 'GIL', 'CVX', 'CVX', 'RELL', 'BXMT', 'BXMT', 'TSN', 'TSN', 'JACK', 'WM', 'WTFC', 'THO', 'THO', 'USDTWD=X']

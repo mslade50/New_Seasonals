@@ -1,1 +1,1 @@
-['AVGO', 'COHR', 'HAIN']
+['HAIN', 'OC', 'RYN', 'PFS', 'KRE']
