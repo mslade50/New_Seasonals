@@ -1,1 +1,1 @@
-['NEP', 'AKRO', 'MKC', 'NEOG', 'SOVO', 'SUI', 'ETNB', 'VTYX', 'AKRO', 'INFA']
+['NEOG', 'DAR', 'OM', 'AKRO', 'MKC', 'MAXN', 'BAX', 'PROK', 'DNUT', 'EHC', 'TMDX', 'MDT', 'VRDN', 'TNDM', 'ISRG', 'NEOG', 'INSP', 'PTLO', 'PODD', 'FMC', 'RCM', 'TMCI', 'SYK', 'SUI', 'HCSG', 'THC', 'CUTR', 'BSX', 'OM', 'DXCM', 'BG', 'ZBH', 'IRDM', 'ABT', 'AHCO', 'CVX', 'DVA', 'PTGX', 'MAXN', 'SHC', 'BAX', 'EVRI', 'SDGR']
