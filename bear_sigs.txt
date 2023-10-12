@@ -1,1 +1,1 @@
-['UVIX']
+['NXGN', 'BHVN', 'TXT', 'TT', 'CDAY']
