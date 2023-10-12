@@ -1,1 +1,1 @@
-['HAIN', 'OC', 'RYN', 'PFS', 'KRE']
+['OC', 'MKSI', 'SBH', 'DHI', 'RYN', 'RYN', 'ADTN', 'LIN', 'HAIN', 'FFIN', 'HTH', 'HTH', 'PFS', 'NWBI', 'NWBI', 'KRE', 'KRE', 'XLP', 'XLP']
