@@ -1,1 +1,1 @@
-['SONO', 'ACCD', 'INMD', 'RVNC', 'DAR', 'HSY', 'SJM', 'OM', 'GLW', 'AKRO', 'NUS', 'SILK', 'MKC', 'BAX', 'MDLZ', 'CVNA', 'FGEN', 'PYPL', 'DOCU', 'MODG', 'LUV', 'CHWY', 'COTY', 'CTSH', 'NYCB', 'EDR', 'GLW', 'TECK', 'KDP', 'KHC', 'FIS', 'GPK', 'DHR', 'PENN', 'TPR', 'JD', 'XBI', 'LABU']
+['ROKU', 'SHW', 'SONO', 'ACCD', 'INMD', 'ALK', 'RVNC', 'DAR', 'HRL', 'ETNB', 'OM', 'VTYX', 'GLW', 'AKRO', 'NUS', 'SILK', 'DVA', 'MKC', 'BAX', 'HRMY', 'TGTX', 'MTCH', 'BA', 'IBM', 'EDR', 'UBER', 'HRB']
