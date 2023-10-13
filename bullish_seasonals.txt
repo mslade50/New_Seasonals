@@ -1,1 +1,1 @@
-['OC', 'MKSI', 'SBH', 'DHI', 'RYN', 'RYN', 'ADTN', 'LIN', 'HAIN', 'FFIN', 'HTH', 'HTH', 'PFS', 'NWBI', 'NWBI', 'KRE', 'KRE', 'XLP', 'XLP']
+['NWBI', 'FFIN', 'MKSI', 'KRE', 'OC', 'SBH', 'HTH', 'ADTN', 'RYN', 'XLP', 'HAIN', 'PFS', 'SBNY', 'SBNY', 'DHI', 'DHI', 'TRMB', 'TRMB', 'GRMN', 'ICE', 'ICE', 'DEI', 'RYN', 'RYN', 'GPN', 'PACW', 'LIN', 'LIN', 'SBUX', 'CVLT', 'HTH', 'HTH', 'NWBI', 'CVBF', 'CVBF', '^BKX', '^BKX', 'KRE', 'KRE', 'XLI', 'XLP', 'XLP', 'XLV', 'XLV']

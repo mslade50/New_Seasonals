@@ -1,1 +1,1 @@
-['THO', 'GIL', 'CVX', 'LRN', 'TSN', 'GIII', 'JACK', 'OMCL', 'WTFC', 'TWI', 'EXPE', 'DINO', 'WM', 'BXMT', 'BKR', 'HP', 'LRN', 'GIL', 'RELL', 'NVS', 'EQT', 'EQT', 'USDTWD=X']
+['USDTWD=X', 'RELL', 'GIL', 'EQT', 'HP', 'LRN', 'NVS', 'BLNK', 'EXPE', 'BKR', 'PRO', 'TWI', 'TWI', 'CPRX', 'CPRX', 'CVX', 'LBTYK', 'LBTYK', 'LBTYA', 'LBTYA']
