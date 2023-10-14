@@ -1,1 +1,1 @@
-['USDTWD=X', 'RELL', 'GIL', 'EQT', 'HP', 'LRN', 'NVS', 'BLNK', 'EXPE', 'BKR', 'PRO', 'TWI', 'TWI', 'CPRX', 'CPRX', 'CVX', 'LBTYK', 'LBTYK', 'LBTYA', 'LBTYA']
+['USDTWD=X', 'RELL', 'GIL', 'EQT', 'HP', 'NVS', 'BLNK', 'EXPE', 'BKR', 'PRO', 'TWI', 'TWI', 'CPRX', 'CPRX', 'CVX', 'LBTYK', 'LBTYK', 'LBTYA', 'LBTYA']
