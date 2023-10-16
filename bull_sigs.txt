@@ -1,1 +1,1 @@
-['ROKU', 'SHW', 'SONO', 'ACCD', 'INMD', 'ALK', 'RVNC', 'DAR', 'HRL', 'ETNB', 'OM', 'VTYX', 'GLW', 'AKRO', 'NUS', 'SILK', 'DVA', 'MKC', 'BAX', 'HRMY', 'TGTX', 'MTCH', 'BA', 'IBM', 'EDR', 'UBER', 'HRB']
+['ACCD', 'GOF', 'INMD', 'ETNB', 'OM', 'AKRO', 'SILK', 'MKC', 'MAXN', 'BAX', 'MRNA', 'RCM', 'LBRDK']
