@@ -1,1 +1,1 @@
-['CVX', 'TWI', 'BKR', 'CPRX', 'LBTYA', 'PRO', 'EXPE', 'LBTYK', 'RMBS', 'BLNK', 'CPRX', 'CPRX', 'LBTYK', 'LBTYK', 'LBTYA', 'LBTYA', 'CELH', 'CELH']
+['CELH', 'LBTYA', 'CPRX', 'BLNK', 'LBTYK', 'PGTI', 'PGTI', 'LBTYK', 'LBTYA', 'NRG', 'NRG', 'PERI', 'ROG', 'ROG', 'NWE', 'NWE']
