@@ -1,1 +1,1 @@
-['ACCD', 'GOF', 'INMD', 'ETNB', 'OM', 'AKRO', 'SILK', 'MKC', 'MAXN', 'BAX', 'MRNA', 'RCM', 'LBRDK']
+['ACCD', 'GOF', 'INMD', 'ETNB', 'OM', 'VTYX', 'AKRO', 'SILK', 'BAX', 'IEF', 'SPTI', 'LBRDK']
