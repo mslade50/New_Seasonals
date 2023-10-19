@@ -1,1 +1,1 @@
-['VRT', 'EXTR', 'APG', 'ZWS', 'IVR', 'ACCD', 'GOF', 'INMD', 'ETNB', 'OM', 'VTYX', 'AKRO', 'SILK', 'CMC', 'F', 'U', 'ROKU', 'NLY', 'AAL', 'UAL', 'KMX', 'CARR', 'CCL', 'GM', 'LUV', 'BX', 'KKR', 'PLD', 'JCI', 'NYCB', 'GE', 'MS', 'PFE', 'DHR', 'AZN', 'CNHI', 'XP', '^DJT', 'ARKK', 'XLB', 'ASHR']
+['APG', 'FNF', 'CTSH', 'ZWS', 'SDRL', 'IVR', 'ACCD', 'NTST', 'INMD', 'ORC', 'NCR', 'ETNB', 'OM', 'CDMO', 'VTYX', 'BIPC', 'AKRO', 'SILK', 'MKC', 'CMC', 'GMAB', 'TSLA', 'GME', 'VNO', 'NLY', 'CCI', 'ZION', 'BX', 'ABBV', 'GSK', 'AA', 'TSLL', 'PGX', 'XLY', 'ASHR', 'PFF']
