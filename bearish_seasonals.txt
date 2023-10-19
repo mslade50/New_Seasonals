@@ -1,1 +1,1 @@
-['PERI', 'ROG', 'LBTYA', 'NRG', 'PGTI', 'NWE', 'LBTYK', 'ROG', 'TJX', 'NWE', 'NWE', 'YANG']
+['NWE', 'ROG', 'TJX', 'TU', 'NWE', 'NWE', 'YANG']
