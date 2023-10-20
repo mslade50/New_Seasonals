@@ -1,1 +1,1 @@
-['NWE', 'ROG', 'TJX', 'TU', 'NWE', 'NWE', 'YANG']
+['NWE', 'YANG', 'PGTI', 'PGTI', 'GLNG', 'E', 'EQC', 'CRH', 'GME', 'TU', 'TMUS', 'TMUS', 'JCI', 'NI', 'POR', 'NWE', 'USDTWD=X', 'NZDUSD=X']
