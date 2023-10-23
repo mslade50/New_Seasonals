@@ -1,1 +1,1 @@
-['NWE', 'USDTWD=X', 'YANG', 'PGTI', 'PGTI', 'GLNG', 'E', 'EQC', 'CRH', 'GME', 'TU', 'TMUS', 'TMUS', 'JCI', 'NI', 'POR', 'NWE']
+['PGTI', 'NWE', 'TU', 'E', 'USDTWD=X', 'TMUS', 'GME', 'SQM', 'SQM', 'PGTI', 'AGNC', 'FLR', 'FLR', 'EQC', 'EQC', 'BG', 'CRH', 'WPC', 'WPC', 'TMUS', 'TMUS', 'KDP', 'GEN', 'GEN', 'POR', 'POR', 'HYG', 'HYG', 'JNK', 'JNK', 'XHB', 'ITB']
