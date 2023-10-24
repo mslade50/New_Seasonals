@@ -1,1 +1,1 @@
-['SPXU', 'GLD', 'VXX', 'IAU', 'SGEN']
+['GBTC', 'SGEN']

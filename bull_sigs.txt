@@ -1,1 +1,1 @@
-['ANF', 'NVO', 'IVR', 'ACCD', 'FR', 'VRDN', 'NTST', 'INMD', 'ORC', 'HRL', 'EBIX', 'NCR', 'ETNB', 'OM', 'VTYX', 'GLW', 'AKRO', 'SILK', 'MAXN', 'CMC', 'EVRI', 'MRVI', 'ZNTL', 'CSCO', 'C', 'BAC', 'CTVA', 'CVX', 'UPS', 'BBWI', 'DOW', 'RVMD', 'KR', 'IMGN', 'BKLN']
+['NVO', 'BG', 'IVR', 'NLY', 'FR', 'AVD', 'TRU', 'ORC', 'HRL', 'NCR', 'OM', 'VTYX', 'GLW', 'AKRO', 'SILK', 'MAXN', 'XRX', 'CMC', 'MRVI', 'ZNTL', 'IONQ', 'CCCS', 'SYF', 'HAYW', 'TD', 'TECK', 'DHR']
