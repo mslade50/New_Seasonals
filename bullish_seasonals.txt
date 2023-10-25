@@ -1,1 +1,1 @@
-['MA', 'STE', 'ODFL', 'ROP', 'SANM', 'UCTT', 'UCTT', 'FORM', 'FORM', 'SANM', 'SANM', 'JBL', 'TRV', 'TRV', 'ROP', 'ROP', 'USDZAR=X', 'USDZAR=X']
+['UCTT', 'JBL', 'ROP', 'USDZAR=X', 'TRV', 'FORM', 'SANM', 'JBHT', 'JBHT', 'UCTT', 'FORM', 'SANM', 'EHC', 'EHC', 'PH', 'PH', 'SHW', 'DE', 'DE', 'ROP', 'PODD', 'JKHY', 'JKHY', 'SYY', 'NG=F', 'NG=F', 'USDMXN=X', 'USDZAR=X']
