@@ -1,1 +1,1 @@
-['PH', 'JBHT', 'PODD', 'JKHY', 'EHC', 'DE', 'NG=F', 'SHW', 'SYY', 'USDMXN=X', 'USDZAR=X', 'FORM', 'SANM', 'ROP', 'UCTT', 'PH', 'PH', 'LNT', 'NG=F']
+['PH', 'NG=F', 'GPS', 'OFIX', 'ADSK', 'NVO', 'PH', 'PH', 'ROK', 'ROST', 'LNT', 'LNT']
