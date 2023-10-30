@@ -1,1 +1,1 @@
-['PH', 'NG=F', 'GPS', 'OFIX', 'ADSK', 'NVO', 'PH', 'PH', 'ROK', 'ROST', 'LNT', 'LNT']
+['ADSK', 'PH', 'LNT', 'GPS', 'ROST', 'OFIX', 'BECN', 'SBNY', 'MTG', 'EMN', 'PH', 'DRQ', 'MCK', 'MDT', 'AEL', 'WMT', 'LNT']
