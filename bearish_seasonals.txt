@@ -1,1 +1,1 @@
-['UAA', 'LYV', 'AVXL', 'HG=F', 'MLCO', 'TDC', 'CCJ', 'BNS', 'DENN', 'CBRE', 'DB', 'BRKL', 'BR', 'SSRM', 'VZ', 'COF', 'RQI', 'SA', 'LNG', 'HYG', 'CEQP', 'TNK', 'SIG', 'NWBI', 'BX', 'VRE', 'PNM', 'EVV', 'LNG', 'AVXL', 'VALE', 'MU', 'MU', 'TDC', 'DENN', 'DENN', 'BNS', 'WYNN', 'CCJ', 'CEQP', 'CEQP', 'WMB', 'SPTI', 'BND']
+['AVXL', 'DENN', 'MU', 'VALE', 'BNS', 'CCJ', 'WYNN', 'CEQP', 'TDC', 'WMB', 'DK', 'LNG', 'LNG', 'ACAD', 'ACAD', 'MU', 'MU', 'DENN', 'CEQP', 'CEQP', 'WRB', 'WRB', 'CELH', 'GBPUSD=X', 'GBPUSD=X', 'TMF', 'SPTI', 'SPIB', 'SPIB', 'VCIT', 'VCIT', 'SPTL', 'BND']

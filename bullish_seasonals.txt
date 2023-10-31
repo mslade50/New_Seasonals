@@ -1,1 +1,1 @@
-['ADSK', 'PH', 'LNT', 'GPS', 'ROST', 'OFIX', 'BECN', 'SBNY', 'MTG', 'EMN', 'PH', 'DRQ', 'MCK', 'MDT', 'AEL', 'WMT', 'LNT']
+['PH', 'LNT', 'MDT', 'AMED', 'AMED', 'BECN', 'SBNY', 'MTG', 'EBIX', 'KMPR', 'WEX', 'EMN', 'LH', 'DFS', 'MCK', 'ACM', 'V', 'AEL', 'WMT', 'SFNC', 'MMM', 'FCF', 'OZK', 'SSB']
