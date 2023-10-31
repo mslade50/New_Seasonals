@@ -1,1 +1,1 @@
-['IVR', 'F', 'RGEN', 'IRT', 'HAS', 'AVTR', 'LUV', 'TRU', 'PII', 'VRE', 'INMD', 'HTZ', 'ALGN', 'RVTY', 'ORC', 'TECH', 'ILMN', 'VRNT', 'MXL', 'WHR', 'OM', 'CDMO', 'MKSI', 'VTYX', 'BIPC', 'AKRO', 'DHR', 'WU', 'MAXN', 'GNRC', 'XPRO', 'ZNTL', 'O', 'EPD', 'STM', 'ON']
+['CELH', 'F', 'LSCC', 'SAVE', 'HAS', 'LUV', 'TRU', 'VRE', 'INMD', 'HTZ', 'ALGN', 'RVTY', 'TECH', 'CDMO', 'MKSI', 'VTYX', 'BIPC', 'SRPT', 'AKRO', 'CTLT', 'MAXN', 'XPRO', 'ZI', 'CAT', 'PACB', 'VFC', 'BEKE']
