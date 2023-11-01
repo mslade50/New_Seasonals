@@ -1,1 +1,1 @@
-['PH', 'LNT', 'MDT', 'AMED', 'AMED', 'BECN', 'SBNY', 'MTG', 'EBIX', 'KMPR', 'WEX', 'EMN', 'LH', 'DFS', 'MCK', 'ACM', 'V', 'AEL', 'WMT', 'SFNC', 'MMM', 'FCF', 'OZK', 'SSB']
+['SSB', 'AMED', 'MTG', 'EBIX', 'KMPR', 'AEL', 'SFNC', 'WMT', 'MCK', 'OZK', 'WEX', 'EMN', 'LH', 'MMM', 'SBNY', 'FCF', 'ACM', 'V', 'DFS', 'BECN', 'AMED', 'AMED', 'ABR', 'ABR', 'BUD', 'BUD', 'SNV', 'USDKRW=X', 'YANG']
