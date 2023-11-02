@@ -1,1 +1,1 @@
-['SSB', 'AMED', 'MTG', 'EBIX', 'KMPR', 'AEL', 'SFNC', 'WMT', 'MCK', 'OZK', 'WEX', 'EMN', 'LH', 'MMM', 'SBNY', 'FCF', 'ACM', 'V', 'DFS', 'BECN', 'AMED', 'AMED', 'ABR', 'ABR', 'BUD', 'BUD', 'SNV', 'USDKRW=X', 'YANG']
+['USDKRW=X', 'BUD', 'AMED', 'ABR', 'SNV', 'AMED', 'ARWR', 'ARWR', 'ABR', 'BUD', 'BUD', 'YANG', 'YANG']
