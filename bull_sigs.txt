@@ -1,1 +1,1 @@
-['LSCC', 'SAVE', 'LUV', 'TRU', 'VRE', 'INMD', 'HTZ', 'ALGN', 'RVTY', 'TECH', 'GOOS', 'VICR', 'ILMN', 'CDMO', 'MKSI', 'HSIC', 'EL', 'VTYX', 'CTLT', 'DAN', 'MAXN', 'ZTS', 'XPRO', 'MTCH', 'SHLS', 'CPNG', 'TPR']
+['SAVE', 'ALGN', 'RVTY', 'GOOS', 'MKSI', 'HSIC', 'VTYX', 'OGN', 'NVST', 'CFLT', 'MRNA', 'RCM', 'OGN', 'XRAY']
