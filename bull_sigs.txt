@@ -1,1 +1,1 @@
-['SAVE', 'ALGN', 'RVTY', 'GOOS', 'MKSI', 'HSIC', 'VTYX', 'OGN', 'NVST', 'CFLT', 'MRNA', 'RCM', 'OGN', 'XRAY']
+['SAVE', 'BILL', 'PAYC', 'HSIC', 'FTNT', 'LABD', 'JDST', 'DUST', 'KNTK']

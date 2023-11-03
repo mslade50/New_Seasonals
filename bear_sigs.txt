@@ -1,1 +1,1 @@
-['FYBR', 'SPR']
+['NKE', 'TGTX']
