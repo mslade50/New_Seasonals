@@ -1,1 +1,1 @@
-['USDKRW=X', 'BUD', 'AMED', 'ABR', 'SNV', 'AMED', 'ARWR', 'ARWR', 'ABR', 'BUD', 'BUD', 'YANG', 'YANG']
+['ARWR', 'AMED', 'YANG', 'BUD', 'ABR', 'BLDR', 'BUD', 'YANG', 'YANG']
