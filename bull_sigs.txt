@@ -1,1 +1,1 @@
-['SAVE', 'BILL', 'PAYC', 'HSIC', 'FTNT', 'LABD', 'JDST', 'DUST', 'KNTK']
+['OMCL', 'AGL', 'BILL', 'GOOS', 'OGN', 'ALB', 'LTHM', 'CNK', 'KNTK']
