@@ -1,1 +1,1 @@
-['ARWR', 'AMED', 'YANG', 'BUD', 'ABR', 'BLDR', 'BUD', 'YANG', 'YANG']
+['YANG', 'BUD', 'BLDR', 'ARWR', 'PEP', 'PEP', 'TLT', 'TMF', 'IEF', 'SHY', 'SHY', 'SPTL', 'YANG', 'YANG']
