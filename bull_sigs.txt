@@ -1,1 +1,1 @@
-['OMCL', 'AGL', 'BILL', 'GOOS', 'OGN', 'ALB', 'LTHM', 'CNK', 'KNTK']
+['SAVE', 'BILL', 'VTYX', 'OGN', 'ZNTL', 'SU', 'VTYX', 'COP', 'OXY', 'EMR', 'SLB', 'CNHI', 'HAL', 'VLO', 'CVE', 'PTEN', 'USO']
