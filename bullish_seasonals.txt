@@ -1,1 +1,1 @@
-['ARWR', 'YANG', 'PEP', 'SHY', 'WWD', 'MDT', 'MDT', 'PEP', 'PEP', 'TLT', 'TLT', 'TMF', 'TMF', 'IEF', 'IEF', 'SHY', 'SHY', 'SPTL', 'SPTL', 'YANG']
+['YANG', 'TLT', 'IEF', 'TMF', 'SPTL', 'SHY', 'PEP', 'MDT', 'A', 'A', 'JAZZ', 'GRMN', 'NGG', 'WWD', 'WWD', 'JNJ', 'JNJ', 'PEP', 'TLT', 'TLT', 'USDTWD=X', 'IEF', 'IEF']
