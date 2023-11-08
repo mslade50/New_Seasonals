@@ -1,1 +1,1 @@
-['SAVE', 'BILL', 'VTYX', 'OGN', 'ZNTL', 'SU', 'VTYX', 'COP', 'OXY', 'EMR', 'SLB', 'CNHI', 'HAL', 'VLO', 'CVE', 'PTEN', 'USO']
+['SAVE', 'BILL', 'NTCT', 'VTYX', 'OGN', 'XPRO', 'MRVI', 'ZNTL', 'UPST', 'TOST', 'PAAS', 'NEM', 'CPNG', 'WBD', 'ARRY', 'APA']
