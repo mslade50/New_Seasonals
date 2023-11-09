@@ -1,1 +1,1 @@
-['YANG', 'TLT', 'IEF', 'TMF', 'SPTL', 'SHY', 'PEP', 'MDT', 'A', 'A', 'JAZZ', 'GRMN', 'NGG', 'WWD', 'WWD', 'JNJ', 'JNJ', 'PEP', 'TLT', 'TLT', 'USDTWD=X', 'IEF', 'IEF']
+['PEP', 'TLT', 'IEF', 'WWD', 'A', 'JNJ', 'JAZZ', 'DECK', 'A', 'GRMN', 'GRMN', 'AYI', 'AYI', 'NGG', 'WWD', 'WWD', 'K', 'TLT', 'USDTWD=X', 'USDTWD=X', 'TMF', 'TMF', 'IEF', 'SPTL', 'SPTL']
