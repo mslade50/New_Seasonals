@@ -1,1 +1,1 @@
-['AAPL', 'DRI', 'SLM', 'H', 'ARCB', 'PNR', '^NDX', 'OHI', 'MSFT', 'MU', 'JPM', 'LYV', 'LRCX', 'WERN', 'NFLX', 'MLCO', 'SLV', 'EBIX', 'BYD', 'BC', 'ATEC', 'BUD', 'HUN', 'RMBS', 'KW', 'MRVL', 'IGV', 'WYNN', 'AVGO', 'HIG', 'CSX', 'RBA', 'HOG', 'ADI', 'MGM', 'ETN', 'DAN', 'TECK', '^SOX', 'INFY']
+['AMN', 'DAR', 'DRI', 'SLM', 'ARCB', 'H', 'VRSK', 'CP', 'PNR', 'OHI', 'WERN', 'MU', 'JPM', 'LYV', 'NFLX', 'MLCO', 'SLV', 'EBIX', 'BYD', 'HUN', 'ATEC', 'PCG', 'BUD', 'RMBS', 'KW', 'MRVL', 'IGV', 'AVGO', 'RHI', 'HIG', 'CSX', 'PKG', 'RBA', 'HOG', 'MGM', 'DAN', 'TECK', 'JBHT', 'WWD', '^SOX']
