@@ -1,1 +1,1 @@
-['TLT', 'TMF', 'GRMN', 'SPTL', 'WWD', 'IEF', 'DECK', 'AYI', 'USDTWD=X', 'K', 'NGG', 'A', 'GRMN', 'GRMN', 'AYI', 'AYI', 'WWD', 'JNJ', 'TMF', 'SPTL']
+['GRMN', 'WWD', 'SPTL', 'TMF', 'JNJ', 'AYI', 'USDTWD=X', 'GRMN', 'GRMN', 'NEA', 'AYI', 'DLB', 'DLB', 'NGG', 'SNY']
