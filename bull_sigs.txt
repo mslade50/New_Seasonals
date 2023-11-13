@@ -1,1 +1,1 @@
-['AGL', 'SAVE', 'BILL', 'VTYX', 'OGN', 'FOXF', 'ZNTL', 'TTD', 'SQQQ', 'SOXS', 'PSQ', 'QID', 'UNH']
+['AGL', 'SAVE', 'BILL', 'HAS', 'AMN', 'NTCT', 'VTYX', 'OGN', 'FOXF', 'HR', 'HTZ', 'LTHM', 'UNH']
