@@ -1,1 +1,1 @@
-['GRMN', 'WWD', 'SPTL', 'TMF', 'JNJ', 'AYI', 'USDTWD=X', 'GRMN', 'GRMN', 'NEA', 'AYI', 'DLB', 'DLB', 'NGG', 'SNY']
+['GRMN', 'AYI', 'DLB', 'NGG', 'NVG', 'DECK', 'GRMN', 'NEA', 'NEA', 'DLB', 'SNY', 'XBI', 'NZDUSD=X', 'IBB', 'IBB']
