@@ -1,1 +1,1 @@
-['BILL', 'VTYX', 'SE', 'PSQ', 'SH', 'SPXS', 'SPXU', 'TZA', 'LABD', 'SDS', 'SPDN']
+['VTYX']
