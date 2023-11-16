@@ -1,1 +1,1 @@
-['AES', 'TSEM', 'NVEI', 'ADYEY', 'NVDA', 'COF', 'AMZN', 'OWL', 'WH', 'ZWS', 'SHY', 'NFLX', 'DRI']
+['M', 'PI', 'ADYEY', 'URBN', 'STLA', 'TCEHY', 'TCEHY', 'NFLX']
