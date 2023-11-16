@@ -1,1 +1,1 @@
-['GRMN', 'IBB', 'DECK', 'SNY', 'NEA', 'DLB', 'XBI', 'NVG', 'NEA', 'MODG', 'MODG', 'NZDUSD=X', 'NZDUSD=X', 'NZDEUR=X', 'NZDEUR=X', 'IBB']
+['NZDEUR=X', 'NEA', 'NZDUSD=X', 'IBB', 'MODG', 'NVG', 'EDU', 'HDB', 'X', 'GES', 'SSYS', 'SSYS', 'SBRA', 'SBRA', 'MODG', 'MODG', 'NVDA', 'CNC', '^GDAXI', '^GDAXI', 'ZW=f', 'ZW=f', 'NZDUSD=X', 'NZDUSD=X', 'NZDEUR=X', 'NZDEUR=X']
