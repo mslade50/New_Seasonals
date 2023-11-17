@@ -1,1 +1,1 @@
-['GFF', 'ODP', 'VCSH', 'EXAS', 'TNK', 'PAR', 'AEHR', 'RTO', 'QCOM', 'NTAP', 'SNX', 'CORT', 'CORT', 'GRBK', 'GRBK', 'PAR', 'PAR', 'MDC', 'GFF', 'CAH']
+['PAR', 'CAH', 'CORT', 'GRBK', 'GFF', 'MDC', 'CORT', 'PAR', '^VIX', 'SH']
