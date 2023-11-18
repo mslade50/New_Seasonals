@@ -1,1 +1,1 @@
-['PAR', 'CAH', 'CORT', 'GRBK', 'GFF', 'MDC', 'CORT', 'PAR', '^VIX', 'SH']
+['PAR', 'CAH', 'CORT', 'GRBK', 'GFF', 'MDC', 'AKR', 'CORT', 'PAR', '^VIX', 'SH']
