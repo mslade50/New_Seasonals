@@ -1,1 +1,1 @@
-['AES', 'PI', 'ADYEY', 'SQ']
+['TSEM', 'NICE', 'KYMR', 'PI', 'ADYEY', 'SQ', 'TGTX', 'EDU']
