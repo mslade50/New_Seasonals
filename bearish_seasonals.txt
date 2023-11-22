@@ -1,1 +1,1 @@
-['^VIX', 'SH', 'PSQ', 'SH', 'SH', 'SPXS', 'SPXS', 'SPXU', 'SPXU', 'QID', 'TZA', 'TZA', 'SDS', 'SDS']
+['SH', 'SDS', 'TZA', 'SPXU', 'SPXS', 'DX-Y.NYB', 'USDSEK=X', 'PSQ', 'SH', 'SH', 'SPXS', 'SPXU', 'SPXU', 'QID', 'TZA', 'SDS', 'SDS']
