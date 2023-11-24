@@ -1,1 +1,1 @@
-['SH', 'SDS', 'TZA', 'SPXU', 'SPXS', 'USDSEK=X', 'PSQ', 'SH', 'SH', 'SPXS', 'SPXU', 'SPXU', 'QID', 'TZA', 'SDS', 'SDS']
+['SDS', 'SH', 'SPXU', 'PSQ', 'QID', 'SPXS', 'TZA', 'USDSEK=X', 'DRS', 'MNST', 'CECO']
