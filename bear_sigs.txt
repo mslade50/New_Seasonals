@@ -1,1 +1,1 @@
-['TSEM', 'ADYEY', 'SQ', 'EDU']
+['ADYEY', 'SQ', 'NUE']

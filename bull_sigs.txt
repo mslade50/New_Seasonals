@@ -1,1 +1,1 @@
-['VTYX', 'UVXY', 'VIXY', 'VXX', 'UNH']
+['VTYX', 'GIS', 'UNH']
