@@ -1,1 +1,1 @@
-['SDS', 'SH', 'SPXU', 'PSQ', 'QID', 'SPXS', 'TZA', 'USDSEK=X', 'DRS', 'MNST', 'CECO']
+['MNST', 'AEO', 'AEO', 'DRS', 'SPB', 'SJT', 'KW', 'KW', 'SRPT', 'SRPT', 'WHR', 'GTY', 'BXMT', 'BXMT', 'NNN', 'NNN', 'PPBI', 'CECO', 'CECO']
