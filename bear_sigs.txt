@@ -1,1 +1,1 @@
-['ADYEY', 'SQ', 'NUE']
+['ULTA', 'SONO', 'WPC', 'CCI', 'ADYEY', 'COIN', 'COIN', 'EDU']

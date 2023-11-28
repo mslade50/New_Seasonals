@@ -1,1 +1,1 @@
-['VTYX', 'GIS', 'UNH']
+['VTYX', 'BAYRY', 'MRK', 'BOIL', 'UNG', 'DUST']
