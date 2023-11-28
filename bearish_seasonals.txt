@@ -1,1 +1,1 @@
-['MNST', 'AEO', 'AEO', 'DRS', 'SPB', 'SJT', 'KW', 'KW', 'SRPT', 'SRPT', 'WHR', 'GTY', 'BXMT', 'BXMT', 'NNN', 'NNN', 'PPBI', 'CECO', 'CECO']
+['NNN', 'AEO', 'CECO', 'SRPT', 'DRS', 'KW', 'WHR', 'BXMT', 'TREE', 'SPB', 'SPB', 'LRN', 'HALO', 'VCEL', 'VCEL', 'TDC', 'HCSG', 'KW', 'KW', 'BMO', 'BMO', 'DLB', 'RY', 'AKAM', 'BXMT', 'BXMT', 'NNN', 'NNN', 'DRI', 'DRI', 'IEP', 'RGA', 'ORLY', 'ORLY', 'ACM', 'PPBI', 'NWBI', 'CECO', 'CECO', 'SBCF']

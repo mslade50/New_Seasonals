@@ -1,1 +1,1 @@
-['HG=F', 'XRAY', 'PERI', 'THC', 'IEX', 'MCD', 'HDB', 'RYN', 'LIN', 'FE', 'EWZ', 'XLV', 'MFA', 'T', 'UCTT', '^GSPC', 'PTC', 'VZ', 'BXP', 'INVA', 'SPY', 'PUK', 'ERJ', 'ALB', 'KMPR', 'AGI', 'ULTA', 'SMCI', 'SQM', 'HTGC', 'XLU', 'EXR', 'MSFT', 'IYR', 'TRV', 'XME', 'HR', 'RQI', 'CMP', 'SA', 'AVB', 'RHP', 'GPC', 'MT', 'BTZ', 'LAMR', 'GIII', 'TNP', 'TNP', 'FMX', 'AVGO', 'IRM', 'IRM', 'BKH', 'CB', 'CSCO', 'T', 'FRO', 'FRO', 'CLX', 'HG=F', 'EWZ']
+['BKH', 'HG=F', 'T', 'FRO', 'IRM', 'EWZ', 'FMX', 'GIII', 'CSCO', 'CLX', 'TNP', 'AVGO', 'CB', 'TNP', 'OMC']
