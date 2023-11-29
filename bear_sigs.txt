@@ -1,1 +1,1 @@
-['ULTA', 'SONO', 'WPC', 'CCI', 'ADYEY', 'COIN', 'COIN', 'EDU']
+['AES', 'SONO', 'WPC', 'ADYEY', 'COIN', 'PATH', 'CRWD', 'NTAP', 'KKR', 'EDU', 'WDAY', 'NUE', 'HYG', 'TMF', 'GOVT', 'IEF', 'AGG', 'VCSH', 'BND']
