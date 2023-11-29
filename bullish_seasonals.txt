@@ -1,1 +1,1 @@
-['BKH', 'HG=F', 'T', 'FRO', 'IRM', 'EWZ', 'FMX', 'GIII', 'CSCO', 'CLX', 'TNP', 'AVGO', 'CB', 'TNP', 'OMC']
+['OMC', 'TNP', 'TGS']
