@@ -1,1 +1,1 @@
-['VTYX', 'BAYRY', 'AGL', 'EXC', 'HRL', 'XOM', 'HES', 'LVS', 'YUMC', 'BILI', 'USM', 'CQP']
+['VTYX', 'OXY', 'SDOW', 'USM', 'HII', 'PCVX', 'INVA']

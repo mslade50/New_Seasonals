@@ -1,1 +1,1 @@
-['AES', 'SONO', 'WPC', 'ADYEY', 'COIN', 'PATH', 'CRWD', 'NTAP', 'KKR', 'EDU', 'WDAY', 'NUE', 'HYG', 'TMF', 'GOVT', 'IEF', 'AGG', 'VCSH', 'BND']
+['SONO', 'WPC', 'TGT', 'CRWD', 'STNE', 'CRM', 'VRNS', 'SNAP', 'IMGN', 'PDD', 'AMKR', 'CRWD', 'AFRM', 'STT', 'CRM', 'ERJ', 'NTAP', 'L', 'TMUS', 'KKR', 'NTNX', 'EDU', 'VZ', 'PVH', 'SNAP', 'AZEK', 'FIS', 'WFC', 'WDAY', 'NUE']
