@@ -1,1 +1,1 @@
-['OMC', 'TNP', 'TGS']
+['TGS', 'USDZAR=X']
