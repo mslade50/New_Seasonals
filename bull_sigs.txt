@@ -1,1 +1,1 @@
-['VTYX', 'OXY', 'SDOW', 'USM', 'HII', 'PCVX', 'INVA']
+['VTYX', 'PFE', 'TZA', 'ARCC', 'TMUS', 'KBH', 'SMPL']
