@@ -1,1 +1,1 @@
-['VTYX', 'CVE', 'EQT', 'BZ', 'AR', 'MTG']
+['VTYX', 'FOXA', 'SBUX', 'BKR', 'XOM', 'SLB', 'PG', 'HAL', 'MRO', 'DVN', 'PTEN', 'OVV', 'APA', 'ZTO', 'XOP']
