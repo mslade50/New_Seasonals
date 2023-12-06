@@ -1,1 +1,1 @@
-['USDZAR=X', 'UNH', 'MRO', 'MRO', 'PAA', 'PAA', 'UNH', 'UNH', 'MO', 'MO']
+['PAA', 'MRO', 'UNH', 'MO', 'MRO', 'MRO', 'CRL', 'AES', 'DNP', 'HUM', 'HUM', 'ENLC', 'SO', 'SO', 'MO', 'NZDEUR=X']
