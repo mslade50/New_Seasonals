@@ -1,1 +1,1 @@
-['VTYX', 'FOXA', 'SBUX', 'BKR', 'XOM', 'SLB', 'PG', 'HAL', 'MRO', 'DVN', 'PTEN', 'OVV', 'APA', 'ZTO', 'XOP']
+['VTYX', 'SU', 'BKR', 'BTI', 'COP', 'SLB', 'EOG', 'FTI', 'HAL', 'MRO', 'CTRA', 'EQT', 'USO', 'BOIL', 'UNG', 'XOP', 'KOF']

@@ -1,1 +1,1 @@
-['SONO', 'CUBE', 'WPC', 'KHC', 'ADYEY', 'TGTX', 'ESTC', 'VRNS', 'PVH', 'SNAP', 'WOR', 'CERE', 'IMGN', 'SLG', 'SGRY', 'PODD', 'OKE', 'AME', 'SWK', 'TPR', 'KSS', '^DJT', 'ERJ', 'CXM', 'COUR', 'TMUS', 'SNAP', 'RXST', 'TLT', 'TMF', 'SPTL']
+['CUBE', 'WPC', 'MASI', 'ADYEY', 'PVH', 'SNAP', 'RYAAY', 'WOR', 'CERE', 'IMGN', 'BOX', 'PDI', 'INFA', 'RCL', 'DAL', 'CUK', 'CCL', 'TMUS', 'JKHY', 'RXST', 'ULTA', 'TGTX', 'TLT', 'TMF', 'GOVT', 'SPTL']
