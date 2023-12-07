@@ -1,1 +1,1 @@
-['PAA', 'MRO', 'UNH', 'MO', 'MRO', 'MRO', 'CRL', 'AES', 'DNP', 'HUM', 'HUM', 'ENLC', 'SO', 'SO', 'MO', 'NZDEUR=X']
+['SO', 'MO', 'HUM', 'MRO', 'ENLC', 'NZDEUR=X', 'MRO', 'ICLR', 'ICLR', 'NLY', 'NLY', 'ZBH', 'AES', 'FUL', 'CNP', 'CNP', 'LMT', 'TMUS', 'VRTX', 'VRTX', 'MOH', 'MOH', 'EIX', 'EIX', 'PM', 'UGI', 'UGI', 'PPL', 'PPL', 'SO', 'SO', 'CNC', 'EVRG', 'HON']
