@@ -1,1 +1,1 @@
-['VTYX', 'SU', 'BKR', 'BTI', 'COP', 'SLB', 'EOG', 'FTI', 'HAL', 'MRO', 'CTRA', 'EQT', 'USO', 'BOIL', 'UNG', 'XOP', 'KOF']
+['VTYX', 'AI', 'AAPL', 'AMD', 'BKNG', 'QLD']
