@@ -1,1 +1,1 @@
-['VTYX', 'AI', 'AAPL', 'AMD', 'BKNG', 'QLD']
+['VTYX', 'PEP', 'AAPL', 'TQQQ', 'QLD']
