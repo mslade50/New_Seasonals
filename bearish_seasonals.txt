@@ -1,1 +1,1 @@
-['WSM', 'MTH', 'SJM', 'FNF', 'POOL', 'THS', 'UBSI', 'AVGO', 'ITB', 'DHI', 'RDN', 'GS', 'MTG', 'MAN', 'TXRH', 'RHP', 'SNPS', 'EVR', 'YUM', 'UAL', 'UPS', 'GRBK', 'OC', 'BLFS', 'COF', 'NTCT', 'IMAX', 'MHK', 'XRT', 'MELI', 'SHOO', 'UAA', 'DEI', 'PPBI', 'AMZN', 'RDN', 'GRBK', 'AN', 'UAA', 'AXON', 'BLFS', 'BLFS', 'GMAB', 'MSTR', 'GBPUSD=X', 'GBPUSD=X']
+['BLFS', 'GBPUSD=X', 'RDN', 'AXON', 'UAA', 'GRBK', 'AN', 'GMAB', 'BLNK', 'EXPE', 'BLFS', 'ARWR', 'MSTR', 'DX-Y.NYB', 'GBPUSD=X', 'EURCHF=X']
