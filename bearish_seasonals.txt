@@ -1,1 +1,1 @@
-['BLFS', 'GBPUSD=X', 'RDN', 'AXON', 'UAA', 'GRBK', 'AN', 'GMAB', 'BLNK', 'EXPE', 'BLFS', 'ARWR', 'MSTR', 'DX-Y.NYB', 'GBPUSD=X', 'EURCHF=X']
+['BLFS', 'GBPUSD=X', 'RDN', 'AXON', 'UAA', 'GRBK', 'AN', 'GMAB', 'BLNK', 'EXPE', 'BLFS', 'ARWR', 'MSTR', 'DX-Y.NYB', 'EURCHF=X']
