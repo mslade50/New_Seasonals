@@ -1,1 +1,1 @@
-['NOMD', 'DOCU', 'CUBE', 'TNDM', 'NVEI', 'KEYS', 'LUV', 'JCI', 'EXR', 'SWKS', 'ADYEY', 'TGTX', 'S', 'AFRM', 'CUK', 'BA', 'PVH', 'SNAP', 'SQ', 'UBER', 'CERE', 'IMGN', 'COHR', 'S', 'DAL', 'CALX', 'CUK', 'CCL', 'TMUS', 'SWKS', 'ZM', 'UBER', 'RXST', 'PLAY']
+['ZIP', 'LUV', 'SNDX', 'JCI', 'ADYEY', 'S', 'CRWD', 'BA', 'TMUS', 'PVH', 'SNAP', 'UBER', 'WOR', 'CERE', 'IMGN', 'COHR', 'S', 'INFA', 'APH', 'MFC', 'TMUS', 'COST', 'SWKS', 'ADYEY', 'UBER', 'PLAY']
