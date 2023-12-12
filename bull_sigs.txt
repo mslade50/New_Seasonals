@@ -1,1 +1,1 @@
-['VTYX', 'BOIL', 'UNG', 'JD', 'SOXS', 'ETN', 'TQQQ']
+['VTYX', 'BOIL', 'UNG', 'ORCL', 'OXY', 'AR', 'UNG', 'VXX', 'ENTG', 'ETN']

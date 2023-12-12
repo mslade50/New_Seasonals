@@ -1,1 +1,1 @@
-['ZIP', 'LUV', 'SNDX', 'JCI', 'ADYEY', 'S', 'CRWD', 'BA', 'TMUS', 'PVH', 'SNAP', 'UBER', 'WOR', 'CERE', 'IMGN', 'COHR', 'S', 'INFA', 'APH', 'MFC', 'TMUS', 'COST', 'SWKS', 'ADYEY', 'UBER', 'PLAY']
+['ZIP', 'NVRO', 'INCY', 'ADYEY', 'S', 'CRWD', 'DOCU', 'BA', 'TMUS', 'EFX', 'PVH', 'SNAP', 'UBER', 'WOR', 'BPMC', 'CERE', 'IMGN', 'ANF', 'ZS', 'S', 'NOW', 'INFA', 'DAL', 'PRU', 'KEYS', 'ALL', 'APH', 'MFC', 'TMUS', 'ENTG', 'COST', 'EW', 'JXN', 'RXST', 'BPMC', 'XRX', 'ING']
