@@ -1,1 +1,1 @@
-['DX-Y.NYB', 'EURCHF=X', 'PAG', 'ARWR', 'BLNK', 'BLFS']
+['BLFS', 'BLNK', 'ARWR', 'DX-Y.NYB', 'USDJPY=X', 'USDJPY=X']
