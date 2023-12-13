@@ -1,1 +1,1 @@
-['VTYX', 'BOIL', 'UNG', 'ORCL', 'OXY', 'AR', 'UNG', 'VXX', 'ENTG', 'ETN']
+['VTYX', 'ZTO', 'SDOW', 'PFE', 'ZTO', 'SH', 'SPXS', 'SPXU', 'TZA', 'LABD', 'SDS', 'SPDN', 'ENTG', 'ETN']
