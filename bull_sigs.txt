@@ -1,1 +1,1 @@
-['VTYX', 'ZTO', 'SDOW', 'PFE', 'ZTO', 'SH', 'SPXS', 'SPXU', 'TZA', 'LABD', 'SDS', 'SPDN', 'ENTG', 'ETN']
+['VTYX', 'ZTO', 'SDOW', 'ADBE', 'EXC', 'MSFT', 'FLS', 'ETN']
