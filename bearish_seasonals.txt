@@ -1,1 +1,1 @@
-['DX-Y.NYB', 'USDJPY=X', 'BLNK', 'RILY', 'ARWR', 'USDJPY=X', 'USDJPY=X']
+['USDJPY=X', 'ARWR', 'RILY', 'RILY', 'HA', 'MANH', 'USDJPY=X', 'SPXS', 'SPXU']
