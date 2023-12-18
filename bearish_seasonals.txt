@@ -1,1 +1,1 @@
-['USDJPY=X', 'ARWR', 'RILY', 'RILY', 'HA', 'MANH', 'USDJPY=X', 'SPXS', 'SPXU']
+['USDJPY=X', 'MANH', 'RILY', 'HA', 'RILY', 'RILY', 'SPXS', 'SPXU']
