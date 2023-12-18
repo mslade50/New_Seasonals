@@ -1,1 +1,1 @@
-['VTYX', 'ZTO', 'SDOW', 'ASHR']
+['VTYX', 'SDOW', 'LI', 'ADM', 'KWEB', 'VWO', 'BIL']
