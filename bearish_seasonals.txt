@@ -1,1 +1,1 @@
-['USDJPY=X', 'MANH', 'RILY', 'HA', 'RILY', 'RILY', 'SPXS', 'SPXU']
+['SPXU', 'RILY', 'SPXS', 'GBX', 'GBX', 'RILY', 'AAL', 'UAL', 'KT', 'SKM', 'SKM', 'HAIN', 'HAIN']
