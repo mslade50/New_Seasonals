@@ -1,1 +1,1 @@
-['SWKS', 'BCE', 'JCI', 'LPX', 'SKY', 'OKE', 'HOLX', 'GLD', 'WOLF', 'SI=F', 'IAU', 'GC=F', 'MRO', 'PNR', 'STM', 'SMTC', 'TJX', 'AU', 'DTE', 'TKR', 'CP', 'VOD', 'TMO', 'AGI', 'GDX', 'EAT', 'BSX', 'NBIX', 'LXP', 'MPW', 'WPM', 'IT', 'SKY', 'NMZ', 'NMZ', 'SNN', 'VTR', 'LXP', 'DNP', 'TJX', 'TJX', 'SCHW', 'SCHW']
+['SKY', 'TJX', 'SCHW', 'NMZ', 'LXP', 'DNP', 'VTR', 'SNN', 'NMZ', 'CVX', 'TJX', 'IEF', 'SPTI']

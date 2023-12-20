@@ -1,1 +1,1 @@
-['SPXU', 'RILY', 'SPXS', 'GBX', 'GBX', 'RILY', 'AAL', 'UAL', 'KT', 'SKM', 'SKM', 'HAIN', 'HAIN']
+['SKM', 'GBX', 'RILY', 'HAIN', 'EDU', 'EDU', 'LPSN', 'LPSN', 'GBX', 'GBX', 'SCVL', 'EVRI', 'ACAD', 'ACAD', 'ATSG', 'AAL', 'AAL', 'UAL', 'LEA', 'ATI', 'ATI', 'GPRE', 'AER', 'AER', 'ORA', 'ORA', 'CLB', 'EBAY', 'EBAY', 'KT', 'KT', 'SKM', 'SKM', 'CF', 'CF', 'TPX', 'UPS', 'HAIN', 'ENLC', 'KBR', 'KBR', 'TSN', 'TSN', 'FFBC', 'FFBC', 'HOMB', 'HOMB', 'VZ', 'INVA', 'CPB', 'CPB']
