@@ -1,1 +1,1 @@
-['VTYX', 'SDOW', 'CCJ', 'ASGN']
+['VTYX', 'LI', 'DKNG', 'SBUX', 'CELH', 'MO', 'BILI', 'EEM', 'FXI', 'IEMG', 'MCHI']
