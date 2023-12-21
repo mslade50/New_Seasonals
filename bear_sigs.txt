@@ -1,1 +1,1 @@
-['CM', 'RYAAY', 'CERE', 'FLNC', 'GLBE', 'VIAV', 'FSLR', 'FOLD', 'ABR', 'RIVN', 'ARWR', 'MOS', 'BMBL', 'ATEC', 'LPRO']
+['ALK', 'ADC', 'QGEN', 'PINC', 'PODD', 'MXL', 'MASI', 'TPG', 'TGI', 'PVH', 'CM', 'RYAAY', 'CERE', 'ANF', 'ATEC', 'PODD', 'EXPE', 'SPR', 'LPRO']
