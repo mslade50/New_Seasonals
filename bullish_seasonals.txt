@@ -1,1 +1,1 @@
-['SKY', 'TJX', 'SCHW', 'NMZ', 'LXP', 'DNP', 'VTR', 'SNN', 'NMZ', 'CVX', 'TJX', 'IEF', 'SPTI']
+['NMZ', 'CVX', 'TJX', 'IEF', 'IEF', 'SPTI', 'SPTI']
