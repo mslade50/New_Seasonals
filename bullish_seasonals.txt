@@ -1,1 +1,1 @@
-['NMZ', 'CVX', 'TJX', 'IEF', 'IEF', 'SPTI', 'SPTI']
+['IEF', 'SPTI', '^GDAXI', '^GDAXI', 'TLT', 'IEF', 'IEF', 'SPTI', 'SPTI']
