@@ -1,1 +1,1 @@
-['CRNX', 'SH', 'SPDN', 'OTEX']
+['SH', 'KWEB', 'OTEX', 'MRAAY']

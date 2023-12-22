@@ -1,1 +1,1 @@
-['ALK', 'ADC', 'QGEN', 'PINC', 'PODD', 'MXL', 'MASI', 'TPG', 'TGI', 'PVH', 'CM', 'RYAAY', 'CERE', 'ANF', 'ATEC', 'PODD', 'EXPE', 'SPR', 'LPRO']
+['ALK', 'BIIB', 'JCI', 'ADC', 'ETNB', 'QGEN', 'RVTY', 'MXL', 'MASI', 'ZIM', 'TPG', 'TGI', 'CM', 'RYAAY', 'CERE', 'COIN', 'MXL', 'TXRH', 'XENE']
