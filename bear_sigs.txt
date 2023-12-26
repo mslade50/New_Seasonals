@@ -1,1 +1,1 @@
-['ALK', 'BIIB', 'JCI', 'ADC', 'ETNB', 'QGEN', 'RVTY', 'MXL', 'MASI', 'ZIM', 'TPG', 'TGI', 'CM', 'RYAAY', 'CERE', 'COIN', 'MXL', 'TXRH', 'XENE']
+['EMBC', 'CGNX', 'TDOC', 'CBRL', 'BIPC', 'PTCT', 'IVR', 'RVTY', 'MXL', 'MASI', 'ATXS', 'TPG', 'TGI', 'CM', 'XMTR', 'RYAAY', 'CERE', 'PGTI', 'ZIM', 'BHVN', 'SSYS', 'MXL', 'TRP', 'RCKT', 'BURL', 'TXRH', 'RVMD', 'XENE', 'ATXS']

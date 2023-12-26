@@ -1,1 +1,1 @@
-['SH', 'KWEB', 'OTEX', 'MRAAY', '^N225']
+['PSQ', 'SH', 'GEN', 'OTEX', '^N225']
