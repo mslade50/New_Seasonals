@@ -1,1 +1,1 @@
-['IEF', 'SPTI', 'TLT', 'DNP', '^GDAXI', '^GDAXI', 'IEF', 'SPTI', 'SPTI', 'BND']
+['^GDAXI', 'IEF', 'DNP', 'SPTI', 'COHR', '^N225', '^GDAXI', '^GDAXI', 'USDSEK=X', 'USDSEK=X', 'USDZAR=X', 'USDZAR=X', 'SPTI', 'BND']
