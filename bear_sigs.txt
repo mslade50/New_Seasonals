@@ -1,1 +1,1 @@
-['IVR', 'RVTY', 'PODD', 'PCRX', 'MXL', 'TSVT', 'ATXS', 'CYTK', 'BMO', 'TGI', 'KRTX', 'DB', 'XMTR', 'SHC', 'CERE', 'PGTI', 'COIN', 'BHVN', 'NRG', 'FOLD', 'RCKT', 'TXRH', 'RVMD', 'DLTR', 'XENE', 'ATXS', 'PAGS']
+['EMBC', 'DRVN', 'GLW', 'DG', 'RVTY', 'MXL', 'TSVT', 'ATXS', 'CYTK', 'NSA', 'TGI', 'KRTX', 'XMTR', 'CERE', 'PGTI', 'JEPI', 'NRG', 'SATS', 'DLTR', 'ATXS', 'PAGS', 'RCUS']
