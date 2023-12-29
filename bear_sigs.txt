@@ -1,1 +1,1 @@
-['EMBC', 'DRVN', 'GLW', 'DG', 'RVTY', 'MXL', 'TSVT', 'ATXS', 'CYTK', 'NSA', 'TGI', 'KRTX', 'XMTR', 'CERE', 'PGTI', 'JEPI', 'NRG', 'SATS', 'DLTR', 'ATXS', 'PAGS', 'RCUS']
+['DG', 'CYTK', 'TGI', 'KRTX', 'CERE', 'PEAK', 'EQR', 'GLW', 'TSVT', 'SATS']
