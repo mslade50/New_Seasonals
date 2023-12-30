@@ -1,1 +1,1 @@
-['CPRT', 'INGR', 'EXAS', 'XLK', 'H', 'ROK', 'AN', 'WYNN', 'KBR', 'HUBB', 'DXC', 'KMX', 'FAST', 'WWD', 'AVGO', 'GRMN', 'BUD', 'DOX', 'RSG', 'PTC', 'ZBRA', 'SPY', 'PNR', 'EBAY', 'PCG', 'OZK', 'EHC', 'HCSG', 'CSGP', 'RBA', 'ACAD', 'SBGI', 'SAVA', 'LIN', 'PH', 'IRDM', 'DRI', 'JBL', 'CCRN', 'NVDA']
+['LPX', 'ROK', 'AN', 'HUBB', 'DXC', 'FAST', 'PTC', 'PCG', 'EHC', 'PNR', 'PH', 'HCSG', 'ASB', 'UL', 'OMC', 'CDNS', 'EFX', 'CHD', 'TOL', 'SWK', 'ABT', 'CAL', 'UHS', 'KO', 'DCI', 'GGG', 'SPB', 'GFI', 'COP', 'NEOG', 'HON', 'RIO', 'SYY', 'RF', 'DIS', 'EQC', 'FMC', 'BA', 'BRC', 'DX']
