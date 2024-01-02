@@ -49,3 +49,6 @@ def app():
     fig4 = px.bar(df, x='Ticker', y='Vol_Change', title='Vol_Change Data')
     st.plotly_chart(fig4)
 
+# Call the app function to run the app
+app()
+
