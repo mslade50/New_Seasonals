@@ -1,1 +1,1 @@
-['^N225', 'LPX', 'SMTC', 'SMTC', 'CRUS', 'TROW', 'HOLX', 'PNM', 'PNM', 'ROST', 'ROST', 'PNW', 'PNW', '^N225', '^N225']
+['^N225', '^N225', '^N225']

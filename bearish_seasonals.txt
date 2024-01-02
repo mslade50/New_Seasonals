@@ -1,1 +1,1 @@
-['AN', 'HUBB', 'CDNS', 'AJG', 'FULT', 'KMB', 'VLY', 'WSM', 'CAL', 'HD', 'TGNA', 'CRK', 'VFC', 'TRP', 'VLY', '^VIX']
+[]

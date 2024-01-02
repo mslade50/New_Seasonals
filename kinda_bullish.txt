@@ -1,1 +1,1 @@
-['NEON', 'BPT', 'SKY', 'LPX', 'CLDX', 'GFI', 'WDC', 'DRS', 'NEOG', 'MERC', 'EHC', 'PNR', 'SPB', 'GFF', 'SJT', 'BLFS', 'DX', 'HCSG', 'DIS', 'BALL', 'WELL', 'UHS', 'BA', 'EQC', 'GTY', 'JEF', 'CEF', 'KEX', 'DNP', 'BXMT', 'HUM', 'PNM', 'GD', 'LHX', 'ROST', 'MNST', 'PCG', 'AEM', 'LMT', 'PNW', 'AEP', 'BAX', 'AVA', 'BDX', 'JKHY', 'PSA', 'GOLD', 'EXC', 'NOC', 'LNT', 'ED', 'DTE', 'CMS', 'CECO', 'HON', '^N225']
+['^N225']
