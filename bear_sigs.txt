@@ -1,1 +1,1 @@
-['DG', 'CYTK', 'TGI', 'KRTX', 'CERE', 'PEAK', 'EQR', 'GLW', 'TSVT', 'SATS']
+['BGS', 'CYTK', 'KRTX', 'CERE', 'KBR', 'HE', 'C', 'KURA']

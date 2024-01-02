@@ -1,1 +1,1 @@
-['WH', '^N225']
+['CRNX', 'NXT', 'ASAN', 'AAPL', 'ADBE', 'DKNG', 'WH', '^N225']
