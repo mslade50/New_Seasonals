@@ -24,18 +24,24 @@ def app():
     conn = sqlite3.connect("ticker_data.db")
 
     st.write("Connected to database. Running query.")
-    query = """
+
+    # Get today's date in the format stored in the database
+    today = datetime.datetime.now().strftime("%Y-%m-%d")
+
+    query = f"""
     SELECT *
     FROM ticker_results
     WHERE (Ticker, timestamp) IN (
         SELECT Ticker, MAX(timestamp)
         FROM ticker_results
+        WHERE timestamp = '{today}'
         GROUP BY Ticker
     );
     """
+
     df = pd.read_sql_query(query, conn)
     st.write("Query executed. Showing head of DataFrame.")
-    st.write(df.head())
+    st.write(df.head(30))
     
     fig1 = px.bar(df, x='Ticker', y='F5', title='F5 Data')
     st.plotly_chart(fig1)
