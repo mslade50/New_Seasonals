@@ -1,1 +1,1 @@
-['LPX', 'ROK', 'AN', 'HUBB', 'DXC', 'FAST', 'PTC', 'PCG', 'EHC', 'PNR', 'PH', 'HCSG', 'ASB', 'UL', 'OMC', 'CDNS', 'EFX', 'CHD', 'TOL', 'SWK', 'ABT', 'CAL', 'UHS', 'KO', 'DCI', 'GGG', 'SPB', 'GFI', 'COP', 'NEOG', 'HON', 'RIO', 'SYY', 'RF', 'DIS', 'EQC', 'FMC', 'BA', 'BRC', 'DX']
+['^N225']
