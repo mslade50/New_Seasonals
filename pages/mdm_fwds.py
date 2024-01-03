@@ -1,9 +1,9 @@
 import requests
-import os
 import sqlite3
 import pandas as pd
-import streamlit as st
 import plotly.express as px
+import streamlit as st
+import datetime  
 
 st.title("Forward Ranks")
 
@@ -24,7 +24,7 @@ def app():
     conn = sqlite3.connect("ticker_data.db")
 
     st.write("Connected to database. Running query.")
-    today = datetime.datetime.now().strftime("%Y-%m-%d")
+    today = datetime.datetime.now().strftime("%Y-%m-%d")  # Define today
     query = f"""
     SELECT *
     FROM ticker_results
