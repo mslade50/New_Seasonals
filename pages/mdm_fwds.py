@@ -24,32 +24,33 @@ def app():
     conn = sqlite3.connect("ticker_data.db")
 
     st.write("Connected to database. Running query.")
-    today = datetime.datetime.now().strftime("%Y-%m-%d")  # Define today
-    query = f"""
-    SELECT *
-    FROM ticker_results
-    WHERE (Ticker, timestamp) IN (
-        SELECT Ticker, MAX(timestamp)
-        FROM ticker_results
-        WHERE DATE(timestamp) = '{today}'
-        GROUP BY Ticker
-    );
-    """
+    query = "SELECT * FROM ticker_results"
     df = pd.read_sql_query(query, conn)
-    st.write("Query executed. Showing head of DataFrame.")
-    st.write(df.head(30))
 
-    fig1 = px.bar(df, x='Ticker', y='F5', title='F5 Data')
+    # Sort by timestamp descending to get the most recent entries
+    df.sort_values(by='timestamp', ascending=False, inplace=True)
+
+    # Select the top 72 rows
+    df_recent = df.head(72)
+
+    # Additional sorting based on your criteria (if necessary)
+    # df_recent.sort_values(by=['YourSortColumn'], inplace=True)
+
+    st.write("Query executed. Showing head of DataFrame.")
+    st.write(df_recent.head(30))
+
+    fig1 = px.bar(df_recent, x='Ticker', y='F5', title='F5 Data')
     st.plotly_chart(fig1)
 
-    fig2 = px.bar(df, x='Ticker', y='F21', title='F21 Data')
+    fig2 = px.bar(df_recent, x='Ticker', y='F21', title='F21 Data')
     st.plotly_chart(fig2)
 
-    fig3 = px.bar(df, x='Ticker', y='F63', title='F63 Data')
+    fig3 = px.bar(df_recent, x='Ticker', y='F63', title='F63 Data')
     st.plotly_chart(fig3)
 
-    fig4 = px.bar(df, x='Ticker', y='Vol_Change', title='Vol_Change Data')
+    fig4 = px.bar(df_recent, x='Ticker', y='Vol_Change', title='Vol_Change Data')
     st.plotly_chart(fig4)
 
 app()
+
 
