@@ -17,12 +17,12 @@ st.title("Bear Signals")
 def seasonals_chart(tick):
 	ticker=tick
 	cycle_start=1952
-	cycle_label='Midterms'
+	cycle_label='Election'
 	cycle_var='pre_election'
 	adjust=0
 	plot_ytd="Yes"
 	all_=""
-	end_date=dt.datetime(2022,12,30)
+	end_date=dt.datetime(2023,12,30)
 	this_yr_end=dt.date.today()
 
 
