@@ -31,7 +31,7 @@ def app():
     WHERE (Ticker, timestamp) IN (
         SELECT Ticker, MAX(timestamp)
         FROM ticker_results
-        WHERE timestamp = '{today}'
+        WHERE DATE(timestamp) = '{today}'
         GROUP BY Ticker
     );
     """
