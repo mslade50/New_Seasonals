@@ -1,1 +1,1 @@
-['CYTK', 'CERE', 'C']
+['ETNB', 'XRAY', 'CYTK', 'KRTX', 'CERE']

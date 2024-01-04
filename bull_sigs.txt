@@ -1,1 +1,1 @@
-['OZK', 'CRNX', 'NXT', 'RCM', 'FLEX', 'GT', 'DASH', 'TSLL', 'ARCH', '^N225']
+['OZK', 'CRNX', 'LULU', 'NXT', 'MBLY', 'SPWR', 'MBLY', 'PTEN', 'CB', '^N225']
