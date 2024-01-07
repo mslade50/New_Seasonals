@@ -31,7 +31,7 @@ def app():
     df.sort_values(by='timestamp', ascending=False, inplace=True)
 
     # Select the top 72 rows
-    df_recent = df.head(42)
+    df_recent = df.head(45)
 
     # Additional sorting based on your criteria (if necessary)
     # df_recent.sort_values(by=['YourSortColumn'], inplace=True)
