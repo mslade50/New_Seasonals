@@ -37,7 +37,7 @@ def app():
     # df_recent.sort_values(by=['YourSortColumn'], inplace=True)
 
     st.write("Query executed. Showing head of DataFrame.")
-    st.write(df_recent.head(30))
+    st.write(df_recent.head(72))
 
     fig1 = px.bar(df_recent, x='Ticker', y='F5', title='F5 Data')
     st.plotly_chart(fig1)
