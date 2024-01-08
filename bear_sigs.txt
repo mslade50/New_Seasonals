@@ -1,1 +1,1 @@
-['BAX', 'CYTK', 'KRTX', 'CERE', 'SBLK']
+['IPG', 'BIPC', 'SILK', 'XRAY', 'PTCT', 'PINC', 'AMAM', 'CYTK', 'KRTX', 'CERE', 'WRB', 'ESMT', 'ALKS', 'ABT']
