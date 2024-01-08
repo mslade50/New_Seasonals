@@ -1,1 +1,1 @@
-['FHI', 'CAKE', 'DLR', 'ELS', 'MAA', 'O', 'AWK', 'HELE', 'SLV']
+['URBN', 'EQC', 'EQC', 'PZZA', 'MAA', 'O', 'O', 'SRE', 'AWK']
