@@ -1,1 +1,1 @@
-['OZK', 'CRNX', 'BA', 'PACB', 'LABD', 'SYK', '^N225']
+['OZK', 'CRNX', 'RCM', 'DIS', 'YUMC', 'MOS', 'SYK']
