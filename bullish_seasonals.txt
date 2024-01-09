@@ -1,1 +1,1 @@
-['URBN', 'EQC', 'EQC', 'PZZA', 'MAA', 'O', 'O', 'SRE', 'AWK']
+['EQC', 'MAA', 'O', 'AWK', 'URBN', 'EQC', 'PZZA', 'PZZA', 'HIW', 'ADC', 'O', 'O', 'SRE', 'SRE', 'IAU', 'IAU']
