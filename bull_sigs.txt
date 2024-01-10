@@ -1,1 +1,1 @@
-['OZK', 'CRNX', 'RCM', 'DIS', 'YUMC', 'MOS', 'SYK']
+['OZK', 'GIS', 'ADM', 'WOLF', 'TYL', 'VMC']
