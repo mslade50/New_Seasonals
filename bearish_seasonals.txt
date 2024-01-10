@@ -1,1 +1,1 @@
-['MRK']
+['MRK', 'TCOM', 'SPXU']
