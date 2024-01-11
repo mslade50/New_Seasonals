@@ -1,1 +1,1 @@
-['OZK', 'GIS', 'ADM', 'WOLF', 'TYL', 'VMC']
+['CYTK', 'OZK', 'RIOT', 'PARA', 'T', 'AES', 'WBD', 'FOUR']
