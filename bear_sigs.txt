@@ -1,1 +1,1 @@
-['FANUY', 'JCI', 'RMD', 'AMAM', 'JNPR', 'CERE', 'ESMT', 'VRTX']
+['AMAM', 'JNPR', 'CERE', 'BK', 'VRTX']
