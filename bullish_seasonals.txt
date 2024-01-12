@@ -1,1 +1,1 @@
-['SRE', 'PZZA', 'IAU', 'LRN', 'XRT', 'O', 'ADC', 'WOLF', 'WOLF', 'MPWR', 'PDCO', 'WPM', 'CEF', 'PBH', 'PBH', 'GC=F', 'GLD', 'IAU']
+['IAU', 'WOLF', 'GC=F', 'GLD', 'PBH', 'CEF', 'WPM', 'MPWR', 'WOLF', 'WOLF', 'NLY', 'FNV', 'PARA', 'ADC']

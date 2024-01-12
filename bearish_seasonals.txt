@@ -1,1 +1,1 @@
-['SPXU', 'SPXU']
+['SPXU', 'SRPT', 'SPXU']
