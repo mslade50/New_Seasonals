@@ -1,1 +1,1 @@
-['IAU', 'WOLF', 'GC=F', 'GLD', 'PBH', 'CEF', 'WPM', 'MPWR', 'WOLF', 'WOLF', 'NLY', 'FNV', 'PARA', 'ADC']
+['IAU', 'WOLF', 'GLD', 'PBH', 'CEF', 'WPM', 'MPWR', 'WOLF', 'WOLF', 'NLY', 'FNV', 'PARA', 'ADC', 'GBPUSD=X', 'GBPUSD=X']
