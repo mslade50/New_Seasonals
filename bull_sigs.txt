@@ -1,1 +1,1 @@
-['HOLI', 'W', 'DAL', 'HTZ', 'ETSY']
+['HOLI', 'SAVE', 'GME', 'TTD', 'SAVE', 'BE', 'JCI', 'NEM', 'NKE', 'SNAP', 'FHN', 'UPS', 'GOLD', 'XOM', 'EOG', 'CPNG', 'HAL', 'MRO', 'YUMC', 'BILI', 'DVN', 'VALE', 'TCEHY', 'PDD', 'ZTO', 'XLE', 'EEM', 'TCEHY', 'GDX', 'TMF', 'KWEB', 'VWO', 'IEMG', 'XLB', 'GDXJ', 'MCHI']
