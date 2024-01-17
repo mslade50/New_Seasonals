@@ -1,1 +1,1 @@
-['ECC', 'AMAM', 'JNPR', 'IBKR', 'ESMT', 'BK', 'VRTX']
+['MASI', 'AMAM', 'JNPR', 'ESMT']
