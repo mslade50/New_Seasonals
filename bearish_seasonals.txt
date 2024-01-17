@@ -1,1 +1,1 @@
-['SPXU', 'AMZN', 'JNPR']
+['JNPR']
