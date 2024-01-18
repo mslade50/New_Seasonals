@@ -1,1 +1,1 @@
-['JNPR']
+['JNPR', 'KT', 'KT', 'CSGP']
