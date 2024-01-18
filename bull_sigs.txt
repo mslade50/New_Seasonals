@@ -1,1 +1,1 @@
-['CRNX', 'HOLI', 'SAVE', 'YUMC', 'SEDG', 'VICI', 'PAAS', 'SEE', 'WMB', 'CTVA', 'CMCSA', 'NEE', 'MLCO', '^FTSE', 'GLD', 'IAU']
+['HOLI', 'IRBT', 'SAVE', 'GDS', 'YY', 'CVS', 'RIVN', 'APP']
