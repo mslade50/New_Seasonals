@@ -1,1 +1,1 @@
-['AMAM', 'JNPR', 'PDCO']
+['SILK', 'AMAM', 'JNPR', 'TRV', 'DWAC', 'TRV']

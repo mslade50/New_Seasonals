@@ -1,1 +1,1 @@
-['HOLI', 'IRBT', 'SAVE', 'GDS', 'YY', 'CVS', 'RIVN', 'APP']
+['CYTK', 'IRBT', 'GDS', 'SOXS', 'SDOW', 'VMC', 'VIST', 'HSTM']
