@@ -1,1 +1,1 @@
-['JNPR', 'KT', 'KT', 'CSGP']
+['KT', 'AMZN', 'ING']
