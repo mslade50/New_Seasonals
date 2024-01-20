@@ -1,1 +1,1 @@
-['CYTK', 'IRBT', 'GDS', 'SOXS', 'SDOW', 'VMC', 'VIST', 'HSTM']
+['CYTK', 'IRBT', 'GDS', 'SOXS', 'SDOW', 'VIST', 'HSTM']
