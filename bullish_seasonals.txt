@@ -1,1 +1,1 @@
-['STX', 'AVY', 'CME', 'STX', 'AVY', 'AVY', 'TCBI', 'TCBI']
+['STX', 'AVY', 'TCBI', 'TPR', 'DLB', 'AON', 'AON']
