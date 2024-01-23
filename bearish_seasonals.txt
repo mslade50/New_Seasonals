@@ -1,1 +1,1 @@
-['AMZN', 'AMZN', 'FFIV', 'BGS', 'BGS']
+['AMZN', 'BGS', 'AMZN', 'AMZN', 'OLED', 'EXTR']
