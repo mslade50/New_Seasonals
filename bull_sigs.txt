@@ -1,1 +1,1 @@
-['CYTK', 'IRBT', 'ADM', 'BEN', 'IVZ', 'MMM', 'PWSC', 'TDY', 'VIST']
+['CYTK', 'IRBT', 'DD', 'ADM', 'GPRE', 'CVNA', 'TOST', 'ONON', 'DD', 'FE', 'EXC', 'BKR', 'KDP', 'SQ', 'XLB', 'SQSP']
