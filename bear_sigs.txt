@@ -1,1 +1,1 @@
-['ECC', 'NTNX', 'UNG', 'APP', 'EDR', 'PG', 'PGR']
+['SJM', 'ILMN', 'SILK', 'IBM', 'PAA']
