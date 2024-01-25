@@ -1,1 +1,1 @@
-['AMZN', 'OLED', 'AMZN', 'EXTR', 'KDP', 'KDP', 'SPXU']
+['AMZN', 'KDP', 'EXTR', 'NEON', 'QDEL', 'SPXU']

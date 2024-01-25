@@ -1,1 +1,1 @@
-['MA', 'TPR', 'BRO', 'ZUMZ', 'DLB', 'SQM', 'UCTT', 'MFA', 'DLB', 'FIS', 'FIS', 'CB']
+['FIS', 'SQM', 'SQM', 'SM', 'MFA', 'URBN', 'DLB', 'DLB']
