@@ -1,1 +1,1 @@
-['SJM', 'ILMN', 'SILK', 'IBM', 'PAA']
+['SJM', 'PGR', 'PAA']
