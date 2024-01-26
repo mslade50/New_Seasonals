@@ -1,1 +1,1 @@
-['AMZN', 'KDP', 'EXTR', 'NEON', 'QDEL', 'SPXU']
+['SPXU', 'KDP']
