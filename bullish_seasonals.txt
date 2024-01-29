@@ -1,1 +1,1 @@
-['MFA', 'DLB', 'SQM', 'CENX', 'SQM', 'SM', 'FLR', 'FLR', 'DLB', 'PM', 'PM', 'AUDUSD=X']
+['DLB', 'PM', 'CENX', 'SQM', 'FLR', 'SM', 'NOV', 'HP', 'FLR', 'PM']

@@ -1,1 +1,1 @@
-['SPXU', 'KDP']
+['KDP', 'SAVA', 'SAVA', 'UL', 'EIX', 'POR', 'POR']
