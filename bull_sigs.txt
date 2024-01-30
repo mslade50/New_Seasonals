@@ -1,1 +1,1 @@
-['CYTK', 'IMGN', 'IRBT', 'IMGN', 'PDD', 'HTGC', 'PWSC', 'BXSL', 'SNA', 'DDS']
+['CYTK', 'IMGN', 'IRBT', 'MBLY', 'CHWY', 'UPS', 'WBD', 'HTGC', 'PARR', 'ANZGY', 'RS']
