@@ -1,1 +1,1 @@
-['SAVA', 'POR', 'MTH', 'MTH', 'PEAK', 'HOLX', 'HOLX', 'SMG', 'AEP', 'BSX', 'BSX', 'EIX', 'ES']
+['BSX', 'HOLX', 'MTH', 'EIX', 'HAE', 'HAE', 'AGCO', 'PEAK', 'HOLX', 'SMG', 'DUK', 'BSX', 'BSX', 'SFNC', 'SFNC', 'ES', 'ES', 'XBI', 'ITB']
