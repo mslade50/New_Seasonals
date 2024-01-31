@@ -1,1 +1,1 @@
-['CYTK', 'IMGN', 'IRBT', 'MBLY', 'CHWY', 'UPS', 'WBD', 'HTGC', 'PARR', 'ANZGY', 'RS']
+['X', 'IMGN', 'IRBT', 'DD', 'FWRD', 'NYCB', 'SGML', 'ENVX', 'CARR', 'AEO', 'ABR', 'OKE', 'NYCB', 'HST', 'PM', 'CPNG', 'X', 'ETSY', 'MOS', 'ARKK', 'XLY']
