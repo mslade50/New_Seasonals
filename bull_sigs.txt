@@ -1,1 +1,1 @@
-['X', 'IMGN', 'IRBT', 'DD', 'FWRD', 'NYCB', 'SGML', 'ENVX', 'CARR', 'AEO', 'ABR', 'OKE', 'NYCB', 'HST', 'PM', 'CPNG', 'X', 'ETSY', 'MOS', 'ARKK', 'XLY']
+['IMGN', 'EXTR', 'IRBT', 'DD', 'FWRD', 'NYCB', 'SGML', 'HON', 'MET', 'PENN', 'IP', 'WOLF', 'PWSC', 'ANZGY', 'RS']
