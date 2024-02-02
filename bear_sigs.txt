@@ -1,1 +1,1 @@
-['SJM', 'OGN', 'G', 'FGEN', 'SMCI', 'FGEN', 'BSX', 'CAH', 'MRK']
+['SMCI', 'META', 'ACGL', 'HIG']
