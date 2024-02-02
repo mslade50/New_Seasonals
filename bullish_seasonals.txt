@@ -1,1 +1,1 @@
-['NOV', 'RL', 'USDKRW=X']
+['NOV', 'RL']
