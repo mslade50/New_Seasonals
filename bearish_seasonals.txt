@@ -1,1 +1,1 @@
-['HAE', 'BSX', 'SYK', 'ARLP', 'JBHT', 'JBHT', 'LOGI', 'LOGI', 'KNX', 'HAE', 'HAE', 'ZBRA', 'KMPR', 'PRDO', 'PEAK', 'PEAK', 'AFL', 'HUBB', 'RYAAY', 'RYAAY', 'PNW', 'SYK', 'SYK', 'DUK', 'EWBC', 'EWBC', 'CVBF', 'FITB', 'FITB']
+['EWBC', 'LOGI', 'HAE', 'PEAK', 'FITB', 'JBHT', 'ZBRA', 'SYK', 'CVBF', 'HUBB', 'RYAAY', 'DUK', 'JBHT', 'KNX', 'HAE', 'PRDO', 'PEAK', 'SMG', 'NBIX', 'SYK', 'SFNC', 'IYT']
