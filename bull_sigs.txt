@@ -1,1 +1,1 @@
-['IMGN', 'EXTR', 'IRBT', 'FWRD', 'NYCB', 'SGML', 'NOVA', 'ZI', 'ENPH', 'O', 'GEN', 'ENB', 'GOLD', 'AZN', 'CNQ', 'NOV', 'VALE', 'ASHR', 'ARCT', 'RS']
+['EXTR', 'IRBT', 'PLL', 'SQM', 'FWRD', 'NYCB', 'BAYRY', 'SGML', 'NOVA', 'COIN', 'ENPH', 'ENVX', 'U', 'DOCU', 'INVH', 'O', 'MTCH', 'UDR', 'HTZ', 'KIM', 'EXC', 'BE', 'VICI', 'PAAS', 'BMY', 'AEP', 'ENB', 'KMI', 'KDP', 'NEE', 'EQT', 'BEKE', 'AR', 'ARKK', 'LQD', 'IYR', 'XLB', 'VNQ', 'XLRE', 'ARCT']

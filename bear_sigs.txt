@@ -1,1 +1,1 @@
-['SMCI', 'META', 'ACGL', 'HIG']
+['TSVT', 'SMCI', 'NVDA', 'CB', 'NVDA', 'VRT']
