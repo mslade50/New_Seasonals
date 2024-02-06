@@ -1,1 +1,1 @@
-['EWBC', 'LOGI', 'HAE', 'PEAK', 'FITB', 'JBHT', 'ZBRA', 'SYK', 'CVBF', 'HUBB', 'RYAAY', 'DUK', 'JBHT', 'KNX', 'HAE', 'PRDO', 'PEAK', 'SMG', 'NBIX', 'SYK', 'SFNC', 'IYT']
+['SFNC', 'JBHT', 'PEAK', 'HAE', 'SYK', 'NBIX', 'KNX', 'SMG', 'PRDO', 'IYT', 'NAD', 'AXS']
