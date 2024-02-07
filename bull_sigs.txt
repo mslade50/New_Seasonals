@@ -1,1 +1,1 @@
-['EXTR', 'IRBT', 'PLL', 'CCK', 'NYCB', 'SGML', 'CARR', 'LTHM', 'KR', 'YANG']
+['COUR', 'EXTR', 'IRBT', 'CCK', 'NYCB', 'BERY', 'SGML', 'PARA', 'CYTK', 'FOXA', 'GILD', 'DB', 'SNAP', 'KHC', 'WU', 'EQNR']

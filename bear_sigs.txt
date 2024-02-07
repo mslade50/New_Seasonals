@@ -1,1 +1,1 @@
-['TMCI', 'MORF', 'TSVT', 'SMCI', 'EL', 'CDAY', 'SPOT', 'MRK']
+['TSVT', 'SMCI', 'COHR', 'LLY', 'IR', 'SPOT']
