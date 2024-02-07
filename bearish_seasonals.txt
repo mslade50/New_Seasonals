@@ -1,1 +1,1 @@
-['SFNC', 'JBHT', 'PEAK', 'HAE', 'SYK', 'NBIX', 'KNX', 'SMG', 'PRDO', 'IYT', 'NAD', 'AXS']
+['NAD', 'RDN', 'AXP']
