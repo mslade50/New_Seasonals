@@ -1,1 +1,1 @@
-['NAD', 'RDN', 'AXP']
+['ON', 'CNMD', 'SMTC', 'IDXX', 'BYD', 'PLAB', 'KMPR', 'AVNT', 'AXP', 'WAFD', 'WAFD', 'IBB']
