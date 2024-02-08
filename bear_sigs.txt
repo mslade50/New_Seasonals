@@ -1,1 +1,1 @@
-['TSVT', 'SMCI', 'COHR', 'LLY', 'IR', 'SPOT']
+['MORF', 'TSVT', 'SMCI', 'COHR', 'LLY', 'XPO', 'ARM', 'MGNX', 'IR', 'OSCR']
