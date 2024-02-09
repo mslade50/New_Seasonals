@@ -1,1 +1,1 @@
-['EXTR', 'CCK', 'NYCB', 'BERY', 'SGML', 'PYPL', 'MRNA', 'COTY', 'DUK', 'CMCSA', 'PM', 'AZN', 'SOXS', 'AMCR', 'HDB', 'KVUE', 'DDS', 'BBWI']
+['CCK', 'NCLH', 'PEAK', 'MRNA', 'IPG', 'GIS', 'SOXS', 'NWL', 'SPT', 'BBWI', 'ASO', 'VNOM']
