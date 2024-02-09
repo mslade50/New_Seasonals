@@ -1,1 +1,1 @@
-['ON', 'CNMD', 'SMTC', 'IDXX', 'BYD', 'PLAB', 'KMPR', 'AVNT', 'AXP', 'WAFD', 'WAFD', 'IBB']
+['KMPR', 'AXP', 'WAFD', 'AEHR', 'AEHR', 'ON', 'CNMD', 'ENTG', 'SMTC', 'SMTC', 'ASML', 'ASML', 'CRL', 'CRL', 'BYD', 'SLAB', 'RTO', 'AVNT', 'LLY', 'COLB', 'CECO', 'WAFD']
