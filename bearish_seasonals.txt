@@ -1,1 +1,1 @@
-['KMPR', 'AXP', 'WAFD', 'AEHR', 'AEHR', 'ON', 'CNMD', 'ENTG', 'SMTC', 'SMTC', 'ASML', 'ASML', 'CRL', 'CRL', 'BYD', 'GTN', 'SLAB', 'RTO', 'AVNT', 'LLY', 'COLB', 'CECO', 'WAFD']
+['ENTG', 'AEHR', 'SMTC', 'CECO', 'ASML', 'CNMD', 'COLB', 'LLY', 'CRL', 'BYD', 'RTO', 'WAFD', 'AVNT', 'ON', 'GTN', 'NEON', 'AEHR', 'AEHR', 'MKSI', 'CRL', 'PLAB', 'PLAB', 'SLAB', 'CB', 'CB', 'ABT', 'SMH']
