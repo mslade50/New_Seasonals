@@ -1,1 +1,1 @@
-['CCK', 'NCLH', 'PEAK', 'MRNA', 'IPG', 'GIS', 'SOXS', 'NWL', 'SPT', 'BBWI', 'ASO', 'VNOM']
+['KREF', 'ZLAB', 'UNG', 'TZA', 'PEB', 'BBWI']

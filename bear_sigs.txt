@@ -1,1 +1,1 @@
-['FGEN', 'MORF', 'TSVT', 'SMCI', 'COHR', 'LLY', 'XPO', 'ASML', 'RL', 'ARM', 'EXPE', 'PEP', 'CVX', 'S', 'OSCR']
+['FGEN', 'MORF', 'TSVT', 'SMCI', 'LLY', 'RL', 'ARM', 'VERA']
