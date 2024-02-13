@@ -1,1 +1,1 @@
-['ENTG', 'AEHR', 'SMTC', 'CECO', 'ASML', 'CNMD', 'COLB', 'LLY', 'CRL', 'BYD', 'RTO', 'WAFD', 'AVNT', 'ON', 'GTN', 'NEON', 'AEHR', 'AEHR', 'MKSI', 'CRL', 'PLAB', 'PLAB', 'SLAB', 'CB', 'CB', 'ABT', 'SMH']
+['SMH', 'CRL', 'AEHR', 'SLAB', 'CB', 'PLAB', 'AEHR', 'PLAB', 'PLAB', 'DECK', 'CVLT', 'CB', 'CB', 'ABT', 'ABT', 'IBB']
