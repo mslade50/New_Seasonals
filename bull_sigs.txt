@@ -1,1 +1,1 @@
-['KREF', 'ZLAB', 'UNG', 'TZA', 'PEB', 'BBWI']
+['ARDX', 'COUR', 'OZK', 'EXTR', 'KREF', 'SSRM', 'CCK', 'ZLAB', 'NLY', 'PEAK', 'MDT', 'AES', 'CCI', 'TFC', 'BEN', 'UDR', 'HTZ', 'ADI', 'HRL', 'TXN', 'PAAS', 'SSRM', 'COTY', 'NEM', 'FITB', 'WBA', 'GT', 'IVZ', 'HST', 'NEE', 'PACB', 'GOLD', 'XRAY', 'WBD', 'CZR', 'MCHP', 'MU', 'MOS', 'CTRA', 'TGTX', 'HYG', 'EWZ', 'GDX', 'LQD', 'SLV', 'JNK', 'GLD', 'AGG', 'GDXJ', 'SPIB', 'EMB', 'VCSH', 'VCIT', 'SHY', 'SJNK', 'USHY', 'IAU', 'IGSB', 'RDFN', 'AGNC', 'AMCR', 'ALT']
