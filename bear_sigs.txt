@@ -1,1 +1,1 @@
-['SMCI', 'LLY', 'CROX', 'TWST', 'HIW', 'TOL', 'KBH', 'FNF', 'LHX', 'GS', 'LOW', 'SBH', 'NVCR', 'XRT', 'IOVA']
+['SMCI', 'LLY', 'KAMN', 'GE']
