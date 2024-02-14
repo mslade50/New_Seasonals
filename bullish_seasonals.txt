@@ -1,1 +1,1 @@
-['CL=F', 'RB=F', 'SBH', 'USO', 'PGX']
+['USO', 'SBH', 'PGX']
