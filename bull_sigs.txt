@@ -1,1 +1,1 @@
-['ARDX', 'KREF', 'SSRM', 'CCK', 'UPST', 'ENB', 'WMB', 'KHC', 'EQT', 'SOXS', 'NICE', 'VTRS']
+['ARDX', 'SSRM', 'CCK', 'TWLO', 'FSLY', 'CSCO', 'PENN', 'TZA', 'SDOW', 'ITRI', 'NICE', 'HTGC', 'SHO', 'AMEH', 'GES', 'BBWI']

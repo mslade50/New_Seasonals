@@ -1,1 +1,1 @@
-['SMCI', 'LLY', 'KAMN', 'GE']
+['XPRO', 'COGT', 'NNOX', 'SMCI', 'LLY', 'LDOS', 'GE', 'SMCI', 'ACGL', 'TRV', 'HIG', 'GE']
