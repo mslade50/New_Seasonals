@@ -1,1 +1,1 @@
-['AEHR', 'PLAB', 'ABT', 'CB', 'CVLT', 'IBB', 'NEON', 'OFIX', 'PLAB', 'DECK', 'DECK', 'HLIT', 'SPWR', 'SPWR', 'BA', 'SF', 'SF', 'STZ']
+['SF', 'NEON', 'SPWR', 'HLIT', 'PLAB', 'STZ', 'DECK', 'BA', 'OFIX', 'OFIX', 'UAL', 'SPWR', 'SPWR']
