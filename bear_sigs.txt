@@ -1,1 +1,1 @@
-['XPRO', 'COGT', 'NNOX', 'SMCI', 'LLY', 'LDOS', 'GE', 'SMCI', 'ACGL', 'TRV', 'HIG', 'GE']
+['COGT', 'SILK', 'LLY', 'LDOS', 'GE', 'NNOX', 'VNOM', 'HOLO', 'IR', 'GE', 'TPR', 'TXRH']

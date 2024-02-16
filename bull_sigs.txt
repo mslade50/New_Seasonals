@@ -1,1 +1,1 @@
-['ARDX', 'SSRM', 'CCK', 'TWLO', 'FSLY', 'CSCO', 'PENN', 'TZA', 'SDOW', 'ITRI', 'NICE', 'HTGC', 'SHO', 'AMEH', 'GES', 'BBWI']
+['ARDX', 'COUR', 'QDEL', 'SSRM', 'CCK', 'ROKU', 'STNE', 'HR', 'ADBE', 'TMUS', 'BE', 'DBX', 'PACB', 'RDFN', 'NICE', 'LHX', 'BBWI', 'CTRN']
