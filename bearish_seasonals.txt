@@ -1,1 +1,1 @@
-['SF', 'NEON', 'SPWR', 'HLIT', 'PLAB', 'STZ', 'DECK', 'BA', 'OFIX', 'OFIX', 'UAL', 'SPWR', 'SPWR']
+['RIO', 'MDU', 'ROK', 'SJW', 'FMS', 'NZDEUR=X', 'UCTT', 'AUDEUR=X', 'GFF', 'GRMN', 'IMAX', 'SNN', 'BMA', 'INCY', 'NVDA', 'RSG', 'NEON', 'PLUG', 'ATSG', 'SBGI', 'TEX', 'PLUG', 'BMA', 'ATSG', 'AOS', 'ANSS', 'ANSS', 'GFF', 'GFF', 'BLFS', 'BLFS', 'SA', 'SA', 'CCJ', 'TSEM', 'GOLD', 'GOLD', 'USDNOK=X', 'EURCHF=X', 'AUDEUR=X']
