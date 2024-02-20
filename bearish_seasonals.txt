@@ -1,1 +1,1 @@
-['RIO', 'MDU', 'ROK', 'SJW', 'FMS', 'NZDEUR=X', 'UCTT', 'AUDEUR=X', 'GFF', 'GRMN', 'IMAX', 'SNN', 'BMA', 'INCY', 'NVDA', 'RSG', 'NEON', 'PLUG', 'ATSG', 'SBGI', 'TEX', 'PLUG', 'BMA', 'ATSG', 'AOS', 'ANSS', 'ANSS', 'GFF', 'GFF', 'BLFS', 'BLFS', 'SA', 'SA', 'CCJ', 'TSEM', 'GOLD', 'GOLD', 'USDNOK=X', 'EURCHF=X', 'AUDEUR=X']
+['GFF', 'ANSS', 'SA', 'BMA', 'GOLD', 'TSEM', 'PLUG', 'CCJ', 'BLFS', 'ATSG', 'AOS', 'NEOG', 'NEOG', 'GFF', 'GFF', 'BLFS', 'VRSN', 'JEF', 'JEF', 'EA', 'EA', 'CLX', 'CLX', 'XME']

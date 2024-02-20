@@ -1,1 +1,1 @@
-['AEO', 'BKE', 'BKE', 'CRM', 'CRM']
+['CRM', 'BKE', 'RS', 'BKE', 'BKE', 'ARWR', 'ARWR', 'CRM', 'WMT', 'WMT', 'USDZAR=X']
