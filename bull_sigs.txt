@@ -1,1 +1,1 @@
-['ARDX', 'COUR', 'QDEL', 'SSRM', 'CCK', 'ROKU', 'STNE', 'HR', 'ADBE', 'TMUS', 'BE', 'DBX', 'PACB', 'RDFN', 'NICE', 'LHX', 'BBWI', 'CTRN']
+['SMCI', 'HOLI', 'ARDX', 'CAR', 'SSRM', 'DXC', 'ORCL', 'RLJ', 'LHX', 'CTRN']
