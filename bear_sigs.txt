@@ -1,1 +1,1 @@
-['LDOS', 'ERF', 'PLCE', 'USO', 'TRV', 'TPR']
+['VTYX', 'LDOS', 'VTYX', 'SNDX']

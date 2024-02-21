@@ -1,1 +1,1 @@
-['SMCI', 'HOLI', 'ARDX', 'CAR', 'SSRM', 'DXC', 'ORCL', 'RLJ', 'LHX', 'CTRN']
+['SMCI', 'HOLI', 'CAR', 'SSRM', 'PANW', 'TDOC', 'COO', 'RLJ', 'LHX', 'WAT']
