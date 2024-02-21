@@ -1,1 +1,1 @@
-['GFF', 'ANSS', 'SA', 'BMA', 'GOLD', 'TSEM', 'PLUG', 'CCJ', 'BLFS', 'ATSG', 'AOS', 'NEOG', 'NEOG', 'GFF', 'GFF', 'BLFS', 'VRSN', 'JEF', 'JEF', 'EA', 'EA', 'CLX', 'CLX', 'XME']
+['GFF', 'EA', 'NEOG', 'JEF', 'VRSN', 'BLFS', 'CLX', 'XME', 'KLIC', 'MOS', 'NEOG', 'PDCO', 'GFF', 'DENN', 'COLM', 'LXP', 'LXP', 'PRA', 'PRA', 'BDX', 'BDX', 'MSI', 'VGR']
