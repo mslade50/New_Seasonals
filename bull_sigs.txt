@@ -1,1 +1,1 @@
-['SMCI', 'HOLI', 'CAR', 'SSRM', 'PANW', 'TDOC', 'COO', 'RLJ', 'LHX', 'WAT']
+['HOLI', 'CAR', 'SSRM', 'NOVA', 'RUN', 'NEM', 'KDP', 'RIVN', 'SQQQ', 'SOXS', 'SH', 'SPXS', 'SPXU', 'QID', 'SDOW', 'SDS', 'SPDN', 'RLJ', 'LHX', 'WAT']
