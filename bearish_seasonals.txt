@@ -1,1 +1,1 @@
-['GFF', 'BDX', 'PDCO', 'COLM', 'NEOG', 'PRA', 'MOS', 'MSI', 'VGR', 'LXP', 'KLIC', 'LSCC', 'HOLI', 'HOLI', 'LXP', 'TXN', 'BDX', 'BDX', 'ALKS', 'ALKS']
+['BDX', 'KLIC', 'ALKS', 'HOLI', 'LXP', 'MTH', 'LSCC', 'LSCC', 'IDXX', 'AVT', 'HLIT', 'HLIT', 'HOLI', 'HOLI', 'WHR', 'ETN', '^IXIC']
