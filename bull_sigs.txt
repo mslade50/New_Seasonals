@@ -1,1 +1,1 @@
-['HOLI', 'WBD', 'AAOI', 'RLJ', 'RVT', 'WAT']
+['CPRI', 'PPBI', 'SO', 'VZ', 'DUK', 'GOOG', 'GOOGL', 'RWAY', 'RVT', 'WAT']
