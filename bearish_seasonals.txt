@@ -1,1 +1,1 @@
-['BDX', 'KLIC', 'ALKS', 'HOLI', 'LXP', 'MTH', 'LSCC', 'LSCC', 'IDXX', 'AVT', 'HLIT', 'HLIT', 'HOLI', 'HOLI', 'WHR', 'ETN', '^IXIC']
+['AVT', 'WHR', 'HOLI', 'HLIT', 'LSCC', 'ETN', 'MTH', 'NEO', 'SQM', 'ON', 'ON', 'KLAC', 'KLAC', 'LSCC', 'LSCC', 'LAD', 'LAD', 'DRS', 'VALE', 'VALE', 'ZBRA', 'ZBRA', 'AZTA', 'AZTA', 'AMKR', 'HLIT', 'HLIT', 'OTEX', 'OTEX', 'HOLX', 'TECH', 'TECH', 'MD', 'TXN', 'TXN', 'TCOM', 'TCOM', 'ORAN', 'CMCSA', 'ALKS', 'ALKS', 'IBB']
