@@ -1,1 +1,1 @@
-['CPRI', 'PPBI', 'SO', 'VZ', 'DUK', 'GOOG', 'GOOGL', 'RWAY', 'RVT', 'WAT']
+['AMGN', 'LABD', 'CLVT', 'ACI', 'RWAY', 'RVT', 'BAC', 'WAT', 'KSS']
