@@ -1,1 +1,1 @@
-['UNFI', 'LIN', 'LIN']
+['LIN', 'LSTR', 'LIN', 'LIN']
