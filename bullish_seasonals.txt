@@ -1,1 +1,1 @@
-['LIN', 'LSTR', 'LIN', 'LIN']
+['LIN', 'UPS', 'USDKRW=X']
