@@ -1,1 +1,1 @@
-['VTYX', 'LI', 'PSN', 'LDOS', 'GE', 'VST', 'VKTX', 'WM', 'MOD', 'VKTX', 'AGIO', 'ALPN']
+['VTYX', 'PSN', 'CEG', 'TGH', 'SPLK', 'HWM', 'LDOS', 'GE', 'VST', 'VKTX', 'CHX', 'RCUS', 'GBTC', 'MOD', 'VKTX']

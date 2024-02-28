@@ -1,1 +1,1 @@
-['AMGN', 'LABD', 'CLVT', 'ACI', 'RWAY', 'RVT', 'BAC', 'WAT', 'KSS']
+['SSRM', 'PRGO', 'MDRX', 'UNH', 'PBR', 'XP', 'SHEL', 'WY', 'RVT', 'BAC', 'KSS']
