@@ -1,1 +1,1 @@
-['LSCC', 'HRL', 'FRPT', 'PSN', 'SPLK', 'LDOS', 'GE', 'VST', 'JANX', 'GBTC', 'TSCO', 'RYN', 'GGG', 'LOW', 'RNA', 'NRIX']
+['VTYX', 'PSN', 'EVBG', 'SFM', 'GE', 'DELL', 'VST', 'RYAN', 'NTRA', 'JANX', 'CXW', 'GBTC', 'RYN', 'ETN', 'LOW', 'RNA', 'EWJ', 'FULC', 'NRIX']

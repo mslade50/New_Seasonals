@@ -1,1 +1,1 @@
-['CELH', 'NXT', 'MDRX', 'SSRM', 'PRGO', 'SNOW', 'MDRX', 'XEL', 'SHLS', 'IRWD', 'PEP', 'MLCO', 'ALLY', 'STC', 'PHM', 'GM', 'BLK', 'TMUS', 'BK', 'RVT', 'BAC', 'KSS', 'TAST', 'NZF']
+['NXT', 'MDRX', 'XEL', 'SSRM', 'IRWD', 'BA', 'NYCB', 'MLCO', 'JPST', 'ALLY', 'STC', 'DHI', 'BLK', 'TMUS', 'RVT', 'BAC', 'XRX', 'TAST', 'NZF']
