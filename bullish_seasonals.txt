@@ -1,1 +1,1 @@
-['AMED', 'MAS', 'MKC', 'MKC']
+['AMED', 'MAS', 'MKC', 'MKC', 'USDKRW=X']
