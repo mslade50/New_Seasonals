@@ -1,1 +1,1 @@
-['AMED', 'MAS', 'MKC', 'MKC', 'USDKRW=X']
+['AMED', 'MKC', 'GOOGL', 'MAS', 'GOOG', 'DLR', 'DLR', 'HAIN', 'CMC', 'CVS', 'PCAR', 'PCAR', 'DLTR', 'USDKRW=X']
