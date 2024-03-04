@@ -1,1 +1,1 @@
-['NXT', 'MDRX', 'XEL', 'SSRM', 'IRWD', 'BA', 'NYCB', 'MLCO', 'JPST', 'ALLY', 'STC', 'DHI', 'BLK', 'TMUS', 'RVT', 'BAC', 'XRX', 'TAST', 'NZF']
+['NXT', 'SSRM', 'PRGO', 'PARA', 'U', 'AAPL', 'SAVE', 'HTZ', 'WBA', 'PFE', 'MO', 'BTI', 'ZIM', 'CNHI', 'BEKE', 'VLY', 'ALLY', 'MDC', 'TMUS', 'RVT', 'APAM', 'FITB', 'XRX', 'TAST', 'NVG', 'NZF']
