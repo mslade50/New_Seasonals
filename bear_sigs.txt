@@ -1,1 +1,1 @@
-['VTYX', 'MSTR', 'GBTC', 'PSN', 'CEG', 'EVBG', 'HWM', 'SFM', 'LDOS', 'GE', 'VST', 'NTRA', 'XOM', 'LBRT', 'XOP', 'SLRN', 'GBTC', 'TOST', 'RYN', 'COST', 'ETN', 'CELH', 'SPOT', 'FULC']
+['VTYX', 'PSN', 'CEG', 'EVBG', 'SPLK', 'HWM', 'DOOR', 'LDOS', 'VST', 'SE', 'WY', 'TNDM']
