@@ -1,1 +1,1 @@
-['VSAT', 'OLED', 'VALE', 'GTY', 'IONS', 'VOD', 'DRS', 'GLD', 'ATEC', 'DCI', 'IAU', 'AGI', 'BCRX', 'ORAN', 'NRG', 'AU', 'AEM', 'BMRN', 'NTES', 'LOGI', 'RAMP', 'TTC', 'SI=F', 'NTAP', 'CPRX', 'STX', 'RMBS', 'ATEC', 'OLED', 'BCRX', 'BCRX', 'GFI', 'GFI', 'DRS', 'LXU', 'APPS', 'SU', 'SU', 'TRMB', 'PRDO', 'KT', 'IONS', 'IONS']
+['IONS', 'DRS', 'OLED', 'KT', 'IAU', 'TRMB', 'BCRX', 'APPS', 'ATEC', 'LXU', 'GFI', 'SU', 'RMBS', 'PSO', 'PSO', 'BCRX', 'SU', 'KMX', 'KMX', 'MMS', 'KTOS']
