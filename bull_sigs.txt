@@ -1,1 +1,1 @@
-['NXT', 'RL', 'NARI', 'LUNG', 'FWRD', 'DAVA', 'SSRM', 'PATH', 'GTLB', 'DT', 'AAPL', 'DDOG', 'VICI', 'PEP', 'PACB', 'MP', 'RDFN', 'DNB', 'CHGG', 'INFY', 'GATX', 'ALLY', 'MDC', 'FNB', 'RVT', 'C', 'OFG', 'KSS', 'TAST', 'NVG']
+['NXT', 'RL', 'LUNG', 'DAVA', 'JWN', 'PINS', 'FL', 'PDD', 'GATX', 'MDC', 'CMRE']
