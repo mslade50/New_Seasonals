@@ -1,1 +1,1 @@
-['DLR', 'MAS', 'USDKRW=X', 'DLTR', 'PCAR', 'CVS', 'GOOG', 'GOOGL', 'DLR', 'DLR', 'HAIN', 'ADBE', 'ADBE', 'CMC', 'CMC', 'PCAR', 'PCAR', 'ORLY', 'IT', 'IT', 'FFIN', 'FFIN', 'THS', 'THS', '^DJT']
+['CMC', 'THS', 'IT', 'ORLY', 'PCAR', 'FFIN', 'ADBE', 'DLR', 'HAIN', 'DHR', 'EMN', 'EMN', 'OMI', 'DLR', 'STT', 'STT', 'APD', 'APD', 'CMC', 'CMC', 'PCAR', 'PCAR', 'HAS', 'ACN', 'IT', 'IT', 'FFIN', 'FFIN', 'FLO', 'THS', 'CVBF', 'CVBF']

@@ -1,1 +1,1 @@
-['IONS', 'DRS', 'OLED', 'KT', 'IAU', 'TRMB', 'BCRX', 'APPS', 'ATEC', 'LXU', 'GFI', 'SU', 'RMBS', 'PSO', 'PSO', 'BCRX', 'SU', 'KMX', 'KMX', 'MMS', 'KTOS']
+['PSO', 'BCRX', 'SU', 'KMX', 'MMS', 'KTOS', 'KMX', 'VCEL', 'MANH', 'MNST']
