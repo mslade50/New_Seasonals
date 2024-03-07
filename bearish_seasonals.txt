@@ -1,1 +1,1 @@
-['PSO', 'BCRX', 'SU', 'KMX', 'MMS', 'KTOS', 'KMX', 'VCEL', 'MANH', 'MNST']
+['KMX', 'VCEL', 'MNST', 'MANH', 'BLFS', '^VIX', 'PSQ', 'SH', 'QID', 'SDS']
