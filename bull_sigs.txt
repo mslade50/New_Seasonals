@@ -1,1 +1,1 @@
-['NXT', 'RL', 'LUNG', 'DAVA', 'JWN', 'PINS', 'FL', 'PDD', 'GATX', 'MDC', 'CMRE']
+['X', 'RL', 'LUNG', 'DAVA', 'UNFI', 'SOXX', 'IGV', 'VSCO', 'GATX', 'ALLY', 'RWAY', 'MDC', 'MTB', 'AMG', 'UMBF', 'CLF']
