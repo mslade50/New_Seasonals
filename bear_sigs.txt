@@ -1,1 +1,1 @@
-['VTYX', 'DQ', 'EVBG', 'VST', 'KR', 'MCHP', 'MDU']
+['DQ', 'RF', 'BTU', 'RRC', 'VOD', 'DVN', 'FUTU', 'ASHR']
