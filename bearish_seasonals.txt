@@ -1,1 +1,1 @@
-['BLFS', 'VCEL', 'PSQ', 'QID', 'SDS']
+['VCEL', '^VIX', 'ANF', 'VCEL', 'HRB', 'CLX', 'CALM', '^VIX', '^VIX', 'PSQ', 'PSQ']
