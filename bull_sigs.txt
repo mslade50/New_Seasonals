@@ -1,1 +1,1 @@
-['XPO', 'X', 'DAVA', 'BA', 'VALE', 'ALLY', 'MDC', 'PLD', 'PGX', 'PFF', 'SKM']
+['X', 'UNFI', 'SPWR', 'RUN', 'BA', 'LUV', 'VALE', 'KSS', 'SH', 'SPXS', 'SPXU', 'SDS', 'UVIX', 'OMF', 'PLD', 'MSFT', 'BKLN', 'CMRE', 'SKM']
