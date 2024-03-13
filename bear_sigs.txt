@@ -1,1 +1,1 @@
-['GTES', 'GRMN', 'SLV', 'BXSL', 'MDU', 'FUTU']
+['DQ', 'GTES', 'SG', 'GRMN', 'JNJ', 'SYF', 'GTES', 'BROS', 'JEF', 'BXSL', 'EPD', 'RNA', 'PRMW', 'LYV', 'DVN', 'FUTU', 'ZTO', 'XOP']
