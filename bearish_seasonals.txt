@@ -1,1 +1,1 @@
-['VCEL', '^VIX', 'ANF', 'VCEL', 'HRB', 'CLX', 'CALM', '^VIX', '^VIX', 'PSQ', 'PSQ']
+['VCEL', 'PSQ', '^VIX', 'ANF', 'VFC', 'PPC', 'PPC', 'HRB', 'VGR', 'VGR', 'CLX', 'CALM', 'CALM', 'NWBI', 'CPB', 'CPB', 'HRL', 'PSQ']
