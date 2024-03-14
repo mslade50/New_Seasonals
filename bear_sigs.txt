@@ -1,1 +1,1 @@
-['DQ', 'GTES', 'SG', 'GRMN', 'JNJ', 'SYF', 'GTES', 'BROS', 'JEF', 'BXSL', 'EPD', 'RNA', 'PRMW', 'LYV', 'DVN', 'FUTU', 'ZTO', 'XOP']
+['DKS', 'SG', 'RCL', 'CIVI', 'DKS', 'ERJ', 'SU', 'OXY', 'XOM', 'PXD', 'MRO', 'DVN', 'AESI', 'XLE', 'XOP']

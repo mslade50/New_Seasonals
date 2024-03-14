@@ -1,1 +1,1 @@
-['FLNC', 'ENVX', 'AGL', 'ZIM', 'X', 'DNB', 'OMF', 'AMG', 'STNG', 'IEMG', 'BKLN', 'KEY', 'CMRE', 'SKM']
+['XPO', 'NXT', 'AMGN', 'FWRD', 'DAVA', 'UPST', 'FLNC', 'ENPH', 'S', 'AFRM', 'HR', 'AES', 'KIM', 'ARCC', 'CZR', 'ETSY', 'VFC', 'ARDX', 'ALIT', 'DNB', 'AAOI', 'AMG', 'ASC', 'SKM', 'CX']
