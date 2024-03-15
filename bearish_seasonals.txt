@@ -1,1 +1,1 @@
-['PSQ', 'CPB', 'HRL', 'NWBI', 'VGR', 'PPC', 'CALM', 'HRB', 'VFC', 'CLX', 'VGR', 'SDS']
+['SDS', 'VGR', 'TTMI', 'TTMI', 'TGNA', 'SH']
