@@ -1,1 +1,1 @@
-['DKS', 'SG', 'RCL', 'CIVI', 'DKS', 'ERJ', 'SU', 'OXY', 'XOM', 'PXD', 'MRO', 'DVN', 'AESI', 'XLE', 'XOP']
+['SG', 'EURN', 'MSFT', 'PCAR', 'STLA', 'OXY', 'UNM', 'MRO', 'XLE', 'XOP']
