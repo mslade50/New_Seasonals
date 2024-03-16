@@ -1,1 +1,1 @@
-['SDS', 'VGR', 'TTMI', 'TTMI', 'TGNA', 'SH']
+['SDS', 'VGR', 'TTMI', 'TTMI', 'TGNA', 'USDCAD=X', 'USDCAD=X', 'SH']
