@@ -1,1 +1,1 @@
-['HPE', 'AXP', 'NXT', 'FWRD', 'DAVA', 'ADBE', 'NWSA', 'FLEX', 'Z', 'AMG', 'ASC']
+['SMCI', 'AXP', 'NXT', 'FWRD', 'AMLX', 'COLD', 'RBLX', 'DNB']
