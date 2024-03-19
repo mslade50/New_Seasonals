@@ -1,1 +1,1 @@
-['NRG', 'SG', 'PCAR', 'OXY', 'XOM', 'MRO', 'NOG']
+['ERJ', 'NRG', 'EME', 'SG', 'ERJ', 'PCAR', 'OXY', 'PXD', 'CHX', 'MRO', 'NOG', 'ERF', 'XOP', 'SUZ']

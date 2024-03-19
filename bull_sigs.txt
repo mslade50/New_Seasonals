@@ -1,1 +1,1 @@
-['SMCI', 'AXP', 'NXT', 'FWRD', 'AMLX', 'COLD', 'RBLX', 'DNB']
+['SMCI', 'MSTR', 'AXP', 'XPO', 'RBA', 'NXT', 'SAVE', 'YUMC', 'POST', 'PGX', 'SJNK']
