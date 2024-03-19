@@ -1,1 +1,1 @@
-['SH', 'TGNA', 'TTMI', 'PHM', 'BKE', 'BLFS', 'SCHW', 'USDCAD=X', 'USDCAD=X', 'EURNOK=X', 'EURNOK=X']
+['EURNOK=X', 'USDCAD=X', 'SCHW', 'BLFS', 'PHM', 'CAR', 'WDC', 'WDC', 'BKE', 'BKE', 'JPM']
