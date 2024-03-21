@@ -1,1 +1,1 @@
-['MSTR', 'XPO', 'EURN', 'SHC', 'SQQQ', 'PSQ', 'SH', 'SPXU', 'QID', 'TZA', 'SDOW', 'SDS', 'JDST', 'DUST', 'APO', 'HIW', 'MNDY', 'TRU', 'FNB', 'POST', 'UBER', 'JELD', 'JNK', 'PGX', 'SJNK', 'IJR', 'MAC']
+['IOT', 'CHWY', 'CTSH', 'DNB', 'INFY', 'SBRA', 'HIW', 'MNDY', 'TRU', 'FNB', 'FELE', 'MFA', 'BR', 'POST', 'FRO', 'CYBR', 'UBER', 'SYY', 'TNA', 'SJNK', 'IJR', 'ESRT', 'MAC', 'EZPW']

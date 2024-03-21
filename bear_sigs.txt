@@ -1,1 +1,1 @@
-['ZTO', 'ERJ', 'NRG', 'SG', 'ERJ', 'RCL', 'NVT', 'AME', 'FAST', 'PCAR', 'VIST', 'STLA', 'LAUR', 'UNM', 'CHX', 'ERF', 'ZTO', 'XLF', 'XOP', 'HLMN', 'PR']
+['HAS', 'ADM', 'DKS', 'WSM', 'NRG', 'EME', 'CNM', 'SG', 'GPS', 'TTE', 'RCL', 'FDX', 'JEF', 'NVT', 'AOS', 'AME', 'GPC', 'FAST', 'PCAR', 'OC', 'EXEL', 'WMB', 'LPX', 'LOW', 'LAUR', 'PGTI', 'CHX', 'ERF', 'XLF', 'HLMN', 'PR']
