@@ -1,1 +1,1 @@
-['SMCI', 'MSTR', 'AXP', 'XPO', 'RBA', 'NXT', 'SAVE', 'YUMC', 'POST', 'PGX', 'SJNK']
+['MSTR', 'XPO', 'EURN', 'SHC', 'SQQQ', 'PSQ', 'SH', 'SPXU', 'QID', 'TZA', 'SDOW', 'SDS', 'JDST', 'DUST', 'APO', 'HIW', 'MNDY', 'TRU', 'FNB', 'POST', 'UBER', 'JELD', 'JNK', 'PGX', 'SJNK', 'IJR', 'MAC']

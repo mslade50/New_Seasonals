@@ -1,1 +1,1 @@
-['ERJ', 'NRG', 'EME', 'SG', 'ERJ', 'PCAR', 'OXY', 'PXD', 'CHX', 'MRO', 'NOG', 'ERF', 'XOP', 'SUZ']
+['ZTO', 'ERJ', 'NRG', 'SG', 'ERJ', 'RCL', 'NVT', 'AME', 'FAST', 'PCAR', 'VIST', 'STLA', 'LAUR', 'UNM', 'CHX', 'ERF', 'ZTO', 'XLF', 'XOP', 'HLMN', 'PR']
