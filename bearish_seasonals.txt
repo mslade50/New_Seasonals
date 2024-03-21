@@ -1,1 +1,1 @@
-['WDC', 'BKE', 'KBH', 'KBH', 'WOLF', 'WOLF', 'LAD', 'LAD', 'WDC', 'UAL', 'UAL', 'LXU', 'MAS', 'PRA', 'PRA', 'ORAN', 'SHOO', 'O', 'O', 'SPR', 'USDCAD=X', 'USDCAD=X', 'USDNOK=X', 'USDNOK=X', 'USDSEK=X', 'USDSEK=X', 'USDKRW=X', 'EURNOK=X']
+['USDNOK=X', 'EURNOK=X', 'USDKRW=X', 'USDSEK=X', 'WOLF', 'UAL', 'USDCAD=X', 'O', 'WDC', 'SHOO', 'KBH', 'LAD', 'PRA', 'GPS', 'SCVL', 'BMA', 'PHM', 'CAL', 'AAL', 'AAL', 'LXU', 'AMKR', 'MAS', 'MAS', 'ADI', 'ADI', 'TPX', 'TPX', 'HSBC', 'HSBC', 'LYV', 'LYV', 'JPM', 'USDNOK=X']
