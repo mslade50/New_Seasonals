@@ -1,1 +1,1 @@
-['ESS', 'ELV', 'LNT', 'XLE', 'RIO', 'SLGN', 'SBS', 'CVX', 'VALE', 'WAB', 'XOM', 'AUDUSD=X', 'HDB', 'NZF', 'CTRA', 'DGX', 'EXR', 'RSG', 'OKE', 'AMT', 'SYNA', 'RCI', 'OVV', 'FLO', 'AUDEUR=X', 'ACGL', 'PNR', 'ANSS', 'MCK', 'CAT', 'SYNA', 'MATV', 'BAP', 'BAP', 'WAB', 'MSM', 'SBS', 'ESS', 'TLK', 'ELV', 'UGI', 'LNT', 'FLO', 'FLO', 'CFR', 'CFR']
+['LNT', 'ESS', 'SYNA', 'ELV', 'FLO', 'CFR', 'UGI', 'BAP', 'MATV', 'SBS', 'TLK', 'RMD', 'ET', 'ET', 'AMD', 'AMD', 'BAP', 'BAP', 'L', 'WBD', 'CFR']
