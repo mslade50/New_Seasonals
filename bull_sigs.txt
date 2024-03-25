@@ -1,1 +1,1 @@
-['IOT', 'GME', 'AGL', 'NKE', 'XPEV', 'MNDY', 'TRU', 'FELE', 'NPO', 'POST', 'UBER', 'SYY', 'JNK', 'SJNK', 'MAC', 'EZPW']
+['IOT', 'RL', 'MEI', 'TPR', 'TAL', 'MFA', 'SSNC', 'POST', 'UBER', 'EZPW']

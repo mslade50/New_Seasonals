@@ -1,1 +1,1 @@
-['WSM', 'NRG', 'EME', 'CNM', 'SG', 'PYPL', 'RELY', 'APO', 'SITC', 'MTB', 'USB', 'NMRK', 'DRH', 'ERJ', 'FDX', 'AGTI', 'LAUR']
+['NRG', 'EME', 'SG', 'KLG', 'BV', 'EMN']
