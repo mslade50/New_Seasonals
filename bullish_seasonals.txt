@@ -1,1 +1,1 @@
-['LNT', 'ESS', 'SYNA', 'ELV', 'FLO', 'CFR', 'UGI', 'BAP', 'MATV', 'SBS', 'TLK', 'RMD', 'ET', 'ET', 'AMD', 'AMD', 'BAP', 'BAP', 'L', 'WBD', 'CFR']
+['ET', 'CFR', 'AMD', 'L', 'BAP', 'RMD', 'TDW', 'MEOH', 'MEOH', 'ALB', 'ET', 'PAA', 'PAA', 'CMP', 'BLK', 'BLK', 'BAP', 'BAP', 'SSYS', 'SSYS', 'CF', 'NFG', 'NFG', 'ITW', 'UNP', 'UNP', 'MA', 'VRE', 'WBD', 'CL=F']

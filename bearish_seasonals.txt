@@ -1,1 +1,1 @@
-['GPS', 'USDNOK=X', 'LXU', 'TPX', 'AAL', 'PHM', 'CAL', 'JPM', 'HSBC', 'MAS', 'BMA', 'LYV', 'ADI', 'RMBS', 'RMBS', 'KBH', 'LAD', 'JNPR', 'LAZ', 'AMKR', 'EXTR', 'EXTR', 'BLFS', 'VCEL', 'VCEL', 'ADI', 'PRA', 'TPX', 'TTWO', 'TTWO', 'LYV', 'ORAN', 'ORAN', 'ZW=f']
+['VCEL', 'BLFS', 'RMBS', 'HRB', 'ORAN', 'EXTR', 'ZW=f', 'TTWO', 'LAD', 'LYV', 'PRA', 'TPX', 'KBH', 'ADI', 'AMKR', 'LAZ', 'PSO', 'PSO', 'SCVL', 'JNPR', 'JNPR', 'NEOG', 'UAL', 'AMKR', 'VCEL', 'AWI', 'AWI', 'OHI', 'ORAN', 'MTN']
