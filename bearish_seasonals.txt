@@ -1,1 +1,1 @@
-['VCEL', 'BLFS', 'RMBS', 'HRB', 'ORAN', 'EXTR', 'ZW=f', 'TTWO', 'LAD', 'LYV', 'PRA', 'TPX', 'KBH', 'ADI', 'AMKR', 'LAZ', 'PSO', 'PSO', 'SCVL', 'JNPR', 'JNPR', 'NEOG', 'UAL', 'AMKR', 'VCEL', 'AWI', 'AWI', 'OHI', 'ORAN', 'MTN']
+['VCEL', 'OHI', 'ORAN', 'UAL', 'MTN', 'AWI', 'JNPR', 'PSO', 'SCVL', 'PSO', 'JNPR', 'JNPR', 'UHAL', 'UHAL', 'NEOG', 'NEOG', 'AMKR', 'AWI', 'AWI', 'UTHR', 'UTHR', 'USM', 'FRO']

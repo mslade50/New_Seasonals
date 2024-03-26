@@ -1,1 +1,1 @@
-['ET', 'CFR', 'AMD', 'L', 'BAP', 'RMD', 'TDW', 'MEOH', 'MEOH', 'ALB', 'ET', 'PAA', 'PAA', 'CMP', 'BLK', 'BLK', 'BAP', 'BAP', 'SSYS', 'SSYS', 'CF', 'NFG', 'NFG', 'ITW', 'UNP', 'UNP', 'MA', 'VRE', 'WBD', 'CL=F']
+['NFG', 'ET', 'CMP', 'PAA', 'TDW', 'UNP', 'VRE', 'WBD', 'BAP', 'BLK', 'MEOH', 'SSYS', 'ALB', 'CL=F', 'MYGN', 'MRO', 'CONN', 'MEOH', 'PAA', 'LSTR', 'BAP', 'EAT', 'EAT', 'WYNN', 'SSYS', 'CF', 'CRI', 'ITW', 'MA', 'MA', 'USDCHF=X', 'USDCHF=X']
