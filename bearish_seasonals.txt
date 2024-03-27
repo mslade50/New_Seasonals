@@ -1,1 +1,1 @@
-['VCEL', 'OHI', 'ORAN', 'UAL', 'MTN', 'AWI', 'JNPR', 'PSO', 'SCVL', 'PSO', 'JNPR', 'JNPR', 'UHAL', 'UHAL', 'NEOG', 'NEOG', 'AMKR', 'AWI', 'AWI', 'UTHR', 'UTHR', 'USM', 'FRO']
+['PSO', 'NEOG', 'AWI', 'UTHR', 'JNPR', 'FRO', 'UHAL', 'AMKR', 'JNPR', 'CDMO', 'UHAL', 'NEOG', 'NEOG', 'DHI', 'FMX', 'AWI', 'RGP', 'ACGL', 'ACGL', 'TD', 'TD', 'ROL', 'PSA', 'PSA', 'USM', 'USM', 'AEL', 'BRKL', 'BRKL', 'SJM', 'EURUSD=X', 'EURUSD=X']
