@@ -1,1 +1,1 @@
-['EME', '^GDAXI', 'KLG', 'SHEL', 'FDX', 'TEX', '^GDAXI']
+['EME', '^GDAXI', 'HAYW', 'C', 'TEX', 'DE', 'CHX', '^GDAXI', 'HLMN', 'SN']

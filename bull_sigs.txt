@@ -1,1 +1,1 @@
-['XPO', 'RBA', 'ITW', 'RL', 'MEI', 'CMTL', 'IONQ', 'UPS', 'VTRS', 'MNDY', 'AXNX', 'SSNC', 'POST']
+['XPO', 'CELH', 'ITW', 'JANX', 'RL', 'BOIL', 'UNG', 'TZA', 'XPEV', 'HIW', 'MFC', 'BNS', 'XLV', 'JNK', 'SJNK', 'ESRT', 'MAC']
