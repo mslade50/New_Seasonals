@@ -1,1 +1,1 @@
-['XPO', 'CELH', 'ITW', 'JANX', 'RL', 'BOIL', 'UNG', 'TZA', 'XPEV', 'HIW', 'MFC', 'BNS', 'XLV', 'JNK', 'SJNK', 'ESRT', 'MAC']
+['IOT', 'JANX', 'PLTR', 'CXM', 'HIW', 'ADI', 'HYG', 'XLV', 'JNK', 'SJNK', 'ESRT', 'ELAN', 'MAC']

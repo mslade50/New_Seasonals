@@ -1,1 +1,1 @@
-['EME', '^GDAXI', 'HAYW', 'C', 'TEX', 'DE', 'CHX', '^GDAXI', 'HLMN', 'SN']
+['ING', '^GDAXI', 'EPRT', 'AGCO', 'CHX', 'MGY', 'ERF', 'XLF']
