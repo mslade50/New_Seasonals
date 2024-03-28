@@ -1,1 +1,1 @@
-['PAA', 'MRO', 'EAT', 'CF', 'MEOH', 'USDCHF=X', 'WYNN', 'BAP', 'ITW', 'SSYS', 'MA', 'LSTR', 'CRI', 'CL=F', 'MYGN', 'ITW', 'UNP', 'MA', 'MA', 'USDCHF=X', 'USDCHF=X', 'SLV']
+['USDCHF=X', 'UNP', 'MYGN', 'SLV', 'MA', 'CONN', 'CONN', 'BECN', 'BECN', 'HA', 'PAG', 'ITW']
