@@ -1,1 +1,1 @@
-['USDCHF=X', 'UNP', 'MYGN', 'SLV', 'MA', 'CONN', 'CONN', 'BECN', 'BECN', 'HA', 'PAG', 'ITW']
+['UNP', 'MYGN', 'SLV', 'MA', 'NZDEUR=X', 'CONN', 'CONN', 'BECN', 'BECN', 'HA', 'PAG', 'ITW']
