@@ -1,1 +1,1 @@
-['IOT', 'JANX', 'PLTR', 'CXM', 'HIW', 'ADI', 'HYG', 'XLV', 'JNK', 'SJNK', 'ESRT', 'ELAN', 'MAC']
+['IOT', 'JANX', 'PLTR', 'CXM', 'HIW', 'ADI', 'XLV', 'JNK', 'SJNK', 'ESRT', 'ELAN', 'MAC']
