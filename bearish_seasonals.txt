@@ -1,1 +1,1 @@
-['NEOG', 'AWI', 'TD', 'BRKL', 'PSA', 'AEL', 'USM', 'EURUSD=X', 'RGP', 'UHAL', 'ACGL', 'DHI', 'JNPR', 'SKY', 'STX', 'CDMO', 'NEOG', 'NEOG', 'FMX', 'J', 'ROL', 'CSCO', 'USM', 'BRKL', 'COLB', 'STZ', 'SJM', 'SJM', 'CCRN', 'CCRN', 'WGO', 'AMN', 'AMN', 'SMH']
+['STX', 'BRKL', 'SJM', 'NEOG', 'CDMO', 'AMN', 'CCRN', 'CSCO', 'FMX', 'STZ', 'J', 'ROL', 'COLB', 'USM', 'SKY', 'NEOG', 'TU', 'TU', 'WGO', 'WGO', 'AMN', 'AMN', 'SMH']

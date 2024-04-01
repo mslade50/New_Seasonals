@@ -1,1 +1,1 @@
-['UNP', 'MYGN', 'MA', 'NZDEUR=X', 'CONN', 'CONN', 'BECN', 'BECN', 'HA', 'PAG', 'ITW']
+['CONN', 'BECN', 'ITW', 'HA', 'ARLP', 'ARLP', 'DAR', 'NMZ', 'PTEN', 'MPW', 'MPW', 'WYNN', 'WYNN', 'SHO', 'NGG', 'HIW', 'MLCO', 'MLCO', 'SPR', 'SPR', 'EVRG', 'EVRG', 'TCBI']
