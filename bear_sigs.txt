@@ -1,1 +1,1 @@
-['ING', '^GDAXI', 'EPRT', 'AGCO', 'CHX', 'MGY', 'ERF', 'XLF']
+['MRO', '^GDAXI', 'AFL', 'MFC', 'SNV', 'BG', 'PEP', 'IJR', 'CNQ', 'MGY']

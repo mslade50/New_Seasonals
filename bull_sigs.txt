@@ -1,1 +1,1 @@
-['IOT', 'JANX', 'PLTR', 'CXM', 'HIW', 'ADI', 'XLV', 'JNK', 'SJNK', 'ESRT', 'ELAN', 'MAC']
+['MSTR', 'IOT', 'ITW', 'JANX', 'RL', 'BYND', 'WBA', 'HD', 'HYG', 'TLT', 'EWZ', 'TMF', 'LQD', 'GOVT', 'IEF', 'JNK', 'BIL', 'AGG', 'SPIB', 'VCSH', 'SHY', 'SJNK', 'USHY', 'SPTL', 'JPST', 'BND', 'RXRX', 'MDC', 'UTZ', 'OUT', 'TEL', 'ADI', 'FRO', 'INSW', 'TCOM', 'TPR', 'IEMG', 'XLV']
