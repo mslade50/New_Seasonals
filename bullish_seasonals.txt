@@ -1,1 +1,1 @@
-['CONN', 'BECN', 'ITW', 'HA', 'ARLP', 'ARLP', 'DAR', 'NMZ', 'PTEN', 'MPW', 'MPW', 'WYNN', 'WYNN', 'SHO', 'NGG', 'HIW', 'MLCO', 'MLCO', 'SPR', 'SPR', 'EVRG', 'EVRG', 'TCBI']
+['EVRG', 'TCBI', 'ARLP', 'WYNN', 'SPR', 'MPW', 'HIW', 'HA', 'DAR', 'MLCO', 'CONN', 'BECN', 'HDB', 'TNL', 'ARLP', 'MCHP', 'TWI', 'NMZ', 'WYNN', 'VTR', 'ABR', 'ABR', 'WTW', 'SHO', 'HMC', 'NGG', 'AIZ', 'MLCO', 'SPR', 'GLD']
