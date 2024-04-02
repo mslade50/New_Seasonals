@@ -1,1 +1,1 @@
-['MRO', '^GDAXI', 'AFL', 'MFC', 'SNV', 'BG', 'PEP', 'IJR', 'CNQ', 'MGY']
+['OPK', 'XLO', 'NXL', 'CHX', 'MESO', 'ATMU', 'EGY', 'MRO', 'OUST', 'KSS', 'CHX', 'CPG', 'EGO', 'SAND', 'EQX', 'XOM', 'PXD', 'EQNR', 'SU', 'EPD', 'CNQ', 'EOG', 'DVN', 'MUX']
