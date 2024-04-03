@@ -1,1 +1,1 @@
-['AMN', 'SMH', 'SKY', 'TU', 'WGO', 'NEOG', 'TOL', 'LEN', 'RL', 'RYAAY', 'TU', 'TU', 'WRB', 'STZ', 'HRL', 'HRL', 'WGO']
+['HRL', 'STZ', 'TU', 'WGO', 'M', 'STAA', 'LEN', 'LEN', 'MKSI', 'TROW', 'BEN', 'BEN', 'RL', 'RL', 'VIAV', 'SNX', 'FDX', 'TRV', 'CAT', 'BKNG', 'SLM', 'RYAAY', 'RYAAY', 'SBUX', 'MAT', 'MAT', 'TU', 'TU', 'ROL', 'WRB', 'WBS', 'PRGS', 'SI=F', 'SI=F']
