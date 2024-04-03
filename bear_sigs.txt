@@ -1,1 +1,1 @@
-['OPK', 'XLO', 'NXL', 'CHX', 'MESO', 'ATMU', 'EGY', 'MRO', 'OUST', 'KSS', 'CHX', 'CPG', 'EGO', 'SAND', 'EQX', 'XOM', 'PXD', 'EQNR', 'SU', 'EPD', 'CNQ', 'EOG', 'DVN', 'MUX']
+['OPK', 'CHX', 'CENX', 'MPC', 'ATMU', 'SVM', 'CVE', 'EGY', 'DVN', 'TRGP', 'MRO', 'OUST', 'CENX', 'TGB', 'CPG', 'EGO', 'SAND', 'SHEL', 'EQX', 'EQNR', 'SU', 'EPD', 'CNQ', 'EOG', 'ERF', 'DVN', 'TRGP', 'TDW', 'MUX', 'SDRL', 'HAL', 'NRG']

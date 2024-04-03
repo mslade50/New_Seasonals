@@ -1,1 +1,1 @@
-['ITW', 'AXP', 'ORCL', 'MBC', 'MSTR', 'RL', 'SIRI', 'PANW', 'SBUX', 'BCE', 'PATH', 'UAA', 'UA', 'FOLD', 'STM', 'SIRI', 'JOBY', 'TDOC', 'ON', 'RIVN', 'PTON', 'RKLB', 'PACB', 'SHLS', 'RXRX', 'UNH', 'DNA', 'CNC', 'FIGS', 'NXT', 'EVGO', 'NCLH', 'RIOT', 'PLUG', 'HBI', 'GE', 'ASTS', 'LBRT', 'INSW', 'ASC', 'FRO']
+['ORCL', 'MBC', 'MSTR', 'SIRI', 'IRON', 'JNJ', 'GILD', 'DBX', 'INTC', 'COTY', 'LSXMK', 'LLY', 'ODFL', 'OUT']
