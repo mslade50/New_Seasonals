@@ -1,1 +1,1 @@
-['ARLP', 'WTW', 'BECN', 'HDB', 'ABR', 'WYNN', 'MLCO', 'VTR', 'CONN', 'NGG', 'HMC', 'TNL', 'TWI', 'NMZ', 'SHO', 'AIZ', 'MCHP', 'SPR', 'SBNY', 'SBNY', 'AOS', 'PDCO', 'WWW', 'PTEN', 'VNO', 'PZZA', 'PZZA']
+['PDCO', 'PZZA', 'WWW', 'VNO', 'SBNY', 'PTEN', 'SBNY', 'ALB', 'ALB', 'SPR']
