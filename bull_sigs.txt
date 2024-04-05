@@ -1,1 +1,1 @@
-['CMC', 'AXP', 'ORCL', 'CPRT', 'MSTR', 'EYPT', 'LW', 'RCI', 'SIRI', 'IRON', 'UBER', 'CRM', 'BTU', 'ABBV', 'IBM', 'NVO', 'MCD', 'GILD', 'ZI', 'ROKU', 'ERIC', 'AMD', 'TPR', 'PTON', 'ODFL', 'OUT']
+['CMC', 'ORCL', 'HPE', 'MSTR', 'LW', 'HAIN', 'SIRI', 'IPG', 'LLY', 'KD', 'ACMR']
