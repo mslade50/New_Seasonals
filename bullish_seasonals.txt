@@ -1,1 +1,1 @@
-['PDCO', 'PZZA', 'WWW', 'VNO', 'SBNY', 'PTEN', 'SBNY', 'ALB', 'ALB', 'SPR']
+['SPR', 'ALB', 'POOL', 'ALB', 'CYTK', 'ANGO', 'ANGO', 'ORA', 'ORA', 'USDKRW=X', 'USDKRW=X', 'XLP']
