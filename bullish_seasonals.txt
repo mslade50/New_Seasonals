@@ -1,1 +1,1 @@
-['SPR', 'ALB', 'POOL', 'ALB', 'CYTK', 'ANGO', 'ANGO', 'ORA', 'ORA', 'USDKRW=X', 'USDKRW=X', 'XLP']
+['USDKRW=X', 'SPR', 'ALB', 'POOL', 'ALB', 'CYTK', 'ANGO', 'ANGO', 'ORA', 'ORA', 'USDCHF=X', 'USDCHF=X', 'USDKRW=X', 'USDKRW=X', 'XLP']
