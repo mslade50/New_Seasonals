@@ -1,1 +1,1 @@
-['USDKRW=X', 'SPR', 'ALB', 'POOL', 'ALB', 'CYTK', 'ANGO', 'ANGO', 'ORA', 'ORA', 'USDCHF=X', 'USDCHF=X', 'USDKRW=X', 'USDKRW=X', 'XLP']
+['USDKRW=X', 'ORA', 'CYTK', 'ALB', 'XLP', 'ANGO', 'POOL', 'POOL', 'IDXX', 'ANGO', 'ANGO', 'CUZ', 'AVB', 'FMS', 'CPT', 'ORLY', 'DLTR', 'UNFI', 'UNFI', 'DX-Y.NYB', 'DX-Y.NYB', 'USDCHF=X', 'USDCHF=X', 'USDKRW=X', 'USDKRW=X']
