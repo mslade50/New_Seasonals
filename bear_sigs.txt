@@ -1,1 +1,1 @@
-['AINC', 'OPK', 'SGRP', 'MPC', 'VLO', 'XOM', 'PXD', 'CVE', 'COP', 'DVN', 'MRO', 'MGY', 'SHEL', 'DO', 'SU', 'CNQ', 'EOG', 'DVN', 'FLS', 'PUMP', 'MMYT']
+['AINC', 'OPK', 'SGRP', 'SHEL', 'CVE', 'DVN', 'SHEL']

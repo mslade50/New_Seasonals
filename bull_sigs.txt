@@ -1,1 +1,1 @@
-['CMC', 'ORCL', 'HPE', 'MSTR', 'LW', 'HAIN', 'SIRI', 'IPG', 'LLY', 'KD', 'ACMR']
+['ORCL', 'LW', 'SIRI', 'IAUX', 'RVSN', 'CF', 'IONQ', 'LLY', 'CG', 'QCOM', 'PRCT', 'ADI', 'BAH', 'MC', 'NOW', 'AMAT', 'XHR', 'OUT']
