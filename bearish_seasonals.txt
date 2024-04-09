@@ -1,1 +1,1 @@
-['TIMB', 'CGNX', 'VIAV', 'RYAAY', 'GC=F', 'EXTR', 'CIEN', 'ORAN', '^VIX', 'CEF', 'BKNG', 'TGS', 'CNMD', 'SLM', 'NZDUSD=X', 'SMTC', 'SCVL', 'NUE', 'SKYW', 'SKYW', 'MDC', 'GS', 'LVS', 'LVS', 'CEF', 'ORAN', 'ORAN', 'RCL', 'SI=F', 'EURUSD=X', 'GC=F', 'GC=F', '^VIX', '^VIX', 'NZDUSD=X']
+['SI=F', 'SCVL', 'GC=F', 'ORAN', 'CEF', '^VIX', 'SKYW', 'RCL', 'GS', 'LVS', 'MDC', 'EURUSD=X', 'SKYW', 'VALE', 'VALE', 'KT', 'LVS', 'LVS', 'LUV', 'LUV', 'BXMT', 'BXMT', 'ORAN', 'VGR', 'GC=F', 'NZDUSD=X', 'EWZ', 'EWZ']
