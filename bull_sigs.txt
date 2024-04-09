@@ -1,1 +1,1 @@
-['ORCL', 'LW', 'SIRI', 'IAUX', 'RVSN', 'CF', 'IONQ', 'LLY', 'CG', 'QCOM', 'PRCT', 'ADI', 'BAH', 'MC', 'NOW', 'AMAT', 'XHR', 'OUT']
+['NTAP', 'ORCL', 'MBC', 'GES', 'SIRI', 'T', 'IBRX', 'KD', 'QCOM', 'ESRT', 'A', 'BMO', 'MC', 'AMAT', 'LRCX', 'HIW', 'PEB', 'OUT', 'MCHP', 'FFIN']
