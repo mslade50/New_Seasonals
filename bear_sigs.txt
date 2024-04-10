@@ -1,1 +1,1 @@
-['AINC', 'OPK', 'ALSMY', 'SHEL', 'CVE', 'DVN', 'LKNCY', 'NOG', 'AESI']
+['AINC', 'CRK', 'SHEL', 'CVE', 'DVN', 'LILAK', 'ADI', 'CUBE', 'BX', 'VNO', 'AGCO']
