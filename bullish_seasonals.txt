@@ -1,1 +1,1 @@
-['USDCHF=X', 'USDKRW=X', 'CUZ', 'POOL', 'ANGO', 'DX-Y.NYB', 'UNFI', 'POOL', 'IDXX', 'IDXX', 'WST', 'ANGO', 'TDG', 'MAA', 'MAA', 'AVB', 'AVB', 'FIS', 'FMS', 'CPT', 'CPT', 'ORLY', 'ORLY', 'DLTR', 'REGN', 'UNFI', 'UNFI', 'BSX', 'WCN', 'CBSH', 'USDMXN=X', 'USDMXN=X', 'USDKRW=X']
+['IDXX', 'ANGO', 'ORLY', 'WST', 'MAA', 'POOL', 'USDMXN=X', 'UNFI', 'BSX', 'FMS', 'DLTR', 'USDKRW=X', 'CPT', 'CBSH', 'MYGN', 'EBS', 'ALNY', 'RHI', 'RHI', 'ORA', 'ORA', 'MIDD', 'MIDD', 'EMN', 'TDG', 'TDG', 'UHS', 'TECH', 'MAA', 'AVB', 'FIS', 'FIS', 'EPD', 'CPT', 'ORLY', 'ORLY', 'JCI', 'UNFI']

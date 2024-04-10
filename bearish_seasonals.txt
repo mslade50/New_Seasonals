@@ -1,1 +1,1 @@
-['SI=F', 'SCVL', 'GC=F', 'ORAN', 'CEF', '^VIX', 'SKYW', 'RCL', 'GS', 'LVS', 'MDC', 'EURUSD=X', 'SKYW', 'VALE', 'VALE', 'KT', 'LVS', 'LVS', 'LUV', 'LUV', 'BXMT', 'BXMT', 'ORAN', 'VGR', 'GC=F', 'NZDUSD=X', 'EWZ', 'EWZ']
+['GC=F', 'SKYW', 'EWZ', 'BXMT', 'NZDUSD=X', 'VALE', 'LUV', 'LVS', 'BMA', 'UAL', 'UAL', 'MGM', 'GGAL', 'GGAL', 'FDX', 'KT', 'MRVL', 'LVS', 'WHR', 'BXMT', 'VGR', 'UNH', 'UNH', 'AEL', 'EWZ']
