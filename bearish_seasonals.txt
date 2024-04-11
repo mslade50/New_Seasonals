@@ -1,1 +1,1 @@
-['GC=F', 'SKYW', 'EWZ', 'BXMT', 'NZDUSD=X', 'VALE', 'LUV', 'LVS', 'BMA', 'UAL', 'UAL', 'MGM', 'GGAL', 'GGAL', 'FDX', 'KT', 'MRVL', 'LVS', 'WHR', 'BXMT', 'VGR', 'UNH', 'UNH', 'AEL', 'EWZ']
+['UAL', 'BXMT', 'FDX', 'KT', 'LVS', 'UNH', 'EWZ', 'WHR', 'MGM', 'VGR', 'AEL', 'GGAL', 'BMA', 'UAL', 'GGAL', 'MRVL', 'MRVL', 'ROST', 'ROST', 'CXW', 'CXW', 'UNH']
