@@ -1,1 +1,1 @@
-['UAL', 'BXMT', 'FDX', 'KT', 'LVS', 'UNH', 'EWZ', 'WHR', 'MGM', 'VGR', 'AEL', 'GGAL', 'BMA', 'UAL', 'GGAL', 'MRVL', 'MRVL', 'ROST', 'ROST', 'CXW', 'CXW', 'UNH']
+['MRVL', 'UNH', 'GGAL', 'CXW', 'ROST', 'BMA', 'STLD', 'STLD', 'BMA', 'ARWR', 'HOLI', 'CXW']
