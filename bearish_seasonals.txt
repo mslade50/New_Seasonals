@@ -1,1 +1,1 @@
-['MRVL', 'UNH', 'GGAL', 'CXW', 'ROST', 'BMA', 'STLD', 'STLD', 'BMA', 'ARWR', 'HOLI', 'CXW']
+['STLD', 'CXW', 'UCTT', 'STLD', 'BMA', 'X', 'ARWR', 'ARWR', 'CMG', 'HOLI', 'BNS', 'CF', 'CF', 'SBUX', 'UL', 'UL', 'CCEP', 'DEO', 'PNFP', 'HG=F']
