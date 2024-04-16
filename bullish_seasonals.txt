@@ -1,1 +1,1 @@
-['PTEN', 'WCN', 'MYGN', 'UTHR', 'CMA', 'TCBI', 'TDG', 'TXRH', 'OFIX', 'MANH', 'DVA', 'SKT', 'HOPE', 'T', 'AMZN', 'EMN', 'OFIX', 'CUZ', 'SKT', 'SKT', 'IART', 'IART', 'VSH', 'VSH', 'UTHR', 'UTHR', 'HOPE', 'CMA']
+['UTHR', 'CMA', 'VSH', 'IART', 'HOPE', 'SKT', 'OFIX', 'SBH', 'CUZ', 'CUZ', 'EMN', 'EMN', 'NGG', 'MAA', 'LYV', 'LYV', 'VSH', 'REG', 'REG', 'PPL', 'CHD']
