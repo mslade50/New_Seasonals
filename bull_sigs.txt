@@ -1,1 +1,1 @@
-['NXL', 'TRGP', 'SCCO', 'MLKN', 'AAGIY', 'JNJ', 'COUR', 'TRP', 'BYON', 'DAVA', 'PRTS', 'LSXMK', 'LSXMA', 'SIRI', 'APPS', 'PACB', 'AMLX', 'SRE', 'EBAY', 'ENB', 'BAC', 'C', 'LXRX', 'JBLU', 'PACB', 'WW']
+['MLKN', 'SAGE', 'PERI', 'DAVA', 'SIRI', 'UNFI', 'AMLX', 'BYON', 'PRTS', 'MRNS', 'PACB', 'SPCE', 'NVDA', 'ARM', 'ALT', 'RIG', 'CHPT']
