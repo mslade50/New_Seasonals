@@ -1,1 +1,1 @@
-['ROL', 'UL', 'GLNG', 'ALK', 'CMG', 'ARWR', 'HLIT', 'QDEL', 'GLNG', 'ARWR', 'UPS', 'TIMB', 'TIMB', 'UL', 'UL', 'LDOS']
+['TIMB', 'UL', 'ARWR', 'QDEL', 'QDEL', 'TNP', 'TNP', 'UAA', 'RTO', 'RTO', 'UPS', 'UPS', 'TIMB', 'TIMB', 'SBUX', 'TSCO', 'TSCO', 'RTX', 'UL', 'UL', 'UBSI', 'LDOS']

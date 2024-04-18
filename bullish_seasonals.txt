@@ -1,1 +1,1 @@
-['SBH', 'CUZ', 'VSH', 'OFIX', 'EMN', 'REG', 'LYV', 'ALGN', 'XRAY', 'TNL', 'TNL', 'HA', 'IAC', 'IAC', 'ARCC', 'ARCC', 'MPW', 'MPW', 'ABM', 'CUZ', 'CUZ', 'ADI', 'ADI', 'MAC', 'MAC', 'IPG', 'IPG', 'HR', 'HR', 'NGG', 'MAA', 'STT', 'LYV', 'D', 'REG', 'REG', 'SUI', 'KIM', 'KIM', 'CHD', 'CHD']
+['CUZ', 'KIM', 'XRAY', 'REG', 'LYV', 'MPW', 'ADI', 'ARCC', 'HR', 'MAA', 'D', 'SUI', 'IPG', 'CHD', 'STT', 'MAC', 'TNL', 'IAC', 'HSIC', 'NGG', 'ALGN', 'ALGN', 'TNL', 'HA', 'MPWR', 'IAC', 'MPW', 'MPW', 'ABM', 'CUZ', 'ABR', 'IPG', 'SPG', 'REG', 'REG', 'CB', 'CHD', 'CHD']
