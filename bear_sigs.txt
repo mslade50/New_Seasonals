@@ -1,1 +1,1 @@
-['YYAI', 'PROK']
+['YYAI']

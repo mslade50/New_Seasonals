@@ -1,1 +1,1 @@
-['MLKN', 'SAGE', 'PERI', 'DAVA', 'SIRI', 'UNFI', 'AMLX', 'BYON', 'PRTS', 'MRNS', 'PACB', 'SPCE', 'NVDA', 'ARM', 'ALT', 'RIG', 'CHPT']
+['PERI', 'CMTL', 'SIRI', 'AMLX', 'BYON', 'PRTS', 'MRNS', 'PACB', 'ENVX', 'WOLF', 'GSAT', 'CAN', 'LAC']
