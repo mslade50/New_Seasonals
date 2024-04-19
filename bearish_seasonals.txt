@@ -1,1 +1,1 @@
-['TIMB', 'UL', 'ARWR', 'QDEL', 'QDEL', 'TNP', 'TNP', 'UAA', 'RTO', 'RTO', 'UPS', 'UPS', 'TIMB', 'TIMB', 'SBUX', 'TSCO', 'TSCO', 'RTX', 'UL', 'UL', 'UBSI', 'LDOS']
+['TIMB', 'UL', 'SBUX', 'TNP', 'TSCO', 'QDEL', 'RTO', 'LDOS', 'UAA', 'UPS', 'QDEL', 'QDEL', 'CIEN', 'ALNY', 'BALL', 'BALL', 'UPS', 'UPS', 'IONS', 'IONS', 'RTX', 'RTX', 'UL', 'FFBC', 'FFBC', 'UBSI', 'UBSI', 'FE', 'EURNOK=X', 'EURNOK=X']
