@@ -1,1 +1,1 @@
-['REG', 'CUZ', 'IPG', 'ALGN', 'SPG', 'TNL', 'MPW', 'IAC', 'CB', 'ABR', 'ABM', 'HA', 'CHD', 'MPWR', 'BTZ', 'REG', 'PGR', 'CHD', 'CHD']
+['REG', 'CHD', 'MPWR', 'PGR', 'MFA', 'BN', 'BTZ', 'BTZ', 'NMZ', 'NEA', 'WAT', 'CHD']
