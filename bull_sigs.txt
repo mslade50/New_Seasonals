@@ -1,1 +1,1 @@
-['PERI', 'DAVA', 'CMTL', 'SIRI', 'AMLX', 'BYON', 'PRTS', 'MRNS', 'SMCI', 'VRT', 'SPCE', 'NVDA', 'ONON', 'MRVL', 'ARM', 'CART', 'WOLF', 'CAN']
+['SPCE', 'PERI', 'DAVA', 'CMTL', 'SIRI', 'UNFI', 'BYON', 'PRTS', 'MRNS', 'SPCE', 'INFA', 'UUUU']
