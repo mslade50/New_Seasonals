@@ -1,1 +1,1 @@
-['PERI', 'CMTL', 'UNFI', 'KOPN', 'PRTS', 'MRNS', 'CART', 'SPWR', 'JBLU', 'HTZ']
+['OCUL', 'HLIT', 'UNFI', 'KOPN', 'PRTS', 'MRNS', 'PACB', 'EQX', 'W', 'PLUG', 'TRTX']
