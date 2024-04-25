@@ -1,1 +1,1 @@
-['NMZ', 'BTZ', 'NEA', 'NVG', 'EVV', 'NVAX', 'NVG', 'GOOGL', 'NMZ', 'GOOG', 'NEA', 'NEA', 'EVV', 'HAIN']
+['GOOGL', 'GOOG', 'NVG', 'NEA', 'EVV', 'NMZ', 'NEA', 'NEA', 'HAIN']
