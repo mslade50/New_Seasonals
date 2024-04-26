@@ -1,1 +1,1 @@
-['GOOGL', 'GOOG', 'NVG', 'NEA', 'EVV', 'NMZ', 'NEA', 'NEA', 'HAIN']
+['HAIN', 'NEA', 'XRAY', 'AEO', 'NEA', 'BEP', 'EA']
