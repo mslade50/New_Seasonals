@@ -1,1 +1,1 @@
-['TVGN', 'OCUL', 'SIRI', 'HLIT', 'ALLO', 'UNFI', 'AMLX', 'KOPN', 'FATE', 'PRTS', 'TXG', 'MRNS', 'PACB', 'QS', 'HBI', 'SIRI', 'LUMN', 'HTZ']
+['CABA', 'AMLX', 'KOPN', 'FATE', 'PRTS', 'MRNS', 'ROKU']
