@@ -1,1 +1,1 @@
-['CABA', 'AMLX', 'KOPN', 'FATE', 'PRTS', 'MRNS', 'ROKU']
+['CABA', 'KOPN', 'OIS', 'MRNS']
