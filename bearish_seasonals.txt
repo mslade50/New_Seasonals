@@ -1,1 +1,1 @@
-['LAD', 'NZDUSD=X', 'BXP', 'ODFL', 'BBWI', 'SSB', 'ELS', 'KNX', 'TDW', 'SIG', 'AFL', 'GPC', 'TPR', 'NZDEUR=X', 'CIB', 'VLY', 'WHR', 'GTN', 'GGG', 'BTI', 'ADEA', 'ELME', 'RHP', 'EAT', 'QGEN', 'VSAT', 'SLG', 'ZBRA', 'ODFL', 'ODFL', 'X', 'SIG', 'KMX', 'EQR', 'EQR']
+['SIG', 'ODFL', 'X', 'EQR', 'ODFL', 'KMX', 'EQR', 'REGN']
