@@ -1,1 +1,1 @@
-['ITCI', 'BYON', 'XRX', 'ADYEY', 'CABA', 'KOPN', 'BYON', 'OIS', 'MRNS', 'HOOD', 'CHWY', 'NXT', 'VIPS', 'PTEN', 'TDOC', 'CZR', 'SBSW', 'RIG', 'NXT', 'WBD', 'TDOC']
+['ITCI', 'GPS', 'AMD', 'STLD', 'GPS', 'BYON', 'XRX', 'ADYEY', 'KOPN', 'BYON', 'MRNS', 'AMD', 'SQ', 'BKR', 'NCLH', 'NOVA']
