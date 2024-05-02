@@ -1,1 +1,1 @@
-['CCRN', 'NVDA', 'XRAY', 'BEP', 'THS', 'CMP', 'PDCO', 'WAT', 'PPL', 'WWD', 'WWD', 'CB', 'SIMO', 'THS', 'XBI', 'XBI']
+['THS', 'WWD', 'XBI', 'CORT', 'WWD', 'WWD', 'D', 'SSRM', 'SIMO', 'SIMO', 'WEC', 'WEC', 'XBI']
