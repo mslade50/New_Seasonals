@@ -1,1 +1,1 @@
-['ITCI', 'GPS', 'AMD', 'STLD', 'GPS', 'BYON', 'XRX', 'ADYEY', 'KOPN', 'BYON', 'MRNS', 'AMD', 'SQ', 'BKR', 'NCLH', 'NOVA']
+['ITCI', 'MRNS', 'FSLY', 'DASH', 'Z', 'ETSY', 'FRSH', 'PENN', 'FSLY', 'RNA']
