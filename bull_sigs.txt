@@ -1,1 +1,1 @@
-['ITCI', 'MRNS', 'FSLY', 'DASH', 'Z', 'ETSY', 'FRSH', 'PENN', 'FSLY', 'RNA']
+['RELY', 'SPT', 'CTOS', 'SPT', 'MRNS', 'HIMS', 'NET', 'HIMS']
