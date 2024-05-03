@@ -1,1 +1,1 @@
-['ELS', 'EQR', 'ODFL', 'KMX', 'REGN', 'RGEN', 'RGEN', 'CLFD']
+['RGEN', 'RGEN', 'RGEN', 'MLCO', 'WEN', 'CLFD', 'CLFD']

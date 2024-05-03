@@ -1,1 +1,1 @@
-['THS', 'WWD', 'XBI', 'CORT', 'WWD', 'WWD', 'D', 'SSRM', 'SIMO', 'SIMO', 'WEC', 'WEC', 'XBI']
+['WWD', 'WEC', 'XBI', 'SIMO', 'CORT', 'CORT', 'PAA', 'PAA', 'JBL', 'RS', 'NZF', 'TKR', 'TTC', 'DCI', 'NRG', 'WWD', 'FIS', 'DNP', 'DNP', 'D', 'SIMO', 'LNC', 'JACK', 'JACK', 'EXC', 'WMT', 'WEC', 'CSIQ', 'TCBI', 'TCBI']
