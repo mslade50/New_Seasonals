@@ -1,1 +1,1 @@
-['RELY', 'SPT', 'CTOS', 'SPT', 'MRNS', 'HIMS', 'NET', 'HIMS']
+['SPT', 'IART', 'CTOS', 'SPT', 'MRNS', 'HIMS', 'NET', 'HIMS', 'HOLO', 'SAVE', 'SLG', 'SLG']
