@@ -1,1 +1,1 @@
-['SPT', 'IART', 'CTOS', 'SPT', 'MRNS', 'HIMS', 'NET', 'HIMS', 'HOLO', 'SAVE', 'SLG', 'SLG']
+['SPT', 'SPT', 'MRNS', 'DDOG', 'PNR', 'RNA', 'MAG']
