@@ -1,1 +1,1 @@
-['MLCO', 'CLFD', 'RGEN', 'WEN', 'ON', 'CAKE', 'EXR', 'HDSN', 'RGEN', 'FAST', 'CAKE', 'BEP', 'DEO', 'DEO', 'CPB']
+['MLCO', 'RGEN', 'DEO', 'CAKE', 'ILMN', 'ILMN', 'BRKR', 'MAN', 'BEP']

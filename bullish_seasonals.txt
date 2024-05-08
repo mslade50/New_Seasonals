@@ -1,1 +1,1 @@
-['PAA', 'SNX', 'CORT', 'SSRM', 'E', 'TCBI', 'MUR', 'NZF', 'GBX', 'GBX', 'FLS', 'JBL', 'GRMN', 'ZBH', 'HIG', 'RF', 'FIS', 'PBH', 'PBH', 'WRB', 'TJX', 'TCBI']
+['TJX', 'PBH', 'JBL', 'GRMN', 'TCBI', 'FLS', 'WRB', 'GBX', 'RF', 'HIG', 'GBX', 'AGI', 'AAP', 'HIG', 'RF', 'PBH']
