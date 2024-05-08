@@ -1,1 +1,1 @@
-['SPT', 'SPT', 'MRNS', 'DDOG', 'PNR', 'RNA', 'MAG']
+['JANX', 'JANX', 'SPT', 'SPT', 'MRNS', 'SHOP', 'TDOC', 'TDOC', 'SHLS', 'LAC', 'PNR']
