@@ -1,1 +1,1 @@
-['TJX', 'PBH', 'JBL', 'GRMN', 'TCBI', 'FLS', 'WRB', 'GBX', 'RF', 'HIG', 'GBX', 'AGI', 'AAP', 'HIG', 'RF', 'PBH']
+['PBH', 'GBX', 'TS', 'TECK', 'COP', 'TTMI', 'TTMI', 'GTLS', 'GTLS', 'ARLP', 'ARLP', 'UAA', 'UAA', 'TTEK', 'CPRT', 'CPRT', 'AGI', 'AGI', 'AAP', 'AAP', 'TFX', 'TFX', 'NFG', 'HIG', 'BG', 'BANC', 'BANC', 'MTN', 'MTN', 'HOMB', 'HOMB']
