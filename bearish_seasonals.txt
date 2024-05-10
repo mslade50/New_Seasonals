@@ -1,1 +1,1 @@
-['BRKR', 'BEP', 'MAN', 'ILMN', 'PZZA', 'PZZA']
+['PZZA', 'ILMN', 'PZZA', 'PZZA']
