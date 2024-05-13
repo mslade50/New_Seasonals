@@ -1,1 +1,1 @@
-['MGNX', 'SPT', 'EVH', 'SPT', 'RAPT', 'MRNS', 'U', 'HOOD', 'IOVA', 'EGO', 'FTI']
+['UBER', 'SPT', 'EVH', 'SPT', 'MRNS', 'FTI', 'SLG', 'SLG']
