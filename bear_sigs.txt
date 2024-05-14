@@ -1,1 +1,1 @@
-['GH', 'GH', 'IRBT', 'GME', 'DCPH', 'NVAX', 'TSM', 'DELL']
+['GH', 'SPWR', 'GH', 'ZIM', 'GME', 'DCPH', 'ZETA', 'NVAX']

@@ -1,1 +1,1 @@
-['UBER', 'SPT', 'EVH', 'SPT', 'MRNS', 'FTI', 'SLG', 'SLG']
+['UBER', 'SPT', 'EVH', 'SPT', 'RAPT', 'MRNS', 'DYN', 'WDC', 'FTI', 'MAG', 'SLG', 'SLG', 'DYN']
