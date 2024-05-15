@@ -1,1 +1,1 @@
-['PZZA', 'NTAP']
+['NTAP']
