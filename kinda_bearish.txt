@@ -1,1 +1,1 @@
-['RGEN', 'MTSI', 'CYRX', 'EVBG', 'ENOV', 'ARCT', 'ATSG', 'DVAX', 'AXSM', 'FTNT', 'OR', 'TPX', 'CCOI', 'CRM', 'HUM', 'GL', 'TLK', 'COST', 'SLGN', 'MCD', 'HRL', 'DQ', 'USDMXN=X', 'USDZAR=X', 'SQQQ', 'UVXY', 'SOXS', 'SPXS', 'SPXU', 'TZA', 'SDOW', 'VIXY', 'YANG', 'SPDN']
+['RGEN', 'MTSI', 'EVBG', 'ENOV', 'CTLT', 'ARCT', 'MELI', 'ATSG', 'ILMN', 'SBSW', 'PANW', 'GSL', 'COLL', 'AXSM', 'FTNT', 'HALO', 'XENE', 'META', 'CME', 'PSTG', 'OR', 'PH', 'SMG', 'SFM', 'HUM', 'DRI', 'GL', 'DQ', 'DX-Y.NYB', 'USDMXN=X', 'USDZAR=X', 'SPXS', 'SPXU', 'TZA', 'SDOW', 'GLD', 'SHY', 'IAU']
