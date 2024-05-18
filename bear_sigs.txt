@@ -1,1 +1,1 @@
-['DCPH', 'ZETA', 'NVCR', 'NVAX', 'ASC']
+['DCPH', 'ZETA']
