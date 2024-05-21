@@ -1,1 +1,1 @@
-['UBER', 'DLO', 'EVH', 'MRNS', 'LEG', 'LI', 'LAZ', 'HLX', 'FTI']
+['DASH', 'UBER', 'DLO', 'EVH', 'MRNS', 'LEG', 'WU', 'CNHI', 'LAZ', 'HLX', 'FTI']
