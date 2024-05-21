@@ -1,1 +1,1 @@
-['BPOP', 'BPOP', 'INVA']
+['BPOP', 'ODFL', 'ODFL', 'OC', 'DK', 'CYRX', 'LAD', 'BRKR', 'BRKR', 'PERI', 'HZO', 'TGS', 'TGS', 'MLCO', 'HOPE', 'BPOP', 'BPOP', 'INVA', 'INVA', 'FCF', 'FCF', 'CBSH', 'CBSH', 'SBCF', 'SBCF', 'FULT', 'FULT', 'USDKRW=X']
