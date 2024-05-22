@@ -1,1 +1,1 @@
-['PRME', 'DCPH', 'ZETA', 'ASC', 'BTG']
+['UNFI', 'DCPH', 'ZETA', 'FSLR', 'MRNA', 'TER', 'ON', 'VLTO', 'HCP']
