@@ -1,1 +1,1 @@
-['TIMB', 'QQQ', 'BAP', 'A', 'INFY', 'CIEN', 'XLK', 'NEE', 'CCI', 'CPA', 'AMG', 'VZ', 'AME', 'EWJ', 'NTCT', 'INTC', 'UAL', 'RELX', '^SOX', 'UPS', 'FRT', 'AMN', 'HSBC', 'MSFT', 'ORCL', 'PEG', 'EL', 'MCO', '^GSPC', 'EEM', 'SPY', 'XLV', 'AMT', 'BAP', 'ORCL', 'ORCL']
+['BAP', 'ORCL', '^N225']
