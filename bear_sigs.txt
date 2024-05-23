@@ -1,1 +1,1 @@
-['UNFI', 'DCPH', 'ZETA', 'FSLR', 'MRNA', 'TER', 'ON', 'VLTO', 'HCP']
+['DCPH', 'MRNA', 'HLF', 'NVDA']
