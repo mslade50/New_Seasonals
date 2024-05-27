@@ -1,1 +1,1 @@
-['IOT', 'FTRE', 'IMCR', 'DLO', 'WHR', 'QD', 'LEG', 'EXAS', 'CNHI']
+['IOT', 'FTRE', 'IMCR', 'DLO', 'WHR', 'QD', 'LEG', 'EXAS']
