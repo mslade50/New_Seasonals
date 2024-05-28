@@ -1,1 +1,1 @@
-['ZYXI', 'TS', 'ERF', 'OVV', 'KRG']
+['KRG', 'TS', 'TS', 'TROW', 'OVV', 'FR', 'ARE', 'EQR', 'NI', 'NI', 'OIH', 'OIH']
