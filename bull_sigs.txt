@@ -1,1 +1,1 @@
-['IOT', 'CELH', 'UBER', 'FTRE', 'IMCR', 'DLO', 'LEG', 'DKNG', 'IOVA', 'F', 'LAC', 'SIG', 'FTI']
+['INFA', 'RELY', 'FTRE', 'IMCR', 'DLO', 'WHR', 'EVH', 'DNUT', 'LEG', 'CMCSA', 'IOVA', 'COTY', 'AAL', 'VLY', 'CATX', 'LAC', 'SPOT']

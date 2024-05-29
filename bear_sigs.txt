@@ -1,1 +1,1 @@
-['DCPH', 'FSLR', 'NVDA', 'VST']
+['ANF', 'DCPH', 'FSLR', 'INSM', 'ASTS', 'NVDA', 'ANF']
