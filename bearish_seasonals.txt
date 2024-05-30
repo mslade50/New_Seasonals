@@ -1,1 +1,1 @@
-['MOH', 'ODFL', 'FAST', 'REGN', 'EBS', 'MSM', 'EVR', 'CMG', 'KBE', 'LPSN', 'SJM', 'WBS', 'GOOGL', 'WAL', 'GOOG', 'WDC', 'EBS', 'FHN', 'REGN', 'VOD', 'VOD', 'VLY', 'USDZAR=X', 'USDZAR=X']
+['REGN', 'EBS', 'USDZAR=X', 'VOD', 'STM', 'STM', 'PENN', 'PENN', 'SBH', 'SBH', 'EXPE', 'DXC', 'MCHP', 'MCHP', 'TTEK', 'IGT', 'CLS', 'TDG', 'TDG', 'DCI', 'DCI', 'FHN', 'FHN', 'UNP', 'UNP', 'PHG', 'RYAAY', 'RYAAY', 'VSH', 'DLTR', 'DLTR', 'VOD', 'VOD', 'VLY', 'VLY', 'USDTWD=X', 'EURCHF=X']

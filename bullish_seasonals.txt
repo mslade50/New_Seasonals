@@ -1,1 +1,1 @@
-['OIH', 'TS', 'TROW', 'OVV', 'NI', 'TS', 'KNX', 'KNX', 'FR', 'DHR', 'ARE', 'ARE', 'EQR', 'EQR', 'DLR', 'DLR', 'CNP', 'OIH', 'OIH']
+['DLR', 'OIH', 'TS', 'DHR', 'EQR', 'KNX', 'ARE', 'FR', 'EOG', 'KNX', 'NOV', 'ARE', 'EQR', 'DLR', 'DLR', 'DXCM', 'SSRM', 'SLV', 'OIH']
