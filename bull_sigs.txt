@@ -1,1 +1,1 @@
-['INFA', 'RELY', 'FTRE', 'IMCR', 'DLO', 'WHR', 'EVH', 'DNUT', 'LEG', 'CMCSA', 'IOVA', 'COTY', 'AAL', 'VLY', 'CATX', 'LAC', 'SPOT']
+['ZETA', 'MSTR', 'INFA', 'RELY', 'FTRE', 'DLO', 'EVH', 'AEO', 'ROIV', 'CFLT', 'NET', 'KSS', 'FRSH', 'DV', 'PAM']
