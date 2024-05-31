@@ -1,1 +1,1 @@
-['DLR', 'OIH', 'TS', 'DHR', 'EQR', 'KNX', 'ARE', 'FR', 'EOG', 'KNX', 'NOV', 'ARE', 'EQR', 'DLR', 'DLR', 'DXCM', 'SSRM', 'SLV', 'OIH']
+['NOV', 'KNX', 'DLR', 'SSRM', 'OIH', 'SLV', 'EQR', 'ARE', 'EOG', 'DXCM', 'USDNOK=X', 'USDNOK=X']
