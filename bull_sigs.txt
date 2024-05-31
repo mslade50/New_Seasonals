@@ -1,1 +1,1 @@
-['ZETA', 'MSTR', 'INFA', 'RELY', 'FTRE', 'DLO', 'EVH', 'AEO', 'ROIV', 'CFLT', 'NET', 'KSS', 'FRSH', 'DV', 'PAM']
+['ZETA', 'MSTR', 'DASH', 'MDB', 'RELY', 'DLO', 'EVH', 'DDOG', 'HTZ', 'PAM']

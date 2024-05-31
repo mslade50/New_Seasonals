@@ -1,1 +1,1 @@
-['DCPH', 'FSLR', 'INSM', 'EAT', 'LPG']
+['HUM', 'DCPH', 'EAT', 'NARI']
