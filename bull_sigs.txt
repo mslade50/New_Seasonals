@@ -1,1 +1,1 @@
-['ZETA', 'MDB', 'RELY', 'DLO', 'EVH', 'PYCR', 'FSLY', 'IOVA', 'FTI', 'PTEN', 'DLO']
+['MDB', 'RELY', 'DLO', 'PYCR', 'VKTX', 'VRT', 'CLF', 'SBSW', 'SSRM', 'AG', 'RVMD']
