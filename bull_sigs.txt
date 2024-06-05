@@ -1,1 +1,1 @@
-['MDB', 'RELY', 'DLO', 'PYCR', 'VKTX', 'VRT', 'CLF', 'SBSW', 'SSRM', 'AG', 'RVMD']
+['MDB', 'DLO', 'PYCR', 'LOVE']
