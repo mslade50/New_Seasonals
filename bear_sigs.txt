@@ -1,1 +1,1 @@
-['BIIB', 'NEOG', 'UNFI', 'DCPH', 'EAT', 'ASPN', 'UNFI', 'CORZ', 'INOD']
+['HLF', 'CALX', 'NEOG', 'DCPH', 'CORZ', 'EAT', 'UNFI', 'CORZ']
