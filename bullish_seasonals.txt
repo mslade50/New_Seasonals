@@ -1,1 +1,1 @@
-['TLT', 'HALO', 'AVXL', 'WAT', 'WAT', 'HG=F', 'HG=F']
+['HG=F', 'WAT', 'NAC', 'DLR', 'WAT', 'WAT', 'ADC', 'O', 'SITC', 'KR', 'MMC', 'PNW', 'AGG']
