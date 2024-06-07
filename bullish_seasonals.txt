@@ -1,1 +1,1 @@
-['HG=F', 'WAT', 'NAC', 'DLR', 'WAT', 'WAT', 'ADC', 'O', 'SITC', 'KR', 'MMC', 'PNW', 'AGG']
+['WAT', 'KR', 'SQM', 'SQM', 'SCCO', 'SCCO', 'STLD', 'VALE', 'ALNY', 'ALNY', 'AZN', 'AZN', 'AGI', 'AGI', 'ARE', 'INCY', 'HR', 'DLR', 'REG', 'ADC', 'O', 'CPT', 'SITC', 'TLK', 'BCE', 'BCE', 'MMC', 'MMC', 'PNW', 'INVA', 'INVA', 'BRKL', 'CPB', 'CPB', 'XBI', 'XBI', 'AUDUSD=X', 'AUDUSD=X', 'AGG', 'SHY', 'IBB']
