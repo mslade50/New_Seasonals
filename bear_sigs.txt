@@ -1,1 +1,1 @@
-['HLF', 'CALX', 'NEOG', 'DCPH', 'CORZ', 'EAT', 'UNFI', 'CORZ']
+['NEOG', 'DCPH']

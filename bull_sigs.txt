@@ -1,1 +1,1 @@
-['MDB', 'DLO', 'VRT', 'CGC', 'IBRX']
+['MDB', 'DLO', 'IOT', 'U', 'NEM', 'FUBO', 'AG', 'MPWR', 'HCP']
