@@ -1,1 +1,1 @@
-['MIDD', 'ALK', 'KEX', 'GEO', 'MGM', 'UAA', 'MSTR', 'NTES', 'CCL', 'ADI', 'STE', 'SWKS', 'DOV', 'EMN', 'OTEX', 'HELE', 'DE', 'ADP', 'USDJPY=X', 'HES', 'AME', 'PLAB', 'ETN', 'EMR', 'SWKS', 'MIDD', 'ADI', 'ADI', 'VGR', '^VIX', '^VIX', 'USDZAR=X']
+['MIDD', 'ALK', 'KEX', 'GEO', 'MGM', 'UAA', 'MSTR', 'NTES', 'CCL', 'ADI', 'STE', 'SWKS', 'DOV', 'EMN', 'OTEX', 'HELE', 'DE', 'ADP', 'HES', 'AME', 'PLAB', 'ETN', 'EMR', 'SWKS', 'MIDD', 'ADI', 'ADI', 'VGR', '^VIX', '^VIX', 'USDMXN=X']
