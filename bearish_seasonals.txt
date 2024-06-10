@@ -1,1 +1,1 @@
-['MIDD', 'ALK', 'KEX', 'GEO', 'MGM', 'UAA', 'MSTR', 'NTES', 'CCL', 'ADI', 'STE', 'SWKS', 'DOV', 'EMN', 'OTEX', 'HELE', 'DE', 'ADP', 'HES', 'AME', 'PLAB', 'ETN', 'EMR', 'SWKS', 'MIDD', 'ADI', 'ADI', 'VGR', '^VIX', '^VIX', 'USDMXN=X']
+['SWKS', 'MIDD', '^VIX', 'ADI', 'VGR', 'ADI', 'EL', '^VIX', 'USDMXN=X']
