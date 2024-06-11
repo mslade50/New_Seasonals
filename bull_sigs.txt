@@ -1,1 +1,1 @@
-['MRUS', 'MDB', 'DLO', 'DJT', 'LI', 'LUMN', 'HCP']
+['MDB', 'DLO', 'DJT', 'APP', 'CNHI', 'PARA', 'HTZ', 'IBRX', 'BPMC', 'HCP']
