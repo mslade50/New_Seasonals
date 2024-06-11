@@ -1,1 +1,1 @@
-['SWKS', 'MIDD', '^VIX', 'ADI', 'VGR', 'ADI', 'EL', '^VIX', 'USDMXN=X']
+['ADI', '^VIX', 'USDMXN=X', 'AEHR', 'LNW', 'J', 'J', 'VGR', 'VGR']
