@@ -1,1 +1,1 @@
-['ADI', '^VIX', 'USDMXN=X', 'AEHR', 'LNW', 'J', 'J', 'VGR', 'VGR']
+['VGR', 'J', 'CAL', '^VIX', 'BHP', 'LAZ', 'LAZ', 'IVZ', 'TWI', 'ICE', 'AMG', 'DD', 'DD', 'BKNG', 'MFC', 'MSM', 'J', 'J', 'UL', 'UL', 'BIDU', 'SMH', 'SMH']

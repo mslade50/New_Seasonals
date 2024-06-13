@@ -1,1 +1,1 @@
-['XBI', 'SCCO', 'AGI', 'AZN', 'NVS', 'KT', 'NVO', 'SQM', 'PAAS', 'ALNY', 'WPM', 'CPB', 'AUDUSD=X', 'SNY', 'BCE', 'GDX', 'SHY', 'VALE', 'IBB', 'TRP', 'BEP', 'MMC', 'LII', 'SCCO', 'SCCO', 'ICLR', 'PAAS', 'NUS', 'NVO', 'BEP', 'BEP', 'TRP', 'TRP', 'TLK', 'XBI', 'AUDUSD=X', 'SHY', 'SHY']
+['BCE', 'AXON', 'NFG', 'KT', 'NVS', 'SNY', 'LII', 'BEP', 'ICLR', 'SHY', 'TRP', 'WU', 'SCCO', 'SCVL', 'ICLR', 'KT', 'BEP', 'BCE', 'GDX']
