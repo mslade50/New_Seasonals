@@ -1,1 +1,1 @@
-['MDB', 'APH', 'DLO', 'APP', 'STNE', 'BZ', 'CMCSA', 'APH', 'CNHI', 'PARA', 'TDOC', 'IBRX', 'XTIA', 'BPMC', 'RKT']
+['MDB', 'APH', 'DLO', 'XTIA', 'U', 'SQ', 'W', 'LYFT', 'GE', 'GFI', 'VIPS', 'CPNG', 'WBD', 'CATX', 'ALTM', 'BPMC', 'NRIX']

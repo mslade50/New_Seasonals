@@ -1,1 +1,1 @@
-['CALX', 'DCPH', 'CORZ', 'CORZ', 'INOD']
+['CORZ']
