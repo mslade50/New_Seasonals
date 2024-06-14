@@ -1,1 +1,1 @@
-['BCE', 'AXON', 'NFG', 'KT', 'NVS', 'SNY', 'LII', 'BEP', 'ICLR', 'SHY', 'TRP', 'WU', 'SCCO', 'SCVL', 'ICLR', 'KT', 'BEP', 'BCE', 'GDX']
+['ICLR', 'KT', 'BCE', 'BEP', 'GDX', 'SCVL']
