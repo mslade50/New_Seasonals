@@ -1,1 +1,1 @@
-['APH', 'CPRI', 'DLO', 'XTIA', 'LI', 'TFC', 'EQT', 'DAL', 'UAL', 'LUMN', 'LAC', 'BPMC']
+['SKX', 'FSLR', 'STNE', 'IMCR', 'DLO', 'XTIA']

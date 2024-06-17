@@ -1,1 +1,1 @@
-['INSM', 'CORZ', 'NXT', 'PENN']
+['AVGO', 'DCPH', 'INSM']
