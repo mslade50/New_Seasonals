@@ -1,1 +1,1 @@
-['ICLR', 'KT', 'BCE', 'BEP', 'GDX', 'SCVL']
+['ELME', 'NZF', 'NMZ', 'CMCSA', 'NI', 'NI']
