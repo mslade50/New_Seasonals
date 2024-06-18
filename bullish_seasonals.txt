@@ -1,1 +1,1 @@
-['ELME', 'NZF', 'NMZ', 'CMCSA', 'NI', 'NI']
+['NI', 'CMCSA', 'ELME', 'NZF', 'NZF', 'NMZ', 'CUBE', 'LXP', 'EQR', 'ELS', 'AVB', 'DOC', 'PNM', 'NI']
