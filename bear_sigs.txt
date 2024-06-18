@@ -1,1 +1,1 @@
-['AVGO', 'DCPH', 'INSM']
+['DCPH', 'ARM', 'INSM']

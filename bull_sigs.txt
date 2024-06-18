@@ -1,1 +1,1 @@
-['SKX', 'FSLR', 'STNE', 'IMCR', 'DLO', 'XTIA']
+['FSLR', 'MRUS', 'STNE', 'BL', 'RELY', 'ZNTL', 'IMCR', 'DLO', 'XTIA', 'PYCR', 'DJT', 'HOLO', 'HTZ', 'CHPT', 'ONTO', 'BPMC']
