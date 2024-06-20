@@ -1,1 +1,1 @@
-['NI', 'CMCSA', 'ELME', 'NZF', 'NZF', 'NMZ', 'CUBE', 'LXP', 'EQR', 'ELS', 'AVB', 'DOC', 'PNM', 'NI']
+['NMZ', 'NI', 'NZF', 'WERN', 'WERN', 'POOL', 'HDB', 'GTLS', 'NVG', 'NZF', 'NZF', 'NAD', 'NAD', 'CUBE', 'CUBE', 'NEA', 'NEA', 'WELL', 'WELL', 'VTR', 'SKM', 'LXP', 'LXP', 'EQR', 'HR', 'HR', 'ELS', 'ELS', 'PZZA', 'MAA', 'AVB', 'AVB', 'MWA', 'DOC', 'DOC', 'EXR', 'SUI', 'SUI', 'CPT', 'ESS', 'ABT', 'AVA', 'EVRG', 'CCRN', 'CCRN']

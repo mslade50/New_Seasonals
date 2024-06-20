@@ -1,1 +1,1 @@
-['UBS', 'LAZ', '^SOX', 'MTCH', 'AMG', 'OPCH', 'SMH', 'TDG', 'PEGA', 'BKNG', 'LUV', 'PUK', 'FHI', 'BKH', 'KLAC', 'UCBI', 'MDRX', 'RJF', 'IVZ', 'PPBI', 'KLIC', 'KLIC', 'KLAC', 'KLAC', 'AMAT', 'AMAT', 'SMTC', 'LAZ', 'UBS', 'A', 'A', 'VECO', 'MTCH', 'AMG', 'PTC', 'MFC', 'IP', 'OPCH', 'OPCH', 'INTC', 'XLE', 'SMH']
+['KLAC', 'LAZ', 'OPCH', 'SMH', 'MTCH', 'A', 'KLIC', 'AMG', 'AMAT', 'VECO', 'PTC', 'MFC', 'XLE', 'INTC', 'KLIC', 'KLAC', 'AMAT', 'STAA', 'RGP', 'IP', 'OPCH']
