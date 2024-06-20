@@ -1,1 +1,1 @@
-['FSLR', 'MRUS', 'STNE', 'BL', 'RELY', 'ZNTL', 'IMCR', 'DLO', 'XTIA', 'PYCR', 'DJT', 'HOLO', 'HTZ', 'CHPT', 'ONTO']
+['FSLR', 'MRUS', 'THC', 'RELY', 'ALB', 'RGEN', 'CPRI', 'IMCR', 'XTIA', 'DJT', 'AEO', 'DASH', 'ENPH', 'ON', 'MCHP', 'VIPS', 'OSCR', 'TDOC', 'FUBO', 'INDI', 'BPMC']
