@@ -349,7 +349,10 @@ def seasonals_chart(tick):
 	trailing_cycle=print_df1.iloc[length-5:length].rnk.mean()
 	print_df=print_df1[print_df1['level_0'] == length]
 	print_df=print_df.reset_index(drop=True)
-	true_cycle_rnk=print_df['rnk'].iat[-1].round(1)
+	if not print_df.empty and 'rnk' in print_df.columns and not print_df['rnk'].empty:
+	        true_cycle_rnk = print_df['rnk'].iat[-1].round(1)
+	    else:
+	        true_cycle_rnk = None 
 
 
 	returns=[]
