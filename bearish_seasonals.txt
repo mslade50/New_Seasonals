@@ -1,1 +1,1 @@
-['KLAC', 'LAZ', 'OPCH', 'SMH', 'MTCH', 'A', 'KLIC', 'AMG', 'AMAT', 'VECO', 'PTC', 'MFC', 'XLE', 'INTC', 'KLIC', 'KLAC', 'AMAT', 'STAA', 'RGP', 'IP', 'OPCH']
+['KLAC', 'RGP', 'STAA', 'OPCH', 'KLIC', 'AMAT', 'IP']
