@@ -12,7 +12,7 @@ import plotly.graph_objs as go
 from plotly.subplots import make_subplots
 from ta.momentum import RSIIndicator
 
-st.title("Indicies")
+st.title("Currency Pairs")
 def seasonals_chart(tick):
 	ticker=tick
 	cycle_start=1952
