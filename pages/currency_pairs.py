@@ -12,9 +12,7 @@ import plotly.graph_objs as go
 from plotly.subplots import make_subplots
 from ta.momentum import RSIIndicator
 
-
-megas_list=['DX-Y.NYB','EURUSD=X','GBPUSD=X','AUDUSD=X','NZDUSD=X','USDJPY=X','USDCHF=X','USDCHF=X','NZDUSD=X','EURCHF=X']
-st.title("Currency Pairs")
+st.title("Indicies")
 def seasonals_chart(tick):
 	ticker=tick
 	cycle_start=1952
@@ -349,10 +347,7 @@ def seasonals_chart(tick):
 	trailing_cycle=print_df1.iloc[length-5:length].rnk.mean()
 	print_df=print_df1[print_df1['level_0'] == length]
 	print_df=print_df.reset_index(drop=True)
-	if not print_df.empty and 'rnk' in print_df.columns and not print_df['rnk'].empty:
-	        true_cycle_rnk = print_df['rnk'].iat[-1].round(1)
-	    else:
-	        true_cycle_rnk = None 
+	true_cycle_rnk=print_df['rnk'].iat[-1].round(1)
 
 
 	returns=[]
@@ -601,5 +596,6 @@ def seasonals_chart(tick):
 	st.plotly_chart(fig)
 	st.plotly_chart(fig2)
 
+megas_list=['DX-Y.NYB','EURUSD=X','GBPUSD=X','AUDUSD=X','NZDUSD=X','USDJPY=X','USDCHF=X','NZDUSD=X','EURCHF=X']
 for stock in megas_list:
 	seasonals_chart(stock)
