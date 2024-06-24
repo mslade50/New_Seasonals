@@ -1,1 +1,1 @@
-['SKX', 'MRUS', 'THC', 'DLO', 'ABCL', 'XTIA', 'BE', 'RIOT', 'FNMA', 'PLUG', 'HROW', 'CDE']
+['MRUS', 'THC', 'DLO', 'ABCL', 'COIN', 'DXCM']
