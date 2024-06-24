@@ -1,1 +1,1 @@
-['KLAC', 'RGP', 'STAA', 'OPCH', 'KLIC', 'AMAT', 'IP', 'USDMXN=X']
+['USDMXN=X', 'PSQ', 'SH', 'QID', 'SDS']
