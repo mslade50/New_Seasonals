@@ -1,1 +1,1 @@
-['USDMXN=X', 'PSQ', 'SH', 'QID', 'SDS']
+['USDMXN=X', 'SH', 'SDS']
