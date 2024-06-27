@@ -1,1 +1,1 @@
-['USDMXN=X', 'SH', 'SDS', 'PSO', 'PSO', 'VLY', 'PSQ', 'QID']
+['VLY', 'PSO', 'PSQ', 'QID', 'PSO', 'CLDX', 'CLDX', 'PH', 'VRSN', 'EL', 'EL', 'KEX', 'ADP', 'LDOS', 'PRGS', 'XOP']
