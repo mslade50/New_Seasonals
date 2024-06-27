@@ -1,1 +1,1 @@
-['SKX', 'BIRK', 'THC', 'SEDG', 'ZNTL', 'IMCR', 'NXT', 'MRNA', 'CRK', 'CNHI', 'NVAX']
+['MRUS', 'THC', 'SEDG', 'CYRX', 'OMI', 'ZNTL', 'IMCR', 'BEKE', 'ELAN', 'PDD', 'VIPS', 'RXRX', 'JD', 'APP']

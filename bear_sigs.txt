@@ -1,1 +1,1 @@
-['EXTR', 'RIVN', 'DCPH']
+['EXTR', 'DCPH']
