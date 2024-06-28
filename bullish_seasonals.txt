@@ -1,1 +1,1 @@
-['EBS', 'MDLZ', 'RYN', 'WMT', 'SBH', 'LMT', 'PKG', 'QLD', 'MAA', 'HR', 'XRT', 'PHM', 'GOOGL', 'BECN', 'CYTK', 'CPRX', 'OHI', 'OHI', 'MKTX', 'MKTX', 'TPX', 'XEL']
+['CYTK', 'XEL', 'OHI', 'CPRX', 'BECN', 'MKTX', 'TPX', 'AER', 'OHI', 'OHI', 'MKTX', 'CMA']

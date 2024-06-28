@@ -1,1 +1,1 @@
-['VLY', 'PSO', 'PSQ', 'QID', 'PSO', 'CLDX', 'CLDX', 'PH', 'VRSN', 'EL', 'EL', 'KEX', 'ADP', 'LDOS', 'PRGS', 'XOP']
+['PSO', 'EL', 'CLDX', 'CLDX', 'CLDX', 'INTU', 'INTU', 'OFIX', 'OFIX', 'TTE', 'E', 'E', 'TGNA', 'VRSN', 'EL', 'EL', 'KEX', 'KEX', 'D', 'REG', 'REG', 'JKHY', 'JKHY', 'LDOS', 'LDOS', 'PRGS']
