@@ -1,1 +1,1 @@
-['EXTR', 'DCPH']
+['EXTR', 'DCPH', 'NOVA', 'NXL']

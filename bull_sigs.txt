@@ -1,1 +1,1 @@
-['MRUS', 'THC', 'SEDG', 'CYRX', 'OMI', 'ZNTL', 'IMCR', 'BEKE', 'ELAN', 'PDD', 'VIPS', 'RXRX', 'JD', 'APP']
+['THC', 'SEDG', 'OMI', 'ZNTL', 'IMCR', 'RUN', 'FSLR', 'OSCR', 'MPW', 'PLUG', 'APP', 'MNDY']
