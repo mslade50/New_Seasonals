@@ -1,1 +1,1 @@
-['MRUS', 'SEDG', 'CYRX', 'OMI', 'SAVA', 'VSCO', 'COTY', 'ETSY', 'AAL', 'DIDIY', 'PACB', 'MNDY', 'CLS']
+['SEDG', 'CYRX', 'SAVA', 'ZNTL', 'IOVA', 'CNHI', 'SPWR', 'ANNX', 'APP', 'CLS']
