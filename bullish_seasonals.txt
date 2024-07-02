@@ -1,1 +1,1 @@
-['OHI', 'MKTX', 'GBX', 'GBX', 'WLK', 'WLK', 'OHI', 'PRU', 'CMA', 'CMA', 'IYT']
+['OHI', 'CMA', 'WLK', 'GBX', 'IYT', 'PRU', 'GBX', 'ET', 'ET', 'ARCC', 'ARCC', 'BLK', 'BLK', 'LYV', 'CBSH', 'CBSH']
