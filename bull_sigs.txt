@@ -1,1 +1,1 @@
-['SEDG', 'CYRX', 'SAVA', 'ZNTL', 'IOVA', 'CNHI', 'SPWR', 'ANNX', 'APP', 'CLS']
+['RNA', 'INSM', 'CYRX', 'OMI', 'SAVA', 'ZNTL', 'IOVA', 'SMMT', 'MNDY', 'CLS']
