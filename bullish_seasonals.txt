@@ -1,1 +1,1 @@
-['OHI', 'CMA', 'WLK', 'GBX', 'IYT', 'PRU', 'GBX', 'ET', 'ET', 'ARCC', 'ARCC', 'BLK', 'BLK', 'LYV', 'CBSH', 'CBSH']
+['BLK', 'CBSH', 'GBX', 'ARCC', 'ET', 'WLK', 'WLK', 'JNPR', 'ET', 'SPGI', 'SPGI', 'PUK', 'TTEK', 'HTGC', 'HTGC', 'ARCC', 'ARCC', 'BLK', 'IPGP', 'IPGP', 'SPWR', 'ISRG', 'NDAQ', 'ENB', 'SBS', 'SBS', 'LYV', 'COF', 'MWA', 'MWA', 'WPC', 'PRU', 'PRU', 'HOPE', 'FSLR', 'PFS', 'FCF', 'FCF', 'CBSH', 'CBSH', 'EWZ', 'KBE', 'KBE']
