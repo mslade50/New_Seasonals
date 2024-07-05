@@ -1,1 +1,1 @@
-['EL', 'E', 'GPC', 'PH', 'LSTR', 'OFIX', 'CTRA', 'VRTX', 'DRS', 'CORT', 'COO', 'COO', 'E', 'RBA', 'RBA', 'VRTX', 'GOLD', 'CALM', 'NZDEUR=X', 'NZDEUR=X']
+['E', 'COO', 'RBA', 'VRTX', 'NZDEUR=X', 'CORT', 'PAR', 'PAR', 'AVXL', 'AVXL', 'FORM', 'COO', 'HAIN', 'CB', 'RBA', 'RBA', 'GOLD', 'CALM', 'CALM', 'NZDEUR=X', 'NZDEUR=X']
