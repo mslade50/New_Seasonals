@@ -1,1 +1,1 @@
-['DCPH', 'LBPH', 'TSLA']
+['DCPH', 'TSLA']

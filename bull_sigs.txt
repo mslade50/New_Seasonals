@@ -1,1 +1,1 @@
-['RNA', 'INSM', 'OMI', 'SAVA', 'BZ', 'LUV', 'DAL', 'UAL', 'SPWR', 'HOLO', 'SAVE', 'OKLO', 'EXK']
+['OMI', 'SAVA', 'ETSY', 'ARLO', 'AGI', 'CLS', 'NGD', 'EXK']
