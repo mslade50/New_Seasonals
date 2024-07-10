@@ -1,1 +1,1 @@
-['KMB', 'RBA', 'NZDEUR=X', 'AVXL', 'NEON', 'RIO', 'RIO', 'AVXL', 'AVXL', 'LNW', 'SWX', 'ARWR', 'CCJ', 'CCJ', 'INCY', 'ROG', 'NEM', 'CXW', 'KMB', 'NZDEUR=X', 'NZDEUR=X', 'SH', 'SDS']
+['KMB', 'NZDEUR=X', 'RIO', 'ROG', 'ARWR', 'NEM', 'INCY', 'LNW', 'AVXL', 'CCJ', 'NEON', 'NEON', 'FCX', 'RIO', 'RIO', 'TNP', 'SWX', 'SWX', 'CCJ', 'CCJ', 'CMC', 'PPC', 'CMS', 'HG=F', 'NZDEUR=X', 'PSQ', 'SH', 'QID', 'SDS']
