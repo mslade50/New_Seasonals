@@ -1,1 +1,1 @@
-['CGEM', 'OSCR', 'XRX', 'ALB', 'AGI', 'TME', 'CLS']
+['ZETA', 'CYRX', 'TXG', 'XRX', 'DASH', 'CFLT', 'HOLO', 'DIDIY', 'TME', 'MYGN']
