@@ -1,1 +1,1 @@
-['ZETA', 'CYRX', 'TXG', 'XRX', 'DASH', 'CFLT', 'HOLO', 'DIDIY', 'TME', 'MYGN']
+['CRDO', 'DAL', 'AAL', 'DIDIY', 'TWST', 'NMRK', 'PLNT', 'CDNA']
