@@ -1,1 +1,1 @@
-['CRDO', 'DAL', 'AAL', 'DIDIY', 'TWST', 'NMRK', 'PLNT', 'CDNA']
+['ABR', 'INTR', 'CDNA']
