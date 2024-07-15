@@ -1,1 +1,1 @@
-['GRMN', 'CVLT', 'IBN', 'CM', 'XRT', 'TRI', 'BFH', 'VIAV', 'COLB', 'ADEA', 'SWK', 'HDB', 'MTG', 'BMO', 'LKQ', 'ALL', 'EVV', 'XRAY', 'VNQ', 'MHK', 'STM', 'ETY', 'TOL', 'CME', 'UBS', 'KSS', 'HDB', 'HDB', 'MHK', 'IDXX', 'IDXX', 'RQI', 'RQI', 'SWK', 'BTZ', 'VIAV', 'VIAV', 'GRMN', 'IBN', 'IBN', 'EVV', 'BNS', 'ETV', 'ETY', 'DKS', 'KB', 'JKHY', 'VNQ', 'QLD']
+['SWK', 'IBN', 'HDB', 'WRK', 'ETY', 'IDXX', 'GRMN', 'EVV', 'VNQ', 'KSS', 'RQI', 'KB', 'JKHY', 'BTZ', 'BNS', 'ETV', 'QLD', 'VIAV', 'MHK', 'HDB', 'ARW', 'DECK', 'DECK', 'VIAV', 'VIAV', 'DKS']

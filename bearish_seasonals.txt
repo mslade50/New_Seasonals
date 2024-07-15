@@ -1,1 +1,1 @@
-['NEON', 'CCJ', 'PAAS', 'CRK', 'RIO', 'HG=F', 'CSIQ', 'PPC', 'SWX', 'FCX', 'STAA', 'NEON', 'RMBS', 'RMBS', 'STAA', 'STAA', 'OLN', 'SU', 'RRC', 'RRC', 'AMX', 'EMN', 'CCJ', 'TYL', 'PPC', 'PPC', 'ORAN', 'ORAN', 'PRGO', 'PRGO', 'CSIQ', 'CSIQ', 'ZW=f', 'PSQ', 'QID', 'IYE']
+['CCJ', 'EMN', 'AVXL', 'NEON', 'RMBS', 'PPC', 'PRGO', 'RRC', 'PSQ', 'QID', 'OLN', 'CSIQ', 'ORAN', 'STAA', 'RMBS', 'RMBS', 'SCVL', 'CHRW', 'CHRW', 'LSTR', 'SU', 'RRC', 'RRC', 'MLM', 'AMX', 'AMX', 'TYL', 'TYL', 'PPC', 'SF', 'SF', 'ORAN', 'ORAN', 'PBH', 'PBH', 'PRGO', 'PRGO', 'CSIQ', 'FNB', 'FNB', 'ZW=f', 'IYE']
