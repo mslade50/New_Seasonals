@@ -1,1 +1,1 @@
-['SWK', 'IBN', 'HDB', 'WRK', 'ETY', 'IDXX', 'GRMN', 'EVV', 'VNQ', 'KSS', 'RQI', 'KB', 'JKHY', 'BTZ', 'BNS', 'ETV', 'QLD', 'VIAV', 'MHK', 'HDB', 'ARW', 'DECK', 'DECK', 'VIAV', 'VIAV', 'DKS']
+['VIAV', 'WRK', 'DKS', 'HDB', 'DECK', 'ARW', 'IDXX', 'STT']
