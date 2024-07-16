@@ -1,1 +1,1 @@
-['CELH', 'TAL', 'CDNA']
+['AVGO', 'EQT', 'ETRN', 'TOST', 'WRBY']
