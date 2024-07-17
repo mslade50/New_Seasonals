@@ -1,1 +1,1 @@
-['LEGN', 'HUM', 'VERV', 'RVNC', 'DCPH', 'BFH', 'FHB', 'OII', 'SYF', 'MXL', 'TGTX']
+['HUM', 'CHTR', 'DCPH', 'FHB', 'LMND', 'ROIV', 'AAON', 'RARE', 'UBER', 'NVTS', 'AMLX', 'REKR', 'GEV', 'TFC', 'FHB', 'SYF', 'MXL']
