@@ -1,1 +1,1 @@
-['TYL', 'ORAN', 'RMBS', 'CSIQ', 'PBH', 'FNB', 'ZW=f', 'CHRW', 'AMX', 'PRGO', 'RRC', 'PPC', 'IYE', 'SF', 'SU', 'RMBS', 'SCVL', 'CHRW', 'ASML', 'RRC', 'MLM', 'AMX', 'AMX', 'FLR', 'IMAX', 'UDR', 'ORAN', 'PBH', 'SIMO', 'SIMO', 'PRGO']
+['RMBS', 'CHRW', 'RRC', 'PBH', 'ORAN', 'AMX', 'FLR', 'SIMO', 'PRGO', 'SCVL', 'MLM', 'ASML', 'ASML', 'BN', 'AMX', 'AMX', 'FLR', 'DB', 'TTC', 'IMAX', 'IMAX']

@@ -1,1 +1,1 @@
-['VIAV', 'WRK', 'DKS', 'HDB', 'DECK', 'ARW', 'IDXX', 'STT']
+['IDXX', 'WRK', 'QCOM', 'NAD', 'DLR', 'DLR', 'ABT', 'PPL', 'PPL', 'BIDU']
