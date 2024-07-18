@@ -1,1 +1,1 @@
-['RMBS', 'CHRW', 'RRC', 'PBH', 'ORAN', 'AMX', 'FLR', 'SIMO', 'PRGO', 'SCVL', 'MLM', 'ASML', 'ASML', 'BN', 'AMX', 'AMX', 'FLR', 'DB', 'TTC', 'IMAX', 'IMAX']
+['AMX', 'IMAX', 'TTC', 'BLFS', 'DRS', 'ASML', 'DRS', 'BN', 'AMX', 'GPN', 'UDR']

@@ -1,1 +1,1 @@
-['IDXX', 'WRK', 'QCOM', 'NAD', 'DLR', 'DLR', 'ABT', 'PPL', 'PPL', 'BIDU']
+['WRK', 'PPL', 'QCOM', 'DLR', 'NAD', 'STT', 'BIDU', 'BCRX', 'BCRX', 'QCOM', 'MOS', 'SHW', 'SHW', 'DLR', 'STE', 'STE', 'ABT', 'KRG', 'BDX', 'PPL']
