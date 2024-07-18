@@ -1,1 +1,1 @@
-['CRDO', 'OSCR', 'FIVE', 'SNAP', 'VRT', 'DASH', 'AVGO', 'SAVA', 'MU', 'TTD', 'WDC', 'APH', 'CRWD', 'AR', 'LYFT', 'VST', 'PSTG', 'CEG', 'DELL', 'META', 'UBER', 'OSCR', 'SAVE', 'TOST']
+['CRDO', 'AVGO', 'FIVE', 'OSCR', 'SPWR', 'EAF', 'TOST']
