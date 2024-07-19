@@ -1,1 +1,1 @@
-['CRDO', 'AVGO', 'FIVE', 'OSCR', 'SPWR', 'EAF', 'TOST']
+['TROX', 'WOLF', 'CRWD', 'KSS', 'MBLY', 'SPWR']
