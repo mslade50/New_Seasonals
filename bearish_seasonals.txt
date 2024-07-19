@@ -1,1 +1,1 @@
-['AMX', 'IMAX', 'TTC', 'BLFS', 'DRS', 'ASML', 'DRS', 'BN', 'AMX', 'GPN', 'UDR']
+['AMX', 'DRS', 'BN', 'GPN', 'IMAX', 'UDR', 'MCK', 'MCK', 'AUDEUR=X', 'PSQ']

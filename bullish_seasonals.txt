@@ -1,1 +1,1 @@
-['WRK', 'PPL', 'QCOM', 'DLR', 'NAD', 'STT', 'BIDU', 'BCRX', 'BCRX', 'QCOM', 'MOS', 'SHW', 'SHW', 'DLR', 'STE', 'STE', 'ABT', 'KRG', 'BDX', 'PPL']
+['PPL', 'WRK', 'KRG', 'DLR', 'BCRX', 'STE', 'SHW', 'CENX', 'QCOM', 'RIO', 'ALB', 'INTU', 'SPGI', 'SPGI', 'TTE', 'AZN', 'NSC', 'SBRA', 'RPM', 'SHW', 'SHW', 'PTC', 'UMH', 'UMH', 'NTRS', 'STE', 'STE', 'AXP', 'MMC', 'MMC', 'ABT', 'ABT', 'BDX', 'BDX', 'ING', 'MRK', 'MRK', 'K', 'KO', 'KO', 'PEP', 'SOXX', 'SMH', 'SMH']
