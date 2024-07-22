@@ -1,1 +1,1 @@
-['TROX', 'WOLF', 'CRWD', 'KSS', 'MBLY', 'SPWR']
+['CRWD']
