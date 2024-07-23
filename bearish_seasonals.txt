@@ -1,1 +1,1 @@
-['IMAX', 'UDR', 'MCK', 'AUDEUR=X', 'GPN', 'TNL', 'TPR', 'MCK', '^VIX', '^VIX', 'PSQ', 'PSQ']
+['MCK', 'PSQ', 'QID', '^VIX', 'TNL', 'TPR', '^VIX', 'USDMXN=X', 'PSQ', 'PSQ', 'SH', 'QID', 'SDS']
