@@ -1,1 +1,1 @@
-['THC', 'STGW']
+['DAL', 'SMCI', 'WOLF', 'NVDA', 'AFRM', 'DKNG', 'VRT', 'PINS', 'BZ', 'SQ', 'TTD', 'AI', 'W', 'COTY', 'BROS', 'DELL', 'CPNG', 'PENN', 'CZR', 'APLD', 'HOLO', 'ATUS']
