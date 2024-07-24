@@ -1,1 +1,1 @@
-['MCK', 'PSQ', 'QID', '^VIX', 'TNL', 'TPR', '^VIX', 'USDMXN=X', 'PSQ', 'PSQ', 'SH', 'QID', 'SDS']
+['QID', 'PSQ', 'SH', 'SDS', '^VIX', 'USDMXN=X', 'EXEL', 'EXEL', 'THS', 'PSQ', 'SH', 'SDS']
