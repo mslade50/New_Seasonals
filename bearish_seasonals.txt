@@ -1,1 +1,1 @@
-['EXEL', 'PSQ', 'LNW', 'DAR', 'DAR', 'RS', 'EXEL', 'TYL', 'THS', 'HRL', 'HRL', 'EURNOK=X', 'SH', 'SDS']
+['TYL', 'DAR', 'EXEL', 'HRL', 'SH', 'THS', 'SDS', 'LNW', 'LNW', 'DAR', 'RS', 'RS', 'AU', 'AU', 'SA', 'SA', 'EW', 'CEF', 'CSGP', 'CSGP', 'HRL', 'USDNOK=X', 'EURNOK=X', 'GLD', 'GLD', 'IAU', 'IAU']
