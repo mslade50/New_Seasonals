@@ -1,1 +1,1 @@
-['TYL', 'DAR', 'EXEL', 'HRL', 'SH', 'THS', 'SDS', 'LNW', 'LNW', 'DAR', 'RS', 'RS', 'AU', 'AU', 'SA', 'SA', 'EW', 'CEF', 'CSGP', 'CSGP', 'HRL', 'USDNOK=X', 'EURNOK=X', 'GLD', 'GLD', 'IAU', 'IAU']
+['TYL', 'DAR', 'EXEL', 'EURNOK=X', 'HRL', 'USDNOK=X', 'SH', 'THS', 'SDS', 'LNW', 'LNW', 'DAR', 'RS', 'RS', 'AU', 'AU', 'SA', 'SA', 'EW', 'CEF', 'CSGP', 'CSGP', 'HRL', 'GLD', 'GLD', 'IAU', 'IAU']
