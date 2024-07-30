@@ -1,1 +1,1 @@
-['OIS', 'DCPH', 'LUMN', 'IMNM', 'CYH']
+['GL', 'OIS', 'DCPH', 'LUMN']
