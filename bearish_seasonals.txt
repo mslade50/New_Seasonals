@@ -1,1 +1,1 @@
-['EW', 'LNW', 'DAR', 'AU', 'GLD', 'CEF', 'SA', 'IAU', 'RS', 'CSGP', 'EURNOK=X', 'HRL', 'USDNOK=X', 'LNW', 'AU', 'AU', 'MAA']
+['MAA', 'LNW', 'AU', 'SA', 'CEF', 'GDX']
