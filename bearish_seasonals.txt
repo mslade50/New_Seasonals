@@ -1,1 +1,1 @@
-['MAA', 'LNW', 'AU', 'SA', 'CEF', 'GDX']
+['FE', 'CEF', 'SA', 'GDX', 'DRS', 'TGS', 'UTHR', 'USDNOK=X']
