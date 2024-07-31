@@ -1,4 +1,3 @@
-# streamlit_app/pages/trade_dashboard.py
 import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
@@ -6,14 +5,19 @@ import streamlit as st
 # URL of the raw Excel file in your GitHub repository
 file_url = 'https://github.com/mslade50/New_Seasonals/raw/main/Trade%20Details%20(MS).xlsx'
 
-@st.cache
+@st.cache_data
 def load_data():
     df = pd.read_excel(file_url, sheet_name='All Trades')
     return df
 
+# Refresh data button
+if st.button('Refresh Data'):
+    st.cache_data.clear()
+    st.experimental_rerun()
+
 df = load_data()
 date_threshold = pd.Timestamp('2023-01-31')
-#ds
+
 # Filter the DataFrame
 df = df[df['Closing Date'] > date_threshold]
 df['Rolling PnL'] = df['PnL'].cumsum()
