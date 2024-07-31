@@ -13,7 +13,7 @@ def load_data():
 
 df = load_data()
 date_threshold = pd.Timestamp('2023-01-31')
-
+#ds
 # Filter the DataFrame
 df = df[df['Closing Date'] > date_threshold]
 df['Rolling PnL'] = df['PnL'].cumsum()
