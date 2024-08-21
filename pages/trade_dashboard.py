@@ -7,7 +7,7 @@ file_url = 'https://github.com/mslade50/New_Seasonals/raw/main/Trade%20Details%2
 
 @st.cache_data
 def load_data():
-    df = pd.read_excel(file_url, sheet_name='All Trades')
+    df = pd.read_excel(file_url, sheet_name='Closed Trades')
     return df
 
 # Refresh data button
