@@ -63,7 +63,6 @@ def seasonals_chart(ticker, cycle_label):
         this_year_path = (
             current_year_data["log_return"]
             .cumsum()
-            .apply(np.exp) - 1
         )
         current_trading_day = len(current_year_data)
         current_ytd_value = this_year_path.iloc[-1]
@@ -81,7 +80,7 @@ def seasonals_chart(ticker, cycle_label):
         y=avg_path.values, 
         mode="lines", 
         name=f"Avg Path ({cycle_label})",
-        line=dict(color="yellow")
+        line=dict(color="orange")
     ))
 
     # Add this year's path if it exists
