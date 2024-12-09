@@ -5,6 +5,23 @@ import datetime as dt
 import plotly.graph_objs as go
 import streamlit as st
 
+st.title("Presidential Cycle Seasonality Chart")
+
+# User Input for Ticker
+ticker = st.text_input("Enter a stock ticker:", value="AAPL")
+
+# Dropdown for Presidential Cycle Type
+cycle_label = st.selectbox(
+    "Select the presidential cycle type:",
+    ["Election", "Pre-Election", "Post-Election", "Midterm"]
+)
+
+# Plot Button
+if st.button("Plot"):
+    try:
+        seasonals_chart(ticker, cycle_label)
+    except Exception as e:
+        st.error(f"Error generating chart: {e}")
 def seasonals_chart(ticker, cycle_label):
     """
     Plot the average historical path of the ticker for the selected cycle type 
