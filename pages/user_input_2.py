@@ -57,7 +57,7 @@ def seasonals_chart(ticker, cycle_label):
 
     # Get the current year's data
     current_year_data = yf.download(ticker, start=dt.datetime(this_yr_end.year, 1, 1), end=this_yr_end)
-    print(current_year_data.head(5))
+    st.write(current_year_data.head(5))
     if not current_year_data.empty:
         current_year_data["log_return"] = np.log(current_year_data["Close"] / current_year_data["Close"].shift(1))
         this_year_path = (
