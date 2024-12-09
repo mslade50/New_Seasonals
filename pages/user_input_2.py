@@ -87,7 +87,7 @@ def seasonals_chart(ticker, cycle_label):
 
 
     fig.add_trace(go.Scatter(
-        x=this_year_path.index, 
+        x=avg_path.index, 
         y=this_year_path.values, 
         mode="lines", 
         name="This Year",
