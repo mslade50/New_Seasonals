@@ -4,7 +4,8 @@ import numpy as np
 import datetime as dt
 import plotly.graph_objs as go
 import streamlit as st
-
+from datetime import date
+from datetime import timedelta
 
 def seasonals_chart(ticker, cycle_label):
     """
