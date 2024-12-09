@@ -26,7 +26,7 @@ def seasonals_chart(ticker, cycle_label):
 
     # Fetch historical data for the ticker
     end_date = dt.datetime(2023, 12, 30)
-    this_yr_end = dt.date.today()
+    today = dt.date.today()
     spx1 = yf.Ticker(ticker)
     spx = spx1.history(period="max", end=end_date)
 
@@ -50,19 +50,48 @@ def seasonals_chart(ticker, cycle_label):
     )
 
     # Get this year's path
-    this_year = spx[spx["year"] == this_yr_end.year]
+    this_year = spx[spx["year"] == today.year]
     this_year_path = (
         this_year.groupby("trading_day")["log_return"]
-        .sum()
         .cumsum()
         .apply(np.exp) - 1
     )
 
-    # Plot the average path vs this year's path
-    fig = go.Figure()
-    fig.add_trace(go.Scatter(x=avg_path.index, y=avg_path.values, mode="lines", name=f"Avg Path ({cycle_label})"))
-    fig.add_trace(go.Scatter(x=this_year_path.index, y=this_year_path.values, mode="lines", name="This Year"))
+    # Determine the current trading day
+    current_trading_day = this_year["trading_day"].iloc[-1]
+    current_ytd_value = this_year_path.iloc[-1]
 
+    # Plot the average path, this year's path, and the white dot for the current trading day
+    fig = go.Figure()
+
+    # Add average path
+    fig.add_trace(go.Scatter(
+        x=avg_path.index, 
+        y=avg_path.values, 
+        mode="lines", 
+        name=f"Avg Path ({cycle_label})",
+        line=dict(color="blue")
+    ))
+
+    # Add this year's path
+    fig.add_trace(go.Scatter(
+        x=this_year_path.index, 
+        y=this_year_path.values, 
+        mode="lines", 
+        name="This Year",
+        line=dict(color="green")
+    ))
+
+    # Add white dot for the current trading day
+    fig.add_trace(go.Scatter(
+        x=[current_trading_day], 
+        y=[current_ytd_value], 
+        mode="markers", 
+        name="Current Day",
+        marker=dict(color="white", size=10)
+    ))
+
+    # Update layout
     fig.update_layout(
         title=f"{ticker} - {cycle_label} Cycle Average vs This Year",
         xaxis_title="Trading Day",
@@ -75,7 +104,6 @@ def seasonals_chart(ticker, cycle_label):
 
     st.plotly_chart(fig)
 
-st.title("Presidential Cycle Seasonality Chart")
 
 # User Input for Ticker
 ticker = st.text_input("Enter a stock ticker:", value="AAPL")
