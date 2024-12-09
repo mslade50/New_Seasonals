@@ -30,6 +30,11 @@ def seasonals_chart(ticker, cycle_label):
     spx1 = yf.Ticker(ticker)
     spx = spx1.history(period="max", end=end_date)
 
+    # Ensure data exists
+    if spx.empty:
+        st.error(f"No data found for {ticker}.")
+        return
+
     # Calculate log returns and assign trading day index
     spx["log_return"] = np.log(spx["Close"] / spx["Close"].shift(1))
     spx["trading_day"] = spx.groupby(spx.index.year).cumcount() + 1
@@ -61,7 +66,7 @@ def seasonals_chart(ticker, cycle_label):
         current_trading_day = this_year["trading_day"].iloc[-1]
         current_ytd_value = this_year_path.iloc[-1]
     else:
-        this_year_path = pd.Series()
+        this_year_path = pd.Series(dtype=float)
         current_trading_day = None
         current_ytd_value = None
 
