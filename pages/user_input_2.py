@@ -60,13 +60,14 @@ def seasonals_chart(ticker, cycle_label):
     
     if not current_year_data.empty:
         current_year_data["log_return"] = np.log(current_year_data["Close"] / current_year_data["Close"].shift(1))
-        st.write(current_year_data)
+        
         this_year_path = (
             current_year_data["log_return"]
             .cumsum()
         )
         current_trading_day = len(current_year_data)
         current_ytd_value = this_year_path.iloc[-1]
+        st.write(current_ytd_value)
     else:
         this_year_path = pd.Series(dtype=float)
         current_trading_day = None
