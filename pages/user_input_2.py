@@ -26,7 +26,7 @@ def seasonals_chart(ticker, cycle_label):
 
     # Fetch historical data for the ticker
     end_date = dt.datetime(2023, 12, 30)
-    today = dt.date.today()
+    this_yr_end = dt.date.today() + timedelta(days=1)
     spx1 = yf.Ticker(ticker)
     spx = spx1.history(period="max", end=end_date)
 
@@ -54,16 +54,17 @@ def seasonals_chart(ticker, cycle_label):
         .apply(np.exp) - 1
     )
 
-    # Get this year's path
-    this_year = spx[spx["year"] == today.year]
+    # Get the current year's data
+    current_year_data = yf.download(ticker, start=dt.datetime(this_yr_end.year, 1, 1), end=this_yr_end)
 
-    if not this_year.empty:
+    if not current_year_data.empty:
+        current_year_data["log_return"] = np.log(current_year_data["Close"] / current_year_data["Close"].shift(1))
         this_year_path = (
-            this_year.groupby("trading_day")["log_return"]
+            current_year_data["log_return"]
             .cumsum()
             .apply(np.exp) - 1
         )
-        current_trading_day = this_year["trading_day"].iloc[-1]
+        current_trading_day = len(current_year_data)
         current_ytd_value = this_year_path.iloc[-1]
     else:
         this_year_path = pd.Series(dtype=float)
