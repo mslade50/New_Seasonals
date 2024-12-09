@@ -81,7 +81,7 @@ def seasonals_chart(ticker, cycle_label):
         y=avg_path.values, 
         mode="lines", 
         name=f"Avg Path ({cycle_label})",
-        line=dict(color="blue")
+        line=dict(color="yellow")
     ))
 
     # Add this year's path if it exists
@@ -91,7 +91,7 @@ def seasonals_chart(ticker, cycle_label):
             y=this_year_path.values, 
             mode="lines", 
             name="This Year",
-            line=dict(color="green")
+            line=dict(color="green", width=2)
         ))
 
     # Add white dot for the current trading day if it exists
@@ -101,7 +101,8 @@ def seasonals_chart(ticker, cycle_label):
             y=[current_ytd_value], 
             mode="markers", 
             name="Current Day",
-            marker=dict(color="white", size=10)
+            marker=dict(color="white", size=10),
+            showlegend=False  # Exclude from legend
         ))
 
     # Update layout
@@ -112,10 +113,15 @@ def seasonals_chart(ticker, cycle_label):
         plot_bgcolor="black",
         paper_bgcolor="black",
         font=dict(color="white"),
-        legend=dict(bgcolor="rgba(0,0,0,0)", font=dict(color="white"))
+        legend=dict(bgcolor="rgba(0,0,0,0)", font=dict(color="white")),
     )
 
+    # Remove gridlines
+    fig.update_xaxes(showgrid=False)
+    fig.update_yaxes(showgrid=False)
+
     st.plotly_chart(fig)
+
 
 
 
