@@ -64,8 +64,8 @@ def seasonals_chart(ticker, cycle_label):
         this_year_path = (
             current_year_data["log_return"]
             .cumsum()
+            .apply(np.exp) - 1
         )
-        st.write(this_year_path)
         current_trading_day = len(current_year_data)
         current_ytd_value = this_year_path.iloc[-1]
     else:
