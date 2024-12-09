@@ -1,3 +1,10 @@
+import yfinance as yf
+import pandas as pd
+import numpy as np
+import datetime as dt
+import plotly.graph_objs as go
+import streamlit as st
+
 def seasonals_chart(ticker, cycle_label):
     """
     Plot the average historical path of the ticker for the selected cycle type 
@@ -6,12 +13,6 @@ def seasonals_chart(ticker, cycle_label):
     :param ticker: Stock ticker symbol.
     :param cycle_label: The presidential cycle type (Election, Pre-Election, Post-Election, Midterm).
     """
-    import yfinance as yf
-    import pandas as pd
-    import numpy as np
-    import datetime as dt
-    import plotly.graph_objs as go
-    import streamlit as st
 
     # Map cycle_label to cycle_start
     cycle_start_mapping = {
