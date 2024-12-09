@@ -85,15 +85,14 @@ def seasonals_chart(ticker, cycle_label):
         line=dict(color="orange")
     ))
 
-    # Add this year's path if it exists
-    if not this_year_path.empty:
-        fig.add_trace(go.Scatter(
-            x=this_year_path.index, 
-            y=this_year_path.values, 
-            mode="lines", 
-            name="This Year",
-            line=dict(color="green", width=2)
-        ))
+
+    fig.add_trace(go.Scatter(
+        x=this_year_path.index, 
+        y=this_year_path.values, 
+        mode="lines", 
+        name="This Year",
+        line=dict(color="green", width=2)
+    ))
 
     # Add white dot for the current trading day if it exists
     if current_trading_day is not None and current_ytd_value is not None:
