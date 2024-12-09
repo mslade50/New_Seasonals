@@ -51,15 +51,19 @@ def seasonals_chart(ticker, cycle_label):
 
     # Get this year's path
     this_year = spx[spx["year"] == today.year]
-    this_year_path = (
-        this_year.groupby("trading_day")["log_return"]
-        .cumsum()
-        .apply(np.exp) - 1
-    )
 
-    # Determine the current trading day
-    current_trading_day = this_year["trading_day"].iloc[-1]
-    current_ytd_value = this_year_path.iloc[-1]
+    if not this_year.empty:
+        this_year_path = (
+            this_year.groupby("trading_day")["log_return"]
+            .cumsum()
+            .apply(np.exp) - 1
+        )
+        current_trading_day = this_year["trading_day"].iloc[-1]
+        current_ytd_value = this_year_path.iloc[-1]
+    else:
+        this_year_path = pd.Series()
+        current_trading_day = None
+        current_ytd_value = None
 
     # Plot the average path, this year's path, and the white dot for the current trading day
     fig = go.Figure()
@@ -73,23 +77,25 @@ def seasonals_chart(ticker, cycle_label):
         line=dict(color="blue")
     ))
 
-    # Add this year's path
-    fig.add_trace(go.Scatter(
-        x=this_year_path.index, 
-        y=this_year_path.values, 
-        mode="lines", 
-        name="This Year",
-        line=dict(color="green")
-    ))
+    # Add this year's path if it exists
+    if not this_year_path.empty:
+        fig.add_trace(go.Scatter(
+            x=this_year_path.index, 
+            y=this_year_path.values, 
+            mode="lines", 
+            name="This Year",
+            line=dict(color="green")
+        ))
 
-    # Add white dot for the current trading day
-    fig.add_trace(go.Scatter(
-        x=[current_trading_day], 
-        y=[current_ytd_value], 
-        mode="markers", 
-        name="Current Day",
-        marker=dict(color="white", size=10)
-    ))
+    # Add white dot for the current trading day if it exists
+    if current_trading_day is not None and current_ytd_value is not None:
+        fig.add_trace(go.Scatter(
+            x=[current_trading_day], 
+            y=[current_ytd_value], 
+            mode="markers", 
+            name="Current Day",
+            marker=dict(color="white", size=10)
+        ))
 
     # Update layout
     fig.update_layout(
@@ -103,6 +109,7 @@ def seasonals_chart(ticker, cycle_label):
     )
 
     st.plotly_chart(fig)
+
 
 
 st.title("Presidential Cycle Seasonality Chart")
