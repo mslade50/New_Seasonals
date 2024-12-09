@@ -105,6 +105,8 @@ def seasonals_chart(ticker, cycle_label):
     st.plotly_chart(fig)
 
 
+st.title("Presidential Cycle Seasonality Chart")
+
 # User Input for Ticker
 ticker = st.text_input("Enter a stock ticker:", value="AAPL")
 
