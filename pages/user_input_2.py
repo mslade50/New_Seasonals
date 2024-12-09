@@ -91,7 +91,7 @@ def seasonals_chart(ticker, cycle_label):
         y=this_year_path.values, 
         mode="lines", 
         name="This Year",
-        line=dict(color="green", width=2)
+        line=dict(color="green")
     ))
 
     # Add white dot for the current trading day if it exists
