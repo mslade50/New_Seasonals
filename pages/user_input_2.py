@@ -65,9 +65,9 @@ def seasonals_chart(ticker, cycle_label):
             current_year_data["log_return"]
             .cumsum()
         )
+        st.write(this_year_path)
         current_trading_day = len(current_year_data)
         current_ytd_value = this_year_path.iloc[-1]
-        st.write(current_ytd_value)
     else:
         this_year_path = pd.Series(dtype=float)
         current_trading_day = None
