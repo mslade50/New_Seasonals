@@ -84,15 +84,6 @@ def seasonals_chart(ticker, cycle_label):
         name=f"Avg Path ({cycle_label})",
         line=dict(color="orange")
     ))
-    if current_trading_day is not None and current_ytd_value is not None:
-        fig.add_trace(go.Scatter(
-            x=[current_trading_day], 
-            y=[current_ytd_value], 
-            mode="markers", 
-            name="Current Day",
-            marker=dict(color="white", size=3),
-            showlegend=False  # Exclude from legend
-        ))
 
     fig.add_trace(go.Scatter(
         x=avg_path.index, 
@@ -101,6 +92,16 @@ def seasonals_chart(ticker, cycle_label):
         name="This Year",
         line=dict(color="green")
     ))
+
+    if avg_path_y_value is not None:
+        fig.add_trace(go.Scatter(
+            x=[current_trading_day], 
+            y=[avg_path_y_value], 
+            mode="markers", 
+            name="Current Day on Avg Path",
+            marker=dict(color="white", size=7),
+            showlegend=False  # Exclude from legend
+        ))
 
     # Add white dot for the current trading day if it exists
     
