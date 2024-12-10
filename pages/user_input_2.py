@@ -92,6 +92,7 @@ def seasonals_chart(ticker, cycle_label):
         name="This Year",
         line=dict(color="green")
     ))
+    avg_path_y_value = avg_path[current_trading_day] if current_trading_day is not None and current_trading_day in avg_path.index else None
 
     if avg_path_y_value is not None:
         fig.add_trace(go.Scatter(
