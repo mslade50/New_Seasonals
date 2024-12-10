@@ -109,7 +109,7 @@ def seasonals_chart(ticker, cycle_label):
 
     # Update layout
     fig.update_layout(
-        title=f"{ticker} - {cycle_label} Cycle Average vs This Year",
+        title=f"{ticker} - {cycle_label} Cycle Average",
         xaxis_title="Trading Day",
         yaxis_title="Cumulative Return",
         plot_bgcolor="black",
