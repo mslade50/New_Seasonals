@@ -16,38 +16,48 @@ def compute_atr(df, window=14):
 
 def summarize_data(df, include_atr=True):
     if df.empty:
-        # If we are including ATR in weekly/monthly tables, return with ATR. If not, exclude it.
+        # Return with ATR and % Pos if include_atr is True, else still return these columns as NaN
         if include_atr:
-            return {"Avg Return (%)": np.nan, "Median Daily Return (%)": np.nan, "Avg ATR%": np.nan}
+            return {
+                "Avg Return (%)": np.nan, 
+                "Median Daily Return (%)": np.nan, 
+                "Avg ATR%": np.nan,
+                "% Pos": np.nan
+            }
         else:
-            return {"Avg Return (%)": np.nan, "Median Daily Return (%)": np.nan, "% Pos": np.nan}
+            return {
+                "Avg Return (%)": np.nan, 
+                "Median Daily Return (%)": np.nan, 
+                "Avg ATR%": np.nan,  # even if include_atr=False, we return the column as NaN for consistency
+                "% Pos": np.nan
+            }
     daily_returns = df["log_return"] * 100  # convert to percentage
+    pos_percentage = (daily_returns > 0).sum() / len(daily_returns) * 100
     if include_atr:
         return {
             "Avg Return (%)": daily_returns.mean(),
             "Median Daily Return (%)": daily_returns.median(),
-            "Avg ATR%": df["ATR%"].mean()
+            "Avg ATR%": df["ATR%"].mean(),
+            "% Pos": pos_percentage
         }
     else:
-        # For daily tables: remove ATR and add % Pos
-        pos_percentage = (daily_returns > 0).sum() / len(daily_returns) * 100
+        # Even if include_atr=False, let's still return ATR% as NaN so all tables have same columns
         return {
             "Avg Return (%)": daily_returns.mean(),
             "Median Daily Return (%)": daily_returns.median(),
+            "Avg ATR%": np.nan,  # no ATR in original daily request, but we add it as NaN for consistency
             "% Pos": pos_percentage
         }
 
 def get_current_trading_info():
     # Determine today's trading day_of_month and week_of_month_5day
     today = dt.date.today()
-    # Get data from first day of current month to today
     start_of_month = dt.date(today.year, today.month, 1)
-    # Fetch data for current month up to today
     current_data = yf.download("SPY", start=start_of_month, end=today + timedelta(days=1)) 
     if not current_data.empty:
         current_data["trading_day_of_month"] = np.arange(1, len(current_data) + 1)
         current_data["week_of_month_5day"] = (current_data["trading_day_of_month"] - 1) // 5 + 1
-        # After merging week5 into week4
+        # Merge week 5 into week 4
         current_data.loc[current_data["week_of_month_5day"] > 4, "week_of_month_5day"] = 4
         current_trading_day_of_month = current_data["trading_day_of_month"].iloc[-1]
         current_week_of_month = current_data["week_of_month_5day"].iloc[-1]
@@ -76,9 +86,7 @@ def seasonals_chart(ticker, cycle_label, show_tables):
     spx["log_return"] = np.log(spx["Close"] / spx["Close"].shift(1))
     spx["year"] = spx.index.year
     spx["month"] = spx.index.month
-    # trading_day_of_month: count days within each month for each year
     spx["trading_day_of_month"] = spx.groupby([spx.index.year, spx.index.month]).cumcount() + 1
-    # Define weeks of month as consecutive 5-trading-day blocks
     spx["week_of_month_5day"] = (spx["trading_day_of_month"] - 1) // 5 + 1
 
     years_in_cycle = [cycle_start + i * 4 for i in range(19)]
@@ -88,7 +96,6 @@ def seasonals_chart(ticker, cycle_label, show_tables):
     # Merge week 5 into week 4
     cycle_data.loc[cycle_data["week_of_month_5day"] > 4, "week_of_month_5day"] = 4
 
-    # Fetch current year data
     current_year_data = yf.download(ticker, start=dt.datetime(this_yr_end.year, 1, 1), end=this_yr_end)
     if not current_year_data.empty:
         current_year_data["log_return"] = np.log(current_year_data["Close"] / current_year_data["Close"].shift(1))
@@ -102,7 +109,6 @@ def seasonals_chart(ticker, cycle_label, show_tables):
         this_year_path = pd.Series(dtype=float)
         current_trading_day = None
 
-    # Compute avg path
     cycle_data["day_count"] = cycle_data.groupby("year").cumcount() + 1
     avg_path = (
         cycle_data.groupby("day_count")["log_return"]
@@ -111,7 +117,6 @@ def seasonals_chart(ticker, cycle_label, show_tables):
         .apply(np.exp) - 1
     )
 
-    # Plot chart
     fig = go.Figure()
     fig.add_trace(go.Scatter(
         x=avg_path.index,
@@ -166,22 +171,30 @@ def seasonals_chart(ticker, cycle_label, show_tables):
         # Monthly returns
         cycle_data["monthly_return"] = cycle_data.groupby(["year", "month"])["log_return"].transform("sum")
 
-        # Table 1: Monthly Summary Stats (All Cycle Years)
+        # Table 1: Monthly Summary Stats
+        # Compute stats and add % Pos
+        monthly_group = cycle_data.groupby(["year", "month"])
+        # Compute % Pos for each month/year
+        monthly_pos = monthly_group.apply(lambda g: (g["log_return"] > 0).mean()*100).reset_index(name="% Pos")
         monthly_returns_by_month = cycle_data.groupby("month")["monthly_return"].agg(["mean", "median"])
         monthly_returns_by_month["mean"] = monthly_returns_by_month["mean"] * 100
         monthly_returns_by_month["median"] = monthly_returns_by_month["median"] * 100
         monthly_returns_by_month.columns = ["Avg Monthly Return (%)", "Median Monthly Return (%)"]
-
-        atr_by_year_month = cycle_data.groupby(["year", "month"])["ATR%"].mean().reset_index()
+        atr_by_year_month = monthly_group["ATR%"].mean().reset_index()
         atr_by_month = atr_by_year_month.groupby("month")["ATR%"].mean().to_frame("Avg ATR%")
 
+        # Compute overall % Pos by month
+        monthly_pos_by_month = monthly_pos.groupby("month")["% Pos"].mean()
+
         summary_table_1 = monthly_returns_by_month.join(atr_by_month, on="month")
+        summary_table_1 = summary_table_1.join(monthly_pos_by_month, on="month")
 
         st.subheader("Table 1: Monthly Summary Stats (All Cycle Years)")
         st.dataframe(summary_table_1.style.format({
             "Avg Monthly Return (%)": "{:.1f}%",
             "Median Monthly Return (%)": "{:.1f}%",
-            "Avg ATR%": "{:.1f}%"
+            "Avg ATR%": "{:.1f}%",
+            "% Pos": "{:.1f}%"
         }))
 
         # Table 2: Current Month Weekly Stats
@@ -190,7 +203,7 @@ def seasonals_chart(ticker, cycle_label, show_tables):
         current_month_week_stats = []
         for w in current_month_weeks:
             w_data = current_month_data[current_month_data["week_of_month_5day"] == w]
-            stats = summarize_data(w_data, include_atr=True)  # Weekly still includes ATR
+            stats = summarize_data(w_data, include_atr=True)
             stats["Week"] = w
             current_month_week_stats.append(stats)
         current_month_week_df = pd.DataFrame(current_month_week_stats).set_index("Week")
@@ -199,7 +212,8 @@ def seasonals_chart(ticker, cycle_label, show_tables):
         st.dataframe(current_month_week_df.style.format({
             "Avg Return (%)": "{:.1f}%",
             "Median Daily Return (%)": "{:.1f}%",
-            "Avg ATR%": "{:.1f}%"
+            "Avg ATR%": "{:.1f}%",
+            "% Pos": "{:.1f}%"
         }))
 
         # Table 3: Next Month Weekly Stats
@@ -209,55 +223,60 @@ def seasonals_chart(ticker, cycle_label, show_tables):
             next_month_week_stats = []
             for w in next_month_weeks:
                 w_data = next_month_data[next_month_data["week_of_month_5day"] == w]
-                stats = summarize_data(w_data, include_atr=True)  # Weekly still includes ATR
+                stats = summarize_data(w_data, include_atr=True)
                 stats["Week"] = w
                 next_month_week_stats.append(stats)
             next_month_week_df = pd.DataFrame(next_month_week_stats).set_index("Week")
         else:
-            next_month_week_df = pd.DataFrame(columns=["Avg Return (%)","Median Daily Return (%)","Avg ATR%"])
+            next_month_week_df = pd.DataFrame(columns=["Avg Return (%)","Median Daily Return (%)","Avg ATR%","% Pos"])
 
         st.subheader("Table 3: Next Month Weekly Stats (5-Day Weeks Merged)")
         st.dataframe(next_month_week_df.style.format({
             "Avg Return (%)": "{:.1f}%",
             "Median Daily Return (%)": "{:.1f}%",
-            "Avg ATR%": "{:.1f}%"
+            "Avg ATR%": "{:.1f}%",
+            "% Pos": "{:.1f}%"
         }))
 
-        # Table 4: Current Month Daily Stats (No ATR, Include % Pos)
+        # Table 4: Current Month Daily Stats
+        # Include ATR and % Pos here as well
         current_month_days = sorted(current_month_data["trading_day_of_month"].unique())
         current_month_day_stats = []
         for d in current_month_days:
             d_data = current_month_data[current_month_data["trading_day_of_month"] == d]
-            stats = summarize_data(d_data, include_atr=False)
+            # Now we include ATR and % Pos as well
+            stats = summarize_data(d_data, include_atr=True)
             stats["Day"] = d
             current_month_day_stats.append(stats)
         current_month_day_df = pd.DataFrame(current_month_day_stats).set_index("Day")
 
-        st.subheader("Table 4: Current Month Daily Stats (% Pos Instead of ATR)")
+        st.subheader("Table 4: Current Month Daily Stats")
         st.dataframe(current_month_day_df.style.format({
             "Avg Return (%)": "{:.1f}%",
             "Median Daily Return (%)": "{:.1f}%",
+            "Avg ATR%": "{:.1f}%",
             "% Pos": "{:.1f}%"
         }))
 
-        # Table 5: Next Month Daily Stats (No ATR, Include % Pos)
+        # Table 5: Next Month Daily Stats
         next_month_data = cycle_data[cycle_data["month"] == next_month]
         if not next_month_data.empty:
             next_month_days = sorted(next_month_data["trading_day_of_month"].unique())
             next_month_day_stats = []
             for d in next_month_days:
                 d_data = next_month_data[next_month_data["trading_day_of_month"] == d]
-                stats = summarize_data(d_data, include_atr=False)
+                stats = summarize_data(d_data, include_atr=True)
                 stats["Day"] = d
                 next_month_day_stats.append(stats)
             next_month_day_df = pd.DataFrame(next_month_day_stats).set_index("Day")
         else:
-            next_month_day_df = pd.DataFrame(columns=["Avg Return (%)","Median Daily Return (%)","% Pos"])
+            next_month_day_df = pd.DataFrame(columns=["Avg Return (%)","Median Daily Return (%)","Avg ATR%","% Pos"])
 
-        st.subheader("Table 5: Next Month Daily Stats (% Pos Instead of ATR)")
+        st.subheader("Table 5: Next Month Daily Stats")
         st.dataframe(next_month_day_df.style.format({
             "Avg Return (%)": "{:.1f}%",
             "Median Daily Return (%)": "{:.1f}%",
+            "Avg ATR%": "{:.1f}%",
             "% Pos": "{:.1f}%"
         }))
 
