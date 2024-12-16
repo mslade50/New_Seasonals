@@ -14,7 +14,7 @@ def compute_atr(df, window=14):
     df["ATR%"] = (df["ATR"] / df["Close"]) * 100
     return df
 
-def seasonals_chart(ticker, cycle_label):
+def seasonals_chart(ticker, cycle_label, show_tables):
     cycle_start_mapping = {
         "Election": 1952,
         "Pre-Election": 1951,
@@ -58,11 +58,9 @@ def seasonals_chart(ticker, cycle_label):
             .apply(np.exp) - 1
         )
         current_trading_day = len(current_year_data)
-        current_ytd_value = this_year_path.iloc[-1]
     else:
         this_year_path = pd.Series(dtype=float)
         current_trading_day = None
-        current_ytd_value = None
 
     fig = go.Figure()
     fig.add_trace(go.Scatter(
@@ -106,42 +104,31 @@ def seasonals_chart(ticker, cycle_label):
 
     st.plotly_chart(fig)
 
-    # If user wants to see summary tables
-    if st.checkbox("Show Summary Tables"):
-        # 1) Average and median return by month for each of the cycles
-        #    Also show ATR% for each year and month
+    if show_tables:
+        # 1) Average and median return by month for each of the cycles, and ATR%
         monthly_data = cycle_data.copy()
-        # Monthly return = sum of daily log returns within each month
         monthly_data["monthly_return"] = monthly_data.groupby(["year", "month"])["log_return"].transform("sum")
 
-        # Average and median monthly returns across all cycle years by month
         monthly_returns_by_month = monthly_data.groupby("month")["monthly_return"].agg(["mean", "median"])
         monthly_returns_by_month.columns = ["Avg Monthly Return", "Median Monthly Return"]
 
-        # ATR% by year, month
         atr_by_year_month = monthly_data.groupby(["year", "month"])["ATR%"].mean().reset_index()
-        # Pivot to see average ATR% by month (averaging across cycle years)
         atr_by_month = atr_by_year_month.groupby("month")["ATR%"].mean().to_frame("Avg ATR%")
 
-        # Merge returns and ATR data by month
         summary_table_1 = monthly_returns_by_month.join(atr_by_month, on="month")
         st.subheader("Table 1: Monthly Summary Stats (All Cycle Years)")
         st.dataframe(summary_table_1.style.format("{:.4f}"))
 
-        # 2) Another table with the same stuff but at a more granular level:
-        #    For the week of the month that we are currently in, and the following month.
-        # Current date info
+        # 2) Current month/week and next month
         now = dt.date.today()
         current_month = now.month
         current_week_of_month = (now.day - 1) // 7 + 1
         next_month = current_month + 1 if current_month < 12 else 1
 
-        # Filter for current month/week historically
         current_week_data = cycle_data[
             (cycle_data["month"] == current_month) &
             (cycle_data["week_of_month"] == current_week_of_month)
         ]
-        # Summary for current week of current month (historically)
         current_week_summary = {}
         if not current_week_data.empty:
             current_week_summary["Avg Return"] = current_week_data["log_return"].sum()
@@ -154,11 +141,9 @@ def seasonals_chart(ticker, cycle_label):
 
         current_week_df = pd.DataFrame([current_week_summary], index=["Current Week of Current Month"])
 
-        # For the following month (all data in that month)
         next_month_data = cycle_data[cycle_data["month"] == next_month]
         next_month_summary = {}
         if not next_month_data.empty:
-            # Monthly return is sum of daily log returns
             next_month_summary["Avg Return"] = next_month_data["log_return"].sum()
             next_month_summary["Median Daily Return"] = next_month_data["log_return"].median()
             next_month_summary["Avg ATR%"] = next_month_data["ATR%"].mean()
@@ -169,13 +154,11 @@ def seasonals_chart(ticker, cycle_label):
 
         next_month_df = pd.DataFrame([next_month_summary], index=["Next Month (All Weeks)"])
 
-        # Combined table for these two
         st.subheader("Table 2: Current Week of Current Month & Next Month Stats")
         combined_table_2 = pd.concat([current_week_df, next_month_df])
         st.dataframe(combined_table_2.style.format("{:.4f}"))
 
-        # 3) Another table: For completeness, let's also show the current entire month vs. the current week
-        #    This can help compare current week vs. entire month historically
+        # 3) Current month (all weeks)
         current_month_data = cycle_data[cycle_data["month"] == current_month]
         current_month_summary = {}
         if not current_month_data.empty:
@@ -188,10 +171,8 @@ def seasonals_chart(ticker, cycle_label):
             current_month_summary["Avg ATR%"] = np.nan
 
         current_month_df = pd.DataFrame([current_month_summary], index=["Current Month (All Weeks)"])
-
         st.subheader("Table 3: Current Month (All Weeks) Stats")
         st.dataframe(current_month_df.style.format("{:.4f}"))
-
 
 st.title("Presidential Cycle Seasonality Chart")
 
@@ -201,8 +182,10 @@ cycle_label = st.selectbox(
     ["Election", "Pre-Election", "Post-Election", "Midterm"]
 )
 
+show_tables = st.sidebar.checkbox("Show Summary Tables")
+
 if st.button("Plot"):
     try:
-        seasonals_chart(ticker, cycle_label)
+        seasonals_chart(ticker, cycle_label, show_tables)
     except Exception as e:
         st.error(f"Error generating chart: {e}")
