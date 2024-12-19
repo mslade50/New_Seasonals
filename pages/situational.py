@@ -77,6 +77,19 @@ def main():
     # User input: Event type
     event_type = st.selectbox("Select Event Type", options=dates_df['Event'].unique())
 
+    # User input: Month
+    month = st.selectbox(
+        "Select Month (Optional)", 
+        options=["All"] + list(range(1, 13)),
+        format_func=lambda x: "All" if x == "All" else pd.to_datetime(f"2022-{x}-01").strftime('%B')
+    )
+
+    # User input: Year of Presidential Cycle
+    cycle_year = st.selectbox(
+        "Select Year of Presidential Cycle (Optional)", 
+        options=["All", "Election", "Post-Election", "Midterm", "Pre-Election"]
+    )
+
     # User input: Stock ticker
     ticker = st.text_input("Enter Stock Ticker (e.g., AAPL, SPY):")
 
@@ -88,8 +101,18 @@ def main():
             data.index = pd.to_datetime(data.index)
 
             # Filter for the selected event type
-            event_dates = dates_df[dates_df['Event'] == event_type]['Date']
-            event_dates = pd.to_datetime(event_dates)
+            event_dates = dates_df[dates_df['Event'] == event_type]
+            
+            # Apply month filter
+            if month != "All":
+                event_dates = event_dates[event_dates['Date'].apply(lambda x: pd.to_datetime(x).month) == month]
+
+            # Apply year of presidential cycle filter
+            if cycle_year != "All":
+                event_dates = event_dates[event_dates['Cycle'] == cycle_year]
+
+            # Extract relevant dates
+            event_dates = pd.to_datetime(event_dates['Date'])
 
             # Calculate metrics
             avg_return, avg_daily_range, avg_daily_range_14_ratio, avg_5d_fwd_return, individual_returns = calculate_metrics(data, event_dates)
