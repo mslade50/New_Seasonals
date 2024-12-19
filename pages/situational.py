@@ -12,6 +12,9 @@ def load_event_dates():
 
 # Function to calculate metrics
 def calculate_metrics(data, event_dates):
+    # Ensure event_dates are sorted and unique
+    event_dates = sorted(event_dates.dropna().unique())
+    
     # Filter the data for relevant event dates
     data['Date'] = data.index
     data['Date'] = pd.to_datetime(data['Date'])
@@ -25,15 +28,29 @@ def calculate_metrics(data, event_dates):
     individual_returns = None
 
     if not event_data.empty:
-        # Calculate metrics
+        # Create a column for the previous day's close
+        data['Previous Close'] = data['Close'].shift(1)
+
+        # Filter again to align previous close
+        event_data = data[data['Date'].isin(event_dates)].dropna(subset=['Previous Close'])
+
+        # Calculate returns relative to the previous day
+        event_data['1D Return'] = (event_data['Close'] - event_data['Previous Close']) / event_data['Previous Close'] * 100
+
+        # Calculate daily range as a percentage of close
         event_data['Daily Range'] = (event_data['High'] - event_data['Low']) / event_data['Close'] * 100
+
+        # Calculate the rolling 14-day average of the daily range
         event_data['14D Avg Range'] = (
             event_data['Daily Range']
             .rolling(window=14, min_periods=1)
             .mean()
         )
+
+        # Calculate the ratio of daily range to 14-day average
         event_data['Range/14D Avg'] = event_data['Daily Range'] / event_data['14D Avg Range']
-        event_data['1D Return'] = (event_data['Close'] - event_data['Close'].shift(1)) / event_data['Close'].shift(1) * 100
+
+        # Calculate the 5-day forward return
         event_data['5D Fwd Return'] = (
             event_data['Close'].shift(-5) - event_data['Close']
         ) / event_data['Close'] * 100
@@ -48,6 +65,7 @@ def calculate_metrics(data, event_dates):
         individual_returns = event_data[['Date', '1D Return']].dropna()
 
     return avg_return, avg_daily_range, avg_daily_range_14_ratio, avg_5d_fwd_return, individual_returns
+
 
 # Main Streamlit app
 def main():
