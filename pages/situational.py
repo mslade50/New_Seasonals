@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import yfinance as yf
 import numpy as np
+import plotly.graph_objs as go
 
 # Load the dates CSV from the repo
 @st.cache
@@ -21,6 +22,7 @@ def calculate_metrics(data, event_dates):
     avg_daily_range = None
     avg_daily_range_14_ratio = None
     avg_5d_fwd_return = None
+    individual_returns = None
 
     if not event_data.empty:
         # Calculate metrics
@@ -42,7 +44,10 @@ def calculate_metrics(data, event_dates):
         avg_daily_range_14_ratio = event_data['Range/14D Avg'].mean()
         avg_5d_fwd_return = event_data['5D Fwd Return'].mean()
 
-    return avg_return, avg_daily_range, avg_daily_range_14_ratio, avg_5d_fwd_return
+        # Get individual returns for plotting
+        individual_returns = event_data[['Date', '1D Return']].dropna()
+
+    return avg_return, avg_daily_range, avg_daily_range_14_ratio, avg_5d_fwd_return, individual_returns
 
 # Main Streamlit app
 def main():
@@ -69,7 +74,7 @@ def main():
             event_dates = pd.to_datetime(event_dates)
 
             # Calculate metrics
-            avg_return, avg_daily_range, avg_daily_range_14_ratio, avg_5d_fwd_return = calculate_metrics(data, event_dates)
+            avg_return, avg_daily_range, avg_daily_range_14_ratio, avg_5d_fwd_return, individual_returns = calculate_metrics(data, event_dates)
 
             # Display results
             if avg_return is not None:
@@ -78,6 +83,23 @@ def main():
                 st.write(f"**Average Daily Range (%)**: {avg_daily_range:.2f}")
                 st.write(f"**Average Daily Range / 14D Average Ratio**: {avg_daily_range_14_ratio:.2f}")
                 st.write(f"**Average 5-Day Forward Return (%)**: {avg_5d_fwd_return:.2f}")
+
+                # Plot bar chart of individual returns
+                if not individual_returns.empty:
+                    fig = go.Figure()
+                    fig.add_trace(go.Bar(
+                        x=individual_returns['Date'],
+                        y=individual_returns['1D Return'],
+                        name="1-Day Returns",
+                        marker=dict(color="blue")
+                    ))
+                    fig.update_layout(
+                        title=f"1-Day Returns for {event_type} Events on {ticker}",
+                        xaxis_title="Date",
+                        yaxis_title="1-Day Return (%)",
+                        template="plotly_dark"
+                    )
+                    st.plotly_chart(fig)
             else:
                 st.error("No matching event dates found in the stock data.")
         else:
