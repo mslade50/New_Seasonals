@@ -104,7 +104,18 @@ def main():
 
     # User input: Shift days
     shift_days = st.number_input("Shift Event Dates by Trading Days", min_value=-10, max_value=10, value=0)
-
+    def map_presidential_cycle(year):
+        if year % 4 == 0:
+            return "Election"
+        elif year % 4 == 1:
+            return "Post-Election"
+        elif year % 4 == 2:
+            return "Midterm"
+        elif year % 4 == 3:
+            return "Pre-Election"
+        return None
+    
+    dates_df['Cycle'] = dates_df['Year'].apply(map_presidential_cycle)
     # Trigger calculation
     if st.button("Calculate Metrics"):
         if ticker:
@@ -127,18 +138,7 @@ def main():
             if month != "All":
                 dates_df = dates_df[dates_df['Date'].apply(lambda x: pd.to_datetime(x).month) == month]
 
-            def map_presidential_cycle(year):
-                if year % 4 == 0:
-                    return "Election"
-                elif year % 4 == 1:
-                    return "Post-Election"
-                elif year % 4 == 2:
-                    return "Midterm"
-                elif year % 4 == 3:
-                    return "Pre-Election"
-                return None
             
-            dates_df['Cycle'] = dates_df['Year'].apply(map_presidential_cycle)
             if cycle_year != "All":
                 if 'Cycle' in dates_df.columns:
                     dates_df = dates_df[dates_df['Cycle'] == cycle_year]
