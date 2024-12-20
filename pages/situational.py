@@ -80,6 +80,8 @@ def main():
 
     # Load event dates
     dates_df = load_event_dates()
+    dates_df['Year'] = dates_df['Date'].dt.year
+
 
     # User input: Event type
     event_type = st.selectbox("Select Event Type", options=list(dates_df['Event'].unique()) + ["Opex", "First Day of Month", "Last Day of Month"])
@@ -125,8 +127,18 @@ def main():
             if month != "All":
                 dates_df = dates_df[dates_df['Date'].apply(lambda x: pd.to_datetime(x).month) == month]
 
-            # Apply year of presidential cycle filter
-            # Apply year of presidential cycle filter
+            def map_presidential_cycle(year):
+                if year % 4 == 0:
+                    return "Election"
+                elif year % 4 == 1:
+                    return "Post-Election"
+                elif year % 4 == 2:
+                    return "Midterm"
+                elif year % 4 == 3:
+                    return "Pre-Election"
+                return None
+            
+            dates_df['Cycle'] = dates_df['Year'].apply(map_presidential_cycle)
             if cycle_year != "All":
                 if 'Cycle' in dates_df.columns:
                     dates_df = dates_df[dates_df['Cycle'] == cycle_year]
