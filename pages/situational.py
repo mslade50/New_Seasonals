@@ -10,20 +10,10 @@ def load_event_dates():
     url = "https://raw.githubusercontent.com/mslade50/New_Seasonals/main/market_dates.csv"
     return pd.read_csv(url)
 
-# Function to calculate metrics
-def calculate_metrics(data, event_dates, shift_days=0):
+def calculate_metrics(event_data, shift_days=0):
     # Ensure event_dates are sorted and unique
-    event_dates = sorted(event_dates.dropna().unique())
-
-    # Apply shifting
-    event_dates = pd.to_datetime(event_dates) + pd.to_timedelta(shift_days, unit="D")
-
-    # Filter the data for relevant event dates
-    data = data.copy()
-    data['Date'] = data.index
-    data['Date'] = pd.to_datetime(data['Date'])
-    data = data.dropna(subset=['Date'])  # Drop rows with missing Date
-    event_data = data[data['Date'].isin(event_dates)]
+    event_data = event_data.copy()
+    event_data['Date'] = pd.to_datetime(event_data['Date'])
 
     # Initialize results
     avg_return = None
@@ -35,24 +25,14 @@ def calculate_metrics(data, event_dates, shift_days=0):
 
     if not event_data.empty:
         # Ensure 'Previous Close' and 'Daily Range' columns exist
-        data['Previous Close'] = data['Close'].shift(1)
-        data['Daily Range'] = (data['High'] - data['Low']) / data['Close'] * 100
+        event_data['Previous Close'] = event_data['Close'].shift(1)
+        event_data['Daily Range'] = (event_data['High'] - event_data['Low']) / event_data['Close'] * 100
 
-        # Drop duplicates in the `Date` column for safe merging
-        data = data.drop_duplicates(subset=['Date'])
-        data['Date']=pd.to_datetime(data['Date'])
         # Calculate the rolling 14-day average of the daily range
-        data['14D Avg Range'] = data['Daily Range'].rolling(window=14, min_periods=1).mean().shift(1)  # Shift back 1 day
+        event_data['14D Avg Range'] = event_data['Daily Range'].rolling(window=14, min_periods=1).mean().shift(1)  # Shift back 1 day
+        event_data['Range/14D Avg'] = event_data['Daily Range'] / event_data['14D Avg Range']
 
-        # Ensure `14D Avg Range` exists before merging
-        if '14D Avg Range' in data.columns:
-            # Merge the 14-day average into event_data
-            event_data = event_data.merge(data[['Date', '14D Avg Range']], on='Date', how='left')
-            event_data['Range/14D Avg'] = event_data['Daily Range'] / event_data['14D Avg Range']
-        else:
-            event_data['Range/14D Avg'] = np.nan
-
-        # Filter again to align previous close and daily range
+        # Drop rows with missing critical columns
         event_data = event_data.dropna(subset=['Previous Close', 'Daily Range'])
 
         # Calculate returns relative to the previous day
