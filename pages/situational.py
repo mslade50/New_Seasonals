@@ -11,10 +11,13 @@ def load_event_dates():
     return pd.read_csv(url)
 
 # Function to calculate metrics
-def calculate_metrics(data, event_dates):
+def calculate_metrics(data, event_dates, shift_days=0):
     # Ensure event_dates are sorted and unique
     event_dates = sorted(event_dates.dropna().unique())
     
+    # Apply shifting
+    event_dates = pd.to_datetime(event_dates) + pd.to_timedelta(shift_days, unit="D")
+
     # Filter the data for relevant event dates
     data['Date'] = data.index
     data['Date'] = pd.to_datetime(data['Date'])
@@ -26,6 +29,7 @@ def calculate_metrics(data, event_dates):
     avg_daily_range_14_ratio = None
     avg_5d_fwd_return = None
     individual_returns = None
+    backtest_table = None
 
     if not event_data.empty:
         # Create a column for the previous day's close
@@ -41,13 +45,10 @@ def calculate_metrics(data, event_dates):
         event_data['Daily Range'] = (event_data['High'] - event_data['Low']) / event_data['Close'] * 100
 
         # Calculate the rolling 14-day average of the daily range
-        event_data['14D Avg Range'] = (
-            event_data['Daily Range']
-            .rolling(window=14, min_periods=1)
-            .mean()
-        )
+        data['14D Avg Range'] = data['Daily Range'].rolling(window=14, min_periods=1).mean().shift(1)  # Shift back 1 day
 
-        # Calculate the ratio of daily range to 14-day average
+        # Merge the 14-day average into event_data
+        event_data = event_data.merge(data[['Date', '14D Avg Range']], on='Date', how='left')
         event_data['Range/14D Avg'] = event_data['Daily Range'] / event_data['14D Avg Range']
 
         # Calculate the 5-day forward return
@@ -64,8 +65,14 @@ def calculate_metrics(data, event_dates):
         # Get individual returns for plotting
         individual_returns = event_data[['Date', '1D Return']].dropna()
 
-    return avg_return, avg_daily_range, avg_daily_range_14_ratio, avg_5d_fwd_return, individual_returns
+        # Backtest calculations
+        backtest_table = pd.DataFrame()
+        for days in [1, 3, 5, 10]:
+            backtest_table[f"{days}D Return"] = (
+                (event_data['Close'].shift(-days) - event_data['Close']) / event_data['Close'] * 100
+            ).dropna()
 
+    return avg_return, avg_daily_range, avg_daily_range_14_ratio, avg_5d_fwd_return, individual_returns, backtest_table
 
 # Main Streamlit app
 def main():
@@ -75,7 +82,7 @@ def main():
     dates_df = load_event_dates()
 
     # User input: Event type
-    event_type = st.selectbox("Select Event Type", options=dates_df['Event'].unique())
+    event_type = st.selectbox("Select Event Type", options=list(dates_df['Event'].unique()) + ["Opex", "First Day of Month", "Last Day of Month"])
 
     # User input: Month
     month = st.selectbox(
@@ -93,6 +100,9 @@ def main():
     # User input: Stock ticker
     ticker = st.text_input("Enter Stock Ticker (e.g., AAPL, SPY):")
 
+    # User input: Shift days
+    shift_days = st.number_input("Shift Event Dates by Trading Days", min_value=-10, max_value=10, value=0)
+
     # Trigger calculation
     if st.button("Calculate Metrics"):
         if ticker:
@@ -101,21 +111,29 @@ def main():
             data.index = pd.to_datetime(data.index)
 
             # Filter for the selected event type
-            event_dates = dates_df[dates_df['Event'] == event_type]
-            
+            if event_type in ["Opex", "First Day of Month", "Last Day of Month"]:
+                if event_type == "Opex":
+                    dates_df = dates_df[dates_df['Event'] == "Opex"]
+                elif event_type == "First Day of Month":
+                    dates_df = pd.DataFrame({"Date": data.index[data.index.is_month_start]})
+                elif event_type == "Last Day of Month":
+                    dates_df = pd.DataFrame({"Date": data.index[data.index.is_month_end]})
+            else:
+                dates_df = dates_df[dates_df['Event'] == event_type]
+
             # Apply month filter
             if month != "All":
-                event_dates = event_dates[event_dates['Date'].apply(lambda x: pd.to_datetime(x).month) == month]
+                dates_df = dates_df[dates_df['Date'].apply(lambda x: pd.to_datetime(x).month) == month]
 
             # Apply year of presidential cycle filter
             if cycle_year != "All":
-                event_dates = event_dates[event_dates['Cycle'] == cycle_year]
+                dates_df = dates_df[dates_df['Cycle'] == cycle_year]
 
             # Extract relevant dates
-            event_dates = pd.to_datetime(event_dates['Date'])
+            event_dates = pd.to_datetime(dates_df['Date'])
 
             # Calculate metrics
-            avg_return, avg_daily_range, avg_daily_range_14_ratio, avg_5d_fwd_return, individual_returns = calculate_metrics(data, event_dates)
+            avg_return, avg_daily_range, avg_daily_range_14_ratio, avg_5d_fwd_return, individual_returns, backtest_table = calculate_metrics(data, event_dates, shift_days)
 
             # Display results
             if avg_return is not None:
@@ -141,6 +159,12 @@ def main():
                         template="plotly_dark"
                     )
                     st.plotly_chart(fig)
+
+                # Display backtest table
+                if backtest_table is not None:
+                    st.write("### Backtest Results")
+                    st.write(backtest_table.describe())
+
             else:
                 st.error("No matching event dates found in the stock data.")
         else:
