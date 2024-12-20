@@ -22,6 +22,7 @@ def calculate_metrics(data, event_dates, shift_days=0):
     data = data.copy()
     data['Date'] = data.index
     data['Date'] = pd.to_datetime(data['Date'])
+    data = data.dropna(subset=['Date'])  # Drop rows with missing Date
     event_data = data[data['Date'].isin(event_dates)]
 
     # Initialize results
@@ -37,24 +38,25 @@ def calculate_metrics(data, event_dates, shift_days=0):
         data['Previous Close'] = data['Close'].shift(1)
         data['Daily Range'] = (data['High'] - data['Low']) / data['Close'] * 100
 
-        # Filter again to align previous close and daily range
-        event_data = data[data['Date'].isin(event_dates)].dropna(subset=['Previous Close', 'Daily Range'])
-
-        # Calculate returns relative to the previous day
-        event_data['1D Return'] = (event_data['Close'] - event_data['Previous Close']) / event_data['Previous Close'] * 100
+        # Drop duplicates in the `Date` column for safe merging
+        data = data.drop_duplicates(subset=['Date'])
 
         # Calculate the rolling 14-day average of the daily range
         data['14D Avg Range'] = data['Daily Range'].rolling(window=14, min_periods=1).mean().shift(1)  # Shift back 1 day
 
-        # Ensure no duplicate dates in the data to avoid merge conflicts
-        data = data.drop_duplicates(subset=['Date'])
-
-        # Merge the 14-day average into event_data
+        # Ensure `14D Avg Range` exists before merging
         if '14D Avg Range' in data.columns:
+            # Merge the 14-day average into event_data
             event_data = event_data.merge(data[['Date', '14D Avg Range']], on='Date', how='left')
             event_data['Range/14D Avg'] = event_data['Daily Range'] / event_data['14D Avg Range']
         else:
             event_data['Range/14D Avg'] = np.nan
+
+        # Filter again to align previous close and daily range
+        event_data = event_data.dropna(subset=['Previous Close', 'Daily Range'])
+
+        # Calculate returns relative to the previous day
+        event_data['1D Return'] = (event_data['Close'] - event_data['Previous Close']) / event_data['Previous Close'] * 100
 
         # Calculate the 5-day forward return
         event_data['5D Fwd Return'] = (
@@ -78,6 +80,7 @@ def calculate_metrics(data, event_dates, shift_days=0):
             ).dropna()
 
     return avg_return, avg_daily_range, avg_daily_range_14_ratio, avg_5d_fwd_return, individual_returns, backtest_table
+
 
 
 # Main Streamlit app
