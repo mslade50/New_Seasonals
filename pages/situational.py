@@ -1,3 +1,10 @@
+import streamlit as st
+import pandas as pd
+import yfinance as yf
+import numpy as np
+import plotly.graph_objs as go
+
+# Load the dates CSV from the repo
 @st.cache_data
 def load_event_dates():
     url = "https://raw.githubusercontent.com/mslade50/New_Seasonals/main/market_dates.csv"
