@@ -46,9 +46,15 @@ def calculate_metrics(data, event_dates, shift_days=0):
         # Calculate the rolling 14-day average of the daily range
         data['14D Avg Range'] = data['Daily Range'].rolling(window=14, min_periods=1).mean().shift(1)  # Shift back 1 day
 
+        # Ensure no duplicate dates in the data to avoid merge conflicts
+        data = data.drop_duplicates(subset=['Date'])
+
         # Merge the 14-day average into event_data
-        event_data = event_data.merge(data[['Date', '14D Avg Range']], on='Date', how='left')
-        event_data['Range/14D Avg'] = event_data['Daily Range'] / event_data['14D Avg Range']
+        if '14D Avg Range' in data.columns:
+            event_data = event_data.merge(data[['Date', '14D Avg Range']], on='Date', how='left')
+            event_data['Range/14D Avg'] = event_data['Daily Range'] / event_data['14D Avg Range']
+        else:
+            event_data['Range/14D Avg'] = np.nan
 
         # Calculate the 5-day forward return
         event_data['5D Fwd Return'] = (
@@ -72,6 +78,7 @@ def calculate_metrics(data, event_dates, shift_days=0):
             ).dropna()
 
     return avg_return, avg_daily_range, avg_daily_range_14_ratio, avg_5d_fwd_return, individual_returns, backtest_table
+
 
 # Main Streamlit app
 def main():
