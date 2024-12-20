@@ -126,8 +126,13 @@ def main():
                 dates_df = dates_df[dates_df['Date'].apply(lambda x: pd.to_datetime(x).month) == month]
 
             # Apply year of presidential cycle filter
+            # Apply year of presidential cycle filter
             if cycle_year != "All":
-                dates_df = dates_df[dates_df['Cycle'] == cycle_year]
+                if 'Cycle' in dates_df.columns:
+                    dates_df = dates_df[dates_df['Cycle'] == cycle_year]
+                else:
+                    st.warning("The 'Cycle' column is missing in the event dates data. Skipping presidential cycle filtering.")
+            
 
             # Extract relevant dates
             event_dates = pd.to_datetime(dates_df['Date'])
