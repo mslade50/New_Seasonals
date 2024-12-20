@@ -5,7 +5,7 @@ import numpy as np
 import plotly.graph_objs as go
 
 # Load the dates CSV from the repo
-@st.cache
+@st.cache_data
 def load_event_dates():
     url = "https://raw.githubusercontent.com/mslade50/New_Seasonals/main/market_dates.csv"
     return pd.read_csv(url)
@@ -14,11 +14,12 @@ def load_event_dates():
 def calculate_metrics(data, event_dates, shift_days=0):
     # Ensure event_dates are sorted and unique
     event_dates = sorted(event_dates.dropna().unique())
-    
+
     # Apply shifting
     event_dates = pd.to_datetime(event_dates) + pd.to_timedelta(shift_days, unit="D")
 
     # Filter the data for relevant event dates
+    data = data.copy()
     data['Date'] = data.index
     data['Date'] = pd.to_datetime(data['Date'])
     event_data = data[data['Date'].isin(event_dates)]
@@ -72,7 +73,6 @@ def calculate_metrics(data, event_dates, shift_days=0):
 
     return avg_return, avg_daily_range, avg_daily_range_14_ratio, avg_5d_fwd_return, individual_returns, backtest_table
 
-
 # Main Streamlit app
 def main():
     st.title("Market Event Analysis Dashboard")
@@ -82,6 +82,19 @@ def main():
     dates_df['Date'] = pd.to_datetime(dates_df['Date'])
     dates_df['Year'] = dates_df['Date'].dt.year
 
+    # Map presidential cycle
+    def map_presidential_cycle(year):
+        if year % 4 == 0:
+            return "Election"
+        elif year % 4 == 1:
+            return "Post-Election"
+        elif year % 4 == 2:
+            return "Midterm"
+        elif year % 4 == 3:
+            return "Pre-Election"
+        return None
+
+    dates_df['Cycle'] = dates_df['Year'].apply(map_presidential_cycle)
 
     # User input: Event type
     event_type = st.selectbox("Select Event Type", options=list(dates_df['Event'].unique()) + ["Opex", "First Day of Month", "Last Day of Month"])
@@ -104,18 +117,7 @@ def main():
 
     # User input: Shift days
     shift_days = st.number_input("Shift Event Dates by Trading Days", min_value=-10, max_value=10, value=0)
-    def map_presidential_cycle(year):
-        if year % 4 == 0:
-            return "Election"
-        elif year % 4 == 1:
-            return "Post-Election"
-        elif year % 4 == 2:
-            return "Midterm"
-        elif year % 4 == 3:
-            return "Pre-Election"
-        return None
-    
-    dates_df['Cycle'] = dates_df['Year'].apply(map_presidential_cycle)
+
     # Trigger calculation
     if st.button("Calculate Metrics"):
         if ticker:
@@ -136,15 +138,14 @@ def main():
 
             # Apply month filter
             if month != "All":
-                dates_df = dates_df[dates_df['Date'].apply(lambda x: pd.to_datetime(x).month) == month]
+                dates_df = dates_df[dates_df['Date'].dt.month == month]
 
-            
+            # Apply year of presidential cycle filter
             if cycle_year != "All":
                 if 'Cycle' in dates_df.columns:
                     dates_df = dates_df[dates_df['Cycle'] == cycle_year]
                 else:
                     st.warning("The 'Cycle' column is missing in the event dates data. Skipping presidential cycle filtering.")
-            
 
             # Extract relevant dates
             event_dates = pd.to_datetime(dates_df['Date'])
