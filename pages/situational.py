@@ -80,6 +80,7 @@ def main():
 
     # Load event dates
     dates_df = load_event_dates()
+    dates_df['Date'] = pd.to_datetime(dates_df['Date'])
     dates_df['Year'] = dates_df['Date'].dt.year
 
 
