@@ -40,7 +40,7 @@ def calculate_metrics(data, event_dates, shift_days=0):
 
         # Drop duplicates in the `Date` column for safe merging
         data = data.drop_duplicates(subset=['Date'])
-
+        data['Date']=pd.to_datetime(data['Date'])
         # Calculate the rolling 14-day average of the daily range
         data['14D Avg Range'] = data['Daily Range'].rolling(window=14, min_periods=1).mean().shift(1)  # Shift back 1 day
 
