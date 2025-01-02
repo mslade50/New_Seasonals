@@ -298,6 +298,49 @@ def seasonals_chart(ticker, cycle_label, show_tables):
             "Next Month Total Return (%)": "{:.1f}%",
             "Next Month High-to-Low Range (%)": "{:.1f}%"
         }))
+            # New Table: Current Month Analysis
+        current_month_analysis = []
+        for year in years_in_cycle:
+            month_data = cycle_data[(cycle_data["year"] == year) & (cycle_data["month"] == current_month)]
+            if not month_data.empty:
+                total_return = month_data["log_return"].sum() * 100  # Convert to percentage
+                high_low_range = (month_data["High"].max() - month_data["Low"].min()) / month_data["Low"].min() * 100
+                current_month_analysis.append({
+                    "Year": year,
+                    "Current Month Total Return (%)": total_return,
+                    "Current Month High-to-Low Range (%)": high_low_range,
+                })
+        
+        current_month_analysis_df = pd.DataFrame(current_month_analysis)
+        
+        st.subheader("Table 7: Current Month Analysis (Individual Years)")
+        st.dataframe(current_month_analysis_df.style.format({
+            "Current Month Total Return (%)": "{:.1f}%",
+            "Current Month High-to-Low Range (%)": "{:.1f}%"
+        }))
+        
+            # New Table: Current Week Analysis
+        current_week_analysis = []
+        for year in years_in_cycle:
+            week_data = cycle_data[(cycle_data["year"] == year) & 
+                                   (cycle_data["month"] == current_month) & 
+                                   (cycle_data["week_of_month_5day"] == current_week_of_month)]
+            if not week_data.empty:
+                total_return = week_data["log_return"].sum() * 100  # Convert to percentage
+                high_low_range = (week_data["High"].max() - week_data["Low"].min()) / week_data["Low"].min() * 100
+                current_week_analysis.append({
+                    "Year": year,
+                    "Current Week Total Return (%)": total_return,
+                    "Current Week High-to-Low Range (%)": high_low_range,
+                })
+        
+        current_week_analysis_df = pd.DataFrame(current_week_analysis)
+        
+        st.subheader("Table 8: Current Week Analysis (Individual Years)")
+        st.dataframe(current_week_analysis_df.style.format({
+            "Current Week Total Return (%)": "{:.1f}%",
+            "Current Week High-to-Low Range (%)": "{:.1f}%"
+        }))
 
     # Print current trading day/week of the month at the end
     current_day_of_month, current_week_of_month = get_current_trading_info()
