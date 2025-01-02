@@ -215,7 +215,7 @@ def seasonals_chart(ticker, cycle_label, show_tables):
             "Avg ATR%": "{:.1f}%",
             "% Pos": "{:.1f}%"
         }))
-
+        current_day_of_month, current_week_of_month = get_current_trading_info()
         # Table 3: Next Month Weekly Stats
         next_month_data = cycle_data[cycle_data["month"] == next_month]
         if not next_month_data.empty:
@@ -341,6 +341,29 @@ def seasonals_chart(ticker, cycle_label, show_tables):
             "Current Week Total Return (%)": "{:.1f}%",
             "Current Week High-to-Low Range (%)": "{:.1f}%"
         }))
+            # New Table: Next Week Analysis
+        next_week_analysis = []
+        for year in years_in_cycle:
+            week_data = cycle_data[(cycle_data["year"] == year) & 
+                                   (cycle_data["month"] == next_month) & 
+                                   (cycle_data["week_of_month_5day"] == 1)]  # Assume next month starts with week 1
+            if not week_data.empty:
+                total_return = week_data["log_return"].sum() * 100  # Convert to percentage
+                high_low_range = (week_data["High"].max() - week_data["Low"].min()) / week_data["Low"].min() * 100
+                next_week_analysis.append({
+                    "Year": year,
+                    "Next Week Total Return (%)": total_return,
+                    "Next Week High-to-Low Range (%)": high_low_range,
+                })
+        
+        next_week_analysis_df = pd.DataFrame(next_week_analysis)
+        
+        st.subheader("Table 9: Next Week Analysis (Individual Years)")
+        st.dataframe(next_week_analysis_df.style.format({
+            "Next Week Total Return (%)": "{:.1f}%",
+            "Next Week High-to-Low Range (%)": "{:.1f}%"
+        }))
+
 
     # Print current trading day/week of the month at the end
     current_day_of_month, current_week_of_month = get_current_trading_info()
