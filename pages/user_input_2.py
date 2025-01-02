@@ -279,6 +279,25 @@ def seasonals_chart(ticker, cycle_label, show_tables):
             "Avg ATR%": "{:.1f}%",
             "% Pos": "{:.1f}%"
         }))
+        next_month_analysis = []
+        for year in years_in_cycle:
+            month_data = cycle_data[(cycle_data["year"] == year) & (cycle_data["month"] == next_month)]
+            if not month_data.empty:
+                total_return = month_data["log_return"].sum() * 100  # Convert to percentage
+                high_low_range = (month_data["High"].max() - month_data["Low"].min()) / month_data["Low"].min() * 100
+                next_month_analysis.append({
+                    "Year": year,
+                    "Next Month Total Return (%)": total_return,
+                    "Next Month High-to-Low Range (%)": high_low_range,
+                })
+        
+        next_month_analysis_df = pd.DataFrame(next_month_analysis)
+        
+        st.subheader("Table 6: Next Month Analysis (Individual Years)")
+        st.dataframe(next_month_analysis_df.style.format({
+            "Next Month Total Return (%)": "{:.1f}%",
+            "Next Month High-to-Low Range (%)": "{:.1f}%"
+        }))
 
     # Print current trading day/week of the month at the end
     current_day_of_month, current_week_of_month = get_current_trading_info()
