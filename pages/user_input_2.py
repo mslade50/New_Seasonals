@@ -197,46 +197,9 @@ def seasonals_chart(ticker, cycle_label, show_tables):
             "% Pos": "{:.1f}%"
         }))
 
-        # Table 2: Current Month Weekly Stats
-        current_month_data = cycle_data[cycle_data["month"] == current_month]
-        current_month_weeks = sorted(current_month_data["week_of_month_5day"].unique())
-        current_month_week_stats = []
-        for w in current_month_weeks:
-            w_data = current_month_data[current_month_data["week_of_month_5day"] == w]
-            stats = summarize_data(w_data, include_atr=True)
-            stats["Week"] = w
-            current_month_week_stats.append(stats)
-        current_month_week_df = pd.DataFrame(current_month_week_stats).set_index("Week")
-
-        st.subheader("Table 2: Current Month Weekly Stats (5-Day Weeks Merged)")
-        st.dataframe(current_month_week_df.style.format({
-            "Avg Return (%)": "{:.1f}%",
-            "Median Daily Return (%)": "{:.1f}%",
-            "Avg ATR%": "{:.1f}%",
-            "% Pos": "{:.1f}%"
-        }))
+    
         current_day_of_month, current_week_of_month = get_current_trading_info()
-        # Table 3: Next Month Weekly Stats
-        next_month_data = cycle_data[cycle_data["month"] == next_month]
-        if not next_month_data.empty:
-            next_month_weeks = sorted(next_month_data["week_of_month_5day"].unique())
-            next_month_week_stats = []
-            for w in next_month_weeks:
-                w_data = next_month_data[next_month_data["week_of_month_5day"] == w]
-                stats = summarize_data(w_data, include_atr=True)
-                stats["Week"] = w
-                next_month_week_stats.append(stats)
-            next_month_week_df = pd.DataFrame(next_month_week_stats).set_index("Week")
-        else:
-            next_month_week_df = pd.DataFrame(columns=["Avg Return (%)","Median Daily Return (%)","Avg ATR%","% Pos"])
-
-        st.subheader("Table 3: Next Month Weekly Stats (5-Day Weeks Merged)")
-        st.dataframe(next_month_week_df.style.format({
-            "Avg Return (%)": "{:.1f}%",
-            "Median Daily Return (%)": "{:.1f}%",
-            "Avg ATR%": "{:.1f}%",
-            "% Pos": "{:.1f}%"
-        }))
+      
 
         # Table 4: Current Month Daily Stats
         # Include ATR and % Pos here as well
