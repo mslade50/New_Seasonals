@@ -203,15 +203,26 @@ def seasonals_chart(ticker, cycle_label, show_tables):
 
         # Table 4: Current Month Daily Stats
         # Include ATR and % Pos here as well
-        current_month_days = sorted(current_month_data["trading_day_of_month"].unique())
-        current_month_day_stats = []
-        for d in current_month_days:
-            d_data = current_month_data[current_month_data["trading_day_of_month"] == d]
-            # Now we include ATR and % Pos as well
-            stats = summarize_data(d_data, include_atr=True)
-            stats["Day"] = d
-            current_month_day_stats.append(stats)
-        current_month_day_df = pd.DataFrame(current_month_day_stats).set_index("Day")
+        # Filter data for the current month and year
+        now = dt.date.today()
+        current_month = now.month
+        current_year = now.year
+        
+        current_month_data = cycle_data[(cycle_data["month"] == current_month) & (cycle_data["year"] == current_year)]
+        
+        if not current_month_data.empty:
+            current_month_days = sorted(current_month_data["trading_day_of_month"].unique())
+            current_month_day_stats = []
+            for d in current_month_days:
+                d_data = current_month_data[current_month_data["trading_day_of_month"] == d]
+                # Now we include ATR and % Pos as well
+                stats = summarize_data(d_data, include_atr=True)
+                stats["Day"] = d
+                current_month_day_stats.append(stats)
+            current_month_day_df = pd.DataFrame(current_month_day_stats).set_index("Day")
+        else:
+            current_month_day_df = pd.DataFrame(columns=["Avg Return (%)", "Median Daily Return (%)", "Avg ATR%", "% Pos"])
+
 
         st.subheader("Table 4: Current Month Daily Stats")
         st.dataframe(current_month_day_df.style.format({
