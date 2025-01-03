@@ -223,15 +223,6 @@ def seasonals_chart(ticker, cycle_label, show_tables):
         else:
             current_month_day_df = pd.DataFrame(columns=["Avg Return (%)", "Median Daily Return (%)", "Avg ATR%", "% Pos"])
 
-
-        st.subheader("Table 4: Current Month Daily Stats")
-        st.dataframe(current_month_day_df.style.format({
-            "Avg Return (%)": "{:.1f}%",
-            "Median Daily Return (%)": "{:.1f}%",
-            "Avg ATR%": "{:.1f}%",
-            "% Pos": "{:.1f}%"
-        }))
-
         # Table 5: Next Month Daily Stats
         next_month_data = cycle_data[cycle_data["month"] == next_month]
         if not next_month_data.empty:
