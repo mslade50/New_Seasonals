@@ -78,6 +78,7 @@ def seasonals_chart(ticker, cycle_label, show_tables):
     this_yr_end = dt.date.today() + timedelta(days=1)
     spx1 = yf.Ticker(ticker)
     spx = spx1.history(period="max", end=end_date)
+    start_y = spx.index.year.min()
 
     if spx.empty:
         st.error(f"No data found for {ticker}.")
@@ -146,7 +147,7 @@ def seasonals_chart(ticker, cycle_label, show_tables):
         ))
 
     fig.update_layout(
-        title=f"{ticker} - {cycle_label} Cycle Average",
+        title=f"{ticker} - {cycle_label} Cycle Average since {start_y}",
         xaxis_title="Trading Day",
         yaxis_title="Cumulative Return",
         plot_bgcolor="black",
