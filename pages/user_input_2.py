@@ -54,6 +54,8 @@ def get_current_trading_info():
     today = dt.date.today()
     start_of_month = dt.date(today.year, today.month, 1)
     current_data = yf.download("SPY", start=start_of_month, end=today + timedelta(days=1)) 
+    if isinstance(current_data.columns, pd.MultiIndex):  
+        current_data.columns = current_data.columns.get_level_values(0)
     if not current_data.empty:
         current_data["trading_day_of_month"] = np.arange(1, len(current_data) + 1)
         current_data["week_of_month_5day"] = (current_data["trading_day_of_month"] - 1) // 5 + 1
