@@ -79,6 +79,7 @@ def seasonals_chart(ticker, cycle_label, show_tables):
     end_date = dt.datetime(2023, 12, 30)
     this_yr_end = dt.date.today() + timedelta(days=1)
     spx1 = yf.Ticker(ticker)
+    spx = spx1.history(period="max", end=end_date)
     if spx.empty:
         st.error(f"No data found for {ticker}.")
         return
