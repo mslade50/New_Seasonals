@@ -8,6 +8,7 @@ from datetime import date, timedelta
 
 def compute_atr(df, window=14):
     df = df.copy()
+    st.write(df)
     df["previous_close"] = df["Close"].shift(1)
     df["TR"] = df[["High", "previous_close"]].max(axis=1) - df[["Low", "previous_close"]].min(axis=1)
     df["ATR"] = df["TR"].rolling(window=window).mean()
@@ -77,6 +78,8 @@ def seasonals_chart(ticker, cycle_label, show_tables):
     end_date = dt.datetime(2023, 12, 30)
     this_yr_end = dt.date.today() + timedelta(days=1)
     spx1 = yf.Ticker(ticker)
+    if isinstance(spx1.columns, pd.MultiIndex):
+        spx1.columns = spx1.columns.get_level_values(0)
     spx = spx1.history(period="max", end=end_date)
     if isinstance(spx.columns, pd.MultiIndex):
         spx.columns = spx.columns.get_level_values(0)
