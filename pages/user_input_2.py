@@ -78,6 +78,8 @@ def seasonals_chart(ticker, cycle_label, show_tables):
     this_yr_end = dt.date.today() + timedelta(days=1)
     spx1 = yf.Ticker(ticker)
     spx = spx1.history(period="max", end=end_date)
+    if isinstance(spx.columns, pd.MultiIndex):
+        spx.columns = spx.columns.get_level_values(0)
     start_y = spx.index.year.min()
 
     if spx.empty:
