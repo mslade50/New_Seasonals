@@ -77,7 +77,7 @@ def seasonals_chart(ticker, cycle_label, show_tables):
     end_date = dt.datetime(2023, 12, 30)
     this_yr_end = dt.date.today() + timedelta(days=1)
     spx1 = yf.Ticker(ticker)
-
+    st.write(spx1)
     spx = spx1.history(period="max", end=end_date)
     if isinstance(spx.columns, pd.MultiIndex):  
         spx.columns = spx.columns.droplevel(0)
