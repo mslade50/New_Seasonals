@@ -79,22 +79,16 @@ def seasonals_chart(ticker, cycle_label, show_tables):
     end_date = dt.datetime(2023, 12, 30)
     this_yr_end = dt.date.today() + timedelta(days=1)
     spx1 = yf.Ticker(ticker)
-    
-    try:
-        spx = spx1.history(period="max", end=end_date)
-    except Exception as e:
-        st.error(f"Error fetching data for {ticker}: {e}")
-        return
-
-    # Check if the DataFrame is empty
     if spx.empty:
         st.error(f"No data found for {ticker}.")
         return
-
-    # If columns are a MultiIndex, drop the unwanted level
-    if isinstance(spx.columns, pd.MultiIndex):  
+    
+    # If columns are a MultiIndex, keep only the first level (the field names)
+    if isinstance(spx.columns, pd.MultiIndex):
         spx.columns = spx.columns.get_level_values(0)
     
+    st.write(spx)
+        
     st.write(spx)
     start_y = spx.index.year.min()
 
