@@ -5,6 +5,8 @@ import datetime as dt
 import plotly.graph_objs as go
 import streamlit as st
 from datetime import date, timedelta
+import os
+os.system("pip install --upgrade yfinance")
 
 def compute_atr(df, window=14):
     df = df.copy()
