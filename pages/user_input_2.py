@@ -81,7 +81,7 @@ def seasonals_chart(ticker, cycle_label, show_tables):
     this_yr_end = dt.date.today() + timedelta(days=1)
     spx1 = yf.Ticker(ticker)
     spx = spx1.history(period="max", end=end_date)
-    st.write(spx)
+
     if spx.empty:
         st.error(f"No data found for {ticker}.")
         return
@@ -355,7 +355,8 @@ st.title("Presidential Cycle Seasonality Chart")
 ticker = st.text_input("Enter a stock ticker:", value="AAPL")
 cycle_label = st.selectbox(
     "Select the presidential cycle type:",
-    ["Election", "Pre-Election", "Post-Election", "Midterm"]
+    ["Election", "Pre-Election", "Post-Election", "Midterm"],
+    index=2  # "Post-Election" is the 3rd item (zero-based index)
 )
 
 show_tables = st.sidebar.checkbox("Show Summary Tables")
