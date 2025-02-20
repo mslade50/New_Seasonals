@@ -164,6 +164,7 @@ def seasonals_chart(ticker, cycle_label):
 
     # --- COMPUTE & SHOW HIGH-LEVEL SUMMARY TABLE (Always) ---
     # --- COMPUTE & SHOW HIGH-LEVEL SUMMARY TABLE (Always) ---
+    # --- COMPUTE & SHOW HIGH-LEVEL SUMMARY TABLE (Always) ---
     summary_rows = []
     timeframes = {
         "This Month": (current_month),
@@ -200,11 +201,28 @@ def seasonals_chart(ticker, cycle_label):
         "% Pos": "{:.1f}%", 
         "Sample Size": "{:.0f}"  # No decimals for count
     }))
-
-
-    # Print current trading day/week of the month at the end
-    st.write(f"Today is the {current_day_of_month}-th trading day of this month and we are currently in week {current_week_of_month} of this month.")
-
+    
+    # --- NEW: DETAILED MONTHLY RETURNS TABLE ---
+    st.subheader("Month-by-Month Returns (Selected Cycle Years)")
+    
+    month_return_rows = []
+    for month in [current_month, next_month]:
+        time_data = cycle_data[(cycle_data["month"] == month) & (cycle_data["year"].isin(years_in_cycle))]
+        
+        if not time_data.empty:
+            monthly_returns = time_data.groupby("year")["log_return"].sum() * 100  # Convert to percentage
+            for year, ret in monthly_returns.items():
+                month_return_rows.append([year, month, ret])
+    
+    # Convert to DataFrame and Sort by Year
+    if month_return_rows:
+        month_returns_df = pd.DataFrame(month_return_rows, columns=["Year", "Month", "Return (%)"]).sort_values(by=["Year", "Month"])
+        month_returns_df["Month"] = month_returns_df["Month"].apply(lambda x: dt.date(1900, x, 1).strftime('%B'))  # Convert to month name
+        
+        st.dataframe(month_returns_df.style.format({"Return (%)": "{:.1f}%"}))
+    else:
+        st.write("No historical data found for the selected cycle in the current and next month.")
+    
 
 
 st.title("Presidential Cycle Seasonality Chart")
