@@ -151,33 +151,36 @@ def seasonals_chart(ticker, cycle_label):
     st.plotly_chart(fig)
 
     # --- COMPUTE & SHOW HIGH-LEVEL SUMMARY TABLE (Always) ---
+    # --- COMPUTE & SHOW HIGH-LEVEL SUMMARY TABLE (Always) ---
     summary_rows = []
     timeframes = {
-        "This Month": (current_month, current_year),
-        "Next Month": (next_month, current_year),
+        "This Month": (current_month),
+        "Next Month": (next_month),
         "This Week": (current_month, current_week_of_month),
         "Next Week": (next_month, 1)  # Assume next month starts with week 1
     }
-
-    for label, (month, week) in timeframes.items():
+    
+    for label, params in timeframes.items():
         if "Month" in label:
+            month = params
             time_data = cycle_data[(cycle_data["month"] == month) & (cycle_data["year"].isin(years_in_cycle))]
         else:
+            month, week = params
             time_data = cycle_data[
                 (cycle_data["month"] == month) &
                 (cycle_data["week_of_month_5day"] == week) &
                 (cycle_data["year"].isin(years_in_cycle))
             ]
-
+    
         if not time_data.empty:
             stats = summarize_data(time_data, include_atr=False)
-            sample_size = len(time_data)  # Count of observations
+            sample_size = time_data["year"].nunique()  # Count unique years in the selected cycle
             summary_rows.append([label, stats["Avg Return (%)"], stats["Median Daily Return (%)"], stats["% Pos"], sample_size])
         else:
             summary_rows.append([label, np.nan, np.nan, np.nan, np.nan])
-
+    
     high_level_df = pd.DataFrame(summary_rows, columns=["Timeframe", "Mean", "Median", "% Pos", "Sample Size"]).set_index("Timeframe")
-
+    
     st.subheader("High-Level Summary")
     st.dataframe(high_level_df.style.format({
         "Mean": "{:.1f}%", 
@@ -185,6 +188,7 @@ def seasonals_chart(ticker, cycle_label):
         "% Pos": "{:.1f}%", 
         "Sample Size": "{:.0f}"  # No decimals for count
     }))
+
 
     # Print current trading day/week of the month at the end
     st.write(f"Today is the {current_day_of_month}-th trading day of this month and we are currently in week {current_week_of_month} of this month.")
