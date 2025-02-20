@@ -93,6 +93,7 @@ def seasonals_chart(ticker, cycle_label):
     spx["trading_day_of_month"] = spx.groupby([spx.index.year, spx.index.month]).cumcount() + 1
     spx["week_of_month_5day"] = (spx["trading_day_of_month"] - 1) // 5 + 1
 
+    # Only include data from years in the selected presidential cycle
     years_in_cycle = [cycle_start + i * 4 for i in range(19)]
     cycle_data = spx[spx["year"].isin(years_in_cycle)]
     cycle_data = compute_atr(cycle_data)
@@ -160,9 +161,13 @@ def seasonals_chart(ticker, cycle_label):
 
     for label, (month, week) in timeframes.items():
         if "Month" in label:
-            time_data = cycle_data[cycle_data["month"] == month]
+            time_data = cycle_data[(cycle_data["month"] == month) & (cycle_data["year"].isin(years_in_cycle))]
         else:
-            time_data = cycle_data[(cycle_data["month"] == month) & (cycle_data["week_of_month_5day"] == week)]
+            time_data = cycle_data[
+                (cycle_data["month"] == month) &
+                (cycle_data["week_of_month_5day"] == week) &
+                (cycle_data["year"].isin(years_in_cycle))
+            ]
 
         if not time_data.empty:
             stats = summarize_data(time_data, include_atr=False)
@@ -183,6 +188,7 @@ def seasonals_chart(ticker, cycle_label):
 
     # Print current trading day/week of the month at the end
     st.write(f"Today is the {current_day_of_month}-th trading day of this month and we are currently in week {current_week_of_month} of this month.")
+
 
 
 st.title("Presidential Cycle Seasonality Chart")
