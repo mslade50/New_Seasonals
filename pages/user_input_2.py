@@ -99,7 +99,7 @@ def seasonals_chart(ticker, cycle_label):
     cycle_data = compute_atr(cycle_data)
 
     cycle_data.loc[cycle_data["week_of_month_5day"] > 4, "week_of_month_5day"] = 4
-
+    current_trading_day = len(current_year_data)
     now = dt.date.today()
     current_month = now.month
     next_month = current_month + 1 if current_month < 12 else 1
@@ -123,6 +123,15 @@ def seasonals_chart(ticker, cycle_label):
         name=f"Avg Path ({cycle_label})",
         line=dict(color="orange")
     ))
+    if avg_path_y_value is not None:
+        fig.add_trace(go.Scatter(
+            x=[current_trading_day],
+            y=[avg_path_y_value],
+            mode="markers",
+            name="Current Day on Avg Path",
+            marker=dict(color="white", size=7),
+            showlegend=False
+        ))
 
     current_year_data = yf.download(ticker, start=dt.datetime(this_yr_end.year, 1, 1), end=this_yr_end)
     if not current_year_data.empty:
