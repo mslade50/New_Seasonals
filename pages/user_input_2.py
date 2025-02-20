@@ -127,7 +127,7 @@ def seasonals_chart(ticker, cycle_label):
 
     current_year_data = yf.download(ticker, start=dt.datetime(this_yr_end.year, 1, 1), end=this_yr_end)
     current_trading_day = len(current_year_data)
-    if avg_path_y_value is not None:
+    if avg_path is not None:
         fig.add_trace(go.Scatter(
             x=[current_trading_day],
             y=[avg_path_y_value],
