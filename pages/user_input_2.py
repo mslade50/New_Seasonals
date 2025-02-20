@@ -67,7 +67,7 @@ def get_current_trading_info():
     else:
         return None, None
 spx1 = yf.Ticker("SPY")
-spx = spx1.history(period="max", end=end_date)
+spx = spx1.history(period="max")
 st.write(spx)
 def seasonals_chart(ticker, cycle_label, show_tables):
     cycle_start_mapping = {
