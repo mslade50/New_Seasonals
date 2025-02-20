@@ -77,7 +77,7 @@ def seasonals_chart(ticker, cycle_label, show_tables):
     }
     cycle_start = cycle_start_mapping[cycle_label]
 
-    end_date = dt.datetime(2023, 12, 30)
+    end_date = dt.datetime(2024, 12, 30)
     this_yr_end = dt.date.today() + timedelta(days=1)
     spx1 = yf.Ticker(ticker)
     spx = spx1.history(period="max", end=end_date)
