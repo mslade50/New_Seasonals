@@ -79,21 +79,14 @@ def seasonals_chart(ticker, cycle_label, show_tables):
 
     end_date = dt.datetime(2024, 12, 30)
     this_yr_end = dt.date.today() + timedelta(days=1)
-    spx1 = yf.Ticker(ticker)
-    spx = spx1.history(period="max", end=end_date)
+    spx = yf.download(ticker, period="max", end=end_date)
 
     if spx.empty:
         st.error(f"No data found for {ticker}.")
         return
     
-    # If columns are a MultiIndex, keep only the first level (the field names)
     if isinstance(spx.columns, pd.MultiIndex):
         spx.columns = spx.columns.get_level_values(0)
-    start_y = spx.index.year.min()
-
-    if spx.empty:
-        st.error(f"No data found for {ticker}.")
-        return
 
     spx["log_return"] = np.log(spx["Close"] / spx["Close"].shift(1))
     spx["year"] = spx.index.year
@@ -105,78 +98,15 @@ def seasonals_chart(ticker, cycle_label, show_tables):
     cycle_data = spx[spx["year"].isin(years_in_cycle)]
     cycle_data = compute_atr(cycle_data)
 
-    # Merge week 5 into week 4
     cycle_data.loc[cycle_data["week_of_month_5day"] > 4, "week_of_month_5day"] = 4
-
-    current_year_data = yf.download(ticker, start=dt.datetime(this_yr_end.year, 1, 1), end=this_yr_end)
-    if not current_year_data.empty:
-        current_year_data["log_return"] = np.log(current_year_data["Close"] / current_year_data["Close"].shift(1))
-        this_year_path = (
-            current_year_data["log_return"]
-            .cumsum()
-            .apply(np.exp) - 1
-        )
-        current_trading_day = len(current_year_data)
-    else:
-        this_year_path = pd.Series(dtype=float)
-        current_trading_day = None
-
-    cycle_data["day_count"] = cycle_data.groupby("year").cumcount() + 1
-    avg_path = (
-        cycle_data.groupby("day_count")["log_return"]
-        .mean()
-        .cumsum()
-        .apply(np.exp) - 1
-    )
-
-    fig = go.Figure()
-    fig.add_trace(go.Scatter(
-        x=avg_path.index,
-        y=avg_path.values,
-        mode="lines",
-        name=f"Avg Path ({cycle_label})",
-        line=dict(color="orange")
-    ))
-
-    fig.add_trace(go.Scatter(
-        x=avg_path.index,
-        y=this_year_path.values,
-        mode="lines",
-        name="This Year",
-        line=dict(color="green")
-    ))
-
-    avg_path_y_value = avg_path[current_trading_day] if current_trading_day is not None and current_trading_day in avg_path.index else None
-    if avg_path_y_value is not None:
-        fig.add_trace(go.Scatter(
-            x=[current_trading_day],
-            y=[avg_path_y_value],
-            mode="markers",
-            name="Current Day on Avg Path",
-            marker=dict(color="white", size=7),
-            showlegend=False
-        ))
-
-    fig.update_layout(
-        title=f"{ticker} - {cycle_label} Cycle Average since {start_y}",
-        xaxis_title="Trading Day",
-        yaxis_title="Cumulative Return",
-        plot_bgcolor="black",
-        paper_bgcolor="black",
-        font=dict(color="white"),
-        legend=dict(bgcolor="rgba(0,0,0,0)", font=dict(color="white"))
-    )
-    fig.update_xaxes(showgrid=False)
-    fig.update_yaxes(showgrid=False)
-
-    st.plotly_chart(fig)
 
     now = dt.date.today()
     current_month = now.month
     next_month = current_month + 1 if current_month < 12 else 1
-    current_year=now.year
+    current_year = now.year
+    current_day_of_month, current_week_of_month = get_current_trading_info()
+
     if show_tables:
-        # Compute High-Level Summary Table
         summary_rows = []
         timeframes = {
             "This Month": (current_month, current_year),
@@ -184,7 +114,7 @@ def seasonals_chart(ticker, cycle_label, show_tables):
             "This Week": (current_month, current_week_of_month),
             "Next Week": (next_month, 1)  # Assume next month starts with week 1
         }
-        
+
         for label, (month, week) in timeframes.items():
             if "Month" in label:
                 time_data = cycle_data[cycle_data["month"] == month]
@@ -202,55 +132,8 @@ def seasonals_chart(ticker, cycle_label, show_tables):
         st.subheader("High-Level Summary")
         st.dataframe(high_level_df.style.format({"Mean": "{:.1f}%", "Median": "{:.1f}%", "% Pos": "{:.1f}%"}))
 
-        # Monthly Summary Stats
-        monthly_group = cycle_data.groupby(["year", "month"])
-        monthly_pos = monthly_group.apply(lambda g: (g["log_return"] > 0).mean() * 100).reset_index(name="% Pos")
-        monthly_returns = cycle_data.groupby("month")["log_return"].agg(["mean", "median"])
-        monthly_returns *= 100  # Convert to percentage
-        monthly_returns.columns = ["Avg Monthly Return (%)", "Median Monthly Return (%)"]
-        atr_by_month = monthly_group["ATR%"].mean().reset_index().groupby("month")["ATR%"].mean().to_frame("Avg ATR%")
-        monthly_pos_by_month = monthly_pos.groupby("month")["% Pos"].mean()
+    st.write(f"Today is the {current_day_of_month}-th trading day of this month and we are currently in week {current_week_of_month} of this month.")
 
-        summary_table_1 = monthly_returns.join(atr_by_month, on="month").join(monthly_pos_by_month, on="month")
-
-        st.subheader("Table 1: Monthly Summary Stats")
-        st.dataframe(summary_table_1.style.format({"Avg Monthly Return (%)": "{:.1f}%", "Median Monthly Return (%)": "{:.1f}%", "Avg ATR%": "{:.1f}%", "% Pos": "{:.1f}%"}))
-
-        # Current Month Analysis
-        current_month_analysis = [
-            {
-                "Year": year,
-                "Current Month Total Return (%)": cycle_data[(cycle_data["year"] == year) & (cycle_data["month"] == current_month)]["log_return"].sum() * 100,
-                "Current Month High-to-Low Range (%)": (cycle_data[(cycle_data["year"] == year) & (cycle_data["month"] == current_month)]["High"].max() - cycle_data[(cycle_data["year"] == year) & (cycle_data["month"] == current_month)]["Low"].min()) / cycle_data[(cycle_data["year"] == year) & (cycle_data["month"] == current_month)]["Low"].min() * 100
-            }
-            for year in years_in_cycle
-        ]
-
-        current_month_df = pd.DataFrame(current_month_analysis)
-        st.subheader("Table 2: Current Month Analysis")
-        st.dataframe(current_month_df.style.format({"Current Month Total Return (%)": "{:.1f}%", "Current Month High-to-Low Range (%)": "{:.1f}%"}))
-
-        # Current Week Analysis
-        current_week_analysis = [
-            {
-                "Year": year,
-                "Current Week Total Return (%)": cycle_data[(cycle_data["year"] == year) & (cycle_data["month"] == current_month) & (cycle_data["week_of_month_5day"] == current_week_of_month)]["log_return"].sum() * 100,
-                "Current Week High-to-Low Range (%)": (cycle_data[(cycle_data["year"] == year) & (cycle_data["month"] == current_month) & (cycle_data["week_of_month_5day"] == current_week_of_month)]["High"].max() - cycle_data[(cycle_data["year"] == year) & (cycle_data["month"] == current_month) & (cycle_data["week_of_month_5day"] == current_week_of_month)]["Low"].min()) / cycle_data[(cycle_data["year"] == year) & (cycle_data["month"] == current_month) & (cycle_data["week_of_month_5day"] == current_week_of_month)]["Low"].min() * 100
-            }
-            for year in years_in_cycle
-        ]
-
-        current_week_df = pd.DataFrame(current_week_analysis)
-        st.subheader("Table 3: Current Week Analysis")
-        st.dataframe(current_week_df.style.format({"Current Week Total Return (%)": "{:.1f}%", "Current Week High-to-Low Range (%)": "{:.1f}%"}))
-
-    # Print current trading day/week of the month at the end
-    current_day_of_month, current_week_of_month = get_current_trading_info()
-    if current_day_of_month is not None and current_week_of_month is not None:
-        st.write(f"Today is the {current_day_of_month}-th trading day of this month and we are currently in week {current_week_of_month} of this month.")
-    else:
-        st.write("Unable to determine the current trading day/week of the month.")
-        
 
 st.title("Presidential Cycle Seasonality Chart")
 
