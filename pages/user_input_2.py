@@ -174,7 +174,7 @@ def seasonals_chart(ticker, cycle_label, show_tables):
     now = dt.date.today()
     current_month = now.month
     next_month = current_month + 1 if current_month < 12 else 1
-
+    current_year=2025
     if show_tables:
         # Compute High-Level Summary Table
         summary_rows = []
