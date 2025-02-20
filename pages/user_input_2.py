@@ -167,18 +167,23 @@ def seasonals_chart(ticker, cycle_label):
 
         if not time_data.empty:
             stats = summarize_data(time_data, include_atr=False)
-            summary_rows.append([label, stats["Avg Return (%)"], stats["Median Daily Return (%)"], stats["% Pos"]])
+            sample_size = len(time_data)  # Count of observations
+            summary_rows.append([label, stats["Avg Return (%)"], stats["Median Daily Return (%)"], stats["% Pos"], sample_size])
         else:
-            summary_rows.append([label, np.nan, np.nan, np.nan])
+            summary_rows.append([label, np.nan, np.nan, np.nan, np.nan])
 
-    high_level_df = pd.DataFrame(summary_rows, columns=["Timeframe", "Mean", "Median", "% Pos"]).set_index("Timeframe")
+    high_level_df = pd.DataFrame(summary_rows, columns=["Timeframe", "Mean", "Median", "% Pos", "Sample Size"]).set_index("Timeframe")
 
     st.subheader("High-Level Summary")
-    st.dataframe(high_level_df.style.format({"Mean": "{:.1f}%", "Median": "{:.1f}%", "% Pos": "{:.1f}%"}))
+    st.dataframe(high_level_df.style.format({
+        "Mean": "{:.1f}%", 
+        "Median": "{:.1f}%", 
+        "% Pos": "{:.1f}%", 
+        "Sample Size": "{:.0f}"  # No decimals for count
+    }))
 
     # Print current trading day/week of the month at the end
     st.write(f"Today is the {current_day_of_month}-th trading day of this month and we are currently in week {current_week_of_month} of this month.")
-
 
 
 st.title("Presidential Cycle Seasonality Chart")
