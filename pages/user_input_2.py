@@ -68,7 +68,7 @@ def get_current_trading_info():
     else:
         return None, None
 
-def seasonals_chart(ticker, cycle_label, show_tables):
+def seasonals_chart(ticker, cycle_label):
     cycle_start_mapping = {
         "Election": 1952,
         "Pre-Election": 1951,
@@ -106,33 +106,79 @@ def seasonals_chart(ticker, cycle_label, show_tables):
     current_year = now.year
     current_day_of_month, current_week_of_month = get_current_trading_info()
 
-    if show_tables:
-        summary_rows = []
-        timeframes = {
-            "This Month": (current_month, current_year),
-            "Next Month": (next_month, current_year),
-            "This Week": (current_month, current_week_of_month),
-            "Next Week": (next_month, 1)  # Assume next month starts with week 1
-        }
+    # --- PLOT THE CHART (Always) ---
+    cycle_data["day_count"] = cycle_data.groupby("year").cumcount() + 1
+    avg_path = (
+        cycle_data.groupby("day_count")["log_return"]
+        .mean()
+        .cumsum()
+        .apply(np.exp) - 1
+    )
 
-        for label, (month, week) in timeframes.items():
-            if "Month" in label:
-                time_data = cycle_data[cycle_data["month"] == month]
-            else:
-                time_data = cycle_data[(cycle_data["month"] == month) & (cycle_data["week_of_month_5day"] == week)]
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(
+        x=avg_path.index,
+        y=avg_path.values,
+        mode="lines",
+        name=f"Avg Path ({cycle_label})",
+        line=dict(color="orange")
+    ))
 
-            if not time_data.empty:
-                stats = summarize_data(time_data, include_atr=False)
-                summary_rows.append([label, stats["Avg Return (%)"], stats["Median Daily Return (%)"], stats["% Pos"]])
-            else:
-                summary_rows.append([label, np.nan, np.nan, np.nan])
+    current_year_data = yf.download(ticker, start=dt.datetime(this_yr_end.year, 1, 1), end=this_yr_end)
+    if not current_year_data.empty:
+        current_year_data["log_return"] = np.log(current_year_data["Close"] / current_year_data["Close"].shift(1))
+        this_year_path = current_year_data["log_return"].cumsum().apply(np.exp) - 1
+        fig.add_trace(go.Scatter(
+            x=avg_path.index,
+            y=this_year_path.values,
+            mode="lines",
+            name="This Year",
+            line=dict(color="green")
+        ))
 
-        high_level_df = pd.DataFrame(summary_rows, columns=["Timeframe", "Mean", "Median", "% Pos"]).set_index("Timeframe")
+    fig.update_layout(
+        title=f"{ticker} - {cycle_label} Cycle Average",
+        xaxis_title="Trading Day",
+        yaxis_title="Cumulative Return",
+        plot_bgcolor="black",
+        paper_bgcolor="black",
+        font=dict(color="white"),
+        legend=dict(bgcolor="rgba(0,0,0,0)", font=dict(color="white"))
+    )
+    fig.update_xaxes(showgrid=False)
+    fig.update_yaxes(showgrid=False)
 
-        st.subheader("High-Level Summary")
-        st.dataframe(high_level_df.style.format({"Mean": "{:.1f}%", "Median": "{:.1f}%", "% Pos": "{:.1f}%"}))
+    st.plotly_chart(fig)
 
+    # --- COMPUTE & SHOW HIGH-LEVEL SUMMARY TABLE (Always) ---
+    summary_rows = []
+    timeframes = {
+        "This Month": (current_month, current_year),
+        "Next Month": (next_month, current_year),
+        "This Week": (current_month, current_week_of_month),
+        "Next Week": (next_month, 1)  # Assume next month starts with week 1
+    }
+
+    for label, (month, week) in timeframes.items():
+        if "Month" in label:
+            time_data = cycle_data[cycle_data["month"] == month]
+        else:
+            time_data = cycle_data[(cycle_data["month"] == month) & (cycle_data["week_of_month_5day"] == week)]
+
+        if not time_data.empty:
+            stats = summarize_data(time_data, include_atr=False)
+            summary_rows.append([label, stats["Avg Return (%)"], stats["Median Daily Return (%)"], stats["% Pos"]])
+        else:
+            summary_rows.append([label, np.nan, np.nan, np.nan])
+
+    high_level_df = pd.DataFrame(summary_rows, columns=["Timeframe", "Mean", "Median", "% Pos"]).set_index("Timeframe")
+
+    st.subheader("High-Level Summary")
+    st.dataframe(high_level_df.style.format({"Mean": "{:.1f}%", "Median": "{:.1f}%", "% Pos": "{:.1f}%"}))
+
+    # Print current trading day/week of the month at the end
     st.write(f"Today is the {current_day_of_month}-th trading day of this month and we are currently in week {current_week_of_month} of this month.")
+
 
 
 st.title("Presidential Cycle Seasonality Chart")
