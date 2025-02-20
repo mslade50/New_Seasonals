@@ -176,171 +176,73 @@ def seasonals_chart(ticker, cycle_label, show_tables):
     next_month = current_month + 1 if current_month < 12 else 1
 
     if show_tables:
-        # Handle January ATR by only considering second half of January
-        cycle_data["day_of_month"] = cycle_data.index.day
-        cycle_data.loc[(cycle_data["month"] == 1) & (cycle_data["day_of_month"] <= 15), "ATR%"] = np.nan
+        # Compute High-Level Summary Table
+        summary_rows = []
+        timeframes = {
+            "This Month": (current_month, current_year),
+            "Next Month": (next_month, current_year),
+            "This Week": (current_month, current_week_of_month),
+            "Next Week": (next_month, 1)  # Assume next month starts with week 1
+        }
+        
+        for label, (month, week) in timeframes.items():
+            if "Month" in label:
+                time_data = cycle_data[cycle_data["month"] == month]
+            else:
+                time_data = cycle_data[(cycle_data["month"] == month) & (cycle_data["week_of_month_5day"] == week)]
 
-        # Monthly returns
-        cycle_data["monthly_return"] = cycle_data.groupby(["year", "month"])["log_return"].transform("sum")
+            if not time_data.empty:
+                stats = summarize_data(time_data, include_atr=False)
+                summary_rows.append([label, stats["Avg Return (%)"], stats["Median Daily Return (%)"], stats["% Pos"]])
+            else:
+                summary_rows.append([label, np.nan, np.nan, np.nan])
 
-        # Table 1: Monthly Summary Stats
-        # Compute stats and add % Pos
+        high_level_df = pd.DataFrame(summary_rows, columns=["Timeframe", "Mean", "Median", "% Pos"]).set_index("Timeframe")
+
+        st.subheader("High-Level Summary")
+        st.dataframe(high_level_df.style.format({"Mean": "{:.1f}%", "Median": "{:.1f}%", "% Pos": "{:.1f}%"}))
+
+        # Monthly Summary Stats
         monthly_group = cycle_data.groupby(["year", "month"])
-        # Compute % Pos for each month/year
-        monthly_pos = monthly_group.apply(lambda g: (g["log_return"] > 0).mean()*100).reset_index(name="% Pos")
-        monthly_returns_by_month = cycle_data.groupby("month")["monthly_return"].agg(["mean", "median"])
-        monthly_returns_by_month["mean"] = monthly_returns_by_month["mean"] * 100
-        monthly_returns_by_month["median"] = monthly_returns_by_month["median"] * 100
-        monthly_returns_by_month.columns = ["Avg Monthly Return (%)", "Median Monthly Return (%)"]
-        atr_by_year_month = monthly_group["ATR%"].mean().reset_index()
-        atr_by_month = atr_by_year_month.groupby("month")["ATR%"].mean().to_frame("Avg ATR%")
-
-        # Compute overall % Pos by month
+        monthly_pos = monthly_group.apply(lambda g: (g["log_return"] > 0).mean() * 100).reset_index(name="% Pos")
+        monthly_returns = cycle_data.groupby("month")["log_return"].agg(["mean", "median"])
+        monthly_returns *= 100  # Convert to percentage
+        monthly_returns.columns = ["Avg Monthly Return (%)", "Median Monthly Return (%)"]
+        atr_by_month = monthly_group["ATR%"].mean().reset_index().groupby("month")["ATR%"].mean().to_frame("Avg ATR%")
         monthly_pos_by_month = monthly_pos.groupby("month")["% Pos"].mean()
 
-        summary_table_1 = monthly_returns_by_month.join(atr_by_month, on="month")
-        summary_table_1 = summary_table_1.join(monthly_pos_by_month, on="month")
+        summary_table_1 = monthly_returns.join(atr_by_month, on="month").join(monthly_pos_by_month, on="month")
 
-        st.subheader("Table 1: Monthly Summary Stats (All Cycle Years)")
-        st.dataframe(summary_table_1.style.format({
-            "Avg Monthly Return (%)": "{:.1f}%",
-            "Median Monthly Return (%)": "{:.1f}%",
-            "Avg ATR%": "{:.1f}%",
-            "% Pos": "{:.1f}%"
-        }))
+        st.subheader("Table 1: Monthly Summary Stats")
+        st.dataframe(summary_table_1.style.format({"Avg Monthly Return (%)": "{:.1f}%", "Median Monthly Return (%)": "{:.1f}%", "Avg ATR%": "{:.1f}%", "% Pos": "{:.1f}%"}))
 
-    
-        current_day_of_month, current_week_of_month = get_current_trading_info()
-      
+        # Current Month Analysis
+        current_month_analysis = [
+            {
+                "Year": year,
+                "Current Month Total Return (%)": cycle_data[(cycle_data["year"] == year) & (cycle_data["month"] == current_month)]["log_return"].sum() * 100,
+                "Current Month High-to-Low Range (%)": (cycle_data[(cycle_data["year"] == year) & (cycle_data["month"] == current_month)]["High"].max() - cycle_data[(cycle_data["year"] == year) & (cycle_data["month"] == current_month)]["Low"].min()) / cycle_data[(cycle_data["year"] == year) & (cycle_data["month"] == current_month)]["Low"].min() * 100
+            }
+            for year in years_in_cycle
+        ]
 
-        # Table 4: Current Month Daily Stats
-        # Include ATR and % Pos here as well
-        # Filter data for the current month and year
-        now = dt.date.today()
-        current_month = now.month
-        current_year = now.year
-        
-        current_month_data = cycle_data[(cycle_data["month"] == current_month) & (cycle_data["year"] == current_year)]
-        
-        if not current_month_data.empty:
-            current_month_days = sorted(current_month_data["trading_day_of_month"].unique())
-            current_month_day_stats = []
-            for d in current_month_days:
-                d_data = current_month_data[current_month_data["trading_day_of_month"] == d]
-                # Now we include ATR and % Pos as well
-                stats = summarize_data(d_data, include_atr=True)
-                stats["Day"] = d
-                current_month_day_stats.append(stats)
-            current_month_day_df = pd.DataFrame(current_month_day_stats).set_index("Day")
-        else:
-            current_month_day_df = pd.DataFrame(columns=["Avg Return (%)", "Median Daily Return (%)", "Avg ATR%", "% Pos"])
+        current_month_df = pd.DataFrame(current_month_analysis)
+        st.subheader("Table 2: Current Month Analysis")
+        st.dataframe(current_month_df.style.format({"Current Month Total Return (%)": "{:.1f}%", "Current Month High-to-Low Range (%)": "{:.1f}%"}))
 
-        # Table 5: Next Month Daily Stats
-        next_month_data = cycle_data[cycle_data["month"] == next_month]
-        if not next_month_data.empty:
-            next_month_days = sorted(next_month_data["trading_day_of_month"].unique())
-            next_month_day_stats = []
-            for d in next_month_days:
-                d_data = next_month_data[next_month_data["trading_day_of_month"] == d]
-                stats = summarize_data(d_data, include_atr=True)
-                stats["Day"] = d
-                next_month_day_stats.append(stats)
-            next_month_day_df = pd.DataFrame(next_month_day_stats).set_index("Day")
-        else:
-            next_month_day_df = pd.DataFrame(columns=["Avg Return (%)","Median Daily Return (%)","Avg ATR%","% Pos"])
+        # Current Week Analysis
+        current_week_analysis = [
+            {
+                "Year": year,
+                "Current Week Total Return (%)": cycle_data[(cycle_data["year"] == year) & (cycle_data["month"] == current_month) & (cycle_data["week_of_month_5day"] == current_week_of_month)]["log_return"].sum() * 100,
+                "Current Week High-to-Low Range (%)": (cycle_data[(cycle_data["year"] == year) & (cycle_data["month"] == current_month) & (cycle_data["week_of_month_5day"] == current_week_of_month)]["High"].max() - cycle_data[(cycle_data["year"] == year) & (cycle_data["month"] == current_month) & (cycle_data["week_of_month_5day"] == current_week_of_month)]["Low"].min()) / cycle_data[(cycle_data["year"] == year) & (cycle_data["month"] == current_month) & (cycle_data["week_of_month_5day"] == current_week_of_month)]["Low"].min() * 100
+            }
+            for year in years_in_cycle
+        ]
 
-        st.subheader("Table 5: Next Month Daily Stats")
-        st.dataframe(next_month_day_df.style.format({
-            "Avg Return (%)": "{:.1f}%",
-            "Median Daily Return (%)": "{:.1f}%",
-            "Avg ATR%": "{:.1f}%",
-            "% Pos": "{:.1f}%"
-        }))
-        next_month_analysis = []
-        for year in years_in_cycle:
-            month_data = cycle_data[(cycle_data["year"] == year) & (cycle_data["month"] == next_month)]
-            if not month_data.empty:
-                total_return = month_data["log_return"].sum() * 100  # Convert to percentage
-                high_low_range = (month_data["High"].max() - month_data["Low"].min()) / month_data["Low"].min() * 100
-                next_month_analysis.append({
-                    "Year": year,
-                    "Next Month Total Return (%)": total_return,
-                    "Next Month High-to-Low Range (%)": high_low_range,
-                })
-        
-        next_month_analysis_df = pd.DataFrame(next_month_analysis)
-        
-        st.subheader("Table 6: Next Month Analysis (Individual Years)")
-        st.dataframe(next_month_analysis_df.style.format({
-            "Next Month Total Return (%)": "{:.1f}%",
-            "Next Month High-to-Low Range (%)": "{:.1f}%"
-        }))
-            # New Table: Current Month Analysis
-        current_month_analysis = []
-        for year in years_in_cycle:
-            month_data = cycle_data[(cycle_data["year"] == year) & (cycle_data["month"] == current_month)]
-            if not month_data.empty:
-                total_return = month_data["log_return"].sum() * 100  # Convert to percentage
-                high_low_range = (month_data["High"].max() - month_data["Low"].min()) / month_data["Low"].min() * 100
-                current_month_analysis.append({
-                    "Year": year,
-                    "Current Month Total Return (%)": total_return,
-                    "Current Month High-to-Low Range (%)": high_low_range,
-                })
-        
-        current_month_analysis_df = pd.DataFrame(current_month_analysis)
-        
-        st.subheader("Table 7: Current Month Analysis (Individual Years)")
-        st.dataframe(current_month_analysis_df.style.format({
-            "Current Month Total Return (%)": "{:.1f}%",
-            "Current Month High-to-Low Range (%)": "{:.1f}%"
-        }))
-        
-            # New Table: Current Week Analysis
-        current_week_analysis = []
-        for year in years_in_cycle:
-            week_data = cycle_data[(cycle_data["year"] == year) & 
-                                   (cycle_data["month"] == current_month) & 
-                                   (cycle_data["week_of_month_5day"] == current_week_of_month)]
-            if not week_data.empty:
-                total_return = week_data["log_return"].sum() * 100  # Convert to percentage
-                high_low_range = (week_data["High"].max() - week_data["Low"].min()) / week_data["Low"].min() * 100
-                current_week_analysis.append({
-                    "Year": year,
-                    "Current Week Total Return (%)": total_return,
-                    "Current Week High-to-Low Range (%)": high_low_range,
-                })
-        
-        current_week_analysis_df = pd.DataFrame(current_week_analysis)
-        
-        st.subheader("Table 8: Current Week Analysis (Individual Years)")
-        st.dataframe(current_week_analysis_df.style.format({
-            "Current Week Total Return (%)": "{:.1f}%",
-            "Current Week High-to-Low Range (%)": "{:.1f}%"
-        }))
-            # New Table: Next Week Analysis
-        next_week_analysis = []
-        for year in years_in_cycle:
-            week_data = cycle_data[(cycle_data["year"] == year) & 
-                                   (cycle_data["month"] == next_month) & 
-                                   (cycle_data["week_of_month_5day"] == 1)]  # Assume next month starts with week 1
-            if not week_data.empty:
-                total_return = week_data["log_return"].sum() * 100  # Convert to percentage
-                high_low_range = (week_data["High"].max() - week_data["Low"].min()) / week_data["Low"].min() * 100
-                next_week_analysis.append({
-                    "Year": year,
-                    "Next Week Total Return (%)": total_return,
-                    "Next Week High-to-Low Range (%)": high_low_range,
-                })
-        
-        next_week_analysis_df = pd.DataFrame(next_week_analysis)
-        
-        st.subheader("Table 9: Next Week Analysis (Individual Years)")
-        st.dataframe(next_week_analysis_df.style.format({
-            "Next Week Total Return (%)": "{:.1f}%",
-            "Next Week High-to-Low Range (%)": "{:.1f}%"
-        }))
-
+        current_week_df = pd.DataFrame(current_week_analysis)
+        st.subheader("Table 3: Current Week Analysis")
+        st.dataframe(current_week_df.style.format({"Current Week Total Return (%)": "{:.1f}%", "Current Week High-to-Low Range (%)": "{:.1f}%"}))
 
     # Print current trading day/week of the month at the end
     current_day_of_month, current_week_of_month = get_current_trading_info()
