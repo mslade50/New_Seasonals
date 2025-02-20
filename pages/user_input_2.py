@@ -6,7 +6,6 @@ import plotly.graph_objs as go
 import streamlit as st
 from datetime import date, timedelta
 
-
 def compute_atr(df, window=14):
     df = df.copy()
     df["previous_close"] = df["Close"].shift(1)
