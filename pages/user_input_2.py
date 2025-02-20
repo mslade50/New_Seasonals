@@ -190,10 +190,8 @@ cycle_label = st.selectbox(
     index=2  # "Post-Election" is the 3rd item (zero-based index)
 )
 
-show_tables = st.sidebar.checkbox("Show Summary Tables")
-
 if st.button("Plot"):
     try:
-        seasonals_chart(ticker, cycle_label, show_tables)
+        seasonals_chart(ticker, cycle_label)
     except Exception as e:
         st.error(f"Error generating chart: {e}")
