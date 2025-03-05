@@ -23,16 +23,18 @@ def summarize_data(df, include_atr=True):
             "% Pos": np.nan
         }
 
-    # Aggregate log returns by year (for month-based) or by year & week (for week-based)
-    if "week_of_month_5day" in df.columns:
-        grouped_returns = df.groupby(["year", "month", "week_of_month_5day"])["log_return"].sum() * 100  # Convert to percentage
-    else:
-        grouped_returns = df.groupby(["year", "month"])["log_return"].sum() * 100  # Convert to percentage
+    included_years = df["year"].unique()
 
-    # Compute % Pos based on sample periods (months or weeks), not daily returns
+    # Determine whether we're summarizing months or weeks
+    if "week_of_month_5day" in df.columns:
+        # Weekly summary (grouping by week within each month)
+        grouped_returns = df[df["year"].isin(included_years)].groupby(["year", "month", "week_of_month_5day"])["log_return"].sum() * 100
+    else:
+        # Monthly summary (grouping only by month)
+        grouped_returns = df[df["year"].isin(included_years)].groupby(["year", "month"])["log_return"].sum() * 100
+
+    # Compute % Pos using only unique timeframes (months or weeks, but not both together)
     pos_percentage = (grouped_returns > 0).sum() / len(grouped_returns) * 100
-    st.write("Unique years in sample:", df["year"].unique())  # Debugging step
-    st.write("Full grouped returns dataset:\n", grouped_returns)
 
     return {
         "Avg Return (%)": grouped_returns.mean(),
@@ -40,6 +42,7 @@ def summarize_data(df, include_atr=True):
         "Avg ATR%": df["ATR%"].mean() if include_atr else np.nan,
         "% Pos": pos_percentage
     }
+
 
 
 def get_current_trading_info():
