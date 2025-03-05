@@ -16,38 +16,29 @@ def compute_atr(df, window=14):
 
 def summarize_data(df, include_atr=True):
     if df.empty:
-        # Return with ATR and % Pos if include_atr is True, else still return these columns as NaN
-        if include_atr:
-            return {
-                "Avg Return (%)": np.nan, 
-                "Median Daily Return (%)": np.nan, 
-                "Avg ATR%": np.nan,
-                "% Pos": np.nan
-            }
-        else:
-            return {
-                "Avg Return (%)": np.nan, 
-                "Median Daily Return (%)": np.nan, 
-                "Avg ATR%": np.nan,  # even if include_atr=False, we return the column as NaN for consistency
-                "% Pos": np.nan
-            }
-    daily_returns = df["log_return"] * 100  # convert to percentage
-    pos_percentage = (daily_returns > 0).sum() / len(daily_returns) * 100
-    if include_atr:
         return {
-            "Avg Return (%)": daily_returns.mean(),
-            "Median Daily Return (%)": daily_returns.median(),
-            "Avg ATR%": df["ATR%"].mean(),
-            "% Pos": pos_percentage
+            "Avg Return (%)": np.nan, 
+            "Median Daily Return (%)": np.nan, 
+            "Avg ATR%": np.nan if include_atr else np.nan,
+            "% Pos": np.nan
         }
+
+    # Aggregate log returns by year (for month-based) or by year & week (for week-based)
+    if "week_of_month_5day" in df.columns:
+        grouped_returns = df.groupby(["year", "month", "week_of_month_5day"])["log_return"].sum() * 100  # Convert to percentage
     else:
-        # Even if include_atr=False, let's still return ATR% as NaN so all tables have same columns
-        return {
-            "Avg Return (%)": daily_returns.mean(),
-            "Median Daily Return (%)": daily_returns.median(),
-            "Avg ATR%": np.nan,  # no ATR in original daily request, but we add it as NaN for consistency
-            "% Pos": pos_percentage
-        }
+        grouped_returns = df.groupby(["year", "month"])["log_return"].sum() * 100  # Convert to percentage
+
+    # Compute % Pos based on sample periods (months or weeks), not daily returns
+    pos_percentage = (grouped_returns > 0).sum() / len(grouped_returns) * 100
+
+    return {
+        "Avg Return (%)": grouped_returns.mean(),
+        "Median Daily Return (%)": grouped_returns.median(),
+        "Avg ATR%": df["ATR%"].mean() if include_atr else np.nan,
+        "% Pos": pos_percentage
+    }
+
 
 def get_current_trading_info():
     # Determine today's trading day_of_month and week_of_month_5day
