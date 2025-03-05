@@ -31,6 +31,8 @@ def summarize_data(df, include_atr=True):
 
     # Compute % Pos based on sample periods (months or weeks), not daily returns
     pos_percentage = (grouped_returns > 0).sum() / len(grouped_returns) * 100
+    st.write("Unique years in sample:", df["year"].unique())  # Debugging step
+    st.write("Full grouped returns dataset:\n", grouped_returns)
 
     return {
         "Avg Return (%)": grouped_returns.mean(),
