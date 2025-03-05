@@ -187,7 +187,7 @@ def seasonals_chart(ticker, cycle_label):
         else:
             summary_rows.append([label, np.nan, np.nan, np.nan, np.nan])
     
-    high_level_df = pd.DataFrame(summary_rows, columns=["Timeframe", "Mean", "Median", "% Pos", "Sample Size"]).set_index("Timeframe")
+    high_level_df = pd.DataFrame(summary_rows, columns=["Timeframe", "Mean", "Median", "Sample Size"]).set_index("Timeframe")
     
     st.subheader("High-Level Summary")
     st.dataframe(high_level_df.style.format({
