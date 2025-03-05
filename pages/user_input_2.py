@@ -40,7 +40,6 @@ def summarize_data(df, include_atr=True):
         "Avg Return (%)": grouped_returns.mean(),
         "Median Daily Return (%)": grouped_returns.median(),
         "Avg ATR%": df["ATR%"].mean() if include_atr else np.nan,
-        "% Pos": pos_percentage
     }
 
 
@@ -184,7 +183,7 @@ def seasonals_chart(ticker, cycle_label):
         if not time_data.empty:
             stats = summarize_data(time_data, include_atr=False)
             sample_size = time_data["year"].nunique()  # Count unique years in the selected cycle
-            summary_rows.append([label, stats["Avg Return (%)"], stats["Median Daily Return (%)"], stats["% Pos"], sample_size])
+            summary_rows.append([label, stats["Avg Return (%)"], stats["Median Daily Return (%)"],sample_size])
         else:
             summary_rows.append([label, np.nan, np.nan, np.nan, np.nan])
     
