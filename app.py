@@ -16,6 +16,6 @@ def user_input_2_page():
 
 page_names_to_funcs = {
     "Variance Simulation": variance_sim_page,
-    "Trade Dashboard": trade_dashboard_page
+    "Trade Dashboard": trade_dashboard_page,
     "User Input": user_input_2_page,
 }
