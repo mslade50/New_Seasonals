@@ -6,21 +6,6 @@ import plotly.graph_objs as go
 import streamlit as st
 from datetime import date, timedelta
 
-
-def safe_download(ticker, **kwargs):
-    retries = 3
-    delay = 5
-    for i in range(retries):
-        try:
-            return yf.download(ticker, **kwargs)
-        except yf_exceptions.YFRateLimitError:
-            st.warning(f"Rate limit hit for {ticker}. Retrying in {delay} seconds...")
-            time.sleep(delay)
-        except Exception as e:
-            st.error(f"Error downloading {ticker}: {e}")
-            break
-    return pd.DataFrame() 
-    
 def compute_atr(df, window=14):
     df = df.copy()
     df["previous_close"] = df["Close"].shift(1)
@@ -63,7 +48,7 @@ def get_current_trading_info():
     # Determine today's trading day_of_month and week_of_month_5day
     today = dt.date.today()
     start_of_month = dt.date(today.year, today.month, 1)
-    current_data = safe_download("SPY", start=start_of_month, end=today + timedelta(days=1))
+    current_data = yf.download("SPY", start=start_of_month, end=today + timedelta(days=1)) 
     if isinstance(current_data.columns, pd.MultiIndex):  
         current_data.columns = current_data.columns.get_level_values(0)
     if not current_data.empty:
@@ -88,7 +73,7 @@ def seasonals_chart(ticker, cycle_label):
 
     end_date = dt.datetime(2024, 12, 30)
     this_yr_end = dt.date.today() + timedelta(days=1)
-    spx = safe_download(ticker, period="max", end=end_date)
+    spx = yf.download(ticker, period="max", end=end_date)
 
     if spx.empty:
         st.error(f"No data found for {ticker}.")
@@ -135,7 +120,7 @@ def seasonals_chart(ticker, cycle_label):
     ))
 
 
-    current_year_data = safe_download(ticker, start=dt.datetime(this_yr_end.year, 1, 1), end=this_yr_end)
+    current_year_data = yf.download(ticker, start=dt.datetime(this_yr_end.year, 1, 1), end=this_yr_end)
     current_trading_day = len(current_year_data)
     avg_path_y_value = avg_path[current_trading_day] if current_trading_day is not None and current_trading_day in avg_path.index else None
     if avg_path_y_value is not None:
