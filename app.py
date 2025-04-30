@@ -1,70 +1,21 @@
 import streamlit as st
-from pages import (bull_signals, indicies, variance_sim, currency_pairs,
-                   commodities, bullish_seasonals, bearish_seasonals,
-                   user_input, filtered_bull, filtered_bear, concordance,
-                   mdm_fwds)
+from pages import user_input_2, variance_sim, trade_dashboard)
 
 st.set_page_config(page_title="Multi-Page Dashboard", page_icon=":chart_with_upwards_trend:")
-
-def bull_signals_page():
-    st.sidebar.markdown("# Daily Signals")
-    bull_signals.daily_signals_app()
-
-def indicies_page():
-    st.sidebar.markdown("# Indices")
-    indicies.indicies_app()
 
 def variance_sim_page():
     st.sidebar.markdown("# Variance Simulation")
     variance_sim.variance_sim_app()
+def trade_dashboard_page():
+    st.sidebar.markdown("# Trade Dashboard")
+    trade_dashboard.trade_dashboard_app()
+def user_input_2_page():
+    st.sidebar.markdown("# User Input 2")
+    user_input_2.user_input_2_app()
 
-def currency_pairs_page():
-    st.sidebar.markdown("# Currency Pairs")
-    currency_pairs.currency_pairs_app()
-
-def commodities_page():
-    st.sidebar.markdown("# Commodities")
-    commodities.commodities_app()
-
-def bullish_seasonals_page():
-    st.sidebar.markdown("# Bullish Seasonals")
-    bullish_seasonals.bullish_seasonals_app()
-
-def bearish_seasonals_page():
-    st.sidebar.markdown("# Bearish Seasonals")
-    bearish_seasonals.bearish_seasonals_app()
-
-def user_input_page():
-    st.sidebar.markdown("# User Input")
-    user_input.user_input_app()
-
-def filtered_bull_page():
-    st.sidebar.markdown("# Filtered Bull")
-    filtered_bull.filtered_bull_app()
-
-def filtered_bear_page():
-    st.sidebar.markdown("# Filtered Bear")
-    filtered_bear.filtered_bear_app()
-
-def concordance_page():
-    st.sidebar.markdown("# Concordance")
-    concordance.concordance_app() # Call the appropriate function from concordance.py
-
-def mdm_fwds_page():
-    st.sidebar.markdown("# MDM Forwards")
-    mdm_fwds.mdm_fwds_app()
 
 page_names_to_funcs = {
-    "Daily Signals": bull_signals_page,
-    "Indices": indicies_page,
     "Variance Simulation": variance_sim_page,
-    "Currency Pairs": currency_pairs_page,
-    "Commodities": commodities_page,
-    "Bullish Seasonals": bullish_seasonals_page,
-    "Bearish Seasonals": bearish_seasonals_page,
-    "User Input": user_input_page,
-    "Filtered Bull": filtered_bull_page,
-    "Filtered Bear": filtered_bear_page,
-    "Concordance": concordance_page,
-    "MDM Forwards": mdm_fwds_page, # New page
+    "Trade Dashboard": trade_dashboard_page
+    "User Input": user_input_2_page,
 }
