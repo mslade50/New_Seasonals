@@ -1,1 +1,0 @@
-['FE', 'CEF', 'SA', 'GDX', 'DRS', 'TGS', 'UTHR', 'USDNOK=X']
