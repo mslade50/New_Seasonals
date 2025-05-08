@@ -1,1 +1,0 @@
-['INSM', 'AR', 'DXCM', 'FIVE', 'NVDA', 'PDD']
