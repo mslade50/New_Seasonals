@@ -19,17 +19,17 @@ def calculate_kelly(fair_prob, offered_payout):
 def run_monte_carlo_paths(fair_prob, offered_payout, bankroll, kelly_fractions, num_trials):
     results = {}
     for kf in kelly_fractions:
-        paths = []
+        all_paths = []
         for _ in range(100):
             capital = bankroll
             path = [capital - bankroll]
             for _ in range(num_trials):
-                bet_size = kf * bankroll
+                bet_size = kf * capital  # dynamic stake with bankroll growth/shrinkage
                 outcome = np.random.rand() < fair_prob
                 capital += bet_size * offered_payout if outcome else -bet_size
                 path.append(capital - bankroll)
-            paths.append(path)
-        results[kf] = np.mean(paths, axis=0)  # Average path
+            all_paths.append(path)
+        results[kf] = all_paths
     return results
 
 # === Streamlit app ===
@@ -69,10 +69,13 @@ if st.button("Calculate Bet and Run Simulation"):
     sim_paths = run_monte_carlo_paths(fair_prob, offered_payout, bankroll, kelly_fractions, num_trials)
 
     fig = go.Figure()
-    for kf, avg_path in sim_paths.items():
-        fig.add_trace(go.Scatter(y=avg_path, mode='lines', name=f"{kf}x Kelly"))
+    for kf, paths in sim_paths.items():
+        for path in paths:
+            fig.add_trace(go.Scatter(y=path, mode='lines', name=f"{kf}x Kelly", opacity=0.2, showlegend=False))
+        avg_path = np.mean(paths, axis=0)
+        fig.add_trace(go.Scatter(y=avg_path, mode='lines', name=f"{kf}x Kelly Avg", line=dict(width=3)))
 
-    fig.update_layout(title="Average Running PnL Over Time for Kelly Fractions",
+    fig.update_layout(title="Running PnL Over Time for Kelly Fractions",
                       xaxis_title="Trial",
                       yaxis_title="Cumulative PnL ($)",
                       height=600, width=800)
