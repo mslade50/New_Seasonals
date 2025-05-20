@@ -60,10 +60,16 @@ if st.button("Calculate Bet and Run Simulation"):
     kelly_fraction = calculate_kelly(fair_prob, offered_payout)
     recommended_bet = bankroll * kelly_fraction * fraction_kelly
 
+    expected_value = (fair_prob * (offered_payout * recommended_bet)) - ((1 - fair_prob) * recommended_bet)
+    variance = (fair_prob * ((offered_payout * recommended_bet) - expected_value) ** 2) + \
+               ((1 - fair_prob) * (-recommended_bet - expected_value) ** 2)
+
     st.write(f"**Fair Win Probability:** {round(fair_prob, 4)}")
     st.write(f"**Offered Payout Multiplier:** {round(offered_payout, 4)}")
     st.write(f"**Full Kelly Fraction:** {round(kelly_fraction, 4)}")
     st.write(f"**Recommended Bet Size at {fraction_kelly}x Kelly:** ${round(recommended_bet, 2)}")
+    st.write(f"**Expected Value of the Bet:** ${round(expected_value, 2)}")
+    st.write(f"**Variance of the Bet:** ${round(variance, 2)}")
 
     kelly_fractions = [0.1, 0.25, 0.33, 0.5, 0.67, 1.0]
     sim_paths = run_monte_carlo_paths(fair_prob, offered_payout, bankroll, kelly_fractions, num_trials)
@@ -71,9 +77,7 @@ if st.button("Calculate Bet and Run Simulation"):
     fig = go.Figure()
     for kf, paths in sim_paths.items():
         for path in paths:
-            fig.add_trace(go.Scatter(y=path, mode='lines', name=f"{kf}x Kelly", opacity=0.2, showlegend=False))
-        avg_path = np.mean(paths, axis=0)
-        fig.add_trace(go.Scatter(y=avg_path, mode='lines', name=f"{kf}x Kelly Avg", line=dict(width=3)))
+            fig.add_trace(go.Scatter(y=path, mode='lines', name=f"{kf}x Kelly", opacity=0.2))
 
     fig.update_layout(title="Running PnL Over Time for Kelly Fractions",
                       xaxis_title="Trial",
