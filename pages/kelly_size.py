@@ -16,18 +16,20 @@ def american_to_prob_and_payout(odds):
 def calculate_kelly(fair_prob, offered_payout):
     return (fair_prob * (offered_payout + 1) - 1) / offered_payout
 
-def run_monte_carlo(fair_prob, offered_payout, bankroll, kelly_fractions, num_trials):
+def run_monte_carlo_paths(fair_prob, offered_payout, bankroll, kelly_fractions, num_trials):
     results = {}
     for kf in kelly_fractions:
-        final_pnls = []
-        for _ in range(1000):
+        paths = []
+        for _ in range(100):
             capital = bankroll
+            path = [capital - bankroll]
             for _ in range(num_trials):
                 bet_size = kf * bankroll
                 outcome = np.random.rand() < fair_prob
                 capital += bet_size * offered_payout if outcome else -bet_size
-            final_pnls.append(capital - bankroll)
-        results[kf] = final_pnls
+                path.append(capital - bankroll)
+            paths.append(path)
+        results[kf] = np.mean(paths, axis=0)  # Average path
     return results
 
 # === Streamlit app ===
@@ -64,12 +66,14 @@ if st.button("Calculate Bet and Run Simulation"):
     st.write(f"**Recommended Bet Size at {fraction_kelly}x Kelly:** ${round(recommended_bet, 2)}")
 
     kelly_fractions = [0.1, 0.25, 0.33, 0.5, 0.67, 1.0]
-    sim_results = run_monte_carlo(fair_prob, offered_payout, bankroll, kelly_fractions, num_trials)
+    sim_paths = run_monte_carlo_paths(fair_prob, offered_payout, bankroll, kelly_fractions, num_trials)
 
     fig = go.Figure()
-    for kf, values in sim_results.items():
-        fig.add_trace(go.Box(y=values, name=f"{kf}x Kelly"))
+    for kf, avg_path in sim_paths.items():
+        fig.add_trace(go.Scatter(y=avg_path, mode='lines', name=f"{kf}x Kelly"))
 
-    fig.update_layout(title="Distribution of Ending PnL for Kelly Fractions (1000 simulations each)",
-                      yaxis_title="Total PnL ($)", height=600, width=800)
+    fig.update_layout(title="Average Running PnL Over Time for Kelly Fractions",
+                      xaxis_title="Trial",
+                      yaxis_title="Cumulative PnL ($)",
+                      height=600, width=800)
     st.plotly_chart(fig)
