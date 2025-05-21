@@ -83,7 +83,7 @@ if st.button("Calculate Bet and Run Simulation"):
                       xaxis_title="Trial",
                       yaxis_title="Cumulative PnL ($)",
                       height=600, width=800)
-        st.plotly_chart(fig)
+    st.plotly_chart(fig)
 
     # Print final value of the average path
     final_avg_value = avg_path[-1]
