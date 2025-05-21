@@ -37,7 +37,7 @@ fair_input_method = st.radio("Enter your fair value as:", ["American Odds", "Imp
 if fair_input_method == "American Odds":
     fair_american_odds = st.number_input("Your Fair American Odds", value=+110, key="fair_odds")
     fair_prob, _ = american_to_prob_and_payout(fair_american_odds)
-    st.write(f"**Implied Probability:** {round(fair_prob, 4)}")
+    st.write(f"**Implied Probability:** {round(fair_prob * 100, 2)}%")
 else:
     fair_prob = st.number_input("Your Fair Implied Win Probability (0.0 - 1.0)", min_value=0.0, max_value=1.0, value=0.55, step=0.01)
     fair_american_odds = (100 * (1 - fair_prob) / fair_prob) if fair_prob >= 0.5 else (-100 * fair_prob / (1 - fair_prob))
@@ -48,7 +48,7 @@ offered_input_method = st.radio("Enter the offered value as:", ["American Odds",
 if offered_input_method == "American Odds":
     offered_american_odds = st.number_input("Book's Offered American Odds", value=+110, key="offered_odds")
     offered_prob, offered_payout = american_to_prob_and_payout(offered_american_odds)
-    st.write(f"**Implied Probability:** {round(offered_prob, 4)}")
+    st.write(f"**Implied Probability:** {round(offered_prob * 100, 2)}%")
 else:
     offered_prob = st.number_input("Book's Implied Win Probability (0.0 - 1.0)", min_value=0.0, max_value=1.0, value=0.47, step=0.01)
     offered_payout = (1 / offered_prob) - 1
@@ -64,15 +64,14 @@ if st.button("Calculate Bet and Run Simulation"):
     recommended_bet = bankroll * kelly_fraction * fraction_kelly
 
     expected_value = (fair_prob * (offered_payout * recommended_bet)) - ((1 - fair_prob) * recommended_bet)
-    variance = (fair_prob * ((offered_payout * recommended_bet) - expected_value) ** 2) + \
-               ((1 - fair_prob) * (-recommended_bet - expected_value) ** 2)
+    edge = fair_prob * (offered_payout + 1) - 1
 
     st.write(f"**Fair Win Probability:** {round(fair_prob, 4)}")
     st.write(f"**Offered Payout Multiplier:** {round(offered_payout, 4)}")
     st.write(f"**Full Kelly Fraction:** {round(kelly_fraction, 4)}")
     st.write(f"**Recommended Bet Size at {fraction_kelly}x Kelly:** ${round(recommended_bet, 2)}")
     st.write(f"**Expected Value of the Bet:** ${round(expected_value, 2)}")
-    st.write(f"**Variance of the Bet:** ${round(variance, 2)}")
+    st.write(f"**Edge of the Bet:** {round(edge * 100, 2)}%")
 
     sim_paths = run_single_kelly_monte_carlo(fair_prob, offered_payout, bankroll, kelly_fraction * fraction_kelly, num_trials)
     avg_path = np.mean(sim_paths, axis=0)
