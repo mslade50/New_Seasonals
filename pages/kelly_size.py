@@ -37,17 +37,23 @@ fair_input_method = st.radio("Enter your fair value as:", ["American Odds", "Imp
 if fair_input_method == "American Odds":
     fair_american_odds = st.number_input("Your Fair American Odds", value=+110, key="fair_odds")
     fair_prob, _ = american_to_prob_and_payout(fair_american_odds)
+    st.write(f"**Implied Probability:** {round(fair_prob, 4)}")
 else:
     fair_prob = st.number_input("Your Fair Implied Win Probability (0.0 - 1.0)", min_value=0.0, max_value=1.0, value=0.55, step=0.01)
+    fair_american_odds = (100 * (1 - fair_prob) / fair_prob) if fair_prob >= 0.5 else (-100 * fair_prob / (1 - fair_prob))
+    st.write(f"**Equivalent American Odds:** {round(fair_american_odds, 1)}")
 
 st.markdown("### Book's Offered Line")
 offered_input_method = st.radio("Enter the offered value as:", ["American Odds", "Implied Probability"], key="offered")
 if offered_input_method == "American Odds":
     offered_american_odds = st.number_input("Book's Offered American Odds", value=+110, key="offered_odds")
-    _, offered_payout = american_to_prob_and_payout(offered_american_odds)
+    offered_prob, offered_payout = american_to_prob_and_payout(offered_american_odds)
+    st.write(f"**Implied Probability:** {round(offered_prob, 4)}")
 else:
     offered_prob = st.number_input("Book's Implied Win Probability (0.0 - 1.0)", min_value=0.0, max_value=1.0, value=0.47, step=0.01)
     offered_payout = (1 / offered_prob) - 1
+    offered_american_odds = (100 * (1 - offered_prob) / offered_prob) if offered_prob >= 0.5 else (-100 * offered_prob / (1 - offered_prob))
+    st.write(f"**Equivalent American Odds:** {round(offered_american_odds, 1)}")
 
 bankroll = st.number_input("Bankroll ($)", min_value=1, max_value=10000000, value=10000, step=100)
 fraction_kelly = st.number_input("Fraction of Kelly to Use", min_value=0.0, max_value=1.0, value=0.5, step=0.05)
@@ -69,10 +75,12 @@ if st.button("Calculate Bet and Run Simulation"):
     st.write(f"**Variance of the Bet:** ${round(variance, 2)}")
 
     sim_paths = run_single_kelly_monte_carlo(fair_prob, offered_payout, bankroll, kelly_fraction * fraction_kelly, num_trials)
+    avg_path = np.mean(sim_paths, axis=0)
 
     fig = go.Figure()
     for path in sim_paths:
-        fig.add_trace(go.Scatter(y=path, mode='lines', name="Path", opacity=0.4))
+        fig.add_trace(go.Scatter(y=path, mode='lines', name="Path", opacity=0.3))
+    fig.add_trace(go.Scatter(y=avg_path, mode='lines', name="Average", line=dict(width=3)))
 
     fig.update_layout(title="Running PnL Over Time for Selected Kelly Fraction",
                       xaxis_title="Trial",
