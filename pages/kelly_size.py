@@ -16,7 +16,7 @@ def american_to_prob_and_payout(odds):
 def calculate_kelly(fair_prob, offered_payout):
     return (fair_prob * (offered_payout + 1) - 1) / offered_payout
 
-def run_single_kelly_monte_carlo(fair_prob, offered_payout, bankroll, kelly_fraction, num_trials, num_paths=10):
+def run_single_kelly_monte_carlo(fair_prob, offered_payout, bankroll, kelly_fraction, num_trials, num_paths=100):
     paths = []
     for _ in range(num_paths):
         capital = bankroll
@@ -76,11 +76,21 @@ if st.button("Calculate Bet and Run Simulation"):
 
     fig = go.Figure()
     for path in sim_paths:
-        fig.add_trace(go.Scatter(y=path, mode='lines', name="Path", opacity=0.3))
+        fig.add_trace(go.Scatter(y=path, mode='lines', name="", opacity=0.3, showlegend=False))
     fig.add_trace(go.Scatter(y=avg_path, mode='lines', name="Average", line=dict(width=3)))
 
     fig.update_layout(title="Running PnL Over Time for Selected Kelly Fraction",
                       xaxis_title="Trial",
                       yaxis_title="Cumulative PnL ($)",
                       height=600, width=800)
-    st.plotly_chart(fig)
+        st.plotly_chart(fig)
+
+    # Find the first trial where all paths are above zero
+    sim_array = np.array(sim_paths)
+    positive_mask = (sim_array > 0)
+    all_positive = np.all(positive_mask, axis=0)
+    if np.any(all_positive):
+        first_all_positive_trial = np.argmax(all_positive)
+        st.write(f"**All paths remain positive starting from trial #{first_all_positive_trial}**")
+    else:
+        st.write("**No trial found where all paths are positive.**")
