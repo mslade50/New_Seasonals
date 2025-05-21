@@ -61,7 +61,7 @@ num_trials = st.number_input("Number of Monte Carlo Trials", min_value=1, max_va
 
 if st.button("Calculate Bet and Run Simulation"):
     kelly_fraction = calculate_kelly(fair_prob, offered_payout)
-    recommended_bet = bankroll * kelly_fraction * fraction_kelly
+    recommended_bet = min(bankroll * kelly_fraction * fraction_kelly, 20000)
 
     expected_value = (fair_prob * (offered_payout * recommended_bet)) - ((1 - fair_prob) * recommended_bet)
     edge = (fair_prob * (offered_payout + 1)) - 1
@@ -83,7 +83,20 @@ if st.button("Calculate Bet and Run Simulation"):
                       xaxis_title="Trial",
                       yaxis_title="Cumulative PnL ($)",
                       height=600, width=800)
-    st.plotly_chart(fig)
+        st.plotly_chart(fig)
+
+    # Print final value of the average path
+    final_avg_value = avg_path[-1]
+    st.write(f"**Final Value of Average Path:** ${round(final_avg_value, 2)}")
+
+    # Percentile stats
+    final_values = np.array(sim_paths)[:, -1]
+    p15 = np.percentile(final_values, 15)
+    p50 = np.percentile(final_values, 50)
+    p85 = np.percentile(final_values, 85)
+    st.write(f"**15th Percentile Final Value:** ${round(p15, 2)}")
+    st.write(f"**50th Percentile (Median) Final Value:** ${round(p50, 2)}")
+    st.write(f"**85th Percentile Final Value:** ${round(p85, 2)}")
 
     # Find the first trial where all paths are above zero
     sim_array = np.array(sim_paths)
