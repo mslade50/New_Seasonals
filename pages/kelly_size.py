@@ -16,21 +16,18 @@ def american_to_prob_and_payout(odds):
 def calculate_kelly(fair_prob, offered_payout):
     return (fair_prob * (offered_payout + 1) - 1) / offered_payout
 
-def run_monte_carlo_paths(fair_prob, offered_payout, bankroll, kelly_fractions, num_trials):
-    results = {}
-    for kf in kelly_fractions:
-        all_paths = []
-        for _ in range(100):
-            capital = bankroll
-            path = [capital - bankroll]
-            for _ in range(num_trials):
-                bet_size = kf * capital  # dynamic stake with bankroll growth/shrinkage
-                outcome = np.random.rand() < fair_prob
-                capital += bet_size * offered_payout if outcome else -bet_size
-                path.append(capital - bankroll)
-            all_paths.append(path)
-        results[kf] = all_paths
-    return results
+def run_single_kelly_monte_carlo(fair_prob, offered_payout, bankroll, kelly_fraction, num_trials, num_paths=10):
+    paths = []
+    for _ in range(num_paths):
+        capital = bankroll
+        path = [capital - bankroll]
+        for _ in range(num_trials):
+            bet_size = kelly_fraction * capital
+            outcome = np.random.rand() < fair_prob
+            capital += bet_size * offered_payout if outcome else -bet_size
+            path.append(capital - bankroll)
+        paths.append(path)
+    return paths
 
 # === Streamlit app ===
 st.markdown("# Kelly Betting Calculator")
@@ -71,15 +68,13 @@ if st.button("Calculate Bet and Run Simulation"):
     st.write(f"**Expected Value of the Bet:** ${round(expected_value, 2)}")
     st.write(f"**Variance of the Bet:** ${round(variance, 2)}")
 
-    kelly_fractions = [0.1, 0.25, 0.33, 0.5, 0.67, 1.0]
-    sim_paths = run_monte_carlo_paths(fair_prob, offered_payout, bankroll, kelly_fractions, num_trials)
+    sim_paths = run_single_kelly_monte_carlo(fair_prob, offered_payout, bankroll, kelly_fraction * fraction_kelly, num_trials)
 
     fig = go.Figure()
-    for kf, paths in sim_paths.items():
-        for path in paths:
-            fig.add_trace(go.Scatter(y=path, mode='lines', name=f"{kf}x Kelly", opacity=0.2))
+    for path in sim_paths:
+        fig.add_trace(go.Scatter(y=path, mode='lines', name="Path", opacity=0.4))
 
-    fig.update_layout(title="Running PnL Over Time for Kelly Fractions",
+    fig.update_layout(title="Running PnL Over Time for Selected Kelly Fraction",
                       xaxis_title="Trial",
                       yaxis_title="Cumulative PnL ($)",
                       height=600, width=800)
