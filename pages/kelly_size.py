@@ -64,7 +64,7 @@ if st.button("Calculate Bet and Run Simulation"):
     recommended_bet = bankroll * kelly_fraction * fraction_kelly
 
     expected_value = (fair_prob * (offered_payout * recommended_bet)) - ((1 - fair_prob) * recommended_bet)
-    edge = fair_prob - offered_prob
+    edge = (fair_prob * (offered_payout + 1)) - 1
 
     st.write(f"**Full Kelly Fraction:** {round(kelly_fraction * 100, 2)}%")
     st.write(f"**Recommended Bet Size at {fraction_kelly}x Kelly:** ${round(recommended_bet, 2)}")
