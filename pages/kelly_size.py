@@ -107,3 +107,8 @@ if st.button("Calculate Bet and Run Simulation"):
         st.write(f"**All paths remain positive starting from trial #{first_all_positive_trial}**")
     else:
         st.write("**No trial found where all paths are positive.**")
+        # % of paths with positive final PnL
+    num_positive_paths = np.sum(final_values > 0)
+    pct_positive = 100 * num_positive_paths / len(final_values)
+    st.write(f"**% of Paths Ending Positive:** {round(pct_positive, 2)}%")
+
