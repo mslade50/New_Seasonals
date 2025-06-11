@@ -4,7 +4,7 @@ import pandas as pd
 import plotly.graph_objects as go
 
 # User inputs
-st.markdown("# Monte Carlo Simulation")
+st.markdown("# Sims")
 win_prob = st.number_input("Winning probability", min_value=0.0, max_value=1.0, value=0.4, step=0.01)
 win_loss_ratio = st.number_input("Win/Loss Ratio", min_value=0.1, max_value=20.0, value=2.0, step=0.01)
 start_capital = st.number_input("Starting Capital", min_value=0, max_value=1000000000, value=100000, step=100)
