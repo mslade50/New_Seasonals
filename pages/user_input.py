@@ -156,8 +156,9 @@ def seasonals_chart(ticker, cycle_label, show_all_years_line=False):
     
     if min_len >= 10:
         try:
-            actual_5d = this_year_path.rolling(5).apply(lambda x: x[-1] - x[0])
-            avg_5d = avg_path.rolling(5).apply(lambda x: x[-1] - x[0])
+            actual_5d = this_year_path.rolling(5).apply(lambda x: x.iloc[-1] - x.iloc[0], raw=False)
+            avg_5d = avg_path.rolling(5).apply(lambda x: x.iloc[-1] - x.iloc[0], raw=False)
+
     
             comparison_df = pd.DataFrame({
                 "actual_5d": actual_5d.iloc[:min_len].values,
