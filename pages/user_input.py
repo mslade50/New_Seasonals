@@ -188,7 +188,7 @@ def seasonals_chart(ticker, cycle_label, show_all_years_line=False):
     fig.add_annotation(
         text=annotation_text,
         xref="paper", yref="paper",
-        x=1.25, y=1.1,
+        x=1.375, y=1.1,
         showarrow=False,
         font=dict(color="white", size=12),
         align="center"
