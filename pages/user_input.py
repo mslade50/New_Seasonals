@@ -152,19 +152,28 @@ def seasonals_chart(ticker, cycle_label, show_all_years_line=False):
             line=dict(color="green")
         ))
         # Match lengths for comparison
+    # Match lengths for comparison
     min_len = min(len(this_year_path), len(avg_path))
-    if min_len > 10:  # Only assess if we have enough data points
-        aligned_actual = this_year_path.iloc[:min_len].values
-        aligned_avg = avg_path.iloc[:min_len].values
+    if min_len > 10:
+        aligned_actual = this_year_path.iloc[:min_len]
+        aligned_avg = avg_path.iloc[:min_len]
     
-        # Calculate R²
-        ss_res = np.sum((aligned_actual - aligned_avg) ** 2)
-        ss_tot = np.sum((aligned_actual - np.mean(aligned_actual)) ** 2)
-        r_squared = 1 - (ss_res / ss_tot)
+        # Drop NaNs from both (align indices)
+        comparison_df = pd.DataFrame({
+            "actual": aligned_actual.values,
+            "avg": aligned_avg.values
+        }).dropna()
     
-        annotation_text = f"R² vs Avg Path (YTD): {r_squared:.2f}"
+        if len(comparison_df) > 5:
+            ss_res = np.sum((comparison_df["actual"] - comparison_df["avg"]) ** 2)
+            ss_tot = np.sum((comparison_df["actual"] - np.mean(comparison_df["actual"])) ** 2)
+            r_squared = 1 - (ss_res / ss_tot)
+            annotation_text = f"R² vs Avg Path (YTD): {r_squared:.2f}"
+        else:
+            annotation_text = "Insufficient overlap for R² calc"
     else:
         annotation_text = "Not enough data for path similarity (min 10 days)"
+
     fig.update_layout(
         title=f"{ticker} - {cycle_label} Cycle Average",
         xaxis_title="Trading Day",
@@ -179,7 +188,7 @@ def seasonals_chart(ticker, cycle_label, show_all_years_line=False):
     fig.add_annotation(
         text=annotation_text,
         xref="paper", yref="paper",
-        x=0.85, y=1.1,
+        x=1.25, y=1.1,
         showarrow=False,
         font=dict(color="white", size=12),
         align="center"
