@@ -102,6 +102,20 @@ def seasonals_chart(ticker, cycle_label, show_all_years_line=False):
         .cumsum()
         .apply(np.exp) - 1
     )
+    # Match lengths for comparison
+    min_len = min(len(this_year_path), len(avg_path))
+    if min_len > 10:  # Only assess if we have enough data points
+        aligned_actual = this_year_path.iloc[:min_len].values
+        aligned_avg = avg_path.iloc[:min_len].values
+    
+        # Calculate R²
+        ss_res = np.sum((aligned_actual - aligned_avg) ** 2)
+        ss_tot = np.sum((aligned_actual - np.mean(aligned_actual)) ** 2)
+        r_squared = 1 - (ss_res / ss_tot)
+    
+        annotation_text = f"R² vs Avg Path (YTD): {r_squared:.2f}"
+    else:
+        annotation_text = "Not enough data for path similarity (min 10 days)"
 
     fig = go.Figure()
     fig.add_trace(go.Scatter(
@@ -163,6 +177,14 @@ def seasonals_chart(ticker, cycle_label, show_all_years_line=False):
     )
     fig.update_xaxes(showgrid=False)
     fig.update_yaxes(showgrid=False)
+    fig.add_annotation(
+        text=annotation_text,
+        xref="paper", yref="paper",
+        x=0.85, y=1.1,
+        showarrow=False,
+        font=dict(color="white", size=12),
+        align="center"
+    )
 
     st.plotly_chart(fig)
 
