@@ -151,25 +151,36 @@ def seasonals_chart(ticker, cycle_label, show_all_years_line=False):
             name="This Year",
             line=dict(color="green")
         ))
-    # Ensure matched length
+    # === Compute 5D Concordance ===
     min_len = min(len(this_year_path), len(avg_path))
     
     if min_len >= 10:
-        actual_5d = this_year_path.rolling(5).apply(lambda x: x[-1] - x[0])
-        avg_5d = avg_path.rolling(5).apply(lambda x: x[-1] - x[0])
+        try:
+            actual_5d = this_year_path.rolling(5).apply(lambda x: x[-1] - x[0])
+            avg_5d = avg_path.rolling(5).apply(lambda x: x[-1] - x[0])
     
-        comparison_df = pd.DataFrame({
-            "actual_5d": actual_5d.iloc[:min_len].values,
-            "avg_5d": avg_5d.iloc[:min_len].values
-        }).dropna()
+            comparison_df = pd.DataFrame({
+                "actual_5d": actual_5d.iloc[:min_len].values,
+                "avg_5d": avg_5d.iloc[:min_len].values
+            }).dropna()
     
-        if not comparison_df.empty:
-            concordance = (np.sign(comparison_df["actual_5d"]) == np.sign(comparison_df["avg_5d"])).mean()
-            annotation_text = f"5D Concordance: {concordance:.0%}"
-        else:
-            annotation_text = "Not enough 5-day periods for concordance"
+            # Optional: Filter out flat signals
+            threshold = 0.001
+            comparison_df = comparison_df[
+                (comparison_df["actual_5d"].abs() > threshold) &
+                (comparison_df["avg_5d"].abs() > threshold)
+            ]
+    
+            if not comparison_df.empty:
+                concordance = (np.sign(comparison_df["actual_5d"]) == np.sign(comparison_df["avg_5d"])).mean()
+                annotation_text = f"5D Concordance (filtered): {concordance:.0%}"
+            else:
+                annotation_text = "No valid 5D periods for concordance"
+        except Exception as e:
+            annotation_text = f"Concordance error: {e}"
     else:
-        annotation_text = "Not enough data for 5-day concordance"
+        annotation_text = "Not enough data for 5D concordance"
+
     
 
     fig.update_layout(
