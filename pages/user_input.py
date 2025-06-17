@@ -151,28 +151,26 @@ def seasonals_chart(ticker, cycle_label, show_all_years_line=False):
             name="This Year",
             line=dict(color="green")
         ))
-        # Match lengths for comparison
-    # Match lengths for comparison
+    # Ensure matched length
     min_len = min(len(this_year_path), len(avg_path))
-    if min_len > 10:
-        aligned_actual = this_year_path.iloc[:min_len]
-        aligned_avg = avg_path.iloc[:min_len]
     
-        # Drop NaNs from both (align indices)
+    if min_len >= 10:
+        actual_5d = this_year_path.rolling(5).apply(lambda x: x[-1] - x[0])
+        avg_5d = avg_path.rolling(5).apply(lambda x: x[-1] - x[0])
+    
         comparison_df = pd.DataFrame({
-            "actual": aligned_actual.values,
-            "avg": aligned_avg.values
+            "actual_5d": actual_5d.iloc[:min_len].values,
+            "avg_5d": avg_5d.iloc[:min_len].values
         }).dropna()
     
-        if len(comparison_df) > 5:
-            ss_res = np.sum((comparison_df["actual"] - comparison_df["avg"]) ** 2)
-            ss_tot = np.sum((comparison_df["actual"] - np.mean(comparison_df["actual"])) ** 2)
-            r_squared = 1 - (ss_res / ss_tot)
-            annotation_text = f"R² vs Avg Path (YTD): {r_squared:.2f}"
+        if not comparison_df.empty:
+            concordance = (np.sign(comparison_df["actual_5d"]) == np.sign(comparison_df["avg_5d"])).mean()
+            annotation_text = f"5D Concordance: {concordance:.0%}"
         else:
-            annotation_text = "Insufficient overlap for R² calc"
+            annotation_text = "Not enough 5-day periods for concordance"
     else:
-        annotation_text = "Not enough data for path similarity (min 10 days)"
+        annotation_text = "Not enough data for 5-day concordance"
+    
 
     fig.update_layout(
         title=f"{ticker} - {cycle_label} Cycle Average",
