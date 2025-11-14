@@ -16,13 +16,30 @@ SECTOR_ETFS = [
 ]
 
 
-def percentile_rank(series: pd.Series, value: float) -> float:
+def percentile_rank(series: pd.Series, value) -> float:
     """Return percentile rank (0–100) of value within series."""
     s = series.dropna().values
-    if s.size == 0 or pd.isna(value):
+    if s.size == 0:
         return np.nan
-    pct = (s <= value).sum() / s.size * 100.0
+
+    # Normalize value to a scalar float if it's array-like / Series
+    if isinstance(value, (pd.Series, np.ndarray, list, tuple)):
+        arr = np.asarray(value).ravel()
+        if arr.size == 0:
+            return np.nan
+        v = float(arr[-1])
+    else:
+        try:
+            v = float(value)
+        except (TypeError, ValueError):
+            return np.nan
+
+    if np.isnan(v):
+        return np.nan
+
+    pct = (s <= v).sum() / s.size * 100.0
     return float(pct)
+
 
 
 @st.cache_data(show_spinner=True)
