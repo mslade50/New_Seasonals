@@ -1,36 +1,42 @@
+# pages/new_listings.py
+
 import streamlit as st
 import pandas as pd
-import yfscreen as yfs
 import yfinance as yf
 from yahooquery import Ticker
 import traceback
-
 
 # ======================================================
 # Helpers
 # ======================================================
 
-def get_momentum_field() -> str:
+def get_last12m_ipo_tickers():
     """
-    Return the Yahoo screener field name for 52 Week Price % Change,
-    to use as a valid sort_field in yfs.create_payload.
+    Scrape IPOScoop 'Last 12 Months' page and return a list
+    of unique ticker symbols.
     """
-    df_filters = yfs.data_filters
-    row = df_filters.loc[
-        (df_filters["sec_type"] == "equity")
-        & (df_filters["name"] == "52 Week Price % Change")
-    ].iloc[0]
-    return row["field"]
+    url = "https://www.iposcoop.com/last-12-months/"
+    tables = pd.read_html(url)
+    if not tables:
+        raise ValueError("No tables found on IPOScoop last-12-months page.")
 
-def get_ipo_field() -> str:
-    """Find the Yahoo screener field used for IPO date."""
-    df_filters = yfs.data_filters
-    row = df_filters.loc[
-        (df_filters["sec_type"] == "equity")
-        & (df_filters["name"].str.contains("IPO", case=False, na=False)),
-        :
-    ].iloc[0]
-    return row["field"]
+    df = tables[0]
+
+    # Find the Symbol column robustly
+    symbol_col_candidates = [c for c in df.columns if "symbol" in str(c).lower()]
+    if not symbol_col_candidates:
+        raise ValueError(f"No Symbol column found. Columns: {list(df.columns)}")
+    symbol_col = symbol_col_candidates[0]
+
+    symbols = (
+        df[symbol_col]
+        .astype(str)
+        .str.strip()
+    )
+
+    # Drop blanks / NA, dedupe, sort
+    tickers = sorted(sym for sym in symbols.unique() if sym and sym != "nan")
+    return tickers
 
 
 def extract_price_matrix(prices: pd.DataFrame) -> pd.DataFrame:
@@ -69,50 +75,6 @@ def extract_price_matrix(prices: pd.DataFrame) -> pd.DataFrame:
     raise ValueError(f"Could not extract prices from columns: {cols}")
 
 
-def build_meta(screener_df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Build a metadata table keyed by symbol:
-    Price, Mkt_Cap, avg dollar volume, Sector (when available).
-    """
-    meta_cols = [
-        "symbol",
-        "regularMarketPrice.raw",
-        "marketCap.raw",
-        "averageDailyVolume10Day.raw",
-        "averageDailyVolume3Month.raw",
-        "sector",
-    ]
-    meta_cols = [c for c in meta_cols if c in screener_df.columns]
-
-    meta = (
-        screener_df[meta_cols]
-        .drop_duplicates(subset="symbol")
-        .set_index("symbol")
-    )
-
-    # Avg daily $ volume
-    vol_col = None
-    if "averageDailyVolume10Day.raw" in meta.columns:
-        vol_col = "averageDailyVolume10Day.raw"
-    elif "averageDailyVolume3Month.raw" in meta.columns:
-        vol_col = "averageDailyVolume3Month.raw"
-
-    if vol_col and "regularMarketPrice.raw" in meta.columns:
-        meta["avg_dollar_volume"] = meta[vol_col] * meta["regularMarketPrice.raw"]
-
-    # Shorter names
-    rename_map = {}
-    if "regularMarketPrice.raw" in meta.columns:
-        rename_map["regularMarketPrice.raw"] = "Price"
-    if "marketCap.raw" in meta.columns:
-        rename_map["marketCap.raw"] = "Mkt_Cap"
-    if "sector" in meta.columns:
-        rename_map["sector"] = "Sector"
-
-    meta = meta.rename(columns=rename_map)
-    return meta
-
-
 def compute_atr_from_prices(prices: pd.DataFrame, tickers, window: int = 14) -> pd.Series:
     """
     Compute ATR for each ticker using High/Low/Close from the multi-ticker
@@ -123,15 +85,14 @@ def compute_atr_from_prices(prices: pd.DataFrame, tickers, window: int = 14) -> 
     if not isinstance(cols, pd.MultiIndex):
         raise ValueError("ATR helper expects a MultiIndex columns DataFrame.")
 
-    # Try to infer which level is ticker / which is price
+    # Identify ticker level
     if cols.names == ["Ticker", "Price"]:
         ticker_level = 0
     elif cols.names == ["Price", "Ticker"]:
         ticker_level = 1
     else:
         lvl0 = cols.get_level_values(0)
-        lvl1 = cols.get_level_values(1)
-        if "Close" in lvl0 or "High" in lvl0:
+        if "Close" in lvl0 or "High" in lvl0 or "Low" in lvl0:
             ticker_level = 1
         else:
             ticker_level = 0
@@ -230,75 +191,22 @@ def download_ohlc_with_fallback(tickers, period="13mo", interval="1d"):
 
 
 # ======================================================
-# New Listings Pipeline (Last 12m IPOs)
+# New Listings Pipeline (IPOScoop source, no filters)
 # ======================================================
+
 def run_new_listings_pipeline():
     """
-    Build table of IPOs from last 12 calendar months with:
+    Build table of IPOs from IPOScoop 'Last 12 Months' page with:
     R63D, R126D, Price, ATR, atr_to50, MCap_$B, ADVol_$M, Sector, RevGrowth_%.
-    Universe is first filtered in the screener by:
-      - US region
-      - eodprice > 8
-      - avgdailyvol3m > 100,000
-      - lastclosemarketcap.lasttwelvemonths > 300M
-    Then we locally keep only names with IPO date in the last 12m.
+    No additional price/volume/mcap filters are applied; we only
+    require enough history to compute 126-day returns.
     """
-
-    # --- 1. Screener: US equities with basic liquidity/size filters ---
-    df_filters = yfs.data_filters
-    # use "Price (End of Day)" as a harmless sort field
-    sort_field = df_filters.loc[
-        (df_filters["sec_type"] == "equity")
-        & (df_filters["name"] == "Price (End of Day)")
-    , "field"].iloc[0]   # this should resolve to "eodprice"
-
-    filters = [
-        ["eq", ["region", "us"]],
-        ["gt", ["eodprice", 8]],                          # price > 8
-        ["gt", ["avgdailyvol3m", 100_000]],               # avg volume > 100k
-        ["gt", ["lastclosemarketcap.lasttwelvemonths", 300_000_000]],  # mkt cap > 300M
-    ]
-
-    query = yfs.create_query(filters)
-    payload = yfs.create_payload(
-        sec_type="equity",
-        query=query,
-        size=1000,                # grab a decent chunk of the filtered universe
-        sort_field=sort_field,    # eodprice; just affects order, not membership
-        sort_type="DESC",
-    )
-
-    screener_df = yfs.get_data(payload)
-
-    if screener_df is None or screener_df.empty:
-        raise ValueError("No data returned from Yahoo screener for US equities.")
-
-    screener_df = screener_df[screener_df["symbol"].notna()].copy()
-
-    # --- 1B. Find IPO date column & filter last 12 months ---
-    ipo_cols = [c for c in screener_df.columns if "ipo" in c.lower()]
-    if not ipo_cols:
-        raise ValueError(
-            "No IPO-like column found in screener_df. "
-            f"Columns were: {list(screener_df.columns)}"
-        )
-
-    ipo_col = ipo_cols[0]  # e.g. 'ipoExpectedDate'
-    screener_df["ipo_date"] = pd.to_datetime(
-        screener_df[ipo_col], errors="coerce"
-    )
-
-    cutoff = pd.Timestamp.today() - pd.DateOffset(months=12)
-    screener_df = screener_df[screener_df["ipo_date"] >= cutoff].copy()
-
-    if screener_df.empty:
-        raise ValueError("No IPOs found in the last 12 months after filtering.")
-
-    tickers = screener_df["symbol"].dropna().unique().tolist()
+    # 1. Get IPO tickers from IPOScoop
+    tickers = get_last12m_ipo_tickers()
     if not tickers:
-        raise ValueError("No IPO tickers remaining after IPO-date filter.")
+        raise ValueError("No IPO symbols scraped from IPOScoop.")
 
-    # --- 2. Prices (13mo window so we can get 126d returns & 50d SMA) ---
+    # 2. Prices (13mo window so we can get 126d returns & 50d SMA)
     prices = download_ohlc_with_fallback(
         tickers=tickers,
         period="13mo",
@@ -310,8 +218,10 @@ def run_new_listings_pipeline():
 
     px = extract_price_matrix(prices)
 
-    # Need enough history for 126d returns
+    # Need enough history for 126d returns (~130 rows to be safe)
     px = px.dropna(axis=1, thresh=130)
+    if px.empty:
+        raise ValueError("No IPO tickers have ≥130 days of price history.")
 
     returns = pd.DataFrame(
         {
@@ -323,7 +233,7 @@ def run_new_listings_pipeline():
     if returns.empty:
         raise ValueError("No IPO tickers have sufficient price history for 63/126d returns.")
 
-    # --- 3. ATR + atr_to50 ---
+    # 3. ATR + atr_to50
     atr_series = compute_atr_from_prices(prices, px.columns, window=14)
 
     sma50 = px.rolling(50).mean().iloc[-1]
@@ -342,35 +252,55 @@ def run_new_listings_pipeline():
     out["ATR"] = atr_aligned.reindex(out.index).round(2)
     out["atr_to50"] = atr_to50.reindex(out.index).round(1)
 
-    # --- 4. Meta (Price, MCap, ADVol, Sector) from screener ---
-    meta = build_meta(screener_df)
-    out = out.join(meta, how="left")
-
-    if "Price" in out.columns:
-        out["Price"] = out["Price"].round(2)
-
-    if "Mkt_Cap" in out.columns:
-        out["MCap_$B"] = (out["Mkt_Cap"] / 1e9).round(2)
-        out = out.drop(columns=["Mkt_Cap"])
-
-    if "avg_dollar_volume" in out.columns:
-        out["ADVol_$M"] = (out["avg_dollar_volume"] / 1e6).round(2)
-        out = out.drop(columns=["avg_dollar_volume"])
-
-    # --- 5. Revenue growth via yahooquery (optional) ---
+    # 4. Fundamentals / meta via yahooquery
     try:
         final_tickers = out.index.astype(str).tolist()
-        tf = Ticker(final_tickers)
-        fin = tf.financial_data
-        fin_df = pd.DataFrame.from_dict(fin, orient="index")
+        tq = Ticker(final_tickers)
 
-        if "revenueGrowth" in fin_df.columns:
-            rg = pd.to_numeric(fin_df["revenueGrowth"], errors="coerce") * 100.0
-            rg = rg.round(1)
-            rg.index = rg.index.astype(str)
-            out["RevGrowth_%"] = rg.reindex(out.index).values
+        # Price info (for Price, MCap, current volume)
+        price_dict = tq.price
+        price_df = pd.DataFrame.from_dict(price_dict, orient="index")
+
+        meta = pd.DataFrame(index=out.index)
+
+        if "regularMarketPrice" in price_df.columns:
+            meta["Price"] = price_df["regularMarketPrice"]
+        if "marketCap" in price_df.columns:
+            meta["MCap_$B"] = (price_df["marketCap"] / 1e9).round(2)
+        # Approximate avg dollar volume as last volume * price
+        if {"regularMarketVolume", "regularMarketPrice"}.issubset(price_df.columns):
+            adv = price_df["regularMarketVolume"] * price_df["regularMarketPrice"]
+            meta["ADVol_$M"] = (adv / 1e6).round(2)
+
+        # Sector from asset_profile
+        try:
+            prof_dict = tq.asset_profile
+            prof_df = pd.DataFrame.from_dict(prof_dict, orient="index")
+            if "sector" in prof_df.columns:
+                meta["Sector"] = prof_df["sector"]
+            elif "industry" in prof_df.columns:
+                meta["Sector"] = prof_df["industry"]
+        except Exception:
+            pass
+
+        # Revenue growth from financial_data
+        try:
+            fin_dict = tq.financial_data
+            fin_df = pd.DataFrame.from_dict(fin_dict, orient="index")
+            if "revenueGrowth" in fin_df.columns:
+                rg = pd.to_numeric(fin_df["revenueGrowth"], errors="coerce") * 100.0
+                meta["RevGrowth_%"] = rg.round(1)
+        except Exception:
+            pass
+
+        out = out.join(meta, how="left")
+
+        # Round price if present
+        if "Price" in out.columns:
+            out["Price"] = out["Price"].round(2)
+
     except Exception:
-        # Don't kill the page if yahooquery barfs
+        # If yahooquery fails entirely, keep only the technical columns
         pass
 
     out.index.name = "Ticker"
@@ -386,10 +316,11 @@ def run_new_listings_pipeline():
         "MCap_$B",
         "ADVol_$M",
         "Sector",
-        "RevGrowth_%",
+        "RevGrowth_%"
     ]
     out = out[[c for c in desired_cols if c in out.columns]]
 
+    # Sort by 126d return
     if "R126D" in out.columns:
         out = out.sort_values("R126D", ascending=False)
 
@@ -404,12 +335,13 @@ def run_new_listings_pipeline():
 def load_new_listings_table():
     return run_new_listings_pipeline()
 
+
 def main():
-    st.title("New Listings (Last 12m IPOs)")
+    st.title("New Listings (Last 12 Months IPOs)")
 
     try:
         if st.button("Refresh IPO Table"):
-            load_new_listings_table.clear()  # clear cache on demand
+            load_new_listings_table.clear()  # clear cache
         table = load_new_listings_table()
     except Exception as e:
         st.error("Error while building New Listings table:")
@@ -417,7 +349,7 @@ def main():
         st.code(traceback.format_exc())
         return
 
-    st.subheader("IPO Universe (Mkt Cap ≥ $300M, Last 12m)")
+    st.subheader("IPO Universe (Last 12 Months, tech + fundamentals)")
     st.dataframe(table, use_container_width=True)
 
     if "Ticker" in table.columns:
