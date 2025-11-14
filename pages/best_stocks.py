@@ -98,7 +98,8 @@ def run_pipeline():
     filters = [
         ["eq", ["region", "us"]],
         ["gt", ["intradayprice", 8]],
-        ["gt", ["intradaymarketcap", 300_000_000]],
+        ["gt", ["avgdailyvol3m", 300000]],
+        ["gt", ["intradaymarketcap", 3_000_000_000]],
     ]
 
     query = yfs.create_query(filters)
