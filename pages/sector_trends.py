@@ -43,6 +43,7 @@ def percentile_rank(series: pd.Series, value) -> float:
 
 
 @st.cache_data(show_spinner=True)
+@st.cache_data(show_spinner=True)
 def load_sector_metrics(tickers):
     rows = []
 
@@ -87,10 +88,11 @@ def load_sector_metrics(tickers):
         dist200 = (close - ma200) / ma200 * 100.0
 
         # Today's values (last valid point)
-        price_today = close.iloc[-1]
-        d20_today = dist20.iloc[-1]
-        d50_today = dist50.iloc[-1]
-        d200_today = dist200.iloc[-1]
+        price_today = float(close.iloc[-1])
+
+        d20_today = dist20.dropna().iloc[-1] if not dist20.dropna().empty else np.nan
+        d50_today = dist50.dropna().iloc[-1] if not dist50.dropna().empty else np.nan
+        d200_today = dist200.dropna().iloc[-1] if not dist200.dropna().empty else np.nan
 
         # Percentile ranks over life of each distance series
         p20 = percentile_rank(dist20, d20_today)
@@ -115,15 +117,27 @@ def load_sector_metrics(tickers):
 
     df_out = pd.DataFrame(rows)
 
+    # --- Ensure numeric dtypes before rounding ---
+    num_cols = ["Price", "D20%", "D50%", "D200%", "PctRank20", "PctRank50", "PctRank200"]
+    for col in num_cols:
+        if col in df_out.columns:
+            df_out[col] = pd.to_numeric(df_out[col], errors="coerce")
+
     # Rounding / formatting
-    df_out["Price"] = df_out["Price"].round(2)
+    if "Price" in df_out.columns:
+        df_out["Price"] = df_out["Price"].round(2)
     for col in ["D20%", "D50%", "D200%"]:
-        df_out[col] = df_out[col].round(1)
+        if col in df_out.columns:
+            df_out[col] = df_out[col].round(1)
     for col in ["PctRank20", "PctRank50", "PctRank200"]:
-        df_out[col] = df_out[col].round(1)
+        if col in df_out.columns:
+            df_out[col] = df_out[col].round(1)
 
     # Sort by 200d distance or ticker, as you prefer
-    df_out = df_out.sort_values("D200%", ascending=False, ignore_index=True)
+    if "D200%" in df_out.columns:
+        df_out = df_out.sort_values("D200%", ascending=False, ignore_index=True)
+    else:
+        df_out = df_out.sort_values("Ticker", ignore_index=True)
 
     return df_out
 
