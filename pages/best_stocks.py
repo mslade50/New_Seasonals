@@ -91,16 +91,77 @@ def build_meta(screener_df: pd.DataFrame) -> pd.DataFrame:
     return meta
 
 
+def compute_atr_from_prices(prices: pd.DataFrame, tickers, window: int = 14) -> pd.Series:
+    """
+    Compute ATR for each ticker using High/Low/Close from the multi-ticker
+    price DataFrame returned by yfinance.
+    Assumes columns are MultiIndex with levels ['Ticker','Price'].
+    """
+    cols = prices.columns
+    if not isinstance(cols, pd.MultiIndex):
+        raise ValueError("ATR helper expects a MultiIndex columns DataFrame.")
+
+    # Try to infer which level is ticker / which is price
+    if cols.names == ["Ticker", "Price"]:
+        ticker_level = 0
+        price_level = 1
+    elif cols.names == ["Price", "Ticker"]:
+        ticker_level = 1
+        price_level = 0
+    else:
+        # fallback: assume level with 'Close' in it is price level
+        lvl0 = cols.get_level_values(0)
+        lvl1 = cols.get_level_values(1)
+        if "Close" in lvl0 or "High" in lvl0:
+            price_level, ticker_level = 0, 1
+        else:
+            price_level, ticker_level = 1, 0
+
+    atr_vals = {}
+
+    for t in tickers:
+        try:
+            df_t = prices.xs(t, axis=1, level=ticker_level)
+        except KeyError:
+            # ticker might have been dropped / missing
+            continue
+
+        # Need High, Low, Close
+        needed = [c for c in ["High", "Low", "Close"] if c in df_t.columns]
+        if len(needed) < 3:
+            continue
+
+        hlc = df_t[["High", "Low", "Close"]].dropna()
+        if hlc.empty:
+            continue
+
+        high = hlc["High"]
+        low = hlc["Low"]
+        close = hlc["Close"]
+
+        # True range components
+        tr1 = high - low
+        tr2 = (high - close.shift()).abs()
+        tr3 = (low - close.shift()).abs()
+        tr = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
+
+        atr = tr.rolling(window).mean().iloc[-1]
+        atr_vals[t] = float(atr)
+
+    return pd.Series(atr_vals, name="ATR")
+
+
 def run_pipeline():
     # ---------- 1. Screener ----------
     momentum_field = get_momentum_field()
 
     filters = [
         ["eq", ["region", "us"]],
-        ["gt", ["intradayprice", 8]],
+        ["gt", ["eodprice", 8]],
         ["gt", ["avgdailyvol3m", 300000]],
-        ["gt", ["intradaymarketcap", 3_000_000_000]],
+        ["gt", ["lastclosemarketcap.lasttwelvemonths", 3_000_000_000]],
     ]
+
 
     query = yfs.create_query(filters)
     payload = yfs.create_payload(
@@ -132,6 +193,7 @@ def run_pipeline():
     if prices is None or prices.empty:
         raise ValueError("No price data downloaded from yfinance.")
 
+    # Close / Adj Close matrix
     px = extract_price_matrix(prices)
 
     # Drop tickers with insufficient history
@@ -146,6 +208,20 @@ def run_pipeline():
         }
     ).dropna()
 
+    # ---------- 3B. ATR + atr_to50 ----------
+    # ATR on same tickers as px
+    atr_series = compute_atr_from_prices(prices, px.columns, window=14)
+
+    # 50d SMA and last price from px
+    sma50 = px.rolling(50).mean().iloc[-1]
+    last_price = px.iloc[-1]
+
+    # Align indices and avoid divide-by-zero
+    atr_aligned = atr_series.reindex(returns.index)
+    atr_safe = atr_aligned.replace(0, pd.NA)
+
+    atr_to50 = (last_price.reindex(returns.index) - sma50.reindex(returns.index)) / atr_safe
+
     # ---------- 4. Top lists & combined universe ----------
     top_63_idx = returns.sort_values("R63D", ascending=False).head(20).index
     top_126_idx = returns.sort_values("R126D", ascending=False).head(20).index
@@ -154,9 +230,16 @@ def run_pipeline():
     selected = top_63_idx.union(top_126_idx).union(top_252_idx)
     combined = returns.loc[selected]
 
-    # Convert to % and round
+    # Convert returns to % and round
     for col in ["R63D", "R126D", "R252D"]:
         combined[col] = (combined[col] * 100).round(1)
+
+    # Attach ATR & atr_to50
+    combined["ATR"] = atr_aligned.reindex(combined.index)
+    combined["atr_to50"] = atr_to50.reindex(combined.index)
+
+    combined["ATR"] = combined["ATR"].round(2)
+    combined["atr_to50"] = combined["atr_to50"].round(1)
 
     # Attach meta
     meta = build_meta(screener_df)
@@ -186,6 +269,8 @@ def run_pipeline():
         "R126D",
         "R252D",
         "Price",
+        "ATR",
+        "atr_to50",
         "MCap_$B",
         "ADVol_$M",
         "Sector",
@@ -205,7 +290,6 @@ def run_pipeline():
 # ---------- Streamlit UI ----------
 
 def load_data_once():
-    # Run the heavy pipeline only if not already in session_state
     if "table_df" not in st.session_state or "ticker_list" not in st.session_state:
         with st.spinner("Running screener and fetching data..."):
             table_df, ticker_list = run_pipeline()
@@ -216,7 +300,6 @@ def load_data_once():
 def main():
     st.title("Best Performing US Stocks (Multi-Horizon)")
 
-    # Run once per session; later reruns just reuse st.session_state
     try:
         load_data_once()
     except Exception as e:
@@ -239,4 +322,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
