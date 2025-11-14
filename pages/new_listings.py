@@ -228,50 +228,50 @@ def run_new_listings_pipeline():
         raise ValueError("No IPO symbols scraped from IPOScoop.")
 
     # 2. Prices (13mo window so we can get 126d returns & 50d SMA)
+    # --- 2. Prices (up to ~13mo window if available) ---
     prices = download_ohlc_with_fallback(
         tickers=tickers,
         period="13mo",
         interval="1d",
     )
-
+    
     if prices is None or prices.empty:
         raise ValueError("No price data downloaded for IPO tickers.")
-
+    
     px = extract_price_matrix(prices)
-
-    # Need enough history for 126d returns (~130 rows to be safe)
-    px = px.dropna(axis=1, thresh=130)
-    if px.empty:
-        raise ValueError("No IPO tickers have ≥130 days of price history.")
-
-    returns = pd.DataFrame(
-        {
-            "R63D": px.pct_change(63).iloc[-1],
-            "R126D": px.pct_change(126).iloc[-1],
-        }
-    ).dropna()
-
-    if returns.empty:
-        raise ValueError("No IPO tickers have sufficient price history for 63/126d returns.")
-
-    # 3. ATR + atr_to50
-    atr_series = compute_atr_from_prices(prices, px.columns, window=14)
-
-    sma50 = px.rolling(50).mean().iloc[-1]
-    last_price = px.iloc[-1]
-
-    atr_aligned = atr_series.reindex(returns.index)
-    atr_safe = atr_aligned.replace(0, pd.NA)
-
-    atr_to50 = (last_price.reindex(returns.index) - sma50.reindex(returns.index)) / atr_safe
-
-    # Convert returns to % and round
+    
+    if px is None or px.empty:
+        raise ValueError("Could not extract price matrix for IPO tickers.")
+    
+    # IMPORTANT: do **not** drop columns by history length.
+    # We want even 1–2 day IPOs to stay in the universe and just have NaN returns.
+    
+    # --- 3. Returns (63 / 126 trading days) ---
+    # Build a returns frame indexed by ticker. Tickers with too little history
+    # will simply have NaN for R63D / R126D and still appear in the final table.
+    returns = pd.DataFrame(index=px.columns)
+    returns["R63D"] = px.pct_change(63).iloc[-1]
+    returns["R126D"] = px.pct_change(126).iloc[-1]
+    
+    # Convert returns to % and round (NaNs stay NaNs)
     for col in ["R63D", "R126D"]:
         returns[col] = (returns[col] * 100).round(1)
-
+    
+    # --- 3B. ATR + atr_to50 ---
+    atr_series = compute_atr_from_prices(prices, px.columns, window=14)
+    
+    sma50 = px.rolling(50).mean().iloc[-1]
+    last_price = px.iloc[-1]
+    
+    atr_aligned = atr_series.reindex(returns.index)
+    atr_safe = atr_aligned.replace(0, pd.NA)
+    
+    atr_to50 = (last_price.reindex(returns.index) - sma50.reindex(returns.index)) / atr_safe
+    
     out = returns.copy()
-    out["ATR"] = atr_aligned.reindex(out.index).round(2)
-    out["atr_to50"] = atr_to50.reindex(out.index).round(1)
+    out["ATR"] = atr_aligned.round(2)
+    out["atr_to50"] = atr_to50.round(1)
+
 
     # 4. Fundamentals / meta via yahooquery
     try:
