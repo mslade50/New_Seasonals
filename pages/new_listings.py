@@ -257,16 +257,28 @@ def run_new_listings_pipeline():
     for col in ["R63D", "R126D"]:
         returns[col] = (returns[col] * 100).round(1)
     
-    # --- 3B. ATR + atr_to50 ---
     atr_series = compute_atr_from_prices(prices, px.columns, window=14)
-    
+
+    # Make sure ATR is numeric
+    atr_series = pd.to_numeric(atr_series, errors="coerce")
+
     sma50 = px.rolling(50).mean().iloc[-1]
     last_price = px.iloc[-1]
-    
+
+    # Align ATR to the returns index (IPO tickers)
     atr_aligned = atr_series.reindex(returns.index)
+
+    # Avoid divide-by-zero; NaNs are fine (just show blank)
     atr_safe = atr_aligned.replace(0, pd.NA)
-    
+
     atr_to50 = (last_price.reindex(returns.index) - sma50.reindex(returns.index)) / atr_safe
+    atr_to50 = pd.to_numeric(atr_to50, errors="coerce")
+
+    # Build output “signals” frame
+    out = returns.copy()
+    out["ATR"] = atr_aligned.astype(float).round(2)
+    out["atr_to50"] = atr_to50.round(1)
+
     
     out = returns.copy()
     out["ATR"] = atr_aligned.round(2)
