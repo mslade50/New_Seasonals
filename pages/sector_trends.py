@@ -160,14 +160,27 @@ def main():
         if pd.isna(val):
             return ""
         if val > 90:
-            return "background-color: #ffcccc;"  # light red
+            # light red bg, dark red text
+            return "background-color: #ffcccc; color: #8b0000;"
         if val < 15:
-            return "background-color: #ccffcc;"  # light green
+            # light green bg, dark green text
+            return "background-color: #ccffcc; color: #006400;"
         return ""
 
-    styled = table.style.applymap(
-        highlight_pct,
-        subset=["PctRank20", "PctRank50", "PctRank200"],
+    styled = (
+        table.style
+        .format(
+            {
+                "Price": "{:.2f}",
+                "PctRank20": "{:.1f}",
+                "PctRank50": "{:.1f}",
+                "PctRank200": "{:.1f}",
+            }
+        )
+        .applymap(
+            highlight_pct,
+            subset=["PctRank20", "PctRank50", "PctRank200"],
+        )
     )
 
     st.dataframe(styled, use_container_width=True)
