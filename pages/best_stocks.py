@@ -288,7 +288,12 @@ def run_pipeline():
 
 # ---------- Streamlit UI ----------
 
-def load_data_once():
+def load_data_once(force: bool = False):
+    # If user clicked refresh, drop existing cached data
+    if force:
+        st.session_state.pop("table_df", None)
+        st.session_state.pop("ticker_list", None)
+
     if "table_df" not in st.session_state or "ticker_list" not in st.session_state:
         with st.spinner("Running screener and fetching data..."):
             table_df, ticker_list = run_pipeline()
@@ -299,8 +304,11 @@ def load_data_once():
 def main():
     st.title("Best Performing US Stocks (Multi-Horizon)")
 
+    st.sidebar.header("Options")
+    refresh = st.sidebar.button("Refresh data")
+
     try:
-        load_data_once()
+        load_data_once(force=refresh)
     except Exception as e:
         st.error(f"Error while building table: {e}")
         return
@@ -311,7 +319,6 @@ def main():
     st.subheader("Combined Top Names (63D / 126D / 252D)")
     st.dataframe(table_df, use_container_width=True)
 
-    st.sidebar.header("Options")
     show_tickers = st.sidebar.checkbox("Show copy-paste ticker list")
 
     if show_tickers:
