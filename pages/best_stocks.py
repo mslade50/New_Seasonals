@@ -159,7 +159,7 @@ def run_pipeline():
         ["eq", ["region", "us"]],
         ["gt", ["intradayprice", 8]],
         ["gt", ["avgdailyvol3m", 300000]],
-        ["gt", ["intradaymarketcap", 3_000_000_000]],
+        ["gt", ["lastclosemarketcap.lasttwelvemonths", 3_000_000_000]],
     ]
 
     query = yfs.create_query(filters)
