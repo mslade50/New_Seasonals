@@ -220,93 +220,87 @@ def run_new_listings_pipeline():
     """
     Build table of IPOs from IPOScoop 'Last 12 Months' page with:
     R63D, R126D, Price, ATR, atr_to50, MCap_$B, ADVol_$M, Sector, RevGrowth_%.
-    No additional price/volume/mcap filters are applied; we only
-    require enough history to compute 126-day returns.
+    No extra filters; every scraped IPO ticker appears, even if returns/ATR are NaN.
     """
-    # 1. Get IPO tickers from IPOScoop
-    tickers = get_last12m_ipo_tickers()
-    if not tickers:
-        raise ValueError("No IPO symbols scraped from IPOScoop.")
+    # 1. Get IPO tickers from IPOScoop (+ local ipos file)
+    ipo_tickers = get_last12m_ipo_tickers()
+    if not ipo_tickers:
+        raise ValueError("No IPO symbols scraped from IPOScoop/local file.")
+    
+    # Master index = ALL IPO tickers (what we want to display)
+    master_index = pd.Index(sorted(set(ipo_tickers)), name="Ticker")
 
-    # 2. Prices (13mo window so we can get 126d returns & 50d SMA)
-    # --- 2. Prices (up to ~13mo window if available) ---
+    # 2. Download prices (up to ~13mo if available)
     prices = download_ohlc_with_fallback(
-        tickers=tickers,
+        tickers=master_index.tolist(),
         period="13mo",
         interval="1d",
     )
-    
+
     if prices is None or prices.empty:
         raise ValueError("No price data downloaded for IPO tickers.")
-    
+
     px = extract_price_matrix(prices)
-    
     if px is None or px.empty:
         raise ValueError("Could not extract price matrix for IPO tickers.")
-    
-    # IMPORTANT: do **not** drop columns by history length.
-    # We want even 1–2 day IPOs to stay in the universe and just have NaN returns.
-    
-    # --- 3. Returns (63 / 126 trading days) ---
-    # Build a returns frame indexed by ticker. Tickers with too little history
-    # will simply have NaN for R63D / R126D and still appear in the final table.
-    returns = pd.DataFrame(index=px.columns)
-    returns["R63D"] = px.pct_change(63).iloc[-1]
-    returns["R126D"] = px.pct_change(126).iloc[-1]
-    
+
+    # Ensure px has only columns that are actual tickers in master_index
+    px = px.loc[:, [c for c in px.columns if c in master_index]]
+
+    # 3. Returns (63 / 126 trading days)
+    # We'll compute returns only for tickers in px and then reindex to master_index.
+    present_tickers = px.columns.tolist()
+
+    returns = pd.DataFrame(index=pd.Index(present_tickers, name="Ticker"))
+    returns["R63D"] = px[present_tickers].pct_change(63).iloc[-1]
+    returns["R126D"] = px[present_tickers].pct_change(126).iloc[-1]
+
     # Convert returns to % and round (NaNs stay NaNs)
     for col in ["R63D", "R126D"]:
         returns[col] = (returns[col] * 100).round(1)
-    
-    atr_series = compute_atr_from_prices(prices, px.columns, window=14)
 
-    # Make sure ATR is numeric
-    atr_series = pd.to_numeric(atr_series, errors="coerce")
+    # 4. ATR + atr_to50 (only for tickers we have OHLC for)
+    atr_series = compute_atr_from_prices(prices, present_tickers, window=14)
+    atr_series = pd.to_numeric(atr_series, errors="coerce")  # numeric only
 
     sma50 = px.rolling(50).mean().iloc[-1]
     last_price = px.iloc[-1]
 
-    # Align ATR to the returns index (IPO tickers)
-    atr_aligned = atr_series.reindex(returns.index)
-
-    # Avoid divide-by-zero; NaNs are fine (just show blank)
+    atr_aligned = atr_series.reindex(present_tickers)
     atr_safe = atr_aligned.replace(0, pd.NA)
 
-    atr_to50 = (last_price.reindex(returns.index) - sma50.reindex(returns.index)) / atr_safe
+    atr_to50 = (last_price.reindex(present_tickers) - sma50.reindex(present_tickers)) / atr_safe
     atr_to50 = pd.to_numeric(atr_to50, errors="coerce")
 
-    # Build output “signals” frame
-    out = returns.copy()
-    out["ATR"] = atr_aligned.astype(float).round(2)
-    out["atr_to50"] = atr_to50.round(1)
+    # 5. Build signals frame on MASTER index (all IPOs)
+    out = pd.DataFrame(index=master_index)
 
-    
-    out = returns.copy()
-    out["ATR"] = atr_aligned.round(2)
-    out["atr_to50"] = atr_to50.round(1)
+    # join returns (some tickers will be NaN for both)
+    out = out.join(returns, how="left")
 
+    # ATR & atr_to50
+    out["ATR"] = atr_series.reindex(master_index).round(2)
+    out["atr_to50"] = atr_to50.reindex(master_index).round(1)
 
-    # 4. Fundamentals / meta via yahooquery
+    # 6. Fundamentals/meta via yahooquery (using ALL IPO tickers)
     try:
-        final_tickers = out.index.astype(str).tolist()
-        tq = Ticker(final_tickers)
+        tq = Ticker(master_index.tolist())
 
         # Price info (for Price, MCap, current volume)
         price_dict = tq.price
         price_df = pd.DataFrame.from_dict(price_dict, orient="index")
 
-        meta = pd.DataFrame(index=out.index)
+        meta = pd.DataFrame(index=master_index)
 
         if "regularMarketPrice" in price_df.columns:
             meta["Price"] = price_df["regularMarketPrice"]
         if "marketCap" in price_df.columns:
             meta["MCap_$B"] = (price_df["marketCap"] / 1e9).round(2)
-        # Approximate avg dollar volume as last volume * price
         if {"regularMarketVolume", "regularMarketPrice"}.issubset(price_df.columns):
             adv = price_df["regularMarketVolume"] * price_df["regularMarketPrice"]
             meta["ADVol_$M"] = (adv / 1e6).round(2)
 
-        # Sector from asset_profile
+        # Sector / industry
         try:
             prof_dict = tq.asset_profile
             prof_df = pd.DataFrame.from_dict(prof_dict, orient="index")
@@ -317,7 +311,7 @@ def run_new_listings_pipeline():
         except Exception:
             pass
 
-        # Revenue growth from financial_data
+        # Revenue growth
         try:
             fin_dict = tq.financial_data
             fin_df = pd.DataFrame.from_dict(fin_dict, orient="index")
@@ -329,16 +323,13 @@ def run_new_listings_pipeline():
 
         out = out.join(meta, how="left")
 
-        # Round price if present
         if "Price" in out.columns:
             out["Price"] = out["Price"].round(2)
-
     except Exception:
-        # If yahooquery fails entirely, keep only the technical columns
+        # If yahooquery fails entirely, keep only tech columns
         pass
 
-    out.index.name = "Ticker"
-    out = out.reset_index()
+    out = out.reset_index()  # Ticker as column
 
     desired_cols = [
         "Ticker",
@@ -354,11 +345,12 @@ def run_new_listings_pipeline():
     ]
     out = out[[c for c in desired_cols if c in out.columns]]
 
-    # Sort by 126d return
+    # Optional: sort by R126D but don't lose the NaN rows
     if "R126D" in out.columns:
         out = out.sort_values("R126D", ascending=False)
 
     return out
+
 
 
 # ======================================================
