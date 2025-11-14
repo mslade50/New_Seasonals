@@ -240,10 +240,54 @@ def run_pipeline():
     # Drop 5-letter symbols (often OTC/illiquid)
     screener_df = screener_df[screener_df["symbol"].str.len() != 5].copy()
 
+    # ---------- 1B. Drop Biotechnology names using yahooquery sector/industry ----------
+    all_tickers = screener_df["symbol"].dropna().unique().tolist()
+
+    try:
+        tq = Ticker(all_tickers)
+        profile = tq.asset_profile
+
+        if isinstance(profile, pd.DataFrame):
+            prof_df = profile
+        else:
+            prof_df = pd.DataFrame.from_dict(profile, orient="index")
+
+        # Keep only sector/industry if present
+        keep_cols = [c for c in ["sector", "industry"] if c in prof_df.columns]
+        prof_df = prof_df[keep_cols]
+
+        # Align index style with screener tickers
+        prof_df.index = prof_df.index.astype(str).str.upper()
+        screener_df["symbol_upper"] = screener_df["symbol"].str.upper()
+
+        screener_df = screener_df.merge(
+            prof_df,
+            left_on="symbol_upper",
+            right_index=True,
+            how="left",
+            suffixes=("", "_yq"),
+        )
+
+        # Define biotech mask
+        biotech_mask = False
+        if "industry" in screener_df.columns:
+            biotech_mask = screener_df["industry"].str.contains(
+                "Biotechnology", case=False, na=False
+            )
+        elif "sector" in screener_df.columns:
+            biotech_mask = screener_df["sector"].eq("Biotechnology")
+
+        # Drop biotech rows
+        screener_df = screener_df[~biotech_mask].copy()
+        screener_df = screener_df.drop(columns=["symbol_upper"])
+    except Exception:
+        # If anything goes wrong, just skip biotech filtering instead of crashing
+        pass
+
+    # Final ticker universe after biotech drop
     tickers = screener_df["symbol"].dropna().unique().tolist()
 
     # ---------- 2. Prices ----------
-
     prices = download_ohlc_with_fallback(
         tickers=tickers,
         period="13mo",
@@ -252,10 +296,6 @@ def run_pipeline():
 
     if prices is None or prices.empty:
         raise ValueError("No price data downloaded from yfinance (batch + fallback).")
-
-
-    if prices is None or prices.empty:
-        raise ValueError("No price data downloaded from yfinance.")
 
     # Close / Adj Close matrix
     px = extract_price_matrix(prices)
@@ -273,14 +313,11 @@ def run_pipeline():
     ).dropna()
 
     # ---------- 3B. ATR + atr_to50 ----------
-    # ATR on same tickers as px
     atr_series = compute_atr_from_prices(prices, px.columns, window=14)
 
-    # 50d SMA and last price from px
     sma50 = px.rolling(50).mean().iloc[-1]
     last_price = px.iloc[-1]
 
-    # Align indices and avoid divide-by-zero
     atr_aligned = atr_series.reindex(returns.index)
     atr_safe = atr_aligned.replace(0, pd.NA)
 
@@ -305,7 +342,7 @@ def run_pipeline():
     combined["ATR"] = combined["ATR"].round(2)
     combined["atr_to50"] = combined["atr_to50"].round(1)
 
-    # Attach meta
+    # ---------- 4B. Attach meta (Price, MCap, ADVol, Sector from screener) ----------
     meta = build_meta(screener_df)
     combined = combined.join(meta, how="left")
 
@@ -323,10 +360,26 @@ def run_pipeline():
         combined["ADVol_$M"] = (combined["avg_dollar_volume"] / 1e6).round(2)
         combined = combined.drop(columns=["avg_dollar_volume"])
 
+    # ---------- 4C. Attach revenue growth for final tickers ----------
+    try:
+        final_tickers = combined.index.astype(str).tolist()
+        tf = Ticker(final_tickers)
+        fin = tf.financial_data
+        fin_df = pd.DataFrame.from_dict(fin, orient="index")
+
+        if "revenueGrowth" in fin_df.columns:
+            rg = pd.to_numeric(fin_df["revenueGrowth"], errors="coerce") * 100.0
+            rg = rg.round(1)
+            rg.index = rg.index.astype(str)
+            combined["RevGrowth_%"] = rg.reindex(combined.index).values
+    except Exception:
+        # If yahooquery fails, just skip RevGrowth_% rather than erroring
+        pass
+
     combined.index.name = "Ticker"
     combined = combined.reset_index()
 
-    # Order columns nicely
+    # Order columns nicely (Sector + RevGrowth_% included)
     desired_cols = [
         "Ticker",
         "R63D",
@@ -338,6 +391,7 @@ def run_pipeline():
         "MCap_$B",
         "ADVol_$M",
         "Sector",
+        "RevGrowth_%",  # new column
     ]
     combined = combined[[c for c in desired_cols if c in combined.columns]]
 
