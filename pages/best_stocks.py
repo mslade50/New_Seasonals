@@ -157,11 +157,10 @@ def run_pipeline():
 
     filters = [
         ["eq", ["region", "us"]],
-        ["gt", ["eodprice", 8]],
+        ["gt", ["intradayprice", 8]],
         ["gt", ["avgdailyvol3m", 300000]],
         ["gt", ["lastclosemarketcap.lasttwelvemonths", 3_000_000_000]],
     ]
-
 
     query = yfs.create_query(filters)
     payload = yfs.create_payload(
@@ -285,6 +284,7 @@ def run_pipeline():
     ticker_list = ", ".join(f"'{t}'" for t in combined["Ticker"].tolist())
 
     return combined, ticker_list
+
 
 
 # ---------- Streamlit UI ----------
