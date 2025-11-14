@@ -204,24 +204,39 @@ def run_pipeline():
 
 # ---------- Streamlit UI ----------
 
+def load_data_once():
+    # Run the heavy pipeline only if not already in session_state
+    if "table_df" not in st.session_state or "ticker_list" not in st.session_state:
+        with st.spinner("Running screener and fetching data..."):
+            table_df, ticker_list = run_pipeline()
+        st.session_state["table_df"] = table_df
+        st.session_state["ticker_list"] = ticker_list
+
+
 def main():
     st.title("Best Performing US Stocks (Multi-Horizon)")
 
-    with st.spinner("Running screener and fetching data..."):
-        try:
-            table_df, ticker_list = run_pipeline()
-        except Exception as e:
-            st.error(f"Error while building table: {e}")
-            return
+    # Run once per session; later reruns just reuse st.session_state
+    try:
+        load_data_once()
+    except Exception as e:
+        st.error(f"Error while building table: {e}")
+        return
+
+    table_df = st.session_state["table_df"]
+    ticker_list = st.session_state["ticker_list"]
 
     st.subheader("Combined Top Names (63D / 126D / 252D)")
     st.dataframe(table_df, use_container_width=True)
 
     st.sidebar.header("Options")
-    if st.sidebar.button("Show copy-paste ticker list"):
+    show_tickers = st.sidebar.checkbox("Show copy-paste ticker list")
+
+    if show_tickers:
         st.subheader("Ticker list (copy/paste friendly)")
         st.code(ticker_list, language=None)
 
 
 if __name__ == "__main__":
     main()
+
