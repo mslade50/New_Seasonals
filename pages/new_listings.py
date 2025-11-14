@@ -57,7 +57,6 @@ def get_last12m_ipo_tickers():
 
     # -------- 3. Union + return --------
     all_tickers = sorted(base_tickers | extra_tickers)
-    st.write("📌 IPO Tickers Found:", all_tickers)
     return all_tickers
 
 
