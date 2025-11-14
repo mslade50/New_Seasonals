@@ -226,34 +226,52 @@ def run_new_listings_pipeline():
     Build table of IPOs from last 12 calendar months with:
     R63D, R126D, Price, ATR, atr_to50, MCap_$B, ADVol_$M, Sector, RevGrowth_%.
     """
-    # --- 1. Screener: IPOs in last 12 months, US region ---
-    ipo_field = get_ipo_field()
-    twelve_months_ago = (pd.Timestamp.today() - pd.DateOffset(months=12)).strftime("%Y-%m-%d")
+    # --- 1. Screener: broad US equity universe ---
+    # Just reuse your 52w momentum field for sorting; it's valid & cheap.
+    momentum_field = get_momentum_field()
 
     filters = [
         ["eq", ["region", "us"]],
-        ["gt", [ipo_field, twelve_months_ago]],          # IPO date > 12m ago
-        # all other filters from your other page are intentionally NOT used here
+        # no price/vol/mktcap/IPO filters here – we'll filter locally
     ]
 
     query = yfs.create_query(filters)
     payload = yfs.create_payload(
         sec_type="equity",
         query=query,
-        size=500,
-        sort_field=ipo_field,      # newest issues first
+        size=1000,                # grab a decent chunk of the universe
+        sort_field=momentum_field,
         sort_type="DESC",
     )
 
     screener_df = yfs.get_data(payload)
 
     if screener_df is None or screener_df.empty:
-        raise ValueError("No IPO data returned from Yahoo screener.")
+        raise ValueError("No data returned from Yahoo screener for US equities.")
 
-    # Drop tickers with missing symbol
+    # Ensure we have symbols
     screener_df = screener_df[screener_df["symbol"].notna()].copy()
 
-    # --- 1B. Filter by market cap >= $300m (using screener's mkt cap fields) ---
+    # --- 1B. Find IPO date column in screener_df & filter last 12 months ---
+    ipo_cols = [c for c in screener_df.columns if "ipo" in c.lower()]
+    if not ipo_cols:
+        raise ValueError(
+            "No IPO-like column found in screener_df. "
+            f"Columns were: {list(screener_df.columns)}"
+        )
+
+    ipo_col = ipo_cols[0]  # e.g. 'ipoExpectedDate'
+    screener_df["ipo_date"] = pd.to_datetime(
+        screener_df[ipo_col], errors="coerce"
+    )
+
+    cutoff = pd.Timestamp.today() - pd.DateOffset(months=12)
+    screener_df = screener_df[screener_df["ipo_date"] >= cutoff].copy()
+
+    if screener_df.empty:
+        raise ValueError("No IPOs found in the last 12 months after filtering.")
+
+    # --- 1C. Filter by market cap >= $300M using screener columns ---
     mc_col = None
     for c in ["marketCap.raw", "lastclosemarketcap.lasttwelvemonths"]:
         if c in screener_df.columns:
@@ -263,13 +281,14 @@ def run_new_listings_pipeline():
     if mc_col is not None:
         screener_df = screener_df[screener_df[mc_col] >= 300_000_000].copy()
 
-    # If for some reason there is no market cap column, we just take all IPOs here.
+    if screener_df.empty:
+        raise ValueError("No IPOs with market cap ≥ $300M found.")
 
     tickers = screener_df["symbol"].dropna().unique().tolist()
     if not tickers:
         raise ValueError("No IPO tickers remaining after market cap filter.")
 
-    # --- 2. Prices ---
+    # --- 2. Prices (13mo window so we can get 126d returns & 50d SMA) ---
     prices = download_ohlc_with_fallback(
         tickers=tickers,
         period="13mo",
@@ -313,7 +332,7 @@ def run_new_listings_pipeline():
     out["ATR"] = atr_aligned.reindex(out.index).round(2)
     out["atr_to50"] = atr_to50.reindex(out.index).round(1)
 
-    # --- 4. Meta (Price, MCap, ADVol, Sector) ---
+    # --- 4. Meta (Price, MCap, ADVol, Sector) from screener ---
     meta = build_meta(screener_df)
     out = out.join(meta, how="left")
 
@@ -361,7 +380,7 @@ def run_new_listings_pipeline():
     ]
     out = out[[c for c in desired_cols if c in out.columns]]
 
-    # Sort by 126d return (since no R252D)
+    # Sort by 126d return
     if "R126D" in out.columns:
         out = out.sort_values("R126D", ascending=False)
 
@@ -376,13 +395,12 @@ def run_new_listings_pipeline():
 def load_new_listings_table():
     return run_new_listings_pipeline()
 
-
 def main():
     st.title("New Listings (Last 12m IPOs)")
 
     try:
         if st.button("Refresh IPO Table"):
-            load_new_listings_table.clear()  # clear cache
+            load_new_listings_table.clear()  # clear cache on demand
         table = load_new_listings_table()
     except Exception as e:
         st.error("Error while building New Listings table:")
@@ -393,7 +411,6 @@ def main():
     st.subheader("IPO Universe (Mkt Cap ≥ $300M, Last 12m)")
     st.dataframe(table, use_container_width=True)
 
-    # Copy-paste ready ticker list
     if "Ticker" in table.columns:
         ticker_list = ", ".join(f"'{t}'" for t in table["Ticker"])
         st.subheader("Ticker list (copy/paste friendly)")
