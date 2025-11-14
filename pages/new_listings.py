@@ -232,27 +232,39 @@ def download_ohlc_with_fallback(tickers, period="13mo", interval="1d"):
 # ======================================================
 # New Listings Pipeline (Last 12m IPOs)
 # ======================================================
-
 def run_new_listings_pipeline():
     """
     Build table of IPOs from last 12 calendar months with:
     R63D, R126D, Price, ATR, atr_to50, MCap_$B, ADVol_$M, Sector, RevGrowth_%.
+    Universe is first filtered in the screener by:
+      - US region
+      - eodprice > 8
+      - avgdailyvol3m > 100,000
+      - lastclosemarketcap.lasttwelvemonths > 300M
+    Then we locally keep only names with IPO date in the last 12m.
     """
-    # --- 1. Screener: broad US equity universe ---
-    # Just reuse your 52w momentum field for sorting; it's valid & cheap.
-    momentum_field = get_momentum_field()
+
+    # --- 1. Screener: US equities with basic liquidity/size filters ---
+    df_filters = yfs.data_filters
+    # use "Price (End of Day)" as a harmless sort field
+    sort_field = df_filters.loc[
+        (df_filters["sec_type"] == "equity")
+        & (df_filters["name"] == "Price (End of Day)")
+    , "field"].iloc[0]   # this should resolve to "eodprice"
 
     filters = [
         ["eq", ["region", "us"]],
-        # no price/vol/mktcap/IPO filters here – we'll filter locally
+        ["gt", ["eodprice", 8]],                          # price > 8
+        ["gt", ["avgdailyvol3m", 100_000]],               # avg volume > 100k
+        ["gt", ["lastclosemarketcap.lasttwelvemonths", 300_000_000]],  # mkt cap > 300M
     ]
 
     query = yfs.create_query(filters)
     payload = yfs.create_payload(
         sec_type="equity",
         query=query,
-        size=1000,                # grab a decent chunk of the universe
-        sort_field=momentum_field,
+        size=1000,                # grab a decent chunk of the filtered universe
+        sort_field=sort_field,    # eodprice; just affects order, not membership
         sort_type="DESC",
     )
 
@@ -261,10 +273,9 @@ def run_new_listings_pipeline():
     if screener_df is None or screener_df.empty:
         raise ValueError("No data returned from Yahoo screener for US equities.")
 
-    # Ensure we have symbols
     screener_df = screener_df[screener_df["symbol"].notna()].copy()
 
-    # --- 1B. Find IPO date column in screener_df & filter last 12 months ---
+    # --- 1B. Find IPO date column & filter last 12 months ---
     ipo_cols = [c for c in screener_df.columns if "ipo" in c.lower()]
     if not ipo_cols:
         raise ValueError(
@@ -283,22 +294,9 @@ def run_new_listings_pipeline():
     if screener_df.empty:
         raise ValueError("No IPOs found in the last 12 months after filtering.")
 
-    # --- 1C. Filter by market cap >= $300M using screener columns ---
-    mc_col = None
-    for c in ["marketCap.raw", "lastclosemarketcap.lasttwelvemonths"]:
-        if c in screener_df.columns:
-            mc_col = c
-            break
-
-    if mc_col is not None:
-        screener_df = screener_df[screener_df[mc_col] >= 300_000_000].copy()
-
-    if screener_df.empty:
-        raise ValueError("No IPOs with market cap ≥ $300M found.")
-
     tickers = screener_df["symbol"].dropna().unique().tolist()
     if not tickers:
-        raise ValueError("No IPO tickers remaining after market cap filter.")
+        raise ValueError("No IPO tickers remaining after IPO-date filter.")
 
     # --- 2. Prices (13mo window so we can get 126d returns & 50d SMA) ---
     prices = download_ohlc_with_fallback(
@@ -359,7 +357,7 @@ def run_new_listings_pipeline():
         out["ADVol_$M"] = (out["avg_dollar_volume"] / 1e6).round(2)
         out = out.drop(columns=["avg_dollar_volume"])
 
-    # --- 5. Revenue growth via yahooquery (optional but nice) ---
+    # --- 5. Revenue growth via yahooquery (optional) ---
     try:
         final_tickers = out.index.astype(str).tolist()
         tf = Ticker(final_tickers)
@@ -372,7 +370,7 @@ def run_new_listings_pipeline():
             rg.index = rg.index.astype(str)
             out["RevGrowth_%"] = rg.reindex(out.index).values
     except Exception:
-        # If yahooquery fails, just skip RevGrowth_% rather than error out
+        # Don't kill the page if yahooquery barfs
         pass
 
     out.index.name = "Ticker"
@@ -392,7 +390,6 @@ def run_new_listings_pipeline():
     ]
     out = out[[c for c in desired_cols if c in out.columns]]
 
-    # Sort by 126d return
     if "R126D" in out.columns:
         out = out.sort_values("R126D", ascending=False)
 
