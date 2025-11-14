@@ -301,16 +301,17 @@ def load_data_once(force: bool = False):
         st.session_state["ticker_list"] = ticker_list
 
 
+import traceback
+
 def main():
     st.title("Best Performing US Stocks (Multi-Horizon)")
 
-    st.sidebar.header("Options")
-    refresh = st.sidebar.button("Refresh data")
-
     try:
-        load_data_once(force=refresh)
+        load_data_once()
     except Exception as e:
-        st.error(f"Error while building table: {e}")
+        st.error("Error while building table:")
+        st.exception(e)  # <- shows stack trace & location
+        st.code(traceback.format_exc())
         return
 
     table_df = st.session_state["table_df"]
@@ -319,6 +320,7 @@ def main():
     st.subheader("Combined Top Names (63D / 126D / 252D)")
     st.dataframe(table_df, use_container_width=True)
 
+    st.sidebar.header("Options")
     show_tickers = st.sidebar.checkbox("Show copy-paste ticker list")
 
     if show_tickers:
