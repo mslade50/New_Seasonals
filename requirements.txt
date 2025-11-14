@@ -7,4 +7,4 @@ ta
 altair
 requests
 openpyxl
-
+yfscreen
