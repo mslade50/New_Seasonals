@@ -150,6 +150,69 @@ def compute_atr_from_prices(prices: pd.DataFrame, tickers, window: int = 14) -> 
 
     return pd.Series(atr_vals, name="ATR")
 
+def download_ohlc_with_fallback(tickers, period="13mo", interval="1d"):
+    """
+    Try fast batch yf.download. If it fails (e.g. tz-naive vs tz-aware index),
+    fall back to per-ticker downloads and build a MultiIndex [Ticker, Price] frame.
+    """
+    try:
+        prices = yf.download(
+            tickers=tickers,
+            period=period,
+            interval=interval,
+            auto_adjust=True,
+            group_by="ticker",
+            threads=True,
+            progress=False,
+            ignore_tz=True,  # yfinance >= 0.2.40; harmless if older
+        )
+    except Exception as e:
+        st.warning(f"Batch download failed ({e}); falling back to per-ticker.")
+        prices = None
+
+    # If batch worked and is non-empty, we're done
+    if prices is not None and not prices.empty:
+        return prices
+
+    # ---------- Fallback: per-ticker ----------
+    st.warning("Using per-ticker yfinance downloads due to timezone/index issues.")
+
+    frames = []
+    for t in tickers:
+        try:
+            df = yf.download(
+                t,
+                period=period,
+                interval=interval,
+                auto_adjust=True,
+                progress=False,
+            )
+        except Exception as e:
+            st.write(f"⚠️ Failed download for {t}: {e}")
+            continue
+
+        if df.empty:
+            continue
+
+        # Normalize datetime index to tz-naive
+        if getattr(df.index, "tz", None) is not None:
+            df.index = df.index.tz_localize(None)
+
+        # Keep standard OHLCV columns if present
+        cols = [c for c in ["Open", "High", "Low", "Close", "Adj Close", "Volume"] if c in df.columns]
+        if not cols:
+            continue
+        df = df[cols]
+
+        # Turn into MultiIndex columns: (Ticker, Price)
+        df.columns = pd.MultiIndex.from_product([[t], df.columns], names=["Ticker", "Price"])
+        frames.append(df)
+
+    if not frames:
+        raise RuntimeError("No valid OHLC series downloaded in fallback.")
+
+    prices = pd.concat(frames, axis=1).sort_index()
+    return prices
 
 def run_pipeline():
     # ---------- 1. Screener ----------
@@ -179,15 +242,16 @@ def run_pipeline():
     tickers = screener_df["symbol"].dropna().unique().tolist()
 
     # ---------- 2. Prices ----------
-    prices = yf.download(
+
+    prices = download_ohlc_with_fallback(
         tickers=tickers,
         period="13mo",
         interval="1d",
-        auto_adjust=True,
-        group_by="ticker",
-        threads=True,
-        progress=False,
     )
+
+    if prices is None or prices.empty:
+        raise ValueError("No price data downloaded from yfinance (batch + fallback).")
+
 
     if prices is None or prices.empty:
         raise ValueError("No price data downloaded from yfinance.")
