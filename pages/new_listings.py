@@ -5,16 +5,19 @@ import pandas as pd
 import yfinance as yf
 from yahooquery import Ticker
 import traceback
-
-# ======================================================
-# Helpers
-# ======================================================
+import re
+from pathlib import Path
 
 def get_last12m_ipo_tickers():
     """
-    Scrape IPOScoop 'Last 12 Months' page and return a list
-    of unique ticker symbols.
+    Return unique IPO tickers from:
+      1) IPOScoop 'Last 12 Months' page
+      2) Local HTML snippet saved in file 'ipos' at project root
+         (symbols pulled from Yahoo links like ...q?s=SYMB)
+
+    Output is a sorted list of unique ticker strings.
     """
+    # -------- 1. Live scrape from IPOScoop --------
     url = "https://www.iposcoop.com/last-12-months/"
     tables = pd.read_html(url)
     if not tables:
@@ -28,15 +31,33 @@ def get_last12m_ipo_tickers():
         raise ValueError(f"No Symbol column found. Columns: {list(df.columns)}")
     symbol_col = symbol_col_candidates[0]
 
-    symbols = (
+    base_symbols = (
         df[symbol_col]
         .astype(str)
         .str.strip()
     )
 
-    # Drop blanks / NA, dedupe, sort
-    tickers = sorted(sym for sym in symbols.unique() if sym and sym != "nan")
-    return tickers
+    base_tickers = {s.upper() for s in base_symbols.unique() if s and s != "nan"}
+
+    # -------- 2. Extra tickers from local 'ipos' HTML snippet --------
+    extra_tickers = set()
+    try:
+        # project root = one level up from /pages/new_listings.py
+        project_root = Path(__file__).resolve().parents[1]
+        ipos_path = project_root / "ipos"   # your txt file with the HTML
+
+        if ipos_path.exists():
+            html = ipos_path.read_text(encoding="utf-8", errors="ignore")
+            # Grab symbols from links like http://finance.yahoo.com/q?s=MSW
+            matches = re.findall(r"q\?s=([A-Za-z0-9\.\-]+)", html)
+            extra_tickers = {m.upper() for m in matches if m}
+    except Exception:
+        # if anything goes wrong, just ignore the local file
+        pass
+
+    # -------- 3. Union + return --------
+    all_tickers = sorted(base_tickers | extra_tickers)
+    return all_tickers
 
 
 def extract_price_matrix(prices: pd.DataFrame) -> pd.DataFrame:
