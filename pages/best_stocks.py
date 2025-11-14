@@ -222,6 +222,7 @@ def run_pipeline():
         ["eq", ["region", "us"]],
         ["gt", ["intradayprice", 8]],
         ["gt", ["avgdailyvol3m", 300000]],
+        ["gt", ["totalrevenues.lasttwelvemonths", 30]],
         ["gt", ["lastclosemarketcap.lasttwelvemonths", 3_000_000_000]],
     ]
 
