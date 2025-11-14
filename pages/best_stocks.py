@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 import yfscreen as yfs
 import yfinance as yf
-
+from yahooquery import Ticker
 
 # ---------- Helpers ----------
 
