@@ -8,3 +8,4 @@ altair
 requests
 openpyxl
 yfscreen
+yahooquery
