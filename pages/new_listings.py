@@ -220,14 +220,14 @@ def run_new_listings_pipeline():
     """
     Build table of IPOs from IPOScoop 'Last 12 Months' page with:
     R63D, R126D, Price, ATR, atr_to50, MCap_$B, ADVol_$M, Sector, RevGrowth_%.
-    No extra filters; every scraped IPO ticker appears, even if returns/ATR are NaN.
+    Every scraped IPO ticker appears; if there isn't enough history, fields stay NaN.
     """
     # 1. Get IPO tickers from IPOScoop (+ local ipos file)
     ipo_tickers = get_last12m_ipo_tickers()
     if not ipo_tickers:
         raise ValueError("No IPO symbols scraped from IPOScoop/local file.")
-    
-    # Master index = ALL IPO tickers (what we want to display)
+
+    # Master index = ALL IPO tickers we want in the table
     master_index = pd.Index(sorted(set(ipo_tickers)), name="Ticker")
 
     # 2. Download prices (up to ~13mo if available)
@@ -244,13 +244,19 @@ def run_new_listings_pipeline():
     if px is None or px.empty:
         raise ValueError("Could not extract price matrix for IPO tickers.")
 
-    # Ensure px has only columns that are actual tickers in master_index
+    # Keep only columns that correspond to IPO tickers
     px = px.loc[:, [c for c in px.columns if c in master_index]]
 
-    # 3. Returns (63 / 126 trading days)
-    # We'll compute returns only for tickers in px and then reindex to master_index.
-    present_tickers = px.columns.tolist()
+    # ------- DEBUG: see what yfinance actually returned -------
+    have_price = list(px.columns)
+    missing_price = sorted(set(master_index) - set(have_price))
+    st.write(f"✅ Tickers with price history: {len(have_price)}")
+    st.write("Sample with data:", have_price[:20])
+    st.write(f"❌ Tickers with NO price history from yfinance: {len(missing_price)}")
+    st.write("Sample missing:", missing_price[:20])
 
+    # 3. Returns (63 / 126 trading days) – only for tickers we *do* have prices for
+    present_tickers = px.columns.tolist()
     returns = pd.DataFrame(index=pd.Index(present_tickers, name="Ticker"))
     returns["R63D"] = px[present_tickers].pct_change(63).iloc[-1]
     returns["R126D"] = px[present_tickers].pct_change(126).iloc[-1]
@@ -259,9 +265,9 @@ def run_new_listings_pipeline():
     for col in ["R63D", "R126D"]:
         returns[col] = (returns[col] * 100).round(1)
 
-    # 4. ATR + atr_to50 (only for tickers we have OHLC for)
+    # 4. ATR + atr_to50
     atr_series = compute_atr_from_prices(prices, present_tickers, window=14)
-    atr_series = pd.to_numeric(atr_series, errors="coerce")  # numeric only
+    atr_series = pd.to_numeric(atr_series, errors="coerce")
 
     sma50 = px.rolling(50).mean().iloc[-1]
     last_price = px.iloc[-1]
@@ -272,21 +278,20 @@ def run_new_listings_pipeline():
     atr_to50 = (last_price.reindex(present_tickers) - sma50.reindex(present_tickers)) / atr_safe
     atr_to50 = pd.to_numeric(atr_to50, errors="coerce")
 
-    # 5. Build signals frame on MASTER index (all IPOs)
+    # 5. Build output frame on MASTER index (all IPOs)
     out = pd.DataFrame(index=master_index)
 
-    # join returns (some tickers will be NaN for both)
+    # join returns – tickers with no history will just be NaN
     out = out.join(returns, how="left")
 
-    # ATR & atr_to50
+    # ATR & atr_to50 (only defined for tickers with OHLC)
     out["ATR"] = atr_series.reindex(master_index).round(2)
     out["atr_to50"] = atr_to50.reindex(master_index).round(1)
 
-    # 6. Fundamentals/meta via yahooquery (using ALL IPO tickers)
+    # 6. Fundamentals/meta via yahooquery for ALL IPO tickers
     try:
         tq = Ticker(master_index.tolist())
 
-        # Price info (for Price, MCap, current volume)
         price_dict = tq.price
         price_df = pd.DataFrame.from_dict(price_dict, orient="index")
 
@@ -300,7 +305,7 @@ def run_new_listings_pipeline():
             adv = price_df["regularMarketVolume"] * price_df["regularMarketPrice"]
             meta["ADVol_$M"] = (adv / 1e6).round(2)
 
-        # Sector / industry
+        # Sector / Industry
         try:
             prof_dict = tq.asset_profile
             prof_df = pd.DataFrame.from_dict(prof_dict, orient="index")
@@ -326,10 +331,10 @@ def run_new_listings_pipeline():
         if "Price" in out.columns:
             out["Price"] = out["Price"].round(2)
     except Exception:
-        # If yahooquery fails entirely, keep only tech columns
+        # if yahooquery fails completely, we at least keep the tech columns
         pass
 
-    out = out.reset_index()  # Ticker as column
+    out = out.reset_index()
 
     desired_cols = [
         "Ticker",
@@ -345,9 +350,9 @@ def run_new_listings_pipeline():
     ]
     out = out[[c for c in desired_cols if c in out.columns]]
 
-    # Optional: sort by R126D but don't lose the NaN rows
+    # Optional sort: tickers with NaN R126D will sink to bottom
     if "R126D" in out.columns:
-        out = out.sort_values("R126D", ascending=False)
+        out = out.sort_values("R126D", ascending=False, na_position="last")
 
     return out
 
