@@ -10,6 +10,18 @@ import traceback
 # Helpers
 # ======================================================
 
+def get_momentum_field() -> str:
+    """
+    Return the Yahoo screener field name for 52 Week Price % Change,
+    to use as a valid sort_field in yfs.create_payload.
+    """
+    df_filters = yfs.data_filters
+    row = df_filters.loc[
+        (df_filters["sec_type"] == "equity")
+        & (df_filters["name"] == "52 Week Price % Change")
+    ].iloc[0]
+    return row["field"]
+
 def get_ipo_field() -> str:
     """Find the Yahoo screener field used for IPO date."""
     df_filters = yfs.data_filters
