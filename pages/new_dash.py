@@ -61,11 +61,15 @@ def calculate_seasonal_rank(df, current_trading_day, current_cycle_type):
     
     # Use Close price
     if "Adj Close" in df.columns:
-        close = df["Adj Close"].copy()
+        close = df["Adj Close"]
     elif "Close" in df.columns:
-        close = df["Close"].copy()
+        close = df["Close"]
     else:
         return np.nan
+    
+    # Ensure close is a Series, not DataFrame
+    if isinstance(close, pd.DataFrame):
+        close = close.squeeze()
     
     close = close.dropna()
     if len(close) < 252:
@@ -189,6 +193,10 @@ def load_sector_metrics(tickers):
             st.write(f"⚠️ No data for {t}, skipping")
             continue
 
+        # Flatten MultiIndex columns if present
+        if isinstance(df.columns, pd.MultiIndex):
+            df.columns = df.columns.get_level_values(0)
+
         # Use Adj Close if present, otherwise Close
         if "Adj Close" in df.columns:
             close = df["Adj Close"]
@@ -198,6 +206,10 @@ def load_sector_metrics(tickers):
             st.write(f"⚠️ No Close/Adj Close for {t}, skipping")
             continue
 
+        # Ensure close is a Series, not DataFrame
+        if isinstance(close, pd.DataFrame):
+            close = close.squeeze()
+        
         close = close.dropna()
         if close.empty:
             continue
