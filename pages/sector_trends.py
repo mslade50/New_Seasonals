@@ -10,7 +10,8 @@ SECTOR_ETFS = [
     # From screenshot
     "IBB", "IHI", "ITA", "ITB", "IYR", "KRE", "OIH", "SMH", "VNQ",
     "XBI", "XHB", "XLB", "XLC", "XLE", "XLF", "XLI", "XLK", "XLP",
-    "XLU", "XLV", "XLY", "XME", "XOP", "XRT",
+    "XLU", "XLV", "XLY", "XME", "XOP", "XRT","GLD","CEF","SLV","BTC-USD",
+    "ETH-USD", "UNG", "UVXY"
     # Extra index/sector leaders
     "SPY", "QQQ", "IWM", "DIA", "SMH",
 ]
