@@ -72,7 +72,7 @@ def calculate_seasonal_rank(df, current_trading_day, current_cycle_type):
         return np.nan
     
     # Add year and trading day columns
-    data = pd.DataFrame({"close": close})
+    data = pd.DataFrame({"close": close.values}, index=close.index)
     data["year"] = data.index.year
     data["trading_day"] = data.groupby("year").cumcount() + 1
     
