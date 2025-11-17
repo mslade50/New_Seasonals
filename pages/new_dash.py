@@ -47,6 +47,7 @@ def get_cycle_years(cycle_type):
 def calculate_seasonal_rank(df, current_trading_day, current_cycle_type):
     """
     Calculate seasonal rank based on forward returns at current trading day position.
+    Optimized for speed with vectorized operations.
     
     Parameters:
     - df: DataFrame with OHLC data and Date index
@@ -75,54 +76,70 @@ def calculate_seasonal_rank(df, current_trading_day, current_cycle_type):
     if len(close) < 252:
         return np.nan
     
-    # Add year and trading day columns
+    # Add year and trading day columns - use numpy for speed
     data = pd.DataFrame({"close": close.values}, index=close.index)
     data["year"] = data.index.year
-    data["trading_day"] = data.groupby("year").cumcount() + 1
     
-    # Calculate forward returns (5, 10, 21 days)
-    data["fwd_5d"] = data["close"].shift(-5) / data["close"] - 1
-    data["fwd_10d"] = data["close"].shift(-10) / data["close"] - 1
-    data["fwd_21d"] = data["close"].shift(-21) / data["close"] - 1
+    # Vectorized trading day calculation
+    year_groups = data.groupby("year").cumcount().values + 1
+    data["trading_day"] = year_groups
+    
+    # Calculate forward returns (5, 10, 21 days) - vectorized
+    close_vals = data["close"].values
+    fwd_5d = np.full(len(close_vals), np.nan)
+    fwd_10d = np.full(len(close_vals), np.nan)
+    fwd_21d = np.full(len(close_vals), np.nan)
+    
+    fwd_5d[:-5] = close_vals[5:] / close_vals[:-5] - 1
+    fwd_10d[:-10] = close_vals[10:] / close_vals[:-10] - 1
+    fwd_21d[:-21] = close_vals[21:] / close_vals[:-21] - 1
     
     # Average of forward returns
-    data["avg_fwd_return"] = data[["fwd_5d", "fwd_10d", "fwd_21d"]].mean(axis=1)
+    data["avg_fwd_return"] = np.nanmean(np.column_stack([fwd_5d, fwd_10d, fwd_21d]), axis=1)
     
     # Get cycle years for weighting
-    cycle_years = get_cycle_years(current_cycle_type)
+    cycle_years = set(get_cycle_years(current_cycle_type))
     
-    # Apply 3x weight to current cycle years
-    data["weight"] = 1.0
-    data.loc[data["year"].isin(cycle_years), "weight"] = 3.0
+    # Apply 3x weight to current cycle years - vectorized
+    data["weight"] = np.where(data["year"].isin(cycle_years), 3.0, 1.0)
     
-    # Filter to only rows with valid forward returns
-    valid_data = data.dropna(subset=["avg_fwd_return"]).copy()
+    # Filter to only rows with valid forward returns and limit to trading days 1-252
+    valid_data = data[
+        (data["avg_fwd_return"].notna()) & 
+        (data["trading_day"] <= 252)
+    ].copy()
     
-    if valid_data.empty:
+    if valid_data.empty or current_trading_day is None:
         return np.nan
     
-    # Calculate weighted percentile rank for trading days in a window around current day
-    window_days = range(max(1, current_trading_day - 2), min(252, current_trading_day + 3))
+    # Define window around current day
+    window_start = max(1, current_trading_day - 2)
+    window_end = min(252, current_trading_day + 2)
+    window_days = range(window_start, window_end + 1)
+    
+    current_year = dt.date.today().year
     percentile_ranks = []
     
+    # Pre-filter data for current year to avoid repeated filtering
+    current_year_data = valid_data[valid_data["year"] == current_year]
+    
     for day in window_days:
-        # Get all observations for this trading day across all years
-        day_data = valid_data[valid_data["trading_day"] == day].copy()
+        # Get all observations for this trading day
+        day_mask = valid_data["trading_day"] == day
+        day_data = valid_data[day_mask]
         
         if day_data.empty:
             continue
         
-        # Get the current year's value for this day (if exists)
-        current_year = dt.date.today().year
-        current_day_value = day_data[day_data["year"] == current_year]["avg_fwd_return"]
+        # Get current year's value for this day
+        current_day_data = current_year_data[current_year_data["trading_day"] == day]
         
-        if current_day_value.empty:
+        if current_day_data.empty:
             continue
         
-        current_val = current_day_value.iloc[0]
+        current_val = current_day_data["avg_fwd_return"].iloc[0]
         
-        # Calculate weighted percentile
-        # For each historical observation, count if it's <= current value, weighted
+        # Vectorized weighted percentile calculation
         weights = day_data["weight"].values
         returns = day_data["avg_fwd_return"].values
         
@@ -136,8 +153,8 @@ def calculate_seasonal_rank(df, current_trading_day, current_cycle_type):
     if not percentile_ranks:
         return np.nan
     
-    # Return average of percentile ranks across the 5-day window
-    return np.mean(percentile_ranks)
+    # Return average of percentile ranks across the window
+    return float(np.mean(percentile_ranks))
 
 
 def percentile_rank(series: pd.Series, value) -> float:
