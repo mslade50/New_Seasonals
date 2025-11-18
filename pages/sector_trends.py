@@ -406,52 +406,54 @@ def main():
         # Keep a copy with real datetimes for charting
         raw_matches = match_table.copy() 
 
-        # --- AGGRESSIVE FIX: Convert date to string, then drop and replace column ---
+        # --- EXTREME FIX: Force all columns to simple string format ---
         
-        # 1. Create a display version of the dates first
-        display_dates = raw_matches["Date"].dt.strftime("%b %d %Y")
+        # 1. Start with the raw match data
+        match_display = raw_matches.copy()
         
-        # 2. Create the display table (match_display)
-        match_display = raw_matches.drop(columns=["Date"]).copy()
+        # 2. Convert the 'Date' column to the desired string format (e.g., 'Jun 05 2007')
+        match_display["Date"] = match_display["Date"].dt.strftime("%b %d %Y")
         
-        # 3. Insert the newly formatted string dates back as the first column
-        match_display.insert(0, "Date", display_dates)
-        
-        # 4. Round numeric columns nicely (these are already numeric from compute_distance_matches)
+        # Identify numeric columns for calculation and string formatting
         num_cols = [c for c in match_display.columns if c != "Date"]
+
+        # 3. Calculate Average row values (from the raw numeric data)
+        avg_vals = raw_matches[num_cols].mean(numeric_only=True)
+
+        # 4. Format all numeric columns in match_display to strings
         for c in num_cols:
             if c.startswith("SPY_fwd_"):
-                # Use standard string formatting to guarantee a string output with two decimals
+                # Format to string with 2 decimals
                 match_display[c] = match_display[c].round(2).apply(lambda x: f"{x:.2f}")
             elif c == "distance":
-                # Use standard string formatting to guarantee a string output with four decimals
+                # Format to string with 4 decimals
                 match_display[c] = match_display[c].round(4).apply(lambda x: f"{x:.4f}")
         
-        # 5. Calculate and create the Average row
-        # Recalculate avg_vals using the original numeric columns (before string conversion in step 4)
-        original_num_cols = [c for c in raw_matches.columns if c != "Date"]
-        avg_vals = raw_matches[original_num_cols].mean(numeric_only=True)
-
+        # 5. Create the Average row with formatted strings
         avg_row = {"Date": "Average"}
-        # Format the averages *as strings* to match the rest of the display table
-        for c in original_num_cols:
+        for c in num_cols:
             if c.startswith("SPY_fwd_"):
                 avg_row[c] = f"{avg_vals[c]:.2f}"
             elif c == "distance":
                 avg_row[c] = f"{avg_vals[c]:.4f}"
         
         avg_df = pd.DataFrame([avg_row])
-        
-        # Ensure column order matches match_display for correct concatenation
         avg_df = avg_df[match_display.columns]
 
-        # 6. Concatenate the string 'Average' row with the already-formatted match dates
+        # 6. Concatenate the average row and the match rows
         match_with_avg = pd.concat([avg_df, match_display], ignore_index=True)
 
-        # 7. FINAL STEP: Convert ALL columns to string (object) type before display
+        # 7. CRITICAL: Convert the entire DataFrame to the 'object' (string) dtype one last time.
+        # This is the final, definitive step to prevent datetime interpretation.
         match_with_avg = match_with_avg.astype(str)
 
         st.dataframe(match_with_avg, use_container_width=True)
+        # ---------------------------------------------------------------------------------
+
+        # ---- 3.2 Candlestick charts for top 10 dates (uses the original raw_matches) ----
+        st.subheader("SPY Candles Around Top 10 Match Dates")
+        
+        # ... (rest of the plotting code remains unchanged, using raw_matches)
         # --------------------------------------------------------------------------
 
         # ---- 3.2 Candlestick charts for top 10 dates (uses the original raw_matches) ----
