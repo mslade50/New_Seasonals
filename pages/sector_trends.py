@@ -160,6 +160,20 @@ def load_spy_ohlc():
         # Flatten the MultiIndex: keep the first level (e.g., 'Open', 'High')
         # while discarding the ticker level (e.g., 'SPY').
         df.columns = df.columns.get_level_values(0)
+    # --- END OF FIX ---
+
+    # Ensure expected columns exist and drop any row with missing data
+    cols = ["Open", "High", "Low", "Close"]
+    
+    # 2. Defensive check: only select columns that actually exist
+    existing_cols = [c for c in cols if c in df.columns]
+    
+    if len(existing_cols) < 4:
+        # If we can't find the necessary columns, return empty
+        st.warning(f"Could not find all required columns (Open, High, Low, Close) in SPY data.")
+        return pd.DataFrame()
+
+    return df[existing_cols].dropna()
 
 def load_core_distance_frame():
     """
