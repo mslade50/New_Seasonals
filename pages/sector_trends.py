@@ -10,11 +10,13 @@ SECTOR_ETFS = [
     # From screenshot
     "IBB", "IHI", "ITA", "ITB", "IYR", "KRE", "OIH", "SMH", "VNQ",
     "XBI", "XHB", "XLB", "XLC", "XLE", "XLF", "XLI", "XLK", "XLP",
-    "XLU", "XLV", "XLY", "XME", "XOP", "XRT","GLD","CEF","SLV","BTC-USD",
+    "XLU", "XLV", "XLY", "XME", "XOP", "XRT", "GLD", "CEF", "SLV", "BTC-USD",
     "ETH-USD", "UNG", "UVXY",
     # Extra index/sector leaders
     "SPY", "QQQ", "IWM", "DIA", "SMH",
 ]
+
+CORE_TICKERS = ["SPY", "QQQ", "IWM", "SMH", "DIA"]
 
 
 def percentile_rank(series: pd.Series, value) -> float:
@@ -138,6 +140,147 @@ def load_sector_metrics(tickers):
     return df_out
 
 
+@st.cache_data(show_spinner=True)
+def load_core_distance_frame():
+    """
+    Build a daily feature frame for SPY/QQQ/IWM/SMH/DIA using
+    distance-to-MA (5/20/50/200) for each, plus SPY forward returns.
+    """
+    all_feats = []
+    spy_close = None
+
+    for t in CORE_TICKERS:
+        try:
+            df = yf.download(
+                t,
+                period="max",
+                interval="1d",
+                auto_adjust=True,
+                progress=False,
+            )
+        except Exception as e:
+            st.write(f"⚠️ Failed core download for {t}: {e}")
+            continue
+
+        if df.empty:
+            st.write(f"⚠️ No data for {t} in core set, skipping")
+            continue
+
+        if "Adj Close" in df.columns:
+            close = df["Adj Close"].dropna()
+        elif "Close" in df.columns:
+            close = df["Close"].dropna()
+        else:
+            st.write(f"⚠️ No Close/Adj Close for {t}, skipping")
+            continue
+
+        if close.empty:
+            continue
+
+        if t == "SPY":
+            spy_close = close.copy()
+
+        ma5 = close.rolling(5).mean()
+        ma20 = close.rolling(20).mean()
+        ma50 = close.rolling(50).mean()
+        ma200 = close.rolling(200).mean()
+
+        dist5 = (close - ma5) / ma5 * 100.0
+        dist20 = (close - ma20) / ma20 * 100.0
+        dist50 = (close - ma50) / ma50 * 100.0
+        dist200 = (close - ma200) / ma200 * 100.0
+
+        feats = pd.DataFrame(
+            {
+                f"{t}_dist5": dist5,
+                f"{t}_dist20": dist20,
+                f"{t}_dist50": dist50,
+                f"{t}_dist200": dist200,
+            }
+        )
+        all_feats.append(feats)
+
+    if not all_feats:
+        return pd.DataFrame()
+
+    # Inner join on dates across all core tickers
+    core_df = all_feats[0]
+    for feats in all_feats[1:]:
+        core_df = core_df.join(feats, how="inner")
+
+    core_df = core_df.dropna()
+    core_df = core_df.sort_index()
+    core_df.index = pd.to_datetime(core_df.index)
+    core_df.index.name = "Date"
+
+    # Add forward returns for SPY
+    if spy_close is not None:
+        spy_close = spy_close.reindex(core_df.index).dropna()
+        spy_close = spy_close.reindex(core_df.index)  # align index exactly
+
+        horizons = [2, 5, 10, 21, 63, 126, 252]
+        for h in horizons:
+            core_df[f"SPY_fwd_{h}d"] = spy_close.shift(-h) / spy_close - 1.0
+
+    return core_df
+
+
+def compute_distance_matches(core_df: pd.DataFrame,
+                             n_matches: int = 20,
+                             exclude_last_n: int = 63) -> pd.DataFrame:
+    """
+    Use equal-weight Euclidean distance on all distance features
+    across SPY/QQQ/IWM/SMH/DIA to find closest historical dates.
+    """
+    if core_df.empty:
+        return pd.DataFrame()
+
+    df = core_df.copy().sort_index()
+
+    # Feature columns are all dist* columns for the 5 core tickers
+    feature_cols = [c for c in df.columns if "dist" in c]
+    fwd_cols = [c for c in df.columns if c.startswith("SPY_fwd_")]
+
+    # Require all features + forward returns to be present
+    df = df.dropna(subset=feature_cols + fwd_cols)
+
+    if len(df) <= exclude_last_n + 1:
+        return pd.DataFrame()
+
+    # Target vector = latest row
+    target = df.iloc[-1][feature_cols].astype(float).values
+
+    # Exclude most recent N rows for matching
+    hist = df.iloc[:-exclude_last_n].copy()
+
+    # Optional: restrict to post-1997 and exclude 2020 (similar flavor to your other code)
+    hist = hist[hist.index.year > 1997]
+    hist = hist[hist.index.year != 2020]
+
+    if hist.empty:
+        return pd.DataFrame()
+
+    X = hist[feature_cols].astype(float).values
+    dists = np.sqrt(((X - target) ** 2).sum(axis=1))
+    hist["distance"] = dists
+
+    # Sort by distance and take top N
+    matches = hist.sort_values("distance").head(n_matches).copy()
+    matches = matches.reset_index()  # bring Date out as a column
+
+    # Keep just Date, distance, and SPY forward returns
+    keep_cols = ["Date", "distance"] + fwd_cols
+    matches = matches[keep_cols]
+
+    # Format returns as percents
+    for c in fwd_cols:
+        matches[c] = (matches[c] * 100.0).round(2)
+
+    matches["distance"] = matches["distance"].round(4)
+
+    return matches
+
+
 def main():
     st.title("Sector ETF Trend Dashboard")
 
@@ -149,6 +292,7 @@ def main():
     # Optional: refresh button to bust cache
     if st.button("Refresh data"):
         load_sector_metrics.clear()
+        load_core_distance_frame.clear()
 
     with st.spinner("Loading sector ETF data from Yahoo Finance..."):
         table = load_sector_metrics(sorted(set(SECTOR_ETFS)))
@@ -188,6 +332,23 @@ def main():
     )
 
     st.dataframe(styled, use_container_width=True)
+
+    # -------- Distance-matching section --------
+    st.subheader("Historical Distance Matches (SPY/QQQ/IWM/SMH/DIA)")
+
+    with st.spinner("Computing distance matches vs history..."):
+        core_df = load_core_distance_frame()
+        match_table = compute_distance_matches(core_df, n_matches=20, exclude_last_n=63)
+
+    if match_table.empty:
+        st.warning("Not enough historical data to compute distance matches.")
+    else:
+        st.write(
+            "20 closest historical dates to today's joint MA-distance profile "
+            "using equal-weight distances across SPY, QQQ, IWM, SMH, and DIA. "
+            "Returns are forward % changes in SPY."
+        )
+        st.dataframe(match_table, use_container_width=True)
 
 
 if __name__ == "__main__":
