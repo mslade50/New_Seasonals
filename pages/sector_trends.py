@@ -226,10 +226,14 @@ def load_core_distance_frame():
 
 def compute_distance_matches(core_df: pd.DataFrame,
                              n_matches: int = 20,
-                             exclude_last_n: int = 63) -> pd.DataFrame:
+                             exclude_last_n: int = 63,
+                             min_spacing_days: int = 21) -> pd.DataFrame:
     """
     Use equal-weight Euclidean distance on all distance features
     across SPY/QQQ/IWM/SMH/DIA to find closest historical dates.
+
+    min_spacing_days: minimum calendar-day gap between any two
+    selected dates (e.g., 21 means no other match within +/-21 days).
     """
     if core_df.empty:
         return pd.DataFrame()
@@ -252,7 +256,7 @@ def compute_distance_matches(core_df: pd.DataFrame,
     # Exclude most recent N rows for matching
     hist = df.iloc[:-exclude_last_n].copy()
 
-    # Optional: restrict to post-1997 and exclude 2020 (similar flavor to your other code)
+    # Optional: restrict to post-1997 and exclude 2020
     hist = hist[hist.index.year > 1997]
     hist = hist[hist.index.year != 2020]
 
@@ -263,9 +267,26 @@ def compute_distance_matches(core_df: pd.DataFrame,
     dists = np.sqrt(((X - target) ** 2).sum(axis=1))
     hist["distance"] = dists
 
-    # Sort by distance and take top N
-    matches = hist.sort_values("distance").head(n_matches).copy()
-    matches = matches.reset_index()  # bring Date out as a column
+    # -------- spacing logic: only 1 date per +/- min_spacing_days window --------
+    hist = hist.sort_values("distance").copy()
+
+    selected_dates = []
+    selected_idx = []
+
+    for dt, row in hist.iterrows():
+        if all(abs((dt - prev).days) > min_spacing_days for prev in selected_dates):
+            selected_dates.append(dt)
+            selected_idx.append(dt)
+            if len(selected_idx) >= n_matches:
+                break
+
+    if not selected_idx:
+        return pd.DataFrame()
+
+    matches = hist.loc[selected_idx].copy()
+    matches = matches.reset_index()  # Date becomes a column named index or Date
+    if "index" in matches.columns and "Date" not in matches.columns:
+        matches = matches.rename(columns={"index": "Date"})
 
     # Keep just Date, distance, and SPY forward returns
     keep_cols = ["Date", "distance"] + fwd_cols
@@ -347,7 +368,13 @@ def main():
             "using equal-weight distances across SPY, QQQ, IWM, SMH, and DIA. "
             "Returns are forward % changes in SPY."
         )
+
+        # --- strip timestamp from Date ---
+        if pd.api.types.is_datetime64_any_dtype(match_table["Date"]):
+            match_table["Date"] = match_table["Date"].dt.strftime("%Y-%m-%d")
+
         st.dataframe(match_table, use_container_width=True)
+
 
 
 if __name__ == "__main__":
