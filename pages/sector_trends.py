@@ -190,14 +190,13 @@ def load_core_distance_frame():
         dist50 = (close - ma50) / ma50 * 100.0
         dist200 = (close - ma200) / ma200 * 100.0
 
-        feats = pd.DataFrame(
-            {
-                f"{t}_dist5": dist5,
-                f"{t}_dist20": dist20,
-                f"{t}_dist50": dist50,
-                f"{t}_dist200": dist200,
-            }
-        )
+        # ---- FIX: always build with an explicit index so pandas never thinks these are scalars ----
+        feats = pd.DataFrame(index=close.index)
+        feats[f"{t}_dist5"] = dist5
+        feats[f"{t}_dist20"] = dist20
+        feats[f"{t}_dist50"] = dist50
+        feats[f"{t}_dist200"] = dist200
+
         all_feats.append(feats)
 
     if not all_feats:
