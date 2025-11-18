@@ -404,36 +404,32 @@ def main():
         )
 
         # Keep a copy with real datetimes for charting
-        raw_matches = match_table.copy()
+        raw_matches = match_table.copy() 
 
         # ---- 3.1 Add average row at the top ----
         num_cols = [c for c in match_table.columns if c != "Date"]
         avg_vals = match_table[num_cols].mean(numeric_only=True)
 
-        avg_row = {"Date": "Average"}
-        avg_row.update({c: avg_vals[c] for c in num_cols})
+        # Create the display table (match_display) by copying and formatting raw_matches
+        match_display = raw_matches.copy()
+        
+        # 1. Strip timestamp for display formatting (e.g., '2007-06-05 00:00:00' -> 'Jun 05 2007')
+        # This works because match_display["Date"] is definitely a datetime column here.
+        match_display["Date"] = match_display["Date"].dt.strftime("%b %d %Y")
 
-        avg_df = pd.DataFrame([avg_row])
-        
-        # --- 💡 CRITICAL FIX: Format the Date column *before* concatenating the string 'Average' row ---
-        
-        # 1. Format the match dates first, converting them to clean strings
-        if pd.api.types.is_datetime64_any_dtype(match_table["Date"]):
-            # Change format to match your request, e.g., 'Jun 06 2007'
-            match_table["Date"] = match_table["Date"].dt.strftime("%b %d %Y")
-        
-        # 2. Now concatenate the string 'Average' row with the already-formatted match dates
-        match_with_avg = pd.concat([avg_df, match_table], ignore_index=True)
-
-        # Round numeric columns nicely
+        # 2. Round numeric columns nicely
         for c in num_cols:
             if c.startswith("SPY_fwd_"):
-                match_with_avg[c] = match_with_avg[c].round(2)
+                match_display[c] = match_display[c].round(2)
             elif c == "distance":
-                match_with_avg[c] = match_with_avg[c].round(4)
+                match_display[c] = match_display[c].round(4)
         
-        # Note: The `if pd.api.types...` check is now gone, as the column is now a string type.
-        # This simplifies the final block but requires the pre-formatting above.
+        # 3. Create and concatenate the Average row (which is already a string row)
+        avg_row = {"Date": "Average"}
+        avg_row.update({c: avg_vals[c] for c in num_cols})
+        avg_df = pd.DataFrame([avg_row])
+        
+        match_with_avg = pd.concat([avg_df, match_display], ignore_index=True)
 
         st.dataframe(match_with_avg, use_container_width=True)
 
@@ -463,16 +459,14 @@ def main():
         spy_ohlc = spy_ohlc.copy()
         spy_ohlc.index = pd.to_datetime(spy_ohlc.index).normalize().tz_localize(None)
 
-        raw_matches = match_table.copy()
-
-        # Ensure Date column in raw_matches is clean datetime type
-        if not pd.api.types.is_datetime64_any_dtype(raw_matches["Date"]):
-            raw_matches["Date"] = pd.to_datetime(raw_matches["Date"])
-
-        # Normalize the raw_matches Date column to remove the timestamp
-        raw_matches["Date"] = raw_matches["Date"].dt.normalize().dt.tz_localize(None)
-
         top10 = raw_matches.head(10).copy()
+
+        # Ensure Date is datetime, normalize to date-only, and strip timezone (redundant but safe check)
+        # Note: raw_matches should already be clean datetime objects now.
+        if not pd.api.types.is_datetime64_any_dtype(top10["Date"]):
+            top10["Date"] = pd.to_datetime(top10["Date"])
+        top10["Date"] = top10["Date"].dt.normalize().dt.tz_localize(None)
+
 
         for i, row in top10.iterrows():
             center = row["Date"]
@@ -495,27 +489,20 @@ def main():
                  continue
 
 
-            # ... (inside the plotting loop)
-
             # Get the exact index value of the center date in the current window
-            # We normalize 'center' to ensure it perfectly matches the index of 'window'
             center_date_norm = center.normalize()
             
-            # --- FIX: Create sparse labels list ---
-            # 1. Start with a list of empty strings (one for every date in the window)
+            # --- FIX: Create sparse labels list (only center date labeled) ---
             sparse_labels = [""] * len(window.index)
             
-            # 2. Find the position (index) of the center date in the window
-            # .get_loc is the robust way to find the integer index for a date in a DatetimeIndex
             try:
                 center_loc = window.index.get_loc(center_date_norm)
                 
-                # 3. Insert the short-form date string only at that position
+                # Insert the short-form date string only at that position
                 formatted_center_date = center.strftime('%b %d %Y')
                 sparse_labels[center_loc] = formatted_center_date
             except KeyError:
-                # Fallback if the center date somehow didn't make it into the window slice
-                st.warning(f"Center date {center.date()} not found in window index.")
+                st.warning(f"Center date {center.date()} not found in window index for plotting.")
                 pass
             # --- END FIX ---
             
@@ -550,10 +537,10 @@ def main():
                     'rangeslider': {'visible': False},
                     
                     # 1. Use ALL dates as tick positions (tickvals)
-                    'tickvals': window.index, 
+                    'tickvals': window.index,  
                     
                     # 2. Use the sparse list (ticktext)
-                    'ticktext': sparse_labels, 
+                    'ticktext': sparse_labels,  
                     
                     # Ensure the label is readable if it were visible
                     'tickangle': 0 
