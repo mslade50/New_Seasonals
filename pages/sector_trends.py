@@ -418,21 +418,24 @@ def main():
         if spy_ohlc.empty:
             st.warning("Could not load SPY OHLC data for candlestick charts.")
         else:
-            # ensure datetime index
+            # Normalize SPY index to date-only
             spy_ohlc = spy_ohlc.copy()
-            spy_ohlc.index = pd.to_datetime(spy_ohlc.index)
+            spy_ohlc.index = pd.to_datetime(spy_ohlc.index).normalize()
 
             top10 = raw_matches.head(10).copy()
-            # ensure datetime
+
+            # Ensure Date is datetime and normalize to date-only
             if not pd.api.types.is_datetime64_any_dtype(top10["Date"]):
                 top10["Date"] = pd.to_datetime(top10["Date"])
+            top10["Date"] = top10["Date"].dt.normalize()
 
             for _, row in top10.iterrows():
                 center = row["Date"]
-                start = center - pd.Timedelta(days=90)
-                end = center + pd.Timedelta(days=90)
+                start_date = (center - pd.Timedelta(days=90)).date()
+                end_date = (center + pd.Timedelta(days=90)).date()
 
-                window = spy_ohlc.loc[(spy_ohlc.index >= start) & (spy_ohlc.index <= end)]
+                # Robust date-based slice
+                window = spy_ohlc.loc[str(start_date):str(end_date)]
                 if window.empty:
                     continue
 
