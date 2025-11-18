@@ -4,6 +4,7 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import yfinance as yf
+import plotly.graph_objects as go
 
 
 SECTOR_ETFS = [
@@ -141,6 +142,21 @@ def load_sector_metrics(tickers):
 
 
 @st.cache_data(show_spinner=True)
+def load_spy_ohlc():
+    """Daily SPY OHLC for candlestick charts."""
+    df = yf.download(
+        "SPY",
+        period="max",
+        interval="1d",
+        auto_adjust=False,  # keep real OHLC
+        progress=False,
+    )
+    if df.empty:
+        return pd.DataFrame()
+    # Ensure expected columns exist
+    cols = ["Open", "High", "Low", "Close"]
+    return df[cols].dropna()
+
 def load_core_distance_frame():
     """
     Build a daily feature frame for SPY/QQQ/IWM/SMH/DIA using
@@ -369,11 +385,77 @@ def main():
             "Returns are forward % changes in SPY."
         )
 
-        # --- strip timestamp from Date ---
-        if pd.api.types.is_datetime64_any_dtype(match_table["Date"]):
-            match_table["Date"] = match_table["Date"].dt.strftime("%Y-%m-%d")
+        # Keep a copy with real datetimes for charting
+        raw_matches = match_table.copy()
 
-        st.dataframe(match_table, use_container_width=True)
+        # ---- 3.1 Add average row at the top ----
+        num_cols = [c for c in match_table.columns if c != "Date"]
+        avg_vals = match_table[num_cols].mean(numeric_only=True)
+
+        avg_row = {"Date": "Average"}
+        avg_row.update({c: avg_vals[c] for c in num_cols})
+
+        avg_df = pd.DataFrame([avg_row])
+        match_with_avg = pd.concat([avg_df, match_table], ignore_index=True)
+
+        # Round numeric columns nicely
+        for c in num_cols:
+            if c.startswith("SPY_fwd_"):
+                match_with_avg[c] = match_with_avg[c].round(2)
+            elif c == "distance":
+                match_with_avg[c] = match_with_avg[c].round(4)
+
+        # Strip timestamp for display
+        if pd.api.types.is_datetime64_any_dtype(match_with_avg["Date"]):
+            match_with_avg["Date"] = match_with_avg["Date"].dt.strftime("%Y-%m-%d")
+
+        st.dataframe(match_with_avg, use_container_width=True)
+
+        # ---- 3.2 Candlestick charts for top 10 dates ----
+        st.subheader("SPY Candles Around Top 10 Match Dates")
+
+        spy_ohlc = load_spy_ohlc()
+        if spy_ohlc.empty:
+            st.warning("Could not load SPY OHLC data for candlestick charts.")
+        else:
+            # ensure datetime index
+            spy_ohlc = spy_ohlc.copy()
+            spy_ohlc.index = pd.to_datetime(spy_ohlc.index)
+
+            top10 = raw_matches.head(10).copy()
+            # ensure datetime
+            if not pd.api.types.is_datetime64_any_dtype(top10["Date"]):
+                top10["Date"] = pd.to_datetime(top10["Date"])
+
+            for _, row in top10.iterrows():
+                center = row["Date"]
+                start = center - pd.Timedelta(days=90)
+                end = center + pd.Timedelta(days=90)
+
+                window = spy_ohlc.loc[(spy_ohlc.index >= start) & (spy_ohlc.index <= end)]
+                if window.empty:
+                    continue
+
+                fig = go.Figure(
+                    data=[
+                        go.Candlestick(
+                            x=window.index,
+                            open=window["Open"],
+                            high=window["High"],
+                            low=window["Low"],
+                            close=window["Close"],
+                        )
+                    ]
+                )
+                fig.update_layout(
+                    title=f"SPY ±3 Months Around {center.date()}",
+                    xaxis_title="Date",
+                    yaxis_title="Price",
+                    xaxis_rangeslider_visible=False,
+                    height=400,
+                )
+
+                st.plotly_chart(fig, use_container_width=True)
 
 
 
