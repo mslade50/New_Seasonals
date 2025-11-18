@@ -414,6 +414,15 @@ def main():
         avg_row.update({c: avg_vals[c] for c in num_cols})
 
         avg_df = pd.DataFrame([avg_row])
+        
+        # --- 💡 CRITICAL FIX: Format the Date column *before* concatenating the string 'Average' row ---
+        
+        # 1. Format the match dates first, converting them to clean strings
+        if pd.api.types.is_datetime64_any_dtype(match_table["Date"]):
+            # Change format to match your request, e.g., 'Jun 06 2007'
+            match_table["Date"] = match_table["Date"].dt.strftime("%b %d %Y")
+        
+        # 2. Now concatenate the string 'Average' row with the already-formatted match dates
         match_with_avg = pd.concat([avg_df, match_table], ignore_index=True)
 
         # Round numeric columns nicely
@@ -422,11 +431,9 @@ def main():
                 match_with_avg[c] = match_with_avg[c].round(2)
             elif c == "distance":
                 match_with_avg[c] = match_with_avg[c].round(4)
-
-        # Strip timestamp for display
-        if pd.api.types.is_datetime64_any_dtype(match_with_avg["Date"]):
-            # Change format to match your request, e.g., 'Jun 06 2007'
-            match_with_avg["Date"] = match_with_avg["Date"].dt.strftime("%b %d %Y")
+        
+        # Note: The `if pd.api.types...` check is now gone, as the column is now a string type.
+        # This simplifies the final block but requires the pre-formatting above.
 
         st.dataframe(match_with_avg, use_container_width=True)
 
