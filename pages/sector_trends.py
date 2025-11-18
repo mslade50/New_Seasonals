@@ -406,34 +406,38 @@ def main():
         # Keep a copy with real datetimes for charting
         raw_matches = match_table.copy() 
 
-        # ---- 3.1 Add average row at the top ----
-        num_cols = [c for c in match_table.columns if c != "Date"]
-        avg_vals = match_table[num_cols].mean(numeric_only=True)
-
-        # Create the display table (match_display) by copying and formatting raw_matches
-        match_display = raw_matches.copy()
+        # --- AGGRESSIVE FIX: Convert date to string, then drop and replace column ---
         
-        # 1. Strip timestamp for display formatting (e.g., '2007-06-05 00:00:00' -> 'Jun 05 2007')
-        # This works because match_display["Date"] is definitely a datetime column here.
-        match_display["Date"] = match_display["Date"].dt.strftime("%b %d %Y")
-
-        # 2. Round numeric columns nicely
+        # 1. Create a display version of the dates first
+        display_dates = raw_matches["Date"].dt.strftime("%b %d %Y")
+        
+        # 2. Create the display table (match_display)
+        match_display = raw_matches.drop(columns=["Date"]).copy()
+        
+        # 3. Insert the newly formatted string dates back as the first column
+        match_display.insert(0, "Date", display_dates)
+        
+        # 4. Round numeric columns nicely (these are already numeric from compute_distance_matches)
+        num_cols = [c for c in match_display.columns if c != "Date"]
         for c in num_cols:
             if c.startswith("SPY_fwd_"):
                 match_display[c] = match_display[c].round(2)
             elif c == "distance":
                 match_display[c] = match_display[c].round(4)
         
-        # 3. Create and concatenate the Average row (which is already a string row)
+        # 5. Calculate and create the Average row
+        avg_vals = match_display[num_cols].mean(numeric_only=True)
         avg_row = {"Date": "Average"}
         avg_row.update({c: avg_vals[c] for c in num_cols})
         avg_df = pd.DataFrame([avg_row])
         
+        # 6. Concatenate the string 'Average' row with the already-formatted match dates
         match_with_avg = pd.concat([avg_df, match_display], ignore_index=True)
 
         st.dataframe(match_with_avg, use_container_width=True)
+        # --------------------------------------------------------------------------
 
-        # ---- 3.2 Candlestick charts for top 10 dates ----
+        # ---- 3.2 Candlestick charts for top 10 dates (uses the original raw_matches) ----
         st.subheader("SPY Candles Around Top 10 Match Dates")
 
         spy_ohlc = load_spy_ohlc()
@@ -461,8 +465,7 @@ def main():
 
         top10 = raw_matches.head(10).copy()
 
-        # Ensure Date is datetime, normalize to date-only, and strip timezone (redundant but safe check)
-        # Note: raw_matches should already be clean datetime objects now.
+        # Normalize Date column in top10 (which uses the original datetime raw_matches)
         if not pd.api.types.is_datetime64_any_dtype(top10["Date"]):
             top10["Date"] = pd.to_datetime(top10["Date"])
         top10["Date"] = top10["Date"].dt.normalize().dt.tz_localize(None)
