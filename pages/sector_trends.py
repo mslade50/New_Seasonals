@@ -485,20 +485,31 @@ def main():
 
             # ... (inside the plotting loop)
 
-            # --- NEW: Create formatted date labels ---
-            # Create a Series of formatted date strings (e.g., 'Jun 6 2007')
-            formatted_labels = window.index.strftime('%b %d %Y')
+            # Get the exact index value of the center date in the current window
+            # We normalize 'center' to ensure it perfectly matches the index of 'window'
+            center_date_norm = center.normalize()
             
-            # --- Optional: Highlight just the center date label ---
-            # If you only want the center date label, you could create a list
-            # of empty strings and only put the label on the matching date.
-            # However, for a ±3 month view, having *some* labels helps context.
-            # We'll stick to formatting all visible labels nicely for now.
+            # --- FIX: Create sparse labels list ---
+            # 1. Start with a list of empty strings (one for every date in the window)
+            sparse_labels = [""] * len(window.index)
+            
+            # 2. Find the position (index) of the center date in the window
+            # .get_loc is the robust way to find the integer index for a date in a DatetimeIndex
+            try:
+                center_loc = window.index.get_loc(center_date_norm)
+                
+                # 3. Insert the short-form date string only at that position
+                formatted_center_date = center.strftime('%b %d %Y')
+                sparse_labels[center_loc] = formatted_center_date
+            except KeyError:
+                # Fallback if the center date somehow didn't make it into the window slice
+                st.warning(f"Center date {center.date()} not found in window index.")
+                pass
+            # --- END FIX ---
             
             fig = go.Figure(
                 data=[
                     go.Candlestick(
-                        # The x data itself remains the DatetimeIndex
                         x=window.index,
                         open=window["Open"],
                         high=window["High"],
@@ -508,7 +519,7 @@ def main():
                 ]
             )
             
-            # Add vertical dotted gray line at the match date
+            # Add vertical dotted gray line at the match date (no annotation text)
             fig.add_vline(
                 x=center,
                 line_width=1,
@@ -522,19 +533,18 @@ def main():
                 yaxis_title="Price",
                 height=400,
                 
-                # 💡 FIX: Use formatted date strings for tick labels
                 xaxis={
                     'type': 'category',
                     'rangeslider': {'visible': False},
                     
-                    # Explicitly set the ticks to occur at every data point
+                    # 1. Use ALL dates as tick positions (tickvals)
                     'tickvals': window.index, 
                     
-                    # Set the labels to the nicely formatted strings
-                    'ticktext': formatted_labels.tolist(), 
+                    # 2. Use the sparse list (ticktext)
+                    'ticktext': sparse_labels, 
                     
-                    # Optional: Set tick angle to 45 or 90 to prevent overlap
-                    'tickangle': -45
+                    # Ensure the label is readable if it were visible
+                    'tickangle': 0 
                 }
             )
 
