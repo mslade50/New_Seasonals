@@ -434,16 +434,22 @@ def main():
 
         spy_ohlc = load_spy_ohlc()
         
-        # ⚠️ NEW: Ensure OHLC columns are numeric right after loading/before slicing
+        # CRITICAL NEW CHECK
+        if spy_ohlc.empty:
+            st.warning("Could not load SPY OHLC data. Check `load_spy_ohlc` or internet connection.")
+            return
+
+        # Ensure OHLC columns are numeric right after loading/before slicing
         ohlc_cols = ["Open", "High", "Low", "Close"]
         for col in ohlc_cols:
             if col in spy_ohlc.columns:
                 spy_ohlc[col] = pd.to_numeric(spy_ohlc[col], errors='coerce')
+        
         spy_ohlc = spy_ohlc.dropna(subset=ohlc_cols)
 
         if spy_ohlc.empty:
-            st.warning("Could not load clean SPY OHLC data for candlestick charts.")
-            return # Exit this section if data is bad
+            st.warning("SPY OHLC data was lost after cleaning (NaNs or bad types).")
+            return
 
         # Normalize SPY index to date-only and strip any timezone info
         spy_ohlc = spy_ohlc.copy()
@@ -456,7 +462,7 @@ def main():
             top10["Date"] = pd.to_datetime(top10["Date"])
         top10["Date"] = top10["Date"].dt.normalize().dt.tz_localize(None)
 
-        for i, row in top10.iterrows(): # Using 'i' for index
+        for i, row in top10.iterrows():
             center = row["Date"]
             
             start_dt = center - pd.Timedelta(days=90)
@@ -466,13 +472,12 @@ def main():
             end_date_str = end_dt.strftime("%Y-%m-%d")
 
             # Robust date-based slice
-            window = spy_ohlc.loc[start_date_str:end_date_str].copy() # ⚠️ NEW: Added .copy()
+            window = spy_ohlc.loc[start_date_str:end_date_str].copy()
 
             if window.empty:
                 st.warning(f"Slice empty for center date: {center.date()}")
                 continue
             
-            # ⚠️ NEW: Final check on window data before plotting
             if window[ohlc_cols].isnull().any().any():
                  st.warning(f"Skipping chart for {center.date()}: contains NaN OHLC data.")
                  continue
@@ -488,11 +493,21 @@ def main():
                     )
                 ]
             )
+            
+            # 💡 NEW: Add vertical dotted gray line at the match date
+            fig.add_vline(
+                x=center,  # Use the datetime object directly for placement
+                line_width=1,
+                line_dash="dot",
+                line_color="gray",
+                annotation_text="Match Date",
+                annotation_position="top right"
+            )
+
             fig.update_layout(
                 title=f"SPY ±3 Months Around {center.date()}",
                 xaxis_title="Date",
                 yaxis_title="Price",
-                # Prevent Plotly from trying to auto-set axis ranges to something invalid
                 xaxis_rangeslider_visible=False,
                 height=400,
             )
