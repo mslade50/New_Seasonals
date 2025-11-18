@@ -482,6 +482,8 @@ def main():
                  st.warning(f"Skipping chart for {center.date()}: contains NaN OHLC data.")
                  continue
 
+            # ... (inside the plotting loop)
+
             fig = go.Figure(
                 data=[
                     go.Candlestick(
@@ -494,14 +496,15 @@ def main():
                 ]
             )
             
-            # 💡 NEW: Add vertical dotted gray line at the match date
+            # 💡 FIX: Removed 'annotation_text' and 'annotation_position'
+            # Plotly struggles to calculate the mean position for annotations on a datetime x-axis.
             fig.add_vline(
                 x=center,  # Use the datetime object directly for placement
                 line_width=1,
                 line_dash="dot",
                 line_color="gray",
-                annotation_text="Match Date",
-                annotation_position="top right"
+                # REMOVED: annotation_text="Match Date",
+                # REMOVED: annotation_position="top right"
             )
 
             fig.update_layout(
