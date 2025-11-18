@@ -458,11 +458,6 @@ def main():
 
         top10 = raw_matches.head(10).copy()
 
-        # Ensure Date is datetime, normalize to date-only, and strip timezone
-        if not pd.api.types.is_datetime64_any_dtype(top10["Date"]):
-            top10["Date"] = pd.to_datetime(top10["Date"])
-        top10["Date"] = top10["Date"].dt.normalize().dt.tz_localize(None)
-
         for i, row in top10.iterrows():
             center = row["Date"]
             
