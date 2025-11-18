@@ -19,7 +19,11 @@ SECTOR_ETFS = [
 
 CORE_TICKERS = ["SPY", "QQQ", "IWM", "SMH", "DIA"]
 
-
+# Helper to clear all relevant caches
+def clear_all_caches():
+    load_sector_metrics.clear()
+    load_core_distance_frame.clear()
+    
 def percentile_rank(series: pd.Series, value) -> float:
     """Return percentile rank (0–100) of value within series."""
     s = series.dropna().values
@@ -345,8 +349,8 @@ def main():
 
     # Optional: refresh button to bust cache
     if st.button("Refresh data"):
-        load_sector_metrics.clear()
-        load_core_distance_frame.clear()
+        clear_all_caches()
+        st.experimental_rerun()
 
     with st.spinner("Loading sector ETF data from Yahoo Finance..."):
         table = load_sector_metrics(sorted(set(SECTOR_ETFS)))
