@@ -349,7 +349,9 @@ def main():
 
     # Optional: refresh button to bust cache
     if st.button("Refresh data"):
+        # 1. Clear the specific caches using the helper function
         clear_all_caches()
+        # 2. Rerun the script to load new, fresh data
         st.experimental_rerun()
 
     with st.spinner("Loading sector ETF data from Yahoo Finance..."):
