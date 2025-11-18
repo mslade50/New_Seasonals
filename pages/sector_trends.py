@@ -483,9 +483,22 @@ def main():
                  continue
 
 
+            # ... (inside the plotting loop)
+
+            # --- NEW: Create formatted date labels ---
+            # Create a Series of formatted date strings (e.g., 'Jun 6 2007')
+            formatted_labels = window.index.strftime('%b %d %Y')
+            
+            # --- Optional: Highlight just the center date label ---
+            # If you only want the center date label, you could create a list
+            # of empty strings and only put the label on the matching date.
+            # However, for a ±3 month view, having *some* labels helps context.
+            # We'll stick to formatting all visible labels nicely for now.
+            
             fig = go.Figure(
                 data=[
                     go.Candlestick(
+                        # The x data itself remains the DatetimeIndex
                         x=window.index,
                         open=window["Open"],
                         high=window["High"],
@@ -507,13 +520,21 @@ def main():
                 title=f"SPY ±3 Months Around {center.date()}",
                 xaxis_title="Date",
                 yaxis_title="Price",
-                xaxis_rangeslider_visible=False,
                 height=400,
                 
-                # 💡 NEW FIX: Set the X-axis type to 'category'
+                # 💡 FIX: Use formatted date strings for tick labels
                 xaxis={
                     'type': 'category',
-                    'rangeslider': {'visible': False} # Keep range slider hidden
+                    'rangeslider': {'visible': False},
+                    
+                    # Explicitly set the ticks to occur at every data point
+                    'tickvals': window.index, 
+                    
+                    # Set the labels to the nicely formatted strings
+                    'ticktext': formatted_labels.tolist(), 
+                    
+                    # Optional: Set tick angle to 45 or 90 to prevent overlap
+                    'tickangle': -45
                 }
             )
 
