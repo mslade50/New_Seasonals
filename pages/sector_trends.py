@@ -482,7 +482,6 @@ def main():
                  st.warning(f"Skipping chart for {center.date()}: contains NaN OHLC data.")
                  continue
 
-            # ... (inside the plotting loop)
 
             fig = go.Figure(
                 data=[
@@ -496,15 +495,12 @@ def main():
                 ]
             )
             
-            # 💡 FIX: Removed 'annotation_text' and 'annotation_position'
-            # Plotly struggles to calculate the mean position for annotations on a datetime x-axis.
+            # Add vertical dotted gray line at the match date
             fig.add_vline(
-                x=center,  # Use the datetime object directly for placement
+                x=center,
                 line_width=1,
                 line_dash="dot",
                 line_color="gray",
-                # REMOVED: annotation_text="Match Date",
-                # REMOVED: annotation_position="top right"
             )
 
             fig.update_layout(
@@ -513,6 +509,12 @@ def main():
                 yaxis_title="Price",
                 xaxis_rangeslider_visible=False,
                 height=400,
+                
+                # 💡 NEW FIX: Set the X-axis type to 'category'
+                xaxis={
+                    'type': 'category',
+                    'rangeslider': {'visible': False} # Keep range slider hidden
+                }
             )
 
             st.plotly_chart(fig, use_container_width=True)
