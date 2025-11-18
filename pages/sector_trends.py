@@ -153,9 +153,13 @@ def load_spy_ohlc():
     )
     if df.empty:
         return pd.DataFrame()
-    # Ensure expected columns exist
-    cols = ["Open", "High", "Low", "Close"]
-    return df[cols].dropna()
+
+    # --- START OF FIX ---
+    # 1. Check if the columns are a MultiIndex (the main problem you identified)
+    if isinstance(df.columns, pd.MultiIndex):
+        # Flatten the MultiIndex: keep the first level (e.g., 'Open', 'High')
+        # while discarding the ticker level (e.g., 'SPY').
+        df.columns = df.columns.get_level_values(0)
 
 def load_core_distance_frame():
     """
