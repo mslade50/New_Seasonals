@@ -421,20 +421,41 @@ def main():
         num_cols = [c for c in match_display.columns if c != "Date"]
         for c in num_cols:
             if c.startswith("SPY_fwd_"):
-                match_display[c] = match_display[c].round(2)
+                # Use standard string formatting to guarantee a string output with two decimals
+                match_display[c] = match_display[c].round(2).apply(lambda x: f"{x:.2f}")
             elif c == "distance":
-                match_display[c] = match_display[c].round(4)
+                # Use standard string formatting to guarantee a string output with four decimals
+                match_display[c] = match_display[c].round(4).apply(lambda x: f"{x:.4f}")
         
         # 5. Calculate and create the Average row
-        avg_vals = match_display[num_cols].mean(numeric_only=True)
+        # Recalculate avg_vals using the original numeric columns (before string conversion in step 4)
+        original_num_cols = [c for c in raw_matches.columns if c != "Date"]
+        avg_vals = raw_matches[original_num_cols].mean(numeric_only=True)
+
         avg_row = {"Date": "Average"}
-        avg_row.update({c: avg_vals[c] for c in num_cols})
+        # Format the averages *as strings* to match the rest of the display table
+        for c in original_num_cols:
+            if c.startswith("SPY_fwd_"):
+                avg_row[c] = f"{avg_vals[c]:.2f}"
+            elif c == "distance":
+                avg_row[c] = f"{avg_vals[c]:.4f}"
+        
         avg_df = pd.DataFrame([avg_row])
         
+        # Ensure column order matches match_display for correct concatenation
+        avg_df = avg_df[match_display.columns]
+
         # 6. Concatenate the string 'Average' row with the already-formatted match dates
         match_with_avg = pd.concat([avg_df, match_display], ignore_index=True)
 
+        # 7. FINAL STEP: Convert ALL columns to string (object) type before display
+        match_with_avg = match_with_avg.astype(str)
+
         st.dataframe(match_with_avg, use_container_width=True)
+        # --------------------------------------------------------------------------
+
+        # ---- 3.2 Candlestick charts for top 10 dates (uses the original raw_matches) ----
+        # ... (Rest of the code remains the same)
         # --------------------------------------------------------------------------
 
         # ---- 3.2 Candlestick charts for top 10 dates (uses the original raw_matches) ----
