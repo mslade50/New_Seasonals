@@ -425,7 +425,8 @@ def main():
 
         # Strip timestamp for display
         if pd.api.types.is_datetime64_any_dtype(match_with_avg["Date"]):
-            match_with_avg["Date"] = match_with_avg["Date"].dt.strftime("%Y-%m-%d")
+            # Change format to match your request, e.g., 'Jun 06 2007'
+            match_with_avg["Date"] = match_with_avg["Date"].dt.strftime("%b %d %Y")
 
         st.dataframe(match_with_avg, use_container_width=True)
 
