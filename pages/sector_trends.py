@@ -415,59 +415,71 @@ def main():
         st.subheader("SPY Candles Around Top 10 Match Dates")
 
         spy_ohlc = load_spy_ohlc()
+        
+        # ⚠️ NEW: Ensure OHLC columns are numeric right after loading/before slicing
+        ohlc_cols = ["Open", "High", "Low", "Close"]
+        for col in ohlc_cols:
+            if col in spy_ohlc.columns:
+                spy_ohlc[col] = pd.to_numeric(spy_ohlc[col], errors='coerce')
+        spy_ohlc = spy_ohlc.dropna(subset=ohlc_cols)
+
         if spy_ohlc.empty:
-            st.warning("Could not load SPY OHLC data for candlestick charts.")
-        else:
-            # Normalize SPY index to date-only and strip any timezone info
-            spy_ohlc = spy_ohlc.copy()
-            spy_ohlc.index = pd.to_datetime(spy_ohlc.index).normalize().tz_localize(None)
+            st.warning("Could not load clean SPY OHLC data for candlestick charts.")
+            return # Exit this section if data is bad
 
-            top10 = raw_matches.head(10).copy()
+        # Normalize SPY index to date-only and strip any timezone info
+        spy_ohlc = spy_ohlc.copy()
+        spy_ohlc.index = pd.to_datetime(spy_ohlc.index).normalize().tz_localize(None)
 
-            # Ensure Date is datetime, normalize to date-only, and strip timezone
-            if not pd.api.types.is_datetime64_any_dtype(top10["Date"]):
-                top10["Date"] = pd.to_datetime(top10["Date"])
-            top10["Date"] = top10["Date"].dt.normalize().dt.tz_localize(None)
+        top10 = raw_matches.head(10).copy()
 
-            for _, row in top10.iterrows():
-                center = row["Date"]
-                
-                # Calculate start/end dates as datetime objects
-                start_dt = center - pd.Timedelta(days=90)
-                end_dt = center + pd.Timedelta(days=90)
+        # Ensure Date is datetime, normalize to date-only, and strip timezone
+        if not pd.api.types.is_datetime64_any_dtype(top10["Date"]):
+            top10["Date"] = pd.to_datetime(top10["Date"])
+        top10["Date"] = top10["Date"].dt.normalize().dt.tz_localize(None)
 
-                # Format as YYYY-MM-DD strings for robust slicing
-                start_date_str = start_dt.strftime("%Y-%m-%d")
-                end_date_str = end_dt.strftime("%Y-%m-%d")
+        for i, row in top10.iterrows(): # Using 'i' for index
+            center = row["Date"]
+            
+            start_dt = center - pd.Timedelta(days=90)
+            end_dt = center + pd.Timedelta(days=90)
 
-                # Robust date-based slice
-                window = spy_ohlc.loc[start_date_str:end_date_str]
-                
-                if window.empty:
-                    st.warning(f"Slice empty for center date: {center.date()}")
-                    continue
+            start_date_str = start_dt.strftime("%Y-%m-%d")
+            end_date_str = end_dt.strftime("%Y-%m-%d")
 
-                fig = go.Figure(
-                    data=[
-                        go.Candlestick(
-                            x=window.index,
-                            open=window["Open"],
-                            high=window["High"],
-                            low=window["Low"],
-                            close=window["Close"],
-                        )
-                    ]
-                )
-                fig.update_layout(
-                    title=f"SPY ±3 Months Around {center.date()}",
-                    xaxis_title="Date",
-                    yaxis_title="Price",
-                    xaxis_rangeslider_visible=False,
-                    height=400,
-                )
+            # Robust date-based slice
+            window = spy_ohlc.loc[start_date_str:end_date_str].copy() # ⚠️ NEW: Added .copy()
 
-                st.plotly_chart(fig, use_container_width=True)
+            if window.empty:
+                st.warning(f"Slice empty for center date: {center.date()}")
+                continue
+            
+            # ⚠️ NEW: Final check on window data before plotting
+            if window[ohlc_cols].isnull().any().any():
+                 st.warning(f"Skipping chart for {center.date()}: contains NaN OHLC data.")
+                 continue
 
+            fig = go.Figure(
+                data=[
+                    go.Candlestick(
+                        x=window.index,
+                        open=window["Open"],
+                        high=window["High"],
+                        low=window["Low"],
+                        close=window["Close"],
+                    )
+                ]
+            )
+            fig.update_layout(
+                title=f"SPY ±3 Months Around {center.date()}",
+                xaxis_title="Date",
+                yaxis_title="Price",
+                # Prevent Plotly from trying to auto-set axis ranges to something invalid
+                xaxis_rangeslider_visible=False,
+                height=400,
+            )
+
+            st.plotly_chart(fig, use_container_width=True)
 
 
 if __name__ == "__main__":
