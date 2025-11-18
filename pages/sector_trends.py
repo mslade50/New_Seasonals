@@ -463,6 +463,15 @@ def main():
         spy_ohlc = spy_ohlc.copy()
         spy_ohlc.index = pd.to_datetime(spy_ohlc.index).normalize().tz_localize(None)
 
+        raw_matches = match_table.copy()
+
+        # Ensure Date column in raw_matches is clean datetime type
+        if not pd.api.types.is_datetime64_any_dtype(raw_matches["Date"]):
+            raw_matches["Date"] = pd.to_datetime(raw_matches["Date"])
+
+        # Normalize the raw_matches Date column to remove the timestamp
+        raw_matches["Date"] = raw_matches["Date"].dt.normalize().dt.tz_localize(None)
+
         top10 = raw_matches.head(10).copy()
 
         for i, row in top10.iterrows():
