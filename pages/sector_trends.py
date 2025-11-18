@@ -418,25 +418,33 @@ def main():
         if spy_ohlc.empty:
             st.warning("Could not load SPY OHLC data for candlestick charts.")
         else:
-            # Normalize SPY index to date-only
+            # Normalize SPY index to date-only and strip any timezone info
             spy_ohlc = spy_ohlc.copy()
-            spy_ohlc.index = pd.to_datetime(spy_ohlc.index).normalize()
+            spy_ohlc.index = pd.to_datetime(spy_ohlc.index).normalize().tz_localize(None)
 
             top10 = raw_matches.head(10).copy()
 
-            # Ensure Date is datetime and normalize to date-only
+            # Ensure Date is datetime, normalize to date-only, and strip timezone
             if not pd.api.types.is_datetime64_any_dtype(top10["Date"]):
                 top10["Date"] = pd.to_datetime(top10["Date"])
-            top10["Date"] = top10["Date"].dt.normalize()
+            top10["Date"] = top10["Date"].dt.normalize().dt.tz_localize(None)
 
             for _, row in top10.iterrows():
                 center = row["Date"]
-                start_date = (center - pd.Timedelta(days=90)).date()
-                end_date = (center + pd.Timedelta(days=90)).date()
+                
+                # Calculate start/end dates as datetime objects
+                start_dt = center - pd.Timedelta(days=90)
+                end_dt = center + pd.Timedelta(days=90)
+
+                # Format as YYYY-MM-DD strings for robust slicing
+                start_date_str = start_dt.strftime("%Y-%m-%d")
+                end_date_str = end_dt.strftime("%Y-%m-%d")
 
                 # Robust date-based slice
-                window = spy_ohlc.loc[str(start_date):str(end_date)]
+                window = spy_ohlc.loc[start_date_str:end_date_str]
+                
                 if window.empty:
+                    st.warning(f"Slice empty for center date: {center.date()}")
                     continue
 
                 fig = go.Figure(
