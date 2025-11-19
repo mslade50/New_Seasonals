@@ -372,7 +372,12 @@ def main():
         elif univ_choice == "Sector + Index ETFs":
             tickers_to_run = list(set(SECTOR_ETFS + INDEX_ETFS))
         elif univ_choice == "All CSV Tickers":
-            tickers_to_run = list(sznl_map.keys())
+            # --- UPDATED LOGIC HERE ---
+            raw_keys = list(sznl_map.keys())
+            # Explicitly exclude specific tickers
+            exclude_list = ["BTC-USD", "ETH-USD"]
+            tickers_to_run = [t for t in raw_keys if t not in exclude_list]
+            # --------------------------
         elif univ_choice == "Custom (Upload CSV)":
             tickers_to_run = custom_tickers
             
