@@ -454,17 +454,6 @@ def main():
         match_with_avg = match_with_avg.astype(str)
 
         st.dataframe(match_with_avg, use_container_width=True)
-        # ---------------------------------------------------------------------------------
-
-        # ---- 3.2 Candlestick charts for top 10 dates (uses the original raw_matches) ----
-        st.subheader("SPY Candles Around Top 10 Match Dates")
-        
-        # ... (rest of the plotting code remains unchanged, using raw_matches)
-        # --------------------------------------------------------------------------
-
-        # ---- 3.2 Candlestick charts for top 10 dates (uses the original raw_matches) ----
-        # ... (Rest of the code remains the same)
-        # --------------------------------------------------------------------------
 
         # ---- 3.2 Candlestick charts for top 10 dates (uses the original raw_matches) ----
         st.subheader("SPY Candles Around Top 10 Match Dates")
