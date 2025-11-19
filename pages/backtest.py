@@ -2,7 +2,6 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import yfinance as yf
-import plotly.graph_objects as go
 import plotly.express as px
 import datetime
 
@@ -13,7 +12,6 @@ SECTOR_ETFS = [
     "IBB", "IHI", "ITA", "ITB", "IYR", "KRE", "OIH", "SMH", "VNQ",
     "XBI", "XHB", "XLB", "XLC", "XLE", "XLF", "XLI", "XLK", "XLP",
     "XLU", "XLV", "XLY", "XME", "XOP", "XRT", "GLD", "CEF", "SLV",
-    
 ]
 INDEX_ETFS = ["SPY", "QQQ", "IWM", "DIA", "SMH"]
 CSV_PATH = "seasonal_ranks.csv"
@@ -46,24 +44,36 @@ def load_seasonal_map():
 def get_sznl_val_series(ticker, dates, sznl_map):
     """Vectorized seasonal lookup."""
     t_map = sznl_map.get(ticker, {})
+    # FIX: Return 50.0 (Neutral) if data missing to prevent dropna() killing the row
     if not t_map:
-        return pd.Series(np.nan, index=dates)
+        return pd.Series(50.0, index=dates)
+    
     mds = dates.map(lambda x: (x.month, x.day))
-    return mds.map(t_map)
+    # Map, then fill remaining NaNs (e.g. Feb 29) with 50
+    return mds.map(t_map).fillna(50.0)
 
 @st.cache_data(show_spinner=True)
-def download_universe_data(tickers):
-    """Downloads OHLCV data for a list of tickers."""
+def download_universe_data(tickers, start_date):
+    """
+    Downloads OHLCV data for a list of tickers from a specific start date.
+    """
     if not tickers:
         return pd.DataFrame()
     
-    # Download in one batch
-    df = yf.download(tickers, period="5y", group_by='ticker', auto_adjust=True, progress=False)
+    # Convert date object to string for yfinance
+    start_str = start_date.strftime('%Y-%m-%d')
+
+    # Download in one batch using the specific Start Date
+    try:
+        df = yf.download(tickers, start=start_str, group_by='ticker', auto_adjust=True, progress=False)
+    except Exception as e:
+        st.error(f"YFinance Download Error: {e}")
+        return pd.DataFrame()
     
     data_dict = {}
     if len(tickers) == 1:
         t = tickers[0]
-        # Clean columns if single ticker
+        # Flatten MultiIndex columns if single ticker
         df.columns = [c if isinstance(c, str) else c[0] for c in df.columns]
         if not df.empty:
             data_dict[t] = df
@@ -71,7 +81,13 @@ def download_universe_data(tickers):
         for t in tickers:
             try:
                 t_df = df[t].copy()
-                if t_df.dropna(how='all').empty: continue
+                # Specific drop for cases where one ticker has data (BTC) and others don't (SPY on weekends)
+                # We check 'Close' specifically.
+                col_to_check = 'Close' if 'Close' in t_df.columns else 'close'
+                if col_to_check in t_df.columns:
+                    t_df = t_df.dropna(subset=[col_to_check])
+                
+                if t_df.empty: continue
                 data_dict[t] = t_df
             except KeyError:
                 continue
@@ -85,6 +101,9 @@ def download_universe_data(tickers):
 def calculate_indicators(df, sznl_map, ticker):
     """Calculates indicators including expanding ranks to avoid lookahead bias."""
     df = df.copy()
+    
+    # Normalize column names
+    df.columns = [c.capitalize() for c in df.columns]
     
     # 1. Returns & Expanding Ranks
     for window in [5, 10, 21]:
@@ -100,7 +119,7 @@ def calculate_indicators(df, sznl_map, ticker):
     true_range = ranges.max(axis=1)
     df['ATR'] = true_range.rolling(14).mean()
     
-    # 3. Seasonality
+    # 3. Seasonality (Safe Lookup)
     df['Sznl'] = get_sznl_val_series(ticker, df.index, sznl_map)
     
     # 4. 52w High / Low (Shifted 1 day to use yesterday's high/low reference)
@@ -126,6 +145,7 @@ def run_engine(universe_dict, params, sznl_map):
         status_text.text(f"Processing {ticker}...")
         progress_bar.progress((i+1)/total)
         
+        # Skip if history is too short for 252d expanding window + indicators
         if len(df_raw) < 260: continue
         
         df = calculate_indicators(df_raw, sznl_map, ticker)
@@ -142,6 +162,7 @@ def run_engine(universe_dict, params, sznl_map):
             else:
                 cond = df[col] > params['perf_thresh']
             if params['perf_first_instance']:
+                # Ensure strict previous 0 sum
                 prev = cond.shift(1).rolling(params['perf_lookback']).sum()
                 cond = cond & (prev == 0)
             conditions.append(cond)
@@ -175,6 +196,7 @@ def run_engine(universe_dict, params, sznl_map):
             
         if not conditions: continue
             
+        # Combine all conditions (AND logic)
         final_signal = conditions[0]
         for c in conditions[1:]:
             final_signal = final_signal & c
@@ -185,6 +207,8 @@ def run_engine(universe_dict, params, sznl_map):
         for signal_date in signal_dates:
             try:
                 sig_idx = df.index.get_loc(signal_date)
+                
+                # Ensure enough data for holding period
                 if sig_idx + params['holding_days'] + 2 >= len(df): continue
                 
                 atr = df['ATR'].iloc[sig_idx]
@@ -215,12 +239,14 @@ def run_engine(universe_dict, params, sznl_map):
                 for f_date, f_row in future.iterrows():
                     # Hit Stop?
                     if f_row['Low'] <= stop_price:
+                        # Gap protection: if Open < Stop, we exit at Open
                         exit_price = f_row['Open'] if f_row['Open'] < stop_price else stop_price
                         exit_type = "Stop"
                         exit_date = f_date
                         break
                     # Hit Target?
                     if f_row['High'] >= tgt_price:
+                        # Gap benefit: if Open > Target, we exit at Open
                         exit_price = f_row['Open'] if f_row['Open'] > tgt_price else tgt_price
                         exit_type = "Target"
                         exit_date = f_date
@@ -233,7 +259,7 @@ def run_engine(universe_dict, params, sznl_map):
                 
                 # R Calculation
                 risk_unit = entry_price - stop_price
-                if risk_unit <= 0: risk_unit = 0.001
+                if risk_unit <= 0: risk_unit = 0.001 # Avoid Div/0
                 pnl = exit_price - entry_price
                 r_realized = pnl / risk_unit
                 
@@ -262,18 +288,24 @@ def main():
     st.markdown("---")
 
     # --------------------------------
-    # 1. UNIVERSE SELECTION
+    # 1. UNIVERSE SELECTION & DATA DATE
     # --------------------------------
-    st.subheader("1. Universe Selection")
-    col_u1, col_u2 = st.columns([1, 2])
+    st.subheader("1. Universe & Data")
+    
+    col_u1, col_u2, col_u3 = st.columns([1, 1, 2])
     
     with col_u1:
         univ_choice = st.selectbox("Choose Universe", 
             ["Sector ETFs", "Sector + Index ETFs", "All CSV Tickers", "Custom (Upload CSV)"])
+            
+    with col_u2:
+        # Default start date: 5 years ago
+        default_start = datetime.date.today() - datetime.timedelta(days=365*5)
+        start_date = st.date_input("Backtest Start Date", value=default_start)
     
     custom_tickers = []
     if univ_choice == "Custom (Upload CSV)":
-        with col_u2:
+        with col_u3:
             uploaded_file = st.file_uploader("Upload CSV (Must have 'Ticker' header)", type=["csv"])
             if uploaded_file:
                 try:
@@ -372,12 +404,11 @@ def main():
         elif univ_choice == "Sector + Index ETFs":
             tickers_to_run = list(set(SECTOR_ETFS + INDEX_ETFS))
         elif univ_choice == "All CSV Tickers":
-            # --- UPDATED LOGIC HERE ---
+            # --- EXCLUDE CRYPTO LOGIC ---
             raw_keys = list(sznl_map.keys())
-            # Explicitly exclude specific tickers
             exclude_list = ["BTC-USD", "ETH-USD"]
             tickers_to_run = [t for t in raw_keys if t not in exclude_list]
-            # --------------------------
+            # ----------------------------
         elif univ_choice == "Custom (Upload CSV)":
             tickers_to_run = custom_tickers
             
@@ -386,11 +417,11 @@ def main():
             return
             
         # 2. Download Data
-        st.info(f"Fetching data for {len(tickers_to_run)} tickers...")
-        data_dict = download_universe_data(tickers_to_run)
+        st.info(f"Fetching data for {len(tickers_to_run)} tickers from {start_date}...")
+        data_dict = download_universe_data(tickers_to_run, start_date)
         
         if not data_dict:
-            st.error("Failed to download data.")
+            st.error("Failed to download data. Ensure tickers are valid and start date is correct.")
             return
             
         # 3. Pack Params
@@ -408,7 +439,7 @@ def main():
         trades_df = run_engine(data_dict, params, sznl_map)
         
         if trades_df.empty:
-            st.warning("Backtest complete. No signals generated.")
+            st.warning("Backtest complete. No signals generated with these criteria.")
             return
             
         # 5. Results
