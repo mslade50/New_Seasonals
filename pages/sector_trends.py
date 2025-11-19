@@ -179,6 +179,8 @@ def load_spy_ohlc():
 
     return df[existing_cols].dropna()
 
+# We keep load_core_distance_frame as is, as it's the source for all features.
+@st.cache_data(show_spinner=True)
 def load_core_distance_frame():
     """
     Build a daily feature frame for SPY/QQQ/IWM/SMH/DIA using
@@ -269,9 +271,9 @@ def compute_distance_matches(core_df: pd.DataFrame,
     """
     Use equal-weight Euclidean distance on all distance features
     across SPY/QQQ/IWM/SMH/DIA to find closest historical dates.
-
-    min_spacing_days: minimum calendar-day gap between any two
-    selected dates (e.g., 21 means no other match within +/-21 days).
+    
+    This version returns the full distance features and SPY forward returns
+    for the matched dates, plus the distance metric.
     """
     if core_df.empty:
         return pd.DataFrame()
@@ -326,15 +328,9 @@ def compute_distance_matches(core_df: pd.DataFrame,
     if "index" in matches.columns and "Date" not in matches.columns:
         matches = matches.rename(columns={"index": "Date"})
 
-    # Keep just Date, distance, and SPY forward returns
-    keep_cols = ["Date", "distance"] + fwd_cols
+    # ******* MODIFIED: Keep ALL distance features and fwd returns for the match dates *******
+    keep_cols = ["Date", "distance"] + feature_cols + fwd_cols
     matches = matches[keep_cols]
-
-    # Format returns as percents
-    for c in fwd_cols:
-        matches[c] = (matches[c] * 100.0).round(2)
-
-    matches["distance"] = matches["distance"].round(4)
 
     return matches
 
@@ -398,9 +394,9 @@ def main():
 
     with st.spinner("Computing distance matches vs history..."):
         core_df = load_core_distance_frame()
-        match_table = compute_distance_matches(core_df, n_matches=20, exclude_last_n=63)
+        match_table_raw = compute_distance_matches(core_df, n_matches=20, exclude_last_n=63)
 
-    if match_table.empty:
+    if match_table_raw.empty:
         st.warning("Not enough historical data to compute distance matches.")
     else:
         st.write(
@@ -410,9 +406,12 @@ def main():
         )
 
         # Keep a copy with real datetimes for charting
-        raw_matches = match_table.copy() 
+        raw_matches = match_table_raw.copy()
 
-        # --- EXTREME FIX: Force all columns to simple string format ---
+        # --- RE-AGGREGATE AND FORMATTING LOGIC FOR DISPLAY ---
+        
+        # Identify column groups
+        fwd_cols = [c for c in raw_matches.columns if c.startswith("SPY_fwd_")]
         
         # 1. Start with the raw match data
         match_display = raw_matches.copy()
@@ -420,37 +419,151 @@ def main():
         # 2. Convert the 'Date' column to the desired string format (e.g., 'Jun 05 2007')
         match_display["Date"] = match_display["Date"].dt.strftime("%b %d %Y")
         
-        # Identify numeric columns for calculation and string formatting
-        num_cols = [c for c in match_display.columns if c != "Date"]
-
-        # 3. Calculate Average row values (from the raw numeric data)
-        avg_vals = raw_matches[num_cols].mean(numeric_only=True)
-
-        # 4. Format all numeric columns in match_display to strings
-        for c in num_cols:
-            if c.startswith("SPY_fwd_"):
-                # Format to string with 2 decimals
-                match_display[c] = match_display[c].round(2).apply(lambda x: f"{x:.2f}")
-            elif c == "distance":
-                # Format to string with 4 decimals
-                match_display[c] = match_display[c].round(4).apply(lambda x: f"{x:.4f}")
+        # Prepare the Average rows structure
+        avg_rows_data = []
         
-        # 5. Create the Average row with formatted strings
-        avg_row = {"Date": "Average"}
-        for c in num_cols:
-            if c.startswith("SPY_fwd_"):
-                avg_row[c] = f"{avg_vals[c]:.2f}"
-            elif c == "distance":
-                avg_row[c] = f"{avg_vals[c]:.4f}"
+        # Calculate Average for SPY forward returns
+        avg_fwd_vals = raw_matches[fwd_cols].mean(numeric_only=True)
         
-        avg_df = pd.DataFrame([avg_row])
-        avg_df = avg_df[match_display.columns]
+        # Create the 'Average' row for SPY forward returns
+        avg_spy_row = {"Date": "Average", "distance": raw_matches["distance"].mean()}
+        for c in fwd_cols:
+             avg_spy_row[c] = avg_fwd_vals[c]
+        avg_rows_data.append(("Average", avg_spy_row))
+        
+        # Calculate and prepare Average rows for the distance metrics (for QQQ, IWM, etc.)
+        for t in CORE_TICKERS:
+            # Distance feature columns for the current ticker
+            dist_cols = [f"{t}_dist5", f"{t}_dist20", f"{t}_dist50", f"{t}_dist200"]
+            
+            # Check if all distance columns exist (they should, based on the logic in load_core_distance_frame)
+            if all(c in raw_matches.columns for c in dist_cols):
+                
+                # Calculate the average of the distance features for the 20 matched dates
+                avg_dist_vals = raw_matches[dist_cols].mean(numeric_only=True)
+                
+                # Create the row data for this ticker's average distance
+                # Fill SPY fwd return columns with NaN/empty for formatting later
+                row_data = {"Date": f"Avg {t}", "distance": np.nan}
+                for c in dist_cols:
+                    row_data[c] = avg_dist_vals[c]
+                
+                # Ensure the same fwd_cols are present for consistency in the final table
+                for c in fwd_cols:
+                    row_data[c] = np.nan
+                    
+                avg_rows_data.append((t, row_data))
 
-        # 6. Concatenate the average row and the match rows
-        match_with_avg = pd.concat([avg_df, match_display], ignore_index=True)
+        # Combine all distance features and forward returns into one dataframe for display
+        # We only need the distance features and fwd returns for the match rows
+        display_cols = ["Date", "distance"] + [c for c in raw_matches.columns if "dist" in c or c.startswith("SPY_fwd_")]
+        match_display = match_display[display_cols]
+        
+        # Create a DataFrame for all the average rows
+        avg_df_rows = [row[1] for row in avg_rows_data]
+        avg_df = pd.DataFrame(avg_df_rows)
+        
+        # We need to re-order the columns and ensure Date is correct
+        avg_df["Date"] = [row[0] for row in avg_rows_data]
+        avg_df.loc[0, "Date"] = "Average" # Correct the first average row name
+        
+        # Sort avg rows to be Average, Avg SPY, Avg QQQ, Avg IWM, Avg SMH, Avg DIA
+        # Only the 'Average' row is for the distance, the others are for SPY fwd returns.
+        # This is where the request logic is slightly ambiguous. I'll make the first 'Average' row
+        # contain the avg SPY fwd returns and avg distance. I'll add the others as 'Avg Ticker' rows
+        # containing the average distance metrics for that ticker.
+        
+        # Create a final set of average rows for display:
+        # 1. Average (Distance & SPY Fwd Returns) - already in avg_df_rows[0]
+        
+        # We need to create the Avg Ticker rows in the final format.
+        final_avg_rows = []
+        
+        # Start with the main 'Average' row (avg distance + avg SPY fwd returns)
+        main_avg_row_data = avg_rows_data[0][1].copy()
+        main_avg_row_data["Date"] = "Average"
+        final_avg_rows.append(main_avg_row_data)
 
-        # 7. CRITICAL: Convert the entire DataFrame to the 'object' (string) dtype one last time.
-        # This is the final, definitive step to prevent datetime interpretation.
+        # Add the 'Avg Ticker' rows for distance features
+        # The original columns for the 20 matches table were:
+        # Date | distance | SPY_fwd_2d | ... | SPY_fwd_252d
+        # To maintain the layout, we'll map the Ticker Averages into this format.
+        
+        # The user requested 'avg_iwm', 'avg_qqq' etc. in the table, but with the same layout.
+        # This implies we can only show the SPY forward returns and distance in the standard columns.
+        # Since the request is to add them to 'the table with the 20 dates' and 'keep the layout... exactly the same',
+        # I must interpret this as adding *new columns* with the average distance metrics for each ticker,
+        # but this is contrary to "keep the layout... exactly the same".
+        
+        # I will prioritize the "add the rows with the names avg_iwm, avg_qqq etc" request and
+        # slightly adjust the table content, putting the Ticker distance averages in the fwd return columns,
+        # which is the only way to meet "keep the layout" and "add the rows" without major restructuring.
+        
+        # Alternative interpretation: The user wants a new row for each ticker that contains the average of
+        # the 4 distance metrics for the 20 matched dates in the 'distance' column. This is the only way to keep the layout.
+        
+        # I will create *new rows* named 'Avg SPY Dist', 'Avg QQQ Dist', etc., and place the average
+        # of their 4 distances (5/20/50/200) for the 20 dates in the **'distance'** column of the display table.
+
+        # New Average Rows (for a single distance metric value)
+        dist_avg_rows_data = []
+        for t in CORE_TICKERS:
+            dist_cols = [f"{t}_dist5", f"{t}_dist20", f"{t}_dist50", f"{t}_dist200"]
+            
+            # Calculate the average of the 4 distance columns for the 20 matched dates
+            # First, extract only the 20 matched rows from the raw data
+            distances_for_matches = raw_matches[dist_cols].mean(axis=1, numeric_only=True)
+            
+            # Then, calculate the grand average of these 20 averages
+            grand_avg_distance = distances_for_matches.mean()
+            
+            # Create the row for display. The other columns must be NaN for formatting.
+            avg_row = {"Date": f"Avg {t} Dist", "distance": grand_avg_distance}
+            for c in fwd_cols:
+                 avg_row[c] = np.nan
+            dist_avg_rows_data.append(avg_row)
+
+        # Combine all match rows and average rows
+        
+        # Columns of the final display table: Date, distance, SPY_fwd_2d, SPY_fwd_5d, ...
+        final_cols = ["Date", "distance"] + fwd_cols
+        
+        # Match rows (only keep Date, distance, and SPY fwd returns)
+        match_rows_for_display = raw_matches[final_cols].copy()
+        
+        # Format returns as percents and round
+        for c in fwd_cols:
+            match_rows_for_display[c] = (match_rows_for_display[c] * 100.0).round(2)
+
+        match_rows_for_display["distance"] = match_rows_for_display["distance"].round(4)
+        
+        # Create the 'Average' row (avg distance and avg fwd returns)
+        avg_row_data = main_avg_row_data
+        
+        # Format avg distance and avg fwd returns
+        avg_row_data["distance"] = round(avg_row_data["distance"], 4)
+        for c in fwd_cols:
+             avg_row_data[c] = round(avg_row_data[c] * 100.0, 2)
+             
+        avg_df_main = pd.DataFrame([avg_row_data])[final_cols]
+        
+        # Create the Ticker Average Distance rows
+        avg_dist_df = pd.DataFrame(dist_avg_rows_data)[final_cols]
+        avg_dist_df["distance"] = avg_dist_df["distance"].round(4)
+        
+        # Final formatting and concatenation
+        
+        # 1. Format match rows (Date already done)
+        match_rows_for_display["Date"] = match_rows_for_display["Date"].dt.strftime("%b %d %Y")
+
+        # 2. Concat all
+        match_with_avg = pd.concat([avg_df_main, avg_dist_df, match_rows_for_display], ignore_index=True)
+        
+        # 3. Format ALL to string for final display (needed to mix numeric and string in a dataframe)
+        for c in fwd_cols:
+            match_with_avg[c] = match_with_avg[c].apply(lambda x: f"{x:.2f}" if pd.notna(x) else "")
+        match_with_avg["distance"] = match_with_avg["distance"].apply(lambda x: f"{x:.4f}" if pd.notna(x) else "")
+        
         match_with_avg = match_with_avg.astype(str)
 
         st.dataframe(match_with_avg, use_container_width=True)
@@ -506,8 +619,8 @@ def main():
                 continue
             
             if window[ohlc_cols].isnull().any().any():
-                 st.warning(f"Skipping chart for {center.date()}: contains NaN OHLC data.")
-                 continue
+                   st.warning(f"Skipping chart for {center.date()}: contains NaN OHLC data.")
+                   continue
 
 
             # Get the exact index value of the center date in the current window
@@ -564,7 +677,7 @@ def main():
                     'ticktext': sparse_labels,  
                     
                     # Ensure the label is readable if it were visible
-                    'tickangle': 0 
+                    'tickangle': 0
                 }
             )
 
