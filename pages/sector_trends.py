@@ -275,8 +275,6 @@ def compute_distance_matches(core_df: pd.DataFrame,
 
 def main():
     import os
-
-def main():
     st.title("Sector ETF Trend Dashboard")
     
     # --- DEBUGGING SNIPPET ---
