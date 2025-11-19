@@ -5,7 +5,8 @@ import pandas as pd
 import numpy as np
 import yfinance as yf
 import plotly.graph_objects as go
-
+import sqlite3
+import datetime
 
 SECTOR_ETFS = [
     # From screenshot
@@ -18,12 +19,72 @@ SECTOR_ETFS = [
 ]
 
 CORE_TICKERS = ["SPY", "QQQ", "IWM", "SMH", "DIA"]
+DB_PATH = "past_sznl.db"
 
 # Helper to clear all relevant caches
 def clear_all_caches():
     load_sector_metrics.clear()
     load_core_distance_frame.clear()
+    load_seasonal_map.clear()
+    load_spy_ohlc.clear()
+
+# -----------------------------------------------------------------------------
+# DATABASE / SEASONAL HELPERS
+# -----------------------------------------------------------------------------
+@st.cache_data(show_spinner=False)
+def load_seasonal_map():
+    """
+    Loads the DB and creates a lookup dictionary:
+    {
+       'TICKER': { (Month, Day): rank_value, ... },
+       ...
+    }
+    This allows us to map any date in history to a seasonal rank based on M/D.
+    """
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        # Select relevant columns. Assuming table name is 'seasonal_ranks' based on screenshot
+        df = pd.read_sql("SELECT Date, seasonal_rank, ticker FROM seasonal_ranks", conn)
+        conn.close()
+    except Exception as e:
+        st.error(f"Could not load database: {e}")
+        return {}
+
+    if df.empty:
+        return {}
+
+    # Convert DB date string to datetime objects
+    df["Date"] = pd.to_datetime(df["Date"])
+
+    # Create a (Month, Day) tuple column for matching
+    df["MD"] = df["Date"].apply(lambda x: (x.month, x.day))
+
+    # Build nested dictionary
+    # Result: output_map["SPY"][(1, 3)] = 13.5
+    output_map = {}
     
+    # Group by ticker to build the inner dicts
+    for ticker, group in df.groupby("ticker"):
+        # Create dict: {(1, 3): 13.5, (1, 4): 16.1, ...}
+        output_map[ticker] = pd.Series(
+            group.seasonal_rank.values, index=group.MD
+        ).to_dict()
+
+    return output_map
+
+
+def get_sznl_val(ticker, target_date, sznl_map):
+    """Retuns the rank for a specific ticker and date object."""
+    if ticker not in sznl_map:
+        return np.nan
+    
+    md = (target_date.month, target_date.day)
+    return sznl_map[ticker].get(md, np.nan)
+
+# -----------------------------------------------------------------------------
+# METRICS & CALCULATIONS
+# -----------------------------------------------------------------------------
+
 def percentile_rank(series: pd.Series, value) -> float:
     """Return percentile rank (0–100) of value within series."""
     s = series.dropna().values
@@ -51,6 +112,10 @@ def percentile_rank(series: pd.Series, value) -> float:
 
 @st.cache_data(show_spinner=True)
 def load_sector_metrics(tickers):
+    # 1. Load Seasonal Data first
+    sznl_map = load_seasonal_map()
+    today = datetime.datetime.now()
+    
     rows = []
 
     for t in tickers:
@@ -106,11 +171,15 @@ def load_sector_metrics(tickers):
         p20 = percentile_rank(dist20, d20_today)
         p50 = percentile_rank(dist50, d50_today)
         p200 = percentile_rank(dist200, d200_today)
+        
+        # Lookup Seasonal Value for TODAY
+        current_sznl = get_sznl_val(t, today, sznl_map)
 
         rows.append(
             {
                 "Ticker": t,
                 "Price": float(close.iloc[-1]),
+                "Sznl": current_sznl,  # Added Column
                 "PctRank5": p5,
                 "PctRank20": p20,
                 "PctRank50": p50,
@@ -124,7 +193,7 @@ def load_sector_metrics(tickers):
     df_out = pd.DataFrame(rows)
 
     # Ensure numeric dtypes before rounding
-    num_cols = ["Price", "PctRank5", "PctRank20", "PctRank50", "PctRank200"]
+    num_cols = ["Price", "Sznl", "PctRank5", "PctRank20", "PctRank50", "PctRank200"]
     for col in num_cols:
         if col in df_out.columns:
             df_out[col] = pd.to_numeric(df_out[col], errors="coerce")
@@ -132,6 +201,10 @@ def load_sector_metrics(tickers):
     # Rounding / formatting
     if "Price" in df_out.columns:
         df_out["Price"] = df_out["Price"].round(2)
+    
+    if "Sznl" in df_out.columns:
+        df_out["Sznl"] = df_out["Sznl"].round(1)
+        
     for col in ["PctRank5", "PctRank20", "PctRank50", "PctRank200"]:
         if col in df_out.columns:
             df_out[col] = df_out[col].round(1)
@@ -160,17 +233,12 @@ def load_spy_ohlc():
 
     # 1. Check if the columns are a MultiIndex
     if isinstance(df.columns, pd.MultiIndex):
-        # Flatten the MultiIndex: keep the first level (e.g., 'Open', 'High')
         df.columns = df.columns.get_level_values(0)
 
-    # Ensure expected columns exist and drop any row with missing data
     cols = ["Open", "High", "Low", "Close"]
-    
-    # 2. Defensive check: only select columns that actually exist
     existing_cols = [c for c in cols if c in df.columns]
     
     if len(existing_cols) < 4:
-        # If we can't find the necessary columns, return empty
         st.warning(f"Could not find all required columns (Open, High, Low, Close) in SPY data.")
         return pd.DataFrame()
 
@@ -180,10 +248,12 @@ def load_spy_ohlc():
 def load_core_distance_frame():
     """
     Build a daily feature frame for SPY/QQQ/IWM/SMH/DIA using
-    distance-to-MA (5/20/50/200) for each, plus ALL ticker forward returns.
+    distance-to-MA (5/20/50/200) AND Seasonal Rank for each.
     """
+    sznl_map = load_seasonal_map()
+    
     all_feats = []
-    close_series_map = {} # Store close series for forward return calculation
+    close_series_map = {} 
 
     for t in CORE_TICKERS:
         try:
@@ -199,7 +269,6 @@ def load_core_distance_frame():
             continue
 
         if df.empty:
-            st.write(f"⚠️ No data for {t} in core set, skipping")
             continue
 
         if "Adj Close" in df.columns:
@@ -207,13 +276,11 @@ def load_core_distance_frame():
         elif "Close" in df.columns:
             close = df["Close"].dropna()
         else:
-            st.write(f"⚠️ No Close/Adj Close for {t}, skipping")
             continue
 
         if close.empty:
             continue
 
-        # Store close series for forward return calculation later
         close_series_map[t] = close.copy() 
 
         ma5 = close.rolling(5).mean()
@@ -226,19 +293,34 @@ def load_core_distance_frame():
         dist50 = (close - ma50) / ma50 * 100.0
         dist200 = (close - ma200) / ma200 * 100.0
 
-        # Build distance features for the current ticker
+        # Build feature frame
         feats = pd.DataFrame(index=close.index)
         feats[f"{t}_dist5"] = dist5
         feats[f"{t}_dist20"] = dist20
         feats[f"{t}_dist50"] = dist50
         feats[f"{t}_dist200"] = dist200
+        
+        # --- ADD SEASONAL PREDICTOR ---
+        # 1. Extract month/day from index
+        idx_months = feats.index.month
+        idx_days = feats.index.day
+        
+        # 2. Get the dictionary for this specific ticker
+        t_sznl_dict = sznl_map.get(t, {})
+        
+        # 3. Map (month, day) to value. 
+        # We use a list comprehension for speed, defaulting to NaN if date not in DB
+        sznl_values = [t_sznl_dict.get((m, d), np.nan) for m, d in zip(idx_months, idx_days)]
+        
+        feats[f"{t}_sznl"] = sznl_values
+        # ------------------------------
 
         all_feats.append(feats)
 
     if not all_feats:
         return pd.DataFrame()
 
-    # Inner join on dates across all core tickers for distance features
+    # Inner join on dates across all core tickers
     core_df = all_feats[0]
     for feats in all_feats[1:]:
         core_df = core_df.join(feats, how="inner")
@@ -248,18 +330,16 @@ def load_core_distance_frame():
     core_df.index = pd.to_datetime(core_df.index)
     core_df.index.name = "Date"
 
-    # Add forward returns for ALL core tickers
+    # Add forward returns
     horizons = [2, 5, 10, 21, 63, 126, 252]
     
     for t in CORE_TICKERS:
         close = close_series_map.get(t)
         if close is not None:
-            # Reindex to align with the core_df index
             close = close.reindex(core_df.index).dropna() 
-            close = close.reindex(core_df.index) # Align index exactly
+            close = close.reindex(core_df.index)
         
             for h in horizons:
-                # New columns: [TICKER]_fwd_[HORIZON]d
                 core_df[f"{t}_fwd_{h}d"] = close.shift(-h) / close - 1.0
 
     return core_df
@@ -270,36 +350,29 @@ def compute_distance_matches(core_df: pd.DataFrame,
                              exclude_last_n: int = 63,
                              min_spacing_days: int = 21) -> pd.DataFrame:
     """
-    Use equal-weight Euclidean distance on all distance features
-    across SPY/QQQ/IWM/SMH/DIA to find closest historical dates.
-    
-    This version returns the full distance features and ALL Ticker forward returns
-    for the matched dates, plus the distance metric.
+    Uses Euclidean distance on MA distances AND Seasonal Ranks ("sznl").
     """
     if core_df.empty:
         return pd.DataFrame()
 
     df = core_df.copy().sort_index()
 
-    # Feature columns are all dist* columns for the 5 core tickers
-    feature_cols = [c for c in df.columns if "dist" in c]
-    # ALL forward return columns for ALL tickers
+    # Feature columns: Include 'dist' AND 'sznl' columns
+    feature_cols = [c for c in df.columns if "dist" in c or "sznl" in c]
+    
     fwd_cols = [c for c in df.columns if "_fwd_" in c] 
 
-    # Require all distance features + all SPY forward returns to be present (for robust matching)
+    # Require features + SPY returns
     spy_fwd_cols = [c for c in fwd_cols if c.startswith("SPY_fwd_")]
     df = df.dropna(subset=feature_cols + spy_fwd_cols)
 
     if len(df) <= exclude_last_n + 1:
         return pd.DataFrame()
 
-    # Target vector = latest row (uses distance features)
     target = df.iloc[-1][feature_cols].astype(float).values
-
-    # Exclude most recent N rows for matching
     hist = df.iloc[:-exclude_last_n].copy()
 
-    # Optional: restrict to post-1997 and exclude 2020
+    # Restrict to post-1997 and exclude 2020
     hist = hist[hist.index.year > 1997]
     hist = hist[hist.index.year != 2020]
 
@@ -310,7 +383,6 @@ def compute_distance_matches(core_df: pd.DataFrame,
     dists = np.sqrt(((X - target) ** 2).sum(axis=1))
     hist["distance"] = dists
 
-    # -------- spacing logic: only 1 date per +/- min_spacing_days window --------
     hist = hist.sort_values("distance").copy()
 
     selected_dates = []
@@ -327,11 +399,10 @@ def compute_distance_matches(core_df: pd.DataFrame,
         return pd.DataFrame()
 
     matches = hist.loc[selected_idx].copy()
-    matches = matches.reset_index()  # Date becomes a column named index or Date
+    matches = matches.reset_index() 
     if "index" in matches.columns and "Date" not in matches.columns:
         matches = matches.rename(columns={"index": "Date"})
 
-    # Keep all features/returns for the match dates for average calculation
     keep_cols = ["Date", "distance"] + feature_cols + fwd_cols
     matches = matches[keep_cols]
 
@@ -346,14 +417,11 @@ def main():
         "today's distance vs each ETF's full trading history."
     )
 
-    # Optional: refresh button to bust cache
     if st.button("Refresh data"):
-        # 1. Clear the specific caches using the helper function
         clear_all_caches()
-        # 2. Rerun the script to load new, fresh data
         st.experimental_rerun()
 
-    with st.spinner("Loading sector ETF data from Yahoo Finance..."):
+    with st.spinner("Loading sector ETF data from Yahoo Finance & DB..."):
         table = load_sector_metrics(sorted(set(SECTOR_ETFS)))
 
     if table.empty:
@@ -366,24 +434,24 @@ def main():
         if pd.isna(val):
             return ""
         if val > 90:
-            # light red bg, dark red text
             return "background-color: #ffcccc; color: #8b0000;"
         if val < 15:
-            # light green bg, dark green text
             return "background-color: #ccffcc; color: #006400;"
         return ""
 
+    # Updated format dict to include Sznl
+    format_dict = {
+        "Price": "{:.2f}",
+        "Sznl": "{:.1f}",  # Format Sznl
+        "PctRank5": "{:.1f}",
+        "PctRank20": "{:.1f}",
+        "PctRank50": "{:.1f}",
+        "PctRank200": "{:.1f}",
+    }
+
     styled = (
         table.style
-        .format(
-            {
-                "Price": "{:.2f}",
-                "PctRank5": "{:.1f}",
-                "PctRank20": "{:.1f}",
-                "PctRank50": "{:.1f}",
-                "PctRank200": "{:.1f}",
-            }
-        )
+        .format(format_dict)
         .applymap(
             highlight_pct,
             subset=["PctRank5", "PctRank20", "PctRank50", "PctRank200"],
@@ -394,6 +462,7 @@ def main():
 
     # -------- Distance-matching section --------
     st.subheader("Historical Distance Matches (SPY/QQQ/IWM/SMH/DIA)")
+    st.info("Matches are now calculated using MA Distances + Seasonal Ranks.")
 
     with st.spinner("Computing distance matches vs history..."):
         core_df = load_core_distance_frame()
@@ -403,34 +472,20 @@ def main():
         st.warning("Not enough historical data to compute distance matches.")
     else:
         st.write(
-            "20 closest historical dates to today's joint MA-distance profile "
-            "using equal-weight distances across SPY, QQQ, IWM, SMH, and DIA. "
-            "The table below shows the average forward performance for each core ticker "
-            "over the 20 matched dates, followed by the individual date results for SPY."
+            "20 closest historical dates to today's joint MA-distance and Seasonality profile."
         )
 
         raw_matches = match_table_raw.copy()
-        
-        # Define forward return horizons
         horizons = [2, 5, 10, 21, 63, 126, 252]
-        
-        # Define the target display columns (renamed)
         display_fwd_cols = [f"Fwd {h}d" for h in horizons]
         final_cols = ["Date", "distance"] + display_fwd_cols
         
-        # --- A. Average Rows (5 tickers) ---
         avg_rows_data = []
         for t in CORE_TICKERS:
-            # 1. Calculate the average forward returns for the 20 matched dates for ticker T
             t_fwd_cols = [f"{t}_fwd_{h}d" for h in horizons]
-            
-            # Use raw_matches data which contains all forward returns
             avg_t_fwd_vals = raw_matches[t_fwd_cols].mean(numeric_only=True)
             
-            # 2. Create the average row structure
             avg_row = {"Date": f"Avg {t}", "distance": np.nan}
-            
-            # Map average returns to the display column names
             for i, display_col in enumerate(display_fwd_cols):
                 raw_col = t_fwd_cols[i]
                 avg_row[display_col] = avg_t_fwd_vals[raw_col]
@@ -438,164 +493,95 @@ def main():
             avg_rows_data.append(avg_row)
 
         avg_df = pd.DataFrame(avg_rows_data)
-        avg_df = avg_df[final_cols] # Ensure column order
+        avg_df = avg_df[final_cols] 
 
-        # Format average rows (convert to percentages)
         for c in display_fwd_cols:
             avg_df[c] = (avg_df[c] * 100.0).round(2)
 
-        # The SPY average row should be the first one, named "Average", and contain the avg distance
         spy_avg_row_idx = avg_df[avg_df["Date"] == "Avg SPY"].index[0]
         avg_df.loc[spy_avg_row_idx, "Date"] = "Average"
         avg_df.loc[spy_avg_row_idx, "distance"] = raw_matches["distance"].mean().round(4)
         
-        # Re-sort avg_df to ensure "Average" (SPY) is first, followed by others in the order QQQ, IWM, SMH, DIA
         avg_df_sorted = avg_df.set_index("Date").reindex([
             "Average", "Avg QQQ", "Avg IWM", "Avg SMH", "Avg DIA"
         ]).reset_index().rename(columns={'index':'Date'}).copy()
 
-        # --- B. Historical Match Rows (20 dates) ---
         match_rows_for_display = raw_matches[["Date", "distance"]].copy()
-        
-        # For the 20 historical match rows, only show SPY's returns
         spy_fwd_cols = [f"SPY_fwd_{h}d" for h in horizons]
         match_rows_for_display[display_fwd_cols] = raw_matches[spy_fwd_cols].values
         
-        # Format match rows: Returns as percents and round, Distance as 4 decimals
         for c in display_fwd_cols:
             match_rows_for_display[c] = (match_rows_for_display[c] * 100.0).round(2)
         match_rows_for_display["distance"] = match_rows_for_display["distance"].round(4)
         match_rows_for_display["Date"] = match_rows_for_display["Date"].dt.strftime("%b %d %Y")
 
-        # --- C. Concatenation and Final String Formatting ---
         match_with_avg = pd.concat([avg_df_sorted, match_rows_for_display], ignore_index=True)
 
-        # Final string formatting (converting everything to string for display consistency)
         for c in display_fwd_cols:
             match_with_avg[c] = match_with_avg[c].apply(lambda x: f"{x:.2f}" if pd.notna(x) else "")
         match_with_avg["distance"] = match_with_avg["distance"].apply(lambda x: f"{x:.4f}" if pd.notna(x) else "")
         
-        # Clear distance column for ticker average rows
         match_with_avg.loc[match_with_avg["Date"].str.startswith("Avg ") & (match_with_avg["Date"] != "Average"), "distance"] = "" 
-        
         match_with_avg = match_with_avg.astype(str)
 
         st.dataframe(match_with_avg, use_container_width=True)
 
-        # ---- Candlestick charts for top 10 dates (uses the original raw_matches) ----
+        # ---- Candlestick charts ----
         st.subheader("SPY Candles Around Top 10 Match Dates")
 
         spy_ohlc = load_spy_ohlc()
         
-        if spy_ohlc.empty:
-            st.warning("Could not load SPY OHLC data. Check `load_spy_ohlc` or internet connection.")
-            return
-
-        # Ensure OHLC columns are numeric right after loading/before slicing
-        ohlc_cols = ["Open", "High", "Low", "Close"]
-        for col in ohlc_cols:
-            if col in spy_ohlc.columns:
-                spy_ohlc[col] = pd.to_numeric(spy_ohlc[col], errors='coerce')
-        
-        spy_ohlc = spy_ohlc.dropna(subset=ohlc_cols)
-
-        if spy_ohlc.empty:
-            st.warning("SPY OHLC data was lost after cleaning (NaNs or bad types).")
-            return
-
-        # Normalize SPY index to date-only and strip any timezone info
-        spy_ohlc = spy_ohlc.copy()
-        spy_ohlc.index = pd.to_datetime(spy_ohlc.index).normalize().tz_localize(None)
-
-        # The raw matches still hold the datetime objects needed for slicing
-        top10 = raw_matches.head(10).copy() 
-
-        # Normalize Date column in top10 
-        if not pd.api.types.is_datetime64_any_dtype(top10["Date"]):
-            top10["Date"] = pd.to_datetime(top10["Date"])
-        top10["Date"] = top10["Date"].dt.normalize().dt.tz_localize(None)
-
-
-        for i, row in top10.iterrows():
-            center = row["Date"]
+        if not spy_ohlc.empty:
+            ohlc_cols = ["Open", "High", "Low", "Close"]
+            for col in ohlc_cols:
+                if col in spy_ohlc.columns:
+                    spy_ohlc[col] = pd.to_numeric(spy_ohlc[col], errors='coerce')
             
-            start_dt = center - pd.Timedelta(days=90)
-            end_dt = center + pd.Timedelta(days=90)
+            spy_ohlc = spy_ohlc.dropna(subset=ohlc_cols)
+            spy_ohlc.index = pd.to_datetime(spy_ohlc.index).normalize().tz_localize(None)
 
-            start_date_str = start_dt.strftime("%Y-%m-%d")
-            end_date_str = end_dt.strftime("%Y-%m-%d")
+            top10 = raw_matches.head(10).copy() 
+            if not pd.api.types.is_datetime64_any_dtype(top10["Date"]):
+                top10["Date"] = pd.to_datetime(top10["Date"])
+            top10["Date"] = top10["Date"].dt.normalize().dt.tz_localize(None)
 
-            # Robust date-based slice
-            window = spy_ohlc.loc[start_date_str:end_date_str].copy()
+            for i, row in top10.iterrows():
+                center = row["Date"]
+                start_dt = center - pd.Timedelta(days=90)
+                end_dt = center + pd.Timedelta(days=90)
+                start_date_str = start_dt.strftime("%Y-%m-%d")
+                end_date_str = end_dt.strftime("%Y-%m-%d")
 
-            if window.empty:
-                st.warning(f"Slice empty for center date: {center.date()}")
-                continue
-            
-            if window[ohlc_cols].isnull().any().any():
-                   st.warning(f"Skipping chart for {center.date()}: contains NaN OHLC data.")
-                   continue
+                window = spy_ohlc.loc[start_date_str:end_date_str].copy()
 
+                if window.empty:
+                    continue
+                if window[ohlc_cols].isnull().any().any():
+                     continue
 
-            # Get the exact index value of the center date in the current window
-            center_date_norm = center.normalize()
-            
-            # --- Create sparse labels list (only center date labeled) ---
-            sparse_labels = [""] * len(window.index)
-            
-            try:
-                center_loc = window.index.get_loc(center_date_norm)
+                center_date_norm = center.normalize()
+                sparse_labels = [""] * len(window.index)
                 
-                # Insert the short-form date string only at that position
-                formatted_center_date = center.strftime('%b %d %Y')
-                sparse_labels[center_loc] = formatted_center_date
-            except KeyError:
-                st.warning(f"Center date {center.date()} not found in window index for plotting.")
-                pass
-            
-            fig = go.Figure(
-                data=[
-                    go.Candlestick(
-                        x=window.index,
-                        open=window["Open"],
-                        high=window["High"],
-                        low=window["Low"],
-                        close=window["Close"],
-                    )
-                ]
-            )
-            
-            # Add vertical dotted gray line at the match date (no annotation text)
-            fig.add_vline(
-                x=center,
-                line_width=1,
-                line_dash="dot",
-                line_color="gray",
-            )
-
-            fig.update_layout(
-                title=f"SPY $\\pm$3 Months Around {center.date()}",
-                xaxis_title="Date",
-                yaxis_title="Price",
-                height=400,
+                try:
+                    center_loc = window.index.get_loc(center_date_norm)
+                    sparse_labels[center_loc] = center.strftime('%b %d %Y')
+                except KeyError:
+                    pass
                 
-                xaxis={
-                    'type': 'category',
-                    'rangeslider': {'visible': False},
-                    
-                    # 1. Use ALL dates as tick positions (tickvals)
-                    'tickvals': window.index,  
-                    
-                    # 2. Use the sparse list (ticktext)
-                    'ticktext': sparse_labels,  
-                    
-                    # Ensure the label is readable if it were visible
-                    'tickangle': 0
-                }
-            )
-
-            st.plotly_chart(fig, use_container_width=True)
-
+                fig = go.Figure(data=[go.Candlestick(
+                    x=window.index,
+                    open=window["Open"], high=window["High"],
+                    low=window["Low"], close=window["Close"],
+                )])
+                
+                fig.add_vline(x=center, line_width=1, line_dash="dot", line_color="gray")
+                fig.update_layout(
+                    title=f"SPY $\\pm$3 Months Around {center.date()}",
+                    xaxis_title="Date", yaxis_title="Price", height=400,
+                    xaxis={'type': 'category', 'rangeslider': {'visible': False},
+                           'tickvals': window.index, 'ticktext': sparse_labels, 'tickangle': 0}
+                )
+                st.plotly_chart(fig, use_container_width=True)
 
 if __name__ == "__main__":
     main()
