@@ -274,6 +274,24 @@ def compute_distance_matches(core_df: pd.DataFrame,
     return matches
 
 def main():
+    import os
+
+def main():
+    st.title("Sector ETF Trend Dashboard")
+    
+    # --- DEBUGGING SNIPPET ---
+    if os.path.exists("past_sznl.db"):
+        size_mb = os.path.getsize("past_sznl.db") / (1024 * 1024)
+        st.error(f"DEBUG: File size is {size_mb:.2f} MB")
+        
+        with open("past_sznl.db", "rb") as f:
+            header = f.read(15)
+        st.error(f"DEBUG: File Header: {header}")
+    else:
+        st.error("DEBUG: File not found!")
+    # -------------------------
+    
+    # ... rest of your code ...
     st.title("Sector ETF Trend Dashboard")
     st.write("Matching based on **Percentile Rank** of MA Extensions + Seasonality.")
 
