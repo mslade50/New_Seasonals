@@ -1,11 +1,8 @@
-# pages/sector_trends.py
-
 import streamlit as st
 import pandas as pd
 import numpy as np
 import yfinance as yf
 import plotly.graph_objects as go
-import sqlite3
 import datetime
 
 SECTOR_ETFS = [
@@ -17,7 +14,7 @@ SECTOR_ETFS = [
 ]
 
 CORE_TICKERS = ["SPY", "QQQ", "IWM", "SMH", "DIA"]
-DB_PATH = "past_sznl.db"
+CSV_PATH = "seasonal_ranks.csv"  # Assumes file is in repo root
 
 def clear_all_caches():
     load_sector_metrics.clear()
@@ -26,25 +23,36 @@ def clear_all_caches():
     load_spy_ohlc.clear()
 
 # -----------------------------------------------------------------------------
-# DATABASE / SEASONAL HELPERS
+# CSV / SEASONAL HELPERS
 # -----------------------------------------------------------------------------
 @st.cache_data(show_spinner=False)
 def load_seasonal_map():
+    """
+    Loads the CSV and creates a lookup dictionary:
+    {
+       'TICKER': { (Month, Day): rank_value, ... },
+       ...
+    }
+    """
     try:
-        conn = sqlite3.connect(DB_PATH)
-        df = pd.read_sql("SELECT Date, seasonal_rank, ticker FROM seasonal_ranks", conn)
-        conn.close()
+        # Load directly from CSV
+        df = pd.read_csv(CSV_PATH)
     except Exception as e:
-        st.error(f"Could not load database: {e}")
+        st.error(f"Could not load seasonal CSV: {e}. Make sure 'seasonal_ranks.csv' is in the repo root.")
         return {}
 
     if df.empty:
         return {}
 
-    df["Date"] = pd.to_datetime(df["Date"])
+    # Ensure Date is datetime (handle string formats safely)
+    df["Date"] = pd.to_datetime(df["Date"], errors='coerce')
+    df = df.dropna(subset=["Date"])
+
+    # Create a (Month, Day) tuple column for matching
     df["MD"] = df["Date"].apply(lambda x: (x.month, x.day))
     
     output_map = {}
+    # Group by ticker to build the inner dicts
     for ticker, group in df.groupby("ticker"):
         output_map[ticker] = pd.Series(
             group.seasonal_rank.values, index=group.MD
@@ -274,22 +282,6 @@ def compute_distance_matches(core_df: pd.DataFrame,
     return matches
 
 def main():
-    import os
-    st.title("Sector ETF Trend Dashboard")
-    
-    # --- DEBUGGING SNIPPET ---
-    if os.path.exists("past_sznl.db"):
-        size_mb = os.path.getsize("past_sznl.db") / (1024 * 1024)
-        st.error(f"DEBUG: File size is {size_mb:.2f} MB")
-        
-        with open("past_sznl.db", "rb") as f:
-            header = f.read(15)
-        st.error(f"DEBUG: File Header: {header}")
-    else:
-        st.error("DEBUG: File not found!")
-    # -------------------------
-    
-    # ... rest of your code ...
     st.title("Sector ETF Trend Dashboard")
     st.write("Matching based on **Percentile Rank** of MA Extensions + Seasonality.")
 
