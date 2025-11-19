@@ -12,8 +12,8 @@ import datetime
 SECTOR_ETFS = [
     "IBB", "IHI", "ITA", "ITB", "IYR", "KRE", "OIH", "SMH", "VNQ",
     "XBI", "XHB", "XLB", "XLC", "XLE", "XLF", "XLI", "XLK", "XLP",
-    "XLU", "XLV", "XLY", "XME", "XOP", "XRT", "GLD", "CEF", "SLV", "BTC-USD",
-    "ETH-USD", "UNG", "UVXY",
+    "XLU", "XLV", "XLY", "XME", "XOP", "XRT", "GLD", "CEF", "SLV",
+    
 ]
 INDEX_ETFS = ["SPY", "QQQ", "IWM", "DIA", "SMH"]
 CSV_PATH = "seasonal_ranks.csv"
