@@ -53,37 +53,59 @@ def get_sznl_val_series(ticker, dates, sznl_map):
 
 @st.cache_data(show_spinner=True)
 def download_universe_data(tickers, start_date):
+    """
+    Downloads data. Returns a Dictionary {Ticker: DataFrame}.
+    On error or empty, returns an empty Dictionary {} to prevent main app crashes.
+    """
     if not tickers:
-        return pd.DataFrame()
+        return {} # FIXED: Return dict, not DataFrame
     
     start_str = start_date.strftime('%Y-%m-%d')
 
     try:
         # Tries to download everything
-        df = yf.download(tickers, start=start_str, group_by='ticker', auto_adjust=True, progress=False)
+        # 'threads=True' helps speed up mass downloads
+        df = yf.download(tickers, start=start_str, group_by='ticker', auto_adjust=True, progress=False, threads=True)
     except Exception as e:
         st.error(f"YFinance Download Error: {e}")
-        return pd.DataFrame()
+        return {} # FIXED: Return dict, not DataFrame
     
+    if df.empty:
+        return {}
+
     data_dict = {}
+    
+    # Handle single ticker result (columns are just Open, High, etc)
     if len(tickers) == 1:
         t = tickers[0]
         # Handle single ticker structure
         df.columns = [c if isinstance(c, str) else c[0] for c in df.columns]
         if not df.empty:
             data_dict[t] = df
+            
+    # Handle multiple tickers (MultiIndex columns)
     else:
         for t in tickers:
             try:
+                # Check if ticker exists in columns
+                if t not in df.columns.levels[0]:
+                    continue # Skip this ticker if not found
+                
                 t_df = df[t].copy()
+                
+                # Check for actual data (sometimes columns exist but are all NaN)
                 col_to_check = 'Close' if 'Close' in t_df.columns else 'close'
                 if col_to_check in t_df.columns:
                     t_df = t_df.dropna(subset=[col_to_check])
                 
-                if t_df.empty: continue
+                if t_df.empty: 
+                    continue # Skip empty dataframes
+                    
                 data_dict[t] = t_df
             except KeyError:
-                continue
+                continue # Gracefully skip delisted/failed tickers
+            except Exception:
+                continue 
                 
     return data_dict
 
@@ -133,8 +155,11 @@ def calculate_indicators(df, sznl_map, ticker):
     
     # 6. Public Age (Years since start of this dataframe)
     # Note: Using the first index of the DF as the "birth" of the data
-    start_ts = df.index[0]
-    df['age_years'] = (df.index - start_ts).days / 365.25
+    if not df.empty:
+        start_ts = df.index[0]
+        df['age_years'] = (df.index - start_ts).days / 365.25
+    else:
+        df['age_years'] = 0.0
     
     return df
 
@@ -151,139 +176,143 @@ def run_engine(universe_dict, params, sznl_map):
         
         if len(df_raw) < 260: continue
         
-        df = calculate_indicators(df_raw, sznl_map, ticker)
-        df = df.dropna()
-        
-        # --- SIGNAL LOGIC ---
-        conditions = []
-        
-        # 1. Basic Filters (Price, Volume, Age)
-        # These act as a baseline 'Gate' before strategy logic
-        gate_cond = (df['Close'] >= params['min_price']) & \
-                    (df['vol_ma'] >= params['min_vol']) & \
-                    (df['age_years'] >= params['min_age']) & \
-                    (df['age_years'] <= params['max_age'])
-                    
-        conditions.append(gate_cond)
-        
-        # 2. Strategy Filters
-        
-        # Perf Rank
-        if params['use_perf_rank']:
-            col = f"rank_ret_{params['perf_window']}d"
-            if params['perf_logic'] == '<':
-                cond = df[col] < params['perf_thresh']
-            else:
-                cond = df[col] > params['perf_thresh']
-            if params['perf_first_instance']:
-                prev = cond.shift(1).rolling(params['perf_lookback']).sum()
-                cond = cond & (prev == 0)
-            conditions.append(cond)
+        try:
+            df = calculate_indicators(df_raw, sznl_map, ticker)
+            df = df.dropna()
+            
+            if df.empty: continue
+            
+            # --- SIGNAL LOGIC ---
+            conditions = []
+            
+            # 1. Basic Filters (Price, Volume, Age)
+            gate_cond = (df['Close'] >= params['min_price']) & \
+                        (df['vol_ma'] >= params['min_vol']) & \
+                        (df['age_years'] >= params['min_age']) & \
+                        (df['age_years'] <= params['max_age'])
+                        
+            conditions.append(gate_cond)
+            
+            # 2. Strategy Filters
+            
+            # Perf Rank
+            if params['use_perf_rank']:
+                col = f"rank_ret_{params['perf_window']}d"
+                if params['perf_logic'] == '<':
+                    cond = df[col] < params['perf_thresh']
+                else:
+                    cond = df[col] > params['perf_thresh']
+                if params['perf_first_instance']:
+                    prev = cond.shift(1).rolling(params['perf_lookback']).sum()
+                    cond = cond & (prev == 0)
+                conditions.append(cond)
 
-        # Seasonal
-        if params['use_sznl']:
-            if params['sznl_logic'] == '<':
-                cond = df['Sznl'] < params['sznl_thresh']
-            else:
-                cond = df['Sznl'] > params['sznl_thresh']
-            if params['sznl_first_instance']:
-                prev = cond.shift(1).rolling(params['sznl_lookback']).sum()
-                cond = cond & (prev == 0)
-            conditions.append(cond)
+            # Seasonal
+            if params['use_sznl']:
+                if params['sznl_logic'] == '<':
+                    cond = df['Sznl'] < params['sznl_thresh']
+                else:
+                    cond = df['Sznl'] > params['sznl_thresh']
+                if params['sznl_first_instance']:
+                    prev = cond.shift(1).rolling(params['sznl_lookback']).sum()
+                    cond = cond & (prev == 0)
+                conditions.append(cond)
+                
+            # 52w High/Low
+            if params['use_52w']:
+                if params['52w_type'] == 'New 52w High':
+                    cond = df['is_52w_high']
+                else:
+                    cond = df['is_52w_low']
+                if params['52w_first_instance']:
+                    prev = cond.shift(1).rolling(params['52w_lookback']).sum()
+                    cond = cond & (prev == 0)
+                conditions.append(cond)
+                
+            # Volume Spike
+            if params['use_vol']:
+                cond = df['vol_ratio'] > params['vol_thresh']
+                conditions.append(cond)
+                
+            if not conditions: continue
+                
+            # Combine conditions
+            final_signal = conditions[0]
+            for c in conditions[1:]:
+                final_signal = final_signal & c
+                
+            signal_dates = df.index[final_signal]
             
-        # 52w High/Low
-        if params['use_52w']:
-            if params['52w_type'] == 'New 52w High':
-                cond = df['is_52w_high']
-            else:
-                cond = df['is_52w_low']
-            if params['52w_first_instance']:
-                prev = cond.shift(1).rolling(params['52w_lookback']).sum()
-                cond = cond & (prev == 0)
-            conditions.append(cond)
-            
-        # Volume Spike
-        if params['use_vol']:
-            cond = df['vol_ratio'] > params['vol_thresh']
-            conditions.append(cond)
-            
-        if not conditions: continue
-            
-        # Combine conditions
-        final_signal = conditions[0]
-        for c in conditions[1:]:
-            final_signal = final_signal & c
-            
-        signal_dates = df.index[final_signal]
-        
-        # --- TRADE MANAGEMENT ---
-        for signal_date in signal_dates:
-            try:
-                sig_idx = df.index.get_loc(signal_date)
-                
-                if sig_idx + params['holding_days'] + 2 >= len(df): continue
-                
-                atr = df['ATR'].iloc[sig_idx]
-                if np.isnan(atr) or atr == 0: continue
-                
-                # Entry
-                if params['entry_type'] == 'Signal Close':
-                    entry_price = df['Close'].iloc[sig_idx]
-                    start_idx = sig_idx + 1
-                elif params['entry_type'] == 'T+1 Open':
-                    entry_price = df['Open'].iloc[sig_idx + 1]
-                    start_idx = sig_idx + 1
-                else: # T+1 Close
-                    entry_price = df['Close'].iloc[sig_idx + 1]
-                    start_idx = sig_idx + 2
-                
-                # Risk Management 
-                stop_price = entry_price - (atr * params['stop_atr'])
-                tgt_price = entry_price + (atr * params['tgt_atr'])
-                
-                exit_price = entry_price
-                exit_type = "Hold"
-                exit_date = None
-                
-                future = df.iloc[start_idx : start_idx + params['holding_days']]
-                
-                # Exit Logic
-                if not params['time_exit_only']:
-                    for f_date, f_row in future.iterrows():
-                        # Hit Stop?
-                        if f_row['Low'] <= stop_price:
-                            exit_price = f_row['Open'] if f_row['Open'] < stop_price else stop_price
-                            exit_type = "Stop"
-                            exit_date = f_date
-                            break
-                        # Hit Target?
-                        if f_row['High'] >= tgt_price:
-                            exit_price = f_row['Open'] if f_row['Open'] > tgt_price else tgt_price
-                            exit_type = "Target"
-                            exit_date = f_date
-                            break
-                
-                if exit_type == "Hold":
-                    exit_price = future['Close'].iloc[-1]
-                    exit_date = future.index[-1]
-                    exit_type = "Time"
-                
-                # R Calculation
-                risk_unit = entry_price - stop_price
-                if risk_unit <= 0: risk_unit = 0.001 
-                pnl = exit_price - entry_price
-                r_realized = pnl / risk_unit
-                
-                trades.append({
-                    "Ticker": ticker,
-                    "SignalDate": signal_date, # Entry Signal Date
-                    "Entry": entry_price,
-                    "Exit": exit_price,
-                    "ExitDate": exit_date,
-                    "Type": exit_type,
-                    "R": r_realized
-                })
-            except: continue
+            # --- TRADE MANAGEMENT ---
+            for signal_date in signal_dates:
+                try:
+                    sig_idx = df.index.get_loc(signal_date)
+                    
+                    if sig_idx + params['holding_days'] + 2 >= len(df): continue
+                    
+                    atr = df['ATR'].iloc[sig_idx]
+                    if np.isnan(atr) or atr == 0: continue
+                    
+                    # Entry
+                    if params['entry_type'] == 'Signal Close':
+                        entry_price = df['Close'].iloc[sig_idx]
+                        start_idx = sig_idx + 1
+                    elif params['entry_type'] == 'T+1 Open':
+                        entry_price = df['Open'].iloc[sig_idx + 1]
+                        start_idx = sig_idx + 1
+                    else: # T+1 Close
+                        entry_price = df['Close'].iloc[sig_idx + 1]
+                        start_idx = sig_idx + 2
+                    
+                    # Risk Management 
+                    stop_price = entry_price - (atr * params['stop_atr'])
+                    tgt_price = entry_price + (atr * params['tgt_atr'])
+                    
+                    exit_price = entry_price
+                    exit_type = "Hold"
+                    exit_date = None
+                    
+                    future = df.iloc[start_idx : start_idx + params['holding_days']]
+                    
+                    # Exit Logic
+                    if not params['time_exit_only']:
+                        for f_date, f_row in future.iterrows():
+                            # Hit Stop?
+                            if f_row['Low'] <= stop_price:
+                                exit_price = f_row['Open'] if f_row['Open'] < stop_price else stop_price
+                                exit_type = "Stop"
+                                exit_date = f_date
+                                break
+                            # Hit Target?
+                            if f_row['High'] >= tgt_price:
+                                exit_price = f_row['Open'] if f_row['Open'] > tgt_price else tgt_price
+                                exit_type = "Target"
+                                exit_date = f_date
+                                break
+                    
+                    if exit_type == "Hold":
+                        exit_price = future['Close'].iloc[-1]
+                        exit_date = future.index[-1]
+                        exit_type = "Time"
+                    
+                    # R Calculation
+                    risk_unit = entry_price - stop_price
+                    if risk_unit <= 0: risk_unit = 0.001 
+                    pnl = exit_price - entry_price
+                    r_realized = pnl / risk_unit
+                    
+                    trades.append({
+                        "Ticker": ticker,
+                        "SignalDate": signal_date, # Entry Signal Date
+                        "Entry": entry_price,
+                        "Exit": exit_price,
+                        "ExitDate": exit_date,
+                        "Type": exit_type,
+                        "R": r_realized
+                    })
+                except: continue
+        except:
+            continue
 
     progress_bar.empty()
     status_text.empty()
@@ -317,7 +346,7 @@ def main():
     custom_tickers = []
     if univ_choice == "Custom (Upload CSV)":
         with col_u3:
-            # New: Sampling Slider
+            # Sampling Slider
             sample_pct = st.slider("Random Sample % (Run on subset)", 1, 100, 100, 
                                   help="Randomly selects this % of tickers from the file to speed up processing or test robustness.")
             
@@ -363,7 +392,7 @@ def main():
     # --------------------------------
     st.subheader("3. Signal Criteria")
 
-    # A. NEW: Liquidity & Age Filters
+    # A. Liquidity & Age Filters
     with st.expander("Liquidity & Age Filters", expanded=True):
         l1, l2, l3, l4 = st.columns(4)
         with l1:
@@ -443,8 +472,9 @@ def main():
         st.info(f"Fetching data for {len(tickers_to_run)} tickers from {start_date}...")
         data_dict = download_universe_data(tickers_to_run, start_date)
         
+        # Safe check for dict emptiness
         if not data_dict:
-            st.error("Failed to download data.")
+            st.error("Failed to download data, or no valid data found for these tickers.")
             return
             
         # 3. Pack Params
