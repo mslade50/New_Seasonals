@@ -3,7 +3,6 @@ import pandas as pd
 import numpy as np
 import yfinance as yf
 import plotly.express as px
-import plotly.graph_objects as go
 import datetime
 
 # -----------------------------------------------------------------------------
@@ -208,7 +207,8 @@ def run_engine(universe_dict, params, sznl_map):
                     entry_price = df['Close'].iloc[sig_idx + 1]
                     start_idx = sig_idx + 2
                 
-                # Risk Management (Used for R Calc even if stops disabled)
+                # Risk Management 
+                # (Used for R Calc even if Time Exit is True)
                 stop_price = entry_price - (atr * params['stop_atr'])
                 tgt_price = entry_price + (atr * params['tgt_atr'])
                 
@@ -218,7 +218,7 @@ def run_engine(universe_dict, params, sznl_map):
                 
                 future = df.iloc[start_idx : start_idx + params['holding_days']]
                 
-                # Loop only if we are using Stops/Targets
+                # If NOT Time Exit Only, check stops/targets
                 if not params['time_exit_only']:
                     for f_date, f_row in future.iterrows():
                         # Hit Stop?
@@ -234,13 +234,14 @@ def run_engine(universe_dict, params, sznl_map):
                             exit_date = f_date
                             break
                 
+                # If we haven't exited yet (or Time Exit Only is active), exit at end of hold
                 if exit_type == "Hold":
                     exit_price = future['Close'].iloc[-1]
                     exit_date = future.index[-1]
                     exit_type = "Time"
                 
                 # R Calculation
-                # Even if "Time Only", we define R based on the theoretical stop
+                # We divide PnL by the initial Risk Distance (Entry - Stop) to get R units
                 risk_unit = entry_price - stop_price
                 if risk_unit <= 0: risk_unit = 0.001 
                 pnl = exit_price - entry_price
@@ -306,9 +307,9 @@ def main():
     # --------------------------------
     st.subheader("2. Execution & Risk Management")
     
-    # NEW: Time Exit Switch
+    # Time Exit Only Switch
     time_exit_only = st.checkbox("Time Exit Only (Disable Stop/Target)", 
-                                 help="If checked, trades only exit after 'Max Holding Days'. Stop Loss settings are still used to calculate position size (R-units).")
+                                 help="If checked, trades only exit after 'Max Holding Days'. Stop Loss settings are ignored for exit but still used to calculate R-units.")
 
     c1, c2, c3, c4 = st.columns(4)
     
@@ -430,88 +431,32 @@ def main():
             st.warning("No signals generated.")
             return
             
-        # 5. Analysis
+        # 5. Results
         trades_df = trades_df.sort_values("ExitDate")
+        trades_df['CumR'] = trades_df['R'].cumsum()
         
-        # --- KELLY CALCULATION ---
-        # Win Rate & Ratios
+        # Stats
         wins = trades_df[trades_df['R'] > 0]
-        losses = trades_df[trades_df['R'] <= 0]
+        win_rate = len(wins) / len(trades_df) * 100
+        avg_r = trades_df['R'].mean()
         
-        win_rate_val = len(wins) / len(trades_df) if len(trades_df) > 0 else 0
-        avg_win = wins['R'].mean() if not wins.empty else 0
-        avg_loss = abs(losses['R'].mean()) if not losses.empty else 1
+        # Drawdown
+        cum_r = trades_df['CumR'].values
+        running_max = np.maximum.accumulate(cum_r)
+        dd = running_max - cum_r
+        max_dd = dd.max()
         
-        # Kelly Formula: K% = W - [ (1-W) / (AvgWin/AvgLoss) ]
-        if avg_win > 0 and avg_loss > 0:
-            payoff_ratio = avg_win / avg_loss
-            kelly_full = win_rate_val - ((1 - win_rate_val) / payoff_ratio)
-        else:
-            kelly_full = 0
-            
-        # Clamp negative Kelly to 0 for display safety, or allow user to see it's a losing strategy
-        kelly_used = max(0, kelly_full) 
-        
-        # --- CURVE GENERATION ---
-        # We will simulate compounding equity
-        initial_capital = 10000
-        
-        # Curves Containers
-        curves = {
-            "Flat 1% Risk": [initial_capital],
-            "1/4 Kelly": [initial_capital],
-            "1/2 Kelly": [initial_capital],
-            "Full Kelly": [initial_capital]
-        }
-        
-        # Bet sizes (fraction of CURRENT equity)
-        # Note: In 'Flat 1%', we risk 1% of equity. If trade is -1R, we lose 1%. If +2R, we gain 2%.
-        # Formula: New = Old * (1 + (Fraction * R_Result))
-        fractions = {
-            "Flat 1% Risk": 0.01,
-            "1/4 Kelly": kelly_used * 0.25,
-            "1/2 Kelly": kelly_used * 0.50,
-            "Full Kelly": kelly_used
-        }
-        
-        # It's faster to vectorize, but iteration is clearer for "path dependence" logic
-        r_values = trades_df['R'].values
-        dates = trades_df['ExitDate'].values
-        
-        for r in r_values:
-            for name, hist in curves.items():
-                prev = hist[-1]
-                # Simple compounding
-                # Caution: Full Kelly can bankrupt on -1R loss if Fraction=1.0.
-                # We act nicely and cap loss at -100% (can't lose more than you have)
-                change_pct = fractions[name] * r
-                new_val = prev * (1 + change_pct)
-                if new_val < 0: new_val = 0 # Bankruptcy
-                hist.append(new_val)
-                
-        # Create Plotting DF (aligning with dates - prepending start date?)
-        # For simplicity, we just plot against trade number or ExitDate. 
-        # Let's map to ExitDates. Note: Multiple trades can exit same day.
-        
-        plot_data = pd.DataFrame(index=range(len(r_values) + 1))
-        plot_data['TradeNum'] = range(len(r_values) + 1)
-        for name, hist in curves.items():
-            plot_data[name] = hist
-            
-        # KPI Display
         st.success("Backtest Complete!")
         
-        k1, k2, k3, k4, k5 = st.columns(5)
+        # KPI Row
+        k1, k2, k3, k4 = st.columns(4)
         k1.metric("Total Trades", len(trades_df))
-        k2.metric("Win Rate", f"{win_rate_val*100:.1f}%")
-        k3.metric("Avg R", f"{trades_df['R'].mean():.2f}R")
-        k4.metric("Full Kelly", f"{kelly_full*100:.2f}%")
-        k5.metric("Payoff Ratio", f"{avg_win/avg_loss:.2f}")
+        k2.metric("Win Rate", f"{win_rate:.1f}%")
+        k3.metric("Avg R / Trade", f"{avg_r:.2f}R")
+        k4.metric("Max Drawdown", f"{max_dd:.2f}R")
         
-        # Multi-Line Plot
-        fig = px.line(plot_data, x="TradeNum", y=list(curves.keys()), 
-                      title="Compounding Equity Curves (Starting $10k)",
-                      labels={"value": "Equity ($)", "TradeNum": "Trade Count"})
+        # Equity Curve
+        fig = px.line(trades_df, x="ExitDate", y="CumR", title="Cumulative Equity (R-Multiples)", markers=True)
         st.plotly_chart(fig, use_container_width=True)
         
         st.subheader("Trade Log")
@@ -520,7 +465,7 @@ def main():
         }), use_container_width=True)
 
         # --------------------------------
-        # 5. SAVE / CONFIG REPORT
+        # 6. SAVE / CONFIG REPORT
         # --------------------------------
         st.markdown("---")
         st.subheader("Configuration & Results Report")
@@ -545,13 +490,9 @@ def main():
         
         --- RESULTS SUMMARY ---
         Trades: {len(trades_df)}
-        Win Rate: {win_rate_val*100:.1f}%
-        Avg R: {trades_df['R'].mean():.2f}
-        
-        --- BET SIZING (KELLY) ---
-        Full Kelly: {kelly_full*100:.2f}%
-        1/2 Kelly: {kelly_full*50:.2f}%
-        1/4 Kelly: {kelly_full*25:.2f}%
+        Win Rate: {win_rate:.1f}%
+        Avg R: {avg_r:.2f}
+        Max DD: {max_dd:.2f}R
         """
         
         st.text_area("Copy this summary:", value=report_text, height=300)
