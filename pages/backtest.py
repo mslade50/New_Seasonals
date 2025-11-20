@@ -53,57 +53,44 @@ def get_sznl_val_series(ticker, dates, sznl_map):
 
 @st.cache_data(show_spinner=True)
 def download_universe_data(tickers, start_date):
-    """
-    Downloads data. Returns a Dictionary {Ticker: DataFrame}.
-    On error or empty, returns an empty Dictionary {} to prevent main app crashes.
-    """
     if not tickers:
-        return {} # FIXED: Return dict, not DataFrame
+        return {} 
     
     start_str = start_date.strftime('%Y-%m-%d')
 
     try:
-        # Tries to download everything
-        # 'threads=True' helps speed up mass downloads
         df = yf.download(tickers, start=start_str, group_by='ticker', auto_adjust=True, progress=False, threads=True)
     except Exception as e:
         st.error(f"YFinance Download Error: {e}")
-        return {} # FIXED: Return dict, not DataFrame
+        return {} 
     
     if df.empty:
         return {}
 
     data_dict = {}
     
-    # Handle single ticker result (columns are just Open, High, etc)
     if len(tickers) == 1:
         t = tickers[0]
-        # Handle single ticker structure
         df.columns = [c if isinstance(c, str) else c[0] for c in df.columns]
         if not df.empty:
             data_dict[t] = df
-            
-    # Handle multiple tickers (MultiIndex columns)
     else:
         for t in tickers:
             try:
-                # Check if ticker exists in columns
                 if t not in df.columns.levels[0]:
-                    continue # Skip this ticker if not found
+                    continue 
                 
                 t_df = df[t].copy()
-                
-                # Check for actual data (sometimes columns exist but are all NaN)
                 col_to_check = 'Close' if 'Close' in t_df.columns else 'close'
                 if col_to_check in t_df.columns:
                     t_df = t_df.dropna(subset=[col_to_check])
                 
                 if t_df.empty: 
-                    continue # Skip empty dataframes
+                    continue 
                     
                 data_dict[t] = t_df
             except KeyError:
-                continue # Gracefully skip delisted/failed tickers
+                continue 
             except Exception:
                 continue 
                 
@@ -117,6 +104,13 @@ def get_cycle_year(year):
     if rem == 2: return "2. Midterm Year"
     if rem == 3: return "3. Pre-Election"
     return "Unknown"
+
+def get_age_bucket(years):
+    if years < 3: return "< 3 Years"
+    if years < 5: return "3-5 Years"
+    if years < 10: return "5-10 Years"
+    if years < 20: return "10-20 Years"
+    return "> 20 Years"
 
 # -----------------------------------------------------------------------------
 # BACKTEST LOGIC
@@ -154,7 +148,6 @@ def calculate_indicators(df, sznl_map, ticker):
     df['vol_ratio'] = df['Volume'] / vol_ma
     
     # 6. Public Age (Years since start of this dataframe)
-    # Note: Using the first index of the DF as the "birth" of the data
     if not df.empty:
         start_ts = df.index[0]
         df['age_years'] = (df.index - start_ts).days / 365.25
@@ -185,7 +178,7 @@ def run_engine(universe_dict, params, sznl_map):
             # --- SIGNAL LOGIC ---
             conditions = []
             
-            # 1. Basic Filters (Price, Volume, Age)
+            # 1. Basic Filters
             gate_cond = (df['Close'] >= params['min_price']) & \
                         (df['vol_ma'] >= params['min_vol']) & \
                         (df['age_years'] >= params['min_age']) & \
@@ -251,6 +244,11 @@ def run_engine(universe_dict, params, sznl_map):
                     if sig_idx + params['holding_days'] + 2 >= len(df): continue
                     
                     atr = df['ATR'].iloc[sig_idx]
+                    
+                    # Grab Snapshot Data for Analysis
+                    snap_age = df['age_years'].iloc[sig_idx]
+                    snap_vol = df['vol_ma'].iloc[sig_idx]
+
                     if np.isnan(atr) or atr == 0: continue
                     
                     # Entry
@@ -303,12 +301,14 @@ def run_engine(universe_dict, params, sznl_map):
                     
                     trades.append({
                         "Ticker": ticker,
-                        "SignalDate": signal_date, # Entry Signal Date
+                        "SignalDate": signal_date,
                         "Entry": entry_price,
                         "Exit": exit_price,
                         "ExitDate": exit_date,
                         "Type": exit_type,
-                        "R": r_realized
+                        "R": r_realized,
+                        "Age": snap_age,
+                        "AvgVol": snap_vol
                     })
                 except: continue
         except:
@@ -346,9 +346,8 @@ def main():
     custom_tickers = []
     if univ_choice == "Custom (Upload CSV)":
         with col_u3:
-            # Sampling Slider
             sample_pct = st.slider("Random Sample % (Run on subset)", 1, 100, 100, 
-                                  help="Randomly selects this % of tickers from the file to speed up processing or test robustness.")
+                                  help="Randomly selects this % of tickers from the file.")
             
             uploaded_file = st.file_uploader("Upload CSV (Must have 'Ticker' header)", type=["csv"])
             if uploaded_file:
@@ -370,7 +369,7 @@ def main():
     st.subheader("2. Execution & Risk Management")
     
     time_exit_only = st.checkbox("Time Exit Only (Disable Stop/Target)", 
-                                 help="If checked, trades only exit after 'Max Holding Days'. Stop Loss settings are ignored for exit but still used to calculate R-units.")
+                                 help="If checked, trades only exit after 'Max Holding Days'.")
 
     c1, c2, c3, c4, c5 = st.columns(5)
     
@@ -396,11 +395,11 @@ def main():
     with st.expander("Liquidity & Age Filters", expanded=True):
         l1, l2, l3, l4 = st.columns(4)
         with l1:
-            min_price = st.number_input("Min Price ($)", value=10.0, step=1.0, help="Minimum Close Price on signal day.")
+            min_price = st.number_input("Min Price ($)", value=10.0, step=1.0)
         with l2:
-            min_vol = st.number_input("Min Avg Volume", value=100000, step=50000, help="Minimum 63-day Average Volume.")
+            min_vol = st.number_input("Min Avg Volume", value=100000, step=50000)
         with l3:
-            min_age = st.number_input("Min Public Age (Yrs)", value=0.0, step=0.5, help="Years since data start date.")
+            min_age = st.number_input("Min Public Age (Yrs)", value=0.0, step=0.5)
         with l4:
             max_age = st.number_input("Max Public Age (Yrs)", value=100.0, step=1.0)
 
@@ -444,7 +443,6 @@ def main():
     # --------------------------------
     if st.button("Run Backtest", type="primary", use_container_width=True):
         
-        # 1. Setup
         tickers_to_run = []
         sznl_map = load_seasonal_map()
         
@@ -458,7 +456,6 @@ def main():
             tickers_to_run = [t for t in raw_keys if t not in exclude_list]
         elif univ_choice == "Custom (Upload CSV)":
             tickers_to_run = custom_tickers
-            # --- RANDOM SAMPLING LOGIC ---
             if tickers_to_run and sample_pct < 100:
                 count = max(1, int(len(tickers_to_run) * (sample_pct / 100)))
                 tickers_to_run = random.sample(tickers_to_run, count)
@@ -468,24 +465,17 @@ def main():
             st.error("No tickers found.")
             return
             
-        # 2. Download
         st.info(f"Fetching data for {len(tickers_to_run)} tickers from {start_date}...")
         data_dict = download_universe_data(tickers_to_run, start_date)
         
-        # Safe check for dict emptiness
         if not data_dict:
             st.error("Failed to download data, or no valid data found for these tickers.")
             return
             
-        # 3. Pack Params
         params = {
             'time_exit_only': time_exit_only,
             'stop_atr': stop_atr, 'tgt_atr': tgt_atr, 'holding_days': hold_days, 'entry_type': entry_type,
-            
-            # New filters
-            'min_price': min_price, 'min_vol': min_vol, 
-            'min_age': min_age, 'max_age': max_age,
-            
+            'min_price': min_price, 'min_vol': min_vol, 'min_age': min_age, 'max_age': max_age,
             'use_perf_rank': use_perf, 'perf_window': perf_window, 'perf_logic': perf_logic, 
             'perf_thresh': perf_thresh, 'perf_first_instance': perf_first, 'perf_lookback': perf_lookback,
             'use_sznl': use_sznl, 'sznl_logic': sznl_logic, 'sznl_thresh': sznl_thresh, 
@@ -494,21 +484,17 @@ def main():
             'use_vol': use_vol, 'vol_thresh': vol_thresh
         }
         
-        # 4. Run
         trades_df = run_engine(data_dict, params, sznl_map)
         
         if trades_df.empty:
             st.warning("No signals generated.")
             return
             
-        # 5. Results Calculation
         trades_df = trades_df.sort_values("ExitDate")
         
-        # Dollar PnL
         trades_df['PnL_Dollar'] = trades_df['R'] * risk_per_trade
         trades_df['CumPnL'] = trades_df['PnL_Dollar'].cumsum()
         
-        # Temporal Features
         trades_df['SignalDate'] = pd.to_datetime(trades_df['SignalDate'])
         trades_df['Year'] = trades_df['SignalDate'].dt.year
         trades_df['Month'] = trades_df['SignalDate'].dt.strftime('%b')
@@ -516,6 +502,17 @@ def main():
         trades_df['DayOfWeek'] = trades_df['SignalDate'].dt.day_name()
         trades_df['CyclePhase'] = trades_df['Year'].apply(get_cycle_year)
         
+        # --- NEW BUCKETS ---
+        # Age Bucket
+        trades_df['AgeBucket'] = trades_df['Age'].apply(get_age_bucket)
+        age_order = ["< 3 Years", "3-5 Years", "5-10 Years", "10-20 Years", "> 20 Years"]
+        
+        # Vol Decile
+        if len(trades_df) >= 10:
+            trades_df['VolDecile'] = pd.qcut(trades_df['AvgVol'], 10, labels=False, duplicates='drop') + 1
+        else:
+            trades_df['VolDecile'] = 1
+
         month_order = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
         day_order = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"]
 
@@ -529,7 +526,6 @@ def main():
         avg_win_val = wins['PnL_Dollar'].mean() if not wins.empty else 0
         avg_loss_val = losses['PnL_Dollar'].mean() if not losses.empty else 0
         
-        # Drawdown
         cum_pnl = trades_df['CumPnL'].values
         running_max = np.maximum.accumulate(cum_pnl)
         dd = running_max - cum_pnl
@@ -537,7 +533,6 @@ def main():
         
         st.success("Backtest Complete!")
         
-        # KPI Row
         k1, k2, k3, k4, k5 = st.columns(5)
         k1.metric("Total Trades", len(trades_df))
         k2.metric("Win Rate", f"{win_rate:.1f}%")
@@ -545,7 +540,6 @@ def main():
         k4.metric("Avg Win", f"${avg_win_val:,.0f}")
         k5.metric("Avg Loss", f"${avg_loss_val:,.0f}")
         
-        # Equity Curve
         fig = px.line(trades_df, x="ExitDate", y="CumPnL", title=f"Cumulative Equity (Risk: ${risk_per_trade}/trade)", markers=True)
         st.plotly_chart(fig, use_container_width=True)
         
@@ -553,38 +547,41 @@ def main():
         st.subheader("Performance Breakdowns")
         
         b1, b2 = st.columns(2)
-        
-        # 1. By Year
         df_year = trades_df.groupby('Year')['PnL_Dollar'].sum().reset_index()
         fig_year = px.bar(df_year, x='Year', y='PnL_Dollar', title="PnL by Year (Trade Start)", text_auto='.2s')
         b1.plotly_chart(fig_year, use_container_width=True)
         
-        # 2. By Cycle
         df_cycle = trades_df.groupby('CyclePhase')['PnL_Dollar'].sum().reset_index().sort_values('CyclePhase')
         fig_cycle = px.bar(df_cycle, x='CyclePhase', y='PnL_Dollar', title="PnL by Election Cycle", text_auto='.2s')
         b2.plotly_chart(fig_cycle, use_container_width=True)
         
         b3, b4 = st.columns(2)
-        
-        # 3. By Month
         df_month = trades_df.groupby('Month')['PnL_Dollar'].sum().reindex(month_order).reset_index()
         fig_month = px.bar(df_month, x='Month', y='PnL_Dollar', title="PnL by Month (Seasonality)", text_auto='.2s')
         b3.plotly_chart(fig_month, use_container_width=True)
         
-        # 4. By Day
         df_day = trades_df.groupby('DayOfWeek')['PnL_Dollar'].sum().reindex(day_order).reset_index()
         fig_day = px.bar(df_day, x='DayOfWeek', y='PnL_Dollar', title="PnL by Day of Week", text_auto='.2s')
         b4.plotly_chart(fig_day, use_container_width=True)
+        
+        # --- NEW ROW: Age & Volume ---
+        b5, b6 = st.columns(2)
+        
+        df_age = trades_df.groupby('AgeBucket')['PnL_Dollar'].sum().reindex(age_order).reset_index()
+        fig_age = px.bar(df_age, x='AgeBucket', y='PnL_Dollar', title="PnL by Company Age", text_auto='.2s')
+        b5.plotly_chart(fig_age, use_container_width=True)
+        
+        df_vol = trades_df.groupby('VolDecile')['PnL_Dollar'].sum().reset_index()
+        fig_vol = px.bar(df_vol, x='VolDecile', y='PnL_Dollar', title="PnL by Avg Volume Decile (1=Low, 10=High)", text_auto='.2s')
+        fig_vol.update_xaxes(tickmode='linear', dtick=1)
+        b6.plotly_chart(fig_vol, use_container_width=True)
 
-        # Trade Log
         st.subheader("Trade Log")
         st.dataframe(trades_df.style.format({
-            "Entry": "{:.2f}", "Exit": "{:.2f}", "R": "{:.2f}", "PnL_Dollar": "${:,.2f}"
+            "Entry": "{:.2f}", "Exit": "{:.2f}", "R": "{:.2f}", "PnL_Dollar": "${:,.2f}",
+            "Age": "{:.1f}y", "AvgVol": "{:,.0f}"
         }), use_container_width=True)
 
-        # --------------------------------
-        # 6. CONFIG REPORT
-        # --------------------------------
         st.markdown("---")
         st.subheader("Configuration & Results Report")
         
