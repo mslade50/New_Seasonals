@@ -15,7 +15,20 @@ SECTOR_ETFS = [
     "XBI", "XHB", "XLB", "XLC", "XLE", "XLF", "XLI", "XLK", "XLP",
     "XLU", "XLV", "XLY", "XME", "XOP", "XRT", "GLD", "CEF", "SLV",
 ]
+
 INDEX_ETFS = ["SPY", "QQQ", "IWM", "DIA", "SMH"]
+
+INTERNATIONAL_ETFS = [
+    # Americas
+    "EWZ", "EWC", "ECH", "ECOL", "EWW", "ARGT",
+    # Europe
+    "EWQ", "EWG", "EWI", "EWU", "EWP", "EWK", "EWO", "EWN", "EWD", "EWL",
+    # Asia / Pacific
+    "EWJ", "EWH", "MCHI", "INDA", "EWY", "EWT", "EWA", "EWS", "EWM", "THD", "EIDO", "VNM", "EPHE",
+    # EMEA
+    "EZA", "TUR", "EGPT"
+]
+
 CSV_PATH = "seasonal_ranks.csv"
 
 # -----------------------------------------------------------------------------
@@ -392,7 +405,7 @@ def main():
     
     with col_u1:
         univ_choice = st.selectbox("Choose Universe", 
-            ["Sector ETFs", "Sector + Index ETFs", "All CSV Tickers", "Custom (Upload CSV)"])
+            ["Sector ETFs", "Indices", "International ETFs", "Sector + Index ETFs", "All CSV Tickers", "Custom (Upload CSV)"])
             
     with col_u2:
         default_start = datetime.date.today() - datetime.timedelta(days=365*5)
@@ -517,6 +530,10 @@ def main():
         
         if univ_choice == "Sector ETFs":
             tickers_to_run = SECTOR_ETFS
+        elif univ_choice == "Indices":
+            tickers_to_run = INDEX_ETFS
+        elif univ_choice == "International ETFs":
+            tickers_to_run = INTERNATIONAL_ETFS
         elif univ_choice == "Sector + Index ETFs":
             tickers_to_run = list(set(SECTOR_ETFS + INDEX_ETFS))
         elif univ_choice == "All CSV Tickers":
