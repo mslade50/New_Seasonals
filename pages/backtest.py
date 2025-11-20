@@ -84,6 +84,15 @@ def download_universe_data(tickers, start_date):
                 
     return data_dict
 
+def get_cycle_year(year):
+    """Returns the cycle phase based on US Presidential 4-year cycle."""
+    rem = year % 4
+    if rem == 0: return "4. Election Year"
+    if rem == 1: return "1. Post-Election"
+    if rem == 2: return "2. Midterm Year"
+    if rem == 3: return "3. Pre-Election"
+    return "Unknown"
+
 # -----------------------------------------------------------------------------
 # BACKTEST LOGIC
 # -----------------------------------------------------------------------------
@@ -208,7 +217,6 @@ def run_engine(universe_dict, params, sznl_map):
                     start_idx = sig_idx + 2
                 
                 # Risk Management 
-                # (Used for R Calc even if Time Exit is True)
                 stop_price = entry_price - (atr * params['stop_atr'])
                 tgt_price = entry_price + (atr * params['tgt_atr'])
                 
@@ -218,7 +226,7 @@ def run_engine(universe_dict, params, sznl_map):
                 
                 future = df.iloc[start_idx : start_idx + params['holding_days']]
                 
-                # If NOT Time Exit Only, check stops/targets
+                # Exit Logic
                 if not params['time_exit_only']:
                     for f_date, f_row in future.iterrows():
                         # Hit Stop?
@@ -234,14 +242,12 @@ def run_engine(universe_dict, params, sznl_map):
                             exit_date = f_date
                             break
                 
-                # If we haven't exited yet (or Time Exit Only is active), exit at end of hold
                 if exit_type == "Hold":
                     exit_price = future['Close'].iloc[-1]
                     exit_date = future.index[-1]
                     exit_type = "Time"
                 
                 # R Calculation
-                # We divide PnL by the initial Risk Distance (Entry - Stop) to get R units
                 risk_unit = entry_price - stop_price
                 if risk_unit <= 0: risk_unit = 0.001 
                 pnl = exit_price - entry_price
@@ -249,7 +255,7 @@ def run_engine(universe_dict, params, sznl_map):
                 
                 trades.append({
                     "Ticker": ticker,
-                    "SignalDate": signal_date,
+                    "SignalDate": signal_date, # Entry Signal Date
                     "Entry": entry_price,
                     "Exit": exit_price,
                     "ExitDate": exit_date,
@@ -307,23 +313,22 @@ def main():
     # --------------------------------
     st.subheader("2. Execution & Risk Management")
     
-    # Time Exit Only Switch
     time_exit_only = st.checkbox("Time Exit Only (Disable Stop/Target)", 
                                  help="If checked, trades only exit after 'Max Holding Days'. Stop Loss settings are ignored for exit but still used to calculate R-units.")
 
-    c1, c2, c3, c4 = st.columns(4)
+    c1, c2, c3, c4, c5 = st.columns(5)
     
     with c1:
         entry_type = st.selectbox("Entry Price", ["Signal Close", "T+1 Open", "T+1 Close"])
     with c2:
-        # Stop ATR is still needed for R-calculation even if Time Exit is on
-        stop_atr = st.number_input("Stop Loss (ATR Multiple)", min_value=0.1, max_value=10.0, value=2.0, step=0.1,
-                                   help="Defines the Unit of Risk (1R) even if Time Exit is enabled.")
+        stop_atr = st.number_input("Stop Loss (ATR Multiple)", min_value=0.1, max_value=10.0, value=2.0, step=0.1)
     with c3:
-        tgt_atr = st.number_input("Target (ATR Multiple)", min_value=0.1, max_value=20.0, value=4.0, step=0.1,
-                                  disabled=time_exit_only)
+        tgt_atr = st.number_input("Target (ATR Multiple)", min_value=0.1, max_value=20.0, value=4.0, step=0.1, disabled=time_exit_only)
     with c4:
         hold_days = st.number_input("Max Holding Days", min_value=1, max_value=365, value=10, step=1)
+    with c5:
+        risk_per_trade = st.number_input("Risk Amount ($)", min_value=1, value=1000, step=100, 
+                                        help="Dollar amount risked per trade. Used to calculate PnL curve.")
 
     st.markdown("---")
 
@@ -332,51 +337,34 @@ def main():
     # --------------------------------
     st.subheader("3. Signal Criteria")
 
-    # A. Performance Rank
     with st.expander("Performance Percentile Rank", expanded=True):
         use_perf = st.checkbox("Enable Performance Filter", value=True)
         p1, p2, p3, p4, p5 = st.columns(5)
-        with p1:
-            perf_window = st.selectbox("Window", [5, 10, 21], disabled=not use_perf)
-        with p2:
-            perf_logic = st.selectbox("Logic", ["<", ">"], disabled=not use_perf)
-        with p3:
-            perf_thresh = st.number_input("Threshold (%)", 0.0, 100.0, 15.0, 0.5, disabled=not use_perf)
-        with p4:
-            perf_first = st.checkbox("First Instance Only", value=True, disabled=not use_perf)
-        with p5:
-            perf_lookback = st.number_input("Instance Lookback (Days)", 1, 100, 21, disabled=not use_perf)
+        with p1: perf_window = st.selectbox("Window", [5, 10, 21], disabled=not use_perf)
+        with p2: perf_logic = st.selectbox("Logic", ["<", ">"], disabled=not use_perf)
+        with p3: perf_thresh = st.number_input("Threshold (%)", 0.0, 100.0, 15.0, 0.5, disabled=not use_perf)
+        with p4: perf_first = st.checkbox("First Instance Only", value=True, disabled=not use_perf)
+        with p5: perf_lookback = st.number_input("Instance Lookback (Days)", 1, 100, 21, disabled=not use_perf)
 
-    # B. Seasonal Rank
     with st.expander("Seasonal Rank", expanded=True):
         use_sznl = st.checkbox("Enable Seasonal Filter", value=False)
         s1, s2, s3, s4 = st.columns(4)
-        with s1:
-            sznl_logic = st.selectbox("Seasonality", ["<", ">"], key="sl", disabled=not use_sznl)
-        with s2:
-            sznl_thresh = st.number_input("Seasonal Rank Threshold", 0.0, 100.0, 15.0, 0.5, key="st", disabled=not use_sznl)
-        with s3:
-            sznl_first = st.checkbox("First Instance Only", value=True, key="sf", disabled=not use_sznl)
-        with s4:
-            sznl_lookback = st.number_input("Instance Lookback (Days)", 1, 100, 21, key="slb", disabled=not use_sznl)
+        with s1: sznl_logic = st.selectbox("Seasonality", ["<", ">"], key="sl", disabled=not use_sznl)
+        with s2: sznl_thresh = st.number_input("Seasonal Rank Threshold", 0.0, 100.0, 15.0, 0.5, key="st", disabled=not use_sznl)
+        with s3: sznl_first = st.checkbox("First Instance Only", value=True, key="sf", disabled=not use_sznl)
+        with s4: sznl_lookback = st.number_input("Instance Lookback (Days)", 1, 100, 21, key="slb", disabled=not use_sznl)
 
-    # C. 52-Week Extremes
     with st.expander("52-Week High/Low", expanded=False):
         use_52w = st.checkbox("Enable 52w High/Low Filter", value=False)
         h1, h2, h3 = st.columns(3)
-        with h1:
-            type_52w = st.selectbox("Condition", ["New 52w High", "New 52w Low"], disabled=not use_52w)
-        with h2:
-            first_52w = st.checkbox("First Instance Only", value=True, key="hf", disabled=not use_52w)
-        with h3:
-            lookback_52w = st.number_input("Instance Lookback (Days)", 1, 252, 21, key="hlb", disabled=not use_52w)
+        with h1: type_52w = st.selectbox("Condition", ["New 52w High", "New 52w Low"], disabled=not use_52w)
+        with h2: first_52w = st.checkbox("First Instance Only", value=True, key="hf", disabled=not use_52w)
+        with h3: lookback_52w = st.number_input("Instance Lookback (Days)", 1, 252, 21, key="hlb", disabled=not use_52w)
 
-    # D. Volume Spike
     with st.expander("Volume Threshold", expanded=False):
         use_vol = st.checkbox("Enable Volume Filter", value=False)
         v1, _ = st.columns([1, 3])
-        with v1:
-            vol_thresh = st.number_input("Vol Multiple (> X * 63d Avg)", 1.0, 10.0, 1.5, 0.1, disabled=not use_vol)
+        with v1: vol_thresh = st.number_input("Vol Multiple (> X * 63d Avg)", 1.0, 10.0, 1.5, 0.1, disabled=not use_vol)
 
     st.markdown("---")
     
@@ -385,7 +373,7 @@ def main():
     # --------------------------------
     if st.button("Run Backtest", type="primary", use_container_width=True):
         
-        # 1. Universe Resolution
+        # 1. Setup
         tickers_to_run = []
         sznl_map = load_seasonal_map()
         
@@ -431,19 +419,34 @@ def main():
             st.warning("No signals generated.")
             return
             
-        # 5. Results
+        # 5. Results Calculation
         trades_df = trades_df.sort_values("ExitDate")
-        trades_df['CumR'] = trades_df['R'].cumsum()
         
+        # Dollar PnL Calculation
+        trades_df['PnL_Dollar'] = trades_df['R'] * risk_per_trade
+        trades_df['CumPnL'] = trades_df['PnL_Dollar'].cumsum()
+        
+        # Temporal Features (Based on Signal/Entry Date)
+        trades_df['SignalDate'] = pd.to_datetime(trades_df['SignalDate'])
+        trades_df['Year'] = trades_df['SignalDate'].dt.year
+        trades_df['Month'] = trades_df['SignalDate'].dt.strftime('%b')
+        trades_df['MonthNum'] = trades_df['SignalDate'].dt.month
+        trades_df['DayOfWeek'] = trades_df['SignalDate'].dt.day_name()
+        trades_df['CyclePhase'] = trades_df['Year'].apply(get_cycle_year)
+        
+        # Order helpers
+        month_order = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+        day_order = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"]
+
         # Stats
         wins = trades_df[trades_df['R'] > 0]
         win_rate = len(wins) / len(trades_df) * 100
-        avg_r = trades_df['R'].mean()
+        avg_pnl = trades_df['PnL_Dollar'].mean()
         
-        # Drawdown
-        cum_r = trades_df['CumR'].values
-        running_max = np.maximum.accumulate(cum_r)
-        dd = running_max - cum_r
+        # Drawdown ($)
+        cum_pnl = trades_df['CumPnL'].values
+        running_max = np.maximum.accumulate(cum_pnl)
+        dd = running_max - cum_pnl
         max_dd = dd.max()
         
         st.success("Backtest Complete!")
@@ -452,20 +455,48 @@ def main():
         k1, k2, k3, k4 = st.columns(4)
         k1.metric("Total Trades", len(trades_df))
         k2.metric("Win Rate", f"{win_rate:.1f}%")
-        k3.metric("Avg R / Trade", f"{avg_r:.2f}R")
-        k4.metric("Max Drawdown", f"{max_dd:.2f}R")
+        k3.metric("Avg PnL / Trade", f"${avg_pnl:,.2f}")
+        k4.metric("Max Drawdown", f"${max_dd:,.2f}")
         
         # Equity Curve
-        fig = px.line(trades_df, x="ExitDate", y="CumR", title="Cumulative Equity (R-Multiples)", markers=True)
+        fig = px.line(trades_df, x="ExitDate", y="CumPnL", title=f"Cumulative Equity (Risk: ${risk_per_trade}/trade)", markers=True)
         st.plotly_chart(fig, use_container_width=True)
         
+        # --- BREAKDOWN CHARTS ---
+        st.subheader("Performance Breakdowns")
+        
+        b1, b2 = st.columns(2)
+        
+        # 1. By Year
+        df_year = trades_df.groupby('Year')['PnL_Dollar'].sum().reset_index()
+        fig_year = px.bar(df_year, x='Year', y='PnL_Dollar', title="PnL by Year (Trade Start)", text_auto='.2s')
+        b1.plotly_chart(fig_year, use_container_width=True)
+        
+        # 2. By Cycle
+        df_cycle = trades_df.groupby('CyclePhase')['PnL_Dollar'].sum().reset_index().sort_values('CyclePhase')
+        fig_cycle = px.bar(df_cycle, x='CyclePhase', y='PnL_Dollar', title="PnL by Election Cycle", text_auto='.2s')
+        b2.plotly_chart(fig_cycle, use_container_width=True)
+        
+        b3, b4 = st.columns(2)
+        
+        # 3. By Month
+        df_month = trades_df.groupby('Month')['PnL_Dollar'].sum().reindex(month_order).reset_index()
+        fig_month = px.bar(df_month, x='Month', y='PnL_Dollar', title="PnL by Month (Seasonality)", text_auto='.2s')
+        b3.plotly_chart(fig_month, use_container_width=True)
+        
+        # 4. By Day
+        df_day = trades_df.groupby('DayOfWeek')['PnL_Dollar'].sum().reindex(day_order).reset_index()
+        fig_day = px.bar(df_day, x='DayOfWeek', y='PnL_Dollar', title="PnL by Day of Week", text_auto='.2s')
+        b4.plotly_chart(fig_day, use_container_width=True)
+
+        # Trade Log
         st.subheader("Trade Log")
         st.dataframe(trades_df.style.format({
-            "Entry": "{:.2f}", "Exit": "{:.2f}", "R": "{:.2f}"
+            "Entry": "{:.2f}", "Exit": "{:.2f}", "R": "{:.2f}", "PnL_Dollar": "${:,.2f}"
         }), use_container_width=True)
 
         # --------------------------------
-        # 6. SAVE / CONFIG REPORT
+        # 6. CONFIG REPORT
         # --------------------------------
         st.markdown("---")
         st.subheader("Configuration & Results Report")
@@ -474,11 +505,12 @@ def main():
         --- BACKTEST CONFIGURATION ---
         Universe: {univ_choice}
         Start Date: {start_date}
+        Risk Per Trade: ${risk_per_trade}
         
         -- EXECUTION --
         Time Exit Only: {time_exit_only}
         Entry: {entry_type}
-        Stop Loss: {stop_atr} ATR (Used for R-calc)
+        Stop Loss: {stop_atr} ATR
         Target: {tgt_atr} ATR
         Max Hold: {hold_days} Days
         
@@ -488,11 +520,11 @@ def main():
         52-Week: {use_52w} ({type_52w})
         Volume Spike: {use_vol} (> {vol_thresh}x)
         
-        --- RESULTS SUMMARY ---
+        --- RESULTS ---
         Trades: {len(trades_df)}
         Win Rate: {win_rate:.1f}%
-        Avg R: {avg_r:.2f}
-        Max DD: {max_dd:.2f}R
+        Total PnL: ${trades_df['PnL_Dollar'].sum():,.2f}
+        Avg Trade: ${avg_pnl:,.2f}
         """
         
         st.text_area("Copy this summary:", value=report_text, height=300)
