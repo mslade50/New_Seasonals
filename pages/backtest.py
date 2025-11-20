@@ -56,8 +56,6 @@ def get_sznl_val_series(ticker, dates, sznl_map):
 def download_universe_data(tickers, fetch_start_date):
     """
     Downloads data in chunks using a specific Fetch Date.
-    If user wants 'True Age', fetch_start_date will be 1950.
-    If user wants 'Speed', fetch_start_date will be their Backtest Start.
     """
     if not tickers:
         return {} 
@@ -216,6 +214,7 @@ def run_engine(universe_dict, params, sznl_map):
         status_text.text(f"Processing {ticker}...")
         progress_bar.progress((i+1)/total)
         
+        # We need at least some history to calc indicators
         if len(df_raw) < 100: continue
         
         try:
@@ -398,10 +397,6 @@ def main():
     with col_u2:
         default_start = datetime.date.today() - datetime.timedelta(days=365*5)
         start_date = st.date_input("Backtest Start Date", value=default_start)
-        
-        # NEW: Option for Accurate Age
-        use_full_history = st.checkbox("Download Full History (Accurate Age)", value=False,
-            help="If checked, downloads data from 1950 to calculate 'True Age', then cuts to your Backtest Start Date. Slower but more accurate.")
     
     custom_tickers = []
     if univ_choice == "Custom (Upload CSV)":
@@ -428,6 +423,11 @@ def main():
                         st.error("CSV missing 'Ticker' column.")
                 except Exception as e:
                     st.error(f"Invalid CSV: {e}")
+    
+    # MOVED OUTSIDE COLUMN to ensure visibility
+    st.write("")
+    use_full_history = st.checkbox("⚠️ Download Full History (1950+) for Accurate 'Age' Calculation", value=False,
+        help="Standard download uses your 'Start Date'. This assumes Age=0 at start. Check this box to download MAX history (slower) to get true company age.")
 
     st.markdown("---")
 
@@ -460,14 +460,15 @@ def main():
     st.subheader("3. Signal Criteria")
 
     # A. Liquidity & Age Filters
-    with st.expander("Liquidity & Data History Filters (Defaults = Disabled)", expanded=True):
+    with st.expander("Liquidity & Data History Filters", expanded=True):
+        st.info("Note: If filtering by Age, enable 'Download Full History' at the top to prevent deleting early data.")
         l1, l2, l3, l4 = st.columns(4)
         with l1:
             min_price = st.number_input("Min Price ($)", value=0.0, step=1.0, help="Set to 0 to disable.")
         with l2:
             min_vol = st.number_input("Min Avg Volume", value=0, step=50000, help="Set to 0 to disable.")
         with l3:
-            min_age = st.number_input("Min True Age (Yrs)", value=0.0, step=0.5, help="Uses Full History if enabled above. Otherwise uses Data Start Date.")
+            min_age = st.number_input("Min True Age (Yrs)", value=0.0, step=0.5, help="Requires 'Download Full History' enabled.")
         with l4:
             max_age = st.number_input("Max True Age (Yrs)", value=100.0, step=1.0)
 
@@ -534,8 +535,6 @@ def main():
             return
         
         # DETERMINE DOWNLOAD START DATE
-        # If Full History is checked, we grab from 1950.
-        # Otherwise we grab from the user's Backtest Start Date.
         fetch_start = "1950-01-01" if use_full_history else start_date
         
         msg = "Downloading FULL history (1950+) for Accurate Age..." if use_full_history else f"Downloading data from {start_date}..."
