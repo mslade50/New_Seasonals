@@ -4,6 +4,7 @@ import numpy as np
 import yfinance as yf
 import plotly.express as px
 import datetime
+import random
 
 # -----------------------------------------------------------------------------
 # CONFIG / CONSTANTS
@@ -58,6 +59,7 @@ def download_universe_data(tickers, start_date):
     start_str = start_date.strftime('%Y-%m-%d')
 
     try:
+        # Tries to download everything
         df = yf.download(tickers, start=start_str, group_by='ticker', auto_adjust=True, progress=False)
     except Exception as e:
         st.error(f"YFinance Download Error: {e}")
@@ -66,6 +68,7 @@ def download_universe_data(tickers, start_date):
     data_dict = {}
     if len(tickers) == 1:
         t = tickers[0]
+        # Handle single ticker structure
         df.columns = [c if isinstance(c, str) else c[0] for c in df.columns]
         if not df.empty:
             data_dict[t] = df
@@ -123,9 +126,15 @@ def calculate_indicators(df, sznl_map, ticker):
     df['is_52w_high'] = df['High'] > rolling_high
     df['is_52w_low'] = df['Low'] < rolling_low
     
-    # 5. Volume
+    # 5. Volume (63d MA)
     vol_ma = df['Volume'].rolling(63).mean()
+    df['vol_ma'] = vol_ma
     df['vol_ratio'] = df['Volume'] / vol_ma
+    
+    # 6. Public Age (Years since start of this dataframe)
+    # Note: Using the first index of the DF as the "birth" of the data
+    start_ts = df.index[0]
+    df['age_years'] = (df.index - start_ts).days / 365.25
     
     return df
 
@@ -147,6 +156,17 @@ def run_engine(universe_dict, params, sznl_map):
         
         # --- SIGNAL LOGIC ---
         conditions = []
+        
+        # 1. Basic Filters (Price, Volume, Age)
+        # These act as a baseline 'Gate' before strategy logic
+        gate_cond = (df['Close'] >= params['min_price']) & \
+                    (df['vol_ma'] >= params['min_vol']) & \
+                    (df['age_years'] >= params['min_age']) & \
+                    (df['age_years'] <= params['max_age'])
+                    
+        conditions.append(gate_cond)
+        
+        # 2. Strategy Filters
         
         # Perf Rank
         if params['use_perf_rank']:
@@ -182,13 +202,14 @@ def run_engine(universe_dict, params, sznl_map):
                 cond = cond & (prev == 0)
             conditions.append(cond)
             
-        # Volume
+        # Volume Spike
         if params['use_vol']:
             cond = df['vol_ratio'] > params['vol_thresh']
             conditions.append(cond)
             
         if not conditions: continue
             
+        # Combine conditions
         final_signal = conditions[0]
         for c in conditions[1:]:
             final_signal = final_signal & c
@@ -283,6 +304,8 @@ def main():
     st.subheader("1. Universe & Data")
     col_u1, col_u2, col_u3 = st.columns([1, 1, 2])
     
+    sample_pct = 100 # Default
+    
     with col_u1:
         univ_choice = st.selectbox("Choose Universe", 
             ["Sector ETFs", "Sector + Index ETFs", "All CSV Tickers", "Custom (Upload CSV)"])
@@ -294,13 +317,17 @@ def main():
     custom_tickers = []
     if univ_choice == "Custom (Upload CSV)":
         with col_u3:
+            # New: Sampling Slider
+            sample_pct = st.slider("Random Sample % (Run on subset)", 1, 100, 100, 
+                                  help="Randomly selects this % of tickers from the file to speed up processing or test robustness.")
+            
             uploaded_file = st.file_uploader("Upload CSV (Must have 'Ticker' header)", type=["csv"])
             if uploaded_file:
                 try:
                     c_df = pd.read_csv(uploaded_file)
                     if "Ticker" in c_df.columns:
                         custom_tickers = c_df["Ticker"].unique().tolist()
-                        st.success(f"Loaded {len(custom_tickers)} tickers.")
+                        st.success(f"Loaded {len(custom_tickers)} tickers. Will run on {int(len(custom_tickers)*(sample_pct/100))} randomly.")
                     else:
                         st.error("CSV missing 'Ticker' column.")
                 except:
@@ -327,8 +354,7 @@ def main():
     with c4:
         hold_days = st.number_input("Max Holding Days", min_value=1, max_value=365, value=10, step=1)
     with c5:
-        risk_per_trade = st.number_input("Risk Amount ($)", min_value=1, value=1000, step=100, 
-                                        help="Dollar amount risked per trade. Used to calculate PnL curve.")
+        risk_per_trade = st.number_input("Risk Amount ($)", min_value=1, value=1000, step=100)
 
     st.markdown("---")
 
@@ -337,7 +363,20 @@ def main():
     # --------------------------------
     st.subheader("3. Signal Criteria")
 
-    with st.expander("Performance Percentile Rank", expanded=True):
+    # A. NEW: Liquidity & Age Filters
+    with st.expander("Liquidity & Age Filters", expanded=True):
+        l1, l2, l3, l4 = st.columns(4)
+        with l1:
+            min_price = st.number_input("Min Price ($)", value=10.0, step=1.0, help="Minimum Close Price on signal day.")
+        with l2:
+            min_vol = st.number_input("Min Avg Volume", value=100000, step=50000, help="Minimum 63-day Average Volume.")
+        with l3:
+            min_age = st.number_input("Min Public Age (Yrs)", value=0.0, step=0.5, help="Years since data start date.")
+        with l4:
+            max_age = st.number_input("Max Public Age (Yrs)", value=100.0, step=1.0)
+
+    # B. Performance Rank
+    with st.expander("Performance Percentile Rank", expanded=False):
         use_perf = st.checkbox("Enable Performance Filter", value=True)
         p1, p2, p3, p4, p5 = st.columns(5)
         with p1: perf_window = st.selectbox("Window", [5, 10, 21], disabled=not use_perf)
@@ -346,7 +385,8 @@ def main():
         with p4: perf_first = st.checkbox("First Instance Only", value=True, disabled=not use_perf)
         with p5: perf_lookback = st.number_input("Instance Lookback (Days)", 1, 100, 21, disabled=not use_perf)
 
-    with st.expander("Seasonal Rank", expanded=True):
+    # C. Seasonal Rank
+    with st.expander("Seasonal Rank", expanded=False):
         use_sznl = st.checkbox("Enable Seasonal Filter", value=False)
         s1, s2, s3, s4 = st.columns(4)
         with s1: sznl_logic = st.selectbox("Seasonality", ["<", ">"], key="sl", disabled=not use_sznl)
@@ -354,6 +394,7 @@ def main():
         with s3: sznl_first = st.checkbox("First Instance Only", value=True, key="sf", disabled=not use_sznl)
         with s4: sznl_lookback = st.number_input("Instance Lookback (Days)", 1, 100, 21, key="slb", disabled=not use_sznl)
 
+    # D. 52-Week
     with st.expander("52-Week High/Low", expanded=False):
         use_52w = st.checkbox("Enable 52w High/Low Filter", value=False)
         h1, h2, h3 = st.columns(3)
@@ -361,8 +402,9 @@ def main():
         with h2: first_52w = st.checkbox("First Instance Only", value=True, key="hf", disabled=not use_52w)
         with h3: lookback_52w = st.number_input("Instance Lookback (Days)", 1, 252, 21, key="hlb", disabled=not use_52w)
 
-    with st.expander("Volume Threshold", expanded=False):
-        use_vol = st.checkbox("Enable Volume Filter", value=False)
+    # E. Volume Spike
+    with st.expander("Volume Spike", expanded=False):
+        use_vol = st.checkbox("Enable Volume Spike Filter", value=False)
         v1, _ = st.columns([1, 3])
         with v1: vol_thresh = st.number_input("Vol Multiple (> X * 63d Avg)", 1.0, 10.0, 1.5, 0.1, disabled=not use_vol)
 
@@ -387,6 +429,11 @@ def main():
             tickers_to_run = [t for t in raw_keys if t not in exclude_list]
         elif univ_choice == "Custom (Upload CSV)":
             tickers_to_run = custom_tickers
+            # --- RANDOM SAMPLING LOGIC ---
+            if tickers_to_run and sample_pct < 100:
+                count = max(1, int(len(tickers_to_run) * (sample_pct / 100)))
+                tickers_to_run = random.sample(tickers_to_run, count)
+                st.info(f"Randomly selected {len(tickers_to_run)} tickers for this run.")
             
         if not tickers_to_run:
             st.error("No tickers found.")
@@ -404,6 +451,11 @@ def main():
         params = {
             'time_exit_only': time_exit_only,
             'stop_atr': stop_atr, 'tgt_atr': tgt_atr, 'holding_days': hold_days, 'entry_type': entry_type,
+            
+            # New filters
+            'min_price': min_price, 'min_vol': min_vol, 
+            'min_age': min_age, 'max_age': max_age,
+            
             'use_perf_rank': use_perf, 'perf_window': perf_window, 'perf_logic': perf_logic, 
             'perf_thresh': perf_thresh, 'perf_first_instance': perf_first, 'perf_lookback': perf_lookback,
             'use_sznl': use_sznl, 'sznl_logic': sznl_logic, 'sznl_thresh': sznl_thresh, 
@@ -422,11 +474,11 @@ def main():
         # 5. Results Calculation
         trades_df = trades_df.sort_values("ExitDate")
         
-        # Dollar PnL Calculation
+        # Dollar PnL
         trades_df['PnL_Dollar'] = trades_df['R'] * risk_per_trade
         trades_df['CumPnL'] = trades_df['PnL_Dollar'].cumsum()
         
-        # Temporal Features (Based on Signal/Entry Date)
+        # Temporal Features
         trades_df['SignalDate'] = pd.to_datetime(trades_df['SignalDate'])
         trades_df['Year'] = trades_df['SignalDate'].dt.year
         trades_df['Month'] = trades_df['SignalDate'].dt.strftime('%b')
@@ -434,7 +486,6 @@ def main():
         trades_df['DayOfWeek'] = trades_df['SignalDate'].dt.day_name()
         trades_df['CyclePhase'] = trades_df['Year'].apply(get_cycle_year)
         
-        # Order helpers
         month_order = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
         day_order = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"]
 
@@ -448,7 +499,7 @@ def main():
         avg_win_val = wins['PnL_Dollar'].mean() if not wins.empty else 0
         avg_loss_val = losses['PnL_Dollar'].mean() if not losses.empty else 0
         
-        # Drawdown ($)
+        # Drawdown
         cum_pnl = trades_df['CumPnL'].values
         running_max = np.maximum.accumulate(cum_pnl)
         dd = running_max - cum_pnl
@@ -509,9 +560,14 @@ def main():
         
         report_text = f"""
         --- BACKTEST CONFIGURATION ---
-        Universe: {univ_choice}
+        Universe: {univ_choice} (Sample: {sample_pct}%)
         Start Date: {start_date}
         Risk Per Trade: ${risk_per_trade}
+        
+        -- LIQUIDITY FILTERS --
+        Min Price: ${min_price}
+        Min Avg Vol: {min_vol}
+        Age: {min_age} - {max_age} years
         
         -- EXECUTION --
         Time Exit Only: {time_exit_only}
@@ -520,7 +576,7 @@ def main():
         Target: {tgt_atr} ATR
         Max Hold: {hold_days} Days
         
-        -- FILTERS --
+        -- SIGNAL FILTERS --
         Performance Rank: {use_perf} ({perf_window}d {perf_logic} {perf_thresh}%)
         Seasonal Rank: {use_sznl} ({sznl_logic} {sznl_thresh})
         52-Week: {use_52w} ({type_52w})
