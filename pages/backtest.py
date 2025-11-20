@@ -53,10 +53,11 @@ def get_sznl_val_series(ticker, dates, sznl_map):
     return mds.map(t_map).fillna(50.0)
 
 @st.cache_data(show_spinner=True)
-def download_universe_data(tickers, start_date):
+def download_universe_data(tickers, fetch_start_date):
     """
-    Downloads data in chunks to prevent rate limiting issues.
-    Returns whatever was successfully downloaded if an error occurs.
+    Downloads data in chunks using a specific Fetch Date.
+    If user wants 'True Age', fetch_start_date will be 1950.
+    If user wants 'Speed', fetch_start_date will be their Backtest Start.
     """
     if not tickers:
         return {} 
@@ -66,11 +67,16 @@ def download_universe_data(tickers, start_date):
     if not clean_tickers:
         return {}
 
-    start_str = start_date.strftime('%Y-%m-%d')
+    # Format Date
+    if isinstance(fetch_start_date, datetime.date):
+        start_str = fetch_start_date.strftime('%Y-%m-%d')
+    else:
+        start_str = fetch_start_date # Assume string if passed as string
+
     data_dict = {}
     
     # Chunking Config
-    CHUNK_SIZE = 50 # Download 50 tickers at a time
+    CHUNK_SIZE = 50 
     total_tickers = len(clean_tickers)
     
     # Progress bar for downloads
@@ -84,15 +90,13 @@ def download_universe_data(tickers, start_date):
         download_bar.progress(min((i + CHUNK_SIZE) / total_tickers, 1.0))
         
         try:
-            # Download chunk
-            # threads=True helps, but we add a tiny sleep to be nice to API if running many chunks
+            # threads=True helps, but we add a tiny sleep to be nice to API
             df = yf.download(chunk, start=start_str, group_by='ticker', auto_adjust=True, progress=False, threads=True)
             
             if df.empty:
                 continue
 
             # PROCESS CHUNK
-            # If chunk size is 1, format is different
             if len(chunk) == 1:
                 t = chunk[0]
                 if isinstance(df.columns, pd.MultiIndex):
@@ -116,19 +120,14 @@ def download_universe_data(tickers, start_date):
                     except:
                         continue
             
-            # Optional: Tiny sleep to avoid hitting rate limits aggressively
-            time.sleep(0.2)
+            time.sleep(0.1)
 
         except Exception as e:
             err_msg = str(e).lower()
-            # Check for Rate Limit specific errors
             if "rate limited" in err_msg or "too many requests" in err_msg:
                 st.warning(f"⚠️ Rate limit hit at ticker #{i}. Stopping download. Running backtest on the {len(data_dict)} tickers collected so far.")
-                break # EXIT LOOP, RETURN DATA
+                break
             else:
-                # If it's a timezone error or delisting error, just skip this chunk and try next
-                # But if it looks critical, we might want to break. 
-                # Usually safely skipping the chunk is better for "bad" tickers.
                 continue
     
     download_bar.empty()
@@ -137,7 +136,6 @@ def download_universe_data(tickers, start_date):
     return data_dict
 
 def get_cycle_year(year):
-    """Returns the cycle phase based on US Presidential 4-year cycle."""
     rem = year % 4
     if rem == 0: return "4. Election Year"
     if rem == 1: return "1. Post-Election"
@@ -159,6 +157,10 @@ def get_age_bucket(years):
 def calculate_indicators(df, sznl_map, ticker):
     df = df.copy()
     df.columns = [c.capitalize() for c in df.columns]
+    
+    # Fix Timezones
+    if df.index.tz is not None:
+        df.index = df.index.tz_localize(None)
     
     # 1. Returns & Expanding Ranks
     for window in [5, 10, 21]:
@@ -187,7 +189,8 @@ def calculate_indicators(df, sznl_map, ticker):
     df['vol_ma'] = vol_ma
     df['vol_ratio'] = df['Volume'] / vol_ma
     
-    # 6. Public Age
+    # 6. True Age Calculation
+    # Uses the very first index in the downloaded data (which might be 1980)
     if not df.empty:
         start_ts = df.index[0]
         df['age_years'] = (df.index - start_ts).days / 365.25
@@ -203,6 +206,9 @@ def run_engine(universe_dict, params, sznl_map):
     status_text = st.empty()
     total = len(universe_dict)
     
+    # Convert user backtest start date to timestamp for slicing
+    bt_start_ts = pd.to_datetime(params['backtest_start_date'])
+
     if total == 0:
         return pd.DataFrame()
 
@@ -210,26 +216,32 @@ def run_engine(universe_dict, params, sznl_map):
         status_text.text(f"Processing {ticker}...")
         progress_bar.progress((i+1)/total)
         
-        if len(df_raw) < 260: continue
+        if len(df_raw) < 100: continue
         
         try:
+            # 1. Calculate Indicators on FULL History (for accurate Age/MA)
             df = calculate_indicators(df_raw, sznl_map, ticker)
-            df = df.dropna()
+            
+            # 2. SLICE to Backtest Period
+            # We only trade AFTER the user's selected start date
+            df = df[df.index >= bt_start_ts]
             
             if df.empty: continue
             
             # --- SIGNAL LOGIC ---
             conditions = []
             
-            # 1. Basic Filters
-            gate_cond = (df['Close'] >= params['min_price']) & \
-                        (df['vol_ma'] >= params['min_vol']) & \
-                        (df['age_years'] >= params['min_age']) & \
-                        (df['age_years'] <= params['max_age'])
+            # Basic Filters
+            current_age = df['age_years'].fillna(0)
+            current_vol = df['vol_ma'].fillna(0)
+            current_close = df['Close'].fillna(0)
+            
+            gate_cond = (current_close >= params['min_price']) & \
+                        (current_vol >= params['min_vol']) & \
+                        (current_age >= params['min_age']) & \
+                        (current_age <= params['max_age'])
                         
             conditions.append(gate_cond)
-            
-            # 2. Strategy Filters
             
             # Perf Rank
             if params['use_perf_rank']:
@@ -377,6 +389,7 @@ def main():
     col_u1, col_u2, col_u3 = st.columns([1, 1, 2])
     
     sample_pct = 100 # Default
+    use_full_history = False
     
     with col_u1:
         univ_choice = st.selectbox("Choose Universe", 
@@ -385,6 +398,10 @@ def main():
     with col_u2:
         default_start = datetime.date.today() - datetime.timedelta(days=365*5)
         start_date = st.date_input("Backtest Start Date", value=default_start)
+        
+        # NEW: Option for Accurate Age
+        use_full_history = st.checkbox("Download Full History (Accurate Age)", value=False,
+            help="If checked, downloads data from 1950 to calculate 'True Age', then cuts to your Backtest Start Date. Slower but more accurate.")
     
     custom_tickers = []
     if univ_choice == "Custom (Upload CSV)":
@@ -443,16 +460,16 @@ def main():
     st.subheader("3. Signal Criteria")
 
     # A. Liquidity & Age Filters
-    with st.expander("Liquidity & Age Filters", expanded=True):
+    with st.expander("Liquidity & Data History Filters (Defaults = Disabled)", expanded=True):
         l1, l2, l3, l4 = st.columns(4)
         with l1:
-            min_price = st.number_input("Min Price ($)", value=10.0, step=1.0)
+            min_price = st.number_input("Min Price ($)", value=0.0, step=1.0, help="Set to 0 to disable.")
         with l2:
-            min_vol = st.number_input("Min Avg Volume", value=100000, step=50000)
+            min_vol = st.number_input("Min Avg Volume", value=0, step=50000, help="Set to 0 to disable.")
         with l3:
-            min_age = st.number_input("Min Public Age (Yrs)", value=0.0, step=0.5)
+            min_age = st.number_input("Min True Age (Yrs)", value=0.0, step=0.5, help="Uses Full History if enabled above. Otherwise uses Data Start Date.")
         with l4:
-            max_age = st.number_input("Max Public Age (Yrs)", value=100.0, step=1.0)
+            max_age = st.number_input("Max True Age (Yrs)", value=100.0, step=1.0)
 
     # B. Performance Rank
     with st.expander("Performance Percentile Rank", expanded=False):
@@ -515,15 +532,23 @@ def main():
         if not tickers_to_run:
             st.error("No tickers found.")
             return
-            
-        st.info(f"Fetching data for {len(tickers_to_run)} tickers from {start_date}...")
-        data_dict = download_universe_data(tickers_to_run, start_date)
+        
+        # DETERMINE DOWNLOAD START DATE
+        # If Full History is checked, we grab from 1950.
+        # Otherwise we grab from the user's Backtest Start Date.
+        fetch_start = "1950-01-01" if use_full_history else start_date
+        
+        msg = "Downloading FULL history (1950+) for Accurate Age..." if use_full_history else f"Downloading data from {start_date}..."
+        st.info(f"{msg} ({len(tickers_to_run)} tickers)")
+        
+        data_dict = download_universe_data(tickers_to_run, fetch_start)
         
         if not data_dict:
             st.error("Failed to download data, or no valid data found for these tickers.")
             return
             
         params = {
+            'backtest_start_date': start_date, # Pass this so we know where to SLICE
             'time_exit_only': time_exit_only,
             'stop_atr': stop_atr, 'tgt_atr': tgt_atr, 'holding_days': hold_days, 'entry_type': entry_type,
             'min_price': min_price, 'min_vol': min_vol, 'min_age': min_age, 'max_age': max_age,
@@ -558,7 +583,10 @@ def main():
         age_order = ["< 3 Years", "3-5 Years", "5-10 Years", "10-20 Years", "> 20 Years"]
         
         if len(trades_df) >= 10:
-            trades_df['VolDecile'] = pd.qcut(trades_df['AvgVol'], 10, labels=False, duplicates='drop') + 1
+            try:
+                trades_df['VolDecile'] = pd.qcut(trades_df['AvgVol'], 10, labels=False, duplicates='drop') + 1
+            except:
+                trades_df['VolDecile'] = 1
         else:
             trades_df['VolDecile'] = 1
 
@@ -617,7 +645,7 @@ def main():
         b5, b6 = st.columns(2)
         
         df_age = trades_df.groupby('AgeBucket')['PnL_Dollar'].sum().reindex(age_order).reset_index()
-        fig_age = px.bar(df_age, x='AgeBucket', y='PnL_Dollar', title="PnL by Company Age", text_auto='.2s')
+        fig_age = px.bar(df_age, x='AgeBucket', y='PnL_Dollar', title="PnL by History Length", text_auto='.2s')
         b5.plotly_chart(fig_age, use_container_width=True)
         
         df_vol = trades_df.groupby('VolDecile')['PnL_Dollar'].sum().reset_index()
@@ -634,16 +662,19 @@ def main():
         st.markdown("---")
         st.subheader("Configuration & Results Report")
         
+        history_mode = "Full History (1950+)" if use_full_history else f"Since {start_date}"
+        
         report_text = f"""
         --- BACKTEST CONFIGURATION ---
         Universe: {univ_choice} (Sample: {sample_pct}%)
-        Start Date: {start_date}
+        Data Source: {history_mode}
+        Backtest Start: {start_date}
         Risk Per Trade: ${risk_per_trade}
         
         -- LIQUIDITY FILTERS --
         Min Price: ${min_price}
         Min Avg Vol: {min_vol}
-        Age: {min_age} - {max_age} years
+        Min History: {min_age} years
         
         -- EXECUTION --
         Time Exit Only: {time_exit_only}
