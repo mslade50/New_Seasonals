@@ -3,6 +3,7 @@ import pandas as pd
 import numpy as np
 import yfinance as yf
 import plotly.express as px
+import plotly.graph_objects as go
 import datetime
 
 # -----------------------------------------------------------------------------
@@ -44,26 +45,19 @@ def load_seasonal_map():
 def get_sznl_val_series(ticker, dates, sznl_map):
     """Vectorized seasonal lookup."""
     t_map = sznl_map.get(ticker, {})
-    # FIX: Return 50.0 (Neutral) if data missing to prevent dropna() killing the row
     if not t_map:
         return pd.Series(50.0, index=dates)
     
     mds = dates.map(lambda x: (x.month, x.day))
-    # Map, then fill remaining NaNs (e.g. Feb 29) with 50
     return mds.map(t_map).fillna(50.0)
 
 @st.cache_data(show_spinner=True)
 def download_universe_data(tickers, start_date):
-    """
-    Downloads OHLCV data for a list of tickers from a specific start date.
-    """
     if not tickers:
         return pd.DataFrame()
     
-    # Convert date object to string for yfinance
     start_str = start_date.strftime('%Y-%m-%d')
 
-    # Download in one batch using the specific Start Date
     try:
         df = yf.download(tickers, start=start_str, group_by='ticker', auto_adjust=True, progress=False)
     except Exception as e:
@@ -73,7 +67,6 @@ def download_universe_data(tickers, start_date):
     data_dict = {}
     if len(tickers) == 1:
         t = tickers[0]
-        # Flatten MultiIndex columns if single ticker
         df.columns = [c if isinstance(c, str) else c[0] for c in df.columns]
         if not df.empty:
             data_dict[t] = df
@@ -81,8 +74,6 @@ def download_universe_data(tickers, start_date):
         for t in tickers:
             try:
                 t_df = df[t].copy()
-                # Specific drop for cases where one ticker has data (BTC) and others don't (SPY on weekends)
-                # We check 'Close' specifically.
                 col_to_check = 'Close' if 'Close' in t_df.columns else 'close'
                 if col_to_check in t_df.columns:
                     t_df = t_df.dropna(subset=[col_to_check])
@@ -99,16 +90,12 @@ def download_universe_data(tickers, start_date):
 # -----------------------------------------------------------------------------
 
 def calculate_indicators(df, sznl_map, ticker):
-    """Calculates indicators including expanding ranks to avoid lookahead bias."""
     df = df.copy()
-    
-    # Normalize column names
     df.columns = [c.capitalize() for c in df.columns]
     
     # 1. Returns & Expanding Ranks
     for window in [5, 10, 21]:
         df[f'ret_{window}d'] = df['Close'].pct_change(window)
-        # Expanding rank (0.0 to 100.0)
         df[f'rank_ret_{window}d'] = df[f'ret_{window}d'].expanding(min_periods=252).rank(pct=True) * 100.0
         
     # 2. ATR(14)
@@ -119,10 +106,10 @@ def calculate_indicators(df, sznl_map, ticker):
     true_range = ranges.max(axis=1)
     df['ATR'] = true_range.rolling(14).mean()
     
-    # 3. Seasonality (Safe Lookup)
+    # 3. Seasonality
     df['Sznl'] = get_sznl_val_series(ticker, df.index, sznl_map)
     
-    # 4. 52w High / Low (Shifted 1 day to use yesterday's high/low reference)
+    # 4. 52w High / Low
     rolling_high = df['High'].shift(1).rolling(252).max()
     rolling_low = df['Low'].shift(1).rolling(252).min()
     df['is_52w_high'] = df['High'] > rolling_high
@@ -145,7 +132,6 @@ def run_engine(universe_dict, params, sznl_map):
         status_text.text(f"Processing {ticker}...")
         progress_bar.progress((i+1)/total)
         
-        # Skip if history is too short for 252d expanding window + indicators
         if len(df_raw) < 260: continue
         
         df = calculate_indicators(df_raw, sznl_map, ticker)
@@ -162,7 +148,6 @@ def run_engine(universe_dict, params, sznl_map):
             else:
                 cond = df[col] > params['perf_thresh']
             if params['perf_first_instance']:
-                # Ensure strict previous 0 sum
                 prev = cond.shift(1).rolling(params['perf_lookback']).sum()
                 cond = cond & (prev == 0)
             conditions.append(cond)
@@ -196,7 +181,6 @@ def run_engine(universe_dict, params, sznl_map):
             
         if not conditions: continue
             
-        # Combine all conditions (AND logic)
         final_signal = conditions[0]
         for c in conditions[1:]:
             final_signal = final_signal & c
@@ -208,13 +192,12 @@ def run_engine(universe_dict, params, sznl_map):
             try:
                 sig_idx = df.index.get_loc(signal_date)
                 
-                # Ensure enough data for holding period
                 if sig_idx + params['holding_days'] + 2 >= len(df): continue
                 
                 atr = df['ATR'].iloc[sig_idx]
                 if np.isnan(atr) or atr == 0: continue
                 
-                # Determine Entry
+                # Entry
                 if params['entry_type'] == 'Signal Close':
                     entry_price = df['Close'].iloc[sig_idx]
                     start_idx = sig_idx + 1
@@ -225,32 +208,31 @@ def run_engine(universe_dict, params, sznl_map):
                     entry_price = df['Close'].iloc[sig_idx + 1]
                     start_idx = sig_idx + 2
                 
-                # Risk Management
+                # Risk Management (Used for R Calc even if stops disabled)
                 stop_price = entry_price - (atr * params['stop_atr'])
                 tgt_price = entry_price + (atr * params['tgt_atr'])
                 
-                # Outcome Loop
                 exit_price = entry_price
                 exit_type = "Hold"
                 exit_date = None
                 
                 future = df.iloc[start_idx : start_idx + params['holding_days']]
                 
-                for f_date, f_row in future.iterrows():
-                    # Hit Stop?
-                    if f_row['Low'] <= stop_price:
-                        # Gap protection: if Open < Stop, we exit at Open
-                        exit_price = f_row['Open'] if f_row['Open'] < stop_price else stop_price
-                        exit_type = "Stop"
-                        exit_date = f_date
-                        break
-                    # Hit Target?
-                    if f_row['High'] >= tgt_price:
-                        # Gap benefit: if Open > Target, we exit at Open
-                        exit_price = f_row['Open'] if f_row['Open'] > tgt_price else tgt_price
-                        exit_type = "Target"
-                        exit_date = f_date
-                        break
+                # Loop only if we are using Stops/Targets
+                if not params['time_exit_only']:
+                    for f_date, f_row in future.iterrows():
+                        # Hit Stop?
+                        if f_row['Low'] <= stop_price:
+                            exit_price = f_row['Open'] if f_row['Open'] < stop_price else stop_price
+                            exit_type = "Stop"
+                            exit_date = f_date
+                            break
+                        # Hit Target?
+                        if f_row['High'] >= tgt_price:
+                            exit_price = f_row['Open'] if f_row['Open'] > tgt_price else tgt_price
+                            exit_type = "Target"
+                            exit_date = f_date
+                            break
                 
                 if exit_type == "Hold":
                     exit_price = future['Close'].iloc[-1]
@@ -258,8 +240,9 @@ def run_engine(universe_dict, params, sznl_map):
                     exit_type = "Time"
                 
                 # R Calculation
+                # Even if "Time Only", we define R based on the theoretical stop
                 risk_unit = entry_price - stop_price
-                if risk_unit <= 0: risk_unit = 0.001 # Avoid Div/0
+                if risk_unit <= 0: risk_unit = 0.001 
                 pnl = exit_price - entry_price
                 r_realized = pnl / risk_unit
                 
@@ -288,10 +271,9 @@ def main():
     st.markdown("---")
 
     # --------------------------------
-    # 1. UNIVERSE SELECTION & DATA DATE
+    # 1. UNIVERSE & DATA
     # --------------------------------
     st.subheader("1. Universe & Data")
-    
     col_u1, col_u2, col_u3 = st.columns([1, 1, 2])
     
     with col_u1:
@@ -299,7 +281,6 @@ def main():
             ["Sector ETFs", "Sector + Index ETFs", "All CSV Tickers", "Custom (Upload CSV)"])
             
     with col_u2:
-        # Default start date: 5 years ago
         default_start = datetime.date.today() - datetime.timedelta(days=365*5)
         start_date = st.date_input("Backtest Start Date", value=default_start)
     
@@ -321,17 +302,25 @@ def main():
     st.markdown("---")
 
     # --------------------------------
-    # 2. TRADE MANAGEMENT
+    # 2. EXECUTION & RISK
     # --------------------------------
     st.subheader("2. Execution & Risk Management")
+    
+    # NEW: Time Exit Switch
+    time_exit_only = st.checkbox("Time Exit Only (Disable Stop/Target)", 
+                                 help="If checked, trades only exit after 'Max Holding Days'. Stop Loss settings are still used to calculate position size (R-units).")
+
     c1, c2, c3, c4 = st.columns(4)
     
     with c1:
         entry_type = st.selectbox("Entry Price", ["Signal Close", "T+1 Open", "T+1 Close"])
     with c2:
-        stop_atr = st.number_input("Stop Loss (ATR Multiple)", min_value=0.1, max_value=10.0, value=2.0, step=0.1)
+        # Stop ATR is still needed for R-calculation even if Time Exit is on
+        stop_atr = st.number_input("Stop Loss (ATR Multiple)", min_value=0.1, max_value=10.0, value=2.0, step=0.1,
+                                   help="Defines the Unit of Risk (1R) even if Time Exit is enabled.")
     with c3:
-        tgt_atr = st.number_input("Target (ATR Multiple)", min_value=0.1, max_value=20.0, value=4.0, step=0.1)
+        tgt_atr = st.number_input("Target (ATR Multiple)", min_value=0.1, max_value=20.0, value=4.0, step=0.1,
+                                  disabled=time_exit_only)
     with c4:
         hold_days = st.number_input("Max Holding Days", min_value=1, max_value=365, value=10, step=1)
 
@@ -404,28 +393,27 @@ def main():
         elif univ_choice == "Sector + Index ETFs":
             tickers_to_run = list(set(SECTOR_ETFS + INDEX_ETFS))
         elif univ_choice == "All CSV Tickers":
-            # --- EXCLUDE CRYPTO LOGIC ---
             raw_keys = list(sznl_map.keys())
             exclude_list = ["BTC-USD", "ETH-USD"]
             tickers_to_run = [t for t in raw_keys if t not in exclude_list]
-            # ----------------------------
         elif univ_choice == "Custom (Upload CSV)":
             tickers_to_run = custom_tickers
             
         if not tickers_to_run:
-            st.error("No tickers found. Please check your Universe selection.")
+            st.error("No tickers found.")
             return
             
-        # 2. Download Data
+        # 2. Download
         st.info(f"Fetching data for {len(tickers_to_run)} tickers from {start_date}...")
         data_dict = download_universe_data(tickers_to_run, start_date)
         
         if not data_dict:
-            st.error("Failed to download data. Ensure tickers are valid and start date is correct.")
+            st.error("Failed to download data.")
             return
             
         # 3. Pack Params
         params = {
+            'time_exit_only': time_exit_only,
             'stop_atr': stop_atr, 'tgt_atr': tgt_atr, 'holding_days': hold_days, 'entry_type': entry_type,
             'use_perf_rank': use_perf, 'perf_window': perf_window, 'perf_logic': perf_logic, 
             'perf_thresh': perf_thresh, 'perf_first_instance': perf_first, 'perf_lookback': perf_lookback,
@@ -435,46 +423,138 @@ def main():
             'use_vol': use_vol, 'vol_thresh': vol_thresh
         }
         
-        # 4. Run Engine
+        # 4. Run
         trades_df = run_engine(data_dict, params, sznl_map)
         
         if trades_df.empty:
-            st.warning("Backtest complete. No signals generated with these criteria.")
+            st.warning("No signals generated.")
             return
             
-        # 5. Results
+        # 5. Analysis
         trades_df = trades_df.sort_values("ExitDate")
-        trades_df['CumR'] = trades_df['R'].cumsum()
         
-        # Stats
+        # --- KELLY CALCULATION ---
+        # Win Rate & Ratios
         wins = trades_df[trades_df['R'] > 0]
-        win_rate = len(wins) / len(trades_df) * 100
-        avg_r = trades_df['R'].mean()
+        losses = trades_df[trades_df['R'] <= 0]
         
-        # Drawdown
-        cum_r = trades_df['CumR'].values
-        running_max = np.maximum.accumulate(cum_r)
-        dd = running_max - cum_r
-        max_dd = dd.max()
+        win_rate_val = len(wins) / len(trades_df) if len(trades_df) > 0 else 0
+        avg_win = wins['R'].mean() if not wins.empty else 0
+        avg_loss = abs(losses['R'].mean()) if not losses.empty else 1
         
+        # Kelly Formula: K% = W - [ (1-W) / (AvgWin/AvgLoss) ]
+        if avg_win > 0 and avg_loss > 0:
+            payoff_ratio = avg_win / avg_loss
+            kelly_full = win_rate_val - ((1 - win_rate_val) / payoff_ratio)
+        else:
+            kelly_full = 0
+            
+        # Clamp negative Kelly to 0 for display safety, or allow user to see it's a losing strategy
+        kelly_used = max(0, kelly_full) 
+        
+        # --- CURVE GENERATION ---
+        # We will simulate compounding equity
+        initial_capital = 10000
+        
+        # Curves Containers
+        curves = {
+            "Flat 1% Risk": [initial_capital],
+            "1/4 Kelly": [initial_capital],
+            "1/2 Kelly": [initial_capital],
+            "Full Kelly": [initial_capital]
+        }
+        
+        # Bet sizes (fraction of CURRENT equity)
+        # Note: In 'Flat 1%', we risk 1% of equity. If trade is -1R, we lose 1%. If +2R, we gain 2%.
+        # Formula: New = Old * (1 + (Fraction * R_Result))
+        fractions = {
+            "Flat 1% Risk": 0.01,
+            "1/4 Kelly": kelly_used * 0.25,
+            "1/2 Kelly": kelly_used * 0.50,
+            "Full Kelly": kelly_used
+        }
+        
+        # It's faster to vectorize, but iteration is clearer for "path dependence" logic
+        r_values = trades_df['R'].values
+        dates = trades_df['ExitDate'].values
+        
+        for r in r_values:
+            for name, hist in curves.items():
+                prev = hist[-1]
+                # Simple compounding
+                # Caution: Full Kelly can bankrupt on -1R loss if Fraction=1.0.
+                # We act nicely and cap loss at -100% (can't lose more than you have)
+                change_pct = fractions[name] * r
+                new_val = prev * (1 + change_pct)
+                if new_val < 0: new_val = 0 # Bankruptcy
+                hist.append(new_val)
+                
+        # Create Plotting DF (aligning with dates - prepending start date?)
+        # For simplicity, we just plot against trade number or ExitDate. 
+        # Let's map to ExitDates. Note: Multiple trades can exit same day.
+        
+        plot_data = pd.DataFrame(index=range(len(r_values) + 1))
+        plot_data['TradeNum'] = range(len(r_values) + 1)
+        for name, hist in curves.items():
+            plot_data[name] = hist
+            
+        # KPI Display
         st.success("Backtest Complete!")
         
-        # KPI Row
-        k1, k2, k3, k4 = st.columns(4)
+        k1, k2, k3, k4, k5 = st.columns(5)
         k1.metric("Total Trades", len(trades_df))
-        k2.metric("Win Rate", f"{win_rate:.1f}%")
-        k3.metric("Avg R / Trade", f"{avg_r:.2f}R")
-        k4.metric("Max Drawdown", f"{max_dd:.2f}R")
+        k2.metric("Win Rate", f"{win_rate_val*100:.1f}%")
+        k3.metric("Avg R", f"{trades_df['R'].mean():.2f}R")
+        k4.metric("Full Kelly", f"{kelly_full*100:.2f}%")
+        k5.metric("Payoff Ratio", f"{avg_win/avg_loss:.2f}")
         
-        # Equity Curve
-        fig = px.line(trades_df, x="ExitDate", y="CumR", title="Cumulative Equity (R-Multiples)", markers=True)
+        # Multi-Line Plot
+        fig = px.line(plot_data, x="TradeNum", y=list(curves.keys()), 
+                      title="Compounding Equity Curves (Starting $10k)",
+                      labels={"value": "Equity ($)", "TradeNum": "Trade Count"})
         st.plotly_chart(fig, use_container_width=True)
         
-        # Data Table
         st.subheader("Trade Log")
         st.dataframe(trades_df.style.format({
             "Entry": "{:.2f}", "Exit": "{:.2f}", "R": "{:.2f}"
         }), use_container_width=True)
+
+        # --------------------------------
+        # 5. SAVE / CONFIG REPORT
+        # --------------------------------
+        st.markdown("---")
+        st.subheader("Configuration & Results Report")
+        
+        report_text = f"""
+        --- BACKTEST CONFIGURATION ---
+        Universe: {univ_choice}
+        Start Date: {start_date}
+        
+        -- EXECUTION --
+        Time Exit Only: {time_exit_only}
+        Entry: {entry_type}
+        Stop Loss: {stop_atr} ATR (Used for R-calc)
+        Target: {tgt_atr} ATR
+        Max Hold: {hold_days} Days
+        
+        -- FILTERS --
+        Performance Rank: {use_perf} ({perf_window}d {perf_logic} {perf_thresh}%)
+        Seasonal Rank: {use_sznl} ({sznl_logic} {sznl_thresh})
+        52-Week: {use_52w} ({type_52w})
+        Volume Spike: {use_vol} (> {vol_thresh}x)
+        
+        --- RESULTS SUMMARY ---
+        Trades: {len(trades_df)}
+        Win Rate: {win_rate_val*100:.1f}%
+        Avg R: {trades_df['R'].mean():.2f}
+        
+        --- BET SIZING (KELLY) ---
+        Full Kelly: {kelly_full*100:.2f}%
+        1/2 Kelly: {kelly_full*50:.2f}%
+        1/4 Kelly: {kelly_full*25:.2f}%
+        """
+        
+        st.text_area("Copy this summary:", value=report_text, height=300)
 
 if __name__ == "__main__":
     main()
