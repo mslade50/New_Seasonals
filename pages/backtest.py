@@ -5,6 +5,7 @@ import yfinance as yf
 import plotly.express as px
 import datetime
 import random
+import time
 
 # -----------------------------------------------------------------------------
 # CONFIG / CONSTANTS
@@ -53,62 +54,86 @@ def get_sznl_val_series(ticker, dates, sznl_map):
 
 @st.cache_data(show_spinner=True)
 def download_universe_data(tickers, start_date):
+    """
+    Downloads data in chunks to prevent rate limiting issues.
+    Returns whatever was successfully downloaded if an error occurs.
+    """
     if not tickers:
         return {} 
     
-    # Sanitize: Ensure all items are strings and not empty
+    # Sanitize
     clean_tickers = [str(t).strip().upper() for t in tickers if str(t).strip() != '']
-    
     if not clean_tickers:
         return {}
 
     start_str = start_date.strftime('%Y-%m-%d')
-
-    try:
-        # threads=True speeds up mass download
-        df = yf.download(clean_tickers, start=start_str, group_by='ticker', auto_adjust=True, progress=False, threads=True)
-    except Exception as e:
-        st.error(f"YFinance Download Error: {e}")
-        return {} 
-    
-    if df.empty:
-        return {}
-
     data_dict = {}
     
-    # Handle single ticker case
-    if len(clean_tickers) == 1:
-        t = clean_tickers[0]
-        # Flatten columns if they are MultiIndex (sometimes happens even with 1 ticker if group_by is set)
-        if isinstance(df.columns, pd.MultiIndex):
-            df.columns = [c if isinstance(c, str) else c[0] for c in df.columns]
+    # Chunking Config
+    CHUNK_SIZE = 50 # Download 50 tickers at a time
+    total_tickers = len(clean_tickers)
+    
+    # Progress bar for downloads
+    download_bar = st.progress(0)
+    status_text = st.empty()
+    
+    for i in range(0, total_tickers, CHUNK_SIZE):
+        chunk = clean_tickers[i:i + CHUNK_SIZE]
+        
+        status_text.text(f"Downloading batch {i} to {min(i+CHUNK_SIZE, total_tickers)} of {total_tickers}...")
+        download_bar.progress(min((i + CHUNK_SIZE) / total_tickers, 1.0))
+        
+        try:
+            # Download chunk
+            # threads=True helps, but we add a tiny sleep to be nice to API if running many chunks
+            df = yf.download(chunk, start=start_str, group_by='ticker', auto_adjust=True, progress=False, threads=True)
             
-        if not df.empty:
-            data_dict[t] = df
-    else:
-        # Handle multi ticker case
-        for t in clean_tickers:
-            try:
-                # If the ticker isn't in the top level columns, skip
-                if t not in df.columns.levels[0]:
-                    continue 
-                
-                t_df = df[t].copy()
-                
-                # Drop rows where 'Close' is NaN to verify data exists
-                col_to_check = 'Close' if 'Close' in t_df.columns else 'close'
-                if col_to_check in t_df.columns:
-                    t_df = t_df.dropna(subset=[col_to_check])
-                
-                if t_df.empty: 
-                    continue 
-                    
-                data_dict[t] = t_df
-            except KeyError:
-                continue 
-            except Exception:
-                continue 
-                
+            if df.empty:
+                continue
+
+            # PROCESS CHUNK
+            # If chunk size is 1, format is different
+            if len(chunk) == 1:
+                t = chunk[0]
+                if isinstance(df.columns, pd.MultiIndex):
+                    df.columns = [c if isinstance(c, str) else c[0] for c in df.columns]
+                if not df.empty:
+                    data_dict[t] = df
+            else:
+                # Multi-ticker batch
+                for t in chunk:
+                    try:
+                        if t not in df.columns.levels[0]:
+                            continue
+                        
+                        t_df = df[t].copy()
+                        col_to_check = 'Close' if 'Close' in t_df.columns else 'close'
+                        if col_to_check in t_df.columns:
+                            t_df = t_df.dropna(subset=[col_to_check])
+                        
+                        if not t_df.empty:
+                            data_dict[t] = t_df
+                    except:
+                        continue
+            
+            # Optional: Tiny sleep to avoid hitting rate limits aggressively
+            time.sleep(0.2)
+
+        except Exception as e:
+            err_msg = str(e).lower()
+            # Check for Rate Limit specific errors
+            if "rate limited" in err_msg or "too many requests" in err_msg:
+                st.warning(f"⚠️ Rate limit hit at ticker #{i}. Stopping download. Running backtest on the {len(data_dict)} tickers collected so far.")
+                break # EXIT LOOP, RETURN DATA
+            else:
+                # If it's a timezone error or delisting error, just skip this chunk and try next
+                # But if it looks critical, we might want to break. 
+                # Usually safely skipping the chunk is better for "bad" tickers.
+                continue
+    
+    download_bar.empty()
+    status_text.empty()
+    
     return data_dict
 
 def get_cycle_year(year):
@@ -178,6 +203,9 @@ def run_engine(universe_dict, params, sznl_map):
     status_text = st.empty()
     total = len(universe_dict)
     
+    if total == 0:
+        return pd.DataFrame()
+
     for i, (ticker, df_raw) in enumerate(universe_dict.items()):
         status_text.text(f"Processing {ticker}...")
         progress_bar.progress((i+1)/total)
@@ -370,9 +398,7 @@ def main():
                     c_df = pd.read_csv(uploaded_file)
                     if "Ticker" in c_df.columns:
                         # --- SANITIZE INPUT ---
-                        # Force string, strip whitespace, upper case
                         c_df["Ticker"] = c_df["Ticker"].astype(str).str.strip().str.upper()
-                        # Remove rows that became 'NAN', 'NONE' or empty
                         c_df = c_df[~c_df["Ticker"].isin(["NAN", "NONE", "NULL", ""])]
                         
                         custom_tickers = c_df["Ticker"].unique().tolist()
