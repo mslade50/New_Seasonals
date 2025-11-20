@@ -444,9 +444,9 @@ def main():
     with c1:
         entry_type = st.selectbox("Entry Price", ["Signal Close", "T+1 Open", "T+1 Close"])
     with c2:
-        stop_atr = st.number_input("Stop Loss (ATR Multiple)", min_value=0.1, max_value=10.0, value=2.0, step=0.1)
+        stop_atr = st.number_input("Stop Loss (ATR Multiple)", min_value=0.1, max_value=10.0, value=3.0, step=0.1)
     with c3:
-        tgt_atr = st.number_input("Target (ATR Multiple)", min_value=0.1, max_value=20.0, value=4.0, step=0.1, disabled=time_exit_only)
+        tgt_atr = st.number_input("Target (ATR Multiple)", min_value=0.1, max_value=20.0, value=8.0, step=0.1, disabled=time_exit_only)
     with c4:
         hold_days = st.number_input("Max Holding Days", min_value=1, max_value=365, value=10, step=1)
     with c5:
@@ -464,17 +464,17 @@ def main():
         st.info("Note: If filtering by Age, enable 'Download Full History' at the top to prevent deleting early data.")
         l1, l2, l3, l4 = st.columns(4)
         with l1:
-            min_price = st.number_input("Min Price ($)", value=0.0, step=1.0, help="Set to 0 to disable.")
+            min_price = st.number_input("Min Price ($)", value=10.0, step=1.0, help="Set to 0 to disable.")
         with l2:
-            min_vol = st.number_input("Min Avg Volume", value=0, step=50000, help="Set to 0 to disable.")
+            min_vol = st.number_input("Min Avg Volume", value=100000, step=50000, help="Set to 0 to disable.")
         with l3:
-            min_age = st.number_input("Min True Age (Yrs)", value=0.0, step=0.5, help="Requires 'Download Full History' enabled.")
+            min_age = st.number_input("Min True Age (Yrs)", value=0.25, step=0.25, help="Requires 'Download Full History' enabled.")
         with l4:
             max_age = st.number_input("Max True Age (Yrs)", value=100.0, step=1.0)
 
     # B. Performance Rank
     with st.expander("Performance Percentile Rank", expanded=False):
-        use_perf = st.checkbox("Enable Performance Filter", value=True)
+        use_perf = st.checkbox("Enable Performance Filter", value=False)
         p1, p2, p3, p4, p5 = st.columns(5)
         with p1: perf_window = st.selectbox("Window", [5, 10, 21], disabled=not use_perf)
         with p2: perf_logic = st.selectbox("Logic", ["<", ">"], disabled=not use_perf)
