@@ -56,10 +56,17 @@ def download_universe_data(tickers, start_date):
     if not tickers:
         return {} 
     
+    # Sanitize: Ensure all items are strings and not empty
+    clean_tickers = [str(t).strip().upper() for t in tickers if str(t).strip() != '']
+    
+    if not clean_tickers:
+        return {}
+
     start_str = start_date.strftime('%Y-%m-%d')
 
     try:
-        df = yf.download(tickers, start=start_str, group_by='ticker', auto_adjust=True, progress=False, threads=True)
+        # threads=True speeds up mass download
+        df = yf.download(clean_tickers, start=start_str, group_by='ticker', auto_adjust=True, progress=False, threads=True)
     except Exception as e:
         st.error(f"YFinance Download Error: {e}")
         return {} 
@@ -69,18 +76,26 @@ def download_universe_data(tickers, start_date):
 
     data_dict = {}
     
-    if len(tickers) == 1:
-        t = tickers[0]
-        df.columns = [c if isinstance(c, str) else c[0] for c in df.columns]
+    # Handle single ticker case
+    if len(clean_tickers) == 1:
+        t = clean_tickers[0]
+        # Flatten columns if they are MultiIndex (sometimes happens even with 1 ticker if group_by is set)
+        if isinstance(df.columns, pd.MultiIndex):
+            df.columns = [c if isinstance(c, str) else c[0] for c in df.columns]
+            
         if not df.empty:
             data_dict[t] = df
     else:
-        for t in tickers:
+        # Handle multi ticker case
+        for t in clean_tickers:
             try:
+                # If the ticker isn't in the top level columns, skip
                 if t not in df.columns.levels[0]:
                     continue 
                 
                 t_df = df[t].copy()
+                
+                # Drop rows where 'Close' is NaN to verify data exists
                 col_to_check = 'Close' if 'Close' in t_df.columns else 'close'
                 if col_to_check in t_df.columns:
                     t_df = t_df.dropna(subset=[col_to_check])
@@ -147,7 +162,7 @@ def calculate_indicators(df, sznl_map, ticker):
     df['vol_ma'] = vol_ma
     df['vol_ratio'] = df['Volume'] / vol_ma
     
-    # 6. Public Age (Years since start of this dataframe)
+    # 6. Public Age
     if not df.empty:
         start_ts = df.index[0]
         df['age_years'] = (df.index - start_ts).days / 365.25
@@ -245,7 +260,7 @@ def run_engine(universe_dict, params, sznl_map):
                     
                     atr = df['ATR'].iloc[sig_idx]
                     
-                    # Grab Snapshot Data for Analysis
+                    # Snapshots
                     snap_age = df['age_years'].iloc[sig_idx]
                     snap_vol = df['vol_ma'].iloc[sig_idx]
 
@@ -354,12 +369,22 @@ def main():
                 try:
                     c_df = pd.read_csv(uploaded_file)
                     if "Ticker" in c_df.columns:
+                        # --- SANITIZE INPUT ---
+                        # Force string, strip whitespace, upper case
+                        c_df["Ticker"] = c_df["Ticker"].astype(str).str.strip().str.upper()
+                        # Remove rows that became 'NAN', 'NONE' or empty
+                        c_df = c_df[~c_df["Ticker"].isin(["NAN", "NONE", "NULL", ""])]
+                        
                         custom_tickers = c_df["Ticker"].unique().tolist()
-                        st.success(f"Loaded {len(custom_tickers)} tickers. Will run on {int(len(custom_tickers)*(sample_pct/100))} randomly.")
+                        
+                        if len(custom_tickers) > 0:
+                            st.success(f"Loaded {len(custom_tickers)} valid tickers. Will run on {int(len(custom_tickers)*(sample_pct/100))} randomly.")
+                        else:
+                            st.error("CSV found but contained no valid tickers after cleaning.")
                     else:
                         st.error("CSV missing 'Ticker' column.")
-                except:
-                    st.error("Invalid CSV.")
+                except Exception as e:
+                    st.error(f"Invalid CSV: {e}")
 
     st.markdown("---")
 
@@ -503,11 +528,9 @@ def main():
         trades_df['CyclePhase'] = trades_df['Year'].apply(get_cycle_year)
         
         # --- NEW BUCKETS ---
-        # Age Bucket
         trades_df['AgeBucket'] = trades_df['Age'].apply(get_age_bucket)
         age_order = ["< 3 Years", "3-5 Years", "5-10 Years", "10-20 Years", "> 20 Years"]
         
-        # Vol Decile
         if len(trades_df) >= 10:
             trades_df['VolDecile'] = pd.qcut(trades_df['AvgVol'], 10, labels=False, duplicates='drop') + 1
         else:
