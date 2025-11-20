@@ -9,42 +9,7 @@ import time
 import uuid
 
 # -----------------------------------------------------------------------------
-# 1. THE STRATEGY BOOK (PRODUCTION SCREENER)
-# -----------------------------------------------------------------------------
-# Paste your "Saved" strategies here from the Backtester output.
-
-STRATEGY_BOOK = [
-    {
-        "id": "IND_OS_SZNL_EXAMPLE",
-        "name": "Oversold Indices + Bullish Seasonality",
-        "description": "Buying major indices when short-term momentum is washed out but seasonal tailwinds are strong.",
-        "universe_tickers": ["SPY", "QQQ", "IWM", "DIA", "SMH"], 
-        "settings": {
-            "use_perf_rank": True, "perf_window": 5, "perf_logic": "<", "perf_thresh": 15.0,
-            "use_sznl": True, "sznl_logic": ">", "sznl_thresh": 80.0,
-            "use_52w": False, "52w_type": "New 52w High",
-            "use_vol": False, "vol_thresh": 1.5,
-            "trend_filter": "None",
-            "min_price": 10.0, "min_vol": 100000,
-            "min_age": 0.25, "max_age": 100.0
-        },
-        "execution": {
-            "risk_per_trade": 1000,
-            "stop_atr": 3.0,
-            "tgt_atr": 8.0,
-            "hold_days": 10
-        },
-        "stats": {
-            "grade": "B",
-            "win_rate": "88.2%",
-            "expectancy": "$995.68",
-            "profit_factor": "8.38"
-        }
-    },
-]
-
-# -----------------------------------------------------------------------------
-# CONSTANTS & CONFIG
+# CONFIG / CONSTANTS
 # -----------------------------------------------------------------------------
 SECTOR_ETFS = [
     "IBB", "IHI", "ITA", "ITB", "IYR", "KRE", "OIH", "SMH", "VNQ",
@@ -98,7 +63,7 @@ def get_sznl_val_series(ticker, dates, sznl_map):
 @st.cache_data(show_spinner=True)
 def download_universe_data(tickers, fetch_start_date):
     """
-    Downloads data in chunks.
+    Downloads data in chunks using a specific Fetch Date.
     """
     if not tickers: return {} 
     
@@ -188,7 +153,7 @@ def calculate_indicators(df, sznl_map, ticker, spy_series=None):
     # Perf Ranks
     for window in [5, 10, 21]:
         df[f'ret_{window}d'] = df['Close'].pct_change(window)
-        df[f'rank_ret_{window}d'] = df[f'ret_{window}d'].expanding(min_periods=50).rank(pct=True) * 100.0
+        df[f'rank_ret_{window}d'] = df[f'ret_{window}d'].expanding(min_periods=252).rank(pct=True) * 100.0
     
     # ATR
     high_low = df['High'] - df['Low']
@@ -232,9 +197,12 @@ def run_engine(universe_dict, params, sznl_map, spy_series=None):
     bt_start_ts = pd.to_datetime(params['backtest_start_date'])
     
     progress_bar = st.progress(0)
+    status_text = st.empty()
     
     for i, (ticker, df_raw) in enumerate(universe_dict.items()):
+        status_text.text(f"Processing {ticker}...")
         progress_bar.progress((i+1)/total)
+        
         if len(df_raw) < 100: continue
         
         try:
@@ -373,6 +341,7 @@ def run_engine(universe_dict, params, sznl_map, spy_series=None):
         except: continue
         
     progress_bar.empty()
+    status_text.empty()
     return pd.DataFrame(trades)
 
 def grade_strategy(pf, sqn, win_rate, total_trades):
@@ -398,10 +367,15 @@ def grade_strategy(pf, sqn, win_rate, total_trades):
     return "F", "Uninvestable", reasons
 
 # -----------------------------------------------------------------------------
-# UI PAGES
+# MAIN APP
 # -----------------------------------------------------------------------------
 
-def render_backtester():
+def main():
+    st.set_page_config(layout="wide", page_title="Quantitative Backtester")
+    st.title("Quantitative Strategy Backtester")
+    st.markdown("---")
+
+    # 1. UNIVERSE
     st.subheader("1. Universe & Data")
     col_u1, col_u2, col_u3 = st.columns([1, 1, 2])
     sample_pct = 100 
@@ -410,6 +384,7 @@ def render_backtester():
     with col_u1:
         univ_choice = st.selectbox("Choose Universe", 
             ["Sector ETFs", "Indices", "International ETFs", "Sector + Index ETFs", "All CSV Tickers", "Custom (Upload CSV)"])
+            
     with col_u2:
         # DEFAULT TO 2000
         default_start = datetime.date(2000, 1, 1)
@@ -525,7 +500,6 @@ def render_backtester():
                     spy_df['SMA200'] = spy_df['Close'].rolling(200).mean()
                     spy_series = spy_df['Close'] > spy_df['SMA200']
             else:
-                # SPY is already in our dict
                 spy_df = data_dict["SPY"]
                 spy_df['SMA200'] = spy_df['Close'].rolling(200).mean()
                 spy_series = spy_df['Close'] > spy_df['SMA200']
@@ -552,10 +526,19 @@ def render_backtester():
         trades_df = trades_df.sort_values("ExitDate")
         trades_df['PnL_Dollar'] = trades_df['R'] * risk_per_trade
         trades_df['CumPnL'] = trades_df['PnL_Dollar'].cumsum()
+        trades_df['SignalDate'] = pd.to_datetime(trades_df['SignalDate'])
+        trades_df['Year'] = trades_df['SignalDate'].dt.year
+        trades_df['Month'] = trades_df['SignalDate'].dt.strftime('%b')
+        trades_df['MonthNum'] = trades_df['SignalDate'].dt.month
+        trades_df['DayOfWeek'] = trades_df['SignalDate'].dt.day_name()
+        trades_df['CyclePhase'] = trades_df['Year'].apply(get_cycle_year)
+        trades_df['AgeBucket'] = trades_df['Age'].apply(get_age_bucket)
         
-        # ... (Visualization Code omitted for brevity, same as before) ...
-        # ... (Re-inserting the Equity Curve/Charts/Table code here for completeness in full script) ...
-        
+        if len(trades_df) >= 10:
+            try: trades_df['VolDecile'] = pd.qcut(trades_df['AvgVol'], 10, labels=False, duplicates='drop') + 1
+            except: trades_df['VolDecile'] = 1
+        else: trades_df['VolDecile'] = 1
+
         # METRICS
         wins = trades_df[trades_df['R'] > 0]
         losses = trades_df[trades_df['R'] <= 0]
@@ -568,10 +551,28 @@ def render_backtester():
         
         st.success("Backtest Complete!")
         
-        # Equity Curve
+        st.markdown(f"""
+        <div style="background-color: #0e1117; padding: 20px; border-radius: 10px; border: 1px solid #444;">
+            <h2 style="margin-top:0; color: #ffffff;">Strategy Grade: <span style="color: {'#00ff00' if grade in ['A','B'] else '#ffaa00' if grade=='C' else '#ff0000'};">{grade}</span> ({verdict})</h2>
+            <div style="display: flex; justify-content: space-between; flex-wrap: wrap;">
+                <div><h3>Profit Factor: {pf:.2f}</h3></div>
+                <div><h3>SQN: {sqn:.2f}</h3></div>
+                <div><h3>Win Rate: {win_rate:.1f}%</h3></div>
+                <div><h3>Expectancy: ${trades_df['PnL_Dollar'].mean():.2f}</h3></div>
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        if notes: st.warning("Notes: " + ", ".join(notes))
+
         fig = px.line(trades_df, x="ExitDate", y="CumPnL", title=f"Cumulative Equity (Risk: ${risk_per_trade}/trade)", markers=True)
         st.plotly_chart(fig, use_container_width=True)
-
+        
+        st.subheader("Performance Breakdowns")
+        b1, b2 = st.columns(2)
+        b1.plotly_chart(px.bar(trades_df.groupby('Year')['PnL_Dollar'].sum().reset_index(), x='Year', y='PnL_Dollar', title="PnL by Year", text_auto='.2s'), use_container_width=True)
+        b2.plotly_chart(px.bar(trades_df.groupby('CyclePhase')['PnL_Dollar'].sum().reset_index().sort_values('CyclePhase'), x='CyclePhase', y='PnL_Dollar', title="PnL by Cycle", text_auto='.2s'), use_container_width=True)
+        
         st.subheader("Trade Log")
         st.dataframe(trades_df.style.format({
             "Entry": "{:.2f}", "Exit": "{:.2f}", "R": "{:.2f}", "PnL_Dollar": "${:,.2f}",
@@ -581,9 +582,8 @@ def render_backtester():
         # --- COPYABLE DICTIONARY OUTPUT ---
         st.markdown("---")
         st.subheader("Configuration & Results (Copy Code)")
-        st.info("Copy the dictionary below and paste it into your `STRATEGY_BOOK` list at the top of this script.")
+        st.info("Copy the dictionary below and paste it into your `STRATEGY_BOOK` list in the Screener.")
 
-        # Use f-string to build a valid Python dictionary string
         dict_str = f"""{{
     "id": "STRAT_{int(time.time())}",
     "name": "Generated Strategy ({grade})",
@@ -612,118 +612,6 @@ def render_backtester():
     }}
 }},"""
         st.code(dict_str, language="python")
-
-def render_screener():
-    st.header("Strategy Screener")
-    
-    if st.button("Scan All Strategies", type="primary"):
-        
-        # 1. Gather Tickers
-        all_tickers = set()
-        for strat in STRATEGY_BOOK:
-            all_tickers.update(strat['universe_tickers'])
-        all_tickers = list(all_tickers)
-        
-        # Check for SPY requirement in any strategy
-        need_spy = any(s['settings'].get('trend_filter') == "SPY > 200 SMA" for s in STRATEGY_BOOK)
-        if need_spy and "SPY" not in all_tickers:
-            all_tickers.append("SPY")
-
-        # 2. Download Data (last 400 days for MA200)
-        st.info(f"Downloading recent data for {len(all_tickers)} tickers...")
-        start_date = datetime.date.today() - datetime.timedelta(days=400)
-        data_dict = download_universe_data(all_tickers, start_date)
-        sznl_map = load_seasonal_map()
-        
-        # 3. Prepare SPY Regime
-        spy_series = None
-        if need_spy and "SPY" in data_dict:
-            spy_df = data_dict["SPY"]
-            spy_df['SMA200'] = spy_df['Close'].rolling(200).mean()
-            spy_series = spy_df['Close'] > spy_df['SMA200']
-
-        # 4. Iterate Strategies
-        for strat in STRATEGY_BOOK:
-            with st.expander(f"{strat['name']} (Grade: {strat['stats']['grade']})", expanded=True):
-                st.caption(strat['description'])
-                
-                signals = []
-                for ticker in strat['universe_tickers']:
-                    if ticker not in data_dict: continue
-                    
-                    try:
-                        df = calculate_indicators(data_dict[ticker], sznl_map, ticker, spy_series)
-                        last_row = df.iloc[-1]
-                        
-                        # Check Logic
-                        match = True
-                        p = strat['settings']
-                        
-                        # Trend
-                        tf = p.get('trend_filter', 'None')
-                        if tf == "Price > 200 SMA":
-                            if not (last_row['Close'] > last_row['SMA200']): match = False
-                        elif tf == "Price > Rising 200 SMA":
-                            # Lookback 1 day
-                            prev_row = df.iloc[-2]
-                            if not ((last_row['Close'] > last_row['SMA200']) and (last_row['SMA200'] > prev_row['SMA200'])): match = False
-                        elif tf == "SPY > 200 SMA":
-                            if not last_row['SPY_Above_SMA200']: match = False
-                            
-                        # Liquidity
-                        if last_row['Close'] < p['min_price']: match = False
-                        if last_row['vol_ma'] < p['min_vol']: match = False
-                        if last_row['age_years'] < p['min_age']: match = False
-                        if last_row['age_years'] > p['max_age']: match = False
-                        
-                        # Filters
-                        if match and p['use_perf_rank']:
-                            col = f"rank_ret_{p['perf_window']}d"
-                            val = last_row[col]
-                            if p['perf_logic'] == '<': 
-                                if not (val < p['perf_thresh']): match = False
-                            else:
-                                if not (val > p['perf_thresh']): match = False
-                        
-                        if match and p['use_sznl']:
-                            val = last_row['Sznl']
-                            if p['sznl_logic'] == '<':
-                                if not (val < p['sznl_thresh']): match = False
-                            else:
-                                if not (val > p['sznl_thresh']): match = False
-                        
-                        if match:
-                            # Calc Execution
-                            atr = last_row['ATR']
-                            risk = strat['execution']['risk_per_trade']
-                            entry = last_row['Close']
-                            stop_dist = atr * strat['execution']['stop_atr']
-                            tgt_dist = atr * strat['execution']['tgt_atr']
-                            shares = int(risk / stop_dist) if stop_dist > 0 else 0
-                            
-                            signals.append({
-                                "Ticker": ticker,
-                                "Date": last_row.name.date(),
-                                "Action": "BUY",
-                                "Shares": shares,
-                                "Entry": entry,
-                                "Stop": entry - stop_dist,
-                                "Target": entry + tgt_dist
-                            })
-                    except: continue
-                
-                if signals:
-                    st.success(f"Found {len(signals)} signals.")
-                    st.dataframe(pd.DataFrame(signals))
-                else:
-                    st.info("No signals today.")
-
-def main():
-    st.set_page_config(layout="wide", page_title="Quantitative Suite")
-    st.title("Quantitative Strategy Suite")
-    tab1, tab2 = st.tabs(["Backtester", "Screener"])
-    with tab1: render_backtester()
-    with tab2: render_screener()
 
 if __name__ == "__main__":
     main()
