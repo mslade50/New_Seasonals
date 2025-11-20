@@ -33,14 +33,13 @@ STRATEGY_BOOK = [
             "grade": "B (Good)",
             "win_rate": "88.2%",
             "expectancy": "$995.68",
-            "profit_factor": "8.38",
-            "max_dd": "$1,971.22"
+            "profit_factor": "8.38"
         }
     },
     {
     "id": "STRAT_1763673538",
     "name": "Generated Strategy (A)",
-    "description": "Universe: All CSV Tickers. Filter: SPY > 200 SMA. PF: 2.85. SQN: 5.74.",
+    "description": "Universe: All CSV Tickers. Sznl >80 5d perf < 15 (3d lookback) Filter: SPY > 200 SMA.",
     "universe_tickers": ['AAPL', 'AMGN', 'AMZN', 'AVGO', 'AXP', 'BA', 'CAT', 'CEF', 'CRM', 'CSCO', 'CVX', 'DIA', 'DIS', 'GLD', 'GOOG', 'GS', 'HD', 'HON', 'IBB', 'IBM', 'IHI', 'INTC', 'ITA', 'ITB', 'IWM', 'IYR', 'JNJ', 'JPM', 'KO', 'KRE', 'MCD', 'META', 'MMM', 'MRK', 'MSFT', 'NKE', 'NVDA', 'OIH', 'PG', 'QQQ', 'SLV', 'SMH', 'SPY', 'TRV', 'UNG', 'UNH', 'UVXY', 'V', 'VNQ', 'VZ', 'WMT', 'XBI', 'XHB', 'XLB', 'XLE', 'XLF', 'XLI', 'XLK', 'XLP', 'XLU', 'XLV', 'XLY', 'XME', 'XOP', 'XRT'], 
     "settings": {
         "use_perf_rank": True, "perf_window": 5, "perf_logic": "<", "perf_thresh": 15.0,
@@ -214,7 +213,6 @@ def main():
                 s1.metric("Win Rate", strat['stats']['win_rate'])
                 s2.metric("Expectancy", strat['stats']['expectancy'])
                 s3.metric("Profit Factor", strat['stats']['profit_factor'])
-                s4.metric("Max Drawdown", strat['stats']['max_dd'])
                 s5.metric("Risk Unit", f"${strat['execution']['risk_per_trade']}")
                 
                 st.caption(strat['description'])
