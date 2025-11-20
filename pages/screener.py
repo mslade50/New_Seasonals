@@ -37,6 +37,33 @@ STRATEGY_BOOK = [
             "max_dd": "$1,971.22"
         }
     },
+    {
+    "id": "STRAT_1763673538",
+    "name": "Generated Strategy (A)",
+    "description": "Universe: All CSV Tickers. Filter: SPY > 200 SMA. PF: 2.85. SQN: 5.74.",
+    "universe_tickers": ['AAPL', 'AMGN', 'AMZN', 'AVGO', 'AXP', 'BA', 'CAT', 'CEF', 'CRM', 'CSCO', 'CVX', 'DIA', 'DIS', 'GLD', 'GOOG', 'GS', 'HD', 'HON', 'IBB', 'IBM', 'IHI', 'INTC', 'ITA', 'ITB', 'IWM', 'IYR', 'JNJ', 'JPM', 'KO', 'KRE', 'MCD', 'META', 'MMM', 'MRK', 'MSFT', 'NKE', 'NVDA', 'OIH', 'PG', 'QQQ', 'SLV', 'SMH', 'SPY', 'TRV', 'UNG', 'UNH', 'UVXY', 'V', 'VNQ', 'VZ', 'WMT', 'XBI', 'XHB', 'XLB', 'XLE', 'XLF', 'XLI', 'XLK', 'XLP', 'XLU', 'XLV', 'XLY', 'XME', 'XOP', 'XRT'], 
+    "settings": {
+        "use_perf_rank": True, "perf_window": 5, "perf_logic": "<", "perf_thresh": 15.0,
+        "use_sznl": True, "sznl_logic": ">", "sznl_thresh": 80.0,
+        "use_52w": False, "52w_type": "New 52w High",
+        "use_vol": False, "vol_thresh": 1.5,
+        "trend_filter": "SPY > 200 SMA",
+        "min_price": 10.0, "min_vol": 100000,
+        "min_age": 0.25, "max_age": 100.0
+    },
+    "execution": {
+        "risk_per_trade": 1000,
+        "stop_atr": 2.0,
+        "tgt_atr": 8.0,
+        "hold_days": 21
+    },
+    "stats": {
+        "grade": "A (Excellent)",
+        "win_rate": "63.9%",
+        "expectancy": "$646.42",
+        "profit_factor": "2.85"
+    }
+},
     # ... You can add Strategy #2, Strategy #3 here ...
 ]
 
