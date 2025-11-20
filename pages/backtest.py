@@ -440,8 +440,13 @@ def main():
 
         # Stats
         wins = trades_df[trades_df['R'] > 0]
+        losses = trades_df[trades_df['R'] <= 0]
+        
         win_rate = len(wins) / len(trades_df) * 100
         avg_pnl = trades_df['PnL_Dollar'].mean()
+        
+        avg_win_val = wins['PnL_Dollar'].mean() if not wins.empty else 0
+        avg_loss_val = losses['PnL_Dollar'].mean() if not losses.empty else 0
         
         # Drawdown ($)
         cum_pnl = trades_df['CumPnL'].values
@@ -452,11 +457,12 @@ def main():
         st.success("Backtest Complete!")
         
         # KPI Row
-        k1, k2, k3, k4 = st.columns(4)
+        k1, k2, k3, k4, k5 = st.columns(5)
         k1.metric("Total Trades", len(trades_df))
         k2.metric("Win Rate", f"{win_rate:.1f}%")
-        k3.metric("Avg PnL / Trade", f"${avg_pnl:,.2f}")
-        k4.metric("Max Drawdown", f"${max_dd:,.2f}")
+        k3.metric("Avg PnL", f"${avg_pnl:,.0f}")
+        k4.metric("Avg Win", f"${avg_win_val:,.0f}")
+        k5.metric("Avg Loss", f"${avg_loss_val:,.0f}")
         
         # Equity Curve
         fig = px.line(trades_df, x="ExitDate", y="CumPnL", title=f"Cumulative Equity (Risk: ${risk_per_trade}/trade)", markers=True)
@@ -525,6 +531,8 @@ def main():
         Win Rate: {win_rate:.1f}%
         Total PnL: ${trades_df['PnL_Dollar'].sum():,.2f}
         Avg Trade: ${avg_pnl:,.2f}
+        Avg Win: ${avg_win_val:,.2f}
+        Avg Loss: ${avg_loss_val:,.2f}
         """
         
         st.text_area("Copy this summary:", value=report_text, height=300)
