@@ -209,7 +209,6 @@ def run_engine(universe_dict, params, sznl_map, spy_series=None):
         if len(df_raw) < 100: continue
         
         # TRACKING for Max 1 Pos
-        # Using a Timestamp far in the past
         last_exit_date = pd.Timestamp.min
         
         try:
@@ -221,14 +220,12 @@ def run_engine(universe_dict, params, sznl_map, spy_series=None):
             
             # --- TREND FILTER ---
             trend_opt = params.get('trend_filter', 'None')
-            
             if trend_opt == "Price > 200 SMA":
                 conditions.append(df['Close'] > df['SMA200'])
             elif trend_opt == "Price > Rising 200 SMA":
                 conditions.append((df['Close'] > df['SMA200']) & (df['SMA200'] > df['SMA200'].shift(1)))
             elif trend_opt == "SPY > 200 SMA" and 'SPY_Above_SMA200' in df.columns:
                 conditions.append(df['SPY_Above_SMA200'])
-            
             elif trend_opt == "Price < 200 SMA":
                 conditions.append(df['Close'] < df['SMA200'])
             elif trend_opt == "Price < Falling 200 SMA":
@@ -247,16 +244,12 @@ def run_engine(universe_dict, params, sznl_map, spy_series=None):
             conditions.append(gate)
 
             # --- STRATEGY SIGNALS ---
-            
             # 1. Perf Rank
             if params['use_perf_rank']:
                 col = f"rank_ret_{params['perf_window']}d"
-                if params['perf_logic'] == '<': 
-                    raw_cond = df[col] < params['perf_thresh']
-                else: 
-                    raw_cond = df[col] > params['perf_thresh']
+                if params['perf_logic'] == '<': raw_cond = df[col] < params['perf_thresh']
+                else: raw_cond = df[col] > params['perf_thresh']
                 
-                # Persistence
                 consec_days = params.get('perf_consecutive', 1)
                 if consec_days > 1:
                     cond = raw_cond.rolling(consec_days).sum() == consec_days
@@ -293,10 +286,8 @@ def run_engine(universe_dict, params, sznl_map, spy_series=None):
 
             # 5. Volume Rank
             if params['use_vol_rank']:
-                if params['vol_rank_logic'] == '<': 
-                    cond = df['vol_ratio_10d_rank'] < params['vol_rank_thresh']
-                else: 
-                    cond = df['vol_ratio_10d_rank'] > params['vol_rank_thresh']
+                if params['vol_rank_logic'] == '<': cond = df['vol_ratio_10d_rank'] < params['vol_rank_thresh']
+                else: cond = df['vol_ratio_10d_rank'] > params['vol_rank_thresh']
                 conditions.append(cond)
 
             if not conditions: continue
@@ -308,9 +299,7 @@ def run_engine(universe_dict, params, sznl_map, spy_series=None):
             
             # --- TRADE EXECUTION ---
             for signal_date in signal_dates:
-                # OVERLAP CHECK: Max 1 Position Per Ticker
-                if max_one_pos and signal_date <= last_exit_date:
-                    continue
+                if max_one_pos and signal_date <= last_exit_date: continue
 
                 try:
                     sig_idx = df.index.get_loc(signal_date)
@@ -329,7 +318,6 @@ def run_engine(universe_dict, params, sznl_map, spy_series=None):
                         entry_price = df['Close'].iloc[sig_idx + 1]
                         start_idx = sig_idx + 2
                     
-                    # Stops/Targets
                     if direction == 'Long':
                         stop_price = entry_price - (atr * params['stop_atr'])
                         tgt_price = entry_price + (atr * params['tgt_atr'])
@@ -373,7 +361,6 @@ def run_engine(universe_dict, params, sznl_map, spy_series=None):
                         exit_date = future.index[-1]
                         exit_type = "Time"
                     
-                    # UPDATE TRACKER FOR OVERLAP
                     last_exit_date = exit_date
 
                     if direction == 'Long':
@@ -439,6 +426,8 @@ def main():
     # 1. UNIVERSE
     st.subheader("1. Universe & Data")
     col_u1, col_u2, col_u3 = st.columns([1, 1, 2])
+    
+    # Initialize sample_pct at top level to prevent scoping error
     sample_pct = 100 
     use_full_history = False
     
@@ -446,7 +435,6 @@ def main():
         univ_choice = st.selectbox("Choose Universe", 
             ["Sector ETFs", "Indices", "International ETFs", "Sector + Index ETFs", "All CSV Tickers", "Custom (Upload CSV)"])
     with col_u2:
-        # DEFAULT TO 2000
         default_start = datetime.date(2000, 1, 1)
         start_date = st.date_input("Backtest Start Date", value=default_start)
     
@@ -559,6 +547,12 @@ def main():
         elif univ_choice == "Sector + Index ETFs": tickers_to_run = list(set(SECTOR_ETFS + INDEX_ETFS))
         elif univ_choice == "All CSV Tickers": tickers_to_run = [t for t in list(sznl_map.keys()) if t not in ["BTC-USD", "ETH-USD"]]
         elif univ_choice == "Custom (Upload CSV)": tickers_to_run = custom_tickers
+        
+        # Apply sampling if it was set by the user for Custom/Large lists
+        if tickers_to_run and sample_pct < 100:
+            count = max(1, int(len(tickers_to_run) * (sample_pct / 100)))
+            tickers_to_run = random.sample(tickers_to_run, count)
+            st.info(f"Randomly selected {len(tickers_to_run)} tickers for this run.")
             
         if not tickers_to_run:
             st.error("No tickers found.")
@@ -586,7 +580,7 @@ def main():
         params = {
             'backtest_start_date': start_date,
             'trade_direction': trade_direction,
-            'max_one_pos': max_one_pos, # NEW
+            'max_one_pos': max_one_pos,
             'time_exit_only': time_exit_only,
             'stop_atr': stop_atr, 'tgt_atr': tgt_atr, 'holding_days': hold_days, 'entry_type': entry_type,
             'min_price': min_price, 'min_vol': min_vol, 'min_age': min_age, 'max_age': max_age,
