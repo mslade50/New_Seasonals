@@ -60,6 +60,28 @@ def get_sznl_val_series(ticker, dates, sznl_map):
     mds = dates.map(lambda x: (x.month, x.day))
     return mds.map(t_map).fillna(50.0)
 
+def clean_ticker_df(df):
+    """
+    Helper to standardize column names and drop empty rows.
+    Ensures columns are Title case: Close, Open, High, Low, Volume.
+    """
+    if df.empty: return df
+    
+    # 1. Flatten columns if MultiIndex (happens if yfinance returns ('Price', 'Ticker') or similar leftovers)
+    if isinstance(df.columns, pd.MultiIndex):
+        # Drop the ticker level if it exists
+        df.columns = df.columns.get_level_values(0)
+    
+    # 2. Standardize names
+    df.columns = [str(c).strip().capitalize() for c in df.columns]
+    
+    # 3. Ensure 'Close' exists (handle 'Adj close' case if auto_adjust=False)
+    if 'Close' not in df.columns and 'Adj close' in df.columns:
+        df.rename(columns={'Adj close': 'Close'}, inplace=True)
+        
+    df = df.dropna(subset=['Close'])
+    return df
+
 @st.cache_data(show_spinner=True)
 def download_universe_data(tickers, fetch_start_date):
     if not tickers: return {} 
@@ -85,26 +107,47 @@ def download_universe_data(tickers, fetch_start_date):
         download_bar.progress(min((i + CHUNK_SIZE) / total_tickers, 1.0))
         
         try:
+            # We use group_by='ticker' to force a consistent MultiIndex structure [Ticker -> OHLC]
+            # even if requesting 1 ticker, usually.
             df = yf.download(chunk, start=start_str, group_by='ticker', auto_adjust=True, progress=False, threads=True)
             if df.empty: continue
 
+            # CASE A: Single Ticker in Chunk
             if len(chunk) == 1:
                 t = chunk[0]
+                # yfinance sometimes returns flat df for 1 ticker, sometimes MultiIndex.
+                # We treat `df` as the ticker data directly if columns are flat-ish
                 if isinstance(df.columns, pd.MultiIndex):
-                    df.columns = [c if isinstance(c, str) else c[0] for c in df.columns]
-                if not df.empty:
-                    data_dict[t] = df
+                    # Check if level 0 is ticker
+                    if t in df.columns.levels[0]:
+                        t_df = df[t].copy()
+                    else:
+                        # Weird case, assume it's already the data
+                        t_df = df.copy()
+                else:
+                    t_df = df.copy()
+                
+                t_df = clean_ticker_df(t_df)
+                if not t_df.empty:
+                    data_dict[t] = t_df
+
+            # CASE B: Multiple Tickers
             else:
+                # Ensure we have a MultiIndex to iterate over
+                if not isinstance(df.columns, pd.MultiIndex):
+                    # If we asked for multiple but got flat, it usually means only 1 ticker was valid
+                    # We try to find which one valid ticker exists
+                    continue 
+
                 for t in chunk:
                     try:
-                        if t not in df.columns.levels[0]: continue
-                        t_df = df[t].copy()
-                        col_to_check = 'Close' if 'Close' in t_df.columns else 'close'
-                        if col_to_check in t_df.columns:
-                            t_df = t_df.dropna(subset=[col_to_check])
-                        if not t_df.empty:
-                            data_dict[t] = t_df
+                        if t in df.columns.levels[0]:
+                            t_df = df[t].copy()
+                            t_df = clean_ticker_df(t_df)
+                            if not t_df.empty:
+                                data_dict[t] = t_df
                     except: continue
+            
             time.sleep(0.1)
 
         except Exception as e:
@@ -139,6 +182,7 @@ def get_age_bucket(years):
 
 def calculate_indicators(df, sznl_map, ticker, spy_series=None):
     df = df.copy()
+    # Redundant column cleaning just in case
     df.columns = [c.capitalize() for c in df.columns]
     
     if df.index.tz is not None:
@@ -187,6 +231,7 @@ def calculate_indicators(df, sznl_map, ticker, spy_series=None):
         
     # SPY Regime Mapping
     if spy_series is not None:
+        # Reindex SPY to this ticker's calendar
         df['SPY_Above_SMA200'] = spy_series.reindex(df.index, method='ffill').fillna(False)
 
     return df
@@ -220,18 +265,23 @@ def run_engine(universe_dict, params, sznl_map, spy_series=None):
             
             # --- TREND FILTER ---
             trend_opt = params.get('trend_filter', 'None')
+            
+            # Internal Trend
             if trend_opt == "Price > 200 SMA":
                 conditions.append(df['Close'] > df['SMA200'])
             elif trend_opt == "Price > Rising 200 SMA":
                 conditions.append((df['Close'] > df['SMA200']) & (df['SMA200'] > df['SMA200'].shift(1)))
-            elif trend_opt == "SPY > 200 SMA" and 'SPY_Above_SMA200' in df.columns:
-                conditions.append(df['SPY_Above_SMA200'])
             elif trend_opt == "Price < 200 SMA":
                 conditions.append(df['Close'] < df['SMA200'])
             elif trend_opt == "Price < Falling 200 SMA":
                 conditions.append((df['Close'] < df['SMA200']) & (df['SMA200'] < df['SMA200'].shift(1)))
-            elif trend_opt == "SPY < 200 SMA" and 'SPY_Above_SMA200' in df.columns:
-                conditions.append(~df['SPY_Above_SMA200']) 
+            
+            # External Regime (SPY)
+            elif "SPY" in trend_opt and 'SPY_Above_SMA200' in df.columns:
+                if trend_opt == "SPY > 200 SMA":
+                    conditions.append(df['SPY_Above_SMA200'])
+                elif trend_opt == "SPY < 200 SMA":
+                    conditions.append(~df['SPY_Above_SMA200']) 
             
             # --- LIQUIDITY GATES ---
             curr_age = df['age_years'].fillna(0)
@@ -427,7 +477,6 @@ def main():
     st.subheader("1. Universe & Data")
     col_u1, col_u2, col_u3 = st.columns([1, 1, 2])
     
-    # Initialize sample_pct at top level to prevent scoping error
     sample_pct = 100 
     use_full_history = False
     
@@ -548,7 +597,7 @@ def main():
         elif univ_choice == "All CSV Tickers": tickers_to_run = [t for t in list(sznl_map.keys()) if t not in ["BTC-USD", "ETH-USD"]]
         elif univ_choice == "Custom (Upload CSV)": tickers_to_run = custom_tickers
         
-        # Apply sampling if it was set by the user for Custom/Large lists
+        # Apply sampling
         if tickers_to_run and sample_pct < 100:
             count = max(1, int(len(tickers_to_run) * (sample_pct / 100)))
             tickers_to_run = random.sample(tickers_to_run, count)
@@ -560,46 +609,26 @@ def main():
 
         fetch_start = "1950-01-01" if use_full_history else start_date
         st.info(f"Downloading data ({len(tickers_to_run)} tickers)...")
+        
         data_dict = download_universe_data(tickers_to_run, fetch_start)
         if not data_dict: return
         
-        # ---------------------------------------------------------------------
-        # FIXED SPY REGIME FILTER LOGIC
-        # ---------------------------------------------------------------------
+        # --- FIXED SPY HANDLING ---
         spy_series = None
         if "SPY" in trend_filter:
-            spy_df = None
-            
-            # 1. Get the raw SPY DataFrame
             if "SPY" in data_dict:
-                spy_df = data_dict["SPY"].copy()
+                spy_df = data_dict["SPY"]
             else:
+                # Force SPY through the EXACT same downloader as everything else
                 st.info("Fetching SPY data for regime filter...")
-                # Download separately if not in main universe
                 spy_dict_temp = download_universe_data(["SPY"], fetch_start)
-                if "SPY" in spy_dict_temp:
-                    spy_df = spy_dict_temp["SPY"].copy()
+                spy_df = spy_dict_temp.get("SPY", None)
 
-            # 2. Clean and Calc
             if spy_df is not None and not spy_df.empty:
-                # Handle MultiIndex columns (e.g., remove Ticker level if present)
-                if isinstance(spy_df.columns, pd.MultiIndex):
-                    # Usually level 1 is the price type ('Close', 'Open')
-                    # If that fails, we try dropping level 0
-                    try:
-                        spy_df.columns = spy_df.columns.get_level_values(1)
-                    except:
-                        spy_df.columns = spy_df.columns.droplevel(0)
-                
-                # Standardize column names to Title Case (Close, Open, etc.)
-                spy_df.columns = [str(c).capitalize() for c in spy_df.columns]
-
-                # Calculate SMA if Close exists
-                if 'Close' in spy_df.columns:
-                    spy_df['SMA200'] = spy_df['Close'].rolling(200).mean()
-                    spy_series = spy_df['Close'] > spy_df['SMA200']
-                else:
-                    st.warning("⚠️ SPY data found, but 'Close' column missing. Regime filter ignored.")
+                # At this point spy_df is guaranteed to have Capitalized columns [Close, Open, etc]
+                # because download_universe_data enforces it.
+                spy_df['SMA200'] = spy_df['Close'].rolling(200).mean()
+                spy_series = spy_df['Close'] > spy_df['SMA200']
             else:
                 st.warning("⚠️ SPY data unavailable. Regime filter ignored.")
 
