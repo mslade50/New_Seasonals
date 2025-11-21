@@ -62,9 +62,6 @@ def get_sznl_val_series(ticker, dates, sznl_map):
 
 @st.cache_data(show_spinner=True)
 def download_universe_data(tickers, fetch_start_date):
-    """
-    Downloads data in chunks using a specific Fetch Date.
-    """
     if not tickers: return {} 
     
     clean_tickers = [str(t).strip().upper() for t in tickers if str(t).strip() != '']
@@ -147,7 +144,7 @@ def calculate_indicators(df, sznl_map, ticker, spy_series=None):
     if df.index.tz is not None:
         df.index = df.index.tz_localize(None)
     
-    # SMA 200 for Trend Filter
+    # SMA 200
     df['SMA200'] = df['Close'].rolling(200).mean()
     
     # Perf Ranks
@@ -171,10 +168,18 @@ def calculate_indicators(df, sznl_map, ticker, spy_series=None):
     df['is_52w_high'] = df['High'] > rolling_high
     df['is_52w_low'] = df['Low'] < rolling_low
     
-    # Volume
+    # Volume & Vol Ratio
     vol_ma = df['Volume'].rolling(63).mean()
     df['vol_ma'] = vol_ma
     df['vol_ratio'] = df['Volume'] / vol_ma
+    
+    # --- NEW: 10d Relative Volume Percentile ---
+    # 1. Calculate 10d Avg Vol
+    vol_ma_10 = df['Volume'].rolling(10).mean()
+    # 2. Ratio: 10d / 63d
+    df['vol_ratio_10d'] = vol_ma_10 / vol_ma
+    # 3. Expanding Rank (0-100)
+    df['vol_ratio_10d_rank'] = df['vol_ratio_10d'].expanding(min_periods=252).rank(pct=True) * 100.0
     
     # Age
     if not df.empty:
@@ -183,10 +188,8 @@ def calculate_indicators(df, sznl_map, ticker, spy_series=None):
     else:
         df['age_years'] = 0.0
         
-    # SPY Regime Mapping (if provided)
+    # SPY Regime Mapping
     if spy_series is not None:
-        # Reindex SPY SMA bool to match this ticker's index
-        # Forward fill to handle minor calendar diffs
         df['SPY_Above_SMA200'] = spy_series.reindex(df.index, method='ffill').fillna(False)
 
     return df
@@ -215,18 +218,13 @@ def run_engine(universe_dict, params, sznl_map, spy_series=None):
             # --- TREND FILTER ---
             trend_opt = params.get('trend_filter', 'None')
             if trend_opt == "Price > 200 SMA":
-                cond = df['Close'] > df['SMA200']
-                conditions.append(cond)
+                conditions.append(df['Close'] > df['SMA200'])
             elif trend_opt == "Price > Rising 200 SMA":
-                cond = (df['Close'] > df['SMA200']) & (df['SMA200'] > df['SMA200'].shift(1))
-                conditions.append(cond)
-            elif trend_opt == "SPY > 200 SMA":
-                # Uses the mapped column created in calculate_indicators
-                if 'SPY_Above_SMA200' in df.columns:
-                    conditions.append(df['SPY_Above_SMA200'])
+                conditions.append((df['Close'] > df['SMA200']) & (df['SMA200'] > df['SMA200'].shift(1)))
+            elif trend_opt == "SPY > 200 SMA" and 'SPY_Above_SMA200' in df.columns:
+                conditions.append(df['SPY_Above_SMA200'])
             
             # --- LIQUIDITY GATES ---
-            # Note: fillna(0) handles initial nan rows safely
             curr_age = df['age_years'].fillna(0)
             curr_vol = df['vol_ma'].fillna(0)
             curr_close = df['Close'].fillna(0)
@@ -237,6 +235,8 @@ def run_engine(universe_dict, params, sznl_map, spy_series=None):
             conditions.append(gate)
 
             # --- STRATEGY SIGNALS ---
+            
+            # 1. Perf Rank
             if params['use_perf_rank']:
                 col = f"rank_ret_{params['perf_window']}d"
                 if params['perf_logic'] == '<': cond = df[col] < params['perf_thresh']
@@ -246,6 +246,7 @@ def run_engine(universe_dict, params, sznl_map, spy_series=None):
                     cond = cond & (prev == 0)
                 conditions.append(cond)
 
+            # 2. Seasonal
             if params['use_sznl']:
                 if params['sznl_logic'] == '<': cond = df['Sznl'] < params['sznl_thresh']
                 else: cond = df['Sznl'] > params['sznl_thresh']
@@ -254,6 +255,7 @@ def run_engine(universe_dict, params, sznl_map, spy_series=None):
                     cond = cond & (prev == 0)
                 conditions.append(cond)
             
+            # 3. 52w
             if params['use_52w']:
                 if params['52w_type'] == 'New 52w High': cond = df['is_52w_high']
                 else: cond = df['is_52w_low']
@@ -262,19 +264,27 @@ def run_engine(universe_dict, params, sznl_map, spy_series=None):
                     cond = cond & (prev == 0)
                 conditions.append(cond)
             
+            # 4. Volume Spike (Raw Ratio)
             if params['use_vol']:
                 cond = df['vol_ratio'] > params['vol_thresh']
                 conditions.append(cond)
 
+            # 5. NEW: Volume Rank (10d Rel Vol Percentile)
+            if params['use_vol_rank']:
+                if params['vol_rank_logic'] == '<': 
+                    cond = df['vol_ratio_10d_rank'] < params['vol_rank_thresh']
+                else: 
+                    cond = df['vol_ratio_10d_rank'] > params['vol_rank_thresh']
+                conditions.append(cond)
+
             if not conditions: continue
             
-            # Aggregate Conditions
             final_signal = conditions[0]
             for c in conditions[1:]: final_signal = final_signal & c
             
             signal_dates = df.index[final_signal]
             
-            # --- TRADE EXECUTION SIM ---
+            # --- TRADE EXECUTION ---
             for signal_date in signal_dates:
                 try:
                     sig_idx = df.index.get_loc(signal_date)
@@ -293,7 +303,6 @@ def run_engine(universe_dict, params, sznl_map, spy_series=None):
                         entry_price = df['Close'].iloc[sig_idx + 1]
                         start_idx = sig_idx + 2
                     
-                    # Stops/Targets
                     stop_price = entry_price - (atr * params['stop_atr'])
                     tgt_price = entry_price + (atr * params['tgt_atr'])
                     
@@ -384,9 +393,7 @@ def main():
     with col_u1:
         univ_choice = st.selectbox("Choose Universe", 
             ["Sector ETFs", "Indices", "International ETFs", "Sector + Index ETFs", "All CSV Tickers", "Custom (Upload CSV)"])
-            
     with col_u2:
-        # DEFAULT TO 2000
         default_start = datetime.date(2000, 1, 1)
         start_date = st.date_input("Backtest Start Date", value=default_start)
     
@@ -462,10 +469,25 @@ def main():
         with h2: first_52w = st.checkbox("First Instance Only", value=True, key="hf", disabled=not use_52w)
         with h3: lookback_52w = st.number_input("Instance Lookback (Days)", 1, 252, 21, key="hlb", disabled=not use_52w)
 
-    with st.expander("Volume Spike", expanded=False):
-        use_vol = st.checkbox("Enable Volume Spike Filter", value=False)
-        v1, _ = st.columns([1, 3])
-        with v1: vol_thresh = st.number_input("Vol Multiple (> X * 63d Avg)", 1.0, 10.0, 1.5, disabled=not use_vol)
+    # UPDATED VOLUME EXPANDER
+    with st.expander("Volume Filters (Spike & Regime)", expanded=False):
+        c1, c2 = st.columns(2)
+        
+        # 1. Volume Spike (Raw)
+        with c1:
+            st.markdown("**Volume Spike** (Raw Ratio)")
+            use_vol = st.checkbox("Enable Spike Filter", value=False)
+            vol_thresh = st.number_input("Vol Multiple (> X * 63d Avg)", 1.0, 10.0, 1.5, disabled=not use_vol)
+            
+        # 2. Volume Regime (Percentile)
+        with c2:
+            st.markdown("**Volume Regime** (10d Rel Vol Rank)")
+            use_vol_rank = st.checkbox("Enable Regime Filter", value=False)
+            v_col1, v_col2 = st.columns(2)
+            with v_col1: 
+                vol_rank_logic = st.selectbox("Logic", ["<", ">"], key="vrl", disabled=not use_vol_rank)
+            with v_col2: 
+                vol_rank_thresh = st.number_input("Percentile (0-100)", 0.0, 100.0, 50.0, key="vrt", disabled=not use_vol_rank)
 
     st.markdown("---")
     
@@ -489,7 +511,6 @@ def main():
         data_dict = download_universe_data(tickers_to_run, fetch_start)
         if not data_dict: return
         
-        # --- HANDLE SPY REGIME DATA IF NEEDED ---
         spy_series = None
         if trend_filter == "SPY > 200 SMA":
             if "SPY" not in data_dict:
@@ -515,7 +536,9 @@ def main():
             'use_sznl': use_sznl, 'sznl_logic': sznl_logic, 'sznl_thresh': sznl_thresh, 
             'sznl_first_instance': sznl_first, 'sznl_lookback': sznl_lookback,
             'use_52w': use_52w, '52w_type': type_52w, '52w_first_instance': first_52w, '52w_lookback': lookback_52w,
-            'use_vol': use_vol, 'vol_thresh': vol_thresh
+            'use_vol': use_vol, 'vol_thresh': vol_thresh,
+            # NEW PARAMS
+            'use_vol_rank': use_vol_rank, 'vol_rank_logic': vol_rank_logic, 'vol_rank_thresh': vol_rank_thresh
         }
         
         trades_df = run_engine(data_dict, params, sznl_map, spy_series)
@@ -594,6 +617,7 @@ def main():
         "use_sznl": {use_sznl}, "sznl_logic": "{sznl_logic}", "sznl_thresh": {sznl_thresh},
         "use_52w": {use_52w}, "52w_type": "{type_52w}",
         "use_vol": {use_vol}, "vol_thresh": {vol_thresh},
+        "use_vol_rank": {use_vol_rank}, "vol_rank_logic": "{vol_rank_logic}", "vol_rank_thresh": {vol_rank_thresh},
         "trend_filter": "{trend_filter}",
         "min_price": {min_price}, "min_vol": {min_vol},
         "min_age": {min_age}, "max_age": {max_age}
