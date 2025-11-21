@@ -225,7 +225,7 @@ def render_heatmap():
             "10d Rel. Volume Rank": "VolRatio_10d_Rank",
             "21d Rel. Volume Rank": "VolRatio_21d_Rank"
         }
-        # Added keys to fix potential flicker/state loss
+        
         x_axis_label = st.selectbox("X-Axis Variable", list(var_options.keys()), index=0, key="hm_x")
         y_axis_label = st.selectbox("Y-Axis Variable", list(var_options.keys()), index=3, key="hm_y")
     
@@ -245,8 +245,12 @@ def render_heatmap():
         
     st.markdown("---")
 
+    # Use session state to persist chart after interaction
     if st.button("Generate Heatmap", type="primary", use_container_width=True, key="hm_gen"):
         st.session_state['hm_data'] = True 
+        # Reset selection on new generation
+        if 'heatmap_selection' in st.session_state:
+            del st.session_state['heatmap_selection']
         
     if st.session_state.get('hm_data'):
         with st.spinner(f"Processing {ticker}..."):
@@ -258,27 +262,27 @@ def render_heatmap():
                 return
                 
             sznl_map = load_seasonal_map()
-            # 2. CALCULATION (Now Cached)
             df = calculate_heatmap_variables(data, sznl_map, ticker)
             
             xcol = var_options[x_axis_label]
             ycol = var_options[y_axis_label]
             zcol = target_options[z_axis_label]
             
+            # Clean data for binning
             clean_df = df.dropna(subset=[xcol, ycol, zcol])
             if clean_df.empty:
                 st.error("Insufficient data for these variables.")
                 return
 
-            # 3. BINNING & GRIDDING (Now Cached)
+            # 2. BINNING & GRIDDING (Cached)
             x_edges, y_edges = build_bins_quantile(clean_df[xcol], clean_df[ycol], nx=bins, ny=bins)
             x_centers, y_centers, Z = grid_mean(clean_df, xcol, ycol, zcol, x_edges, y_edges)
             
-            # 4. FILL & SMOOTH (Fast enough to run live for display tweaks)
+            # 3. FILL & SMOOTH
             Z_filled = nan_neighbor_fill(Z)
             Z_smooth = smooth_display(Z_filled, sigma=smooth_sigma)
             
-            # 5. PLOT
+            # 4. PLOT
             limit = np.nanmax(np.abs(Z_smooth))
             colorscale = get_seismic_colorscale()
             
@@ -300,8 +304,10 @@ def render_heatmap():
                 title=f"{ticker}: {z_axis_label}",
                 xaxis_title=x_axis_label + " (0-100)",
                 yaxis_title=y_axis_label + " (0-100)",
-                height=650, template="plotly_white",
-                clickmode='event+select' 
+                height=650, 
+                template="plotly_white",
+                # CRITICAL FIX: Disable zoom so clicks register as events
+                dragmode=False 
             )
             
             # Current Position Crosshair
@@ -315,61 +321,72 @@ def render_heatmap():
                 fig.add_annotation(x=curr_x, y=curr_y, text="Current", 
                                    showarrow=True, arrowhead=1, ax=30, ay=-30, bgcolor="white")
             
-            # 6. RENDER & INTERACTION
-            event = st.plotly_chart(fig, use_container_width=True, on_select="rerun", selection_mode="points")
+            # 5. RENDER
+            # on_select="rerun" is crucial for the app to update immediately upon clicking
+            event = st.plotly_chart(fig, use_container_width=True, on_select="rerun", key="heatmap_plot")
             
             # ---------------------------------------------------------------------
             # DRILL DOWN LOGIC
             # ---------------------------------------------------------------------
-            st.markdown("### 🖱️ Drill Down: Click Area Details")
             
+            # Debug helper (Optional: remove if cluttering)
+            # with st.expander("Debug: Raw Selection Event"):
+            #     st.write(event)
+
             selected_points = event.selection.get("points", [])
             
             if selected_points:
+                st.markdown("### 🖱️ Drill Down: Selected Bin Details")
+                
                 pt = selected_points[0]
-                click_x = pt["x"]
-                click_y = pt["y"]
+                click_x = pt.get("x")
+                click_y = pt.get("y")
                 
-                x_idx = np.abs(x_centers - click_x).argmin()
-                y_idx = np.abs(y_centers - click_y).argmin()
-                
-                x_min, x_max = x_edges[x_idx], x_edges[x_idx+1]
-                y_min, y_max = y_edges[y_idx], y_edges[y_idx+1]
-                
-                mask = (
-                    (clean_df[xcol] >= x_min) & (clean_df[xcol] <= x_max) &
-                    (clean_df[ycol] >= y_min) & (clean_df[ycol] <= y_max)
-                )
-                drill_df = clean_df[mask].copy()
-                
-                if not drill_df.empty:
-                    c1, c2 = st.columns([1, 3])
-                    with c1:
-                        st.info(f"**Selected Bin Range**\n\n"
-                                f"X: {x_min:.1f} - {x_max:.1f}\n\n"
-                                f"Y: {y_min:.1f} - {y_max:.1f}")
-                        st.metric("Avg Return in Bin", f"{drill_df[zcol].mean():.2f}%")
-                        st.metric("Count", len(drill_df))
-                        
-                    with c2:
-                        st.write("##### Historical Occurrences")
-                        display_cols = ['Close', xcol, ycol, zcol]
-                        style_df = drill_df[display_cols].sort_index(ascending=False)
-                        
-                        st.dataframe(
-                            style_df.style.format({
-                                "Close": "${:.2f}",
-                                xcol: "{:.1f}",
-                                ycol: "{:.1f}",
-                                zcol: "{:.2f}%"
-                            }).background_gradient(subset=[zcol], cmap="RdBu", vmin=-limit, vmax=limit),
-                            use_container_width=True,
-                            height=300
-                        )
-                else:
-                    st.warning("No exact data points found in this smoothed region.")
+                # Safety check if x/y are somehow missing
+                if click_x is not None and click_y is not None:
+                    # Find closest bin center
+                    x_idx = np.abs(x_centers - click_x).argmin()
+                    y_idx = np.abs(y_centers - click_y).argmin()
+                    
+                    # Define range
+                    x_min, x_max = x_edges[x_idx], x_edges[x_idx+1]
+                    y_min, y_max = y_edges[y_idx], y_edges[y_idx+1]
+                    
+                    # Filter Data
+                    mask = (
+                        (clean_df[xcol] >= x_min) & (clean_df[xcol] <= x_max) &
+                        (clean_df[ycol] >= y_min) & (clean_df[ycol] <= y_max)
+                    )
+                    drill_df = clean_df[mask].copy()
+                    
+                    if not drill_df.empty:
+                        c1, c2 = st.columns([1, 3])
+                        with c1:
+                            st.info(f"**Selected Bin**\n\n"
+                                    f"X: {x_min:.1f} - {x_max:.1f}\n\n"
+                                    f"Y: {y_min:.1f} - {y_max:.1f}")
+                            st.metric("Avg Return", f"{drill_df[zcol].mean():.2f}%")
+                            st.metric("Occurrences", len(drill_df))
+                            
+                        with c2:
+                            st.write("##### Historical Occurrences")
+                            display_cols = ['Close', xcol, ycol, zcol]
+                            style_df = drill_df[display_cols].sort_index(ascending=False)
+                            
+                            st.dataframe(
+                                style_df.style.format({
+                                    "Close": "${:.2f}",
+                                    xcol: "{:.1f}",
+                                    ycol: "{:.1f}",
+                                    zcol: "{:.2f}%"
+                                }).background_gradient(subset=[zcol], cmap="RdBu", vmin=-limit, vmax=limit),
+                                use_container_width=True,
+                                height=300
+                            )
+                    else:
+                        st.warning(f"No exact data points found in this bin (X:{click_x:.1f}, Y:{click_y:.1f}). The heatmap smoothing may be interpolating this area.")
             else:
-                st.caption("Click any cell in the heatmap to see the specific dates and returns.")
+                st.info("👆 Click any cell in the heatmap to see the specific historical dates behind that color.")
 
 def main():
     st.set_page_config(layout="wide", page_title="Heatmap Analytics")
