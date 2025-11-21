@@ -173,12 +173,9 @@ def calculate_indicators(df, sznl_map, ticker, spy_series=None):
     df['vol_ma'] = vol_ma
     df['vol_ratio'] = df['Volume'] / vol_ma
     
-    # --- NEW: 10d Relative Volume Percentile ---
-    # 1. Calculate 10d Avg Vol
+    # 10d Relative Volume Percentile
     vol_ma_10 = df['Volume'].rolling(10).mean()
-    # 2. Ratio: 10d / 63d
     df['vol_ratio_10d'] = vol_ma_10 / vol_ma
-    # 3. Expanding Rank (0-100)
     df['vol_ratio_10d_rank'] = df['vol_ratio_10d'].expanding(min_periods=252).rank(pct=True) * 100.0
     
     # Age
@@ -199,6 +196,8 @@ def run_engine(universe_dict, params, sznl_map, spy_series=None):
     total = len(universe_dict)
     bt_start_ts = pd.to_datetime(params['backtest_start_date'])
     
+    direction = params.get('trade_direction', 'Long')
+    
     progress_bar = st.progress(0)
     status_text = st.empty()
     
@@ -217,12 +216,22 @@ def run_engine(universe_dict, params, sznl_map, spy_series=None):
             
             # --- TREND FILTER ---
             trend_opt = params.get('trend_filter', 'None')
+            
+            # Long Logic
             if trend_opt == "Price > 200 SMA":
                 conditions.append(df['Close'] > df['SMA200'])
             elif trend_opt == "Price > Rising 200 SMA":
                 conditions.append((df['Close'] > df['SMA200']) & (df['SMA200'] > df['SMA200'].shift(1)))
             elif trend_opt == "SPY > 200 SMA" and 'SPY_Above_SMA200' in df.columns:
                 conditions.append(df['SPY_Above_SMA200'])
+            
+            # Short Logic (New)
+            elif trend_opt == "Price < 200 SMA":
+                conditions.append(df['Close'] < df['SMA200'])
+            elif trend_opt == "Price < Falling 200 SMA":
+                conditions.append((df['Close'] < df['SMA200']) & (df['SMA200'] < df['SMA200'].shift(1)))
+            elif trend_opt == "SPY < 200 SMA" and 'SPY_Above_SMA200' in df.columns:
+                conditions.append(~df['SPY_Above_SMA200']) # Invert the boolean
             
             # --- LIQUIDITY GATES ---
             curr_age = df['age_years'].fillna(0)
@@ -235,8 +244,6 @@ def run_engine(universe_dict, params, sznl_map, spy_series=None):
             conditions.append(gate)
 
             # --- STRATEGY SIGNALS ---
-            
-            # 1. Perf Rank
             if params['use_perf_rank']:
                 col = f"rank_ret_{params['perf_window']}d"
                 if params['perf_logic'] == '<': cond = df[col] < params['perf_thresh']
@@ -246,7 +253,6 @@ def run_engine(universe_dict, params, sznl_map, spy_series=None):
                     cond = cond & (prev == 0)
                 conditions.append(cond)
 
-            # 2. Seasonal
             if params['use_sznl']:
                 if params['sznl_logic'] == '<': cond = df['Sznl'] < params['sznl_thresh']
                 else: cond = df['Sznl'] > params['sznl_thresh']
@@ -255,7 +261,6 @@ def run_engine(universe_dict, params, sznl_map, spy_series=None):
                     cond = cond & (prev == 0)
                 conditions.append(cond)
             
-            # 3. 52w
             if params['use_52w']:
                 if params['52w_type'] == 'New 52w High': cond = df['is_52w_high']
                 else: cond = df['is_52w_low']
@@ -264,12 +269,10 @@ def run_engine(universe_dict, params, sznl_map, spy_series=None):
                     cond = cond & (prev == 0)
                 conditions.append(cond)
             
-            # 4. Volume Spike (Raw Ratio)
             if params['use_vol']:
                 cond = df['vol_ratio'] > params['vol_thresh']
                 conditions.append(cond)
 
-            # 5. NEW: Volume Rank (10d Rel Vol Percentile)
             if params['use_vol_rank']:
                 if params['vol_rank_logic'] == '<': 
                     cond = df['vol_ratio_10d_rank'] < params['vol_rank_thresh']
@@ -303,8 +306,13 @@ def run_engine(universe_dict, params, sznl_map, spy_series=None):
                         entry_price = df['Close'].iloc[sig_idx + 1]
                         start_idx = sig_idx + 2
                     
-                    stop_price = entry_price - (atr * params['stop_atr'])
-                    tgt_price = entry_price + (atr * params['tgt_atr'])
+                    # --- DIRECTIONAL LOGIC ---
+                    if direction == 'Long':
+                        stop_price = entry_price - (atr * params['stop_atr'])
+                        tgt_price = entry_price + (atr * params['tgt_atr'])
+                    else: # Short
+                        stop_price = entry_price + (atr * params['stop_atr'])
+                        tgt_price = entry_price - (atr * params['tgt_atr'])
                     
                     exit_price = entry_price
                     exit_type = "Hold"
@@ -314,30 +322,53 @@ def run_engine(universe_dict, params, sznl_map, spy_series=None):
                     
                     if not params['time_exit_only']:
                         for f_date, f_row in future.iterrows():
-                            if f_row['Low'] <= stop_price:
-                                exit_price = f_row['Open'] if f_row['Open'] < stop_price else stop_price
-                                exit_type = "Stop"
-                                exit_date = f_date
-                                break
-                            if f_row['High'] >= tgt_price:
-                                exit_price = f_row['Open'] if f_row['Open'] > tgt_price else tgt_price
-                                exit_type = "Target"
-                                exit_date = f_date
-                                break
+                            
+                            if direction == 'Long':
+                                if f_row['Low'] <= stop_price:
+                                    # Gap handling: If we gap below stop, we sell at Open
+                                    exit_price = f_row['Open'] if f_row['Open'] < stop_price else stop_price
+                                    exit_type = "Stop"
+                                    exit_date = f_date
+                                    break
+                                if f_row['High'] >= tgt_price:
+                                    exit_price = f_row['Open'] if f_row['Open'] > tgt_price else tgt_price
+                                    exit_type = "Target"
+                                    exit_date = f_date
+                                    break
+                            
+                            else: # Short
+                                if f_row['High'] >= stop_price:
+                                    # Gap handling: If we gap above stop, we cover at Open
+                                    exit_price = f_row['Open'] if f_row['Open'] > stop_price else stop_price
+                                    exit_type = "Stop"
+                                    exit_date = f_date
+                                    break
+                                if f_row['Low'] <= tgt_price:
+                                    exit_price = f_row['Open'] if f_row['Open'] < tgt_price else tgt_price
+                                    exit_type = "Target"
+                                    exit_date = f_date
+                                    break
                     
                     if exit_type == "Hold":
                         exit_price = future['Close'].iloc[-1]
                         exit_date = future.index[-1]
                         exit_type = "Time"
                     
-                    risk_unit = entry_price - stop_price
+                    # --- R CALCULATION ---
+                    if direction == 'Long':
+                        risk_unit = entry_price - stop_price
+                        pnl = exit_price - entry_price
+                    else: # Short
+                        risk_unit = stop_price - entry_price # Risk is distance to stop above
+                        pnl = entry_price - exit_price # Profit if price went down
+                        
                     if risk_unit <= 0: risk_unit = 0.001
-                    pnl = exit_price - entry_price
                     r = pnl / risk_unit
                     
                     trades.append({
                         "Ticker": ticker,
                         "SignalDate": signal_date,
+                        "Direction": direction,
                         "Entry": entry_price,
                         "Exit": exit_price,
                         "ExitDate": exit_date,
@@ -394,6 +425,7 @@ def main():
         univ_choice = st.selectbox("Choose Universe", 
             ["Sector ETFs", "Indices", "International ETFs", "Sector + Index ETFs", "All CSV Tickers", "Custom (Upload CSV)"])
     with col_u2:
+        # DEFAULT TO 2000
         default_start = datetime.date(2000, 1, 1)
         start_date = st.date_input("Backtest Start Date", value=default_start)
     
@@ -417,7 +449,13 @@ def main():
 
     st.markdown("---")
     st.subheader("2. Execution & Risk")
-    time_exit_only = st.checkbox("Time Exit Only (Disable Stop/Target)")
+    
+    r_c1, r_c2 = st.columns(2)
+    with r_c1:
+        trade_direction = st.selectbox("Trade Direction", ["Long", "Short"])
+    with r_c2:
+        time_exit_only = st.checkbox("Time Exit Only (Disable Stop/Target)")
+    
     c1, c2, c3, c4, c5 = st.columns(5)
     with c1: entry_type = st.selectbox("Entry Price", ["Signal Close", "T+1 Open", "T+1 Close"])
     with c2: stop_atr = st.number_input("Stop Loss (ATR)", value=3.0, step=0.1)
@@ -437,12 +475,13 @@ def main():
         with l4: max_age = st.number_input("Max True Age (Yrs)", value=100.0, step=1.0)
         
     # B. TREND
-    with st.expander("Trend Filter (NEW)", expanded=True):
+    with st.expander("Trend Filter", expanded=True):
         t1, _ = st.columns([1, 3])
         with t1:
             trend_filter = st.selectbox("Trend Condition", 
-                ["None", "Price > 200 SMA", "Price > Rising 200 SMA", "SPY > 200 SMA"],
-                help="Requires 200 days of data prior to signal. 'SPY > 200 SMA' checks the broad market regime.")
+                ["None", "Price > 200 SMA", "Price > Rising 200 SMA", "SPY > 200 SMA",
+                 "Price < 200 SMA", "Price < Falling 200 SMA", "SPY < 200 SMA"],
+                help="Requires 200 days of data. 'SPY' filters check the broad market regime.")
 
     # C. STRATEGY FILTERS
     with st.expander("Performance Percentile Rank", expanded=False):
@@ -512,7 +551,8 @@ def main():
         if not data_dict: return
         
         spy_series = None
-        if trend_filter == "SPY > 200 SMA":
+        # Handle SPY fetch for either Long or Short regimes
+        if "SPY" in trend_filter:
             if "SPY" not in data_dict:
                 st.info("Fetching SPY data for regime filter...")
                 spy_dict = download_universe_data(["SPY"], fetch_start)
@@ -527,6 +567,7 @@ def main():
 
         params = {
             'backtest_start_date': start_date,
+            'trade_direction': trade_direction,
             'time_exit_only': time_exit_only,
             'stop_atr': stop_atr, 'tgt_atr': tgt_atr, 'holding_days': hold_days, 'entry_type': entry_type,
             'min_price': min_price, 'min_vol': min_vol, 'min_age': min_age, 'max_age': max_age,
@@ -537,7 +578,6 @@ def main():
             'sznl_first_instance': sznl_first, 'sznl_lookback': sznl_lookback,
             'use_52w': use_52w, '52w_type': type_52w, '52w_first_instance': first_52w, '52w_lookback': lookback_52w,
             'use_vol': use_vol, 'vol_thresh': vol_thresh,
-            # NEW PARAMS
             'use_vol_rank': use_vol_rank, 'vol_rank_logic': vol_rank_logic, 'vol_rank_thresh': vol_rank_thresh
         }
         
@@ -610,9 +650,10 @@ def main():
         dict_str = f"""{{
     "id": "STRAT_{int(time.time())}",
     "name": "Generated Strategy ({grade})",
-    "description": "Universe: {univ_choice}. Filter: {trend_filter}. PF: {pf:.2f}. SQN: {sqn:.2f}.",
+    "description": "Universe: {univ_choice}. Dir: {trade_direction}. Filter: {trend_filter}. PF: {pf:.2f}. SQN: {sqn:.2f}.",
     "universe_tickers": {tickers_to_run}, 
     "settings": {{
+        "trade_direction": "{trade_direction}",
         "use_perf_rank": {use_perf}, "perf_window": {perf_window}, "perf_logic": "{perf_logic}", "perf_thresh": {perf_thresh},
         "use_sznl": {use_sznl}, "sznl_logic": "{sznl_logic}", "sznl_thresh": {sznl_thresh},
         "use_52w": {use_52w}, "52w_type": "{type_52w}",
