@@ -8,8 +8,6 @@ from pandas.tseries.offsets import BusinessDay
 # -----------------------------------------------------------------------------
 # 1. THE STRATEGY BOOK (STATIC BATCH)
 # -----------------------------------------------------------------------------
-# To add a new strategy, copy this dictionary structure and paste it into the list.
-
 STRATEGY_BOOK = [
     {
         "id": "IND_OS_SZNL",
@@ -17,11 +15,17 @@ STRATEGY_BOOK = [
         "description": "Buying major indices when short-term momentum is washed out but seasonal tailwinds are strong.",
         "universe_tickers": ["SPY", "QQQ", "IWM", "DIA", "SMH"], 
         "settings": {
+            "trade_direction": "Long",
+            "max_one_pos": False,
             "use_perf_rank": True, "perf_window": 5, "perf_logic": "<", "perf_thresh": 15.0,
+            "perf_consecutive": 1,
             "use_sznl": True, "sznl_logic": ">", "sznl_thresh": 80.0,
-            "use_52w": False, "52w_type": None,
-            "use_vol": False, "vol_thresh": None,
+            "use_52w": False, "52w_type": "New 52w High",
+            "use_vol": False, "vol_thresh": 1.5,
+            "use_vol_rank": False, "vol_rank_logic": "<", "vol_rank_thresh": 50.0,
+            "trend_filter": "None",
             "min_price": 10.0, "min_vol": 100000,
+            "min_age": 0.25, "max_age": 100.0
         },
         "execution": {
             "risk_per_trade": 1000,
@@ -37,33 +41,37 @@ STRATEGY_BOOK = [
         }
     },
     {
-    "id": "STRAT_1763673538",
-    "name": "Generated Strategy (A)",
-    "description": "Universe: All CSV Tickers. Sznl >80 5d perf < 15 (3d lookback) Filter: SPY > 200 SMA.",
-    "universe_tickers": ['AAPL', 'AMGN', 'AMZN', 'AVGO', 'AXP', 'BA', 'CAT', 'CEF', 'CRM', 'CSCO', 'CVX', 'DIA', 'DIS', 'GLD', 'GOOG', 'GS', 'HD', 'HON', 'IBB', 'IBM', 'IHI', 'INTC', 'ITA', 'ITB', 'IWM', 'IYR', 'JNJ', 'JPM', 'KO', 'KRE', 'MCD', 'META', 'MMM', 'MRK', 'MSFT', 'NKE', 'NVDA', 'OIH', 'PG', 'QQQ', 'SLV', 'SMH', 'SPY', 'TRV', 'UNG', 'UNH', 'UVXY', 'V', 'VNQ', 'VZ', 'WMT', 'XBI', 'XHB', 'XLB', 'XLE', 'XLF', 'XLI', 'XLK', 'XLP', 'XLU', 'XLV', 'XLY', 'XME', 'XOP', 'XRT'], 
-    "settings": {
-        "use_perf_rank": True, "perf_window": 5, "perf_logic": "<", "perf_thresh": 15.0,
-        "use_sznl": True, "sznl_logic": ">", "sznl_thresh": 80.0,
-        "use_52w": False, "52w_type": "New 52w High",
-        "use_vol": False, "vol_thresh": 1.5,
-        "trend_filter": "SPY > 200 SMA",
-        "min_price": 10.0, "min_vol": 100000,
-        "min_age": 0.25, "max_age": 100.0
-    },
-    "execution": {
-        "risk_per_trade": 1000,
-        "stop_atr": 2.0,
-        "tgt_atr": 8.0,
-        "hold_days": 21
-    },
-    "stats": {
-        "grade": "A (Excellent)",
-        "win_rate": "63.9%",
-        "expectancy": "$646.42",
-        "profit_factor": "2.85"
+        "id": "STRAT_1763673538",
+        "name": "Generated Strategy (A)",
+        "description": "Large Cap Mean Reversion. Universe: All CSV Tickers. Filter: SPY > 200 SMA.",
+        # Note: Ensure this list matches your intended universe. 
+        "universe_tickers": ['AAPL', 'AMGN', 'AMZN', 'AVGO', 'AXP', 'BA', 'CAT', 'CEF', 'CRM', 'CSCO', 'CVX', 'DIA', 'DIS', 'GLD', 'GOOG', 'GS', 'HD', 'HON', 'IBB', 'IBM', 'IHI', 'INTC', 'ITA', 'ITB', 'IWM', 'IYR', 'JNJ', 'JPM', 'KO', 'KRE', 'MCD', 'META', 'MMM', 'MRK', 'MSFT', 'NKE', 'NVDA', 'OIH', 'PG', 'QQQ', 'SLV', 'SMH', 'SPY', 'TRV', 'UNG', 'UNH', 'UVXY', 'V', 'VNQ', 'VZ', 'WMT', 'XBI', 'XHB', 'XLB', 'XLE', 'XLF', 'XLI', 'XLK', 'XLP', 'XLU', 'XLV', 'XLY', 'XME', 'XOP', 'XRT'], 
+        "settings": {
+            "trade_direction": "Long",
+            "max_one_pos": True,
+            "use_perf_rank": True, "perf_window": 5, "perf_logic": "<", "perf_thresh": 15.0,
+            "perf_consecutive": 1,
+            "use_sznl": True, "sznl_logic": ">", "sznl_thresh": 80.0,
+            "use_52w": False, "52w_type": "New 52w High",
+            "use_vol": False, "vol_thresh": 1.5,
+            "use_vol_rank": False, "vol_rank_logic": "<", "vol_rank_thresh": 50.0,
+            "trend_filter": "SPY > 200 SMA",
+            "min_price": 10.0, "min_vol": 100000,
+            "min_age": 0.25, "max_age": 100.0
+        },
+        "execution": {
+            "risk_per_trade": 1000,
+            "stop_atr": 2.0,
+            "tgt_atr": 8.0,
+            "hold_days": 21
+        },
+        "stats": {
+            "grade": "A (Excellent)",
+            "win_rate": "63.9%",
+            "expectancy": "$646.42",
+            "profit_factor": "2.85"
+        }
     }
-},
-    # ... You can add Strategy #2, Strategy #3 here ...
 ]
 
 # -----------------------------------------------------------------------------
@@ -101,15 +109,18 @@ def get_sznl_val_series(ticker, dates, sznl_map):
 # ENGINE
 # -----------------------------------------------------------------------------
 
-def calculate_indicators(df, sznl_map, ticker):
+def calculate_indicators(df, sznl_map, ticker, spy_series=None):
     df = df.copy()
     df.columns = [c.capitalize() for c in df.columns]
     if df.index.tz is not None: df.index = df.index.tz_localize(None)
     
+    # SMA 200 (Trend)
+    df['SMA200'] = df['Close'].rolling(200).mean()
+
     # Perf Ranks
     for window in [5, 10, 21]:
         df[f'ret_{window}d'] = df['Close'].pct_change(window)
-        # We use a smaller min_periods here to ensure the screener works on recent downloads
+        # Min periods 50 ensures we get a rank if we downloaded 400 days
         df[f'rank_ret_{window}d'] = df[f'ret_{window}d'].expanding(min_periods=50).rank(pct=True) * 100.0
         
     # ATR
@@ -133,40 +144,100 @@ def calculate_indicators(df, sznl_map, ticker):
     df['vol_ratio'] = df['Volume'] / vol_ma
     df['vol_ma'] = vol_ma
     
+    # Volume Rank (10d Relative)
+    vol_ma_10 = df['Volume'].rolling(10).mean()
+    df['vol_ratio_10d'] = vol_ma_10 / vol_ma
+    df['vol_ratio_10d_rank'] = df['vol_ratio_10d'].expanding(min_periods=50).rank(pct=True) * 100.0
+
+    # Age
+    if not df.empty:
+        start_ts = df.index[0]
+        df['age_years'] = (df.index - start_ts).days / 365.25
+    else:
+        df['age_years'] = 0.0
+
+    # SPY Regime
+    if spy_series is not None:
+        df['SPY_Above_SMA200'] = spy_series.reindex(df.index, method='ffill').fillna(False)
+        
     return df
 
-def check_signal(row, params):
-    """Checks if the specific row matches the strategy parameters."""
-    # Liquidity Gates
-    if row['Close'] < params['min_price']: return False
-    if row['vol_ma'] < params['min_vol']: return False
+def check_signal(df, params):
+    """
+    Checks conditions on the DataFrame. 
+    Returns True/False for the LAST ROW only.
+    """
+    # We calculate conditions on the whole DF to handle 'consecutive' logic
+    last_idx = df.index[-1]
+    last_row = df.iloc[-1]
+    
+    # 1. Liquidity Gates (Check last row only)
+    if last_row['Close'] < params.get('min_price', 0): return False
+    if last_row['vol_ma'] < params.get('min_vol', 0): return False
+    if last_row['age_years'] < params.get('min_age', 0): return False
+    if last_row['age_years'] > params.get('max_age', 100): return False
 
-    # 1. Performance Rank
+    # 2. Trend Filter
+    trend_opt = params.get('trend_filter', 'None')
+    # Long Logic
+    if trend_opt == "Price > 200 SMA":
+        if not (last_row['Close'] > last_row['SMA200']): return False
+    elif trend_opt == "Price > Rising 200 SMA":
+        prev_row = df.iloc[-2]
+        if not ((last_row['Close'] > last_row['SMA200']) and (last_row['SMA200'] > prev_row['SMA200'])): return False
+    elif trend_opt == "SPY > 200 SMA":
+        if 'SPY_Above_SMA200' in df.columns and not last_row['SPY_Above_SMA200']: return False
+    # Short Logic
+    elif trend_opt == "Price < 200 SMA":
+        if not (last_row['Close'] < last_row['SMA200']): return False
+    elif trend_opt == "Price < Falling 200 SMA":
+        prev_row = df.iloc[-2]
+        if not ((last_row['Close'] < last_row['SMA200']) and (last_row['SMA200'] < prev_row['SMA200'])): return False
+    elif trend_opt == "SPY < 200 SMA":
+        if 'SPY_Above_SMA200' in df.columns and last_row['SPY_Above_SMA200']: return False
+
+    # 3. Perf Rank (with Consecutive logic)
     if params['use_perf_rank']:
         col = f"rank_ret_{params['perf_window']}d"
-        val = row[col]
+        # Calc raw condition for whole column
         if params['perf_logic'] == '<': 
-            if not (val < params['perf_thresh']): return False
+            raw_cond = df[col] < params['perf_thresh']
+        else: 
+            raw_cond = df[col] > params['perf_thresh']
+            
+        consec = params.get('perf_consecutive', 1)
+        if consec > 1:
+            # Rolling sum of Trues must equal window size
+            persist_cond = raw_cond.rolling(consec).sum() == consec
+            if not persist_cond.iloc[-1]: return False
         else:
-            if not (val > params['perf_thresh']): return False
+            if not raw_cond.iloc[-1]: return False
 
-    # 2. Seasonal
+    # 4. Seasonal
     if params['use_sznl']:
         if params['sznl_logic'] == '<':
-            if not (row['Sznl'] < params['sznl_thresh']): return False
+            if not (last_row['Sznl'] < params['sznl_thresh']): return False
         else:
-            if not (row['Sznl'] > params['sznl_thresh']): return False
+            if not (last_row['Sznl'] > params['sznl_thresh']): return False
 
-    # 3. 52w
+    # 5. 52w
     if params['use_52w']:
         if params['52w_type'] == 'New 52w High':
-            if not row['is_52w_high']: return False
+            if not last_row['is_52w_high']: return False
         else:
-            if not row['is_52w_low']: return False
+            if not last_row['is_52w_low']: return False
 
-    # 4. Volume
+    # 6. Volume Spike
     if params['use_vol']:
-        if not (row['vol_ratio'] > params['vol_thresh']): return False
+        if not (last_row['vol_ratio'] > params['vol_thresh']): return False
+
+    # 7. Volume Rank
+    if params.get('use_vol_rank'):
+        val = last_row['vol_ratio_10d_rank']
+        if params['vol_rank_logic'] == '<':
+            if not (val < params['vol_rank_thresh']): return False
+        else:
+            if not (val > params['vol_rank_thresh']): return False
         
     return True
 
@@ -181,20 +252,23 @@ def main():
     
     sznl_map = load_seasonal_map()
     
-    # Container for results
-    results_container = st.container()
-    
     if st.button("Run All Strategies", type="primary", use_container_width=True):
         
         st.info(f"Scanning {len(STRATEGY_BOOK)} strategies against current market data...")
         
-        # Collect unique tickers to download in one batch (efficient)
+        # 1. Consolidate Tickers
         all_tickers = set()
-        for strat in STRATEGIES:
+        needs_spy = False
+        for strat in STRATEGY_BOOK:
             all_tickers.update(strat['universe_tickers'])
-        all_tickers = list(all_tickers)
+            if "SPY" in strat['settings'].get('trend_filter', ''):
+                needs_spy = True
         
-        # Download last ~400 days (enough for indicators)
+        all_tickers = list(all_tickers)
+        if needs_spy and "SPY" not in all_tickers:
+            all_tickers.append("SPY")
+        
+        # 2. Download Data (400 days for indicators)
         start_date = datetime.date.today() - datetime.timedelta(days=400)
         try:
             raw_data = yf.download(all_tickers, start=start_date, group_by='ticker', progress=False, threads=True)
@@ -202,101 +276,119 @@ def main():
             st.error(f"Data download failed: {e}")
             return
 
-        # Iterate through the Strategy Book
-        for strat in STRATEGIES:
+        # 3. Process SPY Regime if needed
+        spy_series = None
+        if needs_spy:
+            try:
+                if len(all_tickers) > 1 and "SPY" in raw_data.columns.levels[0]:
+                    spy_df = raw_data["SPY"].copy()
+                elif len(all_tickers) == 1:
+                    spy_df = raw_data.copy()
+                
+                # Flatten cols if needed
+                if isinstance(spy_df.columns, pd.MultiIndex):
+                    spy_df.columns = [c if isinstance(c, str) else c[0] for c in spy_df.columns]
+                
+                spy_df['SMA200'] = spy_df['Close'].rolling(200).mean()
+                spy_series = spy_df['Close'] > spy_df['SMA200']
+            except: pass
+
+        # 4. Iterate Strategies
+        for strat in STRATEGY_BOOK:
             
-            # Create visuals for the Strategy Header
             with st.expander(f"Strategy: {strat['name']} (Grade: {strat['stats']['grade']})", expanded=True):
                 
-                # 1. Display Stats
+                # Header Stats
                 s1, s2, s3, s4, s5 = st.columns(5)
                 s1.metric("Win Rate", strat['stats']['win_rate'])
                 s2.metric("Expectancy", strat['stats']['expectancy'])
                 s3.metric("Profit Factor", strat['stats']['profit_factor'])
+                s4.metric("Direction", strat['settings'].get('trade_direction', 'Long'))
                 s5.metric("Risk Unit", f"${strat['execution']['risk_per_trade']}")
                 
                 st.caption(strat['description'])
                 
-                # 2. Find Signals
                 signals = []
                 
                 for ticker in strat['universe_tickers']:
                     try:
-                        # Extract Ticker Data
+                        # Extract Ticker DF
                         if len(all_tickers) > 1:
                             if ticker not in raw_data.columns.levels[0]: continue
                             df = raw_data[ticker].copy()
                         else:
                             df = raw_data.copy()
 
+                        # Clean columns
+                        if isinstance(df.columns, pd.MultiIndex):
+                            df.columns = [c if isinstance(c, str) else c[0] for c in df.columns]
+
                         df = df.dropna(subset=['Close'])
-                        if df.empty: continue
+                        if len(df) < 250: continue # Need history for ranks
                         
                         # Calc Indicators
-                        df = calculate_indicators(df, sznl_map, ticker)
+                        df = calculate_indicators(df, sznl_map, ticker, spy_series)
                         
-                        # Check Last Row (Today/Yesterday Close)
-                        last_row = df.iloc[-1]
-                        
-                        if check_signal(last_row, strat['settings']):
-                            # Calculate Execution Plan
+                        # Check Logic (Pass whole DF for rolling checks)
+                        if check_signal(df, strat['settings']):
+                            
+                            last_row = df.iloc[-1]
                             atr = last_row['ATR']
                             risk = strat['execution']['risk_per_trade']
                             entry = last_row['Close']
+                            direction = strat['settings'].get('trade_direction', 'Long')
                             
-                            stop_dist = atr * strat['execution']['stop_atr']
-                            tgt_dist = atr * strat['execution']['tgt_atr']
+                            # Calc Stops/Targets based on Direction
+                            stop_atr = strat['execution']['stop_atr']
+                            tgt_atr = strat['execution']['tgt_atr']
                             
-                            stop_price = entry - stop_dist
-                            tgt_price = entry + tgt_dist
+                            if direction == 'Long':
+                                stop_price = entry - (atr * stop_atr)
+                                tgt_price = entry + (atr * tgt_atr)
+                                dist = entry - stop_price
+                                action = "BUY"
+                            else: # Short
+                                stop_price = entry + (atr * stop_atr)
+                                tgt_price = entry - (atr * tgt_atr)
+                                dist = stop_price - entry
+                                action = "SELL SHORT"
                             
-                            # Share Sizing: Risk / (Entry - Stop)
-                            shares = int(risk / stop_dist) if stop_dist > 0 else 0
-                            
-                            # Exit Date (Business Days)
+                            shares = int(risk / dist) if dist > 0 else 0
                             exit_date = (last_row.name + BusinessDay(strat['execution']['hold_days'])).date()
                             
                             signals.append({
                                 "Ticker": ticker,
-                                "Signal Date": last_row.name.date(),
-                                "Action": "BUY",
+                                "Date": last_row.name.date(),
+                                "Action": action,
                                 "Shares": shares,
-                                "Entry Price": entry,
-                                "Stop Loss": stop_price,
+                                "Entry": entry,
+                                "Stop": stop_price,
                                 "Target": tgt_price,
-                                "Est. Exit": exit_date,
+                                "Time Exit": exit_date,
                                 "ATR": atr
                             })
                             
                     except Exception as e:
                         continue
                 
-                # 3. Display Signals
+                # Output
                 if signals:
                     st.success(f"✅ Found {len(signals)} Actionable Signals")
                     sig_df = pd.DataFrame(signals)
                     
                     st.dataframe(
                         sig_df.style.format({
-                            "Entry Price": "${:.2f}",
-                            "Stop Loss": "${:.2f}", 
-                            "Target": "${:.2f}",
-                            "ATR": "{:.2f}"
-                        }), 
-                        use_container_width=True
+                            "Entry": "${:.2f}", "Stop": "${:.2f}", "Target": "${:.2f}", "ATR": "{:.2f}"
+                        }), use_container_width=True
                     )
                     
-                    # Copyable Text for Execution
                     clip_text = ""
                     for s in signals:
-                        clip_text += f"{s['Action']} {s['Shares']} {s['Ticker']} @ MKT. Stop: {s['Stop Loss']:.2f}. Target: {s['Target']:.2f}. Time Exit: {s['Est. Exit']}.\n"
+                        clip_text += f"{s['Action']} {s['Shares']} {s['Ticker']} @ MKT. Stop: {s['Stop']:.2f}. Target: {s['Target']:.2f}. Exit Date: {s['Time Exit']}.\n"
                     st.text_area("Execution Clipboard", clip_text, height=100)
                     
                 else:
                     st.info("No signals found for this strategy today.")
-
-# Hack to map the previous variable name to the new list if needed
-STRATEGIES = STRATEGY_BOOK
 
 if __name__ == "__main__":
     main()
