@@ -45,6 +45,7 @@ def get_sznl_val_series(ticker, dates, sznl_map):
 def download_data(ticker):
     if not ticker: return pd.DataFrame()
     try:
+        # We need MAX history for accurate percentile ranking
         df = yf.download(ticker, period="max", progress=False, auto_adjust=True)
         if isinstance(df.columns, pd.MultiIndex):
             df.columns = [c[0] for c in df.columns]
@@ -56,7 +57,9 @@ def download_data(ticker):
 # COLOR GENERATOR (Seismic)
 # -----------------------------------------------------------------------------
 def get_seismic_colorscale():
+    """Generates the seismic color scale: Dark Blue (Pos) <-> White (0) <-> Dark Red (Neg)."""
     seismic = []
+    # Use Matplotlib to get the exact gradient
     cm = matplotlib.colormaps["seismic"] 
     for k in range(255):
         r, g, b, _ = cm(k / 254.0)
@@ -64,37 +67,41 @@ def get_seismic_colorscale():
     return seismic
 
 # -----------------------------------------------------------------------------
-# CALCULATION ENGINE
+# CALCULATION ENGINE (Cached)
 # -----------------------------------------------------------------------------
 
 @st.cache_data(show_spinner=True)
 def calculate_heatmap_variables(df, sznl_map, ticker):
+    """Calculates advanced vars and ranks them 0-100 for the heatmap axes."""
     df = df.copy()
     
-    # --- 1. BASE CALCULATIONS ---
-    df['LogRet'] = np.log(df['Close'] / df['Close'].shift(1))
+    # --- FORWARD RETURNS (Z-AXIS) ---
+    # Logic: (Future Price - Current Price) / Current Price
+    for w in [5, 10, 21, 63]:
+        df[f'FwdRet_{w}d'] = (df['Close'].shift(-w) / df['Close'] - 1.0) * 100.0
 
-    # --- 2. CURRENT INDICATORS (X/Y AXIS) ---
-    # Trailing Returns
+    # --- X/Y VARIABLES (Raw Calculation) ---
+    
+    # 1. Trailing Returns
     for w in [5, 10, 21, 63, 126, 252]:
         df[f'Ret_{w}d'] = df['Close'].pct_change(w)
 
-    # Realized Volatility (Annualized)
-    # We calculate this first so we can use it for the Delta calculation later
+    # 2. Realized Volatility (Annualized)
+    df['LogRet'] = np.log(df['Close'] / df['Close'].shift(1))
     for w in [2, 5, 10, 21, 63]:
         df[f'RealVol_{w}d'] = df['LogRet'].rolling(w).std() * np.sqrt(252) * 100.0
     
-    # Change in Realized Vol (Short Term vs 63d Baseline)
+    # 3. Change in Realized Vol (Short Term vs 63d Baseline)
     df['VolChange_2d']  = df['RealVol_2d']  - df['RealVol_63d']
     df['VolChange_5d']  = df['RealVol_5d']  - df['RealVol_63d']
     df['VolChange_10d'] = df['RealVol_10d'] - df['RealVol_63d']
     df['VolChange_21d'] = df['RealVol_21d'] - df['RealVol_63d']
 
-    # Volume Ratios
+    # 4. Volume Ratios (Relative Volume)
     for w in [5, 10, 21]:
         df[f'VolRatio_{w}d'] = df['Volume'].rolling(w).mean() / df['Volume'].rolling(63).mean()
 
-    # Seasonality
+    # 5. Seasonality
     df['Seasonal'] = get_sznl_val_series(ticker, df.index, sznl_map)
 
     # --- 3. FORWARD TARGETS (Z-AXIS) ---
@@ -126,7 +133,7 @@ def calculate_heatmap_variables(df, sznl_map, ticker):
     return df
 
 # -----------------------------------------------------------------------------
-# HEATMAP UTILS
+# HEATMAP UTILS (Binning & Smoothing)
 # -----------------------------------------------------------------------------
 
 @st.cache_data
@@ -201,9 +208,8 @@ def smooth_display(Z, sigma=1.2):
 # UI: RENDER HEATMAP
 # -----------------------------------------------------------------------------
 def render_heatmap():
-    st.subheader("Heatmap Analytics")
+    st.subheader("Heatmap Analysis")
     
-    # 1. SELECTION
     col1, col2, col3 = st.columns(3)
     
     with col1:
@@ -225,7 +231,6 @@ def render_heatmap():
             "10d Rel. Volume Rank": "VolRatio_10d_Rank",
             "21d Rel. Volume Rank": "VolRatio_21d_Rank"
         }
-        
         x_axis_label = st.selectbox("X-Axis Variable", list(var_options.keys()), index=0, key="hm_x")
         y_axis_label = st.selectbox("Y-Axis Variable", list(var_options.keys()), index=3, key="hm_y")
     
@@ -256,11 +261,11 @@ def render_heatmap():
 
     if st.button("Generate Heatmap", type="primary", use_container_width=True, key="hm_gen"):
         st.session_state['hm_data'] = True 
+        if 'heatmap_selection' in st.session_state: del st.session_state['heatmap_selection']
         
     if st.session_state.get('hm_data'):
         with st.spinner(f"Processing {ticker}..."):
             
-            # 1. DATA
             data = download_data(ticker)
             if data.empty:
                 st.error("No data found.")
@@ -269,7 +274,6 @@ def render_heatmap():
             sznl_map = load_seasonal_map()
             df = calculate_heatmap_variables(data, sznl_map, ticker)
             
-            # Filter Date
             start_ts = pd.to_datetime(analysis_start)
             if df.index.tz is not None: start_ts = start_ts.tz_localize(df.index.tz)
             df = df[df.index >= start_ts]
@@ -287,43 +291,35 @@ def render_heatmap():
                 st.error("Insufficient data.")
                 return
 
-            # 2. GRIDDING
             x_edges, y_edges = build_bins_quantile(clean_df[xcol], clean_df[ycol], nx=bins, ny=bins)
             x_centers, y_centers, Z = grid_mean(clean_df, xcol, ycol, zcol, x_edges, y_edges)
             
-            # 3. SMOOTHING
             Z_filled = nan_neighbor_fill(Z)
             Z_smooth = smooth_display(Z_filled, sigma=smooth_sigma)
             
-            # 4. SMART SCALING
-            # If Z is "Return" or "Delta/Change", we center at 0.
-            # If Z is Raw Vol, we center at the Median (or Mean) of the displayed data.
+            # --- SMART SCALING (Mean-Centered) ---
             is_centered_zero = "Ret" in zcol or "Delta" in zcol or "Change" in zcol
             
+            limit = np.nanmax(np.abs(Z_smooth))
+            
             if is_centered_zero:
-                # Symmetric scale around 0
-                limit = np.nanmax(np.abs(Z_smooth))
                 z_min, z_max = -limit, limit
-                midpoint_desc = "0 (Neutral)"
+                z_mid = 0
             else:
-                # Center around the Median of the smoothed data
-                z_med = np.nanmedian(Z_smooth)
-                # Use robust spread (e.g., 2 std devs or just min/max)
-                # For visual contrast, min/max often works best if outliers are smoothed
+                # Raw Volatility: Center on Mean
+                z_mean_val = np.nanmean(Z_smooth)
                 z_min = np.nanmin(Z_smooth)
                 z_max = np.nanmax(Z_smooth)
-                midpoint_desc = f"{z_med:.2f} (Avg)"
+                z_mid = z_mean_val
 
             colorscale = get_seismic_colorscale()
             z_units = "%" if "Ret" in zcol else " Vol"
 
             fig = go.Figure(data=go.Heatmap(
-                z=Z_smooth,
-                x=x_centers,
-                y=y_centers,
+                z=Z_smooth, x=x_centers, y=y_centers,
                 colorscale=colorscale, 
                 zmin=z_min, zmax=z_max,
-                zmid=0 if is_centered_zero else None, # Explicitly tell Plotly to center colors at 0 if needed
+                zmid=z_mid, # Explicitly force the color center
                 reversescale=True, 
                 colorbar=dict(title=f"{zcol} {z_units}"),
                 hovertemplate=f"<b>{x_axis_label}</b>: %{{x:.1f}}<br><b>{y_axis_label}</b>: %{{y:.1f}}<br><b>Value</b>: %{{z:.2f}}{z_units}<extra></extra>"
@@ -337,7 +333,6 @@ def render_heatmap():
                 dragmode=False 
             )
             
-            # Current Crosshair
             last_row = df.iloc[-1]
             curr_x = last_row.get(xcol, np.nan)
             curr_y = last_row.get(ycol, np.nan)
@@ -348,9 +343,6 @@ def render_heatmap():
             
             st.plotly_chart(fig, use_container_width=True, on_select="rerun", key="heatmap_plot")
             
-            # ---------------------------------------------------------------------
-            # DATA EXPLORER
-            # ---------------------------------------------------------------------
             st.markdown("### 🔎 Historical Data Explorer")
             f_col1, f_col2 = st.columns(2)
             with f_col1: x_range = st.slider(f"Filter: {x_axis_label} (Rank)", 0.0, 100.0, (0.0, 100.0), step=1.0)
@@ -369,7 +361,7 @@ def render_heatmap():
                     win_rate = (filtered_df[zcol] > 0).sum() / len(filtered_df) * 100
                     s3.metric("Win Rate (>0)", f"{win_rate:.1f}%")
                 else:
-                    s3.metric("Median", f"{filtered_df[zcol].median():.2f}")
+                    s3.metric("Mean Vol", f"{filtered_df[zcol].mean():.2f}")
                 
                 st.write("#### Matching Dates")
                 display_cols = ['Close', xcol, ycol, zcol]
