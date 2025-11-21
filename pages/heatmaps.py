@@ -59,6 +59,7 @@ def download_data(ticker):
 def get_seismic_colorscale():
     """Generates the seismic color scale: Dark Blue (Pos) <-> White (0) <-> Dark Red (Neg)."""
     seismic = []
+    # Use Matplotlib to get the exact gradient
     cm = matplotlib.colormaps["seismic"] 
     for k in range(255):
         r, g, b, _ = cm(k / 254.0)
@@ -236,6 +237,9 @@ def render_heatmap():
         smooth_sigma = st.slider("Smoothing (Sigma)", 0.5, 3.0, 1.2, 0.1, key="hm_smooth")
         bins = st.slider("Grid Resolution (Bins)", 10, 50, 28, key="hm_bins")
         
+        # NEW: Start Date Filter
+        analysis_start = st.date_input("Analysis Start Date", value=datetime.date(2000, 1, 1), key="hm_start_date")
+        
     st.markdown("---")
 
     if st.button("Generate Heatmap", type="primary", use_container_width=True, key="hm_gen"):
@@ -251,7 +255,21 @@ def render_heatmap():
                 return
                 
             sznl_map = load_seasonal_map()
+            
+            # 2. CALCULATION (Full History for robust ranks)
             df = calculate_heatmap_variables(data, sznl_map, ticker)
+            
+            # 3. FILTER DATE (Slice the final view)
+            # This ensures ranks are contextually accurate (globally) but displayed only for the regime of interest
+            start_ts = pd.to_datetime(analysis_start)
+            if df.index.tz is not None:
+                start_ts = start_ts.tz_localize(df.index.tz)
+            
+            df = df[df.index >= start_ts]
+            
+            if df.empty:
+                st.error(f"No data found after {analysis_start}.")
+                return
             
             xcol = var_options[x_axis_label]
             ycol = var_options[y_axis_label]
@@ -262,37 +280,52 @@ def render_heatmap():
                 st.error("Insufficient data for these variables.")
                 return
 
-            # 2. BINNING & GRIDDING
+            # 4. BINNING & GRIDDING
             x_edges, y_edges = build_bins_quantile(clean_df[xcol], clean_df[ycol], nx=bins, ny=bins)
             x_centers, y_centers, Z = grid_mean(clean_df, xcol, ycol, zcol, x_edges, y_edges)
             
-            # 3. PLOT HEATMAP
+            # 5. FILL & SMOOTH
             Z_filled = nan_neighbor_fill(Z)
             Z_smooth = smooth_display(Z_filled, sigma=smooth_sigma)
+            
+            # 6. PLOT
             limit = np.nanmax(np.abs(Z_smooth))
             colorscale = get_seismic_colorscale()
             
             fig = go.Figure(data=go.Heatmap(
-                z=Z_smooth, x=x_centers, y=y_centers,
-                colorscale=colorscale, zmin=-limit, zmax=limit,
-                reversescale=True, colorbar=dict(title="Fwd Return %"),
-                hovertemplate=f"{x_axis_label}: %{{x:.1f}}<br>{y_axis_label}: %{{y:.1f}}<br>Fwd Return: %{{z:.2f}}%<extra></extra>"
+                z=Z_smooth,
+                x=x_centers,
+                y=y_centers,
+                colorscale=colorscale, 
+                zmin=-limit, zmax=limit,
+                reversescale=True, 
+                colorbar=dict(title="Fwd Return %"),
+                hovertemplate=
+                f"<b>{x_axis_label}</b>: %{{x:.1f}}<br>" +
+                f"<b>{y_axis_label}</b>: %{{y:.1f}}<br>" +
+                f"<b>Fwd Return</b>: %{{z:.2f}}%<extra></extra>"
             ))
             
             fig.update_layout(
-                title=f"{ticker}: {z_axis_label}",
-                xaxis_title=x_axis_label, yaxis_title=y_axis_label,
-                height=600, template="plotly_white"
+                title=f"{ticker} ({analysis_start} - Present): {z_axis_label}",
+                xaxis_title=x_axis_label + " (0-100)",
+                yaxis_title=y_axis_label + " (0-100)",
+                height=650, 
+                template="plotly_white",
+                dragmode=False 
             )
             
             # Current Position
+            # If current date is after filter date, show it.
             last_row = df.iloc[-1]
             curr_x = last_row.get(xcol, np.nan)
             curr_y = last_row.get(ycol, np.nan)
+            
             if not np.isnan(curr_x) and not np.isnan(curr_y):
                 fig.add_vline(x=curr_x, line_width=2, line_dash="dash", line_color="black")
                 fig.add_hline(y=curr_y, line_width=2, line_dash="dash", line_color="black")
-                fig.add_annotation(x=curr_x, y=curr_y, text="Current", showarrow=True, arrowhead=1, ax=30, ay=-30, bgcolor="white")
+                fig.add_annotation(x=curr_x, y=curr_y, text="Current", 
+                                   showarrow=True, arrowhead=1, ax=30, ay=-30, bgcolor="white")
             
             st.plotly_chart(fig, use_container_width=True)
             
@@ -304,13 +337,11 @@ def render_heatmap():
             
             f_col1, f_col2 = st.columns(2)
             
-            # Dynamic Range Sliders based on 0-100 ranks
             with f_col1:
                 x_range = st.slider(f"Filter: {x_axis_label} (Rank)", 0.0, 100.0, (0.0, 100.0), step=1.0)
             with f_col2:
                 y_range = st.slider(f"Filter: {y_axis_label} (Rank)", 0.0, 100.0, (0.0, 100.0), step=1.0)
             
-            # Filter Logic
             mask = (
                 (clean_df[xcol] >= x_range[0]) & (clean_df[xcol] <= x_range[1]) &
                 (clean_df[ycol] >= y_range[0]) & (clean_df[ycol] <= y_range[1])
@@ -318,21 +349,15 @@ def render_heatmap():
             
             filtered_df = clean_df[mask].copy()
             
-            # Summary Stats for Selection
             if not filtered_df.empty:
                 s1, s2, s3 = st.columns(3)
                 s1.metric("Matching Instances", len(filtered_df))
                 s2.metric("Avg Fwd Return", f"{filtered_df[zcol].mean():.2f}%")
-                
-                # Win Rate (Positive Return %)
                 win_rate = (filtered_df[zcol] > 0).sum() / len(filtered_df) * 100
                 s3.metric("Win Rate (>0%)", f"{win_rate:.1f}%")
                 
-                # Detailed Table
                 st.write("#### Matching Dates")
                 display_cols = ['Close', xcol, ycol, zcol]
-                
-                # Sort by most recent date
                 table_df = filtered_df[display_cols].sort_index(ascending=False)
                 
                 st.dataframe(
