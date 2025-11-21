@@ -217,7 +217,6 @@ def run_engine(universe_dict, params, sznl_map, spy_series=None):
             # --- TREND FILTER ---
             trend_opt = params.get('trend_filter', 'None')
             
-            # Long Logic
             if trend_opt == "Price > 200 SMA":
                 conditions.append(df['Close'] > df['SMA200'])
             elif trend_opt == "Price > Rising 200 SMA":
@@ -225,13 +224,12 @@ def run_engine(universe_dict, params, sznl_map, spy_series=None):
             elif trend_opt == "SPY > 200 SMA" and 'SPY_Above_SMA200' in df.columns:
                 conditions.append(df['SPY_Above_SMA200'])
             
-            # Short Logic (New)
             elif trend_opt == "Price < 200 SMA":
                 conditions.append(df['Close'] < df['SMA200'])
             elif trend_opt == "Price < Falling 200 SMA":
                 conditions.append((df['Close'] < df['SMA200']) & (df['SMA200'] < df['SMA200'].shift(1)))
             elif trend_opt == "SPY < 200 SMA" and 'SPY_Above_SMA200' in df.columns:
-                conditions.append(~df['SPY_Above_SMA200']) # Invert the boolean
+                conditions.append(~df['SPY_Above_SMA200']) 
             
             # --- LIQUIDITY GATES ---
             curr_age = df['age_years'].fillna(0)
@@ -244,15 +242,33 @@ def run_engine(universe_dict, params, sznl_map, spy_series=None):
             conditions.append(gate)
 
             # --- STRATEGY SIGNALS ---
+            
+            # 1. Perf Rank (Now with Consecutive Logic)
             if params['use_perf_rank']:
                 col = f"rank_ret_{params['perf_window']}d"
-                if params['perf_logic'] == '<': cond = df[col] < params['perf_thresh']
-                else: cond = df[col] > params['perf_thresh']
+                
+                # A. Calculate Raw Condition
+                if params['perf_logic'] == '<': 
+                    raw_cond = df[col] < params['perf_thresh']
+                else: 
+                    raw_cond = df[col] > params['perf_thresh']
+                
+                # B. Check Persistence (Consecutive Days)
+                consec_days = params.get('perf_consecutive', 1)
+                if consec_days > 1:
+                    # Rolling sum of boolean (1s) must equal window size
+                    cond = raw_cond.rolling(consec_days).sum() == consec_days
+                else:
+                    cond = raw_cond
+
+                # C. First Instance Check (on the potentially persistent condition)
                 if params['perf_first_instance']:
                     prev = cond.shift(1).rolling(params['perf_lookback']).sum()
                     cond = cond & (prev == 0)
+                
                 conditions.append(cond)
 
+            # 2. Seasonal
             if params['use_sznl']:
                 if params['sznl_logic'] == '<': cond = df['Sznl'] < params['sznl_thresh']
                 else: cond = df['Sznl'] > params['sznl_thresh']
@@ -261,6 +277,7 @@ def run_engine(universe_dict, params, sznl_map, spy_series=None):
                     cond = cond & (prev == 0)
                 conditions.append(cond)
             
+            # 3. 52w
             if params['use_52w']:
                 if params['52w_type'] == 'New 52w High': cond = df['is_52w_high']
                 else: cond = df['is_52w_low']
@@ -269,10 +286,12 @@ def run_engine(universe_dict, params, sznl_map, spy_series=None):
                     cond = cond & (prev == 0)
                 conditions.append(cond)
             
+            # 4. Volume Spike (Raw Ratio)
             if params['use_vol']:
                 cond = df['vol_ratio'] > params['vol_thresh']
                 conditions.append(cond)
 
+            # 5. Volume Rank
             if params['use_vol_rank']:
                 if params['vol_rank_logic'] == '<': 
                     cond = df['vol_ratio_10d_rank'] < params['vol_rank_thresh']
@@ -306,11 +325,11 @@ def run_engine(universe_dict, params, sznl_map, spy_series=None):
                         entry_price = df['Close'].iloc[sig_idx + 1]
                         start_idx = sig_idx + 2
                     
-                    # --- DIRECTIONAL LOGIC ---
+                    # Stops/Targets
                     if direction == 'Long':
                         stop_price = entry_price - (atr * params['stop_atr'])
                         tgt_price = entry_price + (atr * params['tgt_atr'])
-                    else: # Short
+                    else:
                         stop_price = entry_price + (atr * params['stop_atr'])
                         tgt_price = entry_price - (atr * params['tgt_atr'])
                     
@@ -322,10 +341,8 @@ def run_engine(universe_dict, params, sznl_map, spy_series=None):
                     
                     if not params['time_exit_only']:
                         for f_date, f_row in future.iterrows():
-                            
                             if direction == 'Long':
                                 if f_row['Low'] <= stop_price:
-                                    # Gap handling: If we gap below stop, we sell at Open
                                     exit_price = f_row['Open'] if f_row['Open'] < stop_price else stop_price
                                     exit_type = "Stop"
                                     exit_date = f_date
@@ -335,10 +352,8 @@ def run_engine(universe_dict, params, sznl_map, spy_series=None):
                                     exit_type = "Target"
                                     exit_date = f_date
                                     break
-                            
                             else: # Short
                                 if f_row['High'] >= stop_price:
-                                    # Gap handling: If we gap above stop, we cover at Open
                                     exit_price = f_row['Open'] if f_row['Open'] > stop_price else stop_price
                                     exit_type = "Stop"
                                     exit_date = f_date
@@ -354,13 +369,12 @@ def run_engine(universe_dict, params, sznl_map, spy_series=None):
                         exit_date = future.index[-1]
                         exit_type = "Time"
                     
-                    # --- R CALCULATION ---
                     if direction == 'Long':
                         risk_unit = entry_price - stop_price
                         pnl = exit_price - entry_price
-                    else: # Short
-                        risk_unit = stop_price - entry_price # Risk is distance to stop above
-                        pnl = entry_price - exit_price # Profit if price went down
+                    else:
+                        risk_unit = stop_price - entry_price
+                        pnl = entry_price - exit_price
                         
                     if risk_unit <= 0: risk_unit = 0.001
                     r = pnl / risk_unit
@@ -425,7 +439,6 @@ def main():
         univ_choice = st.selectbox("Choose Universe", 
             ["Sector ETFs", "Indices", "International ETFs", "Sector + Index ETFs", "All CSV Tickers", "Custom (Upload CSV)"])
     with col_u2:
-        # DEFAULT TO 2000
         default_start = datetime.date(2000, 1, 1)
         start_date = st.date_input("Backtest Start Date", value=default_start)
     
@@ -490,7 +503,11 @@ def main():
         with p1: perf_window = st.selectbox("Window", [5, 10, 21], disabled=not use_perf)
         with p2: perf_logic = st.selectbox("Logic", ["<", ">"], disabled=not use_perf)
         with p3: perf_thresh = st.number_input("Threshold (%)", 0.0, 100.0, 15.0, disabled=not use_perf)
-        with p4: perf_first = st.checkbox("First Instance Only", value=True, disabled=not use_perf)
+        with p4: 
+            perf_first = st.checkbox("First Instance Only", value=True, disabled=not use_perf)
+            # NEW: Consecutive Days Input
+            perf_consecutive = st.number_input("Min Consecutive Days", 1, 20, 1, 
+                help="Condition must hold for X days. 'First Instance' logic triggers on the Xth day.", disabled=not use_perf)
         with p5: perf_lookback = st.number_input("Instance Lookback (Days)", 1, 100, 21, disabled=not use_perf)
 
     with st.expander("Seasonal Rank", expanded=False):
@@ -508,25 +525,18 @@ def main():
         with h2: first_52w = st.checkbox("First Instance Only", value=True, key="hf", disabled=not use_52w)
         with h3: lookback_52w = st.number_input("Instance Lookback (Days)", 1, 252, 21, key="hlb", disabled=not use_52w)
 
-    # UPDATED VOLUME EXPANDER
     with st.expander("Volume Filters (Spike & Regime)", expanded=False):
         c1, c2 = st.columns(2)
-        
-        # 1. Volume Spike (Raw)
         with c1:
             st.markdown("**Volume Spike** (Raw Ratio)")
             use_vol = st.checkbox("Enable Spike Filter", value=False)
             vol_thresh = st.number_input("Vol Multiple (> X * 63d Avg)", 1.0, 10.0, 1.5, disabled=not use_vol)
-            
-        # 2. Volume Regime (Percentile)
         with c2:
             st.markdown("**Volume Regime** (10d Rel Vol Rank)")
             use_vol_rank = st.checkbox("Enable Regime Filter", value=False)
             v_col1, v_col2 = st.columns(2)
-            with v_col1: 
-                vol_rank_logic = st.selectbox("Logic", ["<", ">"], key="vrl", disabled=not use_vol_rank)
-            with v_col2: 
-                vol_rank_thresh = st.number_input("Percentile (0-100)", 0.0, 100.0, 50.0, key="vrt", disabled=not use_vol_rank)
+            with v_col1: vol_rank_logic = st.selectbox("Logic", ["<", ">"], key="vrl", disabled=not use_vol_rank)
+            with v_col2: vol_rank_thresh = st.number_input("Percentile (0-100)", 0.0, 100.0, 50.0, key="vrt", disabled=not use_vol_rank)
 
     st.markdown("---")
     
@@ -551,7 +561,6 @@ def main():
         if not data_dict: return
         
         spy_series = None
-        # Handle SPY fetch for either Long or Short regimes
         if "SPY" in trend_filter:
             if "SPY" not in data_dict:
                 st.info("Fetching SPY data for regime filter...")
@@ -574,6 +583,7 @@ def main():
             'trend_filter': trend_filter,
             'use_perf_rank': use_perf, 'perf_window': perf_window, 'perf_logic': perf_logic, 
             'perf_thresh': perf_thresh, 'perf_first_instance': perf_first, 'perf_lookback': perf_lookback,
+            'perf_consecutive': perf_consecutive, # NEW
             'use_sznl': use_sznl, 'sznl_logic': sznl_logic, 'sznl_thresh': sznl_thresh, 
             'sznl_first_instance': sznl_first, 'sznl_lookback': sznl_lookback,
             'use_52w': use_52w, '52w_type': type_52w, '52w_first_instance': first_52w, '52w_lookback': lookback_52w,
@@ -602,7 +612,6 @@ def main():
             except: trades_df['VolDecile'] = 1
         else: trades_df['VolDecile'] = 1
 
-        # METRICS
         wins = trades_df[trades_df['R'] > 0]
         losses = trades_df[trades_df['R'] <= 0]
         win_rate = len(wins) / len(trades_df) * 100
@@ -642,7 +651,6 @@ def main():
             "Age": "{:.1f}y", "AvgVol": "{:,.0f}"
         }), use_container_width=True)
 
-        # --- COPYABLE DICTIONARY OUTPUT ---
         st.markdown("---")
         st.subheader("Configuration & Results (Copy Code)")
         st.info("Copy the dictionary below and paste it into your `STRATEGY_BOOK` list in the Screener.")
@@ -655,6 +663,7 @@ def main():
     "settings": {{
         "trade_direction": "{trade_direction}",
         "use_perf_rank": {use_perf}, "perf_window": {perf_window}, "perf_logic": "{perf_logic}", "perf_thresh": {perf_thresh},
+        "perf_consecutive": {perf_consecutive},
         "use_sznl": {use_sznl}, "sznl_logic": "{sznl_logic}", "sznl_thresh": {sznl_thresh},
         "use_52w": {use_52w}, "52w_type": "{type_52w}",
         "use_vol": {use_vol}, "vol_thresh": {vol_thresh},
