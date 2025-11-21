@@ -75,49 +75,47 @@ def calculate_heatmap_variables(df, sznl_map, ticker):
     """Calculates advanced vars and ranks them 0-100 for the heatmap axes."""
     df = df.copy()
     
-    # --- FORWARD RETURNS (Z-AXIS) ---
-    # Logic: (Future Price - Current Price) / Current Price
-    for w in [5, 10, 21, 63]:
-        df[f'FwdRet_{w}d'] = (df['Close'].shift(-w) / df['Close'] - 1.0) * 100.0
-
-    # --- X/Y VARIABLES (Raw Calculation) ---
-    
-    # 1. Trailing Returns
-    for w in [5, 10, 21, 63, 126, 252]:
-        df[f'Ret_{w}d'] = df['Close'].pct_change(w)
-
-    # 2. Realized Volatility (Annualized)
+    # --- 1. BASE CALCULATIONS ---
     df['LogRet'] = np.log(df['Close'] / df['Close'].shift(1))
-    for w in [2, 5, 10, 21, 63]:
-        df[f'RealVol_{w}d'] = df['LogRet'].rolling(w).std() * np.sqrt(252) * 100.0
-    
-    # 3. Change in Realized Vol (Short Term vs 63d Baseline)
-    df['VolChange_2d']  = df['RealVol_2d']  - df['RealVol_63d']
-    df['VolChange_5d']  = df['RealVol_5d']  - df['RealVol_63d']
-    df['VolChange_10d'] = df['RealVol_10d'] - df['RealVol_63d']
-    df['VolChange_21d'] = df['RealVol_21d'] - df['RealVol_63d']
 
-    # 4. Volume Ratios (Relative Volume)
-    for w in [5, 10, 21]:
-        df[f'VolRatio_{w}d'] = df['Volume'].rolling(w).mean() / df['Volume'].rolling(63).mean()
-
-    # 5. Seasonality
-    df['Seasonal'] = get_sznl_val_series(ticker, df.index, sznl_map)
-
-    # --- 3. FORWARD TARGETS (Z-AXIS) ---
+    # --- 2. FORWARD TARGETS (Z-AXIS) ---
     
     # A. Forward Returns
     for w in [5, 10, 21, 63]:
         df[f'FwdRet_{w}d'] = (df['Close'].shift(-w) / df['Close'] - 1.0) * 100.0
 
-    # B. Forward Realized Volatility & DELTA
+    # B. Forward Volatility DELTA (Expansion/Contraction)
+    # Logic: Future Volatility - Current Volatility
     for w in [2, 5, 10, 21]:
-        # Future Vol (Annualized)
-        df[f'FwdVol_{w}d'] = df['LogRet'].rolling(w).std().shift(-w) * np.sqrt(252) * 100.0
+        # Current Realized Vol
+        curr_vol = df['LogRet'].rolling(w).std() * np.sqrt(252) * 100.0
+        # Future Realized Vol (Shifted back)
+        fwd_vol = df['LogRet'].rolling(w).std().shift(-w) * np.sqrt(252) * 100.0
         
-        # Future Vol Delta: (Future Vol - Current Vol)
-        # Positive = Vol Expansion. Negative = Vol Contraction.
-        df[f'FwdVolDelta_{w}d'] = df[f'FwdVol_{w}d'] - df[f'RealVol_{w}d']
+        df[f'FwdVolDelta_{w}d'] = fwd_vol - curr_vol
+
+    # --- 3. X/Y VARIABLES (Raw Calculation) ---
+    
+    # Trailing Returns
+    for w in [5, 10, 21, 63, 126, 252]:
+        df[f'Ret_{w}d'] = df['Close'].pct_change(w)
+
+    # Realized Volatility (Annualized)
+    for w in [2, 5, 10, 21, 63]:
+        df[f'RealVol_{w}d'] = df['LogRet'].rolling(w).std() * np.sqrt(252) * 100.0
+    
+    # Change in Realized Vol (Short Term vs 63d Baseline)
+    df['VolChange_2d']  = df['RealVol_2d']  - df['RealVol_63d']
+    df['VolChange_5d']  = df['RealVol_5d']  - df['RealVol_63d']
+    df['VolChange_10d'] = df['RealVol_10d'] - df['RealVol_63d']
+    df['VolChange_21d'] = df['RealVol_21d'] - df['RealVol_63d']
+
+    # Volume Ratios
+    for w in [5, 10, 21]:
+        df[f'VolRatio_{w}d'] = df['Volume'].rolling(w).mean() / df['Volume'].rolling(63).mean()
+
+    # Seasonality
+    df['Seasonal'] = get_sznl_val_series(ticker, df.index, sznl_map)
 
     # --- 4. RANK TRANSFORMATION (Percentiles 0-100) ---
     vars_to_rank = [
@@ -210,6 +208,7 @@ def smooth_display(Z, sigma=1.2):
 def render_heatmap():
     st.subheader("Heatmap Analysis")
     
+    # 1. SELECTION
     col1, col2, col3 = st.columns(3)
     
     with col1:
@@ -245,9 +244,6 @@ def render_heatmap():
             "5d Fwd Vol Change (Expansion/Contraction)": "FwdVolDelta_5d",
             "10d Fwd Vol Change (Expansion/Contraction)": "FwdVolDelta_10d",
             "21d Fwd Vol Change (Expansion/Contraction)": "FwdVolDelta_21d",
-            # RAW METRICS (Centered at Mean)
-            "5d Fwd Raw Volatility": "FwdVol_5d",
-            "21d Fwd Raw Volatility": "FwdVol_21d",
         }
         z_axis_label = st.selectbox("Target (Z-Axis)", list(target_options.keys()), index=2, key="hm_z")
         ticker = st.text_input("Ticker", value="SPY", key="hm_ticker").upper()
@@ -297,29 +293,17 @@ def render_heatmap():
             Z_filled = nan_neighbor_fill(Z)
             Z_smooth = smooth_display(Z_filled, sigma=smooth_sigma)
             
-            # --- SMART SCALING (Mean-Centered) ---
-            is_centered_zero = "Ret" in zcol or "Delta" in zcol or "Change" in zcol
-            
+            # --- SCALING ---
+            # All Z targets are now Deltas/Returns, so they oscillate around 0.
             limit = np.nanmax(np.abs(Z_smooth))
-            
-            if is_centered_zero:
-                z_min, z_max = -limit, limit
-                z_mid = 0
-            else:
-                # Raw Volatility: Center on Mean
-                z_mean_val = np.nanmean(Z_smooth)
-                z_min = np.nanmin(Z_smooth)
-                z_max = np.nanmax(Z_smooth)
-                z_mid = z_mean_val
-
             colorscale = get_seismic_colorscale()
             z_units = "%" if "Ret" in zcol else " Vol"
 
             fig = go.Figure(data=go.Heatmap(
                 z=Z_smooth, x=x_centers, y=y_centers,
                 colorscale=colorscale, 
-                zmin=z_min, zmax=z_max,
-                zmid=z_mid, # Explicitly force the color center
+                zmin=-limit, zmax=limit,
+                zmid=0, # Force center at 0
                 reversescale=True, 
                 colorbar=dict(title=f"{zcol} {z_units}"),
                 hovertemplate=f"<b>{x_axis_label}</b>: %{{x:.1f}}<br><b>{y_axis_label}</b>: %{{y:.1f}}<br><b>Value</b>: %{{z:.2f}}{z_units}<extra></extra>"
@@ -355,13 +339,10 @@ def render_heatmap():
             if not filtered_df.empty:
                 s1, s2, s3 = st.columns(3)
                 s1.metric("Matching Instances", len(filtered_df))
-                s2.metric(f"Avg {zcol}", f"{filtered_df[zcol].mean():.2f}{z_units}")
+                s2.metric(f"Avg Target", f"{filtered_df[zcol].mean():.2f}{z_units}")
                 
-                if "Ret" in zcol or "Delta" in zcol:
-                    win_rate = (filtered_df[zcol] > 0).sum() / len(filtered_df) * 100
-                    s3.metric("Win Rate (>0)", f"{win_rate:.1f}%")
-                else:
-                    s3.metric("Mean Vol", f"{filtered_df[zcol].mean():.2f}")
+                win_rate = (filtered_df[zcol] > 0).sum() / len(filtered_df) * 100
+                s3.metric("Win Rate (>0)", f"{win_rate:.1f}%")
                 
                 st.write("#### Matching Dates")
                 display_cols = ['Close', xcol, ycol, zcol]
@@ -369,7 +350,7 @@ def render_heatmap():
                 st.dataframe(
                     table_df.style.format({
                         "Close": "${:.2f}", xcol: "{:.1f}", ycol: "{:.1f}", zcol: "{:.2f}" + z_units
-                    }).background_gradient(subset=[zcol], cmap="RdBu", vmin=z_min, vmax=z_max),
+                    }).background_gradient(subset=[zcol], cmap="RdBu", vmin=-limit, vmax=limit),
                     use_container_width=True, height=400
                 )
             else:
