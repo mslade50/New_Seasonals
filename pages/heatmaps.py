@@ -61,7 +61,6 @@ def get_seismic_colorscale():
     cm = matplotlib.colormaps["seismic"]
     for k in range(255):
         r, g, b, _ = cm(k / 254.0)
-        # Plotly expects standard CSS rgb strings
         seismic.append([k / 254.0, f'rgb({int(r*255)},{int(g*255)},{int(b*255)})'])
     return seismic
 
@@ -73,7 +72,7 @@ def calculate_heatmap_variables(df, sznl_map, ticker):
     """Calculates advanced vars and ranks them 0-100 for the heatmap axes."""
     df = df.copy()
     
-    # --- FIX: FORWARD RETURNS ---
+    # --- FORWARD RETURNS ---
     # (Future Price / Current Price) - 1
     for w in [5, 10, 21, 63]:
         df[f'FwdRet_{w}d'] = (df['Close'].shift(-w) / df['Close'] - 1.0) * 100.0
@@ -85,16 +84,19 @@ def calculate_heatmap_variables(df, sznl_map, ticker):
         df[f'Ret_{w}d'] = df['Close'].pct_change(w)
 
     # 2. Realized Volatility (Annualized)
+    # Added 2d, 5d, 10d to the window list
     df['LogRet'] = np.log(df['Close'] / df['Close'].shift(1))
-    for w in [21, 63]:
+    for w in [2, 5, 10, 21, 63]:
         df[f'RealVol_{w}d'] = df['LogRet'].rolling(w).std() * np.sqrt(252) * 100.0
     
-    # 3. Change in Realized Vol (21d vs 63d)
-    df['VolChange'] = df['RealVol_21d'] - df['RealVol_63d']
+    # 3. Change in Realized Vol (Vs 63d Baseline)
+    df['VolChange_2d']  = df['RealVol_2d']  - df['RealVol_63d']
+    df['VolChange_5d']  = df['RealVol_5d']  - df['RealVol_63d']
+    df['VolChange_10d'] = df['RealVol_10d'] - df['RealVol_63d']
+    df['VolChange_21d'] = df['RealVol_21d'] - df['RealVol_63d']
 
     # 4. Volume Ratios
     for w in [5, 10, 21]:
-        # Volume relative to 63d baseline
         df[f'VolRatio_{w}d'] = df['Volume'].rolling(w).mean() / df['Volume'].rolling(63).mean()
 
     # 5. Seasonality
@@ -103,13 +105,13 @@ def calculate_heatmap_variables(df, sznl_map, ticker):
     # --- RANK TRANSFORMATION (Percentiles 0-100) ---
     vars_to_rank = [
         'Ret_5d', 'Ret_10d', 'Ret_21d', 'Ret_63d', 'Ret_126d', 'Ret_252d',
-        'RealVol_21d', 'RealVol_63d', 'VolChange',
+        'RealVol_21d', 'RealVol_63d', 
+        'VolChange_2d', 'VolChange_5d', 'VolChange_10d', 'VolChange_21d',
         'VolRatio_5d', 'VolRatio_10d', 'VolRatio_21d'
     ]
     
     for v in vars_to_rank:
-        # Use Expanding Rank to mimic the user's dimension requirement
-        # We convert to 0-100 scale
+        # Expanding Rank (Min 252 days history to stabilize)
         df[v + '_Rank'] = df[v].expanding(min_periods=252).rank(pct=True) * 100.0
 
     return df
@@ -210,7 +212,10 @@ def main():
             "252d Trailing Return Rank": "Ret_252d_Rank",
             "21d Realized Vol Rank": "RealVol_21d_Rank",
             "63d Realized Vol Rank": "RealVol_63d_Rank",
-            "Change in Vol (21d-63d) Rank": "VolChange_Rank",
+            "Change in Vol (2d-63d) Rank": "VolChange_2d_Rank",
+            "Change in Vol (5d-63d) Rank": "VolChange_5d_Rank",
+            "Change in Vol (10d-63d) Rank": "VolChange_10d_Rank",
+            "Change in Vol (21d-63d) Rank": "VolChange_21d_Rank",
             "5d Rel. Volume Rank": "VolRatio_5d_Rank",
             "10d Rel. Volume Rank": "VolRatio_10d_Rank",
             "21d Rel. Volume Rank": "VolRatio_21d_Rank"
@@ -267,10 +272,7 @@ def main():
         Z_smooth = smooth_display(Z_filled, sigma=smooth_sigma)
         
         # Colors (Center on 0)
-        # If max abs val is 5%, scale goes -5% to +5%
         limit = np.nanmax(np.abs(Z_smooth))
-        
-        # Generate 'Seismic' Scale
         colorscale = get_seismic_colorscale()
         
         fig = go.Figure(data=go.Heatmap(
@@ -279,9 +281,9 @@ def main():
             y=y_centers,
             colorscale=colorscale,
             zmin=-limit, zmax=limit,
-            reversescale=True, # Seismic is usually Blue(Low)->Red(High). 
-                               # We want Red(Low/Neg) -> Blue(High/Pos).
-                               # So we reverse it.
+            reversescale=True, # Seismic: Blue(0)->White(0.5)->Red(1).
+                               # We want Red(-)->White(0)->Blue(+).
+                               # Reversing Seismic gives Red->White->Blue.
             colorbar=dict(title="Fwd Return %")
         ))
         
