@@ -67,7 +67,7 @@ def get_seismic_colorscale():
     return seismic
 
 # -----------------------------------------------------------------------------
-# CALCULATION ENGINE (Cached - Heavy Lifting)
+# CALCULATION ENGINE (Cached)
 # -----------------------------------------------------------------------------
 
 @st.cache_data(show_spinner=True)
@@ -75,36 +75,46 @@ def calculate_heatmap_variables(df, sznl_map, ticker):
     """Calculates advanced vars and ranks them 0-100 for the heatmap axes."""
     df = df.copy()
     
-    # --- FORWARD RETURNS (Z-AXIS) ---
-    # Logic: (Future Price - Current Price) / Current Price
+    # --- 1. RETURNS & VOLATILITY PREP ---
+    df['LogRet'] = np.log(df['Close'] / df['Close'].shift(1))
+
+    # --- 2. FORWARD TARGETS (Z-AXIS) ---
+    
+    # A. Forward Returns
     for w in [5, 10, 21, 63]:
         df[f'FwdRet_{w}d'] = (df['Close'].shift(-w) / df['Close'] - 1.0) * 100.0
 
-    # --- X/Y VARIABLES (Raw Calculation) ---
+    # B. Forward Realized Volatility (Annualized)
+    # We calculate rolling std for the future window by shifting backwards
+    # Example: FwdVol_5d at index i = StdDev(Returns i+1 to i+5)
+    for w in [2, 5, 10, 21]:
+        # rolling(w) looks back, so shift(-w) moves that window to look forward from today
+        df[f'FwdVol_{w}d'] = df['LogRet'].rolling(w).std().shift(-w) * np.sqrt(252) * 100.0
+
+    # --- 3. X/Y VARIABLES (Raw Calculation) ---
     
-    # 1. Trailing Returns
+    # Trailing Returns
     for w in [5, 10, 21, 63, 126, 252]:
         df[f'Ret_{w}d'] = df['Close'].pct_change(w)
 
-    # 2. Realized Volatility (Annualized)
-    df['LogRet'] = np.log(df['Close'] / df['Close'].shift(1))
+    # Realized Volatility (Annualized)
     for w in [2, 5, 10, 21, 63]:
         df[f'RealVol_{w}d'] = df['LogRet'].rolling(w).std() * np.sqrt(252) * 100.0
     
-    # 3. Change in Realized Vol (Short Term vs 63d Baseline)
+    # Change in Realized Vol (Short Term vs 63d Baseline)
     df['VolChange_2d']  = df['RealVol_2d']  - df['RealVol_63d']
     df['VolChange_5d']  = df['RealVol_5d']  - df['RealVol_63d']
     df['VolChange_10d'] = df['RealVol_10d'] - df['RealVol_63d']
     df['VolChange_21d'] = df['RealVol_21d'] - df['RealVol_63d']
 
-    # 4. Volume Ratios (Relative Volume)
+    # Volume Ratios (Relative Volume)
     for w in [5, 10, 21]:
         df[f'VolRatio_{w}d'] = df['Volume'].rolling(w).mean() / df['Volume'].rolling(63).mean()
 
-    # 5. Seasonality
+    # Seasonality
     df['Seasonal'] = get_sznl_val_series(ticker, df.index, sznl_map)
 
-    # --- RANK TRANSFORMATION (Percentiles 0-100) ---
+    # --- 4. RANK TRANSFORMATION (Percentiles 0-100) ---
     vars_to_rank = [
         'Ret_5d', 'Ret_10d', 'Ret_21d', 'Ret_63d', 'Ret_126d', 'Ret_252d',
         'RealVol_21d', 'RealVol_63d', 
@@ -113,15 +123,15 @@ def calculate_heatmap_variables(df, sznl_map, ticker):
     ]
     
     for v in vars_to_rank:
-        # Expanding Rank (min 252)
         df[v + '_Rank'] = df[v].expanding(min_periods=252).rank(pct=True) * 100.0
 
     return df
 
 # -----------------------------------------------------------------------------
-# HEATMAP UTILS (Not Cached - Fast & UI Dependent)
+# HEATMAP UTILS (Binning & Smoothing)
 # -----------------------------------------------------------------------------
 
+@st.cache_data
 def build_bins_quantile(x, y, nx=30, ny=30):
     x = pd.Series(x, dtype=float).dropna()
     y = pd.Series(y, dtype=float).dropna()
@@ -137,6 +147,7 @@ def build_bins_quantile(x, y, nx=30, ny=30):
     
     return x_edges, y_edges
 
+@st.cache_data
 def grid_mean(df_sub, xcol, ycol, zcol, x_edges, y_edges):
     x = df_sub[xcol].to_numpy(dtype=float)
     y = df_sub[ycol].to_numpy(dtype=float)
@@ -195,7 +206,6 @@ def smooth_display(Z, sigma=1.2):
 def render_heatmap():
     st.subheader("Heatmap Analysis")
     
-    # 1. SELECTION
     col1, col2, col3 = st.columns(3)
     
     with col1:
@@ -217,7 +227,6 @@ def render_heatmap():
             "10d Rel. Volume Rank": "VolRatio_10d_Rank",
             "21d Rel. Volume Rank": "VolRatio_21d_Rank"
         }
-        
         x_axis_label = st.selectbox("X-Axis Variable", list(var_options.keys()), index=0, key="hm_x")
         y_axis_label = st.selectbox("Y-Axis Variable", list(var_options.keys()), index=3, key="hm_y")
     
@@ -227,6 +236,11 @@ def render_heatmap():
             "10d Forward Return": "FwdRet_10d",
             "21d Forward Return": "FwdRet_21d",
             "63d Forward Return": "FwdRet_63d",
+            # New Volatility Targets
+            "2d Fwd Realized Vol": "FwdVol_2d",
+            "5d Fwd Realized Vol": "FwdVol_5d",
+            "10d Fwd Realized Vol": "FwdVol_10d",
+            "21d Fwd Realized Vol": "FwdVol_21d",
         }
         z_axis_label = st.selectbox("Target (Z-Axis)", list(target_options.keys()), index=2, key="hm_z")
         ticker = st.text_input("Ticker", value="SPY", key="hm_ticker").upper()
@@ -234,139 +248,108 @@ def render_heatmap():
     with col3:
         smooth_sigma = st.slider("Smoothing (Sigma)", 0.5, 3.0, 1.2, 0.1, key="hm_smooth")
         bins = st.slider("Grid Resolution (Bins)", 10, 50, 28, key="hm_bins")
-        
-        # Start Date Filter
         analysis_start = st.date_input("Analysis Start Date", value=datetime.date(2000, 1, 1), key="hm_start_date")
         
     st.markdown("---")
 
-    # Use session state to persist chart after interaction
     if st.button("Generate Heatmap", type="primary", use_container_width=True, key="hm_gen"):
         st.session_state['hm_data'] = True 
+        if 'heatmap_selection' in st.session_state: del st.session_state['heatmap_selection']
         
     if st.session_state.get('hm_data'):
         with st.spinner(f"Processing {ticker}..."):
-            
-            # 1. DATA FETCH (Cached)
             data = download_data(ticker)
             if data.empty:
                 st.error("No data found.")
                 return
                 
             sznl_map = load_seasonal_map()
-            
-            # 2. CALCULATION (Cached)
             df = calculate_heatmap_variables(data, sznl_map, ticker)
             
-            # 3. FILTER DATE (Slice the final view)
             start_ts = pd.to_datetime(analysis_start)
-            if df.index.tz is not None:
-                start_ts = start_ts.tz_localize(df.index.tz)
-            
+            if df.index.tz is not None: start_ts = start_ts.tz_localize(df.index.tz)
             df = df[df.index >= start_ts]
             
             if df.empty:
-                st.error(f"No data found after {analysis_start}.")
+                st.error("No data found after start date.")
                 return
             
             xcol = var_options[x_axis_label]
             ycol = var_options[y_axis_label]
             zcol = target_options[z_axis_label]
             
-            # Clean data for binning
             clean_df = df.dropna(subset=[xcol, ycol, zcol])
             if clean_df.empty:
-                st.error("Insufficient data for these variables.")
+                st.error("Insufficient data.")
                 return
 
-            # 4. BINNING & GRIDDING (Uncached - Fast)
             x_edges, y_edges = build_bins_quantile(clean_df[xcol], clean_df[ycol], nx=bins, ny=bins)
             x_centers, y_centers, Z = grid_mean(clean_df, xcol, ycol, zcol, x_edges, y_edges)
             
-            # 5. FILL & SMOOTH
             Z_filled = nan_neighbor_fill(Z)
             Z_smooth = smooth_display(Z_filled, sigma=smooth_sigma)
             
-            # 6. PLOT
             limit = np.nanmax(np.abs(Z_smooth))
             colorscale = get_seismic_colorscale()
             
+            # Units for label
+            z_units = "%" if "Ret" in zcol else " Vol"
+
             fig = go.Figure(data=go.Heatmap(
-                z=Z_smooth,
-                x=x_centers,
-                y=y_centers,
-                colorscale=colorscale, 
-                zmin=-limit, zmax=limit,
+                z=Z_smooth, x=x_centers, y=y_centers,
+                colorscale=colorscale, zmin=-limit, zmax=limit,
                 reversescale=True, 
-                colorbar=dict(title="Fwd Return %"),
-                hovertemplate=
-                f"<b>{x_axis_label}</b>: %{{x:.1f}}<br>" +
-                f"<b>{y_axis_label}</b>: %{{y:.1f}}<br>" +
-                f"<b>Fwd Return</b>: %{{z:.2f}}%<extra></extra>"
+                colorbar=dict(title=f"Target {z_units}"),
+                hovertemplate=f"<b>{x_axis_label}</b>: %{{x:.1f}}<br><b>{y_axis_label}</b>: %{{y:.1f}}<br><b>Value</b>: %{{z:.2f}}{z_units}<extra></extra>"
             ))
             
             fig.update_layout(
                 title=f"{ticker} ({analysis_start} - Present): {z_axis_label}",
                 xaxis_title=x_axis_label + " (0-100)",
                 yaxis_title=y_axis_label + " (0-100)",
-                height=650, 
-                template="plotly_white",
+                height=650, template="plotly_white",
                 dragmode=False 
             )
             
-            # Current Position Crosshair
             last_row = df.iloc[-1]
             curr_x = last_row.get(xcol, np.nan)
             curr_y = last_row.get(ycol, np.nan)
-            
             if not np.isnan(curr_x) and not np.isnan(curr_y):
                 fig.add_vline(x=curr_x, line_width=2, line_dash="dash", line_color="black")
                 fig.add_hline(y=curr_y, line_width=2, line_dash="dash", line_color="black")
-                fig.add_annotation(x=curr_x, y=curr_y, text="Current", 
-                                   showarrow=True, arrowhead=1, ax=30, ay=-30, bgcolor="white")
+                fig.add_annotation(x=curr_x, y=curr_y, text="Current", showarrow=True, arrowhead=1, ax=30, ay=-30, bgcolor="white")
             
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, use_container_width=True, on_select="rerun", key="heatmap_plot")
             
-            # ---------------------------------------------------------------------
-            # HISTORICAL DATA EXPLORER
-            # ---------------------------------------------------------------------
             st.markdown("### 🔎 Historical Data Explorer")
-            st.info("Use the sliders below to filter for specific conditions seen in the heatmap.")
-            
             f_col1, f_col2 = st.columns(2)
+            with f_col1: x_range = st.slider(f"Filter: {x_axis_label} (Rank)", 0.0, 100.0, (0.0, 100.0), step=1.0)
+            with f_col2: y_range = st.slider(f"Filter: {y_axis_label} (Rank)", 0.0, 100.0, (0.0, 100.0), step=1.0)
             
-            with f_col1:
-                x_range = st.slider(f"Filter: {x_axis_label} (Rank)", 0.0, 100.0, (0.0, 100.0), step=1.0)
-            with f_col2:
-                y_range = st.slider(f"Filter: {y_axis_label} (Rank)", 0.0, 100.0, (0.0, 100.0), step=1.0)
-            
-            mask = (
-                (clean_df[xcol] >= x_range[0]) & (clean_df[xcol] <= x_range[1]) &
-                (clean_df[ycol] >= y_range[0]) & (clean_df[ycol] <= y_range[1])
-            )
-            
+            mask = (clean_df[xcol] >= x_range[0]) & (clean_df[xcol] <= x_range[1]) & \
+                   (clean_df[ycol] >= y_range[0]) & (clean_df[ycol] <= y_range[1])
             filtered_df = clean_df[mask].copy()
             
             if not filtered_df.empty:
                 s1, s2, s3 = st.columns(3)
                 s1.metric("Matching Instances", len(filtered_df))
-                s2.metric("Avg Fwd Return", f"{filtered_df[zcol].mean():.2f}%")
-                win_rate = (filtered_df[zcol] > 0).sum() / len(filtered_df) * 100
-                s3.metric("Win Rate (>0%)", f"{win_rate:.1f}%")
+                s2.metric("Avg Target Value", f"{filtered_df[zcol].mean():.2f}{z_units}")
+                
+                # If target is return, show win rate. If Vol, show median vol.
+                if "Ret" in zcol:
+                    win_rate = (filtered_df[zcol] > 0).sum() / len(filtered_df) * 100
+                    s3.metric("Win Rate (>0%)", f"{win_rate:.1f}%")
+                else:
+                    s3.metric("Median Vol", f"{filtered_df[zcol].median():.2f}")
                 
                 st.write("#### Matching Dates")
                 display_cols = ['Close', xcol, ycol, zcol]
                 table_df = filtered_df[display_cols].sort_index(ascending=False)
-                
                 st.dataframe(
                     table_df.style.format({
-                        "Close": "${:.2f}",
-                        xcol: "{:.1f}",
-                        ycol: "{:.1f}",
-                        zcol: "{:.2f}%"
+                        "Close": "${:.2f}", xcol: "{:.1f}", ycol: "{:.1f}", zcol: "{:.2f}" + z_units
                     }).background_gradient(subset=[zcol], cmap="RdBu", vmin=-limit, vmax=limit),
-                    use_container_width=True,
-                    height=400
+                    use_container_width=True, height=400
                 )
             else:
                 st.warning("No historical data matches these filters.")
