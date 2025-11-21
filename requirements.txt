@@ -10,3 +10,4 @@ openpyxl
 yfscreen
 yahooquery
 scipy
+matplotlib
