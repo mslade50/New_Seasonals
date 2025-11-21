@@ -563,19 +563,45 @@ def main():
         data_dict = download_universe_data(tickers_to_run, fetch_start)
         if not data_dict: return
         
+        # ---------------------------------------------------------------------
+        # FIXED SPY REGIME FILTER LOGIC
+        # ---------------------------------------------------------------------
         spy_series = None
         if "SPY" in trend_filter:
-            if "SPY" not in data_dict:
+            spy_df = None
+            
+            # 1. Get the raw SPY DataFrame
+            if "SPY" in data_dict:
+                spy_df = data_dict["SPY"].copy()
+            else:
                 st.info("Fetching SPY data for regime filter...")
-                spy_dict = download_universe_data(["SPY"], fetch_start)
-                if "SPY" in spy_dict:
-                    spy_df = spy_dict["SPY"]
+                # Download separately if not in main universe
+                spy_dict_temp = download_universe_data(["SPY"], fetch_start)
+                if "SPY" in spy_dict_temp:
+                    spy_df = spy_dict_temp["SPY"].copy()
+
+            # 2. Clean and Calc
+            if spy_df is not None and not spy_df.empty:
+                # Handle MultiIndex columns (e.g., remove Ticker level if present)
+                if isinstance(spy_df.columns, pd.MultiIndex):
+                    # Usually level 1 is the price type ('Close', 'Open')
+                    # If that fails, we try dropping level 0
+                    try:
+                        spy_df.columns = spy_df.columns.get_level_values(1)
+                    except:
+                        spy_df.columns = spy_df.columns.droplevel(0)
+                
+                # Standardize column names to Title Case (Close, Open, etc.)
+                spy_df.columns = [str(c).capitalize() for c in spy_df.columns]
+
+                # Calculate SMA if Close exists
+                if 'Close' in spy_df.columns:
                     spy_df['SMA200'] = spy_df['Close'].rolling(200).mean()
                     spy_series = spy_df['Close'] > spy_df['SMA200']
+                else:
+                    st.warning("⚠️ SPY data found, but 'Close' column missing. Regime filter ignored.")
             else:
-                spy_df = data_dict["SPY"]
-                spy_df['SMA200'] = spy_df['Close'].rolling(200).mean()
-                spy_series = spy_df['Close'] > spy_df['SMA200']
+                st.warning("⚠️ SPY data unavailable. Regime filter ignored.")
 
         params = {
             'backtest_start_date': start_date,
