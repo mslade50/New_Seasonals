@@ -59,7 +59,6 @@ def download_data(ticker):
 def get_seismic_colorscale():
     """Generates the seismic color scale: Dark Blue (Pos) <-> White (0) <-> Dark Red (Neg)."""
     seismic = []
-    # Use Matplotlib to get the exact gradient
     cm = matplotlib.colormaps["seismic"] 
     for k in range(255):
         r, g, b, _ = cm(k / 254.0)
@@ -67,13 +66,12 @@ def get_seismic_colorscale():
     return seismic
 
 # -----------------------------------------------------------------------------
-# CALCULATION ENGINE (CACHED TO FIX FLICKER)
+# CALCULATION ENGINE (CACHED)
 # -----------------------------------------------------------------------------
 
 @st.cache_data(show_spinner=True)
 def calculate_heatmap_variables(df, sznl_map, ticker):
     """Calculates advanced vars and ranks them 0-100 for the heatmap axes."""
-    # Copy to avoid mutating cached dataframe
     df = df.copy()
     
     # --- FORWARD RETURNS (Z-AXIS) ---
@@ -89,7 +87,6 @@ def calculate_heatmap_variables(df, sznl_map, ticker):
 
     # 2. Realized Volatility (Annualized)
     df['LogRet'] = np.log(df['Close'] / df['Close'].shift(1))
-    
     for w in [2, 5, 10, 21, 63]:
         df[f'RealVol_{w}d'] = df['LogRet'].rolling(w).std() * np.sqrt(252) * 100.0
     
@@ -115,6 +112,7 @@ def calculate_heatmap_variables(df, sznl_map, ticker):
     ]
     
     for v in vars_to_rank:
+        # Expanding Rank (min 252)
         df[v + '_Rank'] = df[v].expanding(min_periods=252).rank(pct=True) * 100.0
 
     return df
@@ -125,7 +123,6 @@ def calculate_heatmap_variables(df, sznl_map, ticker):
 
 @st.cache_data
 def build_bins_quantile(x, y, nx=30, ny=30):
-    """Quantile-based edges to minimize empty cells."""
     x = pd.Series(x, dtype=float).dropna()
     y = pd.Series(y, dtype=float).dropna()
 
@@ -135,7 +132,6 @@ def build_bins_quantile(x, y, nx=30, ny=30):
     x_edges = np.unique(np.quantile(x, np.linspace(0, 1, nx + 1)))
     y_edges = np.unique(np.quantile(y, np.linspace(0, 1, ny + 1)))
 
-    # Fallback if data is too discrete (ties in quantiles)
     if len(x_edges) < 3: x_edges = np.linspace(x.min(), x.max(), max(3, nx + 1))
     if len(y_edges) < 3: y_edges = np.linspace(y.min(), y.max(), max(3, ny + 1))
     
@@ -143,7 +139,6 @@ def build_bins_quantile(x, y, nx=30, ny=30):
 
 @st.cache_data
 def grid_mean(df_sub, xcol, ycol, zcol, x_edges, y_edges):
-    """Aggregates Z values into the X/Y grid."""
     x = df_sub[xcol].to_numpy(dtype=float)
     y = df_sub[ycol].to_numpy(dtype=float)
     z = df_sub[zcol].to_numpy(dtype=float)
@@ -176,7 +171,6 @@ def grid_mean(df_sub, xcol, ycol, zcol, x_edges, y_edges):
     return x_centers, y_centers, mean
 
 def nan_neighbor_fill(Z, k=3):
-    """Fills small holes in the grid to prevent smoothing artifacts."""
     Z = np.asarray(Z, float)
     kernel = np.ones((k, k), dtype=float)
     valid = np.isfinite(Z).astype(float)
@@ -188,7 +182,6 @@ def nan_neighbor_fill(Z, k=3):
     return Z_out
 
 def smooth_display(Z, sigma=1.2):
-    """Mask-aware Gaussian smoothing using Scipy."""
     Z = np.asarray(Z, float)
     mask = np.isfinite(Z)
     Z_fill = np.where(mask, Z, 0.0)
@@ -245,17 +238,13 @@ def render_heatmap():
         
     st.markdown("---")
 
-    # Use session state to persist chart after interaction
     if st.button("Generate Heatmap", type="primary", use_container_width=True, key="hm_gen"):
         st.session_state['hm_data'] = True 
-        # Reset selection on new generation
-        if 'heatmap_selection' in st.session_state:
-            del st.session_state['heatmap_selection']
         
     if st.session_state.get('hm_data'):
         with st.spinner(f"Processing {ticker}..."):
             
-            # 1. DATA FETCH (Cached)
+            # 1. DATA FETCH
             data = download_data(ticker)
             if data.empty:
                 st.error("No data found.")
@@ -268,125 +257,96 @@ def render_heatmap():
             ycol = var_options[y_axis_label]
             zcol = target_options[z_axis_label]
             
-            # Clean data for binning
             clean_df = df.dropna(subset=[xcol, ycol, zcol])
             if clean_df.empty:
                 st.error("Insufficient data for these variables.")
                 return
 
-            # 2. BINNING & GRIDDING (Cached)
+            # 2. BINNING & GRIDDING
             x_edges, y_edges = build_bins_quantile(clean_df[xcol], clean_df[ycol], nx=bins, ny=bins)
             x_centers, y_centers, Z = grid_mean(clean_df, xcol, ycol, zcol, x_edges, y_edges)
             
-            # 3. FILL & SMOOTH
+            # 3. PLOT HEATMAP
             Z_filled = nan_neighbor_fill(Z)
             Z_smooth = smooth_display(Z_filled, sigma=smooth_sigma)
-            
-            # 4. PLOT
             limit = np.nanmax(np.abs(Z_smooth))
             colorscale = get_seismic_colorscale()
             
             fig = go.Figure(data=go.Heatmap(
-                z=Z_smooth,
-                x=x_centers,
-                y=y_centers,
-                colorscale=colorscale, 
-                zmin=-limit, zmax=limit,
-                reversescale=True, 
-                colorbar=dict(title="Fwd Return %"),
-                hovertemplate=
-                f"<b>{x_axis_label}</b>: %{{x:.1f}}<br>" +
-                f"<b>{y_axis_label}</b>: %{{y:.1f}}<br>" +
-                f"<b>Fwd Return</b>: %{{z:.2f}}%<extra></extra>"
+                z=Z_smooth, x=x_centers, y=y_centers,
+                colorscale=colorscale, zmin=-limit, zmax=limit,
+                reversescale=True, colorbar=dict(title="Fwd Return %"),
+                hovertemplate=f"{x_axis_label}: %{{x:.1f}}<br>{y_axis_label}: %{{y:.1f}}<br>Fwd Return: %{{z:.2f}}%<extra></extra>"
             ))
             
             fig.update_layout(
                 title=f"{ticker}: {z_axis_label}",
-                xaxis_title=x_axis_label + " (0-100)",
-                yaxis_title=y_axis_label + " (0-100)",
-                height=650, 
-                template="plotly_white",
-                # CRITICAL FIX: Disable zoom so clicks register as events
-                dragmode=False 
+                xaxis_title=x_axis_label, yaxis_title=y_axis_label,
+                height=600, template="plotly_white"
             )
             
-            # Current Position Crosshair
+            # Current Position
             last_row = df.iloc[-1]
             curr_x = last_row.get(xcol, np.nan)
             curr_y = last_row.get(ycol, np.nan)
-            
             if not np.isnan(curr_x) and not np.isnan(curr_y):
                 fig.add_vline(x=curr_x, line_width=2, line_dash="dash", line_color="black")
                 fig.add_hline(y=curr_y, line_width=2, line_dash="dash", line_color="black")
-                fig.add_annotation(x=curr_x, y=curr_y, text="Current", 
-                                   showarrow=True, arrowhead=1, ax=30, ay=-30, bgcolor="white")
+                fig.add_annotation(x=curr_x, y=curr_y, text="Current", showarrow=True, arrowhead=1, ax=30, ay=-30, bgcolor="white")
             
-            # 5. RENDER
-            # on_select="rerun" is crucial for the app to update immediately upon clicking
-            event = st.plotly_chart(fig, use_container_width=True, on_select="rerun", key="heatmap_plot")
+            st.plotly_chart(fig, use_container_width=True)
             
             # ---------------------------------------------------------------------
-            # DRILL DOWN LOGIC
+            # HISTORICAL DATA EXPLORER
             # ---------------------------------------------------------------------
+            st.markdown("### 🔎 Historical Data Explorer")
+            st.info("Use the sliders below to filter for specific conditions seen in the heatmap.")
             
-            # Debug helper (Optional: remove if cluttering)
-            # with st.expander("Debug: Raw Selection Event"):
-            #     st.write(event)
-
-            selected_points = event.selection.get("points", [])
+            f_col1, f_col2 = st.columns(2)
             
-            if selected_points:
-                st.markdown("### 🖱️ Drill Down: Selected Bin Details")
+            # Dynamic Range Sliders based on 0-100 ranks
+            with f_col1:
+                x_range = st.slider(f"Filter: {x_axis_label} (Rank)", 0.0, 100.0, (0.0, 100.0), step=1.0)
+            with f_col2:
+                y_range = st.slider(f"Filter: {y_axis_label} (Rank)", 0.0, 100.0, (0.0, 100.0), step=1.0)
+            
+            # Filter Logic
+            mask = (
+                (clean_df[xcol] >= x_range[0]) & (clean_df[xcol] <= x_range[1]) &
+                (clean_df[ycol] >= y_range[0]) & (clean_df[ycol] <= y_range[1])
+            )
+            
+            filtered_df = clean_df[mask].copy()
+            
+            # Summary Stats for Selection
+            if not filtered_df.empty:
+                s1, s2, s3 = st.columns(3)
+                s1.metric("Matching Instances", len(filtered_df))
+                s2.metric("Avg Fwd Return", f"{filtered_df[zcol].mean():.2f}%")
                 
-                pt = selected_points[0]
-                click_x = pt.get("x")
-                click_y = pt.get("y")
+                # Win Rate (Positive Return %)
+                win_rate = (filtered_df[zcol] > 0).sum() / len(filtered_df) * 100
+                s3.metric("Win Rate (>0%)", f"{win_rate:.1f}%")
                 
-                # Safety check if x/y are somehow missing
-                if click_x is not None and click_y is not None:
-                    # Find closest bin center
-                    x_idx = np.abs(x_centers - click_x).argmin()
-                    y_idx = np.abs(y_centers - click_y).argmin()
-                    
-                    # Define range
-                    x_min, x_max = x_edges[x_idx], x_edges[x_idx+1]
-                    y_min, y_max = y_edges[y_idx], y_edges[y_idx+1]
-                    
-                    # Filter Data
-                    mask = (
-                        (clean_df[xcol] >= x_min) & (clean_df[xcol] <= x_max) &
-                        (clean_df[ycol] >= y_min) & (clean_df[ycol] <= y_max)
-                    )
-                    drill_df = clean_df[mask].copy()
-                    
-                    if not drill_df.empty:
-                        c1, c2 = st.columns([1, 3])
-                        with c1:
-                            st.info(f"**Selected Bin**\n\n"
-                                    f"X: {x_min:.1f} - {x_max:.1f}\n\n"
-                                    f"Y: {y_min:.1f} - {y_max:.1f}")
-                            st.metric("Avg Return", f"{drill_df[zcol].mean():.2f}%")
-                            st.metric("Occurrences", len(drill_df))
-                            
-                        with c2:
-                            st.write("##### Historical Occurrences")
-                            display_cols = ['Close', xcol, ycol, zcol]
-                            style_df = drill_df[display_cols].sort_index(ascending=False)
-                            
-                            st.dataframe(
-                                style_df.style.format({
-                                    "Close": "${:.2f}",
-                                    xcol: "{:.1f}",
-                                    ycol: "{:.1f}",
-                                    zcol: "{:.2f}%"
-                                }).background_gradient(subset=[zcol], cmap="RdBu", vmin=-limit, vmax=limit),
-                                use_container_width=True,
-                                height=300
-                            )
-                    else:
-                        st.warning(f"No exact data points found in this bin (X:{click_x:.1f}, Y:{click_y:.1f}). The heatmap smoothing may be interpolating this area.")
+                # Detailed Table
+                st.write("#### Matching Dates")
+                display_cols = ['Close', xcol, ycol, zcol]
+                
+                # Sort by most recent date
+                table_df = filtered_df[display_cols].sort_index(ascending=False)
+                
+                st.dataframe(
+                    table_df.style.format({
+                        "Close": "${:.2f}",
+                        xcol: "{:.1f}",
+                        ycol: "{:.1f}",
+                        zcol: "{:.2f}%"
+                    }).background_gradient(subset=[zcol], cmap="RdBu", vmin=-limit, vmax=limit),
+                    use_container_width=True,
+                    height=400
+                )
             else:
-                st.info("👆 Click any cell in the heatmap to see the specific historical dates behind that color.")
+                st.warning("No historical data matches these filters.")
 
 def main():
     st.set_page_config(layout="wide", page_title="Heatmap Analytics")
