@@ -67,11 +67,13 @@ def get_seismic_colorscale():
     return seismic
 
 # -----------------------------------------------------------------------------
-# CALCULATION ENGINE
+# CALCULATION ENGINE (CACHED TO FIX FLICKER)
 # -----------------------------------------------------------------------------
 
+@st.cache_data(show_spinner=True)
 def calculate_heatmap_variables(df, sznl_map, ticker):
     """Calculates advanced vars and ranks them 0-100 for the heatmap axes."""
+    # Copy to avoid mutating cached dataframe
     df = df.copy()
     
     # --- FORWARD RETURNS (Z-AXIS) ---
@@ -86,15 +88,12 @@ def calculate_heatmap_variables(df, sznl_map, ticker):
         df[f'Ret_{w}d'] = df['Close'].pct_change(w)
 
     # 2. Realized Volatility (Annualized)
-    # Log Returns for Vol calc
     df['LogRet'] = np.log(df['Close'] / df['Close'].shift(1))
     
-    # Vol Windows: 2d, 5d, 10d, 21d, 63d
     for w in [2, 5, 10, 21, 63]:
         df[f'RealVol_{w}d'] = df['LogRet'].rolling(w).std() * np.sqrt(252) * 100.0
     
     # 3. Change in Realized Vol (Short Term vs 63d Baseline)
-    # Positive = Vol expanding vs trend. Negative = Vol contracting vs trend.
     df['VolChange_2d']  = df['RealVol_2d']  - df['RealVol_63d']
     df['VolChange_5d']  = df['RealVol_5d']  - df['RealVol_63d']
     df['VolChange_10d'] = df['RealVol_10d'] - df['RealVol_63d']
@@ -102,14 +101,12 @@ def calculate_heatmap_variables(df, sznl_map, ticker):
 
     # 4. Volume Ratios (Relative Volume)
     for w in [5, 10, 21]:
-        # Volume relative to 63d baseline
         df[f'VolRatio_{w}d'] = df['Volume'].rolling(w).mean() / df['Volume'].rolling(63).mean()
 
     # 5. Seasonality
     df['Seasonal'] = get_sznl_val_series(ticker, df.index, sznl_map)
 
     # --- RANK TRANSFORMATION (Percentiles 0-100) ---
-    # We use Expanding Rank (min 252) to normalize everything to 0-100 scale robustly.
     vars_to_rank = [
         'Ret_5d', 'Ret_10d', 'Ret_21d', 'Ret_63d', 'Ret_126d', 'Ret_252d',
         'RealVol_21d', 'RealVol_63d', 
@@ -126,6 +123,7 @@ def calculate_heatmap_variables(df, sznl_map, ticker):
 # HEATMAP UTILS (Binning & Smoothing)
 # -----------------------------------------------------------------------------
 
+@st.cache_data
 def build_bins_quantile(x, y, nx=30, ny=30):
     """Quantile-based edges to minimize empty cells."""
     x = pd.Series(x, dtype=float).dropna()
@@ -143,6 +141,7 @@ def build_bins_quantile(x, y, nx=30, ny=30):
     
     return x_edges, y_edges
 
+@st.cache_data
 def grid_mean(df_sub, xcol, ycol, zcol, x_edges, y_edges):
     """Aggregates Z values into the X/Y grid."""
     x = df_sub[xcol].to_numpy(dtype=float)
@@ -208,7 +207,6 @@ def render_heatmap():
     col1, col2, col3 = st.columns(3)
     
     with col1:
-        # Map Display Name -> DataFrame Column
         var_options = {
             "Seasonality Rank": "Seasonal",
             "5d Trailing Return Rank": "Ret_5d_Rank",
@@ -227,9 +225,9 @@ def render_heatmap():
             "10d Rel. Volume Rank": "VolRatio_10d_Rank",
             "21d Rel. Volume Rank": "VolRatio_21d_Rank"
         }
-        
-        x_axis_label = st.selectbox("X-Axis Variable", list(var_options.keys()), index=0)
-        y_axis_label = st.selectbox("Y-Axis Variable", list(var_options.keys()), index=3)
+        # Added keys to fix potential flicker/state loss
+        x_axis_label = st.selectbox("X-Axis Variable", list(var_options.keys()), index=0, key="hm_x")
+        y_axis_label = st.selectbox("Y-Axis Variable", list(var_options.keys()), index=3, key="hm_y")
     
     with col2:
         target_options = {
@@ -238,62 +236,59 @@ def render_heatmap():
             "21d Forward Return": "FwdRet_21d",
             "63d Forward Return": "FwdRet_63d",
         }
-        z_axis_label = st.selectbox("Target (Z-Axis)", list(target_options.keys()), index=2)
-        ticker = st.text_input("Ticker", value="SPY").upper()
+        z_axis_label = st.selectbox("Target (Z-Axis)", list(target_options.keys()), index=2, key="hm_z")
+        ticker = st.text_input("Ticker", value="SPY", key="hm_ticker").upper()
     
     with col3:
-        smooth_sigma = st.slider("Smoothing (Sigma)", 0.5, 3.0, 1.2, 0.1)
-        bins = st.slider("Grid Resolution (Bins)", 10, 50, 28)
+        smooth_sigma = st.slider("Smoothing (Sigma)", 0.5, 3.0, 1.2, 0.1, key="hm_smooth")
+        bins = st.slider("Grid Resolution (Bins)", 10, 50, 28, key="hm_bins")
         
     st.markdown("---")
 
-    # Use session state to persist chart after interaction
-    if st.button("Generate Heatmap", type="primary", use_container_width=True):
+    if st.button("Generate Heatmap", type="primary", use_container_width=True, key="hm_gen"):
         st.session_state['hm_data'] = True 
         
     if st.session_state.get('hm_data'):
         with st.spinner(f"Processing {ticker}..."):
             
-            # 1. DATA FETCH
+            # 1. DATA FETCH (Cached)
             data = download_data(ticker)
             if data.empty:
                 st.error("No data found.")
                 return
                 
             sznl_map = load_seasonal_map()
+            # 2. CALCULATION (Now Cached)
             df = calculate_heatmap_variables(data, sznl_map, ticker)
             
-            # Get column names
             xcol = var_options[x_axis_label]
             ycol = var_options[y_axis_label]
             zcol = target_options[z_axis_label]
             
-            # Drop NaNs for accurate binning
             clean_df = df.dropna(subset=[xcol, ycol, zcol])
             if clean_df.empty:
                 st.error("Insufficient data for these variables.")
                 return
 
-            # 2. BINNING & GRIDDING
+            # 3. BINNING & GRIDDING (Now Cached)
             x_edges, y_edges = build_bins_quantile(clean_df[xcol], clean_df[ycol], nx=bins, ny=bins)
             x_centers, y_centers, Z = grid_mean(clean_df, xcol, ycol, zcol, x_edges, y_edges)
             
-            # 3. FILL & SMOOTH
+            # 4. FILL & SMOOTH (Fast enough to run live for display tweaks)
             Z_filled = nan_neighbor_fill(Z)
             Z_smooth = smooth_display(Z_filled, sigma=smooth_sigma)
             
-            # 4. COLOR SCALING (Seismic Reversed: Red=Neg, Blue=Pos)
+            # 5. PLOT
             limit = np.nanmax(np.abs(Z_smooth))
             colorscale = get_seismic_colorscale()
             
-            # 5. PLOT CONFIG
             fig = go.Figure(data=go.Heatmap(
                 z=Z_smooth,
                 x=x_centers,
                 y=y_centers,
                 colorscale=colorscale, 
                 zmin=-limit, zmax=limit,
-                reversescale=True, # Matplotlib Seismic is Blue->Red. We want Red->Blue.
+                reversescale=True, 
                 colorbar=dict(title="Fwd Return %"),
                 hovertemplate=
                 f"<b>{x_axis_label}</b>: %{{x:.1f}}<br>" +
@@ -306,7 +301,7 @@ def render_heatmap():
                 xaxis_title=x_axis_label + " (0-100)",
                 yaxis_title=y_axis_label + " (0-100)",
                 height=650, template="plotly_white",
-                clickmode='event+select' # Enable Click Interaction
+                clickmode='event+select' 
             )
             
             # Current Position Crosshair
@@ -321,7 +316,6 @@ def render_heatmap():
                                    showarrow=True, arrowhead=1, ax=30, ay=-30, bgcolor="white")
             
             # 6. RENDER & INTERACTION
-            # on_select='rerun' captures the click event and reloads the script to show drill-down
             event = st.plotly_chart(fig, use_container_width=True, on_select="rerun", selection_mode="points")
             
             # ---------------------------------------------------------------------
@@ -336,16 +330,12 @@ def render_heatmap():
                 click_x = pt["x"]
                 click_y = pt["y"]
                 
-                # Find which bin edges encompass the clicked center
-                # We find the nearest center index
                 x_idx = np.abs(x_centers - click_x).argmin()
                 y_idx = np.abs(y_centers - click_y).argmin()
                 
-                # Define the range for that bin
                 x_min, x_max = x_edges[x_idx], x_edges[x_idx+1]
                 y_min, y_max = y_edges[y_idx], y_edges[y_idx+1]
                 
-                # Filter Data
                 mask = (
                     (clean_df[xcol] >= x_min) & (clean_df[xcol] <= x_max) &
                     (clean_df[ycol] >= y_min) & (clean_df[ycol] <= y_max)
@@ -364,8 +354,6 @@ def render_heatmap():
                     with c2:
                         st.write("##### Historical Occurrences")
                         display_cols = ['Close', xcol, ycol, zcol]
-                        
-                        # Display sorted by date (descending)
                         style_df = drill_df[display_cols].sort_index(ascending=False)
                         
                         st.dataframe(
@@ -374,7 +362,7 @@ def render_heatmap():
                                 xcol: "{:.1f}",
                                 ycol: "{:.1f}",
                                 zcol: "{:.2f}%"
-                            }).background_gradient(subset=[zcol], cmap="RdBu", vmin=-5, vmax=5),
+                            }).background_gradient(subset=[zcol], cmap="RdBu", vmin=-limit, vmax=limit),
                             use_container_width=True,
                             height=300
                         )
