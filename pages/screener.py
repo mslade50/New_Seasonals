@@ -41,11 +41,11 @@ STRATEGY_BOOK = [
             "profit_factor": "8.38"
         }
     },
-    # STRATEGY 2: GENERATED STRATEGY (A) - LARGE CAP MEAN REVERSION
+    # STRATEGY 2: LARGE CAP MEAN REVERSION (A)
     {
         "id": "STRAT_1763673538",
-        "name": "Generated Strategy (A)",
-        "description": "Universe: Large Cap/Liquid. Sznl >80, 5d perf < 15. Filter: SPY > 200 SMA.",
+        "name": "Large Cap Mean Reversion (A)",
+        "description": "Universe: Liquid Large Caps. Sznl >80, 5d perf < 15. Filter: SPY > 200 SMA.",
         "universe_tickers": ['AAPL', 'AMGN', 'AMZN', 'AVGO', 'AXP', 'BA', 'CAT', 'CEF', 'CRM', 'CSCO', 'CVX', 'DIA', 'DIS', 'GLD', 'GOOG', 'GS', 'HD', 'HON', 'IBB', 'IBM', 'IHI', 'INTC', 'ITA', 'ITB', 'IWM', 'IYR', 'JNJ', 'JPM', 'KO', 'KRE', 'MCD', 'META', 'MMM', 'MRK', 'MSFT', 'NKE', 'NVDA', 'OIH', 'PG', 'QQQ', 'SLV', 'SMH', 'SPY', 'TRV', 'UNG', 'UNH', 'UVXY', 'V', 'VNQ', 'VZ', 'WMT', 'XBI', 'XHB', 'XLB', 'XLE', 'XLF', 'XLI', 'XLK', 'XLP', 'XLU', 'XLV', 'XLY', 'XME', 'XOP', 'XRT'], 
         "settings": {
             "trade_direction": "Long",
@@ -72,6 +72,38 @@ STRATEGY_BOOK = [
             "expectancy": "$646.42",
             "profit_factor": "2.85"
         }
+    },
+    # STRATEGY 3: LARGE CAP MEAN REVERSION (B) - HIGHER PRECISION
+    {
+        "id": "STRAT_1763756935",
+        "name": "Large Cap Mean Reversion (B)",
+        "description": "Universe: Liquid Large Caps. 21d perf < 15 (5 consec days). Low Rel Vol (<15 rank). No Trend Filter.",
+        "universe_tickers": ['AAPL', 'AMGN', 'AMZN', 'AVGO', 'AXP', 'BA', 'CAT', 'CEF', 'CRM', 'CSCO', 'CVX', 'DIA', 'DIS', 'GLD', 'GOOG', 'GS', 'HD', 'HON', 'IBB', 'IBM', 'IHI', 'INTC', 'ITA', 'ITB', 'IWM', 'IYR', 'JNJ', 'JPM', 'KO', 'KRE', 'MCD', 'META', 'MMM', 'MRK', 'MSFT', 'NKE', 'NVDA', 'OIH', 'PG', 'QQQ', 'SLV', 'SMH', 'SPY', 'TRV', 'UNG', 'UNH', 'UVXY', 'V', 'VNQ', 'VZ', 'WMT', 'XBI', 'XHB', 'XLB', 'XLE', 'XLF', 'XLI', 'XLK', 'XLP', 'XLU', 'XLV', 'XLY', 'XME', 'XOP', 'XRT'], 
+        "settings": {
+            "trade_direction": "Long",
+            "max_one_pos": True,
+            "use_perf_rank": True, "perf_window": 21, "perf_logic": "<", "perf_thresh": 15.0,
+            "perf_first_instance": True, "perf_lookback": 21, "perf_consecutive": 5,
+            "use_sznl": False, "sznl_logic": "<", "sznl_thresh": 15.0, "sznl_first_instance": False, "sznl_lookback": 21,
+            "use_52w": False, "52w_type": "New 52w High", "52w_first_instance": False, "52w_lookback": 21,
+            "use_vol": False, "vol_thresh": 1.5,
+            "use_vol_rank": True, "vol_rank_logic": "<", "vol_rank_thresh": 15.0,
+            "trend_filter": "None",
+            "min_price": 10.0, "min_vol": 100000,
+            "min_age": 0.25, "max_age": 100.0
+        },
+        "execution": {
+            "risk_per_trade": 1000,
+            "stop_atr": 2.0,
+            "tgt_atr": 8.0,
+            "hold_days": 21
+        },
+        "stats": {
+            "grade": "A (Excellent)",
+            "win_rate": "73.1%",
+            "expectancy": "$726.57",
+            "profit_factor": "3.71"
+        }
     }
 ]
 
@@ -82,7 +114,6 @@ CSV_PATH = "seasonal_ranks.csv"
 
 @st.cache_data(show_spinner=False)
 def load_seasonal_map():
-    """Loads CSV for seasonality lookups."""
     try:
         df = pd.read_csv(CSV_PATH)
     except Exception:
