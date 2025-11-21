@@ -67,7 +67,7 @@ def get_seismic_colorscale():
     return seismic
 
 # -----------------------------------------------------------------------------
-# CALCULATION ENGINE (CACHED)
+# CALCULATION ENGINE (Cached - Heavy Lifting)
 # -----------------------------------------------------------------------------
 
 @st.cache_data(show_spinner=True)
@@ -119,10 +119,9 @@ def calculate_heatmap_variables(df, sznl_map, ticker):
     return df
 
 # -----------------------------------------------------------------------------
-# HEATMAP UTILS (Binning & Smoothing)
+# HEATMAP UTILS (Not Cached - Fast & UI Dependent)
 # -----------------------------------------------------------------------------
 
-@st.cache_data
 def build_bins_quantile(x, y, nx=30, ny=30):
     x = pd.Series(x, dtype=float).dropna()
     y = pd.Series(y, dtype=float).dropna()
@@ -138,7 +137,6 @@ def build_bins_quantile(x, y, nx=30, ny=30):
     
     return x_edges, y_edges
 
-@st.cache_data
 def grid_mean(df_sub, xcol, ycol, zcol, x_edges, y_edges):
     x = df_sub[xcol].to_numpy(dtype=float)
     y = df_sub[ycol].to_numpy(dtype=float)
@@ -237,18 +235,19 @@ def render_heatmap():
         smooth_sigma = st.slider("Smoothing (Sigma)", 0.5, 3.0, 1.2, 0.1, key="hm_smooth")
         bins = st.slider("Grid Resolution (Bins)", 10, 50, 28, key="hm_bins")
         
-        # NEW: Start Date Filter
+        # Start Date Filter
         analysis_start = st.date_input("Analysis Start Date", value=datetime.date(2000, 1, 1), key="hm_start_date")
         
     st.markdown("---")
 
+    # Use session state to persist chart after interaction
     if st.button("Generate Heatmap", type="primary", use_container_width=True, key="hm_gen"):
         st.session_state['hm_data'] = True 
         
     if st.session_state.get('hm_data'):
         with st.spinner(f"Processing {ticker}..."):
             
-            # 1. DATA FETCH
+            # 1. DATA FETCH (Cached)
             data = download_data(ticker)
             if data.empty:
                 st.error("No data found.")
@@ -256,11 +255,10 @@ def render_heatmap():
                 
             sznl_map = load_seasonal_map()
             
-            # 2. CALCULATION (Full History for robust ranks)
+            # 2. CALCULATION (Cached)
             df = calculate_heatmap_variables(data, sznl_map, ticker)
             
             # 3. FILTER DATE (Slice the final view)
-            # This ensures ranks are contextually accurate (globally) but displayed only for the regime of interest
             start_ts = pd.to_datetime(analysis_start)
             if df.index.tz is not None:
                 start_ts = start_ts.tz_localize(df.index.tz)
@@ -275,12 +273,13 @@ def render_heatmap():
             ycol = var_options[y_axis_label]
             zcol = target_options[z_axis_label]
             
+            # Clean data for binning
             clean_df = df.dropna(subset=[xcol, ycol, zcol])
             if clean_df.empty:
                 st.error("Insufficient data for these variables.")
                 return
 
-            # 4. BINNING & GRIDDING
+            # 4. BINNING & GRIDDING (Uncached - Fast)
             x_edges, y_edges = build_bins_quantile(clean_df[xcol], clean_df[ycol], nx=bins, ny=bins)
             x_centers, y_centers, Z = grid_mean(clean_df, xcol, ycol, zcol, x_edges, y_edges)
             
@@ -315,8 +314,7 @@ def render_heatmap():
                 dragmode=False 
             )
             
-            # Current Position
-            # If current date is after filter date, show it.
+            # Current Position Crosshair
             last_row = df.iloc[-1]
             curr_x = last_row.get(xcol, np.nan)
             curr_y = last_row.get(ycol, np.nan)
