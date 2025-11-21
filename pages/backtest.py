@@ -197,6 +197,7 @@ def run_engine(universe_dict, params, sznl_map, spy_series=None):
     bt_start_ts = pd.to_datetime(params['backtest_start_date'])
     
     direction = params.get('trade_direction', 'Long')
+    max_one_pos = params.get('max_one_pos', False)
     
     progress_bar = st.progress(0)
     status_text = st.empty()
@@ -206,6 +207,10 @@ def run_engine(universe_dict, params, sznl_map, spy_series=None):
         progress_bar.progress((i+1)/total)
         
         if len(df_raw) < 100: continue
+        
+        # TRACKING for Max 1 Pos
+        # Using a Timestamp far in the past
+        last_exit_date = pd.Timestamp.min
         
         try:
             df = calculate_indicators(df_raw, sznl_map, ticker, spy_series)
@@ -243,29 +248,24 @@ def run_engine(universe_dict, params, sznl_map, spy_series=None):
 
             # --- STRATEGY SIGNALS ---
             
-            # 1. Perf Rank (Now with Consecutive Logic)
+            # 1. Perf Rank
             if params['use_perf_rank']:
                 col = f"rank_ret_{params['perf_window']}d"
-                
-                # A. Calculate Raw Condition
                 if params['perf_logic'] == '<': 
                     raw_cond = df[col] < params['perf_thresh']
                 else: 
                     raw_cond = df[col] > params['perf_thresh']
                 
-                # B. Check Persistence (Consecutive Days)
+                # Persistence
                 consec_days = params.get('perf_consecutive', 1)
                 if consec_days > 1:
-                    # Rolling sum of boolean (1s) must equal window size
                     cond = raw_cond.rolling(consec_days).sum() == consec_days
                 else:
                     cond = raw_cond
 
-                # C. First Instance Check (on the potentially persistent condition)
                 if params['perf_first_instance']:
                     prev = cond.shift(1).rolling(params['perf_lookback']).sum()
                     cond = cond & (prev == 0)
-                
                 conditions.append(cond)
 
             # 2. Seasonal
@@ -286,7 +286,7 @@ def run_engine(universe_dict, params, sznl_map, spy_series=None):
                     cond = cond & (prev == 0)
                 conditions.append(cond)
             
-            # 4. Volume Spike (Raw Ratio)
+            # 4. Volume Spike
             if params['use_vol']:
                 cond = df['vol_ratio'] > params['vol_thresh']
                 conditions.append(cond)
@@ -308,6 +308,10 @@ def run_engine(universe_dict, params, sznl_map, spy_series=None):
             
             # --- TRADE EXECUTION ---
             for signal_date in signal_dates:
+                # OVERLAP CHECK: Max 1 Position Per Ticker
+                if max_one_pos and signal_date <= last_exit_date:
+                    continue
+
                 try:
                     sig_idx = df.index.get_loc(signal_date)
                     if sig_idx + params['holding_days'] + 2 >= len(df): continue
@@ -369,6 +373,9 @@ def run_engine(universe_dict, params, sznl_map, spy_series=None):
                         exit_date = future.index[-1]
                         exit_type = "Time"
                     
+                    # UPDATE TRACKER FOR OVERLAP
+                    last_exit_date = exit_date
+
                     if direction == 'Long':
                         risk_unit = entry_price - stop_price
                         pnl = exit_price - entry_price
@@ -439,6 +446,7 @@ def main():
         univ_choice = st.selectbox("Choose Universe", 
             ["Sector ETFs", "Indices", "International ETFs", "Sector + Index ETFs", "All CSV Tickers", "Custom (Upload CSV)"])
     with col_u2:
+        # DEFAULT TO 2000
         default_start = datetime.date(2000, 1, 1)
         start_date = st.date_input("Backtest Start Date", value=default_start)
     
@@ -463,11 +471,14 @@ def main():
     st.markdown("---")
     st.subheader("2. Execution & Risk")
     
-    r_c1, r_c2 = st.columns(2)
+    r_c1, r_c2, r_c3 = st.columns(3)
     with r_c1:
         trade_direction = st.selectbox("Trade Direction", ["Long", "Short"])
     with r_c2:
         time_exit_only = st.checkbox("Time Exit Only (Disable Stop/Target)")
+    with r_c3:
+        max_one_pos = st.checkbox("Max 1 Position/Ticker", value=True, 
+            help="If checked, allows only one open trade at a time per ticker (prevents pyramiding).")
     
     c1, c2, c3, c4, c5 = st.columns(5)
     with c1: entry_type = st.selectbox("Entry Price", ["Signal Close", "T+1 Open", "T+1 Close"])
@@ -505,9 +516,7 @@ def main():
         with p3: perf_thresh = st.number_input("Threshold (%)", 0.0, 100.0, 15.0, disabled=not use_perf)
         with p4: 
             perf_first = st.checkbox("First Instance Only", value=True, disabled=not use_perf)
-            # NEW: Consecutive Days Input
-            perf_consecutive = st.number_input("Min Consecutive Days", 1, 20, 1, 
-                help="Condition must hold for X days. 'First Instance' logic triggers on the Xth day.", disabled=not use_perf)
+            perf_consecutive = st.number_input("Min Consecutive Days", 1, 20, 1, disabled=not use_perf)
         with p5: perf_lookback = st.number_input("Instance Lookback (Days)", 1, 100, 21, disabled=not use_perf)
 
     with st.expander("Seasonal Rank", expanded=False):
@@ -577,13 +586,14 @@ def main():
         params = {
             'backtest_start_date': start_date,
             'trade_direction': trade_direction,
+            'max_one_pos': max_one_pos, # NEW
             'time_exit_only': time_exit_only,
             'stop_atr': stop_atr, 'tgt_atr': tgt_atr, 'holding_days': hold_days, 'entry_type': entry_type,
             'min_price': min_price, 'min_vol': min_vol, 'min_age': min_age, 'max_age': max_age,
             'trend_filter': trend_filter,
             'use_perf_rank': use_perf, 'perf_window': perf_window, 'perf_logic': perf_logic, 
             'perf_thresh': perf_thresh, 'perf_first_instance': perf_first, 'perf_lookback': perf_lookback,
-            'perf_consecutive': perf_consecutive, # NEW
+            'perf_consecutive': perf_consecutive,
             'use_sznl': use_sznl, 'sznl_logic': sznl_logic, 'sznl_thresh': sznl_thresh, 
             'sznl_first_instance': sznl_first, 'sznl_lookback': sznl_lookback,
             'use_52w': use_52w, '52w_type': type_52w, '52w_first_instance': first_52w, '52w_lookback': lookback_52w,
@@ -651,6 +661,7 @@ def main():
             "Age": "{:.1f}y", "AvgVol": "{:,.0f}"
         }), use_container_width=True)
 
+        # --- COPYABLE DICTIONARY OUTPUT ---
         st.markdown("---")
         st.subheader("Configuration & Results (Copy Code)")
         st.info("Copy the dictionary below and paste it into your `STRATEGY_BOOK` list in the Screener.")
@@ -662,6 +673,7 @@ def main():
     "universe_tickers": {tickers_to_run}, 
     "settings": {{
         "trade_direction": "{trade_direction}",
+        "max_one_pos": {max_one_pos},
         "use_perf_rank": {use_perf}, "perf_window": {perf_window}, "perf_logic": "{perf_logic}", "perf_thresh": {perf_thresh},
         "perf_consecutive": {perf_consecutive},
         "use_sznl": {use_sznl}, "sznl_logic": "{sznl_logic}", "sznl_thresh": {sznl_thresh},
