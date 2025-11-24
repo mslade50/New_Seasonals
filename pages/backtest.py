@@ -699,8 +699,6 @@ def main():
         ticker_pnl = ticker_pnl.sort_values("PnL_Dollar", ascending=False).head(75)
         
 
-[Image of ticker pnl chart]
-
         b3.plotly_chart(px.bar(ticker_pnl, x="Ticker", y="PnL_Dollar", title="Cumulative PnL by Ticker (Top 75)", text_auto='.2s'), use_container_width=True)
         
         # Monthly Seasonality
