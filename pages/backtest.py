@@ -240,8 +240,6 @@ def run_engine(universe_dict, params, sznl_map, spy_series=None):
     elif "21 EMA" in entry_mode: pullback_col = "EMA21"
     
     # Determine Execution Price for Pullback
-    # "Entry: Level" -> Use MA price
-    # "Entry: Close" -> Use Day's Close
     pullback_use_level = "Level" in entry_mode
 
     progress_bar = st.progress(0)
@@ -289,6 +287,10 @@ def run_engine(universe_dict, params, sznl_map, spy_series=None):
                    (curr_age >= params['min_age']) & \
                    (curr_age <= params['max_age'])
             conditions.append(gate)
+
+            # --- PRICE ACTION (NEW) ---
+            if params.get('require_close_gt_open', False):
+                conditions.append(df['Close'] > df['Open'])
 
             # --- STRATEGY SIGNALS ---
             if params['use_perf_rank']:
@@ -357,7 +359,6 @@ def run_engine(universe_dict, params, sznl_map, spy_series=None):
                 # ---------------------
                 if is_pullback and pullback_col:
                     # Look for entry from Signal Date + 1 up to Fixed Exit Date
-                    # (Limit order valid for the holding period duration)
                     for wait_i in range(1, params['holding_days'] + 1):
                         curr_check_idx = sig_idx + wait_i
                         if curr_check_idx >= len(df): break
@@ -373,9 +374,8 @@ def run_engine(universe_dict, params, sznl_map, spy_series=None):
                             if use_ma_filter:
                                 cutoff = ma_val - (0.25 * row['ATR'])
                                 if row['Close'] < cutoff:
-                                    continue # Invalidate entry for this day
+                                    continue 
                             
-                            # Entry Validated
                             found_entry = True
                             actual_entry_idx = curr_check_idx
                             if pullback_use_level:
@@ -392,7 +392,6 @@ def run_engine(universe_dict, params, sznl_map, spy_series=None):
                     if entry_mode == 'Signal Close':
                         actual_entry_idx = sig_idx
                         actual_entry_price = df['Close'].iloc[sig_idx]
-                        # For immediate close, we technically enter end of day, so future starts next day
                     elif entry_mode == 'T+1 Open':
                         actual_entry_idx = sig_idx + 1
                         actual_entry_price = df['Open'].iloc[sig_idx + 1]
@@ -405,24 +404,16 @@ def run_engine(universe_dict, params, sznl_map, spy_series=None):
                 # ---------------------
                 if found_entry and actual_entry_idx < len(df):
                     
-                    # We have an entry. Now look forward for exits.
-                    # Future starts immediately after entry execution
-                    # If entry was T+1 Close, future checks start T+2
-                    # If entry was Pullback (Intraday), future checks start T+1 (Next day)
-                    # BUT for simplicity in backtest, if we enter Close or Intraday, we check exits starting NEXT bar
-                    
                     start_exit_scan = actual_entry_idx + 1
                     
-                    # Ensure we don't hold past the original fixed time stop
                     if start_exit_scan > fixed_exit_idx: 
-                        continue # Entry happened too late (e.g. last day), no time to hold
+                        continue 
                     
-                    future = df.iloc[start_exit_scan : fixed_exit_idx + 1] # +1 to include the fixed exit day
+                    future = df.iloc[start_exit_scan : fixed_exit_idx + 1]
                     if future.empty: continue
                     
                     atr = df['ATR'].iloc[actual_entry_idx]
                     if np.isnan(atr) or atr == 0: 
-                        # Fallback to previous day ATR if today is weird
                         atr = df['ATR'].iloc[actual_entry_idx-1] if actual_entry_idx > 0 else 0
                         if atr == 0: continue
 
@@ -604,6 +595,9 @@ def main():
         with l2: min_vol = st.number_input("Min Avg Volume", value=100000, step=50000)
         with l3: min_age = st.number_input("Min True Age (Yrs)", value=0.25, step=0.25)
         with l4: max_age = st.number_input("Max True Age (Yrs)", value=100.0, step=1.0)
+    
+    with st.expander("Price Action", expanded=True):
+        req_green_candle = st.checkbox("Require Close > Open (Green Candle)", value=False)
         
     # B. TREND
     with st.expander("Trend Filter", expanded=True):
@@ -706,6 +700,7 @@ def main():
             'time_exit_only': time_exit_only,
             'stop_atr': stop_atr, 'tgt_atr': tgt_atr, 'holding_days': hold_days, 'entry_type': entry_type,
             'use_ma_entry_filter': use_ma_entry_filter,
+            'require_close_gt_open': req_green_candle,
             'min_price': min_price, 'min_vol': min_vol, 'min_age': min_age, 'max_age': max_age,
             'trend_filter': trend_filter,
             'use_perf_rank': use_perf, 'perf_window': perf_window, 'perf_logic': perf_logic, 
@@ -807,6 +802,7 @@ def main():
         "trade_direction": "{trade_direction}",
         "entry_type": "{entry_type}",
         "use_ma_entry_filter": {use_ma_entry_filter},
+        "require_close_gt_open": {req_green_candle},
         "max_one_pos": {max_one_pos},
         "use_perf_rank": {use_perf}, "perf_window": {perf_window}, "perf_logic": "{perf_logic}", "perf_thresh": {perf_thresh},
         "perf_first_instance": {perf_first}, "perf_lookback": {perf_lookback}, "perf_consecutive": {perf_consecutive},
