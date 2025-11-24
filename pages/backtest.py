@@ -455,6 +455,7 @@ def grade_strategy(pf, sqn, win_rate, total_trades):
 # -----------------------------------------------------------------------------
 # MAIN APP
 # -----------------------------------------------------------------------------
+# ... (Imports and helper functions remain the same) ...
 
 def main():
     st.set_page_config(layout="wide", page_title="Quantitative Backtester")
@@ -601,7 +602,7 @@ def main():
         data_dict = download_universe_data(tickers_to_run, fetch_start)
         if not data_dict: return
         
-        # --- FIXED SPY HANDLING ---
+        # --- SPY HANDLING ---
         spy_series = None
         if "SPY" in trend_filter:
             if "SPY" in data_dict:
@@ -691,20 +692,17 @@ def main():
         b1.plotly_chart(px.bar(trades_df.groupby('Year')['PnL_Dollar'].sum().reset_index(), x='Year', y='PnL_Dollar', title="PnL by Year", text_auto='.2s'), use_container_width=True)
         b2.plotly_chart(px.bar(trades_df.groupby('CyclePhase')['PnL_Dollar'].sum().reset_index().sort_values('CyclePhase'), x='CyclePhase', y='PnL_Dollar', title="PnL by Cycle", text_auto='.2s'), use_container_width=True)
         
-        # 2. NEW: Ticker and Month Seasonality
+        # 2. Ticker and Month Seasonality (Fixed)
         b3, b4 = st.columns(2)
         
         # Top 75 Tickers
         ticker_pnl = trades_df.groupby("Ticker")["PnL_Dollar"].sum().reset_index()
         ticker_pnl = ticker_pnl.sort_values("PnL_Dollar", ascending=False).head(75)
-        
-
         b3.plotly_chart(px.bar(ticker_pnl, x="Ticker", y="PnL_Dollar", title="Cumulative PnL by Ticker (Top 75)", text_auto='.2s'), use_container_width=True)
         
         # Monthly Seasonality
         month_order = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
         monthly_pnl = trades_df.groupby("Month")["PnL_Dollar"].sum().reindex(month_order).reset_index()
-        
         b4.plotly_chart(px.bar(monthly_pnl, x="Month", y="PnL_Dollar", title="Cumulative PnL by Month (Seasonality)", text_auto='.2s'), use_container_width=True)
 
         st.subheader("Trade Log")
@@ -718,6 +716,7 @@ def main():
         st.subheader("Configuration & Results (Copy Code)")
         st.info("Copy the dictionary below and paste it into your `STRATEGY_BOOK` list in the Screener.")
 
+        # Updated to match exact requested format
         dict_str = f"""{{
     "id": "STRAT_{int(time.time())}",
     "name": "Generated Strategy ({grade})",
@@ -727,9 +726,9 @@ def main():
         "trade_direction": "{trade_direction}",
         "max_one_pos": {max_one_pos},
         "use_perf_rank": {use_perf}, "perf_window": {perf_window}, "perf_logic": "{perf_logic}", "perf_thresh": {perf_thresh},
-        "perf_consecutive": {perf_consecutive},
-        "use_sznl": {use_sznl}, "sznl_logic": "{sznl_logic}", "sznl_thresh": {sznl_thresh},
-        "use_52w": {use_52w}, "52w_type": "{type_52w}",
+        "perf_first_instance": {perf_first}, "perf_lookback": {perf_lookback}, "perf_consecutive": {perf_consecutive},
+        "use_sznl": {use_sznl}, "sznl_logic": "{sznl_logic}", "sznl_thresh": {sznl_thresh}, "sznl_first_instance": {sznl_first}, "sznl_lookback": {sznl_lookback},
+        "use_52w": {use_52w}, "52w_type": "{type_52w}", "52w_first_instance": {first_52w}, "52w_lookback": {lookback_52w},
         "use_vol": {use_vol}, "vol_thresh": {vol_thresh},
         "use_vol_rank": {use_vol_rank}, "vol_rank_logic": "{vol_rank_logic}", "vol_rank_thresh": {vol_rank_thresh},
         "trend_filter": "{trend_filter}",
