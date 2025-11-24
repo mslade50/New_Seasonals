@@ -532,7 +532,11 @@ def main():
             ["Sector ETFs", "Indices", "International ETFs", "Sector + Index ETFs", "All CSV Tickers", "Custom (Upload CSV)"])
     with col_u2:
         default_start = datetime.date(2000, 1, 1)
-        start_date = st.date_input("Backtest Start Date", value=default_start)
+        # UPDATE: Allow any date from 1950 to Today
+        start_date = st.date_input("Backtest Start Date", 
+                                   value=default_start, 
+                                   min_value=datetime.date(1950, 1, 1),
+                                   max_value=datetime.date.today())
     
     custom_tickers = []
     if univ_choice == "Custom (Upload CSV)":
@@ -671,7 +675,13 @@ def main():
             st.error("No tickers found.")
             return
 
-        fetch_start = "1950-01-01" if use_full_history else start_date
+        # UPDATE: Fetch Data Buffer Logic
+        # If not full history, fetch 1 year prior to start_date to allow indicators (200SMA) to warm up
+        if use_full_history:
+             fetch_start = "1950-01-01"
+        else:
+             fetch_start = start_date - datetime.timedelta(days=365)
+
         st.info(f"Downloading data ({len(tickers_to_run)} tickers)...")
         
         data_dict = download_universe_data(tickers_to_run, fetch_start)
@@ -801,8 +811,6 @@ def main():
     "settings": {{
         "trade_direction": "{trade_direction}",
         "entry_type": "{entry_type}",
-        "use_ma_entry_filter": {use_ma_entry_filter},
-        "require_close_gt_open": {req_green_candle},
         "max_one_pos": {max_one_pos},
         "use_perf_rank": {use_perf}, "perf_window": {perf_window}, "perf_logic": "{perf_logic}", "perf_thresh": {perf_thresh},
         "perf_first_instance": {perf_first}, "perf_lookback": {perf_lookback}, "perf_consecutive": {perf_consecutive},
