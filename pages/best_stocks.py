@@ -207,8 +207,10 @@ def download_ohlc_with_fallback(tickers, period="13mo", interval="1d"):
     return prices
 
 
+import time
+
 def run_pipeline():
-    # ---------- 1. Screener ----------
+    # ---------- 1. Screener (With Retry Logic) ----------
     momentum_field = get_momentum_field()
 
     filters = [
@@ -228,7 +230,28 @@ def run_pipeline():
         sort_type="DESC",
     )
 
-    screener_df = yfs.get_data(payload)
+    screener_df = None
+    max_retries = 3
+    
+    # --- RETRY LOOP START ---
+    for attempt in range(max_retries):
+        try:
+            screener_df = yfs.get_data(payload)
+            # If we get here and it's valid, break the loop
+            if screener_df is not None and not screener_df.empty:
+                break
+        except Exception as e:
+            if attempt < max_retries - 1:
+                sleep_time = 2 * (attempt + 1)
+                st.warning(f"Screener connection failed ({e}). Retrying in {sleep_time}s...")
+                time.sleep(sleep_time)
+            else:
+                raise RuntimeError(f"Yahoo Screener failed after {max_retries} attempts. API might be down.")
+    # --- RETRY LOOP END ---
+
+    # Double check we actually got data
+    if screener_df is None or screener_df.empty:
+         raise RuntimeError("Screener returned no data.")
 
     # Drop 5-letter symbols
     screener_df = screener_df[screener_df["symbol"].str.len() != 5].copy()
@@ -282,8 +305,7 @@ def run_pipeline():
     px = px.dropna(axis=1, thresh=180)
 
     # ---------- 3. Returns ----------
-    # FIX: Don't multiply by 100 here. Keep as raw float (e.g. 0.15 for 15%)
-    # This prevents type confusion in PyArrow. We will format in st.dataframe.
+    # RAW FLOATS (No rounding, no multiplying by 100 yet)
     returns = pd.DataFrame(
         {
             "R63D": px.pct_change(63).iloc[-1],
@@ -317,7 +339,7 @@ def run_pipeline():
     combined = combined.join(meta, how="left")
 
     if "Mkt_Cap" in combined.columns:
-        combined["MCap_$B"] = (combined["Mkt_Cap"] / 1e9) # Keep raw float, no round() here
+        combined["MCap_$B"] = (combined["Mkt_Cap"] / 1e9)
         combined = combined.drop(columns=["Mkt_Cap"])
 
     if "avg_dollar_volume" in combined.columns:
@@ -332,7 +354,6 @@ def run_pipeline():
         fin_df = pd.DataFrame.from_dict(fin, orient="index")
 
         if "revenueGrowth" in fin_df.columns:
-            # Keep as raw float (0.25 for 25%). Don't mult by 100 yet.
             rg = pd.to_numeric(fin_df["revenueGrowth"], errors="coerce")
             rg.index = rg.index.astype(str)
             combined["RevGrowth_%"] = rg.reindex(combined.index).values
@@ -354,7 +375,6 @@ def run_pipeline():
     ticker_list = ", ".join(f"'{t}'" for t in combined["Ticker"].tolist())
 
     return combined, ticker_list
-
 
 # ---------- Streamlit UI ----------
 
