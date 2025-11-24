@@ -720,7 +720,7 @@ def main():
         dict_str = f"""{{
     "id": "STRAT_{int(time.time())}",
     "name": "Generated Strategy ({grade})",
-    "description": "Universe: {univ_choice}. Dir: {trade_direction}. Filter: {trend_filter}. PF: {pf:.2f}. SQN: {sqn:.2f}.",
+    "description": "Start: {start_date}. Universe: {univ_choice}. Dir: {trade_direction}. Filter: {trend_filter}. PF: {pf:.2f}. SQN: {sqn:.2f}.",
     "universe_tickers": {tickers_to_run}, 
     "settings": {{
         "trade_direction": "{trade_direction}",
