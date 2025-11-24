@@ -67,14 +67,11 @@ def clean_ticker_df(df):
     """
     if df.empty: return df
     
-    # 1. Flatten columns if MultiIndex
     if isinstance(df.columns, pd.MultiIndex):
         df.columns = df.columns.get_level_values(0)
     
-    # 2. Standardize names
     df.columns = [str(c).strip().capitalize() for c in df.columns]
     
-    # 3. Ensure 'Close' exists (handle 'Adj close' case)
     if 'Close' not in df.columns and 'Adj close' in df.columns:
         df.rename(columns={'Adj close': 'Close'}, inplace=True)
         
@@ -109,7 +106,6 @@ def download_universe_data(tickers, fetch_start_date):
             df = yf.download(chunk, start=start_str, group_by='ticker', auto_adjust=True, progress=False, threads=True)
             if df.empty: continue
 
-            # CASE A: Single Ticker in Chunk
             if len(chunk) == 1:
                 t = chunk[0]
                 if isinstance(df.columns, pd.MultiIndex):
@@ -124,7 +120,6 @@ def download_universe_data(tickers, fetch_start_date):
                 if not t_df.empty:
                     data_dict[t] = t_df
 
-            # CASE B: Multiple Tickers
             else:
                 if not isinstance(df.columns, pd.MultiIndex):
                     continue 
@@ -177,8 +172,10 @@ def calculate_indicators(df, sznl_map, ticker, spy_series=None):
     if df.index.tz is not None:
         df.index = df.index.tz_localize(None)
     
-    # SMA 200
+    # Moving Averages
     df['SMA200'] = df['Close'].rolling(200).mean()
+    df['SMA10'] = df['Close'].rolling(10).mean()
+    df['EMA21'] = df['Close'].ewm(span=21, adjust=False).mean()
     
     # Perf Ranks
     for window in [5, 10, 21]:
@@ -232,6 +229,21 @@ def run_engine(universe_dict, params, sznl_map, spy_series=None):
     direction = params.get('trade_direction', 'Long')
     max_one_pos = params.get('max_one_pos', False)
     
+    # Parse Entry Logic
+    entry_mode = params['entry_type']
+    is_pullback = "Pullback" in entry_mode
+    use_ma_filter = params.get('use_ma_entry_filter', False)
+    
+    # Determine MA column for Pullback
+    pullback_col = None
+    if "10 SMA" in entry_mode: pullback_col = "SMA10"
+    elif "21 EMA" in entry_mode: pullback_col = "EMA21"
+    
+    # Determine Execution Price for Pullback
+    # "Entry: Level" -> Use MA price
+    # "Entry: Close" -> Use Day's Close
+    pullback_use_level = "Level" in entry_mode
+
     progress_bar = st.progress(0)
     status_text = st.empty()
     
@@ -254,7 +266,6 @@ def run_engine(universe_dict, params, sznl_map, spy_series=None):
             # --- TREND FILTER ---
             trend_opt = params.get('trend_filter', 'None')
             
-            # Internal Trend
             if trend_opt == "Price > 200 SMA":
                 conditions.append(df['Close'] > df['SMA200'])
             elif trend_opt == "Price > Rising 200 SMA":
@@ -263,8 +274,6 @@ def run_engine(universe_dict, params, sznl_map, spy_series=None):
                 conditions.append(df['Close'] < df['SMA200'])
             elif trend_opt == "Price < Falling 200 SMA":
                 conditions.append((df['Close'] < df['SMA200']) & (df['SMA200'] < df['SMA200'].shift(1)))
-            
-            # External Regime (SPY)
             elif "SPY" in trend_opt and 'SPY_Above_SMA200' in df.columns:
                 if trend_opt == "SPY > 200 SMA":
                     conditions.append(df['SPY_Above_SMA200'])
@@ -282,7 +291,6 @@ def run_engine(universe_dict, params, sznl_map, spy_series=None):
             conditions.append(gate)
 
             # --- STRATEGY SIGNALS ---
-            # 1. Perf Rank
             if params['use_perf_rank']:
                 col = f"rank_ret_{params['perf_window']}d"
                 if params['perf_logic'] == '<': raw_cond = df[col] < params['perf_thresh']
@@ -299,7 +307,6 @@ def run_engine(universe_dict, params, sznl_map, spy_series=None):
                     cond = cond & (prev == 0)
                 conditions.append(cond)
 
-            # 2. Seasonal
             if params['use_sznl']:
                 if params['sznl_logic'] == '<': cond = df['Sznl'] < params['sznl_thresh']
                 else: cond = df['Sznl'] > params['sznl_thresh']
@@ -308,7 +315,6 @@ def run_engine(universe_dict, params, sznl_map, spy_series=None):
                     cond = cond & (prev == 0)
                 conditions.append(cond)
             
-            # 3. 52w
             if params['use_52w']:
                 if params['52w_type'] == 'New 52w High': cond = df['is_52w_high']
                 else: cond = df['is_52w_low']
@@ -317,12 +323,10 @@ def run_engine(universe_dict, params, sznl_map, spy_series=None):
                     cond = cond & (prev == 0)
                 conditions.append(cond)
             
-            # 4. Volume Spike
             if params['use_vol']:
                 cond = df['vol_ratio'] > params['vol_thresh']
                 conditions.append(cond)
 
-            # 5. Volume Rank
             if params['use_vol_rank']:
                 if params['vol_rank_logic'] == '<': cond = df['vol_ratio_10d_rank'] < params['vol_rank_thresh']
                 else: cond = df['vol_ratio_10d_rank'] > params['vol_rank_thresh']
@@ -338,36 +342,100 @@ def run_engine(universe_dict, params, sznl_map, spy_series=None):
             # --- TRADE EXECUTION ---
             for signal_date in signal_dates:
                 if max_one_pos and signal_date <= last_exit_date: continue
+                
+                # Global Max Exit Index based on SIGNAL DATE (Fixed Time Stop)
+                sig_idx = df.index.get_loc(signal_date)
+                fixed_exit_idx = sig_idx + params['holding_days']
+                if fixed_exit_idx >= len(df): continue
 
-                try:
-                    sig_idx = df.index.get_loc(signal_date)
-                    if sig_idx + params['holding_days'] + 2 >= len(df): continue
-                    atr = df['ATR'].iloc[sig_idx]
-                    if np.isnan(atr) or atr == 0: continue
+                found_entry = False
+                actual_entry_idx = -1
+                actual_entry_price = 0.0
+                
+                # ---------------------
+                # PATH A: PULLBACK
+                # ---------------------
+                if is_pullback and pullback_col:
+                    # Look for entry from Signal Date + 1 up to Fixed Exit Date
+                    # (Limit order valid for the holding period duration)
+                    for wait_i in range(1, params['holding_days'] + 1):
+                        curr_check_idx = sig_idx + wait_i
+                        if curr_check_idx >= len(df): break
+                        
+                        row = df.iloc[curr_check_idx]
+                        ma_val = row[pullback_col]
+                        
+                        if np.isnan(ma_val): continue
+
+                        # Trigger: Low <= MA
+                        if row['Low'] <= ma_val:
+                            # Filter: Close > MA - 0.25ATR
+                            if use_ma_filter:
+                                cutoff = ma_val - (0.25 * row['ATR'])
+                                if row['Close'] < cutoff:
+                                    continue # Invalidate entry for this day
+                            
+                            # Entry Validated
+                            found_entry = True
+                            actual_entry_idx = curr_check_idx
+                            if pullback_use_level:
+                                actual_entry_price = ma_val
+                            else:
+                                actual_entry_price = row['Close']
+                            break
+                
+                # ---------------------
+                # PATH B: IMMEDIATE
+                # ---------------------
+                else:
+                    found_entry = True
+                    if entry_mode == 'Signal Close':
+                        actual_entry_idx = sig_idx
+                        actual_entry_price = df['Close'].iloc[sig_idx]
+                        # For immediate close, we technically enter end of day, so future starts next day
+                    elif entry_mode == 'T+1 Open':
+                        actual_entry_idx = sig_idx + 1
+                        actual_entry_price = df['Open'].iloc[sig_idx + 1]
+                    else: # T+1 Close
+                        actual_entry_idx = sig_idx + 1
+                        actual_entry_price = df['Close'].iloc[sig_idx + 1]
+
+                # ---------------------
+                # EXECUTE TRADE
+                # ---------------------
+                if found_entry and actual_entry_idx < len(df):
                     
-                    # Entry
-                    if params['entry_type'] == 'Signal Close':
-                        entry_price = df['Close'].iloc[sig_idx]
-                        start_idx = sig_idx + 1
-                    elif params['entry_type'] == 'T+1 Open':
-                        entry_price = df['Open'].iloc[sig_idx + 1]
-                        start_idx = sig_idx + 1
-                    else: 
-                        entry_price = df['Close'].iloc[sig_idx + 1]
-                        start_idx = sig_idx + 2
+                    # We have an entry. Now look forward for exits.
+                    # Future starts immediately after entry execution
+                    # If entry was T+1 Close, future checks start T+2
+                    # If entry was Pullback (Intraday), future checks start T+1 (Next day)
+                    # BUT for simplicity in backtest, if we enter Close or Intraday, we check exits starting NEXT bar
                     
+                    start_exit_scan = actual_entry_idx + 1
+                    
+                    # Ensure we don't hold past the original fixed time stop
+                    if start_exit_scan > fixed_exit_idx: 
+                        continue # Entry happened too late (e.g. last day), no time to hold
+                    
+                    future = df.iloc[start_exit_scan : fixed_exit_idx + 1] # +1 to include the fixed exit day
+                    if future.empty: continue
+                    
+                    atr = df['ATR'].iloc[actual_entry_idx]
+                    if np.isnan(atr) or atr == 0: 
+                        # Fallback to previous day ATR if today is weird
+                        atr = df['ATR'].iloc[actual_entry_idx-1] if actual_entry_idx > 0 else 0
+                        if atr == 0: continue
+
                     if direction == 'Long':
-                        stop_price = entry_price - (atr * params['stop_atr'])
-                        tgt_price = entry_price + (atr * params['tgt_atr'])
+                        stop_price = actual_entry_price - (atr * params['stop_atr'])
+                        tgt_price = actual_entry_price + (atr * params['tgt_atr'])
                     else:
-                        stop_price = entry_price + (atr * params['stop_atr'])
-                        tgt_price = entry_price - (atr * params['tgt_atr'])
-                    
-                    exit_price = entry_price
+                        stop_price = actual_entry_price + (atr * params['stop_atr'])
+                        tgt_price = actual_entry_price - (atr * params['tgt_atr'])
+
+                    exit_price = actual_entry_price
                     exit_type = "Hold"
                     exit_date = None
-                    
-                    future = df.iloc[start_idx : start_idx + params['holding_days']]
                     
                     if not params['time_exit_only']:
                         for f_date, f_row in future.iterrows():
@@ -402,11 +470,11 @@ def run_engine(universe_dict, params, sznl_map, spy_series=None):
                     last_exit_date = exit_date
 
                     if direction == 'Long':
-                        risk_unit = entry_price - stop_price
-                        pnl = exit_price - entry_price
+                        risk_unit = actual_entry_price - stop_price
+                        pnl = exit_price - actual_entry_price
                     else:
-                        risk_unit = stop_price - entry_price
-                        pnl = entry_price - exit_price
+                        risk_unit = stop_price - actual_entry_price
+                        pnl = actual_entry_price - exit_price
                         
                     if risk_unit <= 0: risk_unit = 0.001
                     r = pnl / risk_unit
@@ -415,7 +483,7 @@ def run_engine(universe_dict, params, sznl_map, spy_series=None):
                         "Ticker": ticker,
                         "SignalDate": signal_date,
                         "Direction": direction,
-                        "Entry": entry_price,
+                        "Entry": actual_entry_price,
                         "Exit": exit_price,
                         "ExitDate": exit_date,
                         "Type": exit_type,
@@ -423,7 +491,7 @@ def run_engine(universe_dict, params, sznl_map, spy_series=None):
                         "Age": df['age_years'].iloc[sig_idx],
                         "AvgVol": df['vol_ma'].iloc[sig_idx]
                     })
-                except: continue
+
         except: continue
         
     progress_bar.empty()
@@ -455,7 +523,6 @@ def grade_strategy(pf, sqn, win_rate, total_trades):
 # -----------------------------------------------------------------------------
 # MAIN APP
 # -----------------------------------------------------------------------------
-# ... (Imports and helper functions remain the same) ...
 
 def main():
     st.set_page_config(layout="wide", page_title="Quantitative Backtester")
@@ -507,7 +574,21 @@ def main():
             help="If checked, allows only one open trade at a time per ticker (prevents pyramiding).")
     
     c1, c2, c3, c4, c5 = st.columns(5)
-    with c1: entry_type = st.selectbox("Entry Price", ["Signal Close", "T+1 Open", "T+1 Close"])
+    with c1: 
+        entry_type = st.selectbox("Entry Price", [
+            "Signal Close", 
+            "T+1 Open", 
+            "T+1 Close",
+            "Pullback 10 SMA (Entry: Close)",
+            "Pullback 10 SMA (Entry: Level)",
+            "Pullback 21 EMA (Entry: Close)",
+            "Pullback 21 EMA (Entry: Level)"
+        ])
+        if "Pullback" in entry_type:
+            use_ma_entry_filter = st.checkbox("Filter: Close > MA - 0.25*ATR", value=False)
+        else:
+            use_ma_entry_filter = False
+
     with c2: stop_atr = st.number_input("Stop Loss (ATR)", value=3.0, step=0.1)
     with c3: tgt_atr = st.number_input("Target (ATR)", value=8.0, step=0.1, disabled=time_exit_only)
     with c4: hold_days = st.number_input("Max Holding Days", value=10, step=1)
@@ -624,6 +705,7 @@ def main():
             'max_one_pos': max_one_pos,
             'time_exit_only': time_exit_only,
             'stop_atr': stop_atr, 'tgt_atr': tgt_atr, 'holding_days': hold_days, 'entry_type': entry_type,
+            'use_ma_entry_filter': use_ma_entry_filter,
             'min_price': min_price, 'min_vol': min_vol, 'min_age': min_age, 'max_age': max_age,
             'trend_filter': trend_filter,
             'use_perf_rank': use_perf, 'perf_window': perf_window, 'perf_logic': perf_logic, 
@@ -716,7 +798,6 @@ def main():
         st.subheader("Configuration & Results (Copy Code)")
         st.info("Copy the dictionary below and paste it into your `STRATEGY_BOOK` list in the Screener.")
 
-        # Updated to match exact requested format
         dict_str = f"""{{
     "id": "STRAT_{int(time.time())}",
     "name": "Generated Strategy ({grade})",
@@ -724,6 +805,8 @@ def main():
     "universe_tickers": {tickers_to_run}, 
     "settings": {{
         "trade_direction": "{trade_direction}",
+        "entry_type": "{entry_type}",
+        "use_ma_entry_filter": {use_ma_entry_filter},
         "max_one_pos": {max_one_pos},
         "use_perf_rank": {use_perf}, "perf_window": {perf_window}, "perf_logic": "{perf_logic}", "perf_thresh": {perf_thresh},
         "perf_first_instance": {perf_first}, "perf_lookback": {perf_lookback}, "perf_consecutive": {perf_consecutive},
