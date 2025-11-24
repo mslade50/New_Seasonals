@@ -67,15 +67,14 @@ def clean_ticker_df(df):
     """
     if df.empty: return df
     
-    # 1. Flatten columns if MultiIndex (happens if yfinance returns ('Price', 'Ticker') or similar leftovers)
+    # 1. Flatten columns if MultiIndex
     if isinstance(df.columns, pd.MultiIndex):
-        # Drop the ticker level if it exists
         df.columns = df.columns.get_level_values(0)
     
     # 2. Standardize names
     df.columns = [str(c).strip().capitalize() for c in df.columns]
     
-    # 3. Ensure 'Close' exists (handle 'Adj close' case if auto_adjust=False)
+    # 3. Ensure 'Close' exists (handle 'Adj close' case)
     if 'Close' not in df.columns and 'Adj close' in df.columns:
         df.rename(columns={'Adj close': 'Close'}, inplace=True)
         
@@ -107,22 +106,16 @@ def download_universe_data(tickers, fetch_start_date):
         download_bar.progress(min((i + CHUNK_SIZE) / total_tickers, 1.0))
         
         try:
-            # We use group_by='ticker' to force a consistent MultiIndex structure [Ticker -> OHLC]
-            # even if requesting 1 ticker, usually.
             df = yf.download(chunk, start=start_str, group_by='ticker', auto_adjust=True, progress=False, threads=True)
             if df.empty: continue
 
             # CASE A: Single Ticker in Chunk
             if len(chunk) == 1:
                 t = chunk[0]
-                # yfinance sometimes returns flat df for 1 ticker, sometimes MultiIndex.
-                # We treat `df` as the ticker data directly if columns are flat-ish
                 if isinstance(df.columns, pd.MultiIndex):
-                    # Check if level 0 is ticker
                     if t in df.columns.levels[0]:
                         t_df = df[t].copy()
                     else:
-                        # Weird case, assume it's already the data
                         t_df = df.copy()
                 else:
                     t_df = df.copy()
@@ -133,10 +126,7 @@ def download_universe_data(tickers, fetch_start_date):
 
             # CASE B: Multiple Tickers
             else:
-                # Ensure we have a MultiIndex to iterate over
                 if not isinstance(df.columns, pd.MultiIndex):
-                    # If we asked for multiple but got flat, it usually means only 1 ticker was valid
-                    # We try to find which one valid ticker exists
                     continue 
 
                 for t in chunk:
@@ -182,7 +172,6 @@ def get_age_bucket(years):
 
 def calculate_indicators(df, sznl_map, ticker, spy_series=None):
     df = df.copy()
-    # Redundant column cleaning just in case
     df.columns = [c.capitalize() for c in df.columns]
     
     if df.index.tz is not None:
@@ -231,7 +220,6 @@ def calculate_indicators(df, sznl_map, ticker, spy_series=None):
         
     # SPY Regime Mapping
     if spy_series is not None:
-        # Reindex SPY to this ticker's calendar
         df['SPY_Above_SMA200'] = spy_series.reindex(df.index, method='ffill').fillna(False)
 
     return df
@@ -619,14 +607,11 @@ def main():
             if "SPY" in data_dict:
                 spy_df = data_dict["SPY"]
             else:
-                # Force SPY through the EXACT same downloader as everything else
                 st.info("Fetching SPY data for regime filter...")
                 spy_dict_temp = download_universe_data(["SPY"], fetch_start)
                 spy_df = spy_dict_temp.get("SPY", None)
 
             if spy_df is not None and not spy_df.empty:
-                # At this point spy_df is guaranteed to have Capitalized columns [Close, Open, etc]
-                # because download_universe_data enforces it.
                 spy_df['SMA200'] = spy_df['Close'].rolling(200).mean()
                 spy_series = spy_df['Close'] > spy_df['SMA200']
             else:
@@ -700,10 +685,30 @@ def main():
         st.plotly_chart(fig, use_container_width=True)
         
         st.subheader("Performance Breakdowns")
+        
+        # 1. Year and Cycle
         b1, b2 = st.columns(2)
         b1.plotly_chart(px.bar(trades_df.groupby('Year')['PnL_Dollar'].sum().reset_index(), x='Year', y='PnL_Dollar', title="PnL by Year", text_auto='.2s'), use_container_width=True)
         b2.plotly_chart(px.bar(trades_df.groupby('CyclePhase')['PnL_Dollar'].sum().reset_index().sort_values('CyclePhase'), x='CyclePhase', y='PnL_Dollar', title="PnL by Cycle", text_auto='.2s'), use_container_width=True)
         
+        # 2. NEW: Ticker and Month Seasonality
+        b3, b4 = st.columns(2)
+        
+        # Top 75 Tickers
+        ticker_pnl = trades_df.groupby("Ticker")["PnL_Dollar"].sum().reset_index()
+        ticker_pnl = ticker_pnl.sort_values("PnL_Dollar", ascending=False).head(75)
+        
+
+[Image of ticker pnl chart]
+
+        b3.plotly_chart(px.bar(ticker_pnl, x="Ticker", y="PnL_Dollar", title="Cumulative PnL by Ticker (Top 75)", text_auto='.2s'), use_container_width=True)
+        
+        # Monthly Seasonality
+        month_order = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+        monthly_pnl = trades_df.groupby("Month")["PnL_Dollar"].sum().reindex(month_order).reset_index()
+        
+        b4.plotly_chart(px.bar(monthly_pnl, x="Month", y="PnL_Dollar", title="Cumulative PnL by Month (Seasonality)", text_auto='.2s'), use_container_width=True)
+
         st.subheader("Trade Log")
         st.dataframe(trades_df.style.format({
             "Entry": "{:.2f}", "Exit": "{:.2f}", "R": "{:.2f}", "PnL_Dollar": "${:,.2f}",
