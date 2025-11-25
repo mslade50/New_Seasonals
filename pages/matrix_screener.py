@@ -80,12 +80,9 @@ def calculate_features(data_dict):
 
         # 3. Calculate Forward Outcomes (The Payoff)
         for w in FWD_WINDOWS:
-            # Raw Forward Return
             col_fwd_raw = f'FwdRet_{w}d_Raw'
             df[col_fwd_raw] = (df['Close'].shift(-w) / df['Close']) - 1.0
             
-            # Vol-Normalized Return (Sigma)
-            # Expected Move = DailyVol * sqrt(Days)
             col_fwd_sigma = f'FwdRet_{w}d_Sigma'
             expected_move = df['Vol_Daily'] * np.sqrt(w)
             df[col_fwd_sigma] = df[col_fwd_raw] / expected_move
@@ -102,19 +99,17 @@ def calculate_features(data_dict):
 
 def run_scanner(processed_data):
     """
-    Iterates through Pairs -> Trailing Windows -> Forward Windows.
-    Calculates ALPHA (Conditional Sigma - Baseline Sigma).
+    Iterates through Pairs -> Target Windows -> Signal Windows -> Forward Windows.
+    Calculates ALPHA (Excess Sigma).
     """
     results = []
     tickers = list(processed_data.keys())
     
     # --- PRE-CALCULATE BASELINES ---
-    # We need to know: "What does SMH usually do over 63 days?" (The Unconditional Mean)
     baselines = {} 
     for t in tickers:
         baselines[t] = {}
         for fwd_w in FWD_WINDOWS:
-            # Calculate mean of the Sigma column for the whole history
             col = f'FwdRet_{fwd_w}d_Sigma'
             baselines[t][fwd_w] = processed_data[t][col].mean()
 
@@ -151,71 +146,83 @@ def run_scanner(processed_data):
             if signal not in allowed_signals: continue
             
             s_df = processed_data[signal]
+            
+            # Align indices once per pair to save time
+            common_idx = t_df.index.intersection(s_df.index)
+            if len(common_idx) < 252: continue
+            
+            t_subset = t_df.loc[common_idx]
+            s_subset = s_df.loc[common_idx]
 
-            # --- TRAILING WINDOW LOOP (The Setup) ---
-            for trail_w in TRAIL_WINDOWS:
-                curr_t_rank = current_ranks.get(target, {}).get(trail_w, np.nan)
-                curr_s_rank = current_ranks.get(signal, {}).get(trail_w, np.nan)
+            # --- NESTED WINDOW LOOPS (125 Combinations) ---
+            
+            # 1. Target Lookback Loop
+            for t_w in TRAIL_WINDOWS:
+                curr_t_rank = current_ranks.get(target, {}).get(t_w, np.nan)
+                if np.isnan(curr_t_rank): continue
                 
-                if np.isnan(curr_t_rank) or np.isnan(curr_s_rank): continue
+                t_tail = "UPPER" if curr_t_rank > 75 else ("LOWER" if curr_t_rank < 25 else "MID")
+                if t_tail == "MID": continue
                 
-                t_tail = "UPPER" if curr_t_rank > 85 else ("LOWER" if curr_t_rank < 15 else "MID")
-                s_tail = "UPPER" if curr_s_rank > 85 else ("LOWER" if curr_s_rank < 15 else "MID")
-                
-                if t_tail == "MID" or s_tail == "MID": continue
-
-                # Prepare History
-                t_rank_col = f'Rank_{trail_w}d'
-                s_rank_col = f'Rank_{trail_w}d'
-                
-                common_idx = t_df.index.intersection(s_df.index)
-                hist_t_ranks = t_df.loc[common_idx, t_rank_col]
-                hist_s_ranks = s_df.loc[common_idx, s_rank_col]
+                t_rank_col = f'Rank_{t_w}d'
+                hist_t_ranks = t_subset[t_rank_col]
                 
                 if t_tail == "UPPER": mask_t = hist_t_ranks >= curr_t_rank
                 else:                 mask_t = hist_t_ranks <= curr_t_rank
-                    
-                if s_tail == "UPPER": mask_s = hist_s_ranks >= curr_s_rank
-                else:                 mask_s = hist_s_ranks <= curr_s_rank
-                
-                valid_dates_mask = mask_t & mask_s
-                valid_count = valid_dates_mask.sum()
-                
-                if valid_count < 10: continue
-                
-                # --- FORWARD WINDOW LOOP (The Payoff) ---
-                for fwd_w in FWD_WINDOWS:
-                    outcome_sigma_col = f'FwdRet_{fwd_w}d_Sigma'
-                    outcome_raw_col   = f'FwdRet_{fwd_w}d_Raw'
-                    
-                    outcomes_sigma = t_df.loc[common_idx][valid_dates_mask][outcome_sigma_col].dropna()
-                    outcomes_raw   = t_df.loc[common_idx][valid_dates_mask][outcome_raw_col].dropna()
-                    
-                    real_count = len(outcomes_sigma)
-                    if real_count < 10: continue
 
-                    cond_avg_sigma = outcomes_sigma.mean()
+                # 2. Signal Lookback Loop (Decoupled from Target)
+                for s_w in TRAIL_WINDOWS:
+                    curr_s_rank = current_ranks.get(signal, {}).get(s_w, np.nan)
+                    if np.isnan(curr_s_rank): continue
                     
-                    # --- ALPHA CALCULATION ---
-                    # Alpha = Conditional Mean - Baseline Mean
-                    baseline_sigma = baselines.get(target, {}).get(fwd_w, 0.0)
-                    alpha_sigma = cond_avg_sigma - baseline_sigma
+                    s_tail = "UPPER" if curr_s_rank > 75 else ("LOWER" if curr_s_rank < 25 else "MID")
+                    if s_tail == "MID": continue
+                    
+                    s_rank_col = f'Rank_{s_w}d'
+                    hist_s_ranks = s_subset[s_rank_col]
+                    
+                    if s_tail == "UPPER": mask_s = hist_s_ranks >= curr_s_rank
+                    else:                 mask_s = hist_s_ranks <= curr_s_rank
+                    
+                    # Combined Mask
+                    valid_dates_mask = mask_t & mask_s
+                    valid_count = valid_dates_mask.sum()
+                    
+                    if valid_count < 10: continue
+                
+                    # 3. Forward Payoff Loop
+                    for fwd_w in FWD_WINDOWS:
+                        outcome_sigma_col = f'FwdRet_{fwd_w}d_Sigma'
+                        outcome_raw_col   = f'FwdRet_{fwd_w}d_Raw'
+                        
+                        outcomes_sigma = t_subset[valid_dates_mask][outcome_sigma_col].dropna()
+                        outcomes_raw   = t_subset[valid_dates_mask][outcome_raw_col].dropna()
+                        
+                        real_count = len(outcomes_sigma)
+                        if real_count < 10: continue
 
-                    avg_raw_pct = outcomes_raw.mean() * 100
-                    win_rate    = (outcomes_raw > 0).sum() / real_count * 100
-                    
-                    results.append({
-                        "Target": target,
-                        "Signal": signal,
-                        "Setup_Window": f"{trail_w}d",
-                        "Fwd_Window": f"{fwd_w}d",
-                        "Setup_Ranks": f"T:{int(curr_t_rank)}|S:{int(curr_s_rank)}",
-                        "History": real_count,
-                        "Win_Rate": win_rate,
-                        "Excess_Sigma": alpha_sigma, # This is our new sorting metric
-                        "Raw_Sigma": cond_avg_sigma,
-                        "Exp_Return": avg_raw_pct,
-                    })
+                        cond_avg_sigma = outcomes_sigma.mean()
+                        
+                        # Alpha Calculation
+                        baseline_sigma = baselines.get(target, {}).get(fwd_w, 0.0)
+                        alpha_sigma = cond_avg_sigma - baseline_sigma
+
+                        avg_raw_pct = outcomes_raw.mean() * 100
+                        win_rate    = (outcomes_raw > 0).sum() / real_count * 100
+                        
+                        results.append({
+                            "Target": target,
+                            "Signal": signal,
+                            "T_Lookback": f"{t_w}d", # Setup Part 1
+                            "S_Lookback": f"{s_w}d", # Setup Part 2
+                            "Fwd_Horizon": f"{fwd_w}d", # Payoff
+                            "Setup_Ranks": f"T:{int(curr_t_rank)}|S:{int(curr_s_rank)}",
+                            "History": real_count,
+                            "Win_Rate": win_rate,
+                            "Excess_Sigma": alpha_sigma,
+                            "Raw_Sigma": cond_avg_sigma,
+                            "Exp_Return": avg_raw_pct,
+                        })
 
     return pd.DataFrame(results)
 
@@ -227,10 +234,10 @@ def main():
     st.title("⚡ Multi-Timeframe Alpha Scanner")
     
     st.markdown("""
-    **Looking for Excess Return (Alpha):**
-    * Uses **Double Tail** logic on 25 Timeframe combinations.
-    * **Alpha** = (Avg Return of Signal) - (Avg Return of Ticker historically).
-    * This filters out strong uptrends (Beta) to find genuine **Edge**.
+    **Scanning 125 Combinations per Pair:**
+    * **Decoupled Setup:** Target Lookback ($T_{win}$) and Signal Lookback ($S_{win}$) are independent.
+    * **Example:** *Is SPY (63d Trend) affected by TLT (2d Shock)?*
+    * **Alpha:** Excess Sigma vs Unconditional History.
     """)
     
     # 1. INPUTS
@@ -243,7 +250,7 @@ def main():
             run_btn = st.button("Run Alpha Scan", type="primary", use_container_width=True)
 
     if run_btn:
-        with st.spinner("Calculating Baselines & 25x Combinations..."):
+        with st.spinner("Calculating 125x Combinations per pair (this may take 15s)..."):
             # A. Process Data
             raw_data, fetch_time = get_batch_data(ticker_input)
             if not raw_data:
@@ -270,7 +277,7 @@ def main():
             bearish = df_results[df_results['Excess_Sigma'] < -ALPHA_THRESHOLD].sort_values(by="Excess_Sigma", ascending=True)
 
             # --- DISPLAY BULLISH ---
-            st.subheader(f"🟢 Top Alpha Signals (Excess > +{ALPHA_THRESHOLD}σ)")
+            st.subheader(f"🟢 Top Bullish Alpha (Excess > +{ALPHA_THRESHOLD}σ)")
             if not bullish.empty:
                 st.dataframe(
                     bullish.head(50).style.format({
@@ -280,13 +287,13 @@ def main():
                         "Exp_Return": "+{:.2f}%",
                     }).background_gradient(subset=["Excess_Sigma"], cmap="Greens", vmin=0, vmax=1.0),
                     use_container_width=True,
-                    column_order=["Target", "Signal", "Setup_Window", "Fwd_Window", "Excess_Sigma", "Exp_Return", "Win_Rate", "History", "Setup_Ranks"]
+                    column_order=["Target", "Signal", "T_Lookback", "S_Lookback", "Fwd_Horizon", "Excess_Sigma", "Exp_Return", "Win_Rate", "History", "Setup_Ranks"]
                 )
             else:
                 st.info(f"No signals found > {ALPHA_THRESHOLD}σ")
 
             # --- DISPLAY BEARISH ---
-            st.subheader(f"🔴 Top Bearish Signals (Excess < -{ALPHA_THRESHOLD}σ)")
+            st.subheader(f"🔴 Top Bearish Alpha (Excess < -{ALPHA_THRESHOLD}σ)")
             if not bearish.empty:
                 st.dataframe(
                     bearish.head(50).style.format({
@@ -296,7 +303,7 @@ def main():
                         "Exp_Return": "{:.2f}%",
                     }).background_gradient(subset=["Excess_Sigma"], cmap="Reds_r", vmin=-1.0, vmax=0),
                     use_container_width=True,
-                    column_order=["Target", "Signal", "Setup_Window", "Fwd_Window", "Excess_Sigma", "Exp_Return", "Win_Rate", "History", "Setup_Ranks"]
+                    column_order=["Target", "Signal", "T_Lookback", "S_Lookback", "Fwd_Horizon", "Excess_Sigma", "Exp_Return", "Win_Rate", "History", "Setup_Ranks"]
                 )
             else:
                 st.info(f"No signals found < -{ALPHA_THRESHOLD}σ")
@@ -309,7 +316,7 @@ def main():
                 df_results, 
                 x="Win_Rate", 
                 y="Exp_Return", 
-                hover_data=["Target", "Signal", "Setup_Window", "Fwd_Window", "Excess_Sigma", "Raw_Sigma", "History"],
+                hover_data=["Target", "Signal", "T_Lookback", "S_Lookback", "Fwd_Horizon", "Excess_Sigma", "Raw_Sigma", "History"],
                 color="Excess_Sigma", 
                 color_continuous_scale="RdBu",
                 title="Alpha Map: Win Rate vs Total Expected Return % (Color = Excess Sigma)"
