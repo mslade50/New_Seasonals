@@ -13,6 +13,10 @@ SPY, QQQ, IWM, DIA, TLT, GLD, USO, UUP, HYG, XLF, XLE, XLK, XBI, SMH, ARKK, BTC-
 JPM, AAPL, GOOG, XOM, NVDA, TSLA, KO, UVXY, XLP, XLV, XLU, UNG, MSFT, WMT, AMD, ITA, SLV, CEF
 """
 
+# The Matrix Dimensions
+TRAIL_WINDOWS = [2, 5, 10, 21, 63]
+FWD_WINDOWS   = [2, 5, 10, 21, 63]
+
 # -----------------------------------------------------------------------------
 # DATA ENGINE
 # -----------------------------------------------------------------------------
@@ -48,10 +52,6 @@ def get_batch_data(ticker_list):
         progress_bar.progress((i + 1) / len(tickers))
     
     progress_bar.empty()
-    
-    # --- TIMEZONE FIX: Force US/Eastern ---
-    # We use pandas to get the current time in specific timezone, then format it.
-    # This handles EST vs EDT automatically.
     timestamp = pd.Timestamp.now(tz='US/Eastern').strftime("%Y-%m-%d %I:%M %p %Z")
     
     return data_dict, timestamp
@@ -59,165 +59,161 @@ def get_batch_data(ticker_list):
 @st.cache_data(show_spinner=False)
 def calculate_features(data_dict):
     """
-    Calculates 21d Trailing Rank, 10d Vol-Normalized (Sigma), AND 10d Raw Returns
+    Calculates ALL Trailing Ranks and ALL Forward Sigmas.
     """
     processed = {}
     
     for ticker, df in data_dict.items():
         df = df.copy()
         
+        # 1. Base Volatility (21d Annualized) - The "Standard Ruler"
         df['LogRet'] = np.log(df['Close'] / df['Close'].shift(1))
-        
-        # 1. Feature: 21d Trailing Return
-        df['Ret_21d'] = df['Close'].pct_change(21)
-        
-        # 2. Volatility (21d Annualized) for Normalization
         df['Vol_Daily'] = df['LogRet'].rolling(21).std()
         
-        # 3. Target: 10d Forward Return (Raw)
-        df['Fwd_Close'] = df['Close'].shift(-10)
-        df['FwdRet_10d_Raw'] = (df['Fwd_Close'] / df['Close']) - 1.0
-        
-        # 4. Vol-Normalization (Z-Score)
-        expected_move = df['Vol_Daily'] * np.sqrt(10)
-        df['FwdRet_Sigma'] = df['FwdRet_10d_Raw'] / expected_move
-        
-        # 5. Rank Transformation
-        df['Rank_21d'] = df['Ret_21d'].expanding(min_periods=252).rank(pct=True) * 100
-        
-        df = df.dropna(subset=['Rank_21d', 'Vol_Daily'])
-        
-        processed[ticker] = df[['Close', 'Rank_21d', 'FwdRet_Sigma', 'FwdRet_10d_Raw']]
+        # 2. Calculate Trailing Ranks (The Setup)
+        for w in TRAIL_WINDOWS:
+            # Trailing Return
+            col_ret = f'Ret_{w}d'
+            df[col_ret] = df['Close'].pct_change(w)
+            
+            # Rank (Expanding Window)
+            col_rank = f'Rank_{w}d'
+            df[col_rank] = df[col_ret].expanding(min_periods=252).rank(pct=True) * 100
+
+        # 3. Calculate Forward Outcomes (The Payoff)
+        for w in FWD_WINDOWS:
+            # Raw Forward Return
+            # We look W days into the future
+            col_fwd_raw = f'FwdRet_{w}d_Raw'
+            df[col_fwd_raw] = (df['Close'].shift(-w) / df['Close']) - 1.0
+            
+            # Vol-Normalized Return (Sigma)
+            # Expected Move = DailyVol * sqrt(Days)
+            col_fwd_sigma = f'FwdRet_{w}d_Sigma'
+            expected_move = df['Vol_Daily'] * np.sqrt(w)
+            df[col_fwd_sigma] = df[col_fwd_raw] / expected_move
+
+        # Cleanup: Keep only what we need to save memory
+        cols_to_keep = ['Close', 'Vol_Daily'] + \
+                       [f'Rank_{w}d' for w in TRAIL_WINDOWS] + \
+                       [f'FwdRet_{w}d_Raw' for w in FWD_WINDOWS] + \
+                       [f'FwdRet_{w}d_Sigma' for w in FWD_WINDOWS]
+                       
+        df = df.dropna(subset=['Vol_Daily']) # Ensure vol exists
+        processed[ticker] = df[cols_to_keep]
         
     return processed
 
 def run_scanner(processed_data):
     """
-    Iterates through pairs using Cumulative Tail Analysis.
-    Detailed Hierarchical Logic applied in the loop.
+    Iterates through Pairs -> Trailing Windows -> Forward Windows.
+    Applies Hierarchical Logic & Cumulative Tails.
     """
     results = []
     tickers = list(processed_data.keys())
     
-    # 1. Get Current State
-    current_states = {}
+    # Pre-fetch current ranks for all windows to avoid loc lookups inside loops
+    current_ranks = {}
     for t in tickers:
+        current_ranks[t] = {}
         try:
-            current_states[t] = processed_data[t].iloc[-1]['Rank_21d']
+            last_row = processed_data[t].iloc[-1]
+            for w in TRAIL_WINDOWS:
+                current_ranks[t][w] = last_row[f'Rank_{w}d']
         except:
-            current_states[t] = np.nan
+            pass
 
-    # 2. Pairwise Matrix Scan
+    # --- PAIR LOOP ---
     for target in tickers:
         t_df = processed_data[target]
-        curr_t_rank = current_states.get(target, np.nan)
-        if np.isnan(curr_t_rank): continue
 
         for signal in tickers:
             if target == signal: continue 
             
-            # --- HIERARCHICAL PREDICTOR LOGIC ---
-            
-            # 1. DEFAULT BASELINE: Everyone listens to SPY (Market) and TLT (Rates)
+            # --- HIERARCHICAL LOGIC ---
             allowed_signals = ["SPY", "TLT"]
+            if target == "SPY": allowed_signals = ["TLT", "USO", "UUP", "GLD"]
+            elif target == "XOM": allowed_signals = ["SPY", "TLT", "USO"]
+            elif target == "JPM": allowed_signals = ["SPY", "TLT", "XLF"]
+            elif target in ["NVDA", "AMD"]: allowed_signals = ["SPY", "TLT", "SMH"]
+            elif target == "SLV": allowed_signals = ["SPY", "TLT", "GLD"]
+            elif target == "GLD": allowed_signals = ["SPY", "TLT", "SLV"]
+            elif target == "CEF": allowed_signals = ["SPY", "TLT", "GLD", "SLV"]
+            elif target == "UNG": allowed_signals = ["SPY", "TLT", "USO"]
+            elif target == "USO": allowed_signals = ["SPY", "TLT", "UNG"]
             
-            # 2. SECTOR SPECIFIC OVERRIDES/ADDITIONS
-            
-            if target == "SPY":
-                # Market listens to Macro Assets
-                allowed_signals = ["TLT", "USO", "UUP", "GLD"]
-            
-            elif target == "XOM":
-                # Energy listens to Oil
-                allowed_signals = ["SPY", "TLT", "USO"]
-                
-            elif target == "JPM":
-                # Banks listen to Financials ETF
-                allowed_signals = ["SPY", "TLT", "XLF"]
-                
-            elif target in ["NVDA", "AMD"]:
-                # Semis listen to SMH
-                allowed_signals = ["SPY", "TLT", "SMH"]
-            
-            elif target == "SLV":
-                # Silver listens to Gold
-                allowed_signals = ["SPY", "TLT", "GLD"]
-                
-            elif target == "GLD":
-                # Gold listens to Silver (rare but valid correlation)
-                allowed_signals = ["SPY", "TLT", "SLV"]
-            
-            elif target == "CEF":
-                # Sprott Physical (Gold/Silver Trust) listens to both
-                allowed_signals = ["SPY", "TLT", "GLD", "SLV"]
-                
-            elif target == "UNG":
-                # Gas listens to Oil
-                allowed_signals = ["SPY", "TLT", "USO"]
-                
-            elif target == "USO":
-                # Oil listens to Gas
-                allowed_signals = ["SPY", "TLT", "UNG"]
-            
-            # CHECK: Is this signal allowed?
-            if signal not in allowed_signals:
-                continue
+            if signal not in allowed_signals: continue
             
             s_df = processed_data[signal]
-            curr_s_rank = current_states.get(signal, np.nan)
-            if np.isnan(curr_s_rank): continue
-            
-            # --- FILTER 1: EXTREMITY CHECK (Double Tail) ---
-            # Both must be outside 25-75
-            t_tail = "UPPER" if curr_t_rank > 75 else ("LOWER" if curr_t_rank < 25 else "MID")
-            s_tail = "UPPER" if curr_s_rank > 75 else ("LOWER" if curr_s_rank < 25 else "MID")
-            
-            if t_tail == "MID" or s_tail == "MID":
-                continue
 
-            # --- ALIGNMENT ---
-            aligned = pd.concat([
-                t_df['FwdRet_Sigma'].rename("Outcome_Sigma"),
-                t_df['FwdRet_10d_Raw'].rename("Outcome_Raw"),
-                t_df['Rank_21d'].rename("Target_Rank"),
-                s_df['Rank_21d'].rename("Signal_Rank")
-            ], axis=1, join='inner')
-            
-            history = aligned.dropna(subset=["Outcome_Sigma"])
-            if history.empty: continue
-
-            # --- FILTER 2: CUMULATIVE TAIL LOGIC ---
-            if t_tail == "UPPER":
-                mask_t = history['Target_Rank'] >= curr_t_rank
-            else:
-                mask_t = history['Target_Rank'] <= curr_t_rank
+            # --- TRAILING WINDOW LOOP (The Setup) ---
+            for trail_w in TRAIL_WINDOWS:
+                curr_t_rank = current_ranks.get(target, {}).get(trail_w, np.nan)
+                curr_s_rank = current_ranks.get(signal, {}).get(trail_w, np.nan)
                 
-            if s_tail == "UPPER":
-                mask_s = history['Signal_Rank'] >= curr_s_rank
-            else:
-                mask_s = history['Signal_Rank'] <= curr_s_rank
-            
-            matches = history[mask_t & mask_s]
-            count = len(matches)
-            
-            if count < 10: continue
+                if np.isnan(curr_t_rank) or np.isnan(curr_s_rank): continue
+                
+                # Check Extremity (Double Tail) - Slightly relaxed for multi-timeframe detection
+                t_tail = "UPPER" if curr_t_rank > 75 else ("LOWER" if curr_t_rank < 25 else "MID")
+                s_tail = "UPPER" if curr_s_rank > 75 else ("LOWER" if curr_s_rank < 25 else "MID")
+                
+                if t_tail == "MID" or s_tail == "MID": continue
 
-            # --- STATISTICS ---
-            avg_sigma = matches['Outcome_Sigma'].mean()
-            avg_raw_pct = matches['Outcome_Raw'].mean() * 100 
-            
-            win_rate = (matches['Outcome_Raw'] > 0).sum() / count * 100
-            
-            results.append({
-                "Target": target,
-                "Signal_Ticker": signal,
-                "Current_Setup": f"T:{int(curr_t_rank)} | S:{int(curr_s_rank)}",
-                "History_Count": count,
-                "Win_Rate": win_rate,
-                "Avg_Return_Sigma": avg_sigma,
-                "Avg_Return_Pct": avg_raw_pct,
-                "Target_Rank": curr_t_rank 
-            })
+                # Prepare History for this Window
+                t_rank_col = f'Rank_{trail_w}d'
+                s_rank_col = f'Rank_{trail_w}d'
+                
+                # We align indices first to find matching dates
+                # Note: We don't join forward columns yet to save memory/speed
+                common_idx = t_df.index.intersection(s_df.index)
+                
+                # Get historical ranks
+                hist_t_ranks = t_df.loc[common_idx, t_rank_col]
+                hist_s_ranks = s_df.loc[common_idx, s_rank_col]
+                
+                # Create Masks for Cumulative Tails
+                if t_tail == "UPPER": mask_t = hist_t_ranks >= curr_t_rank
+                else:                 mask_t = hist_t_ranks <= curr_t_rank
+                    
+                if s_tail == "UPPER": mask_s = hist_s_ranks >= curr_s_rank
+                else:                 mask_s = hist_s_ranks <= curr_s_rank
+                
+                # The Valid Historical Dates
+                valid_dates_mask = mask_t & mask_s
+                valid_count = valid_dates_mask.sum()
+                
+                if valid_count < 10: continue
+                
+                # --- FORWARD WINDOW LOOP (The Payoff) ---
+                # Now we check all future outcomes for these valid dates
+                for fwd_w in FWD_WINDOWS:
+                    # Get the outcomes for the Target only (Signal outcomes don't matter, only its setup)
+                    outcome_sigma_col = f'FwdRet_{fwd_w}d_Sigma'
+                    outcome_raw_col   = f'FwdRet_{fwd_w}d_Raw'
+                    
+                    # Extract values using the boolean mask
+                    # Shift logic is handled in pre-calc, so we just grab the row at the date of the signal
+                    outcomes_sigma = t_df.loc[common_idx][valid_dates_mask][outcome_sigma_col].dropna()
+                    outcomes_raw   = t_df.loc[common_idx][valid_dates_mask][outcome_raw_col].dropna()
+                    
+                    real_count = len(outcomes_sigma)
+                    if real_count < 10: continue
+
+                    avg_sigma = outcomes_sigma.mean()
+                    avg_raw   = outcomes_raw.mean() * 100
+                    win_rate  = (outcomes_raw > 0).sum() / real_count * 100
+                    
+                    results.append({
+                        "Target": target,
+                        "Signal": signal,
+                        "Setup_Window": f"{trail_w}d",
+                        "Fwd_Window": f"{fwd_w}d",
+                        "Setup_Ranks": f"T:{int(curr_t_rank)}|S:{int(curr_s_rank)}",
+                        "History": real_count,
+                        "Win_Rate": win_rate,
+                        "Exp_Sigma": avg_sigma,
+                        "Exp_Return": avg_raw,
+                    })
 
     return pd.DataFrame(results)
 
@@ -225,16 +221,14 @@ def run_scanner(processed_data):
 # UI
 # -----------------------------------------------------------------------------
 def main():
-    st.set_page_config(layout="wide", page_title="Hierarchical Matrix Screener")
-    st.title("⚡ Vol-Normalized Tail Screener")
+    st.set_page_config(layout="wide", page_title="Multi-Fractal Matrix")
+    st.title("⚡ Multi-Timeframe Matrix")
     
     st.markdown("""
-    **Specific Relationships Configured:**
-    * **Financials (JPM)** $\leftarrow$ XLF
-    * **Semis (NVDA, AMD)** $\leftarrow$ SMH
-    * **Metals (GLD, SLV, CEF)** $\leftarrow$ Cross-Correlated
-    * **Energy (USO, UNG)** $\leftarrow$ Cross-Correlated
-    * **General** $\leftarrow$ SPY, TLT
+    **Scanning 25 Combinations per Pair:**
+    * **Trailing (Setup):** 2d, 5d, 10d, 21d, 63d Ranks
+    * **Forward (Payoff):** 2d, 5d, 10d, 21d, 63d Returns
+    * **Logic:** Hierarchical Relationships + Cumulative Tail Analysis.
     """)
     
     # 1. INPUTS
@@ -243,19 +237,16 @@ def main():
         with col1:
             ticker_input = st.text_area("Universe", value=DEFAULT_TICKERS, height=100)
         with col2:
-            st.info("Filtering: Sigma > 0.25σ")
-            run_btn = st.button("Run Vol-Adj Scan", type="primary", use_container_width=True)
+            st.info("Filtering: |Sigma| > 0.35σ") # Bumped slightly for multi-window noise
+            run_btn = st.button("Run Multi-Fractal Scan", type="primary", use_container_width=True)
 
     if run_btn:
-        with st.spinner("Processing Hierarchical Matrix..."):
-            # A. Process Data (Returns tuple now)
+        with st.spinner("Calculating 25 Timeframe Combinations per pair..."):
+            # A. Process Data
             raw_data, fetch_time = get_batch_data(ticker_input)
-            
             if not raw_data:
                 st.error("No valid data found.")
                 return
-            
-            # Display Timestamp (EST/EDT handled automatically)
             st.success(f"✅ Data Refreshed: {fetch_time}")
             
             processed = calculate_features(raw_data)
@@ -264,67 +255,65 @@ def main():
             df_results = run_scanner(processed)
             
             if df_results.empty:
-                st.warning("No dual-tail opportunities found.")
+                st.warning("No opportunities found matching criteria.")
                 return
             
             # C. Formatting & Display
             st.divider()
             
-            # --- FILTERING LOGIC ---
-            SIGMA_THRESHOLD = 0.25
+            # Filter Threshold (Stricter because we have 25x more data points)
+            SIGMA_THRESHOLD = 0.35
             
-            bullish = df_results[df_results['Avg_Return_Sigma'] > SIGMA_THRESHOLD].sort_values(by="Avg_Return_Sigma", ascending=False)
-            bearish = df_results[df_results['Avg_Return_Sigma'] < -SIGMA_THRESHOLD].sort_values(by="Avg_Return_Sigma", ascending=True)
+            bullish = df_results[df_results['Exp_Sigma'] > SIGMA_THRESHOLD].sort_values(by="Exp_Sigma", ascending=False)
+            bearish = df_results[df_results['Exp_Sigma'] < -SIGMA_THRESHOLD].sort_values(by="Exp_Sigma", ascending=True)
 
             # --- DISPLAY BULLISH ---
-            st.subheader(f"🟢 Top Bullish Signals (> +{SIGMA_THRESHOLD}σ)")
+            st.subheader(f"🟢 Top Bullish Fractals (> +{SIGMA_THRESHOLD}σ)")
             if not bullish.empty:
                 st.dataframe(
-                    bullish.head(20).style.format({
+                    bullish.head(50).style.format({
                         "Win_Rate": "{:.1f}%",
-                        "Avg_Return_Sigma": "+{:.2f}σ",
-                        "Avg_Return_Pct": "+{:.2f}%",
-                        "Target_Rank": "{:.0f}"
-                    }).background_gradient(subset=["Avg_Return_Sigma"], cmap="Greens", vmin=0, vmax=1.5),
+                        "Exp_Sigma": "+{:.2f}σ",
+                        "Exp_Return": "+{:.2f}%",
+                    }).background_gradient(subset=["Exp_Sigma"], cmap="Greens", vmin=0, vmax=1.5),
                     use_container_width=True,
-                    column_order=["Target", "Signal_Ticker", "Avg_Return_Pct", "Avg_Return_Sigma", "Win_Rate", "History_Count", "Current_Setup"]
+                    column_order=["Target", "Signal", "Setup_Window", "Fwd_Window", "Exp_Return", "Exp_Sigma", "Win_Rate", "History", "Setup_Ranks"]
                 )
             else:
                 st.info(f"No signals found > {SIGMA_THRESHOLD}σ")
 
             # --- DISPLAY BEARISH ---
-            st.subheader(f"🔴 Top Bearish Signals (< -{SIGMA_THRESHOLD}σ)")
+            st.subheader(f"🔴 Top Bearish Fractals (< -{SIGMA_THRESHOLD}σ)")
             if not bearish.empty:
                 st.dataframe(
-                    bearish.head(20).style.format({
+                    bearish.head(50).style.format({
                         "Win_Rate": "{:.1f}%",
-                        "Avg_Return_Sigma": "{:.2f}σ",
-                        "Avg_Return_Pct": "{:.2f}%",
-                        "Target_Rank": "{:.0f}"
-                    }).background_gradient(subset=["Avg_Return_Sigma"], cmap="Reds_r", vmin=-1.5, vmax=0),
+                        "Exp_Sigma": "{:.2f}σ",
+                        "Exp_Return": "{:.2f}%",
+                    }).background_gradient(subset=["Exp_Sigma"], cmap="Reds_r", vmin=-1.5, vmax=0),
                     use_container_width=True,
-                    column_order=["Target", "Signal_Ticker", "Avg_Return_Pct", "Avg_Return_Sigma", "Win_Rate", "History_Count", "Current_Setup"]
+                    column_order=["Target", "Signal", "Setup_Window", "Fwd_Window", "Exp_Return", "Exp_Sigma", "Win_Rate", "History", "Setup_Ranks"]
                 )
             else:
                 st.info(f"No signals found < -{SIGMA_THRESHOLD}σ")
             
             # --- SCATTER SUMMARY ---
             st.divider()
-            st.subheader("Map of Vol-Adjusted Edge (All Signals)")
+            st.subheader("Map of Timeframe Opportunities")
             
             fig = px.scatter(
                 df_results, 
                 x="Win_Rate", 
-                y="Avg_Return_Pct", 
-                hover_data=["Target", "Signal_Ticker", "Avg_Return_Sigma", "History_Count", "Current_Setup"],
-                color="Avg_Return_Sigma", 
+                y="Exp_Return", 
+                # Added Tooltip info for Setup/Fwd Windows
+                hover_data=["Target", "Signal", "Setup_Window", "Fwd_Window", "Exp_Sigma", "History", "Setup_Ranks"],
+                color="Exp_Sigma", 
                 color_continuous_scale="RdBu",
-                title="Screener Results: Win Rate vs Expected Return %"
+                title="Fractal Map: Win Rate vs Expected Return %"
             )
             
             fig.add_hline(y=0, line_dash="dash", line_color="gray", opacity=0.5)
             fig.add_vline(x=50, line_dash="dash", line_color="gray", opacity=0.5)
-            
             fig.update_layout(yaxis_title="Avg Return (%)")
             st.plotly_chart(fig, use_container_width=True)
 
