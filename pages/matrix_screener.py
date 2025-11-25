@@ -8,10 +8,10 @@ import plotly.express as px
 # -----------------------------------------------------------------------------
 # CONFIGURATION
 # -----------------------------------------------------------------------------
-# Added DIA and ITA
+# Updated with SLV, CEF
 DEFAULT_TICKERS = """
 SPY, QQQ, IWM, DIA, TLT, GLD, USO, UUP, HYG, XLF, XLE, XLK, XBI, SMH, ARKK, BTC-USD,
-JPM, AAPL, GOOG, XOM, NVDA, TSLA, KO, UVXY, XLP, XLV, XLU, UNG, MSFT, WMT, AMD, ITA,SLV,CEF
+JPM, AAPL, GOOG, XOM, NVDA, TSLA, KO, UVXY, XLP, XLV, XLU, UNG, MSFT, WMT, AMD, ITA, SLV, CEF
 """
 
 # -----------------------------------------------------------------------------
@@ -119,12 +119,10 @@ def run_scanner(processed_data):
             allowed_signals = ["SPY", "TLT"] 
             
             # EXCEPTION 1: SPY (The Market)
-            # Only listens to Asset Class Proxies (Bonds, Oil, Dollar, Gold)
             if target == "SPY":
                 allowed_signals = ["TLT", "USO", "UUP", "GLD"]
             
             # EXCEPTION 2: XOM (Energy Sector)
-            # Listens to Oil + Market + Rates
             elif target == "XOM":
                 allowed_signals = ["SPY", "TLT", "USO"]
             
@@ -137,7 +135,7 @@ def run_scanner(processed_data):
             if np.isnan(curr_s_rank): continue
             
             # --- FILTER 1: EXTREMITY CHECK (Double Tail) ---
-            # Both must be outside 20-80
+            # Both must be outside 25-75 (Slightly relaxed tail definition for detection, STRICT filter later)
             t_tail = "UPPER" if curr_t_rank > 75 else ("LOWER" if curr_t_rank < 25 else "MID")
             s_tail = "UPPER" if curr_s_rank > 75 else ("LOWER" if curr_s_rank < 25 else "MID")
             
@@ -234,38 +232,49 @@ def main():
             # C. Formatting & Display
             st.divider()
             
-            bullish = df_results[df_results['Avg_Return_Sigma'] > 0].sort_values(by="Avg_Return_Sigma", ascending=False)
-            bearish = df_results[df_results['Avg_Return_Sigma'] < 0].sort_values(by="Avg_Return_Sigma", ascending=True)
+            # --- FILTERING LOGIC ---
+            # We filter for > 0.25 Sigma to reduce noise
+            SIGMA_THRESHOLD = 0.25
+            
+            bullish = df_results[df_results['Avg_Return_Sigma'] > SIGMA_THRESHOLD].sort_values(by="Avg_Return_Sigma", ascending=False)
+            bearish = df_results[df_results['Avg_Return_Sigma'] < -SIGMA_THRESHOLD].sort_values(by="Avg_Return_Sigma", ascending=True)
 
             # --- DISPLAY BULLISH ---
-            st.subheader(f"🟢 Top Bullish Signals")
-            st.dataframe(
-                bullish.head(20).style.format({
-                    "Win_Rate": "{:.1f}%",
-                    "Avg_Return_Sigma": "+{:.2f}σ",
-                    "Avg_Return_Pct": "+{:.2f}%",
-                    "Target_Rank": "{:.0f}"
-                }).background_gradient(subset=["Avg_Return_Sigma"], cmap="Greens", vmin=0, vmax=1.5),
-                use_container_width=True,
-                column_order=["Target", "Signal_Ticker", "Avg_Return_Pct", "Avg_Return_Sigma", "Win_Rate", "History_Count", "Current_Setup"]
-            )
+            st.subheader(f"🟢 Top Bullish Signals (> +{SIGMA_THRESHOLD}σ)")
+            if not bullish.empty:
+                st.dataframe(
+                    bullish.head(20).style.format({
+                        "Win_Rate": "{:.1f}%",
+                        "Avg_Return_Sigma": "+{:.2f}σ",
+                        "Avg_Return_Pct": "+{:.2f}%",
+                        "Target_Rank": "{:.0f}"
+                    }).background_gradient(subset=["Avg_Return_Sigma"], cmap="Greens", vmin=0, vmax=1.5),
+                    use_container_width=True,
+                    column_order=["Target", "Signal_Ticker", "Avg_Return_Pct", "Avg_Return_Sigma", "Win_Rate", "History_Count", "Current_Setup"]
+                )
+            else:
+                st.info(f"No bullish signals found exceeding +{SIGMA_THRESHOLD}σ")
 
             # --- DISPLAY BEARISH ---
-            st.subheader(f"🔴 Top Bearish Signals")
-            st.dataframe(
-                bearish.head(20).style.format({
-                    "Win_Rate": "{:.1f}%",
-                    "Avg_Return_Sigma": "{:.2f}σ",
-                    "Avg_Return_Pct": "{:.2f}%",
-                    "Target_Rank": "{:.0f}"
-                }).background_gradient(subset=["Avg_Return_Sigma"], cmap="Reds_r", vmin=-1.5, vmax=0),
-                use_container_width=True,
-                column_order=["Target", "Signal_Ticker", "Avg_Return_Pct", "Avg_Return_Sigma", "Win_Rate", "History_Count", "Current_Setup"]
-            )
+            st.subheader(f"🔴 Top Bearish Signals (< -{SIGMA_THRESHOLD}σ)")
+            if not bearish.empty:
+                st.dataframe(
+                    bearish.head(20).style.format({
+                        "Win_Rate": "{:.1f}%",
+                        "Avg_Return_Sigma": "{:.2f}σ",
+                        "Avg_Return_Pct": "{:.2f}%",
+                        "Target_Rank": "{:.0f}"
+                    }).background_gradient(subset=["Avg_Return_Sigma"], cmap="Reds_r", vmin=-1.5, vmax=0),
+                    use_container_width=True,
+                    column_order=["Target", "Signal_Ticker", "Avg_Return_Pct", "Avg_Return_Sigma", "Win_Rate", "History_Count", "Current_Setup"]
+                )
+            else:
+                st.info(f"No bearish signals found exceeding -{SIGMA_THRESHOLD}σ")
             
             # --- SCATTER SUMMARY ---
+            # We keep the Scatter Plot unfiltered (showing 0.0 results) so you can see "Where the cluster is"
             st.divider()
-            st.subheader("Map of Vol-Adjusted Edge")
+            st.subheader("Map of Vol-Adjusted Edge (All Signals)")
             
             fig = px.scatter(
                 df_results, 
@@ -276,8 +285,11 @@ def main():
                 color_continuous_scale="RdBu",
                 title="Screener Results: Win Rate vs Expected Return % (Color = Sigma Strength)"
             )
-            fig.add_vline(x=50, line_dash="dash", line_color="gray")
-            fig.add_hline(y=0, line_dash="dash", line_color="gray")
+            
+            # Visual Guide for the 0.25 Threshold
+            fig.add_hline(y=0, line_dash="dash", line_color="gray", opacity=0.5)
+            fig.add_vline(x=50, line_dash="dash", line_color="gray", opacity=0.5)
+            
             fig.update_layout(yaxis_title="Avg Return (%)")
             st.plotly_chart(fig, use_container_width=True)
 
