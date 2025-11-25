@@ -33,7 +33,7 @@ def get_batch_data(ticker_list):
     progress_bar = st.progress(0)
     for i, t in enumerate(tickers):
         try:
-            df = yf.download(t, period="5y", progress=False, auto_adjust=True)
+            df = yf.download(t, period="25y", progress=False, auto_adjust=True)
             if isinstance(df.columns, pd.MultiIndex):
                 df.columns = [c[0] for c in df.columns]
             
