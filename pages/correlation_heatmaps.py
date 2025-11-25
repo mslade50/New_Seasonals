@@ -214,11 +214,13 @@ def smooth_display(Z, sigma=1.2):
 # -----------------------------------------------------------------------------
 # UI: CROSS ASSET HEATMAP
 # -----------------------------------------------------------------------------
+# -----------------------------------------------------------------------------
+# UI: CROSS ASSET HEATMAP
+# -----------------------------------------------------------------------------
 def render_cross_asset_heatmap():
     st.header("Cross-Asset Correlation Heatmap")
     st.markdown("""
     Analyze how the historical performance of **Ticker 2** (Y-Axis) impacts the future performance of **Ticker 1** (Z-Axis).
-    *Example: If TLT (Ticker 2) is up 5% (High Rank), does SPY (Ticker 1) go up next week?*
     """)
     
     # 1. SELECTION
@@ -228,7 +230,6 @@ def render_cross_asset_heatmap():
         st.subheader("1. Target (Analysis)")
         ticker1 = st.text_input("Target Ticker (T1)", value="SPY", key="ca_t1").upper()
         
-        # Ticker 1 Options (X-Axis)
         t1_options = {
             "Seasonality Rank": "Seasonal",
             "5d Trailing Return Rank": "Ret_5d_Rank",
@@ -239,7 +240,6 @@ def render_cross_asset_heatmap():
         }
         x_axis_label = st.selectbox("X-Axis (Ticker 1 State)", list(t1_options.keys()), index=0, key="ca_x")
 
-        # Ticker 1 Options (Z-Axis)
         target_options = {
             "5d Forward Return": "FwdRet_5d",
             "10d Forward Return": "FwdRet_10d",
@@ -253,7 +253,6 @@ def render_cross_asset_heatmap():
         st.subheader("2. Signal (Influence)")
         ticker2 = st.text_input("Signal Ticker (T2)", value="TLT", key="ca_t2").upper()
         
-        # Ticker 2 Options (Y-Axis) - RESTRICTED TO RETURN RANKS
         t2_options = {
             f"{ticker2} 2d Return Rank": "T2_Ret_2d_Rank",
             f"{ticker2} 5d Return Rank": "T2_Ret_5d_Rank",
@@ -283,60 +282,46 @@ def render_cross_asset_heatmap():
 
         with st.spinner(f"Aligning Data: {ticker1} vs {ticker2}..."):
             
-            # 1. Download Both
+            # --- DATA PREP ---
             df1 = download_data(ticker1)
             df2 = download_data(ticker2)
             
             if df1.empty or df2.empty:
-                st.error("Could not download data for one or both tickers.")
+                st.error("Could not download data.")
                 return
 
-            # 2. Process Features Independently
             sznl_map = load_seasonal_map()
-            
-            # Ticker 1: Full Suite (for X and Z)
             df1_calc = calc_target_metrics(df1, sznl_map, ticker1)
-            
-            # Ticker 2: Returns & Ranks only (for Y)
             df2_calc = calc_signal_metrics(df2)
             
-            # 3. MERGE DATASETS (Inner Join on Date)
-            # We only keep the T2 Rank columns we need
             t2_cols_to_keep = [c for c in df2_calc.columns if c.startswith("T2_")]
-            
-            # Ensure index alignment
             common_idx = df1_calc.index.intersection(df2_calc.index)
             
-            # Filter and Join
             final_df = df1_calc.loc[common_idx].copy()
             df2_subset = df2_calc.loc[common_idx, t2_cols_to_keep]
-            
             final_df = final_df.join(df2_subset)
             
-            # 4. FILTER BY DATE
             start_ts = pd.to_datetime(analysis_start)
             if final_df.index.tz is not None: start_ts = start_ts.tz_localize(final_df.index.tz)
             final_df = final_df[final_df.index >= start_ts]
 
-            # 5. PREPARE HEATMAP
             xcol = t1_options[x_axis_label]
-            ycol = t2_options[y_axis_label] # This selects the T2 variable
+            ycol = t2_options[y_axis_label]
             zcol = target_options[z_axis_label]
             
-            clean_df = final_df.dropna(subset=[xcol, ycol, zcol])
+            # --- HEATMAP GENERATION (Strictly requires Z) ---
+            heatmap_df = final_df.dropna(subset=[xcol, ycol, zcol])
             
-            if clean_df.empty:
-                st.error(f"Insufficient overlapping data between {ticker1} and {ticker2} after {analysis_start}.")
+            if heatmap_df.empty:
+                st.error("Insufficient data for heatmap.")
                 return
 
-            # 6. COMPUTE GRID
-            x_edges, y_edges = build_bins_quantile(clean_df[xcol], clean_df[ycol], nx=bins, ny=bins)
-            x_centers, y_centers, Z = grid_mean(clean_df, xcol, ycol, zcol, x_edges, y_edges)
+            x_edges, y_edges = build_bins_quantile(heatmap_df[xcol], heatmap_df[ycol], nx=bins, ny=bins)
+            x_centers, y_centers, Z = grid_mean(heatmap_df, xcol, ycol, zcol, x_edges, y_edges)
             
             Z_filled = nan_neighbor_fill(Z)
             Z_smooth = smooth_display(Z_filled, sigma=smooth_sigma)
             
-            # 7. PLOT
             limit = np.nanmax(np.abs(Z_smooth))
             colorscale = get_seismic_colorscale()
             z_units = "%" if "Ret" in zcol else " Vol"
@@ -358,7 +343,8 @@ def render_cross_asset_heatmap():
                 dragmode=False 
             )
             
-            # Add Current Status Marker
+            # Add Current Status Marker (from most recent available data row)
+            # We look at final_df here, not heatmap_df, so we catch today even if Z is NaN
             last_row = final_df.iloc[-1]
             curr_x = last_row.get(xcol, np.nan)
             curr_y = last_row.get(ycol, np.nan)
@@ -374,32 +360,45 @@ def render_cross_asset_heatmap():
             
             st.plotly_chart(fig, use_container_width=True)
             
-            # 8. HISTORICAL EXPLORER (Adapted for Cross Asset)
+            # 8. HISTORICAL EXPLORER (UPDATED: Includes recent dates)
             st.markdown(f"### 🔎 {ticker1} vs {ticker2} Historical Explorer")
             f_col1, f_col2 = st.columns(2)
             with f_col1: x_range = st.slider(f"Filter: {ticker1} {x_axis_label}", 0.0, 100.0, (0.0, 100.0), step=1.0)
             with f_col2: y_range = st.slider(f"Filter: {ticker2} Return Rank", 0.0, 100.0, (0.0, 100.0), step=1.0)
             
-            mask = (clean_df[xcol] >= x_range[0]) & (clean_df[xcol] <= x_range[1]) & \
-                   (clean_df[ycol] >= y_range[0]) & (clean_df[ycol] <= y_range[1])
-            filtered_df = clean_df[mask].copy()
+            # --- NEW LOGIC: Use final_df (includes Z=NaN), filter only on X/Y ---
+            # We only drop rows if X or Y is missing. We Keep Z as NaN.
+            table_df = final_df.dropna(subset=[xcol, ycol]).copy()
+            
+            mask = (table_df[xcol] >= x_range[0]) & (table_df[xcol] <= x_range[1]) & \
+                   (table_df[ycol] >= y_range[0]) & (table_df[ycol] <= y_range[1])
+            filtered_df = table_df[mask].copy()
             
             if not filtered_df.empty:
+                # Separate stats calculation (ignoring NaNs for stats)
+                completed_trades = filtered_df.dropna(subset=[zcol])
+                
                 s1, s2, s3 = st.columns(3)
-                s1.metric("Matching Instances", len(filtered_df))
-                s2.metric(f"Avg {ticker1} Return", f"{filtered_df[zcol].mean():.2f}{z_units}")
-                win_rate = (filtered_df[zcol] > 0).sum() / len(filtered_df) * 100
-                s3.metric(f"{ticker1} Win Rate", f"{win_rate:.1f}%")
+                s1.metric("Matching Instances", len(filtered_df), help="Includes pending trades")
                 
-                st.write("#### Matching Dates")
-                # Show Price of T1, Price of T2, and the Ranks
+                if not completed_trades.empty:
+                    s2.metric(f"Avg {ticker1} Return", f"{completed_trades[zcol].mean():.2f}{z_units}")
+                    win_rate = (completed_trades[zcol] > 0).sum() / len(completed_trades) * 100
+                    s3.metric(f"{ticker1} Win Rate", f"{win_rate:.1f}%")
+                else:
+                    s2.metric("Avg Return", "N/A")
+                    s3.metric("Win Rate", "N/A")
+                
+                st.write("#### Matching Dates (Including Pending)")
+                
+                # Format Data for Table
                 display_cols = ['Close', xcol, ycol, zcol]
-                # Rename close to avoid confusion
-                table_df = filtered_df[display_cols].sort_index(ascending=False)
-                table_df.columns = [f"{ticker1} Price", x_axis_label, f"{ticker2} Rank", "Outcome"]
+                table_display = filtered_df[display_cols].sort_index(ascending=False)
+                table_display.columns = [f"{ticker1} Price", x_axis_label, f"{ticker2} Rank", "Outcome"]
                 
+                # Apply styling - NaNs in 'Outcome' will appear as blank/NaN which is correct for pending
                 st.dataframe(
-                    table_df.style.format({
+                    table_display.style.format({
                         f"{ticker1} Price": "${:.2f}", 
                         x_axis_label: "{:.1f}", 
                         f"{ticker2} Rank": "{:.1f}", 
@@ -409,7 +408,7 @@ def render_cross_asset_heatmap():
                 )
             else:
                 st.warning("No matches found in this region.")
-
+                
 if __name__ == "__main__":
     st.set_page_config(layout="wide", page_title="Cross Asset Analysis")
     render_cross_asset_heatmap()
