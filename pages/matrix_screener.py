@@ -8,9 +8,10 @@ import plotly.express as px
 # -----------------------------------------------------------------------------
 # CONFIGURATION
 # -----------------------------------------------------------------------------
+# Added DIA and ITA
 DEFAULT_TICKERS = """
-SPY, QQQ, IWM, TLT, GLD, USO, UUP, HYG, XLF, XLE, XLK, XBI, SMH, ARKK, BTC-USD,
-JPM, AAPL, GOOG, XOM, NVDA, TSLA, KO, UVXY, XLP, XLV, XLU, UNG, MSFT, WMT, AMD
+SPY, QQQ, IWM, DIA, TLT, GLD, USO, UUP, HYG, XLF, XLE, XLK, XBI, SMH, ARKK, BTC-USD,
+JPM, AAPL, GOOG, XOM, NVDA, TSLA, KO, UVXY, XLP, XLV, XLU, UNG, MSFT, WMT, AMD, ITA,SLV,CEF
 """
 
 # -----------------------------------------------------------------------------
@@ -80,7 +81,6 @@ def calculate_features(data_dict):
         
         df = df.dropna(subset=['Rank_21d', 'Vol_Daily'])
         
-        # We keep both Sigma and Raw for the final table
         processed[ticker] = df[['Close', 'Rank_21d', 'FwdRet_Sigma', 'FwdRet_10d_Raw']]
         
     return processed
@@ -88,10 +88,10 @@ def calculate_features(data_dict):
 def run_scanner(processed_data):
     """
     Iterates through pairs using Cumulative Tail Analysis.
-    Logic:
-    1. TARGET == SPY: Allows ALL signals.
-    2. TARGET == XOM: Allows SPY, TLT, USO.
-    3. TARGET == ELSE: Allows only SPY, TLT.
+    Hierarchical Logic:
+    1. TARGET == SPY: Only listens to TLT, USO, UUP, GLD.
+    2. TARGET == XOM: Listens to USO, SPY, TLT.
+    3. TARGET == ELSE: Listens to SPY, TLT.
     """
     results = []
     tickers = list(processed_data.keys())
@@ -113,14 +113,22 @@ def run_scanner(processed_data):
         for signal in tickers:
             if target == signal: continue 
             
-            # --- LOGIC CHANGE: HIERARCHICAL PREDICTORS ---
-            allowed_signals = ["SPY", "TLT"] # Base Tier
+            # --- HIERARCHICAL PREDICTOR LOGIC ---
             
+            # DEFAULT RULE: Most stocks listen to Market (SPY) and Rates (TLT)
+            allowed_signals = ["SPY", "TLT"] 
+            
+            # EXCEPTION 1: SPY (The Market)
+            # Only listens to Asset Class Proxies (Bonds, Oil, Dollar, Gold)
             if target == "SPY":
-                allowed_signals = tickers # SPY listens to everyone
-            elif target == "XOM":
-                allowed_signals = ["SPY", "TLT", "USO"] # XOM listens to Oil
+                allowed_signals = ["TLT", "USO", "UUP", "GLD"]
             
+            # EXCEPTION 2: XOM (Energy Sector)
+            # Listens to Oil + Market + Rates
+            elif target == "XOM":
+                allowed_signals = ["SPY", "TLT", "USO"]
+            
+            # Skip if the signal is not in the allowed list for this target
             if signal not in allowed_signals:
                 continue
             
@@ -129,6 +137,7 @@ def run_scanner(processed_data):
             if np.isnan(curr_s_rank): continue
             
             # --- FILTER 1: EXTREMITY CHECK (Double Tail) ---
+            # Both must be outside 20-80
             t_tail = "UPPER" if curr_t_rank > 80 else ("LOWER" if curr_t_rank < 20 else "MID")
             s_tail = "UPPER" if curr_s_rank > 80 else ("LOWER" if curr_s_rank < 20 else "MID")
             
@@ -136,7 +145,6 @@ def run_scanner(processed_data):
                 continue
 
             # --- ALIGNMENT ---
-            # We bring both Sigma and Raw Returns into the history
             aligned = pd.concat([
                 t_df['FwdRet_Sigma'].rename("Outcome_Sigma"),
                 t_df['FwdRet_10d_Raw'].rename("Outcome_Raw"),
@@ -148,6 +156,7 @@ def run_scanner(processed_data):
             if history.empty: continue
 
             # --- FILTER 2: CUMULATIVE TAIL LOGIC ---
+            # "Show me history where ranks were even MORE extreme than today"
             if t_tail == "UPPER":
                 mask_t = history['Target_Rank'] >= curr_t_rank
             else:
@@ -165,9 +174,8 @@ def run_scanner(processed_data):
 
             # --- STATISTICS ---
             avg_sigma = matches['Outcome_Sigma'].mean()
-            avg_raw_pct = matches['Outcome_Raw'].mean() * 100 # Convert to %
+            avg_raw_pct = matches['Outcome_Raw'].mean() * 100 
             
-            # Win Rate is based on positive return
             win_rate = (matches['Outcome_Raw'] > 0).sum() / count * 100
             
             results.append({
@@ -192,10 +200,9 @@ def main():
     
     st.markdown("""
     **Hierarchical Logic Applied:**
-    1. **General Stocks:** Can only be predicted by **SPY** (Market) or **TLT** (Rates).
-    2. **XOM (Energy):** Can be predicted by **USO** (Oil), SPY, or TLT.
-    3. **SPY (The Market):** Can be predicted by **ANYTHING** in the tails.
-    4. **Double Tail:** Both tickers must be Rank < 20 or > 80.
+    1. **SPY (Market):** Only predicted by Macro Assets: **TLT** (Rates), **USO** (Oil), **UUP** (Dollar), **GLD** (Gold).
+    2. **XOM (Energy):** Predicted by **USO**, SPY, TLT.
+    3. **Everything Else:** Predicted by **SPY** or **TLT**.
     """)
     
     # 1. INPUTS
@@ -227,7 +234,6 @@ def main():
             # C. Formatting & Display
             st.divider()
             
-            # Sort by Sigma (Statistical Significance), but display Pct (Payoff)
             bullish = df_results[df_results['Avg_Return_Sigma'] > 0].sort_values(by="Avg_Return_Sigma", ascending=False)
             bearish = df_results[df_results['Avg_Return_Sigma'] < 0].sort_values(by="Avg_Return_Sigma", ascending=True)
 
@@ -264,9 +270,9 @@ def main():
             fig = px.scatter(
                 df_results, 
                 x="Win_Rate", 
-                y="Avg_Return_Pct", # Plotting % for easier readability on chart
+                y="Avg_Return_Pct", 
                 hover_data=["Target", "Signal_Ticker", "Avg_Return_Sigma", "History_Count", "Current_Setup"],
-                color="Avg_Return_Sigma", # Color by Sigma (Strength)
+                color="Avg_Return_Sigma", 
                 color_continuous_scale="RdBu",
                 title="Screener Results: Win Rate vs Expected Return % (Color = Sigma Strength)"
             )
