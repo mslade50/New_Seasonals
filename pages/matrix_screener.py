@@ -8,7 +8,6 @@ import plotly.express as px
 # -----------------------------------------------------------------------------
 # CONFIGURATION
 # -----------------------------------------------------------------------------
-# Updated with SLV, CEF
 DEFAULT_TICKERS = """
 SPY, QQQ, IWM, DIA, TLT, GLD, USO, UUP, HYG, XLF, XLE, XLK, XBI, SMH, ARKK, BTC-USD,
 JPM, AAPL, GOOG, XOM, NVDA, TSLA, KO, UVXY, XLP, XLV, XLU, UNG, MSFT, WMT, AMD, ITA, SLV, CEF
@@ -88,10 +87,7 @@ def calculate_features(data_dict):
 def run_scanner(processed_data):
     """
     Iterates through pairs using Cumulative Tail Analysis.
-    Hierarchical Logic:
-    1. TARGET == SPY: Only listens to TLT, USO, UUP, GLD.
-    2. TARGET == XOM: Listens to USO, SPY, TLT.
-    3. TARGET == ELSE: Listens to SPY, TLT.
+    Detailed Hierarchical Logic applied in the loop.
     """
     results = []
     tickers = list(processed_data.keys())
@@ -115,18 +111,48 @@ def run_scanner(processed_data):
             
             # --- HIERARCHICAL PREDICTOR LOGIC ---
             
-            # DEFAULT RULE: Most stocks listen to Market (SPY) and Rates (TLT)
-            allowed_signals = ["SPY", "TLT"] 
+            # 1. DEFAULT BASELINE: Everyone listens to SPY (Market) and TLT (Rates)
+            allowed_signals = ["SPY", "TLT"]
             
-            # EXCEPTION 1: SPY (The Market)
+            # 2. SECTOR SPECIFIC OVERRIDES/ADDITIONS
+            
             if target == "SPY":
+                # Market listens to Macro Assets
                 allowed_signals = ["TLT", "USO", "UUP", "GLD"]
             
-            # EXCEPTION 2: XOM (Energy Sector)
             elif target == "XOM":
+                # Energy listens to Oil
                 allowed_signals = ["SPY", "TLT", "USO"]
+                
+            elif target == "JPM":
+                # Banks listen to Financials ETF
+                allowed_signals = ["SPY", "TLT", "XLF"]
+                
+            elif target in ["NVDA", "AMD"]:
+                # Semis listen to SMH
+                allowed_signals = ["SPY", "TLT", "SMH"]
             
-            # Skip if the signal is not in the allowed list for this target
+            elif target == "SLV":
+                # Silver listens to Gold
+                allowed_signals = ["SPY", "TLT", "GLD"]
+                
+            elif target == "GLD":
+                # Gold listens to Silver (rare but valid correlation)
+                allowed_signals = ["SPY", "TLT", "SLV"]
+            
+            elif target == "CEF":
+                # Sprott Physical (Gold/Silver Trust) listens to both
+                allowed_signals = ["SPY", "TLT", "GLD", "SLV"]
+                
+            elif target == "UNG":
+                # Gas listens to Oil
+                allowed_signals = ["SPY", "TLT", "USO"]
+                
+            elif target == "USO":
+                # Oil listens to Gas
+                allowed_signals = ["SPY", "TLT", "UNG"]
+            
+            # CHECK: Is this signal allowed?
             if signal not in allowed_signals:
                 continue
             
@@ -135,7 +161,7 @@ def run_scanner(processed_data):
             if np.isnan(curr_s_rank): continue
             
             # --- FILTER 1: EXTREMITY CHECK (Double Tail) ---
-            # Both must be outside 25-75 (Slightly relaxed tail definition for detection, STRICT filter later)
+            # Both must be outside 25-75
             t_tail = "UPPER" if curr_t_rank > 75 else ("LOWER" if curr_t_rank < 25 else "MID")
             s_tail = "UPPER" if curr_s_rank > 75 else ("LOWER" if curr_s_rank < 25 else "MID")
             
@@ -154,7 +180,6 @@ def run_scanner(processed_data):
             if history.empty: continue
 
             # --- FILTER 2: CUMULATIVE TAIL LOGIC ---
-            # "Show me history where ranks were even MORE extreme than today"
             if t_tail == "UPPER":
                 mask_t = history['Target_Rank'] >= curr_t_rank
             else:
@@ -197,10 +222,12 @@ def main():
     st.title("⚡ Vol-Normalized Tail Screener")
     
     st.markdown("""
-    **Hierarchical Logic Applied:**
-    1. **SPY (Market):** Only predicted by Macro Assets: **TLT** (Rates), **USO** (Oil), **UUP** (Dollar), **GLD** (Gold).
-    2. **XOM (Energy):** Predicted by **USO**, SPY, TLT.
-    3. **Everything Else:** Predicted by **SPY** or **TLT**.
+    **Specific Relationships Configured:**
+    * **Financials (JPM)** $\leftarrow$ XLF
+    * **Semis (NVDA, AMD)** $\leftarrow$ SMH
+    * **Metals (GLD, SLV, CEF)** $\leftarrow$ Cross-Correlated
+    * **Energy (USO, UNG)** $\leftarrow$ Cross-Correlated
+    * **General** $\leftarrow$ SPY, TLT
     """)
     
     # 1. INPUTS
@@ -209,7 +236,7 @@ def main():
         with col1:
             ticker_input = st.text_area("Universe", value=DEFAULT_TICKERS, height=100)
         with col2:
-            st.info("Sorting by Sigma (σ), Displaying Return (%)")
+            st.info("Filtering: Sigma > 0.25σ")
             run_btn = st.button("Run Vol-Adj Scan", type="primary", use_container_width=True)
 
     if run_btn:
@@ -233,7 +260,6 @@ def main():
             st.divider()
             
             # --- FILTERING LOGIC ---
-            # We filter for > 0.25 Sigma to reduce noise
             SIGMA_THRESHOLD = 0.25
             
             bullish = df_results[df_results['Avg_Return_Sigma'] > SIGMA_THRESHOLD].sort_values(by="Avg_Return_Sigma", ascending=False)
@@ -253,7 +279,7 @@ def main():
                     column_order=["Target", "Signal_Ticker", "Avg_Return_Pct", "Avg_Return_Sigma", "Win_Rate", "History_Count", "Current_Setup"]
                 )
             else:
-                st.info(f"No bullish signals found exceeding +{SIGMA_THRESHOLD}σ")
+                st.info(f"No signals found > {SIGMA_THRESHOLD}σ")
 
             # --- DISPLAY BEARISH ---
             st.subheader(f"🔴 Top Bearish Signals (< -{SIGMA_THRESHOLD}σ)")
@@ -269,10 +295,9 @@ def main():
                     column_order=["Target", "Signal_Ticker", "Avg_Return_Pct", "Avg_Return_Sigma", "Win_Rate", "History_Count", "Current_Setup"]
                 )
             else:
-                st.info(f"No bearish signals found exceeding -{SIGMA_THRESHOLD}σ")
+                st.info(f"No signals found < -{SIGMA_THRESHOLD}σ")
             
             # --- SCATTER SUMMARY ---
-            # We keep the Scatter Plot unfiltered (showing 0.0 results) so you can see "Where the cluster is"
             st.divider()
             st.subheader("Map of Vol-Adjusted Edge (All Signals)")
             
@@ -283,10 +308,9 @@ def main():
                 hover_data=["Target", "Signal_Ticker", "Avg_Return_Sigma", "History_Count", "Current_Setup"],
                 color="Avg_Return_Sigma", 
                 color_continuous_scale="RdBu",
-                title="Screener Results: Win Rate vs Expected Return % (Color = Sigma Strength)"
+                title="Screener Results: Win Rate vs Expected Return %"
             )
             
-            # Visual Guide for the 0.25 Threshold
             fig.add_hline(y=0, line_dash="dash", line_color="gray", opacity=0.5)
             fig.add_vline(x=50, line_dash="dash", line_color="gray", opacity=0.5)
             
