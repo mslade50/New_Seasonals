@@ -13,13 +13,16 @@ SPY, QQQ, IWM, TLT, GLD, USO, UUP, HYG, XLF, XLE, XLK, XBI, SMH, ARKK, BTC-USD,
 JPM, AAPL, GOOG, XOM, NVDA, TSLA, KO, UVXY, XLP, XLV, XLU, UNG, MSFT, WMT, AMD
 """
 
+# The "Big Four" Macro Signals
+MACRO_SIGNALS = ["SPY", "TLT", "USO", "UVXY"]
+
 # -----------------------------------------------------------------------------
 # DATA ENGINE
 # -----------------------------------------------------------------------------
 @st.cache_data(ttl=3600, show_spinner=True)
 def get_batch_data(ticker_list):
     """
-    Downloads MAX history to ensure 25y window if available.
+    Downloads MAX history (last 25y).
     """
     tickers = [t.strip().upper() for t in ticker_list.replace("\n", "").split(",") if t.strip()]
     tickers = list(set(tickers)) 
@@ -32,12 +35,11 @@ def get_batch_data(ticker_list):
     progress_bar = st.progress(0)
     for i, t in enumerate(tickers):
         try:
-            # Changed to "max" to cover the 25y requirement
             df = yf.download(t, period="max", progress=False, auto_adjust=True)
             if isinstance(df.columns, pd.MultiIndex):
                 df.columns = [c[0] for c in df.columns]
             
-            # Filter to last 25 years to keep calculation relevant but deep
+            # Filter to last 25 years
             start_date = pd.Timestamp.now() - pd.DateOffset(years=25)
             df = df[df.index >= start_date]
             
@@ -53,9 +55,7 @@ def get_batch_data(ticker_list):
 @st.cache_data(show_spinner=False)
 def calculate_features(data_dict):
     """
-    Calculates:
-    1. 21d Trailing Rank
-    2. 10d Vol-Normalized Forward Return (Sigma)
+    Calculates 21d Trailing Rank and 10d Vol-Normalized Forward Return (Sigma)
     """
     processed = {}
     
@@ -68,25 +68,20 @@ def calculate_features(data_dict):
         df['Ret_21d'] = df['Close'].pct_change(21)
         
         # 2. Volatility (21d Annualized) for Normalization
-        # We need the daily vol to project 10 days out
-        # Vol_Daily = Rolling Std Dev of Log Returns
         df['Vol_Daily'] = df['LogRet'].rolling(21).std()
         
         # 3. Target: 10d Forward Return (Raw)
-        # Shift -10 to see 10 days into the future
         df['Fwd_Close'] = df['Close'].shift(-10)
         df['FwdRet_10d_Raw'] = (df['Fwd_Close'] / df['Close']) - 1.0
         
         # 4. Vol-Normalization (Z-Score)
         # Expected Move (1 Sigma) = Vol_Daily * sqrt(10)
-        # Return_Sigma = Raw_Return / Expected_Move
         expected_move = df['Vol_Daily'] * np.sqrt(10)
         df['FwdRet_Sigma'] = df['FwdRet_10d_Raw'] / expected_move
         
         # 5. Rank Transformation
         df['Rank_21d'] = df['Ret_21d'].expanding(min_periods=252).rank(pct=True) * 100
         
-        # Clean up
         df = df.dropna(subset=['Rank_21d', 'Vol_Daily'])
         processed[ticker] = df[['Close', 'Rank_21d', 'FwdRet_Sigma']]
         
@@ -94,9 +89,11 @@ def calculate_features(data_dict):
 
 def run_scanner(processed_data):
     """
-    Iterates through pairs.
-    Logic: "Cumulative Tail Analysis"
-    - If Current Rank is Extreme (e.g. 90), look at history >= 90.
+    Iterates through pairs using Cumulative Tail Analysis.
+    Applies logic:
+    1. FILTER: Target/Signal must be Tails (<20 or >80).
+    2. FILTER: Only allow SPY, TLT, USO, UVXY as signals...
+       UNLESS Target is SPY (then allow everything).
     """
     results = []
     tickers = list(processed_data.keys())
@@ -118,15 +115,21 @@ def run_scanner(processed_data):
         for signal in tickers:
             if target == signal: continue 
             
+            # --- LOGIC CHANGE: SIGNAL RESTRICTION ---
+            # If Target is NOT SPY, check if Signal is allowed (Macro Only)
+            if target != "SPY":
+                if signal not in MACRO_SIGNALS:
+                    continue
+            
             s_df = processed_data[signal]
             curr_s_rank = current_states.get(signal, np.nan)
             if np.isnan(curr_s_rank): continue
             
-            # --- FILTER 1: EXTREMITY CHECK ---
-            # Both must be outside 20-80
+            # --- FILTER 1: EXTREMITY CHECK (Double Tail) ---
             t_tail = "UPPER" if curr_t_rank > 80 else ("LOWER" if curr_t_rank < 20 else "MID")
             s_tail = "UPPER" if curr_s_rank > 80 else ("LOWER" if curr_s_rank < 20 else "MID")
             
+            # Both must be in tails
             if t_tail == "MID" or s_tail == "MID":
                 continue
 
@@ -141,8 +144,6 @@ def run_scanner(processed_data):
             if history.empty: continue
 
             # --- FILTER 2: CUMULATIVE TAIL LOGIC ---
-            # "Check all boxes that are more extreme"
-            
             if t_tail == "UPPER":
                 mask_t = history['Target_Rank'] >= curr_t_rank
             else:
@@ -156,16 +157,10 @@ def run_scanner(processed_data):
             matches = history[mask_t & mask_s]
             count = len(matches)
             
-            # Require minimum samples (relaxed for Super Extreme, strict otherwise)
-            # Since we are using cumulative tails, samples should naturally be higher than radius
             if count < 10: continue
 
             # --- STATISTICS ---
-            # Outcome is now in SIGMA. 
             avg_sigma = matches['Outcome'].mean()
-            
-            # Win Rate is strictly > 0 raw return. 
-            # (Note: Sigma > 0 implies Raw Return > 0)
             win_rate = (matches['Outcome'] > 0).sum() / count * 100
             
             results.append({
@@ -175,9 +170,6 @@ def run_scanner(processed_data):
                 "History_Count": count,
                 "Win_Rate": win_rate,
                 "Avg_Return_Sigma": avg_sigma,
-                "Target_Tail": t_tail,
-                "Signal_Tail": s_tail,
-                # For Scatter Plot Coloring
                 "Target_Rank": curr_t_rank 
             })
 
@@ -191,9 +183,11 @@ def main():
     st.title("⚡ Vol-Normalized Tail Screener")
     
     st.markdown("""
-    **New Logic Applied:**
-    1. **Vol-Normalization:** Returns are measured in **Standard Deviations (σ)**. Apples-to-Apples comparison (e.g. UVXY vs TLT).
-    2. **Tail Logic:** We analyze all historical instances that were **more extreme** than today. (e.g., if Rank is 95, we look at 95-100).
+    **Logic Applied:**
+    1. **Signal Filter:** Only **SPY, TLT, USO, UVXY** can predict other stocks (Macro Factors).
+       *Exception: **SPY** listens to everything.*
+    2. **Double Tail:** Both Target and Signal must be Rank < 20 or > 80.
+    3. **Vol-Adjusted:** Returns are measured in Sigma (Standard Deviations).
     """)
     
     # 1. INPUTS
@@ -202,11 +196,11 @@ def main():
         with col1:
             ticker_input = st.text_area("Universe", value=DEFAULT_TICKERS, height=100)
         with col2:
-            st.info("Logic: Cumulative Tail Analysis")
+            st.info(f"Macro Signals: {', '.join(MACRO_SIGNALS)}")
             run_btn = st.button("Run Vol-Adj Scan", type="primary", use_container_width=True)
 
     if run_btn:
-        with st.spinner("Downloading 25y history & Normalizing Volatility..."):
+        with st.spinner("Downloading history & checking correlations..."):
             # A. Process Data
             raw_data = get_batch_data(ticker_input)
             if not raw_data:
@@ -225,13 +219,11 @@ def main():
             # C. Formatting & Display
             st.divider()
             
-            # Sort by absolute Sigma strength
             bullish = df_results[df_results['Avg_Return_Sigma'] > 0].sort_values(by="Avg_Return_Sigma", ascending=False)
             bearish = df_results[df_results['Avg_Return_Sigma'] < 0].sort_values(by="Avg_Return_Sigma", ascending=True)
 
             # --- DISPLAY BULLISH ---
             st.subheader(f"🟢 Top Bullish Signals (High +σ)")
-            st.markdown("Expectancy measured in **Standard Deviations** of a 10-day move.")
             st.dataframe(
                 bullish.head(20).style.format({
                     "Win_Rate": "{:.1f}%",
@@ -269,7 +261,6 @@ def main():
             )
             fig.add_vline(x=50, line_dash="dash", line_color="gray")
             fig.add_hline(y=0, line_dash="dash", line_color="gray")
-            fig.update_layout(yaxis_title="Expected Move (Sigma)")
             st.plotly_chart(fig, use_container_width=True)
 
 if __name__ == "__main__":
