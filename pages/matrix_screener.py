@@ -72,18 +72,15 @@ def calculate_features(data_dict):
         
         # 2. Calculate Trailing Ranks (The Setup)
         for w in TRAIL_WINDOWS:
-            # Trailing Return
             col_ret = f'Ret_{w}d'
             df[col_ret] = df['Close'].pct_change(w)
             
-            # Rank (Expanding Window)
             col_rank = f'Rank_{w}d'
             df[col_rank] = df[col_ret].expanding(min_periods=252).rank(pct=True) * 100
 
         # 3. Calculate Forward Outcomes (The Payoff)
         for w in FWD_WINDOWS:
             # Raw Forward Return
-            # We look W days into the future
             col_fwd_raw = f'FwdRet_{w}d_Raw'
             df[col_fwd_raw] = (df['Close'].shift(-w) / df['Close']) - 1.0
             
@@ -93,13 +90,12 @@ def calculate_features(data_dict):
             expected_move = df['Vol_Daily'] * np.sqrt(w)
             df[col_fwd_sigma] = df[col_fwd_raw] / expected_move
 
-        # Cleanup: Keep only what we need to save memory
         cols_to_keep = ['Close', 'Vol_Daily'] + \
                        [f'Rank_{w}d' for w in TRAIL_WINDOWS] + \
                        [f'FwdRet_{w}d_Raw' for w in FWD_WINDOWS] + \
                        [f'FwdRet_{w}d_Sigma' for w in FWD_WINDOWS]
                        
-        df = df.dropna(subset=['Vol_Daily']) # Ensure vol exists
+        df = df.dropna(subset=['Vol_Daily']) 
         processed[ticker] = df[cols_to_keep]
         
     return processed
@@ -107,12 +103,22 @@ def calculate_features(data_dict):
 def run_scanner(processed_data):
     """
     Iterates through Pairs -> Trailing Windows -> Forward Windows.
-    Applies Hierarchical Logic & Cumulative Tails.
+    Calculates ALPHA (Conditional Sigma - Baseline Sigma).
     """
     results = []
     tickers = list(processed_data.keys())
     
-    # Pre-fetch current ranks for all windows to avoid loc lookups inside loops
+    # --- PRE-CALCULATE BASELINES ---
+    # We need to know: "What does SMH usually do over 63 days?" (The Unconditional Mean)
+    baselines = {} 
+    for t in tickers:
+        baselines[t] = {}
+        for fwd_w in FWD_WINDOWS:
+            # Calculate mean of the Sigma column for the whole history
+            col = f'FwdRet_{fwd_w}d_Sigma'
+            baselines[t][fwd_w] = processed_data[t][col].mean()
+
+    # Pre-fetch current ranks for lookups
     current_ranks = {}
     for t in tickers:
         current_ranks[t] = {}
@@ -153,55 +159,50 @@ def run_scanner(processed_data):
                 
                 if np.isnan(curr_t_rank) or np.isnan(curr_s_rank): continue
                 
-                # Check Extremity (Double Tail) - Slightly relaxed for multi-timeframe detection
                 t_tail = "UPPER" if curr_t_rank > 75 else ("LOWER" if curr_t_rank < 25 else "MID")
                 s_tail = "UPPER" if curr_s_rank > 75 else ("LOWER" if curr_s_rank < 25 else "MID")
                 
                 if t_tail == "MID" or s_tail == "MID": continue
 
-                # Prepare History for this Window
+                # Prepare History
                 t_rank_col = f'Rank_{trail_w}d'
                 s_rank_col = f'Rank_{trail_w}d'
                 
-                # We align indices first to find matching dates
-                # Note: We don't join forward columns yet to save memory/speed
                 common_idx = t_df.index.intersection(s_df.index)
-                
-                # Get historical ranks
                 hist_t_ranks = t_df.loc[common_idx, t_rank_col]
                 hist_s_ranks = s_df.loc[common_idx, s_rank_col]
                 
-                # Create Masks for Cumulative Tails
                 if t_tail == "UPPER": mask_t = hist_t_ranks >= curr_t_rank
                 else:                 mask_t = hist_t_ranks <= curr_t_rank
                     
                 if s_tail == "UPPER": mask_s = hist_s_ranks >= curr_s_rank
                 else:                 mask_s = hist_s_ranks <= curr_s_rank
                 
-                # The Valid Historical Dates
                 valid_dates_mask = mask_t & mask_s
                 valid_count = valid_dates_mask.sum()
                 
                 if valid_count < 10: continue
                 
                 # --- FORWARD WINDOW LOOP (The Payoff) ---
-                # Now we check all future outcomes for these valid dates
                 for fwd_w in FWD_WINDOWS:
-                    # Get the outcomes for the Target only (Signal outcomes don't matter, only its setup)
                     outcome_sigma_col = f'FwdRet_{fwd_w}d_Sigma'
                     outcome_raw_col   = f'FwdRet_{fwd_w}d_Raw'
                     
-                    # Extract values using the boolean mask
-                    # Shift logic is handled in pre-calc, so we just grab the row at the date of the signal
                     outcomes_sigma = t_df.loc[common_idx][valid_dates_mask][outcome_sigma_col].dropna()
                     outcomes_raw   = t_df.loc[common_idx][valid_dates_mask][outcome_raw_col].dropna()
                     
                     real_count = len(outcomes_sigma)
                     if real_count < 10: continue
 
-                    avg_sigma = outcomes_sigma.mean()
-                    avg_raw   = outcomes_raw.mean() * 100
-                    win_rate  = (outcomes_raw > 0).sum() / real_count * 100
+                    cond_avg_sigma = outcomes_sigma.mean()
+                    
+                    # --- ALPHA CALCULATION ---
+                    # Alpha = Conditional Mean - Baseline Mean
+                    baseline_sigma = baselines.get(target, {}).get(fwd_w, 0.0)
+                    alpha_sigma = cond_avg_sigma - baseline_sigma
+
+                    avg_raw_pct = outcomes_raw.mean() * 100
+                    win_rate    = (outcomes_raw > 0).sum() / real_count * 100
                     
                     results.append({
                         "Target": target,
@@ -211,8 +212,9 @@ def run_scanner(processed_data):
                         "Setup_Ranks": f"T:{int(curr_t_rank)}|S:{int(curr_s_rank)}",
                         "History": real_count,
                         "Win_Rate": win_rate,
-                        "Exp_Sigma": avg_sigma,
-                        "Exp_Return": avg_raw,
+                        "Excess_Sigma": alpha_sigma, # This is our new sorting metric
+                        "Raw_Sigma": cond_avg_sigma,
+                        "Exp_Return": avg_raw_pct,
                     })
 
     return pd.DataFrame(results)
@@ -221,14 +223,14 @@ def run_scanner(processed_data):
 # UI
 # -----------------------------------------------------------------------------
 def main():
-    st.set_page_config(layout="wide", page_title="Multi-Fractal Matrix")
-    st.title("⚡ Multi-Timeframe Matrix")
+    st.set_page_config(layout="wide", page_title="Multi-Fractal Alpha")
+    st.title("⚡ Multi-Timeframe Alpha Scanner")
     
     st.markdown("""
-    **Scanning 25 Combinations per Pair:**
-    * **Trailing (Setup):** 2d, 5d, 10d, 21d, 63d Ranks
-    * **Forward (Payoff):** 2d, 5d, 10d, 21d, 63d Returns
-    * **Logic:** Hierarchical Relationships + Cumulative Tail Analysis.
+    **Looking for Excess Return (Alpha):**
+    * Uses **Double Tail** logic on 25 Timeframe combinations.
+    * **Alpha** = (Avg Return of Signal) - (Avg Return of Ticker historically).
+    * This filters out strong uptrends (Beta) to find genuine **Edge**.
     """)
     
     # 1. INPUTS
@@ -237,11 +239,11 @@ def main():
         with col1:
             ticker_input = st.text_area("Universe", value=DEFAULT_TICKERS, height=100)
         with col2:
-            st.info("Filtering: |Sigma| > 0.35σ") # Bumped slightly for multi-window noise
-            run_btn = st.button("Run Multi-Fractal Scan", type="primary", use_container_width=True)
+            st.info("Filtering: |Excess| > 0.25σ") 
+            run_btn = st.button("Run Alpha Scan", type="primary", use_container_width=True)
 
     if run_btn:
-        with st.spinner("Calculating 25 Timeframe Combinations per pair..."):
+        with st.spinner("Calculating Baselines & 25x Combinations..."):
             # A. Process Data
             raw_data, fetch_time = get_batch_data(ticker_input)
             if not raw_data:
@@ -261,60 +263,61 @@ def main():
             # C. Formatting & Display
             st.divider()
             
-            # Filter Threshold (Stricter because we have 25x more data points)
-            SIGMA_THRESHOLD = 0.35
+            # Filter Threshold (Excess Return)
+            ALPHA_THRESHOLD = 0.25
             
-            bullish = df_results[df_results['Exp_Sigma'] > SIGMA_THRESHOLD].sort_values(by="Exp_Sigma", ascending=False)
-            bearish = df_results[df_results['Exp_Sigma'] < -SIGMA_THRESHOLD].sort_values(by="Exp_Sigma", ascending=True)
+            bullish = df_results[df_results['Excess_Sigma'] > ALPHA_THRESHOLD].sort_values(by="Excess_Sigma", ascending=False)
+            bearish = df_results[df_results['Excess_Sigma'] < -ALPHA_THRESHOLD].sort_values(by="Excess_Sigma", ascending=True)
 
             # --- DISPLAY BULLISH ---
-            st.subheader(f"🟢 Top Bullish Fractals (> +{SIGMA_THRESHOLD}σ)")
+            st.subheader(f"🟢 Top Alpha Signals (Excess > +{ALPHA_THRESHOLD}σ)")
             if not bullish.empty:
                 st.dataframe(
                     bullish.head(50).style.format({
                         "Win_Rate": "{:.1f}%",
-                        "Exp_Sigma": "+{:.2f}σ",
+                        "Excess_Sigma": "+{:.2f}σ",
+                        "Raw_Sigma": "{:.2f}σ",
                         "Exp_Return": "+{:.2f}%",
-                    }).background_gradient(subset=["Exp_Sigma"], cmap="Greens", vmin=0, vmax=1.5),
+                    }).background_gradient(subset=["Excess_Sigma"], cmap="Greens", vmin=0, vmax=1.0),
                     use_container_width=True,
-                    column_order=["Target", "Signal", "Setup_Window", "Fwd_Window", "Exp_Return", "Exp_Sigma", "Win_Rate", "History", "Setup_Ranks"]
+                    column_order=["Target", "Signal", "Setup_Window", "Fwd_Window", "Excess_Sigma", "Exp_Return", "Win_Rate", "History", "Setup_Ranks"]
                 )
             else:
-                st.info(f"No signals found > {SIGMA_THRESHOLD}σ")
+                st.info(f"No signals found > {ALPHA_THRESHOLD}σ")
 
             # --- DISPLAY BEARISH ---
-            st.subheader(f"🔴 Top Bearish Fractals (< -{SIGMA_THRESHOLD}σ)")
+            st.subheader(f"🔴 Top Bearish Signals (Excess < -{ALPHA_THRESHOLD}σ)")
             if not bearish.empty:
                 st.dataframe(
                     bearish.head(50).style.format({
                         "Win_Rate": "{:.1f}%",
-                        "Exp_Sigma": "{:.2f}σ",
+                        "Excess_Sigma": "{:.2f}σ",
+                        "Raw_Sigma": "{:.2f}σ",
                         "Exp_Return": "{:.2f}%",
-                    }).background_gradient(subset=["Exp_Sigma"], cmap="Reds_r", vmin=-1.5, vmax=0),
+                    }).background_gradient(subset=["Excess_Sigma"], cmap="Reds_r", vmin=-1.0, vmax=0),
                     use_container_width=True,
-                    column_order=["Target", "Signal", "Setup_Window", "Fwd_Window", "Exp_Return", "Exp_Sigma", "Win_Rate", "History", "Setup_Ranks"]
+                    column_order=["Target", "Signal", "Setup_Window", "Fwd_Window", "Excess_Sigma", "Exp_Return", "Win_Rate", "History", "Setup_Ranks"]
                 )
             else:
-                st.info(f"No signals found < -{SIGMA_THRESHOLD}σ")
+                st.info(f"No signals found < -{ALPHA_THRESHOLD}σ")
             
             # --- SCATTER SUMMARY ---
             st.divider()
-            st.subheader("Map of Timeframe Opportunities")
+            st.subheader("Map of Excess Edge")
             
             fig = px.scatter(
                 df_results, 
                 x="Win_Rate", 
                 y="Exp_Return", 
-                # Added Tooltip info for Setup/Fwd Windows
-                hover_data=["Target", "Signal", "Setup_Window", "Fwd_Window", "Exp_Sigma", "History", "Setup_Ranks"],
-                color="Exp_Sigma", 
+                hover_data=["Target", "Signal", "Setup_Window", "Fwd_Window", "Excess_Sigma", "Raw_Sigma", "History"],
+                color="Excess_Sigma", 
                 color_continuous_scale="RdBu",
-                title="Fractal Map: Win Rate vs Expected Return %"
+                title="Alpha Map: Win Rate vs Total Expected Return % (Color = Excess Sigma)"
             )
             
             fig.add_hline(y=0, line_dash="dash", line_color="gray", opacity=0.5)
             fig.add_vline(x=50, line_dash="dash", line_color="gray", opacity=0.5)
-            fig.update_layout(yaxis_title="Avg Return (%)")
+            fig.update_layout(yaxis_title="Avg Total Return (%)")
             st.plotly_chart(fig, use_container_width=True)
 
 if __name__ == "__main__":
