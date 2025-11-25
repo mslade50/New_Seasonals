@@ -104,8 +104,8 @@ def run_scanner(processed_data, rank_radius=2.0):
             
             # --- LOGIC FILTER 1: THE "DOUBLE TAIL" REQUIREMENT ---
             # Both tickers must be outside the 20-80 zone.
-            t_is_tail = (curr_t_rank < 20 or curr_t_rank > 80)
-            s_is_tail = (curr_s_rank < 20 or curr_s_rank > 80)
+            t_is_tail = (curr_t_rank < 25 or curr_t_rank > 75)
+            s_is_tail = (curr_s_rank < 25 or curr_s_rank > 75)
             
             if not (t_is_tail and s_is_tail):
                 continue
