@@ -138,8 +138,8 @@ def run_scanner(processed_data):
             
             # --- FILTER 1: EXTREMITY CHECK (Double Tail) ---
             # Both must be outside 20-80
-            t_tail = "UPPER" if curr_t_rank > 80 else ("LOWER" if curr_t_rank < 20 else "MID")
-            s_tail = "UPPER" if curr_s_rank > 80 else ("LOWER" if curr_s_rank < 20 else "MID")
+            t_tail = "UPPER" if curr_t_rank > 75 else ("LOWER" if curr_t_rank < 25 else "MID")
+            s_tail = "UPPER" if curr_s_rank > 75 else ("LOWER" if curr_s_rank < 25 else "MID")
             
             if t_tail == "MID" or s_tail == "MID":
                 continue
