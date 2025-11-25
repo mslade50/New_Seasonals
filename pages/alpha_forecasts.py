@@ -12,9 +12,9 @@ import itertools
 # CONFIGURATION
 # -----------------------------------------------------------------------------
 CSV_PATH = "seasonal_ranks.csv"
-FWD_WINDOWS = [5, 10, 21] # We focus on short-to-medium term alpha
+FWD_WINDOWS = [5, 10, 21] 
+RECENT_WINDOW_YEARS = 5  # The "Regime Check" Window
 
-# Fallback tickers if CSV is missing or empty
 FALLBACK_TICKERS = ["SPY", "QQQ", "IWM", "NVDA", "TSLA", "AAPL", "AMD", "MSFT", "GOOG", "AMZN", "META", "NFLX"]
 
 # -----------------------------------------------------------------------------
@@ -29,7 +29,6 @@ def load_seasonal_map():
 
     if df.empty: return {}, []
 
-    # Extract unique tickers from the CSV
     ticker_list = df['ticker'].unique().tolist()
 
     df["Date"] = pd.to_datetime(df["Date"], errors='coerce')
@@ -53,16 +52,10 @@ def get_sznl_val_series(ticker, dates, sznl_map):
 
 @st.cache_data(ttl=3600, show_spinner=True)
 def get_batch_data(ticker_list):
-    """
-    Downloads MAX history for internal scanning.
-    """
     tickers = list(set([t.strip().upper() for t in ticker_list]))
-    
-    if not tickers:
-        return {}, ""
+    if not tickers: return {}, ""
     
     data_dict = {}
-    
     progress_bar = st.progress(0)
     for i, t in enumerate(tickers):
         try:
@@ -90,38 +83,25 @@ def get_batch_data(ticker_list):
 # -----------------------------------------------------------------------------
 @st.cache_data(show_spinner=False)
 def calculate_internal_features(df, sznl_map, ticker):
-    """
-    Calculates the full suite of internal ranks + Forward Sigmas.
-    """
     df = df.copy()
     
-    # 1. Base Volatility (For Sigma Norm)
     df['LogRet'] = np.log(df['Close'] / df['Close'].shift(1))
     df['Vol_Daily'] = df['LogRet'].rolling(21).std()
 
-    # 2. Variable Calculation (Same as Heatmap Tool)
-    
-    # Returns
     for w in [5, 10, 21, 63, 126, 252]:
         df[f'Ret_{w}d'] = df['Close'].pct_change(w)
 
-    # Realized Vol
     for w in [21, 63]:
         df[f'RealVol_{w}d'] = df['LogRet'].rolling(w).std() * np.sqrt(252) * 100.0
     
-    # Vol Change
-    df['VolChange_5d']  = df['RealVol_21d'] - df['RealVol_63d'].shift(5) # Approx
+    df['VolChange_5d']  = df['RealVol_21d'] - df['RealVol_63d'].shift(5)
     df['VolChange_21d'] = df['RealVol_21d'] - df['RealVol_63d']
 
-    # Volume Ratios
     for w in [5, 21]:
         df[f'VolRatio_{w}d'] = df['Volume'].rolling(w).mean() / df['Volume'].rolling(63).mean()
 
-    # Seasonality
     df['Seasonal'] = get_sznl_val_series(ticker, df.index, sznl_map)
 
-    # 3. RANK TRANSFORMATION
-    # These are the "X" and "Y" variables we will scan
     vars_to_rank = [
         'Seasonal',
         'Ret_5d', 'Ret_10d', 'Ret_21d', 'Ret_63d', 'Ret_252d',
@@ -133,67 +113,64 @@ def calculate_internal_features(df, sznl_map, ticker):
     rank_cols = []
     for v in vars_to_rank:
         rank_col = v + '_Rank'
-        # Seasonality is already 0-100, others need ranking
         if v == 'Seasonal':
-            df[rank_col] = df[v] # Already ranked 0-100
+            df[rank_col] = df[v]
         else:
             df[rank_col] = df[v].expanding(min_periods=252).rank(pct=True) * 100.0
         rank_cols.append(rank_col)
 
-    # 4. FORWARD OUTCOMES (Z-Axis)
-    # Calculate Sigma Returns for 5, 10, 21 days
     for w in FWD_WINDOWS:
         col_raw = f'FwdRet_{w}d_Raw'
         col_sigma = f'FwdRet_{w}d_Sigma'
-        
         df[col_raw] = (df['Close'].shift(-w) / df['Close']) - 1.0
         expected_move = df['Vol_Daily'] * np.sqrt(w)
         df[col_sigma] = df[col_raw] / expected_move
 
     df = df.dropna(subset=['Vol_Daily'] + rank_cols)
-    
     return df, rank_cols
 
 # -----------------------------------------------------------------------------
-# ALGORITHM: INTERNAL FRACTAL SCANNER
+# ALGORITHM: REGIME-AWARE SCANNER
 # -----------------------------------------------------------------------------
 def run_internal_scanner(data_dict, sznl_map):
     results = []
     
-    # We iterate through every ticker
     for ticker, df in data_dict.items():
-        
-        # 1. Calc Features for this ticker
         processed_df, rank_cols = calculate_internal_features(df, sznl_map, ticker)
         if processed_df.empty: continue
         
-        # 2. Pre-calculate Unconditional Baselines (for Alpha)
-        baselines = {}
-        for w in FWD_WINDOWS:
-            baselines[w] = processed_df[f'FwdRet_{w}d_Sigma'].mean()
+        # --- BASELINE CALCULATION (Full vs Recent) ---
+        # We need separate baselines because the market might have been higher/lower beta recently
+        cutoff_date = processed_df.index[-1] - pd.DateOffset(years=RECENT_WINDOW_YEARS)
         
-        # 3. Get Current Ranks (The "Now")
+        full_df = processed_df
+        recent_df = processed_df[processed_df.index >= cutoff_date]
+        
+        baselines_full = {}
+        baselines_recent = {}
+        
+        for w in FWD_WINDOWS:
+            col = f'FwdRet_{w}d_Sigma'
+            baselines_full[w]   = full_df[col].mean()
+            # If recent_df is empty/small, fallback to full
+            baselines_recent[w] = recent_df[col].mean() if len(recent_df) > 50 else baselines_full[w]
+        
+        # Get Current State
         current_state = processed_df.iloc[-1]
         
-        # 4. Generate All Combinations of Feature Pairs (X, Y)
-        # itertools.combinations(rank_cols, 2) gives all unique pairs
         feature_pairs = list(itertools.combinations(rank_cols, 2))
         
         for x_col, y_col in feature_pairs:
             
-            # --- FILTER 1: EXTREMITY CHECK (Double Tail) ---
             curr_x = current_state[x_col]
             curr_y = current_state[y_col]
             
-            # Tail Logic (Same as Cross Asset: 25/75)
             x_tail = "UPPER" if curr_x > 75 else ("LOWER" if curr_x < 25 else "MID")
             y_tail = "UPPER" if curr_y > 75 else ("LOWER" if curr_y < 25 else "MID")
             
-            # Optimization: If either is MID, skip immediately
             if x_tail == "MID" or y_tail == "MID": continue
             
-            # --- FILTER 2: HISTORICAL MATCHING ---
-            # Create masks based on tail direction
+            # Create Masks
             if x_tail == "UPPER": mask_x = processed_df[x_col] >= curr_x
             else:                 mask_x = processed_df[x_col] <= curr_x
                 
@@ -201,28 +178,56 @@ def run_internal_scanner(data_dict, sznl_map):
             else:                 mask_y = processed_df[y_col] <= curr_y
             
             valid_mask = mask_x & mask_y
-            match_count = valid_mask.sum()
             
-            if match_count < 10: continue
+            # Split into Full and Recent
+            mask_full = valid_mask
+            mask_recent = valid_mask & (processed_df.index >= cutoff_date)
             
-            # --- FILTER 3: CHECK FORWARD OUTCOMES ---
+            match_count_full = mask_full.sum()
+            match_count_recent = mask_recent.sum()
+            
+            if match_count_full < 10: continue
+            
+            # --- CALCULATE ALPHA FOR BOTH REGIMES ---
             for fwd_w in FWD_WINDOWS:
+                col_sigma = f'FwdRet_{fwd_w}d_Sigma'
+                col_raw   = f'FwdRet_{fwd_w}d_Raw'
                 
-                # Get outcomes for the matched dates
-                outcomes_sigma = processed_df.loc[valid_mask, f'FwdRet_{fwd_w}d_Sigma']
-                outcomes_raw   = processed_df.loc[valid_mask, f'FwdRet_{fwd_w}d_Raw']
+                # FULL STATS
+                outcomes_sigma = processed_df.loc[mask_full, col_sigma]
+                outcomes_raw   = processed_df.loc[mask_full, col_raw]
                 
-                real_count = outcomes_sigma.count() # Handle potential NaNs at end of df
+                real_count = outcomes_sigma.count()
                 if real_count < 10: continue
                 
-                cond_avg_sigma = outcomes_sigma.mean()
+                avg_sigma_full = outcomes_sigma.mean()
+                alpha_full = avg_sigma_full - baselines_full[fwd_w]
                 
-                # ALPHA = Conditional - Unconditional
-                alpha_sigma = cond_avg_sigma - baselines[fwd_w]
+                win_rate = (outcomes_raw > 0).sum() / real_count * 100
+                exp_return = outcomes_raw.mean() * 100
                 
-                avg_raw_pct = outcomes_raw.mean() * 100
-                win_rate    = (outcomes_raw > 0).sum() / real_count * 100
-                
+                # RECENT STATS
+                # Check if we have enough recent data to calculate stats
+                if match_count_recent < 3:
+                    alpha_recent = np.nan # Not enough recent signals
+                    status = "👻 Ghost"   # Signal hasn't fired recently
+                else:
+                    outcomes_sigma_recent = processed_df.loc[mask_recent, col_sigma]
+                    avg_sigma_recent = outcomes_sigma_recent.mean()
+                    alpha_recent = avg_sigma_recent - baselines_recent[fwd_w]
+                    
+                    # DETERMINE STATUS
+                    # Bullish Signal Logic
+                    if alpha_full > 0:
+                        if alpha_recent < 0: status = "⚠️ Decaying"
+                        elif alpha_recent > (alpha_full * 1.2): status = "🚀 Accelerating"
+                        else: status = "✅ Stable"
+                    # Bearish Signal Logic
+                    else:
+                        if alpha_recent > 0: status = "⚠️ Decaying"
+                        elif alpha_recent < (alpha_full * 1.2): status = "🚀 Accelerating" # More negative
+                        else: status = "✅ Stable"
+
                 results.append({
                     "Ticker": ticker,
                     "Feature_X": x_col.replace("_Rank", ""),
@@ -230,38 +235,49 @@ def run_internal_scanner(data_dict, sznl_map):
                     "Current_Setup": f"X:{int(curr_x)} | Y:{int(curr_y)}",
                     "Fwd_Horizon": f"{fwd_w}d",
                     "History": real_count,
+                    "Recent_Count": match_count_recent,
                     "Win_Rate": win_rate,
-                    "Excess_Sigma": alpha_sigma,
-                    "Exp_Return": avg_raw_pct
+                    "Full_Excess": alpha_full,
+                    "Recent_Excess": alpha_recent,
+                    "Status": status,
+                    "Exp_Return": exp_return
                 })
                 
     return pd.DataFrame(results)
 
 def generate_ensemble(df_results, alpha_threshold=0.25):
     """
-    Aggregates signals for the final dashboard.
+    Aggregates signals, but deprioritizes 'Decaying' or 'Ghost' signals.
     """
     if df_results.empty: return pd.DataFrame()
     
-    # 1. Bullish: Excess > Threshold
-    bull_mask = df_results['Excess_Sigma'] > alpha_threshold
+    # FILTER: Exclude Decaying/Ghost signals from the "Conviction Score"
+    # We want to build the ensemble only on Stable or Accelerating edge.
+    valid_status = ["✅ Stable", "🚀 Accelerating"]
+    active_signals = df_results[df_results['Status'].isin(valid_status)].copy()
     
-    # 2. Bearish: Excess < -Threshold AND Negative Returns (Safety)
-    bear_mask = (df_results['Excess_Sigma'] < -alpha_threshold) & (df_results['Exp_Return'] < 0)
+    if active_signals.empty: return pd.DataFrame()
+
+    # 1. Bullish Candidates
+    bull_mask = active_signals['Full_Excess'] > alpha_threshold
     
-    valid_signals = df_results[bull_mask | bear_mask].copy()
+    # 2. Bearish Candidates
+    bear_mask = (active_signals['Full_Excess'] < -alpha_threshold) & (active_signals['Exp_Return'] < 0)
+    
+    valid_signals = active_signals[bull_mask | bear_mask].copy()
     if valid_signals.empty: return pd.DataFrame()
     
     # 3. Aggregate
     ensemble = valid_signals.groupby(['Ticker', 'Fwd_Horizon']).agg({
-        'Excess_Sigma': 'sum',
+        'Full_Excess': 'sum',      # Cumulative Alpha
+        'Recent_Excess': 'mean',   # Avg Recent Strength
         'Win_Rate': 'mean',
         'Exp_Return': 'mean',
-        'Feature_X': 'count' # Just counting rows gives breadth of combinations
+        'Feature_X': 'count'
     }).reset_index()
     
     ensemble.rename(columns={
-        'Excess_Sigma': 'Conviction_Score',
+        'Full_Excess': 'Conviction_Score',
         'Feature_X': 'Signal_Breadth'
     }, inplace=True)
     
@@ -274,45 +290,41 @@ def generate_ensemble(df_results, alpha_threshold=0.25):
 # UI
 # -----------------------------------------------------------------------------
 def main():
-    st.set_page_config(layout="wide", page_title="Internal Alpha Forecasts")
-    st.title("🔮 Internal Alpha Forecasts")
+    st.set_page_config(layout="wide", page_title="Regime-Aware Alpha")
+    st.title("🔮 Regime-Aware Alpha Forecasts")
     
     st.markdown("""
-    **The "Self-Scanner":**
-    Instead of checking correlations between *different* assets, this tool scans **internal relationships** within each stock.
+    **The "Stability" Test:**
+    We compare the signal's performance over the **Last 5 Years** vs. **25 Years**.
     
-    * **Logic:** Checks combinations of **Seasonality, Trailing Returns, Volatility, and Volume**.
-    * **Trigger:** Flags setups where **two internal metrics are simultaneously extreme** (Double Tail).
-    * **Alpha:** Calculates if the stock behaves differently (Excess Sigma) in this specific state compared to its baseline.
+    * ✅ **Stable:** Edge is consistent.
+    * 🚀 **Accelerating:** Edge is getting stronger recently.
+    * ⚠️ **Decaying:** Edge has disappeared in recent years.
+    * 👻 **Ghost:** Signal hasn't triggered in the last 5 years.
     """)
     
-    # Load tickers from CSV
     sznl_map, csv_tickers = load_seasonal_map()
-    
-    # Use CSV tickers if available, otherwise fallback
     active_tickers = csv_tickers if csv_tickers else FALLBACK_TICKERS
     active_tickers_str = ", ".join(active_tickers)
 
     with st.expander("⚙️ Forecast Settings", expanded=True):
         col1, col2 = st.columns([3, 1])
         with col1:
-            st.caption(f"Scanning {len(active_tickers)} Tickers found in seasonal_ranks.csv")
+            st.caption(f"Scanning {len(active_tickers)} Tickers")
             st.text_area("Active Universe (Read-Only)", value=active_tickers_str, height=70, disabled=True)
         with col2:
             st.info("Filtering: |Excess| > 0.25σ") 
-            run_btn = st.button("Run Alpha Forecast", type="primary", use_container_width=True)
+            run_btn = st.button("Run Regime Scan", type="primary", use_container_width=True)
 
     if run_btn:
-        with st.spinner(f"Downloading data & Running internal combinations for {len(active_tickers)} tickers..."):
+        with st.spinner(f"Downloading data & Running Regime Checks..."):
             
-            # A. Process Data
             raw_data, fetch_time = get_batch_data(active_tickers)
             if not raw_data:
                 st.error("No valid data found.")
                 return
             st.success(f"✅ Data Refreshed: {fetch_time}")
             
-            # B. Run Algorithm
             df_results = run_internal_scanner(raw_data, sznl_map)
             
             if df_results.empty:
@@ -320,14 +332,14 @@ def main():
                 return
             
             # --- GENERATE ENSEMBLE ---
+            # Note: The ensemble calculation now AUTO-REMOVES Decaying/Ghost signals
             ensemble_df = generate_ensemble(df_results, alpha_threshold=0.25)
             
-            # Top Lists
             top_bulls = ensemble_df[ensemble_df['Conviction_Score'] > 0].head(10)
             top_bears = ensemble_df[ensemble_df['Conviction_Score'] < 0].head(10)
             
             # --- DISPLAY ENSEMBLE ---
-            st.header("🏆 Top High-Conviction Forecasts")
+            st.header("🏆 Top Validated Forecasts (Stable/Accelerating Only)")
             
             c1, c2 = st.columns(2)
             
@@ -337,77 +349,88 @@ def main():
                     st.dataframe(
                         top_bulls.style.format({
                             'Conviction_Score': "{:.2f}",
+                            'Recent_Excess': "+{:.2f}σ",
                             'Win_Rate': "{:.1f}%",
                             'Exp_Return': "+{:.2f}%",
                         }).background_gradient(subset=['Conviction_Score'], cmap='Greens'),
                         use_container_width=True
                     )
                 else:
-                    st.info("No strong bullish forecasts.")
+                    st.info("No strong, stable bullish forecasts.")
                     
             with c2:
                 st.subheader("🐻 Bearish Forecasts")
-                st.caption("Safety: Only Includes Negative Expectancy")
                 if not top_bears.empty:
                     st.dataframe(
                         top_bears.style.format({
                             'Conviction_Score': "{:.2f}",
+                            'Recent_Excess': "{:.2f}σ",
                             'Win_Rate': "{:.1f}%",
                             'Exp_Return': "{:.2f}%",
                         }).background_gradient(subset=['Conviction_Score'], cmap='Reds_r'),
                         use_container_width=True
                     )
                 else:
-                    st.info("No strong bearish forecasts.")
+                    st.info("No strong, stable bearish forecasts.")
 
             st.divider()
             
             # --- DISPLAY DETAILED TABLE ---
-            st.subheader("🔎 Detailed Signal Breakdown")
+            st.subheader("🔎 Detailed Signal Regime Analysis")
             
             ALPHA_THRESHOLD = 0.25
             
-            bullish_details = df_results[df_results['Excess_Sigma'] > ALPHA_THRESHOLD].sort_values(by="Excess_Sigma", ascending=False)
+            # Show all signals here, even the Decaying ones, so user can see what's failing
+            bullish_details = df_results[df_results['Full_Excess'] > ALPHA_THRESHOLD].sort_values(by="Full_Excess", ascending=False)
             
-            # Bearish with Safety Filter
             bearish_details = df_results[
-                (df_results['Excess_Sigma'] < -ALPHA_THRESHOLD) & 
+                (df_results['Full_Excess'] < -ALPHA_THRESHOLD) & 
                 (df_results['Exp_Return'] < 0)
-            ].sort_values(by="Excess_Sigma", ascending=True)
+            ].sort_values(by="Full_Excess", ascending=True)
 
-            tab1, tab2 = st.tabs(["Bullish Details", "Bearish Details"])
+            tab1, tab2 = st.tabs(["Bullish Signals", "Bearish Signals"])
             
+            # Column Order for Details
+            cols = ["Ticker", "Fwd_Horizon", "Status", "Full_Excess", "Recent_Excess", "Feature_X", "Feature_Y", "History", "Recent_Count"]
+
             with tab1:
                 st.dataframe(
                     bullish_details.head(100).style.format({
-                        "Win_Rate": "{:.1f}%", "Excess_Sigma": "+{:.2f}σ", "Exp_Return": "+{:.2f}%"
-                    }).background_gradient(subset=["Excess_Sigma"], cmap="Greens", vmin=0, vmax=1.0),
+                        "Full_Excess": "+{:.2f}σ", "Recent_Excess": "{:.2f}σ"
+                    }).map(lambda x: "color: red" if "Decaying" in str(x) else ("color: green" if "Accelerating" in str(x) else ""), subset=["Status"]),
                     use_container_width=True,
-                    column_order=["Ticker", "Fwd_Horizon", "Feature_X", "Feature_Y", "Excess_Sigma", "Exp_Return", "Win_Rate", "History", "Current_Setup"]
+                    column_order=cols
                 )
                 
             with tab2:
                 st.dataframe(
                     bearish_details.head(100).style.format({
-                        "Win_Rate": "{:.1f}%", "Excess_Sigma": "{:.2f}σ", "Exp_Return": "{:.2f}%"
-                    }).background_gradient(subset=["Excess_Sigma"], cmap="Reds_r", vmin=-1.0, vmax=0),
+                        "Full_Excess": "{:.2f}σ", "Recent_Excess": "{:.2f}σ"
+                    }).map(lambda x: "color: red" if "Decaying" in str(x) else ("color: green" if "Accelerating" in str(x) else ""), subset=["Status"]),
                     use_container_width=True,
-                    column_order=["Ticker", "Fwd_Horizon", "Feature_X", "Feature_Y", "Excess_Sigma", "Exp_Return", "Win_Rate", "History", "Current_Setup"]
+                    column_order=cols
                 )
             
             # --- SCATTER SUMMARY ---
             st.divider()
             fig = px.scatter(
                 df_results, 
-                x="Win_Rate", 
-                y="Exp_Return", 
-                hover_data=["Ticker", "Feature_X", "Feature_Y", "Current_Setup", "Excess_Sigma", "History"],
-                color="Excess_Sigma", 
-                color_continuous_scale="RdBu",
-                title="Forecast Map: Win Rate vs Expected Return %"
+                x="Full_Excess", 
+                y="Recent_Excess", 
+                hover_data=["Ticker", "Status", "Feature_X", "Feature_Y"],
+                color="Status", 
+                color_discrete_map={
+                    "✅ Stable": "blue",
+                    "🚀 Accelerating": "green",
+                    "⚠️ Decaying": "red",
+                    "👻 Ghost": "gray"
+                },
+                title="Regime Stability Map: Historic Alpha vs Recent Alpha"
             )
-            fig.add_hline(y=0, line_dash="dash", line_color="gray", opacity=0.5)
-            fig.add_vline(x=50, line_dash="dash", line_color="gray", opacity=0.5)
+            # Add identity line (Recent = Historic)
+            fig.add_shape(type="line", x0=-2, y0=-2, x1=2, y1=2, line=dict(color="gray", dash="dash"))
+            
+            fig.update_layout(xaxis_title="Full History Alpha (25y)", yaxis_title="Recent Alpha (5y)")
             st.plotly_chart(fig, use_container_width=True)
 
 if __name__ == "__main__":
