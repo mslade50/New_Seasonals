@@ -147,7 +147,7 @@ def run_scanner(processed_data):
             
             s_df = processed_data[signal]
             
-            # Align indices once per pair to save time
+            # Align indices once per pair
             common_idx = t_df.index.intersection(s_df.index)
             if len(common_idx) < 252: continue
             
@@ -155,8 +155,6 @@ def run_scanner(processed_data):
             s_subset = s_df.loc[common_idx]
 
             # --- NESTED WINDOW LOOPS (125 Combinations) ---
-            
-            # 1. Target Lookback Loop
             for t_w in TRAIL_WINDOWS:
                 curr_t_rank = current_ranks.get(target, {}).get(t_w, np.nan)
                 if np.isnan(curr_t_rank): continue
@@ -164,13 +162,10 @@ def run_scanner(processed_data):
                 t_tail = "UPPER" if curr_t_rank > 75 else ("LOWER" if curr_t_rank < 25 else "MID")
                 if t_tail == "MID": continue
                 
-                t_rank_col = f'Rank_{t_w}d'
-                hist_t_ranks = t_subset[t_rank_col]
-                
+                hist_t_ranks = t_subset[f'Rank_{t_w}d']
                 if t_tail == "UPPER": mask_t = hist_t_ranks >= curr_t_rank
                 else:                 mask_t = hist_t_ranks <= curr_t_rank
 
-                # 2. Signal Lookback Loop (Decoupled from Target)
                 for s_w in TRAIL_WINDOWS:
                     curr_s_rank = current_ranks.get(signal, {}).get(s_w, np.nan)
                     if np.isnan(curr_s_rank): continue
@@ -178,32 +173,23 @@ def run_scanner(processed_data):
                     s_tail = "UPPER" if curr_s_rank > 75 else ("LOWER" if curr_s_rank < 25 else "MID")
                     if s_tail == "MID": continue
                     
-                    s_rank_col = f'Rank_{s_w}d'
-                    hist_s_ranks = s_subset[s_rank_col]
-                    
+                    hist_s_ranks = s_subset[f'Rank_{s_w}d']
                     if s_tail == "UPPER": mask_s = hist_s_ranks >= curr_s_rank
                     else:                 mask_s = hist_s_ranks <= curr_s_rank
                     
                     # Combined Mask
                     valid_dates_mask = mask_t & mask_s
                     valid_count = valid_dates_mask.sum()
-                    
                     if valid_count < 10: continue
                 
-                    # 3. Forward Payoff Loop
                     for fwd_w in FWD_WINDOWS:
-                        outcome_sigma_col = f'FwdRet_{fwd_w}d_Sigma'
-                        outcome_raw_col   = f'FwdRet_{fwd_w}d_Raw'
-                        
-                        outcomes_sigma = t_subset[valid_dates_mask][outcome_sigma_col].dropna()
-                        outcomes_raw   = t_subset[valid_dates_mask][outcome_raw_col].dropna()
+                        outcomes_sigma = t_subset[valid_dates_mask][f'FwdRet_{fwd_w}d_Sigma'].dropna()
+                        outcomes_raw   = t_subset[valid_dates_mask][f'FwdRet_{fwd_w}d_Raw'].dropna()
                         
                         real_count = len(outcomes_sigma)
                         if real_count < 10: continue
 
                         cond_avg_sigma = outcomes_sigma.mean()
-                        
-                        # Alpha Calculation
                         baseline_sigma = baselines.get(target, {}).get(fwd_w, 0.0)
                         alpha_sigma = cond_avg_sigma - baseline_sigma
 
@@ -213,9 +199,9 @@ def run_scanner(processed_data):
                         results.append({
                             "Target": target,
                             "Signal": signal,
-                            "T_Lookback": f"{t_w}d", # Setup Part 1
-                            "S_Lookback": f"{s_w}d", # Setup Part 2
-                            "Fwd_Horizon": f"{fwd_w}d", # Payoff
+                            "T_Lookback": f"{t_w}d", 
+                            "S_Lookback": f"{s_w}d",
+                            "Fwd_Horizon": f"{fwd_w}d", 
                             "Setup_Ranks": f"T:{int(curr_t_rank)}|S:{int(curr_s_rank)}",
                             "History": real_count,
                             "Win_Rate": win_rate,
@@ -226,6 +212,45 @@ def run_scanner(processed_data):
 
     return pd.DataFrame(results)
 
+def generate_ensemble(df_results, alpha_threshold=0.25):
+    """
+    Aggregates thousands of signals into a 'Top Pick' list.
+    Grouping by: Target + Forward Horizon
+    """
+    if df_results.empty: return pd.DataFrame()
+    
+    # 1. Filter for statistically significant Alpha
+    valid_signals = df_results[ np.abs(df_results['Excess_Sigma']) > alpha_threshold ].copy()
+    
+    if valid_signals.empty: return pd.DataFrame()
+    
+    # 2. Group By Target & Horizon
+    # We aggregate:
+    # - Count: Breadth of signals (how many lookback combos agree?)
+    # - Sum Excess Sigma: Total "Pressure" on the price
+    # - Mean Win Rate: Reliability
+    ensemble = valid_signals.groupby(['Target', 'Fwd_Horizon']).agg({
+        'Excess_Sigma': 'sum',      # Cumulative Alpha
+        'Win_Rate': 'mean',         # Average Reliability
+        'Exp_Return': 'mean',       # Average Expected Return %
+        'Signal': 'nunique',        # Count of distinct tickers signaling
+        'T_Lookback': 'count'       # Count of total setup combinations
+    }).reset_index()
+    
+    # Rename columns for display
+    ensemble.rename(columns={
+        'Excess_Sigma': 'Conviction_Score',
+        'Signal': 'Confirming_Tickers',
+        'T_Lookback': 'Total_Signals'
+    }, inplace=True)
+    
+    # 3. Sort by Absolute Conviction
+    # We want the strongest DIRECTIONAL bias (High Pos or High Neg)
+    ensemble['Abs_Score'] = ensemble['Conviction_Score'].abs()
+    ensemble = ensemble.sort_values('Abs_Score', ascending=False).drop(columns=['Abs_Score'])
+    
+    return ensemble
+
 # -----------------------------------------------------------------------------
 # UI
 # -----------------------------------------------------------------------------
@@ -234,24 +259,22 @@ def main():
     st.title("⚡ Multi-Timeframe Alpha Scanner")
     
     st.markdown("""
-    **Scanning 125 Combinations per Pair:**
-    * **Decoupled Setup:** Target Lookback ($T_{win}$) and Signal Lookback ($S_{win}$) are independent.
-    * **Example:** *Is SPY (63d Trend) affected by TLT (2d Shock)?*
-    * **Alpha:** Excess Sigma vs Unconditional History.
+    **Ensemble Prediction Engine:**
+    * **1. Scan:** Checks **125 combinations** per pair for structural alpha.
+    * **2. Aggregate:** Sums the "Excess Alpha" of all valid signals to create a **Conviction Score**.
+    * **3. Rank:** Displays the strongest **Confluence** of signals (Breadth + Strength).
     """)
     
-    # 1. INPUTS
     with st.expander("⚙️ Screener Settings", expanded=True):
         col1, col2 = st.columns([3, 1])
         with col1:
             ticker_input = st.text_area("Universe", value=DEFAULT_TICKERS, height=100)
         with col2:
             st.info("Filtering: |Excess| > 0.25σ") 
-            run_btn = st.button("Run Alpha Scan", type="primary", use_container_width=True)
+            run_btn = st.button("Run Ensemble Scan", type="primary", use_container_width=True)
 
     if run_btn:
-        with st.spinner("Calculating 125x Combinations per pair (this may take 15s)..."):
-            # A. Process Data
+        with st.spinner("Crunching 125x Combinations & Building Ensemble..."):
             raw_data, fetch_time = get_batch_data(ticker_input)
             if not raw_data:
                 st.error("No valid data found.")
@@ -259,73 +282,80 @@ def main():
             st.success(f"✅ Data Refreshed: {fetch_time}")
             
             processed = calculate_features(raw_data)
-            
-            # B. Run Algorithm
             df_results = run_scanner(processed)
             
             if df_results.empty:
                 st.warning("No opportunities found matching criteria.")
                 return
             
-            # C. Formatting & Display
+            # --- GENERATE ENSEMBLE ---
+            ensemble_df = generate_ensemble(df_results, alpha_threshold=0.25)
+            
+            # Separate into Bullish / Bearish Ensembles
+            top_bulls = ensemble_df[ensemble_df['Conviction_Score'] > 0].head(5)
+            top_bears = ensemble_df[ensemble_df['Conviction_Score'] < 0].head(5)
+            
+            # --- DISPLAY ENSEMBLE ---
+            st.header("🏆 Top 5 High-Conviction Setups")
+            
+            c1, c2 = st.columns(2)
+            
+            with c1:
+                st.subheader("🚀 Strongest Bullish Confluence")
+                if not top_bulls.empty:
+                    st.dataframe(
+                        top_bulls.style.format({
+                            'Conviction_Score': "{:.2f}",
+                            'Win_Rate': "{:.1f}%",
+                            'Exp_Return': "+{:.2f}%",
+                        }).background_gradient(subset=['Conviction_Score'], cmap='Greens'),
+                        use_container_width=True
+                    )
+                else:
+                    st.info("No strong bullish confluence found.")
+                    
+            with c2:
+                st.subheader("bearish Strongest Bearish Confluence")
+                if not top_bears.empty:
+                    st.dataframe(
+                        top_bears.style.format({
+                            'Conviction_Score': "{:.2f}",
+                            'Win_Rate': "{:.1f}%",
+                            'Exp_Return': "{:.2f}%",
+                        }).background_gradient(subset=['Conviction_Score'], cmap='Reds_r'),
+                        use_container_width=True
+                    )
+                else:
+                    st.info("No strong bearish confluence found.")
+
             st.divider()
             
-            # Filter Threshold (Excess Return)
-            ALPHA_THRESHOLD = 0.25
+            # --- DISPLAY DETAILED TABLE (The "Homework") ---
+            st.subheader("🔎 Detailed Signal Logs (Under the Hood)")
             
-            bullish = df_results[df_results['Excess_Sigma'] > ALPHA_THRESHOLD].sort_values(by="Excess_Sigma", ascending=False)
-            bearish = df_results[df_results['Excess_Sigma'] < -ALPHA_THRESHOLD].sort_values(by="Excess_Sigma", ascending=True)
+            ALPHA_THRESHOLD = 0.25
+            bullish_details = df_results[df_results['Excess_Sigma'] > ALPHA_THRESHOLD].sort_values(by="Excess_Sigma", ascending=False)
+            bearish_details = df_results[df_results['Excess_Sigma'] < -ALPHA_THRESHOLD].sort_values(by="Excess_Sigma", ascending=True)
 
-            # --- DISPLAY BULLISH ---
-            st.subheader(f"🟢 Top Bullish Alpha (Excess > +{ALPHA_THRESHOLD}σ)")
-            if not bullish.empty:
+            tab1, tab2 = st.tabs(["Individual Bull Signals", "Individual Bear Signals"])
+            
+            with tab1:
                 st.dataframe(
-                    bullish.head(50).style.format({
-                        "Win_Rate": "{:.1f}%",
-                        "Excess_Sigma": "+{:.2f}σ",
-                        "Raw_Sigma": "{:.2f}σ",
-                        "Exp_Return": "+{:.2f}%",
+                    bullish_details.head(100).style.format({
+                        "Win_Rate": "{:.1f}%", "Excess_Sigma": "+{:.2f}σ", "Exp_Return": "+{:.2f}%"
                     }).background_gradient(subset=["Excess_Sigma"], cmap="Greens", vmin=0, vmax=1.0),
                     use_container_width=True,
-                    column_order=["Target", "Signal", "T_Lookback", "S_Lookback", "Fwd_Horizon", "Excess_Sigma", "Exp_Return", "Win_Rate", "History", "Setup_Ranks"]
+                    column_order=["Target", "Signal", "T_Lookback", "S_Lookback", "Fwd_Horizon", "Excess_Sigma", "Exp_Return", "Win_Rate", "History"]
                 )
-            else:
-                st.info(f"No signals found > {ALPHA_THRESHOLD}σ")
-
-            # --- DISPLAY BEARISH ---
-            st.subheader(f"🔴 Top Bearish Alpha (Excess < -{ALPHA_THRESHOLD}σ)")
-            if not bearish.empty:
+                
+            with tab2:
                 st.dataframe(
-                    bearish.head(50).style.format({
-                        "Win_Rate": "{:.1f}%",
-                        "Excess_Sigma": "{:.2f}σ",
-                        "Raw_Sigma": "{:.2f}σ",
-                        "Exp_Return": "{:.2f}%",
+                    bearish_details.head(100).style.format({
+                        "Win_Rate": "{:.1f}%", "Excess_Sigma": "{:.2f}σ", "Exp_Return": "{:.2f}%"
                     }).background_gradient(subset=["Excess_Sigma"], cmap="Reds_r", vmin=-1.0, vmax=0),
                     use_container_width=True,
-                    column_order=["Target", "Signal", "T_Lookback", "S_Lookback", "Fwd_Horizon", "Excess_Sigma", "Exp_Return", "Win_Rate", "History", "Setup_Ranks"]
+                    column_order=["Target", "Signal", "T_Lookback", "S_Lookback", "Fwd_Horizon", "Excess_Sigma", "Exp_Return", "Win_Rate", "History"]
                 )
-            else:
-                st.info(f"No signals found < -{ALPHA_THRESHOLD}σ")
-            
-            # --- SCATTER SUMMARY ---
-            st.divider()
-            st.subheader("Map of Excess Edge")
-            
-            fig = px.scatter(
-                df_results, 
-                x="Win_Rate", 
-                y="Exp_Return", 
-                hover_data=["Target", "Signal", "T_Lookback", "S_Lookback", "Fwd_Horizon", "Excess_Sigma", "Raw_Sigma", "History"],
-                color="Excess_Sigma", 
-                color_continuous_scale="RdBu",
-                title="Alpha Map: Win Rate vs Total Expected Return % (Color = Excess Sigma)"
-            )
-            
-            fig.add_hline(y=0, line_dash="dash", line_color="gray", opacity=0.5)
-            fig.add_vline(x=50, line_dash="dash", line_color="gray", opacity=0.5)
-            fig.update_layout(yaxis_title="Avg Total Return (%)")
-            st.plotly_chart(fig, use_container_width=True)
 
 if __name__ == "__main__":
     main()
