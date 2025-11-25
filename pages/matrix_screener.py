@@ -8,7 +8,6 @@ import plotly.express as px
 # -----------------------------------------------------------------------------
 # CONFIGURATION
 # -----------------------------------------------------------------------------
-# Updated Ticker List with requested additions (Deduplicated)
 DEFAULT_TICKERS = """
 SPY, QQQ, IWM, TLT, GLD, USO, UUP, HYG, XLF, XLE, XLK, XBI, SMH, ARKK, BTC-USD,
 JPM, AAPL, GOOG, XOM, NVDA, TSLA, KO, UVXY, XLP, XLV, XLU, UNG, MSFT, WMT, AMD
@@ -31,7 +30,6 @@ def get_batch_data(ticker_list):
     
     data_dict = {}
     
-    # We download individually to ensure clean data structures
     progress_bar = st.progress(0)
     for i, t in enumerate(tickers):
         try:
@@ -73,12 +71,12 @@ def calculate_features(data_dict):
         
     return processed
 
-def run_scanner(processed_data, rank_radius=15.0):
+def run_scanner(processed_data, rank_radius=2.0):
     """
     Iterates through every pair. 
     Applies logic:
-    1. FILTER: Ignore if BOTH ranks are 'Middle' (20-80).
-    2. FILTER: Min samples 15, unless Ranks are Extreme (>95 or <5).
+    1. FILTER: Both Target AND Signal must be in Tails (<20 or >80).
+    2. FILTER: Min samples 15, unless BOTH are Super Extreme (<5 or >95).
     """
     results = []
     tickers = list(processed_data.keys())
@@ -104,10 +102,12 @@ def run_scanner(processed_data, rank_radius=15.0):
             curr_s_rank = current_states.get(signal, np.nan)
             if np.isnan(curr_s_rank): continue
             
-            # --- LOGIC FILTER 1: THE "NOISE" FILTER ---
-            # If BOTH Target and Signal are between 20 and 80, skip it.
-            # We want at least one of them to be extended.
-            if (20 <= curr_t_rank <= 80) and (20 <= curr_s_rank <= 80):
+            # --- LOGIC FILTER 1: THE "DOUBLE TAIL" REQUIREMENT ---
+            # Both tickers must be outside the 20-80 zone.
+            t_is_tail = (curr_t_rank < 20 or curr_t_rank > 80)
+            s_is_tail = (curr_s_rank < 20 or curr_s_rank > 80)
+            
+            if not (t_is_tail and s_is_tail):
                 continue
 
             # --- ALIGNMENT ---
@@ -131,16 +131,15 @@ def run_scanner(processed_data, rank_radius=15.0):
             
             count = len(matches)
             
-            # --- LOGIC FILTER 2: SAMPLE SIZE vs EXTREMITY ---
-            # Is this an extreme tail event? (>95 or <5)
-            is_extreme = (curr_t_rank > 95 or curr_t_rank < 5 or 
-                          curr_s_rank > 95 or curr_s_rank < 5)
+            # --- LOGIC FILTER 2: SAMPLE SIZE vs SUPER EXTREME ---
+            # Exception applies only if BOTH are <5 or >95
+            t_is_super = (curr_t_rank < 5 or curr_t_rank > 95)
+            s_is_super = (curr_s_rank < 5 or curr_s_rank > 95)
             
-            # Rule: Require 15 samples normally, but accept as low as 5 if extreme.
-            if is_extreme:
-                if count < 5: continue # Absolute floor for math safety
-            else:
-                if count < 15: continue
+            # If both are super extreme, allow 5 samples. Otherwise require 15.
+            min_samples = 5 if (t_is_super and s_is_super) else 15
+            
+            if count < min_samples: continue
 
             # --- STATISTICS ---
             avg_return = matches['Outcome'].mean()
@@ -154,8 +153,7 @@ def run_scanner(processed_data, rank_radius=15.0):
                 "Win_Rate": win_rate,
                 "Avg_Return_10d": avg_return,
                 "Signal_Rank": curr_s_rank,
-                "Target_Rank": curr_t_rank,
-                "Is_Extreme": is_extreme
+                "Target_Rank": curr_t_rank
             })
 
     return pd.DataFrame(results)
@@ -168,9 +166,9 @@ def main():
     st.title("⚡ 10-Day Opportunity Screener")
     
     st.markdown("""
-    **Logic Applied:**
-    1. **Noise Filter:** Hides results where *both* tickers are in the middle (Rank 20-80).
-    2. **Significance Filter:** Requires 15+ historical matches, unless ranks are Extreme (>95 or <5), then allows 5+.
+    **Strict Filtering Logic:**
+    1. **Double Tail Filter:** Shows ONLY pairs where **BOTH** tickers are currently in the tails (<20 or >80).
+    2. **Significance:** Requires 15+ historical matches, unless **BOTH** tickers are Super Extreme (<5 or >95), then allows 5+.
     """)
     
     # 1. INPUTS
@@ -179,7 +177,7 @@ def main():
         with col1:
             ticker_input = st.text_area("Universe (Comma Separated)", value=DEFAULT_TICKERS, height=100)
         with col2:
-            radius = st.slider("Similarity Radius", 5, 25, 15)
+            radius = st.slider("Similarity Radius", 1, 10, 2, help="Radius +/- Rank. Default is 2 (Very Strict).")
             run_btn = st.button("Run Matrix Scan", type="primary", use_container_width=True)
 
     if run_btn:
@@ -196,7 +194,7 @@ def main():
             df_results = run_scanner(processed, rank_radius=radius)
             
             if df_results.empty:
-                st.warning("No opportunities found that meet the strict 'Edge' criteria.")
+                st.warning("No opportunities found. Try increasing the Radius or relaxing the strictness if markets are quiet.")
                 return
             
             # C. Formatting & Display
