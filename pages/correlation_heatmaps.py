@@ -344,8 +344,13 @@ def render_cross_asset_heatmap():
             )
             
             # Add Current Status Marker (from most recent available data row)
-            # We look at final_df here, not heatmap_df, so we catch today even if Z is NaN
             last_row = final_df.iloc[-1]
+            last_ts = final_df.index[-1]  # <--- Get the Timestamp
+            
+            # Format the date (e.g. 2023-10-27)
+            # If using intraday data, you might want: last_ts.strftime('%Y-%m-%d %H:%M')
+            date_str = last_ts.strftime('%Y-%m-%d') 
+
             curr_x = last_row.get(xcol, np.nan)
             curr_y = last_row.get(ycol, np.nan)
             
@@ -354,7 +359,8 @@ def render_cross_asset_heatmap():
                 fig.add_hline(y=curr_y, line_width=2, line_dash="dash", line_color="black")
                 fig.add_annotation(
                     x=curr_x, y=curr_y, 
-                    text=f"Current<br>{ticker1}: {curr_x:.0f}<br>{ticker2}: {curr_y:.0f}", 
+                    # <--- Updated Text to include date_str
+                    text=f"Current ({date_str})<br>{ticker1}: {curr_x:.0f}<br>{ticker2}: {curr_y:.0f}", 
                     showarrow=True, arrowhead=1, ax=40, ay=-40, bgcolor="white"
                 )
             
