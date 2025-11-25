@@ -7,11 +7,21 @@ from scipy.ndimage import gaussian_filter
 from scipy.signal import convolve2d
 import matplotlib
 import datetime
+import pytz # Added for Time Zone conversion
 
 # -----------------------------------------------------------------------------
 # CONSTANTS & SETUP
 # -----------------------------------------------------------------------------
 CSV_PATH = "seasonal_ranks.csv"
+
+# --- SIDEBAR: REFRESH BUTTON ---
+# This must be placed before data loading to effectively clear the cache before use
+with st.sidebar:
+    st.header("Data Control")
+    st.write("If data looks stale (yesterday's date), click below:")
+    if st.button("Force Refresh Data", type="primary"):
+        st.cache_data.clear()
+        st.rerun()
 
 @st.cache_data(show_spinner=False)
 def load_seasonal_map():
@@ -45,6 +55,7 @@ def get_sznl_val_series(ticker, dates, sznl_map):
 def download_data(ticker):
     if not ticker: return pd.DataFrame()
     try:
+        # Added auto_adjust=True to handle splits/dividends and get cleaner Close prices
         df = yf.download(ticker, period="max", progress=False, auto_adjust=True)
         if isinstance(df.columns, pd.MultiIndex):
             df.columns = [c[0] for c in df.columns]
@@ -214,9 +225,6 @@ def smooth_display(Z, sigma=1.2):
 # -----------------------------------------------------------------------------
 # UI: CROSS ASSET HEATMAP
 # -----------------------------------------------------------------------------
-# -----------------------------------------------------------------------------
-# UI: CROSS ASSET HEATMAP
-# -----------------------------------------------------------------------------
 def render_cross_asset_heatmap():
     st.header("Cross-Asset Correlation Heatmap")
     st.markdown("""
@@ -326,6 +334,20 @@ def render_cross_asset_heatmap():
             colorscale = get_seismic_colorscale()
             z_units = "%" if "Ret" in zcol else " Vol"
 
+            # --- TIMESTAMP LOGIC ---
+            # Get the exact timestamp of the last data point
+            last_ts = final_df.index[-1]
+            
+            # Convert to US/Eastern if aware, otherwise just format YYYY-MM-DD
+            tz_eastern = pytz.timezone('US/Eastern')
+            
+            if last_ts.tzinfo is not None:
+                # If data is timezone aware (e.g. intraday or localized daily), convert to EST
+                date_str = last_ts.astimezone(tz_eastern).strftime('%Y-%m-%d %H:%M %Z')
+            else:
+                # If naive (common for daily data), treat as date only
+                date_str = last_ts.strftime('%Y-%m-%d')
+
             fig = go.Figure(data=go.Heatmap(
                 z=Z_smooth, x=x_centers, y=y_centers,
                 colorscale=colorscale, 
@@ -345,12 +367,6 @@ def render_cross_asset_heatmap():
             
             # Add Current Status Marker (from most recent available data row)
             last_row = final_df.iloc[-1]
-            last_ts = final_df.index[-1]  # <--- Get the Timestamp
-            
-            # Format the date (e.g. 2023-10-27)
-            # If using intraday data, you might want: last_ts.strftime('%Y-%m-%d %H:%M')
-            date_str = last_ts.strftime('%Y-%m-%d') 
-
             curr_x = last_row.get(xcol, np.nan)
             curr_y = last_row.get(ycol, np.nan)
             
@@ -359,9 +375,9 @@ def render_cross_asset_heatmap():
                 fig.add_hline(y=curr_y, line_width=2, line_dash="dash", line_color="black")
                 fig.add_annotation(
                     x=curr_x, y=curr_y, 
-                    # <--- Updated Text to include date_str
-                    text=f"Current ({date_str})<br>{ticker1}: {curr_x:.0f}<br>{ticker2}: {curr_y:.0f}", 
-                    showarrow=True, arrowhead=1, ax=40, ay=-40, bgcolor="white"
+                    text=f"<b>Current ({date_str})</b><br>{ticker1}: {curr_x:.0f}<br>{ticker2}: {curr_y:.0f}", 
+                    showarrow=True, arrowhead=1, ax=40, ay=-40, bgcolor="white",
+                    bordercolor="black", borderwidth=1
                 )
             
             st.plotly_chart(fig, use_container_width=True)
@@ -372,8 +388,7 @@ def render_cross_asset_heatmap():
             with f_col1: x_range = st.slider(f"Filter: {ticker1} {x_axis_label}", 0.0, 100.0, (0.0, 100.0), step=1.0)
             with f_col2: y_range = st.slider(f"Filter: {ticker2} Return Rank", 0.0, 100.0, (0.0, 100.0), step=1.0)
             
-            # --- NEW LOGIC: Use final_df (includes Z=NaN), filter only on X/Y ---
-            # We only drop rows if X or Y is missing. We Keep Z as NaN.
+            # Use final_df (includes Z=NaN)
             table_df = final_df.dropna(subset=[xcol, ycol]).copy()
             
             mask = (table_df[xcol] >= x_range[0]) & (table_df[xcol] <= x_range[1]) & \
@@ -402,7 +417,6 @@ def render_cross_asset_heatmap():
                 table_display = filtered_df[display_cols].sort_index(ascending=False)
                 table_display.columns = [f"{ticker1} Price", x_axis_label, f"{ticker2} Rank", "Outcome"]
                 
-                # Apply styling - NaNs in 'Outcome' will appear as blank/NaN which is correct for pending
                 st.dataframe(
                     table_display.style.format({
                         f"{ticker1} Price": "${:.2f}", 
