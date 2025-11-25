@@ -20,12 +20,13 @@ JPM, AAPL, GOOG, XOM, NVDA, TSLA, KO, UVXY, XLP, XLV, XLU, UNG, MSFT, WMT, AMD, 
 def get_batch_data(ticker_list):
     """
     Downloads MAX history (last 25y).
+    Returns: (data_dict, timestamp_string)
     """
     tickers = [t.strip().upper() for t in ticker_list.replace("\n", "").split(",") if t.strip()]
     tickers = list(set(tickers)) 
     
     if not tickers:
-        return {}
+        return {}, ""
     
     data_dict = {}
     
@@ -47,7 +48,11 @@ def get_batch_data(ticker_list):
         progress_bar.progress((i + 1) / len(tickers))
     
     progress_bar.empty()
-    return data_dict
+    
+    # Capture the time this function actually ran (not when the cache was hit)
+    timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    
+    return data_dict, timestamp
 
 @st.cache_data(show_spinner=False)
 def calculate_features(data_dict):
@@ -241,11 +246,15 @@ def main():
 
     if run_btn:
         with st.spinner("Processing Hierarchical Matrix..."):
-            # A. Process Data
-            raw_data = get_batch_data(ticker_input)
+            # A. Process Data (Returns tuple now)
+            raw_data, fetch_time = get_batch_data(ticker_input)
+            
             if not raw_data:
                 st.error("No valid data found.")
                 return
+            
+            # Display Timestamp
+            st.success(f"✅ Data Refreshed: {fetch_time}")
             
             processed = calculate_features(raw_data)
             
