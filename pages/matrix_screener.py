@@ -13,9 +13,6 @@ SPY, QQQ, IWM, TLT, GLD, USO, UUP, HYG, XLF, XLE, XLK, XBI, SMH, ARKK, BTC-USD,
 JPM, AAPL, GOOG, XOM, NVDA, TSLA, KO, UVXY, XLP, XLV, XLU, UNG, MSFT, WMT, AMD
 """
 
-# The "Big Four" Macro Signals
-MACRO_SIGNALS = ["SPY", "TLT", "USO", "UVXY"]
-
 # -----------------------------------------------------------------------------
 # DATA ENGINE
 # -----------------------------------------------------------------------------
@@ -55,7 +52,7 @@ def get_batch_data(ticker_list):
 @st.cache_data(show_spinner=False)
 def calculate_features(data_dict):
     """
-    Calculates 21d Trailing Rank and 10d Vol-Normalized Forward Return (Sigma)
+    Calculates 21d Trailing Rank, 10d Vol-Normalized (Sigma), AND 10d Raw Returns
     """
     processed = {}
     
@@ -75,7 +72,6 @@ def calculate_features(data_dict):
         df['FwdRet_10d_Raw'] = (df['Fwd_Close'] / df['Close']) - 1.0
         
         # 4. Vol-Normalization (Z-Score)
-        # Expected Move (1 Sigma) = Vol_Daily * sqrt(10)
         expected_move = df['Vol_Daily'] * np.sqrt(10)
         df['FwdRet_Sigma'] = df['FwdRet_10d_Raw'] / expected_move
         
@@ -83,17 +79,19 @@ def calculate_features(data_dict):
         df['Rank_21d'] = df['Ret_21d'].expanding(min_periods=252).rank(pct=True) * 100
         
         df = df.dropna(subset=['Rank_21d', 'Vol_Daily'])
-        processed[ticker] = df[['Close', 'Rank_21d', 'FwdRet_Sigma']]
+        
+        # We keep both Sigma and Raw for the final table
+        processed[ticker] = df[['Close', 'Rank_21d', 'FwdRet_Sigma', 'FwdRet_10d_Raw']]
         
     return processed
 
 def run_scanner(processed_data):
     """
     Iterates through pairs using Cumulative Tail Analysis.
-    Applies logic:
-    1. FILTER: Target/Signal must be Tails (<20 or >80).
-    2. FILTER: Only allow SPY, TLT, USO, UVXY as signals...
-       UNLESS Target is SPY (then allow everything).
+    Logic:
+    1. TARGET == SPY: Allows ALL signals.
+    2. TARGET == XOM: Allows SPY, TLT, USO.
+    3. TARGET == ELSE: Allows only SPY, TLT.
     """
     results = []
     tickers = list(processed_data.keys())
@@ -115,11 +113,16 @@ def run_scanner(processed_data):
         for signal in tickers:
             if target == signal: continue 
             
-            # --- LOGIC CHANGE: SIGNAL RESTRICTION ---
-            # If Target is NOT SPY, check if Signal is allowed (Macro Only)
-            if target != "SPY":
-                if signal not in MACRO_SIGNALS:
-                    continue
+            # --- LOGIC CHANGE: HIERARCHICAL PREDICTORS ---
+            allowed_signals = ["SPY", "TLT"] # Base Tier
+            
+            if target == "SPY":
+                allowed_signals = tickers # SPY listens to everyone
+            elif target == "XOM":
+                allowed_signals = ["SPY", "TLT", "USO"] # XOM listens to Oil
+            
+            if signal not in allowed_signals:
+                continue
             
             s_df = processed_data[signal]
             curr_s_rank = current_states.get(signal, np.nan)
@@ -129,18 +132,19 @@ def run_scanner(processed_data):
             t_tail = "UPPER" if curr_t_rank > 80 else ("LOWER" if curr_t_rank < 20 else "MID")
             s_tail = "UPPER" if curr_s_rank > 80 else ("LOWER" if curr_s_rank < 20 else "MID")
             
-            # Both must be in tails
             if t_tail == "MID" or s_tail == "MID":
                 continue
 
             # --- ALIGNMENT ---
+            # We bring both Sigma and Raw Returns into the history
             aligned = pd.concat([
-                t_df['FwdRet_Sigma'].rename("Outcome"),
+                t_df['FwdRet_Sigma'].rename("Outcome_Sigma"),
+                t_df['FwdRet_10d_Raw'].rename("Outcome_Raw"),
                 t_df['Rank_21d'].rename("Target_Rank"),
                 s_df['Rank_21d'].rename("Signal_Rank")
             ], axis=1, join='inner')
             
-            history = aligned.dropna(subset=["Outcome"])
+            history = aligned.dropna(subset=["Outcome_Sigma"])
             if history.empty: continue
 
             # --- FILTER 2: CUMULATIVE TAIL LOGIC ---
@@ -160,8 +164,11 @@ def run_scanner(processed_data):
             if count < 10: continue
 
             # --- STATISTICS ---
-            avg_sigma = matches['Outcome'].mean()
-            win_rate = (matches['Outcome'] > 0).sum() / count * 100
+            avg_sigma = matches['Outcome_Sigma'].mean()
+            avg_raw_pct = matches['Outcome_Raw'].mean() * 100 # Convert to %
+            
+            # Win Rate is based on positive return
+            win_rate = (matches['Outcome_Raw'] > 0).sum() / count * 100
             
             results.append({
                 "Target": target,
@@ -170,6 +177,7 @@ def run_scanner(processed_data):
                 "History_Count": count,
                 "Win_Rate": win_rate,
                 "Avg_Return_Sigma": avg_sigma,
+                "Avg_Return_Pct": avg_raw_pct,
                 "Target_Rank": curr_t_rank 
             })
 
@@ -179,15 +187,15 @@ def run_scanner(processed_data):
 # UI
 # -----------------------------------------------------------------------------
 def main():
-    st.set_page_config(layout="wide", page_title="Vol-Adj Matrix Screener")
+    st.set_page_config(layout="wide", page_title="Hierarchical Matrix Screener")
     st.title("⚡ Vol-Normalized Tail Screener")
     
     st.markdown("""
-    **Logic Applied:**
-    1. **Signal Filter:** Only **SPY, TLT, USO, UVXY** can predict other stocks (Macro Factors).
-       *Exception: **SPY** listens to everything.*
-    2. **Double Tail:** Both Target and Signal must be Rank < 20 or > 80.
-    3. **Vol-Adjusted:** Returns are measured in Sigma (Standard Deviations).
+    **Hierarchical Logic Applied:**
+    1. **General Stocks:** Can only be predicted by **SPY** (Market) or **TLT** (Rates).
+    2. **XOM (Energy):** Can be predicted by **USO** (Oil), SPY, or TLT.
+    3. **SPY (The Market):** Can be predicted by **ANYTHING** in the tails.
+    4. **Double Tail:** Both tickers must be Rank < 20 or > 80.
     """)
     
     # 1. INPUTS
@@ -196,11 +204,11 @@ def main():
         with col1:
             ticker_input = st.text_area("Universe", value=DEFAULT_TICKERS, height=100)
         with col2:
-            st.info(f"Macro Signals: {', '.join(MACRO_SIGNALS)}")
+            st.info("Sorting by Sigma (σ), Displaying Return (%)")
             run_btn = st.button("Run Vol-Adj Scan", type="primary", use_container_width=True)
 
     if run_btn:
-        with st.spinner("Downloading history & checking correlations..."):
+        with st.spinner("Processing Hierarchical Matrix..."):
             # A. Process Data
             raw_data = get_batch_data(ticker_input)
             if not raw_data:
@@ -219,31 +227,34 @@ def main():
             # C. Formatting & Display
             st.divider()
             
+            # Sort by Sigma (Statistical Significance), but display Pct (Payoff)
             bullish = df_results[df_results['Avg_Return_Sigma'] > 0].sort_values(by="Avg_Return_Sigma", ascending=False)
             bearish = df_results[df_results['Avg_Return_Sigma'] < 0].sort_values(by="Avg_Return_Sigma", ascending=True)
 
             # --- DISPLAY BULLISH ---
-            st.subheader(f"🟢 Top Bullish Signals (High +σ)")
+            st.subheader(f"🟢 Top Bullish Signals")
             st.dataframe(
                 bullish.head(20).style.format({
                     "Win_Rate": "{:.1f}%",
                     "Avg_Return_Sigma": "+{:.2f}σ",
+                    "Avg_Return_Pct": "+{:.2f}%",
                     "Target_Rank": "{:.0f}"
-                }).background_gradient(subset=["Win_Rate"], cmap="Greens", vmin=50, vmax=80),
+                }).background_gradient(subset=["Avg_Return_Sigma"], cmap="Greens", vmin=0, vmax=1.5),
                 use_container_width=True,
-                column_order=["Target", "Signal_Ticker", "Avg_Return_Sigma", "Win_Rate", "History_Count", "Current_Setup"]
+                column_order=["Target", "Signal_Ticker", "Avg_Return_Pct", "Avg_Return_Sigma", "Win_Rate", "History_Count", "Current_Setup"]
             )
 
             # --- DISPLAY BEARISH ---
-            st.subheader(f"🔴 Top Bearish Signals (High -σ)")
+            st.subheader(f"🔴 Top Bearish Signals")
             st.dataframe(
                 bearish.head(20).style.format({
                     "Win_Rate": "{:.1f}%",
                     "Avg_Return_Sigma": "{:.2f}σ",
+                    "Avg_Return_Pct": "{:.2f}%",
                     "Target_Rank": "{:.0f}"
-                }).background_gradient(subset=["Win_Rate"], cmap="Reds_r", vmin=20, vmax=50),
+                }).background_gradient(subset=["Avg_Return_Sigma"], cmap="Reds_r", vmin=-1.5, vmax=0),
                 use_container_width=True,
-                column_order=["Target", "Signal_Ticker", "Avg_Return_Sigma", "Win_Rate", "History_Count", "Current_Setup"]
+                column_order=["Target", "Signal_Ticker", "Avg_Return_Pct", "Avg_Return_Sigma", "Win_Rate", "History_Count", "Current_Setup"]
             )
             
             # --- SCATTER SUMMARY ---
@@ -253,14 +264,15 @@ def main():
             fig = px.scatter(
                 df_results, 
                 x="Win_Rate", 
-                y="Avg_Return_Sigma", 
-                hover_data=["Target", "Signal_Ticker", "History_Count", "Current_Setup"],
-                color="Target_Rank", 
+                y="Avg_Return_Pct", # Plotting % for easier readability on chart
+                hover_data=["Target", "Signal_Ticker", "Avg_Return_Sigma", "History_Count", "Current_Setup"],
+                color="Avg_Return_Sigma", # Color by Sigma (Strength)
                 color_continuous_scale="RdBu",
-                title="Screener Results: Win Rate vs Expected Sigma"
+                title="Screener Results: Win Rate vs Expected Return % (Color = Sigma Strength)"
             )
             fig.add_vline(x=50, line_dash="dash", line_color="gray")
             fig.add_hline(y=0, line_dash="dash", line_color="gray")
+            fig.update_layout(yaxis_title="Avg Return (%)")
             st.plotly_chart(fig, use_container_width=True)
 
 if __name__ == "__main__":
