@@ -13,7 +13,7 @@ SPY, QQQ, IWM, DIA, TLT, GLD, USO, UUP, HYG, XLF, XLE, XLK, XBI, SMH, ARKK, BTC-
 JPM, AAPL, GOOG, XOM, NVDA, TSLA, KO, UVXY, XLP, XLV, XLU, UNG, MSFT, WMT, AMD, ITA, SLV, CEF
 """
 
-# The Matrix Dimensions
+# Removed 2d as requested
 TRAIL_WINDOWS = [5, 10, 21, 63]
 FWD_WINDOWS   = [5, 10, 21, 63]
 
@@ -147,14 +147,13 @@ def run_scanner(processed_data):
             
             s_df = processed_data[signal]
             
-            # Align indices once per pair
             common_idx = t_df.index.intersection(s_df.index)
             if len(common_idx) < 252: continue
             
             t_subset = t_df.loc[common_idx]
             s_subset = s_df.loc[common_idx]
 
-            # --- NESTED WINDOW LOOPS (125 Combinations) ---
+            # --- NESTED WINDOW LOOPS ---
             for t_w in TRAIL_WINDOWS:
                 curr_t_rank = current_ranks.get(target, {}).get(t_w, np.nan)
                 if np.isnan(curr_t_rank): continue
@@ -214,38 +213,38 @@ def run_scanner(processed_data):
 
 def generate_ensemble(df_results, alpha_threshold=0.25):
     """
-    Aggregates thousands of signals into a 'Top Pick' list.
-    Grouping by: Target + Forward Horizon
+    Aggregates signals.
+    CRITICAL CHANGE: For Bearish Scores, we ONLY count signals where Exp_Return is NEGATIVE.
     """
     if df_results.empty: return pd.DataFrame()
     
-    # 1. Filter for statistically significant Alpha
-    valid_signals = df_results[ np.abs(df_results['Excess_Sigma']) > alpha_threshold ].copy()
+    # 1. Bullish Candidates: Positive Excess Alpha
+    bull_mask = df_results['Excess_Sigma'] > alpha_threshold
+    # Ideally Bullish should also have Positive Return, but Alpha usually implies it.
+    
+    # 2. Bearish Candidates: Negative Excess Alpha AND Negative Absolute Return
+    # This prevents shorting strong uptrends just because they are "less strong".
+    bear_mask = (df_results['Excess_Sigma'] < -alpha_threshold) & (df_results['Exp_Return'] < 0)
+    
+    # Combine
+    valid_signals = df_results[bull_mask | bear_mask].copy()
     
     if valid_signals.empty: return pd.DataFrame()
     
-    # 2. Group By Target & Horizon
-    # We aggregate:
-    # - Count: Breadth of signals (how many lookback combos agree?)
-    # - Sum Excess Sigma: Total "Pressure" on the price
-    # - Mean Win Rate: Reliability
     ensemble = valid_signals.groupby(['Target', 'Fwd_Horizon']).agg({
-        'Excess_Sigma': 'sum',      # Cumulative Alpha
-        'Win_Rate': 'mean',         # Average Reliability
-        'Exp_Return': 'mean',       # Average Expected Return %
-        'Signal': 'nunique',        # Count of distinct tickers signaling
-        'T_Lookback': 'count'       # Count of total setup combinations
+        'Excess_Sigma': 'sum',      
+        'Win_Rate': 'mean',         
+        'Exp_Return': 'mean',       
+        'Signal': 'nunique',        
+        'T_Lookback': 'count'       
     }).reset_index()
     
-    # Rename columns for display
     ensemble.rename(columns={
         'Excess_Sigma': 'Conviction_Score',
         'Signal': 'Confirming_Tickers',
         'T_Lookback': 'Total_Signals'
     }, inplace=True)
     
-    # 3. Sort by Absolute Conviction
-    # We want the strongest DIRECTIONAL bias (High Pos or High Neg)
     ensemble['Abs_Score'] = ensemble['Conviction_Score'].abs()
     ensemble = ensemble.sort_values('Abs_Score', ascending=False).drop(columns=['Abs_Score'])
     
@@ -259,10 +258,10 @@ def main():
     st.title("⚡ Multi-Timeframe Alpha Scanner")
     
     st.markdown("""
-    **Ensemble Prediction Engine:**
-    * **1. Scan:** Checks **125 combinations** per pair for structural alpha.
-    * **2. Aggregate:** Sums the "Excess Alpha" of all valid signals to create a **Conviction Score**.
-    * **3. Rank:** Displays the strongest **Confluence** of signals (Breadth + Strength).
+    **Scanning 64 Combinations per Pair:** (Removed 2d window)
+    * **Alpha Logic:** Excess Sigma vs Unconditional History.
+    * **Bearish Safety Filter:** We *only* flag a Bearish setup if the **Total Expected Return is Negative**. 
+      *(We ignore 'Relative Weakness' in strong uptrends).*
     """)
     
     with st.expander("⚙️ Screener Settings", expanded=True):
@@ -274,7 +273,7 @@ def main():
             run_btn = st.button("Run Ensemble Scan", type="primary", use_container_width=True)
 
     if run_btn:
-        with st.spinner("Crunching 125x Combinations & Building Ensemble..."):
+        with st.spinner("Crunching combinations & Building Ensemble..."):
             raw_data, fetch_time = get_batch_data(ticker_input)
             if not raw_data:
                 st.error("No valid data found.")
@@ -291,7 +290,7 @@ def main():
             # --- GENERATE ENSEMBLE ---
             ensemble_df = generate_ensemble(df_results, alpha_threshold=0.25)
             
-            # Separate into Bullish / Bearish Ensembles
+            # Separate
             top_bulls = ensemble_df[ensemble_df['Conviction_Score'] > 0].head(5)
             top_bears = ensemble_df[ensemble_df['Conviction_Score'] < 0].head(5)
             
@@ -315,7 +314,8 @@ def main():
                     st.info("No strong bullish confluence found.")
                     
             with c2:
-                st.subheader("bearish Strongest Bearish Confluence")
+                st.subheader("🐻 Strongest Bearish Confluence")
+                st.caption("Filtered: Only shows setups with Negative Expected Return")
                 if not top_bears.empty:
                     st.dataframe(
                         top_bears.style.format({
@@ -326,18 +326,25 @@ def main():
                         use_container_width=True
                     )
                 else:
-                    st.info("No strong bearish confluence found.")
+                    st.info("No strong bearish confluence found (Signals may exist but didn't pass the Negative Return safety filter).")
 
             st.divider()
             
-            # --- DISPLAY DETAILED TABLE (The "Homework") ---
-            st.subheader("🔎 Detailed Signal Logs (Under the Hood)")
+            # --- DISPLAY DETAILED TABLE ---
+            st.subheader("🔎 Detailed Signal Logs")
             
             ALPHA_THRESHOLD = 0.25
+            
+            # Bullish Details: Excess > 0.25
             bullish_details = df_results[df_results['Excess_Sigma'] > ALPHA_THRESHOLD].sort_values(by="Excess_Sigma", ascending=False)
-            bearish_details = df_results[df_results['Excess_Sigma'] < -ALPHA_THRESHOLD].sort_values(by="Excess_Sigma", ascending=True)
+            
+            # Bearish Details: Excess < -0.25 AND Exp_Return < 0 (Safety Filter)
+            bearish_details = df_results[
+                (df_results['Excess_Sigma'] < -ALPHA_THRESHOLD) & 
+                (df_results['Exp_Return'] < 0)
+            ].sort_values(by="Excess_Sigma", ascending=True)
 
-            tab1, tab2 = st.tabs(["Individual Bull Signals", "Individual Bear Signals"])
+            tab1, tab2 = st.tabs(["Individual Bull Signals", "Individual Bear Signals (Safe)"])
             
             with tab1:
                 st.dataframe(
@@ -356,6 +363,24 @@ def main():
                     use_container_width=True,
                     column_order=["Target", "Signal", "T_Lookback", "S_Lookback", "Fwd_Horizon", "Excess_Sigma", "Exp_Return", "Win_Rate", "History"]
                 )
+            
+            # --- SCATTER SUMMARY ---
+            st.divider()
+            
+            fig = px.scatter(
+                df_results, 
+                x="Win_Rate", 
+                y="Exp_Return", 
+                hover_data=["Target", "Signal", "T_Lookback", "S_Lookback", "Fwd_Horizon", "Excess_Sigma", "Raw_Sigma", "History"],
+                color="Excess_Sigma", 
+                color_continuous_scale="RdBu",
+                title="Alpha Map: Win Rate vs Total Expected Return %"
+            )
+            
+            fig.add_hline(y=0, line_dash="dash", line_color="gray", opacity=0.5)
+            fig.add_vline(x=50, line_dash="dash", line_color="gray", opacity=0.5)
+            fig.update_layout(yaxis_title="Avg Total Return (%)")
+            st.plotly_chart(fig, use_container_width=True)
 
 if __name__ == "__main__":
     main()
