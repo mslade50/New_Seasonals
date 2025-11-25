@@ -14,8 +14,8 @@ JPM, AAPL, GOOG, XOM, NVDA, TSLA, KO, UVXY, XLP, XLV, XLU, UNG, MSFT, WMT, AMD, 
 """
 
 # The Matrix Dimensions
-TRAIL_WINDOWS = [2, 5, 10, 21, 63]
-FWD_WINDOWS   = [2, 5, 10, 21, 63]
+TRAIL_WINDOWS = [5, 10, 21, 63]
+FWD_WINDOWS   = [5, 10, 21, 63]
 
 # -----------------------------------------------------------------------------
 # DATA ENGINE
