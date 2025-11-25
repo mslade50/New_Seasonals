@@ -49,8 +49,10 @@ def get_batch_data(ticker_list):
     
     progress_bar.empty()
     
-    # Capture the time this function actually ran (not when the cache was hit)
-    timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    # --- TIMEZONE FIX: Force US/Eastern ---
+    # We use pandas to get the current time in specific timezone, then format it.
+    # This handles EST vs EDT automatically.
+    timestamp = pd.Timestamp.now(tz='US/Eastern').strftime("%Y-%m-%d %I:%M %p %Z")
     
     return data_dict, timestamp
 
@@ -253,7 +255,7 @@ def main():
                 st.error("No valid data found.")
                 return
             
-            # Display Timestamp
+            # Display Timestamp (EST/EDT handled automatically)
             st.success(f"✅ Data Refreshed: {fetch_time}")
             
             processed = calculate_features(raw_data)
