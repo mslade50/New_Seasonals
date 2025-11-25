@@ -159,8 +159,8 @@ def run_scanner(processed_data):
                 
                 if np.isnan(curr_t_rank) or np.isnan(curr_s_rank): continue
                 
-                t_tail = "UPPER" if curr_t_rank > 75 else ("LOWER" if curr_t_rank < 25 else "MID")
-                s_tail = "UPPER" if curr_s_rank > 75 else ("LOWER" if curr_s_rank < 25 else "MID")
+                t_tail = "UPPER" if curr_t_rank > 85 else ("LOWER" if curr_t_rank < 15 else "MID")
+                s_tail = "UPPER" if curr_s_rank > 85 else ("LOWER" if curr_s_rank < 15 else "MID")
                 
                 if t_tail == "MID" or s_tail == "MID": continue
 
