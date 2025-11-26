@@ -61,10 +61,6 @@ def get_sznl_val_series(ticker, dates, sznl_map):
     return mds.map(t_map).fillna(50.0)
 
 def clean_ticker_df(df):
-    """
-    Helper to standardize column names and drop empty rows.
-    Ensures columns are Title case: Close, Open, High, Low, Volume.
-    """
     if df.empty: return df
     
     if isinstance(df.columns, pd.MultiIndex):
@@ -162,7 +158,7 @@ def get_age_bucket(years):
     return "> 20 Years"
 
 # -----------------------------------------------------------------------------
-# ANALYSIS ENGINE
+# ANALYSIS ENGINE (UPDATED FOR PORTFOLIO CONSTRAINTS)
 # -----------------------------------------------------------------------------
 
 def calculate_indicators(df, sznl_map, ticker, spy_series=None):
@@ -222,37 +218,36 @@ def calculate_indicators(df, sznl_map, ticker, spy_series=None):
     return df
 
 def run_engine(universe_dict, params, sznl_map, spy_series=None):
-    trades = []
+    # 1. GATHER ALL POTENTIAL TRADES
+    all_potential_trades = []
+    
     total = len(universe_dict)
     bt_start_ts = pd.to_datetime(params['backtest_start_date'])
-    
     direction = params.get('trade_direction', 'Long')
-    max_one_pos = params.get('max_one_pos', False)
+    max_one_pos_per_ticker = params.get('max_one_pos', True)
     
-    # Parse Entry Logic
+    # Entry Logic
     entry_mode = params['entry_type']
     is_pullback = "Pullback" in entry_mode
     use_ma_filter = params.get('use_ma_entry_filter', False)
-    
-    # Determine MA column for Pullback
     pullback_col = None
     if "10 SMA" in entry_mode: pullback_col = "SMA10"
     elif "21 EMA" in entry_mode: pullback_col = "EMA21"
-    
-    # Determine Execution Price for Pullback
     pullback_use_level = "Level" in entry_mode
 
     progress_bar = st.progress(0)
     status_text = st.empty()
     
     for i, (ticker, df_raw) in enumerate(universe_dict.items()):
-        status_text.text(f"Processing {ticker}...")
+        status_text.text(f"Scanning signals for {ticker}...")
         progress_bar.progress((i+1)/total)
         
         if len(df_raw) < 100: continue
         
-        # TRACKING for Max 1 Pos
-        last_exit_date = pd.Timestamp.min
+        # Local ticker tracking (to prevent buying same ticker twice if held)
+        # Note: We enforce the strict "Portfolio" limits later, but we need
+        # to generate the candidate trades first.
+        ticker_last_exit = pd.Timestamp.min
         
         try:
             df = calculate_indicators(df_raw, sznl_map, ticker, spy_series)
@@ -263,7 +258,6 @@ def run_engine(universe_dict, params, sznl_map, spy_series=None):
             
             # --- TREND FILTER ---
             trend_opt = params.get('trend_filter', 'None')
-            
             if trend_opt == "Price > 200 SMA":
                 conditions.append(df['Close'] > df['SMA200'])
             elif trend_opt == "Price > Rising 200 SMA":
@@ -288,7 +282,7 @@ def run_engine(universe_dict, params, sznl_map, spy_series=None):
                    (curr_age <= params['max_age'])
             conditions.append(gate)
 
-            # --- PRICE ACTION (NEW) ---
+            # --- PRICE ACTION ---
             if params.get('require_close_gt_open', False):
                 conditions.append(df['Close'] > df['Open'])
 
@@ -341,11 +335,10 @@ def run_engine(universe_dict, params, sznl_map, spy_series=None):
             
             signal_dates = df.index[final_signal]
             
-            # --- TRADE EXECUTION ---
+            # --- TRADE EXECUTION SIMULATION (Per Ticker) ---
             for signal_date in signal_dates:
-                if max_one_pos and signal_date <= last_exit_date: continue
+                if max_one_pos_per_ticker and signal_date <= ticker_last_exit: continue
                 
-                # Global Max Exit Index based on SIGNAL DATE (Fixed Time Stop)
                 sig_idx = df.index.get_loc(signal_date)
                 fixed_exit_idx = sig_idx + params['holding_days']
                 if fixed_exit_idx >= len(df): continue
@@ -354,23 +347,17 @@ def run_engine(universe_dict, params, sznl_map, spy_series=None):
                 actual_entry_idx = -1
                 actual_entry_price = 0.0
                 
-                # ---------------------
                 # PATH A: PULLBACK
-                # ---------------------
                 if is_pullback and pullback_col:
-                    # Look for entry from Signal Date + 1 up to Fixed Exit Date
                     for wait_i in range(1, params['holding_days'] + 1):
                         curr_check_idx = sig_idx + wait_i
                         if curr_check_idx >= len(df): break
                         
                         row = df.iloc[curr_check_idx]
                         ma_val = row[pullback_col]
-                        
                         if np.isnan(ma_val): continue
 
-                        # Trigger: Low <= MA
                         if row['Low'] <= ma_val:
-                            # Filter: Close > MA - 0.25ATR
                             if use_ma_filter:
                                 cutoff = ma_val - (0.25 * row['ATR'])
                                 if row['Close'] < cutoff:
@@ -384,9 +371,7 @@ def run_engine(universe_dict, params, sznl_map, spy_series=None):
                                 actual_entry_price = row['Close']
                             break
                 
-                # ---------------------
                 # PATH B: IMMEDIATE
-                # ---------------------
                 else:
                     found_entry = True
                     if entry_mode == 'Signal Close':
@@ -399,15 +384,10 @@ def run_engine(universe_dict, params, sznl_map, spy_series=None):
                         actual_entry_idx = sig_idx + 1
                         actual_entry_price = df['Close'].iloc[sig_idx + 1]
 
-                # ---------------------
-                # EXECUTE TRADE
-                # ---------------------
                 if found_entry and actual_entry_idx < len(df):
                     
                     start_exit_scan = actual_entry_idx + 1
-                    
-                    if start_exit_scan > fixed_exit_idx: 
-                        continue 
+                    if start_exit_scan > fixed_exit_idx: continue 
                     
                     future = df.iloc[start_exit_scan : fixed_exit_idx + 1]
                     if future.empty: continue
@@ -458,7 +438,8 @@ def run_engine(universe_dict, params, sznl_map, spy_series=None):
                         exit_date = future.index[-1]
                         exit_type = "Time"
                     
-                    last_exit_date = exit_date
+                    # Update local ticker history
+                    ticker_last_exit = exit_date
 
                     if direction == 'Long':
                         risk_unit = actual_entry_price - stop_price
@@ -470,9 +451,10 @@ def run_engine(universe_dict, params, sznl_map, spy_series=None):
                     if risk_unit <= 0: risk_unit = 0.001
                     r = pnl / risk_unit
                     
-                    trades.append({
+                    all_potential_trades.append({
                         "Ticker": ticker,
-                        "SignalDate": signal_date,
+                        "SignalDate": signal_date, # Date of signal
+                        "EntryDate": df.index[actual_entry_idx], # Actual entry
                         "Direction": direction,
                         "Entry": actual_entry_price,
                         "Exit": exit_price,
@@ -482,12 +464,51 @@ def run_engine(universe_dict, params, sznl_map, spy_series=None):
                         "Age": df['age_years'].iloc[sig_idx],
                         "AvgVol": df['vol_ma'].iloc[sig_idx]
                     })
-
         except: continue
-        
+    
     progress_bar.empty()
     status_text.empty()
-    return pd.DataFrame(trades)
+
+    # 2. APPLY PORTFOLIO CONSTRAINTS (The New Logic)
+    if not all_potential_trades:
+        return pd.DataFrame()
+
+    st.info(f"Processing Portfolio Constraints on {len(all_potential_trades)} potential signals...")
+    
+    # Sort chronologically by Signal Date
+    potential_df = pd.DataFrame(all_potential_trades)
+    potential_df = potential_df.sort_values(by=["EntryDate", "Ticker"])
+    
+    final_trades_log = []
+    active_positions = [] # List of dicts, must contain 'ExitDate'
+    daily_entries = {} # {date: count}
+    
+    max_daily = params.get('max_daily_entries', 100)
+    max_total = params.get('max_total_positions', 100)
+
+    for idx, trade in potential_df.iterrows():
+        entry_date = trade['EntryDate']
+        
+        # A. Clean up active positions (Remove those that closed BEFORE today)
+        # Note: In a daily backtest, if I exit today, the slot frees up tomorrow usually.
+        # But we will assume if ExitDate < EntryDate, it's free.
+        active_positions = [t for t in active_positions if t['ExitDate'] > entry_date]
+        
+        # B. Check Total Portfolio Size
+        if len(active_positions) >= max_total:
+            continue
+            
+        # C. Check Daily Limits
+        today_count = daily_entries.get(entry_date, 0)
+        if today_count >= max_daily:
+            continue
+            
+        # D. Execute
+        final_trades_log.append(trade)
+        active_positions.append(trade)
+        daily_entries[entry_date] = today_count + 1
+
+    return pd.DataFrame(final_trades_log)
 
 def grade_strategy(pf, sqn, win_rate, total_trades):
     score = 0
@@ -532,7 +553,6 @@ def main():
             ["Sector ETFs", "Indices", "International ETFs", "Sector + Index ETFs", "All CSV Tickers", "Custom (Upload CSV)"])
     with col_u2:
         default_start = datetime.date(2000, 1, 1)
-        # UPDATE: Allow any date from 1950 to Today
         start_date = st.date_input("Backtest Start Date", 
                                    value=default_start, 
                                    min_value=datetime.date(1950, 1, 1),
@@ -559,6 +579,8 @@ def main():
     st.markdown("---")
     st.subheader("2. Execution & Risk")
     
+    
+
     r_c1, r_c2, r_c3 = st.columns(3)
     with r_c1:
         trade_direction = st.selectbox("Trade Direction", ["Long", "Short"])
@@ -566,8 +588,17 @@ def main():
         time_exit_only = st.checkbox("Time Exit Only (Disable Stop/Target)")
     with r_c3:
         max_one_pos = st.checkbox("Max 1 Position/Ticker", value=True, 
-            help="If checked, allows only one open trade at a time per ticker (prevents pyramiding).")
+            help="If checked, allows only one open trade at a time per ticker.")
     
+    # --- NEW: PORTFOLIO CONSTRAINTS ---
+    p_c1, p_c2 = st.columns(2)
+    with p_c1:
+        max_daily_entries = st.number_input("Max New Trades Per Day", min_value=1, max_value=100, value=2, step=1)
+    with p_c2:
+        max_total_positions = st.number_input("Max Total Positions Held", min_value=1, max_value=200, value=10, step=1)
+    
+    st.markdown("---")
+
     c1, c2, c3, c4, c5 = st.columns(5)
     with c1: 
         entry_type = st.selectbox("Entry Price", [
@@ -675,8 +706,6 @@ def main():
             st.error("No tickers found.")
             return
 
-        # UPDATE: Fetch Data Buffer Logic
-        # If not full history, fetch 1 year prior to start_date to allow indicators (200SMA) to warm up
         if use_full_history:
              fetch_start = "1950-01-01"
         else:
@@ -707,6 +736,8 @@ def main():
             'backtest_start_date': start_date,
             'trade_direction': trade_direction,
             'max_one_pos': max_one_pos,
+            'max_daily_entries': max_daily_entries, # NEW
+            'max_total_positions': max_total_positions, # NEW
             'time_exit_only': time_exit_only,
             'stop_atr': stop_atr, 'tgt_atr': tgt_atr, 'holding_days': hold_days, 'entry_type': entry_type,
             'use_ma_entry_filter': use_ma_entry_filter,
@@ -812,6 +843,8 @@ def main():
         "trade_direction": "{trade_direction}",
         "entry_type": "{entry_type}",
         "max_one_pos": {max_one_pos},
+        "max_daily_entries": {max_daily_entries},
+        "max_total_positions": {max_total_positions},
         "use_perf_rank": {use_perf}, "perf_window": {perf_window}, "perf_logic": "{perf_logic}", "perf_thresh": {perf_thresh},
         "perf_first_instance": {perf_first}, "perf_lookback": {perf_lookback}, "perf_consecutive": {perf_consecutive},
         "use_sznl": {use_sznl}, "sznl_logic": "{sznl_logic}", "sznl_thresh": {sznl_thresh}, "sznl_first_instance": {sznl_first}, "sznl_lookback": {sznl_lookback},
