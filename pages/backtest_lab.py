@@ -3,419 +3,237 @@ import pandas as pd
 import numpy as np
 import yfinance as yf
 import datetime
-import plotly.express as px
-from scipy.ndimage import gaussian_filter
-from scipy.signal import convolve2d
+import plotly.graph_objects as go
 import itertools
 
 # -----------------------------------------------------------------------------
 # CONFIGURATION
 # -----------------------------------------------------------------------------
-CSV_PATH = "seasonal_ranks.csv"
-FWD_WINDOWS = [5, 10, 21] 
-RECENT_WINDOW_YEARS = 5 
-
-FALLBACK_TICKERS = ["SPY", "QQQ", "IWM", "NVDA", "TSLA", "AAPL", "AMD", "MSFT", "GOOG", "AMZN", "META", "NFLX"]
+BACKTEST_TICKERS = ["SPY", "QQQ", "IWM", "NVDA", "TSLA", "AAPL", "AMD", "MSFT", "GOOG", "AMZN", "META", "NFLX", "TLT", "USO", "GLD"]
+TEST_HORIZONS = [5, 10, 21]
 
 # -----------------------------------------------------------------------------
-# DATA ENGINE
+# DATA ENGINE (Vectorized with Weighting)
 # -----------------------------------------------------------------------------
-@st.cache_data(show_spinner=False)
-def load_seasonal_map():
-    try:
-        df = pd.read_csv(CSV_PATH)
-    except Exception:
-        return {}, []
-
-    if df.empty: return {}, []
-
-    ticker_list = df['ticker'].unique().tolist()
-
-    df["Date"] = pd.to_datetime(df["Date"], errors='coerce')
-    df = df.dropna(subset=["Date"])
-    df["MD"] = df["Date"].apply(lambda x: (x.month, x.day))
-    
-    output_map = {}
-    for ticker, group in df.groupby("ticker"):
-        output_map[ticker] = pd.Series(
-            group.seasonal_rank.values, index=group.MD
-        ).to_dict()
-    return output_map, ticker_list
-
-def get_sznl_val_series(ticker, dates, sznl_map):
-    t_map = sznl_map.get(ticker, {})
-    if not t_map:
-        return pd.Series(50.0, index=dates)
-    
-    mds = dates.map(lambda x: (x.month, x.day))
-    return mds.map(t_map).fillna(50.0)
-
 @st.cache_data(ttl=3600, show_spinner=True)
-def get_batch_data(ticker_list):
+def get_backtest_data(ticker_list):
+    """
+    Downloads data and Pre-Calculates SCORES (Standard vs Weighted).
+    """
     tickers = list(set([t.strip().upper() for t in ticker_list]))
-    if not tickers: return {}, ""
     
-    data_dict = {}
+    # Store panels
+    horizon_panels = {h: [] for h in TEST_HORIZONS}
+    
+    start_date = "2015-01-01"
+    
     progress_bar = st.progress(0)
     for i, t in enumerate(tickers):
         try:
-            df = yf.download(t, period="max", progress=False, auto_adjust=True)
+            df = yf.download(t, start=start_date, progress=False, auto_adjust=True)
             if isinstance(df.columns, pd.MultiIndex):
                 df.columns = [c[0] for c in df.columns]
             
-            start_date = pd.Timestamp.now() - pd.DateOffset(years=25)
-            df = df[df.index >= start_date]
+            # 1. Features
+            df['LogRet'] = np.log(df['Close'] / df['Close'].shift(1))
+            df['Vol_Daily'] = df['LogRet'].rolling(21).std()
             
-            if len(df) > 252: 
-                data_dict[t] = df
-        except:
+            # 2. Ranks (Vectorized)
+            rank_cols = []
+            for w in [5, 10, 21, 63]:
+                col = f'Ret_{w}d'
+                df[col] = df['Close'].pct_change(w)
+                df[col + '_Rank'] = df[col].expanding(min_periods=252).rank(pct=True) * 100
+                rank_cols.append(col + '_Rank')
+                
+            df['RealVol_21d'] = df['LogRet'].rolling(21).std() * np.sqrt(252) * 100
+            df['RealVol_21d_Rank'] = df['RealVol_21d'].expanding(min_periods=252).rank(pct=True) * 100
+            rank_cols.append('RealVol_21d_Rank')
+            
+            df['VolRatio_5d'] = df['Volume'].rolling(5).mean() / df['Volume'].rolling(63).mean()
+            df['VolRatio_5d_Rank'] = df['VolRatio_5d'].expanding(min_periods=252).rank(pct=True) * 100
+            rank_cols.append('VolRatio_5d_Rank')
+
+            # 3. Vectorized Signal Generation
+            pairs = list(itertools.combinations(rank_cols, 2))
+            
+            # Initialize Boolean Matrices (Rows=Dates, Cols=Pairs)
+            # 1 = Signal Triggered, 0 = No Signal
+            bull_matrix = pd.DataFrame(0, index=df.index, columns=range(len(pairs)))
+            bear_matrix = pd.DataFrame(0, index=df.index, columns=range(len(pairs)))
+            
+            for idx, (r1, r2) in enumerate(pairs):
+                # Bullish: Oversold Confluence (<25)
+                bull_matrix[idx] = ((df[r1] < 25) & (df[r2] < 25)).astype(int)
+                # Bearish: Overbought Confluence (>75)
+                bear_matrix[idx] = ((df[r1] > 75) & (df[r2] > 75)).astype(int)
+            
+            # --- METHOD A: STANDARD (Equal Weight) ---
+            df['Score_Standard_Bull'] = bull_matrix.sum(axis=1)
+            df['Score_Standard_Bear'] = bear_matrix.sum(axis=1)
+            df['Net_Score_Standard']  = df['Score_Standard_Bull'] - df['Score_Standard_Bear']
+            
+            # --- METHOD B: WEIGHTED (Tanh Decay) ---
+            # 1. Calculate Historical Counts (Cumulative Sum)
+            bull_counts = bull_matrix.cumsum()
+            bear_counts = bear_matrix.cumsum()
+            
+            # 2. Calculate Dynamic Weights
+            # Tanh(Count / 50) -> 10 samples = 0.2, 50 samples = 0.76
+            bull_weights = np.tanh(bull_counts / 50.0)
+            bear_weights = np.tanh(bear_counts / 50.0)
+            
+            # 3. Apply Weights
+            df['Score_Weighted_Bull'] = (bull_matrix * bull_weights).sum(axis=1)
+            df['Score_Weighted_Bear'] = (bear_matrix * bear_weights).sum(axis=1)
+            df['Net_Score_Weighted']  = df['Score_Weighted_Bull'] - df['Score_Weighted_Bear']
+
+            # 4. Process Horizons
+            for h in TEST_HORIZONS:
+                expected_vol = df['Vol_Daily'] * np.sqrt(h)
+                expected_vol = expected_vol.replace(0, np.nan).fillna(method='ffill')
+                
+                fwd_ret = df['Close'].shift(-h) / df['Close'] - 1
+                
+                # Risk Unit Return (Sigma)
+                df[f'Sigma_Return_{h}d'] = fwd_ret / expected_vol
+                
+                # Store Data for Master Panel
+                subset = df[[
+                    'Net_Score_Standard', 
+                    'Net_Score_Weighted', 
+                    f'Sigma_Return_{h}d'
+                ]].copy()
+                subset['Ticker'] = t
+                horizon_panels[h].append(subset)
+            
+        except Exception as e:
             pass
         progress_bar.progress((i + 1) / len(tickers))
     
+    final_panels = {}
+    for h in TEST_HORIZONS:
+        if horizon_panels[h]:
+            final_panels[h] = pd.concat(horizon_panels[h])
+    
     progress_bar.empty()
-    timestamp = pd.Timestamp.now(tz='US/Eastern').strftime("%Y-%m-%d %I:%M %p %Z")
-    
-    return data_dict, timestamp
+    return final_panels
 
 # -----------------------------------------------------------------------------
-# FEATURE ENGINEERING
+# SIMULATION ENGINE
 # -----------------------------------------------------------------------------
-@st.cache_data(show_spinner=False)
-def calculate_internal_features(df, sznl_map, ticker):
-    df = df.copy()
-    
-    df['LogRet'] = np.log(df['Close'] / df['Close'].shift(1))
-    df['Vol_Daily'] = df['LogRet'].rolling(21).std()
-
-    for w in [5, 10, 21, 63, 126, 252]:
-        df[f'Ret_{w}d'] = df['Close'].pct_change(w)
-
-    for w in [21, 63]:
-        df[f'RealVol_{w}d'] = df['LogRet'].rolling(w).std() * np.sqrt(252) * 100.0
-    
-    df['VolChange_5d']  = df['RealVol_21d'] - df['RealVol_63d'].shift(5)
-    df['VolChange_21d'] = df['RealVol_21d'] - df['RealVol_63d']
-
-    for w in [5, 21]:
-        df[f'VolRatio_{w}d'] = df['Volume'].rolling(w).mean() / df['Volume'].rolling(63).mean()
-
-    df['Seasonal'] = get_sznl_val_series(ticker, df.index, sznl_map)
-
-    vars_to_rank = [
-        'Seasonal',
-        'Ret_5d', 'Ret_10d', 'Ret_21d', 'Ret_63d', 'Ret_252d',
-        'RealVol_21d', 'RealVol_63d', 
-        'VolChange_5d', 'VolChange_21d',
-        'VolRatio_5d', 'VolRatio_21d'
-    ]
-    
-    rank_cols = []
-    for v in vars_to_rank:
-        rank_col = v + '_Rank'
-        if v == 'Seasonal':
-            df[rank_col] = df[v]
-        else:
-            df[rank_col] = df[v].expanding(min_periods=252).rank(pct=True) * 100.0
-        rank_cols.append(rank_col)
-
-    for w in FWD_WINDOWS:
-        col_raw = f'FwdRet_{w}d_Raw'
-        col_sigma = f'FwdRet_{w}d_Sigma'
-        df[col_raw] = (df['Close'].shift(-w) / df['Close']) - 1.0
-        expected_move = df['Vol_Daily'] * np.sqrt(w)
-        df[col_sigma] = df[col_raw] / expected_move
-
-    df = df.dropna(subset=['Vol_Daily'] + rank_cols)
-    return df, rank_cols
-
-# -----------------------------------------------------------------------------
-# ALGORITHM: REGIME-AWARE SCANNER WITH SAMPLE WEIGHTING
-# -----------------------------------------------------------------------------
-def run_internal_scanner(data_dict, sznl_map):
-    results = []
-    
-    for ticker, df in data_dict.items():
-        processed_df, rank_cols = calculate_internal_features(df, sznl_map, ticker)
-        if processed_df.empty: continue
-        
-        # Baselines
-        cutoff_date = processed_df.index[-1] - pd.DateOffset(years=RECENT_WINDOW_YEARS)
-        full_df = processed_df
-        recent_df = processed_df[processed_df.index >= cutoff_date]
-        
-        baselines_full = {}
-        baselines_recent = {}
-        
-        for w in FWD_WINDOWS:
-            col = f'FwdRet_{w}d_Sigma'
-            baselines_full[w]   = full_df[col].mean()
-            baselines_recent[w] = recent_df[col].mean() if len(recent_df) > 50 else baselines_full[w]
-        
-        current_state = processed_df.iloc[-1]
-        feature_pairs = list(itertools.combinations(rank_cols, 2))
-        
-        for x_col, y_col in feature_pairs:
-            curr_x = current_state[x_col]
-            curr_y = current_state[y_col]
-            
-            x_tail = "UPPER" if curr_x > 75 else ("LOWER" if curr_x < 25 else "MID")
-            y_tail = "UPPER" if curr_y > 75 else ("LOWER" if curr_y < 25 else "MID")
-            
-            if x_tail == "MID" or y_tail == "MID": continue
-            
-            if x_tail == "UPPER": mask_x = processed_df[x_col] >= curr_x
-            else:                 mask_x = processed_df[x_col] <= curr_x
-                
-            if y_tail == "UPPER": mask_y = processed_df[y_col] >= curr_y
-            else:                 mask_y = processed_df[y_col] <= curr_y
-            
-            valid_mask = mask_x & mask_y
-            
-            mask_full = valid_mask
-            mask_recent = valid_mask & (processed_df.index >= cutoff_date)
-            
-            match_count_full = mask_full.sum()
-            match_count_recent = mask_recent.sum()
-            
-            if match_count_full < 10: continue
-            
-            for fwd_w in FWD_WINDOWS:
-                col_sigma = f'FwdRet_{fwd_w}d_Sigma'
-                col_raw   = f'FwdRet_{fwd_w}d_Raw'
-                
-                outcomes_sigma = processed_df.loc[mask_full, col_sigma]
-                outcomes_raw   = processed_df.loc[mask_full, col_raw]
-                
-                real_count = outcomes_sigma.count()
-                if real_count < 10: continue
-                
-                avg_sigma_full = outcomes_sigma.mean()
-                alpha_full = avg_sigma_full - baselines_full[fwd_w]
-                
-                win_rate = (outcomes_raw > 0).sum() / real_count * 100
-                exp_return = outcomes_raw.mean() * 100
-                
-                # RECENT STATS
-                if match_count_recent < 3:
-                    alpha_recent = np.nan 
-                    status = "👻 Ghost"   
-                else:
-                    outcomes_sigma_recent = processed_df.loc[mask_recent, col_sigma]
-                    avg_sigma_recent = outcomes_sigma_recent.mean()
-                    alpha_recent = avg_sigma_recent - baselines_recent[fwd_w]
-                    
-                    if alpha_full > 0:
-                        if alpha_recent < 0: status = "⚠️ Decaying"
-                        elif alpha_recent > (alpha_full * 1.2): status = "🚀 Accelerating"
-                        else: status = "✅ Stable"
-                    else:
-                        if alpha_recent > 0: status = "⚠️ Decaying"
-                        elif alpha_recent < (alpha_full * 1.2): status = "🚀 Accelerating" 
-                        else: status = "✅ Stable"
-
-                # --- SAMPLE SIZE WEIGHTING CALCULATION ---
-                # Using Tanh function to scale weight from ~0.2 (at 10 samples) to 1.0 (at 50+ samples)
-                # Formula: Weight = Tanh(Count / 50)
-                # This penalizes low sample counts heavily but treats 60 vs 80 samples similarly.
-                weight_factor = np.tanh(real_count / 50.0)
-                
-                # Weighted Alpha for Sorting
-                weighted_alpha = alpha_full * weight_factor
-
-                results.append({
-                    "Ticker": ticker,
-                    "Feature_X": x_col.replace("_Rank", ""),
-                    "Feature_Y": y_col.replace("_Rank", ""),
-                    "Current_Setup": f"X:{int(curr_x)} | Y:{int(curr_y)}",
-                    "Fwd_Horizon": f"{fwd_w}d",
-                    "History": real_count,
-                    "Recent_Count": match_count_recent,
-                    "Win_Rate": win_rate,
-                    "Full_Excess": alpha_full,
-                    "Recent_Excess": alpha_recent,
-                    "Weight_Factor": weight_factor,       # Saved for transparency
-                    "Weighted_Excess": weighted_alpha,    # Used for Ensemble/Sort
-                    "Status": status,
-                    "Exp_Return": exp_return
-                })
-                
-    return pd.DataFrame(results)
-
-def generate_ensemble(df_results, alpha_threshold=0.25):
+def run_full_simulation(panel_df, horizon):
     """
-    Aggregates signals using Weighted Excess.
+    Simulates Standard vs Weighted Strategies.
     """
-    if df_results.empty: return pd.DataFrame()
+    # Pivot Data
+    score_std = panel_df.pivot(columns='Ticker', values='Net_Score_Standard')
+    score_wgt = panel_df.pivot(columns='Ticker', values='Net_Score_Weighted')
+    returns   = panel_df.pivot(columns='Ticker', values=f'Sigma_Return_{horizon}d')
     
-    valid_status = ["✅ Stable", "🚀 Accelerating"]
-    active_signals = df_results[df_results['Status'].isin(valid_status)].copy()
+    # Align
+    common_index = score_std.index.intersection(returns.index)
+    score_std = score_std.loc[common_index]
+    score_wgt = score_wgt.loc[common_index]
+    returns   = returns.loc[common_index]
     
-    if active_signals.empty: return pd.DataFrame()
-
-    # Filter based on WEIGHTED Excess, not raw Excess
-    # This automatically filters out low-sample noise even if Raw Alpha is high
-    bull_mask = active_signals['Weighted_Excess'] > (alpha_threshold * 0.8) # Slight adjustment for damping
-    bear_mask = (active_signals['Weighted_Excess'] < -(alpha_threshold * 0.8)) & (active_signals['Exp_Return'] < 0)
+    # Filter for valid dates (post 2016 for ranks to stabilize)
+    valid_dates = score_std.index[score_std.index.year >= 2016]
     
-    valid_signals = active_signals[bull_mask | bear_mask].copy()
-    if valid_signals.empty: return pd.DataFrame()
+    pnl_std = []
+    pnl_wgt = []
+    dates = []
     
-    # Aggregate using Weighted Excess
-    ensemble = valid_signals.groupby(['Ticker', 'Fwd_Horizon']).agg({
-        'Weighted_Excess': 'sum',  # Summing the dampened scores
-        'Win_Rate': 'mean',
-        'Exp_Return': 'mean',
-        'Feature_X': 'count'
-    }).reset_index()
+    for d in valid_dates:
+        row_std = score_std.loc[d]
+        row_wgt = score_wgt.loc[d]
+        row_ret = returns.loc[d]
+        
+        # STRATEGY A: STANDARD (Equal Weight)
+        sorted_std = row_std.sort_values(ascending=False)
+        longs_std = sorted_std.head(5).index
+        shorts_std = sorted_std.tail(3).index
+        day_pnl_std = (row_ret[longs_std].mean() - row_ret[shorts_std].mean()) / 2
+        
+        # STRATEGY B: WEIGHTED (Sample Size Damping)
+        sorted_wgt = row_wgt.sort_values(ascending=False)
+        longs_wgt = sorted_wgt.head(5).index
+        shorts_wgt = sorted_wgt.tail(3).index
+        day_pnl_wgt = (row_ret[longs_wgt].mean() - row_ret[shorts_wgt].mean()) / 2
+        
+        if np.isnan(day_pnl_std): day_pnl_std = 0
+        if np.isnan(day_pnl_wgt): day_pnl_wgt = 0
+        
+        pnl_std.append(day_pnl_std)
+        pnl_wgt.append(day_pnl_wgt)
+        dates.append(d)
+        
+    results = pd.DataFrame({
+        "Date": dates,
+        "Daily_Sigma_Std": pnl_std,
+        "Daily_Sigma_Wgt": pnl_wgt
+    }).set_index("Date")
     
-    ensemble.rename(columns={
-        'Weighted_Excess': 'Conviction_Score',
-        'Feature_X': 'Signal_Breadth'
-    }, inplace=True)
-    
-    ensemble['Abs_Score'] = ensemble['Conviction_Score'].abs()
-    ensemble = ensemble.sort_values('Abs_Score', ascending=False).drop(columns=['Abs_Score'])
-    
-    return ensemble
+    return results
 
 # -----------------------------------------------------------------------------
 # UI
 # -----------------------------------------------------------------------------
 def main():
-    st.set_page_config(layout="wide", page_title="Regime-Aware Alpha")
-    st.title("🔮 Regime-Aware Alpha Forecasts")
+    st.set_page_config(layout="wide", page_title="Weighting Lab")
+    st.title("🧪 The Weighting Experiment")
     
     st.markdown("""
-    **Weighted Ranking Engine:**
-    * **Sample Size Penalty:** Signals with low history counts are mathematically dampened using a `Tanh` curve.
-    * **Weighting Logic:** * 10 Samples $\approx$ 20% Weight
-        * 25 Samples $\approx$ 45% Weight
-        * 50+ Samples $\rightarrow$ 100% Weight
-    * **Result:** High conviction requires *both* statistical edge and sufficient history.
+    **Hypothesis:** Does penalizing signals with low sample sizes (using `Tanh` damping) improve performance?
+    
+    * 🔵 **Standard Model:** All signals count as 1.0 (Equal Weight).
+    * 🔴 **Weighted Model:** Signals are weighted by `Tanh(History/50)`. 
+      *(10 samples = 0.2 weight, 50 samples = 0.76 weight)*.
     """)
     
-    sznl_map, csv_tickers = load_seasonal_map()
-    active_tickers = csv_tickers if csv_tickers else FALLBACK_TICKERS
-    active_tickers_str = ", ".join(active_tickers)
-
-    with st.expander("⚙️ Forecast Settings", expanded=True):
-        col1, col2 = st.columns([3, 1])
-        with col1:
-            st.caption(f"Scanning {len(active_tickers)} Tickers")
-            st.text_area("Active Universe (Read-Only)", value=active_tickers_str, height=70, disabled=True)
-        with col2:
-            st.info("Filtering: |Weighted Excess| > 0.20σ") 
-            run_btn = st.button("Run Regime Scan", type="primary", use_container_width=True)
-
-    if run_btn:
-        with st.spinner(f"Downloading data & Running Weighted Regime Checks..."):
+    if st.button("Run Weighting Experiment", type="primary"):
+        
+        with st.spinner("Vectorizing Standard vs Weighted Scores..."):
+            master_panels = get_backtest_data(BACKTEST_TICKERS)
+        
+        if not master_panels:
+            st.error("Data processing failed.")
+            return
             
-            raw_data, fetch_time = get_batch_data(active_tickers)
-            if not raw_data:
-                st.error("No valid data found.")
-                return
-            st.success(f"✅ Data Refreshed: {fetch_time}")
-            
-            df_results = run_internal_scanner(raw_data, sznl_map)
-            
-            if df_results.empty:
-                st.warning("No high-conviction internal setups found.")
-                return
-            
-            # --- GENERATE ENSEMBLE ---
-            ensemble_df = generate_ensemble(df_results, alpha_threshold=0.25)
-            
-            top_bulls = ensemble_df[ensemble_df['Conviction_Score'] > 0].head(10)
-            top_bears = ensemble_df[ensemble_df['Conviction_Score'] < 0].head(10)
-            
-            # --- DISPLAY ENSEMBLE ---
-            st.header("🏆 Top Validated Forecasts")
-            
-            c1, c2 = st.columns(2)
-            
-            with c1:
-                st.subheader("🚀 Bullish Forecasts")
-                if not top_bulls.empty:
-                    st.dataframe(
-                        top_bulls.style.format({
-                            'Conviction_Score': "{:.2f}",
-                            'Win_Rate': "{:.1f}%",
-                            'Exp_Return': "+{:.2f}%",
-                        }).background_gradient(subset=['Conviction_Score'], cmap='Greens'),
-                        use_container_width=True
-                    )
-                else:
-                    st.info("No strong, stable bullish forecasts.")
+        tab5, tab10, tab21 = st.tabs(["5-Day Horizon", "10-Day Horizon", "21-Day Horizon"])
+        
+        for horizon, tab in zip(TEST_HORIZONS, [tab5, tab10, tab21]):
+            with tab:
+                if horizon not in master_panels:
+                    st.warning("No data.")
+                    continue
                     
-            with c2:
-                st.subheader("🐻 Bearish Forecasts")
-                st.caption("Safety: Only Includes Negative Expectancy")
-                if not top_bears.empty:
-                    st.dataframe(
-                        top_bears.style.format({
-                            'Conviction_Score': "{:.2f}",
-                            'Win_Rate': "{:.1f}%",
-                            'Exp_Return': "{:.2f}%",
-                        }).background_gradient(subset=['Conviction_Score'], cmap='Reds_r'),
-                        use_container_width=True
-                    )
-                else:
-                    st.info("No strong, stable bearish forecasts.")
-
-            st.divider()
-            
-            # --- DISPLAY DETAILED TABLE ---
-            st.subheader("🔎 Detailed Signal Analysis")
-            
-            # Sorting by Weighted Excess now
-            bullish_details = df_results[df_results['Weighted_Excess'] > 0.1].sort_values(by="Weighted_Excess", ascending=False)
-            
-            bearish_details = df_results[
-                (df_results['Weighted_Excess'] < -0.1) & 
-                (df_results['Exp_Return'] < 0)
-            ].sort_values(by="Weighted_Excess", ascending=True)
-
-            tab1, tab2 = st.tabs(["Bullish Signals", "Bearish Signals"])
-            
-            cols = ["Ticker", "Fwd_Horizon", "Status", "Weighted_Excess", "Full_Excess", "Weight_Factor", "History", "Feature_X", "Feature_Y"]
-
-            with tab1:
-                st.dataframe(
-                    bullish_details.head(100).style.format({
-                        "Full_Excess": "+{:.2f}σ", 
-                        "Weighted_Excess": "+{:.2f}σ",
-                        "Weight_Factor": "{:.2f}"
-                    }).map(lambda x: "color: red" if "Decaying" in str(x) else ("color: green" if "Accelerating" in str(x) else ""), subset=["Status"]),
-                    use_container_width=True,
-                    column_order=cols
-                )
+                with st.spinner(f"Simulating {horizon}d History..."):
+                    res_df = run_full_simulation(master_panels[horizon], horizon)
                 
-            with tab2:
-                st.dataframe(
-                    bearish_details.head(100).style.format({
-                        "Full_Excess": "{:.2f}σ", 
-                        "Weighted_Excess": "{:.2f}σ",
-                        "Weight_Factor": "{:.2f}"
-                    }).map(lambda x: "color: red" if "Decaying" in str(x) else ("color: green" if "Accelerating" in str(x) else ""), subset=["Status"]),
-                    use_container_width=True,
-                    column_order=cols
+                res_df['Cum_Std'] = res_df['Daily_Sigma_Std'].cumsum()
+                res_df['Cum_Wgt'] = res_df['Daily_Sigma_Wgt'].cumsum()
+                
+                total_std = res_df['Cum_Std'].iloc[-1]
+                total_wgt = res_df['Cum_Wgt'].iloc[-1]
+                delta = total_wgt - total_std
+                
+                c1, c2, c3 = st.columns(3)
+                c1.metric("Standard Return", f"{total_std:.2f} R")
+                c2.metric("Weighted Return", f"{total_wgt:.2f} R")
+                c3.metric("Improvement", f"{delta:.2f} R", delta_color="normal")
+                
+                fig = go.Figure()
+                fig.add_trace(go.Scatter(x=res_df.index, y=res_df['Cum_Std'], name="Standard (Equal Weight)", line=dict(color='blue')))
+                fig.add_trace(go.Scatter(x=res_df.index, y=res_df['Cum_Wgt'], name="Weighted (Sample Damping)", line=dict(color='red', width=2)))
+                
+                fig.update_layout(
+                    title=f"Standard vs Weighted Performance ({horizon}d Hold)",
+                    yaxis_title="Cumulative Sigma (R)",
+                    xaxis_title="Year",
+                    height=500
                 )
-            
-            # --- SCATTER SUMMARY ---
-            st.divider()
-            
-            # Visualize the impact of weighting
-            fig = px.scatter(
-                df_results, 
-                x="History", 
-                y="Weighted_Excess", 
-                hover_data=["Ticker", "Status", "Full_Excess"],
-                color="Status", 
-                title="Impact of Sample Size on Signal Strength (The 'Tanh' Curve)"
-            )
-            
-            fig.update_layout(xaxis_title="History Count (Samples)", yaxis_title="Weighted Alpha Score")
-            st.plotly_chart(fig, use_container_width=True)
+                st.plotly_chart(fig, use_container_width=True)
 
 if __name__ == "__main__":
     main()
