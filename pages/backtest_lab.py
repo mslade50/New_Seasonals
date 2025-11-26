@@ -9,31 +9,56 @@ import itertools
 # -----------------------------------------------------------------------------
 # CONFIGURATION
 # -----------------------------------------------------------------------------
-BACKTEST_TICKERS = ["SPY", "QQQ", "IWM", "NVDA", "TSLA", "AAPL", "AMD", "MSFT", "GOOG", "AMZN", "META", "NFLX", "TLT", "USO", "GLD"]
+# Expanded Universe (~60 Assets) to allow for Top 20 Longs / Top 5 Shorts
+BACKTEST_TICKERS = [
+    # Indices/Macro
+    "SPY", "QQQ", "IWM", "DIA", "TLT", "IEF", "GLD", "SLV", "USO", "UUP", "BTC-USD",
+    # Sectors
+    "XLE", "XLF", "XLK", "XLV", "XLY", "XLP", "XLU", "XLI", "XLB", "XBI", "SMH", "KRE", "GDX",
+    # Mega Caps & High Vol
+    "AAPL", "MSFT", "NVDA", "GOOG", "AMZN", "META", "TSLA", "NFLX", "AMD", "INTC",
+    "JPM", "BAC", "WFC", "GS", "MS",
+    "XOM", "CVX", "COP",
+    "LLY", "UNH", "JNJ", "PFE",
+    "HD", "MCD", "NKE", "SBUX",
+    "CAT", "DE", "BA", "LMT", "RTX",
+    "PLTR", "COIN", "MSTR"
+]
+
 TEST_HORIZONS = [5, 10, 21]
+LONG_COUNT = 20
+SHORT_COUNT = 5
 
 # -----------------------------------------------------------------------------
-# DATA ENGINE (Grand Unified Vectorization)
+# DATA ENGINE
 # -----------------------------------------------------------------------------
 @st.cache_data(ttl=3600, show_spinner=True)
 def get_backtest_data(ticker_list):
-    """
-    Downloads data and Pre-Calculates SCORES for 3 Models.
-    """
     tickers = list(set([t.strip().upper() for t in ticker_list]))
-    
-    # Store panels
     horizon_panels = {h: [] for h in TEST_HORIZONS}
-    
-    start_date = "2015-01-01"
+    start_date = "2016-01-01" # Need data for rank calculation
     
     progress_bar = st.progress(0)
+    
+    # Download Batch (Much faster than loop)
+    try:
+        all_data = yf.download(tickers, start=start_date, progress=False, auto_adjust=True, group_by='ticker')
+    except:
+        st.error("Download failed.")
+        return {}
+
     for i, t in enumerate(tickers):
         try:
-            df = yf.download(t, start=start_date, progress=False, auto_adjust=True)
-            if isinstance(df.columns, pd.MultiIndex):
-                df.columns = [c[0] for c in df.columns]
-            
+            # Handle multi-level column structure from yf batch download
+            if isinstance(all_data.columns, pd.MultiIndex):
+                if t not in all_data.columns.levels[0]: continue
+                df = all_data[t].copy()
+            else:
+                df = all_data.copy() # Single ticker case
+
+            df = df.dropna()
+            if df.empty: continue
+
             # 1. Features
             df['LogRet'] = np.log(df['Close'] / df['Close'].shift(1))
             df['Vol_Daily'] = df['LogRet'].rolling(21).std()
@@ -54,7 +79,7 @@ def get_backtest_data(ticker_list):
             df['VolRatio_5d_Rank'] = df['VolRatio_5d'].expanding(min_periods=252).rank(pct=True) * 100
             rank_cols.append('VolRatio_5d_Rank')
 
-            # 3. Raw Signal Matrices (1 = Trigger, 0 = No)
+            # 3. Signals
             pairs = list(itertools.combinations(rank_cols, 2))
             
             bull_matrix = pd.DataFrame(0, index=df.index, columns=range(len(pairs)))
@@ -64,62 +89,49 @@ def get_backtest_data(ticker_list):
                 bull_matrix[idx] = ((df[r1] < 25) & (df[r2] < 25)).astype(int)
                 bear_matrix[idx] = ((df[r1] > 75) & (df[r2] > 75)).astype(int)
             
-            # --- MODEL A: NAIVE (Raw Sums) ---
-            df['Score_Naive_Bull'] = bull_matrix.sum(axis=1)
-            df['Score_Naive_Bear'] = bear_matrix.sum(axis=1)
-            df['Net_Score_Naive']  = df['Score_Naive_Bull'] - df['Score_Naive_Bear']
+            # MODEL A: NAIVE
+            df['Score_Naive'] = bull_matrix.sum(axis=1) - bear_matrix.sum(axis=1)
             
-            # --- PREP FOR WEIGHTING ---
+            # WEIGHTS
             bull_counts = bull_matrix.cumsum()
             bear_counts = bear_matrix.cumsum()
             bull_weights = np.tanh(bull_counts / 50.0)
             bear_weights = np.tanh(bear_counts / 50.0)
 
-            # 4. Process Horizons (Regime Logic)
+            # 4. Horizons
             for h in TEST_HORIZONS:
                 expected_vol = df['Vol_Daily'] * np.sqrt(h)
                 expected_vol = expected_vol.replace(0, np.nan).fillna(method='ffill')
-                fwd_ret = df['Close'].shift(-h) / df['Close'] - 1
                 
-                # Risk Unit Return (Sigma)
+                fwd_ret = df['Close'].shift(-h) / df['Close'] - 1
                 df[f'Sigma_Return_{h}d'] = fwd_ret / expected_vol
                 
-                # --- REGIME CALCULATION ---
+                # Regime
                 full_base = df[f'Sigma_Return_{h}d'].expanding(min_periods=252).mean().shift(h)
                 recent_base = df[f'Sigma_Return_{h}d'].rolling(500).mean().shift(h)
                 
-                # REGIME FILTER MASKS (0 or 1)
-                # 1 if signal is stable, 0 if decaying
-                valid_bull_regime = (recent_base >= full_base).astype(int)
-                valid_bear_regime = (recent_base <= full_base).astype(int)
+                valid_bull = (recent_base >= full_base).astype(int)
+                valid_bear = (recent_base <= full_base).astype(int)
                 
-                # --- MODEL B: REGIME ONLY (Equal Weight) ---
-                # We mask the raw matrix with the regime filter
-                # Note: Multiply series aligns on index
+                # MODEL B: REGIME (EQUAL WEIGHT)
+                # We multiply the *Total* scores by the regime validity of the TICKER
+                # (Simplification: If Ticker is in Downtrend regime, ignore ALL bull signals for it)
+                df['Score_Regime_Bull'] = bull_matrix.sum(axis=1) * valid_bull
+                df['Score_Regime_Bear'] = bear_matrix.sum(axis=1) * valid_bear
+                df[f'Score_Regime_{h}d'] = df['Score_Regime_Bull'] - df['Score_Regime_Bear']
                 
-                # Bull Score = Sum of (Matrix * RegimeMask)
-                # Since RegimeMask is per Ticker (not per signal), we multiply the final sum
-                # If Regime is invalid, the entire Bull Score for that day becomes 0.
+                # MODEL C: OPTIMIZED (REGIME + WEIGHTED)
+                final_bull_w = bull_weights.multiply(valid_bull, axis=0)
+                final_bear_w = bear_weights.multiply(valid_bear, axis=0)
                 
-                df['Score_RegimeEqW_Bull'] = df['Score_Naive_Bull'] * valid_bull_regime
-                df['Score_RegimeEqW_Bear'] = df['Score_Naive_Bear'] * valid_bear_regime
-                df[f'Net_Score_RegimeEqW_{h}d'] = df['Score_RegimeEqW_Bull'] - df['Score_RegimeEqW_Bear']
+                s_bull = (bull_matrix * final_bull_w).sum(axis=1)
+                s_bear = (bear_matrix * final_bear_w).sum(axis=1)
+                df[f'Score_Opt_{h}d'] = s_bull - s_bear
                 
-                # --- MODEL C: OPTIMIZED (Regime + Weighted) ---
-                # Apply regime filter to weights, then multiply matrix
-                final_bull_weights = bull_weights.multiply(valid_bull_regime, axis=0)
-                final_bear_weights = bear_weights.multiply(valid_bear_regime, axis=0)
-                
-                df['Score_Opt_Bull'] = (bull_matrix * final_bull_weights).sum(axis=1)
-                df['Score_Opt_Bear'] = (bear_matrix * final_bear_weights).sum(axis=1)
-                
-                df[f'Net_Score_Optimized_{h}d'] = df['Score_Opt_Bull'] - df['Score_Opt_Bear']
-                
-                # Store Panel
                 subset = df[[
-                    'Net_Score_Naive', 
-                    f'Net_Score_RegimeEqW_{h}d',
-                    f'Net_Score_Optimized_{h}d', 
+                    'Score_Naive', 
+                    f'Score_Regime_{h}d',
+                    f'Score_Opt_{h}d', 
                     f'Sigma_Return_{h}d'
                 ]].copy()
                 subset['Ticker'] = t
@@ -142,84 +154,88 @@ def get_backtest_data(ticker_list):
 # -----------------------------------------------------------------------------
 def run_full_simulation(panel_df, horizon):
     """
-    Simulates 3 Strategies.
+    Simulates 3 Strategies with Top 20 Long / Top 5 Short.
+    Separates PnL into Long and Short components.
     """
-    score_naive = panel_df.pivot(columns='Ticker', values='Net_Score_Naive')
-    score_reg   = panel_df.pivot(columns='Ticker', values=f'Net_Score_RegimeEqW_{horizon}d')
-    score_opt   = panel_df.pivot(columns='Ticker', values=f'Net_Score_Optimized_{horizon}d')
-    returns     = panel_df.pivot(columns='Ticker', values=f'Sigma_Return_{horizon}d')
+    # Pivots
+    s_naive = panel_df.pivot(columns='Ticker', values='Score_Naive')
+    s_reg   = panel_df.pivot(columns='Ticker', values=f'Score_Regime_{horizon}d')
+    s_opt   = panel_df.pivot(columns='Ticker', values=f'Score_Opt_{horizon}d')
+    returns = panel_df.pivot(columns='Ticker', values=f'Sigma_Return_{horizon}d')
     
-    common_index = score_naive.index.intersection(returns.index)
-    score_naive = score_naive.loc[common_index]
-    score_reg   = score_reg.loc[common_index]
-    score_opt   = score_opt.loc[common_index]
-    returns     = returns.loc[common_index]
+    common = s_naive.index.intersection(returns.index)
+    s_naive, s_reg, s_opt, returns = s_naive.loc[common], s_reg.loc[common], s_opt.loc[common], returns.loc[common]
     
-    valid_dates = score_naive.index[score_naive.index.year >= 2016]
+    valid_dates = s_naive.index[s_naive.index.year >= 2018] # Start 2018 to allow regime calc
     
-    pnl_naive = []
-    pnl_reg = []
-    pnl_opt = []
-    dates = []
+    results = {
+        "Date": [],
+        "Naive_L": [], "Naive_S": [], "Naive_Net": [],
+        "Regime_L": [], "Regime_S": [], "Regime_Net": [],
+        "Opt_L": [], "Opt_S": [], "Opt_Net": []
+    }
     
     for d in valid_dates:
-        row_naive = score_naive.loc[d]
-        row_reg   = score_reg.loc[d]
-        row_opt   = score_opt.loc[d]
-        row_ret   = returns.loc[d]
+        r_ret = returns.loc[d]
         
-        # MODEL A: NAIVE
-        s_naive = row_naive.sort_values(ascending=False)
-        pnl_A = (row_ret[s_naive.head(5).index].mean() - row_ret[s_naive.tail(3).index].mean()) / 2
+        # Helper to calc L/S PnL
+        def calc_day(scores):
+            # Sort descending
+            ranked = scores.sort_values(ascending=False)
+            
+            # Top Longs
+            longs = ranked.head(LONG_COUNT).index
+            # Bottom Shorts
+            shorts = ranked.tail(SHORT_COUNT).index
+            
+            # Check for overlap (rare with 60 tickers, but safe to handle)
+            shorts = [s for s in shorts if s not in longs]
+            
+            l_pnl = r_ret[longs].mean()
+            s_pnl = -1 * r_ret[shorts].mean() # Short PnL is inverse of return
+            
+            if np.isnan(l_pnl): l_pnl = 0
+            if np.isnan(s_pnl): s_pnl = 0
+            
+            return l_pnl, s_pnl, (l_pnl + s_pnl) # Net is sum of both components
+
+        # NAIVE
+        nl, ns, nn = calc_day(s_naive.loc[d])
         
-        # MODEL B: REGIME (EQUAL WEIGHT)
-        s_reg = row_reg.sort_values(ascending=False)
-        pnl_B = (row_ret[s_reg.head(5).index].mean() - row_ret[s_reg.tail(3).index].mean()) / 2
+        # REGIME
+        rl, rs, rn = calc_day(s_reg.loc[d])
         
-        # MODEL C: OPTIMIZED (REGIME + WEIGHTED)
-        s_opt = row_opt.sort_values(ascending=False)
-        pnl_C = (row_ret[s_opt.head(5).index].mean() - row_ret[s_opt.tail(3).index].mean()) / 2
+        # OPT
+        ol, os, on = calc_day(s_opt.loc[d])
         
-        if np.isnan(pnl_A): pnl_A = 0
-        if np.isnan(pnl_B): pnl_B = 0
-        if np.isnan(pnl_C): pnl_C = 0
-        
-        pnl_naive.append(pnl_A)
-        pnl_reg.append(pnl_B)
-        pnl_opt.append(pnl_C)
-        dates.append(d)
-        
-    results = pd.DataFrame({
-        "Date": dates,
-        "Sigma_Naive": pnl_naive,
-        "Sigma_Regime": pnl_reg,
-        "Sigma_Opt": pnl_opt
-    }).set_index("Date")
-    
-    return results
+        results["Date"].append(d)
+        results["Naive_L"].append(nl); results["Naive_S"].append(ns); results["Naive_Net"].append(nn)
+        results["Regime_L"].append(rl); results["Regime_S"].append(rs); results["Regime_Net"].append(rn)
+        results["Opt_L"].append(ol); results["Opt_S"].append(os); results["Opt_Net"].append(on)
+
+    return pd.DataFrame(results).set_index("Date")
 
 # -----------------------------------------------------------------------------
 # UI
 # -----------------------------------------------------------------------------
 def main():
-    st.set_page_config(layout="wide", page_title="Three-Model Backtest")
-    st.title("🧪 The 3-Model Showdown")
+    st.set_page_config(layout="wide", page_title="Portfolio Breakdown")
+    st.title("🧪 Long/Short Portfolio Lab")
     
-    st.markdown("""
-    **Isolating the Alpha:**
-    
-    * 🔵 **Naive:** Equal Weight. Ignores Regime.
-    * 🟠 **Regime (EqW):** Equal Weight. **Regime Filter Only** (Kills decaying signals).
-    * 🟣 **Optimized:** **Regime Filter + Sample Weighting** (Kills decaying + Dampens noise).
+    st.markdown(f"""
+    **Configuration:**
+    * **Universe:** ~60 Liquid Assets (Sectors, Indices, Mega-Caps)
+    * **Sizing:** Risk Parity (1 $\sigma$ Risk Units)
+    * **Structure:** Long Top **{LONG_COUNT}** / Short Bottom **{SHORT_COUNT}**
     """)
     
-    if st.button("Run 3-Model Simulation", type="primary"):
+    if st.button("Run Portfolio Simulation", type="primary"):
         
-        with st.spinner("Vectorizing 3 Models..."):
+        with st.spinner(f"Processing {len(BACKTEST_TICKERS)} tickers..."):
             master_panels = get_backtest_data(BACKTEST_TICKERS)
         
         if not master_panels:
-            st.error("Data processing failed.")
+            st.error("Data error.")
             return
             
         tab5, tab10, tab21 = st.tabs(["5-Day Horizon", "10-Day Horizon", "21-Day Horizon"])
@@ -230,36 +246,55 @@ def main():
                     st.warning("No data.")
                     continue
                     
-                with st.spinner(f"Simulating {horizon}d..."):
-                    res_df = run_full_simulation(master_panels[horizon], horizon)
+                with st.spinner(f"Simulating {horizon}d History..."):
+                    res = run_full_simulation(master_panels[horizon], horizon)
                 
-                res_df['Cum_Naive'] = res_df['Sigma_Naive'].cumsum()
-                res_df['Cum_Regime'] = res_df['Sigma_Regime'].cumsum()
-                res_df['Cum_Opt'] = res_df['Sigma_Opt'].cumsum()
+                # Cumulative calcs
+                for col in res.columns:
+                    res[f"Cum_{col}"] = res[col].cumsum()
                 
-                # Stats
-                final_naive = res_df['Cum_Naive'].iloc[-1]
-                final_reg = res_df['Cum_Regime'].iloc[-1]
-                final_opt = res_df['Cum_Opt'].iloc[-1]
+                # 1. TOTAL PERFORMANCE CHART
+                st.subheader("🏆 Net Performance (Long + Short)")
+                
+                final_naive = res['Cum_Naive_Net'].iloc[-1]
+                final_reg = res['Cum_Regime_Net'].iloc[-1]
+                final_opt = res['Cum_Opt_Net'].iloc[-1]
                 
                 c1, c2, c3 = st.columns(3)
-                c1.metric("Naive Payoff", f"{final_naive:.2f} R")
-                c2.metric("Regime (EqW) Payoff", f"{final_reg:.2f} R", delta=f"{final_reg - final_naive:.2f} vs Naive")
-                c3.metric("Optimized Payoff", f"{final_opt:.2f} R", delta=f"{final_opt - final_reg:.2f} vs Regime")
+                c1.metric("Naive Net", f"{final_naive:.2f} R")
+                c2.metric("Regime (EqW) Net", f"{final_reg:.2f} R", delta=f"{final_reg - final_naive:.2f}")
+                c3.metric("Weighted Net", f"{final_opt:.2f} R", delta=f"{final_opt - final_reg:.2f}")
                 
-                # Plot
                 fig = go.Figure()
-                fig.add_trace(go.Scatter(x=res_df.index, y=res_df['Cum_Naive'], name="Naive", line=dict(color='blue')))
-                fig.add_trace(go.Scatter(x=res_df.index, y=res_df['Cum_Regime'], name="Regime Only (EqW)", line=dict(color='orange', width=2, dash='dot')))
-                fig.add_trace(go.Scatter(x=res_df.index, y=res_df['Cum_Opt'], name="Optimized (Regime + Wgt)", line=dict(color='purple', width=3)))
-                
-                fig.update_layout(
-                    title=f"Performance Attribution ({horizon}d Hold)",
-                    yaxis_title="Cumulative Sigma (R)",
-                    height=550,
-                    hovermode="x unified"
-                )
+                fig.add_trace(go.Scatter(x=res.index, y=res['Cum_Naive_Net'], name="Naive", line=dict(color='blue', width=1)))
+                fig.add_trace(go.Scatter(x=res.index, y=res['Cum_Regime_Net'], name="Regime (EqW)", line=dict(color='orange', width=2)))
+                fig.add_trace(go.Scatter(x=res.index, y=res['Cum_Opt_Net'], name="Weighted", line=dict(color='purple', width=2)))
+                fig.update_layout(height=450, title=f"Cumulative Net PnL ({horizon}d)", yaxis_title="Sigma (R)")
                 st.plotly_chart(fig, use_container_width=True)
+                
+                # 2. DECOMPOSITION
+                st.markdown("---")
+                st.subheader("🔎 Performance Decomposition")
+                
+                col_L, col_S = st.columns(2)
+                
+                with col_L:
+                    st.markdown("**Long Side Performance**")
+                    fig_l = go.Figure()
+                    fig_l.add_trace(go.Scatter(x=res.index, y=res['Cum_Naive_L'], name="Naive Long", line=dict(color='lightblue')))
+                    fig_l.add_trace(go.Scatter(x=res.index, y=res['Cum_Regime_L'], name="Regime Long", line=dict(color='orange')))
+                    fig_l.add_trace(go.Scatter(x=res.index, y=res['Cum_Opt_L'], name="Weighted Long", line=dict(color='violet')))
+                    fig_l.update_layout(height=350, margin=dict(l=0,r=0,t=30,b=0))
+                    st.plotly_chart(fig_l, use_container_width=True)
+                    
+                with col_S:
+                    st.markdown("**Short Side Performance**")
+                    fig_s = go.Figure()
+                    fig_s.add_trace(go.Scatter(x=res.index, y=res['Cum_Naive_S'], name="Naive Short", line=dict(color='lightblue')))
+                    fig_s.add_trace(go.Scatter(x=res.index, y=res['Cum_Regime_S'], name="Regime Short", line=dict(color='orange')))
+                    fig_s.add_trace(go.Scatter(x=res.index, y=res['Cum_Opt_S'], name="Weighted Short", line=dict(color='violet')))
+                    fig_s.update_layout(height=350, margin=dict(l=0,r=0,t=30,b=0))
+                    st.plotly_chart(fig_s, use_container_width=True)
 
 if __name__ == "__main__":
     main()
