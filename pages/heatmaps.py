@@ -87,8 +87,80 @@ def load_market_metrics():
 
     return results
 
-def get_sznl_val_series(ticker, dates, sznl_map):
+# -----------------------------------------------------------------------------
+# DYNAMIC SEASONALITY GENERATOR
+# -----------------------------------------------------------------------------
+def generate_dynamic_seasonal_profile(df):
+    """
+    Calculates seasonal profile dynamically if missing from CSV.
+    Logic mimics the user's provided snippet:
+    - Calculates 5d, 10d, 21d forward returns.
+    - Groups by Day of Year (MD).
+    - Weights: (3 * Cycle_Avg + 1 * All_Year_Avg) / 4
+    """
+    # Create local copy and ensure LogRet exists
+    work_df = df.copy()
+    if 'LogRet' not in work_df.columns:
+        work_df['LogRet'] = np.log(work_df['Close'] / work_df['Close'].shift(1)) * 100.0
+    
+    work_df['Year'] = work_df.index.year
+    # Use (Month, Day) to handle Leap Years robustly
+    work_df['MD'] = work_df.index.map(lambda x: (x.month, x.day))
+    
+    # 1. Determine Current Cycle Phase
+    # Cycle: 0=Election, 1=Post, 2=Midterm, 3=Pre
+    current_year = datetime.datetime.now().year
+    cycle_remainder = current_year % 4
+    
+    # 2. Calculate Forward Returns
+    windows = [5, 10, 21]
+    fwd_cols = []
+    for w in windows:
+        col_name = f'Fwd_{w}d'
+        # shift(-w) brings future t+w value to t. rolling(w).sum() sums the period.
+        # Note: snippet used sum of log returns
+        work_df[col_name] = work_df['LogRet'].shift(-w).rolling(w).sum()
+        fwd_cols.append(col_name)
+
+    # 3. Group by Day of Year (MD) for ALL years
+    stats_all = work_df.groupby('MD')[fwd_cols].mean()
+    
+    # 4. Group by Day of Year (MD) for CYCLE years
+    cycle_df = work_df[work_df['Year'] % 4 == cycle_remainder]
+    stats_cycle = cycle_df.groupby('MD')[fwd_cols].mean()
+    
+    # Align Cycle stats to All stats (handle potential missing days in small cycle samples)
+    stats_cycle = stats_cycle.reindex(stats_all.index).fillna(method='ffill').fillna(method='bfill')
+    
+    # 5. Rank (Percentile 0-100) across the calendar year
+    rnk_all = stats_all.rank(pct=True) * 100.0
+    rnk_cycle = stats_cycle.rank(pct=True) * 100.0
+    
+    # 6. Average the ranks across windows (5d, 10d, 21d)
+    avg_rank_all = rnk_all.mean(axis=1)
+    avg_rank_cycle = rnk_cycle.mean(axis=1)
+    
+    # 7. Apply Weighting: (3 * Cycle + 1 * All) / 4
+    final_rank = (avg_rank_all + 3 * avg_rank_cycle) / 4.0
+    
+    # 8. Smoothing (5d centered rolling mean)
+    # Since index is tuples (M, D), sorting is implicit if generated from datetime, 
+    # but let's ensure it's sorted chronologically for rolling calc.
+    # Note: Rolling on a dict/tuples index requires resetting or assuming order.
+    # Groupby keys are sorted by default.
+    final_rank_smooth = final_rank.rolling(window=5, center=True, min_periods=1).mean()
+    
+    return final_rank_smooth.to_dict()
+
+def get_sznl_val_series(ticker, dates, sznl_map, df_hist=None):
+    # 1. Try CSV Map
     t_map = sznl_map.get(ticker, {})
+    
+    # 2. If missing and we have data, generate dynamically
+    if not t_map and df_hist is not None and not df_hist.empty:
+        t_map = generate_dynamic_seasonal_profile(df_hist)
+
+    # 3. If still missing, return neutral 50
     if not t_map:
         return pd.Series(50.0, index=dates)
     
@@ -174,8 +246,8 @@ def calculate_heatmap_variables(df, sznl_map, market_metrics_df, ticker):
     for w in [5, 10, 21]:
         df[f'VolRatio_{w}d'] = df['Volume'].rolling(w).mean() / df['Volume'].rolling(63).mean()
 
-    # Seasonality
-    df['Seasonal'] = get_sznl_val_series(ticker, df.index, sznl_map)
+    # Seasonality (Pass DF for dynamic calc if needed)
+    df['Seasonal'] = get_sznl_val_series(ticker, df.index, sznl_map, df)
 
     # --- 4. RANK TRANSFORMATION (Percentiles 0-100) ---
     vars_to_rank = [
