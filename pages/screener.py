@@ -104,7 +104,39 @@ STRATEGY_BOOK = [
             "expectancy": "$726.57",
             "profit_factor": "3.71"
         }
-    }
+    },
+    {
+        "id": "STRAT_1764185106",
+        "name": "Generated Strategy (A)",
+        "description": "Start: 2000-01-01. Universe: All CSV Tickers. Dir: Long. Filter: None. PF: 2.81. SQN: 7.48.",
+        "universe_tickers": ['AAPL', 'AMGN', 'AMZN', 'AVGO', 'AXP', 'BA', 'CAT', 'CEF', 'CRM', 'CSCO', 'CVX', 'DIA', 'DIS', 'GLD', 'GOOG', 'GS', 'HD', 'HON', 'IBB', 'IBM', 'IHI', 'INTC', 'ITA', 'ITB', 'IWM', 'IYR', 'JNJ', 'JPM', 'KO', 'KRE', 'MCD', 'META', 'MMM', 'MRK', 'MSFT', 'NKE', 'NVDA', 'OIH', 'PG', 'QQQ', 'SLV', 'SMH', 'SPY', 'TRV', 'UNG', 'UNH', 'UVXY', 'V', 'VNQ', 'VZ', 'WMT', 'XBI', 'XHB', 'XLB', 'XLE', 'XLF', 'XLI', 'XLK', 'XLP', 'XLU', 'XLV', 'XLY', 'XME', 'XOP', 'XRT'], 
+        "settings": {
+            "trade_direction": "Long",
+            "entry_type": "Signal Close",
+            "max_one_pos": True,
+            "use_perf_rank": True, "perf_window": 21, "perf_logic": "<", "perf_thresh": 15.0,
+            "perf_first_instance": False, "perf_lookback": 21, "perf_consecutive": 5,
+            "use_sznl": True, "sznl_logic": ">", "sznl_thresh": 85.0, "sznl_first_instance": False, "sznl_lookback": 21,
+            "use_52w": False, "52w_type": "New 52w High", "52w_first_instance": True, "52w_lookback": 21,
+            "use_vol": False, "vol_thresh": 1.5,
+            "use_vol_rank": False, "vol_rank_logic": "<", "vol_rank_thresh": 50.0,
+            "trend_filter": "None",
+            "min_price": 10.0, "min_vol": 100000,
+            "min_age": 0.25, "max_age": 100.0
+        },
+        "execution": {
+            "risk_per_trade": 1000,
+            "stop_atr": 3.0,
+            "tgt_atr": 8.0,
+            "hold_days": 21
+        },
+        "stats": {
+            "grade": "A (Excellent)",
+            "win_rate": "67.5%",
+            "expectancy": "$383.18",
+            "profit_factor": "2.81"
+        }
+    },
 ]
 
 # -----------------------------------------------------------------------------
