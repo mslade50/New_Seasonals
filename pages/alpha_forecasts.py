@@ -13,7 +13,7 @@ import itertools
 # -----------------------------------------------------------------------------
 CSV_PATH = "seasonal_ranks.csv"
 FWD_WINDOWS = [5, 10, 21] 
-RECENT_WINDOW_YEARS = 5 
+RECENT_WINDOW_YEARS = 5  # The "Regime Check" Window
 
 FALLBACK_TICKERS = ["SPY", "QQQ", "IWM", "NVDA", "TSLA", "AAPL", "AMD", "MSFT", "GOOG", "AMZN", "META", "NFLX"]
 
@@ -63,6 +63,7 @@ def get_batch_data(ticker_list):
             if isinstance(df.columns, pd.MultiIndex):
                 df.columns = [c[0] for c in df.columns]
             
+            # Filter to last 25 years
             start_date = pd.Timestamp.now() - pd.DateOffset(years=25)
             df = df[df.index >= start_date]
             
@@ -129,7 +130,7 @@ def calculate_internal_features(df, sznl_map, ticker):
     return df, rank_cols
 
 # -----------------------------------------------------------------------------
-# ALGORITHM: REGIME-AWARE SCANNER WITH SAMPLE WEIGHTING
+# ALGORITHM: REGIME-AWARE SCANNER
 # -----------------------------------------------------------------------------
 def run_internal_scanner(data_dict, sznl_map):
     results = []
@@ -138,8 +139,10 @@ def run_internal_scanner(data_dict, sznl_map):
         processed_df, rank_cols = calculate_internal_features(df, sznl_map, ticker)
         if processed_df.empty: continue
         
-        # Baselines
+        # --- BASELINE CALCULATION (Full vs Recent) ---
+        # We need separate baselines because the market might have been higher/lower beta recently
         cutoff_date = processed_df.index[-1] - pd.DateOffset(years=RECENT_WINDOW_YEARS)
+        
         full_df = processed_df
         recent_df = processed_df[processed_df.index >= cutoff_date]
         
@@ -149,12 +152,16 @@ def run_internal_scanner(data_dict, sznl_map):
         for w in FWD_WINDOWS:
             col = f'FwdRet_{w}d_Sigma'
             baselines_full[w]   = full_df[col].mean()
+            # If recent_df is empty/small, fallback to full
             baselines_recent[w] = recent_df[col].mean() if len(recent_df) > 50 else baselines_full[w]
         
+        # Get Current State
         current_state = processed_df.iloc[-1]
+        
         feature_pairs = list(itertools.combinations(rank_cols, 2))
         
         for x_col, y_col in feature_pairs:
+            
             curr_x = current_state[x_col]
             curr_y = current_state[y_col]
             
@@ -163,6 +170,7 @@ def run_internal_scanner(data_dict, sznl_map):
             
             if x_tail == "MID" or y_tail == "MID": continue
             
+            # Create Masks
             if x_tail == "UPPER": mask_x = processed_df[x_col] >= curr_x
             else:                 mask_x = processed_df[x_col] <= curr_x
                 
@@ -171,6 +179,7 @@ def run_internal_scanner(data_dict, sznl_map):
             
             valid_mask = mask_x & mask_y
             
+            # Split into Full and Recent
             mask_full = valid_mask
             mask_recent = valid_mask & (processed_df.index >= cutoff_date)
             
@@ -179,10 +188,12 @@ def run_internal_scanner(data_dict, sznl_map):
             
             if match_count_full < 10: continue
             
+            # --- CALCULATE ALPHA FOR BOTH REGIMES ---
             for fwd_w in FWD_WINDOWS:
                 col_sigma = f'FwdRet_{fwd_w}d_Sigma'
                 col_raw   = f'FwdRet_{fwd_w}d_Raw'
                 
+                # FULL STATS
                 outcomes_sigma = processed_df.loc[mask_full, col_sigma]
                 outcomes_raw   = processed_df.loc[mask_full, col_raw]
                 
@@ -196,31 +207,26 @@ def run_internal_scanner(data_dict, sznl_map):
                 exp_return = outcomes_raw.mean() * 100
                 
                 # RECENT STATS
+                # Check if we have enough recent data to calculate stats
                 if match_count_recent < 3:
-                    alpha_recent = np.nan 
-                    status = "👻 Ghost"   
+                    alpha_recent = np.nan # Not enough recent signals
+                    status = "👻 Ghost"   # Signal hasn't fired recently
                 else:
                     outcomes_sigma_recent = processed_df.loc[mask_recent, col_sigma]
                     avg_sigma_recent = outcomes_sigma_recent.mean()
                     alpha_recent = avg_sigma_recent - baselines_recent[fwd_w]
                     
+                    # DETERMINE STATUS
+                    # Bullish Signal Logic
                     if alpha_full > 0:
                         if alpha_recent < 0: status = "⚠️ Decaying"
                         elif alpha_recent > (alpha_full * 1.2): status = "🚀 Accelerating"
                         else: status = "✅ Stable"
+                    # Bearish Signal Logic
                     else:
                         if alpha_recent > 0: status = "⚠️ Decaying"
-                        elif alpha_recent < (alpha_full * 1.2): status = "🚀 Accelerating" 
+                        elif alpha_recent < (alpha_full * 1.2): status = "🚀 Accelerating" # More negative
                         else: status = "✅ Stable"
-
-                # --- SAMPLE SIZE WEIGHTING CALCULATION ---
-                # Using Tanh function to scale weight from ~0.2 (at 10 samples) to 1.0 (at 50+ samples)
-                # Formula: Weight = Tanh(Count / 50)
-                # This penalizes low sample counts heavily but treats 60 vs 80 samples similarly.
-                weight_factor = np.tanh(real_count / 50.0)
-                
-                # Weighted Alpha for Sorting
-                weighted_alpha = alpha_full * weight_factor
 
                 results.append({
                     "Ticker": ticker,
@@ -233,8 +239,6 @@ def run_internal_scanner(data_dict, sznl_map):
                     "Win_Rate": win_rate,
                     "Full_Excess": alpha_full,
                     "Recent_Excess": alpha_recent,
-                    "Weight_Factor": weight_factor,       # Saved for transparency
-                    "Weighted_Excess": weighted_alpha,    # Used for Ensemble/Sort
                     "Status": status,
                     "Exp_Return": exp_return
                 })
@@ -243,33 +247,37 @@ def run_internal_scanner(data_dict, sznl_map):
 
 def generate_ensemble(df_results, alpha_threshold=0.25):
     """
-    Aggregates signals using Weighted Excess.
+    Aggregates signals, but deprioritizes 'Decaying' or 'Ghost' signals.
     """
     if df_results.empty: return pd.DataFrame()
     
+    # FILTER: Exclude Decaying/Ghost signals from the "Conviction Score"
+    # We want to build the ensemble only on Stable or Accelerating edge.
     valid_status = ["✅ Stable", "🚀 Accelerating"]
     active_signals = df_results[df_results['Status'].isin(valid_status)].copy()
     
     if active_signals.empty: return pd.DataFrame()
 
-    # Filter based on WEIGHTED Excess, not raw Excess
-    # This automatically filters out low-sample noise even if Raw Alpha is high
-    bull_mask = active_signals['Weighted_Excess'] > (alpha_threshold * 0.8) # Slight adjustment for damping
-    bear_mask = (active_signals['Weighted_Excess'] < -(alpha_threshold * 0.8)) & (active_signals['Exp_Return'] < 0)
+    # 1. Bullish Candidates
+    bull_mask = active_signals['Full_Excess'] > alpha_threshold
+    
+    # 2. Bearish Candidates
+    bear_mask = (active_signals['Full_Excess'] < -alpha_threshold) & (active_signals['Exp_Return'] < 0)
     
     valid_signals = active_signals[bull_mask | bear_mask].copy()
     if valid_signals.empty: return pd.DataFrame()
     
-    # Aggregate using Weighted Excess
+    # 3. Aggregate
     ensemble = valid_signals.groupby(['Ticker', 'Fwd_Horizon']).agg({
-        'Weighted_Excess': 'sum',  # Summing the dampened scores
+        'Full_Excess': 'sum',      # Cumulative Alpha
+        'Recent_Excess': 'mean',   # Avg Recent Strength
         'Win_Rate': 'mean',
         'Exp_Return': 'mean',
         'Feature_X': 'count'
     }).reset_index()
     
     ensemble.rename(columns={
-        'Weighted_Excess': 'Conviction_Score',
+        'Full_Excess': 'Conviction_Score',
         'Feature_X': 'Signal_Breadth'
     }, inplace=True)
     
@@ -286,12 +294,13 @@ def main():
     st.title("🔮 Regime-Aware Alpha Forecasts")
     
     st.markdown("""
-    **Weighted Ranking Engine:**
-    * **Sample Size Penalty:** Signals with low history counts are mathematically dampened using a `Tanh` curve.
-    * **Weighting Logic:** * 10 Samples $\approx$ 20% Weight
-        * 25 Samples $\approx$ 45% Weight
-        * 50+ Samples $\rightarrow$ 100% Weight
-    * **Result:** High conviction requires *both* statistical edge and sufficient history.
+    **The "Stability" Test:**
+    We compare the signal's performance over the **Last 5 Years** vs. **25 Years**.
+    
+    * ✅ **Stable:** Edge is consistent.
+    * 🚀 **Accelerating:** Edge is getting stronger recently.
+    * ⚠️ **Decaying:** Edge has disappeared in recent years.
+    * 👻 **Ghost:** Signal hasn't triggered in the last 5 years.
     """)
     
     sznl_map, csv_tickers = load_seasonal_map()
@@ -304,11 +313,11 @@ def main():
             st.caption(f"Scanning {len(active_tickers)} Tickers")
             st.text_area("Active Universe (Read-Only)", value=active_tickers_str, height=70, disabled=True)
         with col2:
-            st.info("Filtering: |Weighted Excess| > 0.20σ") 
+            st.info("Filtering: |Excess| > 0.25σ") 
             run_btn = st.button("Run Regime Scan", type="primary", use_container_width=True)
 
     if run_btn:
-        with st.spinner(f"Downloading data & Running Weighted Regime Checks..."):
+        with st.spinner(f"Downloading data & Running Regime Checks..."):
             
             raw_data, fetch_time = get_batch_data(active_tickers)
             if not raw_data:
@@ -323,13 +332,14 @@ def main():
                 return
             
             # --- GENERATE ENSEMBLE ---
+            # Note: The ensemble calculation now AUTO-REMOVES Decaying/Ghost signals
             ensemble_df = generate_ensemble(df_results, alpha_threshold=0.25)
             
             top_bulls = ensemble_df[ensemble_df['Conviction_Score'] > 0].head(10)
             top_bears = ensemble_df[ensemble_df['Conviction_Score'] < 0].head(10)
             
             # --- DISPLAY ENSEMBLE ---
-            st.header("🏆 Top Validated Forecasts")
+            st.header("🏆 Top Validated Forecasts (Stable/Accelerating Only)")
             
             c1, c2 = st.columns(2)
             
@@ -339,6 +349,7 @@ def main():
                     st.dataframe(
                         top_bulls.style.format({
                             'Conviction_Score': "{:.2f}",
+                            'Recent_Excess': "+{:.2f}σ",
                             'Win_Rate': "{:.1f}%",
                             'Exp_Return': "+{:.2f}%",
                         }).background_gradient(subset=['Conviction_Score'], cmap='Greens'),
@@ -349,11 +360,11 @@ def main():
                     
             with c2:
                 st.subheader("🐻 Bearish Forecasts")
-                st.caption("Safety: Only Includes Negative Expectancy")
                 if not top_bears.empty:
                     st.dataframe(
                         top_bears.style.format({
                             'Conviction_Score': "{:.2f}",
+                            'Recent_Excess': "{:.2f}σ",
                             'Win_Rate': "{:.1f}%",
                             'Exp_Return': "{:.2f}%",
                         }).background_gradient(subset=['Conviction_Score'], cmap='Reds_r'),
@@ -365,26 +376,27 @@ def main():
             st.divider()
             
             # --- DISPLAY DETAILED TABLE ---
-            st.subheader("🔎 Detailed Signal Analysis")
+            st.subheader("🔎 Detailed Signal Regime Analysis")
             
-            # Sorting by Weighted Excess now
-            bullish_details = df_results[df_results['Weighted_Excess'] > 0.1].sort_values(by="Weighted_Excess", ascending=False)
+            ALPHA_THRESHOLD = 0.25
+            
+            # Show all signals here, even the Decaying ones, so user can see what's failing
+            bullish_details = df_results[df_results['Full_Excess'] > ALPHA_THRESHOLD].sort_values(by="Full_Excess", ascending=False)
             
             bearish_details = df_results[
-                (df_results['Weighted_Excess'] < -0.1) & 
+                (df_results['Full_Excess'] < -ALPHA_THRESHOLD) & 
                 (df_results['Exp_Return'] < 0)
-            ].sort_values(by="Weighted_Excess", ascending=True)
+            ].sort_values(by="Full_Excess", ascending=True)
 
             tab1, tab2 = st.tabs(["Bullish Signals", "Bearish Signals"])
             
-            cols = ["Ticker", "Fwd_Horizon", "Status", "Weighted_Excess", "Full_Excess", "Weight_Factor", "History", "Feature_X", "Feature_Y"]
+            # Column Order for Details
+            cols = ["Ticker", "Fwd_Horizon", "Status", "Full_Excess", "Recent_Excess", "Feature_X", "Feature_Y", "History", "Recent_Count"]
 
             with tab1:
                 st.dataframe(
                     bullish_details.head(100).style.format({
-                        "Full_Excess": "+{:.2f}σ", 
-                        "Weighted_Excess": "+{:.2f}σ",
-                        "Weight_Factor": "{:.2f}"
+                        "Full_Excess": "+{:.2f}σ", "Recent_Excess": "{:.2f}σ"
                     }).map(lambda x: "color: red" if "Decaying" in str(x) else ("color: green" if "Accelerating" in str(x) else ""), subset=["Status"]),
                     use_container_width=True,
                     column_order=cols
@@ -393,9 +405,7 @@ def main():
             with tab2:
                 st.dataframe(
                     bearish_details.head(100).style.format({
-                        "Full_Excess": "{:.2f}σ", 
-                        "Weighted_Excess": "{:.2f}σ",
-                        "Weight_Factor": "{:.2f}"
+                        "Full_Excess": "{:.2f}σ", "Recent_Excess": "{:.2f}σ"
                     }).map(lambda x: "color: red" if "Decaying" in str(x) else ("color: green" if "Accelerating" in str(x) else ""), subset=["Status"]),
                     use_container_width=True,
                     column_order=cols
@@ -403,18 +413,24 @@ def main():
             
             # --- SCATTER SUMMARY ---
             st.divider()
-            
-            # Visualize the impact of weighting
             fig = px.scatter(
                 df_results, 
-                x="History", 
-                y="Weighted_Excess", 
-                hover_data=["Ticker", "Status", "Full_Excess"],
+                x="Full_Excess", 
+                y="Recent_Excess", 
+                hover_data=["Ticker", "Status", "Feature_X", "Feature_Y"],
                 color="Status", 
-                title="Impact of Sample Size on Signal Strength (The 'Tanh' Curve)"
+                color_discrete_map={
+                    "✅ Stable": "blue",
+                    "🚀 Accelerating": "green",
+                    "⚠️ Decaying": "red",
+                    "👻 Ghost": "gray"
+                },
+                title="Regime Stability Map: Historic Alpha vs Recent Alpha"
             )
+            # Add identity line (Recent = Historic)
+            fig.add_shape(type="line", x0=-2, y0=-2, x1=2, y1=2, line=dict(color="gray", dash="dash"))
             
-            fig.update_layout(xaxis_title="History Count (Samples)", yaxis_title="Weighted Alpha Score")
+            fig.update_layout(xaxis_title="Full History Alpha (25y)", yaxis_title="Recent Alpha (5y)")
             st.plotly_chart(fig, use_container_width=True)
 
 if __name__ == "__main__":
