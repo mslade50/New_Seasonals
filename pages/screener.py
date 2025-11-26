@@ -13,7 +13,7 @@ STRATEGY_BOOK = [
     {
         "id": "IND_OS_SZNL",
         "name": "Oversold Indices + Bullish Seasonality",
-        "description": "Buying major indices when short-term momentum is washed out but seasonal tailwinds are strong.",
+        "description": "Major index etfs, sznl > 80, 5d trailing < 15",
         "universe_tickers": ["SPY", "QQQ", "IWM", "DIA", "SMH"], 
         "settings": {
             "trade_direction": "Long",
