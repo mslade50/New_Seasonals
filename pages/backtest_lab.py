@@ -9,15 +9,12 @@ import itertools
 # -----------------------------------------------------------------------------
 # CONFIGURATION
 # -----------------------------------------------------------------------------
-# Reverted to original "Primary Components" list
-BACKTEST_TICKERS = ["SPY", "QQQ", "IWM", "SLV", "DIA", "AAPL", "AMD", "MSFT", "SMH", "HD", "KO", "UNG", "TLT", "USO", "GLD"]
+# 15 Primary Assets
+BACKTEST_TICKERS = ["SPY", "QQQ", "IWM", "NVDA", "TSLA", "AAPL", "AMD", "MSFT", "GOOG", "AMZN", "META", "NFLX", "TLT", "USO", "GLD"]
 
-# 2d, 5d, 10d, 21d Horizons
 TEST_HORIZONS = [2, 5, 10, 21]
-
-# Original Sizing
 LONG_COUNT = 5
-SHORT_COUNT = 1
+SHORT_COUNT = 3
 
 # -----------------------------------------------------------------------------
 # DATA ENGINE (Vectorized)
@@ -134,7 +131,7 @@ def get_backtest_data(ticker_list):
     return final_panels
 
 # -----------------------------------------------------------------------------
-# SIMULATION ENGINE (With Attribution)
+# SIMULATION ENGINE (Deep Attribution)
 # -----------------------------------------------------------------------------
 def run_full_simulation(panel_df, horizon):
     # Pivots
@@ -153,72 +150,74 @@ def run_full_simulation(panel_df, horizon):
         "Naive_Net": [], "Regime_Net": [], "Opt_Net": []
     }
     
-    # Attribution Trackers (Dictionary of Tickers)
-    attr_regime = {t: 0.0 for t in s_naive.columns}
-    attr_opt = {t: 0.0 for t in s_naive.columns}
+    # --- ATTRIBUTION STRUCTURE ---
+    # Structure: { 'Naive': {'SPY': {'Long': 0.0, 'Short': 0.0}, ...}, 'Regime': ... }
+    tickers = s_naive.columns
+    attribution = {
+        'Naive':  {t: {'Long': 0.0, 'Short': 0.0} for t in tickers},
+        'Regime': {t: {'Long': 0.0, 'Short': 0.0} for t in tickers},
+        'Opt':    {t: {'Long': 0.0, 'Short': 0.0} for t in tickers}
+    }
     
     for d in valid_dates:
         r_ret = returns.loc[d]
         
-        # Helper
-        def get_pnl_and_pos(scores):
+        # --- CALCULATION FUNCTION ---
+        def process_model(scores, model_name):
             ranked = scores.sort_values(ascending=False)
             longs = ranked.head(LONG_COUNT).index
             shorts = ranked.tail(SHORT_COUNT).index
             shorts = [s for s in shorts if s not in longs]
             
-            # PnL Calculation
-            l_mean = r_ret[longs].mean()
-            s_mean = -1 * r_ret[shorts].mean()
+            # 1. PnL Calculation (Mean Return)
+            l_mean = r_ret[longs].mean() if len(longs) > 0 else 0
+            s_mean = -1 * r_ret[shorts].mean() if len(shorts) > 0 else 0
+            net_pnl = l_mean + s_mean
             
-            if np.isnan(l_mean): l_mean = 0
-            if np.isnan(s_mean): s_mean = 0
+            # 2. Attribution Calculation (Normalized by basket size)
+            # This ensures Sum(Attribution) == PnL
+            if len(longs) > 0:
+                weight_l = 1.0 / len(longs)
+                for t in longs:
+                    if not np.isnan(r_ret[t]):
+                        attribution[model_name][t]['Long'] += (r_ret[t] * weight_l)
             
-            return l_mean + s_mean, longs, shorts
+            if len(shorts) > 0:
+                weight_s = 1.0 / len(shorts)
+                for t in shorts:
+                    if not np.isnan(r_ret[t]):
+                        # Short PnL is (-1 * Ret)
+                        attribution[model_name][t]['Short'] += (-1 * r_ret[t] * weight_s)
+            
+            return net_pnl
 
-        # NAIVE
-        pnl_n, _, _ = get_pnl_and_pos(s_naive.loc[d])
-        
-        # REGIME (Track Attribution)
-        pnl_r, l_r, s_r = get_pnl_and_pos(s_reg.loc[d])
-        
-        # For attribution, we split the day's PnL equally among the basket
-        # Longs get +Ret / Count, Shorts get -Ret / Count
-        # Simplified: We just add raw return to the ticker bucket
-        for t in l_r: attr_regime[t] += r_ret[t] if not np.isnan(r_ret[t]) else 0
-        for t in s_r: attr_regime[t] -= r_ret[t] if not np.isnan(r_ret[t]) else 0
-        
-        # OPTIMIZED (Track Attribution)
-        pnl_o, l_o, s_o = get_pnl_and_pos(s_opt.loc[d])
-        
-        for t in l_o: attr_opt[t] += r_ret[t] if not np.isnan(r_ret[t]) else 0
-        for t in s_o: attr_opt[t] -= r_ret[t] if not np.isnan(r_ret[t]) else 0
+        # RUN MODELS
+        results["Naive_Net"].append(process_model(s_naive.loc[d], 'Naive'))
+        results["Regime_Net"].append(process_model(s_reg.loc[d], 'Regime'))
+        results["Opt_Net"].append(process_model(s_opt.loc[d], 'Opt'))
         
         results["Date"].append(d)
-        results["Naive_Net"].append(pnl_n)
-        results["Regime_Net"].append(pnl_r)
-        results["Opt_Net"].append(pnl_o)
 
     df_res = pd.DataFrame(results).set_index("Date")
-    return df_res, attr_regime, attr_opt
+    return df_res, attribution
 
 # -----------------------------------------------------------------------------
 # UI
 # -----------------------------------------------------------------------------
 def main():
-    st.set_page_config(layout="wide", page_title="Portfolio Breakdown")
+    st.set_page_config(layout="wide", page_title="Backtest Lab")
     st.title("🧪 Long/Short Portfolio Lab")
     
     st.markdown(f"""
     **Configuration:**
-    * **Universe:** 15 Primary Assets ({", ".join(BACKTEST_TICKERS[:5])}...)
+    * **Universe:** 15 Primary Assets
     * **Structure:** Long Top **{LONG_COUNT}** / Short Bottom **{SHORT_COUNT}**
     * **Sizing:** Risk Parity (1 $\sigma$ Risk Units)
     """)
     
-    if st.button("Run Portfolio Simulation", type="primary"):
+    if st.button("Run Simulation", type="primary"):
         
-        with st.spinner(f"Processing {len(BACKTEST_TICKERS)} tickers..."):
+        with st.spinner(f"Vectorizing Data..."):
             master_panels = get_backtest_data(BACKTEST_TICKERS)
         
         if not master_panels:
@@ -233,52 +232,85 @@ def main():
                     st.warning("No data.")
                     continue
                     
-                with st.spinner(f"Simulating {horizon}d History..."):
-                    res, attr_reg, attr_opt = run_full_simulation(master_panels[horizon], horizon)
+                with st.spinner(f"Simulating {horizon}d..."):
+                    # Run Sim and Get Complex Attribution Dict
+                    res, attr_dict = run_full_simulation(master_panels[horizon], horizon)
                 
                 for col in res.columns:
                     res[f"Cum_{col}"] = res[col].cumsum()
                 
-                # 1. TOTAL PERFORMANCE
+                # 1. TOTAL PERFORMANCE CHART
+                st.subheader("🏆 Cumulative Net PnL")
+                
                 final_naive = res['Cum_Naive_Net'].iloc[-1]
                 final_reg = res['Cum_Regime_Net'].iloc[-1]
                 final_opt = res['Cum_Opt_Net'].iloc[-1]
                 
                 c1, c2, c3 = st.columns(3)
-                c1.metric("Naive Net", f"{final_naive:.2f} R")
-                c2.metric("Regime (EqW) Net", f"{final_reg:.2f} R", delta=f"{final_reg - final_naive:.2f}")
-                c3.metric("Weighted Net", f"{final_opt:.2f} R", delta=f"{final_opt - final_reg:.2f}")
+                c1.metric("Naive", f"{final_naive:.2f} R")
+                c2.metric("Regime (EqW)", f"{final_reg:.2f} R", delta=f"{final_reg - final_naive:.2f}")
+                c3.metric("Weighted", f"{final_opt:.2f} R", delta=f"{final_opt - final_reg:.2f}")
                 
                 fig = go.Figure()
                 fig.add_trace(go.Scatter(x=res.index, y=res['Cum_Naive_Net'], name="Naive", line=dict(color='blue', width=1)))
                 fig.add_trace(go.Scatter(x=res.index, y=res['Cum_Regime_Net'], name="Regime (EqW)", line=dict(color='orange', width=2)))
                 fig.add_trace(go.Scatter(x=res.index, y=res['Cum_Opt_Net'], name="Weighted", line=dict(color='purple', width=2)))
-                fig.update_layout(height=400, title=f"Cumulative Net PnL ({horizon}d)", yaxis_title="Sigma (R)")
+                fig.update_layout(height=450, title=f"Net Performance ({horizon}d)", yaxis_title="Sigma (R)")
                 st.plotly_chart(fig, use_container_width=True)
                 
-                # 2. TICKER ATTRIBUTION (Bar Chart)
+                # 2. SEGMENTED ATTRIBUTION
                 st.markdown("---")
-                st.subheader("📊 Ticker Attribution (Optimized Strategy)")
+                st.subheader("📊 Segmented Attribution (Long vs Short)")
                 
-                # Create DF from dict
-                attr_df = pd.DataFrame.from_dict(attr_opt, orient='index', columns=['Total_Sigma'])
-                attr_df = attr_df.sort_values('Total_Sigma', ascending=False)
+                # Control to switch attribution view
+                attr_model = st.selectbox(f"Select Model for {horizon}d Breakdown:", ["Naive", "Regime", "Opt"], key=f"sel_{horizon}")
                 
-                # Color bars by Profit/Loss
-                colors = ['green' if x > 0 else 'red' for x in attr_df['Total_Sigma']]
+                # Process Data for Plotting
+                # We need a DF with Index=Ticker, Col=Long_PnL, Col=Short_PnL
                 
+                model_data = attr_dict[attr_model]
+                attr_rows = []
+                for t, vals in model_data.items():
+                    attr_rows.append({
+                        "Ticker": t,
+                        "Long_PnL": vals['Long'],
+                        "Short_PnL": vals['Short'],
+                        "Total_PnL": vals['Long'] + vals['Short']
+                    })
+                
+                df_attr = pd.DataFrame(attr_rows).sort_values("Total_PnL", ascending=False)
+                
+                # Stacked Bar Chart
                 fig_bar = go.Figure()
+                
                 fig_bar.add_trace(go.Bar(
-                    x=attr_df.index, 
-                    y=attr_df['Total_Sigma'],
-                    marker_color=colors
+                    x=df_attr['Ticker'], 
+                    y=df_attr['Long_PnL'], 
+                    name='Long PnL',
+                    marker_color='green'
                 ))
                 
+                fig_bar.add_trace(go.Bar(
+                    x=df_attr['Ticker'], 
+                    y=df_attr['Short_PnL'], 
+                    name='Short PnL',
+                    marker_color='red'
+                ))
+                
+                # Add Total Scatter point
+                fig_bar.add_trace(go.Scatter(
+                    x=df_attr['Ticker'],
+                    y=df_attr['Total_PnL'],
+                    mode='markers',
+                    marker=dict(symbol='diamond', size=10, color='black'),
+                    name='Net Total'
+                ))
+
                 fig_bar.update_layout(
-                    title=f"PnL Contribution by Ticker (Weighted Strategy, {horizon}d)",
+                    title=f"PnL Drivers: {attr_model} Model ({horizon}d)",
+                    barmode='relative', # Allows stacking positives and negatives correctly
                     yaxis_title="Total Sigma (R)",
-                    xaxis_tickangle=-45,
-                    height=400
+                    height=500
                 )
                 st.plotly_chart(fig_bar, use_container_width=True)
 
