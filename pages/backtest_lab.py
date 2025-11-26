@@ -9,39 +9,30 @@ import itertools
 # -----------------------------------------------------------------------------
 # CONFIGURATION
 # -----------------------------------------------------------------------------
-# Universe: ~60 Liquid Assets (Sectors + Mega Caps)
-BACKTEST_TICKERS = [
-    "SPY", "QQQ", "IWM", "DIA", "TLT", "IEF", "GLD", "SLV", "USO", "UUP", "BTC-USD",
-    "XLE", "XLF", "XLK", "XLV", "XLY", "XLP", "XLU", "XLI", "XLB", "XBI", "SMH", "KRE", "GDX",
-    "AAPL", "MSFT", "NVDA", "GOOG", "AMZN", "META", "TSLA", "NFLX", "AMD", "INTC",
-    "JPM", "BAC", "WFC", "GS", "MS",
-    "XOM", "CVX", "COP",
-    "LLY", "UNH", "JNJ", "PFE",
-    "HD", "MCD", "NKE", "SBUX",
-    "CAT", "DE", "BA", "LMT", "RTX",
-    "PLTR", "COIN", "MSTR"
-]
+# Reverted to original "Primary Components" list
+BACKTEST_TICKERS = ["SPY", "QQQ", "IWM", "NVDA", "TSLA", "AAPL", "AMD", "MSFT", "GOOG", "AMZN", "META", "NFLX", "TLT", "USO", "GLD"]
 
-# Added 2d back into the mix
+# 2d, 5d, 10d, 21d Horizons
 TEST_HORIZONS = [2, 5, 10, 21]
-LONG_COUNT = 20
-SHORT_COUNT = 5
+
+# Original Sizing
+LONG_COUNT = 5
+SHORT_COUNT = 3
 
 # -----------------------------------------------------------------------------
-# DATA ENGINE
+# DATA ENGINE (Vectorized)
 # -----------------------------------------------------------------------------
 @st.cache_data(ttl=3600, show_spinner=True)
 def get_backtest_data(ticker_list):
     tickers = list(set([t.strip().upper() for t in ticker_list]))
     horizon_panels = {h: [] for h in TEST_HORIZONS}
-    start_date = "2016-01-01" 
+    start_date = "2016-01-01"
     
     progress_bar = st.progress(0)
     
     try:
         all_data = yf.download(tickers, start=start_date, progress=False, auto_adjust=True, group_by='ticker')
     except:
-        st.error("Download failed.")
         return {}
 
     for i, t in enumerate(tickers):
@@ -77,7 +68,6 @@ def get_backtest_data(ticker_list):
 
             # 3. Signals
             pairs = list(itertools.combinations(rank_cols, 2))
-            
             bull_matrix = pd.DataFrame(0, index=df.index, columns=range(len(pairs)))
             bear_matrix = pd.DataFrame(0, index=df.index, columns=range(len(pairs)))
             
@@ -102,7 +92,7 @@ def get_backtest_data(ticker_list):
                 fwd_ret = df['Close'].shift(-h) / df['Close'] - 1
                 df[f'Sigma_Return_{h}d'] = fwd_ret / expected_vol
                 
-                # Regime Logic
+                # Regime
                 full_base = df[f'Sigma_Return_{h}d'].expanding(min_periods=252).mean().shift(h)
                 recent_base = df[f'Sigma_Return_{h}d'].rolling(500).mean().shift(h)
                 
@@ -144,9 +134,10 @@ def get_backtest_data(ticker_list):
     return final_panels
 
 # -----------------------------------------------------------------------------
-# SIMULATION ENGINE
+# SIMULATION ENGINE (With Attribution)
 # -----------------------------------------------------------------------------
 def run_full_simulation(panel_df, horizon):
+    # Pivots
     s_naive = panel_df.pivot(columns='Ticker', values='Score_Naive')
     s_reg   = panel_df.pivot(columns='Ticker', values=f'Score_Regime_{horizon}d')
     s_opt   = panel_df.pivot(columns='Ticker', values=f'Score_Opt_{horizon}d')
@@ -155,42 +146,61 @@ def run_full_simulation(panel_df, horizon):
     common = s_naive.index.intersection(returns.index)
     s_naive, s_reg, s_opt, returns = s_naive.loc[common], s_reg.loc[common], s_opt.loc[common], returns.loc[common]
     
-    valid_dates = s_naive.index[s_naive.index.year >= 2018] 
+    valid_dates = s_naive.index[s_naive.index.year >= 2018]
     
     results = {
         "Date": [],
-        "Naive_L": [], "Naive_S": [], "Naive_Net": [],
-        "Regime_L": [], "Regime_S": [], "Regime_Net": [],
-        "Opt_L": [], "Opt_S": [], "Opt_Net": []
+        "Naive_Net": [], "Regime_Net": [], "Opt_Net": []
     }
+    
+    # Attribution Trackers (Dictionary of Tickers)
+    attr_regime = {t: 0.0 for t in s_naive.columns}
+    attr_opt = {t: 0.0 for t in s_naive.columns}
     
     for d in valid_dates:
         r_ret = returns.loc[d]
         
-        def calc_day(scores):
+        # Helper
+        def get_pnl_and_pos(scores):
             ranked = scores.sort_values(ascending=False)
             longs = ranked.head(LONG_COUNT).index
             shorts = ranked.tail(SHORT_COUNT).index
             shorts = [s for s in shorts if s not in longs]
             
-            l_pnl = r_ret[longs].mean()
-            s_pnl = -1 * r_ret[shorts].mean()
+            # PnL Calculation
+            l_mean = r_ret[longs].mean()
+            s_mean = -1 * r_ret[shorts].mean()
             
-            if np.isnan(l_pnl): l_pnl = 0
-            if np.isnan(s_pnl): s_pnl = 0
+            if np.isnan(l_mean): l_mean = 0
+            if np.isnan(s_mean): s_mean = 0
             
-            return l_pnl, s_pnl, (l_pnl + s_pnl)
+            return l_mean + s_mean, longs, shorts
 
-        nl, ns, nn = calc_day(s_naive.loc[d])
-        rl, rs, rn = calc_day(s_reg.loc[d])
-        ol, os, on = calc_day(s_opt.loc[d])
+        # NAIVE
+        pnl_n, _, _ = get_pnl_and_pos(s_naive.loc[d])
+        
+        # REGIME (Track Attribution)
+        pnl_r, l_r, s_r = get_pnl_and_pos(s_reg.loc[d])
+        
+        # For attribution, we split the day's PnL equally among the basket
+        # Longs get +Ret / Count, Shorts get -Ret / Count
+        # Simplified: We just add raw return to the ticker bucket
+        for t in l_r: attr_regime[t] += r_ret[t] if not np.isnan(r_ret[t]) else 0
+        for t in s_r: attr_regime[t] -= r_ret[t] if not np.isnan(r_ret[t]) else 0
+        
+        # OPTIMIZED (Track Attribution)
+        pnl_o, l_o, s_o = get_pnl_and_pos(s_opt.loc[d])
+        
+        for t in l_o: attr_opt[t] += r_ret[t] if not np.isnan(r_ret[t]) else 0
+        for t in s_o: attr_opt[t] -= r_ret[t] if not np.isnan(r_ret[t]) else 0
         
         results["Date"].append(d)
-        results["Naive_L"].append(nl); results["Naive_S"].append(ns); results["Naive_Net"].append(nn)
-        results["Regime_L"].append(rl); results["Regime_S"].append(rs); results["Regime_Net"].append(rn)
-        results["Opt_L"].append(ol); results["Opt_S"].append(os); results["Opt_Net"].append(on)
+        results["Naive_Net"].append(pnl_n)
+        results["Regime_Net"].append(pnl_r)
+        results["Opt_Net"].append(pnl_o)
 
-    return pd.DataFrame(results).set_index("Date")
+    df_res = pd.DataFrame(results).set_index("Date")
+    return df_res, attr_regime, attr_opt
 
 # -----------------------------------------------------------------------------
 # UI
@@ -201,9 +211,9 @@ def main():
     
     st.markdown(f"""
     **Configuration:**
-    * **Universe:** ~60 Liquid Assets
-    * **Structure:** Long Top **{LONG_COUNT}** / Short Bottom **{SHORT_COUNT}** (Risk Parity)
-    * **Strategies:** Naive vs. Regime (EqW) vs. Weighted
+    * **Universe:** 15 Primary Assets ({", ".join(BACKTEST_TICKERS[:5])}...)
+    * **Structure:** Long Top **{LONG_COUNT}** / Short Bottom **{SHORT_COUNT}**
+    * **Sizing:** Risk Parity (1 $\sigma$ Risk Units)
     """)
     
     if st.button("Run Portfolio Simulation", type="primary"):
@@ -215,8 +225,7 @@ def main():
             st.error("Data error.")
             return
             
-        # Added 2d Tab
-        tab2, tab5, tab10, tab21 = st.tabs(["2-Day Horizon", "5-Day Horizon", "10-Day Horizon", "21-Day Horizon"])
+        tab2, tab5, tab10, tab21 = st.tabs(["2-Day", "5-Day", "10-Day", "21-Day"])
         
         for horizon, tab in zip(TEST_HORIZONS, [tab2, tab5, tab10, tab21]):
             with tab:
@@ -225,14 +234,12 @@ def main():
                     continue
                     
                 with st.spinner(f"Simulating {horizon}d History..."):
-                    res = run_full_simulation(master_panels[horizon], horizon)
+                    res, attr_reg, attr_opt = run_full_simulation(master_panels[horizon], horizon)
                 
                 for col in res.columns:
                     res[f"Cum_{col}"] = res[col].cumsum()
                 
                 # 1. TOTAL PERFORMANCE
-                st.subheader("🏆 Net Performance")
-                
                 final_naive = res['Cum_Naive_Net'].iloc[-1]
                 final_reg = res['Cum_Regime_Net'].iloc[-1]
                 final_opt = res['Cum_Opt_Net'].iloc[-1]
@@ -246,32 +253,34 @@ def main():
                 fig.add_trace(go.Scatter(x=res.index, y=res['Cum_Naive_Net'], name="Naive", line=dict(color='blue', width=1)))
                 fig.add_trace(go.Scatter(x=res.index, y=res['Cum_Regime_Net'], name="Regime (EqW)", line=dict(color='orange', width=2)))
                 fig.add_trace(go.Scatter(x=res.index, y=res['Cum_Opt_Net'], name="Weighted", line=dict(color='purple', width=2)))
-                fig.update_layout(height=450, title=f"Cumulative Net PnL ({horizon}d)", yaxis_title="Sigma (R)")
+                fig.update_layout(height=400, title=f"Cumulative Net PnL ({horizon}d)", yaxis_title="Sigma (R)")
                 st.plotly_chart(fig, use_container_width=True)
                 
-                # 2. DECOMPOSITION
+                # 2. TICKER ATTRIBUTION (Bar Chart)
                 st.markdown("---")
-                st.subheader("🔎 Decomposition")
+                st.subheader("📊 Ticker Attribution (Optimized Strategy)")
                 
-                col_L, col_S = st.columns(2)
+                # Create DF from dict
+                attr_df = pd.DataFrame.from_dict(attr_opt, orient='index', columns=['Total_Sigma'])
+                attr_df = attr_df.sort_values('Total_Sigma', ascending=False)
                 
-                with col_L:
-                    st.markdown("**Long Side**")
-                    fig_l = go.Figure()
-                    fig_l.add_trace(go.Scatter(x=res.index, y=res['Cum_Naive_L'], name="Naive", line=dict(color='lightblue')))
-                    fig_l.add_trace(go.Scatter(x=res.index, y=res['Cum_Regime_L'], name="Regime", line=dict(color='orange')))
-                    fig_l.add_trace(go.Scatter(x=res.index, y=res['Cum_Opt_L'], name="Weighted", line=dict(color='violet')))
-                    fig_l.update_layout(height=350, margin=dict(l=0,r=0,t=30,b=0))
-                    st.plotly_chart(fig_l, use_container_width=True)
-                    
-                with col_S:
-                    st.markdown("**Short Side**")
-                    fig_s = go.Figure()
-                    fig_s.add_trace(go.Scatter(x=res.index, y=res['Cum_Naive_S'], name="Naive", line=dict(color='lightblue')))
-                    fig_s.add_trace(go.Scatter(x=res.index, y=res['Cum_Regime_S'], name="Regime", line=dict(color='orange')))
-                    fig_s.add_trace(go.Scatter(x=res.index, y=res['Cum_Opt_S'], name="Weighted", line=dict(color='violet')))
-                    fig_s.update_layout(height=350, margin=dict(l=0,r=0,t=30,b=0))
-                    st.plotly_chart(fig_s, use_container_width=True)
+                # Color bars by Profit/Loss
+                colors = ['green' if x > 0 else 'red' for x in attr_df['Total_Sigma']]
+                
+                fig_bar = go.Figure()
+                fig_bar.add_trace(go.Bar(
+                    x=attr_df.index, 
+                    y=attr_df['Total_Sigma'],
+                    marker_color=colors
+                ))
+                
+                fig_bar.update_layout(
+                    title=f"PnL Contribution by Ticker (Weighted Strategy, {horizon}d)",
+                    yaxis_title="Total Sigma (R)",
+                    xaxis_tickangle=-45,
+                    height=400
+                )
+                st.plotly_chart(fig_bar, use_container_width=True)
 
 if __name__ == "__main__":
     main()
