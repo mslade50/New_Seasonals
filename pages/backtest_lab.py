@@ -9,13 +9,10 @@ import itertools
 # -----------------------------------------------------------------------------
 # CONFIGURATION
 # -----------------------------------------------------------------------------
-# Expanded Universe (~60 Assets) to allow for Top 20 Longs / Top 5 Shorts
+# Universe: ~60 Liquid Assets (Sectors + Mega Caps)
 BACKTEST_TICKERS = [
-    # Indices/Macro
     "SPY", "QQQ", "IWM", "DIA", "TLT", "IEF", "GLD", "SLV", "USO", "UUP", "BTC-USD",
-    # Sectors
     "XLE", "XLF", "XLK", "XLV", "XLY", "XLP", "XLU", "XLI", "XLB", "XBI", "SMH", "KRE", "GDX",
-    # Mega Caps & High Vol
     "AAPL", "MSFT", "NVDA", "GOOG", "AMZN", "META", "TSLA", "NFLX", "AMD", "INTC",
     "JPM", "BAC", "WFC", "GS", "MS",
     "XOM", "CVX", "COP",
@@ -25,6 +22,7 @@ BACKTEST_TICKERS = [
     "PLTR", "COIN", "MSTR"
 ]
 
+# Added 2d back into the mix
 TEST_HORIZONS = [2, 5, 10, 21]
 LONG_COUNT = 20
 SHORT_COUNT = 5
@@ -36,11 +34,10 @@ SHORT_COUNT = 5
 def get_backtest_data(ticker_list):
     tickers = list(set([t.strip().upper() for t in ticker_list]))
     horizon_panels = {h: [] for h in TEST_HORIZONS}
-    start_date = "2016-01-01" # Need data for rank calculation
+    start_date = "2016-01-01" 
     
     progress_bar = st.progress(0)
     
-    # Download Batch (Much faster than loop)
     try:
         all_data = yf.download(tickers, start=start_date, progress=False, auto_adjust=True, group_by='ticker')
     except:
@@ -49,12 +46,11 @@ def get_backtest_data(ticker_list):
 
     for i, t in enumerate(tickers):
         try:
-            # Handle multi-level column structure from yf batch download
             if isinstance(all_data.columns, pd.MultiIndex):
                 if t not in all_data.columns.levels[0]: continue
                 df = all_data[t].copy()
             else:
-                df = all_data.copy() # Single ticker case
+                df = all_data.copy()
 
             df = df.dropna()
             if df.empty: continue
@@ -89,7 +85,7 @@ def get_backtest_data(ticker_list):
                 bull_matrix[idx] = ((df[r1] < 25) & (df[r2] < 25)).astype(int)
                 bear_matrix[idx] = ((df[r1] > 75) & (df[r2] > 75)).astype(int)
             
-            # MODEL A: NAIVE
+            # NAIVE
             df['Score_Naive'] = bull_matrix.sum(axis=1) - bear_matrix.sum(axis=1)
             
             # WEIGHTS
@@ -106,21 +102,19 @@ def get_backtest_data(ticker_list):
                 fwd_ret = df['Close'].shift(-h) / df['Close'] - 1
                 df[f'Sigma_Return_{h}d'] = fwd_ret / expected_vol
                 
-                # Regime
+                # Regime Logic
                 full_base = df[f'Sigma_Return_{h}d'].expanding(min_periods=252).mean().shift(h)
                 recent_base = df[f'Sigma_Return_{h}d'].rolling(500).mean().shift(h)
                 
                 valid_bull = (recent_base >= full_base).astype(int)
                 valid_bear = (recent_base <= full_base).astype(int)
                 
-                # MODEL B: REGIME (EQUAL WEIGHT)
-                # We multiply the *Total* scores by the regime validity of the TICKER
-                # (Simplification: If Ticker is in Downtrend regime, ignore ALL bull signals for it)
+                # REGIME (Equal Weight)
                 df['Score_Regime_Bull'] = bull_matrix.sum(axis=1) * valid_bull
                 df['Score_Regime_Bear'] = bear_matrix.sum(axis=1) * valid_bear
                 df[f'Score_Regime_{h}d'] = df['Score_Regime_Bull'] - df['Score_Regime_Bear']
                 
-                # MODEL C: OPTIMIZED (REGIME + WEIGHTED)
+                # OPTIMIZED (Regime + Weighted)
                 final_bull_w = bull_weights.multiply(valid_bull, axis=0)
                 final_bear_w = bear_weights.multiply(valid_bear, axis=0)
                 
@@ -153,11 +147,6 @@ def get_backtest_data(ticker_list):
 # SIMULATION ENGINE
 # -----------------------------------------------------------------------------
 def run_full_simulation(panel_df, horizon):
-    """
-    Simulates 3 Strategies with Top 20 Long / Top 5 Short.
-    Separates PnL into Long and Short components.
-    """
-    # Pivots
     s_naive = panel_df.pivot(columns='Ticker', values='Score_Naive')
     s_reg   = panel_df.pivot(columns='Ticker', values=f'Score_Regime_{horizon}d')
     s_opt   = panel_df.pivot(columns='Ticker', values=f'Score_Opt_{horizon}d')
@@ -166,7 +155,7 @@ def run_full_simulation(panel_df, horizon):
     common = s_naive.index.intersection(returns.index)
     s_naive, s_reg, s_opt, returns = s_naive.loc[common], s_reg.loc[common], s_opt.loc[common], returns.loc[common]
     
-    valid_dates = s_naive.index[s_naive.index.year >= 2018] # Start 2018 to allow regime calc
+    valid_dates = s_naive.index[s_naive.index.year >= 2018] 
     
     results = {
         "Date": [],
@@ -178,34 +167,22 @@ def run_full_simulation(panel_df, horizon):
     for d in valid_dates:
         r_ret = returns.loc[d]
         
-        # Helper to calc L/S PnL
         def calc_day(scores):
-            # Sort descending
             ranked = scores.sort_values(ascending=False)
-            
-            # Top Longs
             longs = ranked.head(LONG_COUNT).index
-            # Bottom Shorts
             shorts = ranked.tail(SHORT_COUNT).index
-            
-            # Check for overlap (rare with 60 tickers, but safe to handle)
             shorts = [s for s in shorts if s not in longs]
             
             l_pnl = r_ret[longs].mean()
-            s_pnl = -1 * r_ret[shorts].mean() # Short PnL is inverse of return
+            s_pnl = -1 * r_ret[shorts].mean()
             
             if np.isnan(l_pnl): l_pnl = 0
             if np.isnan(s_pnl): s_pnl = 0
             
-            return l_pnl, s_pnl, (l_pnl + s_pnl) # Net is sum of both components
+            return l_pnl, s_pnl, (l_pnl + s_pnl)
 
-        # NAIVE
         nl, ns, nn = calc_day(s_naive.loc[d])
-        
-        # REGIME
         rl, rs, rn = calc_day(s_reg.loc[d])
-        
-        # OPT
         ol, os, on = calc_day(s_opt.loc[d])
         
         results["Date"].append(d)
@@ -224,9 +201,9 @@ def main():
     
     st.markdown(f"""
     **Configuration:**
-    * **Universe:** ~60 Liquid Assets (Sectors, Indices, Mega-Caps)
-    * **Sizing:** Risk Parity (1 $\sigma$ Risk Units)
-    * **Structure:** Long Top **{LONG_COUNT}** / Short Bottom **{SHORT_COUNT}**
+    * **Universe:** ~60 Liquid Assets
+    * **Structure:** Long Top **{LONG_COUNT}** / Short Bottom **{SHORT_COUNT}** (Risk Parity)
+    * **Strategies:** Naive vs. Regime (EqW) vs. Weighted
     """)
     
     if st.button("Run Portfolio Simulation", type="primary"):
@@ -238,9 +215,10 @@ def main():
             st.error("Data error.")
             return
             
-        tab5, tab10, tab21 = st.tabs(["5-Day Horizon", "10-Day Horizon", "21-Day Horizon"])
+        # Added 2d Tab
+        tab2, tab5, tab10, tab21 = st.tabs(["2-Day Horizon", "5-Day Horizon", "10-Day Horizon", "21-Day Horizon"])
         
-        for horizon, tab in zip(TEST_HORIZONS, [tab5, tab10, tab21]):
+        for horizon, tab in zip(TEST_HORIZONS, [tab2, tab5, tab10, tab21]):
             with tab:
                 if horizon not in master_panels:
                     st.warning("No data.")
@@ -249,12 +227,11 @@ def main():
                 with st.spinner(f"Simulating {horizon}d History..."):
                     res = run_full_simulation(master_panels[horizon], horizon)
                 
-                # Cumulative calcs
                 for col in res.columns:
                     res[f"Cum_{col}"] = res[col].cumsum()
                 
-                # 1. TOTAL PERFORMANCE CHART
-                st.subheader("🏆 Net Performance (Long + Short)")
+                # 1. TOTAL PERFORMANCE
+                st.subheader("🏆 Net Performance")
                 
                 final_naive = res['Cum_Naive_Net'].iloc[-1]
                 final_reg = res['Cum_Regime_Net'].iloc[-1]
@@ -274,25 +251,25 @@ def main():
                 
                 # 2. DECOMPOSITION
                 st.markdown("---")
-                st.subheader("🔎 Performance Decomposition")
+                st.subheader("🔎 Decomposition")
                 
                 col_L, col_S = st.columns(2)
                 
                 with col_L:
-                    st.markdown("**Long Side Performance**")
+                    st.markdown("**Long Side**")
                     fig_l = go.Figure()
-                    fig_l.add_trace(go.Scatter(x=res.index, y=res['Cum_Naive_L'], name="Naive Long", line=dict(color='lightblue')))
-                    fig_l.add_trace(go.Scatter(x=res.index, y=res['Cum_Regime_L'], name="Regime Long", line=dict(color='orange')))
-                    fig_l.add_trace(go.Scatter(x=res.index, y=res['Cum_Opt_L'], name="Weighted Long", line=dict(color='violet')))
+                    fig_l.add_trace(go.Scatter(x=res.index, y=res['Cum_Naive_L'], name="Naive", line=dict(color='lightblue')))
+                    fig_l.add_trace(go.Scatter(x=res.index, y=res['Cum_Regime_L'], name="Regime", line=dict(color='orange')))
+                    fig_l.add_trace(go.Scatter(x=res.index, y=res['Cum_Opt_L'], name="Weighted", line=dict(color='violet')))
                     fig_l.update_layout(height=350, margin=dict(l=0,r=0,t=30,b=0))
                     st.plotly_chart(fig_l, use_container_width=True)
                     
                 with col_S:
-                    st.markdown("**Short Side Performance**")
+                    st.markdown("**Short Side**")
                     fig_s = go.Figure()
-                    fig_s.add_trace(go.Scatter(x=res.index, y=res['Cum_Naive_S'], name="Naive Short", line=dict(color='lightblue')))
-                    fig_s.add_trace(go.Scatter(x=res.index, y=res['Cum_Regime_S'], name="Regime Short", line=dict(color='orange')))
-                    fig_s.add_trace(go.Scatter(x=res.index, y=res['Cum_Opt_S'], name="Weighted Short", line=dict(color='violet')))
+                    fig_s.add_trace(go.Scatter(x=res.index, y=res['Cum_Naive_S'], name="Naive", line=dict(color='lightblue')))
+                    fig_s.add_trace(go.Scatter(x=res.index, y=res['Cum_Regime_S'], name="Regime", line=dict(color='orange')))
+                    fig_s.add_trace(go.Scatter(x=res.index, y=res['Cum_Opt_S'], name="Weighted", line=dict(color='violet')))
                     fig_s.update_layout(height=350, margin=dict(l=0,r=0,t=30,b=0))
                     st.plotly_chart(fig_s, use_container_width=True)
 
