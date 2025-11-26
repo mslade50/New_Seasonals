@@ -733,8 +733,6 @@ def main():
             'backtest_start_date': start_date,
             'trade_direction': trade_direction,
             'max_one_pos': max_one_pos,
-            'max_daily_entries': max_daily_entries, 
-            'max_total_positions': max_total_positions, 
             'time_exit_only': time_exit_only,
             'stop_atr': stop_atr, 'tgt_atr': tgt_atr, 'holding_days': hold_days, 'entry_type': entry_type,
             'use_ma_entry_filter': use_ma_entry_filter,
