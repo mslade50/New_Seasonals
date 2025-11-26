@@ -51,7 +51,6 @@ def load_market_metrics():
     if df.empty: return pd.DataFrame()
 
     # 1. Pivot to get Date index and Exchange columns
-    # We need to handle potential duplicates or just standard pivoting
     pivoted = df.pivot_table(
         index='date', 
         columns='exchange', 
@@ -60,11 +59,9 @@ def load_market_metrics():
     )
     
     # 2. Create 'Total' (NYSE + NASDAQ)
-    # Fill NaN with 0 for addition, though usually data aligns
     pivoted['Total'] = pivoted.get('NYSE', 0) + pivoted.get('NASDAQ', 0)
     
     # 3. Calculate MAs and Ranks
-    # We want the Percentile Rank of the Trailing X Day MA of Net Highs
     windows = [5, 10, 21, 63, 252]
     categories = ['Total', 'NYSE', 'NASDAQ']
     
@@ -77,109 +74,120 @@ def load_market_metrics():
         series = pivoted[cat]
         
         for w in windows:
-            # A. Calculate Moving Average
             ma_col = series.rolling(window=w).mean()
-            
-            # B. Calculate Percentile Rank (0-100)
-            # using expanding window so we don't look ahead
             rank_col_name = f"Mkt_{cat}_NH_{w}d_Rank"
             results[rank_col_name] = ma_col.expanding(min_periods=126).rank(pct=True) * 100.0
 
     return results
 
 # -----------------------------------------------------------------------------
-# DYNAMIC SEASONALITY GENERATOR
+# DYNAMIC SEASONALITY GENERATOR (WALK-FORWARD)
 # -----------------------------------------------------------------------------
-def generate_dynamic_seasonal_profile(df):
+def generate_dynamic_seasonal_profile(df, cutoff_date, target_year):
     """
-    Calculates seasonal profile dynamically if missing from CSV.
-    Logic mimics the user's provided snippet:
-    - Calculates 5d, 10d, 21d forward returns.
-    - Groups by Day of Year (MD).
-    - Weights: (3 * Cycle_Avg + 1 * All_Year_Avg) / 4
+    Calculates seasonal profile for a SPECIFIC target_year using only data 
+    available prior to cutoff_date.
     """
-    # Create local copy and ensure LogRet exists
-    work_df = df.copy()
+    # 1. Filter History (Strictly Past Data)
+    work_df = df[df.index < cutoff_date].copy()
+    
+    # Need enough history to form a valid opinion (at least 2 years approx)
+    if len(work_df) < 500: 
+        return {}
+
     if 'LogRet' not in work_df.columns:
-        work_df['LogRet'] = np.log(work_df['Close'] / work_df['Close'].shift(1)) * 100.0
+        if 'Close' in work_df.columns:
+             work_df['LogRet'] = np.log(work_df['Close'] / work_df['Close'].shift(1)) * 100.0
+        else:
+             return {}
     
     work_df['Year'] = work_df.index.year
-    # Use (Month, Day) to handle Leap Years robustly
     work_df['MD'] = work_df.index.map(lambda x: (x.month, x.day))
     
-    # 1. Determine Current Cycle Phase
-    # Cycle: 0=Election, 1=Post, 2=Midterm, 3=Pre
-    current_year = datetime.datetime.now().year
-    cycle_remainder = current_year % 4
+    # 2. Determine Cycle Phase for the TARGET YEAR
+    cycle_remainder = target_year % 4
     
-    # 2. Calculate Forward Returns
+    # 3. Calculate Forward Returns
     windows = [5, 10, 21]
     fwd_cols = []
     for w in windows:
         col_name = f'Fwd_{w}d'
-        # shift(-w) brings future t+w value to t. rolling(w).sum() sums the period.
-        # Note: snippet used sum of log returns
         work_df[col_name] = work_df['LogRet'].shift(-w).rolling(w).sum()
         fwd_cols.append(col_name)
 
-    # 3. Group by Day of Year (MD) for ALL years
+    # 4. Group by MD for ALL years available
     stats_all = work_df.groupby('MD')[fwd_cols].mean()
     
-    # 4. Group by Day of Year (MD) for CYCLE years
+    # 5. Group by MD for same CYCLE years available
     cycle_df = work_df[work_df['Year'] % 4 == cycle_remainder]
-    stats_cycle = cycle_df.groupby('MD')[fwd_cols].mean()
     
-    # Align Cycle stats to All stats (handle potential missing days in small cycle samples)
+    if len(cycle_df) < 250: 
+        stats_cycle = stats_all.copy()
+    else:
+        stats_cycle = cycle_df.groupby('MD')[fwd_cols].mean()
+    
+    # Align
     stats_cycle = stats_cycle.reindex(stats_all.index).fillna(method='ffill').fillna(method='bfill')
     
-    # 5. Rank (Percentile 0-100) across the calendar year
+    # Rank (0-100)
     rnk_all = stats_all.rank(pct=True) * 100.0
     rnk_cycle = stats_cycle.rank(pct=True) * 100.0
     
-    # 6. Average the ranks across windows (5d, 10d, 21d)
+    # Average Ranks across windows
     avg_rank_all = rnk_all.mean(axis=1)
     avg_rank_cycle = rnk_cycle.mean(axis=1)
     
-    # 7. Apply Weighting: (3 * Cycle + 1 * All) / 4
+    # Weighted Blend: (3 * Cycle + 1 * All) / 4
     final_rank = (avg_rank_all + 3 * avg_rank_cycle) / 4.0
     
-    # 8. Smoothing (5d centered rolling mean)
-    # Since index is tuples (M, D), sorting is implicit if generated from datetime, 
-    # but let's ensure it's sorted chronologically for rolling calc.
-    # Note: Rolling on a dict/tuples index requires resetting or assuming order.
-    # Groupby keys are sorted by default.
+    # Smoothing
     final_rank_smooth = final_rank.rolling(window=5, center=True, min_periods=1).mean()
     
     return final_rank_smooth.to_dict()
 
 def get_sznl_val_series(ticker, dates, sznl_map, df_hist=None):
-    # 1. Try CSV Map
+    # 1. Static CSV Check
     t_map = sznl_map.get(ticker, {})
-    
-    # 2. If missing and we have data, generate dynamically
-    if not t_map and df_hist is not None and not df_hist.empty:
-        t_map = generate_dynamic_seasonal_profile(df_hist)
+    if t_map:
+        mds = dates.map(lambda x: (x.month, x.day))
+        return mds.map(t_map).fillna(50.0)
 
-    # 3. If still missing, return neutral 50
-    if not t_map:
-        return pd.Series(50.0, index=dates)
-    
-    mds = dates.map(lambda x: (x.month, x.day))
-    return mds.map(t_map).fillna(50.0)
+    # 2. Dynamic Walk-Forward Generation
+    if df_hist is not None and not df_hist.empty:
+        # Ensure LogRet exists in df_hist for the generator
+        if 'LogRet' not in df_hist.columns:
+             df_hist = df_hist.copy()
+             df_hist['LogRet'] = np.log(df_hist['Close'] / df_hist['Close'].shift(1)) * 100.0
+
+        sznl_series = pd.Series(50.0, index=dates)
+        unique_years = dates.year.unique()
+        
+        # Iterate through years to build the 'Expanding Window'
+        for yr in unique_years:
+            cutoff = pd.Timestamp(yr, 1, 1)
+            if df_hist.index.tz is not None: 
+                cutoff = cutoff.tz_localize(df_hist.index.tz)
+
+            # Pass the full history, generator filters inside
+            yearly_profile = generate_dynamic_seasonal_profile(df_hist, cutoff, yr)
+            
+            if yearly_profile:
+                mask = (dates.year == yr)
+                year_mds = dates[mask].map(lambda x: (x.month, x.day))
+                sznl_series.loc[mask] = year_mds.map(yearly_profile).fillna(50.0)
+                
+        return sznl_series
+
+    return pd.Series(50.0, index=dates)
 
 @st.cache_data(show_spinner=True)
 def download_data(ticker):
-    """
-    Downloads data and returns a tuple: (DataFrame, Fetch_Timestamp_EST)
-    """
     if not ticker: return pd.DataFrame(), None
     try:
-        # We need MAX history for accurate percentile ranking
         df = yf.download(ticker, period="max", progress=False, auto_adjust=True)
         if isinstance(df.columns, pd.MultiIndex):
             df.columns = [c[0] for c in df.columns]
         
-        # Capture fetch time in EST/New York
         fetch_time = pd.Timestamp.now(tz='America/New_York')
         return df, fetch_time
     except:
@@ -189,9 +197,7 @@ def download_data(ticker):
 # COLOR GENERATOR (Seismic)
 # -----------------------------------------------------------------------------
 def get_seismic_colorscale():
-    """Generates the seismic color scale: Dark Blue (Pos) <-> White (0) <-> Dark Red (Neg)."""
     seismic = []
-    # Use Matplotlib to get the exact gradient
     cm = matplotlib.colormaps["seismic"] 
     for k in range(255):
         r, g, b, _ = cm(k / 254.0)
@@ -204,52 +210,40 @@ def get_seismic_colorscale():
 
 @st.cache_data(show_spinner=True)
 def calculate_heatmap_variables(df, sznl_map, market_metrics_df, ticker):
-    """Calculates advanced vars and ranks them 0-100 for the heatmap axes."""
     df = df.copy()
     
     # --- 1. BASE CALCULATIONS ---
     df['LogRet'] = np.log(df['Close'] / df['Close'].shift(1))
 
     # --- 2. FORWARD TARGETS (Z-AXIS) ---
-    
-    # A. Forward Returns
     for w in [5, 10, 21, 63]:
         df[f'FwdRet_{w}d'] = (df['Close'].shift(-w) / df['Close'] - 1.0) * 100.0
 
-    # B. Forward Volatility DELTA (Expansion/Contraction)
-    # Logic: Future Volatility - Current Volatility
+    # B. Forward Volatility DELTA
     for w in [2, 5, 10, 21]:
-        # Current Realized Vol
         curr_vol = df['LogRet'].rolling(w).std() * np.sqrt(252) * 100.0
-        # Future Realized Vol (Shifted back)
         fwd_vol = df['LogRet'].rolling(w).std().shift(-w) * np.sqrt(252) * 100.0
-        
         df[f'FwdVolDelta_{w}d'] = fwd_vol - curr_vol
 
-    # --- 3. X/Y VARIABLES (Raw Calculation) ---
-    
-    # Trailing Returns
+    # --- 3. X/Y VARIABLES ---
     for w in [5, 10, 21, 63, 126, 252]:
         df[f'Ret_{w}d'] = df['Close'].pct_change(w)
 
-    # Realized Volatility (Annualized)
     for w in [2, 5, 10, 21, 63]:
         df[f'RealVol_{w}d'] = df['LogRet'].rolling(w).std() * np.sqrt(252) * 100.0
     
-    # Change in Realized Vol (Short Term vs 63d Baseline)
     df['VolChange_2d']  = df['RealVol_2d']  - df['RealVol_63d']
     df['VolChange_5d']  = df['RealVol_5d']  - df['RealVol_63d']
     df['VolChange_10d'] = df['RealVol_10d'] - df['RealVol_63d']
     df['VolChange_21d'] = df['RealVol_21d'] - df['RealVol_63d']
 
-    # Volume Ratios
     for w in [5, 10, 21]:
         df[f'VolRatio_{w}d'] = df['Volume'].rolling(w).mean() / df['Volume'].rolling(63).mean()
 
-    # Seasonality (Pass DF for dynamic calc if needed)
+    # Seasonality (Walk-Forward)
     df['Seasonal'] = get_sznl_val_series(ticker, df.index, sznl_map, df)
 
-    # --- 4. RANK TRANSFORMATION (Percentiles 0-100) ---
+    # --- 4. RANK TRANSFORMATION ---
     vars_to_rank = [
         'Ret_5d', 'Ret_10d', 'Ret_21d', 'Ret_63d', 'Ret_126d', 'Ret_252d',
         'RealVol_21d', 'RealVol_63d', 
@@ -261,17 +255,14 @@ def calculate_heatmap_variables(df, sznl_map, market_metrics_df, ticker):
         df[v + '_Rank'] = df[v].expanding(min_periods=252).rank(pct=True) * 100.0
 
     # --- 5. MERGE MARKET METRICS ---
-    # Merge the pre-calculated market ranks into the main dataframe
     if not market_metrics_df.empty:
-        # We use left join to keep stock data shape
         df = df.join(market_metrics_df, how='left')
-        # Optional: Forward fill if market data has gaps (e.g. holidays differ slightly)
         df.update(df.filter(regex='^Mkt_').ffill(limit=3))
 
     return df
 
 # -----------------------------------------------------------------------------
-# HEATMAP UTILS (Binning & Smoothing)
+# HEATMAP UTILS
 # -----------------------------------------------------------------------------
 
 @st.cache_data
@@ -348,11 +339,9 @@ def smooth_display(Z, sigma=1.2):
 def render_heatmap():
     st.subheader("Heatmap Analysis")
     
-    # 1. SELECTION
     col1, col2, col3 = st.columns(3)
     
     with col1:
-        # Build options dictionary
         var_options = {
             "Seasonality Rank": "Seasonal",
             # Price
@@ -375,7 +364,6 @@ def render_heatmap():
             "21d Rel. Volume Rank": "VolRatio_21d_Rank",
         }
         
-        # Add MARKET METRICS to options (FILTERED as requested)
         var_options["Total Net Highs (5d MA) Rank"] = "Mkt_Total_NH_5d_Rank"
         var_options["Total Net Highs (21d MA) Rank"] = "Mkt_Total_NH_21d_Rank"
 
@@ -388,7 +376,6 @@ def render_heatmap():
             "10d Forward Return": "FwdRet_10d",
             "21d Forward Return": "FwdRet_21d",
             "63d Forward Return": "FwdRet_63d",
-            # DELTA METRICS (Centered at 0)
             "2d Fwd Vol Change (Expansion/Contraction)": "FwdVolDelta_2d",
             "5d Fwd Vol Change (Expansion/Contraction)": "FwdVolDelta_5d",
             "10d Fwd Vol Change (Expansion/Contraction)": "FwdVolDelta_10d",
@@ -416,16 +403,12 @@ def render_heatmap():
                 st.error("No data found.")
                 return
 
-            # Display Last Update Timestamp in EST
             last_dt = data.index[-1]
             time_str = fetch_time.strftime('%I:%M %p EST') if fetch_time else "N/A"
             st.info(f"Price Data Current as of: {last_dt.strftime('%Y-%m-%d')} | Last Update: {time_str}")
                 
             sznl_map = load_seasonal_map()
-            
-            # LOAD MARKET METRICS
             market_metrics_df = load_market_metrics()
-            
             df = calculate_heatmap_variables(data, sznl_map, market_metrics_df, ticker)
             
             start_ts = pd.to_datetime(analysis_start)
@@ -440,7 +423,6 @@ def render_heatmap():
             ycol = var_options[y_axis_label]
             zcol = target_options[z_axis_label]
             
-            # Check if columns exist (safe guard for missing market metrics)
             if xcol not in df.columns or ycol not in df.columns:
                 st.error(f"Missing data for selected variables. Ensure market metrics CSV is present.")
                 return
@@ -456,8 +438,6 @@ def render_heatmap():
             Z_filled = nan_neighbor_fill(Z)
             Z_smooth = smooth_display(Z_filled, sigma=smooth_sigma)
             
-            # --- SCALING ---
-            # All Z targets are now Deltas/Returns, so they oscillate around 0.
             limit = np.nanmax(np.abs(Z_smooth))
             colorscale = get_seismic_colorscale()
             z_units = "%" if "Ret" in zcol else " Vol"
@@ -466,7 +446,7 @@ def render_heatmap():
                 z=Z_smooth, x=x_centers, y=y_centers,
                 colorscale=colorscale, 
                 zmin=-limit, zmax=limit,
-                zmid=0, # Force center at 0
+                zmid=0, 
                 reversescale=True, 
                 colorbar=dict(title=f"{zcol} {z_units}"),
                 hovertemplate=f"<b>{x_axis_label}</b>: %{{x:.1f}}<br><b>{y_axis_label}</b>: %{{y:.1f}}<br><b>Value</b>: %{{z:.2f}}{z_units}<extra></extra>"
