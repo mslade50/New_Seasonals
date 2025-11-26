@@ -13,12 +13,12 @@ BACKTEST_TICKERS = ["SPY", "QQQ", "IWM", "NVDA", "TSLA", "AAPL", "AMD", "MSFT", 
 TEST_HORIZONS = [5, 10, 21]
 
 # -----------------------------------------------------------------------------
-# DATA ENGINE (Vectorized with Weighting)
+# DATA ENGINE (Grand Unified Vectorization)
 # -----------------------------------------------------------------------------
 @st.cache_data(ttl=3600, show_spinner=True)
 def get_backtest_data(ticker_list):
     """
-    Downloads data and Pre-Calculates SCORES (Standard vs Weighted).
+    Downloads data and Pre-Calculates SCORES for Naive vs Optimized.
     """
     tickers = list(set([t.strip().upper() for t in ticker_list]))
     
@@ -38,7 +38,7 @@ def get_backtest_data(ticker_list):
             df['LogRet'] = np.log(df['Close'] / df['Close'].shift(1))
             df['Vol_Daily'] = df['LogRet'].rolling(21).std()
             
-            # 2. Ranks (Vectorized)
+            # 2. Ranks
             rank_cols = []
             for w in [5, 10, 21, 63]:
                 col = f'Ret_{w}d'
@@ -54,54 +54,72 @@ def get_backtest_data(ticker_list):
             df['VolRatio_5d_Rank'] = df['VolRatio_5d'].expanding(min_periods=252).rank(pct=True) * 100
             rank_cols.append('VolRatio_5d_Rank')
 
-            # 3. Vectorized Signal Generation
+            # 3. Raw Signal Matrices (1 = Trigger, 0 = No)
             pairs = list(itertools.combinations(rank_cols, 2))
             
-            # Initialize Boolean Matrices (Rows=Dates, Cols=Pairs)
-            # 1 = Signal Triggered, 0 = No Signal
             bull_matrix = pd.DataFrame(0, index=df.index, columns=range(len(pairs)))
             bear_matrix = pd.DataFrame(0, index=df.index, columns=range(len(pairs)))
             
             for idx, (r1, r2) in enumerate(pairs):
-                # Bullish: Oversold Confluence (<25)
                 bull_matrix[idx] = ((df[r1] < 25) & (df[r2] < 25)).astype(int)
-                # Bearish: Overbought Confluence (>75)
                 bear_matrix[idx] = ((df[r1] > 75) & (df[r2] > 75)).astype(int)
             
-            # --- METHOD A: STANDARD (Equal Weight) ---
-            df['Score_Standard_Bull'] = bull_matrix.sum(axis=1)
-            df['Score_Standard_Bear'] = bear_matrix.sum(axis=1)
-            df['Net_Score_Standard']  = df['Score_Standard_Bull'] - df['Score_Standard_Bear']
+            # --- MODEL A: NAIVE (Raw Sums) ---
+            df['Score_Naive_Bull'] = bull_matrix.sum(axis=1)
+            df['Score_Naive_Bear'] = bear_matrix.sum(axis=1)
+            df['Net_Score_Naive']  = df['Score_Naive_Bull'] - df['Score_Naive_Bear']
             
-            # --- METHOD B: WEIGHTED (Tanh Decay) ---
-            # 1. Calculate Historical Counts (Cumulative Sum)
+            # --- PREP FOR MODEL B: WEIGHTS ---
+            # Sample Size Weights (Tanh)
             bull_counts = bull_matrix.cumsum()
             bear_counts = bear_matrix.cumsum()
-            
-            # 2. Calculate Dynamic Weights
-            # Tanh(Count / 50) -> 10 samples = 0.2, 50 samples = 0.76
             bull_weights = np.tanh(bull_counts / 50.0)
             bear_weights = np.tanh(bear_counts / 50.0)
-            
-            # 3. Apply Weights
-            df['Score_Weighted_Bull'] = (bull_matrix * bull_weights).sum(axis=1)
-            df['Score_Weighted_Bear'] = (bear_matrix * bear_weights).sum(axis=1)
-            df['Net_Score_Weighted']  = df['Score_Weighted_Bull'] - df['Score_Weighted_Bear']
 
-            # 4. Process Horizons
+            # 4. Process Horizons (Regime Logic)
             for h in TEST_HORIZONS:
                 expected_vol = df['Vol_Daily'] * np.sqrt(h)
                 expected_vol = expected_vol.replace(0, np.nan).fillna(method='ffill')
-                
                 fwd_ret = df['Close'].shift(-h) / df['Close'] - 1
                 
                 # Risk Unit Return (Sigma)
                 df[f'Sigma_Return_{h}d'] = fwd_ret / expected_vol
                 
-                # Store Data for Master Panel
+                # --- REGIME CALCULATION ---
+                # We use the Returns Baseline to proxy "Is the edge decaying?"
+                # Ideally we check Alpha per signal, but vectorized, we check Alpha per Ticker/Horizon
+                # If Ticker's Recent Sigma Baseline < Full Sigma Baseline, we kill Bulls.
+                
+                full_base = df[f'Sigma_Return_{h}d'].expanding(min_periods=252).mean().shift(h)
+                recent_base = df[f'Sigma_Return_{h}d'].rolling(500).mean().shift(h)
+                
+                # REGIME FILTER MASKS (0 or 1)
+                # Bull Valid? Only if Recent >= Full (Momentum maintained)
+                valid_bull_regime = (recent_base >= full_base).astype(int)
+                # Bear Valid? Only if Recent <= Full (Weakness maintained)
+                valid_bear_regime = (recent_base <= full_base).astype(int)
+                
+                # --- MODEL B: OPTIMIZED ---
+                # Score = (Matrix * SampleWeight * RegimeFilter).sum()
+                
+                # We apply the Regime Filter to the *Weights* directly for speed
+                # If regime is invalid, weight becomes 0.
+                
+                # Note: valid_bull_regime is a Series, bull_weights is a DataFrame. 
+                # We multiply column-wise (axis=0) but pandas aligns on index automatically.
+                
+                final_bull_weights = bull_weights.multiply(valid_bull_regime, axis=0)
+                final_bear_weights = bear_weights.multiply(valid_bear_regime, axis=0)
+                
+                df['Score_Opt_Bull'] = (bull_matrix * final_bull_weights).sum(axis=1)
+                df['Score_Opt_Bear'] = (bear_matrix * final_bear_weights).sum(axis=1)
+                
+                df[f'Net_Score_Optimized_{h}d'] = df['Score_Opt_Bull'] - df['Score_Opt_Bear']
+                
+                # Store Panel
                 subset = df[[
-                    'Net_Score_Standard', 
-                    'Net_Score_Weighted', 
+                    'Net_Score_Naive', 
+                    f'Net_Score_Optimized_{h}d', 
                     f'Sigma_Return_{h}d'
                 ]].copy()
                 subset['Ticker'] = t
@@ -124,54 +142,51 @@ def get_backtest_data(ticker_list):
 # -----------------------------------------------------------------------------
 def run_full_simulation(panel_df, horizon):
     """
-    Simulates Standard vs Weighted Strategies.
+    Simulates Naive vs Optimized Strategies.
     """
-    # Pivot Data
-    score_std = panel_df.pivot(columns='Ticker', values='Net_Score_Standard')
-    score_wgt = panel_df.pivot(columns='Ticker', values='Net_Score_Weighted')
-    returns   = panel_df.pivot(columns='Ticker', values=f'Sigma_Return_{horizon}d')
+    score_naive = panel_df.pivot(columns='Ticker', values='Net_Score_Naive')
+    score_opt   = panel_df.pivot(columns='Ticker', values=f'Net_Score_Optimized_{horizon}d')
+    returns     = panel_df.pivot(columns='Ticker', values=f'Sigma_Return_{horizon}d')
     
-    # Align
-    common_index = score_std.index.intersection(returns.index)
-    score_std = score_std.loc[common_index]
-    score_wgt = score_wgt.loc[common_index]
-    returns   = returns.loc[common_index]
+    common_index = score_naive.index.intersection(returns.index)
+    score_naive = score_naive.loc[common_index]
+    score_opt = score_opt.loc[common_index]
+    returns = returns.loc[common_index]
     
-    # Filter for valid dates (post 2016 for ranks to stabilize)
-    valid_dates = score_std.index[score_std.index.year >= 2016]
+    valid_dates = score_naive.index[score_naive.index.year >= 2016]
     
-    pnl_std = []
-    pnl_wgt = []
+    pnl_naive = []
+    pnl_opt = []
     dates = []
     
     for d in valid_dates:
-        row_std = score_std.loc[d]
-        row_wgt = score_wgt.loc[d]
-        row_ret = returns.loc[d]
+        row_naive = score_naive.loc[d]
+        row_opt   = score_opt.loc[d]
+        row_ret   = returns.loc[d]
         
-        # STRATEGY A: STANDARD (Equal Weight)
-        sorted_std = row_std.sort_values(ascending=False)
-        longs_std = sorted_std.head(5).index
-        shorts_std = sorted_std.tail(3).index
-        day_pnl_std = (row_ret[longs_std].mean() - row_ret[shorts_std].mean()) / 2
+        # STRATEGY A: NAIVE
+        sorted_naive = row_naive.sort_values(ascending=False)
+        longs_A = sorted_naive.head(5).index
+        shorts_A = sorted_naive.tail(3).index
+        day_pnl_A = (row_ret[longs_A].mean() - row_ret[shorts_A].mean()) / 2
         
-        # STRATEGY B: WEIGHTED (Sample Size Damping)
-        sorted_wgt = row_wgt.sort_values(ascending=False)
-        longs_wgt = sorted_wgt.head(5).index
-        shorts_wgt = sorted_wgt.tail(3).index
-        day_pnl_wgt = (row_ret[longs_wgt].mean() - row_ret[shorts_wgt].mean()) / 2
+        # STRATEGY B: OPTIMIZED (Weighted + Regime)
+        sorted_opt = row_opt.sort_values(ascending=False)
+        longs_B = sorted_opt.head(5).index
+        shorts_B = sorted_opt.tail(3).index
+        day_pnl_B = (row_ret[longs_B].mean() - row_ret[shorts_B].mean()) / 2
         
-        if np.isnan(day_pnl_std): day_pnl_std = 0
-        if np.isnan(day_pnl_wgt): day_pnl_wgt = 0
+        if np.isnan(day_pnl_A): day_pnl_A = 0
+        if np.isnan(day_pnl_B): day_pnl_B = 0
         
-        pnl_std.append(day_pnl_std)
-        pnl_wgt.append(day_pnl_wgt)
+        pnl_naive.append(day_pnl_A)
+        pnl_opt.append(day_pnl_B)
         dates.append(d)
         
     results = pd.DataFrame({
         "Date": dates,
-        "Daily_Sigma_Std": pnl_std,
-        "Daily_Sigma_Wgt": pnl_wgt
+        "Daily_Sigma_Naive": pnl_naive,
+        "Daily_Sigma_Opt": pnl_opt
     }).set_index("Date")
     
     return results
@@ -180,20 +195,23 @@ def run_full_simulation(panel_df, horizon):
 # UI
 # -----------------------------------------------------------------------------
 def main():
-    st.set_page_config(layout="wide", page_title="Weighting Lab")
-    st.title("🧪 The Weighting Experiment")
+    st.set_page_config(layout="wide", page_title="Grand Unified Backtest")
+    st.title("🧪 The 'Grand Unified' Lab")
     
     st.markdown("""
-    **Hypothesis:** Does penalizing signals with low sample sizes (using `Tanh` damping) improve performance?
+    **The Final Boss Battle:**
     
-    * 🔵 **Standard Model:** All signals count as 1.0 (Equal Weight).
-    * 🔴 **Weighted Model:** Signals are weighted by `Tanh(History/50)`. 
-      *(10 samples = 0.2 weight, 50 samples = 0.76 weight)*.
+    * 🔵 **Naive Model:** * Equal Weighting (1.0).
+        * Ignores Regime Changes.
+    
+    * 🟣 **Optimized Model (Grand Unified):** * **Sample Weighting:** Signals weighted by `Tanh` (Low sample = Low weight).
+        * **Regime Filter:** Decaying signals (Recent < Historic) are zeroed out.
+        * **Alpha Logic:** Uses Vol-Adjusted Returns (Sigma).
     """)
     
-    if st.button("Run Weighting Experiment", type="primary"):
+    if st.button("Run Unified Simulation", type="primary"):
         
-        with st.spinner("Vectorizing Standard vs Weighted Scores..."):
+        with st.spinner("Crunching vector matrices (Weights + Regimes)..."):
             master_panels = get_backtest_data(BACKTEST_TICKERS)
         
         if not master_panels:
@@ -208,27 +226,27 @@ def main():
                     st.warning("No data.")
                     continue
                     
-                with st.spinner(f"Simulating {horizon}d History..."):
+                with st.spinner(f"Simulating {horizon}d..."):
                     res_df = run_full_simulation(master_panels[horizon], horizon)
                 
-                res_df['Cum_Std'] = res_df['Daily_Sigma_Std'].cumsum()
-                res_df['Cum_Wgt'] = res_df['Daily_Sigma_Wgt'].cumsum()
+                res_df['Cum_Naive'] = res_df['Daily_Sigma_Naive'].cumsum()
+                res_df['Cum_Opt'] = res_df['Daily_Sigma_Opt'].cumsum()
                 
-                total_std = res_df['Cum_Std'].iloc[-1]
-                total_wgt = res_df['Cum_Wgt'].iloc[-1]
-                delta = total_wgt - total_std
+                total_naive = res_df['Cum_Naive'].iloc[-1]
+                total_opt = res_df['Cum_Opt'].iloc[-1]
+                delta = total_opt - total_naive
                 
                 c1, c2, c3 = st.columns(3)
-                c1.metric("Standard Return", f"{total_std:.2f} R")
-                c2.metric("Weighted Return", f"{total_wgt:.2f} R")
+                c1.metric("Naive Payoff", f"{total_naive:.2f} R")
+                c2.metric("Optimized Payoff", f"{total_opt:.2f} R")
                 c3.metric("Improvement", f"{delta:.2f} R", delta_color="normal")
                 
                 fig = go.Figure()
-                fig.add_trace(go.Scatter(x=res_df.index, y=res_df['Cum_Std'], name="Standard (Equal Weight)", line=dict(color='blue')))
-                fig.add_trace(go.Scatter(x=res_df.index, y=res_df['Cum_Wgt'], name="Weighted (Sample Damping)", line=dict(color='red', width=2)))
+                fig.add_trace(go.Scatter(x=res_df.index, y=res_df['Cum_Naive'], name="Naive Model", line=dict(color='blue')))
+                fig.add_trace(go.Scatter(x=res_df.index, y=res_df['Cum_Opt'], name="Optimized (Weighted + Regime)", line=dict(color='purple', width=3)))
                 
                 fig.update_layout(
-                    title=f"Standard vs Weighted Performance ({horizon}d Hold)",
+                    title=f"Grand Unified Performance ({horizon}d Hold)",
                     yaxis_title="Cumulative Sigma (R)",
                     xaxis_title="Year",
                     height=500
