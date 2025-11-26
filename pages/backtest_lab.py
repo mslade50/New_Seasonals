@@ -18,7 +18,7 @@ TEST_HORIZONS = [5, 10, 21]
 @st.cache_data(ttl=3600, show_spinner=True)
 def get_backtest_data(ticker_list):
     """
-    Downloads data and Pre-Calculates SCORES for Naive vs Optimized.
+    Downloads data and Pre-Calculates SCORES for 3 Models.
     """
     tickers = list(set([t.strip().upper() for t in ticker_list]))
     
@@ -69,8 +69,7 @@ def get_backtest_data(ticker_list):
             df['Score_Naive_Bear'] = bear_matrix.sum(axis=1)
             df['Net_Score_Naive']  = df['Score_Naive_Bull'] - df['Score_Naive_Bear']
             
-            # --- PREP FOR MODEL B: WEIGHTS ---
-            # Sample Size Weights (Tanh)
+            # --- PREP FOR WEIGHTING ---
             bull_counts = bull_matrix.cumsum()
             bear_counts = bear_matrix.cumsum()
             bull_weights = np.tanh(bull_counts / 50.0)
@@ -86,28 +85,28 @@ def get_backtest_data(ticker_list):
                 df[f'Sigma_Return_{h}d'] = fwd_ret / expected_vol
                 
                 # --- REGIME CALCULATION ---
-                # We use the Returns Baseline to proxy "Is the edge decaying?"
-                # Ideally we check Alpha per signal, but vectorized, we check Alpha per Ticker/Horizon
-                # If Ticker's Recent Sigma Baseline < Full Sigma Baseline, we kill Bulls.
-                
                 full_base = df[f'Sigma_Return_{h}d'].expanding(min_periods=252).mean().shift(h)
                 recent_base = df[f'Sigma_Return_{h}d'].rolling(500).mean().shift(h)
                 
                 # REGIME FILTER MASKS (0 or 1)
-                # Bull Valid? Only if Recent >= Full (Momentum maintained)
+                # 1 if signal is stable, 0 if decaying
                 valid_bull_regime = (recent_base >= full_base).astype(int)
-                # Bear Valid? Only if Recent <= Full (Weakness maintained)
                 valid_bear_regime = (recent_base <= full_base).astype(int)
                 
-                # --- MODEL B: OPTIMIZED ---
-                # Score = (Matrix * SampleWeight * RegimeFilter).sum()
+                # --- MODEL B: REGIME ONLY (Equal Weight) ---
+                # We mask the raw matrix with the regime filter
+                # Note: Multiply series aligns on index
                 
-                # We apply the Regime Filter to the *Weights* directly for speed
-                # If regime is invalid, weight becomes 0.
+                # Bull Score = Sum of (Matrix * RegimeMask)
+                # Since RegimeMask is per Ticker (not per signal), we multiply the final sum
+                # If Regime is invalid, the entire Bull Score for that day becomes 0.
                 
-                # Note: valid_bull_regime is a Series, bull_weights is a DataFrame. 
-                # We multiply column-wise (axis=0) but pandas aligns on index automatically.
+                df['Score_RegimeEqW_Bull'] = df['Score_Naive_Bull'] * valid_bull_regime
+                df['Score_RegimeEqW_Bear'] = df['Score_Naive_Bear'] * valid_bear_regime
+                df[f'Net_Score_RegimeEqW_{h}d'] = df['Score_RegimeEqW_Bull'] - df['Score_RegimeEqW_Bear']
                 
+                # --- MODEL C: OPTIMIZED (Regime + Weighted) ---
+                # Apply regime filter to weights, then multiply matrix
                 final_bull_weights = bull_weights.multiply(valid_bull_regime, axis=0)
                 final_bear_weights = bear_weights.multiply(valid_bear_regime, axis=0)
                 
@@ -119,6 +118,7 @@ def get_backtest_data(ticker_list):
                 # Store Panel
                 subset = df[[
                     'Net_Score_Naive', 
+                    f'Net_Score_RegimeEqW_{h}d',
                     f'Net_Score_Optimized_{h}d', 
                     f'Sigma_Return_{h}d'
                 ]].copy()
@@ -142,51 +142,58 @@ def get_backtest_data(ticker_list):
 # -----------------------------------------------------------------------------
 def run_full_simulation(panel_df, horizon):
     """
-    Simulates Naive vs Optimized Strategies.
+    Simulates 3 Strategies.
     """
     score_naive = panel_df.pivot(columns='Ticker', values='Net_Score_Naive')
+    score_reg   = panel_df.pivot(columns='Ticker', values=f'Net_Score_RegimeEqW_{horizon}d')
     score_opt   = panel_df.pivot(columns='Ticker', values=f'Net_Score_Optimized_{horizon}d')
     returns     = panel_df.pivot(columns='Ticker', values=f'Sigma_Return_{horizon}d')
     
     common_index = score_naive.index.intersection(returns.index)
     score_naive = score_naive.loc[common_index]
-    score_opt = score_opt.loc[common_index]
-    returns = returns.loc[common_index]
+    score_reg   = score_reg.loc[common_index]
+    score_opt   = score_opt.loc[common_index]
+    returns     = returns.loc[common_index]
     
     valid_dates = score_naive.index[score_naive.index.year >= 2016]
     
     pnl_naive = []
+    pnl_reg = []
     pnl_opt = []
     dates = []
     
     for d in valid_dates:
         row_naive = score_naive.loc[d]
+        row_reg   = score_reg.loc[d]
         row_opt   = score_opt.loc[d]
         row_ret   = returns.loc[d]
         
-        # STRATEGY A: NAIVE
-        sorted_naive = row_naive.sort_values(ascending=False)
-        longs_A = sorted_naive.head(5).index
-        shorts_A = sorted_naive.tail(3).index
-        day_pnl_A = (row_ret[longs_A].mean() - row_ret[shorts_A].mean()) / 2
+        # MODEL A: NAIVE
+        s_naive = row_naive.sort_values(ascending=False)
+        pnl_A = (row_ret[s_naive.head(5).index].mean() - row_ret[s_naive.tail(3).index].mean()) / 2
         
-        # STRATEGY B: OPTIMIZED (Weighted + Regime)
-        sorted_opt = row_opt.sort_values(ascending=False)
-        longs_B = sorted_opt.head(5).index
-        shorts_B = sorted_opt.tail(3).index
-        day_pnl_B = (row_ret[longs_B].mean() - row_ret[shorts_B].mean()) / 2
+        # MODEL B: REGIME (EQUAL WEIGHT)
+        s_reg = row_reg.sort_values(ascending=False)
+        pnl_B = (row_ret[s_reg.head(5).index].mean() - row_ret[s_reg.tail(3).index].mean()) / 2
         
-        if np.isnan(day_pnl_A): day_pnl_A = 0
-        if np.isnan(day_pnl_B): day_pnl_B = 0
+        # MODEL C: OPTIMIZED (REGIME + WEIGHTED)
+        s_opt = row_opt.sort_values(ascending=False)
+        pnl_C = (row_ret[s_opt.head(5).index].mean() - row_ret[s_opt.tail(3).index].mean()) / 2
         
-        pnl_naive.append(day_pnl_A)
-        pnl_opt.append(day_pnl_B)
+        if np.isnan(pnl_A): pnl_A = 0
+        if np.isnan(pnl_B): pnl_B = 0
+        if np.isnan(pnl_C): pnl_C = 0
+        
+        pnl_naive.append(pnl_A)
+        pnl_reg.append(pnl_B)
+        pnl_opt.append(pnl_C)
         dates.append(d)
         
     results = pd.DataFrame({
         "Date": dates,
-        "Daily_Sigma_Naive": pnl_naive,
-        "Daily_Sigma_Opt": pnl_opt
+        "Sigma_Naive": pnl_naive,
+        "Sigma_Regime": pnl_reg,
+        "Sigma_Opt": pnl_opt
     }).set_index("Date")
     
     return results
@@ -195,23 +202,20 @@ def run_full_simulation(panel_df, horizon):
 # UI
 # -----------------------------------------------------------------------------
 def main():
-    st.set_page_config(layout="wide", page_title="Grand Unified Backtest")
-    st.title("🧪 The 'Grand Unified' Lab")
+    st.set_page_config(layout="wide", page_title="Three-Model Backtest")
+    st.title("🧪 The 3-Model Showdown")
     
     st.markdown("""
-    **The Final Boss Battle:**
+    **Isolating the Alpha:**
     
-    * 🔵 **Naive Model:** * Equal Weighting (1.0).
-        * Ignores Regime Changes.
-    
-    * 🟣 **Optimized Model (Grand Unified):** * **Sample Weighting:** Signals weighted by `Tanh` (Low sample = Low weight).
-        * **Regime Filter:** Decaying signals (Recent < Historic) are zeroed out.
-        * **Alpha Logic:** Uses Vol-Adjusted Returns (Sigma).
+    * 🔵 **Naive:** Equal Weight. Ignores Regime.
+    * 🟠 **Regime (EqW):** Equal Weight. **Regime Filter Only** (Kills decaying signals).
+    * 🟣 **Optimized:** **Regime Filter + Sample Weighting** (Kills decaying + Dampens noise).
     """)
     
-    if st.button("Run Unified Simulation", type="primary"):
+    if st.button("Run 3-Model Simulation", type="primary"):
         
-        with st.spinner("Crunching vector matrices (Weights + Regimes)..."):
+        with st.spinner("Vectorizing 3 Models..."):
             master_panels = get_backtest_data(BACKTEST_TICKERS)
         
         if not master_panels:
@@ -229,27 +233,31 @@ def main():
                 with st.spinner(f"Simulating {horizon}d..."):
                     res_df = run_full_simulation(master_panels[horizon], horizon)
                 
-                res_df['Cum_Naive'] = res_df['Daily_Sigma_Naive'].cumsum()
-                res_df['Cum_Opt'] = res_df['Daily_Sigma_Opt'].cumsum()
+                res_df['Cum_Naive'] = res_df['Sigma_Naive'].cumsum()
+                res_df['Cum_Regime'] = res_df['Sigma_Regime'].cumsum()
+                res_df['Cum_Opt'] = res_df['Sigma_Opt'].cumsum()
                 
-                total_naive = res_df['Cum_Naive'].iloc[-1]
-                total_opt = res_df['Cum_Opt'].iloc[-1]
-                delta = total_opt - total_naive
+                # Stats
+                final_naive = res_df['Cum_Naive'].iloc[-1]
+                final_reg = res_df['Cum_Regime'].iloc[-1]
+                final_opt = res_df['Cum_Opt'].iloc[-1]
                 
                 c1, c2, c3 = st.columns(3)
-                c1.metric("Naive Payoff", f"{total_naive:.2f} R")
-                c2.metric("Optimized Payoff", f"{total_opt:.2f} R")
-                c3.metric("Improvement", f"{delta:.2f} R", delta_color="normal")
+                c1.metric("Naive Payoff", f"{final_naive:.2f} R")
+                c2.metric("Regime (EqW) Payoff", f"{final_reg:.2f} R", delta=f"{final_reg - final_naive:.2f} vs Naive")
+                c3.metric("Optimized Payoff", f"{final_opt:.2f} R", delta=f"{final_opt - final_reg:.2f} vs Regime")
                 
+                # Plot
                 fig = go.Figure()
-                fig.add_trace(go.Scatter(x=res_df.index, y=res_df['Cum_Naive'], name="Naive Model", line=dict(color='blue')))
-                fig.add_trace(go.Scatter(x=res_df.index, y=res_df['Cum_Opt'], name="Optimized (Weighted + Regime)", line=dict(color='purple', width=3)))
+                fig.add_trace(go.Scatter(x=res_df.index, y=res_df['Cum_Naive'], name="Naive", line=dict(color='blue')))
+                fig.add_trace(go.Scatter(x=res_df.index, y=res_df['Cum_Regime'], name="Regime Only (EqW)", line=dict(color='orange', width=2, dash='dot')))
+                fig.add_trace(go.Scatter(x=res_df.index, y=res_df['Cum_Opt'], name="Optimized (Regime + Wgt)", line=dict(color='purple', width=3)))
                 
                 fig.update_layout(
-                    title=f"Grand Unified Performance ({horizon}d Hold)",
+                    title=f"Performance Attribution ({horizon}d Hold)",
                     yaxis_title="Cumulative Sigma (R)",
-                    xaxis_title="Year",
-                    height=500
+                    height=550,
+                    hovermode="x unified"
                 )
                 st.plotly_chart(fig, use_container_width=True)
 
