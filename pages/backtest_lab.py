@@ -10,7 +10,7 @@ import itertools
 # CONFIGURATION
 # -----------------------------------------------------------------------------
 # Reverted to original "Primary Components" list
-BACKTEST_TICKERS = ["SPY", "QQQ", "IWM", "NVDA", "TSLA", "AAPL", "AMD", "MSFT", "GOOG", "AMZN", "META", "NFLX", "TLT", "USO", "GLD"]
+BACKTEST_TICKERS = ["SPY", "QQQ", "IWM", "SLV", "DIA", "AAPL", "AMD", "MSFT", "SMH", "HD", "KO", "UNG", "TLT", "USO", "GLD"]
 
 # 2d, 5d, 10d, 21d Horizons
 TEST_HORIZONS = [2, 5, 10, 21]
