@@ -54,94 +54,112 @@ def load_seasonal_map():
         ).to_dict()
     return output_map
 
-# --- DYNAMIC SEASONALITY LOGIC ---
-def generate_dynamic_seasonal_profile(df):
+# --- DYNAMIC SEASONALITY LOGIC (WALK-FORWARD) ---
+def generate_dynamic_seasonal_profile(df, cutoff_date, target_year):
     """
-    Calculates seasonal profile dynamically if missing from CSV.
-    Logic mimics the user's provided snippet:
-    - Calculates 5d, 10d, 21d forward returns.
-    - Groups by Day of Year (MD).
-    - Weights: (3 * Cycle_Avg + 1 * All_Year_Avg) / 4
+    Calculates seasonal profile for a SPECIFIC target_year using only data 
+    available prior to cutoff_date.
     """
-    # Create local copy and ensure LogRet exists
-    work_df = df.copy()
+    # 1. Filter History (Strictly Past Data)
+    work_df = df[df.index < cutoff_date].copy()
+    
+    # Need enough history to form a valid opinion (at least 2 years)
+    if len(work_df) < 500: 
+        return {}
+
     if 'LogRet' not in work_df.columns:
-        # Check if 'Close' exists, clean_ticker_df ensures it does
         work_df['LogRet'] = np.log(work_df['Close'] / work_df['Close'].shift(1)) * 100.0
     
     work_df['Year'] = work_df.index.year
-    # Use (Month, Day) to handle Leap Years robustly
     work_df['MD'] = work_df.index.map(lambda x: (x.month, x.day))
     
-    # 1. Determine Current Cycle Phase
-    # Cycle: 0=Election, 1=Post, 2=Midterm, 3=Pre
-    current_year = datetime.datetime.now().year
-    cycle_remainder = current_year % 4
+    # 2. Determine Cycle Phase for the TARGET YEAR
+    # (e.g., if forecasting 2012, we treat it as an Election Year phase)
+    cycle_remainder = target_year % 4
     
-    # 2. Calculate Forward Returns
+    # 3. Calculate Forward Returns
     windows = [5, 10, 21]
     fwd_cols = []
     for w in windows:
         col_name = f'Fwd_{w}d'
-        # shift(-w) brings future t+w value to t. rolling(w).sum() sums the period.
         work_df[col_name] = work_df['LogRet'].shift(-w).rolling(w).sum()
         fwd_cols.append(col_name)
 
-    # 3. Group by Day of Year (MD) for ALL years
+    # 4. Group by MD for ALL years available
     stats_all = work_df.groupby('MD')[fwd_cols].mean()
     
-    # 4. Group by Day of Year (MD) for CYCLE years
+    # 5. Group by MD for same CYCLE years available
     cycle_df = work_df[work_df['Year'] % 4 == cycle_remainder]
-    stats_cycle = cycle_df.groupby('MD')[fwd_cols].mean()
     
-    # Align Cycle stats to All stats (handle potential missing days in small cycle samples)
+    # Fallback: If we don't have enough cycle-specific years in history yet,
+    # rely more heavily on the 'All' stats.
+    if len(cycle_df) < 250: 
+        stats_cycle = stats_all.copy()
+    else:
+        stats_cycle = cycle_df.groupby('MD')[fwd_cols].mean()
+    
+    # Align
     stats_cycle = stats_cycle.reindex(stats_all.index).fillna(method='ffill').fillna(method='bfill')
     
-    # 5. Rank (Percentile 0-100) across the calendar year
+    # Rank (0-100)
     rnk_all = stats_all.rank(pct=True) * 100.0
     rnk_cycle = stats_cycle.rank(pct=True) * 100.0
     
-    # 6. Average the ranks across windows (5d, 10d, 21d)
+    # Average Ranks across windows
     avg_rank_all = rnk_all.mean(axis=1)
     avg_rank_cycle = rnk_cycle.mean(axis=1)
     
-    # 7. Apply Weighting: (3 * Cycle + 1 * All) / 4
+    # Weighted Blend
     final_rank = (avg_rank_all + 3 * avg_rank_cycle) / 4.0
     
-    # 8. Smoothing (5d centered rolling mean)
+    # Smoothing
     final_rank_smooth = final_rank.rolling(window=5, center=True, min_periods=1).mean()
     
     return final_rank_smooth.to_dict()
 
 def get_sznl_val_series(ticker, dates, sznl_map, df_hist=None):
-    # 1. Try CSV Map
+    # 1. Static CSV Check
+    # If the ticker is in the CSV, we use that (assuming user wants the specific static file data)
     t_map = sznl_map.get(ticker, {})
-    
-    # 2. If missing and we have data, generate dynamically
-    if not t_map and df_hist is not None and not df_hist.empty:
-        t_map = generate_dynamic_seasonal_profile(df_hist)
+    if t_map:
+        mds = dates.map(lambda x: (x.month, x.day))
+        return mds.map(t_map).fillna(50.0)
 
-    if not t_map:
-        return pd.Series(50.0, index=dates)
-    
-    mds = dates.map(lambda x: (x.month, x.day))
-    return mds.map(t_map).fillna(50.0)
+    # 2. Dynamic Walk-Forward Generation
+    if df_hist is not None and not df_hist.empty:
+        # We need to construct the series year by year to simulate "learning"
+        # Create a Series with the same index as dates, default to 50
+        sznl_series = pd.Series(50.0, index=dates)
+        
+        # Identify years in the requested range
+        unique_years = dates.year.unique()
+        
+        # Iterate through years to build the 'Expanding Window'
+        for yr in unique_years:
+            # We "stand" on Jan 1st of 'yr'
+            cutoff = pd.Timestamp(yr, 1, 1)
+            
+            # Generate profile using only history before this year
+            yearly_profile = generate_dynamic_seasonal_profile(df_hist, cutoff, yr)
+            
+            if yearly_profile:
+                # Apply this profile to the dates within this specific year
+                mask = (dates.year == yr)
+                # Map (Month, Day) to the profile
+                year_mds = dates[mask].map(lambda x: (x.month, x.day))
+                sznl_series.loc[mask] = year_mds.map(yearly_profile).fillna(50.0)
+                
+        return sznl_series
+
+    return pd.Series(50.0, index=dates)
 
 def clean_ticker_df(df):
-    """
-    Helper to standardize column names and drop empty rows.
-    Ensures columns are Title case: Close, Open, High, Low, Volume.
-    """
     if df.empty: return df
-    
     if isinstance(df.columns, pd.MultiIndex):
         df.columns = df.columns.get_level_values(0)
-    
     df.columns = [str(c).strip().capitalize() for c in df.columns]
-    
     if 'Close' not in df.columns and 'Adj close' in df.columns:
         df.rename(columns={'Adj close': 'Close'}, inplace=True)
-        
     df = df.dropna(subset=['Close'])
     return df
 
@@ -175,39 +193,20 @@ def download_universe_data(tickers, fetch_start_date):
 
             if len(chunk) == 1:
                 t = chunk[0]
-                if isinstance(df.columns, pd.MultiIndex):
-                    if t in df.columns.levels[0]:
-                        t_df = df[t].copy()
-                    else:
-                        t_df = df.copy()
-                else:
-                    t_df = df.copy()
-                
+                t_df = df[t].copy() if isinstance(df.columns, pd.MultiIndex) and t in df.columns.levels[0] else df.copy()
                 t_df = clean_ticker_df(t_df)
-                if not t_df.empty:
-                    data_dict[t] = t_df
-
+                if not t_df.empty: data_dict[t] = t_df
             else:
-                if not isinstance(df.columns, pd.MultiIndex):
-                    continue 
-
+                if not isinstance(df.columns, pd.MultiIndex): continue 
                 for t in chunk:
                     try:
                         if t in df.columns.levels[0]:
                             t_df = df[t].copy()
                             t_df = clean_ticker_df(t_df)
-                            if not t_df.empty:
-                                data_dict[t] = t_df
+                            if not t_df.empty: data_dict[t] = t_df
                     except: continue
-            
             time.sleep(0.1)
-
-        except Exception as e:
-            err_msg = str(e).lower()
-            if "rate limited" in err_msg or "too many requests" in err_msg:
-                st.warning(f"⚠️ Rate limit hit. Stopping download.")
-                break
-            continue
+        except Exception: continue
     
     download_bar.empty()
     status_text.empty()
@@ -239,53 +238,42 @@ def calculate_indicators(df, sznl_map, ticker, spy_series=None):
     if df.index.tz is not None:
         df.index = df.index.tz_localize(None)
     
-    # Calculate Log Returns for Dynamic Seasonality (if needed)
     df['LogRet'] = np.log(df['Close'] / df['Close'].shift(1)) * 100.0
-
-    # Moving Averages
     df['SMA200'] = df['Close'].rolling(200).mean()
     df['SMA10'] = df['Close'].rolling(10).mean()
     df['EMA21'] = df['Close'].ewm(span=21, adjust=False).mean()
     
-    # Perf Ranks
     for window in [5, 10, 21]:
         df[f'ret_{window}d'] = df['Close'].pct_change(window)
         df[f'rank_ret_{window}d'] = df[f'ret_{window}d'].expanding(min_periods=252).rank(pct=True) * 100.0
     
-    # ATR
     high_low = df['High'] - df['Low']
     high_close = np.abs(df['High'] - df['Close'].shift())
     low_close = np.abs(df['Low'] - df['Close'].shift())
-    ranges = pd.concat([high_low, high_close, low_close], axis=1)
-    df['ATR'] = ranges.max(axis=1).rolling(14).mean()
+    df['ATR'] = pd.concat([high_low, high_close, low_close], axis=1).max(axis=1).rolling(14).mean()
     
-    # Seasonality (Updated to pass df for dynamic calc)
+    # Seasonality (Walk-Forward is handled inside get_sznl_val_series)
     df['Sznl'] = get_sznl_val_series(ticker, df.index, sznl_map, df)
     
-    # 52w High/Low
     rolling_high = df['High'].shift(1).rolling(252).max()
     rolling_low = df['Low'].shift(1).rolling(252).min()
     df['is_52w_high'] = df['High'] > rolling_high
     df['is_52w_low'] = df['Low'] < rolling_low
     
-    # Volume & Vol Ratio
     vol_ma = df['Volume'].rolling(63).mean()
     df['vol_ma'] = vol_ma
     df['vol_ratio'] = df['Volume'] / vol_ma
     
-    # 10d Relative Volume Percentile
     vol_ma_10 = df['Volume'].rolling(10).mean()
     df['vol_ratio_10d'] = vol_ma_10 / vol_ma
     df['vol_ratio_10d_rank'] = df['vol_ratio_10d'].expanding(min_periods=252).rank(pct=True) * 100.0
     
-    # Age
     if not df.empty:
         start_ts = df.index[0]
         df['age_years'] = (df.index - start_ts).days / 365.25
     else:
         df['age_years'] = 0.0
         
-    # SPY Regime Mapping
     if spy_series is not None:
         df['SPY_Above_SMA200'] = spy_series.reindex(df.index, method='ffill').fillna(False)
 
@@ -298,18 +286,13 @@ def run_engine(universe_dict, params, sznl_map, spy_series=None):
     
     direction = params.get('trade_direction', 'Long')
     max_one_pos = params.get('max_one_pos', False)
-    
-    # Parse Entry Logic
     entry_mode = params['entry_type']
     is_pullback = "Pullback" in entry_mode
     use_ma_filter = params.get('use_ma_entry_filter', False)
     
-    # Determine MA column for Pullback
     pullback_col = None
     if "10 SMA" in entry_mode: pullback_col = "SMA10"
     elif "21 EMA" in entry_mode: pullback_col = "EMA21"
-    
-    # Determine Execution Price for Pullback
     pullback_use_level = "Level" in entry_mode
 
     progress_bar = st.progress(0)
@@ -320,12 +303,13 @@ def run_engine(universe_dict, params, sznl_map, spy_series=None):
         progress_bar.progress((i+1)/total)
         
         if len(df_raw) < 100: continue
-        
-        # TRACKING for Max 1 Pos
         last_exit_date = pd.Timestamp.min
         
         try:
+            # Pass ticker's full history for walk-forward calculation
             df = calculate_indicators(df_raw, sznl_map, ticker, spy_series)
+            
+            # Filter for backtest window
             df = df[df.index >= bt_start_ts]
             if df.empty: continue
             
@@ -333,7 +317,6 @@ def run_engine(universe_dict, params, sznl_map, spy_series=None):
             
             # --- TREND FILTER ---
             trend_opt = params.get('trend_filter', 'None')
-            
             if trend_opt == "Price > 200 SMA":
                 conditions.append(df['Close'] > df['SMA200'])
             elif trend_opt == "Price > Rising 200 SMA":
@@ -343,79 +326,59 @@ def run_engine(universe_dict, params, sznl_map, spy_series=None):
             elif trend_opt == "Price < Falling 200 SMA":
                 conditions.append((df['Close'] < df['SMA200']) & (df['SMA200'] < df['SMA200'].shift(1)))
             elif "SPY" in trend_opt and 'SPY_Above_SMA200' in df.columns:
-                if trend_opt == "SPY > 200 SMA":
-                    conditions.append(df['SPY_Above_SMA200'])
-                elif trend_opt == "SPY < 200 SMA":
-                    conditions.append(~df['SPY_Above_SMA200']) 
+                if trend_opt == "SPY > 200 SMA": conditions.append(df['SPY_Above_SMA200'])
+                elif trend_opt == "SPY < 200 SMA": conditions.append(~df['SPY_Above_SMA200']) 
             
             # --- LIQUIDITY GATES ---
-            curr_age = df['age_years'].fillna(0)
-            curr_vol = df['vol_ma'].fillna(0)
-            curr_close = df['Close'].fillna(0)
-            gate = (curr_close >= params['min_price']) & \
-                   (curr_vol >= params['min_vol']) & \
-                   (curr_age >= params['min_age']) & \
-                   (curr_age <= params['max_age'])
+            gate = (df['Close'] >= params['min_price']) & \
+                   (df['vol_ma'] >= params['min_vol']) & \
+                   (df['age_years'] >= params['min_age']) & \
+                   (df['age_years'] <= params['max_age'])
             conditions.append(gate)
 
-            # --- PRICE ACTION (NEW) ---
             if params.get('require_close_gt_open', False):
                 conditions.append(df['Close'] > df['Open'])
 
             # --- STRATEGY SIGNALS ---
             if params['use_perf_rank']:
                 col = f"rank_ret_{params['perf_window']}d"
-                if params['perf_logic'] == '<': raw_cond = df[col] < params['perf_thresh']
-                else: raw_cond = df[col] > params['perf_thresh']
-                
-                consec_days = params.get('perf_consecutive', 1)
-                if consec_days > 1:
-                    cond = raw_cond.rolling(consec_days).sum() == consec_days
-                else:
-                    cond = raw_cond
-
+                raw_cond = df[col] < params['perf_thresh'] if params['perf_logic'] == '<' else df[col] > params['perf_thresh']
+                cond = raw_cond.rolling(params['perf_consecutive']).sum() == params['perf_consecutive'] if params['perf_consecutive'] > 1 else raw_cond
                 if params['perf_first_instance']:
                     prev = cond.shift(1).rolling(params['perf_lookback']).sum()
                     cond = cond & (prev == 0)
                 conditions.append(cond)
 
             if params['use_sznl']:
-                if params['sznl_logic'] == '<': cond = df['Sznl'] < params['sznl_thresh']
-                else: cond = df['Sznl'] > params['sznl_thresh']
+                cond = df['Sznl'] < params['sznl_thresh'] if params['sznl_logic'] == '<' else df['Sznl'] > params['sznl_thresh']
                 if params['sznl_first_instance']:
                     prev = cond.shift(1).rolling(params['sznl_lookback']).sum()
                     cond = cond & (prev == 0)
                 conditions.append(cond)
             
             if params['use_52w']:
-                if params['52w_type'] == 'New 52w High': cond = df['is_52w_high']
-                else: cond = df['is_52w_low']
+                cond = df['is_52w_high'] if params['52w_type'] == 'New 52w High' else df['is_52w_low']
                 if params['52w_first_instance']:
                     prev = cond.shift(1).rolling(params['52w_lookback']).sum()
                     cond = cond & (prev == 0)
                 conditions.append(cond)
             
             if params['use_vol']:
-                cond = df['vol_ratio'] > params['vol_thresh']
-                conditions.append(cond)
+                conditions.append(df['vol_ratio'] > params['vol_thresh'])
 
             if params['use_vol_rank']:
-                if params['vol_rank_logic'] == '<': cond = df['vol_ratio_10d_rank'] < params['vol_rank_thresh']
-                else: cond = df['vol_ratio_10d_rank'] > params['vol_rank_thresh']
+                cond = df['vol_ratio_10d_rank'] < params['vol_rank_thresh'] if params['vol_rank_logic'] == '<' else df['vol_ratio_10d_rank'] > params['vol_rank_thresh']
                 conditions.append(cond)
 
             if not conditions: continue
             
             final_signal = conditions[0]
             for c in conditions[1:]: final_signal = final_signal & c
-            
             signal_dates = df.index[final_signal]
             
             # --- TRADE EXECUTION ---
             for signal_date in signal_dates:
                 if max_one_pos and signal_date <= last_exit_date: continue
-                
-                # Global Max Exit Index based on SIGNAL DATE (Fixed Time Stop)
                 sig_idx = df.index.get_loc(signal_date)
                 fixed_exit_idx = sig_idx + params['holding_days']
                 if fixed_exit_idx >= len(df): continue
@@ -424,39 +387,21 @@ def run_engine(universe_dict, params, sznl_map, spy_series=None):
                 actual_entry_idx = -1
                 actual_entry_price = 0.0
                 
-                # ---------------------
-                # PATH A: PULLBACK
-                # ---------------------
                 if is_pullback and pullback_col:
-                    # Look for entry from Signal Date + 1 up to Fixed Exit Date
                     for wait_i in range(1, params['holding_days'] + 1):
                         curr_check_idx = sig_idx + wait_i
                         if curr_check_idx >= len(df): break
-                        
                         row = df.iloc[curr_check_idx]
                         ma_val = row[pullback_col]
-                        
                         if np.isnan(ma_val): continue
-
-                        # Trigger: Low <= MA
                         if row['Low'] <= ma_val:
-                            # Filter: Close > MA - 0.25ATR
                             if use_ma_filter:
                                 cutoff = ma_val - (0.25 * row['ATR'])
-                                if row['Close'] < cutoff:
-                                    continue 
-                            
+                                if row['Close'] < cutoff: continue 
                             found_entry = True
                             actual_entry_idx = curr_check_idx
-                            if pullback_use_level:
-                                actual_entry_price = ma_val
-                            else:
-                                actual_entry_price = row['Close']
+                            actual_entry_price = ma_val if pullback_use_level else row['Close']
                             break
-                
-                # ---------------------
-                # PATH B: IMMEDIATE
-                # ---------------------
                 else:
                     found_entry = True
                     if entry_mode == 'Signal Close':
@@ -469,16 +414,9 @@ def run_engine(universe_dict, params, sznl_map, spy_series=None):
                         actual_entry_idx = sig_idx + 1
                         actual_entry_price = df['Close'].iloc[sig_idx + 1]
 
-                # ---------------------
-                # EXECUTE TRADE
-                # ---------------------
                 if found_entry and actual_entry_idx < len(df):
-                    
                     start_exit_scan = actual_entry_idx + 1
-                    
-                    if start_exit_scan > fixed_exit_idx: 
-                        continue 
-                    
+                    if start_exit_scan > fixed_exit_idx: continue 
                     future = df.iloc[start_exit_scan : fixed_exit_idx + 1]
                     if future.empty: continue
                     
@@ -503,25 +441,17 @@ def run_engine(universe_dict, params, sznl_map, spy_series=None):
                             if direction == 'Long':
                                 if f_row['Low'] <= stop_price:
                                     exit_price = f_row['Open'] if f_row['Open'] < stop_price else stop_price
-                                    exit_type = "Stop"
-                                    exit_date = f_date
-                                    break
+                                    exit_type = "Stop"; exit_date = f_date; break
                                 if f_row['High'] >= tgt_price:
                                     exit_price = f_row['Open'] if f_row['Open'] > tgt_price else tgt_price
-                                    exit_type = "Target"
-                                    exit_date = f_date
-                                    break
+                                    exit_type = "Target"; exit_date = f_date; break
                             else: # Short
                                 if f_row['High'] >= stop_price:
                                     exit_price = f_row['Open'] if f_row['Open'] > stop_price else stop_price
-                                    exit_type = "Stop"
-                                    exit_date = f_date
-                                    break
+                                    exit_type = "Stop"; exit_date = f_date; break
                                 if f_row['Low'] <= tgt_price:
                                     exit_price = f_row['Open'] if f_row['Open'] < tgt_price else tgt_price
-                                    exit_type = "Target"
-                                    exit_date = f_date
-                                    break
+                                    exit_type = "Target"; exit_date = f_date; break
                     
                     if exit_type == "Hold":
                         exit_price = future['Close'].iloc[-1]
@@ -529,30 +459,16 @@ def run_engine(universe_dict, params, sznl_map, spy_series=None):
                         exit_type = "Time"
                     
                     last_exit_date = exit_date
-
-                    if direction == 'Long':
-                        risk_unit = actual_entry_price - stop_price
-                        pnl = exit_price - actual_entry_price
-                    else:
-                        risk_unit = stop_price - actual_entry_price
-                        pnl = actual_entry_price - exit_price
-                        
+                    risk_unit = actual_entry_price - stop_price if direction == 'Long' else stop_price - actual_entry_price
+                    pnl = exit_price - actual_entry_price if direction == 'Long' else actual_entry_price - exit_price
                     if risk_unit <= 0: risk_unit = 0.001
                     r = pnl / risk_unit
                     
                     trades.append({
-                        "Ticker": ticker,
-                        "SignalDate": signal_date,
-                        "Direction": direction,
-                        "Entry": actual_entry_price,
-                        "Exit": exit_price,
-                        "ExitDate": exit_date,
-                        "Type": exit_type,
-                        "R": r,
-                        "Age": df['age_years'].iloc[sig_idx],
-                        "AvgVol": df['vol_ma'].iloc[sig_idx]
+                        "Ticker": ticker, "SignalDate": signal_date, "Direction": direction,
+                        "Entry": actual_entry_price, "Exit": exit_price, "ExitDate": exit_date,
+                        "Type": exit_type, "R": r, "Age": df['age_years'].iloc[sig_idx], "AvgVol": df['vol_ma'].iloc[sig_idx]
                     })
-
         except: continue
         
     progress_bar.empty()
@@ -602,11 +518,7 @@ def main():
             ["Sector ETFs", "Indices", "International ETFs", "Sector + Index ETFs", "All CSV Tickers", "Custom (Upload CSV)"])
     with col_u2:
         default_start = datetime.date(2000, 1, 1)
-        # UPDATE: Allow any date from 1950 to Today
-        start_date = st.date_input("Backtest Start Date", 
-                                   value=default_start, 
-                                   min_value=datetime.date(1950, 1, 1),
-                                   max_value=datetime.date.today())
+        start_date = st.date_input("Backtest Start Date", value=default_start, min_value=datetime.date(1950, 1, 1), max_value=datetime.date.today())
     
     custom_tickers = []
     if univ_choice == "Custom (Upload CSV)":
@@ -635,24 +547,16 @@ def main():
     with r_c2:
         time_exit_only = st.checkbox("Time Exit Only (Disable Stop/Target)")
     with r_c3:
-        max_one_pos = st.checkbox("Max 1 Position/Ticker", value=True, 
-            help="If checked, allows only one open trade at a time per ticker (prevents pyramiding).")
+        max_one_pos = st.checkbox("Max 1 Position/Ticker", value=True, help="If checked, allows only one open trade at a time per ticker.")
     
     c1, c2, c3, c4, c5 = st.columns(5)
     with c1: 
         entry_type = st.selectbox("Entry Price", [
-            "Signal Close", 
-            "T+1 Open", 
-            "T+1 Close",
-            "Pullback 10 SMA (Entry: Close)",
-            "Pullback 10 SMA (Entry: Level)",
-            "Pullback 21 EMA (Entry: Close)",
-            "Pullback 21 EMA (Entry: Level)"
+            "Signal Close", "T+1 Open", "T+1 Close",
+            "Pullback 10 SMA (Entry: Close)", "Pullback 10 SMA (Entry: Level)",
+            "Pullback 21 EMA (Entry: Close)", "Pullback 21 EMA (Entry: Level)"
         ])
-        if "Pullback" in entry_type:
-            use_ma_entry_filter = st.checkbox("Filter: Close > MA - 0.25*ATR", value=False)
-        else:
-            use_ma_entry_filter = False
+        use_ma_entry_filter = st.checkbox("Filter: Close > MA - 0.25*ATR", value=False) if "Pullback" in entry_type else False
 
     with c2: stop_atr = st.number_input("Stop Loss (ATR)", value=3.0, step=0.1)
     with c3: tgt_atr = st.number_input("Target (ATR)", value=8.0, step=0.1, disabled=time_exit_only)
@@ -662,7 +566,6 @@ def main():
     st.markdown("---")
     st.subheader("3. Signal Criteria")
 
-    # A. LIQUIDITY
     with st.expander("Liquidity & Data History Filters", expanded=True):
         l1, l2, l3, l4 = st.columns(4)
         with l1: min_price = st.number_input("Min Price ($)", value=10.0, step=1.0)
@@ -673,7 +576,6 @@ def main():
     with st.expander("Price Action", expanded=True):
         req_green_candle = st.checkbox("Require Close > Open (Green Candle)", value=False)
         
-    # B. TREND
     with st.expander("Trend Filter", expanded=True):
         t1, _ = st.columns([1, 3])
         with t1:
@@ -682,7 +584,6 @@ def main():
                  "Price < 200 SMA", "Price < Falling 200 SMA", "SPY < 200 SMA"],
                 help="Requires 200 days of data. 'SPY' filters check the broad market regime.")
 
-    # C. STRATEGY FILTERS
     with st.expander("Performance Percentile Rank", expanded=False):
         use_perf = st.checkbox("Enable Performance Filter", value=False)
         p1, p2, p3, p4, p5 = st.columns(5)
@@ -735,7 +636,6 @@ def main():
         elif univ_choice == "All CSV Tickers": tickers_to_run = [t for t in list(sznl_map.keys()) if t not in ["BTC-USD", "ETH-USD"]]
         elif univ_choice == "Custom (Upload CSV)": tickers_to_run = custom_tickers
         
-        # Apply sampling
         if tickers_to_run and sample_pct < 100:
             count = max(1, int(len(tickers_to_run) * (sample_pct / 100)))
             tickers_to_run = random.sample(tickers_to_run, count)
@@ -745,28 +645,22 @@ def main():
             st.error("No tickers found.")
             return
 
-        # UPDATE: Fetch Data Buffer Logic
-        # If not full history, fetch 1 year prior to start_date to allow indicators (200SMA) to warm up
         if use_full_history:
              fetch_start = "1950-01-01"
         else:
              fetch_start = start_date - datetime.timedelta(days=365)
 
         st.info(f"Downloading data ({len(tickers_to_run)} tickers)...")
-        
         data_dict = download_universe_data(tickers_to_run, fetch_start)
         if not data_dict: return
         
-        # --- SPY HANDLING ---
         spy_series = None
         if "SPY" in trend_filter:
-            if "SPY" in data_dict:
-                spy_df = data_dict["SPY"]
+            if "SPY" in data_dict: spy_df = data_dict["SPY"]
             else:
                 st.info("Fetching SPY data for regime filter...")
                 spy_dict_temp = download_universe_data(["SPY"], fetch_start)
                 spy_df = spy_dict_temp.get("SPY", None)
-
             if spy_df is not None and not spy_df.empty:
                 spy_df['SMA200'] = spy_df['Close'].rolling(200).mean()
                 spy_series = spy_df['Close'] > spy_df['SMA200']
@@ -805,7 +699,6 @@ def main():
         trades_df['Year'] = trades_df['SignalDate'].dt.year
         trades_df['Month'] = trades_df['SignalDate'].dt.strftime('%b')
         trades_df['MonthNum'] = trades_df['SignalDate'].dt.month
-        trades_df['DayOfWeek'] = trades_df['SignalDate'].dt.day_name()
         trades_df['CyclePhase'] = trades_df['Year'].apply(get_cycle_year)
         trades_df['AgeBucket'] = trades_df['Age'].apply(get_age_bucket)
         
@@ -843,21 +736,14 @@ def main():
         st.plotly_chart(fig, use_container_width=True)
         
         st.subheader("Performance Breakdowns")
-        
-        # 1. Year and Cycle
         b1, b2 = st.columns(2)
         b1.plotly_chart(px.bar(trades_df.groupby('Year')['PnL_Dollar'].sum().reset_index(), x='Year', y='PnL_Dollar', title="PnL by Year", text_auto='.2s'), use_container_width=True)
         b2.plotly_chart(px.bar(trades_df.groupby('CyclePhase')['PnL_Dollar'].sum().reset_index().sort_values('CyclePhase'), x='CyclePhase', y='PnL_Dollar', title="PnL by Cycle", text_auto='.2s'), use_container_width=True)
         
-        # 2. Ticker and Month Seasonality (Fixed)
         b3, b4 = st.columns(2)
-        
-        # Top 75 Tickers
-        ticker_pnl = trades_df.groupby("Ticker")["PnL_Dollar"].sum().reset_index()
-        ticker_pnl = ticker_pnl.sort_values("PnL_Dollar", ascending=False).head(75)
+        ticker_pnl = trades_df.groupby("Ticker")["PnL_Dollar"].sum().reset_index().sort_values("PnL_Dollar", ascending=False).head(75)
         b3.plotly_chart(px.bar(ticker_pnl, x="Ticker", y="PnL_Dollar", title="Cumulative PnL by Ticker (Top 75)", text_auto='.2s'), use_container_width=True)
         
-        # Monthly Seasonality
         month_order = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
         monthly_pnl = trades_df.groupby("Month")["PnL_Dollar"].sum().reindex(month_order).reset_index()
         b4.plotly_chart(px.bar(monthly_pnl, x="Month", y="PnL_Dollar", title="Cumulative PnL by Month (Seasonality)", text_auto='.2s'), use_container_width=True)
@@ -868,7 +754,6 @@ def main():
             "Age": "{:.1f}y", "AvgVol": "{:,.0f}"
         }), use_container_width=True)
 
-        # --- COPYABLE DICTIONARY OUTPUT ---
         st.markdown("---")
         st.subheader("Configuration & Results (Copy Code)")
         st.info("Copy the dictionary below and paste it into your `STRATEGY_BOOK` list in the Screener.")
