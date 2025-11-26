@@ -97,15 +97,21 @@ def get_sznl_val_series(ticker, dates, sznl_map):
 
 @st.cache_data(show_spinner=True)
 def download_data(ticker):
-    if not ticker: return pd.DataFrame()
+    """
+    Downloads data and returns a tuple: (DataFrame, Fetch_Timestamp_EST)
+    """
+    if not ticker: return pd.DataFrame(), None
     try:
         # We need MAX history for accurate percentile ranking
         df = yf.download(ticker, period="max", progress=False, auto_adjust=True)
         if isinstance(df.columns, pd.MultiIndex):
             df.columns = [c[0] for c in df.columns]
-        return df
+        
+        # Capture fetch time in EST/New York
+        fetch_time = pd.Timestamp.now(tz='America/New_York')
+        return df, fetch_time
     except:
-        return pd.DataFrame()
+        return pd.DataFrame(), None
 
 # -----------------------------------------------------------------------------
 # COLOR GENERATOR (Seismic)
@@ -333,14 +339,15 @@ def render_heatmap():
     if st.session_state.get('hm_data'):
         with st.spinner(f"Processing {ticker}..."):
             
-            data = download_data(ticker)
+            data, fetch_time = download_data(ticker)
             if data.empty:
                 st.error("No data found.")
                 return
 
-            # Display Last Update Timestamp
+            # Display Last Update Timestamp in EST
             last_dt = data.index[-1]
-            st.info(f"Price Data Current as of: {last_dt.strftime('%Y-%m-%d')}")
+            time_str = fetch_time.strftime('%I:%M %p EST') if fetch_time else "N/A"
+            st.info(f"Price Data Current as of: {last_dt.strftime('%Y-%m-%d')} | Last Update: {time_str}")
                 
             sznl_map = load_seasonal_map()
             
