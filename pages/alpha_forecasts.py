@@ -32,7 +32,7 @@ SELECTED_UNIVERSE = [
     'JPM', 'BAC', 'GS', 'MS', 'V', 'AXP',
 
     # --- CONSUMER (8) ---
-    'WMT', 'COST', 'HD', 'MCD', 'NKE', 'SBUX', 'PG', 'KO',
+    'WMT', 'COST', 'HD', 'MCD', 'NKE', 'SBUX', 'PG', 'KO','FCX',
 
     # --- HEALTHCARE (5) ---
     'LLY', 'UNH', 'JNJ', 'PFE', 'MRK',
@@ -41,7 +41,7 @@ SELECTED_UNIVERSE = [
     'CAT', 'BA', 'GE', 'UNP', 'XOM', 'CVX',
 
     # --- OTHERS (6) ---
-    'DIS', 'NFLX', 'CRM', 'TSLA', 'RTX', 'LMT' 
+    'DIS', 'NFLX', 'CRM', 'TSLA', 'RTX', 'LMT','LUV','DE','FDX' 
 ]
 
 # -----------------------------------------------------------------------------
