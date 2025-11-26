@@ -367,27 +367,19 @@ def main():
     * 👻 **Ghost:** Signal hasn't triggered in the last 5 years.
     """)
     
-    
-
-    # Load Seasonal Data from CSV
+    # Load Seasonal Data from CSV (if it exists)
     sznl_map, csv_tickers_full = load_seasonal_map()
     
-    # --- UNIVERSE FILTERING ---
-    # Intersection of SELECTED_UNIVERSE and Tickers present in CSV
-    # This keeps the scan fast and focused on liquid names.
-    active_tickers = [t for t in SELECTED_UNIVERSE if t in csv_tickers_full]
-    
-    # If the CSV is empty or has no matches (e.g., user uploaded wrong file),
-    # fallback to a tiny list just so the code runs.
-    if not active_tickers:
-        active_tickers = ["SPY", "QQQ", "IWM", "NVDA", "AAPL"]
-        
+    # --- UNIVERSE SELECTION ---
+    # FIXED: We now force the use of our hardcoded list. 
+    # If the CSV is missing a ticker, the engine will just use default (50.0) seasonality.
+    active_tickers = SELECTED_UNIVERSE
     active_tickers_str = ", ".join(active_tickers)
 
     with st.expander("⚙️ Forecast Settings", expanded=True):
         col1, col2 = st.columns([3, 1])
         with col1:
-            st.caption(f"Scanning {len(active_tickers)} Tickers (Pared down for speed/liquidity)")
+            st.caption(f"Scanning {len(active_tickers)} Tickers")
             st.text_area("Active Universe (Read-Only)", value=active_tickers_str, height=70, disabled=True)
         with col2:
             st.info("Filtering: |Excess| > 0.25σ") 
@@ -409,7 +401,6 @@ def main():
                 return
             
             # --- GENERATE ENSEMBLE ---
-            # Auto-removes Decaying/Ghost signals
             ensemble_df = generate_ensemble(df_results, alpha_threshold=0.25)
             
             top_bulls = ensemble_df[ensemble_df['Conviction_Score'] > 0].head(10)
@@ -457,7 +448,6 @@ def main():
             
             ALPHA_THRESHOLD = 0.25
             
-            # Show all signals here, even the Decaying ones, so user can see what's failing
             bullish_details = df_results[df_results['Full_Excess'] > ALPHA_THRESHOLD].sort_values(by="Full_Excess", ascending=False)
             
             bearish_details = df_results[
@@ -467,7 +457,6 @@ def main():
 
             tab1, tab2 = st.tabs(["Bullish Signals", "Bearish Signals"])
             
-            # Column Order for Details
             cols = ["Ticker", "Fwd_Horizon", "Status", "Full_Excess", "Recent_Excess", "Feature_X", "Feature_Y", "History", "Recent_Count"]
 
             with tab1:
@@ -504,7 +493,6 @@ def main():
                 },
                 title="Regime Stability Map: Historic Alpha vs Recent Alpha"
             )
-            # Add identity line (Recent = Historic)
             fig.add_shape(type="line", x0=-2, y0=-2, x1=2, y1=2, line=dict(color="gray", dash="dash"))
             
             fig.update_layout(xaxis_title="Full History Alpha (25y)", yaxis_title="Recent Alpha (5y)")
