@@ -17,7 +17,7 @@ TEST_HORIZONS = [2, 5, 10, 21]
 
 # Original Sizing
 LONG_COUNT = 5
-SHORT_COUNT = 3
+SHORT_COUNT = 1
 
 # -----------------------------------------------------------------------------
 # DATA ENGINE (Vectorized)
