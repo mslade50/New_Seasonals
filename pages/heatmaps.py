@@ -297,14 +297,9 @@ def render_heatmap():
             "21d Rel. Volume Rank": "VolRatio_21d_Rank",
         }
         
-        # Add MARKET METRICS to options
-        # Categories: Total, NYSE, NASDAQ
-        # Windows: 5, 10, 21, 63, 252
-        for cat in ['Total', 'NYSE', 'NASDAQ']:
-            for w in [5, 10, 21, 63, 252]:
-                label = f"{cat} Net Highs ({w}d MA) Rank"
-                key = f"Mkt_{cat}_NH_{w}d_Rank"
-                var_options[label] = key
+        # Add MARKET METRICS to options (FILTERED as requested)
+        var_options["Total Net Highs (5d MA) Rank"] = "Mkt_Total_NH_5d_Rank"
+        var_options["Total Net Highs (21d MA) Rank"] = "Mkt_Total_NH_21d_Rank"
 
         x_axis_label = st.selectbox("X-Axis Variable", list(var_options.keys()), index=0, key="hm_x")
         y_axis_label = st.selectbox("Y-Axis Variable", list(var_options.keys()), index=3, key="hm_y")
@@ -342,6 +337,10 @@ def render_heatmap():
             if data.empty:
                 st.error("No data found.")
                 return
+
+            # Display Last Update Timestamp
+            last_dt = data.index[-1]
+            st.info(f"Price Data Current as of: {last_dt.strftime('%Y-%m-%d')}")
                 
             sznl_map = load_seasonal_map()
             
