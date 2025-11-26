@@ -579,8 +579,6 @@ def main():
     st.markdown("---")
     st.subheader("2. Execution & Risk")
     
-    
-
     r_c1, r_c2, r_c3 = st.columns(3)
     with r_c1:
         trade_direction = st.selectbox("Trade Direction", ["Long", "Short"])
@@ -590,7 +588,7 @@ def main():
         max_one_pos = st.checkbox("Max 1 Position/Ticker", value=True, 
             help="If checked, allows only one open trade at a time per ticker.")
     
-    # --- NEW: PORTFOLIO CONSTRAINTS ---
+    # --- PORTFOLIO CONSTRAINTS ---
     p_c1, p_c2 = st.columns(2)
     with p_c1:
         max_daily_entries = st.number_input("Max New Trades Per Day", min_value=1, max_value=100, value=2, step=1)
@@ -696,7 +694,6 @@ def main():
         elif univ_choice == "All CSV Tickers": tickers_to_run = [t for t in list(sznl_map.keys()) if t not in ["BTC-USD", "ETH-USD"]]
         elif univ_choice == "Custom (Upload CSV)": tickers_to_run = custom_tickers
         
-        # Apply sampling
         if tickers_to_run and sample_pct < 100:
             count = max(1, int(len(tickers_to_run) * (sample_pct / 100)))
             tickers_to_run = random.sample(tickers_to_run, count)
@@ -736,8 +733,8 @@ def main():
             'backtest_start_date': start_date,
             'trade_direction': trade_direction,
             'max_one_pos': max_one_pos,
-            'max_daily_entries': max_daily_entries, # NEW
-            'max_total_positions': max_total_positions, # NEW
+            'max_daily_entries': max_daily_entries, 
+            'max_total_positions': max_total_positions, 
             'time_exit_only': time_exit_only,
             'stop_atr': stop_atr, 'tgt_atr': tgt_atr, 'holding_days': hold_days, 'entry_type': entry_type,
             'use_ma_entry_filter': use_ma_entry_filter,
@@ -805,24 +802,27 @@ def main():
         
         st.subheader("Performance Breakdowns")
         
-        # 1. Year and Cycle
-        b1, b2 = st.columns(2)
-        b1.plotly_chart(px.bar(trades_df.groupby('Year')['PnL_Dollar'].sum().reset_index(), x='Year', y='PnL_Dollar', title="PnL by Year", text_auto='.2s'), use_container_width=True)
-        b2.plotly_chart(px.bar(trades_df.groupby('CyclePhase')['PnL_Dollar'].sum().reset_index().sort_values('CyclePhase'), x='CyclePhase', y='PnL_Dollar', title="PnL by Cycle", text_auto='.2s'), use_container_width=True)
+        # 1. Year and Count (UPDATED)
+        y1, y2 = st.columns(2)
+        y1.plotly_chart(px.bar(trades_df.groupby('Year')['PnL_Dollar'].sum().reset_index(), x='Year', y='PnL_Dollar', title="Net Profit ($) by Year", text_auto='.2s'), use_container_width=True)
         
-        # 2. Ticker and Month Seasonality (Fixed)
-        b3, b4 = st.columns(2)
+        # --- NEW FIGURE: TRADES PER YEAR ---
+        trades_per_year = trades_df.groupby('Year').size().reset_index(name='Count')
+        y2.plotly_chart(px.bar(trades_per_year, x='Year', y='Count', title="Total Trades by Year", text_auto=True), use_container_width=True)
         
-        # Top 75 Tickers
-        ticker_pnl = trades_df.groupby("Ticker")["PnL_Dollar"].sum().reset_index()
-        ticker_pnl = ticker_pnl.sort_values("PnL_Dollar", ascending=False).head(75)
-        b3.plotly_chart(px.bar(ticker_pnl, x="Ticker", y="PnL_Dollar", title="Cumulative PnL by Ticker (Top 75)", text_auto='.2s'), use_container_width=True)
+        # 2. Cycle and Month
+        c1, c2 = st.columns(2)
+        c1.plotly_chart(px.bar(trades_df.groupby('CyclePhase')['PnL_Dollar'].sum().reset_index().sort_values('CyclePhase'), x='CyclePhase', y='PnL_Dollar', title="PnL by Cycle", text_auto='.2s'), use_container_width=True)
         
-        # Monthly Seasonality
         month_order = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
         monthly_pnl = trades_df.groupby("Month")["PnL_Dollar"].sum().reindex(month_order).reset_index()
-        b4.plotly_chart(px.bar(monthly_pnl, x="Month", y="PnL_Dollar", title="Cumulative PnL by Month (Seasonality)", text_auto='.2s'), use_container_width=True)
-
+        c2.plotly_chart(px.bar(monthly_pnl, x="Month", y="PnL_Dollar", title="PnL by Month (Seasonality)", text_auto='.2s'), use_container_width=True)
+        
+        # 3. Ticker
+        ticker_pnl = trades_df.groupby("Ticker")["PnL_Dollar"].sum().reset_index()
+        ticker_pnl = ticker_pnl.sort_values("PnL_Dollar", ascending=False).head(75)
+        st.plotly_chart(px.bar(ticker_pnl, x="Ticker", y="PnL_Dollar", title="Cumulative PnL by Ticker (Top 75)", text_auto='.2s'), use_container_width=True)
+        
         st.subheader("Trade Log")
         st.dataframe(trades_df.style.format({
             "Entry": "{:.2f}", "Exit": "{:.2f}", "R": "{:.2f}", "PnL_Dollar": "${:,.2f}",
@@ -869,6 +869,5 @@ def main():
     }}
 }},"""
         st.code(dict_str, language="python")
-
 if __name__ == "__main__":
     main()
