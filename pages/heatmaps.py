@@ -11,12 +11,13 @@ import datetime
 # -----------------------------------------------------------------------------
 # CONSTANTS & SETUP
 # -----------------------------------------------------------------------------
-CSV_PATH = "seasonal_ranks.csv"
+SEASONAL_PATH = "seasonal_ranks.csv"
+METRICS_PATH = "market_metrics_full_export.csv"
 
 @st.cache_data(show_spinner=False)
 def load_seasonal_map():
     try:
-        df = pd.read_csv(CSV_PATH)
+        df = pd.read_csv(SEASONAL_PATH)
     except Exception:
         return {}
 
@@ -32,6 +33,59 @@ def load_seasonal_map():
             group.seasonal_rank.values, index=group.MD
         ).to_dict()
     return output_map
+
+@st.cache_data(show_spinner=False)
+def load_market_metrics():
+    """
+    Loads market metrics, calculates Moving Averages of Net Highs, 
+    and then converts them to Percentile Ranks.
+    """
+    try:
+        df = pd.read_csv(METRICS_PATH)
+        # Handle date parsing flexibly
+        df['date'] = pd.to_datetime(df['date'], errors='coerce')
+        df = df.dropna(subset=['date'])
+    except Exception:
+        return pd.DataFrame()
+
+    if df.empty: return pd.DataFrame()
+
+    # 1. Pivot to get Date index and Exchange columns
+    # We need to handle potential duplicates or just standard pivoting
+    pivoted = df.pivot_table(
+        index='date', 
+        columns='exchange', 
+        values='net_new_highs', 
+        aggfunc='sum'
+    )
+    
+    # 2. Create 'Total' (NYSE + NASDAQ)
+    # Fill NaN with 0 for addition, though usually data aligns
+    pivoted['Total'] = pivoted.get('NYSE', 0) + pivoted.get('NASDAQ', 0)
+    
+    # 3. Calculate MAs and Ranks
+    # We want the Percentile Rank of the Trailing X Day MA of Net Highs
+    windows = [5, 10, 21, 63, 252]
+    categories = ['Total', 'NYSE', 'NASDAQ']
+    
+    results = pd.DataFrame(index=pivoted.index)
+    
+    for cat in categories:
+        if cat not in pivoted.columns: 
+            continue
+            
+        series = pivoted[cat]
+        
+        for w in windows:
+            # A. Calculate Moving Average
+            ma_col = series.rolling(window=w).mean()
+            
+            # B. Calculate Percentile Rank (0-100)
+            # using expanding window so we don't look ahead
+            rank_col_name = f"Mkt_{cat}_NH_{w}d_Rank"
+            results[rank_col_name] = ma_col.expanding(min_periods=126).rank(pct=True) * 100.0
+
+    return results
 
 def get_sznl_val_series(ticker, dates, sznl_map):
     t_map = sznl_map.get(ticker, {})
@@ -71,7 +125,7 @@ def get_seismic_colorscale():
 # -----------------------------------------------------------------------------
 
 @st.cache_data(show_spinner=True)
-def calculate_heatmap_variables(df, sznl_map, ticker):
+def calculate_heatmap_variables(df, sznl_map, market_metrics_df, ticker):
     """Calculates advanced vars and ranks them 0-100 for the heatmap axes."""
     df = df.copy()
     
@@ -128,6 +182,14 @@ def calculate_heatmap_variables(df, sznl_map, ticker):
     for v in vars_to_rank:
         df[v + '_Rank'] = df[v].expanding(min_periods=252).rank(pct=True) * 100.0
 
+    # --- 5. MERGE MARKET METRICS ---
+    # Merge the pre-calculated market ranks into the main dataframe
+    if not market_metrics_df.empty:
+        # We use left join to keep stock data shape
+        df = df.join(market_metrics_df, how='left')
+        # Optional: Forward fill if market data has gaps (e.g. holidays differ slightly)
+        df.update(df.filter(regex='^Mkt_').ffill(limit=3))
+
     return df
 
 # -----------------------------------------------------------------------------
@@ -164,7 +226,7 @@ def grid_mean(df_sub, xcol, ycol, zcol, x_edges, y_edges):
     yi = np.digitize(y, y_edges) - 1
     nx = len(x_edges) - 1; ny = len(y_edges) - 1
 
-    sums   = np.zeros((ny, nx), float)
+    sums    = np.zeros((ny, nx), float)
     counts = np.zeros((ny, nx), float)
 
     valid = (xi >= 0) & (xi < nx) & (yi >= 0) & (yi < ny)
@@ -212,24 +274,38 @@ def render_heatmap():
     col1, col2, col3 = st.columns(3)
     
     with col1:
+        # Build options dictionary
         var_options = {
             "Seasonality Rank": "Seasonal",
+            # Price
             "5d Trailing Return Rank": "Ret_5d_Rank",
             "10d Trailing Return Rank": "Ret_10d_Rank",
             "21d Trailing Return Rank": "Ret_21d_Rank",
             "63d Trailing Return Rank": "Ret_63d_Rank",
             "126d Trailing Return Rank": "Ret_126d_Rank",
             "252d Trailing Return Rank": "Ret_252d_Rank",
+            # Vol
             "21d Realized Vol Rank": "RealVol_21d_Rank",
             "63d Realized Vol Rank": "RealVol_63d_Rank",
             "Change in Vol (2d-63d) Rank": "VolChange_2d_Rank",
             "Change in Vol (5d-63d) Rank": "VolChange_5d_Rank",
             "Change in Vol (10d-63d) Rank": "VolChange_10d_Rank",
             "Change in Vol (21d-63d) Rank": "VolChange_21d_Rank",
+            # Volume
             "5d Rel. Volume Rank": "VolRatio_5d_Rank",
             "10d Rel. Volume Rank": "VolRatio_10d_Rank",
-            "21d Rel. Volume Rank": "VolRatio_21d_Rank"
+            "21d Rel. Volume Rank": "VolRatio_21d_Rank",
         }
+        
+        # Add MARKET METRICS to options
+        # Categories: Total, NYSE, NASDAQ
+        # Windows: 5, 10, 21, 63, 252
+        for cat in ['Total', 'NYSE', 'NASDAQ']:
+            for w in [5, 10, 21, 63, 252]:
+                label = f"{cat} Net Highs ({w}d MA) Rank"
+                key = f"Mkt_{cat}_NH_{w}d_Rank"
+                var_options[label] = key
+
         x_axis_label = st.selectbox("X-Axis Variable", list(var_options.keys()), index=0, key="hm_x")
         y_axis_label = st.selectbox("Y-Axis Variable", list(var_options.keys()), index=3, key="hm_y")
     
@@ -268,7 +344,11 @@ def render_heatmap():
                 return
                 
             sznl_map = load_seasonal_map()
-            df = calculate_heatmap_variables(data, sznl_map, ticker)
+            
+            # LOAD MARKET METRICS
+            market_metrics_df = load_market_metrics()
+            
+            df = calculate_heatmap_variables(data, sznl_map, market_metrics_df, ticker)
             
             start_ts = pd.to_datetime(analysis_start)
             if df.index.tz is not None: start_ts = start_ts.tz_localize(df.index.tz)
@@ -282,6 +362,11 @@ def render_heatmap():
             ycol = var_options[y_axis_label]
             zcol = target_options[z_axis_label]
             
+            # Check if columns exist (safe guard for missing market metrics)
+            if xcol not in df.columns or ycol not in df.columns:
+                st.error(f"Missing data for selected variables. Ensure market metrics CSV is present.")
+                return
+
             clean_df = df.dropna(subset=[xcol, ycol, zcol])
             if clean_df.empty:
                 st.error("Insufficient data.")
