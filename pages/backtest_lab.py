@@ -3,9 +3,7 @@ import pandas as pd
 import numpy as np
 import yfinance as yf
 import datetime
-import plotly.express as px
 import plotly.graph_objects as go
-import random
 import itertools
 
 # -----------------------------------------------------------------------------
@@ -15,16 +13,18 @@ BACKTEST_TICKERS = ["SPY", "QQQ", "IWM", "NVDA", "TSLA", "AAPL", "AMD", "MSFT", 
 TEST_HORIZONS = [5, 10, 21]
 
 # -----------------------------------------------------------------------------
-# DATA ENGINE (Optimized for Multi-Horizon)
+# DATA ENGINE (Fully Vectorized)
 # -----------------------------------------------------------------------------
 @st.cache_data(ttl=3600, show_spinner=True)
 def get_backtest_data(ticker_list):
     """
-    Downloads data and Pre-Calculates ALL features/ranks vectorized.
-    Now calculates Targets/Baselines for 5d, 10d, and 21d.
+    Downloads data and Pre-Calculates SCORES for the entire history.
+    This avoids calculating logic inside the simulation loop.
     """
     tickers = list(set([t.strip().upper() for t in ticker_list]))
-    data_dict = {}
+    
+    # We store a "Master Panel" for each horizon to make the loop instant
+    horizon_panels = {h: [] for h in TEST_HORIZONS}
     
     start_date = "2015-01-01"
     
@@ -35,240 +35,245 @@ def get_backtest_data(ticker_list):
             if isinstance(df.columns, pd.MultiIndex):
                 df.columns = [c[0] for c in df.columns]
             
-            # --- VECTORIZED FEATURE CALC ---
+            # 1. Basic Features
             df['LogRet'] = np.log(df['Close'] / df['Close'].shift(1))
             df['Vol_Daily'] = df['LogRet'].rolling(21).std()
             
-            # Variables to Rank
-            vars_to_rank = []
-            
+            # 2. Ranks (Vectorized)
+            rank_cols = []
             for w in [5, 10, 21, 63]:
-                df[f'Ret_{w}d'] = df['Close'].pct_change(w)
-                vars_to_rank.append(f'Ret_{w}d')
+                col = f'Ret_{w}d'
+                df[col] = df['Close'].pct_change(w)
+                df[col + '_Rank'] = df[col].expanding(min_periods=252).rank(pct=True) * 100
+                rank_cols.append(col + '_Rank')
                 
             df['RealVol_21d'] = df['LogRet'].rolling(21).std() * np.sqrt(252) * 100
-            vars_to_rank.append('RealVol_21d')
+            df['RealVol_21d_Rank'] = df['RealVol_21d'].expanding(min_periods=252).rank(pct=True) * 100
+            rank_cols.append('RealVol_21d_Rank')
             
             df['VolRatio_5d'] = df['Volume'].rolling(5).mean() / df['Volume'].rolling(63).mean()
-            vars_to_rank.append('VolRatio_5d')
+            df['VolRatio_5d_Rank'] = df['VolRatio_5d'].expanding(min_periods=252).rank(pct=True) * 100
+            rank_cols.append('VolRatio_5d_Rank')
 
-            # Calculate Ranks
-            rank_cols = []
-            for v in vars_to_rank:
-                r_col = v + "_Rank"
-                df[r_col] = df[v].expanding(min_periods=252).rank(pct=True) * 100
-                rank_cols.append(r_col)
+            # 3. Vectorized Score Calculation
+            # Instead of looping combos daily, we sum boolean masks for the whole DF
+            # This is 1000x faster.
             
-            # --- MULTI-HORIZON TARGETS ---
+            # Create all pairs
+            pairs = list(itertools.combinations(rank_cols, 2))
+            
+            # Pre-compute Bull/Bear masks for all pairs
+            # Bull = Both < 25. Bear = Both > 75.
+            bull_matrix = pd.DataFrame(0, index=df.index, columns=range(len(pairs)))
+            bear_matrix = pd.DataFrame(0, index=df.index, columns=range(len(pairs)))
+            
+            for idx, (r1, r2) in enumerate(pairs):
+                # Bullish Condition: Oversold Confluence
+                bull_matrix[idx] = ((df[r1] < 25) & (df[r2] < 25)).astype(int)
+                # Bearish Condition: Overbought Confluence
+                bear_matrix[idx] = ((df[r1] > 75) & (df[r2] > 75)).astype(int)
+            
+            # Sum rows to get daily scores
+            df['Raw_Bull_Score'] = bull_matrix.sum(axis=1)
+            df['Raw_Bear_Score'] = bear_matrix.sum(axis=1)
+            df['Net_Score_Full'] = df['Raw_Bull_Score'] - df['Raw_Bear_Score']
+
+            # 4. Process Horizons
             for h in TEST_HORIZONS:
-                # Raw Return (for PnL)
-                df[f'Target_Return_{h}d'] = df['Close'].shift(-h) / df['Close'] - 1
+                # Calculate Forward Returns (Sigma Normalized)
+                # This enables Risk-Parity PnL
+                expected_vol = df['Vol_Daily'] * np.sqrt(h)
                 
-                # Sigma Return (for Signal Baseline)
-                expected_move = df['Vol_Daily'] * np.sqrt(h)
-                df[f'Target_Sigma_{h}d'] = df[f'Target_Return_{h}d'] / expected_move
-
-                # Baselines
-                # Full History (Expanding)
-                df[f'Baseline_Full_{h}d'] = df[f'Target_Sigma_{h}d'].expanding(min_periods=252).mean()
-                # Recent Regime (Rolling 2y)
-                df[f'Baseline_Recent_{h}d'] = df[f'Target_Sigma_{h}d'].rolling(500).mean()
+                # We cap expected vol at reasonable limits to avoid infinity on flat days
+                expected_vol = expected_vol.replace(0, np.nan).fillna(method='ffill')
                 
-                # Shift Baselines to be available at decision time
-                df[f'Baseline_Full_{h}d'] = df[f'Baseline_Full_{h}d'].shift(h)
-                df[f'Baseline_Recent_{h}d'] = df[f'Baseline_Recent_{h}d'].shift(h)
-
-            df = df.dropna()
-            data_dict[t] = {
-                "df": df,
-                "rank_cols": rank_cols
-            }
+                fwd_ret = df['Close'].shift(-h) / df['Close'] - 1
+                
+                # This is the PnL of 1 unit of risk
+                df[f'Sigma_Return_{h}d'] = fwd_ret / expected_vol
+                
+                # Baselines for Regime
+                df[f'Baseline_Full_{h}d'] = df[f'Sigma_Return_{h}d'].expanding(min_periods=252).mean().shift(h)
+                df[f'Baseline_Recent_{h}d'] = df[f'Sigma_Return_{h}d'].rolling(500).mean().shift(h)
+                
+                # Determine Regime Score (Vectorized)
+                # If Recent Baseline > Full Baseline, we trust Bulls, ignore Bears (Up Regime)
+                up_regime = df[f'Baseline_Recent_{h}d'] >= df[f'Baseline_Full_{h}d']
+                down_regime = df[f'Baseline_Recent_{h}d'] < df[f'Baseline_Full_{h}d']
+                
+                # Regime Logic:
+                # If Up Regime: Bull signals count. Bear signals ignored (or reduced).
+                # If Down Regime: Bear signals count. Bull signals ignored.
+                
+                # Constructing Net_Score_Regime
+                # We use numpy where for speed
+                regime_bulls = np.where(up_regime, df['Raw_Bull_Score'], 0)
+                regime_bears = np.where(down_regime, df['Raw_Bear_Score'], 0)
+                
+                df[f'Net_Score_Regime_{h}d'] = regime_bulls - regime_bears
+                
+                # Store lightweight version for panel
+                subset = df[['Net_Score_Full', f'Net_Score_Regime_{h}d', f'Sigma_Return_{h}d']].copy()
+                subset['Ticker'] = t
+                horizon_panels[h].append(subset)
             
         except Exception as e:
             pass
         progress_bar.progress((i + 1) / len(tickers))
     
+    # Concat all tickers into one Master Panel per horizon
+    final_panels = {}
+    for h in TEST_HORIZONS:
+        if horizon_panels[h]:
+            final_panels[h] = pd.concat(horizon_panels[h])
+    
     progress_bar.empty()
-    return data_dict
+    return final_panels
 
 # -----------------------------------------------------------------------------
 # SIMULATION ENGINE
 # -----------------------------------------------------------------------------
-def run_simulation(data_dict, horizon, random_months=4):
+def run_full_simulation(panel_df, horizon):
     """
-    Simulates the "Race" for a specific HORIZON.
+    Simulates the entire history using the pre-computed scores.
     """
-    valid_dates = list(data_dict[BACKTEST_TICKERS[0]]["df"].index)
-    valid_dates = [d for d in valid_dates if d.year >= 2018 and d.year < 2025]
+    # Pivot so we have Dates as Index and Tickers as Columns for vector sorting
+    # We need separate DFs for Full Score, Regime Score, and Returns
     
-    if len(valid_dates) < 100: return pd.DataFrame()
-
-    # Generate Random Start Dates
-    start_indices = []
-    attempts = 0
-    while len(start_indices) < random_months and attempts < 100:
-        idx = random.randint(0, len(valid_dates) - 40) # Ensure room for 21d hold
-        if all(abs(idx - existing) > 60 for existing in start_indices):
-            start_indices.append(idx)
-        attempts += 1
+    score_full = panel_df.pivot(columns='Ticker', values='Net_Score_Full')
+    score_regime = panel_df.pivot(columns='Ticker', values=f'Net_Score_Regime_{horizon}d')
+    returns = panel_df.pivot(columns='Ticker', values=f'Sigma_Return_{horizon}d')
     
-    results = []
-
-    for start_idx in start_indices:
-        # Simulate 20 trading days (approx 1 month)
-        test_indices = range(start_idx, start_idx + 20)
+    # Align dates
+    common_index = score_full.index.intersection(returns.index)
+    score_full = score_full.loc[common_index]
+    score_regime = score_regime.loc[common_index]
+    returns = returns.loc[common_index]
+    
+    # Filter for valid dates (post 2016 for ranks to stabilize)
+    valid_dates = score_full.index[score_full.index.year >= 2016]
+    
+    # Container for daily PnL
+    pnl_naive = []
+    pnl_regime = []
+    dates = []
+    
+    # Loop is still necessary for daily sorting, but data is pre-prepped
+    # This loop runs 2500 times but does very light work
+    
+    for d in valid_dates:
+        # Get row slices
+        row_full = score_full.loc[d]
+        row_regime = score_regime.loc[d]
+        row_ret = returns.loc[d]
         
-        for i in test_indices:
-            date = valid_dates[i]
-            daily_candidates = []
-            
-            for ticker, info in data_dict.items():
-                df = info["df"]
-                rank_cols = info["rank_cols"]
-                
-                if date not in df.index: continue
-                row = df.loc[date]
-                
-                # --- HORIZON SPECIFIC DATA ---
-                target_return = row[f'Target_Return_{horizon}d']
-                baseline_full = row[f'Baseline_Full_{horizon}d']
-                baseline_recent = row[f'Baseline_Recent_{horizon}d']
-                
-                # --- SIGNAL GENERATION ---
-                bull_score_full = 0
-                bear_score_full = 0
-                bull_score_regime = 0
-                bear_score_regime = 0
-                
-                feature_pairs = list(itertools.combinations(rank_cols, 2))
-                
-                for r1, r2 in feature_pairs:
-                    val1, val2 = row[r1], row[r2]
-                    
-                    is_bull = (val1 < 25 and val2 < 25) 
-                    is_bear = (val1 > 75 and val2 > 75) 
-                    
-                    if is_bull: 
-                        bull_score_full += 1
-                        # REGIME CHECK: Only buy if Recent Baseline >= Full Baseline (Momentum is stable/up)
-                        if baseline_recent >= baseline_full: 
-                            bull_score_regime += 1 
-                            
-                    if is_bear: 
-                        bear_score_full += 1
-                        # REGIME CHECK: Only short if Recent Baseline <= Full Baseline (Momentum is down)
-                        if baseline_recent <= baseline_full:
-                            bear_score_regime += 1
-                
-                net_full = bull_score_full - bear_score_full
-                net_regime = bull_score_regime - bear_score_regime
-                
-                daily_candidates.append({
-                    "Ticker": ticker,
-                    "Net_Full": net_full,
-                    "Net_Regime": net_regime,
-                    "Realized_Return": target_return
-                })
-            
-            if not daily_candidates: continue
-            day_df = pd.DataFrame(daily_candidates)
-            
-            # STRATEGY A (NAIVE)
-            day_df = day_df.sort_values("Net_Full", ascending=False)
-            longs_A = day_df.head(5)
-            shorts_A = day_df.tail(3)
-            pnl_A = (longs_A['Realized_Return'].mean() - shorts_A['Realized_Return'].mean()) / 2
-            
-            # STRATEGY B (REGIME)
-            day_df_reg = day_df.sort_values("Net_Regime", ascending=False)
-            longs_B = day_df_reg.head(5)
-            shorts_B = day_df_reg.tail(3)
-            pnl_B = (longs_B['Realized_Return'].mean() - shorts_B['Realized_Return'].mean()) / 2
-            
-            # Clean NaNs
-            pnl_A = 0.0 if np.isnan(pnl_A) else pnl_A
-            pnl_B = 0.0 if np.isnan(pnl_B) else pnl_B
-            
-            results.append({
-                "Date": date,
-                "Period": f"{valid_dates[start_idx].strftime('%b %Y')}",
-                "PnL_Naive": pnl_A,
-                "PnL_Regime": pnl_B
-            })
-            
-    return pd.DataFrame(results)
+        # NAIVE STRATEGY
+        # Sort by Score High to Low
+        # Top 5 Longs, Bottom 3 Shorts
+        sorted_full = row_full.sort_values(ascending=False)
+        longs_idx = sorted_full.head(5).index
+        shorts_idx = sorted_full.tail(3).index
+        
+        # PnL = Average Sigma of Longs - Average Sigma of Shorts
+        # This effectively models a portfolio rebalanced daily where each position is 1 Unit of Risk
+        day_pnl_naive = (row_ret[longs_idx].mean() - row_ret[shorts_idx].mean()) / 2
+        
+        # REGIME STRATEGY
+        sorted_regime = row_regime.sort_values(ascending=False)
+        longs_idx_reg = sorted_regime.head(5).index
+        shorts_idx_reg = sorted_regime.tail(3).index
+        
+        day_pnl_regime = (row_ret[longs_idx_reg].mean() - row_ret[shorts_idx_reg].mean()) / 2
+        
+        # Handle NaNs (if data missing for that day)
+        if np.isnan(day_pnl_naive): day_pnl_naive = 0
+        if np.isnan(day_pnl_regime): day_pnl_regime = 0
+        
+        pnl_naive.append(day_pnl_naive)
+        pnl_regime.append(day_pnl_regime)
+        dates.append(d)
+        
+    results = pd.DataFrame({
+        "Date": dates,
+        "Daily_Sigma_Naive": pnl_naive,
+        "Daily_Sigma_Regime": pnl_regime
+    }).set_index("Date")
+    
+    return results
 
 # -----------------------------------------------------------------------------
 # UI
 # -----------------------------------------------------------------------------
 def main():
-    st.set_page_config(layout="wide", page_title="Backtest Lab")
-    st.title("🧪 The Multi-Timeframe Lab")
+    st.set_page_config(layout="wide", page_title="Full History Backtest")
+    st.title("🧪 Full History Lab (Vol-Adjusted)")
     
     st.markdown("""
-    **Experiment:** Testing **Naive vs. Regime-Aware** models across **5d, 10d, and 21d** holding periods.
-    
-    * **Sampling:** Random 1-Month trading blocks from 2018-2024.
-    * **Strategy:** Daily Long Top 5 / Short Top 3.
-    * **Goal:** Does "Regime Filtering" improve performance on longer hold times?
+    **Testing Protocol:**
+    1.  **Timeline:** Full history (2016 - Present). No random sampling.
+    2.  **Position Sizing:** **Risk Parity (Sigma).** We bet 1 Standard Deviation of risk per trade.
+        * *Example:* If TSLA Vol is 4% and TLT Vol is 1%, we trade 4x more notional in TLT.
+    3.  **Benchmark:** * 🔵 **Naive:** Trades all signals based on 25y history.
+        * 🔴 **Regime-Aware:** Only trades signals confirmed by the last 2y trend.
     """)
     
-    if st.button("Run Multi-Horizon Backtest", type="primary"):
+    if st.button("Run Full Simulation", type="primary"):
         
-        with st.spinner("Preprocessing Data (Vectorized)..."):
-            data_dict = get_backtest_data(BACKTEST_TICKERS)
+        with st.spinner("Vectorizing Scores for entire history (this is fast)..."):
+            master_panels = get_backtest_data(BACKTEST_TICKERS)
         
-        if not data_dict:
-            st.error("Data download failed.")
+        if not master_panels:
+            st.error("Data processing failed.")
             return
             
         # Create Tabs for Results
         tab5, tab10, tab21 = st.tabs(["5-Day Horizon", "10-Day Horizon", "21-Day Horizon"])
         
-        # Loop through Horizons
         for horizon, tab in zip(TEST_HORIZONS, [tab5, tab10, tab21]):
             with tab:
-                with st.spinner(f"Simulating {horizon}d Trades..."):
-                    res_df = run_simulation(data_dict, horizon=horizon, random_months=5)
-                
-                if res_df.empty:
-                    st.warning("No trades generated.")
+                if horizon not in master_panels:
+                    st.warning("No data for this horizon.")
                     continue
+                    
+                with st.spinner(f"Simulating {horizon}d History..."):
+                    res_df = run_full_simulation(master_panels[horizon], horizon)
                 
-                # Cumulative PnL
-                res_df['Cum_Naive'] = res_df['PnL_Naive'].cumsum() * 100
-                res_df['Cum_Regime'] = res_df['PnL_Regime'].cumsum() * 100
+                # Cumulative Sum (Sum of Sigmas Captured)
+                res_df['Cum_Naive'] = res_df['Daily_Sigma_Naive'].cumsum()
+                res_df['Cum_Regime'] = res_df['Daily_Sigma_Regime'].cumsum()
                 
                 total_naive = res_df['Cum_Naive'].iloc[-1]
                 total_regime = res_df['Cum_Regime'].iloc[-1]
-                delta = total_regime - total_naive
                 
+                # Display Metrics
                 c1, c2, c3 = st.columns(3)
-                c1.metric("Naive Return", f"{total_naive:.2f}%")
-                c2.metric("Regime-Aware Return", f"{total_regime:.2f}%")
-                c3.metric("Alpha (Improvement)", f"{delta:.2f}%", delta_color="normal")
+                c1.metric("Naive Total Payoff", f"{total_naive:.2f} R", help="Total Risk Units captured")
+                c2.metric("Regime Total Payoff", f"{total_regime:.2f} R")
+                delta = total_regime - total_naive
+                c3.metric("Regime Improvement", f"{delta:.2f} R", delta_color="normal")
                 
                 # Plot
-                res_df['Trade_Count'] = range(len(res_df))
                 fig = go.Figure()
-                fig.add_trace(go.Scatter(x=res_df['Trade_Count'], y=res_df['Cum_Naive'], name="Naive", line=dict(color='blue')))
-                fig.add_trace(go.Scatter(x=res_df['Trade_Count'], y=res_df['Cum_Regime'], name="Regime-Aware", line=dict(color='red', width=3)))
+                fig.add_trace(go.Scatter(x=res_df.index, y=res_df['Cum_Naive'], name="Naive Model", line=dict(color='blue')))
+                fig.add_trace(go.Scatter(x=res_df.index, y=res_df['Cum_Regime'], name="Regime-Aware", line=dict(color='red', width=2)))
                 
-                # Annotate Periods
-                periods = res_df['Period'].unique()
-                for p in periods:
-                    start_iloc = res_df[res_df['Period'] == p].index[0]
-                    x_pos = res_df.loc[start_iloc, 'Trade_Count']
-                    fig.add_vline(x=x_pos, line_dash="dot", line_color="gray", opacity=0.3)
-                    fig.add_annotation(x=x_pos, y=0, text=p, showarrow=False, yshift=10, textangle=-90)
-
                 fig.update_layout(
-                    title=f"Cumulative PnL ({horizon}-Day Hold)",
-                    xaxis_title="Trading Days",
-                    yaxis_title="Return (%)",
-                    height=450
+                    title=f"Cumulative Performance (in Risk Units)",
+                    yaxis_title="Cumulative Sigma (R)",
+                    xaxis_title="Year",
+                    height=500,
+                    hovermode="x unified"
                 )
                 st.plotly_chart(fig, use_container_width=True)
+                
+                # Monthly Stats Heatmap (Optional but nice)
+                with st.expander("Monthly Breakdown"):
+                    monthly = res_df.resample('M').sum()
+                    monthly['Year'] = monthly.index.year
+                    monthly['Month'] = monthly.index.strftime('%b')
+                    
+                    pivot = monthly.pivot(index='Year', columns='Month', values='Daily_Sigma_Regime')
+                    st.dataframe(pivot.style.background_gradient(cmap='RdBu', vmin=-2, vmax=2).format("{:.2f}"), use_container_width=True)
 
 if __name__ == "__main__":
     main()
