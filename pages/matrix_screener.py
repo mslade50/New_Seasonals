@@ -13,8 +13,8 @@ SPY, QQQ, IWM, DIA, TLT, GLD, USO, UUP, HYG, XLF, XLE, XLK, XBI, SMH, ARKK, BTC-
 JPM, AAPL, GOOG, XOM, NVDA, TSLA, KO, UVXY, XLP, XLV, XLU, UNG, MSFT, WMT, AMD, ITA, SLV, CEF
 """
 
-# Removed 2d as requested
-TRAIL_WINDOWS = [5, 10, 21, 63]
+# Removed 5d and 2d as requested
+TRAIL_WINDOWS = [10, 21, 63]
 FWD_WINDOWS   = [5, 10, 21, 63]
 
 # -----------------------------------------------------------------------------
@@ -131,17 +131,18 @@ def run_scanner(processed_data):
         for signal in tickers:
             if target == signal: continue 
             
-            # --- HIERARCHICAL LOGIC ---
-            allowed_signals = ["SPY", "TLT"]
-            if target == "SPY": allowed_signals = ["TLT", "USO", "UUP", "GLD"]
-            elif target == "XOM": allowed_signals = ["SPY", "TLT", "USO"]
-            elif target == "JPM": allowed_signals = ["SPY", "TLT", "XLF"]
-            elif target in ["NVDA", "AMD"]: allowed_signals = ["SPY", "TLT", "SMH"]
-            elif target == "SLV": allowed_signals = ["SPY", "TLT", "GLD"]
-            elif target == "GLD": allowed_signals = ["SPY", "TLT", "SLV"]
-            elif target == "CEF": allowed_signals = ["SPY", "TLT", "GLD", "SLV"]
-            elif target == "UNG": allowed_signals = ["SPY", "TLT", "USO"]
-            elif target == "USO": allowed_signals = ["SPY", "TLT", "UNG"]
+            # --- HIERARCHICAL LOGIC (TLT Removed) ---
+            allowed_signals = ["SPY"]
+            
+            if target == "SPY": allowed_signals = ["USO", "UUP", "GLD"]
+            elif target == "XOM": allowed_signals = ["SPY", "USO"]
+            elif target == "JPM": allowed_signals = ["SPY", "XLF"]
+            elif target in ["NVDA", "AMD"]: allowed_signals = ["SPY", "SMH"]
+            elif target == "SLV": allowed_signals = ["SPY", "GLD"]
+            elif target == "GLD": allowed_signals = ["SPY", "SLV"]
+            elif target == "CEF": allowed_signals = ["SPY", "GLD", "SLV"]
+            elif target == "UNG": allowed_signals = ["SPY", "USO"]
+            elif target == "USO": allowed_signals = ["SPY", "UNG"]
             
             if signal not in allowed_signals: continue
             
@@ -258,10 +259,11 @@ def main():
     st.title("⚡ Multi-Timeframe Alpha Scanner")
     
     st.markdown("""
-    **Scanning 64 Combinations per Pair:** (Removed 2d window)
+    **Scanning Combinations per Pair:** (Removed 2d & 5d windows)
     * **Alpha Logic:** Excess Sigma vs Unconditional History.
     * **Bearish Safety Filter:** We *only* flag a Bearish setup if the **Total Expected Return is Negative**. 
       *(We ignore 'Relative Weakness' in strong uptrends).*
+    * **Note:** TLT has been removed as a signal source.
     """)
     
     with st.expander("⚙️ Screener Settings", expanded=True):
