@@ -237,59 +237,71 @@ def seasonals_chart(ticker, cycle_label, show_all_years_line=False):
     # -------------------------------------------------------------------------
     st.divider()
     st.subheader(f"🔮 Forward Returns from Trading Day #{current_day_count_val}")
-    st.markdown(f"Historical performance for the **next 5, 10, and 21 days** starting from trading day **{current_day_count_val}** in **{cycle_label}** years.")
+    st.markdown(f"Historical performance for the **next 5, 10, and 21 days** starting from trading day **{current_day_count_val}**.")
 
     if current_day_count_val:
         # 1. Calculate Forward Returns for every row in the historical cycle data
-        #    We do this by grouping by year to ensure we don't shift into a different year
         cycle_data['Fwd_5d'] = cycle_data.groupby("year")['Close'].transform(lambda x: x.shift(-5) / x - 1)
         cycle_data['Fwd_10d'] = cycle_data.groupby("year")['Close'].transform(lambda x: x.shift(-10) / x - 1)
         cycle_data['Fwd_21d'] = cycle_data.groupby("year")['Close'].transform(lambda x: x.shift(-21) / x - 1)
 
-        # 2. Filter for the specific trading day of the year matching TODAY
+        # 2. Also Calculate "All Years" Forward Returns (if the selected cycle isn't already "All Years")
+        if cycle_label != "All Years":
+            spx['Fwd_5d'] = spx.groupby("year")['Close'].transform(lambda x: x.shift(-5) / x - 1)
+            spx['Fwd_10d'] = spx.groupby("year")['Close'].transform(lambda x: x.shift(-10) / x - 1)
+            spx['Fwd_21d'] = spx.groupby("year")['Close'].transform(lambda x: x.shift(-21) / x - 1)
+
+        # 3. Filter for the specific trading day of the year matching TODAY
         day_matches = cycle_data[cycle_data['day_count'] == current_day_count_val].copy()
+        
+        # All Years Matches
+        all_years_matches = pd.DataFrame()
+        if cycle_label != "All Years":
+            all_years_matches = spx[spx['day_count'] == current_day_count_val].copy()
 
         if not day_matches.empty:
             fwd_stats = []
             for w in [5, 10, 21]:
                 col = f'Fwd_{w}d'
-                valid_rets = day_matches[col].dropna()
                 
+                # --- Specific Cycle Stats ---
+                valid_rets = day_matches[col].dropna()
                 if not valid_rets.empty:
-                    avg_ret = valid_rets.mean() * 100
-                    med_ret = valid_rets.median() * 100
-                    win_rate = (valid_rets > 0).mean() * 100
-                    count = len(valid_rets)
-                    
-                    # Formatting for color
-                    color = "green" if avg_ret > 0 else "red"
-                    
                     fwd_stats.append({
-                        "Window": f"Next {w} Days",
-                        "Avg Return": avg_ret,
-                        "Median Return": med_ret,
-                        "Win Rate": win_rate,
-                        "Count": count
+                        "Window": f"Next {w} Days ({cycle_label})",
+                        "Avg Return": valid_rets.mean() * 100,
+                        "Median Return": valid_rets.median() * 100,
+                        "Win Rate": (valid_rets > 0).mean() * 100,
+                        "Count": len(valid_rets)
                     })
-                else:
-                     fwd_stats.append({
-                        "Window": f"Next {w} Days",
-                        "Avg Return": np.nan, "Median Return": np.nan, 
-                        "Win Rate": np.nan, "Count": 0
-                    })
-            
-            # Display nicely formatted dataframe
-            fwd_df = pd.DataFrame(fwd_stats)
-            st.dataframe(
-                fwd_df.style.format({
-                    "Avg Return": "{:+.2f}%",
-                    "Median Return": "{:+.2f}%",
-                    "Win Rate": "{:.1f}%",
-                    "Count": "{:.0f}"
-                }).background_gradient(subset=["Avg Return"], cmap="RdYlGn", vmin=-2, vmax=2),
-                use_container_width=True,
-                hide_index=True
-            )
+                
+                # --- All Years Stats ---
+                if cycle_label != "All Years" and not all_years_matches.empty:
+                    valid_rets_all = all_years_matches[col].dropna()
+                    if not valid_rets_all.empty:
+                        fwd_stats.append({
+                            "Window": f"Next {w} Days (All Years)",
+                            "Avg Return": valid_rets_all.mean() * 100,
+                            "Median Return": valid_rets_all.median() * 100,
+                            "Win Rate": (valid_rets_all > 0).mean() * 100,
+                            "Count": len(valid_rets_all)
+                        })
+
+            if fwd_stats:
+                # Display nicely formatted dataframe
+                fwd_df = pd.DataFrame(fwd_stats)
+                st.dataframe(
+                    fwd_df.style.format({
+                        "Avg Return": "{:+.2f}%",
+                        "Median Return": "{:+.2f}%",
+                        "Win Rate": "{:.1f}%",
+                        "Count": "{:.0f}"
+                    }).background_gradient(subset=["Avg Return"], cmap="RdYlGn", vmin=-2, vmax=2),
+                    use_container_width=True,
+                    hide_index=True
+                )
+            else:
+                st.warning("Insufficient forward data for this trading day.")
         else:
             st.warning("No historical data found for this specific trading day in the selected cycle.")
     else:
