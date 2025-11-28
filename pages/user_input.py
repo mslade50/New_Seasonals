@@ -6,6 +6,10 @@ import plotly.graph_objs as go
 import streamlit as st
 from datetime import date, timedelta
 
+# -----------------------------------------------------------------------------
+# HELPER FUNCTIONS
+# -----------------------------------------------------------------------------
+
 def compute_atr(df, window=14):
     df = df.copy()
     df["previous_close"] = df["Close"].shift(1)
@@ -30,8 +34,6 @@ def summarize_data(df, include_atr=True):
     else:
         grouped_returns = df[df["year"].isin(included_years)].groupby(["year", "month"])["log_return"].sum() * 100
 
-    pos_percentage = (grouped_returns > 0).sum() / len(grouped_returns) * 100
-
     return {
         "Avg Return (%)": grouped_returns.mean(),
         "Median Daily Return (%)": grouped_returns.median(),
@@ -39,20 +41,32 @@ def summarize_data(df, include_atr=True):
     }
 
 def get_current_trading_info():
+    """
+    Returns the current trading day of the month and week of month 
+    based on SPY data for the current month.
+    """
     today = dt.date.today()
     start_of_month = dt.date(today.year, today.month, 1)
-    current_data = yf.download("SPY", start=start_of_month, end=today + timedelta(days=1)) 
+    # Fetch a buffer to ensure we catch today if market is open/closed
+    current_data = yf.download("SPY", start=start_of_month, end=today + timedelta(days=1), progress=False) 
+    
     if isinstance(current_data.columns, pd.MultiIndex):  
         current_data.columns = current_data.columns.get_level_values(0)
+        
     if not current_data.empty:
         current_data["trading_day_of_month"] = np.arange(1, len(current_data) + 1)
         current_data["week_of_month_5day"] = (current_data["trading_day_of_month"] - 1) // 5 + 1
         current_data.loc[current_data["week_of_month_5day"] > 4, "week_of_month_5day"] = 4
+        
         current_trading_day_of_month = current_data["trading_day_of_month"].iloc[-1]
         current_week_of_month = current_data["week_of_month_5day"].iloc[-1]
         return current_trading_day_of_month, current_week_of_month
     else:
         return None, None
+
+# -----------------------------------------------------------------------------
+# MAIN CHART LOGIC
+# -----------------------------------------------------------------------------
 
 def seasonals_chart(ticker, cycle_label, show_all_years_line=False):
     cycle_start_mapping = {
@@ -62,9 +76,10 @@ def seasonals_chart(ticker, cycle_label, show_all_years_line=False):
         "Midterm": 1950
     }
 
+    # Data Fetching
     end_date = dt.datetime(2024, 12, 30)
     this_yr_end = dt.date.today() + timedelta(days=1)
-    spx = yf.download(ticker, period="max", end=end_date)
+    spx = yf.download(ticker, period="max", end=end_date, progress=False)
 
     if spx.empty:
         st.error(f"No data found for {ticker}.")
@@ -73,29 +88,34 @@ def seasonals_chart(ticker, cycle_label, show_all_years_line=False):
     if isinstance(spx.columns, pd.MultiIndex):
         spx.columns = spx.columns.get_level_values(0)
 
+    # Feature Engineering
     spx["log_return"] = np.log(spx["Close"] / spx["Close"].shift(1))
     spx["year"] = spx.index.year
     spx["month"] = spx.index.month
     spx["trading_day_of_month"] = spx.groupby([spx.index.year, spx.index.month]).cumcount() + 1
     spx["week_of_month_5day"] = (spx["trading_day_of_month"] - 1) // 5 + 1
+    
+    # Calculate Day of Year (Trading Day Count)
+    spx["day_count"] = spx.groupby("year").cumcount() + 1
 
+    # Cycle Filtering
     if cycle_label == "All Years":
         cycle_data = spx.copy()
     else:
         cycle_start = cycle_start_mapping[cycle_label]
-        years_in_cycle = [cycle_start + i * 4 for i in range(19)]
-        cycle_data = spx[spx["year"].isin(years_in_cycle)]
+        years_in_cycle = [cycle_start + i * 4 for i in range(25)] # Extended range just in case
+        cycle_data = spx[spx["year"].isin(years_in_cycle)].copy()
 
     cycle_data = compute_atr(cycle_data)
     cycle_data.loc[cycle_data["week_of_month_5day"] > 4, "week_of_month_5day"] = 4
 
+    # Current Time Info
     now = dt.date.today()
     current_month = now.month
     next_month = current_month + 1 if current_month < 12 else 1
-    current_year = now.year
-    current_day_of_month, current_week_of_month = get_current_trading_info()
+    current_trading_day_of_month, current_week_of_month = get_current_trading_info()
 
-    cycle_data["day_count"] = cycle_data.groupby("year").cumcount() + 1
+    # --- Plotting Average Path ---
     avg_path = (
         cycle_data.groupby("day_count")["log_return"]
         .mean()
@@ -112,9 +132,9 @@ def seasonals_chart(ticker, cycle_label, show_all_years_line=False):
         line=dict(color="orange")
     ))
 
+    # Optional Overlay: All Years
     if show_all_years_line:
         all_data = spx.copy()
-        all_data["day_count"] = all_data.groupby("year").cumcount() + 1
         all_avg_path = (
             all_data.groupby("day_count")["log_return"]
             .mean()
@@ -129,64 +149,70 @@ def seasonals_chart(ticker, cycle_label, show_all_years_line=False):
             line=dict(color="lightblue")
         ))
 
-    current_year_data = yf.download(ticker, start=dt.datetime(this_yr_end.year, 1, 1), end=this_yr_end)
-    current_trading_day = len(current_year_data)
-    avg_path_y_value = avg_path[current_trading_day] if current_trading_day is not None and current_trading_day in avg_path.index else None
+    # Current Year Data & Logic
+    current_year_data = yf.download(ticker, start=dt.datetime(now.year, 1, 1), end=this_yr_end, progress=False)
+    
+    if isinstance(current_year_data.columns, pd.MultiIndex):
+        current_year_data.columns = current_year_data.columns.get_level_values(0)
+
+    # Determine Current Trading Day Count (e.g., Day 230 of the year)
+    current_day_count_val = len(current_year_data) if not current_year_data.empty else None
+
+    # Plot Current Day Marker
+    avg_path_y_value = avg_path.get(current_day_count_val)
     if avg_path_y_value is not None:
         fig.add_trace(go.Scatter(
-            x=[current_trading_day],
+            x=[current_day_count_val],
             y=[avg_path_y_value],
             mode="markers",
             name="Current Day on Avg Path",
             marker=dict(color="white", size=7),
             showlegend=False
         ))
+    
+    # Plot This Year's Path
     if not current_year_data.empty:
         current_year_data["log_return"] = np.log(current_year_data["Close"] / current_year_data["Close"].shift(1))
         this_year_path = current_year_data["log_return"].cumsum().apply(np.exp) - 1
         fig.add_trace(go.Scatter(
-            x=avg_path.index,
+            x=np.arange(1, len(this_year_path) + 1),
             y=this_year_path.values,
             mode="lines",
-            name="This Year",
-            line=dict(color="green")
+            name=f"{now.year} (YTD)",
+            line=dict(color="green", width=2)
         ))
-    # === Compute 5D Concordance ===
-    min_len = min(len(this_year_path), len(avg_path))
-    
-    if min_len >= 10:
-        try:
-            actual_5d = this_year_path.rolling(5).apply(lambda x: x.iloc[-1] - x.iloc[0], raw=False)
-            avg_5d = avg_path.rolling(5).apply(lambda x: x.iloc[-1] - x.iloc[0], raw=False)
 
-    
-            comparison_df = pd.DataFrame({
-                "actual_5d": actual_5d.iloc[:min_len].values,
-                "avg_5d": avg_5d.iloc[:min_len].values
-            }).dropna()
-    
-            # Optional: Filter out flat signals
-            threshold = 0.001
-            comparison_df = comparison_df[
-                (comparison_df["actual_5d"].abs() > threshold) &
-                (comparison_df["avg_5d"].abs() > threshold)
-            ]
-    
-            if not comparison_df.empty:
-                concordance = (np.sign(comparison_df["actual_5d"]) == np.sign(comparison_df["avg_5d"])).mean()
-                annotation_text = f"5D Concordance (filtered): {concordance:.0%}"
-            else:
-                annotation_text = "No valid 5D periods for concordance"
-        except Exception as e:
-            annotation_text = f"Concordance error: {e}"
-    else:
-        annotation_text = "Not enough data for 5D concordance"
+    # --- 5D Concordance Logic (Existing) ---
+    annotation_text = "Not enough data"
+    if not current_year_data.empty:
+        min_len = min(len(this_year_path), len(avg_path))
+        if min_len >= 10:
+            try:
+                actual_5d = this_year_path.rolling(5).apply(lambda x: x.iloc[-1] - x.iloc[0], raw=False)
+                avg_5d = avg_path.rolling(5).apply(lambda x: x.iloc[-1] - x.iloc[0], raw=False)
+                
+                comparison_df = pd.DataFrame({
+                    "actual_5d": actual_5d.iloc[:min_len].values,
+                    "avg_5d": avg_5d.iloc[:min_len].values
+                }).dropna()
+                
+                # Filter out flat signals
+                threshold = 0.001
+                comparison_df = comparison_df[
+                    (comparison_df["actual_5d"].abs() > threshold) &
+                    (comparison_df["avg_5d"].abs() > threshold)
+                ]
+                
+                if not comparison_df.empty:
+                    concordance = (np.sign(comparison_df["actual_5d"]) == np.sign(comparison_df["avg_5d"])).mean()
+                    annotation_text = f"5D Concordance: {concordance:.0%}"
+            except Exception as e:
+                annotation_text = "Concordance Error"
 
-    
-
+    # Chart Layout
     fig.update_layout(
         title=f"{ticker} - {cycle_label} Cycle Average",
-        xaxis_title="Trading Day",
+        xaxis_title="Trading Day of Year",
         yaxis_title="Cumulative Return",
         plot_bgcolor="black",
         paper_bgcolor="black",
@@ -198,78 +224,167 @@ def seasonals_chart(ticker, cycle_label, show_all_years_line=False):
     fig.add_annotation(
         text=annotation_text,
         xref="paper", yref="paper",
-        x=1.375, y=1.1,
+        x=1.0, y=1.05,
         showarrow=False,
         font=dict(color="white", size=12),
-        align="center"
+        align="right"
     )
 
-    st.plotly_chart(fig)
+    st.plotly_chart(fig, use_container_width=True)
 
-    summary_rows = []
-    timeframes = {
-        "This Month": (current_month),
-        "Next Month": (next_month),
-        "This Week": (current_month, current_week_of_month),
-        "Next Week": (next_month, 1)
-    }
+    # -------------------------------------------------------------------------
+    # NEW: FORWARD LOOKING STATISTICS
+    # -------------------------------------------------------------------------
+    st.divider()
+    st.subheader(f"🔮 Forward Returns from Trading Day #{current_day_count_val}")
+    st.markdown(f"Historical performance for the **next 5, 10, and 21 days** starting from trading day **{current_day_count_val}** in **{cycle_label}** years.")
 
-    for label, params in timeframes.items():
-        if "Month" in label:
-            month = params
-            time_data = cycle_data[(cycle_data["month"] == month)]
+    if current_day_count_val:
+        # 1. Calculate Forward Returns for every row in the historical cycle data
+        #    We do this by grouping by year to ensure we don't shift into a different year
+        cycle_data['Fwd_5d'] = cycle_data.groupby("year")['Close'].transform(lambda x: x.shift(-5) / x - 1)
+        cycle_data['Fwd_10d'] = cycle_data.groupby("year")['Close'].transform(lambda x: x.shift(-10) / x - 1)
+        cycle_data['Fwd_21d'] = cycle_data.groupby("year")['Close'].transform(lambda x: x.shift(-21) / x - 1)
+
+        # 2. Filter for the specific trading day of the year matching TODAY
+        day_matches = cycle_data[cycle_data['day_count'] == current_day_count_val].copy()
+
+        if not day_matches.empty:
+            fwd_stats = []
+            for w in [5, 10, 21]:
+                col = f'Fwd_{w}d'
+                valid_rets = day_matches[col].dropna()
+                
+                if not valid_rets.empty:
+                    avg_ret = valid_rets.mean() * 100
+                    med_ret = valid_rets.median() * 100
+                    win_rate = (valid_rets > 0).mean() * 100
+                    count = len(valid_rets)
+                    
+                    # Formatting for color
+                    color = "green" if avg_ret > 0 else "red"
+                    
+                    fwd_stats.append({
+                        "Window": f"Next {w} Days",
+                        "Avg Return": avg_ret,
+                        "Median Return": med_ret,
+                        "Win Rate": win_rate,
+                        "Count": count
+                    })
+                else:
+                     fwd_stats.append({
+                        "Window": f"Next {w} Days",
+                        "Avg Return": np.nan, "Median Return": np.nan, 
+                        "Win Rate": np.nan, "Count": 0
+                    })
+            
+            # Display nicely formatted dataframe
+            fwd_df = pd.DataFrame(fwd_stats)
+            st.dataframe(
+                fwd_df.style.format({
+                    "Avg Return": "{:+.2f}%",
+                    "Median Return": "{:+.2f}%",
+                    "Win Rate": "{:.1f}%",
+                    "Count": "{:.0f}"
+                }).background_gradient(subset=["Avg Return"], cmap="RdYlGn", vmin=-2, vmax=2),
+                use_container_width=True,
+                hide_index=True
+            )
         else:
-            month, week = params
-            time_data = cycle_data[
-                (cycle_data["month"] == month) &
-                (cycle_data["week_of_month_5day"] == week)
-            ]
-
-        if not time_data.empty:
-            stats = summarize_data(time_data, include_atr=False)
-            sample_size = time_data["year"].nunique()
-            summary_rows.append([label, stats["Avg Return (%)"], stats["Median Daily Return (%)"], sample_size])
-        else:
-            summary_rows.append([label, np.nan, np.nan, np.nan])
-
-    high_level_df = pd.DataFrame(summary_rows, columns=["Timeframe", "Mean", "Median", "Sample Size"]).set_index("Timeframe")
-
-    st.subheader("High-Level Summary")
-    st.dataframe(high_level_df.style.format({
-        "Mean": "{:.1f}%", 
-        "Median": "{:.1f}%", 
-        "Sample Size": "{:.0f}"
-    }))
-
-    st.subheader("Month-by-Month Returns (Selected Cycle Years)")
-    month_return_rows = []
-    for month in [current_month, next_month]:
-        time_data = cycle_data[(cycle_data["month"] == month)]
-        if not time_data.empty:
-            monthly_returns = time_data.groupby("year")["log_return"].sum() * 100
-            for year, ret in monthly_returns.items():
-                month_return_rows.append([year, month, ret])
-
-    if month_return_rows:
-        month_returns_df = pd.DataFrame(month_return_rows, columns=["Year", "Month", "Return (%)"]).sort_values(by=["Year", "Month"])
-        month_returns_df["Month"] = month_returns_df["Month"].apply(lambda x: dt.date(1900, x, 1).strftime('%B'))
-        st.dataframe(month_returns_df.style.format({"Return (%)": "{:.1f}%"}))
+            st.warning("No historical data found for this specific trading day in the selected cycle.")
     else:
-        st.write("No historical data found for the selected cycle in the current and next month.")
+        st.warning("Could not determine current trading day count.")
 
-# === Streamlit App ===
-st.title("Presidential Cycle Seasonality Chart")
+    # -------------------------------------------------------------------------
+    # EXISTING SUMMARY TABLES
+    # -------------------------------------------------------------------------
+    st.divider()
+    c1, c2 = st.columns(2)
+    
+    with c1:
+        st.subheader("📅 Periodic Summary")
+        summary_rows = []
+        timeframes = {
+            "This Month": (current_month),
+            "Next Month": (next_month),
+            "This Week": (current_month, current_week_of_month),
+            "Next Week": (next_month, 1)
+        }
 
-ticker = st.text_input("Enter a stock ticker:", value="AAPL")
-cycle_label = st.selectbox(
-    "Select the presidential cycle type:",
-    ["All Years", "Election", "Pre-Election", "Post-Election", "Midterm"],
-    index=3
-)
-show_all_years_line = st.checkbox("Overlay All Years Average Path", value=False)
+        for label, params in timeframes.items():
+            if "Month" in label:
+                month = params
+                time_data = cycle_data[(cycle_data["month"] == month)]
+            else:
+                month, week = params
+                time_data = cycle_data[
+                    (cycle_data["month"] == month) & 
+                    (cycle_data["week_of_month_5day"] == week)
+                ]
 
-if st.button("Plot"):
-    try:
-        seasonals_chart(ticker, cycle_label, show_all_years_line)
-    except Exception as e:
-        st.error(f"Error generating chart: {e}")
+            if not time_data.empty:
+                stats = summarize_data(time_data, include_atr=False)
+                sample_size = time_data["year"].nunique()
+                summary_rows.append([label, stats["Avg Return (%)"], stats["Median Daily Return (%)"], sample_size])
+            else:
+                summary_rows.append([label, np.nan, np.nan, np.nan])
+
+        high_level_df = pd.DataFrame(summary_rows, columns=["Timeframe", "Mean", "Median", "Count"]).set_index("Timeframe")
+
+        st.dataframe(high_level_df.style.format({
+            "Mean": "{:.1f}%", 
+            "Median": "{:.1f}%", 
+            "Count": "{:.0f}"
+        }), use_container_width=True)
+
+    with c2:
+        st.subheader("🗓️ Monthly Breakdown")
+        month_return_rows = []
+        for month in [current_month, next_month]:
+            time_data = cycle_data[(cycle_data["month"] == month)]
+            if not time_data.empty:
+                monthly_returns = time_data.groupby("year")["log_return"].sum() * 100
+                for year, ret in monthly_returns.items():
+                    month_return_rows.append([year, month, ret])
+
+        if month_return_rows:
+            month_returns_df = pd.DataFrame(month_return_rows, columns=["Year", "Month", "Return (%)"]).sort_values(by=["Year", "Month"])
+            month_returns_df["Month"] = month_returns_df["Month"].apply(lambda x: dt.date(1900, x, 1).strftime('%B'))
+            st.dataframe(
+                month_returns_df.style.format({"Return (%)": "{:.1f}%"})
+                .background_gradient(subset=["Return (%)"], cmap="RdYlGn", vmin=-5, vmax=5),
+                use_container_width=True,
+                height=300
+            )
+        else:
+            st.write("No historical data found for selected months.")
+
+# -----------------------------------------------------------------------------
+# APP ENTRY POINT
+# -----------------------------------------------------------------------------
+def main():
+    st.set_page_config(layout="wide", page_title="Seasonality Analysis")
+    st.title("📊 Presidential Cycle Seasonality")
+
+    col1, col2, col3 = st.columns([1, 1, 2])
+    with col1:
+        ticker = st.text_input("Ticker", value="SPY").upper()
+    with col2:
+        cycle_label = st.selectbox(
+            "Cycle Type",
+            ["All Years", "Election", "Pre-Election", "Post-Election", "Midterm"],
+            index=3
+        )
+    with col3:
+        st.write("") # Spacer
+        show_all_years_line = st.checkbox("Overlay 'All Years' Average", value=False)
+
+    if st.button("Run Analysis", type="primary", use_container_width=True):
+        try:
+            with st.spinner("Fetching data and calculating cycle stats..."):
+                seasonals_chart(ticker, cycle_label, show_all_years_line)
+        except Exception as e:
+            st.error(f"Error generating chart: {e}")
+
+if __name__ == "__main__":
+    main()
