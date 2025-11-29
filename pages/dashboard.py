@@ -3,28 +3,27 @@ import pandas as pd
 import numpy as np
 import yfinance as yf
 import plotly.express as px
-import plotly.graph_objects as go
 
 # -----------------------------------------------------------------------------
 # CONFIGURATION
 # -----------------------------------------------------------------------------
-# Added ^VIX3M for term structure and AUDJPY=X for global risk
-MACRO_TICKERS = ['SPY', 'TLT', 'UUP', 'GLD', 'BTC-USD', '^VIX', '^VIX3M', 'AUDJPY=X']
+# Updated: Using DX-Y.NYB for Dollar Index instead of UUP
+MACRO_TICKERS = ['SPY', 'TLT', 'DX-Y.NYB', 'GLD', 'BTC-USD', '^VIX', '^VIX3M', 'AUDJPY=X']
 SECTOR_TICKERS = ['XLK', 'XLE', 'XLF', 'XLV', 'XLI', 'XLP', 'XLU', 'XLY', 'XLB', 'SMH']
 ACTIVE_TICKERS = ['NVDA', 'TSLA', 'AAPL', 'AMD', 'AMZN', 'MSFT', 'META', 'GOOGL', 'NFLX', 'COIN']
-STRUCT_TICKERS = ['SPY', 'QQQ', 'IWM']
 
 # -----------------------------------------------------------------------------
 # 1. DATA ENGINE
 # -----------------------------------------------------------------------------
 @st.cache_data(ttl=3600)
 def fetch_market_data():
+    """Fetches data handling MultiIndex robustness."""
     all_tickers = list(set(MACRO_TICKERS + SECTOR_TICKERS + ACTIVE_TICKERS))
     
-    # Download 1 Year of data
+    # Download
     data = yf.download(all_tickers, period="1y", interval="1d", progress=False, auto_adjust=True)
     
-    # Robust Column Extraction (Handles MultiIndex variations)
+    # Robust Column Extraction
     if isinstance(data.columns, pd.MultiIndex):
         if 'Close' in data.columns.get_level_values(0):
             closes = data.xs('Close', level=0, axis=1)
@@ -35,32 +34,19 @@ def fetch_market_data():
     else:
         closes = data['Close'] if 'Close' in data.columns else data
 
+    # Clean Columns
     closes.columns = [str(c[0]) if isinstance(c, tuple) else str(c) for c in closes.columns]
-
-    # Structure Data (Volume)
-    vol_dict = {}
-    for t in STRUCT_TICKERS:
-        try:
-            vol_df = yf.download(t, period="60d", interval="1d", progress=False, auto_adjust=True)
-            if isinstance(vol_df.columns, pd.MultiIndex):
-                vol_df.columns = vol_df.columns.get_level_values(0)
-            vol_dict[t] = vol_df
-        except:
-            pass
-            
-    return closes, vol_dict
+    
+    return closes
 
 # -----------------------------------------------------------------------------
 # 2. CALCULATION ENGINES
 # -----------------------------------------------------------------------------
 def calculate_macro_regime(df):
-    """
-    Quadrant 1: 
-    1. Returns normalized Risk Proxy (AUD/JPY vs SPY vs TLT)
-    2. Returns VIX Term Structure state
-    """
-    # 1. Normalized Lines
-    targets = ['SPY', 'TLT', 'AUDJPY=X', 'GLD']
+    """Q1: Macro Weather (Risk Gauge & VIX Curve)."""
+    # 1. Normalized Performance (20d)
+    # Using DX-Y.NYB for Dollar
+    targets = ['SPY', 'TLT', 'DX-Y.NYB', 'AUDJPY=X']
     valid_targets = [t for t in targets if t in df.columns]
     
     if not valid_targets: return pd.DataFrame(), "Unknown"
@@ -68,56 +54,57 @@ def calculate_macro_regime(df):
     subset = df[valid_targets].tail(20).copy()
     normalized = (subset / subset.iloc[0] - 1) * 100
     
-    # 2. VIX Term Structure (Contango vs Backwardation)
+    # 2. VIX Term Structure
     vix_state = "Neutral"
     if '^VIX' in df.columns and '^VIX3M' in df.columns:
-        spot_vix = df['^VIX'].iloc[-1]
-        term_vix = df['^VIX3M'].iloc[-1]
+        spot = df['^VIX'].iloc[-1]
+        term = df['^VIX3M'].iloc[-1]
+        ratio = spot / term
         
-        # Calculate Ratio
-        ratio = spot_vix / term_vix
-        
-        if ratio > 1.05: vix_state = "INVERTED (High Fear)"
-        elif ratio < 0.9: vix_state = "STEEP (Bullish/Calm)"
+        if ratio > 1.05: vix_state = "INVERTED (Risk Off)"
+        elif ratio < 0.9: vix_state = "STEEP (Risk On)"
         else: vix_state = "FLAT (Caution)"
         
     return normalized, vix_state
 
-def calculate_beta_scenario(df, tickers, shock_pct):
-    """
-    Interactive Element: Calculates projected move based on Beta to SPY.
-    """
-    results = []
-    if 'SPY' not in df.columns: return pd.DataFrame()
-    
-    spy_ret = df['SPY'].pct_change()
-    
-    for t in tickers:
-        if t not in df.columns or t == 'SPY': continue
+def calculate_rrg(df, sectors, benchmark='SPY'):
+    """Q2: Relative Rotation Graph (Trend vs Momentum)."""
+    rrg_data = []
+    if benchmark not in df.columns: return pd.DataFrame()
+
+    for s in sectors:
+        if s not in df.columns: continue
         
-        asset_ret = df[t].pct_change()
+        # Relative Strength Calculation
+        rs = df[s] / df[benchmark]
         
-        # Calculate Beta (60-day lookback)
-        cov_matrix = np.cov(asset_ret.tail(60), spy_ret.tail(60))
-        beta = cov_matrix[0, 1] / cov_matrix[1, 1]
+        # JdK Logic Approximation
+        # RS-Ratio: Where is price relative to trend?
+        rs_trend = rs.rolling(window=20).mean()
+        rs_ratio = 100 * ((rs / rs_trend) - 1)
         
-        # Projected Move
-        proj_move = beta * shock_pct
+        # RS-Momentum: Is the ratio rising or falling?
+        rs_mom = rs_ratio.diff(5)
         
-        results.append({
-            'Ticker': t,
-            'Beta': beta,
-            'Proj_Move%': proj_move
-        })
-        
-    return pd.DataFrame(results)
+        if len(rs_ratio) > 0:
+            curr_ratio = rs_ratio.iloc[-1]
+            curr_mom = rs_mom.iloc[-1]
+            
+            # Quadrant Logic
+            if curr_ratio > 0 and curr_mom > 0: quad = "Leading" # Green
+            elif curr_ratio > 0 and curr_mom < 0: quad = "Weakening" # Yellow
+            elif curr_ratio < 0 and curr_mom < 0: quad = "Lagging" # Red
+            else: quad = "Improving" # Blue
+            
+            rrg_data.append({
+                'Ticker': s, 'RS_Ratio': curr_ratio, 'RS_Momentum': curr_mom, 'Quadrant': quad
+            })
+            
+    return pd.DataFrame(rrg_data)
 
 def calculate_pro_scanner(df, tickers):
-    """
-    Quadrant 3: Adds 'Vol Compression' proxy for IV Rank.
-    """
+    """Q3: Vol Compression & Z-Scores."""
     results = []
-    
     for t in tickers:
         if t not in df.columns: continue
         series = df[t].dropna()
@@ -128,118 +115,145 @@ def calculate_pro_scanner(df, tickers):
         # Z-Score
         mean_20 = series.rolling(20).mean().iloc[-1]
         std_20 = series.rolling(20).std().iloc[-1]
-        z_score = (curr - mean_20) / std_20
+        z_score = (curr - mean_20) / std_20 if std_20 != 0 else 0
         
-        # Volatility Compression (Short Vol / Long Vol)
-        # If Ratio < 0.7, Vol is compressed (Breakout imminent)
-        # If Ratio > 1.5, Vol is expanded (Reversion likely)
+        # Vol Ratio (Short/Long)
         log_ret = np.log(series / series.shift(1))
         vol_5d = log_ret.rolling(5).std().iloc[-1]
         vol_20d = log_ret.rolling(20).std().iloc[-1]
         vol_ratio = vol_5d / vol_20d if vol_20d != 0 else 1.0
         
         results.append({
-            'Ticker': t,
-            'Price': curr,
-            'Z_Score': z_score,
-            'Vol_Ratio': vol_ratio,
-            'Vol_Ann%': vol_20d * np.sqrt(252) * 100
+            'Ticker': t, 
+            'Price': float(curr) if isinstance(curr, (float, int)) else curr.item(),
+            'Z_Score': float(z_score) if isinstance(z_score, (float, int)) else z_score.item(),
+            'Vol_Ratio': vol_ratio
         })
+        
+    return pd.DataFrame(results)
+
+def calculate_beta_scenario(df, tickers, shock_pct):
+    """Q4: Scenario Slider Logic."""
+    results = []
+    if 'SPY' not in df.columns: return pd.DataFrame()
+    
+    spy_ret = df['SPY'].pct_change()
+    
+    for t in tickers:
+        if t not in df.columns or t == 'SPY': continue
+        asset_ret = df[t].pct_change()
+        
+        # Beta calc
+        common = pd.concat([asset_ret, spy_ret], axis=1).dropna()
+        if len(common) < 20: continue
+        
+        cov = np.cov(common.iloc[:,0], common.iloc[:,1])
+        beta = cov[0, 1] / cov[1, 1]
+        
+        proj = beta * shock_pct
+        results.append({'Ticker': t, 'Beta': beta, 'Proj_Move%': proj})
         
     return pd.DataFrame(results)
 
 # -----------------------------------------------------------------------------
 # 3. VISUALIZATION
 # -----------------------------------------------------------------------------
-def plot_macro_complex(df):
-    fig = px.line(df, x=df.index, y=df.columns, title="Risk-On Gauge (20d)",
-                  color_discrete_map={'SPY':'green', 'TLT':'red', 'AUDJPY=X':'cyan', 'GLD':'gold'})
-    fig.update_layout(height=250, margin=dict(l=10,r=10,t=30,b=10), showlegend=True)
-    return fig
-
-def plot_scenario_impact(df, shock_val):
+def plot_macro(df):
     if df.empty: return None
-    
-    # Color mapping for damage
-    df['Color'] = df['Proj_Move%'].apply(lambda x: 'red' if x < 0 else 'green')
-    
+    fig = px.line(df, x=df.index, y=df.columns, title="Global Risk Flow (20d)",
+                  color_discrete_map={'SPY':'#4caf50', 'TLT':'#f44336', 'DX-Y.NYB':'#9e9e9e', 'AUDJPY=X':'#03a9f4'})
+    fig.update_layout(height=280, margin=dict(l=10,r=10,t=30,b=10), hovermode="x unified")
+    fig.add_hline(y=0, line_dash="dash", line_color="white", opacity=0.3)
+    return fig
+
+def plot_rrg(df):
+    if df.empty: return None
+    fig = px.scatter(df, x="RS_Ratio", y="RS_Momentum", text="Ticker", color="Quadrant",
+                     title="Relative Rotation (Flow)",
+                     color_discrete_map={
+                         "Leading": "#4caf50", "Weakening": "#ffeb3b",
+                         "Lagging": "#f44336", "Improving": "#2196f3"
+                     })
+    fig.update_traces(textposition='top center', marker=dict(size=14, line=dict(width=1, color='black')))
+    fig.add_hline(y=0, line_color="white", opacity=0.3)
+    fig.add_vline(x=0, line_color="white", opacity=0.3)
+    fig.update_layout(height=280, margin=dict(l=10,r=10,t=30,b=10), showlegend=False)
+    return fig
+
+def plot_scenario(df, shock):
+    if df.empty: return None
+    df['Color'] = df['Proj_Move%'].apply(lambda x: '#f44336' if x < 0 else '#4caf50')
     fig = px.bar(df, x='Ticker', y='Proj_Move%', color='Color',
-                 title=f"Portfolio Impact if SPY moves {shock_val}%",
-                 color_discrete_map={'red':'#ff4b4b', 'green':'#4caf50'})
-    
-    fig.update_layout(height=250, margin=dict(l=10,r=10,t=30,b=10), showlegend=False)
-    fig.add_hline(y=0, line_color="white", line_width=1)
+                 title=f"Beta Impact: If SPY moves {shock}%", color_discrete_map="identity")
+    fig.update_layout(height=250, margin=dict(l=10,r=10,t=30,b=10))
     return fig
 
 # -----------------------------------------------------------------------------
-# 4. DASHBOARD RENDER
+# 4. MAIN PAGE
 # -----------------------------------------------------------------------------
-def render_pro_dashboard():
+def render_master_dashboard():
     st.title("⚡ Unconstrained Swing Command Center")
     
-    # Fetch Data
-    with st.spinner("Connecting to Data Feeds..."):
-        closes, vol_dict = fetch_market_data()
-        
+    with st.spinner("Fetching Global Data..."):
+        closes = fetch_market_data()
+    
     if closes.empty:
-        st.error("Data fetch failed. Update yfinance.")
+        st.error("No data. Check connection or yfinance version.")
         return
 
-    # --- ROW 1: MACRO & REGIME ---
-    c1, c2 = st.columns([2, 1])
+    # --- ROW 1: THE VIEW FROM 30,000 FT ---
+    c1, c2 = st.columns([1, 1])
     
     with c1:
-        st.subheader("1. Macro Weather Station")
+        st.subheader("1. Macro Regime")
         macro_df, vix_state = calculate_macro_regime(closes)
         
-        # KPI Metric Row
-        k1, k2, k3 = st.columns(3)
-        k1.metric("Market Regime", vix_state)
-        
-        # Dollar Strength
-        if 'UUP' in closes.columns:
-            uup_chg = (closes['UUP'].iloc[-1] / closes['UUP'].iloc[-2] - 1) * 100
-            k2.metric("USD Proxy (UUP)", f"{closes['UUP'].iloc[-1]:.2f}", f"{uup_chg:.2f}%")
-        
-        # Risk Proxy
-        if 'AUDJPY=X' in closes.columns:
-            aud_chg = (closes['AUDJPY=X'].iloc[-1] / closes['AUDJPY=X'].iloc[-2] - 1) * 100
-            k3.metric("Risk Sentiment (AUD/JPY)", f"{closes['AUDJPY=X'].iloc[-1]:.2f}", f"{aud_chg:.2f}%")
+        # KPIs
+        m1, m2 = st.columns(2)
+        m1.metric("VIX Curve", vix_state)
+        if 'DX-Y.NYB' in closes.columns:
+            dxy_val = closes['DX-Y.NYB'].iloc[-1]
+            dxy_chg = (dxy_val / closes['DX-Y.NYB'].iloc[-2] - 1) * 100
+            m2.metric("DXY Index", f"{dxy_val:.2f}", f"{dxy_chg:.2f}%")
             
-        st.plotly_chart(plot_macro_complex(macro_df), use_container_width=True)
+        st.plotly_chart(plot_macro(macro_df), use_container_width=True)
 
     with c2:
-        st.subheader("2. Vol Compression Scanner")
-        st.caption("Ratio < 0.7 = Squeeze/Breakout | > 1.3 = Overextended")
+        st.subheader("2. Sector Rotation (RRG)")
+        rrg_df = calculate_rrg(closes, SECTOR_TICKERS)
+        if not rrg_df.empty:
+            st.plotly_chart(plot_rrg(rrg_df), use_container_width=True)
+        else:
+            st.warning("RRG Data Unavailable")
+
+    st.divider()
+
+    # --- ROW 2: THE OPPORTUNITY & RISK ---
+    c3, c4 = st.columns([2, 1])
+    
+    with c3:
+        st.subheader("3. Interactive Scenario")
+        # Slider is the input for the chart below
+        shock = st.slider("Market Shock Simulation (SPY %)", -5.0, 5.0, -2.0, 0.5)
         
-        scanner_df = calculate_pro_scanner(closes, ACTIVE_TICKERS)
-        
-        # Filter for interesting setups
-        if not scanner_df.empty:
-            df_display = scanner_df[['Ticker', 'Z_Score', 'Vol_Ratio']].sort_values('Vol_Ratio')
+        scenario_df = calculate_beta_scenario(closes, ACTIVE_TICKERS, shock)
+        if not scenario_df.empty:
+            st.plotly_chart(plot_scenario(scenario_df, shock), use_container_width=True)
             
+    with c4:
+        st.subheader("4. Vol Scanner")
+        scanner_df = calculate_pro_scanner(closes, ACTIVE_TICKERS)
+        if not scanner_df.empty:
+            # Highlight interesting setups
             st.dataframe(
-                df_display.style.background_gradient(subset=['Vol_Ratio'], cmap='coolwarm', vmin=0.5, vmax=1.5)
-                .format({'Z_Score': "{:.2f}", 'Vol_Ratio': "{:.2f}"}),
+                scanner_df[['Ticker', 'Z_Score', 'Vol_Ratio']]
+                .sort_values('Vol_Ratio')
+                .style.background_gradient(subset=['Vol_Ratio'], cmap='RdYlGn_r', vmin=0.5, vmax=1.5)
+                .format({'Z_Score': "{:.2f}σ", 'Vol_Ratio': "{:.2f}"}),
                 use_container_width=True,
                 height=300
             )
 
-    st.divider()
-
-    # --- ROW 2: SCENARIO ANALYSIS (The "Killer Feature") ---
-    st.subheader("3. Dynamic Risk Scenario")
-    
-    s1, s2 = st.columns([1, 3])
-    with s1:
-        st.markdown("### 🎛️ Simulation")
-        shock_input = st.slider("SPY Shock (%)", min_value=-5.0, max_value=5.0, value=-2.0, step=0.5)
-        st.info("Calculates Beta-weighted impact on active watchlist.")
-        
-    with s2:
-        scenario_df = calculate_beta_scenario(closes, ACTIVE_TICKERS, shock_input)
-        st.plotly_chart(plot_scenario_impact(scenario_df, shock_input), use_container_width=True)
-
 if __name__ == "__main__":
-    st.set_page_config(layout="wide", page_title="Swing Pro")
-    render_pro_dashboard()
+    st.set_page_config(layout="wide", page_title="Swing Master")
+    render_master_dashboard()
