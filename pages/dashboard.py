@@ -70,8 +70,7 @@ def calculate_macro_regime(df):
 
 def calculate_rrg_smooth(df, sectors, benchmark='SPY', tail_len=15):
     """
-    Q2: RRG with Smoothing.
-    Applies a rolling mean to RS Ratio/Momentum to create smooth tails.
+    Q2: RRG with AGGRESSIVE Smoothing.
     """
     if benchmark not in df.columns: return pd.DataFrame()
 
@@ -86,11 +85,10 @@ def calculate_rrg_smooth(df, sectors, benchmark='SPY', tail_len=15):
         rs_ratio = 100 * ((rs / rs_trend) - 1)
         rs_mom = rs_ratio.diff(5)
         
-        # 2. THE SMOOTHING FIX
-        # We apply a 3-day rolling mean to the coordinates.
-        # This removes the "jitter" and makes the tail curvy.
-        rs_ratio = rs_ratio.rolling(3).mean()
-        rs_mom = rs_mom.rolling(3).mean()
+        # 2. THE SMOOTHING FIX (5-Day Rolling Mean)
+        # This reduces the daily noise significantly
+        rs_ratio = rs_ratio.rolling(5).mean()
+        rs_mom = rs_mom.rolling(5).mean()
         
         # 3. Extract tail
         if len(rs_ratio) < tail_len: continue
@@ -157,7 +155,9 @@ def plot_macro(df):
     return fig
 
 def plot_rrg_tails(df):
-    """RRG with increased height and better spacing."""
+    """
+    RRG with SPLINE INTERPOLATION (Curvy Lines).
+    """
     if df.empty: return None
     
     fig = go.Figure()
@@ -174,13 +174,14 @@ def plot_rrg_tails(df):
         current_quad = t_data['Quadrant'].iloc[-1]
         color = color_map.get(current_quad, "white")
         
-        # Tail (Smoothed Line)
+        # Tail (Now using SPLINE shape)
         fig.add_trace(go.Scatter(
             x=t_data['RS_Ratio'], 
             y=t_data['RS_Momentum'],
             mode='lines',
-            line=dict(color=color, width=2),
-            opacity=0.5,
+            # shape='spline' creates the curve, smoothing=1.3 controls curve intensity
+            line=dict(color=color, width=2, shape='spline', smoothing=1.3),
+            opacity=0.6,
             hoverinfo='skip',
             showlegend=False
         ))
@@ -202,21 +203,21 @@ def plot_rrg_tails(df):
     fig.add_hline(y=0, line_color="white", opacity=0.2)
     fig.add_vline(x=0, line_color="white", opacity=0.2)
     
-    # Place labels in corners with padding
+    # Styled Quadrant Labels
     fig.add_annotation(x=4, y=4, text="LEADING", showarrow=False, font=dict(color="#4caf50", size=16, weight="bold"), opacity=0.4)
     fig.add_annotation(x=-4, y=4, text="IMPROVING", showarrow=False, font=dict(color="#2196f3", size=16, weight="bold"), opacity=0.4)
     fig.add_annotation(x=-4, y=-4, text="LAGGING", showarrow=False, font=dict(color="#f44336", size=16, weight="bold"), opacity=0.4)
     fig.add_annotation(x=4, y=-4, text="WEAKENING", showarrow=False, font=dict(color="#ffeb3b", size=16, weight="bold"), opacity=0.4)
 
     fig.update_layout(
-        title="Relative Rotation (Smoothed Flow)",
+        title="Relative Rotation (Liquid Flow)",
         xaxis_title="RS Ratio (Trend)",
         yaxis_title="RS Momentum (Velocity)",
-        height=600, # INCREASED HEIGHT FOR BREATHING ROOM
+        height=600, 
         margin=dict(l=20,r=20,t=50,b=20),
         xaxis=dict(range=[-5, 5], constrain='domain'),
         yaxis=dict(range=[-5, 5], scaleanchor="x", scaleratio=1),
-        plot_bgcolor='rgba(0,0,0,0)' # Transparent background
+        plot_bgcolor='rgba(0,0,0,0)'
     )
     
     return fig
@@ -262,7 +263,6 @@ def render_dashboard():
 
     with c2:
         st.subheader("2. Sector Rotation (Flow)")
-        # Call smoothed version
         rrg_df = calculate_rrg_smooth(closes, SECTOR_TICKERS, tail_len=15)
         if not rrg_df.empty:
             st.plotly_chart(plot_rrg_tails(rrg_df), use_container_width=True)
