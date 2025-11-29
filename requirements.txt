@@ -11,3 +11,4 @@ yfscreen
 yahooquery
 scipy
 matplotlib
+scikit-learn
