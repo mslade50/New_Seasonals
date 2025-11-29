@@ -68,10 +68,10 @@ def calculate_macro_regime(df):
         
     return normalized, vix_state
 
-def calculate_rrg_with_tails(df, sectors, benchmark='SPY', tail_len=15):
+def calculate_rrg_smooth(df, sectors, benchmark='SPY', tail_len=15):
     """
-    Q2: RRG with History.
-    Returns a DataFrame containing the last 'tail_len' days for EACH ticker.
+    Q2: RRG with Smoothing.
+    Applies a rolling mean to RS Ratio/Momentum to create smooth tails.
     """
     if benchmark not in df.columns: return pd.DataFrame()
 
@@ -80,30 +80,33 @@ def calculate_rrg_with_tails(df, sectors, benchmark='SPY', tail_len=15):
     for s in sectors:
         if s not in df.columns: continue
         
-        # 1. Calculate RS Metrics over the whole period
+        # 1. Raw Calculations
         rs = df[s] / df[benchmark]
         rs_trend = rs.rolling(window=20).mean()
         rs_ratio = 100 * ((rs / rs_trend) - 1)
         rs_mom = rs_ratio.diff(5)
         
-        # 2. Extract the tail
-        # We need the last N days, but ensuring we don't go out of bounds
+        # 2. THE SMOOTHING FIX
+        # We apply a 3-day rolling mean to the coordinates.
+        # This removes the "jitter" and makes the tail curvy.
+        rs_ratio = rs_ratio.rolling(3).mean()
+        rs_mom = rs_mom.rolling(3).mean()
+        
+        # 3. Extract tail
         if len(rs_ratio) < tail_len: continue
         
         subset_ratio = rs_ratio.tail(tail_len)
         subset_mom = rs_mom.tail(tail_len)
         
-        # 3. Determine Quadrant of the HEAD (Current Day)
+        # 4. Determine Quadrant (Current Day)
         curr_r = subset_ratio.iloc[-1]
         curr_m = subset_mom.iloc[-1]
         
-        if curr_r > 0 and curr_m > 0: quad = "Leading"       # Green
-        elif curr_r > 0 and curr_m < 0: quad = "Weakening"   # Yellow
-        elif curr_r < 0 and curr_m < 0: quad = "Lagging"     # Red
-        else: quad = "Improving"                             # Blue
+        if curr_r > 0 and curr_m > 0: quad = "Leading"
+        elif curr_r > 0 and curr_m < 0: quad = "Weakening"
+        elif curr_r < 0 and curr_m < 0: quad = "Lagging"
+        else: quad = "Improving"
 
-        # 4. Build Frame
-        # We add a 'Day_Step' column to help plotting order
         tmp = pd.DataFrame({
             'Ticker': s,
             'RS_Ratio': subset_ratio,
@@ -143,86 +146,77 @@ def calculate_vol_scanner(df, tickers):
     return pd.DataFrame(results)
 
 # -----------------------------------------------------------------------------
-# 3. VISUALIZATION ENGINE (Now with Tails)
+# 3. VISUALIZATION ENGINE
 # -----------------------------------------------------------------------------
 def plot_macro(df):
     if df.empty: return None
     fig = px.line(df, x=df.index, y=df.columns, title="Global Risk Flow (20d)",
                   color_discrete_map={'SPY':'#4caf50', 'TLT':'#f44336', 'DX-Y.NYB':'#9e9e9e', 'AUDJPY=X':'#03a9f4'})
-    fig.update_layout(height=280, margin=dict(l=10,r=10,t=30,b=10), hovermode="x unified")
+    fig.update_layout(height=350, margin=dict(l=10,r=10,t=40,b=10), hovermode="x unified")
     fig.add_hline(y=0, line_dash="dash", line_color="white", opacity=0.3)
     return fig
 
 def plot_rrg_tails(df):
-    """
-    Complex Plotly Graph Object to render Lines (Tails) + Markers (Heads).
-    """
+    """RRG with increased height and better spacing."""
     if df.empty: return None
     
     fig = go.Figure()
     
-    # Quadrant Colors
     color_map = {
-        "Leading": "#4caf50",   # Green
-        "Weakening": "#ffeb3b", # Yellow
-        "Lagging": "#f44336",   # Red
-        "Improving": "#2196f3"  # Blue
+        "Leading": "#4caf50", "Weakening": "#ffeb3b",
+        "Lagging": "#f44336", "Improving": "#2196f3"
     }
     
-    # Loop through each ticker to draw its unique path
     tickers = df['Ticker'].unique()
     
     for t in tickers:
         t_data = df[df['Ticker'] == t]
-        
-        # Determine Color based on the HEAD (Current Status)
-        # We assume the whole tail takes the color of the current state for clarity
         current_quad = t_data['Quadrant'].iloc[-1]
         color = color_map.get(current_quad, "white")
         
-        # 1. Draw the Tail (Line)
+        # Tail (Smoothed Line)
         fig.add_trace(go.Scatter(
             x=t_data['RS_Ratio'], 
             y=t_data['RS_Momentum'],
             mode='lines',
             line=dict(color=color, width=2),
-            opacity=0.4, # Faded tail
-            hoverinfo='skip', # Don't hover on lines
+            opacity=0.5,
+            hoverinfo='skip',
             showlegend=False
         ))
         
-        # 2. Draw the Head (Marker + Text) - Only the last point
+        # Head (Marker)
         head = t_data.iloc[-1]
         fig.add_trace(go.Scatter(
             x=[head['RS_Ratio']], 
             y=[head['RS_Momentum']],
             mode='markers+text',
-            marker=dict(color=color, size=10, line=dict(width=1, color='black')),
+            marker=dict(color=color, size=12, line=dict(width=1, color='black')),
             text=[t],
             textposition="top center",
             name=t,
             showlegend=False
         ))
 
-    # Add Quadrant Crosshairs
+    # Crosshairs & Annotations
     fig.add_hline(y=0, line_color="white", opacity=0.2)
     fig.add_vline(x=0, line_color="white", opacity=0.2)
     
-    # Annotations for Quadrants
-    fig.add_annotation(x=2, y=2, text="LEADING", showarrow=False, font=dict(color="#4caf50", size=14), opacity=0.5)
-    fig.add_annotation(x=-2, y=2, text="IMPROVING", showarrow=False, font=dict(color="#2196f3", size=14), opacity=0.5)
-    fig.add_annotation(x=-2, y=-2, text="LAGGING", showarrow=False, font=dict(color="#f44336", size=14), opacity=0.5)
-    fig.add_annotation(x=2, y=-2, text="WEAKENING", showarrow=False, font=dict(color="#ffeb3b", size=14), opacity=0.5)
+    # Place labels in corners with padding
+    fig.add_annotation(x=4, y=4, text="LEADING", showarrow=False, font=dict(color="#4caf50", size=16, weight="bold"), opacity=0.4)
+    fig.add_annotation(x=-4, y=4, text="IMPROVING", showarrow=False, font=dict(color="#2196f3", size=16, weight="bold"), opacity=0.4)
+    fig.add_annotation(x=-4, y=-4, text="LAGGING", showarrow=False, font=dict(color="#f44336", size=16, weight="bold"), opacity=0.4)
+    fig.add_annotation(x=4, y=-4, text="WEAKENING", showarrow=False, font=dict(color="#ffeb3b", size=16, weight="bold"), opacity=0.4)
 
     fig.update_layout(
-        title="Relative Rotation (15d Tails)",
+        title="Relative Rotation (Smoothed Flow)",
         xaxis_title="RS Ratio (Trend)",
         yaxis_title="RS Momentum (Velocity)",
-        height=400,
-        margin=dict(l=10,r=10,t=40,b=10),
-        # Fix range so it doesn't jump around too much
+        height=600, # INCREASED HEIGHT FOR BREATHING ROOM
+        margin=dict(l=20,r=20,t=50,b=20),
         xaxis=dict(range=[-5, 5], constrain='domain'),
-        yaxis=dict(range=[-5, 5], scaleanchor="x", scaleratio=1)
+        yaxis=dict(range=[-5, 5], scaleanchor="x", scaleratio=1),
+        plot_bgcolor='rgba(0,0,0,0)' # Transparent background
     )
     
     return fig
@@ -268,8 +262,8 @@ def render_dashboard():
 
     with c2:
         st.subheader("2. Sector Rotation (Flow)")
-        # Now calling the Tail version
-        rrg_df = calculate_rrg_with_tails(closes, SECTOR_TICKERS, tail_len=15)
+        # Call smoothed version
+        rrg_df = calculate_rrg_smooth(closes, SECTOR_TICKERS, tail_len=15)
         if not rrg_df.empty:
             st.plotly_chart(plot_rrg_tails(rrg_df), use_container_width=True)
         else:
