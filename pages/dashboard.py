@@ -13,18 +13,17 @@ SECTOR_TICKERS = ['XLK', 'XLE', 'XLF', 'XLV', 'XLI', 'XLP', 'XLU', 'XLY', 'XLB',
 ACTIVE_TICKERS = ['NVDA', 'TSLA', 'AAPL', 'AMD', 'AMZN', 'MSFT', 'META', 'GOOGL', 'NFLX', 'COIN']
 
 # -----------------------------------------------------------------------------
-# 1. DATA ENGINE (Robust "Swiss Cheese" Fix)
+# 1. DATA ENGINE
 # -----------------------------------------------------------------------------
 @st.cache_data(ttl=3600)
 def fetch_market_data():
-    """Fetches data and fixes gaps between Crypto/Stocks/Forex."""
+    """Fetches data and fixes gaps (Swiss Cheese problem)."""
     all_tickers = list(set(MACRO_TICKERS + SECTOR_TICKERS + ACTIVE_TICKERS))
     
-    # Download with auto_adjust=False to keep raw Close for Indices
+    # Auto_adjust=False to handle Indices raw data better
     data = yf.download(all_tickers, period="1y", interval="1d", progress=False, auto_adjust=False)
     
     # Robust Column Extraction
-    # Prioritize Adj Close, fallback to Close
     target_col = 'Adj Close' if 'Adj Close' in data.columns.get_level_values(0) else 'Close'
     
     if isinstance(data.columns, pd.MultiIndex):
@@ -33,13 +32,12 @@ def fetch_market_data():
         elif target_col in data.columns.get_level_values(1):
             closes = data.xs(target_col, level=1, axis=1)
         else:
-            # Fallback
             try: closes = data.xs('Close', level=0, axis=1)
             except: closes = data.iloc[:, :len(all_tickers)]
     else:
         closes = data[target_col] if target_col in data.columns else data
 
-    # Clean Columns and Fill Gaps (The Fix)
+    # Fix Columns & Gaps
     closes.columns = [str(c[0]) if isinstance(c, tuple) else str(c) for c in closes.columns]
     closes = closes.ffill().bfill()
     
@@ -49,7 +47,7 @@ def fetch_market_data():
 # 2. CALCULATION ENGINES
 # -----------------------------------------------------------------------------
 def calculate_macro_regime(df):
-    """Q1: Macro Weather & VIX Curve."""
+    """Q1: Macro Weather."""
     targets = ['SPY', 'TLT', 'DX-Y.NYB', 'AUDJPY=X']
     valid_targets = [t for t in targets if t in df.columns]
     
@@ -70,33 +68,55 @@ def calculate_macro_regime(df):
         
     return normalized, vix_state
 
-def calculate_rrg(df, sectors, benchmark='SPY'):
-    """Q2: Relative Rotation Graph."""
-    rrg_data = []
+def calculate_rrg_with_tails(df, sectors, benchmark='SPY', tail_len=15):
+    """
+    Q2: RRG with History.
+    Returns a DataFrame containing the last 'tail_len' days for EACH ticker.
+    """
     if benchmark not in df.columns: return pd.DataFrame()
 
+    frames = []
+    
     for s in sectors:
         if s not in df.columns: continue
-        rs = df[s] / df[benchmark]
         
+        # 1. Calculate RS Metrics over the whole period
+        rs = df[s] / df[benchmark]
         rs_trend = rs.rolling(window=20).mean()
         rs_ratio = 100 * ((rs / rs_trend) - 1)
         rs_mom = rs_ratio.diff(5)
         
-        if len(rs_ratio) > 0:
-            curr_ratio = rs_ratio.iloc[-1]
-            curr_mom = rs_mom.iloc[-1]
-            if curr_ratio > 0 and curr_mom > 0: quad = "Leading"
-            elif curr_ratio > 0 and curr_mom < 0: quad = "Weakening"
-            elif curr_ratio < 0 and curr_mom < 0: quad = "Lagging"
-            else: quad = "Improving"
-            
-            rrg_data.append({'Ticker': s, 'RS_Ratio': curr_ratio, 'RS_Momentum': curr_mom, 'Quadrant': quad})
-            
-    return pd.DataFrame(rrg_data)
+        # 2. Extract the tail
+        # We need the last N days, but ensuring we don't go out of bounds
+        if len(rs_ratio) < tail_len: continue
+        
+        subset_ratio = rs_ratio.tail(tail_len)
+        subset_mom = rs_mom.tail(tail_len)
+        
+        # 3. Determine Quadrant of the HEAD (Current Day)
+        curr_r = subset_ratio.iloc[-1]
+        curr_m = subset_mom.iloc[-1]
+        
+        if curr_r > 0 and curr_m > 0: quad = "Leading"       # Green
+        elif curr_r > 0 and curr_m < 0: quad = "Weakening"   # Yellow
+        elif curr_r < 0 and curr_m < 0: quad = "Lagging"     # Red
+        else: quad = "Improving"                             # Blue
+
+        # 4. Build Frame
+        # We add a 'Day_Step' column to help plotting order
+        tmp = pd.DataFrame({
+            'Ticker': s,
+            'RS_Ratio': subset_ratio,
+            'RS_Momentum': subset_mom,
+            'Quadrant': quad
+        })
+        frames.append(tmp)
+        
+    if not frames: return pd.DataFrame()
+    return pd.concat(frames)
 
 def calculate_vol_scanner(df, tickers):
-    """Q3: The Volatility Physics Engine."""
+    """Q3: Vol Physics."""
     results = []
     for t in tickers:
         if t not in df.columns: continue
@@ -104,13 +124,10 @@ def calculate_vol_scanner(df, tickers):
         if len(series) < 30: continue
 
         curr = series.iloc[-1]
-        
-        # Z-Score (Potential Energy)
         mean_20 = series.rolling(20).mean().iloc[-1]
         std_20 = series.rolling(20).std().iloc[-1]
         z_score = (curr - mean_20) / std_20 if std_20 != 0 else 0
         
-        # Vol Ratio (Kinetic Energy)
         log_ret = np.log(series / series.shift(1))
         vol_5d = log_ret.rolling(5).std().iloc[-1]
         vol_20d = log_ret.rolling(20).std().iloc[-1]
@@ -126,7 +143,7 @@ def calculate_vol_scanner(df, tickers):
     return pd.DataFrame(results)
 
 # -----------------------------------------------------------------------------
-# 3. VISUALIZATION ENGINE
+# 3. VISUALIZATION ENGINE (Now with Tails)
 # -----------------------------------------------------------------------------
 def plot_macro(df):
     if df.empty: return None
@@ -136,45 +153,90 @@ def plot_macro(df):
     fig.add_hline(y=0, line_dash="dash", line_color="white", opacity=0.3)
     return fig
 
-def plot_rrg(df):
+def plot_rrg_tails(df):
+    """
+    Complex Plotly Graph Object to render Lines (Tails) + Markers (Heads).
+    """
     if df.empty: return None
-    fig = px.scatter(df, x="RS_Ratio", y="RS_Momentum", text="Ticker", color="Quadrant",
-                     title="Relative Rotation (Flow)",
-                     color_discrete_map={
-                         "Leading": "#4caf50", "Weakening": "#ffeb3b",
-                         "Lagging": "#f44336", "Improving": "#2196f3"
-                     })
-    fig.update_traces(textposition='top center', marker=dict(size=14, line=dict(width=1, color='black')))
-    fig.add_hline(y=0, line_color="white", opacity=0.3)
-    fig.add_vline(x=0, line_color="white", opacity=0.3)
-    fig.update_layout(height=280, margin=dict(l=10,r=10,t=30,b=10), showlegend=False)
+    
+    fig = go.Figure()
+    
+    # Quadrant Colors
+    color_map = {
+        "Leading": "#4caf50",   # Green
+        "Weakening": "#ffeb3b", # Yellow
+        "Lagging": "#f44336",   # Red
+        "Improving": "#2196f3"  # Blue
+    }
+    
+    # Loop through each ticker to draw its unique path
+    tickers = df['Ticker'].unique()
+    
+    for t in tickers:
+        t_data = df[df['Ticker'] == t]
+        
+        # Determine Color based on the HEAD (Current Status)
+        # We assume the whole tail takes the color of the current state for clarity
+        current_quad = t_data['Quadrant'].iloc[-1]
+        color = color_map.get(current_quad, "white")
+        
+        # 1. Draw the Tail (Line)
+        fig.add_trace(go.Scatter(
+            x=t_data['RS_Ratio'], 
+            y=t_data['RS_Momentum'],
+            mode='lines',
+            line=dict(color=color, width=2),
+            opacity=0.4, # Faded tail
+            hoverinfo='skip', # Don't hover on lines
+            showlegend=False
+        ))
+        
+        # 2. Draw the Head (Marker + Text) - Only the last point
+        head = t_data.iloc[-1]
+        fig.add_trace(go.Scatter(
+            x=[head['RS_Ratio']], 
+            y=[head['RS_Momentum']],
+            mode='markers+text',
+            marker=dict(color=color, size=10, line=dict(width=1, color='black')),
+            text=[t],
+            textposition="top center",
+            name=t,
+            showlegend=False
+        ))
+
+    # Add Quadrant Crosshairs
+    fig.add_hline(y=0, line_color="white", opacity=0.2)
+    fig.add_vline(x=0, line_color="white", opacity=0.2)
+    
+    # Annotations for Quadrants
+    fig.add_annotation(x=2, y=2, text="LEADING", showarrow=False, font=dict(color="#4caf50", size=14), opacity=0.5)
+    fig.add_annotation(x=-2, y=2, text="IMPROVING", showarrow=False, font=dict(color="#2196f3", size=14), opacity=0.5)
+    fig.add_annotation(x=-2, y=-2, text="LAGGING", showarrow=False, font=dict(color="#f44336", size=14), opacity=0.5)
+    fig.add_annotation(x=2, y=-2, text="WEAKENING", showarrow=False, font=dict(color="#ffeb3b", size=14), opacity=0.5)
+
+    fig.update_layout(
+        title="Relative Rotation (15d Tails)",
+        xaxis_title="RS Ratio (Trend)",
+        yaxis_title="RS Momentum (Velocity)",
+        height=400,
+        margin=dict(l=10,r=10,t=40,b=10),
+        # Fix range so it doesn't jump around too much
+        xaxis=dict(range=[-5, 5], constrain='domain'),
+        yaxis=dict(range=[-5, 5], scaleanchor="x", scaleratio=1)
+    )
+    
     return fig
 
 def plot_vol_landscape(df):
-    """
-    Visualizes the Physics: Kinetic Energy (X) vs Potential Energy (Y).
-    """
     if df.empty: return None
-    
-    # Custom Color Scale based on Vol Ratio (Red = Explosive, Blue = Quiet)
     fig = px.scatter(df, x="Vol_Ratio", y="Z_Score", text="Ticker", 
-                     title="Volatility Physics Map (Kinetic vs. Potential)",
+                     title="Volatility Physics (Kinetic vs Potential)",
                      color="Vol_Ratio", color_continuous_scale="RdBu_r")
-    
-    fig.update_traces(textposition='top center', marker=dict(size=15, line=dict(width=1, color='black')))
-    
-    # Add Reference Lines
-    fig.add_vline(x=1.0, line_dash="dash", line_color="white", opacity=0.3, annotation_text="Normal Vol")
-    fig.add_hline(y=2.0, line_dash="dot", line_color="red", opacity=0.5, annotation_text="+2σ (Stretch)")
-    fig.add_hline(y=-2.0, line_dash="dot", line_color="green", opacity=0.5, annotation_text="-2σ (Stretch)")
-    fig.add_hline(y=0, line_width=1, line_color="white", opacity=0.2)
-    
-    fig.update_layout(
-        height=400, 
-        xaxis_title="Vol Ratio (Kinetic Energy)", 
-        yaxis_title="Z-Score (Potential Energy)",
-        margin=dict(l=10,r=10,t=30,b=10)
-    )
+    fig.update_traces(textposition='top center', marker=dict(size=14, line=dict(width=1, color='black')))
+    fig.add_vline(x=1.0, line_dash="dash", line_color="white", opacity=0.3)
+    fig.add_hline(y=2.0, line_dash="dot", line_color="red", opacity=0.5)
+    fig.add_hline(y=-2.0, line_dash="dot", line_color="green", opacity=0.5)
+    fig.update_layout(height=400, margin=dict(l=10,r=10,t=40,b=10))
     return fig
 
 # -----------------------------------------------------------------------------
@@ -188,64 +250,50 @@ def render_dashboard():
         closes = fetch_market_data()
     
     if closes.empty:
-        st.error("Data fetch failed. Check yfinance.")
+        st.error("Data fetch failed.")
         return
 
-    # --- ROW 1: THE MACRO VIEW ---
+    # --- ROW 1 ---
     c1, c2 = st.columns([1, 1])
-    
     with c1:
         st.subheader("1. Macro Regime")
         macro_df, vix_state = calculate_macro_regime(closes)
-        
-        # KPI Row
         k1, k2 = st.columns(2)
         k1.metric("VIX Curve", vix_state, delta_color="inverse")
         if 'DX-Y.NYB' in closes.columns:
             curr = closes['DX-Y.NYB'].iloc[-1]
             prev = closes['DX-Y.NYB'].iloc[-2]
             k2.metric("DXY Index", f"{curr:.2f}", f"{(curr/prev-1)*100:.2f}%")
-            
         st.plotly_chart(plot_macro(macro_df), use_container_width=True)
 
     with c2:
-        st.subheader("2. Rotation (RRG)")
-        rrg_df = calculate_rrg(closes, SECTOR_TICKERS)
+        st.subheader("2. Sector Rotation (Flow)")
+        # Now calling the Tail version
+        rrg_df = calculate_rrg_with_tails(closes, SECTOR_TICKERS, tail_len=15)
         if not rrg_df.empty:
-            st.plotly_chart(plot_rrg(rrg_df), use_container_width=True)
+            st.plotly_chart(plot_rrg_tails(rrg_df), use_container_width=True)
         else:
             st.warning("Insufficient RRG Data")
 
     st.divider()
 
-    # --- ROW 2: THE EXECUTION VIEW (Expanded) ---
+    # --- ROW 2 ---
     st.subheader("3. Volatility Physics (Execution)")
-    
     c3, c4 = st.columns([2, 1])
-    
     with c3:
-        # The New Visual
         scanner_df = calculate_vol_scanner(closes, ACTIVE_TICKERS)
         if not scanner_df.empty:
             st.plotly_chart(plot_vol_landscape(scanner_df), use_container_width=True)
-        else:
-            st.warning("No Scanner Data")
             
     with c4:
-        # The Raw Data
         st.caption("Active Watchlist Metrics")
         if not scanner_df.empty:
-            # Sort by absolute Z-Score (Most extended first)
-            display_df = scanner_df.copy()
-            display_df['Abs_Z'] = display_df['Z_Score'].abs()
-            display_df = display_df.sort_values('Abs_Z', ascending=False).drop(columns=['Abs_Z'])
-            
+            display_df = scanner_df.sort_values('Vol_Ratio', ascending=False)
             st.dataframe(
                 display_df[['Ticker', 'Z_Score', 'Vol_Ratio']].style
                 .background_gradient(subset=['Vol_Ratio'], cmap='RdYlGn_r', vmin=0.5, vmax=1.5)
                 .format({'Z_Score': "{:.2f}σ", 'Vol_Ratio': "{:.2f}"}),
-                use_container_width=True,
-                height=350
+                use_container_width=True, height=350
             )
 
 if __name__ == "__main__":
