@@ -229,38 +229,45 @@ def get_simulated_prices(df_hist, neighbors, days_forward, current_price):
     sim_prices = [current_price * (1 + r) for r in future_returns]
     return np.array(sim_prices)
 
+# --- RE-ADDED THIS MISSING FUNCTION ---
+def calculate_option_fair_value(simulated_prices, strike, opt_type):
+    """
+    Calculates the scalar Fair Value (Mean Payoff) of an option
+    based on a distribution of simulated prices.
+    """
+    if len(simulated_prices) == 0: return 0
+    if opt_type == 'Call':
+        payoffs = np.maximum(0, simulated_prices - strike)
+    else:
+        payoffs = np.maximum(0, strike - simulated_prices)
+    return np.mean(payoffs)
+
+# --- USED FOR KELLY CALCS ---
+def calculate_option_payoff_vector(simulated_prices, strike, opt_type):
+    """
+    Returns the full vector of payoffs for Kelly calculation.
+    """
+    if len(simulated_prices) == 0: return np.array([])
+    if opt_type == 'Call': return np.maximum(0, simulated_prices - strike)
+    else: return np.maximum(0, strike - simulated_prices)
+
 def calculate_kelly(payoffs, cost):
-    """
-    Calculates Kelly Criterion based on the simulated payoff distribution.
-    Kelly % = W - (1-W)/R
-    W = Probability of Winning
-    R = Avg_Win / Avg_Loss (Reward to Risk Ratio)
-    """
     net_pnl = payoffs - cost
-    
     wins = net_pnl[net_pnl > 0]
     losses = net_pnl[net_pnl <= 0]
     
     if len(wins) == 0: return 0.0
-    if len(losses) == 0: return 1.0 # Only wins
+    if len(losses) == 0: return 1.0 
     
     win_prob = len(wins) / len(net_pnl)
     avg_win = np.mean(wins)
     avg_loss = abs(np.mean(losses))
     
     if avg_loss == 0: return 1.0
-    
     reward_risk = avg_win / avg_loss
-    
     kelly_f = win_prob - (1 - win_prob) / reward_risk
     
-    # Return 0 if negative, max 1.0
     return max(0.0, min(1.0, kelly_f))
-
-def calculate_option_payoff_vector(simulated_prices, strike, opt_type):
-    if len(simulated_prices) == 0: return np.array([])
-    if opt_type == 'Call': return np.maximum(0, simulated_prices - strike)
-    else: return np.maximum(0, strike - simulated_prices)
 
 def generate_strategies(df_chain, sim_prices, spot):
     strategies = []
