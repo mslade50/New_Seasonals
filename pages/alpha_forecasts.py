@@ -10,14 +10,14 @@ import datetime
 # CONFIGURATION
 # -----------------------------------------------------------------------------
 CSV_PATH = "seasonal_ranks.csv"
-MARKET_METRICS_PATH = "market_metrics_full_export.csv" # Optional
+MARKET_METRICS_PATH = "market_metrics_full_export.csv" 
 
 # SCANNER SETTINGS
 NEIGHBORS_K = 50           # Number of similar historical dates to find
-FWD_WINDOW = 5             # Target Horizon (Days)
+FWD_WINDOWS = [5, 10, 21]  # Target Horizons (Days) - COMPUTING ALL 3
 MIN_HISTORY_YRS = 10       # Minimum history required to trust the scan
 
-# PARED DOWN UNIVERSE (Your existing list)
+# UNIVERSE
 SELECTED_UNIVERSE = [
     'SPY', 'QQQ', 'IWM', 'DIA','SMH',
     'GLD', 'SLV', 'UNG', 'OIH', 'CEF','FCX',
@@ -36,21 +36,24 @@ SELECTED_UNIVERSE = [
     'RTX', 'LMT','BA', 'GE', 
 ]
 
-# --- NEW: SEGMENT DEFINITIONS FOR GROUPING ---
-# Note: Tickers can appear in multiple groups (e.g., NVDA in both Semis and Mega Tech)
+# SECTOR DEFINITIONS
 SECTOR_DEFINITIONS = {
     "Indices": ['SPY', 'QQQ', 'IWM', 'DIA'],
     "Semis (Breakout)": ['SMH', 'NVDA', 'AMD', 'AVGO', 'QCOM'], 
     "Mega Cap Tech": ['AAPL', 'MSFT', 'NVDA', 'GOOG', 'AMZN', 'META', 'AMD', 'AVGO', 'ORCL', 'QCOM', 'NFLX', 'TSLA'],
-    "Commodities & Vol": ['GLD', 'SLV', 'UNG', 'OIH', 'CEF', 'FCX', 'UVXY', '^VIX'],
-    "Sector ETFs": ['XLK', 'XLF', 'XLV', 'XLY', 'XLP', 'XLE', 'XLI', 'XLU', 'XLB', 'IBB', 'XBI', 'KRE', 'XRT', 'XHB', 'XOP', 'XME', 'VNQ', 'IYR', 'ITA', 'ITB', 'IHI'],
+    "PMs": ['GLD', 'SLV','CEF'],
+    "Commodities": ['UNG', 'OIH', 'CEF', 'FCX','USO','XME'],
+    "Vol": ['UVXY', '^VIX'],
+    "Sector ETFs": ['XLK', 'XLF', 'XLV', 'XLY', 'XLP', 'XLE', 'XLI', 'XLU', 'XLB', 'IBB', 'XBI', 'KRE', 'XRT', 'XHB', 'VNQ', 'IYR', 'ITA', 'ITB', 'IHI'],
     "Banks": ['JPM', 'BAC', 'GS', 'MS', 'C'],
     "Consumer & Payments": ['COST', 'HD', 'NKE', 'SBUX', 'DIS', 'FDX', 'LUV', 'V', 'AXP'],
     "Healthcare": ['LLY', 'UNH', 'JNJ', 'PFE', 'MRK'],
-    "Industrials & Energy": ['CAT', 'UNP', 'XOM', 'CVX', 'DE'],
+    "Industrials & Energy": ['CAT', 'UNP', 'XOM', 'CVX', 'DE','XOP'],
     "Staples": ['PG', 'KO', 'WMT', 'MCD', 'PEP'],
     "Software": ['CRM', 'NOW'],
-    "Defense": ['RTX', 'LMT', 'BA', 'GE']
+    "Defense": ['RTX', 'LMT', 'BA', 'GE'],
+    "FX": ['USDJPY=X','DX-Y.NYB','USDEUR=X', 'USDCHF=X', 'USDAUD=X', 'USDMXN=X'],
+    "Crypto": ['BTC-USD', 'ETH-USD'],
 }
 
 # -----------------------------------------------------------------------------
@@ -78,21 +81,18 @@ def load_seasonal_map():
 
 @st.cache_data(show_spinner=False)
 def load_market_metrics():
-    """Loads external market breadth metrics if available."""
     try:
         df = pd.read_csv(MARKET_METRICS_PATH)
         df['date'] = pd.to_datetime(df['date'], errors='coerce')
         df = df.dropna(subset=['date'])
         df = df.set_index('date').sort_index()
-        # Create a mock rank for Total Net Highs if columns exist
         if 'net_new_highs' in df.columns:
-             # Simple rolling rank logic just to have the feature
              df['Mkt_Total_NH_5d_Rank'] = df['net_new_highs'].rolling(5).mean().expanding().rank(pct=True) * 100
              df['Mkt_Total_NH_21d_Rank'] = df['net_new_highs'].rolling(21).mean().expanding().rank(pct=True) * 100
              return df[['Mkt_Total_NH_5d_Rank', 'Mkt_Total_NH_21d_Rank']]
         return pd.DataFrame()
     except:
-        return pd.DataFrame() # Fail silently if file missing
+        return pd.DataFrame() 
 
 def get_sznl_val_series(ticker, dates, sznl_map):
     t_map = sznl_map.get(ticker, {})
@@ -111,9 +111,7 @@ def get_batch_data(ticker_list):
     
     for i, t in enumerate(tickers):
         try:
-            # Fetch max to ensure we have enough history for Euclidean matching
             df = yf.download(t, period="25y", progress=False, auto_adjust=True)
-            
             if isinstance(df.columns, pd.MultiIndex):
                 if t in df.columns.levels[0]:
                     df = df[t]
@@ -121,7 +119,7 @@ def get_batch_data(ticker_list):
                     df.columns = [c[0] for c in df.columns]
             
             df.index = pd.to_datetime(df.index)
-            if len(df) > 500: # Minimum requirement
+            if len(df) > 500: 
                 data_dict[t] = df
         except:
             pass
@@ -129,7 +127,6 @@ def get_batch_data(ticker_list):
     
     progress_bar.empty()
     timestamp = pd.Timestamp.now(tz='US/Eastern').strftime("%Y-%m-%d %I:%M %p %Z")
-    
     return data_dict, timestamp
 
 # -----------------------------------------------------------------------------
@@ -155,16 +152,16 @@ def calculate_features_and_rank(df, sznl_map, ticker, market_metrics=None):
     # Seasonality
     df['Seasonal'] = get_sznl_val_series(ticker, df.index, sznl_map)
 
-    # 3. Market Metrics Join (if available)
+    # 3. Market Metrics
     if market_metrics is not None and not market_metrics.empty:
         df = df.join(market_metrics, how='left')
         df.update(df.filter(regex='^Mkt_').ffill(limit=3))
 
-    # 4. Target: 5D Forward Return
-    df[f'FwdRet_{FWD_WINDOW}d'] = (df['Close'].shift(-FWD_WINDOW) / df['Close'] - 1.0) * 100.0
+    # 4. Targets: Calculate ALL windows
+    for w in FWD_WINDOWS:
+        df[f'FwdRet_{w}d'] = (df['Close'].shift(-w) / df['Close'] - 1.0) * 100.0
 
-    # 5. Rank Transformation (0-100)
-    # We rank everything to normalize for Euclidean Distance
+    # 5. Rank Transformation
     vars_to_rank = [
         'Ret_5d', 'Ret_10d', 'Ret_21d', 'Ret_252d', 
         'RealVol_21d', 'RealVol_63d', 
@@ -172,24 +169,20 @@ def calculate_features_and_rank(df, sznl_map, ticker, market_metrics=None):
     ]
     
     rank_cols = []
-    
-    # Rank Seasonality (It's already 0-100, but ensuring float)
     df['Seasonal_Rank'] = df['Seasonal']
     rank_cols.append('Seasonal_Rank')
 
-    # Rank Market Metrics if they exist
     if 'Mkt_Total_NH_5d_Rank' in df.columns:
         rank_cols.extend(['Mkt_Total_NH_5d_Rank', 'Mkt_Total_NH_21d_Rank'])
 
-    # Rank Technicals
     for v in vars_to_rank:
         if v in df.columns:
             col_name = v + '_Rank'
             df[col_name] = df[v].expanding(min_periods=252).rank(pct=True) * 100.0
             rank_cols.append(col_name)
 
-    # Clean data
-    df = df.dropna(subset=rank_cols + [f'FwdRet_{FWD_WINDOW}d'])
+    # Drop NA based on FEATURES, not targets (Targets will be NA for today's row)
+    df = df.dropna(subset=rank_cols)
     
     return df, rank_cols
 
@@ -201,23 +194,24 @@ def run_euclidean_scanner(data_dict, sznl_map, market_metrics):
         
         if processed_df.empty or len(processed_df) < 252: continue
         
-        # --- THE EUCLIDEAN MATCHING LOGIC ---
-        
         # 1. Get Today's Feature Vector
         current_row = processed_df.iloc[-1]
         target_vec = current_row[rank_cols].astype(float).values
         
-        # 2. Get History (Excluding today)
-        # Important: exclude overlapping forward windows if backtesting, 
-        # but here we just exclude the very last row to find neighbors in the past
-        history = processed_df.iloc[:-FWD_WINDOW].copy() 
+        # 2. Get History (Must have valid targets for the MAX window)
+        # We need to ensure we don't pick a neighbor that doesn't have a 21d future
+        max_lookahead = max(FWD_WINDOWS)
+        history = processed_df.iloc[:-max_lookahead].copy()
         
+        # Double check targets exist
+        target_cols = [f'FwdRet_{w}d' for w in FWD_WINDOWS]
+        history = history.dropna(subset=target_cols)
+
         if len(history) < NEIGHBORS_K: continue
 
         feature_matrix = history[rank_cols].astype(float).values
         
         # 3. Calculate Euclidean Distance
-        # dist = sqrt(sum((x - y)^2))
         diff = feature_matrix - target_vec
         dist_sq = np.sum(diff**2, axis=1)
         history['Euclidean_Dist'] = np.sqrt(dist_sq)
@@ -225,52 +219,44 @@ def run_euclidean_scanner(data_dict, sznl_map, market_metrics):
         # 4. Select Neighbors
         nearest = history.nsmallest(NEIGHBORS_K, 'Euclidean_Dist')
         
-        # 5. Calculate Forecast Stats
-        outcomes = nearest[f'FwdRet_{FWD_WINDOW}d']
-        
-        mean_ret = outcomes.mean()
-        median_ret = outcomes.median()
-        win_rate = (outcomes > 0).mean() * 100
-        
-        # Baseline (Full history mean)
-        baseline = processed_df[f'FwdRet_{FWD_WINDOW}d'].mean()
-        alpha = mean_ret - baseline
-        
-        # Volatility of the neighbors (Uncertainty)
-        sigma_forecast = outcomes.std()
-        
-        # Z-Score of the Alpha (Is this signal significant?)
-        alpha_z = alpha / (processed_df[f'FwdRet_{FWD_WINDOW}d'].std() / np.sqrt(NEIGHBORS_K))
-
-        results.append({
+        # 5. Calculate Forecast Stats for ALL Windows
+        row_data = {
             "Ticker": ticker,
             "Price": current_row['Close'],
-            "Euclidean_Alpha": alpha,
-            "Exp_Return": mean_ret,
-            "Baseline": baseline,
-            "Win_Rate": win_rate,
-            "Alpha_Z": alpha_z,
-            "Sigma": sigma_forecast,
             "Last_Date": processed_df.index[-1]
-        })
+        }
+        
+        for w in FWD_WINDOWS:
+            outcomes = nearest[f'FwdRet_{w}d']
+            mean_ret = outcomes.mean()
+            baseline = processed_df[f'FwdRet_{w}d'].mean()
+            alpha = mean_ret - baseline
+            win_rate = (outcomes > 0).mean() * 100
+            
+            # Save to row
+            row_data[f"Exp_Ret_{w}d"] = mean_ret
+            row_data[f"Alpha_{w}d"] = alpha
+            row_data[f"Win_Rate_{w}d"] = win_rate
+            
+            # Z-Score for 5d only (primary sort metric usually)
+            if w == 5:
+                row_data["Alpha_Z"] = alpha / (processed_df[f'FwdRet_{w}d'].std() / np.sqrt(NEIGHBORS_K))
+
+        results.append(row_data)
 
     return pd.DataFrame(results)
 
 # -----------------------------------------------------------------------------
 # UI
 # -----------------------------------------------------------------------------
-# -----------------------------------------------------------------------------
-# UI (UPDATED WITH SESSION STATE CACHING)
-# -----------------------------------------------------------------------------
 def main():
     st.set_page_config(layout="wide", page_title="Euclidean Alpha Scanner")
     
-    st.title("🧪 Euclidean Similarity Scanner (5D Horizon)")
+    st.title("🧪 Euclidean Similarity Scanner (Multi-Horizon)")
     st.markdown("""
-    This tool projects **5-Day Returns** by finding the **50 most mathematically similar historical days** for each ticker based on a multi-factor vector (Seasonality, Momentum, Volatility, Volume).
+    Projects **5, 10, and 21-Day Returns** by identifying the **50 most mathematically similar historical days**.
     """)
     
-    # Load static maps (fast)
     sznl_map = load_seasonal_map()
     mkt_metrics = load_market_metrics()
     active_tickers_str = ", ".join(SELECTED_UNIVERSE)
@@ -289,62 +275,56 @@ def main():
             st.text_area("Active Universe", value=active_tickers_str, height=60, disabled=True)
         with col2:
             st.metric("Neighbors (K)", NEIGHBORS_K)
-            # This button triggers the heavy lift
             if st.button("Run Euclidean Scan", type="primary", use_container_width=True):
                 with st.spinner(f"Fetching Data & Calculating Euclidean Distances..."):
                     
-                    # A. Fetch Data
                     data_dict, fetch_time = get_batch_data(SELECTED_UNIVERSE)
                     
                     if not data_dict:
                         st.error("No valid data found.")
                     else:
-                        # B. Run Scanner
                         df_res = run_euclidean_scanner(data_dict, sznl_map, mkt_metrics)
                         
                         if df_res.empty:
                             st.warning("No results generated.")
                         else:
-                            # C. SAVE TO SESSION STATE
                             st.session_state['raw_data'] = data_dict
-                            st.session_state['scan_results'] = df_res.sort_values("Euclidean_Alpha", ascending=False)
+                            st.session_state['scan_results'] = df_res.sort_values("Alpha_5d", ascending=False)
                             st.success(f"Scan Complete! Processed {len(df_res)} tickers.")
 
     st.divider()
 
     # --- 3. RENDER RESULTS (FROM STATE) ---
-    # Only render if we have data in the state
     if st.session_state['scan_results'] is not None:
         
         results_df = st.session_state['scan_results']
         raw_data = st.session_state['raw_data']
         
-        # A. Summary Tables
-        top_bulls = results_df.head(10)
-        top_bears = results_df.tail(10).sort_values("Euclidean_Alpha", ascending=True)
+        # A. Summary Tables (Focus on 5d Alpha for sorting, but show all alphas)
+        # Create a display friendly view
+        display_cols = ['Ticker', 'Alpha_5d', 'Alpha_10d', 'Alpha_21d', 'Exp_Ret_5d', 'Win_Rate_5d', 'Alpha_Z']
+        
+        top_bulls = results_df.sort_values("Alpha_5d", ascending=False).head(10)
+        top_bears = results_df.sort_values("Alpha_5d", ascending=True).head(10)
         
         c1, c2 = st.columns(2)
         with c1:
-            st.subheader("🚀 Top Bullish Setups")
+            st.subheader("🚀 Top Bullish Setups (5d Sorted)")
             st.dataframe(
-                top_bulls[['Ticker', 'Euclidean_Alpha', 'Exp_Return', 'Win_Rate', 'Alpha_Z']].style.format({
-                    'Euclidean_Alpha': "+{:.2f}%",
-                    'Exp_Return': "{:.2f}%",
-                    'Win_Rate': "{:.1f}%",
-                    'Alpha_Z': "{:.2f}"
-                }).background_gradient(subset=['Euclidean_Alpha'], cmap='Greens'),
+                top_bulls[display_cols].style.format({
+                    'Alpha_5d': "+{:.2f}%", 'Alpha_10d': "+{:.2f}%", 'Alpha_21d': "+{:.2f}%",
+                    'Exp_Ret_5d': "{:.2f}%", 'Win_Rate_5d': "{:.1f}%", 'Alpha_Z': "{:.2f}"
+                }).background_gradient(subset=['Alpha_5d', 'Alpha_10d', 'Alpha_21d'], cmap='Greens'),
                 use_container_width=True, hide_index=True
             )
             
         with c2:
-            st.subheader("🐻 Top Bearish Setups")
+            st.subheader("🐻 Top Bearish Setups (5d Sorted)")
             st.dataframe(
-                top_bears[['Ticker', 'Euclidean_Alpha', 'Exp_Return', 'Win_Rate', 'Alpha_Z']].style.format({
-                    'Euclidean_Alpha': "{:.2f}%",
-                    'Exp_Return': "{:.2f}%",
-                    'Win_Rate': "{:.1f}%",
-                    'Alpha_Z': "{:.2f}"
-                }).background_gradient(subset=['Euclidean_Alpha'], cmap='Reds_r'),
+                top_bears[display_cols].style.format({
+                    'Alpha_5d': "{:.2f}%", 'Alpha_10d': "{:.2f}%", 'Alpha_21d': "{:.2f}%",
+                    'Exp_Ret_5d': "{:.2f}%", 'Win_Rate_5d': "{:.1f}%", 'Alpha_Z': "{:.2f}"
+                }).background_gradient(subset=['Alpha_5d', 'Alpha_10d', 'Alpha_21d'], cmap='Reds_r'),
                 use_container_width=True, hide_index=True
             )
         
@@ -357,95 +337,92 @@ def main():
         
         with col_sel:
             selected_ticker = st.selectbox("Select Ticker to Inspect", results_df['Ticker'].tolist())
+            inspect_window = st.selectbox("Forecast Horizon", [5, 10, 21], index=0)
             
             sel_row = results_df[results_df['Ticker'] == selected_ticker].iloc[0]
-            st.metric("Projected 5D Return", f"{sel_row['Exp_Return']:.2f}%", delta=f"{sel_row['Euclidean_Alpha']:.2f}% vs Baseline")
-            st.metric("Win Rate", f"{sel_row['Win_Rate']:.1f}%")
-            st.metric("Z-Score", f"{sel_row['Alpha_Z']:.2f}")
+            
+            # Metrics based on selection
+            alpha_val = sel_row[f'Alpha_{inspect_window}d']
+            exp_val = sel_row[f'Exp_Ret_{inspect_window}d']
+            win_val = sel_row[f'Win_Rate_{inspect_window}d']
+            
+            st.metric(f"Projected {inspect_window}D Return", f"{exp_val:.2f}%", delta=f"{alpha_val:.2f}% vs Baseline")
+            st.metric("Win Rate", f"{win_val:.1f}%")
+            if inspect_window == 5:
+                st.metric("Z-Score (5d)", f"{sel_row['Alpha_Z']:.2f}")
 
         with col_viz:
-            # Re-calc for viz
             df_viz, rank_cols = calculate_features_and_rank(raw_data[selected_ticker], sznl_map, selected_ticker, mkt_metrics)
             
-            # Get Neighbors
+            # Re-Find Neighbors
             current_vec = df_viz.iloc[-1][rank_cols].astype(float).values
-            hist_viz = df_viz.iloc[:-FWD_WINDOW].copy()
+            max_look = max(FWD_WINDOWS)
+            hist_viz = df_viz.iloc[:-max_look].copy().dropna(subset=[f'FwdRet_{w}d' for w in FWD_WINDOWS])
+            
             dists = np.sqrt(np.sum((hist_viz[rank_cols].values - current_vec)**2, axis=1))
             hist_viz['Euclidean_Dist'] = dists
-            
             neighbors = hist_viz.nsmallest(NEIGHBORS_K, 'Euclidean_Dist')
             
             # Draw Chart
             fig = go.Figure()
+            target_col = f'FwdRet_{inspect_window}d'
             
             fig.add_trace(go.Histogram(
-                x=neighbors[f'FwdRet_{FWD_WINDOW}d'],
-                nbinsx=20,
-                name='Neighbor Outcomes',
-                marker_color='royalblue',
-                opacity=0.7
+                x=neighbors[target_col], nbinsx=25,
+                name='Neighbor Outcomes', marker_color='royalblue', opacity=0.7
             ))
             
-            mean_val = neighbors[f'FwdRet_{FWD_WINDOW}d'].mean()
+            mean_val = neighbors[target_col].mean()
             fig.add_vline(x=mean_val, line_dash="dash", line_color="orange", annotation_text=f"Mean: {mean_val:.2f}%")
             fig.add_vline(x=0, line_color="white", line_width=1)
             
             fig.update_layout(
-                title=f"Distribution of 5D Returns for {selected_ticker}'s Top {NEIGHBORS_K} Matches",
-                xaxis_title="5D Forward Return (%)",
+                title=f"Distribution of {inspect_window}D Returns for {selected_ticker}'s Matches",
+                xaxis_title=f"{inspect_window}D Forward Return (%)",
                 yaxis_title="Count",
-                template="plotly_dark",
-                height=400,
-                bargap=0.1
+                template="plotly_dark", height=400, bargap=0.1
             )
-            
             st.plotly_chart(fig, use_container_width=True)
             
             with st.expander("See Neighbor Details"):
                 st.dataframe(
-                    neighbors[['Close', 'Euclidean_Dist', f'FwdRet_{FWD_WINDOW}d']].sort_values('Euclidean_Dist').style.format({
-                        'Close': "{:.2f}",
-                        'Euclidean_Dist': "{:.2f}",
-                        f'FwdRet_{FWD_WINDOW}d': "{:+.2f}%"
-                    }),
-                    use_container_width=True
+                    neighbors[['Close', 'Euclidean_Dist', target_col]].sort_values('Euclidean_Dist').style.format({
+                        'Close': "{:.2f}", 'Euclidean_Dist': "{:.2f}", target_col: "{:+.2f}%"
+                    }), use_container_width=True
                 )
 
         st.divider()
 
-        # --- C. SECTOR AGGREGATES (NEW SECTION) ---
-        st.subheader("📊 Sector & Segment Aggregates")
-        st.caption("Average forecasted return of tickers within each defined segment.")
+        # --- C. SECTOR AGGREGATES (MULTI-HORIZON) ---
+        st.subheader("📊 Sector & Segment Aggregates (Curve)")
+        st.caption("Average Expected Return across time horizons.")
 
         sector_stats = []
         for sector, tickers in SECTOR_DEFINITIONS.items():
-            # Filter results for tickers in this sector that exist in the result set
             matches = results_df[results_df['Ticker'].isin(tickers)]
             
             if not matches.empty:
                 sector_stats.append({
                     "Segment": sector,
-                    "Avg_Exp_Return": matches['Exp_Return'].mean(),
-                    "Avg_Alpha": matches['Euclidean_Alpha'].mean(),
-                    "Avg_Win_Rate": matches['Win_Rate'].mean(),
+                    "Exp Ret 5d": matches['Exp_Ret_5d'].mean(),
+                    "Exp Ret 10d": matches['Exp_Ret_10d'].mean(),
+                    "Exp Ret 21d": matches['Exp_Ret_21d'].mean(),
+                    "Alpha 5d": matches['Alpha_5d'].mean(),
                     "Count": len(matches)
                 })
         
         if sector_stats:
-            sector_df = pd.DataFrame(sector_stats).sort_values("Avg_Exp_Return", ascending=False)
+            sector_df = pd.DataFrame(sector_stats).sort_values("Exp Ret 5d", ascending=False)
             
             st.dataframe(
                 sector_df.style.format({
-                    "Avg_Exp_Return": "{:.2f}%",
-                    "Avg_Alpha": "{:+.2f}%",
-                    "Avg_Win_Rate": "{:.1f}%",
-                }).background_gradient(subset=['Avg_Exp_Return'], cmap="RdBu", vmin=-1.0, vmax=1.0),
-                use_container_width=True,
-                hide_index=True
+                    "Exp Ret 5d": "{:.2f}%", "Exp Ret 10d": "{:.2f}%", "Exp Ret 21d": "{:.2f}%",
+                    "Alpha 5d": "{:+.2f}%"
+                }).background_gradient(subset=['Exp Ret 5d', 'Exp Ret 10d', 'Exp Ret 21d'], cmap="RdBu", vmin=-1.0, vmax=1.0),
+                use_container_width=True, hide_index=True
             )
         else:
             st.info("No sector data available.")
 
 if __name__ == "__main__":
     main()
-
