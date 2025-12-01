@@ -3,6 +3,7 @@ import pandas as pd
 import numpy as np
 import yfinance as yf
 import datetime
+import gspread
 from pandas.tseries.offsets import BusinessDay
 
 # -----------------------------------------------------------------------------
@@ -202,6 +203,53 @@ def get_sznl_val_series(ticker, dates, sznl_map):
     if not t_map: return pd.Series(50.0, index=dates)
     mds = dates.map(lambda x: (x.month, x.day))
     return mds.map(t_map).fillna(50.0)
+
+# -----------------------------------------------------------------------------
+# DATA LOGGING (GOOGLE SHEETS)
+# -----------------------------------------------------------------------------
+def save_signals_to_gsheet(dataframe, sheet_name='Trade_Signals_Log'):
+    """
+    Appends the signals DataFrame to a Google Sheet using Streamlit Secrets.
+    """
+    if dataframe.empty:
+        return
+
+    # 1. Add Timestamp
+    df_to_save = dataframe.copy()
+    df_to_save["Scan_Timestamp"] = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    
+    # Reorder columns to put Timestamp first
+    cols = ['Scan_Timestamp'] + [c for c in df_to_save.columns if c != 'Scan_Timestamp']
+    df_to_save = df_to_save[cols]
+
+    try:
+        # 2. Authenticate
+        # Check if we are in Streamlit Cloud (using st.secrets)
+        if "gcp_service_account" in st.secrets:
+            creds_dict = st.secrets["gcp_service_account"]
+            gc = gspread.service_account_from_dict(creds_dict)
+        else:
+            # Fallback to local file for testing
+            gc = gspread.service_account(filename='credentials.json')
+
+        # 3. Open the Sheet
+        sh = gc.open(sheet_name)
+        worksheet = sh.sheet1 
+        
+        # 4. Handle Headers: If sheet is empty, write headers
+        if not worksheet.get_values():
+            worksheet.append_row(df_to_save.columns.tolist())
+            
+        # 5. Append Data (convert to string to be safe)
+        data_list = df_to_save.astype(str).values.tolist()
+        worksheet.append_rows(data_list)
+        
+        st.toast(f"✅ Synced {len(dataframe)} signals to Google Sheets!")
+        
+    except FileNotFoundError:
+        st.error("❌ credentials.json not found (and no secrets detected).")
+    except Exception as e:
+        st.error(f"❌ Google Sheet Error: {e}")
 
 # -----------------------------------------------------------------------------
 # ENGINE
@@ -455,6 +503,7 @@ def main():
                             exit_date = (last_row.name + BusinessDay(strat['execution']['hold_days'])).date()
                             
                             signals.append({
+                                "Strategy_ID": strat['id'], # Added to log which strategy triggered
                                 "Ticker": ticker,
                                 "Date": last_row.name.date(),
                                 "Action": action,
@@ -474,6 +523,13 @@ def main():
                     st.success(f"✅ Found {len(signals)} Actionable Signals")
                     sig_df = pd.DataFrame(signals)
                     
+                    # -----------------------------------------------
+                    # SAVE TO GOOGLE SHEETS
+                    # -----------------------------------------------
+                    save_signals_to_gsheet(sig_df, sheet_name='Trade_Signals_Log')
+                    # -----------------------------------------------
+
+                    # For Display, format numbers nicely but don't save the formatted strings
                     st.dataframe(
                         sig_df.style.format({
                             "Entry": "${:.2f}", "Stop": "${:.2f}", "Target": "${:.2f}", "ATR": "{:.2f}"
