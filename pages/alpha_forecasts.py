@@ -10,18 +10,19 @@ import itertools
 # CONFIGURATION
 # -----------------------------------------------------------------------------
 CSV_PATH = "seasonal_ranks.csv"
-FWD_WINDOWS = [5, 10, 21] 
+
+# --- MODIFIED: ONLY PREDICT 5D RETURNS ---
+FWD_WINDOWS = [5] 
 RECENT_WINDOW_YEARS = 5  # The "Regime Check" Window
 
-# PARED DOWN UNIVERSE (~75 Tickers: All ETFs + Diversified Liquid Single Names)
-# This list ensures diversity across Sectors, Factors, and Asset Classes.
+# PARED DOWN UNIVERSE (~75 Tickers)
 SELECTED_UNIVERSE = [
     # --- INDICES & COMMODITIES (8) ---
     'SPY', 'QQQ', 'IWM', 'DIA', 'GLD', 'SLV', 'UNG', 'UVXY',
     
     # --- SECTOR & INDUSTRY ETFs (24) ---
-    'XLK', 'XLF', 'XLV', 'XLY', 'XLP', 'XLE', 'XLI', 'XLU', 'XLB', # Major Sectors
-    'SMH', 'IBB', 'XBI', 'KRE', 'XRT', 'XHB', 'XOP', 'XME', # Industries
+    'XLK', 'XLF', 'XLV', 'XLY', 'XLP', 'XLE', 'XLI', 'XLU', 'XLB',
+    'SMH', 'IBB', 'XBI', 'KRE', 'XRT', 'XHB', 'XOP', 'XME',
     'VNQ', 'IYR', 'ITA', 'ITB', 'IHI', 'OIH', 'CEF',
 
     # --- MEGA CAP TECH & SEMIS (12) ---
@@ -86,32 +87,23 @@ def get_batch_data(ticker_list):
     data_dict = {}
     progress_bar = st.progress(0)
     
-    # We download in one batch if possible, but yf.download structure 
-    # changes with multi-tickers, so iterating is safer for strict formatting.
-    # Given only 75 tickers, this is fast enough.
-    
     for i, t in enumerate(tickers):
         try:
             # Fetch 25 years to establish long-term baseline
             df = yf.download(t, period="25y", progress=False, auto_adjust=True)
             
-            # Handle MultiIndex if yfinance returns it
             if isinstance(df.columns, pd.MultiIndex):
-                # If ticker is the column level, extract it
                 if t in df.columns.levels[0]:
                     df = df[t]
                 else:
-                    # Flatten simplistic multiindex
                     df.columns = [c[0] for c in df.columns]
             
-            # Ensure index is datetime
             df.index = pd.to_datetime(df.index)
             
-            # Filter to last 25 years explicitly
             start_date = pd.Timestamp.now() - pd.DateOffset(years=25)
             df = df[df.index >= start_date]
             
-            if len(df) > 252: # Need at least 1 year of data
+            if len(df) > 252:
                 data_dict[t] = df
         except:
             pass
@@ -123,7 +115,7 @@ def get_batch_data(ticker_list):
     return data_dict, timestamp
 
 # -----------------------------------------------------------------------------
-# FEATURE ENGINEERING
+# FEATURE ENGINEERING (MODIFIED)
 # -----------------------------------------------------------------------------
 @st.cache_data(show_spinner=False)
 def calculate_internal_features(df, sznl_map, ticker):
@@ -133,42 +125,45 @@ def calculate_internal_features(df, sznl_map, ticker):
     df['LogRet'] = np.log(df['Close'] / df['Close'].shift(1))
     df['Vol_Daily'] = df['LogRet'].rolling(21).std()
 
-    # Momentum Windows
-    for w in [5, 10, 21, 63, 126, 252]:
+    # --- MODIFIED: Momentum Windows ---
+    # Removed 126d
+    for w in [5, 10, 21, 63, 252]:
         df[f'Ret_{w}d'] = df['Close'].pct_change(w)
 
-    # Realized Volatility Windows (Annualized)
-    for w in [21, 63]:
+    # --- MODIFIED: Realized Volatility ---
+    # Removed 63d, kept only 21d
+    for w in [21]:
         df[f'RealVol_{w}d'] = df['LogRet'].rolling(w).std() * np.sqrt(252) * 100.0
     
-    # Volatility Regimes (Expansion/Contraction)
-    df['VolChange_5d']  = df['RealVol_21d'] - df['RealVol_63d'].shift(5)
-    df['VolChange_21d'] = df['RealVol_21d'] - df['RealVol_63d']
+    # --- REMOVED: Volatility Regimes (VolChange 5d/21d) ---
+    # The previous block calculating VolChange_5d and VolChange_21d was deleted here.
 
-    # Relative Volume
-    for w in [5, 21]:
+    # --- MODIFIED: Relative Volume ---
+    # Removed 5d, kept only 21d
+    for w in [21]:
         df[f'VolRatio_{w}d'] = df['Volume'].rolling(w).mean() / df['Volume'].rolling(63).mean()
 
     # Seasonality Injection
     df['Seasonal'] = get_sznl_val_series(ticker, df.index, sznl_map)
 
-    # Ranking (Percentile of own history)
+    # --- MODIFIED: Ranking List ---
+    # Updated to reflect removed features
     vars_to_rank = [
         'Seasonal',
         'Ret_5d', 'Ret_10d', 'Ret_21d', 'Ret_63d', 'Ret_252d',
-        'RealVol_21d', 'RealVol_63d', 
-        'VolChange_5d', 'VolChange_21d',
-        'VolRatio_5d', 'VolRatio_21d'
+        'RealVol_21d', 
+        # 'RealVol_63d' -> REMOVED
+        # 'VolChange_5d', 'VolChange_21d' -> REMOVED
+        # 'VolRatio_5d' -> REMOVED
+        'VolRatio_21d'
     ]
     
     rank_cols = []
     for v in vars_to_rank:
         rank_col = v + '_Rank'
         if v == 'Seasonal':
-            # Seasonal is already a 0-100 rank
             df[rank_col] = df[v]
         else:
-            # Expand window rank
             df[rank_col] = df[v].expanding(min_periods=252).rank(pct=True) * 100.0
         rank_cols.append(rank_col)
 
@@ -180,9 +175,8 @@ def calculate_internal_features(df, sznl_map, ticker):
         # Raw Return
         df[col_raw] = (df['Close'].shift(-w) / df['Close']) - 1.0
         
-        # Sigma-adjusted Return (Edge normalized by volatility)
+        # Sigma-adjusted Return
         expected_move = df['Vol_Daily'] * np.sqrt(w)
-        # Avoid division by zero
         df[col_sigma] = df[col_raw] / expected_move.replace(0, np.nan)
 
     # Drop rows where we can't calculate ranks or targets
@@ -200,7 +194,6 @@ def run_internal_scanner(data_dict, sznl_map):
         if processed_df.empty: continue
         
         # --- BASELINE CALCULATION (Full vs Recent) ---
-        # We separate baselines to detect if the ticker has changed character recently
         cutoff_date = processed_df.index[-1] - pd.DateOffset(years=RECENT_WINDOW_YEARS)
         
         full_df = processed_df
@@ -212,13 +205,11 @@ def run_internal_scanner(data_dict, sznl_map):
         for w in FWD_WINDOWS:
             col = f'FwdRet_{w}d_Sigma'
             baselines_full[w]   = full_df[col].mean()
-            # If recent_df is too small, fallback to full baseline
             baselines_recent[w] = recent_df[col].mean() if len(recent_df) > 50 else baselines_full[w]
         
-        # Get Current State (Most recent row)
+        # Get Current State
         current_state = processed_df.iloc[-1]
         
-        # Scan all combinations of technical factors
         feature_pairs = list(itertools.combinations(rank_cols, 2))
         
         for x_col, y_col in feature_pairs:
@@ -226,14 +217,13 @@ def run_internal_scanner(data_dict, sznl_map):
             curr_x = current_state[x_col]
             curr_y = current_state[y_col]
             
-            # Discretize Current State into Regimes (Upper/Lower/Mid)
+            # Discretize Current State
             x_tail = "UPPER" if curr_x > 75 else ("LOWER" if curr_x < 25 else "MID")
             y_tail = "UPPER" if curr_y > 75 else ("LOWER" if curr_y < 25 else "MID")
             
-            # Optimization: Ignore "Mid" signals as they are usually noise
             if x_tail == "MID" or y_tail == "MID": continue
             
-            # Create Masks to find historical analogs
+            # Create Masks
             if x_tail == "UPPER": mask_x = processed_df[x_col] >= 75
             else:                 mask_x = processed_df[x_col] <= 25
                 
@@ -242,14 +232,12 @@ def run_internal_scanner(data_dict, sznl_map):
             
             valid_mask = mask_x & mask_y
             
-            # Split into Full and Recent History
             mask_full = valid_mask
             mask_recent = valid_mask & (processed_df.index >= cutoff_date)
             
             match_count_full = mask_full.sum()
             match_count_recent = mask_recent.sum()
             
-            # Need minimum sample size
             if match_count_full < 10: continue
             
             # --- CALCULATE ALPHA FOR BOTH REGIMES ---
@@ -265,7 +253,6 @@ def run_internal_scanner(data_dict, sznl_map):
                 if real_count < 10: continue
                 
                 avg_sigma_full = outcomes_sigma.mean()
-                # Alpha = Outcome - Baseline
                 alpha_full = avg_sigma_full - baselines_full[fwd_w]
                 
                 win_rate = (outcomes_raw > 0).sum() / real_count * 100
@@ -273,23 +260,20 @@ def run_internal_scanner(data_dict, sznl_map):
                 
                 # RECENT STATS
                 if match_count_recent < 3:
-                    alpha_recent = np.nan # Not enough recent signals
-                    status = "👻 Ghost"   # Signal hasn't fired recently
+                    alpha_recent = np.nan
+                    status = "👻 Ghost"
                 else:
                     outcomes_sigma_recent = processed_df.loc[mask_recent, col_sigma]
                     avg_sigma_recent = outcomes_sigma_recent.mean()
                     alpha_recent = avg_sigma_recent - baselines_recent[fwd_w]
                     
-                    # DETERMINE STATUS (Stability Check)
-                    # Bullish Signal Logic
                     if alpha_full > 0:
                         if alpha_recent < 0: status = "⚠️ Decaying"
                         elif alpha_recent > (alpha_full * 1.2): status = "🚀 Accelerating"
                         else: status = "✅ Stable"
-                    # Bearish Signal Logic
                     else:
                         if alpha_recent > 0: status = "⚠️ Decaying"
-                        elif alpha_recent < (alpha_full * 1.2): status = "🚀 Accelerating" # More negative
+                        elif alpha_recent < (alpha_full * 1.2): status = "🚀 Accelerating"
                         else: status = "✅ Stable"
 
                 results.append({
@@ -310,31 +294,22 @@ def run_internal_scanner(data_dict, sznl_map):
     return pd.DataFrame(results)
 
 def generate_ensemble(df_results, alpha_threshold=0.25):
-    """
-    Aggregates signals, but deprioritizes 'Decaying' or 'Ghost' signals.
-    """
     if df_results.empty: return pd.DataFrame()
     
-    # FILTER: Exclude Decaying/Ghost signals from the "Conviction Score"
-    # We want to build the ensemble only on Stable or Accelerating edge.
     valid_status = ["✅ Stable", "🚀 Accelerating"]
     active_signals = df_results[df_results['Status'].isin(valid_status)].copy()
     
     if active_signals.empty: return pd.DataFrame()
 
-    # 1. Bullish Candidates
     bull_mask = active_signals['Full_Excess'] > alpha_threshold
-    
-    # 2. Bearish Candidates
     bear_mask = (active_signals['Full_Excess'] < -alpha_threshold) & (active_signals['Exp_Return'] < 0)
     
     valid_signals = active_signals[bull_mask | bear_mask].copy()
     if valid_signals.empty: return pd.DataFrame()
     
-    # 3. Aggregate
     ensemble = valid_signals.groupby(['Ticker', 'Fwd_Horizon']).agg({
-        'Full_Excess': 'sum',      # Cumulative Alpha
-        'Recent_Excess': 'mean',   # Avg Recent Strength
+        'Full_Excess': 'sum',
+        'Recent_Excess': 'mean',
         'Win_Rate': 'mean',
         'Exp_Return': 'mean',
         'Feature_X': 'count'
@@ -355,7 +330,7 @@ def generate_ensemble(df_results, alpha_threshold=0.25):
 # -----------------------------------------------------------------------------
 def main():
     st.set_page_config(layout="wide", page_title="Regime-Aware Alpha")
-    st.title("🔮 Regime-Aware Alpha Forecasts")
+    st.title("🔮 Regime-Aware Alpha Forecasts (5D Focused)")
     
     st.markdown("""
     **The "Stability" Test:**
@@ -367,12 +342,8 @@ def main():
     * 👻 **Ghost:** Signal hasn't triggered in the last 5 years.
     """)
     
-    # Load Seasonal Data from CSV (if it exists)
     sznl_map, csv_tickers_full = load_seasonal_map()
     
-    # --- UNIVERSE SELECTION ---
-    # FIXED: We now force the use of our hardcoded list. 
-    # If the CSV is missing a ticker, the engine will just use default (50.0) seasonality.
     active_tickers = SELECTED_UNIVERSE
     active_tickers_str = ", ".join(active_tickers)
 
