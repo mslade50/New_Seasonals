@@ -56,6 +56,7 @@ def load_market_metrics():
     
     pivoted['Total'] = pivoted.get('NYSE', 0) + pivoted.get('NASDAQ', 0)
     
+    # Only keep the metrics strictly requested
     windows = [5, 21] 
     categories = ['Total']
     
@@ -207,7 +208,6 @@ def calculate_heatmap_variables(df, sznl_map, market_metrics_df, ticker):
 
     return df, rank_cols
 
-# --- METHOD 1: PAIRWISE ENSEMBLE ---
 def calculate_distribution_ensemble(df, rank_cols, market_cols, tolerance=5.0):
     if df.empty: return pd.DataFrame()
     
@@ -287,35 +287,23 @@ def calculate_distribution_ensemble(df, rank_cols, market_cols, tolerance=5.0):
 # --- METHOD 2: EUCLIDEAN NEAREST NEIGHBORS ---
 def calculate_euclidean_forecast(df, rank_cols, market_cols, n_neighbors=50):
     current_row = df.iloc[-1]
-    
-    # 1. Identify all valid features available today
     all_feats = rank_cols + ['Seasonal'] + market_cols
     valid_feats = [f for f in all_feats if f in df.columns and not pd.isna(current_row[f])]
     
     if not valid_feats: return pd.DataFrame()
     
-    # 2. Vectorize Current State
     target_vec = current_row[valid_feats].astype(float).values
-    
-    # 3. Vectorize History (Exclude current row)
-    # Drop any historical row that has NaNs in these specific features to ensure fair distance
     history = df.iloc[:-1].dropna(subset=valid_feats).copy()
     
     if history.empty: return pd.DataFrame()
     
-    # 4. Calculate Euclidean Distance: Sqrt(Sum((x - y)^2))
     diff = history[valid_feats].values - target_vec
     dist_sq = np.sum(diff**2, axis=1)
-    distances = np.sqrt(dist_sq)
+    history['Euclidean_Dist'] = np.sqrt(dist_sq)
     
-    history['Euclidean_Dist'] = distances
-    
-    # 5. Get Top N Neighbors
-    # If history < n_neighbors, take all
     n_take = min(len(history), n_neighbors)
     nearest = history.nsmallest(n_take, 'Euclidean_Dist')
     
-    # 6. Calculate Forward Outcomes
     targets = [2, 3, 5, 10, 21, 63, 126, 252]
     summary = []
     
@@ -323,10 +311,7 @@ def calculate_euclidean_forecast(df, rank_cols, market_cols, n_neighbors=50):
         col = f'FwdRet_{t}d'
         if col not in df.columns: continue
         
-        # Calculate Global Baseline
         baseline = df[col].mean()
-        
-        # Get Neighbor Outcomes (Drop NaNs for recent dates)
         outcomes = nearest[col].dropna()
         
         if outcomes.empty:
@@ -356,6 +341,43 @@ def calculate_euclidean_forecast(df, rank_cols, market_cols, n_neighbors=50):
         
     return pd.DataFrame(summary)
 
+def get_euclidean_details(df, rank_cols, market_cols, n_neighbors=50, target_days=5):
+    """
+    Returns the specific neighbor rows for the Euclidean calculation.
+    """
+    current_row = df.iloc[-1]
+    all_feats = rank_cols + ['Seasonal'] + market_cols
+    valid_feats = [f for f in all_feats if f in df.columns and not pd.isna(current_row[f])]
+    
+    if not valid_feats: return pd.DataFrame()
+    
+    target_vec = current_row[valid_feats].astype(float).values
+    history = df.iloc[:-1].dropna(subset=valid_feats).copy()
+    
+    if history.empty: return pd.DataFrame()
+    
+    diff = history[valid_feats].values - target_vec
+    dist_sq = np.sum(diff**2, axis=1)
+    history['Euclidean_Dist'] = np.sqrt(dist_sq)
+    
+    n_take = min(len(history), n_neighbors)
+    nearest = history.nsmallest(n_take, 'Euclidean_Dist').copy()
+    
+    # Format Table Data
+    ret_col = f'FwdRet_{target_days}d'
+    if ret_col in nearest.columns:
+        nearest['Fwd Return'] = nearest[ret_col]
+    else:
+        nearest['Fwd Return'] = np.nan
+        
+    fwd_vol_series = df['LogRet'].rolling(target_days).std().shift(-target_days) * np.sqrt(252) * 100
+    nearest['Fwd Realized Vol'] = fwd_vol_series.loc[nearest.index]
+    
+    output = nearest[['Euclidean_Dist', 'Close', 'Fwd Return', 'Fwd Realized Vol']].copy()
+    output.columns = ['Euclidean Distance', 'Close Price', 'Fwd Return', 'Fwd Realized Vol']
+    
+    return output.dropna(subset=['Fwd Return']).sort_values('Euclidean Distance', ascending=True)
+
 # --- CHARTING & TABLE HELPERS ---
 def get_raw_ensemble_returns(df, rank_cols, market_cols, tolerance=5.0, target_days=5):
     if df.empty: return []
@@ -384,29 +406,14 @@ def get_raw_ensemble_returns(df, rank_cols, market_cols, tolerance=5.0, target_d
     return raw_returns
 
 def get_feature_shorthand(name):
-    # Remove _Rank suffix first
     n = name.replace("_Rank", "")
-    
     if n == "Seasonal": return "szn"
-    
-    # Returns (e.g. Ret_21d -> 21dr)
-    if n.startswith("Ret_"):
-        return n.replace("Ret_", "").replace("d", "") + "dr"
-        
-    # Vol Ratio (e.g. VolRatio_10d -> 10drv)
-    if n.startswith("VolRatio_"):
-        return n.replace("VolRatio_", "").replace("d", "") + "drv"
-        
-    # Real Vol (e.g. RealVol_21d -> 21dv)
-    if n.startswith("RealVol_"):
-        return n.replace("RealVol_", "").replace("d", "") + "dv"
-        
-    # Market Metrics (e.g. Mkt_Total_NH_5d -> 5dnh)
-    if n.startswith("Mkt_"):
+    if n.startswith("Ret_"): return n.replace("Ret_", "").replace("d", "") + "dr"
+    if n.startswith("VolRatio_"): return n.replace("VolRatio_", "").replace("d", "") + "drv"
+    if n.startswith("RealVol_"): return n.replace("RealVol_", "").replace("d", "") + "dv"
+    if n.startswith("Mkt_"): 
         parts = n.split("_")
-        # Change 'mkt' to 'nh' as requested
         return parts[-1] + "nh"
-        
     return n[:4]
 
 def get_detailed_match_table(df, rank_cols, market_cols, tolerance=5.0, target_days=5):
@@ -427,7 +434,6 @@ def get_detailed_match_table(df, rank_cols, market_cols, tolerance=5.0, target_d
             (df[f2] >= v2 - tolerance) & (df[f2] <= v2 + tolerance)
         )
         subset = df[mask]
-        
         if not subset.empty:
             pair_str = f"{get_feature_shorthand(f1)} & {get_feature_shorthand(f2)}"
             for date in subset.index:
@@ -437,35 +443,28 @@ def get_detailed_match_table(df, rank_cols, market_cols, tolerance=5.0, target_d
 
     dates = list(date_to_pairs.keys())
     scores = [len(date_to_pairs[d]) for d in dates]
-    
     pair_strings = []
     for d in dates:
         unique_pairs = list(set(date_to_pairs[d]))
         display_str = ", ".join(unique_pairs[:3])
-        if len(unique_pairs) > 3:
-            display_str += f" (+{len(unique_pairs)-3} more)"
+        if len(unique_pairs) > 3: display_str += f" (+{len(unique_pairs)-3} more)"
         pair_strings.append(display_str)
     
     match_df = pd.DataFrame({
         'Similarity Score': scores,
         'Trigger Pairs': pair_strings
     }, index=dates)
-    
     match_df.index.name = 'Date'
     
     ret_col = f'FwdRet_{target_days}d'
-    if ret_col in df.columns:
-        match_df['Fwd Return'] = df.loc[match_df.index, ret_col]
-    else:
-        match_df['Fwd Return'] = np.nan
+    if ret_col in df.columns: match_df['Fwd Return'] = df.loc[match_df.index, ret_col]
+    else: match_df['Fwd Return'] = np.nan
 
     fwd_vol_series = df['LogRet'].rolling(target_days).std().shift(-target_days) * np.sqrt(252) * 100
     match_df['Fwd Realized Vol'] = fwd_vol_series.loc[match_df.index]
     match_df['Close Price'] = df.loc[match_df.index, 'Close']
     
-    match_df = match_df.dropna(subset=['Fwd Return'])
-    
-    return match_df.sort_values(by=['Similarity Score', 'Date'], ascending=[False, False])
+    return match_df.dropna(subset=['Fwd Return']).sort_values(by=['Similarity Score', 'Date'], ascending=[False, False])
 
 # -----------------------------------------------------------------------------
 # HEATMAP UTILS
@@ -588,13 +587,9 @@ def render_heatmap():
         ticker = st.text_input("Ticker", value="SPY", key="hm_ticker").upper()
     
     with col3:
-        # VISUAL & ENSEMBLE SETTINGS
         smooth_sigma = st.slider("Smoothing (Sigma)", 0.5, 3.0, 1.2, 0.1, key="hm_smooth")
         bins = st.slider("Grid Resolution (Bins)", 10, 50, 28, key="hm_bins")
-        
-        # --- NEW ENSEMBLE INPUT ---
         ensemble_tol = st.slider("Ensemble Similarity Tolerance (± Rank)", 1, 25, 5, 1, key="ens_tol")
-        
         analysis_start = st.date_input("Analysis Start Date", value=datetime.date(2000, 1, 1), key="hm_start_date")
         
     st.markdown("---")
@@ -826,6 +821,24 @@ def render_heatmap():
                         | **Xdrv** | X-Day Relative Volume Rank (e.g., 10drv = 10d Rel Vol) |
                         | **Xnh** | Market Total Net Highs Rank (e.g., 5dnh = 5d MA of Net Highs) |
                         """)
+                
+                # --- NEW EUCLIDEAN DETAILED TABLE ---
+                st.divider()
+                st.subheader(f"🧪 Euclidean Nearest Neighbors Details ({dist_days} Days)")
+                st.markdown(f"Specific dates identified by the Euclidean algorithm (Method 2) as closest to today's vector.")
+                
+                euc_match_df = get_euclidean_details(df, rank_cols, market_cols, n_neighbors=k_neighbors, target_days=dist_days)
+                
+                if not euc_match_df.empty:
+                    st.dataframe(
+                        euc_match_df.style.format({
+                            "Euclidean Distance": "{:.2f}",
+                            "Close Price": "${:.2f}",
+                            "Fwd Return": "{:+.2f}%",
+                            "Fwd Realized Vol": "{:.2f}%"
+                        }).background_gradient(subset=['Fwd Return'], cmap="RdBu", vmin=-5, vmax=5),
+                        use_container_width=True
+                    )
                     
             else:
                 st.info("No distribution data available for this horizon (adjust tolerance).")
