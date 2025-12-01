@@ -44,7 +44,7 @@ STRATEGY_BOOK = [
     },
     # STRATEGY 2: LARGE CAP MEAN REVERSION (A)
     {
-        "id": "STRAT_1763673538",
+        "id": "Sznl > 80, 5d perf < 15, SPY > 200d",
         "name": "Large Cap Mean Reversion (A)",
         "description": "Universe: Liquid Large Caps. Sznl >80, 5d perf < 15. Filter: SPY > 200 SMA.",
         "universe_tickers": ['AAPL', 'AMGN', 'AMZN', 'AVGO', 'AXP', 'BA', 'CAT', 'CEF', 'CRM', 'CSCO', 'CVX', 'DIA', 'DIS', 'GLD', 'GOOG', 'GS', 'HD', 'HON', 'IBB', 'IBM', 'IHI', 'INTC', 'ITA', 'ITB', 'IWM', 'IYR', 'JNJ', 'JPM', 'KO', 'KRE', 'MCD', 'META', 'MMM', 'MRK', 'MSFT', 'NKE', 'NVDA', 'OIH', 'PG', 'QQQ', 'SLV', 'SMH', 'SPY', 'TRV', 'UNG', 'UNH', 'UVXY', 'V', 'VNQ', 'VZ', 'WMT', 'XBI', 'XHB', 'XLB', 'XLE', 'XLF', 'XLI', 'XLK', 'XLP', 'XLU', 'XLV', 'XLY', 'XME', 'XOP', 'XRT'], 
@@ -76,7 +76,7 @@ STRATEGY_BOOK = [
     },
     # STRATEGY 3: LARGE CAP MEAN REVERSION (B) - HIGHER PRECISION
     {
-        "id": "STRAT_1763756935",
+        "id": "5d of 21d perf < 15, 10d Rel Vol < 15",
         "name": "Large Cap Mean Reversion (B)",
         "description": "Universe: Liquid Large Caps. 21d perf < 15 (5 consec days). Low Rel Vol (<15 rank). No Trend Filter.",
         "universe_tickers": ['AAPL', 'AMGN', 'AMZN', 'AVGO', 'AXP', 'BA', 'CAT', 'CEF', 'CRM', 'CSCO', 'CVX', 'DIA', 'DIS', 'GLD', 'GOOG', 'GS', 'HD', 'HON', 'IBB', 'IBM', 'IHI', 'INTC', 'ITA', 'ITB', 'IWM', 'IYR', 'JNJ', 'JPM', 'KO', 'KRE', 'MCD', 'META', 'MMM', 'MRK', 'MSFT', 'NKE', 'NVDA', 'OIH', 'PG', 'QQQ', 'SLV', 'SMH', 'SPY', 'TRV', 'UNG', 'UNH', 'UVXY', 'V', 'VNQ', 'VZ', 'WMT', 'XBI', 'XHB', 'XLB', 'XLE', 'XLF', 'XLI', 'XLK', 'XLP', 'XLU', 'XLV', 'XLY', 'XME', 'XOP', 'XRT'], 
@@ -107,7 +107,7 @@ STRATEGY_BOOK = [
         }
     },
     {
-        "id": "STRAT_1764185699",
+        "id": "5d of 21d perf < 15, sznl > 85",
         "name": "Generated Strategy (A)",
         "description": "Start: 2000-01-01. Universe: All CSV Tickers. Dir: Long. Filter: None. PF: 2.16. SQN: 9.97.",
         "universe_tickers": ['AAPL', 'ABT', 'ADBE', 'ADI', 'ADM', 'ADP', 'ADSK', 'AEP', 'AIG', 'ALL', 'AMAT', 'AMD', 'AMGN', 'AMZN', 'AON', 'APD', 'AVGO', 'AXP', 'BA', 'BAC', 'BAX', 'BDX', 'BK', 'BMY', 'C', 'CAG', 'CAT', 'CEF', 'CL', 'CMCSA', 'CMS', 'CNP', 'COP', 'COST', 'CPB', 'CRM', 'CSCO', 'CSX', 'CVS', 'CVX', 'D', 'DE', 'DIA', 'DIS', 'DOV', 'DTE', 'DUK', 'ECL', 'ED', 'EIX', 'EMR', 'EOG', 'ETR', 'EXC', 'F', 'FCX', 'FDX', 'FE', 'GD', 'GE', 'GILD', 'GIS', 'GLD', 'GLW', 'GOOG', 'GPC', 'GS', 'HAL', 'HD', 'HIG', 'HON', 'HPQ', 'HRL', 'HSY', 'HUM', 'IBB', 'IBM', 'IHI', 'INTC', 'IP', 'ITA', 'ITB', 'ITW', 'IWM', 'IYR', 'JNJ', 'JPM', 'K', 'KEY', 'KMB', 'KO', 'KR', 'KRE', 'LEG', 'LIN', 'LLY', 'LMT', 'LOW', 'LUV', 'MAS', 'MCD', 'MDT', 'MET', 'META', 'MMC', 'MMM', 'MO', 'MRK', 'MS', 'MSFT', 'MU', 'NEE', 'NEM', 'NKE', 'NOC', 'NSC', 'NUE', 'NVDA', 'OIH', 'ORCL', 'OXY', 'PAYX', 'PCG', 'PEG', 'PEP', 'PFE', 'PG', 'PGR', 'PH', 'PNW', 'PPG', 'PPL', 'PSA', 'QCOM', 'QQQ', 'REGN', 'RF', 'RHI', 'ROK', 'ROST', 'RTX', 'SBUX', 'SCHW', 'SHW', 'SLB', 'SLV', 'SMH', 'SNA', 'SO', 'SPG', 'SPY', 'SRE', 'STT', 'SWK', 'SYY', 'T', 'TAP', 'TGT', 'TJX', 'TMO', 'TRV', 'TSN', 'TXN', 'UNG', 'UNH', 'UNP', 'USB', 'UVXY', 'V', 'VFC', 'VLO', 'VMC', 'VNQ', 'VZ', 'WFC', 'WHR', 'WM', 'WMB', 'WMT', 'XBI', 'XHB', 'XLB', 'XLE', 'XLF', 'XLI', 'XLK', 'XLP', 'XLU', 'XLV', 'XLY', 'XME', 'XOM', 'XOP', 'XRT'], 
@@ -139,7 +139,7 @@ STRATEGY_BOOK = [
         }
     },
     {
-        "id": "STRAT_1764190354",
+        "id": "3d of 5d perf < 10, sznl > 85",
         "name": "Generated Strategy (A)",
         "description": "Start: 2000-01-01. Universe: All CSV Tickers. Dir: Long. Filter: None. PF: 3.23. SQN: 9.71.",
         "universe_tickers": ['AAPL', 'ABT', 'ADBE', 'ADI', 'ADM', 'ADP', 'ADSK', 'AEP', 'AIG', 'ALL', 'AMAT', 'AMD', 'AMGN', 'AMZN', 'AON', 'APD', 'AVGO', 'AXP', 'BA', 'BAC', 'BAX', 'BDX', 'BK', 'BMY', 'C', 'CAG', 'CAT', 'CEF', 'CL', 'CMCSA', 'CMS', 'CNP', 'COP', 'COST', 'CPB', 'CRM', 'CSCO', 'CSX', 'CVS', 'CVX', 'D', 'DE', 'DIA', 'DIS', 'DOV', 'DTE', 'DUK', 'ECL', 'ED', 'EIX', 'EMR', 'EOG', 'ETR', 'EXC', 'F', 'FCX', 'FDX', 'FE', 'GD', 'GE', 'GILD', 'GIS', 'GLD', 'GLW', 'GOOG', 'GPC', 'GS', 'HAL', 'HD', 'HIG', 'HON', 'HPQ', 'HRL', 'HSY', 'HUM', 'IBB', 'IBM', 'IHI', 'INTC', 'IP', 'ITA', 'ITB', 'ITW', 'IWM', 'IYR', 'JNJ', 'JPM', 'K', 'KEY', 'KMB', 'KO', 'KR', 'KRE', 'LEG', 'LIN', 'LLY', 'LMT', 'LOW', 'LUV', 'MAS', 'MCD', 'MDT', 'MET', 'META', 'MMC', 'MMM', 'MO', 'MRK', 'MS', 'MSFT', 'MU', 'NEE', 'NEM', 'NKE', 'NOC', 'NSC', 'NUE', 'NVDA', 'OIH', 'ORCL', 'OXY', 'PAYX', 'PCG', 'PEG', 'PEP', 'PFE', 'PG', 'PGR', 'PH', 'PNW', 'PPG', 'PPL', 'PSA', 'QCOM', 'QQQ', 'REGN', 'RF', 'RHI', 'ROK', 'ROST', 'RTX', 'SBUX', 'SCHW', 'SHW', 'SLB', 'SLV', 'SMH', 'SNA', 'SO', 'SPG', 'SPY', 'SRE', 'STT', 'SWK', 'SYK', 'SYY', 'T', 'TAP', 'TGT', 'TJX', 'TMO', 'TRV', 'TSN', 'TXN', 'UNG', 'UNH', 'UNP', 'USB', 'USO', 'UVXY', 'V', 'VFC', 'VLO', 'VMC', 'VNQ', 'VZ', 'WFC', 'WHR', 'WM', 'WMB', 'WMT', 'XBI', 'XHB', 'XLB', 'XLE', 'XLF', 'XLI', 'XLK', 'XLP', 'XLU', 'XLV', 'XLY', 'XME', 'XOM', 'XOP', 'XRT'], 
