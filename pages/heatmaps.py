@@ -231,7 +231,7 @@ def calculate_distribution_ensemble(df, rank_cols, market_cols, tolerance=5.0):
     
     if len(valid_features) < 2: return pd.DataFrame()
     
-    targets = [5, 10, 21, 63, 252]
+    targets = [2, 3, 5, 10, 21, 63, 252]
     # Initialize the "Bag of Returns"
     pooled_outcomes = {t: [] for t in targets}
     
