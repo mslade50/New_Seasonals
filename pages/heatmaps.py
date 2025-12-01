@@ -7,6 +7,7 @@ from scipy.ndimage import gaussian_filter
 from scipy.signal import convolve2d
 import matplotlib
 import datetime
+import itertools
 
 # -----------------------------------------------------------------------------
 # CONSTANTS & SETUP
@@ -36,13 +37,8 @@ def load_seasonal_map():
 
 @st.cache_data(show_spinner=False)
 def load_market_metrics():
-    """
-    Loads market metrics, calculates Moving Averages of Net Highs, 
-    and then converts them to Percentile Ranks.
-    """
     try:
         df = pd.read_csv(METRICS_PATH)
-        # Handle date parsing flexibly
         df['date'] = pd.to_datetime(df['date'], errors='coerce')
         df = df.dropna(subset=['date'])
     except Exception:
@@ -50,7 +46,6 @@ def load_market_metrics():
 
     if df.empty: return pd.DataFrame()
 
-    # 1. Pivot to get Date index and Exchange columns
     pivoted = df.pivot_table(
         index='date', 
         columns='exchange', 
@@ -58,12 +53,11 @@ def load_market_metrics():
         aggfunc='sum'
     )
     
-    # 2. Create 'Total' (NYSE + NASDAQ)
     pivoted['Total'] = pivoted.get('NYSE', 0) + pivoted.get('NASDAQ', 0)
     
-    # 3. Calculate MAs and Ranks
-    windows = [5, 10, 21, 63, 252]
-    categories = ['Total', 'NYSE', 'NASDAQ']
+    # Only keep the metrics strictly requested or useful for the pared down list
+    windows = [5, 21] 
+    categories = ['Total']
     
     results = pd.DataFrame(index=pivoted.index)
     
@@ -81,19 +75,11 @@ def load_market_metrics():
     return results
 
 # -----------------------------------------------------------------------------
-# DYNAMIC SEASONALITY GENERATOR (WALK-FORWARD)
+# DYNAMIC SEASONALITY GENERATOR
 # -----------------------------------------------------------------------------
 def generate_dynamic_seasonal_profile(df, cutoff_date, target_year):
-    """
-    Calculates seasonal profile for a SPECIFIC target_year using only data 
-    available prior to cutoff_date.
-    """
-    # 1. Filter History (Strictly Past Data)
     work_df = df[df.index < cutoff_date].copy()
-    
-    # Need enough history to form a valid opinion (at least 2 years approx)
-    if len(work_df) < 500: 
-        return {}
+    if len(work_df) < 500: return {}
 
     if 'LogRet' not in work_df.columns:
         if 'Close' in work_df.columns:
@@ -104,10 +90,8 @@ def generate_dynamic_seasonal_profile(df, cutoff_date, target_year):
     work_df['Year'] = work_df.index.year
     work_df['MD'] = work_df.index.map(lambda x: (x.month, x.day))
     
-    # 2. Determine Cycle Phase for the TARGET YEAR
     cycle_remainder = target_year % 4
     
-    # 3. Calculate Forward Returns
     windows = [5, 10, 21]
     fwd_cols = []
     for w in windows:
@@ -115,10 +99,7 @@ def generate_dynamic_seasonal_profile(df, cutoff_date, target_year):
         work_df[col_name] = work_df['LogRet'].shift(-w).rolling(w).sum()
         fwd_cols.append(col_name)
 
-    # 4. Group by MD for ALL years available
     stats_all = work_df.groupby('MD')[fwd_cols].mean()
-    
-    # 5. Group by MD for same CYCLE years available
     cycle_df = work_df[work_df['Year'] % 4 == cycle_remainder]
     
     if len(cycle_df) < 250: 
@@ -126,35 +107,26 @@ def generate_dynamic_seasonal_profile(df, cutoff_date, target_year):
     else:
         stats_cycle = cycle_df.groupby('MD')[fwd_cols].mean()
     
-    # Align
     stats_cycle = stats_cycle.reindex(stats_all.index).fillna(method='ffill').fillna(method='bfill')
     
-    # Rank (0-100)
     rnk_all = stats_all.rank(pct=True) * 100.0
     rnk_cycle = stats_cycle.rank(pct=True) * 100.0
     
-    # Average Ranks across windows
     avg_rank_all = rnk_all.mean(axis=1)
     avg_rank_cycle = rnk_cycle.mean(axis=1)
     
-    # Weighted Blend: (3 * Cycle + 1 * All) / 4
     final_rank = (avg_rank_all + 3 * avg_rank_cycle) / 4.0
-    
-    # Smoothing
     final_rank_smooth = final_rank.rolling(window=5, center=True, min_periods=1).mean()
     
     return final_rank_smooth.to_dict()
 
 def get_sznl_val_series(ticker, dates, sznl_map, df_hist=None):
-    # 1. Static CSV Check
     t_map = sznl_map.get(ticker, {})
     if t_map:
         mds = dates.map(lambda x: (x.month, x.day))
         return mds.map(t_map).fillna(50.0)
 
-    # 2. Dynamic Walk-Forward Generation
     if df_hist is not None and not df_hist.empty:
-        # Ensure LogRet exists in df_hist for the generator
         if 'LogRet' not in df_hist.columns:
              df_hist = df_hist.copy()
              df_hist['LogRet'] = np.log(df_hist['Close'] / df_hist['Close'].shift(1)) * 100.0
@@ -162,13 +134,11 @@ def get_sznl_val_series(ticker, dates, sznl_map, df_hist=None):
         sznl_series = pd.Series(50.0, index=dates)
         unique_years = dates.year.unique()
         
-        # Iterate through years to build the 'Expanding Window'
         for yr in unique_years:
             cutoff = pd.Timestamp(yr, 1, 1)
             if df_hist.index.tz is not None: 
                 cutoff = cutoff.tz_localize(df_hist.index.tz)
 
-            # Pass the full history, generator filters inside
             yearly_profile = generate_dynamic_seasonal_profile(df_hist, cutoff, yr)
             
             if yearly_profile:
@@ -194,7 +164,141 @@ def download_data(ticker):
         return pd.DataFrame(), None
 
 # -----------------------------------------------------------------------------
-# COLOR GENERATOR (Seismic)
+# CALCULATIONS
+# -----------------------------------------------------------------------------
+@st.cache_data(show_spinner=True)
+def calculate_heatmap_variables(df, sznl_map, market_metrics_df, ticker):
+    df = df.copy()
+    
+    # 1. BASE
+    df['LogRet'] = np.log(df['Close'] / df['Close'].shift(1))
+
+    # 2. FORWARD TARGETS (RETURNS ONLY)
+    # Added 252d as requested
+    for w in [5, 10, 21, 63, 252]:
+        df[f'FwdRet_{w}d'] = (df['Close'].shift(-w) / df['Close'] - 1.0) * 100.0
+
+    # 3. PREDICTOR VARIABLES (STRIPPED DOWN)
+    # Momentum (Removed 126d)
+    for w in [5, 10, 21, 63, 252]:
+        df[f'Ret_{w}d'] = df['Close'].pct_change(w)
+
+    # Realized Vol (Only 21 and 63)
+    for w in [21, 63]:
+        df[f'RealVol_{w}d'] = df['LogRet'].rolling(w).std() * np.sqrt(252) * 100.0
+    
+    # Removed all VolChange_XX variables
+
+    # Relative Volume (Only 21d)
+    for w in [21]:
+        df[f'VolRatio_{w}d'] = df['Volume'].rolling(w).mean() / df['Volume'].rolling(63).mean()
+
+    # Seasonality
+    df['Seasonal'] = get_sznl_val_series(ticker, df.index, sznl_map, df)
+
+    # 4. RANK TRANSFORMATION
+    vars_to_rank = [
+        'Ret_5d', 'Ret_10d', 'Ret_21d', 'Ret_63d', 'Ret_252d',
+        'RealVol_21d', 'RealVol_63d', 
+        'VolRatio_21d'
+    ]
+    
+    rank_cols = []
+    for v in vars_to_rank:
+        col_name = v + '_Rank'
+        df[col_name] = df[v].expanding(min_periods=252).rank(pct=True) * 100.0
+        rank_cols.append(col_name)
+
+    # 5. MERGE MARKET METRICS
+    if not market_metrics_df.empty:
+        df = df.join(market_metrics_df, how='left')
+        df.update(df.filter(regex='^Mkt_').ffill(limit=3))
+
+    return df, rank_cols
+
+def calculate_ensemble_forecast(df, rank_cols, market_cols):
+    """
+    Scans every pairwise combination of valid features. 
+    Finds historical analogs where both features were close to current levels.
+    Aggregates the forward returns of those analogs.
+    """
+    if df.empty: return pd.DataFrame()
+    
+    current_row = df.iloc[-1]
+    
+    # Combine internal ranks + seasonal + market ranks
+    all_features = rank_cols + ['Seasonal'] + market_cols
+    # Only use features that exist in DF and have valid current data
+    valid_features = [f for f in all_features if f in df.columns and not pd.isna(current_row[f])]
+    
+    if len(valid_features) < 2: return pd.DataFrame()
+    
+    targets = [5, 10, 21, 63, 252]
+    results_map = {t: {'means': [], 'counts': []} for t in targets}
+    
+    # Scan every pair
+    pairs = list(itertools.combinations(valid_features, 2))
+    
+    # Box filter size (how "close" is a historical match? +/- 12.5 rank points)
+    TOLERANCE = 12.5 
+    MIN_HISTORY_SAMPLES = 15
+    
+    # Pre-filter DF to save time: only look at valid data points
+    # We apply the mask per pair, so just ensure we aren't looking at NaN target rows
+    
+    for f1, f2 in pairs:
+        v1 = current_row[f1]
+        v2 = current_row[f2]
+        
+        # Create mask for history
+        mask = (
+            (df[f1] >= v1 - TOLERANCE) & (df[f1] <= v1 + TOLERANCE) &
+            (df[f2] >= v2 - TOLERANCE) & (df[f2] <= v2 + TOLERANCE)
+        )
+        
+        subset = df[mask]
+        
+        if len(subset) < MIN_HISTORY_SAMPLES: continue
+        
+        for t in targets:
+            col = f'FwdRet_{t}d'
+            if col not in subset.columns: continue
+            
+            vals = subset[col].dropna()
+            if len(vals) < MIN_HISTORY_SAMPLES: continue
+            
+            mean_ret = vals.mean()
+            # We track the mean of this specific pair
+            results_map[t]['means'].append(mean_ret)
+            results_map[t]['counts'].append(len(vals))
+            
+    # Aggregate
+    summary = []
+    for t in targets:
+        means = results_map[t]['means']
+        if not means:
+            summary.append({"Horizon": f"{t} Days", "Exp Return": np.nan, "Breadth": 0, "Conf": "Low"})
+            continue
+            
+        grand_mean = np.mean(means)
+        std_dev = np.std(means)
+        breadth = len(means) # How many pairs agreed/fired
+        
+        # Simple directional ratio
+        pos_ratio = np.sum(np.array(means) > 0) / breadth
+        
+        summary.append({
+            "Horizon": f"{t} Days",
+            "Exp Return": grand_mean,
+            "Std Dev": std_dev,
+            "Win Rate": pos_ratio * 100,
+            "Breadth": breadth
+        })
+        
+    return pd.DataFrame(summary)
+
+# -----------------------------------------------------------------------------
+# HEATMAP UTILS
 # -----------------------------------------------------------------------------
 def get_seismic_colorscale():
     seismic = []
@@ -204,78 +308,14 @@ def get_seismic_colorscale():
         seismic.append([k / 254.0, f'rgb({int(r*255)},{int(g*255)},{int(b*255)})'])
     return seismic
 
-# -----------------------------------------------------------------------------
-# CALCULATION ENGINE (Cached)
-# -----------------------------------------------------------------------------
-
-@st.cache_data(show_spinner=True)
-def calculate_heatmap_variables(df, sznl_map, market_metrics_df, ticker):
-    df = df.copy()
-    
-    # --- 1. BASE CALCULATIONS ---
-    df['LogRet'] = np.log(df['Close'] / df['Close'].shift(1))
-
-    # --- 2. FORWARD TARGETS (Z-AXIS) ---
-    for w in [5, 10, 21, 63]:
-        df[f'FwdRet_{w}d'] = (df['Close'].shift(-w) / df['Close'] - 1.0) * 100.0
-
-    # B. Forward Volatility DELTA
-    for w in [2, 5, 10, 21]:
-        curr_vol = df['LogRet'].rolling(w).std() * np.sqrt(252) * 100.0
-        fwd_vol = df['LogRet'].rolling(w).std().shift(-w) * np.sqrt(252) * 100.0
-        df[f'FwdVolDelta_{w}d'] = fwd_vol - curr_vol
-
-    # --- 3. X/Y VARIABLES ---
-    for w in [5, 10, 21, 63, 126, 252]:
-        df[f'Ret_{w}d'] = df['Close'].pct_change(w)
-
-    for w in [2, 5, 10, 21, 63]:
-        df[f'RealVol_{w}d'] = df['LogRet'].rolling(w).std() * np.sqrt(252) * 100.0
-    
-    df['VolChange_2d']  = df['RealVol_2d']  - df['RealVol_63d']
-    df['VolChange_5d']  = df['RealVol_5d']  - df['RealVol_63d']
-    df['VolChange_10d'] = df['RealVol_10d'] - df['RealVol_63d']
-    df['VolChange_21d'] = df['RealVol_21d'] - df['RealVol_63d']
-
-    for w in [5, 10, 21]:
-        df[f'VolRatio_{w}d'] = df['Volume'].rolling(w).mean() / df['Volume'].rolling(63).mean()
-
-    # Seasonality (Walk-Forward)
-    df['Seasonal'] = get_sznl_val_series(ticker, df.index, sznl_map, df)
-
-    # --- 4. RANK TRANSFORMATION ---
-    vars_to_rank = [
-        'Ret_5d', 'Ret_10d', 'Ret_21d', 'Ret_63d', 'Ret_126d', 'Ret_252d',
-        'RealVol_21d', 'RealVol_63d', 
-        'VolChange_2d', 'VolChange_5d', 'VolChange_10d', 'VolChange_21d',
-        'VolRatio_5d', 'VolRatio_10d', 'VolRatio_21d'
-    ]
-    
-    for v in vars_to_rank:
-        df[v + '_Rank'] = df[v].expanding(min_periods=252).rank(pct=True) * 100.0
-
-    # --- 5. MERGE MARKET METRICS ---
-    if not market_metrics_df.empty:
-        df = df.join(market_metrics_df, how='left')
-        df.update(df.filter(regex='^Mkt_').ffill(limit=3))
-
-    return df
-
-# -----------------------------------------------------------------------------
-# HEATMAP UTILS
-# -----------------------------------------------------------------------------
-
 @st.cache_data
 def build_bins_quantile(x, y, nx=30, ny=30):
     x = pd.Series(x, dtype=float).dropna()
     y = pd.Series(y, dtype=float).dropna()
-
     if len(x) < 10 or len(y) < 10:
         return np.linspace(0,100,nx+1), np.linspace(0,100,ny+1)
-
     x_edges = np.unique(np.quantile(x, np.linspace(0, 1, nx + 1)))
     y_edges = np.unique(np.quantile(y, np.linspace(0, 1, ny + 1)))
-
     if len(x_edges) < 3: x_edges = np.linspace(x.min(), x.max(), max(3, nx + 1))
     if len(y_edges) < 3: y_edges = np.linspace(y.min(), y.max(), max(3, ny + 1))
     return x_edges, y_edges
@@ -317,7 +357,7 @@ def nan_neighbor_fill(Z, k=3):
     Z = np.asarray(Z, float)
     kernel = np.ones((k, k), dtype=float)
     valid = np.isfinite(Z).astype(float)
-    sum_vals   = convolve2d(np.nan_to_num(Z), kernel, mode='same', boundary='symm')
+    sum_vals    = convolve2d(np.nan_to_num(Z), kernel, mode='same', boundary='symm')
     count_vals = convolve2d(valid, kernel, mode='same', boundary='symm')
     Z_out = Z.copy()
     mask = np.isnan(Z) & (count_vals > 0)
@@ -334,7 +374,7 @@ def smooth_display(Z, sigma=1.2):
     return out
 
 # -----------------------------------------------------------------------------
-# UI: RENDER HEATMAP
+# UI: RENDER
 # -----------------------------------------------------------------------------
 def render_heatmap():
     st.subheader("Heatmap Analysis")
@@ -342,6 +382,7 @@ def render_heatmap():
     col1, col2, col3 = st.columns(3)
     
     with col1:
+        # STRIPPED PREDICTOR OPTIONS
         var_options = {
             "Seasonality Rank": "Seasonal",
             # Price
@@ -349,18 +390,11 @@ def render_heatmap():
             "10d Trailing Return Rank": "Ret_10d_Rank",
             "21d Trailing Return Rank": "Ret_21d_Rank",
             "63d Trailing Return Rank": "Ret_63d_Rank",
-            "126d Trailing Return Rank": "Ret_126d_Rank",
             "252d Trailing Return Rank": "Ret_252d_Rank",
             # Vol
             "21d Realized Vol Rank": "RealVol_21d_Rank",
             "63d Realized Vol Rank": "RealVol_63d_Rank",
-            "Change in Vol (2d-63d) Rank": "VolChange_2d_Rank",
-            "Change in Vol (5d-63d) Rank": "VolChange_5d_Rank",
-            "Change in Vol (10d-63d) Rank": "VolChange_10d_Rank",
-            "Change in Vol (21d-63d) Rank": "VolChange_21d_Rank",
             # Volume
-            "5d Rel. Volume Rank": "VolRatio_5d_Rank",
-            "10d Rel. Volume Rank": "VolRatio_10d_Rank",
             "21d Rel. Volume Rank": "VolRatio_21d_Rank",
         }
         
@@ -368,18 +402,16 @@ def render_heatmap():
         var_options["Total Net Highs (21d MA) Rank"] = "Mkt_Total_NH_21d_Rank"
 
         x_axis_label = st.selectbox("X-Axis Variable", list(var_options.keys()), index=0, key="hm_x")
-        y_axis_label = st.selectbox("Y-Axis Variable", list(var_options.keys()), index=3, key="hm_y")
+        y_axis_label = st.selectbox("Y-Axis Variable", list(var_options.keys()), index=2, key="hm_y")
     
     with col2:
+        # STRIPPED TARGET OPTIONS (Returns only, +252d)
         target_options = {
             "5d Forward Return": "FwdRet_5d",
             "10d Forward Return": "FwdRet_10d",
             "21d Forward Return": "FwdRet_21d",
             "63d Forward Return": "FwdRet_63d",
-            "2d Fwd Vol Change (Expansion/Contraction)": "FwdVolDelta_2d",
-            "5d Fwd Vol Change (Expansion/Contraction)": "FwdVolDelta_5d",
-            "10d Fwd Vol Change (Expansion/Contraction)": "FwdVolDelta_10d",
-            "21d Fwd Vol Change (Expansion/Contraction)": "FwdVolDelta_21d",
+            "252d Forward Return": "FwdRet_252d",
         }
         z_axis_label = st.selectbox("Target (Z-Axis)", list(target_options.keys()), index=2, key="hm_z")
         ticker = st.text_input("Ticker", value="SPY", key="hm_ticker").upper()
@@ -391,9 +423,8 @@ def render_heatmap():
         
     st.markdown("---")
 
-    if st.button("Generate Heatmap", type="primary", use_container_width=True, key="hm_gen"):
+    if st.button("Generate Heatmap & Ensemble", type="primary", use_container_width=True, key="hm_gen"):
         st.session_state['hm_data'] = True 
-        if 'heatmap_selection' in st.session_state: del st.session_state['heatmap_selection']
         
     if st.session_state.get('hm_data'):
         with st.spinner(f"Processing {ticker}..."):
@@ -409,95 +440,87 @@ def render_heatmap():
                 
             sznl_map = load_seasonal_map()
             market_metrics_df = load_market_metrics()
-            df = calculate_heatmap_variables(data, sznl_map, market_metrics_df, ticker)
+            
+            # --- MAIN CALCULATION ---
+            df, rank_cols = calculate_heatmap_variables(data, sznl_map, market_metrics_df, ticker)
             
             start_ts = pd.to_datetime(analysis_start)
             if df.index.tz is not None: start_ts = start_ts.tz_localize(df.index.tz)
-            df = df[df.index >= start_ts]
             
-            if df.empty:
+            df_filtered = df[df.index >= start_ts]
+            
+            if df_filtered.empty:
                 st.error("No data found after start date.")
                 return
             
+            # --- HEATMAP RENDER ---
             xcol = var_options[x_axis_label]
             ycol = var_options[y_axis_label]
             zcol = target_options[z_axis_label]
             
-            if xcol not in df.columns or ycol not in df.columns:
-                st.error(f"Missing data for selected variables. Ensure market metrics CSV is present.")
-                return
-
-            clean_df = df.dropna(subset=[xcol, ycol, zcol])
-            if clean_df.empty:
-                st.error("Insufficient data.")
-                return
-
-            x_edges, y_edges = build_bins_quantile(clean_df[xcol], clean_df[ycol], nx=bins, ny=bins)
-            x_centers, y_centers, Z = grid_mean(clean_df, xcol, ycol, zcol, x_edges, y_edges)
+            clean_df = df_filtered.dropna(subset=[xcol, ycol, zcol])
             
-            Z_filled = nan_neighbor_fill(Z)
-            Z_smooth = smooth_display(Z_filled, sigma=smooth_sigma)
-            
-            limit = np.nanmax(np.abs(Z_smooth))
-            colorscale = get_seismic_colorscale()
-            z_units = "%" if "Ret" in zcol else " Vol"
-
-            fig = go.Figure(data=go.Heatmap(
-                z=Z_smooth, x=x_centers, y=y_centers,
-                colorscale=colorscale, 
-                zmin=-limit, zmax=limit,
-                zmid=0, 
-                reversescale=True, 
-                colorbar=dict(title=f"{zcol} {z_units}"),
-                hovertemplate=f"<b>{x_axis_label}</b>: %{{x:.1f}}<br><b>{y_axis_label}</b>: %{{y:.1f}}<br><b>Value</b>: %{{z:.2f}}{z_units}<extra></extra>"
-            ))
-            
-            fig.update_layout(
-                title=f"{ticker} ({analysis_start} - Present): {z_axis_label}",
-                xaxis_title=x_axis_label + " (0-100)",
-                yaxis_title=y_axis_label + " (0-100)",
-                height=650, template="plotly_white",
-                dragmode=False 
-            )
-            
-            last_row = df.iloc[-1]
-            curr_x = last_row.get(xcol, np.nan)
-            curr_y = last_row.get(ycol, np.nan)
-            if not np.isnan(curr_x) and not np.isnan(curr_y):
-                fig.add_vline(x=curr_x, line_width=2, line_dash="dash", line_color="black")
-                fig.add_hline(y=curr_y, line_width=2, line_dash="dash", line_color="black")
-                fig.add_annotation(x=curr_x, y=curr_y, text="Current", showarrow=True, arrowhead=1, ax=30, ay=-30, bgcolor="white")
-            
-            st.plotly_chart(fig, use_container_width=True, on_select="rerun", key="heatmap_plot")
-            
-            st.markdown("### 🔎 Historical Data Explorer")
-            f_col1, f_col2 = st.columns(2)
-            with f_col1: x_range = st.slider(f"Filter: {x_axis_label} (Rank)", 0.0, 100.0, (0.0, 100.0), step=1.0)
-            with f_col2: y_range = st.slider(f"Filter: {y_axis_label} (Rank)", 0.0, 100.0, (0.0, 100.0), step=1.0)
-            
-            mask = (clean_df[xcol] >= x_range[0]) & (clean_df[xcol] <= x_range[1]) & \
-                   (clean_df[ycol] >= y_range[0]) & (clean_df[ycol] <= y_range[1])
-            filtered_df = clean_df[mask].copy()
-            
-            if not filtered_df.empty:
-                s1, s2, s3 = st.columns(3)
-                s1.metric("Matching Instances", len(filtered_df))
-                s2.metric(f"Avg Target", f"{filtered_df[zcol].mean():.2f}{z_units}")
+            if not clean_df.empty:
+                x_edges, y_edges = build_bins_quantile(clean_df[xcol], clean_df[ycol], nx=bins, ny=bins)
+                x_centers, y_centers, Z = grid_mean(clean_df, xcol, ycol, zcol, x_edges, y_edges)
                 
-                win_rate = (filtered_df[zcol] > 0).sum() / len(filtered_df) * 100
-                s3.metric("Win Rate (>0)", f"{win_rate:.1f}%")
+                Z_filled = nan_neighbor_fill(Z)
+                Z_smooth = smooth_display(Z_filled, sigma=smooth_sigma)
                 
-                st.write("#### Matching Dates")
-                display_cols = ['Close', xcol, ycol, zcol]
-                table_df = filtered_df[display_cols].sort_index(ascending=False)
+                limit = np.nanmax(np.abs(Z_smooth))
+                colorscale = get_seismic_colorscale()
+                z_units = "%" 
+
+                fig = go.Figure(data=go.Heatmap(
+                    z=Z_smooth, x=x_centers, y=y_centers,
+                    colorscale=colorscale, 
+                    zmin=-limit, zmax=limit,
+                    zmid=0, 
+                    reversescale=True, 
+                    colorbar=dict(title=f"{zcol} {z_units}"),
+                    hovertemplate=f"<b>{x_axis_label}</b>: %{{x:.1f}}<br><b>{y_axis_label}</b>: %{{y:.1f}}<br><b>Value</b>: %{{z:.2f}}{z_units}<extra></extra>"
+                ))
+                
+                fig.update_layout(
+                    title=f"{ticker} ({analysis_start} - Present): {z_axis_label}",
+                    xaxis_title=x_axis_label + " (0-100)",
+                    yaxis_title=y_axis_label + " (0-100)",
+                    height=600, template="plotly_white",
+                    dragmode=False 
+                )
+                
+                # Add Current State Marker
+                last_row = df.iloc[-1]
+                curr_x = last_row.get(xcol, np.nan)
+                curr_y = last_row.get(ycol, np.nan)
+                if not np.isnan(curr_x) and not np.isnan(curr_y):
+                    fig.add_vline(x=curr_x, line_width=2, line_dash="dash", line_color="black")
+                    fig.add_hline(y=curr_y, line_width=2, line_dash="dash", line_color="black")
+                    fig.add_annotation(x=curr_x, y=curr_y, text="Current", showarrow=True, arrowhead=1, ax=30, ay=-30, bgcolor="white")
+                
+                st.plotly_chart(fig, use_container_width=True, key="heatmap_plot")
+            else:
+                st.error("Insufficient data for Heatmap.")
+
+            # --- ENSEMBLE TABLE ---
+            st.divider()
+            st.subheader(f"🤖 Grand Ensemble Forecast: {ticker}")
+            st.markdown("Aggregates the expected return across **all valid pairwise combinations** of indicators given the current setup.")
+            
+            market_cols = [c for c in df.columns if c.startswith("Mkt_")]
+            ensemble_df = calculate_ensemble_forecast(df, rank_cols, market_cols)
+            
+            if not ensemble_df.empty:
                 st.dataframe(
-                    table_df.style.format({
-                        "Close": "${:.2f}", xcol: "{:.1f}", ycol: "{:.1f}", zcol: "{:.2f}" + z_units
-                    }).background_gradient(subset=[zcol], cmap="RdBu", vmin=-limit, vmax=limit),
-                    use_container_width=True, height=400
+                    ensemble_df.style.format({
+                        "Exp Return": "{:.2f}%",
+                        "Std Dev": "{:.2f}",
+                        "Win Rate": "{:.1f}%",
+                    }).background_gradient(subset=['Exp Return'], cmap="RdBu", vmin=-5, vmax=5),
+                    use_container_width=True
                 )
             else:
-                st.warning("No matches found.")
+                st.warning("Not enough historical depth to generate an ensemble forecast.")
 
 def main():
     st.set_page_config(layout="wide", page_title="Heatmap Analytics")
