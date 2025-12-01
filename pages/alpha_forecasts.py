@@ -17,28 +17,41 @@ NEIGHBORS_K = 50           # Number of similar historical dates to find
 FWD_WINDOW = 5             # Target Horizon (Days)
 MIN_HISTORY_YRS = 10       # Minimum history required to trust the scan
 
-# PARED DOWN UNIVERSE
+# PARED DOWN UNIVERSE (Your existing list)
 SELECTED_UNIVERSE = [
-    # --- INDICES & COMMODITIES ---
-    'SPY', 'QQQ', 'IWM', 'DIA', 'GLD', 'SLV', 'UNG', 'UVXY',
-    # --- SECTOR & INDUSTRY ETFs ---
+    'SPY', 'QQQ', 'IWM', 'DIA','SMH',
+    'GLD', 'SLV', 'UNG', 'OIH', 'CEF','FCX',
+    'UVXY', '^VIX',
     'XLK', 'XLF', 'XLV', 'XLY', 'XLP', 'XLE', 'XLI', 'XLU', 'XLB',
-    'SMH', 'IBB', 'XBI', 'KRE', 'XRT', 'XHB', 'XOP', 'XME',
-    'VNQ', 'IYR', 'ITA', 'ITB', 'IHI', 'OIH', 'CEF',
-    # --- MEGA CAP TECH & SEMIS ---
+    'IBB', 'XBI', 'KRE', 'XRT', 'XHB', 'XOP', 'XME',
+    'VNQ', 'IYR', 'ITA', 'ITB', 'IHI', 
     'AAPL', 'MSFT', 'NVDA', 'GOOG', 'AMZN', 'META', 'AMD', 'AVGO', 
-    'ORCL', 'QCOM', 'TXN', 'ADBE',
-    # --- FINANCE ---
-    'JPM', 'BAC', 'GS', 'MS', 'V', 'AXP',
-    # --- CONSUMER ---
-    'WMT', 'COST', 'HD', 'MCD', 'NKE', 'SBUX', 'PG', 'KO','FCX',
-    # --- HEALTHCARE ---
+    'ORCL', 'QCOM', 'NFLX', 'TSLA',
+    'JPM', 'BAC', 'GS', 'MS', 'C',
+    'COST', 'HD', 'NKE', 'SBUX', 'DIS', 'FDX', 'LUV', 'V', 'AXP',
     'LLY', 'UNH', 'JNJ', 'PFE', 'MRK',
-    # --- INDUSTRIAL & ENERGY ---
-    'CAT', 'BA', 'GE', 'UNP', 'XOM', 'CVX',
-    # --- OTHERS ---
-    'DIS', 'NFLX', 'CRM', 'TSLA', 'RTX', 'LMT','LUV','DE','FDX' 
+    'CAT', 'UNP', 'XOM', 'CVX','DE',
+    'PG', 'KO','WMT','MCD', 'PEP',
+    'CRM', 'NOW',
+    'RTX', 'LMT','BA', 'GE', 
 ]
+
+# --- NEW: SEGMENT DEFINITIONS FOR GROUPING ---
+# Note: Tickers can appear in multiple groups (e.g., NVDA in both Semis and Mega Tech)
+SECTOR_DEFINITIONS = {
+    "Indices": ['SPY', 'QQQ', 'IWM', 'DIA'],
+    "Semis (Breakout)": ['SMH', 'NVDA', 'AMD', 'AVGO', 'QCOM'], 
+    "Mega Cap Tech": ['AAPL', 'MSFT', 'NVDA', 'GOOG', 'AMZN', 'META', 'AMD', 'AVGO', 'ORCL', 'QCOM', 'NFLX', 'TSLA'],
+    "Commodities & Vol": ['GLD', 'SLV', 'UNG', 'OIH', 'CEF', 'FCX', 'UVXY', '^VIX'],
+    "Sector ETFs": ['XLK', 'XLF', 'XLV', 'XLY', 'XLP', 'XLE', 'XLI', 'XLU', 'XLB', 'IBB', 'XBI', 'KRE', 'XRT', 'XHB', 'XOP', 'XME', 'VNQ', 'IYR', 'ITA', 'ITB', 'IHI'],
+    "Banks": ['JPM', 'BAC', 'GS', 'MS', 'C'],
+    "Consumer & Payments": ['COST', 'HD', 'NKE', 'SBUX', 'DIS', 'FDX', 'LUV', 'V', 'AXP'],
+    "Healthcare": ['LLY', 'UNH', 'JNJ', 'PFE', 'MRK'],
+    "Industrials & Energy": ['CAT', 'UNP', 'XOM', 'CVX', 'DE'],
+    "Staples": ['PG', 'KO', 'WMT', 'MCD', 'PEP'],
+    "Software": ['CRM', 'NOW'],
+    "Defense": ['RTX', 'LMT', 'BA', 'GE']
+}
 
 # -----------------------------------------------------------------------------
 # DATA ENGINE
@@ -337,14 +350,12 @@ def main():
         
         st.divider()
         
-        # B. Deep Dive Section (This is what you want to be interactive)
+        # B. Deep Dive Section
         st.subheader("🔎 Signal Inspector")
         
         col_sel, col_viz = st.columns([1, 3])
         
         with col_sel:
-            # changing this dropdown will rerun the script, 
-            # but because 'scan_results' is in session_state, we skip the heavy math above
             selected_ticker = st.selectbox("Select Ticker to Inspect", results_df['Ticker'].tolist())
             
             sel_row = results_df[results_df['Ticker'] == selected_ticker].iloc[0]
@@ -353,8 +364,7 @@ def main():
             st.metric("Z-Score", f"{sel_row['Alpha_Z']:.2f}")
 
         with col_viz:
-            # We recalculate neighbors for just ONE ticker here to keep memory light, 
-            # but we use the cached 'raw_data' so no download happens.
+            # Re-calc for viz
             df_viz, rank_cols = calculate_features_and_rank(raw_data[selected_ticker], sznl_map, selected_ticker, mkt_metrics)
             
             # Get Neighbors
@@ -401,5 +411,41 @@ def main():
                     use_container_width=True
                 )
 
+        st.divider()
+
+        # --- C. SECTOR AGGREGATES (NEW SECTION) ---
+        st.subheader("📊 Sector & Segment Aggregates")
+        st.caption("Average forecasted return of tickers within each defined segment.")
+
+        sector_stats = []
+        for sector, tickers in SECTOR_DEFINITIONS.items():
+            # Filter results for tickers in this sector that exist in the result set
+            matches = results_df[results_df['Ticker'].isin(tickers)]
+            
+            if not matches.empty:
+                sector_stats.append({
+                    "Segment": sector,
+                    "Avg_Exp_Return": matches['Exp_Return'].mean(),
+                    "Avg_Alpha": matches['Euclidean_Alpha'].mean(),
+                    "Avg_Win_Rate": matches['Win_Rate'].mean(),
+                    "Count": len(matches)
+                })
+        
+        if sector_stats:
+            sector_df = pd.DataFrame(sector_stats).sort_values("Avg_Exp_Return", ascending=False)
+            
+            st.dataframe(
+                sector_df.style.format({
+                    "Avg_Exp_Return": "{:.2f}%",
+                    "Avg_Alpha": "{:+.2f}%",
+                    "Avg_Win_Rate": "{:.1f}%",
+                }).background_gradient(subset=['Avg_Exp_Return'], cmap="RdBu", vmin=-1.0, vmax=1.0),
+                use_container_width=True,
+                hide_index=True
+            )
+        else:
+            st.info("No sector data available.")
+
 if __name__ == "__main__":
     main()
+
