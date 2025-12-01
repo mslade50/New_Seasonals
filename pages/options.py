@@ -4,12 +4,8 @@ import numpy as np
 import yfinance as yf
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
-from scipy.ndimage import gaussian_filter
-from scipy.signal import convolve2d
-import matplotlib
 import datetime as dt
 import itertools
-from collections import defaultdict
 from dateutil.easter import easter
 from dateutil.relativedelta import relativedelta, MO, TH
 
@@ -118,18 +114,17 @@ def download_data(ticker):
 # FEATURE ENGINEERING
 # -----------------------------------------------------------------------------
 @st.cache_data(show_spinner=True)
-def calculate_heatmap_variables(df, sznl_map, market_metrics_df, ticker):
+def calculate_feature_vectors(df, sznl_map, market_metrics_df, ticker):
     df = df.copy()
     df['LogRet'] = np.log(df['Close'] / df['Close'].shift(1))
     
-    for w in [1, 2, 3, 5, 10, 21, 63, 126, 252]:
-        df[f'FwdRet_{w}d'] = (df['Close'].shift(-w) / df['Close'] - 1.0) * 100.0
-
+    # Predictor Variables
     for w in [5, 10, 21, 252]: df[f'Ret_{w}d'] = df['Close'].pct_change(w)
     for w in [21, 63]: df[f'RealVol_{w}d'] = df['LogRet'].rolling(w).std() * np.sqrt(252) * 100.0
     for w in [10, 21]: df[f'VolRatio_{w}d'] = df['Volume'].rolling(w).mean() / df['Volume'].rolling(63).mean()
     df['Seasonal'] = get_sznl_val_series(ticker, df.index, sznl_map, df)
 
+    # Rank Transformation
     vars_to_rank = ['Ret_5d', 'Ret_10d', 'Ret_21d', 'Ret_252d', 'RealVol_21d', 'RealVol_63d', 'VolRatio_10d', 'VolRatio_21d']
     rank_cols = []
     for v in vars_to_rank:
@@ -164,7 +159,7 @@ def get_euclidean_neighbors(df, rank_cols, market_cols, n_neighbors=50):
     return history.nsmallest(n_take, 'Euclidean_Dist').copy()
 
 # -----------------------------------------------------------------------------
-# OPTION PRICING & VISUALIZATION LOGIC
+# OPTION PRICING & STRATEGY LOGIC
 # -----------------------------------------------------------------------------
 def option_chain_prices(ticker, price_type="midpoint"):
     stock = yf.Ticker(ticker)
@@ -234,11 +229,102 @@ def get_simulated_prices(df_hist, neighbors, days_forward, current_price):
     sim_prices = [current_price * (1 + r) for r in future_returns]
     return np.array(sim_prices)
 
-def calculate_option_fair_value(simulated_prices, strike, opt_type):
-    if len(simulated_prices) == 0: return 0
-    if opt_type == 'Call': payoffs = np.maximum(0, simulated_prices - strike)
-    else: payoffs = np.maximum(0, strike - simulated_prices)
-    return np.mean(payoffs)
+def calculate_kelly(payoffs, cost):
+    """
+    Calculates Kelly Criterion based on the simulated payoff distribution.
+    Kelly % = W - (1-W)/R
+    W = Probability of Winning
+    R = Avg_Win / Avg_Loss (Reward to Risk Ratio)
+    """
+    net_pnl = payoffs - cost
+    
+    wins = net_pnl[net_pnl > 0]
+    losses = net_pnl[net_pnl <= 0]
+    
+    if len(wins) == 0: return 0.0
+    if len(losses) == 0: return 1.0 # Only wins
+    
+    win_prob = len(wins) / len(net_pnl)
+    avg_win = np.mean(wins)
+    avg_loss = abs(np.mean(losses))
+    
+    if avg_loss == 0: return 1.0
+    
+    reward_risk = avg_win / avg_loss
+    
+    kelly_f = win_prob - (1 - win_prob) / reward_risk
+    
+    # Return 0 if negative, max 1.0
+    return max(0.0, min(1.0, kelly_f))
+
+def calculate_option_payoff_vector(simulated_prices, strike, opt_type):
+    if len(simulated_prices) == 0: return np.array([])
+    if opt_type == 'Call': return np.maximum(0, simulated_prices - strike)
+    else: return np.maximum(0, strike - simulated_prices)
+
+def generate_strategies(df_chain, sim_prices, spot):
+    strategies = []
+    
+    # 1. Independent Longs (Naked OTM)
+    for _, row in df_chain.iterrows():
+        payoffs = calculate_option_payoff_vector(sim_prices, row['Strike'], row['Type'])
+        fair_val = np.mean(payoffs)
+        mkt_val = row['Market_Price']
+        edge = fair_val - mkt_val
+        
+        if edge > mkt_val * 0.1 and mkt_val > 0.05:
+            kelly = calculate_kelly(payoffs, mkt_val)
+            strategies.append({
+                "Type": "Long " + row['Type'], "Strikes": f"{row['Strike']}", "Expiry": row['Expiry'],
+                "Cost": mkt_val, "Fair Value": fair_val, "Edge": edge, 
+                "ROI": (edge / mkt_val) * 100, "Kelly": kelly
+            })
+            
+    # 2. Vertical Spreads (Using OTM Legs)
+    for (expiry, otype), group in df_chain.groupby(['Expiry', 'Type']):
+        strikes = sorted(group['Strike'].unique())
+        for s1, s2 in itertools.combinations(strikes, 2):
+            if (s2 - s1) < (spot * 0.005): continue
+            leg1, leg2 = group[group['Strike'] == s1].iloc[0], group[group['Strike'] == s2].iloc[0]
+            
+            if otype == 'Call': # Bull Call (Long s1, Short s2)
+                cost = leg1['Market_Price'] - leg2['Market_Price']
+                if cost <= 0: continue
+                
+                payoffs1 = calculate_option_payoff_vector(sim_prices, s1, 'Call')
+                payoffs2 = calculate_option_payoff_vector(sim_prices, s2, 'Call')
+                spread_payoffs = payoffs1 - payoffs2
+                
+                fair_spread = np.mean(spread_payoffs)
+                edge = fair_spread - cost
+                
+                if edge > cost * 0.15:
+                    kelly = calculate_kelly(spread_payoffs, cost)
+                    strategies.append({
+                        "Type": "Bull Call Spread", "Strikes": f"{s1}/{s2}", "Expiry": expiry,
+                        "Cost": cost, "Fair Value": fair_spread, "Edge": edge, 
+                        "ROI": (edge / cost) * 100, "Kelly": kelly
+                    })
+            else: # Put (Bear Put: Long s2, Short s1)
+                cost = leg2['Market_Price'] - leg1['Market_Price'] 
+                if cost <= 0: continue
+                
+                payoffs_long = calculate_option_payoff_vector(sim_prices, s2, 'Put')
+                payoffs_short = calculate_option_payoff_vector(sim_prices, s1, 'Put')
+                spread_payoffs = payoffs_long - payoffs_short
+                
+                fair_spread = np.mean(spread_payoffs)
+                edge = fair_spread - cost
+                
+                if edge > cost * 0.15:
+                    kelly = calculate_kelly(spread_payoffs, cost)
+                    strategies.append({
+                        "Type": "Bear Put Spread", "Strikes": f"{s2}/{s1}", "Expiry": expiry,
+                        "Cost": cost, "Fair Value": fair_spread, "Edge": edge, 
+                        "ROI": (edge / cost) * 100, "Kelly": kelly
+                    })
+
+    return pd.DataFrame(strategies)
 
 # --- VISUALIZATION FUNCTION ---
 def visualize_expiry_analysis(ticker, expiry, forward_prices, df_options, current_price, trading_days):
@@ -249,17 +335,12 @@ def visualize_expiry_analysis(ticker, expiry, forward_prices, df_options, curren
     subset_options = df_options[
         (df_options["Strike"] >= lower_bound) & 
         (df_options["Strike"] <= upper_bound)
-    ].copy()
-    
-    # Sort for plotting
-    subset_options = subset_options.sort_values("Strike")
+    ].copy().sort_values("Strike")
 
     if subset_options.empty: return
 
     # Metrics
     pct_positive = np.mean(forward_prices > current_price) * 100
-    
-    # Model IV
     log_returns = np.log(forward_prices / current_price)
     period_vol = np.std(log_returns)
     annualization_factor = np.sqrt(252 / max(1, trading_days))
@@ -281,8 +362,7 @@ def visualize_expiry_analysis(ticker, expiry, forward_prices, df_options, curren
     fig = make_subplots(
         rows=2, cols=1, 
         subplot_titles=(f"Forward Prices ({expiry})", f"OTM Options (+/- 2 Std Dev): Theo vs Market"),
-        vertical_spacing=0.15,
-        row_heights=[0.4, 0.6]
+        vertical_spacing=0.15, row_heights=[0.4, 0.6]
     )
 
     fig.add_trace(go.Histogram(x=forward_prices, name='Forward Prices', marker_color='green', opacity=0.6, nbinsx=50), row=1, col=1)
@@ -290,13 +370,10 @@ def visualize_expiry_analysis(ticker, expiry, forward_prices, df_options, curren
     fig.add_vline(x=np.mean(forward_prices), line_dash="dash", line_color="blue", annotation_text="Mean", row=1, col=1)
 
     fig.add_annotation(
-        xref="x domain", yref="y domain", 
-        x=0.98, y=0.95,
+        xref="x domain", yref="y domain", x=0.98, y=0.95,
         text=f"<b>Model IV:</b> {model_iv:.2%} | <b>Mkt ATM IV:</b> {mkt_atm_iv:.2%}<br>Mean: {np.mean(forward_prices):.2f} | % Pos: {pct_positive:.1f}%",
-        showarrow=False, 
-        bgcolor="#444444", bordercolor="white", borderwidth=1,
-        font=dict(color="white", size=10),
-        align="right", row=1, col=1
+        showarrow=False, bgcolor="#444444", bordercolor="white", borderwidth=1,
+        font=dict(color="white", size=10), align="right", row=1, col=1
     )
 
     fig.add_trace(go.Bar(x=subset_options["Strike"], y=subset_options["Theo"], name="Theoretical", marker_color="pink", opacity=0.7), row=2, col=1)
@@ -307,80 +384,24 @@ def visualize_expiry_analysis(ticker, expiry, forward_prices, df_options, curren
     fig.update_layout(title=f"{ticker} Analysis - Expiry {expiry} ({trading_days} days)", height=700, barmode='group', template="plotly_white")
     st.plotly_chart(fig, use_container_width=True)
 
-def generate_strategies(df_chain, sim_prices, spot):
-    strategies = []
-    
-    # 1. Independent Longs (Naked OTM)
-    for _, row in df_chain.iterrows():
-        fair_val = calculate_option_fair_value(sim_prices, row['Strike'], row['Type'])
-        mkt_val = row['Market_Price']
-        edge = fair_val - mkt_val
-        
-        if edge > mkt_val * 0.1 and mkt_val > 0.05:
-            strategies.append({
-                "Type": "Long " + row['Type'], "Strikes": f"{row['Strike']}", "Expiry": row['Expiry'],
-                "Cost": mkt_val, "Fair Value": fair_val, "Edge": edge, "ROI": (edge / mkt_val) * 100
-            })
-            
-    # 2. Vertical Spreads (Using OTM Legs)
-    for (expiry, otype), group in df_chain.groupby(['Expiry', 'Type']):
-        strikes = sorted(group['Strike'].unique())
-        for s1, s2 in itertools.combinations(strikes, 2):
-            if (s2 - s1) < (spot * 0.005): continue
-            leg1, leg2 = group[group['Strike'] == s1].iloc[0], group[group['Strike'] == s2].iloc[0]
-            
-            if otype == 'Call':
-                cost = leg1['Market_Price'] - leg2['Market_Price']
-                if cost <= 0: continue
-                fv1 = calculate_option_fair_value(sim_prices, s1, 'Call')
-                fv2 = calculate_option_fair_value(sim_prices, s2, 'Call')
-                fair_spread = fv1 - fv2
-                edge = fair_spread - cost
-                
-                if edge > cost * 0.15:
-                    strategies.append({
-                        "Type": "Bull Call Spread", "Strikes": f"{s1}/{s2}", "Expiry": expiry,
-                        "Cost": cost, "Fair Value": fair_spread, "Edge": edge, "ROI": (edge / cost) * 100
-                    })
-            else: # Put
-                cost = leg2['Market_Price'] - leg1['Market_Price'] 
-                if cost <= 0: continue
-                fv_long = calculate_option_fair_value(sim_prices, s2, 'Put')
-                fv_short = calculate_option_fair_value(sim_prices, s1, 'Put')
-                fair_spread = fv_long - fv_short
-                edge = fair_spread - cost
-                
-                if edge > cost * 0.15:
-                    strategies.append({
-                        "Type": "Bear Put Spread", "Strikes": f"{s2}/{s1}", "Expiry": expiry,
-                        "Cost": cost, "Fair Value": fair_spread, "Edge": edge, "ROI": (edge / cost) * 100
-                    })
-
-    return pd.DataFrame(strategies)
-
 # -----------------------------------------------------------------------------
 # UI RENDER
 # -----------------------------------------------------------------------------
-def render_heatmap():
-    st.subheader("Heatmap Analytics & Option Lab")
+def render_dashboard():
+    st.title("🧬 Euclidean Option Lab")
     
-    col1, col2, col3 = st.columns(3)
+    col1, col2 = st.columns([1, 2])
     with col1:
-        x_axis_label = st.selectbox("X-Axis Variable", ["Ret_5d_Rank", "Ret_21d_Rank", "Seasonal", "VolRatio_10d_Rank"], index=0)
-        y_axis_label = st.selectbox("Y-Axis Variable", ["Ret_5d_Rank", "Ret_21d_Rank", "Seasonal", "VolRatio_10d_Rank"], index=2)
-    with col2:
-        z_axis_label = st.selectbox("Target (Z-Axis)", ["FwdRet_5d", "FwdRet_21d", "FwdRet_63d"], index=0)
         ticker = st.text_input("Ticker", value="SMH").upper()
-    with col3:
-        ensemble_tol = st.slider("Pairwise Tolerance", 1, 25, 5, 1)
         k_neighbors = st.number_input("Euclidean Neighbors", 10, 250, 50)
-        analysis_start = st.date_input("Start Date", dt.date(2000, 1, 1))
+    with col2:
+        st.info("Finds historical dates mathematically similar to today (Price, Vol, Seasonality, Net Highs) and prices options based on subsequent outcomes.")
 
     if st.button("Run Analysis", type="primary"):
         st.session_state['run_main'] = True
 
     if st.session_state.get('run_main'):
-        with st.spinner(f"Processing {ticker}..."):
+        with st.spinner(f"Running Euclidean Engine on {ticker}..."):
             data, _ = download_data(ticker)
             if data.empty: 
                 st.error("No data")
@@ -388,10 +409,11 @@ def render_heatmap():
             
             sznl_map = load_seasonal_map()
             mkt_metrics = load_market_metrics()
-            df, rank_cols = calculate_heatmap_variables(data, sznl_map, mkt_metrics, ticker)
+            df, rank_cols = calculate_feature_vectors(data, sznl_map, mkt_metrics, ticker)
             
+            # Get Neighbors
             neighbors = get_euclidean_neighbors(df, rank_cols, [c for c in df.columns if c.startswith("Mkt_")], n_neighbors=k_neighbors)
-            st.success(f"Analysis Complete. Found {len(neighbors)} Euclidean matches.")
+            st.success(f"Found {len(neighbors)} Euclidean matches.")
             
             st.session_state['full_df'] = df
             st.session_state['neighbors'] = neighbors
@@ -399,10 +421,7 @@ def render_heatmap():
 
     if 'full_df' in st.session_state:
         st.divider()
-        st.header("🧪 Option Strategy Lab")
-        st.markdown("""
-        **Method:** Scrapes live **OTM** option chains (filtered for liquidity) and compares Market Prices vs. Theoretical Prices derived from the **Euclidean Neighbor** distribution.
-        """)
+        st.subheader("Options Scanner")
         
         c_opt1, c_opt2 = st.columns([1, 3])
         with c_opt1:
@@ -423,8 +442,6 @@ def render_heatmap():
                     valid_expiries = []
                     all_strategies = []
                     processed_count = 0
-                    
-                    # Store visualization data for the FIRST processed expiry
                     viz_expiry = None
                     
                     for exp in expiries:
@@ -439,11 +456,8 @@ def render_heatmap():
                         
                         if len(sim_prices) > 0:
                             subset_chain = df_opts[df_opts['Expiry'] == exp].copy()
-                            
-                            # Calculate Theo for Visualization (All Strikes in this expiry)
                             subset_chain['Theo'] = subset_chain.apply(lambda row: calculate_option_fair_value(sim_prices, row['Strike'], row['Type']), axis=1)
                             
-                            # Render chart for the first valid expiry we encounter
                             if viz_expiry is None:
                                 viz_expiry = exp
                                 visualize_expiry_analysis(st.session_state['ticker'], exp, sim_prices, subset_chain, spot, days)
@@ -454,30 +468,27 @@ def render_heatmap():
 
                     if all_strategies:
                         master_df = pd.concat(all_strategies)
-                        # SORT BY ROI
-                        spreads = master_df[master_df['Type'].str.contains("Spread")].sort_values("ROI", ascending=False).head(5)
-                        naked = master_df[~master_df['Type'].str.contains("Spread")].sort_values("ROI", ascending=False).head(3)
+                        # SORT BY KELLY (Descending)
+                        spreads = master_df[master_df['Type'].str.contains("Spread")].sort_values("Kelly", ascending=False).head(5)
+                        naked = master_df[~master_df['Type'].str.contains("Spread")].sort_values("Kelly", ascending=False).head(3)
                         
-                        st.subheader(f"🏆 Top Trade Ideas (Next {processed_count} Expiries)")
+                        st.subheader(f"🏆 Top Trade Ideas (Sorted by Kelly)")
                         
                         col_tbl1, col_tbl2 = st.columns(2)
                         with col_tbl1:
-                            st.write("**Top 5 Vertical Spreads (OTM) by ROI**")
-                            st.dataframe(spreads[['Type', 'Expiry', 'Strikes', 'Cost', 'Fair Value', 'Edge', 'ROI']].style.format({
-                                'Cost': '${:.2f}', 'Fair Value': '${:.2f}', 'Edge': '${:.2f}', 'ROI': '{:.1f}%'
-                            }).background_gradient(subset=['ROI'], cmap='Greens'), use_container_width=True)
+                            st.write("**Top 5 Vertical Spreads (OTM)**")
+                            st.dataframe(spreads[['Type', 'Expiry', 'Strikes', 'Cost', 'Fair Value', 'Edge', 'ROI', 'Kelly']].style.format({
+                                'Cost': '${:.2f}', 'Fair Value': '${:.2f}', 'Edge': '${:.2f}', 'ROI': '{:.1f}%', 'Kelly': '{:.1%}'
+                            }).background_gradient(subset=['Kelly'], cmap='Greens'), use_container_width=True)
                             
                         with col_tbl2:
-                            st.write("**Top 3 Independent Longs (OTM) by ROI**")
-                            st.dataframe(naked[['Type', 'Expiry', 'Strikes', 'Cost', 'Fair Value', 'Edge', 'ROI']].style.format({
-                                'Cost': '${:.2f}', 'Fair Value': '${:.2f}', 'Edge': '${:.2f}', 'ROI': '{:.1f}%'
-                            }).background_gradient(subset=['ROI'], cmap='Greens'), use_container_width=True)
+                            st.write("**Top 3 Independent Longs (OTM)**")
+                            st.dataframe(naked[['Type', 'Expiry', 'Strikes', 'Cost', 'Fair Value', 'Edge', 'ROI', 'Kelly']].style.format({
+                                'Cost': '${:.2f}', 'Fair Value': '${:.2f}', 'Edge': '${:.2f}', 'ROI': '{:.1f}%', 'Kelly': '{:.1%}'
+                            }).background_gradient(subset=['Kelly'], cmap='Greens'), use_container_width=True)
                     else:
                         st.warning("No trades found with positive edge criteria.")
 
-def main():
-    st.set_page_config(layout="wide", page_title="Heatmap & Option Lab")
-    render_heatmap()
-
 if __name__ == "__main__":
-    main()
+    st.set_page_config(layout="wide", page_title="Euclidean Option Lab")
+    render_dashboard()
