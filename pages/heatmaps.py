@@ -55,18 +55,15 @@ def load_market_metrics():
     
     pivoted['Total'] = pivoted.get('NYSE', 0) + pivoted.get('NASDAQ', 0)
     
-    # Only keep the metrics strictly requested or useful for the pared down list
+    # Only keep the metrics strictly requested
     windows = [5, 21] 
     categories = ['Total']
     
     results = pd.DataFrame(index=pivoted.index)
     
     for cat in categories:
-        if cat not in pivoted.columns: 
-            continue
-            
+        if cat not in pivoted.columns: continue
         series = pivoted[cat]
-        
         for w in windows:
             ma_col = series.rolling(window=w).mean()
             rank_col_name = f"Mkt_{cat}_NH_{w}d_Rank"
@@ -75,7 +72,7 @@ def load_market_metrics():
     return results
 
 # -----------------------------------------------------------------------------
-# DYNAMIC SEASONALITY GENERATOR
+# DYNAMIC SEASONALITY & DATA
 # -----------------------------------------------------------------------------
 def generate_dynamic_seasonal_profile(df, cutoff_date, target_year):
     work_df = df[df.index < cutoff_date].copy()
@@ -164,7 +161,7 @@ def download_data(ticker):
         return pd.DataFrame(), None
 
 # -----------------------------------------------------------------------------
-# CALCULATIONS
+# FEATURE ENGINEERING & ENSEMBLE LOGIC
 # -----------------------------------------------------------------------------
 @st.cache_data(show_spinner=True)
 def calculate_heatmap_variables(df, sznl_map, market_metrics_df, ticker):
@@ -173,23 +170,20 @@ def calculate_heatmap_variables(df, sznl_map, market_metrics_df, ticker):
     # 1. BASE
     df['LogRet'] = np.log(df['Close'] / df['Close'].shift(1))
 
-    # 2. FORWARD TARGETS (RETURNS ONLY)
-    # Added 252d as requested
+    # 2. FORWARD TARGETS
     for w in [5, 10, 21, 63, 252]:
         df[f'FwdRet_{w}d'] = (df['Close'].shift(-w) / df['Close'] - 1.0) * 100.0
 
     # 3. PREDICTOR VARIABLES (STRIPPED DOWN)
-    # Momentum (Removed 126d)
+    # Momentum
     for w in [5, 10, 21, 63, 252]:
         df[f'Ret_{w}d'] = df['Close'].pct_change(w)
 
-    # Realized Vol (Only 21 and 63)
+    # Realized Vol
     for w in [21, 63]:
         df[f'RealVol_{w}d'] = df['LogRet'].rolling(w).std() * np.sqrt(252) * 100.0
     
-    # Removed all VolChange_XX variables
-
-    # Relative Volume (Only 21d)
+    # Relative Volume
     for w in [21]:
         df[f'VolRatio_{w}d'] = df['Volume'].rolling(w).mean() / df['Volume'].rolling(63).mean()
 
@@ -216,11 +210,13 @@ def calculate_heatmap_variables(df, sznl_map, market_metrics_df, ticker):
 
     return df, rank_cols
 
-def calculate_ensemble_forecast(df, rank_cols, market_cols):
+def calculate_distribution_ensemble(df, rank_cols, market_cols):
     """
-    Scans every pairwise combination of valid features. 
-    Finds historical analogs where both features were close to current levels.
-    Aggregates the forward returns of those analogs.
+    "True Distribution" Approach:
+    1. Identifies all valid feature pairs.
+    2. For each pair, finds ALL historical rows where both ranks are within +/- 5 of current.
+    3. Pools all these raw return outcomes into a single distribution (Bag of Returns).
+    4. Calculates stats on this pooled distribution.
     """
     if df.empty: return pd.DataFrame()
     
@@ -234,65 +230,66 @@ def calculate_ensemble_forecast(df, rank_cols, market_cols):
     if len(valid_features) < 2: return pd.DataFrame()
     
     targets = [5, 10, 21, 63, 252]
-    results_map = {t: {'means': [], 'counts': []} for t in targets}
+    # Initialize the "Bag of Returns"
+    pooled_outcomes = {t: [] for t in targets}
     
-    # Scan every pair
     pairs = list(itertools.combinations(valid_features, 2))
     
-    # Box filter size (how "close" is a historical match? +/- 12.5 rank points)
-    TOLERANCE = 12.5 
-    MIN_HISTORY_SAMPLES = 15
-    
-    # Pre-filter DF to save time: only look at valid data points
-    # We apply the mask per pair, so just ensure we aren't looking at NaN target rows
+    # STRICT TOLERANCE as requested
+    TOLERANCE = 5.0 
     
     for f1, f2 in pairs:
         v1 = current_row[f1]
         v2 = current_row[f2]
         
-        # Create mask for history
+        # Create mask for history: Box Filter +/- 5
         mask = (
             (df[f1] >= v1 - TOLERANCE) & (df[f1] <= v1 + TOLERANCE) &
             (df[f2] >= v2 - TOLERANCE) & (df[f2] <= v2 + TOLERANCE)
         )
         
+        # Get matching rows (excluding the current row itself to avoid look-ahead bias if re-running on history)
+        # In a live setting, current row targets are NaN anyway, so they naturally exclude.
         subset = df[mask]
         
-        if len(subset) < MIN_HISTORY_SAMPLES: continue
+        if subset.empty: continue
         
         for t in targets:
             col = f'FwdRet_{t}d'
             if col not in subset.columns: continue
             
-            vals = subset[col].dropna()
-            if len(vals) < MIN_HISTORY_SAMPLES: continue
+            # Extract raw returns and add to the pool
+            vals = subset[col].dropna().tolist()
+            if vals:
+                pooled_outcomes[t].extend(vals)
             
-            mean_ret = vals.mean()
-            # We track the mean of this specific pair
-            results_map[t]['means'].append(mean_ret)
-            results_map[t]['counts'].append(len(vals))
-            
-    # Aggregate
+    # Aggregate Statistics
     summary = []
     for t in targets:
-        means = results_map[t]['means']
-        if not means:
-            summary.append({"Horizon": f"{t} Days", "Exp Return": np.nan, "Breadth": 0, "Conf": "Low"})
+        data = np.array(pooled_outcomes[t])
+        
+        if len(data) == 0:
+            summary.append({
+                "Horizon": f"{t} Days", 
+                "Exp Return (Mean)": np.nan,
+                "Median": np.nan,
+                "Win Rate": np.nan, 
+                "Sample Size": 0
+            })
             continue
             
-        grand_mean = np.mean(means)
-        std_dev = np.std(means)
-        breadth = len(means) # How many pairs agreed/fired
-        
-        # Simple directional ratio
-        pos_ratio = np.sum(np.array(means) > 0) / breadth
+        grand_mean = np.mean(data)
+        median = np.median(data)
+        std_dev = np.std(data)
+        pos_ratio = np.sum(data > 0) / len(data)
         
         summary.append({
             "Horizon": f"{t} Days",
-            "Exp Return": grand_mean,
+            "Exp Return (Mean)": grand_mean,
+            "Median": median,
             "Std Dev": std_dev,
             "Win Rate": pos_ratio * 100,
-            "Breadth": breadth
+            "Sample Size": len(data)
         })
         
     return pd.DataFrame(summary)
@@ -405,7 +402,7 @@ def render_heatmap():
         y_axis_label = st.selectbox("Y-Axis Variable", list(var_options.keys()), index=2, key="hm_y")
     
     with col2:
-        # STRIPPED TARGET OPTIONS (Returns only, +252d)
+        # STRIPPED TARGET OPTIONS
         target_options = {
             "5d Forward Return": "FwdRet_5d",
             "10d Forward Return": "FwdRet_10d",
@@ -489,7 +486,6 @@ def render_heatmap():
                     dragmode=False 
                 )
                 
-                # Add Current State Marker
                 last_row = df.iloc[-1]
                 curr_x = last_row.get(xcol, np.nan)
                 curr_y = last_row.get(ycol, np.nan)
@@ -499,28 +495,67 @@ def render_heatmap():
                     fig.add_annotation(x=curr_x, y=curr_y, text="Current", showarrow=True, arrowhead=1, ax=30, ay=-30, bgcolor="white")
                 
                 st.plotly_chart(fig, use_container_width=True, key="heatmap_plot")
+                
+                # --- HISTORICAL DATA EXPLORER (RESTORED) ---
+                st.divider()
+                st.markdown("### 🔎 Historical Data Explorer")
+                f_col1, f_col2 = st.columns(2)
+                with f_col1: x_range = st.slider(f"Filter: {x_axis_label} (Rank)", 0.0, 100.0, (0.0, 100.0), step=1.0)
+                with f_col2: y_range = st.slider(f"Filter: {y_axis_label} (Rank)", 0.0, 100.0, (0.0, 100.0), step=1.0)
+                
+                mask = (clean_df[xcol] >= x_range[0]) & (clean_df[xcol] <= x_range[1]) & \
+                       (clean_df[ycol] >= y_range[0]) & (clean_df[ycol] <= y_range[1])
+                filtered_df = clean_df[mask].copy()
+                
+                if not filtered_df.empty:
+                    s1, s2, s3 = st.columns(3)
+                    s1.metric("Matching Instances", len(filtered_df))
+                    s2.metric(f"Avg Target", f"{filtered_df[zcol].mean():.2f}{z_units}")
+                    
+                    win_rate = (filtered_df[zcol] > 0).sum() / len(filtered_df) * 100
+                    s3.metric("Win Rate (>0)", f"{win_rate:.1f}%")
+                    
+                    st.write("#### Matching Dates")
+                    display_cols = ['Close', xcol, ycol, zcol]
+                    table_df = filtered_df[display_cols].sort_index(ascending=False)
+                    st.dataframe(
+                        table_df.style.format({
+                            "Close": "${:.2f}", xcol: "{:.1f}", ycol: "{:.1f}", zcol: "{:.2f}" + z_units
+                        }).background_gradient(subset=[zcol], cmap="RdBu", vmin=-limit, vmax=limit),
+                        use_container_width=True, height=400
+                    )
+                else:
+                    st.warning("No matches found for these filters.")
+                    
             else:
                 st.error("Insufficient data for Heatmap.")
 
-            # --- ENSEMBLE TABLE ---
+            # --- ENSEMBLE TABLE (UPDATED LOGIC) ---
             st.divider()
-            st.subheader(f"🤖 Grand Ensemble Forecast: {ticker}")
-            st.markdown("Aggregates the expected return across **all valid pairwise combinations** of indicators given the current setup.")
+            st.subheader(f"🤖 Grand Ensemble Forecast (True Distribution Mode)")
+            st.markdown(f"""
+            **Methodology:**
+            1. Scans ALL valid variable pairs (e.g., Seasonality vs Momentum, Volatility vs Net Highs).
+            2. For every pair, finds ALL historical dates where **both** metrics were within **±5** rank points of today.
+            3. Pools ALL those historical return outcomes into a single distribution to calculate expected value.
+            """)
             
             market_cols = [c for c in df.columns if c.startswith("Mkt_")]
-            ensemble_df = calculate_ensemble_forecast(df, rank_cols, market_cols)
+            ensemble_df = calculate_distribution_ensemble(df, rank_cols, market_cols)
             
             if not ensemble_df.empty:
                 st.dataframe(
                     ensemble_df.style.format({
-                        "Exp Return": "{:.2f}%",
+                        "Exp Return (Mean)": "{:.2f}%",
+                        "Median": "{:.2f}%",
                         "Std Dev": "{:.2f}",
                         "Win Rate": "{:.1f}%",
-                    }).background_gradient(subset=['Exp Return'], cmap="RdBu", vmin=-5, vmax=5),
+                        "Sample Size": "{:,.0f}"
+                    }).background_gradient(subset=['Exp Return (Mean)'], cmap="RdBu", vmin=-3, vmax=3),
                     use_container_width=True
                 )
             else:
-                st.warning("Not enough historical depth to generate an ensemble forecast.")
+                st.warning("Not enough historical depth (matches within ±5) to generate an ensemble forecast.")
 
 def main():
     st.set_page_config(layout="wide", page_title="Heatmap Analytics")
