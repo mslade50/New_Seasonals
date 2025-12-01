@@ -56,7 +56,6 @@ def load_market_metrics():
     
     pivoted['Total'] = pivoted.get('NYSE', 0) + pivoted.get('NASDAQ', 0)
     
-    # Only keep the metrics strictly requested
     windows = [5, 21] 
     categories = ['Total']
     
@@ -208,6 +207,7 @@ def calculate_heatmap_variables(df, sznl_map, market_metrics_df, ticker):
 
     return df, rank_cols
 
+# --- METHOD 1: PAIRWISE ENSEMBLE ---
 def calculate_distribution_ensemble(df, rank_cols, market_cols, tolerance=5.0):
     if df.empty: return pd.DataFrame()
     
@@ -284,6 +284,79 @@ def calculate_distribution_ensemble(df, rank_cols, market_cols, tolerance=5.0):
         
     return pd.DataFrame(summary)
 
+# --- METHOD 2: EUCLIDEAN NEAREST NEIGHBORS ---
+def calculate_euclidean_forecast(df, rank_cols, market_cols, n_neighbors=50):
+    current_row = df.iloc[-1]
+    
+    # 1. Identify all valid features available today
+    all_feats = rank_cols + ['Seasonal'] + market_cols
+    valid_feats = [f for f in all_feats if f in df.columns and not pd.isna(current_row[f])]
+    
+    if not valid_feats: return pd.DataFrame()
+    
+    # 2. Vectorize Current State
+    target_vec = current_row[valid_feats].astype(float).values
+    
+    # 3. Vectorize History (Exclude current row)
+    # Drop any historical row that has NaNs in these specific features to ensure fair distance
+    history = df.iloc[:-1].dropna(subset=valid_feats).copy()
+    
+    if history.empty: return pd.DataFrame()
+    
+    # 4. Calculate Euclidean Distance: Sqrt(Sum((x - y)^2))
+    diff = history[valid_feats].values - target_vec
+    dist_sq = np.sum(diff**2, axis=1)
+    distances = np.sqrt(dist_sq)
+    
+    history['Euclidean_Dist'] = distances
+    
+    # 5. Get Top N Neighbors
+    # If history < n_neighbors, take all
+    n_take = min(len(history), n_neighbors)
+    nearest = history.nsmallest(n_take, 'Euclidean_Dist')
+    
+    # 6. Calculate Forward Outcomes
+    targets = [2, 3, 5, 10, 21, 63, 126, 252]
+    summary = []
+    
+    for t in targets:
+        col = f'FwdRet_{t}d'
+        if col not in df.columns: continue
+        
+        # Calculate Global Baseline
+        baseline = df[col].mean()
+        
+        # Get Neighbor Outcomes (Drop NaNs for recent dates)
+        outcomes = nearest[col].dropna()
+        
+        if outcomes.empty:
+            summary.append({
+                "Horizon": f"{t} Days", "Exp Return": np.nan, 
+                "Baseline": baseline, "Alpha": np.nan, 
+                "Implied Vol (IV)": np.nan, "Win Rate": np.nan, 
+                "Sample Size": 0
+            })
+            continue
+            
+        grand_mean = outcomes.mean()
+        std_dev = outcomes.std()
+        iv_est = std_dev * np.sqrt(252 / t)
+        win_rate = (outcomes > 0).mean() * 100
+        alpha = grand_mean - baseline
+        
+        summary.append({
+            "Horizon": f"{t} Days",
+            "Exp Return": grand_mean,
+            "Baseline": baseline,
+            "Alpha": alpha,
+            "Implied Vol (IV)": iv_est,
+            "Win Rate": win_rate,
+            "Sample Size": len(outcomes)
+        })
+        
+    return pd.DataFrame(summary)
+
+# --- CHARTING & TABLE HELPERS ---
 def get_raw_ensemble_returns(df, rank_cols, market_cols, tolerance=5.0, target_days=5):
     if df.empty: return []
     current_row = df.iloc[-1]
@@ -331,24 +404,19 @@ def get_feature_shorthand(name):
     # Market Metrics (e.g. Mkt_Total_NH_5d -> 5dnh)
     if n.startswith("Mkt_"):
         parts = n.split("_")
+        # Change 'mkt' to 'nh' as requested
         return parts[-1] + "nh"
         
     return n[:4]
 
 def get_detailed_match_table(df, rank_cols, market_cols, tolerance=5.0, target_days=5):
-    """
-    Identifies unique historical dates that match the criteria.
-    Captures specific pair triggers.
-    """
     if df.empty: return pd.DataFrame()
     current_row = df.iloc[-1]
     all_features = rank_cols + ['Seasonal'] + market_cols
     valid_features = [f for f in all_features if f in df.columns and not pd.isna(current_row[f])]
-    
     if len(valid_features) < 2: return pd.DataFrame()
     
     pairs = list(itertools.combinations(valid_features, 2))
-    
     date_to_pairs = defaultdict(list)
     
     for f1, f2 in pairs:
@@ -641,15 +709,14 @@ def render_heatmap():
             else:
                 st.error("Insufficient data for Heatmap.")
 
-            # --- ENSEMBLE TABLE ---
+            # --- ENSEMBLE TABLE (METHOD 1) ---
             st.divider()
-            st.subheader(f"🤖 Grand Ensemble Forecast (True Distribution Mode)")
+            st.subheader(f"🤖 Method 1: Pairwise Ensemble (Box Filter)")
             st.markdown(f"""
             **Methodology:**
-            1. Scans ALL valid variable pairs (e.g., Seasonality vs Momentum, Volatility vs Net Highs).
-            2. For every pair, finds ALL historical dates where **both** metrics were within **±{ensemble_tol}** rank points of today.
-            3. Pools ALL those historical return outcomes into a single distribution to calculate expected value.
-            4. **Alpha** is calculated by comparing the Ensemble Expectation vs. The Ticker's Global Average for that horizon.
+            1. Scans ALL valid variable pairs (e.g., Seasonality vs Momentum).
+            2. Finds all historical dates where **both** metrics were within **±{ensemble_tol}** rank points of today.
+            3. Pools all historical returns into a single distribution.
             """)
             
             market_cols = [c for c in df.columns if c.startswith("Mkt_")]
@@ -670,10 +737,36 @@ def render_heatmap():
                 )
             else:
                 st.warning(f"Not enough historical depth (matches within ±{ensemble_tol}) to generate an ensemble forecast. Try increasing the tolerance slider.")
-                
+            
+            # --- EUCLIDEAN TABLE (METHOD 2) ---
+            st.subheader(f"🧪 Method 2: Multi-Factor Similarity (Euclidean Distance)")
+            
+            col_k, col_desc = st.columns([1, 4])
+            with col_k:
+                k_neighbors = st.number_input("Neighbors (K)", min_value=10, max_value=250, value=50, step=10)
+            with col_desc:
+                st.info(f"Finds the **{k_neighbors}** specific dates in history that are mathematically closest to 'Today' across ALL {len(rank_cols)+1} variables simultaneously.")
+
+            euclidean_df = calculate_euclidean_forecast(df, rank_cols, market_cols, n_neighbors=k_neighbors)
+            
+            if not euclidean_df.empty:
+                st.dataframe(
+                    euclidean_df.style.format({
+                        "Exp Return": "{:.2f}%",
+                        "Baseline": "{:.2f}%",
+                        "Alpha": "{:+.2f}%",
+                        "Implied Vol (IV)": "{:.2f}%",
+                        "Win Rate": "{:.1f}%",
+                        "Sample Size": "{:,.0f}"
+                    }).background_gradient(subset=['Alpha'], cmap="RdBu", vmin=-2, vmax=2),
+                    use_container_width=True
+                )
+            else:
+                st.warning("Insufficient data for Euclidean analysis.")
+
             # --- DISTRIBUTION CHART ---
             st.divider()
-            st.subheader("🔮 Forecast Distribution Analysis")
+            st.subheader("🔮 Forecast Distribution Analysis (Pairwise Method)")
             
             dist_days = st.selectbox("Distribution Horizon (Days)", [2, 3, 5, 10, 21, 63, 126, 252], index=2)
             
