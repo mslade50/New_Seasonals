@@ -171,7 +171,7 @@ def calculate_heatmap_variables(df, sznl_map, market_metrics_df, ticker):
     df['LogRet'] = np.log(df['Close'] / df['Close'].shift(1))
 
     # 2. FORWARD TARGETS
-    for w in [5, 10, 21, 63, 252]:
+    for w in [1, 2, 3, 5, 10, 21, 63, 252]:
         df[f'FwdRet_{w}d'] = (df['Close'].shift(-w) / df['Close'] - 1.0) * 100.0
 
     # 3. PREDICTOR VARIABLES
