@@ -246,6 +246,9 @@ def run_euclidean_scanner(data_dict, sznl_map, market_metrics):
 # -----------------------------------------------------------------------------
 # UI
 # -----------------------------------------------------------------------------
+# -----------------------------------------------------------------------------
+# UI (UPDATED WITH SESSION STATE CACHING)
+# -----------------------------------------------------------------------------
 def main():
     st.set_page_config(layout="wide", page_title="Euclidean Alpha Scanner")
     
@@ -254,11 +257,18 @@ def main():
     This tool projects **5-Day Returns** by finding the **50 most mathematically similar historical days** for each ticker based on a multi-factor vector (Seasonality, Momentum, Volatility, Volume).
     """)
     
+    # Load static maps (fast)
     sznl_map = load_seasonal_map()
     mkt_metrics = load_market_metrics()
-    
     active_tickers_str = ", ".join(SELECTED_UNIVERSE)
 
+    # --- 1. INITIALIZE SESSION STATE ---
+    if 'scan_results' not in st.session_state:
+        st.session_state['scan_results'] = None
+    if 'raw_data' not in st.session_state:
+        st.session_state['raw_data'] = None
+
+    # --- 2. SIDEBAR / SETTINGS ---
     with st.expander("⚙️ Universe & Settings", expanded=True):
         col1, col2 = st.columns([3, 1])
         with col1:
@@ -266,125 +276,130 @@ def main():
             st.text_area("Active Universe", value=active_tickers_str, height=60, disabled=True)
         with col2:
             st.metric("Neighbors (K)", NEIGHBORS_K)
-            run_btn = st.button("Run Euclidean Scan", type="primary", use_container_width=True)
+            # This button triggers the heavy lift
+            if st.button("Run Euclidean Scan", type="primary", use_container_width=True):
+                with st.spinner(f"Fetching Data & Calculating Euclidean Distances..."):
+                    
+                    # A. Fetch Data
+                    data_dict, fetch_time = get_batch_data(SELECTED_UNIVERSE)
+                    
+                    if not data_dict:
+                        st.error("No valid data found.")
+                    else:
+                        # B. Run Scanner
+                        df_res = run_euclidean_scanner(data_dict, sznl_map, mkt_metrics)
+                        
+                        if df_res.empty:
+                            st.warning("No results generated.")
+                        else:
+                            # C. SAVE TO SESSION STATE
+                            st.session_state['raw_data'] = data_dict
+                            st.session_state['scan_results'] = df_res.sort_values("Euclidean_Alpha", ascending=False)
+                            st.success(f"Scan Complete! Processed {len(df_res)} tickers.")
 
-    if run_btn:
-        with st.spinner(f"Fetching Data & Calculating Euclidean Distances..."):
-            
-            raw_data, fetch_time = get_batch_data(SELECTED_UNIVERSE)
-            
-            if not raw_data:
-                st.error("No valid data found.")
-                return
-            
-            # RUN SCANNER
-            results_df = run_euclidean_scanner(raw_data, sznl_map, mkt_metrics)
-            
-            if results_df.empty:
-                st.warning("No results generated.")
-                return
+    st.divider()
 
-            # Formatting
-            results_df = results_df.sort_values("Euclidean_Alpha", ascending=False)
+    # --- 3. RENDER RESULTS (FROM STATE) ---
+    # Only render if we have data in the state
+    if st.session_state['scan_results'] is not None:
+        
+        results_df = st.session_state['scan_results']
+        raw_data = st.session_state['raw_data']
+        
+        # A. Summary Tables
+        top_bulls = results_df.head(10)
+        top_bears = results_df.tail(10).sort_values("Euclidean_Alpha", ascending=True)
+        
+        c1, c2 = st.columns(2)
+        with c1:
+            st.subheader("🚀 Top Bullish Setups")
+            st.dataframe(
+                top_bulls[['Ticker', 'Euclidean_Alpha', 'Exp_Return', 'Win_Rate', 'Alpha_Z']].style.format({
+                    'Euclidean_Alpha': "+{:.2f}%",
+                    'Exp_Return': "{:.2f}%",
+                    'Win_Rate': "{:.1f}%",
+                    'Alpha_Z': "{:.2f}"
+                }).background_gradient(subset=['Euclidean_Alpha'], cmap='Greens'),
+                use_container_width=True, hide_index=True
+            )
             
-            # --- DISPLAY RESULTS ---
+        with c2:
+            st.subheader("🐻 Top Bearish Setups")
+            st.dataframe(
+                top_bears[['Ticker', 'Euclidean_Alpha', 'Exp_Return', 'Win_Rate', 'Alpha_Z']].style.format({
+                    'Euclidean_Alpha': "{:.2f}%",
+                    'Exp_Return': "{:.2f}%",
+                    'Win_Rate': "{:.1f}%",
+                    'Alpha_Z': "{:.2f}"
+                }).background_gradient(subset=['Euclidean_Alpha'], cmap='Reds_r'),
+                use_container_width=True, hide_index=True
+            )
+        
+        st.divider()
+        
+        # B. Deep Dive Section (This is what you want to be interactive)
+        st.subheader("🔎 Signal Inspector")
+        
+        col_sel, col_viz = st.columns([1, 3])
+        
+        with col_sel:
+            # changing this dropdown will rerun the script, 
+            # but because 'scan_results' is in session_state, we skip the heavy math above
+            selected_ticker = st.selectbox("Select Ticker to Inspect", results_df['Ticker'].tolist())
             
-            top_bulls = results_df.head(10)
-            top_bears = results_df.tail(10).sort_values("Euclidean_Alpha", ascending=True)
+            sel_row = results_df[results_df['Ticker'] == selected_ticker].iloc[0]
+            st.metric("Projected 5D Return", f"{sel_row['Exp_Return']:.2f}%", delta=f"{sel_row['Euclidean_Alpha']:.2f}% vs Baseline")
+            st.metric("Win Rate", f"{sel_row['Win_Rate']:.1f}%")
+            st.metric("Z-Score", f"{sel_row['Alpha_Z']:.2f}")
+
+        with col_viz:
+            # We recalculate neighbors for just ONE ticker here to keep memory light, 
+            # but we use the cached 'raw_data' so no download happens.
+            df_viz, rank_cols = calculate_features_and_rank(raw_data[selected_ticker], sznl_map, selected_ticker, mkt_metrics)
             
-            c1, c2 = st.columns(2)
+            # Get Neighbors
+            current_vec = df_viz.iloc[-1][rank_cols].astype(float).values
+            hist_viz = df_viz.iloc[:-FWD_WINDOW].copy()
+            dists = np.sqrt(np.sum((hist_viz[rank_cols].values - current_vec)**2, axis=1))
+            hist_viz['Euclidean_Dist'] = dists
             
-            with c1:
-                st.subheader("🚀 Top Bullish Setups")
-                st.caption("Highest Projected Excess Return vs Baseline")
+            neighbors = hist_viz.nsmallest(NEIGHBORS_K, 'Euclidean_Dist')
+            
+            # Draw Chart
+            fig = go.Figure()
+            
+            fig.add_trace(go.Histogram(
+                x=neighbors[f'FwdRet_{FWD_WINDOW}d'],
+                nbinsx=20,
+                name='Neighbor Outcomes',
+                marker_color='royalblue',
+                opacity=0.7
+            ))
+            
+            mean_val = neighbors[f'FwdRet_{FWD_WINDOW}d'].mean()
+            fig.add_vline(x=mean_val, line_dash="dash", line_color="orange", annotation_text=f"Mean: {mean_val:.2f}%")
+            fig.add_vline(x=0, line_color="white", line_width=1)
+            
+            fig.update_layout(
+                title=f"Distribution of 5D Returns for {selected_ticker}'s Top {NEIGHBORS_K} Matches",
+                xaxis_title="5D Forward Return (%)",
+                yaxis_title="Count",
+                template="plotly_dark",
+                height=400,
+                bargap=0.1
+            )
+            
+            st.plotly_chart(fig, use_container_width=True)
+            
+            with st.expander("See Neighbor Details"):
                 st.dataframe(
-                    top_bulls[['Ticker', 'Euclidean_Alpha', 'Exp_Return', 'Win_Rate', 'Alpha_Z']].style.format({
-                        'Euclidean_Alpha': "+{:.2f}%",
-                        'Exp_Return': "{:.2f}%",
-                        'Win_Rate': "{:.1f}%",
-                        'Alpha_Z': "{:.2f}"
-                    }).background_gradient(subset=['Euclidean_Alpha'], cmap='Greens'),
-                    use_container_width=True, hide_index=True
+                    neighbors[['Close', 'Euclidean_Dist', f'FwdRet_{FWD_WINDOW}d']].sort_values('Euclidean_Dist').style.format({
+                        'Close': "{:.2f}",
+                        'Euclidean_Dist': "{:.2f}",
+                        f'FwdRet_{FWD_WINDOW}d': "{:+.2f}%"
+                    }),
+                    use_container_width=True
                 )
-                
-            with c2:
-                st.subheader("🐻 Top Bearish Setups")
-                st.caption("Lowest Projected Excess Return vs Baseline")
-                st.dataframe(
-                    top_bears[['Ticker', 'Euclidean_Alpha', 'Exp_Return', 'Win_Rate', 'Alpha_Z']].style.format({
-                        'Euclidean_Alpha': "{:.2f}%",
-                        'Exp_Return': "{:.2f}%",
-                        'Win_Rate': "{:.1f}%",
-                        'Alpha_Z': "{:.2f}"
-                    }).background_gradient(subset=['Euclidean_Alpha'], cmap='Reds_r'),
-                    use_container_width=True, hide_index=True
-                )
-            
-            st.divider()
-            
-            # --- DEEP DIVE SECTION ---
-            st.subheader("🔎 Signal Inspector")
-            
-            col_sel, col_viz = st.columns([1, 3])
-            
-            with col_sel:
-                selected_ticker = st.selectbox("Select Ticker to Inspect", results_df['Ticker'].tolist())
-                
-                sel_row = results_df[results_df['Ticker'] == selected_ticker].iloc[0]
-                st.metric("Projected 5D Return", f"{sel_row['Exp_Return']:.2f}%", delta=f"{sel_row['Euclidean_Alpha']:.2f}% vs Baseline")
-                st.metric("Win Rate", f"{sel_row['Win_Rate']:.1f}%")
-                st.metric("Z-Score (Confidence)", f"{sel_row['Alpha_Z']:.2f}")
-
-            with col_viz:
-                # Re-calc for the specific visualization (fast enough for one ticker)
-                df_viz, rank_cols = calculate_features_and_rank(raw_data[selected_ticker], sznl_map, selected_ticker, mkt_metrics)
-                
-                # Get Neighbors again
-                current_vec = df_viz.iloc[-1][rank_cols].astype(float).values
-                hist_viz = df_viz.iloc[:-FWD_WINDOW].copy()
-                dists = np.sqrt(np.sum((hist_viz[rank_cols].values - current_vec)**2, axis=1))
-                hist_viz['Euclidean_Dist'] = dists
-                
-                neighbors = hist_viz.nsmallest(NEIGHBORS_K, 'Euclidean_Dist')
-                
-                # PLOT
-                fig = go.Figure()
-                
-                # Histogram of Neighbor Returns
-                fig.add_trace(go.Histogram(
-                    x=neighbors[f'FwdRet_{FWD_WINDOW}d'],
-                    nbinsx=20,
-                    name='Neighbor Outcomes',
-                    marker_color='royalblue',
-                    opacity=0.7
-                ))
-                
-                # Lines
-                mean_val = neighbors[f'FwdRet_{FWD_WINDOW}d'].mean()
-                curr_price = df_viz['Close'].iloc[-1]
-                
-                fig.add_vline(x=mean_val, line_dash="dash", line_color="orange", annotation_text=f"Mean: {mean_val:.2f}%")
-                fig.add_vline(x=0, line_color="white", line_width=1)
-                
-                fig.update_layout(
-                    title=f"Distribution of 5D Returns for {selected_ticker}'s Top {NEIGHBORS_K} Similar Matches",
-                    xaxis_title="5D Forward Return (%)",
-                    yaxis_title="Count",
-                    template="plotly_dark",
-                    height=400
-                )
-                
-                st.plotly_chart(fig, use_container_width=True)
-                
-                with st.expander("See Neighbor Details"):
-                    st.dataframe(
-                        neighbors[['Close', 'Euclidean_Dist', f'FwdRet_{FWD_WINDOW}d']].sort_values('Euclidean_Dist').style.format({
-                            'Close': "{:.2f}",
-                            'Euclidean_Dist': "{:.2f}",
-                            f'FwdRet_{FWD_WINDOW}d': "{:+.2f}%"
-                        }),
-                        use_container_width=True
-                    )
 
 if __name__ == "__main__":
     main()
