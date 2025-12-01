@@ -239,6 +239,7 @@ def calculate_distribution_ensemble(df, rank_cols, market_cols, tolerance=5.0):
             col = f'FwdRet_{t}d'
             if col not in subset.columns: continue
             
+            # --- CRITICAL: DROP NANs BEFORE AGGREGATING ---
             vals = subset[col].dropna().tolist()
             if vals:
                 pooled_outcomes[t].extend(vals)
@@ -312,8 +313,6 @@ def get_raw_ensemble_returns(df, rank_cols, market_cols, tolerance=5.0, target_d
 def get_detailed_match_table(df, rank_cols, market_cols, tolerance=5.0, target_days=5):
     """
     Identifies unique historical dates that match the criteria.
-    Counts how many pairs triggered that date (Similarity Score).
-    Calculates realized Fwd Return and Fwd Volatility for that specific window.
     """
     if df.empty: return pd.DataFrame()
     current_row = df.iloc[-1]
@@ -355,13 +354,13 @@ def get_detailed_match_table(df, rank_cols, market_cols, tolerance=5.0, target_d
         match_df['Fwd Return'] = np.nan
 
     # Fwd Realized Vol (Annualized)
-    # Calculate realized vol for the specific forward window
-    # Formula: StdDev of LogRet over next [target_days] * Sqrt(252) * 100
-    # Note: We shift backwards because we want the vol that HAPPENED after the date
     fwd_vol_series = df['LogRet'].rolling(target_days).std().shift(-target_days) * np.sqrt(252) * 100
     match_df['Fwd Realized Vol'] = fwd_vol_series.loc[match_df.index]
     
     match_df['Close Price'] = df.loc[match_df.index, 'Close']
+    
+    # --- UPDATE: DROP ROWS WHERE FWD RETURN IS NAN ---
+    match_df = match_df.dropna(subset=['Fwd Return'])
     
     return match_df.sort_index(ascending=False)
 
