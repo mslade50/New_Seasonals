@@ -56,7 +56,6 @@ def load_market_metrics():
     
     pivoted['Total'] = pivoted.get('NYSE', 0) + pivoted.get('NASDAQ', 0)
     
-    # Only keep the metrics strictly requested
     windows = [5, 21] 
     categories = ['Total']
     
@@ -379,41 +378,29 @@ def get_euclidean_details(df, rank_cols, market_cols, n_neighbors=50, target_day
     return output.dropna(subset=['Fwd Return']).sort_values('Euclidean Distance', ascending=True)
 
 # --- CHARTING & TABLE HELPERS ---
-def get_raw_ensemble_returns(df, rank_cols, market_cols, tolerance=5.0, target_days=5):
-    if df.empty: return []
-    current_row = df.iloc[-1]
-    all_features = rank_cols + ['Seasonal'] + market_cols
-    valid_features = [f for f in all_features if f in df.columns and not pd.isna(current_row[f])]
-    if len(valid_features) < 2: return []
-    
-    pairs = list(itertools.combinations(valid_features, 2))
-    raw_returns = []
-    
-    col = f'FwdRet_{target_days}d'
-    if col not in df.columns: return []
-
-    for f1, f2 in pairs:
-        v1 = current_row[f1]
-        v2 = current_row[f2]
-        mask = (
-            (df[f1] >= v1 - tolerance) & (df[f1] <= v1 + tolerance) &
-            (df[f2] >= v2 - tolerance) & (df[f2] <= v2 + tolerance)
-        )
-        subset = df[mask]
-        if not subset.empty:
-            raw_returns.extend(subset[col].dropna().tolist())
-            
-    return raw_returns
-
 def get_feature_shorthand(name):
+    # Remove _Rank suffix first
     n = name.replace("_Rank", "")
+    
     if n == "Seasonal": return "szn"
-    if n.startswith("Ret_"): return n.replace("Ret_", "").replace("d", "") + "dr"
-    if n.startswith("VolRatio_"): return n.replace("VolRatio_", "").replace("d", "") + "drv"
-    if n.startswith("RealVol_"): return n.replace("RealVol_", "").replace("d", "") + "dv"
-    if n.startswith("Mkt_"): 
+    
+    # Returns (e.g. Ret_21d -> 21dr)
+    if n.startswith("Ret_"):
+        return n.replace("Ret_", "").replace("d", "") + "dr"
+        
+    # Vol Ratio (e.g. VolRatio_10d -> 10drv)
+    if n.startswith("VolRatio_"):
+        return n.replace("VolRatio_", "").replace("d", "") + "drv"
+        
+    # Real Vol (e.g. RealVol_21d -> 21dv)
+    if n.startswith("RealVol_"):
+        return n.replace("RealVol_", "").replace("d", "") + "dv"
+        
+    # Market Metrics (e.g. Mkt_Total_NH_5d -> 5dnh)
+    if n.startswith("Mkt_"):
         parts = n.split("_")
         return parts[-1] + "nh"
+        
     return n[:4]
 
 def get_detailed_match_table(df, rank_cols, market_cols, tolerance=5.0, target_days=5):
@@ -434,6 +421,7 @@ def get_detailed_match_table(df, rank_cols, market_cols, tolerance=5.0, target_d
             (df[f2] >= v2 - tolerance) & (df[f2] <= v2 + tolerance)
         )
         subset = df[mask]
+        
         if not subset.empty:
             pair_str = f"{get_feature_shorthand(f1)} & {get_feature_shorthand(f2)}"
             for date in subset.index:
@@ -587,9 +575,13 @@ def render_heatmap():
         ticker = st.text_input("Ticker", value="SPY", key="hm_ticker").upper()
     
     with col3:
+        # VISUAL & ENSEMBLE SETTINGS
         smooth_sigma = st.slider("Smoothing (Sigma)", 0.5, 3.0, 1.2, 0.1, key="hm_smooth")
         bins = st.slider("Grid Resolution (Bins)", 10, 50, 28, key="hm_bins")
+        
+        # --- NEW ENSEMBLE INPUT ---
         ensemble_tol = st.slider("Ensemble Similarity Tolerance (± Rank)", 1, 25, 5, 1, key="ens_tol")
+        
         analysis_start = st.date_input("Analysis Start Date", value=datetime.date(2000, 1, 1), key="hm_start_date")
         
     st.markdown("---")
@@ -759,13 +751,15 @@ def render_heatmap():
             else:
                 st.warning("Insufficient data for Euclidean analysis.")
 
-            # --- DISTRIBUTION CHART ---
+            # --- DISTRIBUTION CHART (EUCLIDEAN METHOD) ---
             st.divider()
-            st.subheader("🔮 Forecast Distribution Analysis (Pairwise Method)")
+            st.subheader("🔮 Forecast Distribution Analysis (Euclidean Method)")
             
             dist_days = st.selectbox("Distribution Horizon (Days)", [2, 3, 5, 10, 21, 63, 126, 252], index=2)
             
-            raw_returns = get_raw_ensemble_returns(df, rank_cols, market_cols, tolerance=ensemble_tol, target_days=dist_days)
+            # CHANGED: Use Euclidean Details instead of Pairwise
+            euc_data = get_euclidean_details(df, rank_cols, market_cols, n_neighbors=k_neighbors, target_days=dist_days)
+            raw_returns = euc_data['Fwd Return'].tolist() if not euc_data.empty else []
             
             if raw_returns:
                 current_price = df['Close'].iloc[-1]
@@ -789,56 +783,59 @@ def render_heatmap():
                     fig_dist.add_vline(x=lower, line_width=1, line_dash="dash", line_color=c)
                 
                 fig_dist.update_layout(
-                    title=f"Projected Price Distribution ({dist_days} Days) | Based on {len(raw_returns)} Matches",
+                    title=f"Projected Price Distribution ({dist_days} Days) | Based on {len(raw_returns)} Nearest Neighbors",
                     xaxis_title="Price", yaxis_title="Frequency", template="plotly_white", showlegend=False
                 )
                 
                 st.plotly_chart(fig_dist, use_container_width=True)
                 
-                # --- NEW DETAILED TABLE ---
+                # --- MATCH DETAILS SELECTION ---
                 st.subheader(f"📜 Historical Match Details ({dist_days} Days)")
-                st.markdown(f"Unique dates that match the current setup (±{ensemble_tol} rank points). **Similarity Score** = number of indicator pairs that flagged this date.")
+                st.caption("Detailed view of the specific dates identified by both methods.")
                 
-                match_df = get_detailed_match_table(df, rank_cols, market_cols, tolerance=ensemble_tol, target_days=dist_days)
+                tab_pairwise, tab_euc = st.tabs(["1. Pairwise Matches (Method 1)", "2. Euclidean Matches (Method 2)"])
                 
-                if not match_df.empty:
-                    st.dataframe(
-                        match_df.style.format({
-                            "Close Price": "${:.2f}",
-                            "Fwd Return": "{:+.2f}%",
-                            "Fwd Realized Vol": "{:.2f}%"
-                        }).background_gradient(subset=['Fwd Return'], cmap="RdBu", vmin=-5, vmax=5),
-                        use_container_width=True
-                    )
+                with tab_pairwise:
+                    st.markdown(f"**Method 1:** Dates where *at least one pair* of indicators was within ±{ensemble_tol} rank points.")
+                    match_df = get_detailed_match_table(df, rank_cols, market_cols, tolerance=ensemble_tol, target_days=dist_days)
+                    if not match_df.empty:
+                        st.dataframe(
+                            match_df.style.format({
+                                "Close Price": "${:.2f}",
+                                "Fwd Return": "{:+.2f}%",
+                                "Fwd Realized Vol": "{:.2f}%"
+                            }).background_gradient(subset=['Fwd Return'], cmap="RdBu", vmin=-5, vmax=5),
+                            use_container_width=True
+                        )
+                    else:
+                        st.info("No pairwise matches found.")
+
+                with tab_euc:
+                    st.markdown(f"**Method 2:** The top {k_neighbors} dates with the smallest Euclidean distance across the entire feature vector.")
+                    # euc_data already calculated above
+                    if not euc_data.empty:
+                        st.dataframe(
+                            euc_data.style.format({
+                                "Euclidean Distance": "{:.2f}",
+                                "Close Price": "${:.2f}",
+                                "Fwd Return": "{:+.2f}%",
+                                "Fwd Realized Vol": "{:.2f}%"
+                            }).background_gradient(subset=['Fwd Return'], cmap="RdBu", vmin=-5, vmax=5),
+                            use_container_width=True
+                        )
+                    else:
+                        st.info("No Euclidean data available.")
                     
-                    with st.expander("📚 Glossary of Feature Codes"):
-                        st.markdown("""
-                        | Code | Definition |
-                        |---|---|
-                        | **szn** | Seasonality Rank |
-                        | **Xdr** | X-Day Trailing Return Rank (e.g., 5dr = 5d Return) |
-                        | **Xdv** | X-Day Realized Volatility Rank (e.g., 21dv = 21d Realized Vol) |
-                        | **Xdrv** | X-Day Relative Volume Rank (e.g., 10drv = 10d Rel Vol) |
-                        | **Xnh** | Market Total Net Highs Rank (e.g., 5dnh = 5d MA of Net Highs) |
-                        """)
-                
-                # --- NEW EUCLIDEAN DETAILED TABLE ---
-                st.divider()
-                st.subheader(f"🧪 Euclidean Nearest Neighbors Details ({dist_days} Days)")
-                st.markdown(f"Specific dates identified by the Euclidean algorithm (Method 2) as closest to today's vector.")
-                
-                euc_match_df = get_euclidean_details(df, rank_cols, market_cols, n_neighbors=k_neighbors, target_days=dist_days)
-                
-                if not euc_match_df.empty:
-                    st.dataframe(
-                        euc_match_df.style.format({
-                            "Euclidean Distance": "{:.2f}",
-                            "Close Price": "${:.2f}",
-                            "Fwd Return": "{:+.2f}%",
-                            "Fwd Realized Vol": "{:.2f}%"
-                        }).background_gradient(subset=['Fwd Return'], cmap="RdBu", vmin=-5, vmax=5),
-                        use_container_width=True
-                    )
+                with st.expander("📚 Glossary of Feature Codes"):
+                    st.markdown("""
+                    | Code | Definition |
+                    |---|---|
+                    | **szn** | Seasonality Rank |
+                    | **Xdr** | X-Day Trailing Return Rank (e.g., 5dr = 5d Return) |
+                    | **Xdv** | X-Day Realized Volatility Rank (e.g., 21dv = 21d Realized Vol) |
+                    | **Xdrv** | X-Day Relative Volume Rank (e.g., 10drv = 10d Rel Vol) |
+                    | **Xnh** | Market Total Net Highs Rank (e.g., 5dnh = 5d MA of Net Highs) |
+                    """)
                     
             else:
                 st.info("No distribution data available for this horizon (adjust tolerance).")
