@@ -193,9 +193,9 @@ def calculate_heatmap_variables(df, sznl_map, market_metrics_df, ticker):
 
     # 4. RANK TRANSFORMATION
     vars_to_rank = [
-        'Ret_5d', 'Ret_10d', 'Ret_21d', 'Ret_252d', # REMOVED 63d
+        'Ret_5d', 'Ret_10d', 'Ret_21d', 'Ret_252d', 
         'RealVol_21d', 'RealVol_63d', 
-        'VolRatio_10d', 'VolRatio_21d' # ADDED 10d
+        'VolRatio_10d', 'VolRatio_21d'
     ]
     
     rank_cols = []
@@ -218,6 +218,7 @@ def calculate_distribution_ensemble(df, rank_cols, market_cols):
     2. For each pair, finds ALL historical rows where both ranks are within +/- 5 of current.
     3. Pools all these raw return outcomes into a single distribution (Bag of Returns).
     4. Calculates stats on this pooled distribution.
+    5. Compares against the Baseline (Global Average) to find Alpha.
     """
     if df.empty: return pd.DataFrame()
     
@@ -265,27 +266,39 @@ def calculate_distribution_ensemble(df, rank_cols, market_cols):
     # Aggregate Statistics
     summary = []
     for t in targets:
+        col = f'FwdRet_{t}d'
+        
+        # Calculate Global Baseline (Full history mean for this ticker)
+        if col in df.columns:
+            baseline = df[col].mean()
+        else:
+            baseline = np.nan
+            
         data = np.array(pooled_outcomes[t])
         
         if len(data) == 0:
             summary.append({
                 "Horizon": f"{t} Days", 
-                "Exp Return (Mean)": np.nan,
-                "Median": np.nan,
+                "Exp Return": np.nan,
+                "Baseline": baseline,
+                "Alpha": np.nan,
                 "Win Rate": np.nan, 
                 "Sample Size": 0
             })
             continue
             
         grand_mean = np.mean(data)
-        median = np.median(data)
         std_dev = np.std(data)
         pos_ratio = np.sum(data > 0) / len(data)
         
+        # Calculate Alpha
+        alpha = grand_mean - baseline if not np.isnan(baseline) else np.nan
+        
         summary.append({
             "Horizon": f"{t} Days",
-            "Exp Return (Mean)": grand_mean,
-            "Median": median,
+            "Exp Return": grand_mean,
+            "Baseline": baseline,
+            "Alpha": alpha,
             "Std Dev": std_dev,
             "Win Rate": pos_ratio * 100,
             "Sample Size": len(data)
@@ -538,6 +551,7 @@ def render_heatmap():
             1. Scans ALL valid variable pairs (e.g., Seasonality vs Momentum, Volatility vs Net Highs).
             2. For every pair, finds ALL historical dates where **both** metrics were within **±5** rank points of today.
             3. Pools ALL those historical return outcomes into a single distribution to calculate expected value.
+            4. **Alpha** is calculated by comparing the Ensemble Expectation vs. The Ticker's Global Average for that horizon.
             """)
             
             market_cols = [c for c in df.columns if c.startswith("Mkt_")]
@@ -546,12 +560,13 @@ def render_heatmap():
             if not ensemble_df.empty:
                 st.dataframe(
                     ensemble_df.style.format({
-                        "Exp Return (Mean)": "{:.2f}%",
-                        "Median": "{:.2f}%",
+                        "Exp Return": "{:.2f}%",
+                        "Baseline": "{:.2f}%",
+                        "Alpha": "{:+.2f}%",
                         "Std Dev": "{:.2f}",
                         "Win Rate": "{:.1f}%",
                         "Sample Size": "{:,.0f}"
-                    }).background_gradient(subset=['Exp Return (Mean)'], cmap="RdBu", vmin=-3, vmax=3),
+                    }).background_gradient(subset=['Alpha'], cmap="RdBu", vmin=-2, vmax=2),
                     use_container_width=True
                 )
             else:
