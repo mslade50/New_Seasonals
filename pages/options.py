@@ -118,11 +118,13 @@ def calculate_feature_vectors(df, sznl_map, market_metrics_df, ticker):
     df = df.copy()
     df['LogRet'] = np.log(df['Close'] / df['Close'].shift(1))
     
+    # Predictor Variables
     for w in [5, 10, 21, 252]: df[f'Ret_{w}d'] = df['Close'].pct_change(w)
     for w in [21, 63]: df[f'RealVol_{w}d'] = df['LogRet'].rolling(w).std() * np.sqrt(252) * 100.0
     for w in [10, 21]: df[f'VolRatio_{w}d'] = df['Volume'].rolling(w).mean() / df['Volume'].rolling(63).mean()
     df['Seasonal'] = get_sznl_val_series(ticker, df.index, sznl_map, df)
 
+    # Rank Transformation
     vars_to_rank = ['Ret_5d', 'Ret_10d', 'Ret_21d', 'Ret_252d', 'RealVol_21d', 'RealVol_63d', 'VolRatio_10d', 'VolRatio_21d']
     rank_cols = []
     for v in vars_to_rank:
@@ -148,7 +150,9 @@ def get_euclidean_neighbors(df, rank_cols, market_cols, n_neighbors=50, start_da
     if not valid_feats: return pd.DataFrame()
     
     # 2. Filter History by Date
-    history = df.iloc[:-1].dropna(subset=valid_feats).copy()
+    # EXCLUDE CURRENT ROW AND LAST 30 DAYS (Forced Lag)
+    cutoff_date = df.index[-1] - pd.Timedelta(days=30)
+    history = df[df.index < cutoff_date].dropna(subset=valid_feats).copy()
     
     if start_date:
         start_ts = pd.to_datetime(start_date)
@@ -316,9 +320,11 @@ def generate_strategies(df_chain, sim_prices, spot, kelly_fraction=0.25):
             if otype == 'Call': # Bull Call
                 cost = leg1['Market_Price'] - leg2['Market_Price']
                 if cost <= 0: continue
+                
                 payoffs1 = calculate_option_payoff_vector(sim_prices, s1, 'Call')
                 payoffs2 = calculate_option_payoff_vector(sim_prices, s2, 'Call')
                 spread_payoffs = payoffs1 - payoffs2
+                
                 fair_spread = np.mean(spread_payoffs)
                 edge = fair_spread - cost
                 
@@ -332,9 +338,11 @@ def generate_strategies(df_chain, sim_prices, spot, kelly_fraction=0.25):
             else: # Put
                 cost = leg2['Market_Price'] - leg1['Market_Price'] 
                 if cost <= 0: continue
+                
                 payoffs_long = calculate_option_payoff_vector(sim_prices, s2, 'Put')
                 payoffs_short = calculate_option_payoff_vector(sim_prices, s1, 'Put')
                 spread_payoffs = payoffs_long - payoffs_short
+                
                 fair_spread = np.mean(spread_payoffs)
                 edge = fair_spread - cost
                 
@@ -430,6 +438,7 @@ def render_dashboard():
             sznl_map = load_seasonal_map()
             mkt_metrics = load_market_metrics()
             df, rank_cols = calculate_feature_vectors(data, sznl_map, mkt_metrics, ticker)
+            
             neighbors = get_euclidean_neighbors(df, rank_cols, [c for c in df.columns if c.startswith("Mkt_")], n_neighbors=k_neighbors, start_date=analysis_start)
             st.success(f"Found {len(neighbors)} Euclidean matches.")
             
@@ -492,16 +501,19 @@ def render_dashboard():
 
                     if all_strategies:
                         master_df = pd.concat(all_strategies)
+                        # SORT BY KELLY
                         spreads = master_df[master_df['Type'].str.contains("Spread")].sort_values("Kelly", ascending=False).head(5)
                         naked = master_df[~master_df['Type'].str.contains("Spread")].sort_values("Kelly", ascending=False).head(3)
                         
                         st.subheader(f"🏆 Top Trade Ideas (Sorted by Kelly {kelly_frac}x)")
+                        
                         col_tbl1, col_tbl2 = st.columns(2)
                         with col_tbl1:
                             st.write("**Top 5 Vertical Spreads (OTM)**")
                             st.dataframe(spreads[['Type', 'Expiry', 'Strikes', 'Cost', 'Fair Value', 'Edge', 'ROI', 'Kelly']].style.format({
                                 'Cost': '${:.2f}', 'Fair Value': '${:.2f}', 'Edge': '${:.2f}', 'ROI': '{:.1f}%', 'Kelly': '{:.1%}'
                             }).background_gradient(subset=['Kelly'], cmap='Greens'), use_container_width=True)
+                            
                         with col_tbl2:
                             st.write("**Top 3 Independent Longs (OTM)**")
                             st.dataframe(naked[['Type', 'Expiry', 'Strikes', 'Cost', 'Fair Value', 'Edge', 'ROI', 'Kelly']].style.format({
