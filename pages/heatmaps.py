@@ -3,12 +3,15 @@ import pandas as pd
 import numpy as np
 import yfinance as yf
 import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 from scipy.ndimage import gaussian_filter
 from scipy.signal import convolve2d
 import matplotlib
 import datetime
 import itertools
 from collections import defaultdict
+from dateutil.easter import easter
+from dateutil.relativedelta import relativedelta, MO, TH
 
 # -----------------------------------------------------------------------------
 # CONSTANTS & SETUP
@@ -16,24 +19,59 @@ from collections import defaultdict
 SEASONAL_PATH = "seasonal_ranks.csv"
 METRICS_PATH = "market_metrics_full_export.csv"
 
+# --- HOLIDAY LOGIC (FOR OPTION PRICING) ---
+def get_nyse_holidays(start_year, end_year):
+    holidays = []
+    for year in range(start_year, end_year + 1):
+        fixed_dates = {
+            "New Years": datetime.date(year, 1, 1),
+            "Juneteenth": datetime.date(year, 6, 19),
+            "Independence": datetime.date(year, 7, 4),
+            "Christmas": datetime.date(year, 12, 25)
+        }
+        for name, date in fixed_dates.items():
+            if date.weekday() == 5: holidays.append(date - datetime.timedelta(days=1))
+            elif date.weekday() == 6: holidays.append(date + datetime.timedelta(days=1))
+            else: holidays.append(date)
+
+        holidays.append(datetime.date(year, 1, 1) + relativedelta(day=1, weekday=MO(3))) # MLK
+        holidays.append(datetime.date(year, 2, 1) + relativedelta(day=1, weekday=MO(3))) # Pres
+        holidays.append(datetime.date(year, 5, 31) + relativedelta(weekday=MO(-1)))      # Memorial
+        holidays.append(datetime.date(year, 9, 1) + relativedelta(day=1, weekday=MO(1))) # Labor
+        holidays.append(datetime.date(year, 11, 1) + relativedelta(day=1, weekday=TH(4)))# Thx
+        holidays.append(easter(year) - datetime.timedelta(days=2)) # Good Fri
+
+    return sorted(list(set(holidays)))
+
+current_year = datetime.date.today().year
+generated_holidays = get_nyse_holidays(current_year, current_year + 1)
+nyse_holidays_dt = np.array(generated_holidays)
+
+def get_trading_days(expiry_date):
+    start = datetime.date.today()
+    if isinstance(expiry_date, datetime.datetime): end = expiry_date.date()
+    else: end = expiry_date
+    if end <= start: return 0
+    bus_days = np.busday_count(start, end)
+    mask = (nyse_holidays_dt > start) & (nyse_holidays_dt <= end)
+    return max(0, bus_days - np.sum(mask))
+
+# -----------------------------------------------------------------------------
+# CORE DATA LOADING
+# -----------------------------------------------------------------------------
 @st.cache_data(show_spinner=False)
 def load_seasonal_map():
     try:
         df = pd.read_csv(SEASONAL_PATH)
     except Exception:
         return {}
-
     if df.empty: return {}
-
     df["Date"] = pd.to_datetime(df["Date"], errors='coerce')
     df = df.dropna(subset=["Date"])
     df["MD"] = df["Date"].apply(lambda x: (x.month, x.day))
-    
     output_map = {}
     for ticker, group in df.groupby("ticker"):
-        output_map[ticker] = pd.Series(
-            group.seasonal_rank.values, index=group.MD
-        ).to_dict()
+        output_map[ticker] = pd.Series(group.seasonal_rank.values, index=group.MD).to_dict()
     return output_map
 
 @st.cache_data(show_spinner=False)
@@ -44,107 +82,25 @@ def load_market_metrics():
         df = df.dropna(subset=['date'])
     except Exception:
         return pd.DataFrame()
-
     if df.empty: return pd.DataFrame()
-
-    pivoted = df.pivot_table(
-        index='date', 
-        columns='exchange', 
-        values='net_new_highs', 
-        aggfunc='sum'
-    )
-    
+    pivoted = df.pivot_table(index='date', columns='exchange', values='net_new_highs', aggfunc='sum')
     pivoted['Total'] = pivoted.get('NYSE', 0) + pivoted.get('NASDAQ', 0)
-    
     windows = [5, 21] 
     categories = ['Total']
-    
     results = pd.DataFrame(index=pivoted.index)
-    
     for cat in categories:
         if cat not in pivoted.columns: continue
         series = pivoted[cat]
         for w in windows:
             ma_col = series.rolling(window=w).mean()
-            rank_col_name = f"Mkt_{cat}_NH_{w}d_Rank"
-            results[rank_col_name] = ma_col.expanding(min_periods=126).rank(pct=True) * 100.0
-
+            results[f"Mkt_{cat}_NH_{w}d_Rank"] = ma_col.expanding(min_periods=126).rank(pct=True) * 100.0
     return results
-
-# -----------------------------------------------------------------------------
-# DYNAMIC SEASONALITY & DATA
-# -----------------------------------------------------------------------------
-def generate_dynamic_seasonal_profile(df, cutoff_date, target_year):
-    work_df = df[df.index < cutoff_date].copy()
-    if len(work_df) < 500: return {}
-
-    if 'LogRet' not in work_df.columns:
-        if 'Close' in work_df.columns:
-             work_df['LogRet'] = np.log(work_df['Close'] / work_df['Close'].shift(1)) * 100.0
-        else:
-             return {}
-    
-    work_df['Year'] = work_df.index.year
-    work_df['MD'] = work_df.index.map(lambda x: (x.month, x.day))
-    
-    cycle_remainder = target_year % 4
-    
-    windows = [5, 10, 21]
-    fwd_cols = []
-    for w in windows:
-        col_name = f'Fwd_{w}d'
-        work_df[col_name] = work_df['LogRet'].shift(-w).rolling(w).sum()
-        fwd_cols.append(col_name)
-
-    stats_all = work_df.groupby('MD')[fwd_cols].mean()
-    cycle_df = work_df[work_df['Year'] % 4 == cycle_remainder]
-    
-    if len(cycle_df) < 250: 
-        stats_cycle = stats_all.copy()
-    else:
-        stats_cycle = cycle_df.groupby('MD')[fwd_cols].mean()
-    
-    stats_cycle = stats_cycle.reindex(stats_all.index).fillna(method='ffill').fillna(method='bfill')
-    
-    rnk_all = stats_all.rank(pct=True) * 100.0
-    rnk_cycle = stats_cycle.rank(pct=True) * 100.0
-    
-    avg_rank_all = rnk_all.mean(axis=1)
-    avg_rank_cycle = rnk_cycle.mean(axis=1)
-    
-    final_rank = (avg_rank_all + 3 * avg_rank_cycle) / 4.0
-    final_rank_smooth = final_rank.rolling(window=5, center=True, min_periods=1).mean()
-    
-    return final_rank_smooth.to_dict()
 
 def get_sznl_val_series(ticker, dates, sznl_map, df_hist=None):
     t_map = sznl_map.get(ticker, {})
     if t_map:
         mds = dates.map(lambda x: (x.month, x.day))
         return mds.map(t_map).fillna(50.0)
-
-    if df_hist is not None and not df_hist.empty:
-        if 'LogRet' not in df_hist.columns:
-             df_hist = df_hist.copy()
-             df_hist['LogRet'] = np.log(df_hist['Close'] / df_hist['Close'].shift(1)) * 100.0
-
-        sznl_series = pd.Series(50.0, index=dates)
-        unique_years = dates.year.unique()
-        
-        for yr in unique_years:
-            cutoff = pd.Timestamp(yr, 1, 1)
-            if df_hist.index.tz is not None: 
-                cutoff = cutoff.tz_localize(df_hist.index.tz)
-
-            yearly_profile = generate_dynamic_seasonal_profile(df_hist, cutoff, yr)
-            
-            if yearly_profile:
-                mask = (dates.year == yr)
-                year_mds = dates[mask].map(lambda x: (x.month, x.day))
-                sznl_series.loc[mask] = year_mds.map(yearly_profile).fillna(50.0)
-                
-        return sznl_series
-
     return pd.Series(50.0, index=dates)
 
 @st.cache_data(show_spinner=True)
@@ -152,148 +108,53 @@ def download_data(ticker):
     if not ticker: return pd.DataFrame(), None
     try:
         df = yf.download(ticker, period="max", progress=False, auto_adjust=True)
-        if isinstance(df.columns, pd.MultiIndex):
-            df.columns = [c[0] for c in df.columns]
-        
+        if isinstance(df.columns, pd.MultiIndex): df.columns = [c[0] for c in df.columns]
         fetch_time = pd.Timestamp.now(tz='America/New_York')
         return df, fetch_time
     except:
         return pd.DataFrame(), None
 
 # -----------------------------------------------------------------------------
-# FEATURE ENGINEERING & ENSEMBLE LOGIC
+# FEATURE ENGINEERING
 # -----------------------------------------------------------------------------
 @st.cache_data(show_spinner=True)
 def calculate_heatmap_variables(df, sznl_map, market_metrics_df, ticker):
     df = df.copy()
-    
-    # 1. BASE
     df['LogRet'] = np.log(df['Close'] / df['Close'].shift(1))
-
-    # 2. FORWARD TARGETS
+    
+    # Calculate enough targets for the heatmap/ensemble
     for w in [1, 2, 3, 5, 10, 21, 63, 126, 252]:
         df[f'FwdRet_{w}d'] = (df['Close'].shift(-w) / df['Close'] - 1.0) * 100.0
 
-    # 3. PREDICTOR VARIABLES
-    for w in [5, 10, 21, 252]:
-        df[f'Ret_{w}d'] = df['Close'].pct_change(w)
-
-    for w in [21, 63]:
-        df[f'RealVol_{w}d'] = df['LogRet'].rolling(w).std() * np.sqrt(252) * 100.0
-    
-    for w in [10, 21]:
-        df[f'VolRatio_{w}d'] = df['Volume'].rolling(w).mean() / df['Volume'].rolling(63).mean()
-
-    # Seasonality
+    for w in [5, 10, 21, 252]: df[f'Ret_{w}d'] = df['Close'].pct_change(w)
+    for w in [21, 63]: df[f'RealVol_{w}d'] = df['LogRet'].rolling(w).std() * np.sqrt(252) * 100.0
+    for w in [10, 21]: df[f'VolRatio_{w}d'] = df['Volume'].rolling(w).mean() / df['Volume'].rolling(63).mean()
     df['Seasonal'] = get_sznl_val_series(ticker, df.index, sznl_map, df)
 
-    # 4. RANK TRANSFORMATION
-    vars_to_rank = [
-        'Ret_5d', 'Ret_10d', 'Ret_21d', 'Ret_252d', 
-        'RealVol_21d', 'RealVol_63d', 
-        'VolRatio_10d', 'VolRatio_21d'
-    ]
-    
+    vars_to_rank = ['Ret_5d', 'Ret_10d', 'Ret_21d', 'Ret_252d', 'RealVol_21d', 'RealVol_63d', 'VolRatio_10d', 'VolRatio_21d']
     rank_cols = []
     for v in vars_to_rank:
         col_name = v + '_Rank'
         df[col_name] = df[v].expanding(min_periods=252).rank(pct=True) * 100.0
         rank_cols.append(col_name)
 
-    # 5. MERGE MARKET METRICS
     if not market_metrics_df.empty:
         df = df.join(market_metrics_df, how='left')
         df.update(df.filter(regex='^Mkt_').ffill(limit=3))
 
     return df, rank_cols
 
-def calculate_distribution_ensemble(df, rank_cols, market_cols, tolerance=5.0):
-    if df.empty: return pd.DataFrame()
-    
-    current_row = df.iloc[-1]
-    
-    all_features = rank_cols + ['Seasonal'] + market_cols
-    valid_features = [f for f in all_features if f in df.columns and not pd.isna(current_row[f])]
-    
-    if len(valid_features) < 2: return pd.DataFrame()
-    
-    targets = [2, 3, 5, 10, 21, 63, 126, 252]
-    pooled_outcomes = {t: [] for t in targets}
-    
-    pairs = list(itertools.combinations(valid_features, 2))
-    
-    for f1, f2 in pairs:
-        v1 = current_row[f1]
-        v2 = current_row[f2]
-        
-        mask = (
-            (df[f1] >= v1 - tolerance) & (df[f1] <= v1 + tolerance) &
-            (df[f2] >= v2 - tolerance) & (df[f2] <= v2 + tolerance)
-        )
-        
-        subset = df[mask]
-        
-        if subset.empty: continue
-        
-        for t in targets:
-            col = f'FwdRet_{t}d'
-            if col not in subset.columns: continue
-            
-            vals = subset[col].dropna().tolist()
-            if vals:
-                pooled_outcomes[t].extend(vals)
-            
-    summary = []
-    for t in targets:
-        col = f'FwdRet_{t}d'
-        if col in df.columns:
-            baseline = df[col].mean()
-        else:
-            baseline = np.nan
-            
-        data = np.array(pooled_outcomes[t])
-        
-        if len(data) == 0:
-            summary.append({
-                "Horizon": f"{t} Days", 
-                "Exp Return": np.nan,
-                "Baseline": baseline,
-                "Alpha": np.nan,
-                "Implied Vol (IV)": np.nan,
-                "Win Rate": np.nan, 
-                "Sample Size": 0
-            })
-            continue
-            
-        grand_mean = np.mean(data)
-        std_dev = np.std(data)
-        iv_est = std_dev * np.sqrt(252 / t)
-        pos_ratio = np.sum(data > 0) / len(data)
-        alpha = grand_mean - baseline if not np.isnan(baseline) else np.nan
-        
-        summary.append({
-            "Horizon": f"{t} Days",
-            "Exp Return": grand_mean,
-            "Baseline": baseline,
-            "Alpha": alpha,
-            "Implied Vol (IV)": iv_est,
-            "Win Rate": pos_ratio * 100,
-            "Sample Size": len(data)
-        })
-        
-    return pd.DataFrame(summary)
-
-# --- METHOD 2: EUCLIDEAN NEAREST NEIGHBORS ---
-def calculate_euclidean_forecast(df, rank_cols, market_cols, n_neighbors=50):
+# -----------------------------------------------------------------------------
+# EUCLIDEAN ENGINE
+# -----------------------------------------------------------------------------
+def get_euclidean_neighbors(df, rank_cols, market_cols, n_neighbors=50):
     current_row = df.iloc[-1]
     all_feats = rank_cols + ['Seasonal'] + market_cols
     valid_feats = [f for f in all_feats if f in df.columns and not pd.isna(current_row[f])]
-    
     if not valid_feats: return pd.DataFrame()
     
     target_vec = current_row[valid_feats].astype(float).values
     history = df.iloc[:-1].dropna(subset=valid_feats).copy()
-    
     if history.empty: return pd.DataFrame()
     
     diff = history[valid_feats].values - target_vec
@@ -301,547 +162,326 @@ def calculate_euclidean_forecast(df, rank_cols, market_cols, n_neighbors=50):
     history['Euclidean_Dist'] = np.sqrt(dist_sq)
     
     n_take = min(len(history), n_neighbors)
-    nearest = history.nsmallest(n_take, 'Euclidean_Dist')
-    
-    targets = [2, 3, 5, 10, 21, 63, 126, 252]
-    summary = []
-    
-    for t in targets:
-        col = f'FwdRet_{t}d'
-        if col not in df.columns: continue
-        
-        baseline = df[col].mean()
-        outcomes = nearest[col].dropna()
-        
-        if outcomes.empty:
-            summary.append({
-                "Horizon": f"{t} Days", "Exp Return": np.nan, 
-                "Baseline": baseline, "Alpha": np.nan, 
-                "Implied Vol (IV)": np.nan, "Win Rate": np.nan, 
-                "Sample Size": 0
-            })
-            continue
-            
-        grand_mean = outcomes.mean()
-        std_dev = outcomes.std()
-        iv_est = std_dev * np.sqrt(252 / t)
-        win_rate = (outcomes > 0).mean() * 100
-        alpha = grand_mean - baseline
-        
-        summary.append({
-            "Horizon": f"{t} Days",
-            "Exp Return": grand_mean,
-            "Baseline": baseline,
-            "Alpha": alpha,
-            "Implied Vol (IV)": iv_est,
-            "Win Rate": win_rate,
-            "Sample Size": len(outcomes)
-        })
-        
-    return pd.DataFrame(summary)
+    return history.nsmallest(n_take, 'Euclidean_Dist').copy()
 
-def get_euclidean_details(df, rank_cols, market_cols, n_neighbors=50, target_days=5):
+# -----------------------------------------------------------------------------
+# OPTION PRICING & STRATEGY LOGIC
+# -----------------------------------------------------------------------------
+def fetch_option_chain(ticker):
+    stock = yf.Ticker(ticker)
+    try:
+        spot = stock.history(period='1d')['Close'].iloc[-1]
+    except:
+        return None, [], 0
+        
+    expiries = stock.options
+    all_opts = []
+    
+    # Only grab next 6 expiries to save time/bandwidth
+    for date_str in expiries[:6]:
+        try:
+            chain = stock.option_chain(date_str)
+            calls = chain.calls
+            calls['Type'] = 'call'
+            puts = chain.puts
+            puts['Type'] = 'put'
+            
+            combined = pd.concat([calls, puts])
+            combined['Expiry'] = datetime.datetime.strptime(date_str, "%Y-%m-%d").date()
+            all_opts.append(combined)
+        except: pass
+        
+    if not all_opts: return None, [], spot
+    
+    df_opts = pd.concat(all_opts)
+    # Basic cleaning
+    df_opts = df_opts[(df_opts['bid'] > 0.01) & (df_opts['ask'] > 0.01)]
+    df_opts['Mid'] = (df_opts['bid'] + df_opts['ask']) / 2
+    
+    # Filter for reasonable strikes (+/- 30% of spot)
+    df_opts = df_opts[
+        (df_opts['strike'] > spot * 0.7) & 
+        (df_opts['strike'] < spot * 1.3)
+    ]
+    
+    return df_opts, sorted(list(set(df_opts['Expiry']))), spot
+
+def get_simulated_prices(df_hist, neighbors, days_forward, current_price):
     """
-    Returns the specific neighbor rows for the Euclidean calculation.
+    Calculates what the price WOULD be if the returns from the neighbors
+    occurred starting today.
     """
-    current_row = df.iloc[-1]
-    all_feats = rank_cols + ['Seasonal'] + market_cols
-    valid_feats = [f for f in all_feats if f in df.columns and not pd.isna(current_row[f])]
+    # Look forward 'days_forward' in the full history for each neighbor
+    future_returns = []
     
-    if not valid_feats: return pd.DataFrame()
+    for idx in neighbors.index:
+        loc = df_hist.index.get_loc(idx)
+        future_loc = loc + days_forward
+        
+        if future_loc < len(df_hist):
+            # Calculate exact return over this window
+            # Future Close / Neighbor Close - 1
+            ret = df_hist['Close'].iloc[future_loc] / df_hist['Close'].iloc[loc] - 1
+            future_returns.append(ret)
+            
+    if not future_returns: return []
     
-    target_vec = current_row[valid_feats].astype(float).values
-    history = df.iloc[:-1].dropna(subset=valid_feats).copy()
-    
-    if history.empty: return pd.DataFrame()
-    
-    diff = history[valid_feats].values - target_vec
-    dist_sq = np.sum(diff**2, axis=1)
-    history['Euclidean_Dist'] = np.sqrt(dist_sq)
-    
-    n_take = min(len(history), n_neighbors)
-    nearest = history.nsmallest(n_take, 'Euclidean_Dist').copy()
-    
-    # Format Table Data
-    ret_col = f'FwdRet_{target_days}d'
-    if ret_col in nearest.columns:
-        nearest['Fwd Return'] = nearest[ret_col]
+    # Apply to current price
+    sim_prices = [current_price * (1 + r) for r in future_returns]
+    return np.array(sim_prices)
+
+def calculate_option_fair_value(simulated_prices, strike, opt_type):
+    if len(simulated_prices) == 0: return 0
+    if opt_type == 'call':
+        payoffs = np.maximum(0, simulated_prices - strike)
     else:
-        nearest['Fwd Return'] = np.nan
-        
-    fwd_vol_series = df['LogRet'].rolling(target_days).std().shift(-target_days) * np.sqrt(252) * 100
-    nearest['Fwd Realized Vol'] = fwd_vol_series.loc[nearest.index]
-    
-    output = nearest[['Euclidean_Dist', 'Close', 'Fwd Return', 'Fwd Realized Vol']].copy()
-    output.columns = ['Euclidean Distance', 'Close Price', 'Fwd Return', 'Fwd Realized Vol']
-    
-    return output.dropna(subset=['Fwd Return']).sort_values('Euclidean Distance', ascending=True)
+        payoffs = np.maximum(0, strike - simulated_prices)
+    return np.mean(payoffs)
 
-# --- CHARTING & TABLE HELPERS ---
-def get_feature_shorthand(name):
-    # Remove _Rank suffix first
-    n = name.replace("_Rank", "")
+def generate_strategies(df_chain, sim_prices, spot):
+    strategies = []
     
-    if n == "Seasonal": return "szn"
-    
-    # Returns (e.g. Ret_21d -> 21dr)
-    if n.startswith("Ret_"):
-        return n.replace("Ret_", "").replace("d", "") + "dr"
+    # 1. Independent Longs (Naked)
+    for _, row in df_chain.iterrows():
+        fair_val = calculate_option_fair_value(sim_prices, row['strike'], row['Type'])
+        mkt_val = row['Mid']
+        edge = fair_val - mkt_val
         
-    # Vol Ratio (e.g. VolRatio_10d -> 10drv)
-    if n.startswith("VolRatio_"):
-        return n.replace("VolRatio_", "").replace("d", "") + "drv"
-        
-    # Real Vol (e.g. RealVol_21d -> 21dv)
-    if n.startswith("RealVol_"):
-        return n.replace("RealVol_", "").replace("d", "") + "dv"
-        
-    # Market Metrics (e.g. Mkt_Total_NH_5d -> 5dnh)
-    if n.startswith("Mkt_"):
-        parts = n.split("_")
-        return parts[-1] + "nh"
-        
-    return n[:4]
-
-def get_detailed_match_table(df, rank_cols, market_cols, tolerance=5.0, target_days=5):
-    if df.empty: return pd.DataFrame()
-    current_row = df.iloc[-1]
-    all_features = rank_cols + ['Seasonal'] + market_cols
-    valid_features = [f for f in all_features if f in df.columns and not pd.isna(current_row[f])]
-    if len(valid_features) < 2: return pd.DataFrame()
-    
-    pairs = list(itertools.combinations(valid_features, 2))
-    date_to_pairs = defaultdict(list)
-    
-    for f1, f2 in pairs:
-        v1 = current_row[f1]
-        v2 = current_row[f2]
-        mask = (
-            (df[f1] >= v1 - tolerance) & (df[f1] <= v1 + tolerance) &
-            (df[f2] >= v2 - tolerance) & (df[f2] <= v2 + tolerance)
-        )
-        subset = df[mask]
-        
-        if not subset.empty:
-            pair_str = f"{get_feature_shorthand(f1)} & {get_feature_shorthand(f2)}"
-            for date in subset.index:
-                date_to_pairs[date].append(pair_str)
+        # Filter for minimal edge
+        if edge > mkt_val * 0.1 and mkt_val > 0.05:
+            strategies.append({
+                "Type": "Long " + row['Type'].capitalize(),
+                "Strikes": f"{row['strike']}",
+                "Expiry": row['Expiry'],
+                "Cost": mkt_val,
+                "Fair Value": fair_val,
+                "Edge": edge,
+                "ROI": (edge / mkt_val) * 100
+            })
             
-    if not date_to_pairs: return pd.DataFrame()
+    # 2. Vertical Spreads
+    # Group by Expiry and Type
+    for (expiry, otype), group in df_chain.groupby(['Expiry', 'Type']):
+        strikes = sorted(group['strike'].unique())
+        # Iterate combinations
+        for s1, s2 in itertools.combinations(strikes, 2):
+            # Ensure width is decent (at least 0.5% of spot)
+            if (s2 - s1) < (spot * 0.005): continue
+            
+            # Identify legs
+            leg1 = group[group['strike'] == s1].iloc[0]
+            leg2 = group[group['strike'] == s2].iloc[0]
+            
+            # Call Spread (Long lower, Short higher)
+            if otype == 'call':
+                cost = leg1['Mid'] - leg2['Mid']
+                if cost <= 0: continue
+                
+                # Payoff = Max(0, Min(S - K1, K2 - K1)) - Cost
+                # We calculate Fair Value of the spread = FV(Long) - FV(Short)
+                fv1 = calculate_option_fair_value(sim_prices, s1, 'call')
+                fv2 = calculate_option_fair_value(sim_prices, s2, 'call')
+                fair_spread = fv1 - fv2
+                edge = fair_spread - cost
+                
+                if edge > cost * 0.15:
+                    strategies.append({
+                        "Type": "Bull Call Spread",
+                        "Strikes": f"{s1}/{s2}",
+                        "Expiry": expiry,
+                        "Cost": cost,
+                        "Fair Value": fair_spread,
+                        "Edge": edge,
+                        "ROI": (edge / cost) * 100
+                    })
+            
+            # Put Spread (Long higher, Short lower)
+            else: # Put
+                cost = leg2['Mid'] - leg1['Mid'] # Long 2 (high), Short 1 (low)
+                if cost <= 0: continue
+                
+                fv_long = calculate_option_fair_value(sim_prices, s2, 'put')
+                fv_short = calculate_option_fair_value(sim_prices, s1, 'put')
+                fair_spread = fv_long - fv_short
+                edge = fair_spread - cost
+                
+                if edge > cost * 0.15:
+                    strategies.append({
+                        "Type": "Bear Put Spread",
+                        "Strikes": f"{s2}/{s1}",
+                        "Expiry": expiry,
+                        "Cost": cost,
+                        "Fair Value": fair_spread,
+                        "Edge": edge,
+                        "ROI": (edge / cost) * 100
+                    })
 
-    dates = list(date_to_pairs.keys())
-    scores = [len(date_to_pairs[d]) for d in dates]
-    pair_strings = []
-    for d in dates:
-        unique_pairs = list(set(date_to_pairs[d]))
-        display_str = ", ".join(unique_pairs[:3])
-        if len(unique_pairs) > 3: display_str += f" (+{len(unique_pairs)-3} more)"
-        pair_strings.append(display_str)
-    
-    match_df = pd.DataFrame({
-        'Similarity Score': scores,
-        'Trigger Pairs': pair_strings
-    }, index=dates)
-    match_df.index.name = 'Date'
-    
-    ret_col = f'FwdRet_{target_days}d'
-    if ret_col in df.columns: match_df['Fwd Return'] = df.loc[match_df.index, ret_col]
-    else: match_df['Fwd Return'] = np.nan
-
-    fwd_vol_series = df['LogRet'].rolling(target_days).std().shift(-target_days) * np.sqrt(252) * 100
-    match_df['Fwd Realized Vol'] = fwd_vol_series.loc[match_df.index]
-    match_df['Close Price'] = df.loc[match_df.index, 'Close']
-    
-    return match_df.dropna(subset=['Fwd Return']).sort_values(by=['Similarity Score', 'Date'], ascending=[False, False])
-
-# -----------------------------------------------------------------------------
-# HEATMAP UTILS
-# -----------------------------------------------------------------------------
-def get_seismic_colorscale():
-    seismic = []
-    cm = matplotlib.colormaps["seismic"] 
-    for k in range(255):
-        r, g, b, _ = cm(k / 254.0)
-        seismic.append([k / 254.0, f'rgb({int(r*255)},{int(g*255)},{int(b*255)})'])
-    return seismic
-
-@st.cache_data
-def build_bins_quantile(x, y, nx=30, ny=30):
-    x = pd.Series(x, dtype=float).dropna()
-    y = pd.Series(y, dtype=float).dropna()
-    if len(x) < 10 or len(y) < 10:
-        return np.linspace(0,100,nx+1), np.linspace(0,100,ny+1)
-    x_edges = np.unique(np.quantile(x, np.linspace(0, 1, nx + 1)))
-    y_edges = np.unique(np.quantile(y, np.linspace(0, 1, ny + 1)))
-    if len(x_edges) < 3: x_edges = np.linspace(x.min(), x.max(), max(3, nx + 1))
-    if len(y_edges) < 3: y_edges = np.linspace(y.min(), y.max(), max(3, ny + 1))
-    return x_edges, y_edges
-
-@st.cache_data
-def grid_mean(df_sub, xcol, ycol, zcol, x_edges, y_edges):
-    x = df_sub[xcol].to_numpy(dtype=float)
-    y = df_sub[ycol].to_numpy(dtype=float)
-    z = df_sub[zcol].to_numpy(dtype=float)
-    m = ~np.isnan(x) & ~np.isnan(y) & ~np.isnan(z)
-    x = x[m]; y = y[m]; z = z[m]
-
-    if len(x) == 0:
-        return np.array([]), np.array([]), np.full((len(y_edges)-1, len(x_edges)-1), np.nan)
-
-    xi = np.digitize(x, x_edges) - 1
-    yi = np.digitize(y, y_edges) - 1
-    nx = len(x_edges) - 1; ny = len(y_edges) - 1
-
-    sums    = np.zeros((ny, nx), float)
-    counts = np.zeros((ny, nx), float)
-
-    valid = (xi >= 0) & (xi < nx) & (yi >= 0) & (yi < ny)
-    xi = xi[valid]; yi = yi[valid]; zv = z[valid]
-    
-    for X, Y, Z in zip(xi, yi, zv):
-        sums[Y, X]  += Z
-        counts[Y, X]+= 1.0
-
-    with np.errstate(invalid='ignore', divide='ignore'):
-        mean = sums / counts
-    mean[counts == 0] = np.nan
-
-    x_centers = 0.5 * (x_edges[:-1] + x_edges[1:])
-    y_centers = 0.5 * (y_edges[:-1] + y_edges[1:])
-    return x_centers, y_centers, mean
-
-def nan_neighbor_fill(Z, k=3):
-    Z = np.asarray(Z, float)
-    kernel = np.ones((k, k), dtype=float)
-    valid = np.isfinite(Z).astype(float)
-    sum_vals    = convolve2d(np.nan_to_num(Z), kernel, mode='same', boundary='symm')
-    count_vals = convolve2d(valid, kernel, mode='same', boundary='symm')
-    Z_out = Z.copy()
-    mask = np.isnan(Z) & (count_vals > 0)
-    Z_out[mask] = sum_vals[mask] / count_vals[mask]
-    return Z_out
-
-def smooth_display(Z, sigma=1.2):
-    Z = np.asarray(Z, float)
-    mask = np.isfinite(Z)
-    Z_fill = np.where(mask, Z, 0.0)
-    w = gaussian_filter(mask.astype(float), sigma=sigma, mode="nearest")
-    z = gaussian_filter(Z_fill, sigma=sigma, mode="nearest")
-    out = z / np.maximum(w, 1e-9)
-    return out
+    return pd.DataFrame(strategies)
 
 # -----------------------------------------------------------------------------
-# UI: RENDER
+# UI RENDER
 # -----------------------------------------------------------------------------
 def render_heatmap():
-    st.subheader("Heatmap Analysis")
+    st.subheader("Heatmap Analytics & Option Lab")
     
     col1, col2, col3 = st.columns(3)
-    
     with col1:
-        # STRIPPED PREDICTOR OPTIONS
-        var_options = {
-            "Seasonality Rank": "Seasonal",
-            # Price
-            "5d Trailing Return Rank": "Ret_5d_Rank",
-            "10d Trailing Return Rank": "Ret_10d_Rank",
-            "21d Trailing Return Rank": "Ret_21d_Rank",
-            "252d Trailing Return Rank": "Ret_252d_Rank",
-            # Vol
-            "21d Realized Vol Rank": "RealVol_21d_Rank",
-            "63d Realized Vol Rank": "RealVol_63d_Rank",
-            # Volume
-            "10d Rel. Volume Rank": "VolRatio_10d_Rank", 
-            "21d Rel. Volume Rank": "VolRatio_21d_Rank",
-        }
-        
-        var_options["Total Net Highs (5d MA) Rank"] = "Mkt_Total_NH_5d_Rank"
-        var_options["Total Net Highs (21d MA) Rank"] = "Mkt_Total_NH_21d_Rank"
-
-        x_axis_label = st.selectbox("X-Axis Variable", list(var_options.keys()), index=0, key="hm_x")
-        y_axis_label = st.selectbox("Y-Axis Variable", list(var_options.keys()), index=2, key="hm_y")
-    
+        x_axis_label = st.selectbox("X-Axis Variable", ["Ret_5d_Rank", "Ret_21d_Rank", "Seasonal", "VolRatio_10d_Rank"], index=0)
+        y_axis_label = st.selectbox("Y-Axis Variable", ["Ret_5d_Rank", "Ret_21d_Rank", "Seasonal", "VolRatio_10d_Rank"], index=2)
     with col2:
-        # STRIPPED TARGET OPTIONS
-        target_options = {
-            "5d Forward Return": "FwdRet_5d",
-            "10d Forward Return": "FwdRet_10d",
-            "21d Forward Return": "FwdRet_21d",
-            "63d Forward Return": "FwdRet_63d",
-            "126d Forward Return": "FwdRet_126d",
-            "252d Forward Return": "FwdRet_252d",
-        }
-        z_axis_label = st.selectbox("Target (Z-Axis)", list(target_options.keys()), index=2, key="hm_z")
-        ticker = st.text_input("Ticker", value="SPY", key="hm_ticker").upper()
-    
+        z_axis_label = st.selectbox("Target (Z-Axis)", ["FwdRet_5d", "FwdRet_21d", "FwdRet_63d"], index=0)
+        ticker = st.text_input("Ticker", value="SMH").upper()
     with col3:
-        # VISUAL & ENSEMBLE SETTINGS
-        smooth_sigma = st.slider("Smoothing (Sigma)", 0.5, 3.0, 1.2, 0.1, key="hm_smooth")
-        bins = st.slider("Grid Resolution (Bins)", 10, 50, 28, key="hm_bins")
-        
-        # --- NEW ENSEMBLE INPUT ---
-        ensemble_tol = st.slider("Ensemble Similarity Tolerance (± Rank)", 1, 25, 5, 1, key="ens_tol")
-        
-        analysis_start = st.date_input("Analysis Start Date", value=datetime.date(2000, 1, 1), key="hm_start_date")
-        
-    st.markdown("---")
+        ensemble_tol = st.slider("Pairwise Tolerance", 1, 25, 5, 1)
+        k_neighbors = st.number_input("Euclidean Neighbors", 10, 250, 50)
+        analysis_start = st.date_input("Start Date", datetime.date(2000, 1, 1))
 
-    if st.button("Generate Heatmap & Ensemble", type="primary", use_container_width=True, key="hm_gen"):
-        st.session_state['hm_data'] = True 
-        
-    if st.session_state.get('hm_data'):
+    if st.button("Run Analysis", type="primary"):
+        st.session_state['run_main'] = True
+
+    if st.session_state.get('run_main'):
         with st.spinner(f"Processing {ticker}..."):
-            
-            data, fetch_time = download_data(ticker)
-            if data.empty:
-                st.error("No data found.")
+            data, _ = download_data(ticker)
+            if data.empty: 
+                st.error("No data")
                 return
-
-            last_dt = data.index[-1]
-            time_str = fetch_time.strftime('%I:%M %p EST') if fetch_time else "N/A"
-            st.info(f"Price Data Current as of: {last_dt.strftime('%Y-%m-%d')} | Last Update: {time_str}")
-                
+            
             sznl_map = load_seasonal_map()
-            market_metrics_df = load_market_metrics()
+            mkt_metrics = load_market_metrics()
+            df, rank_cols = calculate_heatmap_variables(data, sznl_map, mkt_metrics, ticker)
             
-            # --- MAIN CALCULATION ---
-            df, rank_cols = calculate_heatmap_variables(data, sznl_map, market_metrics_df, ticker)
+            # --- EUCLIDEAN NEIGHBORS ---
+            neighbors = get_euclidean_neighbors(df, rank_cols, [c for c in df.columns if c.startswith("Mkt_")], n_neighbors=k_neighbors)
+            st.success(f"Analysis Complete. Found {len(neighbors)} Euclidean matches.")
             
-            start_ts = pd.to_datetime(analysis_start)
-            if df.index.tz is not None: start_ts = start_ts.tz_localize(df.index.tz)
-            
-            df_filtered = df[df.index >= start_ts]
-            
-            if df_filtered.empty:
-                st.error("No data found after start date.")
-                return
-            
-            # --- HEATMAP RENDER ---
-            xcol = var_options[x_axis_label]
-            ycol = var_options[y_axis_label]
-            zcol = target_options[z_axis_label]
-            
-            clean_df = df_filtered.dropna(subset=[xcol, ycol, zcol])
-            
-            if not clean_df.empty:
-                x_edges, y_edges = build_bins_quantile(clean_df[xcol], clean_df[ycol], nx=bins, ny=bins)
-                x_centers, y_centers, Z = grid_mean(clean_df, xcol, ycol, zcol, x_edges, y_edges)
-                
-                Z_filled = nan_neighbor_fill(Z)
-                Z_smooth = smooth_display(Z_filled, sigma=smooth_sigma)
-                
-                limit = np.nanmax(np.abs(Z_smooth))
-                colorscale = get_seismic_colorscale()
-                z_units = "%" 
+            # Store in session state for the option lab to use
+            st.session_state['full_df'] = df
+            st.session_state['neighbors'] = neighbors
+            st.session_state['ticker'] = ticker
 
-                fig = go.Figure(data=go.Heatmap(
-                    z=Z_smooth, x=x_centers, y=y_centers,
-                    colorscale=colorscale, 
-                    zmin=-limit, zmax=limit,
-                    zmid=0, 
-                    reversescale=True, 
-                    colorbar=dict(title=f"{zcol} {z_units}"),
-                    hovertemplate=f"<b>{x_axis_label}</b>: %{{x:.1f}}<br><b>{y_axis_label}</b>: %{{y:.1f}}<br><b>Value</b>: %{{z:.2f}}{z_units}<extra></extra>"
-                ))
+    # --- OPTION LAB SECTION ---
+    if 'full_df' in st.session_state:
+        st.divider()
+        st.header("🧪 Option Strategy Lab")
+        st.markdown("""
+        **Method:** Scrapes live option chains and compares Market Prices vs. Theoretical Prices derived from the **Euclidean Neighbor** distribution.
+        """)
+        
+        c_opt1, c_opt2 = st.columns([1, 3])
+        with c_opt1:
+            min_dte = st.number_input("Min DTE", 0, 60, 0)
+            max_dte = st.number_input("Max DTE", 0, 90, 21)
+            run_opt = st.button("🔎 Scan Options Chain")
+            
+        if run_opt:
+            with st.spinner("Fetching live options & calculating fair values..."):
+                df_opts, expiries, spot = fetch_option_chain(st.session_state['ticker'])
                 
-                fig.update_layout(
-                    title=f"{ticker} ({analysis_start} - Present): {z_axis_label}",
-                    xaxis_title=x_axis_label + " (0-100)",
-                    yaxis_title=y_axis_label + " (0-100)",
-                    height=600, template="plotly_white",
-                    dragmode=False 
-                )
-                
-                last_row = df.iloc[-1]
-                curr_x = last_row.get(xcol, np.nan)
-                curr_y = last_row.get(ycol, np.nan)
-                if not np.isnan(curr_x) and not np.isnan(curr_y):
-                    fig.add_vline(x=curr_x, line_width=2, line_dash="dash", line_color="black")
-                    fig.add_hline(y=curr_y, line_width=2, line_dash="dash", line_color="black")
-                    fig.add_annotation(x=curr_x, y=curr_y, text="Current", showarrow=True, arrowhead=1, ax=30, ay=-30, bgcolor="white")
-                
-                st.plotly_chart(fig, use_container_width=True, key="heatmap_plot")
-                
-                # --- HISTORICAL DATA EXPLORER ---
-                st.divider()
-                st.markdown("### 🔎 Historical Data Explorer")
-                f_col1, f_col2 = st.columns(2)
-                with f_col1: x_range = st.slider(f"Filter: {x_axis_label} (Rank)", 0.0, 100.0, (0.0, 100.0), step=1.0)
-                with f_col2: y_range = st.slider(f"Filter: {y_axis_label} (Rank)", 0.0, 100.0, (0.0, 100.0), step=1.0)
-                
-                mask = (clean_df[xcol] >= x_range[0]) & (clean_df[xcol] <= x_range[1]) & \
-                       (clean_df[ycol] >= y_range[0]) & (clean_df[ycol] <= y_range[1])
-                filtered_df = clean_df[mask].copy()
-                
-                if not filtered_df.empty:
-                    s1, s2, s3 = st.columns(3)
-                    s1.metric("Matching Instances", len(filtered_df))
-                    s2.metric(f"Avg Target", f"{filtered_df[zcol].mean():.2f}{z_units}")
-                    
-                    win_rate = (filtered_df[zcol] > 0).sum() / len(filtered_df) * 100
-                    s3.metric("Win Rate (>0)", f"{win_rate:.1f}%")
-                    
-                    st.write("#### Matching Dates")
-                    display_cols = ['Close', xcol, ycol, zcol]
-                    table_df = filtered_df[display_cols].sort_index(ascending=False)
-                    st.dataframe(
-                        table_df.style.format({
-                            "Close": "${:.2f}", xcol: "{:.1f}", ycol: "{:.1f}", zcol: "{:.2f}" + z_units
-                        }).background_gradient(subset=[zcol], cmap="RdBu", vmin=-limit, vmax=limit),
-                        use_container_width=True, height=400
-                    )
+                if df_opts is None or df_opts.empty:
+                    st.error("Could not fetch options data.")
                 else:
-                    st.warning("No matches found for these filters.")
+                    valid_expiries = []
+                    all_strategies = []
                     
-            else:
-                st.error("Insufficient data for Heatmap.")
+                    # Process Front 3 Valid Expiries
+                    processed_count = 0
+                    
+                    # Store data for the very front expiry visualization
+                    viz_data = None
+                    
+                    for exp in expiries:
+                        days = get_trading_days(exp)
+                        if days < min_dte or days > max_dte: continue
+                        if processed_count >= 3: break # Limit to 3 expiries to be fast
+                        
+                        processed_count += 1
+                        valid_expiries.append(exp)
+                        
+                        # Get Simulated Prices for this specific time horizon
+                        sim_prices = get_simulated_prices(st.session_state['full_df'], st.session_state['neighbors'], days, spot)
+                        
+                        if len(sim_prices) > 0:
+                            # Generate Strategies
+                            subset_chain = df_opts[df_opts['Expiry'] == exp]
+                            strats = generate_strategies(subset_chain, sim_prices, spot)
+                            if not strats.empty:
+                                all_strategies.append(strats)
+                                
+                            # Capture data for the FIRST expiry for the chart
+                            if viz_data is None:
+                                viz_data = {
+                                    'expiry': exp,
+                                    'days': days,
+                                    'sim_prices': sim_prices,
+                                    'spot': spot
+                                }
 
-            # --- ENSEMBLE TABLE (METHOD 1) ---
-            st.divider()
-            st.subheader(f"🤖 Method 1: Pairwise Ensemble (Box Filter)")
-            st.markdown(f"""
-            **Methodology:**
-            1. Scans ALL valid variable pairs (e.g., Seasonality vs Momentum).
-            2. Finds all historical dates where **both** metrics were within **±{ensemble_tol}** rank points of today.
-            3. Pools all historical returns into a single distribution.
-            """)
-            
-            market_cols = [c for c in df.columns if c.startswith("Mkt_")]
-            
-            ensemble_df = calculate_distribution_ensemble(df, rank_cols, market_cols, tolerance=ensemble_tol)
-            
-            if not ensemble_df.empty:
-                st.dataframe(
-                    ensemble_df.style.format({
-                        "Exp Return": "{:.2f}%",
-                        "Baseline": "{:.2f}%",
-                        "Alpha": "{:+.2f}%",
-                        "Implied Vol (IV)": "{:.2f}%",
-                        "Win Rate": "{:.1f}%",
-                        "Sample Size": "{:,.0f}"
-                    }).background_gradient(subset=['Alpha'], cmap="RdBu", vmin=-2, vmax=2),
-                    use_container_width=True
-                )
-            else:
-                st.warning(f"Not enough historical depth (matches within ±{ensemble_tol}) to generate an ensemble forecast. Try increasing the tolerance slider.")
-            
-            # --- EUCLIDEAN TABLE (METHOD 2) ---
-            st.subheader(f"🧪 Method 2: Multi-Factor Similarity (Euclidean Distance)")
-            
-            col_k, col_desc = st.columns([1, 4])
-            with col_k:
-                k_neighbors = st.number_input("Neighbors (K)", min_value=10, max_value=250, value=50, step=10)
-            with col_desc:
-                st.info(f"Finds the **{k_neighbors}** specific dates in history that are mathematically closest to 'Today' across ALL {len(rank_cols)+1} variables simultaneously.")
+                    # --- RESULTS ---
+                    if all_strategies:
+                        master_df = pd.concat(all_strategies)
+                        
+                        # Top 5 Spreads
+                        spreads = master_df[master_df['Type'].str.contains("Spread")].sort_values("Edge", ascending=False).head(5)
+                        
+                        # Top 3 Naked
+                        naked = master_df[~master_df['Type'].str.contains("Spread")].sort_values("Edge", ascending=False).head(3)
+                        
+                        st.subheader(f"🏆 Top Trade Ideas (Next {processed_count} Expiries)")
+                        
+                        col_tbl1, col_tbl2 = st.columns(2)
+                        with col_tbl1:
+                            st.write("**Top 5 Vertical Spreads**")
+                            st.dataframe(spreads[['Type', 'Expiry', 'Strikes', 'Cost', 'Fair Value', 'Edge', 'ROI']].style.format({
+                                'Cost': '${:.2f}', 'Fair Value': '${:.2f}', 'Edge': '${:.2f}', 'ROI': '{:.1f}%'
+                            }).background_gradient(subset=['Edge'], cmap='Greens'), use_container_width=True)
+                            
+                        with col_tbl2:
+                            st.write("**Top 3 Independent Longs**")
+                            st.dataframe(naked[['Type', 'Expiry', 'Strikes', 'Cost', 'Fair Value', 'Edge', 'ROI']].style.format({
+                                'Cost': '${:.2f}', 'Fair Value': '${:.2f}', 'Edge': '${:.2f}', 'ROI': '{:.1f}%'
+                            }).background_gradient(subset=['Edge'], cmap='Greens'), use_container_width=True)
+                            
+                        # --- VISUALIZATION (FRONT EXPIRY) ---
+                        if viz_data:
+                            st.divider()
+                            st.subheader(f"📊 Front Expiry Distribution Analysis: {viz_data['expiry']} ({viz_data['days']} Trading Days)")
+                            
+                            sims = viz_data['sim_prices']
+                            curr = viz_data['spot']
+                            mean_sim = np.mean(sims)
+                            
+                            fig = go.Figure()
+                            # Forecast Dist
+                            fig.add_trace(go.Histogram(
+                                x=sims, nbinsx=50, name='Model Distribution', marker_color='rgba(0, 0, 255, 0.4)', opacity=0.6
+                            ))
+                            
+                            fig.add_vline(x=curr, line_width=3, line_color="black", annotation_text="Current Spot")
+                            fig.add_vline(x=mean_sim, line_width=3, line_dash="dot", line_color="blue", annotation_text=f"Model Mean (${mean_sim:.2f})")
+                            
+                            # Add B/E lines for the #1 Spread if available
+                            if not spreads.empty:
+                                best_spread = spreads.iloc[0]
+                                if best_spread['Expiry'] == viz_data['expiry']:
+                                    strikes = [float(x) for x in best_spread['Strikes'].split('/')]
+                                    fig.add_vline(x=strikes[0], line_color="green", line_dash="dash", annotation_text="Long Strike")
+                                    fig.add_vline(x=strikes[1], line_color="red", line_dash="dash", annotation_text="Short Strike")
+                                    st.caption(f"Chart includes strikes for top spread: {best_spread['Type']} ({best_spread['Strikes']})")
 
-            euclidean_df = calculate_euclidean_forecast(df, rank_cols, market_cols, n_neighbors=k_neighbors)
-            
-            if not euclidean_df.empty:
-                st.dataframe(
-                    euclidean_df.style.format({
-                        "Exp Return": "{:.2f}%",
-                        "Baseline": "{:.2f}%",
-                        "Alpha": "{:+.2f}%",
-                        "Implied Vol (IV)": "{:.2f}%",
-                        "Win Rate": "{:.1f}%",
-                        "Sample Size": "{:,.0f}"
-                    }).background_gradient(subset=['Alpha'], cmap="RdBu", vmin=-2, vmax=2),
-                    use_container_width=True
-                )
-            else:
-                st.warning("Insufficient data for Euclidean analysis.")
-
-            # --- DISTRIBUTION CHART (EUCLIDEAN METHOD) ---
-            st.divider()
-            st.subheader("🔮 Forecast Distribution Analysis (Euclidean Method)")
-            
-            dist_days = st.selectbox("Distribution Horizon (Days)", [2, 3, 5, 10, 21, 63, 126, 252], index=2)
-            
-            # CHANGED: Use Euclidean Details instead of Pairwise
-            euc_data = get_euclidean_details(df, rank_cols, market_cols, n_neighbors=k_neighbors, target_days=dist_days)
-            raw_returns = euc_data['Fwd Return'].tolist() if not euc_data.empty else []
-            
-            if raw_returns:
-                current_price = df['Close'].iloc[-1]
-                sim_prices = [current_price * (1 + (r / 100)) for r in raw_returns]
-                
-                mean_price = np.mean(sim_prices)
-                std_price = np.std(sim_prices)
-                
-                fig_dist = go.Figure()
-                fig_dist.add_trace(go.Histogram(
-                    x=sim_prices, nbinsx=50, marker_color='lightgray', opacity=0.6, name='Simulated Prices'
-                ))
-                fig_dist.add_vline(x=current_price, line_width=3, line_color="black", annotation_text="Current")
-                fig_dist.add_vline(x=mean_price, line_width=3, line_dash="dot", line_color="blue", annotation_text="Forecast Mean")
-                
-                colors = ['green', 'yellow', 'red']
-                for i, c in zip([1, 2, 3], colors):
-                    upper = mean_price + (i * std_price)
-                    lower = mean_price - (i * std_price)
-                    fig_dist.add_vline(x=upper, line_width=1, line_dash="dash", line_color=c)
-                    fig_dist.add_vline(x=lower, line_width=1, line_dash="dash", line_color=c)
-                
-                fig_dist.update_layout(
-                    title=f"Projected Price Distribution ({dist_days} Days) | Based on {len(raw_returns)} Nearest Neighbors",
-                    xaxis_title="Price", yaxis_title="Frequency", template="plotly_white", showlegend=False
-                )
-                
-                st.plotly_chart(fig_dist, use_container_width=True)
-                
-                # --- MATCH DETAILS SELECTION ---
-                st.subheader(f"📜 Historical Match Details ({dist_days} Days)")
-                st.caption("Detailed view of the specific dates identified by both methods.")
-                
-                tab_pairwise, tab_euc = st.tabs(["1. Pairwise Matches (Method 1)", "2. Euclidean Matches (Method 2)"])
-                
-                with tab_pairwise:
-                    st.markdown(f"**Method 1:** Dates where *at least one pair* of indicators was within ±{ensemble_tol} rank points.")
-                    match_df = get_detailed_match_table(df, rank_cols, market_cols, tolerance=ensemble_tol, target_days=dist_days)
-                    if not match_df.empty:
-                        st.dataframe(
-                            match_df.style.format({
-                                "Close Price": "${:.2f}",
-                                "Fwd Return": "{:+.2f}%",
-                                "Fwd Realized Vol": "{:.2f}%"
-                            }).background_gradient(subset=['Fwd Return'], cmap="RdBu", vmin=-5, vmax=5),
-                            use_container_width=True
-                        )
+                            fig.update_layout(
+                                title=f"Price Distribution Forecast vs. Spot",
+                                xaxis_title="Price",
+                                yaxis_title="Frequency",
+                                template="plotly_white",
+                                bargap=0.1
+                            )
+                            st.plotly_chart(fig, use_container_width=True)
+                            
                     else:
-                        st.info("No pairwise matches found.")
-
-                with tab_euc:
-                    st.markdown(f"**Method 2:** The top {k_neighbors} dates with the smallest Euclidean distance across the entire feature vector.")
-                    # euc_data already calculated above
-                    if not euc_data.empty:
-                        st.dataframe(
-                            euc_data.style.format({
-                                "Euclidean Distance": "{:.2f}",
-                                "Close Price": "${:.2f}",
-                                "Fwd Return": "{:+.2f}%",
-                                "Fwd Realized Vol": "{:.2f}%"
-                            }).background_gradient(subset=['Fwd Return'], cmap="RdBu", vmin=-5, vmax=5),
-                            use_container_width=True
-                        )
-                    else:
-                        st.info("No Euclidean data available.")
-                    
-                with st.expander("📚 Glossary of Feature Codes"):
-                    st.markdown("""
-                    | Code | Definition |
-                    |---|---|
-                    | **szn** | Seasonality Rank |
-                    | **Xdr** | X-Day Trailing Return Rank (e.g., 5dr = 5d Return) |
-                    | **Xdv** | X-Day Realized Volatility Rank (e.g., 21dv = 21d Realized Vol) |
-                    | **Xdrv** | X-Day Relative Volume Rank (e.g., 10drv = 10d Rel Vol) |
-                    | **Xnh** | Market Total Net Highs Rank (e.g., 5dnh = 5d MA of Net Highs) |
-                    """)
-                    
-            else:
-                st.info("No distribution data available for this horizon (adjust tolerance).")
+                        st.warning("No trades found with positive edge criteria.")
 
 def main():
-    st.set_page_config(layout="wide", page_title="Heatmap Analytics")
+    st.set_page_config(layout="wide", page_title="Heatmap & Option Lab")
     render_heatmap()
 
 if __name__ == "__main__":
