@@ -319,20 +319,21 @@ def get_feature_shorthand(name):
     
     # Returns (e.g. Ret_21d -> 21dr)
     if n.startswith("Ret_"):
-        return n.replace("Ret_", "") + "r"
+        return n.replace("Ret_", "") + "dr"
         
     # Vol Ratio (e.g. VolRatio_10d -> 10drv)
     if n.startswith("VolRatio_"):
-        return n.replace("VolRatio_", "") + "rv"
+        return n.replace("VolRatio_", "") + "drv"
         
     # Real Vol (e.g. RealVol_21d -> 21dv)
     if n.startswith("RealVol_"):
         return n.replace("RealVol_", "") + "dv"
         
-    # Market Metrics (e.g. Mkt_Total_NH_5d -> 5dmkt)
+    # Market Metrics (e.g. Mkt_Total_NH_5d -> 5dnh)
     if n.startswith("Mkt_"):
         parts = n.split("_")
-        return parts[-1] + "mkt"
+        # Change 'mkt' to 'nh' as requested
+        return parts[-1] + "nh"
         
     return n[:4]
 
@@ -364,7 +365,7 @@ def get_detailed_match_table(df, rank_cols, market_cols, tolerance=5.0, target_d
         
         if not subset.empty:
             # Create shorthand string for this pair
-            pair_str = f"{get_feature_shorthand(f1)}+{get_feature_shorthand(f2)}"
+            pair_str = f"{get_feature_shorthand(f1)} & {get_feature_shorthand(f2)}"
             
             for date in subset.index:
                 date_to_pairs[date].append(pair_str)
@@ -384,12 +385,12 @@ def get_detailed_match_table(df, rank_cols, market_cols, tolerance=5.0, target_d
         unique_pairs = list(set(date_to_pairs[d]))
         display_str = ", ".join(unique_pairs[:3])
         if len(unique_pairs) > 3:
-            display_str += "..."
+            display_str += f" (+{len(unique_pairs)-3} more)"
         pair_strings.append(display_str)
     
     match_df = pd.DataFrame({
         'Similarity Score': scores,
-        'Pairs': pair_strings
+        'Trigger Pairs': pair_strings
     }, index=dates)
     
     match_df.index.name = 'Date'
@@ -734,6 +735,18 @@ def render_heatmap():
                         }).background_gradient(subset=['Fwd Return'], cmap="RdBu", vmin=-5, vmax=5),
                         use_container_width=True
                     )
+                    
+                    with st.expander("📚 Glossary of Feature Codes"):
+                        st.markdown("""
+                        | Code | Definition |
+                        |---|---|
+                        | **szn** | Seasonality Rank |
+                        | **Xdr** | X-Day Trailing Return Rank (e.g., 5dr = 5d Return) |
+                        | **Xdv** | X-Day Realized Volatility Rank (e.g., 21dv = 21d Realized Vol) |
+                        | **Xdrv** | X-Day Relative Volume Rank (e.g., 10drv = 10d Rel Vol) |
+                        | **Xnh** | Market Total Net Highs Rank (e.g., 5dnh = 5d MA of Net Highs) |
+                        """)
+                    
             else:
                 st.info("No distribution data available for this horizon (adjust tolerance).")
 
