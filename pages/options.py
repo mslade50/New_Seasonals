@@ -7,7 +7,7 @@ from plotly.subplots import make_subplots
 from scipy.ndimage import gaussian_filter
 from scipy.signal import convolve2d
 import matplotlib
-import datetime
+import datetime as dt # Standardized to dt per your snippet
 import itertools
 from collections import defaultdict
 from dateutil.easter import easter
@@ -19,37 +19,37 @@ from dateutil.relativedelta import relativedelta, MO, TH
 SEASONAL_PATH = "seasonal_ranks.csv"
 METRICS_PATH = "market_metrics_full_export.csv"
 
-# --- HOLIDAY LOGIC (FOR OPTION PRICING) ---
+# --- HOLIDAY LOGIC ---
 def get_nyse_holidays(start_year, end_year):
     holidays = []
     for year in range(start_year, end_year + 1):
         fixed_dates = {
-            "New Years": datetime.date(year, 1, 1),
-            "Juneteenth": datetime.date(year, 6, 19),
-            "Independence": datetime.date(year, 7, 4),
-            "Christmas": datetime.date(year, 12, 25)
+            "New Years": dt.date(year, 1, 1),
+            "Juneteenth": dt.date(year, 6, 19),
+            "Independence": dt.date(year, 7, 4),
+            "Christmas": dt.date(year, 12, 25)
         }
         for name, date in fixed_dates.items():
-            if date.weekday() == 5: holidays.append(date - datetime.timedelta(days=1))
-            elif date.weekday() == 6: holidays.append(date + datetime.timedelta(days=1))
+            if date.weekday() == 5: holidays.append(date - dt.timedelta(days=1))
+            elif date.weekday() == 6: holidays.append(date + dt.timedelta(days=1))
             else: holidays.append(date)
 
-        holidays.append(datetime.date(year, 1, 1) + relativedelta(day=1, weekday=MO(3))) # MLK
-        holidays.append(datetime.date(year, 2, 1) + relativedelta(day=1, weekday=MO(3))) # Pres
-        holidays.append(datetime.date(year, 5, 31) + relativedelta(weekday=MO(-1)))      # Memorial
-        holidays.append(datetime.date(year, 9, 1) + relativedelta(day=1, weekday=MO(1))) # Labor
-        holidays.append(datetime.date(year, 11, 1) + relativedelta(day=1, weekday=TH(4)))# Thx
-        holidays.append(easter(year) - datetime.timedelta(days=2)) # Good Fri
+        holidays.append(dt.date(year, 1, 1) + relativedelta(day=1, weekday=MO(3))) 
+        holidays.append(dt.date(year, 2, 1) + relativedelta(day=1, weekday=MO(3))) 
+        holidays.append(dt.date(year, 5, 31) + relativedelta(weekday=MO(-1)))      
+        holidays.append(dt.date(year, 9, 1) + relativedelta(day=1, weekday=MO(1))) 
+        holidays.append(dt.date(year, 11, 1) + relativedelta(day=1, weekday=TH(4)))
+        holidays.append(easter(year) - dt.timedelta(days=2)) 
 
     return sorted(list(set(holidays)))
 
-current_year = datetime.date.today().year
+current_year = dt.date.today().year
 generated_holidays = get_nyse_holidays(current_year, current_year + 1)
 nyse_holidays_dt = np.array(generated_holidays)
 
 def get_trading_days(expiry_date):
-    start = datetime.date.today()
-    if isinstance(expiry_date, datetime.datetime): end = expiry_date.date()
+    start = dt.date.today()
+    if isinstance(expiry_date, dt.datetime): end = expiry_date.date()
     else: end = expiry_date
     if end <= start: return 0
     bus_days = np.busday_count(start, end)
@@ -122,7 +122,6 @@ def calculate_heatmap_variables(df, sznl_map, market_metrics_df, ticker):
     df = df.copy()
     df['LogRet'] = np.log(df['Close'] / df['Close'].shift(1))
     
-    # Calculate enough targets for the heatmap/ensemble
     for w in [1, 2, 3, 5, 10, 21, 63, 126, 252]:
         df[f'FwdRet_{w}d'] = (df['Close'].shift(-w) / df['Close'] - 1.0) * 100.0
 
@@ -165,74 +164,124 @@ def get_euclidean_neighbors(df, rank_cols, market_cols, n_neighbors=50):
     return history.nsmallest(n_take, 'Euclidean_Dist').copy()
 
 # -----------------------------------------------------------------------------
-# OPTION PRICING & STRATEGY LOGIC
+# OPTION PRICING & STRATEGY LOGIC (UPDATED WITH ROBUST FILTERS)
 # -----------------------------------------------------------------------------
-def fetch_option_chain(ticker):
+def option_chain_prices(ticker, price_type="midpoint"):
+    """
+    Fetches option chain with strict OTM and liquidity filters.
+    Returns dictionary with raw data and current spot price.
+    """
     stock = yf.Ticker(ticker)
+
+    # Use a better spot for ITM/OTM filtering, fall back to last close
+    spot = None
     try:
-        spot = stock.history(period='1d')['Close'].iloc[-1]
-    except:
-        return None, [], 0
-        
-    expiries = stock.options
-    all_opts = []
+        spot = float(stock.fast_info.get("last_price", np.nan))
+    except Exception:
+        spot = np.nan
     
-    # Only grab next 6 expiries to save time/bandwidth
-    for date_str in expiries[:6]:
+    if not np.isfinite(spot):
+        # Fallback to history if fast_info fails
         try:
-            chain = stock.option_chain(date_str)
-            calls = chain.calls
-            calls['Type'] = 'call'
-            puts = chain.puts
-            puts['Type'] = 'put'
-            
-            combined = pd.concat([calls, puts])
-            combined['Expiry'] = datetime.datetime.strptime(date_str, "%Y-%m-%d").date()
-            all_opts.append(combined)
-        except: pass
+            hist = stock.history(period="5d")
+            if not hist.empty:
+                spot = hist["Close"].dropna().iloc[-1]
+        except:
+            spot = np.nan
+
+    # Expiries as date objects
+    available_expiries = []
+    if stock.options:
+        for d in stock.options:
+            try:
+                available_expiries.append(dt.datetime.strptime(d, "%Y-%m-%d").date())
+            except Exception:
+                continue
+
+    all_data = []
+    
+    # If no spot or no expiries, return empty
+    if not np.isfinite(spot) or not available_expiries:
+        return {"Options_Data": [], "Available_Expiries": [], "Current_Price": spot}
+
+    for expiry in available_expiries[:12]: # Limit to front 12 expiries to save time
+        try:
+            chain = stock.option_chain(date=expiry.strftime("%Y-%m-%d"))
+        except:
+            continue
+
+        # Clean quotes and ignore ITM: Calls OTM strike > spot, Puts OTM strike < spot
+        # Filter: Ask >= Bid, Bid > 0.05
+        calls = (
+            chain.calls.dropna(subset=["bid", "ask", "strike"]).copy()
+            .query("ask >= bid and bid > 0.05")
+        )
+        puts = (
+            chain.puts.dropna(subset=["bid", "ask", "strike"]).copy()
+            .query("ask >= bid and bid > 0.05")
+        )
         
-    if not all_opts: return None, [], spot
-    
-    df_opts = pd.concat(all_opts)
-    # Basic cleaning
-    df_opts = df_opts[(df_opts['bid'] > 0.01) & (df_opts['ask'] > 0.01)]
-    df_opts['Mid'] = (df_opts['bid'] + df_opts['ask']) / 2
-    
-    # Filter for reasonable strikes (+/- 30% of spot)
-    df_opts = df_opts[
-        (df_opts['strike'] > spot * 0.7) & 
-        (df_opts['strike'] < spot * 1.3)
-    ]
-    
-    return df_opts, sorted(list(set(df_opts['Expiry']))), spot
+        # STRICT OTM FILTER
+        calls = calls[calls["strike"] > spot]
+        puts  = puts[puts["strike"]  < spot]
+
+        # Sort by strike for reproducibility
+        calls = calls.sort_values("strike")
+        puts  = puts.sort_values("strike")
+
+        # Price helper (Midpoint + 0.02 Buffer)
+        def quote_price(row):
+            if price_type == "midpoint":
+                return (row["bid"] + row["ask"]) / 2.0 + 0.02
+            else:
+                return row.get("lastPrice", np.nan) + 0.02
+
+        # Collect calls (all OTM, sane quotes)
+        for _, row in calls.iterrows():
+            px = quote_price(row)
+            if not np.isfinite(px): continue
+            all_data.append({
+                "Ticker": ticker, 
+                "Expiry": expiry, 
+                "Strike": row["strike"], 
+                "Type": "Call", 
+                "Market_Price": float(px)
+            })
+
+        # Collect puts (all OTM, sane quotes)
+        for _, row in puts.iterrows():
+            px = quote_price(row)
+            if not np.isfinite(px): continue
+            all_data.append({
+                "Ticker": ticker, 
+                "Expiry": expiry, 
+                "Strike": row["strike"], 
+                "Type": "Put", 
+                "Market_Price": float(px)
+            })
+
+    return {
+        "Options_Data": all_data,
+        "Available_Expiries": available_expiries,
+        "Current_Price": spot
+    }
 
 def get_simulated_prices(df_hist, neighbors, days_forward, current_price):
-    """
-    Calculates what the price WOULD be if the returns from the neighbors
-    occurred starting today.
-    """
-    # Look forward 'days_forward' in the full history for each neighbor
     future_returns = []
-    
     for idx in neighbors.index:
         loc = df_hist.index.get_loc(idx)
         future_loc = loc + days_forward
-        
         if future_loc < len(df_hist):
-            # Calculate exact return over this window
-            # Future Close / Neighbor Close - 1
             ret = df_hist['Close'].iloc[future_loc] / df_hist['Close'].iloc[loc] - 1
             future_returns.append(ret)
             
     if not future_returns: return []
-    
-    # Apply to current price
     sim_prices = [current_price * (1 + r) for r in future_returns]
     return np.array(sim_prices)
 
 def calculate_option_fair_value(simulated_prices, strike, opt_type):
     if len(simulated_prices) == 0: return 0
-    if opt_type == 'call':
+    if opt_type == 'Call': # Note: Capital C from new function
         payoffs = np.maximum(0, simulated_prices - strike)
     else:
         payoffs = np.maximum(0, strike - simulated_prices)
@@ -241,17 +290,16 @@ def calculate_option_fair_value(simulated_prices, strike, opt_type):
 def generate_strategies(df_chain, sim_prices, spot):
     strategies = []
     
-    # 1. Independent Longs (Naked)
+    # 1. Independent Longs (Naked OTM)
     for _, row in df_chain.iterrows():
-        fair_val = calculate_option_fair_value(sim_prices, row['strike'], row['Type'])
-        mkt_val = row['Mid']
+        fair_val = calculate_option_fair_value(sim_prices, row['Strike'], row['Type'])
+        mkt_val = row['Market_Price']
         edge = fair_val - mkt_val
         
-        # Filter for minimal edge
         if edge > mkt_val * 0.1 and mkt_val > 0.05:
             strategies.append({
-                "Type": "Long " + row['Type'].capitalize(),
-                "Strikes": f"{row['strike']}",
+                "Type": "Long " + row['Type'],
+                "Strikes": f"{row['Strike']}",
                 "Expiry": row['Expiry'],
                 "Cost": mkt_val,
                 "Fair Value": fair_val,
@@ -259,28 +307,21 @@ def generate_strategies(df_chain, sim_prices, spot):
                 "ROI": (edge / mkt_val) * 100
             })
             
-    # 2. Vertical Spreads
-    # Group by Expiry and Type
+    # 2. Vertical Spreads (Using OTM Legs)
     for (expiry, otype), group in df_chain.groupby(['Expiry', 'Type']):
-        strikes = sorted(group['strike'].unique())
-        # Iterate combinations
+        strikes = sorted(group['Strike'].unique())
         for s1, s2 in itertools.combinations(strikes, 2):
-            # Ensure width is decent (at least 0.5% of spot)
             if (s2 - s1) < (spot * 0.005): continue
             
-            # Identify legs
-            leg1 = group[group['strike'] == s1].iloc[0]
-            leg2 = group[group['strike'] == s2].iloc[0]
+            leg1 = group[group['Strike'] == s1].iloc[0]
+            leg2 = group[group['Strike'] == s2].iloc[0]
             
-            # Call Spread (Long lower, Short higher)
-            if otype == 'call':
-                cost = leg1['Mid'] - leg2['Mid']
+            if otype == 'Call':
+                # Bull Call Spread: Buy Low (s1), Sell High (s2)
+                cost = leg1['Market_Price'] - leg2['Market_Price']
                 if cost <= 0: continue
-                
-                # Payoff = Max(0, Min(S - K1, K2 - K1)) - Cost
-                # We calculate Fair Value of the spread = FV(Long) - FV(Short)
-                fv1 = calculate_option_fair_value(sim_prices, s1, 'call')
-                fv2 = calculate_option_fair_value(sim_prices, s2, 'call')
+                fv1 = calculate_option_fair_value(sim_prices, s1, 'Call')
+                fv2 = calculate_option_fair_value(sim_prices, s2, 'Call')
                 fair_spread = fv1 - fv2
                 edge = fair_spread - cost
                 
@@ -295,13 +336,12 @@ def generate_strategies(df_chain, sim_prices, spot):
                         "ROI": (edge / cost) * 100
                     })
             
-            # Put Spread (Long higher, Short lower)
             else: # Put
-                cost = leg2['Mid'] - leg1['Mid'] # Long 2 (high), Short 1 (low)
+                # Bear Put Spread: Buy High (s2), Sell Low (s1)
+                cost = leg2['Market_Price'] - leg1['Market_Price'] 
                 if cost <= 0: continue
-                
-                fv_long = calculate_option_fair_value(sim_prices, s2, 'put')
-                fv_short = calculate_option_fair_value(sim_prices, s1, 'put')
+                fv_long = calculate_option_fair_value(sim_prices, s2, 'Put')
+                fv_short = calculate_option_fair_value(sim_prices, s1, 'Put')
                 fair_spread = fv_long - fv_short
                 edge = fair_spread - cost
                 
@@ -334,7 +374,7 @@ def render_heatmap():
     with col3:
         ensemble_tol = st.slider("Pairwise Tolerance", 1, 25, 5, 1)
         k_neighbors = st.number_input("Euclidean Neighbors", 10, 250, 50)
-        analysis_start = st.date_input("Start Date", datetime.date(2000, 1, 1))
+        analysis_start = st.date_input("Start Date", dt.date(2000, 1, 1))
 
     if st.button("Run Analysis", type="primary"):
         st.session_state['run_main'] = True
@@ -364,7 +404,7 @@ def render_heatmap():
         st.divider()
         st.header("🧪 Option Strategy Lab")
         st.markdown("""
-        **Method:** Scrapes live option chains and compares Market Prices vs. Theoretical Prices derived from the **Euclidean Neighbor** distribution.
+        **Method:** Scrapes live **OTM** option chains (filtered for liquidity) and compares Market Prices vs. Theoretical Prices derived from the **Euclidean Neighbor** distribution.
         """)
         
         c_opt1, c_opt2 = st.columns([1, 3])
@@ -375,73 +415,61 @@ def render_heatmap():
             
         if run_opt:
             with st.spinner("Fetching live options & calculating fair values..."):
-                df_opts, expiries, spot = fetch_option_chain(st.session_state['ticker'])
+                # Use the new robust option fetcher
+                data_pkg = option_chain_prices(st.session_state['ticker'])
+                df_opts = pd.DataFrame(data_pkg["Options_Data"])
+                spot = data_pkg["Current_Price"]
+                expiries = data_pkg["Available_Expiries"]
                 
-                if df_opts is None or df_opts.empty:
-                    st.error("Could not fetch options data.")
+                if df_opts.empty:
+                    st.error("Could not fetch options data (or no OTM options found).")
                 else:
                     valid_expiries = []
                     all_strategies = []
-                    
-                    # Process Front 3 Valid Expiries
                     processed_count = 0
-                    
-                    # Store data for the very front expiry visualization
                     viz_data = None
                     
                     for exp in expiries:
                         days = get_trading_days(exp)
                         if days < min_dte or days > max_dte: continue
-                        if processed_count >= 3: break # Limit to 3 expiries to be fast
+                        if processed_count >= 3: break 
                         
                         processed_count += 1
                         valid_expiries.append(exp)
                         
-                        # Get Simulated Prices for this specific time horizon
                         sim_prices = get_simulated_prices(st.session_state['full_df'], st.session_state['neighbors'], days, spot)
                         
                         if len(sim_prices) > 0:
-                            # Generate Strategies
                             subset_chain = df_opts[df_opts['Expiry'] == exp]
                             strats = generate_strategies(subset_chain, sim_prices, spot)
                             if not strats.empty:
                                 all_strategies.append(strats)
                                 
-                            # Capture data for the FIRST expiry for the chart
                             if viz_data is None:
                                 viz_data = {
-                                    'expiry': exp,
-                                    'days': days,
-                                    'sim_prices': sim_prices,
-                                    'spot': spot
+                                    'expiry': exp, 'days': days, 'sim_prices': sim_prices, 'spot': spot
                                 }
 
-                    # --- RESULTS ---
                     if all_strategies:
                         master_df = pd.concat(all_strategies)
-                        
-                        # Top 5 Spreads
                         spreads = master_df[master_df['Type'].str.contains("Spread")].sort_values("Edge", ascending=False).head(5)
-                        
-                        # Top 3 Naked
                         naked = master_df[~master_df['Type'].str.contains("Spread")].sort_values("Edge", ascending=False).head(3)
                         
                         st.subheader(f"🏆 Top Trade Ideas (Next {processed_count} Expiries)")
                         
                         col_tbl1, col_tbl2 = st.columns(2)
                         with col_tbl1:
-                            st.write("**Top 5 Vertical Spreads**")
+                            st.write("**Top 5 Vertical Spreads (OTM)**")
                             st.dataframe(spreads[['Type', 'Expiry', 'Strikes', 'Cost', 'Fair Value', 'Edge', 'ROI']].style.format({
                                 'Cost': '${:.2f}', 'Fair Value': '${:.2f}', 'Edge': '${:.2f}', 'ROI': '{:.1f}%'
                             }).background_gradient(subset=['Edge'], cmap='Greens'), use_container_width=True)
                             
                         with col_tbl2:
-                            st.write("**Top 3 Independent Longs**")
+                            st.write("**Top 3 Independent Longs (OTM)**")
                             st.dataframe(naked[['Type', 'Expiry', 'Strikes', 'Cost', 'Fair Value', 'Edge', 'ROI']].style.format({
                                 'Cost': '${:.2f}', 'Fair Value': '${:.2f}', 'Edge': '${:.2f}', 'ROI': '{:.1f}%'
                             }).background_gradient(subset=['Edge'], cmap='Greens'), use_container_width=True)
                             
-                        # --- VISUALIZATION (FRONT EXPIRY) ---
                         if viz_data:
                             st.divider()
                             st.subheader(f"📊 Front Expiry Distribution Analysis: {viz_data['expiry']} ({viz_data['days']} Trading Days)")
@@ -451,15 +479,12 @@ def render_heatmap():
                             mean_sim = np.mean(sims)
                             
                             fig = go.Figure()
-                            # Forecast Dist
                             fig.add_trace(go.Histogram(
                                 x=sims, nbinsx=50, name='Model Distribution', marker_color='rgba(0, 0, 255, 0.4)', opacity=0.6
                             ))
-                            
                             fig.add_vline(x=curr, line_width=3, line_color="black", annotation_text="Current Spot")
                             fig.add_vline(x=mean_sim, line_width=3, line_dash="dot", line_color="blue", annotation_text=f"Model Mean (${mean_sim:.2f})")
                             
-                            # Add B/E lines for the #1 Spread if available
                             if not spreads.empty:
                                 best_spread = spreads.iloc[0]
                                 if best_spread['Expiry'] == viz_data['expiry']:
@@ -470,10 +495,7 @@ def render_heatmap():
 
                             fig.update_layout(
                                 title=f"Price Distribution Forecast vs. Spot",
-                                xaxis_title="Price",
-                                yaxis_title="Frequency",
-                                template="plotly_white",
-                                bargap=0.1
+                                xaxis_title="Price", yaxis_title="Frequency", template="plotly_white", bargap=0.1
                             )
                             st.plotly_chart(fig, use_container_width=True)
                             
