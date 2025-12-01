@@ -118,13 +118,11 @@ def calculate_feature_vectors(df, sznl_map, market_metrics_df, ticker):
     df = df.copy()
     df['LogRet'] = np.log(df['Close'] / df['Close'].shift(1))
     
-    # Predictor Variables
     for w in [5, 10, 21, 252]: df[f'Ret_{w}d'] = df['Close'].pct_change(w)
     for w in [21, 63]: df[f'RealVol_{w}d'] = df['LogRet'].rolling(w).std() * np.sqrt(252) * 100.0
     for w in [10, 21]: df[f'VolRatio_{w}d'] = df['Volume'].rolling(w).mean() / df['Volume'].rolling(63).mean()
     df['Seasonal'] = get_sznl_val_series(ticker, df.index, sznl_map, df)
 
-    # Rank Transformation
     vars_to_rank = ['Ret_5d', 'Ret_10d', 'Ret_21d', 'Ret_252d', 'RealVol_21d', 'RealVol_63d', 'VolRatio_10d', 'VolRatio_21d']
     rank_cols = []
     for v in vars_to_rank:
@@ -141,16 +139,28 @@ def calculate_feature_vectors(df, sznl_map, market_metrics_df, ticker):
 # -----------------------------------------------------------------------------
 # EUCLIDEAN ENGINE
 # -----------------------------------------------------------------------------
-def get_euclidean_neighbors(df, rank_cols, market_cols, n_neighbors=50):
+def get_euclidean_neighbors(df, rank_cols, market_cols, n_neighbors=50, start_date=None):
     current_row = df.iloc[-1]
+    
+    # 1. Filter Features
     all_feats = rank_cols + ['Seasonal'] + market_cols
     valid_feats = [f for f in all_feats if f in df.columns and not pd.isna(current_row[f])]
     if not valid_feats: return pd.DataFrame()
     
-    target_vec = current_row[valid_feats].astype(float).values
+    # 2. Filter History by Date (Restored Feature)
     history = df.iloc[:-1].dropna(subset=valid_feats).copy()
+    
+    if start_date:
+        # Convert date to timestamp for filtering
+        start_ts = pd.to_datetime(start_date)
+        if history.index.tz is not None:
+            start_ts = start_ts.tz_localize(history.index.tz)
+        history = history[history.index >= start_ts]
+
     if history.empty: return pd.DataFrame()
     
+    # 3. Calculate Distance
+    target_vec = current_row[valid_feats].astype(float).values
     diff = history[valid_feats].values - target_vec
     dist_sq = np.sum(diff**2, axis=1)
     history['Euclidean_Dist'] = np.sqrt(dist_sq)
@@ -229,12 +239,7 @@ def get_simulated_prices(df_hist, neighbors, days_forward, current_price):
     sim_prices = [current_price * (1 + r) for r in future_returns]
     return np.array(sim_prices)
 
-# --- RE-ADDED THIS MISSING FUNCTION ---
 def calculate_option_fair_value(simulated_prices, strike, opt_type):
-    """
-    Calculates the scalar Fair Value (Mean Payoff) of an option
-    based on a distribution of simulated prices.
-    """
     if len(simulated_prices) == 0: return 0
     if opt_type == 'Call':
         payoffs = np.maximum(0, simulated_prices - strike)
@@ -242,34 +247,42 @@ def calculate_option_fair_value(simulated_prices, strike, opt_type):
         payoffs = np.maximum(0, strike - simulated_prices)
     return np.mean(payoffs)
 
-# --- USED FOR KELLY CALCS ---
 def calculate_option_payoff_vector(simulated_prices, strike, opt_type):
-    """
-    Returns the full vector of payoffs for Kelly calculation.
-    """
     if len(simulated_prices) == 0: return np.array([])
     if opt_type == 'Call': return np.maximum(0, simulated_prices - strike)
     else: return np.maximum(0, strike - simulated_prices)
 
-def calculate_kelly(payoffs, cost):
+def calculate_kelly(payoffs, cost, fraction=0.25):
+    """
+    Calculates Fractional Kelly Criterion.
+    K% = fraction * (p(b+1) - 1) / b
+    where p = win prob, b = odds (avg_win/avg_loss)
+    """
     net_pnl = payoffs - cost
     wins = net_pnl[net_pnl > 0]
     losses = net_pnl[net_pnl <= 0]
     
     if len(wins) == 0: return 0.0
-    if len(losses) == 0: return 1.0 
+    if len(losses) == 0: return 1.0 * fraction
     
     win_prob = len(wins) / len(net_pnl)
     avg_win = np.mean(wins)
     avg_loss = abs(np.mean(losses))
     
-    if avg_loss == 0: return 1.0
-    reward_risk = avg_win / avg_loss
-    kelly_f = win_prob - (1 - win_prob) / reward_risk
+    if avg_loss == 0: return 1.0 * fraction
     
-    return max(0.0, min(1.0, kelly_f))
+    # Odds (b)
+    b = avg_win / avg_loss
+    
+    # Full Kelly Formula
+    kelly_f = (win_prob * (b + 1) - 1) / b
+    
+    # Apply Fraction and Cap
+    adjusted_kelly = max(0.0, kelly_f * fraction)
+    
+    return min(1.0, adjusted_kelly)
 
-def generate_strategies(df_chain, sim_prices, spot):
+def generate_strategies(df_chain, sim_prices, spot, kelly_fraction=0.25):
     strategies = []
     
     # 1. Independent Longs (Naked OTM)
@@ -280,7 +293,7 @@ def generate_strategies(df_chain, sim_prices, spot):
         edge = fair_val - mkt_val
         
         if edge > mkt_val * 0.1 and mkt_val > 0.05:
-            kelly = calculate_kelly(payoffs, mkt_val)
+            kelly = calculate_kelly(payoffs, mkt_val, fraction=kelly_fraction)
             strategies.append({
                 "Type": "Long " + row['Type'], "Strikes": f"{row['Strike']}", "Expiry": row['Expiry'],
                 "Cost": mkt_val, "Fair Value": fair_val, "Edge": edge, 
@@ -294,7 +307,7 @@ def generate_strategies(df_chain, sim_prices, spot):
             if (s2 - s1) < (spot * 0.005): continue
             leg1, leg2 = group[group['Strike'] == s1].iloc[0], group[group['Strike'] == s2].iloc[0]
             
-            if otype == 'Call': # Bull Call (Long s1, Short s2)
+            if otype == 'Call': # Bull Call
                 cost = leg1['Market_Price'] - leg2['Market_Price']
                 if cost <= 0: continue
                 
@@ -306,13 +319,13 @@ def generate_strategies(df_chain, sim_prices, spot):
                 edge = fair_spread - cost
                 
                 if edge > cost * 0.15:
-                    kelly = calculate_kelly(spread_payoffs, cost)
+                    kelly = calculate_kelly(spread_payoffs, cost, fraction=kelly_fraction)
                     strategies.append({
                         "Type": "Bull Call Spread", "Strikes": f"{s1}/{s2}", "Expiry": expiry,
                         "Cost": cost, "Fair Value": fair_spread, "Edge": edge, 
                         "ROI": (edge / cost) * 100, "Kelly": kelly
                     })
-            else: # Put (Bear Put: Long s2, Short s1)
+            else: # Put
                 cost = leg2['Market_Price'] - leg1['Market_Price'] 
                 if cost <= 0: continue
                 
@@ -324,7 +337,7 @@ def generate_strategies(df_chain, sim_prices, spot):
                 edge = fair_spread - cost
                 
                 if edge > cost * 0.15:
-                    kelly = calculate_kelly(spread_payoffs, cost)
+                    kelly = calculate_kelly(spread_payoffs, cost, fraction=kelly_fraction)
                     strategies.append({
                         "Type": "Bear Put Spread", "Strikes": f"{s2}/{s1}", "Expiry": expiry,
                         "Cost": cost, "Fair Value": fair_spread, "Edge": edge, 
@@ -346,14 +359,12 @@ def visualize_expiry_analysis(ticker, expiry, forward_prices, df_options, curren
 
     if subset_options.empty: return
 
-    # Metrics
     pct_positive = np.mean(forward_prices > current_price) * 100
     log_returns = np.log(forward_prices / current_price)
     period_vol = np.std(log_returns)
     annualization_factor = np.sqrt(252 / max(1, trading_days))
     model_iv = period_vol * annualization_factor
 
-    # Market ATM IV
     window_pct = 0.025
     iv_window_df = df_options[
         (df_options['Strike'] >= current_price * (1 - window_pct)) & 
@@ -365,7 +376,6 @@ def visualize_expiry_analysis(ticker, expiry, forward_prices, df_options, curren
         closest_idx = (df_options['Strike'] - current_price).abs().idxmin()
         mkt_atm_iv = df_options.loc[closest_idx, 'IV']
 
-    # Plot
     fig = make_subplots(
         rows=2, cols=1, 
         subplot_titles=(f"Forward Prices ({expiry})", f"OTM Options (+/- 2 Std Dev): Theo vs Market"),
@@ -397,12 +407,14 @@ def visualize_expiry_analysis(ticker, expiry, forward_prices, df_options, curren
 def render_dashboard():
     st.title("🧬 Euclidean Option Lab")
     
-    col1, col2 = st.columns([1, 2])
+    col1, col2, col3 = st.columns([1, 1, 2])
     with col1:
         ticker = st.text_input("Ticker", value="SMH").upper()
-        k_neighbors = st.number_input("Euclidean Neighbors", 10, 250, 50)
     with col2:
-        st.info("Finds historical dates mathematically similar to today (Price, Vol, Seasonality, Net Highs) and prices options based on subsequent outcomes.")
+        k_neighbors = st.number_input("Euclidean Neighbors", 10, 250, 50)
+    with col3:
+        # --- RESTORED START DATE INPUT ---
+        analysis_start = st.date_input("Match Start Date", dt.date(2000, 1, 1))
 
     if st.button("Run Analysis", type="primary"):
         st.session_state['run_main'] = True
@@ -418,8 +430,8 @@ def render_dashboard():
             mkt_metrics = load_market_metrics()
             df, rank_cols = calculate_feature_vectors(data, sznl_map, mkt_metrics, ticker)
             
-            # Get Neighbors
-            neighbors = get_euclidean_neighbors(df, rank_cols, [c for c in df.columns if c.startswith("Mkt_")], n_neighbors=k_neighbors)
+            # --- PASS START DATE TO FILTER ---
+            neighbors = get_euclidean_neighbors(df, rank_cols, [c for c in df.columns if c.startswith("Mkt_")], n_neighbors=k_neighbors, start_date=analysis_start)
             st.success(f"Found {len(neighbors)} Euclidean matches.")
             
             st.session_state['full_df'] = df
@@ -430,11 +442,16 @@ def render_dashboard():
         st.divider()
         st.subheader("Options Scanner")
         
-        c_opt1, c_opt2 = st.columns([1, 3])
+        c_opt1, c_opt2, c_opt3 = st.columns([1, 1, 2])
         with c_opt1:
             min_dte = st.number_input("Min DTE", 0, 60, 0)
+        with c_opt2:
             max_dte = st.number_input("Max DTE", 0, 90, 21)
-            run_opt = st.button("🔎 Scan Options Chain")
+        with c_opt3:
+            # --- NEW KELLY SLIDER ---
+            kelly_frac = st.slider("Kelly Multiplier (Aggression)", 0.1, 1.0, 0.25, 0.05, help="Default is 0.25 (Quarter Kelly)")
+            
+        run_opt = st.button("🔎 Scan Options Chain")
             
         if run_opt:
             with st.spinner("Fetching live options & calculating fair values..."):
@@ -469,17 +486,18 @@ def render_dashboard():
                                 viz_expiry = exp
                                 visualize_expiry_analysis(st.session_state['ticker'], exp, sim_prices, subset_chain, spot, days)
                             
-                            strats = generate_strategies(subset_chain, sim_prices, spot)
+                            # --- PASS KELLY FRACTION ---
+                            strats = generate_strategies(subset_chain, sim_prices, spot, kelly_fraction=kelly_frac)
                             if not strats.empty:
                                 all_strategies.append(strats)
 
                     if all_strategies:
                         master_df = pd.concat(all_strategies)
-                        # SORT BY KELLY (Descending)
+                        # SORT BY KELLY
                         spreads = master_df[master_df['Type'].str.contains("Spread")].sort_values("Kelly", ascending=False).head(5)
                         naked = master_df[~master_df['Type'].str.contains("Spread")].sort_values("Kelly", ascending=False).head(3)
                         
-                        st.subheader(f"🏆 Top Trade Ideas (Sorted by Kelly)")
+                        st.subheader(f"🏆 Top Trade Ideas (Sorted by Kelly {kelly_frac}x)")
                         
                         col_tbl1, col_tbl2 = st.columns(2)
                         with col_tbl1:
