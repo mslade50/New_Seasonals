@@ -209,16 +209,26 @@ def get_sznl_val_series(ticker, dates, sznl_map):
 # -----------------------------------------------------------------------------
 def save_signals_to_gsheet(new_dataframe, sheet_name='Trade_Signals_Log'):
     """
-    Reads existing sheet, merges with new data, removes duplicates (updates old rows),
-    and writes the clean dataset back to Google Sheets.
+    Rounds data, reads existing sheet, merges with new data, removes duplicates 
+    (updates old rows), and writes the clean dataset back to Google Sheets.
     """
     if new_dataframe.empty:
         return
 
     # 1. Prepare New Data
     df_new = new_dataframe.copy()
+    
+    # --- ROUNDING LOGIC ---
+    # Ensure these are floats first, then round to 2 decimals
+    cols_to_round = ['Entry', 'Stop', 'Target', 'ATR']
+    # We check if columns exist just to be safe
+    existing_cols = [c for c in cols_to_round if c in df_new.columns]
+    df_new[existing_cols] = df_new[existing_cols].astype(float).round(2)
+    # ----------------------
+
     # Ensure Date is string for accurate comparison
     df_new['Date'] = df_new['Date'].astype(str) 
+    
     # Add/Update Scan Timestamp
     df_new["Scan_Timestamp"] = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     
@@ -245,14 +255,12 @@ def save_signals_to_gsheet(new_dataframe, sheet_name='Trade_Signals_Log'):
             headers = existing_data[0]
             df_existing = pd.DataFrame(existing_data[1:], columns=headers)
         else:
-            # Sheet is empty
             df_existing = pd.DataFrame()
 
         # 4. Merge & Deduplicate
         if not df_existing.empty:
-            # Align columns just in case
-            # We filter df_existing to ensure it has the same columns as new data
-            # (Optional safety: adds missing cols with NaN if schema changed)
+            # Align columns: Ensure existing DF has same columns as new DF
+            # (This handles cases where you might add new columns to your strat later)
             df_existing = df_existing.reindex(columns=df_new.columns)
             
             # Combine: Old on top, New on bottom
@@ -260,20 +268,18 @@ def save_signals_to_gsheet(new_dataframe, sheet_name='Trade_Signals_Log'):
         else:
             combined = df_new
 
-        # 5. THE MAGIC: Drop Duplicates
+        # 5. THE UPSERT: Drop Duplicates
         # We define a "Unique Signal" as same Ticker + Date + Strategy_ID
-        # keep='last' means we keep the row from df_new (the update) and discard the old one
+        # keep='last' means we keep the new version we just generated
         combined = combined.drop_duplicates(
             subset=['Ticker', 'Date', 'Strategy_ID'], 
             keep='last'
         )
         
         # 6. Write Back
-        # We clear the sheet and rewrite the clean, de-duped data
         worksheet.clear()
         
-        # gspread requires lists of lists, and all data as strings
-        # We add the headers back as the first row
+        # Add headers back
         data_to_write = [combined.columns.tolist()] + combined.astype(str).values.tolist()
         
         worksheet.update(values=data_to_write)
