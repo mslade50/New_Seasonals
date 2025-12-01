@@ -428,7 +428,7 @@ def render_heatmap():
         bins = st.slider("Grid Resolution (Bins)", 10, 50, 28, key="hm_bins")
         
         # --- NEW ENSEMBLE INPUT ---
-        ensemble_tol = st.slider("Ensemble Similarity Tolerance (± Rank)", 1, 25, 5, 1, key="ens_tol")
+        ensemble_tol = st.slider("Ensemble Similarity Tolerance (± Rank)", 1, 25, 1, 1, key="ens_tol")
         
         analysis_start = st.date_input("Analysis Start Date", value=datetime.date(2000, 1, 1), key="hm_start_date")
         
