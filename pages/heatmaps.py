@@ -240,7 +240,6 @@ def calculate_distribution_ensemble(df, rank_cols, market_cols, tolerance=5.0):
             col = f'FwdRet_{t}d'
             if col not in subset.columns: continue
             
-            # --- CRITICAL: DROP NANs BEFORE AGGREGATING ---
             vals = subset[col].dropna().tolist()
             if vals:
                 pooled_outcomes[t].extend(vals)
@@ -319,20 +318,19 @@ def get_feature_shorthand(name):
     
     # Returns (e.g. Ret_21d -> 21dr)
     if n.startswith("Ret_"):
-        return n.replace("Ret_", "") + "dr"
+        return n.replace("Ret_", "").replace("d", "") + "dr"
         
     # Vol Ratio (e.g. VolRatio_10d -> 10drv)
     if n.startswith("VolRatio_"):
-        return n.replace("VolRatio_", "") + "drv"
+        return n.replace("VolRatio_", "").replace("d", "") + "drv"
         
     # Real Vol (e.g. RealVol_21d -> 21dv)
     if n.startswith("RealVol_"):
-        return n.replace("RealVol_", "") + "dv"
+        return n.replace("RealVol_", "").replace("d", "") + "dv"
         
     # Market Metrics (e.g. Mkt_Total_NH_5d -> 5dnh)
     if n.startswith("Mkt_"):
         parts = n.split("_")
-        # Change 'mkt' to 'nh' as requested
         return parts[-1] + "nh"
         
     return n[:4]
@@ -351,7 +349,6 @@ def get_detailed_match_table(df, rank_cols, market_cols, tolerance=5.0, target_d
     
     pairs = list(itertools.combinations(valid_features, 2))
     
-    # Store list of pairs that triggered each date
     date_to_pairs = defaultdict(list)
     
     for f1, f2 in pairs:
@@ -364,22 +361,15 @@ def get_detailed_match_table(df, rank_cols, market_cols, tolerance=5.0, target_d
         subset = df[mask]
         
         if not subset.empty:
-            # Create shorthand string for this pair
             pair_str = f"{get_feature_shorthand(f1)} & {get_feature_shorthand(f2)}"
-            
             for date in subset.index:
                 date_to_pairs[date].append(pair_str)
             
     if not date_to_pairs: return pd.DataFrame()
 
-    # Convert to DataFrame
-    # 1. Index
     dates = list(date_to_pairs.keys())
-    
-    # 2. Similarity Score (Count of pairs)
     scores = [len(date_to_pairs[d]) for d in dates]
     
-    # 3. Trigger Pairs (String) - Limit to top 3
     pair_strings = []
     for d in dates:
         unique_pairs = list(set(date_to_pairs[d]))
@@ -395,7 +385,6 @@ def get_detailed_match_table(df, rank_cols, market_cols, tolerance=5.0, target_d
     
     match_df.index.name = 'Date'
     
-    # 4. Add Outcome Data
     ret_col = f'FwdRet_{target_days}d'
     if ret_col in df.columns:
         match_df['Fwd Return'] = df.loc[match_df.index, ret_col]
@@ -406,10 +395,8 @@ def get_detailed_match_table(df, rank_cols, market_cols, tolerance=5.0, target_d
     match_df['Fwd Realized Vol'] = fwd_vol_series.loc[match_df.index]
     match_df['Close Price'] = df.loc[match_df.index, 'Close']
     
-    # --- DROP ROWS WHERE FWD RETURN IS NAN ---
     match_df = match_df.dropna(subset=['Fwd Return'])
     
-    # Sort by Similarity Score first, then Date
     return match_df.sort_values(by=['Similarity Score', 'Date'], ascending=[False, False])
 
 # -----------------------------------------------------------------------------
