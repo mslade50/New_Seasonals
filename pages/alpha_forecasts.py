@@ -5,16 +5,17 @@ import yfinance as yf
 import plotly.express as px
 import plotly.graph_objects as go
 import datetime
+import itertools
 
 # -----------------------------------------------------------------------------
 # CONFIGURATION
 # -----------------------------------------------------------------------------
 CSV_PATH = "seasonal_ranks.csv"
-MARKET_METRICS_PATH = "market_metrics_full_export.csv" 
+MARKET_METRICS_PATH = "market_metrics_full_export.csv"
 
 # SCANNER SETTINGS
 NEIGHBORS_K = 50           # Number of similar historical dates to find
-FWD_WINDOWS = [5, 10, 21]  # Target Horizons (Days) - COMPUTING ALL 3
+FWD_WINDOWS = [5, 10, 21]  # Target Horizons (Days)
 MIN_HISTORY_YRS = 10       # Minimum history required to trust the scan
 
 # UNIVERSE
@@ -65,18 +66,13 @@ def load_seasonal_map():
         df = pd.read_csv(CSV_PATH)
     except Exception:
         return {}
-
     if df.empty: return {}
-
     df["Date"] = pd.to_datetime(df["Date"], errors='coerce')
     df = df.dropna(subset=["Date"])
     df["MD"] = df["Date"].apply(lambda x: (x.month, x.day))
-    
     output_map = {}
     for ticker, group in df.groupby("ticker"):
-        output_map[ticker] = pd.Series(
-            group.seasonal_rank.values, index=group.MD
-        ).to_dict()
+        output_map[ticker] = pd.Series(group.seasonal_rank.values, index=group.MD).to_dict()
     return output_map
 
 @st.cache_data(show_spinner=False)
@@ -105,32 +101,31 @@ def get_sznl_val_series(ticker, dates, sznl_map):
 def get_batch_data(ticker_list):
     tickers = list(set([t.strip().upper() for t in ticker_list]))
     if not tickers: return {}, ""
-    
     data_dict = {}
     progress_bar = st.progress(0)
-    
     for i, t in enumerate(tickers):
         try:
+            # Use 25y period to allow plenty of history for the start_date filter
             df = yf.download(t, period="25y", progress=False, auto_adjust=True)
             if isinstance(df.columns, pd.MultiIndex):
                 if t in df.columns.levels[0]:
                     df = df[t]
                 else:
                     df.columns = [c[0] for c in df.columns]
-            
             df.index = pd.to_datetime(df.index)
             if len(df) > 500: 
                 data_dict[t] = df
         except:
             pass
         progress_bar.progress((i + 1) / len(tickers))
-    
     progress_bar.empty()
-    timestamp = pd.Timestamp.now(tz='US/Eastern').strftime("%Y-%m-%d %I:%M %p %Z")
+    
+    # Format timestamp exactly like heatmap: HH:MM AM/PM EST
+    timestamp = pd.Timestamp.now(tz='US/Eastern').strftime("%I:%M %p EST")
     return data_dict, timestamp
 
 # -----------------------------------------------------------------------------
-# EUCLIDEAN ENGINE
+# FEATURE ENGINEERING (EXACT HEATMAP MATCH)
 # -----------------------------------------------------------------------------
 @st.cache_data(show_spinner=False)
 def calculate_features_and_rank(df, sznl_map, ticker, market_metrics=None):
@@ -181,43 +176,49 @@ def calculate_features_and_rank(df, sznl_map, ticker, market_metrics=None):
             df[col_name] = df[v].expanding(min_periods=252).rank(pct=True) * 100.0
             rank_cols.append(col_name)
 
-    # Drop NA based on FEATURES, not targets (Targets will be NA for today's row)
+    # Drop NA based on FEATURES, not targets
     df = df.dropna(subset=rank_cols)
     
     return df, rank_cols
 
-def run_euclidean_scanner(data_dict, sznl_map, market_metrics):
+def run_euclidean_scanner(data_dict, sznl_map, market_metrics, start_date):
     results = []
     
+    # Convert start_date to pandas timestamp
+    start_ts = pd.to_datetime(start_date)
+
     for ticker, df in data_dict.items():
         processed_df, rank_cols = calculate_features_and_rank(df, sznl_map, ticker, market_metrics)
         
+        # Ensure we have data
         if processed_df.empty or len(processed_df) < 252: continue
         
-        # 1. Get Today's Feature Vector
+        # Localize start_ts if needed
+        if processed_df.index.tz is not None and start_ts.tz is None:
+            start_ts = start_ts.tz_localize(processed_df.index.tz)
+
+        # 1. Get Today's Feature Vector (Last available row)
         current_row = processed_df.iloc[-1]
         target_vec = current_row[rank_cols].astype(float).values
         
-        # 2. Get History (Must have valid targets for the MAX window)
-        # We need to ensure we don't pick a neighbor that doesn't have a 21d future
-        max_lookahead = max(FWD_WINDOWS)
-        history = processed_df.iloc[:-max_lookahead].copy()
-        
-        # Double check targets exist
-        target_cols = [f'FwdRet_{w}d' for w in FWD_WINDOWS]
-        history = history.dropna(subset=target_cols)
+        # 2. Get History Pool (Exact Heatmap Match + Start Date Filter)
+        # We take everything up until yesterday (iloc[:-1])
+        # THEN we filter by start_date
+        history_pool = processed_df.iloc[:-1].copy()
+        history_pool = history_pool[history_pool.index >= start_ts]
 
-        if len(history) < NEIGHBORS_K: continue
+        # Need enough history to find K neighbors
+        if len(history_pool) < NEIGHBORS_K: continue
 
-        feature_matrix = history[rank_cols].astype(float).values
+        feature_matrix = history_pool[rank_cols].astype(float).values
         
         # 3. Calculate Euclidean Distance
         diff = feature_matrix - target_vec
         dist_sq = np.sum(diff**2, axis=1)
-        history['Euclidean_Dist'] = np.sqrt(dist_sq)
+        history_pool['Euclidean_Dist'] = np.sqrt(dist_sq)
         
         # 4. Select Neighbors
-        nearest = history.nsmallest(NEIGHBORS_K, 'Euclidean_Dist')
+        nearest = history_pool.nsmallest(NEIGHBORS_K, 'Euclidean_Dist')
         
         # 5. Calculate Forecast Stats for ALL Windows
         row_data = {
@@ -227,20 +228,33 @@ def run_euclidean_scanner(data_dict, sznl_map, market_metrics):
         }
         
         for w in FWD_WINDOWS:
-            outcomes = nearest[f'FwdRet_{w}d']
-            mean_ret = outcomes.mean()
-            baseline = processed_df[f'FwdRet_{w}d'].mean()
-            alpha = mean_ret - baseline
-            win_rate = (outcomes > 0).mean() * 100
+            target_col = f'FwdRet_{w}d'
             
-            # Save to row
-            row_data[f"Exp_Ret_{w}d"] = mean_ret
-            row_data[f"Alpha_{w}d"] = alpha
-            row_data[f"Win_Rate_{w}d"] = win_rate
+            # Use dropna() to handle recent neighbors that haven't realized returns yet
+            outcomes = nearest[target_col].dropna()
             
-            # Z-Score for 5d only (primary sort metric usually)
-            if w == 5:
-                row_data["Alpha_Z"] = alpha / (processed_df[f'FwdRet_{w}d'].std() / np.sqrt(NEIGHBORS_K))
+            if outcomes.empty:
+                row_data[f"Exp_Ret_{w}d"] = np.nan
+                row_data[f"Alpha_{w}d"] = np.nan
+                row_data[f"Win_Rate_{w}d"] = np.nan
+            else:
+                mean_ret = outcomes.mean()
+                
+                # Baseline is strictly from the filtered history pool to be fair
+                # or global processed_df? Usually global processed_df is the better baseline reference.
+                baseline = processed_df[target_col].mean()
+                
+                alpha = mean_ret - baseline
+                win_rate = (outcomes > 0).mean() * 100
+                
+                row_data[f"Exp_Ret_{w}d"] = mean_ret
+                row_data[f"Alpha_{w}d"] = alpha
+                row_data[f"Win_Rate_{w}d"] = win_rate
+                
+                if w == 5:
+                    std_dev = processed_df[target_col].std()
+                    n_valid = len(outcomes)
+                    row_data["Alpha_Z"] = alpha / (std_dev / np.sqrt(n_valid)) if std_dev > 0 and n_valid > 0 else 0
 
         results.append(row_data)
 
@@ -266,13 +280,19 @@ def main():
         st.session_state['scan_results'] = None
     if 'raw_data' not in st.session_state:
         st.session_state['raw_data'] = None
+    if 'last_update' not in st.session_state:
+        st.session_state['last_update'] = None
 
     # --- 2. SIDEBAR / SETTINGS ---
     with st.expander("⚙️ Universe & Settings", expanded=True):
         col1, col2 = st.columns([3, 1])
         with col1:
             st.caption(f"Scanning {len(SELECTED_UNIVERSE)} Tickers")
-            st.text_area("Active Universe", value=active_tickers_str, height=60, disabled=True)
+            st.text_area("Active Universe", value=active_tickers_str, height=70, disabled=True)
+            
+            # START DATE INPUT
+            start_date_input = st.date_input("Match History Start Date", value=datetime.date(2000, 1, 1))
+            
         with col2:
             st.metric("Neighbors (K)", NEIGHBORS_K)
             if st.button("Run Euclidean Scan", type="primary", use_container_width=True):
@@ -283,14 +303,19 @@ def main():
                     if not data_dict:
                         st.error("No valid data found.")
                     else:
-                        df_res = run_euclidean_scanner(data_dict, sznl_map, mkt_metrics)
+                        df_res = run_euclidean_scanner(data_dict, sznl_map, mkt_metrics, start_date_input)
                         
                         if df_res.empty:
                             st.warning("No results generated.")
                         else:
                             st.session_state['raw_data'] = data_dict
                             st.session_state['scan_results'] = df_res.sort_values("Alpha_5d", ascending=False)
+                            st.session_state['last_update'] = fetch_time
                             st.success(f"Scan Complete! Processed {len(df_res)} tickers.")
+
+    # DISPLAY TIMESTAMP
+    if st.session_state['last_update']:
+        st.info(f"✅ Data Updated: {st.session_state['last_update']}")
 
     st.divider()
 
@@ -301,7 +326,6 @@ def main():
         raw_data = st.session_state['raw_data']
         
         # A. Summary Tables (Focus on 5d Alpha for sorting, but show all alphas)
-        # Create a display friendly view
         display_cols = ['Ticker', 'Alpha_5d', 'Alpha_10d', 'Alpha_21d', 'Exp_Ret_5d', 'Win_Rate_5d', 'Alpha_Z']
         
         top_bulls = results_df.sort_values("Alpha_5d", ascending=False).head(10)
@@ -341,7 +365,6 @@ def main():
             
             sel_row = results_df[results_df['Ticker'] == selected_ticker].iloc[0]
             
-            # Metrics based on selection
             alpha_val = sel_row[f'Alpha_{inspect_window}d']
             exp_val = sel_row[f'Exp_Ret_{inspect_window}d']
             win_val = sel_row[f'Win_Rate_{inspect_window}d']
@@ -354,11 +377,23 @@ def main():
         with col_viz:
             df_viz, rank_cols = calculate_features_and_rank(raw_data[selected_ticker], sznl_map, selected_ticker, mkt_metrics)
             
-            # Re-Find Neighbors
+            # Re-Find Neighbors using same start_date logic (though visually we can show them all)
             current_vec = df_viz.iloc[-1][rank_cols].astype(float).values
-            max_look = max(FWD_WINDOWS)
-            hist_viz = df_viz.iloc[:-max_look].copy().dropna(subset=[f'FwdRet_{w}d' for w in FWD_WINDOWS])
+            hist_viz = df_viz.iloc[:-1].copy()
+            # Note: For visualization, we could show full history, but best to stick to user filter
+            # We don't have the user filter in session state explicitly as a var, 
+            # but usually it's fine to show all history for context or just filter implicitly.
+            # Let's just recalculate on full history for visual context, OR use the filter?
+            # Better to use the filter to match the numbers shown on left.
             
+            # Simple workaround: The user input 'start_date_input' is available in main scope.
+            # Convert to TS
+            viz_start_ts = pd.to_datetime(start_date_input)
+            if hist_viz.index.tz is not None and viz_start_ts.tz is None:
+                viz_start_ts = viz_start_ts.tz_localize(hist_viz.index.tz)
+            
+            hist_viz = hist_viz[hist_viz.index >= viz_start_ts]
+
             dists = np.sqrt(np.sum((hist_viz[rank_cols].values - current_vec)**2, axis=1))
             hist_viz['Euclidean_Dist'] = dists
             neighbors = hist_viz.nsmallest(NEIGHBORS_K, 'Euclidean_Dist')
@@ -367,17 +402,22 @@ def main():
             fig = go.Figure()
             target_col = f'FwdRet_{inspect_window}d'
             
+            # Filter NaNs for plotting histogram
+            plot_data = neighbors[target_col].dropna()
+            
             fig.add_trace(go.Histogram(
-                x=neighbors[target_col], nbinsx=25,
+                x=plot_data, nbinsx=25,
                 name='Neighbor Outcomes', marker_color='royalblue', opacity=0.7
             ))
             
-            mean_val = neighbors[target_col].mean()
-            fig.add_vline(x=mean_val, line_dash="dash", line_color="orange", annotation_text=f"Mean: {mean_val:.2f}%")
+            if not plot_data.empty:
+                mean_val = plot_data.mean()
+                fig.add_vline(x=mean_val, line_dash="dash", line_color="orange", annotation_text=f"Mean: {mean_val:.2f}%")
+            
             fig.add_vline(x=0, line_color="white", line_width=1)
             
             fig.update_layout(
-                title=f"Distribution of {inspect_window}D Returns for {selected_ticker}'s Matches",
+                title=f"Distribution of {inspect_window}D Returns for {selected_ticker}'s Matches (Post-{start_date_input})",
                 xaxis_title=f"{inspect_window}D Forward Return (%)",
                 yaxis_title="Count",
                 template="plotly_dark", height=400, bargap=0.1
