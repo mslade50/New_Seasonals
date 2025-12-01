@@ -174,17 +174,18 @@ def calculate_heatmap_variables(df, sznl_map, market_metrics_df, ticker):
     for w in [5, 10, 21, 63, 252]:
         df[f'FwdRet_{w}d'] = (df['Close'].shift(-w) / df['Close'] - 1.0) * 100.0
 
-    # 3. PREDICTOR VARIABLES (STRIPPED DOWN)
-    # Momentum
-    for w in [5, 10, 21, 63, 252]:
+    # 3. PREDICTOR VARIABLES
+    
+    # Momentum (Removed 63d, Kept others)
+    for w in [5, 10, 21, 252]:
         df[f'Ret_{w}d'] = df['Close'].pct_change(w)
 
     # Realized Vol
     for w in [21, 63]:
         df[f'RealVol_{w}d'] = df['LogRet'].rolling(w).std() * np.sqrt(252) * 100.0
     
-    # Relative Volume
-    for w in [21]:
+    # Relative Volume (Added 10d back)
+    for w in [10, 21]:
         df[f'VolRatio_{w}d'] = df['Volume'].rolling(w).mean() / df['Volume'].rolling(63).mean()
 
     # Seasonality
@@ -192,9 +193,9 @@ def calculate_heatmap_variables(df, sznl_map, market_metrics_df, ticker):
 
     # 4. RANK TRANSFORMATION
     vars_to_rank = [
-        'Ret_5d', 'Ret_10d', 'Ret_21d', 'Ret_63d', 'Ret_252d',
+        'Ret_5d', 'Ret_10d', 'Ret_21d', 'Ret_252d', # REMOVED 63d
         'RealVol_21d', 'RealVol_63d', 
-        'VolRatio_21d'
+        'VolRatio_10d', 'VolRatio_21d' # ADDED 10d
     ]
     
     rank_cols = []
@@ -235,7 +236,7 @@ def calculate_distribution_ensemble(df, rank_cols, market_cols):
     
     pairs = list(itertools.combinations(valid_features, 2))
     
-    # STRICT TOLERANCE as requested
+    # STRICT TOLERANCE
     TOLERANCE = 5.0 
     
     for f1, f2 in pairs:
@@ -248,8 +249,6 @@ def calculate_distribution_ensemble(df, rank_cols, market_cols):
             (df[f2] >= v2 - TOLERANCE) & (df[f2] <= v2 + TOLERANCE)
         )
         
-        # Get matching rows (excluding the current row itself to avoid look-ahead bias if re-running on history)
-        # In a live setting, current row targets are NaN anyway, so they naturally exclude.
         subset = df[mask]
         
         if subset.empty: continue
@@ -386,12 +385,13 @@ def render_heatmap():
             "5d Trailing Return Rank": "Ret_5d_Rank",
             "10d Trailing Return Rank": "Ret_10d_Rank",
             "21d Trailing Return Rank": "Ret_21d_Rank",
-            "63d Trailing Return Rank": "Ret_63d_Rank",
+            # "63d Trailing Return Rank": "Ret_63d_Rank",  <-- REMOVED
             "252d Trailing Return Rank": "Ret_252d_Rank",
             # Vol
             "21d Realized Vol Rank": "RealVol_21d_Rank",
             "63d Realized Vol Rank": "RealVol_63d_Rank",
             # Volume
+            "10d Rel. Volume Rank": "VolRatio_10d_Rank", # <-- ADDED
             "21d Rel. Volume Rank": "VolRatio_21d_Rank",
         }
         
@@ -496,7 +496,7 @@ def render_heatmap():
                 
                 st.plotly_chart(fig, use_container_width=True, key="heatmap_plot")
                 
-                # --- HISTORICAL DATA EXPLORER (RESTORED) ---
+                # --- HISTORICAL DATA EXPLORER ---
                 st.divider()
                 st.markdown("### 🔎 Historical Data Explorer")
                 f_col1, f_col2 = st.columns(2)
@@ -530,7 +530,7 @@ def render_heatmap():
             else:
                 st.error("Insufficient data for Heatmap.")
 
-            # --- ENSEMBLE TABLE (UPDATED LOGIC) ---
+            # --- ENSEMBLE TABLE ---
             st.divider()
             st.subheader(f"🤖 Grand Ensemble Forecast (True Distribution Mode)")
             st.markdown(f"""
