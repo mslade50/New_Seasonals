@@ -207,47 +207,81 @@ def get_sznl_val_series(ticker, dates, sznl_map):
 # -----------------------------------------------------------------------------
 # DATA LOGGING (GOOGLE SHEETS)
 # -----------------------------------------------------------------------------
-def save_signals_to_gsheet(dataframe, sheet_name='Trade_Signals_Log'):
+def save_signals_to_gsheet(new_dataframe, sheet_name='Trade_Signals_Log'):
     """
-    Appends the signals DataFrame to a Google Sheet using Streamlit Secrets.
+    Reads existing sheet, merges with new data, removes duplicates (updates old rows),
+    and writes the clean dataset back to Google Sheets.
     """
-    if dataframe.empty:
+    if new_dataframe.empty:
         return
 
-    # 1. Add Timestamp
-    df_to_save = dataframe.copy()
-    df_to_save["Scan_Timestamp"] = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    # 1. Prepare New Data
+    df_new = new_dataframe.copy()
+    # Ensure Date is string for accurate comparison
+    df_new['Date'] = df_new['Date'].astype(str) 
+    # Add/Update Scan Timestamp
+    df_new["Scan_Timestamp"] = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     
-    # Reorder columns to put Timestamp first
-    cols = ['Scan_Timestamp'] + [c for c in df_to_save.columns if c != 'Scan_Timestamp']
-    df_to_save = df_to_save[cols]
+    # Reorder columns to ensure Timestamp is first
+    cols = ['Scan_Timestamp'] + [c for c in df_new.columns if c != 'Scan_Timestamp']
+    df_new = df_new[cols]
 
     try:
         # 2. Authenticate
-        # Check if we are in Streamlit Cloud (using st.secrets)
         if "gcp_service_account" in st.secrets:
             creds_dict = st.secrets["gcp_service_account"]
             gc = gspread.service_account_from_dict(creds_dict)
         else:
-            # Fallback to local file for testing
             gc = gspread.service_account(filename='credentials.json')
 
-        # 3. Open the Sheet
         sh = gc.open(sheet_name)
         worksheet = sh.sheet1 
         
-        # 4. Handle Headers: If sheet is empty, write headers
-        if not worksheet.get_values():
-            worksheet.append_row(df_to_save.columns.tolist())
-            
-        # 5. Append Data (convert to string to be safe)
-        data_list = df_to_save.astype(str).values.tolist()
-        worksheet.append_rows(data_list)
+        # 3. Get Existing Data
+        existing_data = worksheet.get_all_values()
         
-        st.toast(f"✅ Synced {len(dataframe)} signals to Google Sheets!")
+        if existing_data:
+            # Convert to DataFrame (First row is header)
+            headers = existing_data[0]
+            df_existing = pd.DataFrame(existing_data[1:], columns=headers)
+        else:
+            # Sheet is empty
+            df_existing = pd.DataFrame()
+
+        # 4. Merge & Deduplicate
+        if not df_existing.empty:
+            # Align columns just in case
+            # We filter df_existing to ensure it has the same columns as new data
+            # (Optional safety: adds missing cols with NaN if schema changed)
+            df_existing = df_existing.reindex(columns=df_new.columns)
+            
+            # Combine: Old on top, New on bottom
+            combined = pd.concat([df_existing, df_new])
+        else:
+            combined = df_new
+
+        # 5. THE MAGIC: Drop Duplicates
+        # We define a "Unique Signal" as same Ticker + Date + Strategy_ID
+        # keep='last' means we keep the row from df_new (the update) and discard the old one
+        combined = combined.drop_duplicates(
+            subset=['Ticker', 'Date', 'Strategy_ID'], 
+            keep='last'
+        )
+        
+        # 6. Write Back
+        # We clear the sheet and rewrite the clean, de-duped data
+        worksheet.clear()
+        
+        # gspread requires lists of lists, and all data as strings
+        # We add the headers back as the first row
+        data_to_write = [combined.columns.tolist()] + combined.astype(str).values.tolist()
+        
+        worksheet.update(values=data_to_write)
+        
+        st.toast(f"✅ Synced! Sheet now has {len(combined)} total rows.")
         
     except FileNotFoundError:
-        st.error("❌ credentials.json not found (and no secrets detected).")
+        st.error("❌ credentials.json not found.")
     except Exception as e:
         st.error(f"❌ Google Sheet Error: {e}")
 
