@@ -211,11 +211,11 @@ def calculate_heatmap_variables(df, sznl_map, market_metrics_df, ticker):
 
     return df, rank_cols
 
-def calculate_distribution_ensemble(df, rank_cols, market_cols):
+def calculate_distribution_ensemble(df, rank_cols, market_cols, tolerance=5.0):
     """
     "True Distribution" Approach:
     1. Identifies all valid feature pairs.
-    2. For each pair, finds ALL historical rows where both ranks are within +/- 5 of current.
+    2. For each pair, finds ALL historical rows where both ranks are within +/- TOLERANCE of current.
     3. Pools all these raw return outcomes into a single distribution (Bag of Returns).
     4. Calculates stats on this pooled distribution.
     5. Compares against the Baseline (Global Average) to find Alpha.
@@ -237,17 +237,14 @@ def calculate_distribution_ensemble(df, rank_cols, market_cols):
     
     pairs = list(itertools.combinations(valid_features, 2))
     
-    # STRICT TOLERANCE
-    TOLERANCE = 5.0 
-    
     for f1, f2 in pairs:
         v1 = current_row[f1]
         v2 = current_row[f2]
         
-        # Create mask for history: Box Filter +/- 5
+        # Create mask for history: Box Filter +/- TOLERANCE
         mask = (
-            (df[f1] >= v1 - TOLERANCE) & (df[f1] <= v1 + TOLERANCE) &
-            (df[f2] >= v2 - TOLERANCE) & (df[f2] <= v2 + TOLERANCE)
+            (df[f1] >= v1 - tolerance) & (df[f1] <= v1 + tolerance) &
+            (df[f2] >= v2 - tolerance) & (df[f2] <= v2 + tolerance)
         )
         
         subset = df[mask]
@@ -398,13 +395,12 @@ def render_heatmap():
             "5d Trailing Return Rank": "Ret_5d_Rank",
             "10d Trailing Return Rank": "Ret_10d_Rank",
             "21d Trailing Return Rank": "Ret_21d_Rank",
-            # "63d Trailing Return Rank": "Ret_63d_Rank",  <-- REMOVED
             "252d Trailing Return Rank": "Ret_252d_Rank",
             # Vol
             "21d Realized Vol Rank": "RealVol_21d_Rank",
             "63d Realized Vol Rank": "RealVol_63d_Rank",
             # Volume
-            "10d Rel. Volume Rank": "VolRatio_10d_Rank", # <-- ADDED
+            "10d Rel. Volume Rank": "VolRatio_10d_Rank", 
             "21d Rel. Volume Rank": "VolRatio_21d_Rank",
         }
         
@@ -427,8 +423,13 @@ def render_heatmap():
         ticker = st.text_input("Ticker", value="SPY", key="hm_ticker").upper()
     
     with col3:
+        # VISUAL & ENSEMBLE SETTINGS
         smooth_sigma = st.slider("Smoothing (Sigma)", 0.5, 3.0, 1.2, 0.1, key="hm_smooth")
         bins = st.slider("Grid Resolution (Bins)", 10, 50, 28, key="hm_bins")
+        
+        # --- NEW ENSEMBLE INPUT ---
+        ensemble_tol = st.slider("Ensemble Similarity Tolerance (± Rank)", 1, 25, 5, 1, key="ens_tol")
+        
         analysis_start = st.date_input("Analysis Start Date", value=datetime.date(2000, 1, 1), key="hm_start_date")
         
     st.markdown("---")
@@ -549,13 +550,15 @@ def render_heatmap():
             st.markdown(f"""
             **Methodology:**
             1. Scans ALL valid variable pairs (e.g., Seasonality vs Momentum, Volatility vs Net Highs).
-            2. For every pair, finds ALL historical dates where **both** metrics were within **±5** rank points of today.
+            2. For every pair, finds ALL historical dates where **both** metrics were within **±{ensemble_tol}** rank points of today.
             3. Pools ALL those historical return outcomes into a single distribution to calculate expected value.
             4. **Alpha** is calculated by comparing the Ensemble Expectation vs. The Ticker's Global Average for that horizon.
             """)
             
             market_cols = [c for c in df.columns if c.startswith("Mkt_")]
-            ensemble_df = calculate_distribution_ensemble(df, rank_cols, market_cols)
+            
+            # --- PASS USER TOLERANCE ---
+            ensemble_df = calculate_distribution_ensemble(df, rank_cols, market_cols, tolerance=ensemble_tol)
             
             if not ensemble_df.empty:
                 st.dataframe(
@@ -570,7 +573,7 @@ def render_heatmap():
                     use_container_width=True
                 )
             else:
-                st.warning("Not enough historical depth (matches within ±5) to generate an ensemble forecast.")
+                st.warning(f"Not enough historical depth (matches within ±{ensemble_tol}) to generate an ensemble forecast. Try increasing the tolerance slider.")
 
 def main():
     st.set_page_config(layout="wide", page_title="Heatmap Analytics")
