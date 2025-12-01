@@ -171,7 +171,7 @@ def calculate_heatmap_variables(df, sznl_map, market_metrics_df, ticker):
     df['LogRet'] = np.log(df['Close'] / df['Close'].shift(1))
 
     # 2. FORWARD TARGETS
-    for w in [1, 2, 3, 5, 10, 21, 63, 252]:
+    for w in [1, 2, 3, 5, 10, 21, 63, 126, 252]:
         df[f'FwdRet_{w}d'] = (df['Close'].shift(-w) / df['Close'] - 1.0) * 100.0
 
     # 3. PREDICTOR VARIABLES
@@ -212,11 +212,6 @@ def calculate_heatmap_variables(df, sznl_map, market_metrics_df, ticker):
     return df, rank_cols
 
 def calculate_distribution_ensemble(df, rank_cols, market_cols, tolerance=5.0):
-    """
-    "True Distribution" Approach:
-    ...
-    (Stats updated to calculate IV instead of raw Std Dev)
-    """
     if df.empty: return pd.DataFrame()
     
     current_row = df.iloc[-1]
@@ -228,7 +223,7 @@ def calculate_distribution_ensemble(df, rank_cols, market_cols, tolerance=5.0):
     
     if len(valid_features) < 2: return pd.DataFrame()
     
-    targets = [2, 3, 5, 10, 21, 63, 252]
+    targets = [2, 3, 5, 10, 21, 63, 126, 252]
     # Initialize the "Bag of Returns"
     pooled_outcomes = {t: [] for t in targets}
     
@@ -286,7 +281,6 @@ def calculate_distribution_ensemble(df, rank_cols, market_cols, tolerance=5.0):
         std_dev = np.std(data)
         
         # --- CONVERT STD DEV TO IMPLIED VOL (IV) ---
-        # Annualize the volatility of the specific window
         iv_est = std_dev * np.sqrt(252 / t)
         
         pos_ratio = np.sum(data > 0) / len(data)
@@ -305,6 +299,33 @@ def calculate_distribution_ensemble(df, rank_cols, market_cols, tolerance=5.0):
         })
         
     return pd.DataFrame(summary)
+
+# New helper function to get raw data for the chart
+def get_raw_ensemble_returns(df, rank_cols, market_cols, tolerance=5.0, target_days=5):
+    if df.empty: return []
+    current_row = df.iloc[-1]
+    all_features = rank_cols + ['Seasonal'] + market_cols
+    valid_features = [f for f in all_features if f in df.columns and not pd.isna(current_row[f])]
+    if len(valid_features) < 2: return []
+    
+    pairs = list(itertools.combinations(valid_features, 2))
+    raw_returns = []
+    
+    col = f'FwdRet_{target_days}d'
+    if col not in df.columns: return []
+
+    for f1, f2 in pairs:
+        v1 = current_row[f1]
+        v2 = current_row[f2]
+        mask = (
+            (df[f1] >= v1 - tolerance) & (df[f1] <= v1 + tolerance) &
+            (df[f2] >= v2 - tolerance) & (df[f2] <= v2 + tolerance)
+        )
+        subset = df[mask]
+        if not subset.empty:
+            raw_returns.extend(subset[col].dropna().tolist())
+            
+    return raw_returns
 
 # -----------------------------------------------------------------------------
 # HEATMAP UTILS
@@ -420,6 +441,7 @@ def render_heatmap():
             "10d Forward Return": "FwdRet_10d",
             "21d Forward Return": "FwdRet_21d",
             "63d Forward Return": "FwdRet_63d",
+            "126d Forward Return": "FwdRet_126d",
             "252d Forward Return": "FwdRet_252d",
         }
         z_axis_label = st.selectbox("Target (Z-Axis)", list(target_options.keys()), index=2, key="hm_z")
@@ -431,7 +453,7 @@ def render_heatmap():
         bins = st.slider("Grid Resolution (Bins)", 10, 50, 28, key="hm_bins")
         
         # --- NEW ENSEMBLE INPUT ---
-        ensemble_tol = st.slider("Ensemble Similarity Tolerance (± Rank)", 1, 25, 1, 1, key="ens_tol")
+        ensemble_tol = st.slider("Ensemble Similarity Tolerance (± Rank)", 1, 25, 5, 1, key="ens_tol")
         
         analysis_start = st.date_input("Analysis Start Date", value=datetime.date(2000, 1, 1), key="hm_start_date")
         
@@ -560,7 +582,6 @@ def render_heatmap():
             
             market_cols = [c for c in df.columns if c.startswith("Mkt_")]
             
-            # --- PASS USER TOLERANCE ---
             ensemble_df = calculate_distribution_ensemble(df, rank_cols, market_cols, tolerance=ensemble_tol)
             
             if not ensemble_df.empty:
@@ -577,6 +598,67 @@ def render_heatmap():
                 )
             else:
                 st.warning(f"Not enough historical depth (matches within ±{ensemble_tol}) to generate an ensemble forecast. Try increasing the tolerance slider.")
+                
+            # --- NEW DISTRIBUTION CHART ---
+            st.divider()
+            st.subheader("🔮 Forecast Distribution Analysis")
+            
+            dist_days = st.selectbox("Distribution Horizon (Days)", [2, 3, 5, 10, 21, 63, 126, 252], index=2)
+            
+            raw_returns = get_raw_ensemble_returns(df, rank_cols, market_cols, tolerance=ensemble_tol, target_days=dist_days)
+            
+            if raw_returns:
+                current_price = df['Close'].iloc[-1]
+                
+                # Convert Returns to Simulated Prices
+                sim_prices = [current_price * (1 + (r / 100)) for r in raw_returns]
+                
+                mean_price = np.mean(sim_prices)
+                std_price = np.std(sim_prices)
+                
+                # Plot
+                fig_dist = go.Figure()
+                
+                # Histogram
+                fig_dist.add_trace(go.Histogram(
+                    x=sim_prices, 
+                    nbinsx=50, 
+                    marker_color='lightgray', 
+                    opacity=0.6,
+                    name='Simulated Prices'
+                ))
+                
+                # Current Price Line (Black)
+                fig_dist.add_vline(x=current_price, line_width=3, line_color="black", annotation_text="Current")
+                
+                # Mean Line (Blue Dotted)
+                fig_dist.add_vline(x=mean_price, line_width=3, line_dash="dot", line_color="blue", annotation_text="Forecast Mean")
+                
+                # Sigma Bands
+                colors = ['green', 'yellow', 'red']
+                for i, c in zip([1, 2, 3], colors):
+                    upper = mean_price + (i * std_price)
+                    lower = mean_price - (i * std_price)
+                    fig_dist.add_vline(x=upper, line_width=1, line_dash="dash", line_color=c)
+                    fig_dist.add_vline(x=lower, line_width=1, line_dash="dash", line_color=c)
+                
+                fig_dist.update_layout(
+                    title=f"Projected Price Distribution ({dist_days} Days) | Based on {len(raw_returns)} Matches",
+                    xaxis_title="Price",
+                    yaxis_title="Frequency",
+                    template="plotly_white",
+                    showlegend=False
+                )
+                
+                st.plotly_chart(fig_dist, use_container_width=True)
+                
+                c1, c2, c3 = st.columns(3)
+                c1.metric("Current Price", f"${current_price:.2f}")
+                c2.metric("Forecast Mean", f"${mean_price:.2f}", delta=f"{(mean_price/current_price - 1)*100:.2f}%")
+                c3.metric("1 Std Dev Range", f"${mean_price - std_price:.2f} - ${mean_price + std_price:.2f}")
+                
+            else:
+                st.info("No distribution data available for this horizon (adjust tolerance).")
 
 def main():
     st.set_page_config(layout="wide", page_title="Heatmap Analytics")
