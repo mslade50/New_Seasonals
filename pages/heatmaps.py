@@ -214,11 +214,8 @@ def calculate_heatmap_variables(df, sznl_map, market_metrics_df, ticker):
 def calculate_distribution_ensemble(df, rank_cols, market_cols, tolerance=5.0):
     """
     "True Distribution" Approach:
-    1. Identifies all valid feature pairs.
-    2. For each pair, finds ALL historical rows where both ranks are within +/- TOLERANCE of current.
-    3. Pools all these raw return outcomes into a single distribution (Bag of Returns).
-    4. Calculates stats on this pooled distribution.
-    5. Compares against the Baseline (Global Average) to find Alpha.
+    ...
+    (Stats updated to calculate IV instead of raw Std Dev)
     """
     if df.empty: return pd.DataFrame()
     
@@ -279,6 +276,7 @@ def calculate_distribution_ensemble(df, rank_cols, market_cols, tolerance=5.0):
                 "Exp Return": np.nan,
                 "Baseline": baseline,
                 "Alpha": np.nan,
+                "Implied Vol (IV)": np.nan,
                 "Win Rate": np.nan, 
                 "Sample Size": 0
             })
@@ -286,6 +284,11 @@ def calculate_distribution_ensemble(df, rank_cols, market_cols, tolerance=5.0):
             
         grand_mean = np.mean(data)
         std_dev = np.std(data)
+        
+        # --- CONVERT STD DEV TO IMPLIED VOL (IV) ---
+        # Annualize the volatility of the specific window
+        iv_est = std_dev * np.sqrt(252 / t)
+        
         pos_ratio = np.sum(data > 0) / len(data)
         
         # Calculate Alpha
@@ -296,7 +299,7 @@ def calculate_distribution_ensemble(df, rank_cols, market_cols, tolerance=5.0):
             "Exp Return": grand_mean,
             "Baseline": baseline,
             "Alpha": alpha,
-            "Std Dev": std_dev,
+            "Implied Vol (IV)": iv_est,
             "Win Rate": pos_ratio * 100,
             "Sample Size": len(data)
         })
@@ -566,7 +569,7 @@ def render_heatmap():
                         "Exp Return": "{:.2f}%",
                         "Baseline": "{:.2f}%",
                         "Alpha": "{:+.2f}%",
-                        "Std Dev": "{:.2f}",
+                        "Implied Vol (IV)": "{:.2f}%",
                         "Win Rate": "{:.1f}%",
                         "Sample Size": "{:,.0f}"
                     }).background_gradient(subset=['Alpha'], cmap="RdBu", vmin=-2, vmax=2),
