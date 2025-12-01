@@ -175,16 +175,12 @@ def calculate_heatmap_variables(df, sznl_map, market_metrics_df, ticker):
         df[f'FwdRet_{w}d'] = (df['Close'].shift(-w) / df['Close'] - 1.0) * 100.0
 
     # 3. PREDICTOR VARIABLES
-    
-    # Momentum (Removed 63d, Kept others)
     for w in [5, 10, 21, 252]:
         df[f'Ret_{w}d'] = df['Close'].pct_change(w)
 
-    # Realized Vol
     for w in [21, 63]:
         df[f'RealVol_{w}d'] = df['LogRet'].rolling(w).std() * np.sqrt(252) * 100.0
     
-    # Relative Volume (Added 10d back)
     for w in [10, 21]:
         df[f'VolRatio_{w}d'] = df['Volume'].rolling(w).mean() / df['Volume'].rolling(63).mean()
 
@@ -216,15 +212,12 @@ def calculate_distribution_ensemble(df, rank_cols, market_cols, tolerance=5.0):
     
     current_row = df.iloc[-1]
     
-    # Combine internal ranks + seasonal + market ranks
     all_features = rank_cols + ['Seasonal'] + market_cols
-    # Only use features that exist in DF and have valid current data
     valid_features = [f for f in all_features if f in df.columns and not pd.isna(current_row[f])]
     
     if len(valid_features) < 2: return pd.DataFrame()
     
     targets = [2, 3, 5, 10, 21, 63, 126, 252]
-    # Initialize the "Bag of Returns"
     pooled_outcomes = {t: [] for t in targets}
     
     pairs = list(itertools.combinations(valid_features, 2))
@@ -233,7 +226,6 @@ def calculate_distribution_ensemble(df, rank_cols, market_cols, tolerance=5.0):
         v1 = current_row[f1]
         v2 = current_row[f2]
         
-        # Create mask for history: Box Filter +/- TOLERANCE
         mask = (
             (df[f1] >= v1 - tolerance) & (df[f1] <= v1 + tolerance) &
             (df[f2] >= v2 - tolerance) & (df[f2] <= v2 + tolerance)
@@ -247,17 +239,13 @@ def calculate_distribution_ensemble(df, rank_cols, market_cols, tolerance=5.0):
             col = f'FwdRet_{t}d'
             if col not in subset.columns: continue
             
-            # Extract raw returns and add to the pool
             vals = subset[col].dropna().tolist()
             if vals:
                 pooled_outcomes[t].extend(vals)
             
-    # Aggregate Statistics
     summary = []
     for t in targets:
         col = f'FwdRet_{t}d'
-        
-        # Calculate Global Baseline (Full history mean for this ticker)
         if col in df.columns:
             baseline = df[col].mean()
         else:
@@ -279,13 +267,8 @@ def calculate_distribution_ensemble(df, rank_cols, market_cols, tolerance=5.0):
             
         grand_mean = np.mean(data)
         std_dev = np.std(data)
-        
-        # --- CONVERT STD DEV TO IMPLIED VOL (IV) ---
         iv_est = std_dev * np.sqrt(252 / t)
-        
         pos_ratio = np.sum(data > 0) / len(data)
-        
-        # Calculate Alpha
         alpha = grand_mean - baseline if not np.isnan(baseline) else np.nan
         
         summary.append({
@@ -300,7 +283,6 @@ def calculate_distribution_ensemble(df, rank_cols, market_cols, tolerance=5.0):
         
     return pd.DataFrame(summary)
 
-# New helper function to get raw data for the chart
 def get_raw_ensemble_returns(df, rank_cols, market_cols, tolerance=5.0, target_days=5):
     if df.empty: return []
     current_row = df.iloc[-1]
@@ -326,6 +308,62 @@ def get_raw_ensemble_returns(df, rank_cols, market_cols, tolerance=5.0, target_d
             raw_returns.extend(subset[col].dropna().tolist())
             
     return raw_returns
+
+def get_detailed_match_table(df, rank_cols, market_cols, tolerance=5.0, target_days=5):
+    """
+    Identifies unique historical dates that match the criteria.
+    Counts how many pairs triggered that date (Similarity Score).
+    Calculates realized Fwd Return and Fwd Volatility for that specific window.
+    """
+    if df.empty: return pd.DataFrame()
+    current_row = df.iloc[-1]
+    all_features = rank_cols + ['Seasonal'] + market_cols
+    valid_features = [f for f in all_features if f in df.columns and not pd.isna(current_row[f])]
+    
+    if len(valid_features) < 2: return pd.DataFrame()
+    
+    pairs = list(itertools.combinations(valid_features, 2))
+    all_matches = []
+    
+    # 1. Collect all matching indices from all pairs
+    for f1, f2 in pairs:
+        v1 = current_row[f1]
+        v2 = current_row[f2]
+        mask = (
+            (df[f1] >= v1 - tolerance) & (df[f1] <= v1 + tolerance) &
+            (df[f2] >= v2 - tolerance) & (df[f2] <= v2 + tolerance)
+        )
+        subset = df[mask]
+        if not subset.empty:
+            all_matches.extend(subset.index.tolist())
+            
+    if not all_matches: return pd.DataFrame()
+
+    # 2. Count frequency (Similarity Score)
+    match_counts = pd.Series(all_matches).value_counts()
+    
+    # 3. Create DataFrame
+    match_df = pd.DataFrame({'Similarity Score': match_counts})
+    match_df.index.name = 'Date'
+    
+    # 4. Add Outcome Data
+    # Fwd Return
+    ret_col = f'FwdRet_{target_days}d'
+    if ret_col in df.columns:
+        match_df['Fwd Return'] = df.loc[match_df.index, ret_col]
+    else:
+        match_df['Fwd Return'] = np.nan
+
+    # Fwd Realized Vol (Annualized)
+    # Calculate realized vol for the specific forward window
+    # Formula: StdDev of LogRet over next [target_days] * Sqrt(252) * 100
+    # Note: We shift backwards because we want the vol that HAPPENED after the date
+    fwd_vol_series = df['LogRet'].rolling(target_days).std().shift(-target_days) * np.sqrt(252) * 100
+    match_df['Fwd Realized Vol'] = fwd_vol_series.loc[match_df.index]
+    
+    match_df['Close Price'] = df.loc[match_df.index, 'Close']
+    
+    return match_df.sort_index(ascending=False)
 
 # -----------------------------------------------------------------------------
 # HEATMAP UTILS
@@ -599,7 +637,7 @@ def render_heatmap():
             else:
                 st.warning(f"Not enough historical depth (matches within ±{ensemble_tol}) to generate an ensemble forecast. Try increasing the tolerance slider.")
                 
-            # --- NEW DISTRIBUTION CHART ---
+            # --- DISTRIBUTION CHART ---
             st.divider()
             st.subheader("🔮 Forecast Distribution Analysis")
             
@@ -609,32 +647,18 @@ def render_heatmap():
             
             if raw_returns:
                 current_price = df['Close'].iloc[-1]
-                
-                # Convert Returns to Simulated Prices
                 sim_prices = [current_price * (1 + (r / 100)) for r in raw_returns]
                 
                 mean_price = np.mean(sim_prices)
                 std_price = np.std(sim_prices)
                 
-                # Plot
                 fig_dist = go.Figure()
-                
-                # Histogram
                 fig_dist.add_trace(go.Histogram(
-                    x=sim_prices, 
-                    nbinsx=50, 
-                    marker_color='lightgray', 
-                    opacity=0.6,
-                    name='Simulated Prices'
+                    x=sim_prices, nbinsx=50, marker_color='lightgray', opacity=0.6, name='Simulated Prices'
                 ))
-                
-                # Current Price Line (Black)
                 fig_dist.add_vline(x=current_price, line_width=3, line_color="black", annotation_text="Current")
-                
-                # Mean Line (Blue Dotted)
                 fig_dist.add_vline(x=mean_price, line_width=3, line_dash="dot", line_color="blue", annotation_text="Forecast Mean")
                 
-                # Sigma Bands
                 colors = ['green', 'yellow', 'red']
                 for i, c in zip([1, 2, 3], colors):
                     upper = mean_price + (i * std_price)
@@ -644,19 +668,26 @@ def render_heatmap():
                 
                 fig_dist.update_layout(
                     title=f"Projected Price Distribution ({dist_days} Days) | Based on {len(raw_returns)} Matches",
-                    xaxis_title="Price",
-                    yaxis_title="Frequency",
-                    template="plotly_white",
-                    showlegend=False
+                    xaxis_title="Price", yaxis_title="Frequency", template="plotly_white", showlegend=False
                 )
                 
                 st.plotly_chart(fig_dist, use_container_width=True)
                 
-                c1, c2, c3 = st.columns(3)
-                c1.metric("Current Price", f"${current_price:.2f}")
-                c2.metric("Forecast Mean", f"${mean_price:.2f}", delta=f"{(mean_price/current_price - 1)*100:.2f}%")
-                c3.metric("1 Std Dev Range", f"${mean_price - std_price:.2f} - ${mean_price + std_price:.2f}")
+                # --- NEW DETAILED TABLE ---
+                st.subheader(f"📜 Historical Match Details ({dist_days} Days)")
+                st.markdown(f"Unique dates that match the current setup (±{ensemble_tol} rank points). **Similarity Score** = number of indicator pairs that flagged this date.")
                 
+                match_df = get_detailed_match_table(df, rank_cols, market_cols, tolerance=ensemble_tol, target_days=dist_days)
+                
+                if not match_df.empty:
+                    st.dataframe(
+                        match_df.style.format({
+                            "Close Price": "${:.2f}",
+                            "Fwd Return": "{:+.2f}%",
+                            "Fwd Realized Vol": "{:.2f}%"
+                        }).background_gradient(subset=['Fwd Return'], cmap="RdBu", vmin=-5, vmax=5),
+                        use_container_width=True
+                    )
             else:
                 st.info("No distribution data available for this horizon (adjust tolerance).")
 
