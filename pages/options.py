@@ -147,11 +147,10 @@ def get_euclidean_neighbors(df, rank_cols, market_cols, n_neighbors=50, start_da
     valid_feats = [f for f in all_feats if f in df.columns and not pd.isna(current_row[f])]
     if not valid_feats: return pd.DataFrame()
     
-    # 2. Filter History by Date (Restored Feature)
+    # 2. Filter History by Date
     history = df.iloc[:-1].dropna(subset=valid_feats).copy()
     
     if start_date:
-        # Convert date to timestamp for filtering
         start_ts = pd.to_datetime(start_date)
         if history.index.tz is not None:
             start_ts = start_ts.tz_localize(history.index.tz)
@@ -167,6 +166,29 @@ def get_euclidean_neighbors(df, rank_cols, market_cols, n_neighbors=50, start_da
     
     n_take = min(len(history), n_neighbors)
     return history.nsmallest(n_take, 'Euclidean_Dist').copy()
+
+def get_euclidean_returns_matrix(df_hist, neighbors, distinct_days):
+    """
+    Creates a matrix of returns for every neighbor across every analyzed expiry horizon.
+    """
+    output = neighbors[['Euclidean_Dist', 'Close']].copy()
+    output.columns = ['Distance', 'Close']
+    
+    # Pre-calculate returns for each distinct horizon
+    for d in sorted(list(set(distinct_days))):
+        col_name = f"Ret_{d}d (%)"
+        fwd_rets = []
+        for idx in neighbors.index:
+            loc = df_hist.index.get_loc(idx)
+            future_loc = loc + d
+            if future_loc < len(df_hist):
+                ret = (df_hist['Close'].iloc[future_loc] / df_hist['Close'].iloc[loc]) - 1
+                fwd_rets.append(ret * 100)
+            else:
+                fwd_rets.append(np.nan)
+        output[col_name] = fwd_rets
+        
+    return output.sort_values("Distance")
 
 # -----------------------------------------------------------------------------
 # OPTION PRICING & STRATEGY LOGIC
@@ -253,34 +275,18 @@ def calculate_option_payoff_vector(simulated_prices, strike, opt_type):
     else: return np.maximum(0, strike - simulated_prices)
 
 def calculate_kelly(payoffs, cost, fraction=0.25):
-    """
-    Calculates Fractional Kelly Criterion.
-    K% = fraction * (p(b+1) - 1) / b
-    where p = win prob, b = odds (avg_win/avg_loss)
-    """
     net_pnl = payoffs - cost
     wins = net_pnl[net_pnl > 0]
     losses = net_pnl[net_pnl <= 0]
-    
     if len(wins) == 0: return 0.0
     if len(losses) == 0: return 1.0 * fraction
-    
     win_prob = len(wins) / len(net_pnl)
     avg_win = np.mean(wins)
     avg_loss = abs(np.mean(losses))
-    
     if avg_loss == 0: return 1.0 * fraction
-    
-    # Odds (b)
     b = avg_win / avg_loss
-    
-    # Full Kelly Formula
     kelly_f = (win_prob * (b + 1) - 1) / b
-    
-    # Apply Fraction and Cap
-    adjusted_kelly = max(0.0, kelly_f * fraction)
-    
-    return min(1.0, adjusted_kelly)
+    return min(1.0, max(0.0, kelly_f * fraction))
 
 def generate_strategies(df_chain, sim_prices, spot, kelly_fraction=0.25):
     strategies = []
@@ -310,11 +316,9 @@ def generate_strategies(df_chain, sim_prices, spot, kelly_fraction=0.25):
             if otype == 'Call': # Bull Call
                 cost = leg1['Market_Price'] - leg2['Market_Price']
                 if cost <= 0: continue
-                
                 payoffs1 = calculate_option_payoff_vector(sim_prices, s1, 'Call')
                 payoffs2 = calculate_option_payoff_vector(sim_prices, s2, 'Call')
                 spread_payoffs = payoffs1 - payoffs2
-                
                 fair_spread = np.mean(spread_payoffs)
                 edge = fair_spread - cost
                 
@@ -328,11 +332,9 @@ def generate_strategies(df_chain, sim_prices, spot, kelly_fraction=0.25):
             else: # Put
                 cost = leg2['Market_Price'] - leg1['Market_Price'] 
                 if cost <= 0: continue
-                
                 payoffs_long = calculate_option_payoff_vector(sim_prices, s2, 'Put')
                 payoffs_short = calculate_option_payoff_vector(sim_prices, s1, 'Put')
                 spread_payoffs = payoffs_long - payoffs_short
-                
                 fair_spread = np.mean(spread_payoffs)
                 edge = fair_spread - cost
                 
@@ -413,7 +415,6 @@ def render_dashboard():
     with col2:
         k_neighbors = st.number_input("Euclidean Neighbors", 10, 250, 50)
     with col3:
-        # --- RESTORED START DATE INPUT ---
         analysis_start = st.date_input("Match Start Date", dt.date(2000, 1, 1))
 
     if st.button("Run Analysis", type="primary"):
@@ -429,8 +430,6 @@ def render_dashboard():
             sznl_map = load_seasonal_map()
             mkt_metrics = load_market_metrics()
             df, rank_cols = calculate_feature_vectors(data, sznl_map, mkt_metrics, ticker)
-            
-            # --- PASS START DATE TO FILTER ---
             neighbors = get_euclidean_neighbors(df, rank_cols, [c for c in df.columns if c.startswith("Mkt_")], n_neighbors=k_neighbors, start_date=analysis_start)
             st.success(f"Found {len(neighbors)} Euclidean matches.")
             
@@ -448,7 +447,6 @@ def render_dashboard():
         with c_opt2:
             max_dte = st.number_input("Max DTE", 0, 90, 21)
         with c_opt3:
-            # --- NEW KELLY SLIDER ---
             kelly_frac = st.slider("Kelly Multiplier (Aggression)", 0.1, 1.0, 0.25, 0.05, help="Default is 0.25 (Quarter Kelly)")
             
         run_opt = st.button("🔎 Scan Options Chain")
@@ -467,6 +465,7 @@ def render_dashboard():
                     all_strategies = []
                     processed_count = 0
                     viz_expiry = None
+                    analyzed_days = []
                     
                     for exp in expiries:
                         days = get_trading_days(exp)
@@ -475,6 +474,7 @@ def render_dashboard():
                         
                         processed_count += 1
                         valid_expiries.append(exp)
+                        analyzed_days.append(days)
                         
                         sim_prices = get_simulated_prices(st.session_state['full_df'], st.session_state['neighbors'], days, spot)
                         
@@ -486,31 +486,44 @@ def render_dashboard():
                                 viz_expiry = exp
                                 visualize_expiry_analysis(st.session_state['ticker'], exp, sim_prices, subset_chain, spot, days)
                             
-                            # --- PASS KELLY FRACTION ---
                             strats = generate_strategies(subset_chain, sim_prices, spot, kelly_fraction=kelly_frac)
                             if not strats.empty:
                                 all_strategies.append(strats)
 
                     if all_strategies:
                         master_df = pd.concat(all_strategies)
-                        # SORT BY KELLY
                         spreads = master_df[master_df['Type'].str.contains("Spread")].sort_values("Kelly", ascending=False).head(5)
                         naked = master_df[~master_df['Type'].str.contains("Spread")].sort_values("Kelly", ascending=False).head(3)
                         
                         st.subheader(f"🏆 Top Trade Ideas (Sorted by Kelly {kelly_frac}x)")
-                        
                         col_tbl1, col_tbl2 = st.columns(2)
                         with col_tbl1:
                             st.write("**Top 5 Vertical Spreads (OTM)**")
                             st.dataframe(spreads[['Type', 'Expiry', 'Strikes', 'Cost', 'Fair Value', 'Edge', 'ROI', 'Kelly']].style.format({
                                 'Cost': '${:.2f}', 'Fair Value': '${:.2f}', 'Edge': '${:.2f}', 'ROI': '{:.1f}%', 'Kelly': '{:.1%}'
                             }).background_gradient(subset=['Kelly'], cmap='Greens'), use_container_width=True)
-                            
                         with col_tbl2:
                             st.write("**Top 3 Independent Longs (OTM)**")
                             st.dataframe(naked[['Type', 'Expiry', 'Strikes', 'Cost', 'Fair Value', 'Edge', 'ROI', 'Kelly']].style.format({
                                 'Cost': '${:.2f}', 'Fair Value': '${:.2f}', 'Edge': '${:.2f}', 'ROI': '{:.1f}%', 'Kelly': '{:.1%}'
                             }).background_gradient(subset=['Kelly'], cmap='Greens'), use_container_width=True)
+                            
+                        # --- NEW MATRIX TABLE ---
+                        st.divider()
+                        st.subheader("📜 Euclidean Match Matrix (Raw Data)")
+                        st.markdown(f"Shows exactly how the {len(st.session_state['neighbors'])} matches performed over the option timeframes analyzed: {analyzed_days} days.")
+                        
+                        matrix_df = get_euclidean_returns_matrix(st.session_state['full_df'], st.session_state['neighbors'], analyzed_days)
+                        
+                        ret_cols = [c for c in matrix_df.columns if "Ret" in c]
+                        format_dict = {"Distance": "{:.2f}", "Close": "${:.2f}"}
+                        for c in ret_cols: format_dict[c] = "{:+.2f}%"
+                        
+                        st.dataframe(
+                            matrix_df.style.format(format_dict).background_gradient(subset=ret_cols, cmap="RdBu", vmin=-5, vmax=5),
+                            use_container_width=True
+                        )
+                        
                     else:
                         st.warning("No trades found with positive edge criteria.")
 
