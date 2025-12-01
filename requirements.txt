@@ -12,3 +12,4 @@ yahooquery
 scipy
 matplotlib
 scikit-learn
+gspread
