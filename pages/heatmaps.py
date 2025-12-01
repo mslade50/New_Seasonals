@@ -207,7 +207,7 @@ def calculate_heatmap_variables(df, sznl_map, market_metrics_df, ticker):
 
     return df, rank_cols
 
-def calculate_distribution_ensemble(df, rank_cols, market_cols, tolerance=5.0):
+def calculate_distribution_ensemble(df, rank_cols, market_cols, tolerance=1.0):
     if df.empty: return pd.DataFrame()
     
     current_row = df.iloc[-1]
