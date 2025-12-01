@@ -8,6 +8,7 @@ from scipy.signal import convolve2d
 import matplotlib
 import datetime
 import itertools
+from collections import defaultdict
 
 # -----------------------------------------------------------------------------
 # CONSTANTS & SETUP
@@ -310,9 +311,35 @@ def get_raw_ensemble_returns(df, rank_cols, market_cols, tolerance=5.0, target_d
             
     return raw_returns
 
+def get_feature_shorthand(name):
+    # Remove _Rank suffix first
+    n = name.replace("_Rank", "")
+    
+    if n == "Seasonal": return "szn"
+    
+    # Returns (e.g. Ret_21d -> 21dr)
+    if n.startswith("Ret_"):
+        return n.replace("Ret_", "") + "r"
+        
+    # Vol Ratio (e.g. VolRatio_10d -> 10drv)
+    if n.startswith("VolRatio_"):
+        return n.replace("VolRatio_", "") + "rv"
+        
+    # Real Vol (e.g. RealVol_21d -> 21dv)
+    if n.startswith("RealVol_"):
+        return n.replace("RealVol_", "") + "dv"
+        
+    # Market Metrics (e.g. Mkt_Total_NH_5d -> 5dmkt)
+    if n.startswith("Mkt_"):
+        parts = n.split("_")
+        return parts[-1] + "mkt"
+        
+    return n[:4]
+
 def get_detailed_match_table(df, rank_cols, market_cols, tolerance=5.0, target_days=5):
     """
     Identifies unique historical dates that match the criteria.
+    Captures specific pair triggers.
     """
     if df.empty: return pd.DataFrame()
     current_row = df.iloc[-1]
@@ -322,9 +349,10 @@ def get_detailed_match_table(df, rank_cols, market_cols, tolerance=5.0, target_d
     if len(valid_features) < 2: return pd.DataFrame()
     
     pairs = list(itertools.combinations(valid_features, 2))
-    all_matches = []
     
-    # 1. Collect all matching indices from all pairs
+    # Store list of pairs that triggered each date
+    date_to_pairs = defaultdict(list)
+    
     for f1, f2 in pairs:
         v1 = current_row[f1]
         v2 = current_row[f2]
@@ -333,36 +361,55 @@ def get_detailed_match_table(df, rank_cols, market_cols, tolerance=5.0, target_d
             (df[f2] >= v2 - tolerance) & (df[f2] <= v2 + tolerance)
         )
         subset = df[mask]
+        
         if not subset.empty:
-            all_matches.extend(subset.index.tolist())
+            # Create shorthand string for this pair
+            pair_str = f"{get_feature_shorthand(f1)}+{get_feature_shorthand(f2)}"
             
-    if not all_matches: return pd.DataFrame()
+            for date in subset.index:
+                date_to_pairs[date].append(pair_str)
+            
+    if not date_to_pairs: return pd.DataFrame()
 
-    # 2. Count frequency (Similarity Score)
-    match_counts = pd.Series(all_matches).value_counts()
+    # Convert to DataFrame
+    # 1. Index
+    dates = list(date_to_pairs.keys())
     
-    # 3. Create DataFrame
-    match_df = pd.DataFrame({'Similarity Score': match_counts})
+    # 2. Similarity Score (Count of pairs)
+    scores = [len(date_to_pairs[d]) for d in dates]
+    
+    # 3. Trigger Pairs (String) - Limit to top 3
+    pair_strings = []
+    for d in dates:
+        unique_pairs = list(set(date_to_pairs[d]))
+        display_str = ", ".join(unique_pairs[:3])
+        if len(unique_pairs) > 3:
+            display_str += "..."
+        pair_strings.append(display_str)
+    
+    match_df = pd.DataFrame({
+        'Similarity Score': scores,
+        'Pairs': pair_strings
+    }, index=dates)
+    
     match_df.index.name = 'Date'
     
     # 4. Add Outcome Data
-    # Fwd Return
     ret_col = f'FwdRet_{target_days}d'
     if ret_col in df.columns:
         match_df['Fwd Return'] = df.loc[match_df.index, ret_col]
     else:
         match_df['Fwd Return'] = np.nan
 
-    # Fwd Realized Vol (Annualized)
     fwd_vol_series = df['LogRet'].rolling(target_days).std().shift(-target_days) * np.sqrt(252) * 100
     match_df['Fwd Realized Vol'] = fwd_vol_series.loc[match_df.index]
-    
     match_df['Close Price'] = df.loc[match_df.index, 'Close']
     
-    # --- UPDATE: DROP ROWS WHERE FWD RETURN IS NAN ---
+    # --- DROP ROWS WHERE FWD RETURN IS NAN ---
     match_df = match_df.dropna(subset=['Fwd Return'])
     
-    return match_df.sort_index(ascending=False)
+    # Sort by Similarity Score first, then Date
+    return match_df.sort_values(by=['Similarity Score', 'Date'], ascending=[False, False])
 
 # -----------------------------------------------------------------------------
 # HEATMAP UTILS
