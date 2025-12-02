@@ -70,29 +70,7 @@ def load_market_metrics():
             results[rank_col_name] = ma_col.expanding(min_periods=126).rank(pct=True) * 100.0
 
     return results
-    
-@st.cache_data(show_spinner=False)
-def get_spy_context():
-    try:
-        # Download SPY full history
-        spy, _ = download_data("SPY")
-        if spy.empty: return pd.DataFrame()
-        
-        spy = spy.copy()
-        spy['LogRet'] = np.log(spy['Close'] / spy['Close'].shift(1))
-        
-        # Calculate Ranks for 5, 10, 21 days
-        spy_features = pd.DataFrame(index=spy.index)
-        for w in [5, 10, 21]:
-            # Raw Return
-            col_ret = spy['Close'].pct_change(w)
-            # Rank
-            col_rank = f'SPY_Ret_{w}d_Rank'
-            spy_features[col_rank] = col_ret.expanding(min_periods=252).rank(pct=True) * 100.0
-            
-        return spy_features
-    except:
-        return pd.DataFrame()
+
 # -----------------------------------------------------------------------------
 # DYNAMIC SEASONALITY & DATA
 # -----------------------------------------------------------------------------
@@ -182,6 +160,26 @@ def download_data(ticker):
     except:
         return pd.DataFrame(), None
 
+@st.cache_data(show_spinner=False)
+def get_spy_context():
+    """Download and calculate SPY rank features separately."""
+    try:
+        spy, _ = download_data("SPY")
+        if spy.empty: return pd.DataFrame()
+        
+        spy = spy.copy()
+        
+        # Calculate Ranks for 5, 10, 21 days
+        spy_features = pd.DataFrame(index=spy.index)
+        for w in [5, 10, 21]:
+            col_ret = spy['Close'].pct_change(w)
+            col_rank = f'SPY_Ret_{w}d_Rank'
+            spy_features[col_rank] = col_ret.expanding(min_periods=252).rank(pct=True) * 100.0
+            
+        return spy_features
+    except:
+        return pd.DataFrame()
+
 # -----------------------------------------------------------------------------
 # FEATURE ENGINEERING & ENSEMBLE LOGIC
 # -----------------------------------------------------------------------------
@@ -222,21 +220,18 @@ def calculate_heatmap_variables(df, sznl_map, market_metrics_df, ticker):
         df[col_name] = df[v].expanding(min_periods=252).rank(pct=True) * 100.0
         rank_cols.append(col_name)
 
-    # 5. MERGE MARKET METRICS (Existing)
+    # 5. MERGE MARKET METRICS
     if not market_metrics_df.empty:
         df = df.join(market_metrics_df, how='left')
         df.update(df.filter(regex='^Mkt_').ffill(limit=3))
-
-    # 6. MERGE SPY CONTEXT (New)
-    # Only merge if the ticker itself isn't SPY (to avoid duplication/confusion)
+        
+    # 6. MERGE SPY CONTEXT
     if ticker != "SPY":
         spy_df = get_spy_context()
         if not spy_df.empty:
             df = df.join(spy_df, how='left')
-            # Add SPY columns to the rank_cols list so they are available for Euclid/Ensemble
             spy_cols = [c for c in spy_df.columns if 'Rank' in c]
             rank_cols.extend(spy_cols)
-            # Forward fill a bit to handle mismatched trading holidays
             df.update(df[spy_cols].ffill(limit=1))
 
     return df, rank_cols
@@ -246,10 +241,6 @@ def calculate_distribution_ensemble(df, rank_cols, market_cols, tolerance=1.0):
     
     current_row = df.iloc[-1]
     
-    # Identify SPY columns vs Standard columns
-    spy_cols = [c for c in rank_cols if c.startswith("SPY_")]
-    standard_cols = [c for c in rank_cols if not c.startswith("SPY_")]
-    
     all_features = rank_cols + ['Seasonal'] + market_cols
     valid_features = [f for f in all_features if f in df.columns and not pd.isna(current_row[f])]
     
@@ -258,16 +249,13 @@ def calculate_distribution_ensemble(df, rank_cols, market_cols, tolerance=1.0):
     targets = [2, 3, 5, 10, 21, 63, 126, 252]
     pooled_outcomes = {t: [] for t in targets}
     
-    # --- LOGIC UPDATE: RESTRICTED PAIR GENERATION ---
     pairs = []
     
-    # 1. Generate standard combinations (Ticker vs Ticker, Ticker vs MarketBreadth, etc)
-    # Exclude SPY cols from the general mix
+    # 1. Standard Pairs (No SPY cols)
     non_spy_valid = [f for f in valid_features if not f.startswith("SPY_")]
     pairs.extend(list(itertools.combinations(non_spy_valid, 2)))
     
-    # 2. Generate Specific SPY Pairs (SPY_5d vs Ticker_5d ONLY)
-    # Map SPY col to Ticker col
+    # 2. Specific SPY Pairs (SPY_Xd vs Ret_Xd ONLY)
     spy_map = {
         'SPY_Ret_5d_Rank': 'Ret_5d_Rank',
         'SPY_Ret_10d_Rank': 'Ret_10d_Rank',
@@ -277,8 +265,6 @@ def calculate_distribution_ensemble(df, rank_cols, market_cols, tolerance=1.0):
     for spy_col, ticker_col in spy_map.items():
         if spy_col in valid_features and ticker_col in valid_features:
             pairs.append((spy_col, ticker_col))
-            
-    # ------------------------------------------------
     
     for f1, f2 in pairs:
         v1 = current_row[f1]
@@ -437,28 +423,13 @@ def get_euclidean_details(df, rank_cols, market_cols, n_neighbors=50, target_day
 
 # --- CHARTING & TABLE HELPERS ---
 def get_feature_shorthand(name):
-    # Remove _Rank suffix first
     n = name.replace("_Rank", "")
-    
     if n == "Seasonal": return "szn"
-    
-    # Returns (e.g. Ret_21d -> 21dr)
-    if n.startswith("Ret_"):
-        return n.replace("Ret_", "").replace("d", "") + "dr"
-        
-    # Vol Ratio (e.g. VolRatio_10d -> 10drv)
-    if n.startswith("VolRatio_"):
-        return n.replace("VolRatio_", "").replace("d", "") + "drv"
-        
-    # Real Vol (e.g. RealVol_21d -> 21dv)
-    if n.startswith("RealVol_"):
-        return n.replace("RealVol_", "").replace("d", "") + "dv"
-        
-    # Market Metrics (e.g. Mkt_Total_NH_5d -> 5dnh)
-    if n.startswith("Mkt_"):
-        parts = n.split("_")
-        return parts[-1] + "nh"
-        
+    if n.startswith("Ret_"): return n.replace("Ret_", "").replace("d", "") + "dr"
+    if n.startswith("VolRatio_"): return n.replace("VolRatio_", "").replace("d", "") + "drv"
+    if n.startswith("RealVol_"): return n.replace("RealVol_", "").replace("d", "") + "dv"
+    if n.startswith("Mkt_"): return n.split("_")[-1] + "nh"
+    if n.startswith("SPY_"): return n.replace("SPY_Ret_", "spy") + "dr"
     return n[:4]
 
 def get_detailed_match_table(df, rank_cols, market_cols, tolerance=5.0, target_days=5):
@@ -468,7 +439,20 @@ def get_detailed_match_table(df, rank_cols, market_cols, tolerance=5.0, target_d
     valid_features = [f for f in all_features if f in df.columns and not pd.isna(current_row[f])]
     if len(valid_features) < 2: return pd.DataFrame()
     
-    pairs = list(itertools.combinations(valid_features, 2))
+    pairs = []
+    # Use logic from ensemble: Standard Pairs + Specific SPY Pairs
+    non_spy_valid = [f for f in valid_features if not f.startswith("SPY_")]
+    pairs.extend(list(itertools.combinations(non_spy_valid, 2)))
+    
+    spy_map = {
+        'SPY_Ret_5d_Rank': 'Ret_5d_Rank',
+        'SPY_Ret_10d_Rank': 'Ret_10d_Rank',
+        'SPY_Ret_21d_Rank': 'Ret_21d_Rank'
+    }
+    for spy_col, ticker_col in spy_map.items():
+        if spy_col in valid_features and ticker_col in valid_features:
+            pairs.append((spy_col, ticker_col))
+
     date_to_pairs = defaultdict(list)
     
     for f1, f2 in pairs:
@@ -596,65 +580,73 @@ def render_heatmap():
     
     col1, col2, col3 = st.columns(3)
     
-    with col1:
-        # ... existing options ...
-        var_options = {
-            "Seasonality Rank": "Seasonal",
-            # Price
-            "5d Trailing Return Rank": "Ret_5d_Rank",
-            "10d Trailing Return Rank": "Ret_10d_Rank",
-            "21d Trailing Return Rank": "Ret_21d_Rank",
-            "252d Trailing Return Rank": "Ret_252d_Rank",
-            # SPY Context (NEW)
-            "SPY 5d Return Rank": "SPY_Ret_5d_Rank",
-            "SPY 10d Return Rank": "SPY_Ret_10d_Rank",
-            "SPY 21d Return Rank": "SPY_Ret_21d_Rank",
-            # Vol
-            "21d Realized Vol Rank": "RealVol_21d_Rank",
-            "63d Realized Vol Rank": "RealVol_63d_Rank",
-            # Volume
-            "10d Rel. Volume Rank": "VolRatio_10d_Rank", 
-            "21d Rel. Volume Rank": "VolRatio_21d_Rank",
-        }
-        
-        
-        var_options["Total Net Highs (5d MA) Rank"] = "Mkt_Total_NH_5d_Rank"
-        var_options["Total Net Highs (21d MA) Rank"] = "Mkt_Total_NH_21d_Rank"
+    var_options = {
+        "Seasonality Rank": "Seasonal",
+        # Price
+        "5d Trailing Return Rank": "Ret_5d_Rank",
+        "10d Trailing Return Rank": "Ret_10d_Rank",
+        "21d Trailing Return Rank": "Ret_21d_Rank",
+        "252d Trailing Return Rank": "Ret_252d_Rank",
+        # SPY Context
+        "SPY 5d Return Rank": "SPY_Ret_5d_Rank",
+        "SPY 10d Return Rank": "SPY_Ret_10d_Rank",
+        "SPY 21d Return Rank": "SPY_Ret_21d_Rank",
+        # Vol
+        "21d Realized Vol Rank": "RealVol_21d_Rank",
+        "63d Realized Vol Rank": "RealVol_63d_Rank",
+        # Volume
+        "10d Rel. Volume Rank": "VolRatio_10d_Rank", 
+        "21d Rel. Volume Rank": "VolRatio_21d_Rank",
+        # Market Breadth
+        "Total Net Highs (5d MA) Rank": "Mkt_Total_NH_5d_Rank",
+        "Total Net Highs (21d MA) Rank": "Mkt_Total_NH_21d_Rank"
+    }
 
+    target_options = {
+        "5d Forward Return": "FwdRet_5d",
+        "10d Forward Return": "FwdRet_10d",
+        "21d Forward Return": "FwdRet_21d",
+        "63d Forward Return": "FwdRet_63d",
+        "126d Forward Return": "FwdRet_126d",
+        "252d Forward Return": "FwdRet_252d",
+    }
+
+    with col1:
         x_axis_label = st.selectbox("X-Axis Variable", list(var_options.keys()), index=0, key="hm_x")
         y_axis_label = st.selectbox("Y-Axis Variable", list(var_options.keys()), index=2, key="hm_y")
     
     with col2:
-        # STRIPPED TARGET OPTIONS
-        target_options = {
-            "5d Forward Return": "FwdRet_5d",
-            "10d Forward Return": "FwdRet_10d",
-            "21d Forward Return": "FwdRet_21d",
-            "63d Forward Return": "FwdRet_63d",
-            "126d Forward Return": "FwdRet_126d",
-            "252d Forward Return": "FwdRet_252d",
-        }
         z_axis_label = st.selectbox("Target (Z-Axis)", list(target_options.keys()), index=2, key="hm_z")
-        ticker = st.text_input("Ticker", value="SPY", key="hm_ticker").upper()
+        ticker = st.text_input("Ticker", value="SMH", key="hm_ticker").upper()
+        
+        # --- 3rd Dimension Filter ---
+        st.markdown("---")
+        st.write(" **3rd Dimension Filter**")
+        filter_opts_list = ["None"] + list(var_options.keys())
+        filter_label = st.selectbox("Filter by Condition:", filter_opts_list, index=0, key="hm_filter_var")
+        
+        filter_range = (0.0, 100.0)
+        if filter_label != "None":
+            filter_range = st.slider(
+                f"Keep Data where {filter_label} is:", 
+                0.0, 100.0, (50.0, 100.0), step=1.0, key="hm_filter_rng"
+            )
     
     with col3:
-        # VISUAL & ENSEMBLE SETTINGS
         smooth_sigma = st.slider("Smoothing (Sigma)", 0.5, 3.0, 1.2, 0.1, key="hm_smooth")
         bins = st.slider("Grid Resolution (Bins)", 10, 50, 28, key="hm_bins")
-        
-        # --- NEW ENSEMBLE INPUT ---
-        ensemble_tol = st.slider("Ensemble Similarity Tolerance (± Rank)", 1, 25, 1, 1, key="ens_tol")
-        
+        ensemble_tol = st.slider("Ensemble Similarity Tolerance (± Rank)", 1, 25, 5, 1, key="ens_tol")
         analysis_start = st.date_input("Analysis Start Date", value=datetime.date(2000, 1, 1), key="hm_start_date")
-        
+    
     st.markdown("---")
 
     if st.button("Generate Heatmap & Ensemble", type="primary", use_container_width=True, key="hm_gen"):
         st.session_state['hm_data'] = True 
-        
+    
     if st.session_state.get('hm_data'):
         with st.spinner(f"Processing {ticker}..."):
             
+            # 1. Download & Calc
             data, fetch_time = download_data(ticker)
             if data.empty:
                 st.error("No data found.")
@@ -667,19 +659,37 @@ def render_heatmap():
             sznl_map = load_seasonal_map()
             market_metrics_df = load_market_metrics()
             
-            # --- MAIN CALCULATION ---
             df, rank_cols = calculate_heatmap_variables(data, sznl_map, market_metrics_df, ticker)
             
+            # 2. Time Slice
             start_ts = pd.to_datetime(analysis_start)
             if df.index.tz is not None: start_ts = start_ts.tz_localize(df.index.tz)
             
-            df_filtered = df[df.index >= start_ts]
+            df_filtered = df[df.index >= start_ts].copy()
             
             if df_filtered.empty:
                 st.error("No data found after start date.")
                 return
             
-            # --- HEATMAP RENDER ---
+            # --- APPLY 3RD DIMENSION FILTER ---
+            filter_desc_str = ""
+            if filter_label != "None":
+                f_col = var_options[filter_label]
+                if f_col in df_filtered.columns:
+                    count_before = len(df_filtered)
+                    mask = (df_filtered[f_col] >= filter_range[0]) & (df_filtered[f_col] <= filter_range[1])
+                    df_filtered = df_filtered[mask]
+                    count_after = len(df_filtered)
+                    
+                    filter_desc_str = f" | Filter: {filter_label} [{filter_range[0]}-{filter_range[1]}] (n={count_after})"
+                    st.success(f"Filter Active: Reduced dataset from {count_before} to {count_after} datapoints.")
+                    
+                    if count_after < 50:
+                        st.warning("⚠️ Warning: Filter is very strict. Heatmap may look sparse or empty.")
+                else:
+                    st.error(f"Filter column {f_col} not found.")
+
+            # 3. Heatmap Prep
             xcol = var_options[x_axis_label]
             ycol = var_options[y_axis_label]
             zcol = target_options[z_axis_label]
@@ -707,201 +717,134 @@ def render_heatmap():
                     hovertemplate=f"<b>{x_axis_label}</b>: %{{x:.1f}}<br><b>{y_axis_label}</b>: %{{y:.1f}}<br><b>Value</b>: %{{z:.2f}}{z_units}<extra></extra>"
                 ))
                 
+                title_text = f"{ticker}: {z_axis_label}{filter_desc_str}"
+                
                 fig.update_layout(
-                    title=f"{ticker} ({analysis_start} - Present): {z_axis_label}",
+                    title=title_text,
                     xaxis_title=x_axis_label + " (0-100)",
                     yaxis_title=y_axis_label + " (0-100)",
                     height=600, template="plotly_white",
                     dragmode=False 
                 )
                 
+                # Check if current day passes filter
                 last_row = df.iloc[-1]
                 curr_x = last_row.get(xcol, np.nan)
                 curr_y = last_row.get(ycol, np.nan)
+                
+                passes_filter = True
+                if filter_label != "None":
+                    f_col = var_options[filter_label]
+                    curr_f = last_row.get(f_col, np.nan)
+                    if pd.isna(curr_f) or not (filter_range[0] <= curr_f <= filter_range[1]):
+                        passes_filter = False
+
                 if not np.isnan(curr_x) and not np.isnan(curr_y):
                     fig.add_vline(x=curr_x, line_width=2, line_dash="dash", line_color="black")
                     fig.add_hline(y=curr_y, line_width=2, line_dash="dash", line_color="black")
-                    fig.add_annotation(x=curr_x, y=curr_y, text="Current", showarrow=True, arrowhead=1, ax=30, ay=-30, bgcolor="white")
+                    
+                    marker_text = "Current"
+                    if not passes_filter:
+                        marker_text = "Current (Excluded by Filter)"
+                        
+                    fig.add_annotation(x=curr_x, y=curr_y, text=marker_text, showarrow=True, arrowhead=1, ax=30, ay=-30, bgcolor="white")
                 
                 st.plotly_chart(fig, use_container_width=True, key="heatmap_plot")
                 
-                # --- HISTORICAL DATA EXPLORER ---
+                # --- HISTORICAL EXPLORER (Uses the FILTERED DF) ---
                 st.divider()
-                st.markdown("### 🔎 Historical Data Explorer")
+                st.markdown("### 🔎 Historical Data Explorer (Filtered)")
                 f_col1, f_col2 = st.columns(2)
-                with f_col1: x_range = st.slider(f"Filter: {x_axis_label} (Rank)", 0.0, 100.0, (0.0, 100.0), step=1.0)
-                with f_col2: y_range = st.slider(f"Filter: {y_axis_label} (Rank)", 0.0, 100.0, (0.0, 100.0), step=1.0)
+                with f_col1: x_range = st.slider(f"Inner Filter: {x_axis_label}", 0.0, 100.0, (0.0, 100.0), step=1.0)
+                with f_col2: y_range = st.slider(f"Inner Filter: {y_axis_label}", 0.0, 100.0, (0.0, 100.0), step=1.0)
                 
-                mask = (clean_df[xcol] >= x_range[0]) & (clean_df[xcol] <= x_range[1]) & \
-                       (clean_df[ycol] >= y_range[0]) & (clean_df[ycol] <= y_range[1])
-                filtered_df = clean_df[mask].copy()
+                mask_explorer = (clean_df[xcol] >= x_range[0]) & (clean_df[xcol] <= x_range[1]) & \
+                                (clean_df[ycol] >= y_range[0]) & (clean_df[ycol] <= y_range[1])
+                explorer_df = clean_df[mask_explorer].copy()
                 
-                if not filtered_df.empty:
+                if not explorer_df.empty:
                     s1, s2, s3 = st.columns(3)
-                    s1.metric("Matching Instances", len(filtered_df))
-                    s2.metric(f"Avg Target", f"{filtered_df[zcol].mean():.2f}{z_units}")
-                    
-                    win_rate = (filtered_df[zcol] > 0).sum() / len(filtered_df) * 100
+                    s1.metric("Matching Instances", len(explorer_df))
+                    s2.metric(f"Avg Target", f"{explorer_df[zcol].mean():.2f}{z_units}")
+                    win_rate = (explorer_df[zcol] > 0).sum() / len(explorer_df) * 100
                     s3.metric("Win Rate (>0)", f"{win_rate:.1f}%")
                     
                     st.write("#### Matching Dates")
                     display_cols = ['Close', xcol, ycol, zcol]
-                    table_df = filtered_df[display_cols].sort_index(ascending=False)
+                    if filter_label != "None":
+                        display_cols.append(var_options[filter_label])
+
+                    table_df = explorer_df[display_cols].sort_index(ascending=False)
                     st.dataframe(
-                        table_df.style.format({
-                            "Close": "${:.2f}", xcol: "{:.1f}", ycol: "{:.1f}", zcol: "{:.2f}" + z_units
-                        }).background_gradient(subset=[zcol], cmap="RdBu", vmin=-limit, vmax=limit),
+                        table_df.style.format("{:.2f}").background_gradient(subset=[zcol], cmap="RdBu", vmin=-limit, vmax=limit),
                         use_container_width=True, height=400
                     )
                 else:
-                    st.warning("No matches found for these filters.")
+                    st.warning("No matches found in this region.")
                     
             else:
-                st.error("Insufficient data for Heatmap.")
+                st.error("Insufficient data for Heatmap (Filter might be too strict).")
 
-            # --- ENSEMBLE TABLE (METHOD 1) ---
             st.divider()
-            st.subheader(f"🤖 Method 1: Pairwise Ensemble (Box Filter)")
-            st.markdown(f"""
-            **Methodology:**
-            1. Scans ALL valid variable pairs (e.g., Seasonality vs Momentum).
-            2. Finds all historical dates where **both** metrics were within **±{ensemble_tol}** rank points of today.
-            3. Pools all historical returns into a single distribution.
-            """)
             
             market_cols = [c for c in df.columns if c.startswith("Mkt_")]
             
-            ensemble_df = calculate_distribution_ensemble(df, rank_cols, market_cols, tolerance=ensemble_tol)
-            
+            # Method 1 (Uses Filtered DF to show stats for the specific regime)
+            st.subheader(f"🤖 Method 1: Pairwise Ensemble (Box Filter)")
+            ensemble_df = calculate_distribution_ensemble(df_filtered, rank_cols, market_cols, tolerance=ensemble_tol)
             if not ensemble_df.empty:
-                st.dataframe(
-                    ensemble_df.style.format({
-                        "Exp Return": "{:.2f}%",
-                        "Baseline": "{:.2f}%",
-                        "Alpha": "{:+.2f}%",
-                        "Implied Vol (IV)": "{:.2f}%",
-                        "Win Rate": "{:.1f}%",
-                        "Sample Size": "{:,.0f}"
-                    }).background_gradient(subset=['Alpha'], cmap="RdBu", vmin=-2, vmax=2),
-                    use_container_width=True
-                )
+                st.dataframe(ensemble_df.style.format("{:.2f}"), use_container_width=True)
             else:
-                st.warning(f"Not enough historical depth (matches within ±{ensemble_tol}) to generate an ensemble forecast. Try increasing the tolerance slider.")
-            
-            # --- EUCLIDEAN TABLE (METHOD 2) ---
-            st.subheader(f"🧪 Method 2: Multi-Factor Similarity (Euclidean Distance)")
-            
-            col_k, col_desc = st.columns([1, 4])
-            with col_k:
-                k_neighbors = st.number_input("Neighbors (K)", min_value=10, max_value=250, value=50, step=10)
-            with col_desc:
-                st.info(f"Finds the **{k_neighbors}** specific dates in history that are mathematically closest to 'Today' across ALL {len(rank_cols)+1} variables simultaneously.")
+                st.warning("Not enough data for ensemble.")
 
+            # Method 2 (Uses Full DF to find neighbors for TODAY)
+            st.subheader(f"🧪 Method 2: Multi-Factor Similarity")
+            
+            k_neighbors = 50
             euclidean_df = calculate_euclidean_forecast(df, rank_cols, market_cols, n_neighbors=k_neighbors)
-            
             if not euclidean_df.empty:
-                st.dataframe(
-                    euclidean_df.style.format({
-                        "Exp Return": "{:.2f}%",
-                        "Baseline": "{:.2f}%",
-                        "Alpha": "{:+.2f}%",
-                        "Implied Vol (IV)": "{:.2f}%",
-                        "Win Rate": "{:.1f}%",
-                        "Sample Size": "{:,.0f}"
-                    }).background_gradient(subset=['Alpha'], cmap="RdBu", vmin=-2, vmax=2),
-                    use_container_width=True
-                )
-            else:
-                st.warning("Insufficient data for Euclidean analysis.")
-
-            # --- DISTRIBUTION CHART (EUCLIDEAN METHOD) ---
-            st.divider()
-            st.subheader("🔮 Forecast Distribution Analysis (Euclidean Method)")
-            
-            dist_days = st.selectbox("Distribution Horizon (Days)", [2, 3, 5, 10, 21, 63, 126, 252], index=2)
-            
-            # CHANGED: Use Euclidean Details instead of Pairwise
-            euc_data = get_euclidean_details(df, rank_cols, market_cols, n_neighbors=k_neighbors, target_days=dist_days)
-            raw_returns = euc_data['Fwd Return'].tolist() if not euc_data.empty else []
-            
-            if raw_returns:
-                current_price = df['Close'].iloc[-1]
-                sim_prices = [current_price * (1 + (r / 100)) for r in raw_returns]
+                st.dataframe(euclidean_df.style.format("{:.2f}"), use_container_width=True)
                 
-                mean_price = np.mean(sim_prices)
-                std_price = np.std(sim_prices)
+                st.divider()
+                st.subheader("🔮 Forecast Distribution Analysis (Euclidean Method)")
+                dist_days = st.selectbox("Distribution Horizon (Days)", [2, 3, 5, 10, 21, 63, 126, 252], index=2)
                 
-                fig_dist = go.Figure()
-                fig_dist.add_trace(go.Histogram(
-                    x=sim_prices, nbinsx=50, marker_color='lightgray', opacity=0.6, name='Simulated Prices'
-                ))
-                fig_dist.add_vline(x=current_price, line_width=3, line_color="black", annotation_text="Current")
-                fig_dist.add_vline(x=mean_price, line_width=3, line_dash="dot", line_color="blue", annotation_text="Forecast Mean")
+                euc_data = get_euclidean_details(df, rank_cols, market_cols, n_neighbors=k_neighbors, target_days=dist_days)
+                raw_returns = euc_data['Fwd Return'].tolist() if not euc_data.empty else []
                 
-                colors = ['green', 'yellow', 'red']
-                for i, c in zip([1, 2, 3], colors):
-                    upper = mean_price + (i * std_price)
-                    lower = mean_price - (i * std_price)
-                    fig_dist.add_vline(x=upper, line_width=1, line_dash="dash", line_color=c)
-                    fig_dist.add_vline(x=lower, line_width=1, line_dash="dash", line_color=c)
-                
-                fig_dist.update_layout(
-                    title=f"Projected Price Distribution ({dist_days} Days) | Based on {len(raw_returns)} Nearest Neighbors",
-                    xaxis_title="Price", yaxis_title="Frequency", template="plotly_white", showlegend=False
-                )
-                
-                st.plotly_chart(fig_dist, use_container_width=True)
-                
-                # --- MATCH DETAILS SELECTION ---
-                st.subheader(f"📜 Historical Match Details ({dist_days} Days)")
-                st.caption("Detailed view of the specific dates identified by both methods.")
-                
-                tab_pairwise, tab_euc = st.tabs(["1. Pairwise Matches (Method 1)", "2. Euclidean Matches (Method 2)"])
-                
-                with tab_pairwise:
-                    st.markdown(f"**Method 1:** Dates where *at least one pair* of indicators was within ±{ensemble_tol} rank points.")
-                    match_df = get_detailed_match_table(df, rank_cols, market_cols, tolerance=ensemble_tol, target_days=dist_days)
-                    if not match_df.empty:
-                        st.dataframe(
-                            match_df.style.format({
-                                "Close Price": "${:.2f}",
-                                "Fwd Return": "{:+.2f}%",
-                                "Fwd Realized Vol": "{:.2f}%"
-                            }).background_gradient(subset=['Fwd Return'], cmap="RdBu", vmin=-5, vmax=5),
-                            use_container_width=True
-                        )
-                    else:
-                        st.info("No pairwise matches found.")
-
-                with tab_euc:
-                    st.markdown(f"**Method 2:** The top {k_neighbors} dates with the smallest Euclidean distance across the entire feature vector.")
-                    # euc_data already calculated above
-                    if not euc_data.empty:
-                        st.dataframe(
-                            euc_data.style.format({
-                                "Euclidean Distance": "{:.2f}",
-                                "Close Price": "${:.2f}",
-                                "Fwd Return": "{:+.2f}%",
-                                "Fwd Realized Vol": "{:.2f}%"
-                            }).background_gradient(subset=['Fwd Return'], cmap="RdBu", vmin=-5, vmax=5),
-                            use_container_width=True
-                        )
-                    else:
-                        st.info("No Euclidean data available.")
+                if raw_returns:
+                    current_price = df['Close'].iloc[-1]
+                    sim_prices = [current_price * (1 + (r / 100)) for r in raw_returns]
+                    mean_price = np.mean(sim_prices)
+                    std_price = np.std(sim_prices)
                     
-                with st.expander("📚 Glossary of Feature Codes"):
-                    st.markdown("""
-                    | Code | Definition |
-                    |---|---|
-                    | **szn** | Seasonality Rank |
-                    | **Xdr** | X-Day Trailing Return Rank (e.g., 5dr = 5d Return) |
-                    | **Xdv** | X-Day Realized Volatility Rank (e.g., 21dv = 21d Realized Vol) |
-                    | **Xdrv** | X-Day Relative Volume Rank (e.g., 10drv = 10d Rel Vol) |
-                    | **Xnh** | Market Total Net Highs Rank (e.g., 5dnh = 5d MA of Net Highs) |
-                    """)
+                    fig_dist = go.Figure()
+                    fig_dist.add_trace(go.Histogram(
+                        x=sim_prices, nbinsx=50, marker_color='lightgray', opacity=0.6, name='Simulated Prices'
+                    ))
+                    fig_dist.add_vline(x=current_price, line_width=3, line_color="black", annotation_text="Current")
+                    fig_dist.add_vline(x=mean_price, line_width=3, line_dash="dot", line_color="blue", annotation_text="Mean")
                     
-            else:
-                st.info("No distribution data available for this horizon (adjust tolerance).")
+                    fig_dist.update_layout(
+                        title=f"Projected Price Distribution ({dist_days} Days) | Based on {len(raw_returns)} Nearest Neighbors",
+                        xaxis_title="Price", yaxis_title="Frequency", template="plotly_white", showlegend=False
+                    )
+                    st.plotly_chart(fig_dist, use_container_width=True)
+                    
+                    st.subheader(f"📜 Historical Match Details ({dist_days} Days)")
+                    tab_pairwise, tab_euc = st.tabs(["1. Pairwise Matches (Filtered Regime)", "2. Euclidean Matches (Raw Similarity)"])
+                    
+                    with tab_pairwise:
+                        # Pairwise uses the FILTERED dataframe
+                        match_df = get_detailed_match_table(df_filtered, rank_cols, market_cols, tolerance=ensemble_tol, target_days=dist_days)
+                        if not match_df.empty:
+                            st.dataframe(match_df.style.format("{:.2f}").background_gradient(subset=['Fwd Return'], cmap="RdBu", vmin=-5, vmax=5), use_container_width=True)
+                        else:
+                            st.info("No pairwise matches found in this filtered regime.")
+                            
+                    with tab_euc:
+                        # Euclidean uses the EUCLIDEAN data (which came from full df)
+                        st.dataframe(euc_data.style.format("{:.2f}").background_gradient(subset=['Fwd Return'], cmap="RdBu", vmin=-5, vmax=5), use_container_width=True)
 
 def main():
     st.set_page_config(layout="wide", page_title="Heatmap Analytics")
