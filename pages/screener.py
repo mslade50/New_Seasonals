@@ -77,7 +77,7 @@ STRATEGY_BOOK = [
     {
         "id": "Lower 10% of Range 5d perf < 50%ile",
         "name": "Ugly Monday Close",
-        "description": "Start: 2000-01-01. Universe: Indices. Dir: Long. Filter: None. PF: 2.13. SQN: 6.63.",
+        "description": "Start: 2000-01-01. Universe: Indices. Dir: Long. Filter: None. PF: 2.36. SQN: 6.97.",
         "universe_tickers": ['SPY', 'QQQ', 'IWM', 'DIA', 'SMH'], 
         "settings": {
             "trade_direction": "Long",
@@ -85,9 +85,9 @@ STRATEGY_BOOK = [
             "max_one_pos": True,
             "max_daily_entries": 5,
             "max_total_positions": 10,
-            "use_perf_rank": True, "perf_window": 5, "perf_logic": "<", "perf_thresh": 60.0,
+            "use_perf_rank": True, "perf_window": 5, "perf_logic": "<", "perf_thresh": 50.0,
             "perf_first_instance": False, "perf_lookback": 21, "perf_consecutive": 1,
-            "use_sznl": False, "sznl_logic": "<", "sznl_thresh": 15.0, "sznl_first_instance": True, "sznl_lookback": 21,
+            "use_sznl": False, "sznl_logic": ">", "sznl_thresh": 50.0, "sznl_first_instance": False, "sznl_lookback": 21,
             "use_52w": False, "52w_type": "New 52w High", "52w_first_instance": True, "52w_lookback": 21,
             "use_vol": False, "vol_thresh": 1.5,
             "use_vol_rank": False, "vol_rank_logic": "<", "vol_rank_thresh": 50.0,
@@ -103,9 +103,9 @@ STRATEGY_BOOK = [
         },
         "stats": {
             "grade": "A (Excellent)",
-            "win_rate": "68.0%",
-            "expectancy": "$213.70",
-            "profit_factor": "2.13"
+            "win_rate": "68.8%",
+            "expectancy": "$237.24",
+            "profit_factor": "2.36"
         }
     },
     # STRATEGY 3: LARGE CAP MEAN REVERSION (B) - HIGHER PRECISION
