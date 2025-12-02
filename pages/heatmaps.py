@@ -70,7 +70,29 @@ def load_market_metrics():
             results[rank_col_name] = ma_col.expanding(min_periods=126).rank(pct=True) * 100.0
 
     return results
-
+    
+@st.cache_data(show_spinner=False)
+def get_spy_context():
+    try:
+        # Download SPY full history
+        spy, _ = download_data("SPY")
+        if spy.empty: return pd.DataFrame()
+        
+        spy = spy.copy()
+        spy['LogRet'] = np.log(spy['Close'] / spy['Close'].shift(1))
+        
+        # Calculate Ranks for 5, 10, 21 days
+        spy_features = pd.DataFrame(index=spy.index)
+        for w in [5, 10, 21]:
+            # Raw Return
+            col_ret = spy['Close'].pct_change(w)
+            # Rank
+            col_rank = f'SPY_Ret_{w}d_Rank'
+            spy_features[col_rank] = col_ret.expanding(min_periods=252).rank(pct=True) * 100.0
+            
+        return spy_features
+    except:
+        return pd.DataFrame()
 # -----------------------------------------------------------------------------
 # DYNAMIC SEASONALITY & DATA
 # -----------------------------------------------------------------------------
@@ -200,10 +222,22 @@ def calculate_heatmap_variables(df, sznl_map, market_metrics_df, ticker):
         df[col_name] = df[v].expanding(min_periods=252).rank(pct=True) * 100.0
         rank_cols.append(col_name)
 
-    # 5. MERGE MARKET METRICS
+    # 5. MERGE MARKET METRICS (Existing)
     if not market_metrics_df.empty:
         df = df.join(market_metrics_df, how='left')
         df.update(df.filter(regex='^Mkt_').ffill(limit=3))
+
+    # 6. MERGE SPY CONTEXT (New)
+    # Only merge if the ticker itself isn't SPY (to avoid duplication/confusion)
+    if ticker != "SPY":
+        spy_df = get_spy_context()
+        if not spy_df.empty:
+            df = df.join(spy_df, how='left')
+            # Add SPY columns to the rank_cols list so they are available for Euclid/Ensemble
+            spy_cols = [c for c in spy_df.columns if 'Rank' in c]
+            rank_cols.extend(spy_cols)
+            # Forward fill a bit to handle mismatched trading holidays
+            df.update(df[spy_cols].ffill(limit=1))
 
     return df, rank_cols
 
@@ -211,6 +245,10 @@ def calculate_distribution_ensemble(df, rank_cols, market_cols, tolerance=1.0):
     if df.empty: return pd.DataFrame()
     
     current_row = df.iloc[-1]
+    
+    # Identify SPY columns vs Standard columns
+    spy_cols = [c for c in rank_cols if c.startswith("SPY_")]
+    standard_cols = [c for c in rank_cols if not c.startswith("SPY_")]
     
     all_features = rank_cols + ['Seasonal'] + market_cols
     valid_features = [f for f in all_features if f in df.columns and not pd.isna(current_row[f])]
@@ -220,7 +258,27 @@ def calculate_distribution_ensemble(df, rank_cols, market_cols, tolerance=1.0):
     targets = [2, 3, 5, 10, 21, 63, 126, 252]
     pooled_outcomes = {t: [] for t in targets}
     
-    pairs = list(itertools.combinations(valid_features, 2))
+    # --- LOGIC UPDATE: RESTRICTED PAIR GENERATION ---
+    pairs = []
+    
+    # 1. Generate standard combinations (Ticker vs Ticker, Ticker vs MarketBreadth, etc)
+    # Exclude SPY cols from the general mix
+    non_spy_valid = [f for f in valid_features if not f.startswith("SPY_")]
+    pairs.extend(list(itertools.combinations(non_spy_valid, 2)))
+    
+    # 2. Generate Specific SPY Pairs (SPY_5d vs Ticker_5d ONLY)
+    # Map SPY col to Ticker col
+    spy_map = {
+        'SPY_Ret_5d_Rank': 'Ret_5d_Rank',
+        'SPY_Ret_10d_Rank': 'Ret_10d_Rank',
+        'SPY_Ret_21d_Rank': 'Ret_21d_Rank'
+    }
+    
+    for spy_col, ticker_col in spy_map.items():
+        if spy_col in valid_features and ticker_col in valid_features:
+            pairs.append((spy_col, ticker_col))
+            
+    # ------------------------------------------------
     
     for f1, f2 in pairs:
         v1 = current_row[f1]
@@ -539,7 +597,7 @@ def render_heatmap():
     col1, col2, col3 = st.columns(3)
     
     with col1:
-        # STRIPPED PREDICTOR OPTIONS
+        # ... existing options ...
         var_options = {
             "Seasonality Rank": "Seasonal",
             # Price
@@ -547,6 +605,10 @@ def render_heatmap():
             "10d Trailing Return Rank": "Ret_10d_Rank",
             "21d Trailing Return Rank": "Ret_21d_Rank",
             "252d Trailing Return Rank": "Ret_252d_Rank",
+            # SPY Context (NEW)
+            "SPY 5d Return Rank": "SPY_Ret_5d_Rank",
+            "SPY 10d Return Rank": "SPY_Ret_10d_Rank",
+            "SPY 21d Return Rank": "SPY_Ret_21d_Rank",
             # Vol
             "21d Realized Vol Rank": "RealVol_21d_Rank",
             "63d Realized Vol Rank": "RealVol_63d_Rank",
@@ -554,6 +616,7 @@ def render_heatmap():
             "10d Rel. Volume Rank": "VolRatio_10d_Rank", 
             "21d Rel. Volume Rank": "VolRatio_21d_Rank",
         }
+        
         
         var_options["Total Net Highs (5d MA) Rank"] = "Mkt_Total_NH_5d_Rank"
         var_options["Total Net Highs (21d MA) Rank"] = "Mkt_Total_NH_21d_Rank"
