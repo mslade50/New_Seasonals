@@ -304,77 +304,70 @@ def seasonals_chart(ticker, cycle_label, show_all_years_line=False):
     # -------------------------------------------------------------------------
     # NEW: FORWARD LOOKING STATISTICS
     # -------------------------------------------------------------------------
+    # -------------------------------------------------------------------------
+    # NEW: DETAILED YEAR-BY-YEAR TABLE WITH HIGHLIGHTING
+    # -------------------------------------------------------------------------
     st.divider()
-    st.subheader(f"🔮 Forward Returns from Trading Day #{current_day_count_val}")
-    st.markdown(f"Historical performance for the **next 5, 10, and 21 days** starting from trading day **{current_day_count_val}**.")
+    st.subheader(f"📜 Detailed History: Day #{current_day_count_val} to Fwd Returns")
+    st.caption(f"Table lists performance for every year. **Cycle years ({cycle_label})** are highlighted in the Year column.")
 
     if current_day_count_val:
-        # 1. Calculate Forward Returns for every row in the historical cycle data
-        cycle_data['Fwd_5d'] = cycle_data.groupby("year")['Close'].transform(lambda x: x.shift(-5) / x - 1)
-        cycle_data['Fwd_10d'] = cycle_data.groupby("year")['Close'].transform(lambda x: x.shift(-10) / x - 1)
-        cycle_data['Fwd_21d'] = cycle_data.groupby("year")['Close'].transform(lambda x: x.shift(-21) / x - 1)
-
-        # 2. Also Calculate "All Years" Forward Returns (if the selected cycle isn't already "All Years")
-        if cycle_label != "All Years":
-            spx['Fwd_5d'] = spx.groupby("year")['Close'].transform(lambda x: x.shift(-5) / x - 1)
-            spx['Fwd_10d'] = spx.groupby("year")['Close'].transform(lambda x: x.shift(-10) / x - 1)
-            spx['Fwd_21d'] = spx.groupby("year")['Close'].transform(lambda x: x.shift(-21) / x - 1)
-
-        # 3. Filter for the specific trading day of the year matching TODAY
-        day_matches = cycle_data[cycle_data['day_count'] == current_day_count_val].copy()
+        # 1. Calculate Forward Returns on the ENTIRE dataset (spx)
+        spx_full = spx.copy()
         
-        # All Years Matches
-        all_years_matches = pd.DataFrame()
-        if cycle_label != "All Years":
-            all_years_matches = spx[spx['day_count'] == current_day_count_val].copy()
+        # Calculate returns looking forward from the current day count
+        spx_full['Fwd_5d'] = spx_full['Close'].shift(-5) / spx_full['Close'] - 1
+        spx_full['Fwd_10d'] = spx_full['Close'].shift(-10) / spx_full['Close'] - 1
+        spx_full['Fwd_21d'] = spx_full['Close'].shift(-21) / spx_full['Close'] - 1
 
-        if not day_matches.empty:
-            fwd_stats = []
-            for w in [5, 10, 21]:
-                col = f'Fwd_{w}d'
-                
-                # --- Specific Cycle Stats ---
-                valid_rets = day_matches[col].dropna()
-                if not valid_rets.empty:
-                    fwd_stats.append({
-                        "Window": f"Next {w} Days ({cycle_label})",
-                        "Avg Return": valid_rets.mean() * 100,
-                        "Median Return": valid_rets.median() * 100,
-                        "Win Rate": (valid_rets > 0).mean() * 100,
-                        "Count": len(valid_rets)
-                    })
-                
-                # --- All Years Stats ---
-                if cycle_label != "All Years" and not all_years_matches.empty:
-                    valid_rets_all = all_years_matches[col].dropna()
-                    if not valid_rets_all.empty:
-                        fwd_stats.append({
-                            "Window": f"Next {w} Days (All Years)",
-                            "Avg Return": valid_rets_all.mean() * 100,
-                            "Median Return": valid_rets_all.median() * 100,
-                            "Win Rate": (valid_rets_all > 0).mean() * 100,
-                            "Count": len(valid_rets_all)
-                        })
+        # 2. Filter for the specific trading day matching TODAY
+        daily_snapshots = spx_full[spx_full['day_count'] == current_day_count_val].copy()
 
-            if fwd_stats:
-                # Display nicely formatted dataframe
-                fwd_df = pd.DataFrame(fwd_stats)
-                st.dataframe(
-                    fwd_df.style.format({
-                        "Avg Return": "{:+.2f}%",
-                        "Median Return": "{:+.2f}%",
-                        "Win Rate": "{:.1f}%",
-                        "Count": "{:.0f}"
-                    }).background_gradient(subset=["Avg Return"], cmap="RdYlGn", vmin=-2, vmax=2),
-                    use_container_width=True,
-                    hide_index=True
-                )
+        if not daily_snapshots.empty:
+            # 3. Prepare the Dataframe for display
+            display_df = daily_snapshots[['year', 'Fwd_5d', 'Fwd_10d', 'Fwd_21d']].copy()
+            
+            # Convert to percentages
+            display_df['Fwd_5d'] = display_df['Fwd_5d'] * 100
+            display_df['Fwd_10d'] = display_df['Fwd_10d'] * 100
+            display_df['Fwd_21d'] = display_df['Fwd_21d'] * 100
+
+            # Sort by Year Descending
+            display_df = display_df.sort_values('year', ascending=False)
+
+            # 4. Define Cycle Years for Highlighting
+            if cycle_label != "All Years":
+                start_yr = cycle_start_mapping.get(cycle_label)
+                highlight_years = [start_yr + i * 4 for i in range(30)] 
             else:
-                st.warning("Insufficient forward data for this trading day.")
+                highlight_years = []
+
+            # 5. Styling Function (Apply ONLY to 'year' column)
+            def highlight_year_cell(val):
+                if val in highlight_years:
+                    # distinct color for the Year cell to indicate cycle match
+                    return 'background-color: #d4af37; color: black; font-weight: bold;' 
+                return ''
+
+            # 6. Render Dataframe
+            st.dataframe(
+                display_df.style
+                .format({
+                    "year": "{:.0f}",
+                    "Fwd_5d": "{:+.2f}%",
+                    "Fwd_10d": "{:+.2f}%",
+                    "Fwd_21d": "{:+.2f}%"
+                })
+                # A. Apply Gradient to Return Columns (Works on ALL rows)
+                .background_gradient(subset=["Fwd_5d", "Fwd_10d", "Fwd_21d"], cmap="RdYlGn", vmin=-5, vmax=5)
+                # B. Apply Highlight to Year Column ONLY
+                .map(highlight_year_cell, subset=['year']),
+                use_container_width=True,
+                height=500,
+                hide_index=True
+            )
         else:
-            st.warning("No historical data found for this specific trading day in the selected cycle.")
-    else:
-        st.warning("Could not determine current trading day count.")
+            st.warning(f"No historical data available for Day #{current_day_count_val}.")
 
     # -------------------------------------------------------------------------
     # EXISTING SUMMARY TABLES
