@@ -238,72 +238,7 @@ def seasonals_chart(ticker, cycle_label, show_all_years_line=False):
     st.subheader(f"📜 Detailed History: Day #{current_day_count_val} to Fwd Returns")
     st.caption(f"Table lists performance for every year. Rows highlighted in **Gold** indicate **{cycle_label}** years.")
 
-    if current_day_count_val:
-        # 1. Calculate Forward Returns on the ENTIRE dataset (spx)
-        # We use the full 'spx' df here to ensure we get every year, not just the cycle years
-        spx_full = spx.copy()
-        
-        # Calculate returns looking forward from the current day count
-        spx_full['Fwd_5d'] = spx_full['Close'].shift(-5) / spx_full['Close'] - 1
-        spx_full['Fwd_10d'] = spx_full['Close'].shift(-10) / spx_full['Close'] - 1
-        spx_full['Fwd_21d'] = spx_full['Close'].shift(-21) / spx_full['Close'] - 1
-
-        # 2. Filter for the specific trading day matching TODAY
-        daily_snapshots = spx_full[spx_full['day_count'] == current_day_count_val].copy()
-
-        if not daily_snapshots.empty:
-            # 3. Prepare the Dataframe for display
-            display_df = daily_snapshots[['year', 'Fwd_5d', 'Fwd_10d', 'Fwd_21d']].copy()
-            
-            # Convert to percentages
-            display_df['Fwd_5d'] = display_df['Fwd_5d'] * 100
-            display_df['Fwd_10d'] = display_df['Fwd_10d'] * 100
-            display_df['Fwd_21d'] = display_df['Fwd_21d'] * 100
-
-            # Sort by Year Descending
-            display_df = display_df.sort_values('year', ascending=False)
-
-            # 4. Define Cycle Years for Highlighting
-            # Re-calculate the list of years based on the user's selection 
-            # (Logic repeated here to ensure highlighting works even if "All Years" chart is selected)
-            if cycle_label != "All Years":
-                start_yr = cycle_start_mapping.get(cycle_label)
-                # Generate list of cycle years
-                highlight_years = [start_yr + i * 4 for i in range(30)] 
-            else:
-                highlight_years = []
-
-            # 5. Styling Function
-            def highlight_cycle(row):
-                # If the year is in our target cycle list, return a style string
-                if row['year'] in highlight_years:
-                    # Gold color for visibility in dark mode
-                    return ['background-color: #5C4033; color: white'] * len(row)
-                else:
-                    return [''] * len(row)
-
-            # 6. Render Dataframe
-            st.dataframe(
-                display_df.style
-                .format({
-                    "year": "{:.0f}",
-                    "Fwd_5d": "{:+.2f}%",
-                    "Fwd_10d": "{:+.2f}%",
-                    "Fwd_21d": "{:+.2f}%"
-                })
-                # Apply Gradient to Return Columns
-                .background_gradient(subset=["Fwd_5d", "Fwd_10d", "Fwd_21d"], cmap="RdYlGn", vmin=-5, vmax=5)
-                # Apply Cycle Highlighting to the whole row
-                .apply(highlight_cycle, axis=1),
-                use_container_width=True,
-                height=500, # Taller height to see history
-                hide_index=True
-            )
-        else:
-            st.warning(f"No historical data available for Day #{current_day_count_val}.")
-    # -------------------------------------------------------------------------
-    # NEW: FORWARD LOOKING STATISTICS
-    # -------------------------------------------------------------------------
+   
     # -------------------------------------------------------------------------
     # NEW: DETAILED YEAR-BY-YEAR TABLE WITH HIGHLIGHTING
     # -------------------------------------------------------------------------
