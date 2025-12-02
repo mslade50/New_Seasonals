@@ -74,6 +74,40 @@ STRATEGY_BOOK = [
             "profit_factor": "2.85"
         }
     },
+    {
+        "id": "Monday lower 10% of range",
+        "name": "Generated Strategy (A)",
+        "description": "Start: 2000-01-01. Universe: Indices. Dir: Long. Filter: None. PF: 1.89. SQN: 6.46.",
+        "universe_tickers": ['SPY', 'QQQ', 'IWM', 'DIA', 'SMH'], 
+        "settings": {
+            "trade_direction": "Long",
+            "entry_type": "T+1 Open",
+            "max_one_pos": True,
+            "max_daily_entries": 5,
+            "max_total_positions": 10,
+            "use_perf_rank": False, "perf_window": 5, "perf_logic": "<", "perf_thresh": 15.0,
+            "perf_first_instance": True, "perf_lookback": 21, "perf_consecutive": 1,
+            "use_sznl": False, "sznl_logic": "<", "sznl_thresh": 15.0, "sznl_first_instance": True, "sznl_lookback": 21,
+            "use_52w": False, "52w_type": "New 52w High", "52w_first_instance": True, "52w_lookback": 21,
+            "use_vol": False, "vol_thresh": 1.5,
+            "use_vol_rank": False, "vol_rank_logic": "<", "vol_rank_thresh": 50.0,
+            "trend_filter": "None",
+            "min_price": 10.0, "min_vol": 100000,
+            "min_age": 0.25, "max_age": 100.0
+        },
+        "execution": {
+            "risk_per_trade": 1000,
+            "stop_atr": 2.0,
+            "tgt_atr": 8.0,
+            "hold_days": 4
+        },
+        "stats": {
+            "grade": "A (Excellent)",
+            "win_rate": "65.0%",
+            "expectancy": "$176.63",
+            "profit_factor": "1.89"
+        }
+    },
     # STRATEGY 3: LARGE CAP MEAN REVERSION (B) - HIGHER PRECISION
     {
         "id": "5d of 21d perf < 15, 10d Rel Vol < 15",
