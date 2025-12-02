@@ -775,7 +775,7 @@ def render_heatmap():
                         display_cols.append(var_options[filter_label])
 
                     table_df = explorer_df[display_cols].sort_index(ascending=False)
-                    # FIX: Format only numeric columns
+                    # FIX: Format only numeric columns AND KEEP GRADIENT
                     num_cols = table_df.select_dtypes(include=[np.number]).columns
                     st.dataframe(
                         table_df.style.format("{:.2f}", subset=num_cols).background_gradient(subset=[zcol], cmap="RdBu", vmin=-limit, vmax=limit),
@@ -795,9 +795,13 @@ def render_heatmap():
             st.subheader(f"🤖 Method 1: Pairwise Ensemble (Box Filter)")
             ensemble_df = calculate_distribution_ensemble(df_filtered, rank_cols, market_cols, tolerance=ensemble_tol)
             if not ensemble_df.empty:
-                # FIX: Format only numeric columns
+                # FIX: Format only numeric columns AND KEEP GRADIENT
                 num_cols = ensemble_df.select_dtypes(include=[np.number]).columns
-                st.dataframe(ensemble_df.style.format("{:.2f}", subset=num_cols), use_container_width=True)
+                st.dataframe(
+                    ensemble_df.style.format("{:.2f}", subset=num_cols)
+                    .background_gradient(subset=['Alpha'], cmap="RdBu", vmin=-2, vmax=2),
+                    use_container_width=True
+                )
             else:
                 st.warning("Not enough data for ensemble.")
 
@@ -807,9 +811,13 @@ def render_heatmap():
             k_neighbors = 50
             euclidean_df = calculate_euclidean_forecast(df, rank_cols, market_cols, n_neighbors=k_neighbors)
             if not euclidean_df.empty:
-                # FIX: Format only numeric columns
+                # FIX: Format only numeric columns AND KEEP GRADIENT
                 num_cols = euclidean_df.select_dtypes(include=[np.number]).columns
-                st.dataframe(euclidean_df.style.format("{:.2f}", subset=num_cols), use_container_width=True)
+                st.dataframe(
+                    euclidean_df.style.format("{:.2f}", subset=num_cols)
+                    .background_gradient(subset=['Alpha'], cmap="RdBu", vmin=-2, vmax=2),
+                    use_container_width=True
+                )
                 
                 st.divider()
                 st.subheader("🔮 Forecast Distribution Analysis (Euclidean Method)")
@@ -844,7 +852,7 @@ def render_heatmap():
                         # Pairwise uses the FILTERED dataframe
                         match_df = get_detailed_match_table(df_filtered, rank_cols, market_cols, tolerance=ensemble_tol, target_days=dist_days)
                         if not match_df.empty:
-                            # FIX: Explicit subset for formatting (excluding 'Trigger Pairs' string column)
+                            # FIX: Explicit subset for formatting (excluding 'Trigger Pairs' string column) AND KEEP GRADIENT
                             num_cols = match_df.select_dtypes(include=[np.number]).columns
                             st.dataframe(match_df.style.format("{:.2f}", subset=num_cols).background_gradient(subset=['Fwd Return'], cmap="RdBu", vmin=-5, vmax=5), use_container_width=True)
                         else:
