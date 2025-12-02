@@ -215,6 +215,14 @@ def calculate_indicators(df, sznl_map, ticker, spy_series=None):
     if spy_series is not None:
         df['SPY_Above_SMA200'] = spy_series.reindex(df.index, method='ffill').fillna(False)
 
+    # NEW: Candle Range % Location (0 = Close at Low, 1 = Close at High)
+    denom = (df['High'] - df['Low'])
+    # Avoid division by zero
+    df['RangePct'] = np.where(denom == 0, 0.5, (df['Close'] - df['Low']) / denom)
+
+    # NEW: Day of Week (0=Monday, 6=Sunday)
+    df['DayOfWeekVal'] = df.index.dayofweek
+
     return df
 
 def run_engine(universe_dict, params, sznl_map, spy_series=None):
@@ -229,11 +237,16 @@ def run_engine(universe_dict, params, sznl_map, spy_series=None):
     # Entry Logic
     entry_mode = params['entry_type']
     is_pullback = "Pullback" in entry_mode
+    is_limit_entry = "Limit (Close -0.5 ATR)" in entry_mode
+
     use_ma_filter = params.get('use_ma_entry_filter', False)
     pullback_col = None
     if "10 SMA" in entry_mode: pullback_col = "SMA10"
     elif "21 EMA" in entry_mode: pullback_col = "EMA21"
     pullback_use_level = "Level" in entry_mode
+
+    # Stats for Fill Rate
+    total_signals_generated = 0
 
     progress_bar = st.progress(0)
     status_text = st.empty()
@@ -245,8 +258,6 @@ def run_engine(universe_dict, params, sznl_map, spy_series=None):
         if len(df_raw) < 100: continue
         
         # Local ticker tracking (to prevent buying same ticker twice if held)
-        # Note: We enforce the strict "Portfolio" limits later, but we need
-        # to generate the candidate trades first.
         ticker_last_exit = pd.Timestamp.min
         
         try:
@@ -285,6 +296,19 @@ def run_engine(universe_dict, params, sznl_map, spy_series=None):
             # --- PRICE ACTION ---
             if params.get('require_close_gt_open', False):
                 conditions.append(df['Close'] > df['Open'])
+            
+            # Range % Filter
+            if params.get('use_range_filter', False):
+                r_min = params.get('range_min', 0.0)
+                r_max = params.get('range_max', 100.0)
+                conditions.append((df['RangePct'] * 100 >= r_min) & (df['RangePct'] * 100 <= r_max))
+            
+            # Day of Week Filter
+            if params.get('use_dow_filter', False):
+                # allowed_days is list of indices [0, 1, etc]
+                allowed_days = params.get('allowed_days', [])
+                if allowed_days:
+                    conditions.append(df['DayOfWeekVal'].isin(allowed_days))
 
             # --- STRATEGY SIGNALS ---
             if params['use_perf_rank']:
@@ -334,6 +358,7 @@ def run_engine(universe_dict, params, sznl_map, spy_series=None):
             for c in conditions[1:]: final_signal = final_signal & c
             
             signal_dates = df.index[final_signal]
+            total_signals_generated += len(signal_dates)
             
             # --- TRADE EXECUTION SIMULATION (Per Ticker) ---
             for signal_date in signal_dates:
@@ -370,8 +395,47 @@ def run_engine(universe_dict, params, sznl_map, spy_series=None):
                             else:
                                 actual_entry_price = row['Close']
                             break
-                
-                # PATH B: IMMEDIATE
+
+                # PATH B: LIMIT (CLOSE - 0.5 ATR)
+                elif is_limit_entry:
+                    # Calculate Limit Price based on Signal Day
+                    sig_row = df.iloc[sig_idx]
+                    sig_atr = sig_row['ATR']
+                    sig_close = sig_row['Close']
+                    
+                    if np.isnan(sig_atr): continue
+
+                    if direction == 'Long':
+                        limit_price = sig_close - (0.5 * sig_atr)
+                    else:
+                        limit_price = sig_close + (0.5 * sig_atr)
+
+                    # Look for fill in next 3 days (hardcoded as per request)
+                    for wait_i in range(1, 4):
+                        curr_check_idx = sig_idx + wait_i
+                        if curr_check_idx >= len(df): break
+                        
+                        row = df.iloc[curr_check_idx]
+                        
+                        # Check Fill
+                        is_filled = False
+                        if direction == 'Long':
+                            # To buy, Low must be <= Limit
+                            if row['Low'] <= limit_price:
+                                is_filled = True
+                                actual_entry_price = limit_price # Limit fill assumption
+                        else:
+                            # To sell short, High must be >= Limit
+                            if row['High'] >= limit_price:
+                                is_filled = True
+                                actual_entry_price = limit_price
+
+                        if is_filled:
+                            found_entry = True
+                            actual_entry_idx = curr_check_idx
+                            break
+
+                # PATH C: IMMEDIATE
                 else:
                     found_entry = True
                     if entry_mode == 'Signal Close':
@@ -471,7 +535,7 @@ def run_engine(universe_dict, params, sznl_map, spy_series=None):
 
     # 2. APPLY PORTFOLIO CONSTRAINTS (The New Logic)
     if not all_potential_trades:
-        return pd.DataFrame()
+        return pd.DataFrame(), 0
 
     st.info(f"Processing Portfolio Constraints on {len(all_potential_trades)} potential signals...")
     
@@ -508,7 +572,7 @@ def run_engine(universe_dict, params, sznl_map, spy_series=None):
         active_positions.append(trade)
         daily_entries[entry_date] = today_count + 1
 
-    return pd.DataFrame(final_trades_log)
+    return pd.DataFrame(final_trades_log), total_signals_generated
 
 def grade_strategy(pf, sqn, win_rate, total_trades):
     score = 0
@@ -603,6 +667,7 @@ def main():
             "Signal Close", 
             "T+1 Open", 
             "T+1 Close",
+            "Limit (Close -0.5 ATR)",
             "Pullback 10 SMA (Entry: Close)",
             "Pullback 10 SMA (Entry: Level)",
             "Pullback 21 EMA (Entry: Close)",
@@ -630,7 +695,31 @@ def main():
         with l4: max_age = st.number_input("Max True Age (Yrs)", value=100.0, step=1.0)
     
     with st.expander("Price Action", expanded=True):
-        req_green_candle = st.checkbox("Require Close > Open (Green Candle)", value=False)
+        pa1, pa2 = st.columns(2)
+        with pa1:
+            req_green_candle = st.checkbox("Require Close > Open (Green Candle)", value=False)
+        with pa2:
+            st.markdown("**Candle Range Location %**")
+            use_range_filter = st.checkbox("Filter by Range %", value=False)
+            r1, r2 = st.columns(2)
+            with r1: range_min = st.number_input("Min % (0=Low)", 0, 100, 0, disabled=not use_range_filter)
+            with r2: range_max = st.number_input("Max % (100=High)", 0, 100, 100, disabled=not use_range_filter)
+
+    with st.expander("Day of Week Filter", expanded=False):
+        use_dow_filter = st.checkbox("Enable Day of Week Filter", value=False)
+        st.caption("Select valid days for a signal:")
+        c_mon, c_tue, c_wed, c_thu, c_fri = st.columns(5)
+        valid_days = []
+        with c_mon: 
+            if st.checkbox("Monday", value=True, disabled=not use_dow_filter): valid_days.append(0)
+        with c_tue: 
+            if st.checkbox("Tuesday", value=True, disabled=not use_dow_filter): valid_days.append(1)
+        with c_wed: 
+            if st.checkbox("Wednesday", value=True, disabled=not use_dow_filter): valid_days.append(2)
+        with c_thu: 
+            if st.checkbox("Thursday", value=True, disabled=not use_dow_filter): valid_days.append(3)
+        with c_fri: 
+            if st.checkbox("Friday", value=True, disabled=not use_dow_filter): valid_days.append(4)
         
     # B. TREND
     with st.expander("Trend Filter", expanded=True):
@@ -737,6 +826,8 @@ def main():
             'stop_atr': stop_atr, 'tgt_atr': tgt_atr, 'holding_days': hold_days, 'entry_type': entry_type,
             'use_ma_entry_filter': use_ma_entry_filter,
             'require_close_gt_open': req_green_candle,
+            'use_range_filter': use_range_filter, 'range_min': range_min, 'range_max': range_max,
+            'use_dow_filter': use_dow_filter, 'allowed_days': valid_days,
             'min_price': min_price, 'min_vol': min_vol, 'min_age': min_age, 'max_age': max_age,
             'trend_filter': trend_filter,
             'use_perf_rank': use_perf, 'perf_window': perf_window, 'perf_logic': perf_logic, 
@@ -749,9 +840,12 @@ def main():
             'use_vol_rank': use_vol_rank, 'vol_rank_logic': vol_rank_logic, 'vol_rank_thresh': vol_rank_thresh
         }
         
-        trades_df = run_engine(data_dict, params, sznl_map, spy_series)
+        trades_df, total_signals = run_engine(data_dict, params, sznl_map, spy_series)
+        
         if trades_df.empty:
             st.warning("No signals generated.")
+            if total_signals > 0:
+                st.warning(f"Note: {total_signals} raw signals were found, but none triggered an entry (Check Fill Logic).")
             return
 
         trades_df = trades_df.sort_values("ExitDate")
@@ -777,6 +871,8 @@ def main():
         r_series = trades_df['R']
         sqn = np.sqrt(len(trades_df)) * (r_series.mean() / r_series.std()) if len(trades_df) > 1 else 0
         
+        fill_rate = (len(trades_df) / total_signals * 100) if total_signals > 0 else 0
+
         grade, verdict, notes = grade_strategy(pf, sqn, win_rate, len(trades_df))
         
         st.success("Backtest Complete!")
@@ -789,6 +885,9 @@ def main():
                 <div><h3>SQN: {sqn:.2f}</h3></div>
                 <div><h3>Win Rate: {win_rate:.1f}%</h3></div>
                 <div><h3>Expectancy: ${trades_df['PnL_Dollar'].mean():.2f}</h3></div>
+            </div>
+            <div style="margin-top: 10px; color: #aaa; font-size: 14px;">
+               Fill Rate: {fill_rate:.1f}% ({len(trades_df)} trades from {total_signals} signals)
             </div>
         </div>
         """, unsafe_allow_html=True)
