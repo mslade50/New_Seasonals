@@ -76,7 +76,7 @@ STRATEGY_BOOK = [
     },
     {
         "id": "Lower 10% of Range 5d perf < 50%ile",
-        "name": "Generated Strategy (A)",
+        "name": "Ugly Monday Close",
         "description": "Start: 2000-01-01. Universe: Indices. Dir: Long. Filter: None. PF: 2.13. SQN: 6.63.",
         "universe_tickers": ['SPY', 'QQQ', 'IWM', 'DIA', 'SMH'], 
         "settings": {
