@@ -220,15 +220,23 @@ def calculate_distribution_ensemble(df, rank_cols, market_cols, tolerance=1.0):
     return pd.DataFrame(summary)
 
 # --- EUCLIDEAN & BACKTESTING ENGINE ---
-def backtest_euclidean_model(df, rank_cols, market_cols, start_year=2015, n_neighbors=50, target_days=5, weights_dict=None):
-    all_feats = rank_cols + ['Seasonal'] + market_cols
+def backtest_euclidean_model(df, rank_cols, market_cols, start_year=2015, n_neighbors=50, target_days=5, weights_dict=None, specific_features=None):
+    # 1. Determine Feature Set
+    if specific_features is not None:
+        all_feats = specific_features
+    else:
+        all_feats = rank_cols + ['Seasonal'] + market_cols
+        
     target_col = f'FwdRet_{target_days}d'
     validation_df = df.dropna(subset=all_feats + [target_col]).copy()
     test_indices = validation_df[validation_df.index.year >= start_year].index
+    
     if len(test_indices) == 0: return pd.DataFrame()
 
+    # 2. Prepare Weights
     w_vec = np.ones(len(all_feats))
     if weights_dict:
+        # Map weights only for the active features
         w_vec = np.array([weights_dict.get(f, 1.0) for f in all_feats])
     
     feat_matrix = validation_df[all_feats].values
@@ -454,6 +462,11 @@ def render_heatmap():
                 with sim_c2: sim_k = st.number_input("Neighbors (k)", 10, 200, 50, key="sim_k")
                 with sim_c3: sim_target = st.selectbox("Target Horizon (Signal)", [5, 10, 21], index=0, key="sim_target")
 
+                # --- NEW: Feature Selector ---
+                st.markdown("#### ⚙️ Feature Selector")
+                all_possible_features = rank_cols + ['Seasonal'] + [c for c in df.columns if c.startswith("Mkt_")]
+                selected_sim_features = st.multiselect("Active Features for Simulation", all_possible_features, default=all_possible_features)
+
                 st.markdown("---")
                 
                 p_col1, p_col2, p_col3 = st.columns(3)
@@ -469,11 +482,13 @@ def render_heatmap():
                 active_weights = {"Ret_21d_Rank": 3.0, "NAAIM_Rank": 2.0} 
                 
                 if st.button("Run Multi-Scenario Simulation"):
-                    with st.spinner(f"Simulating using {sim_target}d forecasts..."):
-                        # Use local simulation parameters, NOT the IC tab parameters
+                    with st.spinner(f"Simulating using {len(selected_sim_features)} features over {sim_target}d forecasts..."):
+                        
+                        # Use local simulation parameters AND specific feature list
                         preds = backtest_euclidean_model(df, rank_cols, [c for c in df.columns if c.startswith("Mkt_")], 
                                                          start_year=sim_start, n_neighbors=sim_k, target_days=sim_target, 
-                                                         weights_dict=active_weights)
+                                                         weights_dict=active_weights,
+                                                         specific_features=selected_sim_features)
                         
                         # 1. Daily No Slip
                         daily_raw = run_portfolio_simulation(df, preds, lev_long, lev_short, conviction, start_cap, slippage_bps=0, rebalance_weekly=False)
