@@ -1208,7 +1208,68 @@ def render_heatmap():
                 ))
                 fig_corr.update_layout(title="Feature Correlation Matrix", height=700)
                 st.plotly_chart(fig_corr, use_container_width=True)
-
+                # ... (Existing code where you display standard IC) ...
+                        
+                st.markdown("---")
+                st.subheader("🧹 'Net Zero' Reality Check")
+                st.write("Does the model work if we remove the general market uptrend (Drift)?")
+                
+                # 1. Calculate the "Drift" (The Naive Baseline)
+                # We use a 252-day rolling mean of the ACTUAL returns as the "Trend Bias"
+                drift = bt_res['Actual'].rolling(window=252).mean()
+                
+                # 2. Subtract Drift from Prediction and Actuals
+                # "Excess Pred" = How much MORE bullish/bearish is the model than the long-term trend?
+                excess_pred = bt_res['Predicted'] - drift
+                excess_actual = bt_res['Actual'] - drift
+                
+                # Filter out the NaN start period
+                valid_check = pd.DataFrame({
+                    'Excess_Pred': excess_pred,
+                    'Excess_Actual': excess_actual
+                }).dropna()
+                
+                if not valid_check.empty:
+                    # 3. Calculate Alpha IC
+                    alpha_ic, _ = pearsonr(valid_check['Excess_Pred'], valid_check['Excess_Actual'])
+                    
+                    c1, c2, c3 = st.columns(3)
+                    
+                    c1.metric("Original IC (With Trend)", f"{ic_pearson:.3f}")
+                    
+                    delta_color = "normal"
+                    if alpha_ic < 0.02: delta_color = "inverse" # Turn red if it fails
+                    c2.metric("Alpha IC (De-trended)", f"{alpha_ic:.3f}", delta_color=delta_color)
+                    
+                    # 4. Interpret the Drop
+                    drop_pct = (ic_pearson - alpha_ic) / ic_pearson * 100
+                    c3.metric("Dependency on Trend", f"{drop_pct:.1f}%")
+                    
+                    if alpha_ic > 0.05:
+                        st.success(f"✅ PASS: The model has predictive power ({alpha_ic:.3f}) even in a 'Net Zero' environment. It is identifying specific patterns, not just trend.")
+                    elif alpha_ic > 0:
+                        st.warning(f"⚠️ WEAK: The model has some edge ({alpha_ic:.3f}), but it heavily relies on the market going up.")
+                    else:
+                        st.error("❌ FAIL: The model's edge disappears when you remove the trend. It is purely surfing Beta.")
+                        
+                    # 5. Visual Proof
+                    st.write("**De-Trended Scatter:** Do we still see a slope?")
+                    fig_alpha = go.Figure(data=go.Scattergl(
+                        x=valid_check['Excess_Pred'],
+                        y=valid_check['Excess_Actual'],
+                        mode='markers',
+                        marker=dict(color='orange', opacity=0.5, size=5)
+                    ))
+                    fig_alpha.update_layout(
+                        xaxis_title=f"Predicted Excess Return (vs Trend)",
+                        yaxis_title=f"Actual Excess Return (vs Trend)",
+                        height=400,
+                        title="Alpha Scatter (Net Zero Environment)"
+                    )
+                    fig_alpha.add_vline(x=0, line_width=1, line_color="grey")
+                    fig_alpha.add_hline(y=0, line_width=1, line_color="grey")
+                    st.plotly_chart(fig_alpha, use_container_width=True)
+            
             with inspector_tabs[1]:
                 st.info("This test runs the backtest multiple times, shuffling one feature each time to break its signal. It measures how much the Model IC drops.")
                 
