@@ -258,50 +258,68 @@ def backtest_euclidean_model(df, rank_cols, market_cols, start_year=2015, n_neig
     progress_bar.empty()
     return pd.DataFrame({'Predicted': predictions, 'Actual': actuals}, index=dates)
 
-def run_portfolio_simulation(df, predictions_df, max_long=2.0, max_short=-1.0, sensitivity=1.0, start_capital=100000):
+def run_portfolio_simulation(df, predictions_df, max_long=2.0, max_short=-1.0, 
+                             sensitivity=1.0, start_capital=100000, 
+                             slippage_bps=0.0, rebalance_weekly=False):
     """
-    Simulates a portfolio that rebalances DAILY based on the model's forward prediction.
-    Strategy: 
-      - Calculate Target Weight = Prediction * Sensitivity
-      - Clip Weight between Max Long and Max Short
-      - Apply Weight to Next Day's Return
+    Simulates portfolio with friction and optional weekly rebalancing.
     """
-    # 1. Prepare Data
-    # Align dates. The 'Predicted' value at Date T is generated AFTER CLOSE on Date T.
-    # Therefore, it dictates the position held from Close T to Close T+1.
+    # 1. Setup
     sim_df = predictions_df[['Predicted']].copy()
     
-    # Get the asset's daily returns for the simulation period
-    # We use 'Close' to 'Close' daily returns
-    asset_daily_ret = df['Close'].pct_change().shift(-1) # Shift -1 because we want T+1 return aligned with T signal
+    # 2. Weekly Logic (Update only on Thursdays)
+    if rebalance_weekly:
+        # We assume trading happens on Thursday Close.
+        # So the signal visible on Thursday (index) determines the position.
+        is_thursday = sim_df.index.day_name() == 'Thursday'
+        sim_df.loc[~is_thursday, 'Predicted'] = np.nan
+        # Forward fill the signal: Friday gets Thursday's signal, etc.
+        sim_df['Predicted'] = sim_df['Predicted'].ffill()
+    
+    # 3. Asset Returns (Shifted -1 to align T position with T->T+1 return)
+    asset_daily_ret = df['Close'].pct_change().shift(-1)
     sim_df['Asset_Daily_Ret'] = asset_daily_ret.loc[sim_df.index]
     
-    # 2. Determine Position Sizing (Signal Translation)
-    # Prediction is in %, e.g., 2.0 means 2%.
-    # If sensitivity is 0.5: Target = 2.0 * 0.5 = 100% Long.
-    # If sensitivity is 1.0: Target = 2.0 * 1.0 = 200% Long.
+    # 4. Position Sizing
     sim_df['Target_Weight'] = sim_df['Predicted'] * sensitivity
-    
-    # Apply Leverage Constraints
     sim_df['Position'] = sim_df['Target_Weight'].clip(lower=max_short, upper=max_long)
     
-    # 3. Calculate Strategy Returns
-    # Strategy Return = Position * Asset Return
-    # Note: We ignore transaction costs for the raw alpha check, but could add -0.0005 here
-    sim_df['Strategy_Ret'] = sim_df['Position'] * sim_df['Asset_Daily_Ret']
+    # 5. Slippage Calculation
+    # Calculate position change from T-1 to T
+    # Note: If weekly, position only changes on Thursdays, so cost only incurred then.
+    pos_change = sim_df['Position'].diff().abs().fillna(0)
+    cost = pos_change * (slippage_bps / 10000.0)
     
-    # 4. Construct Equity Curves
+    # 6. Returns
+    sim_df['Strategy_Ret_Gross'] = sim_df['Position'] * sim_df['Asset_Daily_Ret']
+    sim_df['Strategy_Ret_Net'] = sim_df['Strategy_Ret_Gross'] - cost
+    
+    # 7. Equity Curves
     sim_df = sim_df.dropna()
-    
-    # Cumulative Return Calculation
     sim_df['Benchmark_Equity'] = start_capital * (1 + sim_df['Asset_Daily_Ret']).cumprod()
-    sim_df['Strategy_Equity'] = start_capital * (1 + sim_df['Strategy_Ret']).cumprod()
+    sim_df['Strategy_Equity'] = start_capital * (1 + sim_df['Strategy_Ret_Net']).cumprod()
     
-    # 5. Drawdown Stats
+    # Drawdown
     sim_df['Peak'] = sim_df['Strategy_Equity'].cummax()
     sim_df['Drawdown'] = (sim_df['Strategy_Equity'] - sim_df['Peak']) / sim_df['Peak']
     
     return sim_df
+
+def display_net_zero_check(results_df, model_name="Model"):
+    if results_df.empty: return
+    st.markdown("---")
+    st.subheader(f"🧹 'Net Zero' Reality Check ({model_name})")
+    drift = results_df['Actual'].rolling(window=252).mean()
+    excess_pred = results_df['Predicted'] - drift
+    excess_actual = results_df['Actual'] - drift
+    valid_check = pd.DataFrame({'Excess_Pred': excess_pred, 'Excess_Actual': excess_actual, 'Predicted': results_df['Predicted'], 'Actual': results_df['Actual']}).dropna()
+    if not valid_check.empty:
+        ic_pearson, _ = pearsonr(valid_check['Predicted'], valid_check['Actual'])
+        alpha_ic, _ = pearsonr(valid_check['Excess_Pred'], valid_check['Excess_Actual'])
+        c1, c2, c3 = st.columns(3)
+        c1.metric("Original IC", f"{ic_pearson:.3f}")
+        c2.metric("Alpha IC", f"{alpha_ic:.3f}", delta_color="inverse" if alpha_ic < 0.02 else "normal")
+        c3.metric("Dependency on Trend", f"{((ic_pearson - alpha_ic)/ic_pearson*100):.1f}%")
 
 # --- UI HELPERS ---
 def get_seismic_colorscale():
@@ -311,6 +329,38 @@ def get_seismic_colorscale():
         r, g, b, _ = cm(k / 254.0)
         seismic.append([k / 254.0, f'rgb({int(r*255)},{int(g*255)},{int(b*255)})'])
     return seismic
+
+# -----------------------------------------------------------------------------
+# FEATURE INSPECTION TOOLS
+# -----------------------------------------------------------------------------
+def calculate_feature_correlations(df, feature_cols, target_col='FwdRet_5d'):
+    target_corrs = []
+    data = df.dropna(subset=feature_cols + [target_col])
+    for f in feature_cols:
+        corr, _ = spearmanr(data[f], data[target_col])
+        target_corrs.append({'Feature': f, 'Target Correlation': corr})
+    target_df = pd.DataFrame(target_corrs).sort_values(by='Target Correlation', key=abs, ascending=False)
+    corr_matrix = data[feature_cols].corr(method='spearman')
+    return target_df, corr_matrix
+
+def run_permutation_importance(df, rank_cols, market_cols, start_year, n_neighbors, target_days):
+    baseline_res = backtest_euclidean_model(df, rank_cols, market_cols, start_year=start_year, n_neighbors=n_neighbors, target_days=target_days)
+    if baseline_res.empty: return pd.DataFrame()
+    baseline_ic, _ = spearmanr(baseline_res['Predicted'], baseline_res['Actual'])
+    features = rank_cols + ['Seasonal'] + market_cols
+    importance_data = []
+    prog = st.progress(0)
+    n_feats = len(features)
+    for i, feat in enumerate(features):
+        prog.progress((i / n_feats))
+        shuffled_df = df.copy()
+        shuffled_df[feat] = np.random.permutation(shuffled_df[feat].values)
+        perm_res = backtest_euclidean_model(shuffled_df, rank_cols, market_cols, start_year=start_year, n_neighbors=n_neighbors, target_days=target_days)
+        if not perm_res.empty:
+            perm_ic, _ = spearmanr(perm_res['Predicted'], perm_res['Actual'])
+            importance_data.append({'Feature': feat, 'Shuffled IC': perm_ic, 'Importance (IC Drop)': baseline_ic - perm_ic})
+    prog.empty()
+    return pd.DataFrame(importance_data).sort_values('Importance (IC Drop)', ascending=False)
 
 # -----------------------------------------------------------------------------
 # UI: MAIN
@@ -347,14 +397,9 @@ def render_heatmap():
             with tab_heat:
                 st.write("Visual Pattern Matching")
                 ensemble_df = calculate_distribution_ensemble(df, rank_cols, [c for c in df.columns if c.startswith("Mkt_")], tolerance=5)
-                
                 if not ensemble_df.empty:
-                    # FIX: Select only numeric columns for formatting
                     num_cols = ensemble_df.select_dtypes(include=[np.number]).columns
-                    st.dataframe(
-                        ensemble_df.style.format("{:.2f}", subset=num_cols)
-                        .background_gradient(cmap="RdBu", vmin=-2, vmax=2, subset=['Alpha'])
-                    )
+                    st.dataframe(ensemble_df.style.format("{:.2f}", subset=num_cols).background_gradient(cmap="RdBu", vmin=-2, vmax=2, subset=['Alpha']))
             
             with tab_backtest:
                 st.write("Statistical Predictive Power (IC)")
@@ -363,70 +408,114 @@ def render_heatmap():
                 with b_cols[1]: bt_k = st.number_input("Neighbors", 10, 200, 50, key="bt_k_ic")
                 with b_cols[2]: bt_t = st.selectbox("Target", [5, 10, 21], key="bt_t_ic")
                 
+                # --- ADD FEATURE INSPECTION BUTTONS HERE FOR CONVENIENCE ---
+                target_col_name = f'FwdRet_{bt_t}d'
+                active_feats = rank_cols + ['Seasonal'] + [c for c in df.columns if c.startswith("Mkt_")]
+                
+                if st.checkbox("Show Feature Inspector", value=False):
+                    icols = st.columns(2)
+                    with icols[0]:
+                        if st.button("Calc Correlations"):
+                            target_corr_df, corr_matrix = calculate_feature_correlations(df, active_feats, target_col=target_col_name)
+                            fig_pred = go.Figure(go.Bar(x=target_corr_df['Target Correlation'], y=target_corr_df['Feature'], orientation='h', marker=dict(color=target_corr_df['Target Correlation'], colorscale='RdBu', cmid=0)))
+                            fig_pred.update_layout(title=f"Individual Feature vs {target_col_name}", height=500, yaxis={'categoryorder':'total ascending'})
+                            st.plotly_chart(fig_pred, use_container_width=True)
+                            
+                            st.write("**Redundancy Matrix**")
+                            fig_corr = go.Figure(data=go.Heatmap(z=corr_matrix.values, x=corr_matrix.columns, y=corr_matrix.index, colorscale='RdBu', zmin=-1, zmax=1))
+                            fig_corr.update_layout(height=600)
+                            st.plotly_chart(fig_corr, use_container_width=True)
+                    with icols[1]:
+                        if st.button("Run Permutation Importance"):
+                            with st.spinner("Shuffling features..."):
+                                imp_df = run_permutation_importance(df, rank_cols, [c for c in df.columns if c.startswith("Mkt_")], bt_start, bt_k, bt_t)
+                                if not imp_df.empty:
+                                    fig_imp = go.Figure(go.Bar(x=imp_df['Importance (IC Drop)'], y=imp_df['Feature'], orientation='h', marker=dict(color=imp_df['Importance (IC Drop)'], colorscale='Viridis')))
+                                    fig_imp.update_layout(title=f"Feature Importance (Drop in IC)", height=500, yaxis={'categoryorder':'total ascending'})
+                                    st.plotly_chart(fig_imp, use_container_width=True)
+
                 if st.button("Run IC Check"):
                     res = backtest_euclidean_model(df, rank_cols, [c for c in df.columns if c.startswith("Mkt_")], bt_start, bt_k, bt_t)
                     if not res.empty:
                         ic = pearsonr(res['Predicted'], res['Actual'])[0]
                         st.metric("Information Coefficient", f"{ic:.3f}")
                         st.line_chart(res['Predicted'].rolling(252).corr(res['Actual']))
+                        display_net_zero_check(res, "Standard Model")
             
             with tab_portfolio:
-                st.markdown("### 💰 Portfolio Simulator")
-                st.info("This simulates **Daily Rebalancing**. Even though the forecast is for 5 days, we update our position every single day based on the newest forecast. This solves the 'Overlap' problem.")
+                st.markdown("### 💰 Realistic Portfolio Simulator")
+                st.info("Runs 4 scenarios simultaneously to show the impact of Slippage and Turnover.")
                 
                 p_col1, p_col2, p_col3 = st.columns(3)
                 with p_col1: 
-                    lev_long = st.slider("Max Long Leverage", 1.0, 3.0, 2.0, 0.1)
-                    lev_short = st.slider("Max Short Leverage", 0.0, 2.0, 1.0, 0.1) * -1
+                    lev_long = st.slider("Max Long", 1.0, 3.0, 2.0, 0.1)
+                    lev_short = st.slider("Max Short", 0.0, 2.0, 1.0, 0.1) * -1
                 with p_col2:
-                    conviction = st.slider("Conviction Scaler (Pos % per 1% Pred)", 0.1, 2.0, 0.5, 0.1)
+                    conviction = st.slider("Conviction (Pos % per 1% Pred)", 0.1, 2.0, 0.5, 0.1)
+                    slippage = st.number_input("Slippage (bps per trade)", value=5, min_value=0)
                 with p_col3:
                     start_cap = st.number_input("Start Capital", value=100000)
                 
                 active_weights = {"Ret_21d_Rank": 3.0, "NAAIM_Rank": 2.0} 
                 
-                if st.button("Run Portfolio Simulation"):
-                    with st.spinner("Simulating Daily Trading..."):
+                if st.button("Run Multi-Scenario Simulation"):
+                    with st.spinner("Simulating Daily vs Weekly vs Slippage..."):
                         preds = backtest_euclidean_model(df, rank_cols, [c for c in df.columns if c.startswith("Mkt_")], 
                                                          start_year=bt_start, n_neighbors=bt_k, target_days=5, 
                                                          weights_dict=active_weights)
                         
-                        port_df = run_portfolio_simulation(df, preds, max_long=lev_long, max_short=lev_short, 
-                                                           sensitivity=conviction, start_capital=start_cap)
+                        # 1. Daily No Slip
+                        daily_raw = run_portfolio_simulation(df, preds, lev_long, lev_short, conviction, start_cap, slippage_bps=0, rebalance_weekly=False)
+                        # 2. Daily Slip
+                        daily_slip = run_portfolio_simulation(df, preds, lev_long, lev_short, conviction, start_cap, slippage_bps=slippage, rebalance_weekly=False)
+                        # 3. Weekly No Slip
+                        weekly_raw = run_portfolio_simulation(df, preds, lev_long, lev_short, conviction, start_cap, slippage_bps=0, rebalance_weekly=True)
+                        # 4. Weekly Slip
+                        weekly_slip = run_portfolio_simulation(df, preds, lev_long, lev_short, conviction, start_cap, slippage_bps=slippage, rebalance_weekly=True)
                         
-                        if not port_df.empty:
-                            final_strat = port_df['Strategy_Equity'].iloc[-1]
-                            final_bench = port_df['Benchmark_Equity'].iloc[-1]
-                            strat_ret = (final_strat - start_cap) / start_cap * 100
-                            bench_ret = (final_bench - start_cap) / start_cap * 100
-                            max_dd = port_df['Drawdown'].min() * 100
+                        if not daily_raw.empty:
+                            # Benchmark
+                            bench_series = daily_raw['Benchmark_Equity']
                             
-                            m1, m2, m3 = st.columns(3)
-                            m1.metric("Strategy Final Equity", f"${final_strat:,.0f}", delta=f"{strat_ret:.1f}%")
-                            m2.metric("Buy & Hold SPY", f"${final_bench:,.0f}", delta=f"{bench_ret:.1f}%")
-                            m3.metric("Max Drawdown", f"{max_dd:.1f}%", delta_color="inverse")
+                            # Metrics Table
+                            metrics = []
+                            scenarios = {
+                                "Daily (No Slip)": daily_raw,
+                                f"Daily ({slippage}bps)": daily_slip,
+                                "Weekly (No Slip)": weekly_raw,
+                                f"Weekly ({slippage}bps)": weekly_slip,
+                                "Buy & Hold SPY": None # Special case
+                            }
                             
-                            fig_eq = go.Figure()
-                            fig_eq.add_trace(go.Scatter(x=port_df.index, y=port_df['Strategy_Equity'], name='Strategy', line=dict(color='green', width=2)))
-                            fig_eq.add_trace(go.Scatter(x=port_df.index, y=port_df['Benchmark_Equity'], name='Buy & Hold', line=dict(color='gray', dash='dot')))
-                            fig_eq.update_layout(title="Portfolio Value over Time", yaxis_title="Equity ($)", height=500)
-                            st.plotly_chart(fig_eq, use_container_width=True)
+                            for name, s_df in scenarios.items():
+                                if s_df is None: # Benchmark
+                                    final = bench_series.iloc[-1]
+                                    ret = (final - start_cap)/start_cap * 100
+                                    peak = bench_series.cummax()
+                                    dd = ((bench_series - peak)/peak).min() * 100
+                                else:
+                                    final = s_df['Strategy_Equity'].iloc[-1]
+                                    ret = (final - start_cap)/start_cap * 100
+                                    dd = s_df['Drawdown'].min() * 100
+                                
+                                metrics.append({"Scenario": name, "Final Equity": f"${final:,.0f}", "Total Return": f"{ret:.1f}%", "Max Drawdown": f"{dd:.1f}%"})
                             
-                            st.write("**Leverage Utilization:** When did we go 200% Long vs Short?")
-                            fig_lev = go.Figure()
-                            # FIX: Use go.Scatter with fill='tozeroy' instead of go.Area
-                            fig_lev.add_trace(go.Scatter(
-                                x=port_df.index, 
-                                y=port_df['Position'], 
-                                name='Position Size', 
-                                fill='tozeroy', 
-                                mode='lines',
-                                line=dict(color='blue')
-                            ))
-                            fig_lev.update_layout(title="Active Position Size (-1.0 to 2.0)", yaxis_title="Leverage", height=300)
-                            st.plotly_chart(fig_lev, use_container_width=True)
+                            st.dataframe(pd.DataFrame(metrics))
+                            
+                            # Comparison Chart
+                            fig_comp = go.Figure()
+                            fig_comp.add_trace(go.Scatter(x=daily_raw.index, y=bench_series, name="Buy & Hold", line=dict(color='grey', dash='dot')))
+                            fig_comp.add_trace(go.Scatter(x=daily_raw.index, y=daily_raw['Strategy_Equity'], name="Daily (No Slip)", line=dict(color='green', width=1)))
+                            fig_comp.add_trace(go.Scatter(x=daily_slip.index, y=daily_slip['Strategy_Equity'], name=f"Daily ({slippage}bps)", line=dict(color='lightgreen', width=2)))
+                            fig_comp.add_trace(go.Scatter(x=weekly_raw.index, y=weekly_raw['Strategy_Equity'], name="Weekly (No Slip)", line=dict(color='blue', width=1)))
+                            fig_comp.add_trace(go.Scatter(x=weekly_slip.index, y=weekly_slip['Strategy_Equity'], name=f"Weekly ({slippage}bps)", line=dict(color='cyan', width=2)))
+                            
+                            fig_comp.update_layout(title="Impact of Friction & Rebalancing Frequency", yaxis_title="Equity ($)", height=600)
+                            st.plotly_chart(fig_comp, use_container_width=True)
+                            
                         else:
-                            st.error("Simulation failed (No data).")
+                            st.error("Simulation failed.")
+
 def main():
     st.set_page_config(layout="wide", page_title="Heatmap Analytics")
     render_heatmap()
