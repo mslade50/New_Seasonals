@@ -196,14 +196,7 @@ def seasonals_chart(ticker, cycle_label, show_all_years_line=False):
     )
     fig.update_xaxes(showgrid=False)
     fig.update_yaxes(showgrid=False)
-    fig.add_annotation(
-        text=annotation_text,
-        xref="paper", yref="paper",
-        x=1.0, y=1.05,
-        showarrow=False,
-        font=dict(color="white", size=12),
-        align="right"
-    )
+
 
     st.plotly_chart(fig, use_container_width=True)
     # -------------------------------------------------------------------------
