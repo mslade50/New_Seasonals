@@ -15,6 +15,7 @@ from collections import defaultdict
 # -----------------------------------------------------------------------------
 SEASONAL_PATH = "seasonal_ranks.csv"
 METRICS_PATH = "market_metrics_full_export.csv"
+NAAIM_PATH = "naaim.csv"  # <--- NEW CONSTANT
 
 @st.cache_data(show_spinner=False)
 def load_seasonal_map():
@@ -70,6 +71,41 @@ def load_market_metrics():
             results[rank_col_name] = ma_col.expanding(min_periods=126).rank(pct=True) * 100.0
 
     return results
+
+@st.cache_data(show_spinner=False)
+def load_naaim_data():
+    """Loads NAAIM CSV, calcs Weekly MAs, and preps for daily merge."""
+    try:
+        df = pd.read_csv(NAAIM_PATH)
+        # Attempt to identify date column and value column
+        # Assuming typical format, but let's be robust
+        if 'Date' in df.columns:
+            df['Date'] = pd.to_datetime(df['Date'])
+        elif 'date' in df.columns:
+             df['Date'] = pd.to_datetime(df['date'])
+        else:
+             # Fallback: assume first column is date
+             df['Date'] = pd.to_datetime(df.iloc[:, 0])
+
+        df = df.set_index('Date').sort_index()
+        
+        # Identify the numeric column (usually 'Naaim Number' or similar)
+        # We take the first numeric column we find
+        num_cols = df.select_dtypes(include=[np.number]).columns
+        if len(num_cols) > 0:
+            val_col = num_cols[0]
+            df = df[[val_col]].rename(columns={val_col: 'NAAIM'})
+        else:
+            return pd.DataFrame()
+
+        # Calculate MAs on the WEEKLY data (before merging to daily)
+        # This ensures '5 period' means 5 weeks, not 5 days
+        df['NAAIM_MA5'] = df['NAAIM'].rolling(5).mean()
+        df['NAAIM_MA12'] = df['NAAIM'].rolling(12).mean()
+
+        return df
+    except Exception as e:
+        return pd.DataFrame()
 
 # -----------------------------------------------------------------------------
 # DYNAMIC SEASONALITY & DATA
@@ -234,6 +270,23 @@ def calculate_heatmap_variables(df, sznl_map, market_metrics_df, ticker):
             rank_cols.extend(spy_cols)
             df.update(df[spy_cols].ffill(limit=1))
 
+    # 7. MERGE NAAIM DATA
+    naaim_df = load_naaim_data()
+    if not naaim_df.empty:
+        # We join NAAIM data. Since NAAIM is weekly, we forward fill.
+        df = df.join(naaim_df, how='left')
+        
+        # Explicitly forward fill the NAAIM columns
+        naaim_cols_raw = ['NAAIM', 'NAAIM_MA5', 'NAAIM_MA12']
+        df[naaim_cols_raw] = df[naaim_cols_raw].ffill()
+        
+        # Calculate Percentile Ranks for the 3 metrics
+        for col in naaim_cols_raw:
+            rank_col = f"{col}_Rank"
+            # Expanding rank gives us the percentile vs history
+            df[rank_col] = df[col].expanding(min_periods=252).rank(pct=True) * 100.0
+            rank_cols.append(rank_col)
+
     return df, rank_cols
 
 def calculate_distribution_ensemble(df, rank_cols, market_cols, tolerance=1.0):
@@ -241,7 +294,9 @@ def calculate_distribution_ensemble(df, rank_cols, market_cols, tolerance=1.0):
     
     current_row = df.iloc[-1]
     
+    # We now include 'NAAIM' related columns in valid features check
     all_features = rank_cols + ['Seasonal'] + market_cols
+    # Ensure any new rank cols (like NAAIM) are picked up
     valid_features = [f for f in all_features if f in df.columns and not pd.isna(current_row[f])]
     
     if len(valid_features) < 2: return pd.DataFrame()
@@ -430,6 +485,10 @@ def get_feature_shorthand(name):
     if n.startswith("RealVol_"): return n.replace("RealVol_", "").replace("d", "") + "dv"
     if n.startswith("Mkt_"): return n.split("_")[-1] + "nh"
     if n.startswith("SPY_"): return n.replace("SPY_Ret_", "spy") + "dr"
+    if n.startswith("NAAIM"): 
+        if "MA5" in n: return "naaim5"
+        if "MA12" in n: return "naaim12"
+        return "naaim"
     return n[:4]
 
 def get_detailed_match_table(df, rank_cols, market_cols, tolerance=5.0, target_days=5):
@@ -599,7 +658,11 @@ def render_heatmap():
         "21d Rel. Volume Rank": "VolRatio_21d_Rank",
         # Market Breadth
         "Total Net Highs (5d MA) Rank": "Mkt_Total_NH_5d_Rank",
-        "Total Net Highs (21d MA) Rank": "Mkt_Total_NH_21d_Rank"
+        "Total Net Highs (21d MA) Rank": "Mkt_Total_NH_21d_Rank",
+        # NAAIM
+        "NAAIM Exposure Rank": "NAAIM_Rank",
+        "NAAIM 5wk MA Rank": "NAAIM_MA5_Rank",
+        "NAAIM 12wk MA Rank": "NAAIM_MA12_Rank"
     }
 
     target_options = {
@@ -790,6 +853,9 @@ def render_heatmap():
             st.divider()
             
             market_cols = [c for c in df.columns if c.startswith("Mkt_")]
+            # Add NAAIM to market columns for ensemble logic if they exist
+            naaim_rank_cols = [c for c in df.columns if "NAAIM" in c and "Rank" in c]
+            market_cols.extend(naaim_rank_cols)
             
             # Method 1 (Uses Filtered DF to show stats for the specific regime)
             st.subheader(f"🤖 Method 1: Pairwise Ensemble (Box Filter)")
