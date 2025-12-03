@@ -340,6 +340,48 @@ def get_seismic_colorscale():
         seismic.append([k / 254.0, f'rgb({int(r*255)},{int(g*255)},{int(b*255)})'])
     return seismic
 
+def get_euclidean_details_for_today(df, rank_cols, market_cols, n_neighbors=50, target_days=5, weights_dict=None, specific_features=None):
+    """Calculates neighbors just for the LAST row in the DF (Today)."""
+    current_row = df.iloc[-1]
+    
+    if specific_features:
+        all_feats = specific_features
+    else:
+        all_feats = rank_cols + ['Seasonal'] + market_cols
+        
+    # Valid feats check
+    valid_feats = [f for f in all_feats if f in df.columns and not pd.isna(current_row[f])]
+    if not valid_feats: return pd.DataFrame()
+    
+    # History
+    history = df.iloc[:-1].dropna(subset=valid_feats).copy()
+    if history.empty: return pd.DataFrame()
+    
+    # Vector math
+    target_vec = current_row[valid_feats].astype(float).values
+    hist_matrix = history[valid_feats].values
+    
+    # Weighting
+    w_vec = np.ones(len(valid_feats))
+    if weights_dict:
+        w_vec = np.array([weights_dict.get(f, 1.0) for f in valid_feats])
+    
+    diffs_sq = (hist_matrix - target_vec)**2
+    weighted_diffs = diffs_sq * w_vec
+    dists = np.sqrt(np.sum(weighted_diffs, axis=1))
+    
+    history['Euclidean_Dist'] = dists
+    
+    # Top N
+    nearest = history.nsmallest(n_neighbors, 'Euclidean_Dist').copy()
+    
+    # Add context columns
+    ret_col = f'FwdRet_{target_days}d'
+    if ret_col in nearest.columns: nearest['Fwd Return'] = nearest[ret_col]
+    else: nearest['Fwd Return'] = np.nan
+        
+    return nearest[['Euclidean_Dist', 'Close', 'Fwd Return']]
+
 # -----------------------------------------------------------------------------
 # FEATURE INSPECTION TOOLS
 # -----------------------------------------------------------------------------
@@ -568,6 +610,43 @@ def render_heatmap():
                             
                             fig_comp.update_layout(title="Impact of Friction & Rebalancing Frequency (Log Scale)", yaxis_title="Equity ($)", height=600, yaxis_type="log")
                             st.plotly_chart(fig_comp, use_container_width=True)
+                            
+                            # --- LIVE TRADE DESK ---
+                            st.divider()
+                            st.markdown("### 🔔 Live Trade Desk")
+                            st.info(f"Signal based on **{sim_target}d Forecast** | Logic: **{len(selected_sim_features)} Features** & **{sim_k} Neighbors**.")
+                            
+                            # Get latest signal from preds
+                            last_date = preds.index[-1]
+                            last_pred = preds['Predicted'].iloc[-1]
+                            
+                            # Calculate Current Target Position
+                            # Raw Target
+                            raw_t = last_pred * conviction
+                            # Clipped Target
+                            final_pos = np.clip(raw_t, lev_short, lev_long)
+                            
+                            c1, c2, c3 = st.columns(3)
+                            c1.metric("Signal Date", last_date.strftime('%Y-%m-%d'))
+                            c2.metric(f"Model Forecast ({sim_target}d)", f"{last_pred:.2f}%")
+                            
+                            # Determine Color
+                            color = "off"
+                            if final_pos > 0.5: color = "normal" # Green
+                            elif final_pos < -0.2: color = "inverse" # Red
+                            
+                            c3.metric("Recommended Allocation", f"{final_pos*100:.1f}%", delta=f"Lev: {final_pos:.2f}x", delta_color=color)
+                            
+                            # Show Neighbors for Today
+                            st.write("**Why? Top 5 Nearest Neighbors to Today:**")
+                            today_neighbors = get_euclidean_details_for_today(
+                                df, rank_cols, [c for c in df.columns if c.startswith("Mkt_")], 
+                                n_neighbors=sim_k, target_days=sim_target,
+                                weights_dict=active_weights, specific_features=selected_sim_features
+                            )
+                            if not today_neighbors.empty:
+                                num_cols = today_neighbors.select_dtypes(include=[np.number]).columns
+                                st.dataframe(today_neighbors.head(5).style.format("{:.2f}", subset=num_cols).background_gradient(subset=['Fwd Return'], cmap="RdBu", vmin=-5, vmax=5))
                             
                         else:
                             st.error("Simulation failed.")
