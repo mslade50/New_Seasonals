@@ -1,3 +1,3 @@
 Ticker,Date,Type,Seas_Score,Tech_Streak_Days,Curr_5d_Rank,Curr_21d_Rank,Seas_All_Avg_5d,Seas_All_Med_5d,Seas_All_Win_5d,Seas_All_Avg_21d,Seas_All_Med_21d,Seas_All_Win_21d,Seas_Cyc_Avg_5d,Seas_Cyc_Med_5d,Seas_Cyc_Win_5d,Seas_Cyc_Avg_21d,Seas_Cyc_Med_21d,Seas_Cyc_Win_21d
-AVA,2025-12-02,Bull,85.9,1,6.5,81.8,0.45,0.59,58.3,2.85,2.67,72.2,1.28,1.1,88.9,3.8,3.06,66.7
-MOS,2025-12-02,Bull,86.1,1,74.1,13.2,1.17,1.15,60.0,6.53,5.82,76.0,1.43,1.64,66.7,7.88,6.74,83.3
+QCOM,2025-12-03,Bear,13.9,1,89.5,31.6,-0.38,-0.28,47.8,1.14,-0.99,34.8,-1.69,-0.17,50.0,-4.74,-4.81,33.3
+AVA,2025-12-03,Bull,85.9,2,4.3,78.8,0.03,0.58,59.5,2.71,3.49,73.0,0.26,0.58,66.7,5.75,7.03,88.9
