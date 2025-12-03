@@ -64,7 +64,7 @@ STRATEGY_BOOK = [
             "min_age": 0.25, "max_age": 100.0
         },
         "execution": {
-            "risk_per_trade": 1000,
+            "risk_per_trade": 300,
             "stop_atr": 2.0,
             "tgt_atr": 8.0,
             "hold_days": 5
