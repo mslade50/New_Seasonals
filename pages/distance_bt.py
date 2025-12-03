@@ -259,18 +259,14 @@ def backtest_euclidean_model(df, rank_cols, market_cols, start_year=2015, n_neig
         curr_feat = feat_matrix[i]
         
         # --- EXCLUSION LOGIC ---
-        # We need to find the index where date < (curr_date - 1 month)
-        # Using searchsorted on the index is efficient
         cutoff_date = curr_date - exclusion_delta
         cutoff_idx = np.searchsorted(index_array, cutoff_date, side='left')
         
-        # Ensure we have enough history AFTER exclusion
         if cutoff_idx < n_neighbors: continue
         
         hist_feats = feat_matrix[:cutoff_idx]
         hist_rets = target_array[:cutoff_idx]
         
-        # Weighted Distance
         dists = np.sqrt(np.sum(((hist_feats - curr_feat)**2) * w_vec, axis=1))
         neighbor_idxs = np.argpartition(dists, n_neighbors)[:n_neighbors]
         predictions.append(np.mean(hist_rets[neighbor_idxs]))
@@ -282,23 +278,43 @@ def backtest_euclidean_model(df, rank_cols, market_cols, start_year=2015, n_neig
 
 def run_portfolio_simulation(df, predictions_df, max_long=2.0, max_short=-1.0, 
                              sensitivity=1.0, start_capital=100000, 
-                             slippage_bps=0.0, rebalance_weekly=False):
+                             slippage_bps=0.0, rebalance_freq='Daily'):
     """
-    Simulates portfolio with friction and optional weekly rebalancing.
+    Simulates portfolio with friction and varying rebalance frequencies.
+    rebalance_freq: 'Daily', 'Weekly', 'Monthly'
     """
     sim_df = predictions_df[['Predicted']].copy()
     
-    if rebalance_weekly:
-        is_thursday = sim_df.index.day_name() == 'Thursday'
-        sim_df.loc[~is_thursday, 'Predicted'] = np.nan
+    # --- REBALANCE LOGIC ---
+    if rebalance_freq == 'Weekly':
+        # Update on Thursdays
+        mask = sim_df.index.day_name() == 'Thursday'
+        sim_df.loc[~mask, 'Predicted'] = np.nan
         sim_df['Predicted'] = sim_df['Predicted'].ffill()
-    
+        
+    elif rebalance_freq == 'Monthly':
+        # Update on the last trading day of the month
+        # We can approximate this by grouping by Year-Month and taking the last index
+        # Or simpler: Resample to month end, then reindex back
+        # But to be safe in a daily dataframe, we need to mark the "Last available day"
+        
+        # Identify month-end dates present in the data
+        sim_df['YrMo'] = sim_df.index.to_period('M')
+        # For each group, mark the last date as valid
+        valid_dates = sim_df.reset_index().groupby('YrMo')['Date'].last().values
+        
+        sim_df.loc[~sim_df.index.isin(valid_dates), 'Predicted'] = np.nan
+        sim_df['Predicted'] = sim_df['Predicted'].ffill()
+        sim_df.drop(columns=['YrMo'], inplace=True)
+
+    # --- EXECUTION LOGIC ---
     asset_daily_ret = df['Close'].pct_change().shift(-1)
     sim_df['Asset_Daily_Ret'] = asset_daily_ret.loc[sim_df.index]
     
     sim_df['Target_Weight'] = sim_df['Predicted'] * sensitivity
     sim_df['Position'] = sim_df['Target_Weight'].clip(lower=max_short, upper=max_long)
     
+    # Calculate Cost only when position changes
     pos_change = sim_df['Position'].diff().abs().fillna(0)
     cost = pos_change * (slippage_bps / 10000.0)
     
@@ -355,7 +371,6 @@ def get_seismic_colorscale():
     return seismic
 
 def get_euclidean_details_for_today(df, rank_cols, market_cols, n_neighbors=50, target_days=5, weights_dict=None, specific_features=None, exclusion_months=1):
-    """Calculates neighbors just for the LAST row in the DF (Today)."""
     current_row = df.iloc[-1]
     curr_date = df.index[-1]
     
@@ -367,10 +382,7 @@ def get_euclidean_details_for_today(df, rank_cols, market_cols, n_neighbors=50, 
     valid_feats = [f for f in all_feats if f in df.columns and not pd.isna(current_row[f])]
     if not valid_feats: return pd.DataFrame()
     
-    # EXCLUSION LOGIC FOR LIVE DASHBOARD
-    # We must exclude the last X months from the history pool
     cutoff_date = curr_date - pd.DateOffset(months=exclusion_months)
-    
     history = df[df.index <= cutoff_date].dropna(subset=valid_feats).copy()
     if history.empty: return pd.DataFrame()
     
@@ -386,7 +398,6 @@ def get_euclidean_details_for_today(df, rank_cols, market_cols, n_neighbors=50, 
     dists = np.sqrt(np.sum(weighted_diffs, axis=1))
     
     history['Euclidean_Dist'] = dists
-    
     nearest = history.nsmallest(n_neighbors, 'Euclidean_Dist').copy()
     
     ret_col = f'FwdRet_{target_days}d'
@@ -509,7 +520,7 @@ def render_heatmap():
             
             with tab_portfolio:
                 st.markdown("### 💰 Realistic Portfolio Simulator")
-                st.info("Runs 4 scenarios simultaneously to show the impact of Slippage and Turnover.")
+                st.info("Runs 3 scenarios simultaneously to show the impact of Slippage and Turnover.")
                 
                 # --- NEW: Simulation Specific Controls ---
                 sim_c1, sim_c2, sim_c3 = st.columns(3)
@@ -547,19 +558,17 @@ def render_heatmap():
                                                          specific_features=selected_sim_features,
                                                          exclusion_months=exclusion_mo)
                         
-                        # 1. Daily No Slip
-                        daily_raw = run_portfolio_simulation(df, preds, lev_long, lev_short, conviction, start_cap, slippage_bps=0, rebalance_weekly=False)
-                        # 2. Daily Slip
-                        daily_slip = run_portfolio_simulation(df, preds, lev_long, lev_short, conviction, start_cap, slippage_bps=slippage, rebalance_weekly=False)
-                        # 3. Weekly No Slip
-                        weekly_raw = run_portfolio_simulation(df, preds, lev_long, lev_short, conviction, start_cap, slippage_bps=0, rebalance_weekly=True)
-                        # 4. Weekly Slip
-                        weekly_slip = run_portfolio_simulation(df, preds, lev_long, lev_short, conviction, start_cap, slippage_bps=slippage, rebalance_weekly=True)
+                        # 1. Daily Slip
+                        daily_slip = run_portfolio_simulation(df, preds, lev_long, lev_short, conviction, start_cap, slippage_bps=slippage, rebalance_freq='Daily')
+                        # 2. Weekly Slip
+                        weekly_slip = run_portfolio_simulation(df, preds, lev_long, lev_short, conviction, start_cap, slippage_bps=slippage, rebalance_freq='Weekly')
+                        # 3. Monthly Slip
+                        monthly_slip = run_portfolio_simulation(df, preds, lev_long, lev_short, conviction, start_cap, slippage_bps=slippage, rebalance_freq='Monthly')
                         
-                        if not daily_raw.empty:
+                        if not daily_slip.empty:
                             # Benchmark
-                            bench_series = daily_raw['Benchmark_Equity']
-                            bench_ret_series = daily_raw['Asset_Daily_Ret']
+                            bench_series = daily_slip['Benchmark_Equity']
+                            bench_ret_series = daily_slip['Asset_Daily_Ret']
                             
                             # Calculate Benchmark Metrics
                             b_cagr, b_sharpe, b_sortino, b_vol = calc_metrics(bench_ret_series)
@@ -583,10 +592,9 @@ def render_heatmap():
                             })
                             
                             scenarios = {
-                                "Daily (No Slip)": daily_raw,
                                 f"Daily ({slippage}bps)": daily_slip,
-                                "Weekly (No Slip)": weekly_raw,
-                                f"Weekly ({slippage}bps)": weekly_slip
+                                f"Weekly ({slippage}bps)": weekly_slip,
+                                f"Monthly ({slippage}bps)": monthly_slip
                             }
                             
                             for name, s_df in scenarios.items():
@@ -617,11 +625,10 @@ def render_heatmap():
                             
                             # Comparison Chart
                             fig_comp = go.Figure()
-                            fig_comp.add_trace(go.Scatter(x=daily_raw.index, y=bench_series, name="Buy & Hold", line=dict(color='grey', dash='dot')))
-                            fig_comp.add_trace(go.Scatter(x=daily_raw.index, y=daily_raw['Strategy_Equity'], name="Daily (No Slip)", line=dict(color='green', width=1)))
-                            fig_comp.add_trace(go.Scatter(x=daily_slip.index, y=daily_slip['Strategy_Equity'], name=f"Daily ({slippage}bps)", line=dict(color='lightgreen', width=2)))
-                            fig_comp.add_trace(go.Scatter(x=weekly_raw.index, y=weekly_raw['Strategy_Equity'], name="Weekly (No Slip)", line=dict(color='blue', width=1)))
+                            fig_comp.add_trace(go.Scatter(x=daily_slip.index, y=bench_series, name="Buy & Hold", line=dict(color='grey', dash='dot')))
+                            fig_comp.add_trace(go.Scatter(x=daily_slip.index, y=daily_slip['Strategy_Equity'], name=f"Daily ({slippage}bps)", line=dict(color='lightgreen', width=1)))
                             fig_comp.add_trace(go.Scatter(x=weekly_slip.index, y=weekly_slip['Strategy_Equity'], name=f"Weekly ({slippage}bps)", line=dict(color='cyan', width=2)))
+                            fig_comp.add_trace(go.Scatter(x=monthly_slip.index, y=monthly_slip['Strategy_Equity'], name=f"Monthly ({slippage}bps)", line=dict(color='orange', width=2)))
                             
                             fig_comp.update_layout(title="Impact of Friction & Rebalancing Frequency (Log Scale)", yaxis_title="Equity ($)", height=600, yaxis_type="log")
                             st.plotly_chart(fig_comp, use_container_width=True)
