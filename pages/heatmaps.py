@@ -154,6 +154,78 @@ def generate_dynamic_seasonal_profile(df, cutoff_date, target_year):
     
     return final_rank_smooth.to_dict()
 
+# -----------------------------------------------------------------------------
+# FEATURE INSPECTION TOOLS
+# -----------------------------------------------------------------------------
+def calculate_feature_correlations(df, feature_cols, target_col='FwdRet_5d'):
+    """
+    1. Calculates correlation of each feature vs the Target (Predictive Power).
+    2. Calculates correlation matrix of features vs each other (Redundancy).
+    """
+    # 1. Target Correlation
+    target_corrs = []
+    data = df.dropna(subset=feature_cols + [target_col])
+    
+    for f in feature_cols:
+        # Use Spearman (Rank) correlation since we are using ranks
+        corr, _ = spearmanr(data[f], data[target_col])
+        target_corrs.append({'Feature': f, 'Target Correlation': corr})
+        
+    target_df = pd.DataFrame(target_corrs).sort_values(by='Target Correlation', key=abs, ascending=False)
+    
+    # 2. Redundancy Matrix
+    corr_matrix = data[feature_cols].corr(method='spearman')
+    
+    return target_df, corr_matrix
+
+def run_permutation_importance(df, rank_cols, market_cols, start_year, n_neighbors, target_days):
+    """
+    Runs the backtest N times. In each run, ONE feature is shuffled randomly.
+    We measure how much the IC drops compared to the baseline.
+    """
+    # 1. Establish Baseline
+    baseline_res = backtest_euclidean_model(df, rank_cols, market_cols, 
+                                            start_year=start_year, 
+                                            n_neighbors=n_neighbors, 
+                                            target_days=target_days)
+    if baseline_res.empty: return pd.DataFrame()
+    
+    baseline_ic, _ = spearmanr(baseline_res['Predicted'], baseline_res['Actual'])
+    
+    features = rank_cols + ['Seasonal'] + market_cols
+    importance_data = []
+    
+    # Progress bar for the heavy lifting
+    prog = st.progress(0)
+    n_feats = len(features)
+    
+    for i, feat in enumerate(features):
+        prog.progress((i / n_feats))
+        
+        # Create a copy of the dataframe where ONLY this feature is shuffled
+        shuffled_df = df.copy()
+        shuffled_df[feat] = np.random.permutation(shuffled_df[feat].values)
+        
+        # Run Backtest with the broken feature
+        perm_res = backtest_euclidean_model(shuffled_df, rank_cols, market_cols, 
+                                            start_year=start_year, 
+                                            n_neighbors=n_neighbors, 
+                                            target_days=target_days)
+        
+        if not perm_res.empty:
+            perm_ic, _ = spearmanr(perm_res['Predicted'], perm_res['Actual'])
+            # Importance = Baseline - Broken
+            # Positive value = Feature helped. Negative value = Feature hurt.
+            drop = baseline_ic - perm_ic
+            importance_data.append({
+                'Feature': feat,
+                'Shuffled IC': perm_ic,
+                'Importance (IC Drop)': drop
+            })
+            
+    prog.empty()
+    return pd.DataFrame(importance_data).sort_values('Importance (IC Drop)', ascending=False)
+    
 def get_sznl_val_series(ticker, dates, sznl_map, df_hist=None):
     t_map = sznl_map.get(ticker, {})
     if t_map:
@@ -1087,6 +1159,83 @@ def render_heatmap():
 
                     else:
                         st.warning("Not enough data to run backtest.")
+                st.markdown("---")
+            st.subheader("🕵️ Feature Inspector")
+            st.write("Determine which features are driving the edge and which are redundant noise.")
+
+            # Identify current active features based on previous logic
+            # (Re-gathering them here for clarity)
+            active_feats = rank_cols + ['Seasonal'] + market_cols
+            target_col_name = f'FwdRet_{bt_target}d'
+            
+            inspector_tabs = st.tabs(["1. Redundancy & Signal", "2. Permutation Importance (Slow & Accurate)"])
+            
+            with inspector_tabs[0]:
+                st.write("**Univariate Rank Correlation:** How well does this single feature predict the future?")
+                
+                target_corr_df, corr_matrix = calculate_feature_correlations(df, active_feats, target_col=target_col_name)
+                
+                # Plot 1: Bar Chart of Feature Predictive Power
+                fig_pred = go.Figure(go.Bar(
+                    x=target_corr_df['Target Correlation'],
+                    y=target_corr_df['Feature'],
+                    orientation='h',
+                    marker=dict(color=target_corr_df['Target Correlation'], colorscale='RdBu', cmid=0)
+                ))
+                fig_pred.update_layout(title=f"Individual Feature vs {target_col_name} (Spearman)", height=500, yaxis={'categoryorder':'total ascending'})
+                st.plotly_chart(fig_pred, use_container_width=True)
+                
+                st.divider()
+                st.write("**Feature Redundancy Matrix:** Dark Red/Blue squares mean two features are identical.")
+                
+                # Plot 2: Heatmap of Redundancy
+                fig_corr = go.Figure(data=go.Heatmap(
+                    z=corr_matrix.values,
+                    x=corr_matrix.columns,
+                    y=corr_matrix.index,
+                    colorscale='RdBu', zmin=-1, zmax=1
+                ))
+                fig_corr.update_layout(title="Feature Correlation Matrix", height=700)
+                st.plotly_chart(fig_corr, use_container_width=True)
+
+            with inspector_tabs[1]:
+                st.info("This test runs the backtest multiple times, shuffling one feature each time to break its signal. It measures how much the Model IC drops.")
+                
+                if st.button("Run Permutation Test"):
+                    with st.spinner(f"Testing {len(active_feats)} features..."):
+                        # We use a shorter timeframe for speed if needed, or the same user selected one
+                        imp_df = run_permutation_importance(df, rank_cols, market_cols, 
+                                                            start_year=bt_start_year, 
+                                                            n_neighbors=bt_neighbors, 
+                                                            target_days=bt_target)
+                        
+                        if not imp_df.empty:
+                            # Plot Importance
+                            fig_imp = go.Figure(go.Bar(
+                                x=imp_df['Importance (IC Drop)'],
+                                y=imp_df['Feature'],
+                                orientation='h',
+                                marker=dict(color=imp_df['Importance (IC Drop)'], colorscale='Viridis')
+                            ))
+                            fig_imp.update_layout(
+                                title=f"Feature Importance (Drop in IC)", 
+                                xaxis_title="Loss in Predictive Power when Feature is Removed",
+                                height=600,
+                                yaxis={'categoryorder':'total ascending'}
+                            )
+                            st.plotly_chart(fig_imp, use_container_width=True)
+                            
+                            st.dataframe(imp_df.style.background_gradient(subset=['Importance (IC Drop)'], cmap='RdYlGn'), use_container_width=True)
+                            
+                            # Interpretation
+                            top_feat = imp_df.iloc[0]['Feature']
+                            st.success(f"**Most Critical Feature:** {top_feat} (Removing it hurts the model the most).")
+                            
+                            toxic_feats = imp_df[imp_df['Importance (IC Drop)'] < 0]
+                            if not toxic_feats.empty:
+                                st.error(f"**Potential Toxic Features:** {', '.join(toxic_feats['Feature'].tolist())}. (The model actually improved when these were randomized!)")
+                        else:
+                            st.error("Could not run importance test (insufficient data).")
 
 def main():
     st.set_page_config(layout="wide", page_title="Heatmap Analytics")
