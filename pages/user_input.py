@@ -182,32 +182,7 @@ def seasonals_chart(ticker, cycle_label, show_all_years_line=False):
             line=dict(color="green", width=2)
         ))
 
-    # --- 5D Concordance Logic (Existing) ---
-    annotation_text = "Not enough data"
-    if not current_year_data.empty:
-        min_len = min(len(this_year_path), len(avg_path))
-        if min_len >= 10:
-            try:
-                actual_5d = this_year_path.rolling(5).apply(lambda x: x.iloc[-1] - x.iloc[0], raw=False)
-                avg_5d = avg_path.rolling(5).apply(lambda x: x.iloc[-1] - x.iloc[0], raw=False)
-                
-                comparison_df = pd.DataFrame({
-                    "actual_5d": actual_5d.iloc[:min_len].values,
-                    "avg_5d": avg_5d.iloc[:min_len].values
-                }).dropna()
-                
-                # Filter out flat signals
-                threshold = 0.001
-                comparison_df = comparison_df[
-                    (comparison_df["actual_5d"].abs() > threshold) &
-                    (comparison_df["avg_5d"].abs() > threshold)
-                ]
-                
-                if not comparison_df.empty:
-                    concordance = (np.sign(comparison_df["actual_5d"]) == np.sign(comparison_df["avg_5d"])).mean()
-                    
-            except Exception as e:
-                annotation_text = "Concordance Error"
+
 
     # Chart Layout
     fig.update_layout(
