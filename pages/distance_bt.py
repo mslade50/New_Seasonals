@@ -259,14 +259,18 @@ def backtest_euclidean_model(df, rank_cols, market_cols, start_year=2015, n_neig
         curr_feat = feat_matrix[i]
         
         # --- EXCLUSION LOGIC ---
+        # We need to find the index where date < (curr_date - 1 month)
+        # Using searchsorted on the index is efficient
         cutoff_date = curr_date - exclusion_delta
         cutoff_idx = np.searchsorted(index_array, cutoff_date, side='left')
         
+        # Ensure we have enough history AFTER exclusion
         if cutoff_idx < n_neighbors: continue
         
         hist_feats = feat_matrix[:cutoff_idx]
         hist_rets = target_array[:cutoff_idx]
         
+        # Weighted Distance
         dists = np.sqrt(np.sum(((hist_feats - curr_feat)**2) * w_vec, axis=1))
         neighbor_idxs = np.argpartition(dists, n_neighbors)[:n_neighbors]
         predictions.append(np.mean(hist_rets[neighbor_idxs]))
@@ -294,12 +298,10 @@ def run_portfolio_simulation(df, predictions_df, max_long=2.0, max_short=-1.0,
         
     elif rebalance_freq == 'Monthly':
         # Update on the last trading day of the month
-        # We can approximate this by grouping by Year-Month and taking the last index
-        # Or simpler: Resample to month end, then reindex back
-        # But to be safe in a daily dataframe, we need to mark the "Last available day"
-        
-        # Identify month-end dates present in the data
+        # FIX: Explicitly name the index so reset_index works cleanly
+        sim_df.index.name = 'Date'
         sim_df['YrMo'] = sim_df.index.to_period('M')
+        
         # For each group, mark the last date as valid
         valid_dates = sim_df.reset_index().groupby('YrMo')['Date'].last().values
         
@@ -371,6 +373,7 @@ def get_seismic_colorscale():
     return seismic
 
 def get_euclidean_details_for_today(df, rank_cols, market_cols, n_neighbors=50, target_days=5, weights_dict=None, specific_features=None, exclusion_months=1):
+    """Calculates neighbors just for the LAST row in the DF (Today)."""
     current_row = df.iloc[-1]
     curr_date = df.index[-1]
     
@@ -382,7 +385,10 @@ def get_euclidean_details_for_today(df, rank_cols, market_cols, n_neighbors=50, 
     valid_feats = [f for f in all_feats if f in df.columns and not pd.isna(current_row[f])]
     if not valid_feats: return pd.DataFrame()
     
+    # EXCLUSION LOGIC FOR LIVE DASHBOARD
+    # We must exclude the last X months from the history pool
     cutoff_date = curr_date - pd.DateOffset(months=exclusion_months)
+    
     history = df[df.index <= cutoff_date].dropna(subset=valid_feats).copy()
     if history.empty: return pd.DataFrame()
     
@@ -398,6 +404,7 @@ def get_euclidean_details_for_today(df, rank_cols, market_cols, n_neighbors=50, 
     dists = np.sqrt(np.sum(weighted_diffs, axis=1))
     
     history['Euclidean_Dist'] = dists
+    
     nearest = history.nsmallest(n_neighbors, 'Euclidean_Dist').copy()
     
     ret_col = f'FwdRet_{target_days}d'
