@@ -264,37 +264,29 @@ def run_portfolio_simulation(df, predictions_df, max_long=2.0, max_short=-1.0,
     """
     Simulates portfolio with friction and optional weekly rebalancing.
     """
-    # 1. Setup
     sim_df = predictions_df[['Predicted']].copy()
     
-    # 2. Weekly Logic (Update only on Thursdays)
     if rebalance_weekly:
         is_thursday = sim_df.index.day_name() == 'Thursday'
         sim_df.loc[~is_thursday, 'Predicted'] = np.nan
         sim_df['Predicted'] = sim_df['Predicted'].ffill()
     
-    # 3. Asset Returns
     asset_daily_ret = df['Close'].pct_change().shift(-1)
     sim_df['Asset_Daily_Ret'] = asset_daily_ret.loc[sim_df.index]
     
-    # 4. Position Sizing
     sim_df['Target_Weight'] = sim_df['Predicted'] * sensitivity
     sim_df['Position'] = sim_df['Target_Weight'].clip(lower=max_short, upper=max_long)
     
-    # 5. Slippage Calculation
     pos_change = sim_df['Position'].diff().abs().fillna(0)
     cost = pos_change * (slippage_bps / 10000.0)
     
-    # 6. Returns
     sim_df['Strategy_Ret_Gross'] = sim_df['Position'] * sim_df['Asset_Daily_Ret']
     sim_df['Strategy_Ret_Net'] = sim_df['Strategy_Ret_Gross'] - cost
     
-    # 7. Equity Curves
     sim_df = sim_df.dropna()
     sim_df['Benchmark_Equity'] = start_capital * (1 + sim_df['Asset_Daily_Ret']).cumprod()
     sim_df['Strategy_Equity'] = start_capital * (1 + sim_df['Strategy_Ret_Net']).cumprod()
     
-    # Drawdown
     sim_df['Peak'] = sim_df['Strategy_Equity'].cummax()
     sim_df['Drawdown'] = (sim_df['Strategy_Equity'] - sim_df['Peak']) / sim_df['Peak']
     
@@ -303,25 +295,16 @@ def run_portfolio_simulation(df, predictions_df, max_long=2.0, max_short=-1.0,
 def calc_metrics(series):
     """Calculates CAGR, Sharpe, Sortino, Vol"""
     if series.empty: return 0, 0, 0, 0
-    
-    # Sharpe (Ann)
     mean_ret = series.mean()
     std_ret = series.std()
     sharpe = (mean_ret / std_ret * np.sqrt(252)) if std_ret > 0 else 0
-    
-    # Sortino (Ann)
     downside = series[series < 0].std()
     sortino = (mean_ret / downside * np.sqrt(252)) if downside > 0 else 0
-    
-    # Vol (Ann)
     vol = std_ret * np.sqrt(252) * 100
-    
-    # CAGR
     total_ret = (1 + series).prod()
     days = len(series)
-    years = days / 252 # approx trading days
+    years = days / 252 
     cagr = (total_ret**(1/years) - 1) * 100 if years > 0 else 0
-    
     return cagr, sharpe, sortino, vol
 
 def display_net_zero_check(results_df, model_name="Model"):
@@ -465,6 +448,14 @@ def render_heatmap():
                 st.markdown("### 💰 Realistic Portfolio Simulator")
                 st.info("Runs 4 scenarios simultaneously to show the impact of Slippage and Turnover.")
                 
+                # --- NEW: Simulation Specific Controls ---
+                sim_c1, sim_c2, sim_c3 = st.columns(3)
+                with sim_c1: sim_start = st.number_input("Sim Start Year", 2010, 2024, 2018, key="sim_start")
+                with sim_c2: sim_k = st.number_input("Neighbors (k)", 10, 200, 50, key="sim_k")
+                with sim_c3: sim_target = st.selectbox("Target Horizon (Signal)", [5, 10, 21], index=0, key="sim_target")
+
+                st.markdown("---")
+                
                 p_col1, p_col2, p_col3 = st.columns(3)
                 with p_col1: 
                     lev_long = st.slider("Max Long", 1.0, 3.0, 2.0, 0.1)
@@ -478,9 +469,10 @@ def render_heatmap():
                 active_weights = {"Ret_21d_Rank": 3.0, "NAAIM_Rank": 2.0} 
                 
                 if st.button("Run Multi-Scenario Simulation"):
-                    with st.spinner("Simulating Daily vs Weekly vs Slippage..."):
+                    with st.spinner(f"Simulating using {sim_target}d forecasts..."):
+                        # Use local simulation parameters, NOT the IC tab parameters
                         preds = backtest_euclidean_model(df, rank_cols, [c for c in df.columns if c.startswith("Mkt_")], 
-                                                         start_year=bt_start, n_neighbors=bt_k, target_days=5, 
+                                                         start_year=sim_start, n_neighbors=sim_k, target_days=sim_target, 
                                                          weights_dict=active_weights)
                         
                         # 1. Daily No Slip
