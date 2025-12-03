@@ -559,7 +559,7 @@ def render_heatmap():
                             fig_comp.add_trace(go.Scatter(x=weekly_raw.index, y=weekly_raw['Strategy_Equity'], name="Weekly (No Slip)", line=dict(color='blue', width=1)))
                             fig_comp.add_trace(go.Scatter(x=weekly_slip.index, y=weekly_slip['Strategy_Equity'], name=f"Weekly ({slippage}bps)", line=dict(color='cyan', width=2)))
                             
-                            fig_comp.update_layout(title="Impact of Friction & Rebalancing Frequency", yaxis_title="Equity ($)", height=600)
+                            fig_comp.update_layout(title="Impact of Friction & Rebalancing Frequency (Log Scale)", yaxis_title="Equity ($)", height=600, yaxis_type="log")
                             st.plotly_chart(fig_comp, use_container_width=True)
                             
                         else:
