@@ -274,7 +274,7 @@ def download_data(ticker):
         df = yf.download(ticker, period="max", progress=False, auto_adjust=True)
         if isinstance(df.columns, pd.MultiIndex):
             df.columns = [c[0] for c in df.columns]
-        
+        df = df[~df.index.duplicated(keep='first')]
         fetch_time = pd.Timestamp.now(tz='America/New_York')
         return df, fetch_time
     except:
