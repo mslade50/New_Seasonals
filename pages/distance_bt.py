@@ -269,14 +269,11 @@ def run_portfolio_simulation(df, predictions_df, max_long=2.0, max_short=-1.0,
     
     # 2. Weekly Logic (Update only on Thursdays)
     if rebalance_weekly:
-        # We assume trading happens on Thursday Close.
-        # So the signal visible on Thursday (index) determines the position.
         is_thursday = sim_df.index.day_name() == 'Thursday'
         sim_df.loc[~is_thursday, 'Predicted'] = np.nan
-        # Forward fill the signal: Friday gets Thursday's signal, etc.
         sim_df['Predicted'] = sim_df['Predicted'].ffill()
     
-    # 3. Asset Returns (Shifted -1 to align T position with T->T+1 return)
+    # 3. Asset Returns
     asset_daily_ret = df['Close'].pct_change().shift(-1)
     sim_df['Asset_Daily_Ret'] = asset_daily_ret.loc[sim_df.index]
     
@@ -285,8 +282,6 @@ def run_portfolio_simulation(df, predictions_df, max_long=2.0, max_short=-1.0,
     sim_df['Position'] = sim_df['Target_Weight'].clip(lower=max_short, upper=max_long)
     
     # 5. Slippage Calculation
-    # Calculate position change from T-1 to T
-    # Note: If weekly, position only changes on Thursdays, so cost only incurred then.
     pos_change = sim_df['Position'].diff().abs().fillna(0)
     cost = pos_change * (slippage_bps / 10000.0)
     
@@ -304,6 +299,30 @@ def run_portfolio_simulation(df, predictions_df, max_long=2.0, max_short=-1.0,
     sim_df['Drawdown'] = (sim_df['Strategy_Equity'] - sim_df['Peak']) / sim_df['Peak']
     
     return sim_df
+
+def calc_metrics(series):
+    """Calculates CAGR, Sharpe, Sortino, Vol"""
+    if series.empty: return 0, 0, 0, 0
+    
+    # Sharpe (Ann)
+    mean_ret = series.mean()
+    std_ret = series.std()
+    sharpe = (mean_ret / std_ret * np.sqrt(252)) if std_ret > 0 else 0
+    
+    # Sortino (Ann)
+    downside = series[series < 0].std()
+    sortino = (mean_ret / downside * np.sqrt(252)) if downside > 0 else 0
+    
+    # Vol (Ann)
+    vol = std_ret * np.sqrt(252) * 100
+    
+    # CAGR
+    total_ret = (1 + series).prod()
+    days = len(series)
+    years = days / 252 # approx trading days
+    cagr = (total_ret**(1/years) - 1) * 100 if years > 0 else 0
+    
+    return cagr, sharpe, sortino, vol
 
 def display_net_zero_check(results_df, model_name="Model"):
     if results_df.empty: return
@@ -476,31 +495,61 @@ def render_heatmap():
                         if not daily_raw.empty:
                             # Benchmark
                             bench_series = daily_raw['Benchmark_Equity']
+                            bench_ret_series = daily_raw['Asset_Daily_Ret']
+                            
+                            # Calculate Benchmark Metrics
+                            b_cagr, b_sharpe, b_sortino, b_vol = calc_metrics(bench_ret_series)
+                            b_final = bench_series.iloc[-1]
+                            b_ret = (b_final - start_cap)/start_cap * 100
+                            b_peak = bench_series.cummax()
+                            b_dd = ((bench_series - b_peak)/b_peak).min() * 100
                             
                             # Metrics Table
                             metrics = []
+                            # Add Benchmark first
+                            metrics.append({
+                                "Scenario": "Buy & Hold SPY", 
+                                "Final Equity": f"${b_final:,.0f}", 
+                                "Total Return": f"{b_ret:.1f}%", 
+                                "CAGR": f"{b_cagr:.1f}%",
+                                "Max Drawdown": f"{b_dd:.1f}%",
+                                "Sharpe": b_sharpe,
+                                "Sortino": b_sortino,
+                                "Vol": f"{b_vol:.1f}%"
+                            })
+                            
                             scenarios = {
                                 "Daily (No Slip)": daily_raw,
                                 f"Daily ({slippage}bps)": daily_slip,
                                 "Weekly (No Slip)": weekly_raw,
-                                f"Weekly ({slippage}bps)": weekly_slip,
-                                "Buy & Hold SPY": None # Special case
+                                f"Weekly ({slippage}bps)": weekly_slip
                             }
                             
                             for name, s_df in scenarios.items():
-                                if s_df is None: # Benchmark
-                                    final = bench_series.iloc[-1]
-                                    ret = (final - start_cap)/start_cap * 100
-                                    peak = bench_series.cummax()
-                                    dd = ((bench_series - peak)/peak).min() * 100
-                                else:
-                                    final = s_df['Strategy_Equity'].iloc[-1]
-                                    ret = (final - start_cap)/start_cap * 100
-                                    dd = s_df['Drawdown'].min() * 100
+                                final = s_df['Strategy_Equity'].iloc[-1]
+                                ret = (final - start_cap)/start_cap * 100
+                                dd = s_df['Drawdown'].min() * 100
+                                cagr, sharpe, sortino, vol = calc_metrics(s_df['Strategy_Ret_Net'])
                                 
-                                metrics.append({"Scenario": name, "Final Equity": f"${final:,.0f}", "Total Return": f"{ret:.1f}%", "Max Drawdown": f"{dd:.1f}%"})
+                                metrics.append({
+                                    "Scenario": name, 
+                                    "Final Equity": f"${final:,.0f}", 
+                                    "Total Return": f"{ret:.1f}%", 
+                                    "CAGR": f"{cagr:.1f}%",
+                                    "Max Drawdown": f"{dd:.1f}%",
+                                    "Sharpe": sharpe,
+                                    "Sortino": sortino,
+                                    "Vol": f"{vol:.1f}%"
+                                })
                             
-                            st.dataframe(pd.DataFrame(metrics))
+                            metrics_df = pd.DataFrame(metrics)
+                            # Formatting
+                            st.dataframe(
+                                metrics_df.style.format({
+                                    "Sharpe": "{:.2f}", 
+                                    "Sortino": "{:.2f}"
+                                }).background_gradient(subset=["Sharpe", "Sortino"], cmap="RdYlGn", vmin=0, vmax=2.5)
+                            )
                             
                             # Comparison Chart
                             fig_comp = go.Figure()
