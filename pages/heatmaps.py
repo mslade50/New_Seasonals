@@ -44,6 +44,12 @@ def load_market_metrics():
         df = pd.read_csv(METRICS_PATH)
         df['date'] = pd.to_datetime(df['date'], errors='coerce')
         df = df.dropna(subset=['date'])
+        
+        # --- FIX: DROP EXACT DUPLICATES ---
+        # Ensure we don't have multiple entries for the same exchange on the same date
+        df = df.drop_duplicates(subset=['date', 'exchange'], keep='first')
+        # ----------------------------------
+        
     except Exception:
         return pd.DataFrame()
 
@@ -90,6 +96,11 @@ def load_naaim_data():
 
         df = df.set_index('Date').sort_index()
         
+        # --- FIX: REMOVE DUPLICATE DATES ---
+        # If the CSV has the same date twice, keep the first one
+        df = df[~df.index.duplicated(keep='first')]
+        # -----------------------------------
+
         # Identify the numeric column (usually 'Naaim Number' or similar)
         # We take the first numeric column we find
         num_cols = df.select_dtypes(include=[np.number]).columns
