@@ -5,6 +5,7 @@ import yfinance as yf
 import plotly.graph_objects as go
 from scipy.ndimage import gaussian_filter
 from scipy.signal import convolve2d
+from scipy.stats import pearsonr, spearmanr
 import matplotlib
 import datetime
 import itertools
@@ -630,7 +631,94 @@ def smooth_display(Z, sigma=1.2):
     z = gaussian_filter(Z_fill, sigma=sigma, mode="nearest")
     out = z / np.maximum(w, 1e-9)
     return out
+# -----------------------------------------------------------------------------
+# BACKTESTING ENGINE
+# -----------------------------------------------------------------------------
+def backtest_euclidean_model(df, rank_cols, market_cols, start_year=2015, n_neighbors=50, target_days=5):
+    """
+    Performs a walk-forward analysis. For every day from start_year to present,
+    it finds the N nearest neighbors using ONLY past data, predicts the return,
+    and stores it for comparison.
+    """
+    # Filter for relevant columns
+    all_feats = rank_cols + ['Seasonal'] + market_cols
+    target_col = f'FwdRet_{target_days}d'
+    
+    # We need data that has the target column (FwdRet) valid
+    # (Actually for the 'current' day we don't need it valid to make a prediction, 
+    # but to score the backtest we need the actual result)
+    validation_df = df.dropna(subset=all_feats + [target_col]).copy()
+    
+    # Filter to start year, but ensure we have enough history prior to it
+    test_indices = validation_df[validation_df.index.year >= start_year].index
+    
+    if len(test_indices) == 0:
+        return pd.DataFrame()
 
+    predictions = []
+    actuals = []
+    dates = []
+    
+    # Progress Bar in Streamlit
+    progress_bar = st.progress(0)
+    total_steps = len(test_indices)
+    
+    # Convert to numpy for speed
+    # We use the full validation_df for the "history" pool
+    # BUT we only iterate through the test_indices for the "target"
+    
+    feat_matrix = validation_df[all_feats].values
+    target_array = validation_df[target_col].values
+    index_array = validation_df.index
+    
+    # Map test indices to integer locations in the numpy array
+    # This is much faster than pandas indexing inside a loop
+    start_loc = np.searchsorted(index_array, test_indices[0])
+    
+    for i in range(start_loc, len(validation_df)):
+        # Update progress
+        curr_step = i - start_loc
+        if curr_step % 50 == 0:
+            progress_bar.progress(min(curr_step / total_steps, 1.0))
+            
+        # 1. Define History (Strictly < Current Index i)
+        # We need at least n_neighbors to make a prediction
+        if i < n_neighbors: continue
+
+        hist_feats = feat_matrix[:i]
+        hist_rets = target_array[:i]
+        
+        # 2. Define Target (The day we are predicting FOR)
+        curr_feat = feat_matrix[i]
+        curr_actual = target_array[i]
+        
+        # 3. Euclidean Distance (Vectorized)
+        # axis=1 means sum across columns (features)
+        dists = np.sqrt(np.sum((hist_feats - curr_feat)**2, axis=1))
+        
+        # 4. Find Neighbors
+        # argpartition is faster than sort for just finding top k
+        if len(dists) < n_neighbors: continue
+        
+        # Get indices of k smallest distances
+        # Note: argpartition puts the k smallest in the first k positions, but not sorted
+        neighbor_idxs = np.argpartition(dists, n_neighbors)[:n_neighbors]
+        
+        # 5. Forecast
+        pred_ret = np.mean(hist_rets[neighbor_idxs])
+        
+        dates.append(index_array[i])
+        predictions.append(pred_ret)
+        actuals.append(curr_actual)
+        
+    progress_bar.empty()
+    
+    results = pd.DataFrame({
+        'Predicted': predictions,
+        'Actual': actuals
+    }, index=dates)
+    
+    return results
 # -----------------------------------------------------------------------------
 # UI: RENDER
 # -----------------------------------------------------------------------------
@@ -928,6 +1016,80 @@ def render_heatmap():
                         # Euclidean uses the EUCLIDEAN data (which came from full df)
                         num_cols = euc_data.select_dtypes(include=[np.number]).columns
                         st.dataframe(euc_data.style.format("{:.2f}", subset=num_cols).background_gradient(subset=['Fwd Return'], cmap="RdBu", vmin=-5, vmax=5), use_container_width=True)
+                    # ... existing code for Method 2 tables ...
+
+            st.markdown("---")
+            st.subheader("🧪 Walk-Forward Backtest (Information Coefficient)")
+            st.write("This runs a strict walk-forward test. For every day in the past, it pretends it doesn't know the future, finds neighbors, and generates a prediction.")
+
+            b_col1, b_col2, b_col3 = st.columns(3)
+            with b_col1:
+                bt_start_year = st.number_input("Backtest Start Year", 2010, 2024, 2018)
+            with b_col2:
+                bt_neighbors = st.number_input("Neighbors (k)", 10, 200, 50)
+            with b_col3:
+                bt_target = st.selectbox("Target Horizon", [5, 10, 21], index=0)
+
+            if st.button("Run Backtest (Computationally Intensive)"):
+                with st.spinner("Running Walk-Forward Simulation... this may take a moment..."):
+                    bt_res = backtest_euclidean_model(df, rank_cols, market_cols, 
+                                                      start_year=bt_start_year, 
+                                                      n_neighbors=bt_neighbors, 
+                                                      target_days=bt_target)
+                    
+                    if not bt_res.empty:
+                        # 1. Overall Stats
+                        ic_pearson, _ = pearsonr(bt_res['Predicted'], bt_res['Actual'])
+                        ic_rank, _ = spearmanr(bt_res['Predicted'], bt_res['Actual'])
+                        
+                        st.success(f"Backtest Complete ({len(bt_res)} days)")
+                        
+                        m1, m2, m3, m4 = st.columns(4)
+                        m1.metric("Information Coeff (IC)", f"{ic_pearson:.3f}")
+                        m2.metric("Rank IC", f"{ic_rank:.3f}")
+                        
+                        # Hit Rate: If we predicted +ve, was it +ve? If -ve, was it -ve?
+                        same_sign = np.sign(bt_res['Predicted']) == np.sign(bt_res['Actual'])
+                        hit_rate = same_sign.mean() * 100
+                        m3.metric("Directional Hit Rate", f"{hit_rate:.1f}%")
+
+                        # Win/Loss Ratio
+                        # If we took the trade (Pred > 0), what was avg return?
+                        long_trades = bt_res[bt_res['Predicted'] > 0]['Actual']
+                        short_trades = bt_res[bt_res['Predicted'] < 0]['Actual'] # Assuming we short
+                        avg_long = long_trades.mean() if len(long_trades) > 0 else 0
+                        m4.metric("Avg Return when Pred > 0", f"{avg_long:.2f}%")
+
+                        # 2. Rolling IC Chart
+                        st.subheader(f"Rolling {bt_target}d Information Coefficient (252d Window)")
+                        rolling_ic = bt_res['Predicted'].rolling(252).corr(bt_res['Actual'])
+                        
+                        fig_ic = go.Figure()
+                        fig_ic.add_trace(go.Scatter(x=rolling_ic.index, y=rolling_ic, mode='lines', name='Rolling IC', line=dict(color='purple')))
+                        fig_ic.add_hline(y=0, line_dash="dash", line_color="black")
+                        fig_ic.add_hline(y=0.05, line_dash="dot", line_color="green", annotation_text="Good Signal (>0.05)")
+                        fig_ic.update_layout(height=300, title="Signal Consistency over Time", yaxis_title="Correlation")
+                        st.plotly_chart(fig_ic, use_container_width=True)
+
+                        # 3. Scatter Plot
+                        st.subheader("Prediction vs. Reality")
+                        fig_scat = go.Figure(data=go.Scattergl(
+                            x=bt_res['Predicted'],
+                            y=bt_res['Actual'],
+                            mode='markers',
+                            marker=dict(color=bt_res['Actual'], colorscale='RdBu', opacity=0.5, size=5),
+                            text=bt_res.index.strftime('%Y-%m-%d')
+                        ))
+                        fig_scat.update_layout(
+                            xaxis_title=f"Predicted {bt_target}d Return",
+                            yaxis_title=f"Actual {bt_target}d Return",
+                            height=500,
+                            title="Scatter: Do high predictions lead to high returns?"
+                        )
+                        st.plotly_chart(fig_scat, use_container_width=True)
+
+                    else:
+                        st.warning("Not enough data to run backtest.")
 
 def main():
     st.set_page_config(layout="wide", page_title="Heatmap Analytics")
