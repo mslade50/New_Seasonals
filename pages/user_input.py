@@ -205,7 +205,7 @@ def seasonals_chart(ticker, cycle_label, show_all_years_line=False):
                 
                 if not comparison_df.empty:
                     concordance = (np.sign(comparison_df["actual_5d"]) == np.sign(comparison_df["avg_5d"])).mean()
-                    annotation_text = f"5D Concordance: {concordance:.0%}"
+                    
             except Exception as e:
                 annotation_text = "Concordance Error"
 
