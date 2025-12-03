@@ -230,39 +230,68 @@ def seasonals_chart(ticker, cycle_label, show_all_years_line=False):
             # Sort by Year Descending
             display_df = display_df.sort_values('year', ascending=False)
 
-            # --- NEW SUMMARY STATISTICS TABLE ---
-            st.markdown("##### 🎯 Fwd Return Statistics (Current Day of Year)")
-            stats_dict = {}
-            for d in [5, 10, 21]:
-                col_name = f"Fwd_{d}d"
-                # Data is already in percentage
-                stats_dict[f"{d}_median"] = display_df[col_name].median()
-                stats_dict[f"{d}_mean"] = display_df[col_name].mean()
-                # Pct positive: sum of positives / count
-                stats_dict[f"{d}_pospct"] = (display_df[col_name] > 0).mean() * 100
-            
-            stats_df = pd.DataFrame([stats_dict])
-            
-            # Reorder columns as requested
-            ordered_cols = []
-            for d in [5, 10, 21]:
-                ordered_cols.extend([f"{d}_median", f"{d}_mean", f"{d}_pospct"])
-            
-            stats_df = stats_df[ordered_cols]
-
-            st.dataframe(
-                stats_df.style.format("{:.2f}%"),
-                use_container_width=True,
-                hide_index=True
-            )
-            # ------------------------------------
-
-            # 4. Define Cycle Years for Highlighting
+            # 4. Define Cycle Years for Highlighting & Filtering
+            # (Defined early so we can use it for the stats table below)
             if cycle_label != "All Years":
                 start_yr = cycle_start_mapping.get(cycle_label)
                 highlight_years = [start_yr + i * 4 for i in range(30)] 
             else:
                 highlight_years = []
+
+            # --- NEW SUMMARY STATISTICS TABLE ---
+            st.markdown("##### 🎯 Fwd Return Statistics (Current Day of Year)")
+            
+            # Function to calculate stats for a given dataframe subset
+            def calculate_stats_row(sub_df):
+                if sub_df.empty:
+                    return {
+                        "n": 0,
+                        "5_median": np.nan, "5_mean": np.nan, "5_pospct": np.nan,
+                        "10_median": np.nan, "10_mean": np.nan, "10_pospct": np.nan,
+                        "21_median": np.nan, "21_mean": np.nan, "21_pospct": np.nan,
+                    }
+                
+                res = {"n": int(len(sub_df))}
+                for d in [5, 10, 21]:
+                    col = f"Fwd_{d}d"
+                    res[f"{d}_median"] = sub_df[col].median()
+                    res[f"{d}_mean"] = sub_df[col].mean()
+                    res[f"{d}_pospct"] = (sub_df[col] > 0).mean() * 100
+                return res
+
+            # A. Stats for All History
+            stats_all = calculate_stats_row(display_df)
+
+            # B. Stats for Cycle Only
+            if cycle_label != "All Years":
+                df_cycle = display_df[display_df['year'].isin(highlight_years)]
+                stats_cycle = calculate_stats_row(df_cycle)
+                cycle_row_name = f"{cycle_label} Cycle"
+            else:
+                stats_cycle = stats_all
+                cycle_row_name = "All Years (Cycle)"
+
+            # Create Summary DataFrame
+            stats_df = pd.DataFrame([stats_all, stats_cycle], index=["All History", cycle_row_name])
+            
+            # Reorder columns: n first, then the rest
+            ordered_cols = ["n"]
+            for d in [5, 10, 21]:
+                ordered_cols.extend([f"{d}_median", f"{d}_mean", f"{d}_pospct"])
+            
+            stats_df = stats_df[ordered_cols]
+
+            # Display Stats Table
+            st.dataframe(
+                stats_df.style.format({
+                    "n": "{:.0f}",
+                    "5_median": "{:.2f}%", "5_mean": "{:.2f}%", "5_pospct": "{:.1f}%",
+                    "10_median": "{:.2f}%", "10_mean": "{:.2f}%", "10_pospct": "{:.1f}%",
+                    "21_median": "{:.2f}%", "21_mean": "{:.2f}%", "21_pospct": "{:.1f}%",
+                }),
+                use_container_width=True
+            )
+            # ------------------------------------
 
             # 5. Styling Function (Apply ONLY to 'year' column)
             def highlight_year_cell(val):
