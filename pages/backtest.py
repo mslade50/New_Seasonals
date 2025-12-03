@@ -237,7 +237,11 @@ def run_engine(universe_dict, params, sznl_map, spy_series=None):
     # Entry Logic
     entry_mode = params['entry_type']
     is_pullback = "Pullback" in entry_mode
-    is_limit_entry = "Limit (Close -0.5 ATR)" in entry_mode
+    
+    # Limit Logic Flags
+    is_limit_atr = "Limit (Close -0.5 ATR)" in entry_mode
+    is_limit_prev = "Limit (Prev Close)" in entry_mode
+    is_limit_entry = is_limit_atr or is_limit_prev
 
     use_ma_filter = params.get('use_ma_entry_filter', False)
     pullback_col = None
@@ -305,7 +309,6 @@ def run_engine(universe_dict, params, sznl_map, spy_series=None):
             
             # Day of Week Filter
             if params.get('use_dow_filter', False):
-                # allowed_days is list of indices [0, 1, etc]
                 allowed_days = params.get('allowed_days', [])
                 if allowed_days:
                     conditions.append(df['DayOfWeekVal'].isin(allowed_days))
@@ -396,21 +399,25 @@ def run_engine(universe_dict, params, sznl_map, spy_series=None):
                                 actual_entry_price = row['Close']
                             break
 
-                # PATH B: LIMIT (CLOSE - 0.5 ATR)
+                # PATH B: LIMIT ENTRIES (ATR or PREV CLOSE)
                 elif is_limit_entry:
                     # Calculate Limit Price based on Signal Day
                     sig_row = df.iloc[sig_idx]
-                    sig_atr = sig_row['ATR']
                     sig_close = sig_row['Close']
+                    sig_atr = sig_row['ATR']
                     
                     if np.isnan(sig_atr): continue
 
-                    if direction == 'Long':
-                        limit_price = sig_close - (0.5 * sig_atr)
-                    else:
-                        limit_price = sig_close + (0.5 * sig_atr)
+                    # DETERMINE LIMIT PRICE
+                    if is_limit_atr:
+                        if direction == 'Long':
+                            limit_price = sig_close - (0.5 * sig_atr)
+                        else:
+                            limit_price = sig_close + (0.5 * sig_atr)
+                    else: # Limit Prev Close
+                        limit_price = sig_close
 
-                    # Look for fill in next 3 days (hardcoded as per request)
+                    # Look for fill in next 3 days
                     for wait_i in range(1, 4):
                         curr_check_idx = sig_idx + wait_i
                         if curr_check_idx >= len(df): break
@@ -423,7 +430,7 @@ def run_engine(universe_dict, params, sznl_map, spy_series=None):
                             # To buy, Low must be <= Limit
                             if row['Low'] <= limit_price:
                                 is_filled = True
-                                actual_entry_price = limit_price # Limit fill assumption
+                                actual_entry_price = limit_price 
                         else:
                             # To sell short, High must be >= Limit
                             if row['High'] >= limit_price:
@@ -529,6 +536,49 @@ def run_engine(universe_dict, params, sznl_map, spy_series=None):
                         "AvgVol": df['vol_ma'].iloc[sig_idx]
                     })
         except: continue
+    
+    progress_bar.empty()
+    status_text.empty()
+
+    # 2. APPLY PORTFOLIO CONSTRAINTS
+    if not all_potential_trades:
+        return pd.DataFrame(), 0
+
+    st.info(f"Processing Portfolio Constraints on {len(all_potential_trades)} potential signals...")
+    
+    # Sort chronologically by Signal Date
+    potential_df = pd.DataFrame(all_potential_trades)
+    potential_df = potential_df.sort_values(by=["EntryDate", "Ticker"])
+    
+    final_trades_log = []
+    active_positions = [] # List of dicts, must contain 'ExitDate'
+    daily_entries = {} # {date: count}
+    
+    max_daily = params.get('max_daily_entries', 100)
+    max_total = params.get('max_total_positions', 100)
+
+    for idx, trade in potential_df.iterrows():
+        entry_date = trade['EntryDate']
+        
+        # A. Clean up active positions
+        # Using >= ensures we don't reuse the capital on the exact same day it exits
+        active_positions = [t for t in active_positions if t['ExitDate'] >= entry_date]
+        
+        # B. Check Total Portfolio Size
+        if len(active_positions) >= max_total:
+            continue
+            
+        # C. Check Daily Limits
+        today_count = daily_entries.get(entry_date, 0)
+        if today_count >= max_daily:
+            continue
+            
+        # D. Execute
+        final_trades_log.append(trade)
+        active_positions.append(trade)
+        daily_entries[entry_date] = today_count + 1
+
+    return pd.DataFrame(final_trades_log), total_signals_generated
     
     progress_bar.empty()
     status_text.empty()
@@ -661,6 +711,8 @@ def main():
     
     st.markdown("---")
 
+    # ... inside main() ...
+    
     c1, c2, c3, c4, c5 = st.columns(5)
     with c1: 
         entry_type = st.selectbox("Entry Price", [
@@ -668,6 +720,7 @@ def main():
             "T+1 Open", 
             "T+1 Close",
             "Limit (Close -0.5 ATR)",
+            "Limit (Prev Close)",  # <--- NEW OPTION ADDED HERE
             "Pullback 10 SMA (Entry: Close)",
             "Pullback 10 SMA (Entry: Level)",
             "Pullback 21 EMA (Entry: Close)",
@@ -677,6 +730,8 @@ def main():
             use_ma_entry_filter = st.checkbox("Filter: Close > MA - 0.25*ATR", value=False)
         else:
             use_ma_entry_filter = False
+
+    # ... rest of main() ...
 
     with c2: stop_atr = st.number_input("Stop Loss (ATR)", value=3.0, step=0.1)
     with c3: tgt_atr = st.number_input("Target (ATR)", value=8.0, step=0.1, disabled=time_exit_only)
