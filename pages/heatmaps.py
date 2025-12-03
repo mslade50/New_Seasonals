@@ -1011,8 +1011,6 @@ def render_heatmap():
             
             # --- FORECAST TABLES ---
             market_cols = [c for c in df.columns if c.startswith("Mkt_")]
-            # Note: We do NOT add NAAIM to market_cols manually here to avoid double counting, 
-            # because they are already in 'rank_cols' returned by calculate_heatmap_variables.
             
             st.subheader(f"🤖 Method 1: Pairwise Ensemble (Box Filter)")
             ensemble_df = calculate_distribution_ensemble(df_filtered, rank_cols, market_cols, tolerance=ensemble_tol)
@@ -1107,9 +1105,23 @@ def render_heatmap():
                 with inspector_cols[0]:
                     if st.button("Calc Correlations"):
                         target_corr_df, corr_matrix = calculate_feature_correlations(df, active_feats, target_col=target_col_name)
+                        
+                        # Plot 1: Predictive Power
                         fig_pred = go.Figure(go.Bar(x=target_corr_df['Target Correlation'], y=target_corr_df['Feature'], orientation='h', marker=dict(color=target_corr_df['Target Correlation'], colorscale='RdBu', cmid=0)))
                         fig_pred.update_layout(title=f"Individual Feature vs {target_col_name}", height=500, yaxis={'categoryorder':'total ascending'})
                         st.plotly_chart(fig_pred, use_container_width=True)
+                        
+                        # Plot 2: Redundancy Matrix (RESTORED)
+                        st.divider()
+                        st.write("**Feature Redundancy Matrix**")
+                        fig_corr = go.Figure(data=go.Heatmap(
+                            z=corr_matrix.values,
+                            x=corr_matrix.columns,
+                            y=corr_matrix.index,
+                            colorscale='RdBu', zmin=-1, zmax=1
+                        ))
+                        fig_corr.update_layout(title="Feature Correlation Matrix", height=700)
+                        st.plotly_chart(fig_corr, use_container_width=True)
                 
                 with inspector_cols[1]:
                     if st.button("Run Permutation Importance (Slow)"):
