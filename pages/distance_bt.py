@@ -220,7 +220,7 @@ def calculate_distribution_ensemble(df, rank_cols, market_cols, tolerance=1.0):
     return pd.DataFrame(summary)
 
 # --- EUCLIDEAN & BACKTESTING ENGINE ---
-def backtest_euclidean_model(df, rank_cols, market_cols, start_year=2015, n_neighbors=50, target_days=5, weights_dict=None, specific_features=None):
+def backtest_euclidean_model(df, rank_cols, market_cols, start_year=2015, n_neighbors=50, target_days=5, weights_dict=None, specific_features=None, exclusion_months=1):
     # 1. Determine Feature Set
     if specific_features is not None:
         all_feats = specific_features
@@ -242,26 +242,40 @@ def backtest_euclidean_model(df, rank_cols, market_cols, start_year=2015, n_neig
     feat_matrix = validation_df[all_feats].values
     target_array = validation_df[target_col].values
     index_array = validation_df.index
+    
     start_loc = np.searchsorted(index_array, test_indices[0])
     
     predictions, actuals, dates = [], [], []
     progress_bar = st.progress(0)
     total_steps = len(test_indices)
     
+    # Pre-calculate time delta for exclusion
+    exclusion_delta = pd.DateOffset(months=exclusion_months)
+    
     for i in range(start_loc, len(validation_df)):
         if (i - start_loc) % 100 == 0: progress_bar.progress(min((i - start_loc) / total_steps, 1.0))
-        if i < n_neighbors: continue
         
-        hist_feats = feat_matrix[:i]
-        hist_rets = target_array[:i]
+        curr_date = index_array[i]
         curr_feat = feat_matrix[i]
+        
+        # --- EXCLUSION LOGIC ---
+        # We need to find the index where date < (curr_date - 1 month)
+        # Using searchsorted on the index is efficient
+        cutoff_date = curr_date - exclusion_delta
+        cutoff_idx = np.searchsorted(index_array, cutoff_date, side='left')
+        
+        # Ensure we have enough history AFTER exclusion
+        if cutoff_idx < n_neighbors: continue
+        
+        hist_feats = feat_matrix[:cutoff_idx]
+        hist_rets = target_array[:cutoff_idx]
         
         # Weighted Distance
         dists = np.sqrt(np.sum(((hist_feats - curr_feat)**2) * w_vec, axis=1))
         neighbor_idxs = np.argpartition(dists, n_neighbors)[:n_neighbors]
         predictions.append(np.mean(hist_rets[neighbor_idxs]))
         actuals.append(target_array[i])
-        dates.append(index_array[i])
+        dates.append(curr_date)
         
     progress_bar.empty()
     return pd.DataFrame({'Predicted': predictions, 'Actual': actuals}, index=dates)
@@ -340,28 +354,29 @@ def get_seismic_colorscale():
         seismic.append([k / 254.0, f'rgb({int(r*255)},{int(g*255)},{int(b*255)})'])
     return seismic
 
-def get_euclidean_details_for_today(df, rank_cols, market_cols, n_neighbors=50, target_days=5, weights_dict=None, specific_features=None):
+def get_euclidean_details_for_today(df, rank_cols, market_cols, n_neighbors=50, target_days=5, weights_dict=None, specific_features=None, exclusion_months=1):
     """Calculates neighbors just for the LAST row in the DF (Today)."""
     current_row = df.iloc[-1]
+    curr_date = df.index[-1]
     
     if specific_features:
         all_feats = specific_features
     else:
         all_feats = rank_cols + ['Seasonal'] + market_cols
         
-    # Valid feats check
     valid_feats = [f for f in all_feats if f in df.columns and not pd.isna(current_row[f])]
     if not valid_feats: return pd.DataFrame()
     
-    # History
-    history = df.iloc[:-1].dropna(subset=valid_feats).copy()
+    # EXCLUSION LOGIC FOR LIVE DASHBOARD
+    # We must exclude the last X months from the history pool
+    cutoff_date = curr_date - pd.DateOffset(months=exclusion_months)
+    
+    history = df[df.index <= cutoff_date].dropna(subset=valid_feats).copy()
     if history.empty: return pd.DataFrame()
     
-    # Vector math
     target_vec = current_row[valid_feats].astype(float).values
     hist_matrix = history[valid_feats].values
     
-    # Weighting
     w_vec = np.ones(len(valid_feats))
     if weights_dict:
         w_vec = np.array([weights_dict.get(f, 1.0) for f in valid_feats])
@@ -372,10 +387,8 @@ def get_euclidean_details_for_today(df, rank_cols, market_cols, n_neighbors=50, 
     
     history['Euclidean_Dist'] = dists
     
-    # Top N
     nearest = history.nsmallest(n_neighbors, 'Euclidean_Dist').copy()
     
-    # Add context columns
     ret_col = f'FwdRet_{target_days}d'
     if ret_col in nearest.columns: nearest['Fwd Return'] = nearest[ret_col]
     else: nearest['Fwd Return'] = np.nan
@@ -505,9 +518,10 @@ def render_heatmap():
                 with sim_c3: sim_target = st.selectbox("Target Horizon (Signal)", [5, 10, 21], index=0, key="sim_target")
 
                 # --- NEW: Feature Selector ---
-                st.markdown("#### ⚙️ Feature Selector")
+                st.markdown("#### ⚙️ Feature Selector & Embargo")
                 all_possible_features = rank_cols + ['Seasonal'] + [c for c in df.columns if c.startswith("Mkt_")]
-                selected_sim_features = st.multiselect("Active Features for Simulation", all_possible_features, default=all_possible_features)
+                selected_sim_features = st.multiselect("Active Features", all_possible_features, default=all_possible_features)
+                exclusion_mo = st.number_input("Exclusion Buffer (Months)", 0, 12, 1, help="Exclude neighbors from the immediate past to prevent autocorrelation bias.")
 
                 st.markdown("---")
                 
@@ -530,7 +544,8 @@ def render_heatmap():
                         preds = backtest_euclidean_model(df, rank_cols, [c for c in df.columns if c.startswith("Mkt_")], 
                                                          start_year=sim_start, n_neighbors=sim_k, target_days=sim_target, 
                                                          weights_dict=active_weights,
-                                                         specific_features=selected_sim_features)
+                                                         specific_features=selected_sim_features,
+                                                         exclusion_months=exclusion_mo)
                         
                         # 1. Daily No Slip
                         daily_raw = run_portfolio_simulation(df, preds, lev_long, lev_short, conviction, start_cap, slippage_bps=0, rebalance_weekly=False)
@@ -638,11 +653,12 @@ def render_heatmap():
                             c3.metric("Recommended Allocation", f"{final_pos*100:.1f}%", delta=f"Lev: {final_pos:.2f}x", delta_color=color)
                             
                             # Show Neighbors for Today
-                            st.write("**Why? Top 5 Nearest Neighbors to Today:**")
+                            st.write(f"**Why? Top 5 Nearest Neighbors to Today (Excluding last {exclusion_mo} months):**")
                             today_neighbors = get_euclidean_details_for_today(
                                 df, rank_cols, [c for c in df.columns if c.startswith("Mkt_")], 
                                 n_neighbors=sim_k, target_days=sim_target,
-                                weights_dict=active_weights, specific_features=selected_sim_features
+                                weights_dict=active_weights, specific_features=selected_sim_features,
+                                exclusion_months=exclusion_mo
                             )
                             if not today_neighbors.empty:
                                 num_cols = today_neighbors.select_dtypes(include=[np.number]).columns
