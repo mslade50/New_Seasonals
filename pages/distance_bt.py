@@ -349,7 +349,7 @@ def render_heatmap():
                 ensemble_df = calculate_distribution_ensemble(df, rank_cols, [c for c in df.columns if c.startswith("Mkt_")], tolerance=5)
                 
                 if not ensemble_df.empty:
-                    # FIX: Select only numeric columns for formatting to avoid "Unknown format code 'f' for object of type 'str'"
+                    # FIX: Select only numeric columns for formatting
                     num_cols = ensemble_df.select_dtypes(include=[np.number]).columns
                     st.dataframe(
                         ensemble_df.style.format("{:.2f}", subset=num_cols)
@@ -414,7 +414,15 @@ def render_heatmap():
                             
                             st.write("**Leverage Utilization:** When did we go 200% Long vs Short?")
                             fig_lev = go.Figure()
-                            fig_lev.add_trace(go.Area(x=port_df.index, y=port_df['Position'], name='Position Size', fill='tozeroy', line=dict(color='blue')))
+                            # FIX: Use go.Scatter with fill='tozeroy' instead of go.Area
+                            fig_lev.add_trace(go.Scatter(
+                                x=port_df.index, 
+                                y=port_df['Position'], 
+                                name='Position Size', 
+                                fill='tozeroy', 
+                                mode='lines',
+                                line=dict(color='blue')
+                            ))
                             fig_lev.update_layout(title="Active Position Size (-1.0 to 2.0)", yaxis_title="Leverage", height=300)
                             st.plotly_chart(fig_lev, use_container_width=True)
                         else:
