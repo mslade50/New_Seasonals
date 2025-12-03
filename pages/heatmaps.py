@@ -941,9 +941,6 @@ def render_heatmap():
             st.divider()
             
             market_cols = [c for c in df.columns if c.startswith("Mkt_")]
-            # Add NAAIM to market columns for ensemble logic if they exist
-            naaim_rank_cols = [c for c in df.columns if "NAAIM" in c and "Rank" in c]
-            market_cols.extend(naaim_rank_cols)
             
             # Method 1 (Uses Filtered DF to show stats for the specific regime)
             st.subheader(f"🤖 Method 1: Pairwise Ensemble (Box Filter)")
