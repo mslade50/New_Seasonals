@@ -346,9 +346,15 @@ def render_heatmap():
             
             with tab_heat:
                 st.write("Visual Pattern Matching")
-                # (Simplified Heatmap Logic for brevity in this full refresh, you can paste full logic back if needed)
                 ensemble_df = calculate_distribution_ensemble(df, rank_cols, [c for c in df.columns if c.startswith("Mkt_")], tolerance=5)
-                if not ensemble_df.empty: st.dataframe(ensemble_df.style.format("{:.2f}").background_gradient(cmap="RdBu", vmin=-2, vmax=2))
+                
+                if not ensemble_df.empty:
+                    # FIX: Select only numeric columns for formatting to avoid "Unknown format code 'f' for object of type 'str'"
+                    num_cols = ensemble_df.select_dtypes(include=[np.number]).columns
+                    st.dataframe(
+                        ensemble_df.style.format("{:.2f}", subset=num_cols)
+                        .background_gradient(cmap="RdBu", vmin=-2, vmax=2, subset=['Alpha'])
+                    )
             
             with tab_backtest:
                 st.write("Statistical Predictive Power (IC)")
@@ -373,30 +379,22 @@ def render_heatmap():
                     lev_long = st.slider("Max Long Leverage", 1.0, 3.0, 2.0, 0.1)
                     lev_short = st.slider("Max Short Leverage", 0.0, 2.0, 1.0, 0.1) * -1
                 with p_col2:
-                    # Conviction Scalar: How much position do we take for 1% predicted return?
-                    # If 0.5: 1% prediction -> 50% position.
-                    # If 1.0: 1% prediction -> 100% position.
                     conviction = st.slider("Conviction Scaler (Pos % per 1% Pred)", 0.1, 2.0, 0.5, 0.1)
                 with p_col3:
                     start_cap = st.number_input("Start Capital", value=100000)
                 
-                # Hidden Weighted Logic (Simpler for Portfolio Tab)
-                active_weights = {"Ret_21d_Rank": 3.0, "NAAIM_Rank": 2.0} # Defaulting to the 'good' model
+                active_weights = {"Ret_21d_Rank": 3.0, "NAAIM_Rank": 2.0} 
                 
                 if st.button("Run Portfolio Simulation"):
                     with st.spinner("Simulating Daily Trading..."):
-                        # 1. Generate Signals
-                        # We force 5d target for the signal generation as the base 'trend' duration
                         preds = backtest_euclidean_model(df, rank_cols, [c for c in df.columns if c.startswith("Mkt_")], 
                                                          start_year=bt_start, n_neighbors=bt_k, target_days=5, 
                                                          weights_dict=active_weights)
                         
-                        # 2. Run Portfolio Logic
                         port_df = run_portfolio_simulation(df, preds, max_long=lev_long, max_short=lev_short, 
                                                            sensitivity=conviction, start_capital=start_cap)
                         
                         if not port_df.empty:
-                            # Metrics
                             final_strat = port_df['Strategy_Equity'].iloc[-1]
                             final_bench = port_df['Benchmark_Equity'].iloc[-1]
                             strat_ret = (final_strat - start_cap) / start_cap * 100
@@ -408,14 +406,12 @@ def render_heatmap():
                             m2.metric("Buy & Hold SPY", f"${final_bench:,.0f}", delta=f"{bench_ret:.1f}%")
                             m3.metric("Max Drawdown", f"{max_dd:.1f}%", delta_color="inverse")
                             
-                            # Chart 1: Equity Curve
                             fig_eq = go.Figure()
                             fig_eq.add_trace(go.Scatter(x=port_df.index, y=port_df['Strategy_Equity'], name='Strategy', line=dict(color='green', width=2)))
                             fig_eq.add_trace(go.Scatter(x=port_df.index, y=port_df['Benchmark_Equity'], name='Buy & Hold', line=dict(color='gray', dash='dot')))
                             fig_eq.update_layout(title="Portfolio Value over Time", yaxis_title="Equity ($)", height=500)
                             st.plotly_chart(fig_eq, use_container_width=True)
                             
-                            # Chart 2: Leverage Utilization
                             st.write("**Leverage Utilization:** When did we go 200% Long vs Short?")
                             fig_lev = go.Figure()
                             fig_lev.add_trace(go.Area(x=port_df.index, y=port_df['Position'], name='Position Size', fill='tozeroy', line=dict(color='blue')))
@@ -423,7 +419,6 @@ def render_heatmap():
                             st.plotly_chart(fig_lev, use_container_width=True)
                         else:
                             st.error("Simulation failed (No data).")
-
 def main():
     st.set_page_config(layout="wide", page_title="Heatmap Analytics")
     render_heatmap()
