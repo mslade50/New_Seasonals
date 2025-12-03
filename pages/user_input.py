@@ -198,15 +198,7 @@ def seasonals_chart(ticker, cycle_label, show_all_years_line=False):
     fig.update_yaxes(showgrid=False)
 
 
-    st.plotly_chart(fig, use_container_width=True)
-    # -------------------------------------------------------------------------
-    # NEW: DETAILED YEAR-BY-YEAR TABLE WITH HIGHLIGHTING
-    # -------------------------------------------------------------------------
-    st.divider()
-    st.subheader(f"📜 Detailed History: Day #{current_day_count_val} to Fwd Returns")
-    st.caption(f"Table lists performance for every year. Rows highlighted in **Gold** indicate **{cycle_label}** years.")
-
-   
+    st.plotly_chart(fig, use_container_width=True)    
     # -------------------------------------------------------------------------
     # NEW: DETAILED YEAR-BY-YEAR TABLE WITH HIGHLIGHTING
     # -------------------------------------------------------------------------
@@ -237,6 +229,33 @@ def seasonals_chart(ticker, cycle_label, show_all_years_line=False):
 
             # Sort by Year Descending
             display_df = display_df.sort_values('year', ascending=False)
+
+            # --- NEW SUMMARY STATISTICS TABLE ---
+            st.markdown("##### 🎯 Fwd Return Statistics (Current Day of Year)")
+            stats_dict = {}
+            for d in [5, 10, 21]:
+                col_name = f"Fwd_{d}d"
+                # Data is already in percentage
+                stats_dict[f"{d}_median"] = display_df[col_name].median()
+                stats_dict[f"{d}_mean"] = display_df[col_name].mean()
+                # Pct positive: sum of positives / count
+                stats_dict[f"{d}_pospct"] = (display_df[col_name] > 0).mean() * 100
+            
+            stats_df = pd.DataFrame([stats_dict])
+            
+            # Reorder columns as requested
+            ordered_cols = []
+            for d in [5, 10, 21]:
+                ordered_cols.extend([f"{d}_median", f"{d}_mean", f"{d}_pospct"])
+            
+            stats_df = stats_df[ordered_cols]
+
+            st.dataframe(
+                stats_df.style.format("{:.2f}%"),
+                use_container_width=True,
+                hide_index=True
+            )
+            # ------------------------------------
 
             # 4. Define Cycle Years for Highlighting
             if cycle_label != "All Years":
