@@ -34,11 +34,20 @@ def get_current_presidential_cycle():
 
 def calculate_pivot_levels(df, period=DEFAULT_PIVOT_PERIOD):
     df = df.copy()
-    # Rolling Max/Min for Pivot High/Low
+    # We use a centered rolling window. 
+    # Note: 'center=True' with a window of period*2+1 means we look back 'period' and forward 'period'.
+    # Because pandas handles edges by shrinking the window (if min_periods is met), 
+    # we get "unconfirmed" pivots at the end of the data. 
+    # We will filter these unconfirmed pivots out in the plotting function.
+    
+    # Pivot High
     df['PivotHigh'] = df['High'].rolling(window=period * 2 + 1, center=True, min_periods=period).max()
     df.loc[df['High'] != df['PivotHigh'], 'PivotHigh'] = np.nan
+    
+    # Pivot Low
     df['PivotLow'] = df['Low'].rolling(window=period * 2 + 1, center=True, min_periods=period).min()
     df.loc[df['Low'] != df['PivotLow'], 'PivotLow'] = np.nan
+    
     return df
 
 # -----------------------------------------------------------------------------
@@ -149,9 +158,6 @@ def plot_candlestick_and_mas(ticker, stats_row=None):
     df_full = calculate_pivot_levels(df_full)
     
     # 4. Prepare Display Data (Reset Index to handle gaps)
-    # We need to map dates to integers.
-    # We want index 0 to be the chart_visible_start
-    
     # Subset for the visible area
     mask_visible = df_full.index >= pd.to_datetime(chart_visible_start)
     df_display = df_full[mask_visible].copy()
@@ -160,23 +166,18 @@ def plot_candlestick_and_mas(ticker, stats_row=None):
          st.warning("No data in visible range.")
          return
 
-    # Reset index of display DF so plotting x=0,1,2... works
     df_display = df_display.reset_index()
     last_close_idx = df_display.index[-1]
     last_close_price = df_display['Close'].iloc[-1]
     
-    # Calculate offset: How many rows exist in df_full BEFORE the display start?
-    # This helps us map old pivots to the new negative X-coordinates if needed,
-    # or just mapping dates generally.
+    # Map for relative indexing of historical lines
     full_idx_map = {date: idx for idx, date in enumerate(df_full.index)}
-    
-    # Find the integer index in df_full corresponding to the first visible day
     start_date_in_full_idx = full_idx_map.get(df_display['Date'].iloc[0])
 
     # --- Plotting ---
     fig = go.Figure()
     
-    # Candles: Up=White, Down=Black with White Outline
+    # Candles
     fig.add_trace(go.Candlestick(
         x=df_display.index,
         open=df_display['Open'], high=df_display['High'], low=df_display['Low'], close=df_display['Close'],
@@ -191,41 +192,43 @@ def plot_candlestick_and_mas(ticker, stats_row=None):
     fig.add_trace(go.Scatter(x=df_display.index, y=df_display['MA_200'], line=dict(color='red', width=2), name='200-Day MA'))
     
     # --- PINE SCRIPT STYLE PIVOTS ---
-    # Logic: Iterate ALL pivots in df_full. If PivotDate + 252 extends into the visible chart, draw it.
+    # FILTER: "Confirm" pivots. 
+    # A pivot at index 'i' is only confirmed if we have 'period' days of data AFTER it.
+    # Therefore, we discard any pivots occurring in the last 'period' days.
     
-    # Get all indices in df_full where we have a Pivot High
+    last_valid_pivot_idx = len(df_full) - 1 - DEFAULT_PIVOT_PERIOD
+    
+    # Get all indices in df_full where we have a Pivot High, filtered by validity
     pivot_high_indices = np.where(~np.isnan(df_full['PivotHigh']))[0]
+    pivot_high_indices = pivot_high_indices[pivot_high_indices <= last_valid_pivot_idx]
+    
     pivot_low_indices = np.where(~np.isnan(df_full['PivotLow']))[0]
+    pivot_low_indices = pivot_low_indices[pivot_low_indices <= last_valid_pivot_idx]
 
     def add_pivot_lines(indices, is_high):
         color = 'orange'
         for p_idx in indices:
-            # Value of the pivot
             price_val = df_full['PivotHigh'].iloc[p_idx] if is_high else df_full['PivotLow'].iloc[p_idx]
             
             # Start and End relative to df_full
             start_full = p_idx
             end_full = p_idx + PIVOT_LINE_LENGTH
             
-            # Convert to Display Coordinates (relative to start_date_in_full_idx)
-            # Display Index 0 = start_date_in_full_idx
+            # Convert to Display Coordinates
             x_start = start_full - start_date_in_full_idx
             x_end = end_full - start_date_in_full_idx
             
-            # Only draw if the line is visible (End point > 0)
+            # Only draw if the line extends into the visible chart
             if x_end > 0:
-                # Clip start to 0 if it originated off-screen (purely for cleaner hover data, though Plotly handles negatives fine)
-                # We draw the full line so you can see it entering from the left
                 fig.add_trace(go.Scatter(
                     x=[x_start, x_end], 
                     y=[price_val, price_val],
                     mode='lines',
                     line=dict(color=color, width=1, dash='solid'),
-                    hoverinfo='skip', # Reduce clutter
+                    hoverinfo='skip',
                     showlegend=False
                 ))
 
-    # Add the lines
     add_pivot_lines(pivot_high_indices, True)
     add_pivot_lines(pivot_low_indices, False)
 
@@ -235,10 +238,8 @@ def plot_candlestick_and_mas(ticker, stats_row=None):
     
     if stats_row is not None:
         def get_f(col): return float(stats_row.get(col, 0))
-        # Avg Targets (Magenta)
         tgt_5_avg = last_close_price * (1 + get_f('Seas_Cyc_Avg_5d') / 100)
         tgt_21_avg = last_close_price * (1 + get_f('Seas_Cyc_Avg_21d') / 100)
-        # Med Targets (Cyan)
         tgt_5_med = last_close_price * (1 + get_f('Seas_Cyc_Med_5d') / 100)
         tgt_21_med = last_close_price * (1 + get_f('Seas_Cyc_Med_21d') / 100)
 
@@ -256,10 +257,9 @@ def plot_candlestick_and_mas(ticker, stats_row=None):
         xaxis_title="Trading Days", yaxis_title="Price",
         plot_bgcolor="black", paper_bgcolor="black", font=dict(color="white"), height=500,
         xaxis_rangeslider_visible=False,
-        xaxis_range=[0, last_close_idx + 25] # Extend for Open Days
+        xaxis_range=[0, last_close_idx + 25] 
     )
     
-    # Annotations
     fig.add_annotation(
         xref="paper", yref="paper", x=0.02, y=0.98,
         text=f"<b>Targets:</b><br>T+5: {date_t5.strftime('%Y-%m-%d')}<br>T+21: {date_t21.strftime('%Y-%m-%d')}",
@@ -267,7 +267,6 @@ def plot_candlestick_and_mas(ticker, stats_row=None):
         bgcolor="rgba(50,50,50,0.8)", bordercolor="white", borderwidth=1
     )
 
-    # X-Axis Ticks
     tickvals_past = np.linspace(0, last_close_idx, 8, dtype=int)
     ticktext_past = [df_display['Date'].iloc[i].strftime('%b %Y') for i in tickvals_past]
     tickvals = np.concatenate([tickvals_past, [idx_t5, idx_t21]])
