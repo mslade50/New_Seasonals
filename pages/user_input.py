@@ -249,7 +249,7 @@ def seasonals_chart(ticker, cycle_label, enable_time_travel, reference_year, sho
     # Layout
     title_suffix = f"vs {reference_year}" if enable_time_travel else ""
     fig.update_layout(
-        height=1200,
+        height=800,
         title=f"Seasonal Analysis: {ticker} {title_suffix}",
         xaxis_title="Trading Day of Year",
         yaxis_title="Cumulative Return",
