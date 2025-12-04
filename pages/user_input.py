@@ -40,29 +40,6 @@ def summarize_data(df, include_atr=True):
         "Avg ATR%": df["ATR%"].mean() if include_atr else np.nan,
     }
 
-def get_trading_info_from_date(target_date):
-    """
-    Returns the trading day of the month and week of month 
-    based on SPY data for the month of the target_date.
-    """
-    start_of_month = dt.date(target_date.year, target_date.month, 1)
-    # Fetch a buffer
-    current_data = yf.download("SPY", start=start_of_month, end=target_date + timedelta(days=5), progress=False) 
-    
-    if isinstance(current_data.columns, pd.MultiIndex):  
-        current_data.columns = current_data.columns.get_level_values(0)
-        
-    if not current_data.empty:
-        current_data["trading_day_of_month"] = np.arange(1, len(current_data) + 1)
-        current_data["week_of_month_5day"] = (current_data["trading_day_of_month"] - 1) // 5 + 1
-        current_data.loc[current_data["week_of_month_5day"] > 4, "week_of_month_5day"] = 4
-        
-        # Find row for target date (or nearest previous if weekend/holiday provided, though we usually pass trading days)
-        # For simplicity, we take the last available row if date matches or is after
-        return current_data["trading_day_of_month"].iloc[-1], current_data["week_of_month_5day"].iloc[-1]
-    else:
-        return None, None
-
 # -----------------------------------------------------------------------------
 # MAIN CHART LOGIC
 # -----------------------------------------------------------------------------
@@ -76,7 +53,6 @@ def seasonals_chart(ticker, cycle_label, reference_year, show_all_years_line=Fal
     }
 
     # Data Fetching
-    # Allow fetching slightly past today to ensure we have current data
     end_date_fetch = dt.datetime.now() + timedelta(days=5)
     spx = yf.download(ticker, period="max", end=end_date_fetch, progress=False)
 
@@ -93,25 +69,23 @@ def seasonals_chart(ticker, cycle_label, reference_year, show_all_years_line=Fal
     spx["month"] = spx.index.month
     spx["trading_day_of_month"] = spx.groupby([spx.index.year, spx.index.month]).cumcount() + 1
     spx["week_of_month_5day"] = (spx["trading_day_of_month"] - 1) // 5 + 1
-    
-    # Calculate Day of Year (Trading Day Count)
     spx["day_count"] = spx.groupby("year").cumcount() + 1
 
     # -------------------------------------------------------------------------
-    # TIME TRAVEL LOGIC
+    # TIME TRAVEL: HISTORICAL POOL
     # -------------------------------------------------------------------------
-    # 1. Historical Data (For calculating Averages): Strictly < Reference Year
+    # The pool for AVERAGES must strictly be data PRIOR to the reference year
     historical_pool = spx[spx["year"] < reference_year].copy()
     
-    # 2. "Current" Data (For plotting the green line): == Reference Year
-    ref_year_data = spx[spx["year"] == reference_year].copy()
+    # We DO NOT grab ref_year_data for plotting the green line, 
+    # unless it is the actual current year (optional, but user asked for "predicted path not realized")
+    # So we will focus purely on the average construction.
 
     # Cycle Filtering on HISTORICAL POOL
     if cycle_label == "All Years":
         cycle_data = historical_pool.copy()
     else:
         cycle_start = cycle_start_mapping[cycle_label]
-        # We only want years that are in the cycle AND in the historical pool
         years_in_cycle = [cycle_start + i * 4 for i in range(30)] 
         cycle_data = historical_pool[historical_pool["year"].isin(years_in_cycle)].copy()
 
@@ -151,81 +125,97 @@ def seasonals_chart(ticker, cycle_label, reference_year, show_all_years_line=Fal
             line=dict(color="lightblue", width=1, dash='dot')
         ))
 
-    # Plot Reference Year Path (The "Current" Line)
-    # Determine Current Trading Day Count based on the Reference Year data
+    # -------------------------------------------------------------------------
+    # TIME TRAVEL: LOCATING "TODAY" IN THE REFERENCE YEAR
+    # -------------------------------------------------------------------------
+    today = dt.date.today()
+    
+    # Construct the proxy date in the reference year
+    # Handle Leap Year edge case: if today is Feb 29 and ref year isn't leap, map to Feb 28
+    try:
+        ref_date = dt.date(reference_year, today.month, today.day)
+    except ValueError:
+        ref_date = dt.date(reference_year, 2, 28)
+
+    # We need to find the 'day_count' (1-252) that corresponds to this date (or closest trading day) in the ref year
+    # We can't use the historical_pool because that excludes the ref year.
+    # We use the raw 'spx' data just to find the correct index integer for that year.
+    ref_year_calendar = spx[spx["year"] == reference_year]
+    
     current_day_count_val = None
-    last_ref_date = None
-
-    if not ref_year_data.empty:
-        ref_year_data["log_return"] = np.log(ref_year_data["Close"] / ref_year_data["Close"].shift(1))
-        this_year_path = ref_year_data["log_return"].cumsum().apply(np.exp) - 1
+    
+    if not ref_year_calendar.empty:
+        # Find the row with the closest date <= ref_date
+        # Since 'day_count' is monotonic, we can just find the index
+        closest_idx = ref_year_calendar.index.searchsorted(dt.datetime.combine(ref_date, dt.time.min))
         
-        current_day_count_val = len(ref_year_data)
-        last_ref_date = ref_year_data.index[-1]
-
-        fig.add_trace(go.Scatter(
-            x=np.arange(1, len(this_year_path) + 1),
-            y=this_year_path.values,
-            mode="lines",
-            name=f"{reference_year} Path",
-            line=dict(color="green", width=2)
-        ))
-
-        # Plot Current Day Marker
+        # Ensure we don't go out of bounds
+        if closest_idx >= len(ref_year_calendar):
+            closest_idx = len(ref_year_calendar) - 1
+            
+        current_day_count_val = ref_year_calendar.iloc[closest_idx]["day_count"]
+        
+        # Plot Marker on the AVERAGE Line (Where the seasonal model says we should be)
         avg_path_y_value = avg_path.get(current_day_count_val)
+        
         if avg_path_y_value is not None:
             fig.add_trace(go.Scatter(
                 x=[current_day_count_val],
                 y=[avg_path_y_value],
                 mode="markers",
-                name="Current Day on Avg Path",
+                name=f"Current Date ({ref_date.strftime('%b %d')})",
                 marker=dict(color="white", size=8, line=dict(width=1, color="black")),
-                showlegend=False
             ))
 
             # ---------------------------------------------------------------------
             # PROJECTIONS: T+5, T+10, T+21
             # ---------------------------------------------------------------------
-            # We generate future BUSINESS days starting from the last date of ref data
-            # This handles "Time Travel" correctly (showing dates relative to that year)
-            future_bdays = pd.bdate_range(start=last_ref_date, periods=25) 
-            # periods=25 gives us enough buffer for T+21. Index 0 is Start Date.
+            # Generate Business Days forward from the Ref Date
+            # Use pandas bdate_range to handle weekends properly
+            future_dates = pd.bdate_range(start=ref_date, periods=30)
             
             projection_offsets = [5, 10, 21]
+            colors = ["#FFD700", "#FFD700", "#FFD700"] # Gold/Yellow
             
-            for offset in projection_offsets:
+            for i, offset in enumerate(projection_offsets):
                 target_idx = current_day_count_val + offset
                 
-                # Check if target is within the available avg_path x-axis (approx 252 days)
+                # Retrieve the projected Y value from the Average Path
                 if target_idx in avg_path.index:
                     proj_y = avg_path.get(target_idx)
                     
-                    # Calculate Real Date
-                    # future_bdays[offset] is the T+offset date
-                    proj_date_obj = future_bdays[offset]
-                    proj_date_str = proj_date_obj.strftime("%b %d")
+                    # Calculate the calendar date for the legend
+                    if offset < len(future_dates):
+                        target_date_obj = future_dates[offset]
+                        date_label = target_date_obj.strftime("%b %d")
+                    else:
+                        date_label = "N/A"
 
+                    # Plot just the Dot
                     fig.add_trace(go.Scatter(
                         x=[target_idx],
                         y=[proj_y],
-                        mode="markers+text",
-                        name=f"T+{offset}",
-                        marker=dict(color="yellow", size=6, symbol="circle"),
-                        text=f"<b>T+{offset}</b><br>{proj_date_str}",
-                        textposition="top center",
-                        textfont=dict(size=10, color="yellow"),
-                        showlegend=False
+                        mode="markers",
+                        name=f"T+{offset} ({date_label})", # Date goes in Legend
+                        marker=dict(color=colors[i], size=6, symbol="circle"),
                     ))
 
     # Chart Layout
     fig.update_layout(
-        title=f"{ticker} - {cycle_label} Cycle (Ref Year: {reference_year})",
+        title=f"Predicted Seasonal Path: {ticker} (Using Data < {reference_year})",
         xaxis_title="Trading Day of Year",
         yaxis_title="Cumulative Return",
         plot_bgcolor="black",
         paper_bgcolor="black",
         font=dict(color="white"),
-        legend=dict(bgcolor="rgba(0,0,0,0)", font=dict(color="white"))
+        legend=dict(
+            bgcolor="rgba(20,20,20,0.8)", 
+            font=dict(color="white"),
+            yanchor="top",
+            y=0.99,
+            xanchor="left",
+            x=0.01
+        )
     )
     fig.update_xaxes(showgrid=False)
     fig.update_yaxes(showgrid=False)
@@ -237,29 +227,26 @@ def seasonals_chart(ticker, cycle_label, reference_year, show_all_years_line=Fal
     # -------------------------------------------------------------------------
     st.divider()
     st.subheader(f"📜 Detailed History: Day #{current_day_count_val} to Fwd Returns")
-    st.caption(f"Calculated from historical data available up to {reference_year}.")
+    st.caption(f"Showing historical outcomes for Day #{current_day_count_val} prior to {reference_year}.")
 
     if current_day_count_val:
-        # Use FULL dataset for forward returns, but filter out 'future' years relative to reference
-        # Note: We include the reference year in the table to see how it ended up, 
-        # provided we aren't strict about 'blind' testing in the table view. 
-        # But usually backtesting implies we only know up to ref year. 
-        # Let's show all years so user can see what happened in previous cycles.
+        # Use full dataset to calculate forward returns
         spx_full = spx.copy()
         
-        # Forward returns
         spx_full['Fwd_5d'] = spx_full['Close'].shift(-5) / spx_full['Close'] - 1
         spx_full['Fwd_10d'] = spx_full['Close'].shift(-10) / spx_full['Close'] - 1
         spx_full['Fwd_21d'] = spx_full['Close'].shift(-21) / spx_full['Close'] - 1
 
-        # Snapshot at day count
+        # Extract only the specific trading day from past years
         daily_snapshots = spx_full[spx_full['day_count'] == current_day_count_val].copy()
 
-        if not daily_snapshots.empty:
-            display_df = daily_snapshots[['year', 'Fwd_5d', 'Fwd_10d', 'Fwd_21d']].copy()
-            
-            # Filter: Don't show years > reference_year + 1 (Just to keep it relevant to the 'time travel')
-            # Or show all? Let's show all available in the dataset but highlight the cut-off
+        # FILTER: STRICTLY BEFORE REFERENCE YEAR
+        # If I am in 2025 looking at 2018, I do not want to see 2019, 2020 etc in the table.
+        # I also do NOT want to see 2018 in the table (as per "include data up to end of year BEFORE").
+        display_df = daily_snapshots[daily_snapshots['year'] < reference_year].copy()
+
+        if not display_df.empty:
+            display_df = display_df[['year', 'Fwd_5d', 'Fwd_10d', 'Fwd_21d']]
             
             display_df['Fwd_5d'] = display_df['Fwd_5d'] * 100
             display_df['Fwd_10d'] = display_df['Fwd_10d'] * 100
@@ -274,7 +261,7 @@ def seasonals_chart(ticker, cycle_label, reference_year, show_all_years_line=Fal
                 highlight_years = []
 
             # --- SUMMARY STATISTICS TABLE ---
-            st.markdown("##### 🎯 Fwd Return Statistics")
+            st.markdown("##### 🎯 Fwd Return Statistics (Historical)")
             
             def calculate_stats_row(sub_df):
                 if sub_df.empty:
@@ -288,21 +275,17 @@ def seasonals_chart(ticker, cycle_label, reference_year, show_all_years_line=Fal
                     res[f"{d}_pospct"] = (sub_df[col] > 0).mean() * 100
                 return res
 
-            # Important: Stats should likely only include years < reference_year 
-            # so the "Stats" aren't "cheating" if this is a backtest tool.
-            stats_universe = display_df[display_df['year'] < reference_year]
-
-            stats_all = calculate_stats_row(stats_universe)
+            stats_all = calculate_stats_row(display_df)
             
             if cycle_label != "All Years":
-                df_cycle = stats_universe[stats_universe['year'].isin(highlight_years)]
+                df_cycle = display_df[display_df['year'].isin(highlight_years)]
                 stats_cycle = calculate_stats_row(df_cycle)
-                cycle_row_name = f"{cycle_label} Cycle (Pre-{reference_year})"
+                cycle_row_name = f"{cycle_label} Cycle"
             else:
                 stats_cycle = stats_all
-                cycle_row_name = f"All Years (Pre-{reference_year})"
+                cycle_row_name = f"All Years"
 
-            stats_df = pd.DataFrame([stats_all, stats_cycle], index=[f"All History (Pre-{reference_year})", cycle_row_name])
+            stats_df = pd.DataFrame([stats_all, stats_cycle], index=[f"All History (<{reference_year})", cycle_row_name])
             
             ordered_cols = ["n"]
             for d in [5, 10, 21]:
@@ -350,7 +333,7 @@ def seasonals_chart(ticker, cycle_label, reference_year, show_all_years_line=Fal
                 hide_index=True
             )
         else:
-            st.warning(f"No historical data available for Day #{current_day_count_val}.")
+            st.warning(f"No historical data available prior to {reference_year} for Day #{current_day_count_val}.")
 
 # -----------------------------------------------------------------------------
 # APP ENTRY POINT
