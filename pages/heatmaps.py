@@ -11,7 +11,7 @@ import datetime
 # -----------------------------------------------------------------------------
 # CONSTANTS & SETUP
 # -----------------------------------------------------------------------------
-SEASONAL_PATH = "seasonal_ranks.csv" # Updated to match your repo's export filename
+SEASONAL_PATH = "seasonal_ranks.csv"
 METRICS_PATH = "market_metrics_full_export.csv"
 NAAIM_PATH = "naaim.csv"
 
@@ -107,21 +107,11 @@ def download_data(ticker):
 # CALCULATIONS
 # -----------------------------------------------------------------------------
 def get_sznl_val_series(ticker, dates, sznl_map):
-    """
-    Looks up seasonal rank using EXACT DATES from the index.
-    """
+    # Simplified: Only use the map, fallback to 50 if missing
     t_map = sznl_map.get(ticker, {})
-    if not t_map:
-        return pd.Series(50.0, index=dates)
-    
-    # 1. Normalize the input index to Midnight (remove time component)
-    # 2. Remove Timezone if present (to match CSV's naive dates)
-    normalized_dates = pd.to_datetime(dates).normalize()
-    if normalized_dates.tz is not None:
-        normalized_dates = normalized_dates.tz_localize(None)
-
-    # Strict Lookup: If date doesn't exist in CSV, return 50 (Neutral)
-    return normalized_dates.map(t_map).fillna(50.0)
+    if t_map:
+        return dates.map(lambda x: (x.month, x.day)).map(t_map).fillna(50.0)
+    return pd.Series(50.0, index=dates)
 
 @st.cache_data(show_spinner=False)
 def get_spy_context():
