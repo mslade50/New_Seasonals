@@ -43,6 +43,10 @@ def get_current_cycle_label():
 # -----------------------------------------------------------------------------
 @st.cache_data(show_spinner=False)
 def load_seasonal_map():
+    """
+    Loads the CSV and creates a dictionary of TimeSeries for each ticker.
+    Structure: { 'SPY': pd.Series(index=Datetime, data=Rank) }
+    """
     try:
         df = pd.read_csv(CSV_PATH)
     except Exception:
@@ -50,22 +54,39 @@ def load_seasonal_map():
 
     if df.empty: return {}
 
+    # Ensure valid dates
     df["Date"] = pd.to_datetime(df["Date"], errors='coerce')
     df = df.dropna(subset=["Date"])
-    df["MD"] = df["Date"].apply(lambda x: (x.month, x.day))
+    
+    # Normalize to midnight (remove time component if present)
+    df["Date"] = df["Date"].dt.normalize()
     
     output_map = {}
+    # Group by ticker and create a sorted Series for each
     for ticker, group in df.groupby("ticker"):
-        output_map[ticker] = pd.Series(
-            group.seasonal_rank.values, index=group.MD
-        ).to_dict()
+        # We set the index to Date and ensure it is sorted for 'asof' lookups
+        series = group.set_index("Date")["seasonal_rank"].sort_index()
+        output_map[ticker] = series
 
     return output_map
 
 def get_sznl_val(ticker, target_date, sznl_map):
+    """
+    Smart lookup: Finds the rank for the target date.
+    If target date is missing (e.g., weekend), finds the most recent previous value.
+    """
     if ticker not in sznl_map: return np.nan
-    md = (target_date.month, target_date.day)
-    return sznl_map[ticker].get(md, np.nan)
+    
+    series = sznl_map[ticker]
+    target = pd.Timestamp(target_date).normalize()
+    
+    # 'asof' finds the last valid value up to (and including) the target date.
+    # It handles weekends/holidays automatically by looking back.
+    try:
+        val = series.asof(target)
+        return val
+    except:
+        return np.nan
 
 def percentile_rank(series: pd.Series, value) -> float:
     s = series.dropna().values
