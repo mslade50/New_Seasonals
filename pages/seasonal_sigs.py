@@ -18,7 +18,7 @@ CYCLE_START_MAPPING = {
 DEFAULT_PIVOT_PERIOD = 20
 
 # -----------------------------------------------------------------------------
-# HELPER FUNCTIONS (retained)
+# HELPER FUNCTIONS
 # -----------------------------------------------------------------------------
 
 def get_current_trading_info():
@@ -28,6 +28,7 @@ def get_current_trading_info():
     """
     today = dt.date.today()
     start_of_month = dt.date(today.year, today.month, 1)
+    # Fetch a buffer to ensure we catch today if market is open/closed
     current_data = yf.download("SPY", start=start_of_month, end=today + timedelta(days=1), progress=False) 
     
     if isinstance(current_data.columns, pd.MultiIndex): 
@@ -93,9 +94,9 @@ def plot_seasonal_paths(ticker, cycle_label):
     else:
         cycle_start = CYCLE_START_MAPPING.get(cycle_label)
         if cycle_start is None:
-            st.error(f"Invalid cycle type '{cycle_label}' for seasonality analysis.")
-            return
-
+            # Fallback if invalid cycle passed
+            cycle_start = 1953 
+            
         years_in_cycle = [cycle_start + i * 4 for i in range((date.today().year - cycle_start) // 4 + 1)] 
         cycle_data = spx[spx["year"].isin(years_in_cycle)].copy()
         line_name = f"Avg Path ({cycle_label})"
@@ -116,7 +117,7 @@ def plot_seasonal_paths(ticker, cycle_label):
         line=dict(color="orange", width=3)
     ))
 
-    # --- 2. Overlay: All Years Average Path (Defaulted to True) ---
+    # --- 2. Overlay: All Years Average Path (Always ON) ---
     if cycle_label != "All Years":
         all_avg_path = (
             spx.groupby("day_count")["log_return"]
@@ -155,7 +156,15 @@ def plot_seasonal_paths(ticker, cycle_label):
         plot_bgcolor="black",
         paper_bgcolor="black",
         font=dict(color="white"),
-        height=500
+        height=500,
+        showlegend=True,
+        legend=dict(
+            yanchor="top",
+            y=0.99,
+            xanchor="left",
+            x=0.01,
+            bgcolor="rgba(0,0,0,0)"
+        )
     )
     st.plotly_chart(fig, use_container_width=True)
 
@@ -170,11 +179,13 @@ def plot_candlestick_and_mas(ticker):
     six_months_ago = today - timedelta(days=6 * 30)
     chart_start_date = min(ytd_start, six_months_ago)
 
-    # Calculate full fetch start date: Need 200 days *before* the chart starts
-    ma_lookback_days = 200 * 1.5 # 200 days, plus a buffer for weekends/holidays
+    # Calculate full fetch start date: 
+    # We need 200 TRADING days. 365 calendar days is ~250 trading days.
+    # To be safe for holidays/weekends, we fetch 400 calendar days prior.
+    ma_lookback_days = 400 
     full_fetch_start = chart_start_date - timedelta(days=ma_lookback_days) 
 
-    # Fetch Data (including lookback for MAs)
+    # Fetch Data (including deep lookback for MAs)
     df_full = yf.download(ticker, start=full_fetch_start, end=today + timedelta(days=1), progress=False)
 
     if df_full.empty:
@@ -191,23 +202,29 @@ def plot_candlestick_and_mas(ticker):
     # Calculate Pivot Levels on the full dataset
     df_full = calculate_pivot_levels(df_full)
     
-    # Filter the data frame back to the desired charting period
+    # Filter the data frame back to the desired charting period for display
+    # This keeps the MA values calculated from prior data
     df = df_full[df_full.index >= pd.to_datetime(chart_start_date)].copy()
     
+    if df.empty:
+         st.warning(f"No data available for chart period starting {chart_start_date}")
+         return
+
     # Reset index for Plotly to treat x-axis as continuous trading days (removes gaps)
     df = df.reset_index()
     
     # --- Plotting ---
     fig = go.Figure()
     
-    # 1. Candlestick Chart (Black/White colors)
+    # 1. Candlestick Chart
+    # Increasing (Up) = Black Fill + White Outline
+    # Decreasing (Down) = White Fill + White Outline (Solid White)
     fig.add_trace(go.Candlestick(
         x=df.index,
         open=df['Open'], high=df['High'], low=df['Low'], close=df['Close'],
         name='Price',
-        increasing_line_color='black',  # Green/Increasing -> Black
-        decreasing_line_color='white', # Red/Decreasing -> White
-        line=dict(width=1),
+        increasing=dict(line=dict(color='white', width=1), fillcolor='black'), 
+        decreasing=dict(line=dict(color='white', width=1), fillcolor='white'),
         opacity=0.9
     ))
     
@@ -216,9 +233,6 @@ def plot_candlestick_and_mas(ticker):
     fig.add_trace(go.Scatter(x=df.index, y=df['MA_200'], line=dict(color='red', width=2), name='200-Day MA'))
     
     # 3. Pivot Levels (Plot horizontal lines for most recent pivots)
-    # We use the full index (Dates) to calculate the last pivot, then map to the continuous index
-    
-    # Identify the last non-NaN Pivot High and Low from the *full* set
     last_ph = df_full['PivotHigh'].dropna().iloc[-1] if not df_full['PivotHigh'].dropna().empty else None
     last_pl = df_full['PivotLow'].dropna().iloc[-1] if not df_full['PivotLow'].dropna().empty else None
     
@@ -242,7 +256,7 @@ def plot_candlestick_and_mas(ticker):
     # Chart Layout
     fig.update_layout(
         title=f"{ticker} Price Action ({chart_start_date} to Present)",
-        xaxis_title="Trading Day Index (Gaps Removed)",
+        xaxis_title="Trading Days",
         yaxis_title="Price",
         plot_bgcolor="black",
         paper_bgcolor="black",
@@ -252,61 +266,59 @@ def plot_candlestick_and_mas(ticker):
     )
     
     # Map the custom index back to dates for better x-axis labels
-    # We use the original Date column for tick text
     tickvals = np.linspace(df.index.min(), df.index.max(), 10, dtype=int)
+    # Safely format dates
+    ticktext = [df['Date'].iloc[i].strftime('%b %Y') if 'Date' in df.columns else df.index[i] for i in tickvals]
+    
     fig.update_xaxes(
         tickmode='array',
         tickvals=tickvals,
-        ticktext=[df['Date'].iloc[i].strftime('%b %Y') for i in tickvals]
+        ticktext=ticktext
     )
     
     st.plotly_chart(fig, use_container_width=True)
 
 
 # -----------------------------------------------------------------------------
-# STREAMLIT PAGE ENTRY POINT (Iterates through all tickers)
+# STREAMLIT PAGE ENTRY POINT
 # -----------------------------------------------------------------------------
 
 def seasonal_signals_page():
     st.set_page_config(layout="wide", page_title="Seasonal Signals - All Tickers")
     st.title("💡 Seasonal Signals")
     
-    # Load Tickers and their associated Cycle Types from the CSV
+    # Load Tickers
     try:
         if not os.path.exists(CSV_FILE_PATH):
-            st.error(f"Required file '{CSV_FILE_PATH}' not found. Please ensure it's in the correct directory.")
+            st.error(f"Required file '{CSV_FILE_PATH}' not found.")
             return
 
         df_screener = pd.read_csv(CSV_FILE_PATH)
-        
-        # We need the Ticker and the Type (which we assume is the desired cycle)
         analysis_list = df_screener[['Ticker', 'Type']].drop_duplicates().to_dict('records')
         
         if not analysis_list:
-            st.warning("Screener CSV is empty, please ensure it contains 'Ticker' and 'Type' columns.")
+            st.warning("Screener CSV is empty.")
             return
 
     except Exception as e:
         st.error(f"Error loading {CSV_FILE_PATH}: {e}")
         return
     
-    
-    st.info(f"Displaying {len(analysis_list)} tickers found in `{CSV_FILE_PATH}`.")
+    st.info(f"Displaying {len(analysis_list)} tickers from `{CSV_FILE_PATH}`.")
     
     # --- Main Content Loop ---
     for item in analysis_list:
         ticker = item['Ticker'].upper()
-        # Use the 'Type' column from the CSV as the primary cycle for the seasonal chart
         cycle_label = item['Type'] 
         
-        # Check if cycle_label is valid (Election, Pre-Election, Post-Election, Midterm, or All Years)
+        # Validation
         if cycle_label not in CYCLE_START_MAPPING and cycle_label != "All Years":
-            st.warning(f"Skipping {ticker}: CSV 'Type' value '{cycle_label}' is not a recognized cycle. Falling back to 'Post-Election'.")
-            cycle_label = "Post-Election" # Fallback to a common cycle
+            st.warning(f"Skipping {ticker}: Invalid cycle '{cycle_label}'. Defaulting to 'Post-Election'.")
+            cycle_label = "Post-Election"
 
         st.markdown(f"## {ticker} Analysis (Cycle: {cycle_label})")
         
-        # We will plot the Seasonal Chart with the Cycle Type specified in the CSV
+        # 1. Seasonal
         try:
             with st.container():
                 plot_seasonal_paths(ticker, cycle_label)
@@ -315,14 +327,14 @@ def seasonal_signals_page():
 
         st.divider()
         
-        # Then plot the Candlestick chart
+        # 2. Candle
         try:
             with st.container():
                 plot_candlestick_and_mas(ticker)
         except Exception as e:
             st.error(f"Error generating Candle Chart for {ticker}: {e}")
         
-        st.markdown("---") # Strong separation between tickers
+        st.markdown("---")
 
 if __name__ == "__main__":
     seasonal_signals_page()
