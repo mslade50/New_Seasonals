@@ -36,7 +36,7 @@ def calculate_path(df, cycle_label, cycle_start_mapping):
         years_in_cycle = [cycle_start + i * 4 for i in range(30)] 
         cycle_data = df[df["year"].isin(years_in_cycle)].copy()
 
-    # Normalize week numbers if needed (handle 5th weeks)
+    # Normalize week numbers if needed
     if "week_of_month_5day" in cycle_data.columns:
         cycle_data.loc[cycle_data["week_of_month_5day"] > 4, "week_of_month_5day"] = 4
 
@@ -49,7 +49,7 @@ def calculate_path(df, cycle_label, cycle_start_mapping):
     )
     return avg_path
 
-def seasonals_chart(ticker, cycle_label, reference_year, show_all_years_line=False):
+def seasonals_chart(ticker, cycle_label, enable_time_travel, reference_year, show_all_years_line):
     cycle_start_mapping = {
         "Election": 1952,
         "Pre-Election": 1951,
@@ -74,144 +74,165 @@ def seasonals_chart(ticker, cycle_label, reference_year, show_all_years_line=Fal
     spx["month"] = spx.index.month
     spx["day_count"] = spx.groupby("year").cumcount() + 1
     
-    # -------------------------------------------------------------------------
-    # DATASET SPLITTING
-    # -------------------------------------------------------------------------
     current_year = dt.date.today().year
 
-    # 1. Full History (For "Current" Model)
-    # We exclude the current active year from the *Average* calculation to avoid bias, 
-    # or include it if you prefer. Standard practice is often to exclude the current incomplete year.
-    # Here we will use all completed years < current_year for the "Current Model"
+    # -------------------------------------------------------------------------
+    # 1. CURRENT MODEL CONSTRUCTION (Always Visible)
+    # -------------------------------------------------------------------------
+    # Use all completed years < current_year
     df_all_history = spx[spx["year"] < current_year].copy()
-
-    # 2. Historical Pool (For "Time Travel" Model) - Strictly < Reference Year
-    df_historical_pool = spx[spx["year"] < reference_year].copy()
-
-    # 3. Realized Paths
-    df_current_year = spx[spx["year"] == current_year].copy()
-    df_ref_year = spx[spx["year"] == reference_year].copy()
-
-    # -------------------------------------------------------------------------
-    # CALCULATE PATHS
-    # -------------------------------------------------------------------------
     
-    # Path A: The Model TODAY (Current View)
+    # Path: Current Cycle Avg
     path_current_avg = calculate_path(df_all_history, cycle_label, cycle_start_mapping)
+    
+    # Path: Current "All Years" Avg (Optional)
+    path_current_all_years = pd.Series()
+    if show_all_years_line:
+        path_current_all_years = calculate_path(df_all_history, "All Years", cycle_start_mapping)
 
-    # Path B: The Model THEN (Time Travel View)
-    path_historical_avg = calculate_path(df_historical_pool, cycle_label, cycle_start_mapping)
-
-    # Path C: Realized Path TODAY
+    # Path: Current Realized
+    df_current_year = spx[spx["year"] == current_year].copy()
     path_current_realized = pd.Series()
     if not df_current_year.empty:
         df_current_year["log_return"] = np.log(df_current_year["Close"] / df_current_year["Close"].shift(1))
         path_current_realized = df_current_year["log_return"].cumsum().apply(np.exp) - 1
 
-    # Path D: Realized Path THEN
+    # -------------------------------------------------------------------------
+    # 2. TIME TRAVEL CONSTRUCTION (Conditional)
+    # -------------------------------------------------------------------------
+    path_historical_avg = pd.Series()
     path_ref_realized = pd.Series()
-    ref_last_day_count = 0
-    if not df_ref_year.empty:
-        df_ref_year["log_return"] = np.log(df_ref_year["Close"] / df_ref_year["Close"].shift(1))
-        path_ref_realized = df_ref_year["log_return"].cumsum().apply(np.exp) - 1
-        ref_last_day_count = df_ref_year["day_count"].iloc[-1]
+    
+    if enable_time_travel:
+        # Historical Pool: Strictly < Reference Year
+        df_historical_pool = spx[spx["year"] < reference_year].copy()
+        
+        # Path: Historical Model Avg
+        path_historical_avg = calculate_path(df_historical_pool, cycle_label, cycle_start_mapping)
+        
+        # Path: Historical Realized
+        df_ref_year = spx[spx["year"] == reference_year].copy()
+        if not df_ref_year.empty:
+            df_ref_year["log_return"] = np.log(df_ref_year["Close"] / df_ref_year["Close"].shift(1))
+            path_ref_realized = df_ref_year["log_return"].cumsum().apply(np.exp) - 1
 
     # -------------------------------------------------------------------------
     # PLOTTING
     # -------------------------------------------------------------------------
     fig = go.Figure()
 
-    # 1. Current Avg Path (Solid Orange)
+    # A. Current Cycle Model (Orange)
     fig.add_trace(go.Scatter(
         x=path_current_avg.index,
         y=path_current_avg.values,
         mode="lines",
         name=f"Current Model ({cycle_label})",
-        line=dict(color="#FF8C00", width=3) # Dark Orange
+        line=dict(color="#FF8C00", width=3) 
     ))
 
-    # 2. Historical Avg Path (Dashed Orange)
-    if not path_historical_avg.empty:
+    # B. Current All Years Model (Light Blue - Optional)
+    if not path_current_all_years.empty:
+        fig.add_trace(go.Scatter(
+            x=path_current_all_years.index,
+            y=path_current_all_years.values,
+            mode="lines",
+            name="Current Model (All Years)",
+            line=dict(color="lightblue", width=1, dash='dot')
+        ))
+
+    # C. Historical Model (Gold Dashed - Time Travel)
+    if enable_time_travel and not path_historical_avg.empty:
         fig.add_trace(go.Scatter(
             x=path_historical_avg.index,
             y=path_historical_avg.values,
             mode="lines",
             name=f"Model in {reference_year} (Pre-{reference_year} Data)",
-            line=dict(color="#FCD12A", width=2, dash='dash') # Gold/Yellow Dashed
+            line=dict(color="#FCD12A", width=2, dash='dash')
         ))
 
-    # 3. Current Realized Path (Green)
+    # D. Current Realized (Green)
     if not path_current_realized.empty:
         fig.add_trace(go.Scatter(
             x=np.arange(1, len(path_current_realized) + 1),
             y=path_current_realized.values,
             mode="lines",
             name=f"{current_year} Realized (YTD)",
-            line=dict(color="#39FF14", width=2) # Neon Green
+            line=dict(color="#39FF14", width=2)
         ))
 
-    # 4. Historical Realized Path (Cyan/Blue)
-    if not path_ref_realized.empty:
+    # E. Historical Realized (Cyan - Time Travel)
+    if enable_time_travel and not path_ref_realized.empty:
         fig.add_trace(go.Scatter(
             x=np.arange(1, len(path_ref_realized) + 1),
             y=path_ref_realized.values,
             mode="lines",
             name=f"{reference_year} Realized",
-            line=dict(color="#00FFFF", width=2) # Cyan
+            line=dict(color="#00FFFF", width=2)
         ))
 
     # -------------------------------------------------------------------------
-    # MARKERS & LEGEND DATES (Based on Reference Year)
+    # MARKERS & DATES
     # -------------------------------------------------------------------------
-    # We want to show "Where we are today" mapped onto the Reference Year
+    # Logic: If Time Travel, context is Ref Year. If not, context is Today.
     
     today = dt.date.today()
-    # Map today's M/D to Ref Year
-    try:
-        ref_date_proxy = dt.date(reference_year, today.month, today.day)
-    except ValueError:
-        ref_date_proxy = dt.date(reference_year, 2, 28)
+    
+    if enable_time_travel:
+        # Context: Reference Year
+        target_year = reference_year
+        # Map today's M/D to Ref Year
+        try:
+            target_date_start = dt.date(target_year, today.month, today.day)
+        except ValueError:
+            target_date_start = dt.date(target_year, 2, 28)
+        
+        # For lookup, we need a dataframe representing that year
+        df_context = spx[spx["year"] == target_year]
+        # We plot dots on the HISTORICAL model if comparison is active
+        model_to_plot_on = path_historical_avg if not path_historical_avg.empty else path_current_avg
+        marker_color = "#FCD12A" # Gold
+        
+    else:
+        # Context: Current Year (Today)
+        target_year = current_year
+        target_date_start = today
+        # For lookup, we use current year data (to find day count)
+        df_context = spx[spx["year"] == target_year]
+        model_to_plot_on = path_current_avg
+        marker_color = "white"
 
-    # Find the day_count in the Ref Year dataset that corresponds to this date
-    # We use df_ref_year (or a calendar construct if empty)
-    
-    # Fallback if ref year has no data (e.g. future or very old), use index mapping
+    # Find Day Count
     day_count_marker = None
-    
-    if not df_ref_year.empty:
-        # Closest trading day in ref year to "today's date"
-        closest_idx = df_ref_year.index.searchsorted(dt.datetime.combine(ref_date_proxy, dt.time.min))
-        if closest_idx >= len(df_ref_year):
-            closest_idx = len(df_ref_year) - 1
+    if not df_context.empty:
+        # Search sorted to find closest trading day
+        closest_idx = df_context.index.searchsorted(dt.datetime.combine(target_date_start, dt.time.min))
+        if closest_idx >= len(df_context):
+            closest_idx = len(df_context) - 1
         
-        # Get the day count (1-252)
-        day_count_marker = df_ref_year.iloc[closest_idx]["day_count"]
-        
-        # Get Y Value from the HISTORICAL Model (User wants to know what the model PREDICTED back then)
-        # However, if the user is comparing to Current Model, maybe we plot on both? 
-        # Let's plot the marker on the Historical Model path since we are looking at "Time Travel" targets.
-        
-        if day_count_marker in path_historical_avg.index:
-            y_val = path_historical_avg.get(day_count_marker)
+        day_count_marker = df_context.iloc[closest_idx]["day_count"]
+
+        # Plot Current Day Marker
+        if day_count_marker in model_to_plot_on.index:
+            y_val = model_to_plot_on.get(day_count_marker)
             
             fig.add_trace(go.Scatter(
                 x=[day_count_marker],
                 y=[y_val],
                 mode="markers",
-                name=f"Date Marker: {ref_date_proxy.strftime('%b %d')}",
-                marker=dict(color="white", size=8, line=dict(width=1, color="black")),
+                name=f"Current Date ({target_date_start.strftime('%b %d')})",
+                marker=dict(color=marker_color, size=8, line=dict(width=1, color="black")),
+                showlegend=False
             ))
 
-            # Projections (T+5, 10, 21)
-            future_dates = pd.bdate_range(start=ref_date_proxy, periods=30)
+            # Projections
+            future_dates = pd.bdate_range(start=target_date_start, periods=30)
             offsets = [5, 10, 21]
             
             for offset in offsets:
                 target_idx = day_count_marker + offset
-                if target_idx in path_historical_avg.index:
-                    proj_y = path_historical_avg.get(target_idx)
+                if target_idx in model_to_plot_on.index:
+                    proj_y = model_to_plot_on.get(target_idx)
                     
-                    # Date Label
                     if offset < len(future_dates):
                         d_label = future_dates[offset].strftime("%b %d")
                     else:
@@ -222,13 +243,13 @@ def seasonals_chart(ticker, cycle_label, reference_year, show_all_years_line=Fal
                         y=[proj_y],
                         mode="markers",
                         name=f"T+{offset} ({d_label})", # Legend shows date
-                        marker=dict(color="#FCD12A", size=6, symbol="circle"), # Matches historical line color
+                        marker=dict(color=marker_color, size=6, symbol="circle"),
                     ))
 
-
-    # Chart Layout
+    # Layout
+    title_suffix = f"vs {reference_year}" if enable_time_travel else ""
     fig.update_layout(
-        title=f"Seasonal Analysis: {current_year} vs {reference_year} (Time Travel)",
+        title=f"Seasonal Analysis: {ticker} {title_suffix}",
         xaxis_title="Trading Day of Year",
         yaxis_title="Cumulative Return",
         plot_bgcolor="black",
@@ -246,26 +267,35 @@ def seasonals_chart(ticker, cycle_label, reference_year, show_all_years_line=Fal
     fig.update_xaxes(showgrid=False)
     fig.update_yaxes(showgrid=False)
 
-    st.plotly_chart(fig, use_container_width=True)      
-    
+    st.plotly_chart(fig, use_container_width=True)
+
     # -------------------------------------------------------------------------
-    # DETAILED HISTORY TABLE (Strictly Pre-Reference Year)
+    # DETAILED HISTORY TABLE
     # -------------------------------------------------------------------------
     st.divider()
-    st.subheader(f"📜 Detailed History: Day #{day_count_marker} to Fwd Returns")
-    st.caption(f"Table shows historical outcomes based on data available **prior to {reference_year}**. (Reference year and subsequent years are excluded to prevent look-ahead bias).")
+    
+    # Text logic
+    if enable_time_travel:
+        st.subheader(f"📜 Historical Returns (Pre-{reference_year})")
+        st.caption(f"Stats exclude {reference_year} and later to prevent look-ahead bias.")
+        cutoff_year = reference_year
+    else:
+        st.subheader(f"📜 Historical Returns (Pre-{current_year})")
+        st.caption(f"Stats exclude incomplete current year ({current_year}).")
+        cutoff_year = current_year
 
     if day_count_marker:
         spx_full = spx.copy()
         
+        # Calculate Fwd Returns on full dataset
         spx_full['Fwd_5d'] = spx_full['Close'].shift(-5) / spx_full['Close'] - 1
         spx_full['Fwd_10d'] = spx_full['Close'].shift(-10) / spx_full['Close'] - 1
         spx_full['Fwd_21d'] = spx_full['Close'].shift(-21) / spx_full['Close'] - 1
 
         daily_snapshots = spx_full[spx_full['day_count'] == day_count_marker].copy()
 
-        # STRICT FILTER: Only years strictly BEFORE reference_year
-        display_df = daily_snapshots[daily_snapshots['year'] < reference_year].copy()
+        # FILTER: Strictly < cutoff_year
+        display_df = daily_snapshots[daily_snapshots['year'] < cutoff_year].copy()
 
         if not display_df.empty:
             display_df = display_df[['year', 'Fwd_5d', 'Fwd_10d', 'Fwd_21d']]
@@ -283,7 +313,7 @@ def seasonals_chart(ticker, cycle_label, reference_year, show_all_years_line=Fal
                 highlight_years = []
 
             # --- STATS ---
-            st.markdown(f"##### 🎯 Fwd Return Statistics (Data < {reference_year})")
+            st.markdown(f"##### 🎯 Fwd Return Statistics")
             
             def calculate_stats_row(sub_df):
                 if sub_df.empty:
@@ -307,7 +337,7 @@ def seasonals_chart(ticker, cycle_label, reference_year, show_all_years_line=Fal
                 stats_cycle = stats_all
                 cycle_row_name = f"All Years"
 
-            stats_df = pd.DataFrame([stats_all, stats_cycle], index=[f"All History (<{reference_year})", cycle_row_name])
+            stats_df = pd.DataFrame([stats_all, stats_cycle], index=[f"All History (<{cutoff_year})", cycle_row_name])
             
             ordered_cols = ["n"]
             for d in [5, 10, 21]:
@@ -355,7 +385,7 @@ def seasonals_chart(ticker, cycle_label, reference_year, show_all_years_line=Fal
                 hide_index=True
             )
         else:
-            st.warning(f"No historical data available prior to {reference_year}.")
+            st.warning(f"No historical data available prior to {cutoff_year}.")
 
 # -----------------------------------------------------------------------------
 # APP ENTRY POINT
@@ -364,28 +394,40 @@ def main():
     st.set_page_config(layout="wide", page_title="Seasonality Analysis")
     st.title("📊 Presidential Cycle Seasonality")
 
-    col1, col2, col3, col4 = st.columns([1, 1, 1, 1])
+    # UI Layout
+    col1, col2, col3, col4 = st.columns([1, 1, 1.5, 1])
+    
     with col1:
         ticker = st.text_input("Ticker", value="SPY").upper()
+    
     with col2:
         cycle_label = st.selectbox(
             "Cycle Type",
             ["All Years", "Election", "Pre-Election", "Post-Election", "Midterm"],
             index=3
         )
+    
     with col3:
-        current_year = dt.date.today().year
-        reference_year = st.number_input("Time Travel Year", min_value=1950, max_value=current_year, value=current_year-1)
+        # Time Travel Logic
+        c3_1, c3_2 = st.columns([1, 1])
+        with c3_1:
+            enable_time_travel = st.checkbox("Enable Time Travel", value=False)
+        with c3_2:
+            current_year = dt.date.today().year
+            if enable_time_travel:
+                reference_year = st.number_input("Compare vs Year", min_value=1950, max_value=current_year, value=current_year-1)
+            else:
+                reference_year = current_year # Placeholder
+                st.write("") # Spacer
+
     with col4:
-        st.write("") 
-        # Optional: could add toggle to hide "current" lines if it gets too messy, 
-        # but requested behavior is to add to them.
-        st.caption("Chart overlays 'Time Travel' paths on top of current data.")
+        st.write("")
+        show_all_years_line = st.checkbox("Overlay 'All Years' Avg", value=False)
 
     if st.button("Run Analysis", type="primary", use_container_width=True):
         try:
-            with st.spinner("Fetching data..."):
-                seasonals_chart(ticker, cycle_label, reference_year)
+            with st.spinner("Calculating cycle stats..."):
+                seasonals_chart(ticker, cycle_label, enable_time_travel, reference_year, show_all_years_line)
         except Exception as e:
             st.error(f"Error generating chart: {e}")
 
