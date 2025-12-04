@@ -117,8 +117,9 @@ def load_sector_metrics(tickers):
     if not rows: return pd.DataFrame()
 
     df_out = pd.DataFrame(rows)
-    if "PctRank200" in df_out.columns:
-        df_out = df_out.sort_values("PctRank200", ascending=False, ignore_index=True)
+    # SORT BY SEASONAL RANK (High to Low)
+    if "Sznl" in df_out.columns:
+        df_out = df_out.sort_values("Sznl", ascending=False, ignore_index=True)
     
     return df_out
 
@@ -230,8 +231,10 @@ def render_seasonal_chart(ticker):
         if closest_idx >= len(df_current_ctx): closest_idx = len(df_current_ctx) - 1
         
         day_count_marker = df_current_ctx.iloc[closest_idx]["day_count"]
+        future_dates = pd.bdate_range(start=today, periods=30)
+        offsets = [5, 10, 21]
 
-        # Plot on Cycle Path
+        # --- Plot on Cycle Path (ORANGE) ---
         if day_count_marker in path_cycle.index:
             y_val = path_cycle.get(day_count_marker)
             fig.add_trace(go.Scatter(
@@ -240,9 +243,6 @@ def render_seasonal_chart(ticker):
                 marker=dict(color="white", size=8, line=dict(width=1, color="black")),
                 showlegend=False
             ))
-
-            future_dates = pd.bdate_range(start=today, periods=30)
-            offsets = [5, 10, 21]
             
             for offset in offsets:
                 target_idx = day_count_marker + offset
@@ -258,10 +258,31 @@ def render_seasonal_chart(ticker):
                         showlegend=False
                     ))
 
+        # --- Plot on All Years Path (BLUE) ---
+        if day_count_marker in path_all.index:
+            y_val_all = path_all.get(day_count_marker)
+            fig.add_trace(go.Scatter(
+                x=[day_count_marker], y=[y_val_all],
+                mode="markers", 
+                marker=dict(color="lightblue", size=6, line=dict(width=1, color="white")),
+                showlegend=False, hoverinfo="skip"
+            ))
+            
+            for offset in offsets:
+                target_idx = day_count_marker + offset
+                if target_idx in path_all.index:
+                    proj_y_all = path_all.get(target_idx)
+                    fig.add_trace(go.Scatter(
+                        x=[target_idx], y=[proj_y_all],
+                        mode="markers", 
+                        marker=dict(color="lightblue", size=5, symbol="circle"),
+                        showlegend=False, hoverinfo="skip"
+                    ))
+
     fig.update_layout(
         title=f"{ticker} Seasonality ({cycle_label})",
         margin=dict(l=10, r=10, t=40, b=10),
-        height=400, # <--- UPDATED HEIGHT HERE
+        height=600, # <--- UPDATED HEIGHT (600px)
         plot_bgcolor="black",
         paper_bgcolor="black",
         font=dict(color="white"),
