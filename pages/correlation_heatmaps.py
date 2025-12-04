@@ -12,7 +12,7 @@ import pytz # Added for Time Zone conversion
 # -----------------------------------------------------------------------------
 # CONSTANTS & SETUP
 # -----------------------------------------------------------------------------
-CSV_PATH = "seasonal_ranks.csv"
+CSV_PATH = "seasonal_ranks.csv" # Ensure this matches your exported filename
 
 # --- SIDEBAR: REFRESH BUTTON ---
 # This must be placed before data loading to effectively clear the cache before use
@@ -25,6 +25,9 @@ with st.sidebar:
 
 @st.cache_data(show_spinner=False)
 def load_seasonal_map():
+    """
+    Loads seasonal ranks with EXACT DATE matching (YYYY-MM-DD).
+    """
     try:
         df = pd.read_csv(CSV_PATH)
     except Exception:
@@ -32,24 +35,37 @@ def load_seasonal_map():
 
     if df.empty: return {}
 
+    # Ensure Date is parsed as datetime objects
     df["Date"] = pd.to_datetime(df["Date"], errors='coerce')
     df = df.dropna(subset=["Date"])
-    df["MD"] = df["Date"].apply(lambda x: (x.month, x.day))
     
+    # Sort to ensure chronological order (optional but good practice)
+    df = df.sort_values("Date")
+
     output_map = {}
     for ticker, group in df.groupby("ticker"):
+        # Map: Timestamp -> Rank
         output_map[ticker] = pd.Series(
-            group.seasonal_rank.values, index=group.MD
+            group.seasonal_rank.values, index=group.Date
         ).to_dict()
     return output_map
 
 def get_sznl_val_series(ticker, dates, sznl_map):
+    """
+    Looks up seasonal rank using EXACT DATES from the index.
+    """
     t_map = sznl_map.get(ticker, {})
     if not t_map:
         return pd.Series(50.0, index=dates)
     
-    mds = dates.map(lambda x: (x.month, x.day))
-    return mds.map(t_map).fillna(50.0)
+    # 1. Normalize the input index to Midnight (remove time component)
+    # 2. Remove Timezone if present (to match CSV's naive dates)
+    normalized_dates = pd.to_datetime(dates).normalize()
+    if normalized_dates.tz is not None:
+        normalized_dates = normalized_dates.tz_localize(None)
+
+    # Strict Lookup: If date doesn't exist in CSV, return 50 (Neutral)
+    return normalized_dates.map(t_map).fillna(50.0)
 
 @st.cache_data(show_spinner=False)
 def download_data(ticker):
@@ -59,6 +75,12 @@ def download_data(ticker):
         df = yf.download(ticker, period="max", progress=False, auto_adjust=True)
         if isinstance(df.columns, pd.MultiIndex):
             df.columns = [c[0] for c in df.columns]
+        
+        # Ensure index is standard
+        if df.index.tz is not None:
+            df.index = df.index.tz_localize(None)
+        df.index = df.index.normalize()
+            
         return df
     except:
         return pd.DataFrame()
@@ -113,6 +135,7 @@ def calc_target_metrics(df, sznl_map, ticker):
     for w in [5, 10, 21]:
         df[f'VolRatio_{w}d'] = df['Volume'].rolling(w).mean() / df['Volume'].rolling(63).mean()
 
+    # --- UPDATED SEASONAL CALL ---
     df['Seasonal'] = get_sznl_val_series(ticker, df.index, sznl_map)
 
     # Rank Transformations (For X Axis usage)
