@@ -225,7 +225,7 @@ def seasonals_chart(ticker, cycle_label, enable_time_travel, reference_year, sho
                         y=[proj_y],
                         mode="markers",
                         name=f"T+{offset} ({d_label})", 
-                        marker=dict(color=marker_color, size=6, symbol="circle"),
+                        marker=dict(color=marker_color, size=5, symbol="diamond"),
                     ))
 
         # --- PLOT MARKERS ON 'ALL YEARS' LINE (If Visible) ---
@@ -251,7 +251,7 @@ def seasonals_chart(ticker, cycle_label, enable_time_travel, reference_year, sho
                             x=[target_idx],
                             y=[proj_y_all],
                             mode="markers",
-                            marker=dict(color="white", size=5, symbol="circle"), 
+                            marker=dict(color="white", size=5, symbol="diamond"), 
                             showlegend=False,
                             hoverinfo="skip"
                         ))
