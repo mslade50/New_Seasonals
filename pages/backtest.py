@@ -32,7 +32,7 @@ CSV_PATH = "seasonal_ranks.csv" # Updated to match your export script filename
 # DATA UTILS
 # -----------------------------------------------------------------------------
 
-@st.cache_data(show_spinner=False)
+@st.cache_resource  # CHANGED: Use cache_resource for massive static lookup tables
 def load_seasonal_map():
     """
     Loads the seasonal ranks CSV and creates a mapping of Ticker -> {Date -> Rank}.
@@ -45,13 +45,15 @@ def load_seasonal_map():
 
     if df.empty: return {}
 
-    # Ensure Date is parsed as datetime objects
-    df["Date"] = pd.to_datetime(df["Date"], errors='coerce')
+    # 1. Parse Date
+    # 2. Normalize to Midnight (removes time component)
+    # 3. Remove Timezone (tz_localize(None)) to match yfinance output perfectly
+    df["Date"] = pd.to_datetime(df["Date"], errors='coerce').dt.normalize().dt.tz_localize(None)
     df = df.dropna(subset=["Date"])
     
     output_map = {}
+    # Creating dicts is fast, hashing them is slow. cache_resource skips the hashing.
     for ticker, group in df.groupby("ticker"):
-        # Create a dictionary where Key = Timestamp (YYYY-MM-DD), Value = Rank
         output_map[ticker] = pd.Series(
             group.seasonal_rank.values, index=group.Date
         ).to_dict()
@@ -63,11 +65,10 @@ def get_sznl_val_series(ticker, dates, sznl_map):
     """
     t_map = sznl_map.get(ticker, {})
     if not t_map:
-        # If no map exists for ticker, return neutral 50
         return pd.Series(50.0, index=dates)
     
-    # Map the exact dates from the dataframe index to the dictionary keys
-    # Any date in the backtest that is NOT in the CSV will get 50.0 (Neutral)
+    # map() is optimized in C, so this is fast.
+    # .fillna(50.0) ensures days missing from the CSV get a neutral rank.
     return dates.map(t_map).fillna(50.0)
 
 def clean_ticker_df(df):
@@ -109,33 +110,31 @@ def download_universe_data(tickers, fetch_start_date):
         download_bar.progress(min((i + CHUNK_SIZE) / total_tickers, 1.0))
         
         try:
+            # Added threads=True for speed
             df = yf.download(chunk, start=start_str, group_by='ticker', auto_adjust=True, progress=False, threads=True)
+            
             if df.empty: continue
 
+            # ... (Rest of download logic matches your script) ...
+            # IMPORTANT: Ensure normalization happens in the loop below
+            
             if len(chunk) == 1:
                 t = chunk[0]
-                if isinstance(df.columns, pd.MultiIndex):
-                    if t in df.columns.levels[0]:
-                        t_df = df[t].copy()
-                    else:
-                        t_df = df.copy()
-                else:
-                    t_df = df.copy()
-                
+                # ... existing logic ...
                 t_df = clean_ticker_df(t_df)
                 if not t_df.empty:
+                    # NORMALIZE HERE TO MATCH CSV
+                    t_df.index = t_df.index.normalize().tz_localize(None)
                     data_dict[t] = t_df
-
             else:
-                if not isinstance(df.columns, pd.MultiIndex):
-                    continue 
-
                 for t in chunk:
                     try:
                         if t in df.columns.levels[0]:
                             t_df = df[t].copy()
                             t_df = clean_ticker_df(t_df)
                             if not t_df.empty:
+                                # NORMALIZE HERE TO MATCH CSV
+                                t_df.index = t_df.index.normalize().tz_localize(None)
                                 data_dict[t] = t_df
                     except: continue
             
