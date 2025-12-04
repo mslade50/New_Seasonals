@@ -3,6 +3,7 @@ import pandas as pd
 import numpy as np
 import datetime as dt
 import plotly.graph_objs as go
+from plotly.subplots import make_subplots
 import streamlit as st
 from datetime import date, timedelta
 
@@ -19,12 +20,8 @@ def compute_atr(df, window=14):
     return df
 
 def get_default_cycle_index():
-    """
-    Returns the index for the selectbox based on the current year.
-    """
     year = dt.date.today().year
     rem = year % 4
-    
     if rem == 0: return 1 # Election
     if rem == 1: return 3 # Post-Election
     if rem == 2: return 4 # Midterm
@@ -36,8 +33,7 @@ def get_default_cycle_index():
 # -----------------------------------------------------------------------------
 
 def calculate_path(df, cycle_label, cycle_start_mapping):
-    if df.empty:
-        return pd.Series()
+    if df.empty: return pd.Series()
 
     if cycle_label == "All Years":
         cycle_data = df.copy()
@@ -57,7 +53,132 @@ def calculate_path(df, cycle_label, cycle_start_mapping):
     )
     return avg_path
 
+# -----------------------------------------------------------------------------
+# NEW: RECENT PERFORMANCE ANALYSIS
+# -----------------------------------------------------------------------------
+def recent_performance_analysis(df, cycle_label, cycle_start_mapping):
+    """
+    Calculates percentile ranks for returns and seasonality for the last 21 days.
+    """
+    df = df.copy()
+    
+    # 1. Calculate Historical Returns Windows
+    for w in [5, 10, 21]:
+        df[f'Ret_{w}d'] = df['Close'].pct_change(w)
+        # Calculate Percentile Rank of current return vs Full History (Expanding)
+        # Rank of 99 means current return is higher than 99% of history (Overbought)
+        df[f'Rank_{w}d'] = df[f'Ret_{w}d'].expanding(min_periods=252).rank(pct=True) * 100
+        
+    df['Daily_Ret'] = df['Close'].pct_change() * 100
+
+    # 2. Calculate Seasonal Rank (Specific to Cycle)
+    # We first calculate the average daily return for every day_count in the selected cycle
+    if cycle_label == "All Years":
+        cycle_df = df.copy()
+    else:
+        start_yr = cycle_start_mapping[cycle_label]
+        valid_years = [start_yr + i * 4 for i in range(30)]
+        cycle_df = df[df['year'].isin(valid_years)].copy()
+        
+    # Get average return for Day 1, Day 2... Day 252
+    daily_seasonality = cycle_df.groupby('day_count')['log_return'].mean()
+    
+    # Rank the days against each other (0-100). 
+    # 100 = Historically the best day of the year. 0 = Historically the worst.
+    seasonal_score_map = daily_seasonality.rank(pct=True) * 100
+    
+    # Map back to main dataframe
+    df['Seasonal_Rank'] = df['day_count'].map(seasonal_score_map)
+
+    # 3. Filter Last 21 Days
+    recent = df.tail(21).copy()
+    
+    # -------------------------------------------------------------------------
+    # VISUALIZATION: RANKS CHART
+    # -------------------------------------------------------------------------
+    st.markdown(f"### 🌡️ Recent Technical & Seasonal Heatmap")
+    
+    # Create subplots: Row 1 = Ranks (Oscillator), Row 2 = Volume
+    fig = make_subplots(rows=2, cols=1, shared_xaxes=True, 
+                        vertical_spacing=0.05, row_heights=[0.7, 0.3],
+                        subplot_titles=("Statistical Return Ranks (0-100)", "Volume"))
+
+    # 5d Rank
+    fig.add_trace(go.Scatter(x=recent.index, y=recent['Rank_5d'], name="5d Ret Rank",
+                             line=dict(color='#FF6D00', width=2)), row=1, col=1)
+    # 10d Rank
+    fig.add_trace(go.Scatter(x=recent.index, y=recent['Rank_10d'], name="10d Ret Rank",
+                             line=dict(color='#00B0FF', width=2)), row=1, col=1)
+    # 21d Rank
+    fig.add_trace(go.Scatter(x=recent.index, y=recent['Rank_21d'], name="21d Ret Rank",
+                             line=dict(color='#D500F9', width=2)), row=1, col=1)
+    
+    # Seasonal Rank (Dotted to differentiate)
+    fig.add_trace(go.Scatter(x=recent.index, y=recent['Seasonal_Rank'], name="Seasonal Strength",
+                             line=dict(color='white', width=1, dash='dot'), opacity=0.7), row=1, col=1)
+
+    # Overbought/Oversold Lines
+    fig.add_hrect(y0=80, y1=100, row=1, col=1, fillcolor="red", opacity=0.1, line_width=0)
+    fig.add_hrect(y0=0, y1=20, row=1, col=1, fillcolor="green", opacity=0.1, line_width=0)
+
+    # Volume Bar
+    colors = ['red' if r < 0 else 'green' for r in recent['Daily_Ret']]
+    fig.add_trace(go.Bar(x=recent.index, y=recent['Volume'], name="Volume",
+                         marker_color=colors, opacity=0.8), row=2, col=1)
+
+    fig.update_layout(height=500, plot_bgcolor='black', paper_bgcolor='black',
+                      font=dict(color='white'), margin=dict(t=30, b=10, l=10, r=10),
+                      yaxis=dict(range=[0, 100], title="Percentile Rank"),
+                      showlegend=True, legend=dict(orientation="h", y=1.1))
+    fig.update_xaxes(showgrid=False)
+    fig.update_yaxes(showgrid=False, row=2, col=1)
+    
+    st.plotly_chart(fig, use_container_width=True)
+
+    # -------------------------------------------------------------------------
+    # DATA TABLE
+    # -------------------------------------------------------------------------
+    # Prepare display dataframe
+    display_cols = ['Close', 'Daily_Ret', 'Volume', 'Rank_5d', 'Rank_10d', 'Rank_21d', 'Seasonal_Rank']
+    table_df = recent[display_cols].sort_index(ascending=False)
+    
+    # Conditional Formatting Functions
+    def color_rank(val):
+        if pd.isna(val): return ''
+        if val >= 90: return 'color: #ff4444; font-weight: bold;' # Extreme Overbought
+        if val >= 80: return 'color: #ff8888;'
+        if val <= 10: return 'color: #00ff00; font-weight: bold;' # Extreme Oversold
+        if val <= 20: return 'color: #90ee90;'
+        return 'color: #cccccc;'
+    
+    def color_ret(val):
+        color = '#ff6666' if val < 0 else '#66ff66'
+        return f'color: {color}'
+
+    # Apply Styling
+    styler = table_df.style.format({
+        "Close": "{:.2f}",
+        "Daily_Ret": "{:+.2f}%",
+        "Volume": "{:,.0f}",
+        "Rank_5d": "{:.0f}",
+        "Rank_10d": "{:.0f}",
+        "Rank_21d": "{:.0f}",
+        "Seasonal_Rank": "{:.0f}"
+    })
+    
+    styler = styler.map(color_rank, subset=['Rank_5d', 'Rank_10d', 'Rank_21d', 'Seasonal_Rank'])
+    styler = styler.map(color_ret, subset=['Daily_Ret'])
+    styler = styler.bar(subset=['Volume'], color='#444444') # Visual bar for volume
+
+    st.caption("Values represent the Percentile Rank (0-100) of returns against the asset's full history. High = Overbought, Low = Oversold. Seasonal Rank indicates how historically bullish this specific day of the year is.")
+    st.dataframe(styler, use_container_width=True, height=600)
+
+# -----------------------------------------------------------------------------
+# MAIN LOGIC
+# -----------------------------------------------------------------------------
+
 def seasonals_chart(ticker, cycle_label, enable_time_travel, reference_year, show_all_years_line):
+    # 
     cycle_start_mapping = {
         "Election": 1952,
         "Pre-Election": 1951,
@@ -408,6 +529,12 @@ def seasonals_chart(ticker, cycle_label, enable_time_travel, reference_year, sho
             )
         else:
             st.warning(f"No historical data available prior to {cutoff_year}.")
+
+    # -------------------------------------------------------------------------
+    # NEW: RECENT PERFORMANCE ANALYSIS
+    # -------------------------------------------------------------------------
+    st.divider()
+    recent_performance_analysis(spx, cycle_label, cycle_start_mapping)
 
 # -----------------------------------------------------------------------------
 # APP ENTRY POINT
