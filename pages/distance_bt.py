@@ -18,20 +18,33 @@ SEASONAL_PATH = "seasonal_ranks.csv"
 METRICS_PATH = "market_metrics_full_export.csv"
 NAAIM_PATH = "naaim.csv"
 
-@st.cache_data(show_spinner=False)
+@st.cache_resource
 def load_seasonal_map():
+    """
+    Loads seasonal ranks with EXACT DATE matching (YYYY-MM-DD).
+    Ensures dates are timezone-naive to match yfinance output.
+    """
     try:
         df = pd.read_csv(SEASONAL_PATH)
     except Exception:
         return {}
+        
     if df.empty: return {}
-    df["Date"] = pd.to_datetime(df["Date"], errors='coerce')
+    
+    # 1. Parse Strings to Datetime
+    # 2. Normalize to Midnight (remove time)
+    # 3. Remove Timezone info (if any) to ensure 1:1 match with price data
+    df["Date"] = pd.to_datetime(df["Date"], errors='coerce').dt.normalize().dt.tz_localize(None)
     df = df.dropna(subset=["Date"])
-    df["MD"] = df["Date"].apply(lambda x: (x.month, x.day))
+    
     output_map = {}
     for ticker, group in df.groupby("ticker"):
-        output_map[ticker] = pd.Series(group.seasonal_rank.values, index=group.MD).to_dict()
+        # Create a dictionary: Timestamp -> Rank
+        output_map[ticker] = pd.Series(
+            group.seasonal_rank.values, index=group.Date
+        ).to_dict()
     return output_map
+
 
 @st.cache_data(show_spinner=False)
 def load_market_metrics():
