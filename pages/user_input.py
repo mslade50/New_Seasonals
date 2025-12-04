@@ -391,7 +391,7 @@ def seasonals_chart(ticker, cycle_label, enable_time_travel, reference_year, sho
 # APP ENTRY POINT
 # -----------------------------------------------------------------------------
 def main():
-    st.set_page_config(layout="wide", page_title="Seasonality Analysis")
+    st.set_page_config(layout="centered", page_title="Seasonality Analysis")
     st.title("📊 Presidential Cycle Seasonality")
 
     # UI Layout
