@@ -261,7 +261,7 @@ def render_seasonal_chart(ticker):
     fig.update_layout(
         title=f"{ticker} Seasonality ({cycle_label})",
         margin=dict(l=10, r=10, t=40, b=10),
-        height=300,
+        height=400, # <--- UPDATED HEIGHT HERE
         plot_bgcolor="black",
         paper_bgcolor="black",
         font=dict(color="white"),
