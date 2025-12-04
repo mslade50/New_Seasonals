@@ -261,9 +261,8 @@ def plot_candlestick_and_mas(ticker):
 # -----------------------------------------------------------------------------
 
 def seasonal_signals_page():
-    st.set_page_config(layout="wide", page_title="Seasonal Signals")
-    st.title("💡 Seasonal Signals")
-    
+    # ... (code before this remains the same)
+
     # Load Tickers from the CSV
     try:
         if not os.path.exists(CSV_FILE_PATH):
@@ -272,18 +271,19 @@ def seasonal_signals_page():
 
         df_screener = pd.read_csv(CSV_FILE_PATH)
         screener_tickers = df_screener['Ticker'].unique().tolist()
-        screener_cycles = df_screener['Type'].unique().tolist()
-        # Add a default if the CSV is empty
+        
+        # --- KEY CHANGE HERE: Use the predefined map keys ---
+        valid_cycles = ["All Years"] + list(CYCLE_START_MAPPING.keys())
+
         if not screener_tickers:
             screener_tickers = ["SPY", "QQQ", "DIA"]
-            screener_cycles = ["Post-Election"]
-            st.info("Screener CSV is empty, using default tickers and cycles.")
+            st.info("Screener CSV is empty, using default tickers.")
 
     except Exception as e:
         st.error(f"Error loading {CSV_FILE_PATH}: {e}")
         screener_tickers = ["SPY", "QQQ", "DIA"]
-        screener_cycles = ["Post-Election"]
-    
+        valid_cycles = ["All Years", "Post-Election"]
+
     
     # --- Side Bar Controls ---
     st.sidebar.title("Configuration")
@@ -294,8 +294,8 @@ def seasonal_signals_page():
     # Cycle selection
     cycle_label = st.sidebar.selectbox(
         "Seasonal Cycle Type",
-        ["All Years"] + screener_cycles,
-        index=0 if "All Years" in screener_cycles else 1
+        valid_cycles, # Use the hardcoded valid cycles, not the 'Type' column from CSV
+        index=valid_cycles.index("Post-Election") if "Post-Election" in valid_cycles else 0
     )
     
     # Overlay checkbox for Seasonal Chart
