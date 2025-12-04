@@ -21,16 +21,14 @@ def compute_atr(df, window=14):
 def get_default_cycle_index():
     """
     Returns the index for the selectbox based on the current year.
-    Options: ["All Years", "Election", "Pre-Election", "Post-Election", "Midterm"]
-    Indices:      0            1             2                3              4
     """
     year = dt.date.today().year
     rem = year % 4
     
-    if rem == 0: return 1 # Election (e.g., 2024)
-    if rem == 1: return 3 # Post-Election (e.g., 2025)
-    if rem == 2: return 4 # Midterm (e.g., 2026)
-    if rem == 3: return 2 # Pre-Election (e.g., 2027)
+    if rem == 0: return 1 # Election
+    if rem == 1: return 3 # Post-Election
+    if rem == 2: return 4 # Midterm
+    if rem == 3: return 2 # Pre-Election
     return 0
 
 # -----------------------------------------------------------------------------
@@ -38,9 +36,6 @@ def get_default_cycle_index():
 # -----------------------------------------------------------------------------
 
 def calculate_path(df, cycle_label, cycle_start_mapping):
-    """
-    Calculates the average cumulative log return path for a given dataframe and cycle.
-    """
     if df.empty:
         return pd.Series()
 
@@ -51,11 +46,9 @@ def calculate_path(df, cycle_label, cycle_start_mapping):
         years_in_cycle = [cycle_start + i * 4 for i in range(30)] 
         cycle_data = df[df["year"].isin(years_in_cycle)].copy()
 
-    # Normalize week numbers if needed
     if "week_of_month_5day" in cycle_data.columns:
         cycle_data.loc[cycle_data["week_of_month_5day"] > 4, "week_of_month_5day"] = 4
 
-    # Group by day count and calculate mean path
     avg_path = (
         cycle_data.groupby("day_count")["log_return"]
         .mean()
@@ -83,14 +76,9 @@ def seasonals_chart(ticker, cycle_label, enable_time_travel, reference_year, sho
     if isinstance(spx.columns, pd.MultiIndex):
         spx.columns = spx.columns.get_level_values(0)
 
-    # -------------------------------------------------------------------------
-    # GLOBAL FEATURE ENGINEERING & ATR CALCULATION
-    # -------------------------------------------------------------------------
-    # We compute ATR on the entire dataset first so we have the "Current" ATR 
-    # available for conditional formatting later.
+    # Global ATR & Feature Engineering
     spx = compute_atr(spx)
     
-    # Get Current ATR% (Latest available value)
     current_atr_pct = 0.0
     if not spx["ATR%"].dropna().empty:
         current_atr_pct = spx["ATR%"].dropna().iloc[-1]
@@ -102,40 +90,27 @@ def seasonals_chart(ticker, cycle_label, enable_time_travel, reference_year, sho
     
     current_year = dt.date.today().year
 
-    # -------------------------------------------------------------------------
-    # 1. CURRENT MODEL CONSTRUCTION (Always Visible)
-    # -------------------------------------------------------------------------
-    # Use all completed years < current_year
+    # 1. CURRENT MODEL CONSTRUCTION
     df_all_history = spx[spx["year"] < current_year].copy()
-    
-    # Path: Current Cycle Avg
     path_current_avg = calculate_path(df_all_history, cycle_label, cycle_start_mapping)
     
-    # Path: Current "All Years" Avg (Optional)
     path_current_all_years = pd.Series()
     if show_all_years_line:
         path_current_all_years = calculate_path(df_all_history, "All Years", cycle_start_mapping)
 
-    # Path: Current Realized
     df_current_year = spx[spx["year"] == current_year].copy()
     path_current_realized = pd.Series()
     if not df_current_year.empty:
         path_current_realized = df_current_year["log_return"].cumsum().apply(np.exp) - 1
 
-    # -------------------------------------------------------------------------
-    # 2. TIME TRAVEL CONSTRUCTION (Conditional)
-    # -------------------------------------------------------------------------
+    # 2. TIME TRAVEL CONSTRUCTION
     path_historical_avg = pd.Series()
     path_ref_realized = pd.Series()
     
     if enable_time_travel:
-        # Historical Pool: Strictly < Reference Year
         df_historical_pool = spx[spx["year"] < reference_year].copy()
-        
-        # Path: Historical Model Avg
         path_historical_avg = calculate_path(df_historical_pool, cycle_label, cycle_start_mapping)
         
-        # Path: Historical Realized
         df_ref_year = spx[spx["year"] == reference_year].copy()
         if not df_ref_year.empty:
             path_ref_realized = df_ref_year["log_return"].cumsum().apply(np.exp) - 1
@@ -223,6 +198,7 @@ def seasonals_chart(ticker, cycle_label, enable_time_travel, reference_year, sho
         
         day_count_marker = df_context.iloc[closest_idx]["day_count"]
 
+        # --- PLOT MARKERS ON MAIN CYCLE LINE ---
         if day_count_marker in model_to_plot_on.index:
             y_val = model_to_plot_on.get(day_count_marker)
             
@@ -252,9 +228,37 @@ def seasonals_chart(ticker, cycle_label, enable_time_travel, reference_year, sho
                         marker=dict(color=marker_color, size=6, symbol="circle"),
                     ))
 
+        # --- PLOT MARKERS ON 'ALL YEARS' LINE (If Visible) ---
+        if not path_current_all_years.empty:
+            # Current Day Dot
+            if day_count_marker in path_current_all_years.index:
+                y_val_all = path_current_all_years.get(day_count_marker)
+                fig.add_trace(go.Scatter(
+                    x=[day_count_marker],
+                    y=[y_val_all],
+                    mode="markers",
+                    marker=dict(color="white", size=5, line=dict(width=1, color="white")),
+                    showlegend=False, # Hidden from legend as requested
+                    hoverinfo="skip"
+                ))
+
+                # Projections Dots
+                for offset in offsets: # [5, 10, 21] calculated above
+                    target_idx = day_count_marker + offset
+                    if target_idx in path_current_all_years.index:
+                        proj_y_all = path_current_all_years.get(target_idx)
+                        fig.add_trace(go.Scatter(
+                            x=[target_idx],
+                            y=[proj_y_all],
+                            mode="markers",
+                            marker=dict(color="white", size=5, symbol="circle"), 
+                            showlegend=False,
+                            hoverinfo="skip"
+                        ))
+
     # Layout
     title_suffix = f"vs {reference_year}" if enable_time_travel else ""
-    fig.update_layout(  
+    fig.update_layout(
         height=800,
         title=f"Seasonal Analysis: {ticker} {title_suffix}",
         xaxis_title="Trading Day of Year",
@@ -345,14 +349,12 @@ def seasonals_chart(ticker, cycle_label, enable_time_travel, reference_year, sho
             stats_df = stats_df[ordered_cols]
 
             # --- CONDITIONAL FORMATTING (ATR SCALED) ---
-            # Pos Pct Logic (Standard Green/Red text)
             def color_pos_pct(val):
                 if pd.isna(val): return ''
                 if val > 80: return 'color: #90ee90; font-weight: bold;' 
                 elif val < 25: return 'color: #ffcccb; font-weight: bold;' 
                 return ''
 
-            # Create Styler Object
             styler = stats_df.style.format({
                 "n": "{:.0f}",
                 "5_median": "{:.2f}%", "5_mean": "{:.2f}%", "5_pospct": "{:.1f}%",
@@ -360,14 +362,8 @@ def seasonals_chart(ticker, cycle_label, enable_time_travel, reference_year, sho
                 "21_median": "{:.2f}%", "21_mean": "{:.2f}%", "21_pospct": "{:.1f}%",
             }).map(color_pos_pct, subset=["5_pospct", "10_pospct", "21_pospct"])
 
-            # Iteratively apply gradient based on ATR and Time Scaling
-            # Scale = ATR * sqrt(time)
-            # Mean Limits: +/- 1.5 * Scale
-            # Median Limits: +/- 1.0 * Scale
-            
             if current_atr_pct > 0:
                 for d in [5, 10, 21]:
-                    # Vol Scaled for Time
                     vol_scale = current_atr_pct * np.sqrt(d)
                     
                     # Mean Gradient
@@ -427,7 +423,6 @@ def main():
         ticker = st.text_input("Ticker", value="SPY").upper()
     
     with col2:
-        # Dynamic Default Cycle Selection
         default_index = get_default_cycle_index()
         cycle_label = st.selectbox(
             "Cycle Type",
@@ -436,7 +431,6 @@ def main():
         )
     
     with col3:
-        # Time Travel Logic
         c3_1, c3_2 = st.columns([1, 1])
         with c3_1:
             enable_time_travel = st.checkbox("Enable Time Travel", value=False)
