@@ -18,7 +18,7 @@ SECTOR_ETFS = [
     "SPY", "QQQ", "IWM", "DIA",'KC=F','PL=F','ZC=F','ZW=F','CC=F','SB=F','PA=F','ZS=F'
 ]
 
-CSV_PATH = "seasonal_ranks.csv"
+CSV_PATH = "sznl_ranks.csv"
 
 # -----------------------------------------------------------------------------
 # CACHE MANAGEMENT
