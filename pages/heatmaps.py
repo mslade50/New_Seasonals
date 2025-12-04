@@ -11,7 +11,7 @@ import datetime
 # -----------------------------------------------------------------------------
 # CONSTANTS & SETUP
 # -----------------------------------------------------------------------------
-SEASONAL_PATH = "seasonal_ranks.csv"
+SEASONAL_PATH = "seasonal_ranks.csv" # Updated to match your repo's export filename
 METRICS_PATH = "market_metrics_full_export.csv"
 NAAIM_PATH = "naaim.csv"
 
@@ -20,17 +20,29 @@ NAAIM_PATH = "naaim.csv"
 # -----------------------------------------------------------------------------
 @st.cache_data(show_spinner=False)
 def load_seasonal_map():
+    """
+    Loads seasonal ranks with EXACT DATE matching (YYYY-MM-DD).
+    """
     try:
         df = pd.read_csv(SEASONAL_PATH)
     except Exception:
         return {}
+        
     if df.empty: return {}
+    
+    # Ensure Date is parsed as datetime objects
     df["Date"] = pd.to_datetime(df["Date"], errors='coerce')
     df = df.dropna(subset=["Date"])
-    df["MD"] = df["Date"].apply(lambda x: (x.month, x.day))
+    
+    # Sort to ensure chronological order
+    df = df.sort_values("Date")
+    
     output_map = {}
     for ticker, group in df.groupby("ticker"):
-        output_map[ticker] = pd.Series(group.seasonal_rank.values, index=group.MD).to_dict()
+        # Map: Timestamp -> Rank (Exact Match)
+        output_map[ticker] = pd.Series(
+            group.seasonal_rank.values, index=group.Date
+        ).to_dict()
     return output_map
 
 @st.cache_data(show_spinner=False)
@@ -95,11 +107,21 @@ def download_data(ticker):
 # CALCULATIONS
 # -----------------------------------------------------------------------------
 def get_sznl_val_series(ticker, dates, sznl_map):
-    # Simplified: Only use the map, fallback to 50 if missing
+    """
+    Looks up seasonal rank using EXACT DATES from the index.
+    """
     t_map = sznl_map.get(ticker, {})
-    if t_map:
-        return dates.map(lambda x: (x.month, x.day)).map(t_map).fillna(50.0)
-    return pd.Series(50.0, index=dates)
+    if not t_map:
+        return pd.Series(50.0, index=dates)
+    
+    # 1. Normalize the input index to Midnight (remove time component)
+    # 2. Remove Timezone if present (to match CSV's naive dates)
+    normalized_dates = pd.to_datetime(dates).normalize()
+    if normalized_dates.tz is not None:
+        normalized_dates = normalized_dates.tz_localize(None)
+
+    # Strict Lookup: If date doesn't exist in CSV, return 50 (Neutral)
+    return normalized_dates.map(t_map).fillna(50.0)
 
 @st.cache_data(show_spinner=False)
 def get_spy_context():
