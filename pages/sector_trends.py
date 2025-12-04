@@ -14,8 +14,8 @@ SECTOR_ETFS = [
     "XBI", "XHB", "XLB", "XLC", "XLE", "XLF", "XLI", "XLK", "XLP",
     "XLU", "XLV", "XLY", "XME", "XOP", "XRT", "GLD", "CEF", "SLV", "BTC-USD",
     "ETH-USD", "UNG", "UVXY",'EURUSD=X', 'JPY=X', 'GBPUSD=X', 'AUDUSD=X', 'NZDUSD=X', 
-    'CAD=X', 'CHF=X', 'DX-Y.NYB','^GSPC','^NDX','^RUT','^DJI',
-    "SPY", "QQQ", "IWM", "DIA"
+    'CAD=X', 'CHF=X', 'DX-Y.NYB','^GSPC','^NDX','^RUT','^DJI','CL=F','NG=F','GC=F','HG=F',
+    "SPY", "QQQ", "IWM", "DIA",'KC=F','PL=F','ZC=F','ZW=F','CC=F','SB=F','PA=F','ZS=F'
 ]
 
 CSV_PATH = "seasonal_ranks.csv"
