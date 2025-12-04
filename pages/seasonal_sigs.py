@@ -22,6 +22,24 @@ DEFAULT_PIVOT_PERIOD = 20
 # HELPER FUNCTIONS
 # -----------------------------------------------------------------------------
 
+def get_current_presidential_cycle():
+    """
+    Determines the current Presidential Cycle based on the current year.
+    Returns: 'Election', 'Post-Election', 'Midterm', or 'Pre-Election'
+    """
+    year = date.today().year
+    remainder = year % 4
+    
+    if remainder == 0:
+        return "Election"
+    elif remainder == 1:
+        return "Post-Election"
+    elif remainder == 2:
+        return "Midterm"
+    elif remainder == 3:
+        return "Pre-Election"
+    return "All Years"
+
 def get_current_trading_info():
     """
     Returns the current trading day of the month and week of month 
@@ -29,7 +47,6 @@ def get_current_trading_info():
     """
     today = dt.date.today()
     start_of_month = dt.date(today.year, today.month, 1)
-    # Fetch a buffer to ensure we catch today if market is open/closed
     current_data = yf.download("SPY", start=start_of_month, end=today + timedelta(days=1), progress=False) 
     
     if isinstance(current_data.columns, pd.MultiIndex): 
@@ -95,7 +112,7 @@ def plot_seasonal_paths(ticker, cycle_label):
     else:
         cycle_start = CYCLE_START_MAPPING.get(cycle_label)
         if cycle_start is None:
-            cycle_start = 1953 # Fallback
+            cycle_start = 1953 # Fallback if something goes wrong
             
         years_in_cycle = [cycle_start + i * 4 for i in range((date.today().year - cycle_start) // 4 + 1)] 
         cycle_data = spx[spx["year"].isin(years_in_cycle)].copy()
@@ -204,7 +221,7 @@ def plot_candlestick_and_mas(ticker):
     six_months_ago = today - timedelta(days=6 * 30)
     chart_start_date = min(ytd_start, six_months_ago)
 
-    # MA Lookback
+    # MA Lookback (400 calendar days to ensure we get 200 trading days)
     ma_lookback_days = 400 
     full_fetch_start = chart_start_date - timedelta(days=ma_lookback_days) 
 
@@ -325,6 +342,7 @@ def seasonal_signals_page():
             return
 
         df_screener = pd.read_csv(CSV_FILE_PATH)
+        # We assume the CSV has 'Ticker' and 'Type' (Type = Bear/Bull)
         analysis_list = df_screener[['Ticker', 'Type']].drop_duplicates().to_dict('records')
         
         if not analysis_list:
@@ -337,28 +355,27 @@ def seasonal_signals_page():
     
     st.info(f"Displaying {len(analysis_list)} tickers from `{CSV_FILE_PATH}`.")
     
+    # --- Auto-Detect Current Cycle (Fixes the Bear/Bull Error) ---
+    current_cycle = get_current_presidential_cycle()
+
     # --- Main Content Loop ---
     for item in analysis_list:
         ticker = item['Ticker'].upper()
-        cycle_label = item['Type'] 
+        signal_type = item['Type'] # Keep this for display, but don't use for cycle logic
         
-        # Validation
-        if cycle_label not in CYCLE_START_MAPPING and cycle_label != "All Years":
-            st.warning(f"Skipping {ticker}: Invalid cycle '{cycle_label}'. Defaulting to 'Post-Election'.")
-            cycle_label = "Post-Election"
-
-        st.markdown(f"## {ticker} Analysis (Cycle: {cycle_label})")
+        # Header now shows the Screened Signal + The Cycle being used
+        st.markdown(f"## {ticker} (Screened: {signal_type}) | Cycle: {current_cycle}")
         
-        # 1. Seasonal
+        # 1. Seasonal Chart (Uses the auto-detected current_cycle)
         try:
             with st.container():
-                plot_seasonal_paths(ticker, cycle_label)
+                plot_seasonal_paths(ticker, current_cycle)
         except Exception as e:
             st.error(f"Error generating Seasonal Chart for {ticker}: {e}")
 
         st.divider()
         
-        # 2. Candle
+        # 2. Candle Chart
         try:
             with st.container():
                 plot_candlestick_and_mas(ticker)
