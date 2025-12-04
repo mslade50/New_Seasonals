@@ -26,7 +26,7 @@ INTERNATIONAL_ETFS = [
     "EZA", "TUR", "EGPT"
 ]
 
-CSV_PATH = "seasonal_ranks.csv"
+CSV_PATH = "seasonal_ranks.csv" # Updated to match your export script filename
 
 # -----------------------------------------------------------------------------
 # DATA UTILS
@@ -34,6 +34,10 @@ CSV_PATH = "seasonal_ranks.csv"
 
 @st.cache_data(show_spinner=False)
 def load_seasonal_map():
+    """
+    Loads the seasonal ranks CSV and creates a mapping of Ticker -> {Date -> Rank}.
+    Matches exact dates (Year-Month-Day).
+    """
     try:
         df = pd.read_csv(CSV_PATH)
     except Exception:
@@ -41,24 +45,30 @@ def load_seasonal_map():
 
     if df.empty: return {}
 
+    # Ensure Date is parsed as datetime objects
     df["Date"] = pd.to_datetime(df["Date"], errors='coerce')
     df = df.dropna(subset=["Date"])
-    df["MD"] = df["Date"].apply(lambda x: (x.month, x.day))
     
     output_map = {}
     for ticker, group in df.groupby("ticker"):
+        # Create a dictionary where Key = Timestamp (YYYY-MM-DD), Value = Rank
         output_map[ticker] = pd.Series(
-            group.seasonal_rank.values, index=group.MD
+            group.seasonal_rank.values, index=group.Date
         ).to_dict()
     return output_map
 
 def get_sznl_val_series(ticker, dates, sznl_map):
+    """
+    Looks up the seasonal rank for the specific dates provided in the dataframe index.
+    """
     t_map = sznl_map.get(ticker, {})
     if not t_map:
+        # If no map exists for ticker, return neutral 50
         return pd.Series(50.0, index=dates)
     
-    mds = dates.map(lambda x: (x.month, x.day))
-    return mds.map(t_map).fillna(50.0)
+    # Map the exact dates from the dataframe index to the dictionary keys
+    # Any date in the backtest that is NOT in the CSV will get 50.0 (Neutral)
+    return dates.map(t_map).fillna(50.0)
 
 def clean_ticker_df(df):
     if df.empty: return df
@@ -165,8 +175,10 @@ def calculate_indicators(df, sznl_map, ticker, spy_series=None):
     df = df.copy()
     df.columns = [c.capitalize() for c in df.columns]
     
+    # Ensure index is timezone-naive and normalized to midnight to match CSV dates
     if df.index.tz is not None:
         df.index = df.index.tz_localize(None)
+    df.index = df.index.normalize()
     
     # Moving Averages
     df['SMA200'] = df['Close'].rolling(200).mean()
@@ -185,7 +197,7 @@ def calculate_indicators(df, sznl_map, ticker, spy_series=None):
     ranges = pd.concat([high_low, high_close, low_close], axis=1)
     df['ATR'] = ranges.max(axis=1).rolling(14).mean()
     
-    # Seasonality
+    # Seasonality (EXACT DATE MATCH)
     df['Sznl'] = get_sznl_val_series(ticker, df.index, sznl_map)
     
     # 52w High/Low
@@ -560,49 +572,6 @@ def run_engine(universe_dict, params, sznl_map, spy_series=None):
     for idx, trade in potential_df.iterrows():
         entry_date = trade['EntryDate']
         
-        # A. Clean up active positions
-        # Using >= ensures we don't reuse the capital on the exact same day it exits
-        active_positions = [t for t in active_positions if t['ExitDate'] >= entry_date]
-        
-        # B. Check Total Portfolio Size
-        if len(active_positions) >= max_total:
-            continue
-            
-        # C. Check Daily Limits
-        today_count = daily_entries.get(entry_date, 0)
-        if today_count >= max_daily:
-            continue
-            
-        # D. Execute
-        final_trades_log.append(trade)
-        active_positions.append(trade)
-        daily_entries[entry_date] = today_count + 1
-
-    return pd.DataFrame(final_trades_log), total_signals_generated
-    
-    progress_bar.empty()
-    status_text.empty()
-
-    # 2. APPLY PORTFOLIO CONSTRAINTS (The New Logic)
-    if not all_potential_trades:
-        return pd.DataFrame(), 0
-
-    st.info(f"Processing Portfolio Constraints on {len(all_potential_trades)} potential signals...")
-    
-    # Sort chronologically by Signal Date
-    potential_df = pd.DataFrame(all_potential_trades)
-    potential_df = potential_df.sort_values(by=["EntryDate", "Ticker"])
-    
-    final_trades_log = []
-    active_positions = [] # List of dicts, must contain 'ExitDate'
-    daily_entries = {} # {date: count}
-    
-    max_daily = params.get('max_daily_entries', 100)
-    max_total = params.get('max_total_positions', 100)
-
-    for idx, trade in potential_df.iterrows():
-        entry_date = trade['EntryDate']
-        
         # A. Clean up active positions (Remove those that closed BEFORE today)
         # Note: In a daily backtest, if I exit today, the slot frees up tomorrow usually.
         # But we will assume if ExitDate < EntryDate, it's free.
@@ -711,8 +680,6 @@ def main():
     
     st.markdown("---")
 
-    # ... inside main() ...
-    
     c1, c2, c3, c4, c5 = st.columns(5)
     with c1: 
         entry_type = st.selectbox("Entry Price", [
@@ -720,7 +687,7 @@ def main():
             "T+1 Open", 
             "T+1 Close",
             "Limit (Close -0.5 ATR)",
-            "Limit (Prev Close)",  # <--- NEW OPTION ADDED HERE
+            "Limit (Prev Close)", 
             "Pullback 10 SMA (Entry: Close)",
             "Pullback 10 SMA (Entry: Level)",
             "Pullback 21 EMA (Entry: Close)",
@@ -730,8 +697,6 @@ def main():
             use_ma_entry_filter = st.checkbox("Filter: Close > MA - 0.25*ATR", value=False)
         else:
             use_ma_entry_filter = False
-
-    # ... rest of main() ...
 
     with c2: stop_atr = st.number_input("Stop Loss (ATR)", value=3.0, step=0.1)
     with c3: tgt_atr = st.number_input("Target (ATR)", value=8.0, step=0.1, disabled=time_exit_only)
@@ -868,6 +833,11 @@ def main():
                 spy_df = spy_dict_temp.get("SPY", None)
 
             if spy_df is not None and not spy_df.empty:
+                # Ensure SPY data is also normalized
+                if spy_df.index.tz is not None:
+                     spy_df.index = spy_df.index.tz_localize(None)
+                spy_df.index = spy_df.index.normalize()
+                
                 spy_df['SMA200'] = spy_df['Close'].rolling(200).mean()
                 spy_series = spy_df['Close'] > spy_df['SMA200']
             else:
