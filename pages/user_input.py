@@ -18,6 +18,21 @@ def compute_atr(df, window=14):
     df["ATR%"] = (df["ATR"] / df["Close"]) * 100
     return df
 
+def get_default_cycle_index():
+    """
+    Returns the index for the selectbox based on the current year.
+    Options: ["All Years", "Election", "Pre-Election", "Post-Election", "Midterm"]
+    Indices:      0            1             2                3              4
+    """
+    year = dt.date.today().year
+    rem = year % 4
+    
+    if rem == 0: return 1 # Election (e.g., 2024)
+    if rem == 1: return 3 # Post-Election (e.g., 2025)
+    if rem == 2: return 4 # Midterm (e.g., 2026)
+    if rem == 3: return 2 # Pre-Election (e.g., 2027)
+    return 0
+
 # -----------------------------------------------------------------------------
 # MAIN CHART LOGIC
 # -----------------------------------------------------------------------------
@@ -68,7 +83,18 @@ def seasonals_chart(ticker, cycle_label, enable_time_travel, reference_year, sho
     if isinstance(spx.columns, pd.MultiIndex):
         spx.columns = spx.columns.get_level_values(0)
 
-    # Feature Engineering
+    # -------------------------------------------------------------------------
+    # GLOBAL FEATURE ENGINEERING & ATR CALCULATION
+    # -------------------------------------------------------------------------
+    # We compute ATR on the entire dataset first so we have the "Current" ATR 
+    # available for conditional formatting later.
+    spx = compute_atr(spx)
+    
+    # Get Current ATR% (Latest available value)
+    current_atr_pct = 0.0
+    if not spx["ATR%"].dropna().empty:
+        current_atr_pct = spx["ATR%"].dropna().iloc[-1]
+
     spx["log_return"] = np.log(spx["Close"] / spx["Close"].shift(1))
     spx["year"] = spx.index.year
     spx["month"] = spx.index.month
@@ -94,7 +120,6 @@ def seasonals_chart(ticker, cycle_label, enable_time_travel, reference_year, sho
     df_current_year = spx[spx["year"] == current_year].copy()
     path_current_realized = pd.Series()
     if not df_current_year.empty:
-        df_current_year["log_return"] = np.log(df_current_year["Close"] / df_current_year["Close"].shift(1))
         path_current_realized = df_current_year["log_return"].cumsum().apply(np.exp) - 1
 
     # -------------------------------------------------------------------------
@@ -113,7 +138,6 @@ def seasonals_chart(ticker, cycle_label, enable_time_travel, reference_year, sho
         # Path: Historical Realized
         df_ref_year = spx[spx["year"] == reference_year].copy()
         if not df_ref_year.empty:
-            df_ref_year["log_return"] = np.log(df_ref_year["Close"] / df_ref_year["Close"].shift(1))
             path_ref_realized = df_ref_year["log_return"].cumsum().apply(np.exp) - 1
 
     # -------------------------------------------------------------------------
@@ -173,45 +197,32 @@ def seasonals_chart(ticker, cycle_label, enable_time_travel, reference_year, sho
     # -------------------------------------------------------------------------
     # MARKERS & DATES
     # -------------------------------------------------------------------------
-    # Logic: If Time Travel, context is Ref Year. If not, context is Today.
-    
     today = dt.date.today()
     
     if enable_time_travel:
-        # Context: Reference Year
         target_year = reference_year
-        # Map today's M/D to Ref Year
         try:
             target_date_start = dt.date(target_year, today.month, today.day)
         except ValueError:
             target_date_start = dt.date(target_year, 2, 28)
-        
-        # For lookup, we need a dataframe representing that year
         df_context = spx[spx["year"] == target_year]
-        # We plot dots on the HISTORICAL model if comparison is active
         model_to_plot_on = path_historical_avg if not path_historical_avg.empty else path_current_avg
-        marker_color = "#FCD12A" # Gold
-        
+        marker_color = "#FCD12A" 
     else:
-        # Context: Current Year (Today)
         target_year = current_year
         target_date_start = today
-        # For lookup, we use current year data (to find day count)
         df_context = spx[spx["year"] == target_year]
         model_to_plot_on = path_current_avg
         marker_color = "white"
 
-    # Find Day Count
     day_count_marker = None
     if not df_context.empty:
-        # Search sorted to find closest trading day
         closest_idx = df_context.index.searchsorted(dt.datetime.combine(target_date_start, dt.time.min))
         if closest_idx >= len(df_context):
             closest_idx = len(df_context) - 1
         
         day_count_marker = df_context.iloc[closest_idx]["day_count"]
 
-        # Plot Current Day Marker
         if day_count_marker in model_to_plot_on.index:
             y_val = model_to_plot_on.get(day_count_marker)
             
@@ -224,7 +235,6 @@ def seasonals_chart(ticker, cycle_label, enable_time_travel, reference_year, sho
                 showlegend=False
             ))
 
-            # Projections
             future_dates = pd.bdate_range(start=target_date_start, periods=30)
             offsets = [5, 10, 21]
             
@@ -232,23 +242,19 @@ def seasonals_chart(ticker, cycle_label, enable_time_travel, reference_year, sho
                 target_idx = day_count_marker + offset
                 if target_idx in model_to_plot_on.index:
                     proj_y = model_to_plot_on.get(target_idx)
-                    
-                    if offset < len(future_dates):
-                        d_label = future_dates[offset].strftime("%b %d")
-                    else:
-                        d_label = "N/A"
+                    d_label = future_dates[offset].strftime("%b %d") if offset < len(future_dates) else "N/A"
                         
                     fig.add_trace(go.Scatter(
                         x=[target_idx],
                         y=[proj_y],
                         mode="markers",
-                        name=f"T+{offset} ({d_label})", # Legend shows date
+                        name=f"T+{offset} ({d_label})", 
                         marker=dict(color=marker_color, size=6, symbol="circle"),
                     ))
 
     # Layout
     title_suffix = f"vs {reference_year}" if enable_time_travel else ""
-    fig.update_layout(
+    fig.update_layout(  
         height=800,
         title=f"Seasonal Analysis: {ticker} {title_suffix}",
         xaxis_title="Trading Day of Year",
@@ -275,38 +281,31 @@ def seasonals_chart(ticker, cycle_label, enable_time_travel, reference_year, sho
     # -------------------------------------------------------------------------
     st.divider()
     
-    # Text logic
     if enable_time_travel:
         st.subheader(f"📜 Historical Returns (Pre-{reference_year})")
-        st.caption(f"Stats exclude {reference_year} and later to prevent look-ahead bias.")
+        st.caption(f"Stats exclude {reference_year} and later. Color scale based on **Today's** ATR ({current_atr_pct:.2f}%).")
         cutoff_year = reference_year
     else:
         st.subheader(f"📜 Historical Returns (Pre-{current_year})")
-        st.caption(f"Stats exclude incomplete current year ({current_year}).")
+        st.caption(f"Stats exclude {current_year}. Color scale based on **Current** ATR ({current_atr_pct:.2f}%).")
         cutoff_year = current_year
 
     if day_count_marker:
         spx_full = spx.copy()
-        
-        # Calculate Fwd Returns on full dataset
         spx_full['Fwd_5d'] = spx_full['Close'].shift(-5) / spx_full['Close'] - 1
         spx_full['Fwd_10d'] = spx_full['Close'].shift(-10) / spx_full['Close'] - 1
         spx_full['Fwd_21d'] = spx_full['Close'].shift(-21) / spx_full['Close'] - 1
 
         daily_snapshots = spx_full[spx_full['day_count'] == day_count_marker].copy()
-
-        # FILTER: Strictly < cutoff_year
         display_df = daily_snapshots[daily_snapshots['year'] < cutoff_year].copy()
 
         if not display_df.empty:
             display_df = display_df[['year', 'Fwd_5d', 'Fwd_10d', 'Fwd_21d']]
-            
             display_df['Fwd_5d'] = display_df['Fwd_5d'] * 100
             display_df['Fwd_10d'] = display_df['Fwd_10d'] * 100
             display_df['Fwd_21d'] = display_df['Fwd_21d'] * 100
             display_df = display_df.sort_values('year', ascending=False)
 
-            # Cycle Years logic
             if cycle_label != "All Years":
                 start_yr = cycle_start_mapping.get(cycle_label)
                 highlight_years = [start_yr + i * 4 for i in range(30)] 
@@ -345,27 +344,53 @@ def seasonals_chart(ticker, cycle_label, enable_time_travel, reference_year, sho
                 ordered_cols.extend([f"{d}_median", f"{d}_mean", f"{d}_pospct"])
             stats_df = stats_df[ordered_cols]
 
-            # Custom Formatting
+            # --- CONDITIONAL FORMATTING (ATR SCALED) ---
+            # Pos Pct Logic (Standard Green/Red text)
             def color_pos_pct(val):
                 if pd.isna(val): return ''
-                if val > 80:
-                    return 'color: #90ee90; font-weight: bold;' 
-                elif val < 25:
-                    return 'color: #ffcccb; font-weight: bold;' 
+                if val > 80: return 'color: #90ee90; font-weight: bold;' 
+                elif val < 25: return 'color: #ffcccb; font-weight: bold;' 
                 return ''
 
-            st.dataframe(
-                stats_df.style.format({
-                    "n": "{:.0f}",
-                    "5_median": "{:.2f}%", "5_mean": "{:.2f}%", "5_pospct": "{:.1f}%",
-                    "10_median": "{:.2f}%", "10_mean": "{:.2f}%", "10_pospct": "{:.1f}%",
-                    "21_median": "{:.2f}%", "21_mean": "{:.2f}%", "21_pospct": "{:.1f}%",
-                })
-                .map(color_pos_pct, subset=["5_pospct", "10_pospct", "21_pospct"]),
-                use_container_width=True
-            )
+            # Create Styler Object
+            styler = stats_df.style.format({
+                "n": "{:.0f}",
+                "5_median": "{:.2f}%", "5_mean": "{:.2f}%", "5_pospct": "{:.1f}%",
+                "10_median": "{:.2f}%", "10_mean": "{:.2f}%", "10_pospct": "{:.1f}%",
+                "21_median": "{:.2f}%", "21_mean": "{:.2f}%", "21_pospct": "{:.1f}%",
+            }).map(color_pos_pct, subset=["5_pospct", "10_pospct", "21_pospct"])
 
-            # --- TABLE RENDER ---
+            # Iteratively apply gradient based on ATR and Time Scaling
+            # Scale = ATR * sqrt(time)
+            # Mean Limits: +/- 1.5 * Scale
+            # Median Limits: +/- 1.0 * Scale
+            
+            if current_atr_pct > 0:
+                for d in [5, 10, 21]:
+                    # Vol Scaled for Time
+                    vol_scale = current_atr_pct * np.sqrt(d)
+                    
+                    # Mean Gradient
+                    mean_limit = 1.5 * vol_scale
+                    styler = styler.background_gradient(
+                        subset=[f"{d}_mean"], 
+                        cmap="RdYlGn", 
+                        vmin=-mean_limit, 
+                        vmax=mean_limit
+                    )
+                    
+                    # Median Gradient
+                    median_limit = 1.0 * vol_scale
+                    styler = styler.background_gradient(
+                        subset=[f"{d}_median"], 
+                        cmap="RdYlGn", 
+                        vmin=-median_limit, 
+                        vmax=median_limit
+                    )
+
+            st.dataframe(styler, use_container_width=True)
+
+            # --- MAIN DATAFRAME RENDER ---
             def highlight_year_cell(val):
                 if val in highlight_years:
                     return 'background-color: #d4af37; color: black; font-weight: bold;' 
@@ -402,10 +427,12 @@ def main():
         ticker = st.text_input("Ticker", value="SPY").upper()
     
     with col2:
+        # Dynamic Default Cycle Selection
+        default_index = get_default_cycle_index()
         cycle_label = st.selectbox(
             "Cycle Type",
             ["All Years", "Election", "Pre-Election", "Post-Election", "Midterm"],
-            index=3
+            index=default_index
         )
     
     with col3:
