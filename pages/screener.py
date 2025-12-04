@@ -315,30 +315,44 @@ STRATEGY_BOOK = [
 # -----------------------------------------------------------------------------
 CSV_PATH = "sznl_ranks.csv"
 
-@st.cache_data(show_spinner=False)
+@st.cache_resource  # CHANGED: Use cache_resource for massive static lookup tables
 def load_seasonal_map():
+    """
+    Loads the seasonal ranks CSV and creates a mapping of Ticker -> {Date -> Rank}.
+    Matches exact dates (Year-Month-Day).
+    """
     try:
         df = pd.read_csv(CSV_PATH)
     except Exception:
         return {}
 
     if df.empty: return {}
-    df["Date"] = pd.to_datetime(df["Date"], errors='coerce')
+
+    # 1. Parse Date
+    # 2. Normalize to Midnight (removes time component)
+    # 3. Remove Timezone (tz_localize(None)) to match yfinance output perfectly
+    df["Date"] = pd.to_datetime(df["Date"], errors='coerce').dt.normalize().dt.tz_localize(None)
     df = df.dropna(subset=["Date"])
-    df["MD"] = df["Date"].apply(lambda x: (x.month, x.day))
     
     output_map = {}
+    # Creating dicts is fast, hashing them is slow. cache_resource skips the hashing.
     for ticker, group in df.groupby("ticker"):
         output_map[ticker] = pd.Series(
-            group.seasonal_rank.values, index=group.MD
+            group.seasonal_rank.values, index=group.Date
         ).to_dict()
     return output_map
 
 def get_sznl_val_series(ticker, dates, sznl_map):
+    """
+    Looks up the seasonal rank for the specific dates provided in the dataframe index.
+    """
     t_map = sznl_map.get(ticker, {})
-    if not t_map: return pd.Series(50.0, index=dates)
-    mds = dates.map(lambda x: (x.month, x.day))
-    return mds.map(t_map).fillna(50.0)
+    if not t_map:
+        return pd.Series(50.0, index=dates)
+    
+    # map() is optimized in C, so this is fast.
+    # .fillna(50.0) ensures days missing from the CSV get a neutral rank.
+    return dates.map(t_map).fillna(50.0)
 
 # -----------------------------------------------------------------------------
 # DATA LOGGING (GOOGLE SHEETS)
