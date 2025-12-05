@@ -11,13 +11,16 @@ import uuid
 # -----------------------------------------------------------------------------
 # CONFIG / CONSTANTS
 # -----------------------------------------------------------------------------
+# CHANGE THIS TO "SPY" IF YOU WANT TO SWITCH BACK
+MARKET_TICKER = "^GSPC" 
+
 SECTOR_ETFS = [
     "IBB", "IHI", "ITA", "ITB", "IYR", "KRE", "OIH", "SMH", "VNQ",
     "XBI", "XHB", "XLB", "XLC", "XLE", "XLF", "XLI", "XLK", "XLP",
     "XLU", "XLV", "XLY", "XME", "XOP", "XRT", "GLD", "CEF", "SLV",
 ]
 
-INDEX_ETFS = ["SPY", "QQQ", "IWM", "DIA", "SMH"]
+INDEX_ETFS = ["SPY", "QQQ", "IWM", "DIA", "SMH", "^GSPC", "^NDX"]
 
 INTERNATIONAL_ETFS = [
     "EWZ", "EWC", "ECH", "ECOL", "EWW", "ARGT",
@@ -49,15 +52,25 @@ def load_seasonal_map():
     
     output_map = {}
     for ticker, group in df.groupby("ticker"):
-        output_map[ticker] = pd.Series(
+        # Store as upper case to match standardized inputs
+        output_map[str(ticker).upper()] = pd.Series(
             group.seasonal_rank.values, index=group.Date
         ).to_dict()
     return output_map
 
 def get_sznl_val_series(ticker, dates, sznl_map):
+    ticker = ticker.upper()
     t_map = sznl_map.get(ticker, {})
+    
+    # FALLBACK LOGIC: 
+    # If user asks for ^GSPC but CSV only has SPY, try SPY.
+    if not t_map and ticker == "^GSPC":
+        t_map = sznl_map.get("SPY", {})
+
     if not t_map:
+        # Return 50 (Neutral) if missing
         return pd.Series(50.0, index=dates)
+        
     return dates.map(t_map).fillna(50.0)
 
 def clean_ticker_df(df):
@@ -78,6 +91,7 @@ def clean_ticker_df(df):
 def download_universe_data(tickers, fetch_start_date):
     if not tickers: return {} 
     
+    # Ensure tickers are clean
     clean_tickers = [str(t).strip().upper() for t in tickers if str(t).strip() != '']
     if not clean_tickers: return {}
 
@@ -113,6 +127,8 @@ def download_universe_data(tickers, fetch_start_date):
             else:
                 for t in chunk:
                     try:
+                        # Handle potential ticker formatting issues in yfinance response
+                        # sometimes yfinance returns headers differently for indices
                         if t in df.columns.levels[0]:
                             t_df = df[t].copy()
                             t_df = clean_ticker_df(t_df)
@@ -153,7 +169,7 @@ def get_age_bucket(years):
 # ANALYSIS ENGINE
 # -----------------------------------------------------------------------------
 
-def calculate_indicators(df, sznl_map, ticker, spy_series=None):
+def calculate_indicators(df, sznl_map, ticker, market_series=None):
     df = df.copy()
     df.columns = [c.capitalize() for c in df.columns]
     
@@ -178,7 +194,7 @@ def calculate_indicators(df, sznl_map, ticker, spy_series=None):
     ranges = pd.concat([high_low, high_close, low_close], axis=1)
     df['ATR'] = ranges.max(axis=1).rolling(14).mean()
     
-    # Seasonality
+    # Seasonality (Ticker Specific)
     df['Sznl'] = get_sznl_val_series(ticker, df.index, sznl_map)
     
     # 52w High/Low
@@ -204,9 +220,9 @@ def calculate_indicators(df, sznl_map, ticker, spy_series=None):
     else:
         df['age_years'] = 0.0
         
-    # SPY Regime Mapping
-    if spy_series is not None:
-        df['SPY_Above_SMA200'] = spy_series.reindex(df.index, method='ffill').fillna(False)
+    # Market Regime Mapping (Using the MARKET_TICKER series passed in)
+    if market_series is not None:
+        df['Market_Above_SMA200'] = market_series.reindex(df.index, method='ffill').fillna(False)
 
     # Candle Range % Location
     denom = (df['High'] - df['Low'])
@@ -217,7 +233,7 @@ def calculate_indicators(df, sznl_map, ticker, spy_series=None):
 
     return df
 
-def run_engine(universe_dict, params, sznl_map, spy_series=None):
+def run_engine(universe_dict, params, sznl_map, market_series=None):
     all_potential_trades = []
     
     total = len(universe_dict)
@@ -249,12 +265,17 @@ def run_engine(universe_dict, params, sznl_map, spy_series=None):
         status_text.text(f"Scanning signals for {ticker}...")
         progress_bar.progress((i+1)/total)
         
+        # Don't trade the market ticker itself if it was only downloaded for reference
+        # (Unless it's explicitly in the universe choice, but usually we filter it out to avoid confusion)
+        if ticker == MARKET_TICKER and MARKET_TICKER not in params.get('universe_tickers', []):
+            continue
+
         if len(df_raw) < 100: continue
         
         ticker_last_exit = pd.Timestamp.min
         
         try:
-            df = calculate_indicators(df_raw, sznl_map, ticker, spy_series)
+            df = calculate_indicators(df_raw, sznl_map, ticker, market_series)
             df = df[df.index >= bt_start_ts]
             if df.empty: continue
             
@@ -270,11 +291,11 @@ def run_engine(universe_dict, params, sznl_map, spy_series=None):
                 conditions.append(df['Close'] < df['SMA200'])
             elif trend_opt == "Price < Falling 200 SMA":
                 conditions.append((df['Close'] < df['SMA200']) & (df['SMA200'] < df['SMA200'].shift(1)))
-            elif "SPY" in trend_opt and 'SPY_Above_SMA200' in df.columns:
-                if trend_opt == "SPY > 200 SMA":
-                    conditions.append(df['SPY_Above_SMA200'])
-                elif trend_opt == "SPY < 200 SMA":
-                    conditions.append(~df['SPY_Above_SMA200']) 
+            elif "Market" in trend_opt and 'Market_Above_SMA200' in df.columns:
+                if trend_opt == "Market > 200 SMA":
+                    conditions.append(df['Market_Above_SMA200'])
+                elif trend_opt == "Market < 200 SMA":
+                    conditions.append(~df['Market_Above_SMA200']) 
             
             # --- LIQUIDITY GATES ---
             curr_age = df['age_years'].fillna(0)
@@ -328,13 +349,25 @@ def run_engine(universe_dict, params, sznl_map, spy_series=None):
                 
                 conditions.append(final_perf_cond)
 
-            # --- SEASONALITY ---
+            # --- SEASONALITY (TICKER) ---
             if params['use_sznl']:
                 if params['sznl_logic'] == '<': cond = df['Sznl'] < params['sznl_thresh']
                 else: cond = df['Sznl'] > params['sznl_thresh']
                 if params['sznl_first_instance']:
                     prev = cond.shift(1).rolling(params['sznl_lookback']).sum()
                     cond = cond & (prev == 0)
+                conditions.append(cond)
+            
+            # --- SEASONALITY (MARKET REGIME: ^GSPC) ---
+            if params.get('use_market_sznl', False):
+                # Retrieve MARKET_TICKER seasonality series for these dates
+                market_ranks = get_sznl_val_series(MARKET_TICKER, df.index, sznl_map)
+                
+                if params['market_sznl_logic'] == '<':
+                    cond = market_ranks < params['market_sznl_thresh']
+                else:
+                    cond = market_ranks > params['market_sznl_thresh']
+                
                 conditions.append(cond)
             
             # --- 52W HIGHS ---
@@ -436,7 +469,7 @@ def run_engine(universe_dict, params, sznl_map, spy_series=None):
                             actual_entry_idx = curr_check_idx
                             break
 
-                # PATH C: GAP UP ONLY (New Feature)
+                # PATH C: GAP UP ONLY
                 elif is_gap_up:
                     check_idx = sig_idx + 1
                     if check_idx < len(df):
@@ -747,20 +780,17 @@ def main():
     with st.expander("Trend Filter", expanded=True):
         t1, _ = st.columns([1, 3])
         with t1:
+            # Replaced "SPY" labels with "Market"
             trend_filter = st.selectbox("Trend Condition", 
-                ["None", "Price > 200 SMA", "Price > Rising 200 SMA", "SPY > 200 SMA",
-                 "Price < 200 SMA", "Price < Falling 200 SMA", "SPY < 200 SMA"],
-                help="Requires 200 days of data. 'SPY' filters check the broad market regime.")
+                ["None", "Price > 200 SMA", "Price > Rising 200 SMA", "Market > 200 SMA",
+                 "Price < 200 SMA", "Price < Falling 200 SMA", "Market < 200 SMA"],
+                help=f"Requires 200 days of data. 'Market' filters check the regime of {MARKET_TICKER}.")
 
     # C. STRATEGY FILTERS
-    # --- UPDATED SECTION FOR INDIVIDUAL CONSECUTIVE FILTERS ---
     with st.expander("Performance Percentile Rank (Granular Multi-Filter)", expanded=False):
         st.write("Enable multiple windows. Set 'Consec Days' for **each** timeframe individually.")
-        
         col_p_config, col_p_seq = st.columns([3, 1])
-        
         perf_filters = []
-        
         with col_p_config:
             c5d, c10d, c21d = st.columns(3)
             with c5d:
@@ -769,14 +799,12 @@ def main():
                 thresh_5d = st.number_input("Threshold", 0.0, 100.0, 80.0, key="t5d", disabled=not use_5d)
                 consec_5d = st.number_input("Consec Days", 1, 10, 1, key="c5d_days", disabled=not use_5d)
                 if use_5d: perf_filters.append({'window': 5, 'logic': logic_5d, 'thresh': thresh_5d, 'consecutive': consec_5d})
-            
             with c10d:
                 use_10d = st.checkbox("Enable 10D Rank")
                 logic_10d = st.selectbox("Logic", [">", "<"], key="l10d", disabled=not use_10d)
                 thresh_10d = st.number_input("Threshold", 0.0, 100.0, 80.0, key="t10d", disabled=not use_10d)
                 consec_10d = st.number_input("Consec Days", 1, 10, 1, key="c10d_days", disabled=not use_10d)
                 if use_10d: perf_filters.append({'window': 10, 'logic': logic_10d, 'thresh': thresh_10d, 'consecutive': consec_10d})
-
             with c21d:
                 use_21d = st.checkbox("Enable 21D Rank")
                 logic_21d = st.selectbox("Logic", [">", "<"], key="l21d", disabled=not use_21d)
@@ -791,12 +819,22 @@ def main():
             perf_lookback = st.number_input("Lookback (Days)", 1, 100, 21, disabled=not perf_first)
 
     with st.expander("Seasonal Rank", expanded=False):
-        use_sznl = st.checkbox("Enable Seasonal Filter", value=False)
+        # TICKER Seasonality
+        st.markdown("**Ticker Specific Seasonality**")
+        use_sznl = st.checkbox("Enable Ticker Seasonal Filter", value=False)
         s1, s2, s3, s4 = st.columns(4)
-        with s1: sznl_logic = st.selectbox("Seasonality", ["<", ">"], key="sl", disabled=not use_sznl)
-        with s2: sznl_thresh = st.number_input("Seasonal Rank Threshold", 0.0, 100.0, 15.0, key="st", disabled=not use_sznl)
+        with s1: sznl_logic = st.selectbox("Logic", ["<", ">"], key="sl", disabled=not use_sznl)
+        with s2: sznl_thresh = st.number_input("Threshold", 0.0, 100.0, 15.0, key="st", disabled=not use_sznl)
         with s3: sznl_first = st.checkbox("First Instance Only", value=True, key="sf", disabled=not use_sznl)
         with s4: sznl_lookback = st.number_input("Instance Lookback (Days)", 1, 100, 21, key="slb", disabled=not use_sznl)
+
+        st.markdown("---")
+        # MARKET Seasonality (Uses MARKET_TICKER constant)
+        st.markdown(f"**Market ({MARKET_TICKER}) Seasonality**")
+        use_market_sznl = st.checkbox("Enable Market Seasonal Filter", value=False)
+        spy1, spy2 = st.columns(2)
+        with spy1: market_sznl_logic = st.selectbox("Market Logic", ["<", ">"], key="spy_sl", disabled=not use_market_sznl)
+        with spy2: market_sznl_thresh = st.number_input("Market Threshold", 0.0, 100.0, 15.0, key="spy_st", disabled=not use_market_sznl)
 
     with st.expander("52-Week High/Low", expanded=False):
         use_52w = st.checkbox("Enable 52w High/Low Filter", value=False)
@@ -850,25 +888,29 @@ def main():
         data_dict = download_universe_data(tickers_to_run, fetch_start)
         if not data_dict: return
         
-        # --- SPY HANDLING ---
-        spy_series = None
-        if "SPY" in trend_filter:
-            if "SPY" in data_dict:
-                spy_df = data_dict["SPY"]
+        # --- MARKET REGIME HANDLING (Using MARKET_TICKER) ---
+        market_series = None
+        
+        # Check if we need Market data (either for Trend or Seasonality)
+        need_market_data = ("Market" in trend_filter) or use_market_sznl
+        
+        if need_market_data:
+            if MARKET_TICKER in data_dict:
+                market_df = data_dict[MARKET_TICKER]
             else:
-                st.info("Fetching SPY data for regime filter...")
-                spy_dict_temp = download_universe_data(["SPY"], fetch_start)
-                spy_df = spy_dict_temp.get("SPY", None)
+                st.info(f"Fetching {MARKET_TICKER} data for regime/seasonal filter...")
+                market_dict_temp = download_universe_data([MARKET_TICKER], fetch_start)
+                market_df = market_dict_temp.get(MARKET_TICKER, None)
 
-            if spy_df is not None and not spy_df.empty:
-                if spy_df.index.tz is not None:
-                       spy_df.index = spy_df.index.tz_localize(None)
-                spy_df.index = spy_df.index.normalize()
+            if market_df is not None and not market_df.empty:
+                if market_df.index.tz is not None:
+                       market_df.index = market_df.index.tz_localize(None)
+                market_df.index = market_df.index.normalize()
                 
-                spy_df['SMA200'] = spy_df['Close'].rolling(200).mean()
-                spy_series = spy_df['Close'] > spy_df['SMA200']
+                market_df['SMA200'] = market_df['Close'].rolling(200).mean()
+                market_series = market_df['Close'] > market_df['SMA200']
             else:
-                st.warning("⚠️ SPY data unavailable. Regime filter ignored.")
+                st.warning(f"⚠️ {MARKET_TICKER} data unavailable. Market filters ignored.")
 
         params = {
             'backtest_start_date': start_date,
@@ -882,19 +924,23 @@ def main():
             'use_dow_filter': use_dow_filter, 'allowed_days': valid_days,
             'min_price': min_price, 'min_vol': min_vol, 'min_age': min_age, 'max_age': max_age,
             'trend_filter': trend_filter,
+            'universe_tickers': tickers_to_run, # Passed for exclusion check
             'slippage_bps': slippage_bps,
             # Updated Params for Multi-Perf
             'perf_filters': perf_filters,
             'perf_first_instance': perf_first, 'perf_lookback': perf_lookback, 
-            # End Updated Params
+            # Seasonality (Ticker)
             'use_sznl': use_sznl, 'sznl_logic': sznl_logic, 'sznl_thresh': sznl_thresh, 
             'sznl_first_instance': sznl_first, 'sznl_lookback': sznl_lookback,
+            # Seasonality (Market)
+            'use_market_sznl': use_market_sznl, 'market_sznl_logic': market_sznl_logic, 'market_sznl_thresh': market_sznl_thresh,
+            # Other
             'use_52w': use_52w, '52w_type': type_52w, '52w_first_instance': first_52w, '52w_lookback': lookback_52w,
             'use_vol': use_vol, 'vol_thresh': vol_thresh,
             'use_vol_rank': use_vol_rank, 'vol_rank_logic': vol_rank_logic, 'vol_rank_thresh': vol_rank_thresh
         }
         
-        trades_df, total_signals = run_engine(data_dict, params, sznl_map, spy_series)
+        trades_df, total_signals = run_engine(data_dict, params, sznl_map, market_series)
         
         if trades_df.empty:
             st.warning("No signals generated.")
@@ -1006,6 +1052,8 @@ def main():
         "perf_filters": {perf_filters},
         "perf_first_instance": {perf_first}, "perf_lookback": {perf_lookback},
         "use_sznl": {use_sznl}, "sznl_logic": "{sznl_logic}", "sznl_thresh": {sznl_thresh}, "sznl_first_instance": {sznl_first}, "sznl_lookback": {sznl_lookback},
+        "use_market_sznl": {use_market_sznl}, "market_sznl_logic": "{market_sznl_logic}", "market_sznl_thresh": {market_sznl_thresh},
+        "market_ticker": "{MARKET_TICKER}",
         "use_52w": {use_52w}, "52w_type": "{type_52w}", "52w_first_instance": {first_52w}, "52w_lookback": {lookback_52w},
         "use_vol": {use_vol}, "vol_thresh": {vol_thresh},
         "use_vol_rank": {use_vol_rank}, "vol_rank_logic": "{vol_rank_logic}", "vol_rank_thresh": {vol_rank_thresh},
