@@ -70,7 +70,8 @@ def plot_seasonal_paths(ticker, cycle_label, stats_row=None):
     st.subheader(f"📈 {ticker} Seasonal Average Path: {cycle_label}")
     
     # Fetch Data
-    end_date = dt.datetime(date.today().year, 12, 30) 
+    # Ensure we fetch enough data to include current year
+    end_date = dt.datetime.now() # <--- CHANGED: Use now() to ensure we get up to the minute/day
     spx = yf.download(ticker, period="max", end=end_date, progress=False)
     
     if spx.empty:
@@ -97,8 +98,31 @@ def plot_seasonal_paths(ticker, cycle_label, stats_row=None):
         
     avg_path = (cycle_data.groupby("day_count")["log_return"].mean().cumsum().apply(np.exp) - 1)
 
+    # --- NEW: Realized YTD Path Logic --- <--- ADDED SECTION
+    current_year = date.today().year
+    df_current_year = spx[spx["year"] == current_year].copy()
+    
+    realized_path = pd.Series(dtype=float)
+    if not df_current_year.empty:
+        # Calculate cumulative return matching the logic of the average path
+        # We set index to day_count so it aligns with the x-axis of the average path
+        realized_path = df_current_year.set_index("day_count")["log_return"].cumsum().apply(np.exp) - 1
+
+    # --- Plotting ---
     fig = go.Figure()
+    
+    # 1. Seasonal Average Line
     fig.add_trace(go.Scatter(x=avg_path.index, y=avg_path.values, mode="lines", name=line_name, line=dict(color="orange", width=3)))
+
+    # 2. Realized YTD Line (Added) <--- ADDED SECTION
+    if not realized_path.empty:
+        fig.add_trace(go.Scatter(
+            x=realized_path.index, 
+            y=realized_path.values, 
+            mode="lines", 
+            name=f"{current_year} Realized", 
+            line=dict(color="#39FF14", width=2) # Neon Green
+        ))
 
     # --- All Years Overlay ---
     if cycle_label != "All Years":
@@ -106,8 +130,8 @@ def plot_seasonal_paths(ticker, cycle_label, stats_row=None):
         fig.add_trace(go.Scatter(x=all_avg_path.index, y=all_avg_path.values, mode="lines", name="All Years Avg Path", line=dict(color="lightblue", width=1, dash='dash')))
 
     # --- Current Day Markers ---
-    current_year_data = yf.download(ticker, start=dt.datetime(date.today().year, 1, 1), end=date.today() + timedelta(days=1), progress=False)
-    current_day_count = len(current_year_data) if not current_year_data.empty else None
+    # We still use this to find the current day count index
+    current_day_count = realized_path.index[-1] if not realized_path.empty else None
 
     if current_day_count:
         val_t = avg_path.get(current_day_count)
@@ -115,7 +139,7 @@ def plot_seasonal_paths(ticker, cycle_label, stats_row=None):
         val_t21 = avg_path.get(current_day_count + 21)
 
         if val_t is not None:
-            fig.add_trace(go.Scatter(x=[current_day_count], y=[val_t], mode="markers", name="Current Day", marker=dict(color="red", size=10, line=dict(width=2, color='white'))))
+            fig.add_trace(go.Scatter(x=[current_day_count], y=[val_t], mode="markers", name="Curr Day (Avg)", marker=dict(color="red", size=10, line=dict(width=2, color='white'))))
         if val_t5 is not None:
             fig.add_trace(go.Scatter(x=[current_day_count + 5], y=[val_t5], mode="markers", name="T+5 (Path Proj)", marker=dict(color="#00FF00", size=8, symbol="circle")))
         if val_t21 is not None:
