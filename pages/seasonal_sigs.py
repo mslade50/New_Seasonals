@@ -49,7 +49,7 @@ def calculate_pivot_levels(df, period=DEFAULT_PIVOT_PERIOD):
     df.loc[df['Low'] != df['PivotLow'], 'PivotLow'] = np.nan
     
     return df
-def find_optimal_points(series, is_buy, top_n=3, min_separation=7):
+def find_optimal_points(series, is_buy, top_n=3, min_separation=20):
     """
     Identifies local extrema (peaks or valleys) and returns the top N unique dates.
     """
