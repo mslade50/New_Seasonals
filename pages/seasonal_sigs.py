@@ -70,8 +70,7 @@ def plot_seasonal_paths(ticker, cycle_label, stats_row=None):
     st.subheader(f"📈 {ticker} Seasonal Average Path: {cycle_label}")
     
     # Fetch Data
-    # Ensure we fetch enough data to include current year
-    end_date = dt.datetime.now() # <--- CHANGED: Use now() to ensure we get up to the minute/day
+    end_date = dt.datetime.now()
     spx = yf.download(ticker, period="max", end=end_date, progress=False)
     
     if spx.empty:
@@ -86,35 +85,41 @@ def plot_seasonal_paths(ticker, cycle_label, stats_row=None):
     spx["year"] = spx.index.year
     spx["day_count"] = spx.groupby("year").cumcount() + 1 
 
-    # --- Cycle Path ---
+    # --- SPLIT DATA: Historical vs Current ---
+    current_year = date.today().year
+    
+    # 1. Historical Data (Strictly < Current Year) for the Average Lines
+    spx_historical = spx[spx["year"] < current_year].copy()
+    
+    # 2. Current Year Data for the Green Realized Line
+    df_current_year = spx[spx["year"] == current_year].copy()
+
+    # --- Cycle Path Calculation (Using spx_historical only) ---
     if cycle_label == "All Years":
-        cycle_data = spx.copy()
+        cycle_data = spx_historical.copy()
         line_name = "All Years Avg Path"
     else:
         cycle_start = CYCLE_START_MAPPING.get(cycle_label, 1953)
-        years_in_cycle = [cycle_start + i * 4 for i in range((date.today().year - cycle_start) // 4 + 1)] 
-        cycle_data = spx[spx["year"].isin(years_in_cycle)].copy()
+        # Generate list of years, but filter so we only look at historical ones
+        years_in_cycle = [cycle_start + i * 4 for i in range((current_year - cycle_start) // 4 + 1)] 
+        cycle_data = spx_historical[spx_historical["year"].isin(years_in_cycle)].copy()
         line_name = f"Avg Path ({cycle_label})"
         
+    # Compute the average path from the historical pool
     avg_path = (cycle_data.groupby("day_count")["log_return"].mean().cumsum().apply(np.exp) - 1)
 
-    # --- NEW: Realized YTD Path Logic --- <--- ADDED SECTION
-    current_year = date.today().year
-    df_current_year = spx[spx["year"] == current_year].copy()
-    
+    # --- Realized YTD Path Logic ---
     realized_path = pd.Series(dtype=float)
     if not df_current_year.empty:
-        # Calculate cumulative return matching the logic of the average path
-        # We set index to day_count so it aligns with the x-axis of the average path
         realized_path = df_current_year.set_index("day_count")["log_return"].cumsum().apply(np.exp) - 1
 
     # --- Plotting ---
     fig = go.Figure()
     
-    # 1. Seasonal Average Line
+    # 1. Seasonal Average Line (Historical)
     fig.add_trace(go.Scatter(x=avg_path.index, y=avg_path.values, mode="lines", name=line_name, line=dict(color="orange", width=3)))
 
-    # 2. Realized YTD Line (Added) <--- ADDED SECTION
+    # 2. Realized YTD Line (Current)
     if not realized_path.empty:
         fig.add_trace(go.Scatter(
             x=realized_path.index, 
@@ -124,13 +129,13 @@ def plot_seasonal_paths(ticker, cycle_label, stats_row=None):
             line=dict(color="#39FF14", width=2) # Neon Green
         ))
 
-    # --- All Years Overlay ---
+    # --- All Years Overlay (Historical) ---
     if cycle_label != "All Years":
-        all_avg_path = (spx.groupby("day_count")["log_return"].mean().cumsum().apply(np.exp) - 1)
+        # Ensure this also uses spx_historical
+        all_avg_path = (spx_historical.groupby("day_count")["log_return"].mean().cumsum().apply(np.exp) - 1)
         fig.add_trace(go.Scatter(x=all_avg_path.index, y=all_avg_path.values, mode="lines", name="All Years Avg Path", line=dict(color="lightblue", width=1, dash='dash')))
 
     # --- Current Day Markers ---
-    # We still use this to find the current day count index
     current_day_count = realized_path.index[-1] if not realized_path.empty else None
 
     if current_day_count:
@@ -151,7 +156,6 @@ def plot_seasonal_paths(ticker, cycle_label, stats_row=None):
         showlegend=True, legend=dict(yanchor="top", y=0.99, xanchor="left", x=0.01, bgcolor="rgba(0,0,0,0)")
     )
     st.plotly_chart(fig, use_container_width=True)
-
 
 def plot_candlestick_and_mas(ticker, stats_row=None):
     st.subheader("🕯️ Price Action & Technicals")
