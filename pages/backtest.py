@@ -3,6 +3,7 @@ import pandas as pd
 import numpy as np
 import yfinance as yf
 import plotly.express as px
+import plotly.graph_objects as go
 import datetime
 import random
 import time
@@ -399,10 +400,8 @@ def run_engine(universe_dict, params, sznl_map, market_series=None):
                 
                 # RE-ENTRY LOGIC CHANGE HERE
                 if max_one_pos_per_ticker:
-                    # If same-day reentry is allowed, strictly prevent overlaps (<), but allow same day exit/entry
                     if allow_same_day_reentry:
                         if signal_date < ticker_last_exit: continue
-                    # If strict serial (default), prevent any signal on the day of exit
                     else:
                         if signal_date <= ticker_last_exit: continue
                 
@@ -559,21 +558,13 @@ def run_engine(universe_dict, params, sznl_map, market_series=None):
                     slip_pct = slippage_bps / 10000.0
                     
                     if direction == 'Long':
-                        # Entry cost: Buy higher
                         adj_entry = actual_entry_price * (1 + slip_pct)
-                        # Exit cost: Sell lower
                         adj_exit = exit_price * (1 - slip_pct)
-                        
-                        # Technical Risk (used for R calc denominator)
                         tech_risk = actual_entry_price - stop_price
                         pnl = adj_exit - adj_entry
                     else:
-                        # Entry cost: Sell lower
                         adj_entry = actual_entry_price * (1 - slip_pct)
-                        # Exit cost: Buy higher
                         adj_exit = exit_price * (1 + slip_pct)
-                        
-                        # Technical Risk
                         tech_risk = stop_price - actual_entry_price
                         pnl = adj_entry - adj_exit
                         
@@ -585,11 +576,11 @@ def run_engine(universe_dict, params, sznl_map, market_series=None):
                         "SignalDate": signal_date, 
                         "EntryDate": df.index[actual_entry_idx], 
                         "Direction": direction,
-                        "Entry": actual_entry_price, # Logging technical entry
-                        "Exit": exit_price, # Logging technical exit
+                        "Entry": actual_entry_price,
+                        "Exit": exit_price,
                         "ExitDate": exit_date,
                         "Type": exit_type,
-                        "R": r, # R includes slippage
+                        "R": r,
                         "Age": df['age_years'].iloc[sig_idx],
                         "AvgVol": df['vol_ma'].iloc[sig_idx]
                     })
@@ -599,7 +590,7 @@ def run_engine(universe_dict, params, sznl_map, market_series=None):
     status_text.empty()
 
     if not all_potential_trades:
-        return pd.DataFrame(), 0
+        return pd.DataFrame(), pd.DataFrame(), 0
 
     st.info(f"Processing Portfolio Constraints on {len(all_potential_trades)} potential signals...")
     
@@ -607,6 +598,7 @@ def run_engine(universe_dict, params, sznl_map, market_series=None):
     potential_df = potential_df.sort_values(by=["EntryDate", "Ticker"])
     
     final_trades_log = []
+    rejected_trades_log = [] # NEW: Store rejected
     active_positions = [] 
     daily_entries = {} 
     
@@ -616,20 +608,31 @@ def run_engine(universe_dict, params, sznl_map, market_series=None):
     for idx, trade in potential_df.iterrows():
         entry_date = trade['EntryDate']
         
+        # Clean up active positions that have exited before this new entry
         active_positions = [t for t in active_positions if t['ExitDate'] > entry_date]
         
-        if len(active_positions) >= max_total:
-            continue
-            
-        today_count = daily_entries.get(entry_date, 0)
-        if today_count >= max_daily:
-            continue
-            
-        final_trades_log.append(trade)
-        active_positions.append(trade)
-        daily_entries[entry_date] = today_count + 1
+        # Check Portfolio Constraints
+        is_rejected = False
+        rejection_reason = ""
 
-    return pd.DataFrame(final_trades_log), total_signals_generated
+        if len(active_positions) >= max_total:
+            is_rejected = True
+            rejection_reason = "Max Total Pos"
+        
+        today_count = daily_entries.get(entry_date, 0)
+        if not is_rejected and today_count >= max_daily:
+            is_rejected = True
+            rejection_reason = "Max Daily Entries"
+            
+        if is_rejected:
+            trade['RejectionReason'] = rejection_reason
+            rejected_trades_log.append(trade)
+        else:
+            final_trades_log.append(trade)
+            active_positions.append(trade)
+            daily_entries[entry_date] = today_count + 1
+
+    return pd.DataFrame(final_trades_log), pd.DataFrame(rejected_trades_log), total_signals_generated
 
 def grade_strategy(pf, sqn, win_rate, total_trades):
     score = 0
@@ -717,7 +720,6 @@ def main():
     with p_c3:
         slippage_bps = st.number_input("Slippage (bps per side)", value=5, step=1, help="Basis points deducted from Entry and Exit (e.g. 5 bps = 0.05%)")
     
-    # NEW CHECKBOX for Re-entry
     st.write("")
     allow_same_day_reentry = st.checkbox("Allow Same-Day Re-entry", value=False, 
         help="If checked, allows a new trade to open on the SAME day a previous trade closed (e.g., Stopped out AM, new signal PM).")
@@ -790,7 +792,6 @@ def main():
     with st.expander("Trend Filter", expanded=True):
         t1, _ = st.columns([1, 3])
         with t1:
-            # Replaced "SPY" labels with "Market"
             trend_filter = st.selectbox("Trend Condition", 
                 ["None", "Price > 200 SMA", "Price > Rising 200 SMA", "Market > 200 SMA",
                  "Price < 200 SMA", "Price < Falling 200 SMA", "Market < 200 SMA"],
@@ -951,46 +952,46 @@ def main():
             'use_vol_rank': use_vol_rank, 'vol_rank_logic': vol_rank_logic, 'vol_rank_thresh': vol_rank_thresh
         }
         
-        trades_df, total_signals = run_engine(data_dict, params, sznl_map, market_series)
+        trades_df, rejected_df, total_signals = run_engine(data_dict, params, sznl_map, market_series)
         
         if trades_df.empty:
-            st.warning("No signals generated.")
-            if total_signals > 0:
-                st.warning(f"Note: {total_signals} raw signals were found, but none triggered an entry (Check Fill Logic).")
-            return
+            st.warning("No executed signals (Check constraints or signal logic).")
+        
+        # Calculate PnL for Executed
+        if not trades_df.empty:
+            trades_df = trades_df.sort_values("ExitDate")
+            trades_df['PnL_Dollar'] = trades_df['R'] * risk_per_trade
+            trades_df['CumPnL'] = trades_df['PnL_Dollar'].cumsum()
+            trades_df['SignalDate'] = pd.to_datetime(trades_df['SignalDate'])
+            trades_df['EntryDate'] = pd.to_datetime(trades_df['EntryDate'])
+            trades_df['DayOfWeek'] = trades_df['EntryDate'].dt.day_name()
+            trades_df['Year'] = trades_df['SignalDate'].dt.year
+            trades_df['Month'] = trades_df['SignalDate'].dt.strftime('%b')
+            trades_df['MonthNum'] = trades_df['SignalDate'].dt.month
+            trades_df['CyclePhase'] = trades_df['Year'].apply(get_cycle_year)
+            trades_df['AgeBucket'] = trades_df['Age'].apply(get_age_bucket)
+            if len(trades_df) >= 10:
+                try: trades_df['VolDecile'] = pd.qcut(trades_df['AvgVol'], 10, labels=False, duplicates='drop') + 1
+                except: trades_df['VolDecile'] = 1
+            else: trades_df['VolDecile'] = 1
 
-        trades_df = trades_df.sort_values("ExitDate")
-        trades_df['PnL_Dollar'] = trades_df['R'] * risk_per_trade
-        trades_df['CumPnL'] = trades_df['PnL_Dollar'].cumsum()
-        trades_df['SignalDate'] = pd.to_datetime(trades_df['SignalDate'])
-        # UPDATED: Use EntryDate for Day of Week analysis per request
-        trades_df['EntryDate'] = pd.to_datetime(trades_df['EntryDate'])
-        trades_df['DayOfWeek'] = trades_df['EntryDate'].dt.day_name()
-        
-        trades_df['Year'] = trades_df['SignalDate'].dt.year
-        trades_df['Month'] = trades_df['SignalDate'].dt.strftime('%b')
-        trades_df['MonthNum'] = trades_df['SignalDate'].dt.month
-        trades_df['CyclePhase'] = trades_df['Year'].apply(get_cycle_year)
-        trades_df['AgeBucket'] = trades_df['Age'].apply(get_age_bucket)
-        
-        if len(trades_df) >= 10:
-            try: trades_df['VolDecile'] = pd.qcut(trades_df['AvgVol'], 10, labels=False, duplicates='drop') + 1
-            except: trades_df['VolDecile'] = 1
-        else: trades_df['VolDecile'] = 1
-
-        wins = trades_df[trades_df['R'] > 0]
-        losses = trades_df[trades_df['R'] <= 0]
-        win_rate = len(wins) / len(trades_df) * 100
-        pf = wins['PnL_Dollar'].sum() / abs(losses['PnL_Dollar'].sum()) if not losses.empty else 999
-        r_series = trades_df['R']
-        sqn = np.sqrt(len(trades_df)) * (r_series.mean() / r_series.std()) if len(trades_df) > 1 else 0
-        
+            wins = trades_df[trades_df['R'] > 0]
+            losses = trades_df[trades_df['R'] <= 0]
+            win_rate = len(wins) / len(trades_df) * 100
+            pf = wins['PnL_Dollar'].sum() / abs(losses['PnL_Dollar'].sum()) if not losses.empty else 999
+            r_series = trades_df['R']
+            sqn = np.sqrt(len(trades_df)) * (r_series.mean() / r_series.std()) if len(trades_df) > 1 else 0
+        else:
+            win_rate = 0
+            pf = 0
+            sqn = 0
+            
         fill_rate = (len(trades_df) / total_signals * 100) if total_signals > 0 else 0
-
         grade, verdict, notes = grade_strategy(pf, sqn, win_rate, len(trades_df))
         
         st.success("Backtest Complete!")
         
+        # SUMMARY CARD
         st.markdown(f"""
         <div style="background-color: #0e1117; padding: 20px; border-radius: 10px; border: 1px solid #444;">
             <h2 style="margin-top:0; color: #ffffff;">Strategy Grade: <span style="color: {'#00ff00' if grade in ['A','B'] else '#ffaa00' if grade=='C' else '#ff0000'};">{grade}</span> ({verdict})</h2>
@@ -998,51 +999,127 @@ def main():
                 <div><h3>Profit Factor: {pf:.2f}</h3></div>
                 <div><h3>SQN: {sqn:.2f}</h3></div>
                 <div><h3>Win Rate: {win_rate:.1f}%</h3></div>
-                <div><h3>Expectancy: ${trades_df['PnL_Dollar'].mean():.2f}</h3></div>
+                <div><h3>Expectancy: ${trades_df['PnL_Dollar'].mean() if not trades_df.empty else 0:.2f}</h3></div>
             </div>
             <div style="margin-top: 10px; color: #aaa; font-size: 14px;">
-               Fill Rate: {fill_rate:.1f}% ({len(trades_df)} trades from {total_signals} signals) | Slippage Applied: {slippage_bps} bps
+               Fill Rate: {fill_rate:.1f}% ({len(trades_df)} executed vs {total_signals} raw signals) | Rejection: {len(rejected_df)} trades
             </div>
         </div>
         """, unsafe_allow_html=True)
         
         if notes: st.warning("Notes: " + ", ".join(notes))
 
-        fig = px.line(trades_df, x="ExitDate", y="CumPnL", title=f"Cumulative Equity (Risk: ${risk_per_trade}/trade)", markers=True)
-        st.plotly_chart(fig, use_container_width=True)
+        # Main Equity Curve
+        if not trades_df.empty:
+            fig = px.line(trades_df, x="ExitDate", y="CumPnL", title=f"Actual Portfolio Equity (Risk: ${risk_per_trade}/trade)", markers=True)
+            st.plotly_chart(fig, use_container_width=True)
         
-        st.subheader("Performance Breakdowns")
+            st.subheader("Performance Breakdowns")
+            
+            # 1. Year and Count
+            y1, y2 = st.columns(2)
+            y1.plotly_chart(px.bar(trades_df.groupby('Year')['PnL_Dollar'].sum().reset_index(), x='Year', y='PnL_Dollar', title="Net Profit ($) by Year", text_auto='.2s'), use_container_width=True)
+            
+            trades_per_year = trades_df.groupby('Year').size().reset_index(name='Count')
+            y2.plotly_chart(px.bar(trades_per_year, x='Year', y='Count', title="Total Trades by Year", text_auto=True), use_container_width=True)
+            
+            # 2. Cycle, Month, and Day of Week (3 Cols)
+            c1, c2, c3 = st.columns(3)
+            c1.plotly_chart(px.bar(trades_df.groupby('CyclePhase')['PnL_Dollar'].sum().reset_index().sort_values('CyclePhase'), x='CyclePhase', y='PnL_Dollar', title="PnL by Cycle", text_auto='.2s'), use_container_width=True)
+            
+            month_order = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+            monthly_pnl = trades_df.groupby("Month")["PnL_Dollar"].sum().reindex(month_order).reset_index()
+            c2.plotly_chart(px.bar(monthly_pnl, x="Month", y="PnL_Dollar", title="PnL by Month", text_auto='.2s'), use_container_width=True)
+            
+            dow_order = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday']
+            dow_pnl = trades_df.groupby("DayOfWeek")["PnL_Dollar"].sum().reindex(dow_order).reset_index()
+            c3.plotly_chart(px.bar(dow_pnl, x="DayOfWeek", y="PnL_Dollar", title="PnL by Entry Day", text_auto='.2s'), use_container_width=True)
+            
+            # 3. Ticker
+            ticker_pnl = trades_df.groupby("Ticker")["PnL_Dollar"].sum().reset_index()
+            ticker_pnl = ticker_pnl.sort_values("PnL_Dollar", ascending=False).head(275)
+            st.plotly_chart(px.bar(ticker_pnl, x="Ticker", y="PnL_Dollar", title="Cumulative PnL by Ticker (Top 75)", text_auto='.2s'), use_container_width=True)
         
-        # 1. Year and Count
-        y1, y2 = st.columns(2)
-        y1.plotly_chart(px.bar(trades_df.groupby('Year')['PnL_Dollar'].sum().reset_index(), x='Year', y='PnL_Dollar', title="Net Profit ($) by Year", text_auto='.2s'), use_container_width=True)
+        # --- TABBED TRADE LOGS ---
+        st.subheader("Trade Logs")
+        tab1, tab2 = st.tabs(["Executed Trades", "Rejected Signals (Not Taken)"])
         
-        trades_per_year = trades_df.groupby('Year').size().reset_index(name='Count')
-        y2.plotly_chart(px.bar(trades_per_year, x='Year', y='Count', title="Total Trades by Year", text_auto=True), use_container_width=True)
-        
-        # 2. Cycle, Month, and Day of Week (3 Cols)
-        c1, c2, c3 = st.columns(3)
-        c1.plotly_chart(px.bar(trades_df.groupby('CyclePhase')['PnL_Dollar'].sum().reset_index().sort_values('CyclePhase'), x='CyclePhase', y='PnL_Dollar', title="PnL by Cycle", text_auto='.2s'), use_container_width=True)
-        
-        month_order = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
-        monthly_pnl = trades_df.groupby("Month")["PnL_Dollar"].sum().reindex(month_order).reset_index()
-        c2.plotly_chart(px.bar(monthly_pnl, x="Month", y="PnL_Dollar", title="PnL by Month", text_auto='.2s'), use_container_width=True)
-        
-        # NEW: PnL by Entry Day of Week
-        dow_order = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday']
-        dow_pnl = trades_df.groupby("DayOfWeek")["PnL_Dollar"].sum().reindex(dow_order).reset_index()
-        c3.plotly_chart(px.bar(dow_pnl, x="DayOfWeek", y="PnL_Dollar", title="PnL by Entry Day", text_auto='.2s'), use_container_width=True)
-        
-        # 3. Ticker
-        ticker_pnl = trades_df.groupby("Ticker")["PnL_Dollar"].sum().reset_index()
-        ticker_pnl = ticker_pnl.sort_values("PnL_Dollar", ascending=False).head(275)
-        st.plotly_chart(px.bar(ticker_pnl, x="Ticker", y="PnL_Dollar", title="Cumulative PnL by Ticker (Top 75)", text_auto='.2s'), use_container_width=True)
-        
-        st.subheader("Trade Log")
-        st.dataframe(trades_df.style.format({
-            "Entry": "{:.2f}", "Exit": "{:.2f}", "R": "{:.2f}", "PnL_Dollar": "${:,.2f}",
-            "Age": "{:.1f}y", "AvgVol": "{:,.0f}"
-        }), use_container_width=True)
+        with tab1:
+            if not trades_df.empty:
+                st.dataframe(trades_df.style.format({
+                    "Entry": "{:.2f}", "Exit": "{:.2f}", "R": "{:.2f}", "PnL_Dollar": "${:,.2f}",
+                    "Age": "{:.1f}y", "AvgVol": "{:,.0f}"
+                }), use_container_width=True)
+            else:
+                st.info("No Executed Trades.")
+                
+        with tab2:
+            if not rejected_df.empty:
+                # Calculate Hypothetical PnL for rejected trades
+                rejected_df['PnL_Dollar'] = rejected_df['R'] * risk_per_trade
+                st.markdown("**These trades were skipped due to Max Daily or Max Total Position limits.**")
+                st.dataframe(rejected_df.style.format({
+                    "Entry": "{:.2f}", "Exit": "{:.2f}", "R": "{:.2f}", "PnL_Dollar": "${:,.2f}",
+                    "Age": "{:.1f}y", "AvgVol": "{:,.0f}"
+                }), use_container_width=True)
+            else:
+                st.info("No signals were rejected (Portfolio constraints were never hit).")
+
+        # --- COMPARISON CHART: ACTUAL vs UNCONSTRAINED ---
+        if not trades_df.empty or not rejected_df.empty:
+            st.markdown("---")
+            st.subheader("Opportunity Cost Analysis: Actual vs. Unconstrained")
+            
+            # Prepare Actual Series
+            if not trades_df.empty:
+                df_actual = trades_df[['ExitDate', 'PnL_Dollar']].copy()
+                df_actual['Type'] = 'Actual'
+            else:
+                df_actual = pd.DataFrame(columns=['ExitDate', 'PnL_Dollar', 'Type'])
+            
+            # Prepare Rejected Series
+            if not rejected_df.empty:
+                df_rejected = rejected_df[['ExitDate', 'PnL_Dollar']].copy()
+                df_rejected['Type'] = 'Rejected'
+            else:
+                df_rejected = pd.DataFrame(columns=['ExitDate', 'PnL_Dollar', 'Type'])
+
+            # Combine
+            df_combined = pd.concat([df_actual, df_rejected]).sort_values("ExitDate")
+            
+            # 1. Actual Equity Curve
+            df_actual_curve = df_actual.sort_values("ExitDate")
+            df_actual_curve['CumPnL'] = df_actual_curve['PnL_Dollar'].cumsum()
+            
+            # 2. Unconstrained (Actual + Rejected)
+            df_unconstrained = df_combined.sort_values("ExitDate")
+            df_unconstrained['CumPnL'] = df_unconstrained['PnL_Dollar'].cumsum()
+
+            # Plot Comparison
+            fig_comp = go.Figure()
+            
+            # Trace 1: Actual
+            if not df_actual_curve.empty:
+                fig_comp.add_trace(go.Scatter(
+                    x=df_actual_curve['ExitDate'], 
+                    y=df_actual_curve['CumPnL'], 
+                    mode='lines', 
+                    name='Actual Equity (Constrained)',
+                    line=dict(color='cyan', width=2)
+                ))
+            
+            # Trace 2: Unconstrained
+            if not df_unconstrained.empty:
+                fig_comp.add_trace(go.Scatter(
+                    x=df_unconstrained['ExitDate'], 
+                    y=df_unconstrained['CumPnL'], 
+                    mode='lines', 
+                    name='Unconstrained Potential (Actual + Rejected)',
+                    line=dict(color='gray', dash='dot', width=2)
+                ))
+            
+            fig_comp.update_layout(title="Impact of Constraints: What you got vs. What you missed", xaxis_title="Date", yaxis_title="Cumulative PnL ($)")
+            st.plotly_chart(fig_comp, use_container_width=True)
 
         # --- COPYABLE DICTIONARY OUTPUT ---
         st.markdown("---")
@@ -1083,7 +1160,7 @@ def main():
     "stats": {{
         "grade": "{grade} ({verdict})",
         "win_rate": "{win_rate:.1f}%",
-        "expectancy": "${trades_df['PnL_Dollar'].mean():.2f}",
+        "expectancy": "${trades_df['PnL_Dollar'].mean() if not trades_df.empty else 0:.2f}",
         "profit_factor": "{pf:.2f}"
     }}
 }},"""
