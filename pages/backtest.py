@@ -150,7 +150,7 @@ def get_age_bucket(years):
     return "> 20 Years"
 
 # -----------------------------------------------------------------------------
-# ANALYSIS ENGINE (UPDATED FOR MULTI-PERF FILTERS)
+# ANALYSIS ENGINE (UPDATED FOR INDIVIDUAL CONSECUTIVE LOGIC)
 # -----------------------------------------------------------------------------
 
 def calculate_indicators(df, sznl_map, ticker, spy_series=None):
@@ -166,7 +166,7 @@ def calculate_indicators(df, sznl_map, ticker, spy_series=None):
     df['SMA10'] = df['Close'].rolling(10).mean()
     df['EMA21'] = df['Close'].ewm(span=21, adjust=False).mean()
     
-    # Perf Ranks (Always calculate 5, 10, 21 so they are available)
+    # Perf Ranks
     for window in [5, 10, 21]:
         df[f'ret_{window}d'] = df['Close'].pct_change(window)
         df[f'rank_ret_{window}d'] = df[f'ret_{window}d'].expanding(min_periods=252).rank(pct=True) * 100.0
@@ -298,29 +298,33 @@ def run_engine(universe_dict, params, sznl_map, spy_series=None):
                 if allowed_days:
                     conditions.append(df['DayOfWeekVal'].isin(allowed_days))
 
-            # --- MULTI-PERFORMANCE FILTER (UPDATED) ---
+            # --- MULTI-PERFORMANCE FILTER (LOGIC UPDATED) ---
             perf_filters = params.get('perf_filters', [])
             if perf_filters:
-                # 1. Combine all active filters into one raw boolean series (AND logic)
                 combined_perf_raw = pd.Series(True, index=df.index)
                 
+                # Get the consecutive requirement (e.g. 3 days)
+                consec_days = params.get('perf_consecutive', 1)
+
                 for pf in perf_filters:
                     col = f"rank_ret_{pf['window']}d"
+                    
+                    # 1. Calculate raw condition for this specific window
                     if pf['logic'] == '<': 
                         cond_f = df[col] < pf['thresh']
                     else: 
                         cond_f = df[col] > pf['thresh']
+                    
+                    # 2. Apply consecutive check to this INDIVIDUAL filter immediately
+                    if consec_days > 1:
+                        cond_f = cond_f.rolling(consec_days).sum() == consec_days
+
+                    # 3. Combine with other filters (AND logic)
                     combined_perf_raw = combined_perf_raw & cond_f
                 
-                # 2. Apply Sequence Logic (Consecutive & First Instance) to the Combined Signal
                 final_perf_cond = combined_perf_raw
                 
-                # Consecutive Days
-                consec_days = params.get('perf_consecutive', 1)
-                if consec_days > 1:
-                    final_perf_cond = final_perf_cond.rolling(consec_days).sum() == consec_days
-                
-                # First Instance Lookback
+                # First Instance Lookback (Applied to the final COMBINED signal)
                 if params.get('perf_first_instance', False):
                     lookback = params.get('perf_lookback', 21)
                     prev_instances = final_perf_cond.shift(1).rolling(lookback).sum()
@@ -753,8 +757,10 @@ def main():
 
         with col_p_seq:
             st.markdown("**Sequence**")
-            st.caption("Applied to Combined Signal")
+            st.caption("Applied to **each** rank individually:")
             perf_consecutive = st.number_input("Min Consec Days", 1, 20, 1)
+            st.write("")
+            st.caption("Applied to **combined** result:")
             perf_first = st.checkbox("First Instance", value=True)
             perf_lookback = st.number_input("Lookback (Days)", 1, 100, 21, disabled=not perf_first)
 
