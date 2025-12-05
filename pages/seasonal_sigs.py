@@ -49,7 +49,58 @@ def calculate_pivot_levels(df, period=DEFAULT_PIVOT_PERIOD):
     df.loc[df['Low'] != df['PivotLow'], 'PivotLow'] = np.nan
     
     return df
-
+def find_optimal_points(series, is_buy, top_n=3, min_separation=7):
+    """
+    Identifies local extrema (peaks or valleys) and returns the top N unique dates.
+    """
+    if series.empty: return []
+    
+    # 1. Identify Local Extrema (Simple 1-day neighbor check)
+    # We use a copy to avoid modifying the original
+    s = series.copy()
+    
+    candidates = []
+    
+    # Iterate through the series (skipping first and last day to avoid index errors)
+    # Note: In a real production environment, we might use scipy.signal.argrelextrema
+    for i in range(1, len(s) - 1):
+        curr = s.iloc[i]
+        prev = s.iloc[i-1]
+        next_ = s.iloc[i+1]
+        day_idx = s.index[i]
+        
+        if is_buy:
+            # Local Min
+            if curr < prev and curr < next_:
+                candidates.append((day_idx, curr))
+        else:
+            # Local Max
+            if curr > prev and curr > next_:
+                candidates.append((day_idx, curr))
+                
+    # 2. Sort candidates by magnitude
+    # For Buys: Sort ascending (lowest value first)
+    # For Sells: Sort descending (highest value first)
+    candidates.sort(key=lambda x: x[1], reverse=not is_buy)
+    
+    # 3. Filter for Uniqueness (Separation)
+    selected_points = []
+    
+    for day, val in candidates:
+        if len(selected_points) >= top_n:
+            break
+            
+        # Check distance against already selected points
+        is_far_enough = True
+        for sel_day, _ in selected_points:
+            if abs(day - sel_day) < min_separation:
+                is_far_enough = False
+                break
+        
+        if is_far_enough:
+            selected_points.append((day, val))
+            
+    return selected_points
 # -----------------------------------------------------------------------------
 # PLOTTING FUNCTIONS
 # -----------------------------------------------------------------------------
@@ -87,51 +138,68 @@ def plot_seasonal_paths(ticker, cycle_label, stats_row=None):
 
     # --- SPLIT DATA: Historical vs Current ---
     current_year = date.today().year
-    
-    # 1. Historical Data (Strictly < Current Year) for the Average Lines
     spx_historical = spx[spx["year"] < current_year].copy()
-    
-    # 2. Current Year Data for the Green Realized Line
     df_current_year = spx[spx["year"] == current_year].copy()
 
-    # --- Cycle Path Calculation (Using spx_historical only) ---
+    # --- Cycle Path Calculation ---
     if cycle_label == "All Years":
         cycle_data = spx_historical.copy()
         line_name = "All Years Avg Path"
     else:
         cycle_start = CYCLE_START_MAPPING.get(cycle_label, 1953)
-        # Generate list of years, but filter so we only look at historical ones
         years_in_cycle = [cycle_start + i * 4 for i in range((current_year - cycle_start) // 4 + 1)] 
         cycle_data = spx_historical[spx_historical["year"].isin(years_in_cycle)].copy()
         line_name = f"Avg Path ({cycle_label})"
         
-    # Compute the average path from the historical pool
     avg_path = (cycle_data.groupby("day_count")["log_return"].mean().cumsum().apply(np.exp) - 1)
 
-    # --- Realized YTD Path Logic ---
+    # --- Realized YTD Path ---
     realized_path = pd.Series(dtype=float)
     if not df_current_year.empty:
         realized_path = df_current_year.set_index("day_count")["log_return"].cumsum().apply(np.exp) - 1
 
+    # --- Identify Best Buy/Sell Points ---
+    # We look for local extrema in the AVG PATH
+    best_buys = find_optimal_points(avg_path, is_buy=True, top_n=3, min_separation=7)
+    best_sells = find_optimal_points(avg_path, is_buy=False, top_n=3, min_separation=7)
+
     # --- Plotting ---
     fig = go.Figure()
     
-    # 1. Seasonal Average Line (Historical)
+    # 1. Seasonal Average Line
     fig.add_trace(go.Scatter(x=avg_path.index, y=avg_path.values, mode="lines", name=line_name, line=dict(color="orange", width=3)))
 
-    # 2. Realized YTD Line (Current)
+    # 2. Realized YTD Line
     if not realized_path.empty:
         fig.add_trace(go.Scatter(
             x=realized_path.index, 
             y=realized_path.values, 
             mode="lines", 
             name=f"{current_year} Realized", 
-            line=dict(color="#39FF14", width=2) # Neon Green
+            line=dict(color="#39FF14", width=2)
         ))
 
-    # --- All Years Overlay (Historical) ---
+    # 3. Buy/Sell Vertical Lines
+    for day, val in best_buys:
+        fig.add_vline(x=day, line_width=1, line_dash="solid", line_color="#00FF00", opacity=0.6)
+        # Optional: Add small marker on the line
+        fig.add_trace(go.Scatter(
+            x=[day], y=[val], mode='markers', 
+            marker=dict(color='#00FF00', size=6, symbol='triangle-up'),
+            name="Best Buy", showlegend=False, hoverinfo='x+y'
+        ))
+
+    for day, val in best_sells:
+        fig.add_vline(x=day, line_width=1, line_dash="dot", line_color="red", opacity=0.6)
+        # Optional: Add small marker on the line
+        fig.add_trace(go.Scatter(
+            x=[day], y=[val], mode='markers', 
+            marker=dict(color='red', size=6, symbol='triangle-down'),
+            name="Best Sell", showlegend=False, hoverinfo='x+y'
+        ))
+
+    # --- All Years Overlay ---
     if cycle_label != "All Years":
-        # Ensure this also uses spx_historical
         all_avg_path = (spx_historical.groupby("day_count")["log_return"].mean().cumsum().apply(np.exp) - 1)
         fig.add_trace(go.Scatter(x=all_avg_path.index, y=all_avg_path.values, mode="lines", name="All Years Avg Path", line=dict(color="lightblue", width=1, dash='dash')))
 
@@ -144,11 +212,11 @@ def plot_seasonal_paths(ticker, cycle_label, stats_row=None):
         val_t21 = avg_path.get(current_day_count + 21)
 
         if val_t is not None:
-            fig.add_trace(go.Scatter(x=[current_day_count], y=[val_t], mode="markers", name="Curr Day (Avg)", marker=dict(color="red", size=10, line=dict(width=2, color='white'))))
+            fig.add_trace(go.Scatter(x=[current_day_count], y=[val_t], mode="markers", name="Curr Day", marker=dict(color="red", size=10, line=dict(width=2, color='white'))))
         if val_t5 is not None:
-            fig.add_trace(go.Scatter(x=[current_day_count + 5], y=[val_t5], mode="markers", name="T+5 (Path Proj)", marker=dict(color="#00FF00", size=8, symbol="circle")))
+            fig.add_trace(go.Scatter(x=[current_day_count + 5], y=[val_t5], mode="markers", name="T+5", marker=dict(color="#00FF00", size=8, symbol="circle")))
         if val_t21 is not None:
-            fig.add_trace(go.Scatter(x=[current_day_count + 21], y=[val_t21], mode="markers", name="T+21 (Path Proj)", marker=dict(color="#00BFFF", size=8, symbol="circle")))
+            fig.add_trace(go.Scatter(x=[current_day_count + 21], y=[val_t21], mode="markers", name="T+21", marker=dict(color="#00BFFF", size=8, symbol="circle")))
         
     fig.update_layout(
         xaxis_title="Trading Day of Year", yaxis_title="Cumulative Return (%)", yaxis_tickformat=".2%",
