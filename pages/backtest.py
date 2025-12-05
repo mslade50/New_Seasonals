@@ -233,6 +233,7 @@ def run_engine(universe_dict, params, sznl_map, market_series=None):
     max_one_pos_per_ticker = params.get('max_one_pos', True)
     allow_same_day_reentry = params.get('allow_same_day_reentry', False)
     slippage_bps = params.get('slippage_bps', 5)
+    entry_conf_bps = params.get('entry_conf_bps', 0) # NEW: Confirmation BPS
     
     # Entry Logic flags
     entry_mode = params['entry_type']
@@ -404,7 +405,6 @@ def run_engine(universe_dict, params, sznl_map, market_series=None):
                             if use_ma_filter:
                                 cutoff = ma_val - (0.25 * row['ATR'])
                                 if row['Close'] < cutoff:
-                                    # Technically this is an entry failure
                                     entry_failure_reason = "MA Filter (Close < MA-0.25ATR)"
                                     continue 
                             
@@ -478,32 +478,40 @@ def run_engine(universe_dict, params, sznl_map, market_series=None):
                         actual_entry_idx = sig_idx + 1
                         actual_entry_price = df['Close'].iloc[sig_idx + 1]
 
+                # --- NEW: ENTRY CONFIRMATION CHECK (INTRADAY BUYER PRESENCE) ---
+                if found_entry and entry_conf_bps > 0:
+                    entry_candle = df.iloc[actual_entry_idx]
+                    
+                    # Logic: We want High >= Open * (1 + bps)
+                    # Note: We use the Open of the ENTRY day (which is usually the fill price for Open strategies)
+                    # If this condition fails, we assume the stock opened and flushed immediately.
+                    
+                    threshold_price = entry_candle['Open'] * (1 + entry_conf_bps/10000.0)
+                    
+                    if entry_candle['High'] < threshold_price:
+                        # Entry Condition Failed
+                        found_entry = False
+                        entry_failure_reason = f"No Confirmation (High < Open+{entry_conf_bps}bps)"
+
                 # --- IF ENTRY FAILED, LOG IT ---
                 if not found_entry:
-                    # We create a record for "Entry Condition Failed"
-                    # To calculate a "Theoretical PnL", we will assume entry at T+1 OPEN just for comparison
-                    # This lets the user see what happened if they ignored the specific entry trigger
                     theo_entry_idx = min(sig_idx + 1, len(df)-1)
                     theo_entry_price = df['Open'].iloc[theo_entry_idx]
-                    
-                    # Assume simple time exit for these "missed" trades to check potential
                     theo_exit_idx = min(theo_entry_idx + params['holding_days'], len(df)-1)
                     theo_exit_price = df['Close'].iloc[theo_exit_idx]
                     
-                    # Calc Theoretical PnL (ignoring stops for simplicity of "missed opportunity")
                     if direction == 'Long': theo_pnl = theo_exit_price - theo_entry_price
                     else: theo_pnl = theo_entry_price - theo_exit_price
                     
-                    # Normalize R roughly based on Signal ATR
                     sig_atr = df['ATR'].iloc[sig_idx] if not np.isnan(df['ATR'].iloc[sig_idx]) else 1.0
-                    theo_r = theo_pnl / (sig_atr * 2) # Crude approximation
+                    theo_r = theo_pnl / (sig_atr * 2)
 
                     all_potential_trades.append({
                         "Ticker": ticker,
                         "SignalDate": signal_date, 
                         "EntryDate": df.index[theo_entry_idx],
                         "Direction": direction,
-                        "Entry": 0.0, # No real entry
+                        "Entry": 0.0,
                         "Exit": 0.0,
                         "ExitDate": df.index[theo_exit_idx],
                         "Type": "Missed",
@@ -719,8 +727,11 @@ def main():
     with p_c1: max_daily_entries = st.number_input("Max New Trades Per Day", min_value=1, max_value=100, value=2, step=1)
     with p_c2: max_total_positions = st.number_input("Max Total Positions Held", min_value=1, max_value=200, value=10, step=1)
     with p_c3: slippage_bps = st.number_input("Slippage (bps per side)", value=5, step=1)
+    
     st.write("")
-    allow_same_day_reentry = st.checkbox("Allow Same-Day Re-entry", value=False, help="If checked, allows a new trade to open on the SAME day a previous trade closed.")
+    c_re, c_conf = st.columns(2)
+    with c_re: allow_same_day_reentry = st.checkbox("Allow Same-Day Re-entry", value=False)
+    with c_conf: entry_conf_bps = st.number_input("Entry Confirmation (Min High > Open bps)", value=0, step=5, help="Only take trade if Day High > Open + X bps. Filters out immediate sell-offs.")
 
     st.markdown("---")
     c1, c2, c3, c4, c5 = st.columns(5)
@@ -887,6 +898,7 @@ def main():
             'use_dow_filter': use_dow_filter, 'allowed_days': valid_days,
             'min_price': min_price, 'min_vol': min_vol, 'min_age': min_age, 'max_age': max_age,
             'trend_filter': trend_filter, 'universe_tickers': tickers_to_run, 'slippage_bps': slippage_bps,
+            'entry_conf_bps': entry_conf_bps,
             'perf_filters': perf_filters, 'perf_first_instance': perf_first, 'perf_lookback': perf_lookback, 
             'use_sznl': use_sznl, 'sznl_logic': sznl_logic, 'sznl_thresh': sznl_thresh, 
             'sznl_first_instance': sznl_first, 'sznl_lookback': sznl_lookback,
@@ -1039,7 +1051,8 @@ def main():
         "use_vol_rank": {use_vol_rank}, "vol_rank_logic": "{vol_rank_logic}", "vol_rank_thresh": {vol_rank_thresh},
         "trend_filter": "{trend_filter}",
         "min_price": {min_price}, "min_vol": {min_vol},
-        "min_age": {min_age}, "max_age": {max_age}
+        "min_age": {min_age}, "max_age": {max_age},
+        "entry_conf_bps": {entry_conf_bps}
     }},
     "execution": {{
         "risk_per_trade": {risk_per_trade},
