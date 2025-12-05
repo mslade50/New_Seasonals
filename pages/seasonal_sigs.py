@@ -152,7 +152,7 @@ def plot_seasonal_paths(ticker, cycle_label, stats_row=None):
         
     fig.update_layout(
         xaxis_title="Trading Day of Year", yaxis_title="Cumulative Return (%)", yaxis_tickformat=".2%",
-        plot_bgcolor="black", paper_bgcolor="black", font=dict(color="white"), height=500,
+        plot_bgcolor="black", paper_bgcolor="black", font=dict(color="white"), height=800,
         showlegend=True, legend=dict(yanchor="top", y=0.99, xanchor="left", x=0.01, bgcolor="rgba(0,0,0,0)")
     )
     st.plotly_chart(fig, use_container_width=True)
