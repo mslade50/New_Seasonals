@@ -240,6 +240,7 @@ def run_engine(universe_dict, params, sznl_map, market_series=None):
     bt_start_ts = pd.to_datetime(params['backtest_start_date'])
     direction = params.get('trade_direction', 'Long')
     max_one_pos_per_ticker = params.get('max_one_pos', True)
+    allow_same_day_reentry = params.get('allow_same_day_reentry', False)
     slippage_bps = params.get('slippage_bps', 5)
     
     # Entry Logic flags
@@ -266,7 +267,6 @@ def run_engine(universe_dict, params, sznl_map, market_series=None):
         progress_bar.progress((i+1)/total)
         
         # Don't trade the market ticker itself if it was only downloaded for reference
-        # (Unless it's explicitly in the universe choice, but usually we filter it out to avoid confusion)
         if ticker == MARKET_TICKER and MARKET_TICKER not in params.get('universe_tickers', []):
             continue
 
@@ -360,14 +360,11 @@ def run_engine(universe_dict, params, sznl_map, market_series=None):
             
             # --- SEASONALITY (MARKET REGIME: ^GSPC) ---
             if params.get('use_market_sznl', False):
-                # Retrieve MARKET_TICKER seasonality series for these dates
                 market_ranks = get_sznl_val_series(MARKET_TICKER, df.index, sznl_map)
-                
                 if params['market_sznl_logic'] == '<':
                     cond = market_ranks < params['market_sznl_thresh']
                 else:
                     cond = market_ranks > params['market_sznl_thresh']
-                
                 conditions.append(cond)
             
             # --- 52W HIGHS ---
@@ -399,7 +396,15 @@ def run_engine(universe_dict, params, sznl_map, market_series=None):
             
             # --- TRADE EXECUTION SIMULATION (Per Ticker) ---
             for signal_date in signal_dates:
-                if max_one_pos_per_ticker and signal_date <= ticker_last_exit: continue
+                
+                # RE-ENTRY LOGIC CHANGE HERE
+                if max_one_pos_per_ticker:
+                    # If same-day reentry is allowed, strictly prevent overlaps (<), but allow same day exit/entry
+                    if allow_same_day_reentry:
+                        if signal_date < ticker_last_exit: continue
+                    # If strict serial (default), prevent any signal on the day of exit
+                    else:
+                        if signal_date <= ticker_last_exit: continue
                 
                 sig_idx = df.index.get_loc(signal_date)
                 fixed_exit_idx = sig_idx + params['holding_days']
@@ -712,6 +717,11 @@ def main():
     with p_c3:
         slippage_bps = st.number_input("Slippage (bps per side)", value=5, step=1, help="Basis points deducted from Entry and Exit (e.g. 5 bps = 0.05%)")
     
+    # NEW CHECKBOX for Re-entry
+    st.write("")
+    allow_same_day_reentry = st.checkbox("Allow Same-Day Re-entry", value=False, 
+        help="If checked, allows a new trade to open on the SAME day a previous trade closed (e.g., Stopped out AM, new signal PM).")
+
     st.markdown("---")
 
     c1, c2, c3, c4, c5 = st.columns(5)
@@ -916,6 +926,7 @@ def main():
             'backtest_start_date': start_date,
             'trade_direction': trade_direction,
             'max_one_pos': max_one_pos,
+            'allow_same_day_reentry': allow_same_day_reentry,
             'time_exit_only': time_exit_only,
             'stop_atr': stop_atr, 'tgt_atr': tgt_atr, 'holding_days': hold_days, 'entry_type': entry_type,
             'use_ma_entry_filter': use_ma_entry_filter,
@@ -1047,6 +1058,7 @@ def main():
         "trade_direction": "{trade_direction}",
         "entry_type": "{entry_type}",
         "max_one_pos": {max_one_pos},
+        "allow_same_day_reentry": {allow_same_day_reentry},
         "max_daily_entries": {max_daily_entries},
         "max_total_positions": {max_total_positions},
         "perf_filters": {perf_filters},
