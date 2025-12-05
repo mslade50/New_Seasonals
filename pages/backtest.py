@@ -26,17 +26,16 @@ INTERNATIONAL_ETFS = [
     "EZA", "TUR", "EGPT"
 ]
 
-CSV_PATH = "seasonal_ranks.csv" # Updated to match your export script filename
+CSV_PATH = "seasonal_ranks.csv" 
 
 # -----------------------------------------------------------------------------
 # DATA UTILS
 # -----------------------------------------------------------------------------
 
-@st.cache_resource  # CHANGED: Use cache_resource for massive static lookup tables
+@st.cache_resource 
 def load_seasonal_map():
     """
     Loads the seasonal ranks CSV and creates a mapping of Ticker -> {Date -> Rank}.
-    Matches exact dates (Year-Month-Day).
     """
     try:
         df = pd.read_csv(CSV_PATH)
@@ -45,14 +44,10 @@ def load_seasonal_map():
 
     if df.empty: return {}
 
-    # 1. Parse Date
-    # 2. Normalize to Midnight (removes time component)
-    # 3. Remove Timezone (tz_localize(None)) to match yfinance output perfectly
     df["Date"] = pd.to_datetime(df["Date"], errors='coerce').dt.normalize().dt.tz_localize(None)
     df = df.dropna(subset=["Date"])
     
     output_map = {}
-    # Creating dicts is fast, hashing them is slow. cache_resource skips the hashing.
     for ticker, group in df.groupby("ticker"):
         output_map[ticker] = pd.Series(
             group.seasonal_rank.values, index=group.Date
@@ -60,15 +55,9 @@ def load_seasonal_map():
     return output_map
 
 def get_sznl_val_series(ticker, dates, sznl_map):
-    """
-    Looks up the seasonal rank for the specific dates provided in the dataframe index.
-    """
     t_map = sznl_map.get(ticker, {})
     if not t_map:
         return pd.Series(50.0, index=dates)
-    
-    # map() is optimized in C, so this is fast.
-    # .fillna(50.0) ensures days missing from the CSV get a neutral rank.
     return dates.map(t_map).fillna(50.0)
 
 def clean_ticker_df(df):
@@ -110,20 +99,15 @@ def download_universe_data(tickers, fetch_start_date):
         download_bar.progress(min((i + CHUNK_SIZE) / total_tickers, 1.0))
         
         try:
-            # Added threads=True for speed
             df = yf.download(chunk, start=start_str, group_by='ticker', auto_adjust=True, progress=False, threads=True)
             
             if df.empty: continue
 
-            # ... (Rest of download logic matches your script) ...
-            # IMPORTANT: Ensure normalization happens in the loop below
-            
             if len(chunk) == 1:
                 t = chunk[0]
-                # ... existing logic ...
+                t_df = df
                 t_df = clean_ticker_df(t_df)
                 if not t_df.empty:
-                    # NORMALIZE HERE TO MATCH CSV
                     t_df.index = t_df.index.normalize().tz_localize(None)
                     data_dict[t] = t_df
             else:
@@ -133,7 +117,6 @@ def download_universe_data(tickers, fetch_start_date):
                             t_df = df[t].copy()
                             t_df = clean_ticker_df(t_df)
                             if not t_df.empty:
-                                # NORMALIZE HERE TO MATCH CSV
                                 t_df.index = t_df.index.normalize().tz_localize(None)
                                 data_dict[t] = t_df
                     except: continue
@@ -167,14 +150,13 @@ def get_age_bucket(years):
     return "> 20 Years"
 
 # -----------------------------------------------------------------------------
-# ANALYSIS ENGINE (UPDATED FOR PORTFOLIO CONSTRAINTS)
+# ANALYSIS ENGINE (UPDATED FOR MULTI-PERF FILTERS)
 # -----------------------------------------------------------------------------
 
 def calculate_indicators(df, sznl_map, ticker, spy_series=None):
     df = df.copy()
     df.columns = [c.capitalize() for c in df.columns]
     
-    # Ensure index is timezone-naive and normalized to midnight to match CSV dates
     if df.index.tz is not None:
         df.index = df.index.tz_localize(None)
     df.index = df.index.normalize()
@@ -184,7 +166,7 @@ def calculate_indicators(df, sznl_map, ticker, spy_series=None):
     df['SMA10'] = df['Close'].rolling(10).mean()
     df['EMA21'] = df['Close'].ewm(span=21, adjust=False).mean()
     
-    # Perf Ranks
+    # Perf Ranks (Always calculate 5, 10, 21 so they are available)
     for window in [5, 10, 21]:
         df[f'ret_{window}d'] = df['Close'].pct_change(window)
         df[f'rank_ret_{window}d'] = df[f'ret_{window}d'].expanding(min_periods=252).rank(pct=True) * 100.0
@@ -196,7 +178,7 @@ def calculate_indicators(df, sznl_map, ticker, spy_series=None):
     ranges = pd.concat([high_low, high_close, low_close], axis=1)
     df['ATR'] = ranges.max(axis=1).rolling(14).mean()
     
-    # Seasonality (EXACT DATE MATCH)
+    # Seasonality
     df['Sznl'] = get_sznl_val_series(ticker, df.index, sznl_map)
     
     # 52w High/Low
@@ -226,18 +208,16 @@ def calculate_indicators(df, sznl_map, ticker, spy_series=None):
     if spy_series is not None:
         df['SPY_Above_SMA200'] = spy_series.reindex(df.index, method='ffill').fillna(False)
 
-    # NEW: Candle Range % Location (0 = Close at Low, 1 = Close at High)
+    # Candle Range % Location
     denom = (df['High'] - df['Low'])
-    # Avoid division by zero
     df['RangePct'] = np.where(denom == 0, 0.5, (df['Close'] - df['Low']) / denom)
 
-    # NEW: Day of Week (0=Monday, 6=Sunday)
+    # Day of Week
     df['DayOfWeekVal'] = df.index.dayofweek
 
     return df
 
 def run_engine(universe_dict, params, sznl_map, spy_series=None):
-    # 1. GATHER ALL POTENTIAL TRADES
     all_potential_trades = []
     
     total = len(universe_dict)
@@ -245,11 +225,9 @@ def run_engine(universe_dict, params, sznl_map, spy_series=None):
     direction = params.get('trade_direction', 'Long')
     max_one_pos_per_ticker = params.get('max_one_pos', True)
     
-    # Entry Logic
+    # Entry Logic flags
     entry_mode = params['entry_type']
     is_pullback = "Pullback" in entry_mode
-    
-    # Limit Logic Flags
     is_limit_atr = "Limit (Close -0.5 ATR)" in entry_mode
     is_limit_prev = "Limit (Prev Close)" in entry_mode
     is_limit_entry = is_limit_atr or is_limit_prev
@@ -260,7 +238,6 @@ def run_engine(universe_dict, params, sznl_map, spy_series=None):
     elif "21 EMA" in entry_mode: pullback_col = "EMA21"
     pullback_use_level = "Level" in entry_mode
 
-    # Stats for Fill Rate
     total_signals_generated = 0
 
     progress_bar = st.progress(0)
@@ -272,7 +249,6 @@ def run_engine(universe_dict, params, sznl_map, spy_series=None):
         
         if len(df_raw) < 100: continue
         
-        # Local ticker tracking (to prevent buying same ticker twice if held)
         ticker_last_exit = pd.Timestamp.min
         
         try:
@@ -312,35 +288,47 @@ def run_engine(universe_dict, params, sznl_map, spy_series=None):
             if params.get('require_close_gt_open', False):
                 conditions.append(df['Close'] > df['Open'])
             
-            # Range % Filter
             if params.get('use_range_filter', False):
                 r_min = params.get('range_min', 0.0)
                 r_max = params.get('range_max', 100.0)
                 conditions.append((df['RangePct'] * 100 >= r_min) & (df['RangePct'] * 100 <= r_max))
             
-            # Day of Week Filter
             if params.get('use_dow_filter', False):
                 allowed_days = params.get('allowed_days', [])
                 if allowed_days:
                     conditions.append(df['DayOfWeekVal'].isin(allowed_days))
 
-            # --- STRATEGY SIGNALS ---
-            if params['use_perf_rank']:
-                col = f"rank_ret_{params['perf_window']}d"
-                if params['perf_logic'] == '<': raw_cond = df[col] < params['perf_thresh']
-                else: raw_cond = df[col] > params['perf_thresh']
+            # --- MULTI-PERFORMANCE FILTER (UPDATED) ---
+            perf_filters = params.get('perf_filters', [])
+            if perf_filters:
+                # 1. Combine all active filters into one raw boolean series (AND logic)
+                combined_perf_raw = pd.Series(True, index=df.index)
                 
+                for pf in perf_filters:
+                    col = f"rank_ret_{pf['window']}d"
+                    if pf['logic'] == '<': 
+                        cond_f = df[col] < pf['thresh']
+                    else: 
+                        cond_f = df[col] > pf['thresh']
+                    combined_perf_raw = combined_perf_raw & cond_f
+                
+                # 2. Apply Sequence Logic (Consecutive & First Instance) to the Combined Signal
+                final_perf_cond = combined_perf_raw
+                
+                # Consecutive Days
                 consec_days = params.get('perf_consecutive', 1)
                 if consec_days > 1:
-                    cond = raw_cond.rolling(consec_days).sum() == consec_days
-                else:
-                    cond = raw_cond
+                    final_perf_cond = final_perf_cond.rolling(consec_days).sum() == consec_days
+                
+                # First Instance Lookback
+                if params.get('perf_first_instance', False):
+                    lookback = params.get('perf_lookback', 21)
+                    prev_instances = final_perf_cond.shift(1).rolling(lookback).sum()
+                    final_perf_cond = final_perf_cond & (prev_instances == 0)
+                
+                conditions.append(final_perf_cond)
 
-                if params['perf_first_instance']:
-                    prev = cond.shift(1).rolling(params['perf_lookback']).sum()
-                    cond = cond & (prev == 0)
-                conditions.append(cond)
-
+            # --- SEASONALITY ---
             if params['use_sznl']:
                 if params['sznl_logic'] == '<': cond = df['Sznl'] < params['sznl_thresh']
                 else: cond = df['Sznl'] > params['sznl_thresh']
@@ -349,6 +337,7 @@ def run_engine(universe_dict, params, sznl_map, spy_series=None):
                     cond = cond & (prev == 0)
                 conditions.append(cond)
             
+            # --- 52W HIGHS ---
             if params['use_52w']:
                 if params['52w_type'] == 'New 52w High': cond = df['is_52w_high']
                 else: cond = df['is_52w_low']
@@ -357,6 +346,7 @@ def run_engine(universe_dict, params, sznl_map, spy_series=None):
                     cond = cond & (prev == 0)
                 conditions.append(cond)
             
+            # --- VOL FILTERS ---
             if params['use_vol']:
                 cond = df['vol_ratio'] > params['vol_thresh']
                 conditions.append(cond)
@@ -410,40 +400,33 @@ def run_engine(universe_dict, params, sznl_map, spy_series=None):
                                 actual_entry_price = row['Close']
                             break
 
-                # PATH B: LIMIT ENTRIES (ATR or PREV CLOSE)
+                # PATH B: LIMIT ENTRIES
                 elif is_limit_entry:
-                    # Calculate Limit Price based on Signal Day
                     sig_row = df.iloc[sig_idx]
                     sig_close = sig_row['Close']
                     sig_atr = sig_row['ATR']
                     
                     if np.isnan(sig_atr): continue
 
-                    # DETERMINE LIMIT PRICE
                     if is_limit_atr:
                         if direction == 'Long':
                             limit_price = sig_close - (0.5 * sig_atr)
                         else:
                             limit_price = sig_close + (0.5 * sig_atr)
-                    else: # Limit Prev Close
+                    else: 
                         limit_price = sig_close
 
-                    # Look for fill in next 3 days
                     for wait_i in range(1, 4):
                         curr_check_idx = sig_idx + wait_i
                         if curr_check_idx >= len(df): break
                         
                         row = df.iloc[curr_check_idx]
-                        
-                        # Check Fill
                         is_filled = False
                         if direction == 'Long':
-                            # To buy, Low must be <= Limit
                             if row['Low'] <= limit_price:
                                 is_filled = True
                                 actual_entry_price = limit_price 
                         else:
-                            # To sell short, High must be >= Limit
                             if row['High'] >= limit_price:
                                 is_filled = True
                                 actual_entry_price = limit_price
@@ -520,7 +503,6 @@ def run_engine(universe_dict, params, sznl_map, spy_series=None):
                         exit_date = future.index[-1]
                         exit_type = "Time"
                     
-                    # Update local ticker history
                     ticker_last_exit = exit_date
 
                     if direction == 'Long':
@@ -535,8 +517,8 @@ def run_engine(universe_dict, params, sznl_map, spy_series=None):
                     
                     all_potential_trades.append({
                         "Ticker": ticker,
-                        "SignalDate": signal_date, # Date of signal
-                        "EntryDate": df.index[actual_entry_idx], # Actual entry
+                        "SignalDate": signal_date, 
+                        "EntryDate": df.index[actual_entry_idx], 
                         "Direction": direction,
                         "Entry": actual_entry_price,
                         "Exit": exit_price,
@@ -551,19 +533,17 @@ def run_engine(universe_dict, params, sznl_map, spy_series=None):
     progress_bar.empty()
     status_text.empty()
 
-    # 2. APPLY PORTFOLIO CONSTRAINTS
     if not all_potential_trades:
         return pd.DataFrame(), 0
 
     st.info(f"Processing Portfolio Constraints on {len(all_potential_trades)} potential signals...")
     
-    # Sort chronologically by Signal Date
     potential_df = pd.DataFrame(all_potential_trades)
     potential_df = potential_df.sort_values(by=["EntryDate", "Ticker"])
     
     final_trades_log = []
-    active_positions = [] # List of dicts, must contain 'ExitDate'
-    daily_entries = {} # {date: count}
+    active_positions = [] 
+    daily_entries = {} 
     
     max_daily = params.get('max_daily_entries', 100)
     max_total = params.get('max_total_positions', 100)
@@ -571,21 +551,15 @@ def run_engine(universe_dict, params, sznl_map, spy_series=None):
     for idx, trade in potential_df.iterrows():
         entry_date = trade['EntryDate']
         
-        # A. Clean up active positions (Remove those that closed BEFORE today)
-        # Note: In a daily backtest, if I exit today, the slot frees up tomorrow usually.
-        # But we will assume if ExitDate < EntryDate, it's free.
         active_positions = [t for t in active_positions if t['ExitDate'] > entry_date]
         
-        # B. Check Total Portfolio Size
         if len(active_positions) >= max_total:
             continue
             
-        # C. Check Daily Limits
         today_count = daily_entries.get(entry_date, 0)
         if today_count >= max_daily:
             continue
             
-        # D. Execute
         final_trades_log.append(trade)
         active_positions.append(trade)
         daily_entries[entry_date] = today_count + 1
@@ -670,7 +644,6 @@ def main():
         max_one_pos = st.checkbox("Max 1 Position/Ticker", value=True, 
             help="If checked, allows only one open trade at a time per ticker.")
     
-    # --- PORTFOLIO CONSTRAINTS ---
     p_c1, p_c2 = st.columns(2)
     with p_c1:
         max_daily_entries = st.number_input("Max New Trades Per Day", min_value=1, max_value=100, value=2, step=1)
@@ -750,16 +723,40 @@ def main():
                 help="Requires 200 days of data. 'SPY' filters check the broad market regime.")
 
     # C. STRATEGY FILTERS
-    with st.expander("Performance Percentile Rank", expanded=False):
-        use_perf = st.checkbox("Enable Performance Filter", value=False)
-        p1, p2, p3, p4, p5 = st.columns(5)
-        with p1: perf_window = st.selectbox("Window", [5, 10, 21], disabled=not use_perf)
-        with p2: perf_logic = st.selectbox("Logic", ["<", ">"], disabled=not use_perf)
-        with p3: perf_thresh = st.number_input("Threshold (%)", 0.0, 100.0, 15.0, disabled=not use_perf)
-        with p4: 
-            perf_first = st.checkbox("First Instance Only", value=True, disabled=not use_perf)
-            perf_consecutive = st.number_input("Min Consecutive Days", 1, 20, 1, disabled=not use_perf)
-        with p5: perf_lookback = st.number_input("Instance Lookback (Days)", 1, 100, 21, disabled=not use_perf)
+    # --- UPDATED SECTION FOR MULTIPLE PERF FILTERS ---
+    with st.expander("Performance Percentile Rank (Multi-Filter)", expanded=False):
+        st.write("Enable multiple windows to filter for overlap (e.g. 5d AND 21d).")
+        
+        col_p_config, col_p_seq = st.columns([3, 1])
+        
+        perf_filters = []
+        
+        with col_p_config:
+            c5d, c10d, c21d = st.columns(3)
+            with c5d:
+                use_5d = st.checkbox("Enable 5D Rank")
+                logic_5d = st.selectbox("Logic", [">", "<"], key="l5d", disabled=not use_5d)
+                thresh_5d = st.number_input("Threshold", 0.0, 100.0, 80.0, key="t5d", disabled=not use_5d)
+                if use_5d: perf_filters.append({'window': 5, 'logic': logic_5d, 'thresh': thresh_5d})
+            
+            with c10d:
+                use_10d = st.checkbox("Enable 10D Rank")
+                logic_10d = st.selectbox("Logic", [">", "<"], key="l10d", disabled=not use_10d)
+                thresh_10d = st.number_input("Threshold", 0.0, 100.0, 80.0, key="t10d", disabled=not use_10d)
+                if use_10d: perf_filters.append({'window': 10, 'logic': logic_10d, 'thresh': thresh_10d})
+
+            with c21d:
+                use_21d = st.checkbox("Enable 21D Rank")
+                logic_21d = st.selectbox("Logic", [">", "<"], key="l21d", disabled=not use_21d)
+                thresh_21d = st.number_input("Threshold", 0.0, 100.0, 80.0, key="t21d", disabled=not use_21d)
+                if use_21d: perf_filters.append({'window': 21, 'logic': logic_21d, 'thresh': thresh_21d})
+
+        with col_p_seq:
+            st.markdown("**Sequence**")
+            st.caption("Applied to Combined Signal")
+            perf_consecutive = st.number_input("Min Consec Days", 1, 20, 1)
+            perf_first = st.checkbox("First Instance", value=True)
+            perf_lookback = st.number_input("Lookback (Days)", 1, 100, 21, disabled=not perf_first)
 
     with st.expander("Seasonal Rank", expanded=False):
         use_sznl = st.checkbox("Enable Seasonal Filter", value=False)
@@ -832,9 +829,8 @@ def main():
                 spy_df = spy_dict_temp.get("SPY", None)
 
             if spy_df is not None and not spy_df.empty:
-                # Ensure SPY data is also normalized
                 if spy_df.index.tz is not None:
-                     spy_df.index = spy_df.index.tz_localize(None)
+                      spy_df.index = spy_df.index.tz_localize(None)
                 spy_df.index = spy_df.index.normalize()
                 
                 spy_df['SMA200'] = spy_df['Close'].rolling(200).mean()
@@ -854,9 +850,10 @@ def main():
             'use_dow_filter': use_dow_filter, 'allowed_days': valid_days,
             'min_price': min_price, 'min_vol': min_vol, 'min_age': min_age, 'max_age': max_age,
             'trend_filter': trend_filter,
-            'use_perf_rank': use_perf, 'perf_window': perf_window, 'perf_logic': perf_logic, 
-            'perf_thresh': perf_thresh, 'perf_first_instance': perf_first, 'perf_lookback': perf_lookback,
-            'perf_consecutive': perf_consecutive,
+            # Updated Params for Multi-Perf
+            'perf_filters': perf_filters,
+            'perf_first_instance': perf_first, 'perf_lookback': perf_lookback, 'perf_consecutive': perf_consecutive,
+            # End Updated Params
             'use_sznl': use_sznl, 'sznl_logic': sznl_logic, 'sznl_thresh': sznl_thresh, 
             'sznl_first_instance': sznl_first, 'sznl_lookback': sznl_lookback,
             'use_52w': use_52w, '52w_type': type_52w, '52w_first_instance': first_52w, '52w_lookback': lookback_52w,
@@ -923,11 +920,10 @@ def main():
         
         st.subheader("Performance Breakdowns")
         
-        # 1. Year and Count (UPDATED)
+        # 1. Year and Count
         y1, y2 = st.columns(2)
         y1.plotly_chart(px.bar(trades_df.groupby('Year')['PnL_Dollar'].sum().reset_index(), x='Year', y='PnL_Dollar', title="Net Profit ($) by Year", text_auto='.2s'), use_container_width=True)
         
-        # --- NEW FIGURE: TRADES PER YEAR ---
         trades_per_year = trades_df.groupby('Year').size().reset_index(name='Count')
         y2.plotly_chart(px.bar(trades_per_year, x='Year', y='Count', title="Total Trades by Year", text_auto=True), use_container_width=True)
         
@@ -966,7 +962,7 @@ def main():
         "max_one_pos": {max_one_pos},
         "max_daily_entries": {max_daily_entries},
         "max_total_positions": {max_total_positions},
-        "use_perf_rank": {use_perf}, "perf_window": {perf_window}, "perf_logic": "{perf_logic}", "perf_thresh": {perf_thresh},
+        "perf_filters": {perf_filters},
         "perf_first_instance": {perf_first}, "perf_lookback": {perf_lookback}, "perf_consecutive": {perf_consecutive},
         "use_sznl": {use_sznl}, "sznl_logic": "{sznl_logic}", "sznl_thresh": {sznl_thresh}, "sznl_first_instance": {sznl_first}, "sznl_lookback": {sznl_lookback},
         "use_52w": {use_52w}, "52w_type": "{type_52w}", "52w_first_instance": {first_52w}, "52w_lookback": {lookback_52w},
