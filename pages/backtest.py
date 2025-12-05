@@ -224,6 +224,7 @@ def run_engine(universe_dict, params, sznl_map, spy_series=None):
     bt_start_ts = pd.to_datetime(params['backtest_start_date'])
     direction = params.get('trade_direction', 'Long')
     max_one_pos_per_ticker = params.get('max_one_pos', True)
+    slippage_bps = params.get('slippage_bps', 5)
     
     # Entry Logic flags
     entry_mode = params['entry_type']
@@ -231,6 +232,7 @@ def run_engine(universe_dict, params, sznl_map, spy_series=None):
     is_limit_atr = "Limit (Close -0.5 ATR)" in entry_mode
     is_limit_prev = "Limit (Prev Close)" in entry_mode
     is_limit_entry = is_limit_atr or is_limit_prev
+    is_gap_up = "Gap Up Only" in entry_mode
 
     use_ma_filter = params.get('use_ma_entry_filter', False)
     pullback_col = None
@@ -434,7 +436,19 @@ def run_engine(universe_dict, params, sznl_map, spy_series=None):
                             actual_entry_idx = curr_check_idx
                             break
 
-                # PATH C: IMMEDIATE
+                # PATH C: GAP UP ONLY (New Feature)
+                elif is_gap_up:
+                    check_idx = sig_idx + 1
+                    if check_idx < len(df):
+                        sig_high = df['High'].iloc[sig_idx]
+                        next_open = df['Open'].iloc[check_idx]
+                        
+                        if next_open > sig_high:
+                            found_entry = True
+                            actual_entry_idx = check_idx
+                            actual_entry_price = next_open
+
+                # PATH D: IMMEDIATE
                 else:
                     found_entry = True
                     if entry_mode == 'Signal Close':
@@ -503,26 +517,41 @@ def run_engine(universe_dict, params, sznl_map, spy_series=None):
                     
                     ticker_last_exit = exit_date
 
+                    # APPLY SLIPPAGE
+                    slip_pct = slippage_bps / 10000.0
+                    
                     if direction == 'Long':
-                        risk_unit = actual_entry_price - stop_price
-                        pnl = exit_price - actual_entry_price
-                    else:
-                        risk_unit = stop_price - actual_entry_price
-                        pnl = actual_entry_price - exit_price
+                        # Entry cost: Buy higher
+                        adj_entry = actual_entry_price * (1 + slip_pct)
+                        # Exit cost: Sell lower
+                        adj_exit = exit_price * (1 - slip_pct)
                         
-                    if risk_unit <= 0: risk_unit = 0.001
-                    r = pnl / risk_unit
+                        # Technical Risk (used for R calc denominator)
+                        tech_risk = actual_entry_price - stop_price
+                        pnl = adj_exit - adj_entry
+                    else:
+                        # Entry cost: Sell lower
+                        adj_entry = actual_entry_price * (1 - slip_pct)
+                        # Exit cost: Buy higher
+                        adj_exit = exit_price * (1 + slip_pct)
+                        
+                        # Technical Risk
+                        tech_risk = stop_price - actual_entry_price
+                        pnl = adj_entry - adj_exit
+                        
+                    if tech_risk <= 0: tech_risk = 0.001
+                    r = pnl / tech_risk
                     
                     all_potential_trades.append({
                         "Ticker": ticker,
                         "SignalDate": signal_date, 
                         "EntryDate": df.index[actual_entry_idx], 
                         "Direction": direction,
-                        "Entry": actual_entry_price,
-                        "Exit": exit_price,
+                        "Entry": actual_entry_price, # Logging technical entry
+                        "Exit": exit_price, # Logging technical exit
                         "ExitDate": exit_date,
                         "Type": exit_type,
-                        "R": r,
+                        "R": r, # R includes slippage
                         "Age": df['age_years'].iloc[sig_idx],
                         "AvgVol": df['vol_ma'].iloc[sig_idx]
                     })
@@ -642,11 +671,13 @@ def main():
         max_one_pos = st.checkbox("Max 1 Position/Ticker", value=True, 
             help="If checked, allows only one open trade at a time per ticker.")
     
-    p_c1, p_c2 = st.columns(2)
+    p_c1, p_c2, p_c3 = st.columns(3)
     with p_c1:
         max_daily_entries = st.number_input("Max New Trades Per Day", min_value=1, max_value=100, value=2, step=1)
     with p_c2:
         max_total_positions = st.number_input("Max Total Positions Held", min_value=1, max_value=200, value=10, step=1)
+    with p_c3:
+        slippage_bps = st.number_input("Slippage (bps per side)", value=5, step=1, help="Basis points deducted from Entry and Exit (e.g. 5 bps = 0.05%)")
     
     st.markdown("---")
 
@@ -656,6 +687,7 @@ def main():
             "Signal Close", 
             "T+1 Open", 
             "T+1 Close",
+            "Gap Up Only (Open > Prev High)",
             "Limit (Close -0.5 ATR)",
             "Limit (Prev Close)", 
             "Pullback 10 SMA (Entry: Close)",
@@ -830,7 +862,7 @@ def main():
 
             if spy_df is not None and not spy_df.empty:
                 if spy_df.index.tz is not None:
-                      spy_df.index = spy_df.index.tz_localize(None)
+                       spy_df.index = spy_df.index.tz_localize(None)
                 spy_df.index = spy_df.index.normalize()
                 
                 spy_df['SMA200'] = spy_df['Close'].rolling(200).mean()
@@ -850,6 +882,7 @@ def main():
             'use_dow_filter': use_dow_filter, 'allowed_days': valid_days,
             'min_price': min_price, 'min_vol': min_vol, 'min_age': min_age, 'max_age': max_age,
             'trend_filter': trend_filter,
+            'slippage_bps': slippage_bps,
             # Updated Params for Multi-Perf
             'perf_filters': perf_filters,
             'perf_first_instance': perf_first, 'perf_lookback': perf_lookback, 
@@ -911,7 +944,7 @@ def main():
                 <div><h3>Expectancy: ${trades_df['PnL_Dollar'].mean():.2f}</h3></div>
             </div>
             <div style="margin-top: 10px; color: #aaa; font-size: 14px;">
-               Fill Rate: {fill_rate:.1f}% ({len(trades_df)} trades from {total_signals} signals)
+               Fill Rate: {fill_rate:.1f}% ({len(trades_df)} trades from {total_signals} signals) | Slippage Applied: {slippage_bps} bps
             </div>
         </div>
         """, unsafe_allow_html=True)
@@ -982,6 +1015,7 @@ def main():
     }},
     "execution": {{
         "risk_per_trade": {risk_per_trade},
+        "slippage_bps": {slippage_bps},
         "stop_atr": {stop_atr},
         "tgt_atr": {tgt_atr},
         "hold_days": {hold_days}
