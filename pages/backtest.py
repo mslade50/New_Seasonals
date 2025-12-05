@@ -150,7 +150,7 @@ def get_age_bucket(years):
     return "> 20 Years"
 
 # -----------------------------------------------------------------------------
-# ANALYSIS ENGINE (UPDATED FOR INDIVIDUAL CONSECUTIVE LOGIC)
+# ANALYSIS ENGINE
 # -----------------------------------------------------------------------------
 
 def calculate_indicators(df, sznl_map, ticker, spy_series=None):
@@ -298,31 +298,27 @@ def run_engine(universe_dict, params, sznl_map, spy_series=None):
                 if allowed_days:
                     conditions.append(df['DayOfWeekVal'].isin(allowed_days))
 
-            # --- MULTI-PERFORMANCE FILTER (GRANULAR CONSECUTIVE) ---
+            # --- MULTI-PERFORMANCE FILTER ---
             perf_filters = params.get('perf_filters', [])
             if perf_filters:
                 combined_perf_raw = pd.Series(True, index=df.index)
 
                 for pf in perf_filters:
                     col = f"rank_ret_{pf['window']}d"
-                    consec_days = pf['consecutive'] # Get specific setting for this filter
+                    consec_days = pf['consecutive'] 
                     
-                    # 1. Calculate raw condition for this specific window
                     if pf['logic'] == '<': 
                         cond_f = df[col] < pf['thresh']
                     else: 
                         cond_f = df[col] > pf['thresh']
                     
-                    # 2. Apply specific consecutive check to this INDIVIDUAL filter
                     if consec_days > 1:
                         cond_f = cond_f.rolling(consec_days).sum() == consec_days
 
-                    # 3. Combine with other filters (AND logic)
                     combined_perf_raw = combined_perf_raw & cond_f
                 
                 final_perf_cond = combined_perf_raw
                 
-                # First Instance Lookback (Applied to the final COMBINED signal)
                 if params.get('perf_first_instance', False):
                     lookback = params.get('perf_lookback', 21)
                     prev_instances = final_perf_cond.shift(1).rolling(lookback).sum()
@@ -739,7 +735,6 @@ def main():
                 use_5d = st.checkbox("Enable 5D Rank")
                 logic_5d = st.selectbox("Logic", [">", "<"], key="l5d", disabled=not use_5d)
                 thresh_5d = st.number_input("Threshold", 0.0, 100.0, 80.0, key="t5d", disabled=not use_5d)
-                # MOVED HERE:
                 consec_5d = st.number_input("Consec Days", 1, 10, 1, key="c5d_days", disabled=not use_5d)
                 if use_5d: perf_filters.append({'window': 5, 'logic': logic_5d, 'thresh': thresh_5d, 'consecutive': consec_5d})
             
@@ -747,7 +742,6 @@ def main():
                 use_10d = st.checkbox("Enable 10D Rank")
                 logic_10d = st.selectbox("Logic", [">", "<"], key="l10d", disabled=not use_10d)
                 thresh_10d = st.number_input("Threshold", 0.0, 100.0, 80.0, key="t10d", disabled=not use_10d)
-                # MOVED HERE:
                 consec_10d = st.number_input("Consec Days", 1, 10, 1, key="c10d_days", disabled=not use_10d)
                 if use_10d: perf_filters.append({'window': 10, 'logic': logic_10d, 'thresh': thresh_10d, 'consecutive': consec_10d})
 
@@ -755,7 +749,6 @@ def main():
                 use_21d = st.checkbox("Enable 21D Rank")
                 logic_21d = st.selectbox("Logic", [">", "<"], key="l21d", disabled=not use_21d)
                 thresh_21d = st.number_input("Threshold", 0.0, 100.0, 80.0, key="t21d", disabled=not use_21d)
-                # MOVED HERE:
                 consec_21d = st.number_input("Consec Days", 1, 10, 1, key="c21d_days", disabled=not use_21d)
                 if use_21d: perf_filters.append({'window': 21, 'logic': logic_21d, 'thresh': thresh_21d, 'consecutive': consec_21d})
 
@@ -880,10 +873,13 @@ def main():
         trades_df['PnL_Dollar'] = trades_df['R'] * risk_per_trade
         trades_df['CumPnL'] = trades_df['PnL_Dollar'].cumsum()
         trades_df['SignalDate'] = pd.to_datetime(trades_df['SignalDate'])
+        # UPDATED: Use EntryDate for Day of Week analysis per request
+        trades_df['EntryDate'] = pd.to_datetime(trades_df['EntryDate'])
+        trades_df['DayOfWeek'] = trades_df['EntryDate'].dt.day_name()
+        
         trades_df['Year'] = trades_df['SignalDate'].dt.year
         trades_df['Month'] = trades_df['SignalDate'].dt.strftime('%b')
         trades_df['MonthNum'] = trades_df['SignalDate'].dt.month
-        trades_df['DayOfWeek'] = trades_df['SignalDate'].dt.day_name()
         trades_df['CyclePhase'] = trades_df['Year'].apply(get_cycle_year)
         trades_df['AgeBucket'] = trades_df['Age'].apply(get_age_bucket)
         
@@ -934,13 +930,18 @@ def main():
         trades_per_year = trades_df.groupby('Year').size().reset_index(name='Count')
         y2.plotly_chart(px.bar(trades_per_year, x='Year', y='Count', title="Total Trades by Year", text_auto=True), use_container_width=True)
         
-        # 2. Cycle and Month
-        c1, c2 = st.columns(2)
+        # 2. Cycle, Month, and Day of Week (3 Cols)
+        c1, c2, c3 = st.columns(3)
         c1.plotly_chart(px.bar(trades_df.groupby('CyclePhase')['PnL_Dollar'].sum().reset_index().sort_values('CyclePhase'), x='CyclePhase', y='PnL_Dollar', title="PnL by Cycle", text_auto='.2s'), use_container_width=True)
         
         month_order = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
         monthly_pnl = trades_df.groupby("Month")["PnL_Dollar"].sum().reindex(month_order).reset_index()
-        c2.plotly_chart(px.bar(monthly_pnl, x="Month", y="PnL_Dollar", title="PnL by Month (Seasonality)", text_auto='.2s'), use_container_width=True)
+        c2.plotly_chart(px.bar(monthly_pnl, x="Month", y="PnL_Dollar", title="PnL by Month", text_auto='.2s'), use_container_width=True)
+        
+        # NEW: PnL by Entry Day of Week
+        dow_order = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday']
+        dow_pnl = trades_df.groupby("DayOfWeek")["PnL_Dollar"].sum().reindex(dow_order).reset_index()
+        c3.plotly_chart(px.bar(dow_pnl, x="DayOfWeek", y="PnL_Dollar", title="PnL by Entry Day", text_auto='.2s'), use_container_width=True)
         
         # 3. Ticker
         ticker_pnl = trades_df.groupby("Ticker")["PnL_Dollar"].sum().reset_index()
