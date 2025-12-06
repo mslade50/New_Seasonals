@@ -12,7 +12,6 @@ import uuid
 # -----------------------------------------------------------------------------
 # CONFIG / CONSTANTS
 # -----------------------------------------------------------------------------
-# CHANGE THIS TO "SPY" IF YOU WANT TO SWITCH BACK
 MARKET_TICKER = "^GSPC" 
 
 SECTOR_ETFS = [
@@ -168,9 +167,17 @@ def calculate_indicators(df, sznl_map, ticker, market_series=None):
         df.index = df.index.tz_localize(None)
     df.index = df.index.normalize()
     
-    # Moving Averages
-    df['SMA200'] = df['Close'].rolling(200).mean()
+    # --- UPDATED: ALL REQUESTED MAs ---
+    # SMAs: 10, 20, 50, 100, 200
     df['SMA10'] = df['Close'].rolling(10).mean()
+    df['SMA20'] = df['Close'].rolling(20).mean()
+    df['SMA50'] = df['Close'].rolling(50).mean()
+    df['SMA100'] = df['Close'].rolling(100).mean()
+    df['SMA200'] = df['Close'].rolling(200).mean()
+    
+    # EMAs: 8, 11, 21
+    df['EMA8'] = df['Close'].ewm(span=8, adjust=False).mean()
+    df['EMA11'] = df['Close'].ewm(span=11, adjust=False).mean()
     df['EMA21'] = df['Close'].ewm(span=21, adjust=False).mean()
     
     # Perf Ranks
@@ -178,7 +185,7 @@ def calculate_indicators(df, sznl_map, ticker, market_series=None):
         df[f'ret_{window}d'] = df['Close'].pct_change(window)
         df[f'rank_ret_{window}d'] = df[f'ret_{window}d'].expanding(min_periods=252).rank(pct=True) * 100.0
     
-    # ATR
+    # ATR (14 Period Standard)
     high_low = df['High'] - df['Low']
     high_close = np.abs(df['High'] - df['Close'].shift())
     low_close = np.abs(df['Low'] - df['Close'].shift())
@@ -233,7 +240,7 @@ def run_engine(universe_dict, params, sznl_map, market_series=None):
     max_one_pos_per_ticker = params.get('max_one_pos', True)
     allow_same_day_reentry = params.get('allow_same_day_reentry', False)
     slippage_bps = params.get('slippage_bps', 5)
-    entry_conf_bps = params.get('entry_conf_bps', 0) # NEW: Confirmation BPS
+    entry_conf_bps = params.get('entry_conf_bps', 0) 
     
     # Entry Logic flags
     entry_mode = params['entry_type']
@@ -330,6 +337,32 @@ def run_engine(universe_dict, params, sznl_map, market_series=None):
                     prev_instances = final_perf_cond.shift(1).rolling(lookback).sum()
                     final_perf_cond = final_perf_cond & (prev_instances == 0)
                 conditions.append(final_perf_cond)
+
+            # --- DISTANCE FROM MA FILTER (NEW) ---
+            if params.get('use_dist_filter', False):
+                # Map readable name to column name
+                ma_choice = params['dist_ma_type']
+                ma_col_map = {
+                    "SMA 10": "SMA10", "SMA 20": "SMA20", "SMA 50": "SMA50", 
+                    "SMA 100": "SMA100", "SMA 200": "SMA200", 
+                    "EMA 8": "EMA8", "EMA 11": "EMA11", "EMA 21": "EMA21"
+                }
+                ma_col = ma_col_map.get(ma_choice, "SMA200")
+                
+                # Calculate Distance: (Close - MA) / ATR
+                # Note: Uses 14-period ATR (Standard)
+                dist_atr_units = (df['Close'] - df[ma_col]) / df['ATR']
+                
+                logic = params['dist_logic']
+                d_min = params['dist_min']
+                d_max = params['dist_max']
+                
+                if logic == "Greater Than (>)":
+                    conditions.append(dist_atr_units > d_min)
+                elif logic == "Less Than (<)":
+                    conditions.append(dist_atr_units < d_max)
+                elif logic == "Between":
+                    conditions.append((dist_atr_units >= d_min) & (dist_atr_units <= d_max))
 
             # --- SEASONALITY ---
             if params['use_sznl']:
@@ -757,7 +790,25 @@ def main():
         with l2: min_vol = st.number_input("Min Avg Volume", value=100000, step=50000)
         with l3: min_age = st.number_input("Min True Age (Yrs)", value=0.25, step=0.25)
         with l4: max_age = st.number_input("Max True Age (Yrs)", value=100.0, step=1.0)
-    with st.expander("Price Action", expanded=True):
+    
+    # --- NEW DISTANCE FROM MA FILTER ---
+    with st.expander("Distance from MA Filter (ATR Units)", expanded=False):
+        st.caption("Calculation: (Close - Moving Average) / 14-Period ATR")
+        use_dist_filter = st.checkbox("Enable Distance Filter", value=False)
+        d1, d2, d3, d4 = st.columns(4)
+        with d1:
+            dist_ma_type = st.selectbox("Select Moving Average", 
+                ["SMA 10", "SMA 20", "SMA 50", "SMA 100", "SMA 200", "EMA 8", "EMA 11", "EMA 21"],
+                disabled=not use_dist_filter
+            )
+        with d2:
+            dist_logic = st.selectbox("Logic", ["Greater Than (>)", "Less Than (<)", "Between"], disabled=not use_dist_filter)
+        with d3:
+            dist_min = st.number_input("Min ATR Dist (or > threshold)", -50.0, 50.0, 0.0, step=0.5, disabled=not use_dist_filter)
+        with d4:
+            dist_max = st.number_input("Max ATR Dist (or < threshold)", -50.0, 50.0, 2.0, step=0.5, disabled=not use_dist_filter)
+
+    with st.expander("Price Action", expanded=False):
         pa1, pa2 = st.columns(2)
         with pa1: req_green_candle = st.checkbox("Require Close > Open (Green Candle)", value=False)
         with pa2:
@@ -780,7 +831,7 @@ def main():
             if st.checkbox("Thursday", value=True, disabled=not use_dow_filter): valid_days.append(3)
         with c_fri: 
             if st.checkbox("Friday", value=True, disabled=not use_dow_filter): valid_days.append(4)
-    with st.expander("Trend Filter", expanded=True):
+    with st.expander("Trend Filter", expanded=False):
         t1, _ = st.columns([1, 3])
         with t1:
             trend_filter = st.selectbox("Trend Condition", 
@@ -905,7 +956,10 @@ def main():
             'use_market_sznl': use_market_sznl, 'market_sznl_logic': market_sznl_logic, 'market_sznl_thresh': market_sznl_thresh,
             'use_52w': use_52w, '52w_type': type_52w, '52w_first_instance': first_52w, '52w_lookback': lookback_52w,
             'use_vol': use_vol, 'vol_thresh': vol_thresh,
-            'use_vol_rank': use_vol_rank, 'vol_rank_logic': vol_rank_logic, 'vol_rank_thresh': vol_rank_thresh
+            'use_vol_rank': use_vol_rank, 'vol_rank_logic': vol_rank_logic, 'vol_rank_thresh': vol_rank_thresh,
+            # NEW PARAMS
+            'use_dist_filter': use_dist_filter, 'dist_ma_type': dist_ma_type, 'dist_logic': dist_logic,
+            'dist_min': dist_min, 'dist_max': dist_max
         }
         
         trades_df, rejected_df, total_signals = run_engine(data_dict, params, sznl_map, market_series)
@@ -1052,7 +1106,9 @@ def main():
         "trend_filter": "{trend_filter}",
         "min_price": {min_price}, "min_vol": {min_vol},
         "min_age": {min_age}, "max_age": {max_age},
-        "entry_conf_bps": {entry_conf_bps}
+        "entry_conf_bps": {entry_conf_bps},
+        "use_dist_filter": {use_dist_filter}, "dist_ma_type": "{dist_ma_type}", 
+        "dist_logic": "{dist_logic}", "dist_min": {dist_min}, "dist_max": {dist_max}
     }},
     "execution": {{
         "risk_per_trade": {risk_per_trade},
