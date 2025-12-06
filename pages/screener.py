@@ -209,6 +209,9 @@ STRATEGY_BOOK = [
             "max_total_positions": 4,
             "perf_filters": [{'window': 5, 'logic': '>', 'thresh': 90.0, 'consecutive': 1}, {'window': 10, 'logic': '>', 'thresh': 90.0, 'consecutive': 1}, {'window': 21, 'logic': '>', 'thresh': 85.0, 'consecutive': 5}],
             "perf_first_instance": False, "perf_lookback": 21,
+            "use_range_filter": True,
+            "range_min": 90.0,
+            "range_max": 100.0,
             "use_sznl": False, "sznl_logic": "<", "sznl_thresh": 15.0, "sznl_first_instance": False, "sznl_lookback": 21,
             "use_market_sznl": False, "market_sznl_logic": "<", "market_sznl_thresh": 65.0,
             "market_ticker": "^GSPC",
@@ -340,15 +343,20 @@ def calculate_indicators(df, sznl_map, ticker, market_series=None):
     # --- MAs (Added SMA50/10/20 for Distance Filters) ---
     df['SMA10'] = df['Close'].rolling(10).mean()
     df['SMA20'] = df['Close'].rolling(20).mean()
-    df['SMA50'] = df['Close'].rolling(50).mean() # Needed for Strat #2
+    df['SMA50'] = df['Close'].rolling(50).mean() 
     df['SMA200'] = df['Close'].rolling(200).mean()
     
-    # --- Gap Count (Added for Strat #2) ---
-    # Logic: Low > Prev High = Gap Up. Rolling sum of these events.
-    # We use a max window of 21 to cover most strategies, specific lookback is handled in check_signal
+    # --- Gap Count (Logic: Low > Prev High = Gap Up) ---
     is_open_gap = (df['Low'] > df['High'].shift(1)).astype(int)
+    # Calculate rolling sums for common windows (21 covers most use cases)
     df['GapCount_21'] = is_open_gap.rolling(21).sum() 
-    df['GapCount_5'] = is_open_gap.rolling(5).sum() # Specific for Strat #2
+    df['GapCount_10'] = is_open_gap.rolling(10).sum()
+    df['GapCount_5'] = is_open_gap.rolling(5).sum() 
+
+    # --- Candle Range Location % ---
+    denom = (df['High'] - df['Low'])
+    # Avoid division by zero; if High=Low, RangePct is 0.5
+    df['RangePct'] = np.where(denom == 0, 0.5, (df['Close'] - df['Low']) / denom)
 
     # Perf Ranks
     for window in [5, 10, 21]:
@@ -393,7 +401,7 @@ def calculate_indicators(df, sznl_map, ticker, market_series=None):
         df['Market_Above_SMA200'] = market_series.reindex(df.index, method='ffill').fillna(False)
         
     return df
-
+    
 def check_signal(df, params, sznl_map):
     last_row = df.iloc[-1]
     
@@ -416,7 +424,14 @@ def check_signal(df, params, sznl_map):
             if ">" in trend_opt and not is_above: return False
             if "<" in trend_opt and is_above: return False
 
-    # 3. Perf Rank (HYBRID LOGIC)
+    # 3. Candle Range Filter (NEW)
+    if params.get('use_range_filter', False):
+        rn_val = last_row['RangePct'] * 100
+        r_min = params.get('range_min', 0)
+        r_max = params.get('range_max', 100)
+        if not (rn_val >= r_min and rn_val <= r_max): return False
+
+    # 4. Perf Rank (HYBRID LOGIC)
     # A. New Style (List of Dicts)
     if 'perf_filters' in params:
         combined_cond = pd.Series(True, index=df.index)
@@ -457,11 +472,10 @@ def check_signal(df, params, sznl_map):
             
         if not final_perf.iloc[-1]: return False
 
-    # 4. Gap Filter (NEW)
+    # 5. Gap Filter (NEW)
     if params.get('use_gap_filter', False):
-        # Determine lookback column based on params
         lookback = params.get('gap_lookback', 21)
-        # Fallback to 21 if 5 not calculated, but we calculated 5 in step 1
+        # Fallback to 21 if custom window not calculated
         col_name = f'GapCount_{lookback}' if f'GapCount_{lookback}' in df.columns else 'GapCount_21'
         
         gap_val = last_row.get(col_name, 0)
@@ -472,11 +486,10 @@ def check_signal(df, params, sznl_map):
         if g_logic == "<" and not (gap_val < g_thresh): return False
         if g_logic == "=" and not (gap_val == g_thresh): return False
 
-    # 5. Distance Filter (NEW)
+    # 6. Distance Filter (NEW)
     if params.get('use_dist_filter', False):
         ma_type = params.get('dist_ma_type', 'SMA 200')
-        # Map string to column name
-        ma_col = ma_type.replace(" ", "") # "SMA 50" -> "SMA50"
+        ma_col = ma_type.replace(" ", "") # e.g. "SMA 50" -> "SMA50"
         
         if ma_col in df.columns:
             ma_val = last_row[ma_col]
@@ -484,7 +497,10 @@ def check_signal(df, params, sznl_map):
             close = last_row['Close']
             
             # (Close - MA) / ATR
-            dist_units = (close - ma_val) / atr
+            if atr > 0:
+                dist_units = (close - ma_val) / atr
+            else:
+                dist_units = 0
             
             d_logic = params.get('dist_logic', 'Between')
             d_min = params.get('dist_min', 0)
@@ -495,7 +511,7 @@ def check_signal(df, params, sznl_map):
             if d_logic == "Between":
                 if not (dist_units >= d_min and dist_units <= d_max): return False
 
-    # 6. Seasonality (Ticker)
+    # 7. Seasonality (Ticker)
     if params['use_sznl']:
         if params['sznl_logic'] == '<': raw_sznl = df['Sznl'] < params['sznl_thresh']
         else: raw_sznl = df['Sznl'] > params['sznl_thresh']
@@ -508,7 +524,7 @@ def check_signal(df, params, sznl_map):
             
         if not final_sznl.iloc[-1]: return False
 
-    # 7. Seasonality (Market)
+    # 8. Seasonality (Market)
     if params.get('use_market_sznl', False):
         mkt_ticker = params.get('market_ticker', '^GSPC')
         mkt_ranks = get_sznl_val_series(mkt_ticker, df.index, sznl_map)
@@ -516,7 +532,7 @@ def check_signal(df, params, sznl_map):
         else: mkt_cond = mkt_ranks > params['market_sznl_thresh']
         if not mkt_cond.iloc[-1]: return False
 
-    # 8. 52w
+    # 9. 52w
     if params['use_52w']:
         if params['52w_type'] == 'New 52w High': cond_52 = df['is_52w_high']
         else: cond_52 = df['is_52w_low']
@@ -528,7 +544,7 @@ def check_signal(df, params, sznl_map):
             
         if not cond_52.iloc[-1]: return False
 
-    # 9. Volume
+    # 10. Volume
     if params['use_vol']:
         if not (last_row['vol_ratio'] > params['vol_thresh']): return False
 
