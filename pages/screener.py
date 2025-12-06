@@ -212,6 +212,8 @@ STRATEGY_BOOK = [
             "use_range_filter": True,
             "range_min": 90.0,
             "range_max": 100.0,
+            "use_dow_filter": True,
+            "allowed_days": [0, 4],
             "use_sznl": False, "sznl_logic": "<", "sznl_thresh": 15.0, "sznl_first_instance": False, "sznl_lookback": 21,
             "use_market_sznl": False, "market_sznl_logic": "<", "market_sznl_thresh": 65.0,
             "market_ticker": "^GSPC",
@@ -405,6 +407,13 @@ def calculate_indicators(df, sznl_map, ticker, market_series=None):
 def check_signal(df, params, sznl_map):
     last_row = df.iloc[-1]
     
+    # 0. Day of Week Filter (NEW)
+    # 0=Mon, 1=Tue, 2=Wed, 3=Thu, 4=Fri
+    if params.get('use_dow_filter', False):
+        allowed = params.get('allowed_days', [])
+        current_day = last_row.name.dayofweek
+        if current_day not in allowed: return False
+
     # 1. Liquidity Gates
     if last_row['Close'] < params.get('min_price', 0): return False
     if last_row['vol_ma'] < params.get('min_vol', 0): return False
@@ -424,7 +433,7 @@ def check_signal(df, params, sznl_map):
             if ">" in trend_opt and not is_above: return False
             if "<" in trend_opt and is_above: return False
 
-    # 3. Candle Range Filter (NEW)
+    # 3. Candle Range Filter
     if params.get('use_range_filter', False):
         rn_val = last_row['RangePct'] * 100
         r_min = params.get('range_min', 0)
@@ -472,10 +481,9 @@ def check_signal(df, params, sznl_map):
             
         if not final_perf.iloc[-1]: return False
 
-    # 5. Gap Filter (NEW)
+    # 5. Gap Filter
     if params.get('use_gap_filter', False):
         lookback = params.get('gap_lookback', 21)
-        # Fallback to 21 if custom window not calculated
         col_name = f'GapCount_{lookback}' if f'GapCount_{lookback}' in df.columns else 'GapCount_21'
         
         gap_val = last_row.get(col_name, 0)
@@ -486,21 +494,18 @@ def check_signal(df, params, sznl_map):
         if g_logic == "<" and not (gap_val < g_thresh): return False
         if g_logic == "=" and not (gap_val == g_thresh): return False
 
-    # 6. Distance Filter (NEW)
+    # 6. Distance Filter
     if params.get('use_dist_filter', False):
         ma_type = params.get('dist_ma_type', 'SMA 200')
-        ma_col = ma_type.replace(" ", "") # e.g. "SMA 50" -> "SMA50"
+        ma_col = ma_type.replace(" ", "") 
         
         if ma_col in df.columns:
             ma_val = last_row[ma_col]
             atr = last_row['ATR']
             close = last_row['Close']
             
-            # (Close - MA) / ATR
-            if atr > 0:
-                dist_units = (close - ma_val) / atr
-            else:
-                dist_units = 0
+            if atr > 0: dist_units = (close - ma_val) / atr
+            else: dist_units = 0
             
             d_logic = params.get('dist_logic', 'Between')
             d_min = params.get('dist_min', 0)
