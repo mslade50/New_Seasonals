@@ -159,7 +159,7 @@ def get_age_bucket(years):
 # ANALYSIS ENGINE
 # -----------------------------------------------------------------------------
 
-def calculate_indicators(df, sznl_map, ticker, market_series=None):
+def calculate_indicators(df, sznl_map, ticker, market_series=None, gap_window=21):
     df = df.copy()
     df.columns = [c.capitalize() for c in df.columns]
     
@@ -167,7 +167,6 @@ def calculate_indicators(df, sznl_map, ticker, market_series=None):
         df.index = df.index.tz_localize(None)
     df.index = df.index.normalize()
     
-    # --- UPDATED: ALL REQUESTED MAs ---
     # SMAs: 10, 20, 50, 100, 200
     df['SMA10'] = df['Close'].rolling(10).mean()
     df['SMA20'] = df['Close'].rolling(20).mean()
@@ -228,6 +227,11 @@ def calculate_indicators(df, sznl_map, ticker, market_series=None):
 
     # Day of Week
     df['DayOfWeekVal'] = df.index.dayofweek
+    
+    # --- NEW: OPEN GAPS COUNT ---
+    # Def: Low > Prev High
+    is_open_gap = (df['Low'] > df['High'].shift(1)).astype(int)
+    df['GapCount'] = is_open_gap.rolling(gap_window).sum()
 
     return df
 
@@ -255,6 +259,9 @@ def run_engine(universe_dict, params, sznl_map, market_series=None):
     if "10 SMA" in entry_mode: pullback_col = "SMA10"
     elif "21 EMA" in entry_mode: pullback_col = "EMA21"
     pullback_use_level = "Level" in entry_mode
+    
+    # Params for indicators
+    gap_window = params.get('gap_lookback', 21)
 
     total_signals_generated = 0
 
@@ -273,7 +280,9 @@ def run_engine(universe_dict, params, sznl_map, market_series=None):
         ticker_last_exit = pd.Timestamp.min
         
         try:
-            df = calculate_indicators(df_raw, sznl_map, ticker, market_series)
+            # Pass gap_window here
+            df = calculate_indicators(df_raw, sznl_map, ticker, market_series, gap_window=gap_window)
+            
             df = df[df.index >= bt_start_ts]
             if df.empty: continue
             
@@ -318,6 +327,14 @@ def run_engine(universe_dict, params, sznl_map, market_series=None):
                 allowed_days = params.get('allowed_days', [])
                 if allowed_days:
                     conditions.append(df['DayOfWeekVal'].isin(allowed_days))
+            
+            # --- GAP FILTER (NEW) ---
+            if params.get('use_gap_filter', False):
+                g_logic = params['gap_logic']
+                g_thresh = params['gap_thresh']
+                if g_logic == ">": conditions.append(df['GapCount'] > g_thresh)
+                elif g_logic == "<": conditions.append(df['GapCount'] < g_thresh)
+                elif g_logic == "=": conditions.append(df['GapCount'] == g_thresh)
 
             # --- MULTI-PERFORMANCE FILTER ---
             perf_filters = params.get('perf_filters', [])
@@ -338,9 +355,8 @@ def run_engine(universe_dict, params, sznl_map, market_series=None):
                     final_perf_cond = final_perf_cond & (prev_instances == 0)
                 conditions.append(final_perf_cond)
 
-            # --- DISTANCE FROM MA FILTER (NEW) ---
+            # --- DISTANCE FROM MA FILTER ---
             if params.get('use_dist_filter', False):
-                # Map readable name to column name
                 ma_choice = params['dist_ma_type']
                 ma_col_map = {
                     "SMA 10": "SMA10", "SMA 20": "SMA20", "SMA 50": "SMA50", 
@@ -349,8 +365,6 @@ def run_engine(universe_dict, params, sznl_map, market_series=None):
                 }
                 ma_col = ma_col_map.get(ma_choice, "SMA200")
                 
-                # Calculate Distance: (Close - MA) / ATR
-                # Note: Uses 14-period ATR (Standard)
                 dist_atr_units = (df['Close'] - df[ma_col]) / df['ATR']
                 
                 logic = params['dist_logic']
@@ -511,18 +525,11 @@ def run_engine(universe_dict, params, sznl_map, market_series=None):
                         actual_entry_idx = sig_idx + 1
                         actual_entry_price = df['Close'].iloc[sig_idx + 1]
 
-                # --- NEW: ENTRY CONFIRMATION CHECK (INTRADAY BUYER PRESENCE) ---
+                # --- ENTRY CONFIRMATION CHECK ---
                 if found_entry and entry_conf_bps > 0:
                     entry_candle = df.iloc[actual_entry_idx]
-                    
-                    # Logic: We want High >= Open * (1 + bps)
-                    # Note: We use the Open of the ENTRY day (which is usually the fill price for Open strategies)
-                    # If this condition fails, we assume the stock opened and flushed immediately.
-                    
                     threshold_price = entry_candle['Open'] * (1 + entry_conf_bps/10000.0)
-                    
                     if entry_candle['High'] < threshold_price:
-                        # Entry Condition Failed
                         found_entry = False
                         entry_failure_reason = f"No Confirmation (High < Open+{entry_conf_bps}bps)"
 
@@ -791,7 +798,14 @@ def main():
         with l3: min_age = st.number_input("Min True Age (Yrs)", value=0.25, step=0.25)
         with l4: max_age = st.number_input("Max True Age (Yrs)", value=100.0, step=1.0)
     
-    # --- NEW DISTANCE FROM MA FILTER ---
+    # --- NEW GAP FILTER ---
+    with st.expander("Gap Filter (Momentum/Exhaustion)", expanded=False):
+        use_gap_filter = st.checkbox("Enable Open Gap Filter", value=False, help="Count days where Low > Prev High (Unfilled Gap Up) in the window.")
+        g1, g2, g3 = st.columns(3)
+        with g1: gap_lookback = st.number_input("Lookback Window (Days)", 1, 252, 21, disabled=not use_gap_filter)
+        with g2: gap_logic = st.selectbox("Gap Count Logic", [">", "<", "="], disabled=not use_gap_filter)
+        with g3: gap_thresh = st.number_input("Count Threshold", 0, 50, 3, disabled=not use_gap_filter)
+
     with st.expander("Distance from MA Filter (ATR Units)", expanded=False):
         st.caption("Calculation: (Close - Moving Average) / 14-Period ATR")
         use_dist_filter = st.checkbox("Enable Distance Filter", value=False)
@@ -957,9 +971,11 @@ def main():
             'use_52w': use_52w, '52w_type': type_52w, '52w_first_instance': first_52w, '52w_lookback': lookback_52w,
             'use_vol': use_vol, 'vol_thresh': vol_thresh,
             'use_vol_rank': use_vol_rank, 'vol_rank_logic': vol_rank_logic, 'vol_rank_thresh': vol_rank_thresh,
+            'use_dist_filter': use_dist_filter, 'dist_ma_type': dist_ma_type, 
+            'dist_logic': dist_logic, 'dist_min': dist_min, 'dist_max': dist_max,
             # NEW PARAMS
-            'use_dist_filter': use_dist_filter, 'dist_ma_type': dist_ma_type, 'dist_logic': dist_logic,
-            'dist_min': dist_min, 'dist_max': dist_max
+            'use_gap_filter': use_gap_filter, 'gap_lookback': gap_lookback, 
+            'gap_logic': gap_logic, 'gap_thresh': gap_thresh
         }
         
         trades_df, rejected_df, total_signals = run_engine(data_dict, params, sznl_map, market_series)
@@ -1108,7 +1124,9 @@ def main():
         "min_age": {min_age}, "max_age": {max_age},
         "entry_conf_bps": {entry_conf_bps},
         "use_dist_filter": {use_dist_filter}, "dist_ma_type": "{dist_ma_type}", 
-        "dist_logic": "{dist_logic}", "dist_min": {dist_min}, "dist_max": {dist_max}
+        "dist_logic": "{dist_logic}", "dist_min": {dist_min}, "dist_max": {dist_max},
+        "use_gap_filter": {use_gap_filter}, "gap_lookback": {gap_lookback}, 
+        "gap_logic": "{gap_logic}", "gap_thresh": {gap_thresh}
     }},
     "execution": {{
         "risk_per_trade": {risk_per_trade},
