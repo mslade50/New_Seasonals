@@ -69,13 +69,24 @@ def get_sznl_val_series(ticker, dates, sznl_map):
 def clean_ticker_df(df):
     if df.empty: return df
     
+    # FIX: Check if MultiIndex and columns look like (Ticker, OHLC)
     if isinstance(df.columns, pd.MultiIndex):
-        df.columns = df.columns.get_level_values(0)
+        # If the second level contains 'Close' or 'Adj Close', that's the one we want
+        # Otherwise, yfinance might have returned (PriceType, Ticker) - rare but happens
+        if 'Close' in df.columns.get_level_values(1) or 'Adj Close' in df.columns.get_level_values(1):
+             df.columns = df.columns.get_level_values(1)
+        else:
+             df.columns = df.columns.get_level_values(0)
     
+    # Capitalize columns (Open, High, Low, Close, Volume)
     df.columns = [str(c).strip().capitalize() for c in df.columns]
     
     if 'Close' not in df.columns and 'Adj close' in df.columns:
         df.rename(columns={'Adj close': 'Close'}, inplace=True)
+        
+    # Check if we successfully isolated a Close column
+    if 'Close' not in df.columns:
+        return pd.DataFrame() # Return empty if we failed to find Close
         
     df = df.dropna(subset=['Close'])
     return df
