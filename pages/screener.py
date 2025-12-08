@@ -480,7 +480,51 @@ def calculate_indicators(df, sznl_map, ticker, market_series=None):
     df['ATR'] = ranges.max(axis=1).rolling(14).mean()
     
     # Seasonality
-    df['Sznl'] = get_sznl_val_series(ticker, df.index, sznl_map)
+    df['Sznl'] = def load_seasonal_map():
+    """
+    Loads the CSV and creates a dictionary of TimeSeries for each ticker.
+    Structure: { 'SPY': pd.Series(index=Datetime, data=Rank) }
+    """
+    try:
+        df = pd.read_csv(CSV_PATH)
+    except Exception:
+        return {}
+
+    if df.empty: return {}
+
+    # Ensure valid dates
+    df["Date"] = pd.to_datetime(df["Date"], errors='coerce')
+    df = df.dropna(subset=["Date"])
+    
+    # Normalize to midnight (remove time component if present)
+    df["Date"] = df["Date"].dt.normalize()
+    
+    output_map = {}
+    # Group by ticker and create a sorted Series for each
+    for ticker, group in df.groupby("ticker"):
+        # We set the index to Date and ensure it is sorted for 'asof' lookups
+        series = group.set_index("Date")["seasonal_rank"].sort_index()
+        output_map[ticker] = series
+
+    return output_map
+
+def get_sznl_val(ticker, target_date, sznl_map):
+    """
+    Smart lookup: Finds the rank for the target date.
+    If target date is missing (e.g., weekend), finds the most recent previous value.
+    """
+    if ticker not in sznl_map: return np.nan
+    
+    series = sznl_map[ticker]
+    target = pd.Timestamp(target_date).normalize()
+    
+    # 'asof' finds the last valid value up to (and including) the target date.
+    # It handles weekends/holidays automatically by looking back.
+    try:
+        val = series.asof(target)
+        return val
+    except:
+        return np.nan(ticker, df.index, sznl_map)
     
     # 52w High/Low
     rolling_high = df['High'].shift(1).rolling(252).max()
