@@ -293,7 +293,7 @@ STRATEGY_BOOK = [
 # -----------------------------------------------------------------------------
 # CONSTANTS & SETUP
 # -----------------------------------------------------------------------------
-CSV_PATH = "seasonal_ranks.csv" # Ensure this matches your file name
+CSV_PATH = "sznl_ranks.csv" # Ensure this matches your file name
 
 @st.cache_resource 
 def load_seasonal_map():
