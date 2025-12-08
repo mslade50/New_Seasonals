@@ -297,6 +297,10 @@ CSV_PATH = "sznl_ranks.csv" # Ensure this matches your file name
 
 @st.cache_resource 
 def load_seasonal_map():
+    """
+    Loads the CSV and creates a dictionary of TimeSeries for each ticker.
+    Structure: { 'SPY': pd.Series(index=Datetime, data=Rank) }
+    """
     try:
         df = pd.read_csv(CSV_PATH)
     except Exception:
@@ -304,14 +308,20 @@ def load_seasonal_map():
 
     if df.empty: return {}
 
-    df["Date"] = pd.to_datetime(df["Date"], errors='coerce').dt.normalize().dt.tz_localize(None)
+    # Ensure valid dates
+    df["Date"] = pd.to_datetime(df["Date"], errors='coerce')
     df = df.dropna(subset=["Date"])
     
+    # Normalize to midnight (remove time component if present)
+    df["Date"] = df["Date"].dt.normalize()
+    
     output_map = {}
+    # Group by ticker and create a sorted Series for each
     for ticker, group in df.groupby("ticker"):
-        output_map[str(ticker).upper()] = pd.Series(
-            group.seasonal_rank.values, index=group.Date
-        ).to_dict()
+        # We set the index to Date and ensure it is sorted for 'asof' lookups
+        series = group.set_index("Date")["seasonal_rank"].sort_index()
+        output_map[ticker] = series
+
     return output_map
 
 def get_sznl_val_series(ticker, dates, sznl_map):
@@ -434,7 +444,8 @@ def calculate_indicators(df, sznl_map, ticker, market_series=None):
     vol_ma_10 = df['Volume'].rolling(10).mean()
     df['vol_ratio_10d'] = vol_ma_10 / vol_ma
     df['vol_ratio_10d_rank'] = df['vol_ratio_10d'].expanding(min_periods=50).rank(pct=True) * 100.0
-
+    df['Sznl'] = get_sznl_val_series(ticker, df.index, sznl_map)
+    df['Mkt_Sznl_Ref'] = get_sznl_val_series("^GSPC", df.index, sznl_map)
     # Age
     if not df.empty:
         start_ts = df.index[0]
