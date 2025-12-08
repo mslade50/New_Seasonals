@@ -86,7 +86,7 @@ STRATEGY_BOOK = [
     # 2. GENERATED SHORT
     {
         "id": "21dr > 85 3 consec, 5dr > 85, SPX sznl <50, sell the close & gap open",
-        "name": "Generated Strategy (Short)",
+        "name": "Overbot Liquid Names",
         "description": "Start: 2000-01-01. Universe: All CSV Tickers. Dir: Short. Filter: None. PF: 1.57. SQN: 4.30.",
         "universe_tickers": ['AAPL', 'ABT', 'ADBE', 'ADI', 'ADM', 'ADP', 'ADSK', 'AEP', 'AIG', 'ALL', 'AMAT', 'AMD', 'AMGN', 'AMZN', 'AON', 'APD', 'AVGO', 'AXP', 'BA', 'BAC', 'BAX', 'BDX', 'BK', 'BMY', 'C', 'CAG', 'CAT', 'CEF', 'CL', 'CMCSA', 'CMS', 'CNP', 'COP', 'COST', 'CPB', 'CRM', 'CSCO', 'CSX', 'CVS', 'CVX', 'D', 'DE', 'DIA', 'DIS', 'DOV', 'DTE', 'DUK', 'ECL', 'ED', 'EIX', 'EMR', 'EOG', 'ETR', 'EXC', 'F', 'FCX', 'FDX', 'FE', 'GD', 'GE', 'GILD', 'GIS', 'GLD', 'GLW', 'GOOG', 'GPC', 'GS', 'HAL', 'HD', 'HIG', 'HON', 'HPQ', 'HRL', 'HSY', 'HUM', 'IBB', 'IBM', 'IHI', 'INTC', 'IP', 'ITA', 'ITB', 'ITW', 'IWM', 'IYR', 'JNJ', 'JPM', 'K', 'KEY', 'KMB', 'KO', 'KR', 'KRE', 'LEG', 'LIN', 'LLY', 'LMT', 'LOW', 'LUV', 'MAS', 'MCD', 'MDT', 'MET', 'META', 'MMC', 'MMM', 'MO', 'MRK', 'MS', 'MSFT', 'MU', 'NEE', 'NEM', 'NKE', 'NOC', 'NSC', 'NUE', 'NVDA', 'OIH', 'ORCL', 'OXY', 'PAYX', 'PCG', 'PEG', 'PEP', 'PFE', 'PG', 'PGR', 'PH', 'PNW', 'PPG', 'PPL', 'PSA', 'QCOM', 'QQQ', 'REGN', 'RF', 'RHI', 'ROK', 'ROST', 'RTX', 'SBUX', 'SCHW', 'SHW', 'SLB', 'SLV', 'SMH', 'SNA', 'SO', 'SPG', 'SPY', 'SRE', 'STT', 'SWK', 'SYK', 'SYY', 'T', 'TAP', 'TGT', 'TJX', 'TMO', 'TRV', 'TSN', 'TXN', 'UNG', 'UNH', 'UNP', 'USB', 'USO', 'UVXY', 'V', 'VFC', 'VLO', 'VMC', 'VNQ', 'VZ', 'WFC', 'WHR', 'WM', 'WMB', 'WMT', 'XBI', 'XHB', 'XLB', 'XLE', 'XLF', 'XLI', 'XLK', 'XLP', 'XLU', 'XLV', 'XLY', 'XME', 'XOM', 'XOP', 'XRT', '^GSPC', '^NDX'], 
         "settings": {
@@ -190,6 +190,8 @@ STRATEGY_BOOK = [
             "max_one_pos": True,
             "max_daily_entries": 5,
             "max_total_positions": 10,
+            "use_dow_filter": True,
+            "allowed_days": [0],
             "use_perf_rank": True, "perf_window": 5, "perf_logic": "<", "perf_thresh": 50.0,
             "perf_first_instance": False, "perf_lookback": 21, "perf_consecutive": 1,
             "use_sznl": False, "sznl_logic": ">", "sznl_thresh": 50.0, "sznl_first_instance": False, "sznl_lookback": 21,
@@ -393,7 +395,6 @@ def calculate_indicators(df, sznl_map, ticker, market_series=None):
     
     # --- Gap Count (Logic: Low > Prev High = Gap Up) ---
     is_open_gap = (df['Low'] > df['High'].shift(1)).astype(int)
-    # Calculate rolling sums for common windows (21 covers most use cases)
     df['GapCount_21'] = is_open_gap.rolling(21).sum() 
     df['GapCount_10'] = is_open_gap.rolling(10).sum()
     df['GapCount_5'] = is_open_gap.rolling(5).sum() 
@@ -450,7 +451,7 @@ def calculate_indicators(df, sznl_map, ticker, market_series=None):
 def check_signal(df, params, sznl_map):
     last_row = df.iloc[-1]
     
-    # 0. Day of Week Filter (NEW)
+    # 0. Day of Week Filter
     # 0=Mon, 1=Tue, 2=Wed, 3=Thu, 4=Fri
     if params.get('use_dow_filter', False):
         allowed = params.get('allowed_days', [])
@@ -483,8 +484,7 @@ def check_signal(df, params, sznl_map):
         r_max = params.get('range_max', 100)
         if not (rn_val >= r_min and rn_val <= r_max): return False
 
-    # 4. Perf Rank (HYBRID LOGIC)
-    # A. New Style (List of Dicts)
+    # 4. Perf Rank
     if 'perf_filters' in params:
         combined_cond = pd.Series(True, index=df.index)
         for pf in params['perf_filters']:
@@ -506,7 +506,6 @@ def check_signal(df, params, sznl_map):
             
         if not final_perf.iloc[-1]: return False
 
-    # B. Old Style (Single Config)
     elif params.get('use_perf_rank', False):
         col = f"rank_ret_{params['perf_window']}d"
         if params['perf_logic'] == '<': raw = df[col] < params['perf_thresh']
@@ -528,11 +527,9 @@ def check_signal(df, params, sznl_map):
     if params.get('use_gap_filter', False):
         lookback = params.get('gap_lookback', 21)
         col_name = f'GapCount_{lookback}' if f'GapCount_{lookback}' in df.columns else 'GapCount_21'
-        
         gap_val = last_row.get(col_name, 0)
         g_logic = params.get('gap_logic', '>')
         g_thresh = params.get('gap_thresh', 0)
-        
         if g_logic == ">" and not (gap_val > g_thresh): return False
         if g_logic == "<" and not (gap_val < g_thresh): return False
         if g_logic == "=" and not (gap_val == g_thresh): return False
@@ -541,25 +538,21 @@ def check_signal(df, params, sznl_map):
     if params.get('use_dist_filter', False):
         ma_type = params.get('dist_ma_type', 'SMA 200')
         ma_col = ma_type.replace(" ", "") 
-        
         if ma_col in df.columns:
             ma_val = last_row[ma_col]
             atr = last_row['ATR']
             close = last_row['Close']
-            
             if atr > 0: dist_units = (close - ma_val) / atr
             else: dist_units = 0
-            
             d_logic = params.get('dist_logic', 'Between')
             d_min = params.get('dist_min', 0)
             d_max = params.get('dist_max', 0)
-            
             if d_logic == "Greater Than (>)" and not (dist_units > d_min): return False
             if d_logic == "Less Than (<)" and not (dist_units < d_max): return False
             if d_logic == "Between":
                 if not (dist_units >= d_min and dist_units <= d_max): return False
 
-    # 7. Seasonality (Ticker)
+    # 7. Seasonality
     if params['use_sznl']:
         if params['sznl_logic'] == '<': raw_sznl = df['Sznl'] < params['sznl_thresh']
         else: raw_sznl = df['Sznl'] > params['sznl_thresh']
@@ -569,10 +562,8 @@ def check_signal(df, params, sznl_map):
             lookback = params.get('sznl_lookback', 21)
             prev = final_sznl.shift(1).rolling(lookback).sum()
             final_sznl = final_sznl & (prev == 0)
-            
         if not final_sznl.iloc[-1]: return False
 
-    # 8. Seasonality (Market)
     if params.get('use_market_sznl', False):
         mkt_ticker = params.get('market_ticker', '^GSPC')
         mkt_ranks = get_sznl_val_series(mkt_ticker, df.index, sznl_map)
@@ -580,22 +571,19 @@ def check_signal(df, params, sznl_map):
         else: mkt_cond = mkt_ranks > params['market_sznl_thresh']
         if not mkt_cond.iloc[-1]: return False
 
-    # 9. 52w
+    # 8. 52w
     if params['use_52w']:
         if params['52w_type'] == 'New 52w High': cond_52 = df['is_52w_high']
         else: cond_52 = df['is_52w_low']
-        
         if params.get('52w_first_instance', True):
             lookback = params.get('52w_lookback', 21)
             prev = cond_52.shift(1).rolling(lookback).sum()
             cond_52 = cond_52 & (prev == 0)
-            
         if not cond_52.iloc[-1]: return False
 
-    # 10. Volume
+    # 9. Volume
     if params['use_vol']:
         if not (last_row['vol_ratio'] > params['vol_thresh']): return False
-
     if params.get('use_vol_rank'):
         val = last_row['vol_ratio_10d_rank']
         if params['vol_rank_logic'] == '<':
