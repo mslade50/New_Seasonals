@@ -351,38 +351,26 @@ def load_seasonal_map():
 
     if df.empty: return {}
 
-    # 1. Normalize Dates to ensure they match yfinance index
     df["Date"] = pd.to_datetime(df["Date"], errors='coerce').dt.normalize().dt.tz_localize(None)
     df = df.dropna(subset=["Date"])
     
     output_map = {}
     for ticker, group in df.groupby("ticker"):
-        # 2. CLEAN TICKERS: Strip whitespace to prevent lookup failures
-        clean_key = str(ticker).strip().upper()
-        output_map[clean_key] = pd.Series(
+        output_map[str(ticker).upper()] = pd.Series(
             group.seasonal_rank.values, index=group.Date
         ).to_dict()
     return output_map
 
 def get_sznl_val_series(ticker, dates, sznl_map):
-    """
-    Looks up the seasonal rank for the specific dates provided.
-    Includes robust logic to fallback to SPY if ^GSPC/SPX is requested.
-    """
-    # 1. Clean the incoming ticker request
-    ticker = str(ticker).strip().upper()
+    ticker = ticker.upper()
     t_map = sznl_map.get(ticker, {})
     
-    # 2. ROBUST FALLBACK for Market Ticker
-    # If strategy asks for ^GSPC but CSV only has SPY
-    if not t_map and ticker in ["^GSPC", "GSPC", "SPX", "US500"]:
+    if not t_map and ticker == "^GSPC":
         t_map = sznl_map.get("SPY", {})
 
-    # 3. If still no map found, return Neutral (50.0) so the script doesn't crash
     if not t_map:
         return pd.Series(50.0, index=dates)
         
-    # 4. Map dates and fill missing values with 50.0
     return dates.map(t_map).fillna(50.0)
 
 def save_signals_to_gsheet(new_dataframe, sheet_name='Trade_Signals_Log'):
