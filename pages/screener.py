@@ -480,7 +480,7 @@ def calculate_indicators(df, sznl_map, ticker, market_series=None):
     df['ATR'] = ranges.max(axis=1).rolling(14).mean()
     
     # Seasonality
-    df['Sznl'] = load_seasonal_map():
+    df['Sznl'] = load_seasonal_map()
     """
     Loads the CSV and creates a dictionary of TimeSeries for each ticker.
     Structure: { 'SPY': pd.Series(index=Datetime, data=Rank) }
