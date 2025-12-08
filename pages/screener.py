@@ -5,7 +5,9 @@ import yfinance as yf
 import datetime
 import gspread
 from pandas.tseries.offsets import BusinessDay
-
+import requests_cache
+session = requests_cache.CachedSession('yfinance.cache')
+session.headers['User-agent'] = 'my-program/1.0'
 # -----------------------------------------------------------------------------
 # 1. THE STRATEGY BOOK (FULL BATCH - ALL 6 STRATEGIES)
 # -----------------------------------------------------------------------------
@@ -647,25 +649,36 @@ def main():
         # 2. Download Data
         start_date = datetime.date.today() - datetime.timedelta(days=400)
         try:
-            raw_data = yf.download(final_download_list, start=start_date, group_by='ticker', progress=False, threads=True)
+            raw_data = yf.download(
+                final_download_list, 
+                start=start_date, 
+                group_by='ticker', 
+                progress=False, 
+                threads=True,
+                session=session  # <--- Add this
+            )
         except Exception as e:
             st.error(f"Data download failed: {e}")
             return
 
         # ---------------------------------------------------------------------
-        # NEW: DATA CHECK SECTION
+        # NEW: DATA CHECK SECTION (CORRECTED)
         # ---------------------------------------------------------------------
         if not raw_data.empty:
             # We look at the very last date in the downloaded yfinance data
-            # This ensures we are checking the same date the strategy will check
             latest_date = raw_data.index[-1]
             
-            # Create a dummy index of just that one date to pass to your helper function
+            # Create a dummy index of just that one date
             check_index = pd.DatetimeIndex([latest_date])
             
             # Look up ^GSPC (and SPY just in case)
-            gspc_check = get_sznl_val_series("^GSPC", check_index, sznl_map).iloc[0]
-            spy_check = get_sznl_val_series("SPY", check_index, sznl_map).iloc[0]
+            gspc_result = get_sznl_val_series("^GSPC", check_index, sznl_map)
+            spy_result = get_sznl_val_series("SPY", check_index, sznl_map)
+
+            # FIX: Use [0] instead of .iloc[0]. 
+            # (Because pandas .map() on an Index returns an Index, which doesn't have .iloc)
+            gspc_check = gspc_result[0]
+            spy_check = spy_result[0]
 
             with st.expander("🛠️ Data Integrity Check (Click to view)", expanded=True):
                 c1, c2, c3 = st.columns(3)
@@ -677,6 +690,7 @@ def main():
                     st.warning("⚠️ **Warning:** Both ranks returned 50.0. This implies the lookup FAILED (date missing in CSV) and the system used the default fallback.")
                 else:
                     st.success("✅ Seasonal data successfully mapped for today.")
+        # ---------------------------------------------------------------------
         # ---------------------------------------------------------------------
 
         # 3. Iterate Strategies
