@@ -648,6 +648,33 @@ def main():
             st.error(f"Data download failed: {e}")
             return
 
+        # ---------------------------------------------------------------------
+        # NEW: DATA CHECK SECTION
+        # ---------------------------------------------------------------------
+        if not raw_data.empty:
+            # We look at the very last date in the downloaded yfinance data
+            # This ensures we are checking the same date the strategy will check
+            latest_date = raw_data.index[-1]
+            
+            # Create a dummy index of just that one date to pass to your helper function
+            check_index = pd.DatetimeIndex([latest_date])
+            
+            # Look up ^GSPC (and SPY just in case)
+            gspc_check = get_sznl_val_series("^GSPC", check_index, sznl_map).iloc[0]
+            spy_check = get_sznl_val_series("SPY", check_index, sznl_map).iloc[0]
+
+            with st.expander("🛠️ Data Integrity Check (Click to view)", expanded=True):
+                c1, c2, c3 = st.columns(3)
+                c1.metric("Date Being Checked", str(latest_date.date()))
+                c2.metric("^GSPC Rank", f"{gspc_check:.2f}")
+                c3.metric("SPY Rank", f"{spy_check:.2f}")
+                
+                if gspc_check == 50.0 and spy_check == 50.0:
+                    st.warning("⚠️ **Warning:** Both ranks returned 50.0. This implies the lookup FAILED (date missing in CSV) and the system used the default fallback.")
+                else:
+                    st.success("✅ Seasonal data successfully mapped for today.")
+        # ---------------------------------------------------------------------
+
         # 3. Iterate Strategies
         for strat in STRATEGY_BOOK:
             
@@ -713,8 +740,6 @@ def main():
                             last_row = df.iloc[-1]
                             
                             # --- ENTRY CONFIRMATION CHECK (For Signal Close Only) ---
-                            # If strategy is "Signal Close" and has bps req, check today's candle
-                            # If T+1 Open, we can't check yet (future event)
                             entry_conf_bps = strat['settings'].get('entry_conf_bps', 0)
                             entry_mode = strat['settings'].get('entry_type', 'Signal Close')
                             
