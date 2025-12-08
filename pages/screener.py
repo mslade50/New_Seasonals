@@ -6,6 +6,7 @@ import datetime
 import gspread
 from pandas.tseries.offsets import BusinessDay
 
+
 # -----------------------------------------------------------------------------
 # 1. THE STRATEGY BOOK (FULL BATCH - ALL 6 STRATEGIES)
 # -----------------------------------------------------------------------------
@@ -288,12 +289,58 @@ STRATEGY_BOOK = [
             "profit_factor": "1.76"
         }
     },
+    {
+        "id": "21dr < 15 5 consec, 5dr <15, 10dr<15, SPX sznl > 50, buy -0.5 atr from close hold 21d",
+        "name": "Deeply Oversold Liquid Names",
+        "description": "Start: 2000-01-01. Universe: Custom (Upload CSV). Dir: Long. Filter: Price > 200 SMA. PF: 2.26. SQN: 5.10.",
+        "universe_tickers": ['AA', 'AAL', 'AAOI', 'AAON', 'AAP', 'AAPL', 'AAUC', 'ABNB', 'ACGL', 'ACHC', 'ACI', 'ACIW', 'ACLS', 'ACM', 'ACMR', 'ACN', 'ADBE', 'ADEA', 'ADI', 'ADM', 'ADNT', 'ADP', 'ADSK', 'AEE', 'AEHR', 'AEIS', 'AEM', 'AEO', 'AEP', 'AER', 'AES', 'AEVA', 'AFL', 'AFRM', 'AG', 'AGCO', 'AGI', 'AHMA', 'AI', 'AIG', 'AIP', 'AJG', 'AKAM', 'ALAB', 'ALB', 'ALGM', 'ALH', 'ALHC', 'ALK', 'ALKT', 'ALL', 'ALLE', 'ALLY', 'ALSN', 'ALV', 'AM', 'AMAT', 'AMBA', 'AMD', 'AME', 'AMKR', 'AMN', 'AMP', 'AMPL', 'AMPX', 'AMRC', 'AMRZ', 'AMSC', 'AMTM', 'AMX', 'AMZN', 'ANET', 'ANF', 'ANGI', 'AON', 'AOS', 'APA', 'APD', 'APG', 'APH', 'APLD', 'APO', 'APP', 'APPN', 'APTV', 'AR', 'ARCC', 'ARES', 'ARHS', 'ARLO', 'ARM', 'ARMK', 'ARMN', 'AROC', 'ARQQ', 'ARW', 'ARX', 'AS', 'ASAN', 'ASB', 'ASC', 'ASGN', 'ASH', 'ASML', 'ASO', 'ASTH', 'ASTS', 'ASX', 'ATAT', 'ATEN', 'ATGE', 'ATI', 'ATKR', 'ATMU', 'ATO', 'ATR', 'ATRO', 'AU', 'AUB', 'AUGO', 'AVA', 'AVAV', 'AVGO', 'AVNT', 'AVPT', 'AVT', 'AVY', 'AWK', 'AXIA', 'AXON', 'AXP', 'AXS', 'AXTA', 'AXTI', 'AZTA', 'B', 'BA', 'BABA', 'BAC', 'BACQ', 'BAH', 'BALL', 'BAM', 'BANC', 'BBAR', 'BBT', 'BBVA', 'BBWI', 'BBY', 'BC', 'BCE', 'BCS', 'BE', 'BEKE', 'BEN', 'BEP', 'BEPC', 'BETR', 'BF.B', 'BFAM', 'BFH', 'BG', 'BHF', 'BHP', 'BIDU', 'BILI', 'BILL', 'BIPC', 'BIRK', 'BJ', 'BJRI', 'BK', 'BKD', 'BKH', 'BKKT', 'BKR', 'BKSY', 'BKU', 'BKV', 'BL', 'BLDR', 'BLK', 'BLSH', 'BMA', 'BMNR', 'BMO', 'BN', 'BNS', 'BOOT', 'BOX', 'BP', 'BPOP', 'BR', 'BRK.B', 'BRO', 'BROS', 'BRSL', 'BRZE', 'BSY', 'BTDR', 'BTI', 'BTSG', 'BTU', 'BUD', 'BURL', 'BV', 'BVN', 'BWA', 'BWIN', 'BWXT', 'BX', 'BXSL', 'BYD', 'BZ', 'C', 'CADE', 'CAE', 'CAG', 'CAH', 'CAKE', 'CAL', 'CALM', 'CALX', 'CAMT', 'CAR', 'CARG', 'CARR', 'CARS', 'CART', 'CAT', 'CAVA', 'CB', 'CBRE', 'CBRL', 'CBSH', 'CBZ', 'CC', 'CCCX', 'CCEP', 'CCHH', 'CCJ', 'CCK', 'CCL', 'CCOI', 'CDE', 'CDNS', 'CDW', 'CE', 'CEG', 'CELH', 'CENX', 'CEPT', 'CEVA', 'CF', 'CFG', 'CFLT', 'CG', 'CGAU', 'CGBD', 'CGNX', 'CHA', 'CHAC', 'CHD', 'CHDN', 'CHH', 'CHKP', 'CHOW', 'CHRD', 'CHRW', 'CHTR', 'CHWY', 'CHYM', 'CI', 'CIEN', 'CIFR', 'CINF', 'CIVI', 'CL', 'CLB', 'CLBT', 'CLF', 'CLH', 'CLMT', 'CLS', 'CLSK', 'CLX', 'CM', 'CMA', 'CMBT', 'CMC', 'CMCSA', 'CME', 'CMG', 'CMI', 'CMPO', 'CMRE', 'CMS', 'CNC', 'CNI', 'CNK', 'CNM', 'CNNE', 'CNO', 'CNP', 'CNQ', 'CNR', 'CNX', 'CNXC', 'COCO', 'COF', 'COHR', 'COHU', 'COIN', 'COLB', 'COLM', 'COMM', 'COMP', 'CON', 'COP', 'COR', 'CORZ', 'COST', 'CP', 'CPAY', 'CPB', 'CPNG', 'CPRI', 'CPRT', 'CRBG', 'CRC', 'CRCL', 'CRDO', 'CRH', 'CRI', 'CRK', 'CRL', 'CRM', 'CRNC', 'CROX', 'CRS', 'CRUS', 'CRWD', 'CRWV', 'CSCO', 'CSGP', 'CSGS', 'CSIQ', 'CSL', 'CSTM', 'CSWC', 'CSX', 'CTAS', 'CTLP', 'CTRA', 'CTRI', 'CTSH', 'CTVA', 'CUK', 'CVBF', 'CVE', 'CVI', 'CVLT', 'CVNA', 'CVS', 'CVX', 'CWAN', 'CWEN', 'CWH', 'CWK', 'CWST', 'CX', 'CZR', 'D', 'DAL', 'DAN', 'DAR', 'DASH', 'DAVE', 'DB', 'DBX', 'DCI', 'DD', 'DDOG', 'DE', 'DECK', 'DELL', 'DEO', 'DG', 'DGNX', 'DGX', 'DHI', 'DHT', 'DIN', 'DINO', 'DIS', 'DJT', 'DK', 'DKNG', 'DKS', 'DLB', 'DLO', 'DLTR', 'DNOW', 'DOCN', 'DOCS', 'DOCU', 'DOLE', 'DOV', 'DOW', 'DOX', 'DPZ', 'DQ', 'DRD', 'DRI', 'DRS', 'DRVN', 'DSGX', 'DT', 'DTE', 'DTM', 'DUK', 'DUOL', 'DV', 'DVA', 'DVN', 'DXC', 'EAT', 'EBAY', 'EBC', 'ECG', 'ECL', 'ED', 'EDU', 'EEFT', 'EFX', 'EFXT', 'EGBN', 'EGO', 'EH', 'EHC', 'EIX', 'EL', 'ELF', 'ELV', 'EMBJ', 'EMN', 'EMR', 'ENB', 'ENPH', 'ENR', 'ENTG', 'EOG', 'EOSE', 'EPAM', 'EPC', 'EPD', 'EQH', 'EQNR', 'EQT', 'EQX', 'ERII', 'ERO', 'ES', 'ESAB', 'ESI', 'ESNT', 'ESTC', 'ET', 'ETN', 'ETOR', 'ETR', 'ETSY', 'EVER', 'EVRG', 'EVTC', 'EWBC', 'EXC', 'EXE', 'EXLS', 'EXPD', 'EXPE', 'EXPI', 'EXTR', 'EYE', 'EZPW', 'F', 'FA', 'FAF', 'FANG', 'FAST', 'FBIN', 'FBP', 'FCF', 'FCX', 'FDS', 'FDX', 'FE', 'FER', 'FERG', 'FFIN', 'FFIV', 'FHB', 'FHI', 'FHN', 'FIBK', 'FIG', 'FIGR', 'FIGS', 'FIS', 'FISV', 'FITB', 'FIVE', 'FIVN', 'FIX', 'FLEX', 'FLG', 'FLNC', 'FLO', 'FLR', 'FLS', 'FLUT', 'FLY', 'FLYE', 'FLYW', 'FMC', 'FN', 'FNB', 'FND', 'FNF', 'FNV', 'FORM', 'FOUR', 'FOX', 'FOXA', 'FOXF', 'FRGE', 'FRMI', 'FRO', 'FROG', 'FRPT', 'FRSH', 'FSK', 'FSLR', 'FSLY', 'FSS', 'FTAI', 'FTDR', 'FTI', 'FTNT', 'FTRE', 'FTS', 'FTV', 'FULT', 'FUN', 'FUTU', 'FVRR', 'FWONK', 'FWRD', 'FWRG', 'G', 'GAP', 'GBCI', 'GBDC', 'GCMG', 'GCT', 'GD', 'GDDY', 'GDEN', 'GDOT', 'GDS', 'GE', 'GEN', 'GENI', 'GES', 'GEV', 'GFI', 'GFL', 'GFS', 'GGAL', 'GGG', 'GH', 'GIL', 'GILT', 'GIS', 'GL', 'GLBE', 'GLIBK', 'GLNG', 'GLOB', 'GLW', 'GLXY', 'GM', 'GME', 'GNK', 'GNRC', 'GNTX', 'GO', 'GOLD', 'GOOG', 'GOOGL', 'GOOS', 'GPC', 'GPK', 'GPN', 'GPRE', 'GRMN', 'GRND', 'GRPN', 'GRRR', 'GS', 'GSAT', 'GTES', 'GTLB', 'GTM', 'GTX', 'GVA', 'GWRE', 'GXO', 'H', 'HAL', 'HAS', 'HASI', 'HAYW', 'HBAN', 'HBM', 'HCA', 'HCC', 'HCSG', 'HD', 'HDB', 'HE', 'HELE', 'HESM', 'HGV', 'HI', 'HIG', 'HIMS', 'HL', 'HLF', 'HLNE', 'HLT', 'HMC', 'HMY', 'HNGE', 'HNI', 'HNRG', 'HOG', 'HOMB', 'HON', 'HOOD', 'HOPE', 'HOUS', 'HP', 'HPE', 'HPQ', 'HQY', 'HRB', 'HRL', 'HSAI', 'HSBC', 'HSIC', 'HSY', 'HTFL', 'HTGC', 'HTHT', 'HUBB', 'HUBG', 'HUBS', 'HUM', 'HUN', 'HUT', 'HWC', 'HWM', 'HXL', 'HYMC', 'IAC', 'IAG', 'IBKR', 'IBM', 'IBN', 'ICE', 'ICHR', 'ICLR', 'IDR', 'IE', 'IEX', 'IFF', 'IMAX', 'IMO', 'INFY', 'ING', 'INGR', 'INOD', 'INTA', 'INTC', 'INTU', 'IONQ', 'IOT', 'IP', 'IR', 'IRDM', 'IREN', 'IT', 'ITRI', 'ITT', 'ITW', 'IVZ', 'J', 'JACK', 'JAMF', 'JBHT', 'JBL', 'JBS', 'JBTM', 'JCI', 'JD', 'JEF', 'JHG', 'JHX', 'JKHY', 'JKS', 'JMIA', 'JOBY', 'JPM', 'JXN', 'KAR', 'KBH', 'KBR', 'KC', 'KD', 'KDP', 'KEX', 'KEY', 'KEYS', 'KGC', 'KGS', 'KHC', 'KKR', 'KLAC', 'KLAR', 'KLIC', 'KMB', 'KMI', 'KMPR', 'KMT', 'KMX', 'KN', 'KNF', 'KNTK', 'KNX', 'KO', 'KR', 'KRMN', 'KRNT', 'KRP', 'KSPI', 'KSS', 'KT', 'KTB', 'KTOS', 'KVUE', 'KVYO', 'KYIV', 'L', 'LASR', 'LAUR', 'LAZ', 'LBRDK', 'LBRT', 'LBTYA', 'LBTYK', 'LC', 'LCID', 'LDOS', 'LEA', 'LEG', 'LEN', 'LEU', 'LEVI', 'LGN', 'LH', 'LHX', 'LI', 'LIF', 'LII', 'LIN', 'LITE', 'LKQ', 'LMND', 'LMT', 'LNC', 'LNG', 'LNT', 'LOAR', 'LOGI', 'LOMA', 'LOVE', 'LOW', 'LPLA', 'LPX', 'LRCX', 'LRN', 'LSCC', 'LSPD', 'LTBR', 'LTH', 'LTM', 'LULU', 'LUV', 'LVS', 'LW', 'LYB', 'LYFT', 'LYV', 'LZB', 'M', 'MA', 'MAGN', 'MAN', 'MANH', 'MAR', 'MARA', 'MAS', 'MAT', 'MAX', 'MBC', 'MBLY', 'MC', 'MCD', 'MCHP', 'MCK', 'MCO', 'MD', 'MDB', 'MDLZ', 'MDU', 'MELI', 'MEOH', 'MET', 'META', 'METC', 'MFC', 'MGA', 'MGM', 'MGY', 'MH', 'MHK', 'MIDD', 'MIR', 'MKC', 'MKSI', 'MKTX', 'MLI', 'MLKN', 'MMC', 'MMM', 'MMS', 'MMYT', 'MNDY', 'MNRO', 'MNSO', 'MNST', 'MNTN', 'MO', 'MOD', 'MODG', 'MOH', 'MOS', 'MP', 'MPC', 'MPLX', 'MPWR', 'MRCY', 'MRTN', 'MRVL', 'MRX', 'MS', 'MSCI', 'MSFT', 'MSI', 'MSM', 'MSTR', 'MT', 'MTB', 'MTCH', 'MTDR', 'MTG', 'MTH', 'MTN', 'MTSI', 'MTZ', 'MU', 'MUFG', 'MUR', 'MUX', 'MWA', 'MXL', 'NAVI', 'NBIS', 'NCLH', 'NCNO', 'NDAQ', 'NE', 'NEE', 'NEGG', 'NEM', 'NEO', 'NESR', 'NET', 'NFG', 'NFLX', 'NGG', 'NI', 'NICE', 'NIQ', 'NJR', 'NKE', 'NMRK', 'NN', 'NNE', 'NOC', 'NOG', 'NOMD', 'NOV', 'NOVT', 'NOW', 'NPKI', 'NRDS', 'NRG', 'NSC', 'NSIT', 'NSP', 'NTAP', 'NTCT', 'NTES', 'NTNX', 'NTR', 'NTRS', 'NTSK', 'NU', 'NUE', 'NVDA', 'NVRI', 'NVT', 'NWBI', 'NWG', 'NWS', 'NWSA', 'NX', 'NXPI', 'NXT', 'NYT', 'OBDC', 'OC', 'OCSL', 'ODD', 'ODFL', 'OGE', 'OI', 'OII', 'OKE', 'OKLO', 'OKTA', 'OLED', 'OLLI', 'OLN', 'OMC', 'OMDA', 'OMF', 'ON', 'ONB', 'ONON', 'ONTO', 'OPCH', 'OPRA', 'OR', 'ORA', 'ORCL', 'ORI', 'ORLA', 'ORLY', 'OS', 'OSCR', 'OSK', 'OSPN', 'OSW', 'OTEX', 'OTF', 'OTIS', 'OUST', 'OVV', 'OWL', 'OXY', 'OZK', 'PAA', 'PAAS', 'PACS', 'PAGP', 'PAGS', 'PANW', 'PAR', 'PARR', 'PATH', 'PAY', 'PAYC', 'PAYX', 'PB', 'PBA', 'PBF', 'PBR', 'PBR.A', 'PCAR', 'PCG', 'PCOR', 'PCTY', 'PD', 'PDD', 'PEG', 'PEGA', 'PENG', 'PENN', 'PEP', 'PFG', 'PFGC', 'PFS', 'PG', 'PGNY', 'PGR', 'PGY', 'PH', 'PHM', 'PHR', 'PI', 'PII', 'PINS', 'PKG', 'PL', 'PLAB', 'PLAY', 'PLNT', 'PLTR', 'PM', 'PNC', 'PNFP', 'PNR', 'PNW', 'PONY', 'POOL', 'POR', 'POST', 'POWI', 'PPC', 'PPG', 'PPL', 'PPTA', 'PR', 'PRDO', 'PRGS', 'PRIM', 'PRKS', 'PRM', 'PRMB', 'PRU', 'PRVA', 'PSIX', 'PSKY', 'PSN', 'PSNL', 'PSO', 'PSTG', 'PSX', 'PTC', 'PTRN', 'PUK', 'PVH', 'PWP', 'PWR', 'PYPL', 'PZZA', 'QBTS', 'QCOM', 'QFIN', 'QNST', 'QRVO', 'QS', 'QSR', 'QTWO', 'QUBT', 'QXO', 'RACE', 'RAL', 'RAMP', 'RBA', 'RBLX', 'RBRK', 'RCI', 'RCL', 'RDDT', 'RDN', 'RDNT', 'REAL', 'RELX', 'RELY', 'REVG', 'REYN', 'REZI', 'RF', 'RGLD', 'RGTI', 'RH', 'RHI', 'RIO', 'RIOT', 'RIVN', 'RJF', 'RKLB', 'RKT', 'RL', 'RLI', 'RMBS', 'RNG', 'RNST', 'ROK', 'ROKU', 'ROL', 'ROOT', 'ROP', 'ROST', 'RPD', 'RPM', 'RPRX', 'RRC', 'RRR', 'RRX', 'RSG', 'RSI', 'RTO', 'RTX', 'RUN', 'RUSHA', 'RVLV', 'RXO', 'RXST', 'RY', 'RYAAY', 'RYAN', 'S', 'SA', 'SAIA', 'SAIC', 'SAIL', 'SAN', 'SANM', 'SAP', 'SARO', 'SATS', 'SBCF', 'SBGI', 'SBH', 'SBLK', 'SBS', 'SBSW', 'SBUX', 'SCCO', 'SCHW', 'SCI', 'SCS', 'SDGR', 'SDRL', 'SE', 'SEDG', 'SEE', 'SEI', 'SEIC', 'SEM', 'SEMR', 'SEZL', 'SF', 'SFD', 'SFM', 'SFNC', 'SGHC', 'SGI', 'SGML', 'SGRY', 'SHAK', 'SHEL', 'SHOO', 'SHOP', 'SHW', 'SIG', 'SIGI', 'SIRI', 'SITE', 'SJM', 'SKE', 'SKM', 'SKY', 'SKYT', 'SLB', 'SLDE', 'SLGN', 'SLM', 'SM', 'SMCI', 'SMFG', 'SMG', 'SMPL', 'SMR', 'SMTC', 'SMX', 'SN', 'SNCY', 'SNDK', 'SNDR', 'SNOW', 'SNPS', 'SNV', 'SNX', 'SO', 'SOBO', 'SOFI', 'SOLS', 'SOLV', 'SON', 'SONO', 'SONY', 'SOUN', 'SPGI', 'SPHR', 'SPNT', 'SPOT', 'SPR', 'SPSC', 'SPT', 'SQM', 'SRAD', 'SRE', 'SSB', 'SSNC', 'SSRM', 'ST', 'STEP', 'STLA', 'STLD', 'STM', 'STNE', 'STNG', 'STRL', 'STT', 'STUB', 'STX', 'STZ', 'SU', 'SUN', 'SUPV', 'SW', 'SWK', 'SWKS', 'SYF', 'SYM', 'SYY', 'T', 'TAC', 'TAL', 'TALO', 'TAP', 'TBBB', 'TBBK', 'TCOM', 'TD', 'TDC', 'TDS', 'TDW', 'TEAM', 'TECK', 'TECX', 'TEL', 'TEM', 'TENB', 'TER', 'TEX', 'TFC', 'TFPM', 'TGNA', 'TGT', 'THC', 'THO', 'THS', 'TIGO', 'TJX', 'TKO', 'TKR', 'TLK', 'TLN', 'TME', 'TMHC', 'TMUS', 'TNL', 'TOL', 'TOST', 'TPC', 'TPG', 'TPH', 'TPR', 'TREX', 'TRGP', 'TRI', 'TRIN', 'TRIP', 'TRMB', 'TRMD', 'TRN', 'TROW', 'TRP', 'TRS', 'TRU', 'TRV', 'TS', 'TSCO', 'TSEM', 'TSLA', 'TSM', 'TSN', 'TT', 'TTAN', 'TTC', 'TTD', 'TTE', 'TTEK', 'TTMI', 'TTWO', 'TU', 'TW', 'TWLO', 'TXN', 'TXRH', 'TXT', 'U', 'UAL', 'UBER', 'UBS', 'UBSI', 'UCB', 'UCTT', 'UEC', 'UGI', 'UHAL.B', 'UHS', 'UL', 'ULS', 'ULTA', 'UNFI', 'UNH', 'UNM', 'UNP', 'UPBD', 'UPS', 'UPST', 'UPWK', 'URBN', 'URI', 'USAR', 'USB', 'USFD', 'UTI', 'UUUU', 'V', 'VAC', 'VAL', 'VALE', 'VECO', 'VEEV', 'VERX', 'VFC', 'VIAV', 'VICR', 'VIK', 'VIPS', 'VIRT', 'VIST', 'VITL', 'VIV', 'VLO', 'VLTO', 'VLY', 'VMC', 'VNOM', 'VNT', 'VOD', 'VOYA', 'VOYG', 'VRNS', 'VRRM', 'VRSK', 'VRSN', 'VRT', 'VSAT', 'VSCO', 'VSH', 'VST', 'VTLE', 'VVV', 'VZ', 'W', 'WAB', 'WAFD', 'WAL', 'WAY', 'WB', 'WBD', 'WBS', 'WBTN', 'WCC', 'WCN', 'WDAY', 'WDC', 'WDS', 'WEC', 'WERN', 'WES', 'WFC', 'WFRD', 'WGO', 'WGS', 'WH', 'WHD', 'WHR', 'WING', 'WIX', 'WK', 'WKC', 'WLK', 'WM', 'WMB', 'WMG', 'WMS', 'WMT', 'WOLF', 'WPM', 'WPP', 'WRB', 'WRBY', 'WSC', 'WSM', 'WT', 'WTRG', 'WTTR', 'WTW', 'WULF', 'WWD', 'WWW', 'WYFI', 'WYNN', 'XEL', 'XMTR', 'XOM', 'XP', 'XPEV', 'XPO', 'XPRO', 'XYL', 'XYZ', 'YELP', 'YETI', 'YMM', 'YOU', 'YPF', 'YUM', 'YUMC', 'Z', 'ZBRA', 'ZD', 'ZETA', 'ZG', 'ZGN', 'ZIM', 'ZION', 'ZM', 'ZS', 'ZTO', 'ZWS'], 
+        "settings": {
+            "trade_direction": "Long",
+            "entry_type": "Limit (Close -0.5 ATR)",
+            "max_one_pos": False,
+            "allow_same_day_reentry": False,
+            "max_daily_entries": 2,
+            "max_total_positions": 10,
+            "perf_filters": [{'window': 5, 'logic': '<', 'thresh': 15.0, 'consecutive': 1}, {'window': 10, 'logic': '<', 'thresh': 15.0, 'consecutive': 1}, {'window': 21, 'logic': '<', 'thresh': 15.0, 'consecutive': 5}],
+            "perf_first_instance": False, "perf_lookback": 21,
+            "use_sznl": False, "sznl_logic": ">", "sznl_thresh": 75.0, "sznl_first_instance": False, "sznl_lookback": 21,
+            "use_market_sznl": True, "market_sznl_logic": ">", "market_sznl_thresh": 50.0,
+            "market_ticker": "^GSPC",
+            "use_52w": False, "52w_type": "New 52w High", "52w_first_instance": True, "52w_lookback": 21,
+            "use_vol": True, "vol_thresh": 1.0,
+            "use_vol_rank": False, "vol_rank_logic": "<", "vol_rank_thresh": 50.0,
+            "trend_filter": "Price > 200 SMA",
+            "min_price": 10.0, "min_vol": 100000,
+            "min_age": 0.25, "max_age": 100.0,
+            "entry_conf_bps": 0,
+            "use_dist_filter": False, "dist_ma_type": "SMA 10", 
+            "dist_logic": "Greater Than (>)", "dist_min": 0.0, "dist_max": 2.0,
+            "use_gap_filter": False, "gap_lookback": 21, 
+            "gap_logic": ">", "gap_thresh": 3
+        },
+        "execution": {
+            "risk_per_trade": 1000,
+            "slippage_bps": 5,
+            "stop_atr": 2.0,
+            "tgt_atr": 8.0,
+            "hold_days": 21
+        },
+        "stats": {
+            "grade": "A (Excellent)",
+            "win_rate": "60.1%",
+            "expectancy": "$374.18",
+            "profit_factor": "2.26"
+        }
+    },
 ]
 
 # -----------------------------------------------------------------------------
 # CONSTANTS & SETUP
 # -----------------------------------------------------------------------------
-CSV_PATH = "seasonal_ranks.csv" # Ensure this matches your file name
+# -----------------------------------------------------------------------------
+# CONSTANTS & SETUP
+# -----------------------------------------------------------------------------
+CSV_PATH = "seasonal_ranks.csv" 
 
 @st.cache_resource 
 def load_seasonal_map():
@@ -304,12 +351,15 @@ def load_seasonal_map():
 
     if df.empty: return {}
 
+    # 1. Normalize Dates to ensure they match yfinance index
     df["Date"] = pd.to_datetime(df["Date"], errors='coerce').dt.normalize().dt.tz_localize(None)
     df = df.dropna(subset=["Date"])
     
     output_map = {}
     for ticker, group in df.groupby("ticker"):
-        output_map[str(ticker).upper()] = pd.Series(
+        # 2. CLEAN TICKERS: Strip whitespace to prevent lookup failures
+        clean_key = str(ticker).strip().upper()
+        output_map[clean_key] = pd.Series(
             group.seasonal_rank.values, index=group.Date
         ).to_dict()
     return output_map
@@ -317,18 +367,22 @@ def load_seasonal_map():
 def get_sznl_val_series(ticker, dates, sznl_map):
     """
     Looks up the seasonal rank for the specific dates provided.
-    Includes logic to fallback to SPY if ^GSPC is requested but not found.
+    Includes robust logic to fallback to SPY if ^GSPC/SPX is requested.
     """
-    ticker = ticker.upper()
+    # 1. Clean the incoming ticker request
+    ticker = str(ticker).strip().upper()
     t_map = sznl_map.get(ticker, {})
     
-    # FALLBACK: If looking for ^GSPC but not in map, try SPY
-    if not t_map and ticker == "^GSPC":
+    # 2. ROBUST FALLBACK for Market Ticker
+    # If strategy asks for ^GSPC but CSV only has SPY
+    if not t_map and ticker in ["^GSPC", "GSPC", "SPX", "US500"]:
         t_map = sznl_map.get("SPY", {})
 
+    # 3. If still no map found, return Neutral (50.0) so the script doesn't crash
     if not t_map:
         return pd.Series(50.0, index=dates)
         
+    # 4. Map dates and fill missing values with 50.0
     return dates.map(t_map).fillna(50.0)
 
 def save_signals_to_gsheet(new_dataframe, sheet_name='Trade_Signals_Log'):
@@ -339,15 +393,18 @@ def save_signals_to_gsheet(new_dataframe, sheet_name='Trade_Signals_Log'):
     cols_to_round = ['Entry', 'Stop', 'Target', 'ATR']
     existing_cols = [c for c in cols_to_round if c in df_new.columns]
     df_new[existing_cols] = df_new[existing_cols].astype(float).round(2)
+    # Convert date to string for JSON serialization compatibility
     df_new['Date'] = df_new['Date'].astype(str) 
     df_new["Scan_Timestamp"] = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     cols = ['Scan_Timestamp'] + [c for c in df_new.columns if c != 'Scan_Timestamp']
     df_new = df_new[cols]
 
     try:
+        # Check for secrets first (Production/Streamlit Cloud)
         if "gcp_service_account" in st.secrets:
             creds_dict = st.secrets["gcp_service_account"]
             gc = gspread.service_account_from_dict(creds_dict)
+        # Fallback to local file (Local Development)
         else:
             gc = gspread.service_account(filename='credentials.json')
 
@@ -362,6 +419,7 @@ def save_signals_to_gsheet(new_dataframe, sheet_name='Trade_Signals_Log'):
             df_existing = pd.DataFrame()
 
         if not df_existing.empty:
+            # Ensure columns align before concatenating
             df_existing = df_existing.reindex(columns=df_new.columns)
             combined = pd.concat([df_existing, df_new])
         else:
@@ -370,6 +428,7 @@ def save_signals_to_gsheet(new_dataframe, sheet_name='Trade_Signals_Log'):
         # Drop Duplicates (Same Ticker/Date/Strategy)
         combined = combined.drop_duplicates(subset=['Ticker', 'Date', 'Strategy_ID'], keep='last')
         
+        # Write back to sheet
         worksheet.clear()
         data_to_write = [combined.columns.tolist()] + combined.astype(str).values.tolist()
         worksheet.update(values=data_to_write)
@@ -593,6 +652,22 @@ def check_signal(df, params, sznl_map):
         
     return True
 # -----------------------------------------------------------------------------
+# CACHED DATA DOWNLOADER
+# -----------------------------------------------------------------------------
+@st.cache_data(ttl=3600*12, show_spinner=False)
+def fetch_market_data(tickers, start_date):
+    """
+    Cached wrapper for yfinance download. 
+    ttl=3600*12 means it will refresh the cache every 12 hours.
+    """
+    try:
+        # Download data
+        data = yf.download(tickers, start=start_date, group_by='ticker', progress=False, threads=True)
+        return data
+    except Exception as e:
+        return pd.DataFrame()
+
+# -----------------------------------------------------------------------------
 # MAIN APP
 # -----------------------------------------------------------------------------
 
@@ -601,8 +676,28 @@ def main():
     st.title("⚡ Daily Strategy Screener")
     st.markdown("---")
     
+    # Load Seasonals immediately
     sznl_map = load_seasonal_map()
     
+    # --- DIAGNOSTIC: VERIFY MARKET SEASONALITY ---
+    # This runs immediately to give you peace of mind before you even click 'Run'
+    with st.expander("System Diagnostics", expanded=True):
+        c1, c2 = st.columns(2)
+        with c1:
+            st.write(f"**Loaded Seasonals:** {len(sznl_map)} tickers found in CSV.")
+        
+        with c2:
+            # Test lookup for GSPC (The common point of failure)
+            test_date = pd.Timestamp.now().normalize()
+            test_series = pd.DatetimeIndex([test_date])
+            # We specifically test ^GSPC to verify the fallback logic works
+            debug_val = get_sznl_val_series("^GSPC", test_series, sznl_map).iloc[0]
+            
+            if debug_val != 50.0:
+                st.success(f"✅ Market Seasonality Active: '^GSPC' mapped successfully. Rank today: {debug_val:.1f}")
+            else:
+                st.error("⚠️ Market Seasonality Warning: '^GSPC' returned default 50.0. Check if 'SPY' or 'SPX' is in your CSV.")
+
     if st.button("Run All Strategies", type="primary", use_container_width=True):
         
         st.info(f"Scanning {len(STRATEGY_BOOK)} strategies against current market data...")
@@ -629,12 +724,14 @@ def main():
         # Merge market tickers into all_tickers list for download
         final_download_list = list(all_tickers.union(market_tickers))
         
-        # 2. Download Data
+        # 2. Download Data (NOW CACHED)
         start_date = datetime.date.today() - datetime.timedelta(days=400)
-        try:
-            raw_data = yf.download(final_download_list, start=start_date, group_by='ticker', progress=False, threads=True)
-        except Exception as e:
-            st.error(f"Data download failed: {e}")
+        
+        with st.spinner("Fetching Market Data (Cached)..."):
+            raw_data = fetch_market_data(final_download_list, start_date)
+            
+        if raw_data.empty:
+            st.error("❌ Data download returned empty. Check internet connection or ticker symbols.")
             return
 
         # 3. Iterate Strategies
@@ -701,9 +798,7 @@ def main():
                             
                             last_row = df.iloc[-1]
                             
-                            # --- ENTRY CONFIRMATION CHECK (For Signal Close Only) ---
-                            # If strategy is "Signal Close" and has bps req, check today's candle
-                            # If T+1 Open, we can't check yet (future event)
+                            # --- ENTRY CONFIRMATION CHECK ---
                             entry_conf_bps = strat['settings'].get('entry_conf_bps', 0)
                             entry_mode = strat['settings'].get('entry_type', 'Signal Close')
                             
