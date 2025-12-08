@@ -330,16 +330,20 @@ def get_sznl_val_series(ticker, dates, sznl_map):
     Includes logic to fallback to SPY if ^GSPC is requested but not found.
     """
     ticker = ticker.upper()
-    t_map = sznl_map.get(ticker, {})
+    
+    # CHANGE: Don't default to {}, default to None. 
+    # This avoids the "ambiguous truth value" error when checking if it exists.
+    t_series = sznl_map.get(ticker)
     
     # FALLBACK: If looking for ^GSPC but not in map, try SPY
-    if not t_map and ticker == "^GSPC":
-        t_map = sznl_map.get("SPY", {})
+    if t_series is None and ticker == "^GSPC":
+        t_series = sznl_map.get("SPY")
 
-    if not t_map:
+    # If still None, return default 50s
+    if t_series is None:
         return pd.Series(50.0, index=dates)
         
-    return dates.map(t_map).fillna(50.0)
+    return dates.map(t_series).fillna(50.0)
 
 def save_signals_to_gsheet(new_dataframe, sheet_name='Trade_Signals_Log'):
     if new_dataframe.empty: return
@@ -639,7 +643,7 @@ def main():
         
         # Merge market tickers into all_tickers list for download
         final_download_list = list(all_tickers.union(market_tickers))
-        
+        final_download_list = [t.replace('.', '-') for t in final_download_list]
         # 2. Download Data
         start_date = datetime.date.today() - datetime.timedelta(days=400)
         try:
