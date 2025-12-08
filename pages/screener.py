@@ -344,6 +344,10 @@ CSV_PATH = "sznl_ranks.csv"
 
 @st.cache_resource 
 def load_seasonal_map():
+    """
+    Loads the CSV and creates a dictionary of TimeSeries for each ticker.
+    Structure: { 'SPY': pd.Series(index=Datetime, data=Rank) }
+    """
     try:
         df = pd.read_csv(CSV_PATH)
     except Exception:
@@ -351,27 +355,39 @@ def load_seasonal_map():
 
     if df.empty: return {}
 
-    df["Date"] = pd.to_datetime(df["Date"], errors='coerce').dt.normalize().dt.tz_localize(None)
+    # Ensure valid dates
+    df["Date"] = pd.to_datetime(df["Date"], errors='coerce')
     df = df.dropna(subset=["Date"])
     
+    # Normalize to midnight (remove time component if present)
+    df["Date"] = df["Date"].dt.normalize()
+    
     output_map = {}
+    # Group by ticker and create a sorted Series for each
     for ticker, group in df.groupby("ticker"):
-        output_map[str(ticker).upper()] = pd.Series(
-            group.seasonal_rank.values, index=group.Date
-        ).to_dict()
+        # We set the index to Date and ensure it is sorted for 'asof' lookups
+        series = group.set_index("Date")["seasonal_rank"].sort_index()
+        output_map[ticker] = series
+
     return output_map
 
-def get_sznl_val_series(ticker, dates, sznl_map):
-    ticker = ticker.upper()
-    t_map = sznl_map.get(ticker, {})
+def get_sznl_val(ticker, target_date, sznl_map):
+    """
+    Smart lookup: Finds the rank for the target date.
+    If target date is missing (e.g., weekend), finds the most recent previous value.
+    """
+    if ticker not in sznl_map: return np.nan
     
-    if not t_map and ticker == "^GSPC":
-        t_map = sznl_map.get("SPY", {})
-
-    if not t_map:
-        return pd.Series(50.0, index=dates)
-        
-    return dates.map(t_map).fillna(50.0)
+    series = sznl_map[ticker]
+    target = pd.Timestamp(target_date).normalize()
+    
+    # 'asof' finds the last valid value up to (and including) the target date.
+    # It handles weekends/holidays automatically by looking back.
+    try:
+        val = series.asof(target)
+        return val
+    except:
+        return np.nan
 
 def save_signals_to_gsheet(new_dataframe, sheet_name='Trade_Signals_Log'):
     if new_dataframe.empty: return
