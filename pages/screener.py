@@ -40,6 +40,49 @@ STRATEGY_BOOK = [
         },
         "stats": { "grade": "A (Excellent)", "win_rate": "64.1%", "expectancy": "$471.36", "profit_factor": "4.51" }
     },
+    {
+        "id": "Lower 10% of range <50% ile 5dr >33 SPX sznl",
+        "name": "Bottom of Range Reversion",
+        "description": "Start: 2000-01-01. Universe: Indices. Dir: Long. Filter: None. PF: 1.49. SQN: 8.83.",
+        "universe_tickers": ['SPY', 'QQQ', 'IWM', 'DIA', 'SMH', '^GSPC', '^NDX'], 
+        "settings": {
+            "trade_direction": "Long",
+            "entry_type": "Signal Close",
+            "max_one_pos": True,
+            "allow_same_day_reentry": False,
+            "max_daily_entries": 2,
+            "max_total_positions": 10,
+            "perf_filters": [{'window': 5, 'logic': '<', 'thresh': 50.0, 'consecutive': 1}],
+            "perf_first_instance": False, "perf_lookback": 21,
+            "use_sznl": False, "sznl_logic": "<", "sznl_thresh": 15.0, "sznl_first_instance": True, "sznl_lookback": 21,
+            "use_market_sznl": True, "market_sznl_logic": ">", "market_sznl_thresh": 33.0,
+            "market_ticker": "^GSPC",
+            "use_52w": False, "52w_type": "New 52w High", "52w_first_instance": True, "52w_lookback": 21,
+            "use_vol": False, "vol_thresh": 1.5,
+            "use_vol_rank": False, "vol_rank_logic": "<", "vol_rank_thresh": 50.0,
+            "trend_filter": "None",
+            "min_price": 10.0, "min_vol": 100000,
+            "min_age": 0.25, "max_age": 100.0,
+            "entry_conf_bps": 0,
+            "use_dist_filter": False, "dist_ma_type": "SMA 10", 
+            "dist_logic": "Greater Than (>)", "dist_min": 0.0, "dist_max": 2.0,
+            "use_gap_filter": False, "gap_lookback": 21, 
+            "gap_logic": ">", "gap_thresh": 3
+        },
+        "execution": {
+            "risk_per_trade": 300,
+            "slippage_bps": 2,
+            "stop_atr": 1.0,
+            "tgt_atr": 2.0,
+            "hold_days": 2
+        },
+        "stats": {
+            "grade": "B (Good)",
+            "win_rate": "54.9%",
+            "expectancy": "$174.76",
+            "profit_factor": "1.49"
+        }
+    },
     # 2. GENERATED SHORT
     {
         "id": "21dr > 85 3 consec, 5dr > 85, SPX sznl <50, sell the close & gap open",
