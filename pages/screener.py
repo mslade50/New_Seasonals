@@ -5,9 +5,7 @@ import yfinance as yf
 import datetime
 import gspread
 from pandas.tseries.offsets import BusinessDay
-import requests_cache
-session = requests_cache.CachedSession('yfinance.cache')
-session.headers['User-agent'] = 'my-program/1.0'
+
 # -----------------------------------------------------------------------------
 # 1. THE STRATEGY BOOK (FULL BATCH - ALL 6 STRATEGIES)
 # -----------------------------------------------------------------------------
@@ -313,10 +311,10 @@ def load_seasonal_map():
     # Ensure valid dates
     df["Date"] = pd.to_datetime(df["Date"], errors='coerce')
     df = df.dropna(subset=["Date"])
-    
+     
     # Normalize to midnight (remove time component if present)
     df["Date"] = df["Date"].dt.normalize()
-    
+     
     output_map = {}
     # Group by ticker and create a sorted Series for each
     for ticker, group in df.groupby("ticker"):
@@ -646,6 +644,7 @@ def main():
         # Merge market tickers into all_tickers list for download
         final_download_list = list(all_tickers.union(market_tickers))
         final_download_list = [t.replace('.', '-') for t in final_download_list]
+        
         # 2. Download Data
         start_date = datetime.date.today() - datetime.timedelta(days=400)
         try:
@@ -654,8 +653,8 @@ def main():
                 start=start_date, 
                 group_by='ticker', 
                 progress=False, 
-                threads=True,
-                session=session  # <--- Add this
+                threads=True
+                # REMOVED: session=session argument
             )
         except Exception as e:
             st.error(f"Data download failed: {e}")
