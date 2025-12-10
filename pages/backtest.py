@@ -349,10 +349,10 @@ def run_engine(universe_dict, params, sznl_map, market_series=None):
                 elif g_logic == "=": conditions.append(df['GapCount'] == g_thresh)
 
             # --- NEW: INDEPENDENT ACCUMULATION FILTER ---
-            if params.get('use_acc_filter', False):
-                win = params['acc_window']
-                logic = params['acc_logic']
-                thresh = params['acc_thresh']
+            if params.get('use_acc_count_filter', False):
+                win = params['acc_count_window']
+                logic = params['acc_count_logic']
+                thresh = params['acc_count_thresh']
                 
                 # Rolling sum of accumulation days
                 rolling_acc = df['is_acc_day'].rolling(win).sum()
@@ -362,10 +362,10 @@ def run_engine(universe_dict, params, sznl_map, market_series=None):
                 elif logic == "=": conditions.append(rolling_acc == thresh)
 
             # --- NEW: INDEPENDENT DISTRIBUTION FILTER ---
-            if params.get('use_dist_filter', False):
-                win = params['dist_window']
-                logic = params['dist_logic']
-                thresh = params['dist_thresh']
+            if params.get('use_dist_count_filter', False):
+                win = params['dist_count_window']
+                logic = params['dist_count_logic']
+                thresh = params['dist_count_thresh']
                 
                 # Rolling sum of distribution days
                 rolling_dist = df['is_dist_day'].rolling(win).sum()
@@ -394,7 +394,7 @@ def run_engine(universe_dict, params, sznl_map, market_series=None):
                 conditions.append(final_perf_cond)
 
             # --- DISTANCE FROM MA FILTER ---
-            if params.get('use_dist_filter', False):
+            if params.get('use_ma_dist_filter', False):
                 ma_choice = params['dist_ma_type']
                 ma_col_map = {
                     "SMA 10": "SMA10", "SMA 20": "SMA20", "SMA 50": "SMA50", 
@@ -844,17 +844,17 @@ def main():
         c_acc, c_dist = st.columns(2)
         with c_acc:
             st.markdown("#### Accumulation Filter")
-            use_acc_filter = st.checkbox("Enable Acc Count", value=False)
-            acc_window = st.selectbox("Acc Window", [5, 10, 21, 42], index=2, disabled=not use_acc_filter)
-            acc_logic = st.selectbox("Acc Logic", [">", "<", "="], disabled=not use_acc_filter)
-            acc_thresh = st.number_input("Acc Threshold", 0, 42, 3, disabled=not use_acc_filter)
+            use_acc_count_filter = st.checkbox("Enable Acc Count", value=False)
+            acc_count_window = st.selectbox("Acc Window", [5, 10, 21, 42], index=2, disabled=not use_acc_count_filter)
+            acc_count_logic = st.selectbox("Acc Logic", [">", "<", "="], disabled=not use_acc_count_filter)
+            acc_count_thresh = st.number_input("Acc Threshold", 0, 42, 3, disabled=not use_acc_count_filter)
             
         with c_dist:
             st.markdown("#### Distribution Filter")
-            use_dist_filter = st.checkbox("Enable Dist Count", value=False)
-            dist_window = st.selectbox("Dist Window", [5, 10, 21, 42], index=2, disabled=not use_dist_filter)
-            dist_logic = st.selectbox("Dist Logic", [">", "<", "="], disabled=not use_dist_filter)
-            dist_thresh = st.number_input("Dist Threshold", 0, 42, 3, disabled=not use_dist_filter)
+            use_dist_count_filter = st.checkbox("Enable Dist Count", value=False)
+            dist_count_window = st.selectbox("Dist Window", [5, 10, 21, 42], index=2, disabled=not use_dist_count_filter)
+            dist_count_logic = st.selectbox("Dist Logic", [">", "<", "="], disabled=not use_dist_count_filter)
+            dist_count_thresh = st.number_input("Dist Threshold", 0, 42, 3, disabled=not use_dist_count_filter)
 
     with st.expander("Gap Filter (Momentum/Exhaustion)", expanded=False):
         use_gap_filter = st.checkbox("Enable Open Gap Filter", value=False, help="Count days where Low > Prev High (Unfilled Gap Up) in the window.")
@@ -865,19 +865,19 @@ def main():
 
     with st.expander("Distance from MA Filter (ATR Units)", expanded=False):
         st.caption("Calculation: (Close - Moving Average) / 14-Period ATR")
-        use_dist_filter = st.checkbox("Enable Distance Filter", value=False)
+        use_ma_dist_filter = st.checkbox("Enable Distance Filter", value=False)
         d1, d2, d3, d4 = st.columns(4)
         with d1:
             dist_ma_type = st.selectbox("Select Moving Average", 
                 ["SMA 10", "SMA 20", "SMA 50", "SMA 100", "SMA 200", "EMA 8", "EMA 11", "EMA 21"],
-                disabled=not use_dist_filter
+                disabled=not use_ma_dist_filter
             )
         with d2:
-            dist_logic = st.selectbox("Logic", ["Greater Than (>)", "Less Than (<)", "Between"], disabled=not use_dist_filter)
+            dist_logic = st.selectbox("Logic", ["Greater Than (>)", "Less Than (<)", "Between"], disabled=not use_ma_dist_filter)
         with d3:
-            dist_min = st.number_input("Min ATR Dist (or > threshold)", -50.0, 50.0, 0.0, step=0.5, disabled=not use_dist_filter)
+            dist_min = st.number_input("Min ATR Dist (or > threshold)", -50.0, 50.0, 0.0, step=0.5, disabled=not use_ma_dist_filter)
         with d4:
-            dist_max = st.number_input("Max ATR Dist (or < threshold)", -50.0, 50.0, 2.0, step=0.5, disabled=not use_dist_filter)
+            dist_max = st.number_input("Max ATR Dist (or < threshold)", -50.0, 50.0, 2.0, step=0.5, disabled=not use_ma_dist_filter)
 
     with st.expander("Price Action", expanded=False):
         pa1, pa2 = st.columns(2)
@@ -1028,15 +1028,15 @@ def main():
             'use_52w': use_52w, '52w_type': type_52w, '52w_first_instance': first_52w, '52w_lookback': lookback_52w,
             'use_vol': use_vol, 'vol_thresh': vol_thresh,
             'use_vol_rank': use_vol_rank, 'vol_rank_logic': vol_rank_logic, 'vol_rank_thresh': vol_rank_thresh,
-            'use_dist_filter': use_dist_filter, 'dist_ma_type': dist_ma_type, 
+            'use_ma_dist_filter': use_ma_dist_filter, 'dist_ma_type': dist_ma_type, 
             'dist_logic': dist_logic, 'dist_min': dist_min, 'dist_max': dist_max,
             'use_gap_filter': use_gap_filter, 'gap_lookback': gap_lookback, 
             'gap_logic': gap_logic, 'gap_thresh': gap_thresh,
             # NEW INDEPENDENT PARAMS
-            'use_acc_filter': use_acc_filter, 'acc_window': acc_window, 
-            'acc_logic': acc_logic, 'acc_thresh': acc_thresh,
-            'use_dist_filter': use_dist_filter, 'dist_window': dist_window, 
-            'dist_logic': dist_logic, 'dist_thresh': dist_thresh
+            'use_acc_count_filter': use_acc_count_filter, 'acc_count_window': acc_count_window, 
+            'acc_count_logic': acc_count_logic, 'acc_count_thresh': acc_count_thresh,
+            'use_dist_count_filter': use_dist_count_filter, 'dist_count_window': dist_count_window, 
+            'dist_count_logic': dist_count_logic, 'dist_count_thresh': dist_count_thresh
         }
         
         trades_df, rejected_df, total_signals = run_engine(data_dict, params, sznl_map, market_series)
@@ -1131,36 +1131,9 @@ def main():
 
         if not trades_df.empty or not rejected_df.empty:
             st.markdown("---")
-            st.subheader("Opportunity Cost Analysis: Actual vs. Potential")
-            if not trades_df.empty:
-                df_actual = trades_df[['ExitDate', 'PnL_Dollar']].copy()
-            else: df_actual = pd.DataFrame(columns=['ExitDate', 'PnL_Dollar'])
-            
-            if not rejected_df.empty:
-                df_rejected = rejected_df[['ExitDate', 'PnL_Dollar']].copy()
-            else: df_rejected = pd.DataFrame(columns=['ExitDate', 'PnL_Dollar'])
-
-            df_combined = pd.concat([df_actual, df_rejected]).sort_values("ExitDate")
-            
-            df_actual_curve = df_actual.sort_values("ExitDate")
-            df_actual_curve['CumPnL'] = df_actual_curve['PnL_Dollar'].cumsum()
-            
-            df_unconstrained = df_combined.sort_values("ExitDate")
-            df_unconstrained['CumPnL'] = df_unconstrained['PnL_Dollar'].cumsum()
-
-            fig_comp = go.Figure()
-            if not df_actual_curve.empty:
-                fig_comp.add_trace(go.Scatter(x=df_actual_curve['ExitDate'], y=df_actual_curve['CumPnL'], mode='lines', name='Actual Equity (Constrained)', line=dict(color='cyan', width=2)))
-            if not df_unconstrained.empty:
-                fig_comp.add_trace(go.Scatter(x=df_unconstrained['ExitDate'], y=df_unconstrained['CumPnL'], mode='lines', name='Total Potential (Inc. Failed Entries & Rejects)', line=dict(color='gray', dash='dot', width=2)))
-            
-            fig_comp.update_layout(title="Impact of Constraints & Entry Failures", xaxis_title="Date", yaxis_title="Cumulative PnL ($)")
-            st.plotly_chart(fig_comp, use_container_width=True)
-
-        st.markdown("---")
-        st.subheader("Configuration & Results (Copy Code)")
-        st.info("Copy the dictionary below and paste it into your `STRATEGY_BOOK` list in the Screener.")
-        dict_str = f"""{{
+            st.subheader("Configuration & Results (Copy Code)")
+            st.info("Copy the dictionary below and paste it into your `STRATEGY_BOOK` list in the Screener.")
+            dict_str = f"""{{
     "id": "STRAT_{int(time.time())}",
     "name": "Generated Strategy ({grade})",
     "description": "Start: {start_date}. Universe: {univ_choice}. Dir: {trade_direction}. Filter: {trend_filter}. PF: {pf:.2f}. SQN: {sqn:.2f}.",
@@ -1184,12 +1157,12 @@ def main():
         "min_price": {min_price}, "min_vol": {min_vol},
         "min_age": {min_age}, "max_age": {max_age},
         "entry_conf_bps": {entry_conf_bps},
-        "use_dist_filter": {use_dist_filter}, "dist_ma_type": "{dist_ma_type}", 
+        "use_ma_dist_filter": {use_ma_dist_filter}, "dist_ma_type": "{dist_ma_type}", 
         "dist_logic": "{dist_logic}", "dist_min": {dist_min}, "dist_max": {dist_max},
         "use_gap_filter": {use_gap_filter}, "gap_lookback": {gap_lookback}, 
         "gap_logic": "{gap_logic}", "gap_thresh": {gap_thresh},
-        "use_acc_filter": {use_acc_filter}, "acc_window": {acc_window}, "acc_logic": "{acc_logic}", "acc_thresh": {acc_thresh},
-        "use_dist_filter": {use_dist_filter}, "dist_window": {dist_window}, "dist_logic": "{dist_logic}", "dist_thresh": {dist_thresh}
+        "use_acc_count_filter": {use_acc_count_filter}, "acc_count_window": {acc_count_window}, "acc_count_logic": "{acc_count_logic}", "acc_count_thresh": {acc_count_thresh},
+        "use_dist_count_filter": {use_dist_count_filter}, "dist_count_window": {dist_count_window}, "dist_count_logic": "{dist_count_logic}", "dist_count_thresh": {dist_count_thresh}
     }},
     "execution": {{
         "risk_per_trade": {risk_per_trade},
@@ -1205,6 +1178,7 @@ def main():
         "profit_factor": "{pf:.2f}"
     }}
 }},"""
-        st.code(dict_str, language="python")
+            st.code(dict_str, language="python")
+
 if __name__ == "__main__":
     main()
