@@ -621,6 +621,9 @@ def main():
     
     sznl_map = load_seasonal_map()
     
+    # -------------------------------------------------------------------------
+    # MAIN SCREENER BUTTON
+    # -------------------------------------------------------------------------
     if st.button("Run All Strategies", type="primary", use_container_width=True):
         
         st.info(f"Scanning {len(STRATEGY_BOOK)} strategies against current market data...")
@@ -657,28 +660,21 @@ def main():
                 group_by='ticker', 
                 progress=False, 
                 threads=True
-                # REMOVED: session=session argument
             )
         except Exception as e:
             st.error(f"Data download failed: {e}")
             return
 
         # ---------------------------------------------------------------------
-        # NEW: DATA CHECK SECTION (CORRECTED)
+        # DATA INTEGRITY CHECK
         # ---------------------------------------------------------------------
         if not raw_data.empty:
-            # We look at the very last date in the downloaded yfinance data
             latest_date = raw_data.index[-1]
-            
-            # Create a dummy index of just that one date
             check_index = pd.DatetimeIndex([latest_date])
             
-            # Look up ^GSPC (and SPY just in case)
             gspc_result = get_sznl_val_series("^GSPC", check_index, sznl_map)
             spy_result = get_sznl_val_series("SPY", check_index, sznl_map)
 
-            # FIX: Use [0] instead of .iloc[0]. 
-            # (Because pandas .map() on an Index returns an Index, which doesn't have .iloc)
             gspc_check = gspc_result[0]
             spy_check = spy_result[0]
 
@@ -692,8 +688,6 @@ def main():
                     st.warning("⚠️ **Warning:** Both ranks returned 50.0. This implies the lookup FAILED (date missing in CSV) and the system used the default fallback.")
                 else:
                     st.success("✅ Seasonal data successfully mapped for today.")
-        # ---------------------------------------------------------------------
-        # ---------------------------------------------------------------------
 
         # 3. Iterate Strategies
         for strat in STRATEGY_BOOK:
@@ -716,7 +710,6 @@ def main():
                 # Prepare Market Regime Series
                 market_series = None
                 try:
-                    # Handle MultiIndex vs Single Index from yfinance
                     if len(final_download_list) > 1:
                         if strat_mkt_ticker in raw_data.columns.levels[0]:
                             mkt_df = raw_data[strat_mkt_ticker].copy()
@@ -725,7 +718,6 @@ def main():
                     else:
                         mkt_df = raw_data.copy()
 
-                    # Clean columns if needed
                     if isinstance(mkt_df.columns, pd.MultiIndex):
                         mkt_df.columns = [c if isinstance(c, str) else c[0] for c in mkt_df.columns]
                     
@@ -759,14 +751,14 @@ def main():
                             
                             last_row = df.iloc[-1]
                             
-                            # --- ENTRY CONFIRMATION CHECK (For Signal Close Only) ---
+                            # --- ENTRY CONFIRMATION CHECK ---
                             entry_conf_bps = strat['settings'].get('entry_conf_bps', 0)
                             entry_mode = strat['settings'].get('entry_type', 'Signal Close')
                             
                             if entry_mode == 'Signal Close' and entry_conf_bps > 0:
                                 threshold = last_row['Open'] * (1 + entry_conf_bps/10000.0)
                                 if last_row['High'] < threshold:
-                                    continue # Failed confirmation, skip signal
+                                    continue # Failed confirmation
 
                             atr = last_row['ATR']
                             risk = strat['execution']['risk_per_trade']
@@ -806,7 +798,7 @@ def main():
                     except Exception as e:
                         continue
                 
-                # Output
+                # Output Results for this Strategy
                 if signals:
                     st.success(f"✅ Found {len(signals)} Actionable Signals")
                     sig_df = pd.DataFrame(signals)
@@ -826,6 +818,69 @@ def main():
                     
                 else:
                     st.info("No signals found for this strategy today.")
+
+    # -------------------------------------------------------------------------
+    # DEBUG: LUV DATA INSPECTOR
+    # (Placed outside the main loop so it's always accessible at the bottom)
+    # -------------------------------------------------------------------------
+    st.markdown("---")
+    st.subheader("🔎 LUV Deep Dive (Debug)")
+    
+    if st.button("Inspect LUV Data Indicators"):
+        # 1. Fetch Data specifically for LUV and Market Ref
+        st.write("Fetching LUV & ^GSPC data...")
+        debug_tickers = ["LUV", "^GSPC", "SPY"]
+        debug_raw = yf.download(debug_tickers, start='2024-01-01', group_by='ticker', progress=False)
+        
+        # 2. Extract LUV DataFrame
+        if "LUV" in debug_raw.columns.levels[0]:
+            luv_df = debug_raw["LUV"].copy()
+            # Handle Market Regime (SPY > 200 SMA)
+            spy_df = debug_raw["SPY"].copy()
+            spy_df['SMA200'] = spy_df['Close'].rolling(200).mean()
+            market_series = spy_df['Close'] > spy_df['SMA200']
+            
+            # 3. Run the exact same calculator function
+            luv_df = calculate_indicators(luv_df, sznl_map, "LUV", market_series)
+
+            # 4. Select key columns to display
+            cols_to_show = [
+                'Close', 'Volume', 
+                'Sznl', 'Mkt_Sznl_Ref', 
+                'ret_5d', 'rank_ret_5d',
+                'ret_21d', 'rank_ret_21d',
+                'SMA200', 'Market_Above_SMA200'
+            ]
+            
+            final_cols = [c for c in cols_to_show if c in luv_df.columns]
+            
+            # 5. Show the last 5 rows
+            st.write("### LUV Data (Last 5 Days)")
+            st.dataframe(
+                luv_df[final_cols].tail(5).style.format({
+                    'Close': '{:.2f}',
+                    'Sznl': '{:.2f}',
+                    'Mkt_Sznl_Ref': '{:.2f}',
+                    'ret_5d': '{:.2%}',
+                    'rank_ret_5d': '{:.2f}',
+                    'ret_21d': '{:.2%}',
+                    'rank_ret_21d': '{:.2f}',
+                    'SMA200': '{:.2f}'
+                })
+            )
+            
+            # 6. Explicit check on the very last row
+            last_row = luv_df.iloc[-1]
+            st.write(f"**Date of Last Row:** {last_row.name.date()}")
+            st.write(f"**LUV Seasonal Rank:** {last_row['Sznl']}")
+            st.write(f"**^GSPC Seasonal Rank:** {last_row['Mkt_Sznl_Ref']}")
+            
+            if last_row['Mkt_Sznl_Ref'] == 50.0:
+                    st.error("⚠️ ^GSPC Rank is 50.0 -> This likely means data is missing for this date in your CSV!")
+            else:
+                    st.success("✅ ^GSPC Rank is valid (not default 50.0).")
+        else:
+            st.error("Could not download LUV data.")
 
 if __name__ == "__main__":
     main()
