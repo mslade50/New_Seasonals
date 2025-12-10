@@ -59,37 +59,44 @@ def calculate_path(df, cycle_label, cycle_start_mapping):
 # -----------------------------------------------------------------------------
 # NEW: RECENT PERFORMANCE ANALYSIS (Table Only)
 # -----------------------------------------------------------------------------
+# -----------------------------------------------------------------------------
+# NEW: RECENT PERFORMANCE ANALYSIS (Table Only - Weighted Logic)
+# -----------------------------------------------------------------------------
 def recent_performance_analysis(df, cycle_label, cycle_start_mapping):
     """
     Calculates percentile ranks for returns and seasonality for the last 21 days.
-    Displays results in a table (Chart removed).
+    Seasonality uses a weighted average: (All_Years + 3 * Cycle_Years) / 4.
     """
     df = df.copy()
     
-    # 1. Calculate Historical Returns Windows
+    # 1. Calculate Historical Returns Windows (Standard Overbought/Oversold Ranks)
     for w in [5, 10, 21]:
         df[f'Ret_{w}d'] = df['Close'].pct_change(w)
-        # Calculate Percentile Rank of current return vs Full History (Expanding)
-        # Rank of 99 means current return is higher than 99% of history (Overbought)
         df[f'Rank_{w}d'] = df[f'Ret_{w}d'].expanding(min_periods=252).rank(pct=True) * 100
         
     df['Daily_Ret'] = df['Close'].pct_change() * 100
 
-    # 2. Calculate Seasonal Rank (Specific to Cycle)
-    # We first calculate the average daily return for every day_count in the selected cycle
+    # 2. Calculate Weighted Seasonal Rank
+    # A. Get Baseline (All Years)
+    daily_seasonality_all = df.groupby('day_count')['log_return'].mean()
+
+    # B. Get Cycle Specific
     if cycle_label == "All Years":
-        cycle_df = df.copy()
+        # If "All Years" is selected, the weighted average is just the average
+        combined_seasonality = daily_seasonality_all
     else:
         start_yr = cycle_start_mapping[cycle_label]
         valid_years = [start_yr + i * 4 for i in range(30)]
         cycle_df = df[df['year'].isin(valid_years)].copy()
+        daily_seasonality_cycle = cycle_df.groupby('day_count')['log_return'].mean()
         
-    # Get average return for Day 1, Day 2... Day 252
-    daily_seasonality = cycle_df.groupby('day_count')['log_return'].mean()
-    
-    # Rank the days against each other (0-100). 
-    # 100 = Historically the best day of the year. 0 = Historically the worst.
-    seasonal_score_map = daily_seasonality.rank(pct=True) * 100
+        # C. Weighted Average Calculation
+        # Formula: (Avg_All + (Avg_Cycle * 3)) / 4
+        # We align them by index (day_count) automatically using pandas series math
+        combined_seasonality = (daily_seasonality_all + (daily_seasonality_cycle * 3)) / 4
+
+    # Rank the weighted daily averages from 0-100
+    seasonal_score_map = combined_seasonality.rank(pct=True) * 100
     
     # Map back to main dataframe
     df['Seasonal_Rank'] = df['day_count'].map(seasonal_score_map)
@@ -98,7 +105,7 @@ def recent_performance_analysis(df, cycle_label, cycle_start_mapping):
     recent = df.tail(21).copy()
     
     # -------------------------------------------------------------------------
-    # VISUALIZATION REMOVED - TABLE ONLY
+    # DISPLAY TABLE
     # -------------------------------------------------------------------------
     st.markdown(f"### 📋 Recent Performance Data")
     
@@ -106,13 +113,24 @@ def recent_performance_analysis(df, cycle_label, cycle_start_mapping):
     display_cols = ['Close', 'Daily_Ret', 'Volume', 'Rank_5d', 'Rank_10d', 'Rank_21d', 'Seasonal_Rank']
     table_df = recent[display_cols].sort_index(ascending=False)
     
-    # Conditional Formatting Functions
-    def color_rank(val):
+    # --- Styling Functions ---
+    
+    # 1. For Price Returns (High = Overbought = Red, Low = Oversold = Green)
+    def color_ret_rank(val):
         if pd.isna(val): return ''
-        if val >= 90: return 'color: #ff4444; font-weight: bold;' # Extreme Overbought
+        if val >= 90: return 'color: #ff4444; font-weight: bold;' # Extreme Overbought (Red)
         if val >= 80: return 'color: #ff8888;'
-        if val <= 10: return 'color: #00ff00; font-weight: bold;' # Extreme Oversold
+        if val <= 10: return 'color: #00ff00; font-weight: bold;' # Extreme Oversold (Green)
         if val <= 20: return 'color: #90ee90;'
+        return 'color: #cccccc;'
+
+    # 2. For Seasonality (High = Bullish Seasonality = Green, Low = Bearish = Red)
+    def color_seasonal_rank(val):
+        if pd.isna(val): return ''
+        if val >= 85: return 'color: #00ff00; font-weight: bold;' # Strong Bullish Seasonality (Green)
+        if val >= 65: return 'color: #90ee90;'
+        if val <= 15: return 'color: #ff4444; font-weight: bold;' # Strong Bearish Seasonality (Red)
+        if val <= 35: return 'color: #ff8888;'
         return 'color: #cccccc;'
     
     def color_ret(val):
@@ -130,11 +148,16 @@ def recent_performance_analysis(df, cycle_label, cycle_start_mapping):
         "Seasonal_Rank": "{:.0f}"
     })
     
-    styler = styler.map(color_rank, subset=['Rank_5d', 'Rank_10d', 'Rank_21d', 'Seasonal_Rank'])
+    # Apply Overbought/Oversold logic to Return Ranks
+    styler = styler.map(color_ret_rank, subset=['Rank_5d', 'Rank_10d', 'Rank_21d'])
+    
+    # Apply Bullish/Bearish logic to Seasonal Rank (The change you requested)
+    styler = styler.map(color_seasonal_rank, subset=['Seasonal_Rank'])
+    
     styler = styler.map(color_ret, subset=['Daily_Ret'])
-    styler = styler.bar(subset=['Volume'], color='#444444') # Visual bar for volume
+    styler = styler.bar(subset=['Volume'], color='#444444') 
 
-    st.caption("Values represent the Percentile Rank (0-100) of returns against the asset's full history. High = Overbought, Low = Oversold. Seasonal Rank indicates how historically bullish this specific day of the year is.")
+    st.caption(f"**Seasonal Rank** is based on a weighted average: 75% {cycle_label} data, 25% All Years data. >85 (Green) indicates historically strong days.")
     st.dataframe(styler, use_container_width=True, height=600)
 # -----------------------------------------------------------------------------
 # MAIN LOGIC
