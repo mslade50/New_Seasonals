@@ -820,45 +820,49 @@ def main():
                     st.info("No signals found for this strategy today.")
 
     # -------------------------------------------------------------------------
-    # DEBUG: LUV DATA INSPECTOR
-    # (Placed outside the main loop so it's always accessible at the bottom)
+    # DEBUG: LUV DEEP DIVE & SCORECARD
     # -------------------------------------------------------------------------
     st.markdown("---")
-    st.subheader("🔎 LUV Deep Dive (Debug)")
+    st.subheader("🔎 LUV Deep Dive (Debug & Scorecard)")
     
-    if st.button("Inspect LUV Data Indicators"):
-        # 1. Fetch Data specifically for LUV and Market Ref
-        st.write("Fetching LUV & ^GSPC data...")
+    if st.button("Inspect LUV Data & Signals"):
+        # 1. Fetch Data
+        st.write("Fetching LUV, SPY, & ^GSPC data...")
         debug_tickers = ["LUV", "^GSPC", "SPY"]
         debug_raw = yf.download(debug_tickers, start='2024-01-01', group_by='ticker', progress=False)
         
-        # 2. Extract LUV DataFrame
+        # 2. Extract & Calculate
         if "LUV" in debug_raw.columns.levels[0]:
             luv_df = debug_raw["LUV"].copy()
-            # Handle Market Regime (SPY > 200 SMA)
+            
+            # Market Regime (SPY > 200 SMA)
             spy_df = debug_raw["SPY"].copy()
             spy_df['SMA200'] = spy_df['Close'].rolling(200).mean()
             market_series = spy_df['Close'] > spy_df['SMA200']
             
-            # 3. Run the exact same calculator function
+            # Run Indicators
             luv_df = calculate_indicators(luv_df, sznl_map, "LUV", market_series)
 
-            # 4. Select key columns to display
+            # -----------------------------------------------------------------
+            # PART A: DATA INDICATORS (With Volume Spike Metrics)
+            # -----------------------------------------------------------------
             cols_to_show = [
                 'Close', 'Volume', 
+                'vol_ratio', 'vol_ratio_10d_rank', # <--- Vol Spike Metrics added
                 'Sznl', 'Mkt_Sznl_Ref', 
                 'ret_5d', 'rank_ret_5d',
                 'ret_21d', 'rank_ret_21d',
                 'SMA200', 'Market_Above_SMA200'
             ]
-            
             final_cols = [c for c in cols_to_show if c in luv_df.columns]
             
-            # 5. Show the last 5 rows
-            st.write("### LUV Data (Last 5 Days)")
+            st.write("### 1. Underlying Data Indicators (Last 5 Days)")
             st.dataframe(
                 luv_df[final_cols].tail(5).style.format({
                     'Close': '{:.2f}',
+                    'Volume': '{:,.0f}',
+                    'vol_ratio': '{:.2f}x',
+                    'vol_ratio_10d_rank': '{:.2f}',
                     'Sznl': '{:.2f}',
                     'Mkt_Sznl_Ref': '{:.2f}',
                     'ret_5d': '{:.2%}',
@@ -868,17 +872,34 @@ def main():
                     'SMA200': '{:.2f}'
                 })
             )
+
+            # -----------------------------------------------------------------
+            # PART B: STRATEGY SCORECARD
+            # -----------------------------------------------------------------
+            st.write(f"### 2. Strategy Scorecard (Date: {luv_df.index[-1].date()})")
             
-            # 6. Explicit check on the very last row
+            scorecard = []
+            for strat in STRATEGY_BOOK:
+                # We check the signal exactly as the screener does
+                passed = check_signal(luv_df, strat['settings'], sznl_map)
+                
+                scorecard.append({
+                    "Strategy Name": strat['name'],
+                    "Direction": strat['settings'].get('trade_direction', 'Long'),
+                    "Pass (1) / Fail (0)": "✅ 1 (PASS)" if passed else "0 (FAIL)"
+                })
+            
+            st.table(pd.DataFrame(scorecard))
+
+            # -----------------------------------------------------------------
+            # PART C: INTEGRITY CHECKS
+            # -----------------------------------------------------------------
             last_row = luv_df.iloc[-1]
-            st.write(f"**Date of Last Row:** {last_row.name.date()}")
-            st.write(f"**LUV Seasonal Rank:** {last_row['Sznl']}")
-            st.write(f"**^GSPC Seasonal Rank:** {last_row['Mkt_Sznl_Ref']}")
-            
             if last_row['Mkt_Sznl_Ref'] == 50.0:
-                    st.error("⚠️ ^GSPC Rank is 50.0 -> This likely means data is missing for this date in your CSV!")
+                    st.error("⚠️ Note: ^GSPC Rank is 50.0. This may indicate missing seasonal data.")
             else:
-                    st.success("✅ ^GSPC Rank is valid (not default 50.0).")
+                    st.caption("✅ Seasonal Data Integrity: OK")
+
         else:
             st.error("Could not download LUV data.")
 
