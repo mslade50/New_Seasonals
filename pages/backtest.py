@@ -69,14 +69,12 @@ def get_sznl_val_series(ticker, dates, sznl_map):
 def clean_ticker_df(df):
     if df.empty: return df
     
-    # FIX: Check if MultiIndex and columns look like (Ticker, OHLC)
     if isinstance(df.columns, pd.MultiIndex):
         if 'Close' in df.columns.get_level_values(1) or 'Adj Close' in df.columns.get_level_values(1):
              df.columns = df.columns.get_level_values(1)
         else:
              df.columns = df.columns.get_level_values(0)
     
-    # Capitalize columns (Open, High, Low, Close, Volume)
     df.columns = [str(c).strip().capitalize() for c in df.columns]
     
     if 'Close' not in df.columns and 'Adj close' in df.columns:
@@ -175,14 +173,14 @@ def calculate_indicators(df, sznl_map, ticker, market_series=None, gap_window=21
         df.index = df.index.tz_localize(None)
     df.index = df.index.normalize()
     
-    # SMAs: 10, 20, 50, 100, 200
+    # SMAs
     df['SMA10'] = df['Close'].rolling(10).mean()
     df['SMA20'] = df['Close'].rolling(20).mean()
     df['SMA50'] = df['Close'].rolling(50).mean()
     df['SMA100'] = df['Close'].rolling(100).mean()
     df['SMA200'] = df['Close'].rolling(200).mean()
     
-    # EMAs: 8, 11, 21
+    # EMAs
     df['EMA8'] = df['Close'].ewm(span=8, adjust=False).mean()
     df['EMA11'] = df['Close'].ewm(span=11, adjust=False).mean()
     df['EMA21'] = df['Close'].ewm(span=21, adjust=False).mean()
@@ -192,14 +190,14 @@ def calculate_indicators(df, sznl_map, ticker, market_series=None, gap_window=21
         df[f'ret_{window}d'] = df['Close'].pct_change(window)
         df[f'rank_ret_{window}d'] = df[f'ret_{window}d'].expanding(min_periods=252).rank(pct=True) * 100.0
     
-    # ATR (14 Period Standard)
+    # ATR
     high_low = df['High'] - df['Low']
     high_close = np.abs(df['High'] - df['Close'].shift())
     low_close = np.abs(df['Low'] - df['Close'].shift())
     ranges = pd.concat([high_low, high_close, low_close], axis=1)
     df['ATR'] = ranges.max(axis=1).rolling(14).mean()
     
-    # Seasonality (Ticker Specific)
+    # Seasonality
     df['Sznl'] = get_sznl_val_series(ticker, df.index, sznl_map)
     
     # 52w High/Low
@@ -218,9 +216,7 @@ def calculate_indicators(df, sznl_map, ticker, market_series=None, gap_window=21
     df['vol_ratio_10d'] = vol_ma_10 / vol_ma
     df['vol_ratio_10d_rank'] = df['vol_ratio_10d'].expanding(min_periods=252).rank(pct=True) * 100.0
     
-    # --- NEW: ACCUMULATION / DISTRIBUTION FLAGS ---
-    # Accumulation: Close > Open AND Vol > Prev Vol AND Vol > 63d Avg Vol
-    # Distribution: Close < Open AND Vol > Prev Vol AND Vol > 63d Avg Vol
+    # --- ACCUMULATION / DISTRIBUTION FLAGS ---
     vol_gt_prev = df['Volume'] > df['Volume'].shift(1)
     vol_gt_ma = df['Volume'] > df['vol_ma']
     is_green = df['Close'] > df['Open']
@@ -247,8 +243,7 @@ def calculate_indicators(df, sznl_map, ticker, market_series=None, gap_window=21
     # Day of Week
     df['DayOfWeekVal'] = df.index.dayofweek
     
-    # --- OPEN GAPS COUNT ---
-    # Def: Low > Prev High
+    # Open Gap Count
     is_open_gap = (df['Low'] > df['High'].shift(1)).astype(int)
     df['GapCount'] = is_open_gap.rolling(gap_window).sum()
 
@@ -279,7 +274,6 @@ def run_engine(universe_dict, params, sznl_map, market_series=None):
     elif "21 EMA" in entry_mode: pullback_col = "EMA21"
     pullback_use_level = "Level" in entry_mode
     
-    # Params for indicators
     gap_window = params.get('gap_lookback', 21)
 
     total_signals_generated = 0
@@ -299,7 +293,6 @@ def run_engine(universe_dict, params, sznl_map, market_series=None):
         ticker_last_exit = pd.Timestamp.min
         
         try:
-            # Pass gap_window here
             df = calculate_indicators(df_raw, sznl_map, ticker, market_series, gap_window=gap_window)
             
             df = df[df.index >= bt_start_ts]
@@ -355,21 +348,31 @@ def run_engine(universe_dict, params, sznl_map, market_series=None):
                 elif g_logic == "<": conditions.append(df['GapCount'] < g_thresh)
                 elif g_logic == "=": conditions.append(df['GapCount'] == g_thresh)
 
-            # --- NEW: ACCUMULATION / DISTRIBUTION COUNT FILTER ---
-            if params.get('use_acc_dist_filter', False):
-                acc_dist_type = params['acc_dist_type'] # "Accumulation" or "Distribution"
-                acc_dist_window = params['acc_dist_window'] # 5, 10, 21, 42
-                acc_dist_logic = params['acc_dist_logic'] # <, >
-                acc_dist_thresh = params['acc_dist_thresh']
+            # --- NEW: INDEPENDENT ACCUMULATION FILTER ---
+            if params.get('use_acc_filter', False):
+                win = params['acc_window']
+                logic = params['acc_logic']
+                thresh = params['acc_thresh']
                 
-                target_col = 'is_acc_day' if acc_dist_type == "Accumulation" else 'is_dist_day'
+                # Rolling sum of accumulation days
+                rolling_acc = df['is_acc_day'].rolling(win).sum()
                 
-                # Dynamic rolling sum based on user choice
-                rolling_count = df[target_col].rolling(acc_dist_window).sum()
+                if logic == ">": conditions.append(rolling_acc > thresh)
+                elif logic == "<": conditions.append(rolling_acc < thresh)
+                elif logic == "=": conditions.append(rolling_acc == thresh)
+
+            # --- NEW: INDEPENDENT DISTRIBUTION FILTER ---
+            if params.get('use_dist_filter', False):
+                win = params['dist_window']
+                logic = params['dist_logic']
+                thresh = params['dist_thresh']
                 
-                if acc_dist_logic == ">": conditions.append(rolling_count > acc_dist_thresh)
-                elif acc_dist_logic == "<": conditions.append(rolling_count < acc_dist_thresh)
-                elif acc_dist_logic == "=": conditions.append(rolling_count == acc_dist_thresh)
+                # Rolling sum of distribution days
+                rolling_dist = df['is_dist_day'].rolling(win).sum()
+                
+                if logic == ">": conditions.append(rolling_dist > thresh)
+                elif logic == "<": conditions.append(rolling_dist < thresh)
+                elif logic == "=": conditions.append(rolling_dist == thresh)
 
             # --- MULTI-PERFORMANCE FILTER ---
             perf_filters = params.get('perf_filters', [])
@@ -833,17 +836,25 @@ def main():
         with l3: min_age = st.number_input("Min True Age (Yrs)", value=0.25, step=0.25)
         with l4: max_age = st.number_input("Max True Age (Yrs)", value=100.0, step=1.0)
     
-    # --- ACCUMULATION / DISTRIBUTION COUNT ---
-    with st.expander("Accumulation/Distribution Counts", expanded=False):
-        st.markdown("**Accumulation:** Close > Open, Vol > Prev, Vol > 63d MA.")
-        st.markdown("**Distribution:** Close < Open, Vol > Prev, Vol > 63d MA.")
-        use_acc_dist_filter = st.checkbox("Enable Acc/Dist Count Filter", value=False)
+    # --- INDEPENDENT ACCUMULATION / DISTRIBUTION COUNT ---
+    with st.expander("Accumulation/Distribution Counts (Independent)", expanded=False):
+        st.markdown("**Filters are additive (AND logic).**")
+        st.markdown("• **Acc:** Close > Open, Vol > Prev, Vol > 63d MA.\n• **Dist:** Close < Open, Vol > Prev, Vol > 63d MA.")
         
-        ad1, ad2, ad3, ad4 = st.columns(4)
-        with ad1: acc_dist_type = st.selectbox("Type", ["Accumulation", "Distribution"], disabled=not use_acc_dist_filter)
-        with ad2: acc_dist_window = st.selectbox("Lookback Window", [5, 10, 21, 42], index=2, disabled=not use_acc_dist_filter)
-        with ad3: acc_dist_logic = st.selectbox("Count Logic", [">", "<", "="], disabled=not use_acc_dist_filter)
-        with ad4: acc_dist_thresh = st.number_input("Count Threshold", 0, 42, 3, disabled=not use_acc_dist_filter)
+        c_acc, c_dist = st.columns(2)
+        with c_acc:
+            st.markdown("#### Accumulation Filter")
+            use_acc_filter = st.checkbox("Enable Acc Count", value=False)
+            acc_window = st.selectbox("Acc Window", [5, 10, 21, 42], index=2, disabled=not use_acc_filter)
+            acc_logic = st.selectbox("Acc Logic", [">", "<", "="], disabled=not use_acc_filter)
+            acc_thresh = st.number_input("Acc Threshold", 0, 42, 3, disabled=not use_acc_filter)
+            
+        with c_dist:
+            st.markdown("#### Distribution Filter")
+            use_dist_filter = st.checkbox("Enable Dist Count", value=False)
+            dist_window = st.selectbox("Dist Window", [5, 10, 21, 42], index=2, disabled=not use_dist_filter)
+            dist_logic = st.selectbox("Dist Logic", [">", "<", "="], disabled=not use_dist_filter)
+            dist_thresh = st.number_input("Dist Threshold", 0, 42, 3, disabled=not use_dist_filter)
 
     with st.expander("Gap Filter (Momentum/Exhaustion)", expanded=False):
         use_gap_filter = st.checkbox("Enable Open Gap Filter", value=False, help="Count days where Low > Prev High (Unfilled Gap Up) in the window.")
@@ -1021,9 +1032,11 @@ def main():
             'dist_logic': dist_logic, 'dist_min': dist_min, 'dist_max': dist_max,
             'use_gap_filter': use_gap_filter, 'gap_lookback': gap_lookback, 
             'gap_logic': gap_logic, 'gap_thresh': gap_thresh,
-            # NEW PARAMS
-            'use_acc_dist_filter': use_acc_dist_filter, 'acc_dist_type': acc_dist_type,
-            'acc_dist_window': acc_dist_window, 'acc_dist_logic': acc_dist_logic, 'acc_dist_thresh': acc_dist_thresh
+            # NEW INDEPENDENT PARAMS
+            'use_acc_filter': use_acc_filter, 'acc_window': acc_window, 
+            'acc_logic': acc_logic, 'acc_thresh': acc_thresh,
+            'use_dist_filter': use_dist_filter, 'dist_window': dist_window, 
+            'dist_logic': dist_logic, 'dist_thresh': dist_thresh
         }
         
         trades_df, rejected_df, total_signals = run_engine(data_dict, params, sznl_map, market_series)
@@ -1175,8 +1188,8 @@ def main():
         "dist_logic": "{dist_logic}", "dist_min": {dist_min}, "dist_max": {dist_max},
         "use_gap_filter": {use_gap_filter}, "gap_lookback": {gap_lookback}, 
         "gap_logic": "{gap_logic}", "gap_thresh": {gap_thresh},
-        "use_acc_dist_filter": {use_acc_dist_filter}, "acc_dist_type": "{acc_dist_type}",
-        "acc_dist_window": {acc_dist_window}, "acc_dist_logic": "{acc_dist_logic}", "acc_dist_thresh": {acc_dist_thresh}
+        "use_acc_filter": {use_acc_filter}, "acc_window": {acc_window}, "acc_logic": "{acc_logic}", "acc_thresh": {acc_thresh},
+        "use_dist_filter": {use_dist_filter}, "dist_window": {dist_window}, "dist_logic": "{dist_logic}", "dist_thresh": {dist_thresh}
     }},
     "execution": {{
         "risk_per_trade": {risk_per_trade},
