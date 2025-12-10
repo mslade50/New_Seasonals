@@ -56,9 +56,13 @@ def calculate_path(df, cycle_label, cycle_start_mapping):
 # -----------------------------------------------------------------------------
 # NEW: RECENT PERFORMANCE ANALYSIS
 # -----------------------------------------------------------------------------
+# -----------------------------------------------------------------------------
+# NEW: RECENT PERFORMANCE ANALYSIS (Table Only)
+# -----------------------------------------------------------------------------
 def recent_performance_analysis(df, cycle_label, cycle_start_mapping):
     """
     Calculates percentile ranks for returns and seasonality for the last 21 days.
+    Displays results in a table (Chart removed).
     """
     df = df.copy()
     
@@ -94,50 +98,10 @@ def recent_performance_analysis(df, cycle_label, cycle_start_mapping):
     recent = df.tail(21).copy()
     
     # -------------------------------------------------------------------------
-    # VISUALIZATION: RANKS CHART
+    # VISUALIZATION REMOVED - TABLE ONLY
     # -------------------------------------------------------------------------
-    st.markdown(f"### 🌡️ Recent Technical & Seasonal Heatmap")
+    st.markdown(f"### 📋 Recent Performance Data")
     
-    # Create subplots: Row 1 = Ranks (Oscillator), Row 2 = Volume
-    fig = make_subplots(rows=2, cols=1, shared_xaxes=True, 
-                        vertical_spacing=0.05, row_heights=[0.7, 0.3],
-                        subplot_titles=("Statistical Return Ranks (0-100)", "Volume"))
-
-    # 5d Rank
-    fig.add_trace(go.Scatter(x=recent.index, y=recent['Rank_5d'], name="5d Ret Rank",
-                             line=dict(color='#FF6D00', width=2)), row=1, col=1)
-    # 10d Rank
-    fig.add_trace(go.Scatter(x=recent.index, y=recent['Rank_10d'], name="10d Ret Rank",
-                             line=dict(color='#00B0FF', width=2)), row=1, col=1)
-    # 21d Rank
-    fig.add_trace(go.Scatter(x=recent.index, y=recent['Rank_21d'], name="21d Ret Rank",
-                             line=dict(color='#D500F9', width=2)), row=1, col=1)
-    
-    # Seasonal Rank (Dotted to differentiate)
-    fig.add_trace(go.Scatter(x=recent.index, y=recent['Seasonal_Rank'], name="Seasonal Strength",
-                             line=dict(color='white', width=1, dash='dot'), opacity=0.7), row=1, col=1)
-
-    # Overbought/Oversold Lines
-    fig.add_hrect(y0=80, y1=100, row=1, col=1, fillcolor="red", opacity=0.1, line_width=0)
-    fig.add_hrect(y0=0, y1=20, row=1, col=1, fillcolor="green", opacity=0.1, line_width=0)
-
-    # Volume Bar
-    colors = ['red' if r < 0 else 'green' for r in recent['Daily_Ret']]
-    fig.add_trace(go.Bar(x=recent.index, y=recent['Volume'], name="Volume",
-                         marker_color=colors, opacity=0.8), row=2, col=1)
-
-    fig.update_layout(height=500, plot_bgcolor='black', paper_bgcolor='black',
-                      font=dict(color='white'), margin=dict(t=30, b=10, l=10, r=10),
-                      yaxis=dict(range=[0, 100], title="Percentile Rank"),
-                      showlegend=True, legend=dict(orientation="h", y=1.1))
-    fig.update_xaxes(showgrid=False)
-    fig.update_yaxes(showgrid=False, row=2, col=1)
-    
-    st.plotly_chart(fig, use_container_width=True)
-
-    # -------------------------------------------------------------------------
-    # DATA TABLE
-    # -------------------------------------------------------------------------
     # Prepare display dataframe
     display_cols = ['Close', 'Daily_Ret', 'Volume', 'Rank_5d', 'Rank_10d', 'Rank_21d', 'Seasonal_Rank']
     table_df = recent[display_cols].sort_index(ascending=False)
@@ -172,7 +136,6 @@ def recent_performance_analysis(df, cycle_label, cycle_start_mapping):
 
     st.caption("Values represent the Percentile Rank (0-100) of returns against the asset's full history. High = Overbought, Low = Oversold. Seasonal Rank indicates how historically bullish this specific day of the year is.")
     st.dataframe(styler, use_container_width=True, height=600)
-
 # -----------------------------------------------------------------------------
 # MAIN LOGIC
 # -----------------------------------------------------------------------------
