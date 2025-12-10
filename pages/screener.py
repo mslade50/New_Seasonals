@@ -467,7 +467,7 @@ def calculate_indicators(df, sznl_map, ticker, market_series=None):
     return df
     
 def check_signal(df, params, sznl_map):
-    last_row = df.iloc[-10]
+    last_row = df.iloc[-1]
     
     # 0. Day of Week Filter
     # 0=Mon, 1=Tue, 2=Wed, 3=Thu, 4=Fri
