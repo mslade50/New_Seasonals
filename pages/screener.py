@@ -105,7 +105,7 @@ STRATEGY_BOOK = [
             "use_market_sznl": True, "market_sznl_logic": "<", "market_sznl_thresh": 33.0,
             "market_ticker": "^GSPC",
             "use_52w": False, "52w_type": "New 52w High", "52w_first_instance": False, "52w_lookback": 21,
-            "use_vol": True, "vol_thresh": 1.5,
+            "use_vol": True, "vol_thresh": 1.25,
             "use_vol_rank": False, "vol_rank_logic": ">", "vol_rank_thresh": 40.0,
             "trend_filter": "None",
             "min_price": 10.0, "min_vol": 100000,
