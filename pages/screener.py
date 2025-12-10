@@ -584,10 +584,21 @@ def check_signal(df, params, sznl_map):
 
     if params.get('use_market_sznl', False):
         mkt_ticker = params.get('market_ticker', '^GSPC')
+        
+        # STRICT CHECK for Market Ticker (Optional but recommended safety)
+        mkt_series_ref = sznl_map.get(mkt_ticker)
+        if mkt_series_ref is None and mkt_ticker == '^GSPC':
+             mkt_series_ref = sznl_map.get('SPY')
+
+        # Generate the ranks
         mkt_ranks = get_sznl_val_series(mkt_ticker, df.index, sznl_map)
+        
+        # Perform comparison (creates a numpy boolean array)
         if params['market_sznl_logic'] == '<': mkt_cond = mkt_ranks < params['market_sznl_thresh']
         else: mkt_cond = mkt_ranks > params['market_sznl_thresh']
-        if not mkt_cond.iloc[-1]: return False
+        
+        # FIX: Use [-1] instead of .iloc[-1] because mkt_cond is a numpy array
+        if not mkt_cond[-1]: return False
 
     # 8. 52w
     if params['use_52w']:
