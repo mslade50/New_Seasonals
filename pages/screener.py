@@ -41,6 +41,52 @@ STRATEGY_BOOK = [
         "stats": { "grade": "A (Excellent)", "win_rate": "64.1%", "expectancy": "$471.36", "profit_factor": "4.51" }
     },
     {
+        "id": "5+10+21d > 85%ile, 0 acc days in last 21, sell t+1 open + 0.5 ATR 10d time stop",
+        "name": "No Accumulation Days",
+        "description": "Start: 2000-01-01. Universe: All CSV Tickers. Dir: Short. Filter: Price > 200 SMA. PF: 2.44. SQN: 3.40.",
+        "universe_tickers": ['AAPL', 'ABT', 'ADBE', 'ADI', 'ADM', 'ADP', 'ADSK', 'AEP', 'AIG', 'ALL', 'AMAT', 'AMD', 'AMGN', 'AMZN', 'AON', 'APD', 'AVGO', 'AXP', 'BA', 'BAC', 'BAX', 'BDX', 'BK', 'BMY', 'C', 'CAG', 'CAT', 'CEF', 'CL', 'CMCSA', 'CMS', 'CNP', 'COP', 'COST', 'CPB', 'CRM', 'CSCO', 'CSX', 'CVS', 'CVX', 'D', 'DE', 'DIA', 'DIS', 'DOV', 'DTE', 'DUK', 'ECL', 'ED', 'EIX', 'EMR', 'EOG', 'ETR', 'EXC', 'F', 'FCX', 'FDX', 'FE', 'GD', 'GE', 'GILD', 'GIS', 'GLD', 'GLW', 'GOOG', 'GPC', 'GS', 'HAL', 'HD', 'HIG', 'HON', 'HPQ', 'HRL', 'HSY', 'HUM', 'IBB', 'IBM', 'IHI', 'INTC', 'IP', 'ITA', 'ITB', 'ITW', 'IWM', 'IYR', 'JNJ', 'JPM', 'K', 'KEY', 'KMB', 'KO', 'KR', 'KRE', 'LEG', 'LIN', 'LLY', 'LMT', 'LOW', 'LUV', 'MAS', 'MCD', 'MDT', 'MET', 'META', 'MMC', 'MMM', 'MO', 'MRK', 'MS', 'MSFT', 'MU', 'NEE', 'NEM', 'NKE', 'NOC', 'NSC', 'NUE', 'NVDA', 'OIH', 'ORCL', 'OXY', 'PAYX', 'PCG', 'PEG', 'PEP', 'PFE', 'PG', 'PGR', 'PH', 'PNW', 'PPG', 'PPL', 'PSA', 'QCOM', 'QQQ', 'REGN', 'RF', 'RHI', 'ROK', 'ROST', 'RTX', 'SBUX', 'SCHW', 'SHW', 'SLB', 'SLV', 'SMH', 'SNA', 'SO', 'SPG', 'SPY', 'SRE', 'STT', 'SWK', 'SYK', 'SYY', 'T', 'TAP', 'TGT', 'TJX', 'TMO', 'TRV', 'TSN', 'TXN', 'UNG', 'UNH', 'UNP', 'USB', 'USO', 'UVXY', 'V', 'VFC', 'VLO', 'VMC', 'VNQ', 'VZ', 'WFC', 'WHR', 'WM', 'WMB', 'WMT', 'XBI', 'XHB', 'XLB', 'XLE', 'XLF', 'XLI', 'XLK', 'XLP', 'XLU', 'XLV', 'XLY', 'XME', 'XOM', 'XOP', 'XRT', '^GSPC', '^NDX'], 
+        "settings": {
+            "trade_direction": "Short",
+            "entry_type": "Limit (Open +/- 0.5 ATR)",
+            "max_one_pos": True,
+            "allow_same_day_reentry": False,
+            "max_daily_entries": 2,
+            "max_total_positions": 10,
+            "perf_filters": [{'window': 5, 'logic': '>', 'thresh': 85.0, 'consecutive': 1}, {'window': 10, 'logic': '>', 'thresh': 85.0, 'consecutive': 1}, {'window': 21, 'logic': '>', 'thresh': 85.0, 'consecutive': 1}],
+            "perf_first_instance": False, "perf_lookback": 21,
+            "use_sznl": False, "sznl_logic": "<", "sznl_thresh": 15.0, "sznl_first_instance": True, "sznl_lookback": 21,
+            "use_market_sznl": False, "market_sznl_logic": "<", "market_sznl_thresh": 15.0,
+            "market_ticker": "^GSPC",
+            "use_52w": False, "52w_type": "New 52w High", "52w_first_instance": True, "52w_lookback": 21,
+            "use_vol": False, "vol_thresh": 1.5,
+            "use_vol_rank": False, "vol_rank_logic": "<", "vol_rank_thresh": 50.0,
+            "trend_filter": "Price > 200 SMA",
+            "min_price": 10.0, "min_vol": 100000,
+            "min_age": 0.25, "max_age": 100.0,
+            "min_atr_pct": 0.0,
+            "entry_conf_bps": 0,
+            "use_ma_dist_filter": True, "dist_ma_type": "SMA 50", 
+            "dist_logic": "Greater Than (>)", "dist_min": 5.0, "dist_max": 2.0,
+            "use_gap_filter": False, "gap_lookback": 21, 
+            "gap_logic": ">", "gap_thresh": 3,
+            "use_acc_count_filter": True, "acc_count_window": 21, "acc_count_logic": "=", "acc_count_thresh": 0,
+            "use_dist_count_filter": False, "dist_count_window": 21, "dist_count_logic": ">", "dist_count_thresh": 0
+        },
+        "execution": {
+            "risk_per_trade": 400,
+            "slippage_bps": 5,
+            "stop_atr": 2.0,
+            "tgt_atr": 8.0,
+            "hold_days": 10
+        },
+        "stats": {
+            "grade": "A (Excellent)",
+            "win_rate": "55.8%",
+            "expectancy": "$154.19",
+            "profit_factor": "2.44"
+        }
+    },
+    {
         "id": "Lower 10% of range <50% ile 5dr >33 SPX sznl",
         "name": "Bottom of Range Reversion",
         "description": "Start: 2000-01-01. Universe: Indices. Dir: Long. Filter: None. PF: 1.49. SQN: 8.83.",
@@ -407,13 +453,13 @@ def calculate_indicators(df, sznl_map, ticker, market_series=None):
     df.columns = [c.capitalize() for c in df.columns]
     if df.index.tz is not None: df.index = df.index.tz_localize(None)
     
-    # --- MAs (Added SMA50/10/20 for Distance Filters) ---
+    # --- MAs ---
     df['SMA10'] = df['Close'].rolling(10).mean()
     df['SMA20'] = df['Close'].rolling(20).mean()
     df['SMA50'] = df['Close'].rolling(50).mean() 
     df['SMA200'] = df['Close'].rolling(200).mean()
     
-    # --- Gap Count (Logic: Low > Prev High = Gap Up) ---
+    # --- Gap Count ---
     is_open_gap = (df['Low'] > df['High'].shift(1)).astype(int)
     df['GapCount_21'] = is_open_gap.rolling(21).sum() 
     df['GapCount_10'] = is_open_gap.rolling(10).sum()
@@ -421,51 +467,61 @@ def calculate_indicators(df, sznl_map, ticker, market_series=None):
 
     # --- Candle Range Location % ---
     denom = (df['High'] - df['Low'])
-    # Avoid division by zero; if High=Low, RangePct is 0.5
     df['RangePct'] = np.where(denom == 0, 0.5, (df['Close'] - df['Low']) / denom)
 
-    # Perf Ranks
+    # --- Perf Ranks ---
     for window in [5, 10, 21]:
         df[f'ret_{window}d'] = df['Close'].pct_change(window)
         df[f'rank_ret_{window}d'] = df[f'ret_{window}d'].expanding(min_periods=50).rank(pct=True) * 100.0
         
-    # ATR
+    # --- ATR ---
     high_low = df['High'] - df['Low']
     high_close = np.abs(df['High'] - df['Close'].shift())
     low_close = np.abs(df['Low'] - df['Close'].shift())
     ranges = pd.concat([high_low, high_close, low_close], axis=1)
     df['ATR'] = ranges.max(axis=1).rolling(14).mean()
     
-    # Seasonality
-    df['Sznl'] = get_sznl_val_series(ticker, df.index, sznl_map)
-    
-    # 52w High/Low
-    rolling_high = df['High'].shift(1).rolling(252).max()
-    rolling_low = df['Low'].shift(1).rolling(252).min()
-    df['is_52w_high'] = df['High'] > rolling_high
-    df['is_52w_low'] = df['Low'] < rolling_low
-    
-    # Volume
+    # --- Volume & Accumulation Logic ---
     vol_ma = df['Volume'].rolling(63).mean()
     df['vol_ratio'] = df['Volume'] / vol_ma
     df['vol_ma'] = vol_ma
     
-    # Volume Rank
+    # 1. Vol > 63d MA
+    cond_vol_ma = df['Volume'] > vol_ma
+    # 2. Vol > Yesterday Vol
+    cond_vol_up = df['Volume'] > df['Volume'].shift(1)
+    # 3. Close > Open (Green Candle)
+    cond_green = df['Close'] > df['Open']
+    cond_red = df['Close'] < df['Open']
+    # Combine & Rolling Sum
+    is_accumulation = (cond_vol_ma & cond_vol_up & cond_green).astype(int)
+    df['AccCount_21'] = is_accumulation.rolling(21).sum()
+    is_distribution = (cond_vol_ma & cond_vol_up & cond_red).astype(int)
+    df['DistCount21'] = is_distribution.rolling(21).sum()
+    # --- Volume Rank ---
     vol_ma_10 = df['Volume'].rolling(10).mean()
     df['vol_ratio_10d'] = vol_ma_10 / vol_ma
     df['vol_ratio_10d_rank'] = df['vol_ratio_10d'].expanding(min_periods=50).rank(pct=True) * 100.0
+    
+    # --- Seasonality ---
     df['Sznl'] = get_sznl_val_series(ticker, df.index, sznl_map)
     df['Mkt_Sznl_Ref'] = get_sznl_val_series("^GSPC", df.index, sznl_map)
-    # Age
+    
+    # --- Age & Market Regime ---
     if not df.empty:
         start_ts = df.index[0]
         df['age_years'] = (df.index - start_ts).days / 365.25
     else:
         df['age_years'] = 0.0
 
-    # Market Regime
     if market_series is not None:
         df['Market_Above_SMA200'] = market_series.reindex(df.index, method='ffill').fillna(False)
+    
+    # --- 52w High/Low ---
+    rolling_high = df['High'].shift(1).rolling(252).max()
+    rolling_low = df['Low'].shift(1).rolling(252).min()
+    df['is_52w_high'] = df['High'] > rolling_high
+    df['is_52w_low'] = df['Low'] < rolling_low
         
     return df
     
@@ -554,7 +610,20 @@ def check_signal(df, params, sznl_map):
         if g_logic == ">" and not (gap_val > g_thresh): return False
         if g_logic == "<" and not (gap_val < g_thresh): return False
         if g_logic == "=" and not (gap_val == g_thresh): return False
-
+    #5b. Accumulation days
+    if params.get('use_acc_count_filter', False):
+        window = params.get('acc_count_window', 21)
+        col_name = f'AccCount_{window}'
+        
+        # Safety check if column exists
+        if col_name in df.columns:
+            acc_val = last_row[col_name]
+            acc_logic = params.get('acc_count_logic', '=')
+            acc_thresh = params.get('acc_count_thresh', 0)
+            
+            if acc_logic == "=" and not (acc_val == acc_thresh): return False
+            if acc_logic == ">" and not (acc_val > acc_thresh): return False
+            if acc_logic == "<" and not (acc_val < acc_thresh): return False
     # 6. Distance Filter
     if params.get('use_dist_filter', False):
         ma_type = params.get('dist_ma_type', 'SMA 200')
@@ -801,6 +870,7 @@ def main():
                                 "Ticker": ticker,
                                 "Date": last_row.name.date(),
                                 "Action": action,
+                                "Entry Criteria": strat['settings'].get('entry_type', 'Signal Close'), # <--- NEW LINE
                                 "Shares": shares,
                                 "Entry": entry,
                                 "Stop": stop_price,
