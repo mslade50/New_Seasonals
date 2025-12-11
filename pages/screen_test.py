@@ -447,7 +447,7 @@ def calculate_trade_result(df, signal_date, action, shares, entry_price, hold_da
     return pnl, exit_date
 
 def calculate_daily_exposure(sig_df):
-    """ Reconstructs daily dollar exposure from trade logs """
+    """ Reconstructs daily dollar exposure from trade logs and adds Net Exposure """
     if sig_df.empty: return pd.DataFrame()
     
     # Create a full date range covering the entire backtest period
@@ -462,19 +462,64 @@ def calculate_daily_exposure(sig_df):
         trade_dates = pd.date_range(start=row['Date'], end=row['Exit Date'])
         dollar_val = row['Price'] * row['Shares']
         
-        # We assume exposure starts day AFTER signal (entry) and ends on exit date
-        # Adjust based on your specific entry execution (e.g. T+1 Open vs Close)
-        # Here assuming fully invested for the duration
-        
         if row['Action'] == 'BUY':
-            # Add to Long Column
             exposure_df.loc[exposure_df.index.isin(trade_dates), 'Long Exposure ($)'] += dollar_val
         elif row['Action'] == 'SELL SHORT':
-            # Add to Short Column (keep positive magnitude for plotting comparison, or negative?)
-            # Usually exposure is plotted as absolute magnitude or distinct lines.
             exposure_df.loc[exposure_df.index.isin(trade_dates), 'Short Exposure ($)'] += dollar_val
             
+    # Calculate Net Exposure
+    exposure_df['Net Exposure ($)'] = exposure_df['Long Exposure ($)'] - exposure_df['Short Exposure ($)']
+            
     return exposure_df
+
+def calculate_performance_stats(sig_df):
+    """ Calculates Count, PnL, Sharpe, Profit Factor, SQN per Strategy """
+    stats = []
+    
+    def get_metrics(df, name):
+        if df.empty:
+            return None
+        
+        count = len(df)
+        total_pnl = df['PnL'].sum()
+        
+        # Profit Factor
+        gross_profit = df[df['PnL'] > 0]['PnL'].sum()
+        gross_loss = abs(df[df['PnL'] < 0]['PnL'].sum())
+        profit_factor = gross_profit / gross_loss if gross_loss != 0 else np.nan
+        
+        # SQN: (Avg PnL / Std PnL) * Sqrt(N)
+        avg_pnl = df['PnL'].mean()
+        std_pnl = df['PnL'].std()
+        sqn = (avg_pnl / std_pnl * np.sqrt(count)) if std_pnl != 0 else 0
+        
+        # Sharpe (Annualized based on Daily PnL volatility)
+        daily_pnl = df.groupby("Exit Date")['PnL'].sum()
+        daily_mean = daily_pnl.mean()
+        daily_std = daily_pnl.std()
+        sharpe = (daily_mean / daily_std * np.sqrt(252)) if daily_std != 0 else 0
+
+        return {
+            "Strategy": name,
+            "Trades": count,
+            "Total PnL": total_pnl,
+            "Sharpe Ratio": sharpe,
+            "Profit Factor": profit_factor,
+            "SQN": sqn
+        }
+
+    # 1. Individual Strategies
+    strategies = sig_df['Strategy'].unique()
+    for strat in strategies:
+        strat_df = sig_df[sig_df['Strategy'] == strat]
+        m = get_metrics(strat_df, strat)
+        if m: stats.append(m)
+        
+    # 2. Total Portfolio
+    total_m = get_metrics(sig_df, "TOTAL PORTFOLIO")
+    if total_m: stats.append(total_m)
+    
+    return pd.DataFrame(stats)
 
 # -----------------------------------------------------------------------------
 # MAIN APP
@@ -497,7 +542,6 @@ def main():
     if run_live or run_hist:
         
         is_backtest = True if run_hist else False
-        # UPDATED LABEL
         mode_text = "Historical Backtest (252 Days)" if is_backtest else "Live Scan"
         st.info(f"Running {mode_text} on {len(STRATEGY_BOOK)} strategies...")
         
@@ -517,7 +561,6 @@ def main():
         final_download_list = [t.replace('.', '-') for t in final_download_list]
         
         # 2. Download Data
-        # Ensure we have enough data for 252 days back + 252 lookback + 50 buffer
         start_date = datetime.date.today() - datetime.timedelta(days=700)
         try:
             raw_data = yf.download(final_download_list, start=start_date, group_by='ticker', progress=False, threads=True)
@@ -587,7 +630,6 @@ def main():
                                 dist = stop_price - entry
                                 action = "SELL SHORT"
                             
-                            # CALCULATE SIZE
                             shares = int(risk / dist) if dist > 0 else 0
                             
                             # CALCULATE PNL (Using Time Exit)
@@ -664,7 +706,20 @@ def main():
                 sig_df['Exit Date'] = pd.to_datetime(sig_df['Exit Date'])
                 sig_df = sig_df.sort_values(by="Exit Date")
 
-                # 1. Total Cumulative PnL
+                # 1. Performance Table (NEW)
+                st.subheader("📊 Strategy Performance Metrics")
+                stats_df = calculate_performance_stats(sig_df)
+                st.dataframe(
+                    stats_df.style.format({
+                        "Total PnL": "${:,.2f}",
+                        "Sharpe Ratio": "{:.2f}",
+                        "Profit Factor": "{:.2f}",
+                        "SQN": "{:.2f}"
+                    }),
+                    use_container_width=True
+                )
+
+                # 2. Total Cumulative PnL
                 st.subheader("📈 Total Portfolio PnL (Rolling 252 Days)")
                 daily_pnl = sig_df.groupby("Exit Date")['PnL'].sum().cumsum()
                 st.line_chart(daily_pnl)
@@ -672,14 +727,13 @@ def main():
                 total_pnl = sig_df['PnL'].sum()
                 st.metric("Total PnL (Simulated - Time Exits Only)", f"${total_pnl:,.2f}")
 
-                # 2. Strategy Breakdown PnL (NEW)
-                st.subheader("📊 Cumulative PnL by Strategy")
-                # Pivot: Index=Date, Columns=Strategy, Values=PnL
+                # 3. Strategy Breakdown PnL
+                st.subheader("📉 Cumulative PnL by Strategy")
                 strat_pnl = sig_df.pivot_table(index='Exit Date', columns='Strategy', values='PnL', aggfunc='sum').fillna(0)
                 strat_cum_pnl = strat_pnl.cumsum()
                 st.line_chart(strat_cum_pnl)
 
-                # 3. Portfolio Exposure Analysis (NEW)
+                # 4. Portfolio Exposure Analysis (UPDATED)
                 st.subheader("⚖️ Portfolio Exposure Over Time")
                 exposure_df = calculate_daily_exposure(sig_df)
                 if not exposure_df.empty:
@@ -687,7 +741,7 @@ def main():
                 else:
                     st.warning("Not enough data to calculate exposure.")
 
-                # 4. Detailed Table
+                # 5. Detailed Table
                 st.subheader("📜 Historical Signal Log")
                 st.dataframe(
                     sig_df.sort_values(by="Date", ascending=False).style.format({
