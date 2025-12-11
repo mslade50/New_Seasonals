@@ -609,7 +609,7 @@ def main():
                     if is_backtest:
                         # HISTORICAL MODE
                         mask = get_historical_mask(df, strat['settings'], sznl_map)
-                        cutoff_date = pd.Timestamp.now() - pd.Timedelta(days=365)
+                        cutoff_date = pd.Timestamp.now() - pd.Timedelta(days=1000)
                         mask = mask[mask.index >= cutoff_date]
                         true_dates = mask[mask].index
                         
