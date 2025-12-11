@@ -196,6 +196,8 @@ def calculate_indicators(df, sznl_map, ticker, market_series=None, gap_window=21
     low_close = np.abs(df['Low'] - df['Close'].shift())
     ranges = pd.concat([high_low, high_close, low_close], axis=1)
     df['ATR'] = ranges.max(axis=1).rolling(14).mean()
+    # NEW: ATR % Calculation
+    df['ATR_Pct'] = (df['ATR'] / df['Close']) * 100
     
     # Seasonality
     df['Sznl'] = get_sznl_val_series(ticker, df.index, sznl_map)
@@ -320,10 +322,13 @@ def run_engine(universe_dict, params, sznl_map, market_series=None):
             curr_age = df['age_years'].fillna(0)
             curr_vol = df['vol_ma'].fillna(0)
             curr_close = df['Close'].fillna(0)
+            curr_atr_pct = df['ATR_Pct'].fillna(0) # New
+            
             gate = (curr_close >= params['min_price']) & \
                    (curr_vol >= params['min_vol']) & \
                    (curr_age >= params['min_age']) & \
-                   (curr_age <= params['max_age'])
+                   (curr_age <= params['max_age']) & \
+                   (curr_atr_pct >= params['min_atr_pct']) # New Filter
             conditions.append(gate)
 
             # --- PRICE ACTION ---
@@ -830,11 +835,12 @@ def main():
     st.markdown("---")
     st.subheader("3. Signal Criteria")
     with st.expander("Liquidity & Data History Filters", expanded=True):
-        l1, l2, l3, l4 = st.columns(4)
+        l1, l2, l3, l4, l5 = st.columns(5) # Changed to 5 columns
         with l1: min_price = st.number_input("Min Price ($)", value=10.0, step=1.0)
         with l2: min_vol = st.number_input("Min Avg Volume", value=100000, step=50000)
         with l3: min_age = st.number_input("Min True Age (Yrs)", value=0.25, step=0.25)
         with l4: max_age = st.number_input("Max True Age (Yrs)", value=100.0, step=1.0)
+        with l5: min_atr_pct = st.number_input("Min ATR %", value=2.5, step=0.1) # New Input
     
     # --- INDEPENDENT ACCUMULATION / DISTRIBUTION COUNT ---
     with st.expander("Accumulation/Distribution Counts (Independent)", expanded=False):
@@ -1018,7 +1024,7 @@ def main():
             'entry_type': entry_type, 'use_ma_entry_filter': use_ma_entry_filter, 'require_close_gt_open': req_green_candle,
             'use_range_filter': use_range_filter, 'range_min': range_min, 'range_max': range_max,
             'use_dow_filter': use_dow_filter, 'allowed_days': valid_days,
-            'min_price': min_price, 'min_vol': min_vol, 'min_age': min_age, 'max_age': max_age,
+            'min_price': min_price, 'min_vol': min_vol, 'min_age': min_age, 'max_age': max_age, 'min_atr_pct': min_atr_pct,
             'trend_filter': trend_filter, 'universe_tickers': tickers_to_run, 'slippage_bps': slippage_bps,
             'entry_conf_bps': entry_conf_bps,
             'perf_filters': perf_filters, 'perf_first_instance': perf_first, 'perf_lookback': perf_lookback, 
@@ -1156,6 +1162,7 @@ def main():
         "trend_filter": "{trend_filter}",
         "min_price": {min_price}, "min_vol": {min_vol},
         "min_age": {min_age}, "max_age": {max_age},
+        "min_atr_pct": {min_atr_pct},
         "entry_conf_bps": {entry_conf_bps},
         "use_ma_dist_filter": {use_ma_dist_filter}, "dist_ma_type": "{dist_ma_type}", 
         "dist_logic": "{dist_logic}", "dist_min": {dist_min}, "dist_max": {dist_max},
