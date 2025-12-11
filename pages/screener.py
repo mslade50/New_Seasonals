@@ -1003,7 +1003,7 @@ def main():
                 target_df[final_cols].tail(5).style.format({
                     'Close': '{:.2f}',
                     'Volume': '{:,.0f}',
-                    'vol_ratio_10d_rank': '{:.2f}x',
+                    'vol_ratio_10d_rank': '{:.2f}',
                     'Vol_Spike': '{}',           # Displays True/False
                     'AccCount_21': '{:.0f}',     # Integer format
                     'DistCount_21': '{:.0f}',    # Integer format
