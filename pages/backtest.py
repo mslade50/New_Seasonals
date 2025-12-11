@@ -843,17 +843,20 @@ def main():
     r_c1, r_c2, r_c3 = st.columns(3)
     with r_c1: trade_direction = st.selectbox("Trade Direction", ["Long", "Short"])
     
-    # --- CHANGED SECTION START ---
+    # --- FIXED SECTION START ---
     with r_c2: 
         exit_mode = st.selectbox(
             "Exit Mode", 
             ["Standard (Stop & Target)", "No Stop (Target + Time)", "Time Only (Hold)"],
             help="'No Stop' keeps the profit target active but ignores the stop loss."
         )
-        # derive flags for the engine
+        # Derive flags for the engine
         use_stop_loss = (exit_mode == "Standard (Stop & Target)")
         use_take_profit = (exit_mode != "Time Only (Hold)")
-    # --- CHANGED SECTION END ---
+        
+        # DEFINE THE MISSING VARIABLE HERE
+        time_exit_only = (exit_mode == "Time Only (Hold)")
+    # --- FIXED SECTION END ---
 
     with r_c3: max_one_pos = st.checkbox("Max 1 Position/Ticker", value=True)
     
@@ -870,11 +873,10 @@ def main():
     st.markdown("---")
     c1, c2, c3, c4, c5 = st.columns(5)
     with c1: 
-        # (Ensure your Entry Type selectbox includes the new option we discussed previously)
         entry_type = st.selectbox("Entry Price", [
             "Signal Close", "T+1 Open", "T+1 Close",
             "Gap Up Only (Open > Prev High)", "Limit (Close -0.5 ATR)", "Limit (Prev Close)", 
-            "Limit (Open +/- 0.5 ATR)", # Ensure this is here if you added it
+            "Limit (Open +/- 0.5 ATR)", 
             "Pullback 10 SMA (Entry: Close)", "Pullback 10 SMA (Entry: Level)",
             "Pullback 21 EMA (Entry: Close)", "Pullback 21 EMA (Entry: Level)"
         ])
@@ -882,10 +884,8 @@ def main():
         else: use_ma_entry_filter = False
         
     with c2: 
-        # Disable Stop input if we aren't using stops
         stop_atr = st.number_input("Stop Loss (ATR)", value=3.0, step=0.1, disabled=not use_stop_loss)
     with c3: 
-        # Disable Target input ONLY if we are in "Time Only" mode
         tgt_atr = st.number_input("Target (ATR)", value=8.0, step=0.1, disabled=not use_take_profit)
     with c4: hold_days = st.number_input("Max Holding Days", value=10, step=1)
     with c5: risk_per_trade = st.number_input("Risk Amount ($)", value=1000, step=100)
@@ -893,12 +893,12 @@ def main():
     st.markdown("---")
     st.subheader("3. Signal Criteria")
     with st.expander("Liquidity & Data History Filters", expanded=True):
-        l1, l2, l3, l4, l5 = st.columns(5) # Changed to 5 columns
+        l1, l2, l3, l4, l5 = st.columns(5)
         with l1: min_price = st.number_input("Min Price ($)", value=10.0, step=1.0)
         with l2: min_vol = st.number_input("Min Avg Volume", value=100000, step=50000)
         with l3: min_age = st.number_input("Min True Age (Yrs)", value=0.25, step=0.25)
         with l4: max_age = st.number_input("Max True Age (Yrs)", value=100.0, step=1.0)
-        with l5: min_atr_pct = st.number_input("Min ATR %", value=2.5, step=0.1) # New Input
+        with l5: min_atr_pct = st.number_input("Min ATR %", value=2.5, step=0.1)
     
     # --- INDEPENDENT ACCUMULATION / DISTRIBUTION COUNT ---
     with st.expander("Accumulation/Distribution Counts (Independent)", expanded=False):
@@ -1079,8 +1079,9 @@ def main():
             'backtest_start_date': start_date, 'trade_direction': trade_direction,
             'max_one_pos': max_one_pos, 'allow_same_day_reentry': allow_same_day_reentry,
             'use_stop_loss': use_stop_loss,     # New param
-            'use_take_profit': use_take_profit,
-            'time_exit_only': time_exit_only, 'stop_atr': stop_atr, 'tgt_atr': tgt_atr, 'holding_days': hold_days,
+            'use_take_profit': use_take_profit, # New param
+            'time_exit_only': time_exit_only,   # FIXED: Now defined
+            'stop_atr': stop_atr, 'tgt_atr': tgt_atr, 'holding_days': hold_days,
             'entry_type': entry_type, 'use_ma_entry_filter': use_ma_entry_filter, 'require_close_gt_open': req_green_candle,
             'use_range_filter': use_range_filter, 'range_min': range_min, 'range_max': range_max,
             'use_dow_filter': use_dow_filter, 'allowed_days': valid_days,
@@ -1098,7 +1099,6 @@ def main():
             'dist_logic': dist_logic, 'dist_min': dist_min, 'dist_max': dist_max,
             'use_gap_filter': use_gap_filter, 'gap_lookback': gap_lookback, 
             'gap_logic': gap_logic, 'gap_thresh': gap_thresh,
-            # NEW INDEPENDENT PARAMS
             'use_acc_count_filter': use_acc_count_filter, 'acc_count_window': acc_count_window, 
             'acc_count_logic': acc_count_logic, 'acc_count_thresh': acc_count_thresh,
             'use_dist_count_filter': use_dist_count_filter, 'dist_count_window': dist_count_window, 
