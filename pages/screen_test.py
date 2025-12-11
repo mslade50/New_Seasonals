@@ -101,7 +101,7 @@ STRATEGY_BOOK = [
             "perf_filters": [{'window': 5, 'logic': '>', 'thresh': 85.0, 'consecutive': 1}, {'window': 21, 'logic': '>', 'thresh': 85.0, 'consecutive': 3}],
             "perf_first_instance": False, "perf_lookback": 21,
             "use_sznl": False, "sznl_logic": "<", "sznl_thresh": 65.0, "sznl_first_instance": False, "sznl_lookback": 21,
-            "use_market_sznl": True, "market_sznl_logic": "<", "market_sznl_thresh": 40.0, "market_ticker": "^GSPC",
+            "use_market_sznl": True, "market_sznl_logic": "<", "market_sznl_thresh": 35.0, "market_ticker": "^GSPC",
             "use_52w": False, "52w_type": "New 52w High", "52w_first_instance": False, "52w_lookback": 21,
             "use_vol": True, "vol_thresh": 1.5,
             "use_vol_rank": False, "vol_rank_logic": ">", "vol_rank_thresh": 40.0,
@@ -219,9 +219,9 @@ STRATEGY_BOOK = [
             "use_range_filter": True, "range_min": 90.0, "range_max": 100.0,
             "use_dow_filter": True, "allowed_days": [0, 4],
             "use_sznl": False, "sznl_logic": "<", "sznl_thresh": 15.0, "sznl_first_instance": False, "sznl_lookback": 21,
-            "use_market_sznl": False, "market_sznl_logic": "<", "market_sznl_thresh": 40.0, "market_ticker": "^GSPC",
+            "use_market_sznl": False, "market_sznl_logic": "<", "market_sznl_thresh": 65.0, "market_ticker": "^GSPC",
             "use_52w": False, "52w_type": "New 52w High", "52w_first_instance": True, "52w_lookback": 21,
-            "use_vol": False, "vol_thresh": 1.5,
+            "use_vol": False, "vol_thresh": 1.25,
             "use_vol_rank": False, "vol_rank_logic": "<", "vol_rank_thresh": 30.0,
             "trend_filter": "None", "min_price": 10.0, "min_vol": 3000000, "min_age": 0.5, "max_age": 100.0,
             "entry_conf_bps": 0,
@@ -450,7 +450,7 @@ def get_historical_mask(df, params, sznl_map):
         elif g_logic == "<": mask &= (g_val < g_thresh)
         elif g_logic == "=": mask &= (g_val == g_thresh)
 
-    # --- Accumulation Count Filter ---
+    # --- NEW: Accumulation Count Filter ---
     if params.get('use_acc_count_filter', False):
         window = params.get('acc_count_window', 21)
         col_name = f'AccCount_{window}'
@@ -461,7 +461,7 @@ def get_historical_mask(df, params, sznl_map):
             elif acc_logic == '>': mask &= (df[col_name] > acc_thresh)
             elif acc_logic == '<': mask &= (df[col_name] < acc_thresh)
 
-    # --- Distribution Count Filter ---
+    # --- NEW: Distribution Count Filter ---
     if params.get('use_dist_count_filter', False):
         window = params.get('dist_count_window', 21)
         col_name = f'DistCount_{window}'
@@ -737,7 +737,25 @@ def main():
                             row = df.loc[d]
                             atr = row['ATR']
                             risk = strat['execution']['risk_per_trade']
-                            entry = row['Close']
+                            
+                            # Handle T+1 Entry Logic
+                            entry_type = strat['settings'].get('entry_type', 'Signal Close')
+                            entry_idx = df.index.get_loc(d)
+                            
+                            if entry_type == 'T+1 Close':
+                                if entry_idx + 1 >= len(df): continue # Cannot enter if no tomorrow
+                                entry_row = df.iloc[entry_idx + 1]
+                                entry = entry_row['Close']
+                                entry_date = entry_row.name # Trade starts T+1
+                            elif entry_type == 'T+1 Open':
+                                if entry_idx + 1 >= len(df): continue
+                                entry_row = df.iloc[entry_idx + 1]
+                                entry = entry_row['Open']
+                                entry_date = entry_row.name # Trade starts T+1
+                            else: # Signal Close
+                                entry = row['Close']
+                                entry_date = d # Trade starts T
+                            
                             direction = strat['settings'].get('trade_direction', 'Long')
                             
                             # CALCULATE STOPS (For Sizing Only)
@@ -753,18 +771,19 @@ def main():
                             shares = int(risk / dist) if dist > 0 else 0
                             
                             # CALCULATE PNL (Using Time Exit)
+                            # Pass entry_date so holding period counts correctly
                             pnl, exit_date = calculate_trade_result(
-                                df, d, action, shares, entry,
+                                df, entry_date, action, shares, entry,
                                 strat['execution']['hold_days']
                             )
 
                             all_signals.append({
-                                "Date": d.date(),
+                                "Date": d.date(), # Keep Signal Date for reference
                                 "Exit Date": exit_date.date(),
                                 "Strategy": strat['name'],
                                 "Ticker": ticker,
                                 "Action": action,
-                                "Entry Criteria": strat['settings'].get('entry_type', 'Signal Close'),
+                                "Entry Criteria": entry_type,
                                 "Price": entry,
                                 "Shares": shares,
                                 "PnL": pnl,
