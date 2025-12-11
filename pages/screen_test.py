@@ -3,7 +3,6 @@ import pandas as pd
 import numpy as np
 import yfinance as yf
 import datetime
-import gspread
 from pandas.tseries.offsets import BusinessDay
 
 # -----------------------------------------------------------------------------
@@ -261,6 +260,10 @@ def get_sznl_val_series(ticker, dates, sznl_map):
 
 def calculate_indicators(df, sznl_map, ticker, market_series=None):
     df = df.copy()
+    # Flatten columns if multi-index from yfinance recent updates
+    if isinstance(df.columns, pd.MultiIndex):
+        df.columns = [c[0] if isinstance(c, tuple) else c for c in df.columns]
+        
     df.columns = [c.capitalize() for c in df.columns]
     if df.index.tz is not None: df.index = df.index.tz_localize(None)
     
@@ -342,7 +345,7 @@ def calculate_indicators(df, sznl_map, ticker, market_series=None):
     return df
 
 def get_historical_mask(df, params, sznl_map):
-    """ Vectorized version of check_signal for historical backtesting AND live scanning """
+    """ Vectorized version of check_signal for historical backtesting """
     mask = pd.Series(True, index=df.index)
 
     if params.get('use_dow_filter', False):
@@ -476,11 +479,6 @@ def get_historical_mask(df, params, sznl_map):
 
     return mask.fillna(False)
 
-def check_signal(df, params, sznl_map):
-    """ Single row version for Live Scan (wraps vector logic) """
-    mask = get_historical_mask(df, params, sznl_map)
-    return mask.iloc[-1]
-
 def calculate_trade_result(df, signal_date, action, shares, entry_price, hold_days):
     """ 
     UPDATED: EXITS STRICTLY BASED ON TIME STOP (HOLD DAYS).
@@ -593,297 +591,226 @@ def calculate_performance_stats(sig_df):
 # -----------------------------------------------------------------------------
 
 def main():
-    st.set_page_config(layout="wide", page_title="Strategy Screener & Backtest")
-    st.title("⚡ Strategy Screener & Lab")
+    st.set_page_config(layout="wide", page_title="Strategy Backtest Lab")
+    st.title("⚡ Strategy Backtest Lab")
     st.markdown("---")
     
     sznl_map = load_seasonal_map()
     
-    # --- UI CONTROLS ---
-    col1, col2 = st.columns([1, 1])
-    with col1:
-        run_live = st.button("Run Live Scan (Today)", type="primary", use_container_width=True)
-    with col2:
-        run_hist = st.button("Run 700-Day Historical Backtest", type="secondary", use_container_width=True)
+    # --- AUTO RUN BACKTEST ---
+    st.info(f"Running Historical Backtest (700 Days) on {len(STRATEGY_BOOK)} strategies...")
+    
+    # 1. Consolidate Tickers
+    all_tickers = set()
+    market_tickers = set()
+    market_tickers.add("SPY") 
+    
+    for strat in STRATEGY_BOOK:
+        all_tickers.update(strat['universe_tickers'])
+        s = strat['settings']
+        if s.get('use_market_sznl'): market_tickers.add(s.get('market_ticker', '^GSPC'))
+        if "Market" in s.get('trend_filter', ''): market_tickers.add(s.get('market_ticker', 'SPY'))
+        if "SPY" in s.get('trend_filter', ''): market_tickers.add("SPY")
+    
+    final_download_list = list(all_tickers.union(market_tickers))
+    final_download_list = [t.replace('.', '-') for t in final_download_list]
+    
+    # 2. Download Data
+    # INCREASED BUFFER: 2000 days ensures ample warmup for 200SMA before the 700-day backtest starts
+    start_date = datetime.date.today() - datetime.timedelta(days=2000)
+    try:
+        raw_data = yf.download(final_download_list, start=start_date, group_by='ticker', progress=False, threads=True)
+    except Exception as e:
+        st.error(f"Data download failed: {e}")
+        return
 
-    if run_live or run_hist:
+    # Prepare Market Data
+    market_series = None
+    try:
+        if len(final_download_list) > 1:
+            if "SPY" in raw_data.columns.levels[0]: mkt_df = raw_data["SPY"].copy()
+            else: mkt_df = raw_data.iloc[:, :5].copy()
+        else: mkt_df = raw_data.copy()
         
-        is_backtest = True if run_hist else False
-        mode_text = "Historical Backtest (700 Days)" if is_backtest else "Live Scan"
-        st.info(f"Running {mode_text} on {len(STRATEGY_BOOK)} strategies...")
-        
-        # 1. Consolidate Tickers
-        all_tickers = set()
-        market_tickers = set()
-        market_tickers.add("SPY") 
-        
-        for strat in STRATEGY_BOOK:
-            all_tickers.update(strat['universe_tickers'])
-            s = strat['settings']
-            if s.get('use_market_sznl'): market_tickers.add(s.get('market_ticker', '^GSPC'))
-            if "Market" in s.get('trend_filter', ''): market_tickers.add(s.get('market_ticker', 'SPY'))
-            if "SPY" in s.get('trend_filter', ''): market_tickers.add("SPY")
-        
-        final_download_list = list(all_tickers.union(market_tickers))
-        final_download_list = [t.replace('.', '-') for t in final_download_list]
-        
-        # 2. Download Data
-        # INCREASED BUFFER: 2000 days ensures ample warmup for 200SMA before the 700-day backtest starts
-        start_date = datetime.date.today() - datetime.timedelta(days=2000)
-        try:
-            raw_data = yf.download(final_download_list, start=start_date, group_by='ticker', progress=False, threads=True)
-        except Exception as e:
-            st.error(f"Data download failed: {e}")
-            return
+        if isinstance(mkt_df.columns, pd.MultiIndex):
+            mkt_df.columns = [c if isinstance(c, str) else c[0] for c in mkt_df.columns]
 
-        # Prepare Market Data
-        market_series = None
-        try:
-            if len(final_download_list) > 1:
-                if "SPY" in raw_data.columns.levels[0]: mkt_df = raw_data["SPY"].copy()
-                else: mkt_df = raw_data.iloc[:, :5].copy()
-            else: mkt_df = raw_data.copy()
-            
-            if isinstance(mkt_df.columns, pd.MultiIndex):
-                mkt_df.columns = [c if isinstance(c, str) else c[0] for c in mkt_df.columns]
+        mkt_df['SMA200'] = mkt_df['Close'].rolling(200).mean()
+        market_series = mkt_df['Close'] > mkt_df['SMA200']
+    except: pass
 
-            mkt_df['SMA200'] = mkt_df['Close'].rolling(200).mean()
-            market_series = mkt_df['Close'] > mkt_df['SMA200']
-        except: pass
-
-        all_signals = []
-        progress_bar = st.progress(0)
+    all_signals = []
+    progress_bar = st.progress(0)
+    
+    # 3. Iterate Strategies
+    for i, strat in enumerate(STRATEGY_BOOK):
+        progress_bar.progress((i + 1) / len(STRATEGY_BOOK))
         
-        # 3. Iterate Strategies
-        for i, strat in enumerate(STRATEGY_BOOK):
-            progress_bar.progress((i + 1) / len(STRATEGY_BOOK))
-            
-            for ticker in strat['universe_tickers']:
-                try:
-                    if len(final_download_list) > 1:
-                        if ticker not in raw_data.columns.levels[0]: continue
-                        df = raw_data[ticker].copy()
-                    else: df = raw_data.copy()
+        for ticker in strat['universe_tickers']:
+            try:
+                if len(final_download_list) > 1:
+                    if ticker not in raw_data.columns.levels[0]: continue
+                    df = raw_data[ticker].copy()
+                else: df = raw_data.copy()
 
-                    if isinstance(df.columns, pd.MultiIndex):
-                        df.columns = [c if isinstance(c, str) else c[0] for c in df.columns]
+                if isinstance(df.columns, pd.MultiIndex):
+                    df.columns = [c if isinstance(c, str) else c[0] for c in df.columns]
 
-                    df = df.dropna(subset=['Close'])
-                    if len(df) < 250: continue
+                df = df.dropna(subset=['Close'])
+                if len(df) < 250: continue
+                
+                df = calculate_indicators(df, sznl_map, ticker, market_series)
+
+                # --- HISTORICAL LOGIC ---
+                mask = get_historical_mask(df, strat['settings'], sznl_map)
+                cutoff_date = pd.Timestamp.now() - pd.Timedelta(days=700)
+                mask = mask[mask.index >= cutoff_date]
+                true_dates = mask[mask].index
+                
+                # Track last exit to prevent overlaps (Serial Trades Only)
+                last_exit_date = None
+                
+                for d in true_dates:
+                    # OVERLAP CHECK
+                    if last_exit_date is not None and d <= last_exit_date:
+                        continue
+                        
+                    row = df.loc[d]
+                    atr = row['ATR']
+                    risk = strat['execution']['risk_per_trade']
                     
-                    df = calculate_indicators(df, sznl_map, ticker, market_series)
-
-                    # --- LOGIC ---
-                    if is_backtest:
-                        # HISTORICAL MODE
-                        mask = get_historical_mask(df, strat['settings'], sznl_map)
-                        cutoff_date = pd.Timestamp.now() - pd.Timedelta(days=700)
-                        mask = mask[mask.index >= cutoff_date]
-                        true_dates = mask[mask].index
+                    # Handle Entry Logic
+                    entry_type = strat['settings'].get('entry_type', 'Signal Close')
+                    entry_idx = df.index.get_loc(d)
+                    
+                    if entry_type == 'T+1 Close':
+                        if entry_idx + 1 >= len(df): continue 
+                        entry_row = df.iloc[entry_idx + 1]
+                        entry = entry_row['Close']
+                        entry_date = entry_row.name 
+                    elif entry_type == 'T+1 Open':
+                        if entry_idx + 1 >= len(df): continue
+                        entry_row = df.iloc[entry_idx + 1]
+                        entry = entry_row['Open']
+                        entry_date = entry_row.name 
+                    elif entry_type == "Limit (Open +/- 0.5 ATR)":
+                        if entry_idx + 1 >= len(df): continue
+                        entry_row = df.iloc[entry_idx + 1] # T+1 Data
                         
-                        # NEW: Track last exit to prevent overlaps
-                        last_exit_date = None
+                        # Get ATR from Signal Day (row['ATR'])
+                        limit_offset = 0.5 * atr
                         
-                        for d in true_dates:
-                            # OVERLAP CHECK
-                            if last_exit_date is not None and d <= last_exit_date:
-                                continue
-                                
-                            row = df.loc[d]
-                            atr = row['ATR']
-                            risk = strat['execution']['risk_per_trade']
-                            
-                            # Handle T+1 Entry Logic
-                            entry_type = strat['settings'].get('entry_type', 'Signal Close')
-                            entry_idx = df.index.get_loc(d)
-                            
-                            if entry_type == 'T+1 Close':
-                                if entry_idx + 1 >= len(df): continue 
-                                entry_row = df.iloc[entry_idx + 1]
-                                entry = entry_row['Close']
-                                entry_date = entry_row.name 
-                            elif entry_type == 'T+1 Open':
-                                if entry_idx + 1 >= len(df): continue
-                                entry_row = df.iloc[entry_idx + 1]
-                                entry = entry_row['Open']
-                                entry_date = entry_row.name 
-                            elif entry_type == "Limit (Open +/- 0.5 ATR)":
-                                if entry_idx + 1 >= len(df): continue
-                                entry_row = df.iloc[entry_idx + 1] # T+1 Data
-                                
-                                # Get ATR from Signal Day (row['ATR'])
-                                limit_offset = 0.5 * atr
-                                
-                                if strat['settings']['trade_direction'] == 'Short':
-                                    limit_price = entry_row['Open'] + limit_offset
-                                    # Logic: We need T+1 High to be >= Limit Price to get filled
-                                    if entry_row['High'] < limit_price: continue # No Fill
-                                    entry = limit_price
-                                else:
-                                    limit_price = entry_row['Open'] - limit_offset
-                                    if entry_row['Low'] > limit_price: continue # No Fill
-                                    entry = limit_price
-                                
-                                entry_date = entry_row.name
-                            else: # Signal Close
-                                entry = row['Close']
-                                entry_date = d 
-                            
-                            direction = strat['settings'].get('trade_direction', 'Long')
-                            
-                            # CALCULATE STOPS (For Sizing Only)
-                            if direction == 'Long':
-                                stop_price = entry - (atr * strat['execution']['stop_atr'])
-                                dist = entry - stop_price
-                                action = "BUY"
-                            else:
-                                stop_price = entry + (atr * strat['execution']['stop_atr'])
-                                dist = stop_price - entry
-                                action = "SELL SHORT"
-                            
-                            shares = int(risk / dist) if dist > 0 else 0
-                            
-                            # CALCULATE PNL (Using Time Exit)
-                            # Pass entry_date so holding period counts correctly
-                            pnl, exit_date = calculate_trade_result(
-                                df, entry_date, action, shares, entry,
-                                strat['execution']['hold_days']
-                            )
-
-                            all_signals.append({
-                                "Date": d.date(), 
-                                "Exit Date": exit_date.date(),
-                                "Strategy": strat['name'],
-                                "Ticker": ticker,
-                                "Action": action,
-                                "Entry Criteria": entry_type,
-                                "Price": entry,
-                                "Shares": shares,
-                                "PnL": pnl,
-                                "ATR": atr
-                            })
-                            
-                            last_exit_date = exit_date
-                            
+                        if strat['settings']['trade_direction'] == 'Short':
+                            limit_price = entry_row['Open'] + limit_offset
+                            # Logic: We need T+1 High to be >= Limit Price to get filled
+                            if entry_row['High'] < limit_price: continue # No Fill
+                            entry = limit_price
+                        else:
+                            limit_price = entry_row['Open'] - limit_offset
+                            # Logic: We need T+1 Low to be <= Limit Price to get filled
+                            if entry_row['Low'] > limit_price: continue # No Fill
+                            entry = limit_price
+                        
+                        entry_date = entry_row.name
+                    else: # Signal Close
+                        entry = row['Close']
+                        entry_date = d 
+                    
+                    direction = strat['settings'].get('trade_direction', 'Long')
+                    
+                    # CALCULATE STOPS (For Sizing Only)
+                    if direction == 'Long':
+                        stop_price = entry - (atr * strat['execution']['stop_atr'])
+                        dist = entry - stop_price
+                        action = "BUY"
                     else:
-                        # LIVE MODE
-                        if check_signal(df, strat['settings'], sznl_map):
-                            last_row = df.iloc[-1]
-                            
-                            # Entry Conf Check
-                            entry_conf_bps = strat['settings'].get('entry_conf_bps', 0)
-                            if strat['settings'].get('entry_type') == 'Signal Close' and entry_conf_bps > 0:
-                                threshold = last_row['Open'] * (1 + entry_conf_bps/10000.0)
-                                if last_row['High'] < threshold: continue
+                        stop_price = entry + (atr * strat['execution']['stop_atr'])
+                        dist = stop_price - entry
+                        action = "SELL SHORT"
+                    
+                    shares = int(risk / dist) if dist > 0 else 0
+                    
+                    # CALCULATE PNL (Using Time Exit)
+                    # Pass entry_date so holding period counts correctly
+                    pnl, exit_date = calculate_trade_result(
+                        df, entry_date, action, shares, entry,
+                        strat['execution']['hold_days']
+                    )
 
-                            atr = last_row['ATR']
-                            risk = strat['execution']['risk_per_trade']
-                            entry = last_row['Close']
-                            direction = strat['settings'].get('trade_direction', 'Long')
-                            
-                            if direction == 'Long':
-                                stop_price = entry - (atr * strat['execution']['stop_atr'])
-                                tgt_price = entry + (atr * strat['execution']['tgt_atr'])
-                                dist = entry - stop_price
-                                action = "BUY"
-                            else:
-                                stop_price = entry + (atr * strat['execution']['stop_atr'])
-                                tgt_price = entry - (atr * strat['execution']['tgt_atr'])
-                                dist = stop_price - entry
-                                action = "SELL SHORT"
-                            
-                            shares = int(risk / dist) if dist > 0 else 0
-                            exit_date = (last_row.name + BusinessDay(strat['execution']['hold_days'])).date()
-                            
-                            action_label = action
-                            if strat['settings'].get('entry_type') == "Limit (Open +/- 0.5 ATR)":
-                                offset_val = 0.5 * atr
-                                action_label = f"{action} LIMIT (Open +/- ${offset_val:.2f})"
-
-                            all_signals.append({
-                                "Strategy_ID": strat['id'],
-                                "Strategy": strat['name'],
-                                "Ticker": ticker,
-                                "Date": last_row.name.date(),
-                                "Action": action_label,
-                                "Entry Criteria": strat['settings'].get('entry_type', 'Signal Close'),
-                                "Shares": shares,
-                                "Entry": entry,
-                                "Stop": stop_price,
-                                "Target": tgt_price,
-                                "Time Exit": exit_date,
-                                "ATR": atr
-                            })
-
-                except Exception as e:
-                    continue
-        
-        progress_bar.empty()
-        
-        # --- DISPLAY RESULTS ---
-        if all_signals:
-            sig_df = pd.DataFrame(all_signals)
-            
-            if is_backtest:
-                sig_df['Date'] = pd.to_datetime(sig_df['Date'])
-                sig_df['Exit Date'] = pd.to_datetime(sig_df['Exit Date'])
-                sig_df = sig_df.sort_values(by="Exit Date")
-
-                # 1. Performance Table
-                st.subheader("📊 Strategy Performance Metrics")
-                stats_df = calculate_performance_stats(sig_df)
-                st.dataframe(
-                    stats_df.style.format({
-                        "Total PnL": "${:,.2f}",
-                        "Sharpe Ratio": "{:.2f}",
-                        "Profit Factor": "{:.2f}",
-                        "SQN": "{:.2f}"
-                    }),
-                    use_container_width=True
-                )
-
-                # 2. Total Cumulative PnL
-                st.subheader("📈 Total Portfolio PnL")
-                total_daily_pnl = sig_df.groupby("Exit Date")['PnL'].sum().cumsum()
-                st.line_chart(total_daily_pnl)
+                    all_signals.append({
+                        "Date": d.date(), 
+                        "Exit Date": exit_date.date(),
+                        "Strategy": strat['name'],
+                        "Ticker": ticker,
+                        "Action": action,
+                        "Entry Criteria": entry_type,
+                        "Price": entry,
+                        "Shares": shares,
+                        "PnL": pnl,
+                        "ATR": atr
+                    })
+                    
+                    last_exit_date = exit_date
                 
-                total_pnl = sig_df['PnL'].sum()
-                st.metric("Total PnL (Simulated - Time Exits Only)", f"${total_pnl:,.2f}")
+            except Exception as e:
+                continue
+    
+    progress_bar.empty()
+    
+    # --- DISPLAY RESULTS ---
+    if all_signals:
+        sig_df = pd.DataFrame(all_signals)
+        
+        sig_df['Date'] = pd.to_datetime(sig_df['Date'])
+        sig_df['Exit Date'] = pd.to_datetime(sig_df['Exit Date'])
+        sig_df = sig_df.sort_values(by="Exit Date")
 
-                # 3. Strategy Breakdown PnL
-                st.subheader("📉 Cumulative PnL by Strategy")
-                strat_pnl = sig_df.pivot_table(index='Exit Date', columns='Strategy', values='PnL', aggfunc='sum').fillna(0)
-                strat_cum_pnl = strat_pnl.cumsum()
-                st.line_chart(strat_cum_pnl)
+        # 1. Performance Table
+        st.subheader("📊 Strategy Performance Metrics")
+        stats_df = calculate_performance_stats(sig_df)
+        st.dataframe(
+            stats_df.style.format({
+                "Total PnL": "${:,.2f}",
+                "Sharpe Ratio": "{:.2f}",
+                "Profit Factor": "{:.2f}",
+                "SQN": "{:.2f}"
+            }),
+            use_container_width=True
+        )
 
-                # 4. Portfolio Exposure Analysis
-                st.subheader("⚖️ Portfolio Exposure Over Time")
-                exposure_df = calculate_daily_exposure(sig_df)
-                if not exposure_df.empty:
-                    st.line_chart(exposure_df)
-                else:
-                    st.warning("Not enough data to calculate exposure.")
+        # 2. Total Cumulative PnL
+        st.subheader("📈 Total Portfolio PnL")
+        total_daily_pnl = sig_df.groupby("Exit Date")['PnL'].sum().cumsum()
+        st.line_chart(total_daily_pnl)
+        
+        total_pnl = sig_df['PnL'].sum()
+        st.metric("Total PnL (Simulated - Time Exits Only)", f"${total_pnl:,.2f}")
 
-                # 5. Detailed Table
-                st.subheader("📜 Historical Signal Log")
-                st.dataframe(
-                    sig_df.sort_values(by="Date", ascending=False).style.format({
-                        "Price": "${:.2f}", "PnL": "${:.2f}", "Date": "{:%Y-%m-%d}", "Exit Date": "{:%Y-%m-%d}"
-                    }), 
-                    use_container_width=True,
-                    height=400 
-                )
-            else:
-                st.success(f"✅ Found {len(sig_df)} Actionable Signals Today")
-                save_signals_to_gsheet(sig_df, sheet_name='Trade_Signals_Log')
-                st.dataframe(sig_df.style.format({"Entry": "${:.2f}", "Stop": "${:.2f}", "Target": "${:.2f}", "ATR": "{:.2f}"}), use_container_width=True)
-                
-                clip_text = ""
-                for index, s in sig_df.iterrows():
-                      clip_text += f"{s['Action']} {s['Shares']} {s['Ticker']} @ MKT. Stop: {s['Stop']:.2f}. Target: {s['Target']:.2f}. Exit Date: {s['Time Exit']}.\n"
-                st.text_area("Execution Clipboard", clip_text, height=100)
+        # 3. Strategy Breakdown PnL
+        st.subheader("📉 Cumulative PnL by Strategy")
+        strat_pnl = sig_df.pivot_table(index='Exit Date', columns='Strategy', values='PnL', aggfunc='sum').fillna(0)
+        strat_cum_pnl = strat_pnl.cumsum()
+        st.line_chart(strat_cum_pnl)
+
+        # 4. Portfolio Exposure Analysis
+        st.subheader("⚖️ Portfolio Exposure Over Time")
+        exposure_df = calculate_daily_exposure(sig_df)
+        if not exposure_df.empty:
+            st.line_chart(exposure_df)
         else:
-            st.info("No signals found.")
+            st.warning("Not enough data to calculate exposure.")
+
+        # 5. Detailed Table
+        st.subheader("📜 Historical Signal Log")
+        st.dataframe(
+            sig_df.sort_values(by="Date", ascending=False).style.format({
+                "Price": "${:.2f}", "PnL": "${:.2f}", "Date": "{:%Y-%m-%d}", "Exit Date": "{:%Y-%m-%d}"
+            }), 
+            use_container_width=True,
+            height=400 
+        )
+    else:
+        st.info("No signals found in the backtest period.")
 
 if __name__ == "__main__":
     main()
