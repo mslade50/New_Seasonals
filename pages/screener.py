@@ -34,7 +34,7 @@ STRATEGY_BOOK = [
         },
         "execution": {
             "risk_per_trade": 1000,
-            "stop_atr": 3.0,
+            "stop_atr": 2,
             "tgt_atr": 8.0,
             "hold_days": 21
         },
@@ -113,7 +113,7 @@ STRATEGY_BOOK = [
             "entry_conf_bps": 0
         },
         "execution": {
-            "risk_per_trade": 1000,
+            "risk_per_trade": 400,
             "slippage_bps": 2,
             "stop_atr": 1.0,
             "tgt_atr": 1.0,
@@ -209,7 +209,7 @@ STRATEGY_BOOK = [
             "min_age": 0.25, "max_age": 100.0
         },
         "execution": {
-            "risk_per_trade": 1000,
+            "risk_per_trade": 300,
             "stop_atr": 2.0,
             "tgt_atr": 8.0,
             "hold_days": 4
@@ -239,7 +239,7 @@ STRATEGY_BOOK = [
             "min_age": 0.25, "max_age": 100.0
         },
         "execution": {
-            "risk_per_trade": 1000,
+            "risk_per_trade": 500,
             "stop_atr": 2.0,
             "tgt_atr": 8.0,
             "hold_days": 21
@@ -281,7 +281,7 @@ STRATEGY_BOOK = [
             "gap_logic": ">", "gap_thresh": 0
         },
         "execution": {
-            "risk_per_trade": 1000,
+            "risk_per_trade": 400,
             "slippage_bps": 0,
             "stop_atr": 1.0,
             "tgt_atr": 1.0,
