@@ -263,11 +263,13 @@ def run_engine(universe_dict, params, sznl_map, market_series=None):
     entry_conf_bps = params.get('entry_conf_bps', 0) 
     
     # Entry Logic flags
+    # Entry Logic flags
     entry_mode = params['entry_type']
     is_pullback = "Pullback" in entry_mode
     is_limit_atr = "Limit (Close -0.5 ATR)" in entry_mode
     is_limit_prev = "Limit (Prev Close)" in entry_mode
-    is_limit_entry = is_limit_atr or is_limit_prev
+    is_limit_open_atr = "Limit (Open +/- 0.5 ATR)" in entry_mode # <--- NEW FLAG
+    is_limit_entry = is_limit_atr or is_limit_prev or is_limit_open_atr # <--- UPDATE THIS
     is_gap_up = "Gap Up Only" in entry_mode
 
     use_ma_filter = params.get('use_ma_entry_filter', False)
@@ -507,39 +509,56 @@ def run_engine(universe_dict, params, sznl_map, market_series=None):
                             entry_failure_reason = "Price did not touch MA"
 
                 # PATH B: LIMIT ENTRIES
+                # PATH B: LIMIT ENTRIES
                 elif is_limit_entry:
                     sig_row = df.iloc[sig_idx]
                     sig_close = sig_row['Close']
                     sig_atr = sig_row['ATR']
                     
+                    # Default Limit Price (Standard Static Limits)
+                    limit_price = 0.0
                     if not np.isnan(sig_atr):
                         if is_limit_atr:
                             if direction == 'Long': limit_price = sig_close - (0.5 * sig_atr)
                             else: limit_price = sig_close + (0.5 * sig_atr)
-                        else: 
+                        elif is_limit_prev: 
                             limit_price = sig_close
-
-                        for wait_i in range(1, 4):
-                            curr_check_idx = sig_idx + wait_i
-                            if curr_check_idx >= len(df): break
-                            
-                            row = df.iloc[curr_check_idx]
-                            is_filled = False
+                    
+                    # Loop for X days to see if limit is hit
+                    for wait_i in range(1, 4):
+                        curr_check_idx = sig_idx + wait_i
+                        if curr_check_idx >= len(df): break
+                        
+                        row = df.iloc[curr_check_idx]
+                        
+                        # --- NEW LOGIC: DYNAMIC LIMIT BASED ON OPEN ---
+                        if is_limit_open_atr and not np.isnan(sig_atr):
                             if direction == 'Long':
-                                if row['Low'] <= limit_price:
-                                    is_filled = True
-                                    actual_entry_price = limit_price 
+                                limit_price = row['Open'] - (0.5 * sig_atr)
                             else:
-                                if row['High'] >= limit_price:
-                                    is_filled = True
-                                    actual_entry_price = limit_price
+                                limit_price = row['Open'] + (0.5 * sig_atr)
+                        # ---------------------------------------------
 
-                            if is_filled:
-                                found_entry = True
-                                actual_entry_idx = curr_check_idx
-                                break
-                            else:
-                                entry_failure_reason = "Limit Price Not Reached"
+                        if limit_price == 0.0: break # Safety check
+
+                        is_filled = False
+                        if direction == 'Long':
+                            # Buy Limit: Did Price drop to Limit?
+                            if row['Low'] <= limit_price:
+                                is_filled = True
+                                actual_entry_price = limit_price 
+                        else:
+                            # Sell Limit: Did Price rise to Limit?
+                            if row['High'] >= limit_price:
+                                is_filled = True
+                                actual_entry_price = limit_price
+
+                        if is_filled:
+                            found_entry = True
+                            actual_entry_idx = curr_check_idx
+                            break
+                        else:
+                            entry_failure_reason = "Limit Price Not Reached"
 
                 # PATH C: GAP UP ONLY
                 elif is_gap_up:
@@ -821,7 +840,10 @@ def main():
     with c1: 
         entry_type = st.selectbox("Entry Price", [
             "Signal Close", "T+1 Open", "T+1 Close",
-            "Gap Up Only (Open > Prev High)", "Limit (Close -0.5 ATR)", "Limit (Prev Close)", 
+            "Gap Up Only (Open > Prev High)", 
+            "Limit (Close -0.5 ATR)", 
+            "Limit (Prev Close)", 
+            "Limit (Open +/- 0.5 ATR)",  # <--- NEW OPTION ADDED HERE
             "Pullback 10 SMA (Entry: Close)", "Pullback 10 SMA (Entry: Level)",
             "Pullback 21 EMA (Entry: Close)", "Pullback 21 EMA (Entry: Level)"
         ])
