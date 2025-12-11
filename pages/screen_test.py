@@ -65,7 +65,7 @@ STRATEGY_BOOK = [
             "trade_direction": "Short", "entry_type": "Signal Close", "max_one_pos": False, "allow_same_day_reentry": False, "max_daily_entries": 3, "max_total_positions": 10,
             "perf_filters": [{'window': 5, 'logic': '>', 'thresh': 85.0, 'consecutive': 1}, {'window': 21, 'logic': '>', 'thresh': 85.0, 'consecutive': 3}], "perf_first_instance": False, "perf_lookback": 21,
             "use_sznl": False, "sznl_logic": "<", "sznl_thresh": 65.0, "sznl_first_instance": False, "sznl_lookback": 21,
-            "use_market_sznl": True, "market_sznl_logic": "<", "market_sznl_thresh": 33.0, "market_ticker": "^GSPC",
+            "use_market_sznl": True, "market_sznl_logic": "<", "market_sznl_thresh": 35.0, "market_ticker": "^GSPC",
             "use_52w": False, "52w_type": "New 52w High", "52w_first_instance": False, "52w_lookback": 21,
             "use_vol": True, "vol_thresh": 1.5,
             "use_vol_rank": False, "vol_rank_logic": ">", "vol_rank_thresh": 40.0,
@@ -568,7 +568,7 @@ def main():
         final_download_list = [t.replace('.', '-') for t in final_download_list]
         
         # 2. Download Data
-        start_date = datetime.date.today() - datetime.timedelta(days=700)
+        start_date = datetime.date.today() - datetime.timedelta(days=1100)
         try:
             raw_data = yf.download(final_download_list, start=start_date, group_by='ticker', progress=False, threads=True)
         except Exception as e:
@@ -616,7 +616,7 @@ def main():
                     if is_backtest:
                         # HISTORICAL MODE
                         mask = get_historical_mask(df, strat['settings'], sznl_map)
-                        cutoff_date = pd.Timestamp.now() - pd.Timedelta(days=252)
+                        cutoff_date = pd.Timestamp.now() - pd.Timedelta(days=700)
                         mask = mask[mask.index >= cutoff_date]
                         true_dates = mask[mask].index
                         
