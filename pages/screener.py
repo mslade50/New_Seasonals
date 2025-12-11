@@ -5,7 +5,7 @@ import yfinance as yf
 import datetime
 import gspread
 from pandas.tseries.offsets import BusinessDay
-
+import time
 # -----------------------------------------------------------------------------
 # 1. THE STRATEGY BOOK (FULL BATCH - ALL 6 STRATEGIES)
 # -----------------------------------------------------------------------------
