@@ -834,45 +834,53 @@ def main():
                     st.info("No signals found for this strategy today.")
 
     # -------------------------------------------------------------------------
-    # DEBUG: LUV DEEP DIVE & SCORECARD
+    # DEBUG: DEEP DIVE & SCORECARD
     # -------------------------------------------------------------------------
     st.markdown("---")
-    st.subheader("🔎 LUV Deep Dive (Debug & Scorecard)")
     
-    if st.button("Inspect LUV Data & Signals"):
-        # 1. Fetch Data
-        st.write("Fetching LUV, SPY, & ^GSPC data...")
-        debug_tickers = ["LUV", "^GSPC", "SPY"]
+    # 1. Allow User Input (Defaulting to LUV to preserve original behavior)
+    debug_ticker = st.text_input("Enter Ticker for Deep Dive:", value="LUV").upper().strip()
+    
+    st.subheader(f"🔎 {debug_ticker} Deep Dive (Debug & Scorecard)")
+    
+    if st.button(f"Inspect {debug_ticker} Data & Signals"):
+        # 2. Fetch Data
+        st.write(f"Fetching {debug_ticker}, SPY, & ^GSPC data...")
+        
+        # Ensure we ask for the user ticker + market refs (using set to avoid duplicates)
+        debug_tickers = list(set([debug_ticker, "^GSPC", "SPY"]))
+        
         debug_raw = yf.download(debug_tickers, start='2024-01-01', group_by='ticker', progress=False)
         
-        # 2. Extract & Calculate
-        if "LUV" in debug_raw.columns.levels[0]:
-            luv_df = debug_raw["LUV"].copy()
+        # 3. Extract & Calculate
+        # We check if the user's ticker exists in the downloaded data
+        if debug_ticker in debug_raw.columns.levels[0]:
+            target_df = debug_raw[debug_ticker].copy()
             
             # Market Regime (SPY > 200 SMA)
             spy_df = debug_raw["SPY"].copy()
             spy_df['SMA200'] = spy_df['Close'].rolling(200).mean()
             market_series = spy_df['Close'] > spy_df['SMA200']
             
-            # Run Indicators
-            luv_df = calculate_indicators(luv_df, sznl_map, "LUV", market_series)
+            # Run Indicators (Pass the dynamic ticker name to the function)
+            target_df = calculate_indicators(target_df, sznl_map, debug_ticker, market_series)
 
             # -----------------------------------------------------------------
             # PART A: DATA INDICATORS (With Volume Spike Metrics)
             # -----------------------------------------------------------------
             cols_to_show = [
                 'Close', 'Volume', 
-                'vol_ratio', 'vol_ratio_10d_rank', # <--- Vol Spike Metrics added
+                'vol_ratio', 'vol_ratio_10d_rank', 
                 'Sznl', 'Mkt_Sznl_Ref', 
                 'ret_5d', 'rank_ret_5d',
                 'ret_21d', 'rank_ret_21d',
                 'SMA200', 'Market_Above_SMA200'
             ]
-            final_cols = [c for c in cols_to_show if c in luv_df.columns]
+            final_cols = [c for c in cols_to_show if c in target_df.columns]
             
             st.write("### 1. Underlying Data Indicators (Last 5 Days)")
             st.dataframe(
-                luv_df[final_cols].tail(5).style.format({
+                target_df[final_cols].tail(5).style.format({
                     'Close': '{:.2f}',
                     'Volume': '{:,.0f}',
                     'vol_ratio': '{:.2f}x',
@@ -890,12 +898,12 @@ def main():
             # -----------------------------------------------------------------
             # PART B: STRATEGY SCORECARD
             # -----------------------------------------------------------------
-            st.write(f"### 2. Strategy Scorecard (Date: {luv_df.index[-1].date()})")
+            st.write(f"### 2. Strategy Scorecard (Date: {target_df.index[-1].date()})")
             
             scorecard = []
             for strat in STRATEGY_BOOK:
-                # We check the signal exactly as the screener does
-                passed = check_signal(luv_df, strat['settings'], sznl_map)
+                # Check signals on the dynamic dataframe
+                passed = check_signal(target_df, strat['settings'], sznl_map)
                 
                 scorecard.append({
                     "Strategy Name": strat['name'],
@@ -908,14 +916,14 @@ def main():
             # -----------------------------------------------------------------
             # PART C: INTEGRITY CHECKS
             # -----------------------------------------------------------------
-            last_row = luv_df.iloc[-1]
+            last_row = target_df.iloc[-1]
             if last_row['Mkt_Sznl_Ref'] == 50.0:
                     st.error("⚠️ Note: ^GSPC Rank is 50.0. This may indicate missing seasonal data.")
             else:
                     st.caption("✅ Seasonal Data Integrity: OK")
 
         else:
-            st.error("Could not download LUV data.")
+            st.error(f"Could not download data for {debug_ticker}. Please check the symbol.")
 
 if __name__ == "__main__":
     main()
