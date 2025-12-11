@@ -176,8 +176,6 @@ STRATEGY_BOOK = [
 # CONSTANTS & SETUP
 # -----------------------------------------------------------------------------
 CSV_PATH = "sznl_ranks.csv" 
-# Define indices to exclude from filtering (Always Include)
-INDEX_TICKERS = {'SPY', 'QQQ', 'IWM', 'DIA', 'SMH', '^GSPC', '^NDX'}
 
 @st.cache_resource 
 def load_seasonal_map():
@@ -618,7 +616,7 @@ def main():
                     if is_backtest:
                         # HISTORICAL MODE
                         mask = get_historical_mask(df, strat['settings'], sznl_map)
-                        cutoff_date = pd.Timestamp.now() - pd.Timedelta(days=450)
+                        cutoff_date = pd.Timestamp.now() - pd.Timedelta(days=252)
                         mask = mask[mask.index >= cutoff_date]
                         true_dates = mask[mask].index
                         
@@ -720,28 +718,6 @@ def main():
         if all_signals:
             sig_df = pd.DataFrame(all_signals)
             
-            # --- APPLY FILTERS ---
-            # Calculate ATR % Bucket
-            # Need Price column. In Live it's 'Entry', in Backtest it's 'Price'
-            price_col = 'Price' if is_backtest else 'Entry'
-            sig_df['ATR_Pct_Val'] = (sig_df['ATR'] / sig_df[price_col]) * 100.0
-            sig_df['ATR_Bucket'] = sig_df['ATR_Pct_Val'].apply(assign_atr_bucket)
-            
-            st.sidebar.header("🔎 Result Filters")
-            all_buckets = ["< 1.5%", "1.5% - 3.0%", "3.0% - 5.0%", "> 5.0%"]
-            selected_buckets = st.sidebar.multiselect("Stock Volatility Filter (ATR %)", options=all_buckets, default=all_buckets)
-            
-            # Filter Logic: Keep IF (Ticker in Indices) OR (Bucket in Selection)
-            # INDEX_TICKERS defined at top
-            sig_df = sig_df[
-                (sig_df['Ticker'].isin(INDEX_TICKERS)) | 
-                (sig_df['ATR_Bucket'].isin(selected_buckets))
-            ]
-
-            if sig_df.empty:
-                st.warning("No trades match your current filters.")
-                return
-
             if is_backtest:
                 sig_df['Date'] = pd.to_datetime(sig_df['Date'])
                 sig_df['Exit Date'] = pd.to_datetime(sig_df['Exit Date'])
@@ -760,10 +736,24 @@ def main():
                     use_container_width=True
                 )
 
-                # 2. Total Cumulative PnL
+                # 2. Total Cumulative PnL & Volatility Breakdown (NEW)
                 st.subheader("📈 Total Portfolio PnL (Rolling 252 Days)")
-                daily_pnl = sig_df.groupby("Exit Date")['PnL'].sum().cumsum()
-                st.line_chart(daily_pnl)
+                
+                # Calculate ATR Buckets for analysis
+                sig_df['ATR_Pct_Val'] = (sig_df['ATR'] / sig_df['Price']) * 100.0
+                sig_df['ATR_Bucket'] = sig_df['ATR_Pct_Val'].apply(assign_atr_bucket)
+                
+                # A. Total PnL Line
+                total_daily_pnl = sig_df.groupby("Exit Date")['PnL'].sum().cumsum()
+                
+                # B. Bucket PnL Lines
+                # Create pivot: Date x Bucket -> Sum PnL
+                bucket_pnl = sig_df.pivot_table(index='Exit Date', columns='ATR_Bucket', values='PnL', aggfunc='sum').fillna(0)
+                bucket_cum_pnl = bucket_pnl.cumsum()
+                
+                # Combine
+                combined_pnl = pd.concat([total_daily_pnl.rename("All Trades"), bucket_cum_pnl], axis=1).ffill().fillna(0)
+                st.line_chart(combined_pnl)
                 
                 total_pnl = sig_df['PnL'].sum()
                 st.metric("Total PnL (Simulated - Time Exits Only)", f"${total_pnl:,.2f}")
@@ -794,6 +784,8 @@ def main():
             else:
                 st.success(f"✅ Found {len(sig_df)} Actionable Signals Today")
                 save_signals_to_gsheet(sig_df, sheet_name='Trade_Signals_Log')
+                # Calculate ATR Pct for display
+                sig_df['ATR_Pct_Val'] = (sig_df['ATR'] / sig_df['Entry']) * 100.0
                 st.dataframe(sig_df.style.format({"Entry": "${:.2f}", "Stop": "${:.2f}", "Target": "${:.2f}", "ATR": "{:.2f}", "ATR_Pct_Val": "{:.2f}%"}), use_container_width=True)
                 
                 clip_text = ""
