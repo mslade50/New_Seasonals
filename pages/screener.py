@@ -990,7 +990,7 @@ def main():
             # -----------------------------------------------------------------
             cols_to_show = [
                 'Close', 'Volume', 
-                'vol_ratio', 'Vol_Spike',         # Added Vol_Spike
+                'vol_ratio_10d_rank', 'Vol_Spike',         # Added Vol_Spike
                 'AccCount_21', 'DistCount_21',    # Added Counts
                 'Sznl', 'Mkt_Sznl_Ref', 
                 'rank_ret_5d', 'rank_ret_21d',    # Kept Ranks, Removed Raw %
@@ -1003,7 +1003,7 @@ def main():
                 target_df[final_cols].tail(5).style.format({
                     'Close': '{:.2f}',
                     'Volume': '{:,.0f}',
-                    'vol_ratio': '{:.2f}x',
+                    'vol_ratio_10d_rank': '{:.2f}x',
                     'Vol_Spike': '{}',           # Displays True/False
                     'AccCount_21': '{:.0f}',     # Integer format
                     'DistCount_21': '{:.0f}',    # Integer format
