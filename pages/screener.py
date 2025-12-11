@@ -785,7 +785,7 @@ def main():
         final_download_list = [t.replace('.', '-') for t in final_download_list]
         
         # 2. Download Data
-        start_date = datetime.date.today() - datetime.timedelta(days=400)
+        start_date = "2000-01-01"
         try:
             raw_data = yf.download(
                 final_download_list, 
@@ -970,7 +970,7 @@ def main():
         # Ensure we ask for the user ticker + market refs (using set to avoid duplicates)
         debug_tickers = list(set([debug_ticker, "^GSPC", "SPY"]))
         
-        debug_raw = yf.download(debug_tickers, start='2024-01-01', group_by='ticker', progress=False)
+        debug_raw = yf.download(debug_tickers, start='2000-01-01', group_by='ticker', progress=False)
         
         # 3. Extract & Calculate
         # We check if the user's ticker exists in the downloaded data
