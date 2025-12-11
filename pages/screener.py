@@ -627,12 +627,12 @@ def check_signal(df, params, sznl_map):
         if g_logic == ">" and not (gap_val > g_thresh): return False
         if g_logic == "<" and not (gap_val < g_thresh): return False
         if g_logic == "=" and not (gap_val == g_thresh): return False
-    #5b. Accumulation days
+
+    # 5b. Accumulation days
     if params.get('use_acc_count_filter', False):
         window = params.get('acc_count_window', 21)
         col_name = f'AccCount_{window}'
         
-        # Safety check if column exists
         if col_name in df.columns:
             acc_val = last_row[col_name]
             acc_logic = params.get('acc_count_logic', '=')
@@ -645,7 +645,6 @@ def check_signal(df, params, sznl_map):
     # 5c. Distribution Count Filter (NEW)
     if params.get('use_dist_count_filter', False):
         window = params.get('dist_count_window', 21)
-        # Ensure column name matches calculate_indicators (DistCount_21)
         col_name = f'DistCount_{window}'
         
         if col_name in df.columns:
@@ -656,6 +655,7 @@ def check_signal(df, params, sznl_map):
             if dist_logic == "=" and not (dist_val == dist_thresh): return False
             if dist_logic == ">" and not (dist_val > dist_thresh): return False
             if dist_logic == "<" and not (dist_val < dist_thresh): return False
+
     # 6. Distance Filter
     if params.get('use_dist_filter', False):
         ma_type = params.get('dist_ma_type', 'SMA 200')
@@ -689,19 +689,15 @@ def check_signal(df, params, sznl_map):
     if params.get('use_market_sznl', False):
         mkt_ticker = params.get('market_ticker', '^GSPC')
         
-        # STRICT CHECK for Market Ticker (Optional but recommended safety)
         mkt_series_ref = sznl_map.get(mkt_ticker)
         if mkt_series_ref is None and mkt_ticker == '^GSPC':
              mkt_series_ref = sznl_map.get('SPY')
 
-        # Generate the ranks
         mkt_ranks = get_sznl_val_series(mkt_ticker, df.index, sznl_map)
         
-        # Perform comparison (creates a numpy boolean array)
         if params['market_sznl_logic'] == '<': mkt_cond = mkt_ranks < params['market_sznl_thresh']
         else: mkt_cond = mkt_ranks > params['market_sznl_thresh']
         
-        # FIX: Use [-1] instead of .iloc[-1] because mkt_cond is a numpy array
         if not mkt_cond[-1]: return False
 
     # 8. 52w
@@ -714,16 +710,21 @@ def check_signal(df, params, sznl_map):
             cond_52 = cond_52 & (prev == 0)
         if not cond_52.iloc[-1]: return False
 
-    # 9. Volume
+    # 9. Volume (Ratio + Spike Check)
     if params['use_vol']:
+        # 1. Magnitude Check (e.g. > 1.5x)
         if not (last_row['vol_ratio'] > params['vol_thresh']): return False
+        
+        # 2. Spike Structure Check (Vol > Yesterday & Vol > MA)
+        if not last_row['Vol_Spike']: return False
+
     if params.get('use_vol_rank'):
         val = last_row['vol_ratio_10d_rank']
         if params['vol_rank_logic'] == '<':
             if not (val < params['vol_rank_thresh']): return False
         else:
             if not (val > params['vol_rank_thresh']): return False
-        
+            
     return True
 # -----------------------------------------------------------------------------
 # MAIN APP
