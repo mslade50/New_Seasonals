@@ -65,7 +65,7 @@ STRATEGY_BOOK = [
             "trade_direction": "Short", "entry_type": "Signal Close", "max_one_pos": False, "allow_same_day_reentry": False, "max_daily_entries": 3, "max_total_positions": 10,
             "perf_filters": [{'window': 5, 'logic': '>', 'thresh': 85.0, 'consecutive': 1}, {'window': 21, 'logic': '>', 'thresh': 85.0, 'consecutive': 3}], "perf_first_instance": False, "perf_lookback": 21,
             "use_sznl": False, "sznl_logic": "<", "sznl_thresh": 65.0, "sznl_first_instance": False, "sznl_lookback": 21,
-            "use_market_sznl": True, "market_sznl_logic": "<", "market_sznl_thresh": 50.0, "market_ticker": "^GSPC",
+            "use_market_sznl": True, "market_sznl_logic": "<", "market_sznl_thresh": 33.0, "market_ticker": "^GSPC",
             "use_52w": False, "52w_type": "New 52w High", "52w_first_instance": False, "52w_lookback": 21,
             "use_vol": True, "vol_thresh": 1.5,
             "use_vol_rank": False, "vol_rank_logic": ">", "vol_rank_thresh": 40.0,
