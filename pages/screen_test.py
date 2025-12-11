@@ -71,7 +71,7 @@ STRATEGY_BOOK = [
             "use_vol_rank": False, "vol_rank_logic": ">", "vol_rank_thresh": 40.0,
             "trend_filter": "None", "min_price": 10.0, "min_vol": 100000, "min_age": 0.25, "max_age": 100.0, "entry_conf_bps": 0
         },
-        "execution": { "risk_per_trade": 1000, "slippage_bps": 2, "stop_atr": 1.0, "tgt_atr": 1.0, "hold_days": 3 },
+        "execution": { "risk_per_trade": 400, "slippage_bps": 2, "stop_atr": 1.0, "tgt_atr": 1.0, "hold_days": 3 },
         "stats": { "grade": "A", "win_rate": "60.0%", "expectancy": "$191.71", "profit_factor": "1.57" }
     },
     # 4. LIQUID SEASONALS (SHORT TERM)
@@ -126,7 +126,7 @@ STRATEGY_BOOK = [
             "use_vol_rank": False, "vol_rank_logic": "<", "vol_rank_thresh": 50.0,
             "trend_filter": "None", "min_price": 10.0, "min_vol": 100000, "min_age": 0.25, "max_age": 100.0
         },
-        "execution": { "risk_per_trade": 1000, "stop_atr": 2.0, "tgt_atr": 8.0, "hold_days": 4 },
+        "execution": { "risk_per_trade": 400, "stop_atr": 2.0, "tgt_atr": 8.0, "hold_days": 4 },
         "stats": { "grade": "A", "win_rate": "68.8%", "expectancy": "$237.24", "profit_factor": "2.36" }
     },
     # 7. OVERSOLD LOW VOLUME
@@ -144,7 +144,7 @@ STRATEGY_BOOK = [
             "use_vol_rank": True, "vol_rank_logic": "<", "vol_rank_thresh": 15.0,
             "trend_filter": "SPY > 200 SMA", "min_price": 10.0, "min_vol": 100000, "min_age": 0.25, "max_age": 100.0
         },
-        "execution": { "risk_per_trade": 1000, "stop_atr": 2.0, "tgt_atr": 8.0, "hold_days": 21 },
+        "execution": { "risk_per_trade": 500, "stop_atr": 2.0, "tgt_atr": 8.0, "hold_days": 21 },
         "stats": { "grade": "A", "win_rate": "66.3%", "expectancy": "$670.59", "profit_factor": "2.64" }
     },
     # 8. OVERBOUGHT VOLUME SPIKE
@@ -167,7 +167,7 @@ STRATEGY_BOOK = [
             "use_dist_filter": False, "dist_ma_type": "SMA 50", "dist_logic": "Between", "dist_min": 7.0, "dist_max": 30.0,
             "use_gap_filter": True, "gap_lookback": 5, "gap_logic": ">", "gap_thresh": 0
         },
-        "execution": { "risk_per_trade": 1000, "slippage_bps": 0, "stop_atr": 1.0, "tgt_atr": 1.0, "hold_days": 3 },
+        "execution": { "risk_per_trade": 250, "slippage_bps": 0, "stop_atr": 1.0, "tgt_atr": 1.0, "hold_days": 3 },
         "stats": { "grade": "A", "win_rate": "61.6%", "expectancy": "$227.88", "profit_factor": "1.76" }
     },
 ]
