@@ -229,7 +229,7 @@ STRATEGY_BOOK = [
             "use_gap_filter": True, "gap_lookback": 5, "gap_logic": ">", "gap_thresh": 0
         },
         "execution": { "risk_per_trade": 400, "slippage_bps": 0, "stop_atr": 1.0, "tgt_atr": 1.0, "hold_days": 3 },
-        "stats": { "grade": "A (Excellent)", "win_rate": "61.6%", "expectancy": "$227.88", "profit_factor": "1.76" }
+        "stats": { "grade": "A", "win_rate": "61.6%", "expectancy": "$227.88", "profit_factor": "1.76" }
     },
 ]
 
@@ -634,13 +634,6 @@ def calculate_performance_stats(sig_df):
     
     return pd.DataFrame(stats)
 
-def assign_atr_bucket(pct_val):
-    """ Helper to categorize ATR % """
-    if pct_val < 1.5: return "< 1.5%"
-    elif 1.5 <= pct_val < 3.0: return "1.5% - 3.0%"
-    elif 3.0 <= pct_val < 5.0: return "3.0% - 5.0%"
-    else: return "> 5.0%"
-
 # -----------------------------------------------------------------------------
 # MAIN APP
 # -----------------------------------------------------------------------------
@@ -657,12 +650,12 @@ def main():
     with col1:
         run_live = st.button("Run Live Scan (Today)", type="primary", use_container_width=True)
     with col2:
-        run_hist = st.button("Run 252-Day Historical Backtest", type="secondary", use_container_width=True)
+        run_hist = st.button("Run 700-Day Historical Backtest", type="secondary", use_container_width=True)
 
     if run_live or run_hist:
         
         is_backtest = True if run_hist else False
-        mode_text = "Historical Backtest (252 Days)" if is_backtest else "Live Scan"
+        mode_text = "Historical Backtest (700 Days)" if is_backtest else "Live Scan"
         st.info(f"Running {mode_text} on {len(STRATEGY_BOOK)} strategies...")
         
         # 1. Consolidate Tickers
@@ -681,7 +674,8 @@ def main():
         final_download_list = [t.replace('.', '-') for t in final_download_list]
         
         # 2. Download Data
-        start_date = datetime.date.today() - datetime.timedelta(days=1100)
+        # INCREASED BUFFER: 2000 days ensures ample warmup for 200SMA before the 700-day backtest starts
+        start_date = datetime.date.today() - datetime.timedelta(days=2000)
         try:
             raw_data = yf.download(final_download_list, start=start_date, group_by='ticker', progress=False, threads=True)
         except Exception as e:
@@ -771,7 +765,7 @@ def main():
                                 "Strategy": strat['name'],
                                 "Ticker": ticker,
                                 "Action": action,
-                                "Entry Criteria": strat['settings'].get('entry_type', 'Signal Close'), # <--- ADDED
+                                "Entry Criteria": strat['settings'].get('entry_type', 'Signal Close'),
                                 "Price": entry,
                                 "Shares": shares,
                                 "PnL": pnl,
@@ -816,7 +810,7 @@ def main():
                                 "Ticker": ticker,
                                 "Date": last_row.name.date(),
                                 "Action": action,
-                                "Entry Criteria": strat['settings'].get('entry_type', 'Signal Close'), # <--- ADDED
+                                "Entry Criteria": strat['settings'].get('entry_type', 'Signal Close'),
                                 "Shares": shares,
                                 "Entry": entry,
                                 "Stop": stop_price,
@@ -852,23 +846,10 @@ def main():
                     use_container_width=True
                 )
 
-                # 2. Total Cumulative PnL & Volatility Breakdown (NEW)
-                st.subheader("📈 Total Portfolio PnL (Rolling 252 Days)")
-                
-                # Calculate ATR Buckets for analysis
-                sig_df['ATR_Pct_Val'] = (sig_df['ATR'] / sig_df['Price']) * 100.0
-                sig_df['ATR_Bucket'] = sig_df['ATR_Pct_Val'].apply(assign_atr_bucket)
-                
-                # A. Total PnL Line
+                # 2. Total Cumulative PnL
+                st.subheader("📈 Total Portfolio PnL")
                 total_daily_pnl = sig_df.groupby("Exit Date")['PnL'].sum().cumsum()
-                
-                # B. Bucket PnL Lines
-                bucket_pnl = sig_df.pivot_table(index='Exit Date', columns='ATR_Bucket', values='PnL', aggfunc='sum').fillna(0)
-                bucket_cum_pnl = bucket_pnl.cumsum()
-                
-                # Combine
-                combined_pnl = pd.concat([total_daily_pnl.rename("All Trades"), bucket_cum_pnl], axis=1).ffill().fillna(0)
-                st.line_chart(combined_pnl)
+                st.line_chart(total_daily_pnl)
                 
                 total_pnl = sig_df['PnL'].sum()
                 st.metric("Total PnL (Simulated - Time Exits Only)", f"${total_pnl:,.2f}")
@@ -891,7 +872,7 @@ def main():
                 st.subheader("📜 Historical Signal Log")
                 st.dataframe(
                     sig_df.sort_values(by="Date", ascending=False).style.format({
-                        "Price": "${:.2f}", "PnL": "${:.2f}", "Date": "{:%Y-%m-%d}", "Exit Date": "{:%Y-%m-%d}", "ATR_Pct_Val": "{:.2f}%"
+                        "Price": "${:.2f}", "PnL": "${:.2f}", "Date": "{:%Y-%m-%d}", "Exit Date": "{:%Y-%m-%d}"
                     }), 
                     use_container_width=True,
                     height=400 
