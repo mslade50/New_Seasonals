@@ -136,36 +136,48 @@ STRATEGY_BOOK = [
     {
         "id": "21dr > 85 3 consec, 5dr > 85, SPX sznl <50, sell the close & gap open",
         "name": "Overbot Liquid Names",
-        "description": "Start: 2000-01-01. Universe: All CSV Tickers. Dir: Short. Filter: None. PF: 1.57. SQN: 4.30.",
+        "description": "Start: 2000-01-01. Universe: All CSV Tickers. Dir: Short. Filter: None. PF: 1.96. SQN: 5.20.",
         "universe_tickers": ['AAPL', 'ABT', 'ADBE', 'ADI', 'ADM', 'ADP', 'ADSK', 'AEP', 'AIG', 'ALL', 'AMAT', 'AMD', 'AMGN', 'AMZN', 'AON', 'APD', 'AVGO', 'AXP', 'BA', 'BAC', 'BAX', 'BDX', 'BK', 'BMY', 'C', 'CAG', 'CAT', 'CEF', 'CL', 'CMCSA', 'CMS', 'CNP', 'COP', 'COST', 'CPB', 'CRM', 'CSCO', 'CSX', 'CVS', 'CVX', 'D', 'DE', 'DIA', 'DIS', 'DOV', 'DTE', 'DUK', 'ECL', 'ED', 'EIX', 'EMR', 'EOG', 'ETR', 'EXC', 'F', 'FCX', 'FDX', 'FE', 'GD', 'GE', 'GILD', 'GIS', 'GLD', 'GLW', 'GOOG', 'GPC', 'GS', 'HAL', 'HD', 'HIG', 'HON', 'HPQ', 'HRL', 'HSY', 'HUM', 'IBB', 'IBM', 'IHI', 'INTC', 'IP', 'ITA', 'ITB', 'ITW', 'IWM', 'IYR', 'JNJ', 'JPM', 'K', 'KEY', 'KMB', 'KO', 'KR', 'KRE', 'LEG', 'LIN', 'LLY', 'LMT', 'LOW', 'LUV', 'MAS', 'MCD', 'MDT', 'MET', 'META', 'MMC', 'MMM', 'MO', 'MRK', 'MS', 'MSFT', 'MU', 'NEE', 'NEM', 'NKE', 'NOC', 'NSC', 'NUE', 'NVDA', 'OIH', 'ORCL', 'OXY', 'PAYX', 'PCG', 'PEG', 'PEP', 'PFE', 'PG', 'PGR', 'PH', 'PNW', 'PPG', 'PPL', 'PSA', 'QCOM', 'QQQ', 'REGN', 'RF', 'RHI', 'ROK', 'ROST', 'RTX', 'SBUX', 'SCHW', 'SHW', 'SLB', 'SLV', 'SMH', 'SNA', 'SO', 'SPG', 'SPY', 'SRE', 'STT', 'SWK', 'SYK', 'SYY', 'T', 'TAP', 'TGT', 'TJX', 'TMO', 'TRV', 'TSN', 'TXN', 'UNG', 'UNH', 'UNP', 'USB', 'USO', 'UVXY', 'V', 'VFC', 'VLO', 'VMC', 'VNQ', 'VZ', 'WFC', 'WHR', 'WM', 'WMB', 'WMT', 'XBI', 'XHB', 'XLB', 'XLE', 'XLF', 'XLI', 'XLK', 'XLP', 'XLU', 'XLV', 'XLY', 'XME', 'XOM', 'XOP', 'XRT', '^GSPC', '^NDX'], 
         "settings": {
             "trade_direction": "Short",
-            "entry_type": "Signal Close",
-            "max_one_pos": False,
-            "allow_same_day_reentry": False,
-            "max_daily_entries": 3,
+            "entry_type": "Limit (Open +/- 0.5 ATR)",
+            "max_one_pos": True,
+            "allow_same_day_reentry": True,
+            "max_daily_entries": 2,
             "max_total_positions": 10,
             "perf_filters": [{'window': 5, 'logic': '>', 'thresh': 85.0, 'consecutive': 1}, {'window': 21, 'logic': '>', 'thresh': 85.0, 'consecutive': 3}],
             "perf_first_instance": False, "perf_lookback": 21,
-            "use_sznl": False, "sznl_logic": "<", "sznl_thresh": 65.0, "sznl_first_instance": False, "sznl_lookback": 21,
-            "use_market_sznl": True, "market_sznl_logic": "<", "market_sznl_thresh": 35.0,
+            "use_sznl": False, "sznl_logic": "<", "sznl_thresh": 15.0, "sznl_first_instance": True, "sznl_lookback": 21,
+            "use_market_sznl": True, "market_sznl_logic": "<", "market_sznl_thresh": 40.0,
             "market_ticker": "^GSPC",
-            "use_52w": False, "52w_type": "New 52w High", "52w_first_instance": False, "52w_lookback": 21,
-            "use_vol": True, "vol_thresh": 1.25,
-            "use_vol_rank": False, "vol_rank_logic": ">", "vol_rank_thresh": 40.0,
+            "use_52w": False, "52w_type": "New 52w High", "52w_first_instance": True, "52w_lookback": 21,
+            "use_vol": True, "vol_thresh": 1.5,
+            "use_vol_rank": False, "vol_rank_logic": "<", "vol_rank_thresh": 50.0,
             "trend_filter": "None",
             "min_price": 10.0, "min_vol": 100000,
             "min_age": 0.25, "max_age": 100.0,
-            "entry_conf_bps": 0
+            "min_atr_pct": 0.0,
+            "entry_conf_bps": 0,
+            "use_ma_dist_filter": False, "dist_ma_type": "SMA 50", 
+            "dist_logic": "Greater Than (>)", "dist_min": 5.0, "dist_max": 2.0,
+            "use_gap_filter": False, "gap_lookback": 21, 
+            "gap_logic": ">", "gap_thresh": 3,
+            "use_acc_count_filter": False, "acc_count_window": 21, "acc_count_logic": "<", "acc_count_thresh": 6,
+            "use_dist_count_filter": True, "dist_count_window": 21, "dist_count_logic": ">", "dist_count_thresh": 0
         },
         "execution": {
-            "risk_per_trade": 400,
-            "slippage_bps": 2,
+            "risk_per_trade": 1000,
+            "slippage_bps": 5,
             "stop_atr": 1.0,
-            "tgt_atr": 1.0,
+            "tgt_atr": 8.0,
             "hold_days": 3
         },
-        "stats": { "grade": "A (Excellent)", "win_rate": "58.3%", "expectancy": "$246.53", "profit_factor": "1.71" }
+        "stats": {
+            "grade": "A (Excellent)",
+            "win_rate": "57.5%",
+            "expectancy": "$276.39",
+            "profit_factor": "1.96"
+        }
     },
     # 3. LIQUID SEASONALS (SHORT TERM)
     {
@@ -481,23 +493,27 @@ def calculate_indicators(df, sznl_map, ticker, market_series=None):
     ranges = pd.concat([high_low, high_close, low_close], axis=1)
     df['ATR'] = ranges.max(axis=1).rolling(14).mean()
     
-    # --- Volume & Accumulation Logic ---
+    # --- Volume, Accumulation & Distribution Logic ---
     vol_ma = df['Volume'].rolling(63).mean()
     df['vol_ratio'] = df['Volume'] / vol_ma
     df['vol_ma'] = vol_ma
     
-    # 1. Vol > 63d MA
+    # Base Conditions
     cond_vol_ma = df['Volume'] > vol_ma
-    # 2. Vol > Yesterday Vol
     cond_vol_up = df['Volume'] > df['Volume'].shift(1)
-    # 3. Close > Open (Green Candle)
+    
+    # 1. Accumulation (Green, High Vol, Vol > Prev)
     cond_green = df['Close'] > df['Open']
-    cond_red = df['Close'] < df['Open']
-    # Combine & Rolling Sum
     is_accumulation = (cond_vol_ma & cond_vol_up & cond_green).astype(int)
     df['AccCount_21'] = is_accumulation.rolling(21).sum()
+    
+    # 2. Distribution (Red, High Vol, Vol > Prev)
+    cond_red = df['Close'] < df['Open']
     is_distribution = (cond_vol_ma & cond_vol_up & cond_red).astype(int)
-    df['DistCount21'] = is_distribution.rolling(21).sum()
+    
+    # Calculate rolling sums for Distribution (Standardizing naming to DistCount_XX)
+    df['DistCount_21'] = is_distribution.rolling(21).sum()
+    
     # --- Volume Rank ---
     vol_ma_10 = df['Volume'].rolling(10).mean()
     df['vol_ratio_10d'] = vol_ma_10 / vol_ma
@@ -624,6 +640,21 @@ def check_signal(df, params, sznl_map):
             if acc_logic == "=" and not (acc_val == acc_thresh): return False
             if acc_logic == ">" and not (acc_val > acc_thresh): return False
             if acc_logic == "<" and not (acc_val < acc_thresh): return False
+
+    # 5c. Distribution Count Filter (NEW)
+    if params.get('use_dist_count_filter', False):
+        window = params.get('dist_count_window', 21)
+        # Ensure column name matches calculate_indicators (DistCount_21)
+        col_name = f'DistCount_{window}'
+        
+        if col_name in df.columns:
+            dist_val = last_row[col_name]
+            dist_logic = params.get('dist_count_logic', '>')
+            dist_thresh = params.get('dist_count_thresh', 0)
+            
+            if dist_logic == "=" and not (dist_val == dist_thresh): return False
+            if dist_logic == ">" and not (dist_val > dist_thresh): return False
+            if dist_logic == "<" and not (dist_val < dist_thresh): return False
     # 6. Distance Filter
     if params.get('use_dist_filter', False):
         ma_type = params.get('dist_ma_type', 'SMA 200')
