@@ -626,6 +626,7 @@ def run_engine(universe_dict, params, sznl_map, market_series=None):
                     continue
 
                 # --- IF ENTRY SUCCEEDED, SIMULATE TRADE ---
+                # --- IF ENTRY SUCCEEDED, SIMULATE TRADE ---
                 if found_entry and actual_entry_idx < len(df):
                     start_exit_scan = actual_entry_idx + 1
                     if start_exit_scan > fixed_exit_idx: continue 
@@ -637,6 +638,7 @@ def run_engine(universe_dict, params, sznl_map, market_series=None):
                         atr = df['ATR'].iloc[actual_entry_idx-1] if actual_entry_idx > 0 else 0
                         if atr == 0: continue
 
+                    # Calculate Levels
                     if direction == 'Long':
                         stop_price = actual_entry_price - (atr * params['stop_atr'])
                         tgt_price = actual_entry_price + (atr * params['tgt_atr'])
@@ -648,30 +650,47 @@ def run_engine(universe_dict, params, sznl_map, market_series=None):
                     exit_type = "Hold"
                     exit_date = None
                     
-                    if not params['time_exit_only']:
-                        for f_date, f_row in future.iterrows():
+                    # --- NEW EXIT LOGIC ---
+                    use_stop = params.get('use_stop_loss', True)
+                    use_target = params.get('use_take_profit', True)
+
+                    for f_date, f_row in future.iterrows():
+                        triggered = False
+                        
+                        # 1. CHECK STOP LOSS (If Enabled)
+                        if use_stop:
                             if direction == 'Long':
                                 if f_row['Low'] <= stop_price:
                                     exit_price = f_row['Open'] if f_row['Open'] < stop_price else stop_price
                                     exit_type = "Stop"
                                     exit_date = f_date
-                                    break
-                                if f_row['High'] >= tgt_price:
-                                    exit_price = f_row['Open'] if f_row['Open'] > tgt_price else tgt_price
-                                    exit_type = "Target"
-                                    exit_date = f_date
-                                    break
+                                    triggered = True
                             else: # Short
                                 if f_row['High'] >= stop_price:
                                     exit_price = f_row['Open'] if f_row['Open'] > stop_price else stop_price
                                     exit_type = "Stop"
                                     exit_date = f_date
-                                    break
+                                    triggered = True
+                        
+                        if triggered: break
+
+                        # 2. CHECK PROFIT TARGET (If Enabled)
+                        if use_target:
+                            if direction == 'Long':
+                                if f_row['High'] >= tgt_price:
+                                    exit_price = f_row['Open'] if f_row['Open'] > tgt_price else tgt_price
+                                    exit_type = "Target"
+                                    exit_date = f_date
+                                    triggered = True
+                            else: # Short
                                 if f_row['Low'] <= tgt_price:
                                     exit_price = f_row['Open'] if f_row['Open'] < tgt_price else tgt_price
                                     exit_type = "Target"
                                     exit_date = f_date
-                                    break
+                                    triggered = True
+                        
+                        if triggered: break
+                    # ----------------------
                     
                     if exit_type == "Hold":
                         exit_price = future['Close'].iloc[-1]
@@ -823,34 +842,51 @@ def main():
     st.subheader("2. Execution & Risk")
     r_c1, r_c2, r_c3 = st.columns(3)
     with r_c1: trade_direction = st.selectbox("Trade Direction", ["Long", "Short"])
-    with r_c2: time_exit_only = st.checkbox("Time Exit Only (Disable Stop/Target)")
-    with r_c3: max_one_pos = st.checkbox("Max 1 Position/Ticker", value=True, help="If checked, allows only one open trade at a time per ticker.")
+    
+    # --- CHANGED SECTION START ---
+    with r_c2: 
+        exit_mode = st.selectbox(
+            "Exit Mode", 
+            ["Standard (Stop & Target)", "No Stop (Target + Time)", "Time Only (Hold)"],
+            help="'No Stop' keeps the profit target active but ignores the stop loss."
+        )
+        # derive flags for the engine
+        use_stop_loss = (exit_mode == "Standard (Stop & Target)")
+        use_take_profit = (exit_mode != "Time Only (Hold)")
+    # --- CHANGED SECTION END ---
+
+    with r_c3: max_one_pos = st.checkbox("Max 1 Position/Ticker", value=True)
+    
     p_c1, p_c2, p_c3 = st.columns(3)
-    with p_c1: max_daily_entries = st.number_input("Max New Trades Per Day", min_value=1, max_value=100, value=2, step=1)
-    with p_c2: max_total_positions = st.number_input("Max Total Positions Held", min_value=1, max_value=200, value=10, step=1)
-    with p_c3: slippage_bps = st.number_input("Slippage (bps per side)", value=5, step=1)
+    with p_c1: max_daily_entries = st.number_input("Max New Trades Per Day", 1, 100, 2)
+    with p_c2: max_total_positions = st.number_input("Max Total Positions", 1, 200, 10)
+    with p_c3: slippage_bps = st.number_input("Slippage (bps)", value=5)
     
     st.write("")
     c_re, c_conf = st.columns(2)
     with c_re: allow_same_day_reentry = st.checkbox("Allow Same-Day Re-entry", value=False)
-    with c_conf: entry_conf_bps = st.number_input("Entry Confirmation (Min High > Open bps)", value=0, step=5, help="Only take trade if Day High > Open + X bps. Filters out immediate sell-offs.")
+    with c_conf: entry_conf_bps = st.number_input("Entry Confirmation (bps)", value=0)
 
     st.markdown("---")
     c1, c2, c3, c4, c5 = st.columns(5)
     with c1: 
+        # (Ensure your Entry Type selectbox includes the new option we discussed previously)
         entry_type = st.selectbox("Entry Price", [
             "Signal Close", "T+1 Open", "T+1 Close",
-            "Gap Up Only (Open > Prev High)", 
-            "Limit (Close -0.5 ATR)", 
-            "Limit (Prev Close)", 
-            "Limit (Open +/- 0.5 ATR)",  # <--- NEW OPTION ADDED HERE
+            "Gap Up Only (Open > Prev High)", "Limit (Close -0.5 ATR)", "Limit (Prev Close)", 
+            "Limit (Open +/- 0.5 ATR)", # Ensure this is here if you added it
             "Pullback 10 SMA (Entry: Close)", "Pullback 10 SMA (Entry: Level)",
             "Pullback 21 EMA (Entry: Close)", "Pullback 21 EMA (Entry: Level)"
         ])
         if "Pullback" in entry_type: use_ma_entry_filter = st.checkbox("Filter: Close > MA - 0.25*ATR", value=False)
         else: use_ma_entry_filter = False
-    with c2: stop_atr = st.number_input("Stop Loss (ATR)", value=3.0, step=0.1)
-    with c3: tgt_atr = st.number_input("Target (ATR)", value=8.0, step=0.1, disabled=time_exit_only)
+        
+    with c2: 
+        # Disable Stop input if we aren't using stops
+        stop_atr = st.number_input("Stop Loss (ATR)", value=3.0, step=0.1, disabled=not use_stop_loss)
+    with c3: 
+        # Disable Target input ONLY if we are in "Time Only" mode
+        tgt_atr = st.number_input("Target (ATR)", value=8.0, step=0.1, disabled=not use_take_profit)
     with c4: hold_days = st.number_input("Max Holding Days", value=10, step=1)
     with c5: risk_per_trade = st.number_input("Risk Amount ($)", value=1000, step=100)
 
@@ -1042,6 +1078,8 @@ def main():
         params = {
             'backtest_start_date': start_date, 'trade_direction': trade_direction,
             'max_one_pos': max_one_pos, 'allow_same_day_reentry': allow_same_day_reentry,
+            'use_stop_loss': use_stop_loss,     # New param
+            'use_take_profit': use_take_profit,
             'time_exit_only': time_exit_only, 'stop_atr': stop_atr, 'tgt_atr': tgt_atr, 'holding_days': hold_days,
             'entry_type': entry_type, 'use_ma_entry_filter': use_ma_entry_filter, 'require_close_gt_open': req_green_candle,
             'use_range_filter': use_range_filter, 'range_min': range_min, 'range_max': range_max,
