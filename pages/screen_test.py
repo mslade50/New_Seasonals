@@ -101,7 +101,7 @@ STRATEGY_BOOK = [
             "perf_filters": [{'window': 5, 'logic': '>', 'thresh': 85.0, 'consecutive': 1}, {'window': 21, 'logic': '>', 'thresh': 85.0, 'consecutive': 3}],
             "perf_first_instance": False, "perf_lookback": 21,
             "use_sznl": False, "sznl_logic": "<", "sznl_thresh": 65.0, "sznl_first_instance": False, "sznl_lookback": 21,
-            "use_market_sznl": True, "market_sznl_logic": "<", "market_sznl_thresh": 40.0, "market_ticker": "^GSPC",
+            "use_market_sznl": True, "market_sznl_logic": "<", "market_sznl_thresh": 35.0, "market_ticker": "^GSPC",
             "use_52w": False, "52w_type": "New 52w High", "52w_first_instance": False, "52w_lookback": 21,
             "use_vol": True, "vol_thresh": 1.5,
             "use_vol_rank": False, "vol_rank_logic": ">", "vol_rank_thresh": 40.0,
@@ -337,16 +337,16 @@ def calculate_indicators(df, sznl_map, ticker, market_series=None):
     ranges = pd.concat([high_low, high_close, low_close], axis=1)
     df['ATR'] = ranges.max(axis=1).rolling(14).mean()
     
-    # --- Volume, Accumulation & Distribution Logic ---
+    # --- Volume Logic ---
     vol_ma = df['Volume'].rolling(63).mean()
     df['vol_ratio'] = df['Volume'] / vol_ma
     df['vol_ma'] = vol_ma
     
-    # Base Conditions
+    # Base Conditions for Spike (Used in Acc/Dist)
     cond_vol_ma = df['Volume'] > vol_ma
     cond_vol_up = df['Volume'] > df['Volume'].shift(1)
     
-    # Create explicit Vol Spike Column (True/False)
+    # Explicit Spike Indicator (High Vol + Higher than yesterday)
     df['Vol_Spike'] = cond_vol_ma & cond_vol_up
     
     # 1. Accumulation (Green + Spike)
@@ -450,7 +450,7 @@ def get_historical_mask(df, params, sznl_map):
         elif g_logic == "<": mask &= (g_val < g_thresh)
         elif g_logic == "=": mask &= (g_val == g_thresh)
 
-    # --- NEW: Accumulation Count Filter ---
+    # --- Accumulation Count Filter ---
     if params.get('use_acc_count_filter', False):
         window = params.get('acc_count_window', 21)
         col_name = f'AccCount_{window}'
@@ -461,7 +461,7 @@ def get_historical_mask(df, params, sznl_map):
             elif acc_logic == '>': mask &= (df[col_name] > acc_thresh)
             elif acc_logic == '<': mask &= (df[col_name] < acc_thresh)
 
-    # --- NEW: Distribution Count Filter ---
+    # --- Distribution Count Filter ---
     if params.get('use_dist_count_filter', False):
         window = params.get('dist_count_window', 21)
         col_name = f'DistCount_{window}'
@@ -509,11 +509,10 @@ def get_historical_mask(df, params, sznl_map):
             cond_52 &= (prev == 0)
         mask &= cond_52
 
+    # --- FIXED VOLUME LOGIC ---
     if params['use_vol']:
-        # 1. Magnitude Check
+        # ONLY check Magnitude Ratio. DO NOT check Spike Behavior (Volume > Yesterday) here.
         mask &= (df['vol_ratio'] > params['vol_thresh'])
-        # 2. Spike Check (Behavior)
-        mask &= (df['Vol_Spike'] == True)
 
     if params.get('use_vol_rank'):
         val = df['vol_ratio_10d_rank']
@@ -880,9 +879,7 @@ def main():
             else:
                 st.success(f"✅ Found {len(sig_df)} Actionable Signals Today")
                 save_signals_to_gsheet(sig_df, sheet_name='Trade_Signals_Log')
-                # Calculate ATR Pct for display
-                sig_df['ATR_Pct_Val'] = (sig_df['ATR'] / sig_df['Entry']) * 100.0
-                st.dataframe(sig_df.style.format({"Entry": "${:.2f}", "Stop": "${:.2f}", "Target": "${:.2f}", "ATR": "{:.2f}", "ATR_Pct_Val": "{:.2f}%"}), use_container_width=True)
+                st.dataframe(sig_df.style.format({"Entry": "${:.2f}", "Stop": "${:.2f}", "Target": "${:.2f}", "ATR": "{:.2f}"}), use_container_width=True)
                 
                 clip_text = ""
                 for index, s in sig_df.iterrows():
