@@ -176,6 +176,8 @@ STRATEGY_BOOK = [
 # CONSTANTS & SETUP
 # -----------------------------------------------------------------------------
 CSV_PATH = "sznl_ranks.csv" 
+# Define indices to exclude from filtering (Always Include)
+INDEX_TICKERS = {'SPY', 'QQQ', 'IWM', 'DIA', 'SMH', '^GSPC', '^NDX'}
 
 @st.cache_resource 
 def load_seasonal_map():
@@ -521,6 +523,13 @@ def calculate_performance_stats(sig_df):
     
     return pd.DataFrame(stats)
 
+def assign_atr_bucket(pct_val):
+    """ Helper to categorize ATR % """
+    if pct_val < 1.5: return "< 1.5%"
+    elif 1.5 <= pct_val < 3.0: return "1.5% - 3.0%"
+    elif 3.0 <= pct_val < 5.0: return "3.0% - 5.0%"
+    else: return "> 5.0%"
+
 # -----------------------------------------------------------------------------
 # MAIN APP
 # -----------------------------------------------------------------------------
@@ -653,7 +662,8 @@ def main():
                                 "Action": action,
                                 "Price": entry,
                                 "Shares": shares,
-                                "PnL": pnl
+                                "PnL": pnl,
+                                "ATR": atr
                             })
                             
                             last_exit_date = exit_date
@@ -710,12 +720,34 @@ def main():
         if all_signals:
             sig_df = pd.DataFrame(all_signals)
             
+            # --- APPLY FILTERS ---
+            # Calculate ATR % Bucket
+            # Need Price column. In Live it's 'Entry', in Backtest it's 'Price'
+            price_col = 'Price' if is_backtest else 'Entry'
+            sig_df['ATR_Pct_Val'] = (sig_df['ATR'] / sig_df[price_col]) * 100.0
+            sig_df['ATR_Bucket'] = sig_df['ATR_Pct_Val'].apply(assign_atr_bucket)
+            
+            st.sidebar.header("🔎 Result Filters")
+            all_buckets = ["< 1.5%", "1.5% - 3.0%", "3.0% - 5.0%", "> 5.0%"]
+            selected_buckets = st.sidebar.multiselect("Stock Volatility Filter (ATR %)", options=all_buckets, default=all_buckets)
+            
+            # Filter Logic: Keep IF (Ticker in Indices) OR (Bucket in Selection)
+            # INDEX_TICKERS defined at top
+            sig_df = sig_df[
+                (sig_df['Ticker'].isin(INDEX_TICKERS)) | 
+                (sig_df['ATR_Bucket'].isin(selected_buckets))
+            ]
+
+            if sig_df.empty:
+                st.warning("No trades match your current filters.")
+                return
+
             if is_backtest:
                 sig_df['Date'] = pd.to_datetime(sig_df['Date'])
                 sig_df['Exit Date'] = pd.to_datetime(sig_df['Exit Date'])
                 sig_df = sig_df.sort_values(by="Exit Date")
 
-                # 1. Performance Table (NEW)
+                # 1. Performance Table
                 st.subheader("📊 Strategy Performance Metrics")
                 stats_df = calculate_performance_stats(sig_df)
                 st.dataframe(
@@ -742,7 +774,7 @@ def main():
                 strat_cum_pnl = strat_pnl.cumsum()
                 st.line_chart(strat_cum_pnl)
 
-                # 4. Portfolio Exposure Analysis (UPDATED)
+                # 4. Portfolio Exposure Analysis
                 st.subheader("⚖️ Portfolio Exposure Over Time")
                 exposure_df = calculate_daily_exposure(sig_df)
                 if not exposure_df.empty:
@@ -754,7 +786,7 @@ def main():
                 st.subheader("📜 Historical Signal Log")
                 st.dataframe(
                     sig_df.sort_values(by="Date", ascending=False).style.format({
-                        "Price": "${:.2f}", "PnL": "${:.2f}", "Date": "{:%Y-%m-%d}", "Exit Date": "{:%Y-%m-%d}"
+                        "Price": "${:.2f}", "PnL": "${:.2f}", "Date": "{:%Y-%m-%d}", "Exit Date": "{:%Y-%m-%d}", "ATR_Pct_Val": "{:.2f}%"
                     }), 
                     use_container_width=True,
                     height=400 
@@ -762,7 +794,7 @@ def main():
             else:
                 st.success(f"✅ Found {len(sig_df)} Actionable Signals Today")
                 save_signals_to_gsheet(sig_df, sheet_name='Trade_Signals_Log')
-                st.dataframe(sig_df.style.format({"Entry": "${:.2f}", "Stop": "${:.2f}", "Target": "${:.2f}", "ATR": "{:.2f}"}), use_container_width=True)
+                st.dataframe(sig_df.style.format({"Entry": "${:.2f}", "Stop": "${:.2f}", "Target": "${:.2f}", "ATR": "{:.2f}", "ATR_Pct_Val": "{:.2f}%"}), use_container_width=True)
                 
                 clip_text = ""
                 for index, s in sig_df.iterrows():
