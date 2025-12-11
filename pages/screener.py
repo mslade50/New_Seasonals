@@ -502,16 +502,17 @@ def calculate_indicators(df, sznl_map, ticker, market_series=None):
     cond_vol_ma = df['Volume'] > vol_ma
     cond_vol_up = df['Volume'] > df['Volume'].shift(1)
     
-    # 1. Accumulation (Green, High Vol, Vol > Prev)
+    # Create explicit Vol Spike Column (True/False)
+    df['Vol_Spike'] = cond_vol_ma & cond_vol_up
+    
+    # 1. Accumulation (Green + Spike)
     cond_green = df['Close'] > df['Open']
-    is_accumulation = (cond_vol_ma & cond_vol_up & cond_green).astype(int)
+    is_accumulation = (df['Vol_Spike'] & cond_green).astype(int)
     df['AccCount_21'] = is_accumulation.rolling(21).sum()
     
-    # 2. Distribution (Red, High Vol, Vol > Prev)
+    # 2. Distribution (Red + Spike)
     cond_red = df['Close'] < df['Open']
-    is_distribution = (cond_vol_ma & cond_vol_up & cond_red).astype(int)
-    
-    # Calculate rolling sums for Distribution (Standardizing naming to DistCount_XX)
+    is_distribution = (df['Vol_Spike'] & cond_red).astype(int)
     df['DistCount_21'] = is_distribution.rolling(21).sum()
     
     # --- Volume Rank ---
@@ -967,14 +968,14 @@ def main():
             target_df = calculate_indicators(target_df, sznl_map, debug_ticker, market_series)
 
             # -----------------------------------------------------------------
-            # PART A: DATA INDICATORS (With Volume Spike Metrics)
+            # PART A: DATA INDICATORS (Modified View)
             # -----------------------------------------------------------------
             cols_to_show = [
                 'Close', 'Volume', 
-                'vol_ratio', 'vol_ratio_10d_rank', 
+                'vol_ratio', 'Vol_Spike',         # Added Vol_Spike
+                'AccCount_21', 'DistCount_21',    # Added Counts
                 'Sznl', 'Mkt_Sznl_Ref', 
-                'ret_5d', 'rank_ret_5d',
-                'ret_21d', 'rank_ret_21d',
+                'rank_ret_5d', 'rank_ret_21d',    # Kept Ranks, Removed Raw %
                 'SMA200', 'Market_Above_SMA200'
             ]
             final_cols = [c for c in cols_to_show if c in target_df.columns]
@@ -985,12 +986,12 @@ def main():
                     'Close': '{:.2f}',
                     'Volume': '{:,.0f}',
                     'vol_ratio': '{:.2f}x',
-                    'vol_ratio_10d_rank': '{:.2f}',
+                    'Vol_Spike': '{}',           # Displays True/False
+                    'AccCount_21': '{:.0f}',     # Integer format
+                    'DistCount_21': '{:.0f}',    # Integer format
                     'Sznl': '{:.2f}',
                     'Mkt_Sznl_Ref': '{:.2f}',
-                    'ret_5d': '{:.2%}',
                     'rank_ret_5d': '{:.2f}',
-                    'ret_21d': '{:.2%}',
                     'rank_ret_21d': '{:.2f}',
                     'SMA200': '{:.2f}'
                 })
