@@ -7,9 +7,10 @@ import gspread
 from pandas.tseries.offsets import BusinessDay
 
 # -----------------------------------------------------------------------------
-# 1. THE STRATEGY BOOK
+# 1. THE STRATEGY BOOK (Unchanged)
 # -----------------------------------------------------------------------------
 STRATEGY_BOOK = [
+    # ... (Keep your existing Strategy Book here exactly as is) ...
     # 1. INDEX SEASONALS
     {
         "id": "Indx sznl > 85, 21dr < 15",
@@ -413,91 +414,67 @@ def check_signal(df, params, sznl_map):
     mask = get_historical_mask(df, params, sznl_map)
     return mask.iloc[-1]
 
-def calculate_trade_result(df, signal_date, action, entry_price, stop_price, target_price, hold_days, risk_per_trade):
-    """ Simulates the trade outcome by looking forward in the dataframe """
+def calculate_trade_result(df, signal_date, action, shares, entry_price, hold_days):
+    """ 
+    UPDATED: EXITS STRICTLY BASED ON TIME STOP (HOLD DAYS).
+    Ignores price stops/targets for the exit trigger, but calculates PnL using the realized exit price.
+    """
     
-    # Slice dataframe from day after signal to hold days
+    # Slice dataframe from day after signal
     start_idx = df.index.searchsorted(signal_date)
     if start_idx >= len(df) - 1:
         return 0, signal_date # Not enough data yet
     
-    # Look at future window
+    # Look at future window strictly for hold_days
+    # The exit is at the Close of the last day in the hold period
     window = df.iloc[start_idx+1 : start_idx+1+hold_days].copy()
-    if window.empty: return 0, signal_date
+    
+    if window.empty: 
+        return 0, signal_date
 
-    pnl = 0
-    exit_date = window.index[-1]
-
+    # TIME EXIT logic
+    exit_row = window.iloc[-1]
+    exit_price = exit_row['Close']
+    exit_date = exit_row.name
+    
     if action == "BUY":
-        # Check if stop or target hit
-        # We assume if Low < Stop, we stopped out. If High > Target, we hit target.
-        # Conservative assumption: If both happen on same day, Stop hits first.
-        
-        hit_stop = window[window['Low'] <= stop_price]
-        hit_tgt = window[window['High'] >= target_price]
-        
-        first_stop = hit_stop.index[0] if not hit_stop.empty else None
-        first_tgt = hit_tgt.index[0] if not hit_tgt.empty else None
-        
-        if first_stop and first_tgt:
-            if first_stop <= first_tgt:
-                # Stopped out
-                pnl = -risk_per_trade
-                exit_date = first_stop
-            else:
-                # Target hit
-                # Calculate R multiple. If Target is 2R, we make 2 * Risk
-                r_mult = (target_price - entry_price) / (entry_price - stop_price)
-                pnl = risk_per_trade * r_mult
-                exit_date = first_tgt
-        elif first_stop:
-            pnl = -risk_per_trade
-            exit_date = first_stop
-        elif first_tgt:
-            r_mult = (target_price - entry_price) / (entry_price - stop_price)
-            pnl = risk_per_trade * r_mult
-            exit_date = first_tgt
-        else:
-            # Time Exit
-            exit_price = window.iloc[-1]['Close']
-            dist_risk = entry_price - stop_price
-            if dist_risk == 0: dist_risk = 0.01
-            r_realized = (exit_price - entry_price) / dist_risk
-            pnl = risk_per_trade * r_realized
-            
+        pnl = (exit_price - entry_price) * shares
     elif action == "SELL SHORT":
-        hit_stop = window[window['High'] >= stop_price]
-        hit_tgt = window[window['Low'] <= target_price]
-        
-        first_stop = hit_stop.index[0] if not hit_stop.empty else None
-        first_tgt = hit_tgt.index[0] if not hit_tgt.empty else None
-        
-        if first_stop and first_tgt:
-            if first_stop <= first_tgt:
-                pnl = -risk_per_trade
-                exit_date = first_stop
-            else:
-                r_mult = (stop_price - entry_price) / (target_price - stop_price) # Risk dist is absolute
-                # Actually simpler: (Entry - Target) / (Stop - Entry)
-                r_mult = (entry_price - target_price) / (stop_price - entry_price)
-                pnl = risk_per_trade * r_mult
-                exit_date = first_tgt
-        elif first_stop:
-            pnl = -risk_per_trade
-            exit_date = first_stop
-        elif first_tgt:
-            r_mult = (entry_price - target_price) / (stop_price - entry_price)
-            pnl = risk_per_trade * r_mult
-            exit_date = first_tgt
-        else:
-            # Time Exit
-            exit_price = window.iloc[-1]['Close']
-            dist_risk = stop_price - entry_price
-            if dist_risk == 0: dist_risk = 0.01
-            r_realized = (entry_price - exit_price) / dist_risk
-            pnl = risk_per_trade * r_realized
+        pnl = (entry_price - exit_price) * shares
+    else:
+        pnl = 0
 
     return pnl, exit_date
+
+def calculate_daily_exposure(sig_df):
+    """ Reconstructs daily dollar exposure from trade logs """
+    if sig_df.empty: return pd.DataFrame()
+    
+    # Create a full date range covering the entire backtest period
+    min_date = sig_df['Date'].min()
+    max_date = sig_df['Exit Date'].max()
+    all_dates = pd.date_range(start=min_date, end=max_date)
+    
+    exposure_df = pd.DataFrame(0.0, index=all_dates, columns=['Long Exposure ($)', 'Short Exposure ($)'])
+    
+    # Iterate through trades and add exposure
+    for idx, row in sig_df.iterrows():
+        trade_dates = pd.date_range(start=row['Date'], end=row['Exit Date'])
+        dollar_val = row['Price'] * row['Shares']
+        
+        # We assume exposure starts day AFTER signal (entry) and ends on exit date
+        # Adjust based on your specific entry execution (e.g. T+1 Open vs Close)
+        # Here assuming fully invested for the duration
+        
+        if row['Action'] == 'BUY':
+            # Add to Long Column
+            exposure_df.loc[exposure_df.index.isin(trade_dates), 'Long Exposure ($)'] += dollar_val
+        elif row['Action'] == 'SELL SHORT':
+            # Add to Short Column (keep positive magnitude for plotting comparison, or negative?)
+            # Usually exposure is plotted as absolute magnitude or distinct lines.
+            exposure_df.loc[exposure_df.index.isin(trade_dates), 'Short Exposure ($)'] += dollar_val
+            
+    return exposure_df
 
 # -----------------------------------------------------------------------------
 # MAIN APP
@@ -515,12 +492,13 @@ def main():
     with col1:
         run_live = st.button("Run Live Scan (Today)", type="primary", use_container_width=True)
     with col2:
-        run_hist = st.button("Run 3-Month Historical Backtest", type="secondary", use_container_width=True)
+        run_hist = st.button("Run 252-Day Historical Backtest", type="secondary", use_container_width=True)
 
     if run_live or run_hist:
         
         is_backtest = True if run_hist else False
-        mode_text = "Historical Backtest (90 Days)" if is_backtest else "Live Scan"
+        # UPDATED LABEL
+        mode_text = "Historical Backtest (252 Days)" if is_backtest else "Live Scan"
         st.info(f"Running {mode_text} on {len(STRATEGY_BOOK)} strategies...")
         
         # 1. Consolidate Tickers
@@ -539,7 +517,8 @@ def main():
         final_download_list = [t.replace('.', '-') for t in final_download_list]
         
         # 2. Download Data
-        start_date = datetime.date.today() - datetime.timedelta(days=400)
+        # Ensure we have enough data for 252 days back + 252 lookback + 50 buffer
+        start_date = datetime.date.today() - datetime.timedelta(days=700)
         try:
             raw_data = yf.download(final_download_list, start=start_date, group_by='ticker', progress=False, threads=True)
         except Exception as e:
@@ -598,19 +577,23 @@ def main():
                             entry = row['Close']
                             direction = strat['settings'].get('trade_direction', 'Long')
                             
+                            # CALCULATE STOPS (For Sizing Only)
                             if direction == 'Long':
                                 stop_price = entry - (atr * strat['execution']['stop_atr'])
-                                tgt_price = entry + (atr * strat['execution']['tgt_atr'])
+                                dist = entry - stop_price
                                 action = "BUY"
                             else:
                                 stop_price = entry + (atr * strat['execution']['stop_atr'])
-                                tgt_price = entry - (atr * strat['execution']['tgt_atr'])
+                                dist = stop_price - entry
                                 action = "SELL SHORT"
                             
-                            # CALCULATE PNL
+                            # CALCULATE SIZE
+                            shares = int(risk / dist) if dist > 0 else 0
+                            
+                            # CALCULATE PNL (Using Time Exit)
                             pnl, exit_date = calculate_trade_result(
-                                df, d, action, entry, stop_price, tgt_price, 
-                                strat['execution']['hold_days'], risk
+                                df, d, action, shares, entry,
+                                strat['execution']['hold_days']
                             )
 
                             all_signals.append({
@@ -620,6 +603,7 @@ def main():
                                 "Ticker": ticker,
                                 "Action": action,
                                 "Price": entry,
+                                "Shares": shares,
                                 "PnL": pnl
                             })
                             
@@ -676,25 +660,41 @@ def main():
             sig_df = pd.DataFrame(all_signals)
             
             if is_backtest:
-                # 1. Equity Curve
-                st.subheader("📈 Cumulative PnL (Rolling 90 Days)")
-                sig_df = sig_df.sort_values(by="Exit Date") # Sort by exit for realizd pnl
-                
-                # Group by Exit Date to sum up daily PnL
+                sig_df['Date'] = pd.to_datetime(sig_df['Date'])
+                sig_df['Exit Date'] = pd.to_datetime(sig_df['Exit Date'])
+                sig_df = sig_df.sort_values(by="Exit Date")
+
+                # 1. Total Cumulative PnL
+                st.subheader("📈 Total Portfolio PnL (Rolling 252 Days)")
                 daily_pnl = sig_df.groupby("Exit Date")['PnL'].sum().cumsum()
                 st.line_chart(daily_pnl)
                 
                 total_pnl = sig_df['PnL'].sum()
-                st.metric("Total PnL (Simulated)", f"${total_pnl:,.2f}")
+                st.metric("Total PnL (Simulated - Time Exits Only)", f"${total_pnl:,.2f}")
 
-                # 2. Detailed Table
+                # 2. Strategy Breakdown PnL (NEW)
+                st.subheader("📊 Cumulative PnL by Strategy")
+                # Pivot: Index=Date, Columns=Strategy, Values=PnL
+                strat_pnl = sig_df.pivot_table(index='Exit Date', columns='Strategy', values='PnL', aggfunc='sum').fillna(0)
+                strat_cum_pnl = strat_pnl.cumsum()
+                st.line_chart(strat_cum_pnl)
+
+                # 3. Portfolio Exposure Analysis (NEW)
+                st.subheader("⚖️ Portfolio Exposure Over Time")
+                exposure_df = calculate_daily_exposure(sig_df)
+                if not exposure_df.empty:
+                    st.line_chart(exposure_df)
+                else:
+                    st.warning("Not enough data to calculate exposure.")
+
+                # 4. Detailed Table
                 st.subheader("📜 Historical Signal Log")
                 st.dataframe(
                     sig_df.sort_values(by="Date", ascending=False).style.format({
-                        "Price": "${:.2f}", "PnL": "${:.2f}"
+                        "Price": "${:.2f}", "PnL": "${:.2f}", "Date": "{:%Y-%m-%d}", "Exit Date": "{:%Y-%m-%d}"
                     }), 
                     use_container_width=True,
-                    height=600 
+                    height=400 
                 )
             else:
                 st.success(f"✅ Found {len(sig_df)} Actionable Signals Today")
@@ -703,7 +703,7 @@ def main():
                 
                 clip_text = ""
                 for index, s in sig_df.iterrows():
-                     clip_text += f"{s['Action']} {s['Shares']} {s['Ticker']} @ MKT. Stop: {s['Stop']:.2f}. Target: {s['Target']:.2f}. Exit Date: {s['Time Exit']}.\n"
+                      clip_text += f"{s['Action']} {s['Shares']} {s['Ticker']} @ MKT. Stop: {s['Stop']:.2f}. Target: {s['Target']:.2f}. Exit Date: {s['Time Exit']}.\n"
                 st.text_area("Execution Clipboard", clip_text, height=100)
         else:
             st.info("No signals found.")
