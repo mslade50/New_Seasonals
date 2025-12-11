@@ -102,7 +102,7 @@ STRATEGY_BOOK = [
             "perf_filters": [{'window': 5, 'logic': '>', 'thresh': 85.0, 'consecutive': 1}, {'window': 21, 'logic': '>', 'thresh': 85.0, 'consecutive': 3}],
             "perf_first_instance": False, "perf_lookback": 21,
             "use_sznl": False, "sznl_logic": "<", "sznl_thresh": 65.0, "sznl_first_instance": False, "sznl_lookback": 21,
-            "use_market_sznl": True, "market_sznl_logic": "<", "market_sznl_thresh": 33.0,
+            "use_market_sznl": True, "market_sznl_logic": "<", "market_sznl_thresh": 35.0,
             "market_ticker": "^GSPC",
             "use_52w": False, "52w_type": "New 52w High", "52w_first_instance": False, "52w_lookback": 21,
             "use_vol": True, "vol_thresh": 1.25,
