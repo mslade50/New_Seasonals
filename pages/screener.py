@@ -747,152 +747,182 @@ def check_signal(df, params, sznl_map):
 # MAIN APP
 # -----------------------------------------------------------------------------
 
+@st.cache_data(show_spinner=False) # Cache results so re-runs are instant
+def download_historical_data(tickers, start_date="2000-01-01"):
+    """
+    Downloads data in chunks of 50 to avoid rate limits and memory crashes.
+    Returns a dictionary: { 'TICKER': pd.DataFrame }
+    """
+    if not tickers: return {}
+    
+    # Deduplicate and clean
+    clean_tickers = list(set([str(t).strip().upper().replace('.', '-') for t in tickers]))
+    
+    data_dict = {}
+    CHUNK_SIZE = 50 
+    total = len(clean_tickers)
+    
+    # UI Elements for progress
+    progress_bar = st.progress(0)
+    status_text = st.empty()
+    
+    for i in range(0, total, CHUNK_SIZE):
+        chunk = clean_tickers[i : i + CHUNK_SIZE]
+        
+        # Update UI
+        current_progress = min((i + CHUNK_SIZE) / total, 1.0)
+        status_text.text(f"📥 Downloading batch {i+1}-{min(i+CHUNK_SIZE, total)} of {total}...")
+        progress_bar.progress(current_progress)
+        
+        try:
+            # Download Chunk
+            df = yf.download(
+                chunk, 
+                start=start_date, 
+                group_by='ticker', 
+                auto_adjust=False, # Keep original Close/Adj Close logic usually
+                progress=False, 
+                threads=True
+            )
+            
+            if df.empty: continue
+            
+            # CASE A: Single Ticker in Chunk (Yahoo returns Flat Index)
+            if len(chunk) == 1:
+                ticker = chunk[0]
+                # If yahoo failed, df might be empty or missing cols
+                if 'Close' in df.columns:
+                    # Clean Index
+                    df.index = df.index.tz_localize(None)
+                    data_dict[ticker] = df
+            
+            # CASE B: Multiple Tickers (Yahoo returns MultiIndex)
+            else:
+                # Iterate through the columns levels to extract valid dfs
+                # Note: yf.download with group_by='ticker' makes level 0 the ticker
+                available_tickers = df.columns.levels[0]
+                
+                for t in available_tickers:
+                    try:
+                        t_df = df[t].copy()
+                        # specific check to ensure it's not empty
+                        if t_df.empty or 'Close' not in t_df.columns: continue
+                        
+                        t_df.index = t_df.index.tz_localize(None)
+                        data_dict[t] = t_df
+                    except Exception:
+                        continue
+            
+            # Sleep briefly to be nice to the API
+            time.sleep(0.25)
+            
+        except Exception as e:
+            st.warning(f"⚠️ Error downloading chunk starting {chunk[0]}: {e}")
+            continue
+
+    # Cleanup UI
+    progress_bar.empty()
+    status_text.empty()
+    
+    return data_dict
+
+# -----------------------------------------------------------------------------
+# MAIN APP
+# -----------------------------------------------------------------------------
 def main():
     st.set_page_config(layout="wide", page_title="Production Strategy Screener")
-    st.title("⚡ Daily Strategy Screener (Smart Caching)")
+    st.title("⚡ Daily Strategy Screener (Batch Optimized)")
     st.markdown("---")
     
     sznl_map = load_seasonal_map()
     
-    # --- SMART CACHING SETUP ---
-    # 1. Initialize the persistent data store in Session State if it doesn't exist
-    if 'market_data_store' not in st.session_state:
-        st.session_state['market_data_store'] = pd.DataFrame()
+    # Initialize Session State for Data if not exists
+    if 'master_data_dict' not in st.session_state:
+        st.session_state['master_data_dict'] = {}
 
-    # -------------------------------------------------------------------------
-    # MAIN SCREENER BUTTON
-    # -------------------------------------------------------------------------
     if st.button("Run All Strategies", type="primary", use_container_width=True):
         
-        status_container = st.container()
-        
-        # 2. Iterate through strategies sequentially
-        for i, strat in enumerate(STRATEGY_BOOK):
+        # 1. Gather ALL tickers first (Efficiency Step)
+        all_required_tickers = set()
+        for strat in STRATEGY_BOOK:
+            all_required_tickers.update(strat['universe_tickers'])
             
-            with status_container:
-                st.info(f"Processing {i+1}/{len(STRATEGY_BOOK)}: **{strat['name']}**")
-
-            # --- IDENTIFY TICKERS NEEDED FOR THIS SPECIFIC STRATEGY ---
-            current_strat_tickers = set(strat['universe_tickers'])
-            
-            # Add Market Tickers (SPY, ^GSPC, etc.)
+            # Add Market/Trend Tickers
             s = strat['settings']
-            if s.get('use_market_sznl'):
-                current_strat_tickers.add(s.get('market_ticker', '^GSPC'))
-            if "Market" in s.get('trend_filter', ''):
-                current_strat_tickers.add(s.get('market_ticker', 'SPY'))
-            if "SPY" in s.get('trend_filter', ''):
-                current_strat_tickers.add("SPY")
-
-            # Clean ticker names (dot to dash for Yahoo)
-            needed_tickers = [t.replace('.', '-') for t in current_strat_tickers]
-
-            # --- CHECK CACHE: WHAT IS MISSING? ---
-            existing_cols = []
-            if not st.session_state['market_data_store'].empty:
-                # Yahoo returns MultiIndex (Price, Ticker), so level 1 is the ticker
-                if isinstance(st.session_state['market_data_store'].columns, pd.MultiIndex):
-                    existing_cols = st.session_state['market_data_store'].columns.get_level_values(1).unique().tolist()
-                else:
-                    # Fallback if flat columns (single ticker scenario)
-                    existing_cols = [st.session_state['market_data_store'].name] if hasattr(st.session_state['market_data_store'], 'name') else []
+            if s.get('use_market_sznl'): all_required_tickers.add(s.get('market_ticker', '^GSPC'))
+            if "Market" in s.get('trend_filter', ''): all_required_tickers.add(s.get('market_ticker', 'SPY'))
+            if "SPY" in s.get('trend_filter', ''): all_required_tickers.add("SPY")
             
-            missing_tickers = [t for t in needed_tickers if t not in existing_cols]
+        # Clean names
+        all_required_tickers = {t.replace('.', '-') for t in all_required_tickers}
 
-            # --- INCREMENTAL DOWNLOAD ---
-            if missing_tickers:
-                # st.write(f"📥 Downloading history (2000-01-01) for {len(missing_tickers)} new tickers...")
-                try:
-                    new_data = yf.download(
-                        missing_tickers, 
-                        start="2000-01-01",   # <--- UNIFIED START DATE
-                        group_by='ticker', 
-                        progress=False, 
-                        threads=True
-                    )
-                    
-                    if not new_data.empty:
-                        # If the store is empty, just use the new data
-                        if st.session_state['market_data_store'].empty:
-                            st.session_state['market_data_store'] = new_data
-                        else:
-                            # Merge new columns into existing dataframe
-                            # We use concat on axis 1 (columns) to add new tickers
-                            st.session_state['market_data_store'] = pd.concat(
-                                [st.session_state['market_data_store'], new_data], 
-                                axis=1
-                            )
-                except Exception as e:
-                    st.error(f"Error downloading batch: {e}")
-
-            # --- PREPARE DATA FOR CALCULATIONS ---
-            # Now we pull the specific tickers for this strategy from our Master Store
-            # to avoid passing the massive 500-ticker DF to the calculator every time.
-            raw_data = st.session_state['market_data_store']
+        # 2. Check what is missing from session state
+        existing_keys = set(st.session_state['master_data_dict'].keys())
+        missing_tickers = list(all_required_tickers - existing_keys)
+        
+        # 3. Download Missing Data (Batch Mode)
+        if missing_tickers:
+            st.info(f"Need to fetch history (from 2000-01-01) for {len(missing_tickers)} new tickers.")
+            new_data_dict = download_historical_data(missing_tickers, start_date="2000-01-01")
             
-            # --- EXECUTE STRATEGY LOGIC (Same as before) ---
+            # Merge into session state
+            st.session_state['master_data_dict'].update(new_data_dict)
+            st.success(f"✅ Data initialized. Total tickers in memory: {len(st.session_state['master_data_dict'])}")
+
+        # 4. Run Strategies
+        master_dict = st.session_state['master_data_dict']
+        
+        for i, strat in enumerate(STRATEGY_BOOK):
             with st.expander(f"Strategy: {strat['name']} (Grade: {strat['stats']['grade']})", expanded=False):
                 
-                # ... (Display Stats Header) ...
+                # Stats Header
                 s1, s2, s3, s4, s5 = st.columns(5)
                 s1.metric("Win Rate", strat['stats']['win_rate'])
                 s2.metric("Expectancy", strat['stats']['expectancy'])
                 s3.metric("Profit Factor", strat['stats']['profit_factor'])
                 s4.metric("Direction", strat['settings'].get('trade_direction', 'Long'))
                 s5.metric("Risk Unit", f"${strat['execution']['risk_per_trade']}")
-                st.caption(strat['description'])
-
-                # Determine Market Ticker Logic
-                strat_mkt_ticker = strat['settings'].get('market_ticker', 'SPY')
                 
-                # Market Regime Series
+                # Prepare Market Series for this specific strategy
+                strat_mkt_ticker = strat['settings'].get('market_ticker', 'SPY')
                 market_series = None
-                try:
-                    # Check if MultiIndex
-                    if isinstance(raw_data.columns, pd.MultiIndex):
-                        if strat_mkt_ticker in raw_data.columns.levels[0]:
-                            mkt_df = raw_data[strat_mkt_ticker].copy()
-                        elif "SPY" in raw_data.columns.levels[0]:
-                            mkt_df = raw_data["SPY"].copy()
-                        else:
-                            mkt_df = pd.DataFrame()
-                    else:
-                        mkt_df = raw_data.copy()
-
-                    if not mkt_df.empty:
-                        mkt_df['SMA200'] = mkt_df['Close'].rolling(200).mean()
-                        market_series = mkt_df['Close'] > mkt_df['SMA200']
-                except:
-                    pass
+                
+                # Try to get market data from dict
+                mkt_df = master_dict.get(strat_mkt_ticker)
+                if mkt_df is None: mkt_df = master_dict.get('SPY') # Fallback
+                
+                if mkt_df is not None:
+                    # Calculate SMA200 for Market
+                    temp_mkt = mkt_df.copy()
+                    temp_mkt['SMA200'] = temp_mkt['Close'].rolling(200).mean()
+                    market_series = temp_mkt['Close'] > temp_mkt['SMA200']
 
                 signals = []
                 
-                # Loop through tickers for this strategy only
-                for ticker in needed_tickers:
+                # Iterate Universe
+                for ticker in strat['universe_tickers']:
+                    t_clean = ticker.replace('.', '-')
+                    
+                    df = master_dict.get(t_clean)
+                    if df is None: continue
+                    if len(df) < 250: continue
+                    
                     try:
-                        # Extract single ticker DF
-                        if isinstance(raw_data.columns, pd.MultiIndex):
-                            if ticker not in raw_data.columns.levels[0]: continue
-                            df = raw_data[ticker].copy()
-                        else:
-                            df = raw_data.copy()
-
-                        df = df.dropna(subset=['Close'])
-                        if len(df) < 250: continue
+                        # Copy to avoid contaminating master dict
+                        calc_df = df.copy() 
                         
-                        df = calculate_indicators(df, sznl_map, ticker, market_series)
+                        calc_df = calculate_indicators(calc_df, sznl_map, t_clean, market_series)
                         
-                        if check_signal(df, strat['settings'], sznl_map):
-                            last_row = df.iloc[-1]
+                        if check_signal(calc_df, strat['settings'], sznl_map):
+                            last_row = calc_df.iloc[-1]
                             
-                            # Entry Confirmation
+                            # Entry Confirmation Check
                             entry_conf_bps = strat['settings'].get('entry_conf_bps', 0)
                             entry_mode = strat['settings'].get('entry_type', 'Signal Close')
                             if entry_mode == 'Signal Close' and entry_conf_bps > 0:
                                 threshold = last_row['Open'] * (1 + entry_conf_bps/10000.0)
                                 if last_row['High'] < threshold: continue
 
-                            # Risk Management
                             atr = last_row['ATR']
                             risk = strat['execution']['risk_per_trade']
                             entry = last_row['Close']
@@ -919,7 +949,6 @@ def main():
                                 "Ticker": ticker,
                                 "Date": last_row.name.date(),
                                 "Action": action,
-                                "Entry Criteria": strat['settings'].get('entry_type', 'Signal Close'),
                                 "Shares": shares,
                                 "Entry": entry,
                                 "Stop": stop_price,
@@ -934,16 +963,15 @@ def main():
                     st.success(f"✅ Found {len(signals)} Actionable Signals")
                     sig_df = pd.DataFrame(signals)
                     save_signals_to_gsheet(sig_df, sheet_name='Trade_Signals_Log')
+                    
                     st.dataframe(sig_df.style.format({"Entry": "${:.2f}", "Stop": "${:.2f}", "Target": "${:.2f}", "ATR": "{:.2f}"}), use_container_width=True)
                     
-                    clip_text = ""
+                    clip = ""
                     for s in signals:
-                        clip_text += f"{s['Action']} {s['Shares']} {s['Ticker']} @ MKT. Stop: {s['Stop']:.2f}. Target: {s['Target']:.2f}. Exit Date: {s['Time Exit']}.\n"
-                    st.text_area(f"Clipboard: {strat['name']}", clip_text, height=100)
+                        clip += f"{s['Action']} {s['Shares']} {s['Ticker']} @ MKT. Stop: {s['Stop']:.2f}. Target: {s['Target']:.2f}. Exit Date: {s['Time Exit']}.\n"
+                    st.text_area(f"Clipboard", clip, height=80)
                 else:
-                    st.info("No signals found.")
-        
-        st.success("🎉 All strategies executed successfully.")
+                    st.caption("No signals found.")
 
     # -------------------------------------------------------------------------
     # DEBUG: DEEP DIVE & SCORECARD
