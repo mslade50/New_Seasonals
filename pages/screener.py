@@ -1028,15 +1028,16 @@ def main():
                     except Exception as e:
                         continue
                 
-               if signals:
+                # --- SAVING LOGIC (Must be outside the ticker loop) ---
+                if signals:
                     st.success(f"✅ Found {len(signals)} Actionable Signals")
                     sig_df = pd.DataFrame(signals)
+                    
+                    # 1. Save Human Log
                     save_signals_to_gsheet(sig_df, sheet_name='Trade_Signals_Log')
                     
-                    # --- UPDATED CALL ---
-                    # Pass STRATEGY_BOOK so we can look up settings
+                    # 2. Save Python/IBKR Instructions
                     save_staging_orders(signals, STRATEGY_BOOK, sheet_name='Order_Staging')
-                    # --------------------
                     
                     st.dataframe(sig_df.style.format({"Entry": "${:.2f}", "Stop": "${:.2f}", "Target": "${:.2f}", "ATR": "{:.2f}"}), use_container_width=True)
                     
@@ -1046,7 +1047,6 @@ def main():
                     st.text_area(f"Clipboard", clip, height=80)
                 else:
                     st.caption("No signals found.")
-
     # -------------------------------------------------------------------------
     # DEBUG: DEEP DIVE & SCORECARD
     # -------------------------------------------------------------------------
