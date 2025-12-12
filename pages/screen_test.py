@@ -31,52 +31,6 @@ STRATEGY_BOOK = [
         "execution": { "risk_per_trade": 1000, "stop_atr": 2, "tgt_atr": 8.0, "hold_days": 21 },
         "stats": { "grade": "A (Excellent)", "win_rate": "64.1%", "expectancy": "$471.36", "profit_factor": "4.51" }
     },
-    {
-        "id": "STRAT_1765490228",
-        "name": "Overbot test",
-        "description": "Start: 2000-01-01. Universe: All CSV Tickers. Dir: Short. Filter: None. PF: 1.86. SQN: 5.80.",
-        "universe_tickers": ['AAPL', 'ABT', 'ADBE', 'ADI', 'ADM', 'ADP', 'ADSK', 'AEP', 'AIG', 'ALL', 'AMAT', 'AMD', 'AMGN', 'AMZN', 'AON', 'APD', 'AVGO', 'AXP', 'BA', 'BAC', 'BAX', 'BDX', 'BK', 'BMY', 'C', 'CAG', 'CAT', 'CEF', 'CL', 'CMCSA', 'CMS', 'CNP', 'COP', 'COST', 'CPB', 'CRM', 'CSCO', 'CSX', 'CVS', 'CVX', 'D', 'DE', 'DIA', 'DIS', 'DOV', 'DTE', 'DUK', 'ECL', 'ED', 'EIX', 'EMR', 'EOG', 'ETR', 'EXC', 'F', 'FCX', 'FDX', 'FE', 'GD', 'GE', 'GILD', 'GIS', 'GLD', 'GLW', 'GOOG', 'GPC', 'GS', 'HAL', 'HD', 'HIG', 'HON', 'HPQ', 'HRL', 'HSY', 'HUM', 'IBB', 'IBM', 'IHI', 'INTC', 'IP', 'ITA', 'ITB', 'ITW', 'IWM', 'IYR', 'JNJ', 'JPM', 'K', 'KEY', 'KMB', 'KO', 'KR', 'KRE', 'LEG', 'LIN', 'LLY', 'LMT', 'LOW', 'LUV', 'MAS', 'MCD', 'MDT', 'MET', 'META', 'MMC', 'MMM', 'MO', 'MRK', 'MS', 'MSFT', 'MU', 'NEE', 'NEM', 'NKE', 'NOC', 'NSC', 'NUE', 'NVDA', 'OIH', 'ORCL', 'OXY', 'PAYX', 'PCG', 'PEG', 'PEP', 'PFE', 'PG', 'PGR', 'PH', 'PNW', 'PPG', 'PPL', 'PSA', 'QCOM', 'QQQ', 'REGN', 'RF', 'RHI', 'ROK', 'ROST', 'RTX', 'SBUX', 'SCHW', 'SHW', 'SLB', 'SLV', 'SMH', 'SNA', 'SO', 'SPG', 'SPY', 'SRE', 'STT', 'SWK', 'SYK', 'SYY', 'T', 'TAP', 'TGT', 'TJX', 'TMO', 'TRV', 'TSN', 'TXN', 'UNG', 'UNH', 'UNP', 'USB', 'USO', 'UVXY', 'V', 'VFC', 'VLO', 'VMC', 'VNQ', 'VZ', 'WFC', 'WHR', 'WM', 'WMB', 'WMT', 'XBI', 'XHB', 'XLB', 'XLE', 'XLF', 'XLI', 'XLK', 'XLP', 'XLU', 'XLV', 'XLY', 'XME', 'XOM', 'XOP', 'XRT', '^GSPC', '^NDX'], 
-        "settings": {
-            "trade_direction": "Short",
-            "entry_type": "Limit (Open +/- 0.5 ATR)",
-            "max_one_pos": True,
-            "allow_same_day_reentry": False,
-            "max_daily_entries": 2,
-            "max_total_positions": 10,
-            "perf_filters": [{'window': 5, 'logic': '>', 'thresh': 85.0, 'consecutive': 1}, {'window': 10, 'logic': '>', 'thresh': 85.0, 'consecutive': 1}, {'window': 21, 'logic': '>', 'thresh': 85.0, 'consecutive': 3}],
-            "perf_first_instance": False, "perf_lookback": 21,
-            "use_sznl": False, "sznl_logic": "<", "sznl_thresh": 15.0, "sznl_first_instance": True, "sznl_lookback": 21,
-            "use_market_sznl": True, "market_sznl_logic": "<", "market_sznl_thresh": 40.0,
-            "market_ticker": "^GSPC",
-            "use_52w": False, "52w_type": "New 52w High", "52w_first_instance": True, "52w_lookback": 21,
-            "use_vol": True, "vol_thresh": 1.25,
-            "use_vol_rank": False, "vol_rank_logic": "<", "vol_rank_thresh": 50.0,
-            "trend_filter": "None",
-            "min_price": 10.0, "min_vol": 100000,
-            "min_age": 0.25, "max_age": 100.0,
-            "min_atr_pct": 0.0,"max_atr_pct": 100.0,
-            "entry_conf_bps": 0,
-            "use_ma_dist_filter": False, "dist_ma_type": "SMA 10", 
-            "dist_logic": "Greater Than (>)", "dist_min": 0.0, "dist_max": 2.0,
-            "use_gap_filter": False, "gap_lookback": 21, 
-            "gap_logic": ">", "gap_thresh": 3,
-            "use_acc_count_filter": False, "acc_count_window": 21, "acc_count_logic": ">", "acc_count_thresh": 3,
-            "use_dist_count_filter": True, "dist_count_window": 21, "dist_count_logic": ">", "dist_count_thresh": 0
-        },
-        "execution": {
-            "risk_per_trade": 1000,
-            "slippage_bps": 5,
-            "stop_atr": 1.0,
-            "tgt_atr": 8.0,
-            "hold_days": 3
-        },
-        "stats": {
-            "grade": "A (Excellent)",
-            "win_rate": "56.8%",
-            "expectancy": "$252.73",
-            "profit_factor": "1.86"
-        }
-    },
     # 2. NO ACCUMULATION DAYS
     {
         "id": "5+10+21d > 85%ile, 0 acc days in last 21, sell t+1 open + 0.5 ATR 10d time stop",
@@ -280,52 +234,6 @@ STRATEGY_BOOK = [
             "win_rate": "64.0%",
             "expectancy": "$411.09",
             "profit_factor": "2.46"
-        }
-    },
-    {
-        "id": "52w High 3x vol, SPX sznl > 50, > 3 atr from 50d, buy t1 open -0.5 atr",
-        "name": "52w High Breakouts",
-        "description": "Start: 2000-01-01. Universe: Custom (Upload CSV). Dir: Long. Filter: None. PF: 1.75. SQN: 5.90.",
-        "universe_tickers": ['AA', 'AAL', 'AAOI', 'AAON', 'AAP', 'AAPL', 'AAUC', 'ABNB', 'ACGL', 'ACHC', 'ACI', 'ACIW', 'ACLS', 'ACM', 'ACMR', 'ACN', 'ADBE', 'ADEA', 'ADI', 'ADM', 'ADNT', 'ADP', 'ADSK', 'AEE', 'AEHR', 'AEIS', 'AEM', 'AEO', 'AEP', 'AER', 'AES', 'AEVA', 'AFL', 'AFRM', 'AG', 'AGCO', 'AGI', 'AHMA', 'AI', 'AIG', 'AIP', 'AJG', 'AKAM', 'ALAB', 'ALB', 'ALGM', 'ALH', 'ALHC', 'ALK', 'ALKT', 'ALL', 'ALLE', 'ALLY', 'ALSN', 'ALV', 'AM', 'AMAT', 'AMBA', 'AMD', 'AME', 'AMKR', 'AMN', 'AMP', 'AMPL', 'AMPX', 'AMRC', 'AMRZ', 'AMSC', 'AMTM', 'AMX', 'AMZN', 'ANET', 'ANF', 'ANGI', 'AON', 'AOS', 'APA', 'APD', 'APG', 'APH', 'APLD', 'APO', 'APP', 'APPN', 'APTV', 'AR', 'ARCC', 'ARES', 'ARHS', 'ARLO', 'ARM', 'ARMK', 'ARMN', 'AROC', 'ARQQ', 'ARW', 'ARX', 'AS', 'ASAN', 'ASB', 'ASC', 'ASGN', 'ASH', 'ASML', 'ASO', 'ASTH', 'ASTS', 'ASX', 'ATAT', 'ATEN', 'ATGE', 'ATI', 'ATKR', 'ATMU', 'ATO', 'ATR', 'ATRO', 'AU', 'AUB', 'AUGO', 'AVA', 'AVAV', 'AVGO', 'AVNT', 'AVPT', 'AVT', 'AVY', 'AWK', 'AXIA', 'AXON', 'AXP', 'AXS', 'AXTA', 'AXTI', 'AZTA', 'B', 'BA', 'BABA', 'BAC', 'BACQ', 'BAH', 'BALL', 'BAM', 'BANC', 'BBAR', 'BBT', 'BBVA', 'BBWI', 'BBY', 'BC', 'BCE', 'BCS', 'BE', 'BEKE', 'BEN', 'BEP', 'BEPC', 'BETR', 'BF.B', 'BFAM', 'BFH', 'BG', 'BHF', 'BHP', 'BIDU', 'BILI', 'BILL', 'BIPC', 'BIRK', 'BJ', 'BJRI', 'BK', 'BKD', 'BKH', 'BKKT', 'BKR', 'BKSY', 'BKU', 'BKV', 'BL', 'BLDR', 'BLK', 'BLSH', 'BMA', 'BMNR', 'BMO', 'BN', 'BNS', 'BOOT', 'BOX', 'BP', 'BPOP', 'BR', 'BRK.B', 'BRO', 'BROS', 'BRSL', 'BRZE', 'BSY', 'BTDR', 'BTI', 'BTSG', 'BTU', 'BUD', 'BURL', 'BV', 'BVN', 'BWA', 'BWIN', 'BWXT', 'BX', 'BXSL', 'BYD', 'BZ', 'C', 'CADE', 'CAE', 'CAG', 'CAH', 'CAKE', 'CAL', 'CALM', 'CALX', 'CAMT', 'CAR', 'CARG', 'CARR', 'CARS', 'CART', 'CAT', 'CAVA', 'CB', 'CBRE', 'CBRL', 'CBSH', 'CBZ', 'CC', 'CCCX', 'CCEP', 'CCHH', 'CCJ', 'CCK', 'CCL', 'CCOI', 'CDE', 'CDNS', 'CDW', 'CE', 'CEG', 'CELH', 'CENX', 'CEPT', 'CEVA', 'CF', 'CFG', 'CFLT', 'CG', 'CGAU', 'CGBD', 'CGNX', 'CHA', 'CHAC', 'CHD', 'CHDN', 'CHH', 'CHKP', 'CHOW', 'CHRD', 'CHRW', 'CHTR', 'CHWY', 'CHYM', 'CI', 'CIEN', 'CIFR', 'CINF', 'CIVI', 'CL', 'CLB', 'CLBT', 'CLF', 'CLH', 'CLMT', 'CLS', 'CLSK', 'CLX', 'CM', 'CMA', 'CMBT', 'CMC', 'CMCSA', 'CME', 'CMG', 'CMI', 'CMPO', 'CMRE', 'CMS', 'CNC', 'CNI', 'CNK', 'CNM', 'CNNE', 'CNO', 'CNP', 'CNQ', 'CNR', 'CNX', 'CNXC', 'COCO', 'COF', 'COHR', 'COHU', 'COIN', 'COLB', 'COLM', 'COMM', 'COMP', 'CON', 'COP', 'COR', 'CORZ', 'COST', 'CP', 'CPAY', 'CPB', 'CPNG', 'CPRI', 'CPRT', 'CRBG', 'CRC', 'CRCL', 'CRDO', 'CRH', 'CRI', 'CRK', 'CRL', 'CRM', 'CRNC', 'CROX', 'CRS', 'CRUS', 'CRWD', 'CRWV', 'CSCO', 'CSGP', 'CSGS', 'CSIQ', 'CSL', 'CSTM', 'CSWC', 'CSX', 'CTAS', 'CTLP', 'CTRA', 'CTRI', 'CTSH', 'CTVA', 'CUK', 'CVBF', 'CVE', 'CVI', 'CVLT', 'CVNA', 'CVS', 'CVX', 'CWAN', 'CWEN', 'CWH', 'CWK', 'CWST', 'CX', 'CZR', 'D', 'DAL', 'DAN', 'DAR', 'DASH', 'DAVE', 'DB', 'DBX', 'DCI', 'DD', 'DDOG', 'DE', 'DECK', 'DELL', 'DEO', 'DG', 'DGNX', 'DGX', 'DHI', 'DHT', 'DIN', 'DINO', 'DIS', 'DJT', 'DK', 'DKNG', 'DKS', 'DLB', 'DLO', 'DLTR', 'DNOW', 'DOCN', 'DOCS', 'DOCU', 'DOLE', 'DOV', 'DOW', 'DOX', 'DPZ', 'DQ', 'DRD', 'DRI', 'DRS', 'DRVN', 'DSGX', 'DT', 'DTE', 'DTM', 'DUK', 'DUOL', 'DV', 'DVA', 'DVN', 'DXC', 'EAT', 'EBAY', 'EBC', 'ECG', 'ECL', 'ED', 'EDU', 'EEFT', 'EFX', 'EFXT', 'EGBN', 'EGO', 'EH', 'EHC', 'EIX', 'EL', 'ELF', 'ELV', 'EMBJ', 'EMN', 'EMR', 'ENB', 'ENPH', 'ENR', 'ENTG', 'EOG', 'EOSE', 'EPAM', 'EPC', 'EPD', 'EQH', 'EQNR', 'EQT', 'EQX', 'ERII', 'ERO', 'ES', 'ESAB', 'ESI', 'ESNT', 'ESTC', 'ET', 'ETN', 'ETOR', 'ETR', 'ETSY', 'EVER', 'EVRG', 'EVTC', 'EWBC', 'EXC', 'EXE', 'EXLS', 'EXPD', 'EXPE', 'EXPI', 'EXTR', 'EYE', 'EZPW', 'F', 'FA', 'FAF', 'FANG', 'FAST', 'FBIN', 'FBP', 'FCF', 'FCX', 'FDS', 'FDX', 'FE', 'FER', 'FERG', 'FFIN', 'FFIV', 'FHB', 'FHI', 'FHN', 'FIBK', 'FIG', 'FIGR', 'FIGS', 'FIS', 'FISV', 'FITB', 'FIVE', 'FIVN', 'FIX', 'FLEX', 'FLG', 'FLNC', 'FLO', 'FLR', 'FLS', 'FLUT', 'FLY', 'FLYE', 'FLYW', 'FMC', 'FN', 'FNB', 'FND', 'FNF', 'FNV', 'FORM', 'FOUR', 'FOX', 'FOXA', 'FOXF', 'FRGE', 'FRMI', 'FRO', 'FROG', 'FRPT', 'FRSH', 'FSK', 'FSLR', 'FSLY', 'FSS', 'FTAI', 'FTDR', 'FTI', 'FTNT', 'FTRE', 'FTS', 'FTV', 'FULT', 'FUN', 'FUTU', 'FVRR', 'FWONK', 'FWRD', 'FWRG', 'G', 'GAP', 'GBCI', 'GBDC', 'GCMG', 'GCT', 'GD', 'GDDY', 'GDEN', 'GDOT', 'GDS', 'GE', 'GEN', 'GENI', 'GES', 'GEV', 'GFI', 'GFL', 'GFS', 'GGAL', 'GGG', 'GH', 'GIL', 'GILT', 'GIS', 'GL', 'GLBE', 'GLIBK', 'GLNG', 'GLOB', 'GLW', 'GLXY', 'GM', 'GME', 'GNK', 'GNRC', 'GNTX', 'GO', 'GOLD', 'GOOG', 'GOOGL', 'GOOS', 'GPC', 'GPK', 'GPN', 'GPRE', 'GRMN', 'GRND', 'GRPN', 'GRRR', 'GS', 'GSAT', 'GTES', 'GTLB', 'GTM', 'GTX', 'GVA', 'GWRE', 'GXO', 'H', 'HAL', 'HAS', 'HASI', 'HAYW', 'HBAN', 'HBM', 'HCA', 'HCC', 'HCSG', 'HD', 'HDB', 'HE', 'HELE', 'HESM', 'HGV', 'HI', 'HIG', 'HIMS', 'HL', 'HLF', 'HLNE', 'HLT', 'HMC', 'HMY', 'HNGE', 'HNI', 'HNRG', 'HOG', 'HOMB', 'HON', 'HOOD', 'HOPE', 'HOUS', 'HP', 'HPE', 'HPQ', 'HQY', 'HRB', 'HRL', 'HSAI', 'HSBC', 'HSIC', 'HSY', 'HTFL', 'HTGC', 'HTHT', 'HUBB', 'HUBG', 'HUBS', 'HUM', 'HUN', 'HUT', 'HWC', 'HWM', 'HXL', 'HYMC', 'IAC', 'IAG', 'IBKR', 'IBM', 'IBN', 'ICE', 'ICHR', 'ICLR', 'IDR', 'IE', 'IEX', 'IFF', 'IMAX', 'IMO', 'INFY', 'ING', 'INGR', 'INOD', 'INTA', 'INTC', 'INTU', 'IONQ', 'IOT', 'IP', 'IR', 'IRDM', 'IREN', 'IT', 'ITRI', 'ITT', 'ITW', 'IVZ', 'J', 'JACK', 'JAMF', 'JBHT', 'JBL', 'JBS', 'JBTM', 'JCI', 'JD', 'JEF', 'JHG', 'JHX', 'JKHY', 'JKS', 'JMIA', 'JOBY', 'JPM', 'JXN', 'KAR', 'KBH', 'KBR', 'KC', 'KD', 'KDP', 'KEX', 'KEY', 'KEYS', 'KGC', 'KGS', 'KHC', 'KKR', 'KLAC', 'KLAR', 'KLIC', 'KMB', 'KMI', 'KMPR', 'KMT', 'KMX', 'KN', 'KNF', 'KNTK', 'KNX', 'KO', 'KR', 'KRMN', 'KRNT', 'KRP', 'KSPI', 'KSS', 'KT', 'KTB', 'KTOS', 'KVUE', 'KVYO', 'KYIV', 'L', 'LASR', 'LAUR', 'LAZ', 'LBRDK', 'LBRT', 'LBTYA', 'LBTYK', 'LC', 'LCID', 'LDOS', 'LEA', 'LEG', 'LEN', 'LEU', 'LEVI', 'LGN', 'LH', 'LHX', 'LI', 'LIF', 'LII', 'LIN', 'LITE', 'LKQ', 'LMND', 'LMT', 'LNC', 'LNG', 'LNT', 'LOAR', 'LOGI', 'LOMA', 'LOVE', 'LOW', 'LPLA', 'LPX', 'LRCX', 'LRN', 'LSCC', 'LSPD', 'LTBR', 'LTH', 'LTM', 'LULU', 'LUV', 'LVS', 'LW', 'LYB', 'LYFT', 'LYV', 'LZB', 'M', 'MA', 'MAGN', 'MAN', 'MANH', 'MAR', 'MARA', 'MAS', 'MAT', 'MAX', 'MBC', 'MBLY', 'MC', 'MCD', 'MCHP', 'MCK', 'MCO', 'MD', 'MDB', 'MDLZ', 'MDU', 'MELI', 'MEOH', 'MET', 'META', 'METC', 'MFC', 'MGA', 'MGM', 'MGY', 'MH', 'MHK', 'MIDD', 'MIR', 'MKC', 'MKSI', 'MKTX', 'MLI', 'MLKN', 'MMC', 'MMM', 'MMS', 'MMYT', 'MNDY', 'MNRO', 'MNSO', 'MNST', 'MNTN', 'MO', 'MOD', 'MODG', 'MOH', 'MOS', 'MP', 'MPC', 'MPLX', 'MPWR', 'MRCY', 'MRTN', 'MRVL', 'MRX', 'MS', 'MSCI', 'MSFT', 'MSI', 'MSM', 'MSTR', 'MT', 'MTB', 'MTCH', 'MTDR', 'MTG', 'MTH', 'MTN', 'MTSI', 'MTZ', 'MU', 'MUFG', 'MUR', 'MUX', 'MWA', 'MXL', 'NAVI', 'NBIS', 'NCLH', 'NCNO', 'NDAQ', 'NE', 'NEE', 'NEGG', 'NEM', 'NEO', 'NESR', 'NET', 'NFG', 'NFLX', 'NGG', 'NI', 'NICE', 'NIQ', 'NJR', 'NKE', 'NMRK', 'NN', 'NNE', 'NOC', 'NOG', 'NOMD', 'NOV', 'NOVT', 'NOW', 'NPKI', 'NRDS', 'NRG', 'NSC', 'NSIT', 'NSP', 'NTAP', 'NTCT', 'NTES', 'NTNX', 'NTR', 'NTRS', 'NTSK', 'NU', 'NUE', 'NVDA', 'NVRI', 'NVT', 'NWBI', 'NWG', 'NWS', 'NWSA', 'NX', 'NXPI', 'NXT', 'NYT', 'OBDC', 'OC', 'OCSL', 'ODD', 'ODFL', 'OGE', 'OI', 'OII', 'OKE', 'OKLO', 'OKTA', 'OLED', 'OLLI', 'OLN', 'OMC', 'OMDA', 'OMF', 'ON', 'ONB', 'ONON', 'ONTO', 'OPCH', 'OPRA', 'OR', 'ORA', 'ORCL', 'ORI', 'ORLA', 'ORLY', 'OS', 'OSCR', 'OSK', 'OSPN', 'OSW', 'OTEX', 'OTF', 'OTIS', 'OUST', 'OVV', 'OWL', 'OXY', 'OZK', 'PAA', 'PAAS', 'PACS', 'PAGP', 'PAGS', 'PANW', 'PAR', 'PARR', 'PATH', 'PAY', 'PAYC', 'PAYX', 'PB', 'PBA', 'PBF', 'PBR', 'PBR.A', 'PCAR', 'PCG', 'PCOR', 'PCTY', 'PD', 'PDD', 'PEG', 'PEGA', 'PENG', 'PENN', 'PEP', 'PFG', 'PFGC', 'PFS', 'PG', 'PGNY', 'PGR', 'PGY', 'PH', 'PHM', 'PHR', 'PI', 'PII', 'PINS', 'PKG', 'PL', 'PLAB', 'PLAY', 'PLNT', 'PLTR', 'PM', 'PNC', 'PNFP', 'PNR', 'PNW', 'PONY', 'POOL', 'POR', 'POST', 'POWI', 'PPC', 'PPG', 'PPL', 'PPTA', 'PR', 'PRDO', 'PRGS', 'PRIM', 'PRKS', 'PRM', 'PRMB', 'PRU', 'PRVA', 'PSIX', 'PSKY', 'PSN', 'PSNL', 'PSO', 'PSTG', 'PSX', 'PTC', 'PTRN', 'PUK', 'PVH', 'PWP', 'PWR', 'PYPL', 'PZZA', 'QBTS', 'QCOM', 'QFIN', 'QNST', 'QRVO', 'QS', 'QSR', 'QTWO', 'QUBT', 'QXO', 'RACE', 'RAL', 'RAMP', 'RBA', 'RBLX', 'RBRK', 'RCI', 'RCL', 'RDDT', 'RDN', 'RDNT', 'REAL', 'RELX', 'RELY', 'REVG', 'REYN', 'REZI', 'RF', 'RGLD', 'RGTI', 'RH', 'RHI', 'RIO', 'RIOT', 'RIVN', 'RJF', 'RKLB', 'RKT', 'RL', 'RLI', 'RMBS', 'RNG', 'RNST', 'ROK', 'ROKU', 'ROL', 'ROOT', 'ROP', 'ROST', 'RPD', 'RPM', 'RPRX', 'RRC', 'RRR', 'RRX', 'RSG', 'RSI', 'RTO', 'RTX', 'RUN', 'RUSHA', 'RVLV', 'RXO', 'RXST', 'RY', 'RYAAY', 'RYAN', 'S', 'SA', 'SAIA', 'SAIC', 'SAIL', 'SAN', 'SANM', 'SAP', 'SARO', 'SATS', 'SBCF', 'SBGI', 'SBH', 'SBLK', 'SBS', 'SBSW', 'SBUX', 'SCCO', 'SCHW', 'SCI', 'SCS', 'SDGR', 'SDRL', 'SE', 'SEDG', 'SEE', 'SEI', 'SEIC', 'SEM', 'SEMR', 'SEZL', 'SF', 'SFD', 'SFM', 'SFNC', 'SGHC', 'SGI', 'SGML', 'SGRY', 'SHAK', 'SHEL', 'SHOO', 'SHOP', 'SHW', 'SIG', 'SIGI', 'SIRI', 'SITE', 'SJM', 'SKE', 'SKM', 'SKY', 'SKYT', 'SLB', 'SLDE', 'SLGN', 'SLM', 'SM', 'SMCI', 'SMFG', 'SMG', 'SMPL', 'SMR', 'SMTC', 'SMX', 'SN', 'SNCY', 'SNDK', 'SNDR', 'SNOW', 'SNPS', 'SNV', 'SNX', 'SO', 'SOBO', 'SOFI', 'SOLS', 'SOLV', 'SON', 'SONO', 'SONY', 'SOUN', 'SPGI', 'SPHR', 'SPNT', 'SPOT', 'SPR', 'SPSC', 'SPT', 'SQM', 'SRAD', 'SRE', 'SSB', 'SSNC', 'SSRM', 'ST', 'STEP', 'STLA', 'STLD', 'STM', 'STNE', 'STNG', 'STRL', 'STT', 'STUB', 'STX', 'STZ', 'SU', 'SUN', 'SUPV', 'SW', 'SWK', 'SWKS', 'SYF', 'SYM', 'SYY', 'T', 'TAC', 'TAL', 'TALO', 'TAP', 'TBBB', 'TBBK', 'TCOM', 'TD', 'TDC', 'TDS', 'TDW', 'TEAM', 'TECK', 'TECX', 'TEL', 'TEM', 'TENB', 'TER', 'TEX', 'TFC', 'TFPM', 'TGNA', 'TGT', 'THC', 'THO', 'THS', 'TIGO', 'TJX', 'TKO', 'TKR', 'TLK', 'TLN', 'TME', 'TMHC', 'TMUS', 'TNL', 'TOL', 'TOST', 'TPC', 'TPG', 'TPH', 'TPR', 'TREX', 'TRGP', 'TRI', 'TRIN', 'TRIP', 'TRMB', 'TRMD', 'TRN', 'TROW', 'TRP', 'TRS', 'TRU', 'TRV', 'TS', 'TSCO', 'TSEM', 'TSLA', 'TSM', 'TSN', 'TT', 'TTAN', 'TTC', 'TTD', 'TTE', 'TTEK', 'TTMI', 'TTWO', 'TU', 'TW', 'TWLO', 'TXN', 'TXRH', 'TXT', 'U', 'UAL', 'UBER', 'UBS', 'UBSI', 'UCB', 'UCTT', 'UEC', 'UGI', 'UHAL.B', 'UHS', 'UL', 'ULS', 'ULTA', 'UNFI', 'UNH', 'UNM', 'UNP', 'UPBD', 'UPS', 'UPST', 'UPWK', 'URBN', 'URI', 'USAR', 'USB', 'USFD', 'UTI', 'UUUU', 'V', 'VAC', 'VAL', 'VALE', 'VECO', 'VEEV', 'VERX', 'VFC', 'VIAV', 'VICR', 'VIK', 'VIPS', 'VIRT', 'VIST', 'VITL', 'VIV', 'VLO', 'VLTO', 'VLY', 'VMC', 'VNOM', 'VNT', 'VOD', 'VOYA', 'VOYG', 'VRNS', 'VRRM', 'VRSK', 'VRSN', 'VRT', 'VSAT', 'VSCO', 'VSH', 'VST', 'VTLE', 'VVV', 'VZ', 'W', 'WAB', 'WAFD', 'WAL', 'WAY', 'WB', 'WBD', 'WBS', 'WBTN', 'WCC', 'WCN', 'WDAY', 'WDC', 'WDS', 'WEC', 'WERN', 'WES', 'WFC', 'WFRD', 'WGO', 'WGS', 'WH', 'WHD', 'WHR', 'WING', 'WIX', 'WK', 'WKC', 'WLK', 'WM', 'WMB', 'WMG', 'WMS', 'WMT', 'WOLF', 'WPM', 'WPP', 'WRB', 'WRBY', 'WSC', 'WSM', 'WT', 'WTRG', 'WTTR', 'WTW', 'WULF', 'WWD', 'WWW', 'WYFI', 'WYNN', 'XEL', 'XMTR', 'XOM', 'XP', 'XPEV', 'XPO', 'XPRO', 'XYL', 'XYZ', 'YELP', 'YETI', 'YMM', 'YOU', 'YPF', 'YUM', 'YUMC', 'Z', 'ZBRA', 'ZD', 'ZETA', 'ZG', 'ZGN', 'ZIM', 'ZION', 'ZM', 'ZS', 'ZTO', 'ZWS'], 
-        "settings": {
-            "trade_direction": "Long",
-            "entry_type": "Limit (Open +/- 0.5 ATR)",
-            "max_one_pos": True,
-            "allow_same_day_reentry": False,
-            "max_daily_entries": 2,
-            "max_total_positions": 10,
-            "perf_filters": [],
-            "perf_first_instance": True, "perf_lookback": 21,
-            "use_sznl": False, "sznl_logic": "<", "sznl_thresh": 15.0, "sznl_first_instance": True, "sznl_lookback": 21,
-            "use_market_sznl": True, "market_sznl_logic": ">", "market_sznl_thresh": 50.0,
-            "market_ticker": "^GSPC",
-            "use_52w": True, "52w_type": "New 52w High", "52w_first_instance": True, "52w_lookback": 21,
-            "use_vol": True, "vol_thresh": 3.0,
-            "use_vol_rank": False, "vol_rank_logic": "<", "vol_rank_thresh": 50.0,
-            "trend_filter": "None",
-            "min_price": 10.0, "min_vol": 100000,
-            "min_age": 0.25, "max_age": 100.0,
-            "min_atr_pct": 0.0,"max_atr_pct": 10.0,
-            "entry_conf_bps": 0,
-            "use_ma_dist_filter": True, "dist_ma_type": "SMA 50", 
-            "dist_logic": "Greater Than (>)", "dist_min": 3.0, "dist_max": 5.0,
-            "use_gap_filter": False, "gap_lookback": 21, 
-            "gap_logic": ">", "gap_thresh": 3,
-            "use_acc_count_filter": False, "acc_count_window": 21, "acc_count_logic": ">", "acc_count_thresh": 3,
-            "use_dist_count_filter": False, "dist_count_window": 21, "dist_count_logic": ">", "dist_count_thresh": 3
-        },
-        "execution": {
-            "risk_per_trade": 1000,
-            "slippage_bps": 5,
-            "stop_atr": 2.5,
-            "tgt_atr": 15.0,
-            "hold_days": 63
-        },
-        "stats": {
-            "grade": "A (Excellent)",
-            "win_rate": "43.8%",
-            "expectancy": "$406.59",
-            "profit_factor": "1.75"
         }
     },
 ]
