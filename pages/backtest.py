@@ -20,7 +20,7 @@ SECTOR_ETFS = [
     "XLU", "XLV", "XLY", "XME", "XOP", "XRT", "GLD", "CEF", "SLV",
 ]
 
-INDEX_ETFS = ["SPY", "QQQ", "IWM", "DIA", "SMH", "^GSPC", "^NDX"]
+INDEX_ETFS = ["SPY", "QQQ", "IWM", "DIA", "SMH"]
 
 INTERNATIONAL_ETFS = [
     "EWZ", "EWC", "ECH", "ECOL", "EWW", "ARGT",
