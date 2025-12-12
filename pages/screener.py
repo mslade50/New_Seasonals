@@ -376,7 +376,111 @@ def get_sznl_val_series(ticker, dates, sznl_map):
         return pd.Series(50.0, index=dates)
         
     return dates.map(t_series).fillna(50.0)
+def save_staging_orders(signals_list, strategy_book, sheet_name='Order_Staging'):
+    """
+    Saves instructions for the Python Execution Engine.
+    Handles 'Unknown Prices' by saving the logic (offsets) instead of fixed prices.
+    """
+    if not signals_list: return
 
+    # 1. Convert to DataFrame
+    df = pd.DataFrame(signals_list)
+    
+    # 2. Create a lookup for Strategy Settings (to get entry logic)
+    strat_map = {s['id']: s for s in strategy_book}
+    
+    staging_data = []
+    
+    for _, row in df.iterrows():
+        strat = strat_map.get(row['Strategy_ID'])
+        if not strat: continue
+        
+        settings = strat['settings']
+        exec_settings = strat['execution']
+        
+        # --- A. DECODE ENTRY INSTRUCTION ---
+        entry_mode = settings.get('entry_type', 'Signal Close')
+        entry_instruction = "MKT" # Default
+        offset_atr = 0.0
+        
+        if "Limit" in entry_mode and "ATR" in entry_mode:
+            # Logic: "Limit (Open +/- 0.5 ATR)"
+            entry_instruction = "REL_OPEN" 
+            # Parse the 0.5 from the string or settings. 
+            # Hardcoded here based on your known strategies, 
+            # but ideally you'd store this variable in settings['entry_offset']
+            if "0.5" in entry_mode: offset_atr = 0.5
+            
+        elif "T+1 Open" in entry_mode:
+            entry_instruction = "MOO" # Market On Open
+            
+        elif "Signal Close" in entry_mode:
+            # If running nightly, 'Signal Close' usually implies entering 
+            # at the very next opportunity (Market)
+            entry_instruction = "MKT"
+
+        # --- B. DECODE EXIT INSTRUCTION (TIME STOP) ---
+        # IBKR supports "Good After Time" (GAT) or we can just log the date 
+        # for a separate cleanup script.
+        hold_days = exec_settings.get('hold_days', 0)
+        
+        # --- C. PARENT ACTION ---
+        # Map Short strategies correctly
+        # Note: In your strategies, 'Short' usually means selling 'Open + Offset'
+        # 'Long' means buying 'Open - Offset' (Limit Dip) or 'Open + Offset' (Stop)
+        # We will trust the 'Action' calculated in your main loop ("BUY" or "SELL SHORT")
+        ib_action = "SELL" if "SHORT" in row['Action'] else "BUY"
+
+        staging_data.append({
+            "Scan_Date": datetime.datetime.now().strftime("%Y-%m-%d"),
+            "Symbol": row['Ticker'],
+            "SecType": "STK",
+            "Exchange": "SMART",
+            "Action": ib_action,
+            "Quantity": row['Shares'],
+            
+            # THE INSTRUCTIONS
+            "Order_Type": entry_instruction,  # MOO, REL_OPEN, MKT
+            "Offset_ATR_Mult": offset_atr,    # e.g., 0.5
+            "Frozen_ATR": row['ATR'],         # The ATR value at scan time
+            
+            # BRACKET DATA
+            # If Stop is 0 in your signal, we log 0. Python script will treat 0 as "No Attached Stop"
+            "Hard_Stop_Price": row['Stop'] if row['Stop'] > 0 else 0,
+            "Target_Price": row['Target'] if row['Target'] > 0 else 0,
+            
+            # TIME STOP DATA
+            "Time_Exit_Date": str(row['Time Exit']),
+            "Strategy_Ref": strat['name']
+        })
+
+    df_stage = pd.DataFrame(staging_data)
+
+    try:
+        # Load Credentials
+        if "gcp_service_account" in st.secrets:
+            creds_dict = st.secrets["gcp_service_account"]
+            gc = gspread.service_account_from_dict(creds_dict)
+        else:
+            gc = gspread.service_account(filename='credentials.json')
+
+        sh = gc.open("Trade_Signals_Log")
+        
+        # Create/Open Tab
+        try:
+            worksheet = sh.worksheet(sheet_name)
+        except:
+            worksheet = sh.add_worksheet(title=sheet_name, rows=100, cols=20)
+
+        # Clear and Overwrite for the Daily Batch
+        worksheet.clear()
+        data_to_write = [df_stage.columns.tolist()] + df_stage.astype(str).values.tolist()
+        worksheet.update(values=data_to_write)
+        st.toast(f"🤖 Instructions Staged! ({len(df_stage)} rows)")
+        
+    except Exception as e:
+        st.error(f"❌ Staging Sheet Error: {e}")
+        
 def save_signals_to_gsheet(new_dataframe, sheet_name='Trade_Signals_Log'):
     if new_dataframe.empty: return
 
@@ -924,10 +1028,15 @@ def main():
                     except Exception as e:
                         continue
                 
-                if signals:
+               if signals:
                     st.success(f"✅ Found {len(signals)} Actionable Signals")
                     sig_df = pd.DataFrame(signals)
                     save_signals_to_gsheet(sig_df, sheet_name='Trade_Signals_Log')
+                    
+                    # --- UPDATED CALL ---
+                    # Pass STRATEGY_BOOK so we can look up settings
+                    save_staging_orders(signals, STRATEGY_BOOK, sheet_name='Order_Staging')
+                    # --------------------
                     
                     st.dataframe(sig_df.style.format({"Entry": "${:.2f}", "Stop": "${:.2f}", "Target": "${:.2f}", "ATR": "{:.2f}"}), use_container_width=True)
                     
