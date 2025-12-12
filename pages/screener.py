@@ -927,6 +927,10 @@ def main():
         # 4. Run Strategies
         master_dict = st.session_state['master_data_dict']
         
+        # --- NEW: Initialize a master list to collect ALL signals ---
+        all_staging_signals = [] 
+        # ------------------------------------------------------------
+
         for i, strat in enumerate(STRATEGY_BOOK):
             with st.expander(f"Strategy: {strat['name']} (Grade: {strat['stats']['grade']})", expanded=False):
                 
@@ -1028,17 +1032,18 @@ def main():
                     except Exception as e:
                         continue
                 
-                # --- SAVING LOGIC (Must be outside the ticker loop) ---
+                # --- PROCESSING SIGNALS ---
                 if signals:
+                    # 1. Add to the Master List (for Staging later)
+                    all_staging_signals.extend(signals)
+                    
                     st.success(f"✅ Found {len(signals)} Actionable Signals")
                     sig_df = pd.DataFrame(signals)
                     
-                    # 1. Save Human Log
+                    # 2. Save Human Log (This function appends, so it's safe inside the loop)
                     save_signals_to_gsheet(sig_df, sheet_name='Trade_Signals_Log')
                     
-                    # 2. Save Python/IBKR Instructions
-                    save_staging_orders(signals, STRATEGY_BOOK, sheet_name='Order_Staging')
-                    
+                    # 3. Display UI
                     st.dataframe(sig_df.style.format({"Entry": "${:.2f}", "Stop": "${:.2f}", "Target": "${:.2f}", "ATR": "{:.2f}"}), use_container_width=True)
                     
                     clip = ""
@@ -1047,6 +1052,14 @@ def main():
                     st.text_area(f"Clipboard", clip, height=80)
                 else:
                     st.caption("No signals found.")
+
+        # --- FINAL STEP (OUTSIDE THE LOOP) ---
+        # Save to Order_Staging only ONCE so we don't overwrite previous loop iterations
+        if all_staging_signals:
+            st.divider()
+            st.subheader("🚀 Staging Execution Orders")
+            save_staging_orders(all_staging_signals, STRATEGY_BOOK, sheet_name='Order_Staging')
+        # -------------------------------------
     # -------------------------------------------------------------------------
     # DEBUG: DEEP DIVE & SCORECARD
     # -------------------------------------------------------------------------
