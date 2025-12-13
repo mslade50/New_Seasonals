@@ -207,7 +207,26 @@ def calculate_indicators(df, sznl_map, ticker, market_series=None, gap_window=21
     rolling_low = df['Low'].shift(1).rolling(252).min()
     df['is_52w_high'] = df['High'] > rolling_high
     df['is_52w_low'] = df['Low'] < rolling_low
+
+    piv_len = 20 # You can make this a param if you want
     
+    # 1. Identify Pivot Highs
+    # We check if a bar is the max of the window centered on it
+    # The rolling window size = piv_len (left) + 1 (center) + piv_len (right)
+    roll_max = df['High'].rolling(window=piv_len*2+1, center=True).max()
+    df['is_pivot_high'] = (df['High'] == roll_max)
+    
+    # 2. Identify Pivot Lows
+    roll_min = df['Low'].rolling(window=piv_len*2+1, center=True).min()
+    df['is_pivot_low'] = (df['Low'] == roll_min)
+
+    # 3. Forward Fill the Pivot Values to make them available to "today"
+    # We shift by piv_len because we only know it's a pivot 'piv_len' days later
+    df['LastPivotHigh'] = np.where(df['is_pivot_high'], df['High'], np.nan)
+    df['LastPivotHigh'] = df['LastPivotHigh'].shift(piv_len).ffill()
+    
+    df['LastPivotLow'] = np.where(df['is_pivot_low'], df['Low'], np.nan)
+    df['LastPivotLow'] = df['LastPivotLow'].shift(piv_len).ffill()
     # Volume & Vol Ratio
     vol_ma = df['Volume'].rolling(63).mean()
     df['vol_ma'] = vol_ma
@@ -522,44 +541,71 @@ def run_engine(universe_dict, params, sznl_map, market_series=None):
                             entry_failure_reason = "Price did not touch MA"
 
                 # PATH B: LIMIT ENTRIES
-                elif is_limit_entry:
+                elif is_limit_entry or entry_mode == "Limit (Untested Pivot)": # <--- Update Condition
                     sig_row = df.iloc[sig_idx]
                     sig_close = sig_row['Close']
                     sig_atr = sig_row['ATR']
                     
                     limit_price = 0.0
-                    if not np.isnan(sig_atr):
-                        if is_limit_atr:
-                            if direction == 'Long': limit_price = sig_close - (0.5 * sig_atr)
-                            else: limit_price = sig_close + (0.5 * sig_atr)
-                        elif is_limit_prev: 
-                            limit_price = sig_close
                     
-                    # Loop for X days to see if limit is hit
-                    for wait_i in range(1, 4):
+                    # --- NEW LOGIC FOR PIVOTS ---
+                    if entry_mode == "Limit (Untested Pivot)":
+                        if direction == 'Short':
+                            # We want to Short at a Pivot High
+                            limit_price = sig_row['LastPivotHigh']
+                            
+                            # SAFETY CHECK: If price is ALREADY above the pivot, the pivot is broken.
+                            # Don't place a limit sell below current price (that's a stop market).
+                            if sig_close > limit_price: limit_price = 0.0
+                            
+                        else: # Long
+                            # We want to Buy at a Pivot Low
+                            limit_price = sig_row['LastPivotLow']
+                            
+                            # SAFETY CHECK: If price is ALREADY below the pivot, broken.
+                            if sig_close < limit_price: limit_price = 0.0
+                            
+                    # --- EXISTING LOGIC ---
+                    elif not np.isnan(sig_atr):
+                        if is_limit_atr:
+                             if direction == 'Long': limit_price = sig_close - (0.5 * sig_atr)
+                             else: limit_price = sig_close + (0.5 * sig_atr)
+                        elif is_limit_prev: 
+                             limit_price = sig_close
+                    
+                    # Loop for X days (Wait for Limit Hit)
+                    # Note: You can change range(1, 4) to range(1, params['holding_days']) if you want the order to sit longer
+                    for wait_i in range(1, 4): 
                         curr_check_idx = sig_idx + wait_i
                         if curr_check_idx >= len(df): break
                         
                         row = df.iloc[curr_check_idx]
                         
-                        # Dynamic Limit
+                        # Dynamic Limit (Existing Logic)
                         if is_limit_open_atr and not np.isnan(sig_atr):
-                            if direction == 'Long':
-                                limit_price = row['Open'] - (0.5 * sig_atr)
-                            else:
-                                limit_price = row['Open'] + (0.5 * sig_atr)
+                             if direction == 'Long': limit_price = row['Open'] - (0.5 * sig_atr)
+                             else: limit_price = row['Open'] + (0.5 * sig_atr)
 
-                        if limit_price == 0.0: break 
+                        if limit_price == 0.0 or np.isnan(limit_price): break 
 
                         is_filled = False
+                        
+                        # CHECK FOR FILL
                         if direction == 'Long':
                             # Buy Limit: Did Price drop to Limit?
-                            if row['Low'] <= limit_price:
+                            # Also check if Open was below limit (Gap Down through limit = Fill at Open)
+                            if row['Open'] <= limit_price:
+                                is_filled = True
+                                actual_entry_price = row['Open'] # Gap fill
+                            elif row['Low'] <= limit_price:
                                 is_filled = True
                                 actual_entry_price = limit_price 
                         else:
                             # Sell Limit: Did Price rise to Limit?
-                            if row['High'] >= limit_price:
+                            if row['Open'] >= limit_price:
+                                is_filled = True
+                                actual_entry_price = row['Open'] # Gap fill
+                            elif row['High'] >= limit_price:
                                 is_filled = True
                                 actual_entry_price = limit_price
 
@@ -568,7 +614,7 @@ def run_engine(universe_dict, params, sznl_map, market_series=None):
                             actual_entry_idx = curr_check_idx
                             break
                         else:
-                            entry_failure_reason = "Limit Price Not Reached"
+                            entry_failure_reason = f"Limit {limit_price:.2f} Not Reached"
 
                 # PATH C: GAP UP ONLY
                 elif is_gap_up:
@@ -875,11 +921,13 @@ def main():
 
     st.markdown("---")
     c1, c2, c3, c4, c5 = st.columns(5)
-    with c1: 
+    wwith c1: 
         entry_type = st.selectbox("Entry Price", [
             "Signal Close", "T+1 Open", "T+1 Close",
-            "Gap Up Only (Open > Prev High)", "Limit (Close -0.5 ATR)", "Limit (Prev Close)", 
+            "Gap Up Only (Open > Prev High)", 
+            "Limit (Close -0.5 ATR)", "Limit (Prev Close)", 
             "Limit (Open +/- 0.5 ATR)", 
+            "Limit (Untested Pivot)",  # <--- ADD THIS LINE
             "Pullback 10 SMA (Entry: Close)", "Pullback 10 SMA (Entry: Level)",
             "Pullback 21 EMA (Entry: Close)", "Pullback 21 EMA (Entry: Level)"
         ])
