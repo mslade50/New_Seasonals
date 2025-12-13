@@ -250,7 +250,7 @@ def calculate_indicators(df, sznl_map, ticker, market_series=None, gap_window=21
     df['GapCount'] = is_open_gap.rolling(gap_window).sum()
 
     # --- NEW: PIVOT POINT CALCULATION (Forward Filled) ---
-    piv_len = 5 # 5 bars left, 5 bars right
+    piv_len = 20 # 5 bars left, 5 bars right
     # Identify Pivot Highs/Lows using centered window
     roll_max = df['High'].rolling(window=piv_len*2+1, center=True).max()
     df['is_pivot_high'] = (df['High'] == roll_max)
