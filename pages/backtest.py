@@ -196,7 +196,7 @@ def calculate_indicators(df, sznl_map, ticker, market_series=None, gap_window=21
     low_close = np.abs(df['Low'] - df['Close'].shift())
     ranges = pd.concat([high_low, high_close, low_close], axis=1)
     df['ATR'] = ranges.max(axis=1).rolling(14).mean()
-    # NEW: ATR % Calculation
+    # ATR % Calculation
     df['ATR_Pct'] = (df['ATR'] / df['Close']) * 100
     
     # Seasonality
@@ -264,13 +264,12 @@ def run_engine(universe_dict, params, sznl_map, market_series=None):
     max_atr_pct = params.get('max_atr_pct', 1000.0)
     
     # Entry Logic flags
-    # Entry Logic flags
     entry_mode = params['entry_type']
     is_pullback = "Pullback" in entry_mode
     is_limit_atr = "Limit (Close -0.5 ATR)" in entry_mode
     is_limit_prev = "Limit (Prev Close)" in entry_mode
-    is_limit_open_atr = "Limit (Open +/- 0.5 ATR)" in entry_mode # <--- NEW FLAG
-    is_limit_entry = is_limit_atr or is_limit_prev or is_limit_open_atr # <--- UPDATE THIS
+    is_limit_open_atr = "Limit (Open +/- 0.5 ATR)" in entry_mode 
+    is_limit_entry = is_limit_atr or is_limit_prev or is_limit_open_atr 
     is_gap_up = "Gap Up Only" in entry_mode
 
     use_ma_filter = params.get('use_ma_entry_filter', False)
@@ -325,7 +324,7 @@ def run_engine(universe_dict, params, sznl_map, market_series=None):
             curr_age = df['age_years'].fillna(0)
             curr_vol = df['vol_ma'].fillna(0)
             curr_close = df['Close'].fillna(0)
-            curr_atr_pct = df['ATR_Pct'].fillna(0) # New
+            curr_atr_pct = df['ATR_Pct'].fillna(0) 
             
             gate = (curr_close >= params['min_price']) & \
                    (curr_vol >= params['min_vol']) & \
@@ -338,6 +337,13 @@ def run_engine(universe_dict, params, sznl_map, market_series=None):
             # --- PRICE ACTION ---
             if params.get('require_close_gt_open', False):
                 conditions.append(df['Close'] > df['Open'])
+            
+            # --- NEW: BREAKOUT FILTER ---
+            bk_mode = params.get('breakout_mode', 'None')
+            if bk_mode == "Close > Prev Day High":
+                conditions.append(df['Close'] > df['High'].shift(1))
+            elif bk_mode == "Close < Prev Day Low":
+                conditions.append(df['Close'] < df['Low'].shift(1))
             
             if params.get('use_range_filter', False):
                 r_min = params.get('range_min', 0.0)
@@ -357,26 +363,24 @@ def run_engine(universe_dict, params, sznl_map, market_series=None):
                 elif g_logic == "<": conditions.append(df['GapCount'] < g_thresh)
                 elif g_logic == "=": conditions.append(df['GapCount'] == g_thresh)
 
-            # --- NEW: INDEPENDENT ACCUMULATION FILTER ---
+            # --- ACCUMULATION FILTER ---
             if params.get('use_acc_count_filter', False):
                 win = params['acc_count_window']
                 logic = params['acc_count_logic']
                 thresh = params['acc_count_thresh']
                 
-                # Rolling sum of accumulation days
                 rolling_acc = df['is_acc_day'].rolling(win).sum()
                 
                 if logic == ">": conditions.append(rolling_acc > thresh)
                 elif logic == "<": conditions.append(rolling_acc < thresh)
                 elif logic == "=": conditions.append(rolling_acc == thresh)
 
-            # --- NEW: INDEPENDENT DISTRIBUTION FILTER ---
+            # --- DISTRIBUTION FILTER ---
             if params.get('use_dist_count_filter', False):
                 win = params['dist_count_window']
                 logic = params['dist_count_logic']
                 thresh = params['dist_count_thresh']
                 
-                # Rolling sum of distribution days
                 rolling_dist = df['is_dist_day'].rolling(win).sum()
                 
                 if logic == ">": conditions.append(rolling_dist > thresh)
@@ -440,10 +444,17 @@ def run_engine(universe_dict, params, sznl_map, market_series=None):
                 else: cond = market_ranks > params['market_sznl_thresh']
                 conditions.append(cond)
             
-            # --- 52W HIGHS ---
+            # --- 52W HIGHS/LOWS with LAG ---
             if params['use_52w']:
                 if params['52w_type'] == 'New 52w High': cond = df['is_52w_high']
                 else: cond = df['is_52w_low']
+                
+                # --- NEW: LAG LOGIC ---
+                lag = params.get('52w_lag', 0)
+                if lag > 0:
+                    cond = cond.shift(lag).fillna(False)
+                # ----------------------
+
                 if params['52w_first_instance']:
                     prev = cond.shift(1).rolling(params['52w_lookback']).sum()
                     cond = cond & (prev == 0)
@@ -511,13 +522,11 @@ def run_engine(universe_dict, params, sznl_map, market_series=None):
                             entry_failure_reason = "Price did not touch MA"
 
                 # PATH B: LIMIT ENTRIES
-                # PATH B: LIMIT ENTRIES
                 elif is_limit_entry:
                     sig_row = df.iloc[sig_idx]
                     sig_close = sig_row['Close']
                     sig_atr = sig_row['ATR']
                     
-                    # Default Limit Price (Standard Static Limits)
                     limit_price = 0.0
                     if not np.isnan(sig_atr):
                         if is_limit_atr:
@@ -533,15 +542,14 @@ def run_engine(universe_dict, params, sznl_map, market_series=None):
                         
                         row = df.iloc[curr_check_idx]
                         
-                        # --- NEW LOGIC: DYNAMIC LIMIT BASED ON OPEN ---
+                        # Dynamic Limit
                         if is_limit_open_atr and not np.isnan(sig_atr):
                             if direction == 'Long':
                                 limit_price = row['Open'] - (0.5 * sig_atr)
                             else:
                                 limit_price = row['Open'] + (0.5 * sig_atr)
-                        # ---------------------------------------------
 
-                        if limit_price == 0.0: break # Safety check
+                        if limit_price == 0.0: break 
 
                         is_filled = False
                         if direction == 'Long':
@@ -628,7 +636,6 @@ def run_engine(universe_dict, params, sznl_map, market_series=None):
                     continue
 
                 # --- IF ENTRY SUCCEEDED, SIMULATE TRADE ---
-                # --- IF ENTRY SUCCEEDED, SIMULATE TRADE ---
                 if found_entry and actual_entry_idx < len(df):
                     start_exit_scan = actual_entry_idx + 1
                     if start_exit_scan > fixed_exit_idx: continue 
@@ -652,7 +659,7 @@ def run_engine(universe_dict, params, sznl_map, market_series=None):
                     exit_type = "Hold"
                     exit_date = None
                     
-                    # --- NEW EXIT LOGIC ---
+                    # --- EXIT LOGIC ---
                     use_stop = params.get('use_stop_loss', True)
                     use_target = params.get('use_take_profit', True)
 
@@ -692,7 +699,6 @@ def run_engine(universe_dict, params, sznl_map, market_series=None):
                                     triggered = True
                         
                         if triggered: break
-                    # ----------------------
                     
                     if exit_type == "Hold":
                         exit_price = future['Close'].iloc[-1]
@@ -845,20 +851,15 @@ def main():
     r_c1, r_c2, r_c3 = st.columns(3)
     with r_c1: trade_direction = st.selectbox("Trade Direction", ["Long", "Short"])
     
-    # --- FIXED SECTION START ---
     with r_c2: 
         exit_mode = st.selectbox(
             "Exit Mode", 
             ["Standard (Stop & Target)", "No Stop (Target + Time)", "Time Only (Hold)"],
             help="'No Stop' keeps the profit target active but ignores the stop loss."
         )
-        # Derive flags for the engine
         use_stop_loss = (exit_mode == "Standard (Stop & Target)")
         use_take_profit = (exit_mode != "Time Only (Hold)")
-        
-        # DEFINE THE MISSING VARIABLE HERE
         time_exit_only = (exit_mode == "Time Only (Hold)")
-    # --- FIXED SECTION END ---
 
     with r_c3: max_one_pos = st.checkbox("Max 1 Position/Ticker", value=True)
     
@@ -895,15 +896,14 @@ def main():
     st.markdown("---")
     st.subheader("3. Signal Criteria")
     with st.expander("Liquidity & Data History Filters", expanded=True):
-        l1, l2, l3, l4, l5, l6 = st.columns(6) # Increased to 6 columns
+        l1, l2, l3, l4, l5, l6 = st.columns(6) 
         with l1: min_price = st.number_input("Min Price ($)", value=10.0, step=1.0)
         with l2: min_vol = st.number_input("Min Avg Volume", value=100000, step=50000)
         with l3: min_age = st.number_input("Min True Age (Yrs)", value=0.25, step=0.25)
         with l4: max_age = st.number_input("Max True Age (Yrs)", value=100.0, step=1.0)
         with l5: min_atr_pct = st.number_input("Min ATR %", value=2.5, step=0.1)
-        with l6: max_atr_pct = st.number_input("Max ATR %", value=10.0, step=0.1) # <-- NEW MAX ATR %
+        with l6: max_atr_pct = st.number_input("Max ATR %", value=10.0, step=0.1) 
     
-    # --- INDEPENDENT ACCUMULATION / DISTRIBUTION COUNT ---
     with st.expander("Accumulation/Distribution Counts (Independent)", expanded=False):
         st.markdown("**Filters are additive (AND logic).**")
         st.markdown("• **Acc:** Close > Open, Vol > Prev, Vol > 63d MA.\n• **Dist:** Close < Open, Vol > Prev, Vol > 63d MA.")
@@ -948,13 +948,24 @@ def main():
 
     with st.expander("Price Action", expanded=False):
         pa1, pa2 = st.columns(2)
-        with pa1: req_green_candle = st.checkbox("Require Close > Open (Green Candle)", value=False)
+        with pa1: 
+            req_green_candle = st.checkbox("Require Close > Open (Green Candle)", value=False)
+            
+            # --- NEW: BREAKOUT FILTER ---
+            st.markdown("**Daily Breakout**")
+            breakout_mode = st.selectbox("Close vs Prev Range", 
+                ["None", "Close > Prev Day High", "Close < Prev Day Low"],
+                help="Requires today's close to be outside yesterday's range."
+            )
+            # ----------------------------
+
         with pa2:
             st.markdown("**Candle Range Location %**")
             use_range_filter = st.checkbox("Filter by Range %", value=False)
             r1, r2 = st.columns(2)
             with r1: range_min = st.number_input("Min % (0=Low)", 0, 100, 0, disabled=not use_range_filter)
             with r2: range_max = st.number_input("Max % (100=High)", 0, 100, 100, disabled=not use_range_filter)
+
     with st.expander("Day of Week Filter", expanded=False):
         use_dow_filter = st.checkbox("Enable Day of Week Filter", value=False)
         c_mon, c_tue, c_wed, c_thu, c_fri = st.columns(5)
@@ -1019,12 +1030,19 @@ def main():
         spy1, spy2 = st.columns(2)
         with spy1: market_sznl_logic = st.selectbox("Market Logic", ["<", ">"], key="spy_sl", disabled=not use_market_sznl)
         with spy2: market_sznl_thresh = st.number_input("Market Threshold", 0.0, 100.0, 15.0, key="spy_st", disabled=not use_market_sznl)
+    
     with st.expander("52-Week High/Low", expanded=False):
         use_52w = st.checkbox("Enable 52w High/Low Filter", value=False)
-        h1, h2, h3 = st.columns(3)
+        h1, h2, h3, h4 = st.columns(4) 
         with h1: type_52w = st.selectbox("Condition", ["New 52w High", "New 52w Low"], disabled=not use_52w)
         with h2: first_52w = st.checkbox("First Instance Only", value=True, key="hf", disabled=not use_52w)
         with h3: lookback_52w = st.number_input("Instance Lookback (Days)", 1, 252, 21, key="hlb", disabled=not use_52w)
+        # --- NEW: LAG INPUT ---
+        with h4: 
+            lag_52w = st.number_input("Lag (Days)", 0, 10, 0, disabled=not use_52w, 
+                                      help="0 = Today, 1 = Yesterday (e.g., Signal if YESTERDAY was a 52w High)")
+        # ----------------------
+
     with st.expander("Volume Filters (Spike & Regime)", expanded=False):
         c1, c2 = st.columns(2)
         with c1:
@@ -1081,11 +1099,12 @@ def main():
         params = {
             'backtest_start_date': start_date, 'trade_direction': trade_direction,
             'max_one_pos': max_one_pos, 'allow_same_day_reentry': allow_same_day_reentry,
-            'use_stop_loss': use_stop_loss,     # New param
-            'use_take_profit': use_take_profit, # New param
-            'time_exit_only': time_exit_only,   # FIXED: Now defined
+            'use_stop_loss': use_stop_loss,     
+            'use_take_profit': use_take_profit, 
+            'time_exit_only': time_exit_only,   
             'stop_atr': stop_atr, 'tgt_atr': tgt_atr, 'holding_days': hold_days,
             'entry_type': entry_type, 'use_ma_entry_filter': use_ma_entry_filter, 'require_close_gt_open': req_green_candle,
+            'breakout_mode': breakout_mode, # <--- NEW PARAM HERE
             'use_range_filter': use_range_filter, 'range_min': range_min, 'range_max': range_max,
             'use_dow_filter': use_dow_filter, 'allowed_days': valid_days,
             'min_price': min_price, 'min_vol': min_vol, 'min_age': min_age, 'max_age': max_age, 'min_atr_pct': min_atr_pct,'max_atr_pct': max_atr_pct,
@@ -1095,7 +1114,7 @@ def main():
             'use_sznl': use_sznl, 'sznl_logic': sznl_logic, 'sznl_thresh': sznl_thresh, 
             'sznl_first_instance': sznl_first, 'sznl_lookback': sznl_lookback,
             'use_market_sznl': use_market_sznl, 'market_sznl_logic': market_sznl_logic, 'market_sznl_thresh': market_sznl_thresh,
-            'use_52w': use_52w, '52w_type': type_52w, '52w_first_instance': first_52w, '52w_lookback': lookback_52w,
+            'use_52w': use_52w, '52w_type': type_52w, '52w_first_instance': first_52w, '52w_lookback': lookback_52w, '52w_lag': lag_52w, # <--- NEW PARAM
             'use_vol': use_vol, 'vol_thresh': vol_thresh,
             'use_vol_rank': use_vol_rank, 'vol_rank_logic': vol_rank_logic, 'vol_rank_thresh': vol_rank_thresh,
             'use_ma_dist_filter': use_ma_dist_filter, 'dist_ma_type': dist_ma_type, 
@@ -1219,7 +1238,8 @@ def main():
         "use_sznl": {use_sznl}, "sznl_logic": "{sznl_logic}", "sznl_thresh": {sznl_thresh}, "sznl_first_instance": {sznl_first}, "sznl_lookback": {sznl_lookback},
         "use_market_sznl": {use_market_sznl}, "market_sznl_logic": "{market_sznl_logic}", "market_sznl_thresh": {market_sznl_thresh},
         "market_ticker": "{MARKET_TICKER}",
-        "use_52w": {use_52w}, "52w_type": "{type_52w}", "52w_first_instance": {first_52w}, "52w_lookback": {lookback_52w},
+        "use_52w": {use_52w}, "52w_type": "{type_52w}", "52w_first_instance": {first_52w}, "52w_lookback": {lookback_52w}, "52w_lag": {lag_52w},
+        "breakout_mode": "{breakout_mode}",
         "use_vol": {use_vol}, "vol_thresh": {vol_thresh},
         "use_vol_rank": {use_vol_rank}, "vol_rank_logic": "{vol_rank_logic}", "vol_rank_thresh": {vol_rank_thresh},
         "trend_filter": "{trend_filter}",
