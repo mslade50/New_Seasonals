@@ -41,6 +41,53 @@ STRATEGY_BOOK = [
         "stats": { "grade": "A (Excellent)", "win_rate": "64.1%", "expectancy": "$471.36", "profit_factor": "4.51" }
     },
     {
+        "id": "5+10+21d<15, SPX sznl > 20, lower 10% of rng, 2d time stop 1.5 atr tgt",
+        "name": "Deep Oversold Weak Close",
+        "description": "Start: 2000-01-01. Universe: All CSV Tickers. Dir: Long. Filter: Price > 200 SMA. PF: 2.20. SQN: 7.35.",
+        "universe_tickers": ['AAPL', 'ABT', 'ADBE', 'ADI', 'ADM', 'ADP', 'ADSK', 'AEP', 'AIG', 'ALL', 'AMAT', 'AMD', 'AMGN', 'AMZN', 'AON', 'APD', 'AVGO', 'AXP', 'BA', 'BAC', 'BAX', 'BDX', 'BK', 'BMY', 'C', 'CAG', 'CAT', 'CEF', 'CL', 'CMCSA', 'CMS', 'CNP', 'COP', 'COST', 'CPB', 'CRM', 'CSCO', 'CSX', 'CVS', 'CVX', 'D', 'DE', 'DIA', 'DIS', 'DOV', 'DTE', 'DUK', 'ECL', 'ED', 'EIX', 'EMR', 'EOG', 'ETR', 'EXC', 'F', 'FCX', 'FDX', 'FE', 'GD', 'GE', 'GILD', 'GIS', 'GLD', 'GLW', 'GOOG', 'GPC', 'GS', 'HAL', 'HD', 'HIG', 'HON', 'HPQ', 'HRL', 'HSY', 'HUM', 'IBB', 'IBM', 'IHI', 'INTC', 'IP', 'ITA', 'ITB', 'ITW', 'IWM', 'IYR', 'JNJ', 'JPM', 'K', 'KEY', 'KMB', 'KO', 'KR', 'KRE', 'LEG', 'LIN', 'LLY', 'LMT', 'LOW', 'LUV', 'MAS', 'MCD', 'MDT', 'MET', 'META', 'MMC', 'MMM', 'MO', 'MRK', 'MS', 'MSFT', 'MU', 'NEE', 'NEM', 'NKE', 'NOC', 'NSC', 'NUE', 'NVDA', 'OIH', 'ORCL', 'OXY', 'PAYX', 'PCG', 'PEG', 'PEP', 'PFE', 'PG', 'PGR', 'PH', 'PNW', 'PPG', 'PPL', 'PSA', 'QCOM', 'QQQ', 'REGN', 'RF', 'RHI', 'ROK', 'ROST', 'RTX', 'SBUX', 'SCHW', 'SHW', 'SLB', 'SLV', 'SMH', 'SNA', 'SO', 'SPG', 'SPY', 'SRE', 'STT', 'SWK', 'SYK', 'SYY', 'T', 'TAP', 'TGT', 'TJX', 'TMO', 'TRV', 'TSN', 'TXN', 'UNG', 'UNH', 'UNP', 'USB', 'USO', 'UVXY', 'V', 'VFC', 'VLO', 'VMC', 'VNQ', 'VZ', 'WFC', 'WHR', 'WM', 'WMB', 'WMT', 'XBI', 'XHB', 'XLB', 'XLE', 'XLF', 'XLI', 'XLK', 'XLP', 'XLU', 'XLV', 'XLY', 'XME', 'XOM', 'XOP', 'XRT', '^GSPC', '^NDX'], 
+        "settings": {
+            "trade_direction": "Long",
+            "entry_type": "Signal Close",
+            "max_one_pos": True,
+            "allow_same_day_reentry": False,
+            "max_daily_entries": 2,
+            "max_total_positions": 10,
+            "perf_filters": [{'window': 5, 'logic': '<', 'thresh': 15.0, 'consecutive': 1}, {'window': 10, 'logic': '<', 'thresh': 15.0, 'consecutive': 1}, {'window': 21, 'logic': '<', 'thresh': 15.0, 'consecutive': 1}],
+            "perf_first_instance": False, "perf_lookback": 21,
+            "use_sznl": False, "sznl_logic": "<", "sznl_thresh": 15.0, "sznl_first_instance": True, "sznl_lookback": 21,
+            "use_market_sznl": True, "market_sznl_logic": ">", "market_sznl_thresh": 20.0,
+            "market_ticker": "^GSPC",
+            "use_52w": False, "52w_type": "New 52w High", "52w_first_instance": True, "52w_lookback": 21, "52w_lag": 1,
+            "breakout_mode": "None",
+            "use_vol": False, "vol_thresh": 1.5,
+            "use_vol_rank": False, "vol_rank_logic": ">", "vol_rank_thresh": 75.0,
+            "trend_filter": "Price > 200 SMA",
+            "min_price": 10.0, "min_vol": 100000,
+            "min_age": 0.25, "max_age": 100.0,
+            "min_atr_pct": 3.0,"max_atr_pct": 10.0,
+            "entry_conf_bps": 0,
+            "use_ma_dist_filter": False, "dist_ma_type": "SMA 10", 
+            "dist_logic": "Greater Than (>)", "dist_min": 0.0, "dist_max": 2.0,
+            "use_gap_filter": False, "gap_lookback": 21, 
+            "gap_logic": ">", "gap_thresh": 3,
+            "use_acc_count_filter": False, "acc_count_window": 21, "acc_count_logic": ">", "acc_count_thresh": 3,
+            "use_dist_count_filter": False, "dist_count_window": 21, "dist_count_logic": ">", "dist_count_thresh": 3
+        },
+        "execution": {
+            "risk_per_trade": 300,
+            "slippage_bps": 2,
+            "stop_atr": 1.0,
+            "tgt_atr": 1.5,
+            "hold_days": 2
+        },
+        "stats": {
+            "grade": "A (Excellent)",
+            "win_rate": "67.1%",
+            "expectancy": "$89.76",
+            "profit_factor": "2.20"
+        }
+    },
+    {
         "id": "5+10+21d > 85%ile, 0 acc days in last 21, sell t+1 open + 0.5 ATR 10d time stop",
         "name": "No Accumulation Days",
         "description": "Start: 2000-01-01. Universe: All CSV Tickers. Dir: Short. Filter: Price > 200 SMA. PF: 2.44. SQN: 3.40.",
@@ -543,7 +590,7 @@ def calculate_indicators(df, sznl_map, ticker, market_series=None):
     low_close = np.abs(df['Low'] - df['Close'].shift())
     ranges = pd.concat([high_low, high_close, low_close], axis=1)
     df['ATR'] = ranges.max(axis=1).rolling(14).mean()
-    
+    df['ATR_Pct'] = (df['ATR'] / df['Close']) * 100
     # --- Volume, Accumulation & Distribution Logic ---
     vol_ma = df['Volume'].rolling(63).mean()
     df['vol_ratio'] = df['Volume'] / vol_ma
@@ -609,6 +656,15 @@ def check_signal(df, params, sznl_map):
     if last_row['age_years'] < params.get('min_age', 0): return False
     if last_row['age_years'] > params.get('max_age', 100): return False
 
+    min_atr = params.get('min_atr_pct', 0.0)
+    max_atr = params.get('max_atr_pct', 1000.0)
+    
+    # Handle NaN values safely
+    current_atr_pct = last_row.get('ATR_Pct', 0)
+    if pd.isna(current_atr_pct): return False
+
+    if current_atr_pct < min_atr: return False
+    if current_atr_pct > max_atr: return False
     # 2. Trend Filter
     trend_opt = params.get('trend_filter', 'None')
     if trend_opt == "Price > 200 SMA":
