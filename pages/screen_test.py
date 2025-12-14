@@ -622,242 +622,250 @@ def calculate_performance_stats(sig_df):
 # -----------------------------------------------------------------------------
 
 # -----------------------------------------------------------------------------
-# MAIN APP (OPTIMIZED)
+# MAIN APP (UPDATED WITH USER INPUTS)
 # -----------------------------------------------------------------------------
 
 def main():
     st.set_page_config(layout="wide", page_title="Strategy Backtest Lab")
-    st.title("⚡ Strategy Backtest Lab (Split-History Mode)")
+    
+    # --- SIDEBAR CONTROLS ---
+    st.sidebar.header("⚙️ Backtest Settings")
+    
+    # Default to 2 years ago
+    default_start = datetime.date.today() - datetime.timedelta(days=730)
+    
+    with st.sidebar.form("backtest_form"):
+        user_start_date = st.date_input("Backtest Start Date", value=default_start)
+        
+        st.caption("Note: Data will be downloaded starting 365 days prior to this date to allow for indicator warm-up (SMA 200, etc).")
+        
+        run_btn = st.form_submit_button("⚡ Run Backtest")
+
+    st.title("⚡ Strategy Backtest Lab")
+    st.markdown(f"**Selected Start Date:** {user_start_date}")
     st.markdown("---")
-    
-    sznl_map = load_seasonal_map()
-    
-    # Initialize Session State
-    if 'backtest_data' not in st.session_state:
-        st.session_state['backtest_data'] = {}
 
-    # -------------------------------------------------------------------------
-    # 1. INTELLIGENT TICKER SPLITTING
-    # -------------------------------------------------------------------------
-    # We segregate tickers. 
-    # Group A: "52w High Breakouts" universe -> Gets 3.5 Years of data
-    # Group B: Everything else -> Gets Full History (2000+)
-    
-    st.info("Configuration: separating 'Deep History' tickers from 'Recent Momentum' tickers to speed up processing.")
-    
-    huge_universe_strat_name = "52w High Breakouts"
-    
-    short_term_tickers = set()
-    long_term_tickers = set()
-    
-    # Iterate to sort tickers
-    for strat in STRATEGY_BOOK:
-        # Check settings for market tickers to ensure they are always Long Term
-        extras = set()
-        s = strat['settings']
-        if s.get('use_market_sznl'): extras.add(s.get('market_ticker', '^GSPC'))
-        if "Market" in s.get('trend_filter', ''): extras.add(s.get('market_ticker', 'SPY'))
-        if "SPY" in s.get('trend_filter', ''): extras.add("SPY")
+    # Only run the heavy lifting if the button is pressed
+    if run_btn:
+        sznl_map = load_seasonal_map()
         
-        if strat['name'] == huge_universe_strat_name:
-            # These go to short term, UNLESS they are indices/ETFs found in extras
-            for t in strat['universe_tickers']:
-                short_term_tickers.add(t)
-        else:
-            # All other strategies get deep history
-            for t in strat['universe_tickers']:
-                long_term_tickers.add(t)
-        
-        # Ensure market reference tickers are always long term
-        long_term_tickers.update(extras)
+        # Initialize Session State
+        if 'backtest_data' not in st.session_state:
+            st.session_state['backtest_data'] = {}
 
-    # Clean duplicates: If a ticker is in both, Long Term wins (e.g. if NVDA is in both)
-    short_term_tickers = short_term_tickers - long_term_tickers
-    
-    # Format tickers
-    long_term_list = [t.replace('.', '-') for t in long_term_tickers]
-    short_term_list = [t.replace('.', '-') for t in short_term_tickers]
-
-    # -------------------------------------------------------------------------
-    # 2. BATCH DOWNLOAD
-    # -------------------------------------------------------------------------
-    existing_keys = set(st.session_state['backtest_data'].keys())
-    
-    # A. Download Deep History (2000-01-01)
-    missing_long = list(set(long_term_list) - existing_keys)
-    if missing_long:
-        st.write(f"📥 Batch 1: Downloading **25-year history** for {len(missing_long)} Core tickers...")
-        data_long = download_historical_data(missing_long, start_date="2000-01-01")
-        st.session_state['backtest_data'].update(data_long)
-    
-    # B. Download Short History (3.5 Years)
-    missing_short = list(set(short_term_list) - existing_keys)
-    if missing_short:
-        # Calculate start date: Today - 3.5 years (approx 1278 days)
-        start_date_short = (datetime.datetime.now() - datetime.timedelta(days=1278)).strftime("%Y-%m-%d")
-        st.write(f"📥 Batch 2: Downloading **3.5-year history** for {len(missing_short)} Momentum tickers (Optimization enabled)...")
-        data_short = download_historical_data(missing_short, start_date=start_date_short)
-        st.session_state['backtest_data'].update(data_short)
-        st.success("✅ All Downloads Complete.")
-
-    master_dict = st.session_state['backtest_data']
-    all_signals = []
-    progress_bar = st.progress(0)
-    
-    # -------------------------------------------------------------------------
-    # 3. STRATEGY EXECUTION LOOP
-    # -------------------------------------------------------------------------
-    for i, strat in enumerate(STRATEGY_BOOK):
-        progress_bar.progress((i + 1) / len(STRATEGY_BOOK))
+        # -------------------------------------------------------------------------
+        # 1. INTELLIGENT TICKER SPLITTING
+        # -------------------------------------------------------------------------
+        huge_universe_strat_name = "52w High Breakouts"
         
-        # --- OPTIMIZATION: Early Exit for High Volume Strategy ---
-        # If this is the heavy strategy, we can verify if we even need to process it.
-        # However, since we are backtesting over a timeline, we must process the loop 
-        # to find the specific days where SPX Sznl > 50.
+        short_term_tickers = set()
+        long_term_tickers = set()
         
-        strat_mkt_ticker = strat['settings'].get('market_ticker', 'SPY')
-        mkt_df = master_dict.get(strat_mkt_ticker)
-        if mkt_df is None: mkt_df = master_dict.get('SPY')
-        
-        market_series = None
-        if mkt_df is not None:
-            temp_mkt = mkt_df.copy()
-            temp_mkt['SMA200'] = temp_mkt['Close'].rolling(200).mean()
-            market_series = temp_mkt['Close'] > temp_mkt['SMA200']
-
-        for ticker in strat['universe_tickers']:
-            t_clean = ticker.replace('.', '-')
+        # Iterate to sort tickers
+        for strat in STRATEGY_BOOK:
+            # Check settings for market tickers to ensure they are always Long Term
+            extras = set()
+            s = strat['settings']
+            if s.get('use_market_sznl'): extras.add(s.get('market_ticker', '^GSPC'))
+            if "Market" in s.get('trend_filter', ''): extras.add(s.get('market_ticker', 'SPY'))
+            if "SPY" in s.get('trend_filter', ''): extras.add("SPY")
             
-            df = master_dict.get(t_clean)
-            if df is None: continue
+            if strat['name'] == huge_universe_strat_name:
+                # These go to short term universe
+                for t in strat['universe_tickers']:
+                    short_term_tickers.add(t)
+            else:
+                # All other strategies get deep history
+                for t in strat['universe_tickers']:
+                    long_term_tickers.add(t)
             
-            # For the Short History tickers, 250 days is plenty, but ensure we have enough data
-            if len(df) < 200: continue
+            # Ensure market reference tickers are always long term
+            long_term_tickers.update(extras)
+
+        # Clean duplicates: If a ticker is in both, Long Term wins
+        short_term_tickers = short_term_tickers - long_term_tickers
+        
+        long_term_list = [t.replace('.', '-') for t in long_term_tickers]
+        short_term_list = [t.replace('.', '-') for t in short_term_tickers]
+
+        # -------------------------------------------------------------------------
+        # 2. BATCH DOWNLOAD (DYNAMIC)
+        # -------------------------------------------------------------------------
+        existing_keys = set(st.session_state['backtest_data'].keys())
+        
+        # A. Download Deep History (Fixed at 2000 for robustness of core tickers)
+        missing_long = list(set(long_term_list) - existing_keys)
+        if missing_long:
+            st.write(f"📥 Batch 1: Downloading **25-year history** for {len(missing_long)} Core tickers...")
+            data_long = download_historical_data(missing_long, start_date="2000-01-01")
+            st.session_state['backtest_data'].update(data_long)
+        
+        # B. Download Dynamic History (User Date - 365 Days buffer)
+        # We calculate the fetch date based on the User Input to ensure we have enough data
+        fetch_start_date = user_start_date - datetime.timedelta(days=365)
+        fetch_start_str = fetch_start_date.strftime("%Y-%m-%d")
+        
+        missing_short = list(set(short_term_list) - existing_keys)
+        
+        # Note: If the user changes the date to be EARLIER than a previous run, 
+        # we might need to re-download. For simplicity here, we check if missing.
+        if missing_short:
+            st.write(f"📥 Batch 2: Downloading history from **{fetch_start_str}** for {len(missing_short)} Momentum tickers...")
+            data_short = download_historical_data(missing_short, start_date=fetch_start_str)
+            st.session_state['backtest_data'].update(data_short)
+            st.success("✅ All Downloads Complete.")
+
+        master_dict = st.session_state['backtest_data']
+        all_signals = []
+        progress_bar = st.progress(0)
+        
+        # -------------------------------------------------------------------------
+        # 3. STRATEGY EXECUTION LOOP
+        # -------------------------------------------------------------------------
+        for i, strat in enumerate(STRATEGY_BOOK):
+            progress_bar.progress((i + 1) / len(STRATEGY_BOOK))
             
-            try:
-                # Calculate indicators
-                df = calculate_indicators(df, sznl_map, t_clean, market_series)
+            strat_mkt_ticker = strat['settings'].get('market_ticker', 'SPY')
+            mkt_df = master_dict.get(strat_mkt_ticker)
+            if mkt_df is None: mkt_df = master_dict.get('SPY')
+            
+            market_series = None
+            if mkt_df is not None:
+                temp_mkt = mkt_df.copy()
+                temp_mkt['SMA200'] = temp_mkt['Close'].rolling(200).mean()
+                market_series = temp_mkt['Close'] > temp_mkt['SMA200']
 
-                # Get mask
-                mask = get_historical_mask(df, strat['settings'], sznl_map)
+            for ticker in strat['universe_tickers']:
+                t_clean = ticker.replace('.', '-')
                 
-                # --- BACKTEST FILTER: ONLY LAST 700 DAYS ---
-                cutoff_date = pd.Timestamp.now() - pd.Timedelta(days=700)
-                mask = mask[mask.index >= cutoff_date]
+                df = master_dict.get(t_clean)
+                if df is None: continue
+                if len(df) < 200: continue
                 
-                # If mask is empty, skip immediately
-                if not mask.any(): continue
+                try:
+                    # Calculate indicators
+                    df = calculate_indicators(df, sznl_map, t_clean, market_series)
 
-                true_dates = mask[mask].index
-                last_exit_date = None
-                
-                for d in true_dates:
-                    if last_exit_date is not None and d <= last_exit_date:
-                        continue
+                    # Get mask
+                    mask = get_historical_mask(df, strat['settings'], sznl_map)
+                    
+                    # --- UPDATED BACKTEST FILTER: USE USER DATE ---
+                    # Ensure cutoff is a Timestamp to match index
+                    cutoff_ts = pd.Timestamp(user_start_date)
+                    mask = mask[mask.index >= cutoff_ts]
+                    
+                    if not mask.any(): continue
+
+                    true_dates = mask[mask].index
+                    last_exit_date = None
+                    
+                    for d in true_dates:
+                        if last_exit_date is not None and d <= last_exit_date:
+                            continue
+                            
+                        row = df.loc[d]
+                        atr = row['ATR']
+                        risk = strat['execution']['risk_per_trade']
                         
-                    row = df.loc[d]
-                    atr = row['ATR']
-                    risk = strat['execution']['risk_per_trade']
-                    
-                    # Entry Logic extraction...
-                    entry_type = strat['settings'].get('entry_type', 'Signal Close')
-                    entry_idx = df.index.get_loc(d)
-                    
-                    # Bounds check for T+1
-                    if entry_idx + 1 >= len(df): continue 
-                    entry_row = df.iloc[entry_idx + 1]
+                        entry_type = strat['settings'].get('entry_type', 'Signal Close')
+                        entry_idx = df.index.get_loc(d)
+                        
+                        if entry_idx + 1 >= len(df): continue 
+                        entry_row = df.iloc[entry_idx + 1]
 
-                    if entry_type == 'T+1 Close':
-                        entry = entry_row['Close']
-                        entry_date = entry_row.name 
-                    elif entry_type == 'T+1 Open':
-                        entry = entry_row['Open']
-                        entry_date = entry_row.name 
-                    elif entry_type == "Limit (Open +/- 0.5 ATR)":
-                        limit_offset = 0.5 * atr
-                        if strat['settings']['trade_direction'] == 'Short':
-                            limit_price = entry_row['Open'] + limit_offset
-                            if entry_row['High'] < limit_price: continue 
-                            entry = limit_price
+                        if entry_type == 'T+1 Close':
+                            entry = entry_row['Close']
+                            entry_date = entry_row.name 
+                        elif entry_type == 'T+1 Open':
+                            entry = entry_row['Open']
+                            entry_date = entry_row.name 
+                        elif entry_type == "Limit (Open +/- 0.5 ATR)":
+                            limit_offset = 0.5 * atr
+                            if strat['settings']['trade_direction'] == 'Short':
+                                limit_price = entry_row['Open'] + limit_offset
+                                if entry_row['High'] < limit_price: continue 
+                                entry = limit_price
+                            else:
+                                limit_price = entry_row['Open'] - limit_offset
+                                if entry_row['Low'] > limit_price: continue
+                                entry = limit_price
+                            entry_date = entry_row.name
+                        else: 
+                            entry = row['Close']
+                            entry_date = d 
+                        
+                        direction = strat['settings'].get('trade_direction', 'Long')
+                        
+                        if direction == 'Long':
+                            stop_price = entry - (atr * strat['execution']['stop_atr'])
+                            dist = entry - stop_price
+                            action = "BUY"
                         else:
-                            limit_price = entry_row['Open'] - limit_offset
-                            if entry_row['Low'] > limit_price: continue
-                            entry = limit_price
-                        entry_date = entry_row.name
-                    else: 
-                        entry = row['Close']
-                        entry_date = d 
+                            stop_price = entry + (atr * strat['execution']['stop_atr'])
+                            dist = stop_price - entry
+                            action = "SELL SHORT"
+                        
+                        shares = int(risk / dist) if dist > 0 else 0
+                        
+                        pnl, exit_date = calculate_trade_result(
+                            df, entry_date, action, shares, entry,
+                            strat['execution']['hold_days']
+                        )
+
+                        all_signals.append({
+                            "Date": d.date(), 
+                            "Exit Date": exit_date.date(),
+                            "Strategy": strat['name'],
+                            "Ticker": ticker,
+                            "Action": action,
+                            "Entry Criteria": entry_type,
+                            "Price": entry,
+                            "Shares": shares,
+                            "PnL": pnl,
+                            "ATR": atr
+                        })
+                        last_exit_date = exit_date
                     
-                    direction = strat['settings'].get('trade_direction', 'Long')
-                    
-                    if direction == 'Long':
-                        stop_price = entry - (atr * strat['execution']['stop_atr'])
-                        dist = entry - stop_price
-                        action = "BUY"
-                    else:
-                        stop_price = entry + (atr * strat['execution']['stop_atr'])
-                        dist = stop_price - entry
-                        action = "SELL SHORT"
-                    
-                    shares = int(risk / dist) if dist > 0 else 0
-                    
-                    pnl, exit_date = calculate_trade_result(
-                        df, entry_date, action, shares, entry,
-                        strat['execution']['hold_days']
-                    )
+                except Exception:
+                    continue
+        
+        progress_bar.empty()
+        
+        if all_signals:
+            sig_df = pd.DataFrame(all_signals)
+            sig_df['Date'] = pd.to_datetime(sig_df['Date'])
+            sig_df['Exit Date'] = pd.to_datetime(sig_df['Exit Date'])
+            sig_df = sig_df.sort_values(by="Exit Date")
 
-                    all_signals.append({
-                        "Date": d.date(), 
-                        "Exit Date": exit_date.date(),
-                        "Strategy": strat['name'],
-                        "Ticker": ticker,
-                        "Action": action,
-                        "Entry Criteria": entry_type,
-                        "Price": entry,
-                        "Shares": shares,
-                        "PnL": pnl,
-                        "ATR": atr
-                    })
-                    last_exit_date = exit_date
-                
-            except Exception:
-                continue
-    
-    progress_bar.empty()
-    
-    if all_signals:
-        sig_df = pd.DataFrame(all_signals)
-        sig_df['Date'] = pd.to_datetime(sig_df['Date'])
-        sig_df['Exit Date'] = pd.to_datetime(sig_df['Exit Date'])
-        sig_df = sig_df.sort_values(by="Exit Date")
+            st.subheader("📊 Strategy Performance Metrics")
+            stats_df = calculate_performance_stats(sig_df)
+            st.dataframe(stats_df.style.format({
+                "Total PnL": "${:,.2f}", "Sharpe Ratio": "{:.2f}", 
+                "Profit Factor": "{:.2f}", "SQN": "{:.2f}"
+            }), use_container_width=True)
 
-        st.subheader("📊 Strategy Performance Metrics")
-        stats_df = calculate_performance_stats(sig_df)
-        st.dataframe(stats_df.style.format({
-            "Total PnL": "${:,.2f}", "Sharpe Ratio": "{:.2f}", 
-            "Profit Factor": "{:.2f}", "SQN": "{:.2f}"
-        }), use_container_width=True)
+            col1, col2 = st.columns(2)
+            with col1:
+                st.subheader("📈 Total Portfolio PnL")
+                total_daily_pnl = sig_df.groupby("Exit Date")['PnL'].sum().cumsum()
+                st.line_chart(total_daily_pnl)
+            with col2:
+                st.subheader("📉 Cumulative PnL by Strategy")
+                strat_pnl = sig_df.pivot_table(index='Exit Date', columns='Strategy', values='PnL', aggfunc='sum').fillna(0)
+                st.line_chart(strat_pnl.cumsum())
 
-        col1, col2 = st.columns(2)
-        with col1:
-            st.subheader("📈 Total Portfolio PnL")
-            total_daily_pnl = sig_df.groupby("Exit Date")['PnL'].sum().cumsum()
-            st.line_chart(total_daily_pnl)
-        with col2:
-            st.subheader("📉 Cumulative PnL by Strategy")
-            strat_pnl = sig_df.pivot_table(index='Exit Date', columns='Strategy', values='PnL', aggfunc='sum').fillna(0)
-            st.line_chart(strat_pnl.cumsum())
+            st.subheader("⚖️ Portfolio Exposure Over Time")
+            exposure_df = calculate_daily_exposure(sig_df)
+            if not exposure_df.empty: st.line_chart(exposure_df)
 
-        st.subheader("⚖️ Portfolio Exposure Over Time")
-        exposure_df = calculate_daily_exposure(sig_df)
-        if not exposure_df.empty: st.line_chart(exposure_df)
-
-        st.subheader("📜 Historical Signal Log")
-        st.dataframe(sig_df.sort_values(by="Date", ascending=False).style.format({
-            "Price": "${:.2f}", "PnL": "${:.2f}", "Date": "{:%Y-%m-%d}", "Exit Date": "{:%Y-%m-%d}"
-        }), use_container_width=True, height=400)
+            st.subheader("📜 Historical Signal Log")
+            st.dataframe(sig_df.sort_values(by="Date", ascending=False).style.format({
+                "Price": "${:.2f}", "PnL": "${:.2f}", "Date": "{:%Y-%m-%d}", "Exit Date": "{:%Y-%m-%d}"
+            }), use_container_width=True, height=400)
+        else:
+            st.warning(f"No signals found in the backtest period starting from {user_start_date}.")
     else:
-        st.warning("No signals found in the backtest period.")
+        st.info("👈 Please select a start date and click 'Run Backtest' in the sidebar to begin.")
 
 if __name__ == "__main__":
     main()
