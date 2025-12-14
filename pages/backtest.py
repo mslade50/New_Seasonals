@@ -13,6 +13,7 @@ import uuid
 # CONFIG / CONSTANTS
 # -----------------------------------------------------------------------------
 MARKET_TICKER = "^GSPC" 
+VIX_TICKER = "^VIX"
 
 SECTOR_ETFS = [
     "IBB", "IHI", "ITA", "ITB", "IYR", "KRE", "OIH", "SMH", "VNQ",
@@ -165,7 +166,7 @@ def get_age_bucket(years):
 # ANALYSIS ENGINE
 # -----------------------------------------------------------------------------
 
-def calculate_indicators(df, sznl_map, ticker, market_series=None, gap_window=21):
+def calculate_indicators(df, sznl_map, ticker, market_series=None, vix_series=None, gap_window=21):
     df = df.copy()
     df.columns = [c.capitalize() for c in df.columns]
     
@@ -238,6 +239,10 @@ def calculate_indicators(df, sznl_map, ticker, market_series=None, gap_window=21
     if market_series is not None:
         df['Market_Above_SMA200'] = market_series.reindex(df.index, method='ffill').fillna(False)
 
+    # VIX Mapping (Regime)
+    if vix_series is not None:
+        df['VIX_Value'] = vix_series.reindex(df.index, method='ffill').fillna(0)
+
     # Candle Range % Location
     denom = (df['High'] - df['Low'])
     df['RangePct'] = np.where(denom == 0, 0.5, (df['Close'] - df['Low']) / denom)
@@ -267,7 +272,7 @@ def calculate_indicators(df, sznl_map, ticker, market_series=None, gap_window=21
 
     return df
 
-def run_engine(universe_dict, params, sznl_map, market_series=None):
+def run_engine(universe_dict, params, sznl_map, market_series=None, vix_series=None):
     all_potential_trades = []
     
     total = len(universe_dict)
@@ -308,13 +313,15 @@ def run_engine(universe_dict, params, sznl_map, market_series=None):
         
         if ticker == MARKET_TICKER and MARKET_TICKER not in params.get('universe_tickers', []):
             continue
+        if ticker == VIX_TICKER: 
+            continue
 
         if len(df_raw) < 100: continue
         
         ticker_last_exit = pd.Timestamp.min
         
         try:
-            df = calculate_indicators(df_raw, sznl_map, ticker, market_series, gap_window=gap_window)
+            df = calculate_indicators(df_raw, sznl_map, ticker, market_series, vix_series, gap_window=gap_window)
             
             df = df[df.index >= bt_start_ts]
             if df.empty: continue
@@ -476,7 +483,17 @@ def run_engine(universe_dict, params, sznl_map, market_series=None):
                     prev = cond.shift(1).rolling(params['52w_lookback']).sum()
                     cond = cond & (prev == 0)
                 conditions.append(cond)
+
+            # --- EXCLUDE 52W HIGH TODAY ---
+            if params.get('exclude_52w_high', False):
+                conditions.append(~df['is_52w_high'])
             
+            # --- VIX REGIME FILTER ---
+            if params.get('use_vix_filter', False) and 'VIX_Value' in df.columns:
+                v_min = params.get('vix_min', 0)
+                v_max = params.get('vix_max', 100)
+                conditions.append((df['VIX_Value'] >= v_min) & (df['VIX_Value'] <= v_max))
+
             # --- VOL FILTERS ---
             if params['use_vol']:
                 cond = df['vol_ratio'] > params['vol_thresh']
@@ -1075,7 +1092,15 @@ def main():
         with h4: 
             lag_52w = st.number_input("Lag (Days)", 0, 10, 0, disabled=not use_52w, 
                                       help="0 = Today, 1 = Yesterday (e.g., Signal if YESTERDAY was a 52w High)")
-        # ----------------------
+        # --- NEW: EXCLUDE 52W HIGH ---
+        st.markdown("---")
+        exclude_52w_high = st.checkbox("Exclude if Today IS a 52w High", value=False, help="Signals will be ignored if today's close is a 52w High.")
+
+    with st.expander("Market Regime (VIX)", expanded=False):
+        use_vix_filter = st.checkbox(f"Enable {VIX_TICKER} Filter", value=False)
+        v1, v2 = st.columns(2)
+        with v1: vix_min = st.number_input("Min VIX Value", 0.0, 200.0, 0.0, disabled=not use_vix_filter)
+        with v2: vix_max = st.number_input("Max VIX Value", 0.0, 200.0, 20.0, disabled=not use_vix_filter)
 
     with st.expander("Volume Filters (Spike & Regime)", expanded=False):
         c1, c2 = st.columns(2)
@@ -1115,6 +1140,7 @@ def main():
         data_dict = download_universe_data(tickers_to_run, fetch_start)
         if not data_dict: return
         
+        # --- MARKET DATA DOWNLOAD ---
         market_series = None
         need_market_data = ("Market" in trend_filter) or use_market_sznl
         if need_market_data:
@@ -1129,13 +1155,29 @@ def main():
                 market_df['SMA200'] = market_df['Close'].rolling(200).mean()
                 market_series = market_df['Close'] > market_df['SMA200']
             else: st.warning(f"⚠️ {MARKET_TICKER} data unavailable. Market filters ignored.")
+        
+        # --- VIX DATA DOWNLOAD ---
+        vix_series = None
+        if use_vix_filter:
+            if VIX_TICKER in data_dict: vix_df = data_dict[VIX_TICKER]
+            else:
+                st.info(f"Fetching {VIX_TICKER} data for regime filter...")
+                vix_dict_temp = download_universe_data([VIX_TICKER], fetch_start)
+                vix_df = vix_dict_temp.get(VIX_TICKER, None)
+            
+            if vix_df is not None and not vix_df.empty:
+                 if vix_df.index.tz is not None: vix_df.index = vix_df.index.tz_localize(None)
+                 vix_df.index = vix_df.index.normalize()
+                 vix_series = vix_df['Close']
+            else:
+                st.warning(f"⚠️ {VIX_TICKER} data unavailable. VIX filter ignored.")
 
         params = {
             'backtest_start_date': start_date, 'trade_direction': trade_direction,
             'max_one_pos': max_one_pos, 'allow_same_day_reentry': allow_same_day_reentry,
-            'use_stop_loss': use_stop_loss,     
+            'use_stop_loss': use_stop_loss,      
             'use_take_profit': use_take_profit, 
-            'time_exit_only': time_exit_only,   
+            'time_exit_only': time_exit_only,    
             'stop_atr': stop_atr, 'tgt_atr': tgt_atr, 'holding_days': hold_days,
             'entry_type': entry_type, 'use_ma_entry_filter': use_ma_entry_filter, 'require_close_gt_open': req_green_candle,
             'breakout_mode': breakout_mode, 
@@ -1149,6 +1191,8 @@ def main():
             'sznl_first_instance': sznl_first, 'sznl_lookback': sznl_lookback,
             'use_market_sznl': use_market_sznl, 'market_sznl_logic': market_sznl_logic, 'market_sznl_thresh': market_sznl_thresh,
             'use_52w': use_52w, '52w_type': type_52w, '52w_first_instance': first_52w, '52w_lookback': lookback_52w, '52w_lag': lag_52w, 
+            'exclude_52w_high': exclude_52w_high,
+            'use_vix_filter': use_vix_filter, 'vix_min': vix_min, 'vix_max': vix_max,
             'use_vol': use_vol, 'vol_thresh': vol_thresh,
             'use_vol_rank': use_vol_rank, 'vol_rank_logic': vol_rank_logic, 'vol_rank_thresh': vol_rank_thresh,
             'use_ma_dist_filter': use_ma_dist_filter, 'dist_ma_type': dist_ma_type, 
@@ -1161,7 +1205,7 @@ def main():
             'dist_count_logic': dist_count_logic, 'dist_count_thresh': dist_count_thresh
         }
         
-        trades_df, rejected_df, total_signals = run_engine(data_dict, params, sznl_map, market_series)
+        trades_df, rejected_df, total_signals = run_engine(data_dict, params, sznl_map, market_series, vix_series)
         
         if trades_df.empty: st.warning("No executed signals (Check constraints or signal logic).")
         
@@ -1273,7 +1317,9 @@ def main():
         "use_market_sznl": {use_market_sznl}, "market_sznl_logic": "{market_sznl_logic}", "market_sznl_thresh": {market_sznl_thresh},
         "market_ticker": "{MARKET_TICKER}",
         "use_52w": {use_52w}, "52w_type": "{type_52w}", "52w_first_instance": {first_52w}, "52w_lookback": {lookback_52w}, "52w_lag": {lag_52w},
+        "exclude_52w_high": {exclude_52w_high},
         "breakout_mode": "{breakout_mode}",
+        "use_vix_filter": {use_vix_filter}, "vix_min": {vix_min}, "vix_max": {vix_max},
         "use_vol": {use_vol}, "vol_thresh": {vol_thresh},
         "use_vol_rank": {use_vol_rank}, "vol_rank_logic": "{vol_rank_logic}", "vol_rank_thresh": {vol_rank_thresh},
         "trend_filter": "{trend_filter}",
