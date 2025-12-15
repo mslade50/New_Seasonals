@@ -259,7 +259,7 @@ STRATEGY_BOOK = [
     },
 
     {
-        "id": "5dr < 50, sznl > 33, close < 20% range, close > 20d",
+        "id": "5dr < 50, sznl > 33, close < 20% range, close > 20d, >2 acc <3 dist (21d)",
         "name": "Weak Close Decent Sznls",
         "description": "Start: 2000-01-01. Universe: Sector + Index ETFs. Dir: Long. Filter: None. PF: 2.19. SQN: 6.06.",
         "universe_tickers": ['SPY', 'OIH', 'XHB', 'DIA', 'XRT', 'IBB', 'ITA', 'XLF', 'XLY', 'XME', 'XLE', 'XLK', 'ITB', 'KRE', 'XLU', 'XLI', 'XLP', 'QQQ', 'IHI', 'VNQ', 'SMH', 'XBI', 'IWM', 'XLC', 'XLB', 'XOP', 'XLV', 'IYR'], 
