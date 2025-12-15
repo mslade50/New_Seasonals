@@ -18,7 +18,7 @@ VIX_TICKER = "^VIX"
 SECTOR_ETFS = [
     "IBB", "IHI", "ITA", "ITB", "IYR", "KRE", "OIH", "SMH", "VNQ",
     "XBI", "XHB", "XLB", "XLC", "XLE", "XLF", "XLI", "XLK", "XLP",
-    "XLU", "XLV", "XLY", "XME", "XOP", "XRT", "GLD", "CEF", "SLV",
+    "XLU", "XLV", "XLY", "XME", "XOP", "XRT", 
 ]
 
 INDEX_ETFS = ["SPY", "QQQ", "IWM", "DIA", "SMH"]
