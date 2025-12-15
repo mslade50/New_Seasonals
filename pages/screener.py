@@ -288,6 +288,7 @@ STRATEGY_BOOK = [
             "min_age": 0.25, "max_age": 100.0,
             "min_atr_pct": 0.2,"max_atr_pct": 10.0,
             "entry_conf_bps": 0,
+            "use_range_filter": True,
             "range_min":0.0,
             "range_max":15.0,
             "use_ma_dist_filter": False, "dist_ma_type": "SMA 10", 
