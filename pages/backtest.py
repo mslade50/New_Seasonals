@@ -166,7 +166,7 @@ def get_age_bucket(years):
 # ANALYSIS ENGINE
 # -----------------------------------------------------------------------------
 
-def calculate_indicators(df, sznl_map, ticker, market_series=None, vix_series=None, gap_window=21):
+def calculate_indicators(df, sznl_map, ticker, market_series=None, vix_series=None, gap_window=21, custom_sma_lengths=None):
     df = df.copy()
     df.columns = [c.capitalize() for c in df.columns]
     
@@ -174,13 +174,20 @@ def calculate_indicators(df, sznl_map, ticker, market_series=None, vix_series=No
         df.index = df.index.tz_localize(None)
     df.index = df.index.normalize()
     
-    # SMAs
+    # Standard SMAs
     df['SMA10'] = df['Close'].rolling(10).mean()
     df['SMA20'] = df['Close'].rolling(20).mean()
     df['SMA50'] = df['Close'].rolling(50).mean()
     df['SMA100'] = df['Close'].rolling(100).mean()
     df['SMA200'] = df['Close'].rolling(200).mean()
     
+    # Dynamic SMAs (Requested by User Filters)
+    if custom_sma_lengths:
+        for length in custom_sma_lengths:
+            col_name = f"SMA{length}"
+            if col_name not in df.columns:
+                df[col_name] = df['Close'].rolling(length).mean()
+
     # EMAs
     df['EMA8'] = df['Close'].ewm(span=8, adjust=False).mean()
     df['EMA11'] = df['Close'].ewm(span=11, adjust=False).mean()
@@ -307,6 +314,12 @@ def run_engine(universe_dict, params, sznl_map, market_series=None, vix_series=N
     progress_bar = st.progress(0)
     status_text = st.empty()
     
+    # Pre-extract required custom MA lengths for calculation
+    req_custom_mas = []
+    for f in params.get('ma_consec_filters', []):
+        req_custom_mas.append(f['length'])
+    req_custom_mas = list(set(req_custom_mas))
+
     for i, (ticker, df_raw) in enumerate(universe_dict.items()):
         status_text.text(f"Scanning signals for {ticker}...")
         progress_bar.progress((i+1)/total)
@@ -321,7 +334,7 @@ def run_engine(universe_dict, params, sznl_map, market_series=None, vix_series=N
         ticker_last_exit = pd.Timestamp.min
         
         try:
-            df = calculate_indicators(df_raw, sznl_map, ticker, market_series, vix_series, gap_window=gap_window)
+            df = calculate_indicators(df_raw, sznl_map, ticker, market_series, vix_series, gap_window=gap_window, custom_sma_lengths=req_custom_mas)
             
             df = df[df.index >= bt_start_ts]
             if df.empty: continue
@@ -362,7 +375,7 @@ def run_engine(universe_dict, params, sznl_map, market_series=None, vix_series=N
             if params.get('require_close_gt_open', False):
                 conditions.append(df['Close'] > df['Open'])
             
-            # --- NEW: BREAKOUT FILTER ---
+            # --- BREAKOUT FILTER ---
             bk_mode = params.get('breakout_mode', 'None')
             if bk_mode == "Close > Prev Day High":
                 conditions.append(df['Close'] > df['High'].shift(1))
@@ -429,6 +442,26 @@ def run_engine(universe_dict, params, sznl_map, market_series=None, vix_series=N
                     prev_instances = final_perf_cond.shift(1).rolling(lookback).sum()
                     final_perf_cond = final_perf_cond & (prev_instances == 0)
                 conditions.append(final_perf_cond)
+
+            # --- CONSECUTIVE CLOSES VS SMA FILTER (NEW) ---
+            ma_consec_filters = params.get('ma_consec_filters', [])
+            if ma_consec_filters:
+                combined_ma_cond = pd.Series(True, index=df.index)
+                for f in ma_consec_filters:
+                    col = f"SMA{f['length']}"
+                    if col not in df.columns: continue
+                    
+                    if f['logic'] == 'Above':
+                        mask = df['Close'] > df[col]
+                    else:
+                        mask = df['Close'] < df[col]
+                    
+                    # Apply consecutive days logic
+                    if f['consec'] > 1:
+                        mask = (mask.rolling(f['consec']).sum() == f['consec'])
+                    
+                    combined_ma_cond = combined_ma_cond & mask
+                conditions.append(combined_ma_cond)
 
             # --- DISTANCE FROM MA FILTER ---
             if params.get('use_ma_dist_filter', False):
@@ -1067,6 +1100,38 @@ def main():
             st.caption("After individual filters pass, alert on:")
             perf_first = st.checkbox("First Instance", value=True)
             perf_lookback = st.number_input("Lookback (Days)", 1, 100, 21, disabled=not perf_first)
+    
+    # --- NEW: CONSECUTIVE CLOSES VS SMA ---
+    ma_consec_filters = []
+    with st.expander("Consecutive Closes vs SMA", expanded=False):
+        st.write("Configure up to 3 custom Moving Average conditions.")
+        
+        c_ma1, c_ma2, c_ma3 = st.columns(3)
+        with c_ma1:
+            st.markdown("**Condition 1**")
+            use_ma1 = st.checkbox("Enable MA 1", key="use_ma1")
+            len_ma1 = st.number_input("Length", 2, 500, 10, key="len_ma1", disabled=not use_ma1)
+            logic_ma1 = st.selectbox("Close vs MA", ["Above", "Below"], key="logic_ma1", disabled=not use_ma1)
+            consec_ma1 = st.number_input("Consecutive Days", 1, 50, 1, key="consec_ma1", disabled=not use_ma1)
+            if use_ma1: ma_consec_filters.append({'length': len_ma1, 'logic': logic_ma1, 'consec': consec_ma1})
+            
+        with c_ma2:
+            st.markdown("**Condition 2**")
+            use_ma2 = st.checkbox("Enable MA 2", key="use_ma2")
+            len_ma2 = st.number_input("Length", 2, 500, 20, key="len_ma2", disabled=not use_ma2)
+            logic_ma2 = st.selectbox("Close vs MA", ["Above", "Below"], key="logic_ma2", disabled=not use_ma2)
+            consec_ma2 = st.number_input("Consecutive Days", 1, 50, 1, key="consec_ma2", disabled=not use_ma2)
+            if use_ma2: ma_consec_filters.append({'length': len_ma2, 'logic': logic_ma2, 'consec': consec_ma2})
+
+        with c_ma3:
+            st.markdown("**Condition 3**")
+            use_ma3 = st.checkbox("Enable MA 3", key="use_ma3")
+            len_ma3 = st.number_input("Length", 2, 500, 50, key="len_ma3", disabled=not use_ma3)
+            logic_ma3 = st.selectbox("Close vs MA", ["Above", "Below"], key="logic_ma3", disabled=not use_ma3)
+            consec_ma3 = st.number_input("Consecutive Days", 1, 50, 1, key="consec_ma3", disabled=not use_ma3)
+            if use_ma3: ma_consec_filters.append({'length': len_ma3, 'logic': logic_ma3, 'consec': consec_ma3})
+    # --------------------------------------
+
     with st.expander("Seasonal Rank", expanded=False):
         st.markdown("**Ticker Specific Seasonality**")
         use_sznl = st.checkbox("Enable Ticker Seasonal Filter", value=False)
@@ -1187,6 +1252,7 @@ def main():
             'trend_filter': trend_filter, 'universe_tickers': tickers_to_run, 'slippage_bps': slippage_bps,
             'entry_conf_bps': entry_conf_bps,
             'perf_filters': perf_filters, 'perf_first_instance': perf_first, 'perf_lookback': perf_lookback, 
+            'ma_consec_filters': ma_consec_filters, # NEW PARAM
             'use_sznl': use_sznl, 'sznl_logic': sznl_logic, 'sznl_thresh': sznl_thresh, 
             'sznl_first_instance': sznl_first, 'sznl_lookback': sznl_lookback,
             'use_market_sznl': use_market_sznl, 'market_sznl_logic': market_sznl_logic, 'market_sznl_thresh': market_sznl_thresh,
@@ -1313,6 +1379,7 @@ def main():
         "max_total_positions": {max_total_positions},
         "perf_filters": {perf_filters},
         "perf_first_instance": {perf_first}, "perf_lookback": {perf_lookback},
+        "ma_consec_filters": {ma_consec_filters},
         "use_sznl": {use_sznl}, "sznl_logic": "{sznl_logic}", "sznl_thresh": {sznl_thresh}, "sznl_first_instance": {sznl_first}, "sznl_lookback": {sznl_lookback},
         "use_market_sznl": {use_market_sznl}, "market_sznl_logic": "{market_sznl_logic}", "market_sznl_thresh": {market_sznl_thresh},
         "market_ticker": "{MARKET_TICKER}",
