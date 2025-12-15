@@ -866,7 +866,6 @@ def check_signal(df, params, sznl_map):
             if not (val > params['vol_rank_thresh']): return False
             
     return True
-
 def get_signal_breakdown(df, params, sznl_map):
     """
     Runs the exact check_signal logic but returns a dictionary of 
@@ -882,6 +881,20 @@ def get_signal_breakdown(df, params, sznl_map):
         audit[key] = value
         audit[f"{key}_Pass"] = "✅" if condition_met else "❌"
         if not condition_met: all_passed = False
+
+    # -----------------------------------------------------------
+    # 0. DAY OF WEEK FILTER (NEWLY ADDED TO INSPECTOR)
+    # -----------------------------------------------------------
+    if params.get('use_dow_filter', False):
+        allowed = params.get('allowed_days', [])
+        # 0=Mon, 1=Tue, ... 6=Sun
+        day_num = last_row.name.dayofweek 
+        day_name = last_row.name.strftime("%A") 
+        
+        cond = day_num in allowed
+        
+        # Format "Monday (0) vs Allowed [0]"
+        log("DOW_Check", f"{day_name} (Req: {allowed})", cond)
 
     # 1. Liquidity
     liq_pass = (
@@ -975,7 +988,9 @@ def get_signal_breakdown(df, params, sznl_map):
         cond = (ratio > params['vol_thresh'])
         log("Vol_Spike", f"x{ratio:.2f}", cond)
         
-    # --- UPDATED RANGE FILTER INSPECTOR ---
+    # -----------------------------------------------------------
+    # 7. RANGE FILTER (EXPANDED INSPECTOR)
+    # -----------------------------------------------------------
     if params.get('use_range_filter', False):
         rng = last_row['RangePct'] * 100
         r_min = params.get('range_min', 0)
@@ -983,9 +998,9 @@ def get_signal_breakdown(df, params, sznl_map):
         
         cond = (rng >= r_min) and (rng <= r_max)
         
-        # We output the actual value vs the Required Max/Min
+        # Explicit output: e.g., "12.5% (Req: 0.0-15.0%)"
         log("Range_Loc", f"{rng:.1f}% (Req: {r_min}-{r_max}%)", cond)
-    # --------------------------------------
+    # -----------------------------------------------------------
         
     # 8. Accumulation Count
     if params.get('use_acc_count_filter', False):
