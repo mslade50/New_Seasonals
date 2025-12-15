@@ -257,59 +257,60 @@ STRATEGY_BOOK = [
             "profit_factor": "3.28"
         }
     },
-    # 5. UGLY MONDAY CLOSE
+
     {
-        "id": "Lower 15% of range, 5dr < 50, Close>20sma",
-        "name": "Ugly Monday (20d)",
-        "description": "Start: 2000-01-01. Universe: Indices. Dir: Long. Filter: None. PF: 3.63. SQN: 5.77.",
-        "universe_tickers": ['SPY', 'QQQ', 'IWM', 'DIA', 'SMH'], 
+        "id": "5dr < 50, sznl > 33, close < 20% range, close > 20d",
+        "name": "Weak Close Decent Sznls",
+        "description": "Start: 2000-01-01. Universe: Sector + Index ETFs. Dir: Long. Filter: None. PF: 2.19. SQN: 6.06.",
+        "universe_tickers": ['SPY', 'OIH', 'XHB', 'DIA', 'XRT', 'IBB', 'ITA', 'XLF', 'XLY', 'XME', 'XLE', 'XLK', 'ITB', 'KRE', 'XLU', 'XLI', 'XLP', 'QQQ', 'IHI', 'VNQ', 'SMH', 'XBI', 'IWM', 'XLC', 'XLB', 'XOP', 'XLV', 'IYR'], 
         "settings": {
             "trade_direction": "Long",
             "entry_type": "Signal Close",
-            "max_one_pos": False,
-            "allow_same_day_reentry": True,
+            "max_one_pos": True,
+            "allow_same_day_reentry": False,
             "max_daily_entries": 2,
             "max_total_positions": 10,
-            "use_dow_filter": True, "allowed_days": [0],
             "perf_filters": [{'window': 5, 'logic': '<', 'thresh': 50.0, 'consecutive': 1}],
             "perf_first_instance": False, "perf_lookback": 21,
             "ma_consec_filters": [{'length': 20, 'logic': 'Above', 'consec': 1}],
-            "use_sznl": False, "sznl_logic": "<", "sznl_thresh": 15.0, "sznl_first_instance": True, "sznl_lookback": 21,
-            "use_market_sznl": False, "market_sznl_logic": "<", "market_sznl_thresh": 40.0,
+            "use_sznl": True, "sznl_logic": ">", "sznl_thresh": 33.0, "sznl_first_instance": False, "sznl_lookback": 21,
+            "use_market_sznl": False, "market_sznl_logic": "<", "market_sznl_thresh": 15.0,
             "market_ticker": "^GSPC",
             "use_52w": False, "52w_type": "New 52w High", "52w_first_instance": True, "52w_lookback": 21, "52w_lag": 0,
             "exclude_52w_high": False,
             "breakout_mode": "None",
+            "use_range_filter": True, 
+            "range_min": 0, 
+            "range_max": 20,
+            "use_dow_filter": True, 
+            "allowed_days": [0, 2, 3, 4],
             "use_vix_filter": False, "vix_min": 0.0, "vix_max": 20.0,
-            "use_vol": False, "vol_thresh": 1.25,
-            "use_vol_rank": False, "vol_rank_logic": "<", "vol_rank_thresh": 15.0,
+            "use_vol": False, "vol_thresh": 1.5,
+            "use_vol_rank": False, "vol_rank_logic": "<", "vol_rank_thresh": 50.0,
             "trend_filter": "None",
             "min_price": 10.0, "min_vol": 100000,
             "min_age": 0.25, "max_age": 100.0,
             "min_atr_pct": 0.2,"max_atr_pct": 10.0,
             "entry_conf_bps": 0,
-            "use_range_filter": True,
-            "range_min":0.0,
-            "range_max":15.0,
             "use_ma_dist_filter": False, "dist_ma_type": "SMA 10", 
             "dist_logic": "Greater Than (>)", "dist_min": 0.0, "dist_max": 2.0,
             "use_gap_filter": False, "gap_lookback": 21, 
             "gap_logic": ">", "gap_thresh": 3,
-            "use_acc_count_filter": False, "acc_count_window": 21, "acc_count_logic": ">", "acc_count_thresh": 3,
-            "use_dist_count_filter": False, "dist_count_window": 21, "dist_count_logic": ">", "dist_count_thresh": 0
+            "use_acc_count_filter": True, "acc_count_window": 21, "acc_count_logic": ">", "acc_count_thresh": 3,
+            "use_dist_count_filter": True, "dist_count_window": 21, "dist_count_logic": "<", "dist_count_thresh": 3
         },
         "execution": {
-            "risk_per_trade": 325,
+            "risk_per_trade": 400,
             "slippage_bps": 2,
             "stop_atr": 1.0,
-            "tgt_atr": 2.0,
+            "tgt_atr": 8.0,
             "hold_days": 4
         },
         "stats": {
             "grade": "A (Excellent)",
-            "win_rate": "71.8%",
-            "expectancy": "0.66r",
-            "profit_factor": "3.63"
+            "win_rate": "63.2%",
+            "expectancy": "$443.53",
+            "profit_factor": "2.19"
         }
     },
     # 6. GENERATED LONG
@@ -1220,7 +1221,16 @@ def main():
                                 elif vol_ratio > 1.5:
                                     risk = 525  # Medium conviction
                                 # else: stays at default 400 (Low conviction > 1.25)
-                            
+                            if strat['name'] == "Weak Close Decent Sznls":
+                                sznl_val = last_row.get('Sznl', 0)
+                                
+                                if sznl_val >= 65:
+                                    risk = risk * 1.5   # High conviction (e.g. 400 * 1.5 = 600)
+                                elif sznl_val >= 50:
+                                    risk = risk * 1.0   # Standard (e.g. 400)
+                                elif sznl_val >= 33:
+                                    risk = risk * 0.66
+                                    
                             entry = last_row['Close']
                             direction = strat['settings'].get('trade_direction', 'Long')
                             stop_atr = strat['execution']['stop_atr']
