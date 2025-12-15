@@ -645,7 +645,6 @@ def check_signal(df, params, sznl_map):
     last_row = df.iloc[-1]
     
     # 0. Day of Week Filter
-    # 0=Mon, 1=Tue, 2=Wed, 3=Thu, 4=Fri
     if params.get('use_dow_filter', False):
         allowed = params.get('allowed_days', [])
         current_day = last_row.name.dayofweek
@@ -660,12 +659,12 @@ def check_signal(df, params, sznl_map):
     min_atr = params.get('min_atr_pct', 0.0)
     max_atr = params.get('max_atr_pct', 1000.0)
     
-    # Handle NaN values safely
     current_atr_pct = last_row.get('ATR_Pct', 0)
     if pd.isna(current_atr_pct): return False
 
     if current_atr_pct < min_atr: return False
     if current_atr_pct > max_atr: return False
+
     # 2. Trend Filter
     trend_opt = params.get('trend_filter', 'None')
     if trend_opt == "Price > 200 SMA":
@@ -725,7 +724,7 @@ def check_signal(df, params, sznl_map):
             
         if not final_perf.iloc[-1]: return False
 
-    # 5. Gap Filter
+    # 5. Gap/Acc/Dist Filters
     if params.get('use_gap_filter', False):
         lookback = params.get('gap_lookback', 21)
         col_name = f'GapCount_{lookback}' if f'GapCount_{lookback}' in df.columns else 'GapCount_21'
@@ -736,30 +735,24 @@ def check_signal(df, params, sznl_map):
         if g_logic == "<" and not (gap_val < g_thresh): return False
         if g_logic == "=" and not (gap_val == g_thresh): return False
 
-    # 5b. Accumulation days
     if params.get('use_acc_count_filter', False):
         window = params.get('acc_count_window', 21)
         col_name = f'AccCount_{window}'
-        
         if col_name in df.columns:
             acc_val = last_row[col_name]
             acc_logic = params.get('acc_count_logic', '=')
             acc_thresh = params.get('acc_count_thresh', 0)
-            
             if acc_logic == "=" and not (acc_val == acc_thresh): return False
             if acc_logic == ">" and not (acc_val > acc_thresh): return False
             if acc_logic == "<" and not (acc_val < acc_thresh): return False
 
-    # 5c. Distribution Count Filter (NEW)
     if params.get('use_dist_count_filter', False):
         window = params.get('dist_count_window', 21)
         col_name = f'DistCount_{window}'
-        
         if col_name in df.columns:
             dist_val = last_row[col_name]
             dist_logic = params.get('dist_count_logic', '>')
             dist_thresh = params.get('dist_count_thresh', 0)
-            
             if dist_logic == "=" and not (dist_val == dist_thresh): return False
             if dist_logic == ">" and not (dist_val > dist_thresh): return False
             if dist_logic == "<" and not (dist_val < dist_thresh): return False
@@ -796,16 +789,13 @@ def check_signal(df, params, sznl_map):
 
     if params.get('use_market_sznl', False):
         mkt_ticker = params.get('market_ticker', '^GSPC')
-        
         mkt_series_ref = sznl_map.get(mkt_ticker)
         if mkt_series_ref is None and mkt_ticker == '^GSPC':
              mkt_series_ref = sznl_map.get('SPY')
-
         mkt_ranks = get_sznl_val_series(mkt_ticker, df.index, sznl_map)
         
         if params['market_sznl_logic'] == '<': mkt_cond = mkt_ranks < params['market_sznl_thresh']
         else: mkt_cond = mkt_ranks > params['market_sznl_thresh']
-        
         if not mkt_cond[-1]: return False
 
     # 8. 52w
@@ -818,13 +808,13 @@ def check_signal(df, params, sznl_map):
             cond_52 = cond_52 & (prev == 0)
         if not cond_52.iloc[-1]: return False
 
-    # 9. Volume (Ratio + Spike Check)
+    # 9. Volume (Ratio ONLY)
     if params['use_vol']:
-        # 1. Magnitude Check (e.g. > 1.5x)
+        # Only check if magnitude > threshold (Ignore if it's > or < yesterday)
         if not (last_row['vol_ratio'] > params['vol_thresh']): return False
         
-        # 2. Spike Structure Check (Vol > Yesterday & Vol > MA)
-        if not last_row['Vol_Spike']: return False
+        # *** REMOVED: Spike Structure Check (Vol > Yesterday) ***
+        # if not last_row['Vol_Spike']: return False
 
     if params.get('use_vol_rank'):
         val = last_row['vol_ratio_10d_rank']
@@ -851,8 +841,7 @@ def get_signal_breakdown(df, params, sznl_map):
         audit[f"{key}_Pass"] = "✅" if condition_met else "❌"
         if not condition_met: all_passed = False
 
-    # 1. Liquidity Gates
-    # We group these to save space, but you can split them if you prefer
+    # 1. Liquidity
     liq_pass = (
         last_row['Close'] >= params.get('min_price', 0) and 
         last_row['vol_ma'] >= params.get('min_vol', 0) and
@@ -860,7 +849,7 @@ def get_signal_breakdown(df, params, sznl_map):
     )
     log("Liquidity", f"${last_row['Close']:.2f} / {int(last_row['vol_ma'])} vol", liq_pass)
 
-    # 2. Trend Filter
+    # 2. Trend
     trend_opt = params.get('trend_filter', 'None')
     trend_res = True
     trend_val = "None"
@@ -877,26 +866,21 @@ def get_signal_breakdown(df, params, sznl_map):
             
     log("Trend", trend_val, trend_res)
 
-    # 3. Perf Rank Filters
+    # 3. Perf Rank
     if 'perf_filters' in params:
         for i, pf in enumerate(params['perf_filters']):
             window = pf['window']
             col = f"rank_ret_{window}d"
             val = last_row.get(col, 0)
             
-            # Logic check
             if pf['logic'] == '<': cond = val < pf['thresh']
             else: cond = val > pf['thresh']
             
-            # Consecutive check (Re-calc logic)
             consec = pf.get('consecutive', 1)
             consec_str = ""
             if consec > 1:
-                # We have to re-evaluate the rolling sum for audit context
                 if pf['logic'] == '<': s_cond = df[col] < pf['thresh']
                 else: s_cond = df[col] > pf['thresh']
-                
-                # Check if sum of last N is N
                 recent_sum = s_cond.rolling(consec).sum().iloc[-1]
                 cond = (recent_sum == consec)
                 consec_str = f" ({int(recent_sum)}/{consec} days)"
@@ -917,12 +901,14 @@ def get_signal_breakdown(df, params, sznl_map):
         else: cond = val > params['market_sznl_thresh']
         log("Mkt_Sznl", f"{val:.1f}", cond)
 
-    # 6. Volume
+    # 6. Volume (MODIFIED to Match check_signal)
     if params.get('use_vol', False):
         ratio = last_row['vol_ratio']
-        spike = last_row['Vol_Spike']
-        cond = (ratio > params['vol_thresh']) and spike
-        log("Vol_Spike", f"x{ratio:.2f} (Spike={spike})", cond)
+        # spike = last_row['Vol_Spike'] # Removed this requirement
+        
+        # Only check threshold
+        cond = (ratio > params['vol_thresh'])
+        log("Vol_Spike", f"x{ratio:.2f}", cond)
         
     # 7. Range Filter
     if params.get('use_range_filter', False):
