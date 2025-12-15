@@ -270,6 +270,7 @@ STRATEGY_BOOK = [
             "allow_same_day_reentry": True,
             "max_daily_entries": 2,
             "max_total_positions": 10,
+            "use_dow_filter": True, "allowed_days": [0],
             "perf_filters": [{'window': 5, 'logic': '<', 'thresh': 50.0, 'consecutive': 1}],
             "perf_first_instance": False, "perf_lookback": 21,
             "ma_consec_filters": [{'length': 20, 'logic': 'Above', 'consec': 1}],
