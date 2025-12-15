@@ -242,22 +242,68 @@ STRATEGY_BOOK = [
 # -----------------------------------------------------------------------------
 # CONSTANTS & SETUP
 # -----------------------------------------------------------------------------
-CSV_PATH = "sznl_ranks.csv" 
+# -----------------------------------------------------------------------------
+# CONSTANTS & SETUP
+# -----------------------------------------------------------------------------
+PRIMARY_SZNL_PATH = "sznl_ranks.csv"      # Your main high-quality data
+BACKUP_SZNL_PATH = "seasonal_ranks.csv"   # The backup data to fill gaps
 
 @st.cache_resource 
 def load_seasonal_map():
-    try:
-        df = pd.read_csv(CSV_PATH)
-    except Exception:
+    """
+    Loads two CSV sources and merges them. 
+    Priority is given to PRIMARY_SZNL_PATH. 
+    BACKUP_SZNL_PATH is used only where Primary has no data for that specific Ticker/Date.
+    """
+    
+    # 1. Helper to load and clean a specific file
+    def load_raw_csv(path):
+        try:
+            df = pd.read_csv(path)
+            # Standardize column names if they differ between files
+            # Assuming columns are 'ticker', 'Date', 'seasonal_rank'
+            if 'ticker' not in df.columns or 'Date' not in df.columns:
+                return pd.DataFrame()
+            
+            df["Date"] = pd.to_datetime(df["Date"], errors='coerce')
+            df = df.dropna(subset=["Date", "ticker"])
+            df["Date"] = df["Date"].dt.normalize()
+            df["ticker"] = df["ticker"].astype(str).str.upper().str.strip()
+            return df
+        except Exception:
+            return pd.DataFrame()
+
+    # 2. Load both
+    df_primary = load_raw_csv(PRIMARY_SZNL_PATH)
+    df_backup = load_raw_csv(BACKUP_SZNL_PATH)
+
+    # 3. Merge Logic
+    if df_primary.empty and df_backup.empty:
         return {}
-    if df.empty: return {}
-    df["Date"] = pd.to_datetime(df["Date"], errors='coerce')
-    df = df.dropna(subset=["Date"])
-    df["Date"] = df["Date"].dt.normalize()
+    elif df_primary.empty:
+        final_df = df_backup
+    elif df_backup.empty:
+        final_df = df_primary
+    else:
+        # Stack Primary on top of Backup
+        # We assume both CSVs have the column 'seasonal_rank'
+        final_df = pd.concat([df_primary, df_backup], axis=0)
+        
+        # Remove Duplicates:
+        # We keep='first'. Since Primary is on top, if a Ticker+Date exists in both,
+        # the Primary value is kept and the Backup value is dropped.
+        final_df = final_df.drop_duplicates(subset=['ticker', 'Date'], keep='first')
+
+    # 4. Build Dictionary Map
     output_map = {}
-    for ticker, group in df.groupby("ticker"):
-        series = group.set_index("Date")["seasonal_rank"].sort_index()
+    # Optimization: Sort by date once to ensure monotonicity
+    final_df = final_df.sort_values(by="Date")
+    
+    for ticker, group in final_df.groupby("ticker"):
+        # Create a series mapping Date -> Rank
+        series = group.set_index("Date")["seasonal_rank"]
         output_map[ticker] = series
+        
     return output_map
 
 def get_sznl_val_series(ticker, dates, sznl_map):
