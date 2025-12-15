@@ -259,44 +259,60 @@ STRATEGY_BOOK = [
     },
     # 5. UGLY MONDAY CLOSE
     {
-        "id": "Lower 10% of Range 5d perf < 50%ile",
-        "name": "Ugly Monday Close",
-        "description": "Start: 2000-01-01. Universe: Indices. Dir: Long. Filter: None. PF: 2.36. SQN: 6.97.",
+        "id": "Lower 15% of range, 5dr < 50, Close>20sma",
+        "name": "Ugly Monday (20d)",
+        "description": "Start: 2000-01-01. Universe: Indices. Dir: Long. Filter: None. PF: 3.63. SQN: 5.77.",
         "universe_tickers": ['SPY', 'QQQ', 'IWM', 'DIA', 'SMH'], 
         "settings": {
             "trade_direction": "Long",
-            "entry_type": "T+1 Open",
-            "max_one_pos": True,
-            "max_daily_entries": 5,
+            "entry_type": "Signal Close",
+            "max_one_pos": False,
+            "allow_same_day_reentry": True,
+            "max_daily_entries": 2,
             "max_total_positions": 10,
-            "use_dow_filter": True,
-            "allowed_days": [0],
-            "use_range_filter": True,
-            "range_min": 0.0,
-            "range_max": 10.0,
-            "use_perf_rank": True, "perf_window": 5, "perf_logic": "<", "perf_thresh": 50.0,
-            "perf_first_instance": False, "perf_lookback": 21, "perf_consecutive": 1,
-            "use_sznl": False, "sznl_logic": ">", "sznl_thresh": 50.0, "sznl_first_instance": False, "sznl_lookback": 21,
-            "use_52w": False, "52w_type": "New 52w High", "52w_first_instance": True, "52w_lookback": 21,
-            "use_vol": False, "vol_thresh": 1.5,
-            "use_vol_rank": False, "vol_rank_logic": "<", "vol_rank_thresh": 50.0,
+            "perf_filters": [{'window': 5, 'logic': '<', 'thresh': 50.0, 'consecutive': 1}],
+            "perf_first_instance": False, "perf_lookback": 21,
+            "ma_consec_filters": [{'length': 20, 'logic': 'Above', 'consec': 1}],
+            "use_sznl": False, "sznl_logic": "<", "sznl_thresh": 15.0, "sznl_first_instance": True, "sznl_lookback": 21,
+            "use_market_sznl": False, "market_sznl_logic": "<", "market_sznl_thresh": 40.0,
+            "market_ticker": "^GSPC",
+            "use_52w": False, "52w_type": "New 52w High", "52w_first_instance": True, "52w_lookback": 21, "52w_lag": 0,
+            "exclude_52w_high": False,
+            "breakout_mode": "None",
+            "use_vix_filter": False, "vix_min": 0.0, "vix_max": 20.0,
+            "use_vol": False, "vol_thresh": 1.25,
+            "use_vol_rank": False, "vol_rank_logic": "<", "vol_rank_thresh": 15.0,
             "trend_filter": "None",
             "min_price": 10.0, "min_vol": 100000,
-            "min_age": 0.25, "max_age": 100.0
+            "min_age": 0.25, "max_age": 100.0,
+            "min_atr_pct": 0.2,"max_atr_pct": 10.0,
+            "entry_conf_bps": 0,
+            "use_ma_dist_filter": False, "dist_ma_type": "SMA 10", 
+            "dist_logic": "Greater Than (>)", "dist_min": 0.0, "dist_max": 2.0,
+            "use_gap_filter": False, "gap_lookback": 21, 
+            "gap_logic": ">", "gap_thresh": 3,
+            "use_acc_count_filter": False, "acc_count_window": 21, "acc_count_logic": ">", "acc_count_thresh": 3,
+            "use_dist_count_filter": False, "dist_count_window": 21, "dist_count_logic": ">", "dist_count_thresh": 0
         },
         "execution": {
-            "risk_per_trade": 300,
-            "stop_atr": 2.0,
-            "tgt_atr": 8.0,
+            "risk_per_trade": 1000,
+            "slippage_bps": 2,
+            "stop_atr": 1.0,
+            "tgt_atr": 2.0,
             "hold_days": 4
         },
-        "stats": { "grade": "A (Excellent)", "win_rate": "68.8%", "expectancy": "$237.24", "profit_factor": "2.36" }
+        "stats": {
+            "grade": "A (Excellent)",
+            "win_rate": "71.8%",
+            "expectancy": "0.66r",
+            "profit_factor": "3.63"
+        }
     },
     # 6. GENERATED LONG
     {
         "id": "21dr < 15 3 consec, 5dr < 33, rel vol < 15, SPY > 200d, 21d time stop",
         "name": "Oversold Low Volume",
-        "description": "Start: 2000-01-01. Universe: All CSV Tickers. Dir: Long. Filter: SPY > 200 SMA. PF: 2.64. SQN: 7.67.",
+        "description": "Start: 2000-01-01. Universe: All CSV Tickers. Dir: Long. Filter: SPY > 200 SMA. PF: 2.55. SQN: 7.67.",
         "universe_tickers": ['AAPL', 'ABT', 'ADBE', 'ADI', 'ADM', 'ADP', 'ADSK', 'AEP', 'AIG', 'ALL', 'AMAT', 'AMD', 'AMGN', 'AMZN', 'AON', 'APD', 'AVGO', 'AXP', 'BA', 'BAC', 'BAX', 'BDX', 'BK', 'BMY', 'C', 'CAG', 'CAT', 'CEF', 'CL', 'CMCSA', 'CMS', 'CNP', 'COP', 'COST', 'CPB', 'CRM', 'CSCO', 'CSX', 'CVS', 'CVX', 'D', 'DE', 'DIA', 'DIS', 'DOV', 'DTE', 'DUK', 'ECL', 'ED', 'EIX', 'EMR', 'EOG', 'ETR', 'EXC', 'F', 'FCX', 'FDX', 'FE', 'GD', 'GE', 'GILD', 'GIS', 'GLD', 'GLW', 'GOOG', 'GPC', 'GS', 'HAL', 'HD', 'HIG', 'HON', 'HPQ', 'HRL', 'HSY', 'HUM', 'IBB', 'IBM', 'IHI', 'INTC', 'IP', 'ITA', 'ITB', 'ITW', 'IWM', 'IYR', 'JNJ', 'JPM', 'K', 'KEY', 'KMB', 'KO', 'KR', 'KRE', 'LEG', 'LIN', 'LLY', 'LMT', 'LOW', 'LUV', 'MAS', 'MCD', 'MDT', 'MET', 'META', 'MMC', 'MMM', 'MO', 'MRK', 'MS', 'MSFT', 'MU', 'NEE', 'NEM', 'NKE', 'NOC', 'NSC', 'NUE', 'NVDA', 'OIH', 'ORCL', 'OXY', 'PAYX', 'PCG', 'PEG', 'PEP', 'PFE', 'PG', 'PGR', 'PH', 'PNW', 'PPG', 'PPL', 'PSA', 'QCOM', 'QQQ', 'REGN', 'RF', 'RHI', 'ROK', 'ROST', 'RTX', 'SBUX', 'SCHW', 'SHW', 'SLB', 'SLV', 'SMH', 'SNA', 'SO', 'SPG', 'SPY', 'SRE', 'STT', 'SWK', 'SYK', 'SYY', 'T', 'TAP', 'TGT', 'TJX', 'TMO', 'TRV', 'TSN', 'TXN', 'UNG', 'UNH', 'UNP', 'USB', 'USO', 'UVXY', 'V', 'VFC', 'VLO', 'VMC', 'VNQ', 'VZ', 'WFC', 'WHR', 'WM', 'WMB', 'WMT', 'XBI', 'XHB', 'XLB', 'XLE', 'XLF', 'XLI', 'XLK', 'XLP', 'XLU', 'XLV', 'XLY', 'XME', 'XOM', 'XOP', 'XRT'], 
         "settings": {
             "trade_direction": "Long",
@@ -320,7 +336,7 @@ STRATEGY_BOOK = [
             "tgt_atr": 8.0,
             "hold_days": 21
         },
-        "stats": { "grade": "A (Excellent)", "win_rate": "66.3%", "expectancy": "$670.59", "profit_factor": "2.64" }
+        "stats": { "grade": "A (Excellent)", "win_rate": "64.9%", "expectancy": "0.65r", "profit_factor": "2.55" }
     },
         {
         "id": "5+10+21d > 85, 21d 3x, vol >1.25x, >0 dist day, sell open +0.5 atr",
@@ -363,9 +379,9 @@ STRATEGY_BOOK = [
         },
         "stats": {
             "grade": "A (Excellent)",
-            "win_rate": "64.0%",
-            "expectancy": "$411.09",
-            "profit_factor": "2.46"
+            "win_rate": "58.0%",
+            "expectancy": "$0.28r",
+            "profit_factor": "1.96"
         }
     },
 ]
@@ -665,7 +681,7 @@ def check_signal(df, params, sznl_map):
     if current_atr_pct < min_atr: return False
     if current_atr_pct > max_atr: return False
 
-    # 2. Trend Filter
+    # 2. Trend Filter (Global)
     trend_opt = params.get('trend_filter', 'None')
     if trend_opt == "Price > 200 SMA":
         if not (last_row['Close'] > last_row['SMA200']): return False
@@ -677,6 +693,28 @@ def check_signal(df, params, sznl_map):
             is_above = last_row['Market_Above_SMA200']
             if ">" in trend_opt and not is_above: return False
             if "<" in trend_opt and is_above: return False
+
+    # 2b. MA Consecutive Filters (NEW - For Ugly Monday)
+    if 'ma_consec_filters' in params:
+        for maf in params['ma_consec_filters']:
+            length = maf['length']
+            col_name = f"SMA{length}" # e.g. SMA20
+            
+            # Ensure column exists (calculate_indicators handles 10, 20, 50, 200)
+            if col_name not in df.columns: continue 
+            
+            # Logic Check
+            if maf['logic'] == 'Above':
+                mask = df['Close'] > df[col_name]
+            elif maf['logic'] == 'Below':
+                mask = df['Close'] < df[col_name]
+            
+            # Consecutive Check
+            consec = maf.get('consec', 1)
+            if consec > 1:
+                mask = mask.rolling(consec).sum() == consec
+            
+            if not mask.iloc[-1]: return False
 
     # 3. Candle Range Filter
     if params.get('use_range_filter', False):
@@ -807,14 +845,15 @@ def check_signal(df, params, sznl_map):
             prev = cond_52.shift(1).rolling(lookback).sum()
             cond_52 = cond_52 & (prev == 0)
         if not cond_52.iloc[-1]: return False
+        
+    # 8b. Exclude 52w High (NEW)
+    if params.get('exclude_52w_high', False):
+        if last_row['is_52w_high']: return False
 
     # 9. Volume (Ratio ONLY)
     if params['use_vol']:
         # Only check if magnitude > threshold (Ignore if it's > or < yesterday)
         if not (last_row['vol_ratio'] > params['vol_thresh']): return False
-        
-        # *** REMOVED: Spike Structure Check (Vol > Yesterday) ***
-        # if not last_row['Vol_Spike']: return False
 
     if params.get('use_vol_rank'):
         val = last_row['vol_ratio_10d_rank']
@@ -849,7 +888,7 @@ def get_signal_breakdown(df, params, sznl_map):
     )
     log("Liquidity", f"${last_row['Close']:.2f} / {int(last_row['vol_ma'])} vol", liq_pass)
 
-    # 2. Trend
+    # 2. Trend (Global)
     trend_opt = params.get('trend_filter', 'None')
     trend_res = True
     trend_val = "None"
@@ -865,6 +904,32 @@ def get_signal_breakdown(df, params, sznl_map):
             trend_val = "Mkt > SMA200" if is_above else "Mkt < SMA200"
             
     log("Trend", trend_val, trend_res)
+
+    # 2b. MA Specific Filters
+    if 'ma_consec_filters' in params:
+        for i, maf in enumerate(params['ma_consec_filters']):
+            length = maf['length']
+            col_name = f"SMA{length}"
+            
+            val = last_row.get(col_name, 0)
+            
+            # Logic Check
+            if maf['logic'] == 'Above':
+                mask = df['Close'] > df[col_name]
+                symbol = ">"
+            else:
+                mask = df['Close'] < df[col_name]
+                symbol = "<"
+            
+            # Consecutive
+            consec = maf.get('consec', 1)
+            consec_text = ""
+            if consec > 1:
+                mask = mask.rolling(consec).sum() == consec
+                consec_text = f" ({consec}d)"
+                
+            cond = mask.iloc[-1]
+            log(f"MA_Check_{i}", f"Price {symbol} SMA{length}{consec_text}", cond)
 
     # 3. Perf Rank
     if 'perf_filters' in params:
@@ -901,12 +966,9 @@ def get_signal_breakdown(df, params, sznl_map):
         else: cond = val > params['market_sznl_thresh']
         log("Mkt_Sznl", f"{val:.1f}", cond)
 
-    # 6. Volume (MODIFIED to Match check_signal)
+    # 6. Volume
     if params.get('use_vol', False):
         ratio = last_row['vol_ratio']
-        # spike = last_row['Vol_Spike'] # Removed this requirement
-        
-        # Only check threshold
         cond = (ratio > params['vol_thresh'])
         log("Vol_Spike", f"x{ratio:.2f}", cond)
         
@@ -926,6 +988,11 @@ def get_signal_breakdown(df, params, sznl_map):
         elif logic == ">": cond = val > thresh
         elif logic == "<": cond = val < thresh
         log("Acc_Count", f"{int(val)}", cond)
+        
+    # 9. Exclude 52w High
+    if params.get('exclude_52w_high', False):
+        is_high = last_row['is_52w_high']
+        log("Not_52w_High", f"{is_high}", not is_high)
 
     audit['Result'] = "✅ SIGNAL" if all_passed else ""
     return audit
