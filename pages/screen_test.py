@@ -848,7 +848,27 @@ def main():
                         atr = row['ATR']
                         risk = strat['execution']['risk_per_trade']
                         
+                        # 2. Strategy: Overbot Vol Spike
+                        if strat['name'] == "Overbot Vol Spike":
+                            vol_ratio = row.get('vol_ratio', 0)
+                            if vol_ratio > 2.0:
+                                risk = 675  # High conviction
+                            elif vol_ratio > 1.5:
+                                risk = 525  # Medium conviction
+                        
+                        # 3. Strategy: Weak Close Decent Sznls
+                        if strat['name'] == "Weak Close Decent Sznls":
+                            sznl_val = row.get('Sznl', 0)
+                            if sznl_val >= 65:
+                                risk = risk * 1.5   # High conviction (>65)
+                            elif sznl_val >= 50:
+                                risk = risk * 1.0   # Standard (50-65)
+                            elif sznl_val >= 33:
+                                risk = risk * 0.66  # Low conviction (33-50)
+                        # -----------------------------------------------------
+                        
                         entry_type = strat['settings'].get('entry_type', 'Signal Close')
+                        
                         entry_idx = df.index.get_loc(d)
                         
                         if entry_idx + 1 >= len(df): continue 
