@@ -528,6 +528,9 @@ def run_engine(universe_dict, params, sznl_map, market_series=None, vix_series=N
                 conditions.append((df['VIX_Value'] >= v_min) & (df['VIX_Value'] <= v_max))
 
             # --- VOL FILTERS ---
+            if params.get('vol_gt_prev', False):
+                conditions.append(df['Volume'] > df['Volume'].shift(1))
+
             if params['use_vol']:
                 cond = df['vol_ratio'] > params['vol_thresh']
                 conditions.append(cond)
@@ -1168,6 +1171,8 @@ def main():
         with v2: vix_max = st.number_input("Max VIX Value", 0.0, 200.0, 20.0, disabled=not use_vix_filter)
 
     with st.expander("Volume Filters (Spike & Regime)", expanded=False):
+        # [INSERT NEW CODE HERE]
+        use_vol_gt_prev = st.checkbox("Require Volume > Prev Day Volume", value=False)
         c1, c2 = st.columns(2)
         with c1:
             st.markdown("**Volume Spike** (Raw Ratio)")
@@ -1259,6 +1264,7 @@ def main():
             'use_52w': use_52w, '52w_type': type_52w, '52w_first_instance': first_52w, '52w_lookback': lookback_52w, '52w_lag': lag_52w, 
             'exclude_52w_high': exclude_52w_high,
             'use_vix_filter': use_vix_filter, 'vix_min': vix_min, 'vix_max': vix_max,
+            'vol_gt_prev': use_vol_gt_prev,
             'use_vol': use_vol, 'vol_thresh': vol_thresh,
             'use_vol_rank': use_vol_rank, 'vol_rank_logic': vol_rank_logic, 'vol_rank_thresh': vol_rank_thresh,
             'use_ma_dist_filter': use_ma_dist_filter, 'dist_ma_type': dist_ma_type, 
