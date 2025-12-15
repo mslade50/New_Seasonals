@@ -985,7 +985,7 @@ def main():
         with l2: min_vol = st.number_input("Min Avg Volume", value=100000, step=50000)
         with l3: min_age = st.number_input("Min True Age (Yrs)", value=0.25, step=0.25)
         with l4: max_age = st.number_input("Max True Age (Yrs)", value=100.0, step=1.0)
-        with l5: min_atr_pct = st.number_input("Min ATR %", value=0, step=0.1)
+        with l5: min_atr_pct = st.number_input("Min ATR %", value=0.2, step=0.1)
         with l6: max_atr_pct = st.number_input("Max ATR %", value=10.0, step=0.1) 
     
     with st.expander("Accumulation/Distribution Counts (Independent)", expanded=False):
