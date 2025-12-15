@@ -1354,10 +1354,11 @@ def main():
             # 5. Display
             if audit_rows:
                 audit_df = pd.DataFrame(audit_rows)
+                
                 # Reorder cols to put Date and Result first
                 cols = ['Date', 'Result'] + [c for c in audit_df.columns if c not in ['Date', 'Result']]
                 audit_df = audit_df[cols]
-                
+                audit_df = audit_df.sort_values(by='Date', ascending=False)
                 st.write(f"**Audit Results for {insp_ticker} on '{selected_strat_name}'**")
                 
                 # Dynamic Coloring for the Result Column
