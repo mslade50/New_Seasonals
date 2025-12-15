@@ -834,6 +834,115 @@ def check_signal(df, params, sznl_map):
             if not (val > params['vol_rank_thresh']): return False
             
     return True
+
+def get_signal_breakdown(df, params, sznl_map):
+    """
+    Runs the exact check_signal logic but returns a dictionary of 
+    Values and Pass/Fail statuses for inspection.
+    """
+    last_row = df.iloc[-1]
+    audit = {}
+    all_passed = True
+    
+    # Helper to log result
+    def log(key, value, condition_met, details=""):
+        nonlocal all_passed
+        audit[key] = value
+        audit[f"{key}_Pass"] = "✅" if condition_met else "❌"
+        if not condition_met: all_passed = False
+
+    # 1. Liquidity Gates
+    # We group these to save space, but you can split them if you prefer
+    liq_pass = (
+        last_row['Close'] >= params.get('min_price', 0) and 
+        last_row['vol_ma'] >= params.get('min_vol', 0) and
+        last_row['age_years'] >= params.get('min_age', 0)
+    )
+    log("Liquidity", f"${last_row['Close']:.2f} / {int(last_row['vol_ma'])} vol", liq_pass)
+
+    # 2. Trend Filter
+    trend_opt = params.get('trend_filter', 'None')
+    trend_res = True
+    trend_val = "None"
+    
+    if trend_opt == "Price > 200 SMA":
+        trend_res = last_row['Close'] > last_row['SMA200']
+        trend_val = f"{last_row['Close']:.2f} vs {last_row['SMA200']:.2f}"
+    elif "Market" in trend_opt or "SPY" in trend_opt:
+        if 'Market_Above_SMA200' in df.columns:
+            is_above = last_row['Market_Above_SMA200']
+            if ">" in trend_opt: trend_res = is_above
+            elif "<" in trend_opt: trend_res = not is_above
+            trend_val = "Mkt > SMA200" if is_above else "Mkt < SMA200"
+            
+    log("Trend", trend_val, trend_res)
+
+    # 3. Perf Rank Filters
+    if 'perf_filters' in params:
+        for i, pf in enumerate(params['perf_filters']):
+            window = pf['window']
+            col = f"rank_ret_{window}d"
+            val = last_row.get(col, 0)
+            
+            # Logic check
+            if pf['logic'] == '<': cond = val < pf['thresh']
+            else: cond = val > pf['thresh']
+            
+            # Consecutive check (Re-calc logic)
+            consec = pf.get('consecutive', 1)
+            consec_str = ""
+            if consec > 1:
+                # We have to re-evaluate the rolling sum for audit context
+                if pf['logic'] == '<': s_cond = df[col] < pf['thresh']
+                else: s_cond = df[col] > pf['thresh']
+                
+                # Check if sum of last N is N
+                recent_sum = s_cond.rolling(consec).sum().iloc[-1]
+                cond = (recent_sum == consec)
+                consec_str = f" ({int(recent_sum)}/{consec} days)"
+
+            log(f"Perf_{window}d", f"{val:.1f}{consec_str}", cond)
+
+    # 4. Seasonality
+    if params['use_sznl']:
+        val = last_row['Sznl']
+        if params['sznl_logic'] == '<': cond = val < params['sznl_thresh']
+        else: cond = val > params['sznl_thresh']
+        log("Sznl", f"{val:.1f}", cond)
+
+    # 5. Market Seasonality
+    if params.get('use_market_sznl', False):
+        val = last_row['Mkt_Sznl_Ref']
+        if params['market_sznl_logic'] == '<': cond = val < params['market_sznl_thresh']
+        else: cond = val > params['market_sznl_thresh']
+        log("Mkt_Sznl", f"{val:.1f}", cond)
+
+    # 6. Volume
+    if params.get('use_vol', False):
+        ratio = last_row['vol_ratio']
+        spike = last_row['Vol_Spike']
+        cond = (ratio > params['vol_thresh']) and spike
+        log("Vol_Spike", f"x{ratio:.2f} (Spike={spike})", cond)
+        
+    # 7. Range Filter
+    if params.get('use_range_filter', False):
+        rng = last_row['RangePct'] * 100
+        cond = (rng >= params['range_min']) and (rng <= params['range_max'])
+        log("Range_Loc", f"{rng:.1f}%", cond)
+        
+    # 8. Accumulation Count
+    if params.get('use_acc_count_filter', False):
+        val = last_row[f"AccCount_{params['acc_count_window']}"]
+        thresh = params['acc_count_thresh']
+        logic = params['acc_count_logic']
+        
+        if logic == "=": cond = val == thresh
+        elif logic == ">": cond = val > thresh
+        elif logic == "<": cond = val < thresh
+        log("Acc_Count", f"{int(val)}", cond)
+
+    audit['Result'] = "✅ SIGNAL" if all_passed else ""
+    return audit
 # -----------------------------------------------------------------------------
 # MAIN APP
 # -----------------------------------------------------------------------------
@@ -1187,6 +1296,94 @@ def main():
 
         else:
             st.error(f"Could not download data for {debug_ticker}. Please check the symbol.")
+        # ... (After the "Deep Dive" IF block ends) ...
+    
+    st.markdown("---")
+    st.subheader("🕵️‍♀️ Historical Strategy Inspector (Last 21 Days)")
+    
+    c1, c2 = st.columns([1, 2])
+    with c1:
+        insp_ticker = st.text_input("Inspector Ticker:", value="AMD").upper().strip()
+    with c2:
+        # Create a mapping of names to Strategy Objects
+        strat_map_ui = {s['name']: s for s in STRATEGY_BOOK}
+        selected_strat_name = st.selectbox("Select Strategy to Audit:", list(strat_map_ui.keys()))
+        
+    if st.button("Run Historical Audit"):
+        target_strat = strat_map_ui[selected_strat_name]
+        
+        # 1. Fetch Data
+        if insp_ticker not in st.session_state['master_data_dict']:
+             # Quick fetch if not in memory
+             st.write(f"Fetching {insp_ticker}...")
+             tmp_dict = download_historical_data([insp_ticker, "SPY", "^GSPC"])
+             st.session_state['master_data_dict'].update(tmp_dict)
+
+        # 2. Get DataFrames
+        df_insp = st.session_state['master_data_dict'].get(insp_ticker)
+        
+        # Get Market Refs
+        mkt_ticker = target_strat['settings'].get('market_ticker', 'SPY')
+        df_mkt = st.session_state['master_data_dict'].get(mkt_ticker)
+        if df_mkt is None: df_mkt = st.session_state['master_data_dict'].get('SPY')
+
+        if df_insp is not None and len(df_insp) > 50:
+            # 3. Prep Data (Calculate Indicators)
+            # Market SMA Series
+            mkt_series = None
+            if df_mkt is not None:
+                temp_mkt = df_mkt.copy()
+                temp_mkt['SMA200'] = temp_mkt['Close'].rolling(200).mean()
+                mkt_series = temp_mkt['Close'] > temp_mkt['SMA200']
+
+            calc_df = df_insp.copy()
+            calc_df = calculate_indicators(calc_df, sznl_map, insp_ticker, mkt_series)
+            
+            # 4. Loop Logic (The Audit)
+            audit_rows = []
+            
+            # We look at the last 21 trading days
+            days_to_audit = 21
+            # Ensure we have enough data
+            if len(calc_df) > days_to_audit:
+                subset_indices = range(len(calc_df) - days_to_audit, len(calc_df))
+                
+                for idx in subset_indices:
+                    # We create a slice up to that specific day to simulate "point in time"
+                    # Note: calculate_indicators is already done, so we don't need to re-calc MAs.
+                    # We just need to ensure things like 'consecutive' logic work.
+                    # Since consecutive logic checks .rolling().sum(), looking at the row 'idx'
+                    # in the fully calculated dataframe is technically looking-ahead IF 
+                    # the indicator calculation itself used future data (which it doesn't, it uses rolling).
+                    # So we can pass the truncated dataframe ending at idx.
+                    
+                    slice_df = calc_df.iloc[:idx+1] 
+                    row_date = slice_df.index[-1].date()
+                    
+                    # Run the breakdown
+                    breakdown = get_signal_breakdown(slice_df, target_strat['settings'], sznl_map)
+                    breakdown['Date'] = row_date
+                    audit_rows.append(breakdown)
+            
+            # 5. Display
+            if audit_rows:
+                audit_df = pd.DataFrame(audit_rows)
+                # Reorder cols to put Date and Result first
+                cols = ['Date', 'Result'] + [c for c in audit_df.columns if c not in ['Date', 'Result']]
+                audit_df = audit_df[cols]
+                
+                st.write(f"**Audit Results for {insp_ticker} on '{selected_strat_name}'**")
+                
+                # Dynamic Coloring for the Result Column
+                def highlight_signal(s):
+                    is_signal = s == "✅ SIGNAL"
+                    return ['background-color: #d4edda; color: green; font-weight: bold' if is_signal else '' for _ in s]
+
+                st.dataframe(audit_df.style.apply(lambda x: ['background-color: #e6fffa' if x.name == 'Result' and v == "✅ SIGNAL" else '' for v in x], axis=0), use_container_width=True)
+            else:
+                st.warning("Not enough data to audit.")
+        else:
+            st.error("Ticker data not found or insufficient history.")
 
 if __name__ == "__main__":
     main()
