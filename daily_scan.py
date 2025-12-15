@@ -15,7 +15,380 @@ from pandas.tseries.offsets import BusinessDay
 # For brevity in this answer, I am assuming you will copy the STRATEGY_BOOK 
 # variable from your existing script and paste it right here.
 STRATEGY_BOOK = [
-    # ... PASTE YOUR FULL STRATEGY_BOOK LIST HERE ...
+    # 1. INDEX SEASONALS
+    {
+        "id": "Indx sznl > 85, 21dr < 15 (add on additional sigs)",
+        "name": "Index Seasonals",
+        "description": "Start: 2000-01-01. Universe: Indices. Dir: Long. Filter: None. PF: 4.51. SQN: 4.85.",
+        "universe_tickers": ['SPY', 'QQQ', 'IWM', 'DIA', 'SMH'], 
+        "settings": {
+            "trade_direction": "Long",
+            "entry_type": "T+1 Open",
+            "max_one_pos": False,
+            "max_daily_entries": 5,
+            "max_total_positions": 10,
+            "use_perf_rank": True, "perf_window": 21, "perf_logic": "<", "perf_thresh": 15.0,
+            "perf_first_instance": False, "perf_lookback": 21, "perf_consecutive": 1,
+            "use_sznl": True, "sznl_logic": ">", "sznl_thresh": 85.0, "sznl_first_instance": False, "sznl_lookback": 21,
+            "use_52w": False, "52w_type": "New 52w High", "52w_first_instance": True, "52w_lookback": 21,
+            "use_vol": False, "vol_thresh": 1.5,
+            "use_vol_rank": False, "vol_rank_logic": "<", "vol_rank_thresh": 50.0,
+            "trend_filter": "None",
+            "min_price": 10.0, "min_vol": 100000,
+            "min_age": 0.25, "max_age": 100.0
+        },
+        "execution": {
+            "risk_per_trade": 1000,
+            "stop_atr": 2,
+            "tgt_atr": 8.0,
+            "hold_days": 21
+        },
+        "stats": { "grade": "A (Excellent)", "win_rate": "64.1%", "expectancy": "$471.36", "profit_factor": "4.51" }
+    },
+    {
+        "id": "5+10+21d<15, SPX sznl > 20, lower 10% of rng, 2d time stop 1.5 atr tgt",
+        "name": "Deep Oversold Weak Close",
+        "description": "Start: 2000-01-01. Universe: All CSV Tickers. Dir: Long. Filter: Price > 200 SMA. PF: 2.20. SQN: 7.35.",
+        "universe_tickers": ['AAPL', 'ABT', 'ADBE', 'ADI', 'ADM', 'ADP', 'ADSK', 'AEP', 'AIG', 'ALL', 'AMAT', 'AMD', 'AMGN', 'AMZN', 'AON', 'APD', 'AVGO', 'AXP', 'BA', 'BAC', 'BAX', 'BDX', 'BK', 'BMY', 'C', 'CAG', 'CAT', 'CEF', 'CL', 'CMCSA', 'CMS', 'CNP', 'COP', 'COST', 'CPB', 'CRM', 'CSCO', 'CSX', 'CVS', 'CVX', 'D', 'DE', 'DIA', 'DIS', 'DOV', 'DTE', 'DUK', 'ECL', 'ED', 'EIX', 'EMR', 'EOG', 'ETR', 'EXC', 'F', 'FCX', 'FDX', 'FE', 'GD', 'GE', 'GILD', 'GIS', 'GLD', 'GLW', 'GOOG', 'GPC', 'GS', 'HAL', 'HD', 'HIG', 'HON', 'HPQ', 'HRL', 'HSY', 'HUM', 'IBB', 'IBM', 'IHI', 'INTC', 'IP', 'ITA', 'ITB', 'ITW', 'IWM', 'IYR', 'JNJ', 'JPM', 'K', 'KEY', 'KMB', 'KO', 'KR', 'KRE', 'LEG', 'LIN', 'LLY', 'LMT', 'LOW', 'LUV', 'MAS', 'MCD', 'MDT', 'MET', 'META', 'MMC', 'MMM', 'MO', 'MRK', 'MS', 'MSFT', 'MU', 'NEE', 'NEM', 'NKE', 'NOC', 'NSC', 'NUE', 'NVDA', 'OIH', 'ORCL', 'OXY', 'PAYX', 'PCG', 'PEG', 'PEP', 'PFE', 'PG', 'PGR', 'PH', 'PNW', 'PPG', 'PPL', 'PSA', 'QCOM', 'QQQ', 'REGN', 'RF', 'RHI', 'ROK', 'ROST', 'RTX', 'SBUX', 'SCHW', 'SHW', 'SLB', 'SLV', 'SMH', 'SNA', 'SO', 'SPG', 'SPY', 'SRE', 'STT', 'SWK', 'SYK', 'SYY', 'T', 'TAP', 'TGT', 'TJX', 'TMO', 'TRV', 'TSN', 'TXN', 'UNG', 'UNH', 'UNP', 'USB', 'USO', 'UVXY', 'V', 'VFC', 'VLO', 'VMC', 'VNQ', 'VZ', 'WFC', 'WHR', 'WM', 'WMB', 'WMT', 'XBI', 'XHB', 'XLB', 'XLE', 'XLF', 'XLI', 'XLK', 'XLP', 'XLU', 'XLV', 'XLY', 'XME', 'XOM', 'XOP', 'XRT', '^GSPC', '^NDX'], 
+        "settings": {
+            "trade_direction": "Long",
+            "entry_type": "Signal Close",
+            "max_one_pos": True,
+            "allow_same_day_reentry": False,
+            "max_daily_entries": 2,
+            "max_total_positions": 10,
+            "perf_filters": [{'window': 5, 'logic': '<', 'thresh': 15.0, 'consecutive': 1}, {'window': 10, 'logic': '<', 'thresh': 15.0, 'consecutive': 1}, {'window': 21, 'logic': '<', 'thresh': 15.0, 'consecutive': 1}],
+            "perf_first_instance": False, "perf_lookback": 21,
+            "use_sznl": False, "sznl_logic": "<", "sznl_thresh": 15.0, "sznl_first_instance": True, "sznl_lookback": 21,
+            "use_market_sznl": True, "market_sznl_logic": ">", "market_sznl_thresh": 20.0,
+            "market_ticker": "^GSPC",
+            "use_52w": False, "52w_type": "New 52w High", "52w_first_instance": True, "52w_lookback": 21, "52w_lag": 1,
+            "breakout_mode": "None",
+            "use_vol": False, "vol_thresh": 1.5,
+            "use_vol_rank": False, "vol_rank_logic": ">", "vol_rank_thresh": 75.0,
+            "trend_filter": "Price > 200 SMA",
+            "min_price": 10.0, "min_vol": 100000,
+            "min_age": 0.25, "max_age": 100.0,
+            "min_atr_pct": 3.0,"max_atr_pct": 10.0,
+            "entry_conf_bps": 0,
+            "use_ma_dist_filter": False, "dist_ma_type": "SMA 10", 
+            "dist_logic": "Greater Than (>)", "dist_min": 0.0, "dist_max": 2.0,
+            "use_gap_filter": False, "gap_lookback": 21, 
+            "gap_logic": ">", "gap_thresh": 3,
+            "use_acc_count_filter": False, "acc_count_window": 21, "acc_count_logic": ">", "acc_count_thresh": 3,
+            "use_dist_count_filter": False, "dist_count_window": 21, "dist_count_logic": ">", "dist_count_thresh": 3
+        },
+        "execution": {
+            "risk_per_trade": 300,
+            "slippage_bps": 2,
+            "stop_atr": 1.0,
+            "tgt_atr": 1.5,
+            "hold_days": 2
+        },
+        "stats": {
+            "grade": "A (Excellent)",
+            "win_rate": "67.1%",
+            "expectancy": "$89.76",
+            "profit_factor": "2.20"
+        }
+    },
+    {
+        "id": "5+10+21d > 85%ile, 0 acc days in last 21, sell t+1 open + 0.5 ATR 10d time stop",
+        "name": "No Accumulation Days",
+        "description": "Start: 2000-01-01. Universe: All CSV Tickers. Dir: Short. Filter: None. PF: 5.15. SQN: 3.82.",
+        "universe_tickers": ['AAPL', 'ABT', 'ADBE', 'ADI', 'ADM', 'ADP', 'ADSK', 'AEP', 'AIG', 'ALL', 'AMAT', 'AMD', 'AMGN', 'AMZN', 'AON', 'APD', 'AVGO', 'AXP', 'BA', 'BAC', 'BAX', 'BDX', 'BK', 'BMY', 'C', 'CAG', 'CAT', 'CEF', 'CL', 'CMCSA', 'CMS', 'CNP', 'COP', 'COST', 'CPB', 'CRM', 'CSCO', 'CSX', 'CVS', 'CVX', 'D', 'DE', 'DIA', 'DIS', 'DOV', 'DTE', 'DUK', 'ECL', 'ED', 'EIX', 'EMR', 'EOG', 'ETR', 'EXC', 'F', 'FCX', 'FDX', 'FE', 'GD', 'GE', 'GILD', 'GIS', 'GLD', 'GLW', 'GOOG', 'GPC', 'GS', 'HAL', 'HD', 'HIG', 'HON', 'HPQ', 'HRL', 'HSY', 'HUM', 'IBB', 'IBM', 'IHI', 'INTC', 'IP', 'ITA', 'ITB', 'ITW', 'IWM', 'IYR', 'JNJ', 'JPM', 'K', 'KEY', 'KMB', 'KO', 'KR', 'KRE', 'LEG', 'LIN', 'LLY', 'LMT', 'LOW', 'LUV', 'MAS', 'MCD', 'MDT', 'MET', 'META', 'MMC', 'MMM', 'MO', 'MRK', 'MS', 'MSFT', 'MU', 'NEE', 'NEM', 'NKE', 'NOC', 'NSC', 'NUE', 'NVDA', 'OIH', 'ORCL', 'OXY', 'PAYX', 'PCG', 'PEG', 'PEP', 'PFE', 'PG', 'PGR', 'PH', 'PNW', 'PPG', 'PPL', 'PSA', 'QCOM', 'QQQ', 'REGN', 'RF', 'RHI', 'ROK', 'ROST', 'RTX', 'SBUX', 'SCHW', 'SHW', 'SLB', 'SLV', 'SMH', 'SNA', 'SO', 'SPG', 'SPY', 'SRE', 'STT', 'SWK', 'SYK', 'SYY', 'T', 'TAP', 'TGT', 'TJX', 'TMO', 'TRV', 'TSN', 'TXN', 'UNG', 'UNH', 'UNP', 'USB', 'USO', 'UVXY', 'V', 'VFC', 'VLO', 'VMC', 'VNQ', 'VZ', 'WFC', 'WHR', 'WM', 'WMB', 'WMT', 'XBI', 'XHB', 'XLB', 'XLE', 'XLF', 'XLI', 'XLK', 'XLP', 'XLU', 'XLV', 'XLY', 'XME', 'XOM', 'XOP', 'XRT', '^GSPC', '^NDX'], 
+        "settings": {
+            "trade_direction": "Short",
+            "entry_type": "Limit (Open +/- 0.5 ATR)",
+            "max_one_pos": True,
+            "allow_same_day_reentry": False,
+            "max_daily_entries": 2,
+            "max_total_positions": 10,
+            "perf_filters": [{'window': 5, 'logic': '>', 'thresh': 85.0, 'consecutive': 1}, {'window': 10, 'logic': '>', 'thresh': 85.0, 'consecutive': 1}, {'window': 21, 'logic': '>', 'thresh': 85.0, 'consecutive': 1}],
+            "perf_first_instance": False, "perf_lookback": 21,
+            "use_sznl": True, "sznl_logic": "<", "sznl_thresh": 33.0, "sznl_first_instance": False, "sznl_lookback": 21,
+            "use_market_sznl": False, "market_sznl_logic": "<", "market_sznl_thresh": 40.0,
+            "market_ticker": "^GSPC",
+            "use_52w": False, "52w_type": "New 52w High", "52w_first_instance": True, "52w_lookback": 21, "52w_lag": 0,
+            "breakout_mode": "None",
+            "use_vol": False, "vol_thresh": 1.5,
+            "use_vol_rank": False, "vol_rank_logic": "<", "vol_rank_thresh": 15.0,
+            "trend_filter": "None",
+            "min_price": 10.0, "min_vol": 100000,
+            "min_age": 0.25, "max_age": 100.0,
+            "min_atr_pct": 0.0,"max_atr_pct": 10.0,
+            "entry_conf_bps": 0,
+            "use_ma_dist_filter": False, "dist_ma_type": "SMA 10", 
+            "dist_logic": "Greater Than (>)", "dist_min": 0.0, "dist_max": 2.0,
+            "use_gap_filter": False, "gap_lookback": 21, 
+            "gap_logic": ">", "gap_thresh": 3,
+            "use_acc_count_filter": True, "acc_count_window": 21, "acc_count_logic": "=", "acc_count_thresh": 0,
+            "use_dist_count_filter": True, "dist_count_window": 21, "dist_count_logic": ">", "dist_count_thresh": 0
+        },
+        "execution": {
+            "risk_per_trade": 500,
+            "slippage_bps": 5,
+            "stop_atr": 2.0,
+            "tgt_atr": 5.0,
+            "hold_days": 10
+        },
+        "stats": {
+            "grade": "A (Excellent)",
+            "win_rate": "66.7%",
+            "expectancy": "$609.33",
+            "profit_factor": "5.15"
+        }
+    },
+    {
+        "id": "Lower 10% of range <50% ile 5dr >33 SPX sznl",
+        "name": "Bottom of Range Reversion",
+        "description": "Start: 2000-01-01. Universe: Indices. Dir: Long. Filter: None. PF: 1.49. SQN: 8.83.",
+        "universe_tickers": ['SPY', 'QQQ', 'IWM', 'DIA', 'SMH', '^GSPC', '^NDX'], 
+        "settings": {
+            "trade_direction": "Long",
+            "entry_type": "Signal Close",
+            "max_one_pos": True,
+            "allow_same_day_reentry": False,
+            "max_daily_entries": 2,
+            "max_total_positions": 10,
+            "use_range_filter": True, 
+            "range_min": 0.0,
+            "range_max": 10.0,
+            "perf_filters": [{'window': 5, 'logic': '<', 'thresh': 50.0, 'consecutive': 1}],
+            "perf_first_instance": False, "perf_lookback": 21,
+            "use_sznl": False, "sznl_logic": "<", "sznl_thresh": 15.0, "sznl_first_instance": True, "sznl_lookback": 21,
+            "use_market_sznl": True, "market_sznl_logic": ">", "market_sznl_thresh": 33.0,
+            "market_ticker": "^GSPC",
+            "use_52w": False, "52w_type": "New 52w High", "52w_first_instance": True, "52w_lookback": 21,
+            "use_vol": False, "vol_thresh": 1.5,
+            "use_vol_rank": False, "vol_rank_logic": "<", "vol_rank_thresh": 50.0,
+            "trend_filter": "None",
+            "min_price": 10.0, "min_vol": 100000,
+            "min_age": 0.25, "max_age": 100.0,
+            "entry_conf_bps": 0,
+            "use_dist_filter": False, "dist_ma_type": "SMA 10", 
+            "dist_logic": "Greater Than (>)", "dist_min": 0.0, "dist_max": 2.0,
+            "use_gap_filter": False, "gap_lookback": 21, 
+            "gap_logic": ">", "gap_thresh": 3
+        },
+        "execution": {
+            "risk_per_trade": 300,
+            "slippage_bps": 2,
+            "stop_atr": 1.0,
+            "tgt_atr": 2.0,
+            "hold_days": 2
+        },
+        "stats": {
+            "grade": "B (Good)",
+            "win_rate": "54.9%",
+            "expectancy": "$174.76",
+            "profit_factor": "1.49"
+        }
+    },
+    # 3. LIQUID SEASONALS (SHORT TERM)
+    {
+        "id": "Sznl > 90, 5d <15 for 3d consec, 5d time stop",
+        "name": "Liquid Seasonals (short term)",
+        "description": "Start: 2000-01-01. Universe: All CSV Tickers. Dir: Long. Filter: None. PF: 2.80. SQN: 4.76.",
+        "universe_tickers": ['AAPL', 'ABT', 'ADBE', 'ADI', 'ADM', 'ADP', 'ADSK', 'AEP', 'AIG', 'ALL', 'AMAT', 'AMD', 'AMGN', 'AMZN', 'AON', 'APD', 'AVGO', 'AXP', 'BA', 'BAC', 'BAX', 'BDX', 'BK', 'BMY', 'C', 'CAG', 'CAT', 'CEF', 'CL', 'CMCSA', 'CMS', 'CNP', 'COP', 'COST', 'CPB', 'CRM', 'CSCO', 'CSX', 'CVS', 'CVX', 'D', 'DE', 'DIA', 'DIS', 'DOV', 'DTE', 'DUK', 'ECL', 'ED', 'EIX', 'EMR', 'EOG', 'ETR', 'EXC', 'F', 'FCX', 'FDX', 'FE', 'GD', 'GE', 'GILD', 'GIS', 'GLD', 'GLW', 'GOOG', 'GPC', 'GS', 'HAL', 'HD', 'HIG', 'HON', 'HPQ', 'HRL', 'HSY', 'HUM', 'IBB', 'IBM', 'IHI', 'INTC', 'IP', 'ITA', 'ITB', 'ITW', 'IWM', 'IYR', 'JNJ', 'JPM', 'K', 'KEY', 'KMB', 'KO', 'KR', 'KRE', 'LEG', 'LIN', 'LLY', 'LMT', 'LOW', 'LUV', 'MAS', 'MCD', 'MDT', 'MET', 'META', 'MMC', 'MMM', 'MO', 'MRK', 'MS', 'MSFT', 'MU', 'NEE', 'NEM', 'NKE', 'NOC', 'NSC', 'NUE', 'NVDA', 'OIH', 'ORCL', 'OXY', 'PAYX', 'PCG', 'PEG', 'PEP', 'PFE', 'PG', 'PGR', 'PH', 'PNW', 'PPG', 'PPL', 'PSA', 'QCOM', 'QQQ', 'REGN', 'RF', 'RHI', 'ROK', 'ROST', 'RTX', 'SBUX', 'SCHW', 'SHW', 'SLB', 'SLV', 'SMH', 'SNA', 'SO', 'SPG', 'SPY', 'SRE', 'STT', 'SWK', 'SYK', 'SYY', 'T', 'TAP', 'TGT', 'TJX', 'TMO', 'TRV', 'TSN', 'TXN', 'UNG', 'UNH', 'UNP', 'USB', 'USO', 'UVXY', 'V', 'VFC', 'VLO', 'VMC', 'VNQ', 'VZ', 'WFC', 'WHR', 'WM', 'WMB', 'WMT', 'XBI', 'XHB', 'XLB', 'XLE', 'XLF', 'XLI', 'XLK', 'XLP', 'XLU', 'XLV', 'XLY', 'XME', 'XOM', 'XOP', 'XRT'], 
+        "settings": {
+            "trade_direction": "Long",
+            "entry_type": "Signal Close",
+            "max_one_pos": True,
+            "max_daily_entries": 3,
+            "max_total_positions": 10,
+            "use_perf_rank": True, "perf_window": 5, "perf_logic": "<", "perf_thresh": 15.0,
+            "perf_first_instance": False, "perf_lookback": 21, "perf_consecutive": 3,
+            "use_sznl": True, "sznl_logic": ">", "sznl_thresh": 90.0, "sznl_first_instance": False, "sznl_lookback": 21,
+            "use_52w": False, "52w_type": "New 52w High", "52w_first_instance": True, "52w_lookback": 21,
+            "use_vol": False, "vol_thresh": 1.5,
+            "use_vol_rank": False, "vol_rank_logic": "<", "vol_rank_thresh": 50.0,
+            "trend_filter": "None",
+            "min_price": 10.0, "min_vol": 100000,
+            "min_age": 0.25, "max_age": 100.0
+        },
+        "execution": {
+            "risk_per_trade": 500,
+            "stop_atr": 2.0,
+            "tgt_atr": 3.0,
+            "hold_days": 5
+        },
+        "stats": { "grade": "A (Excellent)", "win_rate": "61.1%", "expectancy": "$316.29", "profit_factor": "2.80" }
+    },
+    # 4. LIQUID SEASONALS (INTERMEDIATE)
+    {
+        "id": "5+10+21d r <15, 21d 3 consec + sznl > 85, 21d time stop",
+        "name": "Liquid Seasonals (1 Month)",
+        "description": "Start: 2000-01-01. Universe: All CSV Tickers. Dir: Long. Filter: None. PF: 3.28. SQN: 7.41.",
+        "universe_tickers": ['AAPL', 'ABT', 'ADBE', 'ADI', 'ADM', 'ADP', 'ADSK', 'AEP', 'AIG', 'ALL', 'AMAT', 'AMD', 'AMGN', 'AMZN', 'AON', 'APD', 'AVGO', 'AXP', 'BA', 'BAC', 'BAX', 'BDX', 'BK', 'BMY', 'C', 'CAG', 'CAT', 'CEF', 'CL', 'CMCSA', 'CMS', 'CNP', 'COP', 'COST', 'CPB', 'CRM', 'CSCO', 'CSX', 'CVS', 'CVX', 'D', 'DE', 'DIA', 'DIS', 'DOV', 'DTE', 'DUK', 'ECL', 'ED', 'EIX', 'EMR', 'EOG', 'ETR', 'EXC', 'F', 'FCX', 'FDX', 'FE', 'GD', 'GE', 'GILD', 'GIS', 'GLD', 'GLW', 'GOOG', 'GPC', 'GS', 'HAL', 'HD', 'HIG', 'HON', 'HPQ', 'HRL', 'HSY', 'HUM', 'IBB', 'IBM', 'IHI', 'INTC', 'IP', 'ITA', 'ITB', 'ITW', 'IWM', 'IYR', 'JNJ', 'JPM', 'K', 'KEY', 'KMB', 'KO', 'KR', 'KRE', 'LEG', 'LIN', 'LLY', 'LMT', 'LOW', 'LUV', 'MAS', 'MCD', 'MDT', 'MET', 'META', 'MMC', 'MMM', 'MO', 'MRK', 'MS', 'MSFT', 'MU', 'NEE', 'NEM', 'NKE', 'NOC', 'NSC', 'NUE', 'NVDA', 'OIH', 'ORCL', 'OXY', 'PAYX', 'PCG', 'PEG', 'PEP', 'PFE', 'PG', 'PGR', 'PH', 'PNW', 'PPG', 'PPL', 'PSA', 'QCOM', 'QQQ', 'REGN', 'RF', 'RHI', 'ROK', 'ROST', 'RTX', 'SBUX', 'SCHW', 'SHW', 'SLB', 'SLV', 'SMH', 'SNA', 'SO', 'SPG', 'SPY', 'SRE', 'STT', 'SWK', 'SYK', 'SYY', 'T', 'TAP', 'TGT', 'TJX', 'TMO', 'TRV', 'TSN', 'TXN', 'UNG', 'UNH', 'UNP', 'USB', 'USO', 'UVXY', 'V', 'VFC', 'VLO', 'VMC', 'VNQ', 'VZ', 'WFC', 'WHR', 'WM', 'WMB', 'WMT', 'XBI', 'XHB', 'XLB', 'XLE', 'XLF', 'XLI', 'XLK', 'XLP', 'XLU', 'XLV', 'XLY', 'XME', 'XOM', 'XOP', 'XRT', '^GSPC', '^NDX'], 
+        "settings": {
+            "trade_direction": "Long",
+            "entry_type": "Signal Close",
+            "max_one_pos": True,
+            "allow_same_day_reentry": False,
+            "max_daily_entries": 2,
+            "max_total_positions": 10,
+            "perf_filters": [{'window': 5, 'logic': '<', 'thresh': 15.0, 'consecutive': 1}, {'window': 10, 'logic': '<', 'thresh': 15.0, 'consecutive': 1}, {'window': 21, 'logic': '<', 'thresh': 15.0, 'consecutive': 3}],
+            "perf_first_instance": False, "perf_lookback": 21,
+            "use_sznl": True, "sznl_logic": ">", "sznl_thresh": 85.0, "sznl_first_instance": False, "sznl_lookback": 21,
+            "use_market_sznl": False, "market_sznl_logic": ">", "market_sznl_thresh": 25.0,
+            "market_ticker": "^GSPC",
+            "use_52w": False, "52w_type": "New 52w High", "52w_first_instance": True, "52w_lookback": 21,
+            "use_vol": False, "vol_thresh": 1.5,
+            "use_vol_rank": False, "vol_rank_logic": "<", "vol_rank_thresh": 50.0,
+            "trend_filter": "None",
+            "min_price": 10.0, "min_vol": 100000,
+            "min_age": 0.25, "max_age": 100.0,
+            "min_atr_pct": 2.5,
+            "entry_conf_bps": 0,
+            "use_ma_dist_filter": False, "dist_ma_type": "SMA 10", 
+            "dist_logic": "Greater Than (>)", "dist_min": 0.0, "dist_max": 2.0,
+            "use_gap_filter": False, "gap_lookback": 21, 
+            "gap_logic": ">", "gap_thresh": 3,
+            "use_acc_count_filter": False, "acc_count_window": 21, "acc_count_logic": ">", "acc_count_thresh": 3,
+            "use_dist_count_filter": False, "dist_count_window": 21, "dist_count_logic": ">", "dist_count_thresh": 3
+        },
+        "execution": {
+            "risk_per_trade": 500,
+            "slippage_bps": 5,
+            "stop_atr": 3.0,
+            "tgt_atr": 8.0,
+            "hold_days": 21
+        },
+        "stats": {
+            "grade": "A (Excellent)",
+            "win_rate": "65.4%",
+            "expectancy": "$394.52",
+            "profit_factor": "3.28"
+        }
+    },
+    # 5. UGLY MONDAY CLOSE
+    {
+        "id": "Lower 15% of range, 5dr < 50, Close>20sma",
+        "name": "Ugly Monday (20d)",
+        "description": "Start: 2000-01-01. Universe: Indices. Dir: Long. Filter: None. PF: 3.63. SQN: 5.77.",
+        "universe_tickers": ['SPY', 'QQQ', 'IWM', 'DIA', 'SMH'], 
+        "settings": {
+            "trade_direction": "Long",
+            "entry_type": "Signal Close",
+            "max_one_pos": False,
+            "allow_same_day_reentry": True,
+            "max_daily_entries": 2,
+            "max_total_positions": 10,
+            "perf_filters": [{'window': 5, 'logic': '<', 'thresh': 50.0, 'consecutive': 1}],
+            "perf_first_instance": False, "perf_lookback": 21,
+            "ma_consec_filters": [{'length': 20, 'logic': 'Above', 'consec': 1}],
+            "use_sznl": False, "sznl_logic": "<", "sznl_thresh": 15.0, "sznl_first_instance": True, "sznl_lookback": 21,
+            "use_market_sznl": False, "market_sznl_logic": "<", "market_sznl_thresh": 40.0,
+            "market_ticker": "^GSPC",
+            "use_52w": False, "52w_type": "New 52w High", "52w_first_instance": True, "52w_lookback": 21, "52w_lag": 0,
+            "exclude_52w_high": False,
+            "breakout_mode": "None",
+            "use_vix_filter": False, "vix_min": 0.0, "vix_max": 20.0,
+            "use_vol": False, "vol_thresh": 1.25,
+            "use_vol_rank": False, "vol_rank_logic": "<", "vol_rank_thresh": 15.0,
+            "trend_filter": "None",
+            "min_price": 10.0, "min_vol": 100000,
+            "min_age": 0.25, "max_age": 100.0,
+            "min_atr_pct": 0.2,"max_atr_pct": 10.0,
+            "entry_conf_bps": 0,
+            "use_ma_dist_filter": False, "dist_ma_type": "SMA 10", 
+            "dist_logic": "Greater Than (>)", "dist_min": 0.0, "dist_max": 2.0,
+            "use_gap_filter": False, "gap_lookback": 21, 
+            "gap_logic": ">", "gap_thresh": 3,
+            "use_acc_count_filter": False, "acc_count_window": 21, "acc_count_logic": ">", "acc_count_thresh": 3,
+            "use_dist_count_filter": False, "dist_count_window": 21, "dist_count_logic": ">", "dist_count_thresh": 0
+        },
+        "execution": {
+            "risk_per_trade": 1000,
+            "slippage_bps": 2,
+            "stop_atr": 1.0,
+            "tgt_atr": 2.0,
+            "hold_days": 4
+        },
+        "stats": {
+            "grade": "A (Excellent)",
+            "win_rate": "71.8%",
+            "expectancy": "0.66r",
+            "profit_factor": "3.63"
+        }
+    },
+    # 6. GENERATED LONG
+    {
+        "id": "21dr < 15 3 consec, 5dr < 33, rel vol < 15, SPY > 200d, 21d time stop",
+        "name": "Oversold Low Volume",
+        "description": "Start: 2000-01-01. Universe: All CSV Tickers. Dir: Long. Filter: SPY > 200 SMA. PF: 2.55. SQN: 7.67.",
+        "universe_tickers": ['AAPL', 'ABT', 'ADBE', 'ADI', 'ADM', 'ADP', 'ADSK', 'AEP', 'AIG', 'ALL', 'AMAT', 'AMD', 'AMGN', 'AMZN', 'AON', 'APD', 'AVGO', 'AXP', 'BA', 'BAC', 'BAX', 'BDX', 'BK', 'BMY', 'C', 'CAG', 'CAT', 'CEF', 'CL', 'CMCSA', 'CMS', 'CNP', 'COP', 'COST', 'CPB', 'CRM', 'CSCO', 'CSX', 'CVS', 'CVX', 'D', 'DE', 'DIA', 'DIS', 'DOV', 'DTE', 'DUK', 'ECL', 'ED', 'EIX', 'EMR', 'EOG', 'ETR', 'EXC', 'F', 'FCX', 'FDX', 'FE', 'GD', 'GE', 'GILD', 'GIS', 'GLD', 'GLW', 'GOOG', 'GPC', 'GS', 'HAL', 'HD', 'HIG', 'HON', 'HPQ', 'HRL', 'HSY', 'HUM', 'IBB', 'IBM', 'IHI', 'INTC', 'IP', 'ITA', 'ITB', 'ITW', 'IWM', 'IYR', 'JNJ', 'JPM', 'K', 'KEY', 'KMB', 'KO', 'KR', 'KRE', 'LEG', 'LIN', 'LLY', 'LMT', 'LOW', 'LUV', 'MAS', 'MCD', 'MDT', 'MET', 'META', 'MMC', 'MMM', 'MO', 'MRK', 'MS', 'MSFT', 'MU', 'NEE', 'NEM', 'NKE', 'NOC', 'NSC', 'NUE', 'NVDA', 'OIH', 'ORCL', 'OXY', 'PAYX', 'PCG', 'PEG', 'PEP', 'PFE', 'PG', 'PGR', 'PH', 'PNW', 'PPG', 'PPL', 'PSA', 'QCOM', 'QQQ', 'REGN', 'RF', 'RHI', 'ROK', 'ROST', 'RTX', 'SBUX', 'SCHW', 'SHW', 'SLB', 'SLV', 'SMH', 'SNA', 'SO', 'SPG', 'SPY', 'SRE', 'STT', 'SWK', 'SYK', 'SYY', 'T', 'TAP', 'TGT', 'TJX', 'TMO', 'TRV', 'TSN', 'TXN', 'UNG', 'UNH', 'UNP', 'USB', 'USO', 'UVXY', 'V', 'VFC', 'VLO', 'VMC', 'VNQ', 'VZ', 'WFC', 'WHR', 'WM', 'WMB', 'WMT', 'XBI', 'XHB', 'XLB', 'XLE', 'XLF', 'XLI', 'XLK', 'XLP', 'XLU', 'XLV', 'XLY', 'XME', 'XOM', 'XOP', 'XRT'], 
+        "settings": {
+            "trade_direction": "Long",
+            "entry_type": "Signal Close",
+            "max_one_pos": True,
+            "max_daily_entries": 2,
+            "max_total_positions": 5,
+            "perf_filters": [{'window': 5, 'logic': '<', 'thresh': 33.0, 'consecutive': 1}, {'window': 21, 'logic': '<', 'thresh': 15.0, 'consecutive': 3}],
+            "perf_first_instance": False, "perf_lookback": 21,
+            "use_sznl": False, "sznl_logic": "<", "sznl_thresh": 15.0, "sznl_first_instance": True, "sznl_lookback": 21,
+            "use_52w": False, "52w_type": "New 52w High", "52w_first_instance": True, "52w_lookback": 21,
+            "use_vol": False, "vol_thresh": 1.5,
+            "use_vol_rank": True, "vol_rank_logic": "<", "vol_rank_thresh": 15.0,
+            "trend_filter": "SPY > 200 SMA",
+            "min_price": 10.0, "min_vol": 100000,
+            "min_age": 0.25, "max_age": 100.0
+        },
+        "execution": {
+            "risk_per_trade": 500,
+            "stop_atr": 2.0,
+            "tgt_atr": 8.0,
+            "hold_days": 21
+        },
+        "stats": { "grade": "A (Excellent)", "win_rate": "64.9%", "expectancy": "0.65r", "profit_factor": "2.55" }
+    },
+        {
+        "id": "5+10+21d > 85, 21d 3x, vol >1.25x, >0 dist day, sell open +0.5 atr",
+        "name": "Overbot Vol Spike",
+        "description": "Start: 2000-01-01. Universe: All CSV Tickers. Dir: Short. Filter: None. PF: 2.46. SQN: 4.44.",
+        "universe_tickers": ['AAPL', 'ABT', 'ADBE', 'ADI', 'ADM', 'ADP', 'ADSK', 'AEP', 'AIG', 'ALL', 'AMAT', 'AMD', 'AMGN', 'AMZN', 'AON', 'APD', 'AVGO', 'AXP', 'BA', 'BAC', 'BAX', 'BDX', 'BK', 'BMY', 'C', 'CAG', 'CAT', 'CEF', 'CL', 'CMCSA', 'CMS', 'CNP', 'COP', 'COST', 'CPB', 'CRM', 'CSCO', 'CSX', 'CVS', 'CVX', 'D', 'DE', 'DIA', 'DIS', 'DOV', 'DTE', 'DUK', 'ECL', 'ED', 'EIX', 'EMR', 'EOG', 'ETR', 'EXC', 'F', 'FCX', 'FDX', 'FE', 'GD', 'GE', 'GILD', 'GIS', 'GLD', 'GLW', 'GOOG', 'GPC', 'GS', 'HAL', 'HD', 'HIG', 'HON', 'HPQ', 'HRL', 'HSY', 'HUM', 'IBB', 'IBM', 'IHI', 'INTC', 'IP', 'ITA', 'ITB', 'ITW', 'IWM', 'IYR', 'JNJ', 'JPM', 'K', 'KEY', 'KMB', 'KO', 'KR', 'KRE', 'LEG', 'LIN', 'LLY', 'LMT', 'LOW', 'LUV', 'MAS', 'MCD', 'MDT', 'MET', 'META', 'MMC', 'MMM', 'MO', 'MRK', 'MS', 'MSFT', 'MU', 'NEE', 'NEM', 'NKE', 'NOC', 'NSC', 'NUE', 'NVDA', 'OIH', 'ORCL', 'OXY', 'PAYX', 'PCG', 'PEG', 'PEP', 'PFE', 'PG', 'PGR', 'PH', 'PNW', 'PPG', 'PPL', 'PSA', 'QCOM', 'QQQ', 'REGN', 'RF', 'RHI', 'ROK', 'ROST', 'RTX', 'SBUX', 'SCHW', 'SHW', 'SLB', 'SLV', 'SMH', 'SNA', 'SO', 'SPG', 'SPY', 'SRE', 'STT', 'SWK', 'SYK', 'SYY', 'T', 'TAP', 'TGT', 'TJX', 'TMO', 'TRV', 'TSN', 'TXN', 'UNG', 'UNH', 'UNP', 'USB', 'USO', 'UVXY', 'V', 'VFC', 'VLO', 'VMC', 'VNQ', 'VZ', 'WFC', 'WHR', 'WM', 'WMB', 'WMT', 'XBI', 'XHB', 'XLB', 'XLE', 'XLF', 'XLI', 'XLK', 'XLP', 'XLU', 'XLV', 'XLY', 'XME', 'XOM', 'XOP', 'XRT', '^GSPC', '^NDX'], 
+        "settings": {
+            "trade_direction": "Short",
+            "entry_type": "Limit (Open +/- 0.5 ATR)",
+            "max_one_pos": True,
+            "allow_same_day_reentry": True,
+            "max_daily_entries": 2,
+            "max_total_positions": 10,
+            "perf_filters": [{'window': 5, 'logic': '>', 'thresh': 85.0, 'consecutive': 1}, {'window': 10, 'logic': '>', 'thresh': 85.0, 'consecutive': 1}, {'window': 21, 'logic': '>', 'thresh': 85.0, 'consecutive': 3}],
+            "perf_first_instance": False, "perf_lookback": 21,
+            "use_sznl": False, "sznl_logic": ">", "sznl_thresh": 85.0, "sznl_first_instance": False, "sznl_lookback": 21,
+            "use_market_sznl": True, "market_sznl_logic": "<", "market_sznl_thresh": 40.0,
+            "market_ticker": "^GSPC",
+            "use_52w": False, "52w_type": "New 52w High", "52w_first_instance": True, "52w_lookback": 21,
+            "use_vol": True, "vol_thresh": 1.25,
+            "use_vol_rank": False, "vol_rank_logic": "<", "vol_rank_thresh": 50.0,
+            "trend_filter": "None",
+            "min_price": 10.0, "min_vol": 100000,
+            "min_age": 0.25, "max_age": 100.0,
+            "min_atr_pct": 0.0,"max_atr_pct": 100.0,
+            "entry_conf_bps": 0,
+            "use_ma_dist_filter": False, "dist_ma_type": "SMA 10", 
+            "dist_logic": "Greater Than (>)", "dist_min": 0.0, "dist_max": 2.0,
+            "use_gap_filter": False, "gap_lookback": 21, 
+            "gap_logic": ">", "gap_thresh": 3,
+            "use_acc_count_filter": False, "acc_count_window": 21, "acc_count_logic": ">", "acc_count_thresh": 3,
+            "use_dist_count_filter": True, "dist_count_window": 21, "dist_count_logic": ">", "dist_count_thresh": 0
+        },
+        "execution": {
+            "risk_per_trade": 400,
+            "slippage_bps": 2,
+            "stop_atr": 1.0,
+            "tgt_atr": 8.0,
+            "hold_days": 3
+        },
+        "stats": {
+            "grade": "A (Excellent)",
+            "win_rate": "58.0%",
+            "expectancy": "$0.28r",
+            "profit_factor": "1.96"
+        }
+    },
 ]
 
 # -----------------------------------------------------------------------------
