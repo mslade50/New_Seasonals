@@ -985,7 +985,7 @@ def main():
         with l2: min_vol = st.number_input("Min Avg Volume", value=100000, step=50000)
         with l3: min_age = st.number_input("Min True Age (Yrs)", value=0.25, step=0.25)
         with l4: max_age = st.number_input("Max True Age (Yrs)", value=100.0, step=1.0)
-        with l5: min_atr_pct = st.number_input("Min ATR %", value=2.5, step=0.1)
+        with l5: min_atr_pct = st.number_input("Min ATR %", value=0, step=0.1)
         with l6: max_atr_pct = st.number_input("Max ATR %", value=10.0, step=0.1) 
     
     with st.expander("Accumulation/Distribution Counts (Independent)", expanded=False):
@@ -1080,19 +1080,19 @@ def main():
             with c5d:
                 use_5d = st.checkbox("Enable 5D Rank")
                 logic_5d = st.selectbox("Logic", [">", "<"], key="l5d", disabled=not use_5d)
-                thresh_5d = st.number_input("Threshold", 0.0, 100.0, 80.0, key="t5d", disabled=not use_5d)
+                thresh_5d = st.number_input("Threshold", 0.0, 100.0, 85.0, key="t5d", disabled=not use_5d)
                 consec_5d = st.number_input("Consec Days", 1, 10, 1, key="c5d_days", disabled=not use_5d)
                 if use_5d: perf_filters.append({'window': 5, 'logic': logic_5d, 'thresh': thresh_5d, 'consecutive': consec_5d})
             with c10d:
                 use_10d = st.checkbox("Enable 10D Rank")
                 logic_10d = st.selectbox("Logic", [">", "<"], key="l10d", disabled=not use_10d)
-                thresh_10d = st.number_input("Threshold", 0.0, 100.0, 80.0, key="t10d", disabled=not use_10d)
+                thresh_10d = st.number_input("Threshold", 0.0, 100.0, 85.0, key="t10d", disabled=not use_10d)
                 consec_10d = st.number_input("Consec Days", 1, 10, 1, key="c10d_days", disabled=not use_10d)
                 if use_10d: perf_filters.append({'window': 10, 'logic': logic_10d, 'thresh': thresh_10d, 'consecutive': consec_10d})
             with c21d:
                 use_21d = st.checkbox("Enable 21D Rank")
                 logic_21d = st.selectbox("Logic", [">", "<"], key="l21d", disabled=not use_21d)
-                thresh_21d = st.number_input("Threshold", 0.0, 100.0, 80.0, key="t21d", disabled=not use_21d)
+                thresh_21d = st.number_input("Threshold", 0.0, 100.0, 85.0, key="t21d", disabled=not use_21d)
                 consec_21d = st.number_input("Consec Days", 1, 10, 1, key="c21d_days", disabled=not use_21d)
                 if use_21d: perf_filters.append({'window': 21, 'logic': logic_21d, 'thresh': thresh_21d, 'consecutive': consec_21d})
         with col_p_seq:
