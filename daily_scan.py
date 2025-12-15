@@ -304,7 +304,7 @@ STRATEGY_BOOK = [
             "use_dist_count_filter": False, "dist_count_window": 21, "dist_count_logic": ">", "dist_count_thresh": 0
         },
         "execution": {
-            "risk_per_trade": 1000,
+            "risk_per_trade": 325,
             "slippage_bps": 2,
             "stop_atr": 1.0,
             "tgt_atr": 2.0,
