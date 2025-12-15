@@ -157,7 +157,7 @@ STRATEGY_BOOK = [
             "trade_direction": "Long", "entry_type": "T+1 Open", "max_one_pos": True,
             "max_daily_entries": 5, "max_total_positions": 10,
             "use_dow_filter": True, "allowed_days": [0],
-            "use_range_filter": True, "range_min": 0.0, "range_max": 10.0,
+            "use_range_filter": True, "range_min": 0.0, "range_max": 15.0,
             "use_perf_rank": True, "perf_window": 5, "perf_logic": "<", "perf_thresh": 50.0,
             "perf_first_instance": False, "perf_lookback": 21, "perf_consecutive": 1,
             "use_sznl": False, "sznl_logic": ">", "sznl_thresh": 50.0, "sznl_first_instance": False, "sznl_lookback": 21,
