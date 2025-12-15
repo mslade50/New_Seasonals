@@ -869,7 +869,8 @@ def main():
                             "Price": entry,
                             "Shares": shares,
                             "PnL": pnl,
-                            "ATR": atr
+                            "ATR": atr,
+                            "Range %": row['RangePct'] * 100
                         })
                         last_exit_date = exit_date
                     
@@ -907,7 +908,7 @@ def main():
 
             st.subheader("📜 Historical Signal Log")
             st.dataframe(sig_df.sort_values(by="Date", ascending=False).style.format({
-                "Price": "${:.2f}", "PnL": "${:.2f}", "Date": "{:%Y-%m-%d}", "Exit Date": "{:%Y-%m-%d}"
+                "Price": "${:.2f}", "PnL": "${:.2f}", "Date": "{:%Y-%m-%d}", "Exit Date": "{:%Y-%m-%d}","Range %": "{:.1f}%"
             }), use_container_width=True, height=400)
         else:
             st.warning(f"No signals found in the backtest period starting from {user_start_date}.")
