@@ -974,11 +974,17 @@ def get_signal_breakdown(df, params, sznl_map):
         cond = (ratio > params['vol_thresh'])
         log("Vol_Spike", f"x{ratio:.2f}", cond)
         
-    # 7. Range Filter
+    # --- UPDATED RANGE FILTER INSPECTOR ---
     if params.get('use_range_filter', False):
         rng = last_row['RangePct'] * 100
-        cond = (rng >= params['range_min']) and (rng <= params['range_max'])
-        log("Range_Loc", f"{rng:.1f}%", cond)
+        r_min = params.get('range_min', 0)
+        r_max = params.get('range_max', 100)
+        
+        cond = (rng >= r_min) and (rng <= r_max)
+        
+        # We output the actual value vs the Required Max/Min
+        log("Range_Loc", f"{rng:.1f}% (Req: {r_min}-{r_max}%)", cond)
+    # --------------------------------------
         
     # 8. Accumulation Count
     if params.get('use_acc_count_filter', False):
