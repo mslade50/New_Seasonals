@@ -290,6 +290,8 @@ STRATEGY_BOOK = [
             "trend_filter": "None",
             "min_price": 10.0, "min_vol": 100000,
             "min_age": 0.25, "max_age": 100.0,
+            "range_min":0.0,
+            "range_max":15.0,
             "min_atr_pct": 0.2,"max_atr_pct": 10.0,
             "entry_conf_bps": 0,
             "use_ma_dist_filter": False, "dist_ma_type": "SMA 10", 
