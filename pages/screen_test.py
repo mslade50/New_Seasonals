@@ -971,9 +971,27 @@ def main():
                             strat['execution']['hold_days']
                         )
 
+                        hold_days = strat['execution']['hold_days']
+                        try:
+                            # We need the index of the Entry Date
+                            e_idx = df.index.get_loc(entry_date)
+                            
+                            # The time stop is 'hold_days' trading sessions after entry
+                            ts_idx = e_idx + hold_days
+                            
+                            if ts_idx < len(df):
+                                time_stop_date = df.index[ts_idx]
+                            else:
+                                # If the time stop is in the future (beyond available data), 
+                                # project it using Business Days
+                                time_stop_date = entry_date + BusinessDay(hold_days)
+                        except:
+                            time_stop_date = pd.NaT
+
                         all_signals.append({
                             "Date": d.date(), 
                             "Exit Date": exit_date.date(),
+                            "Time Stop": time_stop_date.date(),  # <--- NEW FIELD
                             "Strategy": strat['name'],
                             "Ticker": ticker,
                             "Action": action,
@@ -1020,7 +1038,7 @@ def main():
 
             st.subheader("📜 Historical Signal Log")
             st.dataframe(sig_df.sort_values(by="Date", ascending=False).style.format({
-                "Price": "${:.2f}", "PnL": "${:.2f}", "Date": "{:%Y-%m-%d}", "Exit Date": "{:%Y-%m-%d}","Range %": "{:.1f}%"
+                "Price": "${:.2f}", "PnL": "${:.2f}", "Date": "{:%Y-%m-%d}", "Exit Date": "{:%Y-%m-%d}", "Time Stop": "{:%Y-%m-%d}", "Range %": "{:.1f}%"
             }), use_container_width=True, height=400)
         else:
             st.warning(f"No signals found in the backtest period starting from {user_start_date}.")
