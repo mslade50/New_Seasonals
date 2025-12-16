@@ -276,9 +276,6 @@ STRATEGY_BOOK = [
 # -----------------------------------------------------------------------------
 # CONSTANTS & SETUP
 # -----------------------------------------------------------------------------
-# -----------------------------------------------------------------------------
-# CONSTANTS & SETUP
-# -----------------------------------------------------------------------------
 PRIMARY_SZNL_PATH = "sznl_ranks.csv"      # Your main high-quality data
 BACKUP_SZNL_PATH = "seasonal_ranks.csv"   # The backup data to fill gaps
 
@@ -294,8 +291,6 @@ def load_seasonal_map():
     def load_raw_csv(path):
         try:
             df = pd.read_csv(path)
-            # Standardize column names if they differ between files
-            # Assuming columns are 'ticker', 'Date', 'seasonal_rank'
             if 'ticker' not in df.columns or 'Date' not in df.columns:
                 return pd.DataFrame()
             
@@ -319,22 +314,14 @@ def load_seasonal_map():
     elif df_backup.empty:
         final_df = df_primary
     else:
-        # Stack Primary on top of Backup
-        # We assume both CSVs have the column 'seasonal_rank'
         final_df = pd.concat([df_primary, df_backup], axis=0)
-        
-        # Remove Duplicates:
-        # We keep='first'. Since Primary is on top, if a Ticker+Date exists in both,
-        # the Primary value is kept and the Backup value is dropped.
         final_df = final_df.drop_duplicates(subset=['ticker', 'Date'], keep='first')
 
     # 4. Build Dictionary Map
     output_map = {}
-    # Optimization: Sort by date once to ensure monotonicity
     final_df = final_df.sort_values(by="Date")
     
     for ticker, group in final_df.groupby("ticker"):
-        # Create a series mapping Date -> Rank
         series = group.set_index("Date")["seasonal_rank"]
         output_map[ticker] = series
         
@@ -625,16 +612,41 @@ def get_historical_mask(df, params, sznl_map):
 
     return mask.fillna(False)
 
+# -----------------------------------------------------------------------------
+# UPDATED TRADE LOGIC FOR ACTIVE POSITIONS
+# -----------------------------------------------------------------------------
 def calculate_trade_result(df, signal_date, action, shares, entry_price, hold_days):
+    """
+    Calculates PnL for closed trades AND identifies open trades.
+    Returns: (pnl, exit_date, status)
+    status is 'Closed' or 'Open'
+    """
     start_idx = df.index.searchsorted(signal_date)
-    if start_idx >= len(df) - 1:
-        return 0, signal_date
     
+    # If the start index is somehow beyond range (shouldn't happen with proper masking), bail out
+    if start_idx >= len(df):
+        return 0, signal_date, "Error"
+    
+    # Calculate the theoretical exit index based on holding days
+    # Note: We are using array position, which roughly equates to trading days
+    target_exit_idx = start_idx + hold_days
+    
+    # CASE 1: The trade has NOT finished yet (Open Position)
+    if target_exit_idx >= len(df):
+        # We project the exit date into the future for the dashboard
+        from pandas.tseries.offsets import BusinessDay
+        future_exit_date = signal_date + BusinessDay(hold_days)
+        
+        # PnL is 0 for historical stats purposes (unrealized doesn't count for closed stats)
+        # But for the dashboard, we know it's open.
+        return 0.0, future_exit_date, "Open"
+
+    # CASE 2: The trade has finished (Closed Position)
     # We slice strictly by days ahead to respect time stop
-    window = df.iloc[start_idx+1 : start_idx+1+hold_days].copy()
+    window = df.iloc[start_idx : target_exit_idx + 1].copy()
     
     if window.empty: 
-        return 0, signal_date
+        return 0, signal_date, "Error"
 
     exit_row = window.iloc[-1]
     exit_price = exit_row['Close']
@@ -647,7 +659,7 @@ def calculate_trade_result(df, signal_date, action, shares, entry_price, hold_da
     else:
         pnl = 0
 
-    return pnl, exit_date
+    return pnl, exit_date, "Closed"
 
 def calculate_daily_exposure(sig_df):
     if sig_df.empty: return pd.DataFrame()
@@ -655,6 +667,9 @@ def calculate_daily_exposure(sig_df):
     max_date = sig_df['Exit Date'].max()
     all_dates = pd.date_range(start=min_date, end=max_date)
     exposure_df = pd.DataFrame(0.0, index=all_dates, columns=['Long Exposure ($)', 'Short Exposure ($)'])
+    
+    # Only calculate exposure for CLOSED trades or historical portion of open trades
+    # (Simplified: using the entire dataframe but filter by date range)
     for idx, row in sig_df.iterrows():
         trade_dates = pd.date_range(start=row['Date'], end=row['Exit Date'])
         dollar_val = row['Price'] * row['Shares']
@@ -662,10 +677,14 @@ def calculate_daily_exposure(sig_df):
             exposure_df.loc[exposure_df.index.isin(trade_dates), 'Long Exposure ($)'] += dollar_val
         elif row['Action'] == 'SELL SHORT':
             exposure_df.loc[exposure_df.index.isin(trade_dates), 'Short Exposure ($)'] += dollar_val
+            
     exposure_df['Net Exposure ($)'] = exposure_df['Long Exposure ($)'] - exposure_df['Short Exposure ($)']
     return exposure_df
 
 def calculate_performance_stats(sig_df):
+    # Filter only for CLOSED trades for performance stats
+    closed_df = sig_df[sig_df['Status'] == 'Closed']
+    
     stats = []
     def get_metrics(df, name):
         if df.empty: return None
@@ -689,25 +708,17 @@ def calculate_performance_stats(sig_df):
             "Profit Factor": profit_factor,
             "SQN": sqn
         }
-    strategies = sig_df['Strategy'].unique()
+    strategies = closed_df['Strategy'].unique()
     for strat in strategies:
-        strat_df = sig_df[sig_df['Strategy'] == strat]
+        strat_df = closed_df[closed_df['Strategy'] == strat]
         m = get_metrics(strat_df, strat)
         if m: stats.append(m)
-    total_m = get_metrics(sig_df, "TOTAL PORTFOLIO")
+    total_m = get_metrics(closed_df, "TOTAL PORTFOLIO")
     if total_m: stats.append(total_m)
     return pd.DataFrame(stats)
 
 # -----------------------------------------------------------------------------
 # MAIN APP
-# -----------------------------------------------------------------------------
-
-# -----------------------------------------------------------------------------
-# MAIN APP (UPDATED WITH USER INPUTS)
-# -----------------------------------------------------------------------------
-
-# -----------------------------------------------------------------------------
-# MAIN APP (UPDATED FOR DEEP HISTORY)
 # -----------------------------------------------------------------------------
 def main():
     st.set_page_config(layout="wide", page_title="Strategy Backtest Lab")
@@ -715,23 +726,16 @@ def main():
     # --- SIDEBAR CONTROLS ---
     st.sidebar.header("⚙️ Backtest Settings")
     
-    # 1. Helper to quickly jump years
-    # We use a slider for the year to avoid clicking "Previous Month" 200 times
     current_year = datetime.date.today().year
     selected_year = st.sidebar.slider("Select Start Year", 2000, current_year, current_year - 2)
-    
-    # 2. Date Input constrained by the slider
-    # We default to Jan 1 of the selected year
     default_date = datetime.date(selected_year, 1, 1)
     
     with st.sidebar.form("backtest_form"):
-        # min_value allows the calendar to go back to 2000
         user_start_date = st.date_input(
             "Backtest Start Date", 
             value=default_date, 
             min_value=datetime.date(2000, 1, 1)
         )
-        
         st.caption(f"Data download buffer: 365 days prior to {user_start_date}.")
         run_btn = st.form_submit_button("⚡ Run Backtest")
 
@@ -739,75 +743,58 @@ def main():
     st.markdown(f"**Selected Start Date:** {user_start_date}")
     st.markdown("---")
 
-    # Only run the heavy lifting if the button is pressed
     if run_btn:
         sznl_map = load_seasonal_map()
         
-        # Initialize Session State
         if 'backtest_data' not in st.session_state:
             st.session_state['backtest_data'] = {}
 
         # -------------------------------------------------------------------------
         # 1. INTELLIGENT TICKER SPLITTING
         # -------------------------------------------------------------------------
-        # UPDATE: Matched this name to Strategy #2 in your book so the sorting logic works
         huge_universe_strat_name = "No Accumulation Days" 
         
         short_term_tickers = set()
         long_term_tickers = set()
         
-        # Iterate to sort tickers
         for strat in STRATEGY_BOOK:
-            # Check settings for market tickers to ensure they are always Long Term
             extras = set()
             s = strat['settings']
             if s.get('use_market_sznl'): extras.add(s.get('market_ticker', '^GSPC'))
             if "Market" in s.get('trend_filter', ''): extras.add(s.get('market_ticker', 'SPY'))
             if "SPY" in s.get('trend_filter', ''): extras.add("SPY")
             
-            # If the strategy has a massive universe, we try to optimize the download
-            # UNLESS the user wants deep history (start date < 2015), in which case
-            # we force everything into the 'Long Term' bucket to be safe.
             is_deep_history_needed = user_start_date.year < 2015
 
             if strat['name'] == huge_universe_strat_name and not is_deep_history_needed:
-                # Optimized download (user_date - 365 days)
                 for t in strat['universe_tickers']:
                     short_term_tickers.add(t)
             else:
-                # Deep download (2000-01-01 start)
                 for t in strat['universe_tickers']:
                     long_term_tickers.add(t)
             
-            # Ensure market reference tickers are always long term
             long_term_tickers.update(extras)
 
-        # Clean duplicates: If a ticker is in both, Long Term wins
         short_term_tickers = short_term_tickers - long_term_tickers
         
         long_term_list = [t.replace('.', '-') for t in long_term_tickers]
         short_term_list = [t.replace('.', '-') for t in short_term_tickers]
 
         # -------------------------------------------------------------------------
-        # 2. BATCH DOWNLOAD (DYNAMIC)
+        # 2. BATCH DOWNLOAD
         # -------------------------------------------------------------------------
         existing_keys = set(st.session_state['backtest_data'].keys())
         
-        # A. Download Deep History (Fixed at 2000 for robustness of core tickers)
         missing_long = list(set(long_term_list) - existing_keys)
         if missing_long:
             st.write(f"📥 Batch 1: Downloading **Deep History (from 2000)** for {len(missing_long)} tickers...")
-            # This fetches from 2000, so 2005 start date is safe
             data_long = download_historical_data(missing_long, start_date="2000-01-01")
             st.session_state['backtest_data'].update(data_long)
         
-        # B. Download Dynamic History (User Date - 365 Days buffer)
-        # If you selected 2005, this calculates 2004, which is correct.
         fetch_start_date = user_start_date - datetime.timedelta(days=365)
         fetch_start_str = fetch_start_date.strftime("%Y-%m-%d")
         
         missing_short = list(set(short_term_list) - existing_keys)
-        
         if missing_short:
             st.write(f"📥 Batch 2: Downloading history from **{fetch_start_str}** for {len(missing_short)} Momentum tickers...")
             data_short = download_historical_data(missing_short, start_date=fetch_start_str)
@@ -842,13 +829,9 @@ def main():
                 if len(df) < 200: continue
                 
                 try:
-                    # Calculate indicators
                     df = calculate_indicators(df, sznl_map, t_clean, market_series)
-
-                    # Get mask
                     mask = get_historical_mask(df, strat['settings'], sznl_map)
                     
-                    # --- BACKTEST FILTER ---
                     cutoff_ts = pd.Timestamp(user_start_date)
                     mask = mask[mask.index >= cutoff_ts]
                     
@@ -858,6 +841,9 @@ def main():
                     last_exit_date = None
                     
                     for d in true_dates:
+                        # Prevent overlapping trades (Wait for exit)
+                        # NOTE: For "Pending/Open" trades, the calculate_trade_result sets exit_date to future
+                        # ensuring we don't take another trade while one is theoretically open.
                         if last_exit_date is not None and d <= last_exit_date:
                             continue
                             
@@ -880,7 +866,30 @@ def main():
                         entry_type = strat['settings'].get('entry_type', 'Signal Close')
                         entry_idx = df.index.get_loc(d)
                         
-                        if entry_idx + 1 >= len(df): continue 
+                        # -- Handle Entry Price --
+                        # If signal is T+1 and T+1 is in future (Index Error), it's a PENDING ENTRY
+                        if entry_idx + 1 >= len(df):
+                             # Special case: Signal is on the very last available candle
+                             # This is a PENDING ENTRY. We set status to Open immediately.
+                             entry = row['Close'] # Fallback price for calculation
+                             entry_date = d + BusinessDay(1) # Project entry date
+                             action = "BUY" if strat['settings'].get('trade_direction', 'Long') == 'Long' else "SELL SHORT"
+                             shares = 0 # Can't calc yet without tomorrow's open, or assume Close
+                             
+                             # Rough calc for shares using Close
+                             if action == "BUY": dist = entry - (entry - (atr * strat['execution']['stop_atr']))
+                             else: dist = (entry + (atr * strat['execution']['stop_atr'])) - entry
+                             shares = int(risk / dist) if dist > 0 else 0
+                             
+                             all_signals.append({
+                                "Date": d.date(), "Exit Date": pd.NaT, # No exit yet
+                                "Strategy": strat['name'], "Ticker": ticker, "Action": action,
+                                "Entry Criteria": "PENDING (Signal Generated)", "Price": entry,
+                                "Shares": shares, "PnL": 0.0, "ATR": atr, "Range %": row['RangePct'] * 100,
+                                "Status": "Open"
+                            })
+                             continue
+
                         entry_row = df.iloc[entry_idx + 1]
 
                         if entry_type == 'T+1 Close':
@@ -917,7 +926,8 @@ def main():
                         
                         shares = int(risk / dist) if dist > 0 else 0
                         
-                        pnl, exit_date = calculate_trade_result(
+                        # --- Calculate Result and Status ---
+                        pnl, exit_date, status = calculate_trade_result(
                             df, entry_date, action, shares, entry,
                             strat['execution']['hold_days']
                         )
@@ -933,7 +943,8 @@ def main():
                             "Shares": shares,
                             "PnL": pnl,
                             "ATR": atr,
-                            "Range %": row['RangePct'] * 100
+                            "Range %": row['RangePct'] * 100,
+                            "Status": status
                         })
                         last_exit_date = exit_date
                     
@@ -948,34 +959,85 @@ def main():
             sig_df['Exit Date'] = pd.to_datetime(sig_df['Exit Date'])
             sig_df = sig_df.sort_values(by="Exit Date")
 
-            st.subheader("📊 Strategy Performance Metrics")
-            stats_df = calculate_performance_stats(sig_df)
-            st.dataframe(stats_df.style.format({
-                "Total PnL": "${:,.2f}", "Sharpe Ratio": "{:.2f}", 
-                "Profit Factor": "{:.2f}", "SQN": "{:.2f}"
-            }), use_container_width=True)
+            # -------------------------------------------------------------------------
+            # 4. CURRENT PORTFOLIO DISPLAY (ACTIVE POSITIONS)
+            # -------------------------------------------------------------------------
+            st.divider()
+            st.subheader("💼 Current Portfolio (Active & Pending)")
+            st.caption("Positions where the holding period has not yet expired (Active) or signals generated yesterday (Pending).")
+            
+            # Split Data
+            active_mask = sig_df['Status'] == 'Open'
+            portfolio_df = sig_df[active_mask].copy()
+            history_df = sig_df[~active_mask].copy()
+            
+            if not portfolio_df.empty:
+                # -- Calculate Exposures --
+                long_exposure = 0.0
+                short_exposure = 0.0
+                
+                # Iterate to sum exposure
+                for idx, row in portfolio_df.iterrows():
+                    val = row['Shares'] * row['Price']
+                    if row['Action'] == 'BUY':
+                        long_exposure += val
+                    elif row['Action'] == 'SELL SHORT':
+                        short_exposure += val
+                
+                net_exposure = long_exposure - short_exposure
+                
+                # Metrics Row
+                m1, m2, m3 = st.columns(3)
+                m1.metric("Total Long Exposure", f"${long_exposure:,.2f}")
+                m2.metric("Total Short Exposure", f"${short_exposure:,.2f}")
+                m3.metric("Net Exposure", f"${net_exposure:,.2f}", delta_color="off")
+                
+                # Show Table
+                st.dataframe(portfolio_df.style.format({
+                    "Price": "${:.2f}", "PnL": "${:.2f}", "Date": "{:%Y-%m-%d}", 
+                    "Exit Date": "{:%Y-%m-%d}", "Range %": "{:.1f}%"
+                }), use_container_width=True)
+            else:
+                st.info("No active positions currently.")
 
-            col1, col2 = st.columns(2)
-            with col1:
-                st.subheader("📈 Total Portfolio PnL")
-                total_daily_pnl = sig_df.groupby("Exit Date")['PnL'].sum().cumsum()
-                st.line_chart(total_daily_pnl)
-            with col2:
-                st.subheader("📉 Cumulative PnL by Strategy")
-                strat_pnl = sig_df.pivot_table(index='Exit Date', columns='Strategy', values='PnL', aggfunc='sum').fillna(0)
-                st.line_chart(strat_pnl.cumsum())
+            # -------------------------------------------------------------------------
+            # 5. HISTORICAL STATS (CLOSED TRADES ONLY)
+            # -------------------------------------------------------------------------
+            st.divider()
+            st.subheader("📊 Historical Performance Metrics (Closed Trades)")
+            
+            if not history_df.empty:
+                stats_df = calculate_performance_stats(sig_df) # This function now filters for 'Closed' internally
+                st.dataframe(stats_df.style.format({
+                    "Total PnL": "${:,.2f}", "Sharpe Ratio": "{:.2f}", 
+                    "Profit Factor": "{:.2f}", "SQN": "{:.2f}"
+                }), use_container_width=True)
 
-            st.subheader("⚖️ Portfolio Exposure Over Time")
-            exposure_df = calculate_daily_exposure(sig_df)
-            if not exposure_df.empty: st.line_chart(exposure_df)
+                col1, col2 = st.columns(2)
+                with col1:
+                    st.subheader("📈 Total Portfolio PnL")
+                    # Only sum PnL for closed trades
+                    total_daily_pnl = history_df.groupby("Exit Date")['PnL'].sum().cumsum()
+                    st.line_chart(total_daily_pnl)
+                with col2:
+                    st.subheader("📉 Cumulative PnL by Strategy")
+                    strat_pnl = history_df.pivot_table(index='Exit Date', columns='Strategy', values='PnL', aggfunc='sum').fillna(0)
+                    st.line_chart(strat_pnl.cumsum())
 
-            st.subheader("📜 Historical Signal Log")
-            st.dataframe(sig_df.sort_values(by="Date", ascending=False).style.format({
-                "Price": "${:.2f}", "PnL": "${:.2f}", "Date": "{:%Y-%m-%d}", "Exit Date": "{:%Y-%m-%d}","Range %": "{:.1f}%"
-            }), use_container_width=True, height=400)
+                st.subheader("⚖️ Portfolio Exposure Over Time")
+                exposure_df = calculate_daily_exposure(sig_df) # Exposure uses both Open and Closed history
+                if not exposure_df.empty: st.line_chart(exposure_df)
+
+                st.subheader("📜 Closed Trade Log")
+                st.dataframe(history_df.sort_values(by="Date", ascending=False).style.format({
+                    "Price": "${:.2f}", "PnL": "${:.2f}", "Date": "{:%Y-%m-%d}", "Exit Date": "{:%Y-%m-%d}","Range %": "{:.1f}%"
+                }), use_container_width=True, height=400)
+            else:
+                st.warning("No closed trades found yet.")
         else:
             st.warning(f"No signals found in the backtest period starting from {user_start_date}.")
     else:
         st.info("👈 Please select a start year/date and click 'Run Backtest' in the sidebar to begin.")
+
 if __name__ == "__main__":
     main()
