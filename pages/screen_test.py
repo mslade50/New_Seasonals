@@ -706,20 +706,33 @@ def calculate_performance_stats(sig_df):
 # MAIN APP (UPDATED WITH USER INPUTS)
 # -----------------------------------------------------------------------------
 
+# -----------------------------------------------------------------------------
+# MAIN APP (UPDATED FOR DEEP HISTORY)
+# -----------------------------------------------------------------------------
 def main():
     st.set_page_config(layout="wide", page_title="Strategy Backtest Lab")
     
     # --- SIDEBAR CONTROLS ---
     st.sidebar.header("⚙️ Backtest Settings")
     
-    # Default to 2 years ago
-    default_start = datetime.date.today() - datetime.timedelta(days=730)
+    # 1. Helper to quickly jump years
+    # We use a slider for the year to avoid clicking "Previous Month" 200 times
+    current_year = datetime.date.today().year
+    selected_year = st.sidebar.slider("Select Start Year", 2000, current_year, current_year - 2)
+    
+    # 2. Date Input constrained by the slider
+    # We default to Jan 1 of the selected year
+    default_date = datetime.date(selected_year, 1, 1)
     
     with st.sidebar.form("backtest_form"):
-        user_start_date = st.date_input("Backtest Start Date", value=default_start)
+        # min_value allows the calendar to go back to 2000
+        user_start_date = st.date_input(
+            "Backtest Start Date", 
+            value=default_date, 
+            min_value=datetime.date(2000, 1, 1)
+        )
         
-        st.caption("Note: Data will be downloaded starting 365 days prior to this date to allow for indicator warm-up (SMA 200, etc).")
-        
+        st.caption(f"Data download buffer: 365 days prior to {user_start_date}.")
         run_btn = st.form_submit_button("⚡ Run Backtest")
 
     st.title("⚡ Strategy Backtest Lab")
@@ -737,7 +750,8 @@ def main():
         # -------------------------------------------------------------------------
         # 1. INTELLIGENT TICKER SPLITTING
         # -------------------------------------------------------------------------
-        huge_universe_strat_name = "52w High Breakouts"
+        # UPDATE: Matched this name to Strategy #2 in your book so the sorting logic works
+        huge_universe_strat_name = "No Accumulation Days" 
         
         short_term_tickers = set()
         long_term_tickers = set()
@@ -751,12 +765,17 @@ def main():
             if "Market" in s.get('trend_filter', ''): extras.add(s.get('market_ticker', 'SPY'))
             if "SPY" in s.get('trend_filter', ''): extras.add("SPY")
             
-            if strat['name'] == huge_universe_strat_name:
-                # These go to short term universe
+            # If the strategy has a massive universe, we try to optimize the download
+            # UNLESS the user wants deep history (start date < 2015), in which case
+            # we force everything into the 'Long Term' bucket to be safe.
+            is_deep_history_needed = user_start_date.year < 2015
+
+            if strat['name'] == huge_universe_strat_name and not is_deep_history_needed:
+                # Optimized download (user_date - 365 days)
                 for t in strat['universe_tickers']:
                     short_term_tickers.add(t)
             else:
-                # All other strategies get deep history
+                # Deep download (2000-01-01 start)
                 for t in strat['universe_tickers']:
                     long_term_tickers.add(t)
             
@@ -777,19 +796,18 @@ def main():
         # A. Download Deep History (Fixed at 2000 for robustness of core tickers)
         missing_long = list(set(long_term_list) - existing_keys)
         if missing_long:
-            st.write(f"📥 Batch 1: Downloading **25-year history** for {len(missing_long)} Core tickers...")
+            st.write(f"📥 Batch 1: Downloading **Deep History (from 2000)** for {len(missing_long)} tickers...")
+            # This fetches from 2000, so 2005 start date is safe
             data_long = download_historical_data(missing_long, start_date="2000-01-01")
             st.session_state['backtest_data'].update(data_long)
         
         # B. Download Dynamic History (User Date - 365 Days buffer)
-        # We calculate the fetch date based on the User Input to ensure we have enough data
+        # If you selected 2005, this calculates 2004, which is correct.
         fetch_start_date = user_start_date - datetime.timedelta(days=365)
         fetch_start_str = fetch_start_date.strftime("%Y-%m-%d")
         
         missing_short = list(set(short_term_list) - existing_keys)
         
-        # Note: If the user changes the date to be EARLIER than a previous run, 
-        # we might need to re-download. For simplicity here, we check if missing.
         if missing_short:
             st.write(f"📥 Batch 2: Downloading history from **{fetch_start_str}** for {len(missing_short)} Momentum tickers...")
             data_short = download_historical_data(missing_short, start_date=fetch_start_str)
@@ -830,8 +848,7 @@ def main():
                     # Get mask
                     mask = get_historical_mask(df, strat['settings'], sznl_map)
                     
-                    # --- UPDATED BACKTEST FILTER: USE USER DATE ---
-                    # Ensure cutoff is a Timestamp to match index
+                    # --- BACKTEST FILTER ---
                     cutoff_ts = pd.Timestamp(user_start_date)
                     mask = mask[mask.index >= cutoff_ts]
                     
@@ -848,27 +865,19 @@ def main():
                         atr = row['ATR']
                         risk = strat['execution']['risk_per_trade']
                         
-                        # 2. Strategy: Overbot Vol Spike
+                        # Dynamic Risk Adjustments
                         if strat['name'] == "Overbot Vol Spike":
                             vol_ratio = row.get('vol_ratio', 0)
-                            if vol_ratio > 2.0:
-                                risk = 675  # High conviction
-                            elif vol_ratio > 1.5:
-                                risk = 525  # Medium conviction
+                            if vol_ratio > 2.0: risk = 675
+                            elif vol_ratio > 1.5: risk = 525
                         
-                        # 3. Strategy: Weak Close Decent Sznls
                         if strat['name'] == "Weak Close Decent Sznls":
                             sznl_val = row.get('Sznl', 0)
-                            if sznl_val >= 65:
-                                risk = risk * 1.5   # High conviction (>65)
-                            elif sznl_val >= 50:
-                                risk = risk * 1.0   # Standard (50-65)
-                            elif sznl_val >= 33:
-                                risk = risk * 0.66  # Low conviction (33-50)
-                        # -----------------------------------------------------
+                            if sznl_val >= 65: risk = risk * 1.5
+                            elif sznl_val >= 50: risk = risk * 1.0
+                            elif sznl_val >= 33: risk = risk * 0.66
                         
                         entry_type = strat['settings'].get('entry_type', 'Signal Close')
-                        
                         entry_idx = df.index.get_loc(d)
                         
                         if entry_idx + 1 >= len(df): continue 
@@ -967,7 +976,6 @@ def main():
         else:
             st.warning(f"No signals found in the backtest period starting from {user_start_date}.")
     else:
-        st.info("👈 Please select a start date and click 'Run Backtest' in the sidebar to begin.")
-
+        st.info("👈 Please select a start year/date and click 'Run Backtest' in the sidebar to begin.")
 if __name__ == "__main__":
     main()
