@@ -1443,7 +1443,7 @@ def main():
             audit_rows = []
             
             # We look at the last 21 trading days
-            days_to_audit = 21
+            days_to_audit = 252
             # Ensure we have enough data
             if len(calc_df) > days_to_audit:
                 subset_indices = range(len(calc_df) - days_to_audit, len(calc_df))
