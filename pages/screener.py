@@ -990,6 +990,19 @@ def get_signal_breakdown(df, params, sznl_map):
         cond = (ratio > params['vol_thresh'])
         log("Vol_Spike", f"x{ratio:.2f}", cond)
         
+    if params.get('use_vol_rank', False):
+        ratio = last_row['vol_ratio_10d_rank']
+        logic = params.get('vol_rank_logic', '<')
+        thresh = params['vol_rank_thresh']
+        
+        # Dynamically check logic based on strategy settings
+        if logic == '<':
+            cond = (ratio < thresh)
+        else:
+            cond = (ratio > thresh)
+            
+        log(f"Vol_Rank ({logic} {thresh})", f"{ratio:.2f}", cond)
+        if not cond: return False
     # -----------------------------------------------------------
     # 7. RANGE FILTER (EXPANDED INSPECTOR)
     # -----------------------------------------------------------
