@@ -5,6 +5,7 @@ import yfinance as yf
 import datetime
 import time
 from pandas.tseries.offsets import BusinessDay
+import plotly.graph_objects as go
 
 # -----------------------------------------------------------------------------
 # 1. THE STRATEGY BOOK
