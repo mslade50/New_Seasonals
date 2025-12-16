@@ -1002,7 +1002,6 @@ def get_signal_breakdown(df, params, sznl_map):
             cond = (ratio > thresh)
             
         log(f"Vol_Rank ({logic} {thresh})", f"{ratio:.2f}", cond)
-        if not cond: return False
     # -----------------------------------------------------------
     # 7. RANGE FILTER (EXPANDED INSPECTOR)
     # -----------------------------------------------------------
