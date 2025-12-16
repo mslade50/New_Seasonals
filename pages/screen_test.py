@@ -1070,8 +1070,62 @@ def main():
             col1, col2 = st.columns(2)
             with col1:
                 st.subheader("📈 Total Portfolio PnL")
-                total_daily_pnl = sig_df.groupby("Exit Date")['PnL'].sum().cumsum()
-                st.line_chart(total_daily_pnl)
+                # Filter for closed trades for PnL curve
+                history_df = sig_df[sig_df['Status'] == 'Closed']
+                
+                if not history_df.empty:
+                    # 1. Prepare Data
+                    total_daily_pnl = history_df.groupby("Exit Date")['PnL'].sum().cumsum()
+                    eq_df = total_daily_pnl.to_frame(name="Equity")
+                    
+                    # 2. Calculate Indicators (SMA 20 + Bollinger Bands)
+                    eq_df['SMA20'] = eq_df['Equity'].rolling(window=20).mean()
+                    eq_df['StdDev'] = eq_df['Equity'].rolling(window=20).std()
+                    eq_df['Upper'] = eq_df['SMA20'] + (2 * eq_df['StdDev'])
+                    eq_df['Lower'] = eq_df['SMA20'] - (2 * eq_df['StdDev'])
+                    
+                    # 3. Plot with Plotly Graph Objects
+                    fig = go.Figure()
+
+                    # Upper Band (Hidden line for fill reference)
+                    fig.add_trace(go.Scatter(
+                        x=eq_df.index, y=eq_df['Upper'],
+                        mode='lines', line=dict(width=0),
+                        showlegend=False, hoverinfo='skip'
+                    ))
+
+                    # Lower Band (Fill up to Upper)
+                    fig.add_trace(go.Scatter(
+                        x=eq_df.index, y=eq_df['Lower'],
+                        mode='lines', line=dict(width=0),
+                        fill='tonexty', fillcolor='rgba(255, 255, 255, 0.1)', # Subtle grey/white shading
+                        name='Bollinger Band (20, 2)',
+                        hoverinfo='skip'
+                    ))
+
+                    # SMA 20 (Orange Dashed)
+                    fig.add_trace(go.Scatter(
+                        x=eq_df.index, y=eq_df['SMA20'],
+                        mode='lines', name='SMA 20',
+                        line=dict(color='orange', width=1, dash='dot')
+                    ))
+
+                    # Main Equity Curve (Green)
+                    fig.add_trace(go.Scatter(
+                        x=eq_df.index, y=eq_df['Equity'],
+                        mode='lines', name='Total PnL',
+                        line=dict(color='#00FF00', width=2)
+                    ))
+
+                    fig.update_layout(
+                        margin=dict(l=10, r=10, t=30, b=10),
+                        height=400,
+                        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+                        hovermode="x unified"
+                    )
+                    st.plotly_chart(fig, use_container_width=True)
+                else:
+                    st.info("Not enough closed trades to plot PnL curve.")
             with col2:
                 st.subheader("📉 Cumulative PnL by Strategy")
                 strat_pnl = sig_df.pivot_table(index='Exit Date', columns='Strategy', values='PnL', aggfunc='sum').fillna(0)
