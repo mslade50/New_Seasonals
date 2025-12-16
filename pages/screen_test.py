@@ -751,36 +751,30 @@ def calculate_performance_stats(sig_df):
 # MAIN APP
 # -----------------------------------------------------------------------------
 
-# -----------------------------------------------------------------------------
-# MAIN APP (UPDATED WITH USER INPUTS)
-# -----------------------------------------------------------------------------
-
-# -----------------------------------------------------------------------------
-# MAIN APP (UPDATED FOR DEEP HISTORY)
-# -----------------------------------------------------------------------------
 def main():
     st.set_page_config(layout="wide", page_title="Strategy Backtest Lab")
     
     # --- SIDEBAR CONTROLS ---
     st.sidebar.header("⚙️ Backtest Settings")
+
+    # 1. HARD REFRESH BUTTON (Crucial for fixing cache issues)
+    if st.sidebar.button("🔴 Force Clear Cache & Data"):
+        st.cache_data.clear()
+        st.cache_resource.clear()
+        if 'backtest_data' in st.session_state:
+            del st.session_state['backtest_data']
+        st.rerun()
     
-    # 1. Helper to quickly jump years
-    # We use a slider for the year to avoid clicking "Previous Month" 200 times
     current_year = datetime.date.today().year
     selected_year = st.sidebar.slider("Select Start Year", 2000, current_year, current_year - 2)
-    
-    # 2. Date Input constrained by the slider
-    # We default to Jan 1 of the selected year
     default_date = datetime.date(selected_year, 1, 1)
     
     with st.sidebar.form("backtest_form"):
-        # min_value allows the calendar to go back to 2000
         user_start_date = st.date_input(
             "Backtest Start Date", 
             value=default_date, 
             min_value=datetime.date(2000, 1, 1)
         )
-        
         st.caption(f"Data download buffer: 365 days prior to {user_start_date}.")
         run_btn = st.form_submit_button("⚡ Run Backtest")
 
@@ -788,82 +782,58 @@ def main():
     st.markdown(f"**Selected Start Date:** {user_start_date}")
     st.markdown("---")
 
-    # Only run the heavy lifting if the button is pressed
     if run_btn:
         sznl_map = load_seasonal_map()
         
-        # Initialize Session State
         if 'backtest_data' not in st.session_state:
             st.session_state['backtest_data'] = {}
 
         # -------------------------------------------------------------------------
-        # 1. INTELLIGENT TICKER SPLITTING
+        # 1. TICKER COLLECTION
         # -------------------------------------------------------------------------
-        # UPDATE: Matched this name to Strategy #2 in your book so the sorting logic works
-        huge_universe_strat_name = "No Accumulation Days" 
-        
-        short_term_tickers = set()
         long_term_tickers = set()
         
-        # Iterate to sort tickers
         for strat in STRATEGY_BOOK:
-            # Check settings for market tickers to ensure they are always Long Term
-            extras = set()
+            # Universe
+            for t in strat['universe_tickers']:
+                long_term_tickers.add(t)
+            
+            # Market Refs
             s = strat['settings']
-            if s.get('use_market_sznl'): extras.add(s.get('market_ticker', '^GSPC'))
-            if "Market" in s.get('trend_filter', ''): extras.add(s.get('market_ticker', 'SPY'))
-            if "SPY" in s.get('trend_filter', ''): extras.add("SPY")
-            
-            # If the strategy has a massive universe, we try to optimize the download
-            # UNLESS the user wants deep history (start date < 2015), in which case
-            # we force everything into the 'Long Term' bucket to be safe.
-            is_deep_history_needed = user_start_date.year < 2015
+            if s.get('use_market_sznl'): long_term_tickers.add(s.get('market_ticker', '^GSPC'))
+            if "Market" in s.get('trend_filter', ''): long_term_tickers.add(s.get('market_ticker', 'SPY'))
+            if "SPY" in s.get('trend_filter', ''): long_term_tickers.add("SPY")
 
-            if strat['name'] == huge_universe_strat_name and not is_deep_history_needed:
-                # Optimized download (user_date - 365 days)
-                for t in strat['universe_tickers']:
-                    short_term_tickers.add(t)
-            else:
-                # Deep download (2000-01-01 start)
-                for t in strat['universe_tickers']:
-                    long_term_tickers.add(t)
-            
-            # Ensure market reference tickers are always long term
-            long_term_tickers.update(extras)
-
-        # Clean duplicates: If a ticker is in both, Long Term wins
-        short_term_tickers = short_term_tickers - long_term_tickers
-        
+        # Clean formatting (Standardize to Yahoo format, e.g., BRK.B -> BRK-B)
         long_term_list = [t.replace('.', '-') for t in long_term_tickers]
-        short_term_list = [t.replace('.', '-') for t in short_term_tickers]
 
         # -------------------------------------------------------------------------
-        # 2. BATCH DOWNLOAD (DYNAMIC)
+        # 2. BATCH DOWNLOAD
         # -------------------------------------------------------------------------
         existing_keys = set(st.session_state['backtest_data'].keys())
-        
-        # A. Download Deep History (Fixed at 2000 for robustness of core tickers)
         missing_long = list(set(long_term_list) - existing_keys)
+        
         if missing_long:
-            st.write(f"📥 Batch 1: Downloading **Deep History (from 2000)** for {len(missing_long)} tickers...")
-            # This fetches from 2000, so 2005 start date is safe
+            st.write(f"📥 Downloading **Deep History (from 2000)** for {len(missing_long)} tickers...")
             data_long = download_historical_data(missing_long, start_date="2000-01-01")
             st.session_state['backtest_data'].update(data_long)
-        
-        # B. Download Dynamic History (User Date - 365 Days buffer)
-        # If you selected 2005, this calculates 2004, which is correct.
-        fetch_start_date = user_start_date - datetime.timedelta(days=365)
-        fetch_start_str = fetch_start_date.strftime("%Y-%m-%d")
-        
-        missing_short = list(set(short_term_list) - existing_keys)
-        
-        if missing_short:
-            st.write(f"📥 Batch 2: Downloading history from **{fetch_start_str}** for {len(missing_short)} Momentum tickers...")
-            data_short = download_historical_data(missing_short, start_date=fetch_start_str)
-            st.session_state['backtest_data'].update(data_short)
-            st.success("✅ All Downloads Complete.")
+            st.success("✅ Download Batch Complete.")
 
+        # --- DATA INTEGRITY CHECK (NEW) ---
+        # Verify that everything we asked for is actually in the dictionary
         master_dict = st.session_state['backtest_data']
+        downloaded_keys = set(master_dict.keys())
+        requested_set = set(long_term_list)
+        
+        failed_tickers = requested_set - downloaded_keys
+        
+        if failed_tickers:
+            st.error(f"⚠️ {len(failed_tickers)} Tickers failed to download or returned no data.")
+            with st.expander("View Failed Tickers"):
+                st.write(list(failed_tickers))
+                st.caption("These tickers will be skipped in the backtest.")
+        # -----------------------------------
+
         all_signals = []
         progress_bar = st.progress(0)
         
@@ -883,11 +853,21 @@ def main():
                 temp_mkt['SMA200'] = temp_mkt['Close'].rolling(200).mean()
                 market_series = temp_mkt['Close'] > temp_mkt['SMA200']
 
+            # --- STRATEGY COVERAGE CHECK (NEW) ---
+            # Check which tickers in this strategy's universe are missing data
+            strat_universe_clean = [t.replace('.', '-') for t in strat['universe_tickers']]
+            missing_in_strat = [t for t in strat_universe_clean if t not in master_dict]
+            
+            if missing_in_strat:
+                st.warning(f"Strategy **'{strat['name']}'** is skipping {len(missing_in_strat)} tickers due to missing data.")
+                # Optional: print them to console or expander if needed
+                # print(f"Missing for {strat['name']}: {missing_in_strat}")
+
             for ticker in strat['universe_tickers']:
                 t_clean = ticker.replace('.', '-')
                 
                 df = master_dict.get(t_clean)
-                if df is None: continue
+                if df is None: continue # Skip if download failed
                 if len(df) < 200: continue
                 
                 try:
@@ -986,7 +966,7 @@ def main():
                         all_signals.append({
                             "Date": d.date(), 
                             "Exit Date": exit_date.date(),
-                            "Time Stop": time_stop_date,  # <--- CHANGED: Removed .date()
+                            "Time Stop": time_stop_date, 
                             "Strategy": strat['name'],
                             "Ticker": ticker,
                             "Action": action,
@@ -1008,8 +988,9 @@ def main():
             sig_df = pd.DataFrame(all_signals)
             sig_df['Date'] = pd.to_datetime(sig_df['Date'])
             sig_df['Exit Date'] = pd.to_datetime(sig_df['Exit Date'])
-            sig_df['Time Stop'] = pd.to_datetime(sig_df['Time Stop']) # This works safely now
+            sig_df['Time Stop'] = pd.to_datetime(sig_df['Time Stop'])
             sig_df = sig_df.sort_values(by="Exit Date")
+
             # =================================================================
             # NEW: CURRENT EXPOSURE SECTION
             # =================================================================
@@ -1021,28 +1002,25 @@ def main():
 
             if not open_df.empty:
                 # 2. Calculate Open PnL & Current Exposure
-                # We need to fetch the LATEST price for each ticker to calculate live PnL
                 current_prices = []
                 open_pnls = []
                 current_values = []
 
                 for idx, row in open_df.iterrows():
                     ticker = row['Ticker']
-                    # Fetch latest close from the data we already downloaded
                     t_df = master_dict.get(ticker.replace('.', '-'))
                     
                     if t_df is not None and not t_df.empty:
                         last_close = t_df.iloc[-1]['Close']
                     else:
-                        last_close = row['Price'] # Fallback to entry price
+                        last_close = row['Price']
 
-                    # Calculate Open PnL
                     if row['Action'] == 'BUY':
                         pnl = (last_close - row['Price']) * row['Shares']
-                        val = last_close * row['Shares'] # Long Exposure
+                        val = last_close * row['Shares']
                     else:
                         pnl = (row['Price'] - last_close) * row['Shares']
-                        val = last_close * row['Shares'] # Short Exposure (Absolute Value)
+                        val = last_close * row['Shares']
 
                     current_prices.append(last_close)
                     open_pnls.append(pnl)
@@ -1052,14 +1030,12 @@ def main():
                 open_df['Open PnL'] = open_pnls
                 open_df['Mkt Value'] = current_values
 
-                # 3. Calculate Portfolio Totals
                 total_long = open_df[open_df['Action'] == 'BUY']['Mkt Value'].sum()
                 total_short = open_df[open_df['Action'] == 'SELL SHORT']['Mkt Value'].sum()
                 net_exposure = total_long - total_short
                 total_open_pnl = open_df['Open PnL'].sum()
                 num_positions = len(open_df)
 
-                # 4. Display Metrics
                 st.divider()
                 st.subheader("💼 Current Exposure (Active Positions)")
                 
@@ -1072,7 +1048,6 @@ def main():
                           delta_color="normal", 
                           delta=f"{total_open_pnl:,.2f}")
 
-                # 5. Display the Detailed Table
                 st.dataframe(open_df.style.format({
                     "Date": "{:%Y-%m-%d}", 
                     "Time Stop": "{:%Y-%m-%d}",
@@ -1083,7 +1058,8 @@ def main():
                 }), use_container_width=True)
             else:
                 st.info("No active positions (Time Stop >= Today).")
-                
+
+            st.divider()
             st.subheader("📊 Strategy Performance Metrics")
             stats_df = calculate_performance_stats(sig_df)
             st.dataframe(stats_df.style.format({
@@ -1113,5 +1089,7 @@ def main():
             st.warning(f"No signals found in the backtest period starting from {user_start_date}.")
     else:
         st.info("👈 Please select a start year/date and click 'Run Backtest' in the sidebar to begin.")
+
 if __name__ == "__main__":
     main()
+
