@@ -498,15 +498,26 @@ def calculate_indicators(df, sznl_map, ticker, market_series=None):
 def get_historical_mask(df, params, sznl_map):
     mask = pd.Series(True, index=df.index)
 
+    # 0. Day of Week Filter
     if params.get('use_dow_filter', False):
         allowed = params.get('allowed_days', [])
         mask &= df.index.dayofweek.isin(allowed)
 
+    # 1. Liquidity & Age Gates
     mask &= (df['Close'] >= params.get('min_price', 0))
     mask &= (df['vol_ma'] >= params.get('min_vol', 0))
     mask &= (df['age_years'] >= params.get('min_age', 0))
     mask &= (df['age_years'] <= params.get('max_age', 100))
 
+    # 1b. ATR % Filter (MISSING IN ORIGINAL)
+    if 'ATR' in df.columns:
+        # Calculate ATR % (ATR / Close * 100)
+        atr_pct = (df['ATR'] / df['Close']) * 100
+        min_atr = params.get('min_atr_pct', 0.0)
+        max_atr = params.get('max_atr_pct', 1000.0)
+        mask &= (atr_pct >= min_atr) & (atr_pct <= max_atr)
+
+    # 2. Trend Filter (Global)
     trend_opt = params.get('trend_filter', 'None')
     if trend_opt == "Price > 200 SMA":
         mask &= (df['Close'] > df['SMA200'])
@@ -518,20 +529,46 @@ def get_historical_mask(df, params, sznl_map):
             if ">" in trend_opt: mask &= is_above
             elif "<" in trend_opt: mask &= ~is_above
 
+    # 2b. MA Consecutive Filters (MISSING IN ORIGINAL - Crucial for Ugly Monday)
+    if 'ma_consec_filters' in params:
+        for maf in params['ma_consec_filters']:
+            length = maf['length']
+            col_name = f"SMA{length}"
+            if col_name not in df.columns: continue
+            
+            if maf['logic'] == 'Above':
+                cond = df['Close'] > df[col_name]
+            elif maf['logic'] == 'Below':
+                cond = df['Close'] < df[col_name]
+            else:
+                continue
+
+            consec = maf.get('consec', 1)
+            if consec > 1:
+                # Rolling sum of boolean (True=1) must equal window size
+                cond = (cond.rolling(consec).sum() == consec)
+            
+            mask &= cond
+
+    # 3. Candle Range Filter
     if params.get('use_range_filter', False):
         rn_val = df['RangePct'] * 100
         mask &= (rn_val >= params.get('range_min', 0)) & (rn_val <= params.get('range_max', 100))
 
+    # 4. Perf Rank Filters
     if 'perf_filters' in params:
         for pf in params['perf_filters']:
             col = f"rank_ret_{pf['window']}d"
             consec = pf.get('consecutive', 1)
             if pf['logic'] == '<': cond_f = df[col] < pf['thresh']
             else: cond_f = df[col] > pf['thresh']
+            
             if consec > 1: cond_f = (cond_f.rolling(consec).sum() == consec)
             mask &= cond_f
+            
         if params.get('perf_first_instance', False):
             lookback = params.get('perf_lookback', 21)
+            # Check if sum of previous 'lookback' days is 0
             prev_inst = mask.shift(1).rolling(lookback).sum()
             mask &= (prev_inst == 0)
 
@@ -539,15 +576,18 @@ def get_historical_mask(df, params, sznl_map):
         col = f"rank_ret_{params['perf_window']}d"
         if params['perf_logic'] == '<': raw = df[col] < params['perf_thresh']
         else: raw = df[col] > params['perf_thresh']
+        
         consec = params.get('perf_consecutive', 1)
         if consec > 1: persist = (raw.rolling(consec).sum() == consec)
         else: persist = raw
+        
         mask &= persist
         if params.get('perf_first_instance', False):
             lookback = params.get('perf_lookback', 21)
             prev_inst = mask.shift(1).rolling(lookback).sum()
             mask &= (prev_inst == 0)
 
+    # 5. Gap/Acc/Dist Filters
     if params.get('use_gap_filter', False):
         lookback = params.get('gap_lookback', 21)
         col_name = f'GapCount_{lookback}' if f'GapCount_{lookback}' in df.columns else 'GapCount_21'
@@ -578,6 +618,7 @@ def get_historical_mask(df, params, sznl_map):
             elif dist_logic == '>': mask &= (df[col_name] > dist_thresh)
             elif dist_logic == '<': mask &= (df[col_name] < dist_thresh)
 
+    # 6. Distance Filter
     if params.get('use_dist_filter', False):
         ma_type = params.get('dist_ma_type', 'SMA 200')
         ma_col = ma_type.replace(" ", "") 
@@ -591,6 +632,7 @@ def get_historical_mask(df, params, sznl_map):
             elif d_logic == "Less Than (<)": mask &= (dist_units < d_max)
             elif d_logic == "Between": mask &= (dist_units >= d_min) & (dist_units <= d_max)
 
+    # 7. Seasonality
     if params['use_sznl']:
         if params['sznl_logic'] == '<': raw_sznl = df['Sznl'] < params['sznl_thresh']
         else: raw_sznl = df['Sznl'] > params['sznl_thresh']
@@ -606,15 +648,22 @@ def get_historical_mask(df, params, sznl_map):
         if params['market_sznl_logic'] == '<': mask &= (mkt_ranks < params['market_sznl_thresh'])
         else: mask &= (mkt_ranks > params['market_sznl_thresh'])
 
+    # 8. 52w High/Low
     if params['use_52w']:
         if params['52w_type'] == 'New 52w High': cond_52 = df['is_52w_high']
         else: cond_52 = df['is_52w_low']
+        
         if params.get('52w_first_instance', True):
             lookback = params.get('52w_lookback', 21)
             prev = cond_52.shift(1).rolling(lookback).sum()
             cond_52 &= (prev == 0)
         mask &= cond_52
 
+    # 8b. Exclude 52w High (MISSING IN ORIGINAL)
+    if params.get('exclude_52w_high', False):
+        mask &= (~df['is_52w_high'])
+
+    # 9. Volume (Ratio ONLY)
     if params['use_vol']:
         mask &= (df['vol_ratio'] > params['vol_thresh'])
 
