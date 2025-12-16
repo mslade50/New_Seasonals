@@ -671,20 +671,7 @@ def get_historical_mask(df, params, sznl_map):
         val = df['vol_ratio_10d_rank']
         if params['vol_rank_logic'] == '<': mask &= (val < params['vol_rank_thresh'])
         else: mask &= (val > params['vol_rank_thresh'])
-    # DEBUG: Check specifically for ITA on the specific date
-    debug_date = pd.Timestamp("2025-11-21")
-    if debug_date in df.index:
-        # Check specific filters for the last row (or specific date)
-        # Assuming you are running this for 'ITA'
-        print(f"\n--- DEBUG ITA on {debug_date.date()} ---")
-        print(f"Price: {df.loc[debug_date]['Close']}")
-        print(f"Vol Rank: {df.loc[debug_date]['vol_ratio_10d_rank']} (Thresh: {params.get('vol_rank_thresh')})")
-        print(f"Perf Rank 21d: {df.loc[debug_date]['rank_ret_21d']} (Thresh: {params.get('perf_filters')[1]['thresh']})")
-        
-        if 'Market_Above_SMA200' in df.columns:
-            print(f"Market > 200: {df.loc[debug_date]['Market_Above_SMA200']}")
-        else:
-            print("Market > 200: COLUMN MISSING (Filter Skipped)")
+
     return mask.fillna(False)
 
 def calculate_trade_result(df, signal_date, action, shares, entry_price, hold_days):
