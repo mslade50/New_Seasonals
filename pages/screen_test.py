@@ -973,17 +973,12 @@ def main():
 
                         hold_days = strat['execution']['hold_days']
                         try:
-                            # We need the index of the Entry Date
                             e_idx = df.index.get_loc(entry_date)
-                            
-                            # The time stop is 'hold_days' trading sessions after entry
                             ts_idx = e_idx + hold_days
                             
                             if ts_idx < len(df):
                                 time_stop_date = df.index[ts_idx]
                             else:
-                                # If the time stop is in the future (beyond available data), 
-                                # project it using Business Days
                                 time_stop_date = entry_date + BusinessDay(hold_days)
                         except:
                             time_stop_date = pd.NaT
@@ -991,7 +986,7 @@ def main():
                         all_signals.append({
                             "Date": d.date(), 
                             "Exit Date": exit_date.date(),
-                            "Time Stop": time_stop_date.date(),  # <--- NEW FIELD
+                            "Time Stop": time_stop_date,  # <--- CHANGED: Removed .date()
                             "Strategy": strat['name'],
                             "Ticker": ticker,
                             "Action": action,
@@ -1013,6 +1008,7 @@ def main():
             sig_df = pd.DataFrame(all_signals)
             sig_df['Date'] = pd.to_datetime(sig_df['Date'])
             sig_df['Exit Date'] = pd.to_datetime(sig_df['Exit Date'])
+            sig_df['Time Stop'] = pd.to_datetime(sig_df['Time Stop']) # This works safely now
             sig_df = sig_df.sort_values(by="Exit Date")
             # =================================================================
             # NEW: CURRENT EXPOSURE SECTION
