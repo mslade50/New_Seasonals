@@ -1014,7 +1014,80 @@ def main():
             sig_df['Date'] = pd.to_datetime(sig_df['Date'])
             sig_df['Exit Date'] = pd.to_datetime(sig_df['Exit Date'])
             sig_df = sig_df.sort_values(by="Exit Date")
+            # =================================================================
+            # NEW: CURRENT EXPOSURE SECTION
+            # =================================================================
+            today = pd.Timestamp(datetime.date.today())
+            
+            # 1. Filter for Open Positions (Time Stop >= Today)
+            open_mask = sig_df['Time Stop'] >= today
+            open_df = sig_df[open_mask].copy()
 
+            if not open_df.empty:
+                # 2. Calculate Open PnL & Current Exposure
+                # We need to fetch the LATEST price for each ticker to calculate live PnL
+                current_prices = []
+                open_pnls = []
+                current_values = []
+
+                for idx, row in open_df.iterrows():
+                    ticker = row['Ticker']
+                    # Fetch latest close from the data we already downloaded
+                    t_df = master_dict.get(ticker.replace('.', '-'))
+                    
+                    if t_df is not None and not t_df.empty:
+                        last_close = t_df.iloc[-1]['Close']
+                    else:
+                        last_close = row['Price'] # Fallback to entry price
+
+                    # Calculate Open PnL
+                    if row['Action'] == 'BUY':
+                        pnl = (last_close - row['Price']) * row['Shares']
+                        val = last_close * row['Shares'] # Long Exposure
+                    else:
+                        pnl = (row['Price'] - last_close) * row['Shares']
+                        val = last_close * row['Shares'] # Short Exposure (Absolute Value)
+
+                    current_prices.append(last_close)
+                    open_pnls.append(pnl)
+                    current_values.append(val)
+
+                open_df['Current Price'] = current_prices
+                open_df['Open PnL'] = open_pnls
+                open_df['Mkt Value'] = current_values
+
+                # 3. Calculate Portfolio Totals
+                total_long = open_df[open_df['Action'] == 'BUY']['Mkt Value'].sum()
+                total_short = open_df[open_df['Action'] == 'SELL SHORT']['Mkt Value'].sum()
+                net_exposure = total_long - total_short
+                total_open_pnl = open_df['Open PnL'].sum()
+                num_positions = len(open_df)
+
+                # 4. Display Metrics
+                st.divider()
+                st.subheader("💼 Current Exposure (Active Positions)")
+                
+                m1, m2, m3, m4, m5 = st.columns(5)
+                m1.metric("# Positions", num_positions)
+                m2.metric("Total Long", f"${total_long:,.0f}")
+                m3.metric("Total Short", f"${total_short:,.0f}")
+                m4.metric("Net Exposure", f"${net_exposure:,.0f}")
+                m5.metric("Total Open PnL", f"${total_open_pnl:,.2f}", 
+                          delta_color="normal", 
+                          delta=f"{total_open_pnl:,.2f}")
+
+                # 5. Display the Detailed Table
+                st.dataframe(open_df.style.format({
+                    "Date": "{:%Y-%m-%d}", 
+                    "Time Stop": "{:%Y-%m-%d}",
+                    "Price": "${:.2f}", 
+                    "Current Price": "${:.2f}",
+                    "Open PnL": "${:,.2f}",
+                    "Range %": "{:.1f}%"
+                }), use_container_width=True)
+            else:
+                st.info("No active positions (Time Stop >= Today).")
+                
             st.subheader("📊 Strategy Performance Metrics")
             stats_df = calculate_performance_stats(sig_df)
             st.dataframe(stats_df.style.format({
