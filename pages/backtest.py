@@ -347,6 +347,10 @@ def run_engine(universe_dict, params, sznl_map, market_series=None, vix_series=N
                 conditions.append(df['Close'] > df['SMA200'])
             elif trend_opt == "Price > Rising 200 SMA":
                 conditions.append((df['Close'] > df['SMA200']) & (df['SMA200'] > df['SMA200'].shift(1)))
+            elif trend_opt == "Not Below Declining 200 SMA":
+                is_below = df['Close'] < df['SMA200']
+                is_declining = df['SMA200'] < df['SMA200'].shift(1)
+                conditions.append(~(is_below & is_declining))
             elif trend_opt == "Price < 200 SMA":
                 conditions.append(df['Close'] < df['SMA200'])
             elif trend_opt == "Price < Falling 200 SMA":
@@ -1071,7 +1075,7 @@ def main():
         t1, _ = st.columns([1, 3])
         with t1:
             trend_filter = st.selectbox("Trend Condition", 
-                ["None", "Price > 200 SMA", "Price > Rising 200 SMA", "Market > 200 SMA",
+                ["None", "Price > 200 SMA","Not Below Declining 200 SMA", "Price > Rising 200 SMA", "Market > 200 SMA",
                  "Price < 200 SMA", "Price < Falling 200 SMA", "Market < 200 SMA"],
                 help=f"Requires 200 days of data. 'Market' filters check the regime of {MARKET_TICKER}.")
     with st.expander("Performance Percentile Rank (Granular Multi-Filter)", expanded=False):
