@@ -84,8 +84,8 @@ def display_spx_rank_table():
         
         today = pd.Timestamp(date.today())
         # If today is weekend, this snaps to nearest business days
-        start_date = today - BusinessDay(2)
-        end_date = today + BusinessDay(2)
+        start_date = today - BusinessDay(20)
+        end_date = today + BusinessDay(20)
         
         mask = (
             (df[ticker_col] == '^GSPC') & 
