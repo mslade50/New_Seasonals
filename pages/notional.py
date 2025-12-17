@@ -13,7 +13,7 @@ FUTURES_SPECS = {
     'E-mini Russell 2000': {'yf': 'RTY=F', 'mult': 50,   'tick': 0.10, 'sector': 'Index'},
     'E-mini Dow ($5)':     {'yf': 'YM=F',  'mult': 5,    'tick': 1.00, 'sector': 'Index'},
     'VIX Futures':         {'yf': 'VX=F',  'mult': 1000, 'tick': 0.05, 'sector': 'Index'},
-    'Micro VIX Futures':   {'yf': 'VXM=F', 'mult': 100,  'tick': 0.05, 'sector': 'Index'}, # Added
+    'Micro VIX Futures':   {'yf': 'VXM=F', 'mult': 100,  'tick': 0.05, 'sector': 'Index'},
 
     # --- CURRENCIES ---
     'Euro FX':         {'yf': '6E=F', 'mult': 125000,   'tick': 0.00005,   'sector': 'Currency'},
@@ -62,7 +62,6 @@ def get_market_data():
     """
     tickers = [spec['yf'] for spec in FUTURES_SPECS.values()]
     
-    # We need ~1 month to get a valid 14-period ATR
     try:
         df = yf.download(tickers, period="1mo", progress=False, group_by='ticker')
     except Exception as e:
@@ -71,28 +70,21 @@ def get_market_data():
         
     data_map = {}
     
-    # yf.download with group_by='ticker' returns a MultiIndex if len(tickers) > 1
-    # Structure: df[Ticker][Open/High/Low/Close]
-    
     for ticker in tickers:
         try:
-            # Handle single ticker vs multi-ticker structure
             if len(tickers) == 1:
                 ticker_df = df
             else:
                 ticker_df = df[ticker]
             
-            # Check if empty (sometimes YF returns empty cols for bad tickers)
             if ticker_df.empty or ticker_df['Close'].isnull().all():
                 data_map[ticker] = {'price': 0.0, 'atr': 0.0}
                 continue
 
-            # 1. Get Current Price (Last Close)
             last_price = ticker_df['Close'].iloc[-1]
             if pd.isna(last_price): last_price = 0.0
             
-            # 2. Calculate ATR (14)
-            # TR = max(High - Low, abs(High - PrevClose), abs(Low - PrevClose))
+            # ATR Calc
             high = ticker_df['High']
             low = ticker_df['Low']
             close = ticker_df['Close']
@@ -101,7 +93,6 @@ def get_market_data():
             tr1 = high - low
             tr2 = (high - prev_close).abs()
             tr3 = (low - prev_close).abs()
-            
             tr = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
             atr_series = tr.rolling(window=14).mean()
             last_atr = atr_series.iloc[-1]
@@ -111,7 +102,6 @@ def get_market_data():
             data_map[ticker] = {'price': last_price, 'atr': last_atr}
             
         except Exception as e:
-            # Fail gracefully for individual tickers
             data_map[ticker] = {'price': 0.0, 'atr': 0.0}
             
     return data_map
@@ -124,11 +114,9 @@ def futures_dashboard():
     if st.button("Refresh Data"):
         st.rerun()
 
-    # 1. Fetch Data
     with st.spinner("Fetching OHLC data for ATR calculation..."):
         market_data = get_market_data()
 
-    # 2. Build Table
     table_data = []
     
     for name, spec in FUTURES_SPECS.items():
@@ -136,14 +124,12 @@ def futures_dashboard():
         sector = spec['sector']
         mult = spec['mult']
         
-        # Retrieve data
         data = market_data.get(yf_tick, {'price': 0.0, 'atr': 0.0})
         price = data['price']
         atr = data['atr']
         
-        # --- MULTIPLIER LOGIC (Cents vs Dollars) ---
+        # Multiplier Logic
         calc_mult = mult 
-        
         if sector == 'Ags':
             if name in ['Corn (5000bu)', 'Soybeans (5000bu)', 'Wheat (5000bu)']:
                 calc_mult = 50 
@@ -152,11 +138,8 @@ def futures_dashboard():
             elif name == 'Sugar': calc_mult = 1120
             elif name == 'Coffee': calc_mult = 375
 
-        # --- CALCULATIONS ---
         notional = price * calc_mult
         
-        # User Formula: ATR Implied ($) = (ATR / Price) * 0.75 * Notional
-        # Note: If price is 0, avoid division by zero
         if price > 0:
             atr_implied = (atr / price) * 0.75 * notional
         else:
@@ -177,16 +160,18 @@ def futures_dashboard():
 
     df = pd.DataFrame(table_data)
     
-    # 3. Formatting
+    # Sorting
     df = df.sort_values(by=['Sector', 'Notional ($)'], ascending=[True, False])
 
+    # Display
     st.dataframe(
         df,
         column_config={
             "Price": st.column_config.NumberColumn(format="%.2f"),
-            "Notional ($)": st.column_config.NumberColumn(format="$%.2f"),
             "ATR (14d)": st.column_config.NumberColumn(format="%.2f"),
-            "ATR Implied ($)": st.column_config.NumberColumn(format="$%.2f", help="(ATR/Price) * 0.75 * Notional"),
+            # UPDATED: format="$%d" removes decimals and typically adds commas in Streamlit tables
+            "Notional ($)": st.column_config.NumberColumn(format="$%d"),
+            "ATR Implied ($)": st.column_config.NumberColumn(format="$%d", help="(ATR/Price) * 0.75 * Notional"),
         },
         use_container_width=True,
         hide_index=True,
