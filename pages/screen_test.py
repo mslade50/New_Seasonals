@@ -85,7 +85,7 @@ STRATEGY_BOOK = [
         "id": "Lower 10% of range",
         "name": "Bottom of Range Reversion",
         "description": "Start: 2000-01-01. Universe: Indices. Dir: Long. Filter: None. PF: 1.49. SQN: 8.83.",
-        "universe_tickers": ['SPY', 'QQQ', 'IWM', 'DIA', 'SMH', '^GSPC', '^NDX'], 
+        "universe_tickers": ['SPY', 'QQQ', 'IWM', 'DIA', 'SMH'], 
         "settings": {
             "trade_direction": "Long", "entry_type": "Signal Close", "max_one_pos": True,
             "allow_same_day_reentry": False, "max_daily_entries": 2, "max_total_positions": 10,
