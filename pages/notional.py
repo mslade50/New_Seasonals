@@ -42,7 +42,7 @@ FUTURES_SPECS = {
     'Ultra 10-Year':      {'yf': 'TN=F',  'mult': 1000, 'tick': 0.015625, 'sector': 'Rates'},
     '30-Year T-Bond':     {'yf': 'ZB=F',  'mult': 1000, 'tick': 0.03125,  'sector': 'Rates'},
     '2-Year T-Note':      {'yf': 'ZT=F',  'mult': 2000, 'tick': 0.0078125,'sector': 'Rates'},
-    'Micro 10Y Yield':    {'yf': '10Y=F', 'mult': 100,  'tick': 0.001,    'sector': 'Rates'},
+    'Micro 10Y Yield':    {'yf': '10Y=F', 'mult': 10000,  'tick': 0.001,    'sector': 'Rates'},
 
     # --- GRAINS / SOFTS ---
     'Corn (5000bu)':       {'yf': 'ZC=F', 'mult': 5000,  'tick': 0.25,  'sector': 'Ags'},
