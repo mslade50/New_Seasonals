@@ -172,7 +172,7 @@ STRATEGY_BOOK = [
             "gap_logic": ">", "gap_thresh": 3
         },
         "execution": {
-            "risk_per_trade": 300,
+            "risk_per_trade": 125,
             "slippage_bps": 2,
             "stop_atr": 1.0,
             "tgt_atr": 2.0,
