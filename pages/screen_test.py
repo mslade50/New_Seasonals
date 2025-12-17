@@ -103,7 +103,7 @@ STRATEGY_BOOK = [
             "use_dist_filter": False, "dist_ma_type": "SMA 10", "dist_logic": "Greater Than (>)", "dist_min": 0.0, "dist_max": 2.0,
             "use_gap_filter": False, "gap_lookback": 21, "gap_logic": ">", "gap_thresh": 3
         },
-        "execution": { "risk_per_trade": 300, "slippage_bps": 2, "stop_atr": 1.0, "tgt_atr": 2.0, "hold_days": 2 },
+        "execution": { "risk_per_trade": 100, "slippage_bps": 2, "stop_atr": 1.0, "tgt_atr": 2.0, "hold_days": 2 },
         "stats": { "grade": "B", "win_rate": "54.9%", "expectancy": "$174.76", "profit_factor": "1.49" }
     },
     # 5. LIQUID SEASONALS (SHORT TERM)
