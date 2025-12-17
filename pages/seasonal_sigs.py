@@ -50,6 +50,49 @@ def calculate_pivot_levels(df, period=DEFAULT_PIVOT_PERIOD):
     
     return df
 
+def display_spx_rank_table():
+    RANK_FILE = "sznl_ranks.csv"
+    
+    # 1. Check if file exists
+    if not os.path.exists(RANK_FILE):
+        st.warning(f"File '{RANK_FILE}' not found.")
+        return
+
+    try:
+        # 2. Load and Format
+        df = pd.read_csv(RANK_FILE)
+        
+        # Ensure Date column is datetime objects
+        df['Date'] = pd.to_datetime(df['Date'])
+        
+        # 3. Define the Date Range (Today +/- 2 Business Days)
+        today = pd.Timestamp(date.today())
+        start_date = today - BusinessDay(2)
+        end_date = today + BusinessDay(2)
+        
+        # 4. Filter for ^GSPC and Date Range
+        mask = (
+            (df['Ticker'] == '^GSPC') & 
+            (df['Date'] >= start_date) & 
+            (df['Date'] <= end_date)
+        )
+        
+        subset = df.loc[mask, ['Date', 'seasonal_rank']].copy()
+        
+        # 5. Clean up for Display
+        if not subset.empty:
+            subset['Date'] = subset['Date'].dt.strftime('%Y-%m-%d')
+            subset = subset.sort_values('Date')
+            
+            st.subheader("📆 S&P 500 Seasonal Ranks (T-2 to T+2)")
+            # Use st.table for a static, clean look, or st.dataframe for interactive
+            st.table(subset.set_index('Date'))
+        else:
+            st.info(f"No seasonal rank data found for ^GSPC between {start_date.date()} and {end_date.date()}")
+
+    except Exception as e:
+        st.error(f"Error loading seasonal ranks table: {e}")
+        
 # -----------------------------------------------------------------------------
 # PLOTTING FUNCTIONS
 # -----------------------------------------------------------------------------
@@ -309,6 +352,19 @@ def plot_candlestick_and_mas(ticker, stats_row=None):
 # -----------------------------------------------------------------------------
 
 def seasonal_signals_page():
+    st.set_page_config(layout="wide", page_title="Seasonal Signals")
+    st.title("💡 Seasonal Signals")
+
+    # --- NEW: Display the Rank Table at the top ---
+    display_spx_rank_table()
+    st.markdown("---") 
+    # ----------------------------------------------
+    
+    if not os.path.exists(CSV_FILE_PATH):
+        st.error(f"File '{CSV_FILE_PATH}' not found.")
+        return
+
+    df_screener = pd.read_csv(CSV_FILE_PATH)
     st.set_page_config(layout="wide", page_title="Seasonal Signals")
     st.title("💡 Seasonal Signals")
     
