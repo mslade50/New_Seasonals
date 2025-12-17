@@ -20,7 +20,7 @@ SECTOR_ETFS = [
     "XBI", "XHB", "XLB", "XLC", "XLE", "XLF", "XLI", "XLK", "XLP",
     "XLU", "XLV", "XLY", "XME", "XOP", "XRT", 
 ]
-
+SPX=['^GSPC','SPY']
 INDEX_ETFS = ["SPY", "QQQ", "IWM", "DIA", "SMH"]
 
 INTERNATIONAL_ETFS = [
@@ -1196,6 +1196,7 @@ def main():
         sznl_map = load_seasonal_map()
         if univ_choice == "Sector ETFs": tickers_to_run = SECTOR_ETFS
         elif univ_choice == "Indices": tickers_to_run = INDEX_ETFS
+        elif univ_choice == "SPX": tickers_to_run = SPX
         elif univ_choice == "International ETFs": tickers_to_run = INTERNATIONAL_ETFS
         elif univ_choice == "Sector + Index ETFs": tickers_to_run = list(set(SECTOR_ETFS + INDEX_ETFS))
         elif univ_choice == "All CSV Tickers": tickers_to_run = [t for t in list(sznl_map.keys()) if t not in ["BTC-USD", "ETH-USD"]]
