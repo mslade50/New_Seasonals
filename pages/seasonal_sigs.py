@@ -51,47 +51,66 @@ def calculate_pivot_levels(df, period=DEFAULT_PIVOT_PERIOD):
     return df
 
 def display_spx_rank_table():
-    RANK_FILE = "sznl_ranks.csv"
-    
-    # 1. Check if file exists
+    # 1. PATH SETUP: Look in parent folder (../) since we are in pages/, 
+    # but fallback to current folder if running from root.
+    RANK_FILE = "../sznl_ranks.csv"
     if not os.path.exists(RANK_FILE):
-        st.warning(f"File '{RANK_FILE}' not found.")
+        RANK_FILE = "sznl_ranks.csv"
+
+    if not os.path.exists(RANK_FILE):
+        st.warning("⚠️ File 'sznl_ranks.csv' not found in root or pages folder.")
         return
 
     try:
-        # 2. Load and Format
         df = pd.read_csv(RANK_FILE)
         
-        # Ensure Date column is datetime objects
+        # 2. COLUMN CLEANING: Strip whitespace from column names
+        df.columns = [c.strip() for c in df.columns]
+        
+        # 3. COLUMN FINDER: Handle Ticker vs ticker vs Symbol
+        ticker_col = None
+        possible_names = ['Ticker', 'ticker', 'Symbol', 'symbol']
+        for name in possible_names:
+            if name in df.columns:
+                ticker_col = name
+                break
+        
+        if not ticker_col:
+            st.error(f"❌ Column error. Found columns: {list(df.columns)}")
+            return
+
+        # 4. FILTERING
         df['Date'] = pd.to_datetime(df['Date'])
         
-        # 3. Define the Date Range (Today +/- 2 Business Days)
         today = pd.Timestamp(date.today())
+        # If today is weekend, this snaps to nearest business days
         start_date = today - BusinessDay(2)
         end_date = today + BusinessDay(2)
         
-        # 4. Filter for ^GSPC and Date Range
         mask = (
-            (df['Ticker'] == '^GSPC') & 
+            (df[ticker_col] == '^GSPC') & 
             (df['Date'] >= start_date) & 
             (df['Date'] <= end_date)
         )
         
-        subset = df.loc[mask, ['Date', 'seasonal_rank']].copy()
+        # Handle 'seasonal_rank' capitalization variations if needed
+        rank_col = 'seasonal_rank' if 'seasonal_rank' in df.columns else 'Rank'
         
-        # 5. Clean up for Display
+        subset = df.loc[mask, ['Date', rank_col]].copy()
+        
         if not subset.empty:
             subset['Date'] = subset['Date'].dt.strftime('%Y-%m-%d')
             subset = subset.sort_values('Date')
+            # Rename for a cleaner table header
+            subset.columns = ['Date', 'Seas Rank']
             
-            st.subheader("📆 S&P 500 Seasonal Ranks (T-2 to T+2)")
-            # Use st.table for a static, clean look, or st.dataframe for interactive
+            st.subheader("📆 S&P 500 Seasonal Ranks")
             st.table(subset.set_index('Date'))
         else:
-            st.info(f"No seasonal rank data found for ^GSPC between {start_date.date()} and {end_date.date()}")
+            st.info(f"No ^GSPC data found between {start_date.date()} and {end_date.date()}")
 
     except Exception as e:
-        st.error(f"Error loading seasonal ranks table: {e}")
+        st.error(f"Error processing table: {e}")
         
 # -----------------------------------------------------------------------------
 # PLOTTING FUNCTIONS
