@@ -300,7 +300,9 @@ def run_engine(universe_dict, params, sznl_map, market_series=None, vix_series=N
     is_limit_pivot = "Limit (Untested Pivot)" in entry_mode
     is_limit_entry = is_limit_atr or is_limit_prev or is_limit_open_atr or is_limit_pivot
     is_gap_up = "Gap Up Only" in entry_mode
-
+    is_overnight = "Overnight" in entry_mode
+    is_intraday = "Intraday" in entry_mode
+    
     use_ma_filter = params.get('use_ma_entry_filter', False)
     pullback_col = None
     if "10 SMA" in entry_mode: pullback_col = "SMA10"
@@ -308,525 +310,199 @@ def run_engine(universe_dict, params, sznl_map, market_series=None, vix_series=N
     pullback_use_level = "Level" in entry_mode
     
     gap_window = params.get('gap_lookback', 21)
-
     total_signals_generated = 0
 
     progress_bar = st.progress(0)
     status_text = st.empty()
     
-    # Pre-extract required custom MA lengths for calculation
-    req_custom_mas = []
-    for f in params.get('ma_consec_filters', []):
-        req_custom_mas.append(f['length'])
-    req_custom_mas = list(set(req_custom_mas))
+    # Pre-extract required custom MA lengths
+    req_custom_mas = list(set([f['length'] for f in params.get('ma_consec_filters', [])]))
 
     for i, (ticker, df_raw) in enumerate(universe_dict.items()):
         status_text.text(f"Scanning signals for {ticker}...")
         progress_bar.progress((i+1)/total)
         
-        if ticker == MARKET_TICKER and MARKET_TICKER not in params.get('universe_tickers', []):
-            continue
-        if ticker == VIX_TICKER: 
-            continue
-
+        if ticker == MARKET_TICKER and MARKET_TICKER not in params.get('universe_tickers', []): continue
+        if ticker == VIX_TICKER: continue
         if len(df_raw) < 100: continue
         
         ticker_last_exit = pd.Timestamp.min
         
         try:
             df = calculate_indicators(df_raw, sznl_map, ticker, market_series, vix_series, gap_window=gap_window, custom_sma_lengths=req_custom_mas)
-            
             df = df[df.index >= bt_start_ts]
             if df.empty: continue
             
+            # --- START SIGNAL CONDITIONS ---
             conditions = []
             
-            # --- TREND FILTER ---
+            # Trend Filter
             trend_opt = params.get('trend_filter', 'None')
-            if trend_opt == "Price > 200 SMA":
-                conditions.append(df['Close'] > df['SMA200'])
-            elif trend_opt == "Price > Rising 200 SMA":
-                conditions.append((df['Close'] > df['SMA200']) & (df['SMA200'] > df['SMA200'].shift(1)))
-            elif trend_opt == "Not Below Declining 200 SMA":
-                is_below = df['Close'] < df['SMA200']
-                is_declining = df['SMA200'] < df['SMA200'].shift(1)
-                conditions.append(~(is_below & is_declining))
-            elif trend_opt == "Price < 200 SMA":
-                conditions.append(df['Close'] < df['SMA200'])
-            elif trend_opt == "Price < Falling 200 SMA":
-                conditions.append((df['Close'] < df['SMA200']) & (df['SMA200'] < df['SMA200'].shift(1)))
+            if trend_opt == "Price > 200 SMA": conditions.append(df['Close'] > df['SMA200'])
+            elif trend_opt == "Price > Rising 200 SMA": conditions.append((df['Close'] > df['SMA200']) & (df['SMA200'] > df['SMA200'].shift(1)))
+            elif trend_opt == "Not Below Declining 200 SMA": conditions.append(~((df['Close'] < df['SMA200']) & (df['SMA200'] < df['SMA200'].shift(1))))
+            elif trend_opt == "Price < 200 SMA": conditions.append(df['Close'] < df['SMA200'])
+            elif trend_opt == "Price < Falling 200 SMA": conditions.append((df['Close'] < df['SMA200']) & (df['SMA200'] < df['SMA200'].shift(1)))
             elif "Market" in trend_opt and 'Market_Above_SMA200' in df.columns:
-                if trend_opt == "Market > 200 SMA":
-                    conditions.append(df['Market_Above_SMA200'])
-                elif trend_opt == "Market < 200 SMA":
-                    conditions.append(~df['Market_Above_SMA200']) 
-            
-            # --- LIQUIDITY GATES ---
-            curr_age = df['age_years'].fillna(0)
-            curr_vol = df['vol_ma'].fillna(0)
-            curr_close = df['Close'].fillna(0)
-            curr_atr_pct = df['ATR_Pct'].fillna(0) 
-            
-            gate = (curr_close >= params['min_price']) & \
-                   (curr_vol >= params['min_vol']) & \
-                   (curr_age >= params['min_age']) & \
-                   (curr_age <= params['max_age']) & \
-                   (curr_atr_pct >= params['min_atr_pct'])& \
-                   (curr_atr_pct <= max_atr_pct)
-            conditions.append(gate)
+                if trend_opt == "Market > 200 SMA": conditions.append(df['Market_Above_SMA200'])
+                elif trend_opt == "Market < 200 SMA": conditions.append(~df['Market_Above_SMA200']) 
 
-            # --- PRICE ACTION ---
-            if params.get('require_close_gt_open', False):
-                conditions.append(df['Close'] > df['Open'])
+            # Liquidity & Gates
+            conditions.append((df['Close'] >= params['min_price']) & (df['vol_ma'] >= params['min_vol']) & 
+                              (df['age_years'] >= params['min_age']) & (df['age_years'] <= params['max_age']) & 
+                              (df['ATR_Pct'] >= params['min_atr_pct']) & (df['ATR_Pct'] <= params['max_atr_pct']))
+
+            if params.get('require_close_gt_open', False): conditions.append(df['Close'] > df['Open'])
             
-            # --- BREAKOUT FILTER ---
             bk_mode = params.get('breakout_mode', 'None')
-            if bk_mode == "Close > Prev Day High":
-                conditions.append(df['Close'] > df['High'].shift(1))
-            elif bk_mode == "Close < Prev Day Low":
-                conditions.append(df['Close'] < df['Low'].shift(1))
-            
+            if bk_mode == "Close > Prev Day High": conditions.append(df['Close'] > df['High'].shift(1))
+            elif bk_mode == "Close < Prev Day Low": conditions.append(df['Close'] < df['Low'].shift(1))
+
             if params.get('use_range_filter', False):
-                r_min = params.get('range_min', 0.0)
-                r_max = params.get('range_max', 100.0)
-                conditions.append((df['RangePct'] * 100 >= r_min) & (df['RangePct'] * 100 <= r_max))
+                conditions.append((df['RangePct'] * 100 >= params['range_min']) & (df['RangePct'] * 100 <= params['range_max']))
             
-            if params.get('use_dow_filter', False):
-                allowed_days = params.get('allowed_days', [])
-                if allowed_days:
-                    conditions.append(df['DayOfWeekVal'].isin(allowed_days))
-            
-            # --- GAP FILTER ---
+            if params.get('use_dow_filter', False): conditions.append(df['DayOfWeekVal'].isin(params['allowed_days']))
+
+            # Volume, Gaps, Acc/Dist
             if params.get('use_gap_filter', False):
-                g_logic = params['gap_logic']
-                g_thresh = params['gap_thresh']
-                if g_logic == ">": conditions.append(df['GapCount'] > g_thresh)
-                elif g_logic == "<": conditions.append(df['GapCount'] < g_thresh)
-                elif g_logic == "=": conditions.append(df['GapCount'] == g_thresh)
+                if params['gap_logic'] == ">": conditions.append(df['GapCount'] > params['gap_thresh'])
+                elif params['gap_logic'] == "<": conditions.append(df['GapCount'] < params['gap_thresh'])
+                elif params['gap_logic'] == "=": conditions.append(df['GapCount'] == params['gap_thresh'])
 
-            # --- ACCUMULATION FILTER ---
             if params.get('use_acc_count_filter', False):
-                win = params['acc_count_window']
-                logic = params['acc_count_logic']
-                thresh = params['acc_count_thresh']
-                
-                rolling_acc = df['is_acc_day'].rolling(win).sum()
-                
-                if logic == ">": conditions.append(rolling_acc > thresh)
-                elif logic == "<": conditions.append(rolling_acc < thresh)
-                elif logic == "=": conditions.append(rolling_acc == thresh)
+                r_acc = df['is_acc_day'].rolling(params['acc_count_window']).sum()
+                if params['acc_count_logic'] == ">": conditions.append(r_acc > params['acc_count_thresh'])
+                elif params['acc_count_logic'] == "<": conditions.append(r_acc < params['acc_count_thresh'])
+                elif params['acc_count_logic'] == "=": conditions.append(r_acc == params['acc_count_thresh'])
 
-            # --- DISTRIBUTION FILTER ---
-            if params.get('use_dist_count_filter', False):
-                win = params['dist_count_window']
-                logic = params['dist_count_logic']
-                thresh = params['dist_count_thresh']
-                
-                rolling_dist = df['is_dist_day'].rolling(win).sum()
-                
-                if logic == ">": conditions.append(rolling_dist > thresh)
-                elif logic == "<": conditions.append(rolling_dist < thresh)
-                elif logic == "=": conditions.append(rolling_dist == thresh)
+            # Perf & MA Consecutive
+            for pf in params.get('perf_filters', []):
+                col = f"rank_ret_{pf['window']}d"
+                c_f = (df[col] < pf['thresh']) if pf['logic'] == '<' else (df[col] > pf['thresh'])
+                if pf['consecutive'] > 1: c_f = c_f.rolling(pf['consecutive']).sum() == pf['consecutive']
+                conditions.append(c_f)
 
-            # --- MULTI-PERFORMANCE FILTER ---
-            perf_filters = params.get('perf_filters', [])
-            if perf_filters:
-                combined_perf_raw = pd.Series(True, index=df.index)
-                for pf in perf_filters:
-                    col = f"rank_ret_{pf['window']}d"
-                    consec_days = pf['consecutive'] 
-                    if pf['logic'] == '<': cond_f = df[col] < pf['thresh']
-                    else: cond_f = df[col] > pf['thresh']
-                    if consec_days > 1: cond_f = cond_f.rolling(consec_days).sum() == consec_days
-                    combined_perf_raw = combined_perf_raw & cond_f
-                
-                final_perf_cond = combined_perf_raw
-                if params.get('perf_first_instance', False):
-                    lookback = params.get('perf_lookback', 21)
-                    prev_instances = final_perf_cond.shift(1).rolling(lookback).sum()
-                    final_perf_cond = final_perf_cond & (prev_instances == 0)
-                conditions.append(final_perf_cond)
+            for f in params.get('ma_consec_filters', []):
+                col = f"SMA{f['length']}"
+                mask = (df['Close'] > df[col]) if f['logic'] == 'Above' else (df['Close'] < df[col])
+                if f['consec'] > 1: mask = mask.rolling(f['consec']).sum() == f['consec']
+                conditions.append(mask)
 
-            # --- CONSECUTIVE CLOSES VS SMA FILTER (NEW) ---
-            ma_consec_filters = params.get('ma_consec_filters', [])
-            if ma_consec_filters:
-                combined_ma_cond = pd.Series(True, index=df.index)
-                for f in ma_consec_filters:
-                    col = f"SMA{f['length']}"
-                    if col not in df.columns: continue
-                    
-                    if f['logic'] == 'Above':
-                        mask = df['Close'] > df[col]
-                    else:
-                        mask = df['Close'] < df[col]
-                    
-                    # Apply consecutive days logic
-                    if f['consec'] > 1:
-                        mask = (mask.rolling(f['consec']).sum() == f['consec'])
-                    
-                    combined_ma_cond = combined_ma_cond & mask
-                conditions.append(combined_ma_cond)
-
-            # --- DISTANCE FROM MA FILTER ---
-            if params.get('use_ma_dist_filter', False):
-                ma_choice = params['dist_ma_type']
-                ma_col_map = {
-                    "SMA 10": "SMA10", "SMA 20": "SMA20", "SMA 50": "SMA50", 
-                    "SMA 100": "SMA100", "SMA 200": "SMA200", 
-                    "EMA 8": "EMA8", "EMA 11": "EMA11", "EMA 21": "EMA21"
-                }
-                ma_col = ma_col_map.get(ma_choice, "SMA200")
-                
-                dist_atr_units = (df['Close'] - df[ma_col]) / df['ATR']
-                
-                logic = params['dist_logic']
-                d_min = params['dist_min']
-                d_max = params['dist_max']
-                
-                if logic == "Greater Than (>)":
-                    conditions.append(dist_atr_units > d_min)
-                elif logic == "Less Than (<)":
-                    conditions.append(dist_atr_units < d_max)
-                elif logic == "Between":
-                    conditions.append((dist_atr_units >= d_min) & (dist_atr_units <= d_max))
-
-            # --- SEASONALITY ---
+            # Sznl & 52w
             if params['use_sznl']:
-                if params['sznl_logic'] == '<': cond = df['Sznl'] < params['sznl_thresh']
-                else: cond = df['Sznl'] > params['sznl_thresh']
-                if params['sznl_first_instance']:
-                    prev = cond.shift(1).rolling(params['sznl_lookback']).sum()
-                    cond = cond & (prev == 0)
-                conditions.append(cond)
-            
-            if params.get('use_market_sznl', False):
-                market_ranks = get_sznl_val_series(MARKET_TICKER, df.index, sznl_map)
-                if params['market_sznl_logic'] == '<': cond = market_ranks < params['market_sznl_thresh']
-                else: cond = market_ranks > params['market_sznl_thresh']
-                conditions.append(cond)
-            
-            # --- 52W HIGHS/LOWS with LAG ---
+                c_s = (df['Sznl'] < params['sznl_thresh']) if params['sznl_logic'] == '<' else (df['Sznl'] > params['sznl_thresh'])
+                conditions.append(c_s)
+
             if params['use_52w']:
-                if params['52w_type'] == 'New 52w High': cond = df['is_52w_high']
-                else: cond = df['is_52w_low']
-                
-                # --- LAG LOGIC ---
-                lag = params.get('52w_lag', 0)
-                if lag > 0:
-                    cond = cond.shift(lag).fillna(False)
-                # -----------------
-
-                if params['52w_first_instance']:
-                    prev = cond.shift(1).rolling(params['52w_lookback']).sum()
-                    cond = cond & (prev == 0)
-                conditions.append(cond)
-
-            # --- EXCLUDE 52W HIGH TODAY ---
-            if params.get('exclude_52w_high', False):
-                conditions.append(~df['is_52w_high'])
-            
-            # --- VIX REGIME FILTER ---
-            if params.get('use_vix_filter', False) and 'VIX_Value' in df.columns:
-                v_min = params.get('vix_min', 0)
-                v_max = params.get('vix_max', 100)
-                conditions.append((df['VIX_Value'] >= v_min) & (df['VIX_Value'] <= v_max))
-
-            # --- VOL FILTERS ---
-            if params.get('vol_gt_prev', False):
-                conditions.append(df['Volume'] > df['Volume'].shift(1))
-
-            if params['use_vol']:
-                cond = df['vol_ratio'] > params['vol_thresh']
-                conditions.append(cond)
-
-            if params['use_vol_rank']:
-                if params['vol_rank_logic'] == '<': cond = df['vol_ratio_10d_rank'] < params['vol_rank_thresh']
-                else: cond = df['vol_ratio_10d_rank'] > params['vol_rank_thresh']
-                conditions.append(cond)
+                c_52 = df['is_52w_high'] if params['52w_type'] == 'New 52w High' else df['is_52w_low']
+                if params.get('52w_lag', 0) > 0: c_52 = c_52.shift(params['52w_lag']).fillna(False)
+                conditions.append(c_52)
 
             if not conditions: continue
-            
             final_signal = conditions[0]
             for c in conditions[1:]: final_signal = final_signal & c
             
             signal_dates = df.index[final_signal]
             total_signals_generated += len(signal_dates)
-            
-            # --- TRADE EXECUTION SIMULATION ---
+
+            # --- EXECUTION LOOP ---
             for signal_date in signal_dates:
-                
-                if max_one_pos_per_ticker:
-                    if allow_same_day_reentry:
-                        if signal_date < ticker_last_exit: continue
-                    else:
-                        if signal_date <= ticker_last_exit: continue
+                if max_one_pos_per_ticker and signal_date <= ticker_last_exit: continue
                 
                 sig_idx = df.index.get_loc(signal_date)
-                fixed_exit_idx = sig_idx + params['holding_days']
-                if fixed_exit_idx >= len(df): continue
+                if sig_idx + 1 >= len(df): continue
 
                 found_entry = False
                 actual_entry_idx = -1
                 actual_entry_price = 0.0
-                entry_failure_reason = "" # Capture why entry failed
-                
-                # PATH A: PULLBACK
-                if is_pullback and pullback_col:
+                entry_failure_reason = ""
+
+                # --- ENTRY LOGIC BRANCHES ---
+                if is_overnight:
+                    found_entry, actual_entry_idx, actual_entry_price = True, sig_idx, df['Close'].iloc[sig_idx]
+                elif is_intraday:
+                    found_entry, actual_entry_idx, actual_entry_price = True, sig_idx + 1, df['Open'].iloc[sig_idx + 1]
+                elif is_pullback and pullback_col:
                     for wait_i in range(1, params['holding_days'] + 1):
-                        curr_check_idx = sig_idx + wait_i
-                        if curr_check_idx >= len(df): break
-                        
-                        row = df.iloc[curr_check_idx]
-                        ma_val = row[pullback_col]
-                        if np.isnan(ma_val): continue
-
-                        if row['Low'] <= ma_val:
-                            if use_ma_filter:
-                                cutoff = ma_val - (0.25 * row['ATR'])
-                                if row['Close'] < cutoff:
-                                    entry_failure_reason = "MA Filter (Close < MA-0.25ATR)"
-                                    continue 
-                            
-                            found_entry = True
-                            actual_entry_idx = curr_check_idx
-                            if pullback_use_level: actual_entry_price = ma_val
-                            else: actual_entry_price = row['Close']
+                        curr_idx = sig_idx + wait_i
+                        if curr_idx >= len(df): break
+                        if df.iloc[curr_idx]['Low'] <= df.iloc[curr_idx][pullback_col]:
+                            found_entry, actual_entry_idx = True, curr_idx
+                            actual_entry_price = df.iloc[curr_idx][pullback_col] if pullback_use_level else df.iloc[curr_idx]['Close']
                             break
-                        else:
-                            entry_failure_reason = "Price did not touch MA"
-
-                # PATH B: LIMIT ENTRIES (INCLUDING PIVOT)
-                elif is_limit_entry:
-                    sig_row = df.iloc[sig_idx]
-                    sig_close = sig_row['Close']
-                    sig_atr = sig_row['ATR']
-                    
-                    limit_price = 0.0
-                    
-                    # 1. Untested Pivot Logic
-                    if is_limit_pivot:
-                        if direction == 'Long':
-                            limit_price = sig_row.get('LastPivotLow', 0.0)
-                            # Logic: If signal close is ALREADY below pivot, it's broken or we missed it.
-                            if sig_close < limit_price: limit_price = 0.0
-                        else:
-                            limit_price = sig_row.get('LastPivotHigh', 0.0)
-                            # Logic: If signal close is ALREADY above pivot, broken.
-                            if sig_close > limit_price: limit_price = 0.0
-                    
-                    # 2. Standard Limit Logic
-                    elif not np.isnan(sig_atr):
-                        if is_limit_atr:
-                            if direction == 'Long': limit_price = sig_close - (0.5 * sig_atr)
-                            else: limit_price = sig_close + (0.5 * sig_atr)
-                        elif is_limit_prev: 
-                            limit_price = sig_close
-                    
-                    # Loop for X days to see if limit is hit
-                    for wait_i in range(1, 4):
-                        curr_check_idx = sig_idx + wait_i
-                        if curr_check_idx >= len(df): break
-                        
-                        row = df.iloc[curr_check_idx]
-                        
-                        # Dynamic Limit (ATR relative to open)
-                        if is_limit_open_atr and not np.isnan(sig_atr):
-                            if direction == 'Long':
-                                limit_price = row['Open'] - (0.5 * sig_atr)
-                            else:
-                                limit_price = row['Open'] + (0.5 * sig_atr)
-
-                        if limit_price == 0.0 or np.isnan(limit_price): break 
-
-                        is_filled = False
-                        if direction == 'Long':
-                            # Buy Limit: Did Price drop to Limit?
-                            if row['Low'] <= limit_price:
-                                is_filled = True
-                                actual_entry_price = limit_price 
-                                if row['Open'] < limit_price: actual_entry_price = row['Open'] # Gap fill
-                        else:
-                            # Sell Limit: Did Price rise to Limit?
-                            if row['High'] >= limit_price:
-                                is_filled = True
-                                actual_entry_price = limit_price
-                                if row['Open'] > limit_price: actual_entry_price = row['Open'] # Gap fill
-
-                        if is_filled:
-                            found_entry = True
-                            actual_entry_idx = curr_check_idx
-                            break
-                        else:
-                            entry_failure_reason = "Limit Price Not Reached"
-
-                # PATH C: GAP UP ONLY
                 elif is_gap_up:
-                    check_idx = sig_idx + 1
-                    if check_idx < len(df):
-                        sig_high = df['High'].iloc[sig_idx]
-                        next_open = df['Open'].iloc[check_idx]
-                        
-                        if next_open > sig_high:
-                            found_entry = True
-                            actual_entry_idx = check_idx
-                            actual_entry_price = next_open
-                        else:
-                            entry_failure_reason = f"No Gap Up (Open {next_open:.2f} <= High {sig_high:.2f})"
-
-                # PATH D: IMMEDIATE
-                else:
+                    if df['Open'].iloc[sig_idx + 1] > df['High'].iloc[sig_idx]:
+                        found_entry, actual_entry_idx, actual_entry_price = True, sig_idx + 1, df['Open'].iloc[sig_idx + 1]
+                else: # Market/Immediate
                     found_entry = True
-                    if entry_mode == 'Signal Close':
-                        actual_entry_idx = sig_idx
-                        actual_entry_price = df['Close'].iloc[sig_idx]
-                    elif entry_mode == 'T+1 Open':
-                        actual_entry_idx = sig_idx + 1
-                        actual_entry_price = df['Open'].iloc[sig_idx + 1]
-                    else: # T+1 Close
-                        actual_entry_idx = sig_idx + 1
-                        actual_entry_price = df['Close'].iloc[sig_idx + 1]
+                    actual_entry_idx = sig_idx if entry_mode == 'Signal Close' else sig_idx + 1
+                    actual_entry_price = df['Close'].iloc[actual_entry_idx] if 'Close' in entry_mode else df['Open'].iloc[actual_entry_idx]
 
-                # --- ENTRY CONFIRMATION CHECK ---
-                if found_entry and entry_conf_bps > 0:
-                    entry_candle = df.iloc[actual_entry_idx]
-                    threshold_price = entry_candle['Open'] * (1 + entry_conf_bps/10000.0)
-                    if entry_candle['High'] < threshold_price:
-                        found_entry = False
-                        entry_failure_reason = f"No Confirmation (High < Open+{entry_conf_bps}bps)"
+                if not found_entry: continue
 
-                # --- IF ENTRY FAILED, LOG IT ---
-                if not found_entry:
-                    theo_entry_idx = min(sig_idx + 1, len(df)-1)
-                    theo_entry_price = df['Open'].iloc[theo_entry_idx]
-                    theo_exit_idx = min(theo_entry_idx + params['holding_days'], len(df)-1)
-                    theo_exit_price = df['Close'].iloc[theo_exit_idx]
+                # --- EXIT LOGIC BRANCHES ---
+                atr = df['ATR'].iloc[actual_entry_idx]
+                if np.isnan(atr) or atr == 0: continue
+
+                if is_overnight or is_intraday:
+                    exit_idx = sig_idx + 1
+                    exit_date = df.index[exit_idx]
+                    exit_price = df['Open'].iloc[exit_idx] if is_overnight else df['Close'].iloc[exit_idx]
+                    exit_type = "Time"
+                else:
+                    fixed_exit_idx = min(actual_entry_idx + params['holding_days'], len(df) - 1)
+                    future = df.iloc[actual_entry_idx + 1 : fixed_exit_idx + 1]
                     
-                    if direction == 'Long': theo_pnl = theo_exit_price - theo_entry_price
-                    else: theo_pnl = theo_entry_price - theo_exit_price
+                    stop_price = actual_entry_price - (atr * params['stop_atr']) if direction == 'Long' else actual_entry_price + (atr * params['stop_atr'])
+                    tgt_price = actual_entry_price + (atr * params['tgt_atr']) if direction == 'Long' else actual_entry_price - (atr * params['tgt_atr'])
                     
-                    sig_atr = df['ATR'].iloc[sig_idx] if not np.isnan(df['ATR'].iloc[sig_idx]) else 1.0
-                    theo_r = theo_pnl / (sig_atr * 2)
-
-                    all_potential_trades.append({
-                        "Ticker": ticker,
-                        "SignalDate": signal_date, 
-                        "EntryDate": df.index[theo_entry_idx],
-                        "Direction": direction,
-                        "Entry": 0.0,
-                        "Exit": 0.0,
-                        "ExitDate": df.index[theo_exit_idx],
-                        "Type": "Missed",
-                        "R": theo_r, 
-                        "Age": df['age_years'].iloc[sig_idx],
-                        "AvgVol": df['vol_ma'].iloc[sig_idx],
-                        "Status": "Entry Cond Failed",
-                        "Reason": entry_failure_reason
-                    })
-                    continue
-
-                # --- IF ENTRY SUCCEEDED, SIMULATE TRADE ---
-                if found_entry and actual_entry_idx < len(df):
-                    start_exit_scan = actual_entry_idx + 1
-                    if start_exit_scan > fixed_exit_idx: continue 
-                    future = df.iloc[start_exit_scan : fixed_exit_idx + 1]
-                    if future.empty: continue
-                    
-                    atr = df['ATR'].iloc[actual_entry_idx]
-                    if np.isnan(atr) or atr == 0: 
-                        atr = df['ATR'].iloc[actual_entry_idx-1] if actual_entry_idx > 0 else 0
-                        if atr == 0: continue
-
-                    # Calculate Levels
-                    if direction == 'Long':
-                        stop_price = actual_entry_price - (atr * params['stop_atr'])
-                        tgt_price = actual_entry_price + (atr * params['tgt_atr'])
-                    else:
-                        stop_price = actual_entry_price + (atr * params['stop_atr'])
-                        tgt_price = actual_entry_price - (atr * params['tgt_atr'])
-
-                    exit_price = actual_entry_price
-                    exit_type = "Hold"
-                    exit_date = None
-                    
-                    # --- EXIT LOGIC ---
-                    use_stop = params.get('use_stop_loss', True)
-                    use_target = params.get('use_take_profit', True)
-
+                    exit_price, exit_type, exit_date = actual_entry_price, "Hold", None
                     for f_date, f_row in future.iterrows():
-                        triggered = False
-                        
-                        # 1. CHECK STOP LOSS (If Enabled)
-                        if use_stop:
-                            if direction == 'Long':
-                                if f_row['Low'] <= stop_price:
-                                    exit_price = f_row['Open'] if f_row['Open'] < stop_price else stop_price
-                                    exit_type = "Stop"
-                                    exit_date = f_date
-                                    triggered = True
-                            else: # Short
-                                if f_row['High'] >= stop_price:
-                                    exit_price = f_row['Open'] if f_row['Open'] > stop_price else stop_price
-                                    exit_type = "Stop"
-                                    exit_date = f_date
-                                    triggered = True
-                        
-                        if triggered: break
-
-                        # 2. CHECK PROFIT TARGET (If Enabled)
-                        if use_target:
-                            if direction == 'Long':
-                                if f_row['High'] >= tgt_price:
-                                    exit_price = f_row['Open'] if f_row['Open'] > tgt_price else tgt_price
-                                    exit_type = "Target"
-                                    exit_date = f_date
-                                    triggered = True
-                            else: # Short
-                                if f_row['Low'] <= tgt_price:
-                                    exit_price = f_row['Open'] if f_row['Open'] < tgt_price else tgt_price
-                                    exit_type = "Target"
-                                    exit_date = f_date
-                                    triggered = True
-                        
-                        if triggered: break
+                        if direction == 'Long':
+                            if f_row['Low'] <= stop_price: exit_price, exit_type, exit_date = stop_price, "Stop", f_date; break
+                            if f_row['High'] >= tgt_price: exit_price, exit_type, exit_date = tgt_price, "Target", f_date; break
+                        else:
+                            if f_row['High'] >= stop_price: exit_price, exit_type, exit_date = stop_price, "Stop", f_date; break
+                            if f_row['Low'] <= tgt_price: exit_price, exit_type, exit_date = tgt_price, "Target", f_date; break
                     
                     if exit_type == "Hold":
-                        exit_price = future['Close'].iloc[-1]
-                        exit_date = future.index[-1]
-                        exit_type = "Time"
-                    
-                    ticker_last_exit = exit_date
+                        exit_price, exit_date, exit_type = future['Close'].iloc[-1], future.index[-1], "Time"
 
-                    slip_pct = slippage_bps / 10000.0
-                    if direction == 'Long':
-                        adj_entry = actual_entry_price * (1 + slip_pct)
-                        adj_exit = exit_price * (1 - slip_pct)
-                        tech_risk = actual_entry_price - stop_price
-                        pnl = adj_exit - adj_entry
-                    else:
-                        adj_entry = actual_entry_price * (1 - slip_pct)
-                        adj_exit = exit_price * (1 + slip_pct)
-                        tech_risk = stop_price - actual_entry_price
-                        pnl = adj_entry - adj_exit
-                        
-                    if tech_risk <= 0: tech_risk = 0.001
-                    r = pnl / tech_risk
-                    
-                    all_potential_trades.append({
-                        "Ticker": ticker,
-                        "SignalDate": signal_date, 
-                        "EntryDate": df.index[actual_entry_idx], 
-                        "Direction": direction,
-                        "Entry": actual_entry_price,
-                        "Exit": exit_price,
-                        "ExitDate": exit_date,
-                        "Type": exit_type,
-                        "R": r,
-                        "Age": df['age_years'].iloc[sig_idx],
-                        "AvgVol": df['vol_ma'].iloc[sig_idx],
-                        "Status": "Valid Signal",
-                        "Reason": "Executed"
-                    })
+                # --- STATS ---
+                ticker_last_exit = exit_date
+                slip = slippage_bps / 10000.0
+                tech_risk = atr * params['stop_atr']
+                if tech_risk <= 0: tech_risk = 0.001
+                
+                pnl = (exit_price*(1-slip) - actual_entry_price*(1+slip)) if direction == 'Long' else (actual_entry_price*(1-slip) - exit_price*(1+slip))
+                
+                all_potential_trades.append({
+                    "Ticker": ticker, "SignalDate": signal_date, "EntryDate": df.index[actual_entry_idx],
+                    "Direction": direction, "Entry": actual_entry_price, "Exit": exit_price,
+                    "ExitDate": exit_date, "Type": exit_type, "R": pnl / tech_risk,
+                    "Age": df['age_years'].iloc[sig_idx], "AvgVol": df['vol_ma'].iloc[sig_idx],
+                    "Status": "Valid Signal", "Reason": "Executed"
+                })
         except: continue
+        
+    progress_bar.empty(); status_text.empty()
+    if not all_potential_trades: return pd.DataFrame(), pd.DataFrame(), 0
+
+    pot_df = pd.DataFrame(all_potential_trades).sort_values(by=["EntryDate", "Ticker"])
+    final_log, rejected_log, active_pos, daily_count = [], [], [], {}
+
+    for _, trade in pot_df.iterrows():
+        active_pos = [t for t in active_pos if t['ExitDate'] > trade['EntryDate']]
+        today_num = daily_count.get(trade['EntryDate'], 0)
+        
+        if len(active_pos) >= params['max_total_positions'] or today_num >= params['max_daily_entries']:
+            trade['Status'], trade['Reason'] = "Portfolio Rejected", "Constraints"
+            rejected_log.append(trade)
+        else:
+            final_log.append(trade); active_pos.append(trade)
+            daily_count[trade['EntryDate']] = today_num + 1
+
+    return pd.DataFrame(final_log), pd.DataFrame(rejected_log), total_signals_generated
     
     progress_bar.empty()
     status_text.empty()
@@ -966,7 +642,8 @@ def main():
     c1, c2, c3, c4, c5 = st.columns(5)
     with c1: 
         entry_type = st.selectbox("Entry Price", [
-            "Signal Close", "T+1 Open", "T+1 Close",
+            "Signal Close", "T+1 Open", "T+1 Close","Overnight (Buy Close, Sell T+1 Open)",
+            "Intraday (Buy Open, Sell Close)",
             "Gap Up Only (Open > Prev High)", 
             "Limit (Close -0.5 ATR)", "Limit (Prev Close)", 
             "Limit (Open +/- 0.5 ATR)", 
