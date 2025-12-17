@@ -38,7 +38,7 @@ STRATEGY_BOOK = [
             "tgt_atr": 8.0,
             "hold_days": 21
         },
-        "stats": { "grade": "A (Excellent)", "win_rate": "64.1%", "expectancy": "$471.36", "profit_factor": "4.51" }
+        "stats": { "grade": "A (Excellent)", "win_rate": "64.1%", "expectancy": "0.47r", "profit_factor": "4.51" }
     },
     {
         "id": "5+10+21d<15, SPX sznl > 20, lower 10% of rng, 2d time stop 1.5 atr tgt",
@@ -83,7 +83,7 @@ STRATEGY_BOOK = [
         "stats": {
             "grade": "A (Excellent)",
             "win_rate": "67.1%",
-            "expectancy": "$89.76",
+            "expectancy": "0.30r",
             "profit_factor": "2.20"
         }
     },
@@ -130,7 +130,7 @@ STRATEGY_BOOK = [
         "stats": {
             "grade": "A (Excellent)",
             "win_rate": "66.7%",
-            "expectancy": "$609.33",
+            "expectancy": "0.61r",
             "profit_factor": "5.15"
         }
     },
@@ -176,7 +176,7 @@ STRATEGY_BOOK = [
         "stats": {
             "grade": "B (Good)",
             "win_rate": "54.9%",
-            "expectancy": "$174.76",
+            "expectancy": "0.175r",
             "profit_factor": "1.49"
         }
     },
@@ -208,7 +208,7 @@ STRATEGY_BOOK = [
             "tgt_atr": 3.0,
             "hold_days": 5
         },
-        "stats": { "grade": "A (Excellent)", "win_rate": "61.1%", "expectancy": "$316.29", "profit_factor": "2.80" }
+        "stats": { "grade": "A (Excellent)", "win_rate": "61.1%", "expectancy": "0.32r", "profit_factor": "2.80" }
     },
     # 4. LIQUID SEASONALS (INTERMEDIATE)
     {
@@ -253,7 +253,7 @@ STRATEGY_BOOK = [
         "stats": {
             "grade": "A (Excellent)",
             "win_rate": "65.4%",
-            "expectancy": "$394.52",
+            "expectancy": "0.395r",
             "profit_factor": "3.28"
         }
     },
@@ -309,7 +309,7 @@ STRATEGY_BOOK = [
         "stats": {
             "grade": "A (Excellent)",
             "win_rate": "63.2%",
-            "expectancy": "$443.53",
+            "expectancy": "0.45r",
             "profit_factor": "2.19"
         }
     },
@@ -385,7 +385,7 @@ STRATEGY_BOOK = [
         "stats": {
             "grade": "A (Excellent)",
             "win_rate": "58.0%",
-            "expectancy": "$0.28r",
+            "expectancy": "0.28r",
             "profit_factor": "1.96"
         }
     },
