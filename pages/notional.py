@@ -31,7 +31,7 @@ FUTURES_SPECS = {
 
     # --- METALS ---
     'Gold (100oz)':        {'yf': 'GC=F',  'mult': 100,  'tick': 0.10,  'sector': 'Metals'},
-    'E-mini Gold (50oz)':  {'yf': 'QO=F',  'mult': 50,   'tick': 0.25,  'sector': 'Metals'},
+    'E-mini Gold (50oz)':  {'yf': 'QO=F',  'mult': 10,   'tick': 0.25,  'sector': 'Metals'},
     'Micro Gold (10oz)':   {'yf': 'MGC=F', 'mult': 10,   'tick': 0.10,  'sector': 'Metals'},
     'Silver (5000oz)':     {'yf': 'SI=F',  'mult': 5000, 'tick': 0.005, 'sector': 'Metals'},
     'Micro Silver':        {'yf': 'SIL=F', 'mult': 1000, 'tick': 0.01,  'sector': 'Metals'},
