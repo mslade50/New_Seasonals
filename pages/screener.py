@@ -6,6 +6,7 @@ import datetime
 import gspread
 from pandas.tseries.offsets import BusinessDay
 import time
+import pytz
 # -----------------------------------------------------------------------------
 # 1. THE STRATEGY BOOK (FULL BATCH - ALL 6 STRATEGIES)
 # -----------------------------------------------------------------------------
@@ -576,6 +577,13 @@ def save_signals_to_gsheet(new_dataframe, sheet_name='Trade_Signals_Log'):
     except Exception as e:
         st.error(f"❌ Google Sheet Error: {e}")
 
+def is_after_market_close():
+    """Checks if the current time is 4:00 PM EST/EDT or later."""
+    tz = pytz.timezone('US/Eastern')
+    now = datetime.datetime.now(tz)
+    # Market closes at 16:00
+    return now.hour >= 16
+    
 # -----------------------------------------------------------------------------
 # ENGINE
 # -----------------------------------------------------------------------------
@@ -1285,8 +1293,10 @@ def main():
                     st.success(f"✅ Found {len(signals)} Actionable Signals")
                     sig_df = pd.DataFrame(signals)
                     
-                    # 2. Save Human Log (This function appends, so it's safe inside the loop)
-                    save_signals_to_gsheet(sig_df, sheet_name='Trade_Signals_Log')
+                    if is_after_market_close():
+                        save_signals_to_gsheet(sig_df, sheet_name='Trade_Signals_Log')
+                    else:
+                        st.info("🕒 Signals displayed but NOT stored (it is before 4:00 PM EST).")
                     
                     # 3. Display UI
                     st.dataframe(sig_df.style.format({"Entry": "${:.2f}", "Stop": "${:.2f}", "Target": "${:.2f}", "ATR": "{:.2f}"}), use_container_width=True)
@@ -1301,9 +1311,12 @@ def main():
         # --- FINAL STEP (OUTSIDE THE LOOP) ---
         # Save to Order_Staging only ONCE so we don't overwrite previous loop iterations
         if all_staging_signals:
-            st.divider()
-            st.subheader("🚀 Staging Execution Orders")
-            save_staging_orders(all_staging_signals, STRATEGY_BOOK, sheet_name='Order_Staging')
+            if is_after_market_close():
+                st.divider()
+                st.subheader("🚀 Staging Execution Orders")
+                save_staging_orders(all_staging_signals, STRATEGY_BOOK, sheet_name='Order_Staging')
+            else:
+                st.warning("⚠️ Execution staging skipped: Orders only stage after 4:00 PM EST.")
         # -------------------------------------
     # -------------------------------------------------------------------------
     # DEBUG: DEEP DIVE & SCORECARD
