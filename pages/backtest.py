@@ -333,7 +333,7 @@ def run_engine(universe_dict, params, sznl_map, market_series=None, vix_series=N
             df = df[df.index >= bt_start_ts]
             if df.empty: continue
             
-            # --- START SIGNAL CONDITIONS ---
+            # --- SIGNAL CALCULATION ---
             conditions = []
             
             # Trend Filter
@@ -415,7 +415,6 @@ def run_engine(universe_dict, params, sznl_map, market_series=None, vix_series=N
                 found_entry = False
                 actual_entry_idx = -1
                 actual_entry_price = 0.0
-                entry_failure_reason = ""
 
                 # --- ENTRY LOGIC BRANCHES ---
                 if is_overnight:
@@ -484,6 +483,29 @@ def run_engine(universe_dict, params, sznl_map, market_series=None, vix_series=N
                     "Status": "Valid Signal", "Reason": "Executed"
                 })
         except: continue
+        
+    progress_bar.empty(); status_text.empty()
+    if not all_potential_trades: return pd.DataFrame(), pd.DataFrame(), 0
+
+    pot_df = pd.DataFrame(all_potential_trades).sort_values(by=["EntryDate", "Ticker"])
+    final_log, rejected_log, active_pos, daily_count = [], [], [], {}
+
+    # Get constraints safely to avoid KeyError
+    max_total = params.get('max_total_positions', 100)
+    max_daily = params.get('max_daily_entries', 100)
+
+    for _, trade in pot_df.iterrows():
+        active_pos = [t for t in active_pos if t['ExitDate'] > trade['EntryDate']]
+        today_num = daily_count.get(trade['EntryDate'], 0)
+        
+        if len(active_pos) >= max_total or today_num >= max_daily:
+            trade['Status'], trade['Reason'] = "Portfolio Rejected", "Constraints"
+            rejected_log.append(trade)
+        else:
+            final_log.append(trade); active_pos.append(trade)
+            daily_count[trade['EntryDate']] = today_num + 1
+
+    return pd.DataFrame(final_log), pd.DataFrame(rejected_log), total_signals_generated
         
     progress_bar.empty(); status_text.empty()
     if not all_potential_trades: return pd.DataFrame(), pd.DataFrame(), 0
@@ -927,6 +949,8 @@ def main():
         params = {
             'backtest_start_date': start_date, 'trade_direction': trade_direction,
             'max_one_pos': max_one_pos, 'allow_same_day_reentry': allow_same_day_reentry,
+            'max_daily_entries': max_daily_entries,   
+            'max_total_positions': max_total_positions,
             'use_stop_loss': use_stop_loss,      
             'use_take_profit': use_take_profit, 
             'time_exit_only': time_exit_only,    
