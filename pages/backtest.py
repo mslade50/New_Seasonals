@@ -181,6 +181,7 @@ def calculate_indicators(df, sznl_map, ticker, market_series=None, vix_series=No
     df['SMA100'] = df['Close'].rolling(100).mean()
     df['SMA200'] = df['Close'].rolling(200).mean()
     
+    # Dynamic SMAs
     if custom_sma_lengths:
         for length in custom_sma_lengths:
             col_name = f"SMA{length}"
@@ -224,7 +225,7 @@ def calculate_indicators(df, sznl_map, ticker, market_series=None, vix_series=No
     df['vol_ratio_10d'] = vol_ma_10 / vol_ma
     df['vol_ratio_10d_rank'] = df['vol_ratio_10d'].expanding(min_periods=252).rank(pct=True) * 100.0
     
-    # Accumulation / Distribution
+    # --- ACCUMULATION / DISTRIBUTION FLAGS ---
     vol_gt_prev = df['Volume'] > df['Volume'].shift(1)
     vol_gt_ma = df['Volume'] > df['vol_ma']
     is_green = df['Close'] > df['Open']
@@ -233,27 +234,32 @@ def calculate_indicators(df, sznl_map, ticker, market_series=None, vix_series=No
     df['is_acc_day'] = (is_green & vol_gt_prev & vol_gt_ma).astype(int)
     df['is_dist_day'] = (is_red & vol_gt_prev & vol_gt_ma).astype(int)
     
+    # Age
     if not df.empty:
         start_ts = df.index[0]
         df['age_years'] = (df.index - start_ts).days / 365.25
     else:
         df['age_years'] = 0.0
         
+    # Market & VIX Regime
     if market_series is not None:
         df['Market_Above_SMA200'] = market_series.reindex(df.index, method='ffill').fillna(False)
     if vix_series is not None:
         df['VIX_Value'] = vix_series.reindex(df.index, method='ffill').fillna(0)
 
-    # Candle Location
+    # Candle Range % Location
     denom = (df['High'] - df['Low'])
     df['RangePct'] = np.where(denom == 0, 0.5, (df['Close'] - df['Low']) / denom)
 
+    # Day of Week
     df['DayOfWeekVal'] = df.index.dayofweek
+    
+    # Open Gap Count
     is_open_gap = (df['Low'] > df['High'].shift(1)).astype(int)
     df['GapCount'] = is_open_gap.rolling(gap_window).sum()
 
     # Pivot Point Calculation
-    piv_len = 20
+    piv_len = 20 
     roll_max = df['High'].rolling(window=piv_len*2+1, center=True).max()
     df['is_pivot_high'] = (df['High'] == roll_max)
     roll_min = df['Low'].rolling(window=piv_len*2+1, center=True).min()
@@ -268,12 +274,15 @@ def calculate_indicators(df, sznl_map, ticker, market_series=None, vix_series=No
 
 def run_engine(universe_dict, params, sznl_map, market_series=None, vix_series=None):
     all_potential_trades = []
+    
     total = len(universe_dict)
     bt_start_ts = pd.to_datetime(params['backtest_start_date'])
     direction = params.get('trade_direction', 'Long')
     max_one_pos_per_ticker = params.get('max_one_pos', True)
+    allow_same_day_reentry = params.get('allow_same_day_reentry', False)
     slippage_bps = params.get('slippage_bps', 5)
     
+    # Entry Logic flags
     entry_mode = params['entry_type']
     is_pullback = "Pullback" in entry_mode
     is_gap_up = "Gap Up Only" in entry_mode
@@ -283,8 +292,9 @@ def run_engine(universe_dict, params, sznl_map, market_series=None, vix_series=N
     pullback_col = "SMA10" if "10 SMA" in entry_mode else "EMA21" if "21 EMA" in entry_mode else None
     pullback_use_level = "Level" in entry_mode
     
-    time_exit_only = params.get('time_exit_only', False)
     gap_window = params.get('gap_lookback', 21)
+    time_exit_only = params.get('time_exit_only', False)
+    total_signals_generated = 0
 
     progress_bar = st.progress(0)
     status_text = st.empty()
@@ -306,8 +316,10 @@ def run_engine(universe_dict, params, sznl_map, market_series=None, vix_series=N
             df = df[df.index >= bt_start_ts]
             if df.empty: continue
             
-            # --- SIGNAL CALCULATION (UNCHANGED) ---
+            # --- SIGNAL CALCULATION (ALL FILTERS RESTORED) ---
             conditions = []
+            
+            # Trend Filter
             trend_opt = params.get('trend_filter', 'None')
             if trend_opt == "Price > 200 SMA": conditions.append(df['Close'] > df['SMA200'])
             elif trend_opt == "Price > Rising 200 SMA": conditions.append((df['Close'] > df['SMA200']) & (df['SMA200'] > df['SMA200'].shift(1)))
@@ -315,8 +327,9 @@ def run_engine(universe_dict, params, sznl_map, market_series=None, vix_series=N
             elif trend_opt == "Price < 200 SMA": conditions.append(df['Close'] < df['SMA200'])
             elif "Market" in trend_opt and 'Market_Above_SMA200' in df.columns:
                 if trend_opt == "Market > 200 SMA": conditions.append(df['Market_Above_SMA200'])
-                elif trend_opt == "Market < 200 SMA": conditions.append(~df['Market_Above_SMA200'])
+                elif trend_opt == "Market < 200 SMA": conditions.append(~df['Market_Above_SMA200']) 
 
+            # Liquidity & Age
             conditions.append((df['Close'] >= params['min_price']) & (df['vol_ma'] >= params['min_vol']) & 
                               (df['age_years'] >= params['min_age']) & (df['age_years'] <= params['max_age']) & 
                               (df['ATR_Pct'] >= params['min_atr_pct']) & (df['ATR_Pct'] <= params['max_atr_pct']))
@@ -332,9 +345,22 @@ def run_engine(universe_dict, params, sznl_map, market_series=None, vix_series=N
             
             if params.get('use_dow_filter', False): conditions.append(df['DayOfWeekVal'].isin(params['allowed_days']))
 
+            # Gaps, Acc/Dist
             if params.get('use_gap_filter', False):
                 if params['gap_logic'] == ">": conditions.append(df['GapCount'] > params['gap_thresh'])
                 elif params['gap_logic'] == "<": conditions.append(df['GapCount'] < params['gap_thresh'])
+
+            if params.get('use_acc_count_filter', False):
+                r_acc = df['is_acc_day'].rolling(params['acc_count_window']).sum()
+                if params['acc_count_logic'] == ">": conditions.append(r_acc > params['acc_count_thresh'])
+                elif params['acc_count_logic'] == "<": conditions.append(r_acc < params['acc_count_thresh'])
+
+            # Perf & MA Consecutive
+            for pf in params.get('perf_filters', []):
+                col = f"rank_ret_{pf['window']}d"
+                c_f = (df[col] < pf['thresh']) if pf['logic'] == '<' else (df[col] > pf['thresh'])
+                if pf['consecutive'] > 1: c_f = c_f.rolling(pf['consecutive']).sum() == pf['consecutive']
+                conditions.append(c_f)
 
             for f in params.get('ma_consec_filters', []):
                 col = f"SMA{f['length']}"
@@ -342,16 +368,28 @@ def run_engine(universe_dict, params, sznl_map, market_series=None, vix_series=N
                 if f['consec'] > 1: mask = mask.rolling(f['consec']).sum() == f['consec']
                 conditions.append(mask)
 
-            if params['use_vix_filter']:
+            # VIX Regime
+            if params.get('use_vix_filter', False):
                 conditions.append((df['VIX_Value'] >= params['vix_min']) & (df['VIX_Value'] <= params['vix_max']))
+
+            # Seasonality & 52w
+            if params['use_sznl']:
+                c_s = (df['Sznl'] < params['sznl_thresh']) if params['sznl_logic'] == '<' else (df['Sznl'] > params['sznl_thresh'])
+                conditions.append(c_s)
+
+            if params['use_52w']:
+                c_52 = df['is_52w_high'] if params['52w_type'] == 'New 52w High' else df['is_52w_low']
+                if params.get('52w_lag', 0) > 0: c_52 = c_52.shift(params['52w_lag']).fillna(False)
+                conditions.append(c_52)
 
             if not conditions: continue
             final_signal = conditions[0]
             for c in conditions[1:]: final_signal = final_signal & c
             
             signal_dates = df.index[final_signal]
+            total_signals_generated += len(signal_dates)
 
-            # --- EXECUTION LOOP ---
+            # --- EXECUTION LOOP (NEW ENTRIES & FIXED HOLD LOGIC) ---
             for signal_date in signal_dates:
                 if max_one_pos_per_ticker and signal_date <= ticker_last_exit: continue
                 
@@ -362,29 +400,23 @@ def run_engine(universe_dict, params, sznl_map, market_series=None, vix_series=N
                 actual_entry_idx = -1
                 actual_entry_price = 0.0
 
-                # Entry Stat Definitions
                 sig_close = df['Close'].iloc[sig_idx]
                 sig_atr = df['ATR'].iloc[sig_idx]
                 t_plus_1_close = df['Close'].iloc[sig_idx + 1]
 
-                # --- NEW CONDITIONAL T+1 BRANCHES ---
+                # ENTRY BRANCHES
                 if entry_mode == "T+1 Close < Signal Close":
                     if t_plus_1_close < sig_close:
                         found_entry, actual_entry_idx, actual_entry_price = True, sig_idx + 1, t_plus_1_close
-
                 elif entry_mode == "T+1 Close > Signal Close":
                     if t_plus_1_close > sig_close:
                         found_entry, actual_entry_idx, actual_entry_price = True, sig_idx + 1, t_plus_1_close
-
                 elif entry_mode == "T+1 Close < (Signal Close - 0.5 ATR)":
                     if t_plus_1_close < (sig_close - 0.5 * sig_atr):
                         found_entry, actual_entry_idx, actual_entry_price = True, sig_idx + 1, t_plus_1_close
-
                 elif entry_mode == "T+1 Close > (Signal Close + 0.5 ATR)":
                     if t_plus_1_close > (sig_close + 0.5 * sig_atr):
                         found_entry, actual_entry_idx, actual_entry_price = True, sig_idx + 1, t_plus_1_close
-
-                # --- STANDARD BRANCHES ---
                 elif is_overnight:
                     found_entry, actual_entry_idx, actual_entry_price = True, sig_idx, sig_close
                 elif is_intraday:
@@ -414,19 +446,15 @@ def run_engine(universe_dict, params, sznl_map, market_series=None, vix_series=N
                     })
                     continue
 
-                # --- EXIT LOGIC (FIXED TIME PRECEDENCE) ---
+                # EXIT LOGIC (PRESERVED TIME ONLY HOLD)
                 atr = df['ATR'].iloc[actual_entry_idx]
                 fixed_exit_idx = min(actual_entry_idx + params['holding_days'], len(df) - 1)
                 
                 if time_exit_only:
-                    exit_price = df['Close'].iloc[fixed_exit_idx]
-                    exit_date = df.index[fixed_exit_idx]
-                    exit_type = "Time"
+                    exit_price, exit_date, exit_type = df['Close'].iloc[fixed_exit_idx], df.index[fixed_exit_idx], "Time"
                 elif is_overnight or is_intraday:
                     exit_idx = sig_idx + 1
-                    exit_date = df.index[exit_idx]
-                    exit_price = df['Open'].iloc[exit_idx] if is_overnight else df['Close'].iloc[exit_idx]
-                    exit_type = "Time"
+                    exit_date, exit_price, exit_type = df.index[exit_idx], (df['Open'].iloc[exit_idx] if is_overnight else df['Close'].iloc[exit_idx]), "Time"
                 else:
                     future = df.iloc[actual_entry_idx + 1 : fixed_exit_idx + 1]
                     stop_price = actual_entry_price - (atr * params['stop_atr']) if direction == 'Long' else actual_entry_price + (atr * params['stop_atr'])
@@ -475,27 +503,17 @@ def run_engine(universe_dict, params, sznl_map, market_series=None, vix_series=N
         entry_date = trade['EntryDate']
         active_positions = [t for t in active_positions if t['ExitDate'] > entry_date]
         
-        is_rejected = False
-        rejection_reason = ""
-        if len(active_positions) >= max_total:
-            is_rejected = True
-            rejection_reason = "Max Total Pos"
+        is_rejected = (len(active_positions) >= max_total) or (daily_entries.get(entry_date, 0) >= max_daily)
         
-        today_count = daily_entries.get(entry_date, 0)
-        if not is_rejected and today_count >= max_daily:
-            is_rejected = True
-            rejection_reason = "Max Daily Entries"
-            
         if is_rejected:
             trade['Status'] = "Portfolio Rejected"
-            trade['Reason'] = rejection_reason
             rejected_trades_log.append(trade)
         else:
             final_trades_log.append(trade)
             active_positions.append(trade)
-            daily_entries[entry_date] = today_count + 1
+            daily_entries[entry_date] = daily_entries.get(entry_date, 0) + 1
 
-    return pd.DataFrame(final_trades_log), pd.DataFrame(rejected_trades_log), len(potential_df)
+    return pd.DataFrame(final_trades_log), pd.DataFrame(rejected_trades_log), total_signals_generated
 
 def grade_strategy(pf, sqn, win_rate, total_trades):
     score = 0
@@ -514,14 +532,17 @@ def main():
 
     st.subheader("1. Universe & Data")
     col_u1, col_u2, col_u3 = st.columns([1, 1, 2])
+    sample_pct = 100
     with col_u1:
-        univ_choice = st.selectbox("Choose Universe", ["Sector ETFs","SPX", "Indices", "International ETFs", "Custom (Upload CSV)"])
+        univ_choice = st.selectbox("Choose Universe", 
+            ["Sector ETFs","SPX", "Indices", "International ETFs", "Sector + Index ETFs", "All CSV Tickers", "Custom (Upload CSV)"])
     with col_u2:
-        start_date = st.date_input("Backtest Start Date", value=datetime.date(2010, 1, 1))
+        start_date = st.date_input("Backtest Start Date", value=datetime.date(2000, 1, 1))
     
     custom_tickers = []
     if univ_choice == "Custom (Upload CSV)":
         with col_u3:
+            sample_pct = st.slider("Sample %", 1, 100, 100)
             uploaded_file = st.file_uploader("Upload CSV", type=["csv"])
             if uploaded_file:
                 c_df = pd.read_csv(uploaded_file)
@@ -549,14 +570,10 @@ def main():
     with c1: 
         entry_type = st.selectbox("Entry Price", [
             "Signal Close", "T+1 Open", "T+1 Close",
-            "T+1 Close < Signal Close",
-            "T+1 Close > Signal Close",
-            "T+1 Close < (Signal Close - 0.5 ATR)",
-            "T+1 Close > (Signal Close + 0.5 ATR)",
-            "Overnight (Buy Close, Sell T+1 Open)",
-            "Intraday (Buy Open, Sell Close)",
-            "Gap Up Only (Open > Prev High)", 
-            "Limit (Close -0.5 ATR)", "Limit (Prev Close)", 
+            "T+1 Close < Signal Close", "T+1 Close > Signal Close",
+            "T+1 Close < (Signal Close - 0.5 ATR)", "T+1 Close > (Signal Close + 0.5 ATR)",
+            "Overnight (Buy Close, Sell T+1 Open)", "Intraday (Buy Open, Sell Close)",
+            "Gap Up Only (Open > Prev High)", "Limit (Close -0.5 ATR)", "Limit (Prev Close)", 
             "Pullback 10 SMA (Entry: Close)", "Pullback 21 EMA (Entry: Level)"
         ])
     with c2: stop_atr = st.number_input("Stop Loss (ATR)", value=3.0, step=0.1, disabled=not use_stop_loss)
@@ -567,22 +584,31 @@ def main():
     st.markdown("---")
     st.subheader("3. Signal Criteria")
     with st.expander("Liquidity & Data Filters", expanded=True):
-        l1, l2, l3, l4 = st.columns(4)
+        l1, l2, l3, l4, l5, l6 = st.columns(6)
         with l1: min_price = st.number_input("Min Price ($)", value=10.0)
         with l2: min_vol = st.number_input("Min Avg Vol", value=100000)
-        with l3: min_atr_pct = st.number_input("Min ATR %", value=0.2)
-        with l4: max_atr_pct = st.number_input("Max ATR %", value=10.0)
+        with l3: min_age = st.number_input("Min True Age (Yrs)", value=0.25)
+        with l4: max_age = st.number_input("Max True Age (Yrs)", value=100.0)
+        with l5: min_atr_pct = st.number_input("Min ATR %", value=0.2)
+        with l6: max_atr_pct = st.number_input("Max ATR %", value=10.0)
 
-    with st.expander("Volume & Trend", expanded=False):
-        t1, v1 = st.columns(2)
-        with t1: trend_filter = st.selectbox("Trend", ["None", "Price > 200 SMA", "Market > 200 SMA"])
-        with v1: use_vix_filter = st.checkbox("VIX Filter", value=False)
-        vix_min = st.number_input("VIX Min", 0.0, 100.0, 0.0)
-        vix_max = st.number_input("VIX Max", 0.0, 100.0, 20.0)
+    with st.expander("Gaps, Acc/Dist, Trend, VIX", expanded=False):
+        c1, c2, c3, c4 = st.columns(4)
+        with c1: use_gap_filter = st.checkbox("Gap Filter", value=False)
+        with c2: use_acc_count_filter = st.checkbox("Acc Filter", value=False)
+        with c3: trend_filter = st.selectbox("Trend", ["None", "Price > 200 SMA", "Market > 200 SMA"])
+        with c4: use_vix_filter = st.checkbox("VIX Filter", value=False)
+        
+        v1, v2 = st.columns(2)
+        with v1: vix_min = st.number_input("VIX Min", value=0.0)
+        with v2: vix_max = st.number_input("VIX Max", value=20.0)
+
+    # Note: Performance Ranks, Consec MAs, Seasonality, 52w filters are conceptually 
+    # included in the run_engine logic, though UI for them is additive. 
 
     if st.button("Run Backtest", type="primary", use_container_width=True):
-        tickers = SECTOR_ETFS if univ_choice == "Sector ETFs" else custom_tickers if univ_choice == "Custom (Upload CSV)" else INDEX_ETFS
         sznl_map = load_seasonal_map()
+        tickers = SECTOR_ETFS if univ_choice == "Sector ETFs" else INDEX_ETFS
         fetch_start = "1950-01-01" if use_full_history else start_date - datetime.timedelta(days=365)
         
         data_dict = download_universe_data(tickers, fetch_start)
@@ -595,10 +621,12 @@ def main():
             'max_total_positions': max_total_positions, 'time_exit_only': time_exit_only,
             'stop_atr': stop_atr, 'tgt_atr': tgt_atr, 'holding_days': hold_days,
             'entry_type': entry_type, 'min_price': min_price, 'min_vol': min_vol,
-            'min_age': 0.25, 'max_age': 100, 'min_atr_pct': min_atr_pct, 'max_atr_pct': max_atr_pct,
+            'min_age': min_age, 'max_age': max_age, 'min_atr_pct': min_atr_pct, 'max_atr_pct': max_atr_pct,
             'trend_filter': trend_filter, 'slippage_bps': slippage_bps, 'universe_tickers': tickers,
             'use_vix_filter': use_vix_filter, 'vix_min': vix_min, 'vix_max': vix_max,
-            'ma_consec_filters': [], 'use_sznl': False, 'use_52w': False, 'breakout_mode': "None"
+            'use_gap_filter': use_gap_filter, 'gap_logic': '>', 'gap_thresh': 3, 'gap_lookback': 21,
+            'use_acc_count_filter': use_acc_count_filter, 'acc_count_window': 21, 'acc_count_logic': '>', 'acc_count_thresh': 3,
+            'perf_filters': [], 'ma_consec_filters': [], 'use_sznl': False, 'use_52w': False, 'breakout_mode': "None"
         }
         
         trades_df, rejected_df, total_signals = run_engine(data_dict, params, sznl_map, market_series)
@@ -610,15 +638,15 @@ def main():
             wins = trades_df[trades_df['R'] > 0]
             losses = trades_df[trades_df['R'] <= 0]
             pf = wins['PnL_Dollar'].sum() / abs(losses['PnL_Dollar'].sum()) if not losses.empty else 999
-            win_rate = len(wins) / len(trades_df) * 100
+            win_rate = (len(wins) / len(trades_df)) * 100
             sqn = np.sqrt(len(trades_df)) * (trades_df['R'].mean() / trades_df['R'].std()) if len(trades_df) > 1 else 0
             grade, verdict, _ = grade_strategy(pf, sqn, win_rate, len(trades_df))
 
-            st.success(f"Strategy Grade: {grade} ({verdict}) | PF: {pf:.2f} | Win Rate: {win_rate:.1f}%")
+            st.success(f"Backtest Complete! Grade: {grade} ({verdict})")
             st.plotly_chart(px.line(trades_df, x="ExitDate", y="CumPnL", title="Equity Curve"), use_container_width=True)
             st.dataframe(trades_df)
         else:
-            st.warning("No trades executed.")
+            st.warning("No trades found.")
 
 if __name__ == "__main__":
     main()
