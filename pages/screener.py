@@ -333,6 +333,16 @@ def check_signal(df, params, sznl_map):
         current_day = last_row.name.dayofweek
         if current_day not in allowed: return False
 
+    # 0b. Cycle Year Filter (NEW)
+    # 0=Election, 1=Post, 2=Mid, 3=Pre
+    if 'allowed_cycles' in params:
+        allowed_cycles = params['allowed_cycles']
+        # Only apply if the list isn't empty and isn't all 4 cycles (which implies no filter)
+        if allowed_cycles and len(allowed_cycles) < 4:
+            current_year = last_row.name.year
+            cycle_rem = current_year % 4
+            if cycle_rem not in allowed_cycles: return False
+
     # 1. Liquidity Gates
     if last_row['Close'] < params.get('min_price', 0): return False
     if last_row['vol_ma'] < params.get('min_vol', 0): return False
@@ -361,7 +371,7 @@ def check_signal(df, params, sznl_map):
             if ">" in trend_opt and not is_above: return False
             if "<" in trend_opt and is_above: return False
 
-    # 2b. MA Consecutive Filters (NEW - For Ugly Monday)
+    # 2b. MA Consecutive Filters
     if 'ma_consec_filters' in params:
         for maf in params['ma_consec_filters']:
             length = maf['length']
@@ -513,7 +523,7 @@ def check_signal(df, params, sznl_map):
             cond_52 = cond_52 & (prev == 0)
         if not cond_52.iloc[-1]: return False
         
-    # 8b. Exclude 52w High (NEW)
+    # 8b. Exclude 52w High
     if params.get('exclude_52w_high', False):
         if last_row['is_52w_high']: return False
 
@@ -530,6 +540,7 @@ def check_signal(df, params, sznl_map):
             if not (val > params['vol_rank_thresh']): return False
             
     return True
+    
 def get_signal_breakdown(df, params, sznl_map):
     """
     Runs the exact check_signal logic but returns a dictionary of 
@@ -547,7 +558,7 @@ def get_signal_breakdown(df, params, sznl_map):
         if not condition_met: all_passed = False
 
     # -----------------------------------------------------------
-    # 0. DAY OF WEEK FILTER (NEWLY ADDED TO INSPECTOR)
+    # 0. DAY OF WEEK & CYCLE FILTER
     # -----------------------------------------------------------
     if params.get('use_dow_filter', False):
         allowed = params.get('allowed_days', [])
@@ -559,6 +570,19 @@ def get_signal_breakdown(df, params, sznl_map):
         
         # Format "Monday (0) vs Allowed [0]"
         log("DOW_Check", f"{day_name} (Req: {allowed})", cond)
+
+    # 0b. Cycle Filter
+    if 'allowed_cycles' in params:
+        allowed_cycles = params['allowed_cycles']
+        if allowed_cycles and len(allowed_cycles) < 4:
+            current_year = last_row.name.year
+            cycle_rem = current_year % 4
+            
+            # Map for readable output
+            cycle_names = {0: "Election", 1: "Post-Elect", 2: "Midterm", 3: "Pre-Elect"}
+            
+            cond = cycle_rem in allowed_cycles
+            log("Cycle_Check", f"{current_year} ({cycle_names.get(cycle_rem)})", cond)
 
     # 1. Liquidity
     liq_pass = (
