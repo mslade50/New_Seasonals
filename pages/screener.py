@@ -1067,8 +1067,18 @@ def main():
             # -----------------------------------------------------------------
             # 1. MOC ORDERS (Signal Close) - AVAILABLE ANY TIME
             # -----------------------------------------------------------------
-            # Check if we have any "Signal Close" strategies triggered
-            has_moc = any("Signal Close" in str(s.get('Entry Criteria', '')) for s in all_staging_signals)
+            # CORRECTED LOGIC: Look up settings using Strategy_ID
+            strat_map = {s['id']: s for s in STRATEGY_BOOK}
+            
+            has_moc = False
+            for s in all_staging_signals:
+                sid = s.get('Strategy_ID')
+                if sid in strat_map:
+                    # Check the actual setting in the strategy book
+                    e_type = strat_map[sid]['settings'].get('entry_type', '')
+                    if "Signal Close" in e_type:
+                        has_moc = True
+                        break
             
             if has_moc:
                 st.write("⚡ **MOC Execution:**")
@@ -1087,15 +1097,8 @@ def main():
                 
                 # Save ALL trades (T+1 Open, Limits, etc) to 'Order_Staging'
                 save_staging_orders(all_staging_signals, STRATEGY_BOOK, sheet_name='Order_Staging')
-                
-                # NOTE: We removed the auto-clear for 'moc_orders' here so you can 
-                # still review/stage MOC orders after 4 PM if needed.
             else:
                 st.info("🕒 Market is OPEN. Standard T+1 staging (Order_Staging) is disabled until 4:00 PM EST.")
-                
-                # OPTIONAL: Also clear the MOC sheet so you don't accidentally execute old ones tomorrow
-                # You might want to leave this out if you keep records, but usually good for safety:
-                # save_moc_orders([], STRATEGY_BOOK, sheet_name='moc_orders')
     # -------------------------------------------------------------------------
     # DEBUG: DEEP DIVE & SCORECARD
     # -------------------------------------------------------------------------
