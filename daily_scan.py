@@ -322,31 +322,57 @@ STRATEGY_BOOK = [
     {
         "id": "21dr < 15 3 consec, 5dr < 33, rel vol < 15, SPY > 200d, 21d time stop",
         "name": "Oversold Low Volume",
-        "description": "Start: 2000-01-01. Universe: All CSV Tickers. Dir: Long. Filter: SPY > 200 SMA. PF: 2.55. SQN: 7.67.",
-        "universe_tickers": ['AAPL', 'ABT', 'ADBE', 'ADI', 'ADM', 'ADP', 'ADSK', 'AEP', 'AIG', 'ALL', 'AMAT', 'AMD', 'AMGN', 'AMZN', 'AON', 'APD', 'AVGO', 'AXP', 'BA', 'BAC', 'BAX', 'BDX', 'BK', 'BMY', 'C', 'CAG', 'CAT', 'CEF', 'CL', 'CMCSA', 'CMS', 'CNP', 'COP', 'COST', 'CPB', 'CRM', 'CSCO', 'CSX', 'CVS', 'CVX', 'D', 'DE', 'DIA', 'DIS', 'DOV', 'DTE', 'DUK', 'ECL', 'ED', 'EIX', 'EMR', 'EOG', 'ETR', 'EXC', 'F', 'FCX', 'FDX', 'FE', 'GD', 'GE', 'GILD', 'GIS', 'GLD', 'GLW', 'GOOG', 'GPC', 'GS', 'HAL', 'HD', 'HIG', 'HON', 'HPQ', 'HRL', 'HSY', 'HUM', 'IBB', 'IBM', 'IHI', 'INTC', 'IP', 'ITA', 'ITB', 'ITW', 'IWM', 'IYR', 'JNJ', 'JPM', 'K', 'KEY', 'KMB', 'KO', 'KR', 'KRE', 'LEG', 'LIN', 'LLY', 'LMT', 'LOW', 'LUV', 'MAS', 'MCD', 'MDT', 'MET', 'META', 'MMC', 'MMM', 'MO', 'MRK', 'MS', 'MSFT', 'MU', 'NEE', 'NEM', 'NKE', 'NOC', 'NSC', 'NUE', 'NVDA', 'OIH', 'ORCL', 'OXY', 'PAYX', 'PCG', 'PEG', 'PEP', 'PFE', 'PG', 'PGR', 'PH', 'PNW', 'PPG', 'PPL', 'PSA', 'QCOM', 'QQQ', 'REGN', 'RF', 'RHI', 'ROK', 'ROST', 'RTX', 'SBUX', 'SCHW', 'SHW', 'SLB', 'SLV', 'SMH', 'SNA', 'SO', 'SPG', 'SPY', 'SRE', 'STT', 'SWK', 'SYK', 'SYY', 'T', 'TAP', 'TGT', 'TJX', 'TMO', 'TRV', 'TSN', 'TXN', 'UNG', 'UNH', 'UNP', 'USB', 'USO', 'UVXY', 'V', 'VFC', 'VLO', 'VMC', 'VNQ', 'VZ', 'WFC', 'WHR', 'WM', 'WMB', 'WMT', 'XBI', 'XHB', 'XLB', 'XLE', 'XLF', 'XLI', 'XLK', 'XLP', 'XLU', 'XLV', 'XLY', 'XME', 'XOM', 'XOP', 'XRT'], 
+        "description": "Start: 2000-01-01. Universe: All CSV Tickers. Dir: Long. Filter: Market > 200 SMA. PF: 2.90. SQN: 6.46.",
+        "universe_tickers": ['AAPL', 'ABT', 'ADBE', 'ADI', 'ADM', 'ADP', 'ADSK', 'AEP', 'AIG', 'ALL', 'AMAT', 'AMD', 'AMGN', 'AMZN', 'AON', 'APD', 'AVGO', 'AXP', 'BA', 'BAC', 'BAX', 'BDX', 'BK', 'BMY', 'C', 'CAG', 'CAT', 'CEF', 'CL', 'CMCSA', 'CMS', 'CNP', 'COP', 'COST', 'CPB', 'CRM', 'CSCO', 'CSX', 'CVS', 'CVX', 'D', 'DE', 'DIA', 'DIS', 'DOV', 'DTE', 'DUK', 'ECL', 'ED', 'EIX', 'EMR', 'EOG', 'ETR', 'EXC', 'F', 'FCX', 'FDX', 'FE', 'GD', 'GE', 'GILD', 'GIS', 'GLD', 'GLW', 'GOOG', 'GPC', 'GS', 'HAL', 'HD', 'HIG', 'HON', 'HPQ', 'HRL', 'HSY', 'HUM', 'IBB', 'IBM', 'IHI', 'INTC', 'IP', 'ITA', 'ITB', 'ITW', 'IWM', 'IYR', 'JNJ', 'JPM', 'K', 'KEY', 'KMB', 'KO', 'KR', 'KRE', 'LEG', 'LIN', 'LLY', 'LMT', 'LOW', 'LUV', 'MAS', 'MCD', 'MDT', 'MET', 'META', 'MMC', 'MMM', 'MO', 'MRK', 'MS', 'MSFT', 'MU', 'NEE', 'NEM', 'NKE', 'NOC', 'NSC', 'NUE', 'NVDA', 'OIH', 'ORCL', 'OXY', 'PAYX', 'PCG', 'PEG', 'PEP', 'PFE', 'PG', 'PGR', 'PH', 'PNW', 'PPG', 'PPL', 'PSA', 'QCOM', 'QQQ', 'REGN', 'RF', 'RHI', 'ROK', 'ROST', 'RTX', 'SBUX', 'SCHW', 'SHW', 'SLB', 'SLV', 'SMH', 'SNA', 'SO', 'SPG', 'SPY', 'SRE', 'STT', 'SWK', 'SYK', 'SYY', 'T', 'TAP', 'TGT', 'TJX', 'TMO', 'TRV', 'TSN', 'TXN', 'UNG', 'UNH', 'UNP', 'USB', 'USO', 'UVXY', 'V', 'VFC', 'VLO', 'VMC', 'VNQ', 'VZ', 'WFC', 'WHR', 'WM', 'WMB', 'WMT', 'XBI', 'XHB', 'XLB', 'XLE', 'XLF', 'XLI', 'XLK', 'XLP', 'XLU', 'XLV', 'XLY', 'XME', 'XOM', 'XOP', 'XRT', '^GSPC', '^NDX'], 
         "settings": {
             "trade_direction": "Long",
-            "entry_type": "Signal Close",
+            "entry_type": "T+1 Close if < Signal Close",
             "max_one_pos": True,
-            "max_daily_entries": 2,
-            "max_total_positions": 5,
+            "allow_same_day_reentry": False,
+            "max_daily_entries": 10,
+            "max_total_positions": 20,
             "perf_filters": [{'window': 5, 'logic': '<', 'thresh': 33.0, 'consecutive': 1}, {'window': 21, 'logic': '<', 'thresh': 15.0, 'consecutive': 3}],
             "perf_first_instance": False, "perf_lookback": 21,
+            "ma_consec_filters": [],
             "use_sznl": False, "sznl_logic": "<", "sznl_thresh": 15.0, "sznl_first_instance": True, "sznl_lookback": 21,
-            "use_52w": False, "52w_type": "New 52w High", "52w_first_instance": True, "52w_lookback": 21,
+            "use_market_sznl": False, "market_sznl_logic": "<", "market_sznl_thresh": 15.0,
+            "market_ticker": "^GSPC",
+            "use_52w": False, "52w_type": "New 52w High", "52w_first_instance": True, "52w_lookback": 21, "52w_lag": 0,
+            "exclude_52w_high": False,
+            "breakout_mode": "None",
+            "use_range_filter": False, 
+            "range_min": 0, 
+            "range_max": 100,
+            "use_dow_filter": False, 
+            "allowed_days": [0, 1, 2, 3, 4],
+            "use_vix_filter": False, "vix_min": 0.0, "vix_max": 20.0,
             "use_vol": False, "vol_thresh": 1.5,
             "use_vol_rank": True, "vol_rank_logic": "<", "vol_rank_thresh": 15.0,
-            "trend_filter": "SPY > 200 SMA",
+            "trend_filter": "Market > 200 SMA",
             "min_price": 10.0, "min_vol": 100000,
-            "min_age": 0.25, "max_age": 100.0
+            "min_age": 0.25, "max_age": 100.0,
+            "min_atr_pct": 0.2,"max_atr_pct": 10.0,
+            "entry_conf_bps": 0,
+            "use_ma_dist_filter": False, "dist_ma_type": "SMA 10", 
+            "dist_logic": "Greater Than (>)", "dist_min": 0.0, "dist_max": 2.0,
+            "use_gap_filter": False, "gap_lookback": 21, 
+            "gap_logic": ">", "gap_thresh": 3,
+            "use_acc_count_filter": False, "acc_count_window": 21, "acc_count_logic": ">", "acc_count_thresh": 3,
+            "use_dist_count_filter": False, "dist_count_window": 21, "dist_count_logic": ">", "dist_count_thresh": 3
         },
         "execution": {
-            "risk_per_trade": 500,
+            "risk_per_trade": 1000,
+            "slippage_bps": 0,
             "stop_atr": 2.0,
             "tgt_atr": 8.0,
             "hold_days": 21
         },
-        "stats": { "grade": "A (Excellent)", "win_rate": "64.9%", "expectancy": "0.65r", "profit_factor": "2.55" }
+        "stats": {
+            "grade": "A (Excellent)",
+            "win_rate": "69.0%",
+            "expectancy": "$745.56",
+            "profit_factor": "2.90"
+        }
     },
         {
         "id": "5+10+21d > 85, 21d 3x, vol >1.25x, >0 dist day, sell open +0.5 atr",
@@ -484,18 +510,270 @@ def download_historical_data(tickers, start_date="2000-01-01"):
             
     return data_dict
 
-def calculate_indicators(df, sznl_map, ticker, market_series=None):
-    # (Copy the EXACT calculate_indicators function from your screener.py)
-    # No changes needed, just paste it here.
-    # ...
-    # [PASTE calculate_indicators HERE]
-    return df
+
+            d_min = params.get('dist_min', 0)
+            d_max = params.get('dist_max', 0)
+            if d_logic == "Greater Than (>)" and not (dist_units > d_min): return False
+            if d_logic == "Less Than (<)" and not (dist_units < d_max): return False
+            if d_logic == "Between":
+                if not (dist_units >= d_min and dist_units <= d_max): return False
+
+    # 7. Seasonality
+    if params['use_sznl']:
+        if params['sznl_logic'] == '<': raw_sznl = df['Sznl'] < params['sznl_thresh']
+        else: raw_sznl = df['Sznl'] > params['sznl_thresh']
+        
+        final_sznl = raw_sznl
+        if params.get('sznl_first_instance', False):
+            lookback = params.get('sznl_lookback', 21)
+            prev = final_sznl.shift(1).rolling(lookback).sum()
+            final_sznl = final_sznl & (prev == 0)
+        if not final_sznl.iloc[-1]: return False
+
+    if params.get('use_market_sznl', False):
+        mkt_ticker = params.get('market_ticker', '^GSPC')
+        mkt_series_ref = sznl_map.get(mkt_ticker)
+        if mkt_series_ref is None and mkt_ticker == '^GSPC':
+             mkt_series_ref = sznl_map.get('SPY')
+        mkt_ranks = get_sznl_val_series(mkt_ticker, df.index, sznl_map)
+        
+        if params['market_sznl_logic'] == '<': mkt_cond = mkt_ranks < params['market_sznl_thresh']
+        else: mkt_cond = mkt_ranks > params['market_sznl_thresh']
+        if not mkt_cond[-1]: return False
+
+    # 8. 52w
+    if params['use_52w']:
+        if params['52w_type'] == 'New 52w High': cond_52 = df['is_52w_high']
+        else: cond_52 = df['is_52w_low']
+        if params.get('52w_first_instance', True):
+            lookback = params.get('52w_lookback', 21)
+            prev = cond_52.shift(1).rolling(lookback).sum()
+            cond_52 = cond_52 & (prev == 0)
+        if not cond_52.iloc[-1]: return False
+        
+    # 8b. Exclude 52w High (NEW)
+    if params.get('exclude_52w_high', False):
+        if last_row['is_52w_high']: return False
+
+    # 9. Volume (Ratio ONLY)
+    if params['use_vol']:
+        # Only check if magnitude > threshold (Ignore if it's > or < yesterday)
+        if not (last_row['vol_ratio'] > params['vol_thresh']): return False
+
+    if params.get('use_vol_rank'):
+        val = last_row['vol_ratio_10d_rank']
+        if params['vol_rank_logic'] == '<':
+            if not (val < params['vol_rank_thresh']): return False
+        else:
+            if not (val > params['vol_rank_thresh']): return False
+            
+    return True
 
 def check_signal(df, params, sznl_map):
-    # (Copy the EXACT check_signal function from your screener.py)
-    # No changes needed, just paste it here.
-    # ...
-    # [PASTE check_signal HERE]
+    last_row = df.iloc[-1]
+    
+    # 0. Day of Week Filter
+    if params.get('use_dow_filter', False):
+        allowed = params.get('allowed_days', [])
+        current_day = last_row.name.dayofweek
+        if current_day not in allowed: return False
+
+    # 1. Liquidity Gates
+    if last_row['Close'] < params.get('min_price', 0): return False
+    if last_row['vol_ma'] < params.get('min_vol', 0): return False
+    if last_row['age_years'] < params.get('min_age', 0): return False
+    if last_row['age_years'] > params.get('max_age', 100): return False
+
+    min_atr = params.get('min_atr_pct', 0.0)
+    max_atr = params.get('max_atr_pct', 1000.0)
+    
+    current_atr_pct = last_row.get('ATR_Pct', 0)
+    if pd.isna(current_atr_pct): return False
+
+    if current_atr_pct < min_atr: return False
+    if current_atr_pct > max_atr: return False
+
+    # 2. Trend Filter (Global)
+    trend_opt = params.get('trend_filter', 'None')
+    if trend_opt == "Price > 200 SMA":
+        if not (last_row['Close'] > last_row['SMA200']): return False
+    elif trend_opt == "Price > Rising 200 SMA":
+        prev_row = df.iloc[-2]
+        if not ((last_row['Close'] > last_row['SMA200']) and (last_row['SMA200'] > prev_row['SMA200'])): return False
+    elif "Market" in trend_opt or "SPY" in trend_opt:
+        if 'Market_Above_SMA200' in df.columns:
+            is_above = last_row['Market_Above_SMA200']
+            if ">" in trend_opt and not is_above: return False
+            if "<" in trend_opt and is_above: return False
+
+    # 2b. MA Consecutive Filters (NEW - For Ugly Monday)
+    if 'ma_consec_filters' in params:
+        for maf in params['ma_consec_filters']:
+            length = maf['length']
+            col_name = f"SMA{length}" # e.g. SMA20
+            
+            # Ensure column exists (calculate_indicators handles 10, 20, 50, 200)
+            if col_name not in df.columns: continue 
+            
+            # Logic Check
+            if maf['logic'] == 'Above':
+                mask = df['Close'] > df[col_name]
+            elif maf['logic'] == 'Below':
+                mask = df['Close'] < df[col_name]
+            
+            # Consecutive Check
+            consec = maf.get('consec', 1)
+            if consec > 1:
+                mask = mask.rolling(consec).sum() == consec
+            
+            if not mask.iloc[-1]: return False
+
+    # 3. Candle Range Filter
+    if params.get('use_range_filter', False):
+        rn_val = last_row['RangePct'] * 100
+        r_min = params.get('range_min', 0)
+        r_max = params.get('range_max', 100)
+        if not (rn_val >= r_min and rn_val <= r_max): return False
+
+    # 4. Perf Rank
+    if 'perf_filters' in params:
+        combined_cond = pd.Series(True, index=df.index)
+        for pf in params['perf_filters']:
+            col = f"rank_ret_{pf['window']}d"
+            consec = pf.get('consecutive', 1)
+            
+            if pf['logic'] == '<': cond_f = df[col] < pf['thresh']
+            else: cond_f = df[col] > pf['thresh']
+            
+            if consec > 1: cond_f = cond_f.rolling(consec).sum() == consec
+            combined_cond = combined_cond & cond_f
+        
+        final_perf = combined_cond
+        
+        if params.get('perf_first_instance', False):
+            lookback = params.get('perf_lookback', 21)
+            prev_inst = final_perf.shift(1).rolling(lookback).sum()
+            final_perf = final_perf & (prev_inst == 0)
+            
+        if not final_perf.iloc[-1]: return False
+
+    elif params.get('use_perf_rank', False):
+        col = f"rank_ret_{params['perf_window']}d"
+        if params['perf_logic'] == '<': raw = df[col] < params['perf_thresh']
+        else: raw = df[col] > params['perf_thresh']
+        
+        consec = params.get('perf_consecutive', 1)
+        if consec > 1: persist = raw.rolling(consec).sum() == consec
+        else: persist = raw
+        
+        final_perf = persist
+        if params.get('perf_first_instance', False):
+            lookback = params.get('perf_lookback', 21)
+            prev_inst = final_perf.shift(1).rolling(lookback).sum()
+            final_perf = final_perf & (prev_inst == 0)
+            
+        if not final_perf.iloc[-1]: return False
+
+    # 5. Gap/Acc/Dist Filters
+    if params.get('use_gap_filter', False):
+        lookback = params.get('gap_lookback', 21)
+        col_name = f'GapCount_{lookback}' if f'GapCount_{lookback}' in df.columns else 'GapCount_21'
+        gap_val = last_row.get(col_name, 0)
+        g_logic = params.get('gap_logic', '>')
+        g_thresh = params.get('gap_thresh', 0)
+        if g_logic == ">" and not (gap_val > g_thresh): return False
+        if g_logic == "<" and not (gap_val < g_thresh): return False
+        if g_logic == "=" and not (gap_val == g_thresh): return False
+
+    if params.get('use_acc_count_filter', False):
+        window = params.get('acc_count_window', 21)
+        col_name = f'AccCount_{window}'
+        if col_name in df.columns:
+            acc_val = last_row[col_name]
+            acc_logic = params.get('acc_count_logic', '=')
+            acc_thresh = params.get('acc_count_thresh', 0)
+            if acc_logic == "=" and not (acc_val == acc_thresh): return False
+            if acc_logic == ">" and not (acc_val > acc_thresh): return False
+            if acc_logic == "<" and not (acc_val < acc_thresh): return False
+
+    if params.get('use_dist_count_filter', False):
+        window = params.get('dist_count_window', 21)
+        col_name = f'DistCount_{window}'
+        if col_name in df.columns:
+            dist_val = last_row[col_name]
+            dist_logic = params.get('dist_count_logic', '>')
+            dist_thresh = params.get('dist_count_thresh', 0)
+            if dist_logic == "=" and not (dist_val == dist_thresh): return False
+            if dist_logic == ">" and not (dist_val > dist_thresh): return False
+            if dist_logic == "<" and not (dist_val < dist_thresh): return False
+
+    # 6. Distance Filter
+    if params.get('use_dist_filter', False):
+        ma_type = params.get('dist_ma_type', 'SMA 200')
+        ma_col = ma_type.replace(" ", "") 
+        if ma_col in df.columns:
+            ma_val = last_row[ma_col]
+            atr = last_row['ATR']
+            close = last_row['Close']
+            if atr > 0: dist_units = (close - ma_val) / atr
+            else: dist_units = 0
+            d_logic = params.get('dist_logic', 'Between')
+            d_min = params.get('dist_min', 0)
+            d_max = params.get('dist_max', 0)
+            if d_logic == "Greater Than (>)" and not (dist_units > d_min): return False
+            if d_logic == "Less Than (<)" and not (dist_units < d_max): return False
+            if d_logic == "Between":
+                if not (dist_units >= d_min and dist_units <= d_max): return False
+
+    # 7. Seasonality
+    if params['use_sznl']:
+        if params['sznl_logic'] == '<': raw_sznl = df['Sznl'] < params['sznl_thresh']
+        else: raw_sznl = df['Sznl'] > params['sznl_thresh']
+        
+        final_sznl = raw_sznl
+        if params.get('sznl_first_instance', False):
+            lookback = params.get('sznl_lookback', 21)
+            prev = final_sznl.shift(1).rolling(lookback).sum()
+            final_sznl = final_sznl & (prev == 0)
+        if not final_sznl.iloc[-1]: return False
+
+    if params.get('use_market_sznl', False):
+        mkt_ticker = params.get('market_ticker', '^GSPC')
+        mkt_series_ref = sznl_map.get(mkt_ticker)
+        if mkt_series_ref is None and mkt_ticker == '^GSPC':
+             mkt_series_ref = sznl_map.get('SPY')
+        mkt_ranks = get_sznl_val_series(mkt_ticker, df.index, sznl_map)
+        
+        if params['market_sznl_logic'] == '<': mkt_cond = mkt_ranks < params['market_sznl_thresh']
+        else: mkt_cond = mkt_ranks > params['market_sznl_thresh']
+        if not mkt_cond[-1]: return False
+
+    # 8. 52w
+    if params['use_52w']:
+        if params['52w_type'] == 'New 52w High': cond_52 = df['is_52w_high']
+        else: cond_52 = df['is_52w_low']
+        if params.get('52w_first_instance', True):
+            lookback = params.get('52w_lookback', 21)
+            prev = cond_52.shift(1).rolling(lookback).sum()
+            cond_52 = cond_52 & (prev == 0)
+        if not cond_52.iloc[-1]: return False
+        
+    # 8b. Exclude 52w High (NEW)
+    if params.get('exclude_52w_high', False):
+        if last_row['is_52w_high']: return False
+
+    # 9. Volume (Ratio ONLY)
+    if params['use_vol']:
+        # Only check if magnitude > threshold (Ignore if it's > or < yesterday)
+        if not (last_row['vol_ratio'] > params['vol_thresh']): return False
+
+    if params.get('use_vol_rank'):
+        val = last_row['vol_ratio_10d_rank']
+        if params['vol_rank_logic'] == '<':
+            if not (val < params['vol_rank_thresh']): return False
+        else:
+            if not (val > params['vol_rank_thresh']): return False
+            
     return True
 
 # -----------------------------------------------------------------------------
