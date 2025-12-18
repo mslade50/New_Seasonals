@@ -547,27 +547,60 @@ def save_signals_to_gsheet(new_dataframe, sheet_name='Trade_Signals_Log'):
         print(f"❌ Google Sheet Error: {e}")
 
 def save_staging_orders(signals_list, strategy_book, sheet_name='Order_Staging'):
+    """
+    Saves instructions for the Python Execution Engine.
+    UPDATED: Handles "T+1 Close if < Signal Close" as a Limit Order (Close - 0.01).
+    """
     if not signals_list: return
-    
+
+    # 1. Convert to DataFrame
     df = pd.DataFrame(signals_list)
+    
+    # 2. Create a lookup for Strategy Settings
     strat_map = {s['id']: s for s in strategy_book}
+    
     staging_data = []
     
     for _, row in df.iterrows():
         strat = strat_map.get(row['Strategy_ID'])
         if not strat: continue
+        
         settings = strat['settings']
         
-        # Entry Logic
+        # --- A. DECODE ENTRY INSTRUCTION ---
         entry_mode = settings.get('entry_type', 'Signal Close')
-        entry_instruction = "MKT"
+        
+        # Defaults
+        entry_instruction = "MKT" 
         offset_atr = 0.0
+        limit_price = 0.0 # NEW: Explicit Limit Price field
+        tif_instruction = "DAY" # NEW: Time in Force (Day, GTC, OPG)
+
+        # 1. ATR LIMIT ENTRY (e.g. Open - 0.5 ATR)
         if "Limit" in entry_mode and "ATR" in entry_mode:
             entry_instruction = "REL_OPEN" 
             if "0.5" in entry_mode: offset_atr = 0.5
+            tif_instruction = "DAY"
+            
+        # 2. MARKET ON OPEN
         elif "T+1 Open" in entry_mode:
             entry_instruction = "MOO" 
-        
+            tif_instruction = "OPG"
+            
+        # 3. MARKET ON CLOSE (Signal Close)
+        elif "Signal Close" in entry_mode:
+            entry_instruction = "MOC" # Changed from MKT to MOC for clarity, or keep MKT
+            tif_instruction = "DAY"
+
+        # 4. *** NEW: OVERSOLD LOW VOLUME LOGIC ***
+        elif "T+1 Close if < Signal Close" in entry_mode:
+            entry_instruction = "LMT"
+            # Logic: We want a Limit Order at Signal Close - 0.01
+            # Note: row['Entry'] currently holds the Signal Close price from the main loop
+            limit_price = row['Entry'] - 0.01
+            tif_instruction = "DAY" # Good for the Day
+
+        # --- B. PARENT ACTION ---
         ib_action = "SELL" if "SHORT" in row['Action'] else "BUY"
 
         staging_data.append({
@@ -577,31 +610,45 @@ def save_staging_orders(signals_list, strategy_book, sheet_name='Order_Staging')
             "Exchange": "SMART",
             "Action": ib_action,
             "Quantity": row['Shares'],
-            "Order_Type": entry_instruction, 
-            "Offset_ATR_Mult": offset_atr,   
-            "Frozen_ATR": round(row['ATR'], 2),
+            
+            # THE INSTRUCTIONS
+            "Order_Type": entry_instruction,  # MOO, REL_OPEN, MKT, LMT
+            "Limit_Price": round(limit_price, 2), # NEW COLUMN: Specific Limit Price
+            "Offset_ATR_Mult": offset_atr,    # e.g., 0.5
+            "TIF": tif_instruction,           # NEW COLUMN: DAY or OPG
+            "Frozen_ATR": round(row['ATR'], 2), 
+            
+            # EXIT DATA (Time Stop Only)
             "Time_Exit_Date": str(row['Time Exit']),
             "Strategy_Ref": strat['name']
         })
 
     df_stage = pd.DataFrame(staging_data)
-    gc = get_google_client()
-    if not gc: return
 
     try:
-        sh = gc.open("Trade_Signals_Log") # Using same workbook? Or separate? Adjust if needed.
+        # Load Credentials
+        if "gcp_service_account" in st.secrets:
+            creds_dict = st.secrets["gcp_service_account"]
+            gc = gspread.service_account_from_dict(creds_dict)
+        else:
+            gc = gspread.service_account(filename='credentials.json')
+
+        sh = gc.open("Trade_Signals_Log")
+        
+        # Create/Open Tab
         try:
             worksheet = sh.worksheet(sheet_name)
         except:
             worksheet = sh.add_worksheet(title=sheet_name, rows=100, cols=20)
 
+        # Clear and Overwrite
         worksheet.clear()
         data_to_write = [df_stage.columns.tolist()] + df_stage.astype(str).values.tolist()
         worksheet.update(values=data_to_write)
-        print(f"🤖 Orders Staged! ({len(df_stage)} orders)")
+        st.toast(f"🤖 Instructions Staged! ({len(df_stage)} rows)")
         
     except Exception as e:
-        print(f"❌ Staging Error: {e}")
+        st.error(f"❌ Staging Sheet Error: {e}")
 
 # -----------------------------------------------------------------------------
 # 4. MAIN EXECUTION
