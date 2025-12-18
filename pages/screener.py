@@ -83,43 +83,12 @@ def get_sznl_val_series(ticker, dates, sznl_map):
 
 def save_moc_orders(signals_list, strategy_book, sheet_name='moc_orders'):
     """
-    1. Filters for 'Signal Close' strategies.
-    2. ALWAYS connects to Google Sheets and clears the 'moc_orders' tab.
-    3. If orders exist, writes them. If not, leaves the sheet empty (headers only).
+    1. Filters ONLY for 'Signal Close' strategies.
+    2. Connects to the 'moc_orders' tab (creating it if needed).
+    3. Clears the tab and writes the orders for immediate execution.
     """
     
-    # 1. Prepare the Data (if any)
-    moc_data = []
-    if signals_list:
-        strat_map = {s['id']: s for s in strategy_book}
-        
-        for row in pd.DataFrame(signals_list).to_dict('records'):
-            strat = strat_map.get(row['Strategy_ID'])
-            if not strat: continue
-            
-            settings = strat['settings']
-            entry_mode = settings.get('entry_type', 'Signal Close')
-
-            # Capture ONLY 'Signal Close' trades
-            if "Signal Close" in entry_mode:
-                ib_action = "SELL" if "SHORT" in row['Action'] else "BUY"
-                
-                moc_data.append({
-                    "Scan_Date": datetime.datetime.now().strftime("%Y-%m-%d"),
-                    "Scan_Time": datetime.datetime.now().strftime("%H:%M:%S"),
-                    "Symbol": row['Ticker'],
-                    "SecType": "STK",
-                    "Exchange": "SMART",
-                    "Action": ib_action,
-                    "Quantity": row['Shares'],
-                    "Order_Type": "MOC", 
-                    "Limit_Price": 0.0,
-                    "TIF": "DAY",
-                    "Strategy_Ref": strat['name'],
-                    "Est_Fill": row['Entry']
-                })
-
-    # 2. Connect to Google Sheets (Do this regardless of data)
+    # 1. Connect to Google Sheets & Open/Create the Tab
     try:
         if "gcp_service_account" in st.secrets:
             creds_dict = st.secrets["gcp_service_account"]
@@ -129,26 +98,57 @@ def save_moc_orders(signals_list, strategy_book, sheet_name='moc_orders'):
 
         sh = gc.open("Trade_Signals_Log")
         
-        # Open or Create the Tab
         try:
             worksheet = sh.worksheet(sheet_name)
         except:
+            # If tab doesn't exist, create it (New Tab)
             worksheet = sh.add_worksheet(title=sheet_name, rows=100, cols=20)
 
-        # 3. CRITICAL STEP: Clear the sheet immediately
+        # 2. CRITICAL: Clear the sheet immediately
         worksheet.clear()
+
+        # 3. Filter for MOC Orders
+        moc_data = []
+        if signals_list:
+            strat_map = {s['id']: s for s in strategy_book}
+            
+            for row in pd.DataFrame(signals_list).to_dict('records'):
+                strat = strat_map.get(row['Strategy_ID'])
+                if not strat: continue
+                
+                settings = strat['settings']
+                entry_mode = settings.get('entry_type', 'Signal Close')
+
+                # ONLY capture 'Signal Close' trades for this specific sheet
+                if "Signal Close" in entry_mode:
+                    ib_action = "SELL" if "SHORT" in row['Action'] else "BUY"
+                    
+                    moc_data.append({
+                        "Scan_Date": datetime.datetime.now().strftime("%Y-%m-%d"),
+                        "Scan_Time": datetime.datetime.now().strftime("%H:%M:%S"),
+                        "Symbol": row['Ticker'],
+                        "SecType": "STK",
+                        "Exchange": "SMART",
+                        "Action": ib_action,
+                        "Quantity": row['Shares'],
+                        "Order_Type": "MOC", 
+                        "Limit_Price": 0.0,
+                        "TIF": "DAY",
+                        "Strategy_Ref": strat['name'],
+                        "Est_Fill": row['Entry']
+                    })
 
         # 4. Write Data (or just headers if empty)
         if moc_data:
             df_moc = pd.DataFrame(moc_data)
             data_to_write = [df_moc.columns.tolist()] + df_moc.astype(str).values.tolist()
             worksheet.update(values=data_to_write)
-            st.success(f"🚀 Staged {len(df_moc)} MOC Orders to '{sheet_name}' (Previous data wiped).")
+            st.success(f"🚀 Staged {len(df_moc)} MOC Orders to tab '{sheet_name}'!")
         else:
-            # If no trades, we still write headers so the sheet isn't totally blank
+            # Write headers so your execution script doesn't crash on an empty file
             headers = ["Scan_Date", "Scan_Time", "Symbol", "SecType", "Exchange", "Action", "Quantity", "Order_Type", "Limit_Price", "TIF", "Strategy_Ref", "Est_Fill"]
             worksheet.update(values=[headers])
-            st.toast(f"🧹 '{sheet_name}' has been cleared (No MOC signals found).")
+            st.toast(f"🧹 '{sheet_name}' has been cleared (No Signal Close trades found).")
         
     except Exception as e:
         st.error(f"❌ MOC Staging Error: {e}")
