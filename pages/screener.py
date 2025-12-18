@@ -1086,6 +1086,12 @@ def main():
                 st.success("🌑 Market is CLOSED. Staging full batch.")
                 # Save standard full batch
                 save_staging_orders(all_staging_signals, STRATEGY_BOOK, sheet_name='Order_Staging')
+                moc_candidates = [s for s in all_staging_signals if "Signal Close" in str(s.get('Entry Criteria', '')) or "Signal Close" in str(s)]
+                
+                if moc_candidates:
+                    st.write(f"⚡ Found {len(moc_candidates)} potential MOC (Market On Close) trades.")
+                    if st.button("🚀 Stage MOC Orders Only (moc_orders sheet)", type="primary"):
+                        save_moc_orders(all_staging_signals, STRATEGY_BOOK, sheet_name='moc_orders')
                 
                 # OPTIONAL: Also clear the MOC sheet so you don't accidentally execute old ones tomorrow
                 # You might want to leave this out if you keep records, but usually good for safety:
