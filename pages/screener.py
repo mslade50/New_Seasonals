@@ -156,7 +156,7 @@ def save_moc_orders(signals_list, strategy_book, sheet_name='moc_orders'):
 def save_staging_orders(signals_list, strategy_book, sheet_name='Order_Staging'):
     """
     Saves instructions for the Python Execution Engine.
-    UPDATED: Handles "T+1 Close if < Signal Close" as a Limit Order (Close - 0.01).
+    UPDATED: EXCLUDES "Signal Close" orders (as they now go to the moc_orders sheet).
     """
     if not signals_list: return
 
@@ -177,6 +177,12 @@ def save_staging_orders(signals_list, strategy_book, sheet_name='Order_Staging')
         # --- A. DECODE ENTRY INSTRUCTION ---
         entry_mode = settings.get('entry_type', 'Signal Close')
         
+        # *** NEW FILTER: SKIP MOC ORDERS ***
+        # These are handled by save_moc_orders now.
+        if "Signal Close" in entry_mode:
+            continue
+        # -----------------------------------
+        
         # Defaults
         entry_instruction = "MKT" 
         offset_atr = 0.0
@@ -194,18 +200,12 @@ def save_staging_orders(signals_list, strategy_book, sheet_name='Order_Staging')
             entry_instruction = "MOO" 
             tif_instruction = "OPG"
             
-        # 3. MARKET ON CLOSE (Signal Close)
-        elif "Signal Close" in entry_mode:
-            entry_instruction = "MOC" # Changed from MKT to MOC for clarity, or keep MKT
-            tif_instruction = "DAY"
-
-        # 4. *** NEW: OVERSOLD LOW VOLUME LOGIC ***
+        # 3. CONDITIONAL CLOSE (Oversold Low Vol Logic)
         elif "T+1 Close if < Signal Close" in entry_mode:
             entry_instruction = "LMT"
             # Logic: We want a Limit Order at Signal Close - 0.01
-            # Note: row['Entry'] currently holds the Signal Close price from the main loop
             limit_price = row['Entry'] - 0.01
-            tif_instruction = "DAY" # Good for the Day
+            tif_instruction = "DAY" 
 
         # --- B. PARENT ACTION ---
         ib_action = "SELL" if "SHORT" in row['Action'] else "BUY"
@@ -219,16 +219,33 @@ def save_staging_orders(signals_list, strategy_book, sheet_name='Order_Staging')
             "Quantity": row['Shares'],
             
             # THE INSTRUCTIONS
-            "Order_Type": entry_instruction,  # MOO, REL_OPEN, MKT, LMT
-            "Limit_Price": round(limit_price, 2), # NEW COLUMN: Specific Limit Price
-            "Offset_ATR_Mult": offset_atr,    # e.g., 0.5
-            "TIF": tif_instruction,           # NEW COLUMN: DAY or OPG
+            "Order_Type": entry_instruction,  # MOO, REL_OPEN, LMT
+            "Limit_Price": round(limit_price, 2), 
+            "Offset_ATR_Mult": offset_atr,    
+            "TIF": tif_instruction,           
             "Frozen_ATR": round(row['ATR'], 2), 
             
             # EXIT DATA (Time Stop Only)
             "Time_Exit_Date": str(row['Time Exit']),
             "Strategy_Ref": strat['name']
         })
+
+    # If all orders were "Signal Close", the list might be empty now.
+    if not staging_data:
+        # Optional: Clear the sheet if no orders remain
+        try:
+            if "gcp_service_account" in st.secrets:
+                creds_dict = st.secrets["gcp_service_account"]
+                gc = gspread.service_account_from_dict(creds_dict)
+            else:
+                gc = gspread.service_account(filename='credentials.json')
+            sh = gc.open("Trade_Signals_Log")
+            worksheet = sh.worksheet(sheet_name)
+            worksheet.clear()
+            st.toast(f"🧹 '{sheet_name}' cleared (Only MOC orders found today).")
+        except:
+            pass
+        return
 
     df_stage = pd.DataFrame(staging_data)
 
