@@ -1065,28 +1065,27 @@ def main():
             st.subheader("🚀 Order Staging")
 
             # -----------------------------------------------------------------
-            # 1. MOC ORDERS (Signal Close) - AVAILABLE ANY TIME
+            # 1. MOC ORDERS (Signal Close) - AUTO PUSH (ANY TIME)
             # -----------------------------------------------------------------
-            # CORRECTED LOGIC: Look up settings using Strategy_ID
+            # Check if valid MOC trades exist in the signal list
             strat_map = {s['id']: s for s in STRATEGY_BOOK}
             
             has_moc = False
             for s in all_staging_signals:
                 sid = s.get('Strategy_ID')
                 if sid in strat_map:
-                    # Check the actual setting in the strategy book
-                    e_type = strat_map[sid]['settings'].get('entry_type', '')
-                    if "Signal Close" in e_type:
+                    if "Signal Close" in strat_map[sid]['settings'].get('entry_type', ''):
                         has_moc = True
                         break
             
             if has_moc:
-                st.write("⚡ **MOC Execution:**")
-                if st.button("🚀 Push MOC Orders to 'moc_orders' Tab", type="primary"):
-                    # This function clears the tab and writes only Signal Close trades
-                    save_moc_orders(all_staging_signals, STRATEGY_BOOK, sheet_name='moc_orders')
+                # AUTO EXECUTE: No button needed.
+                # This function clears the 'moc_orders' tab and writes the new trades immediately.
+                save_moc_orders(all_staging_signals, STRATEGY_BOOK, sheet_name='moc_orders')
             else:
-                st.caption("No 'Signal Close' trades found.")
+                # Optional: If you want to force-clear the sheet when NO signals exist, uncomment the next line:
+                # save_moc_orders([], STRATEGY_BOOK, sheet_name='moc_orders')
+                st.caption("No 'Signal Close' strategies triggered to auto-stage.")
 
             # -----------------------------------------------------------------
             # 2. STANDARD BATCH (T+1 / Limits) - AFTER CLOSE ONLY
