@@ -371,6 +371,62 @@ STRATEGY_BOOK = [
             "profit_factor": "2.82"
         }
     },
+    {
+        "id": "21dr < 15 3 consec, 5dr < 33, rel vol < 15, SPY > 200d, 21d time stop (no midterms)",
+        "name": "Oversold low volume (moc)",
+        "description": "Start: 2000-01-01. Universe: All CSV Tickers. Dir: Long. Filter: Market > 200 SMA. PF: 2.70. SQN: 7.14.",
+        "universe_tickers": ['AAPL', 'ABT', 'ADBE', 'ADI', 'ADM', 'ADP', 'ADSK', 'AEP', 'AIG', 'ALL', 'AMAT', 'AMD', 'AMGN', 'AMZN', 'AON', 'APD', 'AVGO', 'AXP', 'BA', 'BAC', 'BAX', 'BDX', 'BK', 'BMY', 'C', 'CAG', 'CAT', 'CEF', 'CL', 'CMCSA', 'CMS', 'CNP', 'COP', 'COST', 'CPB', 'CRM', 'CSCO', 'CSX', 'CVS', 'CVX', 'D', 'DE', 'DIA', 'DIS', 'DOV', 'DTE', 'DUK', 'ECL', 'ED', 'EIX', 'EMR', 'EOG', 'ETR', 'EXC', 'F', 'FCX', 'FDX', 'FE', 'GD', 'GE', 'GILD', 'GIS', 'GLD', 'GLW', 'GOOG', 'GPC', 'GS', 'HAL', 'HD', 'HIG', 'HON', 'HPQ', 'HRL', 'HSY', 'HUM', 'IBB', 'IBM', 'IHI', 'INTC', 'IP', 'ITA', 'ITB', 'ITW', 'IWM', 'IYR', 'JNJ', 'JPM', 'K', 'KEY', 'KMB', 'KO', 'KR', 'KRE', 'LEG', 'LIN', 'LLY', 'LMT', 'LOW', 'LUV', 'MAS', 'MCD', 'MDT', 'MET', 'META', 'MMC', 'MMM', 'MO', 'MRK', 'MS', 'MSFT', 'MU', 'NEE', 'NEM', 'NKE', 'NOC', 'NSC', 'NUE', 'NVDA', 'OIH', 'ORCL', 'OXY', 'PAYX', 'PCG', 'PEG', 'PEP', 'PFE', 'PG', 'PGR', 'PH', 'PNW', 'PPG', 'PPL', 'PSA', 'QCOM', 'QQQ', 'REGN', 'RF', 'RHI', 'ROK', 'ROST', 'RTX', 'SBUX', 'SCHW', 'SHW', 'SLB', 'SLV', 'SMH', 'SNA', 'SO', 'SPG', 'SPY', 'SRE', 'STT', 'SWK', 'SYK', 'SYY', 'T', 'TAP', 'TGT', 'TJX', 'TMO', 'TRV', 'TSN', 'TXN', 'UNG', 'UNH', 'UNP', 'USB', 'USO', 'UVXY', 'V', 'VFC', 'VLO', 'VMC', 'VNQ', 'VZ', 'WFC', 'WHR', 'WM', 'WMB', 'WMT', 'XBI', 'XHB', 'XLB', 'XLE', 'XLF', 'XLI', 'XLK', 'XLP', 'XLU', 'XLV', 'XLY', 'XME', 'XOM', 'XOP', 'XRT', '^GSPC', '^NDX'], 
+        "settings": {
+            "trade_direction": "Long",
+            "entry_type": "Signal Close",
+            "max_one_pos": True,
+            "allow_same_day_reentry": False,
+            "max_daily_entries": 30,
+            "max_total_positions": 50,
+            "perf_filters": [{'window': 5, 'logic': '<', 'thresh': 33.0, 'consecutive': 1}, {'window': 21, 'logic': '<', 'thresh': 15.0, 'consecutive': 3}],
+            "perf_first_instance": False, "perf_lookback": 21,
+            "ma_consec_filters": [],
+            "use_sznl": False, "sznl_logic": ">", "sznl_thresh": 33.0, "sznl_first_instance": False, "sznl_lookback": 21,
+            "use_market_sznl": False, "market_sznl_logic": "<", "market_sznl_thresh": 15.0,
+            "market_ticker": "^GSPC",
+            "use_52w": False, "52w_type": "New 52w High", "52w_first_instance": True, "52w_lookback": 21, "52w_lag": 0,
+            "exclude_52w_high": False,
+            "breakout_mode": "None",
+            "use_range_filter": False, 
+            "range_min": 0, 
+            "range_max": 20,
+            "use_dow_filter": True, 
+            "allowed_days": [0, 1, 2, 3, 4],
+            "allowed_cycles": [1, 3, 0],
+            "use_vix_filter": False, "vix_min": 0.0, "vix_max": 20.0,
+            "use_vol": False, "vol_thresh": 1.5,
+            "use_vol_rank": True, "vol_rank_logic": "<", "vol_rank_thresh": 15.0,
+            "trend_filter": "Market > 200 SMA",
+            "min_price": 10.0, "min_vol": 100000,
+            "min_age": 0.25, "max_age": 100.0,
+            "min_atr_pct": 0.2,"max_atr_pct": 10.0,
+            "entry_conf_bps": 0,
+            "use_ma_dist_filter": False, "dist_ma_type": "SMA 10", 
+            "dist_logic": "Greater Than (>)", "dist_min": 0.0, "dist_max": 2.0,
+            "use_gap_filter": False, "gap_lookback": 21, 
+            "gap_logic": ">", "gap_thresh": 3,
+            "use_acc_count_filter": False, "acc_count_window": 21, "acc_count_logic": ">", "acc_count_thresh": 3,
+            "use_dist_count_filter": False, "dist_count_window": 21, "dist_count_logic": "<", "dist_count_thresh": 3
+        },
+        "execution": {
+            "risk_per_trade": 750,
+            "slippage_bps": 2,
+            "stop_atr": 3.0,
+            "tgt_atr": 8.0,
+            "hold_days": 21
+        },
+        "stats": {
+            "grade": "A (Excellent)",
+            "win_rate": "67.3%",
+            "expectancy": "$344.77",
+            "profit_factor": "2.70"
+        }
+    },
         {
         "id": "5+10+21d > 85, 21d 3x, vol >1.25x, >0 dist day, sell open +0.5 atr",
         "name": "Overbot Vol Spike",
