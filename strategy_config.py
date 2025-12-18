@@ -1,21 +1,21 @@
 STRATEGY_BOOK = [
     {
-        "id": "5d <50, 21d > 50 3x, lower 20% range, SPX sznl > 33, 5d time stop",
+        "id": "5d <50, 21d > 50 3x, lower 20% range, sznl > 33, 5d time stop",
         "name": "Weak Close Reversion",
-        "description": "Start: 2000-01-01. Universe: Indices. Dir: Long. Filter: None. PF: 2.38. SQN: 8.95.",
+        "description": "Start: 2000-01-01. Universe: Indices. Dir: Long. Filter: None. PF: 2.51. SQN: 8.88.",
         "universe_tickers": ['SPY', 'QQQ', 'IWM', 'DIA', 'SMH'], 
         "settings": {
             "trade_direction": "Long",
             "entry_type": "Signal Close",
             "max_one_pos": True,
             "allow_same_day_reentry": False,
-            "max_daily_entries": 10,
-            "max_total_positions": 10,
+            "max_daily_entries": 30,
+            "max_total_positions": 50,
             "perf_filters": [{'window': 5, 'logic': '<', 'thresh': 50.0, 'consecutive': 1}, {'window': 21, 'logic': '>', 'thresh': 50.0, 'consecutive': 3}],
             "perf_first_instance": False, "perf_lookback": 21,
             "ma_consec_filters": [],
-            "use_sznl": False, "sznl_logic": "<", "sznl_thresh": 15.0, "sznl_first_instance": True, "sznl_lookback": 21,
-            "use_market_sznl": True, "market_sznl_logic": ">", "market_sznl_thresh": 33.0,
+            "use_sznl": True, "sznl_logic": ">", "sznl_thresh": 33.0, "sznl_first_instance": False, "sznl_lookback": 21,
+            "use_market_sznl": False, "market_sznl_logic": "<", "market_sznl_thresh": 15.0,
             "market_ticker": "^GSPC",
             "use_52w": False, "52w_type": "New 52w High", "52w_first_instance": True, "52w_lookback": 21, "52w_lag": 0,
             "exclude_52w_high": False,
@@ -23,12 +23,12 @@ STRATEGY_BOOK = [
             "use_range_filter": True, 
             "range_min": 0, 
             "range_max": 20,
-            "use_dow_filter": False, 
+            "use_dow_filter": True, 
             "allowed_days": [0, 1, 2, 3, 4],
             "allowed_cycles": [1, 3, 0],
             "use_vix_filter": False, "vix_min": 0.0, "vix_max": 20.0,
             "use_vol": False, "vol_thresh": 1.5,
-            "use_vol_rank": False, "vol_rank_logic": "<", "vol_rank_thresh": 50.0,
+            "use_vol_rank": False, "vol_rank_logic": "<", "vol_rank_thresh": 15.0,
             "trend_filter": "None",
             "min_price": 10.0, "min_vol": 100000,
             "min_age": 0.25, "max_age": 100.0,
@@ -39,20 +39,20 @@ STRATEGY_BOOK = [
             "use_gap_filter": False, "gap_lookback": 21, 
             "gap_logic": ">", "gap_thresh": 3,
             "use_acc_count_filter": False, "acc_count_window": 21, "acc_count_logic": ">", "acc_count_thresh": 3,
-            "use_dist_count_filter": False, "dist_count_window": 21, "dist_count_logic": ">", "dist_count_thresh": 3
+            "use_dist_count_filter": False, "dist_count_window": 21, "dist_count_logic": "<", "dist_count_thresh": 3
         },
         "execution": {
             "risk_per_trade": 300,
-            "slippage_bps": 0,
+            "slippage_bps": 2,
             "stop_atr": 2.0,
             "tgt_atr": 8.0,
             "hold_days": 5
         },
         "stats": {
             "grade": "A (Excellent)",
-            "win_rate": "65.0%",
-            "expectancy": "$79.61",
-            "profit_factor": "2.38"
+            "win_rate": "66.6%",
+            "expectancy": "0.28r",
+            "profit_factor": "2.51"
         }
     },
     # 1. INDEX SEASONALS
