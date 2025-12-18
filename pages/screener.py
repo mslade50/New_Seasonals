@@ -318,31 +318,57 @@ STRATEGY_BOOK = [
     {
         "id": "21dr < 15 3 consec, 5dr < 33, rel vol < 15, SPY > 200d, 21d time stop",
         "name": "Oversold Low Volume",
-        "description": "Start: 2000-01-01. Universe: All CSV Tickers. Dir: Long. Filter: SPY > 200 SMA. PF: 2.55. SQN: 7.67.",
-        "universe_tickers": ['AAPL', 'ABT', 'ADBE', 'ADI', 'ADM', 'ADP', 'ADSK', 'AEP', 'AIG', 'ALL', 'AMAT', 'AMD', 'AMGN', 'AMZN', 'AON', 'APD', 'AVGO', 'AXP', 'BA', 'BAC', 'BAX', 'BDX', 'BK', 'BMY', 'C', 'CAG', 'CAT', 'CEF', 'CL', 'CMCSA', 'CMS', 'CNP', 'COP', 'COST', 'CPB', 'CRM', 'CSCO', 'CSX', 'CVS', 'CVX', 'D', 'DE', 'DIA', 'DIS', 'DOV', 'DTE', 'DUK', 'ECL', 'ED', 'EIX', 'EMR', 'EOG', 'ETR', 'EXC', 'F', 'FCX', 'FDX', 'FE', 'GD', 'GE', 'GILD', 'GIS', 'GLD', 'GLW', 'GOOG', 'GPC', 'GS', 'HAL', 'HD', 'HIG', 'HON', 'HPQ', 'HRL', 'HSY', 'HUM', 'IBB', 'IBM', 'IHI', 'INTC', 'IP', 'ITA', 'ITB', 'ITW', 'IWM', 'IYR', 'JNJ', 'JPM', 'K', 'KEY', 'KMB', 'KO', 'KR', 'KRE', 'LEG', 'LIN', 'LLY', 'LMT', 'LOW', 'LUV', 'MAS', 'MCD', 'MDT', 'MET', 'META', 'MMC', 'MMM', 'MO', 'MRK', 'MS', 'MSFT', 'MU', 'NEE', 'NEM', 'NKE', 'NOC', 'NSC', 'NUE', 'NVDA', 'OIH', 'ORCL', 'OXY', 'PAYX', 'PCG', 'PEG', 'PEP', 'PFE', 'PG', 'PGR', 'PH', 'PNW', 'PPG', 'PPL', 'PSA', 'QCOM', 'QQQ', 'REGN', 'RF', 'RHI', 'ROK', 'ROST', 'RTX', 'SBUX', 'SCHW', 'SHW', 'SLB', 'SLV', 'SMH', 'SNA', 'SO', 'SPG', 'SPY', 'SRE', 'STT', 'SWK', 'SYK', 'SYY', 'T', 'TAP', 'TGT', 'TJX', 'TMO', 'TRV', 'TSN', 'TXN', 'UNG', 'UNH', 'UNP', 'USB', 'USO', 'UVXY', 'V', 'VFC', 'VLO', 'VMC', 'VNQ', 'VZ', 'WFC', 'WHR', 'WM', 'WMB', 'WMT', 'XBI', 'XHB', 'XLB', 'XLE', 'XLF', 'XLI', 'XLK', 'XLP', 'XLU', 'XLV', 'XLY', 'XME', 'XOM', 'XOP', 'XRT'], 
+        "description": "Start: 2000-01-01. Universe: All CSV Tickers. Dir: Long. Filter: Market > 200 SMA. PF: 2.90. SQN: 6.46.",
+        "universe_tickers": ['AAPL', 'ABT', 'ADBE', 'ADI', 'ADM', 'ADP', 'ADSK', 'AEP', 'AIG', 'ALL', 'AMAT', 'AMD', 'AMGN', 'AMZN', 'AON', 'APD', 'AVGO', 'AXP', 'BA', 'BAC', 'BAX', 'BDX', 'BK', 'BMY', 'C', 'CAG', 'CAT', 'CEF', 'CL', 'CMCSA', 'CMS', 'CNP', 'COP', 'COST', 'CPB', 'CRM', 'CSCO', 'CSX', 'CVS', 'CVX', 'D', 'DE', 'DIA', 'DIS', 'DOV', 'DTE', 'DUK', 'ECL', 'ED', 'EIX', 'EMR', 'EOG', 'ETR', 'EXC', 'F', 'FCX', 'FDX', 'FE', 'GD', 'GE', 'GILD', 'GIS', 'GLD', 'GLW', 'GOOG', 'GPC', 'GS', 'HAL', 'HD', 'HIG', 'HON', 'HPQ', 'HRL', 'HSY', 'HUM', 'IBB', 'IBM', 'IHI', 'INTC', 'IP', 'ITA', 'ITB', 'ITW', 'IWM', 'IYR', 'JNJ', 'JPM', 'K', 'KEY', 'KMB', 'KO', 'KR', 'KRE', 'LEG', 'LIN', 'LLY', 'LMT', 'LOW', 'LUV', 'MAS', 'MCD', 'MDT', 'MET', 'META', 'MMC', 'MMM', 'MO', 'MRK', 'MS', 'MSFT', 'MU', 'NEE', 'NEM', 'NKE', 'NOC', 'NSC', 'NUE', 'NVDA', 'OIH', 'ORCL', 'OXY', 'PAYX', 'PCG', 'PEG', 'PEP', 'PFE', 'PG', 'PGR', 'PH', 'PNW', 'PPG', 'PPL', 'PSA', 'QCOM', 'QQQ', 'REGN', 'RF', 'RHI', 'ROK', 'ROST', 'RTX', 'SBUX', 'SCHW', 'SHW', 'SLB', 'SLV', 'SMH', 'SNA', 'SO', 'SPG', 'SPY', 'SRE', 'STT', 'SWK', 'SYK', 'SYY', 'T', 'TAP', 'TGT', 'TJX', 'TMO', 'TRV', 'TSN', 'TXN', 'UNG', 'UNH', 'UNP', 'USB', 'USO', 'UVXY', 'V', 'VFC', 'VLO', 'VMC', 'VNQ', 'VZ', 'WFC', 'WHR', 'WM', 'WMB', 'WMT', 'XBI', 'XHB', 'XLB', 'XLE', 'XLF', 'XLI', 'XLK', 'XLP', 'XLU', 'XLV', 'XLY', 'XME', 'XOM', 'XOP', 'XRT', '^GSPC', '^NDX'], 
         "settings": {
             "trade_direction": "Long",
-            "entry_type": "Signal Close",
+            "entry_type": "T+1 Close if < Signal Close",
             "max_one_pos": True,
-            "max_daily_entries": 2,
-            "max_total_positions": 5,
+            "allow_same_day_reentry": False,
+            "max_daily_entries": 10,
+            "max_total_positions": 20,
             "perf_filters": [{'window': 5, 'logic': '<', 'thresh': 33.0, 'consecutive': 1}, {'window': 21, 'logic': '<', 'thresh': 15.0, 'consecutive': 3}],
             "perf_first_instance": False, "perf_lookback": 21,
+            "ma_consec_filters": [],
             "use_sznl": False, "sznl_logic": "<", "sznl_thresh": 15.0, "sznl_first_instance": True, "sznl_lookback": 21,
-            "use_52w": False, "52w_type": "New 52w High", "52w_first_instance": True, "52w_lookback": 21,
+            "use_market_sznl": False, "market_sznl_logic": "<", "market_sznl_thresh": 15.0,
+            "market_ticker": "^GSPC",
+            "use_52w": False, "52w_type": "New 52w High", "52w_first_instance": True, "52w_lookback": 21, "52w_lag": 0,
+            "exclude_52w_high": False,
+            "breakout_mode": "None",
+            "use_range_filter": False, 
+            "range_min": 0, 
+            "range_max": 100,
+            "use_dow_filter": False, 
+            "allowed_days": [0, 1, 2, 3, 4],
+            "use_vix_filter": False, "vix_min": 0.0, "vix_max": 20.0,
             "use_vol": False, "vol_thresh": 1.5,
             "use_vol_rank": True, "vol_rank_logic": "<", "vol_rank_thresh": 15.0,
-            "trend_filter": "SPY > 200 SMA",
+            "trend_filter": "Market > 200 SMA",
             "min_price": 10.0, "min_vol": 100000,
-            "min_age": 0.25, "max_age": 100.0
+            "min_age": 0.25, "max_age": 100.0,
+            "min_atr_pct": 0.2,"max_atr_pct": 10.0,
+            "entry_conf_bps": 0,
+            "use_ma_dist_filter": False, "dist_ma_type": "SMA 10", 
+            "dist_logic": "Greater Than (>)", "dist_min": 0.0, "dist_max": 2.0,
+            "use_gap_filter": False, "gap_lookback": 21, 
+            "gap_logic": ">", "gap_thresh": 3,
+            "use_acc_count_filter": False, "acc_count_window": 21, "acc_count_logic": ">", "acc_count_thresh": 3,
+            "use_dist_count_filter": False, "dist_count_window": 21, "dist_count_logic": ">", "dist_count_thresh": 3
         },
         "execution": {
-            "risk_per_trade": 500,
+            "risk_per_trade": 1000,
+            "slippage_bps": 0,
             "stop_atr": 2.0,
             "tgt_atr": 8.0,
             "hold_days": 21
         },
-        "stats": { "grade": "A (Excellent)", "win_rate": "64.9%", "expectancy": "0.65r", "profit_factor": "2.55" }
+        "stats": {
+            "grade": "A (Excellent)",
+            "win_rate": "69.0%",
+            "expectancy": "$745.56",
+            "profit_factor": "2.90"
+        }
     },
         {
         "id": "5+10+21d > 85, 21d 3x, vol >1.25x, >0 dist day, sell open +0.5 atr",
@@ -449,7 +475,7 @@ def get_sznl_val_series(ticker, dates, sznl_map):
 def save_staging_orders(signals_list, strategy_book, sheet_name='Order_Staging'):
     """
     Saves instructions for the Python Execution Engine.
-    UPDATED: Removes Hard Stops/Targets (Time Stop only) and rounds ATR to 2 decimals.
+    UPDATED: Handles "T+1 Close if < Signal Close" as a Limit Order (Close - 0.01).
     """
     if not signals_list: return
 
@@ -469,18 +495,36 @@ def save_staging_orders(signals_list, strategy_book, sheet_name='Order_Staging')
         
         # --- A. DECODE ENTRY INSTRUCTION ---
         entry_mode = settings.get('entry_type', 'Signal Close')
-        entry_instruction = "MKT" # Default
-        offset_atr = 0.0
         
+        # Defaults
+        entry_instruction = "MKT" 
+        offset_atr = 0.0
+        limit_price = 0.0 # NEW: Explicit Limit Price field
+        tif_instruction = "DAY" # NEW: Time in Force (Day, GTC, OPG)
+
+        # 1. ATR LIMIT ENTRY (e.g. Open - 0.5 ATR)
         if "Limit" in entry_mode and "ATR" in entry_mode:
             entry_instruction = "REL_OPEN" 
             if "0.5" in entry_mode: offset_atr = 0.5
+            tif_instruction = "DAY"
             
+        # 2. MARKET ON OPEN
         elif "T+1 Open" in entry_mode:
             entry_instruction = "MOO" 
+            tif_instruction = "OPG"
             
+        # 3. MARKET ON CLOSE (Signal Close)
         elif "Signal Close" in entry_mode:
-            entry_instruction = "MKT"
+            entry_instruction = "MOC" # Changed from MKT to MOC for clarity, or keep MKT
+            tif_instruction = "DAY"
+
+        # 4. *** NEW: OVERSOLD LOW VOLUME LOGIC ***
+        elif "T+1 Close if < Signal Close" in entry_mode:
+            entry_instruction = "LMT"
+            # Logic: We want a Limit Order at Signal Close - 0.01
+            # Note: row['Entry'] currently holds the Signal Close price from the main loop
+            limit_price = row['Entry'] - 0.01
+            tif_instruction = "DAY" # Good for the Day
 
         # --- B. PARENT ACTION ---
         ib_action = "SELL" if "SHORT" in row['Action'] else "BUY"
@@ -494,9 +538,11 @@ def save_staging_orders(signals_list, strategy_book, sheet_name='Order_Staging')
             "Quantity": row['Shares'],
             
             # THE INSTRUCTIONS
-            "Order_Type": entry_instruction,  # MOO, REL_OPEN, MKT
+            "Order_Type": entry_instruction,  # MOO, REL_OPEN, MKT, LMT
+            "Limit_Price": round(limit_price, 2), # NEW COLUMN: Specific Limit Price
             "Offset_ATR_Mult": offset_atr,    # e.g., 0.5
-            "Frozen_ATR": round(row['ATR'], 2), # ROUNDED to 2 decimals
+            "TIF": tif_instruction,           # NEW COLUMN: DAY or OPG
+            "Frozen_ATR": round(row['ATR'], 2), 
             
             # EXIT DATA (Time Stop Only)
             "Time_Exit_Date": str(row['Time Exit']),
