@@ -254,13 +254,23 @@ def get_historical_mask(df, params, sznl_map):
         allowed = params.get('allowed_days', [])
         mask &= df.index.dayofweek.isin(allowed)
 
+    # 0b. Cycle Year Filter (NEW)
+    if 'allowed_cycles' in params:
+        allowed_cycles = params['allowed_cycles']
+        # Only apply filter if the list exists and isn't selecting ALL cycles (length < 4)
+        if allowed_cycles and len(allowed_cycles) < 4:
+            # Vectorized calculation: Get the year for every date in the index,
+            # take the modulo 4, and check if it is in the allowed list.
+            # 0=Election, 1=Post, 2=Mid, 3=Pre
+            mask &= (df.index.year % 4).isin(allowed_cycles)
+
     # 1. Liquidity & Age Gates
     mask &= (df['Close'] >= params.get('min_price', 0))
     mask &= (df['vol_ma'] >= params.get('min_vol', 0))
     mask &= (df['age_years'] >= params.get('min_age', 0))
     mask &= (df['age_years'] <= params.get('max_age', 100))
 
-    # 1b. ATR % Filter (MISSING IN ORIGINAL)
+    # 1b. ATR % Filter
     if 'ATR' in df.columns:
         # Calculate ATR % (ATR / Close * 100)
         atr_pct = (df['ATR'] / df['Close']) * 100
@@ -280,7 +290,7 @@ def get_historical_mask(df, params, sznl_map):
             if ">" in trend_opt: mask &= is_above
             elif "<" in trend_opt: mask &= ~is_above
 
-    # 2b. MA Consecutive Filters (MISSING IN ORIGINAL - Crucial for Ugly Monday)
+    # 2b. MA Consecutive Filters
     if 'ma_consec_filters' in params:
         for maf in params['ma_consec_filters']:
             length = maf['length']
@@ -319,7 +329,6 @@ def get_historical_mask(df, params, sznl_map):
             
         if params.get('perf_first_instance', False):
             lookback = params.get('perf_lookback', 21)
-            # Check if sum of previous 'lookback' days is 0
             prev_inst = mask.shift(1).rolling(lookback).sum()
             mask &= (prev_inst == 0)
 
@@ -410,7 +419,7 @@ def get_historical_mask(df, params, sznl_map):
             cond_52 &= (prev == 0)
         mask &= cond_52
 
-    # 8b. Exclude 52w High (MISSING IN ORIGINAL)
+    # 8b. Exclude 52w High
     if params.get('exclude_52w_high', False):
         mask &= (~df['is_52w_high'])
 
