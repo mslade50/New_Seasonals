@@ -1061,37 +1061,37 @@ def main():
 
         # --- FINAL STEP (OUTSIDE THE LOOP) ---
         if all_staging_signals:
-            
             st.divider()
             st.subheader("🚀 Order Staging")
 
-            # 1. MOC / PRE-CLOSE LOGIC
-            # If it is BEFORE 4 PM, we usually want to stage MOC orders for execution now.
-            if not is_after_market_close():
-                st.warning("🕒 Market is OPEN. T+1 orders cannot be staged yet.")
-                
-                # Check if we have any MOC candidates
-                moc_candidates = [s for s in all_staging_signals if "Signal Close" in str(s.get('Entry Criteria', '')) or "Signal Close" in str(s)]
-                
-                if moc_candidates:
-                    st.write(f"⚡ Found {len(moc_candidates)} potential MOC (Market On Close) trades.")
-                    if st.button("🚀 Stage MOC Orders Only (moc_orders sheet)", type="primary"):
-                        save_moc_orders(all_staging_signals, STRATEGY_BOOK, sheet_name='moc_orders')
-                else:
-                    st.info("No 'Signal Close' strategies triggered currently.")
-
-            # 2. STANDARD / POST-CLOSE LOGIC
-            # If it is AFTER 4 PM, we save everything to the standard sheet for tomorrow/tonight
+            # -----------------------------------------------------------------
+            # 1. MOC ORDERS (Signal Close) - AVAILABLE ANY TIME
+            # -----------------------------------------------------------------
+            # Check if we have any "Signal Close" strategies triggered
+            has_moc = any("Signal Close" in str(s.get('Entry Criteria', '')) for s in all_staging_signals)
+            
+            if has_moc:
+                st.write("⚡ **MOC Execution:**")
+                if st.button("🚀 Push MOC Orders to 'moc_orders' Tab", type="primary"):
+                    # This function clears the tab and writes only Signal Close trades
+                    save_moc_orders(all_staging_signals, STRATEGY_BOOK, sheet_name='moc_orders')
             else:
-                st.success("🌑 Market is CLOSED. Staging full batch.")
-                # Save standard full batch
-                save_staging_orders(all_staging_signals, STRATEGY_BOOK, sheet_name='Order_Staging')
-                moc_candidates = [s for s in all_staging_signals if "Signal Close" in str(s.get('Entry Criteria', '')) or "Signal Close" in str(s)]
+                st.caption("No 'Signal Close' trades found.")
+
+            # -----------------------------------------------------------------
+            # 2. STANDARD BATCH (T+1 / Limits) - AFTER CLOSE ONLY
+            # -----------------------------------------------------------------
+            if is_after_market_close():
+                st.markdown("---")
+                st.success("🌑 **Market Closed:** Auto-staging full batch for Tomorrow.")
                 
-                if moc_candidates:
-                    st.write(f"⚡ Found {len(moc_candidates)} potential MOC (Market On Close) trades.")
-                    if st.button("🚀 Stage MOC Orders Only (moc_orders sheet)", type="primary"):
-                        save_moc_orders(all_staging_signals, STRATEGY_BOOK, sheet_name='moc_orders')
+                # Save ALL trades (T+1 Open, Limits, etc) to 'Order_Staging'
+                save_staging_orders(all_staging_signals, STRATEGY_BOOK, sheet_name='Order_Staging')
+                
+                # NOTE: We removed the auto-clear for 'moc_orders' here so you can 
+                # still review/stage MOC orders after 4 PM if needed.
+            else:
+                st.info("🕒 Market is OPEN. Standard T+1 staging (Order_Staging) is disabled until 4:00 PM EST.")
                 
                 # OPTIONAL: Also clear the MOC sheet so you don't accidentally execute old ones tomorrow
                 # You might want to leave this out if you keep records, but usually good for safety:
