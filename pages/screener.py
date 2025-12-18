@@ -80,6 +80,79 @@ def get_sznl_val_series(ticker, dates, sznl_map):
         return pd.Series(50.0, index=dates)
         
     return dates.map(t_series).fillna(50.0)
+
+def save_moc_orders(signals_list, strategy_book, sheet_name='moc_orders'):
+    """
+    1. Filters for 'Signal Close' strategies.
+    2. ALWAYS connects to Google Sheets and clears the 'moc_orders' tab.
+    3. If orders exist, writes them. If not, leaves the sheet empty (headers only).
+    """
+    
+    # 1. Prepare the Data (if any)
+    moc_data = []
+    if signals_list:
+        strat_map = {s['id']: s for s in strategy_book}
+        
+        for row in pd.DataFrame(signals_list).to_dict('records'):
+            strat = strat_map.get(row['Strategy_ID'])
+            if not strat: continue
+            
+            settings = strat['settings']
+            entry_mode = settings.get('entry_type', 'Signal Close')
+
+            # Capture ONLY 'Signal Close' trades
+            if "Signal Close" in entry_mode:
+                ib_action = "SELL" if "SHORT" in row['Action'] else "BUY"
+                
+                moc_data.append({
+                    "Scan_Date": datetime.datetime.now().strftime("%Y-%m-%d"),
+                    "Scan_Time": datetime.datetime.now().strftime("%H:%M:%S"),
+                    "Symbol": row['Ticker'],
+                    "SecType": "STK",
+                    "Exchange": "SMART",
+                    "Action": ib_action,
+                    "Quantity": row['Shares'],
+                    "Order_Type": "MOC", 
+                    "Limit_Price": 0.0,
+                    "TIF": "DAY",
+                    "Strategy_Ref": strat['name'],
+                    "Est_Fill": row['Entry']
+                })
+
+    # 2. Connect to Google Sheets (Do this regardless of data)
+    try:
+        if "gcp_service_account" in st.secrets:
+            creds_dict = st.secrets["gcp_service_account"]
+            gc = gspread.service_account_from_dict(creds_dict)
+        else:
+            gc = gspread.service_account(filename='credentials.json')
+
+        sh = gc.open("Trade_Signals_Log")
+        
+        # Open or Create the Tab
+        try:
+            worksheet = sh.worksheet(sheet_name)
+        except:
+            worksheet = sh.add_worksheet(title=sheet_name, rows=100, cols=20)
+
+        # 3. CRITICAL STEP: Clear the sheet immediately
+        worksheet.clear()
+
+        # 4. Write Data (or just headers if empty)
+        if moc_data:
+            df_moc = pd.DataFrame(moc_data)
+            data_to_write = [df_moc.columns.tolist()] + df_moc.astype(str).values.tolist()
+            worksheet.update(values=data_to_write)
+            st.success(f"🚀 Staged {len(df_moc)} MOC Orders to '{sheet_name}' (Previous data wiped).")
+        else:
+            # If no trades, we still write headers so the sheet isn't totally blank
+            headers = ["Scan_Date", "Scan_Time", "Symbol", "SecType", "Exchange", "Action", "Quantity", "Order_Type", "Limit_Price", "TIF", "Strategy_Ref", "Est_Fill"]
+            worksheet.update(values=[headers])
+            st.toast(f"🧹 '{sheet_name}' has been cleared (No MOC signals found).")
+        
+    except Exception as e:
+        st.error(f"❌ MOC Staging Error: {e}")
+        
 def save_staging_orders(signals_list, strategy_book, sheet_name='Order_Staging'):
     """
     Saves instructions for the Python Execution Engine.
@@ -987,15 +1060,36 @@ def main():
                     st.caption("No signals found.")
 
         # --- FINAL STEP (OUTSIDE THE LOOP) ---
-        # Save to Order_Staging only ONCE so we don't overwrite previous loop iterations
         if all_staging_signals:
-            if is_after_market_close():
-                st.divider()
-                st.subheader("🚀 Staging Execution Orders")
-                save_staging_orders(all_staging_signals, STRATEGY_BOOK, sheet_name='Order_Staging')
+            
+            st.divider()
+            st.subheader("🚀 Order Staging")
+
+            # 1. MOC / PRE-CLOSE LOGIC
+            # If it is BEFORE 4 PM, we usually want to stage MOC orders for execution now.
+            if not is_after_market_close():
+                st.warning("🕒 Market is OPEN. T+1 orders cannot be staged yet.")
+                
+                # Check if we have any MOC candidates
+                moc_candidates = [s for s in all_staging_signals if "Signal Close" in str(s.get('Entry Criteria', '')) or "Signal Close" in str(s)]
+                
+                if moc_candidates:
+                    st.write(f"⚡ Found {len(moc_candidates)} potential MOC (Market On Close) trades.")
+                    if st.button("🚀 Stage MOC Orders Only (moc_orders sheet)", type="primary"):
+                        save_moc_orders(all_staging_signals, STRATEGY_BOOK, sheet_name='moc_orders')
+                else:
+                    st.info("No 'Signal Close' strategies triggered currently.")
+
+            # 2. STANDARD / POST-CLOSE LOGIC
+            # If it is AFTER 4 PM, we save everything to the standard sheet for tomorrow/tonight
             else:
-                st.warning("⚠️ Execution staging skipped: Orders only stage after 4:00 PM EST.")
-        # -------------------------------------
+                st.success("🌑 Market is CLOSED. Staging full batch.")
+                # Save standard full batch
+                save_staging_orders(all_staging_signals, STRATEGY_BOOK, sheet_name='Order_Staging')
+                
+                # OPTIONAL: Also clear the MOC sheet so you don't accidentally execute old ones tomorrow
+                # You might want to leave this out if you keep records, but usually good for safety:
+                # save_moc_orders([], STRATEGY_BOOK, sheet_name='moc_orders')
     # -------------------------------------------------------------------------
     # DEBUG: DEEP DIVE & SCORECARD
     # -------------------------------------------------------------------------
