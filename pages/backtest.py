@@ -294,6 +294,8 @@ def run_engine(universe_dict, params, sznl_map, market_series=None, vix_series=N
     # Entry Logic flags
     entry_mode = params['entry_type']
     is_pullback = "Pullback" in entry_mode
+    is_limit_pers_05 = "Limit Order -0.5 ATR" in entry_mode
+    is_limit_pers_10 = "Limit Order -1 ATR" in entry_mode
     is_limit_atr = "Limit (Close -0.5 ATR)" in entry_mode
     is_limit_prev = "Limit (Prev Close)" in entry_mode
     is_limit_open_atr = "Limit (Open +/- 0.5 ATR)" in entry_mode 
@@ -468,7 +470,47 @@ def run_engine(universe_dict, params, sznl_map, market_series=None, vix_series=N
                 elif is_gap_up:
                     if df['Open'].iloc[sig_idx + 1] > df['High'].iloc[sig_idx]:
                         found_entry, actual_entry_idx, actual_entry_price = True, sig_idx + 1, df['Open'].iloc[sig_idx + 1]
-                
+                        
+                elif is_limit_pers_05 or is_limit_pers_10:
+                    # 1. Calculate the Limit Price based on SIGNAL values
+                    atr_mult = 0.5 if is_limit_pers_05 else 1.0
+                    sig_close = df['Close'].iloc[sig_idx]
+                    sig_atr = df['ATR'].iloc[sig_idx]
+                    
+                    # Logic: Buy Limit below price, Sell Limit above price
+                    limit_price = (sig_close - (sig_atr * atr_mult)) if direction == 'Long' else (sig_close + (sig_atr * atr_mult))
+                    
+                    # 2. Iterate through the Holding Window to see if we get filled
+                    for wait_i in range(1, params['holding_days'] + 1):
+                        curr_idx = sig_idx + wait_i
+                        if curr_idx >= len(df): break
+                        
+                        # Check for Fill
+                        day_low = df['Low'].iloc[curr_idx]
+                        day_high = df['High'].iloc[curr_idx]
+                        day_open = df['Open'].iloc[curr_idx]
+                        
+                        filled = False
+                        fill_px = limit_price
+                        
+                        if direction == 'Long':
+                            # Filled if Low dropped below Limit
+                            if day_low <= limit_price:
+                                filled = True
+                                # If market opened below our limit (Gap Down), we get filled at Open
+                                if day_open < limit_price: fill_px = day_open
+                        else: # Short
+                            # Filled if High rose above Limit
+                            if day_high >= limit_price:
+                                filled = True
+                                # If market opened above our limit (Gap Up), we get filled at Open
+                                if day_open > limit_price: fill_px = day_open
+                        
+                        if filled:
+                            found_entry = True
+                            actual_entry_idx = curr_idx
+                            actual_entry_price = fill_px
+                            break
                 # --- NEW CONDITIONAL CLOSE LOGIC ---
                 elif is_cond_close_lower:
                     atr_mult = 0.0
@@ -724,6 +766,8 @@ def main():
             "Signal Close", "T+1 Open", "T+1 Close","Overnight (Buy Close, Sell T+1 Open)",
             "Intraday (Buy Open, Sell Close)",
             "Gap Up Only (Open > Prev High)", 
+            "Limit Order -0.5 ATR (Persistent)", 
+            "Limit Order -1 ATR (Persistent)",
             "Limit (Close -0.5 ATR)", "Limit (Prev Close)", 
             "Limit (Open +/- 0.5 ATR)", 
             "Limit (Untested Pivot)", 
