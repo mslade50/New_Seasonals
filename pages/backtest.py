@@ -302,6 +302,11 @@ def run_engine(universe_dict, params, sznl_map, market_series=None, vix_series=N
     is_gap_up = "Gap Up Only" in entry_mode
     is_overnight = "Overnight" in entry_mode
     is_intraday = "Intraday" in entry_mode
+
+    # --- NEW: Conditional Close Flags ---
+    is_cond_close_lower = "T+1 Close if < Signal Close" in entry_mode
+    is_cond_close_higher = "T+1 Close if > Signal Close" in entry_mode
+    # ------------------------------------
     
     use_ma_filter = params.get('use_ma_entry_filter', False)
     pullback_col = None
@@ -315,7 +320,6 @@ def run_engine(universe_dict, params, sznl_map, market_series=None, vix_series=N
     progress_bar = st.progress(0)
     status_text = st.empty()
     
-    # Pre-extract required custom MA lengths
     req_custom_mas = list(set([f['length'] for f in params.get('ma_consec_filters', [])]))
 
     for i, (ticker, df_raw) in enumerate(universe_dict.items()):
@@ -432,7 +436,40 @@ def run_engine(universe_dict, params, sznl_map, market_series=None, vix_series=N
                 elif is_gap_up:
                     if df['Open'].iloc[sig_idx + 1] > df['High'].iloc[sig_idx]:
                         found_entry, actual_entry_idx, actual_entry_price = True, sig_idx + 1, df['Open'].iloc[sig_idx + 1]
-                else: # Market/Immediate
+                
+                # --- NEW CONDITIONAL CLOSE LOGIC ---
+                elif is_cond_close_lower:
+                    # Determine threshold based on string
+                    atr_mult = 0.0
+                    if "-0.5 ATR" in entry_mode: atr_mult = 0.5
+                    elif "-1 ATR" in entry_mode: atr_mult = 1.0
+                    
+                    sig_val = df['Close'].iloc[sig_idx]
+                    sig_atr = df['ATR'].iloc[sig_idx]
+                    limit_price = sig_val - (atr_mult * sig_atr)
+                    
+                    t1_close = df['Close'].iloc[sig_idx + 1]
+                    
+                    if t1_close < limit_price:
+                         found_entry, actual_entry_idx, actual_entry_price = True, sig_idx + 1, t1_close
+
+                elif is_cond_close_higher:
+                    # Determine threshold based on string
+                    atr_mult = 0.0
+                    if "+0.5 ATR" in entry_mode: atr_mult = 0.5
+                    elif "+1 ATR" in entry_mode: atr_mult = 1.0
+                    
+                    sig_val = df['Close'].iloc[sig_idx]
+                    sig_atr = df['ATR'].iloc[sig_idx]
+                    limit_price = sig_val + (atr_mult * sig_atr)
+                    
+                    t1_close = df['Close'].iloc[sig_idx + 1]
+                    
+                    if t1_close > limit_price:
+                         found_entry, actual_entry_idx, actual_entry_price = True, sig_idx + 1, t1_close
+                # -----------------------------------
+
+                else: # Market/Immediate/Standard
                     found_entry = True
                     actual_entry_idx = sig_idx if entry_mode == 'Signal Close' else sig_idx + 1
                     actual_entry_price = df['Close'].iloc[actual_entry_idx] if 'Close' in entry_mode else df['Open'].iloc[actual_entry_idx]
@@ -483,6 +520,29 @@ def run_engine(universe_dict, params, sznl_map, market_series=None, vix_series=N
                     "Status": "Valid Signal", "Reason": "Executed"
                 })
         except: continue
+        
+    progress_bar.empty(); status_text.empty()
+    if not all_potential_trades: return pd.DataFrame(), pd.DataFrame(), 0
+
+    pot_df = pd.DataFrame(all_potential_trades).sort_values(by=["EntryDate", "Ticker"])
+    final_log, rejected_log, active_pos, daily_count = [], [], [], {}
+
+    # Get constraints safely to avoid KeyError
+    max_total = params.get('max_total_positions', 100)
+    max_daily = params.get('max_daily_entries', 100)
+
+    for _, trade in pot_df.iterrows():
+        active_pos = [t for t in active_pos if t['ExitDate'] > trade['EntryDate']]
+        today_num = daily_count.get(trade['EntryDate'], 0)
+        
+        if len(active_pos) >= max_total or today_num >= max_daily:
+            trade['Status'], trade['Reason'] = "Portfolio Rejected", "Constraints"
+            rejected_log.append(trade)
+        else:
+            final_log.append(trade); active_pos.append(trade)
+            daily_count[trade['EntryDate']] = today_num + 1
+
+    return pd.DataFrame(final_log), pd.DataFrame(rejected_log), total_signals_generated
         
     progress_bar.empty(); status_text.empty()
     if not all_potential_trades: return pd.DataFrame(), pd.DataFrame(), 0
@@ -671,7 +731,14 @@ def main():
             "Limit (Open +/- 0.5 ATR)", 
             "Limit (Untested Pivot)", 
             "Pullback 10 SMA (Entry: Close)", "Pullback 10 SMA (Entry: Level)",
-            "Pullback 21 EMA (Entry: Close)", "Pullback 21 EMA (Entry: Level)"
+            "Pullback 21 EMA (Entry: Close)", "Pullback 21 EMA (Entry: Level)",
+            # --- NEW ENTRIES ADDED BELOW ---
+            "T+1 Close if < Signal Close",
+            "T+1 Close if < Signal Close -0.5 ATR",
+            "T+1 Close if < Signal Close -1 ATR",
+            "T+1 Close if > Signal Close",
+            "T+1 Close if > Signal Close +0.5 ATR",
+            "T+1 Close if > Signal Close +1 ATR"
         ])
         if "Pullback" in entry_type: use_ma_entry_filter = st.checkbox("Filter: Close > MA - 0.25*ATR", value=False)
         else: use_ma_entry_filter = False
