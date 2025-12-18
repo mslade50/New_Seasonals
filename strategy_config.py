@@ -179,52 +179,6 @@ STRATEGY_BOOK = [
             "profit_factor": "5.15"
         }
     },
-    {
-        "id": "Lower 10% of range <50% ile 5dr >33 SPX sznl",
-        "name": "Bottom of Range Reversion",
-        "description": "Start: 2000-01-01. Universe: Indices. Dir: Long. Filter: None. PF: 1.49. SQN: 8.83.",
-        "universe_tickers": ['SPY', 'QQQ', 'IWM', 'DIA', 'SMH', '^GSPC', '^NDX'], 
-        "settings": {
-            "trade_direction": "Long",
-            "entry_type": "Signal Close",
-            "max_one_pos": True,
-            "allow_same_day_reentry": False,
-            "max_daily_entries": 2,
-            "max_total_positions": 10,
-            "use_range_filter": True, 
-            "range_min": 0.0,
-            "range_max": 10.0,
-            "perf_filters": [{'window': 5, 'logic': '<', 'thresh': 50.0, 'consecutive': 1}],
-            "perf_first_instance": False, "perf_lookback": 21,
-            "use_sznl": False, "sznl_logic": "<", "sznl_thresh": 15.0, "sznl_first_instance": True, "sznl_lookback": 21,
-            "use_market_sznl": True, "market_sznl_logic": ">", "market_sznl_thresh": 33.0,
-            "market_ticker": "^GSPC",
-            "use_52w": False, "52w_type": "New 52w High", "52w_first_instance": True, "52w_lookback": 21,
-            "use_vol": False, "vol_thresh": 1.5,
-            "use_vol_rank": False, "vol_rank_logic": "<", "vol_rank_thresh": 50.0,
-            "trend_filter": "None",
-            "min_price": 10.0, "min_vol": 100000,
-            "min_age": 0.25, "max_age": 100.0,
-            "entry_conf_bps": 0,
-            "use_dist_filter": False, "dist_ma_type": "SMA 10", 
-            "dist_logic": "Greater Than (>)", "dist_min": 0.0, "dist_max": 2.0,
-            "use_gap_filter": False, "gap_lookback": 21, 
-            "gap_logic": ">", "gap_thresh": 3
-        },
-        "execution": {
-            "risk_per_trade": 125,
-            "slippage_bps": 2,
-            "stop_atr": 1.0,
-            "tgt_atr": 2.0,
-            "hold_days": 2
-        },
-        "stats": {
-            "grade": "B (Good)",
-            "win_rate": "54.9%",
-            "expectancy": "0.175r",
-            "profit_factor": "1.49"
-        }
-    },
     # 3. LIQUID SEASONALS (SHORT TERM)
     {
         "id": "Sznl > 90, 5d <15 for 3d consec, 5d time stop",
@@ -401,17 +355,17 @@ STRATEGY_BOOK = [
             "use_dist_count_filter": False, "dist_count_window": 21, "dist_count_logic": ">", "dist_count_thresh": 3
         },
         "execution": {
-            "risk_per_trade": 1000,
-            "slippage_bps": 0,
-            "stop_atr": 2.0,
+            "risk_per_trade": 750,
+            "slippage_bps": 2,
+            "stop_atr": 3.0,
             "tgt_atr": 8.0,
             "hold_days": 21
         },
         "stats": {
             "grade": "A (Excellent)",
             "win_rate": "69.0%",
-            "expectancy": "$745.56",
-            "profit_factor": "2.90"
+            "expectancy": "0.48r",
+            "profit_factor": "2.82"
         }
     },
         {
