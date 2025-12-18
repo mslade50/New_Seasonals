@@ -416,11 +416,34 @@ def run_engine(universe_dict, params, sznl_map, market_series=None, vix_series=N
                 actual_entry_idx = -1
                 actual_entry_price = 0.0
 
+                # Define Sig Stats for conditional entries
+                sig_close = df['Close'].iloc[sig_idx]
+                sig_atr = df['ATR'].iloc[sig_idx]
+                t_plus_1_close = df['Close'].iloc[sig_idx + 1]
+
                 # --- ENTRY LOGIC BRANCHES ---
                 if is_overnight:
-                    found_entry, actual_entry_idx, actual_entry_price = True, sig_idx, df['Close'].iloc[sig_idx]
+                    found_entry, actual_entry_idx, actual_entry_price = True, sig_idx, sig_close
                 elif is_intraday:
                     found_entry, actual_entry_idx, actual_entry_price = True, sig_idx + 1, df['Open'].iloc[sig_idx + 1]
+                
+                # CONDITIONAL T+1 CLOSE ENTRIES
+                elif entry_mode == "T+1 Close < Signal Close":
+                    if t_plus_1_close < sig_close:
+                        found_entry, actual_entry_idx, actual_entry_price = True, sig_idx + 1, t_plus_1_close
+                
+                elif entry_mode == "T+1 Close > Signal Close":
+                    if t_plus_1_close > sig_close:
+                        found_entry, actual_entry_idx, actual_entry_price = True, sig_idx + 1, t_plus_1_close
+
+                elif entry_mode == "T+1 Close < (Signal Close - 0.5 ATR)":
+                    if t_plus_1_close < (sig_close - 0.5 * sig_atr):
+                        found_entry, actual_entry_idx, actual_entry_price = True, sig_idx + 1, t_plus_1_close
+
+                elif entry_mode == "T+1 Close > (Signal Close + 0.5 ATR)":
+                    if t_plus_1_close > (sig_close + 0.5 * sig_atr):
+                        found_entry, actual_entry_idx, actual_entry_price = True, sig_idx + 1, t_plus_1_close
+
                 elif is_pullback and pullback_col:
                     for wait_i in range(1, params['holding_days'] + 1):
                         curr_idx = sig_idx + wait_i
@@ -437,7 +460,16 @@ def run_engine(universe_dict, params, sznl_map, market_series=None, vix_series=N
                     actual_entry_idx = sig_idx if entry_mode == 'Signal Close' else sig_idx + 1
                     actual_entry_price = df['Close'].iloc[actual_entry_idx] if 'Close' in entry_mode else df['Open'].iloc[actual_entry_idx]
 
-                if not found_entry: continue
+                if not found_entry:
+                    # Log failed entry condition
+                    all_potential_trades.append({
+                        "Ticker": ticker, "SignalDate": signal_date, "EntryDate": df.index[sig_idx + 1],
+                        "Direction": direction, "Entry": 0, "Exit": 0,
+                        "ExitDate": df.index[sig_idx + 1], "Type": "Entry Fail", "R": 0,
+                        "Age": df['age_years'].iloc[sig_idx], "AvgVol": df['vol_ma'].iloc[sig_idx],
+                        "Status": "Entry Cond Failed", "Reason": f"{entry_mode}"
+                    })
+                    continue
 
                 # --- EXIT LOGIC BRANCHES ---
                 atr = df['ATR'].iloc[actual_entry_idx]
@@ -487,52 +519,7 @@ def run_engine(universe_dict, params, sznl_map, market_series=None, vix_series=N
     progress_bar.empty(); status_text.empty()
     if not all_potential_trades: return pd.DataFrame(), pd.DataFrame(), 0
 
-    pot_df = pd.DataFrame(all_potential_trades).sort_values(by=["EntryDate", "Ticker"])
-    final_log, rejected_log, active_pos, daily_count = [], [], [], {}
-
-    # Get constraints safely to avoid KeyError
-    max_total = params.get('max_total_positions', 100)
-    max_daily = params.get('max_daily_entries', 100)
-
-    for _, trade in pot_df.iterrows():
-        active_pos = [t for t in active_pos if t['ExitDate'] > trade['EntryDate']]
-        today_num = daily_count.get(trade['EntryDate'], 0)
-        
-        if len(active_pos) >= max_total or today_num >= max_daily:
-            trade['Status'], trade['Reason'] = "Portfolio Rejected", "Constraints"
-            rejected_log.append(trade)
-        else:
-            final_log.append(trade); active_pos.append(trade)
-            daily_count[trade['EntryDate']] = today_num + 1
-
-    return pd.DataFrame(final_log), pd.DataFrame(rejected_log), total_signals_generated
-        
-    progress_bar.empty(); status_text.empty()
-    if not all_potential_trades: return pd.DataFrame(), pd.DataFrame(), 0
-
-    pot_df = pd.DataFrame(all_potential_trades).sort_values(by=["EntryDate", "Ticker"])
-    final_log, rejected_log, active_pos, daily_count = [], [], [], {}
-
-    for _, trade in pot_df.iterrows():
-        active_pos = [t for t in active_pos if t['ExitDate'] > trade['EntryDate']]
-        today_num = daily_count.get(trade['EntryDate'], 0)
-        
-        if len(active_pos) >= params['max_total_positions'] or today_num >= params['max_daily_entries']:
-            trade['Status'], trade['Reason'] = "Portfolio Rejected", "Constraints"
-            rejected_log.append(trade)
-        else:
-            final_log.append(trade); active_pos.append(trade)
-            daily_count[trade['EntryDate']] = today_num + 1
-
-    return pd.DataFrame(final_log), pd.DataFrame(rejected_log), total_signals_generated
-    
-    progress_bar.empty()
-    status_text.empty()
-
-    if not all_potential_trades:
-        return pd.DataFrame(), pd.DataFrame(), 0
-
-    st.info(f"Processing Constraints on {len(all_potential_trades)} signals (Executed + Failed Entries)...")
+    st.info(f"Processing Constraints on {len(all_potential_trades)} signals...")
     
     potential_df = pd.DataFrame(all_potential_trades)
     potential_df = potential_df.sort_values(by=["EntryDate", "Ticker"])
@@ -547,12 +534,12 @@ def run_engine(universe_dict, params, sznl_map, market_series=None, vix_series=N
     max_total = params.get('max_total_positions', 100)
 
     for idx, trade in potential_df.iterrows():
-        # If entry logic failed, it goes straight to rejected, bypassing portfolio constraints
+        # If entry logic failed, bypass portfolio constraints
         if trade['Status'] == "Entry Cond Failed":
             rejected_trades_log.append(trade)
             continue
 
-        # Check Portfolio Constraints for Valid Signals
+        # Check Portfolio Constraints
         entry_date = trade['EntryDate']
         active_positions = [t for t in active_positions if t['ExitDate'] > entry_date]
         
@@ -664,7 +651,12 @@ def main():
     c1, c2, c3, c4, c5 = st.columns(5)
     with c1: 
         entry_type = st.selectbox("Entry Price", [
-            "Signal Close", "T+1 Open", "T+1 Close","Overnight (Buy Close, Sell T+1 Open)",
+            "Signal Close", "T+1 Open", "T+1 Close",
+            "T+1 Close < Signal Close",
+            "T+1 Close > Signal Close",
+            "T+1 Close < (Signal Close - 0.5 ATR)",
+            "T+1 Close > (Signal Close + 0.5 ATR)",
+            "Overnight (Buy Close, Sell T+1 Open)",
             "Intraday (Buy Open, Sell Close)",
             "Gap Up Only (Open > Prev High)", 
             "Limit (Close -0.5 ATR)", "Limit (Prev Close)", 
@@ -740,14 +732,11 @@ def main():
         pa1, pa2 = st.columns(2)
         with pa1: 
             req_green_candle = st.checkbox("Require Close > Open (Green Candle)", value=False)
-            
-            # --- NEW: BREAKOUT FILTER ---
             st.markdown("**Daily Breakout**")
             breakout_mode = st.selectbox("Close vs Prev Range", 
                 ["None", "Close > Prev Day High", "Close < Prev Day Low"],
                 help="Requires today's close to be outside yesterday's range."
             )
-            # ----------------------------
 
         with pa2:
             st.markdown("**Candle Range Location %**")
@@ -770,6 +759,7 @@ def main():
             if st.checkbox("Thursday", value=True, disabled=not use_dow_filter): valid_days.append(3)
         with c_fri: 
             if st.checkbox("Friday", value=True, disabled=not use_dow_filter): valid_days.append(4)
+
     with st.expander("Trend Filter", expanded=False):
         t1, _ = st.columns([1, 3])
         with t1:
@@ -777,6 +767,7 @@ def main():
                 ["None", "Price > 200 SMA","Not Below Declining 200 SMA", "Price > Rising 200 SMA", "Market > 200 SMA",
                  "Price < 200 SMA", "Price < Falling 200 SMA", "Market < 200 SMA"],
                 help=f"Requires 200 days of data. 'Market' filters check the regime of {MARKET_TICKER}.")
+
     with st.expander("Performance Percentile Rank (Granular Multi-Filter)", expanded=False):
         st.write("Enable multiple windows. Set 'Consec Days' for **each** timeframe individually.")
         col_p_config, col_p_seq = st.columns([3, 1])
@@ -807,11 +798,9 @@ def main():
             perf_first = st.checkbox("First Instance", value=True)
             perf_lookback = st.number_input("Lookback (Days)", 1, 100, 21, disabled=not perf_first)
     
-    # --- NEW: CONSECUTIVE CLOSES VS SMA ---
     ma_consec_filters = []
     with st.expander("Consecutive Closes vs SMA", expanded=False):
         st.write("Configure up to 3 custom Moving Average conditions.")
-        
         c_ma1, c_ma2, c_ma3 = st.columns(3)
         with c_ma1:
             st.markdown("**Condition 1**")
@@ -836,7 +825,6 @@ def main():
             logic_ma3 = st.selectbox("Close vs MA", ["Above", "Below"], key="logic_ma3", disabled=not use_ma3)
             consec_ma3 = st.number_input("Consecutive Days", 1, 50, 1, key="consec_ma3", disabled=not use_ma3)
             if use_ma3: ma_consec_filters.append({'length': len_ma3, 'logic': logic_ma3, 'consec': consec_ma3})
-    # --------------------------------------
 
     with st.expander("Seasonal Rank", expanded=False):
         st.markdown("**Ticker Specific Seasonality**")
@@ -859,11 +847,9 @@ def main():
         with h1: type_52w = st.selectbox("Condition", ["New 52w High", "New 52w Low"], disabled=not use_52w)
         with h2: first_52w = st.checkbox("First Instance Only", value=True, key="hf", disabled=not use_52w)
         with h3: lookback_52w = st.number_input("Instance Lookback (Days)", 1, 252, 21, key="hlb", disabled=not use_52w)
-        # --- NEW: LAG INPUT ---
         with h4: 
             lag_52w = st.number_input("Lag (Days)", 0, 10, 0, disabled=not use_52w, 
                                       help="0 = Today, 1 = Yesterday (e.g., Signal if YESTERDAY was a 52w High)")
-        # --- NEW: EXCLUDE 52W HIGH ---
         st.markdown("---")
         exclude_52w_high = st.checkbox("Exclude if Today IS a 52w High", value=False, help="Signals will be ignored if today's close is a 52w High.")
 
@@ -874,7 +860,6 @@ def main():
         with v2: vix_max = st.number_input("Max VIX Value", 0.0, 200.0, 20.0, disabled=not use_vix_filter)
 
     with st.expander("Volume Filters (Spike & Regime)", expanded=False):
-        # [INSERT NEW CODE HERE]
         use_vol_gt_prev = st.checkbox("Require Volume > Prev Day Volume", value=False)
         c1, c2 = st.columns(2)
         with c1:
@@ -963,7 +948,7 @@ def main():
             'trend_filter': trend_filter, 'universe_tickers': tickers_to_run, 'slippage_bps': slippage_bps,
             'entry_conf_bps': entry_conf_bps,
             'perf_filters': perf_filters, 'perf_first_instance': perf_first, 'perf_lookback': perf_lookback, 
-            'ma_consec_filters': ma_consec_filters, # NEW PARAM
+            'ma_consec_filters': ma_consec_filters,
             'use_sznl': use_sznl, 'sznl_logic': sznl_logic, 'sznl_thresh': sznl_thresh, 
             'sznl_first_instance': sznl_first, 'sznl_lookback': sznl_lookback,
             'use_market_sznl': use_market_sznl, 'market_sznl_logic': market_sznl_logic, 'market_sznl_thresh': market_sznl_thresh,
@@ -1063,8 +1048,7 @@ def main():
             else: st.info("No Executed Trades.")
         with tab2:
             if not rejected_df.empty:
-                st.markdown("**Includes both Portfolio Constraints (Max Positions) AND Technical Entry Failures (e.g. No Gap Up).**")
-                # Calc PnL for rejected (Assuming Open Entry)
+                st.markdown("**Includes both Portfolio Constraints (Max Positions) AND Technical Entry Failures.**")
                 if 'PnL_Dollar' not in rejected_df.columns:
                     rejected_df['PnL_Dollar'] = rejected_df['R'] * risk_per_trade
                 st.dataframe(rejected_df.style.format({
@@ -1076,11 +1060,10 @@ def main():
         if not trades_df.empty or not rejected_df.empty:
             st.markdown("---")
             st.subheader("Configuration & Results (Copy Code)")
-            st.info("Copy the dictionary below and paste it into your `STRATEGY_BOOK` list in the Screener.")
             dict_str = f"""{{
     "id": "STRAT_{int(time.time())}",
     "name": "Generated Strategy ({grade})",
-    "description": "Start: {start_date}. Universe: {univ_choice}. Dir: {trade_direction}. Filter: {trend_filter}. PF: {pf:.2f}. SQN: {sqn:.2f}.",
+    "description": "Start: {start_date}. Universe: {univ_choice}. Dir: {trade_direction}. Filter: {trend_filter}.",
     "universe_tickers": {tickers_to_run}, 
     "settings": {{
         "trade_direction": "{trade_direction}",
@@ -1124,12 +1107,6 @@ def main():
         "stop_atr": {stop_atr},
         "tgt_atr": {tgt_atr},
         "hold_days": {hold_days}
-    }},
-    "stats": {{
-        "grade": "{grade} ({verdict})",
-        "win_rate": "{win_rate:.1f}%",
-        "expectancy": "${trades_df['PnL_Dollar'].mean() if not trades_df.empty else 0:.2f}",
-        "profit_factor": "{pf:.2f}"
     }}
 }},"""
             st.code(dict_str, language="python")
