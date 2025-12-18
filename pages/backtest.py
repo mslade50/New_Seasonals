@@ -368,7 +368,24 @@ def run_engine(universe_dict, params, sznl_map, market_series=None, vix_series=N
                 conditions.append((df['RangePct'] * 100 >= params['range_min']) & (df['RangePct'] * 100 <= params['range_max']))
             
             if params.get('use_dow_filter', False): conditions.append(df['DayOfWeekVal'].isin(params['allowed_days']))
-
+            # Cycle Year Filter
+            if 'allowed_cycles' in params and len(params['allowed_cycles']) < 4:
+                # 0=Election, 1=Post, 2=Mid, 3=Pre. 
+                # We need to map 0 to 4 to match the UI logic if you prefer, 
+                # but mathematically 2024 % 4 = 0.
+                
+                # Calculate remainders for the whole index
+                year_rems = df.index.year % 4
+                
+                # Logic to align with your helper function:
+                # Remainder 0 -> matches "4. Election Year"
+                # Remainder 1 -> matches "1. Post-Election"
+                # Remainder 2 -> matches "2. Midterm Year"
+                # Remainder 3 -> matches "3. Pre-Election"
+                
+                # Convert the user's selected list (e.g., [1, 2]) into the series check
+                conditions.append(pd.Series(year_rems, index=df.index).isin(params['allowed_cycles']))
+                
             # Volume, Gaps, Acc/Dist
             if params.get('use_gap_filter', False):
                 if params['gap_logic'] == ">": conditions.append(df['GapCount'] > params['gap_thresh'])
@@ -864,20 +881,45 @@ def main():
             with r1: range_min = st.number_input("Min % (0=Low)", 0, 100, 0, disabled=not use_range_filter)
             with r2: range_max = st.number_input("Max % (100=High)", 0, 100, 100, disabled=not use_range_filter)
 
-    with st.expander("Day of Week Filter", expanded=False):
-        use_dow_filter = st.checkbox("Enable Day of Week Filter", value=False)
-        c_mon, c_tue, c_wed, c_thu, c_fri = st.columns(5)
-        valid_days = []
-        with c_mon: 
-            if st.checkbox("Monday", value=True, disabled=not use_dow_filter): valid_days.append(0)
-        with c_tue: 
-            if st.checkbox("Tuesday", value=True, disabled=not use_dow_filter): valid_days.append(1)
-        with c_wed: 
-            if st.checkbox("Wednesday", value=True, disabled=not use_dow_filter): valid_days.append(2)
-        with c_thu: 
-            if st.checkbox("Thursday", value=True, disabled=not use_dow_filter): valid_days.append(3)
-        with c_fri: 
-            if st.checkbox("Friday", value=True, disabled=not use_dow_filter): valid_days.append(4)
+    with st.expander("Time & Cycle Filters", expanded=False):
+        t_c1, t_c2 = st.columns(2)
+        
+        with t_c1:
+            st.markdown("**Day of Week**")
+            use_dow_filter = st.checkbox("Enable Day of Week Filter", value=False)
+            c_mon, c_tue, c_wed, c_thu, c_fri = st.columns(5)
+            valid_days = []
+            with c_mon: 
+                if st.checkbox("Mon", value=True, disabled=not use_dow_filter): valid_days.append(0)
+            with c_tue: 
+                if st.checkbox("Tue", value=True, disabled=not use_dow_filter): valid_days.append(1)
+            with c_wed: 
+                if st.checkbox("Wed", value=True, disabled=not use_dow_filter): valid_days.append(2)
+            with c_thu: 
+                if st.checkbox("Thu", value=True, disabled=not use_dow_filter): valid_days.append(3)
+            with c_fri: 
+                if st.checkbox("Fri", value=True, disabled=not use_dow_filter): valid_days.append(4)
+        
+        with t_c2:
+            st.markdown("**Presidential Cycle**")
+            # Map friendly names to remainder values (year % 4)
+            # Remainder 0 is Election year (e.g. 2024), 1 is Post (2025), etc.
+            cycle_options = {
+                "1. Post-Election": 1,
+                "2. Midterm Year": 2,
+                "3. Pre-Election": 3,
+                "4. Election Year": 0
+            }
+            
+            sel_cycles = st.multiselect(
+                "Include Years:", 
+                options=list(cycle_options.keys()),
+                default=list(cycle_options.keys()),
+                help="Deselect to exclude specific years from the backtest."
+            )
+            
+            # Convert selection back to integers for the engine
+            allowed_cycles = [cycle_options[x] for x in sel_cycles]
     with st.expander("Trend Filter", expanded=False):
         t1, _ = st.columns([1, 3])
         with t1:
@@ -1067,6 +1109,7 @@ def main():
             'breakout_mode': breakout_mode, 
             'use_range_filter': use_range_filter, 'range_min': range_min, 'range_max': range_max,
             'use_dow_filter': use_dow_filter, 'allowed_days': valid_days,
+            'allowed_cycles': allowed_cycles,
             'min_price': min_price, 'min_vol': min_vol, 'min_age': min_age, 'max_age': max_age, 'min_atr_pct': min_atr_pct,'max_atr_pct': max_atr_pct,
             'trend_filter': trend_filter, 'universe_tickers': tickers_to_run, 'slippage_bps': slippage_bps,
             'entry_conf_bps': entry_conf_bps,
@@ -1211,6 +1254,7 @@ def main():
         "range_max": {range_max},
         "use_dow_filter": {use_dow_filter}, 
         "allowed_days": {valid_days},
+        "allowed_cycles": {allowed_cycles},
         "use_vix_filter": {use_vix_filter}, "vix_min": {vix_min}, "vix_max": {vix_max},
         "use_vol": {use_vol}, "vol_thresh": {vol_thresh},
         "use_vol_rank": {use_vol_rank}, "vol_rank_logic": "{vol_rank_logic}", "vol_rank_thresh": {vol_rank_thresh},
