@@ -2,7 +2,7 @@ STRATEGY_BOOK = [
     {
         "id": "5d <50, 21d > 50 3x, lower 20% range, SPX sznl > 33, 5d time stop",
         "name": "Weak Close Reversion",
-        "description": "Start: 2000-01-01. Universe: Indices. Dir: Long. Filter: None. PF: 2.04. SQN: 5.42.",
+        "description": "Start: 2000-01-01. Universe: Indices. Dir: Long. Filter: None. PF: 2.38. SQN: 8.95.",
         "universe_tickers": ['SPY', 'QQQ', 'IWM', 'DIA', 'SMH'], 
         "settings": {
             "trade_direction": "Long",
@@ -21,7 +21,7 @@ STRATEGY_BOOK = [
             "exclude_52w_high": False,
             "breakout_mode": "None",
             "use_range_filter": True, 
-            "range_min": 10, 
+            "range_min": 0, 
             "range_max": 20,
             "use_dow_filter": False, 
             "allowed_days": [0, 1, 2, 3, 4],
@@ -42,7 +42,7 @@ STRATEGY_BOOK = [
             "use_dist_count_filter": False, "dist_count_window": 21, "dist_count_logic": ">", "dist_count_thresh": 3
         },
         "execution": {
-            "risk_per_trade": 200,
+            "risk_per_trade": 300,
             "slippage_bps": 0,
             "stop_atr": 2.0,
             "tgt_atr": 8.0,
@@ -50,9 +50,9 @@ STRATEGY_BOOK = [
         },
         "stats": {
             "grade": "A (Excellent)",
-            "win_rate": "62.8%",
-            "expectancy": "$43.52",
-            "profit_factor": "2.04"
+            "win_rate": "65.0%",
+            "expectancy": "$79.61",
+            "profit_factor": "2.38"
         }
     },
     # 1. INDEX SEASONALS
