@@ -1,4 +1,59 @@
 STRATEGY_BOOK = [
+    {
+        "id": "No Midterm Years, need to update for this",
+        "name": "Generated Strategy (A)",
+        "description": "Start: 2000-01-01. Universe: Indices. Dir: Long. Filter: None. PF: 1.71. SQN: 6.51.",
+        "universe_tickers": ['SPY', 'QQQ', 'IWM', 'DIA', 'SMH'], 
+        "settings": {
+            "trade_direction": "Long",
+            "entry_type": "T+1 Close",
+            "max_one_pos": True,
+            "allow_same_day_reentry": False,
+            "max_daily_entries": 10,
+            "max_total_positions": 20,
+            "perf_filters": [{'window': 5, 'logic': '<', 'thresh': 50.0, 'consecutive': 1}, {'window': 21, 'logic': '>', 'thresh': 50.0, 'consecutive': 3}],
+            "perf_first_instance": False, "perf_lookback": 21,
+            "ma_consec_filters": [],
+            "use_sznl": False, "sznl_logic": "<", "sznl_thresh": 15.0, "sznl_first_instance": True, "sznl_lookback": 21,
+            "use_market_sznl": True, "market_sznl_logic": ">", "market_sznl_thresh": 33.0,
+            "market_ticker": "^GSPC",
+            "use_52w": False, "52w_type": "New 52w High", "52w_first_instance": True, "52w_lookback": 21, "52w_lag": 0,
+            "exclude_52w_high": False,
+            "breakout_mode": "None",
+            "use_range_filter": True, 
+            "range_min": 0, 
+            "range_max": 25,
+            "use_dow_filter": False, 
+            "allowed_days": [0, 1, 2, 3, 4],
+            "use_vix_filter": False, "vix_min": 0.0, "vix_max": 20.0,
+            "use_vol": False, "vol_thresh": 1.5,
+            "use_vol_rank": False, "vol_rank_logic": "<", "vol_rank_thresh": 15.0,
+            "trend_filter": "None",
+            "min_price": 10.0, "min_vol": 100000,
+            "min_age": 0.25, "max_age": 100.0,
+            "min_atr_pct": 0.2,"max_atr_pct": 10.0,
+            "entry_conf_bps": 0,
+            "use_ma_dist_filter": False, "dist_ma_type": "SMA 10", 
+            "dist_logic": "Greater Than (>)", "dist_min": 0.0, "dist_max": 2.0,
+            "use_gap_filter": False, "gap_lookback": 21, 
+            "gap_logic": ">", "gap_thresh": 3,
+            "use_acc_count_filter": False, "acc_count_window": 21, "acc_count_logic": ">", "acc_count_thresh": 3,
+            "use_dist_count_filter": False, "dist_count_window": 21, "dist_count_logic": ">", "dist_count_thresh": 3
+        },
+        "execution": {
+            "risk_per_trade": 1000,
+            "slippage_bps": 0,
+            "stop_atr": 2.0,
+            "tgt_atr": 8.0,
+            "hold_days": 5
+        },
+        "stats": {
+            "grade": "A (Excellent)",
+            "win_rate": "60.5%",
+            "expectancy": "$171.44",
+            "profit_factor": "1.71"
+        }
+    },
     # 1. INDEX SEASONALS
     {
         "id": "Indx sznl > 85, 21dr < 15 (add on additional sigs)",
