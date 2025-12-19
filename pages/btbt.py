@@ -362,15 +362,20 @@ def calculate_trade_result(df, signal_date, action, shares, entry_price, hold_da
 # -----------------------------------------------------------------------------
 # CORE LOGIC: DAILY MARK-TO-MARKET PNL
 # -----------------------------------------------------------------------------
+# -----------------------------------------------------------------------------
+# CORE LOGIC: DAILY MARK-TO-MARKET PNL (FIXED)
+# -----------------------------------------------------------------------------
 def get_daily_mtm_series(sig_df, master_dict):
     """
     Returns a Series with index = Date and value = Total Daily PnL ($)
     for the trades in sig_df, calculated Mark-to-Market.
+    Corrected to use ACTUAL ENTRY PRICE for the first day's PnL.
     """
     if sig_df.empty: return pd.Series(dtype=float)
     
     min_date = sig_df['Date'].min()
     max_date = max(sig_df['Exit Date'].max(), pd.Timestamp.today())
+    # Use Business Days to avoid weekends in the index
     all_dates = pd.date_range(start=min_date, end=max_date, freq='B') 
     
     daily_pnl = pd.Series(0.0, index=all_dates)
@@ -381,23 +386,50 @@ def get_daily_mtm_series(sig_df, master_dict):
         shares = trade['Shares']
         entry_date = trade['Date']
         exit_date = trade['Exit Date']
+        entry_price = trade['Price']  # <--- CRITICAL: Your actual fill price
         
         t_df = master_dict.get(ticker)
         if t_df is None or t_df.empty:
-            daily_pnl[exit_date] += trade['PnL'] # Fallback
+            if exit_date in daily_pnl.index:
+                daily_pnl[exit_date] += trade['PnL']
             continue
             
-        trade_dates = all_dates[(all_dates > entry_date) & (all_dates <= exit_date)]
-        relevant_prices = t_df['Close'].reindex(pd.concat([pd.Series([entry_date]), pd.Series(trade_dates)])).ffill()
+        # Get all relevant dates (Entry -> Exit)
+        trade_dates = all_dates[(all_dates >= entry_date) & (all_dates <= exit_date)]
         
-        if len(relevant_prices) < 2: continue
-        price_diffs = relevant_prices.diff().dropna()
-        if action == "SELL SHORT": price_diffs = -price_diffs
+        # Get Closing prices for these dates
+        closes = t_df['Close'].reindex(trade_dates).ffill()
         
-        daily_dollar_pnl = price_diffs * shares
+        if closes.empty: continue
         
-        # Add to master series
-        for d, val in daily_dollar_pnl.items():
+        # --- CALCULATE DAILY PNL ---
+        current_pnl = pd.Series(0.0, index=trade_dates)
+        
+        # 1. First Day PnL: Close - Entry Price
+        first_date = trade_dates[0]
+        if first_date in closes.index:
+            if action == "BUY":
+                current_pnl[first_date] = (closes[first_date] - entry_price) * shares
+            else: # SELL SHORT
+                current_pnl[first_date] = (entry_price - closes[first_date]) * shares
+                
+        # 2. Subsequent Days: Close - Prev Close
+        if len(trade_dates) > 1:
+            diffs = closes.diff().dropna() # Day(i) - Day(i-1)
+            if action == "SELL SHORT": 
+                diffs = -diffs
+            
+            # Dollar Value
+            subsequent_pnl = diffs * shares
+            
+            # Combine: First day (Entry vs Close) + Rest (Close vs Close)
+            # We align indices carefully
+            for d in subsequent_pnl.index:
+                if d in current_pnl.index:
+                    current_pnl[d] = subsequent_pnl[d]
+        
+        # Add to Master Series
+        for d, val in current_pnl.items():
             if d in daily_pnl.index:
                 daily_pnl[d] += val
                 
