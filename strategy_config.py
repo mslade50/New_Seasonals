@@ -55,6 +55,7 @@ STRATEGY_BOOK = [
             "profit_factor": "2.51"
         }
     },
+    
     # 1. INDEX SEASONALS
     {
         "id": "Indx sznl > 85, 21dr < 15 (add on additional sigs)",
@@ -211,6 +212,63 @@ STRATEGY_BOOK = [
             "hold_days": 5
         },
         "stats": { "grade": "A (Excellent)", "win_rate": "61.1%", "expectancy": "0.32r", "profit_factor": "2.80" }
+    },
+    {
+        "id": "52wh 15d lookback, 1.5x volume, spx sznl > 50, >50%rng > yday high, no midterms",
+        "name": "52wh Breakout",
+        "description": "Start: 2000-01-01. Universe: All CSV Tickers. Dir: Long. Filter: None. PF: 2.14. SQN: 5.71.",
+        "universe_tickers": ['AAPL', 'ABT', 'ADBE', 'ADI', 'ADM', 'ADP', 'ADSK', 'AEP', 'AIG', 'ALL', 'AMAT', 'AMD', 'AMGN', 'AMZN', 'AON', 'APD', 'AVGO', 'AXP', 'BA', 'BAC', 'BAX', 'BDX', 'BK', 'BMY', 'C', 'CAG', 'CAT', 'CEF', 'CL', 'CMCSA', 'CMS', 'CNP', 'COP', 'COST', 'CPB', 'CRM', 'CSCO', 'CSX', 'CVS', 'CVX', 'D', 'DE', 'DIA', 'DIS', 'DOV', 'DTE', 'DUK', 'ECL', 'ED', 'EIX', 'EMR', 'EOG', 'ETR', 'EXC', 'F', 'FCX', 'FDX', 'FE', 'GD', 'GE', 'GILD', 'GIS', 'GLD', 'GLW', 'GOOG', 'GPC', 'GS', 'HAL', 'HD', 'HIG', 'HON', 'HPQ', 'HRL', 'HSY', 'HUM', 'IBB', 'IBM', 'IHI', 'INTC', 'IP', 'ITA', 'ITB', 'ITW', 'IWM', 'IYR', 'JNJ', 'JPM', 'K', 'KEY', 'KMB', 'KO', 'KR', 'KRE', 'LEG', 'LIN', 'LLY', 'LMT', 'LOW', 'LUV', 'MAS', 'MCD', 'MDT', 'MET', 'META', 'MMC', 'MMM', 'MO', 'MRK', 'MS', 'MSFT', 'MU', 'NEE', 'NEM', 'NKE', 'NOC', 'NSC', 'NUE', 'NVDA', 'OIH', 'ORCL', 'OXY', 'PAYX', 'PCG', 'PEG', 'PEP', 'PFE', 'PG', 'PGR', 'PH', 'PNW', 'PPG', 'PPL', 'PSA', 'QCOM', 'QQQ', 'REGN', 'RF', 'RHI', 'ROK', 'ROST', 'RTX', 'SBUX', 'SCHW', 'SHW', 'SLB', 'SLV', 'SMH', 'SNA', 'SO', 'SPG', 'SPY', 'SRE', 'STT', 'SWK', 'SYK', 'SYY', 'T', 'TAP', 'TGT', 'TJX', 'TMO', 'TRV', 'TSN', 'TXN', 'UNG', 'UNH', 'UNP', 'USB', 'USO', 'UVXY', 'V', 'VFC', 'VLO', 'VMC', 'VNQ', 'VZ', 'WFC', 'WHR', 'WM', 'WMB', 'WMT', 'XBI', 'XHB', 'XLB', 'XLE', 'XLF', 'XLI', 'XLK', 'XLP', 'XLU', 'XLV', 'XLY', 'XME', 'XOM', 'XOP', 'XRT', '^GSPC', '^NDX'], 
+        "settings": {
+            "trade_direction": "Long",
+            "entry_type": "Limit Order -0.5 ATR (Persistent)",
+            "max_one_pos": True,
+            "allow_same_day_reentry": False,
+            "max_daily_entries": 2,
+            "max_total_positions": 10,
+            "perf_filters": [],
+            "perf_first_instance": True, "perf_lookback": 21,
+            "ma_consec_filters": [],
+            "use_sznl": False, "sznl_logic": ">", "sznl_thresh": 65.0, "sznl_first_instance": False, "sznl_lookback": 21,
+            "use_market_sznl": True, "market_sznl_logic": ">", "market_sznl_thresh": 50.0,
+            "market_ticker": "^GSPC",
+            "use_52w": True, "52w_type": "New 52w High", "52w_first_instance": True, "52w_lookback": 15, "52w_lag": 0,
+            "exclude_52w_high": False,
+            "breakout_mode": "Close > Prev Day High",
+            "use_range_filter": True, 
+            "range_min": 50, 
+            "range_max": 100,
+            "use_dow_filter": True, 
+            "allowed_days": [0, 1, 2, 3, 4],
+            "allowed_cycles": [3, 0, 1],
+            "use_vix_filter": False, "vix_min": 0.0, "vix_max": 15.0,
+            "use_vol": True, "vol_thresh": 1.5,
+            "use_vol_rank": False, "vol_rank_logic": "<", "vol_rank_thresh": 15.0,
+            "trend_filter": "None",
+            "min_price": 10.0, "min_vol": 500000,
+            "min_age": 0.25, "max_age": 100.0,
+            "min_atr_pct": 0.2,"max_atr_pct": 10.0,
+            "entry_conf_bps": 0,
+            "use_ma_dist_filter": False, "dist_ma_type": "SMA 10", 
+            "dist_logic": "Greater Than (>)", "dist_min": 0.0, "dist_max": 2.0,
+            "use_gap_filter": False, "gap_lookback": 21, 
+            "gap_logic": ">", "gap_thresh": 3,
+            "use_acc_count_filter": False, "acc_count_window": 21, "acc_count_logic": ">", "acc_count_thresh": 3,
+            "use_dist_count_filter": False, "dist_count_window": 21, "dist_count_logic": ">", "dist_count_thresh": 3,
+            "use_ma_touch": False, "ma_touch_type": "SMA 200", "ma_slope_days": 50, "ma_untested_days": 30
+        },
+        "execution": {
+            "risk_per_trade": 250,
+            "slippage_bps": 2,
+            "stop_atr": 3.0,
+            "tgt_atr": 10.0,
+            "hold_days": 63
+        },
+        "stats": {
+            "grade": "A (Excellent)",
+            "win_rate": "62.0%",
+            "expectancy": "$138.18",
+            "profit_factor": "2.14"
+        }
     },
     # 4. LIQUID SEASONALS (INTERMEDIATE)
     {
