@@ -691,6 +691,18 @@ def download_historical_data(tickers, start_date="2000-01-01"):
     return data_dict
 
 def run_daily_scan():
+    # --- AUTOMATED TIME CHECK (HANDLES DAYLIGHT SAVINGS) ---
+    import pytz
+    
+    # Get current time in New York
+    ny_tz = pytz.timezone('America/New_York')
+    now_ny = datetime.datetime.now(ny_tz)
+    
+    # We want to run around 15:00 (3 PM) and 16:05 (4:05 PM)
+    # We give a small buffer (e.g. +/- 10 mins) because GitHub Actions can be slightly delayed
+    
+    is_3pm_run = (now_ny.hour == 15 and 0 <= now_ny.minute <= 15)
+    is_4pm_run = (now_ny.hour == 16 and 5 <= now_ny.minute <= 20)
     print("--- Starting Daily Automated Scan (Synced) ---")
     sznl_map = load_seasonal_map()
     
