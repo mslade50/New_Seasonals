@@ -9,6 +9,11 @@ import time
 import pytz
 import sys
 import os
+from pandas.tseries.offsets import CustomBusinessDay
+from pandas.tseries.holiday import USFederalHolidayCalendar
+
+# Define a "Trading Day" offset that skips Weekends AND US Holidays
+TRADING_DAY = CustomBusinessDay(calendar=USFederalHolidayCalendar())
 
 # -----------------------------------------------------------------------------
 # IMPORT STRATEGY BOOK FROM ROOT
@@ -83,12 +88,10 @@ def get_sznl_val_series(ticker, dates, sznl_map):
 
 def save_moc_orders(signals_list, strategy_book, sheet_name='moc_orders'):
     """
-    1. Filters ONLY for 'Signal Close' strategies.
-    2. Connects to the 'moc_orders' tab (creating it if needed).
-    3. Clears the tab and writes the orders for immediate execution.
+    Saves MOC orders with a specific 'Exit_Date' column.
     """
     
-    # 1. Connect to Google Sheets & Open/Create the Tab
+    # 1. Connect and Setup
     try:
         if "gcp_service_account" in st.secrets:
             creds_dict = st.secrets["gcp_service_account"]
@@ -101,13 +104,11 @@ def save_moc_orders(signals_list, strategy_book, sheet_name='moc_orders'):
         try:
             worksheet = sh.worksheet(sheet_name)
         except:
-            # If tab doesn't exist, create it (New Tab)
             worksheet = sh.add_worksheet(title=sheet_name, rows=100, cols=20)
 
-        # 2. CRITICAL: Clear the sheet immediately
         worksheet.clear()
 
-        # 3. Filter for MOC Orders
+        # 2. Filter and Build Data
         moc_data = []
         if signals_list:
             strat_map = {s['id']: s for s in strategy_book}
@@ -119,36 +120,33 @@ def save_moc_orders(signals_list, strategy_book, sheet_name='moc_orders'):
                 settings = strat['settings']
                 entry_mode = settings.get('entry_type', 'Signal Close')
 
-                # ONLY capture 'Signal Close' trades for this specific sheet
                 if "Signal Close" in entry_mode:
                     ib_action = "SELL" if "SHORT" in row['Action'] else "BUY"
                     
                     moc_data.append({
                         "Scan_Date": datetime.datetime.now().strftime("%Y-%m-%d"),
-                        "Scan_Time": datetime.datetime.now().strftime("%H:%M:%S"),
                         "Symbol": row['Ticker'],
                         "SecType": "STK",
                         "Exchange": "SMART",
                         "Action": ib_action,
                         "Quantity": row['Shares'],
                         "Order_Type": "MOC", 
-                        "Limit_Price": 0.0,
-                        "TIF": "DAY",
                         "Strategy_Ref": strat['name'],
-                        "Est_Fill": row['Entry']
+                        # --- NEW COLUMN ---
+                        "Exit_Date": str(row['Time Exit']) 
                     })
 
-        # 4. Write Data (or just headers if empty)
+        # 3. Write to Sheet
         if moc_data:
             df_moc = pd.DataFrame(moc_data)
             data_to_write = [df_moc.columns.tolist()] + df_moc.astype(str).values.tolist()
             worksheet.update(values=data_to_write)
-            st.success(f"🚀 Staged {len(df_moc)} MOC Orders to tab '{sheet_name}'!")
+            st.success(f"🚀 Staged {len(df_moc)} MOC Orders with Exit Dates!")
         else:
-            # Write headers so your execution script doesn't crash on an empty file
-            headers = ["Scan_Date", "Scan_Time", "Symbol", "SecType", "Exchange", "Action", "Quantity", "Order_Type", "Limit_Price", "TIF", "Strategy_Ref", "Est_Fill"]
+            # Maintain headers including Exit_Date even if empty
+            headers = ["Scan_Date", "Symbol", "SecType", "Exchange", "Action", "Quantity", "Order_Type", "Strategy_Ref", "Exit_Date"]
             worksheet.update(values=[headers])
-            st.toast(f"🧹 '{sheet_name}' has been cleared (No Signal Close trades found).")
+            st.toast(f"🧹 '{sheet_name}' cleared.")
         
     except Exception as e:
         st.error(f"❌ MOC Staging Error: {e}")
@@ -1036,7 +1034,7 @@ def main():
                                 action = "SELL SHORT"
                             
                             shares = int(risk / dist) if dist > 0 else 0
-                            exit_date = (last_row.name + BusinessDay(strat['execution']['hold_days'])).date()
+                            exit_date = (last_row.name + (strat['execution']['hold_days'] * TRADING_DAY)).date()
                             
                             signals.append({
                                 "Strategy_ID": strat['id'],
