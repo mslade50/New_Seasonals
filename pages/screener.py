@@ -906,7 +906,8 @@ def main():
         st.session_state['master_data_dict'] = {}
 
     if st.button("Run All Strategies", type="primary", use_container_width=True):
-        
+        st.cache_data.clear()      # Clears the @st.cache_data (historical downloads)
+        st.cache_resource.clear()
         # 1. Gather ALL tickers first (Efficiency Step)
         all_required_tickers = set()
         for strat in STRATEGY_BOOK:
