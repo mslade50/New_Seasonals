@@ -1,29 +1,38 @@
-name: Daily Strategy Screener
+name: Daily Strategy Scan
 
 on:
   schedule:
-    # 4:05 PM EST = 21:05 UTC (Standard Time)
-    - cron: '5 21 * * 1-5'
+    # Runs at 19:00, 20:00, 21:00 UTC (Covers 2pm-5pm EST/EDT)
+    - cron: '0 19,20,21 * * 1-5'
+  
+  # Allows you to run it manually from the "Actions" tab for testing
   workflow_dispatch:
 
 jobs:
-  run-screener:
+  run-scanner:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v3
+      # 1. Check out the code
+      - name: Checkout repo
+        uses: actions/checkout@v4
 
+      # 2. Setup Python
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
           python-version: '3.9'
 
+      # 3. Install Libraries
       - name: Install dependencies
         run: |
-          pip install pandas numpy yfinance gspread
+          pip install pandas numpy yfinance gspread google-auth
 
-      - name: Run Daily Scan
+      # 4. Run the Script with Secrets Injected
+      - name: Run Automation Script
         env:
+          # This maps the GitHub Secret -> To the Python os.environ variable
           GCP_JSON: ${{ secrets.GCP_JSON }}
-        run: python daily_scan.py
+          EMAIL_USER: ${{ secrets.EMAIL_USER }}
+          EMAIL_PASS: ${{ secrets.EMAIL_PASS }}
+        run: python daily_scan.py  # <--- REPLACE with your actual filename
