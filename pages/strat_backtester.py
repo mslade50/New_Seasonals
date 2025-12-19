@@ -561,7 +561,6 @@ def calculate_performance_stats(sig_df, master_dict, starting_equity=150000):
 # -----------------------------------------------------------------------------
 # MAIN APP
 # -----------------------------------------------------------------------------
-
 def main():
     st.set_page_config(layout="wide", page_title="Strategy Backtest Lab")
     st.sidebar.header("⚙️ Backtest Settings")
@@ -659,11 +658,14 @@ def main():
                     last_exit_date = None
                     
                     for d in true_dates:
+                        # Prevent overlapping trades
                         if last_exit_date is not None and d <= last_exit_date: continue
+                        
                         row = df.loc[d]
                         atr = row['ATR']
                         risk = strat['execution']['risk_per_trade']
                         
+                        # Dynamic Risk Adjustments
                         if strat['name'] == "Overbot Vol Spike":
                             vol_ratio = row.get('vol_ratio', 0)
                             if vol_ratio > 2.0: risk = 675
@@ -676,27 +678,93 @@ def main():
                         
                         entry_type = strat['settings'].get('entry_type', 'Signal Close')
                         entry_idx = df.index.get_loc(d)
+                        
+                        # Ensure we have at least one day of future data to check entry
                         if entry_idx + 1 >= len(df): continue 
                         entry_row = df.iloc[entry_idx + 1]
 
+                        # ----------------------------------------------------
+                        # LOGIC: DETERMINE ENTRY PRICE AND DATE
+                        # ----------------------------------------------------
+                        valid_entry = True
+                        
+                        # 1. Standard T+1 Close
                         if entry_type == 'T+1 Close':
-                            entry = entry_row['Close']; entry_date = entry_row.name 
+                            entry = entry_row['Close']
+                            entry_date = entry_row.name 
+
+                        # 2. Standard T+1 Open
                         elif entry_type == 'T+1 Open':
-                            entry = entry_row['Open']; entry_date = entry_row.name 
+                            entry = entry_row['Open']
+                            entry_date = entry_row.name 
+
+                        # 3. CONDITIONAL: T+1 Close ONLY IF < Signal Day Close
+                        elif entry_type == 'T+1 Close if < Signal Close':
+                            signal_close = row['Close']
+                            next_close = entry_row['Close']
+                            if next_close < signal_close:
+                                entry = next_close
+                                entry_date = entry_row.name
+                            else:
+                                valid_entry = False
+
+                        # 4. Standard Limit (Valid for T+1 Only)
                         elif entry_type == "Limit (Open +/- 0.5 ATR)":
                             limit_offset = 0.5 * atr
                             if strat['settings']['trade_direction'] == 'Short':
                                 limit_price = entry_row['Open'] + limit_offset
-                                if entry_row['High'] < limit_price: continue 
-                                entry = limit_price
+                                if entry_row['High'] < limit_price: valid_entry = False
+                                else: entry = limit_price
                             else:
                                 limit_price = entry_row['Open'] - limit_offset
-                                if entry_row['Low'] > limit_price: continue
-                                entry = limit_price
+                                if entry_row['Low'] > limit_price: valid_entry = False
+                                else: entry = limit_price
                             entry_date = entry_row.name
+
+                        # 5. PERSISTENT LIMIT (Valid for 'hold_days')
+                        elif "Persistent" in entry_type:
+                            limit_offset = 0.5 * atr
+                            # Limit is based on T+1 Open (Standard convention for EOD signals)
+                            limit_base = entry_row['Open']
+                            found_fill = False
+                            
+                            # Search forward from T+1 up to T+HoldDays
+                            max_days = strat['execution']['hold_days']
+                            search_end = min(entry_idx + 1 + max_days, len(df))
+                            
+                            for i in range(entry_idx + 1, search_end):
+                                check_row = df.iloc[i]
+                                if strat['settings']['trade_direction'] == 'Short':
+                                    limit_price = limit_base + limit_offset
+                                    if check_row['High'] >= limit_price:
+                                        entry = limit_price
+                                        entry_date = check_row.name
+                                        found_fill = True
+                                        break
+                                else: # Long
+                                    limit_price = limit_base - limit_offset
+                                    if check_row['Low'] <= limit_price:
+                                        entry = limit_price
+                                        entry_date = check_row.name
+                                        found_fill = True
+                                        break
+                            
+                            if found_fill:
+                                valid_entry = True
+                            else:
+                                valid_entry = False
+
+                        # 6. Default: Signal Day Close (MOC)
                         else: 
-                            entry = row['Close']; entry_date = d 
+                            entry = row['Close']
+                            entry_date = d 
                         
+                        if not valid_entry:
+                            continue
+
+                        # ----------------------------------------------------
+                        # EXECUTION: CALCULATE SHARES & RESULT
+                        # ----------------------------------------------------
                         direction = strat['settings'].get('trade_direction', 'Long')
                         if direction == 'Long':
                             stop_price = entry - (atr * strat['execution']['stop_atr'])
@@ -711,6 +779,7 @@ def main():
                         pnl, exit_date = calculate_trade_result(df, entry_date, action, shares, entry, strat['execution']['hold_days'])
 
                         try:
+                            # Calculate Time Stop Date (for active positions display)
                             e_idx = df.index.get_loc(entry_date)
                             ts_idx = e_idx + strat['execution']['hold_days']
                             time_stop_date = df.index[ts_idx] if ts_idx < len(df) else entry_date + BusinessDay(strat['execution']['hold_days'])
