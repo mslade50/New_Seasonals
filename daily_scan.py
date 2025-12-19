@@ -182,7 +182,7 @@ def calculate_indicators(df, sznl_map, ticker, market_series=None):
 
     # --- Perf Ranks ---
     for window in [5, 10, 21]:
-        df[f'ret_{window}d'] = df['Close'].pct_change(window)
+        df[f'ret_{window}d'] = df['Close'].pct_change(window, fill_method=None)
         df[f'rank_ret_{window}d'] = df[f'ret_{window}d'].expanding(min_periods=50).rank(pct=True) * 100.0
         
     # --- ATR ---
