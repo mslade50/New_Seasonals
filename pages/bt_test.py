@@ -206,8 +206,10 @@ def calculate_indicators(df, sznl_map, ticker, market_series=None, vix_series=No
     df['ATR'] = ranges.max(axis=1).rolling(14).mean()
     df['ATR_Pct'] = (df['ATR'] / df['Close']) * 100
     
-    # Seasonality
+    # --- FIXED: SEASONALITY (Ticker + Market) ---
     df['Sznl'] = get_sznl_val_series(ticker, df.index, sznl_map)
+    df['Mkt_Sznl_Ref'] = get_sznl_val_series(MARKET_TICKER, df.index, sznl_map)
+    # --------------------------------------------
     
     # 52w High/Low
     rolling_high = df['High'].shift(1).rolling(252).max()
@@ -225,7 +227,7 @@ def calculate_indicators(df, sznl_map, ticker, market_series=None, vix_series=No
     df['vol_ratio_10d'] = vol_ma_10 / vol_ma
     df['vol_ratio_10d_rank'] = df['vol_ratio_10d'].expanding(min_periods=252).rank(pct=True) * 100.0
     
-    # --- ACCUMULATION / DISTRIBUTION FLAGS ---
+    # Acc/Dist Flags
     vol_gt_prev = df['Volume'] > df['Volume'].shift(1)
     vol_gt_ma = df['Volume'] > df['vol_ma']
     is_green = df['Close'] > df['Open']
@@ -234,15 +236,12 @@ def calculate_indicators(df, sznl_map, ticker, market_series=None, vix_series=No
     df['is_acc_day'] = (is_green & vol_gt_prev & vol_gt_ma).astype(int)
     df['is_dist_day'] = (is_red & vol_gt_prev & vol_gt_ma).astype(int)
     
-    # --- NEW: CALCULATE ROLLING COUNTS HERE (Before Slicing) ---
     if acc_window:
         df[f'AccCount_{acc_window}'] = df['is_acc_day'].rolling(acc_window).sum()
-        
     if dist_window:
         df[f'DistCount_{dist_window}'] = df['is_dist_day'].rolling(dist_window).sum()
-    # -----------------------------------------------------------
 
-    # Age
+    # Age & Market/VIX Series
     if not df.empty:
         start_ts = df.index[0]
         df['age_years'] = (df.index - start_ts).days / 365.25
@@ -259,24 +258,20 @@ def calculate_indicators(df, sznl_map, ticker, market_series=None, vix_series=No
     denom = (df['High'] - df['Low'])
     df['RangePct'] = np.where(denom == 0, 0.5, (df['Close'] - df['Low']) / denom)
 
-    # Day of Week
+    # Day of Week & Gaps
     df['DayOfWeekVal'] = df.index.dayofweek
-    
-    # Open Gap Count
     is_open_gap = (df['Low'] > df['High'].shift(1)).astype(int)
     df['GapCount'] = is_open_gap.rolling(gap_window).sum()
 
-    # Pivot Points
+    # Pivots
     piv_len = 20 
     roll_max = df['High'].rolling(window=piv_len*2+1, center=True).max()
     df['is_pivot_high'] = (df['High'] == roll_max)
-    
     roll_min = df['Low'].rolling(window=piv_len*2+1, center=True).min()
     df['is_pivot_low'] = (df['Low'] == roll_min)
 
     df['LastPivotHigh'] = np.where(df['is_pivot_high'], df['High'], np.nan)
     df['LastPivotHigh'] = df['LastPivotHigh'].shift(piv_len).ffill()
-    
     df['LastPivotLow'] = np.where(df['is_pivot_low'], df['Low'], np.nan)
     df['LastPivotLow'] = df['LastPivotLow'].shift(piv_len).ffill()
 
@@ -289,10 +284,7 @@ def run_engine(universe_dict, params, sznl_map, market_series=None, vix_series=N
     bt_start_ts = pd.to_datetime(params['backtest_start_date'])
     direction = params.get('trade_direction', 'Long')
     max_one_pos_per_ticker = params.get('max_one_pos', True)
-    allow_same_day_reentry = params.get('allow_same_day_reentry', False)
     slippage_bps = params.get('slippage_bps', 5)
-    entry_conf_bps = params.get('entry_conf_bps', 0)
-    max_atr_pct = params.get('max_atr_pct', 1000.0)
     
     # Entry Logic flags
     entry_mode = params['entry_type']
@@ -303,7 +295,6 @@ def run_engine(universe_dict, params, sznl_map, market_series=None, vix_series=N
     is_limit_prev = "Limit (Prev Close)" in entry_mode
     is_limit_open_atr = "Limit (Open +/- 0.5 ATR)" in entry_mode 
     is_limit_pivot = "Limit (Untested Pivot)" in entry_mode
-    is_limit_entry = is_limit_atr or is_limit_prev or is_limit_open_atr or is_limit_pivot
     is_gap_up = "Gap Up Only" in entry_mode
     is_overnight = "Overnight" in entry_mode
     is_intraday = "Intraday" in entry_mode
@@ -325,11 +316,10 @@ def run_engine(universe_dict, params, sznl_map, market_series=None, vix_series=N
     
     req_custom_mas = list(set([f['length'] for f in params.get('ma_consec_filters', [])]))
 
-    # --- EXTRACT ACC/DIST WINDOWS ---
     acc_win = params['acc_count_window'] if params.get('use_acc_count_filter', False) else None
     dist_win = params['dist_count_window'] if params.get('use_dist_count_filter', False) else None
 
-    # --- MA TOUCH PARAMS ---
+    # MA Touch Params
     use_ma_touch = params.get('use_ma_touch', False)
     ma_touch_col_map = {"SMA 10": "SMA10", "SMA 20": "SMA20", "SMA 50": "SMA50", "SMA 100": "SMA100", "SMA 200": "SMA200", 
                         "EMA 8": "EMA8", "EMA 11": "EMA11", "EMA 21": "EMA21"}
@@ -346,7 +336,6 @@ def run_engine(universe_dict, params, sznl_map, market_series=None, vix_series=N
         ticker_last_exit = pd.Timestamp.min
         
         try:
-            # PASS ACC/DIST WINDOWS HERE
             df = calculate_indicators(df_raw, sznl_map, ticker, market_series, vix_series, 
                                       gap_window=gap_window, 
                                       custom_sma_lengths=req_custom_mas,
@@ -358,8 +347,6 @@ def run_engine(universe_dict, params, sznl_map, market_series=None, vix_series=N
             
             # --- SIGNAL CALCULATION ---
             conditions = []
-            
-            # ... (Liquidity, Trend, etc. Logic stays exactly the same) ...
             
             # Trend Filter
             trend_opt = params.get('trend_filter', 'None')
@@ -388,18 +375,15 @@ def run_engine(universe_dict, params, sznl_map, market_series=None, vix_series=N
             
             if params.get('use_dow_filter', False): conditions.append(df['DayOfWeekVal'].isin(params['allowed_days']))
 
-            # Cycle Year Filter
             if 'allowed_cycles' in params and len(params['allowed_cycles']) < 4:
                 year_rems = df.index.year % 4
                 conditions.append(pd.Series(year_rems, index=df.index).isin(params['allowed_cycles']))
                 
-            # Volume, Gaps
             if params.get('use_gap_filter', False):
                 if params['gap_logic'] == ">": conditions.append(df['GapCount'] > params['gap_thresh'])
                 elif params['gap_logic'] == "<": conditions.append(df['GapCount'] < params['gap_thresh'])
                 elif params['gap_logic'] == "=": conditions.append(df['GapCount'] == params['gap_thresh'])
 
-            # --- UPDATED ACC/DIST LOGIC (Using Pre-Calculated Columns) ---
             if params.get('use_acc_count_filter', False):
                 col = f"AccCount_{params['acc_count_window']}"
                 if col in df.columns:
@@ -415,10 +399,7 @@ def run_engine(universe_dict, params, sznl_map, market_series=None, vix_series=N
                     if params['dist_count_logic'] == ">": conditions.append(r_dist > params['dist_count_thresh'])
                     elif params['dist_count_logic'] == "<": conditions.append(r_dist < params['dist_count_thresh'])
                     elif params['dist_count_logic'] == "=": conditions.append(r_dist == params['dist_count_thresh'])
-            # -------------------------------------------------------------
 
-            # ... (Rest of function remains exactly the same) ...
-            
             for pf in params.get('perf_filters', []):
                 col = f"rank_ret_{pf['window']}d"
                 c_f = (df[col] < pf['thresh']) if pf['logic'] == '<' else (df[col] > pf['thresh'])
@@ -431,9 +412,16 @@ def run_engine(universe_dict, params, sznl_map, market_series=None, vix_series=N
                 if f['consec'] > 1: mask = mask.rolling(f['consec']).sum() == f['consec']
                 conditions.append(mask)
 
+            # Ticker Seasonality
             if params['use_sznl']:
                 c_s = (df['Sznl'] < params['sznl_thresh']) if params['sznl_logic'] == '<' else (df['Sznl'] > params['sznl_thresh'])
                 conditions.append(c_s)
+
+            # --- FIXED: MARKET SEASONALITY ---
+            if params.get('use_market_sznl', False):
+                c_ms = (df['Mkt_Sznl_Ref'] < params['market_sznl_thresh']) if params['market_sznl_logic'] == '<' else (df['Mkt_Sznl_Ref'] > params['market_sznl_thresh'])
+                conditions.append(c_ms)
+            # ---------------------------------
 
             if params['use_52w']:
                 c_52 = df['is_52w_high'] if params['52w_type'] == 'New 52w High' else df['is_52w_low']
@@ -464,14 +452,12 @@ def run_engine(universe_dict, params, sznl_map, market_series=None, vix_series=N
                      elif params['dist_logic'] == "Between":
                          conditions.append((dist_val >= params['dist_min']) & (dist_val <= params['dist_max']))
 
-            # --- NEW: MA TOUCH / MEAN REVERSION LOGIC ---
+            # MA TOUCH LOGIC
             if use_ma_touch and ma_touch_target in df.columns:
                 ma_series = df[ma_touch_target]
                 slope_lookback = params.get('ma_slope_days', 20)
                 untested_lookback = params.get('ma_untested_days', 50)
                 
-                # 1. Slope Check
-                # If Long, we want Rising MA. If Short, we want Falling MA.
                 if direction == 'Long':
                     is_slope_ok = (ma_series > ma_series.shift(1))
                 else:
@@ -481,10 +467,6 @@ def run_engine(universe_dict, params, sznl_map, market_series=None, vix_series=N
                     is_slope_ok = is_slope_ok.rolling(slope_lookback).sum() == slope_lookback
                 conditions.append(is_slope_ok)
                 
-                # 2. Untested Check (Clean Trend)
-                # Lookback excludes today. 
-                # Long: Lows must have been ABOVE MA for prev N days.
-                # Short: Highs must have been BELOW MA for prev N days.
                 if untested_lookback > 0:
                     if direction == 'Long':
                         was_untested = (df['Low'] > ma_series).shift(1).rolling(untested_lookback).min() == 1.0
@@ -492,15 +474,11 @@ def run_engine(universe_dict, params, sznl_map, market_series=None, vix_series=N
                         was_untested = (df['High'] < ma_series).shift(1).rolling(untested_lookback).min() == 1.0
                     conditions.append(was_untested.fillna(False))
 
-                # 3. Trigger (Today's Action)
-                # Long: Price Dips to Touch/Cross MA (Low <= MA)
-                # Short: Price Rallies to Touch/Cross MA (High >= MA)
                 if direction == 'Long':
                     touched_today = df['Low'] <= ma_series
                 else:
                     touched_today = df['High'] >= ma_series
                 conditions.append(touched_today)
-            # --------------------------------------------
 
             if not conditions: continue
             final_signal = conditions[0]
@@ -649,6 +627,59 @@ def run_engine(universe_dict, params, sznl_map, market_series=None, vix_series=N
                     "Status": "Valid Signal", "Reason": "Executed"
                 })
         except: continue
+        
+    progress_bar.empty()
+    status_text.empty()
+
+    if not all_potential_trades:
+        return pd.DataFrame(), pd.DataFrame(), 0
+
+    st.info(f"Processing Constraints on {len(all_potential_trades)} signals (Executed + Failed Entries)...")
+    
+    potential_df = pd.DataFrame(all_potential_trades)
+    potential_df = potential_df.sort_values(by=["EntryDate", "Ticker"])
+    
+    final_trades_log = []
+    rejected_trades_log = []
+    
+    active_positions = [] 
+    daily_entries = {} 
+    
+    max_daily = params.get('max_daily_entries', 100)
+    max_total = params.get('max_total_positions', 100)
+
+    for idx, trade in potential_df.iterrows():
+        # If entry logic failed, it goes straight to rejected, bypassing portfolio constraints
+        if trade['Status'] == "Entry Cond Failed":
+            rejected_trades_log.append(trade)
+            continue
+
+        # Check Portfolio Constraints for Valid Signals
+        entry_date = trade['EntryDate']
+        active_positions = [t for t in active_positions if t['ExitDate'] > entry_date]
+        
+        is_rejected = False
+        rejection_reason = ""
+
+        if len(active_positions) >= max_total:
+            is_rejected = True
+            rejection_reason = "Max Total Pos"
+        
+        today_count = daily_entries.get(entry_date, 0)
+        if not is_rejected and today_count >= max_daily:
+            is_rejected = True
+            rejection_reason = "Max Daily Entries"
+            
+        if is_rejected:
+            trade['Status'] = "Portfolio Rejected"
+            trade['Reason'] = rejection_reason
+            rejected_trades_log.append(trade)
+        else:
+            final_trades_log.append(trade)
+            active_positions.append(trade)
+            daily_entries[entry_date] = today_count + 1
+
+    return pd.DataFrame(final_trades_log), pd.DataFrame(rejected_trades_log), total_signals_generated
         
     progress_bar.empty()
     status_text.empty()
