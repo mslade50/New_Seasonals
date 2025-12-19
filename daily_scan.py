@@ -3,432 +3,40 @@ import numpy as np
 import yfinance as yf
 import datetime
 import gspread
+from pandas.tseries.offsets import BusinessDay, CustomBusinessDay
+from pandas.tseries.holiday import USFederalHolidayCalendar
 import time
-import json
+import pytz
+import sys
 import os
-from pandas.tseries.offsets import BusinessDay
+import json
+import smtplib
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
+
+# Define a "Trading Day" offset that skips Weekends AND US Holidays
+TRADING_DAY = CustomBusinessDay(calendar=USFederalHolidayCalendar())
 
 # -----------------------------------------------------------------------------
-# 1. CONFIGURATION & STRATEGY BOOK
+# IMPORT STRATEGY BOOK
 # -----------------------------------------------------------------------------
-# (Paste your STRATEGY_BOOK list here exactly as it is in screener.py)
-# For brevity in this answer, I am assuming you will copy the STRATEGY_BOOK 
-# variable from your existing script and paste it right here.
-STRATEGY_BOOK = [
-    # 1. INDEX SEASONALS
-    {
-        "id": "Indx sznl > 85, 21dr < 15 (add on additional sigs)",
-        "name": "Index Seasonals",
-        "description": "Start: 2000-01-01. Universe: Indices. Dir: Long. Filter: None. PF: 4.51. SQN: 4.85.",
-        "universe_tickers": ['SPY', 'QQQ', 'IWM', 'DIA', 'SMH'], 
-        "settings": {
-            "trade_direction": "Long",
-            "entry_type": "T+1 Open",
-            "max_one_pos": False,
-            "max_daily_entries": 5,
-            "max_total_positions": 10,
-            "use_perf_rank": True, "perf_window": 21, "perf_logic": "<", "perf_thresh": 15.0,
-            "perf_first_instance": False, "perf_lookback": 21, "perf_consecutive": 1,
-            "use_sznl": True, "sznl_logic": ">", "sznl_thresh": 85.0, "sznl_first_instance": False, "sznl_lookback": 21,
-            "use_52w": False, "52w_type": "New 52w High", "52w_first_instance": True, "52w_lookback": 21,
-            "use_vol": False, "vol_thresh": 1.5,
-            "use_vol_rank": False, "vol_rank_logic": "<", "vol_rank_thresh": 50.0,
-            "trend_filter": "None",
-            "min_price": 10.0, "min_vol": 100000,
-            "min_age": 0.25, "max_age": 100.0
-        },
-        "execution": {
-            "risk_per_trade": 1000,
-            "stop_atr": 2,
-            "tgt_atr": 8.0,
-            "hold_days": 21
-        },
-        "stats": { "grade": "A (Excellent)", "win_rate": "64.1%", "expectancy": "$471.36", "profit_factor": "4.51" }
-    },
-    {
-        "id": "5+10+21d<15, SPX sznl > 20, lower 10% of rng, 2d time stop 1.5 atr tgt",
-        "name": "Deep Oversold Weak Close",
-        "description": "Start: 2000-01-01. Universe: All CSV Tickers. Dir: Long. Filter: Price > 200 SMA. PF: 2.20. SQN: 7.35.",
-        "universe_tickers": ['AAPL', 'ABT', 'ADBE', 'ADI', 'ADM', 'ADP', 'ADSK', 'AEP', 'AIG', 'ALL', 'AMAT', 'AMD', 'AMGN', 'AMZN', 'AON', 'APD', 'AVGO', 'AXP', 'BA', 'BAC', 'BAX', 'BDX', 'BK', 'BMY', 'C', 'CAG', 'CAT', 'CEF', 'CL', 'CMCSA', 'CMS', 'CNP', 'COP', 'COST', 'CPB', 'CRM', 'CSCO', 'CSX', 'CVS', 'CVX', 'D', 'DE', 'DIA', 'DIS', 'DOV', 'DTE', 'DUK', 'ECL', 'ED', 'EIX', 'EMR', 'EOG', 'ETR', 'EXC', 'F', 'FCX', 'FDX', 'FE', 'GD', 'GE', 'GILD', 'GIS', 'GLD', 'GLW', 'GOOG', 'GPC', 'GS', 'HAL', 'HD', 'HIG', 'HON', 'HPQ', 'HRL', 'HSY', 'HUM', 'IBB', 'IBM', 'IHI', 'INTC', 'IP', 'ITA', 'ITB', 'ITW', 'IWM', 'IYR', 'JNJ', 'JPM', 'K', 'KEY', 'KMB', 'KO', 'KR', 'KRE', 'LEG', 'LIN', 'LLY', 'LMT', 'LOW', 'LUV', 'MAS', 'MCD', 'MDT', 'MET', 'META', 'MMC', 'MMM', 'MO', 'MRK', 'MS', 'MSFT', 'MU', 'NEE', 'NEM', 'NKE', 'NOC', 'NSC', 'NUE', 'NVDA', 'OIH', 'ORCL', 'OXY', 'PAYX', 'PCG', 'PEG', 'PEP', 'PFE', 'PG', 'PGR', 'PH', 'PNW', 'PPG', 'PPL', 'PSA', 'QCOM', 'QQQ', 'REGN', 'RF', 'RHI', 'ROK', 'ROST', 'RTX', 'SBUX', 'SCHW', 'SHW', 'SLB', 'SLV', 'SMH', 'SNA', 'SO', 'SPG', 'SPY', 'SRE', 'STT', 'SWK', 'SYK', 'SYY', 'T', 'TAP', 'TGT', 'TJX', 'TMO', 'TRV', 'TSN', 'TXN', 'UNG', 'UNH', 'UNP', 'USB', 'USO', 'UVXY', 'V', 'VFC', 'VLO', 'VMC', 'VNQ', 'VZ', 'WFC', 'WHR', 'WM', 'WMB', 'WMT', 'XBI', 'XHB', 'XLB', 'XLE', 'XLF', 'XLI', 'XLK', 'XLP', 'XLU', 'XLV', 'XLY', 'XME', 'XOM', 'XOP', 'XRT', '^GSPC', '^NDX'], 
-        "settings": {
-            "trade_direction": "Long",
-            "entry_type": "Signal Close",
-            "max_one_pos": True,
-            "allow_same_day_reentry": False,
-            "max_daily_entries": 2,
-            "max_total_positions": 10,
-            "perf_filters": [{'window': 5, 'logic': '<', 'thresh': 15.0, 'consecutive': 1}, {'window': 10, 'logic': '<', 'thresh': 15.0, 'consecutive': 1}, {'window': 21, 'logic': '<', 'thresh': 15.0, 'consecutive': 1}],
-            "perf_first_instance": False, "perf_lookback": 21,
-            "use_sznl": False, "sznl_logic": "<", "sznl_thresh": 15.0, "sznl_first_instance": True, "sznl_lookback": 21,
-            "use_market_sznl": True, "market_sznl_logic": ">", "market_sznl_thresh": 20.0,
-            "market_ticker": "^GSPC",
-            "use_52w": False, "52w_type": "New 52w High", "52w_first_instance": True, "52w_lookback": 21, "52w_lag": 1,
-            "breakout_mode": "None",
-            "use_vol": False, "vol_thresh": 1.5,
-            "use_vol_rank": False, "vol_rank_logic": ">", "vol_rank_thresh": 75.0,
-            "trend_filter": "Price > 200 SMA",
-            "min_price": 10.0, "min_vol": 100000,
-            "min_age": 0.25, "max_age": 100.0,
-            "min_atr_pct": 3.0,"max_atr_pct": 10.0,
-            "entry_conf_bps": 0,
-            "use_ma_dist_filter": False, "dist_ma_type": "SMA 10", 
-            "dist_logic": "Greater Than (>)", "dist_min": 0.0, "dist_max": 2.0,
-            "use_gap_filter": False, "gap_lookback": 21, 
-            "gap_logic": ">", "gap_thresh": 3,
-            "use_acc_count_filter": False, "acc_count_window": 21, "acc_count_logic": ">", "acc_count_thresh": 3,
-            "use_dist_count_filter": False, "dist_count_window": 21, "dist_count_logic": ">", "dist_count_thresh": 3
-        },
-        "execution": {
-            "risk_per_trade": 300,
-            "slippage_bps": 2,
-            "stop_atr": 1.0,
-            "tgt_atr": 1.5,
-            "hold_days": 2
-        },
-        "stats": {
-            "grade": "A (Excellent)",
-            "win_rate": "67.1%",
-            "expectancy": "$89.76",
-            "profit_factor": "2.20"
-        }
-    },
-    {
-        "id": "5+10+21d > 85%ile, 0 acc days in last 21, sell t+1 open + 0.5 ATR 10d time stop",
-        "name": "No Accumulation Days",
-        "description": "Start: 2000-01-01. Universe: All CSV Tickers. Dir: Short. Filter: None. PF: 5.15. SQN: 3.82.",
-        "universe_tickers": ['AAPL', 'ABT', 'ADBE', 'ADI', 'ADM', 'ADP', 'ADSK', 'AEP', 'AIG', 'ALL', 'AMAT', 'AMD', 'AMGN', 'AMZN', 'AON', 'APD', 'AVGO', 'AXP', 'BA', 'BAC', 'BAX', 'BDX', 'BK', 'BMY', 'C', 'CAG', 'CAT', 'CEF', 'CL', 'CMCSA', 'CMS', 'CNP', 'COP', 'COST', 'CPB', 'CRM', 'CSCO', 'CSX', 'CVS', 'CVX', 'D', 'DE', 'DIA', 'DIS', 'DOV', 'DTE', 'DUK', 'ECL', 'ED', 'EIX', 'EMR', 'EOG', 'ETR', 'EXC', 'F', 'FCX', 'FDX', 'FE', 'GD', 'GE', 'GILD', 'GIS', 'GLD', 'GLW', 'GOOG', 'GPC', 'GS', 'HAL', 'HD', 'HIG', 'HON', 'HPQ', 'HRL', 'HSY', 'HUM', 'IBB', 'IBM', 'IHI', 'INTC', 'IP', 'ITA', 'ITB', 'ITW', 'IWM', 'IYR', 'JNJ', 'JPM', 'K', 'KEY', 'KMB', 'KO', 'KR', 'KRE', 'LEG', 'LIN', 'LLY', 'LMT', 'LOW', 'LUV', 'MAS', 'MCD', 'MDT', 'MET', 'META', 'MMC', 'MMM', 'MO', 'MRK', 'MS', 'MSFT', 'MU', 'NEE', 'NEM', 'NKE', 'NOC', 'NSC', 'NUE', 'NVDA', 'OIH', 'ORCL', 'OXY', 'PAYX', 'PCG', 'PEG', 'PEP', 'PFE', 'PG', 'PGR', 'PH', 'PNW', 'PPG', 'PPL', 'PSA', 'QCOM', 'QQQ', 'REGN', 'RF', 'RHI', 'ROK', 'ROST', 'RTX', 'SBUX', 'SCHW', 'SHW', 'SLB', 'SLV', 'SMH', 'SNA', 'SO', 'SPG', 'SPY', 'SRE', 'STT', 'SWK', 'SYK', 'SYY', 'T', 'TAP', 'TGT', 'TJX', 'TMO', 'TRV', 'TSN', 'TXN', 'UNG', 'UNH', 'UNP', 'USB', 'USO', 'UVXY', 'V', 'VFC', 'VLO', 'VMC', 'VNQ', 'VZ', 'WFC', 'WHR', 'WM', 'WMB', 'WMT', 'XBI', 'XHB', 'XLB', 'XLE', 'XLF', 'XLI', 'XLK', 'XLP', 'XLU', 'XLV', 'XLY', 'XME', 'XOM', 'XOP', 'XRT', '^GSPC', '^NDX'], 
-        "settings": {
-            "trade_direction": "Short",
-            "entry_type": "Limit (Open +/- 0.5 ATR)",
-            "max_one_pos": True,
-            "allow_same_day_reentry": False,
-            "max_daily_entries": 2,
-            "max_total_positions": 10,
-            "perf_filters": [{'window': 5, 'logic': '>', 'thresh': 85.0, 'consecutive': 1}, {'window': 10, 'logic': '>', 'thresh': 85.0, 'consecutive': 1}, {'window': 21, 'logic': '>', 'thresh': 85.0, 'consecutive': 1}],
-            "perf_first_instance": False, "perf_lookback": 21,
-            "use_sznl": True, "sznl_logic": "<", "sznl_thresh": 33.0, "sznl_first_instance": False, "sznl_lookback": 21,
-            "use_market_sznl": False, "market_sznl_logic": "<", "market_sznl_thresh": 40.0,
-            "market_ticker": "^GSPC",
-            "use_52w": False, "52w_type": "New 52w High", "52w_first_instance": True, "52w_lookback": 21, "52w_lag": 0,
-            "breakout_mode": "None",
-            "use_vol": False, "vol_thresh": 1.5,
-            "use_vol_rank": False, "vol_rank_logic": "<", "vol_rank_thresh": 15.0,
-            "trend_filter": "None",
-            "min_price": 10.0, "min_vol": 100000,
-            "min_age": 0.25, "max_age": 100.0,
-            "min_atr_pct": 0.0,"max_atr_pct": 10.0,
-            "entry_conf_bps": 0,
-            "use_ma_dist_filter": False, "dist_ma_type": "SMA 10", 
-            "dist_logic": "Greater Than (>)", "dist_min": 0.0, "dist_max": 2.0,
-            "use_gap_filter": False, "gap_lookback": 21, 
-            "gap_logic": ">", "gap_thresh": 3,
-            "use_acc_count_filter": True, "acc_count_window": 21, "acc_count_logic": "=", "acc_count_thresh": 0,
-            "use_dist_count_filter": True, "dist_count_window": 21, "dist_count_logic": ">", "dist_count_thresh": 0
-        },
-        "execution": {
-            "risk_per_trade": 500,
-            "slippage_bps": 5,
-            "stop_atr": 2.0,
-            "tgt_atr": 5.0,
-            "hold_days": 10
-        },
-        "stats": {
-            "grade": "A (Excellent)",
-            "win_rate": "66.7%",
-            "expectancy": "$609.33",
-            "profit_factor": "5.15"
-        }
-    },
-    {
-        "id": "Lower 10% of range <50% ile 5dr >33 SPX sznl",
-        "name": "Bottom of Range Reversion",
-        "description": "Start: 2000-01-01. Universe: Indices. Dir: Long. Filter: None. PF: 1.49. SQN: 8.83.",
-        "universe_tickers": ['SPY', 'QQQ', 'IWM', 'DIA', 'SMH', '^GSPC', '^NDX'], 
-        "settings": {
-            "trade_direction": "Long",
-            "entry_type": "Signal Close",
-            "max_one_pos": True,
-            "allow_same_day_reentry": False,
-            "max_daily_entries": 2,
-            "max_total_positions": 10,
-            "use_range_filter": True, 
-            "range_min": 0.0,
-            "range_max": 10.0,
-            "perf_filters": [{'window': 5, 'logic': '<', 'thresh': 50.0, 'consecutive': 1}],
-            "perf_first_instance": False, "perf_lookback": 21,
-            "use_sznl": False, "sznl_logic": "<", "sznl_thresh": 15.0, "sznl_first_instance": True, "sznl_lookback": 21,
-            "use_market_sznl": True, "market_sznl_logic": ">", "market_sznl_thresh": 33.0,
-            "market_ticker": "^GSPC",
-            "use_52w": False, "52w_type": "New 52w High", "52w_first_instance": True, "52w_lookback": 21,
-            "use_vol": False, "vol_thresh": 1.5,
-            "use_vol_rank": False, "vol_rank_logic": "<", "vol_rank_thresh": 50.0,
-            "trend_filter": "None",
-            "min_price": 10.0, "min_vol": 100000,
-            "min_age": 0.25, "max_age": 100.0,
-            "entry_conf_bps": 0,
-            "use_dist_filter": False, "dist_ma_type": "SMA 10", 
-            "dist_logic": "Greater Than (>)", "dist_min": 0.0, "dist_max": 2.0,
-            "use_gap_filter": False, "gap_lookback": 21, 
-            "gap_logic": ">", "gap_thresh": 3
-        },
-        "execution": {
-            "risk_per_trade": 125,
-            "slippage_bps": 2,
-            "stop_atr": 1.0,
-            "tgt_atr": 2.0,
-            "hold_days": 2
-        },
-        "stats": {
-            "grade": "B (Good)",
-            "win_rate": "54.9%",
-            "expectancy": "$174.76",
-            "profit_factor": "1.49"
-        }
-    },
-    # 3. LIQUID SEASONALS (SHORT TERM)
-    {
-        "id": "Sznl > 90, 5d <15 for 3d consec, 5d time stop",
-        "name": "Liquid Seasonals (short term)",
-        "description": "Start: 2000-01-01. Universe: All CSV Tickers. Dir: Long. Filter: None. PF: 2.80. SQN: 4.76.",
-        "universe_tickers": ['AAPL', 'ABT', 'ADBE', 'ADI', 'ADM', 'ADP', 'ADSK', 'AEP', 'AIG', 'ALL', 'AMAT', 'AMD', 'AMGN', 'AMZN', 'AON', 'APD', 'AVGO', 'AXP', 'BA', 'BAC', 'BAX', 'BDX', 'BK', 'BMY', 'C', 'CAG', 'CAT', 'CEF', 'CL', 'CMCSA', 'CMS', 'CNP', 'COP', 'COST', 'CPB', 'CRM', 'CSCO', 'CSX', 'CVS', 'CVX', 'D', 'DE', 'DIA', 'DIS', 'DOV', 'DTE', 'DUK', 'ECL', 'ED', 'EIX', 'EMR', 'EOG', 'ETR', 'EXC', 'F', 'FCX', 'FDX', 'FE', 'GD', 'GE', 'GILD', 'GIS', 'GLD', 'GLW', 'GOOG', 'GPC', 'GS', 'HAL', 'HD', 'HIG', 'HON', 'HPQ', 'HRL', 'HSY', 'HUM', 'IBB', 'IBM', 'IHI', 'INTC', 'IP', 'ITA', 'ITB', 'ITW', 'IWM', 'IYR', 'JNJ', 'JPM', 'K', 'KEY', 'KMB', 'KO', 'KR', 'KRE', 'LEG', 'LIN', 'LLY', 'LMT', 'LOW', 'LUV', 'MAS', 'MCD', 'MDT', 'MET', 'META', 'MMC', 'MMM', 'MO', 'MRK', 'MS', 'MSFT', 'MU', 'NEE', 'NEM', 'NKE', 'NOC', 'NSC', 'NUE', 'NVDA', 'OIH', 'ORCL', 'OXY', 'PAYX', 'PCG', 'PEG', 'PEP', 'PFE', 'PG', 'PGR', 'PH', 'PNW', 'PPG', 'PPL', 'PSA', 'QCOM', 'QQQ', 'REGN', 'RF', 'RHI', 'ROK', 'ROST', 'RTX', 'SBUX', 'SCHW', 'SHW', 'SLB', 'SLV', 'SMH', 'SNA', 'SO', 'SPG', 'SPY', 'SRE', 'STT', 'SWK', 'SYK', 'SYY', 'T', 'TAP', 'TGT', 'TJX', 'TMO', 'TRV', 'TSN', 'TXN', 'UNG', 'UNH', 'UNP', 'USB', 'USO', 'UVXY', 'V', 'VFC', 'VLO', 'VMC', 'VNQ', 'VZ', 'WFC', 'WHR', 'WM', 'WMB', 'WMT', 'XBI', 'XHB', 'XLB', 'XLE', 'XLF', 'XLI', 'XLK', 'XLP', 'XLU', 'XLV', 'XLY', 'XME', 'XOM', 'XOP', 'XRT'], 
-        "settings": {
-            "trade_direction": "Long",
-            "entry_type": "Signal Close",
-            "max_one_pos": True,
-            "max_daily_entries": 3,
-            "max_total_positions": 10,
-            "use_perf_rank": True, "perf_window": 5, "perf_logic": "<", "perf_thresh": 15.0,
-            "perf_first_instance": False, "perf_lookback": 21, "perf_consecutive": 3,
-            "use_sznl": True, "sznl_logic": ">", "sznl_thresh": 90.0, "sznl_first_instance": False, "sznl_lookback": 21,
-            "use_52w": False, "52w_type": "New 52w High", "52w_first_instance": True, "52w_lookback": 21,
-            "use_vol": False, "vol_thresh": 1.5,
-            "use_vol_rank": False, "vol_rank_logic": "<", "vol_rank_thresh": 50.0,
-            "trend_filter": "None",
-            "min_price": 10.0, "min_vol": 100000,
-            "min_age": 0.25, "max_age": 100.0
-        },
-        "execution": {
-            "risk_per_trade": 500,
-            "stop_atr": 2.0,
-            "tgt_atr": 3.0,
-            "hold_days": 5
-        },
-        "stats": { "grade": "A (Excellent)", "win_rate": "61.1%", "expectancy": "$316.29", "profit_factor": "2.80" }
-    },
-    # 4. LIQUID SEASONALS (INTERMEDIATE)
-    {
-        "id": "5+10+21d r <15, 21d 3 consec + sznl > 85, 21d time stop",
-        "name": "Liquid Seasonals (1 Month)",
-        "description": "Start: 2000-01-01. Universe: All CSV Tickers. Dir: Long. Filter: None. PF: 3.28. SQN: 7.41.",
-        "universe_tickers": ['AAPL', 'ABT', 'ADBE', 'ADI', 'ADM', 'ADP', 'ADSK', 'AEP', 'AIG', 'ALL', 'AMAT', 'AMD', 'AMGN', 'AMZN', 'AON', 'APD', 'AVGO', 'AXP', 'BA', 'BAC', 'BAX', 'BDX', 'BK', 'BMY', 'C', 'CAG', 'CAT', 'CEF', 'CL', 'CMCSA', 'CMS', 'CNP', 'COP', 'COST', 'CPB', 'CRM', 'CSCO', 'CSX', 'CVS', 'CVX', 'D', 'DE', 'DIA', 'DIS', 'DOV', 'DTE', 'DUK', 'ECL', 'ED', 'EIX', 'EMR', 'EOG', 'ETR', 'EXC', 'F', 'FCX', 'FDX', 'FE', 'GD', 'GE', 'GILD', 'GIS', 'GLD', 'GLW', 'GOOG', 'GPC', 'GS', 'HAL', 'HD', 'HIG', 'HON', 'HPQ', 'HRL', 'HSY', 'HUM', 'IBB', 'IBM', 'IHI', 'INTC', 'IP', 'ITA', 'ITB', 'ITW', 'IWM', 'IYR', 'JNJ', 'JPM', 'K', 'KEY', 'KMB', 'KO', 'KR', 'KRE', 'LEG', 'LIN', 'LLY', 'LMT', 'LOW', 'LUV', 'MAS', 'MCD', 'MDT', 'MET', 'META', 'MMC', 'MMM', 'MO', 'MRK', 'MS', 'MSFT', 'MU', 'NEE', 'NEM', 'NKE', 'NOC', 'NSC', 'NUE', 'NVDA', 'OIH', 'ORCL', 'OXY', 'PAYX', 'PCG', 'PEG', 'PEP', 'PFE', 'PG', 'PGR', 'PH', 'PNW', 'PPG', 'PPL', 'PSA', 'QCOM', 'QQQ', 'REGN', 'RF', 'RHI', 'ROK', 'ROST', 'RTX', 'SBUX', 'SCHW', 'SHW', 'SLB', 'SLV', 'SMH', 'SNA', 'SO', 'SPG', 'SPY', 'SRE', 'STT', 'SWK', 'SYK', 'SYY', 'T', 'TAP', 'TGT', 'TJX', 'TMO', 'TRV', 'TSN', 'TXN', 'UNG', 'UNH', 'UNP', 'USB', 'USO', 'UVXY', 'V', 'VFC', 'VLO', 'VMC', 'VNQ', 'VZ', 'WFC', 'WHR', 'WM', 'WMB', 'WMT', 'XBI', 'XHB', 'XLB', 'XLE', 'XLF', 'XLI', 'XLK', 'XLP', 'XLU', 'XLV', 'XLY', 'XME', 'XOM', 'XOP', 'XRT', '^GSPC', '^NDX'], 
-        "settings": {
-            "trade_direction": "Long",
-            "entry_type": "Signal Close",
-            "max_one_pos": True,
-            "allow_same_day_reentry": False,
-            "max_daily_entries": 2,
-            "max_total_positions": 10,
-            "perf_filters": [{'window': 5, 'logic': '<', 'thresh': 15.0, 'consecutive': 1}, {'window': 10, 'logic': '<', 'thresh': 15.0, 'consecutive': 1}, {'window': 21, 'logic': '<', 'thresh': 15.0, 'consecutive': 3}],
-            "perf_first_instance": False, "perf_lookback": 21,
-            "use_sznl": True, "sznl_logic": ">", "sznl_thresh": 85.0, "sznl_first_instance": False, "sznl_lookback": 21,
-            "use_market_sznl": False, "market_sznl_logic": ">", "market_sznl_thresh": 25.0,
-            "market_ticker": "^GSPC",
-            "use_52w": False, "52w_type": "New 52w High", "52w_first_instance": True, "52w_lookback": 21,
-            "use_vol": False, "vol_thresh": 1.5,
-            "use_vol_rank": False, "vol_rank_logic": "<", "vol_rank_thresh": 50.0,
-            "trend_filter": "None",
-            "min_price": 10.0, "min_vol": 100000,
-            "min_age": 0.25, "max_age": 100.0,
-            "min_atr_pct": 2.5,
-            "entry_conf_bps": 0,
-            "use_ma_dist_filter": False, "dist_ma_type": "SMA 10", 
-            "dist_logic": "Greater Than (>)", "dist_min": 0.0, "dist_max": 2.0,
-            "use_gap_filter": False, "gap_lookback": 21, 
-            "gap_logic": ">", "gap_thresh": 3,
-            "use_acc_count_filter": False, "acc_count_window": 21, "acc_count_logic": ">", "acc_count_thresh": 3,
-            "use_dist_count_filter": False, "dist_count_window": 21, "dist_count_logic": ">", "dist_count_thresh": 3
-        },
-        "execution": {
-            "risk_per_trade": 500,
-            "slippage_bps": 5,
-            "stop_atr": 3.0,
-            "tgt_atr": 8.0,
-            "hold_days": 21
-        },
-        "stats": {
-            "grade": "A (Excellent)",
-            "win_rate": "65.4%",
-            "expectancy": "$394.52",
-            "profit_factor": "3.28"
-        }
-    },
-    # 5. UGLY MONDAY CLOSE
-    {
-        "id": "5dr < 50, sznl > 33, close < 20% range, close > 20d, >2 acc <3 dist (21d)",
-        "name": "Weak Close Decent Sznls",
-        "description": "Start: 2000-01-01. Universe: Sector + Index ETFs. Dir: Long. Filter: None. PF: 2.19. SQN: 6.06.",
-        "universe_tickers": ['SPY', 'OIH', 'XHB', 'DIA', 'XRT', 'IBB', 'ITA', 'XLF', 'XLY', 'XME', 'XLE', 'XLK', 'ITB', 'KRE', 'XLU', 'XLI', 'XLP', 'QQQ', 'IHI', 'VNQ', 'SMH', 'XBI', 'IWM', 'XLC', 'XLB', 'XOP', 'XLV', 'IYR'], 
-        "settings": {
-            "trade_direction": "Long",
-            "entry_type": "Signal Close",
-            "max_one_pos": True,
-            "allow_same_day_reentry": False,
-            "max_daily_entries": 2,
-            "max_total_positions": 10,
-            "perf_filters": [{'window': 5, 'logic': '<', 'thresh': 50.0, 'consecutive': 1}],
-            "perf_first_instance": False, "perf_lookback": 21,
-            "ma_consec_filters": [{'length': 20, 'logic': 'Above', 'consec': 1}],
-            "use_sznl": True, "sznl_logic": ">", "sznl_thresh": 33.0, "sznl_first_instance": False, "sznl_lookback": 21,
-            "use_market_sznl": False, "market_sznl_logic": "<", "market_sznl_thresh": 15.0,
-            "market_ticker": "^GSPC",
-            "use_52w": False, "52w_type": "New 52w High", "52w_first_instance": True, "52w_lookback": 21, "52w_lag": 0,
-            "exclude_52w_high": False,
-            "breakout_mode": "None",
-            "use_range_filter": True, 
-            "range_min": 0, 
-            "range_max": 20,
-            "use_dow_filter": True, 
-            "allowed_days": [0, 2, 3, 4],
-            "use_vix_filter": False, "vix_min": 0.0, "vix_max": 20.0,
-            "use_vol": False, "vol_thresh": 1.5,
-            "use_vol_rank": False, "vol_rank_logic": "<", "vol_rank_thresh": 50.0,
-            "trend_filter": "None",
-            "min_price": 10.0, "min_vol": 100000,
-            "min_age": 0.25, "max_age": 100.0,
-            "min_atr_pct": 0.2,"max_atr_pct": 10.0,
-            "entry_conf_bps": 0,
-            "use_ma_dist_filter": False, "dist_ma_type": "SMA 10", 
-            "dist_logic": "Greater Than (>)", "dist_min": 0.0, "dist_max": 2.0,
-            "use_gap_filter": False, "gap_lookback": 21, 
-            "gap_logic": ">", "gap_thresh": 3,
-            "use_acc_count_filter": True, "acc_count_window": 21, "acc_count_logic": ">", "acc_count_thresh": 3,
-            "use_dist_count_filter": True, "dist_count_window": 21, "dist_count_logic": "<", "dist_count_thresh": 3
-        },
-        "execution": {
-            "risk_per_trade": 400,
-            "slippage_bps": 2,
-            "stop_atr": 1.0,
-            "tgt_atr": 8.0,
-            "hold_days": 4
-        },
-        "stats": {
-            "grade": "A (Excellent)",
-            "win_rate": "63.2%",
-            "expectancy": "$443.53",
-            "profit_factor": "2.19"
-        }
-    },
-    # 6. GENERATED LONG
-    {
-        "id": "21dr < 15 3 consec, 5dr < 33, rel vol < 15, SPY > 200d, 21d time stop",
-        "name": "Oversold Low Volume",
-        "description": "Start: 2000-01-01. Universe: All CSV Tickers. Dir: Long. Filter: Market > 200 SMA. PF: 2.90. SQN: 6.46.",
-        "universe_tickers": ['AAPL', 'ABT', 'ADBE', 'ADI', 'ADM', 'ADP', 'ADSK', 'AEP', 'AIG', 'ALL', 'AMAT', 'AMD', 'AMGN', 'AMZN', 'AON', 'APD', 'AVGO', 'AXP', 'BA', 'BAC', 'BAX', 'BDX', 'BK', 'BMY', 'C', 'CAG', 'CAT', 'CEF', 'CL', 'CMCSA', 'CMS', 'CNP', 'COP', 'COST', 'CPB', 'CRM', 'CSCO', 'CSX', 'CVS', 'CVX', 'D', 'DE', 'DIA', 'DIS', 'DOV', 'DTE', 'DUK', 'ECL', 'ED', 'EIX', 'EMR', 'EOG', 'ETR', 'EXC', 'F', 'FCX', 'FDX', 'FE', 'GD', 'GE', 'GILD', 'GIS', 'GLD', 'GLW', 'GOOG', 'GPC', 'GS', 'HAL', 'HD', 'HIG', 'HON', 'HPQ', 'HRL', 'HSY', 'HUM', 'IBB', 'IBM', 'IHI', 'INTC', 'IP', 'ITA', 'ITB', 'ITW', 'IWM', 'IYR', 'JNJ', 'JPM', 'K', 'KEY', 'KMB', 'KO', 'KR', 'KRE', 'LEG', 'LIN', 'LLY', 'LMT', 'LOW', 'LUV', 'MAS', 'MCD', 'MDT', 'MET', 'META', 'MMC', 'MMM', 'MO', 'MRK', 'MS', 'MSFT', 'MU', 'NEE', 'NEM', 'NKE', 'NOC', 'NSC', 'NUE', 'NVDA', 'OIH', 'ORCL', 'OXY', 'PAYX', 'PCG', 'PEG', 'PEP', 'PFE', 'PG', 'PGR', 'PH', 'PNW', 'PPG', 'PPL', 'PSA', 'QCOM', 'QQQ', 'REGN', 'RF', 'RHI', 'ROK', 'ROST', 'RTX', 'SBUX', 'SCHW', 'SHW', 'SLB', 'SLV', 'SMH', 'SNA', 'SO', 'SPG', 'SPY', 'SRE', 'STT', 'SWK', 'SYK', 'SYY', 'T', 'TAP', 'TGT', 'TJX', 'TMO', 'TRV', 'TSN', 'TXN', 'UNG', 'UNH', 'UNP', 'USB', 'USO', 'UVXY', 'V', 'VFC', 'VLO', 'VMC', 'VNQ', 'VZ', 'WFC', 'WHR', 'WM', 'WMB', 'WMT', 'XBI', 'XHB', 'XLB', 'XLE', 'XLF', 'XLI', 'XLK', 'XLP', 'XLU', 'XLV', 'XLY', 'XME', 'XOM', 'XOP', 'XRT', '^GSPC', '^NDX'], 
-        "settings": {
-            "trade_direction": "Long",
-            "entry_type": "T+1 Close if < Signal Close",
-            "max_one_pos": True,
-            "allow_same_day_reentry": False,
-            "max_daily_entries": 10,
-            "max_total_positions": 20,
-            "perf_filters": [{'window': 5, 'logic': '<', 'thresh': 33.0, 'consecutive': 1}, {'window': 21, 'logic': '<', 'thresh': 15.0, 'consecutive': 3}],
-            "perf_first_instance": False, "perf_lookback": 21,
-            "ma_consec_filters": [],
-            "use_sznl": False, "sznl_logic": "<", "sznl_thresh": 15.0, "sznl_first_instance": True, "sznl_lookback": 21,
-            "use_market_sznl": False, "market_sznl_logic": "<", "market_sznl_thresh": 15.0,
-            "market_ticker": "^GSPC",
-            "use_52w": False, "52w_type": "New 52w High", "52w_first_instance": True, "52w_lookback": 21, "52w_lag": 0,
-            "exclude_52w_high": False,
-            "breakout_mode": "None",
-            "use_range_filter": False, 
-            "range_min": 0, 
-            "range_max": 100,
-            "use_dow_filter": False, 
-            "allowed_days": [0, 1, 2, 3, 4],
-            "use_vix_filter": False, "vix_min": 0.0, "vix_max": 20.0,
-            "use_vol": False, "vol_thresh": 1.5,
-            "use_vol_rank": True, "vol_rank_logic": "<", "vol_rank_thresh": 15.0,
-            "trend_filter": "Market > 200 SMA",
-            "min_price": 10.0, "min_vol": 100000,
-            "min_age": 0.25, "max_age": 100.0,
-            "min_atr_pct": 0.2,"max_atr_pct": 10.0,
-            "entry_conf_bps": 0,
-            "use_ma_dist_filter": False, "dist_ma_type": "SMA 10", 
-            "dist_logic": "Greater Than (>)", "dist_min": 0.0, "dist_max": 2.0,
-            "use_gap_filter": False, "gap_lookback": 21, 
-            "gap_logic": ">", "gap_thresh": 3,
-            "use_acc_count_filter": False, "acc_count_window": 21, "acc_count_logic": ">", "acc_count_thresh": 3,
-            "use_dist_count_filter": False, "dist_count_window": 21, "dist_count_logic": ">", "dist_count_thresh": 3
-        },
-        "execution": {
-            "risk_per_trade": 1000,
-            "slippage_bps": 0,
-            "stop_atr": 2.0,
-            "tgt_atr": 8.0,
-            "hold_days": 21
-        },
-        "stats": {
-            "grade": "A (Excellent)",
-            "win_rate": "69.0%",
-            "expectancy": "$745.56",
-            "profit_factor": "2.90"
-        }
-    },
-        {
-        "id": "5+10+21d > 85, 21d 3x, vol >1.25x, >0 dist day, sell open +0.5 atr",
-        "name": "Overbot Vol Spike",
-        "description": "Start: 2000-01-01. Universe: All CSV Tickers. Dir: Short. Filter: None. PF: 2.46. SQN: 4.44.",
-        "universe_tickers": ['AAPL', 'ABT', 'ADBE', 'ADI', 'ADM', 'ADP', 'ADSK', 'AEP', 'AIG', 'ALL', 'AMAT', 'AMD', 'AMGN', 'AMZN', 'AON', 'APD', 'AVGO', 'AXP', 'BA', 'BAC', 'BAX', 'BDX', 'BK', 'BMY', 'C', 'CAG', 'CAT', 'CEF', 'CL', 'CMCSA', 'CMS', 'CNP', 'COP', 'COST', 'CPB', 'CRM', 'CSCO', 'CSX', 'CVS', 'CVX', 'D', 'DE', 'DIA', 'DIS', 'DOV', 'DTE', 'DUK', 'ECL', 'ED', 'EIX', 'EMR', 'EOG', 'ETR', 'EXC', 'F', 'FCX', 'FDX', 'FE', 'GD', 'GE', 'GILD', 'GIS', 'GLD', 'GLW', 'GOOG', 'GPC', 'GS', 'HAL', 'HD', 'HIG', 'HON', 'HPQ', 'HRL', 'HSY', 'HUM', 'IBB', 'IBM', 'IHI', 'INTC', 'IP', 'ITA', 'ITB', 'ITW', 'IWM', 'IYR', 'JNJ', 'JPM', 'K', 'KEY', 'KMB', 'KO', 'KR', 'KRE', 'LEG', 'LIN', 'LLY', 'LMT', 'LOW', 'LUV', 'MAS', 'MCD', 'MDT', 'MET', 'META', 'MMC', 'MMM', 'MO', 'MRK', 'MS', 'MSFT', 'MU', 'NEE', 'NEM', 'NKE', 'NOC', 'NSC', 'NUE', 'NVDA', 'OIH', 'ORCL', 'OXY', 'PAYX', 'PCG', 'PEG', 'PEP', 'PFE', 'PG', 'PGR', 'PH', 'PNW', 'PPG', 'PPL', 'PSA', 'QCOM', 'QQQ', 'REGN', 'RF', 'RHI', 'ROK', 'ROST', 'RTX', 'SBUX', 'SCHW', 'SHW', 'SLB', 'SLV', 'SMH', 'SNA', 'SO', 'SPG', 'SPY', 'SRE', 'STT', 'SWK', 'SYK', 'SYY', 'T', 'TAP', 'TGT', 'TJX', 'TMO', 'TRV', 'TSN', 'TXN', 'UNG', 'UNH', 'UNP', 'USB', 'USO', 'UVXY', 'V', 'VFC', 'VLO', 'VMC', 'VNQ', 'VZ', 'WFC', 'WHR', 'WM', 'WMB', 'WMT', 'XBI', 'XHB', 'XLB', 'XLE', 'XLF', 'XLI', 'XLK', 'XLP', 'XLU', 'XLV', 'XLY', 'XME', 'XOM', 'XOP', 'XRT', '^GSPC', '^NDX'], 
-        "settings": {
-            "trade_direction": "Short",
-            "entry_type": "Limit (Open +/- 0.5 ATR)",
-            "max_one_pos": True,
-            "allow_same_day_reentry": True,
-            "max_daily_entries": 2,
-            "max_total_positions": 10,
-            "perf_filters": [{'window': 5, 'logic': '>', 'thresh': 85.0, 'consecutive': 1}, {'window': 10, 'logic': '>', 'thresh': 85.0, 'consecutive': 1}, {'window': 21, 'logic': '>', 'thresh': 85.0, 'consecutive': 3}],
-            "perf_first_instance": False, "perf_lookback": 21,
-            "use_sznl": False, "sznl_logic": ">", "sznl_thresh": 85.0, "sznl_first_instance": False, "sznl_lookback": 21,
-            "use_market_sznl": True, "market_sznl_logic": "<", "market_sznl_thresh": 40.0,
-            "market_ticker": "^GSPC",
-            "use_52w": False, "52w_type": "New 52w High", "52w_first_instance": True, "52w_lookback": 21,
-            "use_vol": True, "vol_thresh": 1.25,
-            "use_vol_rank": False, "vol_rank_logic": "<", "vol_rank_thresh": 50.0,
-            "trend_filter": "None",
-            "min_price": 10.0, "min_vol": 100000,
-            "min_age": 0.25, "max_age": 100.0,
-            "min_atr_pct": 0.0,"max_atr_pct": 100.0,
-            "entry_conf_bps": 0,
-            "use_ma_dist_filter": False, "dist_ma_type": "SMA 10", 
-            "dist_logic": "Greater Than (>)", "dist_min": 0.0, "dist_max": 2.0,
-            "use_gap_filter": False, "gap_lookback": 21, 
-            "gap_logic": ">", "gap_thresh": 3,
-            "use_acc_count_filter": False, "acc_count_window": 21, "acc_count_logic": ">", "acc_count_thresh": 3,
-            "use_dist_count_filter": True, "dist_count_window": 21, "dist_count_logic": ">", "dist_count_thresh": 0
-        },
-        "execution": {
-            "risk_per_trade": 400,
-            "slippage_bps": 2,
-            "stop_atr": 1.0,
-            "tgt_atr": 8.0,
-            "hold_days": 3
-        },
-        "stats": {
-            "grade": "A (Excellent)",
-            "win_rate": "58.0%",
-            "expectancy": "$0.28r",
-            "profit_factor": "1.96"
-        }
-    },
-]
+current_dir = os.path.dirname(os.path.abspath(__file__))
+parent_dir = os.path.dirname(current_dir)
+sys.path.append(parent_dir)
+
+try:
+    from strategy_config import STRATEGY_BOOK
+except ImportError:
+    print("❌ Could not find strategy_config.py in the root directory.")
+    STRATEGY_BOOK = []
 
 # -----------------------------------------------------------------------------
-# 2. HELPER FUNCTIONS (Refactored for Automation)
+# 1. AUTHENTICATION & HELPERS
 # -----------------------------------------------------------------------------
 
 def get_google_client():
     """
-    Authenticates with Google Sheets using Environment Variables (GitHub) 
+    Authenticates with Google Sheets using Environment Variables (GitHub Actions) 
     or a local JSON file.
     """
     try:
@@ -447,6 +55,76 @@ def get_google_client():
     except Exception as e:
         print(f"❌ Auth Error: {e}")
         return None
+
+def send_email_summary(signals_list):
+    """
+    Sends an HTML email summary of the signals using Gmail SMTP.
+    Requires EMAIL_USER and EMAIL_PASS environment variables.
+    """
+    sender_email = os.environ.get("EMAIL_USER")
+    sender_password = os.environ.get("EMAIL_PASS")
+    receiver_email = "mckinleyslade@gmail.com"
+
+    if not sender_email or not sender_password:
+        print("⚠️ Email credentials (EMAIL_USER/EMAIL_PASS) not found. Skipping email.")
+        return
+
+    # 1. Prepare Content
+    date_str = datetime.datetime.now().strftime("%Y-%m-%d")
+    
+    if not signals_list:
+        subject = f"📉 Scan Result: NO SIGNALS ({date_str})"
+        html_content = f"""
+        <html>
+            <body>
+                <h2>Daily Strategy Scan: {date_str}</h2>
+                <p>The scan completed successfully.</p>
+                <p><strong>Result:</strong> No signals found matching criteria today.</p>
+            </body>
+        </html>
+        """
+    else:
+        subject = f"🚀 Scan Result: {len(signals_list)} SIGNALS FOUND ({date_str})"
+        
+        # Build HTML Table
+        df = pd.DataFrame(signals_list)
+        cols = ['Strategy_ID', 'Ticker', 'Action', 'Shares', 'Entry', 'Stop', 'Target', 'Time Exit']
+        
+        # Style the table
+        table_html = df[cols].to_html(index=False, border=0, justify="left")
+        table_html = table_html.replace('class="dataframe"', 'style="border-collapse: collapse; width: 100%; font-family: Arial, sans-serif;"')
+        table_html = table_html.replace('<th>', '<th style="background-color: #4CAF50; color: white; padding: 8px; text-align: left;">')
+        table_html = table_html.replace('<td>', '<td style="border-bottom: 1px solid #ddd; padding: 8px;">')
+
+        html_content = f"""
+        <html>
+            <body>
+                <h2>Daily Strategy Scan: {date_str}</h2>
+                <p>The scan found <strong>{len(signals_list)}</strong> actionable signals.</p>
+                <br>
+                {table_html}
+                <br>
+                <p><em>Check the Google Sheet for full details and staging.</em></p>
+            </body>
+        </html>
+        """
+
+    # 2. Setup Message
+    msg = MIMEMultipart("alternative")
+    msg["Subject"] = subject
+    msg["From"] = sender_email
+    msg["To"] = receiver_email
+    msg.attach(MIMEText(html_content, "html"))
+
+    # 3. Send via Gmail SMTP
+    try:
+        with smtplib.SMTP("smtp.gmail.com", 587) as server:
+            server.starttls()
+            server.login(sender_email, sender_password)
+            server.sendmail(sender_email, receiver_email, msg.as_string())
+        print(f"📧 Email sent successfully to {receiver_email}")
+    except Exception as e:
+        print(f"❌ Failed to send email: {e}")
 
 def load_seasonal_map(csv_path="sznl_ranks.csv"):
     try:
@@ -468,106 +146,101 @@ def load_seasonal_map(csv_path="sznl_ranks.csv"):
 def get_sznl_val_series(ticker, dates, sznl_map):
     ticker = ticker.upper()
     t_series = sznl_map.get(ticker)
+    
     if t_series is None and ticker == "^GSPC":
         t_series = sznl_map.get("SPY")
+
     if t_series is None:
         return pd.Series(50.0, index=dates)
+        
     return dates.map(t_series).fillna(50.0)
 
-def download_historical_data(tickers, start_date="2000-01-01"):
-    if not tickers: return {}
-    clean_tickers = list(set([str(t).strip().upper().replace('.', '-') for t in tickers]))
+# -----------------------------------------------------------------------------
+# 2. CALCULATION ENGINE
+# -----------------------------------------------------------------------------
+
+def calculate_indicators(df, sznl_map, ticker, market_series=None):
+    df = df.copy()
+    df.columns = [c.capitalize() for c in df.columns]
+    if df.index.tz is not None: df.index = df.index.tz_localize(None)
     
-    data_dict = {}
-    CHUNK_SIZE = 50 
-    total = len(clean_tickers)
+    # --- MAs ---
+    df['SMA10'] = df['Close'].rolling(10).mean()
+    df['SMA20'] = df['Close'].rolling(20).mean()
+    df['SMA50'] = df['Close'].rolling(50).mean() 
+    df['SMA200'] = df['Close'].rolling(200).mean()
     
-    print(f"📥 Downloading data for {total} tickers...")
+    # --- Gap Count ---
+    is_open_gap = (df['Low'] > df['High'].shift(1)).astype(int)
+    df['GapCount_21'] = is_open_gap.rolling(21).sum() 
+    df['GapCount_10'] = is_open_gap.rolling(10).sum()
+    df['GapCount_5'] = is_open_gap.rolling(5).sum() 
+
+    # --- Candle Range Location % ---
+    denom = (df['High'] - df['Low'])
+    df['RangePct'] = np.where(denom == 0, 0.5, (df['Close'] - df['Low']) / denom)
+
+    # --- Perf Ranks ---
+    for window in [5, 10, 21]:
+        df[f'ret_{window}d'] = df['Close'].pct_change(window)
+        df[f'rank_ret_{window}d'] = df[f'ret_{window}d'].expanding(min_periods=50).rank(pct=True) * 100.0
+        
+    # --- ATR ---
+    high_low = df['High'] - df['Low']
+    high_close = np.abs(df['High'] - df['Close'].shift())
+    low_close = np.abs(df['Low'] - df['Close'].shift())
+    ranges = pd.concat([high_low, high_close, low_close], axis=1)
+    df['ATR'] = ranges.max(axis=1).rolling(14).mean()
+    df['ATR_Pct'] = (df['ATR'] / df['Close']) * 100
+
+    # --- Volume, Accumulation & Distribution Logic ---
+    vol_ma = df['Volume'].rolling(63).mean()
+    df['vol_ratio'] = df['Volume'] / vol_ma
+    df['vol_ma'] = vol_ma
     
-    for i in range(0, total, CHUNK_SIZE):
-        chunk = clean_tickers[i : i + CHUNK_SIZE]
-        try:
-            df = yf.download(chunk, start=start_date, group_by='ticker', auto_adjust=False, progress=False, threads=True)
-            if df.empty: continue
-            
-            if len(chunk) == 1:
-                ticker = chunk[0]
-                if 'Close' in df.columns:
-                    df.index = df.index.tz_localize(None)
-                    data_dict[ticker] = df
-            else:
-                available_tickers = df.columns.levels[0]
-                for t in available_tickers:
-                    try:
-                        t_df = df[t].copy()
-                        if t_df.empty or 'Close' not in t_df.columns: continue
-                        t_df.index = t_df.index.tz_localize(None)
-                        data_dict[t] = t_df
-                    except: continue
-            time.sleep(0.25)
-        except Exception as e:
-            print(f"⚠️ Batch Error: {e}")
-            
-    return data_dict
+    # Base Conditions
+    cond_vol_ma = df['Volume'] > vol_ma
+    cond_vol_up = df['Volume'] > df['Volume'].shift(1)
+    
+    # Create explicit Vol Spike Column (True/False)
+    df['Vol_Spike'] = cond_vol_ma & cond_vol_up
+    
+    # 1. Accumulation (Green + Spike)
+    cond_green = df['Close'] > df['Open']
+    is_accumulation = (df['Vol_Spike'] & cond_green).astype(int)
+    df['AccCount_21'] = is_accumulation.rolling(21).sum()
+    
+    # 2. Distribution (Red + Spike)
+    cond_red = df['Close'] < df['Open']
+    is_distribution = (df['Vol_Spike'] & cond_red).astype(int)
+    df['DistCount_21'] = is_distribution.rolling(21).sum()
+    
+    # --- Volume Rank ---
+    vol_ma_10 = df['Volume'].rolling(10).mean()
+    df['vol_ratio_10d'] = vol_ma_10 / vol_ma
+    df['vol_ratio_10d_rank'] = df['vol_ratio_10d'].expanding(min_periods=50).rank(pct=True) * 100.0
+    
+    # --- Seasonality ---
+    df['Sznl'] = get_sznl_val_series(ticker, df.index, sznl_map)
+    df['Mkt_Sznl_Ref'] = get_sznl_val_series("^GSPC", df.index, sznl_map)
+    
+    # --- Age & Market Regime ---
+    if not df.empty:
+        start_ts = df.index[0]
+        df['age_years'] = (df.index - start_ts).days / 365.25
+    else:
+        df['age_years'] = 0.0
 
-
-            d_min = params.get('dist_min', 0)
-            d_max = params.get('dist_max', 0)
-            if d_logic == "Greater Than (>)" and not (dist_units > d_min): return False
-            if d_logic == "Less Than (<)" and not (dist_units < d_max): return False
-            if d_logic == "Between":
-                if not (dist_units >= d_min and dist_units <= d_max): return False
-
-    # 7. Seasonality
-    if params['use_sznl']:
-        if params['sznl_logic'] == '<': raw_sznl = df['Sznl'] < params['sznl_thresh']
-        else: raw_sznl = df['Sznl'] > params['sznl_thresh']
+    if market_series is not None:
+        df['Market_Above_SMA200'] = market_series.reindex(df.index, method='ffill').fillna(False)
+    
+    # --- 52w High/Low ---
+    rolling_high = df['High'].shift(1).rolling(252).max()
+    rolling_low = df['Low'].shift(1).rolling(252).min()
+    df['is_52w_high'] = df['High'] > rolling_high
+    df['is_52w_low'] = df['Low'] < rolling_low
         
-        final_sznl = raw_sznl
-        if params.get('sznl_first_instance', False):
-            lookback = params.get('sznl_lookback', 21)
-            prev = final_sznl.shift(1).rolling(lookback).sum()
-            final_sznl = final_sznl & (prev == 0)
-        if not final_sznl.iloc[-1]: return False
-
-    if params.get('use_market_sznl', False):
-        mkt_ticker = params.get('market_ticker', '^GSPC')
-        mkt_series_ref = sznl_map.get(mkt_ticker)
-        if mkt_series_ref is None and mkt_ticker == '^GSPC':
-             mkt_series_ref = sznl_map.get('SPY')
-        mkt_ranks = get_sznl_val_series(mkt_ticker, df.index, sznl_map)
-        
-        if params['market_sznl_logic'] == '<': mkt_cond = mkt_ranks < params['market_sznl_thresh']
-        else: mkt_cond = mkt_ranks > params['market_sznl_thresh']
-        if not mkt_cond[-1]: return False
-
-    # 8. 52w
-    if params['use_52w']:
-        if params['52w_type'] == 'New 52w High': cond_52 = df['is_52w_high']
-        else: cond_52 = df['is_52w_low']
-        if params.get('52w_first_instance', True):
-            lookback = params.get('52w_lookback', 21)
-            prev = cond_52.shift(1).rolling(lookback).sum()
-            cond_52 = cond_52 & (prev == 0)
-        if not cond_52.iloc[-1]: return False
-        
-    # 8b. Exclude 52w High (NEW)
-    if params.get('exclude_52w_high', False):
-        if last_row['is_52w_high']: return False
-
-    # 9. Volume (Ratio ONLY)
-    if params['use_vol']:
-        # Only check if magnitude > threshold (Ignore if it's > or < yesterday)
-        if not (last_row['vol_ratio'] > params['vol_thresh']): return False
-
-    if params.get('use_vol_rank'):
-        val = last_row['vol_ratio_10d_rank']
-        if params['vol_rank_logic'] == '<':
-            if not (val < params['vol_rank_thresh']): return False
-        else:
-            if not (val > params['vol_rank_thresh']): return False
-            
-    return True
+    return df
 
 def check_signal(df, params, sznl_map):
     last_row = df.iloc[-1]
@@ -577,6 +250,14 @@ def check_signal(df, params, sznl_map):
         allowed = params.get('allowed_days', [])
         current_day = last_row.name.dayofweek
         if current_day not in allowed: return False
+
+    # 0b. Cycle Year Filter
+    if 'allowed_cycles' in params:
+        allowed_cycles = params['allowed_cycles']
+        if allowed_cycles and len(allowed_cycles) < 4:
+            current_year = last_row.name.year
+            cycle_rem = current_year % 4
+            if cycle_rem not in allowed_cycles: return False
 
     # 1. Liquidity Gates
     if last_row['Close'] < params.get('min_price', 0): return False
@@ -606,22 +287,18 @@ def check_signal(df, params, sznl_map):
             if ">" in trend_opt and not is_above: return False
             if "<" in trend_opt and is_above: return False
 
-    # 2b. MA Consecutive Filters (NEW - For Ugly Monday)
+    # 2b. MA Consecutive Filters
     if 'ma_consec_filters' in params:
         for maf in params['ma_consec_filters']:
             length = maf['length']
-            col_name = f"SMA{length}" # e.g. SMA20
-            
-            # Ensure column exists (calculate_indicators handles 10, 20, 50, 200)
+            col_name = f"SMA{length}"
             if col_name not in df.columns: continue 
             
-            # Logic Check
             if maf['logic'] == 'Above':
                 mask = df['Close'] > df[col_name]
             elif maf['logic'] == 'Below':
                 mask = df['Close'] < df[col_name]
             
-            # Consecutive Check
             consec = maf.get('consec', 1)
             if consec > 1:
                 mask = mask.rolling(consec).sum() == consec
@@ -739,9 +416,6 @@ def check_signal(df, params, sznl_map):
 
     if params.get('use_market_sznl', False):
         mkt_ticker = params.get('market_ticker', '^GSPC')
-        mkt_series_ref = sznl_map.get(mkt_ticker)
-        if mkt_series_ref is None and mkt_ticker == '^GSPC':
-             mkt_series_ref = sznl_map.get('SPY')
         mkt_ranks = get_sznl_val_series(mkt_ticker, df.index, sznl_map)
         
         if params['market_sznl_logic'] == '<': mkt_cond = mkt_ranks < params['market_sznl_thresh']
@@ -758,13 +432,12 @@ def check_signal(df, params, sznl_map):
             cond_52 = cond_52 & (prev == 0)
         if not cond_52.iloc[-1]: return False
         
-    # 8b. Exclude 52w High (NEW)
+    # 8b. Exclude 52w High
     if params.get('exclude_52w_high', False):
         if last_row['is_52w_high']: return False
 
     # 9. Volume (Ratio ONLY)
     if params['use_vol']:
-        # Only check if magnitude > threshold (Ignore if it's > or < yesterday)
         if not (last_row['vol_ratio'] > params['vol_thresh']): return False
 
     if params.get('use_vol_rank'):
@@ -777,8 +450,161 @@ def check_signal(df, params, sznl_map):
     return True
 
 # -----------------------------------------------------------------------------
-# 3. SAVING FUNCTIONS (Refactored)
+# 3. SAVING FUNCTIONS
 # -----------------------------------------------------------------------------
+
+def save_moc_orders(signals_list, strategy_book, sheet_name='moc_orders'):
+    """
+    Saves 'Signal Close' orders to the 'moc_orders' tab with Exit_Date.
+    """
+    gc = get_google_client()
+    if not gc: return
+
+    try:
+        sh = gc.open("Trade_Signals_Log")
+        try:
+            worksheet = sh.worksheet(sheet_name)
+        except:
+            worksheet = sh.add_worksheet(title=sheet_name, rows=100, cols=20)
+        
+        worksheet.clear()
+
+        # Filter and Build Data
+        moc_data = []
+        if signals_list:
+            strat_map = {s['id']: s for s in strategy_book}
+            
+            for row in pd.DataFrame(signals_list).to_dict('records'):
+                strat = strat_map.get(row['Strategy_ID'])
+                if not strat: continue
+                
+                settings = strat['settings']
+                entry_mode = settings.get('entry_type', 'Signal Close')
+
+                if "Signal Close" in entry_mode:
+                    ib_action = "SELL" if "SHORT" in row['Action'] else "BUY"
+                    
+                    moc_data.append({
+                        "Scan_Date": datetime.datetime.now().strftime("%Y-%m-%d"),
+                        "Symbol": row['Ticker'],
+                        "SecType": "STK",
+                        "Exchange": "SMART",
+                        "Action": ib_action,
+                        "Quantity": row['Shares'],
+                        "Order_Type": "MOC", 
+                        "Strategy_Ref": strat['name'],
+                        "Exit_Date": str(row['Time Exit']) 
+                    })
+
+        if moc_data:
+            df_moc = pd.DataFrame(moc_data)
+            data_to_write = [df_moc.columns.tolist()] + df_moc.astype(str).values.tolist()
+            worksheet.update(values=data_to_write)
+            print(f"🚀 Staged {len(df_moc)} MOC Orders with Exit Dates!")
+        else:
+            headers = ["Scan_Date", "Symbol", "SecType", "Exchange", "Action", "Quantity", "Order_Type", "Strategy_Ref", "Exit_Date"]
+            worksheet.update(values=[headers])
+            print(f"🧹 '{sheet_name}' cleared.")
+            
+    except Exception as e:
+        print(f"❌ MOC Staging Error: {e}")
+
+def save_staging_orders(signals_list, strategy_book, sheet_name='Order_Staging'):
+    """
+    Saves non-MOC orders (Limits, T+1, etc) to 'Order_Staging'.
+    Excludes 'Signal Close' orders.
+    """
+    if not signals_list: return
+
+    df = pd.DataFrame(signals_list)
+    strat_map = {s['id']: s for s in strategy_book}
+    
+    staging_data = []
+    
+    for _, row in df.iterrows():
+        strat = strat_map.get(row['Strategy_ID'])
+        if not strat: continue
+        
+        settings = strat['settings']
+        entry_mode = settings.get('entry_type', 'Signal Close')
+        
+        # *** SKIP MOC ORDERS (They go to the other sheet) ***
+        if "Signal Close" in entry_mode:
+            continue
+        
+        # Defaults
+        entry_instruction = "MKT" 
+        offset_atr = 0.0
+        limit_price = 0.0
+        tif_instruction = "DAY" 
+
+        # 1. ATR LIMIT ENTRY
+        if "Limit" in entry_mode and "ATR" in entry_mode:
+            entry_instruction = "REL_OPEN" 
+            if "0.5" in entry_mode: offset_atr = 0.5
+            tif_instruction = "DAY"
+            
+        # 2. MARKET ON OPEN
+        elif "T+1 Open" in entry_mode:
+            entry_instruction = "MOO" 
+            tif_instruction = "OPG"
+            
+        # 3. CONDITIONAL CLOSE (Oversold Low Vol Logic)
+        elif "T+1 Close if < Signal Close" in entry_mode:
+            entry_instruction = "LMT"
+            limit_price = row['Entry'] - 0.01
+            tif_instruction = "DAY" 
+
+        ib_action = "SELL" if "SHORT" in row['Action'] else "BUY"
+
+        staging_data.append({
+            "Scan_Date": datetime.datetime.now().strftime("%Y-%m-%d"),
+            "Symbol": row['Ticker'],
+            "SecType": "STK",
+            "Exchange": "SMART",
+            "Action": ib_action,
+            "Quantity": row['Shares'],
+            "Order_Type": entry_instruction,  
+            "Limit_Price": round(limit_price, 2), 
+            "Offset_ATR_Mult": offset_atr,    
+            "TIF": tif_instruction,           
+            "Frozen_ATR": round(row['ATR'], 2), 
+            "Time_Exit_Date": str(row['Time Exit']),
+            "Strategy_Ref": strat['name']
+        })
+
+    # If all orders were "Signal Close", this list is empty now
+    if not staging_data:
+        # Clear sheet if needed
+        gc = get_google_client()
+        if gc:
+            try:
+                sh = gc.open("Trade_Signals_Log")
+                worksheet = sh.worksheet(sheet_name)
+                worksheet.clear()
+                print(f"🧹 '{sheet_name}' cleared (only MOC orders found).")
+            except: pass
+        return
+
+    df_stage = pd.DataFrame(staging_data)
+
+    gc = get_google_client()
+    if not gc: return
+
+    try:
+        sh = gc.open("Trade_Signals_Log")
+        try:
+            worksheet = sh.worksheet(sheet_name)
+        except:
+            worksheet = sh.add_worksheet(title=sheet_name, rows=100, cols=20)
+
+        worksheet.clear()
+        data_to_write = [df_stage.columns.tolist()] + df_stage.astype(str).values.tolist()
+        worksheet.update(values=data_to_write)
+        print(f"🤖 Instructions Staged! ({len(df_stage)} rows)")
+        
+    except Exception as e:
+        print(f"❌ Staging Sheet Error: {e}")
 
 def save_signals_to_gsheet(new_dataframe, sheet_name='Trade_Signals_Log'):
     if new_dataframe.empty: return
@@ -824,115 +650,48 @@ def save_signals_to_gsheet(new_dataframe, sheet_name='Trade_Signals_Log'):
     except Exception as e:
         print(f"❌ Google Sheet Error: {e}")
 
-def save_staging_orders(signals_list, strategy_book, sheet_name='Order_Staging'):
-    """
-    Saves instructions for the Python Execution Engine.
-    UPDATED: Handles "T+1 Close if < Signal Close" as a Limit Order (Close - 0.01).
-    """
-    if not signals_list: return
-
-    # 1. Convert to DataFrame
-    df = pd.DataFrame(signals_list)
-    
-    # 2. Create a lookup for Strategy Settings
-    strat_map = {s['id']: s for s in strategy_book}
-    
-    staging_data = []
-    
-    for _, row in df.iterrows():
-        strat = strat_map.get(row['Strategy_ID'])
-        if not strat: continue
-        
-        settings = strat['settings']
-        
-        # --- A. DECODE ENTRY INSTRUCTION ---
-        entry_mode = settings.get('entry_type', 'Signal Close')
-        
-        # Defaults
-        entry_instruction = "MKT" 
-        offset_atr = 0.0
-        limit_price = 0.0 # NEW: Explicit Limit Price field
-        tif_instruction = "DAY" # NEW: Time in Force (Day, GTC, OPG)
-
-        # 1. ATR LIMIT ENTRY (e.g. Open - 0.5 ATR)
-        if "Limit" in entry_mode and "ATR" in entry_mode:
-            entry_instruction = "REL_OPEN" 
-            if "0.5" in entry_mode: offset_atr = 0.5
-            tif_instruction = "DAY"
-            
-        # 2. MARKET ON OPEN
-        elif "T+1 Open" in entry_mode:
-            entry_instruction = "MOO" 
-            tif_instruction = "OPG"
-            
-        # 3. MARKET ON CLOSE (Signal Close)
-        elif "Signal Close" in entry_mode:
-            entry_instruction = "MOC" # Changed from MKT to MOC for clarity, or keep MKT
-            tif_instruction = "DAY"
-
-        # 4. *** NEW: OVERSOLD LOW VOLUME LOGIC ***
-        elif "T+1 Close if < Signal Close" in entry_mode:
-            entry_instruction = "LMT"
-            # Logic: We want a Limit Order at Signal Close - 0.01
-            # Note: row['Entry'] currently holds the Signal Close price from the main loop
-            limit_price = row['Entry'] - 0.01
-            tif_instruction = "DAY" # Good for the Day
-
-        # --- B. PARENT ACTION ---
-        ib_action = "SELL" if "SHORT" in row['Action'] else "BUY"
-
-        staging_data.append({
-            "Scan_Date": datetime.datetime.now().strftime("%Y-%m-%d"),
-            "Symbol": row['Ticker'],
-            "SecType": "STK",
-            "Exchange": "SMART",
-            "Action": ib_action,
-            "Quantity": row['Shares'],
-            
-            # THE INSTRUCTIONS
-            "Order_Type": entry_instruction,  # MOO, REL_OPEN, MKT, LMT
-            "Limit_Price": round(limit_price, 2), # NEW COLUMN: Specific Limit Price
-            "Offset_ATR_Mult": offset_atr,    # e.g., 0.5
-            "TIF": tif_instruction,           # NEW COLUMN: DAY or OPG
-            "Frozen_ATR": round(row['ATR'], 2), 
-            
-            # EXIT DATA (Time Stop Only)
-            "Time_Exit_Date": str(row['Time Exit']),
-            "Strategy_Ref": strat['name']
-        })
-
-    df_stage = pd.DataFrame(staging_data)
-
-    try:
-        # Load Credentials
-        if "gcp_service_account" in st.secrets:
-            creds_dict = st.secrets["gcp_service_account"]
-            gc = gspread.service_account_from_dict(creds_dict)
-        else:
-            gc = gspread.service_account(filename='credentials.json')
-
-        sh = gc.open("Trade_Signals_Log")
-        
-        # Create/Open Tab
-        try:
-            worksheet = sh.worksheet(sheet_name)
-        except:
-            worksheet = sh.add_worksheet(title=sheet_name, rows=100, cols=20)
-
-        # Clear and Overwrite
-        worksheet.clear()
-        data_to_write = [df_stage.columns.tolist()] + df_stage.astype(str).values.tolist()
-        worksheet.update(values=data_to_write)
-        st.toast(f"🤖 Instructions Staged! ({len(df_stage)} rows)")
-        
-    except Exception as e:
-        st.error(f"❌ Staging Sheet Error: {e}")
-
 # -----------------------------------------------------------------------------
 # 4. MAIN EXECUTION
 # -----------------------------------------------------------------------------
+
+def download_historical_data(tickers, start_date="2000-01-01"):
+    if not tickers: return {}
+    clean_tickers = list(set([str(t).strip().upper().replace('.', '-') for t in tickers]))
+    
+    data_dict = {}
+    CHUNK_SIZE = 50 
+    total = len(clean_tickers)
+    
+    print(f"📥 Downloading data for {total} tickers...")
+    
+    for i in range(0, total, CHUNK_SIZE):
+        chunk = clean_tickers[i : i + CHUNK_SIZE]
+        try:
+            df = yf.download(chunk, start=start_date, group_by='ticker', auto_adjust=False, progress=False, threads=True)
+            if df.empty: continue
+            
+            if len(chunk) == 1:
+                ticker = chunk[0]
+                if 'Close' in df.columns:
+                    df.index = df.index.tz_localize(None)
+                    data_dict[ticker] = df
+            else:
+                available_tickers = df.columns.levels[0]
+                for t in available_tickers:
+                    try:
+                        t_df = df[t].copy()
+                        if t_df.empty or 'Close' not in t_df.columns: continue
+                        t_df.index = t_df.index.tz_localize(None)
+                        data_dict[t] = t_df
+                    except: continue
+            time.sleep(0.25)
+        except Exception as e:
+            print(f"⚠️ Batch Error: {e}")
+            
+    return data_dict
+
 def run_daily_scan():
-    print("--- Starting Daily Automated Scan ---")
+    print("--- Starting Daily Automated Scan (Synced) ---")
     sznl_map = load_seasonal_map()
     
     # 1. Gather Tickers
@@ -976,7 +735,7 @@ def run_daily_scan():
                 if check_signal(calc_df, strat['settings'], sznl_map):
                     last_row = calc_df.iloc[-1]
                     
-                    # 1. Entry Confirmation Check (Optional based on settings)
+                    # 1. Entry Confirmation Check
                     entry_conf_bps = strat['settings'].get('entry_conf_bps', 0)
                     entry_mode = strat['settings'].get('entry_type', 'Signal Close')
                     
@@ -987,11 +746,10 @@ def run_daily_scan():
                     atr = last_row['ATR']
                     
                     # ---------------------------------------------------------
-                    # 2. DYNAMIC RISK SIZING LOGIC
+                    # 2. DYNAMIC RISK SIZING LOGIC (Synced)
                     # ---------------------------------------------------------
                     risk = strat['execution']['risk_per_trade']
                     
-                    # A. Strategy: Overbot Vol Spike
                     if strat['name'] == "Overbot Vol Spike":
                         vol_ratio = last_row.get('vol_ratio', 0)
                         if vol_ratio > 2.0:
@@ -999,16 +757,14 @@ def run_daily_scan():
                         elif vol_ratio > 1.5:
                             risk = 525  # Medium conviction
                     
-                    # B. Strategy: Weak Close Decent Sznls (YOUR NEW LOGIC)
                     if strat['name'] == "Weak Close Decent Sznls":
                         sznl_val = last_row.get('Sznl', 0)
-                        
                         if sznl_val >= 65:
-                            risk = risk * 1.5   # High conviction (>65)
+                            risk = risk * 1.5   # High conviction
                         elif sznl_val >= 50:
-                            risk = risk * 1.0   # Standard (50-65)
+                            risk = risk * 1.0   # Standard
                         elif sznl_val >= 33:
-                            risk = risk * 0.66  # Low conviction (33-50)
+                            risk = risk * 0.66  # Low conviction
                     # ---------------------------------------------------------
 
                     # 3. Calculate Prices & Shares
@@ -1056,10 +812,19 @@ def run_daily_scan():
     # 4. Save Results
     if all_signals:
         df_sig = pd.DataFrame(all_signals)
+        # 1. Log to Master Sheet
         save_signals_to_gsheet(df_sig)
-        save_staging_orders(all_signals, STRATEGY_BOOK)
+        
+        # 2. Stage MOC Orders (Signal Close)
+        save_moc_orders(all_signals, STRATEGY_BOOK, sheet_name='moc_orders')
+        
+        # 3. Stage Rest of Orders (Limits, MOO)
+        save_staging_orders(all_signals, STRATEGY_BOOK, sheet_name='Order_Staging')
     else:
         print("No signals found today.")
+
+    # 5. Send Email Summary
+    send_email_summary(all_signals)
 
     print("--- Scan Complete ---")
 
