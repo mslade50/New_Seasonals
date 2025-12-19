@@ -503,7 +503,7 @@ def calculate_annual_stats(daily_pnl_series, starting_equity=150000):
 def calculate_performance_stats(sig_df, master_dict, starting_equity=150000):
     stats = []
     
-    def get_metrics(df, name, master_dict, equity_base):
+    def get_metrics(df, name, master_dict, equity_base, calculate_ratios=True):
         if df.empty: return None
         
         # Realized Stats
@@ -516,27 +516,24 @@ def calculate_performance_stats(sig_df, master_dict, starting_equity=150000):
         std_pnl = df['PnL'].std()
         sqn = (avg_pnl / std_pnl * np.sqrt(count)) if std_pnl != 0 else 0
         
-        # Time-Based Stats (With Starting Equity)
-        daily_mtm_pnl = get_daily_mtm_series(df, master_dict)
-        
-        if not daily_mtm_pnl.empty:
-            # Construct equity curve for this specific strategy/portfolio
-            # Note: We assume the whole $150k is available for the calculation denominator
-            # to keep Sharpe comparable across strategies.
-            curr_equity = equity_base + daily_mtm_pnl.cumsum()
-            daily_rets = curr_equity.pct_change().fillna(0)
-            
-            mean_ret = daily_rets.mean() * 252
-            std_dev = daily_rets.std() * np.sqrt(252)
-            sharpe = mean_ret / std_dev if std_dev != 0 else 0
-            
-            # Sortino
-            neg_rets = daily_rets[daily_rets < 0]
-            downside_std = np.sqrt((neg_rets**2).mean()) * np.sqrt(252)
-            sortino = mean_ret / downside_std if downside_std != 0 else 0
-        else:
-            sharpe = 0
-            sortino = 0
+        sharpe = np.nan
+        sortino = np.nan
+
+        # Only calculate Sharpe/Sortino if requested (i.e., for Total Portfolio)
+        if calculate_ratios:
+            daily_mtm_pnl = get_daily_mtm_series(df, master_dict)
+            if not daily_mtm_pnl.empty:
+                curr_equity = equity_base + daily_mtm_pnl.cumsum()
+                daily_rets = curr_equity.pct_change().fillna(0)
+                
+                mean_ret = daily_rets.mean() * 252
+                std_dev = daily_rets.std() * np.sqrt(252)
+                sharpe = mean_ret / std_dev if std_dev != 0 else 0
+                
+                # Sortino
+                neg_rets = daily_rets[daily_rets < 0]
+                downside_std = np.sqrt((neg_rets**2).mean()) * np.sqrt(252)
+                sortino = mean_ret / downside_std if downside_std != 0 else 0
 
         return {
             "Strategy": name,
@@ -551,13 +548,15 @@ def calculate_performance_stats(sig_df, master_dict, starting_equity=150000):
     strategies = sig_df['Strategy'].unique()
     for strat in strategies:
         strat_df = sig_df[sig_df['Strategy'] == strat]
-        m = get_metrics(strat_df, strat, master_dict, starting_equity)
+        # Pass False to skip Sharpe/Sortino for individual strategies
+        m = get_metrics(strat_df, strat, master_dict, starting_equity, calculate_ratios=False)
         if m: stats.append(m)
         
-    total_m = get_metrics(sig_df, "TOTAL PORTFOLIO", master_dict, starting_equity)
+    # Pass True for the Total Portfolio
+    total_m = get_metrics(sig_df, "TOTAL PORTFOLIO", master_dict, starting_equity, calculate_ratios=True)
     if total_m: stats.append(total_m)
+    
     return pd.DataFrame(stats)
-
 # -----------------------------------------------------------------------------
 # MAIN APP
 # -----------------------------------------------------------------------------
