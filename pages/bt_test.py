@@ -430,19 +430,39 @@ def run_engine(universe_dict, params, sznl_map, market_series=None, vix_series=N
                 if f['consec'] > 1: mask = mask.rolling(f['consec']).sum() == f['consec']
                 conditions.append(mask)
 
-            # 11. Seasonality
+            # 11. Ticker Seasonality (FIXED FIRST INSTANCE)
             if params.get('use_sznl', False):
                 c_s = (df['Sznl'] < params['sznl_thresh']) if params['sznl_logic'] == '<' else (df['Sznl'] > params['sznl_thresh'])
+                
+                # Apply First Instance Logic
+                if params.get('sznl_first_instance', False):
+                    lookback = params.get('sznl_lookback', 21)
+                    # Check if signal existed in previous N days (shift 1 to exclude today)
+                    prior_signals = c_s.shift(1).rolling(lookback).max().fillna(0)
+                    c_s = c_s & (prior_signals == 0)
+                    
                 conditions.append(c_s)
 
             if params.get('use_market_sznl', False):
                 c_ms = (df['Mkt_Sznl_Ref'] < params['market_sznl_thresh']) if params['market_sznl_logic'] == '<' else (df['Mkt_Sznl_Ref'] > params['market_sznl_thresh'])
                 conditions.append(c_ms)
 
-            # 12. 52-Week High/Low
+            # 12. 52-Week High/Low (FIXED FIRST INSTANCE)
             if params.get('use_52w', False):
+                # Base Signal
                 c_52 = df['is_52w_high'] if params['52w_type'] == 'New 52w High' else df['is_52w_low']
-                if params.get('52w_lag', 0) > 0: c_52 = c_52.shift(params['52w_lag']).fillna(False)
+                
+                # Apply Lag
+                if params.get('52w_lag', 0) > 0: 
+                    c_52 = c_52.shift(params['52w_lag']).fillna(False)
+                
+                # Apply First Instance Logic
+                if params.get('52w_first_instance', False):
+                    lookback = params.get('52w_lookback', 21)
+                    # Check if signal existed in previous N days
+                    prior_signals = c_52.shift(1).rolling(lookback).max().fillna(0)
+                    c_52 = c_52 & (prior_signals == 0)
+                    
                 conditions.append(c_52)
             
             # 13. Volume
@@ -470,13 +490,13 @@ def run_engine(universe_dict, params, sznl_map, market_series=None, vix_series=N
                          conditions.append(dist_val < params['dist_max'])
                      elif params['dist_logic'] == "Between":
                          conditions.append((dist_val >= params['dist_min']) & (dist_val <= params['dist_max']))
-
+            
             # 15. VIX Regime
             if params.get('use_vix_filter', False) and 'VIX_Value' in df.columns:
                  vix_val = df['VIX_Value']
                  conditions.append((vix_val >= params['vix_min']) & (vix_val <= params['vix_max']))
 
-            # 16. MA Touch Logic (Mean Reversion)
+            # 16. MA Touch Logic
             if use_ma_touch and ma_touch_target in df.columns:
                 ma_series = df[ma_touch_target]
                 slope_lookback = params.get('ma_slope_days', 20)
@@ -577,7 +597,7 @@ def run_engine(universe_dict, params, sznl_map, market_series=None, vix_series=N
                             actual_entry_price = fill_px
                             break
                             
-                # --- THIS BLOCK WAS MISSING IN PREVIOUS VERSION ---
+                # --- STANDARD LIMITS BLOCK ---
                 elif is_limit_standard: 
                     sig_close = df['Close'].iloc[sig_idx]
                     sig_atr = df['ATR'].iloc[sig_idx]
@@ -622,7 +642,7 @@ def run_engine(universe_dict, params, sznl_map, market_series=None, vix_series=N
                             actual_entry_idx = curr_idx
                             actual_entry_price = fill_px
                             break
-                # ----------------------------------------------------
+                # -----------------------------
                 
                 elif is_cond_close_lower:
                     atr_mult = 0.0
@@ -707,59 +727,6 @@ def run_engine(universe_dict, params, sznl_map, market_series=None, vix_series=N
                     "Status": "Valid Signal", "Reason": "Executed"
                 })
         except: continue
-        
-    progress_bar.empty()
-    status_text.empty()
-
-    if not all_potential_trades:
-        return pd.DataFrame(), pd.DataFrame(), 0
-
-    st.info(f"Processing Constraints on {len(all_potential_trades)} signals (Executed + Failed Entries)...")
-    
-    potential_df = pd.DataFrame(all_potential_trades)
-    potential_df = potential_df.sort_values(by=["EntryDate", "Ticker"])
-    
-    final_trades_log = []
-    rejected_trades_log = []
-    
-    active_positions = [] 
-    daily_entries = {} 
-    
-    max_daily = params.get('max_daily_entries', 100)
-    max_total = params.get('max_total_positions', 100)
-
-    for idx, trade in potential_df.iterrows():
-        # If entry logic failed, it goes straight to rejected, bypassing portfolio constraints
-        if trade['Status'] == "Entry Cond Failed":
-            rejected_trades_log.append(trade)
-            continue
-
-        # Check Portfolio Constraints for Valid Signals
-        entry_date = trade['EntryDate']
-        active_positions = [t for t in active_positions if t['ExitDate'] > entry_date]
-        
-        is_rejected = False
-        rejection_reason = ""
-
-        if len(active_positions) >= max_total:
-            is_rejected = True
-            rejection_reason = "Max Total Pos"
-        
-        today_count = daily_entries.get(entry_date, 0)
-        if not is_rejected and today_count >= max_daily:
-            is_rejected = True
-            rejection_reason = "Max Daily Entries"
-            
-        if is_rejected:
-            trade['Status'] = "Portfolio Rejected"
-            trade['Reason'] = rejection_reason
-            rejected_trades_log.append(trade)
-        else:
-            final_trades_log.append(trade)
-            active_positions.append(trade)
-            daily_entries[entry_date] = today_count + 1
-
-    return pd.DataFrame(final_trades_log), pd.DataFrame(rejected_trades_log), total_signals_generated
         
     progress_bar.empty()
     status_text.empty()
