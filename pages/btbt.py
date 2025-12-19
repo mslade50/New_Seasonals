@@ -360,22 +360,19 @@ def calculate_trade_result(df, signal_date, action, shares, entry_price, hold_da
     return pnl, exit_date
 
 # -----------------------------------------------------------------------------
-# CORE LOGIC: DAILY MARK-TO-MARKET PNL
-# -----------------------------------------------------------------------------
-# -----------------------------------------------------------------------------
-# CORE LOGIC: DAILY MARK-TO-MARKET PNL (FIXED)
+# CORE LOGIC: DAILY MARK-TO-MARKET PNL (FIXED FOR GAPS/SPIKES)
 # -----------------------------------------------------------------------------
 def get_daily_mtm_series(sig_df, master_dict):
     """
     Returns a Series with index = Date and value = Total Daily PnL ($)
-    for the trades in sig_df, calculated Mark-to-Market.
-    Corrected to use ACTUAL ENTRY PRICE for the first day's PnL.
+    for the trades in sig_df.
+    CORRECTION: Uses Entry Price for Day 1 PnL to capture Gap/Spike alpha.
     """
     if sig_df.empty: return pd.Series(dtype=float)
     
     min_date = sig_df['Date'].min()
     max_date = max(sig_df['Exit Date'].max(), pd.Timestamp.today())
-    # Use Business Days to avoid weekends in the index
+    # Use Business Days
     all_dates = pd.date_range(start=min_date, end=max_date, freq='B') 
     
     daily_pnl = pd.Series(0.0, index=all_dates)
@@ -386,49 +383,44 @@ def get_daily_mtm_series(sig_df, master_dict):
         shares = trade['Shares']
         entry_date = trade['Date']
         exit_date = trade['Exit Date']
-        entry_price = trade['Price']  # <--- CRITICAL: Your actual fill price
+        entry_price = trade['Price'] # Actual Fill Price
         
         t_df = master_dict.get(ticker)
         if t_df is None or t_df.empty:
+            # Fallback
             if exit_date in daily_pnl.index:
                 daily_pnl[exit_date] += trade['PnL']
             continue
             
-        # Get all relevant dates (Entry -> Exit)
+        # Get dates inclusive of Entry
         trade_dates = all_dates[(all_dates >= entry_date) & (all_dates <= exit_date)]
         
-        # Get Closing prices for these dates
+        # Get Closes
         closes = t_df['Close'].reindex(trade_dates).ffill()
-        
         if closes.empty: continue
         
-        # --- CALCULATE DAILY PNL ---
+        # Calculate Daily PnL
         current_pnl = pd.Series(0.0, index=trade_dates)
         
-        # 1. First Day PnL: Close - Entry Price
+        # 1. Day 1: Close - Entry
         first_date = trade_dates[0]
         if first_date in closes.index:
             if action == "BUY":
                 current_pnl[first_date] = (closes[first_date] - entry_price) * shares
-            else: # SELL SHORT
+            else: 
                 current_pnl[first_date] = (entry_price - closes[first_date]) * shares
                 
         # 2. Subsequent Days: Close - Prev Close
         if len(trade_dates) > 1:
-            diffs = closes.diff().dropna() # Day(i) - Day(i-1)
-            if action == "SELL SHORT": 
-                diffs = -diffs
-            
-            # Dollar Value
+            diffs = closes.diff().dropna()
+            if action == "SELL SHORT": diffs = -diffs
             subsequent_pnl = diffs * shares
             
-            # Combine: First day (Entry vs Close) + Rest (Close vs Close)
-            # We align indices carefully
-            for d in subsequent_pnl.index:
+            for d, val in subsequent_pnl.items():
                 if d in current_pnl.index:
                     current_pnl[d] = subsequent_pnl[d]
         
-        # Add to Master Series
+        # Add to Master
         for d, val in current_pnl.items():
             if d in daily_pnl.index:
                 daily_pnl[d] += val
@@ -436,7 +428,6 @@ def get_daily_mtm_series(sig_df, master_dict):
     return daily_pnl
 
 def calculate_mark_to_market_curve(sig_df, master_dict):
-    """Calculates cumulative equity curve using the helper above."""
     daily_pnl = get_daily_mtm_series(sig_df, master_dict)
     if daily_pnl.empty: return pd.DataFrame(columns=['Equity'])
     return daily_pnl.cumsum().to_frame(name='Equity')
@@ -457,18 +448,65 @@ def calculate_daily_exposure(sig_df):
     exposure_df['Net Exposure ($)'] = exposure_df['Long Exposure ($)'] - exposure_df['Short Exposure ($)']
     return exposure_df
 
-def calculate_performance_stats(sig_df, master_dict):
-    """
-    Calculates stats. 
-    SQN / Profit Factor = Trade-based (Realized).
-    Sharpe Ratio = Time-based (Mark-to-Market).
-    """
+# -----------------------------------------------------------------------------
+# NEW: ANNUAL STATS & UPDATED METRICS (Using $150k Start)
+# -----------------------------------------------------------------------------
+def calculate_annual_stats(daily_pnl_series, starting_equity=150000):
+    if daily_pnl_series.empty: return pd.DataFrame()
+    
+    # Create an Equity Series for calculation
+    # Equity = Start + Cumsum PnL
+    equity_series = starting_equity + daily_pnl_series.cumsum()
+    
+    # Calculate % Returns based on Dynamic Equity
+    daily_rets = equity_series.pct_change().fillna(0)
+    
+    # Resample by Year
+    yearly_stats = []
+    years = daily_rets.resample('Y')
+    
+    for year_date, rets in years:
+        year = year_date.year
+        if rets.empty: continue
+        
+        # Total Return for Year
+        year_start_eq = equity_series.loc[:year_date].iloc[-len(rets)-1] if len(equity_series.loc[:year_date]) > len(rets) else starting_equity
+        year_end_eq = equity_series.loc[:year_date].iloc[-1]
+        
+        total_ret_pct = (year_end_eq - year_start_eq) / year_start_eq
+        total_ret_dollar = year_end_eq - year_start_eq
+        
+        # Std Dev (Annualized)
+        std_dev = rets.std() * np.sqrt(252)
+        
+        # Sharpe (Annualized, Rf=0)
+        mean_ret = rets.mean() * 252
+        sharpe = mean_ret / std_dev if std_dev != 0 else 0
+        
+        # Sortino (Annualized, Target=0)
+        # Downside Deviation = Std Dev of Negative Returns only
+        neg_rets = rets[rets < 0]
+        downside_std = np.sqrt((neg_rets**2).mean()) * np.sqrt(252) # Annualized
+        sortino = mean_ret / downside_std if downside_std != 0 else 0
+        
+        yearly_stats.append({
+            "Year": year,
+            "Total Return ($)": total_ret_dollar,
+            "Total Return (%)": total_ret_pct,
+            "Sharpe Ratio": sharpe,
+            "Sortino Ratio": sortino,
+            "Std Dev": std_dev
+        })
+        
+    return pd.DataFrame(yearly_stats)
+
+def calculate_performance_stats(sig_df, master_dict, starting_equity=150000):
     stats = []
     
-    def get_metrics(df, name, master_dict):
+    def get_metrics(df, name, master_dict, equity_base):
         if df.empty: return None
         
-        # 1. Trade-Based Stats (Realized)
+        # Realized Stats
         count = len(df)
         total_pnl = df['PnL'].sum()
         gross_profit = df[df['PnL'] > 0]['PnL'].sum()
@@ -478,22 +516,34 @@ def calculate_performance_stats(sig_df, master_dict):
         std_pnl = df['PnL'].std()
         sqn = (avg_pnl / std_pnl * np.sqrt(count)) if std_pnl != 0 else 0
         
-        # 2. Time-Based Stats (Mark-to-Market Sharpe)
-        # Generate the daily MtM PnL series for this specific subset of trades
+        # Time-Based Stats (With Starting Equity)
         daily_mtm_pnl = get_daily_mtm_series(df, master_dict)
         
         if not daily_mtm_pnl.empty:
-            daily_mean = daily_mtm_pnl.mean()
-            daily_std = daily_mtm_pnl.std()
-            sharpe = (daily_mean / daily_std * np.sqrt(252)) if daily_std != 0 else 0
+            # Construct equity curve for this specific strategy/portfolio
+            # Note: We assume the whole $150k is available for the calculation denominator
+            # to keep Sharpe comparable across strategies.
+            curr_equity = equity_base + daily_mtm_pnl.cumsum()
+            daily_rets = curr_equity.pct_change().fillna(0)
+            
+            mean_ret = daily_rets.mean() * 252
+            std_dev = daily_rets.std() * np.sqrt(252)
+            sharpe = mean_ret / std_dev if std_dev != 0 else 0
+            
+            # Sortino
+            neg_rets = daily_rets[daily_rets < 0]
+            downside_std = np.sqrt((neg_rets**2).mean()) * np.sqrt(252)
+            sortino = mean_ret / downside_std if downside_std != 0 else 0
         else:
             sharpe = 0
+            sortino = 0
 
         return {
             "Strategy": name,
             "Trades": count,
             "Total PnL": total_pnl,
-            "Sharpe Ratio (MtM)": sharpe,
+            "Sharpe": sharpe,
+            "Sortino": sortino,
             "Profit Factor": profit_factor,
             "SQN": sqn
         }
@@ -501,10 +551,10 @@ def calculate_performance_stats(sig_df, master_dict):
     strategies = sig_df['Strategy'].unique()
     for strat in strategies:
         strat_df = sig_df[sig_df['Strategy'] == strat]
-        m = get_metrics(strat_df, strat, master_dict)
+        m = get_metrics(strat_df, strat, master_dict, starting_equity)
         if m: stats.append(m)
         
-    total_m = get_metrics(sig_df, "TOTAL PORTFOLIO", master_dict)
+    total_m = get_metrics(sig_df, "TOTAL PORTFOLIO", master_dict, starting_equity)
     if total_m: stats.append(total_m)
     return pd.DataFrame(stats)
 
@@ -529,11 +579,14 @@ def main():
     
     with st.sidebar.form("backtest_form"):
         user_start_date = st.date_input("Backtest Start Date", value=default_date, min_value=datetime.date(2000, 1, 1))
+        # Add Input for Starting Equity
+        starting_equity = st.number_input("Starting Equity ($)", value=150000, step=10000)
+        
         st.caption(f"Data download buffer: 365 days prior to {user_start_date}.")
         run_btn = st.form_submit_button("⚡ Run Backtest")
 
     st.title("⚡ Strategy Backtest Lab")
-    st.markdown(f"**Selected Start Date:** {user_start_date}")
+    st.markdown(f"**Selected Start Date:** {user_start_date} | **Starting Equity:** ${starting_equity:,.0f}")
     st.markdown("---")
 
     if run_btn:
@@ -717,10 +770,34 @@ def main():
             else: st.info("No active positions (Time Stop >= Today).")
 
             st.divider()
-            st.subheader("📊 Strategy Performance Metrics")
-            # --- UPDATED FUNCTION CALL ---
-            stats_df = calculate_performance_stats(sig_df, master_dict)
-            st.dataframe(stats_df.style.format({"Total PnL": "${:,.2f}", "Sharpe Ratio (MtM)": "{:.2f}", "Profit Factor": "{:.2f}", "SQN": "{:.2f}"}), use_container_width=True)
+            
+            # --- NEW ANNUAL BREAKDOWN ---
+            st.subheader("📅 Annual Performance Breakdown")
+            
+            # Get Portfolio Daily PnL for Annual Stats
+            port_daily_pnl = get_daily_mtm_series(sig_df, master_dict)
+            annual_df = calculate_annual_stats(port_daily_pnl, starting_equity=starting_equity)
+            
+            if not annual_df.empty:
+                st.dataframe(annual_df.style.format({
+                    "Total Return ($)": "${:,.2f}",
+                    "Total Return (%)": "{:.2%}",
+                    "Sharpe Ratio": "{:.2f}",
+                    "Sortino Ratio": "{:.2f}",
+                    "Std Dev": "{:.2%}"
+                }), use_container_width=True)
+
+            st.subheader("📊 Strategy Performance Metrics (vs. $150k Start)")
+            # Passing starting_equity to updated stats function
+            stats_df = calculate_performance_stats(sig_df, master_dict, starting_equity)
+            
+            st.dataframe(stats_df.style.format({
+                "Total PnL": "${:,.2f}", 
+                "Sharpe": "{:.2f}", 
+                "Sortino": "{:.2f}",
+                "Profit Factor": "{:.2f}", 
+                "SQN": "{:.2f}"
+            }), use_container_width=True)
 
             col1, col2 = st.columns(2)
             with col1:
