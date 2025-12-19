@@ -1114,99 +1114,10 @@ def main():
                 save_staging_orders(all_staging_signals, STRATEGY_BOOK, sheet_name='Order_Staging')
             else:
                 st.info("🕒 Market is OPEN. Standard T+1 staging (Order_Staging) is disabled until 4:00 PM EST.")
-    # -------------------------------------------------------------------------
-    # DEBUG: DEEP DIVE & SCORECARD
-    # -------------------------------------------------------------------------
-    st.markdown("---")
-    
-    # 1. Allow User Input (Defaulting to LUV to preserve original behavior)
-    debug_ticker = st.text_input("Enter Ticker for Deep Dive:", value="LUV").upper().strip()
-    
-    st.subheader(f"🔎 {debug_ticker} Deep Dive (Debug & Scorecard)")
-    
-    if st.button(f"Inspect {debug_ticker} Data & Signals"):
-        # 2. Fetch Data
-        st.write(f"Fetching {debug_ticker}, SPY, & ^GSPC data...")
-        
-        # Ensure we ask for the user ticker + market refs (using set to avoid duplicates)
-        debug_tickers = list(set([debug_ticker, "^GSPC", "SPY"]))
-        
-        debug_raw = yf.download(debug_tickers, start='2000-01-01', group_by='ticker', progress=False)
-        
-        # 3. Extract & Calculate
-        # We check if the user's ticker exists in the downloaded data
-        if debug_ticker in debug_raw.columns.levels[0]:
-            target_df = debug_raw[debug_ticker].copy()
-            
-            # Market Regime (SPY > 200 SMA)
-            spy_df = debug_raw["SPY"].copy()
-            spy_df['SMA200'] = spy_df['Close'].rolling(200).mean()
-            market_series = spy_df['Close'] > spy_df['SMA200']
-            
-            # Run Indicators (Pass the dynamic ticker name to the function)
-            target_df = calculate_indicators(target_df, sznl_map, debug_ticker, market_series)
-
-            # -----------------------------------------------------------------
-            # PART A: DATA INDICATORS (Modified View)
-            # -----------------------------------------------------------------
-            cols_to_show = [
-                'Close', 'Volume', 
-                'vol_ratio_10d_rank', 'Vol_Spike',         # Added Vol_Spike
-                'AccCount_21', 'DistCount_21',    # Added Counts
-                'Sznl', 'Mkt_Sznl_Ref', 
-                'rank_ret_5d', 'rank_ret_21d',    # Kept Ranks, Removed Raw %
-                'SMA200', 'Market_Above_SMA200'
-            ]
-            final_cols = [c for c in cols_to_show if c in target_df.columns]
-            
-            st.write("### 1. Underlying Data Indicators (Last 5 Days)")
-            st.dataframe(
-                target_df[final_cols].tail(5).style.format({
-                    'Close': '{:.2f}',
-                    'Volume': '{:,.0f}',
-                    'vol_ratio_10d_rank': '{:.2f}',
-                    'Vol_Spike': '{}',           # Displays True/False
-                    'AccCount_21': '{:.0f}',     # Integer format
-                    'DistCount_21': '{:.0f}',    # Integer format
-                    'Sznl': '{:.2f}',
-                    'Mkt_Sznl_Ref': '{:.2f}',
-                    'rank_ret_5d': '{:.2f}',
-                    'rank_ret_21d': '{:.2f}',
-                    'SMA200': '{:.2f}'
-                })
-            )
-
-            # -----------------------------------------------------------------
-            # PART B: STRATEGY SCORECARD
-            # -----------------------------------------------------------------
-            st.write(f"### 2. Strategy Scorecard (Date: {target_df.index[-1].date()})")
-            
-            scorecard = []
-            for strat in STRATEGY_BOOK:
-                # Check signals on the dynamic dataframe
-                passed = check_signal(target_df, strat['settings'], sznl_map)
-                
-                scorecard.append({
-                    "Strategy Name": strat['name'],
-                    "Direction": strat['settings'].get('trade_direction', 'Long'),
-                    "Pass (1) / Fail (0)": "✅ 1 (PASS)" if passed else "0 (FAIL)"
-                })
-            
-            st.table(pd.DataFrame(scorecard))
-
-            # -----------------------------------------------------------------
-            # PART C: INTEGRITY CHECKS
-            # -----------------------------------------------------------------
-            last_row = target_df.iloc[-1]
-            if last_row['Mkt_Sznl_Ref'] == 50.0:
-                    st.error("⚠️ Note: ^GSPC Rank is 50.0. This may indicate missing seasonal data.")
-            else:
-                    st.caption("✅ Seasonal Data Integrity: OK")
-
-        else:
-            st.error(f"Could not download data for {debug_ticker}. Please check the symbol.")
-        # ... (After the "Deep Dive" IF block ends) ...
-    
+    # =========================================================================
+    # 🕵️‍♀️ HISTORICAL STRATEGY INSPECTOR
+    # (Deep Dive section removed)
+    # =========================================================================
     st.markdown("---")
     st.subheader("🕵️‍♀️ Historical Strategy Inspector (Last 21 Days)")
     
@@ -1251,21 +1162,15 @@ def main():
             # 4. Loop Logic (The Audit)
             audit_rows = []
             
-            # We look at the last 21 trading days
-            days_to_audit = 252
+            # We look at the last 21 trading days (approx 1 month)
+            # You can increase 'days_to_audit' if you want a longer history
+            days_to_audit = 21 
+            
             # Ensure we have enough data
             if len(calc_df) > days_to_audit:
                 subset_indices = range(len(calc_df) - days_to_audit, len(calc_df))
                 
                 for idx in subset_indices:
-                    # We create a slice up to that specific day to simulate "point in time"
-                    # Note: calculate_indicators is already done, so we don't need to re-calc MAs.
-                    # We just need to ensure things like 'consecutive' logic work.
-                    # Since consecutive logic checks .rolling().sum(), looking at the row 'idx'
-                    # in the fully calculated dataframe is technically looking-ahead IF 
-                    # the indicator calculation itself used future data (which it doesn't, it uses rolling).
-                    # So we can pass the truncated dataframe ending at idx.
-                    
                     slice_df = calc_df.iloc[:idx+1] 
                     row_date = slice_df.index[-1].date()
                     
@@ -1284,11 +1189,6 @@ def main():
                 audit_df = audit_df.sort_values(by='Date', ascending=False)
                 st.write(f"**Audit Results for {insp_ticker} on '{selected_strat_name}'**")
                 
-                # Dynamic Coloring for the Result Column
-                def highlight_signal(s):
-                    is_signal = s == "✅ SIGNAL"
-                    return ['background-color: #d4edda; color: green; font-weight: bold' if is_signal else '' for _ in s]
-
                 st.dataframe(audit_df.style.apply(lambda x: ['background-color: #e6fffa' if x.name == 'Result' and v == "✅ SIGNAL" else '' for v in x], axis=0), use_container_width=True)
             else:
                 st.warning("Not enough data to audit.")
