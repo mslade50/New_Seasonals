@@ -22,56 +22,55 @@ except ImportError:
     st.error("Could not find strategy_config.py in the root directory.")
     STRATEGY_BOOK = []
 
-CSV_PATH = "sznl_ranks.csv" # Ensure this matches your file name
+# -----------------------------------------------------------------------------
+# CONSTANTS & SETUP
+# -----------------------------------------------------------------------------
+PRIMARY_SZNL_PATH = "sznl_ranks.csv"      
+BACKUP_SZNL_PATH = "seasonal_ranks.csv"   
 
 @st.cache_resource 
 def load_seasonal_map():
-    """
-    Loads the CSV and creates a dictionary of TimeSeries for each ticker.
-    Structure: { 'SPY': pd.Series(index=Datetime, data=Rank) }
-    """
-    try:
-        df = pd.read_csv(CSV_PATH)
-    except Exception:
+    def load_raw_csv(path):
+        try:
+            df = pd.read_csv(path)
+            if 'ticker' not in df.columns or 'Date' not in df.columns:
+                return pd.DataFrame()
+            df["Date"] = pd.to_datetime(df["Date"], errors='coerce')
+            df = df.dropna(subset=["Date", "ticker"])
+            df["Date"] = df["Date"].dt.normalize()
+            df["ticker"] = df["ticker"].astype(str).str.upper().str.strip()
+            return df
+        except Exception:
+            return pd.DataFrame()
+
+    df_primary = load_raw_csv(PRIMARY_SZNL_PATH)
+    df_backup = load_raw_csv(BACKUP_SZNL_PATH)
+
+    if df_primary.empty and df_backup.empty:
         return {}
+    elif df_primary.empty:
+        final_df = df_backup
+    elif df_backup.empty:
+        final_df = df_primary
+    else:
+        final_df = pd.concat([df_primary, df_backup], axis=0)
+        final_df = final_df.drop_duplicates(subset=['ticker', 'Date'], keep='first')
 
-    if df.empty: return {}
-
-    # Ensure valid dates
-    df["Date"] = pd.to_datetime(df["Date"], errors='coerce')
-    df = df.dropna(subset=["Date"])
-     
-    # Normalize to midnight (remove time component if present)
-    df["Date"] = df["Date"].dt.normalize()
-     
     output_map = {}
-    # Group by ticker and create a sorted Series for each
-    for ticker, group in df.groupby("ticker"):
-        # We set the index to Date and ensure it is sorted for 'asof' lookups
-        series = group.set_index("Date")["seasonal_rank"].sort_index()
+    final_df = final_df.sort_values(by="Date")
+    for ticker, group in final_df.groupby("ticker"):
+        series = group.set_index("Date")["seasonal_rank"]
         output_map[ticker] = series
-
+        
     return output_map
 
 def get_sznl_val_series(ticker, dates, sznl_map):
-    """
-    Looks up the seasonal rank for the specific dates provided.
-    Includes logic to fallback to SPY if ^GSPC is requested but not found.
-    """
     ticker = ticker.upper()
-    
-    # CHANGE: Don't default to {}, default to None. 
-    # This avoids the "ambiguous truth value" error when checking if it exists.
     t_series = sznl_map.get(ticker)
-    
-    # FALLBACK: If looking for ^GSPC but not in map, try SPY
     if t_series is None and ticker == "^GSPC":
         t_series = sznl_map.get("SPY")
-
-    # If still None, return default 50s
     if t_series is None:
         return pd.Series(50.0, index=dates)
-        
     return dates.map(t_series).fillna(50.0)
 
 # -----------------------------------------------------------------------------
@@ -123,6 +122,9 @@ def download_historical_data(tickers, start_date="2000-01-01"):
 # -----------------------------------------------------------------------------
 def calculate_indicators(df, sznl_map, ticker, market_series=None):
     df = df.copy()
+    # Ensure sorted index for correct shifting
+    df.sort_index(inplace=True)
+    
     if isinstance(df.columns, pd.MultiIndex):
         df.columns = [c[0] if isinstance(c, tuple) else c for c in df.columns]
     df.columns = [c.capitalize() for c in df.columns]
@@ -182,6 +184,7 @@ def calculate_indicators(df, sznl_map, ticker, market_series=None):
     if market_series is not None:
         df['Market_Above_SMA200'] = market_series.reindex(df.index, method='ffill').fillna(False)
     
+    # 52W High Logic
     rolling_high = df['High'].shift(1).rolling(252).max()
     rolling_low = df['Low'].shift(1).rolling(252).min()
     df['is_52w_high'] = df['High'] > rolling_high
@@ -189,8 +192,12 @@ def calculate_indicators(df, sznl_map, ticker, market_series=None):
         
     return df
 
-def get_historical_mask(df, params, sznl_map):
+def get_historical_mask(df, params, sznl_map, ticker_name="UNK"):
+    # Debug Helper: Count True values
+    def count_true(s): return s.sum()
+
     mask = pd.Series(True, index=df.index)
+    initial_count = count_true(mask)
 
     if params.get('use_dow_filter', False):
         allowed = params.get('allowed_days', [])
@@ -205,6 +212,8 @@ def get_historical_mask(df, params, sznl_map):
     mask &= (df['vol_ma'] >= params.get('min_vol', 0))
     mask &= (df['age_years'] >= params.get('min_age', 0))
     mask &= (df['age_years'] <= params.get('max_age', 100))
+    
+    after_basics = count_true(mask)
 
     if 'ATR' in df.columns:
         atr_pct = (df['ATR'] / df['Close']) * 100
@@ -320,17 +329,18 @@ def get_historical_mask(df, params, sznl_map):
 
     if params.get('use_market_sznl', False):
         mkt_ranks = df['Mkt_Sznl_Ref']
+        # FIX: Changed from '>' to '>=' to handle default 50.0 value
         if params['market_sznl_logic'] == '<': mask &= (mkt_ranks < params['market_sznl_thresh'])
-        else: mask &= (mkt_ranks > params['market_sznl_thresh'])
+        else: mask &= (mkt_ranks >= params['market_sznl_thresh'])
 
     if params['use_52w']:
         if params['52w_type'] == 'New 52w High': cond_52 = df['is_52w_high']
         else: cond_52 = df['is_52w_low']
         
-        # --- Breakout Mode Check ---
-        breakout_mode = params.get('breakout_mode', None)
-        if breakout_mode == "Close > Prev Day High":
-            cond_52 &= (df['Close'] > df['High'].shift(1))
+        # Breakout Mode Check (Removed excessive filtering)
+        # breakout_mode = params.get('breakout_mode', None)
+        # if breakout_mode == "Close > Prev Day High":
+        #     cond_52 &= (df['Close'] > df['High'].shift(1))
 
         if params.get('52w_first_instance', True):
             lookback = params.get('52w_lookback', 21)
@@ -348,6 +358,11 @@ def get_historical_mask(df, params, sznl_map):
         val = df['vol_ratio_10d_rank']
         if params['vol_rank_logic'] == '<': mask &= (val < params['vol_rank_thresh'])
         else: mask &= (val > params['vol_rank_thresh'])
+    
+    final_count = count_true(mask)
+    # Debug print if dropping to zero unexpectedly (optional, can comment out)
+    if initial_count > 0 and final_count == 0:
+        print(f"DEBUG: {ticker_name} - Signals dropped to 0. Basics: {after_basics}, Final: {final_count}")
 
     return mask.fillna(False)
 
@@ -618,7 +633,7 @@ def main():
                 
                 try:
                     df = calculate_indicators(df, sznl_map, t_clean, market_series)
-                    mask = get_historical_mask(df, strat['settings'], sznl_map)
+                    mask = get_historical_mask(df, strat['settings'], sznl_map, ticker)
                     cutoff_ts = pd.Timestamp(user_start_date)
                     mask = mask[mask.index >= cutoff_ts]
                     if not mask.any(): continue
@@ -674,7 +689,7 @@ def main():
                                 else: entry = limit_price
                             entry_date = entry_row.name
 
-                        # --- UPDATED GTC PERSISTENT LIMIT LOGIC ---
+                        # --- GTC PERSISTENT LIMIT LOGIC ---
                         elif "Persistent" in entry_type:
                             limit_offset = 0.5 * atr
                             limit_base = row['Close'] # Base limit on SIGNAL DAY CLOSE
@@ -694,7 +709,6 @@ def main():
                                         found_fill = True
                                         
                                         # Calculate remaining time from fill to original exit target
-                                        # Original Exit Target = Signal Date + Hold Days
                                         days_elapsed = i - entry_idx # Days from Signal to Fill
                                         hold_days = max(1, strat['execution']['hold_days'] - days_elapsed)
                                         break
