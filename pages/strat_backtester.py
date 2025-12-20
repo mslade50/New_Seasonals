@@ -22,55 +22,56 @@ except ImportError:
     st.error("Could not find strategy_config.py in the root directory.")
     STRATEGY_BOOK = []
 
-# -----------------------------------------------------------------------------
-# CONSTANTS & SETUP
-# -----------------------------------------------------------------------------
-PRIMARY_SZNL_PATH = "sznl_ranks.csv"      
-BACKUP_SZNL_PATH = "seasonal_ranks.csv"   
+CSV_PATH = "sznl_ranks.csv" # Ensure this matches your file name
 
 @st.cache_resource 
 def load_seasonal_map():
-    def load_raw_csv(path):
-        try:
-            df = pd.read_csv(path)
-            if 'ticker' not in df.columns or 'Date' not in df.columns:
-                return pd.DataFrame()
-            df["Date"] = pd.to_datetime(df["Date"], errors='coerce')
-            df = df.dropna(subset=["Date", "ticker"])
-            df["Date"] = df["Date"].dt.normalize()
-            df["ticker"] = df["ticker"].astype(str).str.upper().str.strip()
-            return df
-        except Exception:
-            return pd.DataFrame()
-
-    df_primary = load_raw_csv(PRIMARY_SZNL_PATH)
-    df_backup = load_raw_csv(BACKUP_SZNL_PATH)
-
-    if df_primary.empty and df_backup.empty:
+    """
+    Loads the CSV and creates a dictionary of TimeSeries for each ticker.
+    Structure: { 'SPY': pd.Series(index=Datetime, data=Rank) }
+    """
+    try:
+        df = pd.read_csv(CSV_PATH)
+    except Exception:
         return {}
-    elif df_primary.empty:
-        final_df = df_backup
-    elif df_backup.empty:
-        final_df = df_primary
-    else:
-        final_df = pd.concat([df_primary, df_backup], axis=0)
-        final_df = final_df.drop_duplicates(subset=['ticker', 'Date'], keep='first')
 
+    if df.empty: return {}
+
+    # Ensure valid dates
+    df["Date"] = pd.to_datetime(df["Date"], errors='coerce')
+    df = df.dropna(subset=["Date"])
+     
+    # Normalize to midnight (remove time component if present)
+    df["Date"] = df["Date"].dt.normalize()
+     
     output_map = {}
-    final_df = final_df.sort_values(by="Date")
-    for ticker, group in final_df.groupby("ticker"):
-        series = group.set_index("Date")["seasonal_rank"]
+    # Group by ticker and create a sorted Series for each
+    for ticker, group in df.groupby("ticker"):
+        # We set the index to Date and ensure it is sorted for 'asof' lookups
+        series = group.set_index("Date")["seasonal_rank"].sort_index()
         output_map[ticker] = series
-        
+
     return output_map
 
 def get_sznl_val_series(ticker, dates, sznl_map):
+    """
+    Looks up the seasonal rank for the specific dates provided.
+    Includes logic to fallback to SPY if ^GSPC is requested but not found.
+    """
     ticker = ticker.upper()
+    
+    # CHANGE: Don't default to {}, default to None. 
+    # This avoids the "ambiguous truth value" error when checking if it exists.
     t_series = sznl_map.get(ticker)
+    
+    # FALLBACK: If looking for ^GSPC but not in map, try SPY
     if t_series is None and ticker == "^GSPC":
         t_series = sznl_map.get("SPY")
+
+    # If still None, return default 50s
     if t_series is None:
         return pd.Series(50.0, index=dates)
+        
     return dates.map(t_series).fillna(50.0)
 
 # -----------------------------------------------------------------------------
