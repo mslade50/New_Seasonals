@@ -197,7 +197,10 @@ def get_historical_mask(df, params, sznl_map, ticker_name="UNK"):
     def count_true(s): return s.sum()
 
     mask = pd.Series(True, index=df.index)
+    
+    # Track counts for debug
     initial_count = count_true(mask)
+    debug_log = {}
 
     if params.get('use_dow_filter', False):
         allowed = params.get('allowed_days', [])
@@ -213,7 +216,7 @@ def get_historical_mask(df, params, sznl_map, ticker_name="UNK"):
     mask &= (df['age_years'] >= params.get('min_age', 0))
     mask &= (df['age_years'] <= params.get('max_age', 100))
     
-    after_basics = count_true(mask)
+    debug_log['After Basic Gates'] = count_true(mask)
 
     if 'ATR' in df.columns:
         atr_pct = (df['ATR'] / df['Close']) * 100
@@ -231,6 +234,8 @@ def get_historical_mask(df, params, sznl_map, ticker_name="UNK"):
             is_above = df['Market_Above_SMA200']
             if ">" in trend_opt: mask &= is_above
             elif "<" in trend_opt: mask &= ~is_above
+            
+    debug_log['After Trend'] = count_true(mask)
 
     if 'ma_consec_filters' in params:
         for maf in params['ma_consec_filters']:
@@ -326,12 +331,16 @@ def get_historical_mask(df, params, sznl_map, ticker_name="UNK"):
             prev = sznl_cond.shift(1).rolling(lookback).sum()
             sznl_cond &= (prev == 0)
         mask &= sznl_cond
+        
+    debug_log['After Sznl'] = count_true(mask)
 
     if params.get('use_market_sznl', False):
         mkt_ranks = df['Mkt_Sznl_Ref']
         # FIX: Changed from '>' to '>=' to handle default 50.0 value
         if params['market_sznl_logic'] == '<': mask &= (mkt_ranks < params['market_sznl_thresh'])
         else: mask &= (mkt_ranks >= params['market_sznl_thresh'])
+        
+    debug_log['After Market Sznl'] = count_true(mask)
 
     if params['use_52w']:
         if params['52w_type'] == 'New 52w High': cond_52 = df['is_52w_high']
@@ -347,6 +356,8 @@ def get_historical_mask(df, params, sznl_map, ticker_name="UNK"):
             prev = cond_52.shift(1).rolling(lookback).sum()
             cond_52 &= (prev == 0)
         mask &= cond_52
+        
+    debug_log['After 52w'] = count_true(mask)
 
     if params.get('exclude_52w_high', False):
         mask &= (~df['is_52w_high'])
@@ -360,9 +371,11 @@ def get_historical_mask(df, params, sznl_map, ticker_name="UNK"):
         else: mask &= (val > params['vol_rank_thresh'])
     
     final_count = count_true(mask)
-    # Debug print if dropping to zero unexpectedly (optional, can comment out)
+    
+    # --- STREAMLIT DEBUG OUTPUT ---
     if initial_count > 0 and final_count == 0:
-        print(f"DEBUG: {ticker_name} - Signals dropped to 0. Basics: {after_basics}, Final: {final_count}")
+        with st.expander(f"⚠️ Debug: {ticker_name} Signals Dropped to 0"):
+            st.write(debug_log)
 
     return mask.fillna(False)
 
@@ -633,6 +646,7 @@ def main():
                 
                 try:
                     df = calculate_indicators(df, sznl_map, t_clean, market_series)
+                    # Use ticker name in mask for debug print
                     mask = get_historical_mask(df, strat['settings'], sznl_map, ticker)
                     cutoff_ts = pd.Timestamp(user_start_date)
                     mask = mask[mask.index >= cutoff_ts]
