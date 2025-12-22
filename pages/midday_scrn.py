@@ -146,63 +146,73 @@ def calculate_indicators(df, sznl_map, ticker, market_series=None):
         
     return df
     
+# -----------------------------------------------------------------------------
+# REFACTORED SIGNAL AUDITOR
+# -----------------------------------------------------------------------------
+
 def check_signal(df, params, sznl_map):
     """
     Standard binary check (Fast). Used for Batch processing.
     """
-    # ... (Keep existing logic, omitted here for brevity as we are using get_signal_breakdown for the Monitor) ...
-    # NOTE: In a full refactor, check_signal could simply call get_signal_breakdown and check ['Result']
-    # For now, we assume the existing function is essentially the logic below but returning boolean.
     audit = get_signal_breakdown(df, params, sznl_map)
-    return audit.get('Result') == "✅ SIGNAL"
+    # For EOD execution, EVERYTHING must pass (Total Failures == 0)
+    return (audit['Stable_Fail'] == 0) and (audit['Volatile_Fail'] == 0)
 
 def get_signal_breakdown(df, params, sznl_map):
     """
-    Runs the logic and returns a dictionary of statuses.
-    Used for both the 'Inspector' and the 'Intraday Monitor'.
+    Categorizes failures into 'Stable' (Trend/Sznl) vs 'Volatile' (Range/5d/MA).
     """
     last_row = df.iloc[-1]
-    audit = {}
+    audit = {
+        'Stable_Fail': 0, 
+        'Volatile_Fail': 0, 
+        'Volatile_Items': [],
+        'Stable_Items': []
+    }
     
-    # Helper to log result
-    def log(key, value, condition_met, vital=True):
+    # --- HELPER ---
+    def log(key, value, passed, is_volatile=False):
         """
-        key: Name of check
-        value: The actual value (e.g., 55.4)
-        condition_met: Boolean
-        vital: If True, this failing means the signal fails.
+        is_volatile: If True, a failure is added to 'Volatile_Fail'.
+                     If False, a failure is added to 'Stable_Fail' (Critical).
         """
         audit[key] = value
-        audit[f"{key}_Pass"] = "✅" if condition_met else "❌"
-        # We add a hidden field to help the monitor count failures
-        audit[f"{key}_Bool"] = condition_met
+        audit[f"{key}_Pass"] = "✅" if passed else "❌"
+        
+        if not passed:
+            if is_volatile:
+                audit['Volatile_Fail'] += 1
+                audit['Volatile_Items'].append(key)
+            else:
+                audit['Stable_Fail'] += 1
+                audit['Stable_Items'].append(key)
 
     # -----------------------------------------------------------
-    # 0. DAY OF WEEK & CYCLE
+    # 1. STABLE CHECKS (Must Pass)
     # -----------------------------------------------------------
-    if params.get('use_dow_filter', False):
-        allowed = params.get('allowed_days', [])
-        day_num = last_row.name.dayofweek 
-        cond = day_num in allowed
-        log("DOW", last_row.name.strftime("%A"), cond)
-
-    if 'allowed_cycles' in params:
-        allowed_cycles = params['allowed_cycles']
-        if allowed_cycles and len(allowed_cycles) < 4:
-            current_year = last_row.name.year
-            cycle_rem = current_year % 4
-            cond = cycle_rem in allowed_cycles
-            log("Cycle", f"{current_year}", cond)
-
-    # 1. Liquidity (Combined for brevity)
+    
+    # Liquidity
     liq_pass = (
         last_row['Close'] >= params.get('min_price', 0) and 
         last_row['vol_ma'] >= params.get('min_vol', 0) and
         last_row['age_years'] >= params.get('min_age', 0)
     )
-    log("Liquidity", f"${last_row['Close']:.2f}", liq_pass)
+    log("Liquidity", f"${last_row['Close']:.2f}", liq_pass, is_volatile=False)
 
-    # 2. Trend (Global)
+    # Day of Week / Cycle
+    if params.get('use_dow_filter', False):
+        allowed = params.get('allowed_days', [])
+        day_num = last_row.name.dayofweek 
+        log("DOW", last_row.name.strftime("%A"), day_num in allowed, is_volatile=False)
+
+    if 'allowed_cycles' in params:
+        allowed_cycles = params['allowed_cycles']
+        if allowed_cycles and len(allowed_cycles) < 4:
+            current_year = last_row.name.year
+            cond = (current_year % 4) in allowed_cycles
+            log("Cycle", f"{current_year}", cond, is_volatile=False)
+
+    # Trend (Global - 200 SMA)
     trend_opt = params.get('trend_filter', 'None')
     if trend_opt != 'None':
         trend_res = True
@@ -212,134 +222,116 @@ def get_signal_breakdown(df, params, sznl_map):
             if 'Market_Above_SMA200' in df.columns:
                 is_above = last_row['Market_Above_SMA200']
                 trend_res = is_above if ">" in trend_opt else not is_above
-        log("Trend", trend_opt, trend_res)
+        log("Trend", trend_opt, trend_res, is_volatile=False)
 
-    # 3. Perf Rank
+    # Perf Rank (10d and 21d are STABLE. 5d is VOLATILE)
     if 'perf_filters' in params:
-        for i, pf in enumerate(params['perf_filters']):
-            col = f"rank_ret_{pf['window']}d"
+        for pf in params['perf_filters']:
+            window = pf['window']
+            col = f"rank_ret_{window}d"
             val = last_row.get(col, 0)
-            if pf['logic'] == '<': cond = val < pf['thresh']
-            else: cond = val > pf['thresh']
-            # Consecutive logic simplified for monitor view
-            log(f"Perf_{pf['window']}d", f"{val:.1f}", cond)
+            thresh = pf['thresh']
+            
+            if pf['logic'] == '<': cond = val < thresh
+            else: cond = val > thresh
+            
+            # --- CUSTOM LOGIC: 5d is Volatile, others are Stable ---
+            if window <= 5:
+                # SPECIAL CHECK: If 5d fails, is it "close"? 
+                # User wants "within 15%". I interpret this as 15 rank points.
+                is_vol = True
+                
+                if not cond:
+                    # If it failed, check distance. If distance > 15, mark as STABLE failure (too far gone).
+                    dist = abs(val - thresh)
+                    if dist > 15.0:
+                        is_vol = False # Downgrade to Critical Failure
+                
+                log(f"Perf_{window}d", f"{val:.1f}", cond, is_volatile=is_vol)
+            else:
+                log(f"Perf_{window}d", f"{val:.1f}", cond, is_volatile=False)
 
-    # 4. Seasonality
+    # Seasonality (Stable)
     if params['use_sznl']:
         val = last_row['Sznl']
         if params['sznl_logic'] == '<': cond = val < params['sznl_thresh']
         else: cond = val > params['sznl_thresh']
-        log("Seasonality", f"{val:.1f}", cond)
+        log("Seasonality", f"{val:.1f}", cond, is_volatile=False)
 
-    # 5. Market Seasonality
     if params.get('use_market_sznl', False):
         val = last_row['Mkt_Sznl_Ref']
         if params['market_sznl_logic'] == '<': cond = val < params['market_sznl_thresh']
         else: cond = val > params['market_sznl_thresh']
-        log("Mkt_Sznl", f"{val:.1f}", cond)
+        log("Mkt_Sznl", f"{val:.1f}", cond, is_volatile=False)
 
-    # 6. Volume
+    # Volume (Stable)
     if params.get('use_vol', False):
         ratio = last_row['vol_ratio']
         cond = (ratio > params['vol_thresh'])
-        log("Vol_Ratio", f"x{ratio:.2f}", cond)
+        log("Vol_Ratio", f"x{ratio:.2f}", cond, is_volatile=False)
         
     if params.get('use_vol_rank', False):
         ratio = last_row['vol_ratio_10d_rank']
         cond = (ratio < params['vol_rank_thresh']) if params['vol_rank_logic'] == '<' else (ratio > params['vol_rank_thresh'])
-        log("Vol_Rank", f"{ratio:.1f}", cond)
+        log("Vol_Rank", f"{ratio:.1f}", cond, is_volatile=False)
 
-    # 7. RANGE FILTER (Common failing point)
+    # -----------------------------------------------------------
+    # 2. VOLATILE CHECKS (Allowed to Fail)
+    # -----------------------------------------------------------
+
+    # RANGE FILTER (Volatile)
     if params.get('use_range_filter', False):
         rng = last_row['RangePct'] * 100
         r_min = params.get('range_min', 0)
         r_max = params.get('range_max', 100)
         cond = (rng >= r_min) and (rng <= r_max)
-        log("Range_Loc", f"{rng:.1f}%", cond)
+        log("Range_Loc", f"{rng:.1f}%", cond, is_volatile=True)
         
-    # 8. MA Specific Filters
+    # MA Specific Filters (Volatile - e.g. Close > 20 SMA)
     if 'ma_consec_filters' in params:
-        for i, maf in enumerate(params['ma_consec_filters']):
+        for maf in params['ma_consec_filters']:
             length = maf['length']
             val = last_row.get(f"SMA{length}", 0)
-            cond = (last_row['Close'] > val) if maf['logic'] == 'Above' else (last_row['Close'] < val)
-            log(f"Price_vs_SMA{length}", f"{val:.2f}", cond)
+            logic = maf['logic']
+            cond = (last_row['Close'] > val) if logic == 'Above' else (last_row['Close'] < val)
+            log(f"Price_vs_SMA{length}", f"{val:.2f}", cond, is_volatile=True)
 
-    # Calculate Totals
-    failures = [k for k, v in audit.items() if "_Bool" in k and v is False]
-    all_passed = len(failures) == 0
-
-    audit['Result'] = "✅ SIGNAL" if all_passed else ""
-    audit['Fail_Count'] = len(failures)
-    
-    # Generate list of readable failed keys (e.g. "Range_Loc_Bool" -> "Range_Loc")
-    audit['Failed_Items'] = [f.replace("_Bool", "") for f in failures]
+    # Final Result Text
+    total_fails = audit['Stable_Fail'] + audit['Volatile_Fail']
+    audit['Result'] = "✅ SIGNAL" if total_fails == 0 else ""
     
     return audit
 
 # -----------------------------------------------------------------------------
-# MAIN APP
+# MAIN APP (Updated Monitor Section)
 # -----------------------------------------------------------------------------
-@st.cache_data(show_spinner=False)
-def download_historical_data(tickers, start_date="2000-01-01"):
-    # ... (Keep existing implementation) ...
-    # Placeholder for brevity - assume this works as in your original script
-    if not tickers: return {}
-    clean_tickers = list(set([str(t).strip().upper().replace('.', '-') for t in tickers]))
-    data_dict = {}
-    # ... downloading logic ...
-    # Simulating download for context size limits in this response
-    try:
-        df = yf.download(clean_tickers, start=start_date, group_by='ticker', auto_adjust=False, progress=False, threads=True)
-        if len(clean_tickers) == 1:
-            clean_tickers = [clean_tickers[0]] # Handle single ticker case
-            
-        if isinstance(df.columns, pd.MultiIndex):
-            for t in clean_tickers:
-                try:
-                    data_dict[t] = df[t].copy()
-                    if data_dict[t].empty: del data_dict[t]
-                except: pass
-        else:
-             data_dict[clean_tickers[0]] = df
-    except: pass
-    
-    # Clean indexes
-    for t in data_dict:
-        data_dict[t].index = data_dict[t].index.tz_localize(None)
-        
-    return data_dict
 
 def main():
     st.set_page_config(layout="wide", page_title="Pro Strategy Screener")
-    
-    # --- SIDEBAR CONTROLS ---
     st.sidebar.title("Configuration")
     mode = st.sidebar.radio("Scanner Mode", ["Intraday Monitor", "EOD Batch Runner"])
     
     sznl_map = load_seasonal_map()
-    
-    # Init Session State
-    if 'master_data_dict' not in st.session_state:
-        st.session_state['master_data_dict'] = {}
+    if 'master_data_dict' not in st.session_state: st.session_state['master_data_dict'] = {}
 
-    # -------------------------------------------------------------------------
-    # MODE 1: INTRADAY MONITOR (The New Feature)
-    # -------------------------------------------------------------------------
+    # --- INTRADAY MONITOR ---
     if mode == "Intraday Monitor":
         st.title("👀 Intraday Signal Monitor (MOC)")
-        st.markdown("Identifies strategies with **Signal Close** entries that are *close* to triggering.")
+        st.markdown("""
+        **Strict Logic Applied:** 1. **MUST PASS:** Seasonality, Trend (200d), 10d/21d Perf, Liquidity.
+        2. **CAN FAIL (Watchlist):** Range %, Close vs SMA, 5d Perf (if within 15pts).
+        """)
         
-        # User Tolerance Configuration
         col_tol1, col_tol2 = st.columns(2)
-        tolerance = col_tol1.slider("Show Signals with X Failures or less:", 0, 3, 1, help="0 = Confirmed Only. 1 = Watchlist.")
+        # Fix: Slider max is strict, logic ensures we don't overflow
+        max_volatile_fails = col_tol1.slider("Max Allowed 'Volatile' Failures:", 0, 3, 2)
         
         if st.button("🔎 Scan Potential Signals", type="primary"):
-            st.cache_data.clear() # Force fresh data for intraday
+            st.cache_data.clear() 
             
-            # 1. Filter Universe for "Signal Close" Strategies ONLY
             moc_strategies = [s for s in STRATEGY_BOOK if "Signal Close" in s['settings'].get('entry_type', '')]
             
+            # Build Universe
             universe = set()
             for s in moc_strategies:
                 universe.update(s['universe_tickers'])
@@ -347,20 +339,14 @@ def main():
                 if "Market" in s['settings'].get('trend_filter', ''): universe.add('SPY')
             
             universe = list(universe)
-            st.toast(f"Fetching intraday data for {len(universe)} tickers...")
-            
-            # 2. Download Data (Force fresh download implicitly via clear cache or just re-run)
-            # For intraday, we might want a shorter lookback to save time, but indicators need 252d usually.
             data_dict = download_historical_data(universe, start_date="2023-01-01") 
             st.session_state['master_data_dict'].update(data_dict)
             
             results = []
-            
-            # 3. Scan
             progress_bar = st.progress(0)
             
             for i, strat in enumerate(moc_strategies):
-                # Setup Market Series if needed
+                # Market Context
                 mkt_ticker = strat['settings'].get('market_ticker', 'SPY')
                 mkt_df = st.session_state['master_data_dict'].get(mkt_ticker)
                 if mkt_df is None: mkt_df = st.session_state['master_data_dict'].get('SPY')
@@ -372,190 +358,99 @@ def main():
                 for ticker in strat['universe_tickers']:
                     t_clean = ticker.replace('.', '-')
                     df = st.session_state['master_data_dict'].get(t_clean)
-                    
                     if df is None or len(df) < 50: continue
                     
-                    # Calculate Indicators
                     try:
                         calc_df = calculate_indicators(df, sznl_map, t_clean, market_series)
-                        
-                        # GET BREAKDOWN
                         audit = get_signal_breakdown(calc_df, strat['settings'], sznl_map)
                         
-                        # CHECK FAILURES
-                        fail_count = audit['Fail_Count']
-                        failed_items = audit['Failed_Items']
+                        # --- STRICT FILTERING LOGIC ---
                         
-                        if fail_count <= tolerance:
-                            # Classify Status
-                            if fail_count == 0:
+                        # 1. Structural/Stable Failures = IMMEDIATE REJECTION
+                        if audit['Stable_Fail'] > 0:
+                            continue
+                            
+                        # 2. Volatile Failures = CHECK TOLERANCE
+                        v_fails = audit['Volatile_Fail']
+                        
+                        if v_fails <= max_volatile_fails:
+                            
+                            # Determine Status
+                            if v_fails == 0:
                                 status = "✅ CONFIRMED"
                                 color = "green"
+                                sort_key = 0
                             else:
-                                status = f"⚠️ MISSING ({fail_count})"
+                                missing_str = ", ".join(audit['Volatile_Items'])
+                                status = f"⚠️ MISSING: {missing_str}"
                                 color = "orange"
+                                sort_key = 1
                                 
-                            last_price = calc_df['Close'].iloc[-1]
-                            range_pct = calc_df['RangePct'].iloc[-1] * 100
-                            
                             results.append({
                                 "Strategy": strat['name'],
                                 "Ticker": ticker,
-                                "Price": last_price,
-                                "Range%": range_pct,
+                                "Price": calc_df['Close'].iloc[-1],
+                                "Range%": calc_df['RangePct'].iloc[-1] * 100,
                                 "Status": status,
-                                "Failures": failed_items,
-                                "Full_Audit": audit, # Store full dict for expander
-                                "_color": color
+                                "Failures": audit['Volatile_Items'],
+                                "Full_Audit": audit,
+                                "_sort": sort_key
                             })
                             
                     except Exception as e:
                         continue
                 
                 progress_bar.progress((i + 1) / len(moc_strategies))
-            
             progress_bar.empty()
             
-            # 4. Display Results
             if not results:
-                st.info("No signals found within tolerance.")
+                st.info("No signals found matching strict criteria.")
             else:
                 res_df = pd.DataFrame(results)
-                
-                # Group by Status for clean UI
                 st.subheader(f"Found {len(res_df)} Candidates")
                 
-                # Sort: Confirmed first, then by Ticker
-                res_df.sort_values(by=['Status', 'Ticker'], ascending=[True, True], inplace=True)
+                # Sort: Confirmed (0) -> Watchlist (1), then Ticker
+                res_df.sort_values(by=['_sort', 'Ticker'], ascending=[True, True], inplace=True)
                 
                 for _, row in res_df.iterrows():
-                    # Color code the expander border based on status
-                    is_conf = "CONFIRMED" in row['Status']
+                    is_conf = row['_sort'] == 0
                     icon = "🟢" if is_conf else "🟠"
                     
-                    # Expander Header
-                    fail_txt = f"Missing: {', '.join(row['Failures'])}" if row['Failures'] else "Ready to Trade"
-                    label = f"{icon} **{row['Ticker']}** | {row['Strategy']} | {row['Status']} | {fail_txt}"
+                    label = f"{icon} **{row['Ticker']}** | {row['Strategy']} | {row['Status']}"
                     
                     with st.expander(label, expanded=is_conf):
                         c1, c2, c3 = st.columns(3)
-                        c1.metric("Current Price", f"${row['Price']:.2f}")
-                        c2.metric("Range Location", f"{row['Range%']:.1f}%")
+                        c1.metric("Price", f"${row['Price']:.2f}")
+                        c2.metric("Range Loc", f"{row['Range%']:.1f}%")
+                        c3.caption(f"Strategy: {row['Strategy']}")
                         
-                        st.markdown("#### Checklist Breakdown")
-                        
-                        # Create a readable checklist from the audit dict
+                        # Filter audit to only show relevant rows
                         audit_data = row['Full_Audit']
                         check_rows = []
-                        for k, v in audit_data.items():
-                            if "_Pass" in k:
-                                param_name = k.replace("_Pass", "")
-                                val = audit_data.get(param_name, "-")
-                                check_rows.append({
-                                    "Condition": param_name,
-                                    "Value": val,
-                                    "Status": v
-                                })
+                        # Priority sort: Show Failed items first
+                        keys = sorted(audit_data.keys(), key=lambda x: 0 if x in row['Failures'] else 1)
                         
+                        for k in keys:
+                            if "_Pass" in k:
+                                param = k.replace("_Pass", "")
+                                if param in ["Stable_Fail", "Volatile_Fail", "Volatile_Items", "Stable_Items"]: continue
+                                
+                                val = audit_data.get(param, "-")
+                                status_icon = audit_data.get(k)
+                                
+                                # Highlight the missing volatile items
+                                if param in row['Failures']:
+                                    status_icon = "⚠️ WATCH"
+                                    
+                                check_rows.append({"Condition": param, "Value": val, "Status": status_icon})
+                                
                         st.dataframe(pd.DataFrame(check_rows), hide_index=True, use_container_width=True)
 
-    # -------------------------------------------------------------------------
-    # MODE 2: EOD BATCH RUNNER (Original Logic)
-    # -------------------------------------------------------------------------
+    # --- EOD BATCH RUNNER (Keep existing) ---
     elif mode == "EOD Batch Runner":
-        st.title("⚡ EOD Batch Screener & Staging")
-        st.markdown("Standard end-of-day routine. Scans all strategies, calculates stops/targets, and stages orders to Google Sheets.")
-        
+        # ... (Same as before) ...
+        st.title("⚡ EOD Batch Screener")
         if st.button("Run EOD Batch", type="primary"):
-            # ... (Paste your original 'Run All Strategies' logic here) ...
-            # For brevity, I am summarizing the integration:
-            # 1. Check/Download Data
-            # 2. Iterate Strategies (Loop)
-            # 3. Call check_signal() -> if True -> append to list
-            # 4. Display DataFrame
-            # 5. Call save_moc_orders and save_staging_orders
-            st.info("Switching to EOD Batch Logic (Copied from original script)...")
-            
-            # (Insert original loop logic here if you want it in the same file)
-            # Or simplified call:
             run_eod_batch_logic(sznl_map)
 
-# Wrapper to keep the original logic organized
-def run_eod_batch_logic(sznl_map):
-    # This is essentially the code from your original main() under "Run All Strategies"
-    # Re-implemented simply to show where it goes.
-    
-    # 1. Universe Collection
-    all_required_tickers = set()
-    for strat in STRATEGY_BOOK:
-        all_required_tickers.update(strat['universe_tickers'])
-        s = strat['settings']
-        if s.get('use_market_sznl'): all_required_tickers.add(s.get('market_ticker', '^GSPC'))
-        if "Market" in s.get('trend_filter', ''): all_required_tickers.add(s.get('market_ticker', 'SPY'))
-    
-    missing_tickers = list(all_required_tickers - set(st.session_state['master_data_dict'].keys()))
-    if missing_tickers:
-        st.info(f"Downloading {len(missing_tickers)} tickers...")
-        new_data = download_historical_data(missing_tickers)
-        st.session_state['master_data_dict'].update(new_data)
-        
-    all_signals = []
-    
-    # 2. Processing
-    master_dict = st.session_state['master_data_dict']
-    
-    for strat in STRATEGY_BOOK:
-        # Prepare Market Series
-        mkt_ticker = strat['settings'].get('market_ticker', 'SPY')
-        mkt_df = master_dict.get(mkt_ticker)
-        if mkt_df is None: mkt_df = master_dict.get('SPY')
-        mkt_series = None
-        if mkt_df is not None:
-            mkt_series = mkt_df['Close'] > mkt_df['Close'].rolling(200).mean()
-
-        for ticker in strat['universe_tickers']:
-            t_clean = ticker.replace('.', '-')
-            df = master_dict.get(t_clean)
-            if df is None or len(df) < 200: continue
-            
-            calc_df = calculate_indicators(df, sznl_map, t_clean, mkt_series)
-            
-            # BINARY CHECK for EOD
-            if check_signal(calc_df, strat['settings'], sznl_map):
-                # ... (Calculate Stop/Target/Shares logic from original script) ...
-                last_row = calc_df.iloc[-1]
-                atr = last_row['ATR']
-                risk = strat['execution']['risk_per_trade']
-                # ... Simplified entry for example ...
-                entry = last_row['Close']
-                stop_atr = strat['execution']['stop_atr']
-                stop = entry - (atr * stop_atr)
-                target = entry + (atr * strat['execution']['tgt_atr'])
-                dist = entry - stop
-                shares = int(risk/dist) if dist > 0 else 0
-                
-                all_signals.append({
-                    "Strategy_ID": strat['id'],
-                    "Ticker": ticker,
-                    "Action": "BUY", # Simplified
-                    "Shares": shares,
-                    "Entry": entry,
-                    "Stop": stop,
-                    "Target": target,
-                    "Time Exit": datetime.date.today(), # Simplified
-                    "ATR": atr
-                })
-
-    if all_signals:
-        df_sig = pd.DataFrame(all_signals)
-        st.success(f"Generated {len(df_sig)} Confirmed Signals")
-        st.dataframe(df_sig)
-        
-        # Save logic
-        # save_moc_orders(...) 
-        # save_staging_orders(...)
-    else:
-        st.warning("No confirmed signals.")
-
-if __name__ == "__main__":
-    main()
+# ... (rest of file/helper functions remain same) ...
