@@ -560,4 +560,5 @@ def main():
         if st.button("Run EOD Batch", type="primary"):
             run_eod_batch_logic(sznl_map)
 
-# ... (rest of file/helper functions remain same) ...
+if __name__ == "__main__":
+    main()
