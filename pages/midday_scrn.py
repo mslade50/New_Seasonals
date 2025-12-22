@@ -63,20 +63,6 @@ def is_after_market_close():
     now = datetime.datetime.now(tz)
     return now.hour >= 16
 
-# -----------------------------------------------------------------------------
-# GOOGLE SHEET FUNCTIONS (Kept for EOD Batch Mode)
-# -----------------------------------------------------------------------------
-def save_moc_orders(signals_list, strategy_book, sheet_name='moc_orders'):
-    # ... (Keep existing implementation) ...
-    pass
-
-def save_staging_orders(signals_list, strategy_book, sheet_name='Order_Staging'):
-    # ... (Keep existing implementation) ...
-    pass
-
-def save_signals_to_gsheet(new_dataframe, sheet_name='Trade_Signals_Log'):
-    # ... (Keep existing implementation) ...
-    pass
 
 # -----------------------------------------------------------------------------
 # ENGINE
@@ -151,221 +137,15 @@ def calculate_indicators(df, sznl_map, ticker, market_series=None):
 # -----------------------------------------------------------------------------
 
 def check_signal(df, params, sznl_map):
-    last_row = df.iloc[-1]
+    """
+    Wrapper: Calls the breakdown logic. 
+    For EOD Batch signals, we require ZERO failures (Stable OR Volatile).
+    """
+    audit = get_signal_breakdown(df, params, sznl_map)
     
-    # 0. Day of Week Filter
-    if params.get('use_dow_filter', False):
-        allowed = params.get('allowed_days', [])
-        current_day = last_row.name.dayofweek
-        if current_day not in allowed: return False
-
-    # 0b. Cycle Year Filter (NEW)
-    # 0=Election, 1=Post, 2=Mid, 3=Pre
-    if 'allowed_cycles' in params:
-        allowed_cycles = params['allowed_cycles']
-        # Only apply if the list isn't empty and isn't all 4 cycles (which implies no filter)
-        if allowed_cycles and len(allowed_cycles) < 4:
-            current_year = last_row.name.year
-            cycle_rem = current_year % 4
-            if cycle_rem not in allowed_cycles: return False
-
-    # 1. Liquidity Gates
-    if last_row['Close'] < params.get('min_price', 0): return False
-    if last_row['vol_ma'] < params.get('min_vol', 0): return False
-    if last_row['age_years'] < params.get('min_age', 0): return False
-    if last_row['age_years'] > params.get('max_age', 100): return False
-
-    min_atr = params.get('min_atr_pct', 0.0)
-    max_atr = params.get('max_atr_pct', 1000.0)
-    
-    current_atr_pct = last_row.get('ATR_Pct', 0)
-    if pd.isna(current_atr_pct): return False
-
-    if current_atr_pct < min_atr: return False
-    if current_atr_pct > max_atr: return False
-
-    # 2. Trend Filter (Global)
-    trend_opt = params.get('trend_filter', 'None')
-    if trend_opt == "Price > 200 SMA":
-        if not (last_row['Close'] > last_row['SMA200']): return False
-    elif trend_opt == "Price > Rising 200 SMA":
-        prev_row = df.iloc[-2]
-        if not ((last_row['Close'] > last_row['SMA200']) and (last_row['SMA200'] > prev_row['SMA200'])): return False
-    elif "Market" in trend_opt or "SPY" in trend_opt:
-        if 'Market_Above_SMA200' in df.columns:
-            is_above = last_row['Market_Above_SMA200']
-            if ">" in trend_opt and not is_above: return False
-            if "<" in trend_opt and is_above: return False
-
-    # 2b. MA Consecutive Filters
-    if 'ma_consec_filters' in params:
-        for maf in params['ma_consec_filters']:
-            length = maf['length']
-            col_name = f"SMA{length}" # e.g. SMA20
-            
-            # Ensure column exists (calculate_indicators handles 10, 20, 50, 200)
-            if col_name not in df.columns: continue 
-            
-            # Logic Check
-            if maf['logic'] == 'Above':
-                mask = df['Close'] > df[col_name]
-            elif maf['logic'] == 'Below':
-                mask = df['Close'] < df[col_name]
-            
-            # Consecutive Check
-            consec = maf.get('consec', 1)
-            if consec > 1:
-                mask = mask.rolling(consec).sum() == consec
-            
-            if not mask.iloc[-1]: return False
-
-    # 3. Candle Range Filter
-    if params.get('use_range_filter', False):
-        rn_val = last_row['RangePct'] * 100
-        r_min = params.get('range_min', 0)
-        r_max = params.get('range_max', 100)
-        if not (rn_val >= r_min and rn_val <= r_max): return False
-
-    # 4. Perf Rank
-    if 'perf_filters' in params:
-        combined_cond = pd.Series(True, index=df.index)
-        for pf in params['perf_filters']:
-            col = f"rank_ret_{pf['window']}d"
-            consec = pf.get('consecutive', 1)
-            
-            if pf['logic'] == '<': cond_f = df[col] < pf['thresh']
-            else: cond_f = df[col] > pf['thresh']
-            
-            if consec > 1: cond_f = cond_f.rolling(consec).sum() == consec
-            combined_cond = combined_cond & cond_f
-        
-        final_perf = combined_cond
-        
-        if params.get('perf_first_instance', False):
-            lookback = params.get('perf_lookback', 21)
-            prev_inst = final_perf.shift(1).rolling(lookback).sum()
-            final_perf = final_perf & (prev_inst == 0)
-            
-        if not final_perf.iloc[-1]: return False
-
-    elif params.get('use_perf_rank', False):
-        col = f"rank_ret_{params['perf_window']}d"
-        if params['perf_logic'] == '<': raw = df[col] < params['perf_thresh']
-        else: raw = df[col] > params['perf_thresh']
-        
-        consec = params.get('perf_consecutive', 1)
-        if consec > 1: persist = raw.rolling(consec).sum() == consec
-        else: persist = raw
-        
-        final_perf = persist
-        if params.get('perf_first_instance', False):
-            lookback = params.get('perf_lookback', 21)
-            prev_inst = final_perf.shift(1).rolling(lookback).sum()
-            final_perf = final_perf & (prev_inst == 0)
-            
-        if not final_perf.iloc[-1]: return False
-
-    # 5. Gap/Acc/Dist Filters
-    if params.get('use_gap_filter', False):
-        lookback = params.get('gap_lookback', 21)
-        col_name = f'GapCount_{lookback}' if f'GapCount_{lookback}' in df.columns else 'GapCount_21'
-        gap_val = last_row.get(col_name, 0)
-        g_logic = params.get('gap_logic', '>')
-        g_thresh = params.get('gap_thresh', 0)
-        if g_logic == ">" and not (gap_val > g_thresh): return False
-        if g_logic == "<" and not (gap_val < g_thresh): return False
-        if g_logic == "=" and not (gap_val == g_thresh): return False
-
-    if params.get('use_acc_count_filter', False):
-        window = params.get('acc_count_window', 21)
-        col_name = f'AccCount_{window}'
-        if col_name in df.columns:
-            acc_val = last_row[col_name]
-            acc_logic = params.get('acc_count_logic', '=')
-            acc_thresh = params.get('acc_count_thresh', 0)
-            if acc_logic == "=" and not (acc_val == acc_thresh): return False
-            if acc_logic == ">" and not (acc_val > acc_thresh): return False
-            if acc_logic == "<" and not (acc_val < acc_thresh): return False
-
-    if params.get('use_dist_count_filter', False):
-        window = params.get('dist_count_window', 21)
-        col_name = f'DistCount_{window}'
-        if col_name in df.columns:
-            dist_val = last_row[col_name]
-            dist_logic = params.get('dist_count_logic', '>')
-            dist_thresh = params.get('dist_count_thresh', 0)
-            if dist_logic == "=" and not (dist_val == dist_thresh): return False
-            if dist_logic == ">" and not (dist_val > dist_thresh): return False
-            if dist_logic == "<" and not (dist_val < dist_thresh): return False
-
-    # 6. Distance Filter
-    if params.get('use_dist_filter', False):
-        ma_type = params.get('dist_ma_type', 'SMA 200')
-        ma_col = ma_type.replace(" ", "") 
-        if ma_col in df.columns:
-            ma_val = last_row[ma_col]
-            atr = last_row['ATR']
-            close = last_row['Close']
-            if atr > 0: dist_units = (close - ma_val) / atr
-            else: dist_units = 0
-            d_logic = params.get('dist_logic', 'Between')
-            d_min = params.get('dist_min', 0)
-            d_max = params.get('dist_max', 0)
-            if d_logic == "Greater Than (>)" and not (dist_units > d_min): return False
-            if d_logic == "Less Than (<)" and not (dist_units < d_max): return False
-            if d_logic == "Between":
-                if not (dist_units >= d_min and dist_units <= d_max): return False
-
-    # 7. Seasonality
-    if params['use_sznl']:
-        if params['sznl_logic'] == '<': raw_sznl = df['Sznl'] < params['sznl_thresh']
-        else: raw_sznl = df['Sznl'] > params['sznl_thresh']
-        
-        final_sznl = raw_sznl
-        if params.get('sznl_first_instance', False):
-            lookback = params.get('sznl_lookback', 21)
-            prev = final_sznl.shift(1).rolling(lookback).sum()
-            final_sznl = final_sznl & (prev == 0)
-        if not final_sznl.iloc[-1]: return False
-
-    if params.get('use_market_sznl', False):
-        mkt_ticker = params.get('market_ticker', '^GSPC')
-        mkt_series_ref = sznl_map.get(mkt_ticker)
-        if mkt_series_ref is None and mkt_ticker == '^GSPC':
-             mkt_series_ref = sznl_map.get('SPY')
-        mkt_ranks = get_sznl_val_series(mkt_ticker, df.index, sznl_map)
-        
-        if params['market_sznl_logic'] == '<': mkt_cond = mkt_ranks < params['market_sznl_thresh']
-        else: mkt_cond = mkt_ranks > params['market_sznl_thresh']
-        if not mkt_cond[-1]: return False
-
-    # 8. 52w
-    if params['use_52w']:
-        if params['52w_type'] == 'New 52w High': cond_52 = df['is_52w_high']
-        else: cond_52 = df['is_52w_low']
-        if params.get('52w_first_instance', True):
-            lookback = params.get('52w_lookback', 21)
-            prev = cond_52.shift(1).rolling(lookback).sum()
-            cond_52 = cond_52 & (prev == 0)
-        if not cond_52.iloc[-1]: return False
-        
-    # 8b. Exclude 52w High
-    if params.get('exclude_52w_high', False):
-        if last_row['is_52w_high']: return False
-
-    # 9. Volume (Ratio ONLY)
-    if params['use_vol']:
-        # Only check if magnitude > threshold (Ignore if it's > or < yesterday)
-        if not (last_row['vol_ratio'] > params['vol_thresh']): return False
-
-    if params.get('use_vol_rank'):
-        val = last_row['vol_ratio_10d_rank']
-        if params['vol_rank_logic'] == '<':
-            if not (val < params['vol_rank_thresh']): return False
-        else:
-            if not (val > params['vol_rank_thresh']): return False
-            
-    return True
+    # EOD requires strict perfection
+    total_failures = audit['Stable_Fail'] + audit['Volatile_Fail']
+    return total_failures == 0
 
 def get_signal_breakdown(df, params, sznl_map):
     """
@@ -511,6 +291,124 @@ def get_signal_breakdown(df, params, sznl_map):
     
     return audit
 
+@st.cache_data(show_spinner=False)
+def download_historical_data(tickers, start_date="2000-01-01"):
+    if not tickers: return {}
+    
+    # Deduplicate and clean
+    clean_tickers = list(set([str(t).strip().upper().replace('.', '-') for t in tickers]))
+    
+    data_dict = {}
+    CHUNK_SIZE = 50 
+    total = len(clean_tickers)
+    
+    # UI Elements for progress if needed, or just silent
+    try:
+        # Batch download
+        df = yf.download(
+            clean_tickers, 
+            start=start_date, 
+            group_by='ticker', 
+            auto_adjust=False, 
+            progress=False, 
+            threads=True
+        )
+        
+        if df.empty: return {}
+        
+        # Handle Single Ticker vs MultiIndex
+        if len(clean_tickers) == 1:
+            t = clean_tickers[0]
+            # yf sometimes returns flat index for single ticker
+            if isinstance(df.columns, pd.MultiIndex):
+                df = df.droplevel(0, axis=1) 
+            df.index = df.index.tz_localize(None)
+            data_dict[t] = df
+        else:
+            # Multi-level columns
+            for t in clean_tickers:
+                try:
+                    t_df = df[t].copy()
+                    if t_df.empty or 'Close' not in t_df.columns: continue
+                    t_df.index = t_df.index.tz_localize(None)
+                    t_df = t_df.dropna(how='all')
+                    data_dict[t] = t_df
+                except:
+                    continue
+                    
+        return data_dict
+
+    except Exception as e:
+        st.error(f"Download Error: {e}")
+        return {}
+def run_eod_batch_logic(sznl_map):
+    st.info("🚀 Starting EOD Batch Scan...")
+    
+    # 1. build universe
+    all_tickers = set()
+    for s in STRATEGY_BOOK:
+        all_tickers.update(s['universe_tickers'])
+        all_tickers.add(s['settings'].get('market_ticker', 'SPY'))
+        if "Market" in s['settings'].get('trend_filter', ''): all_tickers.add('SPY')
+
+    # 2. ensure data
+    missing = [t for t in all_tickers if t not in st.session_state['master_data_dict']]
+    if missing:
+        st.write(f"Downloading {len(missing)} missing tickers...")
+        new_data = download_historical_data(missing)
+        st.session_state['master_data_dict'].update(new_data)
+        
+    master_dict = st.session_state['master_data_dict']
+    signals = []
+    
+    # 3. Scan
+    progress = st.progress(0)
+    for i, strat in enumerate(STRATEGY_BOOK):
+        # Market context
+        mkt_ticker = strat['settings'].get('market_ticker', 'SPY')
+        mkt_df = master_dict.get(mkt_ticker, master_dict.get('SPY'))
+        mkt_series = None
+        if mkt_df is not None:
+             mkt_series = mkt_df['Close'] > mkt_df['Close'].rolling(200).mean()
+
+        for ticker in strat['universe_tickers']:
+            df = master_dict.get(ticker)
+            if df is None or len(df) < 200: continue
+            
+            # Calc & Check
+            calc_df = calculate_indicators(df, sznl_map, ticker, mkt_series)
+            
+            # This calls the WRAPPER we fixed in step 1
+            if check_signal(calc_df, strat['settings'], sznl_map):
+                
+                # --- Basic Sizing Logic (Example) ---
+                last_row = calc_df.iloc[-1]
+                atr = last_row['ATR']
+                risk = strat['execution']['risk_per_trade']
+                entry = last_row['Close']
+                stop = entry - (atr * strat['execution']['stop_atr'])
+                dist = entry - stop
+                shares = int(risk/dist) if dist > 0 else 0
+                
+                signals.append({
+                    "Strategy_ID": strat['id'],
+                    "Ticker": ticker,
+                    "Action": "BUY",
+                    "Shares": shares,
+                    "Entry": entry,
+                    "Stop": stop,
+                    "Date": last_row.name.date()
+                })
+        progress.progress((i+1)/len(STRATEGY_BOOK))
+        
+    progress.empty()
+    
+    if signals:
+        st.success(f"✅ Generated {len(signals)} Valid Signals")
+        st.dataframe(pd.DataFrame(signals))
+        # Add your save_staging_orders call here if you want
+    else:
+        st.warning("No signals found.")
 # -----------------------------------------------------------------------------
 # MAIN APP (Updated Monitor Section)
 # -----------------------------------------------------------------------------
