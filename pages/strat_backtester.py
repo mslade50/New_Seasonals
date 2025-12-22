@@ -851,6 +851,95 @@ def main():
             st.subheader("📜 Historical Signal Log")
             st.dataframe(sig_df.sort_values(by="Date", ascending=False).style.format({"Price": "${:.2f}", "PnL": "${:.2f}", "Date": "{:%Y-%m-%d}", "Exit Date": "{:%Y-%m-%d}", "Time Stop": "{:%Y-%m-%d}", "Range %": "{:.1f}%"}), use_container_width=True, height=400)
         else: st.warning(f"No signals found in the backtest period starting from {user_start_date}.")
+        # -------------------------------------------------------------------------
+    # DEBUG: GS SIGNAL AUDIT
+    # -------------------------------------------------------------------------
+    st.divider()
+    st.subheader("🔍 Signal Audit: GS (52w High Breakout)")
+    
+    debug_ticker = "GS"
+    # 1. Get Data
+    if 'backtest_data' in st.session_state and debug_ticker in st.session_state['backtest_data']:
+        df_debug = st.session_state['backtest_data'][debug_ticker].copy()
+        
+        # 2. Recalculate Indicators explicitly for the audit
+        # Ensure we have the necessary columns: Sznl, Vol, ATR, etc.
+        df_debug = calculate_indicators(df_debug, sznl_map, debug_ticker)
+        
+        # 3. Manually Reconstruct the Criteria from your JSON Config
+        # Config: "52w 15d lookback, 1.5x volume, spx sznl > 50, >50%rng, Close > Prev High, no midterms"
+        
+        # A. 52-Week High Logic (High > Rolling High of previous 252 days)
+        rolling_high = df_debug['High'].shift(1).rolling(252).max()
+        cond_52w_raw = df_debug['High'] > rolling_high
+        
+        # B. First Instance Logic (Lookback 15 days)
+        # We check if the RAW 52w condition occurred in the previous 15 days.
+        # If sum > 0, then a signal recently happened, so "First Instance" = False.
+        prev_instances = cond_52w_raw.shift(1).rolling(15).sum()
+        cond_first_instance = (prev_instances == 0)
+        
+        # C. Volume Logic (> 1.5x)
+        cond_vol = df_debug['vol_ratio'] > 1.5
+        
+        # D. Range Logic (RangePct between 0.5 and 1.0)
+        cond_range = (df_debug['RangePct'] >= 0.50) & (df_debug['RangePct'] <= 1.0)
+        
+        # E. Market Seasonality Logic (SPX Sznl > 50)
+        # Note: We use the already calculated 'Mkt_Sznl_Ref' from calculate_indicators
+        cond_mkt_sznl = df_debug['Mkt_Sznl_Ref'] >= 50.0
+        
+        # F. Breakout Mode Logic (Close > Previous Day High)
+        cond_breakout_mode = df_debug['Close'] > df_debug['High'].shift(1)
+        
+        # G. Election Cycle Logic (Allowed: 3, 0, 1) -> Exclude 2 (Midterms)
+        cond_cycle = (df_debug.index.year % 4).isin([3, 0, 1])
+
+        # H. Allowed Days (Mon-Fri)
+        cond_days = df_debug.index.dayofweek.isin([0, 1, 2, 3, 4])
+        
+        # 4. Assemble the Debug DataFrame
+        audit_df = pd.DataFrame(index=df_debug.index)
+        audit_df['Close'] = df_debug['Close']
+        audit_df['High'] = df_debug['High']
+        audit_df['Ref_High_252'] = rolling_high
+        
+        # Boolean Columns (1 = Pass, 0 = Fail)
+        audit_df['1. Is_52w_High'] = cond_52w_raw
+        audit_df['2. First_Inst_15d'] = cond_first_instance
+        audit_df['3. Vol_>_1.5'] = cond_vol
+        audit_df['4. Rng_>_50%'] = cond_range
+        audit_df['5. MktSznl_>_50'] = cond_mkt_sznl
+        audit_df['6. Close_>_YHigh'] = cond_breakout_mode
+        audit_df['7. Cycle_OK'] = cond_cycle
+        
+        # Final Signal (All must be True)
+        audit_df['⚡ FINAL_SIGNAL'] = (
+            cond_52w_raw & cond_first_instance & cond_vol & 
+            cond_range & cond_mkt_sznl & cond_breakout_mode & cond_cycle & cond_days
+        )
+        
+        # Add numeric context for debugging
+        audit_df['(ctx) Vol_Ratio'] = df_debug['vol_ratio']
+        audit_df['(ctx) Mkt_Sznl'] = df_debug['Mkt_Sznl_Ref']
+        audit_df['(ctx) Prev_High'] = df_debug['High'].shift(1)
+        
+        # Filter to last 60 days
+        audit_view = audit_df.iloc[-60:].sort_index(ascending=False)
+        
+        # Display using Streamlit
+        # Highlight True/False for quick scanning
+        st.dataframe(
+            audit_view.style.format({
+                "Close": "{:.2f}", "High": "{:.2f}", "Ref_High_252": "{:.2f}",
+                "(ctx) Vol_Ratio": "{:.2f}", "(ctx) Mkt_Sznl": "{:.1f}", "(ctx) Prev_High": "{:.2f}"
+            }).applymap(lambda x: "color: red; opacity: 0.5" if x is False else "color: green; font-weight: bold" if x is True else "", 
+                        subset=['1. Is_52w_High', '2. First_Inst_15d', '3. Vol_>_1.5', '4. Rng_>_50%', '5. MktSznl_>_50', '6. Close_>_YHigh', '7. Cycle_OK', '⚡ FINAL_SIGNAL']),
+            use_container_width=True,
+            height=600
+        )
+    else:
+        st.error(f"Ticker {debug_ticker} not found in downloaded data. Please run the backtest first.")
     else: st.info("👈 Please select a start year/date and click 'Run Backtest' in the sidebar to begin.")
 
 if __name__ == "__main__":
