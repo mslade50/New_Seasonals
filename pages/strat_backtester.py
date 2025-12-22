@@ -120,249 +120,326 @@ def download_historical_data(tickers, start_date="2000-01-01"):
 # -----------------------------------------------------------------------------
 # ENGINE
 # -----------------------------------------------------------------------------
-def calculate_indicators(df, sznl_map, ticker, market_series=None):
+def calculate_indicators(df, sznl_map, ticker, market_series=None, vix_series=None, gap_window=21, custom_sma_lengths=None, acc_window=None, dist_window=None):
     df = df.copy()
-    # Ensure sorted index for correct shifting
+    # Ensure sorted index
     df.sort_index(inplace=True)
     
+    # Handle MultiIndex and Column Names
     if isinstance(df.columns, pd.MultiIndex):
         df.columns = [c[0] if isinstance(c, tuple) else c for c in df.columns]
     df.columns = [c.capitalize() for c in df.columns]
-    if df.index.tz is not None: df.index = df.index.tz_localize(None)
+    if df.index.tz is not None:
+        df.index = df.index.tz_localize(None)
+    df.index = df.index.normalize()
     
+    # --- Standard SMAs ---
     df['SMA10'] = df['Close'].rolling(10).mean()
     df['SMA20'] = df['Close'].rolling(20).mean()
-    df['SMA50'] = df['Close'].rolling(50).mean() 
+    df['SMA50'] = df['Close'].rolling(50).mean()
+    df['SMA100'] = df['Close'].rolling(100).mean()
     df['SMA200'] = df['Close'].rolling(200).mean()
     
-    is_open_gap = (df['Low'] > df['High'].shift(1)).astype(int)
-    df['GapCount_21'] = is_open_gap.rolling(21).sum() 
-    df['GapCount_10'] = is_open_gap.rolling(10).sum()
-    df['GapCount_5'] = is_open_gap.rolling(5).sum() 
+    # --- Dynamic SMAs ---
+    if custom_sma_lengths:
+        for length in custom_sma_lengths:
+            col_name = f"SMA{length}"
+            if col_name not in df.columns:
+                df[col_name] = df['Close'].rolling(length).mean()
 
-    denom = (df['High'] - df['Low'])
-    df['RangePct'] = np.where(denom == 0, 0.5, (df['Close'] - df['Low']) / denom)
-
+    # --- EMAs ---
+    df['EMA8'] = df['Close'].ewm(span=8, adjust=False).mean()
+    df['EMA11'] = df['Close'].ewm(span=11, adjust=False).mean()
+    df['EMA21'] = df['Close'].ewm(span=21, adjust=False).mean()
+    
+    # --- Perf Ranks ---
     for window in [5, 10, 21]:
         df[f'ret_{window}d'] = df['Close'].pct_change(window)
-        df[f'rank_ret_{window}d'] = df[f'ret_{window}d'].expanding(min_periods=50).rank(pct=True) * 100.0
-        
+        df[f'rank_ret_{window}d'] = df[f'ret_{window}d'].expanding(min_periods=252).rank(pct=True) * 100.0
+    
+    # --- ATR ---
     high_low = df['High'] - df['Low']
     high_close = np.abs(df['High'] - df['Close'].shift())
     low_close = np.abs(df['Low'] - df['Close'].shift())
     ranges = pd.concat([high_low, high_close, low_close], axis=1)
     df['ATR'] = ranges.max(axis=1).rolling(14).mean()
+    df['ATR_Pct'] = (df['ATR'] / df['Close']) * 100
     
+    # --- SEASONALITY ---
+    df['Sznl'] = get_sznl_val_series(ticker, df.index, sznl_map)
+    # Default to ^GSPC if MARKET_TICKER is not global
+    mkt_ticker_ref = "^GSPC" 
+    df['Mkt_Sznl_Ref'] = get_sznl_val_series(mkt_ticker_ref, df.index, sznl_map)
+    
+    # --- 52w High/Low ---
+    rolling_high = df['High'].shift(1).rolling(252).max()
+    rolling_low = df['Low'].shift(1).rolling(252).min()
+    df['is_52w_high'] = df['High'] > rolling_high
+    df['is_52w_low'] = df['Low'] < rolling_low
+    
+    # --- Volume & Vol Ratio ---
     vol_ma = df['Volume'].rolling(63).mean()
-    df['vol_ratio'] = df['Volume'] / vol_ma
     df['vol_ma'] = vol_ma
-    cond_vol_ma = df['Volume'] > vol_ma
-    cond_vol_up = df['Volume'] > df['Volume'].shift(1)
-    df['Vol_Spike'] = cond_vol_ma & cond_vol_up
+    df['vol_ratio'] = df['Volume'] / vol_ma
     
-    cond_green = df['Close'] > df['Open']
-    is_accumulation = (df['Vol_Spike'] & cond_green).astype(int)
-    df['AccCount_21'] = is_accumulation.rolling(21).sum()
-    
-    cond_red = df['Close'] < df['Open']
-    is_distribution = (df['Vol_Spike'] & cond_red).astype(int)
-    df['DistCount_21'] = is_distribution.rolling(21).sum()
-    
+    # 10d Relative Volume Percentile
     vol_ma_10 = df['Volume'].rolling(10).mean()
     df['vol_ratio_10d'] = vol_ma_10 / vol_ma
-    df['vol_ratio_10d_rank'] = df['vol_ratio_10d'].expanding(min_periods=50).rank(pct=True) * 100.0
+    df['vol_ratio_10d_rank'] = df['vol_ratio_10d'].expanding(min_periods=252).rank(pct=True) * 100.0
     
-    df['Sznl'] = get_sznl_val_series(ticker, df.index, sznl_map)
-    df['Mkt_Sznl_Ref'] = get_sznl_val_series("^GSPC", df.index, sznl_map)
+    # --- Acc/Dist Flags ---
+    vol_gt_prev = df['Volume'] > df['Volume'].shift(1)
+    vol_gt_ma = df['Volume'] > df['vol_ma']
+    is_green = df['Close'] > df['Open']
+    is_red = df['Close'] < df['Open']
+
+    df['is_acc_day'] = (is_green & vol_gt_prev & vol_gt_ma).astype(int)
+    df['is_dist_day'] = (is_red & vol_gt_prev & vol_gt_ma).astype(int)
     
+    if acc_window:
+        df[f'AccCount_{acc_window}'] = df['is_acc_day'].rolling(acc_window).sum()
+    if dist_window:
+        df[f'DistCount_{dist_window}'] = df['is_dist_day'].rolling(dist_window).sum()
+
+    # --- Age ---
     if not df.empty:
         start_ts = df.index[0]
         df['age_years'] = (df.index - start_ts).days / 365.25
     else:
         df['age_years'] = 0.0
-
+        
+    # --- External Series (Market/VIX) ---
     if market_series is not None:
         df['Market_Above_SMA200'] = market_series.reindex(df.index, method='ffill').fillna(False)
+
+    if vix_series is not None:
+        # Renamed to VIX_Value to match your reference code
+        df['VIX_Value'] = vix_series.reindex(df.index, method='ffill').fillna(0)
+    else:
+        df['VIX_Value'] = 0.0
+
+    # --- Candle Range % Location ---
+    denom = (df['High'] - df['Low'])
+    df['RangePct'] = np.where(denom == 0, 0.5, (df['Close'] - df['Low']) / denom)
+
+    # --- Day of Week & Gaps ---
+    df['DayOfWeekVal'] = df.index.dayofweek
+    is_open_gap = (df['Low'] > df['High'].shift(1)).astype(int)
+    df['GapCount'] = is_open_gap.rolling(gap_window).sum()
+
+    # --- Pivots (Calculated exactly as in reference) ---
+    piv_len = 20 
+    roll_max = df['High'].rolling(window=piv_len*2+1, center=True).max()
+    df['is_pivot_high'] = (df['High'] == roll_max)
+    roll_min = df['Low'].rolling(window=piv_len*2+1, center=True).min()
+    df['is_pivot_low'] = (df['Low'] == roll_min)
+
+    df['LastPivotHigh'] = np.where(df['is_pivot_high'], df['High'], np.nan)
+    df['LastPivotHigh'] = df['LastPivotHigh'].shift(piv_len).ffill()
+    df['LastPivotLow'] = np.where(df['is_pivot_low'], df['Low'], np.nan)
+    df['LastPivotLow'] = df['LastPivotLow'].shift(piv_len).ffill()
     
-    # 52W High Logic
-    rolling_high = df['High'].shift(1).rolling(252).max()
-    rolling_low = df['Low'].shift(1).rolling(252).min()
-    df['is_52w_high'] = df['High'] > rolling_high
-    df['is_52w_low'] = df['Low'] < rolling_low
-        
+    # --- Helper for Breakout Mode ---
+    df['PrevHigh'] = df['High'].shift(1)
+    df['PrevLow'] = df['Low'].shift(1)
+
     return df
 
 def get_historical_mask(df, params, sznl_map, ticker_name="UNK"):
-    # Debug Helper: Count True values
+    # Debug Helper
     def count_true(s): return s.sum()
 
     mask = pd.Series(True, index=df.index)
-    initial_count = count_true(mask)
-
-    if params.get('use_dow_filter', False):
-        allowed = params.get('allowed_days', [])
-        mask &= df.index.dayofweek.isin(allowed)
-
-    if 'allowed_cycles' in params:
-        allowed_cycles = params['allowed_cycles']
-        if allowed_cycles and len(allowed_cycles) < 4:
-            mask &= (df.index.year % 4).isin(allowed_cycles)
-
-    mask &= (df['Close'] >= params.get('min_price', 0))
-    mask &= (df['vol_ma'] >= params.get('min_vol', 0))
-    mask &= (df['age_years'] >= params.get('min_age', 0))
-    mask &= (df['age_years'] <= params.get('max_age', 100))
     
-    after_basics = count_true(mask)
-
-    if 'ATR' in df.columns:
-        atr_pct = (df['ATR'] / df['Close']) * 100
-        min_atr = params.get('min_atr_pct', 0.0)
-        max_atr = params.get('max_atr_pct', 1000.0)
-        mask &= (atr_pct >= min_atr) & (atr_pct <= max_atr)
-
+    # --- 1. TREND FILTER ---
     trend_opt = params.get('trend_filter', 'None')
     if trend_opt == "Price > 200 SMA":
         mask &= (df['Close'] > df['SMA200'])
     elif trend_opt == "Price > Rising 200 SMA":
         mask &= (df['Close'] > df['SMA200']) & (df['SMA200'] > df['SMA200'].shift(1))
-    elif "Market" in trend_opt or "SPY" in trend_opt:
-        if 'Market_Above_SMA200' in df.columns:
-            is_above = df['Market_Above_SMA200']
-            if ">" in trend_opt: mask &= is_above
-            elif "<" in trend_opt: mask &= ~is_above
+    elif trend_opt == "Not Below Declining 200 SMA":
+        mask &= ~((df['Close'] < df['SMA200']) & (df['SMA200'] < df['SMA200'].shift(1)))
+    elif trend_opt == "Price < 200 SMA":
+        mask &= (df['Close'] < df['SMA200'])
+    elif trend_opt == "Price < Falling 200 SMA":
+        mask &= (df['Close'] < df['SMA200']) & (df['SMA200'] < df['SMA200'].shift(1))
+    elif "Market" in trend_opt and 'Market_Above_SMA200' in df.columns:
+        if trend_opt == "Market > 200 SMA": mask &= df['Market_Above_SMA200']
+        elif trend_opt == "Market < 200 SMA": mask &= ~df['Market_Above_SMA200']
 
-    if 'ma_consec_filters' in params:
-        for maf in params['ma_consec_filters']:
-            length = maf['length']
-            col_name = f"SMA{length}"
-            if col_name not in df.columns: continue
-            if maf['logic'] == 'Above': cond = df['Close'] > df[col_name]
-            elif maf['logic'] == 'Below': cond = df['Close'] < df[col_name]
-            else: continue
-            consec = maf.get('consec', 1)
-            if consec > 1: cond = (cond.rolling(consec).sum() == consec)
-            mask &= cond
+    # --- 2. LIQUIDITY & GATES ---
+    mask &= (df['Close'] >= params.get('min_price', 0))
+    mask &= (df['vol_ma'] >= params.get('min_vol', 0))
+    mask &= (df['age_years'] >= params.get('min_age', 0))
+    mask &= (df['age_years'] <= params.get('max_age', 100))
+    
+    if 'ATR_Pct' in df.columns:
+        mask &= (df['ATR_Pct'] >= params.get('min_atr_pct', 0)) & (df['ATR_Pct'] <= params.get('max_atr_pct', 1000))
+        
+    if params.get('require_close_gt_open', False):
+        mask &= (df['Close'] > df['Open'])
 
+    # --- 3. BREAKOUT MODE ---
+    bk_mode = params.get('breakout_mode', 'None')
+    if bk_mode == "Close > Prev Day High":
+        mask &= (df['Close'] > df['PrevHigh'])
+    elif bk_mode == "Close < Prev Day Low":
+        mask &= (df['Close'] < df['PrevLow'])
+
+    # --- 4. RANGE % ---
     if params.get('use_range_filter', False):
         rn_val = df['RangePct'] * 100
         mask &= (rn_val >= params.get('range_min', 0)) & (rn_val <= params.get('range_max', 100))
 
-    if 'perf_filters' in params:
-        for pf in params['perf_filters']:
-            col = f"rank_ret_{pf['window']}d"
-            consec = pf.get('consecutive', 1)
-            if pf['logic'] == '<': cond_f = df[col] < pf['thresh']
-            else: cond_f = df[col] > pf['thresh']
-            if consec > 1: cond_f = (cond_f.rolling(consec).sum() == consec)
-            mask &= cond_f
-        if params.get('perf_first_instance', False):
-            lookback = params.get('perf_lookback', 21)
-            prev_inst = mask.shift(1).rolling(lookback).sum()
-            mask &= (prev_inst == 0)
+    # --- 5. DAY OF WEEK ---
+    if params.get('use_dow_filter', False):
+        allowed = params.get('allowed_days', [])
+        if allowed:
+            mask &= df['DayOfWeekVal'].isin(allowed)
 
-    elif params.get('use_perf_rank', False):
-        col = f"rank_ret_{params['perf_window']}d"
-        if params['perf_logic'] == '<': raw = df[col] < params['perf_thresh']
-        else: raw = df[col] > params['perf_thresh']
-        consec = params.get('perf_consecutive', 1)
-        if consec > 1: persist = (raw.rolling(consec).sum() == consec)
-        else: persist = raw
-        mask &= persist
-        if params.get('perf_first_instance', False):
-            lookback = params.get('perf_lookback', 21)
-            prev_inst = mask.shift(1).rolling(lookback).sum()
-            mask &= (prev_inst == 0)
+    # --- 6. CYCLE ---
+    if 'allowed_cycles' in params:
+        allowed = params['allowed_cycles']
+        if allowed and len(allowed) < 4:
+            year_rems = df.index.year % 4
+            mask &= pd.Series(year_rems, index=df.index).isin(allowed)
 
+    # --- 7. GAP FILTER ---
     if params.get('use_gap_filter', False):
-        lookback = params.get('gap_lookback', 21)
-        col_name = f'GapCount_{lookback}' if f'GapCount_{lookback}' in df.columns else 'GapCount_21'
-        g_val = df.get(col_name, 0)
+        # Note: calculate_indicators calculates 'GapCount' based on 'gap_lookback' passed to it
+        # If the param changed dynamically, this might be slightly off, but usually consistent.
+        g_val = df['GapCount']
         g_thresh = params.get('gap_thresh', 0)
         g_logic = params.get('gap_logic', '>')
         if g_logic == ">": mask &= (g_val > g_thresh)
         elif g_logic == "<": mask &= (g_val < g_thresh)
         elif g_logic == "=": mask &= (g_val == g_thresh)
 
+    # --- 8. ACC/DIST COUNTS ---
     if params.get('use_acc_count_filter', False):
-        window = params.get('acc_count_window', 21)
-        col_name = f'AccCount_{window}'
-        if col_name in df.columns:
-            acc_thresh = params.get('acc_count_thresh', 0)
-            acc_logic = params.get('acc_count_logic', '=')
-            if acc_logic == '=': mask &= (df[col_name] == acc_thresh)
-            elif acc_logic == '>': mask &= (df[col_name] > acc_thresh)
-            elif acc_logic == '<': mask &= (df[col_name] < acc_thresh)
+        col = f"AccCount_{params['acc_count_window']}"
+        if col in df.columns:
+            if params['acc_count_logic'] == ">": mask &= (df[col] > params['acc_count_thresh'])
+            elif params['acc_count_logic'] == "<": mask &= (df[col] < params['acc_count_thresh'])
+            elif params['acc_count_logic'] == "=": mask &= (df[col] == params['acc_count_thresh'])
 
     if params.get('use_dist_count_filter', False):
-        window = params.get('dist_count_window', 21)
-        col_name = f'DistCount_{window}'
-        if col_name in df.columns:
-            dist_thresh = params.get('dist_count_thresh', 0)
-            dist_logic = params.get('dist_count_logic', '>')
-            if dist_logic == '=': mask &= (df[col_name] == dist_thresh)
-            elif dist_logic == '>': mask &= (df[col_name] > dist_thresh)
-            elif dist_logic == '<': mask &= (df[col_name] < dist_thresh)
+        col = f"DistCount_{params['dist_count_window']}"
+        if col in df.columns:
+            if params['dist_count_logic'] == ">": mask &= (df[col] > params['dist_count_thresh'])
+            elif params['dist_count_logic'] == "<": mask &= (df[col] < params['dist_count_thresh'])
+            elif params['dist_count_logic'] == "=": mask &= (df[col] == params['dist_count_thresh'])
 
-    if params.get('use_dist_filter', False):
-        ma_type = params.get('dist_ma_type', 'SMA 200')
-        ma_col = ma_type.replace(" ", "") 
-        if ma_col in df.columns:
-            atr = df['ATR'].replace(0, np.nan)
-            dist_units = (df['Close'] - df[ma_col]) / atr
-            d_logic = params.get('dist_logic', 'Between')
-            d_min = params.get('dist_min', 0)
-            d_max = params.get('dist_max', 0)
-            if d_logic == "Greater Than (>)": mask &= (dist_units > d_min)
-            elif d_logic == "Less Than (<)": mask &= (dist_units < d_max)
-            elif d_logic == "Between": mask &= (dist_units >= d_min) & (dist_units <= d_max)
+    # --- 9. PERFORMANCE RANK ---
+    for pf in params.get('perf_filters', []):
+        col = f"rank_ret_{pf['window']}d"
+        cond = (df[col] < pf['thresh']) if pf['logic'] == '<' else (df[col] > pf['thresh'])
+        if pf['consecutive'] > 1: cond = cond.rolling(pf['consecutive']).sum() == pf['consecutive']
+        mask &= cond
 
-    if params['use_sznl']:
-        if params['sznl_logic'] == '<': raw_sznl = df['Sznl'] < params['sznl_thresh']
-        else: raw_sznl = df['Sznl'] > params['sznl_thresh']
-        sznl_cond = raw_sznl
+    # --- 10. MA CONSECUTIVE ---
+    for f in params.get('ma_consec_filters', []):
+        col = f"SMA{f['length']}"
+        if col in df.columns:
+            cond = (df['Close'] > df[col]) if f['logic'] == 'Above' else (df['Close'] < df[col])
+            if f['consec'] > 1: cond = cond.rolling(f['consec']).sum() == f['consec']
+            mask &= cond
+
+    # --- 11. TICKER SEASONALITY ---
+    if params.get('use_sznl', False):
+        cond_s = (df['Sznl'] < params['sznl_thresh']) if params['sznl_logic'] == '<' else (df['Sznl'] > params['sznl_thresh'])
         if params.get('sznl_first_instance', False):
             lookback = params.get('sznl_lookback', 21)
-            prev = sznl_cond.shift(1).rolling(lookback).sum()
-            sznl_cond &= (prev == 0)
-        mask &= sznl_cond
+            prev = cond_s.shift(1).rolling(lookback).max().fillna(0) # max() == 1 if any true
+            cond_s &= (prev == 0)
+        mask &= cond_s
 
     if params.get('use_market_sznl', False):
-        mkt_ranks = df['Mkt_Sznl_Ref']
-        # FIX: Changed from '>' to '>=' to handle default 50.0 value
-        if params['market_sznl_logic'] == '<': mask &= (mkt_ranks < params['market_sznl_thresh'])
-        else: mask &= (mkt_ranks >= params['market_sznl_thresh'])
+        cond_ms = (df['Mkt_Sznl_Ref'] < params['market_sznl_thresh']) if params['market_sznl_logic'] == '<' else (df['Mkt_Sznl_Ref'] > params['market_sznl_thresh'])
+        mask &= cond_ms
 
-    if params['use_52w']:
-        if params['52w_type'] == 'New 52w High': cond_52 = df['is_52w_high']
-        else: cond_52 = df['is_52w_low']
+    # --- 12. 52-WEEK HIGH/LOW ---
+    if params.get('use_52w', False):
+        cond_52 = df['is_52w_high'] if params['52w_type'] == 'New 52w High' else df['is_52w_low']
         
-        # Breakout Mode Check (Removed excessive filtering)
-        # breakout_mode = params.get('breakout_mode', None)
-        # if breakout_mode == "Close > Prev Day High":
-        #     cond_52 &= (df['Close'] > df['High'].shift(1))
+        if params.get('52w_lag', 0) > 0:
+            cond_52 = cond_52.shift(params['52w_lag']).fillna(False)
 
-        if params.get('52w_first_instance', True):
+        if params.get('52w_first_instance', False):
             lookback = params.get('52w_lookback', 21)
-            prev = cond_52.shift(1).rolling(lookback).sum()
+            prev = cond_52.shift(1).rolling(lookback).max().fillna(0)
             cond_52 &= (prev == 0)
+        
         mask &= cond_52
 
     if params.get('exclude_52w_high', False):
         mask &= (~df['is_52w_high'])
 
-    if params['use_vol']:
+    # --- 13. VOLUME FILTERS ---
+    if params.get('vol_gt_prev', False):
+        mask &= (df['Volume'] > df['Volume'].shift(1))
+    
+    if params.get('use_vol', False):
         mask &= (df['vol_ratio'] > params['vol_thresh'])
 
-    if params.get('use_vol_rank'):
-        val = df['vol_ratio_10d_rank']
-        if params['vol_rank_logic'] == '<': mask &= (val < params['vol_rank_thresh'])
-        else: mask &= (val > params['vol_rank_thresh'])
-    
-    final_count = count_true(mask)
-    # Debug print if dropping to zero unexpectedly (optional, can comment out)
-    if initial_count > 0 and final_count == 0:
-        print(f"DEBUG: {ticker_name} - Signals dropped to 0. Basics: {after_basics}, Final: {final_count}")
+    if params.get('use_vol_rank', False):
+        col = 'vol_ratio_10d_rank'
+        if params['vol_rank_logic'] == ">": mask &= (df[col] > params['vol_rank_thresh'])
+        elif params['vol_rank_logic'] == "<": mask &= (df[col] < params['vol_rank_thresh'])
+
+    # --- 14. MA DISTANCE ---
+    if params.get('use_ma_dist_filter', False):
+        ma_col_map = {"SMA 10": "SMA10", "SMA 20": "SMA20", "SMA 50": "SMA50", "SMA 100": "SMA100", "SMA 200": "SMA200", 
+                      "EMA 8": "EMA8", "EMA 11": "EMA11", "EMA 21": "EMA21"}
+        ma_target = ma_col_map.get(params['dist_ma_type'])
+        if ma_target and ma_target in df.columns:
+            # Note: run_engine uses df['ATR'], assume calculated
+            dist_val = (df['Close'] - df[ma_target]) / df['ATR']
+            if params['dist_logic'] == "Greater Than (>)": mask &= (dist_val > params['dist_min'])
+            elif params['dist_logic'] == "Less Than (<)": mask &= (dist_val < params['dist_max'])
+            elif params['dist_logic'] == "Between": mask &= (dist_val >= params['dist_min']) & (dist_val <= params['dist_max'])
+
+    # --- 15. VIX REGIME ---
+    if params.get('use_vix_filter', False) and 'VIX_Value' in df.columns:
+        mask &= (df['VIX_Value'] >= params.get('vix_min', 0)) & (df['VIX_Value'] <= params.get('vix_max', 100))
+
+    # --- 16. MA TOUCH LOGIC (Exact Replication) ---
+    if params.get('use_ma_touch', False):
+        ma_col_map = {"SMA 10": "SMA10", "SMA 20": "SMA20", "SMA 50": "SMA50", "SMA 100": "SMA100", "SMA 200": "SMA200", 
+                      "EMA 8": "EMA8", "EMA 11": "EMA11", "EMA 21": "EMA21"}
+        ma_target = ma_col_map.get(params.get('ma_touch_type'))
+        
+        if ma_target and ma_target in df.columns:
+            ma_series = df[ma_target]
+            direction = params.get('trade_direction', 'Long')
+            slope_lookback = params.get('ma_slope_days', 20)
+            untested_lookback = params.get('ma_untested_days', 50)
+
+            # Check 1: Slope Direction
+            if direction == 'Long': is_slope_ok = (ma_series > ma_series.shift(1))
+            else: is_slope_ok = (ma_series < ma_series.shift(1))
+            
+            if slope_lookback > 1:
+                is_slope_ok = (is_slope_ok.rolling(slope_lookback).sum() == slope_lookback)
+            
+            # Check 2: Untested History
+            if untested_lookback > 0:
+                if direction == 'Long':
+                    # Lows must have been ABOVE MA
+                    was_untested = (df['Low'] > ma_series).shift(1).rolling(untested_lookback).min() == 1.0
+                else:
+                    # Highs must have been BELOW MA
+                    was_untested = (df['High'] < ma_series).shift(1).rolling(untested_lookback).min() == 1.0
+                was_untested = was_untested.fillna(False)
+            else:
+                was_untested = True
+
+            # Check 3: Trigger (Touch Today)
+            if direction == 'Long': touched_today = (df['Low'] <= ma_series)
+            else: touched_today = (df['High'] >= ma_series)
+
+            # Combine MA Touch Components
+            mask &= (is_slope_ok & was_untested & touched_today)
 
     return mask.fillna(False)
 
