@@ -124,12 +124,6 @@ def calculate_indicators(df, sznl_map, ticker, market_series=None):
     if market_series is not None:
         df['Market_Above_SMA200'] = market_series.reindex(df.index, method='ffill').fillna(False)
     
-    # --- 52w High/Low ---
-    rolling_high = df['High'].shift(1).rolling(252).max()
-    rolling_low = df['Low'].shift(1).rolling(252).min()
-    df['is_52w_high'] = df['High'] > rolling_high
-    df['is_52w_low'] = df['Low'] < rolling_low
-        
     return df
     
 # -----------------------------------------------------------------------------
@@ -299,10 +293,7 @@ def download_historical_data(tickers, start_date="2000-01-01"):
     clean_tickers = list(set([str(t).strip().upper().replace('.', '-') for t in tickers]))
     
     data_dict = {}
-    CHUNK_SIZE = 50 
-    total = len(clean_tickers)
     
-    # UI Elements for progress if needed, or just silent
     try:
         # Batch download
         df = yf.download(
@@ -341,6 +332,7 @@ def download_historical_data(tickers, start_date="2000-01-01"):
     except Exception as e:
         st.error(f"Download Error: {e}")
         return {}
+
 def run_eod_batch_logic(sznl_map):
     st.info("🚀 Starting EOD Batch Scan...")
     
@@ -409,6 +401,7 @@ def run_eod_batch_logic(sznl_map):
         # Add your save_staging_orders call here if you want
     else:
         st.warning("No signals found.")
+
 # -----------------------------------------------------------------------------
 # MAIN APP (Updated Monitor Section)
 # -----------------------------------------------------------------------------
@@ -555,7 +548,6 @@ def main():
 
     # --- EOD BATCH RUNNER (Keep existing) ---
     elif mode == "EOD Batch Runner":
-        # ... (Same as before) ...
         st.title("⚡ EOD Batch Screener")
         if st.button("Run EOD Batch", type="primary"):
             run_eod_batch_logic(sznl_map)
