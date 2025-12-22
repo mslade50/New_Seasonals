@@ -117,12 +117,8 @@ def download_historical_data(tickers, start_date="2000-01-01"):
     status_text.empty()
     return data_dict
 
-# -----------------------------------------------------------------------------
-# ENGINE
-# -----------------------------------------------------------------------------
 def calculate_indicators(df, sznl_map, ticker, market_series=None, vix_series=None, gap_window=21, custom_sma_lengths=None, acc_window=None, dist_window=None):
     df = df.copy()
-    # Ensure sorted index
     df.sort_index(inplace=True)
     
     # Handle MultiIndex and Column Names
@@ -167,7 +163,6 @@ def calculate_indicators(df, sznl_map, ticker, market_series=None, vix_series=No
     
     # --- SEASONALITY ---
     df['Sznl'] = get_sznl_val_series(ticker, df.index, sznl_map)
-    # Default to ^GSPC if MARKET_TICKER is not global
     mkt_ticker_ref = "^GSPC" 
     df['Mkt_Sznl_Ref'] = get_sznl_val_series(mkt_ticker_ref, df.index, sznl_map)
     
@@ -213,7 +208,6 @@ def calculate_indicators(df, sznl_map, ticker, market_series=None, vix_series=No
         df['Market_Above_SMA200'] = market_series.reindex(df.index, method='ffill').fillna(False)
 
     if vix_series is not None:
-        # Renamed to VIX_Value to match your reference code
         df['VIX_Value'] = vix_series.reindex(df.index, method='ffill').fillna(0)
     else:
         df['VIX_Value'] = 0.0
@@ -225,9 +219,10 @@ def calculate_indicators(df, sznl_map, ticker, market_series=None, vix_series=No
     # --- Day of Week & Gaps ---
     df['DayOfWeekVal'] = df.index.dayofweek
     is_open_gap = (df['Low'] > df['High'].shift(1)).astype(int)
+    # Dynamic Gap Window
     df['GapCount'] = is_open_gap.rolling(gap_window).sum()
 
-    # --- Pivots (Calculated exactly as in reference) ---
+    # --- Pivots ---
     piv_len = 20 
     roll_max = df['High'].rolling(window=piv_len*2+1, center=True).max()
     df['is_pivot_high'] = (df['High'] == roll_max)
@@ -306,8 +301,7 @@ def get_historical_mask(df, params, sznl_map, ticker_name="UNK"):
 
     # --- 7. GAP FILTER ---
     if params.get('use_gap_filter', False):
-        # Note: calculate_indicators calculates 'GapCount' based on 'gap_lookback' passed to it
-        # If the param changed dynamically, this might be slightly off, but usually consistent.
+        # We now use the dynamic 'GapCount' column calculated by calculate_indicators
         g_val = df['GapCount']
         g_thresh = params.get('gap_thresh', 0)
         g_logic = params.get('gap_logic', '>')
@@ -393,7 +387,6 @@ def get_historical_mask(df, params, sznl_map, ticker_name="UNK"):
                       "EMA 8": "EMA8", "EMA 11": "EMA11", "EMA 21": "EMA21"}
         ma_target = ma_col_map.get(params['dist_ma_type'])
         if ma_target and ma_target in df.columns:
-            # Note: run_engine uses df['ATR'], assume calculated
             dist_val = (df['Close'] - df[ma_target]) / df['ATR']
             if params['dist_logic'] == "Greater Than (>)": mask &= (dist_val > params['dist_min'])
             elif params['dist_logic'] == "Less Than (<)": mask &= (dist_val < params['dist_max'])
@@ -403,7 +396,7 @@ def get_historical_mask(df, params, sznl_map, ticker_name="UNK"):
     if params.get('use_vix_filter', False) and 'VIX_Value' in df.columns:
         mask &= (df['VIX_Value'] >= params.get('vix_min', 0)) & (df['VIX_Value'] <= params.get('vix_max', 100))
 
-    # --- 16. MA TOUCH LOGIC (Exact Replication) ---
+    # --- 16. MA TOUCH LOGIC ---
     if params.get('use_ma_touch', False):
         ma_col_map = {"SMA 10": "SMA10", "SMA 20": "SMA20", "SMA 50": "SMA50", "SMA 100": "SMA100", "SMA 200": "SMA200", 
                       "EMA 8": "EMA8", "EMA 11": "EMA11", "EMA 21": "EMA21"}
@@ -662,6 +655,8 @@ def main():
             if s.get('use_market_sznl'): long_term_tickers.add(s.get('market_ticker', '^GSPC'))
             if "Market" in s.get('trend_filter', ''): long_term_tickers.add(s.get('market_ticker', 'SPY'))
             if "SPY" in s.get('trend_filter', ''): long_term_tickers.add("SPY")
+            # Ensure VIX is downloaded if used
+            if s.get('use_vix_filter'): long_term_tickers.add('^VIX')
 
         long_term_list = [t.replace('.', '-') for t in long_term_tickers]
         existing_keys = set(st.session_state['backtest_data'].keys())
@@ -683,13 +678,18 @@ def main():
             with st.expander("View Failed Tickers"):
                 st.write(list(failed_tickers))
 
+        # --- PREPARE GLOBAL VIX (IF AVAILABLE) ---
+        vix_df = master_dict.get('^VIX')
+        vix_series = vix_df['Close'] if vix_df is not None and not vix_df.empty else None
+
         all_signals = []
         progress_bar = st.progress(0)
         
         for i, strat in enumerate(STRATEGY_BOOK):
             progress_bar.progress((i + 1) / len(STRATEGY_BOOK))
+            settings = strat['settings']
             
-            strat_mkt_ticker = strat['settings'].get('market_ticker', 'SPY')
+            strat_mkt_ticker = settings.get('market_ticker', 'SPY')
             mkt_df = master_dict.get(strat_mkt_ticker)
             if mkt_df is None: mkt_df = master_dict.get('SPY')
             
@@ -699,9 +699,22 @@ def main():
                 temp_mkt['SMA200'] = temp_mkt['Close'].rolling(200).mean()
                 market_series = temp_mkt['Close'] > temp_mkt['SMA200']
 
-            strat_universe_clean = [t.replace('.', '-') for t in strat['universe_tickers']]
-            missing_in_strat = [t for t in strat_universe_clean if t not in master_dict]
-            if missing_in_strat: st.warning(f"Strategy **'{strat['name']}'** skipping {len(missing_in_strat)} tickers.")
+            # --- EXTRACT STRATEGY SPECIFIC PARAMETERS FOR CALCULATOR ---
+            gap_win = settings.get('gap_lookback', 21)
+            acc_win = settings.get('acc_count_window') if settings.get('use_acc_count_filter') else None
+            dist_win = settings.get('dist_count_window') if settings.get('use_dist_count_filter') else None
+            
+            # Extract Custom SMA lengths needed for filters
+            req_custom_mas = list(set([f['length'] for f in settings.get('ma_consec_filters', [])]))
+            
+            # Also need SMA for MA Touch if it's not standard
+            if settings.get('use_ma_touch'):
+                ma_type = settings.get('ma_touch_type', '')
+                if 'SMA' in ma_type and ma_type not in ["SMA 10", "SMA 20", "SMA 50", "SMA 100", "SMA 200"]:
+                    try:
+                        val = int(ma_type.replace("SMA", "").strip())
+                        req_custom_mas.append(val)
+                    except: pass
 
             for ticker in strat['universe_tickers']:
                 t_clean = ticker.replace('.', '-')
@@ -709,8 +722,16 @@ def main():
                 if df is None or len(df) < 200: continue
                 
                 try:
-                    df = calculate_indicators(df, sznl_map, t_clean, market_series)
-                    mask = get_historical_mask(df, strat['settings'], sznl_map, ticker)
+                    # PASS ALL DYNAMIC SETTINGS TO CALCULATOR
+                    df = calculate_indicators(
+                        df, sznl_map, t_clean, market_series, vix_series,
+                        gap_window=gap_win,
+                        acc_window=acc_win,
+                        dist_window=dist_win,
+                        custom_sma_lengths=req_custom_mas
+                    )
+                    
+                    mask = get_historical_mask(df, settings, sznl_map, ticker)
                     cutoff_ts = pd.Timestamp(user_start_date)
                     mask = mask[mask.index >= cutoff_ts]
                     if not mask.any(): continue
@@ -734,7 +755,7 @@ def main():
                             elif sznl_val >= 50: risk = risk * 1.0
                             elif sznl_val >= 33: risk = risk * 0.66
                         
-                        entry_type = strat['settings'].get('entry_type', 'Signal Close')
+                        entry_type = settings.get('entry_type', 'Signal Close')
                         entry_idx = df.index.get_loc(d)
                         if entry_idx + 1 >= len(df): continue 
                         entry_row = df.iloc[entry_idx + 1]
@@ -756,7 +777,7 @@ def main():
 
                         elif entry_type == "Limit (Open +/- 0.5 ATR)":
                             limit_offset = 0.5 * atr
-                            if strat['settings']['trade_direction'] == 'Short':
+                            if settings['trade_direction'] == 'Short':
                                 limit_price = entry_row['Open'] + limit_offset
                                 if entry_row['High'] < limit_price: valid_entry = False
                                 else: entry = limit_price
@@ -778,7 +799,7 @@ def main():
                             
                             for i in range(entry_idx + 1, search_end):
                                 check_row = df.iloc[i]
-                                if strat['settings']['trade_direction'] == 'Short':
+                                if settings['trade_direction'] == 'Short':
                                     limit_price = limit_base + limit_offset
                                     if check_row['High'] >= limit_price:
                                         entry = limit_price
@@ -786,7 +807,7 @@ def main():
                                         found_fill = True
                                         
                                         # Calculate remaining time from fill to original exit target
-                                        days_elapsed = i - entry_idx # Days from Signal to Fill
+                                        days_elapsed = i - entry_idx 
                                         hold_days = max(1, strat['execution']['hold_days'] - days_elapsed)
                                         break
                                 else: 
@@ -808,7 +829,7 @@ def main():
                         if not valid_entry: continue
 
                         # --- EXECUTION ---
-                        direction = strat['settings'].get('trade_direction', 'Long')
+                        direction = settings.get('trade_direction', 'Long')
                         if direction == 'Long':
                             stop_price = entry - (atr * strat['execution']['stop_atr'])
                             dist = entry - stop_price
@@ -822,7 +843,6 @@ def main():
                         pnl, exit_date = calculate_trade_result(df, entry_date, action, shares, entry, hold_days)
 
                         try:
-                            # Time stop calculation logic updated for Variable hold_days
                             e_idx = df.index.get_loc(entry_date)
                             ts_idx = e_idx + hold_days
                             time_stop_date = df.index[ts_idx] if ts_idx < len(df) else entry_date + BusinessDay(hold_days)
@@ -880,7 +900,6 @@ def main():
                 m4.metric("Net Exposure", f"${net_exposure:,.0f}")
                 m5.metric("Total Open PnL", f"${total_open_pnl:,.2f}", delta_color="normal", delta=f"{total_open_pnl:,.2f}")
                 
-                # UPDATED: Added Entry Date column
                 st.dataframe(open_df.style.format({
                     "Date": "{:%Y-%m-%d}", "Entry Date": "{:%Y-%m-%d}", "Time Stop": "{:%Y-%m-%d}", 
                     "Price": "${:.2f}", "Current Price": "${:.2f}", "Open PnL": "${:,.2f}", "Range %": "{:.1f}%"
@@ -932,7 +951,6 @@ def main():
             if not exposure_df.empty: st.line_chart(exposure_df)
 
             st.subheader("📜 Historical Signal Log")
-            # UPDATED: Added Entry Date column
             st.dataframe(sig_df.sort_values(by="Date", ascending=False).style.format({
                 "Price": "${:.2f}", "PnL": "${:.2f}", "Date": "{:%Y-%m-%d}", "Entry Date": "{:%Y-%m-%d}", 
                 "Exit Date": "{:%Y-%m-%d}", "Time Stop": "{:%Y-%m-%d}", "Range %": "{:.1f}%"
