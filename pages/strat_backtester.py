@@ -301,7 +301,6 @@ def get_historical_mask(df, params, sznl_map, ticker_name="UNK"):
 
     # --- 7. GAP FILTER ---
     if params.get('use_gap_filter', False):
-        # We now use the dynamic 'GapCount' column calculated by calculate_indicators
         g_val = df['GapCount']
         g_thresh = params.get('gap_thresh', 0)
         g_logic = params.get('gap_logic', '>')
@@ -324,12 +323,35 @@ def get_historical_mask(df, params, sznl_map, ticker_name="UNK"):
             elif params['dist_count_logic'] == "<": mask &= (df[col] < params['dist_count_thresh'])
             elif params['dist_count_logic'] == "=": mask &= (df[col] == params['dist_count_thresh'])
 
-    # --- 9. PERFORMANCE RANK ---
+    # --- 9. PERFORMANCE RANK (RESTORED DUAL LOGIC) ---
+    # A. Check the "perf_filters" LIST (if populated)
     for pf in params.get('perf_filters', []):
         col = f"rank_ret_{pf['window']}d"
         cond = (df[col] < pf['thresh']) if pf['logic'] == '<' else (df[col] > pf['thresh'])
         if pf['consecutive'] > 1: cond = cond.rolling(pf['consecutive']).sum() == pf['consecutive']
         mask &= cond
+
+    # B. Check the SINGULAR "use_perf_rank" (This was missing!)
+    if params.get('use_perf_rank', False):
+        col = f"rank_ret_{params['perf_window']}d"
+        if params['perf_logic'] == '<': 
+            raw = df[col] < params['perf_thresh']
+        else: 
+            raw = df[col] > params['perf_thresh']
+        
+        consec = params.get('perf_consecutive', 1)
+        if consec > 1: 
+            # This ensures we have 'consec' days in a row where 'raw' is True
+            persist = (raw.rolling(consec).sum() == consec)
+        else: 
+            persist = raw
+        
+        mask &= persist
+        
+        if params.get('perf_first_instance', False):
+            lookback = params.get('perf_lookback', 21)
+            prev_inst = mask.shift(1).rolling(lookback).sum()
+            mask &= (prev_inst == 0)
 
     # --- 10. MA CONSECUTIVE ---
     for f in params.get('ma_consec_filters', []):
@@ -344,7 +366,7 @@ def get_historical_mask(df, params, sznl_map, ticker_name="UNK"):
         cond_s = (df['Sznl'] < params['sznl_thresh']) if params['sznl_logic'] == '<' else (df['Sznl'] > params['sznl_thresh'])
         if params.get('sznl_first_instance', False):
             lookback = params.get('sznl_lookback', 21)
-            prev = cond_s.shift(1).rolling(lookback).max().fillna(0) # max() == 1 if any true
+            prev = cond_s.shift(1).rolling(lookback).max().fillna(0)
             cond_s &= (prev == 0)
         mask &= cond_s
 
@@ -418,10 +440,8 @@ def get_historical_mask(df, params, sznl_map, ticker_name="UNK"):
             # Check 2: Untested History
             if untested_lookback > 0:
                 if direction == 'Long':
-                    # Lows must have been ABOVE MA
                     was_untested = (df['Low'] > ma_series).shift(1).rolling(untested_lookback).min() == 1.0
                 else:
-                    # Highs must have been BELOW MA
                     was_untested = (df['High'] < ma_series).shift(1).rolling(untested_lookback).min() == 1.0
                 was_untested = was_untested.fillna(False)
             else:
@@ -431,7 +451,6 @@ def get_historical_mask(df, params, sznl_map, ticker_name="UNK"):
             if direction == 'Long': touched_today = (df['Low'] <= ma_series)
             else: touched_today = (df['High'] >= ma_series)
 
-            # Combine MA Touch Components
             mask &= (is_slope_ok & was_untested & touched_today)
 
     return mask.fillna(False)
