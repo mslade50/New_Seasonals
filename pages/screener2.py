@@ -360,7 +360,8 @@ def check_signal(df, params, sznl_map):
         current_day = last_row.name.dayofweek
         if current_day not in allowed: return False
 
-    # 0b. Cycle Year Filter
+    # 0b. Cycle Year Filter (Presidential cycle)
+    # 0 = Election year, 1 = Post-election, 2 = Midterm, 3 = Pre-election
     if 'allowed_cycles' in params:
         allowed_cycles = params['allowed_cycles']
         if allowed_cycles and len(allowed_cycles) < 4:
@@ -411,6 +412,7 @@ def check_signal(df, params, sznl_map):
             # Create boolean series
             if maf['logic'] == 'Above': mask = df['Close'] > df[col_name]
             elif maf['logic'] == 'Below': mask = df['Close'] < df[col_name]
+            else: continue  # Unknown logic
             
             consec = maf.get('consec', 1)
             if consec > 1:
@@ -433,10 +435,12 @@ def check_signal(df, params, sznl_map):
         if not (rn_val >= params.get('range_min', 0) and rn_val <= params.get('range_max', 100)): return False
 
     # 5. Perf Rank (Dual Support)
-    # A. LIST BASED
+    # A. LIST BASED - with proper first_instance handling per filter
     if 'perf_filters' in params:
         for pf in params['perf_filters']:
             col = f"rank_ret_{pf['window']}d"
+            if col not in df.columns: continue
+            
             consec = pf.get('consecutive', 1)
             
             if pf['logic'] == '<': cond_series = df[col] < pf['thresh']
@@ -448,37 +452,36 @@ def check_signal(df, params, sznl_map):
             else:
                 if not cond_series.iloc[-1]: return False
             
-            if params.get('perf_first_instance', False):
-                lookback = params.get('perf_lookback', 21)
+            # FIX: Apply first_instance check PER FILTER (inside the loop)
+            if pf.get('first_instance', False) or params.get('perf_first_instance', False):
+                lookback = pf.get('lookback', params.get('perf_lookback', 21))
                 # Ensure previous 'lookback' days were NOT triggered
-                # We check the window [today-lookback-1 : today-1]
-                # easier way: rolling sum of condition shifted by 1
                 prev_sum = cond_series.shift(1).rolling(lookback).sum().iloc[-1]
                 if prev_sum > 0: return False
 
-    # B. SINGULAR BASED
+    # B. SINGULAR BASED (legacy support)
     if params.get('use_perf_rank', False):
         col = f"rank_ret_{params['perf_window']}d"
-        thresh = params['perf_thresh']
-        
-        if params['perf_logic'] == '<': raw_series = df[col] < thresh
-        else: raw_series = df[col] > thresh
-        
-        consec = params.get('perf_consecutive', 1)
-        if consec > 1:
-            recent_sum = raw_series.rolling(consec).sum().iloc[-1]
-            if recent_sum != consec: return False
-        else:
-            if not raw_series.iloc[-1]: return False
+        if col in df.columns:
+            thresh = params['perf_thresh']
             
-        if params.get('perf_first_instance', False):
-            lookback = params.get('perf_lookback', 21)
-            prev_sum = raw_series.shift(1).rolling(lookback).sum().iloc[-1]
-            if prev_sum > 0: return False
+            if params['perf_logic'] == '<': raw_series = df[col] < thresh
+            else: raw_series = df[col] > thresh
+            
+            consec = params.get('perf_consecutive', 1)
+            if consec > 1:
+                recent_sum = raw_series.rolling(consec).sum().iloc[-1]
+                if recent_sum != consec: return False
+            else:
+                if not raw_series.iloc[-1]: return False
+                
+            if params.get('perf_first_instance', False):
+                lookback = params.get('perf_lookback', 21)
+                prev_sum = raw_series.shift(1).rolling(lookback).sum().iloc[-1]
+                if prev_sum > 0: return False
 
     # 6. Gap/Acc/Dist Filters
     if params.get('use_gap_filter', False):
-        # We use the 'GapCount' column which is pre-calculated with the correct window
         gap_val = last_row.get('GapCount', 0)
         g_logic = params.get('gap_logic', '>')
         g_thresh = params.get('gap_thresh', 0)
@@ -506,8 +509,8 @@ def check_signal(df, params, sznl_map):
             if logic == ">" and not (val > thresh): return False
             if logic == "<" and not (val < thresh): return False
 
-    # 7. MA Distance Filter
-    if params.get('use_dist_filter', False):
+    # 7. MA Distance Filter - FIX: Check BOTH param names for backwards compatibility
+    if params.get('use_ma_dist_filter', False) or params.get('use_dist_filter', False):
         ma_map = {"SMA 10": "SMA10", "SMA 20": "SMA20", "SMA 50": "SMA50", "SMA 200": "SMA200"}
         ma_col = ma_map.get(params['dist_ma_type'])
         if ma_col and ma_col in df.columns:
@@ -522,9 +525,11 @@ def check_signal(df, params, sznl_map):
 
     # 8. MA Touch Logic
     if params.get('use_ma_touch', False):
-        ma_map = {"SMA 10": "SMA10", "SMA 20": "SMA20", "SMA 50": "SMA50", "SMA 200": "SMA200"}
-        ma_col = ma_map.get(params['ma_touch_type'])
-        if ma_col and ma_col in df.columns:
+        ma_type_str = params.get('ma_touch_type', 'SMA 200')
+        # Convert "SMA 200" -> "SMA200" for column lookup
+        ma_col = ma_type_str.replace(" ", "")
+        
+        if ma_col in df.columns:
             ma_series = df[ma_col]
             direction = params.get('trade_direction', 'Long')
             
@@ -557,7 +562,7 @@ def check_signal(df, params, sznl_map):
         if not (vix_val >= params.get('vix_min', 0) and vix_val <= params.get('vix_max', 100)): return False
 
     # 10. Seasonality
-    if params['use_sznl']:
+    if params.get('use_sznl', False):
         val = last_row['Sznl']
         cond_series = (df['Sznl'] < params['sznl_thresh']) if params['sznl_logic'] == '<' else (df['Sznl'] > params['sznl_thresh'])
         
@@ -576,7 +581,7 @@ def check_signal(df, params, sznl_map):
             if not (val > params['market_sznl_thresh']): return False
 
     # 11. 52w
-    if params['use_52w']:
+    if params.get('use_52w', False):
         c_52 = df['is_52w_high'] if params['52w_type'] == 'New 52w High' else df['is_52w_low']
         
         # Apply Lag
@@ -594,10 +599,10 @@ def check_signal(df, params, sznl_map):
         if last_row['is_52w_high']: return False
 
     # 12. Volume
-    if params['use_vol']:
+    if params.get('use_vol', False):
         if not (last_row['vol_ratio'] > params['vol_thresh']): return False
 
-    if params.get('use_vol_rank'):
+    if params.get('use_vol_rank', False):
         val = last_row['vol_ratio_10d_rank']
         if params['vol_rank_logic'] == '<':
             if not (val < params['vol_rank_thresh']): return False
@@ -607,6 +612,10 @@ def check_signal(df, params, sznl_map):
     return True
     
 def get_signal_breakdown(df, params, sznl_map):
+    """
+    Returns a detailed audit of which filters passed/failed for the last row.
+    This is used by the Historical Inspector to debug signals.
+    """
     last_row = df.iloc[-1]
     audit = {}
     all_passed = True
@@ -617,24 +626,194 @@ def get_signal_breakdown(df, params, sznl_map):
         audit[f"{key}_Pass"] = "✅" if condition_met else "❌"
         if not condition_met: all_passed = False
 
-    # 1. Trend
-    trend_opt = params.get('trend_filter', 'None')
-    trend_res = True
-    if trend_opt == "Price > 200 SMA": trend_res = last_row['Close'] > last_row['SMA200']
-    log("Trend", f"{trend_opt}", trend_res)
+    # --- Day of Week ---
+    if params.get('use_dow_filter', False):
+        allowed = params.get('allowed_days', [])
+        current_day = last_row.name.dayofweek
+        day_names = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
+        log("DOW", f"{day_names[current_day]} (allowed: {[day_names[d] for d in allowed]})", current_day in allowed)
 
-    # 2. Perf Rank
+    # --- Cycle Year ---
+    if 'allowed_cycles' in params:
+        allowed_cycles = params['allowed_cycles']
+        if allowed_cycles and len(allowed_cycles) < 4:
+            current_year = last_row.name.year
+            cycle_rem = current_year % 4
+            cycle_names = {0: 'Election', 1: 'Post-Elec', 2: 'Midterm', 3: 'Pre-Elec'}
+            log("Cycle", f"{cycle_names.get(cycle_rem, cycle_rem)} ({current_year})", cycle_rem in allowed_cycles)
+
+    # --- Liquidity Gates ---
+    log("Price", f"${last_row['Close']:.2f} (min: ${params.get('min_price', 0)})", 
+        last_row['Close'] >= params.get('min_price', 0))
+    log("AvgVol", f"{last_row['vol_ma']:,.0f} (min: {params.get('min_vol', 0):,})", 
+        last_row['vol_ma'] >= params.get('min_vol', 0))
+    
+    if 'ATR_Pct' in df.columns:
+        atr_pct = last_row['ATR_Pct']
+        min_atr = params.get('min_atr_pct', 0.0)
+        max_atr = params.get('max_atr_pct', 1000.0)
+        log("ATR%", f"{atr_pct:.2f}% (range: {min_atr}-{max_atr})", 
+            atr_pct >= min_atr and atr_pct <= max_atr)
+
+    # --- Trend Filter ---
+    trend_opt = params.get('trend_filter', 'None')
+    if trend_opt != 'None':
+        trend_res = True
+        if trend_opt == "Price > 200 SMA":
+            trend_res = last_row['Close'] > last_row['SMA200']
+        elif trend_opt == "Price < 200 SMA":
+            trend_res = last_row['Close'] < last_row['SMA200']
+        elif "Market" in trend_opt and 'Market_Above_SMA200' in df.columns:
+            is_above = last_row['Market_Above_SMA200']
+            if ">" in trend_opt: trend_res = is_above
+            elif "<" in trend_opt: trend_res = not is_above
+        log("Trend", f"{trend_opt}", trend_res)
+
+    # --- MA Consecutive Filters ---
+    if 'ma_consec_filters' in params:
+        for i, maf in enumerate(params['ma_consec_filters']):
+            length = maf['length']
+            col_name = f"SMA{length}"
+            if col_name in df.columns:
+                if maf['logic'] == 'Above': mask = df['Close'] > df[col_name]
+                else: mask = df['Close'] < df[col_name]
+                consec = maf.get('consec', 1)
+                if consec > 1:
+                    recent = mask.rolling(consec).sum().iloc[-1]
+                    passed = recent == consec
+                else:
+                    passed = mask.iloc[-1]
+                log(f"MA{length}_{maf['logic']}", f"{consec}d consec", passed)
+
+    # --- Breakout Mode ---
+    bk_mode = params.get('breakout_mode', 'None')
+    if bk_mode != 'None':
+        if bk_mode == "Close > Prev Day High":
+            passed = last_row['Close'] > last_row['PrevHigh']
+            log("Breakout", f"Close ${last_row['Close']:.2f} > PrevHigh ${last_row['PrevHigh']:.2f}", passed)
+        elif bk_mode == "Close < Prev Day Low":
+            passed = last_row['Close'] < last_row['PrevLow']
+            log("Breakout", f"Close ${last_row['Close']:.2f} < PrevLow ${last_row['PrevLow']:.2f}", passed)
+
+    # --- Range Filter ---
+    if params.get('use_range_filter', False):
+        rn_val = last_row['RangePct'] * 100
+        rn_min = params.get('range_min', 0)
+        rn_max = params.get('range_max', 100)
+        log("Range%", f"{rn_val:.1f}% (need: {rn_min}-{rn_max})", rn_val >= rn_min and rn_val <= rn_max)
+
+    # --- Perf Rank (List-Based) ---
+    if 'perf_filters' in params:
+        for pf in params['perf_filters']:
+            col = f"rank_ret_{pf['window']}d"
+            if col in df.columns:
+                val = last_row[col]
+                consec = pf.get('consecutive', 1)
+                if pf['logic'] == '<': cond_series = df[col] < pf['thresh']
+                else: cond_series = df[col] > pf['thresh']
+                
+                if consec > 1:
+                    recent_sum = cond_series.rolling(consec).sum().iloc[-1]
+                    passed = recent_sum == consec
+                else:
+                    passed = cond_series.iloc[-1]
+                log(f"Perf_{pf['window']}d", f"{val:.1f} {pf['logic']} {pf['thresh']} ({consec}d)", passed)
+
+    # --- Perf Rank (Singular) ---
     if params.get('use_perf_rank', False):
         col = f"rank_ret_{params['perf_window']}d"
-        val = last_row.get(col, 0)
-        cond = val < params['perf_thresh'] if params['perf_logic'] == '<' else val > params['perf_thresh']
-        log(f"Perf_{params['perf_window']}d", f"{val:.1f}", cond)
+        if col in df.columns:
+            val = last_row[col]
+            cond = val < params['perf_thresh'] if params['perf_logic'] == '<' else val > params['perf_thresh']
+            log(f"Perf_{params['perf_window']}d", f"{val:.1f} {params['perf_logic']} {params['perf_thresh']}", cond)
 
-    # 3. Seasonality
-    if params['use_sznl']:
+    # --- Gap Filter ---
+    if params.get('use_gap_filter', False):
+        gap_val = last_row.get('GapCount', 0)
+        g_logic = params.get('gap_logic', '>')
+        g_thresh = params.get('gap_thresh', 0)
+        if g_logic == ">": passed = gap_val > g_thresh
+        elif g_logic == "<": passed = gap_val < g_thresh
+        else: passed = gap_val == g_thresh
+        log("GapCount", f"{gap_val} {g_logic} {g_thresh}", passed)
+
+    # --- Acc Count Filter ---
+    if params.get('use_acc_count_filter', False):
+        col = f"AccCount_{params['acc_count_window']}"
+        if col in df.columns:
+            val = last_row[col]
+            thresh = params['acc_count_thresh']
+            logic = params['acc_count_logic']
+            if logic == "=": passed = val == thresh
+            elif logic == ">": passed = val > thresh
+            else: passed = val < thresh
+            log("AccCount", f"{val} {logic} {thresh}", passed)
+
+    # --- Dist Count Filter ---
+    if params.get('use_dist_count_filter', False):
+        col = f"DistCount_{params['dist_count_window']}"
+        if col in df.columns:
+            val = last_row[col]
+            thresh = params['dist_count_thresh']
+            logic = params['dist_count_logic']
+            if logic == "=": passed = val == thresh
+            elif logic == ">": passed = val > thresh
+            else: passed = val < thresh
+            log("DistCount", f"{val} {logic} {thresh}", passed)
+
+    # --- MA Distance Filter ---
+    if params.get('use_ma_dist_filter', False) or params.get('use_dist_filter', False):
+        ma_map = {"SMA 10": "SMA10", "SMA 20": "SMA20", "SMA 50": "SMA50", "SMA 200": "SMA200"}
+        ma_col = ma_map.get(params['dist_ma_type'])
+        if ma_col and ma_col in df.columns:
+            dist_units = (last_row['Close'] - last_row[ma_col]) / last_row['ATR']
+            d_min = params.get('dist_min', 0)
+            d_max = params.get('dist_max', 0)
+            d_logic = params.get('dist_logic', 'Between')
+            if d_logic == "Greater Than (>)": passed = dist_units > d_min
+            elif d_logic == "Less Than (<)": passed = dist_units < d_max
+            else: passed = dist_units >= d_min and dist_units <= d_max
+            log("MA_Dist", f"{dist_units:.2f} ATR ({d_logic})", passed)
+
+    # --- VIX Filter ---
+    if params.get('use_vix_filter', False):
+        vix_val = last_row.get('VIX_Value', 0)
+        vix_min = params.get('vix_min', 0)
+        vix_max = params.get('vix_max', 100)
+        log("VIX", f"{vix_val:.1f} (need: {vix_min}-{vix_max})", vix_val >= vix_min and vix_val <= vix_max)
+
+    # --- Seasonality ---
+    if params.get('use_sznl', False):
         val = last_row['Sznl']
         cond = val < params['sznl_thresh'] if params['sznl_logic'] == '<' else val > params['sznl_thresh']
-        log("Sznl", f"{val:.1f}", cond)
+        log("Sznl", f"{val:.1f} {params['sznl_logic']} {params['sznl_thresh']}", cond)
+
+    if params.get('use_market_sznl', False):
+        val = last_row['Mkt_Sznl_Ref']
+        cond = val < params['market_sznl_thresh'] if params['market_sznl_logic'] == '<' else val > params['market_sznl_thresh']
+        log("Mkt_Sznl", f"{val:.1f} {params['market_sznl_logic']} {params['market_sznl_thresh']}", cond)
+
+    # --- 52w High/Low ---
+    if params.get('use_52w', False):
+        is_52w = last_row['is_52w_high'] if params['52w_type'] == 'New 52w High' else last_row['is_52w_low']
+        log("52w", f"{params['52w_type']}", is_52w)
+
+    if params.get('exclude_52w_high', False):
+        log("Excl_52wH", f"is_52w_high={last_row['is_52w_high']}", not last_row['is_52w_high'])
+
+    # --- Volume ---
+    if params.get('use_vol', False):
+        vol_ratio = last_row['vol_ratio']
+        thresh = params['vol_thresh']
+        log("VolRatio", f"{vol_ratio:.2f}x > {thresh}x", vol_ratio > thresh)
+
+    if params.get('use_vol_rank', False):
+        val = last_row['vol_ratio_10d_rank']
+        logic = params['vol_rank_logic']
+        thresh = params['vol_rank_thresh']
+        if logic == '<': passed = val < thresh
+        else: passed = val > thresh
+        log("VolRank", f"{val:.1f} {logic} {thresh}", passed)
 
     audit['Result'] = "✅ SIGNAL" if all_passed else ""
     return audit
@@ -738,11 +917,13 @@ def main():
                 
                 if settings.get('use_ma_touch'):
                     ma_type = settings.get('ma_touch_type', '')
-                    if 'SMA' in ma_type and ma_type not in ["SMA 10", "SMA 20", "SMA 50", "SMA 100", "SMA 200"]:
-                        try:
-                            val = int(ma_type.replace("SMA", "").strip())
+                    # Extract SMA length from "SMA 200" -> 200
+                    ma_type_clean = ma_type.replace("SMA", "").replace(" ", "").strip()
+                    try:
+                        val = int(ma_type_clean)
+                        if val not in [10, 20, 50, 100, 200]:
                             req_custom_mas.append(val)
-                        except: pass
+                    except: pass
 
                 signals = []
                 for ticker in strat['universe_tickers']:
@@ -882,9 +1063,12 @@ def main():
             
             if settings.get('use_ma_touch'):
                 ma_type = settings.get('ma_touch_type', '')
-                if 'SMA' in ma_type and ma_type not in ["SMA 10", "SMA 20", "SMA 50", "SMA 100", "SMA 200"]:
-                    try: val = int(ma_type.replace("SMA", "").strip()); req_custom_mas.append(val)
-                    except: pass
+                ma_type_clean = ma_type.replace("SMA", "").replace(" ", "").strip()
+                try: 
+                    val = int(ma_type_clean)
+                    if val not in [10, 20, 50, 100, 200]:
+                        req_custom_mas.append(val)
+                except: pass
 
             calc_df = calculate_indicators(
                 df_insp, sznl_map, insp_ticker, mkt_series, vix_series,
@@ -908,7 +1092,14 @@ def main():
                 cols = ['Date', 'Result'] + [c for c in audit_df.columns if c not in ['Date', 'Result']]
                 audit_df = audit_df[cols].sort_values(by='Date', ascending=False)
                 st.write(f"**Audit Results for {insp_ticker}**")
-                st.dataframe(audit_df.style.apply(lambda x: ['background-color: #e6fffa' if x.name == 'Result' and v == "✅ SIGNAL" else '' for v in x], axis=0), use_container_width=True)
+                
+                # Highlight rows with signals
+                def highlight_signal(row):
+                    if row.get('Result') == "✅ SIGNAL":
+                        return ['background-color: #d4edda'] * len(row)
+                    return [''] * len(row)
+                
+                st.dataframe(audit_df.style.apply(highlight_signal, axis=1), use_container_width=True)
             else:
                 st.warning("Not enough data to audit.")
         else:
