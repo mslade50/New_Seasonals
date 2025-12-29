@@ -237,12 +237,33 @@ def calculate_indicators(df, sznl_map, ticker, market_series=None, vix_series=No
     df = df.copy()
     df.sort_index(inplace=True)
     
+    # Handle MultiIndex columns (from yfinance)
     if isinstance(df.columns, pd.MultiIndex):
         df.columns = [c[0] if isinstance(c, tuple) else c for c in df.columns]
-    df.columns = [c.capitalize() for c in df.columns]
+    
+    # Normalize column names - handle various casings
+    col_map = {}
+    for col in df.columns:
+        col_lower = str(col).lower()
+        if 'close' in col_lower: col_map[col] = 'Close'
+        elif 'open' in col_lower: col_map[col] = 'Open'
+        elif 'high' in col_lower: col_map[col] = 'High'
+        elif 'low' in col_lower: col_map[col] = 'Low'
+        elif 'volume' in col_lower: col_map[col] = 'Volume'
+        elif 'adj' in col_lower: col_map[col] = 'Adj Close'
+        else: col_map[col] = str(col).capitalize()
+    df.columns = [col_map.get(c, c) for c in df.columns]
+    
+    # Ensure timezone-naive index
     if df.index.tz is not None:
         df.index = df.index.tz_localize(None)
     df.index = df.index.normalize()
+    
+    # Validate required columns exist
+    required_cols = ['Close', 'Open', 'High', 'Low', 'Volume']
+    missing = [c for c in required_cols if c not in df.columns]
+    if missing:
+        raise ValueError(f"Missing required columns: {missing}. Available: {list(df.columns)}")
     
     # --- Standard SMAs ---
     df['SMA10'] = df['Close'].rolling(10).mean()
@@ -836,22 +857,35 @@ def download_historical_data(tickers, start_date="2000-01-01"):
         try:
             df = yf.download(chunk, start=start_date, group_by='ticker', auto_adjust=False, progress=False, threads=True)
             if df.empty: continue
-            if len(chunk) == 1:
-                ticker = chunk[0]
-                if 'Close' in df.columns:
-                    df.index = df.index.tz_localize(None)
-                    data_dict[ticker] = df
-            else:
-                available_tickers = df.columns.levels[0]
+            
+            # Handle MultiIndex columns (newer yfinance versions)
+            if isinstance(df.columns, pd.MultiIndex):
+                # Get unique tickers from the column level
+                available_tickers = df.columns.get_level_values(0).unique() if df.columns.nlevels > 1 else chunk
                 for t in available_tickers:
                     try:
-                        t_df = df[t].copy()
-                        if t_df.empty or 'Close' not in t_df.columns: continue
-                        t_df.index = t_df.index.tz_localize(None)
+                        t_df = df[t].copy() if t in df.columns.get_level_values(0) else None
+                        if t_df is None or t_df.empty: continue
+                        # Flatten column names if still MultiIndex
+                        if isinstance(t_df.columns, pd.MultiIndex):
+                            t_df.columns = [c[0] if isinstance(c, tuple) else c for c in t_df.columns]
+                        if 'Close' not in t_df.columns: continue
+                        if t_df.index.tz is not None:
+                            t_df.index = t_df.index.tz_localize(None)
                         data_dict[t] = t_df
                     except: continue
+            else:
+                # Simple columns (older yfinance or single ticker without MultiIndex)
+                if len(chunk) == 1:
+                    ticker = chunk[0]
+                    if 'Close' in df.columns:
+                        if df.index.tz is not None:
+                            df.index = df.index.tz_localize(None)
+                        data_dict[ticker] = df
+                        
             time.sleep(0.25)
-        except: continue
+        except Exception as e:
+            continue
 
     progress_bar.empty()
     status_text.empty()
@@ -1035,11 +1069,23 @@ def main():
     if st.button("Run Historical Audit"):
         target_strat = strat_map_ui[selected_strat_name]
         
+        # Clear cache and re-download for inspector to ensure fresh data
         if insp_ticker not in st.session_state.get('master_data_dict', {}):
-             tmp_dict = download_historical_data([insp_ticker, "SPY", "^GSPC", "^VIX"])
-             st.session_state.setdefault('master_data_dict', {}).update(tmp_dict)
+            with st.spinner(f"Downloading data for {insp_ticker}..."):
+                tmp_dict = download_historical_data([insp_ticker, "SPY", "^GSPC", "^VIX"])
+                if tmp_dict:
+                    st.session_state.setdefault('master_data_dict', {}).update(tmp_dict)
+                    st.success(f"✅ Loaded {len(tmp_dict)} tickers: {list(tmp_dict.keys())}")
+                else:
+                    st.error("❌ Failed to download data. Check ticker symbol.")
 
         df_insp = st.session_state['master_data_dict'].get(insp_ticker)
+        
+        # Debug info
+        if df_insp is not None:
+            st.caption(f"📊 Data loaded: {len(df_insp)} rows, columns: {list(df_insp.columns)[:6]}...")
+        else:
+            st.error(f"❌ No data found for {insp_ticker}. Available tickers: {list(st.session_state.get('master_data_dict', {}).keys())[:10]}")
         
         settings = target_strat['settings']
         mkt_ticker = settings.get('market_ticker', 'SPY')
@@ -1047,7 +1093,7 @@ def main():
         if df_mkt is None: df_mkt = st.session_state['master_data_dict'].get('SPY')
         
         vix_df = st.session_state['master_data_dict'].get('^VIX')
-        vix_series = vix_df['Close'] if vix_df is not None else None
+        vix_series = vix_df['Close'] if vix_df is not None and 'Close' in vix_df.columns else None
 
         if df_insp is not None and len(df_insp) > 50:
             mkt_series = None
@@ -1070,10 +1116,14 @@ def main():
                         req_custom_mas.append(val)
                 except: pass
 
-            calc_df = calculate_indicators(
-                df_insp, sznl_map, insp_ticker, mkt_series, vix_series,
-                gap_window=gap_win, acc_window=acc_win, dist_window=dist_win, custom_sma_lengths=req_custom_mas
-            )
+            try:
+                calc_df = calculate_indicators(
+                    df_insp, sznl_map, insp_ticker, mkt_series, vix_series,
+                    gap_window=gap_win, acc_window=acc_win, dist_window=dist_win, custom_sma_lengths=req_custom_mas
+                )
+            except Exception as e:
+                st.error(f"❌ Error calculating indicators: {e}")
+                st.stop()
             
             audit_rows = []
             days_to_audit = 21 
@@ -1083,9 +1133,13 @@ def main():
                 for idx in subset_indices:
                     slice_df = calc_df.iloc[:idx+1] 
                     row_date = slice_df.index[-1].date()
-                    breakdown = get_signal_breakdown(slice_df, settings, sznl_map)
-                    breakdown['Date'] = row_date
-                    audit_rows.append(breakdown)
+                    try:
+                        breakdown = get_signal_breakdown(slice_df, settings, sznl_map)
+                        breakdown['Date'] = row_date
+                        audit_rows.append(breakdown)
+                    except Exception as e:
+                        st.warning(f"Error on {row_date}: {e}")
+                        continue
             
             if audit_rows:
                 audit_df = pd.DataFrame(audit_rows)
