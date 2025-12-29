@@ -239,20 +239,28 @@ def calculate_indicators(df, sznl_map, ticker, market_series=None, vix_series=No
     
     # Handle MultiIndex columns (from yfinance)
     if isinstance(df.columns, pd.MultiIndex):
-        df.columns = [c[0] if isinstance(c, tuple) else c for c in df.columns]
+        # Flatten to first level only
+        df.columns = df.columns.get_level_values(0)
+    
+    # Remove duplicate columns - keep first occurrence
+    df = df.loc[:, ~df.columns.duplicated()]
     
     # Normalize column names - handle various casings
     col_map = {}
     for col in df.columns:
-        col_lower = str(col).lower()
-        if 'close' in col_lower: col_map[col] = 'Close'
-        elif 'open' in col_lower: col_map[col] = 'Open'
-        elif 'high' in col_lower: col_map[col] = 'High'
-        elif 'low' in col_lower: col_map[col] = 'Low'
-        elif 'volume' in col_lower: col_map[col] = 'Volume'
-        elif 'adj' in col_lower: col_map[col] = 'Adj Close'
-        else: col_map[col] = str(col).capitalize()
-    df.columns = [col_map.get(c, c) for c in df.columns]
+        col_str = str(col).lower().strip()
+        if col_str == 'close' or col_str == 'adj close': 
+            if 'Close' not in col_map.values():
+                col_map[col] = 'Close'
+        elif col_str == 'open': col_map[col] = 'Open'
+        elif col_str == 'high': col_map[col] = 'High'
+        elif col_str == 'low': col_map[col] = 'Low'
+        elif col_str == 'volume': col_map[col] = 'Volume'
+        else: col_map[col] = str(col)
+    df.columns = [col_map.get(c, str(c)) for c in df.columns]
+    
+    # Remove any remaining duplicates after renaming
+    df = df.loc[:, ~df.columns.duplicated()]
     
     # Ensure timezone-naive index
     if df.index.tz is not None:
@@ -264,6 +272,11 @@ def calculate_indicators(df, sznl_map, ticker, market_series=None, vix_series=No
     missing = [c for c in required_cols if c not in df.columns]
     if missing:
         raise ValueError(f"Missing required columns: {missing}. Available: {list(df.columns)}")
+    
+    # Ensure price columns are Series, not DataFrames (safety check)
+    for col in required_cols:
+        if isinstance(df[col], pd.DataFrame):
+            df[col] = df[col].iloc[:, 0]  # Take first column if DataFrame
     
     # --- Standard SMAs ---
     df['SMA10'] = df['Close'].rolling(10).mean()
@@ -860,22 +873,39 @@ def download_historical_data(tickers, start_date="2000-01-01"):
             
             # Handle MultiIndex columns (newer yfinance versions)
             if isinstance(df.columns, pd.MultiIndex):
-                # Get unique tickers from the column level
-                available_tickers = df.columns.get_level_values(0).unique() if df.columns.nlevels > 1 else chunk
-                for t in available_tickers:
-                    try:
-                        t_df = df[t].copy() if t in df.columns.get_level_values(0) else None
-                        if t_df is None or t_df.empty: continue
-                        # Flatten column names if still MultiIndex
-                        if isinstance(t_df.columns, pd.MultiIndex):
-                            t_df.columns = [c[0] if isinstance(c, tuple) else c for c in t_df.columns]
-                        if 'Close' not in t_df.columns: continue
-                        if t_df.index.tz is not None:
-                            t_df.index = t_df.index.tz_localize(None)
-                        data_dict[t] = t_df
-                    except: continue
+                # Check if first level is tickers or price types
+                first_level = df.columns.get_level_values(0).unique().tolist()
+                
+                # If first level contains price columns, it's a single ticker
+                price_cols = ['Open', 'High', 'Low', 'Close', 'Adj Close', 'Volume']
+                if any(col in price_cols for col in first_level):
+                    # Single ticker with MultiIndex - flatten
+                    if len(chunk) == 1:
+                        ticker = chunk[0]
+                        t_df = df.copy()
+                        t_df.columns = df.columns.get_level_values(0)
+                        t_df = t_df.loc[:, ~t_df.columns.duplicated()]
+                        if 'Close' in t_df.columns:
+                            if t_df.index.tz is not None:
+                                t_df.index = t_df.index.tz_localize(None)
+                            data_dict[ticker] = t_df
+                else:
+                    # Multiple tickers - first level is ticker symbols
+                    for t in first_level:
+                        try:
+                            t_df = df[t].copy()
+                            if t_df.empty: continue
+                            # Flatten if still MultiIndex
+                            if isinstance(t_df.columns, pd.MultiIndex):
+                                t_df.columns = t_df.columns.get_level_values(0)
+                            t_df = t_df.loc[:, ~t_df.columns.duplicated()]
+                            if 'Close' not in t_df.columns: continue
+                            if t_df.index.tz is not None:
+                                t_df.index = t_df.index.tz_localize(None)
+                            data_dict[t] = t_df
+                        except: continue
             else:
-                # Simple columns (older yfinance or single ticker without MultiIndex)
+                # Simple columns (older yfinance)
                 if len(chunk) == 1:
                     ticker = chunk[0]
                     if 'Close' in df.columns:
