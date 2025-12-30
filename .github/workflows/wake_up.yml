@@ -1,0 +1,17 @@
+name: Wake Up Seasonals App
+
+on:
+  schedule:
+    # 00:00 EST = 05:00 UTC
+    # 08:00 EST = 13:00 UTC
+    # 16:00 EST = 21:00 UTC
+    - cron: '0 5,13,21 * * *'
+
+  workflow_dispatch:
+
+jobs:
+  ping_app:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Wake up seasonals.streamlit.app
+        run: curl -I https://seasonals.streamlit.app/
