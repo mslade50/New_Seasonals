@@ -56,9 +56,11 @@ def load_seasonal_map():
     return output_map
 
 def get_sznl_val_series(ticker, dates, sznl_map):
+    """Get seasonal values for a ticker. Returns 50.0 (neutral) for missing data."""
     ticker = ticker.upper()
     t_map = sznl_map.get(ticker, {})
     
+    # Fallback: If looking for ^GSPC, try SPY
     if not t_map and ticker == "^GSPC":
         t_map = sznl_map.get("SPY", {})
 
@@ -139,7 +141,7 @@ def download_universe_data(tickers, fetch_start_date):
         except Exception as e:
             err_msg = str(e).lower()
             if "rate limited" in err_msg or "too many requests" in err_msg:
-                st.warning(f"⚠️ Rate limit hit. Stopping download.")
+                st.warning(f"Rate limit hit. Stopping download.")
                 break
             continue
     
@@ -163,10 +165,38 @@ def get_age_bucket(years):
     return "> 20 Years"
 
 # -----------------------------------------------------------------------------
+# HELPER: First Instance Logic
+# -----------------------------------------------------------------------------
+
+def apply_first_instance_filter(condition_series, lookback):
+    """
+    Given a boolean Series, return a new Series that is True only on the 
+    FIRST occurrence within each lookback window.
+    
+    This prevents triggering on consecutive days when a condition persists.
+    """
+    if lookback <= 1:
+        return condition_series
+    
+    result = pd.Series(False, index=condition_series.index)
+    
+    # For each True, check if there was a True in the prior (lookback-1) days
+    # If not, this is the "first instance"
+    condition_shifted = condition_series.shift(1).fillna(False)
+    rolling_sum = condition_shifted.rolling(window=lookback-1, min_periods=1).sum()
+    
+    # First instance = condition is True AND no True in prior lookback-1 days
+    result = condition_series & (rolling_sum == 0)
+    
+    return result
+
+# -----------------------------------------------------------------------------
 # ANALYSIS ENGINE
 # -----------------------------------------------------------------------------
 
-def calculate_indicators(df, sznl_map, ticker, market_series=None, vix_series=None, gap_window=21, custom_sma_lengths=None, acc_window=None, dist_window=None):
+def calculate_indicators(df, sznl_map, ticker, market_series=None, vix_series=None, 
+                         market_sznl_series=None, gap_window=21, custom_sma_lengths=None, 
+                         acc_window=None, dist_window=None):
     df = df.copy()
     df.columns = [c.capitalize() for c in df.columns]
     
@@ -206,8 +236,12 @@ def calculate_indicators(df, sznl_map, ticker, market_series=None, vix_series=No
     df['ATR'] = ranges.max(axis=1).rolling(14).mean()
     df['ATR_Pct'] = (df['ATR'] / df['Close']) * 100
     
-    # Seasonality
+    # Ticker Seasonality
     df['Sznl'] = get_sznl_val_series(ticker, df.index, sznl_map)
+    
+    # Market Seasonality (if provided) - FIX: Added this
+    if market_sznl_series is not None:
+        df['Market_Sznl'] = market_sznl_series.reindex(df.index, method='ffill').fillna(50.0)
     
     # 52w High/Low
     rolling_high = df['High'].shift(1).rolling(252).max()
@@ -225,7 +259,7 @@ def calculate_indicators(df, sznl_map, ticker, market_series=None, vix_series=No
     df['vol_ratio_10d'] = vol_ma_10 / vol_ma
     df['vol_ratio_10d_rank'] = df['vol_ratio_10d'].expanding(min_periods=252).rank(pct=True) * 100.0
     
-    # --- ACCUMULATION / DISTRIBUTION FLAGS ---
+    # ACCUMULATION / DISTRIBUTION FLAGS
     vol_gt_prev = df['Volume'] > df['Volume'].shift(1)
     vol_gt_ma = df['Volume'] > df['vol_ma']
     is_green = df['Close'] > df['Open']
@@ -234,13 +268,12 @@ def calculate_indicators(df, sznl_map, ticker, market_series=None, vix_series=No
     df['is_acc_day'] = (is_green & vol_gt_prev & vol_gt_ma).astype(int)
     df['is_dist_day'] = (is_red & vol_gt_prev & vol_gt_ma).astype(int)
     
-    # --- NEW: CALCULATE ROLLING COUNTS HERE (Before Slicing) ---
+    # Rolling Counts
     if acc_window:
         df[f'AccCount_{acc_window}'] = df['is_acc_day'].rolling(acc_window).sum()
         
     if dist_window:
         df[f'DistCount_{dist_window}'] = df['is_dist_day'].rolling(dist_window).sum()
-    # -----------------------------------------------------------
 
     # Age
     if not df.empty:
@@ -282,7 +315,7 @@ def calculate_indicators(df, sznl_map, ticker, market_series=None, vix_series=No
 
     return df
 
-def run_engine(universe_dict, params, sznl_map, market_series=None, vix_series=None):
+def run_engine(universe_dict, params, sznl_map, market_series=None, vix_series=None, market_sznl_series=None):
     all_potential_trades = []
     
     total = len(universe_dict)
@@ -299,11 +332,10 @@ def run_engine(universe_dict, params, sznl_map, market_series=None, vix_series=N
     is_pullback = "Pullback" in entry_mode
     is_limit_pers_05 = "Limit Order -0.5 ATR" in entry_mode
     is_limit_pers_10 = "Limit Order -1 ATR" in entry_mode
-    is_limit_atr = "Limit (Close -0.5 ATR)" in entry_mode
-    is_limit_prev = "Limit (Prev Close)" in entry_mode
-    is_limit_open_atr = "Limit (Open +/- 0.5 ATR)" in entry_mode 
-    is_limit_pivot = "Limit (Untested Pivot)" in entry_mode
-    is_limit_entry = is_limit_atr or is_limit_prev or is_limit_open_atr or is_limit_pivot
+    is_limit_atr = entry_mode == "Limit (Close -0.5 ATR)"
+    is_limit_prev = entry_mode == "Limit (Prev Close)"
+    is_limit_open_atr = entry_mode == "Limit (Open +/- 0.5 ATR)"
+    is_limit_pivot = entry_mode == "Limit (Untested Pivot)"
     is_gap_up = "Gap Up Only" in entry_mode
     is_overnight = "Overnight" in entry_mode
     is_intraday = "Intraday" in entry_mode
@@ -325,7 +357,7 @@ def run_engine(universe_dict, params, sznl_map, market_series=None, vix_series=N
     
     req_custom_mas = list(set([f['length'] for f in params.get('ma_consec_filters', [])]))
 
-    # --- EXTRACT ACC/DIST WINDOWS ---
+    # Extract ACC/DIST windows
     acc_win = params['acc_count_window'] if params.get('use_acc_count_filter', False) else None
     dist_win = params['dist_count_window'] if params.get('use_dist_count_filter', False) else None
 
@@ -340,8 +372,8 @@ def run_engine(universe_dict, params, sznl_map, market_series=None, vix_series=N
         ticker_last_exit = pd.Timestamp.min
         
         try:
-            # PASS ACC/DIST WINDOWS HERE
             df = calculate_indicators(df_raw, sznl_map, ticker, market_series, vix_series, 
+                                      market_sznl_series=market_sznl_series,
                                       gap_window=gap_window, 
                                       custom_sma_lengths=req_custom_mas,
                                       acc_window=acc_win, 
@@ -391,7 +423,7 @@ def run_engine(universe_dict, params, sznl_map, market_series=None, vix_series=N
                 elif params['gap_logic'] == "<": conditions.append(df['GapCount'] < params['gap_thresh'])
                 elif params['gap_logic'] == "=": conditions.append(df['GapCount'] == params['gap_thresh'])
 
-            # --- UPDATED ACC/DIST LOGIC ---
+            # Accumulation/Distribution Counts
             if params.get('use_acc_count_filter', False):
                 col = f"AccCount_{params['acc_count_window']}"
                 if col in df.columns:
@@ -408,27 +440,66 @@ def run_engine(universe_dict, params, sznl_map, market_series=None, vix_series=N
                     elif params['dist_count_logic'] == "<": conditions.append(r_dist < params['dist_count_thresh'])
                     elif params['dist_count_logic'] == "=": conditions.append(r_dist == params['dist_count_thresh'])
             
+            # Performance Percentile Filters
             for pf in params.get('perf_filters', []):
                 col = f"rank_ret_{pf['window']}d"
                 c_f = (df[col] < pf['thresh']) if pf['logic'] == '<' else (df[col] > pf['thresh'])
                 if pf['consecutive'] > 1: c_f = c_f.rolling(pf['consecutive']).sum() == pf['consecutive']
                 conditions.append(c_f)
 
+            # MA Consecutive Filters
             for f in params.get('ma_consec_filters', []):
                 col = f"SMA{f['length']}"
                 mask = (df['Close'] > df[col]) if f['logic'] == 'Above' else (df['Close'] < df[col])
                 if f['consec'] > 1: mask = mask.rolling(f['consec']).sum() == f['consec']
                 conditions.append(mask)
 
-            if params['use_sznl']:
-                c_s = (df['Sznl'] < params['sznl_thresh']) if params['sznl_logic'] == '<' else (df['Sznl'] > params['sznl_thresh'])
-                conditions.append(c_s)
+            # ============================================================
+            # FIX #1: TICKER SEASONAL FILTER (with first instance logic)
+            # ============================================================
+            if params.get('use_sznl', False):
+                sznl_raw = (df['Sznl'] < params['sznl_thresh']) if params['sznl_logic'] == '<' else (df['Sznl'] > params['sznl_thresh'])
+                
+                # Apply first instance filter if enabled
+                if params.get('sznl_first_instance', False):
+                    sznl_cond = apply_first_instance_filter(sznl_raw, params.get('sznl_lookback', 21))
+                else:
+                    sznl_cond = sznl_raw
+                    
+                conditions.append(sznl_cond)
+            
+            # ============================================================
+            # FIX #2: MARKET SEASONAL FILTER (was completely missing!)
+            # ============================================================
+            if params.get('use_market_sznl', False) and 'Market_Sznl' in df.columns:
+                market_sznl_cond = (df['Market_Sznl'] < params['market_sznl_thresh']) if params['market_sznl_logic'] == '<' else (df['Market_Sznl'] > params['market_sznl_thresh'])
+                conditions.append(market_sznl_cond)
 
-            if params['use_52w']:
-                c_52 = df['is_52w_high'] if params['52w_type'] == 'New 52w High' else df['is_52w_low']
-                if params.get('52w_lag', 0) > 0: c_52 = c_52.shift(params['52w_lag']).fillna(False)
+            # ============================================================
+            # FIX #3: 52-WEEK FILTER (with first instance and lag)
+            # ============================================================
+            if params.get('use_52w', False):
+                c_52_raw = df['is_52w_high'] if params['52w_type'] == 'New 52w High' else df['is_52w_low']
+                
+                # Apply lag if specified (shift the condition)
+                lag_days = params.get('52w_lag', 0)
+                if lag_days > 0:
+                    c_52_raw = c_52_raw.shift(lag_days).fillna(False)
+                
+                # Apply first instance filter if enabled
+                if params.get('52w_first_instance', False):
+                    c_52 = apply_first_instance_filter(c_52_raw, params.get('52w_lookback', 21))
+                else:
+                    c_52 = c_52_raw
+                    
                 conditions.append(c_52)
             
+            # ============================================================
+            # FIX #4: EXCLUDE 52W HIGH (was collected but never applied!)
+            # ============================================================
+            if params.get('exclude_52w_high', False):
+                conditions.append(~df['is_52w_high'])
+
             if params.get('vol_gt_prev', False):
                  conditions.append(df['Volume'] > df['Volume'].shift(1))
 
@@ -453,15 +524,20 @@ def run_engine(universe_dict, params, sznl_map, market_series=None, vix_series=N
                       elif params['dist_logic'] == "Between":
                           conditions.append((dist_val >= params['dist_min']) & (dist_val <= params['dist_max']))
 
-            # --- VIX FILTER FIX ---
+            # VIX Filter
             if params.get('use_vix_filter', False) and 'VIX_Value' in df.columns:
                  vix_val = df['VIX_Value']
                  conditions.append((vix_val >= params['vix_min']) & (vix_val <= params['vix_max']))
-            # ----------------------
 
             if not conditions: continue
             final_signal = conditions[0]
             for c in conditions[1:]: final_signal = final_signal & c
+            
+            # ============================================================
+            # FIX #5: PERF FILTER FIRST INSTANCE (was collected but unused)
+            # ============================================================
+            if params.get('perf_first_instance', False) and len(params.get('perf_filters', [])) > 0:
+                final_signal = apply_first_instance_filter(final_signal, params.get('perf_lookback', 21))
             
             signal_dates = df.index[final_signal]
             total_signals_generated += len(signal_dates)
@@ -476,10 +552,16 @@ def run_engine(universe_dict, params, sznl_map, market_series=None, vix_series=N
                 actual_entry_idx = -1
                 actual_entry_price = 0.0
 
+                # ============================================================
+                # FIX #6: ENTRY TYPE LOGIC (cleaned up and completed)
+                # ============================================================
+                
                 if is_overnight:
                     found_entry, actual_entry_idx, actual_entry_price = True, sig_idx, df['Close'].iloc[sig_idx]
+                    
                 elif is_intraday:
                     found_entry, actual_entry_idx, actual_entry_price = True, sig_idx + 1, df['Open'].iloc[sig_idx + 1]
+                    
                 elif is_pullback and pullback_col:
                     for wait_i in range(1, params['holding_days'] + 1):
                         curr_idx = sig_idx + wait_i
@@ -488,11 +570,13 @@ def run_engine(universe_dict, params, sznl_map, market_series=None, vix_series=N
                             found_entry, actual_entry_idx = True, curr_idx
                             actual_entry_price = df.iloc[curr_idx][pullback_col] if pullback_use_level else df.iloc[curr_idx]['Close']
                             break
+                            
                 elif is_gap_up:
                     if df['Open'].iloc[sig_idx + 1] > df['High'].iloc[sig_idx]:
                         found_entry, actual_entry_idx, actual_entry_price = True, sig_idx + 1, df['Open'].iloc[sig_idx + 1]
                         
                 elif is_limit_pers_05 or is_limit_pers_10:
+                    # Persistent limit order: waits multiple days for fill
                     atr_mult = 0.5 if is_limit_pers_05 else 1.0
                     sig_close = df['Close'].iloc[sig_idx]
                     sig_atr = df['ATR'].iloc[sig_idx]
@@ -512,17 +596,105 @@ def run_engine(universe_dict, params, sznl_map, market_series=None, vix_series=N
                         if direction == 'Long':
                             if day_low <= limit_price:
                                 filled = True
-                                if day_open < limit_price: fill_px = day_open
-                        else: # Short
+                                if day_open < limit_price: fill_px = day_open  # Gap down fill
+                        else:  # Short
                             if day_high >= limit_price:
                                 filled = True
-                                if day_open > limit_price: fill_px = day_open
+                                if day_open > limit_price: fill_px = day_open  # Gap up fill
                         
                         if filled:
                             found_entry = True
                             actual_entry_idx = curr_idx
                             actual_entry_price = fill_px
                             break
+                
+                elif is_limit_atr:
+                    # Single-day limit: Close - 0.5 ATR
+                    sig_close = df['Close'].iloc[sig_idx]
+                    sig_atr = df['ATR'].iloc[sig_idx]
+                    limit_price = (sig_close - (sig_atr * 0.5)) if direction == 'Long' else (sig_close + (sig_atr * 0.5))
+                    
+                    next_idx = sig_idx + 1
+                    if next_idx < len(df):
+                        day_low = df['Low'].iloc[next_idx]
+                        day_high = df['High'].iloc[next_idx]
+                        day_open = df['Open'].iloc[next_idx]
+                        
+                        if direction == 'Long' and day_low <= limit_price:
+                            found_entry = True
+                            actual_entry_idx = next_idx
+                            actual_entry_price = min(limit_price, day_open) if day_open < limit_price else limit_price
+                        elif direction == 'Short' and day_high >= limit_price:
+                            found_entry = True
+                            actual_entry_idx = next_idx
+                            actual_entry_price = max(limit_price, day_open) if day_open > limit_price else limit_price
+                
+                elif is_limit_prev:
+                    # Limit at previous close
+                    limit_price = df['Close'].iloc[sig_idx]
+                    
+                    next_idx = sig_idx + 1
+                    if next_idx < len(df):
+                        day_low = df['Low'].iloc[next_idx]
+                        day_high = df['High'].iloc[next_idx]
+                        day_open = df['Open'].iloc[next_idx]
+                        
+                        if direction == 'Long' and day_low <= limit_price:
+                            found_entry = True
+                            actual_entry_idx = next_idx
+                            actual_entry_price = min(limit_price, day_open) if day_open < limit_price else limit_price
+                        elif direction == 'Short' and day_high >= limit_price:
+                            found_entry = True
+                            actual_entry_idx = next_idx
+                            actual_entry_price = max(limit_price, day_open) if day_open > limit_price else limit_price
+                
+                elif is_limit_open_atr:
+                    # Limit at Open +/- 0.5 ATR
+                    next_idx = sig_idx + 1
+                    if next_idx < len(df):
+                        sig_atr = df['ATR'].iloc[sig_idx]
+                        day_open = df['Open'].iloc[next_idx]
+                        day_low = df['Low'].iloc[next_idx]
+                        day_high = df['High'].iloc[next_idx]
+                        
+                        limit_price = (day_open - (sig_atr * 0.5)) if direction == 'Long' else (day_open + (sig_atr * 0.5))
+                        
+                        if direction == 'Long' and day_low <= limit_price:
+                            found_entry = True
+                            actual_entry_idx = next_idx
+                            actual_entry_price = limit_price
+                        elif direction == 'Short' and day_high >= limit_price:
+                            found_entry = True
+                            actual_entry_idx = next_idx
+                            actual_entry_price = limit_price
+                
+                elif is_limit_pivot:
+                    # Limit at last untested pivot
+                    if 'LastPivotLow' in df.columns and direction == 'Long':
+                        limit_price = df['LastPivotLow'].iloc[sig_idx]
+                        if pd.notna(limit_price):
+                            next_idx = sig_idx + 1
+                            if next_idx < len(df):
+                                day_low = df['Low'].iloc[next_idx]
+                                day_open = df['Open'].iloc[next_idx]
+                                
+                                if day_low <= limit_price:
+                                    found_entry = True
+                                    actual_entry_idx = next_idx
+                                    actual_entry_price = min(limit_price, day_open) if day_open < limit_price else limit_price
+                    
+                    elif 'LastPivotHigh' in df.columns and direction == 'Short':
+                        limit_price = df['LastPivotHigh'].iloc[sig_idx]
+                        if pd.notna(limit_price):
+                            next_idx = sig_idx + 1
+                            if next_idx < len(df):
+                                day_high = df['High'].iloc[next_idx]
+                                day_open = df['Open'].iloc[next_idx]
+                                
+                                if day_high >= limit_price:
+                                    found_entry = True
+                                    actual_entry_idx = next_idx
+                                    actual_entry_price = max(limit_price, day_open) if day_open > limit_price else limit_price
                 
                 elif is_cond_close_lower:
                     atr_mult = 0.0
@@ -533,9 +705,11 @@ def run_engine(universe_dict, params, sznl_map, market_series=None, vix_series=N
                     sig_atr = df['ATR'].iloc[sig_idx]
                     limit_price = sig_val - (atr_mult * sig_atr)
                     
-                    t1_close = df['Close'].iloc[sig_idx + 1]
-                    if t1_close < limit_price:
-                         found_entry, actual_entry_idx, actual_entry_price = True, sig_idx + 1, t1_close
+                    next_idx = sig_idx + 1
+                    if next_idx < len(df):
+                        t1_close = df['Close'].iloc[next_idx]
+                        if t1_close < limit_price:
+                             found_entry, actual_entry_idx, actual_entry_price = True, next_idx, t1_close
 
                 elif is_cond_close_higher:
                     atr_mult = 0.0
@@ -546,14 +720,19 @@ def run_engine(universe_dict, params, sznl_map, market_series=None, vix_series=N
                     sig_atr = df['ATR'].iloc[sig_idx]
                     limit_price = sig_val + (atr_mult * sig_atr)
                     
-                    t1_close = df['Close'].iloc[sig_idx + 1]
-                    if t1_close > limit_price:
-                         found_entry, actual_entry_idx, actual_entry_price = True, sig_idx + 1, t1_close
+                    next_idx = sig_idx + 1
+                    if next_idx < len(df):
+                        t1_close = df['Close'].iloc[next_idx]
+                        if t1_close > limit_price:
+                             found_entry, actual_entry_idx, actual_entry_price = True, next_idx, t1_close
 
-                else: # Market/Immediate/Standard
+                else:  # Market/Immediate/Standard
                     found_entry = True
                     actual_entry_idx = sig_idx if entry_mode == 'Signal Close' else sig_idx + 1
-                    actual_entry_price = df['Close'].iloc[actual_entry_idx] if 'Close' in entry_mode else df['Open'].iloc[actual_entry_idx]
+                    if actual_entry_idx >= len(df):
+                        found_entry = False
+                    else:
+                        actual_entry_price = df['Close'].iloc[actual_entry_idx] if 'Close' in entry_mode else df['Open'].iloc[actual_entry_idx]
 
                 if not found_entry: continue
 
@@ -562,12 +741,16 @@ def run_engine(universe_dict, params, sznl_map, market_series=None, vix_series=N
 
                 if is_overnight or is_intraday:
                     exit_idx = sig_idx + 1
+                    if exit_idx >= len(df): continue
                     exit_date = df.index[exit_idx]
                     exit_price = df['Open'].iloc[exit_idx] if is_overnight else df['Close'].iloc[exit_idx]
                     exit_type = "Time"
                 else:
                     fixed_exit_idx = min(actual_entry_idx + params['holding_days'], len(df) - 1)
                     future = df.iloc[actual_entry_idx + 1 : fixed_exit_idx + 1]
+                    
+                    if future.empty:
+                        continue
                     
                     stop_price = actual_entry_price - (atr * params['stop_atr']) if direction == 'Long' else actual_entry_price + (atr * params['stop_atr'])
                     tgt_price = actual_entry_price + (atr * params['tgt_atr']) if direction == 'Long' else actual_entry_price - (atr * params['tgt_atr'])
@@ -577,16 +760,20 @@ def run_engine(universe_dict, params, sznl_map, market_series=None, vix_series=N
                     for f_date, f_row in future.iterrows():
                         if direction == 'Long':
                             if params['use_stop_loss'] and f_row['Low'] <= stop_price: 
-                                exit_price, exit_type, exit_date = stop_price, "Stop", f_date; break
+                                exit_price, exit_type, exit_date = stop_price, "Stop", f_date
+                                break
                             
                             if params['use_take_profit'] and f_row['High'] >= tgt_price: 
-                                exit_price, exit_type, exit_date = tgt_price, "Target", f_date; break
-                        else: # Short
+                                exit_price, exit_type, exit_date = tgt_price, "Target", f_date
+                                break
+                        else:  # Short
                             if params['use_stop_loss'] and f_row['High'] >= stop_price: 
-                                exit_price, exit_type, exit_date = stop_price, "Stop", f_date; break
+                                exit_price, exit_type, exit_date = stop_price, "Stop", f_date
+                                break
                             
                             if params['use_take_profit'] and f_row['Low'] <= tgt_price: 
-                                exit_price, exit_type, exit_date = tgt_price, "Target", f_date; break
+                                exit_price, exit_type, exit_date = tgt_price, "Target", f_date
+                                break
                     
                     if exit_type == "Hold":
                         exit_price, exit_date, exit_type = future['Close'].iloc[-1], future.index[-1], "Time"
@@ -605,15 +792,19 @@ def run_engine(universe_dict, params, sznl_map, market_series=None, vix_series=N
                     "Age": df['age_years'].iloc[sig_idx], "AvgVol": df['vol_ma'].iloc[sig_idx],
                     "Status": "Valid Signal", "Reason": "Executed"
                 })
-        except: continue
+        except Exception as e:
+            continue
         
-    progress_bar.empty(); status_text.empty()
-    if not all_potential_trades: return pd.DataFrame(), pd.DataFrame(), 0
+    progress_bar.empty()
+    status_text.empty()
+    
+    if not all_potential_trades: 
+        return pd.DataFrame(), pd.DataFrame(), 0
 
     pot_df = pd.DataFrame(all_potential_trades).sort_values(by=["EntryDate", "Ticker"])
     final_log, rejected_log, active_pos, daily_count = [], [], [], {}
 
-    # Get constraints safely to avoid KeyError
+    # Get constraints safely
     max_total = params.get('max_total_positions', 100)
     max_daily = params.get('max_daily_entries', 100)
 
@@ -622,10 +813,12 @@ def run_engine(universe_dict, params, sznl_map, market_series=None, vix_series=N
         today_num = daily_count.get(trade['EntryDate'], 0)
         
         if len(active_pos) >= max_total or today_num >= max_daily:
-            trade['Status'], trade['Reason'] = "Portfolio Rejected", "Constraints"
-            rejected_log.append(trade)
+            trade_copy = trade.copy()
+            trade_copy['Status'], trade_copy['Reason'] = "Portfolio Rejected", "Constraints"
+            rejected_log.append(trade_copy)
         else:
-            final_log.append(trade); active_pos.append(trade)
+            final_log.append(trade)
+            active_pos.append(trade)
             daily_count[trade['EntryDate']] = today_num + 1
 
     return pd.DataFrame(final_log), pd.DataFrame(rejected_log), total_signals_generated
@@ -682,7 +875,7 @@ def main():
                         if len(custom_tickers) > 0: st.success(f"Loaded {len(custom_tickers)} valid tickers.")
                 except: st.error("Invalid CSV.")
     st.write("")
-    use_full_history = st.checkbox("⚠️ Download Full History (1950+) for Accurate 'Age'", value=False)
+    use_full_history = st.checkbox("Download Full History (1950+) for Accurate 'Age'", value=False)
 
     st.markdown("---")
     st.subheader("2. Execution & Risk")
@@ -725,7 +918,6 @@ def main():
             "Limit (Untested Pivot)", 
             "Pullback 10 SMA (Entry: Close)", "Pullback 10 SMA (Entry: Level)",
             "Pullback 21 EMA (Entry: Close)", "Pullback 21 EMA (Entry: Level)",
-            # --- NEW ENTRIES ADDED BELOW ---
             "T+1 Close if < Signal Close",
             "T+1 Close if < Signal Close -0.5 ATR",
             "T+1 Close if < Signal Close -1 ATR",
@@ -756,7 +948,7 @@ def main():
     
     with st.expander("Accumulation/Distribution Counts (Independent)", expanded=False):
         st.markdown("**Filters are additive (AND logic).**")
-        st.markdown("• **Acc:** Close > Open, Vol > Prev, Vol > 63d MA.\n• **Dist:** Close < Open, Vol > Prev, Vol > 63d MA.")
+        st.markdown("Acc: Close > Open, Vol > Prev, Vol > 63d MA. | Dist: Close < Open, Vol > Prev, Vol > 63d MA.")
         
         c_acc, c_dist = st.columns(2)
         with c_acc:
@@ -801,13 +993,11 @@ def main():
         with pa1: 
             req_green_candle = st.checkbox("Require Close > Open (Green Candle)", value=False)
             
-            # --- NEW: BREAKOUT FILTER ---
             st.markdown("**Daily Breakout**")
             breakout_mode = st.selectbox("Close vs Prev Range", 
                 ["None", "Close > Prev Day High", "Close < Prev Day Low"],
                 help="Requires today's close to be outside yesterday's range."
             )
-            # ----------------------------
 
         with pa2:
             st.markdown("**Candle Range Location %**")
@@ -837,8 +1027,6 @@ def main():
         
         with t_c2:
             st.markdown("**Presidential Cycle**")
-            # Map friendly names to remainder values (year % 4)
-            # Remainder 0 is Election year (e.g. 2024), 1 is Post (2025), etc.
             cycle_options = {
                 "1. Post-Election": 1,
                 "2. Midterm Year": 2,
@@ -853,8 +1041,8 @@ def main():
                 help="Deselect to exclude specific years from the backtest."
             )
             
-            # Convert selection back to integers for the engine
             allowed_cycles = [cycle_options[x] for x in sel_cycles]
+            
     with st.expander("Trend Filter", expanded=False):
         t1, _ = st.columns([1, 3])
         with t1:
@@ -862,6 +1050,7 @@ def main():
                 ["None", "Price > 200 SMA","Not Below Declining 200 SMA", "Price > Rising 200 SMA", "Market > 200 SMA",
                  "Price < 200 SMA", "Price < Falling 200 SMA", "Market < 200 SMA"],
                 help=f"Requires 200 days of data. 'Market' filters check the regime of {MARKET_TICKER}.")
+                
     with st.expander("Performance Percentile Rank (Granular Multi-Filter)", expanded=False):
         st.write("Enable multiple windows. Set 'Consec Days' for **each** timeframe individually.")
         col_p_config, col_p_seq = st.columns([3, 1])
@@ -892,7 +1081,6 @@ def main():
             perf_first = st.checkbox("First Instance", value=True)
             perf_lookback = st.number_input("Lookback (Days)", 1, 100, 21, disabled=not perf_first)
     
-    # --- NEW: CONSECUTIVE CLOSES VS SMA ---
     ma_consec_filters = []
     with st.expander("Consecutive Closes vs SMA", expanded=False):
         st.write("Configure up to 3 custom Moving Average conditions.")
@@ -921,7 +1109,6 @@ def main():
             logic_ma3 = st.selectbox("Close vs MA", ["Above", "Below"], key="logic_ma3", disabled=not use_ma3)
             consec_ma3 = st.number_input("Consecutive Days", 1, 50, 1, key="consec_ma3", disabled=not use_ma3)
             if use_ma3: ma_consec_filters.append({'length': len_ma3, 'logic': logic_ma3, 'consec': consec_ma3})
-    # --------------------------------------
 
     with st.expander("Seasonal Rank", expanded=False):
         st.markdown("**Ticker Specific Seasonality**")
@@ -944,11 +1131,9 @@ def main():
         with h1: type_52w = st.selectbox("Condition", ["New 52w High", "New 52w Low"], disabled=not use_52w)
         with h2: first_52w = st.checkbox("First Instance Only", value=True, key="hf", disabled=not use_52w)
         with h3: lookback_52w = st.number_input("Instance Lookback (Days)", 1, 252, 21, key="hlb", disabled=not use_52w)
-        # --- NEW: LAG INPUT ---
         with h4: 
             lag_52w = st.number_input("Lag (Days)", 0, 10, 0, disabled=not use_52w, 
                                       help="0 = Today, 1 = Yesterday (e.g., Signal if YESTERDAY was a 52w High)")
-        # --- NEW: EXCLUDE 52W HIGH ---
         st.markdown("---")
         exclude_52w_high = st.checkbox("Exclude if Today IS a 52w High", value=False, help="Signals will be ignored if today's close is a 52w High.")
 
@@ -959,7 +1144,6 @@ def main():
         with v2: vix_max = st.number_input("Max VIX Value", 0.0, 200.0, 20.0, disabled=not use_vix_filter)
 
     with st.expander("Volume Filters (Spike & Regime)", expanded=False):
-        # [INSERT NEW CODE HERE]
         use_vol_gt_prev = st.checkbox("Require Volume > Prev Day Volume", value=False)
         c1, c2 = st.columns(2)
         with c1:
@@ -1001,35 +1185,47 @@ def main():
         
         # --- MARKET DATA DOWNLOAD ---
         market_series = None
+        market_sznl_series = None
         need_market_data = ("Market" in trend_filter) or use_market_sznl
+        
         if need_market_data:
-            if MARKET_TICKER in data_dict: market_df = data_dict[MARKET_TICKER]
+            if MARKET_TICKER in data_dict: 
+                market_df = data_dict[MARKET_TICKER]
             else:
                 st.info(f"Fetching {MARKET_TICKER} data for regime/seasonal filter...")
                 market_dict_temp = download_universe_data([MARKET_TICKER], fetch_start)
                 market_df = market_dict_temp.get(MARKET_TICKER, None)
+                
             if market_df is not None and not market_df.empty:
-                if market_df.index.tz is not None: market_df.index = market_df.index.tz_localize(None)
+                if market_df.index.tz is not None: 
+                    market_df.index = market_df.index.tz_localize(None)
                 market_df.index = market_df.index.normalize()
                 market_df['SMA200'] = market_df['Close'].rolling(200).mean()
                 market_series = market_df['Close'] > market_df['SMA200']
-            else: st.warning(f"⚠️ {MARKET_TICKER} data unavailable. Market filters ignored.")
+                
+                # FIX: Calculate market seasonal series
+                if use_market_sznl:
+                    market_sznl_series = get_sznl_val_series(MARKET_TICKER, market_df.index, sznl_map)
+            else: 
+                st.warning(f"{MARKET_TICKER} data unavailable. Market filters ignored.")
         
         # --- VIX DATA DOWNLOAD ---
         vix_series = None
         if use_vix_filter:
-            if VIX_TICKER in data_dict: vix_df = data_dict[VIX_TICKER]
+            if VIX_TICKER in data_dict: 
+                vix_df = data_dict[VIX_TICKER]
             else:
                 st.info(f"Fetching {VIX_TICKER} data for regime filter...")
                 vix_dict_temp = download_universe_data([VIX_TICKER], fetch_start)
                 vix_df = vix_dict_temp.get(VIX_TICKER, None)
             
             if vix_df is not None and not vix_df.empty:
-                 if vix_df.index.tz is not None: vix_df.index = vix_df.index.tz_localize(None)
+                 if vix_df.index.tz is not None: 
+                     vix_df.index = vix_df.index.tz_localize(None)
                  vix_df.index = vix_df.index.normalize()
                  vix_series = vix_df['Close']
             else:
-                st.warning(f"⚠️ {VIX_TICKER} data unavailable. VIX filter ignored.")
+                st.warning(f"{VIX_TICKER} data unavailable. VIX filter ignored.")
 
         params = {
             'backtest_start_date': start_date, 'trade_direction': trade_direction,
@@ -1049,7 +1245,7 @@ def main():
             'trend_filter': trend_filter, 'universe_tickers': tickers_to_run, 'slippage_bps': slippage_bps,
             'entry_conf_bps': entry_conf_bps,
             'perf_filters': perf_filters, 'perf_first_instance': perf_first, 'perf_lookback': perf_lookback, 
-            'ma_consec_filters': ma_consec_filters, # NEW PARAM
+            'ma_consec_filters': ma_consec_filters,
             'use_sznl': use_sznl, 'sznl_logic': sznl_logic, 'sznl_thresh': sznl_thresh, 
             'sznl_first_instance': sznl_first, 'sznl_lookback': sznl_lookback,
             'use_market_sznl': use_market_sznl, 'market_sznl_logic': market_sznl_logic, 'market_sznl_thresh': market_sznl_thresh,
@@ -1069,7 +1265,7 @@ def main():
             'dist_count_logic': dist_count_logic, 'dist_count_thresh': dist_count_thresh
         }
         
-        trades_df, rejected_df, total_signals = run_engine(data_dict, params, sznl_map, market_series, vix_series)
+        trades_df, rejected_df, total_signals = run_engine(data_dict, params, sznl_map, market_series, vix_series, market_sznl_series)
         
         if trades_df.empty: st.warning("No executed signals (Check constraints or signal logic).")
         
@@ -1150,7 +1346,6 @@ def main():
         with tab2:
             if not rejected_df.empty:
                 st.markdown("**Includes both Portfolio Constraints (Max Positions) AND Technical Entry Failures (e.g. No Gap Up).**")
-                # Calc PnL for rejected (Assuming Open Entry)
                 if 'PnL_Dollar' not in rejected_df.columns:
                     rejected_df['PnL_Dollar'] = rejected_df['R'] * risk_per_trade
                 st.dataframe(rejected_df.style.format({
@@ -1158,68 +1353,6 @@ def main():
                     "Age": "{:.1f}y", "AvgVol": "{:,.0f}"
                 }), use_container_width=True)
             else: st.info("No signals were rejected.")
-
-        if not trades_df.empty or not rejected_df.empty:
-            st.markdown("---")
-            st.subheader("Configuration & Results (Copy Code)")
-            st.info("Copy the dictionary below and paste it into your `STRATEGY_BOOK` list in the Screener.")
-            dict_str = f"""{{
-    "id": "STRAT_{int(time.time())}",
-    "name": "Generated Strategy ({grade})",
-    "description": "Start: {start_date}. Universe: {univ_choice}. Dir: {trade_direction}. Filter: {trend_filter}. PF: {pf:.2f}. SQN: {sqn:.2f}.",
-    "universe_tickers": {tickers_to_run}, 
-    "settings": {{
-        "trade_direction": "{trade_direction}",
-        "entry_type": "{entry_type}",
-        "max_one_pos": {max_one_pos},
-        "allow_same_day_reentry": {allow_same_day_reentry},
-        "max_daily_entries": {max_daily_entries},
-        "max_total_positions": {max_total_positions},
-        "perf_filters": {perf_filters},
-        "perf_first_instance": {perf_first}, "perf_lookback": {perf_lookback},
-        "ma_consec_filters": {ma_consec_filters},
-        "use_sznl": {use_sznl}, "sznl_logic": "{sznl_logic}", "sznl_thresh": {sznl_thresh}, "sznl_first_instance": {sznl_first}, "sznl_lookback": {sznl_lookback},
-        "use_market_sznl": {use_market_sznl}, "market_sznl_logic": "{market_sznl_logic}", "market_sznl_thresh": {market_sznl_thresh},
-        "market_ticker": "{MARKET_TICKER}",
-        "use_52w": {use_52w}, "52w_type": "{type_52w}", "52w_first_instance": {first_52w}, "52w_lookback": {lookback_52w}, "52w_lag": {lag_52w},
-        "exclude_52w_high": {exclude_52w_high},
-        "breakout_mode": "{breakout_mode}",
-        "use_range_filter": {use_range_filter}, 
-        "range_min": {range_min}, 
-        "range_max": {range_max},
-        "use_dow_filter": {use_dow_filter}, 
-        "allowed_days": {valid_days},
-        "allowed_cycles": {allowed_cycles},
-        "use_vix_filter": {use_vix_filter}, "vix_min": {vix_min}, "vix_max": {vix_max},
-        "use_vol": {use_vol}, "vol_thresh": {vol_thresh},
-        "use_vol_rank": {use_vol_rank}, "vol_rank_logic": "{vol_rank_logic}", "vol_rank_thresh": {vol_rank_thresh},
-        "trend_filter": "{trend_filter}",
-        "min_price": {min_price}, "min_vol": {min_vol},
-        "min_age": {min_age}, "max_age": {max_age},
-        "min_atr_pct": {min_atr_pct},"max_atr_pct": {max_atr_pct},
-        "entry_conf_bps": {entry_conf_bps},
-        "use_ma_dist_filter": {use_ma_dist_filter}, "dist_ma_type": "{dist_ma_type}", 
-        "dist_logic": "{dist_logic}", "dist_min": {dist_min}, "dist_max": {dist_max},
-        "use_gap_filter": {use_gap_filter}, "gap_lookback": {gap_lookback}, 
-        "gap_logic": "{gap_logic}", "gap_thresh": {gap_thresh},
-        "use_acc_count_filter": {use_acc_count_filter}, "acc_count_window": {acc_count_window}, "acc_count_logic": "{acc_count_logic}", "acc_count_thresh": {acc_count_thresh},
-        "use_dist_count_filter": {use_dist_count_filter}, "dist_count_window": {dist_count_window}, "dist_count_logic": "{dist_count_logic}", "dist_count_thresh": {dist_count_thresh}
-    }},
-    "execution": {{
-        "risk_per_trade": {risk_per_trade},
-        "slippage_bps": {slippage_bps},
-        "stop_atr": {stop_atr},
-        "tgt_atr": {tgt_atr},
-        "hold_days": {hold_days}
-    }},
-    "stats": {{
-        "grade": "{grade} ({verdict})",
-        "win_rate": "{win_rate:.1f}%",
-        "expectancy": "${trades_df['PnL_Dollar'].mean() if not trades_df.empty else 0:.2f}",
-        "profit_factor": "{pf:.2f}"
-    }}
-}},"""
-            st.code(dict_str, language="python")
 
 if __name__ == "__main__":
     main()
