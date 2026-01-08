@@ -1,4 +1,17 @@
-STRATEGY_BOOK = [
+# strategy_config.py
+
+# ============================================
+# ACCOUNT CONFIGURATION
+# ============================================
+ACCOUNT_VALUE = 650000  # Adjust this to your current account size
+
+# ============================================
+# STRATEGY DEFINITIONS
+# ============================================
+# Note: risk_bps replaces fixed dollar risk (100 bps = 1% of account)
+# Examples at $150k: 20 bps = $300, 33 bps = $500, 50 bps = $750
+
+_STRATEGY_BOOK_RAW = [
     {
         "id": "5d <50, 21d > 50 3x, lower 20% range, sznl > 33, 5d time stop",
         "name": "Weak Close Reversion",
@@ -32,7 +45,7 @@ STRATEGY_BOOK = [
             "trend_filter": "None",
             "min_price": 10.0, "min_vol": 100000,
             "min_age": 0.25, "max_age": 100.0,
-            "min_atr_pct": 0.2,"max_atr_pct": 10.0,
+            "min_atr_pct": 0.2, "max_atr_pct": 10.0,
             "entry_conf_bps": 0,
             "use_ma_dist_filter": False, "dist_ma_type": "SMA 10", 
             "dist_logic": "Greater Than (>)", "dist_min": 0.0, "dist_max": 2.0,
@@ -42,7 +55,7 @@ STRATEGY_BOOK = [
             "use_dist_count_filter": False, "dist_count_window": 21, "dist_count_logic": "<", "dist_count_thresh": 3
         },
         "execution": {
-            "risk_per_trade": 300,
+            "risk_bps": 20,  # $300 at $150k
             "slippage_bps": 2,
             "stop_atr": 2.0,
             "tgt_atr": 8.0,
@@ -79,12 +92,17 @@ STRATEGY_BOOK = [
             "min_age": 0.25, "max_age": 100.0
         },
         "execution": {
-            "risk_per_trade": 1000,
+            "risk_bps": 67,  # $1000 at $150k
             "stop_atr": 2,
             "tgt_atr": 8.0,
             "hold_days": 21
         },
-        "stats": { "grade": "A (Excellent)", "win_rate": "64.1%", "expectancy": "0.47r", "profit_factor": "4.51" }
+        "stats": {
+            "grade": "A (Excellent)",
+            "win_rate": "64.1%",
+            "expectancy": "0.47r",
+            "profit_factor": "4.51"
+        }
     },
     {
         "id": "5+10+21d<15, SPX sznl > 20, lower 10% of rng, 2d time stop 1.5 atr tgt",
@@ -113,7 +131,7 @@ STRATEGY_BOOK = [
             "range_max": 20,
             "min_price": 10.0, "min_vol": 100000,
             "min_age": 0.25, "max_age": 100.0,
-            "min_atr_pct": 3.0,"max_atr_pct": 10.0,
+            "min_atr_pct": 3.0, "max_atr_pct": 10.0,
             "entry_conf_bps": 0,
             "use_ma_dist_filter": False, "dist_ma_type": "SMA 10", 
             "dist_logic": "Greater Than (>)", "dist_min": 0.0, "dist_max": 2.0,
@@ -123,7 +141,7 @@ STRATEGY_BOOK = [
             "use_dist_count_filter": False, "dist_count_window": 21, "dist_count_logic": ">", "dist_count_thresh": 3
         },
         "execution": {
-            "risk_per_trade": 300,
+            "risk_bps": 20,  # $300 at $150k
             "slippage_bps": 2,
             "stop_atr": 1.0,
             "tgt_atr": 1.5,
@@ -160,7 +178,7 @@ STRATEGY_BOOK = [
             "trend_filter": "None",
             "min_price": 10.0, "min_vol": 100000,
             "min_age": 0.25, "max_age": 100.0,
-            "min_atr_pct": 0.0,"max_atr_pct": 10.0,
+            "min_atr_pct": 0.0, "max_atr_pct": 10.0,
             "entry_conf_bps": 0,
             "use_ma_dist_filter": False, "dist_ma_type": "SMA 10", 
             "dist_logic": "Greater Than (>)", "dist_min": 0.0, "dist_max": 2.0,
@@ -170,7 +188,7 @@ STRATEGY_BOOK = [
             "use_dist_count_filter": True, "dist_count_window": 21, "dist_count_logic": ">", "dist_count_thresh": 0
         },
         "execution": {
-            "risk_per_trade": 500,
+            "risk_bps": 33,  # $500 at $150k
             "slippage_bps": 5,
             "stop_atr": 2.0,
             "tgt_atr": 5.0,
@@ -206,12 +224,17 @@ STRATEGY_BOOK = [
             "min_age": 0.25, "max_age": 100.0
         },
         "execution": {
-            "risk_per_trade": 500,
+            "risk_bps": 33,  # $500 at $150k
             "stop_atr": 2.0,
             "tgt_atr": 3.0,
             "hold_days": 5
         },
-        "stats": { "grade": "A (Excellent)", "win_rate": "61.1%", "expectancy": "0.32r", "profit_factor": "2.80" }
+        "stats": {
+            "grade": "A (Excellent)",
+            "win_rate": "61.1%",
+            "expectancy": "0.32r",
+            "profit_factor": "2.80"
+        }
     },
     {
         "id": "52wh 15d lookback, 1.5x volume, spx sznl > 50, >50%rng > yday high, no midterms",
@@ -246,7 +269,7 @@ STRATEGY_BOOK = [
             "trend_filter": "None",
             "min_price": 10.0, "min_vol": 500000,
             "min_age": 0.25, "max_age": 100.0,
-            "min_atr_pct": 0.2,"max_atr_pct": 10.0,
+            "min_atr_pct": 0.2, "max_atr_pct": 10.0,
             "entry_conf_bps": 0,
             "use_ma_dist_filter": False, "dist_ma_type": "SMA 10", 
             "dist_logic": "Greater Than (>)", "dist_min": 0.0, "dist_max": 2.0,
@@ -257,7 +280,7 @@ STRATEGY_BOOK = [
             "use_ma_touch": False, "ma_touch_type": "SMA 200", "ma_slope_days": 50, "ma_untested_days": 30
         },
         "execution": {
-            "risk_per_trade": 250,
+            "risk_bps": 17,  # $250 at $150k
             "slippage_bps": 2,
             "stop_atr": 3.0,
             "tgt_atr": 10.0,
@@ -304,7 +327,7 @@ STRATEGY_BOOK = [
             "use_dist_count_filter": False, "dist_count_window": 21, "dist_count_logic": ">", "dist_count_thresh": 3
         },
         "execution": {
-            "risk_per_trade": 500,
+            "risk_bps": 33,  # $500 at $150k
             "slippage_bps": 5,
             "stop_atr": 3.0,
             "tgt_atr": 8.0,
@@ -317,7 +340,6 @@ STRATEGY_BOOK = [
             "profit_factor": "3.28"
         }
     },
-
     {
         "id": "5dr < 50, sznl > 33, close < 20% range, close > 20d, >2 acc <3 dist (21d)",
         "name": "Weak Close Decent Sznls",
@@ -350,7 +372,7 @@ STRATEGY_BOOK = [
             "trend_filter": "None",
             "min_price": 10.0, "min_vol": 100000,
             "min_age": 0.25, "max_age": 100.0,
-            "min_atr_pct": 0.2,"max_atr_pct": 10.0,
+            "min_atr_pct": 0.2, "max_atr_pct": 10.0,
             "entry_conf_bps": 0,
             "use_ma_dist_filter": False, "dist_ma_type": "SMA 10", 
             "dist_logic": "Greater Than (>)", "dist_min": 0.0, "dist_max": 2.0,
@@ -360,7 +382,7 @@ STRATEGY_BOOK = [
             "use_dist_count_filter": True, "dist_count_window": 21, "dist_count_logic": "<", "dist_count_thresh": 3
         },
         "execution": {
-            "risk_per_trade": 400,
+            "risk_bps": 27,  # $400 at $150k
             "slippage_bps": 2,
             "stop_atr": 1.0,
             "tgt_atr": 8.0,
@@ -406,7 +428,7 @@ STRATEGY_BOOK = [
             "trend_filter": "Market > 200 SMA",
             "min_price": 10.0, "min_vol": 100000,
             "min_age": 0.25, "max_age": 100.0,
-            "min_atr_pct": 0.2,"max_atr_pct": 10.0,
+            "min_atr_pct": 0.2, "max_atr_pct": 10.0,
             "entry_conf_bps": 0,
             "use_ma_dist_filter": False, "dist_ma_type": "SMA 10", 
             "dist_logic": "Greater Than (>)", "dist_min": 0.0, "dist_max": 2.0,
@@ -416,7 +438,7 @@ STRATEGY_BOOK = [
             "use_dist_count_filter": False, "dist_count_window": 21, "dist_count_logic": ">", "dist_count_thresh": 3
         },
         "execution": {
-            "risk_per_trade": 750,
+            "risk_bps": 50,  # $750 at $150k
             "slippage_bps": 2,
             "stop_atr": 3.0,
             "tgt_atr": 8.0,
@@ -462,7 +484,7 @@ STRATEGY_BOOK = [
             "trend_filter": "Market > 200 SMA",
             "min_price": 10.0, "min_vol": 100000,
             "min_age": 0.25, "max_age": 100.0,
-            "min_atr_pct": 0.2,"max_atr_pct": 10.0,
+            "min_atr_pct": 0.2, "max_atr_pct": 10.0,
             "entry_conf_bps": 0,
             "use_ma_dist_filter": False, "dist_ma_type": "SMA 10", 
             "dist_logic": "Greater Than (>)", "dist_min": 0.0, "dist_max": 2.0,
@@ -472,7 +494,7 @@ STRATEGY_BOOK = [
             "use_dist_count_filter": False, "dist_count_window": 21, "dist_count_logic": "<", "dist_count_thresh": 3
         },
         "execution": {
-            "risk_per_trade": 750,
+            "risk_bps": 50,  # $750 at $150k
             "slippage_bps": 2,
             "stop_atr": 3.0,
             "tgt_atr": 8.0,
@@ -485,7 +507,7 @@ STRATEGY_BOOK = [
             "profit_factor": "2.70"
         }
     },
-        {
+    {
         "id": "5+10+21d > 85, 21d 3x, vol >1.25x, >0 dist day, sell open +0.5 atr",
         "name": "Overbot Vol Spike",
         "description": "Start: 2000-01-01. Universe: All CSV Tickers. Dir: Short. Filter: None. PF: 2.46. SQN: 4.44.",
@@ -508,7 +530,7 @@ STRATEGY_BOOK = [
             "trend_filter": "None",
             "min_price": 10.0, "min_vol": 100000,
             "min_age": 0.25, "max_age": 100.0,
-            "min_atr_pct": 0.0,"max_atr_pct": 100.0,
+            "min_atr_pct": 0.0, "max_atr_pct": 100.0,
             "entry_conf_bps": 0,
             "use_ma_dist_filter": False, "dist_ma_type": "SMA 10", 
             "dist_logic": "Greater Than (>)", "dist_min": 0.0, "dist_max": 2.0,
@@ -518,7 +540,7 @@ STRATEGY_BOOK = [
             "use_dist_count_filter": True, "dist_count_window": 21, "dist_count_logic": ">", "dist_count_thresh": 0
         },
         "execution": {
-            "risk_per_trade": 400,
+            "risk_bps": 27,  # $400 at $150k
             "slippage_bps": 2,
             "stop_atr": 1.0,
             "tgt_atr": 8.0,
@@ -532,3 +554,80 @@ STRATEGY_BOOK = [
         }
     },
 ]
+
+
+# ============================================
+# RISK CALCULATION FUNCTIONS
+# ============================================
+def calculate_dollar_risk(risk_bps, account_value=None):
+    """
+    Convert basis points to dollar risk.
+    
+    Args:
+        risk_bps: Risk in basis points (100 bps = 1%)
+        account_value: Account size in dollars (defaults to ACCOUNT_VALUE)
+    
+    Returns:
+        Dollar risk amount (rounded to nearest dollar)
+    """
+    if account_value is None:
+        account_value = ACCOUNT_VALUE
+    return round(account_value * risk_bps / 10000)
+
+
+def build_strategy_book(account_value=None):
+    """
+    Build strategy book with calculated dollar risks.
+    
+    Args:
+        account_value: Account size in dollars (defaults to ACCOUNT_VALUE)
+    
+    Returns:
+        List of strategy dicts with risk_per_trade populated
+    """
+    import copy
+    if account_value is None:
+        account_value = ACCOUNT_VALUE
+    
+    strategies = copy.deepcopy(_STRATEGY_BOOK_RAW)
+    for strategy in strategies:
+        risk_bps = strategy["execution"]["risk_bps"]
+        strategy["execution"]["risk_per_trade"] = calculate_dollar_risk(risk_bps, account_value)
+    return strategies
+
+
+def get_strategy_by_name(name, account_value=None):
+    """
+    Get a single strategy by name with calculated dollar risk.
+    
+    Args:
+        name: Strategy name to find
+        account_value: Account size in dollars (defaults to ACCOUNT_VALUE)
+    
+    Returns:
+        Strategy dict or None if not found
+    """
+    import copy
+    if account_value is None:
+        account_value = ACCOUNT_VALUE
+    
+    for strategy in _STRATEGY_BOOK_RAW:
+        if strategy["name"] == name:
+            strat = copy.deepcopy(strategy)
+            strat["execution"]["risk_per_trade"] = calculate_dollar_risk(
+                strat["execution"]["risk_bps"], account_value
+            )
+            return strat
+    return None
+
+
+def list_strategies():
+    """List all strategy names and their risk in bps."""
+    return [(s["name"], s["execution"]["risk_bps"]) for s in _STRATEGY_BOOK_RAW]
+
+
+# ============================================
+# DEFAULT EXPORT
+# ============================================
+# Uses ACCOUNT_VALUE at top of file - change that value to adjust all risks
+STRATEGY_BOOK = build_strategy_book()
