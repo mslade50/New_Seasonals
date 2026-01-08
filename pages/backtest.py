@@ -66,8 +66,10 @@ def get_sznl_val_series(ticker, dates, sznl_map):
 
     if not t_map:
         return pd.Series(50.0, index=dates)
-        
-    return dates.map(t_map).fillna(50.0)
+    
+    # Map returns an Index, convert to Series and fillna
+    mapped = dates.map(t_map)
+    return pd.Series(mapped, index=dates).fillna(50.0)
 
 def clean_ticker_df(df):
     if df.empty: return df
@@ -795,10 +797,6 @@ def run_engine(universe_dict, params, sznl_map, market_series=None, vix_series=N
                     "Status": "Valid Signal", "Reason": "Executed"
                 })
         except Exception as e:
-            # Debug: uncomment to see what's failing
-            # st.warning(f"Error processing {ticker}: {str(e)}")
-            # import traceback
-            # st.code(traceback.format_exc())
             continue
         
     progress_bar.empty()
