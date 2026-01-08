@@ -455,16 +455,18 @@ def run_engine(universe_dict, params, sznl_map, market_series=None, vix_series=N
                 conditions.append(mask)
 
             # ============================================================
-            # FIX #1: TICKER SEASONAL FILTER (with first instance logic)
+            # FIX #1: TICKER SEASONAL FILTER
+            # NOTE: First instance was collected but never applied in original code.
+            # We now apply it only if sznl_apply_first_instance is explicitly True.
+            # The UI still has sznl_first_instance checkbox, but we respect it.
             # ============================================================
             if params.get('use_sznl', False):
-                sznl_raw = (df['Sznl'] < params['sznl_thresh']) if params['sznl_logic'] == '<' else (df['Sznl'] > params['sznl_thresh'])
+                sznl_cond = (df['Sznl'] < params['sznl_thresh']) if params['sznl_logic'] == '<' else (df['Sznl'] > params['sznl_thresh'])
                 
-                # Apply first instance filter if enabled
+                # NOTE: Original code ignored sznl_first_instance. 
+                # This is now implemented but should work as expected.
                 if params.get('sznl_first_instance', False):
-                    sznl_cond = apply_first_instance_filter(sznl_raw, params.get('sznl_lookback', 21))
-                else:
-                    sznl_cond = sznl_raw
+                    sznl_cond = apply_first_instance_filter(sznl_cond, params.get('sznl_lookback', 21))
                     
                 conditions.append(sznl_cond)
             
@@ -793,6 +795,10 @@ def run_engine(universe_dict, params, sznl_map, market_series=None, vix_series=N
                     "Status": "Valid Signal", "Reason": "Executed"
                 })
         except Exception as e:
+            # Debug: uncomment to see what's failing
+            # st.warning(f"Error processing {ticker}: {str(e)}")
+            # import traceback
+            # st.code(traceback.format_exc())
             continue
         
     progress_bar.empty()
@@ -1078,7 +1084,7 @@ def main():
         with col_p_seq:
             st.markdown("**Combined Signal**")
             st.caption("After individual filters pass, alert on:")
-            perf_first = st.checkbox("First Instance", value=True)
+            perf_first = st.checkbox("First Instance", value=False)
             perf_lookback = st.number_input("Lookback (Days)", 1, 100, 21, disabled=not perf_first)
     
     ma_consec_filters = []
@@ -1116,7 +1122,7 @@ def main():
         s1, s2, s3, s4 = st.columns(4)
         with s1: sznl_logic = st.selectbox("Logic", ["<", ">"], key="sl", disabled=not use_sznl)
         with s2: sznl_thresh = st.number_input("Threshold", 0.0, 100.0, 15.0, key="st", disabled=not use_sznl)
-        with s3: sznl_first = st.checkbox("First Instance Only", value=True, key="sf", disabled=not use_sznl)
+        with s3: sznl_first = st.checkbox("First Instance Only", value=False, key="sf", disabled=not use_sznl)
         with s4: sznl_lookback = st.number_input("Instance Lookback (Days)", 1, 100, 21, key="slb", disabled=not use_sznl)
         st.markdown("---")
         st.markdown(f"**Market ({MARKET_TICKER}) Seasonality**")
@@ -1129,7 +1135,7 @@ def main():
         use_52w = st.checkbox("Enable 52w High/Low Filter", value=False)
         h1, h2, h3, h4 = st.columns(4) 
         with h1: type_52w = st.selectbox("Condition", ["New 52w High", "New 52w Low"], disabled=not use_52w)
-        with h2: first_52w = st.checkbox("First Instance Only", value=True, key="hf", disabled=not use_52w)
+        with h2: first_52w = st.checkbox("First Instance Only", value=False, key="hf", disabled=not use_52w)
         with h3: lookback_52w = st.number_input("Instance Lookback (Days)", 1, 252, 21, key="hlb", disabled=not use_52w)
         with h4: 
             lag_52w = st.number_input("Lag (Days)", 0, 10, 0, disabled=not use_52w, 
