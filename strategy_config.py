@@ -3,7 +3,7 @@
 # ============================================
 # ACCOUNT CONFIGURATION
 # ============================================
-ACCOUNT_VALUE = 650000  # Adjust this to your current account size
+ACCOUNT_VALUE = 750000  # Adjust this to your current account size
 
 # ============================================
 # STRATEGY DEFINITIONS
