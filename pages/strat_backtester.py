@@ -708,9 +708,13 @@ def process_signals_fast(candidates, signal_data, processed_dict, strategies, st
         else:
             pnl = (entry_price - exit_price) * shares
         
-        # Time stop
-        ts_idx = min(entry_idx + hold_days, len(df) - 1)
-        time_stop_date = df.index[ts_idx]
+        # Time stop - calculate the intended exit date (may be in future)
+        target_ts_idx = entry_idx + hold_days
+        if target_ts_idx < len(df):
+            time_stop_date = df.index[target_ts_idx]
+        else:
+            # Position hasn't reached time stop yet - calculate future date
+            time_stop_date = entry_date + BusinessDay(hold_days)
         
         # Update state
         equity_at_signal = current_equity
@@ -741,6 +745,13 @@ def process_signals_fast(candidates, signal_data, processed_dict, strategies, st
         return pd.DataFrame()
     
     sig_df = pd.DataFrame(results)
+    
+    # Ensure datetime columns are proper Timestamps
+    sig_df['Date'] = pd.to_datetime(sig_df['Date'])
+    sig_df['Entry Date'] = pd.to_datetime(sig_df['Entry Date'])
+    sig_df['Exit Date'] = pd.to_datetime(sig_df['Exit Date'])
+    sig_df['Time Stop'] = pd.to_datetime(sig_df['Time Stop'])
+    
     return sig_df.sort_values(by="Exit Date")
 
 
