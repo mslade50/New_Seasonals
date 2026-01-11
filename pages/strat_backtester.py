@@ -17,10 +17,11 @@ parent_dir = os.path.dirname(current_dir)
 sys.path.append(parent_dir)
 
 try:
-    from strategy_config import STRATEGY_BOOK
+    from strategy_config import _STRATEGY_BOOK_RAW, ACCOUNT_VALUE
 except ImportError:
     st.error("Could not find strategy_config.py in the root directory.")
-    STRATEGY_BOOK = []
+    _STRATEGY_BOOK_RAW = []
+    ACCOUNT_VALUE = 150000
 
 # -----------------------------------------------------------------------------
 # CONSTANTS & SETUP
@@ -241,9 +242,6 @@ def calculate_indicators(df, sznl_map, ticker, market_series=None, vix_series=No
     return df
 
 def get_historical_mask(df, params, sznl_map, ticker_name="UNK"):
-    # Debug Helper
-    def count_true(s): return s.sum()
-
     mask = pd.Series(True, index=df.index)
     
     # --- 1. TREND FILTER ---
@@ -323,15 +321,13 @@ def get_historical_mask(df, params, sznl_map, ticker_name="UNK"):
             elif params['dist_count_logic'] == "<": mask &= (df[col] < params['dist_count_thresh'])
             elif params['dist_count_logic'] == "=": mask &= (df[col] == params['dist_count_thresh'])
 
-    # --- 9. PERFORMANCE RANK (RESTORED DUAL LOGIC) ---
-    # A. Check the "perf_filters" LIST (if populated)
+    # --- 9. PERFORMANCE RANK ---
     for pf in params.get('perf_filters', []):
         col = f"rank_ret_{pf['window']}d"
         cond = (df[col] < pf['thresh']) if pf['logic'] == '<' else (df[col] > pf['thresh'])
         if pf['consecutive'] > 1: cond = cond.rolling(pf['consecutive']).sum() == pf['consecutive']
         mask &= cond
 
-    # B. Check the SINGULAR "use_perf_rank" (This was missing!)
     if params.get('use_perf_rank', False):
         col = f"rank_ret_{params['perf_window']}d"
         if params['perf_logic'] == '<': 
@@ -341,7 +337,6 @@ def get_historical_mask(df, params, sznl_map, ticker_name="UNK"):
         
         consec = params.get('perf_consecutive', 1)
         if consec > 1: 
-            # This ensures we have 'consec' days in a row where 'raw' is True
             persist = (raw.rolling(consec).sum() == consec)
         else: 
             persist = raw
@@ -430,14 +425,12 @@ def get_historical_mask(df, params, sznl_map, ticker_name="UNK"):
             slope_lookback = params.get('ma_slope_days', 20)
             untested_lookback = params.get('ma_untested_days', 50)
 
-            # Check 1: Slope Direction
             if direction == 'Long': is_slope_ok = (ma_series > ma_series.shift(1))
             else: is_slope_ok = (ma_series < ma_series.shift(1))
             
             if slope_lookback > 1:
                 is_slope_ok = (is_slope_ok.rolling(slope_lookback).sum() == slope_lookback)
             
-            # Check 2: Untested History
             if untested_lookback > 0:
                 if direction == 'Long':
                     was_untested = (df['Low'] > ma_series).shift(1).rolling(untested_lookback).min() == 1.0
@@ -447,7 +440,6 @@ def get_historical_mask(df, params, sznl_map, ticker_name="UNK"):
             else:
                 was_untested = True
 
-            # Check 3: Trigger (Touch Today)
             if direction == 'Long': touched_today = (df['Low'] <= ma_series)
             else: touched_today = (df['High'] >= ma_series)
 
@@ -455,20 +447,316 @@ def get_historical_mask(df, params, sznl_map, ticker_name="UNK"):
 
     return mask.fillna(False)
 
-def calculate_trade_result(df, signal_date, action, shares, entry_price, hold_days):
-    start_idx = df.index.searchsorted(signal_date)
-    if start_idx >= len(df) - 1:
-        return 0, signal_date
-    window = df.iloc[start_idx+1 : start_idx+1+hold_days].copy()
-    if window.empty: 
-        return 0, signal_date
-    exit_row = window.iloc[-1]
-    exit_price = exit_row['Close']
-    exit_date = exit_row.name
-    if action == "BUY": pnl = (exit_price - entry_price) * shares
-    elif action == "SELL SHORT": pnl = (entry_price - exit_price) * shares
-    else: pnl = 0
-    return pnl, exit_date
+
+# -----------------------------------------------------------------------------
+# PHASE 1: GENERATE ALL CANDIDATE SIGNALS (without sizing)
+# -----------------------------------------------------------------------------
+def generate_candidate_signals(master_dict, strategies, sznl_map, user_start_date, vix_series=None):
+    """
+    Generate all candidate signal dates across all strategies/tickers.
+    Returns a list of dicts with signal metadata (no position sizing yet).
+    """
+    candidates = []
+    
+    for strat in strategies:
+        settings = strat['settings']
+        
+        # Get market series for this strategy
+        strat_mkt_ticker = settings.get('market_ticker', 'SPY')
+        mkt_df = master_dict.get(strat_mkt_ticker)
+        if mkt_df is None: 
+            mkt_df = master_dict.get('SPY')
+        
+        market_series = None
+        if mkt_df is not None:
+            temp_mkt = mkt_df.copy()
+            temp_mkt['SMA200'] = temp_mkt['Close'].rolling(200).mean()
+            market_series = temp_mkt['Close'] > temp_mkt['SMA200']
+
+        # Extract strategy-specific parameters
+        gap_win = settings.get('gap_lookback', 21)
+        acc_win = settings.get('acc_count_window') if settings.get('use_acc_count_filter') else None
+        dist_win = settings.get('dist_count_window') if settings.get('use_dist_count_filter') else None
+        req_custom_mas = list(set([f['length'] for f in settings.get('ma_consec_filters', [])]))
+        
+        if settings.get('use_ma_touch'):
+            ma_type = settings.get('ma_touch_type', '')
+            if 'SMA' in ma_type and ma_type not in ["SMA 10", "SMA 20", "SMA 50", "SMA 100", "SMA 200"]:
+                try:
+                    val = int(ma_type.replace("SMA", "").strip())
+                    req_custom_mas.append(val)
+                except: pass
+
+        for ticker in strat['universe_tickers']:
+            t_clean = ticker.replace('.', '-')
+            df = master_dict.get(t_clean)
+            if df is None or len(df) < 200: 
+                continue
+            
+            try:
+                df = calculate_indicators(
+                    df, sznl_map, t_clean, market_series, vix_series,
+                    gap_window=gap_win,
+                    acc_window=acc_win,
+                    dist_window=dist_win,
+                    custom_sma_lengths=req_custom_mas
+                )
+                
+                mask = get_historical_mask(df, settings, sznl_map, ticker)
+                cutoff_ts = pd.Timestamp(user_start_date)
+                mask = mask[mask.index >= cutoff_ts]
+                if not mask.any(): 
+                    continue
+
+                true_dates = mask[mask].index
+                
+                for signal_date in true_dates:
+                    row = df.loc[signal_date]
+                    
+                    # Store candidate with all info needed for later sizing
+                    candidates.append({
+                        'signal_date': signal_date,
+                        'ticker': ticker,
+                        't_clean': t_clean,
+                        'strategy_name': strat['name'],
+                        'strategy': strat,
+                        'settings': settings,
+                        'signal_row': row,
+                        'df': df,  # Reference to full dataframe
+                        'atr': row['ATR'],
+                        'signal_close': row['Close'],
+                        'vol_ratio': row.get('vol_ratio', 0),
+                        'sznl': row.get('Sznl', 50),
+                        'range_pct': row['RangePct'] * 100
+                    })
+            except Exception as e:
+                continue
+    
+    return candidates
+
+
+# -----------------------------------------------------------------------------
+# PHASE 2: PROCESS SIGNALS CHRONOLOGICALLY WITH DYNAMIC SIZING
+# -----------------------------------------------------------------------------
+def process_signals_chronologically(candidates, master_dict, starting_equity):
+    """
+    Process all candidate signals in chronological order.
+    Size each trade based on current equity at time of signal.
+    Track open positions and running equity.
+    """
+    if not candidates:
+        return pd.DataFrame()
+    
+    # Sort candidates by signal date
+    candidates = sorted(candidates, key=lambda x: x['signal_date'])
+    
+    # State tracking
+    current_equity = starting_equity
+    realized_pnl = 0.0
+    open_positions = {}  # key: (strategy_name, ticker), value: position dict
+    position_last_exit = {}  # key: (strategy_name, ticker), value: last exit date
+    
+    executed_trades = []
+    
+    for cand in candidates:
+        signal_date = cand['signal_date']
+        ticker = cand['ticker']
+        t_clean = cand['t_clean']
+        strat = cand['strategy']
+        settings = cand['settings']
+        df = cand['df']
+        
+        # --- Check if we can take this position ---
+        pos_key = (strat['name'], ticker)
+        
+        # Skip if already in position for this strategy/ticker
+        if pos_key in open_positions:
+            continue
+        
+        # Skip if last exit hasn't occurred yet (no re-entry until position closed)
+        last_exit = position_last_exit.get(pos_key)
+        if last_exit is not None and signal_date <= last_exit:
+            continue
+        
+        # --- Determine entry details ---
+        entry_type = settings.get('entry_type', 'Signal Close')
+        entry_idx = df.index.get_loc(signal_date)
+        
+        if entry_idx + 1 >= len(df):
+            continue
+            
+        entry_row = df.iloc[entry_idx + 1]
+        signal_row = cand['signal_row']
+        atr = cand['atr']
+        hold_days = strat['execution']['hold_days']
+        
+        valid_entry = True
+        entry_price = None
+        entry_date = None
+        
+        if entry_type == 'T+1 Close':
+            entry_price = entry_row['Close']
+            entry_date = entry_row.name
+        elif entry_type == 'T+1 Open':
+            entry_price = entry_row['Open']
+            entry_date = entry_row.name
+        elif entry_type == 'T+1 Close if < Signal Close':
+            if entry_row['Close'] < signal_row['Close']:
+                entry_price = entry_row['Close']
+                entry_date = entry_row.name
+            else:
+                valid_entry = False
+        elif entry_type == "Limit (Open +/- 0.5 ATR)":
+            limit_offset = 0.5 * atr
+            if settings['trade_direction'] == 'Short':
+                limit_price = entry_row['Open'] + limit_offset
+                if entry_row['High'] >= limit_price:
+                    entry_price = limit_price
+                else:
+                    valid_entry = False
+            else:
+                limit_price = entry_row['Open'] - limit_offset
+                if entry_row['Low'] <= limit_price:
+                    entry_price = limit_price
+                else:
+                    valid_entry = False
+            entry_date = entry_row.name
+        elif "Persistent" in entry_type:
+            limit_offset = 0.5 * atr
+            limit_base = signal_row['Close']
+            found_fill = False
+            max_days = hold_days
+            search_end = min(entry_idx + 1 + max_days, len(df))
+            
+            for i in range(entry_idx + 1, search_end):
+                check_row = df.iloc[i]
+                if settings['trade_direction'] == 'Short':
+                    limit_price = limit_base + limit_offset
+                    if check_row['High'] >= limit_price:
+                        entry_price = limit_price
+                        entry_date = check_row.name
+                        days_elapsed = i - entry_idx
+                        hold_days = max(1, strat['execution']['hold_days'] - days_elapsed)
+                        found_fill = True
+                        break
+                else:
+                    limit_price = limit_base - limit_offset
+                    if check_row['Low'] <= limit_price:
+                        entry_price = limit_price
+                        entry_date = check_row.name
+                        days_elapsed = i - entry_idx
+                        hold_days = max(1, strat['execution']['hold_days'] - days_elapsed)
+                        found_fill = True
+                        break
+            valid_entry = found_fill
+        else:
+            entry_price = signal_row['Close']
+            entry_date = signal_date
+        
+        if not valid_entry or entry_price is None:
+            continue
+        
+        # --- DYNAMIC POSITION SIZING based on current equity ---
+        risk_bps = strat['execution']['risk_bps']
+        base_risk = current_equity * risk_bps / 10000
+        
+        # Strategy-specific risk adjustments
+        if strat['name'] == "Overbot Vol Spike":
+            vol_ratio = cand['vol_ratio']
+            if vol_ratio > 2.0:
+                base_risk = current_equity * 45 / 10000  # ~675 at 150k
+            elif vol_ratio > 1.5:
+                base_risk = current_equity * 35 / 10000  # ~525 at 150k
+        
+        if strat['name'] == "Weak Close Decent Sznls":
+            sznl_val = cand['sznl']
+            if sznl_val >= 65:
+                base_risk = base_risk * 1.5
+            elif sznl_val >= 50:
+                base_risk = base_risk * 1.0
+            elif sznl_val >= 33:
+                base_risk = base_risk * 0.66
+        
+        # Calculate position size
+        direction = settings.get('trade_direction', 'Long')
+        stop_atr = strat['execution']['stop_atr']
+        
+        if direction == 'Long':
+            stop_price = entry_price - (atr * stop_atr)
+            dist = entry_price - stop_price
+            action = "BUY"
+        else:
+            stop_price = entry_price + (atr * stop_atr)
+            dist = stop_price - entry_price
+            action = "SELL SHORT"
+        
+        shares = int(base_risk / dist) if dist > 0 else 0
+        
+        if shares == 0:
+            continue
+        
+        # --- Calculate exit ---
+        start_idx = df.index.searchsorted(entry_date)
+        if start_idx >= len(df) - 1:
+            continue
+            
+        window = df.iloc[start_idx + 1: start_idx + 1 + hold_days].copy()
+        if window.empty:
+            continue
+            
+        exit_row = window.iloc[-1]
+        exit_price = exit_row['Close']
+        exit_date = exit_row.name
+        
+        if action == "BUY":
+            pnl = (exit_price - entry_price) * shares
+        else:
+            pnl = (entry_price - exit_price) * shares
+        
+        # Calculate time stop date
+        try:
+            e_idx = df.index.get_loc(entry_date)
+            ts_idx = e_idx + hold_days
+            time_stop_date = df.index[ts_idx] if ts_idx < len(df) else entry_date + BusinessDay(hold_days)
+        except:
+            time_stop_date = pd.NaT
+        
+        # --- Update state ---
+        realized_pnl += pnl
+        current_equity = starting_equity + realized_pnl
+        position_last_exit[pos_key] = exit_date
+        
+        # Record trade
+        executed_trades.append({
+            "Date": signal_date.date(),
+            "Entry Date": entry_date.date() if hasattr(entry_date, 'date') else entry_date,
+            "Exit Date": exit_date.date() if hasattr(exit_date, 'date') else exit_date,
+            "Time Stop": time_stop_date,
+            "Strategy": strat['name'],
+            "Ticker": ticker,
+            "Action": action,
+            "Entry Criteria": entry_type,
+            "Price": entry_price,
+            "Shares": shares,
+            "PnL": pnl,
+            "ATR": atr,
+            "Range %": cand['range_pct'],
+            "Equity at Signal": current_equity - pnl,  # Equity BEFORE this trade's PnL
+            "Risk $": base_risk,
+            "Risk bps": risk_bps
+        })
+    
+    if not executed_trades:
+        return pd.DataFrame()
+    
+    sig_df = pd.DataFrame(executed_trades)
+    sig_df['Date'] = pd.to_datetime(sig_df['Date'])
+    sig_df['Entry Date'] = pd.to_datetime(sig_df['Entry Date'])
+    sig_df['Exit Date'] = pd.to_datetime(sig_df['Exit Date'])
+    sig_df['Time Stop'] = pd.to_datetime(sig_df['Time Stop'])
+    
+    return sig_df.sort_values(by="Exit Date")
+
 
 # -----------------------------------------------------------------------------
 # CORE LOGIC: DAILY MARK-TO-MARKET PNL
@@ -488,7 +776,7 @@ def get_daily_mtm_series(sig_df, master_dict):
         shares = trade['Shares']
         entry_date = trade['Date']
         exit_date = trade['Exit Date']
-        entry_price = trade['Price'] # Actual Fill Price
+        entry_price = trade['Price']
         
         t_df = master_dict.get(ticker)
         if t_df is None or t_df.empty:
@@ -538,17 +826,18 @@ def calculate_daily_exposure(sig_df):
     exposure_df['Net Exposure ($)'] = exposure_df['Long Exposure ($)'] - exposure_df['Short Exposure ($)']
     return exposure_df
 
+
 # -----------------------------------------------------------------------------
-# NEW: ANNUAL STATS & UPDATED METRICS (Using $150k Start)
+# ANNUAL STATS & METRICS
 # -----------------------------------------------------------------------------
-def calculate_annual_stats(daily_pnl_series, starting_equity=150000):
+def calculate_annual_stats(daily_pnl_series, starting_equity):
     if daily_pnl_series.empty: return pd.DataFrame()
     
     equity_series = starting_equity + daily_pnl_series.cumsum()
     daily_rets = equity_series.pct_change().fillna(0)
     
     yearly_stats = []
-    years = daily_rets.resample('Y')
+    years = daily_rets.resample('YE')
     
     for year_date, rets in years:
         year = year_date.year
@@ -584,7 +873,7 @@ def calculate_annual_stats(daily_pnl_series, starting_equity=150000):
         
     return pd.DataFrame(yearly_stats)
 
-def calculate_performance_stats(sig_df, master_dict, starting_equity=150000):
+def calculate_performance_stats(sig_df, master_dict, starting_equity):
     stats = []
     
     def get_metrics(df, name, master_dict, equity_base, calculate_ratios=True):
@@ -633,11 +922,12 @@ def calculate_performance_stats(sig_df, master_dict, starting_equity=150000):
     
     return pd.DataFrame(stats)
 
+
 # -----------------------------------------------------------------------------
 # MAIN APP
 # -----------------------------------------------------------------------------
 def main():
-    st.set_page_config(layout="wide", page_title="Strategy Backtest Lab")
+    st.set_page_config(layout="wide", page_title="Strategy Backtest Lab v2")
     st.sidebar.header("⚙️ Backtest Settings")
 
     if st.sidebar.button("🔴 Force Clear Cache & Data"):
@@ -655,10 +945,15 @@ def main():
         user_start_date = st.date_input("Backtest Start Date", value=default_date, min_value=datetime.date(2000, 1, 1))
         starting_equity = st.number_input("Starting Equity ($)", value=150000, step=10000)
         st.caption(f"Data download buffer: 365 days prior to {user_start_date}.")
+        st.markdown("---")
+        st.markdown("**🔄 Dynamic Position Sizing**")
+        st.caption("Position sizes now scale with equity. Risk is calculated as basis points of current account value at time of each signal.")
         run_btn = st.form_submit_button("⚡ Run Backtest")
 
-    st.title("⚡ Strategy Backtest Lab")
+    st.title("⚡ Strategy Backtest Lab v2")
+    st.markdown("### Dynamic Equity-Based Position Sizing")
     st.markdown(f"**Selected Start Date:** {user_start_date} | **Starting Equity:** ${starting_equity:,.0f}")
+    st.info("💡 **New in v2:** Position sizes now scale dynamically with your equity. Each trade is sized based on your account value at the time of the signal, not a fixed dollar amount.")
     st.markdown("---")
 
     if run_btn:
@@ -666,15 +961,22 @@ def main():
         if 'backtest_data' not in st.session_state:
             st.session_state['backtest_data'] = {}
 
+        # Build strategy book (without fixed dollar amounts - we'll calculate dynamically)
+        strategies = []
+        for strat in _STRATEGY_BOOK_RAW:
+            import copy
+            s = copy.deepcopy(strat)
+            # Don't pre-calculate risk_per_trade - we'll do it dynamically
+            strategies.append(s)
+
         long_term_tickers = set()
-        for strat in STRATEGY_BOOK:
+        for strat in strategies:
             for t in strat['universe_tickers']:
                 long_term_tickers.add(t)
             s = strat['settings']
             if s.get('use_market_sznl'): long_term_tickers.add(s.get('market_ticker', '^GSPC'))
             if "Market" in s.get('trend_filter', ''): long_term_tickers.add(s.get('market_ticker', 'SPY'))
             if "SPY" in s.get('trend_filter', ''): long_term_tickers.add("SPY")
-            # Ensure VIX is downloaded if used
             if s.get('use_vix_filter'): long_term_tickers.add('^VIX')
 
         long_term_list = [t.replace('.', '-') for t in long_term_tickers]
@@ -697,195 +999,22 @@ def main():
             with st.expander("View Failed Tickers"):
                 st.write(list(failed_tickers))
 
-        # --- PREPARE GLOBAL VIX (IF AVAILABLE) ---
+        # Prepare VIX series
         vix_df = master_dict.get('^VIX')
         vix_series = vix_df['Close'] if vix_df is not None and not vix_df.empty else None
 
-        all_signals = []
-        progress_bar = st.progress(0)
+        # --- PHASE 1: Generate all candidate signals ---
+        st.write("📊 **Phase 1:** Generating candidate signals across all strategies...")
+        candidates = generate_candidate_signals(master_dict, strategies, sznl_map, user_start_date, vix_series)
+        st.write(f"   Found **{len(candidates):,}** candidate signals")
+
+        # --- PHASE 2: Process chronologically with dynamic sizing ---
+        st.write("📈 **Phase 2:** Processing signals chronologically with dynamic position sizing...")
+        sig_df = process_signals_chronologically(candidates, master_dict, starting_equity)
         
-        for i, strat in enumerate(STRATEGY_BOOK):
-            progress_bar.progress((i + 1) / len(STRATEGY_BOOK))
-            settings = strat['settings']
+        if not sig_df.empty:
+            st.success(f"✅ Executed **{len(sig_df):,}** trades")
             
-            strat_mkt_ticker = settings.get('market_ticker', 'SPY')
-            mkt_df = master_dict.get(strat_mkt_ticker)
-            if mkt_df is None: mkt_df = master_dict.get('SPY')
-            
-            market_series = None
-            if mkt_df is not None:
-                temp_mkt = mkt_df.copy()
-                temp_mkt['SMA200'] = temp_mkt['Close'].rolling(200).mean()
-                market_series = temp_mkt['Close'] > temp_mkt['SMA200']
-
-            # --- EXTRACT STRATEGY SPECIFIC PARAMETERS FOR CALCULATOR ---
-            gap_win = settings.get('gap_lookback', 21)
-            acc_win = settings.get('acc_count_window') if settings.get('use_acc_count_filter') else None
-            dist_win = settings.get('dist_count_window') if settings.get('use_dist_count_filter') else None
-            
-            # Extract Custom SMA lengths needed for filters
-            req_custom_mas = list(set([f['length'] for f in settings.get('ma_consec_filters', [])]))
-            
-            # Also need SMA for MA Touch if it's not standard
-            if settings.get('use_ma_touch'):
-                ma_type = settings.get('ma_touch_type', '')
-                if 'SMA' in ma_type and ma_type not in ["SMA 10", "SMA 20", "SMA 50", "SMA 100", "SMA 200"]:
-                    try:
-                        val = int(ma_type.replace("SMA", "").strip())
-                        req_custom_mas.append(val)
-                    except: pass
-
-            for ticker in strat['universe_tickers']:
-                t_clean = ticker.replace('.', '-')
-                df = master_dict.get(t_clean)
-                if df is None or len(df) < 200: continue
-                
-                try:
-                    # PASS ALL DYNAMIC SETTINGS TO CALCULATOR
-                    df = calculate_indicators(
-                        df, sznl_map, t_clean, market_series, vix_series,
-                        gap_window=gap_win,
-                        acc_window=acc_win,
-                        dist_window=dist_win,
-                        custom_sma_lengths=req_custom_mas
-                    )
-                    
-                    mask = get_historical_mask(df, settings, sznl_map, ticker)
-                    cutoff_ts = pd.Timestamp(user_start_date)
-                    mask = mask[mask.index >= cutoff_ts]
-                    if not mask.any(): continue
-
-                    true_dates = mask[mask].index
-                    last_exit_date = None
-                    
-                    for d in true_dates:
-                        if last_exit_date is not None and d <= last_exit_date: continue
-                        row = df.loc[d]
-                        atr = row['ATR']
-                        risk = strat['execution']['risk_per_trade']
-                        
-                        if strat['name'] == "Overbot Vol Spike":
-                            vol_ratio = row.get('vol_ratio', 0)
-                            if vol_ratio > 2.0: risk = 675
-                            elif vol_ratio > 1.5: risk = 525
-                        if strat['name'] == "Weak Close Decent Sznls":
-                            sznl_val = row.get('Sznl', 0)
-                            if sznl_val >= 65: risk = risk * 1.5
-                            elif sznl_val >= 50: risk = risk * 1.0
-                            elif sznl_val >= 33: risk = risk * 0.66
-                        
-                        entry_type = settings.get('entry_type', 'Signal Close')
-                        entry_idx = df.index.get_loc(d)
-                        if entry_idx + 1 >= len(df): continue 
-                        entry_row = df.iloc[entry_idx + 1]
-
-                        # --- LOGIC: DETERMINE ENTRY PRICE AND DATE ---
-                        valid_entry = True
-                        hold_days = strat['execution']['hold_days'] # Default hold days
-
-                        if entry_type == 'T+1 Close':
-                            entry = entry_row['Close']; entry_date = entry_row.name 
-                        elif entry_type == 'T+1 Open':
-                            entry = entry_row['Open']; entry_date = entry_row.name 
-                        elif entry_type == 'T+1 Close if < Signal Close':
-                            signal_close = row['Close']
-                            next_close = entry_row['Close']
-                            if next_close < signal_close:
-                                entry = next_close; entry_date = entry_row.name
-                            else: valid_entry = False
-
-                        elif entry_type == "Limit (Open +/- 0.5 ATR)":
-                            limit_offset = 0.5 * atr
-                            if settings['trade_direction'] == 'Short':
-                                limit_price = entry_row['Open'] + limit_offset
-                                if entry_row['High'] < limit_price: valid_entry = False
-                                else: entry = limit_price
-                            else:
-                                limit_price = entry_row['Open'] - limit_offset
-                                if entry_row['Low'] > limit_price: valid_entry = False
-                                else: entry = limit_price
-                            entry_date = entry_row.name
-
-                        # --- GTC PERSISTENT LIMIT LOGIC ---
-                        elif "Persistent" in entry_type:
-                            limit_offset = 0.5 * atr
-                            limit_base = row['Close'] # Base limit on SIGNAL DAY CLOSE
-                            found_fill = False
-                            max_days = strat['execution']['hold_days']
-                            
-                            # Search Window: From T+1 up to T + Hold Days
-                            search_end = min(entry_idx + 1 + max_days, len(df))
-                            
-                            for i in range(entry_idx + 1, search_end):
-                                check_row = df.iloc[i]
-                                if settings['trade_direction'] == 'Short':
-                                    limit_price = limit_base + limit_offset
-                                    if check_row['High'] >= limit_price:
-                                        entry = limit_price
-                                        entry_date = check_row.name
-                                        found_fill = True
-                                        
-                                        # Calculate remaining time from fill to original exit target
-                                        days_elapsed = i - entry_idx 
-                                        hold_days = max(1, strat['execution']['hold_days'] - days_elapsed)
-                                        break
-                                else: 
-                                    limit_price = limit_base - limit_offset
-                                    if check_row['Low'] <= limit_price:
-                                        entry = limit_price
-                                        entry_date = check_row.name
-                                        found_fill = True
-                                        
-                                        days_elapsed = i - entry_idx
-                                        hold_days = max(1, strat['execution']['hold_days'] - days_elapsed)
-                                        break
-                            
-                            valid_entry = True if found_fill else False
-
-                        else: 
-                            entry = row['Close']; entry_date = d 
-                        
-                        if not valid_entry: continue
-
-                        # --- EXECUTION ---
-                        direction = settings.get('trade_direction', 'Long')
-                        if direction == 'Long':
-                            stop_price = entry - (atr * strat['execution']['stop_atr'])
-                            dist = entry - stop_price
-                            action = "BUY"
-                        else:
-                            stop_price = entry + (atr * strat['execution']['stop_atr'])
-                            dist = stop_price - entry
-                            action = "SELL SHORT"
-                        
-                        shares = int(risk / dist) if dist > 0 else 0
-                        pnl, exit_date = calculate_trade_result(df, entry_date, action, shares, entry, hold_days)
-
-                        try:
-                            e_idx = df.index.get_loc(entry_date)
-                            ts_idx = e_idx + hold_days
-                            time_stop_date = df.index[ts_idx] if ts_idx < len(df) else entry_date + BusinessDay(hold_days)
-                        except: time_stop_date = pd.NaT
-
-                        all_signals.append({
-                            "Date": d.date(), "Entry Date": entry_date.date(), "Exit Date": exit_date.date(), "Time Stop": time_stop_date, 
-                            "Strategy": strat['name'], "Ticker": ticker, "Action": action,
-                            "Entry Criteria": entry_type, "Price": entry, "Shares": shares,
-                            "PnL": pnl, "ATR": atr, "Range %": row['RangePct'] * 100
-                        })
-                        last_exit_date = exit_date
-                except Exception: continue
-        
-        progress_bar.empty()
-        
-        if all_signals:
-            sig_df = pd.DataFrame(all_signals)
-            sig_df['Date'] = pd.to_datetime(sig_df['Date'])
-            sig_df['Entry Date'] = pd.to_datetime(sig_df['Entry Date'])
-            sig_df['Exit Date'] = pd.to_datetime(sig_df['Exit Date'])
-            sig_df['Time Stop'] = pd.to_datetime(sig_df['Time Stop'])
-            sig_df = sig_df.sort_values(by="Exit Date")
-
             today = pd.Timestamp(datetime.date.today())
             open_mask = sig_df['Time Stop'] >= today
             open_df = sig_df[open_mask].copy()
@@ -902,9 +1031,13 @@ def main():
                     else:
                         pnl = (row['Price'] - last_close) * row['Shares']
                         val = last_close * row['Shares']
-                    current_prices.append(last_close); open_pnls.append(pnl); current_values.append(val)
+                    current_prices.append(last_close)
+                    open_pnls.append(pnl)
+                    current_values.append(val)
 
-                open_df['Current Price'] = current_prices; open_df['Open PnL'] = open_pnls; open_df['Mkt Value'] = current_values
+                open_df['Current Price'] = current_prices
+                open_df['Open PnL'] = open_pnls
+                open_df['Mkt Value'] = current_values
                 total_long = open_df[open_df['Action'] == 'BUY']['Mkt Value'].sum()
                 total_short = open_df[open_df['Action'] == 'SELL SHORT']['Mkt Value'].sum()
                 net_exposure = total_long - total_short
@@ -921,13 +1054,57 @@ def main():
                 
                 st.dataframe(open_df.style.format({
                     "Date": "{:%Y-%m-%d}", "Entry Date": "{:%Y-%m-%d}", "Time Stop": "{:%Y-%m-%d}", 
-                    "Price": "${:.2f}", "Current Price": "${:.2f}", "Open PnL": "${:,.2f}", "Range %": "{:.1f}%"
+                    "Price": "${:.2f}", "Current Price": "${:.2f}", "Open PnL": "${:,.2f}", 
+                    "Range %": "{:.1f}%", "Equity at Signal": "${:,.0f}", "Risk $": "${:,.0f}"
                 }), use_container_width=True)
-            else: st.info("No active positions (Time Stop >= Today).")
+            else:
+                st.info("No active positions (Time Stop >= Today).")
 
             st.divider()
             
-            # --- ANNUAL BREAKDOWN ---
+            # --- Position Sizing Analysis ---
+            st.subheader("📐 Dynamic Position Sizing Analysis")
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                avg_risk = sig_df['Risk $'].mean()
+                st.metric("Avg Risk per Trade", f"${avg_risk:,.0f}")
+            with col2:
+                min_risk = sig_df['Risk $'].min()
+                max_risk = sig_df['Risk $'].max()
+                st.metric("Risk Range", f"${min_risk:,.0f} - ${max_risk:,.0f}")
+            with col3:
+                final_equity = starting_equity + sig_df['PnL'].sum()
+                equity_growth = (final_equity / starting_equity - 1) * 100
+                st.metric("Final Equity", f"${final_equity:,.0f}", delta=f"{equity_growth:.1f}%")
+            
+            # Show equity at signal over time
+            fig_sizing = go.Figure()
+            fig_sizing.add_trace(go.Scatter(
+                x=sig_df['Date'], 
+                y=sig_df['Equity at Signal'],
+                mode='markers+lines',
+                name='Equity at Signal',
+                line=dict(color='#00FF00', width=1),
+                marker=dict(size=4)
+            ))
+            fig_sizing.add_trace(go.Scatter(
+                x=sig_df['Date'], 
+                y=sig_df['Risk $'],
+                mode='markers',
+                name='Risk $ per Trade',
+                yaxis='y2',
+                marker=dict(size=4, color='orange')
+            ))
+            fig_sizing.update_layout(
+                title="Equity & Position Risk Over Time",
+                yaxis=dict(title="Equity ($)", side='left'),
+                yaxis2=dict(title="Risk per Trade ($)", side='right', overlaying='y'),
+                height=350,
+                margin=dict(l=10, r=10, t=40, b=10)
+            )
+            st.plotly_chart(fig_sizing, use_container_width=True)
+            
+            # --- Annual Breakdown ---
             st.subheader("📅 Annual Performance Breakdown")
             port_daily_pnl = get_daily_mtm_series(sig_df, master_dict)
             annual_df = calculate_annual_stats(port_daily_pnl, starting_equity=starting_equity)
@@ -937,7 +1114,7 @@ def main():
                     "Sharpe Ratio": "{:.2f}", "Sortino Ratio": "{:.2f}", "Std Dev": "{:.2%}"
                 }), use_container_width=True)
 
-            st.subheader("📊 Strategy Performance Metrics (vs. $150k Start)")
+            st.subheader("📊 Strategy Performance Metrics")
             stats_df = calculate_performance_stats(sig_df, master_dict, starting_equity)
             st.dataframe(stats_df.style.format({
                 "Total PnL": "${:,.2f}", "Sharpe": "{:.2f}", "Sortino": "{:.2f}", "Profit Factor": "{:.2f}", "SQN": "{:.2f}"
@@ -959,7 +1136,8 @@ def main():
                     fig.add_trace(go.Scatter(x=df_eq.index, y=df_eq['Equity'], mode='lines', name='Total PnL', line=dict(color='#00FF00', width=2)))
                     fig.update_layout(margin=dict(l=10, r=10, t=30, b=10), height=400, legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1), hovermode="x unified", xaxis_title="Date", yaxis_title="Cumulative PnL ($)")
                     st.plotly_chart(fig, use_container_width=True)
-                else: st.write("No trades to plot.")
+                else:
+                    st.write("No trades to plot.")
             with col2:
                 st.subheader("📉 Cumulative Realized PnL by Strategy")
                 strat_pnl = sig_df.pivot_table(index='Exit Date', columns='Strategy', values='PnL', aggfunc='sum').fillna(0)
@@ -967,17 +1145,23 @@ def main():
 
             st.subheader("⚖️ Portfolio Exposure Over Time")
             exposure_df = calculate_daily_exposure(sig_df)
-            if not exposure_df.empty: st.line_chart(exposure_df)
+            if not exposure_df.empty:
+                st.line_chart(exposure_df)
 
             st.subheader("📜 Historical Signal Log")
-            st.dataframe(sig_df.sort_values(by="Date", ascending=False).style.format({
+            display_cols = ["Date", "Entry Date", "Exit Date", "Time Stop", "Strategy", "Ticker", 
+                          "Action", "Entry Criteria", "Price", "Shares", "PnL", "ATR", "Range %",
+                          "Equity at Signal", "Risk $", "Risk bps"]
+            st.dataframe(sig_df[display_cols].sort_values(by="Date", ascending=False).style.format({
                 "Price": "${:.2f}", "PnL": "${:.2f}", "Date": "{:%Y-%m-%d}", "Entry Date": "{:%Y-%m-%d}", 
-                "Exit Date": "{:%Y-%m-%d}", "Time Stop": "{:%Y-%m-%d}", "Range %": "{:.1f}%"
+                "Exit Date": "{:%Y-%m-%d}", "Time Stop": "{:%Y-%m-%d}", "Range %": "{:.1f}%",
+                "Equity at Signal": "${:,.0f}", "Risk $": "${:,.0f}"
             }), use_container_width=True, height=400)
         else:
             st.warning(f"No signals found in the backtest period starting from {user_start_date}.")
 
     else:
         st.info("👈 Please select a start year/date and click 'Run Backtest' in the sidebar to begin.")
+
 if __name__ == "__main__":
     main()
