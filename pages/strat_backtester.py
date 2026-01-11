@@ -1049,20 +1049,28 @@ def main():
                 open_df['Open PnL'] = open_pnls
                 open_df['Mkt Value'] = current_values
                 
+                total_long = open_df[open_df['Action'] == 'BUY']['Mkt Value'].sum()
+                total_short = open_df[open_df['Action'] == 'SELL SHORT']['Mkt Value'].sum()
+                net_exposure = total_long - total_short
+                total_open_pnl = open_df['Open PnL'].sum()
+                
                 st.divider()
-                st.subheader("💼 Active Positions")
-                cols = st.columns(5)
-                cols[0].metric("# Positions", len(open_df))
-                cols[1].metric("Long $", f"${open_df[open_df['Action']=='BUY']['Mkt Value'].sum():,.0f}")
-                cols[2].metric("Short $", f"${open_df[open_df['Action']=='SELL SHORT']['Mkt Value'].sum():,.0f}")
-                cols[3].metric("Net", f"${open_df[open_df['Action']=='BUY']['Mkt Value'].sum() - open_df[open_df['Action']=='SELL SHORT']['Mkt Value'].sum():,.0f}")
-                cols[4].metric("Open PnL", f"${open_df['Open PnL'].sum():,.0f}")
+                st.subheader("💼 Current Exposure (Active Positions)")
+                m1, m2, m3, m4, m5 = st.columns(5)
+                m1.metric("# Positions", len(open_df))
+                m2.metric("Total Long", f"${total_long:,.0f}")
+                m3.metric("Total Short", f"${total_short:,.0f}")
+                m4.metric("Net Exposure", f"${net_exposure:,.0f}")
+                m5.metric("Total Open PnL", f"${total_open_pnl:,.2f}", delta_color="normal", delta=f"{total_open_pnl:,.2f}")
                 
                 st.dataframe(open_df.style.format({
                     "Date": "{:%Y-%m-%d}", "Entry Date": "{:%Y-%m-%d}", "Time Stop": "{:%Y-%m-%d}",
                     "Price": "${:.2f}", "Current Price": "${:.2f}", "Open PnL": "${:,.2f}",
                     "Range %": "{:.1f}%", "Equity at Signal": "${:,.0f}", "Risk $": "${:,.0f}"
                 }), use_container_width=True)
+            else:
+                st.divider()
+                st.info("No active positions (Time Stop >= Today).")
 
             st.divider()
             
