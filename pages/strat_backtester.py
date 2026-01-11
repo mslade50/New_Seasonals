@@ -708,9 +708,13 @@ def process_signals_fast(candidates, signal_data, processed_dict, strategies, st
         else:
             pnl = (entry_price - exit_price) * shares
         
-        # Time stop
-        ts_idx = min(entry_idx + hold_days, len(df) - 1)
-        time_stop_date = df.index[ts_idx]
+        # Time stop - calculate the intended exit date (may be in future)
+        target_ts_idx = entry_idx + hold_days
+        if target_ts_idx < len(df):
+            time_stop_date = df.index[target_ts_idx]
+        else:
+            # Position hasn't reached time stop yet - calculate future date
+            time_stop_date = entry_date + BusinessDay(hold_days)
         
         # Update state
         equity_at_signal = current_equity
@@ -741,6 +745,13 @@ def process_signals_fast(candidates, signal_data, processed_dict, strategies, st
         return pd.DataFrame()
     
     sig_df = pd.DataFrame(results)
+    
+    # Ensure datetime columns are proper Timestamps
+    sig_df['Date'] = pd.to_datetime(sig_df['Date'])
+    sig_df['Entry Date'] = pd.to_datetime(sig_df['Entry Date'])
+    sig_df['Exit Date'] = pd.to_datetime(sig_df['Exit Date'])
+    sig_df['Time Stop'] = pd.to_datetime(sig_df['Time Stop'])
+    
     return sig_df.sort_values(by="Exit Date")
 
 
@@ -924,6 +935,115 @@ def calculate_performance_stats(sig_df, master_dict, starting_equity):
     return pd.DataFrame(stats)
 
 
+def calculate_capital_efficiency(sig_df, strategies):
+    """
+    Calculate capital efficiency metrics for each strategy.
+    Accounts for hold duration to measure time-adjusted returns.
+    """
+    if sig_df.empty:
+        return pd.DataFrame()
+    
+    # Build lookup for strategy settings
+    strat_settings = {s['name']: s for s in strategies}
+    
+    results = []
+    
+    for strat_name in sig_df['Strategy'].unique():
+        strat_df = sig_df[sig_df['Strategy'] == strat_name].copy()
+        
+        if strat_df.empty:
+            continue
+        
+        # Basic stats
+        n_trades = len(strat_df)
+        total_pnl = strat_df['PnL'].sum()
+        total_risk = strat_df['Risk $'].sum()
+        
+        # Win rate and avg win/loss
+        winners = strat_df[strat_df['PnL'] > 0]
+        losers = strat_df[strat_df['PnL'] <= 0]
+        win_rate = len(winners) / n_trades if n_trades > 0 else 0
+        avg_win = winners['PnL'].mean() if len(winners) > 0 else 0
+        avg_loss = abs(losers['PnL'].mean()) if len(losers) > 0 else 0
+        
+        # Calculate actual hold duration
+        strat_df['Hold Days'] = (strat_df['Exit Date'] - strat_df['Entry Date']).dt.days
+        avg_hold_days = strat_df['Hold Days'].mean()
+        
+        # Get configured hold days from strategy
+        config_hold_days = strat_settings.get(strat_name, {}).get('execution', {}).get('hold_days', avg_hold_days)
+        
+        # Current risk_bps
+        current_bps = strat_settings.get(strat_name, {}).get('execution', {}).get('risk_bps', 0)
+        
+        # Core efficiency metrics
+        pnl_per_risk = total_pnl / total_risk if total_risk > 0 else 0
+        
+        # Time-adjusted: how much return per dollar risked per day
+        pnl_per_risk_per_day = pnl_per_risk / avg_hold_days if avg_hold_days > 0 else 0
+        
+        # Annualized return on risk (assuming capital can be redeployed)
+        capital_turns_per_year = 252 / avg_hold_days if avg_hold_days > 0 else 0
+        annualized_ror = pnl_per_risk * capital_turns_per_year
+        
+        # Signals per year (approximate)
+        date_range = (strat_df['Date'].max() - strat_df['Date'].min()).days
+        years = date_range / 365.25 if date_range > 0 else 1
+        signals_per_year = n_trades / years if years > 0 else n_trades
+        
+        # Risk contribution (% of total risk this strategy consumed)
+        total_portfolio_risk = sig_df['Risk $'].sum()
+        risk_contribution = total_risk / total_portfolio_risk if total_portfolio_risk > 0 else 0
+        
+        # PnL contribution
+        total_portfolio_pnl = sig_df['PnL'].sum()
+        pnl_contribution = total_pnl / total_portfolio_pnl if total_portfolio_pnl > 0 else 0
+        
+        # Efficiency ratio: are you getting your fair share of PnL for the risk taken?
+        efficiency_ratio = pnl_contribution / risk_contribution if risk_contribution > 0 else 0
+        
+        results.append({
+            'Strategy': strat_name,
+            'Trades': n_trades,
+            'Signals/Yr': signals_per_year,
+            'Avg Days': avg_hold_days,
+            'Win Rate': win_rate,
+            'Total $ Risked': total_risk,
+            'Total PnL': total_pnl,
+            'PnL/$ Risk': pnl_per_risk,
+            'Ann. Turns': capital_turns_per_year,
+            'Ann. RoR': annualized_ror,
+            '% of Risk': risk_contribution,
+            '% of PnL': pnl_contribution,
+            'Efficiency': efficiency_ratio,
+            'Current Bps': current_bps,
+        })
+    
+    df = pd.DataFrame(results)
+    
+    if df.empty:
+        return df
+    
+    # Calculate suggested bps based on annualized RoR
+    # Normalize so total suggested bps equals current total bps
+    total_current_bps = df['Current Bps'].sum()
+    
+    # Weight by annualized RoR (higher = more allocation)
+    df['RoR Weight'] = df['Ann. RoR'] / df['Ann. RoR'].sum() if df['Ann. RoR'].sum() > 0 else 1 / len(df)
+    df['Suggested Bps'] = (df['RoR Weight'] * total_current_bps).round(0).astype(int)
+    
+    # Ensure minimum of 10 bps for any strategy
+    df['Suggested Bps'] = df['Suggested Bps'].clip(lower=10)
+    
+    # Calculate the change
+    df['Bps Δ'] = df['Suggested Bps'] - df['Current Bps']
+    
+    # Sort by annualized RoR descending
+    df = df.sort_values('Ann. RoR', ascending=False)
+    
+    return df
+
+
 # -----------------------------------------------------------------------------
 # MAIN APP
 # -----------------------------------------------------------------------------
@@ -1099,6 +1219,91 @@ def main():
                 "Total PnL": "${:,.0f}", "Sharpe": "{:.2f}", "Sortino": "{:.2f}",
                 "Profit Factor": "{:.2f}", "SQN": "{:.2f}"
             }), use_container_width=True)
+
+            # Capital Efficiency Analysis
+            st.subheader("💰 Capital Efficiency & Sizing Analysis")
+            st.caption("Accounts for hold duration - shorter trades can redeploy capital more often, making them more efficient per unit of time.")
+            
+            efficiency_df = calculate_capital_efficiency(sig_df, strategies)
+            
+            if not efficiency_df.empty:
+                # Summary metrics
+                col1, col2, col3 = st.columns(3)
+                
+                most_efficient = efficiency_df.iloc[0]['Strategy']
+                best_ror = efficiency_df.iloc[0]['Ann. RoR']
+                col1.metric("Most Efficient Strategy", most_efficient, delta=f"{best_ror:.1%} Ann. RoR")
+                
+                under_allocated = efficiency_df[efficiency_df['Efficiency'] > 1.2]
+                over_allocated = efficiency_df[efficiency_df['Efficiency'] < 0.8]
+                col2.metric("Under-allocated", f"{len(under_allocated)} strategies", help="Efficiency > 1.2x: earning more than their share of risk")
+                col3.metric("Over-allocated", f"{len(over_allocated)} strategies", help="Efficiency < 0.8x: earning less than their share of risk")
+                
+                # Main efficiency table
+                display_cols = ['Strategy', 'Trades', 'Signals/Yr', 'Avg Days', 'Win Rate', 
+                               'PnL/$ Risk', 'Ann. RoR', '% of Risk', '% of PnL', 'Efficiency',
+                               'Current Bps', 'Suggested Bps', 'Bps Δ']
+                
+                # Color code the efficiency and Bps change
+                def highlight_efficiency(val):
+                    if val > 1.2:
+                        return 'background-color: #1a472a; color: white'  # Dark green - under-allocated
+                    elif val < 0.8:
+                        return 'background-color: #4a1a1a; color: white'  # Dark red - over-allocated
+                    else:
+                        return ''
+                
+                def highlight_bps_change(val):
+                    if val > 10:
+                        return 'background-color: #1a472a; color: white'  # Increase
+                    elif val < -10:
+                        return 'background-color: #4a1a1a; color: white'  # Decrease
+                    else:
+                        return ''
+                
+                styled_df = efficiency_df[display_cols].style.format({
+                    'Signals/Yr': '{:.1f}',
+                    'Avg Days': '{:.1f}',
+                    'Win Rate': '{:.1%}',
+                    'PnL/$ Risk': '{:.2f}',
+                    'Ann. RoR': '{:.1%}',
+                    '% of Risk': '{:.1%}',
+                    '% of PnL': '{:.1%}',
+                    'Efficiency': '{:.2f}x',
+                    'Current Bps': '{:.0f}',
+                    'Suggested Bps': '{:.0f}',
+                    'Bps Δ': '{:+.0f}'
+                }).applymap(highlight_efficiency, subset=['Efficiency']
+                ).applymap(highlight_bps_change, subset=['Bps Δ'])
+                
+                st.dataframe(styled_df, use_container_width=True)
+                
+                # Explanation
+                with st.expander("📖 How to interpret this table"):
+                    st.markdown("""
+                    **Key Columns:**
+                    - **Avg Days**: Average hold duration per trade
+                    - **PnL/$ Risk**: Raw return per dollar risked (ignores time)
+                    - **Ann. RoR**: Annualized Return on Risk = PnL/$ Risk × (252 / Avg Days). This accounts for capital turnover.
+                    - **% of Risk**: What portion of your total risk budget this strategy consumes
+                    - **% of PnL**: What portion of total profits this strategy generates
+                    - **Efficiency**: % of PnL ÷ % of Risk. 
+                        - **> 1.0** = Under-allocated (earning more than its share)
+                        - **< 1.0** = Over-allocated (earning less than its share)
+                    - **Suggested Bps**: Recommended sizing based on Annualized RoR (re-normalizes total bps budget)
+                    - **Bps Δ**: Change from current sizing
+                    
+                    **Strategy:**
+                    - Increase allocation to high Ann. RoR strategies (short hold, good returns)
+                    - Decrease allocation to low Ann. RoR strategies (long hold, mediocre returns)
+                    - Strategies with Efficiency > 1.2x are your workhorses - they're under-sized
+                    - Strategies with Efficiency < 0.8x are dragging on performance - consider reducing
+                    """)
+                
+                # Visual: Ann. RoR bar chart
+                st.markdown("**Annualized Return on Risk by Strategy**")
+                chart_df = efficiency_df[['Strategy', 'Ann. RoR']].set_index('Strategy')
+                st.bar_chart(chart_df)
 
             # Charts
             col1, col2 = st.columns(2)
