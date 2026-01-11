@@ -55,7 +55,7 @@ _STRATEGY_BOOK_RAW = [
             "use_dist_count_filter": False, "dist_count_window": 21, "dist_count_logic": "<", "dist_count_thresh": 3
         },
         "execution": {
-            "risk_bps": 20,  # $300 at $150k
+            "risk_bps": 35,  # $300 at $150k
             "slippage_bps": 2,
             "stop_atr": 2.0,
             "tgt_atr": 8.0,
@@ -92,7 +92,7 @@ _STRATEGY_BOOK_RAW = [
             "min_age": 0.25, "max_age": 100.0
         },
         "execution": {
-            "risk_bps": 67,  # $1000 at $150k
+            "risk_bps": 33,  # $1000 at $150k
             "stop_atr": 2,
             "tgt_atr": 8.0,
             "hold_days": 21
@@ -141,7 +141,7 @@ _STRATEGY_BOOK_RAW = [
             "use_dist_count_filter": False, "dist_count_window": 21, "dist_count_logic": ">", "dist_count_thresh": 3
         },
         "execution": {
-            "risk_bps": 20,  # $300 at $150k
+            "risk_bps": 40,  # $300 at $150k
             "slippage_bps": 2,
             "stop_atr": 1.0,
             "tgt_atr": 1.5,
@@ -188,7 +188,7 @@ _STRATEGY_BOOK_RAW = [
             "use_dist_count_filter": True, "dist_count_window": 21, "dist_count_logic": ">", "dist_count_thresh": 0
         },
         "execution": {
-            "risk_bps": 33,  # $500 at $150k
+            "risk_bps": 35,  # $500 at $150k
             "slippage_bps": 5,
             "stop_atr": 2.0,
             "tgt_atr": 5.0,
@@ -224,7 +224,7 @@ _STRATEGY_BOOK_RAW = [
             "min_age": 0.25, "max_age": 100.0
         },
         "execution": {
-            "risk_bps": 33,  # $500 at $150k
+            "risk_bps": 35,  # $500 at $150k
             "stop_atr": 2.0,
             "tgt_atr": 3.0,
             "hold_days": 5
@@ -280,7 +280,7 @@ _STRATEGY_BOOK_RAW = [
             "use_ma_touch": False, "ma_touch_type": "SMA 200", "ma_slope_days": 50, "ma_untested_days": 30
         },
         "execution": {
-            "risk_bps": 17,  # $250 at $150k
+            "risk_bps": 10,  # $250 at $150k
             "slippage_bps": 2,
             "stop_atr": 3.0,
             "tgt_atr": 10.0,
@@ -327,7 +327,7 @@ _STRATEGY_BOOK_RAW = [
             "use_dist_count_filter": False, "dist_count_window": 21, "dist_count_logic": ">", "dist_count_thresh": 3
         },
         "execution": {
-            "risk_bps": 33,  # $500 at $150k
+            "risk_bps": 15,  # $500 at $150k
             "slippage_bps": 5,
             "stop_atr": 3.0,
             "tgt_atr": 8.0,
@@ -382,7 +382,7 @@ _STRATEGY_BOOK_RAW = [
             "use_dist_count_filter": True, "dist_count_window": 21, "dist_count_logic": "<", "dist_count_thresh": 3
         },
         "execution": {
-            "risk_bps": 27,  # $400 at $150k
+            "risk_bps": 60,  # $400 at $150k
             "slippage_bps": 2,
             "stop_atr": 1.0,
             "tgt_atr": 8.0,
@@ -438,7 +438,7 @@ _STRATEGY_BOOK_RAW = [
             "use_dist_count_filter": False, "dist_count_window": 21, "dist_count_logic": ">", "dist_count_thresh": 3
         },
         "execution": {
-            "risk_bps": 50,  # $750 at $150k
+            "risk_bps": 15,  # $750 at $150k
             "slippage_bps": 2,
             "stop_atr": 3.0,
             "tgt_atr": 8.0,
@@ -494,7 +494,7 @@ _STRATEGY_BOOK_RAW = [
             "use_dist_count_filter": False, "dist_count_window": 21, "dist_count_logic": "<", "dist_count_thresh": 3
         },
         "execution": {
-            "risk_bps": 50,  # $750 at $150k
+            "risk_bps": 15,  # $750 at $150k
             "slippage_bps": 2,
             "stop_atr": 3.0,
             "tgt_atr": 8.0,
@@ -540,7 +540,7 @@ _STRATEGY_BOOK_RAW = [
             "use_dist_count_filter": True, "dist_count_window": 21, "dist_count_logic": ">", "dist_count_thresh": 0
         },
         "execution": {
-            "risk_bps": 27,  # $400 at $150k
+            "risk_bps": 45,  # $400 at $150k
             "slippage_bps": 2,
             "stop_atr": 1.0,
             "tgt_atr": 8.0,
