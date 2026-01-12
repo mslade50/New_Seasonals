@@ -540,7 +540,7 @@ _STRATEGY_BOOK_RAW = [
             "use_dist_count_filter": True, "dist_count_window": 21, "dist_count_logic": ">", "dist_count_thresh": 0
         },
         "execution": {
-            "risk_bps": 45,  # $400 at $150k
+            "risk_bps": 30,  # $400 at $150k
             "slippage_bps": 2,
             "stop_atr": 1.0,
             "tgt_atr": 8.0,
