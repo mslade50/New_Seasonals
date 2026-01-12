@@ -765,9 +765,9 @@ def run_daily_scan():
                     if strat['name'] == "Overbot Vol Spike":
                         vol_ratio = last_row.get('vol_ratio', 0)
                         if vol_ratio > 2.0:
-                            risk = 675  # High conviction
+                            risk = risk * 1.5  # High conviction
                         elif vol_ratio > 1.5:
-                            risk = 525  # Medium conviction
+                            risk = risk   # Medium conviction
                     
                     if strat['name'] == "Weak Close Decent Sznls":
                         sznl_val = last_row.get('Sznl', 0)
