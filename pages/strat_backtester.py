@@ -821,21 +821,47 @@ def calculate_mark_to_market_curve(sig_df, master_dict):
     return daily_pnl.cumsum().to_frame(name='Equity')
 
 
-def calculate_daily_exposure(sig_df):
+def calculate_daily_exposure(sig_df, starting_equity=None):
+    """
+    Calculate daily exposure. If starting_equity is provided, returns as % of equity.
+    """
     if sig_df.empty:
         return pd.DataFrame()
     min_date = sig_df['Date'].min()
     max_date = sig_df['Exit Date'].max()
     all_dates = pd.date_range(start=min_date, end=max_date)
-    exposure_df = pd.DataFrame(0.0, index=all_dates, columns=['Long Exposure ($)', 'Short Exposure ($)'])
+    exposure_df = pd.DataFrame(0.0, index=all_dates, columns=['Long Exposure', 'Short Exposure'])
     
     for _, row in sig_df.iterrows():
         trade_dates = pd.date_range(start=row['Date'], end=row['Exit Date'])
         dollar_val = row['Price'] * row['Shares']
-        col = 'Long Exposure ($)' if row['Action'] == 'BUY' else 'Short Exposure ($)'
+        col = 'Long Exposure' if row['Action'] == 'BUY' else 'Short Exposure'
         exposure_df.loc[exposure_df.index.isin(trade_dates), col] += dollar_val
     
-    exposure_df['Net Exposure ($)'] = exposure_df['Long Exposure ($)'] - exposure_df['Short Exposure ($)']
+    exposure_df['Net Exposure'] = exposure_df['Long Exposure'] - exposure_df['Short Exposure']
+    exposure_df['Gross Exposure'] = exposure_df['Long Exposure'] + exposure_df['Short Exposure']
+    
+    # Convert to percentage of equity if starting_equity provided
+    if starting_equity is not None:
+        # Build running equity series based on realized PnL
+        # For simplicity, use starting equity (could enhance to use MTM equity)
+        equity_series = pd.Series(starting_equity, index=all_dates)
+        
+        # Calculate cumulative realized PnL up to each date
+        for date in all_dates:
+            closed_trades = sig_df[sig_df['Exit Date'] <= date]
+            realized_pnl = closed_trades['PnL'].sum()
+            equity_series[date] = starting_equity + realized_pnl
+        
+        # Convert to percentages
+        exposure_df['Long Exposure %'] = (exposure_df['Long Exposure'] / equity_series) * 100
+        exposure_df['Short Exposure %'] = (exposure_df['Short Exposure'] / equity_series) * 100
+        exposure_df['Net Exposure %'] = (exposure_df['Net Exposure'] / equity_series) * 100
+        exposure_df['Gross Exposure %'] = (exposure_df['Gross Exposure'] / equity_series) * 100
+        
+        # Return only percentage columns
+        return exposure_df[['Long Exposure %', 'Short Exposure %', 'Net Exposure %', 'Gross Exposure %']]
+    
     return exposure_df
 
 
@@ -1322,10 +1348,17 @@ def main():
                 st.line_chart(strat_pnl.cumsum())
 
             # Exposure
-            st.subheader("⚖️ Exposure Over Time")
-            exposure_df = calculate_daily_exposure(sig_df)
+            st.subheader("⚖️ Exposure Over Time (% of Equity)")
+            exposure_df = calculate_daily_exposure(sig_df, starting_equity=starting_equity)
             if not exposure_df.empty:
                 st.line_chart(exposure_df)
+                
+                # Summary stats
+                col1, col2, col3, col4 = st.columns(4)
+                col1.metric("Avg Gross Exposure", f"{exposure_df['Gross Exposure %'].mean():.1f}%")
+                col2.metric("Max Gross Exposure", f"{exposure_df['Gross Exposure %'].max():.1f}%")
+                col3.metric("Avg Net Exposure", f"{exposure_df['Net Exposure %'].mean():.1f}%")
+                col4.metric("Max Net Exposure", f"{exposure_df['Net Exposure %'].max():.1f}%")
 
             # Trade log
             st.subheader("📜 Trade Log")
