@@ -961,6 +961,184 @@ def calculate_performance_stats(sig_df, master_dict, starting_equity):
     return pd.DataFrame(stats)
 
 
+def analyze_signal_density(sig_df, window_days=0):
+    """
+    Analyze performance based on signal clustering/isolation.
+    
+    Args:
+        sig_df: DataFrame of executed trades
+        window_days: Days around signal to count neighbors (0 = same day only)
+    
+    Returns:
+        DataFrame with density analysis by bucket
+    """
+    if sig_df.empty:
+        return pd.DataFrame(), sig_df
+    
+    df = sig_df.copy()
+    
+    # Count signals per day
+    signal_counts = df.groupby('Date').size().to_dict()
+    
+    # For each trade, get the signal count on that day
+    df['Signals Same Day'] = df['Date'].map(signal_counts)
+    
+    # If window > 0, count signals in surrounding days too
+    if window_days > 0:
+        def count_nearby_signals(date):
+            nearby = df[(df['Date'] >= date - pd.Timedelta(days=window_days)) & 
+                       (df['Date'] <= date + pd.Timedelta(days=window_days))]
+            return len(nearby)
+        df['Signals in Window'] = df['Date'].apply(count_nearby_signals)
+        density_col = 'Signals in Window'
+    else:
+        density_col = 'Signals Same Day'
+    
+    # Create density buckets
+    def get_density_bucket(count):
+        if count == 1:
+            return '1 (Isolated)'
+        elif count <= 3:
+            return '2-3 (Low)'
+        elif count <= 6:
+            return '4-6 (Moderate)'
+        elif count <= 10:
+            return '7-10 (High)'
+        else:
+            return '11+ (Clustered)'
+    
+    df['Density Bucket'] = df[density_col].apply(get_density_bucket)
+    
+    # Calculate R-multiple (PnL / Risk)
+    df['R-Multiple'] = df['PnL'] / df['Risk $']
+    
+    # Aggregate stats by density bucket
+    results = []
+    bucket_order = ['1 (Isolated)', '2-3 (Low)', '4-6 (Moderate)', '7-10 (High)', '11+ (Clustered)']
+    
+    for bucket in bucket_order:
+        bucket_df = df[df['Density Bucket'] == bucket]
+        if bucket_df.empty:
+            continue
+        
+        n_trades = len(bucket_df)
+        total_pnl = bucket_df['PnL'].sum()
+        total_risk = bucket_df['Risk $'].sum()
+        
+        winners = bucket_df[bucket_df['PnL'] > 0]
+        losers = bucket_df[bucket_df['PnL'] <= 0]
+        
+        win_rate = len(winners) / n_trades if n_trades > 0 else 0
+        avg_r = bucket_df['R-Multiple'].mean()
+        
+        avg_win_r = winners['R-Multiple'].mean() if len(winners) > 0 else 0
+        avg_loss_r = losers['R-Multiple'].mean() if len(losers) > 0 else 0
+        
+        pnl_per_risk = total_pnl / total_risk if total_risk > 0 else 0
+        
+        # Profit factor
+        gross_profit = winners['PnL'].sum() if len(winners) > 0 else 0
+        gross_loss = abs(losers['PnL'].sum()) if len(losers) > 0 else 0
+        profit_factor = gross_profit / gross_loss if gross_loss > 0 else np.nan
+        
+        results.append({
+            'Density': bucket,
+            'Trades': n_trades,
+            '% of Trades': n_trades / len(df),
+            'Win Rate': win_rate,
+            'Avg R': avg_r,
+            'Avg Win R': avg_win_r,
+            'Avg Loss R': avg_loss_r,
+            'PnL/$ Risk': pnl_per_risk,
+            'Profit Factor': profit_factor,
+            'Total PnL': total_pnl,
+            '% of PnL': total_pnl / df['PnL'].sum() if df['PnL'].sum() != 0 else 0
+        })
+    
+    return pd.DataFrame(results), df
+
+
+def analyze_density_by_strategy(sig_df):
+    """
+    Break down signal density performance by strategy.
+    """
+    if sig_df.empty:
+        return pd.DataFrame()
+    
+    df = sig_df.copy()
+    
+    # Add signal counts
+    signal_counts = df.groupby('Date').size().to_dict()
+    df['Signals Same Day'] = df['Date'].map(signal_counts)
+    df['R-Multiple'] = df['PnL'] / df['Risk $']
+    
+    # Simple split: isolated (1-3) vs clustered (4+)
+    df['Is Isolated'] = df['Signals Same Day'] <= 3
+    
+    results = []
+    
+    for strat in df['Strategy'].unique():
+        strat_df = df[df['Strategy'] == strat]
+        
+        isolated = strat_df[strat_df['Is Isolated']]
+        clustered = strat_df[~strat_df['Is Isolated']]
+        
+        iso_r = isolated['R-Multiple'].mean() if len(isolated) > 0 else np.nan
+        clu_r = clustered['R-Multiple'].mean() if len(clustered) > 0 else np.nan
+        
+        iso_wr = (isolated['PnL'] > 0).mean() if len(isolated) > 0 else np.nan
+        clu_wr = (clustered['PnL'] > 0).mean() if len(clustered) > 0 else np.nan
+        
+        # Calculate the "isolation edge" - how much better are isolated signals?
+        if not np.isnan(iso_r) and not np.isnan(clu_r) and clu_r != 0:
+            edge = (iso_r - clu_r) / abs(clu_r) if clu_r != 0 else np.nan
+        else:
+            edge = np.nan
+        
+        results.append({
+            'Strategy': strat,
+            'Isolated Trades': len(isolated),
+            'Clustered Trades': len(clustered),
+            'Isolated Avg R': iso_r,
+            'Clustered Avg R': clu_r,
+            'Isolated WR': iso_wr,
+            'Clustered WR': clu_wr,
+            'Isolation Edge': edge,
+            'Size Up Isolated?': 'Yes ✓' if (not np.isnan(edge) and edge > 0.15) else 'No'
+        })
+    
+    return pd.DataFrame(results).sort_values('Isolation Edge', ascending=False)
+
+
+def calculate_optimal_density_sizing(sig_df):
+    """
+    Calculate suggested sizing multipliers based on signal density.
+    Returns a dict of density bucket -> multiplier.
+    """
+    density_df, _ = analyze_signal_density(sig_df)
+    
+    if density_df.empty:
+        return {}
+    
+    # Use PnL/$ Risk as the efficiency metric
+    # Normalize so average multiplier = 1.0
+    avg_efficiency = density_df['PnL/$ Risk'].mean()
+    
+    multipliers = {}
+    for _, row in density_df.iterrows():
+        bucket = row['Density']
+        efficiency = row['PnL/$ Risk']
+        
+        if avg_efficiency > 0:
+            raw_mult = efficiency / avg_efficiency
+            # Clamp between 0.5x and 2.0x
+            multipliers[bucket] = max(0.5, min(2.0, raw_mult))
+        else:
+            multipliers[bucket] = 1.0
+    
+    return multipliers
+
+
 def calculate_capital_efficiency(sig_df, strategies):
     """
     Calculate capital efficiency metrics for each strategy.
@@ -1330,6 +1508,95 @@ def main():
                 st.markdown("**Annualized Return on Risk by Strategy**")
                 chart_df = efficiency_df[['Strategy', 'Ann. RoR']].set_index('Strategy')
                 st.bar_chart(chart_df)
+
+            # Signal Density Analysis
+            st.subheader("🎯 Signal Density Analysis")
+            st.caption("Do isolated signals perform better than clustered ones? Should you size up when fewer signals fire?")
+            
+            density_df, sig_df_with_density = analyze_signal_density(sig_df, window_days=0)
+            
+            if not density_df.empty:
+                # Summary insight
+                isolated_row = density_df[density_df['Density'] == '1 (Isolated)']
+                clustered_row = density_df[density_df['Density'] == '11+ (Clustered)']
+                
+                if not isolated_row.empty and not clustered_row.empty:
+                    iso_r = isolated_row['Avg R'].values[0]
+                    clu_r = clustered_row['Avg R'].values[0]
+                    if clu_r != 0:
+                        edge_pct = ((iso_r - clu_r) / abs(clu_r)) * 100
+                        if edge_pct > 0:
+                            st.success(f"✅ Isolated signals outperform clustered by **{edge_pct:.1f}%** on average R-multiple")
+                        else:
+                            st.warning(f"⚠️ Clustered signals actually outperform isolated by **{abs(edge_pct):.1f}%** - sizing up isolated may not help")
+                
+                # Main density table
+                st.markdown("**Performance by Signal Density (Same Day)**")
+                
+                def highlight_avg_r(val):
+                    if val > 0.3:
+                        return 'background-color: #1a472a; color: white'
+                    elif val < 0.1:
+                        return 'background-color: #4a1a1a; color: white'
+                    return ''
+                
+                display_cols = ['Density', 'Trades', '% of Trades', 'Win Rate', 'Avg R', 
+                               'Avg Win R', 'Avg Loss R', 'PnL/$ Risk', 'Profit Factor', 'Total PnL']
+                
+                styled_density = density_df[display_cols].style.format({
+                    '% of Trades': '{:.1%}',
+                    'Win Rate': '{:.1%}',
+                    'Avg R': '{:.2f}',
+                    'Avg Win R': '{:.2f}',
+                    'Avg Loss R': '{:.2f}',
+                    'PnL/$ Risk': '{:.2f}',
+                    'Profit Factor': '{:.2f}',
+                    'Total PnL': '${:,.0f}'
+                }).applymap(highlight_avg_r, subset=['Avg R'])
+                
+                st.dataframe(styled_density, use_container_width=True)
+                
+                # Strategy-level breakdown
+                with st.expander("📊 Density Analysis by Strategy"):
+                    strat_density_df = analyze_density_by_strategy(sig_df)
+                    if not strat_density_df.empty:
+                        st.dataframe(strat_density_df.style.format({
+                            'Isolated Avg R': '{:.2f}',
+                            'Clustered Avg R': '{:.2f}',
+                            'Isolated WR': '{:.1%}',
+                            'Clustered WR': '{:.1%}',
+                            'Isolation Edge': '{:.1%}'
+                        }), use_container_width=True)
+                        
+                        st.markdown("""
+                        **Isolation Edge** = (Isolated Avg R - Clustered Avg R) / |Clustered Avg R|
+                        - Positive = isolated signals are better → size them up
+                        - Negative = clustered signals are better → don't penalize clustering
+                        - **Size Up Isolated?** = Yes if edge > 15%
+                        """)
+                
+                # Suggested multipliers
+                with st.expander("🔧 Suggested Density-Based Sizing Multipliers"):
+                    multipliers = calculate_optimal_density_sizing(sig_df)
+                    
+                    if multipliers:
+                        mult_df = pd.DataFrame([
+                            {'Density': k, 'Multiplier': v, 'Effect': f"{v:.2f}x base risk"}
+                            for k, v in multipliers.items()
+                        ])
+                        st.dataframe(mult_df, use_container_width=True)
+                        
+                        st.markdown("""
+                        **How to use:**
+                        - When signal fires, count how many other signals are firing that day
+                        - Look up the multiplier for that density bucket
+                        - Multiply your base `risk_bps` by the multiplier
+                        
+                        **Example:** If "1 (Isolated)" has 1.5x multiplier and base risk is 30 bps,
+                        use 45 bps when only 1 signal fires that day.
+                        """)
+                        
+                        st.info("💡 To implement this, you'd add logic in `process_signals_fast` to count same-day signals and adjust `base_risk` accordingly.")
 
             # Charts
             col1, col2 = st.columns(2)
