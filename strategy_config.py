@@ -522,7 +522,7 @@ _STRATEGY_BOOK_RAW = [
             "perf_filters": [{'window': 5, 'logic': '>', 'thresh': 85.0, 'consecutive': 1}, {'window': 10, 'logic': '>', 'thresh': 85.0, 'consecutive': 1}, {'window': 21, 'logic': '>', 'thresh': 85.0, 'consecutive': 3}],
             "perf_first_instance": False, "perf_lookback": 21,
             "use_sznl": False, "sznl_logic": ">", "sznl_thresh": 85.0, "sznl_first_instance": False, "sznl_lookback": 21,
-            "use_market_sznl": True, "market_sznl_logic": "<", "market_sznl_thresh": 50.0,
+            "use_market_sznl": True, "market_sznl_logic": "<", "market_sznl_thresh": 75.0,
             "market_ticker": "^GSPC",
             "use_52w": False, "52w_type": "New 52w High", "52w_first_instance": True, "52w_lookback": 21,
             "use_vol": True, "vol_thresh": 1.25,
@@ -544,7 +544,7 @@ _STRATEGY_BOOK_RAW = [
             "slippage_bps": 2,
             "stop_atr": 1.0,
             "tgt_atr": 8.0,
-            "hold_days": 3
+            "hold_days": 2
         },
         "stats": {
             "grade": "A (Excellent)",
