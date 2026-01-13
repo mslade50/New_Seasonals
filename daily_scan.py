@@ -797,8 +797,22 @@ def run_daily_scan():
                         action = "SELL SHORT"
                     
                     shares = int(risk / dist) if dist > 0 else 0
-                    exit_date = (last_row.name + BusinessDay(strat['execution']['hold_days'])).date()
-                    
+                    entry_mode = strat['settings'].get('entry_type', 'Signal Close')
+                    hold_days = strat['execution']['hold_days']
+
+                    # 1. Determine the effective Entry Date
+                    if "Signal Close" in entry_mode:
+                        # Enters today (Signal Date)
+                        effective_entry_date = last_row.name 
+                    else:
+                        # Enters tomorrow (Signal Date + 1 Trading Day)
+                        # We use TRADING_DAY to skip Weekends & Holidays
+                        effective_entry_date = last_row.name + TRADING_DAY
+
+                    # 2. Calculate Exit Date starting from the Effective Entry Date
+                    # We use TRADING_DAY here too to ensure the holding period respects holidays
+                    exit_date = (effective_entry_date + (TRADING_DAY * hold_days)).date()
+                    # -----------------------------
                     # 4. Append Signal
                     signals.append({
                         "Strategy_ID": strat['id'],
