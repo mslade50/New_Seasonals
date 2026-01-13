@@ -763,11 +763,17 @@ def run_daily_scan():
                     risk = strat['execution']['risk_per_trade']
                     
                     if strat['name'] == "Overbot Vol Spike":
-                        vol_ratio = last_row.get('vol_ratio', 0)
-                        if vol_ratio > 2.0:
-                            risk = risk * 1.5  # High conviction
-                        elif vol_ratio > 1.5:
-                            risk = risk   # Medium conviction
+                        # CHECK FOR FRIDAY (Day 4)
+                        # If Signal is on Friday (for Monday entry), size to 2x
+                        if last_row.name.dayofweek == 4:
+                             risk = risk * 2.0
+                        else:
+                            # Fallback to Vol Ratio logic if NOT Friday
+                            vol_ratio = last_row.get('vol_ratio', 0)
+                            if vol_ratio > 2.0:
+                                risk = risk * 1.15  # High conviction
+                            elif vol_ratio > 1.5:
+                                risk = risk   # Medium conviction
                     
                     if strat['name'] == "Weak Close Decent Sznls":
                         sznl_val = last_row.get('Sznl', 0)
