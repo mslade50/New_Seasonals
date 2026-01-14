@@ -558,6 +558,7 @@ def process_signals_fast(candidates, signal_data, processed_dict, strategies, st
     """
     Process candidates chronologically with dynamic sizing.
     Optimized for speed using direct array access.
+    Includes robust error handling for 0 division/NaN values.
     """
     if not candidates:
         return pd.DataFrame()
@@ -589,10 +590,14 @@ def process_signals_fast(candidates, signal_data, processed_dict, strategies, st
         df = processed_dict[t_clean]
         row_data = signal_data[(t_clean, signal_idx)]
         
+        # --- CRITICAL FIX: Validate ATR before proceeding ---
+        atr = row_data['atr']
+        if pd.isna(atr) or atr <= 0:
+            continue # Skip trade if ATR is invalid (prevents division errors)
+        
         # Get entry details
         entry_type = settings.get('entry_type', 'Signal Close')
         hold_days = strat['execution']['hold_days']
-        atr = row_data['atr']
         
         if signal_idx + 1 >= len(df):
             continue
@@ -604,6 +609,7 @@ def process_signals_fast(candidates, signal_data, processed_dict, strategies, st
         entry_price = None
         entry_date = None
         
+        # --- Entry Logic (Same as before) ---
         if entry_type == 'T+1 Close':
             entry_price = entry_row['Close']
             entry_date = entry_row.name
@@ -660,7 +666,7 @@ def process_signals_fast(candidates, signal_data, processed_dict, strategies, st
             entry_price = row_data['close']
             entry_date = signal_date
         
-        if not valid_entry or entry_price is None:
+        if not valid_entry or entry_price is None or pd.isna(entry_price):
             continue
         
         # Dynamic position sizing
@@ -685,6 +691,7 @@ def process_signals_fast(candidates, signal_data, processed_dict, strategies, st
         direction = settings.get('trade_direction', 'Long')
         stop_atr = strat['execution']['stop_atr']
         
+        # --- CRITICAL FIX: Safe Share Calculation ---
         if direction == 'Long':
             dist = atr * stop_atr
             action = "BUY"
@@ -692,7 +699,15 @@ def process_signals_fast(candidates, signal_data, processed_dict, strategies, st
             dist = atr * stop_atr
             action = "SELL SHORT"
         
-        shares = int(base_risk / dist) if dist > 0 else 0
+        # Ensure dist is positive and valid before dividing
+        if pd.isna(dist) or dist <= 0:
+            continue
+
+        try:
+            shares = int(base_risk / dist)
+        except (ValueError, OverflowError):
+            shares = 0
+            
         if shares == 0:
             continue
         
@@ -753,7 +768,6 @@ def process_signals_fast(candidates, signal_data, processed_dict, strategies, st
     sig_df['Time Stop'] = pd.to_datetime(sig_df['Time Stop'])
     
     return sig_df.sort_values(by="Exit Date")
-
 
 # -----------------------------------------------------------------------------
 # MARK-TO-MARKET & STATS (unchanged but streamlined)
@@ -1599,20 +1613,69 @@ def main():
                         st.info("💡 To implement this, you'd add logic in `process_signals_fast` to count same-day signals and adjust `base_risk` accordingly.")
 
             # Charts
+            st.divider()
             col1, col2 = st.columns(2)
+            
             with col1:
-                st.subheader("📈 Portfolio PnL (MTM)")
+                st.subheader("📈 Portfolio PnL (MTM) - Log Scale")
                 df_eq = calculate_mark_to_market_curve(sig_df, master_dict)
                 if not df_eq.empty:
                     fig = go.Figure()
-                    fig.add_trace(go.Scatter(x=df_eq.index, y=df_eq['Equity'], mode='lines', name='PnL', line=dict(color='#00FF00', width=2)))
-                    fig.update_layout(height=350, margin=dict(l=10,r=10,t=30,b=10))
+                    fig.add_trace(go.Scatter(
+                        x=df_eq.index, 
+                        y=df_eq['Equity'], 
+                        mode='lines', 
+                        name='Portfolio Equity', 
+                        line=dict(color='#00FF00', width=2)
+                    ))
+                    
+                    # Update layout for Log Scale
+                    fig.update_layout(
+                        height=400,
+                        margin=dict(l=10, r=10, t=30, b=10),
+                        yaxis_type="log",  # <--- LOG SCALE ENABLED HERE
+                        yaxis_title="Equity ($)"
+                    )
                     st.plotly_chart(fig, use_container_width=True)
+                else:
+                    st.info("No trades to plot.")
             
             with col2:
-                st.subheader("📉 PnL by Strategy")
-                strat_pnl = sig_df.pivot_table(index='Exit Date', columns='Strategy', values='PnL', aggfunc='sum').fillna(0)
-                st.line_chart(strat_pnl.cumsum())
+                st.subheader("📉 PnL by Strategy (Interactive)")
+                # Pivot and fill NaN with 0 for cumulative sum
+                strat_pnl = sig_df.pivot_table(index='Exit Date', columns='Strategy', values='PnL', aggfunc='sum')
+                
+                if not strat_pnl.empty:
+                    # Fill NaN with 0 so cumsum works, but we ideally reindex to daily for smoother charts
+                    # For simplicity, we stick to Exit Date logic but cumsum fills gaps
+                    strat_pnl_cum = strat_pnl.fillna(0).cumsum()
+                    
+                    fig_strat = go.Figure()
+                    
+                    # Add a trace for each strategy
+                    for column in strat_pnl_cum.columns:
+                        fig_strat.add_trace(go.Scatter(
+                            x=strat_pnl_cum.index,
+                            y=strat_pnl_cum[column],
+                            mode='lines',
+                            name=str(column)
+                        ))
+                        
+                    fig_strat.update_layout(
+                        height=400, 
+                        margin=dict(l=10, r=10, t=30, b=10),
+                        hovermode="x unified",
+                        legend=dict(
+                            orientation="h",
+                            yanchor="bottom",
+                            y=1.02,
+                            xanchor="right",
+                            x=1
+                        )
+                    )
+                    st.plotly_chart(fig_strat, use_container_width=True)
+                else:
+                    st.info("No strategy data available.")
 
             # Exposure
             st.subheader("⚖️ Exposure Over Time (% of Equity)")
