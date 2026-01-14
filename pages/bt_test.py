@@ -295,6 +295,8 @@ def run_engine(universe_dict, params, sznl_map, market_series=None, vix_series=N
     direction = params.get('trade_direction', 'Long')
     max_one_pos_per_ticker = params.get('max_one_pos', True)
     slippage_bps = params.get('slippage_bps', 5)
+    
+    # --- ENTRY MODES ---
     entry_mode = params['entry_type']
     is_pullback = "Pullback" in entry_mode
     is_limit_pers_05 = "Limit Order -0.5 ATR" in entry_mode
@@ -302,20 +304,26 @@ def run_engine(universe_dict, params, sznl_map, market_series=None, vix_series=N
     is_limit_atr = entry_mode == "Limit (Close -0.5 ATR)"
     is_limit_prev = entry_mode == "Limit (Prev Close)"
     is_limit_open_atr = entry_mode == "Limit (Open +/- 0.5 ATR)"
+    # NEW FLAG ADDED HERE
+    is_limit_open_atr_gtc = entry_mode == "Limit (Open +/- 0.5 ATR) GTC" 
+    
     is_limit_pivot = entry_mode == "Limit (Untested Pivot)"
     is_gap_up = "Gap Up Only" in entry_mode
     is_overnight = "Overnight" in entry_mode
     is_intraday = "Intraday" in entry_mode
     is_cond_close_lower = "T+1 Close if < Signal Close" in entry_mode
     is_cond_close_higher = "T+1 Close if > Signal Close" in entry_mode
+    
     pullback_col = None
     if "10 SMA" in entry_mode: pullback_col = "SMA10"
     elif "21 EMA" in entry_mode: pullback_col = "EMA21"
     pullback_use_level = "Level" in entry_mode
+    
     gap_window = params.get('gap_lookback', 21)
     total_signals_generated = 0
     progress_bar = st.progress(0)
     status_text = st.empty()
+    
     req_custom_mas = list(set([f['length'] for f in params.get('ma_consec_filters', [])]))
     acc_win = params['acc_count_window'] if params.get('use_acc_count_filter', False) else None
     dist_win = params['dist_count_window'] if params.get('use_dist_count_filter', False) else None
@@ -325,16 +333,22 @@ def run_engine(universe_dict, params, sznl_map, market_series=None, vix_series=N
     for i, (ticker, df_raw) in enumerate(universe_dict.items()):
         status_text.text(f"Scanning signals for {ticker}...")
         progress_bar.progress((i+1)/total)
+        
         if ticker == MARKET_TICKER and MARKET_TICKER not in params.get('universe_tickers', []): continue
         if ticker == VIX_TICKER: continue
         if len(df_raw) < 100: continue
+        
         ticker_last_exit = pd.Timestamp.min
+        
         try:
             df = calculate_indicators(df_raw, sznl_map, ticker, market_series, vix_series, market_sznl_series, gap_window, req_custom_mas, acc_win, dist_win)
             df = df[df.index >= bt_start_ts]
             if df.empty: continue
+            
+            # --- SIGNAL GENERATION ---
             conditions = []
             trend_opt = params.get('trend_filter', 'None')
+            
             if trend_opt == "Price > 200 SMA": conditions.append(df['Close'] > df['SMA200'])
             elif trend_opt == "Price > Rising 200 SMA": conditions.append((df['Close'] > df['SMA200']) & (df['SMA200'] > df['SMA200'].shift(1)))
             elif trend_opt == "Not Below Declining 200 SMA": conditions.append(~((df['Close'] < df['SMA200']) & (df['SMA200'] < df['SMA200'].shift(1))))
@@ -343,20 +357,27 @@ def run_engine(universe_dict, params, sznl_map, market_series=None, vix_series=N
             elif "Market" in trend_opt and 'Market_Above_SMA200' in df.columns:
                 if trend_opt == "Market > 200 SMA": conditions.append(df['Market_Above_SMA200'])
                 elif trend_opt == "Market < 200 SMA": conditions.append(~df['Market_Above_SMA200'])
+                
             conditions.append((df['Close'] >= params['min_price']) & (df['vol_ma'] >= params['min_vol']) & (df['age_years'] >= params['min_age']) & (df['age_years'] <= params['max_age']) & (df['ATR_Pct'] >= params['min_atr_pct']) & (df['ATR_Pct'] <= params['max_atr_pct']))
+            
             if params.get('require_close_gt_open', False): conditions.append(df['Close'] > df['Open'])
+            
             bk_mode = params.get('breakout_mode', 'None')
             if bk_mode == "Close > Prev Day High": conditions.append(df['Close'] > df['High'].shift(1))
             elif bk_mode == "Close < Prev Day Low": conditions.append(df['Close'] < df['Low'].shift(1))
+            
             if params.get('use_range_filter', False): conditions.append((df['RangePct'] * 100 >= params['range_min']) & (df['RangePct'] * 100 <= params['range_max']))
             if params.get('use_dow_filter', False): conditions.append(df['DayOfWeekVal'].isin(params['allowed_days']))
+            
             if 'allowed_cycles' in params and len(params['allowed_cycles']) < 4:
                 year_rems = df.index.year % 4
                 conditions.append(pd.Series(year_rems, index=df.index).isin(params['allowed_cycles']))
+                
             if params.get('use_gap_filter', False):
                 if params['gap_logic'] == ">": conditions.append(df['GapCount'] > params['gap_thresh'])
                 elif params['gap_logic'] == "<": conditions.append(df['GapCount'] < params['gap_thresh'])
                 elif params['gap_logic'] == "=": conditions.append(df['GapCount'] == params['gap_thresh'])
+
             if params.get('use_acc_count_filter', False):
                 col = f"AccCount_{params['acc_count_window']}"
                 if col in df.columns:
@@ -364,6 +385,7 @@ def run_engine(universe_dict, params, sznl_map, market_series=None, vix_series=N
                     if params['acc_count_logic'] == ">": conditions.append(r_acc > params['acc_count_thresh'])
                     elif params['acc_count_logic'] == "<": conditions.append(r_acc < params['acc_count_thresh'])
                     elif params['acc_count_logic'] == "=": conditions.append(r_acc == params['acc_count_thresh'])
+
             if params.get('use_dist_count_filter', False):
                 col = f"DistCount_{params['dist_count_window']}"
                 if col in df.columns:
@@ -371,37 +393,46 @@ def run_engine(universe_dict, params, sznl_map, market_series=None, vix_series=N
                     if params['dist_count_logic'] == ">": conditions.append(r_dist > params['dist_count_thresh'])
                     elif params['dist_count_logic'] == "<": conditions.append(r_dist < params['dist_count_thresh'])
                     elif params['dist_count_logic'] == "=": conditions.append(r_dist == params['dist_count_thresh'])
+            
             for pf in params.get('perf_filters', []):
                 col = f"rank_ret_{pf['window']}d"
                 c_f = (df[col] < pf['thresh']) if pf['logic'] == '<' else (df[col] > pf['thresh'])
                 if pf['consecutive'] > 1: c_f = c_f.rolling(pf['consecutive']).sum() == pf['consecutive']
                 conditions.append(c_f)
+                
             for f in params.get('ma_consec_filters', []):
                 col = f"SMA{f['length']}"
                 mask = (df['Close'] > df[col]) if f['logic'] == 'Above' else (df['Close'] < df[col])
                 if f['consec'] > 1: mask = mask.rolling(f['consec']).sum() == f['consec']
                 conditions.append(mask)
+
             if params.get('use_sznl', False):
                 sznl_cond = (df['Sznl'] < params['sznl_thresh']) if params['sznl_logic'] == '<' else (df['Sznl'] > params['sznl_thresh'])
                 if params.get('sznl_first_instance', False): sznl_cond = apply_first_instance_filter(sznl_cond, params.get('sznl_lookback', 21))
                 conditions.append(sznl_cond)
+
             if params.get('use_market_sznl', False) and 'Market_Sznl' in df.columns:
                 market_sznl_cond = (df['Market_Sznl'] < params['market_sznl_thresh']) if params['market_sznl_logic'] == '<' else (df['Market_Sznl'] > params['market_sznl_thresh'])
                 conditions.append(market_sznl_cond)
+                
             if params.get('use_52w', False):
                 c_52_raw = df['is_52w_high'] if params['52w_type'] == 'New 52w High' else df['is_52w_low']
                 lag_days = params.get('52w_lag', 0)
                 if lag_days > 0: c_52_raw = c_52_raw.shift(lag_days).fillna(False)
+                
                 if params.get('52w_first_instance', False): c_52 = apply_first_instance_filter(c_52_raw, params.get('52w_lookback', 21))
                 else: c_52 = c_52_raw
                 conditions.append(c_52)
+                
             if params.get('exclude_52w_high', False): conditions.append(~df['is_52w_high'])
             if params.get('vol_gt_prev', False): conditions.append(df['Volume'] > df['Volume'].shift(1))
             if params.get('use_vol', False): conditions.append(df['vol_ratio'] > params['vol_thresh'])
+            
             if params.get('use_vol_rank', False):
                 vr_col = 'vol_ratio_10d_rank'
                 if params['vol_rank_logic'] == ">": conditions.append(df[vr_col] > params['vol_rank_thresh'])
                 elif params['vol_rank_logic'] == "<": conditions.append(df[vr_col] < params['vol_rank_thresh'])
+
             if params.get('use_ma_dist_filter', False):
                 ma_col_map = {"SMA 10": "SMA10", "SMA 20": "SMA20", "SMA 50": "SMA50", "SMA 100": "SMA100", "SMA 200": "SMA200", "EMA 8": "EMA8", "EMA 11": "EMA11", "EMA 21": "EMA21"}
                 ma_target = ma_col_map.get(params['dist_ma_type'])
@@ -410,9 +441,11 @@ def run_engine(universe_dict, params, sznl_map, market_series=None, vix_series=N
                     if params['dist_logic'] == "Greater Than (>)": conditions.append(dist_val > params['dist_min'])
                     elif params['dist_logic'] == "Less Than (<)": conditions.append(dist_val < params['dist_max'])
                     elif params['dist_logic'] == "Between": conditions.append((dist_val >= params['dist_min']) & (dist_val <= params['dist_max']))
+                    
             if params.get('use_vix_filter', False) and 'VIX_Value' in df.columns:
                 vix_val = df['VIX_Value']
                 conditions.append((vix_val >= params['vix_min']) & (vix_val <= params['vix_max']))
+                
             # T+1 OPEN FILTER
             if use_t1_open_filter and t1_open_filters:
                 for t1_filter in t1_open_filters:
@@ -420,26 +453,38 @@ def run_engine(universe_dict, params, sznl_map, market_series=None, vix_series=N
                     atr_offset = t1_filter['atr_offset']
                     logic = t1_filter['logic']
                     threshold = df[ref_col] + (atr_offset * df['ATR'])
+                    
                     if logic == '>': t1_cond = df['NextOpen'] > threshold
                     elif logic == '>=': t1_cond = df['NextOpen'] >= threshold
                     elif logic == '<': t1_cond = df['NextOpen'] < threshold
                     elif logic == '<=': t1_cond = df['NextOpen'] <= threshold
                     else: continue
                     conditions.append(t1_cond)
+
             if not conditions: continue
+            
             final_signal = conditions[0]
             for c in conditions[1:]: final_signal = final_signal & c
+            
             if params.get('perf_first_instance', False) and len(params.get('perf_filters', [])) > 0:
                 final_signal = apply_first_instance_filter(final_signal, params.get('perf_lookback', 21))
+                
             signal_dates = df.index[final_signal]
             total_signals_generated += len(signal_dates)
+            
+            # --- EXECUTION LOGIC ---
             for signal_date in signal_dates:
                 if max_one_pos_per_ticker and signal_date <= ticker_last_exit: continue
+                
                 sig_idx = df.index.get_loc(signal_date)
                 if sig_idx + 1 >= len(df): continue
+                
                 found_entry, actual_entry_idx, actual_entry_price = False, -1, 0.0
-                if is_overnight: found_entry, actual_entry_idx, actual_entry_price = True, sig_idx, df['Close'].iloc[sig_idx]
-                elif is_intraday: found_entry, actual_entry_idx, actual_entry_price = True, sig_idx + 1, df['Open'].iloc[sig_idx + 1]
+                
+                if is_overnight:
+                    found_entry, actual_entry_idx, actual_entry_price = True, sig_idx, df['Close'].iloc[sig_idx]
+                elif is_intraday:
+                    found_entry, actual_entry_idx, actual_entry_price = True, sig_idx + 1, df['Open'].iloc[sig_idx + 1]
                 elif is_pullback and pullback_col:
                     for wait_i in range(1, params['holding_days'] + 1):
                         curr_idx = sig_idx + wait_i
@@ -492,6 +537,46 @@ def run_engine(universe_dict, params, sznl_map, market_series=None, vix_series=N
                         limit_price = (day_open - (sig_atr * 0.5)) if direction == 'Long' else (day_open + (sig_atr * 0.5))
                         if direction == 'Long' and day_low <= limit_price: found_entry, actual_entry_idx, actual_entry_price = True, next_idx, limit_price
                         elif direction == 'Short' and day_high >= limit_price: found_entry, actual_entry_idx, actual_entry_price = True, next_idx, limit_price
+                        
+                # --- NEW LOGIC FOR GTC OPEN +/- 0.5 ATR ---
+                elif is_limit_open_atr_gtc:
+                    # Calculate limit price based on T+1 Open
+                    next_idx = sig_idx + 1
+                    if next_idx < len(df):
+                        sig_atr = df['ATR'].iloc[sig_idx]
+                        # For the limit calculation, we assume the order is placed relative to T+1 open
+                        # If you want it relative to T+0 Close, change df['Open'].iloc[next_idx] to df['Close'].iloc[sig_idx]
+                        base_price = df['Open'].iloc[next_idx]
+                        limit_price = (base_price - (sig_atr * 0.5)) if direction == 'Long' else (base_price + (sig_atr * 0.5))
+                        
+                        # Loop through days to see if it gets filled (GTC)
+                        # We start checking at next_idx (T+1)
+                        for wait_i in range(1, params['holding_days'] + 1):
+                            curr_idx = sig_idx + wait_i
+                            if curr_idx >= len(df): break
+                            
+                            day_low = df['Low'].iloc[curr_idx]
+                            day_high = df['High'].iloc[curr_idx]
+                            day_open = df['Open'].iloc[curr_idx]
+                            
+                            filled, fill_px = False, limit_price
+                            if direction == 'Long':
+                                # If open is already below limit (gap down), we fill at open
+                                if day_open < limit_price:
+                                    filled, fill_px = True, day_open
+                                # If price traded down to limit
+                                elif day_low <= limit_price: 
+                                    filled, fill_px = True, limit_price
+                            else: # Short
+                                if day_open > limit_price:
+                                    filled, fill_px = True, day_open
+                                elif day_high >= limit_price:
+                                    filled, fill_px = True, limit_price
+                                    
+                            if filled:
+                                found_entry, actual_entry_idx, actual_entry_price = True, curr_idx, fill_px
+                                break
+
                 elif is_limit_pivot:
                     if 'LastPivotLow' in df.columns and direction == 'Long':
                         limit_price = df['LastPivotLow'].iloc[sig_idx]
@@ -528,9 +613,12 @@ def run_engine(universe_dict, params, sznl_map, market_series=None, vix_series=N
                     actual_entry_idx = sig_idx if entry_mode == 'Signal Close' else sig_idx + 1
                     if actual_entry_idx >= len(df): found_entry = False
                     else: actual_entry_price = df['Close'].iloc[actual_entry_idx] if 'Close' in entry_mode else df['Open'].iloc[actual_entry_idx]
+
                 if not found_entry: continue
+
                 atr = df['ATR'].iloc[actual_entry_idx]
                 if np.isnan(atr) or atr == 0: continue
+                
                 if is_overnight or is_intraday:
                     exit_idx = sig_idx + 1
                     if exit_idx >= len(df): continue
@@ -541,9 +629,12 @@ def run_engine(universe_dict, params, sznl_map, market_series=None, vix_series=N
                     fixed_exit_idx = min(actual_entry_idx + params['holding_days'], len(df) - 1)
                     future = df.iloc[actual_entry_idx + 1 : fixed_exit_idx + 1]
                     if future.empty: continue
+                    
                     stop_price = actual_entry_price - (atr * params['stop_atr']) if direction == 'Long' else actual_entry_price + (atr * params['stop_atr'])
                     tgt_price = actual_entry_price + (atr * params['tgt_atr']) if direction == 'Long' else actual_entry_price - (atr * params['tgt_atr'])
+                    
                     exit_price, exit_type, exit_date = actual_entry_price, "Hold", None
+                    
                     for f_date, f_row in future.iterrows():
                         if direction == 'Long':
                             if params['use_stop_loss'] and f_row['Low'] <= stop_price: exit_price, exit_type, exit_date = stop_price, "Stop", f_date; break
@@ -551,23 +642,31 @@ def run_engine(universe_dict, params, sznl_map, market_series=None, vix_series=N
                         else:
                             if params['use_stop_loss'] and f_row['High'] >= stop_price: exit_price, exit_type, exit_date = stop_price, "Stop", f_date; break
                             if params['use_take_profit'] and f_row['Low'] <= tgt_price: exit_price, exit_type, exit_date = tgt_price, "Target", f_date; break
+                            
                     if exit_type == "Hold": exit_price, exit_date, exit_type = future['Close'].iloc[-1], future.index[-1], "Time"
+                    
                 ticker_last_exit = exit_date
                 slip = slippage_bps / 10000.0
                 tech_risk = atr * params['stop_atr']
                 if tech_risk <= 0: tech_risk = 0.001
                 pnl = (exit_price*(1-slip) - actual_entry_price*(1+slip)) if direction == 'Long' else (actual_entry_price*(1-slip) - exit_price*(1+slip))
+                
                 all_potential_trades.append({"Ticker": ticker, "SignalDate": signal_date, "EntryDate": df.index[actual_entry_idx], "Direction": direction, "Entry": actual_entry_price, "Exit": exit_price, "ExitDate": exit_date, "Type": exit_type, "R": pnl / tech_risk, "Age": df['age_years'].iloc[sig_idx], "AvgVol": df['vol_ma'].iloc[sig_idx], "Status": "Valid Signal", "Reason": "Executed"})
         except Exception: continue
+
     progress_bar.empty()
     status_text.empty()
+    
     if not all_potential_trades: return pd.DataFrame(), pd.DataFrame(), 0
+    
     pot_df = pd.DataFrame(all_potential_trades).sort_values(by=["EntryDate", "Ticker"])
     final_log, rejected_log, active_pos, daily_count = [], [], [], {}
     max_total, max_daily = params.get('max_total_positions', 100), params.get('max_daily_entries', 100)
+    
     for _, trade in pot_df.iterrows():
         active_pos = [t for t in active_pos if t['ExitDate'] > trade['EntryDate']]
         today_num = daily_count.get(trade['EntryDate'], 0)
+        
         if len(active_pos) >= max_total or today_num >= max_daily:
             trade_copy = trade.copy()
             trade_copy['Status'], trade_copy['Reason'] = "Portfolio Rejected", "Constraints"
@@ -576,8 +675,9 @@ def run_engine(universe_dict, params, sznl_map, market_series=None, vix_series=N
             final_log.append(trade)
             active_pos.append(trade)
             daily_count[trade['EntryDate']] = today_num + 1
+            
     return pd.DataFrame(final_log), pd.DataFrame(rejected_log), total_signals_generated
-
+    
 def main():
     st.set_page_config(layout="wide", page_title="Quantitative Backtester")
     st.title("Quantitative Strategy Backtester")
@@ -625,7 +725,21 @@ def main():
     st.markdown("---")
     c1, c2, c3, c4, c5 = st.columns(5)
     with c1: 
-        entry_type = st.selectbox("Entry Price", ["Signal Close", "T+1 Open", "T+1 Close","Overnight (Buy Close, Sell T+1 Open)", "Intraday (Buy Open, Sell Close)", "Gap Up Only (Open > Prev High)", "Limit Order -0.5 ATR (Persistent)", "Limit Order -1 ATR (Persistent)", "Limit (Close -0.5 ATR)", "Limit (Prev Close)", "Limit (Open +/- 0.5 ATR)", "Limit (Untested Pivot)", "Pullback 10 SMA (Entry: Close)", "Pullback 10 SMA (Entry: Level)", "Pullback 21 EMA (Entry: Close)", "Pullback 21 EMA (Entry: Level)", "T+1 Close if < Signal Close", "T+1 Close if < Signal Close -0.5 ATR", "T+1 Close if < Signal Close -1 ATR", "T+1 Close if > Signal Close", "T+1 Close if > Signal Close +0.5 ATR", "T+1 Close if > Signal Close +1 ATR"])
+        entry_type = st.selectbox("Entry Price", [
+            "Signal Close", "T+1 Open", "T+1 Close",
+            "Overnight (Buy Close, Sell T+1 Open)", "Intraday (Buy Open, Sell Close)", 
+            "Gap Up Only (Open > Prev High)", 
+            "Limit Order -0.5 ATR (Persistent)", "Limit Order -1 ATR (Persistent)", 
+            "Limit (Close -0.5 ATR)", "Limit (Prev Close)", 
+            "Limit (Open +/- 0.5 ATR)", 
+            "Limit (Open +/- 0.5 ATR) GTC",  # <--- NEW OPTION
+            "Limit (Untested Pivot)", 
+            "Pullback 10 SMA (Entry: Close)", "Pullback 10 SMA (Entry: Level)", 
+            "Pullback 21 EMA (Entry: Close)", "Pullback 21 EMA (Entry: Level)", 
+            "T+1 Close if < Signal Close", "T+1 Close if < Signal Close -0.5 ATR", 
+            "T+1 Close if < Signal Close -1 ATR", "T+1 Close if > Signal Close", 
+            "T+1 Close if > Signal Close +0.5 ATR", "T+1 Close if > Signal Close +1 ATR"
+        ])
         use_ma_entry_filter = st.checkbox("Filter: Close > MA - 0.25*ATR", value=False) if "Pullback" in entry_type else False
     with c2: stop_atr = st.number_input("Stop Loss (ATR)", value=3.0, step=0.1, disabled=not use_stop_loss)
     with c3: tgt_atr = st.number_input("Target (ATR)", value=8.0, step=0.1, disabled=not use_take_profit)
