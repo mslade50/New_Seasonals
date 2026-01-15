@@ -396,9 +396,21 @@ def run_engine(universe_dict, params, sznl_map, market_series=None, vix_series=N
             
             for pf in params.get('perf_filters', []):
                 col = f"rank_ret_{pf['window']}d"
-                c_f = (df[col] < pf['thresh']) if pf['logic'] == '<' else (df[col] > pf['thresh'])
-                if pf['consecutive'] > 1: c_f = c_f.rolling(pf['consecutive']).sum() == pf['consecutive']
+                
+                if pf['logic'] == '<':
+                    c_f = (df[col] < pf['thresh'])
+                elif pf['logic'] == '>':
+                    c_f = (df[col] > pf['thresh'])
+                elif pf['logic'] == 'Between':
+                    # Logic: Rank >= Min AND Rank <= Max
+                    c_f = (df[col] >= pf['thresh']) & (df[col] <= pf.get('thresh_max', 100.0))
+                else:
+                    continue 
+
+                if pf['consecutive'] > 1: 
+                    c_f = c_f.rolling(pf['consecutive']).sum() == pf['consecutive']
                 conditions.append(c_f)
+            # -----------------------------------------------
                 
             for f in params.get('ma_consec_filters', []):
                 col = f"SMA{f['length']}"
@@ -849,29 +861,73 @@ def main():
             allowed_cycles = [cycle_options[x] for x in sel_cycles]
     with st.expander("Trend Filter", expanded=False):
         trend_filter = st.selectbox("Trend Condition", ["None", "Price > 200 SMA", "Not Below Declining 200 SMA", "Price > Rising 200 SMA", "Market > 200 SMA", "Price < 200 SMA", "Price < Falling 200 SMA", "Market < 200 SMA"])
+    # ... inside main() ...
     with st.expander("Performance Percentile Rank", expanded=False):
         col_p_config, col_p_seq = st.columns([3, 1])
         perf_filters = []
         with col_p_config:
             c5d, c10d, c21d = st.columns(3)
+            
+            # --- 5 DAY WINDOW ---
             with c5d:
                 use_5d = st.checkbox("Enable 5D Rank")
-                logic_5d = st.selectbox("Logic", [">", "<"], key="l5d", disabled=not use_5d)
-                thresh_5d = st.number_input("Threshold", 0.0, 100.0, 85.0, key="t5d", disabled=not use_5d)
+                # Added "Between"
+                logic_5d = st.selectbox("Logic", [">", "<", "Between"], key="l5d", disabled=not use_5d)
+                # Label changes dynamically based on selection
+                l_5d_txt = "Min %ile" if logic_5d == "Between" else "Threshold"
+                thresh_5d = st.number_input(l_5d_txt, 0.0, 100.0, 85.0, key="t5d", disabled=not use_5d)
+                
+                # New Max Input
+                thresh_5d_max = 100.0
+                if logic_5d == "Between":
+                    thresh_5d_max = st.number_input("Max %ile", 0.0, 100.0, 99.0, key="t5d_max")
+                
                 consec_5d = st.number_input("Consec Days", 1, 10, 1, key="c5d_days", disabled=not use_5d)
-                if use_5d: perf_filters.append({'window': 5, 'logic': logic_5d, 'thresh': thresh_5d, 'consecutive': consec_5d})
+                if use_5d: 
+                    perf_filters.append({
+                        'window': 5, 'logic': logic_5d, 
+                        'thresh': thresh_5d, 'thresh_max': thresh_5d_max, 
+                        'consecutive': consec_5d
+                    })
+
+            # --- 10 DAY WINDOW ---
             with c10d:
                 use_10d = st.checkbox("Enable 10D Rank")
-                logic_10d = st.selectbox("Logic", [">", "<"], key="l10d", disabled=not use_10d)
-                thresh_10d = st.number_input("Threshold", 0.0, 100.0, 85.0, key="t10d", disabled=not use_10d)
+                logic_10d = st.selectbox("Logic", [">", "<", "Between"], key="l10d", disabled=not use_10d)
+                l_10d_txt = "Min %ile" if logic_10d == "Between" else "Threshold"
+                thresh_10d = st.number_input(l_10d_txt, 0.0, 100.0, 85.0, key="t10d", disabled=not use_10d)
+                
+                thresh_10d_max = 100.0
+                if logic_10d == "Between":
+                    thresh_10d_max = st.number_input("Max %ile", 0.0, 100.0, 99.0, key="t10d_max")
+                    
                 consec_10d = st.number_input("Consec Days", 1, 10, 1, key="c10d_days", disabled=not use_10d)
-                if use_10d: perf_filters.append({'window': 10, 'logic': logic_10d, 'thresh': thresh_10d, 'consecutive': consec_10d})
+                if use_10d: 
+                    perf_filters.append({
+                        'window': 10, 'logic': logic_10d, 
+                        'thresh': thresh_10d, 'thresh_max': thresh_10d_max, 
+                        'consecutive': consec_10d
+                    })
+
+            # --- 21 DAY WINDOW ---
             with c21d:
                 use_21d = st.checkbox("Enable 21D Rank")
-                logic_21d = st.selectbox("Logic", [">", "<"], key="l21d", disabled=not use_21d)
-                thresh_21d = st.number_input("Threshold", 0.0, 100.0, 85.0, key="t21d", disabled=not use_21d)
+                logic_21d = st.selectbox("Logic", [">", "<", "Between"], key="l21d", disabled=not use_21d)
+                l_21d_txt = "Min %ile" if logic_21d == "Between" else "Threshold"
+                thresh_21d = st.number_input(l_21d_txt, 0.0, 100.0, 85.0, key="t21d", disabled=not use_21d)
+                
+                thresh_21d_max = 100.0
+                if logic_21d == "Between":
+                    thresh_21d_max = st.number_input("Max %ile", 0.0, 100.0, 99.0, key="t21d_max")
+                    
                 consec_21d = st.number_input("Consec Days", 1, 10, 1, key="c21d_days", disabled=not use_21d)
-                if use_21d: perf_filters.append({'window': 21, 'logic': logic_21d, 'thresh': thresh_21d, 'consecutive': consec_21d})
+                if use_21d: 
+                    perf_filters.append({
+                        'window': 21, 'logic': logic_21d, 
+                        'thresh': thresh_21d, 'thresh_max': thresh_21d_max, 
+                        'consecutive': consec_21d
+                    })
+
         with col_p_seq:
             perf_first = st.checkbox("First Instance", value=False)
             perf_lookback = st.number_input("Lookback (Days)", 1, 100, 21, disabled=not perf_first)
