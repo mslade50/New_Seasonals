@@ -828,11 +828,15 @@ def get_daily_mtm_series(sig_df, master_dict):
     return daily_pnl
 
 
-def calculate_mark_to_market_curve(sig_df, master_dict):
+def calculate_mark_to_market_curve(sig_df, master_dict, starting_equity):
     daily_pnl = get_daily_mtm_series(sig_df, master_dict)
     if daily_pnl.empty:
         return pd.DataFrame(columns=['Equity'])
-    return daily_pnl.cumsum().to_frame(name='Equity')
+    
+    # Add starting equity to the cumulative PnL
+    equity_curve = starting_equity + daily_pnl.cumsum()
+    
+    return equity_curve.to_frame(name='Equity')
 
 
 def calculate_daily_exposure(sig_df, starting_equity=None):
@@ -1618,7 +1622,9 @@ def main():
             
             with col1:
                 st.subheader("📈 Portfolio PnL (MTM) - Log Scale")
-                df_eq = calculate_mark_to_market_curve(sig_df, master_dict)
+                # NEW LINE:
+                df_eq = calculate_mark_to_market_curve(sig_df, master_dict, starting_equity)
+                
                 if not df_eq.empty:
                     fig = go.Figure()
                     fig.add_trace(go.Scatter(
