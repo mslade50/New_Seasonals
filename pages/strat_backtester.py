@@ -130,7 +130,6 @@ def calculate_indicators(df, sznl_map, ticker, market_series=None, vix_series=No
         df.index = df.index.tz_localize(None)
     df.index = df.index.normalize()
     
-    # --- Standard SMAs ---
     df['SMA10'] = df['Close'].rolling(10).mean()
     df['SMA20'] = df['Close'].rolling(20).mean()
     df['SMA50'] = df['Close'].rolling(50).mean()
@@ -143,17 +142,14 @@ def calculate_indicators(df, sznl_map, ticker, market_series=None, vix_series=No
             if col_name not in df.columns:
                 df[col_name] = df['Close'].rolling(length).mean()
 
-    # --- EMAs ---
     df['EMA8'] = df['Close'].ewm(span=8, adjust=False).mean()
     df['EMA11'] = df['Close'].ewm(span=11, adjust=False).mean()
     df['EMA21'] = df['Close'].ewm(span=21, adjust=False).mean()
     
-    # --- Perf Ranks ---
     for window in [5, 10, 21]:
         df[f'ret_{window}d'] = df['Close'].pct_change(window)
         df[f'rank_ret_{window}d'] = df[f'ret_{window}d'].expanding(min_periods=252).rank(pct=True) * 100.0
     
-    # --- ATR ---
     high_low = df['High'] - df['Low']
     high_close = np.abs(df['High'] - df['Close'].shift())
     low_close = np.abs(df['Low'] - df['Close'].shift())
@@ -161,17 +157,14 @@ def calculate_indicators(df, sznl_map, ticker, market_series=None, vix_series=No
     df['ATR'] = ranges.max(axis=1).rolling(14).mean()
     df['ATR_Pct'] = (df['ATR'] / df['Close']) * 100
     
-    # --- SEASONALITY ---
     df['Sznl'] = get_sznl_val_series(ticker, df.index, sznl_map)
     df['Mkt_Sznl_Ref'] = get_sznl_val_series("^GSPC", df.index, sznl_map)
     
-    # --- 52w High/Low ---
     rolling_high = df['High'].shift(1).rolling(252).max()
     rolling_low = df['Low'].shift(1).rolling(252).min()
     df['is_52w_high'] = df['High'] > rolling_high
     df['is_52w_low'] = df['Low'] < rolling_low
     
-    # --- Volume & Vol Ratio ---
     vol_ma = df['Volume'].rolling(63).mean()
     df['vol_ma'] = vol_ma
     df['vol_ratio'] = df['Volume'] / vol_ma
@@ -180,7 +173,6 @@ def calculate_indicators(df, sznl_map, ticker, market_series=None, vix_series=No
     df['vol_ratio_10d'] = vol_ma_10 / vol_ma
     df['vol_ratio_10d_rank'] = df['vol_ratio_10d'].expanding(min_periods=252).rank(pct=True) * 100.0
     
-    # --- Acc/Dist Flags ---
     vol_gt_prev = df['Volume'] > df['Volume'].shift(1)
     vol_gt_ma = df['Volume'] > df['vol_ma']
     is_green = df['Close'] > df['Open']
@@ -194,14 +186,12 @@ def calculate_indicators(df, sznl_map, ticker, market_series=None, vix_series=No
     if dist_window:
         df[f'DistCount_{dist_window}'] = df['is_dist_day'].rolling(dist_window).sum()
 
-    # --- Age ---
     if not df.empty:
         start_ts = df.index[0]
         df['age_years'] = (df.index - start_ts).days / 365.25
     else:
         df['age_years'] = 0.0
         
-    # --- External Series ---
     if market_series is not None:
         df['Market_Above_SMA200'] = market_series.reindex(df.index, method='ffill').fillna(False)
 
@@ -210,16 +200,13 @@ def calculate_indicators(df, sznl_map, ticker, market_series=None, vix_series=No
     else:
         df['VIX_Value'] = 0.0
 
-    # --- Candle Range % Location ---
     denom = (df['High'] - df['Low'])
     df['RangePct'] = np.where(denom == 0, 0.5, (df['Close'] - df['Low']) / denom)
 
-    # --- Day of Week & Gaps ---
     df['DayOfWeekVal'] = df.index.dayofweek
     is_open_gap = (df['Low'] > df['High'].shift(1)).astype(int)
     df['GapCount'] = is_open_gap.rolling(gap_window).sum()
 
-    # --- Pivots ---
     piv_len = 20 
     roll_max = df['High'].rolling(window=piv_len*2+1, center=True).max()
     df['is_pivot_high'] = (df['High'] == roll_max)
@@ -428,18 +415,10 @@ def get_historical_mask(df, params, sznl_map, ticker_name="UNK"):
     return mask.fillna(False)
 
 
-# -----------------------------------------------------------------------------
-# OPTIMIZED: PRE-COMPUTE ALL INDICATOR DATAFRAMES ONCE
-# -----------------------------------------------------------------------------
 @st.cache_data(show_spinner=False)
 def precompute_all_indicators(_master_dict, _strategies, _sznl_map, _vix_series):
-    """
-    Pre-compute indicators for all tickers once, then cache.
-    Returns dict: ticker -> processed DataFrame
-    """
     processed = {}
     
-    # Build market series (SPY > 200 SMA)
     spy_df = _master_dict.get('SPY')
     market_series = None
     if spy_df is not None:
@@ -450,7 +429,6 @@ def precompute_all_indicators(_master_dict, _strategies, _sznl_map, _vix_series)
         temp['SMA200'] = temp['Close'].rolling(200).mean()
         market_series = temp['Close'] > temp['SMA200']
     
-    # Collect all unique tickers and their required params
     ticker_params = {}
     for strat in _strategies:
         settings = strat['settings']
@@ -464,13 +442,11 @@ def precompute_all_indicators(_master_dict, _strategies, _sznl_map, _vix_series)
             if t_clean not in ticker_params:
                 ticker_params[t_clean] = {'gap': gap_win, 'acc': acc_win, 'dist': dist_win, 'mas': set(req_custom_mas)}
             else:
-                # Merge params (use max gap, union of MAs, etc.)
                 ticker_params[t_clean]['gap'] = max(ticker_params[t_clean]['gap'], gap_win)
                 if acc_win: ticker_params[t_clean]['acc'] = acc_win
                 if dist_win: ticker_params[t_clean]['dist'] = dist_win
                 ticker_params[t_clean]['mas'].update(req_custom_mas)
     
-    # Process each ticker once
     for t_clean, params in ticker_params.items():
         df = _master_dict.get(t_clean)
         if df is None or len(df) < 200:
@@ -489,17 +465,9 @@ def precompute_all_indicators(_master_dict, _strategies, _sznl_map, _vix_series)
     return processed
 
 
-# -----------------------------------------------------------------------------
-# OPTIMIZED: GENERATE CANDIDATES AS LIGHTWEIGHT TUPLES
-# -----------------------------------------------------------------------------
 def generate_candidates_fast(processed_dict, strategies, sznl_map, user_start_date):
-    """
-    Generate candidate signals as lightweight tuples (not storing full DataFrames).
-    Returns list of tuples: (signal_date_ts, ticker, t_clean, strat_idx, signal_idx)
-    Plus a lookup dict for signal row data.
-    """
     candidates = []
-    signal_data = {}  # (t_clean, signal_idx) -> row data dict
+    signal_data = {}
     cutoff_ts = pd.Timestamp(user_start_date)
     
     for strat_idx, strat in enumerate(strategies):
@@ -522,7 +490,6 @@ def generate_candidates_fast(processed_dict, strategies, sznl_map, user_start_da
                 for signal_date in true_indices:
                     signal_idx = df.index.get_loc(signal_date)
                     
-                    # Store minimal data needed for sizing
                     key = (t_clean, signal_idx)
                     if key not in signal_data:
                         row = df.iloc[signal_idx]
@@ -537,9 +504,8 @@ def generate_candidates_fast(processed_dict, strategies, sznl_map, user_start_da
                             'range_pct': row['RangePct'] * 100
                         }
                     
-                    # Lightweight candidate tuple
                     candidates.append((
-                        signal_date.value,  # int64 timestamp for fast sorting
+                        signal_date.value,
                         ticker,
                         t_clean,
                         strat_idx,
@@ -551,24 +517,19 @@ def generate_candidates_fast(processed_dict, strategies, sznl_map, user_start_da
     return candidates, signal_data
 
 
-# -----------------------------------------------------------------------------
-# OPTIMIZED: PROCESS SIGNALS WITH NUMPY ARRAYS WHERE POSSIBLE
-# -----------------------------------------------------------------------------
 def process_signals_fast(candidates, signal_data, processed_dict, strategies, starting_equity):
     """
-    Process candidates chronologically with dynamic sizing.
-    Optimized for speed using direct array access.
-    Includes robust error handling for 0 division/NaN values.
+    Process candidates chronologically with dynamic sizing based on REAL-TIME MTM equity.
     """
     if not candidates:
         return pd.DataFrame()
     
-    # Sort by timestamp (first element of tuple)
     candidates.sort(key=lambda x: x[0])
     
-    current_equity = starting_equity
+    # Track open positions for MTM
+    open_positions = []
     realized_pnl = 0.0
-    position_last_exit = {}  # (strat_name, ticker) -> exit_date_ts
+    position_last_exit = {}
     
     results = []
     
@@ -582,7 +543,6 @@ def process_signals_fast(candidates, signal_data, processed_dict, strategies, st
         
         pos_key = (strat_name, ticker)
         
-        # Skip if last exit hasn't occurred
         last_exit_ts = position_last_exit.get(pos_key)
         if last_exit_ts is not None and signal_ts <= last_exit_ts:
             continue
@@ -590,26 +550,22 @@ def process_signals_fast(candidates, signal_data, processed_dict, strategies, st
         df = processed_dict[t_clean]
         row_data = signal_data[(t_clean, signal_idx)]
         
-        # --- CRITICAL FIX: Validate ATR before proceeding ---
         atr = row_data['atr']
         if pd.isna(atr) or atr <= 0:
-            continue # Skip trade if ATR is invalid (prevents division errors)
+            continue
         
-        # Get entry details
         entry_type = settings.get('entry_type', 'Signal Close')
         hold_days = strat['execution']['hold_days']
         
         if signal_idx + 1 >= len(df):
             continue
         
-        # Direct iloc access is faster than loc
         entry_row = df.iloc[signal_idx + 1]
         
         valid_entry = True
         entry_price = None
         entry_date = None
         
-        # --- Entry Logic (Same as before) ---
         if entry_type == 'T+1 Close':
             entry_price = entry_row['Close']
             entry_date = entry_row.name
@@ -669,11 +625,46 @@ def process_signals_fast(candidates, signal_data, processed_dict, strategies, st
         if not valid_entry or entry_price is None or pd.isna(entry_price):
             continue
         
-        # Dynamic position sizing
+        # --- CALCULATE REAL-TIME MTM EQUITY ---
+        still_open = []
+        for pos in open_positions:
+            pos_df = processed_dict.get(pos['t_clean'])
+            if pos_df is None:
+                continue
+            
+            if signal_date >= pos['exit_date']:
+                exit_price = pos_df.iloc[pos['exit_idx']]['Close']
+                if pos['direction'] == 'Long':
+                    realized_pnl += (exit_price - pos['entry_price']) * pos['shares']
+                else:
+                    realized_pnl += (pos['entry_price'] - exit_price) * pos['shares']
+            else:
+                still_open.append(pos)
+        
+        open_positions = still_open
+        
+        unrealized_pnl = 0.0
+        for pos in open_positions:
+            pos_df = processed_dict.get(pos['t_clean'])
+            if pos_df is None:
+                continue
+            
+            price_slice = pos_df[pos_df.index <= signal_date]
+            if price_slice.empty:
+                continue
+            current_price = price_slice.iloc[-1]['Close']
+            
+            if pos['direction'] == 'Long':
+                unrealized_pnl += (current_price - pos['entry_price']) * pos['shares']
+            else:
+                unrealized_pnl += (pos['entry_price'] - current_price) * pos['shares']
+        
+        # REAL-TIME MTM EQUITY
+        current_equity = starting_equity + realized_pnl + unrealized_pnl
+        
         risk_bps = strat['execution']['risk_bps']
         base_risk = current_equity * risk_bps / 10000
         
-        # Strategy-specific adjustments
         if strat_name == "Overbot Vol Spike":
             vol_ratio = row_data['vol_ratio']
             if vol_ratio > 2.0:
@@ -691,15 +682,9 @@ def process_signals_fast(candidates, signal_data, processed_dict, strategies, st
         direction = settings.get('trade_direction', 'Long')
         stop_atr = strat['execution']['stop_atr']
         
-        # --- CRITICAL FIX: Safe Share Calculation ---
-        if direction == 'Long':
-            dist = atr * stop_atr
-            action = "BUY"
-        else:
-            dist = atr * stop_atr
-            action = "SELL SHORT"
+        dist = atr * stop_atr
+        action = "BUY" if direction == 'Long' else "SELL SHORT"
         
-        # Ensure dist is positive and valid before dividing
         if pd.isna(dist) or dist <= 0:
             continue
 
@@ -711,7 +696,6 @@ def process_signals_fast(candidates, signal_data, processed_dict, strategies, st
         if shares == 0:
             continue
         
-        # Calculate exit
         entry_idx = df.index.get_loc(entry_date)
         exit_idx = min(entry_idx + hold_days, len(df) - 1)
         exit_row = df.iloc[exit_idx]
@@ -723,18 +707,24 @@ def process_signals_fast(candidates, signal_data, processed_dict, strategies, st
         else:
             pnl = (entry_price - exit_price) * shares
         
-        # Time stop - calculate the intended exit date (may be in future)
         target_ts_idx = entry_idx + hold_days
         if target_ts_idx < len(df):
             time_stop_date = df.index[target_ts_idx]
         else:
-            # Position hasn't reached time stop yet - calculate future date
             time_stop_date = entry_date + BusinessDay(hold_days)
         
-        # Update state
-        equity_at_signal = current_equity
-        realized_pnl += pnl
-        current_equity = starting_equity + realized_pnl
+        open_positions.append({
+            'ticker': ticker,
+            't_clean': t_clean,
+            'entry_date': entry_date,
+            'entry_price': entry_price,
+            'shares': shares,
+            'direction': 'Long' if action == 'BUY' else 'Short',
+            'exit_idx': exit_idx,
+            'exit_date': exit_date,
+            'strat_name': strat_name
+        })
+        
         position_last_exit[pos_key] = exit_date.value
         
         results.append({
@@ -751,7 +741,7 @@ def process_signals_fast(candidates, signal_data, processed_dict, strategies, st
             "PnL": pnl,
             "ATR": atr,
             "Range %": row_data['range_pct'],
-            "Equity at Signal": equity_at_signal,
+            "Equity at Signal": current_equity,
             "Risk $": base_risk,
             "Risk bps": risk_bps
         })
@@ -761,7 +751,6 @@ def process_signals_fast(candidates, signal_data, processed_dict, strategies, st
     
     sig_df = pd.DataFrame(results)
     
-    # Ensure datetime columns are proper Timestamps
     sig_df['Date'] = pd.to_datetime(sig_df['Date'])
     sig_df['Entry Date'] = pd.to_datetime(sig_df['Entry Date'])
     sig_df['Exit Date'] = pd.to_datetime(sig_df['Exit Date'])
@@ -769,14 +758,16 @@ def process_signals_fast(candidates, signal_data, processed_dict, strategies, st
     
     return sig_df.sort_values(by="Exit Date")
 
-# -----------------------------------------------------------------------------
-# MARK-TO-MARKET & STATS (unchanged but streamlined)
-# -----------------------------------------------------------------------------
-def get_daily_mtm_series(sig_df, master_dict):
+
+def get_daily_mtm_series(sig_df, master_dict, start_date=None):
     if sig_df.empty:
         return pd.Series(dtype=float)
     
-    min_date = sig_df['Date'].min()
+    if start_date is not None:
+        min_date = pd.Timestamp(start_date)
+    else:
+        min_date = sig_df['Entry Date'].min()
+    
     max_date = max(sig_df['Exit Date'].max(), pd.Timestamp.today())
     all_dates = pd.date_range(start=min_date, end=max_date, freq='B')
     daily_pnl = pd.Series(0.0, index=all_dates)
@@ -785,7 +776,7 @@ def get_daily_mtm_series(sig_df, master_dict):
         ticker = trade['Ticker'].replace('.', '-')
         action = trade['Action']
         shares = trade['Shares']
-        entry_date = trade['Date']
+        entry_date = trade['Entry Date']
         exit_date = trade['Exit Date']
         entry_price = trade['Price']
         
@@ -795,7 +786,6 @@ def get_daily_mtm_series(sig_df, master_dict):
                 daily_pnl[exit_date] += trade['PnL']
             continue
         
-        # Normalize columns
         if isinstance(t_df.columns, pd.MultiIndex):
             t_df.columns = [c[0] if isinstance(c, tuple) else c for c in t_df.columns]
         t_df.columns = [c.capitalize() for c in t_df.columns]
@@ -808,7 +798,6 @@ def get_daily_mtm_series(sig_df, master_dict):
         if closes.empty:
             continue
         
-        # First day PnL
         first_date = trade_dates[0]
         if first_date in closes.index:
             if action == "BUY":
@@ -816,7 +805,6 @@ def get_daily_mtm_series(sig_df, master_dict):
             else:
                 daily_pnl[first_date] += (entry_price - closes[first_date]) * shares
         
-        # Subsequent days
         if len(trade_dates) > 1:
             diffs = closes.diff().dropna()
             if action == "SELL SHORT":
@@ -828,21 +816,17 @@ def get_daily_mtm_series(sig_df, master_dict):
     return daily_pnl
 
 
-def calculate_mark_to_market_curve(sig_df, master_dict, starting_equity):
-    daily_pnl = get_daily_mtm_series(sig_df, master_dict)
+def calculate_mark_to_market_curve(sig_df, master_dict, starting_equity, start_date=None):
+    daily_pnl = get_daily_mtm_series(sig_df, master_dict, start_date)
     if daily_pnl.empty:
         return pd.DataFrame(columns=['Equity'])
     
-    # Add starting equity to the cumulative PnL
     equity_curve = starting_equity + daily_pnl.cumsum()
     
     return equity_curve.to_frame(name='Equity')
 
 
 def calculate_daily_exposure(sig_df, starting_equity=None):
-    """
-    Calculate daily exposure. If starting_equity is provided, returns as % of equity.
-    """
     if sig_df.empty:
         return pd.DataFrame()
     min_date = sig_df['Date'].min()
@@ -859,25 +843,19 @@ def calculate_daily_exposure(sig_df, starting_equity=None):
     exposure_df['Net Exposure'] = exposure_df['Long Exposure'] - exposure_df['Short Exposure']
     exposure_df['Gross Exposure'] = exposure_df['Long Exposure'] + exposure_df['Short Exposure']
     
-    # Convert to percentage of equity if starting_equity provided
     if starting_equity is not None:
-        # Build running equity series based on realized PnL
-        # For simplicity, use starting equity (could enhance to use MTM equity)
         equity_series = pd.Series(starting_equity, index=all_dates)
         
-        # Calculate cumulative realized PnL up to each date
         for date in all_dates:
             closed_trades = sig_df[sig_df['Exit Date'] <= date]
             realized_pnl = closed_trades['PnL'].sum()
             equity_series[date] = starting_equity + realized_pnl
         
-        # Convert to percentages
         exposure_df['Long Exposure %'] = (exposure_df['Long Exposure'] / equity_series) * 100
         exposure_df['Short Exposure %'] = (exposure_df['Short Exposure'] / equity_series) * 100
         exposure_df['Net Exposure %'] = (exposure_df['Net Exposure'] / equity_series) * 100
         exposure_df['Gross Exposure %'] = (exposure_df['Gross Exposure'] / equity_series) * 100
         
-        # Return only percentage columns
         return exposure_df[['Long Exposure %', 'Short Exposure %', 'Net Exposure %', 'Gross Exposure %']]
     
     return exposure_df
@@ -932,7 +910,7 @@ def calculate_annual_stats(daily_pnl_series, starting_equity):
     return pd.DataFrame(yearly_stats)
 
 
-def calculate_performance_stats(sig_df, master_dict, starting_equity):
+def calculate_performance_stats(sig_df, master_dict, starting_equity, start_date=None):
     stats = []
     
     def get_metrics(df, name, calc_ratios=True):
@@ -950,7 +928,7 @@ def calculate_performance_stats(sig_df, master_dict, starting_equity):
         
         sharpe, sortino = np.nan, np.nan
         if calc_ratios:
-            daily_mtm = get_daily_mtm_series(df, master_dict)
+            daily_mtm = get_daily_mtm_series(df, master_dict, start_date)
             if not daily_mtm.empty:
                 equity = starting_equity + daily_mtm.cumsum()
                 rets = equity.pct_change().fillna(0)
@@ -980,28 +958,13 @@ def calculate_performance_stats(sig_df, master_dict, starting_equity):
 
 
 def analyze_signal_density(sig_df, window_days=0):
-    """
-    Analyze performance based on signal clustering/isolation.
-    
-    Args:
-        sig_df: DataFrame of executed trades
-        window_days: Days around signal to count neighbors (0 = same day only)
-    
-    Returns:
-        DataFrame with density analysis by bucket
-    """
     if sig_df.empty:
         return pd.DataFrame(), sig_df
     
     df = sig_df.copy()
-    
-    # Count signals per day
     signal_counts = df.groupby('Date').size().to_dict()
-    
-    # For each trade, get the signal count on that day
     df['Signals Same Day'] = df['Date'].map(signal_counts)
     
-    # If window > 0, count signals in surrounding days too
     if window_days > 0:
         def count_nearby_signals(date):
             nearby = df[(df['Date'] >= date - pd.Timedelta(days=window_days)) & 
@@ -1012,7 +975,6 @@ def analyze_signal_density(sig_df, window_days=0):
     else:
         density_col = 'Signals Same Day'
     
-    # Create density buckets
     def get_density_bucket(count):
         if count == 1:
             return '1 (Isolated)'
@@ -1026,11 +988,8 @@ def analyze_signal_density(sig_df, window_days=0):
             return '11+ (Clustered)'
     
     df['Density Bucket'] = df[density_col].apply(get_density_bucket)
-    
-    # Calculate R-multiple (PnL / Risk)
     df['R-Multiple'] = df['PnL'] / df['Risk $']
     
-    # Aggregate stats by density bucket
     results = []
     bucket_order = ['1 (Isolated)', '2-3 (Low)', '4-6 (Moderate)', '7-10 (High)', '11+ (Clustered)']
     
@@ -1054,7 +1013,6 @@ def analyze_signal_density(sig_df, window_days=0):
         
         pnl_per_risk = total_pnl / total_risk if total_risk > 0 else 0
         
-        # Profit factor
         gross_profit = winners['PnL'].sum() if len(winners) > 0 else 0
         gross_loss = abs(losers['PnL'].sum()) if len(losers) > 0 else 0
         profit_factor = gross_profit / gross_loss if gross_loss > 0 else np.nan
@@ -1077,20 +1035,13 @@ def analyze_signal_density(sig_df, window_days=0):
 
 
 def analyze_density_by_strategy(sig_df):
-    """
-    Break down signal density performance by strategy.
-    """
     if sig_df.empty:
         return pd.DataFrame()
     
     df = sig_df.copy()
-    
-    # Add signal counts
     signal_counts = df.groupby('Date').size().to_dict()
     df['Signals Same Day'] = df['Date'].map(signal_counts)
     df['R-Multiple'] = df['PnL'] / df['Risk $']
-    
-    # Simple split: isolated (1-3) vs clustered (4+)
     df['Is Isolated'] = df['Signals Same Day'] <= 3
     
     results = []
@@ -1107,9 +1058,8 @@ def analyze_density_by_strategy(sig_df):
         iso_wr = (isolated['PnL'] > 0).mean() if len(isolated) > 0 else np.nan
         clu_wr = (clustered['PnL'] > 0).mean() if len(clustered) > 0 else np.nan
         
-        # Calculate the "isolation edge" - how much better are isolated signals?
         if not np.isnan(iso_r) and not np.isnan(clu_r) and clu_r != 0:
-            edge = (iso_r - clu_r) / abs(clu_r) if clu_r != 0 else np.nan
+            edge = (iso_r - clu_r) / abs(clu_r)
         else:
             edge = np.nan
         
@@ -1128,46 +1078,11 @@ def analyze_density_by_strategy(sig_df):
     return pd.DataFrame(results).sort_values('Isolation Edge', ascending=False)
 
 
-def calculate_optimal_density_sizing(sig_df):
-    """
-    Calculate suggested sizing multipliers based on signal density.
-    Returns a dict of density bucket -> multiplier.
-    """
-    density_df, _ = analyze_signal_density(sig_df)
-    
-    if density_df.empty:
-        return {}
-    
-    # Use PnL/$ Risk as the efficiency metric
-    # Normalize so average multiplier = 1.0
-    avg_efficiency = density_df['PnL/$ Risk'].mean()
-    
-    multipliers = {}
-    for _, row in density_df.iterrows():
-        bucket = row['Density']
-        efficiency = row['PnL/$ Risk']
-        
-        if avg_efficiency > 0:
-            raw_mult = efficiency / avg_efficiency
-            # Clamp between 0.5x and 2.0x
-            multipliers[bucket] = max(0.5, min(2.0, raw_mult))
-        else:
-            multipliers[bucket] = 1.0
-    
-    return multipliers
-
-
 def calculate_capital_efficiency(sig_df, strategies):
-    """
-    Calculate capital efficiency metrics for each strategy.
-    Accounts for hold duration to measure time-adjusted returns.
-    """
     if sig_df.empty:
         return pd.DataFrame()
     
-    # Build lookup for strategy settings
     strat_settings = {s['name']: s for s in strategies}
-    
     results = []
     
     for strat_name in sig_df['Strategy'].unique():
@@ -1176,52 +1091,33 @@ def calculate_capital_efficiency(sig_df, strategies):
         if strat_df.empty:
             continue
         
-        # Basic stats
         n_trades = len(strat_df)
         total_pnl = strat_df['PnL'].sum()
         total_risk = strat_df['Risk $'].sum()
         
-        # Win rate and avg win/loss
         winners = strat_df[strat_df['PnL'] > 0]
         losers = strat_df[strat_df['PnL'] <= 0]
         win_rate = len(winners) / n_trades if n_trades > 0 else 0
-        avg_win = winners['PnL'].mean() if len(winners) > 0 else 0
-        avg_loss = abs(losers['PnL'].mean()) if len(losers) > 0 else 0
         
-        # Calculate actual hold duration
         strat_df['Hold Days'] = (strat_df['Exit Date'] - strat_df['Entry Date']).dt.days
         avg_hold_days = strat_df['Hold Days'].mean()
         
-        # Get configured hold days from strategy
-        config_hold_days = strat_settings.get(strat_name, {}).get('execution', {}).get('hold_days', avg_hold_days)
-        
-        # Current risk_bps
         current_bps = strat_settings.get(strat_name, {}).get('execution', {}).get('risk_bps', 0)
         
-        # Core efficiency metrics
         pnl_per_risk = total_pnl / total_risk if total_risk > 0 else 0
-        
-        # Time-adjusted: how much return per dollar risked per day
-        pnl_per_risk_per_day = pnl_per_risk / avg_hold_days if avg_hold_days > 0 else 0
-        
-        # Annualized return on risk (assuming capital can be redeployed)
         capital_turns_per_year = 252 / avg_hold_days if avg_hold_days > 0 else 0
         annualized_ror = pnl_per_risk * capital_turns_per_year
         
-        # Signals per year (approximate)
         date_range = (strat_df['Date'].max() - strat_df['Date'].min()).days
         years = date_range / 365.25 if date_range > 0 else 1
         signals_per_year = n_trades / years if years > 0 else n_trades
         
-        # Risk contribution (% of total risk this strategy consumed)
         total_portfolio_risk = sig_df['Risk $'].sum()
         risk_contribution = total_risk / total_portfolio_risk if total_portfolio_risk > 0 else 0
         
-        # PnL contribution
         total_portfolio_pnl = sig_df['PnL'].sum()
         pnl_contribution = total_pnl / total_portfolio_pnl if total_portfolio_pnl > 0 else 0
         
-        # Efficiency ratio: are you getting your fair share of PnL for the risk taken?
         efficiency_ratio = pnl_contribution / risk_contribution if risk_contribution > 0 else 0
         
         results.append({
@@ -1246,21 +1142,12 @@ def calculate_capital_efficiency(sig_df, strategies):
     if df.empty:
         return df
     
-    # Calculate suggested bps based on annualized RoR
-    # Normalize so total suggested bps equals current total bps
     total_current_bps = df['Current Bps'].sum()
-    
-    # Weight by annualized RoR (higher = more allocation)
     df['RoR Weight'] = df['Ann. RoR'] / df['Ann. RoR'].sum() if df['Ann. RoR'].sum() > 0 else 1 / len(df)
     df['Suggested Bps'] = (df['RoR Weight'] * total_current_bps).round(0).astype(int)
-    
-    # Ensure minimum of 10 bps for any strategy
     df['Suggested Bps'] = df['Suggested Bps'].clip(lower=10)
-    
-    # Calculate the change
     df['Bps Δ'] = df['Suggested Bps'] - df['Current Bps']
     
-    # Sort by annualized RoR descending
     df = df.sort_values('Ann. RoR', ascending=False)
     
     return df
@@ -1290,12 +1177,12 @@ def main():
         st.caption(f"Data buffer: 365 days prior to {user_start_date}.")
         st.markdown("---")
         st.markdown("**🔄 Dynamic Position Sizing**")
-        st.caption("Sizes scale with equity (bps of current value).")
+        st.caption("Sizes scale with MTM equity (bps of current value including unrealized P&L).")
         run_btn = st.form_submit_button("⚡ Run Backtest")
 
     st.title("⚡ Strategy Backtest Lab v3")
     st.markdown(f"**Start:** {user_start_date} | **Equity:** ${starting_equity:,.0f}")
-    st.info("💡 **v3:** Optimized for speed. Position sizes scale dynamically with equity.")
+    st.info("💡 **v3:** Position sizes scale dynamically with real-time MTM equity (realized + unrealized P&L).")
     st.markdown("---")
 
     if run_btn:
@@ -1306,7 +1193,6 @@ def main():
         import copy
         strategies = [copy.deepcopy(s) for s in _STRATEGY_BOOK_RAW]
 
-        # Collect tickers
         long_term_tickers = set()
         for strat in strategies:
             long_term_tickers.update(strat['universe_tickers'])
@@ -1317,7 +1203,7 @@ def main():
                 long_term_tickers.add(s.get('market_ticker', 'SPY'))
             if s.get('use_vix_filter'):
                 long_term_tickers.add('^VIX')
-        long_term_tickers.add('SPY')  # Always need for market filter
+        long_term_tickers.add('SPY')
 
         long_term_list = [t.replace('.', '-') for t in long_term_tickers]
         existing = set(st.session_state['backtest_data'].keys())
@@ -1331,7 +1217,6 @@ def main():
 
         master_dict = st.session_state['backtest_data']
         
-        # VIX series
         vix_df = master_dict.get('^VIX')
         vix_series = None
         if vix_df is not None and not vix_df.empty:
@@ -1340,20 +1225,17 @@ def main():
             vix_df.columns = [c.capitalize() for c in vix_df.columns]
             vix_series = vix_df['Close']
 
-        # PHASE 1: Pre-compute indicators (cached)
         st.write("📊 **Phase 1:** Computing indicators...")
         t0 = time.time()
         processed_dict = precompute_all_indicators(master_dict, strategies, sznl_map, vix_series)
         st.write(f"   Processed {len(processed_dict)} tickers in {time.time()-t0:.1f}s")
 
-        # PHASE 2: Generate candidates
         st.write("🔍 **Phase 2:** Finding signals...")
         t0 = time.time()
         candidates, signal_data = generate_candidates_fast(processed_dict, strategies, sznl_map, user_start_date)
         st.write(f"   Found {len(candidates):,} candidates in {time.time()-t0:.1f}s")
 
-        # PHASE 3: Process chronologically
-        st.write("📈 **Phase 3:** Processing with dynamic sizing...")
+        st.write("📈 **Phase 3:** Processing with dynamic MTM-based sizing...")
         t0 = time.time()
         sig_df = process_signals_fast(candidates, signal_data, processed_dict, strategies, starting_equity)
         st.write(f"   Executed {len(sig_df):,} trades in {time.time()-t0:.1f}s")
@@ -1361,7 +1243,6 @@ def main():
         if not sig_df.empty:
             st.success(f"✅ Backtest complete: {len(sig_df):,} trades")
             
-            # Current positions
             today = pd.Timestamp(datetime.date.today())
             open_mask = sig_df['Time Stop'] >= today
             open_df = sig_df[open_mask].copy()
@@ -1416,17 +1297,17 @@ def main():
 
             st.divider()
             
-            # Position sizing analysis
             st.subheader("📐 Dynamic Sizing Analysis")
-            cols = st.columns(3)
+            cols = st.columns(4)
             cols[0].metric("Avg Risk/Trade", f"${sig_df['Risk $'].mean():,.0f}")
             cols[1].metric("Risk Range", f"${sig_df['Risk $'].min():,.0f} - ${sig_df['Risk $'].max():,.0f}")
             final_eq = starting_equity + sig_df['PnL'].sum()
             cols[2].metric("Final Equity", f"${final_eq:,.0f}", delta=f"{(final_eq/starting_equity-1)*100:.1f}%")
+            equity_growth = sig_df['Equity at Signal'].max() / sig_df['Equity at Signal'].min()
+            cols[3].metric("Peak/Min Equity Ratio", f"{equity_growth:.2f}x", help="Shows how much your sizing scaled")
             
-            # Annual stats
             st.subheader("📅 Annual Performance")
-            port_daily_pnl = get_daily_mtm_series(sig_df, master_dict)
+            port_daily_pnl = get_daily_mtm_series(sig_df, master_dict, start_date=user_start_date)
             annual_df = calculate_annual_stats(port_daily_pnl, starting_equity)
             if not annual_df.empty:
                 st.dataframe(annual_df.style.format({
@@ -1434,22 +1315,17 @@ def main():
                     "Sharpe Ratio": "{:.2f}", "Sortino Ratio": "{:.2f}", "Std Dev": "{:.1%}"
                 }), use_container_width=True)
 
-            # Strategy metrics
             st.subheader("📊 Strategy Metrics")
-            stats_df = calculate_performance_stats(sig_df, master_dict, starting_equity)
+            stats_df = calculate_performance_stats(sig_df, master_dict, starting_equity, start_date=user_start_date)
             st.dataframe(stats_df.style.format({
                 "Total PnL": "${:,.0f}", "Sharpe": "{:.2f}", "Sortino": "{:.2f}",
                 "Profit Factor": "{:.2f}", "SQN": "{:.2f}"
             }), use_container_width=True)
 
-            # Capital Efficiency Analysis
             st.subheader("💰 Capital Efficiency & Sizing Analysis")
-            st.caption("Accounts for hold duration - shorter trades can redeploy capital more often, making them more efficient per unit of time.")
-            
             efficiency_df = calculate_capital_efficiency(sig_df, strategies)
             
             if not efficiency_df.empty:
-                # Summary metrics
                 col1, col2, col3 = st.columns(3)
                 
                 most_efficient = efficiency_df.iloc[0]['Strategy']
@@ -1458,32 +1334,14 @@ def main():
                 
                 under_allocated = efficiency_df[efficiency_df['Efficiency'] > 1.2]
                 over_allocated = efficiency_df[efficiency_df['Efficiency'] < 0.8]
-                col2.metric("Under-allocated", f"{len(under_allocated)} strategies", help="Efficiency > 1.2x: earning more than their share of risk")
-                col3.metric("Over-allocated", f"{len(over_allocated)} strategies", help="Efficiency < 0.8x: earning less than their share of risk")
+                col2.metric("Under-allocated", f"{len(under_allocated)} strategies")
+                col3.metric("Over-allocated", f"{len(over_allocated)} strategies")
                 
-                # Main efficiency table
                 display_cols = ['Strategy', 'Trades', 'Signals/Yr', 'Avg Days', 'Win Rate', 
                                'PnL/$ Risk', 'Ann. RoR', '% of Risk', '% of PnL', 'Efficiency',
                                'Current Bps', 'Suggested Bps', 'Bps Δ']
                 
-                # Color code the efficiency and Bps change
-                def highlight_efficiency(val):
-                    if val > 1.2:
-                        return 'background-color: #1a472a; color: white'  # Dark green - under-allocated
-                    elif val < 0.8:
-                        return 'background-color: #4a1a1a; color: white'  # Dark red - over-allocated
-                    else:
-                        return ''
-                
-                def highlight_bps_change(val):
-                    if val > 10:
-                        return 'background-color: #1a472a; color: white'  # Increase
-                    elif val < -10:
-                        return 'background-color: #4a1a1a; color: white'  # Decrease
-                    else:
-                        return ''
-                
-                styled_df = efficiency_df[display_cols].style.format({
+                st.dataframe(efficiency_df[display_cols].style.format({
                     'Signals/Yr': '{:.1f}',
                     'Avg Days': '{:.1f}',
                     'Win Rate': '{:.1%}',
@@ -1495,135 +1353,14 @@ def main():
                     'Current Bps': '{:.0f}',
                     'Suggested Bps': '{:.0f}',
                     'Bps Δ': '{:+.0f}'
-                }).applymap(highlight_efficiency, subset=['Efficiency']
-                ).applymap(highlight_bps_change, subset=['Bps Δ'])
-                
-                st.dataframe(styled_df, use_container_width=True)
-                
-                # Explanation
-                with st.expander("📖 How to interpret this table"):
-                    st.markdown("""
-                    **Key Columns:**
-                    - **Avg Days**: Average hold duration per trade
-                    - **PnL/$ Risk**: Raw return per dollar risked (ignores time)
-                    - **Ann. RoR**: Annualized Return on Risk = PnL/$ Risk × (252 / Avg Days). This accounts for capital turnover.
-                    - **% of Risk**: What portion of your total risk budget this strategy consumes
-                    - **% of PnL**: What portion of total profits this strategy generates
-                    - **Efficiency**: % of PnL ÷ % of Risk. 
-                        - **> 1.0** = Under-allocated (earning more than its share)
-                        - **< 1.0** = Over-allocated (earning less than its share)
-                    - **Suggested Bps**: Recommended sizing based on Annualized RoR (re-normalizes total bps budget)
-                    - **Bps Δ**: Change from current sizing
-                    
-                    **Strategy:**
-                    - Increase allocation to high Ann. RoR strategies (short hold, good returns)
-                    - Decrease allocation to low Ann. RoR strategies (long hold, mediocre returns)
-                    - Strategies with Efficiency > 1.2x are your workhorses - they're under-sized
-                    - Strategies with Efficiency < 0.8x are dragging on performance - consider reducing
-                    """)
-                
-                # Visual: Ann. RoR bar chart
-                st.markdown("**Annualized Return on Risk by Strategy**")
-                chart_df = efficiency_df[['Strategy', 'Ann. RoR']].set_index('Strategy')
-                st.bar_chart(chart_df)
+                }), use_container_width=True)
 
-            # Signal Density Analysis
-            st.subheader("🎯 Signal Density Analysis")
-            st.caption("Do isolated signals perform better than clustered ones? Should you size up when fewer signals fire?")
-            
-            density_df, sig_df_with_density = analyze_signal_density(sig_df, window_days=0)
-            
-            if not density_df.empty:
-                # Summary insight
-                isolated_row = density_df[density_df['Density'] == '1 (Isolated)']
-                clustered_row = density_df[density_df['Density'] == '11+ (Clustered)']
-                
-                if not isolated_row.empty and not clustered_row.empty:
-                    iso_r = isolated_row['Avg R'].values[0]
-                    clu_r = clustered_row['Avg R'].values[0]
-                    if clu_r != 0:
-                        edge_pct = ((iso_r - clu_r) / abs(clu_r)) * 100
-                        if edge_pct > 0:
-                            st.success(f"✅ Isolated signals outperform clustered by **{edge_pct:.1f}%** on average R-multiple")
-                        else:
-                            st.warning(f"⚠️ Clustered signals actually outperform isolated by **{abs(edge_pct):.1f}%** - sizing up isolated may not help")
-                
-                # Main density table
-                st.markdown("**Performance by Signal Density (Same Day)**")
-                
-                def highlight_avg_r(val):
-                    if val > 0.3:
-                        return 'background-color: #1a472a; color: white'
-                    elif val < 0.1:
-                        return 'background-color: #4a1a1a; color: white'
-                    return ''
-                
-                display_cols = ['Density', 'Trades', '% of Trades', 'Win Rate', 'Avg R', 
-                               'Avg Win R', 'Avg Loss R', 'PnL/$ Risk', 'Profit Factor', 'Total PnL']
-                
-                styled_density = density_df[display_cols].style.format({
-                    '% of Trades': '{:.1%}',
-                    'Win Rate': '{:.1%}',
-                    'Avg R': '{:.2f}',
-                    'Avg Win R': '{:.2f}',
-                    'Avg Loss R': '{:.2f}',
-                    'PnL/$ Risk': '{:.2f}',
-                    'Profit Factor': '{:.2f}',
-                    'Total PnL': '${:,.0f}'
-                }).applymap(highlight_avg_r, subset=['Avg R'])
-                
-                st.dataframe(styled_density, use_container_width=True)
-                
-                # Strategy-level breakdown
-                with st.expander("📊 Density Analysis by Strategy"):
-                    strat_density_df = analyze_density_by_strategy(sig_df)
-                    if not strat_density_df.empty:
-                        st.dataframe(strat_density_df.style.format({
-                            'Isolated Avg R': '{:.2f}',
-                            'Clustered Avg R': '{:.2f}',
-                            'Isolated WR': '{:.1%}',
-                            'Clustered WR': '{:.1%}',
-                            'Isolation Edge': '{:.1%}'
-                        }), use_container_width=True)
-                        
-                        st.markdown("""
-                        **Isolation Edge** = (Isolated Avg R - Clustered Avg R) / |Clustered Avg R|
-                        - Positive = isolated signals are better → size them up
-                        - Negative = clustered signals are better → don't penalize clustering
-                        - **Size Up Isolated?** = Yes if edge > 15%
-                        """)
-                
-                # Suggested multipliers
-                with st.expander("🔧 Suggested Density-Based Sizing Multipliers"):
-                    multipliers = calculate_optimal_density_sizing(sig_df)
-                    
-                    if multipliers:
-                        mult_df = pd.DataFrame([
-                            {'Density': k, 'Multiplier': v, 'Effect': f"{v:.2f}x base risk"}
-                            for k, v in multipliers.items()
-                        ])
-                        st.dataframe(mult_df, use_container_width=True)
-                        
-                        st.markdown("""
-                        **How to use:**
-                        - When signal fires, count how many other signals are firing that day
-                        - Look up the multiplier for that density bucket
-                        - Multiply your base `risk_bps` by the multiplier
-                        
-                        **Example:** If "1 (Isolated)" has 1.5x multiplier and base risk is 30 bps,
-                        use 45 bps when only 1 signal fires that day.
-                        """)
-                        
-                        st.info("💡 To implement this, you'd add logic in `process_signals_fast` to count same-day signals and adjust `base_risk` accordingly.")
-
-            # Charts
             st.divider()
             col1, col2 = st.columns(2)
             
             with col1:
-                st.subheader("📈 Portfolio PnL (MTM) - Log Scale")
-                # NEW LINE:
-                df_eq = calculate_mark_to_market_curve(sig_df, master_dict, starting_equity)
+                st.subheader("📈 Portfolio Equity (MTM) - Log Scale")
+                df_eq = calculate_mark_to_market_curve(sig_df, master_dict, starting_equity, start_date=user_start_date)
                 
                 if not df_eq.empty:
                     fig = go.Figure()
@@ -1635,12 +1372,18 @@ def main():
                         line=dict(color='#00FF00', width=2)
                     ))
                     
-                    # Update layout for Log Scale
+                    # Add starting equity reference line
+                    fig.add_hline(y=starting_equity, line_dash="dash", line_color="gray", 
+                                  annotation_text=f"Start: ${starting_equity:,.0f}")
+                    
                     fig.update_layout(
                         height=400,
                         margin=dict(l=10, r=10, t=30, b=10),
-                        yaxis_type="log",  # <--- LOG SCALE ENABLED HERE
-                        yaxis_title="Equity ($)"
+                        yaxis_type="log",
+                        yaxis_title="Equity ($)",
+                        yaxis=dict(
+                            tickformat="$,.0f",
+                        )
                     )
                     st.plotly_chart(fig, use_container_width=True)
                 else:
@@ -1648,17 +1391,13 @@ def main():
             
             with col2:
                 st.subheader("📉 PnL by Strategy (Interactive)")
-                # Pivot and fill NaN with 0 for cumulative sum
                 strat_pnl = sig_df.pivot_table(index='Exit Date', columns='Strategy', values='PnL', aggfunc='sum')
                 
                 if not strat_pnl.empty:
-                    # Fill NaN with 0 so cumsum works, but we ideally reindex to daily for smoother charts
-                    # For simplicity, we stick to Exit Date logic but cumsum fills gaps
                     strat_pnl_cum = strat_pnl.fillna(0).cumsum()
                     
                     fig_strat = go.Figure()
                     
-                    # Add a trace for each strategy
                     for column in strat_pnl_cum.columns:
                         fig_strat.add_trace(go.Scatter(
                             x=strat_pnl_cum.index,
@@ -1683,20 +1422,17 @@ def main():
                 else:
                     st.info("No strategy data available.")
 
-            # Exposure
             st.subheader("⚖️ Exposure Over Time (% of Equity)")
             exposure_df = calculate_daily_exposure(sig_df, starting_equity=starting_equity)
             if not exposure_df.empty:
                 st.line_chart(exposure_df)
                 
-                # Summary stats
                 col1, col2, col3, col4 = st.columns(4)
                 col1.metric("Avg Gross Exposure", f"{exposure_df['Gross Exposure %'].mean():.1f}%")
                 col2.metric("Max Gross Exposure", f"{exposure_df['Gross Exposure %'].max():.1f}%")
                 col3.metric("Avg Net Exposure", f"{exposure_df['Net Exposure %'].mean():.1f}%")
                 col4.metric("Max Net Exposure", f"{exposure_df['Net Exposure %'].max():.1f}%")
 
-            # Trade log
             st.subheader("📜 Trade Log")
             display_cols = ["Date", "Entry Date", "Exit Date", "Strategy", "Ticker", "Action",
                           "Price", "Shares", "PnL", "Equity at Signal", "Risk $"]
