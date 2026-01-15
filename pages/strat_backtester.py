@@ -8,6 +8,7 @@ from pandas.tseries.offsets import BusinessDay
 import plotly.graph_objects as go
 import sys
 import os
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # -----------------------------------------------------------------------------
 # IMPORT STRATEGY BOOK FROM ROOT
@@ -130,31 +131,40 @@ def calculate_indicators(df, sznl_map, ticker, market_series=None, vix_series=No
         df.index = df.index.tz_localize(None)
     df.index = df.index.normalize()
     
-    df['SMA10'] = df['Close'].rolling(10).mean()
-    df['SMA20'] = df['Close'].rolling(20).mean()
-    df['SMA50'] = df['Close'].rolling(50).mean()
-    df['SMA100'] = df['Close'].rolling(100).mean()
-    df['SMA200'] = df['Close'].rolling(200).mean()
+    # Pre-extract numpy arrays for speed
+    close = df['Close'].values
+    high = df['High'].values
+    low = df['Low'].values
+    open_prices = df['Open'].values
+    volume = df['Volume'].values
+    
+    # Vectorized SMA calculations
+    close_series = df['Close']
+    for window in [10, 20, 50, 100, 200]:
+        df[f'SMA{window}'] = close_series.rolling(window).mean()
     
     if custom_sma_lengths:
         for length in custom_sma_lengths:
             col_name = f"SMA{length}"
             if col_name not in df.columns:
-                df[col_name] = df['Close'].rolling(length).mean()
+                df[col_name] = close_series.rolling(length).mean()
 
-    df['EMA8'] = df['Close'].ewm(span=8, adjust=False).mean()
-    df['EMA11'] = df['Close'].ewm(span=11, adjust=False).mean()
-    df['EMA21'] = df['Close'].ewm(span=21, adjust=False).mean()
+    df['EMA8'] = close_series.ewm(span=8, adjust=False).mean()
+    df['EMA11'] = close_series.ewm(span=11, adjust=False).mean()
+    df['EMA21'] = close_series.ewm(span=21, adjust=False).mean()
     
     for window in [5, 10, 21]:
-        df[f'ret_{window}d'] = df['Close'].pct_change(window)
+        df[f'ret_{window}d'] = close_series.pct_change(window)
         df[f'rank_ret_{window}d'] = df[f'ret_{window}d'].expanding(min_periods=252).rank(pct=True) * 100.0
     
-    high_low = df['High'] - df['Low']
-    high_close = np.abs(df['High'] - df['Close'].shift())
-    low_close = np.abs(df['Low'] - df['Close'].shift())
-    ranges = pd.concat([high_low, high_close, low_close], axis=1)
-    df['ATR'] = ranges.max(axis=1).rolling(14).mean()
+    # ATR calculation - vectorized
+    high_low = high - low
+    high_close = np.abs(high - np.roll(close, 1))
+    low_close = np.abs(low - np.roll(close, 1))
+    high_close[0] = high_low[0]
+    low_close[0] = high_low[0]
+    true_range = np.maximum(np.maximum(high_low, high_close), low_close)
+    df['ATR'] = pd.Series(true_range, index=df.index).rolling(14).mean()
     df['ATR_Pct'] = (df['ATR'] / df['Close']) * 100
     
     df['Sznl'] = get_sznl_val_series(ticker, df.index, sznl_map)
@@ -173,10 +183,11 @@ def calculate_indicators(df, sznl_map, ticker, market_series=None, vix_series=No
     df['vol_ratio_10d'] = vol_ma_10 / vol_ma
     df['vol_ratio_10d_rank'] = df['vol_ratio_10d'].expanding(min_periods=252).rank(pct=True) * 100.0
     
-    vol_gt_prev = df['Volume'] > df['Volume'].shift(1)
-    vol_gt_ma = df['Volume'] > df['vol_ma']
-    is_green = df['Close'] > df['Open']
-    is_red = df['Close'] < df['Open']
+    # Vectorized accumulation/distribution day calculation
+    vol_gt_prev = volume > np.roll(volume, 1)
+    vol_gt_ma = df['Volume'].values > vol_ma.values
+    is_green = close > open_prices
+    is_red = close < open_prices
 
     df['is_acc_day'] = (is_green & vol_gt_prev & vol_gt_ma).astype(int)
     df['is_dist_day'] = (is_red & vol_gt_prev & vol_gt_ma).astype(int)
@@ -200,8 +211,9 @@ def calculate_indicators(df, sznl_map, ticker, market_series=None, vix_series=No
     else:
         df['VIX_Value'] = 0.0
 
-    denom = (df['High'] - df['Low'])
-    df['RangePct'] = np.where(denom == 0, 0.5, (df['Close'] - df['Low']) / denom)
+    # Vectorized RangePct
+    denom = high - low
+    df['RangePct'] = np.where(denom == 0, 0.5, (close - low) / denom)
 
     df['DayOfWeekVal'] = df.index.dayofweek
     is_open_gap = (df['Low'] > df['High'].shift(1)).astype(int)
@@ -225,162 +237,232 @@ def calculate_indicators(df, sznl_map, ticker, market_series=None, vix_series=No
 
 
 def get_historical_mask(df, params, sznl_map, ticker_name="UNK"):
-    mask = pd.Series(True, index=df.index)
+    """Optimized mask generation - builds conditions list and combines once."""
+    n = len(df)
+    conditions = []
     
+    # Trend filter
     trend_opt = params.get('trend_filter', 'None')
     if trend_opt == "Price > 200 SMA":
-        mask &= (df['Close'] > df['SMA200'])
+        conditions.append(df['Close'].values > df['SMA200'].values)
     elif trend_opt == "Price > Rising 200 SMA":
-        mask &= (df['Close'] > df['SMA200']) & (df['SMA200'] > df['SMA200'].shift(1))
+        sma200 = df['SMA200'].values
+        conditions.append((df['Close'].values > sma200) & (sma200 > np.roll(sma200, 1)))
     elif trend_opt == "Not Below Declining 200 SMA":
-        mask &= ~((df['Close'] < df['SMA200']) & (df['SMA200'] < df['SMA200'].shift(1)))
+        sma200 = df['SMA200'].values
+        conditions.append(~((df['Close'].values < sma200) & (sma200 < np.roll(sma200, 1))))
     elif trend_opt == "Price < 200 SMA":
-        mask &= (df['Close'] < df['SMA200'])
+        conditions.append(df['Close'].values < df['SMA200'].values)
     elif trend_opt == "Price < Falling 200 SMA":
-        mask &= (df['Close'] < df['SMA200']) & (df['SMA200'] < df['SMA200'].shift(1))
+        sma200 = df['SMA200'].values
+        conditions.append((df['Close'].values < sma200) & (sma200 < np.roll(sma200, 1)))
     elif "Market" in trend_opt and 'Market_Above_SMA200' in df.columns:
-        if trend_opt == "Market > 200 SMA": mask &= df['Market_Above_SMA200']
-        elif trend_opt == "Market < 200 SMA": mask &= ~df['Market_Above_SMA200']
+        if trend_opt == "Market > 200 SMA":
+            conditions.append(df['Market_Above_SMA200'].values)
+        elif trend_opt == "Market < 200 SMA":
+            conditions.append(~df['Market_Above_SMA200'].values)
 
-    mask &= (df['Close'] >= params.get('min_price', 0))
-    mask &= (df['vol_ma'] >= params.get('min_vol', 0))
-    mask &= (df['age_years'] >= params.get('min_age', 0))
-    mask &= (df['age_years'] <= params.get('max_age', 100))
+    # Price/volume/age filters
+    conditions.append(df['Close'].values >= params.get('min_price', 0))
+    conditions.append(df['vol_ma'].values >= params.get('min_vol', 0))
+    conditions.append(df['age_years'].values >= params.get('min_age', 0))
+    conditions.append(df['age_years'].values <= params.get('max_age', 100))
     
     if 'ATR_Pct' in df.columns:
-        mask &= (df['ATR_Pct'] >= params.get('min_atr_pct', 0)) & (df['ATR_Pct'] <= params.get('max_atr_pct', 1000))
+        atr_pct = df['ATR_Pct'].values
+        conditions.append((atr_pct >= params.get('min_atr_pct', 0)) & (atr_pct <= params.get('max_atr_pct', 1000)))
         
     if params.get('require_close_gt_open', False):
-        mask &= (df['Close'] > df['Open'])
+        conditions.append(df['Close'].values > df['Open'].values)
 
+    # Breakout mode
     bk_mode = params.get('breakout_mode', 'None')
     if bk_mode == "Close > Prev Day High":
-        mask &= (df['Close'] > df['PrevHigh'])
+        conditions.append(df['Close'].values > df['PrevHigh'].values)
     elif bk_mode == "Close < Prev Day Low":
-        mask &= (df['Close'] < df['PrevLow'])
+        conditions.append(df['Close'].values < df['PrevLow'].values)
 
+    # Range filter
     if params.get('use_range_filter', False):
-        rn_val = df['RangePct'] * 100
-        mask &= (rn_val >= params.get('range_min', 0)) & (rn_val <= params.get('range_max', 100))
+        rn_val = df['RangePct'].values * 100
+        conditions.append((rn_val >= params.get('range_min', 0)) & (rn_val <= params.get('range_max', 100)))
 
+    # Day of week filter
     if params.get('use_dow_filter', False):
         allowed = params.get('allowed_days', [])
         if allowed:
-            mask &= df['DayOfWeekVal'].isin(allowed)
+            conditions.append(np.isin(df['DayOfWeekVal'].values, allowed))
 
+    # Presidential cycle filter
     if 'allowed_cycles' in params:
         allowed = params['allowed_cycles']
         if allowed and len(allowed) < 4:
             year_rems = df.index.year % 4
-            mask &= pd.Series(year_rems, index=df.index).isin(allowed)
+            conditions.append(np.isin(year_rems, allowed))
 
+    # Gap filter
     if params.get('use_gap_filter', False):
-        g_val = df['GapCount']
+        g_val = df['GapCount'].values
         g_thresh = params.get('gap_thresh', 0)
         g_logic = params.get('gap_logic', '>')
-        if g_logic == ">": mask &= (g_val > g_thresh)
-        elif g_logic == "<": mask &= (g_val < g_thresh)
-        elif g_logic == "=": mask &= (g_val == g_thresh)
+        if g_logic == ">":
+            conditions.append(g_val > g_thresh)
+        elif g_logic == "<":
+            conditions.append(g_val < g_thresh)
+        elif g_logic == "=":
+            conditions.append(g_val == g_thresh)
 
+    # Accumulation count filter
     if params.get('use_acc_count_filter', False):
         col = f"AccCount_{params['acc_count_window']}"
         if col in df.columns:
-            if params['acc_count_logic'] == ">": mask &= (df[col] > params['acc_count_thresh'])
-            elif params['acc_count_logic'] == "<": mask &= (df[col] < params['acc_count_thresh'])
-            elif params['acc_count_logic'] == "=": mask &= (df[col] == params['acc_count_thresh'])
+            col_vals = df[col].values
+            if params['acc_count_logic'] == ">":
+                conditions.append(col_vals > params['acc_count_thresh'])
+            elif params['acc_count_logic'] == "<":
+                conditions.append(col_vals < params['acc_count_thresh'])
+            elif params['acc_count_logic'] == "=":
+                conditions.append(col_vals == params['acc_count_thresh'])
 
+    # Distribution count filter
     if params.get('use_dist_count_filter', False):
         col = f"DistCount_{params['dist_count_window']}"
         if col in df.columns:
-            if params['dist_count_logic'] == ">": mask &= (df[col] > params['dist_count_thresh'])
-            elif params['dist_count_logic'] == "<": mask &= (df[col] < params['dist_count_thresh'])
-            elif params['dist_count_logic'] == "=": mask &= (df[col] == params['dist_count_thresh'])
+            col_vals = df[col].values
+            if params['dist_count_logic'] == ">":
+                conditions.append(col_vals > params['dist_count_thresh'])
+            elif params['dist_count_logic'] == "<":
+                conditions.append(col_vals < params['dist_count_thresh'])
+            elif params['dist_count_logic'] == "=":
+                conditions.append(col_vals == params['dist_count_thresh'])
 
+    # Performance filters (legacy list-based)
     for pf in params.get('perf_filters', []):
         col = f"rank_ret_{pf['window']}d"
-        cond = (df[col] < pf['thresh']) if pf['logic'] == '<' else (df[col] > pf['thresh'])
-        if pf['consecutive'] > 1: cond = cond.rolling(pf['consecutive']).sum() == pf['consecutive']
-        mask &= cond
+        col_vals = df[col].values
+        if pf['logic'] == '<':
+            cond = col_vals < pf['thresh']
+        else:
+            cond = col_vals > pf['thresh']
+        if pf['consecutive'] > 1:
+            cond = pd.Series(cond).rolling(pf['consecutive']).sum().values == pf['consecutive']
+        conditions.append(cond)
 
+    # Performance rank filter
     if params.get('use_perf_rank', False):
         col = f"rank_ret_{params['perf_window']}d"
-        if params['perf_logic'] == '<': 
-            raw = df[col] < params['perf_thresh']
-        else: 
-            raw = df[col] > params['perf_thresh']
+        col_vals = df[col].values
+        if params['perf_logic'] == '<':
+            raw = col_vals < params['perf_thresh']
+        else:
+            raw = col_vals > params['perf_thresh']
         
         consec = params.get('perf_consecutive', 1)
-        if consec > 1: 
-            persist = (raw.rolling(consec).sum() == consec)
-        else: 
+        if consec > 1:
+            persist = pd.Series(raw).rolling(consec).sum().values == consec
+        else:
             persist = raw
-        
-        mask &= persist
         
         if params.get('perf_first_instance', False):
             lookback = params.get('perf_lookback', 21)
-            prev_inst = mask.shift(1).rolling(lookback).sum()
-            mask &= (prev_inst == 0)
+            persist_series = pd.Series(persist, index=df.index)
+            prev_inst = persist_series.shift(1).rolling(lookback).sum()
+            persist = persist & (prev_inst.values == 0)
+        
+        conditions.append(persist)
 
+    # MA consecutive filters
     for f in params.get('ma_consec_filters', []):
         col = f"SMA{f['length']}"
         if col in df.columns:
-            cond = (df['Close'] > df[col]) if f['logic'] == 'Above' else (df['Close'] < df[col])
-            if f['consec'] > 1: cond = cond.rolling(f['consec']).sum() == f['consec']
-            mask &= cond
+            if f['logic'] == 'Above':
+                cond = df['Close'].values > df[col].values
+            else:
+                cond = df['Close'].values < df[col].values
+            if f['consec'] > 1:
+                cond = pd.Series(cond).rolling(f['consec']).sum().values == f['consec']
+            conditions.append(cond)
 
+    # Seasonal filter
     if params.get('use_sznl', False):
-        cond_s = (df['Sznl'] < params['sznl_thresh']) if params['sznl_logic'] == '<' else (df['Sznl'] > params['sznl_thresh'])
+        sznl_vals = df['Sznl'].values
+        if params['sznl_logic'] == '<':
+            cond_s = sznl_vals < params['sznl_thresh']
+        else:
+            cond_s = sznl_vals > params['sznl_thresh']
+        
         if params.get('sznl_first_instance', False):
             lookback = params.get('sznl_lookback', 21)
-            prev = cond_s.shift(1).rolling(lookback).max().fillna(0)
-            cond_s &= (prev == 0)
-        mask &= cond_s
+            cond_series = pd.Series(cond_s, index=df.index)
+            prev = cond_series.shift(1).rolling(lookback).max().fillna(0)
+            cond_s = cond_s & (prev.values == 0)
+        conditions.append(cond_s)
 
+    # Market seasonal filter
     if params.get('use_market_sznl', False):
-        cond_ms = (df['Mkt_Sznl_Ref'] < params['market_sznl_thresh']) if params['market_sznl_logic'] == '<' else (df['Mkt_Sznl_Ref'] > params['market_sznl_thresh'])
-        mask &= cond_ms
+        mkt_sznl = df['Mkt_Sznl_Ref'].values
+        if params['market_sznl_logic'] == '<':
+            conditions.append(mkt_sznl < params['market_sznl_thresh'])
+        else:
+            conditions.append(mkt_sznl > params['market_sznl_thresh'])
 
+    # 52-week high/low filter
     if params.get('use_52w', False):
-        cond_52 = df['is_52w_high'] if params['52w_type'] == 'New 52w High' else df['is_52w_low']
+        if params['52w_type'] == 'New 52w High':
+            cond_52 = df['is_52w_high'].values.copy()
+        else:
+            cond_52 = df['is_52w_low'].values.copy()
         
         if params.get('52w_lag', 0) > 0:
-            cond_52 = cond_52.shift(params['52w_lag']).fillna(False)
+            cond_52 = np.roll(cond_52, params['52w_lag'])
+            cond_52[:params['52w_lag']] = False
 
         if params.get('52w_first_instance', False):
             lookback = params.get('52w_lookback', 21)
-            prev = cond_52.shift(1).rolling(lookback).max().fillna(0)
-            cond_52 &= (prev == 0)
+            cond_series = pd.Series(cond_52, index=df.index)
+            prev = cond_series.shift(1).rolling(lookback).max().fillna(0)
+            cond_52 = cond_52 & (prev.values == 0)
         
-        mask &= cond_52
+        conditions.append(cond_52)
 
+    # Exclude 52w high
     if params.get('exclude_52w_high', False):
-        mask &= (~df['is_52w_high'])
+        conditions.append(~df['is_52w_high'].values)
 
+    # Volume filters
     if params.get('vol_gt_prev', False):
-        mask &= (df['Volume'] > df['Volume'].shift(1))
+        conditions.append(df['Volume'].values > np.roll(df['Volume'].values, 1))
     
     if params.get('use_vol', False):
-        mask &= (df['vol_ratio'] > params['vol_thresh'])
+        conditions.append(df['vol_ratio'].values > params['vol_thresh'])
 
     if params.get('use_vol_rank', False):
-        col = 'vol_ratio_10d_rank'
-        if params['vol_rank_logic'] == ">": mask &= (df[col] > params['vol_rank_thresh'])
-        elif params['vol_rank_logic'] == "<": mask &= (df[col] < params['vol_rank_thresh'])
+        col_vals = df['vol_ratio_10d_rank'].values
+        if params['vol_rank_logic'] == ">":
+            conditions.append(col_vals > params['vol_rank_thresh'])
+        elif params['vol_rank_logic'] == "<":
+            conditions.append(col_vals < params['vol_rank_thresh'])
 
+    # MA distance filter
     if params.get('use_ma_dist_filter', False):
         ma_col_map = {"SMA 10": "SMA10", "SMA 20": "SMA20", "SMA 50": "SMA50", "SMA 100": "SMA100", "SMA 200": "SMA200", 
                       "EMA 8": "EMA8", "EMA 11": "EMA11", "EMA 21": "EMA21"}
         ma_target = ma_col_map.get(params['dist_ma_type'])
         if ma_target and ma_target in df.columns:
-            dist_val = (df['Close'] - df[ma_target]) / df['ATR']
-            if params['dist_logic'] == "Greater Than (>)": mask &= (dist_val > params['dist_min'])
-            elif params['dist_logic'] == "Less Than (<)": mask &= (dist_val < params['dist_max'])
-            elif params['dist_logic'] == "Between": mask &= (dist_val >= params['dist_min']) & (dist_val <= params['dist_max'])
+            dist_val = (df['Close'].values - df[ma_target].values) / df['ATR'].values
+            if params['dist_logic'] == "Greater Than (>)":
+                conditions.append(dist_val > params['dist_min'])
+            elif params['dist_logic'] == "Less Than (<)":
+                conditions.append(dist_val < params['dist_max'])
+            elif params['dist_logic'] == "Between":
+                conditions.append((dist_val >= params['dist_min']) & (dist_val <= params['dist_max']))
 
+    # VIX filter
     if params.get('use_vix_filter', False) and 'VIX_Value' in df.columns:
-        mask &= (df['VIX_Value'] >= params.get('vix_min', 0)) & (df['VIX_Value'] <= params.get('vix_max', 100))
+        vix_vals = df['VIX_Value'].values
+        conditions.append((vix_vals >= params.get('vix_min', 0)) & (vix_vals <= params.get('vix_max', 100)))
 
+    # MA touch filter
     if params.get('use_ma_touch', False):
         ma_col_map = {"SMA 10": "SMA10", "SMA 20": "SMA20", "SMA 50": "SMA50", "SMA 100": "SMA100", "SMA 200": "SMA200", 
                       "EMA 8": "EMA8", "EMA 11": "EMA11", "EMA 21": "EMA21"}
@@ -388,31 +470,47 @@ def get_historical_mask(df, params, sznl_map, ticker_name="UNK"):
         
         if ma_target and ma_target in df.columns:
             ma_series = df[ma_target]
+            ma_vals = ma_series.values
             direction = params.get('trade_direction', 'Long')
             slope_lookback = params.get('ma_slope_days', 20)
             untested_lookback = params.get('ma_untested_days', 50)
 
-            if direction == 'Long': is_slope_ok = (ma_series > ma_series.shift(1))
-            else: is_slope_ok = (ma_series < ma_series.shift(1))
+            if direction == 'Long':
+                is_slope_ok = ma_vals > np.roll(ma_vals, 1)
+            else:
+                is_slope_ok = ma_vals < np.roll(ma_vals, 1)
             
             if slope_lookback > 1:
-                is_slope_ok = (is_slope_ok.rolling(slope_lookback).sum() == slope_lookback)
+                is_slope_ok = pd.Series(is_slope_ok).rolling(slope_lookback).sum().values == slope_lookback
             
             if untested_lookback > 0:
                 if direction == 'Long':
-                    was_untested = (df['Low'] > ma_series).shift(1).rolling(untested_lookback).min() == 1.0
+                    was_untested = (df['Low'] > ma_series).shift(1).rolling(untested_lookback).min().values == 1.0
                 else:
-                    was_untested = (df['High'] < ma_series).shift(1).rolling(untested_lookback).min() == 1.0
-                was_untested = was_untested.fillna(False)
+                    was_untested = (df['High'] < ma_series).shift(1).rolling(untested_lookback).min().values == 1.0
+                was_untested = np.nan_to_num(was_untested, nan=False).astype(bool)
             else:
-                was_untested = True
+                was_untested = np.ones(n, dtype=bool)
 
-            if direction == 'Long': touched_today = (df['Low'] <= ma_series)
-            else: touched_today = (df['High'] >= ma_series)
+            if direction == 'Long':
+                touched_today = df['Low'].values <= ma_vals
+            else:
+                touched_today = df['High'].values >= ma_vals
 
-            mask &= (is_slope_ok & was_untested & touched_today)
+            conditions.append(is_slope_ok & was_untested & touched_today)
 
-    return mask.fillna(False)
+    # Combine all conditions
+    if conditions:
+        # Handle NaN values in conditions
+        combined = np.ones(n, dtype=bool)
+        for cond in conditions:
+            cond_arr = np.asarray(cond)
+            # Replace NaN with False
+            cond_arr = np.where(np.isnan(cond_arr.astype(float)), False, cond_arr)
+            combined = combined & cond_arr.astype(bool)
+        return pd.Series(combined, index=df.index)
+    else:
+        return pd.Series(True, index=df.index)
 
 
 @st.cache_data(show_spinner=False)
@@ -447,6 +545,7 @@ def precompute_all_indicators(_master_dict, _strategies, _sznl_map, _vix_series)
                 if dist_win: ticker_params[t_clean]['dist'] = dist_win
                 ticker_params[t_clean]['mas'].update(req_custom_mas)
     
+    # Process tickers (can be parallelized if needed)
     for t_clean, params in ticker_params.items():
         df = _master_dict.get(t_clean)
         if df is None or len(df) < 200:
@@ -517,14 +616,41 @@ def generate_candidates_fast(processed_dict, strategies, sznl_map, user_start_da
     return candidates, signal_data
 
 
+def build_price_matrix(processed_dict, tickers):
+    """Build a unified price matrix for fast lookups."""
+    all_dates = set()
+    for t in tickers:
+        df = processed_dict.get(t)
+        if df is not None:
+            all_dates.update(df.index)
+    
+    if not all_dates:
+        return pd.DataFrame()
+    
+    all_dates = sorted(all_dates)
+    price_data = {}
+    
+    for t in tickers:
+        df = processed_dict.get(t)
+        if df is not None:
+            price_data[t] = df['Close'].reindex(all_dates, method='ffill')
+    
+    return pd.DataFrame(price_data, index=all_dates)
+
+
 def process_signals_fast(candidates, signal_data, processed_dict, strategies, starting_equity):
     """
     Process candidates chronologically with dynamic sizing based on REAL-TIME MTM equity.
+    Optimized version using price matrix for faster lookups.
     """
     if not candidates:
         return pd.DataFrame()
     
     candidates.sort(key=lambda x: x[0])
+    
+    # Build price matrix for all relevant tickers
+    all_tickers = set(c[2] for c in candidates)
+    price_matrix = build_price_matrix(processed_dict, all_tickers)
     
     # Track open positions for MTM
     open_positions = []
@@ -625,15 +751,17 @@ def process_signals_fast(candidates, signal_data, processed_dict, strategies, st
         if not valid_entry or entry_price is None or pd.isna(entry_price):
             continue
         
-        # --- CALCULATE REAL-TIME MTM EQUITY ---
+        # --- CALCULATE REAL-TIME MTM EQUITY (optimized) ---
         still_open = []
         for pos in open_positions:
-            pos_df = processed_dict.get(pos['t_clean'])
-            if pos_df is None:
-                continue
-            
             if signal_date >= pos['exit_date']:
-                exit_price = pos_df.iloc[pos['exit_idx']]['Close']
+                # Position has closed - realize P&L
+                if pos['t_clean'] in price_matrix.columns:
+                    exit_price = price_matrix.loc[pos['exit_date'], pos['t_clean']] if pos['exit_date'] in price_matrix.index else pos['entry_price']
+                else:
+                    pos_df = processed_dict.get(pos['t_clean'])
+                    exit_price = pos_df.iloc[pos['exit_idx']]['Close'] if pos_df is not None else pos['entry_price']
+                
                 if pos['direction'] == 'Long':
                     realized_pnl += (exit_price - pos['entry_price']) * pos['shares']
                 else:
@@ -643,17 +771,23 @@ def process_signals_fast(candidates, signal_data, processed_dict, strategies, st
         
         open_positions = still_open
         
+        # Calculate unrealized P&L using price matrix
         unrealized_pnl = 0.0
         for pos in open_positions:
-            pos_df = processed_dict.get(pos['t_clean'])
-            if pos_df is None:
-                continue
+            if pos['t_clean'] in price_matrix.columns and signal_date in price_matrix.index:
+                current_price = price_matrix.loc[signal_date, pos['t_clean']]
+            else:
+                pos_df = processed_dict.get(pos['t_clean'])
+                if pos_df is None:
+                    continue
+                price_slice = pos_df[pos_df.index <= signal_date]
+                if price_slice.empty:
+                    continue
+                current_price = price_slice.iloc[-1]['Close']
             
-            price_slice = pos_df[pos_df.index <= signal_date]
-            if price_slice.empty:
+            if pd.isna(current_price):
                 continue
-            current_price = price_slice.iloc[-1]['Close']
-            
+                
             if pos['direction'] == 'Long':
                 unrealized_pnl += (current_price - pos['entry_price']) * pos['shares']
             else:
@@ -760,6 +894,7 @@ def process_signals_fast(candidates, signal_data, processed_dict, strategies, st
 
 
 def get_daily_mtm_series(sig_df, master_dict, start_date=None):
+    """Optimized daily MTM calculation using vectorized operations."""
     if sig_df.empty:
         return pd.Series(dtype=float)
     
@@ -772,45 +907,57 @@ def get_daily_mtm_series(sig_df, master_dict, start_date=None):
     all_dates = pd.date_range(start=min_date, end=max_date, freq='B')
     daily_pnl = pd.Series(0.0, index=all_dates)
     
-    for _, trade in sig_df.iterrows():
-        ticker = trade['Ticker'].replace('.', '-')
-        action = trade['Action']
-        shares = trade['Shares']
-        entry_date = trade['Entry Date']
-        exit_date = trade['Exit Date']
-        entry_price = trade['Price']
+    # Pre-process price data
+    price_cache = {}
+    for ticker in sig_df['Ticker'].unique():
+        t_clean = ticker.replace('.', '-')
+        t_df = master_dict.get(t_clean)
+        if t_df is not None and not t_df.empty:
+            temp_df = t_df.copy()
+            if isinstance(temp_df.columns, pd.MultiIndex):
+                temp_df.columns = [c[0] if isinstance(c, tuple) else c for c in temp_df.columns]
+            temp_df.columns = [c.capitalize() for c in temp_df.columns]
+            price_cache[ticker] = temp_df['Close'].reindex(all_dates, method='ffill')
+    
+    # Process trades using itertuples (faster than iterrows)
+    for trade in sig_df.itertuples():
+        ticker = trade.Ticker
+        action = trade.Action
+        shares = trade.Shares
+        entry_date = trade._3  # Entry Date
+        exit_date = trade._4   # Exit Date  
+        entry_price = trade.Price
         
-        t_df = master_dict.get(ticker)
-        if t_df is None or t_df.empty:
+        if ticker not in price_cache:
             if exit_date in daily_pnl.index:
-                daily_pnl[exit_date] += trade['PnL']
+                daily_pnl[exit_date] += trade.PnL
             continue
         
-        if isinstance(t_df.columns, pd.MultiIndex):
-            t_df.columns = [c[0] if isinstance(c, tuple) else c for c in t_df.columns]
-        t_df.columns = [c.capitalize() for c in t_df.columns]
-        
+        closes = price_cache[ticker]
         trade_dates = all_dates[(all_dates >= entry_date) & (all_dates <= exit_date)]
+        
         if len(trade_dates) == 0:
             continue
-            
-        closes = t_df['Close'].reindex(trade_dates).ffill()
-        if closes.empty:
+        
+        trade_closes = closes.loc[trade_dates]
+        if trade_closes.empty:
             continue
         
+        # First day P&L
         first_date = trade_dates[0]
-        if first_date in closes.index:
+        if first_date in trade_closes.index and not pd.isna(trade_closes[first_date]):
             if action == "BUY":
-                daily_pnl[first_date] += (closes[first_date] - entry_price) * shares
+                daily_pnl[first_date] += (trade_closes[first_date] - entry_price) * shares
             else:
-                daily_pnl[first_date] += (entry_price - closes[first_date]) * shares
+                daily_pnl[first_date] += (entry_price - trade_closes[first_date]) * shares
         
+        # Subsequent days - daily changes
         if len(trade_dates) > 1:
-            diffs = closes.diff().dropna()
+            diffs = trade_closes.diff().dropna()
             if action == "SELL SHORT":
                 diffs = -diffs
             for d, val in (diffs * shares).items():
-                if d in daily_pnl.index:
+                if d in daily_pnl.index and not pd.isna(val):
                     daily_pnl[d] += val
     
     return daily_pnl
@@ -834,10 +981,10 @@ def calculate_daily_exposure(sig_df, starting_equity=None):
     all_dates = pd.date_range(start=min_date, end=max_date)
     exposure_df = pd.DataFrame(0.0, index=all_dates, columns=['Long Exposure', 'Short Exposure'])
     
-    for _, row in sig_df.iterrows():
-        trade_dates = pd.date_range(start=row['Date'], end=row['Exit Date'])
-        dollar_val = row['Price'] * row['Shares']
-        col = 'Long Exposure' if row['Action'] == 'BUY' else 'Short Exposure'
+    for row in sig_df.itertuples():
+        trade_dates = pd.date_range(start=row.Date, end=row._4)  # Exit Date
+        dollar_val = row.Price * row.Shares
+        col = 'Long Exposure' if row.Action == 'BUY' else 'Short Exposure'
         exposure_df.loc[exposure_df.index.isin(trade_dates), col] += dollar_val
     
     exposure_df['Net Exposure'] = exposure_df['Long Exposure'] - exposure_df['Short Exposure']
@@ -911,9 +1058,10 @@ def calculate_annual_stats(daily_pnl_series, starting_equity):
 
 
 def calculate_performance_stats(sig_df, master_dict, starting_equity, start_date=None):
+    """Calculate performance stats - removed Sharpe/Sortino from per-strategy breakdown."""
     stats = []
     
-    def get_metrics(df, name, calc_ratios=True):
+    def get_metrics(df, name):
         if df.empty:
             return None
         
@@ -926,31 +1074,17 @@ def calculate_performance_stats(sig_df, master_dict, starting_equity, start_date
         std_pnl = df['PnL'].std()
         sqn = (avg_pnl / std_pnl * np.sqrt(count)) if std_pnl != 0 else 0
         
-        sharpe, sortino = np.nan, np.nan
-        if calc_ratios:
-            daily_mtm = get_daily_mtm_series(df, master_dict, start_date)
-            if not daily_mtm.empty:
-                equity = starting_equity + daily_mtm.cumsum()
-                rets = equity.pct_change().fillna(0)
-                mean_ret = rets.mean() * 252
-                std_dev = rets.std() * np.sqrt(252)
-                sharpe = mean_ret / std_dev if std_dev != 0 else 0
-                neg = rets[rets < 0]
-                down_std = np.sqrt((neg**2).mean()) * np.sqrt(252) if len(neg) > 0 else 0
-                sortino = mean_ret / down_std if down_std != 0 else 0
-        
         return {
             "Strategy": name, "Trades": count, "Total PnL": total_pnl,
-            "Sharpe": sharpe, "Sortino": sortino,
             "Profit Factor": profit_factor, "SQN": sqn
         }
     
     for strat in sig_df['Strategy'].unique():
-        m = get_metrics(sig_df[sig_df['Strategy'] == strat], strat, calc_ratios=False)
+        m = get_metrics(sig_df[sig_df['Strategy'] == strat], strat)
         if m:
             stats.append(m)
     
-    total_m = get_metrics(sig_df, "TOTAL PORTFOLIO", calc_ratios=True)
+    total_m = get_metrics(sig_df, "TOTAL PORTFOLIO")
     if total_m:
         stats.append(total_m)
     
@@ -1249,24 +1383,24 @@ def main():
 
             if not open_df.empty:
                 current_prices, open_pnls, current_values = [], [], []
-                for _, row in open_df.iterrows():
-                    t_df = master_dict.get(row['Ticker'].replace('.', '-'))
+                for row in open_df.itertuples():
+                    t_df = master_dict.get(row.Ticker.replace('.', '-'))
                     if t_df is not None and not t_df.empty:
                         if isinstance(t_df.columns, pd.MultiIndex):
                             t_df.columns = [c[0] if isinstance(c, tuple) else c for c in t_df.columns]
                         t_df.columns = [c.capitalize() for c in t_df.columns]
                         last_close = t_df['Close'].iloc[-1]
                     else:
-                        last_close = row['Price']
+                        last_close = row.Price
                     
-                    if row['Action'] == 'BUY':
-                        pnl = (last_close - row['Price']) * row['Shares']
+                    if row.Action == 'BUY':
+                        pnl = (last_close - row.Price) * row.Shares
                     else:
-                        pnl = (row['Price'] - last_close) * row['Shares']
+                        pnl = (row.Price - last_close) * row.Shares
                     
                     current_prices.append(last_close)
                     open_pnls.append(pnl)
-                    current_values.append(last_close * row['Shares'])
+                    current_values.append(last_close * row.Shares)
 
                 open_df['Current Price'] = current_prices
                 open_df['Open PnL'] = open_pnls
@@ -1318,7 +1452,7 @@ def main():
             st.subheader("📊 Strategy Metrics")
             stats_df = calculate_performance_stats(sig_df, master_dict, starting_equity, start_date=user_start_date)
             st.dataframe(stats_df.style.format({
-                "Total PnL": "${:,.0f}", "Sharpe": "{:.2f}", "Sortino": "{:.2f}",
+                "Total PnL": "${:,.0f}",
                 "Profit Factor": "{:.2f}", "SQN": "{:.2f}"
             }), use_container_width=True)
 
@@ -1425,7 +1559,44 @@ def main():
             st.subheader("⚖️ Exposure Over Time (% of Equity)")
             exposure_df = calculate_daily_exposure(sig_df, starting_equity=starting_equity)
             if not exposure_df.empty:
-                st.line_chart(exposure_df)
+                # Interactive Plotly chart for exposure
+                fig_exposure = go.Figure()
+                
+                colors = {
+                    'Long Exposure %': '#00CC00',      # Green
+                    'Short Exposure %': '#CC0000',     # Red
+                    'Net Exposure %': '#0066CC',       # Blue
+                    'Gross Exposure %': '#FF9900'      # Orange
+                }
+                
+                for col in exposure_df.columns:
+                    fig_exposure.add_trace(go.Scatter(
+                        x=exposure_df.index,
+                        y=exposure_df[col],
+                        mode='lines',
+                        name=col,
+                        line=dict(color=colors.get(col, '#888888'), width=1.5),
+                        hovertemplate=f'{col}: %{{y:.1f}}%<extra></extra>'
+                    ))
+                
+                fig_exposure.add_hline(y=0, line_dash="dot", line_color="gray", line_width=1)
+                
+                fig_exposure.update_layout(
+                    height=400,
+                    margin=dict(l=10, r=10, t=30, b=10),
+                    hovermode="x unified",
+                    yaxis_title="Exposure (%)",
+                    xaxis_title="Date",
+                    legend=dict(
+                        orientation="h",
+                        yanchor="bottom",
+                        y=1.02,
+                        xanchor="right",
+                        x=1
+                    )
+                )
+                
+                st.plotly_chart(fig_exposure, use_container_width=True)
                 
                 col1, col2, col3, col4 = st.columns(4)
                 col1.metric("Avg Gross Exposure", f"{exposure_df['Gross Exposure %'].mean():.1f}%")
