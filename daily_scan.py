@@ -760,20 +760,36 @@ def run_daily_scan():
                     # ---------------------------------------------------------
                     # 2. DYNAMIC RISK SIZING LOGIC (Synced)
                     # ---------------------------------------------------------
-                    risk = strat['execution']['risk_per_trade']
-                    
+                    base_risk = strat['execution']['risk_per_trade']
+                    risk = base_risk 
+
                     if strat['name'] == "Overbot Vol Spike":
-                        # CHECK FOR FRIDAY (Day 4)
-                        # If Signal is on Friday (for Monday entry), size to 2x
+                        # --- A. NEW: Momentum Rank Sizing ---
+                        # Logic: 1.5x if > 95%, 1.15x if > 90%
+                        r5 = last_row.get('rank_ret_5d', 0)
+                        r10 = last_row.get('rank_ret_10d', 0)
+
+                        if r5 > 95 and r10 > 95:
+                            risk = base_risk * 1.5
+                        elif r5 > 90 and r10 > 90:
+                            risk = base_risk * 1.15
+                        elif r5 < 85 and r10 < 85:
+                            risk = base_risk * 0.75
+                        
+                        
+                        # --- B. Existing Logic (Friday & Vol) ---
                         if last_row.name.dayofweek == 4:
-                             risk = risk * 2.0
+                            # Friday Override: Always 2.0x (Highest Conviction)
+                            risk = base_risk * 1.5
                         else:
-                            # Fallback to Vol Ratio logic if NOT Friday
+                            # If NOT Friday, check Vol Ratio
+                            # We use max() to ensure we don't accidentally downgrade 
+                            # a 1.5x Rank signal to a lower Vol signal.
                             vol_ratio = last_row.get('vol_ratio', 0)
+                            
                             if vol_ratio > 2.0:
-                                risk = risk * 1.15  # High conviction
-                            elif vol_ratio > 1.5:
-                                risk = risk   # Medium conviction
+                                # Ensure we are at least 1.15x
+                                risk = max(risk, base_risk * 1.15)
                     
                     if strat['name'] == "Weak Close Decent Sznls":
                         sznl_val = last_row.get('Sznl', 0)
