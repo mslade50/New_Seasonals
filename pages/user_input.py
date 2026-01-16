@@ -162,7 +162,6 @@ def recent_performance_analysis(df, cycle_label, cycle_start_mapping):
 # -----------------------------------------------------------------------------
 # MAIN LOGIC
 # -----------------------------------------------------------------------------
-
 def seasonals_chart(ticker, cycle_label, enable_time_travel, reference_year, show_all_years_line):
     # 
     cycle_start_mapping = {
@@ -223,17 +222,35 @@ def seasonals_chart(ticker, cycle_label, enable_time_travel, reference_year, sho
             path_ref_realized = df_ref_year["log_return"].cumsum().apply(np.exp) - 1
 
     # -------------------------------------------------------------------------
+    # DATE MAPPING LOGIC (New Feature)
+    # -------------------------------------------------------------------------
+    # Determine which year we are mapping dates to
+    map_year = reference_year if enable_time_travel else current_year
+    
+    # Create a theoretical business day calendar for the whole year
+    # This maps Day Index (1, 2, 3) -> "Jan 02", "Jan 03", etc.
+    theoretical_dates = pd.bdate_range(start=f"{map_year}-01-01", end=f"{map_year}-12-31")
+    date_map = {i+1: d.strftime("%b %d") for i, d in enumerate(theoretical_dates)}
+
+    # Helper function to get date strings for a specific series index
+    def get_date_labels(series_index):
+        return [date_map.get(i, f"Day {i}") for i in series_index]
+
+    # -------------------------------------------------------------------------
     # PLOTTING
     # -------------------------------------------------------------------------
     fig = go.Figure()
 
     # A. Current Cycle Model (Orange)
+    # INJECT CUSTOM DATA FOR TOOLTIP
     fig.add_trace(go.Scatter(
         x=path_current_avg.index,
         y=path_current_avg.values,
         mode="lines",
         name=f"Current Model ({cycle_label})",
-        line=dict(color="#FF8C00", width=3) 
+        line=dict(color="#FF8C00", width=3),
+        customdata=get_date_labels(path_current_avg.index),
+        hovertemplate="<b>%{customdata}</b><br>Day: %{x}<br>Return: %{y:.2%}<extra></extra>"
     ))
 
     # B. Current All Years Model (Light Blue - Optional)
@@ -243,7 +260,9 @@ def seasonals_chart(ticker, cycle_label, enable_time_travel, reference_year, sho
             y=path_current_all_years.values,
             mode="lines",
             name="Current Model (All Years)",
-            line=dict(color="lightblue", width=1, dash='dot')
+            line=dict(color="lightblue", width=1, dash='dot'),
+            customdata=get_date_labels(path_current_all_years.index),
+            hovertemplate="<b>%{customdata}</b><br>Day: %{x}<br>Return: %{y:.2%}<extra></extra>"
         ))
 
     # C. Historical Model (Gold Dashed - Time Travel)
@@ -253,27 +272,39 @@ def seasonals_chart(ticker, cycle_label, enable_time_travel, reference_year, sho
             y=path_historical_avg.values,
             mode="lines",
             name=f"Model in {reference_year} (Pre-{reference_year} Data)",
-            line=dict(color="#FCD12A", width=2, dash='dash')
+            line=dict(color="#FCD12A", width=2, dash='dash'),
+            customdata=get_date_labels(path_historical_avg.index),
+            hovertemplate="<b>%{customdata}</b><br>Day: %{x}<br>Return: %{y:.2%}<extra></extra>"
         ))
 
     # D. Current Realized (Green)
     if not path_current_realized.empty:
+        # For realized data, we can just use the actual index dates if we wanted, 
+        # but to keep x-axis aligned as integers, we generate labels similarly
+        realized_dates = [d.strftime("%b %d") for d in df_current_year.index]
+        
         fig.add_trace(go.Scatter(
             x=np.arange(1, len(path_current_realized) + 1),
             y=path_current_realized.values,
             mode="lines",
             name=f"{current_year} Realized (YTD)",
-            line=dict(color="#39FF14", width=2)
+            line=dict(color="#39FF14", width=2),
+            customdata=realized_dates,
+            hovertemplate="<b>%{customdata}</b><br>Day: %{x}<br>Return: %{y:.2%}<extra></extra>"
         ))
 
     # E. Historical Realized (Cyan - Time Travel)
     if enable_time_travel and not path_ref_realized.empty:
+        realized_dates_ref = [d.strftime("%b %d") for d in df_ref_year.index]
+        
         fig.add_trace(go.Scatter(
             x=np.arange(1, len(path_ref_realized) + 1),
             y=path_ref_realized.values,
             mode="lines",
             name=f"{reference_year} Realized",
-            line=dict(color="#00FFFF", width=2)
+            line=dict(color="#00FFFF", width=2),
+            customdata=realized_dates_ref,
+            hovertemplate="<b>%{customdata}</b><br>Day: %{x}<br>Return: %{y:.2%}<extra></extra>"
         ))
 
     # -------------------------------------------------------------------------
@@ -315,7 +346,8 @@ def seasonals_chart(ticker, cycle_label, enable_time_travel, reference_year, sho
                 mode="markers",
                 name=f"Current Date ({target_date_start.strftime('%b %d')})",
                 marker=dict(color=marker_color, size=8, line=dict(width=1, color="black")),
-                showlegend=False
+                showlegend=False,
+                hoverinfo="skip" # Already in title
             ))
 
             future_dates = pd.bdate_range(start=target_date_start, periods=30)
@@ -333,6 +365,7 @@ def seasonals_chart(ticker, cycle_label, enable_time_travel, reference_year, sho
                         mode="markers",
                         name=f"T+{offset} ({d_label})", 
                         marker=dict(color=marker_color, size=5, symbol="diamond"),
+                        hovertemplate=f"<b>{d_label}</b><br>T+{offset}<extra></extra>"
                     ))
 
         # --- PLOT MARKERS ON 'ALL YEARS' LINE (If Visible) ---
@@ -345,7 +378,7 @@ def seasonals_chart(ticker, cycle_label, enable_time_travel, reference_year, sho
                     y=[y_val_all],
                     mode="markers",
                     marker=dict(color="white", size=5, line=dict(width=1, color="white")),
-                    showlegend=False, # Hidden from legend as requested
+                    showlegend=False,
                     hoverinfo="skip"
                 ))
 
@@ -380,7 +413,9 @@ def seasonals_chart(ticker, cycle_label, enable_time_travel, reference_year, sho
             y=0.99,
             xanchor="left",
             x=0.01
-        )
+        ),
+        # Ensure hovermode works nicely with multiple lines
+        hovermode="x unified"
     )
     fig.update_xaxes(showgrid=False)
     fig.update_yaxes(showgrid=False)
@@ -388,7 +423,7 @@ def seasonals_chart(ticker, cycle_label, enable_time_travel, reference_year, sho
     st.plotly_chart(fig, use_container_width=True)
 
     # -------------------------------------------------------------------------
-    # DETAILED HISTORY TABLE
+    # DETAILED HISTORY TABLE (Existing code continues...)
     # -------------------------------------------------------------------------
     st.divider()
     
