@@ -3,7 +3,7 @@ name: Daily Strategy Scan
 on:
   schedule:
     # Runs at 19:00, 20:00, 21:00 UTC (Covers 2pm-5pm EST/EDT)
-    - cron: '0 19,20,21,22,23 * * 1-5'
+    - cron: '13 19,20,21,22,23 * * 1-5'
   # Allows you to run it manually from the "Actions" tab for testing
   workflow_dispatch:
 
