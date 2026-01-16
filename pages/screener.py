@@ -1089,12 +1089,15 @@ def main():
     st.markdown("---")
     st.subheader("🕵️‍♀️ Historical Strategy Inspector (Last 21 Days)")
     
-    c1, c2 = st.columns([1, 2])
+    c1, c2, c3 = st.columns([1, 2, 1]) # Added a 3rd column
     with c1:
         insp_ticker = st.text_input("Inspector Ticker:", value="AMD").upper().strip()
     with c2:
         strat_map_ui = {s['name']: s for s in STRATEGY_BOOK}
         selected_strat_name = st.selectbox("Select Strategy to Audit:", list(strat_map_ui.keys()))
+    with c3:
+        # Dynamic input for days
+        audit_lookback = st.number_input("Audit Lookback (Days)", min_value=5, max_value=252, value=30, step=5)
         
     if st.button("Run Historical Audit"):
         target_strat = strat_map_ui[selected_strat_name]
@@ -1156,9 +1159,11 @@ def main():
                 st.stop()
             
             audit_rows = []
-            days_to_audit = 21 
+            # Use the variable from the UI input, ensuring we don't exceed dataframe length
+            days_to_audit = min(len(calc_df), audit_lookback) 
             
-            if len(calc_df) > days_to_audit:
+            # Update the range logic
+            if len(calc_df) > 0:
                 subset_indices = range(len(calc_df) - days_to_audit, len(calc_df))
                 for idx in subset_indices:
                     slice_df = calc_df.iloc[:idx+1] 
