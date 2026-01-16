@@ -146,7 +146,7 @@ def calculate_indicators(df, sznl_map, ticker, market_series=None, vix_series=No
     df['EMA8'] = df['Close'].ewm(span=8, adjust=False).mean()
     df['EMA11'] = df['Close'].ewm(span=11, adjust=False).mean()
     df['EMA21'] = df['Close'].ewm(span=21, adjust=False).mean()
-    for window in [5, 10, 21]:
+    for window in [2, 5, 10, 21]:
         df[f'ret_{window}d'] = df['Close'].pct_change(window)
         df[f'rank_ret_{window}d'] = df[f'ret_{window}d'].expanding(min_periods=252).rank(pct=True) * 100.0
     high_low = df['High'] - df['Low']
@@ -866,7 +866,26 @@ def main():
         col_p_config, col_p_seq = st.columns([3, 1])
         perf_filters = []
         with col_p_config:
-            c5d, c10d, c21d = st.columns(3)
+            c2d, c5d, c10d, c21d = st.columns(4)
+            
+            # --- 2 DAY WINDOW ---
+            with c2d:
+                use_2d = st.checkbox("Enable 2D Rank")
+                logic_2d = st.selectbox("Logic", [">", "<", "Between"], key="l2d", disabled=not use_2d)
+                l_2d_txt = "Min %ile" if logic_2d == "Between" else "Threshold"
+                thresh_2d = st.number_input(l_2d_txt, 0.0, 100.0, 85.0, key="t2d", disabled=not use_2d)
+                
+                thresh_2d_max = 100.0
+                if logic_2d == "Between":
+                    thresh_2d_max = st.number_input("Max %ile", 0.0, 100.0, 99.0, key="t2d_max")
+                
+                consec_2d = st.number_input("Consec Days", 1, 10, 1, key="c2d_days", disabled=not use_2d)
+                if use_2d: 
+                    perf_filters.append({
+                        'window': 2, 'logic': logic_2d, 
+                        'thresh': thresh_2d, 'thresh_max': thresh_2d_max, 
+                        'consecutive': consec_2d
+                    })
             
             # --- 5 DAY WINDOW ---
             with c5d:
