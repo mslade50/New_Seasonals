@@ -1419,7 +1419,11 @@ def main():
                 m3.metric("Total Short", f"${total_short:,.0f}")
                 m4.metric("Net Exposure", f"${net_exposure:,.0f}")
                 m5.metric("Total Open PnL", f"${total_open_pnl:,.0f}", delta_color="normal", delta=f"{total_open_pnl:,.0f}")
-                
+                display_cols = [
+                    "Entry Date", "Time Stop", "Strategy", "Ticker", "Action",
+                    "Price", "Current Price", "Shares", "Mkt Value", "PnL", 
+                    "ATR", "Risk $", "Equity at Signal"
+                ]
                 # FIXED FORMATTING: PnL as integer, ATR to 2 decimals, Exit Date without time, Mkt Value as $
                 st.dataframe(open_df.style.format({
                     "Entry Date": "{:%Y-%m-%d}", 
