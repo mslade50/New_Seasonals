@@ -837,9 +837,9 @@ def process_signals_fast(candidates, signal_data, processed_dict, strategies, st
         exit_date = exit_row.name
         
         if action == "BUY":
-            pnl = (exit_price - entry_price) * shares
+            pnl = ((exit_price - entry_price) * shares).round(0)
         else:
-            pnl = (entry_price - exit_price) * shares
+            pnl = ((entry_price - exit_price) * shares).round(0)
         
         target_ts_idx = entry_idx + hold_days
         if target_ts_idx < len(df):
