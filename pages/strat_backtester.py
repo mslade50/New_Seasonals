@@ -1418,12 +1418,24 @@ def main():
                 m2.metric("Total Long", f"${total_long:,.0f}")
                 m3.metric("Total Short", f"${total_short:,.0f}")
                 m4.metric("Net Exposure", f"${net_exposure:,.0f}")
-                m5.metric("Total Open PnL", f"${total_open_pnl:,.2f}", delta_color="normal", delta=f"{total_open_pnl:,.2f}")
+                m5.metric("Total Open PnL", f"${total_open_pnl:,.0f}", delta_color="normal", delta=f"{total_open_pnl:,.0f}")
                 
+                # FIXED FORMATTING: PnL as integer, ATR to 2 decimals, Exit Date without time, Mkt Value as $
                 st.dataframe(open_df.style.format({
-                    "Date": "{:%Y-%m-%d}", "Entry Date": "{:%Y-%m-%d}", "Time Stop": "{:%Y-%m-%d}",
-                    "Price": "${:.2f}", "Current Price": "${:.2f}", "Open PnL": "${:,.2f}",
-                    "Range %": "{:.1f}%", "Equity at Signal": "${:,.0f}", "Risk $": "${:,.0f}"
+                    "Date": "{:%Y-%m-%d}", 
+                    "Entry Date": "{:%Y-%m-%d}", 
+                    "Exit Date": "{:%Y-%m-%d}",
+                    "Time Stop": "{:%Y-%m-%d}", 
+                    "Price": "${:.2f}", 
+                    "Current Price": "${:.2f}", 
+                    "Open PnL": "${:,.0f}",
+                    "PnL": "${:,.0f}",
+                    "ATR": "{:.2f}",
+                    "Range %": "{:.1f}",
+                    "Equity at Signal": "${:,.0f}", 
+                    "Risk $": "${:,.0f}",
+                    "Mkt Value": "${:,.0f}",
+                    "Shares": "{:.0f}"
                 }), use_container_width=True)
             else:
                 st.divider()
@@ -1606,11 +1618,18 @@ def main():
 
             st.subheader("📜 Trade Log")
             display_cols = ["Date", "Entry Date", "Exit Date", "Strategy", "Ticker", "Action",
-                          "Price", "Shares", "PnL", "Equity at Signal", "Risk $"]
+                          "Price", "Shares", "PnL", "ATR", "Equity at Signal", "Risk $"]
+            # FIXED FORMATTING for Trade Log as well
             st.dataframe(sig_df[display_cols].sort_values("Date", ascending=False).style.format({
-                "Price": "${:.2f}", "PnL": "${:,.0f}", "Date": "{:%Y-%m-%d}",
-                "Entry Date": "{:%Y-%m-%d}", "Exit Date": "{:%Y-%m-%d}",
-                "Equity at Signal": "${:,.0f}", "Risk $": "${:,.0f}"
+                "Price": "${:.2f}", 
+                "PnL": "${:,.0f}", 
+                "Date": "{:%Y-%m-%d}",
+                "Entry Date": "{:%Y-%m-%d}", 
+                "Exit Date": "{:%Y-%m-%d}",
+                "ATR": "{:.2f}",
+                "Equity at Signal": "${:,.0f}", 
+                "Risk $": "${:,.0f}",
+                "Shares": "{:.0f}"
             }), use_container_width=True, height=400)
         else:
             st.warning(f"No signals found starting from {user_start_date}.")
