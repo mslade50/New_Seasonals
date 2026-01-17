@@ -762,7 +762,7 @@ _STRATEGY_BOOK_RAW = [
       ],
       "settings": {
         "trade_direction": "Long",
-        "entry_type": "Limit (Open +/- 0.5 ATR) GTC",
+        "entry_type": "Limit (Open +/- 0.5 ATR) (Persistent)",
         "max_one_pos": True,
         "allow_same_day_reentry": False,
         "max_daily_entries": 20,
