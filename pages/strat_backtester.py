@@ -1422,20 +1422,16 @@ def main():
                 
                 # FIXED FORMATTING: PnL as integer, ATR to 2 decimals, Exit Date without time, Mkt Value as $
                 st.dataframe(open_df.style.format({
-                    "Date": "{:%Y-%m-%d}", 
                     "Entry Date": "{:%Y-%m-%d}", 
-                    "Exit Date": "{:%Y-%m-%d}",
                     "Time Stop": "{:%Y-%m-%d}", 
                     "Price": "${:.2f}", 
                     "Current Price": "${:.2f}", 
-                    "Open PnL": "${:,.0f}",
                     "PnL": "${:,.0f}",
                     "ATR": "{:.2f}",
-                    "Range %": "{:.1f}",
-                    "Equity at Signal": "${:,.0f}", 
-                    "Risk $": "${:,.0f}",
                     "Mkt Value": "${:,.0f}",
-                    "Shares": "{:.0f}"
+                    "Shares": "{:.0f}",
+                    "Risk $": "${:,.0f}",
+                    "Equity at Signal": "${:,.0f}", 
                 }), use_container_width=True)
             else:
                 st.divider()
