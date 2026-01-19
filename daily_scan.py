@@ -88,10 +88,23 @@ def send_email_summary(signals_list):
         
         # Build HTML Table
         df = pd.DataFrame(signals_list)
-        cols = ['Strategy_ID', 'Ticker', 'Action', 'Shares', 'Entry', 'Stop', 'Target', 'Time Exit']
+
+        # --- UPDATE START: Format Prices and Add ATR ---
+        cols_to_format = ['Entry', 'Stop', 'Target', 'ATR']
+        for col in cols_to_format:
+            if col in df.columns:
+                # Formats to 2 decimal places, keeping trailing zeros (e.g. 10.50)
+                df[col] = df[col].apply(lambda x: f"{float(x):.2f}")
+
+        # Added 'ATR' to the columns list
+        cols = ['Strategy_ID', 'Ticker', 'Action', 'Shares', 'Entry', 'Stop', 'Target', 'ATR', 'Time Exit']
+        # --- UPDATE END ---
         
         # Style the table
-        table_html = df[cols].to_html(index=False, border=0, justify="left")
+        # We check if columns exist in case a strategy didn't return one of them, though they should be there
+        final_cols = [c for c in cols if c in df.columns]
+        
+        table_html = df[final_cols].to_html(index=False, border=0, justify="left")
         table_html = table_html.replace('class="dataframe"', 'style="border-collapse: collapse; width: 100%; font-family: Arial, sans-serif;"')
         table_html = table_html.replace('<th>', '<th style="background-color: #4CAF50; color: white; padding: 8px; text-align: left;">')
         table_html = table_html.replace('<td>', '<td style="border-bottom: 1px solid #ddd; padding: 8px;">')
