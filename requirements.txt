@@ -1,7 +1,7 @@
 pandas
 numpy
 yfinance
-streamlit
+streamlit>=1.23.0
 plotly
 ta
 requests
