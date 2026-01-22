@@ -4,7 +4,6 @@ yfinance
 streamlit
 plotly
 ta
-altair
 requests
 openpyxl
 yfscreen
