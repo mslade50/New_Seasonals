@@ -263,21 +263,6 @@ def build_strategy_dict(params, tickers_to_run, pf, sqn, win_rate, expectancy_r)
             "min_vol": params.get('min_vol', 100000), "min_age": params.get('min_age', 0.25),
             "max_age": params.get('max_age', 100.0), "min_atr_pct": params.get('min_atr_pct', 0.0),
             "max_atr_pct": params.get('max_atr_pct', 10.0), "entry_conf_bps": params.get('entry_conf_bps', 0),
-            "use_ma_dist_filter": params.get('use_ma_dist_filter', False), "dist_ma_type": params.get('dist_ma_type', 'SMA 10'),
-            "dist_logic": params.get('dist_logic', 'Greater Than (>)'), "dist_min": params.get('dist_min', 0.0),
-            "dist_max": params.get('dist_max', 2.0), "use_gap_filter": params.get('use_gap_filter', False),
-            "gap_lookback": params.get('gap_lookback', 21), "gap_logic": params.get('gap_logic', '>'),
-            "gap_thresh": params.get('gap_thresh', 3), "use_acc_count_filter": params.get('use_acc_count_filter', False),
-            "acc_count_window": params.get('acc_count_window', 21), "acc_count_logic": params.get('acc_count_logic', '='),
-            "acc_count_thresh": params.get('acc_count_thresh', 0), "use_dist_count_filter": params.get('use_dist_count_filter', False),
-            "dist_count_window": params.get('dist_count_window', 21), "dist_count_logic": params.get('dist_count_logic', '>'),
-            "dist_count_thresh": params.get('dist_count_thresh', 0), "require_close_gt_open": params.get('require_close_gt_open', False),
-            "use_range_filter": params.get('use_range_filter', False), "range_min": params.get('range_min', 0),
-            "range_max": params.get('range_max', 100), "use_dow_filter": params.get('use_dow_filter', False),
-            "allowed_days": params.get('allowed_days', [0, 1, 2, 3, 4]), "allowed_cycles": params.get('allowed_cycles', [0, 1, 2, 3]),
-            "use_vix_filter": params.get('use_vix_filter', False), "vix_min": params.get('vix_min', 0.0),
-            "vix_max": params.get('vix_max', 100.0), "use_t1_open_filter": params.get('use_t1_open_filter', False),
-            "t1_open_filters": params.get('t1_open_filters', []),
         },
         "execution": {
             "risk_bps": 35, "slippage_bps": params.get('slippage_bps', 5),
@@ -305,9 +290,8 @@ def run_engine(universe_dict, params, sznl_map, market_series=None, vix_series=N
     is_limit_atr = entry_mode == "Limit (Close -0.5 ATR)"
     is_limit_prev = entry_mode == "Limit (Prev Close)"
     is_limit_open_atr = entry_mode == "Limit (Open +/- 0.5 ATR)"
-    # NEW FLAG ADDED HERE
-    is_limit_open_atr_gtc = entry_mode == "Limit (Open +/- 0.5 ATR) GTC" 
-    
+    is_limit_open_atr_gtc = entry_mode == "Limit (Open +/- 0.5 ATR) GTC"
+    is_day_trade_limit = entry_mode == "Day Trade (Limit Open +/- 0.5 ATR, Exit Close)"
     is_limit_pivot = entry_mode == "Limit (Untested Pivot)"
     is_gap_up = "Gap Up Only" in entry_mode
     is_overnight = "Overnight" in entry_mode
@@ -369,7 +353,6 @@ def run_engine(universe_dict, params, sznl_map, market_series=None, vix_series=N
             
             if params.get('use_range_filter', False): conditions.append((df['RangePct'] * 100 >= params['range_min']) & (df['RangePct'] * 100 <= params['range_max']))
             
-            # --- NEW: Today's Return in ATR Filter ---
             if params.get('use_atr_ret_filter', False):
                 conditions.append((df['Change_in_ATR'] >= params['atr_ret_min']) & (df['Change_in_ATR'] <= params['atr_ret_max']))
             if params.get('use_dow_filter', False): conditions.append(df['DayOfWeekVal'].isin(params['allowed_days']))
@@ -401,21 +384,12 @@ def run_engine(universe_dict, params, sznl_map, market_series=None, vix_series=N
             
             for pf in params.get('perf_filters', []):
                 col = f"rank_ret_{pf['window']}d"
-                
-                if pf['logic'] == '<':
-                    c_f = (df[col] < pf['thresh'])
-                elif pf['logic'] == '>':
-                    c_f = (df[col] > pf['thresh'])
-                elif pf['logic'] == 'Between':
-                    # Logic: Rank >= Min AND Rank <= Max
-                    c_f = (df[col] >= pf['thresh']) & (df[col] <= pf.get('thresh_max', 100.0))
-                else:
-                    continue 
-
-                if pf['consecutive'] > 1: 
-                    c_f = c_f.rolling(pf['consecutive']).sum() == pf['consecutive']
+                if pf['logic'] == '<': c_f = (df[col] < pf['thresh'])
+                elif pf['logic'] == '>': c_f = (df[col] > pf['thresh'])
+                elif pf['logic'] == 'Between': c_f = (df[col] >= pf['thresh']) & (df[col] <= pf.get('thresh_max', 100.0))
+                else: continue 
+                if pf['consecutive'] > 1: c_f = c_f.rolling(pf['consecutive']).sum() == pf['consecutive']
                 conditions.append(c_f)
-            # -----------------------------------------------
                 
             for f in params.get('ma_consec_filters', []):
                 col = f"SMA{f['length']}"
@@ -436,7 +410,6 @@ def run_engine(universe_dict, params, sznl_map, market_series=None, vix_series=N
                 c_52_raw = df['is_52w_high'] if params['52w_type'] == 'New 52w High' else df['is_52w_low']
                 lag_days = params.get('52w_lag', 0)
                 if lag_days > 0: c_52_raw = c_52_raw.shift(lag_days).fillna(False)
-                
                 if params.get('52w_first_instance', False): c_52 = apply_first_instance_filter(c_52_raw, params.get('52w_lookback', 21))
                 else: c_52 = c_52_raw
                 conditions.append(c_52)
@@ -463,14 +436,12 @@ def run_engine(universe_dict, params, sznl_map, market_series=None, vix_series=N
                 vix_val = df['VIX_Value']
                 conditions.append((vix_val >= params['vix_min']) & (vix_val <= params['vix_max']))
                 
-            # T+1 OPEN FILTER
             if use_t1_open_filter and t1_open_filters:
                 for t1_filter in t1_open_filters:
                     ref_col = t1_filter['reference']
                     atr_offset = t1_filter['atr_offset']
                     logic = t1_filter['logic']
                     threshold = df[ref_col] + (atr_offset * df['ATR'])
-                    
                     if logic == '>': t1_cond = df['NextOpen'] > threshold
                     elif logic == '>=': t1_cond = df['NextOpen'] >= threshold
                     elif logic == '<': t1_cond = df['NextOpen'] < threshold
@@ -498,6 +469,7 @@ def run_engine(universe_dict, params, sznl_map, market_series=None, vix_series=N
                 
                 found_entry, actual_entry_idx, actual_entry_price = False, -1, 0.0
                 
+                # ========== ENTRY LOGIC SECTION ==========
                 if is_overnight:
                     found_entry, actual_entry_idx, actual_entry_price = True, sig_idx, df['Close'].iloc[sig_idx]
                 elif is_intraday:
@@ -554,46 +526,35 @@ def run_engine(universe_dict, params, sznl_map, market_series=None, vix_series=N
                         limit_price = (day_open - (sig_atr * 0.5)) if direction == 'Long' else (day_open + (sig_atr * 0.5))
                         if direction == 'Long' and day_low <= limit_price: found_entry, actual_entry_idx, actual_entry_price = True, next_idx, limit_price
                         elif direction == 'Short' and day_high >= limit_price: found_entry, actual_entry_idx, actual_entry_price = True, next_idx, limit_price
-                        
-                # --- NEW LOGIC FOR GTC OPEN +/- 0.5 ATR ---
                 elif is_limit_open_atr_gtc:
-                    # Calculate limit price based on T+1 Open
                     next_idx = sig_idx + 1
                     if next_idx < len(df):
                         sig_atr = df['ATR'].iloc[sig_idx]
-                        # For the limit calculation, we assume the order is placed relative to T+1 open
-                        # If you want it relative to T+0 Close, change df['Open'].iloc[next_idx] to df['Close'].iloc[sig_idx]
                         base_price = df['Open'].iloc[next_idx]
                         limit_price = (base_price - (sig_atr * 0.5)) if direction == 'Long' else (base_price + (sig_atr * 0.5))
-                        
-                        # Loop through days to see if it gets filled (GTC)
-                        # We start checking at next_idx (T+1)
                         for wait_i in range(1, params['holding_days'] + 1):
                             curr_idx = sig_idx + wait_i
                             if curr_idx >= len(df): break
-                            
-                            day_low = df['Low'].iloc[curr_idx]
-                            day_high = df['High'].iloc[curr_idx]
-                            day_open = df['Open'].iloc[curr_idx]
-                            
+                            day_low, day_high, day_open = df['Low'].iloc[curr_idx], df['High'].iloc[curr_idx], df['Open'].iloc[curr_idx]
                             filled, fill_px = False, limit_price
                             if direction == 'Long':
-                                # If open is already below limit (gap down), we fill at open
-                                if day_open < limit_price:
-                                    filled, fill_px = True, day_open
-                                # If price traded down to limit
-                                elif day_low <= limit_price: 
-                                    filled, fill_px = True, limit_price
-                            else: # Short
-                                if day_open > limit_price:
-                                    filled, fill_px = True, day_open
-                                elif day_high >= limit_price:
-                                    filled, fill_px = True, limit_price
-                                    
-                            if filled:
-                                found_entry, actual_entry_idx, actual_entry_price = True, curr_idx, fill_px
-                                break
-
+                                if day_open < limit_price: filled, fill_px = True, day_open
+                                elif day_low <= limit_price: filled, fill_px = True, limit_price
+                            else:
+                                if day_open > limit_price: filled, fill_px = True, day_open
+                                elif day_high >= limit_price: filled, fill_px = True, limit_price
+                            if filled: found_entry, actual_entry_idx, actual_entry_price = True, curr_idx, fill_px; break
+                elif is_day_trade_limit:
+                    next_idx = sig_idx + 1
+                    if next_idx < len(df):
+                        sig_atr = df['ATR'].iloc[sig_idx]
+                        day_open = df['Open'].iloc[next_idx]
+                        day_low, day_high = df['Low'].iloc[next_idx], df['High'].iloc[next_idx]
+                        limit_price = (day_open - (sig_atr * 0.5)) if direction == 'Long' else (day_open + (sig_atr * 0.5))
+                        if direction == 'Long' and day_low <= limit_price:
+                            found_entry, actual_entry_idx, actual_entry_price = True, next_idx, limit_price
+                        elif direction == 'Short' and day_high >= limit_price:
+                            found_entry, actual_entry_idx, actual_entry_price = True, next_idx, limit_price
                 elif is_limit_pivot:
                     if 'LastPivotLow' in df.columns and direction == 'Long':
                         limit_price = df['LastPivotLow'].iloc[sig_idx]
@@ -636,22 +597,39 @@ def run_engine(universe_dict, params, sznl_map, market_series=None, vix_series=N
                 atr = df['ATR'].iloc[actual_entry_idx]
                 if np.isnan(atr) or atr == 0: continue
                 
-                if is_overnight or is_intraday:
+                # ========== EXIT LOGIC SECTION ==========
+                if is_overnight:
                     exit_idx = sig_idx + 1
                     if exit_idx >= len(df): continue
                     exit_date = df.index[exit_idx]
-                    exit_price = df['Open'].iloc[exit_idx] if is_overnight else df['Close'].iloc[exit_idx]
+                    exit_price = df['Open'].iloc[exit_idx]
                     exit_type = "Time"
+                elif is_intraday:
+                    exit_idx = actual_entry_idx
+                    exit_date = df.index[exit_idx]
+                    exit_price = df['Close'].iloc[exit_idx]
+                    exit_type = "Time"
+                elif is_day_trade_limit:
+                    exit_idx = actual_entry_idx
+                    exit_date = df.index[exit_idx]
+                    exit_price = df['Close'].iloc[exit_idx]
+                    exit_type = "Time (EOD)"
+                    day_low, day_high = df['Low'].iloc[exit_idx], df['High'].iloc[exit_idx]
+                    stop_price = actual_entry_price - (atr * params['stop_atr']) if direction == 'Long' else actual_entry_price + (atr * params['stop_atr'])
+                    tgt_price = actual_entry_price + (atr * params['tgt_atr']) if direction == 'Long' else actual_entry_price - (atr * params['tgt_atr'])
+                    if direction == 'Long':
+                        if params['use_take_profit'] and day_high >= tgt_price: exit_price, exit_type = tgt_price, "Target"
+                        elif params['use_stop_loss'] and day_low <= stop_price: exit_price, exit_type = stop_price, "Stop"
+                    else:
+                        if params['use_take_profit'] and day_low <= tgt_price: exit_price, exit_type = tgt_price, "Target"
+                        elif params['use_stop_loss'] and day_high >= stop_price: exit_price, exit_type = stop_price, "Stop"
                 else:
                     fixed_exit_idx = min(actual_entry_idx + params['holding_days'], len(df) - 1)
                     future = df.iloc[actual_entry_idx + 1 : fixed_exit_idx + 1]
                     if future.empty: continue
-                    
                     stop_price = actual_entry_price - (atr * params['stop_atr']) if direction == 'Long' else actual_entry_price + (atr * params['stop_atr'])
                     tgt_price = actual_entry_price + (atr * params['tgt_atr']) if direction == 'Long' else actual_entry_price - (atr * params['tgt_atr'])
-                    
                     exit_price, exit_type, exit_date = actual_entry_price, "Hold", None
-                    
                     for f_date, f_row in future.iterrows():
                         if direction == 'Long':
                             if params['use_stop_loss'] and f_row['Low'] <= stop_price: exit_price, exit_type, exit_date = stop_price, "Stop", f_date; break
@@ -659,7 +637,6 @@ def run_engine(universe_dict, params, sznl_map, market_series=None, vix_series=N
                         else:
                             if params['use_stop_loss'] and f_row['High'] >= stop_price: exit_price, exit_type, exit_date = stop_price, "Stop", f_date; break
                             if params['use_take_profit'] and f_row['Low'] <= tgt_price: exit_price, exit_type, exit_date = tgt_price, "Target", f_date; break
-                            
                     if exit_type == "Hold": exit_price, exit_date, exit_type = future['Close'].iloc[-1], future.index[-1], "Time"
                     
                 ticker_last_exit = exit_date
@@ -683,7 +660,6 @@ def run_engine(universe_dict, params, sznl_map, market_series=None, vix_series=N
     for _, trade in pot_df.iterrows():
         active_pos = [t for t in active_pos if t['ExitDate'] > trade['EntryDate']]
         today_num = daily_count.get(trade['EntryDate'], 0)
-        
         if len(active_pos) >= max_total or today_num >= max_daily:
             trade_copy = trade.copy()
             trade_copy['Status'], trade_copy['Reason'] = "Portfolio Rejected", "Constraints"
@@ -745,11 +721,12 @@ def main():
         entry_type = st.selectbox("Entry Price", [
             "Signal Close", "T+1 Open", "T+1 Close",
             "Overnight (Buy Close, Sell T+1 Open)", "Intraday (Buy Open, Sell Close)", 
+            "Day Trade (Limit Open +/- 0.5 ATR, Exit Close)",
             "Gap Up Only (Open > Prev High)", 
             "Limit Order -0.5 ATR (Persistent)", "Limit Order -1 ATR (Persistent)", 
             "Limit (Close -0.5 ATR)", "Limit (Prev Close)", 
             "Limit (Open +/- 0.5 ATR)", 
-            "Limit (Open +/- 0.5 ATR) GTC",  # <--- NEW OPTION
+            "Limit (Open +/- 0.5 ATR) GTC",
             "Limit (Untested Pivot)", 
             "Pullback 10 SMA (Entry: Close)", "Pullback 10 SMA (Entry: Level)", 
             "Pullback 21 EMA (Entry: Close)", "Pullback 21 EMA (Entry: Level)", 
@@ -760,7 +737,7 @@ def main():
         use_ma_entry_filter = st.checkbox("Filter: Close > MA - 0.25*ATR", value=False) if "Pullback" in entry_type else False
     with c2: stop_atr = st.number_input("Stop Loss (ATR)", value=3.0, step=0.1, disabled=not use_stop_loss)
     with c3: tgt_atr = st.number_input("Target (ATR)", value=8.0, step=0.1, disabled=not use_take_profit)
-    with c4: hold_days = st.number_input("Max Holding Days", value=10, step=1)
+    with c4: hold_days = st.number_input("Max Holding Days", min_value=1, value=10, step=1)
     with c5: risk_per_trade = st.number_input("Risk Amount ($)", value=1000, step=100)
     st.markdown("---")
     st.subheader("3. Signal Criteria")
@@ -772,9 +749,8 @@ def main():
         with l4: max_age = st.number_input("Max True Age (Yrs)", value=100.0, step=1.0)
         with l5: min_atr_pct = st.number_input("Min ATR %", value=0.2, step=0.1)
         with l6: max_atr_pct = st.number_input("Max ATR %", value=10.0, step=0.1)
-    # T+1 OPEN FILTER SECTION
     with st.expander("T+1 Open Filter (Next Day Open vs Today's OHLC)", expanded=False):
-        st.markdown("**Filter signals based on how the next day opens relative to today's price action.**\n\nExamples:\n- `T+1 Open > Today High + 0.5 ATR` = Gap up beyond today's high\n- `T+1 Open < Today Low - 0 ATR` = Opens below today's low")
+        st.markdown("**Filter signals based on how the next day opens relative to today's price action.**")
         use_t1_open_filter = st.checkbox("Enable T+1 Open Filter", value=False)
         t1_open_filters = []
         if use_t1_open_filter:
@@ -801,11 +777,6 @@ def main():
                 t1_ref_3 = st.selectbox("Today's", ["High", "Low", "Open", "Close"], key="t1_ref_3", index=3, disabled=not use_t1_3)
                 t1_atr_3 = st.number_input("ATR Offset (+/-)", value=0.0, step=0.25, min_value=-5.0, max_value=5.0, key="t1_atr_3", disabled=not use_t1_3)
                 if use_t1_3: t1_open_filters.append({'logic': t1_logic_3, 'reference': t1_ref_3, 'atr_offset': t1_atr_3})
-            if t1_open_filters:
-                st.markdown("---\n**Active T+1 Open Conditions:**")
-                for i, f in enumerate(t1_open_filters, 1):
-                    offset_str = f"+{f['atr_offset']}" if f['atr_offset'] >= 0 else str(f['atr_offset'])
-                    st.write(f"{i}. T+1 Open {f['logic']} Today's {f['reference']} {offset_str} ATR")
     with st.expander("Accumulation/Distribution Counts", expanded=False):
         st.markdown("**Filters are additive (AND logic).**")
         c_acc, c_dist = st.columns(2)
@@ -844,15 +815,12 @@ def main():
             r1, r2 = st.columns(2)
             with r1: range_min = st.number_input("Min % (0=Low)", 0, 100, 0, disabled=not use_range_filter)
             with r2: range_max = st.number_input("Max % (100=High)", 0, 100, 100, disabled=not use_range_filter)
-        
-        # --- NEW: Return in ATR UI ---
         st.markdown("---")
         use_atr_ret_filter = st.checkbox("Filter by Today's Net Change (in ATR units)", value=False)
-        st.caption("Calculates (Close - Prev Close) / ATR. Example: > 1.0 means price closed up more than 1 ATR.")
+        st.caption("Calculates (Close - Prev Close) / ATR.")
         ar1, ar2 = st.columns(2)
         with ar1: atr_ret_min = st.number_input("Min Return (ATR)", -10.0, 10.0, 0.0, step=0.1, disabled=not use_atr_ret_filter)
         with ar2: atr_ret_max = st.number_input("Max Return (ATR)", -10.0, 10.0, 1.0, step=0.1, disabled=not use_atr_ret_filter)
-            
     with st.expander("Time & Cycle Filters", expanded=False):
         t_c1, t_c2 = st.columns(2)
         with t_c1:
@@ -875,92 +843,47 @@ def main():
             allowed_cycles = [cycle_options[x] for x in sel_cycles]
     with st.expander("Trend Filter", expanded=False):
         trend_filter = st.selectbox("Trend Condition", ["None", "Price > 200 SMA", "Not Below Declining 200 SMA", "Price > Rising 200 SMA", "Market > 200 SMA", "Price < 200 SMA", "Price < Falling 200 SMA", "Market < 200 SMA"])
-    # ... inside main() ...
     with st.expander("Performance Percentile Rank", expanded=False):
         col_p_config, col_p_seq = st.columns([3, 1])
         perf_filters = []
         with col_p_config:
             c2d, c5d, c10d, c21d = st.columns(4)
-            
-            # --- 2 DAY WINDOW ---
             with c2d:
                 use_2d = st.checkbox("Enable 2D Rank")
                 logic_2d = st.selectbox("Logic", [">", "<", "Between"], key="l2d", disabled=not use_2d)
                 l_2d_txt = "Min %ile" if logic_2d == "Between" else "Threshold"
                 thresh_2d = st.number_input(l_2d_txt, 0.0, 100.0, 85.0, key="t2d", disabled=not use_2d)
-                
                 thresh_2d_max = 100.0
-                if logic_2d == "Between":
-                    thresh_2d_max = st.number_input("Max %ile", 0.0, 100.0, 99.0, key="t2d_max")
-                
+                if logic_2d == "Between": thresh_2d_max = st.number_input("Max %ile", 0.0, 100.0, 99.0, key="t2d_max")
                 consec_2d = st.number_input("Consec Days", 1, 10, 1, key="c2d_days", disabled=not use_2d)
-                if use_2d: 
-                    perf_filters.append({
-                        'window': 2, 'logic': logic_2d, 
-                        'thresh': thresh_2d, 'thresh_max': thresh_2d_max, 
-                        'consecutive': consec_2d
-                    })
-            
-            # --- 5 DAY WINDOW ---
+                if use_2d: perf_filters.append({'window': 2, 'logic': logic_2d, 'thresh': thresh_2d, 'thresh_max': thresh_2d_max, 'consecutive': consec_2d})
             with c5d:
                 use_5d = st.checkbox("Enable 5D Rank")
-                # Added "Between"
                 logic_5d = st.selectbox("Logic", [">", "<", "Between"], key="l5d", disabled=not use_5d)
-                # Label changes dynamically based on selection
                 l_5d_txt = "Min %ile" if logic_5d == "Between" else "Threshold"
                 thresh_5d = st.number_input(l_5d_txt, 0.0, 100.0, 85.0, key="t5d", disabled=not use_5d)
-                
-                # New Max Input
                 thresh_5d_max = 100.0
-                if logic_5d == "Between":
-                    thresh_5d_max = st.number_input("Max %ile", 0.0, 100.0, 99.0, key="t5d_max")
-                
+                if logic_5d == "Between": thresh_5d_max = st.number_input("Max %ile", 0.0, 100.0, 99.0, key="t5d_max")
                 consec_5d = st.number_input("Consec Days", 1, 10, 1, key="c5d_days", disabled=not use_5d)
-                if use_5d: 
-                    perf_filters.append({
-                        'window': 5, 'logic': logic_5d, 
-                        'thresh': thresh_5d, 'thresh_max': thresh_5d_max, 
-                        'consecutive': consec_5d
-                    })
-
-            # --- 10 DAY WINDOW ---
+                if use_5d: perf_filters.append({'window': 5, 'logic': logic_5d, 'thresh': thresh_5d, 'thresh_max': thresh_5d_max, 'consecutive': consec_5d})
             with c10d:
                 use_10d = st.checkbox("Enable 10D Rank")
                 logic_10d = st.selectbox("Logic", [">", "<", "Between"], key="l10d", disabled=not use_10d)
                 l_10d_txt = "Min %ile" if logic_10d == "Between" else "Threshold"
                 thresh_10d = st.number_input(l_10d_txt, 0.0, 100.0, 85.0, key="t10d", disabled=not use_10d)
-                
                 thresh_10d_max = 100.0
-                if logic_10d == "Between":
-                    thresh_10d_max = st.number_input("Max %ile", 0.0, 100.0, 99.0, key="t10d_max")
-                    
+                if logic_10d == "Between": thresh_10d_max = st.number_input("Max %ile", 0.0, 100.0, 99.0, key="t10d_max")
                 consec_10d = st.number_input("Consec Days", 1, 10, 1, key="c10d_days", disabled=not use_10d)
-                if use_10d: 
-                    perf_filters.append({
-                        'window': 10, 'logic': logic_10d, 
-                        'thresh': thresh_10d, 'thresh_max': thresh_10d_max, 
-                        'consecutive': consec_10d
-                    })
-
-            # --- 21 DAY WINDOW ---
+                if use_10d: perf_filters.append({'window': 10, 'logic': logic_10d, 'thresh': thresh_10d, 'thresh_max': thresh_10d_max, 'consecutive': consec_10d})
             with c21d:
                 use_21d = st.checkbox("Enable 21D Rank")
                 logic_21d = st.selectbox("Logic", [">", "<", "Between"], key="l21d", disabled=not use_21d)
                 l_21d_txt = "Min %ile" if logic_21d == "Between" else "Threshold"
                 thresh_21d = st.number_input(l_21d_txt, 0.0, 100.0, 85.0, key="t21d", disabled=not use_21d)
-                
                 thresh_21d_max = 100.0
-                if logic_21d == "Between":
-                    thresh_21d_max = st.number_input("Max %ile", 0.0, 100.0, 99.0, key="t21d_max")
-                    
+                if logic_21d == "Between": thresh_21d_max = st.number_input("Max %ile", 0.0, 100.0, 99.0, key="t21d_max")
                 consec_21d = st.number_input("Consec Days", 1, 10, 1, key="c21d_days", disabled=not use_21d)
-                if use_21d: 
-                    perf_filters.append({
-                        'window': 21, 'logic': logic_21d, 
-                        'thresh': thresh_21d, 'thresh_max': thresh_21d_max, 
-                        'consecutive': consec_21d
-                    })
-
+                if use_21d: perf_filters.append({'window': 21, 'logic': logic_21d, 'thresh': thresh_21d, 'thresh_max': thresh_21d_max, 'consecutive': consec_21d})
         with col_p_seq:
             perf_first = st.checkbox("First Instance", value=False)
             perf_lookback = st.number_input("Lookback (Days)", 1, 100, 21, disabled=not perf_first)
@@ -1128,15 +1051,12 @@ def main():
         </div>
         """, unsafe_allow_html=True)
         if notes: st.warning("Notes: " + ", ".join(notes))
-        
-        # Strategy Export Section
         if not trades_df.empty:
             strategy_dict = build_strategy_dict(params, tickers_to_run, pf, sqn, win_rate, expectancy_r)
             with st.expander("Export Strategy Configuration", expanded=False):
                 st.markdown("**Copy this dictionary to use in your screener:**")
                 st.code(json.dumps(strategy_dict, indent=2, default=str), language="python")
                 st.download_button("Download Strategy JSON", json.dumps(strategy_dict, indent=2, default=str), file_name="strategy_config.json", mime="application/json")
-        
         if not trades_df.empty:
             fig = px.line(trades_df, x="ExitDate", y="CumPnL", title=f"Actual Portfolio Equity (Risk: ${risk_per_trade}/trade)", markers=True)
             st.plotly_chart(fig, use_container_width=True)
