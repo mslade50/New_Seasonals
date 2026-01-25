@@ -776,33 +776,35 @@ def run_daily_scan():
                     base_risk = strat['execution']['risk_per_trade']
                     risk = base_risk 
 
-                    if strat['name'] == "Overbot Vol Spike":
-                        # --- A. NEW: Momentum Rank Sizing ---
-                        # Logic: 1.5x if > 95%, 1.15x if > 90%
-                        r5 = last_row.get('rank_ret_5d', 0)
-                        r10 = last_row.get('rank_ret_10d', 0)
+                    sizing_note = "Standard (1.0x)" # Default Note
 
+                    if strat['name'] == "Overbot Vol Spike":
+                        total_mult = 1.0
+                        reasons = []
+
+                        # --- A. Momentum Multiplier ---
+                        r5, r10 = last_row.get('rank_ret_5d', 0), last_row.get('rank_ret_10d', 0)
                         if r5 > 95 and r10 > 95:
-                            risk = base_risk * 1.5
+                            total_mult *= 1.5; reasons.append("Mom>95 (1.5x)")
                         elif r5 > 90 and r10 > 90:
-                            risk = base_risk * 1.15
+                            total_mult *= 1.15; reasons.append("Mom>90 (1.15x)")
                         elif r5 < 85 and r10 < 85:
-                            risk = base_risk * 0.75
-                        
-                        
-                        # --- B. Existing Logic (Friday & Vol) ---
+                            total_mult *= 0.75; reasons.append("Weak Mom (0.75x)")
+
+                        # --- B. Day of Week Multiplier ---
                         if last_row.name.dayofweek == 4:
-                            # Friday Override: Always 2.0x (Highest Conviction)
-                            risk = base_risk * 1.5
-                        else:
-                            # If NOT Friday, check Vol Ratio
-                            # We use max() to ensure we don't accidentally downgrade 
-                            # a 1.5x Rank signal to a lower Vol signal.
-                            vol_ratio = last_row.get('vol_ratio', 0)
-                            
-                            if vol_ratio > 2.0:
-                                # Ensure we are at least 1.15x
-                                risk = max(risk, base_risk * 1.15)
+                            total_mult *= 1.25 # Boost for Fridays
+                            reasons.append("Friday (1.25x)")
+
+                        # --- C. Volume Multiplier ---
+                        vol_ratio = last_row.get('vol_ratio', 0)
+                        if vol_ratio > 2.0:
+                            total_mult *= 1.15 # Boost for double volume
+                            reasons.append(f"Vol {vol_ratio:.1f}x (1.15x)")
+
+                        # Apply total multiplier
+                        risk = base_risk * total_mult
+                        sizing_note = " + ".join(reasons) + f" = {total_mult:.2f}x"
                     
                     if strat['name'] == "Weak Close Decent Sznls":
                         sznl_val = last_row.get('Sznl', 0)
@@ -855,6 +857,8 @@ def run_daily_scan():
                         "Date": last_row.name.date(),
                         "Action": action,
                         "Shares": shares,
+                        "Risk_Amt": risk, 
+                        "Sizing_Notes": sizing_note,
                         "Entry": entry,
                         "Stop": stop_price,
                         "Target": tgt_price,
