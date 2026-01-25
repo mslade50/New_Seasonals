@@ -155,6 +155,7 @@ def calculate_indicators(df, sznl_map, ticker, market_series=None, vix_series=No
     ranges = pd.concat([high_low, high_close, low_close], axis=1)
     df['ATR'] = ranges.max(axis=1).rolling(14).mean()
     df['ATR_Pct'] = (df['ATR'] / df['Close']) * 100
+    df['Change_in_ATR'] = (df['Close'] - df['Close'].shift(1)) / df['ATR']
     df['Sznl'] = get_sznl_val_series(ticker, df.index, sznl_map)
     if market_sznl_series is not None:
         df['Market_Sznl'] = market_sznl_series.reindex(df.index, method='ffill').fillna(50.0)
@@ -367,6 +368,10 @@ def run_engine(universe_dict, params, sznl_map, market_series=None, vix_series=N
             elif bk_mode == "Close < Prev Day Low": conditions.append(df['Close'] < df['Low'].shift(1))
             
             if params.get('use_range_filter', False): conditions.append((df['RangePct'] * 100 >= params['range_min']) & (df['RangePct'] * 100 <= params['range_max']))
+            
+            # --- NEW: Today's Return in ATR Filter ---
+            if params.get('use_atr_ret_filter', False):
+                conditions.append((df['Change_in_ATR'] >= params['atr_ret_min']) & (df['Change_in_ATR'] <= params['atr_ret_max']))
             if params.get('use_dow_filter', False): conditions.append(df['DayOfWeekVal'].isin(params['allowed_days']))
             
             if 'allowed_cycles' in params and len(params['allowed_cycles']) < 4:
@@ -835,10 +840,19 @@ def main():
             req_green_candle = st.checkbox("Require Close > Open", value=False)
             breakout_mode = st.selectbox("Close vs Prev Range", ["None", "Close > Prev Day High", "Close < Prev Day Low"])
         with pa2:
-            use_range_filter = st.checkbox("Filter by Range %", value=False)
+            use_range_filter = st.checkbox("Filter by Daily Candle Range %", value=False)
             r1, r2 = st.columns(2)
             with r1: range_min = st.number_input("Min % (0=Low)", 0, 100, 0, disabled=not use_range_filter)
             with r2: range_max = st.number_input("Max % (100=High)", 0, 100, 100, disabled=not use_range_filter)
+        
+        # --- NEW: Return in ATR UI ---
+        st.markdown("---")
+        use_atr_ret_filter = st.checkbox("Filter by Today's Net Change (in ATR units)", value=False)
+        st.caption("Calculates (Close - Prev Close) / ATR. Example: > 1.0 means price closed up more than 1 ATR.")
+        ar1, ar2 = st.columns(2)
+        with ar1: atr_ret_min = st.number_input("Min Return (ATR)", -10.0, 10.0, 0.0, step=0.1, disabled=not use_atr_ret_filter)
+        with ar2: atr_ret_max = st.number_input("Max Return (ATR)", -10.0, 10.0, 1.0, step=0.1, disabled=not use_atr_ret_filter)
+            
     with st.expander("Time & Cycle Filters", expanded=False):
         t_c1, t_c2 = st.columns(2)
         with t_c1:
@@ -1059,6 +1073,7 @@ def main():
             'breakout_mode': breakout_mode, 'use_range_filter': use_range_filter, 'range_min': range_min, 'range_max': range_max, 'use_dow_filter': use_dow_filter, 'allowed_days': valid_days,
             'allowed_cycles': allowed_cycles, 'min_price': min_price, 'min_vol': min_vol, 'min_age': min_age, 'max_age': max_age, 'min_atr_pct': min_atr_pct, 'max_atr_pct': max_atr_pct,
             'trend_filter': trend_filter, 'universe_tickers': tickers_to_run, 'slippage_bps': slippage_bps, 'entry_conf_bps': entry_conf_bps, 'perf_filters': perf_filters, 'perf_first_instance': perf_first,
+            'use_atr_ret_filter': use_atr_ret_filter, 'atr_ret_min': atr_ret_min, 'atr_ret_max': atr_ret_max,
             'perf_lookback': perf_lookback, 'ma_consec_filters': ma_consec_filters, 'use_sznl': use_sznl, 'sznl_logic': sznl_logic, 'sznl_thresh': sznl_thresh, 'sznl_first_instance': sznl_first,
             'sznl_lookback': sznl_lookback, 'use_market_sznl': use_market_sznl, 'market_sznl_logic': market_sznl_logic, 'market_sznl_thresh': market_sznl_thresh, 'use_52w': use_52w, '52w_type': type_52w,
             '52w_first_instance': first_52w, '52w_lookback': lookback_52w, '52w_lag': lag_52w, 'exclude_52w_high': exclude_52w_high, 'use_vix_filter': use_vix_filter, 'vix_min': vix_min, 'vix_max': vix_max,
