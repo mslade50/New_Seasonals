@@ -438,15 +438,26 @@ def seasonals_chart(ticker, cycle_label, enable_time_travel, reference_year, sho
 
     if day_count_marker:
         spx_full = spx.copy()
+        # Existing Return Calcs
         spx_full['Fwd_5d'] = spx_full['Close'].shift(-5) / spx_full['Close'] - 1
         spx_full['Fwd_10d'] = spx_full['Close'].shift(-10) / spx_full['Close'] - 1
         spx_full['Fwd_21d'] = spx_full['Close'].shift(-21) / spx_full['Close'] - 1
+
+        # NEW: Daily Returns for Volatility Calculation
+        spx_full['Daily_Pct'] = spx_full['Close'].pct_change()
+
+        # NEW: Forward Realized Volatility (Annualized %)
+        # rolling(X).std() calculates past X days. shift(-X) aligns the FUTURE X days of vol to today.
+        spx_full['rv_5'] = spx_full['Daily_Pct'].rolling(window=5).std().shift(-5) * np.sqrt(252) * 100
+        spx_full['rv_10'] = spx_full['Daily_Pct'].rolling(window=10).std().shift(-10) * np.sqrt(252) * 100
+        spx_full['rv_21'] = spx_full['Daily_Pct'].rolling(window=21).std().shift(-21) * np.sqrt(252) * 100
 
         daily_snapshots = spx_full[spx_full['day_count'] == day_count_marker].copy()
         display_df = daily_snapshots[daily_snapshots['year'] < cutoff_year].copy()
 
         if not display_df.empty:
-            display_df = display_df[['year', 'Fwd_5d', 'Fwd_10d', 'Fwd_21d']]
+            # Added rv columns to the display_df
+            display_df = display_df[['year', 'Fwd_5d', 'Fwd_10d', 'Fwd_21d', 'rv_5', 'rv_10', 'rv_21']]
             display_df['Fwd_5d'] = display_df['Fwd_5d'] * 100
             display_df['Fwd_10d'] = display_df['Fwd_10d'] * 100
             display_df['Fwd_21d'] = display_df['Fwd_21d'] * 100
@@ -463,14 +474,18 @@ def seasonals_chart(ticker, cycle_label, enable_time_travel, reference_year, sho
             
             def calculate_stats_row(sub_df):
                 if sub_df.empty:
-                    return {k: np.nan for k in ["n", "5_median", "5_mean", "5_pospct", "10_median", "10_mean", "10_pospct", "21_median", "21_mean", "21_pospct"]}
+                    return {k: np.nan for k in ["n", "5_median", "5_mean", "5_pospct", "rv_5", 
+                                                "10_median", "10_mean", "10_pospct", "rv_10", 
+                                                "21_median", "21_mean", "21_pospct", "rv_21"]}
                 
                 res = {"n": int(len(sub_df))}
                 for d in [5, 10, 21]:
-                    col = f"Fwd_{d}d"
-                    res[f"{d}_median"] = sub_df[col].median()
-                    res[f"{d}_mean"] = sub_df[col].mean()
-                    res[f"{d}_pospct"] = (sub_df[col] > 0).mean() * 100
+                    ret_col = f"Fwd_{d}d"
+                    rv_col = f"rv_{d}"
+                    res[f"{d}_median"] = sub_df[ret_col].median()
+                    res[f"{d}_mean"] = sub_df[ret_col].mean()
+                    res[f"{d}_pospct"] = (sub_df[ret_col] > 0).mean() * 100
+                    res[rv_col] = sub_df[rv_col].mean() # New: Average Realized Volatility
                 return res
 
             stats_all = calculate_stats_row(display_df)
@@ -485,9 +500,10 @@ def seasonals_chart(ticker, cycle_label, enable_time_travel, reference_year, sho
 
             stats_df = pd.DataFrame([stats_all, stats_cycle], index=[f"All History (<{cutoff_year})", cycle_row_name])
             
+            # Updated column order to include RV
             ordered_cols = ["n"]
             for d in [5, 10, 21]:
-                ordered_cols.extend([f"{d}_median", f"{d}_mean", f"{d}_pospct"])
+                ordered_cols.extend([f"{d}_median", f"{d}_mean", f"{d}_pospct", f"rv_{d}"])
             stats_df = stats_df[ordered_cols]
 
             # --- CONDITIONAL FORMATTING (ATR SCALED) ---
@@ -499,9 +515,9 @@ def seasonals_chart(ticker, cycle_label, enable_time_travel, reference_year, sho
 
             styler = stats_df.style.format({
                 "n": "{:.0f}",
-                "5_median": "{:.2f}%", "5_mean": "{:.2f}%", "5_pospct": "{:.1f}%",
-                "10_median": "{:.2f}%", "10_mean": "{:.2f}%", "10_pospct": "{:.1f}%",
-                "21_median": "{:.2f}%", "21_mean": "{:.2f}%", "21_pospct": "{:.1f}%",
+                "5_median": "{:.2f}%", "5_mean": "{:.2f}%", "5_pospct": "{:.1f}%", "rv_5": "{:.2f}%",
+                "10_median": "{:.2f}%", "10_mean": "{:.2f}%", "10_pospct": "{:.1f}%", "rv_10": "{:.2f}%",
+                "21_median": "{:.2f}%", "21_mean": "{:.2f}%", "21_pospct": "{:.1f}%", "rv_21": "{:.2f}%",
             }).map(color_pos_pct, subset=["5_pospct", "10_pospct", "21_pospct"])
 
             if current_atr_pct > 0:
