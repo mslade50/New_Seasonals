@@ -304,9 +304,9 @@ def run_engine(universe_dict, params, sznl_map, market_series=None, vix_series=N
     is_limit_pers_10 = "Limit Order -1 ATR" in entry_mode
     is_limit_atr = entry_mode == "Limit (Close -0.5 ATR)"
     is_limit_prev = entry_mode == "Limit (Prev Close)"
+    is_limit_open_atr = entry_mode == "Limit (Open +/- 0.5 ATR)"
+    # NEW FLAG ADDED HERE
     is_limit_open_atr_gtc = entry_mode == "Limit (Open +/- 0.5 ATR) GTC" 
-    is_day_trade_limit = entry_mode == "Day Trade (Limit Open +/- 0.5 ATR, Exit Close)" # <--- NEW FLAG
-    is_limit_pivot = entry_mode == "Limit (Untested Pivot)"
     
     is_limit_pivot = entry_mode == "Limit (Untested Pivot)"
     is_gap_up = "Gap Up Only" in entry_mode
@@ -498,32 +498,8 @@ def run_engine(universe_dict, params, sznl_map, market_series=None, vix_series=N
                 
                 found_entry, actual_entry_idx, actual_entry_price = False, -1, 0.0
                 
-                if is_overnight or is_intraday:
-                    exit_idx = sig_idx + 1
-                    if exit_idx >= len(df): continue
-                    exit_date = df.index[exit_idx]
-                    exit_price = df['Open'].iloc[exit_idx] if is_overnight else df['Close'].iloc[exit_idx]
-                    exit_type = "Time"
-                
-                # --- NEW: SAME DAY "DAY TRADE" EXIT (HOLDING DAYS = 0) ---
-                elif params['holding_days'] == 0:
-                    exit_idx = actual_entry_idx
-                    exit_date = df.index[exit_idx]
-                    exit_price = df['Close'].iloc[exit_idx] # Default to EOD Close
-                    exit_type = "Time (EOD)"
-                    
-                    # Check if Intra-day Stop or Target was hit
-                    day_low = df['Low'].iloc[exit_idx]
-                    day_high = df['High'].iloc[exit_idx]
-                    stop_price = actual_entry_price - (atr * params['stop_atr']) if direction == 'Long' else actual_entry_price + (atr * params['stop_atr'])
-                    tgt_price = actual_entry_price + (atr * params['tgt_atr']) if direction == 'Long' else actual_entry_price - (atr * params['tgt_atr'])
-
-                    if direction == 'Long':
-                        if params['use_take_profit'] and day_high >= tgt_price: exit_price, exit_type = tgt_price, "Target"
-                        elif params['use_stop_loss'] and day_low <= stop_price: exit_price, exit_type = stop_price, "Stop"
-                    else: # Short
-                        if params['use_take_profit'] and day_low <= tgt_price: exit_price, exit_type = tgt_price, "Target"
-                        elif params['use_stop_loss'] and day_high >= stop_price: exit_price, exit_type = stop_price, "Stop"
+                if is_overnight:
+                    found_entry, actual_entry_idx, actual_entry_price = True, sig_idx, df['Close'].iloc[sig_idx]
                 elif is_intraday:
                     found_entry, actual_entry_idx, actual_entry_price = True, sig_idx + 1, df['Open'].iloc[sig_idx + 1]
                 elif is_pullback and pullback_col:
@@ -576,18 +552,6 @@ def run_engine(universe_dict, params, sznl_map, market_series=None, vix_series=N
                         sig_atr, day_open = df['ATR'].iloc[sig_idx], df['Open'].iloc[next_idx]
                         day_low, day_high = df['Low'].iloc[next_idx], df['High'].iloc[next_idx]
                         limit_price = (day_open - (sig_atr * 0.5)) if direction == 'Long' else (day_open + (sig_atr * 0.5))
-                        if direction == 'Long' and day_low <= limit_price: found_entry, actual_entry_idx, actual_entry_price = True, next_idx, limit_price
-                        elif direction == 'Short' and day_high >= limit_price: found_entry, actual_entry_idx, actual_entry_price = True, next_idx, limit_price
-                # --- NEW: DEDICATED DAY TRADE ENTRY ---
-                elif is_day_trade_limit:
-                    next_idx = sig_idx + 1
-                    if next_idx < len(df):
-                        sig_atr, day_open = df['ATR'].iloc[sig_idx], df['Open'].iloc[next_idx]
-                        day_low, day_high = df['Low'].iloc[next_idx], df['High'].iloc[next_idx]
-                        
-                        limit_price = (day_open - (sig_atr * 0.5)) if direction == 'Long' else (day_open + (sig_atr * 0.5))
-                        
-                        # Only fills if the intraday low/high hits the limit
                         if direction == 'Long' and day_low <= limit_price: found_entry, actual_entry_idx, actual_entry_price = True, next_idx, limit_price
                         elif direction == 'Short' and day_high >= limit_price: found_entry, actual_entry_idx, actual_entry_price = True, next_idx, limit_price
                         
@@ -678,23 +642,6 @@ def run_engine(universe_dict, params, sznl_map, market_series=None, vix_series=N
                     exit_date = df.index[exit_idx]
                     exit_price = df['Open'].iloc[exit_idx] if is_overnight else df['Close'].iloc[exit_idx]
                     exit_type = "Time"
-                elif is_day_trade_limit:
-                    exit_idx = actual_entry_idx
-                    exit_date = df.index[exit_idx]
-                    exit_price = df['Close'].iloc[exit_idx] # Default to EOD Close
-                    exit_type = "Time (EOD)"
-                    
-                    # Check if Intra-day Stop or Target was hit
-                    day_low, day_high = df['Low'].iloc[exit_idx], df['High'].iloc[exit_idx]
-                    stop_price = actual_entry_price - (atr * params['stop_atr']) if direction == 'Long' else actual_entry_price + (atr * params['stop_atr'])
-                    tgt_price = actual_entry_price + (atr * params['tgt_atr']) if direction == 'Long' else actual_entry_price - (atr * params['tgt_atr'])
-
-                    if direction == 'Long':
-                        if params['use_take_profit'] and day_high >= tgt_price: exit_price, exit_type = tgt_price, "Target"
-                        elif params['use_stop_loss'] and day_low <= stop_price: exit_price, exit_type = stop_price, "Stop"
-                    else: # Short
-                        if params['use_take_profit'] and day_low <= tgt_price: exit_price, exit_type = tgt_price, "Target"
-                        elif params['use_stop_loss'] and day_high >= stop_price: exit_price, exit_type = stop_price, "Stop"
                 else:
                     fixed_exit_idx = min(actual_entry_idx + params['holding_days'], len(df) - 1)
                     future = df.iloc[actual_entry_idx + 1 : fixed_exit_idx + 1]
@@ -798,7 +745,6 @@ def main():
         entry_type = st.selectbox("Entry Price", [
             "Signal Close", "T+1 Open", "T+1 Close",
             "Overnight (Buy Close, Sell T+1 Open)", "Intraday (Buy Open, Sell Close)", 
-            "Day Trade (Limit Open +/- 0.5 ATR, Exit Close)", # <--- NEW OPTION
             "Gap Up Only (Open > Prev High)", 
             "Limit Order -0.5 ATR (Persistent)", "Limit Order -1 ATR (Persistent)", 
             "Limit (Close -0.5 ATR)", "Limit (Prev Close)", 
@@ -814,8 +760,7 @@ def main():
         use_ma_entry_filter = st.checkbox("Filter: Close > MA - 0.25*ATR", value=False) if "Pullback" in entry_type else False
     with c2: stop_atr = st.number_input("Stop Loss (ATR)", value=3.0, step=0.1, disabled=not use_stop_loss)
     with c3: tgt_atr = st.number_input("Target (ATR)", value=8.0, step=0.1, disabled=not use_take_profit)
-    # Change this line in main():
-    with c4: hold_days = st.number_input("Max Holding Days", min_value=0, value=10, step=1)
+    with c4: hold_days = st.number_input("Max Holding Days", value=10, step=1)
     with c5: risk_per_trade = st.number_input("Risk Amount ($)", value=1000, step=100)
     st.markdown("---")
     st.subheader("3. Signal Criteria")
