@@ -205,6 +205,9 @@ def calculate_indicators(df, sznl_map, ticker, market_series=None):
     ranges = pd.concat([high_low, high_close, low_close], axis=1)
     df['ATR'] = ranges.max(axis=1).rolling(14).mean()
     df['ATR_Pct'] = (df['ATR'] / df['Close']) * 100
+    
+    # --- Today's Return in ATR units ---
+    df['today_return_atr'] = (df['Close'] - df['Open'].shift(1)) / df['ATR']
 
     # --- Volume, Accumulation & Distribution Logic ---
     vol_ma = df['Volume'].rolling(63).mean()
@@ -286,6 +289,14 @@ def check_signal(df, params, sznl_map):
 
     if current_atr_pct < min_atr: return False
     if current_atr_pct > max_atr: return False
+
+    # 1b. Today's Return Filter (in ATR units)
+    if params.get('use_today_return', False):
+        today_ret = last_row.get('today_return_atr', 0)
+        if pd.isna(today_ret): return False
+        ret_min = params.get('return_min', -100)
+        ret_max = params.get('return_max', 100)
+        if not (today_ret >= ret_min and today_ret <= ret_max): return False
 
     # 2. Trend Filter (Global)
     trend_opt = params.get('trend_filter', 'None')
