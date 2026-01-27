@@ -97,7 +97,7 @@ def send_email_summary(signals_list):
                 df[col] = df[col].apply(lambda x: f"{float(x):.2f}")
 
         # Added 'ATR' to the columns list
-        cols = ['Strategy_ID', 'Ticker', 'Action', 'Shares', 'Entry', 'Stop', 'Target', 'ATR', 'Time Exit']
+        cols = ['Strategy_ID', 'Ticker', 'Action', 'Shares', 'Entry', 'Stop', 'Target', 'ATR', 'Time Exit', 'Sizing_Notes']
         # --- UPDATE END ---
         
         # Style the table
