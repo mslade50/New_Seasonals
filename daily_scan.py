@@ -96,8 +96,8 @@ def send_email_summary(signals_list):
                 # Formats to 2 decimal places, keeping trailing zeros (e.g. 10.50)
                 df[col] = df[col].apply(lambda x: f"{float(x):.2f}")
 
-        # Added 'ATR' to the columns list
-        cols = ['Strategy_ID', 'Ticker', 'Action', 'Shares', 'Entry', 'Stop', 'Target', 'ATR', 'Time Exit', 'Sizing_Notes']
+        # *** FIX: Added 'Sizing_Notes' and 'Stats' to the columns list ***
+        cols = ['Strategy_ID', 'Ticker', 'Action', 'Shares', 'Entry', 'Stop', 'Target', 'ATR', 'Time Exit', 'Sizing_Notes', 'Stats']
         # --- UPDATE END ---
         
         # Style the table
@@ -804,7 +804,7 @@ def run_daily_scan():
 
                         # Apply total multiplier
                         risk = base_risk * total_mult
-                        sizing_note = " + ".join(reasons) + f" = {total_mult:.2f}x"
+                        sizing_note = " + ".join(reasons) + f" = {total_mult:.2f}x" if reasons else "Standard (1.0x)"
                     
                     if strat['name'] == "Weak Close Decent Sznls":
                         sznl_val = last_row.get('Sznl', 0)
@@ -851,6 +851,15 @@ def run_daily_scan():
                     exit_date = (effective_entry_date + (TRADING_DAY * hold_days)).date()
                     # -----------------------------
                     # 4. Append Signal
+                    
+                    # Build enhanced sizing note with risk info
+                    risk_bps = strat['execution'].get('risk_bps', 0)
+                    sizing_with_risk = f"{sizing_note} | Risk: {risk_bps}bps (${risk:.0f})"
+                    
+                    # Pull stats from strategy config
+                    stats_dict = strat.get('stats', {})
+                    stats_str = f"WR: {stats_dict.get('win_rate', 'N/A')} | PF: {stats_dict.get('profit_factor', 'N/A')} | Exp: {stats_dict.get('expectancy', 'N/A')}"
+                    
                     signals.append({
                         "Strategy_ID": strat['id'],
                         "Ticker": ticker,
@@ -858,7 +867,8 @@ def run_daily_scan():
                         "Action": action,
                         "Shares": shares,
                         "Risk_Amt": risk, 
-                        "Sizing_Notes": sizing_note,
+                        "Sizing_Notes": sizing_with_risk,
+                        "Stats": stats_str,
                         "Entry": entry,
                         "Stop": stop_price,
                         "Target": tgt_price,
