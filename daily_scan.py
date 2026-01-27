@@ -206,8 +206,8 @@ def calculate_indicators(df, sznl_map, ticker, market_series=None):
     df['ATR'] = ranges.max(axis=1).rolling(14).mean()
     df['ATR_Pct'] = (df['ATR'] / df['Close']) * 100
     
-    # --- Today's Return in ATR units ---
-    df['today_return_atr'] = (df['Close'] - df['Open'].shift(1)) / df['ATR']
+    # --- Today's Return in ATR units (vs yesterday's close) ---
+    df['today_return_atr'] = (df['Close'] - df['Close'].shift(1)) / df['ATR']
 
     # --- Volume, Accumulation & Distribution Logic ---
     vol_ma = df['Volume'].rolling(63).mean()
