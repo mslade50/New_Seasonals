@@ -56,10 +56,11 @@ def get_google_client():
         print(f"❌ Auth Error: {e}")
         return None
 
+
 def send_email_summary(signals_list):
     """
     Sends an HTML email summary of the signals using Gmail SMTP.
-    Requires EMAIL_USER and EMAIL_PASS environment variables.
+    NEW FORMAT: Card-based layout showing full signal criteria for each trade.
     """
     sender_email = os.environ.get("EMAIL_USER")
     sender_password = os.environ.get("EMAIL_PASS")
@@ -69,67 +70,180 @@ def send_email_summary(signals_list):
         print("⚠️ Email credentials (EMAIL_USER/EMAIL_PASS) not found. Skipping email.")
         return
 
-    # 1. Prepare Content
     date_str = datetime.datetime.now().strftime("%Y-%m-%d")
     
     if not signals_list:
         subject = f"📉 Scan Result: NO SIGNALS ({date_str})"
         html_content = f"""
         <html>
-            <body>
-                <h2>Daily Strategy Scan: {date_str}</h2>
-                <p>The scan completed successfully.</p>
-                <p><strong>Result:</strong> No signals found matching criteria today.</p>
+            <body style="font-family: Arial, sans-serif; background-color: #f5f5f5; padding: 20px;">
+                <div style="max-width: 700px; margin: 0 auto; background: white; padding: 30px; border-radius: 8px;">
+                    <h2 style="color: #333; margin-top: 0;">Daily Strategy Scan: {date_str}</h2>
+                    <p style="color: #666;">The scan completed successfully.</p>
+                    <p style="font-size: 18px; color: #888;"><strong>Result:</strong> No signals found matching criteria today.</p>
+                </div>
             </body>
         </html>
         """
     else:
-        subject = f"🚀 Scan Result: {len(signals_list)} SIGNALS FOUND ({date_str})"
+        subject = f"🚀 {len(signals_list)} SIGNALS ({date_str})"
         
-        # Build HTML Table
+        # Build card-based HTML for each signal
+        signal_cards = []
+        
+        for sig in signals_list:
+            # Header color based on action
+            header_color = "#2e7d32" if sig['Action'] == "BUY" else "#c62828"
+            action_emoji = "📈" if sig['Action'] == "BUY" else "📉"
+            
+            # Build the key filters bullet list
+            filters_list = sig.get('Setup_Filters', [])
+            if filters_list:
+                filters_html = "".join([f"<li style='margin: 4px 0; color: #444;'>{f}</li>" for f in filters_list])
+            else:
+                filters_html = "<li style='color: #999;'>No filter details available</li>"
+            
+            # Build exit plan string
+            exit_parts = []
+            if sig.get('Exit_Stop'):
+                exit_parts.append(f"Stop: {sig['Exit_Stop']}")
+            if sig.get('Exit_Target'):
+                exit_parts.append(f"Target: {sig['Exit_Target']}")
+            exit_plan_str = " | ".join(exit_parts) if exit_parts else "Time exit only"
+            
+            # Exit notes (dynamic sizing info, etc)
+            exit_notes = sig.get('Exit_Notes', '')
+            exit_notes_html = f"<div style='font-size: 12px; color: #ff9800; margin-top: 5px;'>⚡ {exit_notes}</div>" if exit_notes else ""
+            
+            # Thesis
+            thesis = sig.get('Setup_Thesis', '')
+            thesis_html = f"<div style='font-style: italic; color: #555; margin: 10px 0; padding: 10px; background: #f9f9f9; border-left: 3px solid #2196f3;'>{thesis}</div>" if thesis else ""
+            
+            card_html = f"""
+            <div style="border: 1px solid #ddd; border-radius: 8px; margin-bottom: 20px; overflow: hidden; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
+                <!-- Header -->
+                <div style="background: {header_color}; color: white; padding: 15px;">
+                    <div style="font-size: 18px; font-weight: bold;">
+                        {action_emoji} {sig.get('Strategy_Name', sig['Strategy_ID'])}
+                    </div>
+                    <div style="font-size: 13px; opacity: 0.9; margin-top: 3px;">
+                        {sig.get('Setup_Type', 'Custom')} | {sig.get('Setup_Timeframe', 'Swing')}
+                    </div>
+                </div>
+                
+                <!-- Trade Details -->
+                <div style="padding: 15px; background: #fafafa; border-bottom: 1px solid #eee;">
+                    <span style="font-size: 22px; font-weight: bold; color: #333;">{sig['Ticker']}</span>
+                    <span style="color: #666; margin-left: 10px;">
+                        {sig['Action']} {sig['Shares']} @ ${sig['Entry']:.2f}
+                    </span>
+                    <span style="color: #888; margin-left: 15px;">
+                        Exit: {sig['Time Exit']}
+                    </span>
+                </div>
+                
+                <!-- Thesis -->
+                {thesis_html}
+                
+                <!-- Why It Flagged -->
+                <div style="padding: 15px;">
+                    <div style="font-weight: bold; color: #333; margin-bottom: 8px; font-size: 14px;">
+                        🎯 WHY IT FLAGGED:
+                    </div>
+                    <ul style="margin: 0; padding-left: 20px; font-size: 13px;">
+                        {filters_html}
+                    </ul>
+                </div>
+                
+                <!-- Exit Plan -->
+                <div style="padding: 15px; background: #f5f5f5; border-top: 1px solid #eee;">
+                    <div style="font-weight: bold; color: #333; font-size: 13px;">
+                        🚪 EXIT: {sig.get('Exit_Primary', 'Time stop')}
+                    </div>
+                    <div style="color: #666; font-size: 12px; margin-top: 5px;">
+                        {exit_plan_str}
+                    </div>
+                    {exit_notes_html}
+                </div>
+                
+                <!-- Footer Stats -->
+                <div style="padding: 10px 15px; background: #333; color: #aaa; font-size: 11px;">
+                    <span style="margin-right: 15px;">📊 {sig['Stats']}</span>
+                    <span style="color: #888;">ATR: ${sig['ATR']:.2f} | Stop: ${sig['Stop']:.2f} | Target: ${sig['Target']:.2f}</span>
+                </div>
+            </div>
+            """
+            signal_cards.append(card_html)
+        
+        # Combine all cards
+        all_cards_html = "".join(signal_cards)
+        
+        # Quick summary table at top for scanning
         df = pd.DataFrame(signals_list)
-
-        # --- UPDATE START: Format Prices and Add ATR ---
-        cols_to_format = ['Entry', 'Stop', 'Target', 'ATR']
-        for col in cols_to_format:
-            if col in df.columns:
-                # Formats to 2 decimal places, keeping trailing zeros (e.g. 10.50)
-                df[col] = df[col].apply(lambda x: f"{float(x):.2f}")
-
-        # *** FIX: Added 'Sizing_Notes' and 'Stats' to the columns list ***
-        cols = ['Strategy_ID', 'Ticker', 'Action', 'Shares', 'Entry', 'Stop', 'Target', 'ATR', 'Time Exit', 'Sizing_Notes', 'Stats']
-        # --- UPDATE END ---
+        summary_rows = []
+        for _, row in df.iterrows():
+            color = "#2e7d32" if row['Action'] == "BUY" else "#c62828"
+            summary_rows.append(f"""
+                <tr>
+                    <td style="padding: 8px; border-bottom: 1px solid #eee;"><strong>{row['Ticker']}</strong></td>
+                    <td style="padding: 8px; border-bottom: 1px solid #eee; color: {color};">{row['Action']}</td>
+                    <td style="padding: 8px; border-bottom: 1px solid #eee;">{row['Shares']}</td>
+                    <td style="padding: 8px; border-bottom: 1px solid #eee;">${row['Entry']:.2f}</td>
+                    <td style="padding: 8px; border-bottom: 1px solid #eee; color: #666;">{row.get('Strategy_Name', row['Strategy_ID'][:30])}</td>
+                </tr>
+            """)
+        summary_table = f"""
+        <table style="width: 100%; border-collapse: collapse; margin-bottom: 25px; font-size: 13px;">
+            <tr style="background: #f0f0f0;">
+                <th style="padding: 10px; text-align: left;">Ticker</th>
+                <th style="padding: 10px; text-align: left;">Action</th>
+                <th style="padding: 10px; text-align: left;">Shares</th>
+                <th style="padding: 10px; text-align: left;">Entry</th>
+                <th style="padding: 10px; text-align: left;">Strategy</th>
+            </tr>
+            {"".join(summary_rows)}
+        </table>
+        """
         
-        # Style the table
-        # We check if columns exist in case a strategy didn't return one of them, though they should be there
-        final_cols = [c for c in cols if c in df.columns]
-        
-        table_html = df[final_cols].to_html(index=False, border=0, justify="left")
-        table_html = table_html.replace('class="dataframe"', 'style="border-collapse: collapse; width: 100%; font-family: Arial, sans-serif;"')
-        table_html = table_html.replace('<th>', '<th style="background-color: #4CAF50; color: white; padding: 8px; text-align: left;">')
-        table_html = table_html.replace('<td>', '<td style="border-bottom: 1px solid #ddd; padding: 8px;">')
-
         html_content = f"""
         <html>
-            <body>
-                <h2>Daily Strategy Scan: {date_str}</h2>
-                <p>The scan found <strong>{len(signals_list)}</strong> actionable signals.</p>
-                <br>
-                {table_html}
-                <br>
-                <p><em>Check the Google Sheet for full details and staging.</em></p>
+            <body style="font-family: Arial, sans-serif; background-color: #f5f5f5; padding: 20px;">
+                <div style="max-width: 700px; margin: 0 auto;">
+                    <!-- Header -->
+                    <div style="background: linear-gradient(135deg, #1a237e, #283593); color: white; padding: 25px; border-radius: 8px 8px 0 0; text-align: center;">
+                        <h1 style="margin: 0; font-size: 24px;">Daily Strategy Scan</h1>
+                        <div style="font-size: 14px; opacity: 0.8; margin-top: 5px;">{date_str}</div>
+                        <div style="font-size: 28px; margin-top: 10px;">🎯 {len(signals_list)} Signal{'s' if len(signals_list) > 1 else ''} Found</div>
+                    </div>
+                    
+                    <!-- Quick Summary -->
+                    <div style="background: white; padding: 20px; border-bottom: 1px solid #ddd;">
+                        <h3 style="margin-top: 0; color: #333;">⚡ Quick Summary</h3>
+                        {summary_table}
+                    </div>
+                    
+                    <!-- Detailed Cards -->
+                    <div style="background: white; padding: 20px; border-radius: 0 0 8px 8px;">
+                        <h3 style="color: #333;">📋 Signal Details</h3>
+                        {all_cards_html}
+                    </div>
+                    
+                    <!-- Footer -->
+                    <div style="text-align: center; padding: 15px; color: #888; font-size: 12px;">
+                        Check Google Sheet for staging details
+                    </div>
+                </div>
             </body>
         </html>
         """
 
-    # 2. Setup Message
+    # Setup and send message
     msg = MIMEMultipart("alternative")
     msg["Subject"] = subject
     msg["From"] = sender_email
     msg["To"] = receiver_email
     msg.attach(MIMEText(html_content, "html"))
 
-    # 3. Send via Gmail SMTP
     try:
         with smtplib.SMTP("smtp.gmail.com", 587) as server:
             server.starttls()
@@ -138,6 +252,7 @@ def send_email_summary(signals_list):
         print(f"📧 Email sent successfully to {receiver_email}")
     except Exception as e:
         print(f"❌ Failed to send email: {e}")
+
 
 def load_seasonal_map(csv_path="sznl_ranks.csv"):
     try:
@@ -156,6 +271,7 @@ def load_seasonal_map(csv_path="sznl_ranks.csv"):
         output_map[ticker] = series
     return output_map
 
+
 def get_sznl_val_series(ticker, dates, sznl_map):
     ticker = ticker.upper()
     t_series = sznl_map.get(ticker)
@@ -167,6 +283,7 @@ def get_sznl_val_series(ticker, dates, sznl_map):
         return pd.Series(50.0, index=dates)
         
     return dates.map(t_series).fillna(50.0)
+
 
 # -----------------------------------------------------------------------------
 # 2. CALCULATION ENGINE
@@ -257,6 +374,7 @@ def calculate_indicators(df, sznl_map, ticker, market_series=None):
     df['is_52w_low'] = df['Low'] < rolling_low
         
     return df
+
 
 def check_signal(df, params, sznl_map):
     last_row = df.iloc[-1]
@@ -473,6 +591,7 @@ def check_signal(df, params, sznl_map):
             
     return True
 
+
 # -----------------------------------------------------------------------------
 # 3. SAVING FUNCTIONS
 # -----------------------------------------------------------------------------
@@ -532,6 +651,7 @@ def save_moc_orders(signals_list, strategy_book, sheet_name='moc_orders'):
             
     except Exception as e:
         print(f"❌ MOC Staging Error: {e}")
+
 
 def save_staging_orders(signals_list, strategy_book, sheet_name='Order_Staging'):
     """
@@ -598,14 +718,13 @@ def save_staging_orders(signals_list, strategy_book, sheet_name='Order_Staging')
             "Offset_ATR_Mult": offset_atr,    
             "TIF": tif_instruction,           
             "Frozen_ATR": round(row['ATR'], 2),
-            "Signal_Close": round(row['Entry'], 2),  # <-- ADD THIS
+            "Signal_Close": round(row['Entry'], 2),
             "Time_Exit_Date": str(row['Time Exit']),
             "Strategy_Ref": strat['name']
         })
 
     # If all orders were "Signal Close", this list is empty now
     if not staging_data:
-        # Clear sheet if needed
         gc = get_google_client()
         if gc:
             try:
@@ -636,11 +755,18 @@ def save_staging_orders(signals_list, strategy_book, sheet_name='Order_Staging')
     except Exception as e:
         print(f"❌ Staging Sheet Error: {e}")
 
+
 def save_signals_to_gsheet(new_dataframe, sheet_name='Trade_Signals_Log'):
     if new_dataframe.empty: return
     
-    # Clean Data
+    # Clean Data - exclude the new setup/exit fields from the main log
     df_new = new_dataframe.copy()
+    
+    # Drop the detailed setup fields (they're for email only)
+    cols_to_drop = ['Setup_Type', 'Setup_Timeframe', 'Setup_Thesis', 'Setup_Filters',
+                    'Exit_Primary', 'Exit_Stop', 'Exit_Target', 'Exit_Notes']
+    df_new = df_new.drop(columns=[c for c in cols_to_drop if c in df_new.columns], errors='ignore')
+    
     cols_to_round = ['Entry', 'Stop', 'Target', 'ATR']
     existing_cols = [c for c in cols_to_round if c in df_new.columns]
     df_new[existing_cols] = df_new[existing_cols].astype(float).round(2)
@@ -679,6 +805,7 @@ def save_signals_to_gsheet(new_dataframe, sheet_name='Trade_Signals_Log'):
         
     except Exception as e:
         print(f"❌ Google Sheet Error: {e}")
+
 
 # -----------------------------------------------------------------------------
 # 4. MAIN EXECUTION
@@ -720,19 +847,8 @@ def download_historical_data(tickers, start_date="2000-01-01"):
             
     return data_dict
 
+
 def run_daily_scan():
-    # --- AUTOMATED TIME CHECK (HANDLES DAYLIGHT SAVINGS) ---
-    import pytz
-    
-    # Get current time in New York
-    ny_tz = pytz.timezone('America/New_York')
-    now_ny = datetime.datetime.now(ny_tz)
-    
-    # We want to run around 15:00 (3 PM) and 16:05 (4:05 PM)
-    # We give a small buffer (e.g. +/- 10 mins) because GitHub Actions can be slightly delayed
-    
-    is_3pm_run = (now_ny.hour == 15 and 0 <= now_ny.minute <= 15)
-    is_4pm_run = (now_ny.hour == 16 and 5 <= now_ny.minute <= 20)
     print("--- Starting Daily Automated Scan (Synced) ---")
     sznl_map = load_seasonal_map()
     
@@ -793,7 +909,7 @@ def run_daily_scan():
                     base_risk = strat['execution']['risk_per_trade']
                     risk = base_risk 
 
-                    sizing_note = "Standard (1.0x)" # Default Note
+                    sizing_note = "Standard (1.0x)"
 
                     if strat['name'] == "Overbot Vol Spike":
                         total_mult = 1.0
@@ -810,27 +926,29 @@ def run_daily_scan():
 
                         # --- B. Day of Week Multiplier ---
                         if last_row.name.dayofweek == 4:
-                            total_mult *= 1.25 # Boost for Fridays
+                            total_mult *= 1.25
                             reasons.append("Friday (1.25x)")
 
                         # --- C. Volume Multiplier ---
                         vol_ratio = last_row.get('vol_ratio', 0)
                         if vol_ratio > 2.0:
-                            total_mult *= 1.15 # Boost for double volume
+                            total_mult *= 1.15
                             reasons.append(f"Vol {vol_ratio:.1f}x (1.15x)")
 
-                        # Apply total multiplier
                         risk = base_risk * total_mult
                         sizing_note = " + ".join(reasons) + f" = {total_mult:.2f}x" if reasons else "Standard (1.0x)"
                     
                     if strat['name'] == "Weak Close Decent Sznls":
                         sznl_val = last_row.get('Sznl', 0)
                         if sznl_val >= 65:
-                            risk = risk * 1.5   # High conviction
+                            risk = risk * 1.5
+                            sizing_note = f"High Sznl ({sznl_val:.0f}) = 1.5x"
                         elif sznl_val >= 50:
-                            risk = risk * 1.0   # Standard
+                            risk = risk * 1.0
+                            sizing_note = f"Med Sznl ({sznl_val:.0f}) = 1.0x"
                         elif sznl_val >= 33:
-                            risk = risk * 0.66  # Low conviction
+                            risk = risk * 0.66
+                            sizing_note = f"Low Sznl ({sznl_val:.0f}) = 0.66x"
                     # ---------------------------------------------------------
 
                     # 3. Calculate Prices & Shares
@@ -854,20 +972,14 @@ def run_daily_scan():
                     entry_mode = strat['settings'].get('entry_type', 'Signal Close')
                     hold_days = strat['execution']['hold_days']
 
-                    # 1. Determine the effective Entry Date
+                    # Determine the effective Entry Date
                     if "Signal Close" in entry_mode:
-                        # Enters today (Signal Date)
                         effective_entry_date = last_row.name 
                     else:
-                        # Enters tomorrow (Signal Date + 1 Trading Day)
-                        # We use TRADING_DAY to skip Weekends & Holidays
                         effective_entry_date = last_row.name + TRADING_DAY
 
-                    # 2. Calculate Exit Date starting from the Effective Entry Date
-                    # We use TRADING_DAY here too to ensure the holding period respects holidays
+                    # Calculate Exit Date
                     exit_date = (effective_entry_date + (TRADING_DAY * hold_days)).date()
-                    # -----------------------------
-                    # 4. Append Signal
                     
                     # Build enhanced sizing note with risk info
                     risk_bps = strat['execution'].get('risk_bps', 0)
@@ -877,8 +989,13 @@ def run_daily_scan():
                     stats_dict = strat.get('stats', {})
                     stats_str = f"WR: {stats_dict.get('win_rate', 'N/A')} | PF: {stats_dict.get('profit_factor', 'N/A')} | Exp: {stats_dict.get('expectancy', 'N/A')}"
                     
+                    # Pull setup and exit_summary for email clarity
+                    setup_block = strat.get('setup', {})
+                    exit_block = strat.get('exit_summary', {})
+                    
                     signals.append({
                         "Strategy_ID": strat['id'],
+                        "Strategy_Name": strat['name'],
                         "Ticker": ticker,
                         "Date": last_row.name.date(),
                         "Action": action,
@@ -890,7 +1007,16 @@ def run_daily_scan():
                         "Stop": stop_price,
                         "Target": tgt_price,
                         "Time Exit": exit_date,
-                        "ATR": atr
+                        "ATR": atr,
+                        # New fields for email clarity
+                        "Setup_Type": setup_block.get('type', 'Custom'),
+                        "Setup_Timeframe": setup_block.get('timeframe', 'Swing'),
+                        "Setup_Thesis": setup_block.get('thesis', ''),
+                        "Setup_Filters": setup_block.get('key_filters', []),
+                        "Exit_Primary": exit_block.get('primary_exit', ''),
+                        "Exit_Stop": exit_block.get('stop_logic', ''),
+                        "Exit_Target": exit_block.get('target_logic', ''),
+                        "Exit_Notes": exit_block.get('notes', '')
                     })
 
             except Exception as e:
@@ -919,6 +1045,7 @@ def run_daily_scan():
     send_email_summary(all_signals)
 
     print("--- Scan Complete ---")
+
 
 if __name__ == "__main__":
     run_daily_scan()
