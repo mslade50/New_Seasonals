@@ -465,9 +465,11 @@ def build_strategy_dict(params, tickers_to_run, pf, sqn, win_rate, expectancy_r)
         "exit_summary": exit_summary,
         
         # DEPRECATED: Keep for backwards compatibility, but simplified
-        "description": f"Backtest: {params['backtest_start_date']} to present. {len(tickers_to_run)} tickers.",
+        "description": f"Backtest: {params['backtest_start_date']} to present. Tested on {len(tickers_to_run)} tickers.",
         
-        "universe_tickers": tickers_to_run,
+        # MANUAL EDIT REQUIRED: Replace with universe variable name (no quotes)
+        # Options: INDEX_ETFS, SECTOR_INDEX_ETFS, LIQUID_UNIVERSE, LIQUID_NO_INDEX, LIQUID_PLUS_COMMODITIES
+        "universe_tickers": "CHANGE_ME",
         "settings": {
             "trade_direction": params.get('trade_direction', 'Long'), "entry_type": params.get('entry_type', 'T+1 Open'),
             "max_one_pos": params.get('max_one_pos', True), "allow_same_day_reentry": params.get('allow_same_day_reentry', False),
