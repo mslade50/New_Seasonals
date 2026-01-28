@@ -597,7 +597,8 @@ def save_staging_orders(signals_list, strategy_book, sheet_name='Order_Staging')
             "Limit_Price": round(limit_price, 2), 
             "Offset_ATR_Mult": offset_atr,    
             "TIF": tif_instruction,           
-            "Frozen_ATR": round(row['ATR'], 2), 
+            "Frozen_ATR": round(row['ATR'], 2),
+            "Signal_Close": round(row['Entry'], 2),  # <-- ADD THIS
             "Time_Exit_Date": str(row['Time Exit']),
             "Strategy_Ref": strat['name']
         })
