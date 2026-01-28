@@ -39,8 +39,10 @@ The system is designed as a unidirectional pipeline moving from **Research** $\t
 
 ### 3. Portfolio Simulation
 *Objective: Test how multiple signals perform together.*
-* **`pages/strat_backtester.py`**: Aggregates distinct signals (validated in the Alpha phase) into a portfolio simulation to test for overlap, drawdown clusters, and total return.
-
+### 3. Portfolio Simulation
+* **`pages/strat_backtester.py`**: [See Docs](docs/portfolio_logic.md) - Simulates the entire strategy book running simultaneously.
+    * *Key Features:* Real-time MTM equity sizing, Capital Efficiency analysis, and Signal Density breakdowns.
+      
 ### 4. Live Production (The Daily Loop)
 *Objective: Generate actionable orders for tomorrow's open.*
 * **`strategy_config.py`**: **CRITICAL.** This file contains the "Source of Truth" for all active trading rules. It defines the universe of tickers and the specific logic for entry/exit.
