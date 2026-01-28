@@ -564,9 +564,14 @@ def save_staging_orders(signals_list, strategy_book, sheet_name='Order_Staging')
 
         # 1. ATR LIMIT ENTRY
         if "Limit" in entry_mode and "ATR" in entry_mode:
-            entry_instruction = "REL_OPEN" 
+            if "Persistent" in entry_mode:
+                entry_instruction = "REL_CLOSE"  # Anchored to Signal Close
+                tif_instruction = "GTC"  # Good til canceled (or hold_days)
+            else:
+                entry_instruction = "REL_OPEN"   # Anchored to T+1 Open
+                tif_instruction = "DAY"
+            
             if "0.5" in entry_mode: offset_atr = 0.5
-            tif_instruction = "DAY"
             
         # 2. MARKET ON OPEN
         elif "T+1 Open" in entry_mode:
