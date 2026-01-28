@@ -60,7 +60,7 @@ def get_google_client():
 def send_email_summary(signals_list):
     """
     Sends an HTML email summary of the signals using Gmail SMTP.
-    NEW FORMAT: Card-based layout showing full signal criteria for each trade.
+    Card-based layout showing full signal criteria with LIVE values.
     """
     sender_email = os.environ.get("EMAIL_USER")
     sender_password = os.environ.get("EMAIL_PASS")
@@ -96,28 +96,77 @@ def send_email_summary(signals_list):
             header_color = "#2e7d32" if sig['Action'] == "BUY" else "#c62828"
             action_emoji = "📈" if sig['Action'] == "BUY" else "📉"
             
-            # Build the key filters bullet list
-            filters_list = sig.get('Setup_Filters', [])
-            if filters_list:
-                filters_html = "".join([f"<li style='margin: 4px 0; color: #444;'>{f}</li>" for f in filters_list])
+            # Build the key filters bullet list WITH LIVE VALUES
+            live_filters = sig.get('Live_Filters', [])
+            if live_filters:
+                filters_html_parts = []
+                for filter_desc, live_val, is_binary in live_filters:
+                    if is_binary:
+                        # Binary filter - just show checkmark
+                        filters_html_parts.append(
+                            f"<li style='margin: 4px 0; color: #444;'>{filter_desc} <span style='color: #2e7d32; font-weight: bold;'>{live_val}</span></li>"
+                        )
+                    else:
+                        # Numeric filter - show value after comma
+                        filters_html_parts.append(
+                            f"<li style='margin: 4px 0; color: #444;'>{filter_desc}, <span style='color: #1565c0; font-weight: bold;'>{live_val}</span></li>"
+                        )
+                filters_html = "".join(filters_html_parts)
             else:
-                filters_html = "<li style='color: #999;'>No filter details available</li>"
+                # Fallback to static filters if live not available
+                static_filters = sig.get('Setup_Filters', [])
+                if static_filters:
+                    filters_html = "".join([f"<li style='margin: 4px 0; color: #444;'>{f}</li>" for f in static_filters])
+                else:
+                    filters_html = "<li style='color: #999;'>No filter details available</li>"
             
-            # Build exit plan string
+            # Build exit section - only show stop/target if actually used
+            use_stop = sig.get('Use_Stop', True)
+            use_target = sig.get('Use_Target', True)
+            
             exit_parts = []
-            if sig.get('Exit_Stop'):
-                exit_parts.append(f"Stop: {sig['Exit_Stop']}")
-            if sig.get('Exit_Target'):
-                exit_parts.append(f"Target: {sig['Exit_Target']}")
-            exit_plan_str = " | ".join(exit_parts) if exit_parts else "Time exit only"
+            if use_stop:
+                exit_parts.append(f"Stop: ${sig['Stop']:.2f}")
+            if use_target:
+                exit_parts.append(f"Target: ${sig['Target']:.2f}")
             
-            # Exit notes (dynamic sizing info, etc)
+            if exit_parts:
+                exit_prices_str = " | ".join(exit_parts)
+                exit_prices_html = f"<div style='color: #666; font-size: 12px; margin-top: 5px;'>{exit_prices_str}</div>"
+            else:
+                exit_prices_html = ""
+            
+            # Exit notes (dynamic sizing info)
             exit_notes = sig.get('Exit_Notes', '')
-            exit_notes_html = f"<div style='font-size: 12px; color: #ff9800; margin-top: 5px;'>⚡ {exit_notes}</div>" if exit_notes else ""
+            sizing_var = sig.get('Sizing_Variable', '')
+            
+            # Combine exit notes with sizing variable if present
+            notes_parts = []
+            if sizing_var:
+                notes_parts.append(f"📊 {sizing_var}")
+            if exit_notes:
+                notes_parts.append(f"⚡ {exit_notes}")
+            
+            if notes_parts:
+                notes_html = "<div style='font-size: 12px; color: #ff9800; margin-top: 8px;'>" + "<br>".join(notes_parts) + "</div>"
+            else:
+                notes_html = ""
             
             # Thesis
             thesis = sig.get('Setup_Thesis', '')
             thesis_html = f"<div style='font-style: italic; color: #555; margin: 10px 0; padding: 10px; background: #f9f9f9; border-left: 3px solid #2196f3;'>{thesis}</div>" if thesis else ""
+            
+            # Entry type display
+            entry_type = sig.get('Entry_Type', 'Signal Close')
+            limit_price = sig.get('Limit_Price')
+            if limit_price:
+                entry_display = f"{entry_type} @ ${limit_price:.2f}"
+            else:
+                entry_display = entry_type
+            
+            # Notional and days
+            notional = sig.get('Notional', 0)
+            days_to_exit = sig.get('Days_To_Exit', 0)
             
             card_html = f"""
             <div style="border: 1px solid #ddd; border-radius: 8px; margin-bottom: 20px; overflow: hidden; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
@@ -133,13 +182,22 @@ def send_email_summary(signals_list):
                 
                 <!-- Trade Details -->
                 <div style="padding: 15px; background: #fafafa; border-bottom: 1px solid #eee;">
-                    <span style="font-size: 22px; font-weight: bold; color: #333;">{sig['Ticker']}</span>
-                    <span style="color: #666; margin-left: 10px;">
-                        {sig['Action']} {sig['Shares']} @ ${sig['Entry']:.2f}
-                    </span>
-                    <span style="color: #888; margin-left: 15px;">
-                        Exit: {sig['Time Exit']}
-                    </span>
+                    <div style="display: flex; justify-content: space-between; align-items: center;">
+                        <div>
+                            <span style="font-size: 24px; font-weight: bold; color: #333;">{sig['Ticker']}</span>
+                            <span style="color: #666; margin-left: 10px; font-size: 14px;">
+                                {sig['Action']} {sig['Shares']:,} shares
+                            </span>
+                        </div>
+                        <div style="text-align: right;">
+                            <div style="font-size: 14px; color: #333;"><strong>${sig['Risk_Amt']:,.0f}</strong> risk</div>
+                            <div style="font-size: 12px; color: #888;">${notional:,.0f} notional</div>
+                        </div>
+                    </div>
+                    <div style="margin-top: 10px; padding-top: 10px; border-top: 1px dashed #ddd; font-size: 13px; color: #555;">
+                        <strong>Entry:</strong> {entry_display} @ ${sig['Entry']:.2f}
+                        <span style="margin-left: 20px;"><strong>Exit:</strong> {sig['Time Exit']} ({days_to_exit}d)</span>
+                    </div>
                 </div>
                 
                 <!-- Thesis -->
@@ -158,18 +216,15 @@ def send_email_summary(signals_list):
                 <!-- Exit Plan -->
                 <div style="padding: 15px; background: #f5f5f5; border-top: 1px solid #eee;">
                     <div style="font-weight: bold; color: #333; font-size: 13px;">
-                        🚪 EXIT: {sig.get('Exit_Primary', 'Time stop')}
+                        🚪 EXIT: {sig.get('Exit_Primary', f'{days_to_exit}-day time stop')}
                     </div>
-                    <div style="color: #666; font-size: 12px; margin-top: 5px;">
-                        {exit_plan_str}
-                    </div>
-                    {exit_notes_html}
+                    {exit_prices_html}
+                    {notes_html}
                 </div>
                 
                 <!-- Footer Stats -->
                 <div style="padding: 10px 15px; background: #333; color: #aaa; font-size: 11px;">
-                    <span style="margin-right: 15px;">📊 {sig['Stats']}</span>
-                    <span style="color: #888;">ATR: ${sig['ATR']:.2f} | Stop: ${sig['Stop']:.2f} | Target: ${sig['Target']:.2f}</span>
+                    📊 {sig['Stats']}
                 </div>
             </div>
             """
@@ -178,18 +233,21 @@ def send_email_summary(signals_list):
         # Combine all cards
         all_cards_html = "".join(signal_cards)
         
-        # Quick summary table at top for scanning
+        # Quick summary table - Entry Type and $ Risk instead of price
         df = pd.DataFrame(signals_list)
         summary_rows = []
         for _, row in df.iterrows():
             color = "#2e7d32" if row['Action'] == "BUY" else "#c62828"
+            entry_short = row.get('Entry_Type_Short', 'MOC')
+            risk_amt = row.get('Risk_Amt', 0)
             summary_rows.append(f"""
                 <tr>
                     <td style="padding: 8px; border-bottom: 1px solid #eee;"><strong>{row['Ticker']}</strong></td>
                     <td style="padding: 8px; border-bottom: 1px solid #eee; color: {color};">{row['Action']}</td>
-                    <td style="padding: 8px; border-bottom: 1px solid #eee;">{row['Shares']}</td>
-                    <td style="padding: 8px; border-bottom: 1px solid #eee;">${row['Entry']:.2f}</td>
-                    <td style="padding: 8px; border-bottom: 1px solid #eee; color: #666;">{row.get('Strategy_Name', row['Strategy_ID'][:30])}</td>
+                    <td style="padding: 8px; border-bottom: 1px solid #eee;">{row['Shares']:,}</td>
+                    <td style="padding: 8px; border-bottom: 1px solid #eee; font-family: monospace;">{entry_short}</td>
+                    <td style="padding: 8px; border-bottom: 1px solid #eee;"><strong>${risk_amt:,.0f}</strong></td>
+                    <td style="padding: 8px; border-bottom: 1px solid #eee; color: #666; font-size: 12px;">{row.get('Strategy_Name', row['Strategy_ID'][:25])}</td>
                 </tr>
             """)
         summary_table = f"""
@@ -199,11 +257,18 @@ def send_email_summary(signals_list):
                 <th style="padding: 10px; text-align: left;">Action</th>
                 <th style="padding: 10px; text-align: left;">Shares</th>
                 <th style="padding: 10px; text-align: left;">Entry</th>
+                <th style="padding: 10px; text-align: left;">$ Risk</th>
                 <th style="padding: 10px; text-align: left;">Strategy</th>
             </tr>
             {"".join(summary_rows)}
         </table>
         """
+        
+        # Total risk summary
+        total_risk = sum(s.get('Risk_Amt', 0) for s in signals_list)
+        total_notional = sum(s.get('Notional', 0) for s in signals_list)
+        long_count = sum(1 for s in signals_list if s['Action'] == 'BUY')
+        short_count = len(signals_list) - long_count
         
         html_content = f"""
         <html>
@@ -213,7 +278,10 @@ def send_email_summary(signals_list):
                     <div style="background: linear-gradient(135deg, #1a237e, #283593); color: white; padding: 25px; border-radius: 8px 8px 0 0; text-align: center;">
                         <h1 style="margin: 0; font-size: 24px;">Daily Strategy Scan</h1>
                         <div style="font-size: 14px; opacity: 0.8; margin-top: 5px;">{date_str}</div>
-                        <div style="font-size: 28px; margin-top: 10px;">🎯 {len(signals_list)} Signal{'s' if len(signals_list) > 1 else ''} Found</div>
+                        <div style="font-size: 28px; margin-top: 10px;">🎯 {len(signals_list)} Signal{'s' if len(signals_list) > 1 else ''}</div>
+                        <div style="font-size: 14px; margin-top: 8px; opacity: 0.9;">
+                            {long_count} Long | {short_count} Short | ${total_risk:,.0f} Total Risk | ${total_notional:,.0f} Notional
+                        </div>
                     </div>
                     
                     <!-- Quick Summary -->
@@ -759,12 +827,16 @@ def save_staging_orders(signals_list, strategy_book, sheet_name='Order_Staging')
 def save_signals_to_gsheet(new_dataframe, sheet_name='Trade_Signals_Log'):
     if new_dataframe.empty: return
     
-    # Clean Data - exclude the new setup/exit fields from the main log
+    # Clean Data - exclude the detailed setup/exit/execution fields from the main log
     df_new = new_dataframe.copy()
     
-    # Drop the detailed setup fields (they're for email only)
-    cols_to_drop = ['Setup_Type', 'Setup_Timeframe', 'Setup_Thesis', 'Setup_Filters',
-                    'Exit_Primary', 'Exit_Stop', 'Exit_Target', 'Exit_Notes']
+    # Drop the detailed fields (they're for email only)
+    cols_to_drop = [
+        'Setup_Type', 'Setup_Timeframe', 'Setup_Thesis', 'Setup_Filters',
+        'Exit_Primary', 'Exit_Stop', 'Exit_Target', 'Exit_Notes',
+        'Live_Filters', 'Entry_Type', 'Entry_Type_Short', 'Limit_Price',
+        'Notional', 'Days_To_Exit', 'Use_Stop', 'Use_Target', 'Sizing_Variable'
+    ]
     df_new = df_new.drop(columns=[c for c in cols_to_drop if c in df_new.columns], errors='ignore')
     
     cols_to_round = ['Entry', 'Stop', 'Target', 'ATR']
@@ -810,6 +882,194 @@ def save_signals_to_gsheet(new_dataframe, sheet_name='Trade_Signals_Log'):
 # -----------------------------------------------------------------------------
 # 4. MAIN EXECUTION
 # -----------------------------------------------------------------------------
+
+def get_entry_type_short(entry_mode, limit_price=None):
+    """
+    Returns a concise entry type label for the summary table.
+    """
+    if "Signal Close" in entry_mode:
+        return "MOC"
+    elif "T+1 Open" in entry_mode and "Limit" not in entry_mode:
+        return "MOO"
+    elif "T+1 Close if <" in entry_mode:
+        return "Cond Close"
+    elif "Limit" in entry_mode:
+        if limit_price:
+            return f"LMT ${limit_price:.2f}"
+        elif "Persistent" in entry_mode:
+            return "LMT GTC"
+        else:
+            return "LMT DAY"
+    else:
+        return entry_mode[:15]
+
+
+def get_sizing_variable(strat_name, last_row):
+    """
+    Returns the key variable that drives sizing for dynamic-sized strategies.
+    """
+    if strat_name == "Overbot Vol Spike":
+        r5 = last_row.get('rank_ret_5d', 0)
+        r10 = last_row.get('rank_ret_10d', 0)
+        vol = last_row.get('vol_ratio', 0)
+        dow = last_row.name.strftime('%A')
+        return f"5D Rank: {r5:.0f} | 10D Rank: {r10:.0f} | Vol: {vol:.1f}x | {dow}"
+    elif strat_name == "Weak Close Decent Sznls":
+        sznl = last_row.get('Sznl', 0)
+        return f"Seasonal Rank: {sznl:.0f}"
+    else:
+        return None
+
+
+def build_live_filters(strat, last_row, df):
+    """
+    Builds a list of filter descriptions with their LIVE values from the scan.
+    Returns list of tuples: (filter_description, live_value, is_binary)
+    """
+    live_filters = []
+    settings = strat['settings']
+    
+    # --- Performance Rank Filters ---
+    for pf in settings.get('perf_filters', []):
+        window = pf['window']
+        col = f"rank_ret_{window}d"
+        val = last_row.get(col, 0)
+        logic = pf['logic']
+        thresh = pf['thresh']
+        consec = pf.get('consecutive', 1)
+        
+        desc = f"{window}D rank {logic} {thresh:.0f}th %ile"
+        if consec > 1:
+            desc += f" ({consec}d consecutive)"
+        live_filters.append((desc, f"{val:.1f}", False))
+    
+    # --- Single Perf Rank (legacy format) ---
+    if settings.get('use_perf_rank', False):
+        window = settings['perf_window']
+        col = f"rank_ret_{window}d"
+        val = last_row.get(col, 0)
+        logic = settings['perf_logic']
+        thresh = settings['perf_thresh']
+        consec = settings.get('perf_consecutive', 1)
+        
+        desc = f"{window}D rank {logic} {thresh:.0f}th %ile"
+        if consec > 1:
+            desc += f" ({consec}d consecutive)"
+        live_filters.append((desc, f"{val:.1f}", False))
+    
+    # --- Seasonality ---
+    if settings.get('use_sznl', False):
+        val = last_row.get('Sznl', 50)
+        logic = settings['sznl_logic']
+        thresh = settings['sznl_thresh']
+        live_filters.append((f"Ticker seasonal {logic} {thresh:.0f}", f"{val:.0f}", False))
+    
+    if settings.get('use_market_sznl', False):
+        val = last_row.get('Mkt_Sznl_Ref', 50)
+        logic = settings['market_sznl_logic']
+        thresh = settings['market_sznl_thresh']
+        live_filters.append((f"Market seasonal {logic} {thresh:.0f}", f"{val:.0f}", False))
+    
+    # --- Range Filter ---
+    if settings.get('use_range_filter', False):
+        val = last_row.get('RangePct', 0.5) * 100
+        r_min = settings.get('range_min', 0)
+        r_max = settings.get('range_max', 100)
+        live_filters.append((f"Close in {r_min}-{r_max}% of range", f"{val:.0f}%", False))
+    
+    # --- MA Consecutive Filters ---
+    for maf in settings.get('ma_consec_filters', []):
+        length = maf['length']
+        logic = maf['logic']
+        consec = maf.get('consec', 1)
+        col = f"SMA{length}"
+        ma_val = last_row.get(col, 0)
+        close_val = last_row['Close']
+        
+        desc = f"Close {logic.lower()} {length} SMA"
+        if consec > 1:
+            desc += f" ({consec}d)"
+        # Show as pass/fail since it's essentially binary
+        live_filters.append((desc, "✓", True))
+    
+    # --- Trend Filter ---
+    trend = settings.get('trend_filter', 'None')
+    if trend != 'None':
+        if "200 SMA" in trend:
+            sma200 = last_row.get('SMA200', 0)
+            close = last_row['Close']
+            if "Price >" in trend:
+                live_filters.append((f"Price > 200 SMA", f"${close:.2f} vs ${sma200:.2f}", False))
+            elif "Price <" in trend:
+                live_filters.append((f"Price < 200 SMA", f"${close:.2f} vs ${sma200:.2f}", False))
+        elif "Market" in trend:
+            mkt_above = last_row.get('Market_Above_SMA200', False)
+            live_filters.append((trend, "✓" if mkt_above else "✗", True))
+    
+    # --- Volume Filters ---
+    if settings.get('use_vol', False):
+        val = last_row.get('vol_ratio', 0)
+        thresh = settings['vol_thresh']
+        live_filters.append((f"Volume > {thresh:.1f}x avg", f"{val:.2f}x", False))
+    
+    if settings.get('use_vol_rank', False):
+        val = last_row.get('vol_ratio_10d_rank', 50)
+        logic = settings['vol_rank_logic']
+        thresh = settings['vol_rank_thresh']
+        live_filters.append((f"10D vol rank {logic} {thresh:.0f}th %ile", f"{val:.0f}", False))
+    
+    # --- Acc/Dist Counts ---
+    if settings.get('use_acc_count_filter', False):
+        window = settings.get('acc_count_window', 21)
+        col = f'AccCount_{window}'
+        val = last_row.get(col, 0) if col in df.columns else last_row.get('AccCount_21', 0)
+        logic = settings['acc_count_logic']
+        thresh = settings['acc_count_thresh']
+        live_filters.append((f"Acc days {logic} {thresh} in {window}d", f"{val:.0f}", False))
+    
+    if settings.get('use_dist_count_filter', False):
+        window = settings.get('dist_count_window', 21)
+        col = f'DistCount_{window}'
+        val = last_row.get(col, 0) if col in df.columns else last_row.get('DistCount_21', 0)
+        logic = settings['dist_count_logic']
+        thresh = settings['dist_count_thresh']
+        live_filters.append((f"Dist days {logic} {thresh} in {window}d", f"{val:.0f}", False))
+    
+    # --- 52 Week High/Low ---
+    if settings.get('use_52w', False):
+        type_52w = settings['52w_type']
+        first_inst = settings.get('52w_first_instance', False)
+        desc = type_52w
+        if first_inst:
+            lookback = settings.get('52w_lookback', 21)
+            desc += f" (first in {lookback}d)"
+        live_filters.append((desc, "✓", True))
+    
+    if settings.get('exclude_52w_high', False):
+        live_filters.append(("NOT at 52-week high", "✓", True))
+    
+    # --- VIX Filter ---
+    if settings.get('use_vix_filter', False):
+        val = last_row.get('VIX_Value', 0)
+        vix_min = settings.get('vix_min', 0)
+        vix_max = settings.get('vix_max', 100)
+        live_filters.append((f"VIX between {vix_min:.0f}-{vix_max:.0f}", f"{val:.1f}", False))
+    
+    # --- Today's Return Filter ---
+    if settings.get('use_today_return', False):
+        val = last_row.get('today_return_atr', 0)
+        ret_min = settings.get('return_min', -100)
+        ret_max = settings.get('return_max', 100)
+        live_filters.append((f"Today's move {ret_min:.1f} to {ret_max:.1f} ATR", f"{val:.2f} ATR", False))
+    
+    # --- ATR% Filter ---
+    min_atr = settings.get('min_atr_pct', 0)
+    max_atr = settings.get('max_atr_pct', 100)
+    if min_atr > 0 or max_atr < 10:
+        val = last_row.get('ATR_Pct', 0)
+        live_filters.append((f"ATR% between {min_atr:.1f}-{max_atr:.1f}%", f"{val:.2f}%", False))
+    
+    return live_filters
 
 def download_historical_data(tickers, start_date="2000-01-01"):
     if not tickers: return {}
@@ -993,6 +1253,30 @@ def run_daily_scan():
                     setup_block = strat.get('setup', {})
                     exit_block = strat.get('exit_summary', {})
                     
+                    # Check if stop/target are actually used
+                    use_stop = strat['execution'].get('use_stop_loss', True)
+                    use_target = strat['execution'].get('use_take_profit', True)
+                    
+                    # Build LIVE filter values with actual indicator readings
+                    live_filters = build_live_filters(strat, last_row, calc_df)
+                    
+                    # Calculate limit price for limit orders
+                    limit_price = None
+                    if "Limit" in entry_mode and "ATR" in entry_mode:
+                        if "0.5" in entry_mode:
+                            limit_price = entry - (0.5 * atr) if direction == 'Long' else entry + (0.5 * atr)
+                        elif "1 ATR" in entry_mode:
+                            limit_price = entry - atr if direction == 'Long' else entry + atr
+                    
+                    # Calculate notional exposure
+                    notional = shares * entry
+                    
+                    # Days until exit
+                    days_to_exit = hold_days
+                    
+                    # Build short entry type label for summary
+                    entry_type_short = get_entry_type_short(entry_mode, limit_price)
+                    
                     signals.append({
                         "Strategy_ID": strat['id'],
                         "Strategy_Name": strat['name'],
@@ -1008,15 +1292,26 @@ def run_daily_scan():
                         "Target": tgt_price,
                         "Time Exit": exit_date,
                         "ATR": atr,
-                        # New fields for email clarity
+                        # Execution context
+                        "Entry_Type": entry_mode,
+                        "Entry_Type_Short": entry_type_short,
+                        "Limit_Price": limit_price,
+                        "Notional": notional,
+                        "Days_To_Exit": days_to_exit,
+                        "Use_Stop": use_stop,
+                        "Use_Target": use_target,
+                        # Setup context
                         "Setup_Type": setup_block.get('type', 'Custom'),
                         "Setup_Timeframe": setup_block.get('timeframe', 'Swing'),
                         "Setup_Thesis": setup_block.get('thesis', ''),
                         "Setup_Filters": setup_block.get('key_filters', []),
+                        "Live_Filters": live_filters,  # NEW: filters with actual values
                         "Exit_Primary": exit_block.get('primary_exit', ''),
                         "Exit_Stop": exit_block.get('stop_logic', ''),
                         "Exit_Target": exit_block.get('target_logic', ''),
-                        "Exit_Notes": exit_block.get('notes', '')
+                        "Exit_Notes": exit_block.get('notes', ''),
+                        # Sizing context variable (for strategies with dynamic sizing)
+                        "Sizing_Variable": get_sizing_variable(strat['name'], last_row)
                     })
 
             except Exception as e:
