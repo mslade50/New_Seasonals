@@ -1282,9 +1282,12 @@ def main():
         if not trades_df.empty:
             strategy_dict = build_strategy_dict(params, tickers_to_run, pf, sqn, win_rate, expectancy_r)
             with st.expander("Export Strategy Configuration", expanded=False):
-                st.markdown("**Copy this dictionary to use in your screener:**")
-                st.code(json.dumps(strategy_dict, indent=2, default=str), language="python")
-                st.download_button("Download Strategy JSON", json.dumps(strategy_dict, indent=2, default=str), file_name="strategy_config.json", mime="application/json")
+                st.markdown("**Copy this dictionary to `strategy_config.py`:**")
+                # Use pprint for valid Python syntax (True/False, not true/false)
+                import pprint
+                py_code = pprint.pformat(strategy_dict, width=120, sort_dicts=False)
+                st.code(py_code, language="python")
+                st.download_button("Download as Python", py_code, file_name="strategy_export.py", mime="text/x-python")
         if not trades_df.empty:
             fig = px.line(trades_df, x="ExitDate", y="CumPnL", title=f"Actual Portfolio Equity (Risk: ${risk_per_trade}/trade)", markers=True)
             st.plotly_chart(fig, use_container_width=True)
