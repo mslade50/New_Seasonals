@@ -874,12 +874,14 @@ def process_signals_fast(candidates, signal_data, processed_dict, strategies, st
             "Shares": shares,
             "PnL": pnl,
             "ATR": atr,
+            "T+1 Open": entry_row['Open'],
+            "Signal Close": row_data['close'],
             "Range %": row_data['range_pct'],
             "Equity at Signal": current_equity,
             "Risk $": base_risk,
             "Risk bps": risk_bps
         })
-    
+            
     if not results:
         return pd.DataFrame()
     
@@ -1618,10 +1620,13 @@ def main():
 
             st.subheader("📜 Trade Log")
             display_cols = ["Date", "Entry Date", "Exit Date", "Strategy", "Ticker", "Action",
-                          "Price", "Shares", "PnL", "ATR", "Equity at Signal", "Risk $"]
+                          "Entry Criteria", "Signal Close", "T+1 Open", "Price", "Shares", "PnL", 
+                          "ATR", "Equity at Signal", "Risk $"]
             # FIXED FORMATTING for Trade Log as well
             st.dataframe(sig_df[display_cols].sort_values("Date", ascending=False).style.format({
                 "Price": "${:.2f}", 
+                "Signal Close": "${:.2f}",
+                "T+1 Open": "${:.2f}",
                 "PnL": "${:,.0f}", 
                 "Date": "{:%Y-%m-%d}",
                 "Entry Date": "{:%Y-%m-%d}", 
