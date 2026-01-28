@@ -121,8 +121,18 @@ def send_email_summary(signals_list):
                     filters_html = "<li style='color: #999;'>No filter details available</li>"
             
             # Build exit section - only show stop/target if actually used
+            # Smart detection: check explicit flags OR infer from exit_primary text
             use_stop = sig.get('Use_Stop', True)
             use_target = sig.get('Use_Target', True)
+            
+            # Also check if exit_primary suggests time-only exit
+            exit_primary = sig.get('Exit_Primary', '')
+            if 'time stop' in exit_primary.lower() or 'time exit' in exit_primary.lower():
+                # If it says "X-day time stop" without mentioning stop/target, suppress them
+                if 'stop' not in exit_primary.lower().replace('time stop', ''):
+                    use_stop = False
+                if 'target' not in exit_primary.lower():
+                    use_target = False
             
             exit_parts = []
             if use_stop:
@@ -156,13 +166,25 @@ def send_email_summary(signals_list):
             thesis = sig.get('Setup_Thesis', '')
             thesis_html = f"<div style='font-style: italic; color: #555; margin: 10px 0; padding: 10px; background: #f9f9f9; border-left: 3px solid #2196f3;'>{thesis}</div>" if thesis else ""
             
-            # Entry type display
+            # Entry type display - don't show price for Open-based limits
             entry_type = sig.get('Entry_Type', 'Signal Close')
             limit_price = sig.get('Limit_Price')
-            if limit_price:
+            
+            # Determine if we know the entry price
+            is_open_based = "Open" in entry_type and "Limit" in entry_type
+            
+            if is_open_based:
+                # Open-based limit - we don't know T+1 Open yet
+                entry_display = entry_type  # Just show the entry type, no price
+            elif "Signal Close" in entry_type or "T+1 Close" in entry_type:
+                # We know the price
+                entry_display = f"{entry_type} @ ${sig['Entry']:.2f}"
+            elif limit_price and "Close" in entry_type:
+                # Close-based limit with known price
                 entry_display = f"{entry_type} @ ${limit_price:.2f}"
             else:
-                entry_display = entry_type
+                # Default: show entry price if known
+                entry_display = f"{entry_type} @ ${sig['Entry']:.2f}"
             
             # Notional and days
             notional = sig.get('Notional', 0)
@@ -195,7 +217,7 @@ def send_email_summary(signals_list):
                         </div>
                     </div>
                     <div style="margin-top: 10px; padding-top: 10px; border-top: 1px dashed #ddd; font-size: 13px; color: #555;">
-                        <strong>Entry:</strong> {entry_display} @ ${sig['Entry']:.2f}
+                        <strong>Entry:</strong> {entry_display}
                         <span style="margin-left: 20px;"><strong>Exit:</strong> {sig['Time Exit']} ({days_to_exit}d)</span>
                     </div>
                 </div>
@@ -264,11 +286,19 @@ def send_email_summary(signals_list):
         </table>
         """
         
-        # Total risk summary
+        # Total risk summary - NET notional (long - short)
         total_risk = sum(s.get('Risk_Amt', 0) for s in signals_list)
-        total_notional = sum(s.get('Notional', 0) for s in signals_list)
+        long_notional = sum(s.get('Notional', 0) for s in signals_list if s['Action'] == 'BUY')
+        short_notional = sum(s.get('Notional', 0) for s in signals_list if s['Action'] != 'BUY')
+        net_notional = long_notional - short_notional
         long_count = sum(1 for s in signals_list if s['Action'] == 'BUY')
         short_count = len(signals_list) - long_count
+        
+        # Format net notional with +/- sign
+        if net_notional >= 0:
+            net_notional_str = f"+${net_notional:,.0f}"
+        else:
+            net_notional_str = f"-${abs(net_notional):,.0f}"
         
         html_content = f"""
         <html>
@@ -280,7 +310,7 @@ def send_email_summary(signals_list):
                         <div style="font-size: 14px; opacity: 0.8; margin-top: 5px;">{date_str}</div>
                         <div style="font-size: 28px; margin-top: 10px;">🎯 {len(signals_list)} Signal{'s' if len(signals_list) > 1 else ''}</div>
                         <div style="font-size: 14px; margin-top: 8px; opacity: 0.9;">
-                            {long_count} Long | {short_count} Short | ${total_risk:,.0f} Total Risk | ${total_notional:,.0f} Notional
+                            {long_count} Long | {short_count} Short | ${total_risk:,.0f} Risk | {net_notional_str} Net Exposure
                         </div>
                     </div>
                     
@@ -886,6 +916,7 @@ def save_signals_to_gsheet(new_dataframe, sheet_name='Trade_Signals_Log'):
 def get_entry_type_short(entry_mode, limit_price=None):
     """
     Returns a concise entry type label for the summary table.
+    For Open-based limits, we can't show a price since T+1 Open is unknown.
     """
     if "Signal Close" in entry_mode:
         return "MOC"
@@ -894,12 +925,25 @@ def get_entry_type_short(entry_mode, limit_price=None):
     elif "T+1 Close if <" in entry_mode:
         return "Cond Close"
     elif "Limit" in entry_mode:
-        if limit_price:
-            return f"LMT ${limit_price:.2f}"
+        # Check if it's Open-based (unknown price) or Close-based (known price)
+        if "Open" in entry_mode:
+            # Open-based: can't show price, it depends on T+1 Open
+            if "0.5" in entry_mode:
+                return "Open ±0.5 ATR"
+            elif "1 ATR" in entry_mode:
+                return "Open ±1 ATR"
+            else:
+                return "Open LMT"
         elif "Persistent" in entry_mode:
+            # Close-based persistent limit - can show price
+            if limit_price:
+                return f"LMT ${limit_price:.2f} GTC"
             return "LMT GTC"
         else:
-            return "LMT DAY"
+            # Close-based day limit - can show price
+            if limit_price:
+                return f"LMT ${limit_price:.2f}"
+            return "LMT"
     else:
         return entry_mode[:15]
 
