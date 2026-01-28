@@ -221,7 +221,208 @@ def grade_strategy(pf, sqn, win_rate, total_trades):
     if score >= 0: return "D", "Poor", reasons
     return "F", "Uninvestable", reasons
 
+def _infer_strategy_type(params):
+    """
+    Infers the strategy type based on indicator settings.
+    Returns: (type_str, thesis_str)
+    """
+    direction = params.get('trade_direction', 'Long')
+    perf_filters = params.get('perf_filters', [])
+    
+    # Check for oversold/overbought conditions
+    has_oversold = any(f['logic'] == '<' and f['thresh'] <= 33 for f in perf_filters)
+    has_overbought = any(f['logic'] == '>' and f['thresh'] >= 67 for f in perf_filters)
+    has_52w = params.get('use_52w', False)
+    has_breakout = params.get('breakout_mode', 'None') != 'None'
+    has_sznl = params.get('use_sznl', False) or params.get('use_market_sznl', False)
+    
+    # Infer type and generate thesis
+    if has_52w and params.get('52w_type') == 'New 52w High':
+        strat_type = "Breakout"
+        thesis = "Momentum continuation after new highs"
+    elif has_breakout and "High" in params.get('breakout_mode', ''):
+        strat_type = "Breakout"
+        thesis = "Breakout above previous range"
+    elif has_oversold and direction == 'Long':
+        strat_type = "MeanReversion"
+        thesis = "Oversold bounce setup"
+    elif has_overbought and direction == 'Short':
+        strat_type = "MeanReversion"
+        thesis = "Overbought fade setup"
+    elif has_sznl and not (has_oversold or has_overbought):
+        strat_type = "Seasonal"
+        thesis = "Seasonal tendency play"
+    elif has_overbought and direction == 'Long':
+        strat_type = "Momentum"
+        thesis = "Momentum continuation in strong names"
+    else:
+        strat_type = "Custom"
+        thesis = "[EDIT: Add thesis]"
+    
+    # Enhance thesis with context
+    if has_sznl and strat_type != "Seasonal":
+        sznl_logic = params.get('sznl_logic', '>')
+        sznl_thresh = params.get('sznl_thresh', 50)
+        if sznl_logic == '>' and sznl_thresh >= 65:
+            thesis += " with strong seasonal tailwind"
+        elif sznl_logic == '<' and sznl_thresh <= 33:
+            thesis += " despite weak seasonality (contrarian)"
+    
+    trend = params.get('trend_filter', 'None')
+    if "200 SMA" in trend and ">" in trend:
+        thesis += " in uptrending names"
+    elif "200 SMA" in trend and "<" in trend:
+        thesis += " in downtrending names"
+    
+    return strat_type, thesis
+
+
+def _generate_key_filters(params):
+    """
+    Generates human-readable list of key signal conditions from params.
+    """
+    filters = []
+    direction = params.get('trade_direction', 'Long')
+    
+    # Performance Rank Filters
+    for pf in params.get('perf_filters', []):
+        consec_str = f" ({pf['consecutive']}d consecutive)" if pf.get('consecutive', 1) > 1 else ""
+        if pf['logic'] == 'Between':
+            filters.append(f"{pf['window']}D rank between {pf['thresh']:.0f}-{pf.get('thresh_max', 100):.0f}th %ile{consec_str}")
+        else:
+            filters.append(f"{pf['window']}D rank {pf['logic']} {pf['thresh']:.0f}th %ile{consec_str}")
+    
+    # MA Consecutive Filters
+    for maf in params.get('ma_consec_filters', []):
+        filters.append(f"Close {maf['logic'].lower()} {maf['length']} SMA ({maf['consec']}d consecutive)")
+    
+    # Seasonality
+    if params.get('use_sznl'):
+        filters.append(f"Ticker seasonal rank {params['sznl_logic']} {params['sznl_thresh']:.0f}")
+    if params.get('use_market_sznl'):
+        filters.append(f"Market seasonal {params['market_sznl_logic']} {params['market_sznl_thresh']:.0f}")
+    
+    # 52-Week
+    if params.get('use_52w'):
+        first_str = " (first in {0}d)".format(params.get('52w_lookback', 21)) if params.get('52w_first_instance') else ""
+        filters.append(f"{params['52w_type']}{first_str}")
+    if params.get('exclude_52w_high'):
+        filters.append("NOT at 52-week high")
+    
+    # Breakout Mode
+    if params.get('breakout_mode', 'None') != 'None':
+        filters.append(params['breakout_mode'])
+    
+    # Range Filter
+    if params.get('use_range_filter'):
+        filters.append(f"Close in {params['range_min']}-{params['range_max']}% of daily range")
+    
+    # Volume Filters
+    if params.get('use_vol'):
+        filters.append(f"Volume > {params['vol_thresh']:.1f}x 63-day avg")
+    if params.get('use_vol_rank'):
+        filters.append(f"10D vol rank {params['vol_rank_logic']} {params['vol_rank_thresh']:.0f}th %ile")
+    if params.get('vol_gt_prev'):
+        filters.append("Volume > previous day")
+    
+    # Acc/Dist
+    if params.get('use_acc_count_filter'):
+        filters.append(f"Acc days {params['acc_count_logic']} {params['acc_count_thresh']} in last {params['acc_count_window']}d")
+    if params.get('use_dist_count_filter'):
+        filters.append(f"Dist days {params['dist_count_logic']} {params['dist_count_thresh']} in last {params['dist_count_window']}d")
+    
+    # Gap Filter
+    if params.get('use_gap_filter'):
+        filters.append(f"Gap count {params['gap_logic']} {params['gap_thresh']} in last {params['gap_lookback']}d")
+    
+    # Trend Filter
+    trend = params.get('trend_filter', 'None')
+    if trend != 'None':
+        filters.append(f"Trend: {trend}")
+    
+    # VIX Filter
+    if params.get('use_vix_filter'):
+        filters.append(f"VIX between {params['vix_min']:.0f}-{params['vix_max']:.0f}")
+    
+    # T+1 Open Filters
+    if params.get('use_t1_open_filter'):
+        for f in params.get('t1_open_filters', []):
+            offset_str = f" {'+' if f['atr_offset'] >= 0 else ''}{f['atr_offset']} ATR" if f['atr_offset'] != 0 else ""
+            filters.append(f"T+1 Open {f['logic']} {f['reference']}{offset_str}")
+    
+    return filters if filters else ["[EDIT: Add key filters]"]
+
+
+def _generate_exit_summary(params):
+    """
+    Generates human-readable exit summary from execution params.
+    """
+    direction = params.get('trade_direction', 'Long')
+    stop_atr = params.get('stop_atr', 2.0)
+    tgt_atr = params.get('tgt_atr', 5.0)
+    hold_days = params.get('holding_days', 10)
+    use_stop = params.get('use_stop_loss', True)
+    use_tgt = params.get('use_take_profit', True)
+    
+    # Determine primary exit
+    if not use_stop and not use_tgt:
+        primary = f"{hold_days}-day time stop"
+    elif use_tgt and use_stop:
+        primary = f"Target, Stop, or {hold_days}-day time stop"
+    elif use_tgt:
+        primary = f"Target or {hold_days}-day time stop"
+    else:
+        primary = f"Stop or {hold_days}-day time stop"
+    
+    # Stop logic
+    if use_stop:
+        if direction == 'Long':
+            stop_logic = f"{stop_atr:.1f} ATR below entry"
+        else:
+            stop_logic = f"{stop_atr:.1f} ATR above entry"
+    else:
+        stop_logic = "None (time exit only)"
+    
+    # Target logic
+    if use_tgt:
+        if direction == 'Long':
+            tgt_logic = f"{tgt_atr:.1f} ATR above entry"
+        else:
+            tgt_logic = f"{tgt_atr:.1f} ATR below entry"
+    else:
+        tgt_logic = "None (time exit only)"
+    
+    return {
+        "primary_exit": primary,
+        "stop_logic": stop_logic,
+        "target_logic": tgt_logic,
+        "notes": None
+    }
+
+
+def _infer_timeframe(params):
+    """
+    Infers timeframe category from holding period and entry type.
+    """
+    hold_days = params.get('holding_days', 10)
+    entry_type = params.get('entry_type', '')
+    
+    if "Overnight" in entry_type or "Intraday" in entry_type or "Day Trade" in entry_type:
+        return "Intraday"
+    elif hold_days <= 2:
+        return "Overnight"
+    elif hold_days <= 10:
+        return "Swing"
+    else:
+        return "Position"
+
+
 def build_strategy_dict(params, tickers_to_run, pf, sqn, win_rate, expectancy_r):
+    """
+    Builds the strategy dictionary for export to strategy_config.py.
+    Generates human-readable 'setup' and 'exit_summary' blocks for email clarity.
+    """
+    # Build strategy ID from key params
     id_parts = []
     if params.get('perf_filters'):
         perf_str = "+".join([f"{f['window']}d {f['logic']} {f['thresh']:.0f}%ile" for f in params['perf_filters']])
@@ -237,10 +438,35 @@ def build_strategy_dict(params, tickers_to_run, pf, sqn, win_rate, expectancy_r)
     id_parts.append(f"Entry: {params['entry_type']}")
     id_parts.append(f"{params['holding_days']}d hold")
     strategy_id = ", ".join(id_parts) if id_parts else "Custom Strategy"
+    
     grade, verdict, _ = grade_strategy(pf, sqn, win_rate, 100)
+    
+    # Generate setup block
+    strat_type, thesis = _infer_strategy_type(params)
+    key_filters = _generate_key_filters(params)
+    timeframe = _infer_timeframe(params)
+    
+    # Generate exit summary
+    exit_summary = _generate_exit_summary(params)
+    
     strategy = {
-        "id": strategy_id, "name": "Custom Backtest Strategy",
-        "description": f"Start: {params['backtest_start_date']}. Universe: {len(tickers_to_run)} tickers. Dir: {params['trade_direction']}. PF: {pf:.2f}. SQN: {sqn:.2f}.",
+        "id": strategy_id,
+        "name": "Custom Backtest Strategy",
+        
+        # NEW: Structured setup block for "Why did this flag?"
+        "setup": {
+            "type": strat_type,
+            "timeframe": timeframe,
+            "thesis": thesis,
+            "key_filters": key_filters
+        },
+        
+        # NEW: Exit summary for "When do I exit?"
+        "exit_summary": exit_summary,
+        
+        # DEPRECATED: Keep for backwards compatibility, but simplified
+        "description": f"Backtest: {params['backtest_start_date']} to present. {len(tickers_to_run)} tickers.",
+        
         "universe_tickers": tickers_to_run,
         "settings": {
             "trade_direction": params.get('trade_direction', 'Long'), "entry_type": params.get('entry_type', 'T+1 Open'),
