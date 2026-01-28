@@ -1,5 +1,16 @@
 # strategy_config.py
-
+# !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+# CRITICAL WARNING FOR AI AGENTS & DEVELOPERS
+# !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+# 1. Strategy Names are KEYS. If you change a 'name' field below (e.g., 
+#    "Overbot Vol Spike"), you MUST check `daily_scan.py`. That script uses 
+#    string matching on these names to apply custom risk multipliers.
+#    Renaming without updating `daily_scan.py` will break risk sizing.
+#
+# 2. This file is updated via MANUAL COPY-PASTE from the Backtester UI.
+#    Do not change the schema of the strategy dictionaries, or the copy-paste
+#    workflow will fail.
+# !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 # ============================================
 # ACCOUNT CONFIGURATION
 # ============================================
