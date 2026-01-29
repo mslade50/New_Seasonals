@@ -708,7 +708,10 @@ _STRATEGY_BOOK_RAW = [
             "min_price": 10.0, "min_vol": 100000,
             "min_age": 0.25, "max_age": 100.0,
             "min_atr_pct": 0.2, "max_atr_pct": 10.0,
-            "entry_conf_bps": 0
+            "entry_conf_bps": 0,
+            "use_vix_filter": True,
+            "vix_min": 0.0,
+            "vix_max": 33.0
         },
         "execution": {
             "risk_bps": 35,
