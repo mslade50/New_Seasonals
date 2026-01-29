@@ -655,7 +655,10 @@ def process_signals_fast(candidates, signal_data, processed_dict, strategies, st
     """
     Process candidates chronologically with dynamic sizing based on REAL-TIME MTM equity.
     
-    FIXED VERSION: Proper entry type handling for Signal Close, GTC limits, etc.
+    COMPLETE FIX v3:
+    - Entry: GTC limits now use FIXED limit price (based on T+1 Open)
+    - Entry: Signal Close now uses correct date/price
+    - EXIT: Now checks for stop loss and take profit hits (was missing!)
     """
     if not candidates:
         return pd.DataFrame()
@@ -680,6 +683,7 @@ def process_signals_fast(candidates, signal_data, processed_dict, strategies, st
         strat = strategies[strat_idx]
         settings = strat['settings']
         strat_name = strat['name']
+        execution = strat['execution']
         
         pos_key = (strat_name, ticker)
         
@@ -694,9 +698,9 @@ def process_signals_fast(candidates, signal_data, processed_dict, strategies, st
         if pd.isna(atr) or atr <= 0:
             continue
         
-        # ========== ENTRY LOGIC SECTION (FIXED) ==========
+        # ========== ENTRY LOGIC SECTION ==========
         entry_type = settings.get('entry_type', 'T+1 Open')
-        hold_days = strat['execution']['hold_days']
+        hold_days = execution['hold_days']
         
         # Normalize entry type for matching (case-insensitive)
         entry_type_upper = entry_type.upper()
@@ -706,7 +710,7 @@ def process_signals_fast(candidates, signal_data, processed_dict, strategies, st
         is_t1_conditional = 'T+1 CLOSE IF' in entry_type_upper
         is_limit_open_atr = 'LIMIT' in entry_type_upper and 'OPEN' in entry_type_upper and 'ATR' in entry_type_upper
         is_persistent = 'PERSISTENT' in entry_type_upper or 'GTC' in entry_type_upper
-        is_limit_close_atr = 'LIMIT' in entry_type_upper and 'ATR' in entry_type_upper and not is_limit_open_atr
+        is_limit_close_anchored = ('LIMIT ORDER' in entry_type_upper) and 'ATR' in entry_type_upper and not is_limit_open_atr
         
         # Skip if we need T+1 data but don't have it
         if signal_idx + 1 >= len(df) and not is_signal_close:
@@ -727,12 +731,12 @@ def process_signals_fast(candidates, signal_data, processed_dict, strategies, st
             entry_price = entry_row['Close']
             entry_date = entry_row.name
         
-        # --- T+1 OPEN (Default for most strategies) ---
+        # --- T+1 OPEN ---
         elif is_t1_open:
             entry_price = entry_row['Open']
             entry_date = entry_row.name
         
-        # --- T+1 CLOSE IF < SIGNAL CLOSE (Conditional) ---
+        # --- T+1 CLOSE IF < SIGNAL CLOSE ---
         elif is_t1_conditional:
             if entry_row['Close'] < row_data['close']:
                 entry_price = entry_row['Close']
@@ -740,80 +744,115 @@ def process_signals_fast(candidates, signal_data, processed_dict, strategies, st
             else:
                 valid_entry = False
         
-        # --- LIMIT (OPEN +/- ATR) with PERSISTENT/GTC ---
+        # --- LIMIT (OPEN +/- ATR) with GTC: Fixed limit based on T+1 Open ---
         elif is_limit_open_atr and is_persistent:
-            # GTC limit order: try to fill over multiple days
-            # Anchored to T+1 Open price (calculated fresh each day)
+            base_price = entry_row['Open']
             limit_offset = 0.5 * atr
+            
+            if settings['trade_direction'] == 'Long':
+                limit_price = base_price - limit_offset
+            else:
+                limit_price = base_price + limit_offset
+            
             found_fill = False
             search_end = min(signal_idx + 1 + hold_days, len(df))
             
             for i in range(signal_idx + 1, search_end):
                 check_row = df.iloc[i]
-                day_open = check_row['Open']
+                day_open, day_low, day_high = check_row['Open'], check_row['Low'], check_row['High']
                 
-                if settings['trade_direction'] == 'Short':
-                    limit_price = day_open + limit_offset
-                    if check_row['High'] >= limit_price:
-                        # Filled at limit or open if gapped through
-                        entry_price = limit_price if check_row['Open'] <= limit_price else check_row['Open']
+                if settings['trade_direction'] == 'Long':
+                    if day_open < limit_price:
+                        entry_price = day_open
                         entry_date = check_row.name
-                        hold_days = max(1, strat['execution']['hold_days'] - (i - signal_idx))
+                        hold_days = max(1, execution['hold_days'] - (i - signal_idx))
                         found_fill = True
                         break
-                else:  # Long
-                    limit_price = day_open - limit_offset
-                    if check_row['Low'] <= limit_price:
-                        entry_price = limit_price if check_row['Open'] >= limit_price else check_row['Open']
+                    elif day_low <= limit_price:
+                        entry_price = limit_price
                         entry_date = check_row.name
-                        hold_days = max(1, strat['execution']['hold_days'] - (i - signal_idx))
+                        hold_days = max(1, execution['hold_days'] - (i - signal_idx))
                         found_fill = True
                         break
+                else:
+                    if day_open > limit_price:
+                        entry_price = day_open
+                        entry_date = check_row.name
+                        hold_days = max(1, execution['hold_days'] - (i - signal_idx))
+                        found_fill = True
+                        break
+                    elif day_high >= limit_price:
+                        entry_price = limit_price
+                        entry_date = check_row.name
+                        hold_days = max(1, execution['hold_days'] - (i - signal_idx))
+                        found_fill = True
+                        break
+            
             valid_entry = found_fill
         
         # --- LIMIT (OPEN +/- ATR) Single Day ---
         elif is_limit_open_atr:
             limit_offset = 0.5 * atr
-            if settings['trade_direction'] == 'Short':
-                limit_price = entry_row['Open'] + limit_offset
-                if entry_row['High'] >= limit_price:
-                    entry_price = limit_price
+            day_open = entry_row['Open']
+            
+            if settings['trade_direction'] == 'Long':
+                limit_price = day_open - limit_offset
+                if entry_row['Low'] <= limit_price:
+                    entry_price = limit_price if entry_row['Open'] >= limit_price else entry_row['Open']
                 else:
                     valid_entry = False
-            else:  # Long
-                limit_price = entry_row['Open'] - limit_offset
-                if entry_row['Low'] <= limit_price:
-                    entry_price = limit_price
+            else:
+                limit_price = day_open + limit_offset
+                if entry_row['High'] >= limit_price:
+                    entry_price = limit_price if entry_row['Open'] <= limit_price else entry_row['Open']
                 else:
                     valid_entry = False
             entry_date = entry_row.name
         
         # --- PERSISTENT LIMIT anchored to SIGNAL CLOSE ---
-        elif is_persistent or is_limit_close_atr:
-            # Handles "Limit Order -0.5 ATR Persistent", "Limit (Close -0.5 ATR)" etc.
+        elif is_persistent or is_limit_close_anchored:
             limit_offset = 0.5 * atr
-            limit_base = row_data['close']  # Anchor to signal close
+            limit_base = row_data['close']
+            
+            if settings['trade_direction'] == 'Long':
+                limit_price = limit_base - limit_offset
+            else:
+                limit_price = limit_base + limit_offset
+            
             found_fill = False
             search_end = min(signal_idx + 1 + hold_days, len(df))
             
             for i in range(signal_idx + 1, search_end):
                 check_row = df.iloc[i]
-                if settings['trade_direction'] == 'Short':
-                    limit_price = limit_base + limit_offset
-                    if check_row['High'] >= limit_price:
-                        entry_price = limit_price if check_row['Open'] <= limit_price else check_row['Open']
+                day_open, day_low, day_high = check_row['Open'], check_row['Low'], check_row['High']
+                
+                if settings['trade_direction'] == 'Long':
+                    if day_open < limit_price:
+                        entry_price = day_open
                         entry_date = check_row.name
-                        hold_days = max(1, strat['execution']['hold_days'] - (i - signal_idx))
+                        hold_days = max(1, execution['hold_days'] - (i - signal_idx))
                         found_fill = True
                         break
-                else:  # Long
-                    limit_price = limit_base - limit_offset
-                    if check_row['Low'] <= limit_price:
-                        entry_price = limit_price if check_row['Open'] >= limit_price else check_row['Open']
+                    elif day_low <= limit_price:
+                        entry_price = limit_price
                         entry_date = check_row.name
-                        hold_days = max(1, strat['execution']['hold_days'] - (i - signal_idx))
+                        hold_days = max(1, execution['hold_days'] - (i - signal_idx))
                         found_fill = True
                         break
+                else:
+                    if day_open > limit_price:
+                        entry_price = day_open
+                        entry_date = check_row.name
+                        hold_days = max(1, execution['hold_days'] - (i - signal_idx))
+                        found_fill = True
+                        break
+                    elif day_high >= limit_price:
+                        entry_price = limit_price
+                        entry_date = check_row.name
+                        hold_days = max(1, execution['hold_days'] - (i - signal_idx))
+                        found_fill = True
+                        break
+            
             valid_entry = found_fill
         
         # --- DEFAULT: T+1 Open ---
@@ -827,13 +866,78 @@ def process_signals_fast(candidates, signal_data, processed_dict, strategies, st
         if not valid_entry or entry_price is None or pd.isna(entry_price):
             continue
         
-        # ========== END ENTRY LOGIC SECTION ==========
+        # ========== EXIT LOGIC SECTION (NEW!) ==========
+        direction = settings.get('trade_direction', 'Long')
+        stop_atr = execution['stop_atr']
+        tgt_atr = execution['tgt_atr']
+        use_stop = execution.get('use_stop_loss', True)
+        use_target = execution.get('use_take_profit', True)
+        
+        # Calculate stop and target prices
+        if direction == 'Long':
+            stop_price = entry_price - (atr * stop_atr)
+            tgt_price = entry_price + (atr * tgt_atr)
+        else:
+            stop_price = entry_price + (atr * stop_atr)
+            tgt_price = entry_price - (atr * tgt_atr)
+        
+        # Determine entry_idx
+        if entry_date == signal_date:
+            entry_idx = signal_idx
+        else:
+            entry_idx = df.index.get_loc(entry_date)
+        
+        # Default: time-based exit
+        max_exit_idx = min(entry_idx + hold_days, len(df) - 1)
+        exit_idx = max_exit_idx
+        exit_price = df.iloc[exit_idx]['Close']
+        exit_date = df.index[exit_idx]
+        exit_type = "Time"
+        
+        # Check for stop/target hits day by day
+        if use_stop or use_target:
+            for check_idx in range(entry_idx + 1, max_exit_idx + 1):
+                check_row = df.iloc[check_idx]
+                day_low = check_row['Low']
+                day_high = check_row['High']
+                
+                if direction == 'Long':
+                    # Check stop first (assumes stop hit before target on same day)
+                    if use_stop and day_low <= stop_price:
+                        exit_price = stop_price
+                        exit_date = check_row.name
+                        exit_idx = check_idx
+                        exit_type = "Stop"
+                        break
+                    # Check target
+                    if use_target and day_high >= tgt_price:
+                        exit_price = tgt_price
+                        exit_date = check_row.name
+                        exit_idx = check_idx
+                        exit_type = "Target"
+                        break
+                else:  # Short
+                    # Check stop first
+                    if use_stop and day_high >= stop_price:
+                        exit_price = stop_price
+                        exit_date = check_row.name
+                        exit_idx = check_idx
+                        exit_type = "Stop"
+                        break
+                    # Check target
+                    if use_target and day_low <= tgt_price:
+                        exit_price = tgt_price
+                        exit_date = check_row.name
+                        exit_idx = check_idx
+                        exit_type = "Target"
+                        break
+        
+        # ========== END EXIT LOGIC SECTION ==========
         
         # --- CALCULATE REAL-TIME MTM EQUITY ---
         still_open = []
         for pos in open_positions:
             if signal_date >= pos['exit_date']:
-                # Position has closed - realize P&L
                 if pos['t_clean'] in price_matrix.columns:
                     exit_price_mtm = price_matrix.loc[pos['exit_date'], pos['t_clean']] if pos['exit_date'] in price_matrix.index else pos['entry_price']
                 else:
@@ -849,7 +953,7 @@ def process_signals_fast(candidates, signal_data, processed_dict, strategies, st
         
         open_positions = still_open
         
-        # Calculate unrealized P&L using price matrix
+        # Calculate unrealized P&L
         unrealized_pnl = 0.0
         for pos in open_positions:
             if pos['t_clean'] in price_matrix.columns and signal_date in price_matrix.index:
@@ -871,10 +975,9 @@ def process_signals_fast(candidates, signal_data, processed_dict, strategies, st
             else:
                 unrealized_pnl += (pos['entry_price'] - current_price) * pos['shares']
         
-        # REAL-TIME MTM EQUITY
         current_equity = starting_equity + realized_pnl + unrealized_pnl
         
-        risk_bps = strat['execution']['risk_bps']
+        risk_bps = execution['risk_bps']
         base_risk = current_equity * risk_bps / 10000
         
         # Strategy-specific risk adjustments
@@ -892,9 +995,6 @@ def process_signals_fast(candidates, signal_data, processed_dict, strategies, st
             elif sznl_val >= 33:
                 base_risk *= 0.66 if sznl_val < 50 else 1.0
         
-        direction = settings.get('trade_direction', 'Long')
-        stop_atr = strat['execution']['stop_atr']
-        
         dist = atr * stop_atr
         action = "BUY" if direction == 'Long' else "SELL SHORT"
         
@@ -909,23 +1009,13 @@ def process_signals_fast(candidates, signal_data, processed_dict, strategies, st
         if shares == 0:
             continue
         
-        # Determine entry_idx based on entry_date
-        if entry_date == signal_date:
-            # Signal close entry - use signal_idx
-            entry_idx = signal_idx
-        else:
-            entry_idx = df.index.get_loc(entry_date)
-        
-        exit_idx = min(entry_idx + hold_days, len(df) - 1)
-        exit_row = df.iloc[exit_idx]
-        exit_price = exit_row['Close']
-        exit_date = exit_row.name
-        
+        # Calculate PnL
         if action == "BUY":
             pnl = ((exit_price - entry_price) * shares).round(0)
         else:
             pnl = ((entry_price - exit_price) * shares).round(0)
         
+        # Time stop date for display
         target_ts_idx = entry_idx + hold_days
         if target_ts_idx < len(df):
             time_stop_date = df.index[target_ts_idx]
@@ -946,13 +1036,13 @@ def process_signals_fast(candidates, signal_data, processed_dict, strategies, st
         
         position_last_exit[pos_key] = exit_date.value
         
-        # Get T+1 Open for logging (handle signal close case)
         t1_open = entry_row['Open'] if entry_row is not None else entry_price
         
         results.append({
             "Date": signal_date,
             "Entry Date": entry_date,
             "Exit Date": exit_date,
+            "Exit Type": exit_type,
             "Time Stop": time_stop_date,
             "Strategy": strat_name,
             "Ticker": ticker,
