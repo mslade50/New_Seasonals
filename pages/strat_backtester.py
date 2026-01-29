@@ -651,38 +651,6 @@ def build_price_matrix(processed_dict, tickers):
     return pd.DataFrame(price_data, index=all_dates)
 
 
-"""
-strat_backtester.py Entry Type Fix
-==================================
-
-INSTRUCTIONS:
-1. Open pages/strat_backtester.py
-2. Find the process_signals_fast() function (around line 424)
-3. Replace the entire function with this version
-
-CHANGES MADE:
-- Fixed "Signal Close" entry to use signal row (not T+1)
-- Added "GTC" as alias for "Persistent" limit orders
-- Made entry type matching case-insensitive and more robust
-- Fixed hold_days calculation for persistent orders that fill late
-
-ENTRY TYPES NOW SUPPORTED:
-- Signal Close
-- T+1 Open
-- T+1 Close  
-- T+1 Close if < Signal Close
-- Limit (Open +/- 0.5 ATR)
-- Limit (Open +/- 0.5 ATR) GTC
-- Limit (Open +/- 0.5 ATR) (Persistent)
-- Limit Order -0.5 ATR Persistent
-- Limit Order -0.5 ATR (Persistent)
-"""
-
-import pandas as pd
-import numpy as np
-from pandas.tseries.offsets import BusinessDay
-
-
 def process_signals_fast(candidates, signal_data, processed_dict, strategies, starting_equity):
     """
     Process candidates chronologically with dynamic sizing based on REAL-TIME MTM equity.
