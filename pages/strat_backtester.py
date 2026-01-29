@@ -10,6 +10,19 @@ import sys
 import os
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
+# Try/Except block for local imports to prevent crash if file missing
+try:
+    from equity_curve_analysis import (
+        analyze_equity_curve_effects, 
+        create_equity_curve_analysis_figure,
+        generate_sizing_recommendations
+    )
+except ImportError:
+    # Define dummy functions or handle the error if the module is missing
+    def analyze_equity_curve_effects(*args, **kwargs): return None
+    def create_equity_curve_analysis_figure(*args, **kwargs): return None
+    def generate_sizing_recommendations(*args, **kwargs): return []
+
 # -----------------------------------------------------------------------------
 # IMPORT STRATEGY BOOK FROM ROOT
 # -----------------------------------------------------------------------------
@@ -20,15 +33,15 @@ sys.path.append(parent_dir)
 try:
     from strategy_config import _STRATEGY_BOOK_RAW, ACCOUNT_VALUE
 except ImportError:
-    st.error("Could not find strategy_config.py in the root directory.")
+    # st.error("Could not find strategy_config.py in the root directory.")
     _STRATEGY_BOOK_RAW = []
     ACCOUNT_VALUE = 150000
 
 # -----------------------------------------------------------------------------
 # CONSTANTS & SETUP
 # -----------------------------------------------------------------------------
-PRIMARY_SZNL_PATH = "sznl_ranks.csv"      
-BACKUP_SZNL_PATH = "seasonal_ranks.csv"   
+PRIMARY_SZNL_PATH = "sznl_ranks.csv"
+BACKUP_SZNL_PATH = "seasonal_ranks.csv"
 
 @st.cache_resource 
 def load_seasonal_map():
@@ -1104,7 +1117,7 @@ def analyze_signal_density(sig_df, window_days=0):
     if window_days > 0:
         def count_nearby_signals(date):
             nearby = df[(df['Date'] >= date - pd.Timedelta(days=window_days)) & 
-                       (df['Date'] <= date + pd.Timedelta(days=window_days))]
+                        (df['Date'] <= date + pd.Timedelta(days=window_days))]
             return len(nearby)
         df['Signals in Window'] = df['Date'].apply(count_nearby_signals)
         density_col = 'Signals in Window'
@@ -1577,10 +1590,10 @@ def main():
                 fig_exposure = go.Figure()
                 
                 colors = {
-                    'Long Exposure %': '#00CC00',      # Green
-                    'Short Exposure %': '#CC0000',     # Red
-                    'Net Exposure %': '#0066CC',       # Blue
-                    'Gross Exposure %': '#FF9900'      # Orange
+                    'Long Exposure %': '#00CC00',       # Green
+                    'Short Exposure %': '#CC0000',      # Red
+                    'Net Exposure %': '#0066CC',        # Blue
+                    'Gross Exposure %': '#FF9900'       # Orange
                 }
                 
                 for col in exposure_df.columns:
@@ -1617,6 +1630,61 @@ def main():
                 col2.metric("Max Gross Exposure", f"{exposure_df['Gross Exposure %'].max():.1f}%")
                 col3.metric("Avg Net Exposure", f"{exposure_df['Net Exposure %'].mean():.1f}%")
                 col4.metric("Max Net Exposure", f"{exposure_df['Net Exposure %'].max():.1f}%")
+            st.divider()
+            st.subheader("🎯 Equity Curve Regime Analysis")
+            st.caption("Analyzing whether recent performance predicts tomorrow's returns - useful for adaptive position sizing.")
+            
+            # Run the analysis
+            ec_analysis = analyze_equity_curve_effects(port_daily_pnl, starting_equity, ma_window=20, bb_std=2.0)
+            
+            if ec_analysis is not None:
+                # Display the visualization
+                ec_fig = create_equity_curve_analysis_figure(ec_analysis, starting_equity)
+                if ec_fig:
+                    st.plotly_chart(ec_fig, use_container_width=True)
+                
+                # Display recommendations
+                recommendations = generate_sizing_recommendations(ec_analysis)
+                
+                st.markdown("### 📋 Sizing Recommendations")
+                for rec_text, confidence in recommendations:
+                    if confidence == "Medium":
+                        st.success(f"**{confidence}:** {rec_text}")
+                    elif confidence == "Low":
+                        st.info(f"**{confidence}:** {rec_text}")
+                    else:
+                        st.warning(rec_text)
+                
+                # Detailed stats in expander
+                with st.expander("📊 Detailed Statistics"):
+                    col1, col2 = st.columns(2)
+                    
+                    with col1:
+                        st.markdown("**Autocorrelation (does today predict tomorrow?)**")
+                        autocorr = ec_analysis.get('autocorr', {})
+                        for lag, val in autocorr.items():
+                            interpretation = "momentum" if val > 0 else "mean-reversion"
+                            st.write(f"• {lag.replace('_', ' ').title()}: {val:.3f} ({interpretation})")
+                        
+                        st.markdown("**Equity vs 20d MA**")
+                        ma = ec_analysis.get('ma_analysis', {})
+                        for state, data in ma.items():
+                            st.write(f"• {state.replace('_', ' ').title()}: ${data.get('avg_fwd_pnl', 0):,.0f}/day avg, {data.get('win_rate', 0):.1%} win rate (n={data.get('count', 0):.0f})")
+                    
+                    with col2:
+                        st.markdown("**After Streaks**")
+                        streak = ec_analysis.get('streak_analysis', {})
+                        for state, data in streak.items():
+                            label = state.replace('_', ' ').replace('plus', '+').title()
+                            st.write(f"• {label}: ${data.get('avg_fwd_pnl', 0):,.0f}/day avg, {data.get('win_rate', 0):.1%} win rate (n={data.get('count', 0):.0f})")
+                        
+                        st.markdown("**Drawdown Depth**")
+                        dd = ec_analysis.get('dd_analysis', {})
+                        for state, data in dd.items():
+                            label = state.replace('_', ' ').replace('pct', '%').title()
+                            st.write(f"• {label}: ${data.get('avg_fwd_pnl', 0):,.0f}/day avg, {data.get('win_rate', 0):.1%} win rate (n={data.get('count', 0):.0f})")
+            else:
+                st.warning("Insufficient data for equity curve analysis (need at least 30 days of trading history).")
 
             st.subheader("📜 Trade Log")
             display_cols = ["Date", "Entry Date", "Exit Date", "Strategy", "Ticker", "Action",
