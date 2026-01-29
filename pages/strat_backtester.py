@@ -1073,7 +1073,12 @@ def process_signals_fast(candidates, signal_data, processed_dict, strategies, st
     return sig_df.sort_values(by="Exit Date")
 
 def get_daily_mtm_series(sig_df, master_dict, start_date=None):
-    """Optimized daily MTM calculation using vectorized operations."""
+    """
+    Optimized daily MTM calculation using vectorized operations.
+    
+    FIXED: Use explicit column access instead of positional (_3, _4)
+    to handle new "Exit Type" column.
+    """
     if sig_df.empty:
         return pd.Series(dtype=float)
     
@@ -1098,18 +1103,18 @@ def get_daily_mtm_series(sig_df, master_dict, start_date=None):
             temp_df.columns = [c.capitalize() for c in temp_df.columns]
             price_cache[ticker] = temp_df['Close'].reindex(all_dates, method='ffill')
     
-    # Process trades using itertuples (faster than iterrows)
-    for trade in sig_df.itertuples():
-        ticker = trade.Ticker
-        action = trade.Action
-        shares = trade.Shares
-        entry_date = trade._3  # Entry Date
-        exit_date = trade._4   # Exit Date  
-        entry_price = trade.Price
+    # Process trades using iterrows with explicit column access
+    for idx, trade in sig_df.iterrows():
+        ticker = trade['Ticker']
+        action = trade['Action']
+        shares = trade['Shares']
+        entry_date = trade['Entry Date']
+        exit_date = trade['Exit Date']
+        entry_price = trade['Price']
         
         if ticker not in price_cache:
             if exit_date in daily_pnl.index:
-                daily_pnl[exit_date] += trade.PnL
+                daily_pnl[exit_date] += trade['PnL']
             continue
         
         closes = price_cache[ticker]
