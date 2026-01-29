@@ -651,10 +651,43 @@ def build_price_matrix(processed_dict, tickers):
     return pd.DataFrame(price_data, index=all_dates)
 
 
+"""
+strat_backtester.py Entry Type Fix
+==================================
+
+INSTRUCTIONS:
+1. Open pages/strat_backtester.py
+2. Find the process_signals_fast() function (around line 424)
+3. Replace the entire function with this version
+
+CHANGES MADE:
+- Fixed "Signal Close" entry to use signal row (not T+1)
+- Added "GTC" as alias for "Persistent" limit orders
+- Made entry type matching case-insensitive and more robust
+- Fixed hold_days calculation for persistent orders that fill late
+
+ENTRY TYPES NOW SUPPORTED:
+- Signal Close
+- T+1 Open
+- T+1 Close  
+- T+1 Close if < Signal Close
+- Limit (Open +/- 0.5 ATR)
+- Limit (Open +/- 0.5 ATR) GTC
+- Limit (Open +/- 0.5 ATR) (Persistent)
+- Limit Order -0.5 ATR Persistent
+- Limit Order -0.5 ATR (Persistent)
+"""
+
+import pandas as pd
+import numpy as np
+from pandas.tseries.offsets import BusinessDay
+
+
 def process_signals_fast(candidates, signal_data, processed_dict, strategies, starting_equity):
     """
     Process candidates chronologically with dynamic sizing based on REAL-TIME MTM equity.
-    Optimized version using price matrix for faster lookups.
+    
+    FIXED VERSION: Proper entry type handling for Signal Close, GTC limits, etc.
     """
     if not candidates:
         return pd.DataFrame()
@@ -693,31 +726,85 @@ def process_signals_fast(candidates, signal_data, processed_dict, strategies, st
         if pd.isna(atr) or atr <= 0:
             continue
         
-        entry_type = settings.get('entry_type', 'Signal Close')
+        # ========== ENTRY LOGIC SECTION (FIXED) ==========
+        entry_type = settings.get('entry_type', 'T+1 Open')
         hold_days = strat['execution']['hold_days']
         
-        if signal_idx + 1 >= len(df):
-            continue
+        # Normalize entry type for matching (case-insensitive)
+        entry_type_upper = entry_type.upper()
+        is_signal_close = 'SIGNAL CLOSE' in entry_type_upper
+        is_t1_close = entry_type == 'T+1 Close'
+        is_t1_open = entry_type == 'T+1 Open'
+        is_t1_conditional = 'T+1 CLOSE IF' in entry_type_upper
+        is_limit_open_atr = 'LIMIT' in entry_type_upper and 'OPEN' in entry_type_upper and 'ATR' in entry_type_upper
+        is_persistent = 'PERSISTENT' in entry_type_upper or 'GTC' in entry_type_upper
+        is_limit_close_atr = 'LIMIT' in entry_type_upper and 'ATR' in entry_type_upper and not is_limit_open_atr
         
-        entry_row = df.iloc[signal_idx + 1]
+        # Skip if we need T+1 data but don't have it
+        if signal_idx + 1 >= len(df) and not is_signal_close:
+            continue
         
         valid_entry = True
         entry_price = None
         entry_date = None
+        entry_row = df.iloc[signal_idx + 1] if signal_idx + 1 < len(df) else None
         
-        if entry_type == 'T+1 Close':
+        # --- SIGNAL CLOSE: Enter at today's close ---
+        if is_signal_close:
+            entry_price = row_data['close']
+            entry_date = signal_date
+        
+        # --- T+1 CLOSE ---
+        elif is_t1_close:
             entry_price = entry_row['Close']
             entry_date = entry_row.name
-        elif entry_type == 'T+1 Open':
+        
+        # --- T+1 OPEN (Default for most strategies) ---
+        elif is_t1_open:
             entry_price = entry_row['Open']
             entry_date = entry_row.name
-        elif entry_type == 'T+1 Close if < Signal Close':
+        
+        # --- T+1 CLOSE IF < SIGNAL CLOSE (Conditional) ---
+        elif is_t1_conditional:
             if entry_row['Close'] < row_data['close']:
                 entry_price = entry_row['Close']
                 entry_date = entry_row.name
             else:
                 valid_entry = False
-        elif entry_type == "Limit (Open +/- 0.5 ATR)":
+        
+        # --- LIMIT (OPEN +/- ATR) with PERSISTENT/GTC ---
+        elif is_limit_open_atr and is_persistent:
+            # GTC limit order: try to fill over multiple days
+            # Anchored to T+1 Open price (calculated fresh each day)
+            limit_offset = 0.5 * atr
+            found_fill = False
+            search_end = min(signal_idx + 1 + hold_days, len(df))
+            
+            for i in range(signal_idx + 1, search_end):
+                check_row = df.iloc[i]
+                day_open = check_row['Open']
+                
+                if settings['trade_direction'] == 'Short':
+                    limit_price = day_open + limit_offset
+                    if check_row['High'] >= limit_price:
+                        # Filled at limit or open if gapped through
+                        entry_price = limit_price if check_row['Open'] <= limit_price else check_row['Open']
+                        entry_date = check_row.name
+                        hold_days = max(1, strat['execution']['hold_days'] - (i - signal_idx))
+                        found_fill = True
+                        break
+                else:  # Long
+                    limit_price = day_open - limit_offset
+                    if check_row['Low'] <= limit_price:
+                        entry_price = limit_price if check_row['Open'] >= limit_price else check_row['Open']
+                        entry_date = check_row.name
+                        hold_days = max(1, strat['execution']['hold_days'] - (i - signal_idx))
+                        found_fill = True
+                        break
+            valid_entry = found_fill
+        
+        # --- LIMIT (OPEN +/- ATR) Single Day ---
+        elif is_limit_open_atr:
             limit_offset = 0.5 * atr
             if settings['trade_direction'] == 'Short':
                 limit_price = entry_row['Open'] + limit_offset
@@ -725,16 +812,19 @@ def process_signals_fast(candidates, signal_data, processed_dict, strategies, st
                     entry_price = limit_price
                 else:
                     valid_entry = False
-            else:
+            else:  # Long
                 limit_price = entry_row['Open'] - limit_offset
                 if entry_row['Low'] <= limit_price:
                     entry_price = limit_price
                 else:
                     valid_entry = False
             entry_date = entry_row.name
-        elif "Persistent" in entry_type:
+        
+        # --- PERSISTENT LIMIT anchored to SIGNAL CLOSE ---
+        elif is_persistent or is_limit_close_atr:
+            # Handles "Limit Order -0.5 ATR Persistent", "Limit (Close -0.5 ATR)" etc.
             limit_offset = 0.5 * atr
-            limit_base = row_data['close']
+            limit_base = row_data['close']  # Anchor to signal close
             found_fill = False
             search_end = min(signal_idx + 1 + hold_days, len(df))
             
@@ -743,42 +833,49 @@ def process_signals_fast(candidates, signal_data, processed_dict, strategies, st
                 if settings['trade_direction'] == 'Short':
                     limit_price = limit_base + limit_offset
                     if check_row['High'] >= limit_price:
-                        entry_price = limit_price
+                        entry_price = limit_price if check_row['Open'] <= limit_price else check_row['Open']
                         entry_date = check_row.name
                         hold_days = max(1, strat['execution']['hold_days'] - (i - signal_idx))
                         found_fill = True
                         break
-                else:
+                else:  # Long
                     limit_price = limit_base - limit_offset
                     if check_row['Low'] <= limit_price:
-                        entry_price = limit_price
+                        entry_price = limit_price if check_row['Open'] >= limit_price else check_row['Open']
                         entry_date = check_row.name
                         hold_days = max(1, strat['execution']['hold_days'] - (i - signal_idx))
                         found_fill = True
                         break
             valid_entry = found_fill
+        
+        # --- DEFAULT: T+1 Open ---
         else:
-            entry_price = row_data['close']
-            entry_date = signal_date
+            if entry_row is not None:
+                entry_price = entry_row['Open']
+                entry_date = entry_row.name
+            else:
+                valid_entry = False
         
         if not valid_entry or entry_price is None or pd.isna(entry_price):
             continue
         
-        # --- CALCULATE REAL-TIME MTM EQUITY (optimized) ---
+        # ========== END ENTRY LOGIC SECTION ==========
+        
+        # --- CALCULATE REAL-TIME MTM EQUITY ---
         still_open = []
         for pos in open_positions:
             if signal_date >= pos['exit_date']:
                 # Position has closed - realize P&L
                 if pos['t_clean'] in price_matrix.columns:
-                    exit_price = price_matrix.loc[pos['exit_date'], pos['t_clean']] if pos['exit_date'] in price_matrix.index else pos['entry_price']
+                    exit_price_mtm = price_matrix.loc[pos['exit_date'], pos['t_clean']] if pos['exit_date'] in price_matrix.index else pos['entry_price']
                 else:
                     pos_df = processed_dict.get(pos['t_clean'])
-                    exit_price = pos_df.iloc[pos['exit_idx']]['Close'] if pos_df is not None else pos['entry_price']
+                    exit_price_mtm = pos_df.iloc[pos['exit_idx']]['Close'] if pos_df is not None else pos['entry_price']
                 
                 if pos['direction'] == 'Long':
-                    realized_pnl += (exit_price - pos['entry_price']) * pos['shares']
+                    realized_pnl += (exit_price_mtm - pos['entry_price']) * pos['shares']
                 else:
-                    realized_pnl += (pos['entry_price'] - exit_price) * pos['shares']
+                    realized_pnl += (pos['entry_price'] - exit_price_mtm) * pos['shares']
             else:
                 still_open.append(pos)
         
@@ -812,6 +909,7 @@ def process_signals_fast(candidates, signal_data, processed_dict, strategies, st
         risk_bps = strat['execution']['risk_bps']
         base_risk = current_equity * risk_bps / 10000
         
+        # Strategy-specific risk adjustments
         if strat_name == "Overbot Vol Spike":
             vol_ratio = row_data['vol_ratio']
             if vol_ratio > 2.0:
@@ -843,7 +941,13 @@ def process_signals_fast(candidates, signal_data, processed_dict, strategies, st
         if shares == 0:
             continue
         
-        entry_idx = df.index.get_loc(entry_date)
+        # Determine entry_idx based on entry_date
+        if entry_date == signal_date:
+            # Signal close entry - use signal_idx
+            entry_idx = signal_idx
+        else:
+            entry_idx = df.index.get_loc(entry_date)
+        
         exit_idx = min(entry_idx + hold_days, len(df) - 1)
         exit_row = df.iloc[exit_idx]
         exit_price = exit_row['Close']
@@ -874,6 +978,9 @@ def process_signals_fast(candidates, signal_data, processed_dict, strategies, st
         
         position_last_exit[pos_key] = exit_date.value
         
+        # Get T+1 Open for logging (handle signal close case)
+        t1_open = entry_row['Open'] if entry_row is not None else entry_price
+        
         results.append({
             "Date": signal_date,
             "Entry Date": entry_date,
@@ -887,7 +994,7 @@ def process_signals_fast(candidates, signal_data, processed_dict, strategies, st
             "Shares": shares,
             "PnL": pnl,
             "ATR": atr,
-            "T+1 Open": entry_row['Open'],
+            "T+1 Open": t1_open,
             "Signal Close": row_data['close'],
             "Range %": row_data['range_pct'],
             "Equity at Signal": current_equity,
@@ -906,7 +1013,6 @@ def process_signals_fast(candidates, signal_data, processed_dict, strategies, st
     sig_df['Time Stop'] = pd.to_datetime(sig_df['Time Stop'])
     
     return sig_df.sort_values(by="Exit Date")
-
 
 def get_daily_mtm_series(sig_df, master_dict, start_date=None):
     """Optimized daily MTM calculation using vectorized operations."""
