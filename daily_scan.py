@@ -812,6 +812,11 @@ def save_staging_orders(signals_list, strategy_book, sheet_name='Order_Staging')
                 tif_instruction = "DAY"
             
             if "0.5" in entry_mode: offset_atr = 0.5
+
+        elif "LOC" in entry_mode:
+            entry_instruction = "LOC"
+            limit_price = row.get('Limit_Price', row['Entry'])
+            tif_instruction = "DAY" 
             
         # 2. MARKET ON OPEN
         elif "T+1 Open" in entry_mode:
@@ -823,7 +828,7 @@ def save_staging_orders(signals_list, strategy_book, sheet_name='Order_Staging')
             entry_instruction = "LMT"
             limit_price = row['Entry'] - 0.01
             tif_instruction = "DAY" 
-
+        
         ib_action = "SELL" if "SHORT" in row['Action'] else "BUY"
 
         staging_data.append({
@@ -986,7 +991,87 @@ def get_sizing_variable(strat_name, last_row):
     else:
         return None
 
-
+def generate_vol_spike_companion(primary_signal, strat, last_row):
+    """
+    Generates a companion LOC (Limit-on-Close) order for Vol Spike signals.
+    
+    Logic: If Vol Spike fires, we also want to catch the scenario where price
+    keeps running higher the next day. Stage a LOC sell order at 
+    (Signal_Close + 0.5 ATR) — only fills if T+1 Close exceeds that threshold.
+    
+    Returns a signal dict for the companion order, or None if not applicable.
+    """
+    if strat['name'] != "Overbot Vol Spike":
+        return None
+    
+    signal_close = primary_signal['Entry']
+    atr = primary_signal['ATR']
+    
+    # LOC threshold: only fill if close > signal_close + 0.5 ATR
+    loc_threshold = signal_close + (0.5 * atr)
+    
+    # Use same sizing as primary (already has dynamic adjustments applied)
+    risk = primary_signal['Risk_Amt']
+    
+    # For LOC, estimate entry at threshold for sizing
+    direction = "Short"
+    stop_atr = strat['execution']['stop_atr']
+    dist = atr * stop_atr
+    shares = int(risk / dist) if dist > 0 else 0
+    
+    if shares == 0:
+        return None
+    
+    # Calculate exit date (same hold period as primary)
+    hold_days = strat['execution']['hold_days']
+    effective_entry_date = last_row.name + TRADING_DAY  # T+1 close entry
+    exit_date = (effective_entry_date + (TRADING_DAY * hold_days)).date()
+    
+    # Stop/target from threshold price
+    stop_price = loc_threshold + (atr * stop_atr)
+    tgt_atr = strat['execution']['tgt_atr']
+    tgt_price = loc_threshold - (atr * tgt_atr)
+    
+    return {
+        "Strategy_ID": strat['id'] + " (LOC Add)",
+        "Strategy_Name": "Vol Spike LOC Add",
+        "Ticker": primary_signal['Ticker'],
+        "Date": primary_signal['Date'],
+        "Action": "SELL SHORT",
+        "Shares": shares,
+        "Risk_Amt": risk,
+        "Sizing_Notes": primary_signal['Sizing_Notes'] + " | LOC Companion",
+        "Stats": primary_signal['Stats'],
+        "Entry": loc_threshold,  # Threshold price (actual fill at close)
+        "Stop": stop_price,
+        "Target": tgt_price,
+        "Time Exit": exit_date,
+        "ATR": atr,
+        # Execution context - LOC specific
+        "Entry_Type": "LOC (Limit-on-Close)",
+        "Entry_Type_Short": f"LOC >${loc_threshold:.2f}",
+        "Limit_Price": loc_threshold,
+        "Notional": shares * loc_threshold,
+        "Days_To_Exit": hold_days,
+        "Use_Stop": strat['execution'].get('use_stop_loss', False),
+        "Use_Target": strat['execution'].get('use_take_profit', False),
+        # Setup context
+        "Setup_Type": "MeanReversion",
+        "Setup_Timeframe": "Overnight",
+        "Setup_Thesis": "Vol Spike ran higher — catching extended move at close",
+        "Setup_Filters": ["Same conditions as Vol Spike", 
+                          f"T+1 Close > ${loc_threshold:.2f} (Signal Close + 0.5 ATR)"],
+        "Live_Filters": [("T+1 Close must exceed", f"${loc_threshold:.2f}", False)],
+        "Exit_Primary": f"{hold_days}-day time stop",
+        "Exit_Stop": strat.get('exit_summary', {}).get('stop_logic', ''),
+        "Exit_Target": strat.get('exit_summary', {}).get('target_logic', ''),
+        "Exit_Notes": "Companion to Vol Spike — only fills if price kept running",
+        "Sizing_Variable": primary_signal.get('Sizing_Variable'),
+        # Internal flags
+        "_is_companion": True,
+        "_parent_strategy": "Overbot Vol Spike"
+    }
+    
 def build_live_filters(strat, last_row, df):
     """
     Builds a list of filter descriptions with their LIVE values from the scan.
@@ -1390,7 +1475,10 @@ def run_daily_scan():
                         # Sizing context variable (for strategies with dynamic sizing)
                         "Sizing_Variable": get_sizing_variable(strat['name'], last_row)
                     })
-
+                    if strat['name'] == "Overbot Vol Spike":
+                        companion = generate_vol_spike_companion(signals[-1], strat, last_row)
+                        if companion:
+                            signals.append(companion)
             except Exception as e:
                 print(f"Error processing {ticker}: {e}")
                 continue
