@@ -519,13 +519,23 @@ def check_signal(df, params, sznl_map):
         ret_max = params.get('return_max', 100)
         if not (today_ret >= ret_min and today_ret <= ret_max): return False
 
-    # 2. Trend Filter (Global)
+    # 2. Trend Filter (Global) - ALL OPTIONS
     trend_opt = params.get('trend_filter', 'None')
     if trend_opt == "Price > 200 SMA":
         if not (last_row['Close'] > last_row['SMA200']): return False
     elif trend_opt == "Price > Rising 200 SMA":
         prev_row = df.iloc[-2]
         if not ((last_row['Close'] > last_row['SMA200']) and (last_row['SMA200'] > prev_row['SMA200'])): return False
+    elif trend_opt == "Not Below Declining 200 SMA":
+        prev_row = df.iloc[-2]
+        # REJECT if price is below AND the 200 SMA is falling
+        is_below_declining = (last_row['Close'] < last_row['SMA200']) and (last_row['SMA200'] < prev_row['SMA200'])
+        if is_below_declining: return False
+    elif trend_opt == "Price < 200 SMA":
+        if not (last_row['Close'] < last_row['SMA200']): return False
+    elif trend_opt == "Price < Falling 200 SMA":
+        prev_row = df.iloc[-2]
+        if not ((last_row['Close'] < last_row['SMA200']) and (last_row['SMA200'] < prev_row['SMA200'])): return False
     elif "Market" in trend_opt or "SPY" in trend_opt:
         if 'Market_Above_SMA200' in df.columns:
             is_above = last_row['Market_Above_SMA200']
@@ -665,7 +675,7 @@ def check_signal(df, params, sznl_map):
         
         if params['market_sznl_logic'] == '<': mkt_cond = mkt_ranks < params['market_sznl_thresh']
         else: mkt_cond = mkt_ranks > params['market_sznl_thresh']
-        if not mkt_cond[-1]: return False
+        if not mkt_cond.iloc[-1]: return False
 
     # 8. 52w
     if params['use_52w']:
@@ -680,14 +690,16 @@ def check_signal(df, params, sznl_map):
     # 8b. Exclude 52w High
     if params.get('exclude_52w_high', False):
         if last_row['is_52w_high']: return False
-    # 10. VIX Filter
+
+    # 9. VIX Filter
     if params.get('use_vix_filter', False):
         vix_min = params.get('vix_min', 0)
         vix_max = params.get('vix_max', 100)
         vix_val = last_row.get('VIX_Value', 0)
         if not (vix_val >= vix_min and vix_val <= vix_max): 
             return False
-    # 9. Volume (Ratio ONLY)
+
+    # 10. Volume (Ratio ONLY)
     if params['use_vol']:
         if not (last_row['vol_ratio'] > params['vol_thresh']): return False
 
@@ -699,7 +711,6 @@ def check_signal(df, params, sznl_map):
             if not (val > params['vol_rank_thresh']): return False
             
     return True
-
 
 # -----------------------------------------------------------------------------
 # 3. SAVING FUNCTIONS
