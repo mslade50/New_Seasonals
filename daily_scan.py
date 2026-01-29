@@ -464,7 +464,15 @@ def calculate_indicators(df, sznl_map, ticker, market_series=None):
 
     if market_series is not None:
         df['Market_Above_SMA200'] = market_series.reindex(df.index, method='ffill').fillna(False)
-    
+
+    vix_df = master_dict.get('^VIX')
+    vix_series = None
+    if vix_df is not None:
+        vix_series = vix_df['Close']
+    if vix_series is not None:
+        df['VIX_Value'] = vix_series.reindex(df.index, method='ffill').fillna(0)
+    else:
+        df['VIX_Value'] = 0.0
     # --- 52w High/Low ---
     rolling_high = df['High'].shift(1).rolling(252).max()
     rolling_low = df['Low'].shift(1).rolling(252).min()
@@ -675,7 +683,13 @@ def check_signal(df, params, sznl_map):
     # 8b. Exclude 52w High
     if params.get('exclude_52w_high', False):
         if last_row['is_52w_high']: return False
-
+    # 10. VIX Filter
+    if params.get('use_vix_filter', False):
+        vix_min = params.get('vix_min', 0)
+        vix_max = params.get('vix_max', 100)
+        vix_val = last_row.get('VIX_Value', 0)
+        if not (vix_val >= vix_min and vix_val <= vix_max): 
+            return False
     # 9. Volume (Ratio ONLY)
     if params['use_vol']:
         if not (last_row['vol_ratio'] > params['vol_thresh']): return False
