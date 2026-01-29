@@ -387,7 +387,7 @@ def get_sznl_val_series(ticker, dates, sznl_map):
 # 2. CALCULATION ENGINE
 # -----------------------------------------------------------------------------
 
-def calculate_indicators(df, sznl_map, ticker, market_series=None):
+def calculate_indicators(df, sznl_map, ticker, market_series=None, vix_series=None):
     df = df.copy()
     df.columns = [c.capitalize() for c in df.columns]
     if df.index.tz is not None: df.index = df.index.tz_localize(None)
@@ -465,14 +465,12 @@ def calculate_indicators(df, sznl_map, ticker, market_series=None):
     if market_series is not None:
         df['Market_Above_SMA200'] = market_series.reindex(df.index, method='ffill').fillna(False)
 
-    vix_df = master_dict.get('^VIX')
-    vix_series = None
-    if vix_df is not None:
-        vix_series = vix_df['Close']
+    # --- VIX (passed in as parameter) ---
     if vix_series is not None:
         df['VIX_Value'] = vix_series.reindex(df.index, method='ffill').fillna(0)
     else:
         df['VIX_Value'] = 0.0
+
     # --- 52w High/Low ---
     rolling_high = df['High'].shift(1).rolling(252).max()
     rolling_low = df['Low'].shift(1).rolling(252).min()
@@ -480,7 +478,6 @@ def calculate_indicators(df, sznl_map, ticker, market_series=None):
     df['is_52w_low'] = df['Low'] < rolling_low
         
     return df
-
 
 def check_signal(df, params, sznl_map):
     last_row = df.iloc[-1]
@@ -1178,13 +1175,24 @@ def run_daily_scan():
         if s.get('use_market_sznl'): all_tickers.add(s.get('market_ticker', '^GSPC'))
         if "Market" in s.get('trend_filter', ''): all_tickers.add(s.get('market_ticker', 'SPY'))
         if "SPY" in s.get('trend_filter', ''): all_tickers.add("SPY")
+        if s.get('use_vix_filter', False): all_tickers.add("^VIX")  # VIX for strategies that need it
     
     # 2. Download Data
     master_dict = download_historical_data(list(all_tickers))
     
+    # 3. Prepare VIX Series (for strategies with VIX filter)
+    vix_df = master_dict.get('^VIX')
+    vix_series = None
+    if vix_df is not None and not vix_df.empty:
+        temp_vix = vix_df.copy()
+        temp_vix.columns = [c.capitalize() for c in temp_vix.columns]
+        if temp_vix.index.tz is not None:
+            temp_vix.index = temp_vix.index.tz_localize(None)
+        vix_series = temp_vix['Close']
+    
     all_signals = []
 
-    # 3. Run Strategies
+    # 4. Run Strategies
     for strat in STRATEGY_BOOK:
         print(f"Running: {strat['name']}...")
         
@@ -1206,7 +1214,7 @@ def run_daily_scan():
             if df is None or len(df) < 250: continue
             
             try:
-                calc_df = calculate_indicators(df.copy(), sznl_map, t_clean, market_series)
+                calc_df = calculate_indicators(df.copy(), sznl_map, t_clean, market_series, vix_series)
                 
                 if check_signal(calc_df, strat['settings'], sznl_map):
                     last_row = calc_df.iloc[-1]
@@ -1363,7 +1371,7 @@ def run_daily_scan():
                         "Setup_Timeframe": setup_block.get('timeframe', 'Swing'),
                         "Setup_Thesis": setup_block.get('thesis', ''),
                         "Setup_Filters": setup_block.get('key_filters', []),
-                        "Live_Filters": live_filters,  # NEW: filters with actual values
+                        "Live_Filters": live_filters,
                         "Exit_Primary": exit_block.get('primary_exit', ''),
                         "Exit_Stop": exit_block.get('stop_logic', ''),
                         "Exit_Target": exit_block.get('target_logic', ''),
@@ -1380,7 +1388,7 @@ def run_daily_scan():
             all_signals.extend(signals)
             print(f"  -> Found {len(signals)} signals.")
 
-    # 4. Save Results
+    # 5. Save Results
     if all_signals:
         df_sig = pd.DataFrame(all_signals)
         # 1. Log to Master Sheet
@@ -1394,7 +1402,7 @@ def run_daily_scan():
     else:
         print("No signals found today.")
 
-    # 5. Send Email Summary
+    # 6. Send Email Summary
     send_email_summary(all_signals)
 
     print("--- Scan Complete ---")
