@@ -32,6 +32,20 @@ def analyze_equity_curve_effects(daily_pnl_series, starting_equity, ma_window=20
     equity = starting_equity + daily_pnl_series.cumsum()
     daily_returns = daily_pnl_series  # Already in $ terms
     
+    # Helper function for safe metric calculation
+    def safe_metrics(series, mask):
+        """Safely calculate metrics, handling NaN and empty series."""
+        filtered = series[mask].dropna()
+        count = len(filtered)
+        if count == 0:
+            return {'count': 0, 'avg_fwd_pnl': 0, 'win_rate': 0, 'total_pnl': 0}
+        return {
+            'count': int(count),
+            'avg_fwd_pnl': float(filtered.mean()) if pd.notna(filtered.mean()) else 0,
+            'win_rate': float((filtered > 0).mean()) if count > 0 else 0,
+            'total_pnl': float(filtered.sum()) if pd.notna(filtered.sum()) else 0
+        }
+    
     results = {}
     
     # =========================================================================
@@ -40,8 +54,11 @@ def analyze_equity_curve_effects(daily_pnl_series, starting_equity, ma_window=20
     # =========================================================================
     autocorr = {}
     for lag in [1, 2, 3, 5]:
-        if len(daily_returns) > lag + 10:
-            autocorr[f'lag_{lag}'] = daily_returns.autocorr(lag=lag)
+        if len(daily_returns.dropna()) > lag + 10:
+            ac_val = daily_returns.autocorr(lag=lag)
+            # Only include if we got a valid number
+            if pd.notna(ac_val):
+                autocorr[f'lag_{lag}'] = ac_val
     results['autocorr'] = autocorr
     
     # =========================================================================
@@ -50,25 +67,19 @@ def analyze_equity_curve_effects(daily_pnl_series, starting_equity, ma_window=20
     # =========================================================================
     equity_ma = equity.rolling(ma_window).mean()
     
-    # State: 1 if equity > MA, 0 if below
-    above_ma = (equity > equity_ma).shift(1)  # Shift to avoid lookahead
+    # State: True if equity > MA, False if below (fill NaN with False to avoid invert issues)
+    above_ma = (equity > equity_ma).fillna(False).shift(1).fillna(False)
+    below_ma = ~above_ma  # Now safe to invert
     
     # Forward 1-day returns (next day's P&L)
     fwd_1d = daily_returns.shift(-1)
     
+    # Filter out rows where MA wasn't yet calculated (first ma_window rows)
+    valid_mask = equity_ma.notna().shift(1).fillna(False)
+    
     ma_analysis = {
-        'above_ma': {
-            'count': above_ma.sum(),
-            'avg_fwd_pnl': fwd_1d[above_ma == True].mean(),
-            'win_rate': (fwd_1d[above_ma == True] > 0).mean(),
-            'total_pnl': fwd_1d[above_ma == True].sum()
-        },
-        'below_ma': {
-            'count': (~above_ma).sum(),
-            'avg_fwd_pnl': fwd_1d[above_ma == False].mean(),
-            'win_rate': (fwd_1d[above_ma == False] > 0).mean(),
-            'total_pnl': fwd_1d[above_ma == False].sum()
-        }
+        'above_ma': safe_metrics(fwd_1d, above_ma & valid_mask),
+        'below_ma': safe_metrics(fwd_1d, below_ma & valid_mask)
     }
     results['ma_analysis'] = ma_analysis
     
@@ -108,12 +119,7 @@ def analyze_equity_curve_effects(daily_pnl_series, starting_equity, ma_window=20
     for zone in ['above_upper', 'upper_half', 'middle', 'lower_half', 'below_lower']:
         mask = bb_zones_shifted == zone
         if mask.sum() > 5:  # Need enough samples
-            bb_analysis[zone] = {
-                'count': int(mask.sum()),
-                'avg_fwd_pnl': fwd_1d[mask].mean(),
-                'win_rate': (fwd_1d[mask] > 0).mean(),
-                'total_pnl': fwd_1d[mask].sum()
-            }
+            bb_analysis[zone] = safe_metrics(fwd_1d, mask)
     results['bb_analysis'] = bb_analysis
     
     # =========================================================================
