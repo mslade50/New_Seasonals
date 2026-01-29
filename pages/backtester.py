@@ -129,7 +129,7 @@ def apply_first_instance_filter(condition_series, lookback):
 
 def calculate_indicators(df, sznl_map, ticker, market_series=None, vix_series=None, 
                          market_sznl_series=None, gap_window=21, custom_sma_lengths=None, 
-                         acc_window=None, dist_window=None):
+                         acc_window=None, dist_window=None, ref_ticker_ranks=None):
     df = df.copy()
     df.columns = [c.capitalize() for c in df.columns]
     if df.index.tz is not None: df.index = df.index.tz_localize(None)
@@ -185,6 +185,11 @@ def calculate_indicators(df, sznl_map, ticker, market_series=None, vix_series=No
         df['Market_Above_SMA200'] = market_series.reindex(df.index, method='ffill').fillna(False)
     if vix_series is not None:
         df['VIX_Value'] = vix_series.reindex(df.index, method='ffill').fillna(0)
+    # Reference Ticker Ranks - merge onto this ticker's dataframe
+    if ref_ticker_ranks is not None:
+        for window, series in ref_ticker_ranks.items():
+            col_name = f'Ref_rank_ret_{window}d'
+            df[col_name] = series.reindex(df.index, method='ffill').fillna(50.0)
     denom = (df['High'] - df['Low'])
     df['RangePct'] = np.where(denom == 0, 0.5, (df['Close'] - df['Low']) / denom)
     df['DayOfWeekVal'] = df.index.dayofweek
@@ -222,21 +227,14 @@ def grade_strategy(pf, sqn, win_rate, total_trades):
     return "F", "Uninvestable", reasons
 
 def _infer_strategy_type(params):
-    """
-    Infers the strategy type based on indicator settings.
-    Returns: (type_str, thesis_str)
-    """
     direction = params.get('trade_direction', 'Long')
     perf_filters = params.get('perf_filters', [])
-    
-    # Check for oversold/overbought conditions
     has_oversold = any(f['logic'] == '<' and f['thresh'] <= 33 for f in perf_filters)
     has_overbought = any(f['logic'] == '>' and f['thresh'] >= 67 for f in perf_filters)
     has_52w = params.get('use_52w', False)
     has_breakout = params.get('breakout_mode', 'None') != 'None'
     has_sznl = params.get('use_sznl', False) or params.get('use_market_sznl', False)
     
-    # Infer type and generate thesis
     if has_52w and params.get('52w_type') == 'New 52w High':
         strat_type = "Breakout"
         thesis = "Momentum continuation after new highs"
@@ -259,7 +257,6 @@ def _infer_strategy_type(params):
         strat_type = "Custom"
         thesis = "[EDIT: Add thesis]"
     
-    # Enhance thesis with context
     if has_sznl and strat_type != "Seasonal":
         sznl_logic = params.get('sznl_logic', '>')
         sznl_thresh = params.get('sznl_thresh', 50)
@@ -276,15 +273,10 @@ def _infer_strategy_type(params):
     
     return strat_type, thesis
 
-
 def _generate_key_filters(params):
-    """
-    Generates human-readable list of key signal conditions from params.
-    """
     filters = []
     direction = params.get('trade_direction', 'Long')
     
-    # Performance Rank Filters
     for pf in params.get('perf_filters', []):
         consec_str = f" ({pf['consecutive']}d consecutive)" if pf.get('consecutive', 1) > 1 else ""
         if pf['logic'] == 'Between':
@@ -292,32 +284,26 @@ def _generate_key_filters(params):
         else:
             filters.append(f"{pf['window']}D rank {pf['logic']} {pf['thresh']:.0f}th %ile{consec_str}")
     
-    # MA Consecutive Filters
     for maf in params.get('ma_consec_filters', []):
         filters.append(f"Close {maf['logic'].lower()} {maf['length']} SMA ({maf['consec']}d consecutive)")
     
-    # Seasonality
     if params.get('use_sznl'):
         filters.append(f"Ticker seasonal rank {params['sznl_logic']} {params['sznl_thresh']:.0f}")
     if params.get('use_market_sznl'):
         filters.append(f"Market seasonal {params['market_sznl_logic']} {params['market_sznl_thresh']:.0f}")
     
-    # 52-Week
     if params.get('use_52w'):
         first_str = " (first in {0}d)".format(params.get('52w_lookback', 21)) if params.get('52w_first_instance') else ""
         filters.append(f"{params['52w_type']}{first_str}")
     if params.get('exclude_52w_high'):
         filters.append("NOT at 52-week high")
     
-    # Breakout Mode
     if params.get('breakout_mode', 'None') != 'None':
         filters.append(params['breakout_mode'])
     
-    # Range Filter
     if params.get('use_range_filter'):
         filters.append(f"Close in {params['range_min']}-{params['range_max']}% of daily range")
     
-    # Volume Filters
     if params.get('use_vol'):
         filters.append(f"Volume > {params['vol_thresh']:.1f}x 63-day avg")
     if params.get('use_vol_rank'):
@@ -325,26 +311,27 @@ def _generate_key_filters(params):
     if params.get('vol_gt_prev'):
         filters.append("Volume > previous day")
     
-    # Acc/Dist
     if params.get('use_acc_count_filter'):
         filters.append(f"Acc days {params['acc_count_logic']} {params['acc_count_thresh']} in last {params['acc_count_window']}d")
     if params.get('use_dist_count_filter'):
         filters.append(f"Dist days {params['dist_count_logic']} {params['dist_count_thresh']} in last {params['dist_count_window']}d")
     
-    # Gap Filter
     if params.get('use_gap_filter'):
         filters.append(f"Gap count {params['gap_logic']} {params['gap_thresh']} in last {params['gap_lookback']}d")
     
-    # Trend Filter
     trend = params.get('trend_filter', 'None')
     if trend != 'None':
         filters.append(f"Trend: {trend}")
     
-    # VIX Filter
     if params.get('use_vix_filter'):
         filters.append(f"VIX between {params['vix_min']:.0f}-{params['vix_max']:.0f}")
     
-    # T+1 Open Filters
+    # Reference Ticker Filter
+    if params.get('use_ref_ticker_filter') and params.get('ref_filters'):
+        ref_ticker = params.get('ref_ticker', 'IWM')
+        for rf in params['ref_filters']:
+            filters.append(f"{ref_ticker} {rf['window']}D rank {rf['logic']} {rf['thresh']:.0f}th %ile")
+    
     if params.get('use_t1_open_filter'):
         for f in params.get('t1_open_filters', []):
             offset_str = f" {'+' if f['atr_offset'] >= 0 else ''}{f['atr_offset']} ATR" if f['atr_offset'] != 0 else ""
@@ -352,11 +339,7 @@ def _generate_key_filters(params):
     
     return filters if filters else ["[EDIT: Add key filters]"]
 
-
 def _generate_exit_summary(params):
-    """
-    Generates human-readable exit summary from execution params.
-    """
     direction = params.get('trade_direction', 'Long')
     stop_atr = params.get('stop_atr', 2.0)
     tgt_atr = params.get('tgt_atr', 5.0)
@@ -364,7 +347,6 @@ def _generate_exit_summary(params):
     use_stop = params.get('use_stop_loss', True)
     use_tgt = params.get('use_take_profit', True)
     
-    # Determine primary exit
     if not use_stop and not use_tgt:
         primary = f"{hold_days}-day time stop"
     elif use_tgt and use_stop:
@@ -374,7 +356,6 @@ def _generate_exit_summary(params):
     else:
         primary = f"Stop or {hold_days}-day time stop"
     
-    # Stop logic
     if use_stop:
         if direction == 'Long':
             stop_logic = f"{stop_atr:.1f} ATR below entry"
@@ -383,7 +364,6 @@ def _generate_exit_summary(params):
     else:
         stop_logic = "None (time exit only)"
     
-    # Target logic
     if use_tgt:
         if direction == 'Long':
             tgt_logic = f"{tgt_atr:.1f} ATR above entry"
@@ -399,11 +379,7 @@ def _generate_exit_summary(params):
         "notes": None
     }
 
-
 def _infer_timeframe(params):
-    """
-    Infers timeframe category from holding period and entry type.
-    """
     hold_days = params.get('holding_days', 10)
     entry_type = params.get('entry_type', '')
     
@@ -416,13 +392,7 @@ def _infer_timeframe(params):
     else:
         return "Position"
 
-
 def build_strategy_dict(params, tickers_to_run, pf, sqn, win_rate, expectancy_r):
-    """
-    Builds the strategy dictionary for export to strategy_config.py.
-    Generates human-readable 'setup' and 'exit_summary' blocks for email clarity.
-    """
-    # Build strategy ID from key params
     id_parts = []
     if params.get('perf_filters'):
         perf_str = "+".join([f"{f['window']}d {f['logic']} {f['thresh']:.0f}%ile" for f in params['perf_filters']])
@@ -430,6 +400,10 @@ def build_strategy_dict(params, tickers_to_run, pf, sqn, win_rate, expectancy_r)
     if params.get('use_sznl'): id_parts.append(f"Sznl {params['sznl_logic']} {params['sznl_thresh']:.0f}")
     if params.get('use_acc_count_filter'): id_parts.append(f"{params['acc_count_thresh']} acc {params['acc_count_logic']} in {params['acc_count_window']}d")
     if params.get('use_dist_count_filter'): id_parts.append(f"{params['dist_count_thresh']} dist {params['dist_count_logic']} in {params['dist_count_window']}d")
+    if params.get('use_ref_ticker_filter') and params.get('ref_filters'):
+        ref_ticker = params.get('ref_ticker', 'IWM')
+        ref_str = "+".join([f"{ref_ticker} {f['window']}d {f['logic']} {f['thresh']:.0f}%ile" for f in params['ref_filters']])
+        id_parts.append(ref_str)
     if params.get('use_t1_open_filter') and params.get('t1_open_filters'):
         for f in params['t1_open_filters']:
             t1_str = f"T+1 Open {f['logic']} {f['reference']}"
@@ -440,35 +414,22 @@ def build_strategy_dict(params, tickers_to_run, pf, sqn, win_rate, expectancy_r)
     strategy_id = ", ".join(id_parts) if id_parts else "Custom Strategy"
     
     grade, verdict, _ = grade_strategy(pf, sqn, win_rate, 100)
-    
-    # Generate setup block
     strat_type, thesis = _infer_strategy_type(params)
     key_filters = _generate_key_filters(params)
     timeframe = _infer_timeframe(params)
-    
-    # Generate exit summary
     exit_summary = _generate_exit_summary(params)
     
     strategy = {
         "id": strategy_id,
         "name": "Custom Backtest Strategy",
-        
-        # NEW: Structured setup block for "Why did this flag?"
         "setup": {
             "type": strat_type,
             "timeframe": timeframe,
             "thesis": thesis,
             "key_filters": key_filters
         },
-        
-        # NEW: Exit summary for "When do I exit?"
         "exit_summary": exit_summary,
-        
-        # DEPRECATED: Keep for backwards compatibility, but simplified
         "description": f"Backtest: {params['backtest_start_date']} to present. Tested on {len(tickers_to_run)} tickers.",
-        
-        # MANUAL EDIT REQUIRED: Replace with universe variable name (no quotes)
-        # Options: INDEX_ETFS, SECTOR_INDEX_ETFS, LIQUID_UNIVERSE, LIQUID_NO_INDEX, LIQUID_PLUS_COMMODITIES
         "universe_tickers": "CHANGE_ME",
         "settings": {
             "trade_direction": params.get('trade_direction', 'Long'), "entry_type": params.get('entry_type', 'T+1 Open'),
@@ -491,6 +452,10 @@ def build_strategy_dict(params, tickers_to_run, pf, sqn, win_rate, expectancy_r)
             "min_vol": params.get('min_vol', 100000), "min_age": params.get('min_age', 0.25),
             "max_age": params.get('max_age', 100.0), "min_atr_pct": params.get('min_atr_pct', 0.0),
             "max_atr_pct": params.get('max_atr_pct', 10.0), "entry_conf_bps": params.get('entry_conf_bps', 0),
+            # Reference Ticker Filter settings
+            "use_ref_ticker_filter": params.get('use_ref_ticker_filter', False),
+            "ref_ticker": params.get('ref_ticker', 'IWM'),
+            "ref_filters": params.get('ref_filters', []),
         },
         "execution": {
             "risk_bps": 35, "slippage_bps": params.get('slippage_bps', 5),
@@ -502,7 +467,7 @@ def build_strategy_dict(params, tickers_to_run, pf, sqn, win_rate, expectancy_r)
     }
     return strategy
 
-def run_engine(universe_dict, params, sznl_map, market_series=None, vix_series=None, market_sznl_series=None):
+def run_engine(universe_dict, params, sznl_map, market_series=None, vix_series=None, market_sznl_series=None, ref_ticker_ranks=None):
     all_potential_trades = []
     total = len(universe_dict)
     bt_start_ts = pd.to_datetime(params['backtest_start_date'])
@@ -542,6 +507,10 @@ def run_engine(universe_dict, params, sznl_map, market_series=None, vix_series=N
     dist_win = params['dist_count_window'] if params.get('use_dist_count_filter', False) else None
     use_t1_open_filter = params.get('use_t1_open_filter', False)
     t1_open_filters = params.get('t1_open_filters', [])
+    
+    # Reference Ticker Filter params
+    use_ref_ticker_filter = params.get('use_ref_ticker_filter', False)
+    ref_filters = params.get('ref_filters', [])
 
     for i, (ticker, df_raw) in enumerate(universe_dict.items()):
         status_text.text(f"Scanning signals for {ticker}...")
@@ -554,7 +523,7 @@ def run_engine(universe_dict, params, sznl_map, market_series=None, vix_series=N
         ticker_last_exit = pd.Timestamp.min
         
         try:
-            df = calculate_indicators(df_raw, sznl_map, ticker, market_series, vix_series, market_sznl_series, gap_window, req_custom_mas, acc_win, dist_win)
+            df = calculate_indicators(df_raw, sznl_map, ticker, market_series, vix_series, market_sznl_series, gap_window, req_custom_mas, acc_win, dist_win, ref_ticker_ranks)
             df = df[df.index >= bt_start_ts]
             if df.empty: continue
             
@@ -663,6 +632,16 @@ def run_engine(universe_dict, params, sznl_map, market_series=None, vix_series=N
             if params.get('use_vix_filter', False) and 'VIX_Value' in df.columns:
                 vix_val = df['VIX_Value']
                 conditions.append((vix_val >= params['vix_min']) & (vix_val <= params['vix_max']))
+            
+            # --- REFERENCE TICKER FILTER ---
+            if use_ref_ticker_filter and ref_filters:
+                for rf in ref_filters:
+                    col = f"Ref_rank_ret_{rf['window']}d"
+                    if col in df.columns:
+                        if rf['logic'] == '<':
+                            conditions.append(df[col] < rf['thresh'])
+                        elif rf['logic'] == '>':
+                            conditions.append(df[col] > rf['thresh'])
                 
             if use_t1_open_filter and t1_open_filters:
                 for t1_filter in t1_open_filters:
@@ -1172,6 +1151,34 @@ def main():
             v_col1, v_col2 = st.columns(2)
             with v_col1: vol_rank_logic = st.selectbox("Logic", ["<", ">"], key="vrl", disabled=not use_vol_rank)
             with v_col2: vol_rank_thresh = st.number_input("Percentile (0-100)", 0.0, 100.0, 50.0, key="vrt", disabled=not use_vol_rank)
+    # =====================================================
+    # NEW: REFERENCE TICKER FILTER
+    # =====================================================
+    with st.expander("Reference Ticker Filter (e.g., IWM, SPY regime)", expanded=False):
+        st.markdown("**Filter signals based on another ticker's performance rank.** Useful for regime filtering (e.g., only take longs when IWM is oversold).")
+        use_ref_ticker_filter = st.checkbox("Enable Reference Ticker Filter", value=False)
+        ref_ticker_input = st.text_input("Reference Ticker", value="IWM", disabled=not use_ref_ticker_filter).strip().upper()
+        st.markdown("---")
+        ref_filters = []
+        ref_c1, ref_c2, ref_c3 = st.columns(3)
+        with ref_c1:
+            st.markdown("**5-Day Rank**")
+            use_ref_5d = st.checkbox("Enable", key="use_ref_5d", value=False, disabled=not use_ref_ticker_filter)
+            ref_5d_logic = st.selectbox("Logic", ["<", ">"], key="ref_5d_logic", disabled=not (use_ref_ticker_filter and use_ref_5d))
+            ref_5d_thresh = st.number_input("Threshold %ile", 0.0, 100.0, 33.0, key="ref_5d_thresh", disabled=not (use_ref_ticker_filter and use_ref_5d))
+            if use_ref_5d: ref_filters.append({'window': 5, 'logic': ref_5d_logic, 'thresh': ref_5d_thresh})
+        with ref_c2:
+            st.markdown("**10-Day Rank**")
+            use_ref_10d = st.checkbox("Enable", key="use_ref_10d", value=False, disabled=not use_ref_ticker_filter)
+            ref_10d_logic = st.selectbox("Logic", ["<", ">"], key="ref_10d_logic", disabled=not (use_ref_ticker_filter and use_ref_10d))
+            ref_10d_thresh = st.number_input("Threshold %ile", 0.0, 100.0, 33.0, key="ref_10d_thresh", disabled=not (use_ref_ticker_filter and use_ref_10d))
+            if use_ref_10d: ref_filters.append({'window': 10, 'logic': ref_10d_logic, 'thresh': ref_10d_thresh})
+        with ref_c3:
+            st.markdown("**21-Day Rank**")
+            use_ref_21d = st.checkbox("Enable", key="use_ref_21d", value=False, disabled=not use_ref_ticker_filter)
+            ref_21d_logic = st.selectbox("Logic", ["<", ">"], key="ref_21d_logic", disabled=not (use_ref_ticker_filter and use_ref_21d))
+            ref_21d_thresh = st.number_input("Threshold %ile", 0.0, 100.0, 33.0, key="ref_21d_thresh", disabled=not (use_ref_ticker_filter and use_ref_21d))
+            if use_ref_21d: ref_filters.append({'window': 21, 'logic': ref_21d_logic, 'thresh': ref_21d_thresh})
     st.markdown("---")
     if st.button("Run Backtest", type="primary", use_container_width=True):
         tickers_to_run = []
@@ -1217,6 +1224,32 @@ def main():
                 if vix_df.index.tz is not None: vix_df.index = vix_df.index.tz_localize(None)
                 vix_df.index = vix_df.index.normalize()
                 vix_series = vix_df['Close']
+        
+        # =====================================================
+        # NEW: PREPARE REFERENCE TICKER DATA
+        # =====================================================
+        ref_ticker_ranks = None
+        if use_ref_ticker_filter and ref_filters and ref_ticker_input:
+            st.info(f"Preparing reference ticker data for {ref_ticker_input}...")
+            ref_ticker_clean = ref_ticker_input.replace('.', '-')
+            ref_df = data_dict.get(ref_ticker_clean)
+            if ref_df is None:
+                ref_dict_temp = download_universe_data([ref_ticker_clean], fetch_start)
+                ref_df = ref_dict_temp.get(ref_ticker_clean, None)
+            if ref_df is not None and not ref_df.empty:
+                # Calculate indicators for the reference ticker
+                ref_df_calc = calculate_indicators(ref_df.copy(), sznl_map, ref_ticker_clean, market_series, vix_series, market_sznl_series)
+                # Extract the rank series we need
+                ref_ticker_ranks = {}
+                for rf in ref_filters:
+                    window = rf['window']
+                    col = f'rank_ret_{window}d'
+                    if col in ref_df_calc.columns:
+                        ref_ticker_ranks[window] = ref_df_calc[col]
+                st.success(f"✓ Reference ticker {ref_ticker_input} loaded with {len(ref_df_calc)} rows")
+            else:
+                st.warning(f"Could not load data for reference ticker {ref_ticker_input}. Filter will be skipped.")
+        
         params = {
             'backtest_start_date': start_date, 'trade_direction': trade_direction, 'max_one_pos': max_one_pos, 'allow_same_day_reentry': allow_same_day_reentry,
             'max_daily_entries': max_daily_entries, 'max_total_positions': max_total_positions, 'use_stop_loss': use_stop_loss, 'use_take_profit': use_take_profit, 'time_exit_only': time_exit_only,
@@ -1233,9 +1266,11 @@ def main():
             'use_gap_filter': use_gap_filter, 'gap_lookback': gap_lookback, 'gap_logic': gap_logic, 'gap_thresh': gap_thresh,
             'use_acc_count_filter': use_acc_count_filter, 'acc_count_window': acc_count_window, 'acc_count_logic': acc_count_logic, 'acc_count_thresh': acc_count_thresh,
             'use_dist_count_filter': use_dist_count_filter, 'dist_count_window': dist_count_window, 'dist_count_logic': dist_count_logic, 'dist_count_thresh': dist_count_thresh,
-            'use_t1_open_filter': use_t1_open_filter, 't1_open_filters': t1_open_filters
+            'use_t1_open_filter': use_t1_open_filter, 't1_open_filters': t1_open_filters,
+            # Reference Ticker Filter params
+            'use_ref_ticker_filter': use_ref_ticker_filter, 'ref_ticker': ref_ticker_input, 'ref_filters': ref_filters
         }
-        trades_df, rejected_df, total_signals = run_engine(data_dict, params, sznl_map, market_series, vix_series, market_sznl_series)
+        trades_df, rejected_df, total_signals = run_engine(data_dict, params, sznl_map, market_series, vix_series, market_sznl_series, ref_ticker_ranks)
         if trades_df.empty: st.warning("No executed signals.")
         if not trades_df.empty:
             trades_df = trades_df.sort_values("ExitDate")
@@ -1283,7 +1318,6 @@ def main():
             strategy_dict = build_strategy_dict(params, tickers_to_run, pf, sqn, win_rate, expectancy_r)
             with st.expander("Export Strategy Configuration", expanded=False):
                 st.markdown("**Copy this dictionary to `strategy_config.py`:**")
-                # Use pprint for valid Python syntax (True/False, not true/false)
                 import pprint
                 py_code = pprint.pformat(strategy_dict, width=120, sort_dicts=False)
                 st.code(py_code, language="python")
