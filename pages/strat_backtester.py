@@ -1165,12 +1165,11 @@ def calculate_daily_exposure(sig_df, starting_equity=None):
     all_dates = pd.date_range(start=min_date, end=max_date)
     exposure_df = pd.DataFrame(0.0, index=all_dates, columns=['Long Exposure', 'Short Exposure'])
     
+    # Use iterrows with explicit column names - more robust than positional itertuples access
     for idx, row in sig_df.iterrows():
         trade_dates = pd.date_range(start=row['Date'], end=row['Exit Date'])
         dollar_val = row['Price'] * row['Shares']
         col = 'Long Exposure' if row['Action'] == 'BUY' else 'Short Exposure'
-        dollar_val = row.Price * row.Shares
-        col = 'Long Exposure' if row.Action == 'BUY' else 'Short Exposure'
         exposure_df.loc[exposure_df.index.isin(trade_dates), col] += dollar_val
     
     exposure_df['Net Exposure'] = exposure_df['Long Exposure'] - exposure_df['Short Exposure']
