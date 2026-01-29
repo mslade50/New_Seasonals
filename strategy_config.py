@@ -655,73 +655,71 @@ _STRATEGY_BOOK_RAW = [
         "stats": {"grade": "A (Excellent)", "win_rate": "58.0%", "expectancy": "0.28r", "profit_factor": "1.96"}
     },
     {
-        "id": "5d < 10%ile+10d < 10%ile+21d < 15%ile, Entry: Limit (Open +/- 0.5 ATR) GTC, 5d hold",
+        "id": "5d+10d+21d < 10%ile, vol rank > 90, not below declining 200, 5d hold",
         "name": "Deep Oversold Reversion (5d)",
         "setup": {
             "type": "MeanReversion",
             "timeframe": "Swing",
-            "thesis": "Catching capitulation bounces in deeply oversold names with high volume confirmation",
+            "thesis": "Catching capitulation bounces in deeply oversold names with high volume and trend support",
             "key_filters": [
-                "5D rank < 10th %ile (extreme short-term oversold)",
-                "10D rank < 10th %ile (intermediate oversold)",
-                "21D rank < 15th %ile for 3 consecutive days",
-                "10D volume rank > 90th %ile (high volume = capitulation)",
-                "VIX < 25 (not in crisis mode)"
+                "5D rank < 10th %ile",
+                "10D rank < 10th %ile", 
+                "21D rank < 10th %ile",
+                "10D vol rank > 90th %ile (capitulation volume)",
+                "Not below declining 200 SMA (trend support)",
+                "VIX < 33"
             ]
         },
         "exit_summary": {
-            "primary_exit": "5-day time stop",
-            "stop_logic": "1.0 ATR below entry",
-            "target_logic": "3.0 ATR above entry",
+            "primary_exit": "Target or 5-day time stop",
+            "stop_logic": "None (time exit only)",
+            "target_logic": "2.0 ATR above entry",
             "notes": "Persistent GTC limit at Open - 0.5 ATR"
         },
-        "description": "Start: 2000-01-01. Universe: 198 tickers. Dir: Long. PF: 2.07. SQN: 4.84.",
+        "description": "Backtest: 2000-01-01 to present. Tested on 191 tickers.",
         "universe_tickers": LIQUID_PLUS_COMMODITIES,
         "settings": {
             "trade_direction": "Long",
-            "entry_type": "Limit (Open +/- 0.5 ATR) (Persistent)",
+            "entry_type": "Limit (Open +/- 0.5 ATR) GTC",
             "max_one_pos": True,
             "allow_same_day_reentry": False,
             "max_daily_entries": 20,
             "max_total_positions": 99,
-            "perf_filters": [{'window': 5, 'logic': '<', 'thresh': 10.0, 'thresh_max': 100.0, 'consecutive': 1}, {'window': 10, 'logic': '<', 'thresh': 10.0, 'thresh_max': 100.0, 'consecutive': 1}, {'window': 21, 'logic': '<', 'thresh': 15.0, 'thresh_max': 100.0, 'consecutive': 3}],
-            "perf_first_instance": False, "perf_lookback": 21,
+            "perf_filters": [
+                {"window": 5, "logic": "<", "thresh": 10.0, "thresh_max": 100.0, "consecutive": 1},
+                {"window": 10, "logic": "<", "thresh": 10.0, "thresh_max": 100.0, "consecutive": 1},
+                {"window": 21, "logic": "<", "thresh": 10.0, "thresh_max": 100.0, "consecutive": 1}
+            ],
+            "perf_first_instance": False,
+            "perf_lookback": 21,
             "ma_consec_filters": [],
-            "use_sznl": False, "sznl_logic": ">", "sznl_thresh": 65.0, "sznl_first_instance": False, "sznl_lookback": 21,
-            "use_market_sznl": False, "market_sznl_logic": ">", "market_sznl_thresh": 25.0,
+            "use_sznl": False, "sznl_logic": "<", "sznl_thresh": 15.0,
+            "sznl_first_instance": False, "sznl_lookback": 21,
+            "use_market_sznl": False, "market_sznl_logic": "<", "market_sznl_thresh": 15.0,
             "market_ticker": "^GSPC",
-            "use_52w": False, "52w_type": "New 52w High", "52w_first_instance": False, "52w_lookback": 21, "52w_lag": 0,
+            "use_52w": False, "52w_type": "New 52w High", "52w_first_instance": False,
+            "52w_lookback": 21, "52w_lag": 0,
             "exclude_52w_high": False,
             "breakout_mode": "None",
             "vol_gt_prev": False,
             "use_vol": False, "vol_thresh": 1.5,
             "use_vol_rank": True, "vol_rank_logic": ">", "vol_rank_thresh": 90.0,
-            "trend_filter": "None",
+            "trend_filter": "Not Below Declining 200 SMA",
             "min_price": 10.0, "min_vol": 100000,
             "min_age": 0.25, "max_age": 100.0,
             "min_atr_pct": 0.2, "max_atr_pct": 10.0,
-            "entry_conf_bps": 0,
-            "use_ma_dist_filter": False, "dist_ma_type": "SMA 10", "dist_logic": "Greater Than (>)", "dist_min": 0.0, "dist_max": 2.0,
-            "use_gap_filter": False, "gap_lookback": 21, "gap_logic": ">", "gap_thresh": 3,
-            "use_acc_count_filter": False, "acc_count_window": 21, "acc_count_logic": ">", "acc_count_thresh": 1,
-            "use_dist_count_filter": False, "dist_count_window": 21, "dist_count_logic": ">", "dist_count_thresh": 3,
-            "require_close_gt_open": False,
-            "use_range_filter": False, "range_min": 0, "range_max": 25,
-            "use_dow_filter": False, "allowed_days": [0, 1, 2, 3, 4],
-            "allowed_cycles": [1, 2, 3, 0],
-            "use_vix_filter": True, "vix_min": 0.0, "vix_max": 25.0,
-            "use_t1_open_filter": False, "t1_open_filters": []
+            "entry_conf_bps": 0
         },
         "execution": {
             "risk_bps": 35,
-            "slippage_bps": 2,
+            "slippage_bps": 0,
             "stop_atr": 1.0,
-            "tgt_atr": 3.0,
+            "tgt_atr": 2.0,
             "hold_days": 5,
             "use_stop_loss": False,
-            "use_take_profit": False
+            "use_take_profit": True
         },
-        "stats": {"grade": "A (Excellent)", "win_rate": "61.1%", "expectancy": "0.40r", "profit_factor": "2.07"}
+        "stats": {"grade": "A (Excellent)", "win_rate": "66.8%", "expectancy": "0.44r", "profit_factor": "2.28"}
     },
 ]
 
