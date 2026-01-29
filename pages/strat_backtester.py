@@ -1857,7 +1857,7 @@ def main():
                 st.warning("Insufficient data for equity curve analysis (need at least 30 days of trading history).")
 
             st.subheader("📜 Trade Log")
-            display_cols = ["Date", "Entry Date", "Exit Date", "Strategy", "Ticker", "Action",
+            display_cols = ["Date", "Entry Date", "Exit Date", "Exit Type", "Strategy", "Ticker", "Action",
                           "Entry Criteria", "Signal Close", "T+1 Open", "Price", "Shares", "PnL", 
                           "ATR", "Equity at Signal", "Risk $"]
             # FIXED FORMATTING for Trade Log as well
