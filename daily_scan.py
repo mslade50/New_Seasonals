@@ -391,6 +391,7 @@ def calculate_indicators(df, sznl_map, ticker, market_series=None, vix_series=No
     df = df.copy()
     if isinstance(df.columns, pd.MultiIndex):
         df.columns = df.columns.get_level_values(0)
+    df.columns = [c.capitalize() for c in df.columns]
     if df.index.tz is not None: df.index = df.index.tz_localize(None)
     
     # --- MAs ---
