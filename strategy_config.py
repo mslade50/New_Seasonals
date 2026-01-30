@@ -640,7 +640,7 @@ _STRATEGY_BOOK_RAW = [
             "use_vol": True, "vol_thresh": 1.25,
             "use_vol_rank": False, "vol_rank_logic": "<", "vol_rank_thresh": 50.0,
             "trend_filter": "None",
-            "use_today_return": False, "return_min": 0.25, "return_max": 100, 
+            "use_today_return": True, "return_min": 0.25, "return_max": 100, 
             "use_range_filter": True, "range_min": 50, "range_max": 100,
             "min_price": 10.0, "min_vol": 100000,
             "min_age": 0.25, "max_age": 100.0,
