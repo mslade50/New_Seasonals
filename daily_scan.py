@@ -72,7 +72,10 @@ def send_email_summary(signals_list):
 
     date_str = datetime.datetime.now().strftime("%Y-%m-%d")
     
-    if not signals_list:
+    # Filter out companion signals from email (they go to staging only)
+    email_signals = [s for s in signals_list if not s.get('_is_companion', False)]
+    
+    if not email_signals:
         subject = f"📉 Scan Result: NO SIGNALS ({date_str})"
         html_content = f"""
         <html>
@@ -86,12 +89,12 @@ def send_email_summary(signals_list):
         </html>
         """
     else:
-        subject = f"🚀 {len(signals_list)} SIGNALS ({date_str})"
+        subject = f"🚀 {len(email_signals)} SIGNALS ({date_str})"
         
         # Build card-based HTML for each signal
         signal_cards = []
         
-        for sig in signals_list:
+        for sig in email_signals:
             # Header color based on action
             header_color = "#2e7d32" if sig['Action'] == "BUY" else "#c62828"
             action_emoji = "📈" if sig['Action'] == "BUY" else "📉"
@@ -256,7 +259,7 @@ def send_email_summary(signals_list):
         all_cards_html = "".join(signal_cards)
         
         # Quick summary table - Entry Type and $ Risk instead of price
-        df = pd.DataFrame(signals_list)
+        df = pd.DataFrame(email_signals)
         summary_rows = []
         for _, row in df.iterrows():
             color = "#2e7d32" if row['Action'] == "BUY" else "#c62828"
@@ -287,12 +290,12 @@ def send_email_summary(signals_list):
         """
         
         # Total risk summary - NET notional (long - short)
-        total_risk = sum(s.get('Risk_Amt', 0) for s in signals_list)
-        long_notional = sum(s.get('Notional', 0) for s in signals_list if s['Action'] == 'BUY')
-        short_notional = sum(s.get('Notional', 0) for s in signals_list if s['Action'] != 'BUY')
+        total_risk = sum(s.get('Risk_Amt', 0) for s in email_signals)
+        long_notional = sum(s.get('Notional', 0) for s in email_signals if s['Action'] == 'BUY')
+        short_notional = sum(s.get('Notional', 0) for s in email_signals if s['Action'] != 'BUY')
         net_notional = long_notional - short_notional
-        long_count = sum(1 for s in signals_list if s['Action'] == 'BUY')
-        short_count = len(signals_list) - long_count
+        long_count = sum(1 for s in email_signals if s['Action'] == 'BUY')
+        short_count = len(email_signals) - long_count
         
         # Format net notional with +/- sign
         if net_notional >= 0:
@@ -308,7 +311,7 @@ def send_email_summary(signals_list):
                     <div style="background: linear-gradient(135deg, #1a237e, #283593); color: white; padding: 25px; border-radius: 8px 8px 0 0; text-align: center;">
                         <h1 style="margin: 0; font-size: 24px;">Daily Strategy Scan</h1>
                         <div style="font-size: 14px; opacity: 0.8; margin-top: 5px;">{date_str}</div>
-                        <div style="font-size: 28px; margin-top: 10px;">🎯 {len(signals_list)} Signal{'s' if len(signals_list) > 1 else ''}</div>
+                        <div style="font-size: 28px; margin-top: 10px;">🎯 {len(email_signals)} Signal{'s' if len(email_signals) > 1 else ''}</div>
                         <div style="font-size: 14px; margin-top: 8px; opacity: 0.9;">
                             {long_count} Long | {short_count} Short | ${total_risk:,.0f} Risk | {net_notional_str} Net Exposure
                         </div>
@@ -783,6 +786,31 @@ def save_staging_orders(signals_list, strategy_book, sheet_name='Order_Staging')
     staging_data = []
     
     for _, row in df.iterrows():
+        # Handle companion signals specially (they have their own entry type)
+        if row.get('_is_companion', False):
+            entry_mode = row.get('Entry_Type', '')
+            
+            # LOC companion orders
+            if "LOC" in entry_mode:
+                ib_action = "SELL" if "SHORT" in row['Action'] else "BUY"
+                staging_data.append({
+                    "Scan_Date": datetime.datetime.now().strftime("%Y-%m-%d"),
+                    "Symbol": row['Ticker'],
+                    "SecType": "STK",
+                    "Exchange": "SMART",
+                    "Action": ib_action,
+                    "Quantity": row['Shares'],
+                    "Order_Type": "LOC",
+                    "Limit_Price": round(row.get('Limit_Price', row['Entry']), 2),
+                    "Offset_ATR_Mult": 0.0,
+                    "TIF": "DAY",
+                    "Frozen_ATR": round(row['ATR'], 2),
+                    "Signal_Close": round(row['Entry'], 2),
+                    "Time_Exit_Date": str(row['Time Exit']),
+                    "Strategy_Ref": row.get('Strategy_Name', 'Companion')
+                })
+            continue
+        
         strat = strat_map.get(row['Strategy_ID'])
         if not strat: continue
         
