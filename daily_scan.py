@@ -504,14 +504,10 @@ def check_signal(df, params, sznl_map):
     if last_row['age_years'] < params.get('min_age', 0): return False
     if last_row['age_years'] > params.get('max_age', 100): return False
 
-    min_atr = params.get('min_atr_pct', 0.0)
-    max_atr = params.get('max_atr_pct', 1000.0)
-    
-    current_atr_pct = last_row.get('ATR_Pct', 0)
-    if pd.isna(current_atr_pct): return False
-
-    if current_atr_pct < min_atr: return False
-    if current_atr_pct > max_atr: return False
+    if 'ATR_Pct' in df.columns:
+        current_atr_pct = last_row['ATR_Pct']
+        if current_atr_pct < params.get('min_atr_pct', 0.0): return False
+        if current_atr_pct > params.get('max_atr_pct', 1000.0): return False
 
     # 1b. Today's Return Filter (in ATR units)
     if params.get('use_today_return', False):
@@ -672,12 +668,11 @@ def check_signal(df, params, sznl_map):
         if not final_sznl.iloc[-1]: return False
 
     if params.get('use_market_sznl', False):
-        mkt_ticker = params.get('market_ticker', '^GSPC')
-        mkt_ranks = get_sznl_val_series(mkt_ticker, df.index, sznl_map)
-        
-        if params['market_sznl_logic'] == '<': mkt_cond = mkt_ranks < params['market_sznl_thresh']
-        else: mkt_cond = mkt_ranks > params['market_sznl_thresh']
-        if not mkt_cond.iloc[-1]: return False
+        val = last_row['Mkt_Sznl_Ref']
+        if params['market_sznl_logic'] == '<': 
+            if not (val < params['market_sznl_thresh']): return False
+        else: 
+            if not (val > params['market_sznl_thresh']): return False
 
     # 8. 52w
     if params['use_52w']:
