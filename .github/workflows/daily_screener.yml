@@ -2,10 +2,16 @@ name: Daily Strategy Scan
 
 on:
   schedule:
-    # Added '10' for 5am EST.
-    # Runs at 10:13 UTC (5:13am EST) and 19:13-23:13 UTC (2:13pm-6:13pm EST)
-    - cron: '13 10,19,20,21, * * 1-5'
-  # Allows you to run it manually from the "Actions" tab for testing
+    # Existing runs:
+    # 10:13 UTC = 5:13am EST
+    # 19:13, 20:13, 21:13 UTC = 2:13pm, 3:13pm, 4:13pm EST
+    - cron: '13 10,19,20,21 * * 1-5'
+
+    # NEW: 2:45pm EST (14:45 + 5h = 19:45 UTC)
+    - cron: '45 19 * * 1-5'
+
+    # NEW: 3:25pm EST (15:25 + 5h = 20:25 UTC)
+    - cron: '25 20 * * 1-5'
   workflow_dispatch:
 
 jobs:
