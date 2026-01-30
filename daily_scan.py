@@ -389,7 +389,8 @@ def get_sznl_val_series(ticker, dates, sznl_map):
 
 def calculate_indicators(df, sznl_map, ticker, market_series=None, vix_series=None):
     df = df.copy()
-    df.columns = [c.capitalize() for c in df.columns]
+    if isinstance(df.columns, pd.MultiIndex):
+        df.columns = df.columns.get_level_values(0)
     if df.index.tz is not None: df.index = df.index.tz_localize(None)
     
     # --- MAs ---
