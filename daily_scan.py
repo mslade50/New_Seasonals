@@ -1333,7 +1333,20 @@ def run_daily_scan():
             t_clean = ticker.replace('.', '-')
             df = master_dict.get(t_clean)
             if df is None or len(df) < 250: continue
+            # ========================================================
+            #  TIME TRAVEL DEBUG: FORCE SCAN TO SPECIFIC DATE
+            # ========================================================
+            # Set this to the date you want to test (YYYY-MM-DD)
+            # The script will ignore all data after this date.
+            debug_target_date = "2026-01-30"  
             
+            # This slices the dataframe so the last row is this date
+            df = df.loc[:debug_target_date]
+            
+            # Safety check: if data ends before this date, skip
+            if df.empty or str(df.index[-1].date()) < debug_target_date:
+                continue
+            # ========================================================
             try:
                 calc_df = calculate_indicators(df.copy(), sznl_map, t_clean, market_series, vix_series)
                 
