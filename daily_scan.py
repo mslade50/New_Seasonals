@@ -787,7 +787,7 @@ def save_staging_orders(signals_list, strategy_book, sheet_name='Order_Staging')
     
     for _, row in df.iterrows():
         # Handle companion signals specially (they have their own entry type)
-        if row.get('_is_companion', False):
+        if row.get('_is_companion', False) is True:
             entry_mode = row.get('Entry_Type', '')
             
             # LOC companion orders
