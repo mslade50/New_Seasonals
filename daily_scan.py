@@ -1260,7 +1260,7 @@ def download_historical_data(tickers, start_date="2000-01-01"):
     for i in range(0, total, CHUNK_SIZE):
         chunk = clean_tickers[i : i + CHUNK_SIZE]
         try:
-            df = yf.download(chunk, start=start_date, group_by='ticker', auto_adjust=False, progress=False, threads=True)
+            df = yf.download(chunk, start=start_date, group_by='ticker', auto_adjust=True, progress=False, threads=True)
             if df.empty: continue
             
             if len(chunk) == 1:
