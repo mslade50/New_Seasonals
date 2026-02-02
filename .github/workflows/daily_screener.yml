@@ -1,44 +1,47 @@
 name: Daily Strategy Scan
 
+# Keeps your queue clean if GitHub lags
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
 on:
   schedule:
-    # Existing runs:
-    # 10:13 UTC = 5:13am EST
-    # 19:13, 20:13, 21:13 UTC = 2:13pm, 3:13pm, 4:13pm EST
-    - cron: '13 10,19,20,21 * * 1-5'
+    # 1. THE ORIGINALS (Keeping Early AM and Late PM only)
+    # 5:13 AM EST (10:13 UTC)
+    # 4:13 PM EST (21:13 UTC)
+    - cron: '13 10,21 * * 1-5'
 
-    # NEW: 2:45pm EST (14:45 + 5h = 19:45 UTC)
-    - cron: '45 19 * * 1-5'
+    # 2. THE NEW HOURLY BLOCKS
+    # 2:00 PM EST (19:00 UTC)
+    # 3:00 PM EST (20:00 UTC)
+    - cron: '0 19,20 * * 1-5'
 
-    # NEW: 3:25pm EST (15:25 + 5h = 20:25 UTC)
-    - cron: '25 20 * * 1-5'
+    # 3. THE NEW HALF-HOUR BLOCK
+    # 3:30 PM EST (20:30 UTC)
+    - cron: '30 20 * * 1-5'
+
   workflow_dispatch:
 
 jobs:
   run-scanner:
     runs-on: ubuntu-latest
-
     steps:
-      # 1. Check out the code
       - name: Checkout repo
         uses: actions/checkout@v4
 
-      # 2. Setup Python
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
           python-version: '3.10'
 
-      # 3. Install Libraries
       - name: Install dependencies
         run: |
           pip install pandas numpy yfinance gspread google-auth
 
-      # 4. Run the Script with Secrets Injected
       - name: Run Automation Script
         env:
-          # This maps the GitHub Secret -> To the Python os.environ variable
           GCP_JSON: ${{ secrets.GCP_JSON }}
           EMAIL_USER: ${{ secrets.EMAIL_USER }}
           EMAIL_PASS: ${{ secrets.EMAIL_PASS }}
-        run: python daily_scan.py  # <--- REPLACE with your actual filename
+        run: python daily_scan.py
