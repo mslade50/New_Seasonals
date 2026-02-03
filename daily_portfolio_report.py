@@ -42,7 +42,6 @@ except ImportError:
     ACCOUNT_VALUE = 750000
 
 # Import backtesting functions from strat_backtester
-# We'll reuse the core logic but run it in "lite" mode
 from pages.strat_backtester import (
     download_historical_data,
     load_seasonal_map,
@@ -79,6 +78,10 @@ def get_google_client():
 def run_12month_backtest(starting_equity=None):
     """
     Run a lightweight 12-month backtest of the full strategy book.
+    
+    CRITICAL: Downloads data since 2000 for accurate percentile calculations,
+    but only backtests the last 12 months for the report.
+    
     Returns: (signals_df, equity_series, daily_pnl_series, master_dict)
     """
     if starting_equity is None:
@@ -86,10 +89,15 @@ def run_12month_backtest(starting_equity=None):
     
     print("📊 Running 12-month portfolio backtest...")
     
-    # Calculate start date (12 months + 1 year buffer for indicators)
+    # FIXED: Download from 2000 for percentile accuracy
+    data_start_date = datetime.date(2000, 1, 1)
+    
+    # But only backtest last 12 months
     end_date = datetime.date.today()
-    start_date = end_date - datetime.timedelta(days=730)  # 2 years for indicator calc
-    user_start_date = end_date - datetime.timedelta(days=365)  # 12 months for backtest
+    backtest_start_date = end_date - datetime.timedelta(days=365)
+    
+    print(f"   Data range: {data_start_date} to {end_date}")
+    print(f"   Backtest range: {backtest_start_date} to {end_date}")
     
     # 1. Load seasonal data
     sznl_map = load_seasonal_map()
@@ -103,8 +111,8 @@ def run_12month_backtest(starting_equity=None):
     all_tickers.add('SPY')
     all_tickers.add('^VIX')
     
-    print(f"   Downloading {len(all_tickers)} tickers...")
-    master_dict = download_historical_data(list(all_tickers), start_date=start_date.strftime('%Y-%m-%d'))
+    print(f"   Downloading {len(all_tickers)} tickers from 2000...")
+    master_dict = download_historical_data(list(all_tickers), start_date=data_start_date.strftime('%Y-%m-%d'))
     
     if not master_dict:
         print("❌ Failed to download data")
@@ -121,13 +129,13 @@ def run_12month_backtest(starting_equity=None):
         vix_df.columns = [c.capitalize() for c in vix_df.columns]
         vix_series = vix_df['Close']
     
-    # 4. Precompute indicators
-    print("   Computing indicators...")
+    # 4. Precompute indicators (uses all data since 2000 for percentiles)
+    print("   Computing indicators (percentiles use full history)...")
     processed_dict = precompute_all_indicators(master_dict, STRATEGY_BOOK, sznl_map, vix_series)
     
-    # 5. Generate candidates
-    print("   Finding signals...")
-    candidates, signal_data = generate_candidates_fast(processed_dict, STRATEGY_BOOK, sznl_map, user_start_date)
+    # 5. Generate candidates (only for last 12 months)
+    print(f"   Finding signals since {backtest_start_date}...")
+    candidates, signal_data = generate_candidates_fast(processed_dict, STRATEGY_BOOK, sznl_map, backtest_start_date)
     
     if not candidates:
         print("⚠️ No signals found in 12-month period")
@@ -141,9 +149,9 @@ def run_12month_backtest(starting_equity=None):
         print("⚠️ No valid trades executed")
         return sig_df, pd.Series(dtype=float), pd.Series(dtype=float), master_dict
     
-    # 7. Calculate equity curve
+    # 7. Calculate equity curve (only for backtest period)
     print("   Calculating equity curve...")
-    daily_pnl = get_daily_mtm_series(sig_df, master_dict, start_date=user_start_date)
+    daily_pnl = get_daily_mtm_series(sig_df, master_dict, start_date=backtest_start_date)
     equity_series = starting_equity + daily_pnl.cumsum()
     
     print(f"✅ Backtest complete: {len(sig_df)} trades, {len(equity_series)} days")
@@ -281,16 +289,19 @@ def save_chart_as_png(fig, filepath='/tmp/portfolio_health.png'):
 
 
 # -----------------------------------------------------------------------------
-# 4. OPEN POSITIONS QUERY
+# 4. OPEN POSITIONS QUERY (FIXED)
 # -----------------------------------------------------------------------------
 
 def get_open_positions_from_sheets(master_dict):
     """
-    Queries Google Sheets for open positions and calculates current P&L.
-    Looks in 'moc_orders' and 'Order_Staging' for positions where Exit_Date >= today.
+    Queries Google Sheets for ACTUALLY OPEN positions (not just staged orders).
     
-    Returns: DataFrame with columns [Ticker, Entry_Date, Entry_Price, Shares, Action, 
-                                     Exit_Date, Current_Price, Open_PnL, Strategy, Days_Held]
+    Logic:
+    - Position is "open" if Entry_Date <= Today AND Exit_Date >= Today
+    - Deduplicates by (Ticker, Entry_Date, Strategy)
+    - Ignores positions that are just staged but not yet entered
+    
+    Returns: DataFrame with open positions
     """
     gc = get_google_client()
     if not gc:
@@ -300,81 +311,111 @@ def get_open_positions_from_sheets(master_dict):
     try:
         sh = gc.open("Trade_Signals_Log")
         
-        # Try to get data from multiple potential sheets
-        all_positions = []
-        
-        # Check MOC orders
+        # FIXED: Query the main log, not staging sheets
+        # The main log has historical entries, not just pending orders
         try:
-            moc_ws = sh.worksheet("moc_orders")
-            moc_data = moc_ws.get_all_values()
-            if len(moc_data) > 1:
-                moc_df = pd.DataFrame(moc_data[1:], columns=moc_data[0])
-                all_positions.append(moc_df)
-        except:
-            pass
-        
-        # Check staging orders
-        try:
-            staging_ws = sh.worksheet("Order_Staging")
-            staging_data = staging_ws.get_all_values()
-            if len(staging_data) > 1:
-                staging_df = pd.DataFrame(staging_data[1:], columns=staging_data[0])
-                all_positions.append(staging_df)
-        except:
-            pass
-        
-        if not all_positions:
-            print("   No open positions found in Google Sheets")
+            main_ws = sh.sheet1
+            main_data = main_ws.get_all_values()
+            if len(main_data) <= 1:
+                print("   No data in Trade_Signals_Log")
+                return pd.DataFrame()
+            
+            df = pd.DataFrame(main_data[1:], columns=main_data[0])
+        except Exception as e:
+            print(f"   Could not read main log: {e}")
             return pd.DataFrame()
         
-        # Combine and clean
-        df = pd.concat(all_positions, ignore_index=True)
-        
-        # Parse dates
+        # Parse critical dates
         today = pd.Timestamp.today().normalize()
         
-        # Handle different possible column names
+        # Handle different possible column names for dates
+        entry_col = None
         exit_col = None
-        for col in ['Exit_Date', 'Time_Exit_Date', 'ExitDate']:
+        
+        for col in ['Date', 'Entry_Date', 'EntryDate', 'Entry Date']:
+            if col in df.columns:
+                entry_col = col
+                break
+        
+        for col in ['Time Exit', 'Exit_Date', 'ExitDate', 'Time_Exit']:
             if col in df.columns:
                 exit_col = col
                 break
         
-        if not exit_col:
-            print("⚠️ Could not find exit date column in sheets")
+        if not entry_col or not exit_col:
+            print(f"⚠️ Could not find date columns. Available: {df.columns.tolist()}")
             return pd.DataFrame()
         
+        # Convert to datetime
+        df[entry_col] = pd.to_datetime(df[entry_col], errors='coerce')
         df[exit_col] = pd.to_datetime(df[exit_col], errors='coerce')
-        df = df.dropna(subset=[exit_col])
+        df = df.dropna(subset=[entry_col, exit_col])
         
-        # Filter for open positions (exit date in future)
-        open_df = df[df[exit_col] >= today].copy()
+        # CRITICAL FILTER: Position is open if:
+        # 1. Entry date is in the past (position was actually entered)
+        # 2. Exit date is in the future (position hasn't closed yet)
+        open_df = df[
+            (df[entry_col] <= today) &  # Already entered
+            (df[exit_col] >= today)      # Not yet exited
+        ].copy()
         
         if open_df.empty:
-            print("   No open positions (all exits in the past)")
+            print("   No open positions found")
             return pd.DataFrame()
         
-        # Standardize column names
-        col_map = {
-            'Symbol': 'Ticker',
-            'Scan_Date': 'Entry_Date',
-            'Signal_Close': 'Entry_Price',
-            'Quantity': 'Shares',
-            'Strategy_Ref': 'Strategy'
-        }
-        open_df = open_df.rename(columns=col_map)
+        # Deduplicate by (Ticker, Entry_Date, Strategy)
+        dedup_cols = []
+        if 'Ticker' in open_df.columns:
+            dedup_cols.append('Ticker')
+        if entry_col:
+            dedup_cols.append(entry_col)
+        if 'Strategy_ID' in open_df.columns:
+            dedup_cols.append('Strategy_ID')
+        elif 'Strategy' in open_df.columns:
+            dedup_cols.append('Strategy')
+        
+        if dedup_cols:
+            open_df = open_df.drop_duplicates(subset=dedup_cols, keep='last')
+        
+        print(f"   Found {len(open_df)} unique open positions after deduplication")
         
         # Calculate current P&L
         results = []
         for idx, row in open_df.iterrows():
             try:
-                ticker = row['Ticker']
-                entry_price = float(row.get('Entry_Price', 0))
-                shares = int(float(row.get('Shares', 0)))
+                ticker = row.get('Ticker', '')
+                
+                # Try multiple column names for entry price
+                entry_price = None
+                for col in ['Entry', 'Entry_Price', 'Price', 'Signal_Close']:
+                    if col in row and row[col]:
+                        try:
+                            entry_price = float(row[col])
+                            break
+                        except:
+                            continue
+                
+                if not entry_price:
+                    print(f"   ⚠️ Could not find entry price for {ticker}")
+                    continue
+                
+                shares = None
+                for col in ['Shares', 'Quantity']:
+                    if col in row and row[col]:
+                        try:
+                            shares = int(float(row[col]))
+                            break
+                        except:
+                            continue
+                
+                if not shares:
+                    print(f"   ⚠️ Could not find shares for {ticker}")
+                    continue
+                
                 action = row.get('Action', 'BUY')
-                entry_date = pd.to_datetime(row.get('Entry_Date', today))
+                entry_date = row[entry_col]
                 exit_date = row[exit_col]
-                strategy = row.get('Strategy', 'Unknown')
+                strategy = row.get('Strategy_ID', row.get('Strategy', 'Unknown'))
                 
                 # Get current price from master_dict
                 t_clean = ticker.replace('.', '-')
@@ -386,11 +427,16 @@ def get_open_positions_from_sheets(master_dict):
                     current_price = df_ticker['Close'].iloc[-1]
                 else:
                     # Fallback: download just this ticker
+                    print(f"   Fetching current price for {ticker}...")
                     temp = yf.download(ticker, period='1d', progress=False)
                     if not temp.empty:
+                        if isinstance(temp.columns, pd.MultiIndex):
+                            temp.columns = temp.columns.get_level_values(0)
+                        temp.columns = [c.capitalize() for c in temp.columns]
                         current_price = temp['Close'].iloc[-1]
                     else:
-                        current_price = entry_price  # Can't get price, assume flat
+                        print(f"   ⚠️ Could not get price for {ticker}, using entry price")
+                        current_price = entry_price
                 
                 # Calculate P&L
                 if action.upper() in ['BUY', 'LONG']:
@@ -412,7 +458,7 @@ def get_open_positions_from_sheets(master_dict):
                     'Open_PnL': pnl,
                     'Exit_Date': exit_date.date(),
                     'Days_Held': days_held,
-                    'Strategy': strategy
+                    'Strategy': strategy[:30] if len(strategy) > 30 else strategy  # Truncate long names
                 })
             except Exception as e:
                 print(f"   ⚠️ Error processing position {row.get('Ticker', 'Unknown')}: {e}")
@@ -422,11 +468,13 @@ def get_open_positions_from_sheets(master_dict):
             return pd.DataFrame()
         
         result_df = pd.DataFrame(results)
-        print(f"✅ Found {len(result_df)} open positions")
+        print(f"✅ Returning {len(result_df)} open positions with calculated P&L")
         return result_df
         
     except Exception as e:
         print(f"❌ Error querying Google Sheets: {e}")
+        import traceback
+        traceback.print_exc()
         return pd.DataFrame()
 
 
@@ -566,12 +614,13 @@ def generate_sizing_recommendations(equity_series, daily_pnl_series, starting_eq
 
 
 # -----------------------------------------------------------------------------
-# 6. EMAIL GENERATION
+# 6. EMAIL GENERATION (FIXED FORMATTING)
 # -----------------------------------------------------------------------------
 
 def send_portfolio_email(chart_path, open_positions_df, sizing_analysis, metrics):
     """
     Sends portfolio health email with chart attachment and HTML tables.
+    FIXED: White text in tables, proper formatting
     """
     sender_email = os.environ.get("EMAIL_USER")
     sender_password = os.environ.get("EMAIL_PASS")
@@ -589,37 +638,37 @@ def send_portfolio_email(chart_path, open_positions_df, sizing_analysis, metrics
         <h3 style="color: #fff; margin-top: 0;">📊 Key Metrics (12 Months)</h3>
         <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 15px;">
             <div>
-                <div style="color: #888; font-size: 12px;">Total Return</div>
+                <div style="color: #aaa; font-size: 12px;">Total Return</div>
                 <div style="color: {'#00CC00' if metrics['total_return_pct'] >= 0 else '#CC0000'}; font-size: 20px; font-weight: bold;">
                     {metrics['total_return_pct']:+.1f}%
                 </div>
             </div>
             <div>
-                <div style="color: #888; font-size: 12px;">Current Equity</div>
+                <div style="color: #aaa; font-size: 12px;">Current Equity</div>
                 <div style="color: #fff; font-size: 20px; font-weight: bold;">
                     ${metrics['current_equity']:,.0f}
                 </div>
             </div>
             <div>
-                <div style="color: #888; font-size: 12px;">vs 20-Day SMA</div>
+                <div style="color: #aaa; font-size: 12px;">vs 20-Day SMA</div>
                 <div style="color: {'#00CC00' if metrics['current_vs_sma'] >= 0 else '#CC0000'}; font-size: 20px; font-weight: bold;">
                     {metrics['current_vs_sma']:+.1f}%
                 </div>
             </div>
             <div>
-                <div style="color: #888; font-size: 12px;">Current Drawdown</div>
+                <div style="color: #aaa; font-size: 12px;">Current Drawdown</div>
                 <div style="color: {'#CC0000' if abs(metrics['current_dd_pct']) > 5 else '#FFA500'}; font-size: 20px; font-weight: bold;">
                     {metrics['current_dd_pct']:.1f}%
                 </div>
             </div>
             <div>
-                <div style="color: #888; font-size: 12px;">Max Drawdown (12M)</div>
+                <div style="color: #aaa; font-size: 12px;">Max Drawdown (12M)</div>
                 <div style="color: #CC0000; font-size: 20px; font-weight: bold;">
                     {metrics['max_dd_pct']:.1f}%
                 </div>
             </div>
             <div>
-                <div style="color: #888; font-size: 12px;">Win Rate (30D)</div>
+                <div style="color: #aaa; font-size: 12px;">Win Rate (30D)</div>
                 <div style="color: {'#00CC00' if metrics['win_rate_30d'] >= 0.55 else '#FFA500'}; font-size: 20px; font-weight: bold;">
                     {metrics['win_rate_30d']:.1%}
                 </div>
@@ -628,19 +677,19 @@ def send_portfolio_email(chart_path, open_positions_df, sizing_analysis, metrics
         <div style="margin-top: 15px; padding-top: 15px; border-top: 1px solid #333;">
             <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 15px; font-size: 13px;">
                 <div>
-                    <span style="color: #888;">Avg Daily P&L:</span>
+                    <span style="color: #aaa;">Avg Daily P&L:</span>
                     <span style="color: {'#00CC00' if metrics['avg_daily_pnl'] >= 0 else '#CC0000'}; font-weight: bold;">
                         ${metrics['avg_daily_pnl']:,.0f}
                     </span>
                 </div>
                 <div>
-                    <span style="color: #888;">Best Day:</span>
+                    <span style="color: #aaa;">Best Day:</span>
                     <span style="color: #00CC00; font-weight: bold;">
                         ${metrics['best_day']:,.0f}
                     </span>
                 </div>
                 <div>
-                    <span style="color: #888;">Worst Day:</span>
+                    <span style="color: #aaa;">Worst Day:</span>
                     <span style="color: #CC0000; font-weight: bold;">
                         ${metrics['worst_day']:,.0f}
                     </span>
@@ -653,10 +702,10 @@ def send_portfolio_email(chart_path, open_positions_df, sizing_analysis, metrics
     # Build recommendations section
     recs_html = "<ul style='margin: 10px 0; padding-left: 20px;'>"
     for rec in sizing_analysis['recommendations']:
-        recs_html += f"<li style='margin: 8px 0; color: #ddd;'>{rec}</li>"
+        recs_html += f"<li style='margin: 8px 0; color: #fff;'>{rec}</li>"
     recs_html += "</ul>"
     
-    # Build open positions table
+    # Build open positions table - FIXED FORMATTING
     if not open_positions_df.empty:
         # Calculate summary stats
         total_notional = open_positions_df['Notional'].sum()
@@ -665,27 +714,27 @@ def send_portfolio_email(chart_path, open_positions_df, sizing_analysis, metrics
         short_count = len(open_positions_df) - long_count
         
         positions_summary = f"""
-        <div style="background: #1a1a1a; padding: 12px; border-radius: 6px; margin: 10px 0; font-size: 13px;">
-            <span style="color: #888;">Positions: </span><strong style="color: #fff;">{len(open_positions_df)}</strong>
-            <span style="margin-left: 15px; color: #888;">Long: </span><strong style="color: #00CC00;">{long_count}</strong>
-            <span style="margin-left: 15px; color: #888;">Short: </span><strong style="color: #CC0000;">{short_count}</strong>
-            <span style="margin-left: 15px; color: #888;">Total Notional: </span><strong style="color: #fff;">${total_notional:,.0f}</strong>
-            <span style="margin-left: 15px; color: #888;">Total Open P&L: </span>
+        <div style="background: #1a1a1a; padding: 12px; border-radius: 6px; margin: 10px 0; font-size: 13px; color: #fff;">
+            <span style="color: #aaa;">Positions: </span><strong style="color: #fff;">{len(open_positions_df)}</strong>
+            <span style="margin-left: 15px; color: #aaa;">Long: </span><strong style="color: #00CC00;">{long_count}</strong>
+            <span style="margin-left: 15px; color: #aaa;">Short: </span><strong style="color: #CC0000;">{short_count}</strong>
+            <span style="margin-left: 15px; color: #aaa;">Total Notional: </span><strong style="color: #fff;">${total_notional:,.0f}</strong>
+            <span style="margin-left: 15px; color: #aaa;">Total Open P&L: </span>
             <strong style="color: {'#00CC00' if total_pnl >= 0 else '#CC0000'};">${total_pnl:,.0f}</strong>
         </div>
         """
         
-        # Format positions table
+        # Format positions table - FIXED: White text
         pos_table = open_positions_df[['Ticker', 'Entry_Date', 'Entry_Price', 'Current_Price', 
                                         'Shares', 'Action', 'Open_PnL', 'Days_Held', 'Strategy']].copy()
         pos_table['Entry_Price'] = pos_table['Entry_Price'].apply(lambda x: f"${x:.2f}")
         pos_table['Current_Price'] = pos_table['Current_Price'].apply(lambda x: f"${x:.2f}")
         pos_table['Shares'] = pos_table['Shares'].apply(lambda x: f"{x:,}")
-        pos_table['Open_PnL'] = pos_table['Open_PnL'].apply(lambda x: f'<span style="color: {"#00CC00" if x >= 0 else "#CC0000"};">${x:,.0f}</span>')
+        pos_table['Open_PnL'] = pos_table['Open_PnL'].apply(lambda x: f'<span style="color: {"#00CC00" if x >= 0 else "#CC0000"}; font-weight: bold;">${x:,.0f}</span>')
         
         positions_html = pos_table.to_html(index=False, escape=False, classes='positions-table')
     else:
-        positions_summary = "<div style='color: #888; padding: 20px; text-align: center;'>No open positions</div>"
+        positions_summary = "<div style='color: #aaa; padding: 20px; text-align: center;'>No open positions</div>"
         positions_html = ""
     
     # Assemble email
@@ -699,10 +748,32 @@ def send_portfolio_email(chart_path, open_positions_df, sizing_analysis, metrics
                 .container {{ max-width: 900px; margin: 0 auto; padding: 20px; }}
                 .header {{ background: linear-gradient(135deg, #1a237e, #283593); padding: 25px; border-radius: 8px; text-align: center; margin-bottom: 20px; }}
                 .section {{ background: #1a1a1a; padding: 20px; border-radius: 8px; margin: 20px 0; }}
-                .positions-table {{ width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 13px; }}
-                .positions-table th {{ background: #2a2a2a; padding: 10px; text-align: left; border-bottom: 2px solid #444; }}
-                .positions-table td {{ padding: 8px; border-bottom: 1px solid #333; }}
-                .positions-table tr:hover {{ background: #252525; }}
+                
+                /* FIXED: White text in tables */
+                .positions-table {{ 
+                    width: 100%; 
+                    border-collapse: collapse; 
+                    margin-top: 10px; 
+                    font-size: 13px;
+                    color: #ffffff;  /* WHITE TEXT */
+                }}
+                .positions-table th {{ 
+                    background: #2a2a2a; 
+                    padding: 10px; 
+                    text-align: left; 
+                    border-bottom: 2px solid #444;
+                    color: #ffffff;  /* WHITE TEXT */
+                    font-weight: bold;
+                }}
+                .positions-table td {{ 
+                    padding: 8px; 
+                    border-bottom: 1px solid #333;
+                    color: #ffffff;  /* WHITE TEXT */
+                }}
+                .positions-table tr:hover {{ 
+                    background: #252525; 
+                }}
+                
                 h2 {{ color: #fff; margin-top: 0; }}
                 h3 {{ color: #aaa; margin-top: 0; }}
             </style>
@@ -717,6 +788,7 @@ def send_portfolio_email(chart_path, open_positions_df, sizing_analysis, metrics
                 
                 <div class="section">
                     <h2>📈 12-Month Equity Curve</h2>
+                    <p style="color: #aaa; font-size: 13px; margin-top: -10px;">Data from 2000 used for percentile calculations</p>
                     <img src="cid:equity_chart" style="max-width: 100%; border-radius: 8px;">
                 </div>
                 
@@ -782,7 +854,7 @@ def main():
     print("=" * 70)
     
     try:
-        # 1. Run 12-month backtest
+        # 1. Run 12-month backtest (uses data since 2000 for percentiles)
         signals_df, equity_series, daily_pnl, master_dict = run_12month_backtest(starting_equity=ACCOUNT_VALUE)
         
         if signals_df is None or equity_series is None or equity_series.empty:
@@ -818,7 +890,7 @@ def main():
             print("❌ Failed to save chart - check kaleido installation")
             return
         
-        # 3. Get open positions
+        # 3. Get open positions (FIXED: better filtering)
         print("\n💼 Querying open positions...")
         open_positions = get_open_positions_from_sheets(master_dict)
         
