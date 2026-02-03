@@ -166,6 +166,7 @@ def calculate_indicators(df, sznl_map, ticker, market_series=None, vix_series=No
     rolling_low = df['Low'].shift(1).rolling(252).min()
     df['is_52w_high'] = df['High'] > rolling_high
     df['is_52w_low'] = df['Low'] < rolling_low
+    df['is_ath'] = df['High'] > df['High'].shift(1).expanding().max()
     vol_ma = df['Volume'].rolling(63).mean()
     df['vol_ma'] = vol_ma
     df['vol_ratio'] = df['Volume'] / vol_ma
@@ -615,6 +616,11 @@ def run_engine(universe_dict, params, sznl_map, market_series=None, vix_series=N
                 conditions.append(c_52)
                 
             if params.get('exclude_52w_high', False): conditions.append(~df['is_52w_high'])
+            if params.get('use_ath', False):
+            if params['ath_type'] == 'Today is ATH':
+                conditions.append(df['is_ath'])
+            else:  # Today is NOT ATH
+                conditions.append(~df['is_ath'])
             if params.get('vol_gt_prev', False): conditions.append(df['Volume'] > df['Volume'].shift(1))
             if params.get('use_vol', False): conditions.append(df['vol_ratio'] > params['vol_thresh'])
             
@@ -1138,6 +1144,9 @@ def main():
         with h3: lookback_52w = st.number_input("Instance Lookback (Days)", 1, 252, 21, key="hlb", disabled=not use_52w)
         with h4: lag_52w = st.number_input("Lag (Days)", 0, 10, 0, disabled=not use_52w)
         exclude_52w_high = st.checkbox("Exclude if Today IS a 52w High", value=False)
+        st.markdown("---")
+        use_ath = st.checkbox("Enable All-Time High Filter", value=False)
+        ath_type = st.selectbox("ATH Condition", ["Today is ATH", "Today is NOT ATH"], disabled=not use_ath)
     with st.expander("Market Regime (VIX)", expanded=False):
         use_vix_filter = st.checkbox(f"Enable {VIX_TICKER} Filter", value=False)
         v1, v2 = st.columns(2)
@@ -1263,6 +1272,7 @@ def main():
             'use_atr_ret_filter': use_atr_ret_filter, 'atr_ret_min': atr_ret_min, 'atr_ret_max': atr_ret_max,
             'perf_lookback': perf_lookback, 'ma_consec_filters': ma_consec_filters, 'use_sznl': use_sznl, 'sznl_logic': sznl_logic, 'sznl_thresh': sznl_thresh, 'sznl_first_instance': sznl_first,
             'sznl_lookback': sznl_lookback, 'use_market_sznl': use_market_sznl, 'market_sznl_logic': market_sznl_logic, 'market_sznl_thresh': market_sznl_thresh, 'use_52w': use_52w, '52w_type': type_52w,
+            'use_ath': use_ath, 'ath_type': ath_type,
             '52w_first_instance': first_52w, '52w_lookback': lookback_52w, '52w_lag': lag_52w, 'exclude_52w_high': exclude_52w_high, 'use_vix_filter': use_vix_filter, 'vix_min': vix_min, 'vix_max': vix_max,
             'vol_gt_prev': use_vol_gt_prev, 'use_vol': use_vol, 'vol_thresh': vol_thresh, 'use_vol_rank': use_vol_rank, 'vol_rank_logic': vol_rank_logic, 'vol_rank_thresh': vol_rank_thresh,
             'use_ma_dist_filter': use_ma_dist_filter, 'dist_ma_type': dist_ma_type, 'dist_logic': dist_logic, 'dist_min': dist_min, 'dist_max': dist_max,
