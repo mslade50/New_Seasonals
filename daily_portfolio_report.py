@@ -85,7 +85,7 @@ def run_12month_backtest(starting_equity=None):
     Returns: (signals_df, equity_series, daily_pnl_series, master_dict)
     """
     if starting_equity is None:
-        starting_equity = ACCOUNT_VALUE
+        starting_equity = 450000
     
     print("📊 Running 12-month portfolio backtest...")
     
@@ -295,8 +295,7 @@ def save_chart_as_png(fig, filepath='/tmp/portfolio_health.png'):
 def get_open_positions_from_backtest(sig_df, master_dict):
     """
     Get open positions from backtest signals - IDENTICAL to strat_backtester.py logic.
-    
-    A position is "open" if Time Stop >= Today
+    Includes ALL columns from the UI table.
     """
     if sig_df.empty:
         return pd.DataFrame()
@@ -345,23 +344,33 @@ def get_open_positions_from_backtest(sig_df, master_dict):
         open_pnls.append(pnl)
         current_values.append(last_close * row.Shares)
     
-    # Build result dataframe (matching strat_backtester format)
+    # Build result dataframe with ALL columns from strat_backtester
     result = pd.DataFrame({
+        'Date': open_df['Date'].values,
+        'Entry Date': open_df['Entry Date'].values,
+        'Exit Date': open_df['Exit Date'].values,
+        'Exit Type': open_df['Exit Type'].values,
+        'Time Stop': open_df['Time Stop'].values,
+        'Strategy': open_df['Strategy'].values,
         'Ticker': open_df['Ticker'].values,
-        'Entry_Date': open_df['Entry Date'].dt.date.values,
-        'Entry_Price': open_df['Price'].values,
-        'Current_Price': current_prices,
-        'Shares': open_df['Shares'].values,
         'Action': open_df['Action'].values,
-        'Notional': current_values,
-        'Open_PnL': open_pnls,
-        'Exit_Date': open_df['Time Stop'].dt.date.values,
-        'Days_Held': [(today - pd.Timestamp(d)).days for d in open_df['Entry Date']],
-        'Strategy': open_df['Strategy'].values
+        'Entry Criteria': open_df['Entry Criteria'].values,
+        'Price': open_df['Price'].values,
+        'Shares': open_df['Shares'].values,
+        'PnL': open_df['PnL'].values,
+        'ATR': open_df['ATR'].values,
+        'T+1 Open': open_df['T+1 Open'].values,
+        'Signal Close': open_df['Signal Close'].values,
+        'Range %': open_df['Range %'].values,
+        'Equity at Signal': open_df['Equity at Signal'].values,
+        'Risk $': open_df['Risk $'].values,
+        'Risk bps': open_df['Risk bps'].values,
+        'Current Price': current_prices,
+        'Open PnL': open_pnls,
+        'Mkt Value': current_values
     })
     
     return result
-
 
 # -----------------------------------------------------------------------------
 # 5. SIZING RECOMMENDATIONS ENGINE
@@ -505,7 +514,6 @@ def generate_sizing_recommendations(equity_series, daily_pnl_series, starting_eq
 def send_portfolio_email(chart_path, open_positions_df, sizing_analysis, metrics):
     """
     Sends portfolio health email with chart attachment and HTML tables.
-    FIXED: White text in tables, proper formatting
     """
     sender_email = os.environ.get("EMAIL_USER")
     sender_password = os.environ.get("EMAIL_PASS")
@@ -517,7 +525,7 @@ def send_portfolio_email(chart_path, open_positions_df, sizing_analysis, metrics
     
     date_str = datetime.datetime.now().strftime("%Y-%m-%d")
     
-    # Build metrics section
+    # Build metrics section (same as before)
     metrics_html = f"""
     <div style="background: #1a1a1a; padding: 15px; border-radius: 8px; margin: 20px 0;">
         <h3 style="color: #fff; margin-top: 0;">📊 Key Metrics (12 Months)</h3>
@@ -590,12 +598,14 @@ def send_portfolio_email(chart_path, open_positions_df, sizing_analysis, metrics
         recs_html += f"<li style='margin: 8px 0; color: #fff;'>{rec}</li>"
     recs_html += "</ul>"
     
-    # Build open positions table - FIXED FORMATTING
+    # Build open positions table - ALL COLUMNS, FORMATTED
     if not open_positions_df.empty:
         # Calculate summary stats
-        total_notional = open_positions_df['Notional'].sum()
-        total_pnl = open_positions_df['Open_PnL'].sum()
-        long_count = (open_positions_df['Action'].str.upper().str.contains('BUY')).sum()
+        total_long = open_positions_df[open_positions_df['Action'] == 'BUY']['Mkt Value'].sum()
+        total_short = open_positions_df[open_positions_df['Action'] != 'BUY']['Mkt Value'].sum()
+        net_exposure = total_long - total_short
+        total_pnl = open_positions_df['Open PnL'].sum()
+        long_count = (open_positions_df['Action'] == 'BUY').sum()
         short_count = len(open_positions_df) - long_count
         
         positions_summary = f"""
@@ -603,19 +613,43 @@ def send_portfolio_email(chart_path, open_positions_df, sizing_analysis, metrics
             <span style="color: #aaa;">Positions: </span><strong style="color: #fff;">{len(open_positions_df)}</strong>
             <span style="margin-left: 15px; color: #aaa;">Long: </span><strong style="color: #00CC00;">{long_count}</strong>
             <span style="margin-left: 15px; color: #aaa;">Short: </span><strong style="color: #CC0000;">{short_count}</strong>
-            <span style="margin-left: 15px; color: #aaa;">Total Notional: </span><strong style="color: #fff;">${total_notional:,.0f}</strong>
-            <span style="margin-left: 15px; color: #aaa;">Total Open P&L: </span>
+            <span style="margin-left: 15px; color: #aaa;">Total Long: </span><strong style="color: #fff;">${total_long:,.0f}</strong>
+            <span style="margin-left: 15px; color: #aaa;">Total Short: </span><strong style="color: #fff;">${total_short:,.0f}</strong>
+            <span style="margin-left: 15px; color: #aaa;">Net Exposure: </span><strong style="color: #fff;">${net_exposure:+,.0f}</strong>
+            <span style="margin-left: 15px; color: #aaa;">Total P&L: </span>
             <strong style="color: {'#00CC00' if total_pnl >= 0 else '#CC0000'};">${total_pnl:,.0f}</strong>
         </div>
         """
         
-        # Format positions table - FIXED: White text
-        pos_table = open_positions_df[['Ticker', 'Entry_Date', 'Entry_Price', 'Current_Price', 
-                                        'Shares', 'Action', 'Open_PnL', 'Days_Held', 'Strategy']].copy()
-        pos_table['Entry_Price'] = pos_table['Entry_Price'].apply(lambda x: f"${x:.2f}")
-        pos_table['Current_Price'] = pos_table['Current_Price'].apply(lambda x: f"${x:.2f}")
+        # Format the full table with ALL columns - matching strat_backtester exactly
+        pos_table = open_positions_df[[
+            'Date', 'Entry Date', 'Exit Date', 'Exit Type', 'Time Stop', 'Strategy',
+            'Ticker', 'Action', 'Entry Criteria', 'Price', 'Shares', 'PnL', 'ATR',
+            'T+1 Open', 'Signal Close', 'Range %', 'Equity at Signal', 'Risk $', 'Risk bps',
+            'Current Price', 'Open PnL', 'Mkt Value'
+        ]].copy()
+        
+        # Format dates
+        pos_table['Date'] = pos_table['Date'].apply(lambda x: x.strftime('%Y-%m-%d'))
+        pos_table['Entry Date'] = pos_table['Entry Date'].apply(lambda x: x.strftime('%Y-%m-%d'))
+        pos_table['Exit Date'] = pos_table['Exit Date'].apply(lambda x: x.strftime('%Y-%m-%d'))
+        pos_table['Time Stop'] = pos_table['Time Stop'].apply(lambda x: x.strftime('%Y-%m-%d'))
+        
+        # Format numbers with proper decimals
+        pos_table['Price'] = pos_table['Price'].apply(lambda x: f"${x:.2f}")
+        pos_table['ATR'] = pos_table['ATR'].apply(lambda x: f"{x:.2f}")
+        pos_table['T+1 Open'] = pos_table['T+1 Open'].apply(lambda x: f"${x:.2f}")
+        pos_table['Signal Close'] = pos_table['Signal Close'].apply(lambda x: f"${x:.2f}")
+        pos_table['Range %'] = pos_table['Range %'].apply(lambda x: f"{x:.2f}%")
+        pos_table['Current Price'] = pos_table['Current Price'].apply(lambda x: f"${x:.2f}")
+        pos_table['Open PnL'] = pos_table['Open PnL'].apply(
+            lambda x: f'<span style="color: {"#00CC00" if x >= 0 else "#CC0000"}; font-weight: bold;">${x:,.2f}</span>'
+        )
+        pos_table['PnL'] = pos_table['PnL'].apply(lambda x: f"${x:,.2f}")
+        pos_table['Mkt Value'] = pos_table['Mkt Value'].apply(lambda x: f"${x:,.0f}")
+        pos_table['Equity at Signal'] = pos_table['Equity at Signal'].apply(lambda x: f"${x:,.0f}")
+        pos_table['Risk $'] = pos_table['Risk $'].apply(lambda x: f"${x:,.0f}")
         pos_table['Shares'] = pos_table['Shares'].apply(lambda x: f"{x:,}")
-        pos_table['Open_PnL'] = pos_table['Open_PnL'].apply(lambda x: f'<span style="color: {"#00CC00" if x >= 0 else "#CC0000"}; font-weight: bold;">${x:,.0f}</span>')
         
         positions_html = pos_table.to_html(index=False, escape=False, classes='positions-table')
     else:
