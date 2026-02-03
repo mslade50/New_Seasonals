@@ -1,0 +1,855 @@
+"""
+daily_portfolio_report.py
+
+Daily Portfolio Health Report - Runs at 5 PM ET
+
+Generates:
+1. Equity curve with Bollinger Bands + 20 SMA (12 months)
+2. Daily P&L bar chart (green/red)
+3. Open positions table with current MTM P&L
+4. Automated sizing recommendations
+
+Author: McKinley
+Last Modified: 2026-02-03
+"""
+
+import pandas as pd
+import numpy as np
+import yfinance as yf
+import datetime
+import time
+import sys
+import os
+import json
+import smtplib
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
+from email.mime.image import MIMEImage
+import plotly.graph_objects as go
+from plotly.subplots import make_subplots
+import gspread
+
+# Add parent directory to path for imports
+current_dir = os.path.dirname(os.path.abspath(__file__))
+parent_dir = os.path.dirname(current_dir)
+sys.path.append(parent_dir)
+
+try:
+    from strategy_config import STRATEGY_BOOK, ACCOUNT_VALUE
+except ImportError:
+    print("❌ Could not import strategy_config.py")
+    STRATEGY_BOOK = []
+    ACCOUNT_VALUE = 750000
+
+# Import backtesting functions from strat_backtester
+# We'll reuse the core logic but run it in "lite" mode
+from pages.strat_backtester import (
+    download_historical_data,
+    load_seasonal_map,
+    precompute_all_indicators,
+    generate_candidates_fast,
+    process_signals_fast,
+    get_daily_mtm_series
+)
+
+# -----------------------------------------------------------------------------
+# 1. AUTHENTICATION (Same as daily_scan.py)
+# -----------------------------------------------------------------------------
+
+def get_google_client():
+    """Authenticate with Google Sheets."""
+    try:
+        if "GCP_JSON" in os.environ:
+            creds_dict = json.loads(os.environ["GCP_JSON"])
+            return gspread.service_account_from_dict(creds_dict)
+        elif os.path.exists("credentials.json"):
+            return gspread.service_account(filename='credentials.json')
+        else:
+            print("❌ No Google credentials found")
+            return None
+    except Exception as e:
+        print(f"❌ Auth Error: {e}")
+        return None
+
+
+# -----------------------------------------------------------------------------
+# 2. PORTFOLIO SIMULATION (12-Month Lite Backtest)
+# -----------------------------------------------------------------------------
+
+def run_12month_backtest(starting_equity=None):
+    """
+    Run a lightweight 12-month backtest of the full strategy book.
+    Returns: (signals_df, equity_series, daily_pnl_series, master_dict)
+    """
+    if starting_equity is None:
+        starting_equity = ACCOUNT_VALUE
+    
+    print("📊 Running 12-month portfolio backtest...")
+    
+    # Calculate start date (12 months + 1 year buffer for indicators)
+    end_date = datetime.date.today()
+    start_date = end_date - datetime.timedelta(days=730)  # 2 years for indicator calc
+    user_start_date = end_date - datetime.timedelta(days=365)  # 12 months for backtest
+    
+    # 1. Load seasonal data
+    sznl_map = load_seasonal_map()
+    
+    # 2. Gather all tickers from strategy book
+    all_tickers = set()
+    for strat in STRATEGY_BOOK:
+        all_tickers.update(strat['universe_tickers'])
+    
+    # Add market/VIX tickers
+    all_tickers.add('SPY')
+    all_tickers.add('^VIX')
+    
+    print(f"   Downloading {len(all_tickers)} tickers...")
+    master_dict = download_historical_data(list(all_tickers), start_date=start_date.strftime('%Y-%m-%d'))
+    
+    if not master_dict:
+        print("❌ Failed to download data")
+        return None, None, None, None
+    
+    # 3. Prepare market/VIX series
+    spy_df = master_dict.get('SPY')
+    vix_df = master_dict.get('^VIX')
+    vix_series = None
+    
+    if vix_df is not None and not vix_df.empty:
+        if isinstance(vix_df.columns, pd.MultiIndex):
+            vix_df.columns = vix_df.columns.get_level_values(0)
+        vix_df.columns = [c.capitalize() for c in vix_df.columns]
+        vix_series = vix_df['Close']
+    
+    # 4. Precompute indicators
+    print("   Computing indicators...")
+    processed_dict = precompute_all_indicators(master_dict, STRATEGY_BOOK, sznl_map, vix_series)
+    
+    # 5. Generate candidates
+    print("   Finding signals...")
+    candidates, signal_data = generate_candidates_fast(processed_dict, STRATEGY_BOOK, sznl_map, user_start_date)
+    
+    if not candidates:
+        print("⚠️ No signals found in 12-month period")
+        return pd.DataFrame(), pd.Series(dtype=float), pd.Series(dtype=float), master_dict
+    
+    # 6. Process signals with MTM sizing
+    print("   Processing trades...")
+    sig_df = process_signals_fast(candidates, signal_data, processed_dict, STRATEGY_BOOK, starting_equity)
+    
+    if sig_df.empty:
+        print("⚠️ No valid trades executed")
+        return sig_df, pd.Series(dtype=float), pd.Series(dtype=float), master_dict
+    
+    # 7. Calculate equity curve
+    print("   Calculating equity curve...")
+    daily_pnl = get_daily_mtm_series(sig_df, master_dict, start_date=user_start_date)
+    equity_series = starting_equity + daily_pnl.cumsum()
+    
+    print(f"✅ Backtest complete: {len(sig_df)} trades, {len(equity_series)} days")
+    
+    return sig_df, equity_series, daily_pnl, master_dict
+
+
+# -----------------------------------------------------------------------------
+# 3. CHART GENERATION
+# -----------------------------------------------------------------------------
+
+def create_portfolio_chart(equity_series, daily_pnl_series, starting_equity):
+    """
+    Creates a dual-panel chart:
+    - Top: Equity curve with Bollinger Bands + 20 SMA
+    - Bottom: Daily P&L bars (green/red)
+    
+    Returns: plotly figure object
+    """
+    if equity_series.empty:
+        print("⚠️ Cannot create chart - empty equity series")
+        return None
+    
+    # Calculate Bollinger Bands
+    sma_20 = equity_series.rolling(20).mean()
+    std_20 = equity_series.rolling(20).std()
+    upper_bb = sma_20 + (2 * std_20)
+    lower_bb = sma_20 - (2 * std_20)
+    
+    # Create subplots
+    fig = make_subplots(
+        rows=2, cols=1,
+        row_heights=[0.7, 0.3],
+        subplot_titles=('Portfolio Equity (12 Months)', 'Daily P&L'),
+        vertical_spacing=0.1
+    )
+    
+    # --- Panel 1: Equity Curve ---
+    # Bollinger Bands (fill area)
+    fig.add_trace(go.Scatter(
+        x=upper_bb.index, y=upper_bb,
+        name='Upper BB',
+        line=dict(color='rgba(150,150,150,0.3)', width=1, dash='dash'),
+        showlegend=True
+    ), row=1, col=1)
+    
+    fig.add_trace(go.Scatter(
+        x=lower_bb.index, y=lower_bb,
+        name='Lower BB',
+        line=dict(color='rgba(150,150,150,0.3)', width=1, dash='dash'),
+        fill='tonexty',
+        fillcolor='rgba(200,200,200,0.2)',
+        showlegend=True
+    ), row=1, col=1)
+    
+    # 20 SMA
+    fig.add_trace(go.Scatter(
+        x=sma_20.index, y=sma_20,
+        name='20-Day SMA',
+        line=dict(color='#0066CC', width=2)
+    ), row=1, col=1)
+    
+    # Equity line
+    fig.add_trace(go.Scatter(
+        x=equity_series.index, y=equity_series,
+        name='Portfolio Equity',
+        line=dict(color='#00FF00', width=2.5),
+        mode='lines'
+    ), row=1, col=1)
+    
+    # Starting equity reference line
+    fig.add_hline(
+        y=starting_equity,
+        line_dash="dot",
+        line_color="white",
+        opacity=0.5,
+        annotation_text=f"Start: ${starting_equity:,.0f}",
+        annotation_position="right",
+        row=1, col=1
+    )
+    
+    # --- Panel 2: Daily P&L Bars ---
+    colors = ['#00CC00' if p >= 0 else '#CC0000' for p in daily_pnl_series]
+    fig.add_trace(go.Bar(
+        x=daily_pnl_series.index,
+        y=daily_pnl_series,
+        marker_color=colors,
+        showlegend=False,
+        hovertemplate='%{x|%Y-%m-%d}<br>P&L: $%{y:,.0f}<extra></extra>'
+    ), row=2, col=1)
+    
+    # Zero line for P&L
+    fig.add_hline(y=0, line_dash="solid", line_color="white", opacity=0.3, row=2, col=1)
+    
+    # Layout
+    fig.update_layout(
+        height=800,
+        title_text="12-Month Portfolio Health Dashboard",
+        title_font_size=20,
+        showlegend=True,
+        legend=dict(
+            orientation="h",
+            yanchor="bottom",
+            y=1.02,
+            xanchor="right",
+            x=1
+        ),
+        hovermode='x unified',
+        paper_bgcolor='#0e1117',
+        plot_bgcolor='#0e1117',
+        font=dict(color='white')
+    )
+    
+    # Y-axis formatting
+    fig.update_yaxes(title_text="Equity ($)", tickformat="$,.0f", row=1, col=1, gridcolor='rgba(128,128,128,0.2)')
+    fig.update_yaxes(title_text="Daily P&L ($)", tickformat="$,.0f", row=2, col=1, gridcolor='rgba(128,128,128,0.2)')
+    fig.update_xaxes(gridcolor='rgba(128,128,128,0.2)')
+    
+    return fig
+
+
+def save_chart_as_png(fig, filepath='/tmp/portfolio_health.png'):
+    """
+    Saves plotly figure as PNG file.
+    Requires kaleido: pip install kaleido
+    """
+    try:
+        fig.write_image(filepath, width=1400, height=800, scale=2)
+        print(f"✅ Chart saved: {filepath}")
+        return filepath
+    except Exception as e:
+        print(f"❌ Failed to save chart: {e}")
+        print("   Make sure 'kaleido' is installed: pip install kaleido")
+        return None
+
+
+# -----------------------------------------------------------------------------
+# 4. OPEN POSITIONS QUERY
+# -----------------------------------------------------------------------------
+
+def get_open_positions_from_sheets(master_dict):
+    """
+    Queries Google Sheets for open positions and calculates current P&L.
+    Looks in 'moc_orders' and 'Order_Staging' for positions where Exit_Date >= today.
+    
+    Returns: DataFrame with columns [Ticker, Entry_Date, Entry_Price, Shares, Action, 
+                                     Exit_Date, Current_Price, Open_PnL, Strategy, Days_Held]
+    """
+    gc = get_google_client()
+    if not gc:
+        print("⚠️ Could not connect to Google Sheets")
+        return pd.DataFrame()
+    
+    try:
+        sh = gc.open("Trade_Signals_Log")
+        
+        # Try to get data from multiple potential sheets
+        all_positions = []
+        
+        # Check MOC orders
+        try:
+            moc_ws = sh.worksheet("moc_orders")
+            moc_data = moc_ws.get_all_values()
+            if len(moc_data) > 1:
+                moc_df = pd.DataFrame(moc_data[1:], columns=moc_data[0])
+                all_positions.append(moc_df)
+        except:
+            pass
+        
+        # Check staging orders
+        try:
+            staging_ws = sh.worksheet("Order_Staging")
+            staging_data = staging_ws.get_all_values()
+            if len(staging_data) > 1:
+                staging_df = pd.DataFrame(staging_data[1:], columns=staging_data[0])
+                all_positions.append(staging_df)
+        except:
+            pass
+        
+        if not all_positions:
+            print("   No open positions found in Google Sheets")
+            return pd.DataFrame()
+        
+        # Combine and clean
+        df = pd.concat(all_positions, ignore_index=True)
+        
+        # Parse dates
+        today = pd.Timestamp.today().normalize()
+        
+        # Handle different possible column names
+        exit_col = None
+        for col in ['Exit_Date', 'Time_Exit_Date', 'ExitDate']:
+            if col in df.columns:
+                exit_col = col
+                break
+        
+        if not exit_col:
+            print("⚠️ Could not find exit date column in sheets")
+            return pd.DataFrame()
+        
+        df[exit_col] = pd.to_datetime(df[exit_col], errors='coerce')
+        df = df.dropna(subset=[exit_col])
+        
+        # Filter for open positions (exit date in future)
+        open_df = df[df[exit_col] >= today].copy()
+        
+        if open_df.empty:
+            print("   No open positions (all exits in the past)")
+            return pd.DataFrame()
+        
+        # Standardize column names
+        col_map = {
+            'Symbol': 'Ticker',
+            'Scan_Date': 'Entry_Date',
+            'Signal_Close': 'Entry_Price',
+            'Quantity': 'Shares',
+            'Strategy_Ref': 'Strategy'
+        }
+        open_df = open_df.rename(columns=col_map)
+        
+        # Calculate current P&L
+        results = []
+        for idx, row in open_df.iterrows():
+            try:
+                ticker = row['Ticker']
+                entry_price = float(row.get('Entry_Price', 0))
+                shares = int(float(row.get('Shares', 0)))
+                action = row.get('Action', 'BUY')
+                entry_date = pd.to_datetime(row.get('Entry_Date', today))
+                exit_date = row[exit_col]
+                strategy = row.get('Strategy', 'Unknown')
+                
+                # Get current price from master_dict
+                t_clean = ticker.replace('.', '-')
+                if t_clean in master_dict and not master_dict[t_clean].empty:
+                    df_ticker = master_dict[t_clean]
+                    if isinstance(df_ticker.columns, pd.MultiIndex):
+                        df_ticker.columns = df_ticker.columns.get_level_values(0)
+                    df_ticker.columns = [c.capitalize() for c in df_ticker.columns]
+                    current_price = df_ticker['Close'].iloc[-1]
+                else:
+                    # Fallback: download just this ticker
+                    temp = yf.download(ticker, period='1d', progress=False)
+                    if not temp.empty:
+                        current_price = temp['Close'].iloc[-1]
+                    else:
+                        current_price = entry_price  # Can't get price, assume flat
+                
+                # Calculate P&L
+                if action.upper() in ['BUY', 'LONG']:
+                    pnl = (current_price - entry_price) * shares
+                else:
+                    pnl = (entry_price - current_price) * shares
+                
+                # Calculate days held
+                days_held = (today - entry_date).days
+                
+                results.append({
+                    'Ticker': ticker,
+                    'Entry_Date': entry_date.date(),
+                    'Entry_Price': entry_price,
+                    'Current_Price': current_price,
+                    'Shares': shares,
+                    'Action': action,
+                    'Notional': shares * current_price,
+                    'Open_PnL': pnl,
+                    'Exit_Date': exit_date.date(),
+                    'Days_Held': days_held,
+                    'Strategy': strategy
+                })
+            except Exception as e:
+                print(f"   ⚠️ Error processing position {row.get('Ticker', 'Unknown')}: {e}")
+                continue
+        
+        if not results:
+            return pd.DataFrame()
+        
+        result_df = pd.DataFrame(results)
+        print(f"✅ Found {len(result_df)} open positions")
+        return result_df
+        
+    except Exception as e:
+        print(f"❌ Error querying Google Sheets: {e}")
+        return pd.DataFrame()
+
+
+# -----------------------------------------------------------------------------
+# 5. SIZING RECOMMENDATIONS ENGINE
+# -----------------------------------------------------------------------------
+
+def generate_sizing_recommendations(equity_series, daily_pnl_series, starting_equity):
+    """
+    Analyzes recent portfolio performance and generates sizing recommendations.
+    
+    Returns: dict with {
+        'summary': str,
+        'recommendations': list[str],
+        'metrics': dict
+    }
+    """
+    if equity_series.empty:
+        return {
+            'summary': 'Insufficient data for analysis',
+            'recommendations': ['⚠️ No equity data available'],
+            'metrics': {}
+        }
+    
+    # Current state
+    current_equity = equity_series.iloc[-1]
+    sma_20 = equity_series.rolling(20).mean().iloc[-1]
+    std_20 = equity_series.rolling(20).std().iloc[-1]
+    upper_bb = sma_20 + (2 * std_20)
+    lower_bb = sma_20 - (2 * std_20)
+    
+    # Performance metrics
+    total_return_pct = ((current_equity - starting_equity) / starting_equity) * 100
+    
+    # Recent performance (last 30 days)
+    last_30d = daily_pnl_series.tail(30)
+    if len(last_30d) > 0:
+        avg_daily_pnl = last_30d.mean()
+        win_rate_30d = (last_30d > 0).sum() / len(last_30d)
+        best_day = last_30d.max()
+        worst_day = last_30d.min()
+    else:
+        avg_daily_pnl = 0
+        win_rate_30d = 0
+        best_day = 0
+        worst_day = 0
+    
+    # Drawdown analysis
+    running_max = equity_series.expanding().max()
+    drawdown_series = (equity_series - running_max) / running_max * 100
+    current_dd = drawdown_series.iloc[-1]
+    max_dd = drawdown_series.min()
+    
+    # Recent peak analysis (60 days)
+    recent_peak = equity_series.tail(60).max()
+    recent_dd = ((current_equity - recent_peak) / recent_peak) * 100
+    
+    # Generate recommendations
+    recommendations = []
+    
+    # 1. Bollinger Band Position
+    if current_equity > upper_bb:
+        recommendations.append("🟡 **CAUTION:** Equity above upper Bollinger Band - portfolio may be overextended")
+        recommendations.append("   → Consider reducing position sizes by 20-30% or tightening entry criteria")
+    elif current_equity < lower_bb:
+        recommendations.append("🔴 **ALERT:** Equity below lower Bollinger Band - portfolio underperforming")
+        recommendations.append("   → Consider reducing size by 30-50% until equity recovers to 20 SMA")
+    elif current_equity > sma_20:
+        recommendations.append("✅ **HEALTHY:** Equity above 20-day SMA and within normal bands")
+        recommendations.append("   → Continue current sizing strategy")
+    else:
+        recommendations.append("🟠 **WARNING:** Equity below 20-day SMA but within bands")
+        recommendations.append("   → Consider reducing size by 10-20% defensively")
+    
+    # 2. Drawdown-based recommendations
+    if abs(current_dd) > 15:
+        recommendations.append(f"🛑 **SEVERE DRAWDOWN:** Currently down {abs(current_dd):.1f}% from peak")
+        recommendations.append("   → STOP TRADING or reduce size to minimum (10-20% of normal)")
+    elif abs(current_dd) > 10:
+        recommendations.append(f"🔴 **MAJOR DRAWDOWN:** Currently down {abs(current_dd):.1f}% from peak")
+        recommendations.append("   → Cut size by 50% until equity recovers above 20 SMA")
+    elif abs(recent_dd) > 5:
+        recommendations.append(f"🟠 **MODERATE DRAWDOWN:** Down {abs(recent_dd):.1f}% from recent high (60d)")
+        recommendations.append("   → Reduce size by 20-30% and tighten entry criteria")
+    
+    # 3. Win rate check
+    if win_rate_30d < 0.45:
+        recommendations.append(f"⚠️ **LOW WIN RATE:** Only {win_rate_30d:.1%} winners in last 30 days")
+        recommendations.append("   → Review entry criteria and consider taking a break")
+    elif win_rate_30d > 0.65:
+        recommendations.append(f"💪 **STRONG WIN RATE:** {win_rate_30d:.1%} winners in last 30 days")
+        recommendations.append("   → Performance is solid, maintain or slightly increase size")
+    
+    # 4. Streak analysis
+    recent_streak = 0
+    for pnl in reversed(list(daily_pnl_series.tail(10))):
+        if (pnl > 0 and recent_streak >= 0) or (pnl < 0 and recent_streak <= 0):
+            recent_streak += 1 if pnl > 0 else -1
+        else:
+            break
+    
+    if recent_streak >= 5:
+        recommendations.append(f"🎯 **HOT STREAK:** {recent_streak} winning days in a row")
+        recommendations.append("   → Stay disciplined, don't overtrade the hot hand")
+    elif recent_streak <= -5:
+        recommendations.append(f"❄️ **COLD STREAK:** {abs(recent_streak)} losing days in a row")
+        recommendations.append("   → Take a break and review your process")
+    
+    # Overall summary
+    if current_equity > starting_equity * 1.10:
+        summary = "🚀 STRONG PERFORMANCE - Portfolio up significantly"
+    elif current_equity > starting_equity * 1.05:
+        summary = "📈 POSITIVE PERFORMANCE - Portfolio grinding higher"
+    elif current_equity > starting_equity:
+        summary = "➡️ FLAT TO POSITIVE - Portfolio slightly ahead"
+    elif current_equity > starting_equity * 0.95:
+        summary = "⚠️ SLIGHT DRAWDOWN - Portfolio slightly below starting level"
+    else:
+        summary = "🔴 SIGNIFICANT DRAWDOWN - Portfolio needs attention"
+    
+    return {
+        'summary': summary,
+        'recommendations': recommendations if recommendations else ['✅ No specific actions needed - continue monitoring'],
+        'metrics': {
+            'current_equity': current_equity,
+            'total_return_pct': total_return_pct,
+            'current_vs_sma': ((current_equity - sma_20) / sma_20) * 100,
+            'current_dd_pct': current_dd,
+            'max_dd_pct': max_dd,
+            'recent_dd_pct': recent_dd,
+            'win_rate_30d': win_rate_30d,
+            'avg_daily_pnl': avg_daily_pnl,
+            'best_day': best_day,
+            'worst_day': worst_day
+        }
+    }
+
+
+# -----------------------------------------------------------------------------
+# 6. EMAIL GENERATION
+# -----------------------------------------------------------------------------
+
+def send_portfolio_email(chart_path, open_positions_df, sizing_analysis, metrics):
+    """
+    Sends portfolio health email with chart attachment and HTML tables.
+    """
+    sender_email = os.environ.get("EMAIL_USER")
+    sender_password = os.environ.get("EMAIL_PASS")
+    receiver_email = "mckinleyslade@gmail.com"
+    
+    if not sender_email or not sender_password:
+        print("⚠️ Email credentials not found - skipping email")
+        return
+    
+    date_str = datetime.datetime.now().strftime("%Y-%m-%d")
+    
+    # Build metrics section
+    metrics_html = f"""
+    <div style="background: #1a1a1a; padding: 15px; border-radius: 8px; margin: 20px 0;">
+        <h3 style="color: #fff; margin-top: 0;">📊 Key Metrics (12 Months)</h3>
+        <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 15px;">
+            <div>
+                <div style="color: #888; font-size: 12px;">Total Return</div>
+                <div style="color: {'#00CC00' if metrics['total_return_pct'] >= 0 else '#CC0000'}; font-size: 20px; font-weight: bold;">
+                    {metrics['total_return_pct']:+.1f}%
+                </div>
+            </div>
+            <div>
+                <div style="color: #888; font-size: 12px;">Current Equity</div>
+                <div style="color: #fff; font-size: 20px; font-weight: bold;">
+                    ${metrics['current_equity']:,.0f}
+                </div>
+            </div>
+            <div>
+                <div style="color: #888; font-size: 12px;">vs 20-Day SMA</div>
+                <div style="color: {'#00CC00' if metrics['current_vs_sma'] >= 0 else '#CC0000'}; font-size: 20px; font-weight: bold;">
+                    {metrics['current_vs_sma']:+.1f}%
+                </div>
+            </div>
+            <div>
+                <div style="color: #888; font-size: 12px;">Current Drawdown</div>
+                <div style="color: {'#CC0000' if abs(metrics['current_dd_pct']) > 5 else '#FFA500'}; font-size: 20px; font-weight: bold;">
+                    {metrics['current_dd_pct']:.1f}%
+                </div>
+            </div>
+            <div>
+                <div style="color: #888; font-size: 12px;">Max Drawdown (12M)</div>
+                <div style="color: #CC0000; font-size: 20px; font-weight: bold;">
+                    {metrics['max_dd_pct']:.1f}%
+                </div>
+            </div>
+            <div>
+                <div style="color: #888; font-size: 12px;">Win Rate (30D)</div>
+                <div style="color: {'#00CC00' if metrics['win_rate_30d'] >= 0.55 else '#FFA500'}; font-size: 20px; font-weight: bold;">
+                    {metrics['win_rate_30d']:.1%}
+                </div>
+            </div>
+        </div>
+        <div style="margin-top: 15px; padding-top: 15px; border-top: 1px solid #333;">
+            <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 15px; font-size: 13px;">
+                <div>
+                    <span style="color: #888;">Avg Daily P&L:</span>
+                    <span style="color: {'#00CC00' if metrics['avg_daily_pnl'] >= 0 else '#CC0000'}; font-weight: bold;">
+                        ${metrics['avg_daily_pnl']:,.0f}
+                    </span>
+                </div>
+                <div>
+                    <span style="color: #888;">Best Day:</span>
+                    <span style="color: #00CC00; font-weight: bold;">
+                        ${metrics['best_day']:,.0f}
+                    </span>
+                </div>
+                <div>
+                    <span style="color: #888;">Worst Day:</span>
+                    <span style="color: #CC0000; font-weight: bold;">
+                        ${metrics['worst_day']:,.0f}
+                    </span>
+                </div>
+            </div>
+        </div>
+    </div>
+    """
+    
+    # Build recommendations section
+    recs_html = "<ul style='margin: 10px 0; padding-left: 20px;'>"
+    for rec in sizing_analysis['recommendations']:
+        recs_html += f"<li style='margin: 8px 0; color: #ddd;'>{rec}</li>"
+    recs_html += "</ul>"
+    
+    # Build open positions table
+    if not open_positions_df.empty:
+        # Calculate summary stats
+        total_notional = open_positions_df['Notional'].sum()
+        total_pnl = open_positions_df['Open_PnL'].sum()
+        long_count = (open_positions_df['Action'].str.upper().str.contains('BUY')).sum()
+        short_count = len(open_positions_df) - long_count
+        
+        positions_summary = f"""
+        <div style="background: #1a1a1a; padding: 12px; border-radius: 6px; margin: 10px 0; font-size: 13px;">
+            <span style="color: #888;">Positions: </span><strong style="color: #fff;">{len(open_positions_df)}</strong>
+            <span style="margin-left: 15px; color: #888;">Long: </span><strong style="color: #00CC00;">{long_count}</strong>
+            <span style="margin-left: 15px; color: #888;">Short: </span><strong style="color: #CC0000;">{short_count}</strong>
+            <span style="margin-left: 15px; color: #888;">Total Notional: </span><strong style="color: #fff;">${total_notional:,.0f}</strong>
+            <span style="margin-left: 15px; color: #888;">Total Open P&L: </span>
+            <strong style="color: {'#00CC00' if total_pnl >= 0 else '#CC0000'};">${total_pnl:,.0f}</strong>
+        </div>
+        """
+        
+        # Format positions table
+        pos_table = open_positions_df[['Ticker', 'Entry_Date', 'Entry_Price', 'Current_Price', 
+                                        'Shares', 'Action', 'Open_PnL', 'Days_Held', 'Strategy']].copy()
+        pos_table['Entry_Price'] = pos_table['Entry_Price'].apply(lambda x: f"${x:.2f}")
+        pos_table['Current_Price'] = pos_table['Current_Price'].apply(lambda x: f"${x:.2f}")
+        pos_table['Shares'] = pos_table['Shares'].apply(lambda x: f"{x:,}")
+        pos_table['Open_PnL'] = pos_table['Open_PnL'].apply(lambda x: f'<span style="color: {"#00CC00" if x >= 0 else "#CC0000"};">${x:,.0f}</span>')
+        
+        positions_html = pos_table.to_html(index=False, escape=False, classes='positions-table')
+    else:
+        positions_summary = "<div style='color: #888; padding: 20px; text-align: center;'>No open positions</div>"
+        positions_html = ""
+    
+    # Assemble email
+    subject = f"📊 Portfolio Health Report - {date_str}"
+    
+    html_content = f"""
+    <html>
+        <head>
+            <style>
+                body {{ font-family: Arial, sans-serif; background-color: #0e1117; color: #fff; }}
+                .container {{ max-width: 900px; margin: 0 auto; padding: 20px; }}
+                .header {{ background: linear-gradient(135deg, #1a237e, #283593); padding: 25px; border-radius: 8px; text-align: center; margin-bottom: 20px; }}
+                .section {{ background: #1a1a1a; padding: 20px; border-radius: 8px; margin: 20px 0; }}
+                .positions-table {{ width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 13px; }}
+                .positions-table th {{ background: #2a2a2a; padding: 10px; text-align: left; border-bottom: 2px solid #444; }}
+                .positions-table td {{ padding: 8px; border-bottom: 1px solid #333; }}
+                .positions-table tr:hover {{ background: #252525; }}
+                h2 {{ color: #fff; margin-top: 0; }}
+                h3 {{ color: #aaa; margin-top: 0; }}
+            </style>
+        </head>
+        <body>
+            <div class="container">
+                <div class="header">
+                    <h1 style="margin: 0; font-size: 28px;">📊 Portfolio Health Report</h1>
+                    <div style="font-size: 14px; opacity: 0.8; margin-top: 5px;">{date_str}</div>
+                    <div style="font-size: 18px; margin-top: 10px; font-weight: bold;">{sizing_analysis['summary']}</div>
+                </div>
+                
+                <div class="section">
+                    <h2>📈 12-Month Equity Curve</h2>
+                    <img src="cid:equity_chart" style="max-width: 100%; border-radius: 8px;">
+                </div>
+                
+                {metrics_html}
+                
+                <div class="section">
+                    <h2>🎯 Sizing Recommendations</h2>
+                    {recs_html}
+                </div>
+                
+                <div class="section">
+                    <h2>💼 Open Positions</h2>
+                    {positions_summary}
+                    {positions_html}
+                </div>
+                
+                <div style="text-align: center; padding: 20px; color: #666; font-size: 12px; border-top: 1px solid #333; margin-top: 30px;">
+                    Generated by daily_portfolio_report.py | {datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
+                </div>
+            </div>
+        </body>
+    </html>
+    """
+    
+    # Create message
+    msg = MIMEMultipart("related")
+    msg["Subject"] = subject
+    msg["From"] = sender_email
+    msg["To"] = receiver_email
+    
+    # Attach HTML
+    msg.attach(MIMEText(html_content, "html"))
+    
+    # Attach chart image
+    if chart_path and os.path.exists(chart_path):
+        with open(chart_path, 'rb') as f:
+            img = MIMEImage(f.read())
+            img.add_header('Content-ID', '<equity_chart>')
+            msg.attach(img)
+    
+    # Send
+    try:
+        with smtplib.SMTP("smtp.gmail.com", 587) as server:
+            server.starttls()
+            server.login(sender_email, sender_password)
+            server.sendmail(sender_email, receiver_email, msg.as_string())
+        print(f"📧 Email sent successfully to {receiver_email}")
+    except Exception as e:
+        print(f"❌ Failed to send email: {e}")
+
+
+# -----------------------------------------------------------------------------
+# 7. MAIN EXECUTION
+# -----------------------------------------------------------------------------
+
+def main():
+    """
+    Main execution function - runs the full portfolio health report.
+    """
+    print("=" * 70)
+    print("📊 DAILY PORTFOLIO HEALTH REPORT")
+    print(f"   Started: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    print("=" * 70)
+    
+    try:
+        # 1. Run 12-month backtest
+        signals_df, equity_series, daily_pnl, master_dict = run_12month_backtest(starting_equity=ACCOUNT_VALUE)
+        
+        if signals_df is None or equity_series is None or equity_series.empty:
+            print("❌ Backtest failed - cannot generate report")
+            # Send failure notification email
+            sender_email = os.environ.get("EMAIL_USER")
+            sender_password = os.environ.get("EMAIL_PASS")
+            if sender_email and sender_password:
+                msg = MIMEText("Daily portfolio report failed to run. Check logs for details.")
+                msg["Subject"] = "⚠️ Portfolio Report Failed"
+                msg["From"] = sender_email
+                msg["To"] = "mckinleyslade@gmail.com"
+                try:
+                    with smtplib.SMTP("smtp.gmail.com", 587) as server:
+                        server.starttls()
+                        server.login(sender_email, sender_password)
+                        server.sendmail(sender_email, "mckinleyslade@gmail.com", msg.as_string())
+                except:
+                    pass
+            return
+        
+        # 2. Generate chart
+        print("\n📊 Generating charts...")
+        fig = create_portfolio_chart(equity_series, daily_pnl, ACCOUNT_VALUE)
+        
+        if fig is None:
+            print("❌ Failed to create chart")
+            return
+        
+        chart_path = save_chart_as_png(fig, filepath='/tmp/portfolio_health.png')
+        
+        if not chart_path:
+            print("❌ Failed to save chart - check kaleido installation")
+            return
+        
+        # 3. Get open positions
+        print("\n💼 Querying open positions...")
+        open_positions = get_open_positions_from_sheets(master_dict)
+        
+        # 4. Generate sizing recommendations
+        print("\n🎯 Analyzing performance...")
+        sizing_analysis = generate_sizing_recommendations(equity_series, daily_pnl, ACCOUNT_VALUE)
+        
+        print("\n" + "=" * 70)
+        print(f"   {sizing_analysis['summary']}")
+        print("=" * 70)
+        for rec in sizing_analysis['recommendations']:
+            print(f"   {rec}")
+        print("=" * 70)
+        
+        # 5. Send email
+        print("\n📧 Sending email report...")
+        send_portfolio_email(
+            chart_path=chart_path,
+            open_positions_df=open_positions,
+            sizing_analysis=sizing_analysis,
+            metrics=sizing_analysis['metrics']
+        )
+        
+        print("\n✅ Portfolio health report completed successfully!")
+        
+    except Exception as e:
+        print(f"\n❌ ERROR: {e}")
+        import traceback
+        traceback.print_exc()
+        raise
+
+
+if __name__ == "__main__":
+    main()
