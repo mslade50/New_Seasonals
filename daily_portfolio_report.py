@@ -292,190 +292,75 @@ def save_chart_as_png(fig, filepath='/tmp/portfolio_health.png'):
 # 4. OPEN POSITIONS QUERY (FIXED)
 # -----------------------------------------------------------------------------
 
-def get_open_positions_from_sheets(master_dict):
+def get_open_positions_from_backtest(sig_df, master_dict):
     """
-    Queries Google Sheets for ACTUALLY OPEN positions (not just staged orders).
+    Get open positions from backtest signals - IDENTICAL to strat_backtester.py logic.
     
-    Logic:
-    - Position is "open" if Entry_Date <= Today AND Exit_Date >= Today
-    - Deduplicates by (Ticker, Entry_Date, Strategy)
-    - Ignores positions that are just staged but not yet entered
-    
-    Returns: DataFrame with open positions
+    A position is "open" if Time Stop >= Today
     """
-    gc = get_google_client()
-    if not gc:
-        print("⚠️ Could not connect to Google Sheets")
+    if sig_df.empty:
         return pd.DataFrame()
     
-    try:
-        sh = gc.open("Trade_Signals_Log")
-        
-        # FIXED: Query the main log, not staging sheets
-        # The main log has historical entries, not just pending orders
-        try:
-            main_ws = sh.sheet1
-            main_data = main_ws.get_all_values()
-            if len(main_data) <= 1:
-                print("   No data in Trade_Signals_Log")
-                return pd.DataFrame()
-            
-            df = pd.DataFrame(main_data[1:], columns=main_data[0])
-        except Exception as e:
-            print(f"   Could not read main log: {e}")
-            return pd.DataFrame()
-        
-        # Parse critical dates
-        today = pd.Timestamp.today().normalize()
-        
-        # Handle different possible column names for dates
-        entry_col = None
-        exit_col = None
-        
-        for col in ['Date', 'Entry_Date', 'EntryDate', 'Entry Date']:
-            if col in df.columns:
-                entry_col = col
-                break
-        
-        for col in ['Time Exit', 'Exit_Date', 'ExitDate', 'Time_Exit']:
-            if col in df.columns:
-                exit_col = col
-                break
-        
-        if not entry_col or not exit_col:
-            print(f"⚠️ Could not find date columns. Available: {df.columns.tolist()}")
-            return pd.DataFrame()
-        
-        # Convert to datetime
-        df[entry_col] = pd.to_datetime(df[entry_col], errors='coerce')
-        df[exit_col] = pd.to_datetime(df[exit_col], errors='coerce')
-        df = df.dropna(subset=[entry_col, exit_col])
-        
-        # CRITICAL FILTER: Position is open if:
-        # 1. Entry date is in the past (position was actually entered)
-        # 2. Exit date is in the future (position hasn't closed yet)
-        open_df = df[
-            (df[entry_col] <= today) &  # Already entered
-            (df[exit_col] >= today)      # Not yet exited
-        ].copy()
-        
-        if open_df.empty:
-            print("   No open positions found")
-            return pd.DataFrame()
-        
-        # Deduplicate by (Ticker, Entry_Date, Strategy)
-        dedup_cols = []
-        if 'Ticker' in open_df.columns:
-            dedup_cols.append('Ticker')
-        if entry_col:
-            dedup_cols.append(entry_col)
-        if 'Strategy_ID' in open_df.columns:
-            dedup_cols.append('Strategy_ID')
-        elif 'Strategy' in open_df.columns:
-            dedup_cols.append('Strategy')
-        
-        if dedup_cols:
-            open_df = open_df.drop_duplicates(subset=dedup_cols, keep='last')
-        
-        print(f"   Found {len(open_df)} unique open positions after deduplication")
-        
-        # Calculate current P&L
-        results = []
-        for idx, row in open_df.iterrows():
-            try:
-                ticker = row.get('Ticker', '')
-                
-                # Try multiple column names for entry price
-                entry_price = None
-                for col in ['Entry', 'Entry_Price', 'Price', 'Signal_Close']:
-                    if col in row and row[col]:
-                        try:
-                            entry_price = float(row[col])
-                            break
-                        except:
-                            continue
-                
-                if not entry_price:
-                    print(f"   ⚠️ Could not find entry price for {ticker}")
-                    continue
-                
-                shares = None
-                for col in ['Shares', 'Quantity']:
-                    if col in row and row[col]:
-                        try:
-                            shares = int(float(row[col]))
-                            break
-                        except:
-                            continue
-                
-                if not shares:
-                    print(f"   ⚠️ Could not find shares for {ticker}")
-                    continue
-                
-                action = row.get('Action', 'BUY')
-                entry_date = row[entry_col]
-                exit_date = row[exit_col]
-                strategy = row.get('Strategy_ID', row.get('Strategy', 'Unknown'))
-                
-                # Get current price from master_dict
-                t_clean = ticker.replace('.', '-')
-                if t_clean in master_dict and not master_dict[t_clean].empty:
-                    df_ticker = master_dict[t_clean]
-                    if isinstance(df_ticker.columns, pd.MultiIndex):
-                        df_ticker.columns = df_ticker.columns.get_level_values(0)
-                    df_ticker.columns = [c.capitalize() for c in df_ticker.columns]
-                    current_price = df_ticker['Close'].iloc[-1]
-                else:
-                    # Fallback: download just this ticker
-                    print(f"   Fetching current price for {ticker}...")
-                    temp = yf.download(ticker, period='1d', progress=False)
-                    if not temp.empty:
-                        if isinstance(temp.columns, pd.MultiIndex):
-                            temp.columns = temp.columns.get_level_values(0)
-                        temp.columns = [c.capitalize() for c in temp.columns]
-                        current_price = temp['Close'].iloc[-1]
-                    else:
-                        print(f"   ⚠️ Could not get price for {ticker}, using entry price")
-                        current_price = entry_price
-                
-                # Calculate P&L
-                if action.upper() in ['BUY', 'LONG']:
-                    pnl = (current_price - entry_price) * shares
-                else:
-                    pnl = (entry_price - current_price) * shares
-                
-                # Calculate days held
-                days_held = (today - entry_date).days
-                
-                results.append({
-                    'Ticker': ticker,
-                    'Entry_Date': entry_date.date(),
-                    'Entry_Price': entry_price,
-                    'Current_Price': current_price,
-                    'Shares': shares,
-                    'Action': action,
-                    'Notional': shares * current_price,
-                    'Open_PnL': pnl,
-                    'Exit_Date': exit_date.date(),
-                    'Days_Held': days_held,
-                    'Strategy': strategy[:30] if len(strategy) > 30 else strategy  # Truncate long names
-                })
-            except Exception as e:
-                print(f"   ⚠️ Error processing position {row.get('Ticker', 'Unknown')}: {e}")
-                continue
-        
-        if not results:
-            return pd.DataFrame()
-        
-        result_df = pd.DataFrame(results)
-        print(f"✅ Returning {len(result_df)} open positions with calculated P&L")
-        return result_df
-        
-    except Exception as e:
-        print(f"❌ Error querying Google Sheets: {e}")
-        import traceback
-        traceback.print_exc()
+    today = pd.Timestamp(datetime.date.today())
+    
+    # Filter for open positions (same as strat_backtester)
+    open_mask = sig_df['Time Stop'] >= today
+    open_df = sig_df[open_mask].copy()
+    
+    if open_df.empty:
         return pd.DataFrame()
+    
+    print(f"   Found {len(open_df)} open positions from backtest")
+    
+    # Calculate current prices and P&L (exact same logic as strat_backtester)
+    current_prices, open_pnls, current_values = [], [], []
+    
+    for row in open_df.itertuples():
+        t_clean = row.Ticker.replace('.', '-')
+        t_df = master_dict.get(t_clean)
+        
+        if t_df is not None and not t_df.empty:
+            if isinstance(t_df.columns, pd.MultiIndex):
+                t_df.columns = t_df.columns.get_level_values(0)
+            t_df.columns = [c.capitalize() for c in t_df.columns]
+            last_close = t_df['Close'].iloc[-1]
+        else:
+            # Fallback: download just this ticker
+            temp = yf.download(row.Ticker, period='1d', progress=False)
+            if not temp.empty:
+                if isinstance(temp.columns, pd.MultiIndex):
+                    temp.columns = temp.columns.get_level_values(0)
+                temp.columns = [c.capitalize() for c in temp.columns]
+                last_close = temp['Close'].iloc[-1]
+            else:
+                last_close = row.Price
+        
+        # Calculate P&L (same as strat_backtester)
+        if row.Action == 'BUY':
+            pnl = (last_close - row.Price) * row.Shares
+        else:
+            pnl = (row.Price - last_close) * row.Shares
+        
+        current_prices.append(last_close)
+        open_pnls.append(pnl)
+        current_values.append(last_close * row.Shares)
+    
+    # Build result dataframe (matching strat_backtester format)
+    result = pd.DataFrame({
+        'Ticker': open_df['Ticker'].values,
+        'Entry_Date': open_df['Entry Date'].dt.date.values,
+        'Entry_Price': open_df['Price'].values,
+        'Current_Price': current_prices,
+        'Shares': open_df['Shares'].values,
+        'Action': open_df['Action'].values,
+        'Notional': current_values,
+        'Open_PnL': open_pnls,
+        'Exit_Date': open_df['Time Stop'].dt.date.values,
+        'Days_Held': [(today - pd.Timestamp(d)).days for d in open_df['Entry Date']],
+        'Strategy': open_df['Strategy'].values
+    })
+    
+    return result
 
 
 # -----------------------------------------------------------------------------
@@ -859,21 +744,6 @@ def main():
         
         if signals_df is None or equity_series is None or equity_series.empty:
             print("❌ Backtest failed - cannot generate report")
-            # Send failure notification email
-            sender_email = os.environ.get("EMAIL_USER")
-            sender_password = os.environ.get("EMAIL_PASS")
-            if sender_email and sender_password:
-                msg = MIMEText("Daily portfolio report failed to run. Check logs for details.")
-                msg["Subject"] = "⚠️ Portfolio Report Failed"
-                msg["From"] = sender_email
-                msg["To"] = "mckinleyslade@gmail.com"
-                try:
-                    with smtplib.SMTP("smtp.gmail.com", 587) as server:
-                        server.starttls()
-                        server.login(sender_email, sender_password)
-                        server.sendmail(sender_email, "mckinleyslade@gmail.com", msg.as_string())
-                except:
-                    pass
             return
         
         # 2. Generate chart
@@ -890,9 +760,9 @@ def main():
             print("❌ Failed to save chart - check kaleido installation")
             return
         
-        # 3. Get open positions (FIXED: better filtering)
-        print("\n💼 Querying open positions...")
-        open_positions = get_open_positions_from_sheets(master_dict)
+        # 3. Get open positions - FIXED: Use backtest data (same as strat_backtester)
+        print("\n💼 Calculating open positions from backtest...")
+        open_positions = get_open_positions_from_backtest(signals_df, master_dict)
         
         # 4. Generate sizing recommendations
         print("\n🎯 Analyzing performance...")
