@@ -598,13 +598,13 @@ def send_portfolio_email(chart_path, open_positions_df, sizing_analysis, metrics
         recs_html += f"<li style='margin: 8px 0; color: #fff;'>{rec}</li>"
     recs_html += "</ul>"
     
-    # Build open positions table - ALL COLUMNS, FORMATTED
+    # Build open positions table - SLIMMED DOWN for Gmail
     if not open_positions_df.empty:
-        # Calculate summary stats
+        # Calculate summary stats (including total Open PnL for summary)
         total_long = open_positions_df[open_positions_df['Action'] == 'BUY']['Mkt Value'].sum()
         total_short = open_positions_df[open_positions_df['Action'] != 'BUY']['Mkt Value'].sum()
         net_exposure = total_long - total_short
-        total_pnl = open_positions_df['Open PnL'].sum()
+        total_open_pnl = open_positions_df['Open PnL'].sum()
         long_count = (open_positions_df['Action'] == 'BUY').sum()
         short_count = len(open_positions_df) - long_count
         
@@ -613,44 +613,34 @@ def send_portfolio_email(chart_path, open_positions_df, sizing_analysis, metrics
             <span style="color: #aaa;">Positions: </span><strong style="color: #fff;">{len(open_positions_df)}</strong>
             <span style="margin-left: 15px; color: #aaa;">Long: </span><strong style="color: #00CC00;">{long_count}</strong>
             <span style="margin-left: 15px; color: #aaa;">Short: </span><strong style="color: #CC0000;">{short_count}</strong>
-            <span style="margin-left: 15px; color: #aaa;">Total Long: </span><strong style="color: #fff;">${total_long:,.0f}</strong>
-            <span style="margin-left: 15px; color: #aaa;">Total Short: </span><strong style="color: #fff;">${total_short:,.0f}</strong>
             <span style="margin-left: 15px; color: #aaa;">Net Exposure: </span><strong style="color: #fff;">${net_exposure:+,.0f}</strong>
-            <span style="margin-left: 15px; color: #aaa;">Total P&L: </span>
-            <strong style="color: {'#00CC00' if total_pnl >= 0 else '#CC0000'};">${total_pnl:,.0f}</strong>
+            <span style="margin-left: 15px; color: #aaa;">Total Open P&L: </span>
+            <strong style="color: {'#00CC00' if total_open_pnl >= 0 else '#CC0000'};">${total_open_pnl:,.0f}</strong>
         </div>
         """
         
-        # Format the full table with ALL columns - matching strat_backtester exactly
+        # SLIMMED DOWN: Only essential columns for Gmail
         pos_table = open_positions_df[[
-            'Date', 'Entry Date', 'Exit Date', 'Exit Type', 'Time Stop', 'Strategy',
-            'Ticker', 'Action', 'Entry Criteria', 'Price', 'Shares', 'PnL', 'ATR',
-            'T+1 Open', 'Signal Close', 'Range %', 'Equity at Signal', 'Risk $', 'Risk bps',
-            'Current Price', 'Open PnL', 'Mkt Value'
+            'Date', 'Entry Date', 'Exit Type', 'Time Stop', 'Strategy',
+            'Ticker', 'Entry Criteria', 'Price', 'Shares', 'PnL',
+            'Equity at Signal', 'Risk $', 'Risk bps', 'Current Price', 'Mkt Value'
         ]].copy()
         
         # Format dates
         pos_table['Date'] = pos_table['Date'].apply(lambda x: x.strftime('%Y-%m-%d'))
         pos_table['Entry Date'] = pos_table['Entry Date'].apply(lambda x: x.strftime('%Y-%m-%d'))
-        pos_table['Exit Date'] = pos_table['Exit Date'].apply(lambda x: x.strftime('%Y-%m-%d'))
         pos_table['Time Stop'] = pos_table['Time Stop'].apply(lambda x: x.strftime('%Y-%m-%d'))
         
-        # Format numbers with proper decimals
+        # Format numbers
         pos_table['Price'] = pos_table['Price'].apply(lambda x: f"${x:.2f}")
-        pos_table['ATR'] = pos_table['ATR'].apply(lambda x: f"{x:.2f}")
-        pos_table['T+1 Open'] = pos_table['T+1 Open'].apply(lambda x: f"${x:.2f}")
-        pos_table['Signal Close'] = pos_table['Signal Close'].apply(lambda x: f"${x:.2f}")
-        pos_table['Range %'] = pos_table['Range %'].apply(lambda x: f"{x:.2f}%")
         pos_table['Current Price'] = pos_table['Current Price'].apply(lambda x: f"${x:.2f}")
-        pos_table['Open PnL'] = pos_table['Open PnL'].apply(
-            lambda x: f'<span style="color: {"#00CC00" if x >= 0 else "#CC0000"}; font-weight: bold;">${x:,.2f}</span>'
-        )
-        pos_table['PnL'] = pos_table['PnL'].apply(lambda x: f"${x:,.2f}")
+        pos_table['PnL'] = pos_table['PnL'].apply(lambda x: f"${x:,.0f}")
         pos_table['Mkt Value'] = pos_table['Mkt Value'].apply(lambda x: f"${x:,.0f}")
         pos_table['Equity at Signal'] = pos_table['Equity at Signal'].apply(lambda x: f"${x:,.0f}")
         pos_table['Risk $'] = pos_table['Risk $'].apply(lambda x: f"${x:,.0f}")
         pos_table['Shares'] = pos_table['Shares'].apply(lambda x: f"{x:,}")
         
+        # Smaller font for compact table
         positions_html = pos_table.to_html(index=False, escape=False, classes='positions-table')
     else:
         positions_summary = "<div style='color: #aaa; padding: 20px; text-align: center;'>No open positions</div>"
@@ -664,30 +654,31 @@ def send_portfolio_email(chart_path, open_positions_df, sizing_analysis, metrics
         <head>
             <style>
                 body {{ font-family: Arial, sans-serif; background-color: #0e1117; color: #fff; }}
-                .container {{ max-width: 900px; margin: 0 auto; padding: 20px; }}
+                .container {{ max-width: 1100px; margin: 0 auto; padding: 20px; }}
                 .header {{ background: linear-gradient(135deg, #1a237e, #283593); padding: 25px; border-radius: 8px; text-align: center; margin-bottom: 20px; }}
                 .section {{ background: #1a1a1a; padding: 20px; border-radius: 8px; margin: 20px 0; }}
                 
-                /* FIXED: White text in tables */
+                /* Compact table styling */
                 .positions-table {{ 
                     width: 100%; 
                     border-collapse: collapse; 
                     margin-top: 10px; 
-                    font-size: 13px;
-                    color: #ffffff;  /* WHITE TEXT */
+                    font-size: 11px;  /* Smaller for compact view */
+                    color: #ffffff;
                 }}
                 .positions-table th {{ 
                     background: #2a2a2a; 
-                    padding: 10px; 
+                    padding: 8px 6px;  /* Tighter padding */
                     text-align: left; 
                     border-bottom: 2px solid #444;
-                    color: #ffffff;  /* WHITE TEXT */
+                    color: #ffffff;
                     font-weight: bold;
+                    font-size: 10px;
                 }}
                 .positions-table td {{ 
-                    padding: 8px; 
+                    padding: 6px 4px;  /* Tighter padding */
                     border-bottom: 1px solid #333;
-                    color: #ffffff;  /* WHITE TEXT */
+                    color: #ffffff;
                 }}
                 .positions-table tr:hover {{ 
                     background: #252525; 
@@ -707,7 +698,7 @@ def send_portfolio_email(chart_path, open_positions_df, sizing_analysis, metrics
                 
                 <div class="section">
                     <h2>📈 12-Month Equity Curve</h2>
-                    <p style="color: #aaa; font-size: 13px; margin-top: -10px;">Data from 2000 used for percentile calculations</p>
+                    <p style="color: #aaa; font-size: 13px; margin-top: -10px;">Starting equity: $450,000 | Data from 2000 for percentile calculations</p>
                     <img src="cid:equity_chart" style="max-width: 100%; border-radius: 8px;">
                 </div>
                 
@@ -720,6 +711,7 @@ def send_portfolio_email(chart_path, open_positions_df, sizing_analysis, metrics
                 
                 <div class="section">
                     <h2>💼 Open Positions</h2>
+                    <p style="color: #aaa; font-size: 12px; margin-top: -5px;">15 columns shown (removed: Exit Date, ATR, T+1 Open, Action, Range %, Open PnL, Signal Close)</p>
                     {positions_summary}
                     {positions_html}
                 </div>
@@ -758,7 +750,6 @@ def send_portfolio_email(chart_path, open_positions_df, sizing_analysis, metrics
     except Exception as e:
         print(f"❌ Failed to send email: {e}")
 
-
 # -----------------------------------------------------------------------------
 # 7. MAIN EXECUTION
 # -----------------------------------------------------------------------------
@@ -772,9 +763,12 @@ def main():
     print(f"   Started: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     print("=" * 70)
     
+    # FIXED: Use current account size ($450k), not config default ($750k)
+    CURRENT_ACCOUNT_SIZE = 450000
+    
     try:
         # 1. Run 12-month backtest (uses data since 2000 for percentiles)
-        signals_df, equity_series, daily_pnl, master_dict = run_12month_backtest(starting_equity=ACCOUNT_VALUE)
+        signals_df, equity_series, daily_pnl, master_dict = run_12month_backtest(starting_equity=CURRENT_ACCOUNT_SIZE)
         
         if signals_df is None or equity_series is None or equity_series.empty:
             print("❌ Backtest failed - cannot generate report")
@@ -782,7 +776,7 @@ def main():
         
         # 2. Generate chart
         print("\n📊 Generating charts...")
-        fig = create_portfolio_chart(equity_series, daily_pnl, ACCOUNT_VALUE)
+        fig = create_portfolio_chart(equity_series, daily_pnl, CURRENT_ACCOUNT_SIZE)
         
         if fig is None:
             print("❌ Failed to create chart")
@@ -800,7 +794,7 @@ def main():
         
         # 4. Generate sizing recommendations
         print("\n🎯 Analyzing performance...")
-        sizing_analysis = generate_sizing_recommendations(equity_series, daily_pnl, ACCOUNT_VALUE)
+        sizing_analysis = generate_sizing_recommendations(equity_series, daily_pnl, CURRENT_ACCOUNT_SIZE)
         
         print("\n" + "=" * 70)
         print(f"   {sizing_analysis['summary']}")
@@ -829,3 +823,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
