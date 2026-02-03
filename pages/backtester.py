@@ -615,13 +615,17 @@ def run_engine(universe_dict, params, sznl_map, market_series=None, vix_series=N
                 else: c_52 = c_52_raw
                 conditions.append(c_52)
                 
-            if params.get('exclude_52w_high', False): conditions.append(~df['is_52w_high'])
+            if params.get('exclude_52w_high', False): 
+                conditions.append(~df['is_52w_high'])
+                
             if params.get('use_ath', False):
-            if params['ath_type'] == 'Today is ATH':
-                conditions.append(df['is_ath'])
-            else:  # Today is NOT ATH
-                conditions.append(~df['is_ath'])
-            if params.get('vol_gt_prev', False): conditions.append(df['Volume'] > df['Volume'].shift(1))
+                if params['ath_type'] == 'Today is ATH':
+                    conditions.append(df['is_ath'])
+                else:  # Today is NOT ATH
+                    conditions.append(~df['is_ath'])
+                    
+            if params.get('vol_gt_prev', False): 
+                conditions.append(df['Volume'] > df['Volume'].shift(1))
             if params.get('use_vol', False): conditions.append(df['vol_ratio'] > params['vol_thresh'])
             
             if params.get('use_vol_rank', False):
