@@ -1609,7 +1609,6 @@ def main():
                     "Price", "Current Price", "Shares", "Mkt Value", "PnL", 
                     "ATR", "Risk $", "Equity at Signal"
                 ]
-                # FIXED FORMATTING: PnL as integer, ATR to 2 decimals, Exit Date without time, Mkt Value as $
                 st.dataframe(open_df.style.format({
                     "Entry Date": "{:%Y-%m-%d}", 
                     "Time Stop": "{:%Y-%m-%d}", 
@@ -1800,6 +1799,7 @@ def main():
                 col2.metric("Max Gross Exposure", f"{exposure_df['Gross Exposure %'].max():.1f}%")
                 col3.metric("Avg Net Exposure", f"{exposure_df['Net Exposure %'].mean():.1f}%")
                 col4.metric("Max Net Exposure", f"{exposure_df['Net Exposure %'].max():.1f}%")
+            
             st.divider()
             st.subheader("🎯 Equity Curve Regime Analysis")
             st.caption("Analyzing whether recent performance predicts tomorrow's returns - useful for adaptive position sizing.")
@@ -1826,34 +1826,33 @@ def main():
                         st.warning(rec_text)
                 
                 # Detailed stats in expander
-                # Detailed stats in expander
-            with st.expander("📊 Detailed Statistics"):
-                col1, col2 = st.columns(2)  # ← This line needs to be indented
-                
-                with col1:
-                    st.markdown("**Autocorrelation (does today predict tomorrow?)**")
-                    autocorr = ec_analysis.get('autocorr', {})
-                    for lag, val in autocorr.items():
-                        interpretation = "momentum" if val > 0 else "mean-reversion"
-                        st.write(f"• {lag.replace('_', ' ').title()}: {val:.3f} ({interpretation})")
+                with st.expander("📊 Detailed Statistics"):
+                    col1, col2 = st.columns(2)
                     
-                    st.markdown("**Equity vs 20d MA**")
-                    ma = ec_analysis.get('ma_analysis', {})
-                    for state, data in ma.items():
-                        st.write(f"• {state.replace('_', ' ').title()}: {data.get('avg_fwd_ret_pct', 0):.3f}%/day avg, {data.get('win_rate', 0):.1%} win rate (n={data.get('count', 0):.0f})")
-                
-                with col2:
-                    st.markdown("**After Streaks**")
-                    streak = ec_analysis.get('streak_analysis', {})
-                    for state, data in streak.items():
-                        label = state.replace('_', ' ').replace('plus', '+').title()
-                        st.write(f"• {label}: {data.get('avg_fwd_ret_pct', 0):.3f}%/day avg, {data.get('win_rate', 0):.1%} win rate (n={data.get('count', 0):.0f})")
+                    with col1:
+                        st.markdown("**Autocorrelation (does today predict tomorrow?)**")
+                        autocorr = ec_analysis.get('autocorr', {})
+                        for lag, val in autocorr.items():
+                            interpretation = "momentum" if val > 0 else "mean-reversion"
+                            st.write(f"• {lag.replace('_', ' ').title()}: {val:.3f} ({interpretation})")
+                        
+                        st.markdown("**Equity vs 20d MA**")
+                        ma = ec_analysis.get('ma_analysis', {})
+                        for state, data in ma.items():
+                            st.write(f"• {state.replace('_', ' ').title()}: {data.get('avg_fwd_ret_pct', 0):.3f}%/day avg, {data.get('win_rate', 0):.1%} win rate (n={data.get('count', 0):.0f})")
                     
-                    st.markdown("**Drawdown Depth**")
-                    dd = ec_analysis.get('dd_analysis', {})
-                    for state, data in dd.items():
-                        label = state.replace('_', ' ').replace('pct', '%').title()
-                        st.write(f"• {label}: {data.get('avg_fwd_ret_pct', 0):.3f}%/day avg, {data.get('win_rate', 0):.1%} win rate (n={data.get('count', 0):.0f})")
+                    with col2:
+                        st.markdown("**After Streaks**")
+                        streak = ec_analysis.get('streak_analysis', {})
+                        for state, data in streak.items():
+                            label = state.replace('_', ' ').replace('plus', '+').title()
+                            st.write(f"• {label}: {data.get('avg_fwd_ret_pct', 0):.3f}%/day avg, {data.get('win_rate', 0):.1%} win rate (n={data.get('count', 0):.0f})")
+                        
+                        st.markdown("**Drawdown Depth**")
+                        dd = ec_analysis.get('dd_analysis', {})
+                        for state, data in dd.items():
+                            label = state.replace('_', ' ').replace('pct', '%').title()
+                            st.write(f"• {label}: {data.get('avg_fwd_ret_pct', 0):.3f}%/day avg, {data.get('win_rate', 0):.1%} win rate (n={data.get('count', 0):.0f})")
             else:
                 st.warning("Insufficient data for equity curve analysis (need at least 30 days of trading history).")
 
@@ -1861,7 +1860,6 @@ def main():
             display_cols = ["Date", "Entry Date", "Exit Date", "Exit Type", "Strategy", "Ticker", "Action",
                           "Entry Criteria", "Signal Close", "T+1 Open", "Price", "Shares", "PnL", 
                           "ATR", "Equity at Signal", "Risk $"]
-            # FIXED FORMATTING for Trade Log as well
             st.dataframe(sig_df[display_cols].sort_values("Date", ascending=False).style.format({
                 "Price": "${:.2f}", 
                 "Signal Close": "${:.2f}",
@@ -1879,7 +1877,6 @@ def main():
             st.warning(f"No signals found starting from {user_start_date}.")
     else:
         st.info("👈 Configure settings and click 'Run Backtest' to begin.")
-
 
 if __name__ == "__main__":
     main()
