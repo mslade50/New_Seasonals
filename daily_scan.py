@@ -481,6 +481,10 @@ def calculate_indicators(df, sznl_map, ticker, market_series=None, vix_series=No
     rolling_low = df['Low'].shift(1).rolling(252).min()
     df['is_52w_high'] = df['High'] > rolling_high
     df['is_52w_low'] = df['Low'] < rolling_low
+
+    # --- All-Time High ---
+    df['prior_ath'] = df['High'].shift(1).expanding().max()
+    df['is_ath'] = df['High'] >= df['prior_ath']
         
     return df
 
@@ -1009,20 +1013,25 @@ def get_sizing_variable(strat_name, last_row):
         r10 = last_row.get('rank_ret_10d', 0)
         vol = last_row.get('vol_ratio', 0)
         dow = last_row.name.strftime('%A')
-        return f"5D Rank: {r5:.0f} | 10D Rank: {r10:.0f} | Vol: {vol:.1f}x | {dow}"
+        ath_str = " | ATH" if last_row.get('is_ath', False) else ""
+        return f"5D Rank: {r5:.0f} | 10D Rank: {r10:.0f} | Vol: {vol:.1f}x | {dow}{ath_str}"
     elif strat_name == "Weak Close Decent Sznls":
         sznl = last_row.get('Sznl', 0)
         return f"Seasonal Rank: {sznl:.0f}"
     else:
         return None
 
-def generate_vol_spike_companion(primary_signal, strat, last_row):
+def generate_vol_spike_companion(primary_signal, strat, last_row, override_risk=None):
     """
     Generates a companion LOC (Limit-on-Close) order for Vol Spike signals.
     
     Logic: If Vol Spike fires, we also want to catch the scenario where price
     keeps running higher the next day. Stage a LOC sell order at 
     (Signal_Close + 0.5 ATR) — only fills if T+1 Close exceeds that threshold.
+    
+    Args:
+        override_risk: If provided, use this risk instead of the primary signal's risk.
+                       Used for Tuesday+ATH where primary is killed but LOC stays normal.
     
     Returns a signal dict for the companion order, or None if not applicable.
     """
@@ -1035,8 +1044,8 @@ def generate_vol_spike_companion(primary_signal, strat, last_row):
     # LOC threshold: only fill if close > signal_close + 0.5 ATR
     loc_threshold = signal_close + (0.5 * atr)
     
-    # Use same sizing as primary (already has dynamic adjustments applied)
-    risk = primary_signal['Risk_Amt']
+    # Use override risk if provided (e.g. Tuesday+ATH), otherwise match primary
+    risk = override_risk if override_risk is not None else primary_signal['Risk_Amt']
     
     # For LOC, estimate entry at threshold for sizing
     direction = "Short"
@@ -1057,6 +1066,12 @@ def generate_vol_spike_companion(primary_signal, strat, last_row):
     tgt_atr = strat['execution']['tgt_atr']
     tgt_price = loc_threshold - (atr * tgt_atr)
     
+    # Build sizing notes — if override, note it's using pre-overlay risk
+    if override_risk is not None:
+        sizing_notes = f"Pre-overlay (${risk:.0f}) | LOC Companion (Tue+ATH override)"
+    else:
+        sizing_notes = primary_signal['Sizing_Notes'] + " | LOC Companion"
+    
     return {
         "Strategy_ID": strat['id'] + " (LOC Add)",
         "Strategy_Name": "Vol Spike LOC Add",
@@ -1065,7 +1080,7 @@ def generate_vol_spike_companion(primary_signal, strat, last_row):
         "Action": "SELL SHORT",
         "Shares": shares,
         "Risk_Amt": risk,
-        "Sizing_Notes": primary_signal['Sizing_Notes'] + " | LOC Companion",
+        "Sizing_Notes": sizing_notes,
         "Stats": primary_signal['Stats'],
         "Entry": loc_threshold,  # Threshold price (actual fill at close)
         "Stop": stop_price,
@@ -1370,6 +1385,11 @@ def run_daily_scan():
                     risk = base_risk 
 
                     sizing_note = "Standard (1.0x)"
+                    
+                    # Initialize overlay flags (used by Overbot Vol Spike companion logic)
+                    _skip_primary = False
+                    _skip_loc = False
+                    _loc_override_risk = None
 
                     if strat['name'] == "Overbot Vol Spike":
                         total_mult = 1.0
@@ -1384,16 +1404,42 @@ def run_daily_scan():
                         elif r5 < 85 and r10 < 85:
                             total_mult *= 0.75; reasons.append("Weak Mom (0.75x)")
 
-                        # --- B. Day of Week Multiplier ---
-                        if last_row.name.dayofweek == 4:
-                            total_mult *= 1.25
-                            reasons.append("Friday (1.25x)")
-
-                        # --- C. Volume Multiplier ---
+                        # --- B. Volume Multiplier ---
                         vol_ratio = last_row.get('vol_ratio', 0)
                         if vol_ratio > 2.0:
                             total_mult *= 1.15
                             reasons.append(f"Vol {vol_ratio:.1f}x (1.15x)")
+
+                        # Pre-overlay risk (momentum + volume only, before ATH/DOW adjustments)
+                        pre_overlay_risk = base_risk * total_mult
+                        pre_overlay_note = " + ".join(reasons) if reasons else "Standard"
+
+                        # --- C. ATH + Day-of-Week Overlay ---
+                        is_ath = bool(last_row.get('is_ath', False))
+                        dow = last_row.name.dayofweek  # 0=Mon, 1=Tue, ..., 4=Fri
+
+                        _skip_loc = (dow == 0)  # No LOC companion on Monday
+
+                        if dow == 1 and is_ath:
+                            # Tuesday + ATH: kill primary signal, LOC stays at pre-overlay size
+                            total_mult *= 0.0
+                            _skip_primary = True
+                            _loc_override_risk = pre_overlay_risk
+                            reasons.append("Tue+ATH (0x primary, LOC normal)")
+                        elif dow == 1:
+                            # Tuesday, no ATH: primary at 1/3 size
+                            total_mult *= (1.0 / 3.0)
+                            reasons.append("Tue non-ATH (0.33x)")
+                        elif is_ath and dow != 4:
+                            # ATH on non-Friday: primary at 1/5 size
+                            total_mult *= 0.2
+                            reasons.append("ATH non-Fri (0.2x)")
+                        elif is_ath and dow == 4:
+                            # ATH on Friday: normal size
+                            reasons.append("ATH+Fri (normal)")
+
+                        if _skip_loc:
+                            reasons.append("Mon (no LOC)")
 
                         risk = base_risk * total_mult
                         sizing_note = " + ".join(reasons) + f" = {total_mult:.2f}x" if reasons else "Standard (1.0x)"
@@ -1477,7 +1523,7 @@ def run_daily_scan():
                     # Build short entry type label for summary
                     entry_type_short = get_entry_type_short(entry_mode, limit_price)
                     
-                    signals.append({
+                    signal_dict = {
                         "Strategy_ID": strat['id'],
                         "Strategy_Name": strat['name'],
                         "Ticker": ticker,
@@ -1512,11 +1558,25 @@ def run_daily_scan():
                         "Exit_Notes": exit_block.get('notes', ''),
                         # Sizing context variable (for strategies with dynamic sizing)
                         "Sizing_Variable": get_sizing_variable(strat['name'], last_row)
-                    })
+                    }
+                    
                     if strat['name'] == "Overbot Vol Spike":
-                        companion = generate_vol_spike_companion(signals[-1], strat, last_row)
+                        # Generate companion LOC (unless Monday = skip LOC)
+                        companion = None
+                        if not _skip_loc:
+                            companion = generate_vol_spike_companion(
+                                signal_dict, strat, last_row,
+                                override_risk=_loc_override_risk
+                            )
+                        
+                        # Only append primary if not killed (e.g. Tuesday+ATH → skip)
+                        if not _skip_primary:
+                            signals.append(signal_dict)
+                        
                         if companion:
                             signals.append(companion)
+                    else:
+                        signals.append(signal_dict)
             except Exception as e:
                 print(f"Error processing {ticker}: {e}")
                 continue
