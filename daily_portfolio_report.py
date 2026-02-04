@@ -8,9 +8,10 @@ Generates:
 2. Daily P&L bar chart (green/red)
 3. Open positions table with current MTM P&L
 4. Automated sizing recommendations
+5. Today's entered & exited positions
 
 Author: McKinley
-Last Modified: 2026-02-03
+Last Modified: 2026-02-04
 """
 
 import pandas as pd
@@ -372,6 +373,100 @@ def get_open_positions_from_backtest(sig_df, master_dict):
     
     return result
 
+
+# -----------------------------------------------------------------------------
+# 4b. TODAY'S ENTERED & EXITED POSITIONS
+# -----------------------------------------------------------------------------
+
+def get_todays_activity(sig_df, master_dict):
+    """
+    Get positions that were ENTERED today and positions that were EXITED today.
+    Returns: (entered_today_df, exited_today_df) with same columns as open positions.
+    """
+    if sig_df.empty:
+        return pd.DataFrame(), pd.DataFrame()
+
+    today = pd.Timestamp(datetime.date.today())
+
+    # --- Entered Today: Entry Date == today ---
+    entered_mask = sig_df['Entry Date'].apply(
+        lambda x: pd.Timestamp(x).normalize() == today
+    )
+    entered_df = sig_df[entered_mask].copy()
+
+    # --- Exited Today: Exit Date == today AND position is closed (Time Stop <= today) ---
+    exited_mask = (
+        sig_df['Exit Date'].apply(lambda x: pd.Timestamp(x).normalize() == today)
+        & sig_df['Time Stop'].apply(lambda x: pd.Timestamp(x).normalize() <= today)
+    )
+    exited_df = sig_df[exited_mask].copy()
+
+    print(f"   Today's activity: {len(entered_df)} entries, {len(exited_df)} exits")
+
+    # Build output frames with same schema as open positions
+    results = []
+    for label, subset in [('entered', entered_df), ('exited', exited_df)]:
+        if subset.empty:
+            results.append(pd.DataFrame())
+            continue
+
+        current_prices, open_pnls, current_values = [], [], []
+        for row in subset.itertuples():
+            t_clean = row.Ticker.replace('.', '-')
+            t_df = master_dict.get(t_clean)
+            if t_df is not None and not t_df.empty:
+                if isinstance(t_df.columns, pd.MultiIndex):
+                    t_df.columns = t_df.columns.get_level_values(0)
+                t_df.columns = [c.capitalize() for c in t_df.columns]
+                last_close = t_df['Close'].iloc[-1]
+            else:
+                temp = yf.download(row.Ticker, period='1d', progress=False)
+                if not temp.empty:
+                    if isinstance(temp.columns, pd.MultiIndex):
+                        temp.columns = temp.columns.get_level_values(0)
+                    temp.columns = [c.capitalize() for c in temp.columns]
+                    last_close = temp['Close'].iloc[-1]
+                else:
+                    last_close = row.Price
+
+            if row.Action == 'BUY':
+                pnl = (last_close - row.Price) * row.Shares
+            else:
+                pnl = (row.Price - last_close) * row.Shares
+
+            current_prices.append(last_close)
+            open_pnls.append(pnl)
+            current_values.append(last_close * row.Shares)
+
+        result = pd.DataFrame({
+            'Date': subset['Date'].values,
+            'Entry Date': subset['Entry Date'].values,
+            'Exit Date': subset['Exit Date'].values,
+            'Exit Type': subset['Exit Type'].values,
+            'Time Stop': subset['Time Stop'].values,
+            'Strategy': subset['Strategy'].values,
+            'Ticker': subset['Ticker'].values,
+            'Action': subset['Action'].values,
+            'Entry Criteria': subset['Entry Criteria'].values,
+            'Price': subset['Price'].values,
+            'Shares': subset['Shares'].values,
+            'PnL': subset['PnL'].values,
+            'ATR': subset['ATR'].values,
+            'T+1 Open': subset['T+1 Open'].values,
+            'Signal Close': subset['Signal Close'].values,
+            'Range %': subset['Range %'].values,
+            'Equity at Signal': subset['Equity at Signal'].values,
+            'Risk $': subset['Risk $'].values,
+            'Risk bps': subset['Risk bps'].values,
+            'Current Price': current_prices,
+            'Open PnL': open_pnls,
+            'Mkt Value': current_values
+        })
+        results.append(result)
+
+    return results[0], results[1]
+
+
 # -----------------------------------------------------------------------------
 # 5. SIZING RECOMMENDATIONS ENGINE
 # -----------------------------------------------------------------------------
@@ -539,7 +634,59 @@ def generate_sizing_recommendations(equity_series, daily_pnl_series, starting_eq
 # 6. EMAIL GENERATION (SLIMMED TABLE FOR GMAIL)
 # -----------------------------------------------------------------------------
 
-def send_portfolio_email(chart_path, open_positions_df, sizing_analysis, metrics):
+def _format_activity_table_html(df, label):
+    """
+    Formats an entered/exited positions dataframe into HTML for the email.
+    Uses the same slimmed column set and styling as the open positions table.
+    Returns HTML string (summary bar + table), or a 'no activity' placeholder.
+    """
+    if df.empty:
+        return f"<div style='color: #aaa; padding: 20px; text-align: center;'>No positions {label.lower()} today</div>"
+
+    # Summary stats
+    total_long = df[df['Action'] == 'BUY']['Mkt Value'].sum()
+    total_short = df[df['Action'] != 'BUY']['Mkt Value'].sum()
+    net_exposure = total_long - total_short
+    total_pnl = df['Open PnL'].sum()
+    long_count = (df['Action'] == 'BUY').sum()
+    short_count = len(df) - long_count
+
+    summary_html = f"""
+    <div style="background: #1a1a1a; padding: 12px; border-radius: 6px; margin: 10px 0; font-size: 13px; color: #fff;">
+        <span style="color: #aaa;">Positions: </span><strong style="color: #fff;">{len(df)}</strong>
+        <span style="margin-left: 15px; color: #aaa;">Long: </span><strong style="color: #00CC00;">{long_count}</strong>
+        <span style="margin-left: 15px; color: #aaa;">Short: </span><strong style="color: #CC0000;">{short_count}</strong>
+        <span style="margin-left: 15px; color: #aaa;">Total Long: </span><strong style="color: #fff;">${total_long:,.0f}</strong>
+        <span style="margin-left: 15px; color: #aaa;">Total Short: </span><strong style="color: #fff;">${total_short:,.0f}</strong>
+        <span style="margin-left: 15px; color: #aaa;">Net Exposure: </span><strong style="color: #fff;">${net_exposure:+,.0f}</strong>
+        <span style="margin-left: 15px; color: #aaa;">Total P&L: </span>
+        <strong style="color: {'#00CC00' if total_pnl >= 0 else '#CC0000'};">${total_pnl:,.0f}</strong>
+    </div>
+    """
+
+    # Same slimmed columns as open positions table
+    tbl = df[[
+        'Entry Date', 'Time Stop', 'Strategy', 'Ticker', 'Price', 'Shares',
+        'PnL', 'Risk $', 'Risk bps', 'Current Price', 'Mkt Value'
+    ]].copy()
+
+    tbl['Entry Date'] = tbl['Entry Date'].apply(lambda x: x.strftime('%Y-%m-%d'))
+    tbl['Time Stop'] = tbl['Time Stop'].apply(lambda x: x.strftime('%Y-%m-%d'))
+    tbl['Price'] = tbl['Price'].apply(lambda x: f"${x:.2f}")
+    tbl['Current Price'] = tbl['Current Price'].apply(lambda x: f"${x:.2f}")
+    tbl['PnL'] = tbl['PnL'].apply(
+        lambda x: f'<span style="color: {"#00CC00" if x >= 0 else "#CC0000"}; font-weight: bold;">${x:,.0f}</span>'
+    )
+    tbl['Mkt Value'] = tbl['Mkt Value'].apply(lambda x: f"${x:,.0f}")
+    tbl['Risk $'] = tbl['Risk $'].apply(lambda x: f"${x:,.0f}")
+    tbl['Shares'] = tbl['Shares'].apply(lambda x: f"{x:,}")
+
+    table_html = tbl.to_html(index=False, escape=False, classes='positions-table')
+    return summary_html + table_html
+
+
+def send_portfolio_email(chart_path, open_positions_df, sizing_analysis, metrics,
+                         entered_today_df=None, exited_today_df=None):
     """
     Sends portfolio health email with chart attachment and HTML tables.
     """
@@ -701,6 +848,25 @@ def send_portfolio_email(chart_path, open_positions_df, sizing_analysis, metrics
     else:
         positions_summary = "<div style='color: #aaa; padding: 20px; text-align: center;'>No open positions</div>"
         positions_html = ""
+
+    # Build today's activity section
+    if entered_today_df is None:
+        entered_today_df = pd.DataFrame()
+    if exited_today_df is None:
+        exited_today_df = pd.DataFrame()
+
+    entered_html = _format_activity_table_html(entered_today_df, "Entered")
+    exited_html = _format_activity_table_html(exited_today_df, "Exited")
+
+    todays_activity_html = f"""
+    <div class="section">
+        <h2>📅 Today's Activity</h2>
+        <h3 style="color: #00CC00; margin-bottom: 5px;">🟢 Entered Today</h3>
+        {entered_html}
+        <h3 style="color: #CC0000; margin-top: 20px; margin-bottom: 5px;">🔴 Exited Today</h3>
+        {exited_html}
+    </div>
+    """
     
     # Assemble email
     subject = f"📊 Portfolio Health Report - {date_str}"
@@ -770,6 +936,8 @@ def send_portfolio_email(chart_path, open_positions_df, sizing_analysis, metrics
                     {positions_summary}
                     {positions_html}
                 </div>
+                
+                {todays_activity_html}
                 
                 <div style="text-align: center; padding: 20px; color: #666; font-size: 12px; border-top: 1px solid #333; margin-top: 30px;">
                     Generated by daily_portfolio_report.py | {datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
@@ -848,6 +1016,10 @@ def main():
         print("\n💼 Calculating open positions from backtest...")
         open_positions = get_open_positions_from_backtest(signals_df, master_dict)
         
+        # 3b. Get today's entered & exited positions
+        print("\n📅 Checking today's activity...")
+        entered_today, exited_today = get_todays_activity(signals_df, master_dict)
+        
         # 4. Generate sizing recommendations
         print("\n🎯 Analyzing performance...")
         sizing_analysis = generate_sizing_recommendations(equity_series, daily_pnl, CURRENT_ACCOUNT_SIZE)
@@ -865,7 +1037,9 @@ def main():
             chart_path=chart_path,
             open_positions_df=open_positions,
             sizing_analysis=sizing_analysis,
-            metrics=sizing_analysis['metrics']
+            metrics=sizing_analysis['metrics'],
+            entered_today_df=entered_today,
+            exited_today_df=exited_today
         )
         
         print("\n✅ Portfolio health report completed successfully!")
