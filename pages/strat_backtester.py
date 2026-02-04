@@ -1487,11 +1487,11 @@ def main():
         st.rerun()
     
     current_year = datetime.date.today().year
-    selected_year = st.sidebar.slider("Select Start Year", 2000, current_year, current_year - 2)
+    selected_year = st.sidebar.slider("Select Start Year", 1997, current_year, current_year - 2)
     default_date = datetime.date(selected_year, 1, 1)
     
     with st.sidebar.form("backtest_form"):
-        user_start_date = st.date_input("Backtest Start Date", value=default_date, min_value=datetime.date(2000, 1, 1))
+        user_start_date = st.date_input("Backtest Start Date", value=default_date, min_value=datetime.date(1997, 1, 1))
         starting_equity = st.number_input("Starting Equity ($)", value=150000, step=10000)
         st.caption(f"Data buffer: 365 days prior to {user_start_date}.")
         st.markdown("---")
