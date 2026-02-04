@@ -231,7 +231,7 @@ def create_equity_curve_analysis_figure(analysis_results, starting_equity):
             'Bollinger Band Zone',
             'After Winning/Losing Streak',
             'Drawdown Depth',
-            "Yesterday's P&L Magnitude"
+            "Yesterday's Return Magnitude"
         ),
         horizontal_spacing=0.08,
         vertical_spacing=0.15
@@ -264,19 +264,19 @@ def create_equity_curve_analysis_figure(analysis_results, starting_equity):
     ma_data = analysis_results.get('ma_analysis', {})
     if ma_data:
         categories = ['Above MA', 'Below MA']
-        avg_pnls = [
-            ma_data.get('above_ma', {}).get('avg_fwd_pnl', 0),
-            ma_data.get('below_ma', {}).get('avg_fwd_pnl', 0)
+        avg_rets = [
+            ma_data.get('above_ma', {}).get('avg_fwd_ret_pct', 0),
+            ma_data.get('below_ma', {}).get('avg_fwd_ret_pct', 0)
         ]
         counts = [
             ma_data.get('above_ma', {}).get('count', 0),
             ma_data.get('below_ma', {}).get('count', 0)
         ]
-        colors = [pos_color if v > 0 else neg_color for v in avg_pnls]
+        colors = [pos_color if v > 0 else neg_color for v in avg_rets]
         
         fig.add_trace(
-            go.Bar(x=categories, y=avg_pnls, marker_color=colors,
-                   text=[f'${v:,.0f}<br>n={int(c)}' for v, c in zip(avg_pnls, counts)],
+            go.Bar(x=categories, y=avg_rets, marker_color=colors,
+                   text=[f'{v:.3f}%<br>n={int(c)}' for v, c in zip(avg_rets, counts)],
                    textposition='outside'),
             row=1, col=2
         )
@@ -289,13 +289,13 @@ def create_equity_curve_analysis_figure(analysis_results, starting_equity):
     if bb_data:
         zone_order = ['above_upper', 'upper_half', 'middle', 'lower_half', 'below_lower']
         zone_labels = ['Above Upper', 'Upper Half', 'Middle', 'Lower Half', 'Below Lower']
-        avg_pnls = [bb_data.get(z, {}).get('avg_fwd_pnl', 0) for z in zone_order]
+        avg_rets = [bb_data.get(z, {}).get('avg_fwd_ret_pct', 0) for z in zone_order]
         counts = [bb_data.get(z, {}).get('count', 0) for z in zone_order]
-        colors = [pos_color if v > 0 else neg_color for v in avg_pnls]
+        colors = [pos_color if v > 0 else neg_color for v in avg_rets]
         
         fig.add_trace(
-            go.Bar(x=zone_labels, y=avg_pnls, marker_color=colors,
-                   text=[f'${v:,.0f}<br>n={int(c)}' for v, c in zip(avg_pnls, counts)],
+            go.Bar(x=zone_labels, y=avg_rets, marker_color=colors,
+                   text=[f'{v:.3f}%<br>n={int(c)}' for v, c in zip(avg_rets, counts)],
                    textposition='outside'),
             row=1, col=3
         )
@@ -308,13 +308,13 @@ def create_equity_curve_analysis_figure(analysis_results, starting_equity):
     if streak_data:
         streak_order = ['loss_3plus', 'loss_1_2', 'win_1_2', 'win_3plus']
         streak_labels = ['Loss 3+', 'Loss 1-2', 'Win 1-2', 'Win 3+']
-        avg_pnls = [streak_data.get(s, {}).get('avg_fwd_pnl', 0) for s in streak_order]
+        avg_rets = [streak_data.get(s, {}).get('avg_fwd_ret_pct', 0) for s in streak_order]
         counts = [streak_data.get(s, {}).get('count', 0) for s in streak_order]
-        colors = [pos_color if v > 0 else neg_color for v in avg_pnls]
+        colors = [pos_color if v > 0 else neg_color for v in avg_rets]
         
         fig.add_trace(
-            go.Bar(x=streak_labels, y=avg_pnls, marker_color=colors,
-                   text=[f'${v:,.0f}<br>n={int(c)}' for v, c in zip(avg_pnls, counts)],
+            go.Bar(x=streak_labels, y=avg_rets, marker_color=colors,
+                   text=[f'{v:.3f}%<br>n={int(c)}' for v, c in zip(avg_rets, counts)],
                    textposition='outside'),
             row=2, col=1
         )
@@ -327,32 +327,32 @@ def create_equity_curve_analysis_figure(analysis_results, starting_equity):
     if dd_data:
         dd_order = ['at_high', 'dd_0_2pct', 'dd_2_5pct', 'dd_5plus_pct']
         dd_labels = ['At High', '0-2% DD', '2-5% DD', '5%+ DD']
-        avg_pnls = [dd_data.get(d, {}).get('avg_fwd_pnl', 0) for d in dd_order]
+        avg_rets = [dd_data.get(d, {}).get('avg_fwd_ret_pct', 0) for d in dd_order]
         counts = [dd_data.get(d, {}).get('count', 0) for d in dd_order]
-        colors = [pos_color if v > 0 else neg_color for v in avg_pnls]
+        colors = [pos_color if v > 0 else neg_color for v in avg_rets]
         
         fig.add_trace(
-            go.Bar(x=dd_labels, y=avg_pnls, marker_color=colors,
-                   text=[f'${v:,.0f}<br>n={int(c)}' for v, c in zip(avg_pnls, counts)],
+            go.Bar(x=dd_labels, y=avg_rets, marker_color=colors,
+                   text=[f'{v:.3f}%<br>n={int(c)}' for v, c in zip(avg_rets, counts)],
                    textposition='outside'),
             row=2, col=2
         )
         fig.add_hline(y=0, line_dash="dot", line_color="gray", row=2, col=2)
     
     # =========================================================================
-    # 6. Yesterday's P&L Analysis (Row 2, Col 3)
+    # 6. Yesterday's Return Analysis (Row 2, Col 3)
     # =========================================================================
     yest_data = analysis_results.get('yesterday_analysis', {})
     if yest_data:
         yest_order = ['bottom_10pct', 'bottom_25pct', 'middle_50pct', 'top_25pct', 'top_10pct']
         yest_labels = ['Worst 10%', 'Worst 25%', 'Middle 50%', 'Best 25%', 'Best 10%']
-        avg_pnls = [yest_data.get(y, {}).get('avg_fwd_pnl', 0) for y in yest_order]
+        avg_rets = [yest_data.get(y, {}).get('avg_fwd_ret_pct', 0) for y in yest_order]
         counts = [yest_data.get(y, {}).get('count', 0) for y in yest_order]
-        colors = [pos_color if v > 0 else neg_color for v in avg_pnls]
+        colors = [pos_color if v > 0 else neg_color for v in avg_rets]
         
         fig.add_trace(
-            go.Bar(x=yest_labels, y=avg_pnls, marker_color=colors,
-                   text=[f'${v:,.0f}<br>n={int(c)}' for v, c in zip(avg_pnls, counts)],
+            go.Bar(x=yest_labels, y=avg_rets, marker_color=colors,
+                   text=[f'{v:.3f}%<br>n={int(c)}' for v, c in zip(avg_rets, counts)],
                    textposition='outside'),
             row=2, col=3
         )
@@ -367,13 +367,13 @@ def create_equity_curve_analysis_figure(analysis_results, starting_equity):
         margin=dict(t=80, b=40)
     )
     
-    # Update y-axes labels
+    # Update y-axes labels - NOW IN PERCENTAGES
     fig.update_yaxes(title_text="Correlation", row=1, col=1)
-    fig.update_yaxes(title_text="Avg Next-Day P&L ($)", row=1, col=2)
-    fig.update_yaxes(title_text="Avg Next-Day P&L ($)", row=1, col=3)
-    fig.update_yaxes(title_text="Avg Next-Day P&L ($)", row=2, col=1)
-    fig.update_yaxes(title_text="Avg Next-Day P&L ($)", row=2, col=2)
-    fig.update_yaxes(title_text="Avg Next-Day P&L ($)", row=2, col=3)
+    fig.update_yaxes(title_text="Avg Next-Day Return (%)", row=1, col=2)
+    fig.update_yaxes(title_text="Avg Next-Day Return (%)", row=1, col=3)
+    fig.update_yaxes(title_text="Avg Next-Day Return (%)", row=2, col=1)
+    fig.update_yaxes(title_text="Avg Next-Day Return (%)", row=2, col=2)
+    fig.update_yaxes(title_text="Avg Next-Day Return (%)", row=2, col=3)
     
     return fig
 
@@ -405,57 +405,62 @@ def generate_sizing_recommendations(analysis_results):
     
     # 2. Check MA analysis
     ma_data = analysis_results.get('ma_analysis', {})
-    above_pnl = ma_data.get('above_ma', {}).get('avg_fwd_pnl', 0)
-    below_pnl = ma_data.get('below_ma', {}).get('avg_fwd_pnl', 0)
+    above_ret = ma_data.get('above_ma', {}).get('avg_fwd_ret_pct', 0)
+    below_ret = ma_data.get('below_ma', {}).get('avg_fwd_ret_pct', 0)
     above_n = ma_data.get('above_ma', {}).get('count', 0)
     below_n = ma_data.get('below_ma', {}).get('count', 0)
     
     if above_n > 30 and below_n > 30:
-        diff = above_pnl - below_pnl
-        if diff > 100:  # $100 difference is meaningful
-            recommendations.append((
-                f"EQUITY FILTER: Returns are ${diff:,.0f}/day better when equity > 20d MA. Consider reducing size when below.",
-                "Medium" if diff > 200 else "Low"
-            ))
-        elif diff < -100:
-            recommendations.append((
-                f"CONTRARIAN: Returns are ${-diff:,.0f}/day better when equity < 20d MA. Consider mean-reversion sizing.",
-                "Medium" if diff < -200 else "Low"
-            ))
+        diff = above_ret - below_ret
+        if abs(diff) > 0.05:  # 0.05% difference is meaningful
+            if diff > 0:
+                recommendations.append((
+                    f"EQUITY FILTER: Returns are {diff:.2f}% better when equity > 20d MA. Consider reducing size when below.",
+                    "Medium" if abs(diff) > 0.1 else "Low"
+                ))
+            else:
+                recommendations.append((
+                    f"CONTRARIAN: Returns are {-diff:.2f}% better when equity < 20d MA. Consider mean-reversion sizing.",
+                    "Medium" if abs(diff) > 0.1 else "Low"
+                ))
     
     # 3. Check drawdown analysis
     dd_data = analysis_results.get('dd_analysis', {})
-    at_high = dd_data.get('at_high', {}).get('avg_fwd_pnl', 0)
-    in_dd = dd_data.get('dd_5plus_pct', {}).get('avg_fwd_pnl', 0)
+    at_high = dd_data.get('at_high', {}).get('avg_fwd_ret_pct', 0)
+    in_dd = dd_data.get('dd_5plus_pct', {}).get('avg_fwd_ret_pct', 0)
     
     if dd_data.get('at_high', {}).get('count', 0) > 20 and dd_data.get('dd_5plus_pct', {}).get('count', 0) > 20:
-        if in_dd > at_high + 100:
-            recommendations.append((
-                f"DRAWDOWN OPPORTUNITY: Returns are better (${in_dd:,.0f} vs ${at_high:,.0f}) during 5%+ drawdowns. Don't cut size in drawdowns.",
-                "Medium"
-            ))
-        elif at_high > in_dd + 100:
-            recommendations.append((
-                f"PROTECT GAINS: Returns deteriorate in drawdowns (${in_dd:,.0f} vs ${at_high:,.0f}). Consider reducing size during drawdowns.",
-                "Medium"
-            ))
+        diff = in_dd - at_high
+        if abs(diff) > 0.05:
+            if diff > 0:
+                recommendations.append((
+                    f"DRAWDOWN OPPORTUNITY: Returns are {diff:.2f}% better during 5%+ drawdowns. Don't cut size in drawdowns.",
+                    "Medium"
+                ))
+            else:
+                recommendations.append((
+                    f"PROTECT GAINS: Returns deteriorate by {-diff:.2f}% in drawdowns. Consider reducing size during drawdowns.",
+                    "Medium"
+                ))
     
     # 4. Check yesterday analysis
     yest_data = analysis_results.get('yesterday_analysis', {})
-    best_10 = yest_data.get('top_10pct', {}).get('avg_fwd_pnl', 0)
-    worst_10 = yest_data.get('bottom_10pct', {}).get('avg_fwd_pnl', 0)
+    best_10 = yest_data.get('top_10pct', {}).get('avg_fwd_ret_pct', 0)
+    worst_10 = yest_data.get('bottom_10pct', {}).get('avg_fwd_ret_pct', 0)
     
     if yest_data.get('top_10pct', {}).get('count', 0) > 20 and yest_data.get('bottom_10pct', {}).get('count', 0) > 20:
-        if worst_10 > best_10 + 100:
-            recommendations.append((
-                f"POST-BAD DAY OPPORTUNITY: After worst 10% days, avg next-day is ${worst_10:,.0f}. Consider sizing UP after bad days.",
-                "Medium"
-            ))
-        elif best_10 > worst_10 + 100:
-            recommendations.append((
-                f"MOMENTUM: After best 10% days, avg next-day is ${best_10:,.0f}. Momentum persists - don't cut after wins.",
-                "Medium"
-            ))
+        diff = worst_10 - best_10
+        if abs(diff) > 0.05:
+            if diff > 0:
+                recommendations.append((
+                    f"POST-BAD DAY OPPORTUNITY: After worst 10% days, next-day avg is {worst_10:.2f}%. Consider sizing UP after bad days.",
+                    "Medium"
+                ))
+            else:
+                recommendations.append((
+                    f"MOMENTUM: After best 10% days, next-day avg is {best_10:.2f}%. Momentum persists - don't cut after wins.",
+                    "Medium"
+                ))
     
     if not recommendations:
         recommendations.append((
