@@ -1827,7 +1827,7 @@ def main():
                 
                 # Detailed stats in expander
                 with st.expander("📊 Detailed Statistics"):
-                col1, col2 = st.columns(2)
+                col1, col2 = st.columns(2)  # ← This line needs to be indented
                 
                 with col1:
                     st.markdown("**Autocorrelation (does today predict tomorrow?)**")
