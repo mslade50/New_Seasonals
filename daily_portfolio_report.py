@@ -524,6 +524,11 @@ def generate_sizing_recommendations(equity_series, daily_pnl_series, starting_eq
             'plus_2std': avg_daily_pnl + (2 * std_daily_pnl),
             'minus_1std': avg_daily_pnl - std_daily_pnl,
             'minus_2std': avg_daily_pnl - (2 * std_daily_pnl),
+            # Percentage versions (as % of equity)
+            'plus_1std_pct': ((avg_daily_pnl + std_daily_pnl) / starting_equity) * 100 if starting_equity > 0 else 0,
+            'plus_2std_pct': ((avg_daily_pnl + (2 * std_daily_pnl)) / starting_equity) * 100 if starting_equity > 0 else 0,
+            'minus_1std_pct': ((avg_daily_pnl - std_daily_pnl) / starting_equity) * 100 if starting_equity > 0 else 0,
+            'minus_2std_pct': ((avg_daily_pnl - (2 * std_daily_pnl)) / starting_equity) * 100 if starting_equity > 0 else 0,
             # Day of week breakdown
             'pnl_by_dow': pnl_by_dow
         }
@@ -549,12 +554,6 @@ def send_portfolio_email(chart_path, open_positions_df, sizing_analysis, metrics
     date_str = datetime.datetime.now().strftime("%Y-%m-%d")
     
     # Build metrics section with Sharpe and std dev metrics
-    # Day of week breakdown
-    dow_html = ""
-    for dow, pnl in metrics['pnl_by_dow'].items():
-        color = '#00CC00' if pnl >= 0 else '#CC0000'
-        dow_html += f'<div style="text-align: center;"><div style="color: #aaa; font-size: 11px;">{dow[:3]}</div><div style="color: {color}; font-weight: bold; font-size: 14px;">${pnl:,.0f}</div></div>'
-    
     metrics_html = f"""
     <div style="background: #1a1a1a; padding: 15px; border-radius: 8px; margin: 20px 0;">
         <h3 style="color: #fff; margin-top: 0;">📊 Key Metrics (12 Months)</h3>
@@ -617,40 +616,32 @@ def send_portfolio_email(chart_path, open_positions_df, sizing_analysis, metrics
         
         <!-- Standard Deviation Metrics -->
         <div style="margin-top: 15px; padding-top: 15px; border-top: 1px solid #333;">
-            <div style="color: #aaa; font-size: 13px; margin-bottom: 8px;">Standard Deviation Thresholds</div>
+            <div style="color: #aaa; font-size: 13px; margin-bottom: 8px;">Standard Deviation Thresholds (% of Equity)</div>
             <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; font-size: 12px;">
                 <div>
                     <span style="color: #aaa;">+2σ:</span>
                     <span style="color: #00CC00; font-weight: bold;">
-                        ${metrics['plus_2std']:,.0f}
+                        {metrics['plus_2std_pct']:+.2f}%
                     </span>
                 </div>
                 <div>
                     <span style="color: #aaa;">+1σ:</span>
                     <span style="color: #00CC00; font-weight: bold;">
-                        ${metrics['plus_1std']:,.0f}
+                        {metrics['plus_1std_pct']:+.2f}%
                     </span>
                 </div>
                 <div>
                     <span style="color: #aaa;">-1σ:</span>
                     <span style="color: #CC0000; font-weight: bold;">
-                        ${metrics['minus_1std']:,.0f}
+                        {metrics['minus_1std_pct']:.2f}%
                     </span>
                 </div>
                 <div>
                     <span style="color: #aaa;">-2σ:</span>
                     <span style="color: #CC0000; font-weight: bold;">
-                        ${metrics['minus_2std']:,.0f}
+                        {metrics['minus_2std_pct']:.2f}%
                     </span>
                 </div>
-            </div>
-        </div>
-        
-        <!-- Day of Week Breakdown -->
-        <div style="margin-top: 15px; padding-top: 15px; border-top: 1px solid #333;">
-            <div style="color: #aaa; font-size: 13px; margin-bottom: 8px;">P&L by Day of Week (12 Months)</div>
-            <div style="display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px;">
-                {dow_html}
             </div>
         </div>
     </div>
@@ -685,15 +676,13 @@ def send_portfolio_email(chart_path, open_positions_df, sizing_analysis, metrics
         </div>
         """
         
-        # SLIMMED DOWN: 13 columns (removed Entry Criteria and Equity at Signal)
+        # SLIMMED DOWN: 11 columns (removed Date, Exit Type, Entry Criteria, Equity at Signal)
         pos_table = open_positions_df[[
-            'Date', 'Entry Date', 'Exit Type', 'Time Stop', 'Strategy',
-            'Ticker', 'Price', 'Shares', 'PnL', 'Risk $', 'Risk bps', 
-            'Current Price', 'Mkt Value'
+            'Entry Date', 'Time Stop', 'Strategy', 'Ticker', 'Price', 'Shares', 
+            'PnL', 'Risk $', 'Risk bps', 'Current Price', 'Mkt Value'
         ]].copy()
         
         # Format dates
-        pos_table['Date'] = pos_table['Date'].apply(lambda x: x.strftime('%Y-%m-%d'))
         pos_table['Entry Date'] = pos_table['Entry Date'].apply(lambda x: x.strftime('%Y-%m-%d'))
         pos_table['Time Stop'] = pos_table['Time Stop'].apply(lambda x: x.strftime('%Y-%m-%d'))
         
