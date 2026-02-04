@@ -14,7 +14,7 @@ def analyze_equity_curve_effects(daily_pnl_series, starting_equity, ma_window=20
     Analyzes whether equity curve state predicts forward returns.
     
     Returns a dict with:
-    - autocorr: Autocorrelation of daily P&L at various lags
+    - autocorr: Autocorrelation of daily returns (%) at various lags
     - ma_analysis: Forward returns when equity > MA vs < MA
     - bb_analysis: Forward returns by Bollinger band position
     - streak_analysis: Forward returns after winning/losing streaks
@@ -28,9 +28,11 @@ def analyze_equity_curve_effects(daily_pnl_series, starting_equity, ma_window=20
     if daily_pnl_series.empty or len(daily_pnl_series) < ma_window + 10:
         return None
     
-    # Build equity curve
+    # Build equity curve (in $)
     equity = starting_equity + daily_pnl_series.cumsum()
-    daily_returns = daily_pnl_series  # Already in $ terms
+    
+    # Convert to % returns for analysis (this normalizes across time periods)
+    daily_returns_pct = (daily_pnl_series / equity.shift(1)) * 100  # As percentage
     
     # Helper function for safe metric calculation
     def safe_metrics(series, mask):
@@ -38,25 +40,24 @@ def analyze_equity_curve_effects(daily_pnl_series, starting_equity, ma_window=20
         filtered = series[mask].dropna()
         count = len(filtered)
         if count == 0:
-            return {'count': 0, 'avg_fwd_pnl': 0, 'win_rate': 0, 'total_pnl': 0}
+            return {'count': 0, 'avg_fwd_ret_pct': 0, 'win_rate': 0, 'total_ret_pct': 0}
         return {
             'count': int(count),
-            'avg_fwd_pnl': float(filtered.mean()) if pd.notna(filtered.mean()) else 0,
+            'avg_fwd_ret_pct': float(filtered.mean()) if pd.notna(filtered.mean()) else 0,
             'win_rate': float((filtered > 0).mean()) if count > 0 else 0,
-            'total_pnl': float(filtered.sum()) if pd.notna(filtered.sum()) else 0
+            'total_ret_pct': float(filtered.sum()) if pd.notna(filtered.sum()) else 0
         }
     
     results = {}
     
     # =========================================================================
     # 1. AUTOCORRELATION ANALYSIS
-    # Question: Does yesterday's P&L predict today's?
+    # Question: Does yesterday's return predict today's?
     # =========================================================================
     autocorr = {}
     for lag in [1, 2, 3, 5]:
-        if len(daily_returns.dropna()) > lag + 10:
-            ac_val = daily_returns.autocorr(lag=lag)
-            # Only include if we got a valid number
+        if len(daily_returns_pct.dropna()) > lag + 10:
+            ac_val = daily_returns_pct.autocorr(lag=lag)
             if pd.notna(ac_val):
                 autocorr[f'lag_{lag}'] = ac_val
     results['autocorr'] = autocorr
@@ -67,14 +68,12 @@ def analyze_equity_curve_effects(daily_pnl_series, starting_equity, ma_window=20
     # =========================================================================
     equity_ma = equity.rolling(ma_window).mean()
     
-    # State: True if equity > MA, False if below (fill NaN with False to avoid invert issues)
     above_ma = (equity > equity_ma).fillna(False).shift(1).fillna(False)
-    below_ma = ~above_ma  # Now safe to invert
+    below_ma = ~above_ma
     
-    # Forward 1-day returns (next day's P&L)
-    fwd_1d = daily_returns.shift(-1)
+    # Forward 1-day returns (next day's return %)
+    fwd_1d = daily_returns_pct.shift(-1)
     
-    # Filter out rows where MA wasn't yet calculated (first ma_window rows)
     valid_mask = equity_ma.notna().shift(1).fillna(False)
     
     ma_analysis = {
@@ -85,13 +84,11 @@ def analyze_equity_curve_effects(daily_pnl_series, starting_equity, ma_window=20
     
     # =========================================================================
     # 3. BOLLINGER BAND POSITION
-    # Question: Do returns differ at upper/lower bands?
     # =========================================================================
     equity_std = equity.rolling(ma_window).std()
     upper_bb = equity_ma + (bb_std * equity_std)
     lower_bb = equity_ma - (bb_std * equity_std)
     
-    # Categorize position (shifted to avoid lookahead)
     def get_bb_zone(row_idx):
         if pd.isna(equity_ma.iloc[row_idx]) or pd.isna(equity_std.iloc[row_idx]):
             return 'insufficient_data'
@@ -113,28 +110,24 @@ def analyze_equity_curve_effects(daily_pnl_series, starting_equity, ma_window=20
             return 'below_lower'
     
     bb_zones = pd.Series([get_bb_zone(i) for i in range(len(equity))], index=equity.index)
-    bb_zones_shifted = bb_zones.shift(1)  # Use yesterday's zone
+    bb_zones_shifted = bb_zones.shift(1)
     
     bb_analysis = {}
     for zone in ['above_upper', 'upper_half', 'middle', 'lower_half', 'below_lower']:
         mask = bb_zones_shifted == zone
-        if mask.sum() > 5:  # Need enough samples
+        if mask.sum() > 5:
             bb_analysis[zone] = safe_metrics(fwd_1d, mask)
     results['bb_analysis'] = bb_analysis
     
     # =========================================================================
     # 4. RECENT STREAK ANALYSIS
-    # Question: Do returns differ after winning vs losing streaks?
     # =========================================================================
-    # Calculate streak length
-    is_winner = (daily_returns > 0).astype(int)
+    is_winner = (daily_returns_pct > 0).astype(int)
     
-    # Consecutive wins/losses
     streak_groups = (is_winner != is_winner.shift()).cumsum()
     streak_length = is_winner.groupby(streak_groups).cumcount() + 1
-    streak_length = streak_length * is_winner.replace(0, -1)  # Negative for losing streaks
+    streak_length = streak_length * is_winner.replace(0, -1)
     
-    # Bucket by streak (shifted to avoid lookahead)
     streak_shifted = streak_length.shift(1)
     
     def get_streak_bucket(s):
@@ -155,17 +148,11 @@ def analyze_equity_curve_effects(daily_pnl_series, starting_equity, ma_window=20
     for bucket in ['win_3plus', 'win_1_2', 'loss_1_2', 'loss_3plus']:
         mask = streak_buckets == bucket
         if mask.sum() > 5:
-            streak_analysis[bucket] = {
-                'count': int(mask.sum()),
-                'avg_fwd_pnl': fwd_1d[mask].mean(),
-                'win_rate': (fwd_1d[mask] > 0).mean(),
-                'total_pnl': fwd_1d[mask].sum()
-            }
+            streak_analysis[bucket] = safe_metrics(fwd_1d, mask)
     results['streak_analysis'] = streak_analysis
     
     # =========================================================================
     # 5. RECENT DRAWDOWN ANALYSIS
-    # Question: Do returns differ based on current drawdown depth?
     # =========================================================================
     running_max = equity.expanding().max()
     drawdown_pct = (equity - running_max) / running_max
@@ -189,23 +176,16 @@ def analyze_equity_curve_effects(daily_pnl_series, starting_equity, ma_window=20
     for bucket in ['at_high', 'dd_0_2pct', 'dd_2_5pct', 'dd_5plus_pct']:
         mask = dd_buckets == bucket
         if mask.sum() > 5:
-            dd_analysis[bucket] = {
-                'count': int(mask.sum()),
-                'avg_fwd_pnl': fwd_1d[mask].mean(),
-                'win_rate': (fwd_1d[mask] > 0).mean(),
-                'total_pnl': fwd_1d[mask].sum()
-            }
+            dd_analysis[bucket] = safe_metrics(fwd_1d, mask)
     results['dd_analysis'] = dd_analysis
     
     # =========================================================================
-    # 6. YESTERDAY'S P&L MAGNITUDE
-    # Question: Does a big up/down day predict tomorrow?
+    # 6. YESTERDAY'S RETURN MAGNITUDE
     # =========================================================================
-    # Bucket yesterday's P&L by percentile
-    pnl_shifted = daily_returns.shift(1)
-    pnl_pctile = pnl_shifted.rank(pct=True)
+    ret_shifted = daily_returns_pct.shift(1)
+    ret_pctile = ret_shifted.rank(pct=True)
     
-    def get_pnl_bucket(pct):
+    def get_ret_bucket(pct):
         if pd.isna(pct):
             return None
         if pct >= 0.9:
@@ -219,22 +199,16 @@ def analyze_equity_curve_effects(daily_pnl_series, starting_equity, ma_window=20
         else:
             return 'middle_50pct'
     
-    pnl_buckets = pnl_pctile.apply(get_pnl_bucket)
+    ret_buckets = ret_pctile.apply(get_ret_bucket)
     
     yesterday_analysis = {}
     for bucket in ['top_10pct', 'top_25pct', 'middle_50pct', 'bottom_25pct', 'bottom_10pct']:
-        mask = pnl_buckets == bucket
+        mask = ret_buckets == bucket
         if mask.sum() > 5:
-            yesterday_analysis[bucket] = {
-                'count': int(mask.sum()),
-                'avg_fwd_pnl': fwd_1d[mask].mean(),
-                'win_rate': (fwd_1d[mask] > 0).mean(),
-                'total_pnl': fwd_1d[mask].sum()
-            }
+            yesterday_analysis[bucket] = safe_metrics(fwd_1d, mask)
     results['yesterday_analysis'] = yesterday_analysis
     
     return results
-
 
 def create_equity_curve_analysis_figure(analysis_results, starting_equity):
     """
