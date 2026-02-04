@@ -407,14 +407,28 @@ def generate_sizing_recommendations(equity_series, daily_pnl_series, starting_eq
     last_30d = daily_pnl_series.tail(30)
     if len(last_30d) > 0:
         avg_daily_pnl = last_30d.mean()
+        std_daily_pnl = last_30d.std()
         win_rate_30d = (last_30d > 0).sum() / len(last_30d)
         best_day = last_30d.max()
         worst_day = last_30d.min()
+        
+        # Calculate PnL by day of week (full 12-month period)
+        pnl_by_dow = {}
+        dow_names = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday']
+        for i, dow_name in enumerate(dow_names):
+            dow_mask = daily_pnl_series.index.dayofweek == i
+            dow_pnl = daily_pnl_series[dow_mask]
+            if len(dow_pnl) > 0:
+                pnl_by_dow[dow_name] = dow_pnl.sum()
+            else:
+                pnl_by_dow[dow_name] = 0
     else:
         avg_daily_pnl = 0
+        std_daily_pnl = 0
         win_rate_30d = 0
         best_day = 0
         worst_day = 0
+        pnl_by_dow = {dow: 0 for dow in ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday']}
     
     # Drawdown analysis
     running_max = equity_series.expanding().max()
@@ -502,13 +516,22 @@ def generate_sizing_recommendations(equity_series, daily_pnl_series, starting_eq
             'win_rate_30d': win_rate_30d,
             'avg_daily_pnl': avg_daily_pnl,
             'best_day': best_day,
-            'worst_day': worst_day
+            'worst_day': worst_day,
+            # New metrics
+            'sharpe_ratio': (avg_daily_pnl * np.sqrt(252)) / (std_daily_pnl * np.sqrt(252)) if std_daily_pnl > 0 else 0,
+            'std_daily_pnl': std_daily_pnl,
+            'plus_1std': avg_daily_pnl + std_daily_pnl,
+            'plus_2std': avg_daily_pnl + (2 * std_daily_pnl),
+            'minus_1std': avg_daily_pnl - std_daily_pnl,
+            'minus_2std': avg_daily_pnl - (2 * std_daily_pnl),
+            # Day of week breakdown
+            'pnl_by_dow': pnl_by_dow
         }
     }
 
 
 # -----------------------------------------------------------------------------
-# 6. EMAIL GENERATION (FIXED FORMATTING)
+# 6. EMAIL GENERATION (SLIMMED TABLE FOR GMAIL)
 # -----------------------------------------------------------------------------
 
 def send_portfolio_email(chart_path, open_positions_df, sizing_analysis, metrics):
@@ -525,7 +548,13 @@ def send_portfolio_email(chart_path, open_positions_df, sizing_analysis, metrics
     
     date_str = datetime.datetime.now().strftime("%Y-%m-%d")
     
-    # Build metrics section (same as before)
+    # Build metrics section with Sharpe and std dev metrics
+    # Day of week breakdown
+    dow_html = ""
+    for dow, pnl in metrics['pnl_by_dow'].items():
+        color = '#00CC00' if pnl >= 0 else '#CC0000'
+        dow_html += f'<div style="text-align: center;"><div style="color: #aaa; font-size: 11px;">{dow[:3]}</div><div style="color: {color}; font-weight: bold; font-size: 14px;">${pnl:,.0f}</div></div>'
+    
     metrics_html = f"""
     <div style="background: #1a1a1a; padding: 15px; border-radius: 8px; margin: 20px 0;">
         <h3 style="color: #fff; margin-top: 0;">📊 Key Metrics (12 Months)</h3>
@@ -540,6 +569,12 @@ def send_portfolio_email(chart_path, open_positions_df, sizing_analysis, metrics
                 <div style="color: #aaa; font-size: 12px;">Current Equity</div>
                 <div style="color: #fff; font-size: 20px; font-weight: bold;">
                     ${metrics['current_equity']:,.0f}
+                </div>
+            </div>
+            <div>
+                <div style="color: #aaa; font-size: 12px;">Sharpe Ratio</div>
+                <div style="color: {'#00CC00' if metrics['sharpe_ratio'] >= 1.0 else '#FFA500' if metrics['sharpe_ratio'] >= 0.5 else '#CC0000'}; font-size: 20px; font-weight: bold;">
+                    {metrics['sharpe_ratio']:.2f}
                 </div>
             </div>
             <div>
@@ -566,27 +601,56 @@ def send_portfolio_email(chart_path, open_positions_df, sizing_analysis, metrics
                     {metrics['win_rate_30d']:.1%}
                 </div>
             </div>
+            <div>
+                <div style="color: #aaa; font-size: 12px;">Avg Daily P&L</div>
+                <div style="color: {'#00CC00' if metrics['avg_daily_pnl'] >= 0 else '#CC0000'}; font-size: 20px; font-weight: bold;">
+                    ${metrics['avg_daily_pnl']:,.0f}
+                </div>
+            </div>
+            <div>
+                <div style="color: #aaa; font-size: 12px;">Daily Std Dev</div>
+                <div style="color: #fff; font-size: 20px; font-weight: bold;">
+                    ${metrics['std_daily_pnl']:,.0f}
+                </div>
+            </div>
         </div>
+        
+        <!-- Standard Deviation Metrics -->
         <div style="margin-top: 15px; padding-top: 15px; border-top: 1px solid #333;">
-            <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 15px; font-size: 13px;">
+            <div style="color: #aaa; font-size: 13px; margin-bottom: 8px;">Standard Deviation Thresholds</div>
+            <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; font-size: 12px;">
                 <div>
-                    <span style="color: #aaa;">Avg Daily P&L:</span>
-                    <span style="color: {'#00CC00' if metrics['avg_daily_pnl'] >= 0 else '#CC0000'}; font-weight: bold;">
-                        ${metrics['avg_daily_pnl']:,.0f}
-                    </span>
-                </div>
-                <div>
-                    <span style="color: #aaa;">Best Day:</span>
+                    <span style="color: #aaa;">+2σ:</span>
                     <span style="color: #00CC00; font-weight: bold;">
-                        ${metrics['best_day']:,.0f}
+                        ${metrics['plus_2std']:,.0f}
                     </span>
                 </div>
                 <div>
-                    <span style="color: #aaa;">Worst Day:</span>
-                    <span style="color: #CC0000; font-weight: bold;">
-                        ${metrics['worst_day']:,.0f}
+                    <span style="color: #aaa;">+1σ:</span>
+                    <span style="color: #00CC00; font-weight: bold;">
+                        ${metrics['plus_1std']:,.0f}
                     </span>
                 </div>
+                <div>
+                    <span style="color: #aaa;">-1σ:</span>
+                    <span style="color: #CC0000; font-weight: bold;">
+                        ${metrics['minus_1std']:,.0f}
+                    </span>
+                </div>
+                <div>
+                    <span style="color: #aaa;">-2σ:</span>
+                    <span style="color: #CC0000; font-weight: bold;">
+                        ${metrics['minus_2std']:,.0f}
+                    </span>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Day of Week Breakdown -->
+        <div style="margin-top: 15px; padding-top: 15px; border-top: 1px solid #333;">
+            <div style="color: #aaa; font-size: 13px; margin-bottom: 8px;">P&L by Day of Week (12 Months)</div>
+            <div style="display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px;">
+                {dow_html}
             </div>
         </div>
     </div>
@@ -598,13 +662,13 @@ def send_portfolio_email(chart_path, open_positions_df, sizing_analysis, metrics
         recs_html += f"<li style='margin: 8px 0; color: #fff;'>{rec}</li>"
     recs_html += "</ul>"
     
-    # Build open positions table - SLIMMED DOWN for Gmail
+    # Build open positions table - SLIMMED FOR GMAIL (15 columns)
     if not open_positions_df.empty:
-        # Calculate summary stats (including total Open PnL for summary)
+        # Calculate summary stats
         total_long = open_positions_df[open_positions_df['Action'] == 'BUY']['Mkt Value'].sum()
         total_short = open_positions_df[open_positions_df['Action'] != 'BUY']['Mkt Value'].sum()
         net_exposure = total_long - total_short
-        total_open_pnl = open_positions_df['Open PnL'].sum()
+        total_pnl = open_positions_df['Open PnL'].sum()
         long_count = (open_positions_df['Action'] == 'BUY').sum()
         short_count = len(open_positions_df) - long_count
         
@@ -613,17 +677,19 @@ def send_portfolio_email(chart_path, open_positions_df, sizing_analysis, metrics
             <span style="color: #aaa;">Positions: </span><strong style="color: #fff;">{len(open_positions_df)}</strong>
             <span style="margin-left: 15px; color: #aaa;">Long: </span><strong style="color: #00CC00;">{long_count}</strong>
             <span style="margin-left: 15px; color: #aaa;">Short: </span><strong style="color: #CC0000;">{short_count}</strong>
+            <span style="margin-left: 15px; color: #aaa;">Total Long: </span><strong style="color: #fff;">${total_long:,.0f}</strong>
+            <span style="margin-left: 15px; color: #aaa;">Total Short: </span><strong style="color: #fff;">${total_short:,.0f}</strong>
             <span style="margin-left: 15px; color: #aaa;">Net Exposure: </span><strong style="color: #fff;">${net_exposure:+,.0f}</strong>
-            <span style="margin-left: 15px; color: #aaa;">Total Open P&L: </span>
-            <strong style="color: {'#00CC00' if total_open_pnl >= 0 else '#CC0000'};">${total_open_pnl:,.0f}</strong>
+            <span style="margin-left: 15px; color: #aaa;">Total P&L: </span>
+            <strong style="color: {'#00CC00' if total_pnl >= 0 else '#CC0000'};">${total_pnl:,.0f}</strong>
         </div>
         """
         
-        # SLIMMED DOWN: Only essential columns for Gmail
+        # SLIMMED DOWN: 13 columns (removed Entry Criteria and Equity at Signal)
         pos_table = open_positions_df[[
             'Date', 'Entry Date', 'Exit Type', 'Time Stop', 'Strategy',
-            'Ticker', 'Entry Criteria', 'Price', 'Shares', 'PnL',
-            'Equity at Signal', 'Risk $', 'Risk bps', 'Current Price', 'Mkt Value'
+            'Ticker', 'Price', 'Shares', 'PnL', 'Risk $', 'Risk bps', 
+            'Current Price', 'Mkt Value'
         ]].copy()
         
         # Format dates
@@ -631,16 +697,17 @@ def send_portfolio_email(chart_path, open_positions_df, sizing_analysis, metrics
         pos_table['Entry Date'] = pos_table['Entry Date'].apply(lambda x: x.strftime('%Y-%m-%d'))
         pos_table['Time Stop'] = pos_table['Time Stop'].apply(lambda x: x.strftime('%Y-%m-%d'))
         
-        # Format numbers
+        # Format numbers with PnL color coding
         pos_table['Price'] = pos_table['Price'].apply(lambda x: f"${x:.2f}")
         pos_table['Current Price'] = pos_table['Current Price'].apply(lambda x: f"${x:.2f}")
-        pos_table['PnL'] = pos_table['PnL'].apply(lambda x: f"${x:,.0f}")
+        # PnL with conditional formatting (green if positive, red if negative)
+        pos_table['PnL'] = pos_table['PnL'].apply(
+            lambda x: f'<span style="color: {"#00CC00" if x >= 0 else "#CC0000"}; font-weight: bold;">${x:,.0f}</span>'
+        )
         pos_table['Mkt Value'] = pos_table['Mkt Value'].apply(lambda x: f"${x:,.0f}")
-        pos_table['Equity at Signal'] = pos_table['Equity at Signal'].apply(lambda x: f"${x:,.0f}")
         pos_table['Risk $'] = pos_table['Risk $'].apply(lambda x: f"${x:,.0f}")
         pos_table['Shares'] = pos_table['Shares'].apply(lambda x: f"{x:,}")
         
-        # Smaller font for compact table
         positions_html = pos_table.to_html(index=False, escape=False, classes='positions-table')
     else:
         positions_summary = "<div style='color: #aaa; padding: 20px; text-align: center;'>No open positions</div>"
@@ -654,21 +721,21 @@ def send_portfolio_email(chart_path, open_positions_df, sizing_analysis, metrics
         <head>
             <style>
                 body {{ font-family: Arial, sans-serif; background-color: #0e1117; color: #fff; }}
-                .container {{ max-width: 1100px; margin: 0 auto; padding: 20px; }}
-                .header {{ background: linear-gradient(135deg, #1a237e, #283593); padding: 25px; border-radius: 8px; text-align: center; margin-bottom: 20px; }}
+                .container {{ max-width: 1000px; margin: 0 auto; padding: 20px; }}
+                .header {{ background: linear-gradient(135deg, #1a237e, #283593); padding: 25px; border-radius: 8px; text-align: center; margin-bottom: 20px; color: #ffffff; }}
                 .section {{ background: #1a1a1a; padding: 20px; border-radius: 8px; margin: 20px 0; }}
                 
-                /* Compact table styling */
+                /* White text in tables */
                 .positions-table {{ 
                     width: 100%; 
                     border-collapse: collapse; 
                     margin-top: 10px; 
-                    font-size: 11px;  /* Smaller for compact view */
+                    font-size: 11px;
                     color: #ffffff;
                 }}
                 .positions-table th {{ 
                     background: #2a2a2a; 
-                    padding: 8px 6px;  /* Tighter padding */
+                    padding: 8px; 
                     text-align: left; 
                     border-bottom: 2px solid #444;
                     color: #ffffff;
@@ -676,7 +743,7 @@ def send_portfolio_email(chart_path, open_positions_df, sizing_analysis, metrics
                     font-size: 10px;
                 }}
                 .positions-table td {{ 
-                    padding: 6px 4px;  /* Tighter padding */
+                    padding: 6px; 
                     border-bottom: 1px solid #333;
                     color: #ffffff;
                 }}
@@ -698,7 +765,7 @@ def send_portfolio_email(chart_path, open_positions_df, sizing_analysis, metrics
                 
                 <div class="section">
                     <h2>📈 12-Month Equity Curve</h2>
-                    <p style="color: #aaa; font-size: 13px; margin-top: -10px;">Starting equity: $450,000 | Data from 2000 for percentile calculations</p>
+                    <p style="color: #aaa; font-size: 13px; margin-top: -10px;">Starting Equity: $450,000 | Data from 2000 for percentiles</p>
                     <img src="cid:equity_chart" style="max-width: 100%; border-radius: 8px;">
                 </div>
                 
@@ -711,7 +778,6 @@ def send_portfolio_email(chart_path, open_positions_df, sizing_analysis, metrics
                 
                 <div class="section">
                     <h2>💼 Open Positions</h2>
-                    <p style="color: #aaa; font-size: 12px; margin-top: -5px;">15 columns shown (removed: Exit Date, ATR, T+1 Open, Action, Range %, Open PnL, Signal Close)</p>
                     {positions_summary}
                     {positions_html}
                 </div>
@@ -749,6 +815,7 @@ def send_portfolio_email(chart_path, open_positions_df, sizing_analysis, metrics
         print(f"📧 Email sent successfully to {receiver_email}")
     except Exception as e:
         print(f"❌ Failed to send email: {e}")
+
 
 # -----------------------------------------------------------------------------
 # 7. MAIN EXECUTION
@@ -823,4 +890,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
