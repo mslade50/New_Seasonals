@@ -1827,32 +1827,32 @@ def main():
                 
                 # Detailed stats in expander
                 with st.expander("📊 Detailed Statistics"):
-                    col1, col2 = st.columns(2)
+                col1, col2 = st.columns(2)
+                
+                with col1:
+                    st.markdown("**Autocorrelation (does today predict tomorrow?)**")
+                    autocorr = ec_analysis.get('autocorr', {})
+                    for lag, val in autocorr.items():
+                        interpretation = "momentum" if val > 0 else "mean-reversion"
+                        st.write(f"• {lag.replace('_', ' ').title()}: {val:.3f} ({interpretation})")
                     
-                    with col1:
-                        st.markdown("**Autocorrelation (does today predict tomorrow?)**")
-                        autocorr = ec_analysis.get('autocorr', {})
-                        for lag, val in autocorr.items():
-                            interpretation = "momentum" if val > 0 else "mean-reversion"
-                            st.write(f"• {lag.replace('_', ' ').title()}: {val:.3f} ({interpretation})")
-                        
-                        st.markdown("**Equity vs 20d MA**")
-                        ma = ec_analysis.get('ma_analysis', {})
-                        for state, data in ma.items():
-                            st.write(f"• {state.replace('_', ' ').title()}: ${data.get('avg_fwd_pnl', 0):,.0f}/day avg, {data.get('win_rate', 0):.1%} win rate (n={data.get('count', 0):.0f})")
+                    st.markdown("**Equity vs 20d MA**")
+                    ma = ec_analysis.get('ma_analysis', {})
+                    for state, data in ma.items():
+                        st.write(f"• {state.replace('_', ' ').title()}: {data.get('avg_fwd_ret_pct', 0):.3f}%/day avg, {data.get('win_rate', 0):.1%} win rate (n={data.get('count', 0):.0f})")
+                
+                with col2:
+                    st.markdown("**After Streaks**")
+                    streak = ec_analysis.get('streak_analysis', {})
+                    for state, data in streak.items():
+                        label = state.replace('_', ' ').replace('plus', '+').title()
+                        st.write(f"• {label}: {data.get('avg_fwd_ret_pct', 0):.3f}%/day avg, {data.get('win_rate', 0):.1%} win rate (n={data.get('count', 0):.0f})")
                     
-                    with col2:
-                        st.markdown("**After Streaks**")
-                        streak = ec_analysis.get('streak_analysis', {})
-                        for state, data in streak.items():
-                            label = state.replace('_', ' ').replace('plus', '+').title()
-                            st.write(f"• {label}: ${data.get('avg_fwd_pnl', 0):,.0f}/day avg, {data.get('win_rate', 0):.1%} win rate (n={data.get('count', 0):.0f})")
-                        
-                        st.markdown("**Drawdown Depth**")
-                        dd = ec_analysis.get('dd_analysis', {})
-                        for state, data in dd.items():
-                            label = state.replace('_', ' ').replace('pct', '%').title()
-                            st.write(f"• {label}: ${data.get('avg_fwd_pnl', 0):,.0f}/day avg, {data.get('win_rate', 0):.1%} win rate (n={data.get('count', 0):.0f})")
+                    st.markdown("**Drawdown Depth**")
+                    dd = ec_analysis.get('dd_analysis', {})
+                    for state, data in dd.items():
+                        label = state.replace('_', ' ').replace('pct', '%').title()
+                        st.write(f"• {label}: {data.get('avg_fwd_ret_pct', 0):.3f}%/day avg, {data.get('win_rate', 0):.1%} win rate (n={data.get('count', 0):.0f})")
             else:
                 st.warning("Insufficient data for equity curve analysis (need at least 30 days of trading history).")
 
