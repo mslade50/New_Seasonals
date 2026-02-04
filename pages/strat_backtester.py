@@ -1826,7 +1826,8 @@ def main():
                         st.warning(rec_text)
                 
                 # Detailed stats in expander
-                with st.expander("📊 Detailed Statistics"):
+                # Detailed stats in expander
+            with st.expander("📊 Detailed Statistics"):
                 col1, col2 = st.columns(2)  # ← This line needs to be indented
                 
                 with col1:
