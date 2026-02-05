@@ -29,6 +29,58 @@ def get_default_cycle_index():
     return 0
 
 # -----------------------------------------------------------------------------
+# SEASONAL RANK CALCULATION (Correct Forward Returns)
+# -----------------------------------------------------------------------------
+
+def calculate_seasonal_rank(df, cycle_label, cycle_start_mapping, cutoff_year):
+    """
+    Calculate 0-100 seasonal rank for each day_count using correct forward log returns.
+    Uses data strictly prior to cutoff_year (walk-forward safe).
+    Returns a Series indexed by day_count.
+    """
+    hist = df[df['year'] < cutoff_year].copy()
+    if hist.empty:
+        return pd.Series(dtype=float)
+
+    # Correct forward return: ln(Close_t+w / Close_t)
+    for w in [5, 10, 21]:
+        hist[f'Fwd_{w}d'] = np.log(hist['Close'].shift(-w) / hist['Close'])
+
+    fwd_cols = [f'Fwd_{w}d' for w in [5, 10, 21]]
+
+    # All-years profile
+    stats_all = hist.groupby('day_count')[fwd_cols].mean()
+    rank_all = stats_all.rank(pct=True) * 100
+
+    # Cycle-specific profile
+    if cycle_label != "All Years":
+        start_yr = cycle_start_mapping[cycle_label]
+        valid_years = [start_yr + i * 4 for i in range(30)]
+        cycle_data = hist[hist['year'].isin(valid_years)]
+        if not cycle_data.empty:
+            stats_cycle = cycle_data.groupby('day_count')[fwd_cols].mean()
+            rank_cycle = stats_cycle.rank(pct=True) * 100
+        else:
+            rank_cycle = rank_all.copy()
+    else:
+        rank_cycle = rank_all.copy()
+
+    # Reindex to cover full range of possible day_counts
+    max_day = max(hist['day_count'].max(), 253)
+    full_idx = pd.RangeIndex(start=1, stop=max_day + 1)
+    rank_all = rank_all.reindex(full_idx).interpolate(method='nearest').fillna(50)
+    rank_cycle = rank_cycle.reindex(full_idx).interpolate(method='nearest').fillna(50)
+
+    # Weighted average: 25% all years, 75% cycle
+    avg_all = rank_all.mean(axis=1)
+    avg_cycle = rank_cycle.mean(axis=1)
+    final = (avg_all + 3 * avg_cycle) / 4
+
+    # Smooth
+    return final.rolling(5, center=True, min_periods=1).mean()
+
+
+# -----------------------------------------------------------------------------
 # MAIN CHART LOGIC
 # -----------------------------------------------------------------------------
 
@@ -54,13 +106,7 @@ def calculate_path(df, cycle_label, cycle_start_mapping):
     return avg_path
 
 # -----------------------------------------------------------------------------
-# NEW: RECENT PERFORMANCE ANALYSIS
-# -----------------------------------------------------------------------------
-# -----------------------------------------------------------------------------
-# NEW: RECENT PERFORMANCE ANALYSIS (Table Only)
-# -----------------------------------------------------------------------------
-# -----------------------------------------------------------------------------
-# NEW: RECENT PERFORMANCE ANALYSIS (Table Only - Weighted Logic)
+# RECENT PERFORMANCE ANALYSIS (Table Only - Weighted Logic)
 # -----------------------------------------------------------------------------
 def recent_performance_analysis(df, cycle_label, cycle_start_mapping):
     """
@@ -82,23 +128,15 @@ def recent_performance_analysis(df, cycle_label, cycle_start_mapping):
 
     # B. Get Cycle Specific
     if cycle_label == "All Years":
-        # If "All Years" is selected, the weighted average is just the average
         combined_seasonality = daily_seasonality_all
     else:
         start_yr = cycle_start_mapping[cycle_label]
         valid_years = [start_yr + i * 4 for i in range(30)]
         cycle_df = df[df['year'].isin(valid_years)].copy()
         daily_seasonality_cycle = cycle_df.groupby('day_count')['log_return'].mean()
-        
-        # C. Weighted Average Calculation
-        # Formula: (Avg_All + (Avg_Cycle * 3)) / 4
-        # We align them by index (day_count) automatically using pandas series math
         combined_seasonality = (daily_seasonality_all + (daily_seasonality_cycle * 3)) / 4
 
-    # Rank the weighted daily averages from 0-100
     seasonal_score_map = combined_seasonality.rank(pct=True) * 100
-    
-    # Map back to main dataframe
     df['Seasonal_Rank'] = df['day_count'].map(seasonal_score_map)
 
     # 3. Filter Last 21 Days
@@ -109,27 +147,22 @@ def recent_performance_analysis(df, cycle_label, cycle_start_mapping):
     # -------------------------------------------------------------------------
     st.markdown(f"### 📋 Recent Performance Data")
     
-    # Prepare display dataframe
     display_cols = ['Close', 'Daily_Ret', 'Volume', 'Rank_5d', 'Rank_10d', 'Rank_21d', 'Seasonal_Rank']
     table_df = recent[display_cols].sort_index(ascending=False)
     
-    # --- Styling Functions ---
-    
-    # 1. For Price Returns (High = Overbought = Red, Low = Oversold = Green)
     def color_ret_rank(val):
         if pd.isna(val): return ''
-        if val >= 90: return 'color: #ff4444; font-weight: bold;' # Extreme Overbought (Red)
+        if val >= 90: return 'color: #ff4444; font-weight: bold;'
         if val >= 80: return 'color: #ff8888;'
-        if val <= 10: return 'color: #00ff00; font-weight: bold;' # Extreme Oversold (Green)
+        if val <= 10: return 'color: #00ff00; font-weight: bold;'
         if val <= 20: return 'color: #90ee90;'
         return 'color: #cccccc;'
 
-    # 2. For Seasonality (High = Bullish Seasonality = Green, Low = Bearish = Red)
     def color_seasonal_rank(val):
         if pd.isna(val): return ''
-        if val >= 85: return 'color: #00ff00; font-weight: bold;' # Strong Bullish Seasonality (Green)
+        if val >= 85: return 'color: #00ff00; font-weight: bold;'
         if val >= 65: return 'color: #90ee90;'
-        if val <= 15: return 'color: #ff4444; font-weight: bold;' # Strong Bearish Seasonality (Red)
+        if val <= 15: return 'color: #ff4444; font-weight: bold;'
         if val <= 35: return 'color: #ff8888;'
         return 'color: #cccccc;'
     
@@ -137,7 +170,6 @@ def recent_performance_analysis(df, cycle_label, cycle_start_mapping):
         color = '#ff6666' if val < 0 else '#66ff66'
         return f'color: {color}'
 
-    # Apply Styling
     styler = table_df.style.format({
         "Close": "{:.2f}",
         "Daily_Ret": "{:+.2f}%",
@@ -148,22 +180,19 @@ def recent_performance_analysis(df, cycle_label, cycle_start_mapping):
         "Seasonal_Rank": "{:.0f}"
     })
     
-    # Apply Overbought/Oversold logic to Return Ranks
     styler = styler.map(color_ret_rank, subset=['Rank_5d', 'Rank_10d', 'Rank_21d'])
-    
-    # Apply Bullish/Bearish logic to Seasonal Rank (The change you requested)
     styler = styler.map(color_seasonal_rank, subset=['Seasonal_Rank'])
-    
     styler = styler.map(color_ret, subset=['Daily_Ret'])
     styler = styler.bar(subset=['Volume'], color='#444444') 
 
     st.caption(f"**Seasonal Rank** is based on a weighted average: 75% {cycle_label} data, 25% All Years data. >85 (Green) indicates historically strong days.")
     st.dataframe(styler, use_container_width=True, height=600)
+
+
 # -----------------------------------------------------------------------------
 # MAIN LOGIC
 # -----------------------------------------------------------------------------
 def seasonals_chart(ticker, cycle_label, enable_time_travel, reference_year, show_all_years_line):
-    # 
     cycle_start_mapping = {
         "Election": 1952,
         "Pre-Election": 1951,
@@ -196,6 +225,25 @@ def seasonals_chart(ticker, cycle_label, enable_time_travel, reference_year, sho
     
     current_year = dt.date.today().year
 
+    # -----------------------------------------------------------------
+    # SEASONAL RANK PROFILES
+    # -----------------------------------------------------------------
+    # Current model rank (uses data < current_year)
+    rank_profile_current = calculate_seasonal_rank(spx, cycle_label, cycle_start_mapping, current_year)
+
+    # All-years rank (for the optional overlay)
+    rank_profile_all_years = pd.Series(dtype=float)
+    if show_all_years_line:
+        rank_profile_all_years = calculate_seasonal_rank(spx, "All Years", cycle_start_mapping, current_year)
+
+    # Time travel rank (uses data < reference_year)
+    rank_profile_historical = pd.Series(dtype=float)
+    if enable_time_travel:
+        rank_profile_historical = calculate_seasonal_rank(spx, cycle_label, cycle_start_mapping, reference_year)
+
+    # -----------------------------------------------------------------
+    # PATH CALCULATIONS (unchanged logic)
+    # -----------------------------------------------------------------
     # 1. CURRENT MODEL CONSTRUCTION
     df_all_history = spx[spx["year"] < current_year].copy()
     path_current_avg = calculate_path(df_all_history, cycle_label, cycle_start_mapping)
@@ -222,19 +270,38 @@ def seasonals_chart(ticker, cycle_label, enable_time_travel, reference_year, sho
             path_ref_realized = df_ref_year["log_return"].cumsum().apply(np.exp) - 1
 
     # -------------------------------------------------------------------------
-    # DATE MAPPING LOGIC (New Feature)
+    # DATE MAPPING LOGIC
     # -------------------------------------------------------------------------
-    # Determine which year we are mapping dates to
     map_year = reference_year if enable_time_travel else current_year
-    
-    # Create a theoretical business day calendar for the whole year
-    # This maps Day Index (1, 2, 3) -> "Jan 02", "Jan 03", etc.
     theoretical_dates = pd.bdate_range(start=f"{map_year}-01-01", end=f"{map_year}-12-31")
     date_map = {i+1: d.strftime("%b %d") for i, d in enumerate(theoretical_dates)}
 
-    # Helper function to get date strings for a specific series index
     def get_date_labels(series_index):
         return [date_map.get(i, f"Day {i}") for i in series_index]
+
+    # -------------------------------------------------------------------------
+    # HELPER: Build customdata array with date + seasonal rank
+    # -------------------------------------------------------------------------
+    def build_customdata(day_indices, rank_profile, date_labels=None):
+        """
+        Returns a list of [date_label, seasonal_rank] for each day index.
+        """
+        if date_labels is None:
+            date_labels = get_date_labels(day_indices)
+        result = []
+        for i, day in enumerate(day_indices):
+            label = date_labels[i] if i < len(date_labels) else f"Day {day}"
+            rank = rank_profile.get(day, np.nan) if not rank_profile.empty else np.nan
+            result.append([label, rank])
+        return result
+
+    HOVER_WITH_RANK = (
+        "<b>%{customdata[0]}</b><br>"
+        "Day: %{x}<br>"
+        "Return: %{y:.2%}<br>"
+        "Seasonal Rank: %{customdata[1]:.0f}"
+        "<extra></extra>"
+    )
 
     # -------------------------------------------------------------------------
     # PLOTTING
@@ -242,15 +309,14 @@ def seasonals_chart(ticker, cycle_label, enable_time_travel, reference_year, sho
     fig = go.Figure()
 
     # A. Current Cycle Model (Orange)
-    # INJECT CUSTOM DATA FOR TOOLTIP
     fig.add_trace(go.Scatter(
         x=path_current_avg.index,
         y=path_current_avg.values,
         mode="lines",
         name=f"Current Model ({cycle_label})",
         line=dict(color="#FF8C00", width=3),
-        customdata=get_date_labels(path_current_avg.index),
-        hovertemplate="<b>%{customdata}</b><br>Day: %{x}<br>Return: %{y:.2%}<extra></extra>"
+        customdata=build_customdata(path_current_avg.index, rank_profile_current),
+        hovertemplate=HOVER_WITH_RANK
     ))
 
     # B. Current All Years Model (Light Blue - Optional)
@@ -261,8 +327,8 @@ def seasonals_chart(ticker, cycle_label, enable_time_travel, reference_year, sho
             mode="lines",
             name="Current Model (All Years)",
             line=dict(color="lightblue", width=1, dash='dot'),
-            customdata=get_date_labels(path_current_all_years.index),
-            hovertemplate="<b>%{customdata}</b><br>Day: %{x}<br>Return: %{y:.2%}<extra></extra>"
+            customdata=build_customdata(path_current_all_years.index, rank_profile_all_years),
+            hovertemplate=HOVER_WITH_RANK
         ))
 
     # C. Historical Model (Gold Dashed - Time Travel)
@@ -273,38 +339,40 @@ def seasonals_chart(ticker, cycle_label, enable_time_travel, reference_year, sho
             mode="lines",
             name=f"Model in {reference_year} (Pre-{reference_year} Data)",
             line=dict(color="#FCD12A", width=2, dash='dash'),
-            customdata=get_date_labels(path_historical_avg.index),
-            hovertemplate="<b>%{customdata}</b><br>Day: %{x}<br>Return: %{y:.2%}<extra></extra>"
+            customdata=build_customdata(path_historical_avg.index, rank_profile_historical),
+            hovertemplate=HOVER_WITH_RANK
         ))
 
     # D. Current Realized (Green)
     if not path_current_realized.empty:
-        # For realized data, we can just use the actual index dates if we wanted, 
-        # but to keep x-axis aligned as integers, we generate labels similarly
         realized_dates = [d.strftime("%b %d") for d in df_current_year.index]
-        
+        realized_day_counts = df_current_year["day_count"].values
+        cdata = build_customdata(realized_day_counts, rank_profile_current, date_labels=realized_dates)
+
         fig.add_trace(go.Scatter(
             x=np.arange(1, len(path_current_realized) + 1),
             y=path_current_realized.values,
             mode="lines",
             name=f"{current_year} Realized (YTD)",
             line=dict(color="#39FF14", width=2),
-            customdata=realized_dates,
-            hovertemplate="<b>%{customdata}</b><br>Day: %{x}<br>Return: %{y:.2%}<extra></extra>"
+            customdata=cdata,
+            hovertemplate=HOVER_WITH_RANK
         ))
 
     # E. Historical Realized (Cyan - Time Travel)
     if enable_time_travel and not path_ref_realized.empty:
         realized_dates_ref = [d.strftime("%b %d") for d in df_ref_year.index]
-        
+        ref_day_counts = df_ref_year["day_count"].values
+        cdata_ref = build_customdata(ref_day_counts, rank_profile_historical, date_labels=realized_dates_ref)
+
         fig.add_trace(go.Scatter(
             x=np.arange(1, len(path_ref_realized) + 1),
             y=path_ref_realized.values,
             mode="lines",
             name=f"{reference_year} Realized",
             line=dict(color="#00FFFF", width=2),
-            customdata=realized_dates_ref,
-            hovertemplate="<b>%{customdata}</b><br>Day: %{x}<br>Return: %{y:.2%}<extra></extra>"
+            customdata=cdata_ref,
+            hovertemplate=HOVER_WITH_RANK
         ))
 
     # -------------------------------------------------------------------------
@@ -347,7 +415,7 @@ def seasonals_chart(ticker, cycle_label, enable_time_travel, reference_year, sho
                 name=f"Current Date ({target_date_start.strftime('%b %d')})",
                 marker=dict(color=marker_color, size=8, line=dict(width=1, color="black")),
                 showlegend=False,
-                hoverinfo="skip" # Already in title
+                hoverinfo="skip"
             ))
 
             future_dates = pd.bdate_range(start=target_date_start, periods=30)
@@ -370,7 +438,6 @@ def seasonals_chart(ticker, cycle_label, enable_time_travel, reference_year, sho
 
         # --- PLOT MARKERS ON 'ALL YEARS' LINE (If Visible) ---
         if not path_current_all_years.empty:
-            # Current Day Dot
             if day_count_marker in path_current_all_years.index:
                 y_val_all = path_current_all_years.get(day_count_marker)
                 fig.add_trace(go.Scatter(
@@ -382,8 +449,7 @@ def seasonals_chart(ticker, cycle_label, enable_time_travel, reference_year, sho
                     hoverinfo="skip"
                 ))
 
-                # Projections Dots
-                for offset in offsets: # [5, 10, 21] calculated above
+                for offset in offsets:
                     target_idx = day_count_marker + offset
                     if target_idx in path_current_all_years.index:
                         proj_y_all = path_current_all_years.get(target_idx)
@@ -414,7 +480,6 @@ def seasonals_chart(ticker, cycle_label, enable_time_travel, reference_year, sho
             xanchor="left",
             x=0.01
         ),
-        # Ensure hovermode works nicely with multiple lines
         hovermode="x unified"
     )
     fig.update_xaxes(showgrid=False)
@@ -423,7 +488,7 @@ def seasonals_chart(ticker, cycle_label, enable_time_travel, reference_year, sho
     st.plotly_chart(fig, use_container_width=True)
 
     # -------------------------------------------------------------------------
-    # DETAILED HISTORY TABLE (Existing code continues...)
+    # DETAILED HISTORY TABLE
     # -------------------------------------------------------------------------
     st.divider()
     
@@ -438,16 +503,12 @@ def seasonals_chart(ticker, cycle_label, enable_time_travel, reference_year, sho
 
     if day_count_marker:
         spx_full = spx.copy()
-        # Existing Return Calcs
         spx_full['Fwd_5d'] = spx_full['Close'].shift(-5) / spx_full['Close'] - 1
         spx_full['Fwd_10d'] = spx_full['Close'].shift(-10) / spx_full['Close'] - 1
         spx_full['Fwd_21d'] = spx_full['Close'].shift(-21) / spx_full['Close'] - 1
 
-        # NEW: Daily Returns for Volatility Calculation
         spx_full['Daily_Pct'] = spx_full['Close'].pct_change()
 
-        # NEW: Forward Realized Volatility (Annualized %)
-        # rolling(X).std() calculates past X days. shift(-X) aligns the FUTURE X days of vol to today.
         spx_full['rv_5'] = spx_full['Daily_Pct'].rolling(window=5).std().shift(-5) * np.sqrt(252) * 100
         spx_full['rv_10'] = spx_full['Daily_Pct'].rolling(window=10).std().shift(-10) * np.sqrt(252) * 100
         spx_full['rv_21'] = spx_full['Daily_Pct'].rolling(window=21).std().shift(-21) * np.sqrt(252) * 100
@@ -456,7 +517,6 @@ def seasonals_chart(ticker, cycle_label, enable_time_travel, reference_year, sho
         display_df = daily_snapshots[daily_snapshots['year'] < cutoff_year].copy()
 
         if not display_df.empty:
-            # Added rv columns to the display_df
             display_df = display_df[['year', 'Fwd_5d', 'Fwd_10d', 'Fwd_21d', 'rv_5', 'rv_10', 'rv_21']]
             display_df['Fwd_5d'] = display_df['Fwd_5d'] * 100
             display_df['Fwd_10d'] = display_df['Fwd_10d'] * 100
@@ -485,7 +545,7 @@ def seasonals_chart(ticker, cycle_label, enable_time_travel, reference_year, sho
                     res[f"{d}_median"] = sub_df[ret_col].median()
                     res[f"{d}_mean"] = sub_df[ret_col].mean()
                     res[f"{d}_pospct"] = (sub_df[ret_col] > 0).mean() * 100
-                    res[rv_col] = sub_df[rv_col].mean() # New: Average Realized Volatility
+                    res[rv_col] = sub_df[rv_col].mean()
                 return res
 
             stats_all = calculate_stats_row(display_df)
@@ -500,13 +560,11 @@ def seasonals_chart(ticker, cycle_label, enable_time_travel, reference_year, sho
 
             stats_df = pd.DataFrame([stats_all, stats_cycle], index=[f"All History (<{cutoff_year})", cycle_row_name])
             
-            # Updated column order to include RV
             ordered_cols = ["n"]
             for d in [5, 10, 21]:
                 ordered_cols.extend([f"{d}_median", f"{d}_mean", f"{d}_pospct", f"rv_{d}"])
             stats_df = stats_df[ordered_cols]
 
-            # --- CONDITIONAL FORMATTING (ATR SCALED) ---
             def color_pos_pct(val):
                 if pd.isna(val): return ''
                 if val > 80: return 'color: #90ee90; font-weight: bold;' 
@@ -524,7 +582,6 @@ def seasonals_chart(ticker, cycle_label, enable_time_travel, reference_year, sho
                 for d in [5, 10, 21]:
                     vol_scale = current_atr_pct * np.sqrt(d)
                     
-                    # Mean Gradient
                     mean_limit = 1.5 * vol_scale
                     styler = styler.background_gradient(
                         subset=[f"{d}_mean"], 
@@ -533,7 +590,6 @@ def seasonals_chart(ticker, cycle_label, enable_time_travel, reference_year, sho
                         vmax=mean_limit
                     )
                     
-                    # Median Gradient
                     median_limit = 1.0 * vol_scale
                     styler = styler.background_gradient(
                         subset=[f"{d}_median"], 
@@ -568,7 +624,7 @@ def seasonals_chart(ticker, cycle_label, enable_time_travel, reference_year, sho
             st.warning(f"No historical data available prior to {cutoff_year}.")
 
     # -------------------------------------------------------------------------
-    # NEW: RECENT PERFORMANCE ANALYSIS
+    # RECENT PERFORMANCE ANALYSIS
     # -------------------------------------------------------------------------
     st.divider()
     recent_performance_analysis(spx, cycle_label, cycle_start_mapping)
@@ -580,7 +636,6 @@ def main():
     st.set_page_config(layout="wide", page_title="Seasonality Analysis")
     st.title("📊 Presidential Cycle Seasonality")
 
-    # UI Layout
     col1, col2, col3, col4 = st.columns([1, 1, 1.5, 1])
     
     with col1:
@@ -603,8 +658,8 @@ def main():
             if enable_time_travel:
                 reference_year = st.number_input("Compare vs Year", min_value=1950, max_value=current_year, value=current_year-1)
             else:
-                reference_year = current_year # Placeholder
-                st.write("") # Spacer
+                reference_year = current_year
+                st.write("")
 
     with col4:
         st.write("")
