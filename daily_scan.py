@@ -1316,7 +1316,53 @@ def run_daily_scan():
     # 2. Download Data
     master_dict = download_historical_data(list(all_tickers))
     
-    # 3. Prepare VIX Series (for strategies with VIX filter)
+    # -------------------------------------------------------------------------
+    # 3. DATE VALIDATION & ENFORCEMENT (Morning vs. Day Logic)
+    # -------------------------------------------------------------------------
+    # This logic ensures that if you run at 5:30 AM, the script STRICTLY uses 
+    # yesterday's closing data, deleting any "ghost" bars from today.
+    
+    eastern = pytz.timezone('America/New_York')
+    now_eastern = datetime.datetime.now(eastern)
+    current_date = now_eastern.date()
+    
+    # Define Market Open (9:30 AM EST)
+    market_open_time = now_eastern.replace(hour=9, minute=30, second=0, microsecond=0)
+    
+    if now_eastern < market_open_time:
+        # Morning Run (e.g. 5:30 AM): Strict cutoff at YESTERDAY'S close.
+        # We must remove any partial data stamped with today's date.
+        expected_data_date = (pd.Timestamp(current_date) - TRADING_DAY).date()
+        print(f"🌅 Morning Run (Pre-Market): Enforcing data cutoff at {expected_data_date}")
+    else:
+        # Day Run (e.g. 10:00 AM): Allow today's partial bar.
+        expected_data_date = current_date
+        print(f"☀️ Day Run (Post-Open): Allowing data through {expected_data_date}")
+
+    validated_dict = {}
+    for ticker, df in master_dict.items():
+        if df is None or df.empty:
+            continue
+            
+        # Check the date of the last row
+        last_row_date = df.index[-1].date()
+        
+        # If the last row is newer than allowed (e.g. today's date during a morning run), trim it
+        if last_row_date > expected_data_date:
+            df = df.iloc[:-1]
+            
+        # If dataframe is empty after trimming, skip it
+        if df.empty:
+            continue
+            
+        validated_dict[ticker] = df
+
+    # Replace the master dictionary with the strictly validated version
+    master_dict = validated_dict
+    print(f"✅ Data dates validated. (Processing {len(master_dict)} tickers)\n")
+    # -------------------------------------------------------------------------
+
+    # 4. Prepare VIX Series (for strategies with VIX filter)
     vix_df = master_dict.get('^VIX')
     vix_series = None
     if vix_df is not None and not vix_df.empty:
@@ -1328,7 +1374,7 @@ def run_daily_scan():
     
     all_signals = []
 
-    # 4. Run Strategies
+    # 5. Run Strategies
     for strat in STRATEGY_BOOK:
         print(f"Running: {strat['name']}...")
         
@@ -1348,20 +1394,7 @@ def run_daily_scan():
             t_clean = ticker.replace('.', '-')
             df = master_dict.get(t_clean)
             if df is None or len(df) < 250: continue
-            # ========================================================
-            #  TIME TRAVEL DEBUG: FORCE SCAN TO SPECIFIC DATE
-            # ========================================================
-            # Set this to the date you want to test (YYYY-MM-DD)
-            # The script will ignore all data after this date.
-            # debug_target_date = "2026-01-30"  
             
-            # # This slices the dataframe so the last row is this date
-            # df = df.loc[:debug_target_date]
-            
-            # # Safety check: if data ends before this date, skip
-            # if df.empty or str(df.index[-1].date()) < debug_target_date:
-            #     continue
-            # # ========================================================
             try:
                 calc_df = calculate_indicators(df.copy(), sznl_map, t_clean, market_series, vix_series)
                 
@@ -1386,7 +1419,7 @@ def run_daily_scan():
 
                     sizing_note = "Standard (1.0x)"
                     
-                    # Initialize overlay flags (used by Overbot Vol Spike companion logic)
+                    # Initialize overlay flags
                     _skip_primary = False
                     _skip_loc = False
                     _loc_override_risk = None
@@ -1585,10 +1618,10 @@ def run_daily_scan():
             all_signals.extend(signals)
             print(f"  -> Found {len(signals)} signals.")
 
-    # 5. Save Results
+    # 6. Save Results
     if all_signals:
         df_sig = pd.DataFrame(all_signals)
-        # 1. Log to Master Sheet
+        # 1. Log to Master Sheet (APPEND MODE)
         save_signals_to_gsheet(df_sig)
         
         # 2. Stage MOC Orders (Signal Close)
@@ -1599,7 +1632,7 @@ def run_daily_scan():
     else:
         print("No signals found today.")
 
-    # 6. Send Email Summary
+    # 7. Send Email Summary
     send_email_summary(all_signals)
 
     print("--- Scan Complete ---")
