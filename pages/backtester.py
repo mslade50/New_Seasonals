@@ -303,7 +303,8 @@ def _generate_key_filters(params):
     if params.get('exclude_52w_high'):
         filters.append("NOT at 52-week high")
     if params.get('use_recent_ath'):
-        filters.append(f"Made ATH in last {params['ath_lookback_days']} days")
+        prefix = "Has NOT made" if params.get('recent_ath_invert') else "Made"
+        filters.append(f"{prefix} ATH in last {params['ath_lookback_days']} days")
     
     if params.get('breakout_mode', 'None') != 'None':
         filters.append(params['breakout_mode'])
@@ -628,7 +629,11 @@ def run_engine(universe_dict, params, sznl_map, market_series=None, vix_series=N
                     conditions.append(~df['is_ath'])
             if params.get('use_recent_ath', False):
                 ath_lookback = params.get('ath_lookback_days', 21)
-                conditions.append(df['is_ath'].rolling(window=ath_lookback, min_periods=1).max().astype(bool))
+                recent_ath_mask = df['is_ath'].rolling(window=ath_lookback, min_periods=1).max().astype(bool)
+                if params.get('recent_ath_invert', False):
+                    conditions.append(~recent_ath_mask)
+                else:
+                    conditions.append(recent_ath_mask)
             if params.get('vol_gt_prev', False): 
                 conditions.append(df['Volume'] > df['Volume'].shift(1))
             if params.get('use_vol', False): conditions.append(df['vol_ratio'] > params['vol_thresh'])
@@ -1156,7 +1161,9 @@ def main():
         st.markdown("---")
         use_ath = st.checkbox("Enable All-Time High Filter", value=False)
         ath_type = st.selectbox("ATH Condition", ["Today is ATH", "Today is NOT ATH"], disabled=not use_ath)
-        use_recent_ath = st.checkbox("Enable 'Made ATH in Last N Days' Filter", value=False)
+        recent_ath_mode = st.selectbox("Trailing ATH Filter", ["Disabled", "Made ATH in Last N Days", "Has NOT Made ATH in Last N Days"])
+        use_recent_ath = recent_ath_mode != "Disabled"
+        recent_ath_invert = recent_ath_mode == "Has NOT Made ATH in Last N Days"
         ath_lookback_days = st.number_input("ATH Lookback (Days)", 1, 252, 21, disabled=not use_recent_ath)
     with st.expander("Market Regime (VIX)", expanded=False):
         use_vix_filter = st.checkbox(f"Enable {VIX_TICKER} Filter", value=False)
@@ -1291,7 +1298,7 @@ def main():
             'use_acc_count_filter': use_acc_count_filter, 'acc_count_window': acc_count_window, 'acc_count_logic': acc_count_logic, 'acc_count_thresh': acc_count_thresh,
             'use_dist_count_filter': use_dist_count_filter, 'dist_count_window': dist_count_window, 'dist_count_logic': dist_count_logic, 'dist_count_thresh': dist_count_thresh,
             'use_t1_open_filter': use_t1_open_filter, 't1_open_filters': t1_open_filters,
-            'use_recent_ath': use_recent_ath, 'ath_lookback_days': ath_lookback_days,
+            'use_recent_ath': use_recent_ath, 'recent_ath_invert': recent_ath_invert, 'ath_lookback_days': ath_lookback_days,
             'use_ref_ticker_filter': use_ref_ticker_filter, 'ref_ticker': ref_ticker_input, 'ref_filters': ref_filters
         }
         trades_df, rejected_df, total_signals = run_engine(data_dict, params, sznl_map, market_series, vix_series, market_sznl_series, ref_ticker_ranks)
