@@ -1009,12 +1009,9 @@ def get_sizing_variable(strat_name, last_row):
     Returns the key variable that drives sizing for dynamic-sized strategies.
     """
     if strat_name == "Overbot Vol Spike":
-        r5 = last_row.get('rank_ret_5d', 0)
-        r10 = last_row.get('rank_ret_10d', 0)
-        vol = last_row.get('vol_ratio', 0)
-        dow = last_row.name.strftime('%A')
-        ath_str = " | ATH" if last_row.get('is_ath', False) else ""
-        return f"5D Rank: {r5:.0f} | 10D Rank: {r10:.0f} | Vol: {vol:.1f}x | {dow}{ath_str}"
+        is_ath_l10 = bool(last_row.get('is_ath', False))  # simplified; full check in main loop
+        is_52w = bool(last_row.get('is_52w_high', False))
+        return f"ATH Today: {'Y' if last_row.get('is_ath', False) else 'N'} | 52w High: {'Y' if is_52w else 'N'}"
     elif strat_name == "Weak Close Decent Sznls":
         sznl = last_row.get('Sznl', 0)
         return f"Seasonal Rank: {sznl:.0f}"
@@ -1045,7 +1042,7 @@ def generate_vol_spike_companion(primary_signal, strat, last_row, override_risk=
     loc_threshold = signal_close + (0.5 * atr)
     
     # Use override risk if provided (e.g. Tuesday+ATH), otherwise match primary
-    risk = override_risk if override_risk is not None else primary_signal['Risk_Amt']
+    risk = primary_signal['Risk_Amt']
     
     # For LOC, estimate entry at threshold for sizing
     direction = "Short"
@@ -1067,10 +1064,7 @@ def generate_vol_spike_companion(primary_signal, strat, last_row, override_risk=
     tgt_price = loc_threshold - (atr * tgt_atr)
     
     # Build sizing notes — if override, note it's using pre-overlay risk
-    if override_risk is not None:
-        sizing_notes = f"Pre-overlay (${risk:.0f}) | LOC Companion (Tue+ATH override)"
-    else:
-        sizing_notes = primary_signal['Sizing_Notes'] + " | LOC Companion"
+    sizing_notes = primary_signal['Sizing_Notes'] + " | LOC Companion"
     
     return {
         "Strategy_ID": strat['id'] + " (LOC Add)",
@@ -1420,62 +1414,28 @@ def run_daily_scan():
                     sizing_note = "Standard (1.0x)"
                     
                     # Initialize overlay flags
+                    # Initialize overlay flags
                     _skip_primary = False
                     _skip_loc = False
-                    _loc_override_risk = None
 
                     if strat['name'] == "Overbot Vol Spike":
-                        total_mult = 1.0
-                        reasons = []
+                        is_ath_l10 = bool(calc_df['is_ath'].rolling(window=10, min_periods=1).max().iloc[-1])
+                        is_52w_high = bool(last_row.get('is_52w_high', False))
 
-                        # --- A. Momentum Multiplier ---
-                        r5, r10 = last_row.get('rank_ret_5d', 0), last_row.get('rank_ret_10d', 0)
-                        if r5 > 95 and r10 > 95:
-                            total_mult *= 1.5; reasons.append("Mom>95 (1.5x)")
-                        elif r5 > 90 and r10 > 90:
-                            total_mult *= 1.15; reasons.append("Mom>90 (1.15x)")
-                        elif r5 < 85 and r10 < 85:
-                            total_mult *= 0.75; reasons.append("Weak Mom (0.75x)")
-
-                        # --- B. Volume Multiplier ---
-                        vol_ratio = last_row.get('vol_ratio', 0)
-                        if vol_ratio > 2.0:
-                            total_mult *= 1.15
-                            reasons.append(f"Vol {vol_ratio:.1f}x (1.15x)")
-
-                        # Pre-overlay risk (momentum + volume only, before ATH/DOW adjustments)
-                        pre_overlay_risk = base_risk * total_mult
-                        pre_overlay_note = " + ".join(reasons) if reasons else "Standard"
-
-                        # --- C. ATH + Day-of-Week Overlay ---
-                        is_ath = bool(last_row.get('is_ath', False))
-                        dow = last_row.name.dayofweek  # 0=Mon, 1=Tue, ..., 4=Fri
-
-                        _skip_loc = (dow == 0)  # No LOC companion on Monday
-
-                        if dow == 1 and is_ath:
-                            # Tuesday + ATH: kill primary signal, LOC stays at pre-overlay size
-                            total_mult *= 0.0
+                        if is_ath_l10:
+                            # Case 1: Made ATH in last 10 days → LOC only, normal risk
                             _skip_primary = True
-                            _loc_override_risk = pre_overlay_risk
-                            reasons.append("Tue+ATH (0x primary, LOC normal)")
-                        elif dow == 1:
-                            # Tuesday, no ATH: primary at 1/3 size
-                            total_mult *= (1.0 / 3.0)
-                            reasons.append("Tue non-ATH (0.33x)")
-                        elif is_ath and dow != 4:
-                            # ATH on non-Friday: primary at 1/5 size
-                            total_mult *= 0.2
-                            reasons.append("ATH non-Fri (0.2x)")
-                        elif is_ath and dow == 4:
-                            # ATH on Friday: normal size
-                            reasons.append("ATH+Fri (normal)")
-
-                        if _skip_loc:
-                            reasons.append("Mon (no LOC)")
-
-                        risk = base_risk * total_mult
-                        sizing_note = " + ".join(reasons) + f" = {total_mult:.2f}x" if reasons else "Standard (1.0x)"
+                            risk = base_risk
+                            sizing_note = f"ATH in L10 → LOC only (1.0x)"
+                        elif is_52w_high:
+                            # Case 2: No ATH in L10 but 52w high today → primary only, 0.66x
+                            _skip_loc = True
+                            risk = base_risk * 0.66
+                            sizing_note = f"52w High, no ATH L10 → Primary only (0.66x)"
+                        else:
+                            # Case 3: No ATH in L10, no 52w high → both primary + LOC, normal risk
+                            risk = base_risk
+                            sizing_note = f"No ATH L10, no 52w High → Primary + LOC (1.0x)"
                     
                     if strat['name'] == "Weak Close Decent Sznls":
                         sznl_val = last_row.get('Sznl', 0)
@@ -1594,18 +1554,15 @@ def run_daily_scan():
                     }
                     
                     if strat['name'] == "Overbot Vol Spike":
-                        # Generate companion LOC (unless Monday = skip LOC)
                         companion = None
                         if not _skip_loc:
                             companion = generate_vol_spike_companion(
-                                signal_dict, strat, last_row,
-                                override_risk=_loc_override_risk
+                                signal_dict, strat, last_row
                             )
-                        
-                        # Only append primary if not killed (e.g. Tuesday+ATH → skip)
+
                         if not _skip_primary:
                             signals.append(signal_dict)
-                        
+
                         if companion:
                             signals.append(companion)
                     else:
