@@ -167,7 +167,9 @@ def calculate_indicators(df, sznl_map, ticker, market_series=None, vix_series=No
     df['is_52w_high'] = df['High'] > rolling_high
     df['is_52w_low'] = df['Low'] < rolling_low
     df['is_ath'] = df['High'] > df['High'].shift(1).expanding().max()
-    df['ath_in_last_N'] = df['is_ath'].rolling(window=252, min_periods=1).max()  
+    df['ath_in_last_N'] = df['is_ath'].rolling(window=252, min_periods=1).max()
+    df['High_52w'] = df['High'].rolling(252).max()
+    df['ATH_Level'] = df['High'].expanding().max()
     vol_ma = df['Volume'].rolling(63).mean()
     df['vol_ma'] = vol_ma
     df['vol_ratio'] = df['Volume'] / vol_ma
@@ -644,7 +646,7 @@ def run_engine(universe_dict, params, sznl_map, market_series=None, vix_series=N
                 elif params['vol_rank_logic'] == "<": conditions.append(df[vr_col] < params['vol_rank_thresh'])
 
             if params.get('use_ma_dist_filter', False):
-                ma_col_map = {"SMA 10": "SMA10", "SMA 20": "SMA20", "SMA 50": "SMA50", "SMA 100": "SMA100", "SMA 200": "SMA200", "EMA 8": "EMA8", "EMA 11": "EMA11", "EMA 21": "EMA21"}
+                ma_col_map = {"SMA 10": "SMA10", "SMA 20": "SMA20", "SMA 50": "SMA50", "SMA 100": "SMA100", "SMA 200": "SMA200", "EMA 8": "EMA8", "EMA 11": "EMA11", "EMA 21": "EMA21","52-Week High": "High_52w", "All-Time High": "ATH_Level"}
                 ma_target = ma_col_map.get(params['dist_ma_type'])
                 if ma_target and ma_target in df.columns:
                     dist_val = (df['Close'] - df[ma_target]) / df['ATR']
@@ -1031,7 +1033,7 @@ def main():
     with st.expander("Distance from MA Filter", expanded=False):
         use_ma_dist_filter = st.checkbox("Enable Distance Filter", value=False)
         d1, d2, d3, d4 = st.columns(4)
-        with d1: dist_ma_type = st.selectbox("Select MA", ["SMA 10", "SMA 20", "SMA 50", "SMA 100", "SMA 200", "EMA 8", "EMA 11", "EMA 21"], disabled=not use_ma_dist_filter)
+        with d1: dist_ma_type = st.selectbox("Select MA", ["SMA 10", "SMA 20", "SMA 50", "SMA 100", "SMA 200", "EMA 8", "EMA 11", "EMA 21","52-Week High", "All-Time High"], disabled=not use_ma_dist_filter)
         with d2: dist_logic = st.selectbox("Logic", ["Greater Than (>)", "Less Than (<)", "Between"], disabled=not use_ma_dist_filter)
         with d3: dist_min = st.number_input("Min ATR Dist", -50.0, 50.0, 0.0, step=0.5, disabled=not use_ma_dist_filter)
         with d4: dist_max = st.number_input("Max ATR Dist", -50.0, 50.0, 2.0, step=0.5, disabled=not use_ma_dist_filter)
