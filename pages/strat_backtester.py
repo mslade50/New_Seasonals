@@ -655,10 +655,11 @@ def process_signals_fast(candidates, signal_data, processed_dict, strategies, st
     """
     Process candidates chronologically with dynamic sizing based on REAL-TIME MTM equity.
     
-    COMPLETE FIX v3:
+    COMPLETE FIX v4:
     - Entry: GTC limits now use FIXED limit price (based on T+1 Open)
     - Entry: Signal Close now uses correct date/price
-    - EXIT: Now checks for stop loss and take profit hits (was missing!)
+    - EXIT: Checks for stop loss and take profit hits
+    - Vol Spike: 3-branch ATH/52w overlay from 2026-02-06+ with LOC companion
     """
     if not candidates:
         return pd.DataFrame()
@@ -866,7 +867,7 @@ def process_signals_fast(candidates, signal_data, processed_dict, strategies, st
         if not valid_entry or entry_price is None or pd.isna(entry_price):
             continue
         
-        # ========== EXIT LOGIC SECTION (NEW!) ==========
+        # ========== EXIT LOGIC SECTION ==========
         direction = settings.get('trade_direction', 'Long')
         stop_atr = execution['stop_atr']
         tgt_atr = execution['tgt_atr']
@@ -902,29 +903,25 @@ def process_signals_fast(candidates, signal_data, processed_dict, strategies, st
                 day_high = check_row['High']
                 
                 if direction == 'Long':
-                    # Check stop first (assumes stop hit before target on same day)
                     if use_stop and day_low <= stop_price:
                         exit_price = stop_price
                         exit_date = check_row.name
                         exit_idx = check_idx
                         exit_type = "Stop"
                         break
-                    # Check target
                     if use_target and day_high >= tgt_price:
                         exit_price = tgt_price
                         exit_date = check_row.name
                         exit_idx = check_idx
                         exit_type = "Target"
                         break
-                else:  # Short
-                    # Check stop first
+                else:
                     if use_stop and day_high >= stop_price:
                         exit_price = stop_price
                         exit_date = check_row.name
                         exit_idx = check_idx
                         exit_type = "Stop"
                         break
-                    # Check target
                     if use_target and day_low <= tgt_price:
                         exit_price = tgt_price
                         exit_date = check_row.name
@@ -932,9 +929,7 @@ def process_signals_fast(candidates, signal_data, processed_dict, strategies, st
                         exit_type = "Target"
                         break
         
-        # ========== END EXIT LOGIC SECTION ==========
-        
-        # --- CALCULATE REAL-TIME MTM EQUITY ---
+        # ========== CALCULATE REAL-TIME MTM EQUITY ==========
         still_open = []
         for pos in open_positions:
             if signal_date >= pos['exit_date']:
@@ -980,86 +975,182 @@ def process_signals_fast(candidates, signal_data, processed_dict, strategies, st
         risk_bps = execution['risk_bps']
         base_risk = current_equity * risk_bps / 10000
         
-        # Strategy-specific risk adjustments
+        # ========== STRATEGY-SPECIFIC RISK ADJUSTMENTS ==========
+        _vol_spike_skip_primary = False
+        _vol_spike_emit_loc = False
+
         if strat_name == "Overbot Vol Spike":
-            vol_ratio = row_data['vol_ratio']
-            if vol_ratio > 2.0:
-                base_risk = current_equity * 45 / 10000
-            elif vol_ratio > 1.5:
-                base_risk = current_equity * 35 / 10000
-        
+            NEW_OVERLAY_START = pd.Timestamp('2026-02-06')
+
+            if signal_date >= NEW_OVERLAY_START:
+                # NEW: Three-branch ATH/52w overlay (2026-02-06+)
+                is_ath_l10 = bool(df['is_ath'].iloc[:signal_idx + 1].rolling(window=10, min_periods=1).max().iloc[-1])
+                is_52w_high = bool(df.iloc[signal_idx]['is_52w_high'])
+
+                if is_ath_l10:
+                    # Case 1: ATH in last 10 days → LOC only, normal risk
+                    _vol_spike_skip_primary = True
+                    _vol_spike_emit_loc = True
+                elif is_52w_high:
+                    # Case 2: No ATH in L10 but 52w high today → primary only, 0.66x
+                    base_risk *= 0.66
+                else:
+                    # Case 3: No ATH in L10, no 52w high → primary + LOC, normal risk
+                    _vol_spike_emit_loc = True
+            else:
+                # LEGACY: Vol-ratio sizing (pre-2026-02-06)
+                vol_ratio = row_data['vol_ratio']
+                if vol_ratio > 2.0:
+                    base_risk = current_equity * 45 / 10000
+                elif vol_ratio > 1.5:
+                    base_risk = current_equity * 35 / 10000
+
         if strat_name == "Weak Close Decent Sznls":
             sznl_val = row_data['sznl']
             if sznl_val >= 65:
                 base_risk *= 1.5
             elif sznl_val >= 33:
                 base_risk *= 0.66 if sznl_val < 50 else 1.0
-        
+
         dist = atr * stop_atr
         action = "BUY" if direction == 'Long' else "SELL SHORT"
-        
+
         if pd.isna(dist) or dist <= 0:
             continue
 
-        try:
-            shares = int(base_risk / dist)
-        except (ValueError, OverflowError):
-            shares = 0
-            
-        if shares == 0:
-            continue
-        
-        # Calculate PnL
-        if action == "BUY":
-            pnl = ((exit_price - entry_price) * shares).round(0)
-        else:
-            pnl = ((entry_price - exit_price) * shares).round(0)
-        
-        # Time stop date for display
-        target_ts_idx = entry_idx + hold_days
-        if target_ts_idx < len(df):
-            time_stop_date = df.index[target_ts_idx]
-        else:
-            time_stop_date = entry_date + BusinessDay(hold_days)
-        
-        open_positions.append({
-            'ticker': ticker,
-            't_clean': t_clean,
-            'entry_date': entry_date,
-            'entry_price': entry_price,
-            'shares': shares,
-            'direction': 'Long' if action == 'BUY' else 'Short',
-            'exit_idx': exit_idx,
-            'exit_date': exit_date,
-            'strat_name': strat_name
-        })
-        
-        position_last_exit[pos_key] = exit_date.value
-        
-        t1_open = entry_row['Open'] if entry_row is not None else entry_price
-        
-        results.append({
-            "Date": signal_date,
-            "Entry Date": entry_date,
-            "Exit Date": exit_date,
-            "Exit Type": exit_type,
-            "Time Stop": time_stop_date,
-            "Strategy": strat_name,
-            "Ticker": ticker,
-            "Action": action,
-            "Entry Criteria": entry_type,
-            "Price": entry_price,
-            "Shares": shares,
-            "PnL": pnl,
-            "ATR": atr,
-            "T+1 Open": t1_open,
-            "Signal Close": row_data['close'],
-            "Range %": row_data['range_pct'],
-            "Equity at Signal": current_equity,
-            "Risk $": base_risk,
-            "Risk bps": risk_bps
-        })
-            
+        # ========== PRIMARY TRADE ==========
+        if not _vol_spike_skip_primary:
+            try:
+                shares = int(base_risk / dist)
+            except (ValueError, OverflowError):
+                shares = 0
+
+            if shares > 0:
+                if action == "BUY":
+                    pnl = ((exit_price - entry_price) * shares).round(0)
+                else:
+                    pnl = ((entry_price - exit_price) * shares).round(0)
+
+                target_ts_idx = entry_idx + hold_days
+                if target_ts_idx < len(df):
+                    time_stop_date = df.index[target_ts_idx]
+                else:
+                    time_stop_date = entry_date + BusinessDay(hold_days)
+
+                open_positions.append({
+                    'ticker': ticker, 't_clean': t_clean,
+                    'entry_date': entry_date, 'entry_price': entry_price,
+                    'shares': shares, 'direction': 'Long' if action == 'BUY' else 'Short',
+                    'exit_idx': exit_idx, 'exit_date': exit_date, 'strat_name': strat_name
+                })
+                position_last_exit[pos_key] = exit_date.value
+
+                t1_open = entry_row['Open'] if entry_row is not None else entry_price
+
+                results.append({
+                    "Date": signal_date, "Entry Date": entry_date,
+                    "Exit Date": exit_date, "Exit Type": exit_type,
+                    "Time Stop": time_stop_date, "Strategy": strat_name,
+                    "Ticker": ticker, "Action": action,
+                    "Entry Criteria": entry_type, "Price": entry_price,
+                    "Shares": shares, "PnL": pnl, "ATR": atr,
+                    "T+1 Open": t1_open, "Signal Close": row_data['close'],
+                    "Range %": row_data['range_pct'],
+                    "Equity at Signal": current_equity,
+                    "Risk $": base_risk, "Risk bps": risk_bps
+                })
+
+        # ========== LOC COMPANION TRADE (Vol Spike only, 2026-02-06+) ==========
+        if _vol_spike_emit_loc:
+            loc_threshold = row_data['close'] + (0.5 * atr)
+            t1_idx = signal_idx + 1
+
+            if t1_idx < len(df):
+                t1_close = df.iloc[t1_idx]['Close']
+
+                if t1_close > loc_threshold:
+                    # LOC fills at T+1 close
+                    loc_entry_price = t1_close
+                    loc_entry_date = df.index[t1_idx]
+                    loc_entry_idx = t1_idx
+
+                    # Base risk for LOC (always standard bps, not reduced)
+                    loc_risk = current_equity * risk_bps / 10000
+                    loc_shares = int(loc_risk / dist) if dist > 0 else 0
+
+                    if loc_shares > 0:
+                        # Stop/target from LOC entry price
+                        if direction == 'Long':
+                            loc_stop = loc_entry_price - (atr * stop_atr)
+                            loc_tgt = loc_entry_price + (atr * tgt_atr)
+                        else:
+                            loc_stop = loc_entry_price + (atr * stop_atr)
+                            loc_tgt = loc_entry_price - (atr * tgt_atr)
+
+                        # Exit logic for LOC position
+                        loc_hold = execution['hold_days']
+                        loc_max_exit_idx = min(loc_entry_idx + loc_hold, len(df) - 1)
+                        loc_exit_idx = loc_max_exit_idx
+                        loc_exit_price = df.iloc[loc_exit_idx]['Close']
+                        loc_exit_date = df.index[loc_exit_idx]
+                        loc_exit_type = "Time"
+
+                        use_stop_loc = execution.get('use_stop_loss', True)
+                        use_tgt_loc = execution.get('use_take_profit', True)
+
+                        if use_stop_loc or use_tgt_loc:
+                            for ci in range(loc_entry_idx + 1, loc_max_exit_idx + 1):
+                                cr = df.iloc[ci]
+                                if direction == 'Long':
+                                    if use_stop_loc and cr['Low'] <= loc_stop:
+                                        loc_exit_price, loc_exit_date, loc_exit_idx, loc_exit_type = loc_stop, cr.name, ci, "Stop"
+                                        break
+                                    if use_tgt_loc and cr['High'] >= loc_tgt:
+                                        loc_exit_price, loc_exit_date, loc_exit_idx, loc_exit_type = loc_tgt, cr.name, ci, "Target"
+                                        break
+                                else:
+                                    if use_stop_loc and cr['High'] >= loc_stop:
+                                        loc_exit_price, loc_exit_date, loc_exit_idx, loc_exit_type = loc_stop, cr.name, ci, "Stop"
+                                        break
+                                    if use_tgt_loc and cr['Low'] <= loc_tgt:
+                                        loc_exit_price, loc_exit_date, loc_exit_idx, loc_exit_type = loc_tgt, cr.name, ci, "Target"
+                                        break
+
+                        if action == "BUY":
+                            loc_pnl = ((loc_exit_price - loc_entry_price) * loc_shares).round(0)
+                        else:
+                            loc_pnl = ((loc_entry_price - loc_exit_price) * loc_shares).round(0)
+
+                        loc_ts_idx = loc_entry_idx + loc_hold
+                        if loc_ts_idx < len(df):
+                            loc_time_stop = df.index[loc_ts_idx]
+                        else:
+                            loc_time_stop = loc_entry_date + BusinessDay(loc_hold)
+
+                        open_positions.append({
+                            'ticker': ticker, 't_clean': t_clean,
+                            'entry_date': loc_entry_date, 'entry_price': loc_entry_price,
+                            'shares': loc_shares, 'direction': 'Long' if action == 'BUY' else 'Short',
+                            'exit_idx': loc_exit_idx, 'exit_date': loc_exit_date,
+                            'strat_name': strat_name + " (LOC)"
+                        })
+                        position_last_exit[pos_key] = loc_exit_date.value
+
+                        results.append({
+                            "Date": signal_date, "Entry Date": loc_entry_date,
+                            "Exit Date": loc_exit_date, "Exit Type": loc_exit_type,
+                            "Time Stop": loc_time_stop, "Strategy": strat_name + " (LOC)",
+                            "Ticker": ticker, "Action": action,
+                            "Entry Criteria": "LOC (T+1 Close > Signal+0.5ATR)",
+                            "Price": loc_entry_price, "Shares": loc_shares,
+                            "PnL": loc_pnl, "ATR": atr,
+                            "T+1 Open": df.iloc[t1_idx]['Open'],
+                            "Signal Close": row_data['close'],
+                            "Range %": row_data['range_pct'],
+                            "Equity at Signal": current_equity,
+                            "Risk $": loc_risk, "Risk bps": risk_bps
+                        })
+    
     if not results:
         return pd.DataFrame()
     
