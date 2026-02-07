@@ -455,18 +455,24 @@ def get_historical_mask(df, params, sznl_map, ticker_name="UNK"):
 
     # --- Accumulation / Distribution Count ---
     if params.get('use_acc_count_filter', False):
-        acc = df['AccCount_21'].values
+        col = f"AccCount_{params.get('acc_count_window', 21)}"
+        acc = df[col].values if col in df.columns else df['AccCount_21'].values
         t = params['acc_count_thresh']
         if params['acc_count_logic'] == '>':
             conditions.append(acc > t)
+        elif params['acc_count_logic'] == '=':
+            conditions.append(acc == t)
         else:
             conditions.append(acc < t)
 
     if params.get('use_dist_count_filter', False):
-        dist = df['DistCount_21'].values
+        col = f"DistCount_{params.get('dist_count_window', 21)}"
+        dist = df[col].values if col in df.columns else df['DistCount_21'].values
         t = params['dist_count_thresh']
         if params['dist_count_logic'] == '>':
             conditions.append(dist > t)
+        elif params['dist_count_logic'] == '=':
+            conditions.append(dist == t)
         else:
             conditions.append(dist < t)
 
@@ -476,6 +482,8 @@ def get_historical_mask(df, params, sznl_map, ticker_name="UNK"):
         t = params['gap_thresh']
         if params['gap_logic'] == '>':
             conditions.append(gc > t)
+        elif params['gap_logic'] == '=':
+            conditions.append(gc == t)
         else:
             conditions.append(gc < t)
 
