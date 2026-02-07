@@ -1526,7 +1526,7 @@ def main():
         tab1, tab2 = st.tabs(["Executed Trades", "Missed Trades"])
         with tab1:
             if not trades_df.empty:
-                st.dataframe(trades_df.style.format({"Entry": "{:.2f}", "Exit": "{:.2f}", "R": "{:.2f}", "PnL_Dollar": "${:,.2f}", "Age": "{:.1f}y", "AvgVol": "{:,.0f}"}), use_container_width=True)
+                st.dataframe(trades_df.style.format({"SignalDate": lambda x: x.strftime('%Y-%m-%d'), "EntryDate": lambda x: x.strftime('%Y-%m-%d'), "ExitDate": lambda x: x.strftime('%Y-%m-%d'), "Entry": "{:.2f}", "Exit": "{:.2f}", "R": "{:.2f}", "PnL_Dollar": "${:,.2f}", "Age": "{:.1f}y", "AvgVol": "{:,.0f}"}), use_container_width=True)
             else: st.info("No Executed Trades.")
         with tab2:
             if not rejected_df.empty:
