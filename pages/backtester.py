@@ -991,11 +991,24 @@ def run_engine(universe_dict, params, sznl_map, market_series=None, vix_series=N
                     exit_price, exit_type, exit_date = actual_entry_price, "Hold", None
                     for f_date, f_row in future.iterrows():
                         if direction == 'Long':
-                            if params['use_stop_loss'] and f_row['Low'] <= stop_price: exit_price, exit_type, exit_date = stop_price, "Stop", f_date; break
-                            if params['use_take_profit'] and f_row['High'] >= tgt_price: exit_price, exit_type, exit_date = tgt_price, "Target", f_date; break
+                            if params['use_stop_loss'] and f_row['Low'] <= stop_price:
+                                # If open already below stop, we're filled at the open (gap through)
+                                actual_stop_px = min(f_row['Open'], stop_price) if f_row['Open'] <= stop_price else stop_price
+                                exit_price, exit_type, exit_date = actual_stop_px, "Stop", f_date
+                                break
+                            if params['use_take_profit'] and f_row['High'] >= tgt_price:
+                                actual_tgt_px = max(f_row['Open'], tgt_price) if f_row['Open'] >= tgt_price else tgt_price
+                                exit_price, exit_type, exit_date = actual_tgt_px, "Target", f_date
+                                break
                         else:
-                            if params['use_stop_loss'] and f_row['High'] >= stop_price: exit_price, exit_type, exit_date = stop_price, "Stop", f_date; break
-                            if params['use_take_profit'] and f_row['Low'] <= tgt_price: exit_price, exit_type, exit_date = tgt_price, "Target", f_date; break
+                            if params['use_stop_loss'] and f_row['High'] >= stop_price:
+                                actual_stop_px = max(f_row['Open'], stop_price) if f_row['Open'] >= stop_price else stop_price
+                                exit_price, exit_type, exit_date = actual_stop_px, "Stop", f_date
+                                break
+                            if params['use_take_profit'] and f_row['Low'] <= tgt_price:
+                                actual_tgt_px = min(f_row['Open'], tgt_price) if f_row['Open'] <= tgt_price else tgt_price
+                                exit_price, exit_type, exit_date = actual_tgt_px, "Target", f_date
+                                break
                     if exit_type == "Hold": exit_price, exit_date, exit_type = future['Close'].iloc[-1], future.index[-1], "Time"
                     
                 ticker_last_exit = exit_date
