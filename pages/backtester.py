@@ -1460,11 +1460,11 @@ def main():
             trades_df['SignalDate'] = pd.to_datetime(trades_df['SignalDate'])
             trades_df['EntryDate'] = pd.to_datetime(trades_df['EntryDate'])
             trades_df['DayOfWeek'] = trades_df['EntryDate'].dt.day_name()
+            trades_df['Year'] = trades_df['SignalDate'].dt.year
+            trades_df['Month'] = trades_df['SignalDate'].dt.strftime('%b')
             trades_df['SignalDate'] = trades_df['SignalDate'].dt.strftime('%Y-%m-%d')
             trades_df['EntryDate'] = trades_df['EntryDate'].dt.strftime('%Y-%m-%d')
             trades_df['ExitDate'] = pd.to_datetime(trades_df['ExitDate']).dt.strftime('%Y-%m-%d')
-            trades_df['Year'] = trades_df['SignalDate'].dt.year
-            trades_df['Month'] = trades_df['SignalDate'].dt.strftime('%b')
             trades_df['CyclePhase'] = trades_df['Year'].apply(get_cycle_year)
             trades_df['AgeBucket'] = trades_df['Age'].apply(get_age_bucket)
             if len(trades_df) >= 10:
