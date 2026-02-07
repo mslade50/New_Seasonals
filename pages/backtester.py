@@ -467,7 +467,7 @@ def build_strategy_dict(params, tickers_to_run, pf, sqn, win_rate, expectancy_r)
     
     strategy = {
         "id": strategy_id,
-        "name": "Custom Backtest Strategy",
+        "name": "[EDIT: Strategy Name]",
         "setup": {
             "type": strat_type,
             "timeframe": timeframe,
@@ -476,9 +476,8 @@ def build_strategy_dict(params, tickers_to_run, pf, sqn, win_rate, expectancy_r)
         },
         "exit_summary": exit_summary,
         "description": f"Backtest: {params['backtest_start_date']} to present. Tested on {len(tickers_to_run)} tickers.",
-        "universe_tickers": "CHANGE_ME",
+        "universe_tickers": "[EDIT: LIQUID_UNIVERSE or other]",
         "settings": {
-            # Direction & entry
             "trade_direction": params.get('trade_direction', 'Long'),
             "entry_type": params.get('entry_type', 'T+1 Open'),
             "max_one_pos": params.get('max_one_pos', True),
@@ -493,99 +492,57 @@ def build_strategy_dict(params, tickers_to_run, pf, sqn, win_rate, expectancy_r)
             # MA consecutive filters
             "ma_consec_filters": params.get('ma_consec_filters', []),
             # Seasonal
-            "use_sznl": params.get('use_sznl', False),
-            "sznl_logic": params.get('sznl_logic', '<'),
-            "sznl_thresh": params.get('sznl_thresh', 33.0),
-            "sznl_first_instance": params.get('sznl_first_instance', False),
-            "sznl_lookback": params.get('sznl_lookback', 21),
-            "use_market_sznl": params.get('use_market_sznl', False),
-            "market_sznl_logic": params.get('market_sznl_logic', '<'),
-            "market_sznl_thresh": params.get('market_sznl_thresh', 40.0),
-            "market_ticker": MARKET_TICKER,
+            "use_sznl": params.get('use_sznl', False), "sznl_logic": params.get('sznl_logic', '<'), "sznl_thresh": params.get('sznl_thresh', 33.0),
+            "sznl_first_instance": params.get('sznl_first_instance', False), "sznl_lookback": params.get('sznl_lookback', 21),
+            "use_market_sznl": params.get('use_market_sznl', False), "market_sznl_logic": params.get('market_sznl_logic', '<'), "market_sznl_thresh": params.get('market_sznl_thresh', 40.0),
+            "market_ticker": "^GSPC",
             # 52-week / ATH
-            "use_52w": params.get('use_52w', False),
-            "52w_type": params.get('52w_type', 'New 52w High'),
-            "52w_first_instance": params.get('52w_first_instance', True),
-            "52w_lookback": params.get('52w_lookback', 21),
-            "52w_lag": params.get('52w_lag', 0),
+            "use_52w": params.get('use_52w', False), "52w_type": params.get('52w_type', 'New 52w High'), "52w_first_instance": params.get('52w_first_instance', True),
+            "52w_lookback": params.get('52w_lookback', 21), "52w_lag": params.get('52w_lag', 0),
             "exclude_52w_high": params.get('exclude_52w_high', False),
-            "use_ath": params.get('use_ath', False),
-            "ath_type": params.get('ath_type', 'Today is ATH'),
-            "use_recent_ath": params.get('use_recent_ath', False),
-            "recent_ath_invert": params.get('recent_ath_invert', False),
-            "ath_lookback_days": params.get('ath_lookback_days', 21),
+            "use_ath": params.get('use_ath', False), "ath_type": params.get('ath_type', 'Today is ATH'),
+            "use_recent_ath": params.get('use_recent_ath', False), "recent_ath_invert": params.get('recent_ath_invert', False), "ath_lookback_days": params.get('ath_lookback_days', 21),
             # Price action
             "breakout_mode": params.get('breakout_mode', 'None'),
             "require_close_gt_open": params.get('require_close_gt_open', False),
-            "use_range_filter": params.get('use_range_filter', False),
-            "range_min": params.get('range_min', 0),
-            "range_max": params.get('range_max', 100),
-            "use_atr_ret_filter": params.get('use_atr_ret_filter', False),
-            "atr_ret_min": params.get('atr_ret_min', 0.0),
-            "atr_ret_max": params.get('atr_ret_max', 1.0),
-            "use_range_atr_filter": params.get('use_range_atr_filter', False),
-            "range_atr_logic": params.get('range_atr_logic', 'Between'),
-            "range_atr_min": params.get('range_atr_min', 1.0),
-            "range_atr_max": params.get('range_atr_max', 3.0),
+            "use_range_filter": params.get('use_range_filter', False), "range_min": params.get('range_min', 0), "range_max": params.get('range_max', 100),
+            "use_atr_ret_filter": params.get('use_atr_ret_filter', False), "atr_ret_min": params.get('atr_ret_min', 0.0), "atr_ret_max": params.get('atr_ret_max', 1.0),
+            "use_range_atr_filter": params.get('use_range_atr_filter', False), "range_atr_logic": params.get('range_atr_logic', 'Between'), "range_atr_min": params.get('range_atr_min', 1.0), "range_atr_max": params.get('range_atr_max', 3.0),
             # Distance from MA
-            "use_ma_dist_filter": params.get('use_ma_dist_filter', False),
-            "dist_ma_type": params.get('dist_ma_type', 'SMA 200'),
-            "dist_logic": params.get('dist_logic', 'Between'),
-            "dist_min": params.get('dist_min', 0.0),
-            "dist_max": params.get('dist_max', 2.0),
+            "use_ma_dist_filter": params.get('use_ma_dist_filter', False), "dist_ma_type": params.get('dist_ma_type', 'SMA 200'), "dist_logic": params.get('dist_logic', 'Between'), "dist_min": params.get('dist_min', 0.0), "dist_max": params.get('dist_max', 2.0),
             # Volume
             "vol_gt_prev": params.get('vol_gt_prev', False),
-            "use_vol": params.get('use_vol', False),
-            "vol_thresh": params.get('vol_thresh', 1.5),
-            "use_vol_rank": params.get('use_vol_rank', False),
-            "vol_rank_logic": params.get('vol_rank_logic', '<'),
-            "vol_rank_thresh": params.get('vol_rank_thresh', 15.0),
+            "use_vol": params.get('use_vol', False), "vol_thresh": params.get('vol_thresh', 1.5),
+            "use_vol_rank": params.get('use_vol_rank', False), "vol_rank_logic": params.get('vol_rank_logic', '<'), "vol_rank_thresh": params.get('vol_rank_thresh', 15.0),
             # Acc/Dist counts
-            "use_acc_count_filter": params.get('use_acc_count_filter', False),
-            "acc_count_window": params.get('acc_count_window', 21),
-            "acc_count_logic": params.get('acc_count_logic', '>'),
-            "acc_count_thresh": params.get('acc_count_thresh', 3),
-            "use_dist_count_filter": params.get('use_dist_count_filter', False),
-            "dist_count_window": params.get('dist_count_window', 21),
-            "dist_count_logic": params.get('dist_count_logic', '>'),
-            "dist_count_thresh": params.get('dist_count_thresh', 3),
+            "use_acc_count_filter": params.get('use_acc_count_filter', False), "acc_count_window": params.get('acc_count_window', 21), "acc_count_logic": params.get('acc_count_logic', '>'), "acc_count_thresh": params.get('acc_count_thresh', 3),
+            "use_dist_count_filter": params.get('use_dist_count_filter', False), "dist_count_window": params.get('dist_count_window', 21), "dist_count_logic": params.get('dist_count_logic', '>'), "dist_count_thresh": params.get('dist_count_thresh', 3),
             # Gap filter
-            "use_gap_filter": params.get('use_gap_filter', False),
-            "gap_lookback": params.get('gap_lookback', 21),
-            "gap_logic": params.get('gap_logic', '>'),
-            "gap_thresh": params.get('gap_thresh', 3),
+            "use_gap_filter": params.get('use_gap_filter', False), "gap_lookback": params.get('gap_lookback', 21), "gap_logic": params.get('gap_logic', '>'), "gap_thresh": params.get('gap_thresh', 3),
             # Trend & regime
             "trend_filter": params.get('trend_filter', 'None'),
-            "use_vix_filter": params.get('use_vix_filter', False),
-            "vix_min": params.get('vix_min', 0.0),
-            "vix_max": params.get('vix_max', 20.0),
+            "use_vix_filter": params.get('use_vix_filter', False), "vix_min": params.get('vix_min', 0.0), "vix_max": params.get('vix_max', 20.0),
             # Liquidity & data
-            "min_price": params.get('min_price', 10.0),
-            "min_vol": params.get('min_vol', 100000),
-            "min_age": params.get('min_age', 0.25),
-            "max_age": params.get('max_age', 100.0),
-            "min_atr_pct": params.get('min_atr_pct', 0.0),
-            "max_atr_pct": params.get('max_atr_pct', 10.0),
+            "min_price": params.get('min_price', 10.0), "min_vol": params.get('min_vol', 100000),
+            "min_age": params.get('min_age', 0.25), "max_age": params.get('max_age', 100.0),
+            "min_atr_pct": params.get('min_atr_pct', 0.0), "max_atr_pct": params.get('max_atr_pct', 10.0),
             # Time & cycle
-            "use_dow_filter": params.get('use_dow_filter', False),
-            "allowed_days": params.get('allowed_days', [0, 1, 2, 3, 4]),
+            "use_dow_filter": params.get('use_dow_filter', False), "allowed_days": params.get('allowed_days', [0, 1, 2, 3, 4]),
             "allowed_cycles": params.get('allowed_cycles', [0, 1, 2, 3]),
             # Reference ticker
-            "use_ref_ticker_filter": params.get('use_ref_ticker_filter', False),
-            "ref_ticker": params.get('ref_ticker', 'IWM'),
-            "ref_filters": params.get('ref_filters', []),
+            "use_ref_ticker_filter": params.get('use_ref_ticker_filter', False), "ref_ticker": params.get('ref_ticker', 'IWM'), "ref_filters": params.get('ref_filters', []),
             # T+1 open filter
-            "use_t1_open_filter": params.get('use_t1_open_filter', False),
-            "t1_open_filters": params.get('t1_open_filters', []),
+            "use_t1_open_filter": params.get('use_t1_open_filter', False), "t1_open_filters": params.get('t1_open_filters', [])
         },
         "execution": {
             "risk_bps": 35,
+            "risk_per_trade": "[EDIT: calculated from account size]",
             "slippage_bps": params.get('slippage_bps', 5),
             "stop_atr": params.get('stop_atr', 2.0),
             "tgt_atr": params.get('tgt_atr', 5.0),
             "hold_days": params.get('holding_days', 10),
             "use_stop_loss": params.get('use_stop_loss', True),
-            "use_take_profit": params.get('use_take_profit', True),
+            "use_take_profit": params.get('use_take_profit', True)
         },
         "stats": {
             "grade": f"{grade} ({verdict})",
@@ -595,7 +552,7 @@ def build_strategy_dict(params, tickers_to_run, pf, sqn, win_rate, expectancy_r)
         }
     }
     return strategy
-
+    
 def run_engine(universe_dict, params, sznl_map, market_series=None, vix_series=None, market_sznl_series=None, ref_ticker_ranks=None):
     all_potential_trades = []
     total = len(universe_dict)
