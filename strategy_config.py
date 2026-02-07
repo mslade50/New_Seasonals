@@ -620,7 +620,7 @@ _STRATEGY_BOOK_RAW = [
             "primary_exit": "2-day time stop",
             "stop_logic": "1.0 ATR above entry (short)",
             "target_logic": "8.0 ATR below entry (short)",
-            "notes": "DYNAMIC SIZING: +50% Friday, +15% 2x volume, +50%/15% momentum >95/>90"
+            "notes": "DYNAMIC ROUTING: ATH in L10 → LOC only (1.0x) | 52w High, no ATH → Primary only (0.66x) | Neither → Primary + LOC (1.0x)"
         },
         "description": "Start: 2000-01-01. Universe: All CSV Tickers. Dir: Short. Filter: None. PF: 2.46. SQN: 4.44.",
         "universe_tickers": LIQUID_UNIVERSE,
