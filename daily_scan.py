@@ -390,7 +390,7 @@ def get_sznl_val_series(ticker, dates, sznl_map):
 # 2. CALCULATION ENGINE
 # -----------------------------------------------------------------------------
 
-def calculate_indicators(df, sznl_map, ticker, market_series=None, vix_series=None):
+def calculate_indicators(df, sznl_map, ticker, market_series=None, vix_series=None, ref_ticker_ranks=None):
     df = df.copy()
     if isinstance(df.columns, pd.MultiIndex):
         df.columns = df.columns.get_level_values(0)
@@ -400,8 +400,12 @@ def calculate_indicators(df, sznl_map, ticker, market_series=None, vix_series=No
     # --- MAs ---
     df['SMA10'] = df['Close'].rolling(10).mean()
     df['SMA20'] = df['Close'].rolling(20).mean()
-    df['SMA50'] = df['Close'].rolling(50).mean() 
+    df['SMA50'] = df['Close'].rolling(50).mean()
+    df['SMA100'] = df['Close'].rolling(100).mean()
     df['SMA200'] = df['Close'].rolling(200).mean()
+    df['EMA8'] = df['Close'].ewm(span=8, adjust=False).mean()
+    df['EMA11'] = df['Close'].ewm(span=11, adjust=False).mean()
+    df['EMA21'] = df['Close'].ewm(span=21, adjust=False).mean()
     
     # --- Gap Count ---
     is_open_gap = (df['Low'] > df['High'].shift(1)).astype(int)
@@ -414,7 +418,7 @@ def calculate_indicators(df, sznl_map, ticker, market_series=None, vix_series=No
     df['RangePct'] = np.where(denom == 0, 0.5, (df['Close'] - df['Low']) / denom)
 
     # --- Perf Ranks ---
-    for window in [5, 10, 21]:
+    for window in [2, 5, 10, 21]:
         df[f'ret_{window}d'] = df['Close'].pct_change(window, fill_method=None)
         df[f'rank_ret_{window}d'] = df[f'ret_{window}d'].expanding(min_periods=50).rank(pct=True) * 100.0
         
@@ -445,11 +449,17 @@ def calculate_indicators(df, sznl_map, ticker, market_series=None, vix_series=No
     cond_green = df['Close'] > df['Open']
     is_accumulation = (df['Vol_Spike'] & cond_green).astype(int)
     df['AccCount_21'] = is_accumulation.rolling(21).sum()
+    df['AccCount_5'] = is_accumulation.rolling(5).sum()
+    df['AccCount_10'] = is_accumulation.rolling(10).sum()
+    df['AccCount_42'] = is_accumulation.rolling(42).sum()
     
     # 2. Distribution (Red + Spike)
     cond_red = df['Close'] < df['Open']
     is_distribution = (df['Vol_Spike'] & cond_red).astype(int)
     df['DistCount_21'] = is_distribution.rolling(21).sum()
+    df['DistCount_5'] = is_distribution.rolling(5).sum()
+    df['DistCount_10'] = is_distribution.rolling(10).sum()
+    df['DistCount_42'] = is_distribution.rolling(42).sum()
     
     # --- Volume Rank ---
     vol_ma_10 = df['Volume'].rolling(10).mean()
@@ -485,7 +495,14 @@ def calculate_indicators(df, sznl_map, ticker, market_series=None, vix_series=No
     # --- All-Time High ---
     df['prior_ath'] = df['High'].shift(1).expanding().max()
     df['is_ath'] = df['High'] >= df['prior_ath']
-        
+    df['High_52w'] = df['High'].rolling(252).max()
+    df['ATH_Level'] = df['High'].expanding().max()
+
+    # Reference Ticker Ranks
+    if ref_ticker_ranks is not None:
+        for window, series in ref_ticker_ranks.items():
+            df[f'Ref_rank_ret_{window}d'] = series.reindex(df.index, method='ffill').fillna(50.0)
+            
     return df
 
 def check_signal(df, params, sznl_map):
@@ -516,13 +533,17 @@ def check_signal(df, params, sznl_map):
         if current_atr_pct < params.get('min_atr_pct', 0.0): return False
         if current_atr_pct > params.get('max_atr_pct', 1000.0): return False
 
-    # 1b. Today's Return Filter (in ATR units)
     if params.get('use_today_return', False):
         today_ret = last_row.get('today_return_atr', 0)
         if pd.isna(today_ret): return False
         ret_min = params.get('return_min', -100)
         ret_max = params.get('return_max', 100)
         if not (today_ret >= ret_min and today_ret <= ret_max): return False
+
+    if params.get('use_atr_ret_filter', False):
+        today_ret = last_row.get('today_return_atr', 0)
+        if pd.isna(today_ret): return False
+        if not (today_ret >= params.get('atr_ret_min', -100) and today_ret <= params.get('atr_ret_max', 100)): return False
 
     # 2. Trend Filter (Global) - ALL OPTIONS
     trend_opt = params.get('trend_filter', 'None')
@@ -564,7 +585,34 @@ def check_signal(df, params, sznl_map):
                 mask = mask.rolling(consec).sum() == consec
             
             if not mask.iloc[-1]: return False
+    # 2c. Range in ATR Filter
+    if params.get('use_range_atr_filter', False):
+        atr = last_row.get('ATR', 0)
+        if atr > 0:
+            range_in_atr = (last_row['High'] - last_row['Low']) / atr
+            logic = params.get('range_atr_logic', 'Between')
+            if logic == '>' and not (range_in_atr > params.get('range_atr_min', 0)): return False
+            if logic == '<' and not (range_in_atr < params.get('range_atr_max', 99)): return False
+            if logic == 'Between' and not (range_in_atr >= params.get('range_atr_min', 0) and range_in_atr <= params.get('range_atr_max', 99)): return False
 
+    # 2d. Require Green Candle
+    if params.get('require_close_gt_open', False):
+        if not (last_row['Close'] > last_row['Open']): return False
+
+    # 2e. Breakout Mode
+    bk_mode = params.get('breakout_mode', 'None')
+    if bk_mode != 'None':
+        prev_row = df.iloc[-2]
+        if bk_mode == "Close > Prev Day High":
+            if not (last_row['Close'] > prev_row['High']): return False
+        elif bk_mode == "Close < Prev Day Low":
+            if not (last_row['Close'] < prev_row['Low']): return False
+
+    # 2f. Volume > Previous Day
+    if params.get('vol_gt_prev', False):
+        prev_row = df.iloc[-2]
+        if not (last_row['Volume'] > prev_row['Volume']): return False
+            
     # 3. Candle Range Filter
     if params.get('use_range_filter', False):
         rn_val = last_row['RangePct'] * 100
@@ -645,9 +693,10 @@ def check_signal(df, params, sznl_map):
             if dist_logic == "<" and not (dist_val < dist_thresh): return False
 
     # 6. Distance Filter
-    if params.get('use_dist_filter', False):
+    if params.get('use_ma_dist_filter', False) or params.get('use_dist_filter', False):
         ma_type = params.get('dist_ma_type', 'SMA 200')
-        ma_col = ma_type.replace(" ", "") 
+        ma_col_map = {"52-Week High": "High_52w", "All-Time High": "ATH_Level"}
+        ma_col = ma_col_map.get(ma_type, ma_type.replace(" ", ""))
         if ma_col in df.columns:
             ma_val = last_row[ma_col]
             atr = last_row['ATR']
@@ -694,7 +743,21 @@ def check_signal(df, params, sznl_map):
     # 8b. Exclude 52w High
     if params.get('exclude_52w_high', False):
         if last_row['is_52w_high']: return False
+    # 8c. ATH Filter
+    if params.get('use_ath', False):
+        if params.get('ath_type') == 'Today is ATH':
+            if not last_row['is_ath']: return False
+        else:
+            if last_row['is_ath']: return False
 
+    # 8d. Recent ATH Filter
+    if params.get('use_recent_ath', False):
+        ath_lookback = params.get('ath_lookback_days', 21)
+        recent_ath = df['is_ath'].rolling(window=ath_lookback, min_periods=1).max().iloc[-1]
+        if params.get('recent_ath_invert', False):
+            if bool(recent_ath): return False  # Reject if ATH was made recently
+        else:
+            if not bool(recent_ath): return False  # Reject if NO ATH recently
     # 9. VIX Filter
     if params.get('use_vix_filter', False):
         vix_min = params.get('vix_min', 0)
@@ -702,7 +765,13 @@ def check_signal(df, params, sznl_map):
         vix_val = last_row.get('VIX_Value', 0)
         if not (vix_val >= vix_min and vix_val <= vix_max): 
             return False
-
+    # 9b. Reference Ticker Filter
+    if params.get('use_ref_ticker_filter', False) and params.get('ref_filters'):
+        for rf in params['ref_filters']:
+            col = f"Ref_rank_ret_{rf['window']}d"
+            val = last_row.get(col, 50.0)
+            if rf['logic'] == '<' and not (val < rf['thresh']): return False
+            if rf['logic'] == '>' and not (val > rf['thresh']): return False
     # 10. Volume (Ratio ONLY)
     if params['use_vol']:
         if not (last_row['vol_ratio'] > params['vol_thresh']): return False
@@ -1187,6 +1256,8 @@ def build_live_filters(strat, last_row, df):
                 live_filters.append((f"Price > 200 SMA", f"${close:.2f} vs ${sma200:.2f}", False))
             elif "Price <" in trend:
                 live_filters.append((f"Price < 200 SMA", f"${close:.2f} vs ${sma200:.2f}", False))
+            else:
+                live_filters.append((trend, f"${close:.2f} vs ${sma200:.2f}", False))
         elif "Market" in trend:
             mkt_above = last_row.get('Market_Above_SMA200', False)
             live_filters.append((trend, "✓" if mkt_above else "✗", True))
@@ -1246,7 +1317,61 @@ def build_live_filters(strat, last_row, df):
         ret_min = settings.get('return_min', -100)
         ret_max = settings.get('return_max', 100)
         live_filters.append((f"Today's move {ret_min:.1f} to {ret_max:.1f} ATR", f"{val:.2f} ATR", False))
-    
+    # --- ATR Return Filter (new config key) ---
+    if settings.get('use_atr_ret_filter', False):
+        val = last_row.get('today_return_atr', 0)
+        live_filters.append((f"Net change {settings.get('atr_ret_min', -100):.1f} to {settings.get('atr_ret_max', 100):.1f} ATR", f"{val:.2f} ATR", False))
+
+    # --- Range in ATR Filter ---
+    if settings.get('use_range_atr_filter', False):
+        atr = last_row.get('ATR', 1)
+        range_val = (last_row['High'] - last_row['Low']) / atr if atr > 0 else 0
+        logic = settings.get('range_atr_logic', 'Between')
+        if logic == '>':
+            live_filters.append((f"Range > {settings['range_atr_min']:.1f} ATR", f"{range_val:.2f} ATR", False))
+        elif logic == '<':
+            live_filters.append((f"Range < {settings['range_atr_max']:.1f} ATR", f"{range_val:.2f} ATR", False))
+        else:
+            live_filters.append((f"Range {settings['range_atr_min']:.1f}-{settings['range_atr_max']:.1f} ATR", f"{range_val:.2f} ATR", False))
+
+    # --- Green Candle ---
+    if settings.get('require_close_gt_open', False):
+        is_green = last_row['Close'] > last_row['Open']
+        live_filters.append(("Close > Open", "✓" if is_green else "✗", True))
+
+    # --- Breakout Mode ---
+    bk = settings.get('breakout_mode', 'None')
+    if bk != 'None':
+        live_filters.append((bk, "✓", True))
+
+    # --- Vol > Prev ---
+    if settings.get('vol_gt_prev', False):
+        live_filters.append(("Volume > prev day", "✓", True))
+
+    # --- ATH Filters ---
+    if settings.get('use_ath', False):
+        live_filters.append((settings.get('ath_type', 'Today is ATH'), "✓" if last_row.get('is_ath', False) else "✗", True))
+
+    if settings.get('use_recent_ath', False):
+        lookback = settings.get('ath_lookback_days', 21)
+        recent = bool(df['is_ath'].rolling(window=lookback, min_periods=1).max().iloc[-1])
+        inverted = settings.get('recent_ath_invert', False)
+        prefix = "No ATH" if inverted else "Made ATH"
+        live_filters.append((f"{prefix} in last {lookback}d", "✓" if (recent != inverted) else "✗", True))
+
+    # --- Reference Ticker ---
+    if settings.get('use_ref_ticker_filter', False) and settings.get('ref_filters'):
+        ref_ticker = settings.get('ref_ticker', 'IWM')
+        for rf in settings['ref_filters']:
+            col = f"Ref_rank_ret_{rf['window']}d"
+            val = last_row.get(col, 50)
+            live_filters.append((f"{ref_ticker} {rf['window']}D rank {rf['logic']} {rf['thresh']:.0f}", f"{val:.0f}", False))
+
+    # --- Day of Week ---
+    if settings.get('use_dow_filter', False):
+        day_names = {0: 'Mon', 1: 'Tue', 2: 'Wed', 3: 'Thu', 4: 'Fri'}
+        current = day_names.get(last_row.name.dayofweek, '?')
+        live_filters.append(("Day of week filter", f"{current}", False))
     # --- ATR% Filter ---
     min_atr = settings.get('min_atr_pct', 0)
     max_atr = settings.get('max_atr_pct', 100)
@@ -1306,6 +1431,8 @@ def run_daily_scan():
         if "Market" in s.get('trend_filter', ''): all_tickers.add(s.get('market_ticker', 'SPY'))
         if "SPY" in s.get('trend_filter', ''): all_tickers.add("SPY")
         if s.get('use_vix_filter', False): all_tickers.add("^VIX")  # VIX for strategies that need it
+        if s.get('use_ref_ticker_filter', False) and s.get('ref_ticker'):
+            all_tickers.add(s['ref_ticker'].replace('.', '-'))
     
     # 2. Download Data
     master_dict = download_historical_data(list(all_tickers))
@@ -1382,7 +1509,19 @@ def run_daily_scan():
             temp_mkt = mkt_df.copy()
             temp_mkt['SMA200'] = temp_mkt['Close'].rolling(200).mean()
             market_series = temp_mkt['Close'] > temp_mkt['SMA200']
-
+        # Prepare Reference Ticker Ranks (if needed)
+        ref_ticker_ranks = None
+        ref_settings = strat['settings']
+        if ref_settings.get('use_ref_ticker_filter', False) and ref_settings.get('ref_filters'):
+            ref_ticker_key = ref_settings.get('ref_ticker', 'IWM').replace('.', '-')
+            ref_df = master_dict.get(ref_ticker_key)
+            if ref_df is not None and len(ref_df) > 250:
+                ref_calc = calculate_indicators(ref_df.copy(), sznl_map, ref_ticker_key, market_series, vix_series)
+                ref_ticker_ranks = {}
+                for rf in ref_settings['ref_filters']:
+                    col = f'rank_ret_{rf["window"]}d'
+                    if col in ref_calc.columns:
+                        ref_ticker_ranks[rf['window']] = ref_calc[col]
         signals = []
         for ticker in strat['universe_tickers']:
             t_clean = ticker.replace('.', '-')
@@ -1390,7 +1529,7 @@ def run_daily_scan():
             if df is None or len(df) < 250: continue
             
             try:
-                calc_df = calculate_indicators(df.copy(), sznl_map, t_clean, market_series, vix_series)
+                calc_df = calculate_indicators(df.copy(), sznl_map, t_clean, market_series, vix_series, ref_ticker_ranks)
                 
                 if check_signal(calc_df, strat['settings'], sznl_map):
                     last_row = calc_df.iloc[-1]
