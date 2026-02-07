@@ -799,7 +799,7 @@ _STRATEGY_BOOK_RAW = [
             "use_ref_ticker_filter": False, "ref_ticker": "IWM", "ref_filters": [],
             "use_t1_open_filter": False, "t1_open_filters": []
         },
-        "execution": {"risk_bps": 35, "slippage_bps": 2, "stop_atr": 1.0, "tgt_atr": 5.0, "hold_days": 4, "use_stop_loss": False, "use_take_profit": False},
+        "execution": {"risk_bps": 10, "slippage_bps": 2, "stop_atr": 1.0, "tgt_atr": 5.0, "hold_days": 4, "use_stop_loss": False, "use_take_profit": False},
         "stats": {"grade": "A (Excellent)", "win_rate": "62.5%", "expectancy": "0.41r", "profit_factor": "1.95"}
     },
 ]
