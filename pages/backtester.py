@@ -562,6 +562,14 @@ def run_engine(universe_dict, params, sznl_map, market_series=None, vix_series=N
             
             if params.get('use_atr_ret_filter', False):
                 conditions.append((df['Change_in_ATR'] >= params['atr_ret_min']) & (df['Change_in_ATR'] <= params['atr_ret_max']))
+            if params.get('use_range_atr_filter', False):
+                range_in_atr = (df['High'] - df['Low']) / df['ATR']
+                if params['range_atr_logic'] == '>':
+                    conditions.append(range_in_atr > params['range_atr_min'])
+                elif params['range_atr_logic'] == '<':
+                    conditions.append(range_in_atr < params['range_atr_max'])
+                elif params['range_atr_logic'] == 'Between':
+                    conditions.append((range_in_atr >= params['range_atr_min']) & (range_in_atr <= params['range_atr_max']))
             if params.get('use_dow_filter', False): conditions.append(df['DayOfWeekVal'].isin(params['allowed_days']))
             
             if 'allowed_cycles' in params and len(params['allowed_cycles']) < 4:
@@ -1053,6 +1061,13 @@ def main():
         ar1, ar2 = st.columns(2)
         with ar1: atr_ret_min = st.number_input("Min Return (ATR)", -10.0, 10.0, 0.0, step=0.1, disabled=not use_atr_ret_filter)
         with ar2: atr_ret_max = st.number_input("Max Return (ATR)", -10.0, 10.0, 1.0, step=0.1, disabled=not use_atr_ret_filter)
+        st.markdown("---")
+        use_range_atr_filter = st.checkbox("Filter by Today's Range (in ATR units)", value=False)
+        st.caption("Calculates (High - Low) / ATR.")
+        ra1, ra2, ra3 = st.columns(3)
+        with ra1: range_atr_logic = st.selectbox("Logic", [">", "<", "Between"], key="range_atr_logic", disabled=not use_range_atr_filter)
+        with ra2: range_atr_min = st.number_input("Min Range (ATR)", 0.0, 20.0, 1.0, step=0.1, key="range_atr_min", disabled=not use_range_atr_filter)
+        with ra3: range_atr_max = st.number_input("Max Range (ATR)", 0.0, 20.0, 3.0, step=0.1, key="range_atr_max", disabled=not use_range_atr_filter)
     with st.expander("Time & Cycle Filters", expanded=False):
         t_c1, t_c2 = st.columns(2)
         with t_c1:
@@ -1290,6 +1305,7 @@ def main():
             'allowed_cycles': allowed_cycles, 'min_price': min_price, 'min_vol': min_vol, 'min_age': min_age, 'max_age': max_age, 'min_atr_pct': min_atr_pct, 'max_atr_pct': max_atr_pct,
             'trend_filter': trend_filter, 'universe_tickers': tickers_to_run, 'slippage_bps': slippage_bps, 'entry_conf_bps': entry_conf_bps, 'perf_filters': perf_filters, 'perf_first_instance': perf_first,
             'use_atr_ret_filter': use_atr_ret_filter, 'atr_ret_min': atr_ret_min, 'atr_ret_max': atr_ret_max,
+            'use_range_atr_filter': use_range_atr_filter, 'range_atr_logic': range_atr_logic, 'range_atr_min': range_atr_min, 'range_atr_max': range_atr_max,
             'perf_lookback': perf_lookback, 'ma_consec_filters': ma_consec_filters, 'use_sznl': use_sznl, 'sznl_logic': sznl_logic, 'sznl_thresh': sznl_thresh, 'sznl_first_instance': sznl_first,
             'sznl_lookback': sznl_lookback, 'use_market_sznl': use_market_sznl, 'market_sznl_logic': market_sznl_logic, 'market_sznl_thresh': market_sznl_thresh, 'use_52w': use_52w, '52w_type': type_52w,
             'use_ath': use_ath, 'ath_type': ath_type,
