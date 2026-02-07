@@ -73,7 +73,25 @@ def send_email_summary(signals_list):
     date_str = datetime.datetime.now().strftime("%Y-%m-%d")
     
     # Filter out companion signals from email (they go to staging only)
-    email_signals = [s for s in signals_list if not s.get('_is_companion', False)]
+    # All staged orders go to email (companions included in summary table)
+    email_signals = list(signals_list) if signals_list else []
+    
+    # Count unique LOGICAL signals (primary + companion on same ticker = 1 signal)
+    _seen_logical = set()
+    for s in email_signals:
+        base_strat = s.get('_parent_strategy', s.get('Strategy_Name', s['Strategy_ID']))
+        _seen_logical.add((s['Ticker'], base_strat))
+    signal_count = len(_seen_logical)
+    
+    # Separate for card generation: one card per logical signal
+    _primary_signals = [s for s in email_signals if not s.get('_is_companion', False)]
+    _companion_map = {s['Ticker']: s for s in email_signals if s.get('_is_companion', False)}
+    
+    # Orphaned companions (ATH routing: LOC staged but primary skipped)
+    _primary_vol_spike_tickers = {s['Ticker'] for s in _primary_signals if s.get('Strategy_Name') == 'Overbot Vol Spike'}
+    for ticker, comp in _companion_map.items():
+        if comp.get('_parent_strategy') == 'Overbot Vol Spike' and ticker not in _primary_vol_spike_tickers:
+            _primary_signals.append(comp)
     
     if not email_signals:
         subject = f"📉 Scan Result: NO SIGNALS ({date_str})"
@@ -89,12 +107,15 @@ def send_email_summary(signals_list):
         </html>
         """
     else:
-        subject = f"🚀 {len(email_signals)} SIGNALS ({date_str})"
+        subject = f"🚀 {signal_count} SIGNAL{'S' if signal_count > 1 else ''} ({date_str})"
         
         # Build card-based HTML for each signal
         signal_cards = []
         
-        for sig in email_signals:
+        for sig in _primary_signals:
+            # Check if this signal has a companion order
+            _companion = _companion_map.get(sig['Ticker']) if not sig.get('_is_companion', False) else None
+            
             # Header color based on action
             header_color = "#2e7d32" if sig['Action'] == "BUY" else "#c62828"
             action_emoji = "📈" if sig['Action'] == "BUY" else "📉"
@@ -159,6 +180,16 @@ def send_email_summary(signals_list):
                 notes_parts.append(f"📊 {sizing_var}")
             if exit_notes:
                 notes_parts.append(f"⚡ {exit_notes}")
+            
+            # Companion order info
+            if _companion:
+                comp_price = _companion.get('Limit_Price', 0)
+                comp_shares = _companion.get('Shares', 0)
+                notes_parts.append(f"📋 Also staged: LOC {comp_shares:,} shares @ >${comp_price:.2f} (Close + 0.5 ATR)")
+            
+            # ATH routing explanation (orphaned companion shown as card)
+            if sig.get('_is_companion', False) and sig.get('_parent_strategy') == 'Overbot Vol Spike':
+                notes_parts.append(f"⚠️ ATH in last 10d — primary short suppressed, LOC only")
             
             if notes_parts:
                 notes_html = "<div style='font-size: 12px; color: #ff9800; margin-top: 8px;'>" + "<br>".join(notes_parts) + "</div>"
@@ -294,8 +325,8 @@ def send_email_summary(signals_list):
         long_notional = sum(s.get('Notional', 0) for s in email_signals if s['Action'] == 'BUY')
         short_notional = sum(s.get('Notional', 0) for s in email_signals if s['Action'] != 'BUY')
         net_notional = long_notional - short_notional
-        long_count = sum(1 for s in email_signals if s['Action'] == 'BUY')
-        short_count = len(email_signals) - long_count
+        long_count = len({(s['Ticker'], s.get('_parent_strategy', s.get('Strategy_Name'))) for s in email_signals if s['Action'] == 'BUY'})
+        short_count = signal_count - long_count
         
         # Format net notional with +/- sign
         if net_notional >= 0:
@@ -311,7 +342,7 @@ def send_email_summary(signals_list):
                     <div style="background: linear-gradient(135deg, #1a237e, #283593); color: white; padding: 25px; border-radius: 8px 8px 0 0; text-align: center;">
                         <h1 style="margin: 0; font-size: 24px;">Daily Strategy Scan</h1>
                         <div style="font-size: 14px; opacity: 0.8; margin-top: 5px;">{date_str}</div>
-                        <div style="font-size: 28px; margin-top: 10px;">🎯 {len(email_signals)} Signal{'s' if len(email_signals) > 1 else ''}</div>
+                        <div style="font-size: 28px; margin-top: 10px;">🎯 {signal_count} Signal{'s' if signal_count > 1 else ''}</div>
                         <div style="font-size: 14px; margin-top: 8px; opacity: 0.9;">
                             {long_count} Long | {short_count} Short | ${total_risk:,.0f} Risk | {net_notional_str} Net Exposure
                         </div>
