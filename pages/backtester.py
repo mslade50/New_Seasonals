@@ -1367,6 +1367,7 @@ def main():
         elif univ_choice == "SPX": tickers_to_run = SPX
         elif univ_choice == "International ETFs": tickers_to_run = INTERNATIONAL_ETFS
         elif univ_choice == "Sector + Index ETFs": tickers_to_run = list(set(SECTOR_ETFS + INDEX_ETFS))
+        elif univ_choice == "All CSV Tickers": tickers_to_run = [t for t in list(sznl_map.keys())]
         elif univ_choice == "All CSV (Equities Only)": tickers_to_run = [t for t in list(sznl_map.keys()) if t not in ["BTC-USD", "ETH-USD", "SLV", "GLD", "USO", "UVXY", "CEF", "UNG", "XOP"] + SECTOR_ETFS + INDEX_ETFS + INTERNATIONAL_ETFS + SPX]
         elif univ_choice == "Custom (Upload CSV)": tickers_to_run = custom_tickers
         if tickers_to_run and sample_pct < 100:
