@@ -67,13 +67,24 @@ def make_empty_sznl_map() -> dict:
     return {}
 
 
-def make_simple_sznl_map(ticker: str, value: float = 75.0) -> dict:
-    """Seasonal map that returns a fixed value for every date of the year."""
-    day_map = {}
-    for m in range(1, 13):
-        for d in range(1, 32):
-            day_map[(m, d)] = value
-    return {ticker: day_map}
+def make_simple_sznl_map(ticker: str, value: float = 75.0, start_date: str = "2020-01-01", periods: int = 2000) -> dict:
+    """
+    Seasonal map that returns a fixed value for a range of dates.
+    Matches production format: {ticker: pd.Series} indexed by date.
+    """
+    dates = pd.bdate_range(start=start_date, periods=periods, freq='B')
+    series = pd.Series(value, index=dates, dtype=float)
+    return {ticker: series}
+
+
+def make_partial_sznl_map(ticker: str, start_date: str = "2024-06-01", periods: int = 10, value: float = 85.0) -> dict:
+    """
+    Seasonal map with only a few dates populated.
+    Tests that ffill works correctly for dates between entries.
+    """
+    dates = pd.bdate_range(start=start_date, periods=periods, freq='B')
+    series = pd.Series(value, index=dates, dtype=float)
+    return {ticker: series}
 
 
 @pytest.fixture
@@ -304,7 +315,7 @@ class TestFirstInstanceFilter:
 
 
 class TestSeasonalLookup:
-    """Test the seasonal map helper."""
+    """Test the seasonal map helper — uses date-indexed pd.Series format."""
 
     def test_empty_map_returns_50(self):
         dates = pd.bdate_range("2024-01-02", periods=5)
@@ -312,8 +323,9 @@ class TestSeasonalLookup:
         assert (result == 50.0).all()
 
     def test_fixed_value_map(self):
-        smap = make_simple_sznl_map("AAPL", value=80.0)
-        dates = pd.bdate_range("2024-06-01", periods=5)
+        """Map with known dates should return the stored value."""
+        smap = make_simple_sznl_map("AAPL", value=80.0, start_date="2024-01-01", periods=500)
+        dates = pd.bdate_range("2024-06-03", periods=5)
         result = get_sznl_val_series("AAPL", dates, smap)
         assert (result == 80.0).all()
 
@@ -322,6 +334,32 @@ class TestSeasonalLookup:
         dates = pd.bdate_range("2024-01-02", periods=5)
         result = get_sznl_val_series("MSFT", dates, smap)
         assert (result == 50.0).all()
+
+    def test_ffill_covers_gaps(self):
+        """Dates not in the map should get forward-filled from the last known value."""
+        smap = make_partial_sznl_map("AAPL", start_date="2024-06-03", periods=5, value=85.0)
+        # Query dates that extend past the map's coverage — ffill should carry forward
+        dates = pd.bdate_range("2024-06-03", periods=10)
+        result = get_sznl_val_series("AAPL", dates, smap)
+        # First 5 dates are exact matches, next 5 should be ffilled to 85.0
+        assert (result == 85.0).all()
+
+    def test_dates_before_map_get_default(self):
+        """Dates before the map's first entry should get 50 (fillna default)."""
+        smap = make_simple_sznl_map("AAPL", value=90.0, start_date="2024-06-01", periods=100)
+        dates = pd.bdate_range("2024-01-02", periods=5)
+        result = get_sznl_val_series("AAPL", dates, smap)
+        # These dates are before the map starts — ffill has nothing to fill from
+        assert (result == 50.0).all()
+
+    def test_seasonal_values_in_calculate_indicators(self):
+        """End-to-end: seasonal values should flow through calculate_indicators correctly."""
+        df = make_ohlcv(n_days=100, start_date="2024-06-03", seed=42)
+        smap = make_simple_sznl_map("TEST", value=72.0, start_date="2024-01-01", periods=500)
+        result = calculate_indicators(df, smap, "TEST")
+        # All Sznl values should be 72.0 (not the default 50.0)
+        assert (result['Sznl'] == 72.0).all(), \
+            f"Sznl should be 72.0 but got unique values: {result['Sznl'].unique()}"
 
 
 # =============================================================================
@@ -351,10 +389,6 @@ class TestParityGuards:
         assert 'GapCount_10' in result.columns
         assert 'GapCount_21' in result.columns
         assert 'GapCount' in result.columns
-        # GapCount should use the custom window (15)
-        expected = (long_df['Low'] > long_df['High'].shift(1)).astype(int).rolling(15).sum()
-        # Can't compare directly because calculate_indicators normalizes the df,
-        # but we can check the shape is right
         assert not result['GapCount'].isna().all()
 
     def test_vix_default_zero_when_not_provided(self, long_df, sznl_map):
