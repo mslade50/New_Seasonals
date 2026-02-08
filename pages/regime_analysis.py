@@ -41,6 +41,10 @@ except ImportError:
 
 # Import portfolio sim functions from strat_backtester
 # These live in the same pages/ directory
+# At the top of regime_analysis.py, before the strat_backtester import
+import importlib.util
+spec = importlib.util.spec_from_file_location("strat_backtester", 
+    os.path.join(os.path.dirname(os.path.abspath(__file__)), "strat_backtester.py"))
 try:
     from strat_backtester import (
         download_historical_data,
