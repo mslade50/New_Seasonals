@@ -9,13 +9,6 @@ import random
 import time
 import uuid
 import json
-from indicators import (
-    calculate_indicators, 
-    get_sznl_val_series, 
-    apply_first_instance_filter, 
-    get_election_cycle, 
-    get_age_bucket
-)
 
 MARKET_TICKER = "^GSPC" 
 VIX_TICKER = "^VIX"
@@ -36,24 +29,22 @@ def load_seasonal_map():
     except Exception:
         return {}
     if df.empty: return {}
-    
-    # Standardize dates
-    df["Date"] = pd.to_datetime(df["Date"], errors='coerce').dt.normalize()
-    
-    # Remove timezone if present (critical for matching yfinance data in backtest)
-    if df["Date"].dt.tz is not None:
-        df["Date"] = df["Date"].dt.tz_localize(None)
-        
+    df["Date"] = pd.to_datetime(df["Date"], errors='coerce').dt.normalize().dt.tz_localize(None)
     df = df.dropna(subset=["Date"])
     output_map = {}
-    
     for ticker, group in df.groupby("ticker"):
-        # FIX: Keep as Pandas Series (removed .to_dict())
-        # indicators.py requires a Series to use .reindex()
-        output_map[str(ticker).upper()] = group.set_index("Date")["seasonal_rank"].sort_index()
-        
+        output_map[str(ticker).upper()] = pd.Series(group.seasonal_rank.values, index=group.Date).to_dict()
     return output_map
 
+def get_sznl_val_series(ticker, dates, sznl_map):
+    ticker = ticker.upper()
+    t_map = sznl_map.get(ticker, {})
+    if not t_map and ticker == "^GSPC":
+        t_map = sznl_map.get("SPY", {})
+    if not t_map:
+        return pd.Series(50.0, index=dates)
+    mapped = dates.map(t_map)
+    return pd.Series(mapped, index=dates).fillna(50.0)
 
 def clean_ticker_df(df):
     if df.empty: return df
@@ -115,6 +106,113 @@ def download_universe_data(tickers, fetch_start_date):
     status_text.empty()
     return data_dict
 
+def get_cycle_year(year):
+    rem = year % 4
+    if rem == 0: return "4. Election Year"
+    if rem == 1: return "1. Post-Election"
+    if rem == 2: return "2. Midterm Year"
+    if rem == 3: return "3. Pre-Election"
+    return "Unknown"
+
+def get_age_bucket(years):
+    if years < 3: return "< 3 Years"
+    if years < 5: return "3-5 Years"
+    if years < 10: return "5-10 Years"
+    if years < 20: return "10-20 Years"
+    return "> 20 Years"
+
+def apply_first_instance_filter(condition_series, lookback):
+    if lookback <= 1: return condition_series
+    condition_shifted = condition_series.shift(1).fillna(False)
+    rolling_sum = condition_shifted.rolling(window=lookback-1, min_periods=1).sum()
+    return condition_series & (rolling_sum == 0)
+
+def calculate_indicators(df, sznl_map, ticker, market_series=None, vix_series=None, 
+                         market_sznl_series=None, gap_window=21, custom_sma_lengths=None, 
+                         acc_window=None, dist_window=None, ref_ticker_ranks=None):
+    df = df.copy()
+    if isinstance(df.columns, pd.MultiIndex):
+        df.columns = df.columns.get_level_values(0)
+        
+    df.columns = [c.capitalize() for c in df.columns]
+    if df.index.tz is not None: df.index = df.index.tz_localize(None)
+    df.index = df.index.normalize()
+    df['SMA10'] = df['Close'].rolling(10).mean()
+    df['SMA20'] = df['Close'].rolling(20).mean()
+    df['SMA50'] = df['Close'].rolling(50).mean()
+    df['SMA100'] = df['Close'].rolling(100).mean()
+    df['SMA200'] = df['Close'].rolling(200).mean()
+    if custom_sma_lengths:
+        for length in custom_sma_lengths:
+            col_name = f"SMA{length}"
+            if col_name not in df.columns: df[col_name] = df['Close'].rolling(length).mean()
+    df['EMA8'] = df['Close'].ewm(span=8, adjust=False).mean()
+    df['EMA11'] = df['Close'].ewm(span=11, adjust=False).mean()
+    df['EMA21'] = df['Close'].ewm(span=21, adjust=False).mean()
+    for window in [2, 5, 10, 21]:
+        df[f'ret_{window}d'] = df['Close'].pct_change(window)
+        df[f'rank_ret_{window}d'] = df[f'ret_{window}d'].expanding(min_periods=252).rank(pct=True) * 100.0
+    high_low = df['High'] - df['Low']
+    high_close = np.abs(df['High'] - df['Close'].shift())
+    low_close = np.abs(df['Low'] - df['Close'].shift())
+    ranges = pd.concat([high_low, high_close, low_close], axis=1)
+    df['ATR'] = ranges.max(axis=1).rolling(14).mean()
+    df['ATR_Pct'] = (df['ATR'] / df['Close']) * 100
+    df['Change_in_ATR'] = (df['Close'] - df['Close'].shift(1)) / df['ATR']
+    df['Sznl'] = get_sznl_val_series(ticker, df.index, sznl_map)
+    if market_sznl_series is not None:
+        df['Market_Sznl'] = market_sznl_series.reindex(df.index, method='ffill').fillna(50.0)
+    rolling_high = df['High'].shift(1).rolling(252).max()
+    rolling_low = df['Low'].shift(1).rolling(252).min()
+    df['is_52w_high'] = df['High'] > rolling_high
+    df['is_52w_low'] = df['Low'] < rolling_low
+    df['is_ath'] = df['High'] > df['High'].shift(1).expanding().max()
+    df['ath_in_last_N'] = df['is_ath'].rolling(window=252, min_periods=1).max()
+    df['High_52w'] = df['High'].rolling(252).max()
+    df['ATH_Level'] = df['High'].expanding().max()
+    vol_ma = df['Volume'].rolling(63).mean()
+    df['vol_ma'] = vol_ma
+    df['vol_ratio'] = df['Volume'] / vol_ma
+    vol_ma_10 = df['Volume'].rolling(10).mean()
+    df['vol_ratio_10d'] = vol_ma_10 / vol_ma
+    df['vol_ratio_10d_rank'] = df['vol_ratio_10d'].expanding(min_periods=252).rank(pct=True) * 100.0
+    vol_gt_prev = df['Volume'] > df['Volume'].shift(1)
+    vol_gt_ma = df['Volume'] > df['vol_ma']
+    is_green = df['Close'] > df['Open']
+    is_red = df['Close'] < df['Open']
+    df['is_acc_day'] = (is_green & vol_gt_prev & vol_gt_ma).astype(int)
+    df['is_dist_day'] = (is_red & vol_gt_prev & vol_gt_ma).astype(int)
+    if acc_window: df[f'AccCount_{acc_window}'] = df['is_acc_day'].rolling(acc_window).sum()
+    if dist_window: df[f'DistCount_{dist_window}'] = df['is_dist_day'].rolling(dist_window).sum()
+    if not df.empty:
+        start_ts = df.index[0]
+        df['age_years'] = (df.index - start_ts).days / 365.25
+    else: df['age_years'] = 0.0
+    if market_series is not None:
+        df['Market_Above_SMA200'] = market_series.reindex(df.index, method='ffill').fillna(False)
+    if vix_series is not None:
+        df['VIX_Value'] = vix_series.reindex(df.index, method='ffill').fillna(0)
+    # Reference Ticker Ranks - merge onto this ticker's dataframe
+    if ref_ticker_ranks is not None:
+        for window, series in ref_ticker_ranks.items():
+            col_name = f'Ref_rank_ret_{window}d'
+            df[col_name] = series.reindex(df.index, method='ffill').fillna(50.0)
+    denom = (df['High'] - df['Low'])
+    df['RangePct'] = np.where(denom == 0, 0.5, (df['Close'] - df['Low']) / denom)
+    df['DayOfWeekVal'] = df.index.dayofweek
+    is_open_gap = (df['Low'] > df['High'].shift(1)).astype(int)
+    df['GapCount'] = is_open_gap.rolling(gap_window).sum()
+    piv_len = 20 
+    roll_max = df['High'].rolling(window=piv_len*2+1, center=True).max()
+    df['is_pivot_high'] = (df['High'] == roll_max)
+    roll_min = df['Low'].rolling(window=piv_len*2+1, center=True).min()
+    df['is_pivot_low'] = (df['Low'] == roll_min)
+    df['LastPivotHigh'] = np.where(df['is_pivot_high'], df['High'], np.nan)
+    df['LastPivotHigh'] = df['LastPivotHigh'].shift(piv_len).ffill()
+    df['LastPivotLow'] = np.where(df['is_pivot_low'], df['Low'], np.nan)
+    df['LastPivotLow'] = df['LastPivotLow'].shift(piv_len).ffill()
+    df['NextOpen'] = df['Open'].shift(-1)
+    return df
 
 def grade_strategy(pf, sqn, win_rate, total_trades):
     score = 0
@@ -221,8 +319,8 @@ def _generate_key_filters(params):
     if params.get('use_range_filter'):
         filters.append(f"Close in {params['range_min']}-{params['range_max']}% of daily range")
     
-    if params.get('use_atr_ret_filter', False):
-        conditions.append((df['today_return_atr'] >= params['atr_ret_min']) & (df['today_return_atr'] <= params['atr_ret_max']))
+    if params.get('use_atr_ret_filter'):
+        filters.append(f"Net change between {params['atr_ret_min']:.1f} and {params['atr_ret_max']:.1f} ATR")
     
     if params.get('use_range_atr_filter'):
         logic = params.get('range_atr_logic', 'Between')
@@ -511,21 +609,7 @@ def run_engine(universe_dict, params, sznl_map, market_series=None, vix_series=N
         ticker_last_exit = pd.Timestamp.min
         
         try:
-            # UPDATED CALL: Uses keyword arguments and maps 'req_custom_mas' to 'custom_sma_lengths'
-            df = calculate_indicators(
-                df_raw, 
-                sznl_map, 
-                ticker, 
-                market_series=market_series, 
-                vix_series=vix_series, 
-                market_sznl_series=market_sznl_series, 
-                gap_window=gap_window, 
-                custom_sma_lengths=req_custom_mas, 
-                acc_window=acc_win, 
-                dist_window=dist_win, 
-                ref_ticker_ranks=ref_ticker_ranks
-            )
-
+            df = calculate_indicators(df_raw, sznl_map, ticker, market_series, vix_series, market_sznl_series, gap_window, req_custom_mas, acc_win, dist_win, ref_ticker_ranks)
             df = df[df.index >= bt_start_ts]
             if df.empty: continue
             
@@ -1290,15 +1374,8 @@ def main():
                 ref_dict_temp = download_universe_data([ref_ticker_clean], fetch_start)
                 ref_df = ref_dict_temp.get(ref_ticker_clean, None)
             if ref_df is not None and not ref_df.empty:
-                # Calculate indicators for the reference ticker (Updated args)
-                ref_df_calc = calculate_indicators(
-                    ref_df.copy(), 
-                    sznl_map, 
-                    ref_ticker_clean, 
-                    market_series=market_series, 
-                    vix_series=vix_series, 
-                    market_sznl_series=market_sznl_series
-                )
+                # Calculate indicators for the reference ticker
+                ref_df_calc = calculate_indicators(ref_df.copy(), sznl_map, ref_ticker_clean, market_series, vix_series, market_sznl_series)
                 # Extract the rank series we need
                 ref_ticker_ranks = {}
                 for rf in ref_filters:
@@ -1346,11 +1423,7 @@ def main():
             trades_df['SignalDate'] = trades_df['SignalDate'].dt.strftime('%Y-%m-%d')
             trades_df['EntryDate'] = trades_df['EntryDate'].dt.strftime('%Y-%m-%d')
             trades_df['ExitDate'] = pd.to_datetime(trades_df['ExitDate']).dt.strftime('%Y-%m-%d')
-            
-            # UPDATED: Use the imported function name 'get_election_cycle'
-            trades_df['CyclePhase'] = trades_df['Year'].apply(get_election_cycle)
-            
-            # This is now using the IMPORTED function, not the deleted local one
+            trades_df['CyclePhase'] = trades_df['Year'].apply(get_cycle_year)
             trades_df['AgeBucket'] = trades_df['Age'].apply(get_age_bucket)
             if len(trades_df) >= 10:
                 try: trades_df['VolDecile'] = pd.qcut(trades_df['AvgVol'], 10, labels=False, duplicates='drop') + 1
