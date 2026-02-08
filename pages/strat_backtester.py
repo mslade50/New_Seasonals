@@ -45,37 +45,26 @@ BACKUP_SZNL_PATH = "seasonal_ranks.csv"
 
 @st.cache_resource 
 def load_seasonal_map():
-    def load_raw_csv(path):
-        try:
-            df = pd.read_csv(path)
-            if 'ticker' not in df.columns or 'Date' not in df.columns:
-                return pd.DataFrame()
-            df["Date"] = pd.to_datetime(df["Date"], errors='coerce')
-            df = df.dropna(subset=["Date", "ticker"])
-            df["Date"] = df["Date"].dt.normalize()
-            df["ticker"] = df["ticker"].astype(str).str.upper().str.strip()
-            return df
-        except Exception:
-            return pd.DataFrame()
-
-    df_primary = load_raw_csv(PRIMARY_SZNL_PATH)
-    df_backup = load_raw_csv(BACKUP_SZNL_PATH)
-
-    if df_primary.empty and df_backup.empty:
+    try:
+        df = pd.read_csv(CSV_PATH)
+    except Exception:
         return {}
-    elif df_primary.empty:
-        final_df = df_backup
-    elif df_backup.empty:
-        final_df = df_primary
-    else:
-        final_df = pd.concat([df_primary, df_backup], axis=0)
-        final_df = final_df.drop_duplicates(subset=['ticker', 'Date'], keep='first')
-
+    if df.empty: return {}
+    
+    # Standardize dates
+    df["Date"] = pd.to_datetime(df["Date"], errors='coerce').dt.normalize()
+    
+    # Remove timezone if present (critical for matching yfinance data in backtest)
+    if df["Date"].dt.tz is not None:
+        df["Date"] = df["Date"].dt.tz_localize(None)
+        
+    df = df.dropna(subset=["Date"])
     output_map = {}
-    final_df = final_df.sort_values(by="Date")
-    for ticker, group in final_df.groupby("ticker"):
-        series = group.set_index("Date")["seasonal_rank"]
-        output_map[ticker] = series
+    
+    for ticker, group in df.groupby("ticker"):
+        # FIX: Keep as Pandas Series (removed .to_dict())
+        # indicators.py requires a Series to use .reindex()
+        output_map[str(ticker).upper()] = group.set_index("Date")["seasonal_rank"].sort_index()
         
     return output_map
 
