@@ -118,7 +118,6 @@ def calculate_indicators(
     df.columns = [c.capitalize() for c in df.columns]
     if df.index.tz is not None:
         df.index = df.index.tz_localize(None)
-    df.index = df.index.normalize()
 
     # -------------------------------------------------------------------------
     # 1. MOVING AVERAGES
@@ -149,7 +148,7 @@ def calculate_indicators(
     # -------------------------------------------------------------------------
     RANK_MIN_PERIODS = 252
     for window in [2, 5, 10, 21]:
-        df[f'ret_{window}d'] = df['Close'].pct_change(window)
+        df[f'ret_{window}d'] = df['Close'].pct_change(window, fill_method=None)
         df[f'rank_ret_{window}d'] = (
             df[f'ret_{window}d']
             .expanding(min_periods=RANK_MIN_PERIODS)
@@ -317,15 +316,10 @@ def calculate_indicators(
 def get_sznl_val_series(ticker: str, dates: pd.DatetimeIndex, sznl_map: dict) -> pd.Series:
     """
     Look up seasonal rank for a ticker across a date range.
+    sznl_map is {ticker: pd.Series} where Series is indexed by date.
     Returns a Series aligned to the input dates with default value 50.
     """
     if not sznl_map or ticker not in sznl_map:
         return pd.Series(50.0, index=dates)
 
-    ticker_map = sznl_map[ticker]
-    vals = []
-    for dt in dates:
-        # Seasonal map is keyed by (month, day)
-        key = (dt.month, dt.day)
-        vals.append(ticker_map.get(key, 50.0))
-    return pd.Series(vals, index=dates, dtype=float)
+    return sznl_map[ticker].reindex(dates, method='ffill').fillna(50.0)
