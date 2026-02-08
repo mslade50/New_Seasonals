@@ -644,8 +644,137 @@ def create_strategy_heatmap(strat_df: pd.DataFrame, metric: str = 'Avg R') -> go
 
 
 # =============================================================================
-# STREAMLIT UI
+# LAGGED REGIME ANALYSIS — "Can we see it coming?"
 # =============================================================================
+
+def lagged_bucket_and_analyze(sig_df: pd.DataFrame, regime_series: pd.Series,
+                               regime_name: str, extreme_pct: int = 10,
+                               lag_days: int = 1) -> pd.DataFrame:
+    """
+    Same as bucket_and_analyze, but uses the regime value from N days BEFORE
+    the signal date. This tests whether yesterday's regime reading predicts
+    today's trade quality — the only version that's actually tradeable.
+    """
+    if sig_df.empty or regime_series.empty:
+        return pd.DataFrame()
+    
+    # Shift the regime series forward by lag_days (so looking up date T gives
+    # you the regime value from date T - lag_days)
+    lagged_series = regime_series.shift(lag_days)
+    lagged_series = lagged_series.dropna()
+    
+    if lagged_series.empty:
+        return pd.DataFrame()
+    
+    # Use the same bucketing logic but on the lagged series
+    return bucket_and_analyze(sig_df, lagged_series, regime_name, extreme_pct=extreme_pct)
+
+
+def lagged_statistical_significance(sig_df: pd.DataFrame, regime_series: pd.Series,
+                                     extreme_pct: int = 10, lag_days: int = 1) -> dict:
+    """Stat sig test using lagged regime values."""
+    lagged_series = regime_series.shift(lag_days).dropna()
+    if lagged_series.empty:
+        return {'bottom': {}, 'top': {}, 'any_significant': False}
+    return compute_statistical_significance(sig_df, lagged_series, extreme_pct=extreme_pct)
+
+
+def simulate_regime_filter(sig_df: pd.DataFrame, regime_series: pd.Series,
+                            extreme_pct: int = 10, lag_days: int = 1,
+                            action: str = 'skip') -> dict:
+    """
+    What-if simulation: replay the trade log but skip or haircut trades
+    where the PRIOR day's regime was in the extreme tail.
+    
+    Args:
+        sig_df: Full trade log
+        regime_series: Raw (unlagged) regime series
+        extreme_pct: Tail cutoff
+        lag_days: How many days before the signal to check
+        action: 'skip' = remove trades entirely, 'haircut' = reduce PnL by 65%
+    
+    Returns:
+        Dict with baseline vs filtered portfolio metrics
+    """
+    if sig_df.empty or regime_series.empty:
+        return {}
+    
+    df = sig_df.copy()
+    
+    # Lag the regime series
+    lagged = regime_series.shift(lag_days).dropna()
+    
+    # Map lagged regime value to each trade's signal date
+    df['regime_prev'] = df['Date'].map(lagged)
+    df = df.dropna(subset=['regime_prev'])
+    
+    if df.empty:
+        return {}
+    
+    # Compute tail threshold from the full regime series (not lagged, to keep
+    # the threshold consistent — lag only affects which day we look up)
+    upper_thresh = regime_series.quantile(1 - extreme_pct / 100)
+    
+    # Flag trades where prior day was in the danger zone
+    df['flagged'] = df['regime_prev'] >= upper_thresh
+    n_flagged = df['flagged'].sum()
+    n_total = len(df)
+    
+    if n_flagged == 0:
+        return {'no_flags': True}
+    
+    # --- Baseline metrics (all trades) ---
+    baseline_pnl = df['PnL'].sum()
+    baseline_trades = n_total
+    baseline_avg_r = (df['PnL'] / df['Risk $']).mean()
+    baseline_winners = (df['PnL'] > 0).sum()
+    baseline_wr = baseline_winners / n_total
+    
+    # --- Filtered metrics ---
+    if action == 'skip':
+        # Remove flagged trades entirely
+        filtered = df[~df['flagged']]
+        filtered_pnl = filtered['PnL'].sum()
+        filtered_trades = len(filtered)
+        filtered_avg_r = (filtered['PnL'] / filtered['Risk $']).mean() if len(filtered) > 0 else 0
+        filtered_wr = (filtered['PnL'] > 0).mean() if len(filtered) > 0 else 0
+        # PnL of the skipped trades (what we avoided)
+        skipped_pnl = df[df['flagged']]['PnL'].sum()
+        skipped_avg_r = (df[df['flagged']]['PnL'] / df[df['flagged']]['Risk $']).mean()
+        action_label = "Skip flagged trades"
+    else:
+        # Haircut: reduce risk on flagged trades by 65% (keep 35%)
+        filtered = df.copy()
+        haircut_factor = 0.35
+        filtered.loc[filtered['flagged'], 'PnL'] = filtered.loc[filtered['flagged'], 'PnL'] * haircut_factor
+        filtered.loc[filtered['flagged'], 'Risk $'] = filtered.loc[filtered['flagged'], 'Risk $'] * haircut_factor
+        filtered_pnl = filtered['PnL'].sum()
+        filtered_trades = n_total  # same trade count
+        filtered_avg_r = (filtered['PnL'] / filtered['Risk $']).mean()
+        filtered_wr = (filtered['PnL'] > 0).mean()
+        skipped_pnl = df[df['flagged']]['PnL'].sum() * (1 - haircut_factor)
+        skipped_avg_r = (df[df['flagged']]['PnL'] / df[df['flagged']]['Risk $']).mean()
+        action_label = f"Haircut flagged trades to {haircut_factor:.0%} size"
+    
+    return {
+        'action_label': action_label,
+        'n_total': n_total,
+        'n_flagged': n_flagged,
+        'pct_flagged': n_flagged / n_total,
+        'baseline_pnl': baseline_pnl,
+        'baseline_trades': baseline_trades,
+        'baseline_avg_r': baseline_avg_r,
+        'baseline_wr': baseline_wr,
+        'filtered_pnl': filtered_pnl,
+        'filtered_trades': filtered_trades,
+        'filtered_avg_r': filtered_avg_r,
+        'filtered_wr': filtered_wr,
+        'pnl_delta': filtered_pnl - baseline_pnl,
+        'pnl_delta_pct': (filtered_pnl - baseline_pnl) / abs(baseline_pnl) if baseline_pnl != 0 else 0,
+        'skipped_pnl': skipped_pnl,
+        'skipped_avg_r': skipped_avg_r,
+        'upper_thresh': upper_thresh,
+    }
 
 def main():
     st.set_page_config(page_title="Regime Analysis", layout="wide")
@@ -992,12 +1121,169 @@ def main():
         st.divider()
         st.caption("""
         **Methodology notes:**
-        - All splits use the in-sample median (or tercile boundaries). For out-of-sample testing, 
-          use a rolling median that updates daily — do not optimize the threshold.
+        - All splits use in-sample percentile boundaries. For production, 
+          use a rolling percentile that updates daily — do not optimize the threshold.
         - Statistical test: Welch's unequal-variance t-test on R-multiples between regime buckets.
         - Sector dispersion = cross-sectional stdev of trailing N-day returns across 11 SPDR sector ETFs.
         - Signal density is an internal variable (not market state) but useful for diagnosing correlation risk.
         """)
+    
+    # -------------------------------------------------------------------------
+    # STEP 5: Lagged Analysis — "Can yesterday's reading predict today's trade?"
+    # -------------------------------------------------------------------------
+    st.header("5️⃣ Lagged Analysis: Can We See It Coming?")
+    st.caption("The previous analysis uses same-day regime values. This section checks whether "
+               "**yesterday's** reading predicts today's trade quality — the only version that's tradeable.")
+    
+    # Only run lagged analysis on variables that showed significance in same-day
+    significant_vars = {}
+    for regime_name, regime_series in regime_variables.items():
+        # Skip signal density (it's same-day by definition, can't be lagged meaningfully)
+        if 'Density' in regime_name:
+            continue
+        sig_test = compute_statistical_significance(sig_df, regime_series, extreme_pct=extreme_pct)
+        if sig_test.get('any_significant', False):
+            significant_vars[regime_name] = regime_series
+    
+    if not significant_vars:
+        st.info("No same-day variables were significant, so lagged analysis is skipped. "
+                "A variable needs to matter same-day before testing whether it's predictive with a lag.")
+    else:
+        st.markdown(f"Testing **{len(significant_vars)}** variables that were significant same-day: "
+                   f"{', '.join(significant_vars.keys())}")
+        
+        lagged_summary = []
+        
+        for regime_name, regime_series in significant_vars.items():
+            st.subheader(f"⏪ {regime_name} (Lagged 1 Day)")
+            
+            # Lagged stat sig
+            lag_sig = lagged_statistical_significance(sig_df, regime_series, 
+                                                       extreme_pct=extreme_pct, lag_days=1)
+            
+            # Lagged bucket analysis
+            lag_buckets = lagged_bucket_and_analyze(sig_df, regime_series, regime_name,
+                                                     extreme_pct=extreme_pct, lag_days=1)
+            
+            if lag_buckets.empty:
+                st.warning(f"Insufficient data for lagged analysis of {regime_name}")
+                continue
+            
+            # Display results side by side with same-day for comparison
+            col_lag, col_sim = st.columns([1, 1])
+            
+            with col_lag:
+                st.markdown("**Lagged Performance (prior day's reading → today's trade)**")
+                
+                any_lag_sig = False
+                for tail_key in ['bottom', 'top']:
+                    tail_result = lag_sig.get(tail_key, {})
+                    if not tail_result:
+                        continue
+                    label = tail_result.get('label', tail_key)
+                    if tail_result.get('significant', False):
+                        st.success(f"✅ **{label}:** {tail_result['interpretation']}")
+                        any_lag_sig = True
+                    else:
+                        st.info(f"⚪ **{label}:** {tail_result['interpretation']}")
+                
+                st.dataframe(
+                    lag_buckets.style.format({
+                        'Win Rate': '{:.1%}',
+                        'Avg R': '{:.3f}',
+                        'Avg PnL': '${:,.0f}',
+                        'Total PnL': '${:,.0f}',
+                        'Profit Factor': '{:.2f}',
+                    }),
+                    use_container_width=True
+                )
+                
+                # Track for summary
+                for tail_key in ['bottom', 'top']:
+                    tr = lag_sig.get(tail_key, {})
+                    if tr:
+                        lagged_summary.append({
+                            'Variable': regime_name,
+                            'Tail': tr.get('label', ''),
+                            'Same-Day Sig?': '✅',  # we only test vars that were same-day sig
+                            'Lagged Sig?': '✅' if tr.get('significant', False) else '⚪',
+                            'Lagged Delta R': tr.get('diff', np.nan),
+                            'p-value (lagged)': tr.get('p_value', np.nan),
+                            'n (Tail)': tr.get('n_tail', 0),
+                        })
+            
+            with col_sim:
+                st.markdown("**What-If Simulation: Skip vs Haircut flagged trades**")
+                
+                # Run both simulations (skip and haircut) using top tail only
+                # (high dispersion / high correlation is the danger zone)
+                sim_skip = simulate_regime_filter(sig_df, regime_series, 
+                                                   extreme_pct=extreme_pct, lag_days=1,
+                                                   action='skip')
+                sim_haircut = simulate_regime_filter(sig_df, regime_series,
+                                                      extreme_pct=extreme_pct, lag_days=1,
+                                                      action='haircut')
+                
+                if sim_skip and not sim_skip.get('no_flags', False):
+                    st.markdown(f"Trades flagged by prior-day top {extreme_pct}%: "
+                               f"**{sim_skip['n_flagged']}** / {sim_skip['n_total']} "
+                               f"({sim_skip['pct_flagged']:.1%})")
+                    
+                    st.markdown(f"Those flagged trades averaged **{sim_skip['skipped_avg_r']:.3f}R** "
+                               f"and totaled **${sim_skip['skipped_pnl']:,.0f}** PnL")
+                    
+                    # Comparison table
+                    sim_data = {
+                        'Scenario': ['Baseline (all trades)', 
+                                     f'Skip flagged ({sim_skip["n_flagged"]} trades)',
+                                     f'Haircut to 35% size'],
+                        'Trades': [sim_skip['baseline_trades'], 
+                                   sim_skip['filtered_trades'],
+                                   sim_haircut['filtered_trades']],
+                        'Total PnL': [sim_skip['baseline_pnl'], 
+                                      sim_skip['filtered_pnl'],
+                                      sim_haircut['filtered_pnl']],
+                        'Avg R': [sim_skip['baseline_avg_r'], 
+                                  sim_skip['filtered_avg_r'],
+                                  sim_haircut['filtered_avg_r']],
+                        'Win Rate': [sim_skip['baseline_wr'], 
+                                     sim_skip['filtered_wr'],
+                                     sim_haircut['filtered_wr']],
+                        'PnL Δ vs Baseline': [0, 
+                                              sim_skip['pnl_delta'],
+                                              sim_haircut['pnl_delta']],
+                    }
+                    sim_df = pd.DataFrame(sim_data)
+                    
+                    st.dataframe(
+                        sim_df.style.format({
+                            'Total PnL': '${:,.0f}',
+                            'Avg R': '{:.3f}',
+                            'Win Rate': '{:.1%}',
+                            'PnL Δ vs Baseline': '${:+,.0f}',
+                        }),
+                        use_container_width=True
+                    )
+                else:
+                    st.info("No trades were flagged by the prior-day filter.")
+            
+            st.divider()
+        
+        # Lagged summary table
+        if lagged_summary:
+            st.subheader("📋 Lagged Analysis Summary")
+            st.caption("Does the same-day signal survive a 1-day lag? If yes → tradeable. If no → contemporaneous only (diagnostic, not actionable).")
+            
+            lag_summary_df = pd.DataFrame(lagged_summary)
+            lag_summary_df = lag_summary_df.sort_values('p-value (lagged)')
+            
+            st.dataframe(
+                lag_summary_df.style.format({
+                    'Lagged Delta R': '{:+.3f}',
+                    'p-value (lagged)': '{:.4f}',
+                }),
+                use_container_width=True
+            )
 
 
 if __name__ == "__main__":
