@@ -27,11 +27,18 @@ from scipy import stats as scipy_stats
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # -----------------------------------------------------------------------------
-# PATH SETUP - same pattern as strat_backtester.py
+# PATH SETUP - add both repo root (for strategy_config) and pages/ (for sibling imports)
 # -----------------------------------------------------------------------------
 current_dir = os.path.dirname(os.path.abspath(__file__))
 parent_dir = os.path.dirname(current_dir)
-sys.path.append(parent_dir)
+
+# Add repo root for strategy_config.py
+if parent_dir not in sys.path:
+    sys.path.insert(0, parent_dir)
+
+# Add pages/ directory so we can import strat_backtester as a sibling module
+if current_dir not in sys.path:
+    sys.path.insert(0, current_dir)
 
 try:
     from strategy_config import _STRATEGY_BOOK_RAW, ACCOUNT_VALUE
@@ -39,12 +46,7 @@ except ImportError:
     st.error("Could not find strategy_config.py in the root directory.")
     st.stop()
 
-# Import portfolio sim functions from strat_backtester
-# These live in the same pages/ directory
-# At the top of regime_analysis.py, before the strat_backtester import
-import importlib.util
-spec = importlib.util.spec_from_file_location("strat_backtester", 
-    os.path.join(os.path.dirname(os.path.abspath(__file__)), "strat_backtester.py"))
+# Import portfolio sim functions from strat_backtester (sibling in pages/)
 try:
     from strat_backtester import (
         download_historical_data,
@@ -55,9 +57,8 @@ try:
         build_price_matrix,
         load_seasonal_map
     )
-    HAS_SEASONAL = True
-except ImportError:
-    st.error("Could not import from strat_backtester.py. Ensure it's in the pages/ directory.")
+except ImportError as e:
+    st.error(f"Could not import from strat_backtester.py: {e}")
     st.stop()
 
 
