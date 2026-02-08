@@ -1,0 +1,34 @@
+name: Verify Signal Fills
+
+on:
+  # Run Mon-Fri at 5:00 PM ET (21:00 UTC standard, 22:00 UTC during EST)
+  # Using 22:00 UTC to cover EST; adjust to 21:00 for EDT if needed
+  schedule:
+    - cron: '0 22 * * 1-5'
+  
+  # Allow manual trigger for backfill or debugging
+  workflow_dispatch:
+
+jobs:
+  verify-fills:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          pip install pandas yfinance gspread google-auth
+
+      - name: Run fill verification
+        env:
+          GCP_JSON: ${{ secrets.GCP_JSON }}
+        run: |
+          cd production
+          python verify_fills.py
