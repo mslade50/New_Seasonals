@@ -44,4 +44,4 @@ jobs:
           GCP_JSON: ${{ secrets.GCP_JSON }}
           EMAIL_USER: ${{ secrets.EMAIL_USER }}
           EMAIL_PASS: ${{ secrets.EMAIL_PASS }}
-        run: python daily_scan.py
+        run: python daily_scan_2.py
