@@ -36,11 +36,22 @@ def load_seasonal_map():
     except Exception:
         return {}
     if df.empty: return {}
-    df["Date"] = pd.to_datetime(df["Date"], errors='coerce').dt.normalize().dt.tz_localize(None)
+    
+    # Standardize dates
+    df["Date"] = pd.to_datetime(df["Date"], errors='coerce').dt.normalize()
+    
+    # Remove timezone if present (critical for matching yfinance data in backtest)
+    if df["Date"].dt.tz is not None:
+        df["Date"] = df["Date"].dt.tz_localize(None)
+        
     df = df.dropna(subset=["Date"])
     output_map = {}
+    
     for ticker, group in df.groupby("ticker"):
-        output_map[str(ticker).upper()] = pd.Series(group.seasonal_rank.values, index=group.Date).to_dict()
+        # FIX: Keep as Pandas Series (removed .to_dict())
+        # indicators.py requires a Series to use .reindex()
+        output_map[str(ticker).upper()] = group.set_index("Date")["seasonal_rank"].sort_index()
+        
     return output_map
 
 
