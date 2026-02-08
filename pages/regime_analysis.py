@@ -776,6 +776,116 @@ def simulate_regime_filter(sig_df: pd.DataFrame, regime_series: pd.Series,
         'upper_thresh': upper_thresh,
     }
 
+
+def analyze_flag_concentration(sig_df: pd.DataFrame, regime_series: pd.Series,
+                                extreme_pct: int = 10, lag_days: int = 1) -> dict:
+    """
+    Answers: "Are the flagged trades clustered in a few macro episodes, or 
+    spread across the full backtest?"
+    
+    If 80% of flagged trades are from March 2020, the filter is useless —
+    it's just "don't trade during COVID."
+    
+    Returns:
+        - Year-by-year breakdown of flagged trades, their PnL, and the
+          non-flagged PnL for comparison
+        - Episode clustering: how many distinct "flag episodes" exist
+          (an episode = consecutive days where the regime is in the extreme)
+        - Concentration stats: what % of flagged trades come from the top N episodes
+    """
+    if sig_df.empty or regime_series.empty:
+        return {}
+    
+    df = sig_df.copy()
+    lagged = regime_series.shift(lag_days).dropna()
+    
+    df['regime_prev'] = df['Date'].map(lagged)
+    df = df.dropna(subset=['regime_prev'])
+    
+    if df.empty:
+        return {}
+    
+    upper_thresh = regime_series.quantile(1 - extreme_pct / 100)
+    df['flagged'] = df['regime_prev'] >= upper_thresh
+    df['R_Multiple'] = np.where(df['Risk $'] > 0, df['PnL'] / df['Risk $'], 0)
+    df['Year'] = df['Date'].dt.year
+    
+    # ---- YEAR-BY-YEAR BREAKDOWN ----
+    yearly_rows = []
+    for year in sorted(df['Year'].unique()):
+        y_df = df[df['Year'] == year]
+        y_flagged = y_df[y_df['flagged']]
+        y_clean = y_df[~y_df['flagged']]
+        
+        yearly_rows.append({
+            'Year': year,
+            'Total Trades': len(y_df),
+            'Flagged': len(y_flagged),
+            '% Flagged': len(y_flagged) / len(y_df) if len(y_df) > 0 else 0,
+            'Flagged Avg R': y_flagged['R_Multiple'].mean() if len(y_flagged) > 0 else np.nan,
+            'Clean Avg R': y_clean['R_Multiple'].mean() if len(y_clean) > 0 else np.nan,
+            'Flagged PnL': y_flagged['PnL'].sum() if len(y_flagged) > 0 else 0,
+            'Clean PnL': y_clean['PnL'].sum() if len(y_clean) > 0 else 0,
+        })
+    
+    yearly_df = pd.DataFrame(yearly_rows)
+    
+    # ---- EPISODE DETECTION ----
+    # An "episode" is a run of consecutive trading days where the regime is extreme
+    extreme_days = (regime_series >= upper_thresh).astype(int)
+    episode_starts = extreme_days.diff().fillna(0) == 1  # 0→1 transitions
+    episode_id = episode_starts.cumsum() * extreme_days  # label each episode
+    episode_id = episode_id[episode_id > 0]  # drop non-extreme days
+    
+    n_episodes = episode_id.nunique() if not episode_id.empty else 0
+    
+    # Map each flagged trade to its episode
+    if n_episodes > 0 and not df[df['flagged']].empty:
+        flagged_df = df[df['flagged']].copy()
+        # Find which episode each flagged trade's signal date falls in
+        # (use the lagged date, which is the regime observation date)
+        flagged_df['regime_date'] = flagged_df['Date'] - pd.tseries.offsets.BDay(lag_days)
+        flagged_df['episode'] = flagged_df['regime_date'].map(
+            episode_id.to_dict()
+        ).fillna(0).astype(int)
+        
+        # Episode-level concentration
+        episode_pnl = flagged_df.groupby('episode').agg(
+            trades=('PnL', 'count'),
+            total_pnl=('PnL', 'sum'),
+            avg_r=('R_Multiple', 'mean'),
+            first_date=('Date', 'min'),
+            last_date=('Date', 'max')
+        ).sort_values('trades', ascending=False)
+        
+        # Concentration: top 3 episodes account for what % of flagged trades?
+        total_flagged = len(flagged_df)
+        top3_trades = episode_pnl.head(3)['trades'].sum()
+        top3_pct = top3_trades / total_flagged if total_flagged > 0 else 0
+        
+        top5_trades = episode_pnl.head(5)['trades'].sum()
+        top5_pct = top5_trades / total_flagged if total_flagged > 0 else 0
+    else:
+        episode_pnl = pd.DataFrame()
+        top3_pct = 0
+        top5_pct = 0
+    
+    # ---- YEARS WITH ZERO FLAGS (robustness check) ----
+    years_with_flags = yearly_df[yearly_df['Flagged'] > 0]['Year'].tolist()
+    years_without_flags = yearly_df[yearly_df['Flagged'] == 0]['Year'].tolist()
+    
+    return {
+        'yearly_df': yearly_df,
+        'n_episodes': n_episodes,
+        'episode_pnl': episode_pnl,
+        'top3_concentration': top3_pct,
+        'top5_concentration': top5_pct,
+        'years_with_flags': years_with_flags,
+        'years_without_flags': years_without_flags,
+        'total_flagged': df['flagged'].sum(),
+    }
+
+
 def main():
     st.set_page_config(page_title="Regime Analysis", layout="wide")
     st.title("🌡️ Market Regime Conditioning")
@@ -1266,6 +1376,72 @@ def main():
                     )
                 else:
                     st.info("No trades were flagged by the prior-day filter.")
+            
+            # ---- TEMPORAL CONCENTRATION: Is this just COVID? ----
+            concentration = analyze_flag_concentration(sig_df, regime_series,
+                                                        extreme_pct=extreme_pct, lag_days=1)
+            
+            if concentration and concentration.get('total_flagged', 0) > 0:
+                with st.expander(f"🔬 {regime_name} — Temporal Concentration (Is this just COVID?)", expanded=True):
+                    
+                    # Headline concentration stats
+                    n_eps = concentration.get('n_episodes', 0)
+                    top3 = concentration.get('top3_concentration', 0)
+                    top5 = concentration.get('top5_concentration', 0)
+                    yrs_with = concentration.get('years_with_flags', [])
+                    yrs_without = concentration.get('years_without_flags', [])
+                    
+                    c1, c2, c3, c4 = st.columns(4)
+                    c1.metric("Distinct Episodes", n_eps)
+                    c2.metric("Top 3 Episodes", f"{top3:.0%} of flags",
+                              help="If this is >70%, the signal is driven by a few macro events")
+                    c3.metric("Top 5 Episodes", f"{top5:.0%} of flags")
+                    c4.metric("Years with Flags", f"{len(yrs_with)} / {len(yrs_with) + len(yrs_without)}")
+                    
+                    if top3 > 0.70:
+                        st.warning(f"⚠️ **High concentration:** Top 3 episodes account for {top3:.0%} of all "
+                                  f"flagged trades. This signal may be driven by a small number of macro events "
+                                  f"rather than a persistent regime effect. Treat with skepticism.")
+                    elif top3 > 0.50:
+                        st.info(f"🟡 **Moderate concentration:** Top 3 episodes account for {top3:.0%}. "
+                               f"The signal has some breadth but is still somewhat episodic.")
+                    else:
+                        st.success(f"✅ **Good dispersion:** Top 3 episodes only account for {top3:.0%}. "
+                                  f"Flagged trades are spread across {n_eps} distinct episodes over "
+                                  f"{len(yrs_with)} different years. This looks like a real regime effect, "
+                                  f"not a one-off.")
+                    
+                    # Year-by-year table
+                    yearly_df = concentration.get('yearly_df', pd.DataFrame())
+                    if not yearly_df.empty:
+                        st.markdown("**Year-by-Year Breakdown**")
+                        st.dataframe(
+                            yearly_df.style.format({
+                                '% Flagged': '{:.1%}',
+                                'Flagged Avg R': '{:.3f}',
+                                'Clean Avg R': '{:.3f}',
+                                'Flagged PnL': '${:,.0f}',
+                                'Clean PnL': '${:,.0f}',
+                            }).apply(lambda x: ['background-color: #3a1c1c' if v < 0 else '' 
+                                                for v in x] if x.name == 'Flagged Avg R' else [''] * len(x), axis=1),
+                            use_container_width=True
+                        )
+                    
+                    # Top episodes table
+                    episode_pnl = concentration.get('episode_pnl', pd.DataFrame())
+                    if not episode_pnl.empty and len(episode_pnl) > 0:
+                        st.markdown("**Largest Flag Episodes (by trade count)**")
+                        display_ep = episode_pnl.head(10).copy()
+                        display_ep['date_range'] = display_ep['first_date'].dt.strftime('%Y-%m-%d') + ' → ' + display_ep['last_date'].dt.strftime('%Y-%m-%d')
+                        display_ep = display_ep[['date_range', 'trades', 'total_pnl', 'avg_r']]
+                        display_ep.columns = ['Date Range', 'Trades', 'Total PnL', 'Avg R']
+                        st.dataframe(
+                            display_ep.style.format({
+                                'Total PnL': '${:,.0f}',
+                                'Avg R': '{:.3f}',
+                            }),
+                            use_container_width=True
+                        )
             
             st.divider()
         
