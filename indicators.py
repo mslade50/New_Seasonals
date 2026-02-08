@@ -64,7 +64,7 @@ def apply_first_instance_filter(condition_series: pd.Series, lookback: int) -> p
     if lookback <= 1:
         return condition_series
     condition_shifted = condition_series.shift(1)
-    condition_shifted = condition_shifted.fillna(False)
+    condition_shifted = condition_shifted.fillna(False).infer_objects(copy=False)
     rolling_sum = condition_shifted.rolling(window=lookback - 1, min_periods=1).sum()
     return condition_series & (rolling_sum == 0)
 
