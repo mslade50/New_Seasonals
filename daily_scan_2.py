@@ -882,7 +882,7 @@ def save_signals_to_gsheet(new_dataframe, sheet_name='Trade_Signals_Log'):
     cols_to_drop = [
         'Setup_Type', 'Setup_Timeframe', 'Setup_Thesis', 'Setup_Filters',
         'Exit_Primary', 'Exit_Stop', 'Exit_Target', 'Exit_Notes',
-        'Live_Filters', 'Entry_Type', 'Entry_Type_Short', 'Limit_Price',
+        'Live_Filters', 'Entry_Type',
         'Notional', 'Days_To_Exit', 'Use_Stop', 'Use_Target', 'Sizing_Variable'
     ]
     df_new = df_new.drop(columns=[c for c in cols_to_drop if c in df_new.columns], errors='ignore')
