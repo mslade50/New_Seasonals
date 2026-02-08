@@ -285,18 +285,21 @@ def compute_signal_density(sig_df: pd.DataFrame) -> pd.Series:
 # =============================================================================
 
 def bucket_and_analyze(sig_df: pd.DataFrame, regime_series: pd.Series, 
-                       regime_name: str, n_buckets: int = 2,
-                       use_percentile: bool = True) -> pd.DataFrame:
+                       regime_name: str, extreme_pct: int = 10) -> pd.DataFrame:
     """
     Merge a regime variable onto the trade log by entry date,
-    then split into buckets and compare performance.
+    then isolate the extreme tails and compare against the middle.
+    
+    Buckets:
+    - Bottom N% of regime variable
+    - Middle (everything else)
+    - Top N% of regime variable
     
     Args:
         sig_df: Trade log with 'Date', 'PnL', 'Risk $', 'Strategy' columns
         regime_series: Daily series of the regime variable
         regime_name: Human-readable name for display
-        n_buckets: Number of buckets (2 = median split, 3 = terciles, etc.)
-        use_percentile: If True, bucket by percentile rank rather than raw value
+        extreme_pct: Percentile cutoff for tails (e.g., 10 = top/bottom 10%)
     
     Returns:
         DataFrame with one row per bucket showing performance metrics
@@ -316,22 +319,22 @@ def bucket_and_analyze(sig_df: pd.DataFrame, regime_series: pd.Series,
     # Compute R-Multiple for each trade
     df['R_Multiple'] = np.where(df['Risk $'] > 0, df['PnL'] / df['Risk $'], 0)
     
-    # Create buckets
-    if n_buckets == 2:
-        median_val = df['regime_val'].median()
-        df['bucket'] = np.where(df['regime_val'] <= median_val, 'Low', 'High')
-        bucket_order = ['Low', 'High']
-    elif n_buckets == 3:
-        df['bucket'] = pd.qcut(df['regime_val'], 3, labels=['Low', 'Mid', 'High'], duplicates='drop')
-        bucket_order = ['Low', 'Mid', 'High']
-    else:
-        df['bucket'] = pd.qcut(df['regime_val'], n_buckets, duplicates='drop')
-        bucket_order = sorted(df['bucket'].unique())
+    # Compute percentile thresholds from the regime series itself (not the trade sample)
+    # This avoids conditioning bias from only looking at days with trades
+    lower_thresh = regime_series.quantile(extreme_pct / 100)
+    upper_thresh = regime_series.quantile(1 - extreme_pct / 100)
+    
+    # Assign buckets
+    df['bucket'] = 'Middle'
+    df.loc[df['regime_val'] <= lower_thresh, 'bucket'] = f'Bottom {extreme_pct}%'
+    df.loc[df['regime_val'] >= upper_thresh, 'bucket'] = f'Top {extreme_pct}%'
+    
+    bucket_order = [f'Bottom {extreme_pct}%', 'Middle', f'Top {extreme_pct}%']
     
     results = []
     for bucket in bucket_order:
         b_df = df[df['bucket'] == bucket]
-        if len(b_df) < 5:
+        if len(b_df) < 3:
             continue
         
         wins = b_df[b_df['PnL'] > 0]
@@ -353,7 +356,7 @@ def bucket_and_analyze(sig_df: pd.DataFrame, regime_series: pd.Series,
         
         results.append({
             'Bucket': bucket,
-            'Regime Range': f"{val_min:.3f} - {val_max:.3f}",
+            'Regime Range': f"{val_min:.4f} – {val_max:.4f}",
             'Trades': len(b_df),
             'Win Rate': win_rate,
             'Avg R': avg_r,
@@ -366,10 +369,10 @@ def bucket_and_analyze(sig_df: pd.DataFrame, regime_series: pd.Series,
 
 
 def analyze_by_strategy(sig_df: pd.DataFrame, regime_series: pd.Series,
-                        regime_name: str) -> pd.DataFrame:
+                        regime_name: str, extreme_pct: int = 10) -> pd.DataFrame:
     """
     Same as bucket_and_analyze but broken out by strategy.
-    Only uses 2-bucket (median) split for sample size.
+    Compares Bottom N% vs Top N% for each strategy individually.
     """
     if sig_df.empty or regime_series.empty:
         return pd.DataFrame()
@@ -383,17 +386,24 @@ def analyze_by_strategy(sig_df: pd.DataFrame, regime_series: pd.Series,
     
     df['R_Multiple'] = np.where(df['Risk $'] > 0, df['PnL'] / df['Risk $'], 0)
     
-    # Global median split (same threshold for all strategies)
-    median_val = df['regime_val'].median()
-    df['bucket'] = np.where(df['regime_val'] <= median_val, 'Low', 'High')
+    # Use regime series thresholds (not trade-conditioned)
+    lower_thresh = regime_series.quantile(extreme_pct / 100)
+    upper_thresh = regime_series.quantile(1 - extreme_pct / 100)
+    
+    bottom_label = f'Bottom {extreme_pct}%'
+    top_label = f'Top {extreme_pct}%'
+    
+    df['bucket'] = 'Middle'
+    df.loc[df['regime_val'] <= lower_thresh, 'bucket'] = bottom_label
+    df.loc[df['regime_val'] >= upper_thresh, 'bucket'] = top_label
     
     results = []
     for strat in df['Strategy'].unique():
         s_df = df[df['Strategy'] == strat]
         
-        for bucket in ['Low', 'High']:
+        for bucket in [bottom_label, 'Middle', top_label]:
             b_df = s_df[s_df['bucket'] == bucket]
-            if len(b_df) < 5:
+            if len(b_df) < 3:
                 continue
             
             results.append({
@@ -409,47 +419,61 @@ def analyze_by_strategy(sig_df: pd.DataFrame, regime_series: pd.Series,
     return pd.DataFrame(results)
 
 
-def compute_statistical_significance(sig_df: pd.DataFrame, regime_series: pd.Series) -> dict:
+def compute_statistical_significance(sig_df: pd.DataFrame, regime_series: pd.Series,
+                                      extreme_pct: int = 10) -> dict:
     """
-    Welch's t-test between High and Low regime bucket R-multiples.
-    Returns t-stat, p-value, and interpretation.
+    Welch's t-test comparing R-multiples in each extreme tail vs the middle.
+    Returns results for both tails independently.
     """
     df = sig_df.copy()
     df['regime_val'] = df['Date'].map(regime_series)
     df = df.dropna(subset=['regime_val'])
     
     if len(df) < 20:
-        return {'t_stat': np.nan, 'p_value': np.nan, 'significant': False, 'interpretation': 'Insufficient data'}
+        return {'bottom': {}, 'top': {}, 'tails_combined': {}}
     
     df['R_Multiple'] = np.where(df['Risk $'] > 0, df['PnL'] / df['Risk $'], 0)
     
-    median_val = df['regime_val'].median()
-    low = df[df['regime_val'] <= median_val]['R_Multiple']
-    high = df[df['regime_val'] > median_val]['R_Multiple']
+    lower_thresh = regime_series.quantile(extreme_pct / 100)
+    upper_thresh = regime_series.quantile(1 - extreme_pct / 100)
     
-    if len(low) < 10 or len(high) < 10:
-        return {'t_stat': np.nan, 'p_value': np.nan, 'significant': False, 'interpretation': 'Insufficient data per bucket'}
+    bottom = df[df['regime_val'] <= lower_thresh]['R_Multiple']
+    middle = df[(df['regime_val'] > lower_thresh) & (df['regime_val'] < upper_thresh)]['R_Multiple']
+    top = df[df['regime_val'] >= upper_thresh]['R_Multiple']
     
-    t_stat, p_value = scipy_stats.ttest_ind(low, high, equal_var=False)
+    results = {}
     
-    significant = p_value < 0.05
+    # Bottom tail vs middle
+    if len(bottom) >= 5 and len(middle) >= 10:
+        t_stat, p_val = scipy_stats.ttest_ind(bottom, middle, equal_var=False)
+        diff = bottom.mean() - middle.mean()
+        results['bottom'] = {
+            'label': f'Bottom {extreme_pct}%',
+            't_stat': t_stat, 'p_value': p_val,
+            'significant': p_val < 0.05,
+            'tail_avg_r': bottom.mean(), 'middle_avg_r': middle.mean(),
+            'diff': diff, 'n_tail': len(bottom), 'n_middle': len(middle),
+            'interpretation': f"Bottom {extreme_pct}% {'outperforms' if diff > 0 else 'underperforms'} middle by {abs(diff):.3f}R (p={p_val:.4f})"
+        }
     
-    if significant:
-        better = "Low dispersion" if low.mean() > high.mean() else "High dispersion"
-        interpretation = f"Statistically significant (p={p_value:.4f}). {better} regime performs better."
-    else:
-        interpretation = f"Not statistically significant (p={p_value:.4f}). No reliable difference between regimes."
+    # Top tail vs middle
+    if len(top) >= 5 and len(middle) >= 10:
+        t_stat, p_val = scipy_stats.ttest_ind(top, middle, equal_var=False)
+        diff = top.mean() - middle.mean()
+        results['top'] = {
+            'label': f'Top {extreme_pct}%',
+            't_stat': t_stat, 'p_value': p_val,
+            'significant': p_val < 0.05,
+            'tail_avg_r': top.mean(), 'middle_avg_r': middle.mean(),
+            'diff': diff, 'n_tail': len(top), 'n_middle': len(middle),
+            'interpretation': f"Top {extreme_pct}% {'outperforms' if diff > 0 else 'underperforms'} middle by {abs(diff):.3f}R (p={p_val:.4f})"
+        }
     
-    return {
-        't_stat': t_stat,
-        'p_value': p_value,
-        'significant': significant,
-        'interpretation': interpretation,
-        'n_low': len(low),
-        'n_high': len(high),
-        'mean_low': low.mean(),
-        'mean_high': high.mean()
-    }
+    # Combined: either tail is actionable?
+    either_sig = any(r.get('significant', False) for r in results.values())
+    results['any_significant'] = either_sig
+    
+    return results
 
 
 # =============================================================================
@@ -529,7 +553,15 @@ def create_bucket_comparison_chart(bucket_df: pd.DataFrame, regime_name: str) ->
         subplot_titles=('Avg R-Multiple', 'Win Rate', 'Avg PnL ($)')
     )
     
-    colors = {'Low': '#00CC00', 'Mid': '#FF9900', 'High': '#CC0000'}
+    colors = {}
+    for _, row in bucket_df.iterrows():
+        b = row['Bucket']
+        if 'Bottom' in b:
+            colors[b] = '#0088FF'   # Blue for bottom tail
+        elif 'Top' in b:
+            colors[b] = '#CC0000'   # Red for top tail
+        else:
+            colors[b] = '#666666'   # Gray for middle
     
     for _, row in bucket_df.iterrows():
         bucket = row['Bucket']
@@ -576,14 +608,19 @@ def create_strategy_heatmap(strat_df: pd.DataFrame, metric: str = 'Avg R') -> go
     if pivot.empty:
         return None
     
-    # Ensure column order
-    col_order = [c for c in ['Low', 'High'] if c in pivot.columns]
+    # Ensure column order (tails on outside, middle in center)
+    col_order = [c for c in pivot.columns if 'Bottom' in c] + \
+                [c for c in pivot.columns if c == 'Middle'] + \
+                [c for c in pivot.columns if 'Top' in c]
+    col_order = [c for c in col_order if c in pivot.columns]
     pivot = pivot[col_order]
     
-    # Add a "Delta" column
-    if 'Low' in pivot.columns and 'High' in pivot.columns:
-        pivot['Delta (L-H)'] = pivot['Low'] - pivot['High']
-        pivot = pivot.sort_values('Delta (L-H)', ascending=False)
+    # Add a "Tail Spread" column (bottom tail R minus top tail R)
+    bottom_cols = [c for c in pivot.columns if 'Bottom' in c]
+    top_cols = [c for c in pivot.columns if 'Top' in c]
+    if bottom_cols and top_cols:
+        pivot['Tail Spread'] = pivot[bottom_cols[0]] - pivot[top_cols[0]]
+        pivot = pivot.sort_values('Tail Spread', ascending=False)
     
     fig = go.Figure(data=go.Heatmap(
         z=pivot.values,
@@ -647,8 +684,10 @@ def main():
                                    help="# of signals per day (internal)")
         
         st.divider()
-        n_buckets = st.radio("Split Method", [2, 3], index=0, 
-                              format_func=lambda x: f"{x} buckets ({'Median' if x == 2 else 'Terciles'})")
+        st.subheader("Tail Thresholds")
+        extreme_pct = st.selectbox("Extreme Cutoff", [5, 10, 20], index=1,
+                                    format_func=lambda x: f"Top/Bottom {x}%",
+                                    help="Isolate the top and bottom N% of each regime variable")
         
         run_button = st.button("🚀 Run Analysis", type="primary", use_container_width=True)
     
@@ -810,33 +849,43 @@ def main():
     for regime_name, regime_series in regime_variables.items():
         st.subheader(f"📊 {regime_name}")
         
-        # Statistical significance test
-        sig_test = compute_statistical_significance(sig_df, regime_series)
+        # Statistical significance test (tails vs middle)
+        sig_test = compute_statistical_significance(sig_df, regime_series, extreme_pct=extreme_pct)
         
         # Bucket analysis (portfolio level)
-        bucket_df = bucket_and_analyze(sig_df, regime_series, regime_name, n_buckets=n_buckets)
+        bucket_df = bucket_and_analyze(sig_df, regime_series, regime_name, extreme_pct=extreme_pct)
         
         if bucket_df.empty:
             st.warning(f"Insufficient data to analyze {regime_name}")
             continue
         
-        # Display significance
-        if sig_test['significant']:
-            st.success(f"✅ {sig_test['interpretation']}")
-        else:
-            st.info(f"⚪ {sig_test['interpretation']}")
+        # Display significance for each tail
+        for tail_key in ['bottom', 'top']:
+            tail_result = sig_test.get(tail_key, {})
+            if not tail_result:
+                continue
+            label = tail_result.get('label', tail_key)
+            if tail_result.get('significant', False):
+                st.success(f"✅ **{label}:** {tail_result['interpretation']}")
+            else:
+                st.info(f"⚪ **{label}:** {tail_result['interpretation']}")
         
         # Add to summary
-        summary_rows.append({
-            'Variable': regime_name,
-            't-stat': sig_test.get('t_stat', np.nan),
-            'p-value': sig_test.get('p_value', np.nan),
-            'Significant?': '✅' if sig_test.get('significant', False) else '⚪',
-            'Low Avg R': sig_test.get('mean_low', np.nan),
-            'High Avg R': sig_test.get('mean_high', np.nan),
-            'n (Low)': sig_test.get('n_low', 0),
-            'n (High)': sig_test.get('n_high', 0),
-        })
+        for tail_key in ['bottom', 'top']:
+            tail_result = sig_test.get(tail_key, {})
+            if tail_result:
+                summary_rows.append({
+                    'Variable': regime_name,
+                    'Tail': tail_result.get('label', tail_key),
+                    't-stat': tail_result.get('t_stat', np.nan),
+                    'p-value': tail_result.get('p_value', np.nan),
+                    'Significant?': '✅' if tail_result.get('significant', False) else '⚪',
+                    'Tail Avg R': tail_result.get('tail_avg_r', np.nan),
+                    'Middle Avg R': tail_result.get('middle_avg_r', np.nan),
+                    'Delta R': tail_result.get('diff', np.nan),
+                    'n (Tail)': tail_result.get('n_tail', 0),
+                    'n (Middle)': tail_result.get('n_middle', 0),
+                })
         
         col1, col2 = st.columns([1, 1])
         
@@ -866,7 +915,7 @@ def main():
                 st.plotly_chart(ts_fig, use_container_width=True)
         
         # Per-strategy breakdown
-        strat_df = analyze_by_strategy(sig_df, regime_series, regime_name)
+        strat_df = analyze_by_strategy(sig_df, regime_series, regime_name, extreme_pct=extreme_pct)
         if not strat_df.empty:
             with st.expander(f"🔍 {regime_name} — Per-Strategy Breakdown"):
                 # Heatmap
@@ -905,38 +954,38 @@ def main():
             summary_df.style.format({
                 't-stat': '{:.3f}',
                 'p-value': '{:.4f}',
-                'Low Avg R': '{:.3f}',
-                'High Avg R': '{:.3f}',
+                'Tail Avg R': '{:.3f}',
+                'Middle Avg R': '{:.3f}',
+                'Delta R': '{:+.3f}',
             }),
             use_container_width=True
         )
         
         # Actionable recommendations
-        significant_vars = [r for r in summary_rows if r.get('Significant?') == '✅']
+        significant_rows = [r for r in summary_rows if r.get('Significant?') == '✅']
         
         st.subheader("📋 Recommendations")
         
-        if significant_vars:
-            st.markdown("**Statistically significant regime variables found.** Consider these for Phase 2 (advisory dashboard) before Phase 3 (auto-sizing).")
+        if significant_rows:
+            st.markdown(f"**Statistically significant tail effects found at the {extreme_pct}% level.** "
+                       "Consider these for the advisory dashboard before auto-sizing.")
             
-            for sv in significant_vars:
-                better = "Low" if sv.get('Low Avg R', 0) > sv.get('High Avg R', 0) else "High"
-                worse = "High" if better == "Low" else "Low"
-                spread = abs(sv.get('Low Avg R', 0) - sv.get('High Avg R', 0))
+            for sv in significant_rows:
+                delta = sv.get('Delta R', 0)
+                direction = "outperforms" if delta > 0 else "underperforms"
                 
                 st.markdown(f"""
-                **{sv['Variable']}:** {better} regime outperforms by **{spread:.3f}R** per trade. 
-                Consider reducing sizing when {sv['Variable']} is in the {worse} regime.
-                (n={sv.get('n (Low)', 0)} low, {sv.get('n (High)', 0)} high)
+                **{sv['Variable']} — {sv['Tail']}:** {direction} middle by **{abs(delta):.3f}R** per trade 
+                (p={sv.get('p-value', 0):.4f}, n={sv.get('n (Tail)', 0)} tail trades vs {sv.get('n (Middle)', 0)} middle)
                 """)
         else:
-            st.info("""
-            No statistically significant regime variables found at p < 0.05. 
-            This could mean: (a) your strategies are genuinely robust across regimes (good!), 
-            (b) the sample size is too small to detect real differences, or 
-            (c) you need to test different variable formulations.
+            st.info(f"""
+            No statistically significant effects found at the top/bottom {extreme_pct}% level. 
+            This could mean: (a) your strategies are genuinely robust across regime extremes (good!), 
+            (b) the extreme buckets have too few trades for statistical power — try widening to top/bottom 20%, or 
+            (c) the tested variables don't capture the regime shifts that matter to your book.
             
-            **Next steps:** Try extending the backtest period, or test interaction effects 
+            **Next steps:** Try a wider cutoff, extend the backtest period, or test interaction effects 
             (e.g., high dispersion + cold streak together).
             """)
         
