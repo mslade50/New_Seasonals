@@ -45,21 +45,16 @@ try:
     from strat_backtester import (
         download_historical_data,
         precompute_all_indicators,
-        run_signal_generation,
+        generate_candidates_fast,
         process_signals_fast,
         get_daily_mtm_series,
-        build_price_matrix
+        build_price_matrix,
+        load_seasonal_map
     )
+    HAS_SEASONAL = True
 except ImportError:
     st.error("Could not import from strat_backtester.py. Ensure it's in the pages/ directory.")
     st.stop()
-
-# Try importing seasonal data loader (same pattern as strat_backtester)
-try:
-    from strat_backtester import load_seasonal_data
-    HAS_SEASONAL = True
-except ImportError:
-    HAS_SEASONAL = False
 
 
 # =============================================================================
@@ -695,25 +690,19 @@ def main():
     
     master_dict = download_historical_data(
         list(all_tickers), 
-        str(user_start_date), 
-        str(end_date)
+        start_date="2000-01-01"
     )
     
     progress.progress(25, text="Loading seasonal data...")
     
-    # Load seasonal data
-    sznl_map = {}
-    if HAS_SEASONAL:
-        try:
-            sznl_map = load_seasonal_data()
-        except Exception:
-            pass
+    # Load seasonal data (same function as strat_backtester uses)
+    sznl_map = load_seasonal_map()
     
     # VIX series
     vix_series = None
-    vix_key = next((k for k in master_dict if 'VIX' in k.upper() and '3M' not in k.upper()), None)
-    if vix_key and master_dict[vix_key] is not None:
-        temp = master_dict[vix_key].copy()
+    vix_df = master_dict.get('^VIX')
+    if vix_df is not None and not vix_df.empty:
+        temp = vix_df.copy()
         if isinstance(temp.columns, pd.MultiIndex):
             temp.columns = [c[0] if isinstance(c, tuple) else c for c in temp.columns]
         temp.columns = [c.capitalize() for c in temp.columns]
@@ -723,21 +712,18 @@ def main():
     
     processed = precompute_all_indicators(master_dict, strategies, sznl_map, vix_series)
     
-    progress.progress(50, text="Generating signals...")
+    progress.progress(50, text="Generating signal candidates...")
     
-    sig_df = run_signal_generation(strategies, processed, sznl_map)
+    candidates, signal_data = generate_candidates_fast(processed, strategies, sznl_map, user_start_date)
     
-    if sig_df.empty:
-        st.error("No signals generated. Check date range and strategy config.")
+    if not candidates:
+        st.error("No signal candidates generated. Check date range and strategy config.")
         st.stop()
     
-    progress.progress(65, text="Processing trades...")
+    progress.progress(65, text="Processing trades with MTM sizing...")
     
-    # Build price matrix for MTM
-    price_matrix = build_price_matrix(master_dict, sig_df)
-    
-    # Process signals through portfolio sim
-    sig_df = process_signals_fast(sig_df, strategies, price_matrix, starting_equity)
+    # process_signals_fast takes candidates, signal_data, processed_dict, strategies, starting_equity
+    sig_df = process_signals_fast(candidates, signal_data, processed, strategies, starting_equity)
     
     # Filter to start date
     sig_df = sig_df[sig_df['Date'] >= pd.Timestamp(user_start_date)]
@@ -759,6 +745,17 @@ def main():
     st.header("2️⃣ Computing Regime Variables")
     
     regime_dict = download_regime_data(str(user_start_date), str(end_date))
+    
+    # Also make sector ETFs available from master_dict (already downloaded with full history)
+    # These use auto_adjust=False like the main pipeline, but for returns-based
+    # calculations (dispersion, correlation) the adjustment method doesn't matter
+    for ticker in SECTOR_ETFS + ['SPY']:
+        if ticker not in regime_dict and ticker in master_dict:
+            temp = master_dict[ticker].copy()
+            if isinstance(temp.columns, pd.MultiIndex):
+                temp.columns = [c[0] if isinstance(c, tuple) else c for c in temp.columns]
+            temp.columns = [c.capitalize() for c in temp.columns]
+            regime_dict[ticker] = temp
     
     regime_variables = {}  # {name: pd.Series}
     
