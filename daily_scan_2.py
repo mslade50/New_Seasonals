@@ -1610,14 +1610,14 @@ def run_daily_scan():
     # 6. Save Results
     if all_signals:
         df_sig = pd.DataFrame(all_signals)
-        # 1. Log to Master Sheet (APPEND MODE)
-        save_signals_to_gsheet(df_sig)
+        # # 1. Log to Master Sheet (APPEND MODE)
+        # save_signals_to_gsheet(df_sig)
         
-        # 2. Stage MOC Orders (Signal Close)
-        save_moc_orders(all_signals, STRATEGY_BOOK, sheet_name='moc_orders')
+        # # 2. Stage MOC Orders (Signal Close)
+        # save_moc_orders(all_signals, STRATEGY_BOOK, sheet_name='moc_orders')
         
-        # 3. Stage Rest of Orders (Limits, MOO)
-        save_staging_orders(all_signals, STRATEGY_BOOK, sheet_name='Order_Staging')
+        # # 3. Stage Rest of Orders (Limits, MOO)
+        # save_staging_orders(all_signals, STRATEGY_BOOK, sheet_name='Order_Staging')
     else:
         print("No signals found today.")
 
