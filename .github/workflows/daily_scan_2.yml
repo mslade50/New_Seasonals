@@ -1,4 +1,4 @@
-name: Daily Strategy Scan
+name: Daily Strategy Scan 2
 
 # Keeps your queue clean if GitHub lags
 concurrency:
