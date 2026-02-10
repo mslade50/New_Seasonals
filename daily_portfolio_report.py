@@ -808,7 +808,7 @@ def generate_sizing_recommendations(equity_series, daily_pnl_series, starting_eq
             'best_day': best_day,
             'worst_day': worst_day,
             # New metrics
-            'sharpe_ratio': (avg_daily_pnl / std_daily_pnl) * np.sqrt(252) if std_daily_pnl > 0 else 0,
+            'sharpe_ratio': avg_daily_pnl / std_daily_pnl if std_daily_pnl > 0 else 0,
             'std_daily_pnl': std_daily_pnl,
             'plus_1std': avg_daily_pnl + std_daily_pnl,
             'plus_2std': avg_daily_pnl + (2 * std_daily_pnl),
@@ -1199,22 +1199,16 @@ def send_portfolio_email(chart_path, open_positions_df, sizing_analysis, metrics
                 <div class="header">
                     <h1 style="margin: 0; font-size: 28px;">📊 Portfolio Health Report</h1>
                     <div style="font-size: 14px; opacity: 0.8; margin-top: 5px;">{date_str}</div>
-                    <div style="font-size: 18px; margin-top: 10px; font-weight: bold;">{sizing_analysis['summary']}</div>
                 </div>
-                
+
                 <div class="section">
                     <h2>📈 12-Month Equity Curve</h2>
                     <p style="color: #aaa; font-size: 13px; margin-top: -10px;">Starting Equity: $450,000 | Data from 2000 for percentiles</p>
                     <img src="cid:equity_chart" style="max-width: 100%; border-radius: 8px;">
                 </div>
-                
+
                 {metrics_html}
-                
-                <div class="section">
-                    <h2>🎯 Sizing Recommendations</h2>
-                    {recs_html}
-                </div>
-                
+
                 <div class="section">
                     <h2>💼 Open Positions</h2>
                     {positions_summary}
