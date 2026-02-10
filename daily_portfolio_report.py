@@ -468,6 +468,201 @@ def get_todays_activity(sig_df, master_dict):
 
 
 # -----------------------------------------------------------------------------
+# 4c. TRAILING STRATEGY PERFORMANCE STATS
+# -----------------------------------------------------------------------------
+
+def calculate_trailing_strategy_stats(sig_df):
+    """
+    Calculate strategy performance stats for trailing 3, 6, and 12 month periods.
+
+    Returns: dict with keys '3M', '6M', '12M', each containing a DataFrame with:
+        Strategy, Trades, Win Rate, Profit Factor, Total PnL, Avg PnL, SQN
+    """
+    if sig_df.empty:
+        return {'3M': pd.DataFrame(), '6M': pd.DataFrame(), '12M': pd.DataFrame()}
+
+    today = pd.Timestamp(datetime.date.today())
+
+    periods = {
+        '3M': today - pd.Timedelta(days=63),   # ~3 months of trading days
+        '6M': today - pd.Timedelta(days=126),  # ~6 months
+        '12M': today - pd.Timedelta(days=252)  # ~12 months
+    }
+
+    results = {}
+
+    for period_name, cutoff_date in periods.items():
+        # Filter signals by Entry Date within the period
+        period_df = sig_df[sig_df['Entry Date'] >= cutoff_date].copy()
+
+        if period_df.empty:
+            results[period_name] = pd.DataFrame()
+            continue
+
+        stats = []
+
+        for strat in period_df['Strategy'].unique():
+            strat_df = period_df[period_df['Strategy'] == strat]
+
+            count = len(strat_df)
+            if count == 0:
+                continue
+
+            winners = strat_df[strat_df['PnL'] > 0]
+            losers = strat_df[strat_df['PnL'] < 0]
+
+            win_rate = len(winners) / count if count > 0 else 0
+
+            gross_profit = winners['PnL'].sum() if not winners.empty else 0
+            gross_loss = abs(losers['PnL'].sum()) if not losers.empty else 0
+            profit_factor = gross_profit / gross_loss if gross_loss > 0 else float('inf') if gross_profit > 0 else 0
+
+            total_pnl = strat_df['PnL'].sum()
+            avg_pnl = strat_df['PnL'].mean()
+            std_pnl = strat_df['PnL'].std()
+            sqn = (avg_pnl / std_pnl * np.sqrt(count)) if std_pnl > 0 else 0
+
+            stats.append({
+                'Strategy': strat,
+                'Trades': count,
+                'Win Rate': win_rate,
+                'Profit Factor': profit_factor,
+                'Total PnL': total_pnl,
+                'Avg PnL': avg_pnl,
+                'SQN': sqn
+            })
+
+        # Add portfolio total
+        if stats:
+            total_count = len(period_df)
+            total_winners = period_df[period_df['PnL'] > 0]
+            total_losers = period_df[period_df['PnL'] < 0]
+            total_win_rate = len(total_winners) / total_count if total_count > 0 else 0
+            total_gross_profit = total_winners['PnL'].sum() if not total_winners.empty else 0
+            total_gross_loss = abs(total_losers['PnL'].sum()) if not total_losers.empty else 0
+            total_pf = total_gross_profit / total_gross_loss if total_gross_loss > 0 else float('inf') if total_gross_profit > 0 else 0
+            total_pnl = period_df['PnL'].sum()
+            total_avg = period_df['PnL'].mean()
+            total_std = period_df['PnL'].std()
+            total_sqn = (total_avg / total_std * np.sqrt(total_count)) if total_std > 0 else 0
+
+            stats.append({
+                'Strategy': 'TOTAL',
+                'Trades': total_count,
+                'Win Rate': total_win_rate,
+                'Profit Factor': total_pf,
+                'Total PnL': total_pnl,
+                'Avg PnL': total_avg,
+                'SQN': total_sqn
+            })
+
+        results[period_name] = pd.DataFrame(stats)
+
+    return results
+
+
+# -----------------------------------------------------------------------------
+# 4d. RECENT EXITS (Last 5 Trading Days)
+# -----------------------------------------------------------------------------
+
+def get_recent_exits(sig_df, master_dict, trading_days=5):
+    """
+    Get positions that were EXITED in the last N trading days.
+    Returns DataFrame with same columns as today's activity tables.
+    """
+    if sig_df.empty:
+        return pd.DataFrame()
+
+    today = pd.Timestamp(datetime.date.today())
+
+    # Get unique trading dates from SPY to determine last N trading days
+    spy_df = master_dict.get('SPY')
+    if spy_df is not None and not spy_df.empty:
+        trading_dates = spy_df.index.normalize().unique()
+        trading_dates = trading_dates[trading_dates <= today]
+        trading_dates = sorted(trading_dates, reverse=True)
+
+        if len(trading_dates) >= trading_days:
+            cutoff_date = trading_dates[trading_days - 1]
+        else:
+            cutoff_date = trading_dates[-1] if trading_dates else today - pd.Timedelta(days=7)
+    else:
+        # Fallback: use calendar days
+        cutoff_date = today - pd.Timedelta(days=7)
+
+    # Filter for positions exited in the period (Exit Date >= cutoff AND Time Stop <= today)
+    exited_mask = (
+        sig_df['Exit Date'].apply(lambda x: pd.Timestamp(x).normalize() >= cutoff_date)
+        & sig_df['Exit Date'].apply(lambda x: pd.Timestamp(x).normalize() <= today)
+        & sig_df['Time Stop'].apply(lambda x: pd.Timestamp(x).normalize() <= today)
+    )
+    exited_df = sig_df[exited_mask].copy()
+
+    # Exclude today's exits (those are shown separately)
+    exited_df = exited_df[exited_df['Exit Date'].apply(lambda x: pd.Timestamp(x).normalize() < today)]
+
+    if exited_df.empty:
+        return pd.DataFrame()
+
+    print(f"   Found {len(exited_df)} exits in last {trading_days} trading days")
+
+    # Build output frame with same schema as today's activity
+    current_prices, open_pnls, current_values = [], [], []
+    for row in exited_df.itertuples():
+        t_clean = row.Ticker.replace('.', '-')
+        t_df = master_dict.get(t_clean)
+        if t_df is not None and not t_df.empty:
+            if isinstance(t_df.columns, pd.MultiIndex):
+                t_df.columns = t_df.columns.get_level_values(0)
+            t_df.columns = [c.capitalize() for c in t_df.columns]
+            last_close = t_df['Close'].iloc[-1]
+        else:
+            temp = yf.download(row.Ticker, period='1d', progress=False)
+            if not temp.empty:
+                if isinstance(temp.columns, pd.MultiIndex):
+                    temp.columns = temp.columns.get_level_values(0)
+                temp.columns = [c.capitalize() for c in temp.columns]
+                last_close = temp['Close'].iloc[-1]
+            else:
+                last_close = row.Price
+
+        # For closed positions, Open PnL = Realized PnL (the position is closed)
+        current_prices.append(last_close)
+        open_pnls.append(row.PnL)  # Use realized PnL since position is closed
+        current_values.append(last_close * row.Shares)
+
+    result = pd.DataFrame({
+        'Date': exited_df['Date'].values,
+        'Entry Date': exited_df['Entry Date'].values,
+        'Exit Date': exited_df['Exit Date'].values,
+        'Exit Type': exited_df['Exit Type'].values,
+        'Time Stop': exited_df['Time Stop'].values,
+        'Strategy': exited_df['Strategy'].values,
+        'Ticker': exited_df['Ticker'].values,
+        'Action': exited_df['Action'].values,
+        'Entry Criteria': exited_df['Entry Criteria'].values,
+        'Price': exited_df['Price'].values,
+        'Shares': exited_df['Shares'].values,
+        'PnL': exited_df['PnL'].values,
+        'ATR': exited_df['ATR'].values,
+        'T+1 Open': exited_df['T+1 Open'].values,
+        'Signal Close': exited_df['Signal Close'].values,
+        'Range %': exited_df['Range %'].values,
+        'Equity at Signal': exited_df['Equity at Signal'].values,
+        'Risk $': exited_df['Risk $'].values,
+        'Risk bps': exited_df['Risk bps'].values,
+        'Current Price': current_prices,
+        'Open PnL': open_pnls,
+        'Mkt Value': current_values
+    })
+
+    # Sort by Exit Date descending (most recent first)
+    result = result.sort_values('Exit Date', ascending=False)
+
+    return result
+
+
+# -----------------------------------------------------------------------------
 # 5. SIZING RECOMMENDATIONS ENGINE
 # -----------------------------------------------------------------------------
 
@@ -613,7 +808,7 @@ def generate_sizing_recommendations(equity_series, daily_pnl_series, starting_eq
             'best_day': best_day,
             'worst_day': worst_day,
             # New metrics
-            'sharpe_ratio': (avg_daily_pnl * np.sqrt(252)) / (std_daily_pnl * np.sqrt(252)) if std_daily_pnl > 0 else 0,
+            'sharpe_ratio': (avg_daily_pnl / std_daily_pnl) * np.sqrt(252) if std_daily_pnl > 0 else 0,
             'std_daily_pnl': std_daily_pnl,
             'plus_1std': avg_daily_pnl + std_daily_pnl,
             'plus_2std': avg_daily_pnl + (2 * std_daily_pnl),
@@ -686,7 +881,8 @@ def _format_activity_table_html(df, label):
 
 
 def send_portfolio_email(chart_path, open_positions_df, sizing_analysis, metrics,
-                         entered_today_df=None, exited_today_df=None):
+                         entered_today_df=None, exited_today_df=None,
+                         trailing_stats=None, recent_exits_df=None):
     """
     Sends portfolio health email with chart attachment and HTML tables.
     """
@@ -867,7 +1063,95 @@ def send_portfolio_email(chart_path, open_positions_df, sizing_analysis, metrics
         {exited_html}
     </div>
     """
-    
+
+    # Build trailing strategy stats HTML
+    trailing_stats_html = ""
+    if trailing_stats:
+        trailing_stats_html = """
+    <div class="section">
+        <h2>📈 Strategy Performance by Period</h2>
+        """
+        for period_name in ['3M', '6M', '12M']:
+            period_df = trailing_stats.get(period_name, pd.DataFrame())
+            if not period_df.empty:
+                # Format the dataframe for display
+                display_df = period_df.copy()
+                display_df['Win Rate'] = display_df['Win Rate'].apply(lambda x: f"{x:.1%}")
+                display_df['Profit Factor'] = display_df['Profit Factor'].apply(
+                    lambda x: f"{x:.2f}" if x != float('inf') else "∞"
+                )
+                display_df['Total PnL'] = display_df['Total PnL'].apply(
+                    lambda x: f'<span style="color: {"#00CC00" if x >= 0 else "#CC0000"};">${x:,.0f}</span>'
+                )
+                display_df['Avg PnL'] = display_df['Avg PnL'].apply(
+                    lambda x: f'<span style="color: {"#00CC00" if x >= 0 else "#CC0000"};">${x:,.0f}</span>'
+                )
+                display_df['SQN'] = display_df['SQN'].apply(lambda x: f"{x:.2f}")
+
+                table_html = display_df.to_html(index=False, escape=False, classes='positions-table')
+                trailing_stats_html += f"""
+        <h3 style="color: #4CAF50; margin-top: 15px; margin-bottom: 5px;">{period_name} Performance</h3>
+        {table_html}
+        """
+            else:
+                trailing_stats_html += f"""
+        <h3 style="color: #4CAF50; margin-top: 15px; margin-bottom: 5px;">{period_name} Performance</h3>
+        <div style="color: #aaa; padding: 10px;">No trades in this period</div>
+        """
+        trailing_stats_html += "</div>"
+
+    # Build recent exits HTML (last 5 trading days)
+    recent_exits_html = ""
+    if recent_exits_df is not None and not recent_exits_df.empty:
+        # Calculate summary stats
+        total_pnl = recent_exits_df['PnL'].sum()
+        winners = (recent_exits_df['PnL'] > 0).sum()
+        losers = (recent_exits_df['PnL'] < 0).sum()
+        win_rate = winners / len(recent_exits_df) if len(recent_exits_df) > 0 else 0
+
+        summary_bar = f"""
+        <div style="background: #1a1a1a; padding: 12px; border-radius: 6px; margin: 10px 0; font-size: 13px; color: #fff;">
+            <span style="color: #aaa;">Exits: </span><strong style="color: #fff;">{len(recent_exits_df)}</strong>
+            <span style="margin-left: 15px; color: #aaa;">Winners: </span><strong style="color: #00CC00;">{winners}</strong>
+            <span style="margin-left: 15px; color: #aaa;">Losers: </span><strong style="color: #CC0000;">{losers}</strong>
+            <span style="margin-left: 15px; color: #aaa;">Win Rate: </span><strong style="color: #fff;">{win_rate:.1%}</strong>
+            <span style="margin-left: 15px; color: #aaa;">Total PnL: </span>
+            <strong style="color: {'#00CC00' if total_pnl >= 0 else '#CC0000'};">${total_pnl:,.0f}</strong>
+        </div>
+        """
+
+        # Slimmed table columns
+        tbl = recent_exits_df[[
+            'Entry Date', 'Exit Date', 'Strategy', 'Ticker', 'Action', 'Price', 'Shares',
+            'PnL', 'Risk $'
+        ]].copy()
+
+        tbl['Entry Date'] = tbl['Entry Date'].apply(lambda x: x.strftime('%Y-%m-%d'))
+        tbl['Exit Date'] = tbl['Exit Date'].apply(lambda x: x.strftime('%Y-%m-%d'))
+        tbl['Price'] = tbl['Price'].apply(lambda x: f"${x:.2f}")
+        tbl['PnL'] = tbl['PnL'].apply(
+            lambda x: f'<span style="color: {"#00CC00" if x >= 0 else "#CC0000"}; font-weight: bold;">${x:,.0f}</span>'
+        )
+        tbl['Risk $'] = tbl['Risk $'].apply(lambda x: f"${x:,.0f}")
+        tbl['Shares'] = tbl['Shares'].apply(lambda x: f"{x:,}")
+
+        table_html = tbl.to_html(index=False, escape=False, classes='positions-table')
+
+        recent_exits_html = f"""
+    <div class="section">
+        <h2>📋 Recent Exits (Last 5 Trading Days)</h2>
+        {summary_bar}
+        {table_html}
+    </div>
+        """
+    else:
+        recent_exits_html = """
+    <div class="section">
+        <h2>📋 Recent Exits (Last 5 Trading Days)</h2>
+        <div style="color: #aaa; padding: 20px; text-align: center;">No exits in the last 5 trading days</div>
+    </div>
+        """
+
     # Assemble email
     subject = f"📊 Portfolio Health Report - {date_str}"
     
@@ -938,7 +1222,11 @@ def send_portfolio_email(chart_path, open_positions_df, sizing_analysis, metrics
                 </div>
                 
                 {todays_activity_html}
-                
+
+                {recent_exits_html}
+
+                {trailing_stats_html}
+
                 <div style="text-align: center; padding: 20px; color: #666; font-size: 12px; border-top: 1px solid #333; margin-top: 30px;">
                     Generated by daily_portfolio_report.py | {datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
                 </div>
@@ -1019,18 +1307,26 @@ def main():
         # 3b. Get today's entered & exited positions
         print("\n📅 Checking today's activity...")
         entered_today, exited_today = get_todays_activity(signals_df, master_dict)
-        
+
+        # 3c. Get recent exits (last 5 trading days)
+        print("\n📋 Getting recent exits...")
+        recent_exits = get_recent_exits(signals_df, master_dict, trading_days=5)
+
+        # 3d. Calculate trailing strategy stats (3M, 6M, 12M)
+        print("\n📈 Calculating trailing strategy performance...")
+        trailing_stats = calculate_trailing_strategy_stats(signals_df)
+
         # 4. Generate sizing recommendations
         print("\n🎯 Analyzing performance...")
         sizing_analysis = generate_sizing_recommendations(equity_series, daily_pnl, CURRENT_ACCOUNT_SIZE)
-        
+
         print("\n" + "=" * 70)
         print(f"   {sizing_analysis['summary']}")
         print("=" * 70)
         for rec in sizing_analysis['recommendations']:
             print(f"   {rec}")
         print("=" * 70)
-        
+
         # 5. Send email
         print("\n📧 Sending email report...")
         send_portfolio_email(
@@ -1039,7 +1335,9 @@ def main():
             sizing_analysis=sizing_analysis,
             metrics=sizing_analysis['metrics'],
             entered_today_df=entered_today,
-            exited_today_df=exited_today
+            exited_today_df=exited_today,
+            trailing_stats=trailing_stats,
+            recent_exits_df=recent_exits
         )
         
         print("\n✅ Portfolio health report completed successfully!")
