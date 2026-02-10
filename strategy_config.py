@@ -758,7 +758,7 @@ _STRATEGY_BOOK_RAW = [
         "universe_tickers": LIQUID_UNIVERSE,
         "settings": {
             "trade_direction": "Long",
-            "entry_type": "Limit Order -0.5 ATR (Persistent)",
+            "entry_type": "Limit (Open +/- 0.5 ATR) GTC",
             "max_one_pos": True,
             "allow_same_day_reentry": False,
             "max_daily_entries": 20,
