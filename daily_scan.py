@@ -652,43 +652,51 @@ def check_signal(df, params, sznl_map):
         if not (rn_val >= r_min and rn_val <= r_max): return False
 
     # 4. Perf Rank
-    if 'perf_filters' in params:
+    _perf_filters = list(params.get('perf_filters', []))  # copy to avoid mutation
+
+    # Merge legacy single-window format if present
+    if params.get('use_perf_rank', False):
+        legacy = {
+            'window': params['perf_window'],
+            'logic': params['perf_logic'],
+            'thresh': params['perf_thresh'],
+            'consecutive': params.get('perf_consecutive', 1),
+        }
+        # Avoid duplicating if the same window+logic+thresh already exists
+        already_covered = any(
+            pf['window'] == legacy['window']
+            and pf['logic'] == legacy['logic']
+            and pf['thresh'] == legacy['thresh']
+            for pf in _perf_filters
+        )
+        if not already_covered:
+            _perf_filters.append(legacy)
+
+    if _perf_filters:
         combined_cond = pd.Series(True, index=df.index)
-        for pf in params['perf_filters']:
+        for pf in _perf_filters:
             col = f"rank_ret_{pf['window']}d"
             consec = pf.get('consecutive', 1)
-            
-            if pf['logic'] == '<': cond_f = df[col] < pf['thresh']
-            else: cond_f = df[col] > pf['thresh']
-            
-            if consec > 1: cond_f = cond_f.rolling(consec).sum() == consec
-            combined_cond = combined_cond & cond_f
-        
-        final_perf = combined_cond
-        
-        if params.get('perf_first_instance', False):
-            lookback = params.get('perf_lookback', 21)
-            prev_inst = final_perf.shift(1).rolling(lookback).sum()
-            final_perf = final_perf & (prev_inst == 0)
-            
-        if not final_perf.iloc[-1]: return False
 
-    elif params.get('use_perf_rank', False):
-        col = f"rank_ret_{params['perf_window']}d"
-        if params['perf_logic'] == '<': raw = df[col] < params['perf_thresh']
-        else: raw = df[col] > params['perf_thresh']
-        
-        consec = params.get('perf_consecutive', 1)
-        if consec > 1: persist = raw.rolling(consec).sum() == consec
-        else: persist = raw
-        
-        final_perf = persist
+            if pf['logic'] == '<':
+                cond_f = df[col] < pf['thresh']
+            else:
+                cond_f = df[col] > pf['thresh']
+
+            if consec > 1:
+                cond_f = cond_f.rolling(consec).sum() == consec
+
+            combined_cond = combined_cond & cond_f
+
+        final_perf = combined_cond
+
         if params.get('perf_first_instance', False):
             lookback = params.get('perf_lookback', 21)
             prev_inst = final_perf.shift(1).rolling(lookback).sum()
             final_perf = final_perf & (prev_inst == 0)
-            
-        if not final_perf.iloc[-1]: return False
+
+        if not final_perf.iloc[-1]:
+            return False
 
     # 5. Gap/Acc/Dist Filters
     if params.get('use_gap_filter', False):
