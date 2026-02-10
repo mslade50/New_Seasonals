@@ -182,6 +182,9 @@ def calculate_indicators(df, sznl_map, ticker, market_series=None, vix_series=No
     
     df['Sznl'] = get_sznl_val_series(ticker, df.index, sznl_map)
     df['Mkt_Sznl_Ref'] = get_sznl_val_series("^GSPC", df.index, sznl_map)
+
+    running_max = df['High'].expanding().max()
+    df['is_ath'] = df['High'] >= running_max
     
     rolling_high = df['High'].shift(1).rolling(252).max()
     rolling_low = df['Low'].shift(1).rolling(252).min()
