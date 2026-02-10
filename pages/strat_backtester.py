@@ -166,7 +166,7 @@ def calculate_indicators(df, sznl_map, ticker, market_series=None, vix_series=No
     df['EMA11'] = close_series.ewm(span=11, adjust=False).mean()
     df['EMA21'] = close_series.ewm(span=21, adjust=False).mean()
     
-    for window in [5, 10, 21]:
+    for window in [2, 5, 10, 21]:
         df[f'ret_{window}d'] = close_series.pct_change(window)
         df[f'rank_ret_{window}d'] = df[f'ret_{window}d'].expanding(min_periods=252).rank(pct=True) * 100.0
     
