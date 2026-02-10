@@ -881,6 +881,12 @@ def save_staging_orders(signals_list, strategy_book, sheet_name='Order_Staging')
     """
     Saves non-MOC orders (Limits, T+1, etc) to 'Order_Staging'.
     Excludes 'Signal Close' orders.
+    
+    CHANGES from previous version:
+    - FIX: GTC entry types now correctly detected (was only checking "Persistent")
+    - NEW: Bracket exit metadata columns (Tgt_ATR_Mult, Stop_ATR_Mult, 
+           Use_Target, Use_Stop, Hold_Days, Trade_Direction) so order_staging.py
+           can compute exit prices anchored to the resolved entry limit price.
     """
     if not signals_list: return
 
@@ -911,7 +917,14 @@ def save_staging_orders(signals_list, strategy_book, sheet_name='Order_Staging')
                     "Frozen_ATR": round(row['ATR'], 2),
                     "Signal_Close": round(row['Entry'], 2),
                     "Time_Exit_Date": str(row['Time Exit']),
-                    "Strategy_Ref": row.get('Strategy_Name', 'Companion')
+                    "Strategy_Ref": row.get('Strategy_Name', 'Companion'),
+                    # Bracket metadata for companion orders
+                    "Tgt_ATR_Mult": 0.0,
+                    "Stop_ATR_Mult": 0.0,
+                    "Use_Target": False,
+                    "Use_Stop": False,
+                    "Hold_Days": row.get('Days_To_Exit', 0),
+                    "Trade_Direction": "Short",
                 })
             continue
         
@@ -919,6 +932,7 @@ def save_staging_orders(signals_list, strategy_book, sheet_name='Order_Staging')
         if not strat: continue
         
         settings = strat['settings']
+        execution = strat['execution']
         entry_mode = settings.get('entry_type', 'Signal Close')
         
         # *** SKIP MOC ORDERS (They go to the other sheet) ***
@@ -931,16 +945,26 @@ def save_staging_orders(signals_list, strategy_book, sheet_name='Order_Staging')
         limit_price = 0.0
         tif_instruction = "DAY" 
 
+        # =====================================================
         # 1. ATR LIMIT ENTRY
+        # FIX: Now checks for BOTH "Persistent" and "GTC" to
+        # correctly route GTC limit orders as REL_CLOSE.
+        # Previously only checked "Persistent", causing
+        # "Limit (Open +/- 0.5 ATR) GTC" to fall through
+        # to REL_OPEN / DAY — a silent backtest divergence.
+        # =====================================================
         if "Limit" in entry_mode and "ATR" in entry_mode:
-            if "Persistent" in entry_mode:
+            is_persistent = "Persistent" in entry_mode or "GTC" in entry_mode
+            
+            if is_persistent:
                 entry_instruction = "REL_CLOSE"  # Anchored to Signal Close
-                tif_instruction = "GTC"  # Good til canceled (or hold_days)
+                tif_instruction = "GTC"           # Good til canceled (or hold_days)
             else:
                 entry_instruction = "REL_OPEN"   # Anchored to T+1 Open
                 tif_instruction = "DAY"
             
             if "0.5" in entry_mode: offset_atr = 0.5
+            elif "1 ATR" in entry_mode: offset_atr = 1.0
 
         elif "LOC" in entry_mode:
             entry_instruction = "LOC"
@@ -960,6 +984,19 @@ def save_staging_orders(signals_list, strategy_book, sheet_name='Order_Staging')
         
         ib_action = "SELL" if "SHORT" in row['Action'] else "BUY"
 
+        # =====================================================
+        # NEW: Pull bracket exit metadata from strategy config.
+        # These are ATR multipliers and flags — NOT prices.
+        # order_staging.py will compute actual prices once it
+        # resolves the entry limit price.
+        # =====================================================
+        use_target = execution.get('use_take_profit', False)
+        use_stop = execution.get('use_stop_loss', False)
+        tgt_atr_mult = execution.get('tgt_atr', 0.0)
+        stop_atr_mult = execution.get('stop_atr', 0.0)
+        hold_days = execution.get('hold_days', 0)
+        trade_direction = settings.get('trade_direction', 'Long')
+
         staging_data.append({
             "Scan_Date": datetime.datetime.now().strftime("%Y-%m-%d"),
             "Symbol": row['Ticker'],
@@ -974,7 +1011,14 @@ def save_staging_orders(signals_list, strategy_book, sheet_name='Order_Staging')
             "Frozen_ATR": round(row['ATR'], 2),
             "Signal_Close": round(row['Entry'], 2),
             "Time_Exit_Date": str(row['Time Exit']),
-            "Strategy_Ref": strat['name']
+            "Strategy_Ref": strat['name'],
+            # Bracket exit metadata (NEW)
+            "Tgt_ATR_Mult": tgt_atr_mult,
+            "Stop_ATR_Mult": stop_atr_mult,
+            "Use_Target": use_target,
+            "Use_Stop": use_stop,
+            "Hold_Days": hold_days,
+            "Trade_Direction": trade_direction,
         })
 
     # If all orders were "Signal Close", this list is empty now
