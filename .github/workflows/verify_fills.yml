@@ -1,20 +1,17 @@
-name: Verify Signal Fills
+name: Verify Fills (Post-Close)
 
 on:
-  # Run Mon-Fri at 5:00 PM ET (21:00 UTC standard, 22:00 UTC during EST)
-  # Using 22:00 UTC to cover EST; adjust to 21:00 for EDT if needed
   schedule:
-    - cron: '0 22 * * 1-5'
-  
-  # Allow manual trigger for backfill or debugging
-  workflow_dispatch:
+    # 5:15 PM ET = 22:15 UTC (after market close, after daily_scan finishes)
+    - cron: '15 22 * * 1-5'
+  workflow_dispatch:  # Manual trigger for testing
 
 jobs:
-  verify-fills:
+  verify:
     runs-on: ubuntu-latest
-    
+
     steps:
-      - name: Checkout repository
+      - name: Checkout repo
         uses: actions/checkout@v4
 
       - name: Set up Python
@@ -24,11 +21,11 @@ jobs:
 
       - name: Install dependencies
         run: |
-          pip install pandas yfinance gspread google-auth
+          pip install --upgrade pip
+          pip install yfinance gspread pandas numpy google-auth
 
       - name: Run fill verification
         env:
           GCP_JSON: ${{ secrets.GCP_JSON }}
         run: |
-          cd production
           python verify_fills.py
