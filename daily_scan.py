@@ -1642,22 +1642,28 @@ def run_daily_scan():
 
                     if strat['name'] == "Overbot Vol Spike":
                         is_ath_l10 = bool(calc_df['is_ath'].rolling(window=10, min_periods=1).max().iloc[-1])
-                        is_52w_high = bool(last_row.get('is_52w_high', False))
+                        is_52w_high_today = bool(last_row.get('is_52w_high', False))
+                        is_52w_high_l5 = bool(calc_df['is_52w_high'].rolling(window=5, min_periods=1).max().iloc[-1])
 
                         if is_ath_l10:
                             # Case 1: Made ATH in last 10 days → LOC only, normal risk
                             _skip_primary = True
                             risk = base_risk
                             sizing_note = f"ATH in L10 → LOC only (1.0x)"
-                        elif is_52w_high:
+                        elif is_52w_high_today:
                             # Case 2: No ATH in L10 but 52w high today → primary only, 0.66x
                             _skip_loc = True
                             risk = base_risk * 0.66
-                            sizing_note = f"52w High, no ATH L10 → Primary only (0.66x)"
-                        else:
-                            # Case 3: No ATH in L10, no 52w high → both primary + LOC, normal risk
+                            sizing_note = f"52w High today, no ATH L10 → Primary only (0.66x)"
+                        elif is_52w_high_l5:
+                            # Case 3: No ATH L10, no 52w high today, but 52w high in L5 → LOC only
+                            _skip_primary = True
                             risk = base_risk
-                            sizing_note = f"No ATH L10, no 52w High → Primary + LOC (1.0x)"
+                            sizing_note = f"52w High in L5 (not today) → LOC only (1.0x)"
+                        else:
+                            # Case 4: No ATH L10, no 52w high in L5 → both primary + LOC
+                            risk = base_risk
+                            sizing_note = f"No ATH L10, no 52w High L5 → Primary + LOC (1.0x)"
                     
                     if strat['name'] == "Weak Close Decent Sznls":
                         sznl_val = last_row.get('Sznl', 0)
