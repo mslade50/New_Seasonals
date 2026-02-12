@@ -29,6 +29,20 @@ except ImportError:
 
 
 # -----------------------------------------------------------------------------
+# CONSTANTS
+# -----------------------------------------------------------------------------
+# Sector ETFs for leadership analysis
+LEADERSHIP_ETFS = [
+    'XLB', 'XLC', 'XLE', 'XLF', 'XLI', 'XLK',
+    'XLP', 'XLU', 'XLV', 'XLY', 'SMH', 'XBI',
+    'XHB', 'KRE', 'XME', 'XOP', 'XRT', 'XLRE', 'VNQ'
+]
+
+# Defensive/commodity names to flag when leading
+DEFENSIVE_LEADERS = ['XLE', 'XLP', 'XLU']
+
+
+# -----------------------------------------------------------------------------
 # CACHING HELPERS
 # -----------------------------------------------------------------------------
 @st.cache_data(ttl=3600)
@@ -459,6 +473,202 @@ def create_dispersion_chart(disp_df: pd.DataFrame, view: str = "dispersion") -> 
     )
 
     return fig
+
+
+# -----------------------------------------------------------------------------
+# SECTOR LEADERSHIP HELPERS (Section 6)
+# -----------------------------------------------------------------------------
+@st.cache_data(ttl=3600)
+def download_sector_prices(start_date: str):
+    """Download sector ETF + SPY close prices."""
+    tickers = LEADERSHIP_ETFS + ['SPY']
+    raw = yf.download(tickers, start=start_date, auto_adjust=True, progress=False)
+
+    if raw.empty:
+        return None
+
+    # Handle yfinance MultiIndex
+    if isinstance(raw.columns, pd.MultiIndex):
+        prices = raw['Close'].copy()
+    else:
+        prices = raw[['Close']].copy()
+        prices.columns = ['SPY']
+
+    # Normalize column names
+    prices.columns = [str(c).strip().upper() for c in prices.columns]
+
+    # Normalize timezone
+    if prices.index.tz is not None:
+        prices.index = prices.index.tz_localize(None)
+
+    return prices
+
+
+def compute_sector_leadership(prices: pd.DataFrame, windows: list = [5, 10, 21]):
+    """
+    For each day and each lookback window, compute trailing returns for all sector ETFs
+    and identify the leader (best performer).
+
+    Returns a DataFrame with columns:
+      - leader_{w}d: ticker of top-performing sector ETF over trailing w days
+      - leader_{w}d_ret: the return of that leader
+      - defensive_leader_{w}d: True if leader is in DEFENSIVE_LEADERS
+    """
+    sector_cols = [c for c in prices.columns if c in LEADERSHIP_ETFS]
+
+    result = pd.DataFrame(index=prices.index)
+
+    for w in windows:
+        # Trailing returns for each sector ETF
+        returns = prices[sector_cols].pct_change(w)
+
+        # Leader = column with max return each day
+        result[f'leader_{w}d'] = returns.idxmax(axis=1)
+        result[f'leader_{w}d_ret'] = returns.max(axis=1)
+
+        # Flag if leader is defensive
+        result[f'defensive_leader_{w}d'] = result[f'leader_{w}d'].isin(DEFENSIVE_LEADERS)
+
+    return result
+
+
+def compute_leadership_forward_returns(
+    prices: pd.DataFrame,
+    leadership_df: pd.DataFrame,
+    lookback_window: int,
+    forward_windows: list = [5, 10, 21]
+):
+    """
+    When XLE/XLP/XLU is the trailing leader vs when they're not,
+    what are SPX forward returns?
+
+    Returns a DataFrame with one row per condition (XLE leads, XLP leads, XLU leads,
+    Any defensive leads, Non-defensive leads).
+    """
+    if 'SPY' not in prices.columns:
+        return pd.DataFrame()
+
+    spy = prices['SPY']
+
+    # Compute SPY forward returns
+    fwd_rets = {}
+    for fw in forward_windows:
+        fwd_rets[fw] = spy.pct_change(fw).shift(-fw)  # shift negative = forward
+
+    leader_col = f'leader_{lookback_window}d'
+
+    rows = []
+
+    # Individual defensive leaders
+    for ticker in DEFENSIVE_LEADERS:
+        mask = leadership_df[leader_col] == ticker
+        n_days = mask.sum()
+
+        if n_days == 0:
+            continue
+
+        row = {'Leader': ticker, 'Days Leading': n_days}
+
+        for fw in forward_windows:
+            fw_subset = fwd_rets[fw][mask].dropna()
+            row[f'SPX Fwd {fw}d Avg'] = fw_subset.mean() if len(fw_subset) > 0 else np.nan
+            row[f'SPX Fwd {fw}d Win%'] = (fw_subset > 0).mean() if len(fw_subset) > 0 else np.nan
+
+        rows.append(row)
+
+    # Any defensive leader
+    def_mask = leadership_df[f'defensive_leader_{lookback_window}d'] == True
+    n_def = def_mask.sum()
+
+    row_any_def = {'Leader': 'Any XLE/XLP/XLU', 'Days Leading': n_def}
+    for fw in forward_windows:
+        fw_subset = fwd_rets[fw][def_mask].dropna()
+        row_any_def[f'SPX Fwd {fw}d Avg'] = fw_subset.mean() if len(fw_subset) > 0 else np.nan
+        row_any_def[f'SPX Fwd {fw}d Win%'] = (fw_subset > 0).mean() if len(fw_subset) > 0 else np.nan
+    rows.append(row_any_def)
+
+    # Non-defensive (baseline comparison)
+    nondef_mask = ~def_mask & leadership_df[leader_col].notna()
+    n_nondef = nondef_mask.sum()
+
+    row_nondef = {'Leader': 'Other sector leads', 'Days Leading': n_nondef}
+    for fw in forward_windows:
+        fw_subset = fwd_rets[fw][nondef_mask].dropna()
+        row_nondef[f'SPX Fwd {fw}d Avg'] = fw_subset.mean() if len(fw_subset) > 0 else np.nan
+        row_nondef[f'SPX Fwd {fw}d Win%'] = (fw_subset > 0).mean() if len(fw_subset) > 0 else np.nan
+    rows.append(row_nondef)
+
+    return pd.DataFrame(rows)
+
+
+def compute_leadership_strategy_performance(
+    sig_df: pd.DataFrame,
+    leadership_df: pd.DataFrame,
+    lookback_window: int
+):
+    """
+    Strategy performance bucketed by sector leadership at time of trade entry.
+
+    Returns DataFrame: one row per leader condition with Trades, Avg R, Win Rate, Profit Factor.
+    """
+    sig = sig_df.copy()
+    if 'Date_normalized' not in sig.columns:
+        sig['Date_normalized'] = pd.to_datetime(sig['Date']).dt.normalize()
+    sig['R_Multiple'] = sig['PnL'] / sig['Risk $']
+
+    leader_col = f'leader_{lookback_window}d'
+    def_col = f'defensive_leader_{lookback_window}d'
+
+    # Map leadership to each trade's entry date
+    leader_lookup = leadership_df[leader_col].copy()
+    leader_lookup.index = leader_lookup.index.normalize()
+    def_lookup = leadership_df[def_col].copy()
+    def_lookup.index = def_lookup.index.normalize()
+
+    sig['leader'] = sig['Date_normalized'].map(leader_lookup)
+    sig['defensive_leader'] = sig['Date_normalized'].map(def_lookup)
+
+    rows = []
+
+    def calc_row(label, subset):
+        if subset.empty:
+            return None
+        n = len(subset)
+        winners = subset[subset['PnL'] > 0]
+        losers = subset[subset['PnL'] <= 0]
+        gross_profit = winners['PnL'].sum() if len(winners) > 0 else 0
+        gross_loss = abs(losers['PnL'].sum()) if len(losers) > 0 else 0
+        return {
+            'Condition': label,
+            'Trades': n,
+            'Avg R': subset['R_Multiple'].mean(),
+            'Win Rate': len(winners) / n,
+            'Profit Factor': gross_profit / gross_loss if gross_loss > 0 else 999,
+        }
+
+    # Individual defensive leaders
+    for ticker in DEFENSIVE_LEADERS:
+        result = calc_row(f'{ticker} leading', sig[sig['leader'] == ticker])
+        if result:
+            rows.append(result)
+
+    # Any defensive
+    result = calc_row('Any XLE/XLP/XLU leading', sig[sig['defensive_leader'] == True])
+    if result:
+        rows.append(result)
+
+    # Non-defensive baseline
+    nondef = sig[(sig['defensive_leader'] == False) & sig['leader'].notna()]
+    result = calc_row('Other sector leads', nondef)
+    if result:
+        rows.append(result)
+
+    # Overall baseline
+    result = calc_row('All trades (baseline)', sig[sig['leader'].notna()])
+    if result:
+        rows.append(result)
+
+    return pd.DataFrame(rows)
 
 
 # =============================================================================
@@ -911,6 +1121,137 @@ if _has_data:
 
 else:
     st.info("Run a backtest in the **Strategy Backtester** page first to enable the event study.")
+
+# =============================================================================
+# SECTION 6: SECTOR LEADERSHIP ANALYSIS
+# =============================================================================
+st.markdown("---")
+st.subheader("🏭 Sector Leadership Analysis")
+st.caption("When XLE, XLP, or XLU is the top-performing sector over trailing N days, what happens next?")
+
+# Inline control for lookback window
+leadership_window = st.radio(
+    "Trailing lookback for leadership",
+    [5, 10, 21],
+    index=2,  # default to 21
+    horizontal=True,
+    key="leadership_window"
+)
+
+# Download sector prices (cached 1hr)
+try:
+    sector_prices = download_sector_prices(start_date=str(start_date))
+    if sector_prices is not None and not sector_prices.empty:
+        leadership_df = compute_sector_leadership(sector_prices, windows=[5, 10, 21])
+    else:
+        leadership_df = None
+except Exception as e:
+    st.error(f"Could not load sector data: {e}")
+    sector_prices = None
+    leadership_df = None
+
+if leadership_df is not None and not leadership_df.empty:
+
+    # Current state callout
+    leader_col = f'leader_{leadership_window}d'
+    leader_ret_col = f'leader_{leadership_window}d_ret'
+
+    current_leader = leadership_df[leader_col].dropna().iloc[-1] if not leadership_df[leader_col].dropna().empty else None
+    current_leader_ret = leadership_df[leader_ret_col].dropna().iloc[-1] if not leadership_df[leader_ret_col].dropna().empty else 0
+
+    if current_leader:
+        is_defensive = current_leader in DEFENSIVE_LEADERS
+
+        if is_defensive:
+            st.warning(
+                f"**Current {leadership_window}d leader: {current_leader}** "
+                f"({current_leader_ret:+.1%}) — defensive/commodity leadership"
+            )
+        else:
+            st.success(
+                f"**Current {leadership_window}d leader: {current_leader}** "
+                f"({current_leader_ret:+.1%})"
+            )
+
+    # Table 1: SPX forward returns by leader
+    st.markdown(f"**SPX Forward Returns by {leadership_window}d Sector Leader**")
+
+    spx_table = compute_leadership_forward_returns(
+        sector_prices, leadership_df, leadership_window, forward_windows=[5, 10, 21]
+    )
+
+    if not spx_table.empty:
+        # Format
+        spx_format = {'Days Leading': '{:,.0f}'}
+        for fw in [5, 10, 21]:
+            spx_format[f'SPX Fwd {fw}d Avg'] = '{:+.2%}'
+            spx_format[f'SPX Fwd {fw}d Win%'] = '{:.1%}'
+
+        # Highlight the "Any XLE/XLP/XLU" row
+        def highlight_defensive_row(row):
+            if row['Leader'] == 'Any XLE/XLP/XLU':
+                return ['background-color: rgba(255, 160, 0, 0.15)'] * len(row)
+            if row['Leader'] == 'Other sector leads':
+                return ['background-color: rgba(100, 100, 255, 0.1)'] * len(row)
+            return [''] * len(row)
+
+        styled_spx = spx_table.style.apply(highlight_defensive_row, axis=1).format(
+            spx_format, na_rep='—'
+        )
+        st.dataframe(styled_spx, use_container_width=True, hide_index=True)
+    else:
+        st.warning("Could not compute SPX forward returns by sector leader.")
+
+    # Table 2: Strategy performance by leader (only if sig_df available)
+    try:
+        _has_sig_df = sig_df is not None and not sig_df.empty
+    except NameError:
+        _has_sig_df = False
+
+    if _has_sig_df:
+        st.markdown(f"**Strategy Performance by {leadership_window}d Sector Leader**")
+
+        strat_table = compute_leadership_strategy_performance(
+            sig_df, leadership_df, leadership_window
+        )
+
+        if not strat_table.empty:
+            def highlight_strat_row(row):
+                if row['Condition'] == 'Any XLE/XLP/XLU leading':
+                    return ['background-color: rgba(255, 160, 0, 0.15)'] * len(row)
+                if row['Condition'] == 'All trades (baseline)':
+                    return ['background-color: rgba(100, 100, 255, 0.1)'] * len(row)
+                return [''] * len(row)
+
+            styled_strat = strat_table.style.apply(highlight_strat_row, axis=1).format({
+                'Avg R': '{:+.3f}',
+                'Win Rate': '{:.1%}',
+                'Profit Factor': '{:.2f}',
+            })
+
+            st.dataframe(styled_strat, use_container_width=True, hide_index=True)
+
+    # Leaderboard: how often each sector leads (for context)
+    with st.expander("📊 Sector Leadership Frequency"):
+        freq = leadership_df[leader_col].value_counts()
+        total = freq.sum()
+        freq_df = pd.DataFrame({
+            'Sector': freq.index,
+            'Days Leading': freq.values,
+            '% of Days': freq.values / total
+        })
+        # Flag defensive
+        freq_df['Type'] = freq_df['Sector'].apply(
+            lambda x: '⚠️ Defensive' if x in DEFENSIVE_LEADERS else ''
+        )
+
+        styled_freq = freq_df.style.format({
+            '% of Days': '{:.1%}'
+        })
+        st.dataframe(styled_freq, use_container_width=True, hide_index=True)
+
+else:
+    st.warning("Could not load sector leadership data. Check network connection.")
 
 # -----------------------------------------------------------------------------
 # FOOTER
