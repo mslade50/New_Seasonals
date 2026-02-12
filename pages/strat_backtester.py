@@ -1663,20 +1663,40 @@ def main():
             if not open_df.empty:
                 current_prices, open_pnls, current_values = [], [], []
                 for row in open_df.itertuples():
-                    t_df = master_dict.get(row.Ticker.replace('.', '-'))
-                    if t_df is not None and not t_df.empty:
-                        if isinstance(t_df.columns, pd.MultiIndex):
-                            t_df.columns = [c[0] if isinstance(c, tuple) else c for c in t_df.columns]
-                        t_df.columns = [c.capitalize() for c in t_df.columns]
-                        last_close = t_df['Close'].iloc[-1]
-                    else:
+                    last_close = None
+                    ticker_raw = row.Ticker
+                    t_clean = ticker_raw.replace('.', '-')
+
+                    for t_key in [t_clean, ticker_raw, t_clean.upper(), ticker_raw.upper()]:
+                        t_df = master_dict.get(t_key)
+                        if t_df is not None and not t_df.empty:
+                            temp = t_df.copy()
+                            if isinstance(temp.columns, pd.MultiIndex):
+                                temp.columns = [c[0] if isinstance(c, tuple) else c for c in temp.columns]
+                            temp.columns = [c.capitalize() for c in temp.columns]
+                            if 'Close' in temp.columns:
+                                close_clean = temp['Close'].dropna()
+                                if not close_clean.empty:
+                                    last_close = close_clean.iloc[-1]
+                                    break
+
+                    if last_close is None or pd.isna(last_close):
+                        for t_key in [t_clean, ticker_raw]:
+                            p_df = processed_dict.get(t_key)
+                            if p_df is not None and not p_df.empty and 'Close' in p_df.columns:
+                                close_clean = p_df['Close'].dropna()
+                                if not close_clean.empty:
+                                    last_close = close_clean.iloc[-1]
+                                    break
+
+                    if last_close is None or pd.isna(last_close):
                         last_close = row.Price
-                    
+
                     if row.Action == 'BUY':
                         pnl = (last_close - row.Price) * row.Shares
                     else:
                         pnl = (row.Price - last_close) * row.Shares
-                    
+
                     current_prices.append(last_close)
                     open_pnls.append(pnl)
                     current_values.append(last_close * row.Shares)
@@ -1684,7 +1704,7 @@ def main():
                 open_df['Current Price'] = current_prices
                 open_df['Open PnL'] = open_pnls
                 open_df['Mkt Value'] = current_values
-                
+
                 total_long = open_df[open_df['Action'] == 'BUY']['Mkt Value'].sum()
                 total_short = open_df[open_df['Action'] == 'SELL SHORT']['Mkt Value'].sum()
                 net_exposure = total_long - total_short
