@@ -1582,88 +1582,62 @@ def calculate_capital_efficiency(sig_df, strategies):
     return df
 
 def create_portfolio_breakdown_charts(sig_df):
-    """Create cycle year, monthly, and day-of-week PnL bar charts."""
+    """Create cycle year, monthly, and day-of-week bar charts using log % returns."""
     if sig_df.empty:
         return None, None, None
 
     df = sig_df.copy()
     df['Exit Date'] = pd.to_datetime(df['Exit Date'])
+    df['Log Return'] = np.log1p(df['PnL'] / df['Equity at Signal']) * 100  # in log %
+
+    def make_bar_chart(agg_df, title):
+        colors = ['#00CC00' if v >= 0 else '#CC0000' for v in agg_df['LogPnL']]
+        fig = go.Figure(go.Bar(
+            x=agg_df['Label'], y=agg_df['LogPnL'],
+            marker_color=colors,
+            text=[f"{v:+.2f}%<br>{n:.0f} trades<br>{w:.0%} WR" for v, n, w in
+                  zip(agg_df['LogPnL'], agg_df['Trades'], agg_df['WinRate'])],
+            textposition='outside'
+        ))
+        fig.update_layout(
+            title=title,
+            yaxis_title="Cumulative Log Return (%)", height=400,
+            margin=dict(l=10, r=10, t=40, b=10)
+        )
+        return fig
+
+    def agg_group(grouped):
+        return grouped.agg(
+            LogPnL=('Log Return', 'sum'),
+            Trades=('Log Return', 'count'),
+            WinRate=('PnL', lambda x: (x > 0).mean())
+        )
 
     # --- Presidential Cycle ---
     cycle_map = {0: 'Election', 1: 'Post-Election', 2: 'Midterm', 3: 'Pre-Election'}
     df['Cycle'] = df['Exit Date'].dt.year % 4
     df['Cycle Label'] = df['Cycle'].map(cycle_map)
-    cycle_agg = df.groupby('Cycle Label').agg(
-        PnL=('PnL', 'sum'),
-        Trades=('PnL', 'count'),
-        WinRate=('PnL', lambda x: (x > 0).mean()),
-        AvgPnL=('PnL', 'mean')
-    ).reindex(['Post-Election', 'Midterm', 'Pre-Election', 'Election'])
-
-    colors_cycle = ['#00CC00' if v >= 0 else '#CC0000' for v in cycle_agg['PnL']]
-    fig_cycle = go.Figure(go.Bar(
-        x=cycle_agg.index, y=cycle_agg['PnL'],
-        marker_color=colors_cycle,
-        text=[f"${v:,.0f}<br>{n:.0f} trades<br>{w:.0%} WR" for v, n, w in
-              zip(cycle_agg['PnL'], cycle_agg['Trades'], cycle_agg['WinRate'])],
-        textposition='outside'
-    ))
-    fig_cycle.update_layout(
-        title="PnL by Presidential Cycle Year",
-        yaxis_title="Total PnL ($)", height=400,
-        margin=dict(l=10, r=10, t=40, b=10)
-    )
+    cycle_agg = agg_group(df.groupby('Cycle Label'))
+    cycle_agg = cycle_agg.reindex(['Post-Election', 'Midterm', 'Pre-Election', 'Election'])
+    cycle_agg['Label'] = cycle_agg.index
+    fig_cycle = make_bar_chart(cycle_agg, "Log Return by Presidential Cycle Year")
 
     # --- Monthly ---
     month_names = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
                    'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
     df['Month'] = df['Exit Date'].dt.month
-    month_agg = df.groupby('Month').agg(
-        PnL=('PnL', 'sum'),
-        Trades=('PnL', 'count'),
-        WinRate=('PnL', lambda x: (x > 0).mean()),
-        AvgPnL=('PnL', 'mean')
-    ).reindex(range(1, 13))
+    month_agg = agg_group(df.groupby('Month'))
+    month_agg = month_agg.reindex(range(1, 13))
     month_agg['Label'] = month_names
-
-    colors_month = ['#00CC00' if v >= 0 else '#CC0000' for v in month_agg['PnL']]
-    fig_month = go.Figure(go.Bar(
-        x=month_agg['Label'], y=month_agg['PnL'],
-        marker_color=colors_month,
-        text=[f"${v:,.0f}<br>{n:.0f}<br>{w:.0%}" for v, n, w in
-              zip(month_agg['PnL'], month_agg['Trades'], month_agg['WinRate'])],
-        textposition='outside'
-    ))
-    fig_month.update_layout(
-        title="PnL by Month",
-        yaxis_title="Total PnL ($)", height=400,
-        margin=dict(l=10, r=10, t=40, b=10)
-    )
+    fig_month = make_bar_chart(month_agg, "Log Return by Month")
 
     # --- Day of Week ---
     dow_names = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday']
     df['DOW'] = df['Exit Date'].dt.dayofweek
-    dow_agg = df.groupby('DOW').agg(
-        PnL=('PnL', 'sum'),
-        Trades=('PnL', 'count'),
-        WinRate=('PnL', lambda x: (x > 0).mean()),
-        AvgPnL=('PnL', 'mean')
-    ).reindex(range(5))
+    dow_agg = agg_group(df.groupby('DOW'))
+    dow_agg = dow_agg.reindex(range(5))
     dow_agg['Label'] = dow_names
-
-    colors_dow = ['#00CC00' if v >= 0 else '#CC0000' for v in dow_agg['PnL']]
-    fig_dow = go.Figure(go.Bar(
-        x=dow_agg['Label'], y=dow_agg['PnL'],
-        marker_color=colors_dow,
-        text=[f"${v:,.0f}<br>{n:.0f}<br>{w:.0%}" for v, n, w in
-              zip(dow_agg['PnL'], dow_agg['Trades'], dow_agg['WinRate'])],
-        textposition='outside'
-    ))
-    fig_dow.update_layout(
-        title="PnL by Day of Week (Exit Day)",
-        yaxis_title="Total PnL ($)", height=400,
-        margin=dict(l=10, r=10, t=40, b=10)
-    )
+    fig_dow = make_bar_chart(dow_agg, "Log Return by Day of Week (Exit Day)")
 
     return fig_cycle, fig_month, fig_dow
 # -----------------------------------------------------------------------------
