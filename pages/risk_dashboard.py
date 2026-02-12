@@ -174,6 +174,172 @@ def style_bucket_table(df: pd.DataFrame, current_bucket: str) -> pd.io.formats.s
     return styled
 
 
+# -----------------------------------------------------------------------------
+# EVENT STUDY HELPERS (Section 5)
+# -----------------------------------------------------------------------------
+def find_crossing_dates(disp_df: pd.DataFrame, threshold: float) -> list:
+    """
+    Find dates where dispersion_rank crosses above threshold from below.
+
+    A crossing = dispersion_rank >= threshold today AND dispersion_rank < threshold yesterday.
+
+    Returns list of crossing dates (DatetimeIndex-compatible).
+    """
+    rank = disp_df['dispersion_rank'].dropna()
+
+    above = rank >= threshold
+    below = rank < threshold
+
+    # Crossing = above today AND below yesterday
+    crossings = above & below.shift(1)
+
+    return rank[crossings].index.tolist()
+
+
+def collect_post_crossing_trades(
+    sig_df: pd.DataFrame,
+    crossing_dates: list,
+    forward_days: int
+) -> pd.DataFrame:
+    """
+    For each crossing date, collect trades entered within the next `forward_days` trading days.
+
+    Uses trading day calendar (sig_df's own dates) rather than calendar days.
+    """
+    if not crossing_dates:
+        return pd.DataFrame()
+
+    # Build a set of all trade entry dates for fast lookup
+    sig_df = sig_df.copy()
+    if 'Date_normalized' not in sig_df.columns:
+        sig_df['Date_normalized'] = pd.to_datetime(sig_df['Date']).dt.normalize()
+
+    # Get sorted unique trading dates from sig_df
+    all_trade_dates = sorted(sig_df['Date_normalized'].unique())
+
+    collected = []
+
+    for cross_date in crossing_dates:
+        cross_date = pd.Timestamp(cross_date).normalize()
+
+        # Find trade dates within forward_days TRADING days after crossing
+        # Use forward_days * 2 calendar days as outer bound to handle weekends/holidays
+        future_dates = [d for d in all_trade_dates
+                        if d > cross_date and d <= cross_date + pd.Timedelta(days=forward_days * 2)]
+
+        # Take only the first `forward_days` trading days
+        future_trading_days = future_dates[:forward_days]
+
+        if not future_trading_days:
+            continue
+
+        # Collect trades entered on these dates
+        mask = sig_df['Date_normalized'].isin(future_trading_days)
+        window_trades = sig_df[mask].copy()
+        window_trades['crossing_date'] = cross_date
+        window_trades['crossing_label'] = f"{cross_date.strftime('%Y-%m-%d')}"
+        collected.append(window_trades)
+
+    if not collected:
+        return pd.DataFrame()
+
+    return pd.concat(collected, ignore_index=True)
+
+
+def compute_event_study(sig_df, disp_df, threshold, forward_windows=[5, 10, 21]):
+    """
+    Full event study for a single threshold.
+
+    Returns a dict with:
+    - n_events: number of crossing events
+    - crossing_dates: list of dates
+    - per-window metrics: {5: {trades, avg_r, win_rate, pf}, 10: {...}, 21: {...}}
+    """
+    crossing_dates = find_crossing_dates(disp_df, threshold)
+
+    # R-Multiple for the full sig_df (needed for all windows)
+    sig_df = sig_df.copy()
+    sig_df['R_Multiple'] = sig_df['PnL'] / sig_df['Risk $']
+
+    result = {
+        'n_events': len(crossing_dates),
+        'crossing_dates': crossing_dates,
+        'windows': {}
+    }
+
+    for window in forward_windows:
+        post_trades = collect_post_crossing_trades(sig_df, crossing_dates, window)
+
+        if post_trades.empty:
+            result['windows'][window] = {
+                'trades': 0, 'avg_r': 0, 'win_rate': 0, 'profit_factor': 0
+            }
+            continue
+
+        post_trades['R_Multiple'] = post_trades['PnL'] / post_trades['Risk $']
+
+        n = len(post_trades)
+        winners = post_trades[post_trades['PnL'] > 0]
+        losers = post_trades[post_trades['PnL'] <= 0]
+
+        gross_profit = winners['PnL'].sum() if len(winners) > 0 else 0
+        gross_loss = abs(losers['PnL'].sum()) if len(losers) > 0 else 0
+
+        result['windows'][window] = {
+            'trades': n,
+            'avg_r': post_trades['R_Multiple'].mean(),
+            'win_rate': len(winners) / n if n > 0 else 0,
+            'profit_factor': gross_profit / gross_loss if gross_loss > 0 else 999
+        }
+
+    return result
+
+
+def build_event_study_table(sig_df, disp_df, thresholds=[90, 95], forward_windows=[5, 10, 21]):
+    """
+    Build the summary DataFrame comparing post-crossing performance to baseline.
+    """
+    # Baseline: all trades
+    sig_df_copy = sig_df.copy()
+    sig_df_copy['R_Multiple'] = sig_df_copy['PnL'] / sig_df_copy['Risk $']
+
+    baseline_n = len(sig_df_copy)
+    baseline_avg_r = sig_df_copy['R_Multiple'].mean()
+    baseline_wr = (sig_df_copy['PnL'] > 0).mean()
+
+    rows = []
+
+    for threshold in thresholds:
+        study = compute_event_study(sig_df, disp_df, threshold, forward_windows)
+
+        row = {
+            'Signal': f'Crosses {threshold}th pctl',
+            'Events': study['n_events'],
+        }
+
+        for w in forward_windows:
+            metrics = study['windows'].get(w, {})
+            row[f'Trades ({w}d)'] = metrics.get('trades', 0)
+            row[f'Avg R ({w}d)'] = metrics.get('avg_r', 0)
+            row[f'Win% ({w}d)'] = metrics.get('win_rate', 0)
+
+        rows.append(row)
+
+    # Baseline row
+    baseline_row = {
+        'Signal': 'Baseline (all trades)',
+        'Events': '—',
+    }
+    for w in forward_windows:
+        baseline_row[f'Trades ({w}d)'] = baseline_n
+        baseline_row[f'Avg R ({w}d)'] = baseline_avg_r
+        baseline_row[f'Win% ({w}d)'] = baseline_wr
+
+    rows.append(baseline_row)
+
+    return pd.DataFrame(rows)
+
+
 def create_dispersion_chart(disp_df: pd.DataFrame, view: str = "dispersion") -> go.Figure:
     """Create interactive Plotly chart for dispersion data."""
     df = disp_df.dropna(subset=["dispersion"]).copy()
@@ -669,6 +835,71 @@ else:
                 st.warning("No trades found for selected strategy.")
     else:
         st.warning("No trades could be matched to dispersion data. Check date ranges.")
+
+# =============================================================================
+# SECTION 5: DISPERSION CROSSING EVENT STUDY
+# =============================================================================
+st.markdown("---")
+st.subheader("⚡ Dispersion Crossing Event Study")
+st.caption("When dispersion spikes above a threshold, does strategy performance degrade in the forward window?")
+
+# Reuse sig_df and sig_df_with_disp from Section 4
+# Use try/except since sig_df_with_disp is only defined if sig_df loaded successfully
+try:
+    _has_data = sig_df is not None and sig_df_with_disp is not None and not sig_df_with_disp.empty
+except NameError:
+    _has_data = False
+
+if _has_data:
+
+    event_table = build_event_study_table(
+        sig_df_with_disp,
+        disp_clean,
+        thresholds=[90, 95],
+        forward_windows=[5, 10, 21]
+    )
+
+    # Format the table
+    format_dict = {}
+    for w in [5, 10, 21]:
+        format_dict[f'Avg R ({w}d)'] = '{:+.3f}'
+        format_dict[f'Win% ({w}d)'] = '{:.1%}'
+
+    # Highlight baseline row for comparison
+    def highlight_baseline(row):
+        if row['Signal'] == 'Baseline (all trades)':
+            return ['background-color: rgba(100, 100, 255, 0.1)'] * len(row)
+        return [''] * len(row)
+
+    styled_event = event_table.style.apply(highlight_baseline, axis=1).format(
+        format_dict, na_rep='—'
+    )
+
+    st.dataframe(styled_event, use_container_width=True, hide_index=True)
+
+    # Interpretation helper
+    st.caption(
+        "A 'crossing' = dispersion_rank moves from below to at/above the threshold "
+        "(prevents double-counting sustained high readings). "
+        "Trades are collected within the forward window after each crossing. "
+        "Compare Avg R and Win% against the baseline row. "
+        "If post-spike Avg R is materially below baseline, that's a sizing signal with a specific duration."
+    )
+
+    # Show the individual crossing dates in an expander for transparency
+    with st.expander("📅 Crossing Event Dates"):
+        for threshold in [90, 95]:
+            crossing_dates = find_crossing_dates(disp_clean, threshold)
+            if crossing_dates:
+                dates_str = [pd.Timestamp(d).strftime('%Y-%m-%d') for d in crossing_dates]
+                st.write(f"**{threshold}th percentile crossings ({len(dates_str)} events):**")
+                # Display as a compact comma-separated list, not a huge table
+                st.text(', '.join(dates_str))
+            else:
+                st.write(f"**{threshold}th percentile:** No crossings found in data range")
+
+else:
+    st.info("Run a backtest in the **Strategy Backtester** page first to enable the event study.")
 
 # -----------------------------------------------------------------------------
 # FOOTER
