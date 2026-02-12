@@ -477,7 +477,23 @@ def get_historical_mask(df, params, sznl_map, ticker_name="UNK"):
     if params.get('use_vix_filter', False) and 'VIX_Value' in df.columns:
         vix_vals = df['VIX_Value'].values
         conditions.append((vix_vals >= params.get('vix_min', 0)) & (vix_vals <= params.get('vix_max', 100)))
+    # Today's return in ATR terms (used by Overbot Vol Spike)
+    if params.get('use_today_return', False):
+        prev_close = np.roll(df['Close'].values, 1)
+        daily_ret_atr = (df['Close'].values - prev_close) / df['ATR'].values
+        conditions.append(
+            (daily_ret_atr >= params.get('return_min', -100)) &
+            (daily_ret_atr <= params.get('return_max', 100))
+        )
 
+    # ATR-normalized return filter (used by Weak close > 20d MA)
+    if params.get('use_atr_ret_filter', False):
+        prev_close = np.roll(df['Close'].values, 1)
+        atr_ret = (df['Close'].values - prev_close) / df['ATR'].values
+        conditions.append(
+            (atr_ret >= params.get('atr_ret_min', -100)) &
+            (atr_ret <= params.get('atr_ret_max', 100))
+        )
     # MA touch filter
     if params.get('use_ma_touch', False):
         ma_col_map = {"SMA 10": "SMA10", "SMA 20": "SMA20", "SMA 50": "SMA50", "SMA 100": "SMA100", "SMA 200": "SMA200", 
