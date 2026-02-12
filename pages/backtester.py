@@ -332,7 +332,30 @@ def _generate_key_filters(params):
             filters.append(f"Today's range < {params['range_atr_max']:.1f} ATR")
         else:
             filters.append(f"Today's range between {params['range_atr_min']:.1f}-{params['range_atr_max']:.1f} ATR")
-    
+    day_label = {0: "Signal day", 1: "T-1", 2: "T-2", 3: "T-3", 4: "T-4", 5: "T-5"}
+    for pa in params.get('price_action_filters', []):
+        dl = day_label.get(pa.get('lag', 0), f"T-{pa.get('lag', 0)}")
+        pa_type = pa['type']
+        if pa_type == 'range_pct':
+            filters.append(f"{dl}: Close in {pa['min']:.0f}-{pa['max']:.0f}% of range")
+        elif pa_type == 'atr_ret':
+            filters.append(f"{dl}: Net change {pa['min']:.1f} to {pa['max']:.1f} ATR")
+        elif pa_type == 'range_atr':
+            logic = pa.get('logic', 'Between')
+            if logic == '>':
+                filters.append(f"{dl}: Range > {pa['min']:.1f} ATR")
+            elif logic == '<':
+                filters.append(f"{dl}: Range < {pa['max']:.1f} ATR")
+            else:
+                filters.append(f"{dl}: Range {pa['min']:.1f}-{pa['max']:.1f} ATR")
+        elif pa_type == 'close_gt_open':
+            filters.append(f"{dl}: Close > Open (green)")
+        elif pa_type == 'close_lt_open':
+            filters.append(f"{dl}: Close < Open (red)")
+        elif pa_type == 'close_gt_prev_high':
+            filters.append(f"{dl}: Close > Prev High")
+        elif pa_type == 'close_lt_prev_low':
+            filters.append(f"{dl}: Close < Prev Low")
     if params.get('use_ma_dist_filter'):
         ma_type = params.get('dist_ma_type', 'SMA 200')
         logic = params.get('dist_logic', 'Between')
@@ -511,6 +534,8 @@ def build_strategy_dict(params, tickers_to_run, pf, sqn, win_rate, expectancy_r)
             "use_range_filter": params.get('use_range_filter', False), "range_min": params.get('range_min', 0), "range_max": params.get('range_max', 100),
             "use_atr_ret_filter": params.get('use_atr_ret_filter', False), "atr_ret_min": params.get('atr_ret_min', 0.0), "atr_ret_max": params.get('atr_ret_max', 1.0),
             "use_range_atr_filter": params.get('use_range_atr_filter', False), "range_atr_logic": params.get('range_atr_logic', 'Between'), "range_atr_min": params.get('range_atr_min', 1.0), "range_atr_max": params.get('range_atr_max', 3.0),
+            # Multi-day price action
+            "price_action_filters": params.get('price_action_filters', []),
             # Distance from MA
             "use_ma_dist_filter": params.get('use_ma_dist_filter', False), "dist_ma_type": params.get('dist_ma_type', 'SMA 200'), "dist_logic": params.get('dist_logic', 'Between'), "dist_min": params.get('dist_min', 0.0), "dist_max": params.get('dist_max', 2.0),
             # Volume
@@ -649,6 +674,33 @@ def run_engine(universe_dict, params, sznl_map, market_series=None, vix_series=N
                     conditions.append(range_in_atr < params['range_atr_max'])
                 elif params['range_atr_logic'] == 'Between':
                     conditions.append((range_in_atr >= params['range_atr_min']) & (range_in_atr <= params['range_atr_max']))
+            # --- MULTI-DAY PRICE ACTION FILTERS ---
+            for pa in params.get('price_action_filters', []):
+                pa_lag = pa.get('lag', 0)
+                pa_type = pa['type']
+                if pa_type == 'range_pct':
+                    series = df['RangePct'].shift(pa_lag) * 100
+                    conditions.append((series >= pa['min']) & (series <= pa['max']))
+                elif pa_type == 'atr_ret':
+                    series = df['Change_in_ATR'].shift(pa_lag)
+                    conditions.append((series >= pa['min']) & (series <= pa['max']))
+                elif pa_type == 'range_atr':
+                    series = ((df['High'] - df['Low']) / df['ATR']).shift(pa_lag)
+                    pa_logic = pa.get('logic', 'Between')
+                    if pa_logic == '>':
+                        conditions.append(series > pa['min'])
+                    elif pa_logic == '<':
+                        conditions.append(series < pa['max'])
+                    else:
+                        conditions.append((series >= pa['min']) & (series <= pa['max']))
+                elif pa_type == 'close_gt_open':
+                    conditions.append(df['Close'].shift(pa_lag) > df['Open'].shift(pa_lag))
+                elif pa_type == 'close_lt_open':
+                    conditions.append(df['Close'].shift(pa_lag) < df['Open'].shift(pa_lag))
+                elif pa_type == 'close_gt_prev_high':
+                    conditions.append(df['Close'].shift(pa_lag) > df['High'].shift(pa_lag + 1))
+                elif pa_type == 'close_lt_prev_low':
+                    conditions.append(df['Close'].shift(pa_lag) < df['Low'].shift(pa_lag + 1))
             if params.get('use_dow_filter', False): conditions.append(df['DayOfWeekVal'].isin(params['allowed_days']))
             
             if 'allowed_cycles' in params and len(params['allowed_cycles']) < 4:
@@ -1167,6 +1219,32 @@ def main():
         with ra1: range_atr_logic = st.selectbox("Logic", [">", "<", "Between"], key="range_atr_logic", disabled=not use_range_atr_filter)
         with ra2: range_atr_min = st.number_input("Min Range (ATR)", 0.0, 20.0, 1.0, step=0.1, key="range_atr_min", disabled=not use_range_atr_filter)
         with ra3: range_atr_max = st.number_input("Max Range (ATR)", 0.0, 20.0, 3.0, step=0.1, key="range_atr_max", disabled=not use_range_atr_filter)
+        st.markdown("---")
+        st.markdown("#### Multi-Day Price Action Conditions")
+        st.caption("Add conditions on prior days' candles. Lag 0 = signal day, 1 = day before signal, etc. All conditions are AND logic.")
+        num_pa_conditions = st.number_input("Number of conditions", 0, 6, 0, key="num_pa_cond")
+        price_action_filters = []
+        for pa_i in range(num_pa_conditions):
+            st.markdown(f"**Condition {pa_i + 1}**")
+            pa_cols = st.columns([2, 1, 1, 1, 1])
+            with pa_cols[0]:
+                pa_type = st.selectbox("Type", [
+                    "range_pct", "atr_ret", "range_atr",
+                    "close_gt_open", "close_lt_open",
+                    "close_gt_prev_high", "close_lt_prev_low"
+                ], key=f"pa_type_{pa_i}")
+            with pa_cols[1]:
+                pa_lag = st.number_input("Day Offset", 0, 5, 0, key=f"pa_lag_{pa_i}")
+            pa_dict = {"type": pa_type, "lag": pa_lag}
+            if pa_type in ("range_pct", "atr_ret", "range_atr"):
+                with pa_cols[2]:
+                    pa_dict["min"] = st.number_input("Min", -10.0, 100.0, 0.0, step=0.1, key=f"pa_min_{pa_i}")
+                with pa_cols[3]:
+                    pa_dict["max"] = st.number_input("Max", -10.0, 100.0, 100.0, step=0.1, key=f"pa_max_{pa_i}")
+                if pa_type == "range_atr":
+                    with pa_cols[4]:
+                        pa_dict["logic"] = st.selectbox("Logic", [">", "<", "Between"], key=f"pa_ra_logic_{pa_i}")
+            price_action_filters.append(pa_dict)
     with st.expander("Time & Cycle Filters", expanded=False):
         t_c1, t_c2 = st.columns(2)
         with t_c1:
@@ -1410,6 +1488,7 @@ def main():
             'trend_filter': trend_filter, 'universe_tickers': tickers_to_run, 'slippage_bps': slippage_bps, 'entry_conf_bps': entry_conf_bps, 'perf_filters': perf_filters, 'perf_first_instance': perf_first,
             'use_atr_ret_filter': use_atr_ret_filter, 'atr_ret_min': atr_ret_min, 'atr_ret_max': atr_ret_max,
             'use_range_atr_filter': use_range_atr_filter, 'range_atr_logic': range_atr_logic, 'range_atr_min': range_atr_min, 'range_atr_max': range_atr_max,
+            'price_action_filters': price_action_filters,
             'perf_lookback': perf_lookback, 'ma_consec_filters': ma_consec_filters, 'use_sznl': use_sznl, 'sznl_logic': sznl_logic, 'sznl_thresh': sznl_thresh, 'sznl_first_instance': sznl_first,
             'sznl_lookback': sznl_lookback, 'use_market_sznl': use_market_sznl, 'market_sznl_logic': market_sznl_logic, 'market_sznl_thresh': market_sznl_thresh, 'use_52w': use_52w, '52w_type': type_52w,
             'use_ath': use_ath, 'ath_type': ath_type,
