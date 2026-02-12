@@ -39,7 +39,7 @@ LEADERSHIP_ETFS = [
 ]
 
 # Defensive/commodity names to flag when leading
-DEFENSIVE_LEADERS = ['XLE', 'XLP', 'XLU']
+DEFENSIVE_LEADERS = ['XLE', 'XLP', 'XLV']
 
 
 # -----------------------------------------------------------------------------
@@ -539,7 +539,7 @@ def compute_leadership_forward_returns(
     forward_windows: list = [5, 10, 21]
 ):
     """
-    When XLE/XLP/XLU is the trailing leader vs when they're not,
+    When XLE/XLP/XLV is the trailing leader vs when they're not,
     what are SPX forward returns?
 
     Returns a DataFrame with one row per condition (XLE leads, XLP leads, XLU leads,
@@ -580,7 +580,7 @@ def compute_leadership_forward_returns(
     def_mask = leadership_df[f'defensive_leader_{lookback_window}d'] == True
     n_def = def_mask.sum()
 
-    row_any_def = {'Leader': 'Any XLE/XLP/XLU', 'Days Leading': n_def}
+    row_any_def = {'Leader': 'Any XLE/XLP/XLV', 'Days Leading': n_def}
     for fw in forward_windows:
         fw_subset = fwd_rets[fw][def_mask].dropna()
         row_any_def[f'SPX Fwd {fw}d Avg'] = fw_subset.mean() if len(fw_subset) > 0 else np.nan
@@ -653,7 +653,7 @@ def compute_leadership_strategy_performance(
             rows.append(result)
 
     # Any defensive
-    result = calc_row('Any XLE/XLP/XLU leading', sig[sig['defensive_leader'] == True])
+    result = calc_row('Any XLE/XLP/XLV leading', sig[sig['defensive_leader'] == True])
     if result:
         rows.append(result)
 
@@ -1187,9 +1187,9 @@ if leadership_df is not None and not leadership_df.empty:
             spx_format[f'SPX Fwd {fw}d Avg'] = '{:+.2%}'
             spx_format[f'SPX Fwd {fw}d Win%'] = '{:.1%}'
 
-        # Highlight the "Any XLE/XLP/XLU" row
+        # Highlight the "Any XLE/XLP/XLV" row
         def highlight_defensive_row(row):
-            if row['Leader'] == 'Any XLE/XLP/XLU':
+            if row['Leader'] == 'Any XLE/XLP/XLV':
                 return ['background-color: rgba(255, 160, 0, 0.15)'] * len(row)
             if row['Leader'] == 'Other sector leads':
                 return ['background-color: rgba(100, 100, 255, 0.1)'] * len(row)
@@ -1217,7 +1217,7 @@ if leadership_df is not None and not leadership_df.empty:
 
         if not strat_table.empty:
             def highlight_strat_row(row):
-                if row['Condition'] == 'Any XLE/XLP/XLU leading':
+                if row['Condition'] == 'Any XLE/XLP/XLV leading':
                     return ['background-color: rgba(255, 160, 0, 0.15)'] * len(row)
                 if row['Condition'] == 'All trades (baseline)':
                     return ['background-color: rgba(100, 100, 255, 0.1)'] * len(row)
