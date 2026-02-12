@@ -177,11 +177,12 @@ def style_bucket_table(df: pd.DataFrame, current_bucket: str) -> pd.io.formats.s
 # -----------------------------------------------------------------------------
 # EVENT STUDY HELPERS (Section 5)
 # -----------------------------------------------------------------------------
-def find_crossing_dates(disp_df: pd.DataFrame, threshold: float) -> list:
+def find_crossing_dates(disp_df: pd.DataFrame, threshold: float, cooldown_days: int = 21) -> list:
     """
     Find dates where dispersion_rank crosses above threshold from below.
 
     A crossing = dispersion_rank >= threshold today AND dispersion_rank < threshold yesterday.
+    After a crossing is detected, skip subsequent crossings within cooldown_days calendar days.
 
     Returns list of crossing dates (DatetimeIndex-compatible).
     """
@@ -193,7 +194,17 @@ def find_crossing_dates(disp_df: pd.DataFrame, threshold: float) -> list:
     # Crossing = above today AND below yesterday
     crossings = above & below.shift(1)
 
-    return rank[crossings].index.tolist()
+    raw_dates = rank[crossings].index.tolist()
+
+    # Enforce cooldown: skip crossings within cooldown_days of last accepted crossing
+    filtered = []
+    last_accepted = None
+    for d in raw_dates:
+        if last_accepted is None or (d - last_accepted).days >= cooldown_days:
+            filtered.append(d)
+            last_accepted = d
+
+    return filtered
 
 
 def collect_post_crossing_trades(
