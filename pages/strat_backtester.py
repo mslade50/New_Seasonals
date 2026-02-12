@@ -1581,7 +1581,91 @@ def calculate_capital_efficiency(sig_df, strategies):
     
     return df
 
+def create_portfolio_breakdown_charts(sig_df):
+    """Create cycle year, monthly, and day-of-week PnL bar charts."""
+    if sig_df.empty:
+        return None, None, None
 
+    df = sig_df.copy()
+    df['Exit Date'] = pd.to_datetime(df['Exit Date'])
+
+    # --- Presidential Cycle ---
+    cycle_map = {0: 'Election', 1: 'Post-Election', 2: 'Midterm', 3: 'Pre-Election'}
+    df['Cycle'] = df['Exit Date'].dt.year % 4
+    df['Cycle Label'] = df['Cycle'].map(cycle_map)
+    cycle_agg = df.groupby('Cycle Label').agg(
+        PnL=('PnL', 'sum'),
+        Trades=('PnL', 'count'),
+        WinRate=('PnL', lambda x: (x > 0).mean()),
+        AvgPnL=('PnL', 'mean')
+    ).reindex(['Post-Election', 'Midterm', 'Pre-Election', 'Election'])
+
+    colors_cycle = ['#00CC00' if v >= 0 else '#CC0000' for v in cycle_agg['PnL']]
+    fig_cycle = go.Figure(go.Bar(
+        x=cycle_agg.index, y=cycle_agg['PnL'],
+        marker_color=colors_cycle,
+        text=[f"${v:,.0f}<br>{n:.0f} trades<br>{w:.0%} WR" for v, n, w in
+              zip(cycle_agg['PnL'], cycle_agg['Trades'], cycle_agg['WinRate'])],
+        textposition='outside'
+    ))
+    fig_cycle.update_layout(
+        title="PnL by Presidential Cycle Year",
+        yaxis_title="Total PnL ($)", height=400,
+        margin=dict(l=10, r=10, t=40, b=10)
+    )
+
+    # --- Monthly ---
+    month_names = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+                   'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+    df['Month'] = df['Exit Date'].dt.month
+    month_agg = df.groupby('Month').agg(
+        PnL=('PnL', 'sum'),
+        Trades=('PnL', 'count'),
+        WinRate=('PnL', lambda x: (x > 0).mean()),
+        AvgPnL=('PnL', 'mean')
+    ).reindex(range(1, 13))
+    month_agg['Label'] = month_names
+
+    colors_month = ['#00CC00' if v >= 0 else '#CC0000' for v in month_agg['PnL']]
+    fig_month = go.Figure(go.Bar(
+        x=month_agg['Label'], y=month_agg['PnL'],
+        marker_color=colors_month,
+        text=[f"${v:,.0f}<br>{n:.0f}<br>{w:.0%}" for v, n, w in
+              zip(month_agg['PnL'], month_agg['Trades'], month_agg['WinRate'])],
+        textposition='outside'
+    ))
+    fig_month.update_layout(
+        title="PnL by Month",
+        yaxis_title="Total PnL ($)", height=400,
+        margin=dict(l=10, r=10, t=40, b=10)
+    )
+
+    # --- Day of Week ---
+    dow_names = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday']
+    df['DOW'] = df['Exit Date'].dt.dayofweek
+    dow_agg = df.groupby('DOW').agg(
+        PnL=('PnL', 'sum'),
+        Trades=('PnL', 'count'),
+        WinRate=('PnL', lambda x: (x > 0).mean()),
+        AvgPnL=('PnL', 'mean')
+    ).reindex(range(5))
+    dow_agg['Label'] = dow_names
+
+    colors_dow = ['#00CC00' if v >= 0 else '#CC0000' for v in dow_agg['PnL']]
+    fig_dow = go.Figure(go.Bar(
+        x=dow_agg['Label'], y=dow_agg['PnL'],
+        marker_color=colors_dow,
+        text=[f"${v:,.0f}<br>{n:.0f}<br>{w:.0%}" for v, n, w in
+              zip(dow_agg['PnL'], dow_agg['Trades'], dow_agg['WinRate'])],
+        textposition='outside'
+    ))
+    fig_dow.update_layout(
+        title="PnL by Day of Week (Exit Day)",
+        yaxis_title="Total PnL ($)", height=400,
+        margin=dict(l=10, r=10, t=40, b=10)
+    )
+
+    return fig_cycle, fig_month, fig_dow
 # -----------------------------------------------------------------------------
 # MAIN APP
 # -----------------------------------------------------------------------------
@@ -1929,7 +2013,21 @@ def main():
                 col2.metric("Max Gross Exposure", f"{exposure_df['Gross Exposure %'].max():.1f}%")
                 col3.metric("Avg Net Exposure", f"{exposure_df['Net Exposure %'].mean():.1f}%")
                 col4.metric("Max Net Exposure", f"{exposure_df['Net Exposure %'].max():.1f}%")
-            
+
+            st.divider()
+            st.subheader("📊 Portfolio Breakdown")
+            fig_cycle, fig_month, fig_dow = create_portfolio_breakdown_charts(sig_df)
+
+            if fig_cycle:
+                st.plotly_chart(fig_cycle, use_container_width=True)
+
+                col1, col2 = st.columns(2)
+                with col1:
+                    if fig_month:
+                        st.plotly_chart(fig_month, use_container_width=True)
+                with col2:
+                    if fig_dow:
+                        st.plotly_chart(fig_dow, use_container_width=True)
             st.divider()
             st.subheader("🎯 Equity Curve Regime Analysis")
             st.caption("Analyzing whether recent performance predicts tomorrow's returns - useful for adaptive position sizing.")
