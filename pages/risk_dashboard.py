@@ -3,6 +3,7 @@ import pandas as pd
 import numpy as np
 import yfinance as yf
 import datetime
+import time
 import sys
 import os
 import plotly.graph_objects as go
@@ -478,6 +479,196 @@ if spy_df is not None and not spy_df.empty:
         st.warning("Could not compute forward returns. Insufficient overlapping data.")
 else:
     st.warning("SPY data not available. Forward returns analysis skipped.")
+
+# =============================================================================
+# SECTION 4: STRATEGY PERFORMANCE BY DISPERSION REGIME
+# =============================================================================
+st.markdown("---")
+st.subheader("📊 Strategy Performance by Dispersion Regime")
+
+
+def load_cached_sig_df():
+    """Load cached backtest results from strat_backtester.py."""
+    cache_path = os.path.join(parent_dir, "data", "backtest_sig_df.parquet")
+    if not os.path.exists(cache_path):
+        return None, None
+
+    mod_time = os.path.getmtime(cache_path)
+    cache_date = datetime.datetime.fromtimestamp(mod_time).strftime("%Y-%m-%d %H:%M")
+
+    sig_df = pd.read_parquet(cache_path)
+
+    # Ensure Date column is datetime
+    if 'Date' in sig_df.columns:
+        sig_df['Date'] = pd.to_datetime(sig_df['Date'])
+
+    return sig_df, cache_date
+
+
+def compute_regime_performance(sig_df_with_disp):
+    """Bucket trades by dispersion regime and compute aggregate metrics."""
+
+    bins = [0, 25, 50, 75, 90, 95, 100.01]  # 100.01 to include rank=100
+    labels = ['0-25 (Low)', '25-50', '50-75', '75-90', '90-95 (High)', '95-100 (Extreme)']
+
+    df = sig_df_with_disp.copy()
+    df['regime_bucket'] = pd.cut(
+        df['dispersion_rank'],
+        bins=bins,
+        labels=labels,
+        right=True,
+        include_lowest=True
+    )
+
+    # R-Multiple
+    df['R_Multiple'] = df['PnL'] / df['Risk $']
+
+    results = []
+    total_trades = len(df)
+
+    for label in labels:
+        bucket = df[df['regime_bucket'] == label]
+        if bucket.empty:
+            results.append({
+                'Dispersion Regime': label,
+                'Trades': 0, 'Avg R': 0, 'Win Rate': 0,
+                'Profit Factor': 0, 'Avg PnL': 0, '% of Trades': 0
+            })
+            continue
+
+        n = len(bucket)
+        winners = bucket[bucket['PnL'] > 0]
+        losers = bucket[bucket['PnL'] <= 0]
+
+        gross_profit = winners['PnL'].sum() if len(winners) > 0 else 0
+        gross_loss = abs(losers['PnL'].sum()) if len(losers) > 0 else 0
+
+        results.append({
+            'Dispersion Regime': label,
+            'Trades': n,
+            'Avg R': bucket['R_Multiple'].mean(),
+            'Win Rate': len(winners) / n,
+            'Profit Factor': gross_profit / gross_loss if gross_loss > 0 else 999,
+            'Avg PnL': bucket['PnL'].mean(),
+            '% of Trades': n / total_trades
+        })
+
+    return pd.DataFrame(results)
+
+
+def get_current_regime_label(rank):
+    """Map percentile rank to regime label."""
+    if rank <= 25:
+        return '0-25 (Low)'
+    elif rank <= 50:
+        return '25-50'
+    elif rank <= 75:
+        return '50-75'
+    elif rank <= 90:
+        return '75-90'
+    elif rank <= 95:
+        return '90-95 (High)'
+    else:
+        return '95-100 (Extreme)'
+
+
+def highlight_current_regime(row, current_regime):
+    """Style function to highlight the current regime row."""
+    if row['Dispersion Regime'] == current_regime:
+        return ['background-color: rgba(255, 217, 61, 0.2)'] * len(row)
+    return [''] * len(row)
+
+
+# Load cached backtest data
+sig_df, cache_date = load_cached_sig_df()
+
+if sig_df is None:
+    st.info(
+        "No cached backtest data found. Run a backtest in the **Strategy Backtester** page first — "
+        "results will automatically appear here."
+    )
+else:
+    st.caption(f"Using backtest cached on {cache_date} · {len(sig_df):,} trades")
+
+    # Merge with dispersion data
+    # Create a date → dispersion_rank lookup (normalize to date-only for clean merge)
+    disp_lookup = disp_clean['dispersion_rank'].copy()
+    disp_lookup.index = disp_lookup.index.normalize()
+
+    sig_df['Date_normalized'] = pd.to_datetime(sig_df['Date']).dt.normalize()
+    sig_df['dispersion_rank'] = sig_df['Date_normalized'].map(disp_lookup)
+
+    # Drop trades where we don't have dispersion data (pre-1998 or gaps)
+    sig_df_with_disp = sig_df.dropna(subset=['dispersion_rank'])
+
+    # Coverage stats
+    coverage = len(sig_df_with_disp) / len(sig_df) * 100
+    st.caption(
+        f"{len(sig_df_with_disp):,} of {len(sig_df):,} trades matched to dispersion data "
+        f"({coverage:.0f}% coverage)"
+    )
+
+    if not sig_df_with_disp.empty:
+        # Compute regime performance
+        regime_df = compute_regime_performance(sig_df_with_disp)
+
+        # Determine current regime for highlighting
+        current_rank = disp_clean['dispersion_rank'].dropna().iloc[-1]
+        current_regime = get_current_regime_label(current_rank)
+
+        # Style and display
+        styled = regime_df.style.apply(
+            lambda row: highlight_current_regime(row, current_regime), axis=1
+        ).format({
+            'Trades': '{:,}',
+            'Avg R': '{:+.3f}',
+            'Win Rate': '{:.1%}',
+            'Profit Factor': '{:.2f}',
+            'Avg PnL': '${:,.0f}',
+            '% of Trades': '{:.1%}'
+        })
+
+        st.dataframe(styled, use_container_width=True, hide_index=True)
+
+        st.caption(
+            "Trades bucketed by dispersion percentile rank at entry. "
+            "Current regime row highlighted. "
+            "Source: strat_backtester.py cached results merged with abs_return_dispersion.py."
+        )
+
+        # Strategy-level breakdown
+        with st.expander("📋 Breakdown by Strategy"):
+            strategies_in_data = sorted(sig_df_with_disp['Strategy'].unique().tolist())
+            selected_strat = st.selectbox(
+                "Strategy",
+                ['All Strategies'] + strategies_in_data,
+                key="regime_strat_select"
+            )
+
+            if selected_strat != 'All Strategies':
+                filtered = sig_df_with_disp[sig_df_with_disp['Strategy'] == selected_strat]
+            else:
+                filtered = sig_df_with_disp
+
+            if not filtered.empty:
+                strat_regime_df = compute_regime_performance(filtered)
+
+                styled_strat = strat_regime_df.style.apply(
+                    lambda row: highlight_current_regime(row, current_regime), axis=1
+                ).format({
+                    'Trades': '{:,}',
+                    'Avg R': '{:+.3f}',
+                    'Win Rate': '{:.1%}',
+                    'Profit Factor': '{:.2f}',
+                    'Avg PnL': '${:,.0f}',
+                    '% of Trades': '{:.1%}'
+                })
+
+                st.dataframe(styled_strat, use_container_width=True, hide_index=True)
+            else:
+                st.warning("No trades found for selected strategy.")
+    else:
+        st.warning("No trades could be matched to dispersion data. Check date ranges.")
 
 # -----------------------------------------------------------------------------
 # FOOTER

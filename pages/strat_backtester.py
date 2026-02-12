@@ -1729,7 +1729,17 @@ def main():
 
         if not sig_df.empty:
             st.success(f"✅ Backtest complete: {len(sig_df):,} trades")
-            
+
+            # Cache sig_df for cross-page analysis (e.g., risk_dashboard.py regime analysis)
+            try:
+                cache_dir = os.path.join(parent_dir, "data")
+                os.makedirs(cache_dir, exist_ok=True)
+                sig_df_cache_path = os.path.join(cache_dir, "backtest_sig_df.parquet")
+                sig_df.to_parquet(sig_df_cache_path, index=False)
+                st.caption(f"📦 Cached {len(sig_df):,} trades to data/backtest_sig_df.parquet")
+            except Exception as e:
+                st.caption(f"⚠️ Could not cache sig_df: {e}")
+
             today = pd.Timestamp(datetime.date.today())
             open_mask = sig_df['Time Stop'] >= today
             open_df = sig_df[open_mask].copy()
