@@ -1231,23 +1231,39 @@ if leadership_df is not None and not leadership_df.empty:
 
             st.dataframe(styled_strat, use_container_width=True, hide_index=True)
 
-    # Leaderboard: how often each sector leads (for context)
+    # Leaderboard: how often each sector leads (for context) + forward returns
     with st.expander("📊 Sector Leadership Frequency"):
         freq = leadership_df[leader_col].value_counts()
         total = freq.sum()
-        freq_df = pd.DataFrame({
-            'Sector': freq.index,
-            'Days Leading': freq.values,
-            '% of Days': freq.values / total
-        })
-        # Flag defensive
-        freq_df['Type'] = freq_df['Sector'].apply(
-            lambda x: '⚠️ Defensive' if x in DEFENSIVE_LEADERS else ''
-        )
+
+        # Compute SPY forward returns for enrichment
+        spy = sector_prices['SPY']
+        fwd_5d = spy.pct_change(5).shift(-5)
+        fwd_10d = spy.pct_change(10).shift(-10)
+
+        # Build frequency table with forward returns per sector
+        rows = []
+        for sector in freq.index:
+            mask = leadership_df[leader_col] == sector
+            n_days = mask.sum()
+            fwd_5d_avg = fwd_5d[mask].dropna().mean()
+            fwd_10d_avg = fwd_10d[mask].dropna().mean()
+            rows.append({
+                'Sector': sector,
+                'Days Leading': n_days,
+                '% of Days': n_days / total,
+                'SPX Fwd 5d Avg': fwd_5d_avg,
+                'SPX Fwd 10d Avg': fwd_10d_avg,
+                'Type': '⚠️ Defensive' if sector in DEFENSIVE_LEADERS else ''
+            })
+
+        freq_df = pd.DataFrame(rows)
 
         styled_freq = freq_df.style.format({
-            '% of Days': '{:.1%}'
-        })
+            '% of Days': '{:.1%}',
+            'SPX Fwd 5d Avg': '{:+.2%}',
+            'SPX Fwd 10d Avg': '{:+.2%}'
+        }, na_rep='—')
         st.dataframe(styled_freq, use_container_width=True, hide_index=True)
 
 else:
