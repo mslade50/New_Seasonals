@@ -536,7 +536,9 @@ def compute_leadership_forward_returns(
     prices: pd.DataFrame,
     leadership_df: pd.DataFrame,
     lookback_window: int,
-    forward_windows: list = [5, 10, 21]
+    forward_windows: list = [5, 10, 21],
+    spy_ret_rank: pd.Series = None,
+    tercile: str = None
 ):
     """
     When XLE/XLP/XLV is the trailing leader vs when they're not,
@@ -544,11 +546,30 @@ def compute_leadership_forward_returns(
 
     Returns a DataFrame with one row per condition (XLE leads, XLP leads, XLU leads,
     Any defensive leads, Non-defensive leads).
+
+    If spy_ret_rank and tercile are provided, filters to only days where SPX
+    trailing return percentile is in the matching tercile:
+      "top": > 67, "mid": 33-67, "bottom": < 33
     """
     if 'SPY' not in prices.columns:
         return pd.DataFrame()
 
     spy = prices['SPY']
+
+    # Build tercile date mask if requested
+    if spy_ret_rank is not None and tercile is not None:
+        if tercile == "top":
+            tercile_mask = spy_ret_rank > 67
+        elif tercile == "mid":
+            tercile_mask = (spy_ret_rank >= 33) & (spy_ret_rank <= 67)
+        elif tercile == "bottom":
+            tercile_mask = spy_ret_rank < 33
+        else:
+            tercile_mask = pd.Series(True, index=leadership_df.index)
+        # Align to leadership_df index
+        tercile_mask = tercile_mask.reindex(leadership_df.index, fill_value=False)
+    else:
+        tercile_mask = pd.Series(True, index=leadership_df.index)
 
     # Compute SPY forward returns
     fwd_rets = {}
@@ -561,7 +582,7 @@ def compute_leadership_forward_returns(
 
     # Individual defensive leaders
     for ticker in DEFENSIVE_LEADERS:
-        mask = leadership_df[leader_col] == ticker
+        mask = (leadership_df[leader_col] == ticker) & tercile_mask
         n_days = mask.sum()
 
         if n_days == 0:
@@ -577,7 +598,7 @@ def compute_leadership_forward_returns(
         rows.append(row)
 
     # Any defensive leader
-    def_mask = leadership_df[f'defensive_leader_{lookback_window}d'] == True
+    def_mask = (leadership_df[f'defensive_leader_{lookback_window}d'] == True) & tercile_mask
     n_def = def_mask.sum()
 
     row_any_def = {'Leader': 'Any XLE/XLP/XLV', 'Days Leading': n_def}
@@ -588,7 +609,7 @@ def compute_leadership_forward_returns(
     rows.append(row_any_def)
 
     # Non-defensive (baseline comparison)
-    nondef_mask = ~def_mask & leadership_df[leader_col].notna()
+    nondef_mask = ~(leadership_df[f'defensive_leader_{lookback_window}d'] == True) & leadership_df[leader_col].notna() & tercile_mask
     n_nondef = nondef_mask.sum()
 
     row_nondef = {'Leader': 'Other sector leads', 'Days Leading': n_nondef}
@@ -1159,25 +1180,46 @@ if leadership_df is not None and not leadership_df.empty:
     current_leader = leadership_df[leader_col].dropna().iloc[-1] if not leadership_df[leader_col].dropna().empty else None
     current_leader_ret = leadership_df[leader_ret_col].dropna().iloc[-1] if not leadership_df[leader_ret_col].dropna().empty else 0
 
+    # Compute SPX trailing return percentile rank
+    spy = sector_prices['SPY']
+    spy_ret = spy.pct_change(leadership_window)
+    spy_ret_rank = spy_ret.expanding(min_periods=252).rank(pct=True) * 100
+
+    current_spx_rank = spy_ret_rank.dropna().iloc[-1]
+    if current_spx_rank > 67:
+        current_tercile = "top"
+    elif current_spx_rank >= 33:
+        current_tercile = "mid"
+    else:
+        current_tercile = "bottom"
+
+    tercile_labels = {"top": "Top Tercile (>67th %ile)", "mid": "Mid Tercile (33-67th %ile)", "bottom": "Bottom Tercile (<33rd %ile)"}
+
     if current_leader:
         is_defensive = current_leader in DEFENSIVE_LEADERS
+        spx_info = f"SPX {leadership_window}d return: {current_spx_rank:.0f}th %ile ({current_tercile} tercile)"
 
         if is_defensive:
             st.warning(
                 f"**Current {leadership_window}d leader: {current_leader}** "
-                f"({current_leader_ret:+.1%}) — defensive/commodity leadership"
+                f"({current_leader_ret:+.1%}) — defensive/commodity leadership | {spx_info}"
             )
         else:
             st.success(
                 f"**Current {leadership_window}d leader: {current_leader}** "
-                f"({current_leader_ret:+.1%})"
+                f"({current_leader_ret:+.1%}) — {spx_info}"
             )
 
-    # Table 1: SPX forward returns by leader
-    st.markdown(f"**SPX Forward Returns by {leadership_window}d Sector Leader**")
+    # Table 1: SPX forward returns by leader — filtered to current tercile
+    st.markdown(
+        f"**SPX Forward Returns by {leadership_window}d Sector Leader — "
+        f"SPX {leadership_window}d Return {tercile_labels[current_tercile]} "
+        f"(current: {current_spx_rank:.0f}th %ile)**"
+    )
 
     spx_table = compute_leadership_forward_returns(
-        sector_prices, leadership_df, leadership_window, forward_windows=[5, 10, 21]
+        sector_prices, leadership_df, leadership_window, forward_windows=[5, 10, 21],
+        spy_ret_rank=spy_ret_rank, tercile=current_tercile
     )
 
     if not spx_table.empty:
@@ -1232,39 +1274,52 @@ if leadership_df is not None and not leadership_df.empty:
             st.dataframe(styled_strat, use_container_width=True, hide_index=True)
 
     # Leaderboard: how often each sector leads (for context) + forward returns
-    with st.expander("📊 Sector Leadership Frequency"):
-        freq = leadership_df[leader_col].value_counts()
-        total = freq.sum()
-
+    with st.expander("📊 Sector Leadership Frequency by SPX Tercile"):
         # Compute SPY forward returns for enrichment
-        spy = sector_prices['SPY']
         fwd_5d = spy.pct_change(5).shift(-5)
         fwd_10d = spy.pct_change(10).shift(-10)
 
-        # Build frequency table with forward returns per sector
-        rows = []
-        for sector in freq.index:
-            mask = leadership_df[leader_col] == sector
-            n_days = mask.sum()
-            fwd_5d_avg = fwd_5d[mask].dropna().mean()
-            fwd_10d_avg = fwd_10d[mask].dropna().mean()
-            rows.append({
-                'Sector': sector,
-                'Days Leading': n_days,
-                '% of Days': n_days / total,
-                'SPX Fwd 5d Avg': fwd_5d_avg,
-                'SPX Fwd 10d Avg': fwd_10d_avg,
-                'Type': '⚠️ Defensive' if sector in DEFENSIVE_LEADERS else ''
-            })
+        for t_name, t_label in [("top", "SPX Top Tercile (>67th %ile)"), ("mid", "SPX Mid Tercile (33-67th %ile)"), ("bottom", "SPX Bottom Tercile (<33rd %ile)")]:
+            if t_name == "top":
+                t_mask = spy_ret_rank > 67
+            elif t_name == "mid":
+                t_mask = (spy_ret_rank >= 33) & (spy_ret_rank <= 67)
+            else:
+                t_mask = spy_ret_rank < 33
+            t_mask = t_mask.reindex(leadership_df.index, fill_value=False)
 
-        freq_df = pd.DataFrame(rows)
+            filtered_leaders = leadership_df.loc[t_mask, leader_col].dropna()
+            if filtered_leaders.empty:
+                continue
 
-        styled_freq = freq_df.style.format({
-            '% of Days': '{:.1%}',
-            'SPX Fwd 5d Avg': '{:+.2%}',
-            'SPX Fwd 10d Avg': '{:+.2%}'
-        }, na_rep='—')
-        st.dataframe(styled_freq, use_container_width=True, hide_index=True)
+            freq = filtered_leaders.value_counts()
+            total = freq.sum()
+
+            rows = []
+            for sector in freq.index:
+                mask = (leadership_df[leader_col] == sector) & t_mask
+                n_days = mask.sum()
+                fwd_5d_avg = fwd_5d[mask].dropna().mean()
+                fwd_10d_avg = fwd_10d[mask].dropna().mean()
+                rows.append({
+                    'Sector': sector,
+                    'Days Leading': n_days,
+                    '% of Days': n_days / total,
+                    'SPX Fwd 5d Avg': fwd_5d_avg,
+                    'SPX Fwd 10d Avg': fwd_10d_avg,
+                    'Type': '⚠️ Defensive' if sector in DEFENSIVE_LEADERS else ''
+                })
+
+            freq_df = pd.DataFrame(rows)
+
+            marker = " ⬅️ current" if t_name == current_tercile else ""
+            st.markdown(f"**{t_label}{marker}**")
+            styled_freq = freq_df.style.format({
+                '% of Days': '{:.1%}',
+                'SPX Fwd 5d Avg': '{:+.2%}',
+                'SPX Fwd 10d Avg': '{:+.2%}'
+            }, na_rep='—')
+            st.dataframe(styled_freq, use_container_width=True, hide_index=True)
 
 else:
     st.warning("Could not load sector leadership data. Check network connection.")
