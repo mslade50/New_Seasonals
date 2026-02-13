@@ -968,7 +968,7 @@ def main():
     st.subheader("1. Universe & Data")
     col_u1, col_u2, col_u3 = st.columns([1, 1, 2])
     sample_pct = 100; use_full_history = False
-    with col_u1: univ_choice = st.selectbox("Choose Universe", ["Sector ETFs","SPX", "Indices", "International ETFs", "Sector + Index ETFs", "All CSV Tickers", "All CSV (Equities Only)", "Custom (Upload CSV)"])
+    with col_u1: univ_choice = st.selectbox("Choose Universe", ["All CSV Tickers", "Sector ETFs","SPX", "Indices", "International ETFs", "Sector + Index ETFs", "All CSV (Equities Only)", "Custom (Upload CSV)"])
     with col_u2:
         default_start = datetime.date(2000, 1, 1)
         start_date = st.date_input("Backtest Start Date", value=default_start, min_value=datetime.date(1950, 1, 1), max_value=datetime.date.today())
@@ -993,15 +993,15 @@ def main():
     r_c1, r_c2, r_c3 = st.columns(3)
     with r_c1: trade_direction = st.selectbox("Trade Direction", ["Long", "Short"])
     with r_c2: 
-        exit_mode = st.selectbox("Exit Mode", ["Standard (Stop & Target)", "No Stop (Target + Time)", "Time Only (Hold)"])
+        exit_mode = st.selectbox("Exit Mode", ["Time Only (Hold)", "Standard (Stop & Target)", "No Stop (Target + Time)"])
         use_stop_loss = (exit_mode == "Standard (Stop & Target)")
         use_take_profit = (exit_mode != "Time Only (Hold)")
         time_exit_only = (exit_mode == "Time Only (Hold)")
     with r_c3: max_one_pos = st.checkbox("Max 1 Position/Ticker", value=True)
     p_c1, p_c2, p_c3 = st.columns(3)
-    with p_c1: max_daily_entries = st.number_input("Max New Trades Per Day", 1, 100, 2)
-    with p_c2: max_total_positions = st.number_input("Max Total Positions", 1, 200, 10)
-    with p_c3: slippage_bps = st.number_input("Slippage (bps)", value=5)
+    with p_c1: max_daily_entries = st.number_input("Max New Trades Per Day", 1, 100, 20)
+    with p_c2: max_total_positions = st.number_input("Max Total Positions", 1, 200, 99)
+    with p_c3: slippage_bps = st.number_input("Slippage (bps)", value=2)
     c_re, c_conf = st.columns(2)
     with c_re: allow_same_day_reentry = st.checkbox("Allow Same-Day Re-entry", value=False)
     with c_conf: entry_conf_bps = st.number_input("Entry Confirmation (bps)", value=0)
@@ -1009,13 +1009,13 @@ def main():
     c1, c2, c3, c4, c5 = st.columns(5)
     with c1: 
         entry_type = st.selectbox("Entry Price", [
+            "Limit (Open +/- 0.5 ATR)",
             "Signal Close", "T+1 Open", "T+1 Close",
-            "Overnight (Buy Close, Sell T+1 Open)", "Intraday (Buy Open, Sell Close)", 
+            "Overnight (Buy Close, Sell T+1 Open)", "Intraday (Buy Open, Sell Close)",
             "Day Trade (Limit Open +/- 0.5 ATR, Exit Close)",
-            "Gap Up Only (Open > Prev High)", 
-            "Limit Order -0.5 ATR (Persistent)", "Limit Order -1 ATR (Persistent)", 
-            "Limit (Close -0.5 ATR)", "Limit (Prev Close)", 
-            "Limit (Open +/- 0.5 ATR)", 
+            "Gap Up Only (Open > Prev High)",
+            "Limit Order -0.5 ATR (Persistent)", "Limit Order -1 ATR (Persistent)",
+            "Limit (Close -0.5 ATR)", "Limit (Prev Close)",
             "Limit (Open +/- 0.5 ATR) GTC",
             "Limit (Untested Pivot)", 
             "Pullback 10 SMA (Entry: Close)", "Pullback 10 SMA (Entry: Level)", 
@@ -1025,7 +1025,7 @@ def main():
             "T+1 Close if > Signal Close +0.5 ATR", "T+1 Close if > Signal Close +1 ATR"
         ])
         use_ma_entry_filter = st.checkbox("Filter: Close > MA - 0.25*ATR", value=False) if "Pullback" in entry_type else False
-    with c2: stop_atr = st.number_input("Stop Loss (ATR)", value=3.0, step=0.1, disabled=not use_stop_loss)
+    with c2: stop_atr = st.number_input("Stop Loss (ATR)", value=1.0, step=0.1, disabled=not use_stop_loss)
     with c3: tgt_atr = st.number_input("Target (ATR)", value=8.0, step=0.1, disabled=not use_take_profit)
     with c4: hold_days = st.number_input("Max Holding Days", min_value=1, value=10, step=1)
     with c5: risk_per_trade = st.number_input("Risk Amount ($)", value=1000, step=100)
