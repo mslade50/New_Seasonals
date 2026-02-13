@@ -861,28 +861,81 @@ with stats_col5:
 st.markdown("---")
 st.subheader("Forward Returns Analysis by Dispersion Regime")
 
+# Compute SPX 21d return decile (shared by Sections 3 & 4)
+_spx_decile_labels = [
+    "1st (0-10th %ile)", "2nd (10-20th %ile)", "3rd (20-30th %ile)",
+    "4th (30-40th %ile)", "5th (40-50th %ile)", "6th (50-60th %ile)",
+    "7th (60-70th %ile)", "8th (70-80th %ile)", "9th (80-90th %ile)",
+    "10th (90-100th %ile)"
+]
+_spx_21d_rank = None
+_current_spx_decile_idx = None
+_decile_lo, _decile_hi = None, None
+
+if spy_df is not None and not spy_df.empty:
+    _spx_close = spy_df["Close"]
+    _spx_21d_ret = _spx_close.pct_change(21)
+    _spx_21d_rank = _spx_21d_ret.expanding(min_periods=252).rank(pct=True) * 100
+
+    _current_spx_21d_rank = _spx_21d_rank.dropna().iloc[-1]
+    _current_spx_decile_idx = min(int(_current_spx_21d_rank // 10), 9)
+
+    _decile_options = ["All (unfiltered)"] + [
+        f"{lbl} ← current" if i == _current_spx_decile_idx else lbl
+        for i, lbl in enumerate(_spx_decile_labels)
+    ]
+    _selected_decile = st.selectbox(
+        "Filter by SPX 21d return decile",
+        _decile_options,
+        index=0,
+        key="spx_decile_filter"
+    )
+
+    # Parse selected decile index (None = unfiltered)
+    if _selected_decile == "All (unfiltered)":
+        _decile_lo, _decile_hi = None, None
+    else:
+        _sel_idx = next(i for i, lbl in enumerate(_spx_decile_labels) if lbl in _selected_decile)
+        _decile_lo = _sel_idx * 10
+        _decile_hi = (_sel_idx + 1) * 10
+
 if spy_df is not None and not spy_df.empty:
     merged = compute_forward_returns(spy_df, disp_clean)
 
     if not merged.empty:
-        bucket_df = bucket_analysis(merged)
+        # Apply SPX decile filter
+        if _decile_lo is not None and _spx_21d_rank is not None:
+            _rank_aligned = _spx_21d_rank.reindex(merged.index)
+            if _decile_hi == 100:
+                _decile_mask = (_rank_aligned >= _decile_lo) & (_rank_aligned <= _decile_hi)
+            else:
+                _decile_mask = (_rank_aligned >= _decile_lo) & (_rank_aligned < _decile_hi)
+            merged = merged[_decile_mask]
 
-        if not bucket_df.empty:
-            current_bucket = get_current_bucket(latest["dispersion_rank"])
-            styled_df = style_bucket_table(bucket_df, current_bucket)
+        if not merged.empty:
+            bucket_df = bucket_analysis(merged)
 
-            st.dataframe(
-                styled_df,
-                use_container_width=True,
-                hide_index=True
-            )
+            if not bucket_df.empty:
+                current_bucket = get_current_bucket(latest["dispersion_rank"])
+                styled_df = style_bucket_table(bucket_df, current_bucket)
 
-            st.caption(
-                "Forward returns are computed on SPY from 1998-present. "
-                "Realized vol is annualized. The current dispersion regime row is highlighted."
-            )
+                st.dataframe(
+                    styled_df,
+                    use_container_width=True,
+                    hide_index=True
+                )
+
+                _filter_note = ""
+                if _decile_lo is not None:
+                    _filter_note = f" Filtered to SPX 21d return {_spx_decile_labels[_sel_idx]}."
+                st.caption(
+                    "Forward returns are computed on SPY from 1998-present. "
+                    f"Realized vol is annualized. The current dispersion regime row is highlighted.{_filter_note}"
+                )
+            else:
+                st.warning("Insufficient data for bucket analysis.")
         else:
-            st.warning("Insufficient data for bucket analysis.")
+            st.warning("No data for selected SPX decile filter.")
     else:
         st.warning("Could not compute forward returns. Insufficient overlapping data.")
 else:
@@ -1009,11 +1062,30 @@ else:
     # Drop trades where we don't have dispersion data (pre-1998 or gaps)
     sig_df_with_disp = sig_df.dropna(subset=['dispersion_rank'])
 
+    # Apply SPX 21d return decile filter (shared with Section 3)
+    if _decile_lo is not None and _spx_21d_rank is not None:
+        _spx_rank_lookup = _spx_21d_rank.copy()
+        _spx_rank_lookup.index = _spx_rank_lookup.index.normalize()
+        sig_df_with_disp = sig_df_with_disp.copy()
+        sig_df_with_disp['_spx_21d_rank'] = sig_df_with_disp['Date_normalized'].map(_spx_rank_lookup)
+        if _decile_hi == 100:
+            sig_df_with_disp = sig_df_with_disp[
+                (sig_df_with_disp['_spx_21d_rank'] >= _decile_lo) & (sig_df_with_disp['_spx_21d_rank'] <= _decile_hi)
+            ]
+        else:
+            sig_df_with_disp = sig_df_with_disp[
+                (sig_df_with_disp['_spx_21d_rank'] >= _decile_lo) & (sig_df_with_disp['_spx_21d_rank'] < _decile_hi)
+            ]
+        sig_df_with_disp = sig_df_with_disp.drop(columns=['_spx_21d_rank'])
+
     # Coverage stats
     coverage = len(sig_df_with_disp) / len(sig_df) * 100
+    _filter_label = ""
+    if _decile_lo is not None:
+        _filter_label = f" | SPX 21d return filter: {_spx_decile_labels[_sel_idx]}"
     st.caption(
-        f"{len(sig_df_with_disp):,} of {len(sig_df):,} trades matched to dispersion data "
-        f"({coverage:.0f}% coverage)"
+        f"{len(sig_df_with_disp):,} of {len(sig_df):,} trades matched"
+        f" ({coverage:.0f}% coverage){_filter_label}"
     )
 
     if not sig_df_with_disp.empty:
