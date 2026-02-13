@@ -118,6 +118,8 @@ def calculate_indicators(
     df.columns = [c.capitalize() for c in df.columns]
     if df.index.tz is not None:
         df.index = df.index.tz_localize(None)
+    df.index = df.index.normalize()
+    df.sort_index(inplace=True)
 
     # -------------------------------------------------------------------------
     # 1. MOVING AVERAGES
@@ -303,6 +305,19 @@ def calculate_indicators(
     # NextOpen is look-ahead — only safe for backtesting, not live scanning
     df['NextOpen'] = df['Open'].shift(-1)
 
+    # -------------------------------------------------------------------------
+    # 15. PIVOT HIGHS / LOWS (used by backtester limit entry mode)
+    # -------------------------------------------------------------------------
+    piv_len = 20
+    roll_max = df['High'].rolling(window=piv_len * 2 + 1, center=True).max()
+    df['is_pivot_high'] = (df['High'] == roll_max)
+    roll_min = df['Low'].rolling(window=piv_len * 2 + 1, center=True).min()
+    df['is_pivot_low'] = (df['Low'] == roll_min)
+    df['LastPivotHigh'] = np.where(df['is_pivot_high'], df['High'], np.nan)
+    df['LastPivotHigh'] = df['LastPivotHigh'].shift(piv_len).ffill()
+    df['LastPivotLow'] = np.where(df['is_pivot_low'], df['Low'], np.nan)
+    df['LastPivotLow'] = df['LastPivotLow'].shift(piv_len).ffill()
+
     return df
 
 
@@ -316,10 +331,20 @@ def calculate_indicators(
 def get_sznl_val_series(ticker: str, dates: pd.DatetimeIndex, sznl_map: dict) -> pd.Series:
     """
     Look up seasonal rank for a ticker across a date range.
-    sznl_map is {ticker: pd.Series} where Series is indexed by date.
+    sznl_map is {ticker: pd.Series} or {ticker: dict} where keys are dates.
     Returns a Series aligned to the input dates with default value 50.
     """
-    if not sznl_map or ticker not in sznl_map:
+    ticker = ticker.upper()
+
+    val = sznl_map.get(ticker)
+    if val is None and ticker == "^GSPC":
+        val = sznl_map.get("SPY")
+
+    if val is None:
         return pd.Series(50.0, index=dates)
 
-    return sznl_map[ticker].reindex(dates, method='ffill').fillna(50.0)
+    # Support dict-of-dicts format (backtester's load_seasonal_map legacy)
+    if isinstance(val, dict):
+        val = pd.Series(val)
+
+    return val.reindex(dates, method='ffill').fillna(50.0)

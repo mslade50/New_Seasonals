@@ -14,6 +14,8 @@ import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 
+from indicators import calculate_indicators, get_sznl_val_series
+
 # Define a "Trading Day" offset that skips Weekends AND US Holidays
 TRADING_DAY = CustomBusinessDay(calendar=USFederalHolidayCalendar())
 
@@ -404,137 +406,9 @@ def load_seasonal_map(csv_path="sznl_ranks.csv"):
     return output_map
 
 
-def get_sznl_val_series(ticker, dates, sznl_map):
-    ticker = ticker.upper()
-    t_series = sznl_map.get(ticker)
-    
-    if t_series is None and ticker == "^GSPC":
-        t_series = sznl_map.get("SPY")
-
-    if t_series is None:
-        return pd.Series(50.0, index=dates)
-        
-    return dates.map(t_series).fillna(50.0)
-
-
 # -----------------------------------------------------------------------------
 # 2. CALCULATION ENGINE
 # -----------------------------------------------------------------------------
-
-def calculate_indicators(df, sznl_map, ticker, market_series=None, vix_series=None, ref_ticker_ranks=None):
-    df = df.copy()
-    if isinstance(df.columns, pd.MultiIndex):
-        df.columns = df.columns.get_level_values(0)
-    df.columns = [c.capitalize() for c in df.columns]
-    if df.index.tz is not None: df.index = df.index.tz_localize(None)
-    
-    # --- MAs ---
-    df['SMA10'] = df['Close'].rolling(10).mean()
-    df['SMA20'] = df['Close'].rolling(20).mean()
-    df['SMA50'] = df['Close'].rolling(50).mean()
-    df['SMA100'] = df['Close'].rolling(100).mean()
-    df['SMA200'] = df['Close'].rolling(200).mean()
-    df['EMA8'] = df['Close'].ewm(span=8, adjust=False).mean()
-    df['EMA11'] = df['Close'].ewm(span=11, adjust=False).mean()
-    df['EMA21'] = df['Close'].ewm(span=21, adjust=False).mean()
-    
-    # --- Gap Count ---
-    is_open_gap = (df['Low'] > df['High'].shift(1)).astype(int)
-    df['GapCount_21'] = is_open_gap.rolling(21).sum() 
-    df['GapCount_10'] = is_open_gap.rolling(10).sum()
-    df['GapCount_5'] = is_open_gap.rolling(5).sum() 
-
-    # --- Candle Range Location % ---
-    denom = (df['High'] - df['Low'])
-    df['RangePct'] = np.where(denom == 0, 0.5, (df['Close'] - df['Low']) / denom)
-
-    # --- Perf Ranks ---
-    for window in [2, 5, 10, 21]:
-        df[f'ret_{window}d'] = df['Close'].pct_change(window, fill_method=None)
-        df[f'rank_ret_{window}d'] = df[f'ret_{window}d'].expanding(min_periods=50).rank(pct=True) * 100.0
-        
-    # --- ATR ---
-    high_low = df['High'] - df['Low']
-    high_close = np.abs(df['High'] - df['Close'].shift())
-    low_close = np.abs(df['Low'] - df['Close'].shift())
-    ranges = pd.concat([high_low, high_close, low_close], axis=1)
-    df['ATR'] = ranges.max(axis=1).rolling(14).mean()
-    df['ATR_Pct'] = (df['ATR'] / df['Close']) * 100
-    
-    # --- Today's Return in ATR units (vs yesterday's close) ---
-    df['today_return_atr'] = (df['Close'] - df['Close'].shift(1)) / df['ATR']
-
-    # --- Volume, Accumulation & Distribution Logic ---
-    vol_ma = df['Volume'].rolling(63).mean()
-    df['vol_ratio'] = df['Volume'] / vol_ma
-    df['vol_ma'] = vol_ma
-    
-    # Base Conditions
-    cond_vol_ma = df['Volume'] > vol_ma
-    cond_vol_up = df['Volume'] > df['Volume'].shift(1)
-    
-    # Create explicit Vol Spike Column (True/False)
-    df['Vol_Spike'] = cond_vol_ma & cond_vol_up
-    
-    # 1. Accumulation (Green + Spike)
-    cond_green = df['Close'] > df['Open']
-    is_accumulation = (df['Vol_Spike'] & cond_green).astype(int)
-    df['AccCount_21'] = is_accumulation.rolling(21).sum()
-    df['AccCount_5'] = is_accumulation.rolling(5).sum()
-    df['AccCount_10'] = is_accumulation.rolling(10).sum()
-    df['AccCount_42'] = is_accumulation.rolling(42).sum()
-    
-    # 2. Distribution (Red + Spike)
-    cond_red = df['Close'] < df['Open']
-    is_distribution = (df['Vol_Spike'] & cond_red).astype(int)
-    df['DistCount_21'] = is_distribution.rolling(21).sum()
-    df['DistCount_5'] = is_distribution.rolling(5).sum()
-    df['DistCount_10'] = is_distribution.rolling(10).sum()
-    df['DistCount_42'] = is_distribution.rolling(42).sum()
-    
-    # --- Volume Rank ---
-    vol_ma_10 = df['Volume'].rolling(10).mean()
-    df['vol_ratio_10d'] = vol_ma_10 / vol_ma
-    df['vol_ratio_10d_rank'] = df['vol_ratio_10d'].expanding(min_periods=50).rank(pct=True) * 100.0
-    
-    # --- Seasonality ---
-    df['Sznl'] = get_sznl_val_series(ticker, df.index, sznl_map)
-    df['Mkt_Sznl_Ref'] = get_sznl_val_series("^GSPC", df.index, sznl_map)
-    
-    # --- Age & Market Regime ---
-    if not df.empty:
-        start_ts = df.index[0]
-        df['age_years'] = (df.index - start_ts).days / 365.25
-    else:
-        df['age_years'] = 0.0
-
-    if market_series is not None:
-        df['Market_Above_SMA200'] = market_series.reindex(df.index, method='ffill').fillna(False)
-
-    # --- VIX (passed in as parameter) ---
-    if vix_series is not None:
-        df['VIX_Value'] = vix_series.reindex(df.index, method='ffill').fillna(0)
-    else:
-        df['VIX_Value'] = 0.0
-
-    # --- 52w High/Low ---
-    rolling_high = df['High'].shift(1).rolling(252).max()
-    rolling_low = df['Low'].shift(1).rolling(252).min()
-    df['is_52w_high'] = df['High'] > rolling_high
-    df['is_52w_low'] = df['Low'] < rolling_low
-
-    # --- All-Time High ---
-    df['prior_ath'] = df['High'].shift(1).expanding().max()
-    df['is_ath'] = df['High'] >= df['prior_ath']
-    df['High_52w'] = df['High'].rolling(252).max()
-    df['ATH_Level'] = df['High'].expanding().max()
-
-    # Reference Ticker Ranks
-    if ref_ticker_ranks is not None:
-        for window, series in ref_ticker_ranks.items():
-            df[f'Ref_rank_ret_{window}d'] = series.reindex(df.index, method='ffill').fillna(50.0)
-            
-    return df
 
 def check_signal(df, params, sznl_map):
     last_row = df.iloc[-1]
@@ -1612,7 +1486,7 @@ def run_daily_scan():
             if df is None or len(df) < 250: continue
             
             try:
-                calc_df = calculate_indicators(df.copy(), sznl_map, t_clean, market_series, vix_series, ref_ticker_ranks)
+                calc_df = calculate_indicators(df.copy(), sznl_map, t_clean, market_series, vix_series, ref_ticker_ranks=ref_ticker_ranks)
                 
                 if check_signal(calc_df, strat['settings'], sznl_map):
                     last_row = calc_df.iloc[-1]

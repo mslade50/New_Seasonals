@@ -10,6 +10,8 @@ import sys
 import os
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
+from indicators import calculate_indicators, get_sznl_val_series
+
 # Try/Except block for local imports to prevent crash if file missing
 try:
     from equity_curve_analysis import (
@@ -79,15 +81,6 @@ def load_seasonal_map():
         
     return output_map
 
-def get_sznl_val_series(ticker, dates, sznl_map):
-    ticker = ticker.upper()
-    t_series = sznl_map.get(ticker)
-    if t_series is None and ticker == "^GSPC":
-        t_series = sznl_map.get("SPY")
-    if t_series is None:
-        return pd.Series(50.0, index=dates)
-    return dates.map(t_series).fillna(50.0)
-
 # -----------------------------------------------------------------------------
 # HELPER: BATCH DOWNLOADER
 # -----------------------------------------------------------------------------
@@ -131,125 +124,6 @@ def download_historical_data(tickers, start_date="2000-01-01"):
     progress_bar.empty()
     status_text.empty()
     return data_dict
-
-
-def calculate_indicators(df, sznl_map, ticker, market_series=None, vix_series=None, gap_window=21, custom_sma_lengths=None, acc_window=None, dist_window=None):
-    df = df.copy()
-    df.sort_index(inplace=True)
-    
-    if isinstance(df.columns, pd.MultiIndex):
-        df.columns = [c[0] if isinstance(c, tuple) else c for c in df.columns]
-    df.columns = [c.capitalize() for c in df.columns]
-    if df.index.tz is not None:
-        df.index = df.index.tz_localize(None)
-    df.index = df.index.normalize()
-    
-    # Pre-extract numpy arrays for speed
-    close = df['Close'].values
-    high = df['High'].values
-    low = df['Low'].values
-    open_prices = df['Open'].values
-    volume = df['Volume'].values
-    
-    # Vectorized SMA calculations
-    close_series = df['Close']
-    for window in [10, 20, 50, 100, 200]:
-        df[f'SMA{window}'] = close_series.rolling(window).mean()
-    
-    if custom_sma_lengths:
-        for length in custom_sma_lengths:
-            col_name = f"SMA{length}"
-            if col_name not in df.columns:
-                df[col_name] = close_series.rolling(length).mean()
-
-    df['EMA8'] = close_series.ewm(span=8, adjust=False).mean()
-    df['EMA11'] = close_series.ewm(span=11, adjust=False).mean()
-    df['EMA21'] = close_series.ewm(span=21, adjust=False).mean()
-    
-    for window in [2, 5, 10, 21]:
-        df[f'ret_{window}d'] = close_series.pct_change(window)
-        df[f'rank_ret_{window}d'] = df[f'ret_{window}d'].expanding(min_periods=252).rank(pct=True) * 100.0
-    
-    # ATR calculation - vectorized
-    high_low = high - low
-    high_close = np.abs(high - np.roll(close, 1))
-    low_close = np.abs(low - np.roll(close, 1))
-    high_close[0] = high_low[0]
-    low_close[0] = high_low[0]
-    true_range = np.maximum(np.maximum(high_low, high_close), low_close)
-    df['ATR'] = pd.Series(true_range, index=df.index).rolling(14).mean()
-    df['ATR_Pct'] = (df['ATR'] / df['Close']) * 100
-    
-    df['Sznl'] = get_sznl_val_series(ticker, df.index, sznl_map)
-    df['Mkt_Sznl_Ref'] = get_sznl_val_series("^GSPC", df.index, sznl_map)
-
-    running_max = df['High'].expanding().max()
-    df['is_ath'] = df['High'] >= running_max
-    
-    rolling_high = df['High'].shift(1).rolling(252).max()
-    rolling_low = df['Low'].shift(1).rolling(252).min()
-    df['is_52w_high'] = df['High'] > rolling_high
-    df['is_52w_low'] = df['Low'] < rolling_low
-    
-    vol_ma = df['Volume'].rolling(63).mean()
-    df['vol_ma'] = vol_ma
-    df['vol_ratio'] = df['Volume'] / vol_ma
-    
-    vol_ma_10 = df['Volume'].rolling(10).mean()
-    df['vol_ratio_10d'] = vol_ma_10 / vol_ma
-    df['vol_ratio_10d_rank'] = df['vol_ratio_10d'].expanding(min_periods=252).rank(pct=True) * 100.0
-    
-    # Vectorized accumulation/distribution day calculation
-    vol_gt_prev = volume > np.roll(volume, 1)
-    vol_gt_ma = df['Volume'].values > vol_ma.values
-    is_green = close > open_prices
-    is_red = close < open_prices
-
-    df['is_acc_day'] = (is_green & vol_gt_prev & vol_gt_ma).astype(int)
-    df['is_dist_day'] = (is_red & vol_gt_prev & vol_gt_ma).astype(int)
-    
-    if acc_window:
-        df[f'AccCount_{acc_window}'] = df['is_acc_day'].rolling(acc_window).sum()
-    if dist_window:
-        df[f'DistCount_{dist_window}'] = df['is_dist_day'].rolling(dist_window).sum()
-
-    if not df.empty:
-        start_ts = df.index[0]
-        df['age_years'] = (df.index - start_ts).days / 365.25
-    else:
-        df['age_years'] = 0.0
-        
-    if market_series is not None:
-        df['Market_Above_SMA200'] = market_series.reindex(df.index, method='ffill').fillna(False)
-
-    if vix_series is not None:
-        df['VIX_Value'] = vix_series.reindex(df.index, method='ffill').fillna(0)
-    else:
-        df['VIX_Value'] = 0.0
-
-    # Vectorized RangePct
-    denom = high - low
-    df['RangePct'] = np.where(denom == 0, 0.5, (close - low) / denom)
-
-    df['DayOfWeekVal'] = df.index.dayofweek
-    is_open_gap = (df['Low'] > df['High'].shift(1)).astype(int)
-    df['GapCount'] = is_open_gap.rolling(gap_window).sum()
-
-    piv_len = 20 
-    roll_max = df['High'].rolling(window=piv_len*2+1, center=True).max()
-    df['is_pivot_high'] = (df['High'] == roll_max)
-    roll_min = df['Low'].rolling(window=piv_len*2+1, center=True).min()
-    df['is_pivot_low'] = (df['Low'] == roll_min)
-
-    df['LastPivotHigh'] = np.where(df['is_pivot_high'], df['High'], np.nan)
-    df['LastPivotHigh'] = df['LastPivotHigh'].shift(piv_len).ffill()
-    df['LastPivotLow'] = np.where(df['is_pivot_low'], df['Low'], np.nan)
-    df['LastPivotLow'] = df['LastPivotLow'].shift(piv_len).ffill()
-    
-    df['PrevHigh'] = df['High'].shift(1)
-    df['PrevLow'] = df['Low'].shift(1)
-
-    return df
 
 
 def get_historical_mask(df, params, sznl_map, ticker_name="UNK"):

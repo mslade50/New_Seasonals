@@ -144,6 +144,8 @@ class TestIndicatorColumns:
             'VIX_Value',
             # Convenience
             'DayOfWeekVal', 'PrevHigh', 'PrevLow', 'NextOpen',
+            # Pivot
+            'is_pivot_high', 'is_pivot_low', 'LastPivotHigh', 'LastPivotLow',
         ]
         missing = [c for c in required_columns if c not in result.columns]
         assert missing == [], f"Missing columns: {missing}"
@@ -400,3 +402,183 @@ class TestParityGuards:
         """If market_series is None, Market_Above_SMA200 should not be in columns."""
         result = calculate_indicators(long_df, sznl_map, "AAPL", market_series=None)
         assert 'Market_Above_SMA200' not in result.columns
+
+
+# =============================================================================
+# TEST GROUP 5: Pivot Columns
+# =============================================================================
+
+class TestPivotColumns:
+    """Verify pivot high/low columns are computed correctly."""
+
+    def test_pivot_columns_exist(self, long_df, sznl_map):
+        result = calculate_indicators(long_df, sznl_map, "AAPL")
+        for col in ['is_pivot_high', 'is_pivot_low', 'LastPivotHigh', 'LastPivotLow']:
+            assert col in result.columns, f"Missing pivot column: {col}"
+
+    def test_last_pivot_high_valid(self, long_df, sznl_map):
+        """LastPivotHigh should be NaN initially, then forward-filled with valid prices."""
+        result = calculate_indicators(long_df, sznl_map, "AAPL")
+        valid = result['LastPivotHigh'].dropna()
+        if len(valid) > 0:
+            assert (valid > 0).all(), "LastPivotHigh should be positive prices"
+
+    def test_last_pivot_low_valid(self, long_df, sznl_map):
+        """LastPivotLow should be NaN initially, then forward-filled with valid prices."""
+        result = calculate_indicators(long_df, sznl_map, "AAPL")
+        valid = result['LastPivotLow'].dropna()
+        if len(valid) > 0:
+            assert (valid > 0).all(), "LastPivotLow should be positive prices"
+
+
+# =============================================================================
+# TEST GROUP 6: get_sznl_val_series Enhancements
+# =============================================================================
+
+class TestSznlEnhancements:
+    """Test the .upper(), ^GSPC fallback, and dict-of-dicts compatibility."""
+
+    def test_uppercase_lookup(self):
+        """Passing lowercase ticker should match uppercase key in map."""
+        smap = make_simple_sznl_map("AAPL", value=80.0, start_date="2024-01-01", periods=500)
+        dates = pd.bdate_range("2024-06-03", periods=5)
+        result = get_sznl_val_series("aapl", dates, smap)
+        assert (result == 80.0).all(), "Lowercase ticker should match uppercase key"
+
+    def test_gspc_spy_fallback(self):
+        """^GSPC should fall back to SPY if ^GSPC key doesn't exist."""
+        smap = make_simple_sznl_map("SPY", value=70.0, start_date="2024-01-01", periods=500)
+        dates = pd.bdate_range("2024-06-03", periods=5)
+        result = get_sznl_val_series("^GSPC", dates, smap)
+        assert (result == 70.0).all(), "^GSPC should fall back to SPY"
+
+    def test_dict_of_dicts_format(self):
+        """Backtester's load_seasonal_map can return {ticker: dict} format."""
+        dates = pd.bdate_range("2024-06-03", periods=5)
+        # Simulate backtester format: {ticker: {date: value}}
+        inner_dict = {d: 85.0 for d in dates}
+        smap = {"AAPL": inner_dict}
+        result = get_sznl_val_series("AAPL", dates, smap)
+        assert (result == 85.0).all(), "dict-of-dicts format should work"
+
+
+# =============================================================================
+# TEST GROUP 7: Index Normalization
+# =============================================================================
+
+class TestIndexNormalization:
+    """Verify that calculate_indicators normalizes the datetime index."""
+
+    def test_non_normalized_index_gets_normalized(self, sznl_map):
+        """Pass a non-normalized index (with time component), verify output is normalized."""
+        df = make_ohlcv(n_days=100, seed=10)
+        # Add time component to simulate non-normalized timestamps
+        df.index = df.index + pd.Timedelta(hours=16)
+        assert df.index[0].hour == 16, "Precondition: index should have time component"
+
+        result = calculate_indicators(df, sznl_map, "TEST")
+        assert result.index[0].hour == 0, "Index should be normalized (midnight)"
+        assert result.index[0].minute == 0
+
+
+# =============================================================================
+# TEST GROUP 8: Cross-Consumer Parity
+# =============================================================================
+
+class TestCrossConsumerParity:
+    """
+    Verify that calling calculate_indicators with backtester-style args
+    vs daily_scan-style args produces identical shared columns.
+    """
+
+    def test_shared_columns_identical(self):
+        """Core indicator columns must be identical regardless of caller arguments."""
+        df = make_ohlcv(n_days=500, seed=77)
+        smap = make_empty_sznl_map()
+
+        # Backtester-style call (custom windows, market_sznl_series)
+        market_sznl = pd.Series(60.0, index=df.index)
+        bt_result = calculate_indicators(
+            df.copy(), smap, "AAPL",
+            market_sznl_series=market_sznl,
+            gap_window=15,
+            acc_window=30,
+            dist_window=30,
+            custom_sma_lengths=[150],
+        )
+
+        # Daily-scan-style call (defaults only, with ref_ticker_ranks)
+        ref_ranks = {5: pd.Series(50.0, index=df.index)}
+        ds_result = calculate_indicators(
+            df.copy(), smap, "AAPL",
+            ref_ticker_ranks=ref_ranks,
+        )
+
+        # Shared columns that MUST be identical
+        shared_cols = [
+            'SMA10', 'SMA20', 'SMA50', 'SMA100', 'SMA200',
+            'EMA8', 'EMA11', 'EMA21',
+            'ret_2d', 'ret_5d', 'ret_10d', 'ret_21d',
+            'rank_ret_2d', 'rank_ret_5d', 'rank_ret_10d', 'rank_ret_21d',
+            'ATR', 'ATR_Pct', 'today_return_atr',
+            'vol_ma', 'vol_ratio', 'Vol_Spike',
+            'is_acc_day', 'is_dist_day',
+            'AccCount_5', 'AccCount_10', 'AccCount_21', 'AccCount_42',
+            'DistCount_5', 'DistCount_10', 'DistCount_21', 'DistCount_42',
+            'vol_ratio_10d', 'vol_ratio_10d_rank',
+            'RangePct',
+            'GapCount_5', 'GapCount_10', 'GapCount_21',
+            'Sznl', 'Mkt_Sznl_Ref',
+            'age_years',
+            'is_52w_high', 'is_52w_low', 'High_52w',
+            'is_ath', 'prior_ath', 'ATH_Level',
+            'VIX_Value',
+            'DayOfWeekVal', 'PrevHigh', 'PrevLow', 'NextOpen',
+            'is_pivot_high', 'is_pivot_low', 'LastPivotHigh', 'LastPivotLow',
+        ]
+
+        for col in shared_cols:
+            assert col in bt_result.columns, f"Backtester missing: {col}"
+            assert col in ds_result.columns, f"Daily-scan missing: {col}"
+            bt_vals = bt_result[col].fillna(-999)
+            ds_vals = ds_result[col].fillna(-999)
+            if bt_vals.dtype == float:
+                assert np.allclose(bt_vals.values, ds_vals.values, equal_nan=True), \
+                    f"Column {col} differs between backtester and daily_scan calls"
+            else:
+                assert (bt_vals == ds_vals).all(), \
+                    f"Column {col} differs between backtester and daily_scan calls"
+
+    def test_backtester_only_columns_present(self):
+        """Backtester-specific columns should exist when custom args are passed."""
+        df = make_ohlcv(n_days=500, seed=77)
+        smap = make_empty_sznl_map()
+        market_sznl = pd.Series(60.0, index=df.index)
+
+        result = calculate_indicators(
+            df.copy(), smap, "AAPL",
+            market_sznl_series=market_sznl,
+            gap_window=15,
+            acc_window=30,
+            dist_window=30,
+            custom_sma_lengths=[150],
+        )
+
+        assert 'Market_Sznl' in result.columns, "Market_Sznl should be present"
+        assert 'SMA150' in result.columns, "Custom SMA150 should be present"
+        assert 'AccCount_30' in result.columns, "Custom AccCount_30 should be present"
+        assert 'DistCount_30' in result.columns, "Custom DistCount_30 should be present"
+
+    def test_daily_scan_ref_ticker_columns_present(self):
+        """Daily-scan specific ref ticker columns should exist when ref_ticker_ranks passed."""
+        df = make_ohlcv(n_days=500, seed=77)
+        smap = make_empty_sznl_map()
+        ref_ranks = {5: pd.Series(50.0, index=df.index), 10: pd.Series(60.0, index=df.index)}
+
+        result = calculate_indicators(
+            df.copy(), smap, "AAPL",
+            ref_ticker_ranks=ref_ranks,
+        )
+
+        assert 'Ref_rank_ret_5d' in result.columns
+        assert 'Ref_rank_ret_10d' in result.columns
