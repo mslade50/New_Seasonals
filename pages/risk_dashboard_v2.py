@@ -137,14 +137,21 @@ def yang_zhang_vol(df: pd.DataFrame, window: int) -> pd.Series:
     """
     Yang-Zhang (2000) volatility estimator using OHLC data.
     Returns annualized volatility series.
+    For window=1, falls back to per-bar Rogers-Satchell estimator
+    (rolling variance is undefined for a single observation).
     """
     log_ho = np.log(df["High"] / df["Open"])
     log_lo = np.log(df["Low"] / df["Open"])
     log_co = np.log(df["Close"] / df["Open"])
-    log_oc = np.log(df["Open"] / df["Close"].shift(1))
 
     # Rogers-Satchell component
     rs = log_ho * (log_ho - log_co) + log_lo * (log_lo - log_co)
+
+    if window <= 1:
+        # Single-bar: use Rogers-Satchell directly (no rolling variance possible)
+        return np.sqrt(rs.abs()) * np.sqrt(252)
+
+    log_oc = np.log(df["Open"] / df["Close"].shift(1))
 
     # Overnight component
     sigma_o = log_oc.rolling(window).var()
