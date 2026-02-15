@@ -401,11 +401,7 @@ def score_alerts(metrics: dict) -> tuple:
         elif pct200 < 60 and spy_near_high:
             points["Breadth (divergence)"] = 1
 
-    # 2B: Absorption Ratio — was < 0.4 in last 10d and 2d slope now positive
-    ar_was_low_10d = metrics.get("ar_was_low_10d")
-    ar_delta2 = metrics.get("ar_delta_2d")
-    if ar_was_low_10d and ar_delta2 is not None and ar_delta2 > 0:
-        points["AR (recent <0.4 & slope up)"] = 1
+    # 2B: Absorption Ratio — removed from composite scoring (under review)
 
     # 2C: Dispersion — uses the 2x2 grid logic
     disp_high = metrics.get("dispersion_high")
