@@ -401,14 +401,17 @@ def score_alerts(metrics: dict) -> tuple:
         elif pct200 < 60 and spy_near_high:
             points["Breadth (divergence)"] = 1
 
-    # 2B: Absorption Ratio — alert: > 0.55; alarm: > 0.55 AND 21d change > 0
-    ar = metrics.get("absorption_ratio")
+    # 2B: Absorption Ratio — low & rising = danger (fragility building)
+    #   Alert: AR < 40th pctile AND 21d change > +0.03
+    #   Alarm: AR < 40th pctile AND 21d change > +0.05 AND accelerating
+    ar_pctile = metrics.get("ar_pctile")
     ar_delta21 = metrics.get("ar_delta_21d")
-    if ar is not None:
-        if ar > 0.55 and ar_delta21 is not None and ar_delta21 > 0:
-            points["Absorption Ratio (high & rising)"] = 2
-        elif ar > 0.55:
-            points["Absorption Ratio (elevated)"] = 1
+    ar_delta42 = metrics.get("ar_delta_42d")
+    if ar_pctile is not None and ar_pctile < 40 and ar_delta21 is not None:
+        if ar_delta21 > 0.05 and ar_delta42 is not None and ar_delta21 > ar_delta42:
+            points["AR (low & accelerating rise)"] = 2
+        elif ar_delta21 > 0.03:
+            points["AR (low & rising)"] = 1
 
     # 2C: Dispersion — uses the 2x2 grid logic
     disp_high = metrics.get("dispersion_high")
@@ -572,17 +575,30 @@ def chart_breadth(breadth_df: pd.DataFrame, spy_close: pd.Series) -> go.Figure:
     return fig
 
 
-def chart_absorption_ratio(ar_series: pd.Series) -> go.Figure:
+def chart_absorption_ratio(ar_series: pd.Series, ar_pctile_series: pd.Series = None,
+                           alert_mask: pd.Series = None) -> go.Figure:
     fig = go.Figure()
     fig.add_trace(go.Scatter(
         x=ar_series.index, y=ar_series,
         name="Absorption Ratio",
         line=dict(width=1.5, color="#0066CC"),
     ))
-    fig.add_hline(y=0.40, line_dash="dot", line_color="#00CC00", line_width=1,
-                  annotation_text="0.40", annotation_position="right")
-    fig.add_hline(y=0.55, line_dash="dot", line_color="#CC0000", line_width=1,
-                  annotation_text="0.55", annotation_position="right")
+    # Empirical percentile bands
+    ar_clean = ar_series.dropna()
+    if len(ar_clean) > 252:
+        p40 = ar_clean.quantile(0.40)
+        fig.add_hline(y=p40, line_dash="dot", line_color="#FFD700", line_width=1,
+                      annotation_text=f"P40: {p40:.2f}", annotation_position="right")
+    # Historical alert markers
+    if alert_mask is not None:
+        alert_pts = ar_series[alert_mask].dropna()
+        if len(alert_pts) > 0:
+            fig.add_trace(go.Scatter(
+                x=alert_pts.index, y=alert_pts,
+                mode="markers",
+                name="Low & Rising alert",
+                marker=dict(symbol="triangle-up", size=7, color="#FF8C00", line=dict(width=0.5, color="#CC0000")),
+            ))
     fig.update_layout(**_base_layout("Absorption Ratio (PCA on Sector ETFs)"))
     return fig
 
@@ -829,6 +845,14 @@ def main():
     cur_ar = _last_valid(ar_series)
     ar_clean = ar_series.dropna()
     cur_ar_delta21 = float(ar_clean.iloc[-1] - ar_clean.iloc[-22]) if len(ar_clean) >= 22 else None
+    cur_ar_delta42 = float(ar_clean.iloc[-1] - ar_clean.iloc[-43]) if len(ar_clean) >= 43 else None
+    ar_pctile_series = expanding_percentile(ar_series, min_periods=252)
+    cur_ar_pctile = _last_valid(ar_pctile_series)
+
+    # Build historical alert mask for chart markers (AR < 40th pctile AND 21d change > 0.03)
+    ar_delta21_series = ar_series - ar_series.shift(21)
+    ar_alert_mask = (ar_pctile_series < 40) & (ar_delta21_series > 0.03)
+    ar_alert_mask = ar_alert_mask.fillna(False)
 
     # Dispersion & correlation thresholds (75th percentile)
     disp_75 = disp_series.quantile(0.75) if len(disp_series.dropna()) > 100 else None
@@ -867,8 +891,9 @@ def main():
         "vvix": cur_vvix,
         "pct_above_200": cur_pct200,
         "spy_near_52w_high": spy_near_high,
-        "absorption_ratio": cur_ar,
+        "ar_pctile": cur_ar_pctile,
         "ar_delta_21d": cur_ar_delta21,
+        "ar_delta_42d": cur_ar_delta42,
         "dispersion_high": disp_high,
         "correlation_high": corr_high,
         "hurst_delta_5d": hurst_delta_5d,
@@ -1013,14 +1038,36 @@ def main():
         # 2B: Absorption Ratio
         st.markdown("#### 2B. Absorption Ratio")
         if len(ar_series.dropna()) > 0:
-            fig_ar = chart_absorption_ratio(ar_series)
+            fig_ar = chart_absorption_ratio(ar_series, ar_pctile_series, ar_alert_mask)
             st.plotly_chart(fig_ar, use_container_width=True)
-            ar_alert = cur_ar is not None and cur_ar > 0.55
-            ar_alarm = ar_alert and cur_ar_delta21 is not None and cur_ar_delta21 > 0
-            st.markdown(status_badge("AR", cur_ar, fmt=".3f", alert=ar_alert, alarm=ar_alarm))
+
+            # Alert logic: low & rising
+            ar_is_low = cur_ar_pctile is not None and cur_ar_pctile < 40
+            ar_alert = ar_is_low and cur_ar_delta21 is not None and cur_ar_delta21 > 0.03
+            ar_alarm = (ar_alert and cur_ar_delta21 is not None and cur_ar_delta21 > 0.05
+                        and cur_ar_delta42 is not None and cur_ar_delta21 > cur_ar_delta42)
+
+            # Label
+            if cur_ar is not None:
+                if ar_alarm:
+                    ar_label = "Low & Accelerating"
+                elif ar_alert:
+                    ar_label = "Low & Rising"
+                elif ar_is_low:
+                    ar_label = "Low & Stable"
+                else:
+                    ar_label = "Normal"
+                st.markdown(status_badge(f"AR ({ar_label})", cur_ar, fmt=".3f",
+                                         alert=ar_alert, alarm=ar_alarm))
+            if cur_ar_pctile is not None:
+                st.markdown(f"Percentile: **{cur_ar_pctile:.0f}th**")
             if cur_ar_delta21 is not None:
-                delta_sign = "+" if cur_ar_delta21 > 0 else ""
-                st.markdown(f"21d change: **{delta_sign}{cur_ar_delta21:.3f}**")
+                d21_sign = "+" if cur_ar_delta21 > 0 else ""
+                d42_str = ""
+                if cur_ar_delta42 is not None:
+                    d42_sign = "+" if cur_ar_delta42 > 0 else ""
+                    d42_str = f" | 42d: **{d42_sign}{cur_ar_delta42:.3f}**"
+                st.markdown(f"21d change: **{d21_sign}{cur_ar_delta21:.3f}**{d42_str}")
         else:
             st.info("Absorption ratio unavailable (insufficient sector data).")
 
