@@ -103,6 +103,64 @@ These run inside `build_strategy_dict()` so exports are pre-populated with reaso
 
 ---
 
+## Session: 2026-02-15 - Risk Dashboard V2 (Phase 1)
+
+### New File: `pages/risk_dashboard_v2.py` (1,004 lines)
+
+**Purpose:** Standalone market risk monitor. Completely independent from trading strategies — no imports from `strategy_config.py`, `strat_backtester.py`, `daily_scan.py`, or `indicators.py`.
+
+**Design doc:** `risk_dashboard_clean_sheet.md` (project root)
+
+#### Architecture: 3-Layer System
+
+**Layer 0 — The Verdict**
+- Rules-based point system: each metric in alert range = +1, alarm range = +2
+- Regime classification: 0 pts = Normal (1.00x), 1-2 = Caution (0.75x), 3-4 = Stress (0.50x), 5+ = Crisis (0.25x)
+- Color-coded banner + plain-English summary + expandable point breakdown
+
+**Layer 1 — Volatility State** (left column, 4 metrics)
+| Metric | Method | Alert | Alarm |
+|--------|--------|-------|-------|
+| 1A. HAR-RV | Yang-Zhang estimator at 1d/5d/22d | RV_1d > 2x RV_22d | RV_22d > 75th pctile & rising |
+| 1B. VRP | (VIX/100)² - RV_22d² | < 25th percentile | Negative |
+| 1C. VIX Term Structure | VIX / VIX3M ratio | > 0.95 | > 1.0 (backwardation) |
+| 1D. VVIX | ^VVIX level | > 100 | > 120 |
+
+**Layer 2 — Equity Market Internals** (right column, 4 metrics)
+| Metric | Method | Alert | Alarm |
+|--------|--------|-------|-------|
+| 2A. Breadth | % of 11 sector SPDRs > 200d/50d SMA | < 60% w/ SPY near high | < 40% |
+| 2B. Absorption Ratio | PCA eigenvalue₁/Σeigenvalues on 63d sector returns | > 0.55 | > 0.55 & 21d Δ > 0 |
+| 2C. Dispersion | Cross-sectional σ of 21d sector returns + avg pairwise corr | High disp | High disp + high corr |
+| 2D. Hurst | DFA on SPY returns, 63d rolling | 5d ΔH > +0.05 | H > 0.6 sustained 5d |
+
+#### Data
+
+- **Source:** yfinance only — no broker connections, no API keys
+- **Caching:** `@st.cache_data(ttl=3600)` for downloads; `data/` dir for persistent parquet
+- **Ticker groups:**
+  - Vol tickers: `SPY, ^VIX, ^VIX3M, ^VVIX`
+  - Sector ETFs: `XLB, XLC, XLE, XLF, XLI, XLK, XLP, XLRE, XLU, XLV, XLY`
+- **Start date:** 2010-01-01 (configurable via sidebar slider, 5-15 years)
+- **yfinance MultiIndex:** Handled via `.xs(ticker, level='Ticker', axis=1)` then flatten + capitalize
+
+#### Critical Implementation Details
+
+1. **yfinance MultiIndex bug:** ALL multi-ticker downloads return `(Price, Ticker)` MultiIndex. Must extract with `.xs()` then flatten.
+2. **Pages directory is FLAT** — no subfolders under `pages/`.
+3. **Optional import:** `SP500_TICKERS` from `abs_return_dispersion.py` (for future full breadth). Currently uses sector ETF proxy.
+4. **Graceful degradation:** Each metric wrapped in try/except. If ^VVIX or ^VIX3M unavailable, shows "Data unavailable" and excludes from composite.
+
+#### Phase 2 TODOs (not yet built)
+
+- [ ] Layer 3: Credit (LQD/HYG spread), Yield Curve (^TNX/^IRX), MOVE, Dollar (UUP)
+- [ ] Layer 4: SKEW, Protection Cost Proxy, Hedge Recommendation Engine
+- [ ] Full Bayesian composite (replace simple point system)
+- [ ] Full S&P 500 breadth (~500 constituents instead of 11 sector ETFs)
+- [ ] Historical regime validation / backtesting
+
+---
+
 ## Quick Reference: File Locations
 
 | File | Purpose |
@@ -110,6 +168,10 @@ These run inside `build_strategy_dict()` so exports are pre-populated with reaso
 | `strategy_config.py` | Strategy definitions (the "brain") |
 | `daily_scan.py` | Production scanner (the "hands") |
 | `backtester.py` | Research/testing UI |
+| `pages/risk_dashboard.py` | Risk dashboard V1 (dispersion-based) |
+| `pages/risk_dashboard_v2.py` | Risk dashboard V2 (multi-layer regime monitor) |
+| `abs_return_dispersion.py` | S&P 500 absolute return dispersion (Nomura method) |
+| `risk_dashboard_clean_sheet.md` | V2 design doc (panel debate format) |
 | `docs/backtesting_logic.md` | Backtester architecture notes |
 | `docs/screener_criteria.md` | Scanner/config documentation |
 | `docs/portfolio_logic.md` | Portfolio simulation notes |
