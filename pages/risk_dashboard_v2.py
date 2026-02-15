@@ -583,12 +583,8 @@ def chart_absorption_ratio(ar_series: pd.Series, ar_pctile_series: pd.Series = N
         name="Absorption Ratio",
         line=dict(width=1.5, color="#0066CC"),
     ))
-    # Empirical percentile bands
-    ar_clean = ar_series.dropna()
-    if len(ar_clean) > 252:
-        p40 = ar_clean.quantile(0.40)
-        fig.add_hline(y=p40, line_dash="dot", line_color="#FFD700", line_width=1,
-                      annotation_text=f"P40: {p40:.2f}", annotation_position="right")
+    fig.add_hline(y=0.4, line_dash="dot", line_color="#CC0000", line_width=1,
+                  annotation_text="0.40", annotation_position="right")
     # Historical alert markers
     if alert_mask is not None:
         alert_pts = ar_series[alert_mask].dropna()
@@ -850,9 +846,18 @@ def main():
     cur_ar_pctile = _last_valid(ar_pctile_series)
 
     # Build historical alert mask for chart markers (AR < 40th pctile AND 21d change > 0.03)
+    # Only show the first alert day in each 21-day window to reduce clutter
     ar_delta21_series = ar_series - ar_series.shift(21)
-    ar_alert_mask = (ar_pctile_series < 40) & (ar_delta21_series > 0.03)
-    ar_alert_mask = ar_alert_mask.fillna(False)
+    ar_raw_alert = (ar_pctile_series < 40) & (ar_delta21_series > 0.03)
+    ar_raw_alert = ar_raw_alert.fillna(False)
+    ar_alert_mask = ar_raw_alert.copy()
+    last_shown = None
+    for idx in ar_alert_mask.index:
+        if ar_alert_mask[idx]:
+            if last_shown is not None and (idx - last_shown).days < 21:
+                ar_alert_mask[idx] = False
+            else:
+                last_shown = idx
 
     # Dispersion & correlation thresholds (75th percentile)
     disp_75 = disp_series.quantile(0.75) if len(disp_series.dropna()) > 100 else None
