@@ -130,10 +130,12 @@ These run inside `build_strategy_dict()` so exports are pre-populated with reaso
 | Metric | Method | Alert | Alarm |
 |--------|--------|-------|-------|
 | 2A. Breadth | % of 11 sector SPDRs > 200d/50d SMA | < 60% w/ SPY near high | < 40% |
-| 2B. Absorption Ratio | PCA eigenvalue₁/Σeigenvalues on 63d sector returns. **"Low & rising" logic** — fragility builds when AR is low but rising fast (Minsky transition). Chart has triangle markers at historical alert dates for visual validation. | AR < 40th pctile AND 21d Δ > +0.03 | AR < 40th pctile AND 21d Δ > +0.05 AND accelerating (21d Δ > 42d Δ) |
+| 2B. Absorption Ratio | PCA eigenvalue₁/Σeigenvalues on 63d sector returns. **Display-only** — removed from composite scoring (under review). Red reference line at 0.40. AR measures how much of sector variance is explained by one factor; low AR (<0.4) = sectors independent, historically followed by below-avg returns (Minsky: stability breeds instability). | *Not scored* | *Not scored* |
 | 2C. Dispersion | Cross-sectional σ of 21d sector returns + avg pairwise corr | High disp | High disp + high corr |
-| 2D. Hurst | DFA on SPY returns, **126d rolling**, box sizes [8,16,32,48,63]. **Empirical percentile bands** (P20/P80 of own history, expanding, min 252 obs) replace hardcoded 0.4/0.6 thresholds. 5d ΔH remains primary signal. | H > 80th pctile | H > 95th pctile |
+| 2D. Hurst | DFA on SPY returns, **126d rolling**, box sizes [8,16,32,48,63]. **Smoothed**: 11d rolling median → 15d EMA (raw is too choppy). **Empirical percentile bands** (P20/P80 of smoothed history). 5d ΔH computed from smoothed series. | H > 80th pctile | H > 95th pctile |
 | 2E. Days Since Correction | Trading days since last 5% and 10% peak-to-trough drawdown in SPY. Both shown in one styled box. | 5% streak > 80th pctile | 5% streak > 95th pctile |
+
+**Chart defaults:** HAR-RV and VRP charts show last 1 year by default. Double-click to zoom out to full history.
 
 #### Data
 
