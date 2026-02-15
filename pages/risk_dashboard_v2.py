@@ -253,10 +253,11 @@ def compute_avg_pairwise_correlation(daily_returns_df: pd.DataFrame, window: int
     return avg_corr
 
 
-def compute_hurst_dfa(series: pd.Series, window: int = 63) -> pd.Series:
+def compute_hurst_dfa(series: pd.Series, window: int = 126) -> pd.Series:
     """
     Detrended Fluctuation Analysis to estimate Hurst exponent.
-    Returns rolling H estimate.
+    Returns rolling H estimate. Uses 126-day window and wider box sizes
+    to reduce finite-sample bias.
     """
     hurst_series = pd.Series(dtype=float, index=series.index)
 
@@ -265,7 +266,7 @@ def compute_hurst_dfa(series: pd.Series, window: int = 63) -> pd.Series:
         N = len(segment)
         Y = np.cumsum(segment - np.mean(segment))
 
-        box_sizes = [4, 8, 16, 32]
+        box_sizes = [8, 16, 32, 48, 63]
         box_sizes = [b for b in box_sizes if b <= N // 2]
 
         if len(box_sizes) < 3:
@@ -418,12 +419,15 @@ def score_alerts(metrics: dict) -> tuple:
         elif disp_high:
             points["Dispersion (elevated)"] = 1
 
-    # 2D: Hurst — alert: 5d delta > +0.05; alarm: H > 0.6 sustained
+    # 2D: Hurst — alert: H > 80th pctile; alarm: H > 95th pctile (empirical)
     delta_h = metrics.get("hurst_delta_5d")
-    h_sustained = metrics.get("hurst_above_06_sustained")
-    if h_sustained:
-        points["Hurst (>0.6 sustained)"] = 2
-    elif delta_h is not None and delta_h > 0.05:
+    hurst_pctile = metrics.get("hurst_pctile")
+    if hurst_pctile is not None:
+        if hurst_pctile > 95:
+            points["Hurst (>95th pctile)"] = 2
+        elif hurst_pctile > 80:
+            points["Hurst (>80th pctile)"] = 1
+    if delta_h is not None and delta_h > 0.05 and "Hurst" not in "".join(points.keys()):
         points["Hurst (rising fast)"] = 1
 
     # 2E: Days Since Correction — alert: > 80th pctile; alarm: > 95th pctile
@@ -597,21 +601,29 @@ def chart_dispersion(disp_series: pd.Series) -> go.Figure:
     return fig
 
 
-def chart_hurst(hurst_series: pd.Series) -> go.Figure:
+def chart_hurst(hurst_series: pd.Series, p20: float = None, p80: float = None) -> go.Figure:
     fig = go.Figure()
-    # Background shading for regimes
-    fig.add_hrect(y0=0, y1=0.4, fillcolor="rgba(0,204,0,0.05)", line_width=0)
-    fig.add_hrect(y0=0.4, y1=0.6, fillcolor="rgba(128,128,128,0.05)", line_width=0)
-    fig.add_hrect(y0=0.6, y1=1.0, fillcolor="rgba(204,0,0,0.05)", line_width=0)
+    # Background shading using empirical percentile bands
+    h_min = hurst_series.dropna().min() if len(hurst_series.dropna()) > 0 else 0.3
+    h_max = hurst_series.dropna().max() if len(hurst_series.dropna()) > 0 else 0.8
+    if p20 is not None and p80 is not None:
+        fig.add_hrect(y0=h_min - 0.05, y1=p20, fillcolor="rgba(0,204,0,0.05)", line_width=0)
+        fig.add_hrect(y0=p20, y1=p80, fillcolor="rgba(128,128,128,0.05)", line_width=0)
+        fig.add_hrect(y0=p80, y1=h_max + 0.05, fillcolor="rgba(204,0,0,0.05)", line_width=0)
     fig.add_trace(go.Scatter(
         x=hurst_series.index, y=hurst_series,
         name="Hurst (DFA)",
         line=dict(width=1.5, color="#0066CC"),
     ))
-    fig.add_hline(y=0.5, line_dash="dot", line_color="#888888", line_width=1)
-    fig.add_hline(y=0.4, line_dash="dot", line_color="#00CC00", line_width=1)
-    fig.add_hline(y=0.6, line_dash="dot", line_color="#CC0000", line_width=1)
-    fig.update_layout(**_base_layout("Hurst Exponent (DFA, 63d rolling)"))
+    fig.add_hline(y=0.5, line_dash="dot", line_color="#888888", line_width=1,
+                  annotation_text="0.5", annotation_position="right")
+    if p20 is not None:
+        fig.add_hline(y=p20, line_dash="dot", line_color="#00CC00", line_width=1,
+                      annotation_text=f"P20: {p20:.2f}", annotation_position="left")
+    if p80 is not None:
+        fig.add_hline(y=p80, line_dash="dot", line_color="#CC0000", line_width=1,
+                      annotation_text=f"P80: {p80:.2f}", annotation_position="left")
+    fig.update_layout(**_base_layout("Hurst Exponent (DFA, 126d rolling)"))
     return fig
 
 
@@ -770,7 +782,8 @@ def main():
     spy_returns = spy_df["Close"].pct_change().dropna()
     hurst_series = pd.Series(dtype=float)
     with st.spinner("Computing Hurst exponent (DFA)..."):
-        hurst_series = compute_hurst_dfa(spy_returns, window=63)
+        hurst_series = compute_hurst_dfa(spy_returns, window=126)
+    hurst_pctile_series = expanding_percentile(hurst_series, min_periods=252)
 
     # 2E: Days Since Correction (5% and 10%)
     spy_close = spy_df["Close"]
@@ -827,13 +840,14 @@ def main():
 
     # Hurst
     cur_hurst = _last_valid(hurst_series)
+    cur_hurst_pctile = _last_valid(hurst_pctile_series)
     hurst_clean = hurst_series.dropna()
     hurst_delta_5d = None
     if len(hurst_clean) >= 6:
         hurst_delta_5d = float(hurst_clean.iloc[-1] - hurst_clean.iloc[-6])
-    hurst_sustained = False
-    if len(hurst_clean) >= 5:
-        hurst_sustained = bool((hurst_clean.iloc[-5:] > 0.6).all())
+    # Empirical percentile bands for chart
+    hurst_p20 = float(hurst_clean.quantile(0.20)) if len(hurst_clean) > 252 else None
+    hurst_p80 = float(hurst_clean.quantile(0.80)) if len(hurst_clean) > 252 else None
 
     # Days Since Correction
     cur_days_since_5 = _last_valid(days_since_5_series)
@@ -858,7 +872,7 @@ def main():
         "dispersion_high": disp_high,
         "correlation_high": corr_high,
         "hurst_delta_5d": hurst_delta_5d,
-        "hurst_above_06_sustained": hurst_sustained,
+        "hurst_pctile": cur_hurst_pctile,
         "days_since_pctile": cur_days_since_5_pctile,
     }
 
@@ -1034,12 +1048,14 @@ def main():
         # 2D: Hurst
         st.markdown("#### 2D. Hurst Exponent (DFA)")
         if len(hurst_series.dropna()) > 0:
-            fig_hurst = chart_hurst(hurst_series)
+            fig_hurst = chart_hurst(hurst_series, p20=hurst_p20, p80=hurst_p80)
             st.plotly_chart(fig_hurst, use_container_width=True)
-            hurst_alert = hurst_delta_5d is not None and hurst_delta_5d > 0.05
-            hurst_alarm = hurst_sustained
+            hurst_alert = cur_hurst_pctile is not None and cur_hurst_pctile > 80
+            hurst_alarm = cur_hurst_pctile is not None and cur_hurst_pctile > 95
             st.markdown(status_badge("Hurst", cur_hurst, fmt=".3f",
                                      alert=hurst_alert, alarm=hurst_alarm))
+            if cur_hurst_pctile is not None:
+                st.markdown(f"Percentile: **{cur_hurst_pctile:.0f}th**")
             if hurst_delta_5d is not None:
                 delta_sign = "+" if hurst_delta_5d > 0 else ""
                 st.markdown(f"5d \u0394H: **{delta_sign}{hurst_delta_5d:.3f}**")
