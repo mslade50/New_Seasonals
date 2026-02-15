@@ -571,7 +571,7 @@ def chart_breadth(breadth_df: pd.DataFrame, spy_close: pd.Series) -> go.Figure:
     return fig
 
 
-def chart_absorption_ratio(ar_series: pd.Series, alert_mask: pd.Series = None) -> go.Figure:
+def chart_absorption_ratio(ar_series: pd.Series) -> go.Figure:
     fig = go.Figure()
     fig.add_trace(go.Scatter(
         x=ar_series.index, y=ar_series,
@@ -580,16 +580,6 @@ def chart_absorption_ratio(ar_series: pd.Series, alert_mask: pd.Series = None) -
     ))
     fig.add_hline(y=0.4, line_dash="dot", line_color="#CC0000", line_width=1,
                   annotation_text="0.40", annotation_position="right")
-    # Historical alert markers
-    if alert_mask is not None:
-        alert_pts = ar_series[alert_mask].dropna()
-        if len(alert_pts) > 0:
-            fig.add_trace(go.Scatter(
-                x=alert_pts.index, y=alert_pts,
-                mode="markers",
-                name="Low & Rising alert",
-                marker=dict(symbol="triangle-up", size=7, color="#FF8C00", line=dict(width=0.5, color="#CC0000")),
-            ))
     fig.update_layout(**_base_layout("Absorption Ratio (PCA on Sector ETFs)"))
     return fig
 
@@ -835,25 +825,8 @@ def main():
 
     cur_ar = _last_valid(ar_series)
     ar_clean = ar_series.dropna()
-    cur_ar_delta2 = float(ar_clean.iloc[-1] - ar_clean.iloc[-3]) if len(ar_clean) >= 3 else None
 
     # Was AR < 0.4 at any point in the last 10 days?
-    ar_rolling_min_10 = ar_series.rolling(10, min_periods=1).min()
-    ar_was_low_10d = ar_rolling_min_10.iloc[-1] < 0.4 if len(ar_rolling_min_10.dropna()) > 0 else False
-
-    # Build historical alert mask: was < 0.4 in last 10d AND 2d slope positive, deduped per 21d
-    ar_delta2_series = ar_series - ar_series.shift(2)
-    ar_raw_alert = (ar_rolling_min_10 < 0.4) & (ar_delta2_series > 0)
-    ar_raw_alert = ar_raw_alert.fillna(False)
-    ar_alert_mask = ar_raw_alert.copy()
-    last_shown = None
-    for idx in ar_alert_mask.index:
-        if ar_alert_mask[idx]:
-            if last_shown is not None and (idx - last_shown).days < 21:
-                ar_alert_mask[idx] = False
-            else:
-                last_shown = idx
-
     # Dispersion & correlation thresholds (75th percentile)
     disp_75 = disp_series.quantile(0.75) if len(disp_series.dropna()) > 100 else None
     corr_75 = corr_series.quantile(0.75) if len(corr_series.dropna()) > 100 else None
@@ -891,8 +864,6 @@ def main():
         "vvix": cur_vvix,
         "pct_above_200": cur_pct200,
         "spy_near_52w_high": spy_near_high,
-        "ar_was_low_10d": ar_was_low_10d,
-        "ar_delta_2d": cur_ar_delta2,
         "dispersion_high": disp_high,
         "correlation_high": corr_high,
         "hurst_delta_5d": hurst_delta_5d,
@@ -1037,25 +1008,12 @@ def main():
         # 2B: Absorption Ratio
         st.markdown("#### 2B. Absorption Ratio")
         if len(ar_series.dropna()) > 0:
-            fig_ar = chart_absorption_ratio(ar_series, alert_mask=ar_alert_mask)
+            fig_ar = chart_absorption_ratio(ar_series)
             st.plotly_chart(fig_ar, use_container_width=True)
 
-            # Signal: was < 0.4 in last 10d and 2d slope now positive
-            ar_rising = cur_ar_delta2 is not None and cur_ar_delta2 > 0
-            ar_alert = ar_was_low_10d and ar_rising
-
             if cur_ar is not None:
-                if ar_alert:
-                    ar_label = "Recent <0.4 & Rising"
-                elif ar_was_low_10d:
-                    ar_label = "Recent <0.4 & Flat"
-                else:
-                    ar_label = "Normal"
-                st.markdown(status_badge(f"AR ({ar_label})", cur_ar, fmt=".3f",
-                                         alert=ar_alert, alarm=False))
-            if cur_ar_delta2 is not None:
-                d2_sign = "+" if cur_ar_delta2 > 0 else ""
-                st.markdown(f"2d change: **{d2_sign}{cur_ar_delta2:.4f}**")
+                st.markdown(status_badge("AR", cur_ar, fmt=".3f",
+                                         alert=False, alarm=False))
         else:
             st.info("Absorption ratio unavailable (insufficient sector data).")
 
