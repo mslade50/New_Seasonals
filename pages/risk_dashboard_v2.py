@@ -489,7 +489,10 @@ def chart_har_rv(spy_df: pd.DataFrame) -> go.Figure:
     fig.add_trace(go.Scatter(x=rv1.index, y=rv1, name="RV 1d", line=dict(width=1, color="#FF6B6B")))
     fig.add_trace(go.Scatter(x=rv5.index, y=rv5, name="RV 5d", line=dict(width=1.5, color="#4ECDC4")))
     fig.add_trace(go.Scatter(x=rv22.index, y=rv22, name="RV 22d", line=dict(width=2, color="#0066CC")))
-    fig.update_layout(**_base_layout("HAR-RV Decomposition (Yang-Zhang)"))
+    layout = _base_layout("HAR-RV Decomposition (Yang-Zhang)")
+    one_year_ago = (pd.Timestamp.now() - pd.DateOffset(years=1)).strftime("%Y-%m-%d")
+    layout["xaxis"] = dict(showgrid=False, range=[one_year_ago, None])
+    fig.update_layout(**layout)
     fig.update_yaxes(tickformat=".0%")
     return fig, rv1, rv5, rv22
 
@@ -504,7 +507,10 @@ def chart_vrp(vrp_series: pd.Series) -> go.Figure:
         fillcolor="rgba(0,102,204,0.1)",
     ))
     fig.add_hline(y=0, line_dash="dot", line_color="#CC0000", line_width=1)
-    fig.update_layout(**_base_layout("Variance Risk Premium"))
+    layout = _base_layout("Variance Risk Premium")
+    one_year_ago = (pd.Timestamp.now() - pd.DateOffset(years=1)).strftime("%Y-%m-%d")
+    layout["xaxis"] = dict(showgrid=False, range=[one_year_ago, None])
+    fig.update_layout(**layout)
     return fig
 
 
