@@ -126,13 +126,14 @@ These run inside `build_strategy_dict()` so exports are pre-populated with reaso
 | 1C. VIX Term Structure | VIX / VIX3M ratio | > 0.95 | > 1.0 (backwardation) |
 | 1D. VVIX | ^VVIX level | > 100 | > 120 |
 
-**Layer 2 — Equity Market Internals** (right column, 4 metrics)
+**Layer 2 — Equity Market Internals** (right column, 5 metrics)
 | Metric | Method | Alert | Alarm |
 |--------|--------|-------|-------|
 | 2A. Breadth | % of 11 sector SPDRs > 200d/50d SMA | < 60% w/ SPY near high | < 40% |
-| 2B. Absorption Ratio | PCA eigenvalue₁/Σeigenvalues on 63d sector returns | > 0.55 | > 0.55 & 21d Δ > 0 |
+| 2B. Absorption Ratio | PCA eigenvalue₁/Σeigenvalues on 63d sector returns. **"Low & rising" logic** — fragility builds when AR is low but rising fast (Minsky transition). Chart has triangle markers at historical alert dates for visual validation. | AR < 40th pctile AND 21d Δ > +0.03 | AR < 40th pctile AND 21d Δ > +0.05 AND accelerating (21d Δ > 42d Δ) |
 | 2C. Dispersion | Cross-sectional σ of 21d sector returns + avg pairwise corr | High disp | High disp + high corr |
-| 2D. Hurst | DFA on SPY returns, 63d rolling | 5d ΔH > +0.05 | H > 0.6 sustained 5d |
+| 2D. Hurst | DFA on SPY returns, **126d rolling**, box sizes [8,16,32,48,63]. **Empirical percentile bands** (P20/P80 of own history, expanding, min 252 obs) replace hardcoded 0.4/0.6 thresholds. 5d ΔH remains primary signal. | H > 80th pctile | H > 95th pctile |
+| 2E. Days Since Correction | Trading days since last 5% and 10% peak-to-trough drawdown in SPY. Both shown in one styled box. | 5% streak > 80th pctile | 5% streak > 95th pctile |
 
 #### Data
 

@@ -90,9 +90,10 @@ Rules-based point system. Alert = +1, Alarm = +2.
 
 ### Layer 2: Equity Market Internals
 - 2A: Breadth (sector ETF proxy — % above 200d/50d SMA)
-- 2B: Absorption Ratio (PCA on 63d sector returns)
+- 2B: Absorption Ratio (PCA on 63d sector returns). **"Low & rising" logic** — alert when AR < 40th pctile AND 21d Δ > +0.03; alarm when also > +0.05 AND accelerating (21d Δ > 42d Δ). Chart shows historical alert triangles. Labels: "Low & Stable" / "Low & Rising" / "Low & Accelerating"
 - 2C: Cross-sectional dispersion + avg pairwise correlation (2x2 grid)
-- 2D: Hurst exponent (DFA, focus on 5d rate of change)
+- 2D: Hurst exponent (DFA, **126d window**, box sizes [8,16,32,48,63]). Thresholds are **empirical percentiles** (P20/P80 of own history, expanding, min 252 obs) — not hardcoded 0.4/0.6. Alert > 80th pctile, alarm > 95th. 5d ΔH is the primary signal.
+- 2E: Days Since Correction — trading days since last 5% and 10% drawdown, both in one box. Alert/alarm on 5% streak at 80th/95th pctile.
 
 ### Phase 2 TODO
 - Layer 3: Credit spreads, yield curve, MOVE, dollar
