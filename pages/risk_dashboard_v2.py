@@ -300,6 +300,33 @@ def compute_hurst_dfa(series: pd.Series, window: int = 63) -> pd.Series:
     return hurst_series
 
 
+def compute_days_since(spy_close: pd.Series, threshold_pct: float = 0.05) -> pd.Series:
+    """
+    For each day, compute trading days since the last drawdown >= threshold_pct.
+    Drawdown = peak-to-trough decline from trailing high.
+    """
+    trailing_high = spy_close.expanding().max()
+    drawdown = (spy_close - trailing_high) / trailing_high
+
+    # Find days where drawdown breached threshold
+    breach_dates = set(drawdown.index[drawdown <= -threshold_pct])
+
+    # For each day, count business days since last breach
+    days_since = pd.Series(dtype=float, index=spy_close.index)
+    last_breach = None
+    for date in spy_close.index:
+        if date in breach_dates:
+            last_breach = date
+        if last_breach is not None:
+            days_since[date] = np.busday_count(
+                last_breach.date(), date.date()
+            )
+        else:
+            days_since[date] = np.nan  # No correction yet in history
+
+    return days_since
+
+
 # ---------------------------------------------------------------------------
 # PERCENTILE HELPER
 # ---------------------------------------------------------------------------
@@ -398,6 +425,14 @@ def score_alerts(metrics: dict) -> tuple:
         points["Hurst (>0.6 sustained)"] = 2
     elif delta_h is not None and delta_h > 0.05:
         points["Hurst (rising fast)"] = 1
+
+    # 2E: Days Since Correction — alert: > 80th pctile; alarm: > 95th pctile
+    calm_pctile = metrics.get("days_since_pctile")
+    if calm_pctile is not None:
+        if calm_pctile > 95:
+            points["Calm Streak (>95th pctile)"] = 2
+        elif calm_pctile > 80:
+            points["Calm Streak (>80th pctile)"] = 1
 
     total = sum(points.values())
     return total, points
@@ -737,6 +772,11 @@ def main():
     with st.spinner("Computing Hurst exponent (DFA)..."):
         hurst_series = compute_hurst_dfa(spy_returns, window=63)
 
+    # 2E: Days Since Correction
+    spy_close = spy_df["Close"]
+    days_since_series = compute_days_since(spy_close, threshold_pct=0.05)
+    days_since_pctile_series = expanding_percentile(days_since_series, min_periods=252)
+
     # -----------------------------------------------------------------------
     # COLLECT CURRENT READINGS FOR LAYER 0
     # -----------------------------------------------------------------------
@@ -763,7 +803,6 @@ def main():
     cur_pct200 = _last_valid(breadth_df["pct_above_200"]) if not breadth_df.empty else None
 
     # SPY near 52-week high?
-    spy_close = spy_df["Close"]
     spy_52w_high = spy_close.rolling(252).max()
     spy_near_high = False
     if len(spy_52w_high.dropna()) > 0:
@@ -794,6 +833,10 @@ def main():
     if len(hurst_clean) >= 5:
         hurst_sustained = bool((hurst_clean.iloc[-5:] > 0.6).all())
 
+    # Days Since Correction
+    cur_days_since = _last_valid(days_since_series)
+    cur_days_since_pctile = _last_valid(days_since_pctile_series)
+
     # --- Score ---
     metrics_for_scoring = {
         "rv_1d": cur_rv1d,
@@ -812,6 +855,7 @@ def main():
         "correlation_high": corr_high,
         "hurst_delta_5d": hurst_delta_5d,
         "hurst_above_06_sustained": hurst_sustained,
+        "days_since_pctile": cur_days_since_pctile,
     }
 
     total_pts, pt_breakdown = score_alerts(metrics_for_scoring)
@@ -997,6 +1041,52 @@ def main():
                 st.markdown(f"5d \u0394H: **{delta_sign}{hurst_delta_5d:.3f}**")
         else:
             st.info("Hurst exponent unavailable (insufficient SPY return data).")
+
+        st.markdown("---")
+
+        # 2E: Days Since Correction
+        st.markdown("#### 2E. Days Since 5% Correction")
+        if cur_days_since is not None and not np.isnan(cur_days_since):
+            days_int = int(cur_days_since)
+            pctile_val = cur_days_since_pctile
+
+            # Color by percentile
+            if pctile_val is not None and not np.isnan(pctile_val):
+                if pctile_val > 95:
+                    calm_color = "#CC0000"
+                    calm_label = "Historically rare calm"
+                elif pctile_val > 80:
+                    calm_color = "#FF8C00"
+                    calm_label = "Extended calm"
+                elif pctile_val > 50:
+                    calm_color = "#FFD700"
+                    calm_label = "Above-average calm"
+                else:
+                    calm_color = "#00CC00"
+                    calm_label = "Normal"
+                pctile_str = f"{pctile_val:.0f}"
+            else:
+                calm_color = "#888888"
+                calm_label = "Percentile unavailable"
+                pctile_str = "N/A"
+
+            st.markdown(
+                f'<div style="background-color: {calm_color}20; border-left: 4px solid {calm_color}; '
+                f'padding: 12px; border-radius: 6px;">'
+                f'<span style="font-size: 28px; font-weight: bold;">Day {days_int}</span> '
+                f'since last 5% correction<br>'
+                f'<span style="color: {calm_color}; font-weight: bold;">'
+                f'{pctile_str}th percentile</span> of historical calm streaks '
+                f'— {calm_label}</div>',
+                unsafe_allow_html=True,
+            )
+
+            calm_alert = pctile_val is not None and not np.isnan(pctile_val) and pctile_val > 80
+            calm_alarm = pctile_val is not None and not np.isnan(pctile_val) and pctile_val > 95
+            st.markdown(status_badge("Calm Streak", f"{pctile_str}th pctile",
+                                     fmt="s", alert=calm_alert, alarm=calm_alarm))
+        else:
+            st.info("No 5% correction in available history — counter unavailable.")
 
     # ===================================================================
     # PHASE 2 PLACEHOLDERS
