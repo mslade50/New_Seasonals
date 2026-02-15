@@ -775,11 +775,12 @@ def main():
         with st.spinner("Computing pairwise correlations..."):
             corr_series = compute_avg_pairwise_correlation(sector_returns, window=21)
 
-    # 2D: Hurst
+    # 2D: Hurst (smoothed: 11d rolling median → 15d EMA)
     spy_returns = spy_df["Close"].pct_change().dropna()
-    hurst_series = pd.Series(dtype=float)
+    hurst_raw = pd.Series(dtype=float)
     with st.spinner("Computing Hurst exponent (DFA)..."):
-        hurst_series = compute_hurst_dfa(spy_returns, window=126)
+        hurst_raw = compute_hurst_dfa(spy_returns, window=126)
+    hurst_series = hurst_raw.rolling(11, center=True).median().ewm(span=15).mean()
     hurst_pctile_series = expanding_percentile(hurst_series, min_periods=252)
 
     # 2E: Days Since Correction (5% and 10%)
