@@ -401,10 +401,10 @@ def score_alerts(metrics: dict) -> tuple:
         elif pct200 < 60 and spy_near_high:
             points["Breadth (divergence)"] = 1
 
-    # 2B: Absorption Ratio — was < 0.4 in last 10d and 21d slope now positive
+    # 2B: Absorption Ratio — was < 0.4 in last 10d and 2d slope now positive
     ar_was_low_10d = metrics.get("ar_was_low_10d")
-    ar_delta21 = metrics.get("ar_delta_21d")
-    if ar_was_low_10d and ar_delta21 is not None and ar_delta21 > 0:
+    ar_delta2 = metrics.get("ar_delta_2d")
+    if ar_was_low_10d and ar_delta2 is not None and ar_delta2 > 0:
         points["AR (recent <0.4 & slope up)"] = 1
 
     # 2C: Dispersion — uses the 2x2 grid logic
@@ -833,15 +833,15 @@ def main():
 
     cur_ar = _last_valid(ar_series)
     ar_clean = ar_series.dropna()
-    cur_ar_delta21 = float(ar_clean.iloc[-1] - ar_clean.iloc[-22]) if len(ar_clean) >= 22 else None
+    cur_ar_delta2 = float(ar_clean.iloc[-1] - ar_clean.iloc[-3]) if len(ar_clean) >= 3 else None
 
     # Was AR < 0.4 at any point in the last 10 days?
     ar_rolling_min_10 = ar_series.rolling(10, min_periods=1).min()
     ar_was_low_10d = ar_rolling_min_10.iloc[-1] < 0.4 if len(ar_rolling_min_10.dropna()) > 0 else False
 
-    # Build historical alert mask: was < 0.4 in last 10d AND 21d slope positive, deduped per 21d
-    ar_delta21_series = ar_series - ar_series.shift(21)
-    ar_raw_alert = (ar_rolling_min_10 < 0.4) & (ar_delta21_series > 0)
+    # Build historical alert mask: was < 0.4 in last 10d AND 2d slope positive, deduped per 21d
+    ar_delta2_series = ar_series - ar_series.shift(2)
+    ar_raw_alert = (ar_rolling_min_10 < 0.4) & (ar_delta2_series > 0)
     ar_raw_alert = ar_raw_alert.fillna(False)
     ar_alert_mask = ar_raw_alert.copy()
     last_shown = None
@@ -890,7 +890,7 @@ def main():
         "pct_above_200": cur_pct200,
         "spy_near_52w_high": spy_near_high,
         "ar_was_low_10d": ar_was_low_10d,
-        "ar_delta_21d": cur_ar_delta21,
+        "ar_delta_2d": cur_ar_delta2,
         "dispersion_high": disp_high,
         "correlation_high": corr_high,
         "hurst_delta_5d": hurst_delta_5d,
@@ -1038,8 +1038,8 @@ def main():
             fig_ar = chart_absorption_ratio(ar_series, alert_mask=ar_alert_mask)
             st.plotly_chart(fig_ar, use_container_width=True)
 
-            # Signal: was < 0.4 in last 10d and 21d slope now positive
-            ar_rising = cur_ar_delta21 is not None and cur_ar_delta21 > 0
+            # Signal: was < 0.4 in last 10d and 2d slope now positive
+            ar_rising = cur_ar_delta2 is not None and cur_ar_delta2 > 0
             ar_alert = ar_was_low_10d and ar_rising
 
             if cur_ar is not None:
@@ -1051,9 +1051,9 @@ def main():
                     ar_label = "Normal"
                 st.markdown(status_badge(f"AR ({ar_label})", cur_ar, fmt=".3f",
                                          alert=ar_alert, alarm=False))
-            if cur_ar_delta21 is not None:
-                d21_sign = "+" if cur_ar_delta21 > 0 else ""
-                st.markdown(f"21d change: **{d21_sign}{cur_ar_delta21:.3f}**")
+            if cur_ar_delta2 is not None:
+                d2_sign = "+" if cur_ar_delta2 > 0 else ""
+                st.markdown(f"2d change: **{d2_sign}{cur_ar_delta2:.4f}**")
         else:
             st.info("Absorption ratio unavailable (insufficient sector data).")
 
