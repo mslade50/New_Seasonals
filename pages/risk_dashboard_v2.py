@@ -772,10 +772,12 @@ def main():
     with st.spinner("Computing Hurst exponent (DFA)..."):
         hurst_series = compute_hurst_dfa(spy_returns, window=63)
 
-    # 2E: Days Since Correction
+    # 2E: Days Since Correction (5% and 10%)
     spy_close = spy_df["Close"]
-    days_since_series = compute_days_since(spy_close, threshold_pct=0.05)
-    days_since_pctile_series = expanding_percentile(days_since_series, min_periods=252)
+    days_since_5_series = compute_days_since(spy_close, threshold_pct=0.05)
+    days_since_5_pctile_series = expanding_percentile(days_since_5_series, min_periods=252)
+    days_since_10_series = compute_days_since(spy_close, threshold_pct=0.10)
+    days_since_10_pctile_series = expanding_percentile(days_since_10_series, min_periods=252)
 
     # -----------------------------------------------------------------------
     # COLLECT CURRENT READINGS FOR LAYER 0
@@ -834,8 +836,10 @@ def main():
         hurst_sustained = bool((hurst_clean.iloc[-5:] > 0.6).all())
 
     # Days Since Correction
-    cur_days_since = _last_valid(days_since_series)
-    cur_days_since_pctile = _last_valid(days_since_pctile_series)
+    cur_days_since_5 = _last_valid(days_since_5_series)
+    cur_days_since_5_pctile = _last_valid(days_since_5_pctile_series)
+    cur_days_since_10 = _last_valid(days_since_10_series)
+    cur_days_since_10_pctile = _last_valid(days_since_10_pctile_series)
 
     # --- Score ---
     metrics_for_scoring = {
@@ -855,7 +859,7 @@ def main():
         "correlation_high": corr_high,
         "hurst_delta_5d": hurst_delta_5d,
         "hurst_above_06_sustained": hurst_sustained,
-        "days_since_pctile": cur_days_since_pctile,
+        "days_since_pctile": cur_days_since_5_pctile,
     }
 
     total_pts, pt_breakdown = score_alerts(metrics_for_scoring)
@@ -1045,48 +1049,72 @@ def main():
         st.markdown("---")
 
         # 2E: Days Since Correction
-        st.markdown("#### 2E. Days Since 5% Correction")
-        if cur_days_since is not None and not np.isnan(cur_days_since):
-            days_int = int(cur_days_since)
-            pctile_val = cur_days_since_pctile
+        st.markdown("#### 2E. Days Since Correction")
 
-            # Color by percentile
-            if pctile_val is not None and not np.isnan(pctile_val):
-                if pctile_val > 95:
-                    calm_color = "#CC0000"
-                    calm_label = "Historically rare calm"
-                elif pctile_val > 80:
-                    calm_color = "#FF8C00"
-                    calm_label = "Extended calm"
-                elif pctile_val > 50:
-                    calm_color = "#FFD700"
-                    calm_label = "Above-average calm"
-                else:
-                    calm_color = "#00CC00"
-                    calm_label = "Normal"
-                pctile_str = f"{pctile_val:.0f}"
-            else:
-                calm_color = "#888888"
-                calm_label = "Percentile unavailable"
-                pctile_str = "N/A"
+        def _calm_style(pctile_val):
+            """Return (color, label) for a calm streak percentile."""
+            if pctile_val is None or np.isnan(pctile_val):
+                return "#888888", "Percentile unavailable"
+            if pctile_val > 95:
+                return "#CC0000", "Historically rare calm"
+            if pctile_val > 80:
+                return "#FF8C00", "Extended calm"
+            if pctile_val > 50:
+                return "#FFD700", "Above-average calm"
+            return "#00CC00", "Normal"
+
+        has_5 = cur_days_since_5 is not None and not np.isnan(cur_days_since_5)
+        has_10 = cur_days_since_10 is not None and not np.isnan(cur_days_since_10)
+
+        if has_5 or has_10:
+            # Build HTML rows for both thresholds in one box
+            rows_html = ""
+
+            if has_5:
+                d5 = int(cur_days_since_5)
+                p5 = cur_days_since_5_pctile
+                c5, l5 = _calm_style(p5)
+                p5_str = f"{p5:.0f}" if p5 is not None and not np.isnan(p5) else "N/A"
+                rows_html += (
+                    f'<div style="margin-bottom: 8px;">'
+                    f'<span style="font-size: 28px; font-weight: bold;">Day {d5}</span> '
+                    f'since last <strong>5%</strong> correction — '
+                    f'<span style="color: {c5}; font-weight: bold;">'
+                    f'{p5_str}th pctile</span> ({l5})</div>'
+                )
+
+            if has_10:
+                d10 = int(cur_days_since_10)
+                p10 = cur_days_since_10_pctile
+                c10, l10 = _calm_style(p10)
+                p10_str = f"{p10:.0f}" if p10 is not None and not np.isnan(p10) else "N/A"
+                rows_html += (
+                    f'<div>'
+                    f'<span style="font-size: 28px; font-weight: bold;">Day {d10}</span> '
+                    f'since last <strong>10%</strong> correction — '
+                    f'<span style="color: {c10}; font-weight: bold;">'
+                    f'{p10_str}th pctile</span> ({l10})</div>'
+                )
+
+            # Use the worse (higher) percentile for the box border color
+            p5_val = cur_days_since_5_pctile if has_5 and cur_days_since_5_pctile is not None and not np.isnan(cur_days_since_5_pctile) else 0
+            p10_val = cur_days_since_10_pctile if has_10 and cur_days_since_10_pctile is not None and not np.isnan(cur_days_since_10_pctile) else 0
+            box_color, _ = _calm_style(max(p5_val, p10_val))
 
             st.markdown(
-                f'<div style="background-color: {calm_color}20; border-left: 4px solid {calm_color}; '
-                f'padding: 12px; border-radius: 6px;">'
-                f'<span style="font-size: 28px; font-weight: bold;">Day {days_int}</span> '
-                f'since last 5% correction<br>'
-                f'<span style="color: {calm_color}; font-weight: bold;">'
-                f'{pctile_str}th percentile</span> of historical calm streaks '
-                f'— {calm_label}</div>',
+                f'<div style="background-color: {box_color}20; border-left: 4px solid {box_color}; '
+                f'padding: 12px; border-radius: 6px;">{rows_html}</div>',
                 unsafe_allow_html=True,
             )
 
-            calm_alert = pctile_val is not None and not np.isnan(pctile_val) and pctile_val > 80
-            calm_alarm = pctile_val is not None and not np.isnan(pctile_val) and pctile_val > 95
-            st.markdown(status_badge("Calm Streak", f"{pctile_str}th pctile",
-                                     fmt="s", alert=calm_alert, alarm=calm_alarm))
+            # Alert badge based on 5% streak (primary signal)
+            if has_5:
+                calm_alert = p5_val > 80
+                calm_alarm = p5_val > 95
+                st.markdown(status_badge("Calm Streak (5%)", f"{p5_val:.0f}th pctile",
+                                         fmt="s", alert=calm_alert, alarm=calm_alarm))
         else:
-            st.info("No 5% correction in available history — counter unavailable.")
+            st.info("No correction in available history — counter unavailable.")
 
     # ===================================================================
     # PHASE 2 PLACEHOLDERS
