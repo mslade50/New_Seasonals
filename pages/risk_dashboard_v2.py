@@ -21,6 +21,7 @@ import os
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import math
+import json
 
 try:
     from scipy.stats import norm as scipy_norm
@@ -89,6 +90,8 @@ REGIME_MULTIPLIER = {
 
 DATA_DIR = os.path.join(parent_dir, "data")
 os.makedirs(DATA_DIR, exist_ok=True)
+
+SIGNAL_CACHE_PATH = os.path.join(DATA_DIR, "risk_dashboard_signal_state.json")
 
 # ---------------------------------------------------------------------------
 # DATA DOWNLOAD
@@ -648,280 +651,489 @@ def classify_regime(total_points: int) -> str:
         return "Crisis"
 
 
-def generate_narrative(regime: str, points: dict, metrics: dict) -> str:
+def compute_price_context(spy_close: pd.Series) -> dict:
     """
-    Generate a 2-3 sentence narrative that synthesizes the dashboard state.
-    This is NOT a list of metrics -- it's a story about what's happening.
+    Compute the three dimensions of price context.
+    Returns dict with all values needed for the banner.
     """
-    if regime == "Normal" and len(points) == 0:
-        vol_state = ""
-        rv_p = metrics.get('rv_22d_pctile')
-        if rv_p is not None:
-            if rv_p < 25:
-                vol_state = "Realized vol is low. "
-            elif rv_p < 50:
-                vol_state = "Realized vol is below average. "
-            else:
-                vol_state = "Realized vol is moderate. "
+    latest = float(spy_close.iloc[-1])
 
-        vrp_state = ""
-        if metrics.get('vrp') is not None and metrics['vrp'] > 0:
-            vrp_state = "The variance risk premium is positive, indicating the market is pricing in adequate risk compensation. "
+    # Trailing 12-month return
+    if len(spy_close) >= 252:
+        ret_12m = (latest / float(spy_close.iloc[-252]) - 1)
+    else:
+        ret_12m = None
 
-        calm_note = ""
-        ds5 = metrics.get('days_since_5pct_pctile')
-        if ds5 is not None and ds5 > 60:
-            calm_note = (f"Note: the current calm streak since the last 5% correction is at the "
-                         f"{ds5:.0f}th percentile of history — not alarming, but worth monitoring "
-                         f"as complacency builds. ")
+    # Extension vs 200d SMA
+    sma_200 = float(spy_close.rolling(200).mean().iloc[-1]) if len(spy_close) >= 200 else None
+    extension_200d = (latest / sma_200 - 1) if sma_200 else None
 
-        return f"All systems nominal. {vol_state}{vrp_state}{calm_note}No action required."
+    # Drawdown from 52-week high
+    high_52w = float(spy_close.rolling(252).max().iloc[-1]) if len(spy_close) >= 252 else None
+    drawdown = (latest / high_52w - 1) if high_52w else None
 
-    sentences = []
-
-    # Volatility story
-    vol_flags = [k for k in points if any(x in k for x in ['HAR-RV', 'VRP', 'VIX Term', 'VVIX'])]
-    if vol_flags:
-        vol_parts = []
-        if any('VRP' in k for k in vol_flags):
-            if metrics.get('vrp', 0) < 0:
-                vol_parts.append("the variance risk premium has gone negative (realized vol exceeds implied)")
-            else:
-                vol_parts.append("the variance risk premium is compressed")
-        if any('backwardation' in k.lower() for k in vol_flags):
-            vol_parts.append("the VIX term structure is in backwardation")
-        if any('HAR-RV' in k for k in vol_flags):
-            vol_parts.append("realized volatility is elevated and/or spiking")
-        if any('VVIX' in k for k in vol_flags):
-            vol_parts.append("vol-of-vol is high (uncertain vol path)")
-        if vol_parts:
-            sentences.append("Volatility complex: " + "; ".join(vol_parts) + ".")
-
-    # Internals story
-    internal_flags = [k for k in points if any(x in k for x in ['Breadth', 'Dispersion', 'Hurst', 'Complacency', 'Calm'])]
-    if internal_flags:
-        int_parts = []
-        if any('Breadth' in k for k in internal_flags):
-            if metrics.get('pct_above_200', 100) < 40:
-                int_parts.append("breadth is critically weak")
-            else:
-                int_parts.append("breadth is deteriorating while the index holds near highs")
-        if any('Dispersion' in k for k in internal_flags):
-            int_parts.append("return dispersion and correlation are both elevated (stress pattern)")
-        if any('Hurst' in k for k in internal_flags):
-            int_parts.append("the Hurst exponent indicates a trending regime")
-        if any('Complacency' in k or 'Calm' in k for k in internal_flags):
-            int_parts.append("unusually long calm streak — complacency is building")
-        if int_parts:
-            sentences.append("Market internals: " + "; ".join(int_parts) + ".")
-
-    # Plumbing story
-    plumbing_flags = [k for k in points if any(x in k for x in ['Credit', 'Yield', 'MOVE', 'Dollar'])]
-    if plumbing_flags:
-        plumb_parts = []
-        if any('Credit' in k for k in plumbing_flags):
-            plumb_parts.append("credit spreads are widening")
-        if any('Yield' in k for k in plumbing_flags):
-            if metrics.get('yield_curve_spread', 1) < 0:
-                plumb_parts.append("the yield curve is inverted")
-            else:
-                plumb_parts.append("the yield curve is flattening rapidly")
-        if any('MOVE' in k for k in plumbing_flags):
-            plumb_parts.append("rates volatility is elevated (historically leads equity vol)")
-        if any('Dollar' in k for k in plumbing_flags):
-            plumb_parts.append("the dollar is moving sharply")
-        if plumb_parts:
-            sentences.append("Cross-asset: " + "; ".join(plumb_parts) + ".")
-
-    if not sentences:
-        return "Conditions are slightly elevated but no clear pattern of stress."
-
-    return " ".join(sentences)
-
-
-# ---------------------------------------------------------------------------
-# EXECUTIVE SUMMARY COMPONENTS
-# ---------------------------------------------------------------------------
-
-def build_situation_board(metrics_display: list) -> go.Figure:
-    """
-    Build the situation board bullet chart.
-    Each metric is a horizontal row. X-axis = percentile (0-100).
-    Background zones: green/yellow/red based on alert/alarm thresholds.
-    """
-    fig = go.Figure()
-    n = len(metrics_display)
-
-    # Track layer boundaries for separator lines
-    prev_layer = None
-    layer_boundaries = []
-
-    for i, m in enumerate(metrics_display):
-        y_pos = n - i
-        name = m['name']
-        layer = m['layer']
-        val_str = m['value_str']
-        pctile = m.get('percentile')
-        alert_p = m['alert_pctile']
-        alarm_p = m['alarm_pctile']
-        invert = m.get('invert', False)
-
-        if prev_layer is not None and layer != prev_layer:
-            layer_boundaries.append(y_pos + 0.5)
-        prev_layer = layer
-
-        # Background zones
-        if invert:
-            fig.add_shape(type="rect", x0=0, x1=alarm_p, y0=y_pos - 0.35, y1=y_pos + 0.35,
-                          fillcolor="rgba(204,0,0,0.15)", line_width=0, layer="below")
-            fig.add_shape(type="rect", x0=alarm_p, x1=alert_p, y0=y_pos - 0.35, y1=y_pos + 0.35,
-                          fillcolor="rgba(255,215,0,0.15)", line_width=0, layer="below")
-            fig.add_shape(type="rect", x0=alert_p, x1=100, y0=y_pos - 0.35, y1=y_pos + 0.35,
-                          fillcolor="rgba(0,204,0,0.08)", line_width=0, layer="below")
+    # Price regime label
+    if ret_12m is not None and extension_200d is not None and drawdown is not None:
+        if drawdown < -0.10:
+            regime_label = "Significant drawdown in progress"
+        elif drawdown < -0.05:
+            regime_label = "Correction underway"
+        elif ret_12m > 0.20 and extension_200d > 0.08:
+            regime_label = "Extended uptrend, stretched above trend"
+        elif ret_12m > 0.15 and extension_200d > 0.05:
+            regime_label = "Strong uptrend, moderately extended"
+        elif ret_12m > 0.10:
+            regime_label = "Healthy uptrend"
+        elif ret_12m > 0:
+            regime_label = "Modest gains, near trend"
+        elif ret_12m > -0.05:
+            regime_label = "Flat to slightly negative"
         else:
-            fig.add_shape(type="rect", x0=0, x1=alert_p, y0=y_pos - 0.35, y1=y_pos + 0.35,
-                          fillcolor="rgba(0,204,0,0.08)", line_width=0, layer="below")
-            fig.add_shape(type="rect", x0=alert_p, x1=alarm_p, y0=y_pos - 0.35, y1=y_pos + 0.35,
-                          fillcolor="rgba(255,215,0,0.15)", line_width=0, layer="below")
-            fig.add_shape(type="rect", x0=alarm_p, x1=100, y0=y_pos - 0.35, y1=y_pos + 0.35,
-                          fillcolor="rgba(204,0,0,0.15)", line_width=0, layer="below")
+            regime_label = "Downtrend"
+    else:
+        regime_label = "Insufficient data"
 
-        # Current reading marker
-        if pctile is not None and not np.isnan(pctile):
-            if invert:
-                if pctile <= alarm_p:
-                    dot_color = "#CC0000"
-                elif pctile <= alert_p:
-                    dot_color = "#FFD700"
+    return {
+        'price': latest,
+        'ret_12m': ret_12m,
+        'extension_200d': extension_200d,
+        'drawdown': drawdown,
+        'sma_200': sma_200,
+        'high_52w': high_52w,
+        'regime_label': regime_label,
+    }
+
+
+def compute_regime_multiplier(price_ctx: dict) -> float:
+    """
+    Amplify or dampen fragility signals based on price context.
+
+    At extended highs: fragility signals are MORE dangerous -> multiplier > 1
+    In corrections: fragility signals are LESS dangerous -> multiplier < 1
+
+    Returns multiplier between 0.6 and 1.8.
+    """
+    m = 1.0
+
+    ret = price_ctx.get('ret_12m')
+    ext = price_ctx.get('extension_200d')
+    dd = price_ctx.get('drawdown')
+
+    if ret is not None:
+        if ret > 0.25:
+            m += 0.25
+        elif ret > 0.15:
+            m += 0.10
+        elif ret < -0.05:
+            m -= 0.15
+
+    if ext is not None:
+        if ext > 0.10:
+            m += 0.25
+        elif ext > 0.05:
+            m += 0.10
+        elif ext < -0.02:
+            m -= 0.15
+
+    if dd is not None:
+        if dd > -0.02:      # Near highs
+            m += 0.10
+        elif dd < -0.10:    # Deep drawdown
+            m -= 0.20
+
+    return max(0.6, min(1.8, m))
+
+
+def compute_condition_signals(metrics: dict, price_ctx: dict) -> dict:
+    """
+    Compute the three-question signal framework.
+
+    Returns dict of:
+    {
+        'signals': {name: bool},        # ON/OFF for each signal
+        'details': {name: str},          # Brief explanation when active
+        'questions': {                   # Grouped by question
+            'Is liquidity real?': [signal_names],
+            'Is everyone on the same side?': [signal_names],
+            'Are correlations stable?': [signal_names],
+        }
+    }
+    """
+    signals = {}
+    details = {}
+
+    # =====================================================================
+    # QUESTION 1: IS LIQUIDITY REAL?
+    # =====================================================================
+
+    # Signal 1A: Vol Suppression
+    ar_pctile = metrics.get('ar_pctile')
+    rv22d_pctile = metrics.get('rv_22d_pctile')
+
+    vol_suppression_on = False
+    if ar_pctile is not None and rv22d_pctile is not None:
+        vol_suppression_on = (ar_pctile < 25) and (rv22d_pctile < 35)
+    signals['Vol Suppression'] = vol_suppression_on
+    if vol_suppression_on:
+        details['Vol Suppression'] = (
+            f"Absorption ratio at {ar_pctile:.0f}th pctile while realized vol at "
+            f"{rv22d_pctile:.0f}th pctile. Index vol is likely being suppressed by "
+            f"systematic selling \u2014 apparent calm masks thin underlying liquidity."
+        )
+
+    # Signal 1B: VRP Compression
+    vrp = metrics.get('vrp')
+    vrp_pctile = metrics.get('vrp_pctile')
+
+    vrp_compression_on = False
+    if vrp is not None and vrp_pctile is not None:
+        vrp_compression_on = (vrp < 0) or (vrp_pctile < 15)
+    signals['VRP Compression'] = vrp_compression_on
+    if vrp_compression_on:
+        if vrp is not None and vrp < 0:
+            details['VRP Compression'] = (
+                f"VRP is negative ({vrp:.4f}) \u2014 realized vol exceeds implied. "
+                f"The market was underpricing risk. Options are too cheap to hedge."
+            )
+        else:
+            details['VRP Compression'] = (
+                f"VRP at {vrp_pctile:.0f}th percentile \u2014 very little risk premium. "
+                f"Market is complacent about future vol."
+            )
+
+    # =====================================================================
+    # QUESTION 2: IS EVERYONE ON THE SAME SIDE?
+    # =====================================================================
+
+    # Signal 2A: Breadth Divergence
+    pct200 = metrics.get('pct_above_200')
+    spy_near_high = metrics.get('spy_near_52w_high')
+
+    breadth_div_on = False
+    if pct200 is not None and spy_near_high is not None:
+        breadth_div_on = spy_near_high and (pct200 < 55)
+    signals['Breadth Divergence'] = breadth_div_on
+    if breadth_div_on:
+        details['Breadth Divergence'] = (
+            f"SPY is near its 52-week high but only {pct200:.0f}% of sectors are "
+            f"above their 200d SMA. The index is being held up by a few names \u2014 "
+            f"the army is retreating while the flag is still flying."
+        )
+
+    # Signal 2B: Extended Calm (compound complacency)
+    ds_5_pctile = metrics.get('days_since_5pct_pctile')
+    ds_vix_pctile = metrics.get('days_since_vix_spike_pctile')
+
+    extended_calm_on = False
+    both_elevated = (ds_5_pctile is not None and ds_5_pctile > 70 and
+                     ds_vix_pctile is not None and ds_vix_pctile > 70)
+    either_extreme = ((ds_5_pctile is not None and ds_5_pctile > 85) or
+                      (ds_vix_pctile is not None and ds_vix_pctile > 85))
+    extended_calm_on = both_elevated or either_extreme
+    signals['Extended Calm'] = extended_calm_on
+    if extended_calm_on:
+        ds5_str = f"{metrics.get('days_since_5pct', 0):.0f} days ({ds_5_pctile:.0f}th)" if ds_5_pctile else "N/A"
+        dsv_str = f"{metrics.get('days_since_vix_spike', 0):.0f} days ({ds_vix_pctile:.0f}th)" if ds_vix_pctile else "N/A"
+        details['Extended Calm'] = (
+            f"Days since 5% correction: {ds5_str}. Days since VIX > 28: {dsv_str}. "
+            f"Leveraged and systematic positions haven't been cleared in a long time."
+        )
+
+    # Signal 2C: Vol Compression Duration
+    rv22d_series = metrics.get('rv_22d_series')
+    vol_compress_on = False
+    vol_compress_days = 0
+    vol_compress_depth = 0.0
+    if rv22d_series is not None and len(rv22d_series.dropna()) > 252:
+        rv_median = rv22d_series.expanding(min_periods=252).median()
+        below_median = rv22d_series < rv_median
+
+        # Count consecutive days below median at end of series
+        clean = below_median.dropna()
+        if len(clean) > 0 and clean.iloc[-1]:
+            count = 0
+            for i in range(len(clean) - 1, -1, -1):
+                if clean.iloc[i]:
+                    count += 1
                 else:
-                    dot_color = "#00CC00"
-            else:
-                if pctile >= alarm_p:
-                    dot_color = "#CC0000"
-                elif pctile >= alert_p:
-                    dot_color = "#FFD700"
-                else:
-                    dot_color = "#00CC00"
+                    break
+            vol_compress_days = count
 
-            fig.add_trace(go.Scatter(
-                x=[pctile], y=[y_pos],
-                mode="markers",
-                marker=dict(size=14, color=dot_color, line=dict(width=2, color="white")),
-                showlegend=False,
-                hovertemplate=f"{name}: {val_str}<br>Percentile: {pctile:.0f}<extra></extra>",
-            ))
+            # Depth: how far below median is current RV?
+            cur_rv = rv22d_series.dropna().iloc[-1]
+            cur_median = rv_median.dropna().iloc[-1]
+            if cur_median > 0:
+                vol_compress_depth = 1.0 - (cur_rv / cur_median)
+
+        vol_compress_on = vol_compress_days > 60
+
+    signals['Vol Compression'] = vol_compress_on
+    if vol_compress_on:
+        details['Vol Compression'] = (
+            f"Realized vol has been below its median for {vol_compress_days} consecutive days "
+            f"(currently {vol_compress_depth:.0%} below median). Participants have adapted: "
+            f"reduced hedges, increased leverage, sold options."
+        )
+
+    # =====================================================================
+    # QUESTION 3: ARE CORRELATIONS STABLE?
+    # =====================================================================
+
+    # Signal 3A: Credit-Equity Divergence
+    hy_z = metrics.get('credit_hy_z')
+    spy_21d_ret = metrics.get('spy_21d_return')
+
+    credit_eq_div_on = False
+    if hy_z is not None and spy_21d_ret is not None:
+        credit_eq_div_on = (hy_z > 0.75) and (spy_21d_ret > -0.02)
+    signals['Credit-Equity Divergence'] = credit_eq_div_on
+    if credit_eq_div_on:
+        details['Credit-Equity Divergence'] = (
+            f"HY credit spreads widening (z: {hy_z:+.1f}\u03c3) while SPX is stable "
+            f"({spy_21d_ret:+.1%} over 21d). Credit is sniffing risk that equity "
+            f"hasn't priced. Historically leads equity by 2-6 weeks."
+        )
+
+    # Signal 3B: Rates-Equity Vol Gap
+    move_val = metrics.get('move')
+    move_pctile = metrics.get('move_pctile')
+    vix_val = metrics.get('vix')
+    vix_pctile = metrics.get('vix_pctile')
+
+    rates_eq_gap_on = False
+    if move_pctile is not None and vix_pctile is not None:
+        rates_eq_gap_on = (move_pctile > 70) and (vix_pctile < 40)
+    elif move_val is not None and vix_val is not None:
+        rates_eq_gap_on = (move_val > 100) and (vix_val < 18)
+    signals['Rates-Equity Vol Gap'] = rates_eq_gap_on
+    if rates_eq_gap_on:
+        move_str = f"{move_val:.0f}" if move_val else "N/A"
+        vix_str = f"{vix_val:.1f}" if vix_val else "N/A"
+        details['Rates-Equity Vol Gap'] = (
+            f"MOVE at {move_str} (elevated) while VIX at {vix_str} (calm). "
+            f"Rates vol transmits to equity vol via dealer balance sheets. "
+            f"This gap tends to close via equity vol rising."
+        )
+
+    # Signal 3C: VIX Uncertainty
+    vvix_val = metrics.get('vvix')
+    vvix_vix_ratio = None
+    if vvix_val is not None and vix_val is not None and vix_val > 0:
+        vvix_vix_ratio = vvix_val / vix_val
+
+    vvix_vix_pctile = metrics.get('vvix_vix_ratio_pctile')
+
+    vol_uncertainty_on = False
+    if vvix_vix_pctile is not None:
+        vol_uncertainty_on = vvix_vix_pctile > 80
+    elif vvix_vix_ratio is not None:
+        vol_uncertainty_on = vvix_vix_ratio > 7.5
+    signals['Vol Uncertainty'] = vol_uncertainty_on
+    if vol_uncertainty_on:
+        ratio_str = f"{vvix_vix_ratio:.1f}" if vvix_vix_ratio else "N/A"
+        details['Vol Uncertainty'] = (
+            f"VVIX/VIX ratio at {ratio_str} (elevated). The options market is "
+            f"pricing wide uncertainty around the vol path \u2014 the market doesn't "
+            f"trust the current calm. Explosive move potential in either direction."
+        )
+
+    # Group signals by question
+    questions = {
+        'Is liquidity real?': ['Vol Suppression', 'VRP Compression'],
+        'Is everyone on the same side?': ['Breadth Divergence', 'Extended Calm', 'Vol Compression'],
+        'Are correlations stable?': ['Credit-Equity Divergence', 'Rates-Equity Vol Gap', 'Vol Uncertainty'],
+    }
+
+    return {
+        'signals': signals,
+        'details': details,
+        'questions': questions,
+        'vol_compress_days': vol_compress_days,
+        'vol_compress_depth': vol_compress_depth,
+    }
+
+
+def render_price_context(price_ctx: dict):
+    """Render the price context banner."""
+    p = price_ctx
+
+    ret_str = f"{p['ret_12m']:+.1%}" if p['ret_12m'] is not None else "N/A"
+    ext_str = f"{p['extension_200d']:+.1%}" if p['extension_200d'] is not None else "N/A"
+    dd_str = f"{p['drawdown']:+.1%}" if p['drawdown'] is not None else "N/A"
+
+    st.markdown(f"""
+    <div style="background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08);
+                padding: 10px 16px; border-radius: 6px; margin-bottom: 10px;">
+        <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap;">
+            <div>
+                <span style="font-size: 15px; font-weight: 600;">SPY: ${p['price']:.2f}</span>
+                <span style="font-size: 13px; color: #999; margin-left: 12px;">
+                    {ret_str} 12mo &nbsp;|&nbsp; {ext_str} vs 200d &nbsp;|&nbsp; {dd_str} from high
+                </span>
+            </div>
+            <div style="font-size: 13px; color: #bbb;">
+                {p['regime_label']}
+            </div>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+
+
+def render_three_questions(signal_result: dict):
+    """Render the three-question signal board."""
+
+    question_icons = {
+        'Is liquidity real?': '\U0001f4a7',
+        'Is everyone on the same side?': '\U0001f465',
+        'Are correlations stable?': '\U0001f517',
+    }
+
+    for question, signal_names in signal_result['questions'].items():
+        icon = question_icons.get(question, '\u2753')
+        active_in_group = sum(1 for s in signal_names if signal_result['signals'].get(s, False))
+
+        # Question header with count
+        if active_in_group == 0:
+            q_color = "#00CC00"
+            q_badge = "CLEAR"
+        elif active_in_group == 1:
+            q_color = "#FFD700"
+            q_badge = "WATCH"
         else:
-            fig.add_annotation(x=50, y=y_pos, text="No Data", showarrow=False,
-                               font=dict(size=10, color="#888888"))
+            q_color = "#CC0000"
+            q_badge = "WARNING"
 
-    # Layer separator lines
-    for boundary_y in layer_boundaries:
-        fig.add_hline(y=boundary_y, line_dash="dot", line_color="rgba(128,128,128,0.3)", line_width=1)
+        st.markdown(
+            f"<div style='margin-bottom: 4px;'>"
+            f"<span style='font-size: 14px; font-weight: 600;'>{icon} {question}</span>"
+            f"&nbsp;&nbsp;<span style='background: {q_color}30; color: {q_color}; "
+            f"padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 600;'>"
+            f"{q_badge}</span></div>",
+            unsafe_allow_html=True
+        )
 
-    y_labels = []
-    for m in metrics_display:
-        y_labels.append(f"{m['name']}  ({m['value_str']})")
-
-    fig.update_layout(
-        height=max(38 * n + 60, 300),
-        margin=dict(l=10, r=10, t=10, b=30),
-        xaxis=dict(
-            range=[-2, 102],
-            title="Percentile",
-            showgrid=True,
-            gridcolor="rgba(128,128,128,0.1)",
-            dtick=25,
-            tickvals=[0, 25, 50, 75, 100],
-            ticktext=["0", "25", "50", "75", "100"],
-        ),
-        yaxis=dict(
-            tickvals=list(range(1, n + 1)),
-            ticktext=list(reversed(y_labels)),
-            showgrid=False,
-            tickfont=dict(size=11),
-        ),
-        plot_bgcolor="rgba(0,0,0,0)",
-        paper_bgcolor="rgba(0,0,0,0)",
-        hovermode="closest",
-    )
-
-    return fig
-
-
-def compute_fragility_score(metrics_display: list) -> float:
-    """
-    Compute 0-100 fragility score from situation board metrics.
-    Continuous measure of how deep into danger zones the metrics are.
-    """
-    contributions = []
-
-    for m in metrics_display:
-        pctile = m.get('percentile')
-        if pctile is None or np.isnan(pctile):
-            continue
-
-        alert_p = m['alert_pctile']
-        alarm_p = m['alarm_pctile']
-        invert = m.get('invert', False)
-
-        if invert:
-            if pctile >= alert_p:
-                contributions.append(0.0)
-            elif pctile >= alarm_p:
-                zone_width = alert_p - alarm_p
-                depth = (alert_p - pctile) / zone_width if zone_width > 0 else 1.0
-                contributions.append(depth * 0.5)
+        # Individual signals
+        for name in signal_names:
+            active = signal_result['signals'].get(name, False)
+            if active:
+                detail = signal_result['details'].get(name, '')
+                st.markdown(
+                    f"<div style='margin-left: 20px; padding: 6px 10px; margin-bottom: 4px; "
+                    f"background: rgba(204,0,0,0.08); border-left: 3px solid #CC0000; "
+                    f"border-radius: 0 4px 4px 0;'>"
+                    f"<span style='font-size: 13px;'>\U0001f534 <strong>{name}</strong></span><br>"
+                    f"<span style='font-size: 12px; color: #bbb;'>{detail}</span></div>",
+                    unsafe_allow_html=True
+                )
             else:
-                zone_width = alarm_p
-                depth = (alarm_p - pctile) / zone_width if zone_width > 0 else 1.0
-                contributions.append(0.5 + depth * 0.5)
-        else:
-            if pctile <= alert_p:
-                contributions.append(0.0)
-            elif pctile <= alarm_p:
-                zone_width = alarm_p - alert_p
-                depth = (pctile - alert_p) / zone_width if zone_width > 0 else 1.0
-                contributions.append(depth * 0.5)
-            else:
-                zone_width = 100 - alarm_p
-                depth = (pctile - alarm_p) / zone_width if zone_width > 0 else 1.0
-                contributions.append(0.5 + depth * 0.5)
+                st.markdown(
+                    f"<div style='margin-left: 20px; padding: 4px 10px; margin-bottom: 2px;'>"
+                    f"<span style='font-size: 13px; color: #666;'>\U0001f7e2 {name}</span></div>",
+                    unsafe_allow_html=True
+                )
 
-    if not contributions:
+
+def load_previous_signal_state() -> dict:
+    """Load yesterday's signal states from cache file."""
+    try:
+        if os.path.exists(SIGNAL_CACHE_PATH):
+            with open(SIGNAL_CACHE_PATH, 'r') as f:
+                data = json.load(f)
+            # Only use if from a previous calendar date
+            cached_date = data.get('date', '')
+            today = datetime.datetime.now().strftime('%Y-%m-%d')
+            if cached_date != today:
+                return data
+        return {}
+    except Exception:
+        return {}
+
+
+def save_current_signal_state(signal_states: dict):
+    """Save current signal states for tomorrow's comparison."""
+    try:
+        signal_states['date'] = datetime.datetime.now().strftime('%Y-%m-%d')
+        with open(SIGNAL_CACHE_PATH, 'w') as f:
+            json.dump(signal_states, f)
+    except Exception:
+        pass
+
+
+def compute_changes(current_states: dict, previous_states: dict) -> list:
+    """
+    Compare current vs previous signal states.
+    Returns list of change description strings.
+    """
+    changes = []
+    prev_signals = previous_states.get('signals', {})
+
+    for name, cur_active in current_states.get('signals', {}).items():
+        prev_active = prev_signals.get(name, False)
+        if cur_active and not prev_active:
+            changes.append(f"\U0001f534 **{name}** activated")
+        elif not cur_active and prev_active:
+            changes.append(f"\U0001f7e2 **{name}** deactivated")
+
+    return changes
+
+
+def compute_fragility_score(signal_result: dict, regime_multiplier: float) -> float:
+    """
+    Compute 0-100 fragility score.
+
+    Base: each active signal contributes equally.
+    Multiplied by price regime context.
+    """
+    total_signals = len(signal_result['signals'])
+    active_count = sum(1 for v in signal_result['signals'].values() if v)
+
+    if total_signals == 0:
         return 0.0
 
-    return (sum(contributions) / len(contributions)) * 100
+    # Base score: linear from 0 (none active) to 80 (all active)
+    # Reserve 80-100 for extreme regime-amplified readings
+    base = (active_count / total_signals) * 80
+
+    # Apply regime multiplier
+    adjusted = base * regime_multiplier
+
+    return min(100, max(0, adjusted))
 
 
-def build_risk_dial(fragility_score: float, regime: str) -> go.Figure:
-    """Build the risk dial gauge. 0 = Robust, 100 = Fragile."""
-    color_map = {
-        "Normal": "#00CC00",
-        "Caution": "#FFD700",
-        "Stress": "#FF8C00",
-        "Crisis": "#CC0000",
-    }
-    bar_color = color_map.get(regime, "#0066CC")
+def build_risk_dial(fragility_score: float) -> go.Figure:
+    """Build the Robust -> Fragile dial."""
+
+    # Color based on score
+    if fragility_score < 20:
+        bar_color = "#00CC00"
+    elif fragility_score < 40:
+        bar_color = "#7FCC00"
+    elif fragility_score < 60:
+        bar_color = "#FFD700"
+    elif fragility_score < 80:
+        bar_color = "#FF8C00"
+    else:
+        bar_color = "#CC0000"
 
     fig = go.Figure(go.Indicator(
         mode="gauge+number",
         value=fragility_score,
-        number={'suffix': '', 'font': {'size': 36}},
+        number={'suffix': '', 'font': {'size': 40}},
         gauge={
             'axis': {
                 'range': [0, 100],
-                'tickvals': [0, 25, 50, 75, 100],
-                'ticktext': ['Robust', '', 'Neutral', '', 'Fragile'],
-                'tickfont': {'size': 11},
+                'tickvals': [0, 50, 100],
+                'ticktext': ['Robust', 'Neutral', 'Fragile'],
+                'tickfont': {'size': 10},
             },
             'bar': {'color': bar_color, 'thickness': 0.3},
             'bgcolor': "rgba(0,0,0,0)",
             'steps': [
-                {'range': [0, 20], 'color': 'rgba(0,204,0,0.15)'},
-                {'range': [20, 40], 'color': 'rgba(0,204,0,0.08)'},
-                {'range': [40, 60], 'color': 'rgba(255,215,0,0.10)'},
-                {'range': [60, 80], 'color': 'rgba(255,140,0,0.12)'},
-                {'range': [80, 100], 'color': 'rgba(204,0,0,0.15)'},
+                {'range': [0, 20], 'color': 'rgba(0,204,0,0.12)'},
+                {'range': [20, 40], 'color': 'rgba(0,204,0,0.06)'},
+                {'range': [40, 60], 'color': 'rgba(255,215,0,0.08)'},
+                {'range': [60, 80], 'color': 'rgba(255,140,0,0.10)'},
+                {'range': [80, 100], 'color': 'rgba(204,0,0,0.12)'},
             ],
             'threshold': {
                 'line': {'color': bar_color, 'width': 3},
@@ -932,12 +1144,11 @@ def build_risk_dial(fragility_score: float, regime: str) -> go.Figure:
     ))
 
     fig.update_layout(
-        height=180,
+        height=190,
         margin=dict(l=20, r=20, t=30, b=10),
         paper_bgcolor="rgba(0,0,0,0)",
         plot_bgcolor="rgba(0,0,0,0)",
     )
-
     return fig
 
 
@@ -1540,16 +1751,7 @@ def main():
     cur_skew = _last_valid(skew_series)
     cur_prot_pctile = _last_valid(prot_pctile_series)
 
-    # --- Additional percentiles for Situation Board ---
-    ts_ratio_pctile_series = expanding_percentile(ts_ratio_series) if len(ts_ratio_series.dropna()) > 0 else pd.Series(dtype=float)
-    cur_ts_pctile = _last_valid(ts_ratio_pctile_series)
-
-    vvix_pctile_series = expanding_percentile(vvix_series) if len(vvix_series.dropna()) > 0 else pd.Series(dtype=float)
-    cur_vvix_pctile = _last_valid(vvix_pctile_series)
-
-    breadth_200_pctile = expanding_percentile(breadth_df['pct_above_200']) if not breadth_df.empty else pd.Series(dtype=float)
-    cur_breadth_pctile = _last_valid(breadth_200_pctile)
-
+    # --- Additional percentiles for signal framework ---
     ar_pctile_series = expanding_percentile(ar_series) if len(ar_series.dropna()) > 0 else pd.Series(dtype=float)
     cur_ar_pctile = _last_valid(ar_pctile_series)
 
@@ -1559,17 +1761,29 @@ def main():
     corr_pctile_series = expanding_percentile(corr_series) if len(corr_series.dropna()) > 0 else pd.Series(dtype=float)
     cur_corr_pctile = _last_valid(corr_pctile_series)
 
-    yc_spread_pctile_series = expanding_percentile(yc_spread_series) if len(yc_spread_series.dropna()) > 0 else pd.Series(dtype=float)
-    cur_yc_pctile = _last_valid(yc_spread_pctile_series)
-
     move_pctile_series = expanding_percentile(move_series) if len(move_series.dropna()) > 0 else pd.Series(dtype=float)
     cur_move_pctile = _last_valid(move_pctile_series)
 
-    dollar_abs_series = dollar_21d_series.abs() if len(dollar_21d_series.dropna()) > 0 else pd.Series(dtype=float)
-    dollar_abs_pctile_series = expanding_percentile(dollar_abs_series) if len(dollar_abs_series.dropna()) > 0 else pd.Series(dtype=float)
-    cur_dollar_abs_pctile = _last_valid(dollar_abs_pctile_series)
+    # VIX current value and percentile
+    cur_vix = _last_valid(vol_data["^VIX"]["Close"]) if "^VIX" in vol_data else None
+    vix_pctile_series = expanding_percentile(vol_data["^VIX"]["Close"]) if "^VIX" in vol_data else pd.Series(dtype=float)
+    cur_vix_pctile = _last_valid(vix_pctile_series)
 
-    # --- Score ---
+    # SPY 21-day return (for credit-equity divergence)
+    spy_21d_return = float(spy_close.iloc[-1] / spy_close.iloc[-22] - 1) if len(spy_close) >= 22 else None
+
+    # VVIX/VIX ratio percentile
+    cur_vvix_vix_ratio_pctile = None
+    if vvix_available and vix_available:
+        vvix_c_ratio = vol_data["^VVIX"]["Close"].dropna()
+        vix_c_ratio = vol_data["^VIX"]["Close"].dropna()
+        common_ratio = vvix_c_ratio.index.intersection(vix_c_ratio.index)
+        vvix_vix_ratio_series = vvix_c_ratio.reindex(common_ratio) / vix_c_ratio.reindex(common_ratio)
+        vvix_vix_ratio_series = vvix_vix_ratio_series.replace([np.inf, -np.inf], np.nan).dropna()
+        vvix_vix_ratio_pctile_series = expanding_percentile(vvix_vix_ratio_series) if len(vvix_vix_ratio_series) > 0 else pd.Series(dtype=float)
+        cur_vvix_vix_ratio_pctile = _last_valid(vvix_vix_ratio_pctile_series)
+
+    # --- Legacy scoring (kept for reference) ---
     metrics_for_scoring = {
         "rv_1d": cur_rv1d,
         "rv_22d": cur_rv22d,
@@ -1597,189 +1811,161 @@ def main():
         "dollar_21d_pct": cur_dollar_21d,
     }
 
+    # Keep regime for Layer 4 hedge recommendation
     total_pts, pt_breakdown = score_alerts(metrics_for_scoring)
     regime = classify_regime(total_pts)
-    multiplier = REGIME_MULTIPLIER[regime]
-    color = REGIME_COLORS[regime]
-    emoji = REGIME_EMOJI[regime]
 
     # ===================================================================
-    # BUILD SITUATION BOARD DATA
-    # ===================================================================
-    def _safe_pctile(val):
-        """Return val if valid float, else None."""
-        if val is None:
-            return None
-        try:
-            if np.isnan(val):
-                return None
-        except (TypeError, ValueError):
-            return None
-        return float(val)
-
-    metrics_display = []
-
-    # --- Layer 1: Vol ---
-    metrics_display.append({
-        'name': 'RV 22d', 'layer': 'Vol',
-        'value_str': f"{cur_rv22d:.1%}" if cur_rv22d is not None else "N/A",
-        'percentile': _safe_pctile(cur_rv22d_pctile),
-        'alert_pctile': 75, 'alarm_pctile': 90, 'invert': False,
-    })
-    metrics_display.append({
-        'name': 'VRP', 'layer': 'Vol',
-        'value_str': f"{cur_vrp:.4f}" if cur_vrp is not None else "N/A",
-        'percentile': _safe_pctile(cur_vrp_pctile),
-        'alert_pctile': 25, 'alarm_pctile': 10, 'invert': True,
-    })
-    metrics_display.append({
-        'name': 'VIX/VIX3M', 'layer': 'Vol',
-        'value_str': f"{cur_ts_ratio:.3f}" if cur_ts_ratio is not None else "N/A",
-        'percentile': _safe_pctile(cur_ts_pctile),
-        'alert_pctile': 80, 'alarm_pctile': 95, 'invert': False,
-    })
-    metrics_display.append({
-        'name': 'VVIX', 'layer': 'Vol',
-        'value_str': f"{cur_vvix:.0f}" if cur_vvix is not None else "N/A",
-        'percentile': _safe_pctile(cur_vvix_pctile),
-        'alert_pctile': 75, 'alarm_pctile': 90, 'invert': False,
-    })
-
-    # --- Layer 2: Internals ---
-    metrics_display.append({
-        'name': 'Breadth (>200d)', 'layer': 'Internals',
-        'value_str': f"{cur_pct200:.0f}%" if cur_pct200 is not None else "N/A",
-        'percentile': _safe_pctile(cur_breadth_pctile),
-        'alert_pctile': 25, 'alarm_pctile': 10, 'invert': True,
-    })
-    metrics_display.append({
-        'name': 'Absorption Ratio', 'layer': 'Internals',
-        'value_str': f"{cur_ar:.3f}" if cur_ar is not None else "N/A",
-        'percentile': _safe_pctile(cur_ar_pctile),
-        'alert_pctile': 75, 'alarm_pctile': 90, 'invert': False,
-    })
-    metrics_display.append({
-        'name': 'Dispersion', 'layer': 'Internals',
-        'value_str': f"{cur_disp:.4f}" if cur_disp is not None else "N/A",
-        'percentile': _safe_pctile(cur_disp_pctile),
-        'alert_pctile': 75, 'alarm_pctile': 90, 'invert': False,
-    })
-    metrics_display.append({
-        'name': 'Sector Correlation', 'layer': 'Internals',
-        'value_str': f"{cur_corr:.3f}" if cur_corr is not None else "N/A",
-        'percentile': _safe_pctile(cur_corr_pctile),
-        'alert_pctile': 75, 'alarm_pctile': 90, 'invert': False,
-    })
-    metrics_display.append({
-        'name': 'Hurst (smoothed)', 'layer': 'Internals',
-        'value_str': f"{cur_hurst:.3f}" if cur_hurst is not None else "N/A",
-        'percentile': _safe_pctile(cur_hurst_pctile),
-        'alert_pctile': 80, 'alarm_pctile': 95, 'invert': False,
-    })
-    metrics_display.append({
-        'name': 'Calm: Days Since 5% DD', 'layer': 'Internals',
-        'value_str': f"{int(cur_days_since_5)}d" if cur_days_since_5 is not None and not np.isnan(cur_days_since_5) else "N/A",
-        'percentile': _safe_pctile(cur_days_since_5_pctile),
-        'alert_pctile': 80, 'alarm_pctile': 95, 'invert': False,
-    })
-    metrics_display.append({
-        'name': 'Calm: Days Since VIX>28', 'layer': 'Internals',
-        'value_str': f"{int(cur_days_since_vix)}d" if cur_days_since_vix is not None and not np.isnan(cur_days_since_vix) else "N/A",
-        'percentile': _safe_pctile(cur_days_since_vix_pctile),
-        'alert_pctile': 80, 'alarm_pctile': 95, 'invert': False,
-    })
-
-    # --- Layer 3: Plumbing ---
-    metrics_display.append({
-        'name': 'Credit IG Spread', 'layer': 'Plumbing',
-        'value_str': f"{cur_ig_z:+.1f}\u03c3" if cur_ig_z is not None else "N/A",
-        'percentile': scipy_norm.cdf(cur_ig_z) * 100 if cur_ig_z is not None else None,
-        'alert_pctile': 84, 'alarm_pctile': 93, 'invert': False,
-    })
-    metrics_display.append({
-        'name': 'Credit HY Spread', 'layer': 'Plumbing',
-        'value_str': f"{cur_hy_z:+.1f}\u03c3" if cur_hy_z is not None else "N/A",
-        'percentile': scipy_norm.cdf(cur_hy_z) * 100 if cur_hy_z is not None else None,
-        'alert_pctile': 84, 'alarm_pctile': 93, 'invert': False,
-    })
-    metrics_display.append({
-        'name': 'Yield Curve (10Y-3M)', 'layer': 'Plumbing',
-        'value_str': f"{cur_yc_spread:+.2f}%" if cur_yc_spread is not None else "N/A",
-        'percentile': _safe_pctile(cur_yc_pctile),
-        'alert_pctile': 25, 'alarm_pctile': 10, 'invert': True,
-    })
-    metrics_display.append({
-        'name': 'MOVE', 'layer': 'Plumbing',
-        'value_str': f"{cur_move:.0f}" if cur_move is not None else "N/A",
-        'percentile': _safe_pctile(cur_move_pctile),
-        'alert_pctile': 75, 'alarm_pctile': 90, 'invert': False,
-    })
-    metrics_display.append({
-        'name': 'Dollar 21d Move', 'layer': 'Plumbing',
-        'value_str': f"{cur_dollar_21d:+.1f}%" if cur_dollar_21d is not None else "N/A",
-        'percentile': _safe_pctile(cur_dollar_abs_pctile),
-        'alert_pctile': 80, 'alarm_pctile': 95, 'invert': False,
-    })
-
-    fragility_score = compute_fragility_score(metrics_display)
-
-    # ===================================================================
-    # EXECUTIVE SUMMARY
+    # EXECUTIVE SUMMARY — Signal-Based Framework
     # ===================================================================
 
-    # Row 1: Verdict banner + Risk dial
-    verdict_col, dial_col = st.columns([3, 2])
+    # Compute price context
+    price_ctx = compute_price_context(spy_close)
+    regime_mult = compute_regime_multiplier(price_ctx)
 
-    with verdict_col:
-        st.markdown(f"""
-        <div style="background-color: {color}15; border-left: 5px solid {color};
-                    padding: 12px 16px; border-radius: 8px; margin-bottom: 8px;">
-            <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap;">
-                <div>
-                    <span style="font-size: 28px; font-weight: bold; color: {color};">{emoji} {regime.upper()}</span>
-                    <span style="font-size: 15px; margin-left: 16px; color: #999;">Sizing ref: {multiplier}x</span>
-                </div>
-                <div style="text-align: right; font-size: 12px; color: #777;">
-                    {datetime.datetime.now().strftime('%b %d, %Y %H:%M')} &middot; Score: {total_pts} pts
-                </div>
-            </div>
-        </div>
-        """, unsafe_allow_html=True)
+    # Section A: Price Context Banner
+    render_price_context(price_ctx)
 
-        narrative = generate_narrative(regime, pt_breakdown, metrics_for_scoring)
-        st.markdown(f"<p style='font-size: 14px; line-height: 1.5; margin: 4px 0 8px 0;'>{narrative}</p>",
+    # Compute condition signals
+    signal_metrics = {
+        'rv_22d_pctile': cur_rv22d_pctile,
+        'vrp': cur_vrp,
+        'vrp_pctile': cur_vrp_pctile,
+        'pct_above_200': cur_pct200,
+        'spy_near_52w_high': spy_near_high,
+        'days_since_5pct_pctile': cur_days_since_5_pctile,
+        'days_since_vix_spike_pctile': cur_days_since_vix_pctile,
+        'days_since_5pct': cur_days_since_5,
+        'days_since_vix_spike': cur_days_since_vix,
+        'credit_hy_z': cur_hy_z,
+        'move': cur_move,
+        'vvix': cur_vvix,
+        'vix': cur_vix,
+        'ar_pctile': cur_ar_pctile,
+        'rv_22d_series': rv_22d,
+        'spy_21d_return': spy_21d_return,
+        'move_pctile': cur_move_pctile,
+        'vix_pctile': cur_vix_pctile,
+        'vvix_vix_ratio_pctile': cur_vvix_vix_ratio_pctile,
+    }
+    signal_result = compute_condition_signals(signal_metrics, price_ctx)
+
+    # What Changed
+    prev_state = load_previous_signal_state()
+    current_state = {'signals': signal_result['signals']}
+    changes = compute_changes(current_state, prev_state)
+
+    if changes:
+        changes_text = " \u00b7 ".join(changes)
+        st.markdown(f"<div style='font-size: 13px; padding: 4px 0 8px 0;'>Since last session: {changes_text}</div>",
                     unsafe_allow_html=True)
+    else:
+        st.markdown("<div style='font-size: 12px; color: #555; padding: 4px 0 8px 0;'>No signal changes since last session.</div>",
+                    unsafe_allow_html=True)
+
+    # Save current state for next session's comparison
+    save_current_signal_state(current_state)
+
+    # Section B: Three Questions + Risk Dial
+    questions_col, dial_col = st.columns([3, 1])
+
+    with questions_col:
+        render_three_questions(signal_result)
+
+    # Fragility score
+    fragility = compute_fragility_score(signal_result, regime_mult)
+    active_count = sum(1 for v in signal_result['signals'].values() if v)
+    total_count = len(signal_result['signals'])
 
     with dial_col:
-        fig_dial = build_risk_dial(fragility_score, regime)
+        fig_dial = build_risk_dial(fragility)
         st.plotly_chart(fig_dial, use_container_width=True)
 
-        if fragility_score < 20:
-            dial_label = "Market conditions are robust"
-        elif fragility_score < 40:
-            dial_label = "Conditions are calm with minor flags"
-        elif fragility_score < 60:
-            dial_label = "Mixed signals — stay alert"
-        elif fragility_score < 80:
-            dial_label = "Elevated fragility across multiple dimensions"
+        # TODO: Replace placeholder hit rates with actual event study results.
+        # These are rough estimates. Run the individual signal backtests to calibrate.
+        if active_count == 0:
+            dial_label = "No warning signals active"
+            hit_rate_note = ""
+        elif active_count <= 2:
+            dial_label = f"{active_count} of {total_count} signals active"
+            hit_rate_note = "Historically, 1-2 active signals precede corrections ~30% of the time."
+        elif active_count <= 4:
+            dial_label = f"{active_count} of {total_count} signals active"
+            hit_rate_note = "3-4 signals active has preceded corrections within 6 weeks ~55% of the time."
         else:
-            dial_label = "High fragility — defensive posture warranted"
+            dial_label = f"{active_count} of {total_count} signals active"
+            hit_rate_note = "5+ signals is rare and has historically preceded significant corrections."
 
-        st.markdown(f"<p style='text-align: center; font-size: 12px; color: #999; margin-top: -10px;'>{dial_label}</p>",
+        st.markdown(f"<p style='text-align: center; font-size: 13px; margin-top: -8px;'>{dial_label}</p>",
                     unsafe_allow_html=True)
+        if hit_rate_note:
+            st.markdown(f"<p style='text-align: center; font-size: 11px; color: #888; margin-top: -5px; font-style: italic;'>{hit_rate_note}</p>",
+                        unsafe_allow_html=True)
 
-    # Situation Board (full width)
-    fig_board = build_situation_board(metrics_display)
-    st.plotly_chart(fig_board, use_container_width=True)
+    # Section C: Stored Energy (conditional — only when 2+ signals active)
+    vol_compress_days = signal_result.get('vol_compress_days', 0)
+    vol_compress_depth = signal_result.get('vol_compress_depth', 0.0)
 
-    # Score breakdown (collapsed for reference)
-    with st.expander("Score breakdown detail"):
+    if active_count >= 2:
+        st.markdown("---")
+        st.markdown("##### If conditions deteriorate:")
+
+        se_cols = st.columns(3)
+
+        with se_cols[0]:
+            if vol_compress_days > 0:
+                st.metric(
+                    "Vol Compression",
+                    f"{vol_compress_days}d below median",
+                    f"Depth: {vol_compress_depth:.0%} below",
+                )
+            else:
+                st.metric("Vol Compression", "Not compressed", "")
+
+        with se_cols[1]:
+            ds5_val = int(cur_days_since_5) if cur_days_since_5 and not np.isnan(cur_days_since_5) else 0
+            ds5_p = f"{cur_days_since_5_pctile:.0f}th" if cur_days_since_5_pctile and not np.isnan(cur_days_since_5_pctile) else "N/A"
+            st.metric(
+                "Calm Streak",
+                f"{ds5_val}d since 5% DD",
+                f"{ds5_p} percentile",
+            )
+
+        with se_cols[2]:
+            ext = price_ctx.get('extension_200d', 0) or 0
+
+            base_dd = 3.0
+            if ext > 0.10:
+                base_dd += 3.0
+            elif ext > 0.05:
+                base_dd += 1.5
+            if vol_compress_days > 100:
+                base_dd += 2.0
+            elif vol_compress_days > 50:
+                base_dd += 1.0
+            if active_count >= 4:
+                base_dd += 2.0
+
+            low_est = base_dd
+            high_est = base_dd + 4.0
+
+            st.metric(
+                "Potential Unwind",
+                f"~{low_est:.0f}\u2013{high_est:.0f}%",
+                "if correction materializes",
+            )
+            st.caption("Based on extension, compression duration, and active signal count. Rough estimate, not a prediction.")
+
+    # Legacy scoring detail (point system)
+    with st.expander("Legacy scoring detail (point system)", expanded=False):
         if pt_breakdown:
             for metric_name, pts in pt_breakdown.items():
                 st.markdown(f"- **{metric_name}**: +{pts}")
         else:
-            st.markdown("No alerts triggered.")
-        st.caption("0 pts = Normal | 1-2 = Caution | 3-4 = Stress | 5+ = Crisis")
+            st.markdown("No legacy alerts triggered.")
+        st.caption(f"Legacy regime: {regime} ({total_pts} pts) | 0 pts = Normal | 1-2 = Caution | 3-4 = Stress | 5+ = Crisis")
+
+    st.divider()
 
     # ===================================================================
     # LAYERS 1 & 2: Two-column layout
@@ -2119,7 +2305,7 @@ def main():
     # ===================================================================
     # LAYER 4: TAIL RISK & COST OF PROTECTION
     # ===================================================================
-    layer4_expanded = (regime != "Normal")
+    layer4_expanded = (active_count >= 2)
 
     with st.expander("Layer 4: Tail Risk & Cost of Protection", expanded=layer4_expanded):
         l4_col1, l4_col2, l4_col3 = st.columns([1, 1, 1])
