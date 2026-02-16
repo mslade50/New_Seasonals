@@ -20,6 +20,16 @@ import sys
 import os
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
+import math
+
+try:
+    from scipy.stats import norm as scipy_norm
+except ImportError:
+    class _NormFallback:
+        @staticmethod
+        def cdf(x):
+            return 0.5 * (1 + math.erf(x / math.sqrt(2)))
+    scipy_norm = _NormFallback()
 
 # ---------------------------------------------------------------------------
 # PAGE CONFIG (must be first Streamlit command)
@@ -638,18 +648,297 @@ def classify_regime(total_points: int) -> str:
         return "Crisis"
 
 
-def generate_summary(regime: str, points: dict) -> str:
-    if regime == "Normal":
-        return "All monitored risk metrics are within normal ranges. Full position sizing."
-    elif regime == "Caution":
-        triggers = ", ".join(points.keys())
-        return f"Mild caution warranted. Flagged: {triggers}. Consider modest size reduction."
-    elif regime == "Stress":
-        triggers = ", ".join(points.keys())
-        return f"Elevated stress detected across multiple dimensions: {triggers}. Reduce exposure."
-    else:
-        triggers = ", ".join(points.keys())
-        return f"Crisis-level readings. {triggers}. Minimize directional exposure and consider hedges."
+def generate_narrative(regime: str, points: dict, metrics: dict) -> str:
+    """
+    Generate a 2-3 sentence narrative that synthesizes the dashboard state.
+    This is NOT a list of metrics -- it's a story about what's happening.
+    """
+    if regime == "Normal" and len(points) == 0:
+        vol_state = ""
+        rv_p = metrics.get('rv_22d_pctile')
+        if rv_p is not None:
+            if rv_p < 25:
+                vol_state = "Realized vol is low. "
+            elif rv_p < 50:
+                vol_state = "Realized vol is below average. "
+            else:
+                vol_state = "Realized vol is moderate. "
+
+        vrp_state = ""
+        if metrics.get('vrp') is not None and metrics['vrp'] > 0:
+            vrp_state = "The variance risk premium is positive, indicating the market is pricing in adequate risk compensation. "
+
+        calm_note = ""
+        ds5 = metrics.get('days_since_5pct_pctile')
+        if ds5 is not None and ds5 > 60:
+            calm_note = (f"Note: the current calm streak since the last 5% correction is at the "
+                         f"{ds5:.0f}th percentile of history — not alarming, but worth monitoring "
+                         f"as complacency builds. ")
+
+        return f"All systems nominal. {vol_state}{vrp_state}{calm_note}No action required."
+
+    sentences = []
+
+    # Volatility story
+    vol_flags = [k for k in points if any(x in k for x in ['HAR-RV', 'VRP', 'VIX Term', 'VVIX'])]
+    if vol_flags:
+        vol_parts = []
+        if any('VRP' in k for k in vol_flags):
+            if metrics.get('vrp', 0) < 0:
+                vol_parts.append("the variance risk premium has gone negative (realized vol exceeds implied)")
+            else:
+                vol_parts.append("the variance risk premium is compressed")
+        if any('backwardation' in k.lower() for k in vol_flags):
+            vol_parts.append("the VIX term structure is in backwardation")
+        if any('HAR-RV' in k for k in vol_flags):
+            vol_parts.append("realized volatility is elevated and/or spiking")
+        if any('VVIX' in k for k in vol_flags):
+            vol_parts.append("vol-of-vol is high (uncertain vol path)")
+        if vol_parts:
+            sentences.append("Volatility complex: " + "; ".join(vol_parts) + ".")
+
+    # Internals story
+    internal_flags = [k for k in points if any(x in k for x in ['Breadth', 'Dispersion', 'Hurst', 'Complacency', 'Calm'])]
+    if internal_flags:
+        int_parts = []
+        if any('Breadth' in k for k in internal_flags):
+            if metrics.get('pct_above_200', 100) < 40:
+                int_parts.append("breadth is critically weak")
+            else:
+                int_parts.append("breadth is deteriorating while the index holds near highs")
+        if any('Dispersion' in k for k in internal_flags):
+            int_parts.append("return dispersion and correlation are both elevated (stress pattern)")
+        if any('Hurst' in k for k in internal_flags):
+            int_parts.append("the Hurst exponent indicates a trending regime")
+        if any('Complacency' in k or 'Calm' in k for k in internal_flags):
+            int_parts.append("unusually long calm streak — complacency is building")
+        if int_parts:
+            sentences.append("Market internals: " + "; ".join(int_parts) + ".")
+
+    # Plumbing story
+    plumbing_flags = [k for k in points if any(x in k for x in ['Credit', 'Yield', 'MOVE', 'Dollar'])]
+    if plumbing_flags:
+        plumb_parts = []
+        if any('Credit' in k for k in plumbing_flags):
+            plumb_parts.append("credit spreads are widening")
+        if any('Yield' in k for k in plumbing_flags):
+            if metrics.get('yield_curve_spread', 1) < 0:
+                plumb_parts.append("the yield curve is inverted")
+            else:
+                plumb_parts.append("the yield curve is flattening rapidly")
+        if any('MOVE' in k for k in plumbing_flags):
+            plumb_parts.append("rates volatility is elevated (historically leads equity vol)")
+        if any('Dollar' in k for k in plumbing_flags):
+            plumb_parts.append("the dollar is moving sharply")
+        if plumb_parts:
+            sentences.append("Cross-asset: " + "; ".join(plumb_parts) + ".")
+
+    if not sentences:
+        return "Conditions are slightly elevated but no clear pattern of stress."
+
+    return " ".join(sentences)
+
+
+# ---------------------------------------------------------------------------
+# EXECUTIVE SUMMARY COMPONENTS
+# ---------------------------------------------------------------------------
+
+def build_situation_board(metrics_display: list) -> go.Figure:
+    """
+    Build the situation board bullet chart.
+    Each metric is a horizontal row. X-axis = percentile (0-100).
+    Background zones: green/yellow/red based on alert/alarm thresholds.
+    """
+    fig = go.Figure()
+    n = len(metrics_display)
+
+    # Track layer boundaries for separator lines
+    prev_layer = None
+    layer_boundaries = []
+
+    for i, m in enumerate(metrics_display):
+        y_pos = n - i
+        name = m['name']
+        layer = m['layer']
+        val_str = m['value_str']
+        pctile = m.get('percentile')
+        alert_p = m['alert_pctile']
+        alarm_p = m['alarm_pctile']
+        invert = m.get('invert', False)
+
+        if prev_layer is not None and layer != prev_layer:
+            layer_boundaries.append(y_pos + 0.5)
+        prev_layer = layer
+
+        # Background zones
+        if invert:
+            fig.add_shape(type="rect", x0=0, x1=alarm_p, y0=y_pos - 0.35, y1=y_pos + 0.35,
+                          fillcolor="rgba(204,0,0,0.15)", line_width=0, layer="below")
+            fig.add_shape(type="rect", x0=alarm_p, x1=alert_p, y0=y_pos - 0.35, y1=y_pos + 0.35,
+                          fillcolor="rgba(255,215,0,0.15)", line_width=0, layer="below")
+            fig.add_shape(type="rect", x0=alert_p, x1=100, y0=y_pos - 0.35, y1=y_pos + 0.35,
+                          fillcolor="rgba(0,204,0,0.08)", line_width=0, layer="below")
+        else:
+            fig.add_shape(type="rect", x0=0, x1=alert_p, y0=y_pos - 0.35, y1=y_pos + 0.35,
+                          fillcolor="rgba(0,204,0,0.08)", line_width=0, layer="below")
+            fig.add_shape(type="rect", x0=alert_p, x1=alarm_p, y0=y_pos - 0.35, y1=y_pos + 0.35,
+                          fillcolor="rgba(255,215,0,0.15)", line_width=0, layer="below")
+            fig.add_shape(type="rect", x0=alarm_p, x1=100, y0=y_pos - 0.35, y1=y_pos + 0.35,
+                          fillcolor="rgba(204,0,0,0.15)", line_width=0, layer="below")
+
+        # Current reading marker
+        if pctile is not None and not np.isnan(pctile):
+            if invert:
+                if pctile <= alarm_p:
+                    dot_color = "#CC0000"
+                elif pctile <= alert_p:
+                    dot_color = "#FFD700"
+                else:
+                    dot_color = "#00CC00"
+            else:
+                if pctile >= alarm_p:
+                    dot_color = "#CC0000"
+                elif pctile >= alert_p:
+                    dot_color = "#FFD700"
+                else:
+                    dot_color = "#00CC00"
+
+            fig.add_trace(go.Scatter(
+                x=[pctile], y=[y_pos],
+                mode="markers",
+                marker=dict(size=14, color=dot_color, line=dict(width=2, color="white")),
+                showlegend=False,
+                hovertemplate=f"{name}: {val_str}<br>Percentile: {pctile:.0f}<extra></extra>",
+            ))
+        else:
+            fig.add_annotation(x=50, y=y_pos, text="No Data", showarrow=False,
+                               font=dict(size=10, color="#888888"))
+
+    # Layer separator lines
+    for boundary_y in layer_boundaries:
+        fig.add_hline(y=boundary_y, line_dash="dot", line_color="rgba(128,128,128,0.3)", line_width=1)
+
+    y_labels = []
+    for m in metrics_display:
+        y_labels.append(f"{m['name']}  ({m['value_str']})")
+
+    fig.update_layout(
+        height=max(38 * n + 60, 300),
+        margin=dict(l=10, r=10, t=10, b=30),
+        xaxis=dict(
+            range=[-2, 102],
+            title="Percentile",
+            showgrid=True,
+            gridcolor="rgba(128,128,128,0.1)",
+            dtick=25,
+            tickvals=[0, 25, 50, 75, 100],
+            ticktext=["0", "25", "50", "75", "100"],
+        ),
+        yaxis=dict(
+            tickvals=list(range(1, n + 1)),
+            ticktext=list(reversed(y_labels)),
+            showgrid=False,
+            tickfont=dict(size=11),
+        ),
+        plot_bgcolor="rgba(0,0,0,0)",
+        paper_bgcolor="rgba(0,0,0,0)",
+        hovermode="closest",
+    )
+
+    return fig
+
+
+def compute_fragility_score(metrics_display: list) -> float:
+    """
+    Compute 0-100 fragility score from situation board metrics.
+    Continuous measure of how deep into danger zones the metrics are.
+    """
+    contributions = []
+
+    for m in metrics_display:
+        pctile = m.get('percentile')
+        if pctile is None or np.isnan(pctile):
+            continue
+
+        alert_p = m['alert_pctile']
+        alarm_p = m['alarm_pctile']
+        invert = m.get('invert', False)
+
+        if invert:
+            if pctile >= alert_p:
+                contributions.append(0.0)
+            elif pctile >= alarm_p:
+                zone_width = alert_p - alarm_p
+                depth = (alert_p - pctile) / zone_width if zone_width > 0 else 1.0
+                contributions.append(depth * 0.5)
+            else:
+                zone_width = alarm_p
+                depth = (alarm_p - pctile) / zone_width if zone_width > 0 else 1.0
+                contributions.append(0.5 + depth * 0.5)
+        else:
+            if pctile <= alert_p:
+                contributions.append(0.0)
+            elif pctile <= alarm_p:
+                zone_width = alarm_p - alert_p
+                depth = (pctile - alert_p) / zone_width if zone_width > 0 else 1.0
+                contributions.append(depth * 0.5)
+            else:
+                zone_width = 100 - alarm_p
+                depth = (pctile - alarm_p) / zone_width if zone_width > 0 else 1.0
+                contributions.append(0.5 + depth * 0.5)
+
+    if not contributions:
+        return 0.0
+
+    return (sum(contributions) / len(contributions)) * 100
+
+
+def build_risk_dial(fragility_score: float, regime: str) -> go.Figure:
+    """Build the risk dial gauge. 0 = Robust, 100 = Fragile."""
+    color_map = {
+        "Normal": "#00CC00",
+        "Caution": "#FFD700",
+        "Stress": "#FF8C00",
+        "Crisis": "#CC0000",
+    }
+    bar_color = color_map.get(regime, "#0066CC")
+
+    fig = go.Figure(go.Indicator(
+        mode="gauge+number",
+        value=fragility_score,
+        number={'suffix': '', 'font': {'size': 36}},
+        gauge={
+            'axis': {
+                'range': [0, 100],
+                'tickvals': [0, 25, 50, 75, 100],
+                'ticktext': ['Robust', '', 'Neutral', '', 'Fragile'],
+                'tickfont': {'size': 11},
+            },
+            'bar': {'color': bar_color, 'thickness': 0.3},
+            'bgcolor': "rgba(0,0,0,0)",
+            'steps': [
+                {'range': [0, 20], 'color': 'rgba(0,204,0,0.15)'},
+                {'range': [20, 40], 'color': 'rgba(0,204,0,0.08)'},
+                {'range': [40, 60], 'color': 'rgba(255,215,0,0.10)'},
+                {'range': [60, 80], 'color': 'rgba(255,140,0,0.12)'},
+                {'range': [80, 100], 'color': 'rgba(204,0,0,0.15)'},
+            ],
+            'threshold': {
+                'line': {'color': bar_color, 'width': 3},
+                'thickness': 0.8,
+                'value': fragility_score,
+            },
+        },
+    ))
+
+    fig.update_layout(
+        height=180,
+        margin=dict(l=20, r=20, t=30, b=10),
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(0,0,0,0)",
+    )
+
+    return fig
 
 
 # ---------------------------------------------------------------------------
@@ -1251,6 +1540,35 @@ def main():
     cur_skew = _last_valid(skew_series)
     cur_prot_pctile = _last_valid(prot_pctile_series)
 
+    # --- Additional percentiles for Situation Board ---
+    ts_ratio_pctile_series = expanding_percentile(ts_ratio_series) if len(ts_ratio_series.dropna()) > 0 else pd.Series(dtype=float)
+    cur_ts_pctile = _last_valid(ts_ratio_pctile_series)
+
+    vvix_pctile_series = expanding_percentile(vvix_series) if len(vvix_series.dropna()) > 0 else pd.Series(dtype=float)
+    cur_vvix_pctile = _last_valid(vvix_pctile_series)
+
+    breadth_200_pctile = expanding_percentile(breadth_df['pct_above_200']) if not breadth_df.empty else pd.Series(dtype=float)
+    cur_breadth_pctile = _last_valid(breadth_200_pctile)
+
+    ar_pctile_series = expanding_percentile(ar_series) if len(ar_series.dropna()) > 0 else pd.Series(dtype=float)
+    cur_ar_pctile = _last_valid(ar_pctile_series)
+
+    disp_pctile_series = expanding_percentile(disp_series) if len(disp_series.dropna()) > 0 else pd.Series(dtype=float)
+    cur_disp_pctile = _last_valid(disp_pctile_series)
+
+    corr_pctile_series = expanding_percentile(corr_series) if len(corr_series.dropna()) > 0 else pd.Series(dtype=float)
+    cur_corr_pctile = _last_valid(corr_pctile_series)
+
+    yc_spread_pctile_series = expanding_percentile(yc_spread_series) if len(yc_spread_series.dropna()) > 0 else pd.Series(dtype=float)
+    cur_yc_pctile = _last_valid(yc_spread_pctile_series)
+
+    move_pctile_series = expanding_percentile(move_series) if len(move_series.dropna()) > 0 else pd.Series(dtype=float)
+    cur_move_pctile = _last_valid(move_pctile_series)
+
+    dollar_abs_series = dollar_21d_series.abs() if len(dollar_21d_series.dropna()) > 0 else pd.Series(dtype=float)
+    dollar_abs_pctile_series = expanding_percentile(dollar_abs_series) if len(dollar_abs_series.dropna()) > 0 else pd.Series(dtype=float)
+    cur_dollar_abs_pctile = _last_valid(dollar_abs_pctile_series)
+
     # --- Score ---
     metrics_for_scoring = {
         "rv_1d": cur_rv1d,
@@ -1282,27 +1600,180 @@ def main():
     total_pts, pt_breakdown = score_alerts(metrics_for_scoring)
     regime = classify_regime(total_pts)
     multiplier = REGIME_MULTIPLIER[regime]
-    summary = generate_summary(regime, pt_breakdown)
     color = REGIME_COLORS[regime]
     emoji = REGIME_EMOJI[regime]
 
     # ===================================================================
-    # LAYER 0: THE VERDICT
+    # BUILD SITUATION BOARD DATA
     # ===================================================================
-    st.markdown(
-        f"""
-        <div style="background-color: {color}20; border-left: 4px solid {color};
-                    padding: 16px; border-radius: 8px; margin-bottom: 16px;">
-            <h2 style="margin: 0; color: {color};">{emoji} {regime.upper()}</h2>
-            <p style="font-size: 24px; margin: 8px 0;">Sizing: <strong>{multiplier}x</strong></p>
-            <p style="margin: 0;">{summary}</p>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
+    def _safe_pctile(val):
+        """Return val if valid float, else None."""
+        if val is None:
+            return None
+        try:
+            if np.isnan(val):
+                return None
+        except (TypeError, ValueError):
+            return None
+        return float(val)
 
-    # Point breakdown expander
-    with st.expander(f"Score breakdown: {total_pts} points"):
+    metrics_display = []
+
+    # --- Layer 1: Vol ---
+    metrics_display.append({
+        'name': 'RV 22d', 'layer': 'Vol',
+        'value_str': f"{cur_rv22d:.1%}" if cur_rv22d is not None else "N/A",
+        'percentile': _safe_pctile(cur_rv22d_pctile),
+        'alert_pctile': 75, 'alarm_pctile': 90, 'invert': False,
+    })
+    metrics_display.append({
+        'name': 'VRP', 'layer': 'Vol',
+        'value_str': f"{cur_vrp:.4f}" if cur_vrp is not None else "N/A",
+        'percentile': _safe_pctile(cur_vrp_pctile),
+        'alert_pctile': 25, 'alarm_pctile': 10, 'invert': True,
+    })
+    metrics_display.append({
+        'name': 'VIX/VIX3M', 'layer': 'Vol',
+        'value_str': f"{cur_ts_ratio:.3f}" if cur_ts_ratio is not None else "N/A",
+        'percentile': _safe_pctile(cur_ts_pctile),
+        'alert_pctile': 80, 'alarm_pctile': 95, 'invert': False,
+    })
+    metrics_display.append({
+        'name': 'VVIX', 'layer': 'Vol',
+        'value_str': f"{cur_vvix:.0f}" if cur_vvix is not None else "N/A",
+        'percentile': _safe_pctile(cur_vvix_pctile),
+        'alert_pctile': 75, 'alarm_pctile': 90, 'invert': False,
+    })
+
+    # --- Layer 2: Internals ---
+    metrics_display.append({
+        'name': 'Breadth (>200d)', 'layer': 'Internals',
+        'value_str': f"{cur_pct200:.0f}%" if cur_pct200 is not None else "N/A",
+        'percentile': _safe_pctile(cur_breadth_pctile),
+        'alert_pctile': 25, 'alarm_pctile': 10, 'invert': True,
+    })
+    metrics_display.append({
+        'name': 'Absorption Ratio', 'layer': 'Internals',
+        'value_str': f"{cur_ar:.3f}" if cur_ar is not None else "N/A",
+        'percentile': _safe_pctile(cur_ar_pctile),
+        'alert_pctile': 75, 'alarm_pctile': 90, 'invert': False,
+    })
+    metrics_display.append({
+        'name': 'Dispersion', 'layer': 'Internals',
+        'value_str': f"{cur_disp:.4f}" if cur_disp is not None else "N/A",
+        'percentile': _safe_pctile(cur_disp_pctile),
+        'alert_pctile': 75, 'alarm_pctile': 90, 'invert': False,
+    })
+    metrics_display.append({
+        'name': 'Sector Correlation', 'layer': 'Internals',
+        'value_str': f"{cur_corr:.3f}" if cur_corr is not None else "N/A",
+        'percentile': _safe_pctile(cur_corr_pctile),
+        'alert_pctile': 75, 'alarm_pctile': 90, 'invert': False,
+    })
+    metrics_display.append({
+        'name': 'Hurst (smoothed)', 'layer': 'Internals',
+        'value_str': f"{cur_hurst:.3f}" if cur_hurst is not None else "N/A",
+        'percentile': _safe_pctile(cur_hurst_pctile),
+        'alert_pctile': 80, 'alarm_pctile': 95, 'invert': False,
+    })
+    metrics_display.append({
+        'name': 'Calm: Days Since 5% DD', 'layer': 'Internals',
+        'value_str': f"{int(cur_days_since_5)}d" if cur_days_since_5 is not None and not np.isnan(cur_days_since_5) else "N/A",
+        'percentile': _safe_pctile(cur_days_since_5_pctile),
+        'alert_pctile': 80, 'alarm_pctile': 95, 'invert': False,
+    })
+    metrics_display.append({
+        'name': 'Calm: Days Since VIX>28', 'layer': 'Internals',
+        'value_str': f"{int(cur_days_since_vix)}d" if cur_days_since_vix is not None and not np.isnan(cur_days_since_vix) else "N/A",
+        'percentile': _safe_pctile(cur_days_since_vix_pctile),
+        'alert_pctile': 80, 'alarm_pctile': 95, 'invert': False,
+    })
+
+    # --- Layer 3: Plumbing ---
+    metrics_display.append({
+        'name': 'Credit IG Spread', 'layer': 'Plumbing',
+        'value_str': f"{cur_ig_z:+.1f}\u03c3" if cur_ig_z is not None else "N/A",
+        'percentile': scipy_norm.cdf(cur_ig_z) * 100 if cur_ig_z is not None else None,
+        'alert_pctile': 84, 'alarm_pctile': 93, 'invert': False,
+    })
+    metrics_display.append({
+        'name': 'Credit HY Spread', 'layer': 'Plumbing',
+        'value_str': f"{cur_hy_z:+.1f}\u03c3" if cur_hy_z is not None else "N/A",
+        'percentile': scipy_norm.cdf(cur_hy_z) * 100 if cur_hy_z is not None else None,
+        'alert_pctile': 84, 'alarm_pctile': 93, 'invert': False,
+    })
+    metrics_display.append({
+        'name': 'Yield Curve (10Y-3M)', 'layer': 'Plumbing',
+        'value_str': f"{cur_yc_spread:+.2f}%" if cur_yc_spread is not None else "N/A",
+        'percentile': _safe_pctile(cur_yc_pctile),
+        'alert_pctile': 25, 'alarm_pctile': 10, 'invert': True,
+    })
+    metrics_display.append({
+        'name': 'MOVE', 'layer': 'Plumbing',
+        'value_str': f"{cur_move:.0f}" if cur_move is not None else "N/A",
+        'percentile': _safe_pctile(cur_move_pctile),
+        'alert_pctile': 75, 'alarm_pctile': 90, 'invert': False,
+    })
+    metrics_display.append({
+        'name': 'Dollar 21d Move', 'layer': 'Plumbing',
+        'value_str': f"{cur_dollar_21d:+.1f}%" if cur_dollar_21d is not None else "N/A",
+        'percentile': _safe_pctile(cur_dollar_abs_pctile),
+        'alert_pctile': 80, 'alarm_pctile': 95, 'invert': False,
+    })
+
+    fragility_score = compute_fragility_score(metrics_display)
+
+    # ===================================================================
+    # EXECUTIVE SUMMARY
+    # ===================================================================
+
+    # Row 1: Verdict banner + Risk dial
+    verdict_col, dial_col = st.columns([3, 2])
+
+    with verdict_col:
+        st.markdown(f"""
+        <div style="background-color: {color}15; border-left: 5px solid {color};
+                    padding: 12px 16px; border-radius: 8px; margin-bottom: 8px;">
+            <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap;">
+                <div>
+                    <span style="font-size: 28px; font-weight: bold; color: {color};">{emoji} {regime.upper()}</span>
+                    <span style="font-size: 15px; margin-left: 16px; color: #999;">Sizing ref: {multiplier}x</span>
+                </div>
+                <div style="text-align: right; font-size: 12px; color: #777;">
+                    {datetime.datetime.now().strftime('%b %d, %Y %H:%M')} &middot; Score: {total_pts} pts
+                </div>
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+
+        narrative = generate_narrative(regime, pt_breakdown, metrics_for_scoring)
+        st.markdown(f"<p style='font-size: 14px; line-height: 1.5; margin: 4px 0 8px 0;'>{narrative}</p>",
+                    unsafe_allow_html=True)
+
+    with dial_col:
+        fig_dial = build_risk_dial(fragility_score, regime)
+        st.plotly_chart(fig_dial, use_container_width=True)
+
+        if fragility_score < 20:
+            dial_label = "Market conditions are robust"
+        elif fragility_score < 40:
+            dial_label = "Conditions are calm with minor flags"
+        elif fragility_score < 60:
+            dial_label = "Mixed signals — stay alert"
+        elif fragility_score < 80:
+            dial_label = "Elevated fragility across multiple dimensions"
+        else:
+            dial_label = "High fragility — defensive posture warranted"
+
+        st.markdown(f"<p style='text-align: center; font-size: 12px; color: #999; margin-top: -10px;'>{dial_label}</p>",
+                    unsafe_allow_html=True)
+
+    # Situation Board (full width)
+    fig_board = build_situation_board(metrics_display)
+    st.plotly_chart(fig_board, use_container_width=True)
+
+    # Score breakdown (collapsed for reference)
+    with st.expander("Score breakdown detail"):
         if pt_breakdown:
             for metric_name, pts in pt_breakdown.items():
                 st.markdown(f"- **{metric_name}**: +{pts}")
