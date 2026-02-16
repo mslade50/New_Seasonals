@@ -105,7 +105,7 @@ These run inside `build_strategy_dict()` so exports are pre-populated with reaso
 
 ## Session: 2026-02-15 - Risk Dashboard V2 (Phase 1)
 
-### New File: `pages/risk_dashboard_v2.py` (1,004 lines → 1,757 after Phase 2 → 2,228 after exec summary)
+### New File: `pages/risk_dashboard_v2.py` (1,004 → 1,757 → 2,228 → 2,414 lines)
 
 **Purpose:** Standalone market risk monitor. Completely independent from trading strategies — no imports from `strategy_config.py`, `strat_backtester.py`, `daily_scan.py`, or `indicators.py`.
 
@@ -113,10 +113,9 @@ These run inside `build_strategy_dict()` so exports are pre-populated with reaso
 
 #### Architecture: 3-Layer System
 
-**Layer 0 — Executive Summary** (redesigned — see Executive Summary session below)
-- Compact verdict banner + risk dial + narrative + situation board
-- Rules-based point system: each metric in alert range = +1, alarm range = +2
-- Regime classification: 0 pts = Normal (1.00x), 1-2 = Caution (0.75x), 3-4 = Stress (0.50x), 5+ = Crisis (0.25x)
+**Executive Summary** (rebuilt — see Executive Summary Rebuild session below)
+- Signal-based three-question framework with 8 causal signals + risk dial
+- Legacy point system preserved in collapsed expander
 
 **Layer 1 — Volatility State** (left column, 4 metrics)
 | Metric | Method | Alert | Alarm |
@@ -158,7 +157,8 @@ These run inside `build_strategy_dict()` so exports are pre-populated with reaso
 
 - [x] Layer 3: Credit (LQD/HYG spread), Yield Curve (^TNX/^IRX), MOVE, Dollar (UUP)
 - [x] Layer 4: SKEW, Protection Cost Proxy, Hedge Recommendation Engine
-- [ ] Full Bayesian composite (replace simple point system)
+- [x] Executive summary rebuild: signal-based three-question framework
+- [ ] Signal event study: backtest each of the 8 signals to calibrate hit rates
 - [ ] Full S&P 500 breadth (~500 constituents instead of 11 sector ETFs)
 - [ ] Historical regime validation / backtesting
 - [ ] FRED data source for MOVE (more reliable than yfinance)
@@ -259,108 +259,121 @@ All new metrics now feed into `score_alerts()`. Full point system:
 
 ---
 
-## Session: 2026-02-15 - Risk Dashboard V2 (Executive Summary Redesign)
+## Session: 2026-02-15 - Risk Dashboard V2 (Executive Summary Rebuild — Final Architecture)
 
-### Updated File: `pages/risk_dashboard_v2.py` (1,757 → 2,228 lines, +497 / -26)
+### Updated File: `pages/risk_dashboard_v2.py` (2,228 → 2,414 lines, +602 / -416)
 
-**What changed:** Replaced the old Layer 0 verdict box with a dense one-screen executive briefing. All computation functions and Layer 1-4 detail charts are unchanged.
+**What changed:** Complete replacement of the executive summary. Removed situation board, narrative engine, and old fragility score. Replaced with signal-based three-question framework organized around causal questions. All computation functions and Layer 1-4 detail charts unchanged.
 
-#### Problem Solved
+#### Design Philosophy
 
-The old Layer 0 was a colored box with a generic summary sentence. No intermediate view between the verdict and 15+ individual charts. The user had to scroll through everything to understand what was happening. Now the top of the page is a "situation board" — a single screenshot that tells the whole story.
+The dashboard measures **susceptibility to regime change**, not prediction. Analogy: can't predict earthquakes but can measure soil liquefaction risk. Measures "forest dryness" — how vulnerable the market microstructure is to disruption of the user's mean reversion systems.
 
 #### New Page Layout (top section)
 
 ```
-┌──────────────────────────────┬───────────────────┐
-│  VERDICT BANNER              │   RISK DIAL       │
-│  🟢 NORMAL  Sizing: 1.00x   │   [gauge 0-100]   │
-│  Feb 15, 2026 · Score: 0 pts│   "Robust"        │
-│                              │                   │
-│  Narrative: All systems      │                   │
-│  nominal. Realized vol is... │                   │
-├──────────────────────────────┴───────────────────┤
-│  SITUATION BOARD (bullet chart, 17 rows)         │
-│  ───── Vol ─────                                 │
-│  RV 22d (12.3%)        ●                         │
-│  VRP (0.0023)              ●                     │
-│  VIX/VIX3M (0.872)    ●                         │
-│  VVIX (84)             ●                         │
-│  ───── Internals ─────                           │
-│  Breadth (72%)              ●                    │
-│  ...etc for all 17 metrics...                    │
-│  ───── Plumbing ─────                            │
-│  Credit IG (+0.3σ)     ●                         │
-│  ...                                             │
-│  [0────25────50────75────100] ← percentile axis  │
+┌──────────────────────────────────────────────────┐
+│  PRICE CONTEXT BANNER                            │
+│  SPY: $598.42  +18.2% 12mo | +6.1% vs 200d |   │
+│  -1.2% from high    "Strong uptrend, moderately  │
+│                       extended"                   │
 ├──────────────────────────────────────────────────┤
-│  ▸ Score breakdown detail (collapsed expander)   │
+│  Since last session: 🔴 Vol Compression activated │
+├───────────────────────────────────┬──────────────┤
+│  THREE QUESTIONS                  │  RISK DIAL   │
+│                                   │  [gauge 0-100]│
+│  💧 Is liquidity real?   CLEAR   │  "2 of 8     │
+│    🟢 Vol Suppression             │   signals    │
+│    🟢 VRP Compression             │   active"    │
+│                                   │              │
+│  👥 Is everyone on the same side? │              │
+│     WATCH                         │              │
+│    🟢 Breadth Divergence          │              │
+│    🔴 Extended Calm               │              │
+│      Days since 5%: 187 (82nd)...│              │
+│    🔴 Vol Compression             │              │
+│      RV below median 73 days...  │              │
+│                                   │              │
+│  🔗 Are correlations stable?     │              │
+│     CLEAR                         │              │
+│    🟢 Credit-Equity Divergence    │              │
+│    🟢 Rates-Equity Vol Gap        │              │
+│    🟢 Vol Uncertainty             │              │
+├───────────────────────────────────┴──────────────┤
+│  IF CONDITIONS DETERIORATE: (only when 2+ active)│
+│  [Vol Compression] [Calm Streak]  [Potential     │
+│   73d below median  187d since 5%  Unwind ~5-9%] │
+├──────────────────────────────────────────────────┤
+│  ▸ Legacy scoring detail (collapsed expander)    │
 ├──────────────────────────────────────────────────┤
 │  Layer 1 / Layer 2 detail charts (unchanged)     │
 ```
 
-#### Three New Display Components
+#### The 8 Causal Signals
 
-**1. Verdict Banner** — single-line compact: regime emoji + name, sizing ref, timestamp, point count. No paragraph, no multi-line box.
+| # | Signal | Question | Trigger | Why It Matters |
+|---|--------|----------|---------|----------------|
+| 1A | Vol Suppression | Liquidity | AR < 25th pctile AND RV_22d < 35th | Index vol artificially suppressed by systematic selling |
+| 1B | VRP Compression | Liquidity | VRP negative OR VRP < 15th pctile | Market not compensating for risk |
+| 2A | Breadth Divergence | Positioning | SPY near 52w high AND < 55% sectors > 200d | Index held up by few names |
+| 2B | Extended Calm | Positioning | Both complacency counters > 70th OR either > 85th | Positioning accumulated in one direction |
+| 2C | Vol Compression | Positioning | > 60 consecutive days RV_22d below expanding median | Participants adapted to low vol |
+| 3A | Credit-Equity Divergence | Correlations | HY z > 0.75 AND SPY 21d return > -2% | Bond market repricing risk equity hasn't |
+| 3B | Rates-Equity Vol Gap | Correlations | MOVE > 70th pctile AND VIX < 40th pctile | Rates vol not yet transmitted to equity |
+| 3C | Vol Uncertainty | Correlations | VVIX/VIX ratio > 80th pctile (or > 7.5 absolute) | Market doesn't trust current vol level |
 
-**2. Risk Dial** — Plotly gauge, 0-100 continuous fragility score. Driven by `compute_fragility_score()` which measures how far into danger zones each metric has gone (not just whether thresholds are crossed). A metric barely past alert = tiny contribution; deep in red = large contribution. Five color bands: Robust (0-20), Calm (20-40), Neutral (40-60), Elevated (60-80), Fragile (80-100).
+#### Risk Dial Formula
 
-**3. Situation Board** — Plotly bullet chart via `build_situation_board()`. 17 metrics on a common 0-100 percentile x-axis.
+```
+fragility = min(100, (active_signals / 8) × 80 × regime_multiplier)
+```
 
-| # | Metric | Layer | Invert? | Alert Pctile | Alarm Pctile |
-|---|--------|-------|---------|-------------|-------------|
-| 1 | RV 22d | Vol | No | 75 | 90 |
-| 2 | VRP | Vol | Yes (low=bad) | 25 | 10 |
-| 3 | VIX/VIX3M | Vol | No | 80 | 95 |
-| 4 | VVIX | Vol | No | 75 | 90 |
-| 5 | Breadth (>200d) | Internals | Yes (low=bad) | 25 | 10 |
-| 6 | Absorption Ratio | Internals | No | 75 | 90 |
-| 7 | Dispersion | Internals | No | 75 | 90 |
-| 8 | Sector Correlation | Internals | No | 75 | 90 |
-| 9 | Hurst (smoothed) | Internals | No | 80 | 95 |
-| 10 | Days Since 5% DD | Internals | No | 80 | 95 |
-| 11 | Days Since VIX>28 | Internals | No | 80 | 95 |
-| 12 | Credit IG Spread | Plumbing | No | 84 (z=1.0) | 93 (z=1.5) |
-| 13 | Credit HY Spread | Plumbing | No | 84 | 93 |
-| 14 | Yield Curve | Plumbing | Yes (low=bad) | 25 | 10 |
-| 15 | MOVE | Plumbing | No | 75 | 90 |
-| 16 | Dollar 21d Move | Plumbing | No | 80 | 95 |
+**Regime multiplier** (0.6–1.8x) based on price context:
+- 12mo return > 25% → +0.25, > 15% → +0.10, < -5% → -0.15
+- Extension > 10% → +0.25, > 5% → +0.10, < -2% → -0.15
+- Near highs (DD > -2%) → +0.10, deep drawdown (DD < -10%) → -0.20
 
-Credit z-scores mapped to percentiles via `scipy.stats.norm.cdf()` (with pure-Python `math.erf` fallback).
+#### Signal Persistence
 
-#### Narrative Engine
+Daily change tracking via `data/risk_dashboard_signal_state.json`. On each load:
+1. Load previous state (only if from a different calendar date)
+2. Compare current vs previous signals
+3. Display activations/deactivations
+4. Save current state for next session
 
-`generate_narrative()` replaces old `generate_summary()`. Groups contributing factors by theme:
-- **Volatility complex:** VRP negative/compressed, backwardation, RV spiking, VVIX high
-- **Market internals:** breadth divergence/weak, dispersion+correlation stress, Hurst trending, complacency
-- **Cross-asset:** credit widening, yield curve inverted/flattening, MOVE elevated, dollar moving sharply
+#### Functions Removed
 
-When Normal with no alerts: reports vol state, VRP status, and calm streak context.
+| Function | Replaced By |
+|----------|-------------|
+| `generate_narrative()` | Signal detail strings in `compute_condition_signals()` |
+| `build_situation_board()` | `render_three_questions()` |
+| Old `compute_fragility_score()` | New signal-count-based `compute_fragility_score()` |
+| Old `build_risk_dial()` | New score-color-based `build_risk_dial()` |
 
-#### New Percentile Computations
-
-Added `expanding_percentile()` calls for 8 metrics that previously lacked percentiles:
-
-| Metric | Variable | Purpose |
-|--------|----------|---------|
-| VIX Term Structure | `cur_ts_pctile` | Situation board |
-| VVIX | `cur_vvix_pctile` | Situation board |
-| Breadth % > 200d | `cur_breadth_pctile` | Situation board (inverted) |
-| Absorption Ratio | `cur_ar_pctile` | Situation board |
-| Dispersion | `cur_disp_pctile` | Situation board |
-| Avg Pairwise Corr | `cur_corr_pctile` | Situation board |
-| Yield Curve Spread | `cur_yc_pctile` | Situation board (inverted) |
-| MOVE | `cur_move_pctile` | Situation board |
-| Dollar (abs) | `cur_dollar_abs_pctile` | Situation board |
-
-#### New Functions
+#### Functions Added
 
 | Function | Purpose |
 |----------|---------|
-| `generate_narrative()` | Context-aware 2-3 sentence synthesis (replaces `generate_summary()`) |
-| `build_situation_board()` | Plotly bullet chart with 17 metric rows |
-| `compute_fragility_score()` | Continuous 0-100 score from per-metric danger-zone depth |
-| `build_risk_dial()` | Plotly gauge for fragility score |
+| `compute_price_context()` | SPY price, 12mo return, 200d extension, drawdown, regime label |
+| `compute_regime_multiplier()` | Price context → 0.6-1.8x amplifier for fragility score |
+| `compute_condition_signals()` | 8 binary signals across 3 causal questions |
+| `render_price_context()` | Price context banner HTML |
+| `render_three_questions()` | Signal board with CLEAR/WATCH/WARNING badges |
+| `compute_fragility_score()` | Signal count × regime multiplier → 0-100 |
+| `build_risk_dial()` | Plotly gauge with score-based coloring |
+| `load_previous_signal_state()` | Read JSON cache from previous session |
+| `save_current_signal_state()` | Write JSON cache for next session |
+| `compute_changes()` | Diff current vs previous signal states |
+
+#### New Metric Computations in main()
+
+| Metric | Variable | Purpose |
+|--------|----------|---------|
+| VIX current + percentile | `cur_vix`, `cur_vix_pctile` | Rates-Equity Vol Gap signal |
+| SPY 21d return | `spy_21d_return` | Credit-Equity Divergence signal |
+| VVIX/VIX ratio percentile | `cur_vvix_vix_ratio_pctile` | Vol Uncertainty signal |
+| AR percentile | `cur_ar_pctile` | Vol Suppression signal |
+| MOVE percentile | `cur_move_pctile` | Rates-Equity Vol Gap signal |
 
 ---
 

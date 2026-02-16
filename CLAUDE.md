@@ -78,16 +78,23 @@ It may optionally import `SP500_TICKERS` from `abs_return_dispersion.py` (with t
 
 **Phases 1 & 2 complete** (Layers 0–4). See `notes.md` for full details.
 
-### Executive Summary (Layer 0)
-One-screen briefing at the top of the page. Three components side-by-side:
-- **Verdict banner** — compact single line: regime name, sizing ref, timestamp, point count
-- **Risk dial** — Plotly gauge, continuous 0-100 fragility score (average of per-metric danger-zone depth, NOT a rescaled point count). Labels: Robust → Neutral → Fragile.
-- **Narrative** — 2-3 sentence synthesis grouped by theme (vol complex, internals, plumbing). Context-aware, not a metric list.
+### Executive Summary — Signal-Based Three-Question Framework
+One-screen briefing at the top of the page. Three sections:
 
-Below the banner row: **Situation Board** — Plotly bullet chart, 17 metrics on a common 0-100 percentile x-axis. Each row has green/yellow/red background zones (respecting `invert` flag for metrics where low = bad) and a colored dot at the current percentile. Layer separators between Vol / Internals / Plumbing groups.
+**Section A: Price Context Banner** — SPY price, 12mo return, extension vs 200d SMA, drawdown from 52w high, regime label (e.g. "Healthy uptrend", "Correction underway"). Plus "What Changed" line tracking signal activations/deactivations since last session via JSON persistence (`data/risk_dashboard_signal_state.json`).
 
-Point system underneath (collapsed expander): Alert = +1, Alarm = +2.
-- 0 pts = Normal (1.00x) | 1-2 = Caution (0.75x) | 3-4 = Stress (0.50x) | 5+ = Crisis (0.25x)
+**Section B: Three Questions + Risk Dial** (3:1 column split)
+- **Is liquidity real?** — Vol Suppression (low AR + low RV), VRP Compression (negative or <15th pctile)
+- **Is everyone on the same side?** — Breadth Divergence (SPY near high, <55% sectors above 200d), Extended Calm (compound complacency counters), Vol Compression (>60 consecutive days below expanding median RV)
+- **Are correlations stable?** — Credit-Equity Divergence (HY z >0.75 while SPX flat), Rates-Equity Vol Gap (MOVE elevated, VIX calm), Vol Uncertainty (VVIX/VIX ratio >80th pctile)
+- Each question shows CLEAR/WATCH/WARNING badge. Each signal ON/OFF with explanatory detail when active.
+- **Risk Dial** — Plotly gauge, 0-100 fragility score driven by (active signal count / total) × 80 × regime multiplier (0.6-1.8x based on price context). Labels: Robust → Neutral → Fragile.
+
+**Section C: Stored Energy** (conditional — only when 2+ signals active)
+- Vol compression duration & depth, calm streak, estimated drawdown range based on extension + compression + signal count.
+
+Legacy point system preserved in collapsed expander for reference. Alert = +1, Alarm = +2.
+- 0 pts = Normal | 1-2 = Caution | 3-4 = Stress | 5+ = Crisis
 
 ### Layer 1: Volatility State
 - 1A: HAR-RV (Yang-Zhang at 1d/5d/22d)
@@ -108,7 +115,7 @@ Point system underneath (collapsed expander): Alert = +1, Alarm = +2.
 - 3C: MOVE Index — raw level with bands at 80/120/150. Alert: > 120. Alarm: > 150. Graceful fallback if ^MOVE unavailable on yfinance.
 - 3D: Dollar Dynamics — UUP 21d momentum as DXY proxy. Alert: |chg| > 3%. Alarm: |chg| > 5%.
 
-### Layer 4: Tail Risk & Cost of Protection (auto-expands on Caution+)
+### Layer 4: Tail Risk & Cost of Protection (auto-expands when 2+ signals active)
 - 4A: SKEW Index — time series with 120/140 bands. Disorderly stress detection: flags when SKEW falling (>3pts in 5d) while VIX rising (>3pts in 5d).
 - 4B: Protection Cost Proxy — VIX3M × (SKEW/130), percentile-ranked over 5yr trailing window. Plotly gauge display (green/yellow/orange/red).
 - 4C: Hedge Recommendation — decision tree based on regime × protection cost percentile. Outputs: sizing guidance, collar vs puts vs exposure reduction.
@@ -118,7 +125,7 @@ Point system underneath (collapsed expander): Alert = +1, Alarm = +2.
 - Layer 3 charts use compact 200px height (vs 250px for Layers 1/2).
 
 ### Phase 3 TODO
-- Bayesian composite (replace point system)
+- Signal event study: backtest each of the 8 signals individually to calibrate hit rates (currently placeholder estimates)
 - Full S&P 500 breadth (replace sector proxy with ~500 constituents)
 - Historical regime backtesting
 - FRED data source for MOVE (more reliable than yfinance)
@@ -133,6 +140,7 @@ Point system underneath (collapsed expander): Alert = +1, Alarm = +2.
 | `VOL_TICKERS` | `risk_dashboard_v2.py` | 4 | SPY, ^VIX, ^VIX3M, ^VVIX |
 | `CROSS_ASSET_TICKERS` | `risk_dashboard_v2.py` | 7 | LQD, HYG, IEF, UUP, ^MOVE, ^TNX, ^IRX |
 | `TAIL_RISK_TICKERS` | `risk_dashboard_v2.py` | 1 | ^SKEW |
+| `SIGNAL_CACHE_PATH` | `risk_dashboard_v2.py` | — | `data/risk_dashboard_signal_state.json` |
 | `LEADERSHIP_ETFS` | `risk_dashboard.py` | 19 | Extended sector + industry ETFs |
 
 ## Google Sheets Integration
