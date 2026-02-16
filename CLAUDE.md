@@ -78,8 +78,15 @@ It may optionally import `SP500_TICKERS` from `abs_return_dispersion.py` (with t
 
 **Phases 1 & 2 complete** (Layers 0–4). See `notes.md` for full details.
 
-### Layer 0: Composite Verdict
-Rules-based point system. Alert = +1, Alarm = +2. All layers feed into composite.
+### Executive Summary (Layer 0)
+One-screen briefing at the top of the page. Three components side-by-side:
+- **Verdict banner** — compact single line: regime name, sizing ref, timestamp, point count
+- **Risk dial** — Plotly gauge, continuous 0-100 fragility score (average of per-metric danger-zone depth, NOT a rescaled point count). Labels: Robust → Neutral → Fragile.
+- **Narrative** — 2-3 sentence synthesis grouped by theme (vol complex, internals, plumbing). Context-aware, not a metric list.
+
+Below the banner row: **Situation Board** — Plotly bullet chart, 17 metrics on a common 0-100 percentile x-axis. Each row has green/yellow/red background zones (respecting `invert` flag for metrics where low = bad) and a colored dot at the current percentile. Layer separators between Vol / Internals / Plumbing groups.
+
+Point system underneath (collapsed expander): Alert = +1, Alarm = +2.
 - 0 pts = Normal (1.00x) | 1-2 = Caution (0.75x) | 3-4 = Stress (0.50x) | 5+ = Crisis (0.25x)
 
 ### Layer 1: Volatility State

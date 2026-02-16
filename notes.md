@@ -105,7 +105,7 @@ These run inside `build_strategy_dict()` so exports are pre-populated with reaso
 
 ## Session: 2026-02-15 - Risk Dashboard V2 (Phase 1)
 
-### New File: `pages/risk_dashboard_v2.py` (1,004 lines → now 1,757 after Phase 2)
+### New File: `pages/risk_dashboard_v2.py` (1,004 lines → 1,757 after Phase 2 → 2,228 after exec summary)
 
 **Purpose:** Standalone market risk monitor. Completely independent from trading strategies — no imports from `strategy_config.py`, `strat_backtester.py`, `daily_scan.py`, or `indicators.py`.
 
@@ -113,10 +113,10 @@ These run inside `build_strategy_dict()` so exports are pre-populated with reaso
 
 #### Architecture: 3-Layer System
 
-**Layer 0 — The Verdict**
+**Layer 0 — Executive Summary** (redesigned — see Executive Summary session below)
+- Compact verdict banner + risk dial + narrative + situation board
 - Rules-based point system: each metric in alert range = +1, alarm range = +2
 - Regime classification: 0 pts = Normal (1.00x), 1-2 = Caution (0.75x), 3-4 = Stress (0.50x), 5+ = Crisis (0.25x)
-- Color-coded banner + plain-English summary + expandable point breakdown
 
 **Layer 1 — Volatility State** (left column, 4 metrics)
 | Metric | Method | Alert | Alarm |
@@ -256,6 +256,111 @@ All new metrics now feed into `score_alerts()`. Full point system:
 | `chart_days_since_sawtooth()` | Generic sawtooth chart for days-since counters |
 | `download_cross_asset_data()` | Cached download for Layer 3 tickers |
 | `download_tail_risk_data()` | Cached download for Layer 4 tickers |
+
+---
+
+## Session: 2026-02-15 - Risk Dashboard V2 (Executive Summary Redesign)
+
+### Updated File: `pages/risk_dashboard_v2.py` (1,757 → 2,228 lines, +497 / -26)
+
+**What changed:** Replaced the old Layer 0 verdict box with a dense one-screen executive briefing. All computation functions and Layer 1-4 detail charts are unchanged.
+
+#### Problem Solved
+
+The old Layer 0 was a colored box with a generic summary sentence. No intermediate view between the verdict and 15+ individual charts. The user had to scroll through everything to understand what was happening. Now the top of the page is a "situation board" — a single screenshot that tells the whole story.
+
+#### New Page Layout (top section)
+
+```
+┌──────────────────────────────┬───────────────────┐
+│  VERDICT BANNER              │   RISK DIAL       │
+│  🟢 NORMAL  Sizing: 1.00x   │   [gauge 0-100]   │
+│  Feb 15, 2026 · Score: 0 pts│   "Robust"        │
+│                              │                   │
+│  Narrative: All systems      │                   │
+│  nominal. Realized vol is... │                   │
+├──────────────────────────────┴───────────────────┤
+│  SITUATION BOARD (bullet chart, 17 rows)         │
+│  ───── Vol ─────                                 │
+│  RV 22d (12.3%)        ●                         │
+│  VRP (0.0023)              ●                     │
+│  VIX/VIX3M (0.872)    ●                         │
+│  VVIX (84)             ●                         │
+│  ───── Internals ─────                           │
+│  Breadth (72%)              ●                    │
+│  ...etc for all 17 metrics...                    │
+│  ───── Plumbing ─────                            │
+│  Credit IG (+0.3σ)     ●                         │
+│  ...                                             │
+│  [0────25────50────75────100] ← percentile axis  │
+├──────────────────────────────────────────────────┤
+│  ▸ Score breakdown detail (collapsed expander)   │
+├──────────────────────────────────────────────────┤
+│  Layer 1 / Layer 2 detail charts (unchanged)     │
+```
+
+#### Three New Display Components
+
+**1. Verdict Banner** — single-line compact: regime emoji + name, sizing ref, timestamp, point count. No paragraph, no multi-line box.
+
+**2. Risk Dial** — Plotly gauge, 0-100 continuous fragility score. Driven by `compute_fragility_score()` which measures how far into danger zones each metric has gone (not just whether thresholds are crossed). A metric barely past alert = tiny contribution; deep in red = large contribution. Five color bands: Robust (0-20), Calm (20-40), Neutral (40-60), Elevated (60-80), Fragile (80-100).
+
+**3. Situation Board** — Plotly bullet chart via `build_situation_board()`. 17 metrics on a common 0-100 percentile x-axis.
+
+| # | Metric | Layer | Invert? | Alert Pctile | Alarm Pctile |
+|---|--------|-------|---------|-------------|-------------|
+| 1 | RV 22d | Vol | No | 75 | 90 |
+| 2 | VRP | Vol | Yes (low=bad) | 25 | 10 |
+| 3 | VIX/VIX3M | Vol | No | 80 | 95 |
+| 4 | VVIX | Vol | No | 75 | 90 |
+| 5 | Breadth (>200d) | Internals | Yes (low=bad) | 25 | 10 |
+| 6 | Absorption Ratio | Internals | No | 75 | 90 |
+| 7 | Dispersion | Internals | No | 75 | 90 |
+| 8 | Sector Correlation | Internals | No | 75 | 90 |
+| 9 | Hurst (smoothed) | Internals | No | 80 | 95 |
+| 10 | Days Since 5% DD | Internals | No | 80 | 95 |
+| 11 | Days Since VIX>28 | Internals | No | 80 | 95 |
+| 12 | Credit IG Spread | Plumbing | No | 84 (z=1.0) | 93 (z=1.5) |
+| 13 | Credit HY Spread | Plumbing | No | 84 | 93 |
+| 14 | Yield Curve | Plumbing | Yes (low=bad) | 25 | 10 |
+| 15 | MOVE | Plumbing | No | 75 | 90 |
+| 16 | Dollar 21d Move | Plumbing | No | 80 | 95 |
+
+Credit z-scores mapped to percentiles via `scipy.stats.norm.cdf()` (with pure-Python `math.erf` fallback).
+
+#### Narrative Engine
+
+`generate_narrative()` replaces old `generate_summary()`. Groups contributing factors by theme:
+- **Volatility complex:** VRP negative/compressed, backwardation, RV spiking, VVIX high
+- **Market internals:** breadth divergence/weak, dispersion+correlation stress, Hurst trending, complacency
+- **Cross-asset:** credit widening, yield curve inverted/flattening, MOVE elevated, dollar moving sharply
+
+When Normal with no alerts: reports vol state, VRP status, and calm streak context.
+
+#### New Percentile Computations
+
+Added `expanding_percentile()` calls for 8 metrics that previously lacked percentiles:
+
+| Metric | Variable | Purpose |
+|--------|----------|---------|
+| VIX Term Structure | `cur_ts_pctile` | Situation board |
+| VVIX | `cur_vvix_pctile` | Situation board |
+| Breadth % > 200d | `cur_breadth_pctile` | Situation board (inverted) |
+| Absorption Ratio | `cur_ar_pctile` | Situation board |
+| Dispersion | `cur_disp_pctile` | Situation board |
+| Avg Pairwise Corr | `cur_corr_pctile` | Situation board |
+| Yield Curve Spread | `cur_yc_pctile` | Situation board (inverted) |
+| MOVE | `cur_move_pctile` | Situation board |
+| Dollar (abs) | `cur_dollar_abs_pctile` | Situation board |
+
+#### New Functions
+
+| Function | Purpose |
+|----------|---------|
+| `generate_narrative()` | Context-aware 2-3 sentence synthesis (replaces `generate_summary()`) |
+| `build_situation_board()` | Plotly bullet chart with 17 metric rows |
+| `compute_fragility_score()` | Continuous 0-100 score from per-metric danger-zone depth |
+| `build_risk_dial()` | Plotly gauge for fragility score |
 
 ---
 
