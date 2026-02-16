@@ -105,7 +105,7 @@ These run inside `build_strategy_dict()` so exports are pre-populated with reaso
 
 ## Session: 2026-02-15 - Risk Dashboard V2 (Phase 1)
 
-### New File: `pages/risk_dashboard_v2.py` (1,004 lines)
+### New File: `pages/risk_dashboard_v2.py` (1,004 lines → now 1,757 after Phase 2)
 
 **Purpose:** Standalone market risk monitor. Completely independent from trading strategies — no imports from `strategy_config.py`, `strat_backtester.py`, `daily_scan.py`, or `indicators.py`.
 
@@ -154,13 +154,108 @@ These run inside `build_strategy_dict()` so exports are pre-populated with reaso
 3. **Optional import:** `SP500_TICKERS` from `abs_return_dispersion.py` (for future full breadth). Currently uses sector ETF proxy.
 4. **Graceful degradation:** Each metric wrapped in try/except. If ^VVIX or ^VIX3M unavailable, shows "Data unavailable" and excludes from composite.
 
-#### Phase 2 TODOs (not yet built)
+#### Phase 2 TODOs → DONE
 
-- [ ] Layer 3: Credit (LQD/HYG spread), Yield Curve (^TNX/^IRX), MOVE, Dollar (UUP)
-- [ ] Layer 4: SKEW, Protection Cost Proxy, Hedge Recommendation Engine
+- [x] Layer 3: Credit (LQD/HYG spread), Yield Curve (^TNX/^IRX), MOVE, Dollar (UUP)
+- [x] Layer 4: SKEW, Protection Cost Proxy, Hedge Recommendation Engine
 - [ ] Full Bayesian composite (replace simple point system)
 - [ ] Full S&P 500 breadth (~500 constituents instead of 11 sector ETFs)
 - [ ] Historical regime validation / backtesting
+- [ ] FRED data source for MOVE (more reliable than yfinance)
+
+---
+
+## Session: 2026-02-15 - Risk Dashboard V2 (Phase 2)
+
+### Updated File: `pages/risk_dashboard_v2.py` (1,139 → 1,757 lines, +648 lines)
+
+**What changed:** Added Layers 3, 4, updated 2E complacency counters, wired all new metrics into Layer 0 composite.
+
+#### Layer 2E Update: Complacency Counters
+
+Previously showed days since 5% and 10% SPX drawdown. Now two primary counters with compound scoring:
+
+| Counter | Method | Threshold |
+|---------|--------|-----------|
+| Days since 5% SPX drawdown | Trailing high drawdown on closing basis | Breach = drawdown ≤ -5% |
+| Days since VIX > 28 | Simple level check | VIX close ≥ 28 |
+
+- 10% drawdown counter kept for context display (not scored)
+- **Compound scoring:** Either > 80th pctile = alert (+1). BOTH > 80th = alarm (+2).
+- Sawtooth time series charts for each counter
+
+#### Layer 3: Cross-Asset Plumbing (4-column layout)
+
+| Metric | Data | Method | Alert | Alarm |
+|--------|------|--------|-------|-------|
+| 3A. Credit Spreads | LQD, HYG, IEF | -(ETF/IEF) ratio, 63d rolling z-score. Inverted so higher = wider spreads. | IG or HY z > 1.0 | Both > 1.5 |
+| 3B. Yield Curve | ^TNX, ^IRX | 10Y - 3M spread. 21d change z-scored against 252d history. | Inverted OR z < -1.5 | Inverted AND z < -2.0 |
+| 3C. MOVE | ^MOVE | Raw level, bands at 80/120/150. Graceful fallback if unavailable. | > 120 | > 150 |
+| 3D. Dollar | UUP | 21d % change as DXY proxy. Bars colored by magnitude. | |chg| > 3% | |chg| > 5% |
+
+**Data notes:**
+- `^MOVE` may not be available on yfinance — shows placeholder text, never crashes
+- `UUP` used as DXY proxy (DX-Y.NYB unreliable on yfinance)
+- All downloads wrapped in try/except with graceful degradation
+
+#### Layer 4: Tail Risk & Cost of Protection
+
+Collapsed by default (`st.expander`), auto-expands when Layer 0 regime ≠ Normal.
+
+| Metric | Data | Method |
+|--------|------|--------|
+| 4A. SKEW | ^SKEW | Raw level + disorderly stress detection (SKEW falling >3pts/5d while VIX rising >3pts/5d) |
+| 4B. Protection Cost | VIX3M × (SKEW/130) | Percentile-ranked over 1260d trailing window. Plotly gauge (green < 20th, red > 85th). |
+| 4C. Hedge Rec | Decision tree | regime × protection_percentile → sizing guidance, collar vs puts vs exposure reduction |
+
+**Hedge recommendation logic:**
+- Protection < 20th pctile → "Historically cheap, allocate 1-2% NAV to puts"
+- Caution/Stress + protection < 60th → "Fairly priced, 0.5-1% NAV or reduce to 0.75x"
+- Stress/Crisis + protection 60-85th → "Expensive, prefer collars or reduce to 0.50x"
+- Protection > 85th → "Expensive, reduce exposure directly to 0.50x or lower"
+- Otherwise → "No action needed"
+
+#### Layer 0: Updated Composite Scoring
+
+All new metrics now feed into `score_alerts()`. Full point system:
+
+| Layer | Metric | Alert (+1) | Alarm (+2) |
+|-------|--------|------------|------------|
+| 1A | HAR-RV | RV_1d > 2x RV_22d | RV_22d > 75th & rising |
+| 1B | VRP | < 25th pctile | Negative |
+| 1C | VIX Term Str | > 0.95 | > 1.0 (backwardation) |
+| 1D | VVIX | > 100 | > 120 |
+| 2A | Breadth | < 60% w/ SPY near high | < 40% |
+| 2B | AR | *Not scored* | *Not scored* |
+| 2C | Dispersion | High dispersion | High disp + high corr |
+| 2D | Hurst | > 80th pctile | > 95th pctile |
+| 2E | Complacency | Either counter > 80th | Both counters > 80th |
+| 3A | Credit | IG or HY z > 1.0 | Both > 1.5 |
+| 3B | Yield Curve | Inverted OR z < -1.5 | Inverted AND z < -2.0 |
+| 3C | MOVE | > 120 | > 150 |
+| 3D | Dollar | |21d chg| > 3% | |21d chg| > 5% |
+
+**New tickers downloaded:**
+- `CROSS_ASSET_TICKERS`: LQD, HYG, IEF, UUP, ^MOVE, ^TNX, ^IRX
+- `TAIL_RISK_TICKERS`: ^SKEW
+
+#### New Functions Added
+
+| Function | Purpose |
+|----------|---------|
+| `compute_days_since_vix_spike()` | Days since VIX closed above threshold |
+| `compute_credit_spread_proxy()` | ETF price ratio z-scores for IG/HY spreads |
+| `compute_yield_curve()` | 10Y-3M spread + 21d change z-score |
+| `compute_dollar_momentum()` | UUP 21d rate of change |
+| `compute_protection_cost()` | VIX3M × SKEW/130 with trailing percentile |
+| `generate_hedge_recommendation()` | Decision tree → (rec, detail, color) |
+| `chart_credit_spreads()` | Overlaid IG/HY z-score chart |
+| `chart_yield_curve()` | Spread with inversion shading |
+| `chart_move()` | MOVE with 80/120/150 bands |
+| `chart_dollar()` | Bar chart with colored bars by magnitude |
+| `chart_days_since_sawtooth()` | Generic sawtooth chart for days-since counters |
+| `download_cross_asset_data()` | Cached download for Layer 3 tickers |
+| `download_tail_risk_data()` | Cached download for Layer 4 tickers |
 
 ---
 

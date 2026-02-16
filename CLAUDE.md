@@ -76,10 +76,10 @@ It may optionally import `SP500_TICKERS` from `abs_return_dispersion.py` (with t
 
 ## Risk Dashboard V2 — Current State
 
-**Phase 1 complete** (Layers 0, 1, 2). See `notes.md` for full details.
+**Phases 1 & 2 complete** (Layers 0–4). See `notes.md` for full details.
 
 ### Layer 0: Composite Verdict
-Rules-based point system. Alert = +1, Alarm = +2.
+Rules-based point system. Alert = +1, Alarm = +2. All layers feed into composite.
 - 0 pts = Normal (1.00x) | 1-2 = Caution (0.75x) | 3-4 = Stress (0.50x) | 5+ = Crisis (0.25x)
 
 ### Layer 1: Volatility State
@@ -93,17 +93,28 @@ Rules-based point system. Alert = +1, Alarm = +2.
 - 2B: Absorption Ratio (PCA on 63d sector returns). **Display-only** — removed from composite scoring. Red line at 0.40. Measures % of sector variance explained by first PC; low AR (<0.4) historically precedes below-avg returns (Minsky dynamic). Backtested: AR <0.4 → 5d avg -0.40% (vs +0.29% baseline), 63d avg +0.82% (vs +3.53%), N=17 deduped episodes over 10 years.
 - 2C: Cross-sectional dispersion + avg pairwise correlation (2x2 grid)
 - 2D: Hurst exponent (DFA, **126d window**, box sizes [8,16,32,48,63]). **Smoothed**: 11d rolling median → 15d EMA. Empirical percentile bands (P20/P80 of smoothed series). Alert > 80th pctile, alarm > 95th. 5d ΔH from smoothed series is the primary signal.
-- 2E: Days Since Correction — trading days since last 5% and 10% drawdown, both in one box. Alert/alarm on 5% streak at 80th/95th pctile.
+- 2E: Complacency Counters — two primary signals: days since 5% SPX drawdown + days since VIX > 28. 10% drawdown also displayed for context. Compound scoring: either > 80th pctile = alert (+1), BOTH > 80th = alarm (+2). Sawtooth charts for each counter.
+
+### Layer 3: Cross-Asset Plumbing (4-column layout)
+- 3A: Credit Spreads — LQD/HYG vs IEF price ratio z-scores (63d rolling). Alert: IG or HY z > 1.0. Alarm: both > 1.5.
+- 3B: Yield Curve — 10Y-3M spread (^TNX - ^IRX). 21d change z-score is the signal. Alert: inverted OR z < -1.5. Alarm: inverted AND z < -2.0.
+- 3C: MOVE Index — raw level with bands at 80/120/150. Alert: > 120. Alarm: > 150. Graceful fallback if ^MOVE unavailable on yfinance.
+- 3D: Dollar Dynamics — UUP 21d momentum as DXY proxy. Alert: |chg| > 3%. Alarm: |chg| > 5%.
+
+### Layer 4: Tail Risk & Cost of Protection (auto-expands on Caution+)
+- 4A: SKEW Index — time series with 120/140 bands. Disorderly stress detection: flags when SKEW falling (>3pts in 5d) while VIX rising (>3pts in 5d).
+- 4B: Protection Cost Proxy — VIX3M × (SKEW/130), percentile-ranked over 5yr trailing window. Plotly gauge display (green/yellow/orange/red).
+- 4C: Hedge Recommendation — decision tree based on regime × protection cost percentile. Outputs: sizing guidance, collar vs puts vs exposure reduction.
 
 ### Chart Defaults
 - HAR-RV and VRP charts default to last 1 year. Double-click to zoom out to full history.
+- Layer 3 charts use compact 200px height (vs 250px for Layers 1/2).
 
-### Phase 2 TODO
-- Layer 3: Credit spreads, yield curve, MOVE, dollar
-- Layer 4: SKEW, protection cost, hedge recommendations
+### Phase 3 TODO
 - Bayesian composite (replace point system)
-- Full S&P 500 breadth (replace sector proxy)
+- Full S&P 500 breadth (replace sector proxy with ~500 constituents)
 - Historical regime backtesting
+- FRED data source for MOVE (more reliable than yfinance)
 
 ## Ticker Constants
 
@@ -113,6 +124,8 @@ Rules-based point system. Alert = +1, Alarm = +2.
 | `LIQUID_UNIVERSE` | `strategy_config.py` | 190 | Liquid stocks for strategies |
 | `SECTOR_ETFS` | `risk_dashboard_v2.py` | 11 | SPDR sector ETFs |
 | `VOL_TICKERS` | `risk_dashboard_v2.py` | 4 | SPY, ^VIX, ^VIX3M, ^VVIX |
+| `CROSS_ASSET_TICKERS` | `risk_dashboard_v2.py` | 7 | LQD, HYG, IEF, UUP, ^MOVE, ^TNX, ^IRX |
+| `TAIL_RISK_TICKERS` | `risk_dashboard_v2.py` | 1 | ^SKEW |
 | `LEADERSHIP_ETFS` | `risk_dashboard.py` | 19 | Extended sector + industry ETFs |
 
 ## Google Sheets Integration
