@@ -1,10 +1,12 @@
 """
-Risk Dashboard V2 — Phase 1 (Layers 0, 1, 2)
-=============================================
+Risk Dashboard V2 — Phases 1 & 2 (Layers 0-4)
+===============================================
 Standalone market risk monitor.
 Layer 0: Composite regime verdict (rules-based point system)
 Layer 1: Volatility state (HAR-RV, VRP, VIX term structure, VVIX)
-Layer 2: Equity market internals (breadth, absorption ratio, dispersion, Hurst)
+Layer 2: Equity market internals (breadth, absorption ratio, dispersion, Hurst, complacency counters)
+Layer 3: Cross-asset plumbing (credit spreads, yield curve, MOVE, dollar)
+Layer 4: Tail risk & protection cost (SKEW, protection cost proxy, hedge recommendation)
 
 Data: yfinance only. No broker connections. No strategy imports.
 """
@@ -50,6 +52,12 @@ SECTOR_ETFS = [
     "XLP", "XLRE", "XLU", "XLV", "XLY",
 ]
 
+# Cross-asset tickers (Layer 3)
+CROSS_ASSET_TICKERS = ['LQD', 'HYG', 'IEF', 'UUP', '^MOVE', '^TNX', '^IRX']
+
+# Tail risk tickers (Layer 4)
+TAIL_RISK_TICKERS = ['^SKEW']
+
 REGIME_COLORS = {
     "Normal": "#00CC00",
     "Caution": "#FFD700",
@@ -86,6 +94,18 @@ def download_vol_data(start_date: str = "2010-01-01") -> dict:
 def download_sector_data(start_date: str = "2010-01-01") -> dict:
     """Download OHLC data for sector ETFs."""
     return _download_ticker_group(SECTOR_ETFS, start_date)
+
+
+@st.cache_data(ttl=3600, show_spinner="Downloading cross-asset data...")
+def download_cross_asset_data(start_date: str = "2010-01-01") -> dict:
+    """Download OHLC data for cross-asset tickers (Layer 3)."""
+    return _download_ticker_group(CROSS_ASSET_TICKERS, start_date)
+
+
+@st.cache_data(ttl=3600, show_spinner="Downloading tail risk data...")
+def download_tail_risk_data(start_date: str = "2010-01-01") -> dict:
+    """Download OHLC data for tail risk tickers (Layer 4)."""
+    return _download_ticker_group(TAIL_RISK_TICKERS, start_date)
 
 
 def _download_ticker_group(tickers: list, start_date: str) -> dict:
@@ -328,6 +348,125 @@ def compute_days_since(spy_close: pd.Series, threshold_pct: float = 0.05) -> pd.
     return days_since
 
 
+def compute_days_since_vix_spike(vix_close: pd.Series, threshold: float = 28.0) -> pd.Series:
+    """
+    For each day, count trading days since VIX last closed above threshold.
+    """
+    above_threshold = vix_close >= threshold
+
+    days_since = pd.Series(0, index=vix_close.index, dtype=int)
+    count = 0
+    for i in range(len(vix_close)):
+        if above_threshold.iloc[i]:
+            count = 0
+        else:
+            count += 1
+        days_since.iloc[i] = count
+
+    return days_since
+
+
+# ---------------------------------------------------------------------------
+# LAYER 3 COMPUTATIONS
+# ---------------------------------------------------------------------------
+
+def compute_credit_spread_proxy(lqd_close, hyg_close, ief_close):
+    """
+    Proxy for credit spreads using ETF price ratios.
+    When credit spreads widen, LQD and HYG fall relative to IEF.
+    We INVERT the ratio so that higher = wider spreads = more stress.
+    """
+    ig_spread = -(lqd_close / ief_close)
+    hy_spread = -(hyg_close / ief_close)
+
+    # Normalize to z-scores for comparability
+    ig_z = (ig_spread - ig_spread.rolling(63).mean()) / ig_spread.rolling(63).std()
+    hy_z = (hy_spread - hy_spread.rolling(63).mean()) / hy_spread.rolling(63).std()
+
+    return ig_z, hy_z
+
+
+def compute_yield_curve(tnx_series, irx_series):
+    """
+    10Y - 3M yield curve spread.
+    ^TNX and ^IRX are both in percentage points (e.g. 4.5 = 4.5%).
+    """
+    spread = tnx_series - irx_series
+    spread_21d_change = spread.diff(21)
+    spread_z = (spread_21d_change - spread_21d_change.rolling(252).mean()) / spread_21d_change.rolling(252).std()
+
+    return spread, spread_z
+
+
+def compute_dollar_momentum(uup_close):
+    """
+    21-day rate of change of UUP (dollar bull ETF) as DXY proxy.
+    """
+    pct_change_21d = uup_close.pct_change(21) * 100  # As percentage
+    return pct_change_21d
+
+
+# ---------------------------------------------------------------------------
+# LAYER 4 COMPUTATIONS
+# ---------------------------------------------------------------------------
+
+def compute_protection_cost(vix3m_series, skew_series):
+    """
+    Proxy for 3-month OTM put cost.
+    Higher = more expensive protection.
+    """
+    if skew_series is None or (hasattr(skew_series, 'empty') and skew_series.empty):
+        cost = vix3m_series.copy()
+    else:
+        # Align on common index
+        common = vix3m_series.dropna().index.intersection(skew_series.dropna().index)
+        cost = vix3m_series.reindex(common) * (skew_series.reindex(common) / 130)
+
+    # Percentile rank against trailing 5-year history (1260 trading days)
+    cost_percentile = cost.rolling(1260, min_periods=252).rank(pct=True) * 100
+
+    return cost, cost_percentile
+
+
+def generate_hedge_recommendation(regime: str, protection_percentile: float) -> tuple:
+    """
+    Returns (recommendation_text, detail_text, color).
+    """
+    if protection_percentile is None or np.isnan(protection_percentile):
+        return ("Protection cost data unavailable",
+                "Cannot generate recommendation without protection cost percentile.",
+                "#888888")
+
+    if protection_percentile < 20:
+        rec = "Protection is historically cheap"
+        detail = ("3-month ~5% OTM index puts are priced below the 20th percentile of history. "
+                  "Consider allocating 1-2% of NAV to put protection. This is a positive expected "
+                  "value allocation at current pricing regardless of market outlook.")
+        color = "#00CC00"
+    elif regime in ("Caution", "Stress") and protection_percentile < 60:
+        rec = "Protection is fairly priced and conditions warrant it"
+        detail = ("Consider 0.5-1% of NAV on 3-month puts. "
+                  "Alternatively, reduce gross exposure to 0.75x.")
+        color = "#FFD700"
+    elif regime in ("Stress", "Crisis") and protection_percentile >= 60 and protection_percentile < 85:
+        rec = "Protection is moderately expensive — prefer collars or exposure reduction"
+        detail = ("Consider a collar: buy 5% OTM put, sell 3-5% OTM call on SPY for near-zero "
+                  "net premium. Or simply reduce gross exposure to 0.50x.")
+        color = "#FF8C00"
+    elif protection_percentile >= 85:
+        rec = "Protection is expensive — reduce exposure directly"
+        detail = ("Buying puts at this pricing is likely negative EV. Reduce gross exposure to "
+                  "0.50x or lower. Hold existing hedges but don't add.")
+        color = "#CC0000"
+    else:
+        rec = "No hedge action needed"
+        detail = ("Market conditions are normal and protection is not attractively priced. "
+                  "Standard operations.")
+        color = "#888888"
+
+    return rec, detail, color
+
+
 # ---------------------------------------------------------------------------
 # PERCENTILE HELPER
 # ---------------------------------------------------------------------------
@@ -423,13 +562,66 @@ def score_alerts(metrics: dict) -> tuple:
     if delta_h is not None and delta_h > 0.05 and "Hurst" not in "".join(points.keys()):
         points["Hurst (rising fast)"] = 1
 
-    # 2E: Days Since Correction — alert: > 80th pctile; alarm: > 95th pctile
-    calm_pctile = metrics.get("days_since_pctile")
-    if calm_pctile is not None:
-        if calm_pctile > 95:
-            points["Calm Streak (>95th pctile)"] = 2
-        elif calm_pctile > 80:
-            points["Calm Streak (>80th pctile)"] = 1
+    # 2E: Days-Since Complacency — compound scoring
+    # Alert (+1): Either counter > 80th percentile
+    # Alarm (+2): BOTH counters > 80th percentile simultaneously
+    ds_5pct_pctile = metrics.get("days_since_5pct_pctile")
+    ds_vix_pctile = metrics.get("days_since_vix_spike_pctile")
+    ds_5_high = ds_5pct_pctile is not None and ds_5pct_pctile > 80
+    ds_vix_high = ds_vix_pctile is not None and ds_vix_pctile > 80
+    if ds_5_high and ds_vix_high:
+        points["Complacency (compound calm)"] = 2
+    elif ds_5_high:
+        points["Calm Streak (5% drawdown >80th)"] = 1
+    elif ds_vix_high:
+        points["Calm Streak (VIX spike >80th)"] = 1
+
+    # --- LAYER 3: Cross-Asset Plumbing ---
+
+    # 3A: Credit Spreads
+    # Alert: IG z > 1.0 OR HY z > 1.0 (+1)
+    # Alarm: BOTH IG and HY z > 1.5 (+2)
+    ig_z = metrics.get("credit_ig_z")
+    hy_z = metrics.get("credit_hy_z")
+    ig_wide = ig_z is not None and ig_z > 1.0
+    hy_wide = hy_z is not None and hy_z > 1.0
+    ig_alarm = ig_z is not None and ig_z > 1.5
+    hy_alarm = hy_z is not None and hy_z > 1.5
+    if ig_alarm and hy_alarm:
+        points["Credit (IG+HY both >1.5\u03c3)"] = 2
+    elif ig_wide or hy_wide:
+        points["Credit (spread widening)"] = 1
+
+    # 3B: Yield Curve
+    # Alert: Inverted OR 21d change z < -1.5 (+1)
+    # Alarm: Inverted AND flattening accelerating (z < -2.0) (+2)
+    yc_spread = metrics.get("yield_curve_spread")
+    yc_z = metrics.get("yield_curve_z")
+    yc_inverted = yc_spread is not None and yc_spread < 0
+    yc_flattening = yc_z is not None and yc_z < -1.5
+    yc_accel = yc_z is not None and yc_z < -2.0
+    if yc_inverted and yc_accel:
+        points["Yield Curve (inverted + accelerating)"] = 2
+    elif yc_inverted or yc_flattening:
+        points["Yield Curve (warning)"] = 1
+
+    # 3C: MOVE (only if data available)
+    # Alert: > 120 (+1); Alarm: > 150 (+2)
+    move_val = metrics.get("move")
+    if move_val is not None:
+        if move_val > 150:
+            points["MOVE (>150)"] = 2
+        elif move_val > 120:
+            points["MOVE (>120)"] = 1
+
+    # 3D: Dollar
+    # Alert: |21d change| > 3% (+1); Alarm: |21d change| > 5% (+2)
+    dollar_21d = metrics.get("dollar_21d_pct")
+    if dollar_21d is not None:
+        if abs(dollar_21d) > 5:
+            points["Dollar (>5% move)"] = 2
+        elif abs(dollar_21d) > 3:
+            points["Dollar (>3% move)"] = 1
 
     total = sum(points.values())
     return total, points
@@ -649,6 +841,108 @@ def render_2x2_grid(disp_high: bool, corr_high: bool):
 
 
 # ---------------------------------------------------------------------------
+# LAYER 3 / 4 CHART HELPERS
+# ---------------------------------------------------------------------------
+
+CHART_HEIGHT_SMALL = 200
+
+
+def chart_credit_spreads(ig_z: pd.Series, hy_z: pd.Series) -> go.Figure:
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(x=ig_z.index, y=ig_z, name="IG z-score",
+                             line=dict(width=1.5, color="#0066CC")))
+    fig.add_trace(go.Scatter(x=hy_z.index, y=hy_z, name="HY z-score",
+                             line=dict(width=1.5, color="#FF6B6B")))
+    fig.add_hline(y=1.0, line_dash="dot", line_color="#FFD700", line_width=1,
+                  annotation_text="1.0\u03c3", annotation_position="right")
+    fig.add_hline(y=2.0, line_dash="dot", line_color="#CC0000", line_width=1,
+                  annotation_text="2.0\u03c3", annotation_position="right")
+    fig.add_hline(y=0, line_dash="solid", line_color="rgba(128,128,128,0.3)", line_width=1)
+    layout = _base_layout("Credit Spread Proxy (z-score)")
+    layout["height"] = CHART_HEIGHT_SMALL
+    fig.update_layout(**layout)
+    return fig
+
+
+def chart_yield_curve(spread: pd.Series) -> go.Figure:
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(
+        x=spread.index, y=spread, name="10Y-3M Spread",
+        line=dict(width=1.5, color="#0066CC"),
+        fill="tozeroy",
+        fillcolor="rgba(0,102,204,0.08)",
+    ))
+    fig.add_hline(y=0, line_dash="solid", line_color="#CC0000", line_width=1.5,
+                  annotation_text="Inversion", annotation_position="right")
+    # Shade below zero red
+    fig.add_hrect(y0=spread.min() - 0.5 if len(spread.dropna()) > 0 else -2,
+                  y1=0, fillcolor="rgba(204,0,0,0.08)", line_width=0)
+    layout = _base_layout("Yield Curve (10Y - 3M)")
+    layout["height"] = CHART_HEIGHT_SMALL
+    fig.update_layout(**layout)
+    return fig
+
+
+def chart_move(move_series: pd.Series) -> go.Figure:
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(
+        x=move_series.index, y=move_series, name="MOVE",
+        line=dict(width=1.5, color="#0066CC"),
+    ))
+    fig.add_hline(y=80, line_dash="dot", line_color="#00CC00", line_width=1,
+                  annotation_text="80", annotation_position="right")
+    fig.add_hline(y=120, line_dash="dot", line_color="#FFD700", line_width=1,
+                  annotation_text="120", annotation_position="right")
+    fig.add_hline(y=150, line_dash="dot", line_color="#CC0000", line_width=1,
+                  annotation_text="150", annotation_position="right")
+    fig.add_hrect(y0=120, y1=150, fillcolor="rgba(255,215,0,0.08)", line_width=0)
+    fig.add_hrect(y0=150,
+                  y1=move_series.max() * 1.05 if len(move_series.dropna()) > 0 else 200,
+                  fillcolor="rgba(204,0,0,0.08)", line_width=0)
+    layout = _base_layout("MOVE Index")
+    layout["height"] = CHART_HEIGHT_SMALL
+    fig.update_layout(**layout)
+    return fig
+
+
+def chart_dollar(pct_change_21d: pd.Series) -> go.Figure:
+    fig = go.Figure()
+    colors = []
+    for v in pct_change_21d.dropna():
+        if abs(v) > 5:
+            colors.append("#CC0000")
+        elif abs(v) > 3:
+            colors.append("#FF8C00")
+        else:
+            colors.append("#0066CC")
+    fig.add_trace(go.Bar(
+        x=pct_change_21d.dropna().index, y=pct_change_21d.dropna(),
+        name="21d % Chg", marker_color=colors,
+    ))
+    fig.add_hline(y=3, line_dash="dot", line_color="#FF8C00", line_width=1)
+    fig.add_hline(y=-3, line_dash="dot", line_color="#FF8C00", line_width=1)
+    fig.add_hline(y=0, line_dash="solid", line_color="rgba(128,128,128,0.3)", line_width=1)
+    layout = _base_layout("Dollar (UUP) 21d Momentum (%)")
+    layout["height"] = CHART_HEIGHT_SMALL
+    fig.update_layout(**layout)
+    return fig
+
+
+def chart_days_since_sawtooth(days_series: pd.Series, title: str) -> go.Figure:
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(
+        x=days_series.index, y=days_series, name="Days Since",
+        line=dict(width=1.5, color="#0066CC"),
+        fill="tozeroy",
+        fillcolor="rgba(0,102,204,0.08)",
+    ))
+    layout = _base_layout(title)
+    layout["height"] = CHART_HEIGHT_SMALL
+    fig.update_layout(**layout)
+    return fig
+
+
+# ---------------------------------------------------------------------------
 # METRIC STATUS BADGE
 # ---------------------------------------------------------------------------
 
@@ -698,6 +992,8 @@ def main():
 
     vol_data = download_vol_data(dl_start)
     sector_data = download_sector_data(dl_start)
+    cross_asset_data = download_cross_asset_data(dl_start)
+    tail_risk_data = download_tail_risk_data(dl_start)
 
     # Validate minimum data
     if "SPY" not in vol_data:
@@ -790,6 +1086,94 @@ def main():
     days_since_10_series = compute_days_since(spy_close, threshold_pct=0.10)
     days_since_10_pctile_series = expanding_percentile(days_since_10_series, min_periods=252)
 
+    # 2E addl: Days since VIX > 28
+    days_since_vix_series = pd.Series(dtype=float)
+    days_since_vix_pctile_series = pd.Series(dtype=float)
+    if vix_available:
+        vix_c_for_spike = vol_data["^VIX"]["Close"].dropna()
+        days_since_vix_series = compute_days_since_vix_spike(vix_c_for_spike, threshold=28.0)
+        days_since_vix_pctile_series = expanding_percentile(days_since_vix_series, min_periods=252)
+
+    # -----------------------------------------------------------------------
+    # LAYER 3 COMPUTATIONS
+    # -----------------------------------------------------------------------
+    # 3A: Credit Spread Proxy
+    ig_z_series = pd.Series(dtype=float)
+    hy_z_series = pd.Series(dtype=float)
+    lqd_ok = 'LQD' in cross_asset_data
+    hyg_ok = 'HYG' in cross_asset_data
+    ief_ok = 'IEF' in cross_asset_data
+    if lqd_ok and hyg_ok and ief_ok:
+        try:
+            lqd_c = cross_asset_data['LQD']['Close']
+            hyg_c = cross_asset_data['HYG']['Close']
+            ief_c = cross_asset_data['IEF']['Close']
+            common_credit = lqd_c.dropna().index.intersection(
+                hyg_c.dropna().index).intersection(ief_c.dropna().index)
+            if len(common_credit) > 63:
+                ig_z_series, hy_z_series = compute_credit_spread_proxy(
+                    lqd_c.reindex(common_credit),
+                    hyg_c.reindex(common_credit),
+                    ief_c.reindex(common_credit),
+                )
+        except Exception as e:
+            print(f"Warning: Credit spread computation failed: {e}")
+
+    # 3B: Yield Curve
+    yc_spread_series = pd.Series(dtype=float)
+    yc_z_series = pd.Series(dtype=float)
+    tnx_ok = '^TNX' in cross_asset_data
+    irx_ok = '^IRX' in cross_asset_data
+    if tnx_ok and irx_ok:
+        try:
+            tnx_c = cross_asset_data['^TNX']['Close']
+            irx_c = cross_asset_data['^IRX']['Close']
+            common_yc = tnx_c.dropna().index.intersection(irx_c.dropna().index)
+            if len(common_yc) > 252:
+                yc_spread_series, yc_z_series = compute_yield_curve(
+                    tnx_c.reindex(common_yc), irx_c.reindex(common_yc))
+        except Exception as e:
+            print(f"Warning: Yield curve computation failed: {e}")
+
+    # 3C: MOVE Index
+    move_series = pd.Series(dtype=float)
+    if '^MOVE' in cross_asset_data:
+        try:
+            move_series = cross_asset_data['^MOVE']['Close'].dropna()
+        except Exception:
+            pass
+
+    # 3D: Dollar Dynamics
+    dollar_21d_series = pd.Series(dtype=float)
+    if 'UUP' in cross_asset_data:
+        try:
+            uup_c = cross_asset_data['UUP']['Close'].dropna()
+            dollar_21d_series = compute_dollar_momentum(uup_c)
+        except Exception as e:
+            print(f"Warning: Dollar computation failed: {e}")
+
+    # -----------------------------------------------------------------------
+    # LAYER 4 COMPUTATIONS
+    # -----------------------------------------------------------------------
+    skew_series = pd.Series(dtype=float)
+    if '^SKEW' in tail_risk_data:
+        try:
+            skew_series = tail_risk_data['^SKEW']['Close'].dropna()
+        except Exception:
+            pass
+
+    # Protection cost proxy
+    prot_cost_series = pd.Series(dtype=float)
+    prot_pctile_series = pd.Series(dtype=float)
+    if vix3m_available:
+        vix3m_for_prot = vol_data["^VIX3M"]["Close"].dropna()
+        skew_for_prot = skew_series if len(skew_series.dropna()) > 0 else None
+        try:
+            prot_cost_series, prot_pctile_series = compute_protection_cost(
+                vix3m_for_prot, skew_for_prot)
+        except Exception as e:
+            print(f"Warning: Protection cost computation failed: {e}")
+
     # -----------------------------------------------------------------------
     # COLLECT CURRENT READINGS FOR LAYER 0
     # -----------------------------------------------------------------------
@@ -852,6 +1236,20 @@ def main():
     cur_days_since_5_pctile = _last_valid(days_since_5_pctile_series)
     cur_days_since_10 = _last_valid(days_since_10_series)
     cur_days_since_10_pctile = _last_valid(days_since_10_pctile_series)
+    cur_days_since_vix = _last_valid(days_since_vix_series)
+    cur_days_since_vix_pctile = _last_valid(days_since_vix_pctile_series)
+
+    # Layer 3 current readings
+    cur_ig_z = _last_valid(ig_z_series)
+    cur_hy_z = _last_valid(hy_z_series)
+    cur_yc_spread = _last_valid(yc_spread_series)
+    cur_yc_z = _last_valid(yc_z_series)
+    cur_move = _last_valid(move_series)
+    cur_dollar_21d = _last_valid(dollar_21d_series)
+
+    # Layer 4 current readings
+    cur_skew = _last_valid(skew_series)
+    cur_prot_pctile = _last_valid(prot_pctile_series)
 
     # --- Score ---
     metrics_for_scoring = {
@@ -869,7 +1267,16 @@ def main():
         "correlation_high": corr_high,
         "hurst_delta_5d": hurst_delta_5d,
         "hurst_pctile": cur_hurst_pctile,
-        "days_since_pctile": cur_days_since_5_pctile,
+        # 2E: compound complacency
+        "days_since_5pct_pctile": cur_days_since_5_pctile,
+        "days_since_vix_spike_pctile": cur_days_since_vix_pctile,
+        # Layer 3
+        "credit_ig_z": cur_ig_z,
+        "credit_hy_z": cur_hy_z,
+        "yield_curve_spread": cur_yc_spread,
+        "yield_curve_z": cur_yc_z,
+        "move": cur_move,
+        "dollar_21d_pct": cur_dollar_21d,
     }
 
     total_pts, pt_breakdown = score_alerts(metrics_for_scoring)
@@ -1058,8 +1465,8 @@ def main():
 
         st.markdown("---")
 
-        # 2E: Days Since Correction
-        st.markdown("#### 2E. Days Since Correction")
+        # 2E: Days Since Complacency Counters
+        st.markdown("#### 2E. Complacency Counters")
 
         def _calm_style(pctile_val):
             """Return (color, label) for a calm streak percentile."""
@@ -1074,10 +1481,9 @@ def main():
             return "#00CC00", "Normal"
 
         has_5 = cur_days_since_5 is not None and not np.isnan(cur_days_since_5)
-        has_10 = cur_days_since_10 is not None and not np.isnan(cur_days_since_10)
+        has_vix = cur_days_since_vix is not None and not np.isnan(cur_days_since_vix)
 
-        if has_5 or has_10:
-            # Build HTML rows for both thresholds in one box
+        if has_5 or has_vix:
             rows_html = ""
 
             if has_5:
@@ -1088,11 +1494,26 @@ def main():
                 rows_html += (
                     f'<div style="margin-bottom: 8px;">'
                     f'<span style="font-size: 28px; font-weight: bold;">Day {d5}</span> '
-                    f'since last <strong>5%</strong> correction — '
+                    f'since last <strong>5% SPX correction</strong> — '
                     f'<span style="color: {c5}; font-weight: bold;">'
                     f'{p5_str}th pctile</span> ({l5})</div>'
                 )
 
+            if has_vix:
+                dv = int(cur_days_since_vix)
+                pv = cur_days_since_vix_pctile
+                cv, lv = _calm_style(pv)
+                pv_str = f"{pv:.0f}" if pv is not None and not np.isnan(pv) else "N/A"
+                rows_html += (
+                    f'<div style="margin-bottom: 8px;">'
+                    f'<span style="font-size: 28px; font-weight: bold;">Day {dv}</span> '
+                    f'since last <strong>VIX &gt; 28</strong> — '
+                    f'<span style="color: {cv}; font-weight: bold;">'
+                    f'{pv_str}th pctile</span> ({lv})</div>'
+                )
+
+            # Also show 10% drawdown counter (for context)
+            has_10 = cur_days_since_10 is not None and not np.isnan(cur_days_since_10)
             if has_10:
                 d10 = int(cur_days_since_10)
                 p10 = cur_days_since_10_pctile
@@ -1101,15 +1522,15 @@ def main():
                 rows_html += (
                     f'<div>'
                     f'<span style="font-size: 28px; font-weight: bold;">Day {d10}</span> '
-                    f'since last <strong>10%</strong> correction — '
+                    f'since last <strong>10% correction</strong> — '
                     f'<span style="color: {c10}; font-weight: bold;">'
                     f'{p10_str}th pctile</span> ({l10})</div>'
                 )
 
-            # Use the worse (higher) percentile for the box border color
+            # Border color from worst percentile across the two primary counters
             p5_val = cur_days_since_5_pctile if has_5 and cur_days_since_5_pctile is not None and not np.isnan(cur_days_since_5_pctile) else 0
-            p10_val = cur_days_since_10_pctile if has_10 and cur_days_since_10_pctile is not None and not np.isnan(cur_days_since_10_pctile) else 0
-            box_color, _ = _calm_style(max(p5_val, p10_val))
+            pv_val = cur_days_since_vix_pctile if has_vix and cur_days_since_vix_pctile is not None and not np.isnan(cur_days_since_vix_pctile) else 0
+            box_color, _ = _calm_style(max(p5_val, pv_val))
 
             st.markdown(
                 f'<div style="background-color: {box_color}20; border-left: 4px solid {box_color}; '
@@ -1117,20 +1538,217 @@ def main():
                 unsafe_allow_html=True,
             )
 
-            # Alert badge based on 5% streak (primary signal)
-            if has_5:
-                calm_alert = p5_val > 80
-                calm_alarm = p5_val > 95
-                st.markdown(status_badge("Calm Streak (5%)", f"{p5_val:.0f}th pctile",
-                                         fmt="s", alert=calm_alert, alarm=calm_alarm))
+            # Compound complacency badge
+            both_high = p5_val > 80 and pv_val > 80
+            either_high = p5_val > 80 or pv_val > 80
+            st.markdown(status_badge(
+                "Complacency",
+                "COMPOUND" if both_high else ("ELEVATED" if either_high else "NORMAL"),
+                fmt="s", alert=either_high and not both_high, alarm=both_high))
+
+            # Sawtooth charts
+            if has_5 and len(days_since_5_series.dropna()) > 0:
+                fig_saw5 = chart_days_since_sawtooth(days_since_5_series, "Days Since 5% Drawdown")
+                st.plotly_chart(fig_saw5, use_container_width=True)
+            if has_vix and len(days_since_vix_series.dropna()) > 0:
+                fig_sawv = chart_days_since_sawtooth(days_since_vix_series, "Days Since VIX > 28")
+                st.plotly_chart(fig_sawv, use_container_width=True)
         else:
             st.info("No correction in available history — counter unavailable.")
 
     # ===================================================================
-    # PHASE 2 PLACEHOLDERS
+    # LAYER 3: CROSS-ASSET PLUMBING
     # ===================================================================
-    # TODO: Layer 3 — Credit (LQD/HYG spread), Yield Curve (^TNX/^IRX), MOVE, Dollar (UUP)
-    # TODO: Layer 4 — SKEW, Protection Cost Proxy, Hedge Recommendation Engine
+    st.divider()
+    st.subheader("Layer 3: Cross-Asset Plumbing")
+    l3_col1, l3_col2, l3_col3, l3_col4 = st.columns(4)
+
+    # 3A: Credit Spreads
+    with l3_col1:
+        st.markdown("**3A. Credit Spreads**")
+        if len(ig_z_series.dropna()) > 0 and len(hy_z_series.dropna()) > 0:
+            fig_credit = chart_credit_spreads(ig_z_series, hy_z_series)
+            st.plotly_chart(fig_credit, use_container_width=True)
+            ig_str = f"{cur_ig_z:+.1f}\u03c3" if cur_ig_z is not None else "N/A"
+            hy_str = f"{cur_hy_z:+.1f}\u03c3" if cur_hy_z is not None else "N/A"
+            st.markdown(f"IG: **{ig_str}** | HY: **{hy_str}**")
+            credit_alert = (cur_ig_z is not None and cur_ig_z > 1.0) or (cur_hy_z is not None and cur_hy_z > 1.0)
+            credit_alarm = (cur_ig_z is not None and cur_ig_z > 1.5) and (cur_hy_z is not None and cur_hy_z > 1.5)
+            st.markdown(status_badge("Credit", "STRESS" if credit_alarm else ("WIDENING" if credit_alert else "NORMAL"),
+                                     fmt="s", alert=credit_alert and not credit_alarm, alarm=credit_alarm))
+        else:
+            st.caption("Credit spread data unavailable (LQD/HYG/IEF).")
+
+    # 3B: Yield Curve
+    with l3_col2:
+        st.markdown("**3B. Yield Curve**")
+        if len(yc_spread_series.dropna()) > 0:
+            fig_yc = chart_yield_curve(yc_spread_series)
+            st.plotly_chart(fig_yc, use_container_width=True)
+            spread_str = f"{cur_yc_spread:+.2f}%" if cur_yc_spread is not None else "N/A"
+            z_str = f"{cur_yc_z:+.1f}\u03c3" if cur_yc_z is not None else "N/A"
+            st.markdown(f"Curve: **{spread_str}** | 21d chg z: **{z_str}**")
+            yc_inverted = cur_yc_spread is not None and cur_yc_spread < 0
+            yc_flat_fast = cur_yc_z is not None and cur_yc_z < -1.5
+            yc_accel_disp = cur_yc_z is not None and cur_yc_z < -2.0
+            yc_alarm = yc_inverted and yc_accel_disp
+            yc_alert = yc_inverted or yc_flat_fast
+            st.markdown(status_badge("Yield Curve",
+                                     "INVERTED" if yc_inverted else ("FLATTENING" if yc_flat_fast else "NORMAL"),
+                                     fmt="s", alert=yc_alert and not yc_alarm, alarm=yc_alarm))
+        else:
+            st.caption("Yield curve data unavailable (^TNX/^IRX).")
+
+    # 3C: MOVE Index
+    with l3_col3:
+        st.markdown("**3C. MOVE Index**")
+        if len(move_series.dropna()) > 0:
+            fig_move = chart_move(move_series)
+            st.plotly_chart(fig_move, use_container_width=True)
+            if cur_move is not None:
+                if cur_move > 150:
+                    move_label = "Extreme"
+                elif cur_move > 120:
+                    move_label = "Elevated"
+                else:
+                    move_label = "Normal"
+                st.markdown(f"MOVE: **{cur_move:.0f}** ({move_label})")
+                move_alert = cur_move > 120
+                move_alarm = cur_move > 150
+                st.markdown(status_badge("MOVE", cur_move, fmt=".0f",
+                                         alert=move_alert and not move_alarm, alarm=move_alarm))
+            else:
+                st.caption("MOVE: current reading unavailable.")
+        else:
+            st.caption("MOVE Index unavailable via yfinance — consider FRED as alternative data source.")
+
+    # 3D: Dollar Dynamics
+    with l3_col4:
+        st.markdown("**3D. Dollar Dynamics**")
+        if len(dollar_21d_series.dropna()) > 0:
+            fig_dollar = chart_dollar(dollar_21d_series)
+            st.plotly_chart(fig_dollar, use_container_width=True)
+            if cur_dollar_21d is not None:
+                if abs(cur_dollar_21d) > 5:
+                    dollar_label = "Extreme"
+                elif abs(cur_dollar_21d) > 3:
+                    dollar_label = "Elevated"
+                else:
+                    dollar_label = "Normal"
+                st.markdown(f"Dollar 21d: **{cur_dollar_21d:+.1f}%** ({dollar_label})")
+                dollar_alert = abs(cur_dollar_21d) > 3
+                dollar_alarm = abs(cur_dollar_21d) > 5
+                st.markdown(status_badge("Dollar", f"{cur_dollar_21d:+.1f}%",
+                                         fmt="s", alert=dollar_alert and not dollar_alarm, alarm=dollar_alarm))
+            else:
+                st.caption("Dollar momentum: current reading unavailable.")
+        else:
+            st.caption("Dollar data unavailable (UUP).")
+
+    # ===================================================================
+    # LAYER 4: TAIL RISK & COST OF PROTECTION
+    # ===================================================================
+    layer4_expanded = (regime != "Normal")
+
+    with st.expander("Layer 4: Tail Risk & Cost of Protection", expanded=layer4_expanded):
+        l4_col1, l4_col2, l4_col3 = st.columns([1, 1, 1])
+
+        # 4A: SKEW Index
+        with l4_col1:
+            st.markdown("**4A. SKEW Index**")
+            if len(skew_series.dropna()) > 0:
+                fig_skew = go.Figure()
+                fig_skew.add_trace(go.Scatter(
+                    x=skew_series.index, y=skew_series, name="SKEW",
+                    line=dict(width=1.5, color="#0066CC"),
+                ))
+                fig_skew.add_hline(y=120, line_dash="dot", line_color="#FFD700", line_width=1,
+                                   annotation_text="120", annotation_position="right")
+                fig_skew.add_hline(y=140, line_dash="dot", line_color="#CC0000", line_width=1,
+                                   annotation_text="140", annotation_position="right")
+                layout_skew = _base_layout("SKEW Index")
+                layout_skew["height"] = CHART_HEIGHT
+                fig_skew.update_layout(**layout_skew)
+                st.plotly_chart(fig_skew, use_container_width=True)
+
+                if cur_skew is not None:
+                    skew_pctile_series = expanding_percentile(skew_series, min_periods=252)
+                    cur_skew_pctile = _last_valid(skew_pctile_series)
+                    pctile_str = f" ({cur_skew_pctile:.0f}th pctile)" if cur_skew_pctile is not None else ""
+                    st.markdown(f"SKEW: **{cur_skew:.0f}**{pctile_str}")
+
+                # Disorderly stress detection
+                if vix_available and len(skew_series) > 5:
+                    vix_for_skew = vol_data["^VIX"]["Close"].reindex(skew_series.index)
+                    skew_falling = skew_series.diff(5) < -3
+                    vix_rising = vix_for_skew.diff(5) > 3
+                    disorderly = skew_falling & vix_rising
+                    if len(disorderly.dropna()) > 0 and disorderly.iloc[-1]:
+                        st.markdown(
+                            '<div style="background:#CC000020; border-left:3px solid #CC0000; '
+                            'padding:8px; border-radius:4px;">'
+                            '\u26a0\ufe0f <strong>SKEW falling while VIX rising</strong> — '
+                            'disorderly stress pattern detected.</div>',
+                            unsafe_allow_html=True)
+            else:
+                st.caption("SKEW Index unavailable via yfinance.")
+
+        # 4B: Cost of Protection Proxy
+        with l4_col2:
+            st.markdown("**4B. Protection Cost**")
+            if len(prot_pctile_series.dropna()) > 0 and cur_prot_pctile is not None:
+                fig_gauge = go.Figure(go.Indicator(
+                    mode="gauge+number",
+                    value=cur_prot_pctile,
+                    title={'text': "Protection Cost Percentile"},
+                    gauge={
+                        'axis': {'range': [0, 100]},
+                        'bar': {'color': "darkblue"},
+                        'steps': [
+                            {'range': [0, 20], 'color': '#00CC00'},
+                            {'range': [20, 60], 'color': '#FFD700'},
+                            {'range': [60, 85], 'color': '#FF8C00'},
+                            {'range': [85, 100], 'color': '#CC0000'},
+                        ],
+                    }
+                ))
+                fig_gauge.update_layout(height=200, margin=dict(l=10, r=10, t=40, b=10))
+                st.plotly_chart(fig_gauge, use_container_width=True)
+
+                # Time series below gauge
+                fig_prot = go.Figure()
+                fig_prot.add_trace(go.Scatter(
+                    x=prot_cost_series.index, y=prot_cost_series, name="Protection Cost",
+                    line=dict(width=1.5, color="#0066CC"),
+                ))
+                prot_layout = _base_layout("Protection Cost Proxy (time series)")
+                prot_layout["height"] = CHART_HEIGHT_SMALL
+                fig_prot.update_layout(**prot_layout)
+                st.plotly_chart(fig_prot, use_container_width=True)
+            else:
+                st.caption("Protection cost data unavailable (requires VIX3M).")
+
+        # 4C: Hedge Recommendation
+        with l4_col3:
+            st.markdown("**4C. Hedge Recommendation**")
+            prot_pctile_for_rec = cur_prot_pctile if cur_prot_pctile is not None else 50.0
+            rec, detail, rec_color = generate_hedge_recommendation(regime, prot_pctile_for_rec)
+
+            st.markdown(f"""
+            <div style="background-color: {rec_color}20; border-left: 4px solid {rec_color};
+                        padding: 16px; border-radius: 8px;">
+                <h4 style="margin: 0; color: {rec_color};">{rec}</h4>
+                <p style="margin: 8px 0 0 0;">{detail}</p>
+            </div>
+            """, unsafe_allow_html=True)
+
+            st.markdown("---")
+            st.caption("Regime: **{}** | Protection pctile: **{:.0f}**".format(
+                regime, prot_pctile_for_rec))
+
+    # ===================================================================
+    # FUTURE WORK
+    # ===================================================================
     # TODO: Full Bayesian composite to replace the simple point system
     # TODO: Full S&P 500 breadth (all ~500 constituents) instead of sector ETF proxy
     # TODO: Historical regime validation / backtesting
