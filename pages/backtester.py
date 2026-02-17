@@ -293,7 +293,7 @@ def _generate_key_filters(params):
             filters.append(f"{ref_ticker} {rf['window']}D rank {rf['logic']} {rf['thresh']:.0f}th %ile")
     
     if params.get('use_weekly_ma_pullback'):
-        filters.append(f"Was {params['wma_min_ext_pct']:.0f}%+ above Weekly {params['wma_type']}{params['wma_period']} in last {params['wma_lookback_months']}mo, today {params['wma_touch_logic']}")
+        filters.append(f"First touch of Weekly {params['wma_type']}{params['wma_period']} after {params['wma_min_ext_pct']:.0f}%+ extension (lookback {params['wma_lookback_months']}mo, {params['wma_touch_logic']})")
 
     if params.get('use_dow_filter'):
         day_names = {0: 'Mon', 1: 'Tue', 2: 'Wed', 3: 'Thu', 4: 'Fri'}
@@ -714,18 +714,35 @@ def run_engine(universe_dict, params, sznl_map, market_series=None, vix_series=N
                 vix_val = df['VIX_Value']
                 conditions.append((vix_val >= params['vix_min']) & (vix_val <= params['vix_max']))
 
-            # --- WEEKLY MA PULLBACK FILTER ---
+            # --- WEEKLY MA PULLBACK FILTER (first touch after extension) ---
             if params.get('use_weekly_ma_pullback', False):
                 wma_col = f"Weekly_{params['wma_type']}{params['wma_period']}"
                 if wma_col in df.columns:
                     lookback_days = params['wma_lookback_months'] * 21
                     pct_above = (df['High'] / df[wma_col] - 1) * 100
+
+                    # Staleness guard: extension must have occurred within lookback window
                     max_ext = pct_above.rolling(lookback_days, min_periods=21).max()
-                    conditions.append(max_ext >= params['wma_min_ext_pct'])
+                    recently_extended = max_ext >= params['wma_min_ext_pct']
+
+                    # Touch condition
                     if params.get('wma_touch_logic', 'Low <= MA') == 'Low <= MA':
-                        conditions.append(df['Low'] <= df[wma_col])
+                        is_touch = df['Low'] <= df[wma_col]
                     else:
-                        conditions.append(df['Close'] <= df[wma_col])
+                        is_touch = df['Close'] <= df[wma_col]
+
+                    # First-touch-after-extension: only fire on the FIRST day
+                    # the stock crosses below the MA since it was extended.
+                    # Uses cumsum trick: extension days increment a counter;
+                    # a touch is "new" only if that counter advanced since the
+                    # previous touch.
+                    is_extended = pct_above >= params['wma_min_ext_pct']
+                    ext_cumsum = is_extended.astype(int).cumsum()
+                    touch_ext_count = ext_cumsum.where(is_touch)
+                    prev_touch_ext = touch_ext_count.ffill().shift(1).fillna(0)
+                    first_touch = is_touch & (ext_cumsum > prev_touch_ext) & recently_extended
+
+                    conditions.append(first_touch)
 
             # --- REFERENCE TICKER FILTER ---
             if use_ref_ticker_filter and ref_filters:
