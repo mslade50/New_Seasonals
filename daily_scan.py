@@ -97,7 +97,9 @@ def send_email_summary(signals_list, error_tickers=None):
     
     # Build error tickers section (shared across both branches)
     error_html = ""
-    if error_tickers:
+    if not error_tickers:
+        error_html = '<div style="margin-top: 20px; font-size: 12px; color: #888;">✅ All tickers successfully parsed</div>'
+    elif error_tickers:
         # Group by reason for compact display
         from collections import defaultdict
         by_reason = defaultdict(list)
