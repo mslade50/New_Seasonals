@@ -59,7 +59,7 @@ def get_google_client():
         return None
 
 
-def send_email_summary(signals_list):
+def send_email_summary(signals_list, error_tickers=None):
     """
     Sends an HTML email summary of the signals using Gmail SMTP.
     Card-based layout showing full signal criteria with LIVE values.
@@ -95,6 +95,32 @@ def send_email_summary(signals_list):
         if comp.get('_parent_strategy') == 'Overbot Vol Spike' and ticker not in _primary_vol_spike_tickers:
             _primary_signals.append(comp)
     
+    # Build error tickers section (shared across both branches)
+    error_html = ""
+    if error_tickers:
+        # Group by reason for compact display
+        from collections import defaultdict
+        by_reason = defaultdict(list)
+        for ticker, reason in error_tickers:
+            by_reason[reason].append(ticker)
+
+        error_rows = []
+        for reason, tickers in sorted(by_reason.items()):
+            ticker_str = ", ".join(sorted(tickers))
+            error_rows.append(
+                f"<tr><td style='padding: 4px 8px; color: #888; font-size: 12px; border-bottom: 1px solid #eee;'>{reason}</td>"
+                f"<td style='padding: 4px 8px; color: #999; font-size: 11px; border-bottom: 1px solid #eee;'>{ticker_str}</td></tr>"
+            )
+
+        error_html = f"""
+        <div style="margin-top: 20px; padding: 15px; background: #fafafa; border: 1px solid #eee; border-radius: 6px;">
+            <div style="font-size: 12px; color: #888; margin-bottom: 8px;">⚠️ <strong>{len(error_tickers)} ticker(s) skipped</strong></div>
+            <table style="width: 100%; border-collapse: collapse; font-size: 12px;">
+                {"".join(error_rows)}
+            </table>
+        </div>
+        """
+
     if not email_signals:
         subject = f"📉 Scan Result: NO SIGNALS ({date_str})"
         html_content = f"""
@@ -104,6 +130,7 @@ def send_email_summary(signals_list):
                     <h2 style="color: #333; margin-top: 0;">Daily Strategy Scan: {date_str}</h2>
                     <p style="color: #666;">The scan completed successfully.</p>
                     <p style="font-size: 18px; color: #888;"><strong>Result:</strong> No signals found matching criteria today.</p>
+                    {error_html}
                 </div>
             </body>
         </html>
@@ -362,6 +389,9 @@ def send_email_summary(signals_list):
                         {all_cards_html}
                     </div>
                     
+                    <!-- Error Tickers -->
+                    {error_html}
+
                     <!-- Footer -->
                     <div style="text-align: center; padding: 15px; color: #888; font-size: 12px;">
                         Check Google Sheet for staging details
@@ -1451,6 +1481,7 @@ def run_daily_scan():
         vix_series = temp_vix['Close']
     
     all_signals = []
+    error_tickers = []  # (ticker, reason) tuples for email reporting
 
     # 5. Run Strategies
     for strat in STRATEGY_BOOK:
@@ -1483,7 +1514,12 @@ def run_daily_scan():
         for ticker in strat['universe_tickers']:
             t_clean = ticker.replace('.', '-')
             df = master_dict.get(t_clean)
-            if df is None or len(df) < 250: continue
+            if df is None:
+                error_tickers.append((t_clean, "No data returned"))
+                continue
+            if len(df) < 250:
+                error_tickers.append((t_clean, f"Insufficient history ({len(df)} bars)"))
+                continue
             
             try:
                 calc_df = calculate_indicators(df.copy(), sznl_map, t_clean, market_series, vix_series, ref_ticker_ranks=ref_ticker_ranks)
@@ -1670,6 +1706,7 @@ def run_daily_scan():
                     else:
                         signals.append(signal_dict)
             except Exception as e:
+                error_tickers.append((t_clean, str(e)[:80]))
                 print(f"Error processing {ticker}: {e}")
                 continue
         
@@ -1692,7 +1729,16 @@ def run_daily_scan():
         print("No signals found today.")
 
     # 7. Send Email Summary
-    send_email_summary(all_signals)
+    # Deduplicate error tickers (same ticker may appear across multiple strategies)
+    seen_errors = set()
+    unique_errors = []
+    for ticker, reason in error_tickers:
+        key = (ticker, reason)
+        if key not in seen_errors:
+            seen_errors.add(key)
+            unique_errors.append((ticker, reason))
+
+    send_email_summary(all_signals, error_tickers=unique_errors)
 
     print("--- Scan Complete ---")
 
