@@ -292,11 +292,14 @@ def _generate_key_filters(params):
         for rf in params['ref_filters']:
             filters.append(f"{ref_ticker} {rf['window']}D rank {rf['logic']} {rf['thresh']:.0f}th %ile")
     
+    if params.get('use_weekly_ma_pullback'):
+        filters.append(f"Was {params['wma_min_ext_pct']:.0f}%+ above Weekly {params['wma_type']}{params['wma_period']} in last {params['wma_lookback_months']}mo, today {params['wma_touch_logic']}")
+
     if params.get('use_dow_filter'):
         day_names = {0: 'Mon', 1: 'Tue', 2: 'Wed', 3: 'Thu', 4: 'Fri'}
         days_str = ", ".join([day_names.get(d, '?') for d in params.get('allowed_days', [])])
         filters.append(f"Entry days: {days_str}")
-    
+
     if 'allowed_cycles' in params and len(params.get('allowed_cycles', [])) < 4:
         cycle_names = {0: 'Election', 1: 'Post-Election', 2: 'Midterm', 3: 'Pre-Election'}
         cycles_str = ", ".join([cycle_names.get(c, '?') for c in params['allowed_cycles']])
@@ -437,6 +440,9 @@ def build_strategy_dict(params, tickers_to_run, pf, sqn, win_rate, expectancy_r)
             "price_action_filters": params.get('price_action_filters', []),
             # Distance from MA
             "use_ma_dist_filter": params.get('use_ma_dist_filter', False), "dist_ma_type": params.get('dist_ma_type', 'SMA 200'), "dist_logic": params.get('dist_logic', 'Between'), "dist_min": params.get('dist_min', 0.0), "dist_max": params.get('dist_max', 2.0),
+            # Weekly MA Pullback
+            "use_weekly_ma_pullback": params.get('use_weekly_ma_pullback', False), "wma_type": params.get('wma_type', 'EMA'), "wma_period": params.get('wma_period', 8),
+            "wma_min_ext_pct": params.get('wma_min_ext_pct', 30.0), "wma_lookback_months": params.get('wma_lookback_months', 6), "wma_touch_logic": params.get('wma_touch_logic', 'Low <= MA'),
             # Volume
             "vol_gt_prev": params.get('vol_gt_prev', False),
             "use_vol": params.get('use_vol', False), "vol_thresh": params.get('vol_thresh', 1.5),
@@ -520,7 +526,12 @@ def run_engine(universe_dict, params, sznl_map, market_series=None, vix_series=N
     dist_win = params['dist_count_window'] if params.get('use_dist_count_filter', False) else None
     use_t1_open_filter = params.get('use_t1_open_filter', False)
     t1_open_filters = params.get('t1_open_filters', [])
-    
+
+    # Weekly MA Pullback configs
+    weekly_ma_configs = None
+    if params.get('use_weekly_ma_pullback', False):
+        weekly_ma_configs = [{'type': params['wma_type'], 'period': params['wma_period']}]
+
     # Reference Ticker Filter params
     use_ref_ticker_filter = params.get('use_ref_ticker_filter', False)
     ref_filters = params.get('ref_filters', [])
@@ -528,15 +539,15 @@ def run_engine(universe_dict, params, sznl_map, market_series=None, vix_series=N
     for i, (ticker, df_raw) in enumerate(universe_dict.items()):
         status_text.text(f"Scanning signals for {ticker}...")
         progress_bar.progress((i+1)/total)
-        
+
         if ticker == MARKET_TICKER and MARKET_TICKER not in params.get('universe_tickers', []): continue
         if ticker == VIX_TICKER: continue
         if len(df_raw) < 100: continue
-        
+
         ticker_last_exit = pd.Timestamp.min
-        
+
         try:
-            df = calculate_indicators(df_raw, sznl_map, ticker, market_series, vix_series, market_sznl_series, gap_window, req_custom_mas, acc_win, dist_win, ref_ticker_ranks)
+            df = calculate_indicators(df_raw, sznl_map, ticker, market_series, vix_series, market_sznl_series, gap_window, req_custom_mas, acc_win, dist_win, ref_ticker_ranks, weekly_ma_configs)
             df = df[df.index >= bt_start_ts]
             if df.empty: continue
             
@@ -702,7 +713,20 @@ def run_engine(universe_dict, params, sznl_map, market_series=None, vix_series=N
             if params.get('use_vix_filter', False) and 'VIX_Value' in df.columns:
                 vix_val = df['VIX_Value']
                 conditions.append((vix_val >= params['vix_min']) & (vix_val <= params['vix_max']))
-            
+
+            # --- WEEKLY MA PULLBACK FILTER ---
+            if params.get('use_weekly_ma_pullback', False):
+                wma_col = f"Weekly_{params['wma_type']}{params['wma_period']}"
+                if wma_col in df.columns:
+                    lookback_days = params['wma_lookback_months'] * 21
+                    pct_above = (df['High'] / df[wma_col] - 1) * 100
+                    max_ext = pct_above.rolling(lookback_days, min_periods=21).max()
+                    conditions.append(max_ext >= params['wma_min_ext_pct'])
+                    if params.get('wma_touch_logic', 'Low <= MA') == 'Low <= MA':
+                        conditions.append(df['Low'] <= df[wma_col])
+                    else:
+                        conditions.append(df['Close'] <= df[wma_col])
+
             # --- REFERENCE TICKER FILTER ---
             if use_ref_ticker_filter and ref_filters:
                 for rf in ref_filters:
@@ -1095,6 +1119,15 @@ def main():
         with d2: dist_logic = st.selectbox("Logic", ["Greater Than (>)", "Less Than (<)", "Between"], disabled=not use_ma_dist_filter)
         with d3: dist_min = st.number_input("Min ATR Dist", -50.0, 50.0, 0.0, step=0.5, disabled=not use_ma_dist_filter)
         with d4: dist_max = st.number_input("Max ATR Dist", -50.0, 50.0, 2.0, step=0.5, disabled=not use_ma_dist_filter)
+    with st.expander("Weekly MA Pullback", expanded=False):
+        use_weekly_ma_pullback = st.checkbox("Enable Weekly MA Pullback Filter", value=False)
+        st.caption("Buy pullbacks to a weekly MA after the stock was significantly extended above it.")
+        wma_c1, wma_c2, wma_c3, wma_c4 = st.columns(4)
+        with wma_c1: wma_type = st.selectbox("MA Type", ["EMA", "SMA"], key="wma_type", disabled=not use_weekly_ma_pullback)
+        with wma_c2: wma_period = st.number_input("MA Period", 2, 100, 8, key="wma_period", disabled=not use_weekly_ma_pullback)
+        with wma_c3: wma_min_ext_pct = st.number_input("Min Extension %", 1.0, 200.0, 30.0, step=5.0, key="wma_min_ext", disabled=not use_weekly_ma_pullback, help="Stock must have been at least this % above the weekly MA at some point in the lookback window")
+        with wma_c4: wma_lookback_months = st.number_input("Lookback Months", 1, 24, 6, key="wma_lookback_mo", disabled=not use_weekly_ma_pullback, help="How far back to check for the extension")
+        wma_touch_logic = st.selectbox("Touch Logic", ["Low <= MA", "Close <= MA"], key="wma_touch", disabled=not use_weekly_ma_pullback, help="How to define 'touching' the weekly MA on the signal day")
     with st.expander("Price Action", expanded=False):
         pa1, pa2 = st.columns(2)
         with pa1: 
@@ -1395,6 +1428,7 @@ def main():
             'use_recent_52w': use_recent_52w, 'recent_52w_invert': recent_52w_invert, 'recent_52w_lookback': recent_52w_lookback,
             'vol_gt_prev': use_vol_gt_prev, 'use_vol': use_vol, 'vol_thresh': vol_thresh, 'use_vol_rank': use_vol_rank, 'vol_rank_logic': vol_rank_logic, 'vol_rank_thresh': vol_rank_thresh,
             'use_ma_dist_filter': use_ma_dist_filter, 'dist_ma_type': dist_ma_type, 'dist_logic': dist_logic, 'dist_min': dist_min, 'dist_max': dist_max,
+            'use_weekly_ma_pullback': use_weekly_ma_pullback, 'wma_type': wma_type, 'wma_period': wma_period, 'wma_min_ext_pct': wma_min_ext_pct, 'wma_lookback_months': wma_lookback_months, 'wma_touch_logic': wma_touch_logic,
             'use_gap_filter': use_gap_filter, 'gap_lookback': gap_lookback, 'gap_logic': gap_logic, 'gap_thresh': gap_thresh,
             'use_acc_count_filter': use_acc_count_filter, 'acc_count_window': acc_count_window, 'acc_count_logic': acc_count_logic, 'acc_count_thresh': acc_count_thresh,
             'use_dist_count_filter': use_dist_count_filter, 'dist_count_window': dist_count_window, 'dist_count_logic': dist_count_logic, 'dist_count_thresh': dist_count_thresh,

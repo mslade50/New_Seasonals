@@ -56,6 +56,18 @@ def get_age_bucket(years: float) -> str:
     return "> 20 Years"
 
 
+def compute_weekly_ma(df: pd.DataFrame, ma_type: str = 'EMA', period: int = 8) -> pd.Series:
+    """Resample daily Close to weekly, compute MA, forward-fill back to daily index."""
+    weekly = df['Close'].resample('W-FRI').last().dropna()
+    if len(weekly) < period:
+        return pd.Series(np.nan, index=df.index)
+    if ma_type == 'EMA':
+        weekly_ma = weekly.ewm(span=period, adjust=False).mean()
+    else:  # SMA
+        weekly_ma = weekly.rolling(period).mean()
+    return weekly_ma.reindex(df.index, method='ffill')
+
+
 def apply_first_instance_filter(condition_series: pd.Series, lookback: int) -> pd.Series:
     """
     Only fire a signal if it hasn't fired in the prior (lookback - 1) bars.
@@ -86,6 +98,7 @@ def calculate_indicators(
     acc_window: Optional[int] = None,
     dist_window: Optional[int] = None,
     ref_ticker_ranks: Optional[Dict[int, pd.Series]] = None,
+    weekly_ma_configs: Optional[List[Dict]] = None,
 ) -> pd.DataFrame:
     """
     Calculate all technical indicators for a single ticker.
@@ -317,6 +330,17 @@ def calculate_indicators(
     df['LastPivotHigh'] = df['LastPivotHigh'].shift(piv_len).ffill()
     df['LastPivotLow'] = np.where(df['is_pivot_low'], df['Low'], np.nan)
     df['LastPivotLow'] = df['LastPivotLow'].shift(piv_len).ffill()
+
+    # -------------------------------------------------------------------------
+    # 16. WEEKLY MOVING AVERAGES (only when backtester requests them)
+    # -------------------------------------------------------------------------
+    if weekly_ma_configs:
+        for cfg in weekly_ma_configs:
+            ma_type = cfg.get('type', 'EMA')
+            period = cfg.get('period', 8)
+            col_name = f"Weekly_{ma_type}{period}"
+            if col_name not in df.columns:
+                df[col_name] = compute_weekly_ma(df, ma_type=ma_type, period=period)
 
     return df
 
