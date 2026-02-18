@@ -506,15 +506,15 @@ def compute_defensive_leadership(sp500_closes, spy_close: pd.Series) -> dict:
         empty['summary'] = f'Too few classified stocks ({len(on_cols)} on / {len(off_cols)} off)'
         return empty
 
-    sma_200 = sp500_closes.rolling(200, min_periods=160).mean()
-    on_above = (sp500_closes[on_cols] > sma_200[on_cols]).sum(axis=1) / len(on_cols) * 100
-    off_above = (sp500_closes[off_cols] > sma_200[off_cols]).sum(axis=1) / len(off_cols) * 100
+    sma_50 = sp500_closes.rolling(50, min_periods=40).mean()
+    on_above = (sp500_closes[on_cols] > sma_50[on_cols]).sum(axis=1) / len(on_cols) * 100
+    off_above = (sp500_closes[off_cols] > sma_50[off_cols]).sum(axis=1) / len(off_cols) * 100
 
     spread = on_above - off_above  # negative = risk-off leading
 
-    # SPY within 5% of 52w high
+    # SPY within 2% of 52w high
     high_52w = spy_close.rolling(252, min_periods=60).max()
-    near_high = spy_close >= high_52w * 0.95
+    near_high = spy_close >= high_52w * 0.98
 
     signal = (spread < -10) & near_high
 
@@ -527,9 +527,9 @@ def compute_defensive_leadership(sp500_closes, spy_close: pd.Series) -> dict:
     detail = ""
     if signal_on:
         detail = (
-            f"Risk-off stocks leading: {off_pct:.0f}% above 200d SMA vs "
+            f"Risk-off stocks leading: {off_pct:.0f}% above 50d SMA vs "
             f"{on_pct:.0f}% for risk-on (spread: {latest_spread:+.0f}pp). "
-            f"SPY near 52w high \u2014 defensive rotation while index holds."
+            f"SPY within 2% of 52w high \u2014 defensive rotation while index holds."
         )
 
     summary = (
@@ -1037,18 +1037,18 @@ def chart_leadership(on_breadth: pd.Series, off_breadth: pd.Series,
     off_clean = off_breadth.dropna()
     fig.add_trace(go.Scatter(
         x=on_clean.index, y=on_clean,
-        name="Risk-On % > 200d", line=dict(width=1.5, color="#2ecc71"),
+        name="Risk-On % > 50d", line=dict(width=1.5, color="#2ecc71"),
     ))
     fig.add_trace(go.Scatter(
         x=off_clean.index, y=off_clean,
-        name="Risk-Off % > 200d", line=dict(width=1.5, color="#e74c3c"),
+        name="Risk-Off % > 50d", line=dict(width=1.5, color="#e74c3c"),
     ))
     fig.add_trace(go.Scatter(
         x=spy_close.index, y=spy_close,
         name="SPY", line=dict(width=1, color="rgba(100,100,100,0.4)"),
         yaxis="y2",
     ))
-    fig.update_layout(**_dual_y_layout("Risk-On vs Risk-Off Breadth", "% Above 200d SMA", "SPY"))
+    fig.update_layout(**_dual_y_layout("Risk-On vs Risk-Off Breadth", "% Above 50d SMA", "SPY"))
     two_yr_ago = (datetime.datetime.now() - datetime.timedelta(days=730)).strftime("%Y-%m-%d")
     fig.update_xaxes(range=[two_yr_ago, datetime.datetime.now().strftime("%Y-%m-%d")])
     spy_range = _spy_y2_range(spy_close)

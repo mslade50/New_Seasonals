@@ -838,11 +838,11 @@ with tab3:
     else:
         c1, c2, c3, c4 = st.columns(4)
         with c1:
-            sl_sma = st.selectbox("Breadth SMA", [50, 100, 200], index=2, key="sl_sma")
+            sl_sma = st.selectbox("Breadth SMA", [20, 50, 100, 200], index=1, key="sl_sma")
         with c2:
             sl_thresh = st.slider("Risk-off lead threshold (pct pts)", 0, 30, 10, 5, key="sl_thresh")
         with c3:
-            sl_near_high = st.slider("SPX proximity to high (%)", 2, 10, 5, key="sl_high")
+            sl_near_high = st.slider("SPX proximity to high (%)", 1, 10, 5, key="sl_high")
         with c4:
             sl_rel_perf = st.checkbox("Use relative performance instead", value=False, key="sl_rel")
 
@@ -850,10 +850,38 @@ with tab3:
         if sl_rel_perf:
             sl_rel_win = st.slider("Relative perf window (days)", 10, 63, 21, key="sl_relwin")
 
+        # Compound filter: require a second SMA to also show risk-off leading
+        use_compound = st.checkbox(
+            "Require secondary SMA confirmation", value=False, key="sl_compound",
+        )
+        compound_signal = None
+        if use_compound:
+            cc1, cc2 = st.columns(2)
+            with cc1:
+                sl_sma2 = st.selectbox(
+                    "Secondary SMA",
+                    [p for p in [20, 50, 100, 200] if p != sl_sma],
+                    index=min(1, len([p for p in [20, 50, 100, 200] if p != sl_sma]) - 1),
+                    key="sl_sma2",
+                )
+            with cc2:
+                sl_thresh2 = st.slider(
+                    "Secondary threshold (pct pts)", 0, 30, 0, 5, key="sl_thresh2",
+                    help="Spread on secondary SMA must be below this (negative = risk-off leading)",
+                )
+            compound_signal, _, _, _, _, _ = compute_leadership_quality(
+                sp500_closes, classification, spy_close,
+                sl_sma2, sl_thresh2, sl_near_high, sl_rel_perf, sl_rel_win,
+            )
+
         signal_sl, spread, on_breadth, off_breadth, n_on, n_off = compute_leadership_quality(
             sp500_closes, classification, spy_close,
             sl_sma, sl_thresh, sl_near_high, sl_rel_perf, sl_rel_win,
         )
+
+        # Apply compound filter: primary signal must fire AND secondary must also fire
+        if compound_signal is not None:
+            signal_sl = signal_sl & compound_signal
 
         n_neutral = len(classification[classification["label"] == "neutral"])
         st.markdown(
