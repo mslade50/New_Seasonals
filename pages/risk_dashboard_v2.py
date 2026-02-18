@@ -57,6 +57,7 @@ CACHE_CLOSES   = os.path.join(DATA_DIR, "rd2_closes.parquet")
 CACHE_SP500    = os.path.join(DATA_DIR, "rd2_sp500_closes.parquet")
 
 RISK_CLASSIFICATION_PATH = os.path.join(DATA_DIR, "sp500_risk_classification.csv")
+HORIZON_STATS_PATH = os.path.join(DATA_DIR, "signal_horizon_stats.json")
 
 ALL_SIGNAL_TICKERS = sorted(set(VOL_TICKERS + SECTOR_ETFS + CROSS_ASSET_TICKERS))
 
@@ -879,29 +880,85 @@ def compute_changes(current_states: dict, previous_states: dict) -> list:
 # FRAGILITY SCORE & RISK DIAL
 # ---------------------------------------------------------------------------
 
-def compute_fragility_score(signals_dict: dict, regime_multiplier: float) -> float:
-    """
-    Compute 0-100 fragility score.
+def load_horizon_stats() -> dict | None:
+    """Load backtested signal horizon stats from JSON."""
+    if not os.path.exists(HORIZON_STATS_PATH):
+        return None
+    with open(HORIZON_STATS_PATH, 'r') as f:
+        return json.load(f)
 
-    Base: each active signal contributes equally (20pts each).
-    Multiplied by price regime context.
-    """
-    total_signals = len(signals_dict)
-    active_count = sum(1 for v in signals_dict.values() if v)
 
-    if total_signals == 0:
+def _signal_edge(stats: dict, signal_key: str, horizon: str) -> float:
+    """Return the downside edge (positive = worse) for a signal at a horizon."""
+    sig = stats.get('signals', {}).get(signal_key, {})
+    dm = sig.get('horizons', {}).get(horizon, {}).get('diff_mean', 0)
+    if dm is None:
         return 0.0
-
-    base = (active_count / total_signals) * 80
-    adjusted = base * regime_multiplier
-
-    return min(100, max(0, adjusted))
+    return max(0.0, -dm)
 
 
-def build_risk_dial(fragility_score: float) -> go.Figure:
-    """Build the Robust -> Fragile dial."""
+def compute_horizon_fragility(
+    signals_ordered: dict,
+    regime_mult: float,
+    horizon_stats: dict,
+) -> dict:
+    """
+    Compute 0-100 fragility scores for 3 horizons (5d, 21d, 63d).
 
-    # Color based on score
+    Each signal's contribution is weighted by its backtested edge
+    (how much worse than baseline forward returns are when signal active).
+    Elevated/dire tiers use their own (typically larger) weights.
+    """
+    horizons = ['5d', '21d', '63d']
+    stats = horizon_stats
+
+    da = signals_ordered.get('Distribution Dominance', {})
+    vrc = signals_ordered.get('VIX Range Compression', {})
+    dl = signals_ordered.get('Defensive Leadership', {})
+    fomc = signals_ordered.get('Pre-FOMC Rally', {})
+
+    scores = {}
+    for h in horizons:
+        # Max weight: all signals at normal tier
+        max_weight = (
+            _signal_edge(stats, 'Distribution Dominance', h)
+            + _signal_edge(stats, 'VIX Range Compression', h)
+            + _signal_edge(stats, 'Defensive Leadership', h)
+            + _signal_edge(stats, 'Pre-FOMC Rally', h)
+        )
+
+        active_weight = 0.0
+
+        # D/A — elevated tier has different (usually worse) forward stats
+        if da.get('on'):
+            if da.get('elevated'):
+                active_weight += _signal_edge(stats, 'Distribution Dominance (Elevated)', h)
+            else:
+                active_weight += _signal_edge(stats, 'Distribution Dominance', h)
+
+        if vrc.get('on'):
+            active_weight += _signal_edge(stats, 'VIX Range Compression', h)
+
+        # Defensive Leadership — dire tier uses same backtest stats (subset)
+        if dl.get('on'):
+            active_weight += _signal_edge(stats, 'Defensive Leadership', h)
+
+        if fomc.get('on'):
+            active_weight += _signal_edge(stats, 'Pre-FOMC Rally', h)
+
+        if max_weight > 0:
+            score = (active_weight / max_weight) * 80 * regime_mult
+        else:
+            score = 0.0
+
+        scores[h] = min(100.0, max(0.0, score))
+
+    return scores
+
+
+def build_risk_dial(fragility_score: float, title: str = "") -> go.Figure:
+    """Build a Robust -> Fragile dial gauge."""
+
     if fragility_score < 20:
         bar_color = "#00CC00"
     elif fragility_score < 40:
@@ -916,13 +973,14 @@ def build_risk_dial(fragility_score: float) -> go.Figure:
     fig = go.Figure(go.Indicator(
         mode="gauge+number",
         value=fragility_score,
-        number={'suffix': '', 'font': {'size': 40}},
+        title={'text': title, 'font': {'size': 13}},
+        number={'suffix': '', 'font': {'size': 32}},
         gauge={
             'axis': {
                 'range': [0, 100],
                 'tickvals': [0, 50, 100],
                 'ticktext': ['Robust', 'Neutral', 'Fragile'],
-                'tickfont': {'size': 10},
+                'tickfont': {'size': 9},
             },
             'bar': {'color': bar_color, 'thickness': 0.3},
             'bgcolor': "rgba(0,0,0,0)",
@@ -942,8 +1000,8 @@ def build_risk_dial(fragility_score: float) -> go.Figure:
     ))
 
     fig.update_layout(
-        height=190,
-        margin=dict(l=20, r=20, t=30, b=10),
+        height=180,
+        margin=dict(l=15, r=15, t=35, b=5),
         paper_bgcolor="rgba(0,0,0,0)",
         plot_bgcolor="rgba(0,0,0,0)",
     )
@@ -1214,27 +1272,35 @@ def main():
 
     save_current_signal_state(current_state)
 
-    # Signal board + Risk Dial
-    signals_col, dial_col = st.columns([3, 1])
+    # Signal board
+    render_signal_board(signals_ordered)
 
-    with signals_col:
-        render_signal_board(signals_ordered)
-
-    fragility = compute_fragility_score(signals_bool, regime_mult)
+    # Risk horizon dials
+    horizon_stats = load_horizon_stats()
     active_count = sum(1 for v in signals_bool.values() if v)
     total_count = len(signals_bool)
 
-    with dial_col:
-        fig_dial = build_risk_dial(fragility)
-        st.plotly_chart(fig_dial, use_container_width=True)
+    if horizon_stats is not None:
+        h_scores = compute_horizon_fragility(signals_ordered, regime_mult, horizon_stats)
 
-        if active_count == 0:
-            dial_label = "No warning signals active"
-        else:
-            dial_label = f"{active_count} of {total_count} signals active"
+        dial_c1, dial_c2, dial_c3 = st.columns(3)
+        with dial_c1:
+            st.plotly_chart(build_risk_dial(h_scores['5d'], 'Short-Term (5d)'), use_container_width=True)
+        with dial_c2:
+            st.plotly_chart(build_risk_dial(h_scores['21d'], 'Intermediate (21d)'), use_container_width=True)
+        with dial_c3:
+            st.plotly_chart(build_risk_dial(h_scores['63d'], 'Long-Term (63d)'), use_container_width=True)
 
-        st.markdown(f"<p style='text-align: center; font-size: 13px; margin-top: -8px;'>{dial_label}</p>",
-                    unsafe_allow_html=True)
+        if active_count > 0:
+            st.markdown(
+                f"<p style='text-align: center; font-size: 12px; color: #888; margin-top: -8px;'>"
+                f"{active_count} of {total_count} signals active — dials weighted by backtested forward returns</p>",
+                unsafe_allow_html=True,
+            )
+    else:
+        st.warning("Horizon stats file missing — using equal-weight fallback.")
+        fallback = (active_count / total_count * 80 * regime_mult) if total_count > 0 else 0
+        st.plotly_chart(build_risk_dial(min(100, fallback), 'Fragility'), use_container_width=True)
 
     # -------------------------------------------------------------------
     # SIGNAL CHARTS (2x2 grid)

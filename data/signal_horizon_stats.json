@@ -1,0 +1,64 @@
+{
+    "description": "Backtest statistics for risk dashboard signals. diff_mean = signal_mean - unconditional_mean (negative = downside risk). All return values in percentage points.",
+    "signals": {
+        "Distribution Dominance": {
+            "n_events": 269,
+            "pct_active": 10.7,
+            "params": "63d window, ratio > 3.75, SPY within 2% of 52w high",
+            "horizons": {
+                "5d":  {"signal_mean": 0.11, "unconditional_mean": 0.31, "diff_mean": -0.20, "hit_rate": 39.6, "p_value": 0.076},
+                "10d": {"signal_mean": 0.19, "unconditional_mean": 0.62, "diff_mean": -0.43, "hit_rate": 39.8, "p_value": 0.006},
+                "21d": {"signal_mean": 0.00, "unconditional_mean": 1.30, "diff_mean": -1.30, "hit_rate": 41.4, "p_value": 0.000},
+                "42d": {"signal_mean": 0.77, "unconditional_mean": 2.56, "diff_mean": -1.80, "hit_rate": 32.0, "p_value": 0.000},
+                "63d": {"signal_mean": 1.41, "unconditional_mean": 3.83, "diff_mean": -2.42, "hit_rate": 28.2, "p_value": 0.000}
+            }
+        },
+        "Distribution Dominance (Elevated)": {
+            "n_events": 56,
+            "pct_active": 2.2,
+            "params": "63d window, ratio > 7.0, SPY within 2% of 52w high",
+            "horizons": {
+                "5d":  {"signal_mean": -0.10, "unconditional_mean": 0.31, "diff_mean": -0.41, "hit_rate": 46.2, "p_value": 0.006},
+                "10d": {"signal_mean": 0.26, "unconditional_mean": 0.62, "diff_mean": -0.36, "hit_rate": 41.7, "p_value": 0.052},
+                "21d": {"signal_mean": 0.26, "unconditional_mean": 1.30, "diff_mean": -1.03, "hit_rate": 34.2, "p_value": 0.001},
+                "42d": {"signal_mean": -1.24, "unconditional_mean": 2.56, "diff_mean": -3.80, "hit_rate": 54.5, "p_value": 0.000},
+                "63d": {"signal_mean": -7.57, "unconditional_mean": 3.83, "diff_mean": -11.40, "hit_rate": 91.7, "p_value": 0.000}
+            }
+        },
+        "VIX Range Compression": {
+            "n_events": 107,
+            "pct_active": 4.3,
+            "params": "Close Range, 21d window, 15th pctile, min VIX 13, 504d lookback, VIX > 20d SMA",
+            "horizons": {
+                "5d":  {"signal_mean": 0.06, "unconditional_mean": 0.31, "diff_mean": -0.25, "hit_rate": 43.9, "p_value": 0.186},
+                "10d": {"signal_mean": -0.09, "unconditional_mean": 0.62, "diff_mean": -0.71, "hit_rate": 54.2, "p_value": 0.004},
+                "21d": {"signal_mean": 0.75, "unconditional_mean": 1.30, "diff_mean": -0.55, "hit_rate": 35.5, "p_value": 0.142},
+                "42d": {"signal_mean": 2.22, "unconditional_mean": 2.56, "diff_mean": -0.35, "hit_rate": 29.0, "p_value": 0.525},
+                "63d": {"signal_mean": 2.85, "unconditional_mean": 3.83, "diff_mean": -0.98, "hit_rate": 28.0, "p_value": 0.077}
+            }
+        },
+        "Defensive Leadership": {
+            "n_events": 176,
+            "pct_active": 7.0,
+            "params": "50d SMA, 10pp lead, 2% proximity, + 200d spread < 0 confirmation",
+            "horizons": {
+                "5d":  {"signal_mean": -0.03, "unconditional_mean": 0.31, "diff_mean": -0.34, "hit_rate": 36.6, "p_value": 0.048},
+                "10d": {"signal_mean": 0.04, "unconditional_mean": 0.62, "diff_mean": -0.58, "hit_rate": 28.7, "p_value": 0.009},
+                "21d": {"signal_mean": -1.21, "unconditional_mean": 1.30, "diff_mean": -2.50, "hit_rate": 33.9, "p_value": 0.000},
+                "42d": {"signal_mean": -2.22, "unconditional_mean": 2.56, "diff_mean": -4.78, "hit_rate": 50.3, "p_value": 0.000},
+                "63d": {"signal_mean": -1.64, "unconditional_mean": 3.83, "diff_mean": -5.47, "hit_rate": 56.7, "p_value": 0.000}
+            }
+        },
+        "Pre-FOMC Rally": {
+            "n_events": 16,
+            "pct_active": null,
+            "params": "5d pre-event window, return pctile > 75, FOMC dates only",
+            "note": "Q4 (rallied) quartile from pre-event study. 16 triggered out of 81 FOMC events (20%). Diffs computed as Q4 mean minus all-quartile weighted mean.",
+            "horizons": {
+                "5d":  {"signal_mean": -1.36, "unconditional_mean": -0.08, "diff_mean": -1.28, "hit_rate": null, "p_value": null},
+                "10d": {"signal_mean": -0.52, "unconditional_mean": 0.54, "diff_mean": -1.06, "hit_rate": null, "p_value": null},
+                "21d": {"signal_mean": 0.94, "unconditional_mean": 1.37, "diff_mean": -0.43, "hit_rate": null, "p_value": null}
+            }
+        }
+    }
+}
