@@ -1067,7 +1067,8 @@ def chart_breadth(breadth_df: pd.DataFrame, source_label: str = "") -> go.Figure
     return fig
 
 
-def chart_complacency(days_5: pd.Series, days_vix: pd.Series) -> go.Figure:
+def chart_complacency(days_5: pd.Series, days_vix: pd.Series,
+                      days_10: pd.Series = None) -> go.Figure:
     """Complacency counter sawtooth charts."""
     fig = go.Figure()
     fig.add_trace(go.Scatter(
@@ -1075,6 +1076,12 @@ def chart_complacency(days_5: pd.Series, days_vix: pd.Series) -> go.Figure:
         name="Days since 5% drawdown",
         line=dict(width=1.5, color="#0066CC"),
     ))
+    if days_10 is not None and len(days_10.dropna()) > 0:
+        fig.add_trace(go.Scatter(
+            x=days_10.index, y=days_10,
+            name="Days since 10% drawdown",
+            line=dict(width=1, color="#0066CC", dash="dot"),
+        ))
     if days_vix is not None and len(days_vix.dropna()) > 0:
         fig.add_trace(go.Scatter(
             x=days_vix.index, y=days_vix,
@@ -1243,6 +1250,7 @@ def main():
 
     days_since_5_series = compute_days_since(spy_close, threshold_pct=0.05)
     days_since_5_pctile_series = expanding_percentile(days_since_5_series, min_periods=252)
+    days_since_10_series = compute_days_since(spy_close, threshold_pct=0.10)
 
     days_since_vix_series = pd.Series(dtype=float)
     days_since_vix_pctile_series = pd.Series(dtype=float)
@@ -1522,7 +1530,7 @@ def main():
             st.info("Absorption ratio unavailable (insufficient sector data).")
 
     if len(days_since_5_series.dropna()) > 0:
-        st.plotly_chart(chart_complacency(days_since_5_series, days_since_vix_series), use_container_width=True)
+        st.plotly_chart(chart_complacency(days_since_5_series, days_since_vix_series, days_since_10_series), use_container_width=True)
 
     # --- Layer 3: Cross-Asset Plumbing (compact height) ---
     st.subheader("Layer 3: Cross-Asset Plumbing")
