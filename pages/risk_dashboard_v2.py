@@ -345,8 +345,8 @@ def compute_da_signal(spy_df: pd.DataFrame) -> dict:
     Institutional selling beneath the surface during an uptrend.
     """
     vol_mult = 1.15
-    window = 21
-    threshold = 5.0
+    window = 63
+    threshold = 4.0
 
     close = spy_df["Close"]
     open_ = spy_df["Open"]
@@ -922,8 +922,8 @@ def chart_da_ratio(da_ratio: pd.Series, spy_close: pd.Series) -> go.Figure:
         x=clean.index, y=clean,
         name="D/A Ratio", line=dict(width=1.5, color="#e74c3c"),
     ))
-    fig.add_hline(y=5.0, line_dash="dash", line_color="#FFD700", line_width=1,
-                  annotation_text="Threshold: 5.0", annotation_position="right")
+    fig.add_hline(y=4.0, line_dash="dash", line_color="#FFD700", line_width=1,
+                  annotation_text="Threshold: 4.0", annotation_position="right")
     fig.add_trace(go.Scatter(
         x=spy_close.index, y=spy_close,
         name="SPY", line=dict(width=1, color="rgba(100,100,100,0.4)"),
