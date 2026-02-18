@@ -479,11 +479,13 @@ def compute_vix_range_compression(vix_close: pd.Series) -> dict:
 
 def compute_defensive_leadership(sp500_closes, spy_close: pd.Series) -> dict:
     """
-    Defensive Leadership signal.
-    Risk-off stocks leading while SPY near highs = institutional rotation to safety.
+    Defensive Leadership signal — two tiers.
+
+    WARNING: 50d spread < -10pp AND 200d spread < 0pp AND SPY within 2% of 52w high.
+    DIRE:    Same conditions but SPY within 1% of 52w high — auto put/put-spread territory.
     """
     empty = {
-        'on': False, 'detail': '', 'summary': 'S&P 500 data unavailable',
+        'on': False, 'elevated': False, 'detail': '', 'summary': 'S&P 500 data unavailable',
         'spread': pd.Series(dtype=float),
         'on_breadth': pd.Series(dtype=float),
         'off_breadth': pd.Series(dtype=float),
@@ -506,44 +508,71 @@ def compute_defensive_leadership(sp500_closes, spy_close: pd.Series) -> dict:
         empty['summary'] = f'Too few classified stocks ({len(on_cols)} on / {len(off_cols)} off)'
         return empty
 
+    # 50d breadth (primary signal)
     sma_50 = sp500_closes.rolling(50, min_periods=40).mean()
-    on_above = (sp500_closes[on_cols] > sma_50[on_cols]).sum(axis=1) / len(on_cols) * 100
-    off_above = (sp500_closes[off_cols] > sma_50[off_cols]).sum(axis=1) / len(off_cols) * 100
+    on_above_50 = (sp500_closes[on_cols] > sma_50[on_cols]).sum(axis=1) / len(on_cols) * 100
+    off_above_50 = (sp500_closes[off_cols] > sma_50[off_cols]).sum(axis=1) / len(off_cols) * 100
+    spread_50 = on_above_50 - off_above_50
 
-    spread = on_above - off_above  # negative = risk-off leading
+    # 200d breadth (confirmation)
+    sma_200 = sp500_closes.rolling(200, min_periods=160).mean()
+    on_above_200 = (sp500_closes[on_cols] > sma_200[on_cols]).sum(axis=1) / len(on_cols) * 100
+    off_above_200 = (sp500_closes[off_cols] > sma_200[off_cols]).sum(axis=1) / len(off_cols) * 100
+    spread_200 = on_above_200 - off_above_200
 
-    # SPY within 2% of 52w high
+    # SPY proximity to 52w high
     high_52w = spy_close.rolling(252, min_periods=60).max()
-    near_high = spy_close >= high_52w * 0.98
+    near_high_2pct = spy_close >= high_52w * 0.98  # within 2%
+    near_high_1pct = spy_close >= high_52w * 0.99  # within 1%
 
-    signal = (spread < -10) & near_high
+    # Base conditions: 50d spread < -10pp AND 200d spread < 0pp
+    base_condition = (spread_50 < -10) & (spread_200 < 0)
 
-    latest_spread = float(spread.iloc[-1]) if len(spread) > 0 and not np.isnan(spread.iloc[-1]) else 0.0
+    # WARNING: base + within 2% of high
+    signal = base_condition & near_high_2pct
+    # DIRE: base + within 1% of high
+    dire = base_condition & near_high_1pct
+
+    latest_spread_50 = float(spread_50.iloc[-1]) if len(spread_50) > 0 and not np.isnan(spread_50.iloc[-1]) else 0.0
+    latest_spread_200 = float(spread_200.iloc[-1]) if len(spread_200) > 0 and not np.isnan(spread_200.iloc[-1]) else 0.0
     signal_on = bool(signal.iloc[-1]) if len(signal) > 0 and not pd.isna(signal.iloc[-1]) else False
+    dire_on = bool(dire.iloc[-1]) if len(dire) > 0 and not pd.isna(dire.iloc[-1]) else False
 
-    on_pct = float(on_above.iloc[-1]) if len(on_above) > 0 and not np.isnan(on_above.iloc[-1]) else 0.0
-    off_pct = float(off_above.iloc[-1]) if len(off_above) > 0 and not np.isnan(off_above.iloc[-1]) else 0.0
+    on_pct_50 = float(on_above_50.iloc[-1]) if len(on_above_50) > 0 and not np.isnan(on_above_50.iloc[-1]) else 0.0
+    off_pct_50 = float(off_above_50.iloc[-1]) if len(off_above_50) > 0 and not np.isnan(off_above_50.iloc[-1]) else 0.0
 
     detail = ""
-    if signal_on:
+    if dire_on:
         detail = (
-            f"Risk-off stocks leading: {off_pct:.0f}% above 50d SMA vs "
-            f"{on_pct:.0f}% for risk-on (spread: {latest_spread:+.0f}pp). "
+            f"DIRE: Risk-off leading on BOTH timeframes while SPY within 1% of 52w high. "
+            f"50d spread: {latest_spread_50:+.0f}pp | 200d spread: {latest_spread_200:+.0f}pp. "
+            f"Institutional rotation to safety at all-time highs \u2014 "
+            f"consider 3-month put / put-spread."
+        )
+    elif signal_on:
+        detail = (
+            f"Risk-off stocks leading: 50d spread {latest_spread_50:+.0f}pp, "
+            f"200d spread {latest_spread_200:+.0f}pp. "
             f"SPY within 2% of 52w high \u2014 defensive rotation while index holds."
         )
 
+    is_on = signal_on or dire_on
+
     summary = (
-        f"Spread: {latest_spread:+.0f}pp (fires below -10pp) "
-        f"\u2014 on {on_pct:.0f}% vs off {off_pct:.0f}%"
+        f"50d spread: {latest_spread_50:+.0f}pp (fires < -10) | "
+        f"200d spread: {latest_spread_200:+.0f}pp (fires < 0)"
     )
+    if dire_on:
+        summary += " \u2014 DIRE: within 1% of highs"
 
     return {
-        'on': signal_on,
+        'on': is_on,
+        'elevated': dire_on,
         'detail': detail,
         'summary': summary,
-        'spread': spread,
-        'on_breadth': on_above,
-        'off_breadth': off_above,
+        'spread': spread_50,
+        'on_breadth': on_above_50,
+        'off_breadth': off_above_50,
     }
 
 
