@@ -365,6 +365,37 @@ def compute_distribution_accumulation(spy_df: pd.DataFrame,
 # ---------------------------------------------------------------------------
 # SIGNAL 2: VIX RANGE COMPRESSION
 # ---------------------------------------------------------------------------
+@st.cache_data(ttl=3600)
+def load_vix_ohlc():
+    """Download VIX OHLC for ATR computation."""
+    try:
+        raw = yf.download("^VIX", start="2010-01-01", auto_adjust=True, progress=False)
+        if raw is None or raw.empty:
+            return None
+        if isinstance(raw.columns, pd.MultiIndex):
+            raw.columns = raw.columns.get_level_values(0)
+        raw.columns = [c.capitalize() for c in raw.columns]
+        if raw.index.tz is not None:
+            raw.index = raw.index.tz_localize(None)
+        return raw
+    except Exception:
+        return None
+
+
+def _rolling_percentile(series: pd.Series, lookback: int) -> pd.Series:
+    """Vectorised rolling percentile rank."""
+    arr = series.values
+    out = np.full(len(arr), np.nan)
+    min_valid = int(lookback * 0.8)
+    for i in range(lookback, len(arr)):
+        window = arr[i - lookback : i + 1]
+        valid = window[~np.isnan(window)]
+        if len(valid) < min_valid:
+            continue
+        out[i] = (valid[:-1] < valid[-1]).sum() / (len(valid) - 1) * 100
+    return pd.Series(out, index=series.index)
+
+
 def compute_vix_compression(closes: pd.DataFrame,
                              spy_close: pd.Series,
                              range_window: int = 21,
@@ -372,11 +403,14 @@ def compute_vix_compression(closes: pd.DataFrame,
                              min_vix: float = 13,
                              pctile_lookback: int = 504,
                              require_above_sma: bool = True,
-                             sma_period: int = 20) -> tuple:
+                             sma_period: int = 20,
+                             metric: str = "Close Range",
+                             atr_period: int = 14,
+                             vix_ohlc: pd.DataFrame = None) -> tuple:
     """
-    VIX range compression signal.
+    VIX compression signal using close-to-close range or ATR.
 
-    Returns: (signal_series, vix_range, vix_range_pctile)
+    Returns: (signal_series, compression_metric, compression_pctile)
     """
     if "^VIX" not in closes.columns:
         empty = pd.Series(dtype=float)
@@ -384,28 +418,30 @@ def compute_vix_compression(closes: pd.DataFrame,
 
     vix = closes["^VIX"].dropna()
 
-    vix_range = vix.rolling(range_window).max() - vix.rolling(range_window).min()
+    if metric == "ATR" and vix_ohlc is not None and not vix_ohlc.empty:
+        high = vix_ohlc["High"]
+        low = vix_ohlc["Low"]
+        prev_close = vix_ohlc["Close"].shift(1)
+        tr = pd.concat([
+            high - low,
+            (high - prev_close).abs(),
+            (low - prev_close).abs(),
+        ], axis=1).max(axis=1)
+        atr = tr.rolling(atr_period, min_periods=max(1, atr_period // 2)).mean()
+        compression_metric = atr.reindex(vix.index)
+    else:
+        compression_metric = vix.rolling(range_window).max() - vix.rolling(range_window).min()
 
-    # Vectorised rolling percentile
-    vix_range_arr = vix_range.values
-    pctile_arr = np.full(len(vix_range_arr), np.nan)
-    for i in range(pctile_lookback, len(vix_range_arr)):
-        window = vix_range_arr[i - pctile_lookback : i + 1]
-        valid = window[~np.isnan(window)]
-        if len(valid) < int(pctile_lookback * 0.8):
-            continue
-        pctile_arr[i] = (valid[:-1] < valid[-1]).sum() / (len(valid) - 1) * 100
+    compression_pctile = _rolling_percentile(compression_metric, pctile_lookback)
 
-    vix_range_pctile = pd.Series(pctile_arr, index=vix_range.index)
-
-    signal = (vix_range_pctile < pctile_threshold) & (vix > min_vix)
+    signal = (compression_pctile < pctile_threshold) & (vix > min_vix)
 
     if require_above_sma:
         sma = spy_close.rolling(sma_period, min_periods=int(sma_period * 0.8)).mean()
         above_sma = spy_close > sma
         signal = signal & above_sma.reindex(signal.index, method="ffill")
 
-    return signal, vix_range, vix_range_pctile
+    return signal, compression_metric, compression_pctile
 
 
 # ---------------------------------------------------------------------------
@@ -660,7 +696,7 @@ with tab2:
 
     c1, c2, c3, c4 = st.columns(4)
     with c1:
-        vc_range_win = st.slider("Range window (days)", 10, 42, 21, key="vc_win")
+        vc_metric = st.selectbox("Compression metric", ["Close Range", "ATR"], key="vc_metric")
     with c2:
         vc_pctile = st.slider("Compression percentile", 5, 40, 20, key="vc_pct")
     with c3:
@@ -668,15 +704,32 @@ with tab2:
     with c4:
         vc_lookback = st.slider("Percentile lookback (days)", 252, 1260, 504, key="vc_lb")
 
-    c5, c6 = st.columns(2)
+    vc_range_win = 21
+    vc_atr_period = 14
+    c5, c6, c7 = st.columns(3)
     with c5:
-        vc_require_sma = st.checkbox("Require SPY > SMA", value=True, key="vc_sma_on")
+        if vc_metric == "Close Range":
+            vc_range_win = st.slider("Range window (days)", 10, 42, 21, key="vc_win")
+        else:
+            vc_atr_period = st.slider("ATR period (days)", 5, 30, 14, key="vc_atr_p")
     with c6:
+        vc_require_sma = st.checkbox("Require SPY > SMA", value=True, key="vc_sma_on")
+    with c7:
         vc_sma_period = st.selectbox("SMA period", [10, 20, 50, 100, 200], index=1, key="vc_sma_p")
 
-    signal_vc, vix_range, vix_range_pctile = compute_vix_compression(
-        closes, spy_close, vc_range_win, vc_pctile, vc_min_vix, vc_lookback,
-        vc_require_sma, vc_sma_period,
+    vix_ohlc = load_vix_ohlc() if vc_metric == "ATR" else None
+
+    signal_vc, vix_compression, vix_compression_pctile = compute_vix_compression(
+        closes, spy_close,
+        range_window=vc_range_win if vc_metric == "Close Range" else 21,
+        pctile_threshold=vc_pctile,
+        min_vix=vc_min_vix,
+        pctile_lookback=vc_lookback,
+        require_above_sma=vc_require_sma,
+        sma_period=vc_sma_period,
+        metric=vc_metric,
+        atr_period=vc_atr_period if vc_metric == "ATR" else 14,
+        vix_ohlc=vix_ohlc,
     )
 
     if "^VIX" not in closes.columns:
@@ -691,10 +744,11 @@ with tab2:
             x=vix.index, y=vix,
             name="VIX", line=dict(width=1.5, color="#3498db"),
         ))
-        pctile_clean = vix_range_pctile.dropna()
+        metric_label = "ATR" if vc_metric == "ATR" else "Range"
+        pctile_clean = vix_compression_pctile.dropna()
         fig_vc.add_trace(go.Scatter(
             x=pctile_clean.index, y=pctile_clean,
-            name="Range Percentile", line=dict(width=1, color="#e67e22"),
+            name=f"{metric_label} Percentile", line=dict(width=1, color="#e67e22"),
             yaxis="y2",
         ))
         fig_vc.add_hline(y=vc_pctile, line_dash="dash", line_color="yellow",
@@ -717,9 +771,9 @@ with tab2:
             margin=dict(l=10, r=10, t=30, b=10),
             hovermode="x unified",
             yaxis=dict(title="VIX"),
-            yaxis2=dict(overlaying="y", side="right", showgrid=False, title="Range Pctile"),
+            yaxis2=dict(overlaying="y", side="right", showgrid=False, title=f"{metric_label} Pctile"),
             legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
-            title=dict(text="VIX Level + Range Compression Percentile", font=dict(size=13)),
+            title=dict(text=f"VIX Level + {metric_label} Compression Percentile", font=dict(size=13)),
         )
         st.plotly_chart(fig_vc, use_container_width=True)
 
