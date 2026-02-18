@@ -319,9 +319,9 @@ def compute_distribution_accumulation(spy_df: pd.DataFrame,
     volume = spy_df["Volume"]
 
     avg_vol_63 = volume.rolling(63).mean()
-    vol_above_avg = volume > (avg_vol_63 * vol_mult)
-    vol_above_yesterday = volume > volume.shift(1)
-    vol_qualified = vol_above_avg & vol_above_yesterday
+    vol_above_avg = volume > avg_vol_63
+    vol_surge_vs_prev = volume > (volume.shift(1) * vol_mult)
+    vol_qualified = vol_above_avg & vol_surge_vs_prev
 
     dist_days = vol_qualified & (close < open_)
     accum_days = vol_qualified & (close > open_)
@@ -555,8 +555,8 @@ with tab1:
     st.markdown("### Distribution / Accumulation Ratio")
     st.markdown(
         "> A **distribution day** = SPY volume > trailing 63d avg volume "
-        "(by a configurable multiplier) AND volume > yesterday's volume AND "
-        "close < open (intraday selling on heavy, increasing volume). "
+        "AND volume > previous day's volume by a configurable multiplier (default 1.25x) "
+        "AND close < open (intraday selling on a volume surge). "
         "An **accumulation day** = same volume thresholds but close > open. "
         "The signal tracks the rolling ratio of distribution days to accumulation days. "
         "When distribution meaningfully exceeds accumulation during an uptrend, "
@@ -565,11 +565,11 @@ with tab1:
 
     c1, c2, c3, c4 = st.columns(4)
     with c1:
-        da_vol_mult = st.slider("Volume multiplier", 1.0, 2.0, 1.25, 0.05, key="da_vol")
+        da_vol_mult = st.slider("Prev-day volume multiplier", 1.0, 2.0, 1.25, 0.05, key="da_vol")
     with c2:
         da_window = st.slider("Rolling window (days)", 10, 63, 21, key="da_win")
     with c3:
-        da_ratio_thresh = st.slider("D/A ratio threshold", 1.0, 3.0, 1.5, 0.25, key="da_thresh")
+        da_ratio_thresh = st.slider("D/A ratio threshold", 1.0, 6.0, 1.5, 0.25, key="da_thresh")
     with c4:
         da_uptrend = st.checkbox("Require uptrend (SPY > 50d SMA)", value=True, key="da_up")
 
