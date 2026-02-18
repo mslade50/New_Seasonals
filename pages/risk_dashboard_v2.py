@@ -3,7 +3,7 @@ Risk Dashboard V2 — Executive Summary + Absorption Ratio
 =========================================================
 Standalone market risk monitor.
 Signal-based three-question framework with fragility dial.
-Absorption ratio chart for structural regime context.
+4 validated signals from event study backtesting.
 
 Data: yfinance only. No broker connections. No strategy imports.
 """
@@ -43,7 +43,7 @@ SECTOR_ETFS = [
     "XLP", "XLRE", "XLU", "XLV", "XLY",
 ]
 
-# Cross-asset tickers (credit + MOVE only — signals need these)
+# Cross-asset tickers (kept for future use — cached and cheap)
 CROSS_ASSET_TICKERS = ['LQD', 'HYG', 'IEF', '^MOVE']
 
 DATA_DIR = os.path.join(parent_dir, "data")
@@ -56,7 +56,49 @@ CACHE_SPY_OHLC = os.path.join(DATA_DIR, "rd2_spy_ohlc.parquet")
 CACHE_CLOSES   = os.path.join(DATA_DIR, "rd2_closes.parquet")
 CACHE_SP500    = os.path.join(DATA_DIR, "rd2_sp500_closes.parquet")
 
+RISK_CLASSIFICATION_PATH = os.path.join(DATA_DIR, "sp500_risk_classification.csv")
+
 ALL_SIGNAL_TICKERS = sorted(set(VOL_TICKERS + SECTOR_ETFS + CROSS_ASSET_TICKERS))
+
+# FOMC announcement dates (for pre-FOMC rally signal)
+FOMC_DATES = pd.to_datetime([
+    # 2015
+    "2015-01-28", "2015-03-18", "2015-04-29", "2015-06-17",
+    "2015-07-29", "2015-09-17", "2015-10-28", "2015-12-16",
+    # 2016
+    "2016-01-27", "2016-03-16", "2016-04-27", "2016-06-15",
+    "2016-07-27", "2016-09-21", "2016-11-02", "2016-12-14",
+    # 2017
+    "2017-02-01", "2017-03-15", "2017-05-03", "2017-06-14",
+    "2017-07-26", "2017-09-20", "2017-11-01", "2017-12-13",
+    # 2018
+    "2018-01-31", "2018-03-21", "2018-05-02", "2018-06-13",
+    "2018-08-01", "2018-09-26", "2018-11-08", "2018-12-19",
+    # 2019
+    "2019-01-30", "2019-03-20", "2019-05-01", "2019-06-19",
+    "2019-07-31", "2019-09-18", "2019-10-30", "2019-12-11",
+    # 2020
+    "2020-01-29", "2020-03-03", "2020-03-15", "2020-04-29",
+    "2020-06-10", "2020-07-29", "2020-09-16", "2020-11-05", "2020-12-16",
+    # 2021
+    "2021-01-27", "2021-03-17", "2021-04-28", "2021-06-16",
+    "2021-07-28", "2021-09-22", "2021-11-03", "2021-12-15",
+    # 2022
+    "2022-01-26", "2022-03-16", "2022-05-04", "2022-06-15",
+    "2022-07-27", "2022-09-21", "2022-11-02", "2022-12-14",
+    # 2023
+    "2023-02-01", "2023-03-22", "2023-05-03", "2023-06-14",
+    "2023-07-26", "2023-09-20", "2023-11-01", "2023-12-13",
+    # 2024
+    "2024-01-31", "2024-03-20", "2024-05-01", "2024-06-12",
+    "2024-07-31", "2024-09-18", "2024-11-07", "2024-12-18",
+    # 2025
+    "2025-01-29", "2025-03-19", "2025-05-07", "2025-06-18",
+    "2025-07-30", "2025-09-17", "2025-10-29", "2025-12-17",
+    # 2026
+    "2026-01-28",
+])
+
 
 # ---------------------------------------------------------------------------
 # DATA DOWNLOAD & CACHE LAYER
@@ -240,80 +282,8 @@ def _download_ticker_group(tickers: list, start_date: str) -> dict:
 
 
 # ---------------------------------------------------------------------------
-# LAYER 1 COMPUTATIONS (feed signals — no charts)
+# ABSORPTION RATIO (kept — display-only structural context)
 # ---------------------------------------------------------------------------
-
-def yang_zhang_vol(df: pd.DataFrame, window: int) -> pd.Series:
-    """
-    Yang-Zhang (2000) volatility estimator using OHLC data.
-    Returns annualized volatility series.
-    For window=1, falls back to per-bar Rogers-Satchell estimator
-    (rolling variance is undefined for a single observation).
-    """
-    log_ho = np.log(df["High"] / df["Open"])
-    log_lo = np.log(df["Low"] / df["Open"])
-    log_co = np.log(df["Close"] / df["Open"])
-
-    # Rogers-Satchell component
-    rs = log_ho * (log_ho - log_co) + log_lo * (log_lo - log_co)
-
-    if window <= 1:
-        # Single-bar: use Rogers-Satchell directly (no rolling variance possible)
-        return np.sqrt(rs.abs()) * np.sqrt(252)
-
-    log_oc = np.log(df["Open"] / df["Close"].shift(1))
-
-    # Overnight component
-    sigma_o = log_oc.rolling(window).var()
-
-    # Close-to-open component
-    sigma_c = log_co.rolling(window).var()
-
-    # Rogers-Satchell component
-    sigma_rs = rs.rolling(window).mean()
-
-    k = 0.34 / (1.34 + (window + 1) / (window - 1))
-
-    yang_zhang = np.sqrt(sigma_o + k * sigma_c + (1 - k) * sigma_rs) * np.sqrt(252)
-    return yang_zhang
-
-
-def compute_vrp(vix_close: pd.Series, rv_22d: pd.Series) -> pd.Series:
-    """
-    Variance Risk Premium = (VIX/100)^2 - RV_22d^2
-    Both sides annualized.
-    """
-    implied_var = (vix_close / 100.0) ** 2
-    realized_var = rv_22d ** 2
-    return implied_var - realized_var
-
-
-# ---------------------------------------------------------------------------
-# LAYER 2 COMPUTATIONS (feed signals + AR chart)
-# ---------------------------------------------------------------------------
-
-def compute_breadth(closes: pd.DataFrame) -> pd.DataFrame:
-    """
-    Compute % of constituents above their 200d and 50d SMA.
-    Works with 11 sector ETFs or ~505 S&P 500 constituents.
-    closes: wide DataFrame (index=date, columns=tickers, values=Close price).
-    Returns DataFrame with pct_above_200, pct_above_50 columns.
-    """
-    if closes.empty:
-        return pd.DataFrame()
-
-    sma200 = closes.rolling(200).mean()
-    sma50 = closes.rolling(50).mean()
-
-    pct_above_200 = (closes > sma200).sum(axis=1) / closes.notna().sum(axis=1) * 100
-    pct_above_50 = (closes > sma50).sum(axis=1) / closes.notna().sum(axis=1) * 100
-
-    result = pd.DataFrame({
-        "pct_above_200": pct_above_200,
-        "pct_above_50": pct_above_50,
-    })
-    return result.dropna()
-
 
 def compute_absorption_ratio(sector_returns_df: pd.DataFrame, window: int = 63) -> pd.Series:
     """
@@ -337,73 +307,8 @@ def compute_absorption_ratio(sector_returns_df: pd.DataFrame, window: int = 63) 
     return ar_series
 
 
-def compute_days_since(spy_close: pd.Series, threshold_pct: float = 0.05) -> pd.Series:
-    """
-    For each day, compute trading days since the last drawdown >= threshold_pct.
-    Drawdown = peak-to-trough decline from trailing high.
-    """
-    trailing_high = spy_close.expanding().max()
-    drawdown = (spy_close - trailing_high) / trailing_high
-
-    # Find days where drawdown breached threshold
-    breach_dates = set(drawdown.index[drawdown <= -threshold_pct])
-
-    # For each day, count business days since last breach
-    days_since = pd.Series(dtype=float, index=spy_close.index)
-    last_breach = None
-    for date in spy_close.index:
-        if date in breach_dates:
-            last_breach = date
-        if last_breach is not None:
-            days_since[date] = np.busday_count(
-                last_breach.date(), date.date()
-            )
-        else:
-            days_since[date] = np.nan  # No correction yet in history
-
-    return days_since
-
-
-def compute_days_since_vix_spike(vix_close: pd.Series, threshold: float = 28.0) -> pd.Series:
-    """
-    For each day, count trading days since VIX last closed above threshold.
-    """
-    above_threshold = vix_close >= threshold
-
-    days_since = pd.Series(0, index=vix_close.index, dtype=int)
-    count = 0
-    for i in range(len(vix_close)):
-        if above_threshold.iloc[i]:
-            count = 0
-        else:
-            count += 1
-        days_since.iloc[i] = count
-
-    return days_since
-
-
 # ---------------------------------------------------------------------------
-# LAYER 3 COMPUTATIONS (feed signals — no charts)
-# ---------------------------------------------------------------------------
-
-def compute_credit_spread_proxy(lqd_close, hyg_close, ief_close):
-    """
-    Proxy for credit spreads using ETF price ratios.
-    When credit spreads widen, LQD and HYG fall relative to IEF.
-    We INVERT the ratio so that higher = wider spreads = more stress.
-    """
-    ig_spread = -(lqd_close / ief_close)
-    hy_spread = -(hyg_close / ief_close)
-
-    # Normalize to z-scores for comparability
-    ig_z = (ig_spread - ig_spread.rolling(63).mean()) / ig_spread.rolling(63).std()
-    hy_z = (hy_spread - hy_spread.rolling(63).mean()) / hy_spread.rolling(63).std()
-
-    return ig_z, hy_z
-
-
-# ---------------------------------------------------------------------------
-# PERCENTILE HELPER
+# PERCENTILE HELPERS
 # ---------------------------------------------------------------------------
 
 def expanding_percentile(series: pd.Series, min_periods: int = 252) -> pd.Series:
@@ -413,6 +318,198 @@ def expanding_percentile(series: pd.Series, min_periods: int = 252) -> pd.Series
             return np.nan
         return (x.values[:-1] < x.values[-1]).sum() / (len(x) - 1) * 100
     return series.expanding(min_periods=min_periods).apply(_pctile, raw=False)
+
+
+def _rolling_percentile(series: pd.Series, lookback: int) -> pd.Series:
+    """Fixed-lookback rolling percentile rank (0-100)."""
+    arr = series.values
+    out = np.full(len(arr), np.nan)
+    min_valid = int(lookback * 0.8)
+    for i in range(lookback, len(arr)):
+        window = arr[i - lookback : i + 1]
+        valid = window[~np.isnan(window)]
+        if len(valid) < min_valid:
+            continue
+        out[i] = (valid[:-1] < valid[-1]).sum() / (len(valid) - 1) * 100
+    return pd.Series(out, index=series.index)
+
+
+# ---------------------------------------------------------------------------
+# 4 VALIDATED SIGNAL FUNCTIONS
+# ---------------------------------------------------------------------------
+
+def compute_da_signal(spy_df: pd.DataFrame) -> tuple:
+    """
+    Distribution/Accumulation signal.
+    Institutional selling beneath the surface during an uptrend.
+    """
+    vol_mult = 1.15
+    window = 21
+    threshold = 5.0
+
+    close = spy_df["Close"]
+    open_ = spy_df["Open"]
+    volume = spy_df["Volume"]
+
+    avg_vol_63 = volume.rolling(63).mean()
+    vol_above_avg = volume > avg_vol_63
+    vol_surge_vs_prev = volume > (volume.shift(1) * vol_mult)
+    vol_qualified = vol_above_avg & vol_surge_vs_prev
+
+    dist_days = vol_qualified & (close < open_)
+    accum_days = vol_qualified & (close > open_)
+
+    dist_count = dist_days.astype(int).rolling(window).sum()
+    accum_count = accum_days.astype(int).rolling(window).sum()
+
+    da_ratio = dist_count / accum_count.replace(0, np.nan)
+
+    signal = da_ratio > threshold
+
+    # Require uptrend (SPY > 50d SMA)
+    sma_50 = close.rolling(50).mean()
+    signal = signal & (close > sma_50)
+
+    latest_ratio = float(da_ratio.iloc[-1]) if len(da_ratio) > 0 and not np.isnan(da_ratio.iloc[-1]) else 0.0
+    signal_on = bool(signal.iloc[-1]) if len(signal) > 0 and not pd.isna(signal.iloc[-1]) else False
+
+    detail = ""
+    if signal_on:
+        recent_dist = int(dist_days.iloc[-window:].sum())
+        recent_accum = int(accum_days.iloc[-window:].sum())
+        detail = (
+            f"D/A ratio at {latest_ratio:.1f} over last {window} sessions "
+            f"({recent_dist} distribution vs {recent_accum} accumulation days). "
+            f"Volume-confirmed selling exceeds buying during an uptrend."
+        )
+
+    return signal_on, latest_ratio, detail
+
+
+def compute_vix_range_compression(vix_close: pd.Series) -> tuple:
+    """
+    VIX Range Compression signal.
+    VIX in a tight squeeze — eventual breakout tends to be violent.
+    """
+    if len(vix_close) < 504:
+        return False, 0.0, ""
+
+    range_window = 21
+    pctile_threshold = 15
+    min_vix = 13
+    lookback = 504
+    sma_period = 20
+
+    compression_metric = vix_close.rolling(range_window).max() - vix_close.rolling(range_window).min()
+    compression_pctile = _rolling_percentile(compression_metric, lookback)
+
+    vix_sma = vix_close.rolling(sma_period, min_periods=int(sma_period * 0.8)).mean()
+
+    signal = (compression_pctile < pctile_threshold) & (vix_close > min_vix) & (vix_close > vix_sma)
+
+    latest_pctile = float(compression_pctile.iloc[-1]) if not np.isnan(compression_pctile.iloc[-1]) else 50.0
+    signal_on = bool(signal.iloc[-1]) if len(signal) > 0 and not pd.isna(signal.iloc[-1]) else False
+
+    detail = ""
+    if signal_on:
+        cur_vix = float(vix_close.iloc[-1])
+        detail = (
+            f"VIX {range_window}d range at {latest_pctile:.0f}th percentile "
+            f"(threshold: {pctile_threshold}th). VIX at {cur_vix:.1f} is compressed \u2014 "
+            f"eventual breakout tends to be violent."
+        )
+
+    return signal_on, latest_pctile, detail
+
+
+def compute_defensive_leadership(sp500_closes, spy_close: pd.Series) -> tuple:
+    """
+    Defensive Leadership signal.
+    Risk-off stocks leading while SPY near highs = institutional rotation to safety.
+    """
+    if sp500_closes is None or (hasattr(sp500_closes, 'empty') and sp500_closes.empty):
+        return False, 0.0, ""
+
+    if not os.path.exists(RISK_CLASSIFICATION_PATH):
+        return False, 0.0, ""
+
+    classification = pd.read_csv(RISK_CLASSIFICATION_PATH)
+    on_tickers = classification.loc[classification["label"] == "risk_on", "ticker"].tolist()
+    off_tickers = classification.loc[classification["label"] == "risk_off", "ticker"].tolist()
+
+    on_cols = [t for t in on_tickers if t in sp500_closes.columns]
+    off_cols = [t for t in off_tickers if t in sp500_closes.columns]
+
+    if len(on_cols) < 10 or len(off_cols) < 10:
+        return False, 0.0, ""
+
+    sma_200 = sp500_closes.rolling(200, min_periods=160).mean()
+    on_above = (sp500_closes[on_cols] > sma_200[on_cols]).sum(axis=1) / len(on_cols) * 100
+    off_above = (sp500_closes[off_cols] > sma_200[off_cols]).sum(axis=1) / len(off_cols) * 100
+
+    spread = on_above - off_above  # negative = risk-off leading
+
+    # SPY within 5% of 52w high
+    high_52w = spy_close.rolling(252, min_periods=60).max()
+    near_high = spy_close >= high_52w * 0.95
+
+    signal = (spread < -10) & near_high
+
+    latest_spread = float(spread.iloc[-1]) if len(spread) > 0 and not np.isnan(spread.iloc[-1]) else 0.0
+    signal_on = bool(signal.iloc[-1]) if len(signal) > 0 and not pd.isna(signal.iloc[-1]) else False
+
+    detail = ""
+    if signal_on:
+        on_pct = float(on_above.iloc[-1])
+        off_pct = float(off_above.iloc[-1])
+        detail = (
+            f"Risk-off stocks leading: {off_pct:.0f}% above 200d SMA vs "
+            f"{on_pct:.0f}% for risk-on (spread: {latest_spread:+.0f}pp). "
+            f"SPY near 52w high \u2014 defensive rotation while index holds."
+        )
+
+    return signal_on, latest_spread, detail
+
+
+def compute_fomc_signal(spy_close: pd.Series) -> tuple:
+    """
+    Pre-FOMC Rally signal.
+    Strong run-up into FOMC meeting increases reversal risk.
+    """
+    today = spy_close.index[-1]
+    pre_window = 5
+    pctile_threshold = 75
+    lookback = 504
+
+    # Check if we're within ~5 trading days before any FOMC date
+    in_pre_fomc = False
+    next_fomc = None
+
+    for fomc_date in FOMC_DATES:
+        days_ahead = (fomc_date - today).days
+        if 0 <= days_ahead <= 8:  # ~5 trading days = 7-8 calendar days
+            in_pre_fomc = True
+            next_fomc = fomc_date
+            break
+
+    # Compute 5d trailing return percentile
+    pre_return = spy_close.pct_change(pre_window)
+    pre_pctile = _rolling_percentile(pre_return, lookback)
+
+    latest_pctile = float(pre_pctile.iloc[-1]) if len(pre_pctile) > 0 and not np.isnan(pre_pctile.iloc[-1]) else 0.0
+
+    signal_on = in_pre_fomc and latest_pctile > pctile_threshold
+
+    detail = ""
+    if signal_on:
+        fomc_str = next_fomc.strftime('%b %d') if next_fomc is not None else "upcoming"
+        detail = (
+            f"FOMC on {fomc_str} \u2014 SPY trailing 5d return at "
+            f"{latest_pctile:.0f}th percentile. Strong pre-FOMC rally increases "
+            f"'buy the rumor, sell the news' reversal risk."
+        )
+
+    return signal_on, latest_pctile, detail
 
 
 # ---------------------------------------------------------------------------
@@ -514,210 +611,47 @@ def compute_regime_multiplier(price_ctx: dict) -> float:
 
 def compute_condition_signals(metrics: dict, price_ctx: dict) -> dict:
     """
-    Compute the three-question signal framework.
+    Compute the three-question signal framework using 4 validated signals.
 
     Returns dict of:
     {
-        'signals': {name: bool},        # ON/OFF for each signal
-        'details': {name: str},          # Brief explanation when active
-        'questions': {                   # Grouped by question
-            'Is liquidity real?': [signal_names],
-            'Is everyone on the same side?': [signal_names],
-            'Are correlations stable?': [signal_names],
-        }
+        'signals': {name: bool},
+        'details': {name: str},
+        'questions': {question: [signal_names]},
     }
     """
     signals = {}
     details = {}
 
-    # =====================================================================
-    # QUESTION 1: IS LIQUIDITY REAL?
-    # =====================================================================
+    # Question 1: Is liquidity real? (1 signal)
+    signals['VIX Range Compression'] = metrics.get('vrc_on', False)
+    if metrics.get('vrc_detail'):
+        details['VIX Range Compression'] = metrics['vrc_detail']
 
-    # Signal 1A: Vol Suppression
-    ar_pctile = metrics.get('ar_pctile')
-    rv22d_pctile = metrics.get('rv_22d_pctile')
+    # Question 2: Is everyone on the same side? (2 signals)
+    signals['Distribution Dominance'] = metrics.get('da_on', False)
+    if metrics.get('da_detail'):
+        details['Distribution Dominance'] = metrics['da_detail']
 
-    vol_suppression_on = False
-    if ar_pctile is not None and rv22d_pctile is not None:
-        vol_suppression_on = (ar_pctile < 25) and (rv22d_pctile < 35)
-    signals['Vol Suppression'] = vol_suppression_on
-    if vol_suppression_on:
-        details['Vol Suppression'] = (
-            f"Absorption ratio at {ar_pctile:.0f}th pctile while realized vol at "
-            f"{rv22d_pctile:.0f}th pctile. Index vol is likely being suppressed by "
-            f"systematic selling \u2014 apparent calm masks thin underlying liquidity."
-        )
+    signals['Defensive Leadership'] = metrics.get('dl_on', False)
+    if metrics.get('dl_detail'):
+        details['Defensive Leadership'] = metrics['dl_detail']
 
-    # Signal 1B: VRP Compression
-    vrp = metrics.get('vrp')
-    vrp_pctile = metrics.get('vrp_pctile')
+    # Question 3: Are correlations stable? (1 signal)
+    signals['Pre-FOMC Rally'] = metrics.get('fomc_on', False)
+    if metrics.get('fomc_detail'):
+        details['Pre-FOMC Rally'] = metrics['fomc_detail']
 
-    vrp_compression_on = False
-    if vrp is not None and vrp_pctile is not None:
-        vrp_compression_on = (vrp < 0) or (vrp_pctile < 15)
-    signals['VRP Compression'] = vrp_compression_on
-    if vrp_compression_on:
-        if vrp is not None and vrp < 0:
-            details['VRP Compression'] = (
-                f"VRP is negative ({vrp:.4f}) \u2014 realized vol exceeds implied. "
-                f"The market was underpricing risk. Options are too cheap to hedge."
-            )
-        else:
-            details['VRP Compression'] = (
-                f"VRP at {vrp_pctile:.0f}th percentile \u2014 very little risk premium. "
-                f"Market is complacent about future vol."
-            )
-
-    # =====================================================================
-    # QUESTION 2: IS EVERYONE ON THE SAME SIDE?
-    # =====================================================================
-
-    # Signal 2A: Breadth Divergence
-    pct200 = metrics.get('pct_above_200')
-    spy_near_high = metrics.get('spy_near_52w_high')
-
-    breadth_div_on = False
-    if pct200 is not None and spy_near_high is not None:
-        breadth_div_on = spy_near_high and (pct200 < 55)
-    signals['Breadth Divergence'] = breadth_div_on
-    if breadth_div_on:
-        details['Breadth Divergence'] = (
-            f"SPY is near its 52-week high but only {pct200:.0f}% of sectors are "
-            f"above their 200d SMA. The index is being held up by a few names \u2014 "
-            f"the army is retreating while the flag is still flying."
-        )
-
-    # Signal 2B: Extended Calm (compound complacency)
-    ds_5_pctile = metrics.get('days_since_5pct_pctile')
-    ds_vix_pctile = metrics.get('days_since_vix_spike_pctile')
-
-    extended_calm_on = False
-    both_elevated = (ds_5_pctile is not None and ds_5_pctile > 70 and
-                     ds_vix_pctile is not None and ds_vix_pctile > 70)
-    either_extreme = ((ds_5_pctile is not None and ds_5_pctile > 85) or
-                      (ds_vix_pctile is not None and ds_vix_pctile > 85))
-    extended_calm_on = both_elevated or either_extreme
-    signals['Extended Calm'] = extended_calm_on
-    if extended_calm_on:
-        ds5_str = f"{metrics.get('days_since_5pct', 0):.0f} days ({ds_5_pctile:.0f}th)" if ds_5_pctile else "N/A"
-        dsv_str = f"{metrics.get('days_since_vix_spike', 0):.0f} days ({ds_vix_pctile:.0f}th)" if ds_vix_pctile else "N/A"
-        details['Extended Calm'] = (
-            f"Days since 5% correction: {ds5_str}. Days since VIX > 28: {dsv_str}. "
-            f"Leveraged and systematic positions haven't been cleared in a long time."
-        )
-
-    # Signal 2C: Vol Compression Duration
-    rv22d_series = metrics.get('rv_22d_series')
-    vol_compress_on = False
-    vol_compress_days = 0
-    vol_compress_depth = 0.0
-    if rv22d_series is not None and len(rv22d_series.dropna()) > 252:
-        rv_median = rv22d_series.expanding(min_periods=252).median()
-        below_median = rv22d_series < rv_median
-
-        # Count consecutive days below median at end of series
-        clean = below_median.dropna()
-        if len(clean) > 0 and clean.iloc[-1]:
-            count = 0
-            for i in range(len(clean) - 1, -1, -1):
-                if clean.iloc[i]:
-                    count += 1
-                else:
-                    break
-            vol_compress_days = count
-
-            # Depth: how far below median is current RV?
-            cur_rv = rv22d_series.dropna().iloc[-1]
-            cur_median = rv_median.dropna().iloc[-1]
-            if cur_median > 0:
-                vol_compress_depth = 1.0 - (cur_rv / cur_median)
-
-        vol_compress_on = vol_compress_days > 60
-
-    signals['Vol Compression'] = vol_compress_on
-    if vol_compress_on:
-        details['Vol Compression'] = (
-            f"Realized vol has been below its median for {vol_compress_days} consecutive days "
-            f"(currently {vol_compress_depth:.0%} below median). Participants have adapted: "
-            f"reduced hedges, increased leverage, sold options."
-        )
-
-    # =====================================================================
-    # QUESTION 3: ARE CORRELATIONS STABLE?
-    # =====================================================================
-
-    # Signal 3A: Credit-Equity Divergence
-    hy_z = metrics.get('credit_hy_z')
-    spy_21d_ret = metrics.get('spy_21d_return')
-
-    credit_eq_div_on = False
-    if hy_z is not None and spy_21d_ret is not None:
-        credit_eq_div_on = (hy_z > 0.75) and (spy_21d_ret > -0.02)
-    signals['Credit-Equity Divergence'] = credit_eq_div_on
-    if credit_eq_div_on:
-        details['Credit-Equity Divergence'] = (
-            f"HY credit spreads widening (z: {hy_z:+.1f}\u03c3) while SPX is stable "
-            f"({spy_21d_ret:+.1%} over 21d). Credit is sniffing risk that equity "
-            f"hasn't priced. Historically leads equity by 2-6 weeks."
-        )
-
-    # Signal 3B: Rates-Equity Vol Gap
-    move_val = metrics.get('move')
-    move_pctile = metrics.get('move_pctile')
-    vix_val = metrics.get('vix')
-    vix_pctile = metrics.get('vix_pctile')
-
-    rates_eq_gap_on = False
-    if move_pctile is not None and vix_pctile is not None:
-        rates_eq_gap_on = (move_pctile > 70) and (vix_pctile < 40)
-    elif move_val is not None and vix_val is not None:
-        rates_eq_gap_on = (move_val > 100) and (vix_val < 18)
-    signals['Rates-Equity Vol Gap'] = rates_eq_gap_on
-    if rates_eq_gap_on:
-        move_str = f"{move_val:.0f}" if move_val else "N/A"
-        vix_str = f"{vix_val:.1f}" if vix_val else "N/A"
-        details['Rates-Equity Vol Gap'] = (
-            f"MOVE at {move_str} (elevated) while VIX at {vix_str} (calm). "
-            f"Rates vol transmits to equity vol via dealer balance sheets. "
-            f"This gap tends to close via equity vol rising."
-        )
-
-    # Signal 3C: VIX Uncertainty
-    vvix_val = metrics.get('vvix')
-    vvix_vix_ratio = None
-    if vvix_val is not None and vix_val is not None and vix_val > 0:
-        vvix_vix_ratio = vvix_val / vix_val
-
-    vvix_vix_pctile = metrics.get('vvix_vix_ratio_pctile')
-
-    vol_uncertainty_on = False
-    if vvix_vix_pctile is not None:
-        vol_uncertainty_on = vvix_vix_pctile > 80
-    elif vvix_vix_ratio is not None:
-        vol_uncertainty_on = vvix_vix_ratio > 7.5
-    signals['Vol Uncertainty'] = vol_uncertainty_on
-    if vol_uncertainty_on:
-        ratio_str = f"{vvix_vix_ratio:.1f}" if vvix_vix_ratio else "N/A"
-        details['Vol Uncertainty'] = (
-            f"VVIX/VIX ratio at {ratio_str} (elevated). The options market is "
-            f"pricing wide uncertainty around the vol path \u2014 the market doesn't "
-            f"trust the current calm. Explosive move potential in either direction."
-        )
-
-    # Group signals by question
     questions = {
-        'Is liquidity real?': ['Vol Suppression', 'VRP Compression'],
-        'Is everyone on the same side?': ['Breadth Divergence', 'Extended Calm', 'Vol Compression'],
-        'Are correlations stable?': ['Credit-Equity Divergence', 'Rates-Equity Vol Gap', 'Vol Uncertainty'],
+        'Is liquidity real?': ['VIX Range Compression'],
+        'Is everyone on the same side?': ['Distribution Dominance', 'Defensive Leadership'],
+        'Are correlations stable?': ['Pre-FOMC Rally'],
     }
 
     return {
         'signals': signals,
         'details': details,
         'questions': questions,
-        'vol_compress_days': vol_compress_days,
-        'vol_compress_depth': vol_compress_depth,
     }
 
 
@@ -871,7 +805,7 @@ def compute_fragility_score(signal_result: dict, regime_multiplier: float) -> fl
         return 0.0
 
     # Base score: linear from 0 (none active) to 80 (all active)
-    # Reserve 80-100 for extreme regime-amplified readings
+    # Each signal = 20 base pts (4 signals total)
     base = (active_count / total_signals) * 80
 
     # Apply regime multiplier
@@ -965,185 +899,6 @@ def chart_absorption_ratio(ar_series: pd.Series) -> go.Figure:
     return fig
 
 
-def status_badge(label: str, value, fmt: str = ".2f", alert: bool = False, alarm: bool = False) -> str:
-    if alarm:
-        color = "#CC0000"
-        icon = "\U0001f534"
-    elif alert:
-        color = "#FFD700"
-        icon = "\U0001f7e1"
-    else:
-        color = "#00CC00"
-        icon = "\U0001f7e2"
-    val_str = f"{value:{fmt}}" if isinstance(value, (int, float)) and not np.isnan(value) else "N/A"
-    return f"{icon} **{label}:** {val_str}"
-
-
-# ---------------------------------------------------------------------------
-# LAYER CHARTS
-# ---------------------------------------------------------------------------
-
-COMPACT_HEIGHT = 200  # Layer 3 charts
-
-
-def chart_realized_vol(rv_22d: pd.Series, rv_5d: pd.Series = None) -> go.Figure:
-    """Realized vol chart (Yang-Zhang). Defaults to 1-year view."""
-    fig = go.Figure()
-    if rv_5d is not None:
-        fig.add_trace(go.Scatter(
-            x=rv_5d.index, y=rv_5d,
-            name="RV 5d", line=dict(width=1, color="rgba(0,102,204,0.3)"),
-        ))
-    fig.add_trace(go.Scatter(
-        x=rv_22d.index, y=rv_22d,
-        name="RV 22d", line=dict(width=1.5, color="#0066CC"),
-    ))
-    fig.update_layout(**_base_layout("Realized Volatility (Yang-Zhang)"))
-    one_yr_ago = (datetime.datetime.now() - datetime.timedelta(days=365)).strftime("%Y-%m-%d")
-    fig.update_xaxes(range=[one_yr_ago, datetime.datetime.now().strftime("%Y-%m-%d")])
-    fig.update_yaxes(tickformat=".0%")
-    return fig
-
-
-def chart_vrp(vrp_series: pd.Series) -> go.Figure:
-    """Variance Risk Premium. Defaults to 1-year view."""
-    fig = go.Figure()
-    fig.add_trace(go.Scatter(
-        x=vrp_series.index, y=vrp_series,
-        name="VRP", line=dict(width=1.5, color="#0066CC"),
-        fill='tozeroy', fillcolor='rgba(0,102,204,0.08)',
-    ))
-    fig.add_hline(y=0, line_dash="dot", line_color="#CC0000", line_width=1,
-                  annotation_text="0", annotation_position="right")
-    fig.update_layout(**_base_layout("Variance Risk Premium"))
-    one_yr_ago = (datetime.datetime.now() - datetime.timedelta(days=365)).strftime("%Y-%m-%d")
-    fig.update_xaxes(range=[one_yr_ago, datetime.datetime.now().strftime("%Y-%m-%d")])
-    return fig
-
-
-def chart_vix_term_structure(vix_close: pd.Series, vix3m_close: pd.Series) -> go.Figure:
-    """VIX/VIX3M term structure ratio. >1 = backwardation."""
-    common = vix_close.dropna().index.intersection(vix3m_close.dropna().index)
-    ratio = (vix_close.reindex(common) / vix3m_close.reindex(common)).replace(
-        [np.inf, -np.inf], np.nan).dropna()
-    fig = go.Figure()
-    fig.add_trace(go.Scatter(
-        x=ratio.index, y=ratio,
-        name="VIX/VIX3M", line=dict(width=1.5, color="#0066CC"),
-    ))
-    fig.add_hline(y=1.0, line_dash="dot", line_color="#CC0000", line_width=1,
-                  annotation_text="Backwardation", annotation_position="right")
-    fig.update_layout(**_base_layout("VIX Term Structure (VIX / VIX3M)"))
-    return fig
-
-
-def chart_vvix(vvix_close: pd.Series) -> go.Figure:
-    """VVIX time series."""
-    fig = go.Figure()
-    fig.add_trace(go.Scatter(
-        x=vvix_close.index, y=vvix_close,
-        name="VVIX", line=dict(width=1.5, color="#0066CC"),
-    ))
-    fig.update_layout(**_base_layout("VVIX (Volatility of VIX)"))
-    return fig
-
-
-def chart_breadth(breadth_df: pd.DataFrame, source_label: str = "") -> go.Figure:
-    """Breadth: % of constituents above 200d and 50d SMA."""
-    title = f"Breadth (% Above SMA) \u2014 {source_label}" if source_label else "Breadth (% Above SMA)"
-    fig = go.Figure()
-    fig.add_trace(go.Scatter(
-        x=breadth_df.index, y=breadth_df["pct_above_200"],
-        name="% > 200d SMA", line=dict(width=1.5, color="#0066CC"),
-    ))
-    fig.add_trace(go.Scatter(
-        x=breadth_df.index, y=breadth_df["pct_above_50"],
-        name="% > 50d SMA", line=dict(width=1, color="#999999"),
-    ))
-    fig.add_hline(y=55, line_dash="dot", line_color="#FFD700", line_width=1,
-                  annotation_text="55%", annotation_position="right")
-    fig.update_layout(**_base_layout(title))
-    fig.update_yaxes(range=[0, 100], ticksuffix="%")
-    return fig
-
-
-def chart_complacency(days_5: pd.Series, days_vix: pd.Series,
-                      days_10: pd.Series = None) -> go.Figure:
-    """Complacency counter sawtooth charts."""
-    fig = go.Figure()
-    fig.add_trace(go.Scatter(
-        x=days_5.index, y=days_5,
-        name="Days since 5% drawdown",
-        line=dict(width=1.5, color="#0066CC"),
-    ))
-    if days_10 is not None and len(days_10.dropna()) > 0:
-        fig.add_trace(go.Scatter(
-            x=days_10.index, y=days_10,
-            name="Days since 10% drawdown",
-            line=dict(width=1, color="#0066CC", dash="dot"),
-        ))
-    if days_vix is not None and len(days_vix.dropna()) > 0:
-        fig.add_trace(go.Scatter(
-            x=days_vix.index, y=days_vix,
-            name="Days since VIX > 28",
-            line=dict(width=1.5, color="#CC6600"),
-        ))
-    fig.update_layout(**_base_layout("Complacency Counters"))
-    return fig
-
-
-def chart_credit_spreads(ig_z: pd.Series, hy_z: pd.Series) -> go.Figure:
-    """Credit spread z-scores (63d rolling)."""
-    fig = go.Figure()
-    fig.add_trace(go.Scatter(
-        x=ig_z.index, y=ig_z,
-        name="IG Spread Z", line=dict(width=1.5, color="#0066CC"),
-    ))
-    fig.add_trace(go.Scatter(
-        x=hy_z.index, y=hy_z,
-        name="HY Spread Z", line=dict(width=1.5, color="#CC6600"),
-    ))
-    fig.add_hline(y=1.0, line_dash="dot", line_color="#FFD700", line_width=1,
-                  annotation_text="Alert", annotation_position="right")
-    fig.add_hline(y=0, line_dash="dot", line_color="rgba(128,128,128,0.3)", line_width=0.5)
-    layout = _base_layout("Credit Spread Z-Scores (63d Rolling)")
-    layout['height'] = COMPACT_HEIGHT
-    fig.update_layout(**layout)
-    return fig
-
-
-def chart_move(move_series: pd.Series) -> go.Figure:
-    """MOVE Index with threshold bands."""
-    fig = go.Figure()
-    fig.add_trace(go.Scatter(
-        x=move_series.index, y=move_series,
-        name="MOVE", line=dict(width=1.5, color="#0066CC"),
-    ))
-    fig.add_hline(y=80, line_dash="dot", line_color="#00CC00", line_width=0.5,
-                  annotation_text="80", annotation_position="right")
-    fig.add_hline(y=120, line_dash="dot", line_color="#FFD700", line_width=1,
-                  annotation_text="120", annotation_position="right")
-    fig.add_hline(y=150, line_dash="dot", line_color="#CC0000", line_width=1,
-                  annotation_text="150", annotation_position="right")
-    layout = _base_layout("MOVE Index (Rates Volatility)")
-    layout['height'] = COMPACT_HEIGHT
-    fig.update_layout(**layout)
-    return fig
-
-
-def chart_vvix_vix_ratio(ratio_series: pd.Series) -> go.Figure:
-    """VVIX/VIX ratio — measures vol uncertainty."""
-    fig = go.Figure()
-    fig.add_trace(go.Scatter(
-        x=ratio_series.index, y=ratio_series,
-        name="VVIX/VIX", line=dict(width=1.5, color="#0066CC"),
-    ))
-    layout = _base_layout("VVIX / VIX Ratio (Vol Uncertainty)")
-    layout['height'] = COMPACT_HEIGHT
-    fig.update_layout(**layout)
-    return fig
-
-
 # ============================================================================
 # MAIN APP
 # ============================================================================
@@ -1206,175 +961,32 @@ def main():
     spy_close = spy_df["Close"]
 
     # -------------------------------------------------------------------
-    # COMPUTATIONS FOR SIGNAL FRAMEWORK
+    # COMPUTE 4 VALIDATED SIGNALS
     # -------------------------------------------------------------------
+    da_on, da_ratio_val, da_detail = compute_da_signal(spy_df)
 
-    # Layer 1: Realized vol + VRP
-    rv_5d = yang_zhang_vol(spy_df, 5)
-    rv_22d = yang_zhang_vol(spy_df, 22)
-    rv_22d_pctile = expanding_percentile(rv_22d)
+    vix_close = closes["^VIX"].dropna() if "^VIX" in closes.columns else pd.Series(dtype=float)
+    vrc_on, vrc_pctile_val, vrc_detail = compute_vix_range_compression(vix_close)
 
-    vix_available = "^VIX" in closes.columns
-    vrp_series = pd.Series(dtype=float)
-    vrp_pctile_series = pd.Series(dtype=float)
-    if vix_available:
-        vix_close = closes["^VIX"].dropna()
-        common_idx = rv_22d.dropna().index.intersection(vix_close.index)
-        if len(common_idx) > 0:
-            vrp_series = compute_vrp(vix_close.reindex(common_idx), rv_22d.reindex(common_idx))
-            vrp_pctile_series = expanding_percentile(vrp_series)
+    dl_on, dl_spread_val, dl_detail = compute_defensive_leadership(sp500_closes, spy_close)
 
-    vvix_available = "^VVIX" in closes.columns
-
-    # Layer 2: Breadth, AR, complacency (AR gets a chart)
-    sector_cols = [c for c in SECTOR_ETFS if c in closes.columns]
-    sector_closes = closes[sector_cols].dropna(axis=1, how="all")
-    sector_returns = sector_closes.pct_change().dropna(how="all")
-
-    active_sectors = sector_returns.columns.tolist()
-    if len(active_sectors) < 8:
-        st.warning(f"Only {len(active_sectors)} sector ETFs available (need 8+). Some metrics may be degraded.")
-
-    # Prefer full S&P 500 breadth, fall back to sector ETFs
-    if sp500_closes is not None and len(sp500_closes.columns) > 50:
-        breadth_df = compute_breadth(sp500_closes)
-        breadth_source = f"S&P 500 ({len(sp500_closes.columns)} stocks)"
-    else:
-        breadth_df = compute_breadth(sector_closes)
-        breadth_source = f"Sector ETFs ({len(sector_cols)})"
-
-    ar_series = pd.Series(dtype=float)
-    if len(active_sectors) >= 5:
-        with st.spinner("Computing absorption ratio (PCA)..."):
-            ar_series = compute_absorption_ratio(sector_returns, window=63)
-
-    days_since_5_series = compute_days_since(spy_close, threshold_pct=0.05)
-    days_since_5_pctile_series = expanding_percentile(days_since_5_series, min_periods=252)
-    days_since_10_series = compute_days_since(spy_close, threshold_pct=0.10)
-
-    days_since_vix_series = pd.Series(dtype=float)
-    days_since_vix_pctile_series = pd.Series(dtype=float)
-    if vix_available:
-        vix_c_for_spike = closes["^VIX"].dropna()
-        days_since_vix_series = compute_days_since_vix_spike(vix_c_for_spike, threshold=28.0)
-        days_since_vix_pctile_series = expanding_percentile(days_since_vix_series, min_periods=252)
-
-    # Layer 3: Credit spreads + MOVE (feed signals, no charts)
-    ig_z_series = pd.Series(dtype=float)
-    hy_z_series = pd.Series(dtype=float)
-    lqd_ok = 'LQD' in closes.columns
-    hyg_ok = 'HYG' in closes.columns
-    ief_ok = 'IEF' in closes.columns
-    if lqd_ok and hyg_ok and ief_ok:
-        try:
-            lqd_c = closes['LQD'].dropna()
-            hyg_c = closes['HYG'].dropna()
-            ief_c = closes['IEF'].dropna()
-            common_credit = lqd_c.index.intersection(
-                hyg_c.index).intersection(ief_c.index)
-            if len(common_credit) > 63:
-                ig_z_series, hy_z_series = compute_credit_spread_proxy(
-                    lqd_c.reindex(common_credit),
-                    hyg_c.reindex(common_credit),
-                    ief_c.reindex(common_credit),
-                )
-        except Exception as e:
-            print(f"Warning: Credit spread computation failed: {e}")
-
-    move_series = pd.Series(dtype=float)
-    if '^MOVE' in closes.columns:
-        try:
-            move_series = closes['^MOVE'].dropna()
-        except Exception:
-            pass
+    fomc_on, fomc_pctile_val, fomc_detail = compute_fomc_signal(spy_close)
 
     # -------------------------------------------------------------------
-    # COLLECT CURRENT READINGS
+    # EXECUTIVE SUMMARY
     # -------------------------------------------------------------------
-    def _last_valid(s):
-        if s is None or len(s) == 0:
-            return None
-        v = s.dropna()
-        return float(v.iloc[-1]) if len(v) > 0 else None
 
-    cur_rv22d_pctile = _last_valid(rv_22d_pctile)
-    cur_vrp = _last_valid(vrp_series)
-    cur_vrp_pctile = _last_valid(vrp_pctile_series)
-    cur_vvix = _last_valid(closes["^VVIX"]) if vvix_available else None
-    cur_pct200 = _last_valid(breadth_df["pct_above_200"]) if not breadth_df.empty else None
-
-    # SPY near 52-week high?
-    spy_52w_high = spy_close.rolling(252).max()
-    spy_near_high = False
-    if len(spy_52w_high.dropna()) > 0:
-        latest_price = float(spy_close.iloc[-1])
-        latest_high = float(spy_52w_high.iloc[-1])
-        if latest_high > 0:
-            spy_near_high = latest_price >= latest_high * 0.95
-
-    cur_days_since_5 = _last_valid(days_since_5_series)
-    cur_days_since_5_pctile = _last_valid(days_since_5_pctile_series)
-    cur_days_since_vix = _last_valid(days_since_vix_series)
-    cur_days_since_vix_pctile = _last_valid(days_since_vix_pctile_series)
-    cur_hy_z = _last_valid(hy_z_series)
-    cur_move = _last_valid(move_series)
-
-    # Additional percentiles for signal framework
-    ar_pctile_series = expanding_percentile(ar_series) if len(ar_series.dropna()) > 0 else pd.Series(dtype=float)
-    cur_ar_pctile = _last_valid(ar_pctile_series)
-
-    move_pctile_series = expanding_percentile(move_series) if len(move_series.dropna()) > 0 else pd.Series(dtype=float)
-    cur_move_pctile = _last_valid(move_pctile_series)
-
-    cur_vix = _last_valid(closes["^VIX"]) if vix_available else None
-    vix_pctile_series = expanding_percentile(closes["^VIX"].dropna()) if vix_available else pd.Series(dtype=float)
-    cur_vix_pctile = _last_valid(vix_pctile_series)
-
-    spy_21d_return = float(spy_close.iloc[-1] / spy_close.iloc[-22] - 1) if len(spy_close) >= 22 else None
-
-    cur_vvix_vix_ratio_pctile = None
-    vvix_vix_ratio_series = pd.Series(dtype=float)
-    if vvix_available and vix_available:
-        vvix_c_ratio = closes["^VVIX"].dropna()
-        vix_c_ratio = closes["^VIX"].dropna()
-        common_ratio = vvix_c_ratio.index.intersection(vix_c_ratio.index)
-        vvix_vix_ratio_series = vvix_c_ratio.reindex(common_ratio) / vix_c_ratio.reindex(common_ratio)
-        vvix_vix_ratio_series = vvix_vix_ratio_series.replace([np.inf, -np.inf], np.nan).dropna()
-        vvix_vix_ratio_pctile_series = expanding_percentile(vvix_vix_ratio_series) if len(vvix_vix_ratio_series) > 0 else pd.Series(dtype=float)
-        cur_vvix_vix_ratio_pctile = _last_valid(vvix_vix_ratio_pctile_series)
-
-    # ===================================================================
-    # EXECUTIVE SUMMARY — Signal-Based Framework
-    # ===================================================================
-
-    # Compute price context
+    # Price context + regime
     price_ctx = compute_price_context(spy_close)
     regime_mult = compute_regime_multiplier(price_ctx)
-
-    # Section A: Price Context Banner
     render_price_context(price_ctx)
 
-    # Compute condition signals
+    # Signal framework
     signal_metrics = {
-        'rv_22d_pctile': cur_rv22d_pctile,
-        'vrp': cur_vrp,
-        'vrp_pctile': cur_vrp_pctile,
-        'pct_above_200': cur_pct200,
-        'spy_near_52w_high': spy_near_high,
-        'days_since_5pct_pctile': cur_days_since_5_pctile,
-        'days_since_vix_spike_pctile': cur_days_since_vix_pctile,
-        'days_since_5pct': cur_days_since_5,
-        'days_since_vix_spike': cur_days_since_vix,
-        'credit_hy_z': cur_hy_z,
-        'move': cur_move,
-        'vvix': cur_vvix,
-        'vix': cur_vix,
-        'ar_pctile': cur_ar_pctile,
-        'rv_22d_series': rv_22d,
-        'spy_21d_return': spy_21d_return,
-        'move_pctile': cur_move_pctile,
-        'vix_pctile': cur_vix_pctile,
-        'vvix_vix_ratio_pctile': cur_vvix_vix_ratio_pctile,
+        'da_on': da_on, 'da_detail': da_detail,
+        'vrc_on': vrc_on, 'vrc_detail': vrc_detail,
+        'dl_on': dl_on, 'dl_detail': dl_detail,
+        'fomc_on': fomc_on, 'fomc_detail': fomc_detail,
     }
     signal_result = compute_condition_signals(signal_metrics, price_ctx)
 
@@ -1411,146 +1023,25 @@ def main():
 
         if active_count == 0:
             dial_label = "No warning signals active"
-            hit_rate_note = ""
-        elif active_count <= 2:
-            dial_label = f"{active_count} of {total_count} signals active"
-            hit_rate_note = "Historically, 1-2 active signals precede corrections ~30% of the time."
-        elif active_count <= 4:
-            dial_label = f"{active_count} of {total_count} signals active"
-            hit_rate_note = "3-4 signals active has preceded corrections within 6 weeks ~55% of the time."
         else:
             dial_label = f"{active_count} of {total_count} signals active"
-            hit_rate_note = "5+ signals is rare and has historically preceded significant corrections."
 
         st.markdown(f"<p style='text-align: center; font-size: 13px; margin-top: -8px;'>{dial_label}</p>",
                     unsafe_allow_html=True)
-        if hit_rate_note:
-            st.markdown(f"<p style='text-align: center; font-size: 11px; color: #888; margin-top: -5px; font-style: italic;'>{hit_rate_note}</p>",
-                        unsafe_allow_html=True)
 
-    # Section C: Stored Energy (conditional — only when 2+ signals active)
-    vol_compress_days = signal_result.get('vol_compress_days', 0)
-    vol_compress_depth = signal_result.get('vol_compress_depth', 0.0)
+    # -------------------------------------------------------------------
+    # ABSORPTION RATIO CHART
+    # -------------------------------------------------------------------
+    sector_cols = [c for c in SECTOR_ETFS if c in closes.columns]
+    sector_closes = closes[sector_cols].dropna(axis=1, how="all")
+    sector_returns = sector_closes.pct_change().dropna(how="all")
 
-    if active_count >= 2:
-        st.markdown("---")
-        st.markdown("##### If conditions deteriorate:")
-
-        se_cols = st.columns(3)
-
-        with se_cols[0]:
-            if vol_compress_days > 0:
-                st.metric(
-                    "Vol Compression",
-                    f"{vol_compress_days}d below median",
-                    f"Depth: {vol_compress_depth:.0%} below",
-                )
-            else:
-                st.metric("Vol Compression", "Not compressed", "")
-
-        with se_cols[1]:
-            ds5_val = int(cur_days_since_5) if cur_days_since_5 and not np.isnan(cur_days_since_5) else 0
-            ds5_p = f"{cur_days_since_5_pctile:.0f}th" if cur_days_since_5_pctile and not np.isnan(cur_days_since_5_pctile) else "N/A"
-            st.metric(
-                "Calm Streak",
-                f"{ds5_val}d since 5% DD",
-                f"{ds5_p} percentile",
-            )
-
-        with se_cols[2]:
-            ext = price_ctx.get('extension_200d', 0) or 0
-
-            base_dd = 3.0
-            if ext > 0.10:
-                base_dd += 3.0
-            elif ext > 0.05:
-                base_dd += 1.5
-            if vol_compress_days > 100:
-                base_dd += 2.0
-            elif vol_compress_days > 50:
-                base_dd += 1.0
-            if active_count >= 4:
-                base_dd += 2.0
-
-            low_est = base_dd
-            high_est = base_dd + 4.0
-
-            st.metric(
-                "Potential Unwind",
-                f"~{low_est:.0f}\u2013{high_est:.0f}%",
-                "if correction materializes",
-            )
-            st.caption("Based on extension, compression duration, and active signal count. Rough estimate, not a prediction.")
-
-    # ===================================================================
-    # INDICATOR CHARTS — Organized by Layer
-    # ===================================================================
-    st.divider()
-
-    # --- Layer 1: Volatility State (2x2) ---
-    st.subheader("Layer 1: Volatility State")
-
-    l1r1c1, l1r1c2 = st.columns(2)
-    with l1r1c1:
-        st.plotly_chart(chart_realized_vol(rv_22d, rv_5d), use_container_width=True)
-    with l1r1c2:
-        if len(vrp_series.dropna()) > 0:
-            st.plotly_chart(chart_vrp(vrp_series), use_container_width=True)
-        else:
-            st.info("VRP unavailable (missing VIX data).")
-
-    l1r2c1, l1r2c2 = st.columns(2)
-    with l1r2c1:
-        if vix_available and "^VIX3M" in closes.columns:
-            st.plotly_chart(
-                chart_vix_term_structure(closes["^VIX"].dropna(), closes["^VIX3M"].dropna()),
-                use_container_width=True,
-            )
-        else:
-            st.info("VIX term structure unavailable.")
-    with l1r2c2:
-        if vvix_available:
-            st.plotly_chart(chart_vvix(closes["^VVIX"].dropna()), use_container_width=True)
-        else:
-            st.info("VVIX unavailable.")
-
-    # --- Layer 2: Market Internals ---
-    st.subheader("Layer 2: Market Internals")
-
-    l2r1c1, l2r1c2 = st.columns(2)
-    with l2r1c1:
-        if not breadth_df.empty:
-            st.plotly_chart(chart_breadth(breadth_df, breadth_source), use_container_width=True)
-        else:
-            st.info("Breadth data unavailable.")
-    with l2r1c2:
+    if len(sector_returns.columns) >= 5:
+        with st.spinner("Computing absorption ratio..."):
+            ar_series = compute_absorption_ratio(sector_returns, window=63)
         if len(ar_series.dropna()) > 0:
+            st.divider()
             st.plotly_chart(chart_absorption_ratio(ar_series), use_container_width=True)
-        else:
-            st.info("Absorption ratio unavailable (insufficient sector data).")
-
-    if len(days_since_5_series.dropna()) > 0:
-        st.plotly_chart(chart_complacency(days_since_5_series, days_since_vix_series, days_since_10_series), use_container_width=True)
-
-    # --- Layer 3: Cross-Asset Plumbing (compact height) ---
-    st.subheader("Layer 3: Cross-Asset Plumbing")
-
-    l3r1c1, l3r1c2 = st.columns(2)
-    with l3r1c1:
-        if len(ig_z_series.dropna()) > 0:
-            st.plotly_chart(chart_credit_spreads(ig_z_series, hy_z_series), use_container_width=True)
-        else:
-            st.info("Credit spread data unavailable.")
-    with l3r1c2:
-        if len(move_series.dropna()) > 0:
-            st.plotly_chart(chart_move(move_series), use_container_width=True)
-        else:
-            st.info("MOVE index unavailable.")
-
-    if len(vvix_vix_ratio_series.dropna()) > 0:
-        l3r2c1, _ = st.columns(2)
-        with l3r2c1:
-            st.plotly_chart(chart_vvix_vix_ratio(vvix_vix_ratio_series), use_container_width=True)
 
 
 main()
