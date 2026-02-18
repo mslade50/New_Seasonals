@@ -342,11 +342,17 @@ def _rolling_percentile(series: pd.Series, lookback: int) -> pd.Series:
 def compute_da_signal(spy_df: pd.DataFrame) -> dict:
     """
     Distribution/Accumulation signal.
-    Institutional selling beneath the surface during an uptrend.
+    Institutional selling beneath the surface near highs.
+
+    Two levels:
+      - WARNING: ratio > 3.75, SPY within 2% of 52w high, SPY > 50d SMA
+      - ELEVATED: ratio > 6.0, SPY within 2% of 52w high (special risk-off)
     """
     vol_mult = 1.15
     window = 63
-    threshold = 4.0
+    threshold = 3.75
+    elevated_threshold = 6.0
+    near_high_pct = 2.0
 
     close = spy_df["Close"]
     open_ = spy_df["Open"]
@@ -370,33 +376,50 @@ def compute_da_signal(spy_df: pd.DataFrame) -> dict:
         index=dist_count.index,
     )
 
-    signal = da_ratio > threshold
-
-    # Require uptrend (SPY > 50d SMA)
+    # Filters
     sma_50 = close.rolling(50).mean()
-    signal = signal & (close > sma_50)
+    high_52w = close.rolling(252, min_periods=60).max()
+    near_high = close >= high_52w * (1 - near_high_pct / 100)
+
+    signal = (da_ratio > threshold) & (close > sma_50) & near_high
+    elevated = (da_ratio > elevated_threshold) & near_high
 
     latest_ratio = float(da_ratio.iloc[-1]) if len(da_ratio) > 0 and not np.isnan(da_ratio.iloc[-1]) else 0.0
     signal_on = bool(signal.iloc[-1]) if len(signal) > 0 and not pd.isna(signal.iloc[-1]) else False
+    elevated_on = bool(elevated.iloc[-1]) if len(elevated) > 0 and not pd.isna(elevated.iloc[-1]) else False
 
     recent_dist = int(dist_days.iloc[-window:].sum())
     recent_accum = int(accum_days.iloc[-window:].sum())
 
     detail = ""
-    if signal_on:
+    if elevated_on:
+        detail = (
+            f"D/A ratio at {latest_ratio:.1f} \u2014 ELEVATED RISK. "
+            f"{recent_dist} distribution vs {recent_accum} accumulation days "
+            f"over {window} sessions while SPY within {near_high_pct:.0f}% of 52w high. "
+            f"Extreme institutional selling near highs \u2014 consider reducing exposure."
+        )
+    elif signal_on:
         detail = (
             f"D/A ratio at {latest_ratio:.1f} over last {window} sessions "
             f"({recent_dist} distribution vs {recent_accum} accumulation days). "
-            f"Volume-confirmed selling exceeds buying during an uptrend."
+            f"SPY within {near_high_pct:.0f}% of 52w high \u2014 "
+            f"volume-confirmed selling beneath the surface."
         )
 
+    # Combine: elevated overrides base signal
+    is_on = signal_on or elevated_on
+
     summary = (
-        f"D/A ratio: {latest_ratio:.1f} (threshold: {threshold:.0f}) "
+        f"D/A ratio: {latest_ratio:.1f} (threshold: {threshold}) "
         f"\u2014 {recent_dist}D / {recent_accum}A last {window}d"
     )
+    if elevated_on:
+        summary += f" \u2014 ABOVE {elevated_threshold:.0f} ELEVATED THRESHOLD"
 
     return {
-        'on': signal_on,
+        'on': is_on,
+        'elevated': elevated_on,
         'detail': detail,
         'summary': summary,
         'da_ratio': da_ratio,
@@ -720,10 +743,23 @@ def render_signal_board(signals: dict):
     """Render flat signal list with metric summaries."""
     for name, sig in signals.items():
         on = sig['on']
+        elevated = sig.get('elevated', False)
         summary = sig['summary']
         detail = sig.get('detail', '')
 
-        if on:
+        if elevated:
+            st.markdown(
+                f"<div style='padding: 6px 10px; margin-bottom: 6px; "
+                f"background: rgba(204,0,0,0.15); border-left: 4px solid #FF0000; "
+                f"border-radius: 0 4px 4px 0;'>"
+                f"<span style='font-size: 13px;'>\U0001f6a8 <strong>{name}</strong> "
+                f"<span style='color: #FF4444; font-size: 11px; font-weight: 600;'>ELEVATED</span>"
+                f"</span><br>"
+                f"<span style='font-size: 12px; color: #bbb;'>{detail}</span><br>"
+                f"<span style='font-size: 11px; color: #888;'>{summary}</span></div>",
+                unsafe_allow_html=True
+            )
+        elif on:
             st.markdown(
                 f"<div style='padding: 6px 10px; margin-bottom: 6px; "
                 f"background: rgba(204,0,0,0.08); border-left: 3px solid #CC0000; "
@@ -915,15 +951,17 @@ def chart_absorption_ratio(ar_series: pd.Series) -> go.Figure:
 # ---------------------------------------------------------------------------
 
 def chart_da_ratio(da_ratio: pd.Series, spy_close: pd.Series) -> go.Figure:
-    """D/A ratio with threshold line and SPY overlay."""
+    """D/A ratio with threshold lines and SPY overlay."""
     fig = go.Figure()
     clean = da_ratio.dropna()
     fig.add_trace(go.Scatter(
         x=clean.index, y=clean,
         name="D/A Ratio", line=dict(width=1.5, color="#e74c3c"),
     ))
-    fig.add_hline(y=4.0, line_dash="dash", line_color="#FFD700", line_width=1,
-                  annotation_text="Threshold: 4.0", annotation_position="right")
+    fig.add_hline(y=3.75, line_dash="dash", line_color="#FFD700", line_width=1,
+                  annotation_text="Warning: 3.75", annotation_position="right")
+    fig.add_hline(y=6.0, line_dash="dash", line_color="#CC0000", line_width=1,
+                  annotation_text="Elevated: 6.0", annotation_position="right")
     fig.add_trace(go.Scatter(
         x=spy_close.index, y=spy_close,
         name="SPY", line=dict(width=1, color="rgba(100,100,100,0.4)"),
