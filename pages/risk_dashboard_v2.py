@@ -34,12 +34,6 @@ current_dir = os.path.dirname(os.path.abspath(__file__))
 parent_dir = os.path.dirname(current_dir)
 sys.path.append(parent_dir)
 
-# Try to import SP500_TICKERS for breadth (optional)
-try:
-    from abs_return_dispersion import SP500_TICKERS
-except ImportError:
-    SP500_TICKERS = None
-
 # ---------------------------------------------------------------------------
 # CONSTANTS
 # ---------------------------------------------------------------------------
@@ -57,26 +51,151 @@ os.makedirs(DATA_DIR, exist_ok=True)
 
 SIGNAL_CACHE_PATH = os.path.join(DATA_DIR, "risk_dashboard_signal_state.json")
 
+# Parquet cache paths
+CACHE_SPY_OHLC = os.path.join(DATA_DIR, "rd2_spy_ohlc.parquet")
+CACHE_CLOSES   = os.path.join(DATA_DIR, "rd2_closes.parquet")
+CACHE_SP500    = os.path.join(DATA_DIR, "rd2_sp500_closes.parquet")
+
+ALL_SIGNAL_TICKERS = sorted(set(VOL_TICKERS + SECTOR_ETFS + CROSS_ASSET_TICKERS))
+
 # ---------------------------------------------------------------------------
-# DATA DOWNLOAD
+# DATA DOWNLOAD & CACHE LAYER
 # ---------------------------------------------------------------------------
 
-@st.cache_data(ttl=3600, show_spinner="Downloading volatility data...")
-def download_vol_data(start_date: str = "2010-01-01") -> dict:
-    """Download OHLC data for volatility tickers."""
-    return _download_ticker_group(VOL_TICKERS, start_date)
+def _download_sp500_closes(tickers: list, start_date: str,
+                           chunk_size: int = 50, sleep_between: float = 0.3,
+                           progress_callback=None) -> pd.DataFrame:
+    """
+    Batch-download close prices for ~505 S&P 500 constituents.
+    Returns wide DataFrame: index=date, columns=tickers, values=Close.
+    """
+    import time as _time
+
+    clean = sorted(set(str(t).strip().upper().replace(".", "-") for t in tickers))
+    total_batches = (len(clean) + chunk_size - 1) // chunk_size
+    frames = []
+
+    for i in range(0, len(clean), chunk_size):
+        chunk = clean[i : i + chunk_size]
+        batch_num = i // chunk_size + 1
+        if progress_callback:
+            progress_callback(batch_num, total_batches)
+        try:
+            raw = yf.download(chunk, start=start_date,
+                              auto_adjust=True, progress=False, threads=True)
+            if raw is None or raw.empty:
+                continue
+            if isinstance(raw.columns, pd.MultiIndex):
+                lvl0 = raw.columns.get_level_values(0).unique().tolist()
+                key = "Close" if "Close" in lvl0 else ("close" if "close" in lvl0 else None)
+                if key:
+                    close_df = raw[key].copy()
+                else:
+                    continue
+            else:
+                cols = [str(c).capitalize() for c in raw.columns]
+                raw.columns = cols
+                if "Close" in raw.columns:
+                    close_df = raw[["Close"]].copy()
+                    close_df.columns = [chunk[0]] if len(chunk) == 1 else ["UNKNOWN"]
+                else:
+                    continue
+            close_df.columns = [str(c).strip().upper() for c in close_df.columns]
+            if close_df.index.tz is not None:
+                close_df.index = close_df.index.tz_localize(None)
+            frames.append(close_df)
+        except Exception as e:
+            print(f"Warning: S&P 500 batch {batch_num} failed: {e}")
+            if "rate" in str(e).lower():
+                _time.sleep(5)
+        _time.sleep(sleep_between)
+
+    if not frames:
+        return pd.DataFrame()
+    combined = pd.concat(frames, axis=1)
+    combined = combined.loc[:, ~combined.columns.duplicated()]
+    if combined.index.tz is not None:
+        combined.index = combined.index.tz_localize(None)
+    return combined
 
 
-@st.cache_data(ttl=3600, show_spinner="Downloading sector ETF data...")
-def download_sector_data(start_date: str = "2010-01-01") -> dict:
-    """Download OHLC data for sector ETFs."""
-    return _download_ticker_group(SECTOR_ETFS, start_date)
+def load_cached_data():
+    """
+    Load dashboard data from parquet cache.
+    Returns (spy_df, closes, sp500_closes).
+    spy_df: DataFrame with OHLC for SPY.
+    closes: wide DataFrame of Close prices for all signal tickers.
+    sp500_closes: wide DataFrame of Close prices for S&P 500 (or None).
+    Returns (None, None, None) if core caches are missing.
+    """
+    if not os.path.exists(CACHE_SPY_OHLC) or not os.path.exists(CACHE_CLOSES):
+        return None, None, None
+
+    spy_df = pd.read_parquet(CACHE_SPY_OHLC)
+    closes = pd.read_parquet(CACHE_CLOSES)
+
+    sp500_closes = None
+    if os.path.exists(CACHE_SP500):
+        sp500_closes = pd.read_parquet(CACHE_SP500)
+
+    return spy_df, closes, sp500_closes
 
 
-@st.cache_data(ttl=3600, show_spinner="Downloading cross-asset data...")
-def download_cross_asset_data(start_date: str = "2010-01-01") -> dict:
-    """Download OHLC data for cross-asset tickers."""
-    return _download_ticker_group(CROSS_ASSET_TICKERS, start_date)
+def refresh_all_data(start_date: str, progress_callback=None):
+    """
+    Download all data fresh and save to parquet.
+    progress_callback(step_text, pct) for Streamlit progress bar.
+    """
+    def _progress(text, pct):
+        if progress_callback:
+            progress_callback(text, pct)
+
+    # Step 1: Download ~26 signal tickers (VOL + SECTOR + CROSS-ASSET)
+    _progress("Downloading signal tickers...", 0.05)
+    all_data = _download_ticker_group(ALL_SIGNAL_TICKERS, start_date)
+
+    if "SPY" not in all_data:
+        raise RuntimeError("Could not download SPY data. Check your internet connection.")
+
+    # Step 2: Extract SPY OHLC and save
+    _progress("Saving SPY OHLC...", 0.15)
+    spy_df = all_data["SPY"]
+    spy_df.to_parquet(CACHE_SPY_OHLC)
+
+    # Step 3: Build wide closes DataFrame for all signal tickers and save
+    _progress("Saving signal closes...", 0.20)
+    close_frames = {}
+    for ticker, df in all_data.items():
+        if "Close" in df.columns:
+            close_frames[ticker] = df["Close"]
+    closes = pd.DataFrame(close_frames)
+    closes.to_parquet(CACHE_CLOSES)
+
+    # Step 4: Batch-download S&P 500 close prices
+    sp500_tickers = None
+    try:
+        from abs_return_dispersion import SP500_TICKERS as _sp500
+        sp500_tickers = _sp500
+    except ImportError:
+        pass
+
+    if sp500_tickers and len(sp500_tickers) > 50:
+        def _sp500_progress(batch_num, total_batches):
+            pct = 0.25 + 0.70 * (batch_num / total_batches)
+            _progress(f"S&P 500 batch {batch_num}/{total_batches}...", pct)
+
+        sp500_closes = _download_sp500_closes(
+            sp500_tickers, start_date, progress_callback=_sp500_progress
+        )
+        if not sp500_closes.empty:
+            sp500_closes.to_parquet(CACHE_SP500)
+            _progress("S&P 500 data saved.", 0.98)
+        else:
+            _progress("S&P 500 download returned no data.", 0.98)
+    else:
+        _progress("S&P 500 ticker list unavailable — skipping.", 0.98)
+
+    _progress("Done.", 1.0)
 
 
 def _download_ticker_group(tickers: list, start_date: str) -> dict:
@@ -173,13 +292,13 @@ def compute_vrp(vix_close: pd.Series, rv_22d: pd.Series) -> pd.Series:
 # LAYER 2 COMPUTATIONS (feed signals + AR chart)
 # ---------------------------------------------------------------------------
 
-def compute_breadth_sector_proxy(sector_data: dict, window: int = 200) -> pd.DataFrame:
+def compute_breadth(closes: pd.DataFrame) -> pd.DataFrame:
     """
-    Compute % of sector ETFs above their N-day SMA.
+    Compute % of constituents above their 200d and 50d SMA.
+    Works with 11 sector ETFs or ~505 S&P 500 constituents.
+    closes: wide DataFrame (index=date, columns=tickers, values=Close price).
     Returns DataFrame with pct_above_200, pct_above_50 columns.
     """
-    # Build close price matrix
-    closes = pd.DataFrame({t: d["Close"] for t, d in sector_data.items() if "Close" in d.columns})
     if closes.empty:
         return pd.DataFrame()
 
@@ -860,9 +979,183 @@ def status_badge(label: str, value, fmt: str = ".2f", alert: bool = False, alarm
     return f"{icon} **{label}:** {val_str}"
 
 
+# ---------------------------------------------------------------------------
+# LAYER CHARTS
+# ---------------------------------------------------------------------------
+
+COMPACT_HEIGHT = 200  # Layer 3 charts
+
+
+def chart_realized_vol(rv_22d: pd.Series, rv_5d: pd.Series = None) -> go.Figure:
+    """Realized vol chart (Yang-Zhang). Defaults to 1-year view."""
+    fig = go.Figure()
+    if rv_5d is not None:
+        fig.add_trace(go.Scatter(
+            x=rv_5d.index, y=rv_5d,
+            name="RV 5d", line=dict(width=1, color="rgba(0,102,204,0.3)"),
+        ))
+    fig.add_trace(go.Scatter(
+        x=rv_22d.index, y=rv_22d,
+        name="RV 22d", line=dict(width=1.5, color="#0066CC"),
+    ))
+    fig.update_layout(**_base_layout("Realized Volatility (Yang-Zhang)"))
+    one_yr_ago = (datetime.datetime.now() - datetime.timedelta(days=365)).strftime("%Y-%m-%d")
+    fig.update_xaxes(range=[one_yr_ago, datetime.datetime.now().strftime("%Y-%m-%d")])
+    fig.update_yaxes(tickformat=".0%")
+    return fig
+
+
+def chart_vrp(vrp_series: pd.Series) -> go.Figure:
+    """Variance Risk Premium. Defaults to 1-year view."""
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(
+        x=vrp_series.index, y=vrp_series,
+        name="VRP", line=dict(width=1.5, color="#0066CC"),
+        fill='tozeroy', fillcolor='rgba(0,102,204,0.08)',
+    ))
+    fig.add_hline(y=0, line_dash="dot", line_color="#CC0000", line_width=1,
+                  annotation_text="0", annotation_position="right")
+    fig.update_layout(**_base_layout("Variance Risk Premium"))
+    one_yr_ago = (datetime.datetime.now() - datetime.timedelta(days=365)).strftime("%Y-%m-%d")
+    fig.update_xaxes(range=[one_yr_ago, datetime.datetime.now().strftime("%Y-%m-%d")])
+    return fig
+
+
+def chart_vix_term_structure(vix_close: pd.Series, vix3m_close: pd.Series) -> go.Figure:
+    """VIX/VIX3M term structure ratio. >1 = backwardation."""
+    common = vix_close.dropna().index.intersection(vix3m_close.dropna().index)
+    ratio = (vix_close.reindex(common) / vix3m_close.reindex(common)).replace(
+        [np.inf, -np.inf], np.nan).dropna()
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(
+        x=ratio.index, y=ratio,
+        name="VIX/VIX3M", line=dict(width=1.5, color="#0066CC"),
+    ))
+    fig.add_hline(y=1.0, line_dash="dot", line_color="#CC0000", line_width=1,
+                  annotation_text="Backwardation", annotation_position="right")
+    fig.update_layout(**_base_layout("VIX Term Structure (VIX / VIX3M)"))
+    return fig
+
+
+def chart_vvix(vvix_close: pd.Series) -> go.Figure:
+    """VVIX time series."""
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(
+        x=vvix_close.index, y=vvix_close,
+        name="VVIX", line=dict(width=1.5, color="#0066CC"),
+    ))
+    fig.update_layout(**_base_layout("VVIX (Volatility of VIX)"))
+    return fig
+
+
+def chart_breadth(breadth_df: pd.DataFrame, source_label: str = "") -> go.Figure:
+    """Breadth: % of constituents above 200d and 50d SMA."""
+    title = f"Breadth (% Above SMA) \u2014 {source_label}" if source_label else "Breadth (% Above SMA)"
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(
+        x=breadth_df.index, y=breadth_df["pct_above_200"],
+        name="% > 200d SMA", line=dict(width=1.5, color="#0066CC"),
+    ))
+    fig.add_trace(go.Scatter(
+        x=breadth_df.index, y=breadth_df["pct_above_50"],
+        name="% > 50d SMA", line=dict(width=1, color="#999999"),
+    ))
+    fig.add_hline(y=55, line_dash="dot", line_color="#FFD700", line_width=1,
+                  annotation_text="55%", annotation_position="right")
+    fig.update_layout(**_base_layout(title))
+    fig.update_yaxes(range=[0, 100], ticksuffix="%")
+    return fig
+
+
+def chart_complacency(days_5: pd.Series, days_vix: pd.Series) -> go.Figure:
+    """Complacency counter sawtooth charts."""
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(
+        x=days_5.index, y=days_5,
+        name="Days since 5% drawdown",
+        line=dict(width=1.5, color="#0066CC"),
+    ))
+    if days_vix is not None and len(days_vix.dropna()) > 0:
+        fig.add_trace(go.Scatter(
+            x=days_vix.index, y=days_vix,
+            name="Days since VIX > 28",
+            line=dict(width=1.5, color="#CC6600"),
+        ))
+    fig.update_layout(**_base_layout("Complacency Counters"))
+    return fig
+
+
+def chart_credit_spreads(ig_z: pd.Series, hy_z: pd.Series) -> go.Figure:
+    """Credit spread z-scores (63d rolling)."""
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(
+        x=ig_z.index, y=ig_z,
+        name="IG Spread Z", line=dict(width=1.5, color="#0066CC"),
+    ))
+    fig.add_trace(go.Scatter(
+        x=hy_z.index, y=hy_z,
+        name="HY Spread Z", line=dict(width=1.5, color="#CC6600"),
+    ))
+    fig.add_hline(y=1.0, line_dash="dot", line_color="#FFD700", line_width=1,
+                  annotation_text="Alert", annotation_position="right")
+    fig.add_hline(y=0, line_dash="dot", line_color="rgba(128,128,128,0.3)", line_width=0.5)
+    layout = _base_layout("Credit Spread Z-Scores (63d Rolling)")
+    layout['height'] = COMPACT_HEIGHT
+    fig.update_layout(**layout)
+    return fig
+
+
+def chart_move(move_series: pd.Series) -> go.Figure:
+    """MOVE Index with threshold bands."""
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(
+        x=move_series.index, y=move_series,
+        name="MOVE", line=dict(width=1.5, color="#0066CC"),
+    ))
+    fig.add_hline(y=80, line_dash="dot", line_color="#00CC00", line_width=0.5,
+                  annotation_text="80", annotation_position="right")
+    fig.add_hline(y=120, line_dash="dot", line_color="#FFD700", line_width=1,
+                  annotation_text="120", annotation_position="right")
+    fig.add_hline(y=150, line_dash="dot", line_color="#CC0000", line_width=1,
+                  annotation_text="150", annotation_position="right")
+    layout = _base_layout("MOVE Index (Rates Volatility)")
+    layout['height'] = COMPACT_HEIGHT
+    fig.update_layout(**layout)
+    return fig
+
+
+def chart_vvix_vix_ratio(ratio_series: pd.Series) -> go.Figure:
+    """VVIX/VIX ratio — measures vol uncertainty."""
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(
+        x=ratio_series.index, y=ratio_series,
+        name="VVIX/VIX", line=dict(width=1.5, color="#0066CC"),
+    ))
+    layout = _base_layout("VVIX / VIX Ratio (Vol Uncertainty)")
+    layout['height'] = COMPACT_HEIGHT
+    fig.update_layout(**layout)
+    return fig
+
+
 # ============================================================================
 # MAIN APP
 # ============================================================================
+
+def _cache_age_str() -> str:
+    """Return human-readable age of the parquet cache."""
+    if not os.path.exists(CACHE_SPY_OHLC):
+        return "No cache"
+    mtime = os.path.getmtime(CACHE_SPY_OHLC)
+    age_sec = datetime.datetime.now().timestamp() - mtime
+    if age_sec < 60:
+        return "Just now"
+    elif age_sec < 3600:
+        return f"{int(age_sec / 60)}m ago"
+    elif age_sec < 86400:
+        return f"{age_sec / 3600:.1f}h ago"
+    else:
+        return f"{age_sec / 86400:.1f}d ago"
+
 
 def main():
     st.title("\U0001f4ca Risk Dashboard V2")
@@ -873,6 +1166,7 @@ def main():
         lookback_years = st.slider("History (years)", 5, 15, 10)
         st.divider()
         refresh = st.button("\U0001f504 Refresh Data", type="primary", use_container_width=True)
+        st.caption(f"Last refreshed: {_cache_age_str()}")
 
     start_date = (datetime.datetime.now() - datetime.timedelta(days=lookback_years * 365)).strftime("%Y-%m-%d")
 
@@ -882,53 +1176,65 @@ def main():
     else:
         dl_start = "2010-01-01"
 
-    # --- Download data ---
+    # --- Refresh data (manual) ---
     if refresh:
-        st.cache_data.clear()
+        progress_bar = st.progress(0, text="Starting refresh...")
+        def _update_progress(text, pct):
+            progress_bar.progress(min(pct, 1.0), text=text)
+        try:
+            refresh_all_data(dl_start, progress_callback=_update_progress)
+            progress_bar.empty()
+            st.rerun()
+        except RuntimeError as e:
+            progress_bar.empty()
+            st.error(str(e))
+            st.stop()
 
-    vol_data = download_vol_data(dl_start)
-    sector_data = download_sector_data(dl_start)
-    cross_asset_data = download_cross_asset_data(dl_start)
-
-    # Validate minimum data
-    if "SPY" not in vol_data:
-        st.error("Could not download SPY data. Check your internet connection.")
+    # --- Load cached data ---
+    spy_df, closes, sp500_closes = load_cached_data()
+    if spy_df is None:
+        st.info("No cached data found. Click **Refresh Data** in the sidebar to initialize.")
         st.stop()
 
-    spy_df = vol_data["SPY"]
     spy_close = spy_df["Close"]
 
     # -------------------------------------------------------------------
     # COMPUTATIONS FOR SIGNAL FRAMEWORK
     # -------------------------------------------------------------------
 
-    # Layer 1: Realized vol + VRP (feed signals, no charts)
+    # Layer 1: Realized vol + VRP
+    rv_5d = yang_zhang_vol(spy_df, 5)
     rv_22d = yang_zhang_vol(spy_df, 22)
     rv_22d_pctile = expanding_percentile(rv_22d)
 
-    vix_available = "^VIX" in vol_data
+    vix_available = "^VIX" in closes.columns
     vrp_series = pd.Series(dtype=float)
     vrp_pctile_series = pd.Series(dtype=float)
     if vix_available:
-        vix_close = vol_data["^VIX"]["Close"]
-        common_idx = rv_22d.dropna().index.intersection(vix_close.dropna().index)
+        vix_close = closes["^VIX"].dropna()
+        common_idx = rv_22d.dropna().index.intersection(vix_close.index)
         if len(common_idx) > 0:
             vrp_series = compute_vrp(vix_close.reindex(common_idx), rv_22d.reindex(common_idx))
             vrp_pctile_series = expanding_percentile(vrp_series)
 
-    vvix_available = "^VVIX" in vol_data
+    vvix_available = "^VVIX" in closes.columns
 
     # Layer 2: Breadth, AR, complacency (AR gets a chart)
-    sector_closes = pd.DataFrame(
-        {t: d["Close"] for t, d in sector_data.items() if "Close" in d.columns}
-    )
+    sector_cols = [c for c in SECTOR_ETFS if c in closes.columns]
+    sector_closes = closes[sector_cols].dropna(axis=1, how="all")
     sector_returns = sector_closes.pct_change().dropna(how="all")
 
     active_sectors = sector_returns.columns.tolist()
     if len(active_sectors) < 8:
         st.warning(f"Only {len(active_sectors)} sector ETFs available (need 8+). Some metrics may be degraded.")
 
-    breadth_df = compute_breadth_sector_proxy(sector_data)
+    # Prefer full S&P 500 breadth, fall back to sector ETFs
+    if sp500_closes is not None and len(sp500_closes.columns) > 50:
+        breadth_df = compute_breadth(sp500_closes)
+        breadth_source = f"S&P 500 ({len(sp500_closes.columns)} stocks)"
+    else:
+        breadth_df = compute_breadth(sector_closes)
+        breadth_source = f"Sector ETFs ({len(sector_cols)})"
 
     ar_series = pd.Series(dtype=float)
     if len(active_sectors) >= 5:
@@ -941,23 +1247,23 @@ def main():
     days_since_vix_series = pd.Series(dtype=float)
     days_since_vix_pctile_series = pd.Series(dtype=float)
     if vix_available:
-        vix_c_for_spike = vol_data["^VIX"]["Close"].dropna()
+        vix_c_for_spike = closes["^VIX"].dropna()
         days_since_vix_series = compute_days_since_vix_spike(vix_c_for_spike, threshold=28.0)
         days_since_vix_pctile_series = expanding_percentile(days_since_vix_series, min_periods=252)
 
     # Layer 3: Credit spreads + MOVE (feed signals, no charts)
     ig_z_series = pd.Series(dtype=float)
     hy_z_series = pd.Series(dtype=float)
-    lqd_ok = 'LQD' in cross_asset_data
-    hyg_ok = 'HYG' in cross_asset_data
-    ief_ok = 'IEF' in cross_asset_data
+    lqd_ok = 'LQD' in closes.columns
+    hyg_ok = 'HYG' in closes.columns
+    ief_ok = 'IEF' in closes.columns
     if lqd_ok and hyg_ok and ief_ok:
         try:
-            lqd_c = cross_asset_data['LQD']['Close']
-            hyg_c = cross_asset_data['HYG']['Close']
-            ief_c = cross_asset_data['IEF']['Close']
-            common_credit = lqd_c.dropna().index.intersection(
-                hyg_c.dropna().index).intersection(ief_c.dropna().index)
+            lqd_c = closes['LQD'].dropna()
+            hyg_c = closes['HYG'].dropna()
+            ief_c = closes['IEF'].dropna()
+            common_credit = lqd_c.index.intersection(
+                hyg_c.index).intersection(ief_c.index)
             if len(common_credit) > 63:
                 ig_z_series, hy_z_series = compute_credit_spread_proxy(
                     lqd_c.reindex(common_credit),
@@ -968,9 +1274,9 @@ def main():
             print(f"Warning: Credit spread computation failed: {e}")
 
     move_series = pd.Series(dtype=float)
-    if '^MOVE' in cross_asset_data:
+    if '^MOVE' in closes.columns:
         try:
-            move_series = cross_asset_data['^MOVE']['Close'].dropna()
+            move_series = closes['^MOVE'].dropna()
         except Exception:
             pass
 
@@ -986,7 +1292,7 @@ def main():
     cur_rv22d_pctile = _last_valid(rv_22d_pctile)
     cur_vrp = _last_valid(vrp_series)
     cur_vrp_pctile = _last_valid(vrp_pctile_series)
-    cur_vvix = _last_valid(vol_data["^VVIX"]["Close"]) if vvix_available else None
+    cur_vvix = _last_valid(closes["^VVIX"]) if vvix_available else None
     cur_pct200 = _last_valid(breadth_df["pct_above_200"]) if not breadth_df.empty else None
 
     # SPY near 52-week high?
@@ -1012,16 +1318,17 @@ def main():
     move_pctile_series = expanding_percentile(move_series) if len(move_series.dropna()) > 0 else pd.Series(dtype=float)
     cur_move_pctile = _last_valid(move_pctile_series)
 
-    cur_vix = _last_valid(vol_data["^VIX"]["Close"]) if "^VIX" in vol_data else None
-    vix_pctile_series = expanding_percentile(vol_data["^VIX"]["Close"]) if "^VIX" in vol_data else pd.Series(dtype=float)
+    cur_vix = _last_valid(closes["^VIX"]) if vix_available else None
+    vix_pctile_series = expanding_percentile(closes["^VIX"].dropna()) if vix_available else pd.Series(dtype=float)
     cur_vix_pctile = _last_valid(vix_pctile_series)
 
     spy_21d_return = float(spy_close.iloc[-1] / spy_close.iloc[-22] - 1) if len(spy_close) >= 22 else None
 
     cur_vvix_vix_ratio_pctile = None
+    vvix_vix_ratio_series = pd.Series(dtype=float)
     if vvix_available and vix_available:
-        vvix_c_ratio = vol_data["^VVIX"]["Close"].dropna()
-        vix_c_ratio = vol_data["^VIX"]["Close"].dropna()
+        vvix_c_ratio = closes["^VVIX"].dropna()
+        vix_c_ratio = closes["^VIX"].dropna()
         common_ratio = vvix_c_ratio.index.intersection(vix_c_ratio.index)
         vvix_vix_ratio_series = vvix_c_ratio.reindex(common_ratio) / vix_c_ratio.reindex(common_ratio)
         vvix_vix_ratio_series = vvix_vix_ratio_series.replace([np.inf, -np.inf], np.nan).dropna()
@@ -1168,20 +1475,74 @@ def main():
             st.caption("Based on extension, compression duration, and active signal count. Rough estimate, not a prediction.")
 
     # ===================================================================
-    # ABSORPTION RATIO CHART
+    # INDICATOR CHARTS — Organized by Layer
     # ===================================================================
     st.divider()
-    st.subheader("Absorption Ratio")
 
-    if len(ar_series.dropna()) > 0:
-        fig_ar = chart_absorption_ratio(ar_series)
-        st.plotly_chart(fig_ar, use_container_width=True)
+    # --- Layer 1: Volatility State (2x2) ---
+    st.subheader("Layer 1: Volatility State")
 
-        cur_ar = _last_valid(ar_series)
-        if cur_ar is not None:
-            st.markdown(status_badge("AR", cur_ar, fmt=".3f", alert=False, alarm=False))
-    else:
-        st.info("Absorption ratio unavailable (insufficient sector data).")
+    l1r1c1, l1r1c2 = st.columns(2)
+    with l1r1c1:
+        st.plotly_chart(chart_realized_vol(rv_22d, rv_5d), use_container_width=True)
+    with l1r1c2:
+        if len(vrp_series.dropna()) > 0:
+            st.plotly_chart(chart_vrp(vrp_series), use_container_width=True)
+        else:
+            st.info("VRP unavailable (missing VIX data).")
+
+    l1r2c1, l1r2c2 = st.columns(2)
+    with l1r2c1:
+        if vix_available and "^VIX3M" in closes.columns:
+            st.plotly_chart(
+                chart_vix_term_structure(closes["^VIX"].dropna(), closes["^VIX3M"].dropna()),
+                use_container_width=True,
+            )
+        else:
+            st.info("VIX term structure unavailable.")
+    with l1r2c2:
+        if vvix_available:
+            st.plotly_chart(chart_vvix(closes["^VVIX"].dropna()), use_container_width=True)
+        else:
+            st.info("VVIX unavailable.")
+
+    # --- Layer 2: Market Internals ---
+    st.subheader("Layer 2: Market Internals")
+
+    l2r1c1, l2r1c2 = st.columns(2)
+    with l2r1c1:
+        if not breadth_df.empty:
+            st.plotly_chart(chart_breadth(breadth_df, breadth_source), use_container_width=True)
+        else:
+            st.info("Breadth data unavailable.")
+    with l2r1c2:
+        if len(ar_series.dropna()) > 0:
+            st.plotly_chart(chart_absorption_ratio(ar_series), use_container_width=True)
+        else:
+            st.info("Absorption ratio unavailable (insufficient sector data).")
+
+    if len(days_since_5_series.dropna()) > 0:
+        st.plotly_chart(chart_complacency(days_since_5_series, days_since_vix_series), use_container_width=True)
+
+    # --- Layer 3: Cross-Asset Plumbing (compact height) ---
+    st.subheader("Layer 3: Cross-Asset Plumbing")
+
+    l3r1c1, l3r1c2 = st.columns(2)
+    with l3r1c1:
+        if len(ig_z_series.dropna()) > 0:
+            st.plotly_chart(chart_credit_spreads(ig_z_series, hy_z_series), use_container_width=True)
+        else:
+            st.info("Credit spread data unavailable.")
+    with l3r1c2:
+        if len(move_series.dropna()) > 0:
+            st.plotly_chart(chart_move(move_series), use_container_width=True)
+        else:
+            st.info("MOVE index unavailable.")
+
+    if len(vvix_vix_ratio_series.dropna()) > 0:
+        l3r2c1, _ = st.columns(2)
+        with l3r2c1:
+            st.plotly_chart(chart_vvix_vix_ratio(vvix_vix_ratio_series), use_container_width=True)
 
 
 main()
