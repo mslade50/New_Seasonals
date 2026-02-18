@@ -366,10 +366,13 @@ def compute_distribution_accumulation(spy_df: pd.DataFrame,
 # SIGNAL 2: VIX RANGE COMPRESSION
 # ---------------------------------------------------------------------------
 def compute_vix_compression(closes: pd.DataFrame,
+                             spy_close: pd.Series,
                              range_window: int = 21,
                              pctile_threshold: float = 20,
                              min_vix: float = 13,
-                             pctile_lookback: int = 504) -> tuple:
+                             pctile_lookback: int = 504,
+                             require_above_sma: bool = True,
+                             sma_period: int = 20) -> tuple:
     """
     VIX range compression signal.
 
@@ -396,6 +399,11 @@ def compute_vix_compression(closes: pd.DataFrame,
     vix_range_pctile = pd.Series(pctile_arr, index=vix_range.index)
 
     signal = (vix_range_pctile < pctile_threshold) & (vix > min_vix)
+
+    if require_above_sma:
+        sma = spy_close.rolling(sma_period, min_periods=int(sma_period * 0.8)).mean()
+        above_sma = spy_close > sma
+        signal = signal & above_sma.reindex(signal.index, method="ffill")
 
     return signal, vix_range, vix_range_pctile
 
@@ -660,8 +668,15 @@ with tab2:
     with c4:
         vc_lookback = st.slider("Percentile lookback (days)", 252, 1260, 504, key="vc_lb")
 
+    c5, c6 = st.columns(2)
+    with c5:
+        vc_require_sma = st.checkbox("Require SPY > SMA", value=True, key="vc_sma_on")
+    with c6:
+        vc_sma_period = st.selectbox("SMA period", [10, 20, 50, 100, 200], index=1, key="vc_sma_p")
+
     signal_vc, vix_range, vix_range_pctile = compute_vix_compression(
-        closes, vc_range_win, vc_pctile, vc_min_vix, vc_lookback
+        closes, spy_close, vc_range_win, vc_pctile, vc_min_vix, vc_lookback,
+        vc_require_sma, vc_sma_period,
     )
 
     if "^VIX" not in closes.columns:
