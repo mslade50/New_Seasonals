@@ -23,6 +23,8 @@ os.makedirs(DATA_DIR, exist_ok=True)
 
 CACHE_SPY_OHLC = os.path.join(DATA_DIR, "rd2_spy_ohlc.parquet")
 CACHE_CLOSES = os.path.join(DATA_DIR, "rd2_closes.parquet")
+CACHE_SP500 = os.path.join(DATA_DIR, "rd2_sp500_closes.parquet")
+RISK_CLASSIFICATION = os.path.join(DATA_DIR, "sp500_risk_classification.csv")
 
 # ---------------------------------------------------------------------------
 # FOMC & CPI CALENDARS
@@ -135,6 +137,26 @@ def load_data():
         closes.index = closes.index.tz_localize(None)
 
     return spy_df, closes
+
+
+@st.cache_data(ttl=3600)
+def load_sp500_closes():
+    """Load S&P 500 constituent closes from parquet cache."""
+    if os.path.exists(CACHE_SP500):
+        df = pd.read_parquet(CACHE_SP500)
+        if df.index.tz is not None:
+            df.index = df.index.tz_localize(None)
+        return df
+    return None
+
+
+@st.cache_data(ttl=3600)
+def load_risk_classification():
+    """Load risk-on/risk-off classification CSV."""
+    if os.path.exists(RISK_CLASSIFICATION):
+        df = pd.read_csv(RISK_CLASSIFICATION)
+        return df
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -379,56 +401,58 @@ def compute_vix_compression(closes: pd.DataFrame,
 
 
 # ---------------------------------------------------------------------------
-# SIGNAL 3: SECTOR LEADERSHIP QUALITY
+# SIGNAL 3: LEADERSHIP QUALITY (STOCK-LEVEL RISK CLASSIFICATION)
 # ---------------------------------------------------------------------------
-OFFENSIVE_SECTORS = ["XLK", "XLY", "XLC", "XLI", "XLF"]
-DEFENSIVE_SECTORS = ["XLP", "XLU", "XLV", "XLRE", "XLB"]
-
-
-def compute_sector_leadership(closes: pd.DataFrame,
-                               spy_close: pd.Series,
-                               sma_period: int = 200,
-                               def_lead_threshold: float = 20,
-                               near_high_pct: float = 5,
-                               use_rel_perf: bool = False,
-                               rel_perf_window: int = 21) -> tuple:
+def compute_leadership_quality(sp500_closes: pd.DataFrame,
+                                classification: pd.DataFrame,
+                                spy_close: pd.Series,
+                                sma_period: int = 200,
+                                def_lead_threshold: float = 10,
+                                near_high_pct: float = 5,
+                                use_rel_perf: bool = False,
+                                rel_perf_window: int = 21) -> tuple:
     """
-    Sector leadership quality signal.
+    Stock-level leadership quality signal using risk-on/risk-off classification.
 
-    Returns: (signal_series, leadership_spread, offensive_breadth, defensive_breadth)
+    Returns: (signal_series, leadership_spread, risk_on_breadth, risk_off_breadth,
+              n_risk_on, n_risk_off)
     """
-    off_cols = [c for c in OFFENSIVE_SECTORS if c in closes.columns]
-    def_cols = [c for c in DEFENSIVE_SECTORS if c in closes.columns]
+    on_tickers = classification.loc[classification["label"] == "risk_on", "ticker"].tolist()
+    off_tickers = classification.loc[classification["label"] == "risk_off", "ticker"].tolist()
 
-    if len(off_cols) < 3 or len(def_cols) < 3:
-        empty = pd.Series(dtype=float, index=closes.index)
-        return pd.Series(False, index=closes.index), empty, empty, empty
+    # Intersect with available price data
+    on_cols = [t for t in on_tickers if t in sp500_closes.columns]
+    off_cols = [t for t in off_tickers if t in sp500_closes.columns]
+
+    if len(on_cols) < 10 or len(off_cols) < 10:
+        empty = pd.Series(dtype=float, index=sp500_closes.index)
+        return pd.Series(False, index=sp500_closes.index), empty, empty, empty, 0, 0
 
     high_52w = spy_close.rolling(252, min_periods=60).max()
     near_high = spy_close >= high_52w * (1 - near_high_pct / 100)
 
     if use_rel_perf:
-        off_ret = closes[off_cols].pct_change(rel_perf_window).mean(axis=1)
-        def_ret = closes[def_cols].pct_change(rel_perf_window).mean(axis=1)
+        on_ret = sp500_closes[on_cols].pct_change(rel_perf_window).mean(axis=1)
+        off_ret = sp500_closes[off_cols].pct_change(rel_perf_window).mean(axis=1)
 
-        leadership_spread = (off_ret - def_ret) * 100
-        offensive_breadth = off_ret * 100
-        defensive_breadth = def_ret * 100
+        leadership_spread = (on_ret - off_ret) * 100
+        risk_on_breadth = on_ret * 100
+        risk_off_breadth = off_ret * 100
 
         signal = (leadership_spread < -def_lead_threshold / 10) & near_high
     else:
-        sma = closes.rolling(sma_period, min_periods=int(sma_period * 0.8)).mean()
+        sma = sp500_closes.rolling(sma_period, min_periods=int(sma_period * 0.8)).mean()
 
-        off_above = (closes[off_cols] > sma[off_cols]).sum(axis=1) / len(off_cols) * 100
-        def_above = (closes[def_cols] > sma[def_cols]).sum(axis=1) / len(def_cols) * 100
+        on_above = (sp500_closes[on_cols] > sma[on_cols]).sum(axis=1) / len(on_cols) * 100
+        off_above = (sp500_closes[off_cols] > sma[off_cols]).sum(axis=1) / len(off_cols) * 100
 
-        leadership_spread = off_above - def_above
-        offensive_breadth = off_above
-        defensive_breadth = def_above
+        leadership_spread = on_above - off_above
+        risk_on_breadth = on_above
+        risk_off_breadth = off_above
 
         signal = (leadership_spread < -def_lead_threshold) & near_high
 
-    return signal, leadership_spread, offensive_breadth, defensive_breadth
+    return signal, leadership_spread, risk_on_breadth, risk_off_breadth, len(on_cols), len(off_cols)
 
 
 # ---------------------------------------------------------------------------
@@ -704,82 +728,98 @@ with tab2:
 
 # ========================== TAB 3 ==========================
 with tab3:
-    st.markdown("### Sector Leadership Quality")
+    st.markdown("### Leadership Quality (Stock-Level)")
     st.markdown(
-        "> Measures the QUALITY of market breadth, not just the quantity. "
-        "Sectors are classified as offensive (XLK, XLY, XLC, XLI, XLF) "
-        "or defensive (XLP, XLU, XLV, XLRE, XLB). When defensive sectors "
-        "have better breadth than offensive sectors while SPX is near highs, "
-        "it signals institutional rotation into safety. This defensive leadership "
-        "pattern often precedes meaningful corrections."
+        "> Each S&P 500 constituent is classified as **risk-on** or **risk-off** "
+        "using a beta-based first pass with manual overrides "
+        "(see `data/sp500_risk_classification.csv`). "
+        "When risk-off stocks have better breadth (% above SMA) than risk-on stocks "
+        "while SPX is near highs, it signals institutional rotation into safety — "
+        "the market is being held up by defensive names, not genuine risk appetite."
     )
 
-    c1, c2, c3, c4 = st.columns(4)
-    with c1:
-        sl_sma = st.selectbox("Breadth SMA", [50, 100, 200], index=2, key="sl_sma")
-    with c2:
-        sl_thresh = st.slider("Defensive lead threshold (pct pts)", 0, 40, 20, 5, key="sl_thresh")
-    with c3:
-        sl_near_high = st.slider("SPX proximity to high (%)", 2, 10, 5, key="sl_high")
-    with c4:
-        sl_rel_perf = st.checkbox("Use relative performance instead", value=False, key="sl_rel")
+    sp500_closes = load_sp500_closes()
+    classification = load_risk_classification()
 
-    sl_rel_win = 21
-    if sl_rel_perf:
-        sl_rel_win = st.slider("Relative perf window (days)", 10, 63, 21, key="sl_relwin")
+    if sp500_closes is None or classification is None:
+        st.error(
+            "Missing data. Requires `data/rd2_sp500_closes.parquet` "
+            "(run Risk Dashboard V2 refresh) and `data/sp500_risk_classification.csv`."
+        )
+    else:
+        c1, c2, c3, c4 = st.columns(4)
+        with c1:
+            sl_sma = st.selectbox("Breadth SMA", [50, 100, 200], index=2, key="sl_sma")
+        with c2:
+            sl_thresh = st.slider("Risk-off lead threshold (pct pts)", 0, 30, 10, 5, key="sl_thresh")
+        with c3:
+            sl_near_high = st.slider("SPX proximity to high (%)", 2, 10, 5, key="sl_high")
+        with c4:
+            sl_rel_perf = st.checkbox("Use relative performance instead", value=False, key="sl_rel")
 
-    signal_sl, spread, off_breadth, def_breadth = compute_sector_leadership(
-        closes, spy_close, sl_sma, sl_thresh, sl_near_high, sl_rel_perf, sl_rel_win
-    )
+        sl_rel_win = 21
+        if sl_rel_perf:
+            sl_rel_win = st.slider("Relative perf window (days)", 10, 63, 21, key="sl_relwin")
 
-    study_sl = run_event_study(signal_sl, spy_close, signal_name="Sector Leadership")
+        signal_sl, spread, on_breadth, off_breadth, n_on, n_off = compute_leadership_quality(
+            sp500_closes, classification, spy_close,
+            sl_sma, sl_thresh, sl_near_high, sl_rel_perf, sl_rel_win,
+        )
 
-    # Offensive vs Defensive breadth chart
-    fig_sl = go.Figure()
-    off_clean = off_breadth.dropna()
-    def_clean = def_breadth.dropna()
-    label_suffix = "Rel Perf %" if sl_rel_perf else "% > SMA"
-    fig_sl.add_trace(go.Scatter(
-        x=off_clean.index, y=off_clean,
-        name=f"Offensive {label_suffix}", line=dict(width=1.5, color="#2ecc71"),
-    ))
-    fig_sl.add_trace(go.Scatter(
-        x=def_clean.index, y=def_clean,
-        name=f"Defensive {label_suffix}", line=dict(width=1.5, color="#e74c3c"),
-    ))
-    fig_sl.add_trace(go.Scatter(
-        x=spy_close.index, y=spy_close,
-        name="SPY", line=dict(width=1, color="rgba(100,100,100,0.4)"),
-        yaxis="y2",
-    ))
-    fig_sl.update_layout(
-        height=300,
-        margin=dict(l=10, r=10, t=30, b=10),
-        hovermode="x unified",
-        yaxis=dict(title=label_suffix),
-        yaxis2=dict(overlaying="y", side="right", showgrid=False, title="SPY"),
-        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
-        title=dict(text="Offensive vs Defensive Sectors", font=dict(size=13)),
-    )
-    st.plotly_chart(fig_sl, use_container_width=True)
+        n_neutral = len(classification[classification["label"] == "neutral"])
+        st.markdown(
+            f"**Universe:** {n_on} risk-on stocks | {n_off} risk-off stocks | "
+            f"{n_neutral} neutral (excluded)"
+        )
 
-    # Leadership spread filled area
-    spread_clean = spread.dropna()
-    fig_spread = go.Figure()
-    colors = ["rgba(46,204,113,0.4)" if v >= 0 else "rgba(231,76,60,0.4)" for v in spread_clean.values]
-    fig_spread.add_trace(go.Bar(
-        x=spread_clean.index, y=spread_clean, name="Spread",
-        marker_color=colors,
-    ))
-    fig_spread.update_layout(
-        height=200,
-        margin=dict(l=10, r=10, t=30, b=10),
-        title=dict(text="Leadership Spread (Offensive - Defensive)", font=dict(size=13)),
-        yaxis=dict(title="Spread (pct pts)"),
-    )
-    st.plotly_chart(fig_spread, use_container_width=True)
+        study_sl = run_event_study(signal_sl, spy_close, signal_name="Leadership Quality")
 
-    render_event_study(study_sl, "Sector Leadership", signal_sl, spy_close)
+        # Risk-on vs Risk-off breadth chart
+        fig_sl = go.Figure()
+        on_clean = on_breadth.dropna()
+        off_clean = off_breadth.dropna()
+        label_suffix = "Rel Perf %" if sl_rel_perf else "% > SMA"
+        fig_sl.add_trace(go.Scatter(
+            x=on_clean.index, y=on_clean,
+            name=f"Risk-On {label_suffix}", line=dict(width=1.5, color="#2ecc71"),
+        ))
+        fig_sl.add_trace(go.Scatter(
+            x=off_clean.index, y=off_clean,
+            name=f"Risk-Off {label_suffix}", line=dict(width=1.5, color="#e74c3c"),
+        ))
+        fig_sl.add_trace(go.Scatter(
+            x=spy_close.index, y=spy_close,
+            name="SPY", line=dict(width=1, color="rgba(100,100,100,0.4)"),
+            yaxis="y2",
+        ))
+        fig_sl.update_layout(
+            height=300,
+            margin=dict(l=10, r=10, t=30, b=10),
+            hovermode="x unified",
+            yaxis=dict(title=label_suffix),
+            yaxis2=dict(overlaying="y", side="right", showgrid=False, title="SPY"),
+            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+            title=dict(text="Risk-On vs Risk-Off Breadth", font=dict(size=13)),
+        )
+        st.plotly_chart(fig_sl, use_container_width=True)
+
+        # Leadership spread filled area
+        spread_clean = spread.dropna()
+        fig_spread = go.Figure()
+        colors = ["rgba(46,204,113,0.4)" if v >= 0 else "rgba(231,76,60,0.4)" for v in spread_clean.values]
+        fig_spread.add_trace(go.Bar(
+            x=spread_clean.index, y=spread_clean, name="Spread",
+            marker_color=colors,
+        ))
+        fig_spread.update_layout(
+            height=200,
+            margin=dict(l=10, r=10, t=30, b=10),
+            title=dict(text="Leadership Spread (Risk-On - Risk-Off)", font=dict(size=13)),
+            yaxis=dict(title="Spread (pct pts)"),
+        )
+        st.plotly_chart(fig_spread, use_container_width=True)
+
+        render_event_study(study_sl, "Leadership Quality", signal_sl, spy_close)
 
 
 # ========================== TAB 4 ==========================
