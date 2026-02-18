@@ -96,7 +96,8 @@ FOMC_DATES = pd.to_datetime([
     "2025-01-29", "2025-03-19", "2025-05-07", "2025-06-18",
     "2025-07-30", "2025-09-17", "2025-10-29", "2025-12-17",
     # 2026
-    "2026-01-28",
+    "2026-01-28", "2026-03-18", "2026-04-29", "2026-06-17",
+    "2026-07-29", "2026-09-16", "2026-10-28", "2026-12-16",
 ])
 
 
@@ -582,6 +583,22 @@ def compute_fomc_signal(spy_close: pd.Series) -> dict:
 
     signal_on = in_pre_fomc and latest_pctile > pctile_threshold
 
+    # Historical signal fire dates: FOMC dates where 5d return pctile > threshold
+    signal_dates = []
+    for fomc_date in FOMC_DATES:
+        if fomc_date not in pre_pctile.index:
+            # Snap to nearest trading day
+            future = pre_pctile.index[pre_pctile.index >= fomc_date]
+            if len(future) > 0 and (future[0] - fomc_date).days <= 5:
+                snap = future[0]
+            else:
+                continue
+        else:
+            snap = fomc_date
+        pct_val = pre_pctile.get(snap, np.nan)
+        if not np.isnan(pct_val) and pct_val > pctile_threshold:
+            signal_dates.append(snap)
+
     detail = ""
     if signal_on:
         fomc_str = next_fomc.strftime('%b %d') if next_fomc is not None else "upcoming"
@@ -611,7 +628,7 @@ def compute_fomc_signal(spy_close: pd.Series) -> dict:
         'on': signal_on,
         'detail': detail,
         'summary': summary,
-        'pre_pctile': pre_pctile,
+        'signal_dates': signal_dates,
     }
 
 
@@ -1040,36 +1057,25 @@ def chart_leadership(on_breadth: pd.Series, off_breadth: pd.Series,
     return fig
 
 
-def chart_fomc_pctile(pre_pctile: pd.Series, spy_close: pd.Series) -> go.Figure:
-    """5d return percentile with FOMC date markers."""
+def chart_fomc_signals(spy_close: pd.Series, signal_dates: list) -> go.Figure:
+    """SPY price with vertical red lines at pre-FOMC signal fire dates."""
     fig = go.Figure()
-    pctile_clean = pre_pctile.dropna()
-    fig.add_trace(go.Scatter(
-        x=pctile_clean.index, y=pctile_clean,
-        name="5d Return Pctile", line=dict(width=1.5, color="#3498db"),
-    ))
-    fig.add_hline(y=75, line_dash="dash", line_color="#FFD700", line_width=1,
-                  annotation_text="Threshold: 75th", annotation_position="right")
-
-    # Mark FOMC dates within chart range as red vertical lines
-    if len(pctile_clean) > 0:
-        chart_start = pctile_clean.index[0]
-        chart_end = pctile_clean.index[-1]
-        for dt in FOMC_DATES:
-            if chart_start <= dt <= chart_end:
-                fig.add_vline(x=dt, line_color="rgba(204,0,0,0.5)", line_width=1)
-
     fig.add_trace(go.Scatter(
         x=spy_close.index, y=spy_close,
-        name="SPY", line=dict(width=1, color="rgba(100,100,100,0.4)"),
-        yaxis="y2",
+        name="SPY", line=dict(width=1.5, color="rgba(150,150,150,0.8)"),
     ))
-    fig.update_layout(**_dual_y_layout("Pre-FOMC 5d Return Percentile", "Percentile", "SPY"))
+
+    for dt in signal_dates:
+        fig.add_vline(x=dt, line_color="rgba(204,0,0,0.6)", line_width=1)
+
+    layout = _base_layout(f"Pre-FOMC Rally Signal ({len(signal_dates)} events)")
+    layout['height'] = 300
+    fig.update_layout(**layout)
     two_yr_ago = (datetime.datetime.now() - datetime.timedelta(days=730)).strftime("%Y-%m-%d")
     fig.update_xaxes(range=[two_yr_ago, datetime.datetime.now().strftime("%Y-%m-%d")])
     spy_range = _spy_y2_range(spy_close)
     if spy_range:
-        fig.update_layout(yaxis2=dict(range=spy_range))
+        fig.update_layout(yaxis=dict(range=spy_range))
     return fig
 
 
@@ -1227,8 +1233,8 @@ def main():
             st.info("Defensive Leadership requires S&P 500 data + risk classification.")
 
     with row2_c2:
-        if len(fomc['pre_pctile'].dropna()) > 0:
-            st.plotly_chart(chart_fomc_pctile(fomc['pre_pctile'], spy_close), use_container_width=True)
+        if len(fomc['signal_dates']) > 0:
+            st.plotly_chart(chart_fomc_signals(spy_close, fomc['signal_dates']), use_container_width=True)
 
     # -------------------------------------------------------------------
     # ABSORPTION RATIO CHART
