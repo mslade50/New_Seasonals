@@ -2,8 +2,8 @@
 Risk Dashboard V2 — Executive Summary + Absorption Ratio
 =========================================================
 Standalone market risk monitor.
-Signal-based three-question framework with fragility dial.
-4 validated signals from event study backtesting.
+4 validated signals from event study backtesting, flat signal board
+with metric summaries, individual signal charts, and fragility dial.
 
 Data: yfinance only. No broker connections. No strategy imports.
 """
@@ -336,9 +336,10 @@ def _rolling_percentile(series: pd.Series, lookback: int) -> pd.Series:
 
 # ---------------------------------------------------------------------------
 # 4 VALIDATED SIGNAL FUNCTIONS
+# Each returns a dict with: on, detail, summary, and chart series.
 # ---------------------------------------------------------------------------
 
-def compute_da_signal(spy_df: pd.DataFrame) -> tuple:
+def compute_da_signal(spy_df: pd.DataFrame) -> dict:
     """
     Distribution/Accumulation signal.
     Institutional selling beneath the surface during an uptrend.
@@ -373,26 +374,41 @@ def compute_da_signal(spy_df: pd.DataFrame) -> tuple:
     latest_ratio = float(da_ratio.iloc[-1]) if len(da_ratio) > 0 and not np.isnan(da_ratio.iloc[-1]) else 0.0
     signal_on = bool(signal.iloc[-1]) if len(signal) > 0 and not pd.isna(signal.iloc[-1]) else False
 
+    recent_dist = int(dist_days.iloc[-window:].sum())
+    recent_accum = int(accum_days.iloc[-window:].sum())
+
     detail = ""
     if signal_on:
-        recent_dist = int(dist_days.iloc[-window:].sum())
-        recent_accum = int(accum_days.iloc[-window:].sum())
         detail = (
             f"D/A ratio at {latest_ratio:.1f} over last {window} sessions "
             f"({recent_dist} distribution vs {recent_accum} accumulation days). "
             f"Volume-confirmed selling exceeds buying during an uptrend."
         )
 
-    return signal_on, latest_ratio, detail
+    summary = (
+        f"D/A ratio: {latest_ratio:.1f} (threshold: {threshold:.0f}) "
+        f"\u2014 {recent_dist}D / {recent_accum}A last {window}d"
+    )
+
+    return {
+        'on': signal_on,
+        'detail': detail,
+        'summary': summary,
+        'da_ratio': da_ratio,
+    }
 
 
-def compute_vix_range_compression(vix_close: pd.Series) -> tuple:
+def compute_vix_range_compression(vix_close: pd.Series) -> dict:
     """
     VIX Range Compression signal.
     VIX in a tight squeeze — eventual breakout tends to be violent.
     """
+    empty = {
+        'on': False, 'detail': '', 'summary': 'VIX data unavailable',
+        'compression_pctile': pd.Series(dtype=float),
+    }
     if len(vix_close) < 504:
-        return False, 0.0, ""
+        return empty
 
     range_window = 21
     pctile_threshold = 15
@@ -409,29 +425,46 @@ def compute_vix_range_compression(vix_close: pd.Series) -> tuple:
 
     latest_pctile = float(compression_pctile.iloc[-1]) if not np.isnan(compression_pctile.iloc[-1]) else 50.0
     signal_on = bool(signal.iloc[-1]) if len(signal) > 0 and not pd.isna(signal.iloc[-1]) else False
+    cur_vix = float(vix_close.iloc[-1])
 
     detail = ""
     if signal_on:
-        cur_vix = float(vix_close.iloc[-1])
         detail = (
             f"VIX {range_window}d range at {latest_pctile:.0f}th percentile "
             f"(threshold: {pctile_threshold}th). VIX at {cur_vix:.1f} is compressed \u2014 "
             f"eventual breakout tends to be violent."
         )
 
-    return signal_on, latest_pctile, detail
+    summary = (
+        f"{range_window}d range: {latest_pctile:.0f}th pctile "
+        f"(fires below {pctile_threshold}th) \u2014 VIX at {cur_vix:.1f}"
+    )
+
+    return {
+        'on': signal_on,
+        'detail': detail,
+        'summary': summary,
+        'compression_pctile': compression_pctile,
+    }
 
 
-def compute_defensive_leadership(sp500_closes, spy_close: pd.Series) -> tuple:
+def compute_defensive_leadership(sp500_closes, spy_close: pd.Series) -> dict:
     """
     Defensive Leadership signal.
     Risk-off stocks leading while SPY near highs = institutional rotation to safety.
     """
+    empty = {
+        'on': False, 'detail': '', 'summary': 'S&P 500 data unavailable',
+        'spread': pd.Series(dtype=float),
+        'on_breadth': pd.Series(dtype=float),
+        'off_breadth': pd.Series(dtype=float),
+    }
     if sp500_closes is None or (hasattr(sp500_closes, 'empty') and sp500_closes.empty):
-        return False, 0.0, ""
+        return empty
 
     if not os.path.exists(RISK_CLASSIFICATION_PATH):
-        return False, 0.0, ""
+        empty['summary'] = 'Risk classification file missing'
+        return empty
 
     classification = pd.read_csv(RISK_CLASSIFICATION_PATH)
     on_tickers = classification.loc[classification["label"] == "risk_on", "ticker"].tolist()
@@ -441,7 +474,8 @@ def compute_defensive_leadership(sp500_closes, spy_close: pd.Series) -> tuple:
     off_cols = [t for t in off_tickers if t in sp500_closes.columns]
 
     if len(on_cols) < 10 or len(off_cols) < 10:
-        return False, 0.0, ""
+        empty['summary'] = f'Too few classified stocks ({len(on_cols)} on / {len(off_cols)} off)'
+        return empty
 
     sma_200 = sp500_closes.rolling(200, min_periods=160).mean()
     on_above = (sp500_closes[on_cols] > sma_200[on_cols]).sum(axis=1) / len(on_cols) * 100
@@ -458,20 +492,33 @@ def compute_defensive_leadership(sp500_closes, spy_close: pd.Series) -> tuple:
     latest_spread = float(spread.iloc[-1]) if len(spread) > 0 and not np.isnan(spread.iloc[-1]) else 0.0
     signal_on = bool(signal.iloc[-1]) if len(signal) > 0 and not pd.isna(signal.iloc[-1]) else False
 
+    on_pct = float(on_above.iloc[-1]) if len(on_above) > 0 and not np.isnan(on_above.iloc[-1]) else 0.0
+    off_pct = float(off_above.iloc[-1]) if len(off_above) > 0 and not np.isnan(off_above.iloc[-1]) else 0.0
+
     detail = ""
     if signal_on:
-        on_pct = float(on_above.iloc[-1])
-        off_pct = float(off_above.iloc[-1])
         detail = (
             f"Risk-off stocks leading: {off_pct:.0f}% above 200d SMA vs "
             f"{on_pct:.0f}% for risk-on (spread: {latest_spread:+.0f}pp). "
             f"SPY near 52w high \u2014 defensive rotation while index holds."
         )
 
-    return signal_on, latest_spread, detail
+    summary = (
+        f"Spread: {latest_spread:+.0f}pp (fires below -10pp) "
+        f"\u2014 on {on_pct:.0f}% vs off {off_pct:.0f}%"
+    )
+
+    return {
+        'on': signal_on,
+        'detail': detail,
+        'summary': summary,
+        'spread': spread,
+        'on_breadth': on_above,
+        'off_breadth': off_above,
+    }
 
 
-def compute_fomc_signal(spy_close: pd.Series) -> tuple:
+def compute_fomc_signal(spy_close: pd.Series) -> dict:
     """
     Pre-FOMC Rally signal.
     Strong run-up into FOMC meeting increases reversal risk.
@@ -492,6 +539,13 @@ def compute_fomc_signal(spy_close: pd.Series) -> tuple:
             next_fomc = fomc_date
             break
 
+    # Also find the next upcoming FOMC for summary even when outside window
+    next_upcoming = None
+    for fomc_date in FOMC_DATES:
+        if fomc_date >= today:
+            next_upcoming = fomc_date
+            break
+
     # Compute 5d trailing return percentile
     pre_return = spy_close.pct_change(pre_window)
     pre_pctile = _rolling_percentile(pre_return, lookback)
@@ -509,7 +563,25 @@ def compute_fomc_signal(spy_close: pd.Series) -> tuple:
             f"'buy the rumor, sell the news' reversal risk."
         )
 
-    return signal_on, latest_pctile, detail
+    if in_pre_fomc:
+        fomc_str = next_fomc.strftime('%b %d')
+        days_cal = (next_fomc - today).days
+        summary = (
+            f"FOMC {fomc_str} ({days_cal}d away) \u2014 "
+            f"5d return: {latest_pctile:.0f}th pctile (fires above {pctile_threshold}th)"
+        )
+    elif next_upcoming is not None:
+        days_cal = (next_upcoming - today).days
+        summary = f"Next FOMC: {next_upcoming.strftime('%b %d')} ({days_cal}d away) \u2014 outside window"
+    else:
+        summary = "No upcoming FOMC dates in calendar"
+
+    return {
+        'on': signal_on,
+        'detail': detail,
+        'summary': summary,
+        'pre_pctile': pre_pctile,
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -609,52 +681,6 @@ def compute_regime_multiplier(price_ctx: dict) -> float:
     return max(0.6, min(1.8, m))
 
 
-def compute_condition_signals(metrics: dict, price_ctx: dict) -> dict:
-    """
-    Compute the three-question signal framework using 4 validated signals.
-
-    Returns dict of:
-    {
-        'signals': {name: bool},
-        'details': {name: str},
-        'questions': {question: [signal_names]},
-    }
-    """
-    signals = {}
-    details = {}
-
-    # Question 1: Is liquidity real? (1 signal)
-    signals['VIX Range Compression'] = metrics.get('vrc_on', False)
-    if metrics.get('vrc_detail'):
-        details['VIX Range Compression'] = metrics['vrc_detail']
-
-    # Question 2: Is everyone on the same side? (2 signals)
-    signals['Distribution Dominance'] = metrics.get('da_on', False)
-    if metrics.get('da_detail'):
-        details['Distribution Dominance'] = metrics['da_detail']
-
-    signals['Defensive Leadership'] = metrics.get('dl_on', False)
-    if metrics.get('dl_detail'):
-        details['Defensive Leadership'] = metrics['dl_detail']
-
-    # Question 3: Are correlations stable? (1 signal)
-    signals['Pre-FOMC Rally'] = metrics.get('fomc_on', False)
-    if metrics.get('fomc_detail'):
-        details['Pre-FOMC Rally'] = metrics['fomc_detail']
-
-    questions = {
-        'Is liquidity real?': ['VIX Range Compression'],
-        'Is everyone on the same side?': ['Distribution Dominance', 'Defensive Leadership'],
-        'Are correlations stable?': ['Pre-FOMC Rally'],
-    }
-
-    return {
-        'signals': signals,
-        'details': details,
-        'questions': questions,
-    }
-
-
 # ---------------------------------------------------------------------------
 # EXECUTIVE SUMMARY RENDERING
 # ---------------------------------------------------------------------------
@@ -685,58 +711,30 @@ def render_price_context(price_ctx: dict):
     """, unsafe_allow_html=True)
 
 
-def render_three_questions(signal_result: dict):
-    """Render the three-question signal board."""
+def render_signal_board(signals: dict):
+    """Render flat signal list with metric summaries."""
+    for name, sig in signals.items():
+        on = sig['on']
+        summary = sig['summary']
+        detail = sig.get('detail', '')
 
-    question_icons = {
-        'Is liquidity real?': '\U0001f4a7',
-        'Is everyone on the same side?': '\U0001f465',
-        'Are correlations stable?': '\U0001f517',
-    }
-
-    for question, signal_names in signal_result['questions'].items():
-        icon = question_icons.get(question, '\u2753')
-        active_in_group = sum(1 for s in signal_names if signal_result['signals'].get(s, False))
-
-        # Question header with count
-        if active_in_group == 0:
-            q_color = "#00CC00"
-            q_badge = "CLEAR"
-        elif active_in_group == 1:
-            q_color = "#FFD700"
-            q_badge = "WATCH"
+        if on:
+            st.markdown(
+                f"<div style='padding: 6px 10px; margin-bottom: 6px; "
+                f"background: rgba(204,0,0,0.08); border-left: 3px solid #CC0000; "
+                f"border-radius: 0 4px 4px 0;'>"
+                f"<span style='font-size: 13px;'>\U0001f534 <strong>{name}</strong></span><br>"
+                f"<span style='font-size: 12px; color: #bbb;'>{detail}</span><br>"
+                f"<span style='font-size: 11px; color: #888;'>{summary}</span></div>",
+                unsafe_allow_html=True
+            )
         else:
-            q_color = "#CC0000"
-            q_badge = "WARNING"
-
-        st.markdown(
-            f"<div style='margin-bottom: 4px;'>"
-            f"<span style='font-size: 14px; font-weight: 600;'>{icon} {question}</span>"
-            f"&nbsp;&nbsp;<span style='background: {q_color}30; color: {q_color}; "
-            f"padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 600;'>"
-            f"{q_badge}</span></div>",
-            unsafe_allow_html=True
-        )
-
-        # Individual signals
-        for name in signal_names:
-            active = signal_result['signals'].get(name, False)
-            if active:
-                detail = signal_result['details'].get(name, '')
-                st.markdown(
-                    f"<div style='margin-left: 20px; padding: 6px 10px; margin-bottom: 4px; "
-                    f"background: rgba(204,0,0,0.08); border-left: 3px solid #CC0000; "
-                    f"border-radius: 0 4px 4px 0;'>"
-                    f"<span style='font-size: 13px;'>\U0001f534 <strong>{name}</strong></span><br>"
-                    f"<span style='font-size: 12px; color: #bbb;'>{detail}</span></div>",
-                    unsafe_allow_html=True
-                )
-            else:
-                st.markdown(
-                    f"<div style='margin-left: 20px; padding: 4px 10px; margin-bottom: 2px;'>"
-                    f"<span style='font-size: 13px; color: #666;'>\U0001f7e2 {name}</span></div>",
-                    unsafe_allow_html=True
-                )
+            st.markdown(
+                f"<div style='padding: 4px 10px; margin-bottom: 4px;'>"
+                f"<span style='font-size: 13px; color: #aaa;'>\U0001f7e2 {name}</span><br>"
+                f"<span style='font-size: 11px; color: #666; margin-left: 4px;'>{summary}</span></div>",
+                unsafe_allow_html=True
+            )
 
 
 # ---------------------------------------------------------------------------
@@ -791,24 +789,20 @@ def compute_changes(current_states: dict, previous_states: dict) -> list:
 # FRAGILITY SCORE & RISK DIAL
 # ---------------------------------------------------------------------------
 
-def compute_fragility_score(signal_result: dict, regime_multiplier: float) -> float:
+def compute_fragility_score(signals_dict: dict, regime_multiplier: float) -> float:
     """
     Compute 0-100 fragility score.
 
-    Base: each active signal contributes equally.
+    Base: each active signal contributes equally (20pts each).
     Multiplied by price regime context.
     """
-    total_signals = len(signal_result['signals'])
-    active_count = sum(1 for v in signal_result['signals'].values() if v)
+    total_signals = len(signals_dict)
+    active_count = sum(1 for v in signals_dict.values() if v)
 
     if total_signals == 0:
         return 0.0
 
-    # Base score: linear from 0 (none active) to 80 (all active)
-    # Each signal = 20 base pts (4 signals total)
     base = (active_count / total_signals) * 80
-
-    # Apply regime multiplier
     adjusted = base * regime_multiplier
 
     return min(100, max(0, adjusted))
@@ -886,6 +880,18 @@ def _base_layout(title: str = "") -> dict:
     )
 
 
+def _dual_y_layout(title: str, y1_title: str = "", y2_title: str = "") -> dict:
+    layout = _base_layout(title)
+    layout['height'] = 300
+    if y1_title:
+        layout['yaxis'] = dict(title=y1_title, showgrid=True, gridcolor="rgba(128,128,128,0.2)")
+    layout['yaxis2'] = dict(
+        overlaying="y", side="right", showgrid=False,
+        title=y2_title if y2_title else "",
+    )
+    return layout
+
+
 def chart_absorption_ratio(ar_series: pd.Series) -> go.Figure:
     fig = go.Figure()
     fig.add_trace(go.Scatter(
@@ -896,6 +902,109 @@ def chart_absorption_ratio(ar_series: pd.Series) -> go.Figure:
     fig.add_hline(y=0.4, line_dash="dot", line_color="#CC0000", line_width=1,
                   annotation_text="0.40", annotation_position="right")
     fig.update_layout(**_base_layout("Absorption Ratio (PCA on Sector ETFs)"))
+    return fig
+
+
+# ---------------------------------------------------------------------------
+# SIGNAL CHARTS
+# ---------------------------------------------------------------------------
+
+def chart_da_ratio(da_ratio: pd.Series, spy_close: pd.Series) -> go.Figure:
+    """D/A ratio with threshold line and SPY overlay."""
+    fig = go.Figure()
+    clean = da_ratio.dropna()
+    fig.add_trace(go.Scatter(
+        x=clean.index, y=clean,
+        name="D/A Ratio", line=dict(width=1.5, color="#e74c3c"),
+    ))
+    fig.add_hline(y=5.0, line_dash="dash", line_color="#FFD700", line_width=1,
+                  annotation_text="Threshold: 5.0", annotation_position="right")
+    fig.add_trace(go.Scatter(
+        x=spy_close.index, y=spy_close,
+        name="SPY", line=dict(width=1, color="rgba(100,100,100,0.4)"),
+        yaxis="y2",
+    ))
+    fig.update_layout(**_dual_y_layout("Distribution / Accumulation Ratio", "D/A Ratio", "SPY"))
+    # Default to 2-year view
+    two_yr_ago = (datetime.datetime.now() - datetime.timedelta(days=730)).strftime("%Y-%m-%d")
+    fig.update_xaxes(range=[two_yr_ago, datetime.datetime.now().strftime("%Y-%m-%d")])
+    return fig
+
+
+def chart_vix_compression(vix_close: pd.Series, compression_pctile: pd.Series) -> go.Figure:
+    """VIX + compression percentile with threshold."""
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(
+        x=vix_close.index, y=vix_close,
+        name="VIX", line=dict(width=1.5, color="#3498db"),
+    ))
+    pctile_clean = compression_pctile.dropna()
+    fig.add_trace(go.Scatter(
+        x=pctile_clean.index, y=pctile_clean,
+        name="Range Percentile", line=dict(width=1, color="#e67e22"),
+        yaxis="y2",
+    ))
+    fig.add_hline(y=15, line_dash="dash", line_color="#FFD700", line_width=1,
+                  annotation_text="Threshold: 15th", yref="y2",
+                  annotation_position="right")
+    fig.update_layout(**_dual_y_layout("VIX Level + Range Compression Percentile", "VIX", "Range Pctile"))
+    two_yr_ago = (datetime.datetime.now() - datetime.timedelta(days=730)).strftime("%Y-%m-%d")
+    fig.update_xaxes(range=[two_yr_ago, datetime.datetime.now().strftime("%Y-%m-%d")])
+    return fig
+
+
+def chart_leadership(on_breadth: pd.Series, off_breadth: pd.Series,
+                     spy_close: pd.Series) -> go.Figure:
+    """Risk-on vs risk-off breadth with SPY overlay."""
+    fig = go.Figure()
+    on_clean = on_breadth.dropna()
+    off_clean = off_breadth.dropna()
+    fig.add_trace(go.Scatter(
+        x=on_clean.index, y=on_clean,
+        name="Risk-On % > 200d", line=dict(width=1.5, color="#2ecc71"),
+    ))
+    fig.add_trace(go.Scatter(
+        x=off_clean.index, y=off_clean,
+        name="Risk-Off % > 200d", line=dict(width=1.5, color="#e74c3c"),
+    ))
+    fig.add_trace(go.Scatter(
+        x=spy_close.index, y=spy_close,
+        name="SPY", line=dict(width=1, color="rgba(100,100,100,0.4)"),
+        yaxis="y2",
+    ))
+    fig.update_layout(**_dual_y_layout("Risk-On vs Risk-Off Breadth", "% Above 200d SMA", "SPY"))
+    two_yr_ago = (datetime.datetime.now() - datetime.timedelta(days=730)).strftime("%Y-%m-%d")
+    fig.update_xaxes(range=[two_yr_ago, datetime.datetime.now().strftime("%Y-%m-%d")])
+    return fig
+
+
+def chart_fomc_pctile(pre_pctile: pd.Series, spy_close: pd.Series) -> go.Figure:
+    """5d return percentile with FOMC date markers."""
+    fig = go.Figure()
+    pctile_clean = pre_pctile.dropna()
+    fig.add_trace(go.Scatter(
+        x=pctile_clean.index, y=pctile_clean,
+        name="5d Return Pctile", line=dict(width=1.5, color="#3498db"),
+    ))
+    fig.add_hline(y=75, line_dash="dash", line_color="#FFD700", line_width=1,
+                  annotation_text="Threshold: 75th", annotation_position="right")
+
+    # Mark FOMC dates within chart range
+    if len(pctile_clean) > 0:
+        chart_start = pctile_clean.index[0]
+        chart_end = pctile_clean.index[-1]
+        for dt in FOMC_DATES:
+            if chart_start <= dt <= chart_end:
+                fig.add_vline(x=dt, line_color="rgba(150,150,150,0.3)", line_width=0.5)
+
+    fig.add_trace(go.Scatter(
+        x=spy_close.index, y=spy_close,
+        name="SPY", line=dict(width=1, color="rgba(100,100,100,0.4)"),
+        yaxis="y2",
+    ))
+    fig.update_layout(**_dual_y_layout("Pre-FOMC 5d Return Percentile", "Percentile", "SPY"))
+    two_yr_ago = (datetime.datetime.now() - datetime.timedelta(days=730)).strftime("%Y-%m-%d")
+    fig.update_xaxes(range=[two_yr_ago, datetime.datetime.now().strftime("%Y-%m-%d")])
     return fig
 
 
@@ -963,14 +1072,23 @@ def main():
     # -------------------------------------------------------------------
     # COMPUTE 4 VALIDATED SIGNALS
     # -------------------------------------------------------------------
-    da_on, da_ratio_val, da_detail = compute_da_signal(spy_df)
+    da = compute_da_signal(spy_df)
 
     vix_close = closes["^VIX"].dropna() if "^VIX" in closes.columns else pd.Series(dtype=float)
-    vrc_on, vrc_pctile_val, vrc_detail = compute_vix_range_compression(vix_close)
+    vrc = compute_vix_range_compression(vix_close)
 
-    dl_on, dl_spread_val, dl_detail = compute_defensive_leadership(sp500_closes, spy_close)
+    dl = compute_defensive_leadership(sp500_closes, spy_close)
 
-    fomc_on, fomc_pctile_val, fomc_detail = compute_fomc_signal(spy_close)
+    fomc = compute_fomc_signal(spy_close)
+
+    # Build ordered signal dict for rendering + persistence
+    signals_ordered = {
+        'Distribution Dominance': da,
+        'VIX Range Compression': vrc,
+        'Defensive Leadership': dl,
+        'Pre-FOMC Rally': fomc,
+    }
+    signals_bool = {name: sig['on'] for name, sig in signals_ordered.items()}
 
     # -------------------------------------------------------------------
     # EXECUTIVE SUMMARY
@@ -981,18 +1099,9 @@ def main():
     regime_mult = compute_regime_multiplier(price_ctx)
     render_price_context(price_ctx)
 
-    # Signal framework
-    signal_metrics = {
-        'da_on': da_on, 'da_detail': da_detail,
-        'vrc_on': vrc_on, 'vrc_detail': vrc_detail,
-        'dl_on': dl_on, 'dl_detail': dl_detail,
-        'fomc_on': fomc_on, 'fomc_detail': fomc_detail,
-    }
-    signal_result = compute_condition_signals(signal_metrics, price_ctx)
-
     # What Changed
     prev_state = load_previous_signal_state()
-    current_state = {'signals': signal_result['signals']}
+    current_state = {'signals': signals_bool}
     changes = compute_changes(current_state, prev_state)
 
     if changes:
@@ -1003,19 +1112,17 @@ def main():
         st.markdown("<div style='font-size: 12px; color: #555; padding: 4px 0 8px 0;'>No signal changes since last session.</div>",
                     unsafe_allow_html=True)
 
-    # Save current state for next session's comparison
     save_current_signal_state(current_state)
 
-    # Section B: Three Questions + Risk Dial
-    questions_col, dial_col = st.columns([3, 1])
+    # Signal board + Risk Dial
+    signals_col, dial_col = st.columns([3, 1])
 
-    with questions_col:
-        render_three_questions(signal_result)
+    with signals_col:
+        render_signal_board(signals_ordered)
 
-    # Fragility score
-    fragility = compute_fragility_score(signal_result, regime_mult)
-    active_count = sum(1 for v in signal_result['signals'].values() if v)
-    total_count = len(signal_result['signals'])
+    fragility = compute_fragility_score(signals_bool, regime_mult)
+    active_count = sum(1 for v in signals_bool.values() if v)
+    total_count = len(signals_bool)
 
     with dial_col:
         fig_dial = build_risk_dial(fragility)
@@ -1028,6 +1135,35 @@ def main():
 
         st.markdown(f"<p style='text-align: center; font-size: 13px; margin-top: -8px;'>{dial_label}</p>",
                     unsafe_allow_html=True)
+
+    # -------------------------------------------------------------------
+    # SIGNAL CHARTS (2x2 grid)
+    # -------------------------------------------------------------------
+    st.divider()
+
+    row1_c1, row1_c2 = st.columns(2)
+
+    with row1_c1:
+        if len(da['da_ratio'].dropna()) > 0:
+            st.plotly_chart(chart_da_ratio(da['da_ratio'], spy_close), use_container_width=True)
+
+    with row1_c2:
+        if len(vrc['compression_pctile'].dropna()) > 0:
+            st.plotly_chart(chart_vix_compression(vix_close, vrc['compression_pctile']), use_container_width=True)
+        elif len(vix_close) > 0:
+            st.info("VIX compression data requires 504+ days of history.")
+
+    row2_c1, row2_c2 = st.columns(2)
+
+    with row2_c1:
+        if len(dl['spread'].dropna()) > 0:
+            st.plotly_chart(chart_leadership(dl['on_breadth'], dl['off_breadth'], spy_close), use_container_width=True)
+        else:
+            st.info("Defensive Leadership requires S&P 500 data + risk classification.")
+
+    with row2_c2:
+        if len(fomc['pre_pctile'].dropna()) > 0:
+            st.plotly_chart(chart_fomc_pctile(fomc['pre_pctile'], spy_close), use_container_width=True)
 
     # -------------------------------------------------------------------
     # ABSORPTION RATIO CHART
