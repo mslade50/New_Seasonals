@@ -13,12 +13,12 @@ A quantitative equity trading platform built on Streamlit. Three pillars:
 ├── app.py                          # Main Streamlit entry point
 ├── strategy_config.py              # Strategy definitions (STRATEGY_BOOK)
 ├── daily_scan.py                   # Production scanner + email + Google Sheets
+├── daily_portfolio_report.py       # Daily portfolio health report (imports from strat_backtester)
 ├── indicators.py                   # Shared indicator library
 ├── abs_return_dispersion.py        # S&P 500 dispersion metric (~505 tickers)
 ├── risk_dashboard_clean_sheet.md   # Risk Dashboard V2 design doc
 ├── pages/                          # Streamlit pages (FLAT — no subfolders)
-│   ├── risk_dashboard.py           # V1: dispersion-based risk dashboard
-│   ├── risk_dashboard_v2.py        # V2: multi-layer regime monitor (standalone)
+│   ├── risk_dashboard_v2.py        # Multi-layer regime monitor (standalone)
 │   ├── screener.py                 # Daily strategy screener
 │   ├── backtester.py               # Strategy backtesting UI
 │   ├── strat_backtester.py         # Extended backtester
@@ -72,7 +72,9 @@ sys.path.append(parent_dir)
 
 It may optionally import `SP500_TICKERS` from `abs_return_dispersion.py` (with try/except fallback).
 
-**Strategy modules** (`screener.py`, `strat_backtester.py`, `daily_scan.py`) all depend on `strategy_config.py` for `STRATEGY_BOOK`.
+**Strategy modules** (`screener.py`, `strat_backtester.py`, `daily_scan.py`, `daily_portfolio_report.py`) all depend on `strategy_config.py` for `STRATEGY_BOOK` and `ACCOUNT_VALUE`.
+
+**daily_portfolio_report.py** imports backtesting logic from `strat_backtester.py`. Both must stay in sync with `daily_scan.py` for signal detection, sizing, and trade processing. `ACCOUNT_VALUE` from `strategy_config.py` is the single source of truth for portfolio sizing across all three.
 
 ## Risk Dashboard V2 — Current State
 
@@ -126,7 +128,6 @@ Legacy point system preserved in collapsed expander for reference. Alert = +1, A
 
 ### Phase 3 TODO
 - Signal event study: backtest each of the 8 signals individually to calibrate hit rates (currently placeholder estimates)
-- Full S&P 500 breadth (replace sector proxy with ~500 constituents)
 - Historical regime backtesting
 - FRED data source for MOVE (more reliable than yfinance)
 
@@ -141,7 +142,6 @@ Legacy point system preserved in collapsed expander for reference. Alert = +1, A
 | `CROSS_ASSET_TICKERS` | `risk_dashboard_v2.py` | 7 | LQD, HYG, IEF, UUP, ^MOVE, ^TNX, ^IRX |
 | `TAIL_RISK_TICKERS` | `risk_dashboard_v2.py` | 1 | ^SKEW |
 | `SIGNAL_CACHE_PATH` | `risk_dashboard_v2.py` | — | `data/risk_dashboard_signal_state.json` |
-| `LEADERSHIP_ETFS` | `risk_dashboard.py` | 19 | Extended sector + industry ETFs |
 
 ## Google Sheets Integration
 - `daily_scan.py` stages orders to Google Sheets (MOC + Order_Staging + Trade_Signals_Log)

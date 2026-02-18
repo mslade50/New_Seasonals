@@ -159,7 +159,7 @@ These run inside `build_strategy_dict()` so exports are pre-populated with reaso
 - [x] Layer 4: SKEW, Protection Cost Proxy, Hedge Recommendation Engine
 - [x] Executive summary rebuild: signal-based three-question framework
 - [ ] Signal event study: backtest each of the 8 signals to calibrate hit rates
-- [ ] Full S&P 500 breadth (~500 constituents instead of 11 sector ETFs)
+- [x] Full S&P 500 breadth (~500 constituents instead of 11 sector ETFs) — done in `84175dd`
 - [ ] Historical regime validation / backtesting
 - [ ] FRED data source for MOVE (more reliable than yfinance)
 
@@ -377,15 +377,43 @@ Daily change tracking via `data/risk_dashboard_signal_state.json`. On each load:
 
 ---
 
+## Session: 2026-02-18 - Sync Daily Scan / Backtester / Portfolio Report + Cleanup
+
+### Sync Fixes
+
+**Problem:** `strat_backtester.py` and `daily_portfolio_report.py` had drifted from `daily_scan.py`, causing mismatched signals and position sizes.
+
+**Changes to `pages/strat_backtester.py`:**
+1. **Vol Spike Case 3:** Added missing 4th branch to ATH/52w overlay. daily_scan has 4 cases; backtester had 3. Missing: "52w high in L5 but not today → LOC only." Now matches daily_scan lines 1555-1578.
+2. **Range ATR filter:** Added `use_range_atr_filter` support in `get_historical_mask()` (supports `>`, `<`, `Between` logic). Latent — no active strategy uses it yet.
+3. **Gap filter column:** Changed from hardcoded `GapCount` to `GapCount_{lookback}` with fallback. Latent — no active strategy uses gap filter yet.
+4. **Default equity:** UI default changed from $150k to `ACCOUNT_VALUE` (from strategy_config).
+
+**Changes to `daily_portfolio_report.py`:**
+1. **Portfolio value:** Replaced three hardcoded `$450,000` references with `ACCOUNT_VALUE` from strategy_config. Single source of truth for sizing across daily_scan, backtester, and health report.
+
+### Deleted Files
+
+| File | Reason |
+|------|--------|
+| `daily_scan_2.py` | Stale copy of daily_scan.py — GSheets commented out, missing 4-case Vol Spike, error tracking, bracket exits. Nothing imported it. |
+| `pages/risk_dashboard.py` | V1 dispersion dashboard fully superseded by V2's multi-layer signal framework. Nothing imported from it. |
+| `.github/workflows/daily_scan_2.yml` | Workflow for deleted daily_scan_2.py. |
+
+**Net deletion:** ~3,086 lines of dead code removed.
+
+---
+
 ## Quick Reference: File Locations
 
 | File | Purpose |
 |------|---------|
-| `strategy_config.py` | Strategy definitions (the "brain") |
+| `strategy_config.py` | Strategy definitions + ACCOUNT_VALUE (the "brain") |
 | `daily_scan.py` | Production scanner (the "hands") |
+| `daily_portfolio_report.py` | Daily portfolio health report (imports from strat_backtester) |
 | `backtester.py` | Research/testing UI |
-| `pages/risk_dashboard.py` | Risk dashboard V1 (dispersion-based) |
-| `pages/risk_dashboard_v2.py` | Risk dashboard V2 (multi-layer regime monitor) |
+| `pages/strat_backtester.py` | Extended backtester (must stay in sync with daily_scan.py) |
+| `pages/risk_dashboard_v2.py` | Risk dashboard (multi-layer regime monitor) |
 | `abs_return_dispersion.py` | S&P 500 absolute return dispersion (Nomura method) |
 | `risk_dashboard_clean_sheet.md` | V2 design doc (panel debate format) |
 | `docs/backtesting_logic.md` | Backtester architecture notes |
