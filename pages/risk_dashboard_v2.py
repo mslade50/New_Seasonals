@@ -595,12 +595,15 @@ def compute_fomc_signal(spy_close: pd.Series) -> dict:
         fomc_str = next_fomc.strftime('%b %d')
         days_cal = (next_fomc - today).days
         summary = (
-            f"FOMC {fomc_str} ({days_cal}d away) \u2014 "
+            f"Next FOMC: {fomc_str} ({days_cal}d away) \u2014 "
             f"5d return: {latest_pctile:.0f}th pctile (fires above {pctile_threshold}th)"
         )
     elif next_upcoming is not None:
         days_cal = (next_upcoming - today).days
-        summary = f"Next FOMC: {next_upcoming.strftime('%b %d')} ({days_cal}d away) \u2014 outside window"
+        summary = (
+            f"Next FOMC: {next_upcoming.strftime('%b %d')} ({days_cal}d away) \u2014 "
+            f"5d return: {latest_pctile:.0f}th pctile (outside window)"
+        )
     else:
         summary = "No upcoming FOMC dates in calendar"
 
@@ -1032,13 +1035,13 @@ def chart_fomc_pctile(pre_pctile: pd.Series, spy_close: pd.Series) -> go.Figure:
     fig.add_hline(y=75, line_dash="dash", line_color="#FFD700", line_width=1,
                   annotation_text="Threshold: 75th", annotation_position="right")
 
-    # Mark FOMC dates within chart range
+    # Mark FOMC dates within chart range as red vertical lines
     if len(pctile_clean) > 0:
         chart_start = pctile_clean.index[0]
         chart_end = pctile_clean.index[-1]
         for dt in FOMC_DATES:
             if chart_start <= dt <= chart_end:
-                fig.add_vline(x=dt, line_color="rgba(150,150,150,0.3)", line_width=0.5)
+                fig.add_vline(x=dt, line_color="rgba(204,0,0,0.5)", line_width=1)
 
     fig.add_trace(go.Scatter(
         x=spy_close.index, y=spy_close,
