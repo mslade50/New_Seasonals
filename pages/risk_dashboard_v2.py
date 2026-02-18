@@ -953,6 +953,17 @@ def chart_absorption_ratio(ar_series: pd.Series) -> go.Figure:
 # SIGNAL CHARTS
 # ---------------------------------------------------------------------------
 
+def _spy_y2_range(spy_close: pd.Series, days: int = 730, pad_pct: float = 0.03) -> list | None:
+    """Compute ±pad% range for SPY within the default view window."""
+    cutoff = (datetime.datetime.now() - datetime.timedelta(days=days)).strftime("%Y-%m-%d")
+    window = spy_close[spy_close.index >= cutoff]
+    if len(window) == 0:
+        return None
+    lo = float(window.min())
+    hi = float(window.max())
+    return [lo * (1 - pad_pct), hi * (1 + pad_pct)]
+
+
 def chart_da_ratio(da_ratio: pd.Series, spy_close: pd.Series) -> go.Figure:
     """D/A ratio with threshold lines and SPY overlay."""
     fig = go.Figure()
@@ -971,9 +982,11 @@ def chart_da_ratio(da_ratio: pd.Series, spy_close: pd.Series) -> go.Figure:
         yaxis="y2",
     ))
     fig.update_layout(**_dual_y_layout("Distribution / Accumulation Ratio", "D/A Ratio", "SPY"))
-    # Default to 2-year view
     two_yr_ago = (datetime.datetime.now() - datetime.timedelta(days=730)).strftime("%Y-%m-%d")
     fig.update_xaxes(range=[two_yr_ago, datetime.datetime.now().strftime("%Y-%m-%d")])
+    spy_range = _spy_y2_range(spy_close)
+    if spy_range:
+        fig.update_layout(yaxis2=dict(range=spy_range))
     return fig
 
 
@@ -1021,6 +1034,9 @@ def chart_leadership(on_breadth: pd.Series, off_breadth: pd.Series,
     fig.update_layout(**_dual_y_layout("Risk-On vs Risk-Off Breadth", "% Above 200d SMA", "SPY"))
     two_yr_ago = (datetime.datetime.now() - datetime.timedelta(days=730)).strftime("%Y-%m-%d")
     fig.update_xaxes(range=[two_yr_ago, datetime.datetime.now().strftime("%Y-%m-%d")])
+    spy_range = _spy_y2_range(spy_close)
+    if spy_range:
+        fig.update_layout(yaxis2=dict(range=spy_range))
     return fig
 
 
@@ -1051,6 +1067,9 @@ def chart_fomc_pctile(pre_pctile: pd.Series, spy_close: pd.Series) -> go.Figure:
     fig.update_layout(**_dual_y_layout("Pre-FOMC 5d Return Percentile", "Percentile", "SPY"))
     two_yr_ago = (datetime.datetime.now() - datetime.timedelta(days=730)).strftime("%Y-%m-%d")
     fig.update_xaxes(range=[two_yr_ago, datetime.datetime.now().strftime("%Y-%m-%d")])
+    spy_range = _spy_y2_range(spy_close)
+    if spy_range:
+        fig.update_layout(yaxis2=dict(range=spy_range))
     return fig
 
 
