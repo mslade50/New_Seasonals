@@ -331,7 +331,9 @@ def compute_distribution_accumulation(spy_df: pd.DataFrame,
                                        vol_mult: float = 1.25,
                                        window: int = 21,
                                        ratio_threshold: float = 1.5,
-                                       require_uptrend: bool = True) -> tuple:
+                                       require_uptrend: bool = True,
+                                       require_near_high: bool = False,
+                                       near_high_pct: float = 5.0) -> tuple:
     """
     Compute distribution/accumulation signal.
 
@@ -364,6 +366,10 @@ def compute_distribution_accumulation(spy_df: pd.DataFrame,
     if require_uptrend:
         sma_50 = close.rolling(50).mean()
         signal = signal & (close > sma_50)
+
+    if require_near_high:
+        high_52w = close.rolling(252, min_periods=60).max()
+        signal = signal & (close >= high_52w * (1 - near_high_pct / 100))
 
     return signal, da_ratio, dist_days, accum_days
 
@@ -636,18 +642,26 @@ with tab1:
         "institutional selling is occurring beneath the surface."
     )
 
-    c1, c2, c3, c4 = st.columns(4)
+    c1, c2, c3 = st.columns(3)
     with c1:
         da_vol_mult = st.slider("Prev-day volume multiplier", 1.0, 2.0, 1.25, 0.05, key="da_vol")
     with c2:
-        da_window = st.slider("Rolling window (days)", 10, 63, 21, key="da_win")
+        da_window = st.slider("Rolling window (days)", 10, 126, 21, key="da_win")
     with c3:
-        da_ratio_thresh = st.slider("D/A ratio threshold", 1.0, 6.0, 1.5, 0.25, key="da_thresh")
+        da_ratio_thresh = st.slider("D/A ratio threshold", 1.0, 8.0, 1.5, 0.25, key="da_thresh")
+
+    c4, c5 = st.columns(2)
     with c4:
         da_uptrend = st.checkbox("Require uptrend (SPY > 50d SMA)", value=True, key="da_up")
+    with c5:
+        da_near_high = st.checkbox("Require SPY within % of 52w high", value=False, key="da_near_high")
+    da_near_high_pct = 5.0
+    if da_near_high:
+        da_near_high_pct = st.slider("SPY proximity to 52w high (%)", 1, 10, 5, key="da_high_pct")
 
     signal, da_ratio, dist_days, accum_days = compute_distribution_accumulation(
-        spy_df, da_vol_mult, da_window, da_ratio_thresh, da_uptrend
+        spy_df, da_vol_mult, da_window, da_ratio_thresh, da_uptrend,
+        da_near_high, da_near_high_pct,
     )
 
     # Current state summary
