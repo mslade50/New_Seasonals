@@ -86,7 +86,7 @@ def run_12month_backtest(starting_equity=None):
     Returns: (signals_df, equity_series, daily_pnl_series, master_dict)
     """
     if starting_equity is None:
-        starting_equity = 450000
+        starting_equity = ACCOUNT_VALUE
     
     print("📊 Running 12-month portfolio backtest...")
     
@@ -1203,7 +1203,7 @@ def send_portfolio_email(chart_path, open_positions_df, sizing_analysis, metrics
 
                 <div class="section">
                     <h2>📈 12-Month Equity Curve</h2>
-                    <p style="color: #aaa; font-size: 13px; margin-top: -10px;">Starting Equity: $450,000 | Data from 2000 for percentiles</p>
+                    <p style="color: #aaa; font-size: 13px; margin-top: -10px;">Starting Equity: ${ACCOUNT_VALUE:,} | Data from 2000 for percentiles</p>
                     <img src="cid:equity_chart" style="max-width: 100%; border-radius: 8px;">
                 </div>
 
@@ -1269,8 +1269,7 @@ def main():
     print(f"   Started: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     print("=" * 70)
     
-    # FIXED: Use current account size ($450k), not config default ($750k)
-    CURRENT_ACCOUNT_SIZE = 450000
+    CURRENT_ACCOUNT_SIZE = ACCOUNT_VALUE
     
     try:
         # 1. Run 12-month backtest (uses data since 2000 for percentiles)

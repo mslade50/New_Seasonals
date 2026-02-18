@@ -177,6 +177,18 @@ def get_historical_mask(df, params, sznl_map, ticker_name="UNK"):
         rn_val = df['RangePct'].values * 100
         conditions.append((rn_val >= params.get('range_min', 0)) & (rn_val <= params.get('range_max', 100)))
 
+    # Range in ATR filter
+    if params.get('use_range_atr_filter', False):
+        if 'range_in_atr' in df.columns:
+            ria = df['range_in_atr'].values
+            logic = params.get('range_atr_logic', 'Between')
+            if logic == '>':
+                conditions.append(ria > params.get('range_atr_min', 0))
+            elif logic == '<':
+                conditions.append(ria < params.get('range_atr_max', 99))
+            elif logic == 'Between':
+                conditions.append((ria >= params.get('range_atr_min', 0)) & (ria <= params.get('range_atr_max', 99)))
+
     # Day of week filter
     if params.get('use_dow_filter', False):
         allowed = params.get('allowed_days', [])
@@ -192,7 +204,9 @@ def get_historical_mask(df, params, sznl_map, ticker_name="UNK"):
 
     # Gap filter
     if params.get('use_gap_filter', False):
-        g_val = df['GapCount'].values
+        lookback = params.get('gap_lookback', 21)
+        col_name = f'GapCount_{lookback}' if f'GapCount_{lookback}' in df.columns else 'GapCount'
+        g_val = df[col_name].values
         g_thresh = params.get('gap_thresh', 0)
         g_logic = params.get('gap_logic', '>')
         if g_logic == ">":
@@ -888,8 +902,15 @@ def process_signals_fast(candidates, signal_data, processed_dict, strategies, st
                     # Case 2: No ATH in L10 but 52w high today → primary only, 0.66x
                     base_risk *= 0.66
                 else:
-                    # Case 3: No ATH in L10, no 52w high → primary + LOC, normal risk
-                    _vol_spike_emit_loc = True
+                    # Check 52w high in last 5 days
+                    is_52w_high_l5 = bool(df['is_52w_high'].iloc[:signal_idx + 1].rolling(window=5, min_periods=1).max().iloc[-1])
+                    if is_52w_high_l5:
+                        # Case 3: 52w high in L5 (not today) → LOC only, normal risk
+                        _vol_spike_skip_primary = True
+                        _vol_spike_emit_loc = True
+                    else:
+                        # Case 4: No ATH L10, no 52w high L5 → primary + LOC, normal risk
+                        _vol_spike_emit_loc = True
             else:
                 # LEGACY: Vol-ratio sizing (pre-2026-02-06)
                 vol_ratio = row_data['vol_ratio']
@@ -1534,7 +1555,7 @@ def main():
     
     with st.sidebar.form("backtest_form"):
         user_start_date = st.date_input("Backtest Start Date", value=default_date, min_value=datetime.date(1997, 1, 1))
-        starting_equity = st.number_input("Starting Equity ($)", value=150000, step=10000)
+        starting_equity = st.number_input("Starting Equity ($)", value=ACCOUNT_VALUE, step=10000)
         st.caption(f"Data buffer: 365 days prior to {user_start_date}.")
         st.markdown("---")
         st.markdown("**🔄 Dynamic Position Sizing**")
