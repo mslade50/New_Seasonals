@@ -437,9 +437,8 @@ def compute_vix_compression(closes: pd.DataFrame,
     signal = (compression_pctile < pctile_threshold) & (vix > min_vix)
 
     if require_above_sma:
-        sma = spy_close.rolling(sma_period, min_periods=int(sma_period * 0.8)).mean()
-        above_sma = spy_close > sma
-        signal = signal & above_sma.reindex(signal.index, method="ffill")
+        vix_sma = vix.rolling(sma_period, min_periods=int(sma_period * 0.8)).mean()
+        signal = signal & (vix > vix_sma)
 
     return signal, compression_metric, compression_pctile
 
@@ -713,7 +712,7 @@ with tab2:
         else:
             vc_atr_period = st.slider("ATR period (days)", 5, 30, 14, key="vc_atr_p")
     with c6:
-        vc_require_sma = st.checkbox("Require SPY > SMA", value=True, key="vc_sma_on")
+        vc_require_sma = st.checkbox("Require VIX > SMA", value=True, key="vc_sma_on")
     with c7:
         vc_sma_period = st.selectbox("SMA period", [10, 20, 50, 100, 200], index=1, key="vc_sma_p")
 
