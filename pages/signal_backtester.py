@@ -265,59 +265,60 @@ def render_event_study(study: dict, signal_name: str, signal_series: pd.Series,
                 f"vs unconditional (threshold: -0.50%)"
             )
 
-    # --- Signal time series with SPY overlay ---
+    # --- SPY chart with signal onset vertical lines ---
     fig = go.Figure()
     fig.add_trace(go.Scatter(
         x=price_series.index, y=price_series,
-        name="SPY", line=dict(width=1, color="rgba(100,100,100,0.5)"),
-        yaxis="y2",
+        name="SPY", line=dict(width=1.5, color="rgba(150,150,150,0.8)"),
     ))
 
-    signal_on = signal_series.fillna(False).astype(bool)
-    transitions = signal_on.astype(int).diff().fillna(0)
-    starts = transitions[transitions == 1].index
-    ends = transitions[transitions == -1].index
+    # Deduplicate signal onsets: first activation in each cluster (10d lookback)
+    signal_dates = study["signal_dates"]
+    onset_dates = []
+    last_onset = None
+    for dt in signal_dates:
+        if last_onset is None or (dt - last_onset).days > 10:
+            onset_dates.append(dt)
+            last_onset = dt
 
-    if len(signal_on) > 0 and signal_on.iloc[0]:
-        starts = starts.insert(0, signal_on.index[0])
-    if len(signal_on) > 0 and signal_on.iloc[-1]:
-        ends = ends.append(pd.DatetimeIndex([signal_on.index[-1]]))
-
-    for s, e in zip(starts, ends):
-        fig.add_vrect(x0=s, x1=e, fillcolor="rgba(204,0,0,0.1)", line_width=0, layer="below")
+    for dt in onset_dates:
+        fig.add_vline(x=dt, line_color="rgba(204,0,0,0.6)", line_width=1, line_dash="solid")
 
     fig.update_layout(
         height=300,
         margin=dict(l=10, r=10, t=30, b=10),
         hovermode="x unified",
-        yaxis2=dict(overlaying="y", side="right", showgrid=False, title="SPY"),
         xaxis=dict(showgrid=False),
+        yaxis=dict(title="SPY"),
         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
-        title=dict(text=f"{signal_name}: Signal ON Periods", font=dict(size=13)),
+        title=dict(text=f"{signal_name}: Signal Onsets on SPY ({len(onset_dates)} events)", font=dict(size=13)),
     )
     st.plotly_chart(fig, use_container_width=True)
 
-    # --- Forward return distributions (21d) ---
+    # --- Forward return distributions (21d) — normalized density ---
     if 21 in study["forward_returns"] and len(study["forward_returns"][21]) > 5:
         fig_hist = go.Figure()
         fig_hist.add_trace(go.Histogram(
             x=study["unconditional_returns"][21],
             name="All Days", opacity=0.5,
             marker_color="rgba(100,100,100,0.5)",
+            histnorm="probability density",
             nbinsx=50,
         ))
         fig_hist.add_trace(go.Histogram(
             x=study["forward_returns"][21],
             name="Signal Days", opacity=0.7,
             marker_color="rgba(204,0,0,0.7)",
+            histnorm="probability density",
             nbinsx=30,
         ))
         fig_hist.update_layout(
             height=250,
             margin=dict(l=10, r=10, t=30, b=10),
             barmode="overlay",
-            title=dict(text="Forward 21d Return Distribution", font=dict(size=13)),
+            title=dict(text="Forward 21d Return Distribution (density)", font=dict(size=13)),
             xaxis=dict(tickformat=".1%"),
+            yaxis=dict(title="Density"),
             legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
         )
         st.plotly_chart(fig_hist, use_container_width=True)
