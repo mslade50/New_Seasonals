@@ -352,7 +352,12 @@ def compute_distribution_accumulation(spy_df: pd.DataFrame,
     dist_count = dist_days.astype(int).rolling(window).sum()
     accum_count = accum_days.astype(int).rolling(window).sum()
 
-    da_ratio = dist_count / accum_count.replace(0, np.nan)
+    # When accum > 0: ratio = dist / accum
+    # When accum = 0: ratio = dist - accum + 1 (so 4D/0A = 5)
+    da_ratio = pd.Series(
+        np.where(accum_count > 0, dist_count / accum_count, dist_count + 1),
+        index=dist_count.index,
+    )
 
     signal = da_ratio > ratio_threshold
 
