@@ -716,8 +716,49 @@ def compute_absorption_ratio(sector_returns_df: pd.DataFrame, window: int = 63) 
     return ar_series
 
 
+@st.cache_data(ttl=3600)
+def load_sector_closes(start_year: int = 2010):
+    """Download sector ETF closes from a configurable start year.
+
+    Automatically excludes ETFs that don't have data for the requested range:
+      - Original 9 SPDRs: available from Dec 1998
+      - XLRE: available from Oct 2015
+      - XLC: available from Jun 2018
+    """
+    # Inception mapping (year data becomes usable)
+    inception = {
+        "XLB": 1999, "XLE": 1999, "XLF": 1999, "XLI": 1999,
+        "XLK": 1999, "XLP": 1999, "XLU": 1999, "XLV": 1999,
+        "XLY": 1999, "XLRE": 2016, "XLC": 2019,
+    }
+    tickers = [t for t, yr in inception.items() if start_year >= yr]
+    if len(tickers) < 5:
+        return None, []
+
+    # Always include SPY for the event study
+    dl_tickers = ["SPY"] + tickers
+    raw = yf.download(dl_tickers, start=f"{start_year}-01-01", auto_adjust=True, threads=True)
+    if raw is None or raw.empty:
+        return None, []
+
+    if isinstance(raw.columns, pd.MultiIndex):
+        lvl0 = raw.columns.get_level_values(0).unique().tolist()
+        close_key = "Close" if "Close" in lvl0 else ("close" if "close" in lvl0 else lvl0[0])
+        closes = raw[close_key].copy()
+        closes.columns = [str(c) for c in closes.columns]
+    else:
+        closes = raw[["Close"]].copy()
+        closes.columns = ["SPY"]
+
+    if closes.index.tz is not None:
+        closes.index = closes.index.tz_localize(None)
+
+    return closes, tickers
+
+
 def compute_ar_signal(closes_df: pd.DataFrame,
                       spy_close: pd.Series,
+                      sector_etfs: list = None,
                       pca_window: int = 63,
                       pctile_lookback: int = 504,
                       direction: str = "Low AR (<threshold)",
@@ -732,8 +773,9 @@ def compute_ar_signal(closes_df: pd.DataFrame,
 
     Returns: (signal_series, ar_series, ar_pctile)
     """
-    sector_etfs = ["XLB", "XLC", "XLE", "XLF", "XLI", "XLK",
-                   "XLP", "XLRE", "XLU", "XLV", "XLY"]
+    if sector_etfs is None:
+        sector_etfs = ["XLB", "XLC", "XLE", "XLF", "XLI", "XLK",
+                       "XLP", "XLRE", "XLU", "XLV", "XLY"]
     available = [s for s in sector_etfs if s in closes_df.columns]
     if len(available) < 5:
         empty = pd.Series(dtype=float, index=spy_close.index)
@@ -1488,6 +1530,27 @@ with tab6:
         "while very high AR signals crowded positioning."
     )
 
+    # --- History range selector ---
+    ar_start_year = st.select_slider(
+        "History start year",
+        options=list(range(1999, 2020)),
+        value=2010,
+        key="ar_start_year",
+        help="1999-2015: 9 original SPDRs | 2016+: adds XLRE | 2019+: adds XLC (all 11)",
+    )
+
+    # Show which ETFs are available at this start year
+    _inception = {
+        "XLB": 1999, "XLE": 1999, "XLF": 1999, "XLI": 1999,
+        "XLK": 1999, "XLP": 1999, "XLU": 1999, "XLV": 1999,
+        "XLY": 1999, "XLRE": 2016, "XLC": 2019,
+    }
+    _eligible_etfs = [t for t, yr in _inception.items() if ar_start_year >= yr]
+    st.caption(
+        f"From {ar_start_year}: {len(_eligible_etfs)} sector ETFs "
+        f"({', '.join(_eligible_etfs)})"
+    )
+
     c1, c2, c3 = st.columns(3)
     with c1:
         ar_pca_window = st.slider("PCA rolling window (days)", 21, 126, 63, key="ar_pca_win")
@@ -1513,22 +1576,31 @@ with tab6:
         if ar_near_high:
             ar_near_high_pct = st.slider("SPY proximity to high (%)", 1, 10, 5, key="ar_high_pct")
 
-    # Check sector ETF availability
-    sector_etfs = ["XLB", "XLC", "XLE", "XLF", "XLI", "XLK",
-                   "XLP", "XLRE", "XLU", "XLV", "XLY"]
-    available_sectors = [s for s in sector_etfs if s in closes.columns]
+    # Load extended data when going beyond the default 2010 cache, otherwise reuse existing
+    if ar_start_year < 2010:
+        with st.spinner(f"Downloading sector data from {ar_start_year} (one-time, cached for 1hr)..."):
+            ar_closes, ar_sector_list = load_sector_closes(ar_start_year)
+        if ar_closes is None or len(ar_sector_list) < 5:
+            st.error("Failed to download extended sector data.")
+            st.stop()
+        ar_spy_close = ar_closes["SPY"].dropna() if "SPY" in ar_closes.columns else spy_close
+    else:
+        ar_closes = closes
+        ar_sector_list = _eligible_etfs
+        ar_spy_close = spy_close
+
+    available_sectors = [s for s in ar_sector_list if s in ar_closes.columns]
 
     if len(available_sectors) < 5:
         st.error(
-            f"Need at least 5 sector ETFs in cache. Found: {len(available_sectors)}. "
-            "Run Risk Dashboard V2 data refresh first."
+            f"Need at least 5 sector ETFs. Found: {len(available_sectors)}. "
+            "Try a more recent start year."
         )
     else:
-        st.caption(f"Sectors: {', '.join(available_sectors)} ({len(available_sectors)} ETFs)")
-
         with st.spinner("Computing absorption ratio (PCA on rolling windows)..."):
             ar_signal, ar_series, ar_pctile = compute_ar_signal(
-                closes, spy_close,
+                ar_closes, ar_spy_close,
+                sector_etfs=available_sectors,
                 pca_window=ar_pca_window,
                 pctile_lookback=ar_pctile_lb,
                 direction=ar_direction,
@@ -1552,8 +1624,8 @@ with tab6:
                 f"Red line reference: 0.40 (historical fragility threshold)"
             )
 
-        study_ar = run_event_study(ar_signal, spy_close, signal_name="Absorption Ratio")
-        render_event_study(study_ar, "Absorption Ratio", ar_signal, spy_close)
+        study_ar = run_event_study(ar_signal, ar_spy_close, signal_name="Absorption Ratio")
+        render_event_study(study_ar, "Absorption Ratio", ar_signal, ar_spy_close)
 
         # --- Chart 1: AR time series with SPY overlay ---
         ar_clean = ar_series.dropna()
@@ -1568,7 +1640,7 @@ with tab6:
                              annotation_text="0.40 reference")
 
             fig_ar.add_trace(go.Scatter(
-                x=spy_close.index, y=spy_close,
+                x=ar_spy_close.index, y=ar_spy_close,
                 name="SPY", line=dict(width=1, color="rgba(100,100,100,0.4)"),
                 yaxis="y2",
             ))
