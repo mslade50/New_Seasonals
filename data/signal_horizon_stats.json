@@ -59,6 +59,19 @@
                 "10d": {"signal_mean": -0.52, "unconditional_mean": 0.54, "diff_mean": -1.06, "hit_rate": null, "p_value": null},
                 "21d": {"signal_mean": 0.94, "unconditional_mean": 1.37, "diff_mean": -0.43, "hit_rate": null, "p_value": null}
             }
+        },
+        "Low Absorption Ratio": {
+            "n_events": 17,
+            "pct_active": null,
+            "params": "PCA window 21d, AR pctile < 10th over 504d lookback, SPY within 2% of 52w high",
+            "note": "Low AR = sectors moving independently (Minsky quiet phase). Deduped episodes over 10yr backtest.",
+            "horizons": {
+                "5d":  {"signal_mean": 0.00, "unconditional_mean": 0.31, "diff_mean": -0.31, "hit_rate": null, "p_value": 0.021},
+                "10d": {"signal_mean": -0.35, "unconditional_mean": 0.62, "diff_mean": -0.97, "hit_rate": null, "p_value": 0.000},
+                "21d": {"signal_mean": -0.46, "unconditional_mean": 1.30, "diff_mean": -1.76, "hit_rate": null, "p_value": 0.000},
+                "42d": {"signal_mean": -0.56, "unconditional_mean": 2.56, "diff_mean": -3.12, "hit_rate": null, "p_value": 0.000},
+                "63d": {"signal_mean": -0.51, "unconditional_mean": 3.83, "diff_mean": -4.34, "hit_rate": null, "p_value": 0.000}
+            }
         }
     }
 }

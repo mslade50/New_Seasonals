@@ -2,7 +2,7 @@
 Risk Dashboard V2 — Executive Summary + Absorption Ratio
 =========================================================
 Standalone market risk monitor.
-4 validated signals from event study backtesting, flat signal board
+5 validated signals from event study backtesting, flat signal board
 with metric summaries, individual signal charts, and fragility dial.
 
 Data: yfinance only. No broker connections. No strategy imports.
@@ -284,7 +284,7 @@ def _download_ticker_group(tickers: list, start_date: str) -> dict:
 
 
 # ---------------------------------------------------------------------------
-# ABSORPTION RATIO (kept — display-only structural context)
+# ABSORPTION RATIO (core computation — used by Low AR signal)
 # ---------------------------------------------------------------------------
 
 def compute_absorption_ratio(sector_returns_df: pd.DataFrame, window: int = 63) -> pd.Series:
@@ -337,7 +337,7 @@ def _rolling_percentile(series: pd.Series, lookback: int) -> pd.Series:
 
 
 # ---------------------------------------------------------------------------
-# 4 VALIDATED SIGNAL FUNCTIONS
+# 5 VALIDATED SIGNAL FUNCTIONS
 # Each returns a dict with: on, detail, summary, and chart series.
 # ---------------------------------------------------------------------------
 
@@ -662,6 +662,67 @@ def compute_fomc_signal(spy_close: pd.Series) -> dict:
     }
 
 
+def compute_low_ar_signal(sector_returns: pd.DataFrame, spy_close: pd.Series) -> dict:
+    """
+    Low Absorption Ratio signal.
+    Low AR = sectors moving independently (Minsky quiet phase, vol suppression).
+    When combined with SPY near highs, indicates complacency / fragility.
+    """
+    pca_window = 21
+    pctile_lookback = 504
+    pctile_threshold = 10
+    near_high_pct = 2.0
+
+    empty = {
+        'on': False, 'detail': '', 'summary': 'AR data unavailable',
+        'ar_series': pd.Series(dtype=float), 'ar_pctile': pd.Series(dtype=float),
+    }
+
+    if len(sector_returns.columns) < 5 or len(sector_returns) < pca_window + 10:
+        return empty
+
+    ar_series = compute_absorption_ratio(sector_returns, window=pca_window)
+    ar_valid = ar_series.dropna()
+    if len(ar_valid) < pctile_lookback:
+        return {**empty, 'ar_series': ar_series,
+                'summary': f'AR: insufficient history ({len(ar_valid)} days, need {pctile_lookback})'}
+
+    ar_pctile = _rolling_percentile(ar_valid, pctile_lookback)
+
+    # Filters
+    high_52w = spy_close.rolling(252, min_periods=60).max()
+    near_high = spy_close >= high_52w * (1 - near_high_pct / 100)
+
+    # Signal: low AR percentile while SPY near highs
+    latest_ar = float(ar_valid.iloc[-1])
+    latest_pctile = float(ar_pctile.iloc[-1]) if len(ar_pctile) > 0 and not np.isnan(ar_pctile.iloc[-1]) else 50.0
+    latest_near_high = bool(near_high.iloc[-1]) if len(near_high) > 0 and not pd.isna(near_high.iloc[-1]) else False
+
+    signal_on = latest_pctile < pctile_threshold and latest_near_high
+
+    detail = ""
+    if signal_on:
+        detail = (
+            f"Absorption Ratio at {latest_ar:.3f} ({latest_pctile:.0f}th percentile) "
+            f"\u2014 below {pctile_threshold}th threshold. Sectors moving independently "
+            f"while SPY near 52w high \u2014 vol suppression through diversification. "
+            f"Historically precedes below-average forward returns."
+        )
+
+    summary = (
+        f"AR: {latest_ar:.3f} ({latest_pctile:.0f}th pctile, fires below "
+        f"{pctile_threshold}th) \u2014 near high: {'yes' if latest_near_high else 'no'}"
+    )
+
+    return {
+        'on': signal_on,
+        'detail': detail,
+        'summary': summary,
+        'ar_series': ar_series,
+        'ar_pctile': ar_pctile,
+    }
+
+
 # ---------------------------------------------------------------------------
 # SIGNAL FRAMEWORK
 # ---------------------------------------------------------------------------
@@ -916,6 +977,7 @@ def compute_horizon_fragility(
     vrc = signals_ordered.get('VIX Range Compression', {})
     dl = signals_ordered.get('Defensive Leadership', {})
     fomc = signals_ordered.get('Pre-FOMC Rally', {})
+    ar = signals_ordered.get('Low Absorption Ratio', {})
 
     scores = {}
     for h in horizons:
@@ -925,6 +987,7 @@ def compute_horizon_fragility(
             + _signal_edge(stats, 'VIX Range Compression', h)
             + _signal_edge(stats, 'Defensive Leadership', h)
             + _signal_edge(stats, 'Pre-FOMC Rally', h)
+            + _signal_edge(stats, 'Low Absorption Ratio', h)
         )
 
         active_weight = 0.0
@@ -945,6 +1008,9 @@ def compute_horizon_fragility(
 
         if fomc.get('on'):
             active_weight += _signal_edge(stats, 'Pre-FOMC Rally', h)
+
+        if ar.get('on'):
+            active_weight += _signal_edge(stats, 'Low Absorption Ratio', h)
 
         if max_weight > 0:
             score = (active_weight / max_weight) * 80 * regime_mult
@@ -1144,6 +1210,30 @@ def chart_leadership(on_breadth: pd.Series, off_breadth: pd.Series,
     return fig
 
 
+def chart_ar_signal(ar_pctile: pd.Series, spy_close: pd.Series) -> go.Figure:
+    """AR percentile with threshold line and SPY overlay."""
+    fig = go.Figure()
+    clean = ar_pctile.dropna()
+    fig.add_trace(go.Scatter(
+        x=clean.index, y=clean,
+        name="AR Percentile", line=dict(width=1.5, color="#9b59b6"),
+    ))
+    fig.add_hline(y=10, line_dash="dash", line_color="#CC0000", line_width=1,
+                  annotation_text="Threshold: 10th", annotation_position="right")
+    fig.add_trace(go.Scatter(
+        x=spy_close.index, y=spy_close,
+        name="SPY", line=dict(width=1, color="rgba(100,100,100,0.4)"),
+        yaxis="y2",
+    ))
+    fig.update_layout(**_dual_y_layout("Absorption Ratio Percentile (PCA w=21)", "AR Pctile", "SPY"))
+    two_yr_ago = (datetime.datetime.now() - datetime.timedelta(days=730)).strftime("%Y-%m-%d")
+    fig.update_xaxes(range=[two_yr_ago, datetime.datetime.now().strftime("%Y-%m-%d")])
+    spy_range = _spy_y2_range(spy_close)
+    if spy_range:
+        fig.update_layout(yaxis2=dict(range=spy_range))
+    return fig
+
+
 def chart_fomc_signals(spy_close: pd.Series, signal_dates: list) -> go.Figure:
     """SPY price with vertical red lines at pre-FOMC signal fire dates."""
     fig = go.Figure()
@@ -1227,8 +1317,13 @@ def main():
 
     spy_close = spy_df["Close"]
 
+    # Sector returns (needed for Absorption Ratio signal)
+    sector_cols = [c for c in SECTOR_ETFS if c in closes.columns]
+    sector_closes = closes[sector_cols].dropna(axis=1, how="all")
+    sector_returns = sector_closes.pct_change().dropna(how="all")
+
     # -------------------------------------------------------------------
-    # COMPUTE 4 VALIDATED SIGNALS
+    # COMPUTE 5 VALIDATED SIGNALS
     # -------------------------------------------------------------------
     da = compute_da_signal(spy_df)
 
@@ -1239,12 +1334,15 @@ def main():
 
     fomc = compute_fomc_signal(spy_close)
 
+    ar = compute_low_ar_signal(sector_returns, spy_close)
+
     # Build ordered signal dict for rendering + persistence
     signals_ordered = {
         'Distribution Dominance': da,
         'VIX Range Compression': vrc,
         'Defensive Leadership': dl,
         'Pre-FOMC Rally': fomc,
+        'Low Absorption Ratio': ar,
     }
     signals_bool = {name: sig['on'] for name, sig in signals_ordered.items()}
 
@@ -1303,7 +1401,7 @@ def main():
         st.plotly_chart(build_risk_dial(min(100, fallback), 'Fragility'), use_container_width=True)
 
     # -------------------------------------------------------------------
-    # SIGNAL CHARTS (2x2 grid)
+    # SIGNAL CHARTS (2x2 + 1 grid)
     # -------------------------------------------------------------------
     st.divider()
 
@@ -1331,19 +1429,13 @@ def main():
         if len(fomc['signal_dates']) > 0:
             st.plotly_chart(chart_fomc_signals(spy_close, fomc['signal_dates']), use_container_width=True)
 
-    # -------------------------------------------------------------------
-    # ABSORPTION RATIO CHART
-    # -------------------------------------------------------------------
-    sector_cols = [c for c in SECTOR_ETFS if c in closes.columns]
-    sector_closes = closes[sector_cols].dropna(axis=1, how="all")
-    sector_returns = sector_closes.pct_change().dropna(how="all")
+    row3_c1, row3_c2 = st.columns(2)
 
-    if len(sector_returns.columns) >= 5:
-        with st.spinner("Computing absorption ratio..."):
-            ar_series = compute_absorption_ratio(sector_returns, window=63)
-        if len(ar_series.dropna()) > 0:
-            st.divider()
-            st.plotly_chart(chart_absorption_ratio(ar_series), use_container_width=True)
+    with row3_c1:
+        if len(ar.get('ar_pctile', pd.Series(dtype=float)).dropna()) > 0:
+            st.plotly_chart(chart_ar_signal(ar['ar_pctile'], spy_close), use_container_width=True)
+        elif len(ar.get('ar_series', pd.Series(dtype=float)).dropna()) > 0:
+            st.plotly_chart(chart_absorption_ratio(ar['ar_series']), use_container_width=True)
 
 
 main()
