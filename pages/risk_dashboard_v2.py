@@ -1554,13 +1554,31 @@ def chart_signal_overlay(spy_close: pd.Series, signals_ordered: dict) -> go.Figu
             fig.add_trace(go.Scatter(
                 x=[start, end, end, start, start],
                 y=[i - 0.35, i - 0.35, i + 0.35, i + 0.35, i - 0.35],
-                fill='toself', fillcolor=color, line=dict(width=0),
+                fill='toself', fillcolor=color,
+                line=dict(width=0, color=color),
+                marker=dict(color=color),
                 opacity=0.7,
                 name=name if j == 0 else name,
                 showlegend=(j == 0),
                 legendgroup=name,
                 hoverinfo='name',
             ), row=2, col=1)
+
+    # Vertical red lines on SPY chart for dates with 3+ concurrent signals
+    histories = []
+    for sig in signals_ordered.values():
+        h = sig.get('signal_history')
+        if h is not None and not h.empty:
+            try:
+                histories.append(h.astype(int))
+            except (ValueError, TypeError):
+                pass
+    if histories:
+        combined = pd.concat(histories, axis=1).fillna(0)
+        overlap_count = combined.sum(axis=1)
+        overlap_dates = overlap_count[overlap_count >= 3].index
+        for dt in overlap_dates:
+            fig.add_vline(x=dt, line_color="rgba(204,0,0,0.5)", line_width=1.5, row=1, col=1)
 
     # Configure axes
     two_yr_ago = (datetime.datetime.now() - datetime.timedelta(days=730)).strftime("%Y-%m-%d")
