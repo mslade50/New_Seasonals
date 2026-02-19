@@ -141,6 +141,25 @@ def load_data():
 
 
 @st.cache_data(ttl=3600)
+def load_ticker_ohlc(ticker: str):
+    """Download OHLC for any single ticker. Returns DataFrame with Close/Open/High/Low/Volume."""
+    try:
+        raw = yf.download(ticker, start="2010-01-01", auto_adjust=True, progress=False)
+        if raw is None or raw.empty:
+            return None
+        if isinstance(raw.columns, pd.MultiIndex):
+            raw = raw.xs(ticker, level="Ticker", axis=1)
+        if isinstance(raw.columns, pd.MultiIndex):
+            raw.columns = raw.columns.get_level_values(0)
+        raw.columns = [c.capitalize() for c in raw.columns]
+        if raw.index.tz is not None:
+            raw.index = raw.index.tz_localize(None)
+        return raw
+    except Exception:
+        return None
+
+
+@st.cache_data(ttl=3600)
 def load_sp500_closes():
     """Load S&P 500 constituent closes from parquet cache."""
     if os.path.exists(CACHE_SP500):
@@ -225,7 +244,7 @@ def run_event_study(
 
 
 def render_event_study(study: dict, signal_name: str, signal_series: pd.Series,
-                       price_series: pd.Series):
+                       price_series: pd.Series, ticker_name: str = "SPY"):
     """Render the full event study output for one signal tab."""
     n_total = len(signal_series.dropna())
     st.markdown(
@@ -270,7 +289,7 @@ def render_event_study(study: dict, signal_name: str, signal_series: pd.Series,
     fig = go.Figure()
     fig.add_trace(go.Scatter(
         x=price_series.index, y=price_series,
-        name="SPY", line=dict(width=1.5, color="rgba(150,150,150,0.8)"),
+        name=ticker_name, line=dict(width=1.5, color="rgba(150,150,150,0.8)"),
     ))
 
     # Deduplicate signal onsets: first activation in each cluster (10d lookback)
@@ -290,9 +309,9 @@ def render_event_study(study: dict, signal_name: str, signal_series: pd.Series,
         margin=dict(l=10, r=10, t=30, b=10),
         hovermode="x unified",
         xaxis=dict(showgrid=False),
-        yaxis=dict(title="SPY"),
+        yaxis=dict(title=ticker_name),
         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
-        title=dict(text=f"{signal_name}: Signal Onsets on SPY ({len(onset_dates)} events)", font=dict(size=13)),
+        title=dict(text=f"{signal_name}: Signal Onsets on {ticker_name} ({len(onset_dates)} events)", font=dict(size=13)),
     )
     st.plotly_chart(fig, use_container_width=True)
 
@@ -701,7 +720,7 @@ tab1, tab2, tab3, tab4, tab5 = st.tabs([
 with tab1:
     st.markdown("### Distribution / Accumulation Ratio")
     st.markdown(
-        "> A **distribution day** = SPY volume > trailing 63d avg volume "
+        "> A **distribution day** = volume > trailing 63d avg volume "
         "AND volume > previous day's volume by a configurable multiplier (default 1.25x) "
         "AND close < open (intraday selling on a volume surge). "
         "An **accumulation day** = same volume thresholds but close > open. "
@@ -709,6 +728,23 @@ with tab1:
         "When distribution meaningfully exceeds accumulation during an uptrend, "
         "institutional selling is occurring beneath the surface."
     )
+
+    # --- Primary ticker selector ---
+    da_ticker = st.text_input(
+        "Primary ticker", value="SPY", key="da_ticker",
+        help="Ticker to compute D/A on (e.g. SPY, QQQ, IWM, DIA)",
+    ).strip().upper()
+
+    # Load OHLC for the selected ticker
+    if da_ticker == "SPY":
+        da_ohlc = spy_df
+    else:
+        da_ohlc = load_ticker_ohlc(da_ticker)
+        if da_ohlc is None or da_ohlc.empty:
+            st.error(f"Could not download OHLC data for {da_ticker}.")
+            st.stop()
+
+    da_primary_close = da_ohlc["Close"]
 
     c1, c2, c3 = st.columns(3)
     with c1:
@@ -720,41 +756,98 @@ with tab1:
 
     c4, c5 = st.columns(2)
     with c4:
-        da_uptrend = st.checkbox("Require uptrend (SPY > 50d SMA)", value=True, key="da_up")
+        da_uptrend = st.checkbox(f"Require uptrend ({da_ticker} > 50d SMA)", value=True, key="da_up")
     with c5:
-        da_near_high = st.checkbox("Require SPY within % of 52w high", value=False, key="da_near_high")
+        da_near_high = st.checkbox(f"Require {da_ticker} within % of 52w high", value=False, key="da_near_high")
     da_near_high_pct = 5.0
     if da_near_high:
-        da_near_high_pct = st.slider("SPY proximity to 52w high (%)", 1, 10, 5, key="da_high_pct")
+        da_near_high_pct = st.slider(f"{da_ticker} proximity to 52w high (%)", 1, 10, 5, key="da_high_pct")
 
+    # --- Confirmation ticker (optional) ---
+    da_use_confirm = st.checkbox("Require confirmation from second ticker", value=False, key="da_confirm_on")
+    confirm_da_ratio = None
+    da_confirm_ticker = ""
+    da_confirm_thresh = 2.0
+    if da_use_confirm:
+        cc1, cc2 = st.columns(2)
+        with cc1:
+            da_confirm_ticker = st.text_input(
+                "Confirmation ticker", value="QQQ", key="da_confirm_ticker",
+                help="Second ticker whose D/A ratio must also exceed the threshold",
+            ).strip().upper()
+        with cc2:
+            da_confirm_thresh = st.slider(
+                "Confirmation D/A threshold", 1.0, 8.0, 2.0, 0.25, key="da_confirm_thresh",
+            )
+        # Load confirmation OHLC
+        if da_confirm_ticker == "SPY":
+            confirm_ohlc = spy_df
+        elif da_confirm_ticker == da_ticker:
+            confirm_ohlc = da_ohlc
+        else:
+            confirm_ohlc = load_ticker_ohlc(da_confirm_ticker)
+        if confirm_ohlc is None or confirm_ohlc.empty:
+            st.error(f"Could not download OHLC data for confirmation ticker {da_confirm_ticker}.")
+            da_use_confirm = False
+        else:
+            _, confirm_da_ratio, _, _ = compute_distribution_accumulation(
+                confirm_ohlc, da_vol_mult, da_window, da_confirm_thresh,
+                require_uptrend=False, require_near_high=False,
+            )
+
+    # --- Compute primary signal ---
     signal, da_ratio, dist_days, accum_days = compute_distribution_accumulation(
-        spy_df, da_vol_mult, da_window, da_ratio_thresh, da_uptrend,
+        da_ohlc, da_vol_mult, da_window, da_ratio_thresh, da_uptrend,
         da_near_high, da_near_high_pct,
     )
+
+    # Apply confirmation filter
+    if da_use_confirm and confirm_da_ratio is not None:
+        confirm_above = confirm_da_ratio > da_confirm_thresh
+        # Align indices
+        common_idx = signal.index.intersection(confirm_above.index)
+        signal = signal.reindex(common_idx).fillna(False) & confirm_above.reindex(common_idx).fillna(False)
 
     # Current state summary
     recent_dist = int(dist_days.iloc[-da_window:].sum()) if len(dist_days) >= da_window else 0
     recent_accum = int(accum_days.iloc[-da_window:].sum()) if len(accum_days) >= da_window else 0
     current_ratio = da_ratio.iloc[-1] if len(da_ratio) > 0 and not np.isnan(da_ratio.iloc[-1]) else 0
-    st.markdown(
-        f"**Last {da_window} sessions:** Distribution days: {recent_dist} | "
+    summary = (
+        f"**{da_ticker} — Last {da_window} sessions:** Distribution days: {recent_dist} | "
         f"Accumulation days: {recent_accum} | Current ratio: {current_ratio:.2f}"
     )
+    if da_use_confirm and confirm_da_ratio is not None and len(confirm_da_ratio.dropna()) > 0:
+        confirm_current = confirm_da_ratio.iloc[-1] if not np.isnan(confirm_da_ratio.iloc[-1]) else 0
+        summary += f"  \n**{da_confirm_ticker} confirmation D/A:** {confirm_current:.2f} (threshold: {da_confirm_thresh:.2f})"
+    st.markdown(summary)
 
-    study = run_event_study(signal, spy_close, signal_name="Distribution/Accumulation")
+    # Forward returns measured on the primary ticker
+    study = run_event_study(signal, da_primary_close, signal_name="Distribution/Accumulation")
 
-    # D/A ratio chart with SPY overlay
+    # D/A ratio chart with primary ticker overlay
     fig_da = go.Figure()
     da_clean = da_ratio.dropna()
     fig_da.add_trace(go.Scatter(
         x=da_clean.index, y=da_clean,
-        name="D/A Ratio", line=dict(width=1.5, color="#e74c3c"),
+        name=f"{da_ticker} D/A Ratio", line=dict(width=1.5, color="#e74c3c"),
     ))
     fig_da.add_hline(y=da_ratio_thresh, line_dash="dash", line_color="yellow",
                      annotation_text=f"Threshold: {da_ratio_thresh}")
+
+    # Overlay confirmation D/A ratio when active
+    if da_use_confirm and confirm_da_ratio is not None:
+        confirm_clean = confirm_da_ratio.dropna()
+        fig_da.add_trace(go.Scatter(
+            x=confirm_clean.index, y=confirm_clean,
+            name=f"{da_confirm_ticker} D/A Ratio",
+            line=dict(width=1.2, color="#3498db", dash="dot"),
+        ))
+        fig_da.add_hline(y=da_confirm_thresh, line_dash="dot", line_color="cyan",
+                         annotation_text=f"{da_confirm_ticker} thresh: {da_confirm_thresh}")
+
     fig_da.add_trace(go.Scatter(
-        x=spy_close.index, y=spy_close,
-        name="SPY", line=dict(width=1, color="rgba(100,100,100,0.4)"),
+        x=da_primary_close.index, y=da_primary_close,
+        name=da_ticker, line=dict(width=1, color="rgba(100,100,100,0.4)"),
         yaxis="y2",
     ))
     fig_da.update_layout(
@@ -762,13 +855,13 @@ with tab1:
         margin=dict(l=10, r=10, t=30, b=10),
         hovermode="x unified",
         yaxis=dict(title="D/A Ratio"),
-        yaxis2=dict(overlaying="y", side="right", showgrid=False, title="SPY"),
+        yaxis2=dict(overlaying="y", side="right", showgrid=False, title=da_ticker),
         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
-        title=dict(text="Distribution / Accumulation Ratio", font=dict(size=13)),
+        title=dict(text=f"{da_ticker} Distribution / Accumulation Ratio", font=dict(size=13)),
     )
     st.plotly_chart(fig_da, use_container_width=True)
 
-    render_event_study(study, "Distribution/Accumulation", signal, spy_close)
+    render_event_study(study, "Distribution/Accumulation", signal, da_primary_close, ticker_name=da_ticker)
 
 
 # ========================== TAB 2 ==========================
