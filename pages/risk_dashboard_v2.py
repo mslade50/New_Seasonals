@@ -661,11 +661,20 @@ def compute_fomc_signal(spy_close: pd.Series) -> dict:
     else:
         summary = "No upcoming FOMC dates in calendar"
 
+    # Build boolean signal_history from point events
+    # Each FOMC signal fire covers the ~5 trading days leading up to the FOMC date
+    signal_history = pd.Series(False, index=spy_close.index)
+    for sd in signal_dates:
+        # Mark the 5 trading days up to and including the signal date
+        mask = (spy_close.index <= sd) & (spy_close.index >= sd - pd.Timedelta(days=8))
+        signal_history.loc[mask] = True
+
     return {
         'on': signal_on,
         'detail': detail,
         'summary': summary,
         'signal_dates': signal_dates,
+        'signal_history': signal_history,
     }
 
 
