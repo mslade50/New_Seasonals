@@ -72,6 +72,19 @@
                 "42d": {"signal_mean": -0.56, "unconditional_mean": 2.56, "diff_mean": -3.12, "hit_rate": null, "p_value": 0.000},
                 "63d": {"signal_mean": -0.51, "unconditional_mean": 3.83, "diff_mean": -4.34, "hit_rate": null, "p_value": 0.000}
             }
+        },
+        "Seasonal Rank Divergence": {
+            "n_events": 139,
+            "pct_active": 2.2,
+            "params": "risk-off avg - risk-on avg > 10pp, SPY within 2% of 52w high",
+            "note": "Short-to-intermediate signal. 44 risk-on, 98 risk-off stocks from seasonal_ranks.csv classified via sp500_risk_classification.csv.",
+            "horizons": {
+                "5d":  {"signal_mean": -0.14, "unconditional_mean": 0.20, "diff_mean": -0.34, "hit_rate": null, "p_value": 0.001},
+                "10d": {"signal_mean": -0.16, "unconditional_mean": 0.39, "diff_mean": -0.55, "hit_rate": null, "p_value": 0.001},
+                "21d": {"signal_mean": -0.02, "unconditional_mean": 0.81, "diff_mean": -0.84, "hit_rate": null, "p_value": 0.002},
+                "42d": {"signal_mean": 1.46, "unconditional_mean": 1.63, "diff_mean": -0.17, "hit_rate": null, "p_value": 0.638},
+                "63d": {"signal_mean": 1.97, "unconditional_mean": 2.47, "diff_mean": -0.50, "hit_rate": null, "p_value": 0.342}
+            }
         }
     }
 }

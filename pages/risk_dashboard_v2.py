@@ -2,7 +2,7 @@
 Risk Dashboard V2 — Executive Summary + Absorption Ratio
 =========================================================
 Standalone market risk monitor.
-5 validated signals from event study backtesting, flat signal board
+6 validated signals from event study backtesting, flat signal board
 with metric summaries, individual signal charts, and fragility dial.
 
 Data: yfinance only. No broker connections. No strategy imports.
@@ -58,6 +58,8 @@ CACHE_SP500    = os.path.join(DATA_DIR, "rd2_sp500_closes.parquet")
 
 RISK_CLASSIFICATION_PATH = os.path.join(DATA_DIR, "sp500_risk_classification.csv")
 HORIZON_STATS_PATH = os.path.join(DATA_DIR, "signal_horizon_stats.json")
+SEASONAL_RANKS_PRIMARY = os.path.join(parent_dir, "sznl_ranks.csv")
+SEASONAL_RANKS_BACKUP = os.path.join(parent_dir, "seasonal_ranks.csv")
 
 ALL_SIGNAL_TICKERS = sorted(set(VOL_TICKERS + SECTOR_ETFS + CROSS_ASSET_TICKERS))
 
@@ -337,7 +339,7 @@ def _rolling_percentile(series: pd.Series, lookback: int) -> pd.Series:
 
 
 # ---------------------------------------------------------------------------
-# 5 VALIDATED SIGNAL FUNCTIONS
+# 6 VALIDATED SIGNAL FUNCTIONS
 # Each returns a dict with: on, detail, summary, and chart series.
 # ---------------------------------------------------------------------------
 
@@ -733,6 +735,126 @@ def compute_low_ar_signal(sector_returns: pd.DataFrame, spy_close: pd.Series) ->
     }
 
 
+@st.cache_data(ttl=86400)
+def _load_seasonal_spread() -> pd.Series | None:
+    """
+    Load seasonal rank spread (risk-off avg - risk-on avg) from CSV.
+    Ticker universe locked to seasonal_ranks.csv (backtested set).
+    sznl_ranks.csv used only for 2026 date coverage with same tickers.
+    Cached for 24h since files are updated annually.
+    """
+    if not os.path.exists(RISK_CLASSIFICATION_PATH):
+        return None
+    if not os.path.exists(SEASONAL_RANKS_BACKUP):
+        return None
+
+    # Load backtested universe to lock ticker set
+    sr_base = pd.read_csv(SEASONAL_RANKS_BACKUP, parse_dates=['Date'])
+    base_tickers = set(sr_base['ticker'].unique())
+
+    # Extend with sznl_ranks.csv for 2026 dates, restricted to same tickers
+    if os.path.exists(SEASONAL_RANKS_PRIMARY):
+        sr_ext = pd.read_csv(SEASONAL_RANKS_PRIMARY, parse_dates=['Date'])
+        sr_ext = sr_ext[sr_ext['ticker'].isin(base_tickers)]
+        sr = pd.concat([sr_base, sr_ext], ignore_index=True)
+        sr = sr.drop_duplicates(subset=['Date', 'ticker'], keep='first')
+    else:
+        sr = sr_base
+
+    rc = pd.read_csv(RISK_CLASSIFICATION_PATH)
+
+    # Add tickers not in S&P 500 classification
+    extra = pd.DataFrame([
+        {'ticker': 'HIG', 'label': 'risk_off'},
+        {'ticker': 'K', 'label': 'risk_off'},
+        {'ticker': 'LEG', 'label': 'risk_off'},
+    ])
+    rc = pd.concat([rc, extra], ignore_index=True)
+    label_map = dict(zip(rc['ticker'], rc['label']))
+
+    # Individual stocks only — skip ETFs, indices, commodities
+    skip = {
+        'VFC', 'SPY', 'QQQ', 'DIA', 'IWM', '^GSPC', '^NDX',
+        'GLD', 'SLV', 'USO', 'UNG', 'UVXY', 'VNQ', 'IYR',
+        'SMH', 'XBI', 'XHB', 'XLB', 'XLE', 'XLF', 'XLI', 'XLK',
+        'XLP', 'XLU', 'XLV', 'XLY', 'XME', 'XOP', 'XRT',
+        'IBB', 'IHI', 'ITA', 'ITB', 'KRE', 'OIH', 'CEF', 'PSA', 'SPG',
+    }
+    sr_c = sr[sr['ticker'].isin(label_map) & ~sr['ticker'].isin(skip)].copy()
+    sr_c['label'] = sr_c['ticker'].map(label_map)
+
+    pivot = sr_c.pivot_table(index='Date', columns='ticker', values='seasonal_rank')
+    pivot.index = pd.to_datetime(pivot.index)
+    pivot = pivot.sort_index()
+
+    on_cols = [t for t in sr_c[sr_c['label'] == 'risk_on']['ticker'].unique() if t in pivot.columns]
+    off_cols = [t for t in sr_c[sr_c['label'] == 'risk_off']['ticker'].unique() if t in pivot.columns]
+
+    if len(on_cols) < 10 or len(off_cols) < 10:
+        return None
+
+    return pivot[off_cols].mean(axis=1) - pivot[on_cols].mean(axis=1)
+
+
+def compute_seasonal_divergence_signal(spy_close: pd.Series) -> dict:
+    """
+    Seasonal Rank Divergence signal.
+    Risk-off stocks have stronger seasonals than risk-on while SPY near highs.
+    Short-to-intermediate term signal (5d-21d edge).
+    """
+    threshold = 10  # pp spread
+    near_high_pct = 2.0
+
+    empty = {
+        'on': False, 'detail': '', 'summary': 'Seasonal rank data unavailable',
+        'spread': pd.Series(dtype=float),
+        'signal_history': pd.Series(dtype=bool),
+    }
+
+    spread = _load_seasonal_spread()
+    if spread is None or len(spread) < 252:
+        return empty
+
+    # Align with SPY
+    common = spread.index.intersection(spy_close.index)
+    if len(common) < 252:
+        return empty
+    spread_aligned = spread.loc[common]
+    spy = spy_close.loc[common]
+
+    # Near-high filter
+    high_52w = spy.rolling(252, min_periods=60).max()
+    near_high = spy >= high_52w * (1 - near_high_pct / 100)
+
+    # Signal
+    signal = (spread_aligned > threshold) & near_high
+
+    latest_spread = float(spread_aligned.iloc[-1])
+    signal_on = bool(signal.iloc[-1]) if not pd.isna(signal.iloc[-1]) else False
+    latest_near_high = bool(near_high.iloc[-1]) if not pd.isna(near_high.iloc[-1]) else False
+
+    detail = ""
+    if signal_on:
+        detail = (
+            f"Seasonal rank spread at {latest_spread:+.1f}pp (risk-off minus risk-on). "
+            f"Defensive stocks have stronger seasonal tailwinds while SPY near 52w high "
+            f"\u2014 historically precedes below-average short-term returns."
+        )
+
+    summary = (
+        f"Spread: {latest_spread:+.1f}pp (fires above {threshold}) "
+        f"\u2014 near high: {'yes' if latest_near_high else 'no'}"
+    )
+
+    return {
+        'on': signal_on,
+        'detail': detail,
+        'summary': summary,
+        'spread': spread_aligned,
+        'signal_history': signal,
+    }
+
+
 # ---------------------------------------------------------------------------
 # SIGNAL FRAMEWORK
 # ---------------------------------------------------------------------------
@@ -1041,6 +1163,7 @@ def compute_horizon_fragility(
     dl = signals_ordered.get('Defensive Leadership', {})
     fomc = signals_ordered.get('Pre-FOMC Rally', {})
     ar = signals_ordered.get('Low Absorption Ratio', {})
+    srd = signals_ordered.get('Seasonal Rank Divergence', {})
 
     # SPY distance from highs (positive = below high)
     dd = price_ctx.get('drawdown')
@@ -1055,6 +1178,7 @@ def compute_horizon_fragility(
             + _signal_edge(stats, 'Defensive Leadership', h)
             + _signal_edge(stats, 'Pre-FOMC Rally', h)
             + _signal_edge(stats, 'Low Absorption Ratio', h)
+            + _signal_edge(stats, 'Seasonal Rank Divergence', h)
         )
 
         active_weight = 0.0
@@ -1082,6 +1206,10 @@ def compute_horizon_fragility(
         ar_w = _signal_decay_weight(ar, h, spy_pct_from_high)
         if ar_w > 0:
             active_weight += _signal_edge(stats, 'Low Absorption Ratio', h) * ar_w
+
+        srd_w = _signal_decay_weight(srd, h, spy_pct_from_high)
+        if srd_w > 0:
+            active_weight += _signal_edge(stats, 'Seasonal Rank Divergence', h) * srd_w
 
         if max_weight > 0:
             score = (active_weight / max_weight) * 80 * regime_mult
@@ -1333,6 +1461,140 @@ def chart_fomc_signals(spy_close: pd.Series, signal_dates: list) -> go.Figure:
     return fig
 
 
+def chart_seasonal_divergence(spread: pd.Series, spy_close: pd.Series) -> go.Figure:
+    """Seasonal rank spread (risk-off - risk-on) with SPY overlay."""
+    fig = go.Figure()
+    clean = spread.dropna()
+    fig.add_trace(go.Scatter(
+        x=clean.index, y=clean,
+        name="Seasonal Spread", line=dict(width=1.5, color="#1abc9c"),
+    ))
+    fig.add_hline(y=10, line_dash="dash", line_color="#CC0000", line_width=1)
+    fig.add_hline(y=0, line_dash="dot", line_color="rgba(128,128,128,0.4)", line_width=1)
+    fig.add_trace(go.Scatter(
+        x=spy_close.index, y=spy_close,
+        name="SPY", line=dict(width=1, color="rgba(100,100,100,0.4)"),
+        yaxis="y2",
+    ))
+    fig.update_layout(**_dual_y_layout("Seasonal Rank Divergence (Risk-Off \u2212 Risk-On)", "Spread (pp)", "SPY"))
+    two_yr_ago = (datetime.datetime.now() - datetime.timedelta(days=730)).strftime("%Y-%m-%d")
+    fig.update_xaxes(range=[two_yr_ago, datetime.datetime.now().strftime("%Y-%m-%d")])
+    spy_range = _spy_y2_range(spy_close)
+    if spy_range:
+        fig.update_layout(yaxis2=dict(range=spy_range))
+    return fig
+
+
+def _signal_periods(signal_history: pd.Series) -> list:
+    """Convert boolean series to list of (start_date, end_date) tuples for contiguous active periods."""
+    if signal_history is None or signal_history.empty:
+        return []
+    try:
+        mask = signal_history.astype(bool)
+    except (ValueError, TypeError):
+        return []
+    changes = mask.astype(int).diff().fillna(mask.astype(int))
+    starts = changes[changes == 1].index.tolist()
+    ends = changes[changes == -1].index.tolist()
+    # If signal is still on at end, close the period
+    if len(starts) > len(ends):
+        ends.append(mask.index[-1])
+    return list(zip(starts, ends))
+
+
+SIGNAL_COLORS = {
+    'Distribution Dominance': '#e74c3c',
+    'VIX Range Compression': '#e67e22',
+    'Defensive Leadership': '#2ecc71',
+    'Pre-FOMC Rally': '#3498db',
+    'Low Absorption Ratio': '#9b59b6',
+    'Seasonal Rank Divergence': '#1abc9c',
+}
+
+
+def chart_signal_overlay(spy_close: pd.Series, signals_ordered: dict) -> go.Figure:
+    """
+    Composite chart: SPY price on top, signal activity Gantt-style timeline on bottom.
+    Each signal is a colored strip at its own y-level. Overlaps are visually obvious.
+    """
+    from plotly.subplots import make_subplots
+
+    sig_names = list(signals_ordered.keys())
+    n_sigs = len(sig_names)
+
+    fig = make_subplots(
+        rows=2, cols=1, shared_xaxes=True,
+        row_heights=[0.70, 0.30], vertical_spacing=0.04,
+    )
+
+    # Top: SPY
+    fig.add_trace(go.Scatter(
+        x=spy_close.index, y=spy_close,
+        name="SPY", line=dict(width=1.5, color="rgba(180,180,180,0.9)"),
+        showlegend=False,
+    ), row=1, col=1)
+
+    # Bottom: signal activity strips
+    for i, name in enumerate(sig_names):
+        sig = signals_ordered[name]
+        periods = _signal_periods(sig.get('signal_history'))
+        color = SIGNAL_COLORS.get(name, '#888888')
+
+        if not periods:
+            # Add invisible trace for legend
+            fig.add_trace(go.Scatter(
+                x=[None], y=[None], mode='markers',
+                marker=dict(size=8, color=color, symbol='square'),
+                name=name, showlegend=True,
+            ), row=2, col=1)
+            continue
+
+        # First period gets the legend entry
+        for j, (start, end) in enumerate(periods):
+            fig.add_trace(go.Scatter(
+                x=[start, end, end, start, start],
+                y=[i - 0.35, i - 0.35, i + 0.35, i + 0.35, i - 0.35],
+                fill='toself', fillcolor=color, line=dict(width=0),
+                opacity=0.7,
+                name=name if j == 0 else name,
+                showlegend=(j == 0),
+                legendgroup=name,
+                hoverinfo='name',
+            ), row=2, col=1)
+
+    # Configure axes
+    two_yr_ago = (datetime.datetime.now() - datetime.timedelta(days=730)).strftime("%Y-%m-%d")
+    fig.update_xaxes(range=[two_yr_ago, datetime.datetime.now().strftime("%Y-%m-%d")])
+
+    fig.update_yaxes(
+        showgrid=True, gridcolor="rgba(128,128,128,0.2)",
+        row=1, col=1,
+    )
+    fig.update_yaxes(
+        tickvals=list(range(n_sigs)),
+        ticktext=[n.replace(' ', '\n') if len(n) > 12 else n for n in sig_names],
+        tickfont=dict(size=9),
+        range=[-0.5, n_sigs - 0.5],
+        showgrid=True, gridcolor="rgba(128,128,128,0.1)",
+        row=2, col=1,
+    )
+
+    fig.update_layout(
+        height=500,
+        margin=dict(l=10, r=10, t=35, b=10),
+        hovermode="x unified",
+        title=dict(text="Signal Activity Overlay", font=dict(size=13)),
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1, font=dict(size=9)),
+        xaxis=dict(showgrid=False),
+    )
+
+    spy_range = _spy_y2_range(spy_close)
+    if spy_range:
+        fig.update_yaxes(range=spy_range, row=1, col=1)
+
+    return fig
+
+
 # ============================================================================
 # MAIN APP
 # ============================================================================
@@ -1413,6 +1675,8 @@ def main():
 
     ar = compute_low_ar_signal(sector_returns, spy_close)
 
+    srd = compute_seasonal_divergence_signal(spy_close)
+
     # Build ordered signal dict for rendering + persistence
     signals_ordered = {
         'Distribution Dominance': da,
@@ -1420,6 +1684,7 @@ def main():
         'Defensive Leadership': dl,
         'Pre-FOMC Rally': fomc,
         'Low Absorption Ratio': ar,
+        'Seasonal Rank Divergence': srd,
     }
     signals_bool = {name: sig['on'] for name, sig in signals_ordered.items()}
 
@@ -1478,7 +1743,7 @@ def main():
         st.plotly_chart(build_risk_dial(min(100, fallback), 'Fragility'), use_container_width=True)
 
     # -------------------------------------------------------------------
-    # SIGNAL CHARTS (2x2 + 1 grid)
+    # SIGNAL CHARTS (3x2 grid)
     # -------------------------------------------------------------------
     st.divider()
 
@@ -1521,6 +1786,18 @@ def main():
             st.plotly_chart(fig, use_container_width=True)
         elif len(ar.get('ar_series', pd.Series(dtype=float)).dropna()) > 0:
             st.plotly_chart(chart_absorption_ratio(ar['ar_series']), use_container_width=True)
+
+    with row3_c2:
+        if len(srd.get('spread', pd.Series(dtype=float)).dropna()) > 0:
+            fig = chart_seasonal_divergence(srd['spread'], spy_close)
+            _add_signal_vlines(fig, srd.get('signal_history'))
+            st.plotly_chart(fig, use_container_width=True)
+
+    # -------------------------------------------------------------------
+    # COMPOSITE SIGNAL OVERLAY
+    # -------------------------------------------------------------------
+    st.divider()
+    st.plotly_chart(chart_signal_overlay(spy_close, signals_ordered), use_container_width=True)
 
 
 main()
