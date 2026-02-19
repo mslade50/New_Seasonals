@@ -606,6 +606,72 @@ def compute_pre_event_positioning(spy_close: pd.Series,
     return signal_series, event_df, pd.DatetimeIndex(adjusted_dates)
 
 
+# ---------------------------------------------------------------------------
+# SIGNAL 5: CROSS-SECTIONAL RETURN DISPERSION
+# ---------------------------------------------------------------------------
+def compute_dispersion_signal(component_closes: pd.DataFrame,
+                              spy_df: pd.DataFrame,
+                              rv_window: int = 21,
+                              pctile_lookback: int = 504,
+                              pctile_threshold: float = 75,
+                              require_low_index_vol: bool = True,
+                              index_vol_threshold: float = 40,
+                              min_stocks: int = 50) -> tuple:
+    """
+    Cross-sectional return dispersion signal.
+
+    High component RV relative to index RV = vol suppression via low correlation.
+    When combined with low index vol, it's a fragility indicator — stored spring tension.
+
+    Returns:
+        signal_series, avg_component_rv, spy_rv, dispersion_ratio,
+        dispersion_ratio_pctile, raw_dispersion
+    """
+    component_returns = component_closes.pct_change()
+
+    # Per-stock trailing RV (annualized)
+    component_rv = component_returns.rolling(rv_window, min_periods=max(5, rv_window // 2)).std() * np.sqrt(252)
+
+    # Require at least min_stocks with valid RV each day
+    stocks_available = component_rv.notna().sum(axis=1)
+    sufficient_data = stocks_available >= min_stocks
+
+    avg_component_rv = component_rv.mean(axis=1).where(sufficient_data)
+
+    # SPY RV (close-to-close to match component calculation)
+    spy_returns = spy_df['Close'].pct_change()
+    spy_rv = spy_returns.rolling(rv_window, min_periods=max(5, rv_window // 2)).std() * np.sqrt(252)
+
+    # Dispersion ratio: component RV / index RV
+    common_idx = avg_component_rv.dropna().index.intersection(spy_rv.dropna().index)
+    dispersion_ratio = (avg_component_rv.reindex(common_idx)
+                        / spy_rv.reindex(common_idx).replace(0, np.nan))
+    dispersion_ratio = dispersion_ratio.reindex(spy_df.index)
+
+    # Raw dispersion: cross-sectional std of trailing N-day returns
+    trailing_returns = component_closes.pct_change(rv_window)
+    raw_dispersion = trailing_returns.std(axis=1).where(sufficient_data)
+
+    # Rolling percentile of dispersion ratio
+    dispersion_ratio_pctile = _rolling_percentile(dispersion_ratio.dropna(), pctile_lookback)
+
+    # Signal: dispersion ratio percentile above threshold
+    signal = pd.Series(False, index=spy_df.index)
+    pctile_valid = dispersion_ratio_pctile.dropna()
+    signal.loc[pctile_valid.index] = pctile_valid > pctile_threshold
+
+    # Optional: also require low index vol
+    if require_low_index_vol:
+        spy_rv_pctile = _rolling_percentile(spy_rv.dropna(), pctile_lookback)
+        low_vol = pd.Series(False, index=spy_df.index)
+        spv_valid = spy_rv_pctile.dropna()
+        low_vol.loc[spv_valid.index] = spv_valid < index_vol_threshold
+        signal = signal & low_vol
+
+    return (signal, avg_component_rv, spy_rv, dispersion_ratio,
+            dispersion_ratio_pctile, raw_dispersion)
+
+
 # ===========================================================================
 # MAIN PAGE
 # ===========================================================================
@@ -623,11 +689,12 @@ if spy_df is None or spy_df.empty:
 
 spy_close = spy_df["Close"]
 
-tab1, tab2, tab3, tab4 = st.tabs([
+tab1, tab2, tab3, tab4, tab5 = st.tabs([
     "Distribution / Accumulation",
     "VIX Range Compression",
     "Sector Leadership",
     "Pre-Event Positioning",
+    "Dispersion",
 ])
 
 # ========================== TAB 1 ==========================
@@ -1064,3 +1131,181 @@ with tab4:
                 signal_name="Pre-Event Positioning",
             )
             render_event_study(study_pe, "Pre-Event Positioning", signal_pe, spy_close)
+
+
+# ========================== TAB 5: DISPERSION ==============================
+with tab5:
+    st.markdown("### Cross-Sectional Return Dispersion")
+    st.markdown(
+        "> **Cross-sectional dispersion** measures the average realized volatility "
+        "of individual S&P 500 stocks relative to SPY's realized volatility. When "
+        "component stocks are volatile but the index is calm, it means individual "
+        "moves are cancelling out \u2014 correlation is low and index vol is being "
+        "suppressed. This is the mechanical signature of systematic vol selling. "
+        "Elevated dispersion (especially relative to its own history) is a fragility "
+        "indicator: the gap between component vol and index vol represents stored "
+        "energy. When correlation snaps back during a correction, index vol "
+        "explosively catches up to component vol."
+    )
+
+    # Load S&P 500 constituent data (or fall back to sector ETFs)
+    _sp500_closes = load_sp500_closes()
+    if _sp500_closes is not None and len(_sp500_closes.columns) > 50:
+        if isinstance(_sp500_closes.columns, pd.MultiIndex):
+            _sp500_closes.columns = _sp500_closes.columns.get_level_values(0)
+        component_closes = _sp500_closes
+        dispersion_source = f"S&P 500 ({len(_sp500_closes.columns)} stocks)"
+    else:
+        sector_etfs = ["XLB", "XLC", "XLE", "XLF", "XLI", "XLK",
+                       "XLP", "XLRE", "XLU", "XLV", "XLY"]
+        available = [s for s in sector_etfs if s in closes.columns]
+        component_closes = closes[available]
+        dispersion_source = f"Sector ETFs ({len(available)})"
+        st.warning(
+            f"S&P 500 constituent data not cached. Using {dispersion_source} as fallback. "
+            "For better results, click 'Refresh Data' on the Risk Dashboard V2 page first."
+        )
+
+    st.caption(f"Data source: {dispersion_source}")
+
+    c1, c2, c3 = st.columns(3)
+    with c1:
+        disp_rv_window = st.slider("RV window (days)", 5, 63, 21, key="disp_rv")
+    with c2:
+        disp_pctile_lb = st.slider("Percentile lookback", 252, 1260, 504, key="disp_lb")
+    with c3:
+        disp_pctile_thresh = st.slider("Dispersion pctile threshold", 50, 95, 75, key="disp_thresh")
+
+    c4, c5, c6 = st.columns(3)
+    with c4:
+        disp_req_low_vol = st.checkbox("Require low index vol", True, key="disp_lowvol")
+    with c5:
+        disp_idx_vol_thresh = st.slider("Index vol 'low' pctile", 20, 60, 40, key="disp_idxvol")
+    with c6:
+        disp_min_stocks = st.slider("Min stocks", 20, 200, 50, key="disp_minstocks")
+
+    with st.spinner("Computing dispersion signal (this may take a moment)..."):
+        (disp_signal, avg_comp_rv, spy_rv_series, disp_ratio,
+         disp_ratio_pctile, raw_disp) = compute_dispersion_signal(
+            component_closes, spy_df,
+            rv_window=disp_rv_window,
+            pctile_lookback=disp_pctile_lb,
+            pctile_threshold=disp_pctile_thresh,
+            require_low_index_vol=disp_req_low_vol,
+            index_vol_threshold=disp_idx_vol_thresh,
+            min_stocks=disp_min_stocks,
+        )
+
+    # Current reading
+    cur_ratio = float(disp_ratio.dropna().iloc[-1]) if len(disp_ratio.dropna()) > 0 else None
+    cur_pctile = float(disp_ratio_pctile.dropna().iloc[-1]) if len(disp_ratio_pctile.dropna()) > 0 else None
+    cur_comp = float(avg_comp_rv.dropna().iloc[-1]) if len(avg_comp_rv.dropna()) > 0 else None
+    cur_spy_rv = float(spy_rv_series.dropna().iloc[-1]) if len(spy_rv_series.dropna()) > 0 else None
+
+    if cur_ratio is not None:
+        pctile_str = f"{cur_pctile:.0f}th" if cur_pctile is not None else "N/A"
+        icon = "\U0001f534" if (cur_pctile or 0) > disp_pctile_thresh else "\U0001f7e2"
+        st.markdown(
+            f"**Current dispersion ratio:** {icon} **{cur_ratio:.2f}** ({pctile_str} percentile)  \n"
+            f"Avg component RV: {cur_comp:.1%} | SPY RV: {cur_spy_rv:.1%} | "
+            f"Components are **{cur_ratio:.1f}\u00d7** more volatile than the index"
+        )
+
+    study_disp = run_event_study(disp_signal, spy_close, signal_name="Dispersion")
+    render_event_study(study_disp, "Dispersion", disp_signal, spy_close)
+
+    # --- Chart 1: Dispersion ratio time series with SPY ---
+    dr_clean = disp_ratio.dropna()
+    if len(dr_clean) > 0:
+        st.markdown("#### Dispersion Ratio Over Time")
+        fig_ratio = go.Figure()
+        fig_ratio.add_trace(go.Scatter(
+            x=dr_clean.index, y=dr_clean,
+            name="Dispersion Ratio (Comp RV / SPY RV)",
+            line=dict(width=1.5, color="#0066CC"),
+        ))
+        fig_ratio.add_trace(go.Scatter(
+            x=spy_close.index, y=spy_close,
+            name="SPY", line=dict(width=1, color="rgba(100,100,100,0.4)"),
+            yaxis="y2",
+        ))
+
+        # Shade signal-ON periods
+        sig_on = disp_signal.fillna(False).astype(int)
+        transitions = sig_on.diff().fillna(0)
+        starts = transitions[transitions == 1].index
+        ends = transitions[transitions == -1].index
+        if len(sig_on) > 0 and sig_on.iloc[0] == 1:
+            starts = starts.insert(0, sig_on.index[0])
+        if len(sig_on) > 0 and sig_on.iloc[-1] == 1:
+            ends = ends.append(pd.DatetimeIndex([sig_on.index[-1]]))
+        for s, e in zip(starts[:len(ends)], ends):
+            fig_ratio.add_vrect(x0=s, x1=e, fillcolor="rgba(204,0,0,0.08)",
+                                line_width=0, layer="below")
+
+        fig_ratio.update_layout(
+            height=300,
+            margin=dict(l=10, r=10, t=30, b=10),
+            hovermode="x unified",
+            yaxis=dict(title="Dispersion Ratio"),
+            yaxis2=dict(title="SPY", overlaying="y", side="right", showgrid=False),
+            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+        )
+        st.plotly_chart(fig_ratio, use_container_width=True)
+
+    # --- Chart 2: Component RV vs SPY RV ---
+    comp_clean = avg_comp_rv.dropna()
+    spy_rv_clean = spy_rv_series.dropna()
+    common_rv = comp_clean.index.intersection(spy_rv_clean.index)
+    if len(common_rv) > 0:
+        st.markdown("#### Component Vol vs Index Vol")
+        fig_gap = go.Figure()
+        fig_gap.add_trace(go.Scatter(
+            x=common_rv, y=comp_clean.reindex(common_rv),
+            name="Avg Component RV", line=dict(width=1.5, color="#CC6600"),
+        ))
+        fig_gap.add_trace(go.Scatter(
+            x=common_rv, y=spy_rv_clean.reindex(common_rv),
+            name="SPY RV", line=dict(width=1.5, color="#0066CC"),
+        ))
+        # Fill gap
+        fig_gap.add_trace(go.Scatter(
+            x=common_rv, y=comp_clean.reindex(common_rv),
+            line=dict(width=0), showlegend=False,
+        ))
+        fig_gap.add_trace(go.Scatter(
+            x=common_rv, y=spy_rv_clean.reindex(common_rv),
+            line=dict(width=0), showlegend=False,
+            fill='tonexty', fillcolor='rgba(204,0,0,0.08)',
+        ))
+        fig_gap.update_layout(
+            height=250,
+            margin=dict(l=10, r=10, t=30, b=10),
+            hovermode="x unified",
+            yaxis=dict(title="Annualized RV", tickformat=".0%"),
+            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+        )
+        st.plotly_chart(fig_gap, use_container_width=True)
+
+    # --- Chart 3: Dispersion ratio percentile ---
+    drp_clean = disp_ratio_pctile.dropna()
+    if len(drp_clean) > 0:
+        st.markdown("#### Dispersion Ratio Percentile")
+        fig_pctile = go.Figure()
+        fig_pctile.add_trace(go.Scatter(
+            x=drp_clean.index, y=drp_clean,
+            name="Percentile", line=dict(width=1.5, color="#0066CC"),
+            fill='tozeroy', fillcolor='rgba(0,102,204,0.05)',
+        ))
+        fig_pctile.add_hline(
+            y=disp_pctile_thresh, line_dash="dot", line_color="#CC0000", line_width=1,
+            annotation_text=f"Threshold ({disp_pctile_thresh}th)",
+            annotation_position="right",
+        )
+        fig_pctile.update_layout(
+            height=200,
+            margin=dict(l=10, r=10, t=10, b=10),
+            yaxis=dict(range=[0, 100]),
+            xaxis=dict(showgrid=False),
+        )
+        st.plotly_chart(fig_pctile, use_container_width=True)
