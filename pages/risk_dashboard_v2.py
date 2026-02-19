@@ -425,6 +425,7 @@ def compute_da_signal(spy_df: pd.DataFrame) -> dict:
         'detail': detail,
         'summary': summary,
         'da_ratio': da_ratio,
+        'signal_history': signal | elevated,
     }
 
 
@@ -436,6 +437,7 @@ def compute_vix_range_compression(vix_close: pd.Series) -> dict:
     empty = {
         'on': False, 'detail': '', 'summary': 'VIX data unavailable',
         'compression_pctile': pd.Series(dtype=float),
+        'signal_history': pd.Series(dtype=bool),
     }
     if len(vix_close) < 504:
         return empty
@@ -475,6 +477,7 @@ def compute_vix_range_compression(vix_close: pd.Series) -> dict:
         'detail': detail,
         'summary': summary,
         'compression_pctile': compression_pctile,
+        'signal_history': signal,
     }
 
 
@@ -490,6 +493,7 @@ def compute_defensive_leadership(sp500_closes, spy_close: pd.Series) -> dict:
         'spread': pd.Series(dtype=float),
         'on_breadth': pd.Series(dtype=float),
         'off_breadth': pd.Series(dtype=float),
+        'signal_history': pd.Series(dtype=bool),
     }
     if sp500_closes is None or (hasattr(sp500_closes, 'empty') and sp500_closes.empty):
         return empty
@@ -574,6 +578,7 @@ def compute_defensive_leadership(sp500_closes, spy_close: pd.Series) -> dict:
         'spread': spread_50,
         'on_breadth': on_above_50,
         'off_breadth': off_above_50,
+        'signal_history': signal | dire,
     }
 
 
@@ -676,6 +681,7 @@ def compute_low_ar_signal(sector_returns: pd.DataFrame, spy_close: pd.Series) ->
     empty = {
         'on': False, 'detail': '', 'summary': 'AR data unavailable',
         'ar_series': pd.Series(dtype=float), 'ar_pctile': pd.Series(dtype=float),
+        'signal_history': pd.Series(dtype=bool),
     }
 
     if len(sector_returns.columns) < 5 or len(sector_returns) < pca_window + 10:
@@ -693,7 +699,10 @@ def compute_low_ar_signal(sector_returns: pd.DataFrame, spy_close: pd.Series) ->
     high_52w = spy_close.rolling(252, min_periods=60).max()
     near_high = spy_close >= high_52w * (1 - near_high_pct / 100)
 
-    # Signal: low AR percentile while SPY near highs
+    # Signal: low AR percentile while SPY near highs (full history + latest)
+    ar_pctile_aligned = ar_pctile.reindex(spy_close.index)
+    signal_full = (ar_pctile_aligned < pctile_threshold) & near_high
+
     latest_ar = float(ar_valid.iloc[-1])
     latest_pctile = float(ar_pctile.iloc[-1]) if len(ar_pctile) > 0 and not np.isnan(ar_pctile.iloc[-1]) else 50.0
     latest_near_high = bool(near_high.iloc[-1]) if len(near_high) > 0 and not pd.isna(near_high.iloc[-1]) else False
@@ -720,6 +729,7 @@ def compute_low_ar_signal(sector_returns: pd.DataFrame, spy_close: pd.Series) ->
         'summary': summary,
         'ar_series': ar_series,
         'ar_pctile': ar_pctile,
+        'signal_history': signal_full,
     }
 
 
@@ -1082,6 +1092,15 @@ CHART_HEIGHT = 250
 CHART_MARGIN = dict(l=10, r=10, t=30, b=10)
 
 
+def _add_signal_vlines(fig: go.Figure, signal_history: pd.Series):
+    """Overlay semi-transparent red vertical lines on dates where a signal fired."""
+    if signal_history is None or signal_history.empty:
+        return
+    fire_dates = signal_history[signal_history.astype(bool)].index
+    for dt in fire_dates:
+        fig.add_vline(x=dt, line_color="rgba(204,0,0,0.35)", line_width=1)
+
+
 def _base_layout(title: str = "") -> dict:
     return dict(
         height=CHART_HEIGHT,
@@ -1142,10 +1161,8 @@ def chart_da_ratio(da_ratio: pd.Series, spy_close: pd.Series) -> go.Figure:
         x=clean.index, y=clean,
         name="D/A Ratio", line=dict(width=1.5, color="#e74c3c"),
     ))
-    fig.add_hline(y=3.75, line_dash="dash", line_color="#FFD700", line_width=1,
-                  annotation_text="Warning: 3.75", annotation_position="right")
-    fig.add_hline(y=6.0, line_dash="dash", line_color="#CC0000", line_width=1,
-                  annotation_text="Elevated: 6.0", annotation_position="right")
+    fig.add_hline(y=3.75, line_dash="dash", line_color="#FFD700", line_width=1)
+    fig.add_hline(y=6.0, line_dash="dash", line_color="#CC0000", line_width=1)
     fig.add_trace(go.Scatter(
         x=spy_close.index, y=spy_close,
         name="SPY", line=dict(width=1, color="rgba(100,100,100,0.4)"),
@@ -1218,8 +1235,7 @@ def chart_ar_signal(ar_pctile: pd.Series, spy_close: pd.Series) -> go.Figure:
         x=clean.index, y=clean,
         name="AR Percentile", line=dict(width=1.5, color="#9b59b6"),
     ))
-    fig.add_hline(y=10, line_dash="dash", line_color="#CC0000", line_width=1,
-                  annotation_text="Threshold: 10th", annotation_position="right")
+    fig.add_hline(y=10, line_dash="dash", line_color="#CC0000", line_width=1)
     fig.add_trace(go.Scatter(
         x=spy_close.index, y=spy_close,
         name="SPY", line=dict(width=1, color="rgba(100,100,100,0.4)"),
@@ -1409,11 +1425,15 @@ def main():
 
     with row1_c1:
         if len(da['da_ratio'].dropna()) > 0:
-            st.plotly_chart(chart_da_ratio(da['da_ratio'], spy_close), use_container_width=True)
+            fig = chart_da_ratio(da['da_ratio'], spy_close)
+            _add_signal_vlines(fig, da.get('signal_history'))
+            st.plotly_chart(fig, use_container_width=True)
 
     with row1_c2:
         if len(vrc['compression_pctile'].dropna()) > 0:
-            st.plotly_chart(chart_vix_compression(vix_close, vrc['compression_pctile']), use_container_width=True)
+            fig = chart_vix_compression(vix_close, vrc['compression_pctile'])
+            _add_signal_vlines(fig, vrc.get('signal_history'))
+            st.plotly_chart(fig, use_container_width=True)
         elif len(vix_close) > 0:
             st.info("VIX compression data requires 504+ days of history.")
 
@@ -1421,7 +1441,9 @@ def main():
 
     with row2_c1:
         if len(dl['spread'].dropna()) > 0:
-            st.plotly_chart(chart_leadership(dl['on_breadth'], dl['off_breadth'], spy_close), use_container_width=True)
+            fig = chart_leadership(dl['on_breadth'], dl['off_breadth'], spy_close)
+            _add_signal_vlines(fig, dl.get('signal_history'))
+            st.plotly_chart(fig, use_container_width=True)
         else:
             st.info("Defensive Leadership requires S&P 500 data + risk classification.")
 
@@ -1433,7 +1455,9 @@ def main():
 
     with row3_c1:
         if len(ar.get('ar_pctile', pd.Series(dtype=float)).dropna()) > 0:
-            st.plotly_chart(chart_ar_signal(ar['ar_pctile'], spy_close), use_container_width=True)
+            fig = chart_ar_signal(ar['ar_pctile'], spy_close)
+            _add_signal_vlines(fig, ar.get('signal_history'))
+            st.plotly_chart(fig, use_container_width=True)
         elif len(ar.get('ar_series', pd.Series(dtype=float)).dropna()) > 0:
             st.plotly_chart(chart_absorption_ratio(ar['ar_series']), use_container_width=True)
 
