@@ -968,10 +968,60 @@ def _signal_edge(stats: dict, signal_key: str, horizon: str) -> float:
     return max(0.0, -dm)
 
 
+HORIZON_DAYS = {'5d': 5, '21d': 21, '63d': 63}
+
+
+def _days_since_last_fire(signal_history: pd.Series) -> int | None:
+    """
+    Return trading days since the signal last fired (was True).
+    Returns 0 if signal is currently ON, None if it never fired.
+    """
+    if signal_history is None or signal_history.empty:
+        return None
+    try:
+        fire_mask = signal_history.astype(bool)
+    except (ValueError, TypeError):
+        return None
+    if not fire_mask.any():
+        return None
+    last_fire_idx = fire_mask[fire_mask].index[-1]
+    # Count trading days from last fire to end of series
+    return len(signal_history.loc[last_fire_idx:]) - 1
+
+
+def _signal_decay_weight(sig: dict, horizon: str, spy_pct_from_high: float) -> float:
+    """
+    Compute effective weight (0-1) for a signal on a given horizon dial.
+
+    - If currently ON: 1.0 (full weight)
+    - If OFF: linear decay based on remaining fraction of the horizon window,
+      modulated by SPY proximity to highs.
+
+    spy_pct_from_high: positive value, e.g. 0.03 means SPY is 3% below 52w high.
+    """
+    if sig.get('on'):
+        return 1.0
+
+    days_since = _days_since_last_fire(sig.get('signal_history'))
+    if days_since is None or days_since == 0:
+        return 0.0
+
+    h_days = HORIZON_DAYS.get(horizon, 21)
+    remaining_frac = max(0.0, (h_days - days_since) / h_days)
+    if remaining_frac == 0.0:
+        return 0.0
+
+    # SPY proximity: scales from 1.0 (at highs) to 0.0 (10%+ from highs)
+    spy_factor = max(0.0, 1.0 - (spy_pct_from_high / 0.10))
+
+    return remaining_frac * spy_factor
+
+
 def compute_horizon_fragility(
     signals_ordered: dict,
     regime_mult: float,
     horizon_stats: dict,
+    price_ctx: dict,
 ) -> dict:
     """
     Compute 0-100 fragility scores for 3 horizons (5d, 21d, 63d).
@@ -979,6 +1029,9 @@ def compute_horizon_fragility(
     Each signal's contribution is weighted by its backtested edge
     (how much worse than baseline forward returns are when signal active).
     Elevated/dire tiers use their own (typically larger) weights.
+
+    Signals that recently turned OFF decay linearly over their horizon window,
+    modulated by SPY proximity to highs.
     """
     horizons = ['5d', '21d', '63d']
     stats = horizon_stats
@@ -988,6 +1041,10 @@ def compute_horizon_fragility(
     dl = signals_ordered.get('Defensive Leadership', {})
     fomc = signals_ordered.get('Pre-FOMC Rally', {})
     ar = signals_ordered.get('Low Absorption Ratio', {})
+
+    # SPY distance from highs (positive = below high)
+    dd = price_ctx.get('drawdown')
+    spy_pct_from_high = abs(dd) if dd is not None and dd < 0 else 0.0
 
     scores = {}
     for h in horizons:
@@ -1003,24 +1060,28 @@ def compute_horizon_fragility(
         active_weight = 0.0
 
         # D/A — elevated tier has different (usually worse) forward stats
-        if da.get('on'):
+        da_w = _signal_decay_weight(da, h, spy_pct_from_high)
+        if da_w > 0:
             if da.get('elevated'):
-                active_weight += _signal_edge(stats, 'Distribution Dominance (Elevated)', h)
+                active_weight += _signal_edge(stats, 'Distribution Dominance (Elevated)', h) * da_w
             else:
-                active_weight += _signal_edge(stats, 'Distribution Dominance', h)
+                active_weight += _signal_edge(stats, 'Distribution Dominance', h) * da_w
 
-        if vrc.get('on'):
-            active_weight += _signal_edge(stats, 'VIX Range Compression', h)
+        vrc_w = _signal_decay_weight(vrc, h, spy_pct_from_high)
+        if vrc_w > 0:
+            active_weight += _signal_edge(stats, 'VIX Range Compression', h) * vrc_w
 
-        # Defensive Leadership — dire tier uses same backtest stats (subset)
-        if dl.get('on'):
-            active_weight += _signal_edge(stats, 'Defensive Leadership', h)
+        dl_w = _signal_decay_weight(dl, h, spy_pct_from_high)
+        if dl_w > 0:
+            active_weight += _signal_edge(stats, 'Defensive Leadership', h) * dl_w
 
-        if fomc.get('on'):
-            active_weight += _signal_edge(stats, 'Pre-FOMC Rally', h)
+        fomc_w = _signal_decay_weight(fomc, h, spy_pct_from_high)
+        if fomc_w > 0:
+            active_weight += _signal_edge(stats, 'Pre-FOMC Rally', h) * fomc_w
 
-        if ar.get('on'):
-            active_weight += _signal_edge(stats, 'Low Absorption Ratio', h)
+        ar_w = _signal_decay_weight(ar, h, spy_pct_from_high)
+        if ar_w > 0:
+            active_weight += _signal_edge(stats, 'Low Absorption Ratio', h) * ar_w
 
         if max_weight > 0:
             score = (active_weight / max_weight) * 80 * regime_mult
@@ -1395,7 +1456,7 @@ def main():
     total_count = len(signals_bool)
 
     if horizon_stats is not None:
-        h_scores = compute_horizon_fragility(signals_ordered, regime_mult, horizon_stats)
+        h_scores = compute_horizon_fragility(signals_ordered, regime_mult, horizon_stats, price_ctx)
 
         dial_c1, dial_c2, dial_c3 = st.columns(3)
         with dial_c1:
