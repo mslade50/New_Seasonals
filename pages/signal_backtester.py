@@ -691,6 +691,76 @@ def compute_dispersion_signal(component_closes: pd.DataFrame,
             dispersion_ratio_pctile, raw_dispersion)
 
 
+# ---------------------------------------------------------------------------
+# SIGNAL 6: ABSORPTION RATIO
+# ---------------------------------------------------------------------------
+def compute_absorption_ratio(sector_returns_df: pd.DataFrame, window: int = 63) -> pd.Series:
+    """
+    Rolling absorption ratio: fraction of total variance
+    explained by first principal component (PCA on sector returns).
+    """
+    ar_series = pd.Series(dtype=float, index=sector_returns_df.index)
+
+    for i in range(window, len(sector_returns_df)):
+        window_data = sector_returns_df.iloc[i - window:i].dropna(axis=1)
+        if window_data.shape[1] < 5:
+            continue
+        try:
+            cov_matrix = window_data.cov()
+            eigenvalues = np.linalg.eigvalsh(cov_matrix)
+            eigenvalues = np.sort(eigenvalues)[::-1]
+            ar_series.iloc[i] = eigenvalues[0] / eigenvalues.sum()
+        except Exception:
+            continue
+
+    return ar_series
+
+
+def compute_ar_signal(closes_df: pd.DataFrame,
+                      spy_close: pd.Series,
+                      pca_window: int = 63,
+                      pctile_lookback: int = 504,
+                      direction: str = "Low AR (<threshold)",
+                      pctile_threshold: float = 20,
+                      require_near_high: bool = False,
+                      near_high_pct: float = 5.0) -> tuple:
+    """
+    Absorption ratio signal.
+
+    Low AR = sectors moving independently (Minsky quiet phase, vol suppression).
+    High AR = single factor driving everything (herding / systemic stress).
+
+    Returns: (signal_series, ar_series, ar_pctile)
+    """
+    sector_etfs = ["XLB", "XLC", "XLE", "XLF", "XLI", "XLK",
+                   "XLP", "XLRE", "XLU", "XLV", "XLY"]
+    available = [s for s in sector_etfs if s in closes_df.columns]
+    if len(available) < 5:
+        empty = pd.Series(dtype=float, index=spy_close.index)
+        return pd.Series(False, index=spy_close.index), empty, empty
+
+    sector_returns = closes_df[available].pct_change().dropna(how="all")
+    ar_series = compute_absorption_ratio(sector_returns, window=pca_window)
+
+    ar_pctile = _rolling_percentile(ar_series.dropna(), pctile_lookback)
+
+    if direction == "Low AR (<threshold)":
+        signal = pd.Series(False, index=spy_close.index)
+        pctile_valid = ar_pctile.dropna()
+        signal.loc[pctile_valid.index] = pctile_valid < pctile_threshold
+    else:
+        signal = pd.Series(False, index=spy_close.index)
+        pctile_valid = ar_pctile.dropna()
+        signal.loc[pctile_valid.index] = pctile_valid > pctile_threshold
+
+    if require_near_high:
+        high_52w = spy_close.rolling(252, min_periods=60).max()
+        near_high = spy_close >= high_52w * (1 - near_high_pct / 100)
+        signal = signal & near_high
+
+    return signal, ar_series, ar_pctile
+
+
 # ===========================================================================
 # MAIN PAGE
 # ===========================================================================
@@ -708,12 +778,13 @@ if spy_df is None or spy_df.empty:
 
 spy_close = spy_df["Close"]
 
-tab1, tab2, tab3, tab4, tab5 = st.tabs([
+tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
     "Distribution / Accumulation",
     "VIX Range Compression",
     "Sector Leadership",
     "Pre-Event Positioning",
     "Dispersion",
+    "Absorption Ratio",
 ])
 
 # ========================== TAB 1 ==========================
@@ -1402,3 +1473,149 @@ with tab5:
             xaxis=dict(showgrid=False),
         )
         st.plotly_chart(fig_pctile, use_container_width=True)
+
+
+# ========================== TAB 6: ABSORPTION RATIO ========================
+with tab6:
+    st.markdown("### Absorption Ratio (PCA on Sector Returns)")
+    st.markdown(
+        "> The **absorption ratio** measures the fraction of total sector variance "
+        "explained by the first principal component. When AR is **high**, a single "
+        "factor is driving all sectors (herding / systemic risk). When AR is **low**, "
+        "sectors are moving independently — this is the Minsky quiet phase where "
+        "vol is suppressed through diversification. Both extremes have predictive value: "
+        "low AR historically precedes below-average forward returns (complacency), "
+        "while very high AR signals crowded positioning."
+    )
+
+    c1, c2, c3 = st.columns(3)
+    with c1:
+        ar_pca_window = st.slider("PCA rolling window (days)", 21, 126, 63, key="ar_pca_win")
+    with c2:
+        ar_pctile_lb = st.slider("Percentile lookback", 252, 1260, 504, key="ar_pctile_lb")
+    with c3:
+        ar_direction = st.selectbox(
+            "Signal direction", ["Low AR (<threshold)", "High AR (>threshold)"],
+            index=0, key="ar_dir",
+            help="Low AR = diversification / complacency. High AR = herding / systemic.",
+        )
+
+    c4, c5, c6 = st.columns(3)
+    with c4:
+        if ar_direction == "Low AR (<threshold)":
+            ar_pctile_thresh = st.slider("AR percentile threshold (below)", 5, 50, 20, key="ar_thresh")
+        else:
+            ar_pctile_thresh = st.slider("AR percentile threshold (above)", 50, 95, 80, key="ar_thresh")
+    with c5:
+        ar_near_high = st.checkbox("Require SPY near 52w high", value=False, key="ar_near_high")
+    with c6:
+        ar_near_high_pct = 5.0
+        if ar_near_high:
+            ar_near_high_pct = st.slider("SPY proximity to high (%)", 1, 10, 5, key="ar_high_pct")
+
+    # Check sector ETF availability
+    sector_etfs = ["XLB", "XLC", "XLE", "XLF", "XLI", "XLK",
+                   "XLP", "XLRE", "XLU", "XLV", "XLY"]
+    available_sectors = [s for s in sector_etfs if s in closes.columns]
+
+    if len(available_sectors) < 5:
+        st.error(
+            f"Need at least 5 sector ETFs in cache. Found: {len(available_sectors)}. "
+            "Run Risk Dashboard V2 data refresh first."
+        )
+    else:
+        st.caption(f"Sectors: {', '.join(available_sectors)} ({len(available_sectors)} ETFs)")
+
+        with st.spinner("Computing absorption ratio (PCA on rolling windows)..."):
+            ar_signal, ar_series, ar_pctile = compute_ar_signal(
+                closes, spy_close,
+                pca_window=ar_pca_window,
+                pctile_lookback=ar_pctile_lb,
+                direction=ar_direction,
+                pctile_threshold=ar_pctile_thresh,
+                require_near_high=ar_near_high,
+                near_high_pct=ar_near_high_pct,
+            )
+
+        # Current reading
+        cur_ar = float(ar_series.dropna().iloc[-1]) if len(ar_series.dropna()) > 0 else None
+        cur_ar_pctile = float(ar_pctile.dropna().iloc[-1]) if len(ar_pctile.dropna()) > 0 else None
+
+        if cur_ar is not None:
+            pctile_str = f"{cur_ar_pctile:.0f}th" if cur_ar_pctile is not None else "N/A"
+            if ar_direction == "Low AR (<threshold)":
+                icon = "\U0001f534" if (cur_ar_pctile or 100) < ar_pctile_thresh else "\U0001f7e2"
+            else:
+                icon = "\U0001f534" if (cur_ar_pctile or 0) > ar_pctile_thresh else "\U0001f7e2"
+            st.markdown(
+                f"**Current AR:** {icon} **{cur_ar:.3f}** ({pctile_str} percentile)  \n"
+                f"Red line reference: 0.40 (historical fragility threshold)"
+            )
+
+        study_ar = run_event_study(ar_signal, spy_close, signal_name="Absorption Ratio")
+        render_event_study(study_ar, "Absorption Ratio", ar_signal, spy_close)
+
+        # --- Chart 1: AR time series with SPY overlay ---
+        ar_clean = ar_series.dropna()
+        if len(ar_clean) > 0:
+            st.markdown("#### Absorption Ratio Over Time")
+            fig_ar = go.Figure()
+            fig_ar.add_trace(go.Scatter(
+                x=ar_clean.index, y=ar_clean,
+                name="Absorption Ratio", line=dict(width=1.5, color="#9b59b6"),
+            ))
+            fig_ar.add_hline(y=0.40, line_dash="dash", line_color="red", line_width=1,
+                             annotation_text="0.40 reference")
+
+            fig_ar.add_trace(go.Scatter(
+                x=spy_close.index, y=spy_close,
+                name="SPY", line=dict(width=1, color="rgba(100,100,100,0.4)"),
+                yaxis="y2",
+            ))
+
+            # Shade signal-ON periods
+            sig_on = ar_signal.fillna(False).astype(int)
+            transitions = sig_on.diff().fillna(0)
+            starts = transitions[transitions == 1].index
+            ends = transitions[transitions == -1].index
+            if len(sig_on) > 0 and sig_on.iloc[0] == 1:
+                starts = starts.insert(0, sig_on.index[0])
+            if len(sig_on) > 0 and sig_on.iloc[-1] == 1:
+                ends = ends.append(pd.DatetimeIndex([sig_on.index[-1]]))
+            for s, e in zip(starts[:len(ends)], ends):
+                fig_ar.add_vrect(x0=s, x1=e, fillcolor="rgba(153,0,204,0.08)",
+                                 line_width=0, layer="below")
+
+            fig_ar.update_layout(
+                height=300,
+                margin=dict(l=10, r=10, t=30, b=10),
+                hovermode="x unified",
+                yaxis=dict(title="Absorption Ratio"),
+                yaxis2=dict(overlaying="y", side="right", showgrid=False, title="SPY"),
+                legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+                title=dict(text="Absorption Ratio (1st PC Variance Share)", font=dict(size=13)),
+            )
+            st.plotly_chart(fig_ar, use_container_width=True)
+
+        # --- Chart 2: AR percentile ---
+        ar_pctile_clean = ar_pctile.dropna()
+        if len(ar_pctile_clean) > 0:
+            st.markdown("#### AR Percentile Rank")
+            fig_ar_pctile = go.Figure()
+            fig_ar_pctile.add_trace(go.Scatter(
+                x=ar_pctile_clean.index, y=ar_pctile_clean,
+                name="AR Percentile", line=dict(width=1.5, color="#9b59b6"),
+                fill='tozeroy', fillcolor='rgba(153,0,204,0.05)',
+            ))
+            fig_ar_pctile.add_hline(
+                y=ar_pctile_thresh, line_dash="dot", line_color="#CC0000", line_width=1,
+                annotation_text=f"Threshold ({ar_pctile_thresh}th)",
+                annotation_position="right",
+            )
+            fig_ar_pctile.update_layout(
+                height=200,
+                margin=dict(l=10, r=10, t=10, b=10),
+                yaxis=dict(range=[0, 100]),
+                xaxis=dict(showgrid=False),
+            )
+            st.plotly_chart(fig_ar_pctile, use_container_width=True)
