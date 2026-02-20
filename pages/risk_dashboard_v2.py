@@ -1261,13 +1261,10 @@ def compute_horizon_fragility(
     for h in horizons:
         active_weight = 0.0
 
-        # D/A — elevated tier has different (usually worse) forward stats
+        # D/A — use base edge (matches timeseries computation)
         da_w = _signal_decay_weight(da, h, spy_pct_from_high)
         if da_w > 0:
-            if da.get('elevated'):
-                active_weight += _signal_edge(stats, 'Distribution Dominance (Elevated)', h) * da_w
-            else:
-                active_weight += _signal_edge(stats, 'Distribution Dominance', h) * da_w
+            active_weight += _signal_edge(stats, 'Distribution Dominance', h) * da_w
 
         vrc_w = _signal_decay_weight(vrc, h, spy_pct_from_high)
         if vrc_w > 0:
