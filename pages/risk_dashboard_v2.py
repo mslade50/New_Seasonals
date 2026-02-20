@@ -991,8 +991,11 @@ def render_price_context(price_ctx: dict):
     """, unsafe_allow_html=True)
 
 
-def render_signal_board(signals: dict):
-    """Render flat signal list with metric summaries."""
+def render_signal_board(signals: dict, price_ctx: dict):
+    """Render flat signal list with metric summaries (4-tier: ELEVATED/ON/DECAYING/OFF)."""
+    dd = price_ctx.get('drawdown')
+    spy_pct_from_high = abs(dd) if dd is not None else 0.0
+
     for name, sig in signals.items():
         on = sig['on']
         elevated = sig.get('elevated', False)
@@ -1022,12 +1025,39 @@ def render_signal_board(signals: dict):
                 unsafe_allow_html=True
             )
         else:
-            st.markdown(
-                f"<div style='padding: 4px 10px; margin-bottom: 4px;'>"
-                f"<span style='font-size: 13px; color: #aaa;'>\U0001f7e2 {name}</span><br>"
-                f"<span style='font-size: 11px; color: #666; margin-left: 4px;'>{summary}</span></div>",
-                unsafe_allow_html=True
-            )
+            decay_meta = _compute_decay_metadata(sig, spy_pct_from_high)
+            if decay_meta is not None:
+                ds = decay_meta['days_since']
+                mr = decay_meta['max_remaining_days']
+                # Build per-horizon weight summary
+                h_parts = []
+                for h_label in ('5d', '21d', '63d'):
+                    h = decay_meta['horizons'][h_label]
+                    if h['weight'] == 0.0:
+                        h_parts.append(f"{h_label}: expired")
+                    else:
+                        h_parts.append(f"{h_label}: {h['weight']:.0%}")
+                h_line = ' | '.join(h_parts)
+
+                st.markdown(
+                    f"<div style='padding: 6px 10px; margin-bottom: 6px; "
+                    f"background: rgba(255,183,0,0.10); border-left: 3px solid #FFB700; "
+                    f"border-radius: 0 4px 4px 0;'>"
+                    f"<span style='font-size: 13px;'>\U0001f7e1 <strong>{name}</strong> "
+                    f"<span style='color: #FFB700; font-size: 11px; font-weight: 600;'>DECAYING</span> "
+                    f"<span style='font-size: 11px; color: #999;'>fired {ds}d ago — expires in {mr}d</span>"
+                    f"</span><br>"
+                    f"<span style='font-size: 11px; color: #BB9500;'>Remaining weight: {h_line}</span><br>"
+                    f"<span style='font-size: 11px; color: #888;'>{summary}</span></div>",
+                    unsafe_allow_html=True
+                )
+            else:
+                st.markdown(
+                    f"<div style='padding: 4px 10px; margin-bottom: 4px;'>"
+                    f"<span style='font-size: 13px; color: #aaa;'>\U0001f7e2 {name}</span><br>"
+                    f"<span style='font-size: 11px; color: #666; margin-left: 4px;'>{summary}</span></div>",
+                    unsafe_allow_html=True
+                )
 
 
 # ---------------------------------------------------------------------------
@@ -1146,6 +1176,38 @@ def _signal_decay_weight(sig: dict, horizon: str, spy_pct_from_high: float) -> f
     spy_factor = max(0.0, 1.0 - (spy_pct_from_high / 0.10))
 
     return remaining_frac * spy_factor
+
+
+def _compute_decay_metadata(sig: dict, spy_pct_from_high: float) -> dict | None:
+    """
+    Return decay metadata for a signal that is OFF but still contributing weight.
+
+    Returns None if signal is ON, never fired, or fully expired on all horizons.
+    Otherwise returns {days_since, horizons: {5d/21d/63d: {weight, remaining_days}}, max_remaining_days}.
+    """
+    if sig.get('on'):
+        return None
+
+    days_since = _days_since_last_fire(sig.get('signal_history'))
+    if days_since is None or days_since == 0:
+        return None
+
+    horizons = {}
+    for h_label, h_days in HORIZON_DAYS.items():
+        w = _signal_decay_weight(sig, h_label, spy_pct_from_high)
+        remaining = max(0, h_days - days_since)
+        horizons[h_label] = {'weight': w, 'remaining_days': remaining}
+
+    # If no horizon still has weight, signal is fully expired
+    if all(h['weight'] == 0.0 for h in horizons.values()):
+        return None
+
+    max_remaining = max(h['remaining_days'] for h in horizons.values() if h['weight'] > 0)
+    return {
+        'days_since': days_since,
+        'horizons': horizons,
+        'max_remaining_days': max_remaining,
+    }
 
 
 def compute_horizon_fragility(
@@ -1740,7 +1802,7 @@ def main():
     save_current_signal_state(current_state)
 
     # Signal board
-    render_signal_board(signals_ordered)
+    render_signal_board(signals_ordered, price_ctx)
 
     # Risk horizon dials
     horizon_stats = load_horizon_stats()
