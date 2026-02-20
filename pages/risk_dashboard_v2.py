@@ -58,6 +58,7 @@ CACHE_SP500    = os.path.join(DATA_DIR, "rd2_sp500_closes.parquet")
 
 RISK_CLASSIFICATION_PATH = os.path.join(DATA_DIR, "sp500_risk_classification.csv")
 HORIZON_STATS_PATH = os.path.join(DATA_DIR, "signal_horizon_stats.json")
+SIGNAL_FIRE_HISTORY_PATH = os.path.join(DATA_DIR, "signal_fire_history.parquet")
 SEASONAL_RANKS_PRIMARY = os.path.join(parent_dir, "sznl_ranks.csv")
 SEASONAL_RANKS_BACKUP = os.path.join(parent_dir, "seasonal_ranks.csv")
 
@@ -1090,6 +1091,22 @@ def save_current_signal_state(signal_states: dict):
         pass
 
 
+def save_signal_fire_history(signals_ordered: dict, spy_close: pd.Series):
+    """Persist full signal fire history as wide boolean DataFrame to parquet."""
+    try:
+        histories = {}
+        for name, sig in signals_ordered.items():
+            h = sig.get('signal_history')
+            if h is not None and not h.empty:
+                histories[name] = h.astype(bool)
+        if not histories:
+            return
+        combined = pd.DataFrame(histories).reindex(spy_close.index).fillna(False).astype(bool)
+        combined.to_parquet(SIGNAL_FIRE_HISTORY_PATH)
+    except Exception:
+        pass
+
+
 def compute_changes(current_states: dict, previous_states: dict) -> list:
     """
     Compare current vs previous signal states.
@@ -1800,6 +1817,7 @@ def main():
                     unsafe_allow_html=True)
 
     save_current_signal_state(current_state)
+    save_signal_fire_history(signals_ordered, spy_close)
 
     # Signal board
     render_signal_board(signals_ordered, price_ctx)
