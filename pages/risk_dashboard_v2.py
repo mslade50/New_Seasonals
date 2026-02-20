@@ -1585,7 +1585,7 @@ def chart_signal_overlay(spy_close: pd.Series, signals_ordered: dict) -> go.Figu
     if histories:
         combined = pd.concat(histories, axis=1).fillna(0)
         overlap_count = combined.sum(axis=1)
-        overlap_dates = overlap_count[overlap_count >= 3].index
+        overlap_dates = overlap_count[overlap_count >= 2].index
         for dt in overlap_dates:
             fig.add_vline(x=dt, line_color="rgba(204,0,0,0.5)", line_width=1.5, row=1, col=1)
 
