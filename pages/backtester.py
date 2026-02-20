@@ -623,7 +623,8 @@ def run_engine(universe_dict, params, sznl_map, market_series=None, vix_series=N
                 elif params['gap_logic'] == "=": conditions.append(df['GapCount'] == params['gap_thresh'])
 
             if params.get('use_acc_count_filter', False):
-                col = f"AccCount_{params['acc_count_window']}"
+                v2_prefix = "AccCount_v2_" if params.get('use_acc_dist_v2', False) else "AccCount_"
+                col = f"{v2_prefix}{params['acc_count_window']}"
                 if col in df.columns:
                     r_acc = df[col]
                     if params['acc_count_logic'] == ">": conditions.append(r_acc > params['acc_count_thresh'])
@@ -631,7 +632,8 @@ def run_engine(universe_dict, params, sznl_map, market_series=None, vix_series=N
                     elif params['acc_count_logic'] == "=": conditions.append(r_acc == params['acc_count_thresh'])
 
             if params.get('use_dist_count_filter', False):
-                col = f"DistCount_{params['dist_count_window']}"
+                v2_prefix = "DistCount_v2_" if params.get('use_acc_dist_v2', False) else "DistCount_"
+                col = f"{v2_prefix}{params['dist_count_window']}"
                 if col in df.columns:
                     r_dist = df[col]
                     if params['dist_count_logic'] == ">": conditions.append(r_dist > params['dist_count_thresh'])
@@ -1110,6 +1112,8 @@ def main():
                 if use_t1_3: t1_open_filters.append({'logic': t1_logic_3, 'reference': t1_ref_3, 'atr_offset': t1_atr_3})
     with st.expander("Accumulation/Distribution Counts", expanded=False):
         st.markdown("**Filters are additive (AND logic).**")
+        acc_dist_version = st.radio("Signal Version", ["v1 (Vol > Prev & > Avg)", "v2 (Vol > 1.25x Prev & > Avg)"], horizontal=True, key="acc_dist_ver")
+        use_acc_dist_v2 = acc_dist_version.startswith("v2")
         c_acc, c_dist = st.columns(2)
         with c_acc:
             st.markdown("#### Accumulation Filter")
@@ -1449,6 +1453,7 @@ def main():
             'use_gap_filter': use_gap_filter, 'gap_lookback': gap_lookback, 'gap_logic': gap_logic, 'gap_thresh': gap_thresh,
             'use_acc_count_filter': use_acc_count_filter, 'acc_count_window': acc_count_window, 'acc_count_logic': acc_count_logic, 'acc_count_thresh': acc_count_thresh,
             'use_dist_count_filter': use_dist_count_filter, 'dist_count_window': dist_count_window, 'dist_count_logic': dist_count_logic, 'dist_count_thresh': dist_count_thresh,
+            'use_acc_dist_v2': use_acc_dist_v2,
             'use_t1_open_filter': use_t1_open_filter, 't1_open_filters': t1_open_filters,
             'use_recent_ath': use_recent_ath, 'recent_ath_invert': recent_ath_invert, 'ath_lookback_days': ath_lookback_days,
             'use_ref_ticker_filter': use_ref_ticker_filter, 'ref_ticker': ref_ticker_input, 'ref_filters': ref_filters

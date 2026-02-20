@@ -229,26 +229,38 @@ def calculate_indicators(
     cond_vol_up = df['Volume'] > df['Volume'].shift(1)
     df['Vol_Spike'] = cond_vol_ma & cond_vol_up
 
+    # Vol Spike v2 (stricter) = volume above 63d MA AND > 1.25x previous day
+    cond_vol_up_strict = df['Volume'] > (df['Volume'].shift(1) * 1.25)
+    vol_spike_v2 = cond_vol_ma & cond_vol_up_strict
+
     # Accumulation days (green candle + vol spike)
     cond_green = df['Close'] > df['Open']
     is_accumulation = (df['Vol_Spike'] & cond_green).astype(int)
     df['is_acc_day'] = is_accumulation
+    is_accumulation_v2 = (vol_spike_v2 & cond_green).astype(int)
+    df['is_acc_day_v2'] = is_accumulation_v2
 
     # Distribution days (red candle + vol spike)
     cond_red = df['Close'] < df['Open']
     is_distribution = (df['Vol_Spike'] & cond_red).astype(int)
     df['is_dist_day'] = is_distribution
+    is_distribution_v2 = (vol_spike_v2 & cond_red).astype(int)
+    df['is_dist_day_v2'] = is_distribution_v2
 
     # Always compute standard windows (daily_scan needs all four)
     for w in [5, 10, 21, 42]:
         df[f'AccCount_{w}'] = is_accumulation.rolling(w).sum()
         df[f'DistCount_{w}'] = is_distribution.rolling(w).sum()
+        df[f'AccCount_v2_{w}'] = is_accumulation_v2.rolling(w).sum()
+        df[f'DistCount_v2_{w}'] = is_distribution_v2.rolling(w).sum()
 
     # Backtester may request a specific non-standard window
     if acc_window and acc_window not in [5, 10, 21, 42]:
         df[f'AccCount_{acc_window}'] = is_accumulation.rolling(acc_window).sum()
+        df[f'AccCount_v2_{acc_window}'] = is_accumulation_v2.rolling(acc_window).sum()
     if dist_window and dist_window not in [5, 10, 21, 42]:
         df[f'DistCount_{dist_window}'] = is_distribution.rolling(dist_window).sum()
+        df[f'DistCount_v2_{dist_window}'] = is_distribution_v2.rolling(dist_window).sum()
 
     # -------------------------------------------------------------------------
     # 7. SEASONALITY
