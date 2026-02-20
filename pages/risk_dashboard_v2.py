@@ -1706,6 +1706,81 @@ def chart_signal_overlay(spy_close: pd.Series, signals_ordered: dict) -> go.Figu
 
 
 # ---------------------------------------------------------------------------
+# FRAGILITY PERSISTENCE CONTEXT
+# ---------------------------------------------------------------------------
+
+def compute_persistence_context(frag_df: pd.DataFrame) -> dict:
+    """
+    For each horizon, compute consecutive-day streak above its threshold.
+    Returns {horizon: {'streak': int, 'score': float, 'note': str, 'color': str}}
+
+    Thresholds (from backtested persistence studies):
+      5d:  >= 50 (day 6+ has 79% hit rate for negative 5d fwd returns)
+      21d: >= 70 (day 4+ has 67% hit rate, -5.08% edge)
+      63d: >= 70 (days 1-5 strongest edge; exhausted by day 16+)
+    """
+    thresholds = {'5d': 50, '21d': 70, '63d': 70}
+    result = {}
+
+    for horizon, thresh in thresholds.items():
+        if horizon not in frag_df.columns:
+            result[horizon] = {'streak': 0, 'score': 0.0, 'note': '', 'color': '#888'}
+            continue
+
+        col = frag_df[horizon].dropna()
+        if col.empty:
+            result[horizon] = {'streak': 0, 'score': 0.0, 'note': '', 'color': '#888'}
+            continue
+
+        current_score = float(col.iloc[-1])
+
+        # Walk backwards to count consecutive days >= threshold
+        streak = 0
+        for val in col.iloc[::-1].values:
+            if val >= thresh:
+                streak += 1
+            else:
+                break
+
+        # Horizon-specific annotation rules
+        note = ''
+        color = '#888'
+
+        if streak == 0:
+            pass  # below threshold, no annotation
+        elif horizon == '5d':
+            if streak <= 5:
+                note = f"Day {streak} — no edge yet (watch for persistence)"
+                color = '#888'
+            else:
+                note = f"Day {streak} — persisting, 79% historical hit rate"
+                color = '#FF6B35'
+        elif horizon == '21d':
+            if streak <= 3:
+                note = f"Day {streak} — early signal"
+                color = '#888'
+            else:
+                note = f"Day {streak} — amplifying, 67% hit rate"
+                color = '#FF6B35'
+        elif horizon == '63d':
+            if streak <= 5:
+                note = f"Day {streak} — act now, strongest edge window"
+                color = '#FF8C00'
+            elif streak <= 15:
+                note = f"Day {streak} — edge fading"
+                color = '#FFD700'
+            else:
+                note = f"Day {streak} — signal exhausted, consider normalizing"
+                color = '#888'
+            if current_score >= 90:
+                note += " | 90+ historically -8.3% edge"
+
+        result[horizon] = {'streak': streak, 'score': current_score, 'note': note, 'color': color}
+
+    return result
+
+
+# ---------------------------------------------------------------------------
 # FRAGILITY TIME SERIES (vectorized historical computation)
 # ---------------------------------------------------------------------------
 
@@ -1987,14 +2062,28 @@ def main():
 
     if horizon_stats is not None:
         h_scores = compute_horizon_fragility(signals_ordered, regime_mult, horizon_stats, price_ctx)
+        frag_df = compute_fragility_timeseries(signals_ordered, spy_close, horizon_stats)
+        persist = compute_persistence_context(frag_df)
 
         dial_c1, dial_c2, dial_c3 = st.columns(3)
         with dial_c1:
             st.plotly_chart(build_risk_dial(h_scores['5d'], 'Short-Term (5d)'), use_container_width=True)
+            if persist['5d']['note']:
+                st.markdown(
+                    f"<p style='text-align:center; font-size:11px; color:{persist['5d']['color']}; margin-top:-10px;'>"
+                    f"{persist['5d']['note']}</p>", unsafe_allow_html=True)
         with dial_c2:
             st.plotly_chart(build_risk_dial(h_scores['21d'], 'Intermediate (21d)'), use_container_width=True)
+            if persist['21d']['note']:
+                st.markdown(
+                    f"<p style='text-align:center; font-size:11px; color:{persist['21d']['color']}; margin-top:-10px;'>"
+                    f"{persist['21d']['note']}</p>", unsafe_allow_html=True)
         with dial_c3:
             st.plotly_chart(build_risk_dial(h_scores['63d'], 'Long-Term (63d)'), use_container_width=True)
+            if persist['63d']['note']:
+                st.markdown(
+                    f"<p style='text-align:center; font-size:11px; color:{persist['63d']['color']}; margin-top:-10px;'>"
+                    f"{persist['63d']['note']}</p>", unsafe_allow_html=True)
 
         if active_count > 0:
             st.markdown(
@@ -2070,7 +2159,6 @@ def main():
     if horizon_stats:
         st.divider()
         st.subheader("Fragility Score History")
-        frag_df = compute_fragility_timeseries(signals_ordered, spy_close, horizon_stats)
         for h in ['63d', '21d', '5d']:
             st.plotly_chart(chart_fragility_timeseries(frag_df, spy_close, h), use_container_width=True)
 
