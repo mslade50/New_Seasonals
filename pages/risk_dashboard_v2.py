@@ -1701,6 +1701,154 @@ def chart_signal_overlay(spy_close: pd.Series, signals_ordered: dict) -> go.Figu
     return fig
 
 
+# ---------------------------------------------------------------------------
+# FRAGILITY TIME SERIES (vectorized historical computation)
+# ---------------------------------------------------------------------------
+
+def compute_fragility_timeseries(
+    signals_ordered: dict,
+    spy_close: pd.Series,
+    horizon_stats: dict,
+) -> pd.DataFrame:
+    """
+    Compute historical fragility scores for all 3 horizons (5d, 21d, 63d).
+
+    Returns DataFrame with columns ['5d', '21d', '63d'], indexed by date.
+    """
+    # Build boolean fire DataFrame from signal histories
+    fires = {}
+    for name, sig in signals_ordered.items():
+        h = sig.get('signal_history')
+        if h is not None and not h.empty:
+            fires[name] = h.astype(bool)
+    if not fires:
+        return pd.DataFrame(columns=['5d', '21d', '63d'], index=spy_close.index)
+    fire_df = pd.DataFrame(fires).reindex(spy_close.index).fillna(False).astype(bool)
+
+    # Price context vectors
+    ret_12m = spy_close / spy_close.shift(252) - 1
+    sma_200 = spy_close.rolling(200).mean()
+    extension_200d = spy_close / sma_200 - 1
+    high_52w = spy_close.rolling(252).max()
+    drawdown = spy_close / high_52w - 1
+
+    # Vectorized regime multiplier
+    m = pd.Series(1.0, index=spy_close.index)
+    m = m + np.where(ret_12m > 0.25, 0.25,
+            np.where(ret_12m > 0.15, 0.10,
+            np.where(ret_12m < -0.05, -0.15, 0.0)))
+    m = m + np.where(extension_200d > 0.10, 0.25,
+            np.where(extension_200d > 0.05, 0.10,
+            np.where(extension_200d < -0.02, -0.15, 0.0)))
+    m = m + np.where(drawdown > -0.02, 0.10,
+            np.where(drawdown < -0.10, -0.20, 0.0))
+    regime_mult = m.clip(0.6, 1.8)
+
+    spy_pct_from_high = (-drawdown).clip(lower=0.0)
+
+    signal_names = list(signals_ordered.keys())
+    result = {}
+
+    for horizon, h_days in HORIZON_DAYS.items():
+        edges = {name: _signal_edge(horizon_stats, name, horizon) for name in signal_names}
+        max_weight = sum(edges.values())
+        if max_weight == 0:
+            result[horizon] = pd.Series(0.0, index=spy_close.index)
+            continue
+
+        active_weight = pd.Series(0.0, index=spy_close.index)
+
+        for name in signal_names:
+            if name not in fire_df.columns:
+                continue
+            edge = edges[name]
+            if edge == 0.0:
+                continue
+
+            sig_on = fire_df[name]
+            fire_int = sig_on.astype(int)
+            group = fire_int.cumsum()
+            days_since = group.groupby(group).cumcount()
+            ever_fired = group > 0
+            days_since = days_since.where(ever_fired, other=np.nan)
+
+            remaining_frac = ((h_days - days_since) / h_days).clip(0.0, 1.0)
+            spy_factor = (1.0 - spy_pct_from_high / 0.10).clip(0.0, 1.0)
+
+            weight = np.where(
+                sig_on, 1.0,
+                np.where(ever_fired & (remaining_frac > 0), remaining_frac * spy_factor, 0.0),
+            )
+            active_weight += edge * weight
+
+        result[horizon] = ((active_weight / max_weight) * 80 * regime_mult).clip(0.0, 100.0)
+
+    return pd.DataFrame(result, index=spy_close.index)
+
+
+def chart_fragility_timeseries(
+    frag_df: pd.DataFrame,
+    spy_close: pd.Series,
+    horizon: str,
+) -> go.Figure:
+    """Dual-axis chart: fragility score (area) + SPY (line) for one horizon."""
+    from plotly.subplots import make_subplots
+
+    h_labels = {'5d': '5-Day', '21d': '21-Day', '63d': '63-Day'}
+    label = h_labels.get(horizon, horizon)
+
+    frag = frag_df[horizon].dropna()
+    common = frag.index.intersection(spy_close.dropna().index).sort_values()
+    frag = frag.reindex(common)
+    spy = spy_close.reindex(common)
+
+    fig = make_subplots(specs=[[{"secondary_y": True}]])
+
+    fig.add_trace(
+        go.Scatter(
+            x=common, y=frag.values,
+            name=f"{label} Fragility",
+            fill="tozeroy",
+            fillcolor="rgba(255, 140, 0, 0.15)",
+            line=dict(color="rgba(255, 140, 0, 0.8)", width=1),
+            hovertemplate=f"{label} Fragility: %{{y:.1f}}<extra></extra>",
+        ),
+        secondary_y=False,
+    )
+
+    for thresh, color, lbl in [
+        (50, "rgba(255, 215, 0, 0.4)", "50"),
+        (70, "rgba(255, 69, 0, 0.4)", "70"),
+    ]:
+        fig.add_hline(
+            y=thresh, line_dash="dot", line_color=color, line_width=1,
+            annotation_text=lbl, annotation_position="left",
+            secondary_y=False,
+        )
+
+    fig.add_trace(
+        go.Scatter(
+            x=common, y=spy.values,
+            name="SPY",
+            line=dict(color="#4A90D9", width=1.5),
+            hovertemplate="SPY: $%{y:.2f}<extra></extra>",
+        ),
+        secondary_y=True,
+    )
+
+    fig.update_layout(
+        title=dict(text=f"{label} Fragility Score vs SPY", font=dict(size=13)),
+        height=350,
+        margin=dict(l=10, r=10, t=35, b=10),
+        hovermode="x unified",
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1, font=dict(size=9)),
+    )
+    fig.update_yaxes(title_text="Fragility", range=[0, 105], secondary_y=False)
+    fig.update_yaxes(title_text="SPY", secondary_y=True)
+
+    return fig
+
+
 # ============================================================================
 # MAIN APP
 # ============================================================================
@@ -1905,6 +2053,16 @@ def main():
     # -------------------------------------------------------------------
     st.divider()
     st.plotly_chart(chart_signal_overlay(spy_close, signals_ordered), use_container_width=True)
+
+    # -------------------------------------------------------------------
+    # FRAGILITY TIME SERIES
+    # -------------------------------------------------------------------
+    if horizon_stats:
+        st.divider()
+        st.subheader("Fragility Score History")
+        frag_df = compute_fragility_timeseries(signals_ordered, spy_close, horizon_stats)
+        for h in ['63d', '21d', '5d']:
+            st.plotly_chart(chart_fragility_timeseries(frag_df, spy_close, h), use_container_width=True)
 
 
 main()
