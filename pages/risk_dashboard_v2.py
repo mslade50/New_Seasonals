@@ -1259,16 +1259,6 @@ def compute_horizon_fragility(
 
     scores = {}
     for h in horizons:
-        # Max weight: all signals at normal tier
-        max_weight = (
-            _signal_edge(stats, 'Distribution Dominance', h)
-            + _signal_edge(stats, 'VIX Range Compression', h)
-            + _signal_edge(stats, 'Defensive Leadership', h)
-            + _signal_edge(stats, 'Pre-FOMC Rally', h)
-            + _signal_edge(stats, 'Low Absorption Ratio', h)
-            + _signal_edge(stats, 'Seasonal Rank Divergence', h)
-        )
-
         active_weight = 0.0
 
         # D/A — elevated tier has different (usually worse) forward stats
@@ -1298,6 +1288,20 @@ def compute_horizon_fragility(
         srd_w = _signal_decay_weight(srd, h, spy_pct_from_high)
         if srd_w > 0:
             active_weight += _signal_edge(stats, 'Seasonal Rank Divergence', h) * srd_w
+
+        # Dynamic max_weight: FOMC is calendar-dependent — only include its
+        # edge in the denominator when it's contributing (ON or decaying).
+        # Otherwise its large 5d edge (47% of total) prevents the dial from
+        # reaching meaningful levels on the ~95% of days FOMC can't fire.
+        max_weight = (
+            _signal_edge(stats, 'Distribution Dominance', h)
+            + _signal_edge(stats, 'VIX Range Compression', h)
+            + _signal_edge(stats, 'Defensive Leadership', h)
+            + _signal_edge(stats, 'Low Absorption Ratio', h)
+            + _signal_edge(stats, 'Seasonal Rank Divergence', h)
+        )
+        if fomc_w > 0:
+            max_weight += _signal_edge(stats, 'Pre-FOMC Rally', h)
 
         if max_weight > 0:
             score = (active_weight / max_weight) * 80 * regime_mult
@@ -1751,12 +1755,9 @@ def compute_fragility_timeseries(
 
     for horizon, h_days in HORIZON_DAYS.items():
         edges = {name: _signal_edge(horizon_stats, name, horizon) for name in signal_names}
-        max_weight = sum(edges.values())
-        if max_weight == 0:
-            result[horizon] = pd.Series(0.0, index=spy_close.index)
-            continue
 
         active_weight = pd.Series(0.0, index=spy_close.index)
+        fomc_weight_series = pd.Series(0.0, index=spy_close.index)
 
         for name in signal_names:
             if name not in fire_df.columns:
@@ -1780,6 +1781,15 @@ def compute_fragility_timeseries(
                 np.where(ever_fired & (remaining_frac > 0), remaining_frac * spy_factor, 0.0),
             )
             active_weight += edge * weight
+
+            if name == 'Pre-FOMC Rally':
+                fomc_weight_series = pd.Series(weight, index=spy_close.index)
+
+        # Dynamic max_weight: exclude FOMC edge on days it can't contribute
+        base_max = sum(e for n, e in edges.items() if n != 'Pre-FOMC Rally')
+        fomc_edge = edges.get('Pre-FOMC Rally', 0.0)
+        max_weight = base_max + np.where(fomc_weight_series > 0, fomc_edge, 0.0)
+        max_weight = np.maximum(max_weight, 1e-9)  # avoid division by zero
 
         result[horizon] = ((active_weight / max_weight) * 80 * regime_mult).clip(0.0, 100.0)
 

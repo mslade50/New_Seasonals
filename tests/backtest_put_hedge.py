@@ -228,10 +228,6 @@ def compute_fragility_history(
     for name in SIGNAL_NAMES:
         edges[name] = signal_edge(horizon_stats, name, horizon)
 
-    max_weight = sum(edges.values())
-    if max_weight == 0:
-        return pd.Series(0.0, index=spy_close.index)
-
     # --- SPY percent from high (positive = below high) ---
     spy_pct_from_high = (-drawdown).clip(lower=0.0)
 
@@ -240,6 +236,7 @@ def compute_fragility_history(
     fires = signal_fires.reindex(spy_close.index).fillna(False).astype(bool)
 
     active_weight = pd.Series(0.0, index=spy_close.index)
+    fomc_weight_series = pd.Series(0.0, index=spy_close.index)
 
     for name in SIGNAL_NAMES:
         if name not in fires.columns:
@@ -252,25 +249,16 @@ def compute_fragility_history(
         sig_on = fires[name]
 
         # Compute days since last fire (vectorized):
-        # For each row, count days since the last True value
         # Use cumsum trick: mark fire events, forward-fill, count distance
         fire_dates = sig_on.astype(int)
-        # Cumulative group: each fire starts a new group
         group = fire_dates.cumsum()
-        # Within each group, count position (0 = fire day, 1 = next day, etc.)
         days_since = group.groupby(group).cumcount()
-        # But we need: 0 on fire day, incrementing on non-fire days
-        # For days before any fire, days_since should be NaN
         ever_fired = group > 0
         days_since = days_since.where(ever_fired, other=np.nan)
 
-        # Remaining fraction: (63 - days_since) / 63, clipped to [0, 1]
         remaining_frac = ((h_days - days_since) / h_days).clip(0.0, 1.0)
-
-        # SPY proximity factor: 1.0 at highs, 0.0 at 10%+ below
         spy_factor = (1.0 - spy_pct_from_high / 0.10).clip(0.0, 1.0)
 
-        # Weight: 1.0 if ON, remaining_frac * spy_factor if recently fired, 0 otherwise
         weight = np.where(
             sig_on,
             1.0,
@@ -282,6 +270,15 @@ def compute_fragility_history(
         )
 
         active_weight += edge * weight
+
+        if name == "Pre-FOMC Rally":
+            fomc_weight_series = pd.Series(weight, index=spy_close.index)
+
+    # --- Dynamic max_weight: exclude FOMC edge on days it can't contribute ---
+    base_max = sum(e for n, e in edges.items() if n != "Pre-FOMC Rally")
+    fomc_edge = edges.get("Pre-FOMC Rally", 0.0)
+    max_weight = base_max + np.where(fomc_weight_series > 0, fomc_edge, 0.0)
+    max_weight = np.maximum(max_weight, 1e-9)
 
     # --- Final fragility score ---
     fragility = ((active_weight / max_weight) * 80 * regime_mult).clip(0.0, 100.0)
