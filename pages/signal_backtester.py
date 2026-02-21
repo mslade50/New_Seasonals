@@ -353,11 +353,16 @@ def compute_distribution_accumulation(spy_df: pd.DataFrame,
                                        ratio_threshold: float = 1.5,
                                        require_uptrend: bool = True,
                                        require_near_high: bool = False,
-                                       near_high_pct: float = 5.0) -> tuple:
+                                       near_high_pct: float = 5.0,
+                                       da_metric: str = "Ratio") -> tuple:
     """
     Compute distribution/accumulation signal.
 
-    Returns: (signal_series, da_ratio, dist_days, accum_days)
+    da_metric:
+      "Ratio"  — dist_count / accum_count (default, used in production dashboard)
+      "Spread" — dist_count - accum_count (simple subtraction)
+
+    Returns: (signal_series, da_series, dist_days, accum_days)
     """
     close = spy_df["Close"]
     open_ = spy_df["Open"]
@@ -374,14 +379,17 @@ def compute_distribution_accumulation(spy_df: pd.DataFrame,
     dist_count = dist_days.astype(int).rolling(window).sum()
     accum_count = accum_days.astype(int).rolling(window).sum()
 
-    # When accum > 0: ratio = dist / accum
-    # When accum = 0: ratio = dist - accum + 1 (so 4D/0A = 5)
-    da_ratio = pd.Series(
-        np.where(accum_count > 0, dist_count / accum_count, dist_count + 1),
-        index=dist_count.index,
-    )
+    if da_metric == "Spread":
+        da_series = dist_count - accum_count
+    else:
+        # When accum > 0: ratio = dist / accum
+        # When accum = 0: ratio = dist - accum + 1 (so 4D/0A = 5)
+        da_series = pd.Series(
+            np.where(accum_count > 0, dist_count / accum_count, dist_count + 1),
+            index=dist_count.index,
+        )
 
-    signal = da_ratio > ratio_threshold
+    signal = da_series > ratio_threshold
 
     if require_uptrend:
         sma_50 = close.rolling(50).mean()
@@ -391,7 +399,7 @@ def compute_distribution_accumulation(spy_df: pd.DataFrame,
         high_52w = close.rolling(252, min_periods=60).max()
         signal = signal & (close >= high_52w * (1 - near_high_pct / 100))
 
-    return signal, da_ratio, dist_days, accum_days
+    return signal, da_series, dist_days, accum_days
 
 
 # ---------------------------------------------------------------------------
@@ -859,13 +867,19 @@ with tab1:
 
     da_primary_close = da_ohlc["Close"]
 
-    c1, c2, c3 = st.columns(3)
+    c1, c2, c3, c4 = st.columns(4)
     with c1:
-        da_vol_mult = st.slider("Prev-day volume multiplier", 1.0, 2.0, 1.25, 0.05, key="da_vol")
+        da_metric = st.selectbox("D/A metric", ["Ratio", "Spread"], key="da_metric",
+                                 help="Ratio = D/A division (production). Spread = D minus A (subtraction).")
     with c2:
-        da_window = st.slider("Rolling window (days)", 10, 126, 21, key="da_win")
+        da_vol_mult = st.slider("Prev-day volume multiplier", 1.0, 2.0, 1.25, 0.05, key="da_vol")
     with c3:
-        da_ratio_thresh = st.slider("D/A ratio threshold", 1.0, 8.0, 1.5, 0.25, key="da_thresh")
+        da_window = st.slider("Rolling window (days)", 10, 126, 21, key="da_win")
+    with c4:
+        if da_metric == "Spread":
+            da_ratio_thresh = st.slider("D/A spread threshold", 0, 10, 2, 1, key="da_thresh_spread")
+        else:
+            da_ratio_thresh = st.slider("D/A ratio threshold", 1.0, 8.0, 1.5, 0.25, key="da_thresh")
 
     c4, c5 = st.columns(2)
     with c4:
@@ -906,12 +920,13 @@ with tab1:
             _, confirm_da_ratio, _, _ = compute_distribution_accumulation(
                 confirm_ohlc, da_vol_mult, da_window, da_confirm_thresh,
                 require_uptrend=False, require_near_high=False,
+                da_metric=da_metric,
             )
 
     # --- Compute primary signal ---
     signal, da_ratio, dist_days, accum_days = compute_distribution_accumulation(
         da_ohlc, da_vol_mult, da_window, da_ratio_thresh, da_uptrend,
-        da_near_high, da_near_high_pct,
+        da_near_high, da_near_high_pct, da_metric=da_metric,
     )
 
     # Apply confirmation filter
@@ -924,10 +939,11 @@ with tab1:
     # Current state summary
     recent_dist = int(dist_days.iloc[-da_window:].sum()) if len(dist_days) >= da_window else 0
     recent_accum = int(accum_days.iloc[-da_window:].sum()) if len(accum_days) >= da_window else 0
-    current_ratio = da_ratio.iloc[-1] if len(da_ratio) > 0 and not np.isnan(da_ratio.iloc[-1]) else 0
+    current_val = da_ratio.iloc[-1] if len(da_ratio) > 0 and not np.isnan(da_ratio.iloc[-1]) else 0
+    metric_label = "spread" if da_metric == "Spread" else "ratio"
     summary = (
         f"**{da_ticker} — Last {da_window} sessions:** Distribution days: {recent_dist} | "
-        f"Accumulation days: {recent_accum} | Current ratio: {current_ratio:.2f}"
+        f"Accumulation days: {recent_accum} | Current {metric_label}: {current_val:.2f}"
     )
     if da_use_confirm and confirm_da_ratio is not None and len(confirm_da_ratio.dropna()) > 0:
         confirm_current = confirm_da_ratio.iloc[-1] if not np.isnan(confirm_da_ratio.iloc[-1]) else 0
@@ -940,9 +956,10 @@ with tab1:
     # D/A ratio chart with primary ticker overlay
     fig_da = go.Figure()
     da_clean = da_ratio.dropna()
+    da_chart_label = f"{da_ticker} D/A {'Spread' if da_metric == 'Spread' else 'Ratio'}"
     fig_da.add_trace(go.Scatter(
         x=da_clean.index, y=da_clean,
-        name=f"{da_ticker} D/A Ratio", line=dict(width=1.5, color="#e74c3c"),
+        name=da_chart_label, line=dict(width=1.5, color="#e74c3c"),
     ))
     fig_da.add_hline(y=da_ratio_thresh, line_dash="dash", line_color="yellow",
                      annotation_text=f"Threshold: {da_ratio_thresh}")
@@ -967,10 +984,10 @@ with tab1:
         height=300,
         margin=dict(l=10, r=10, t=30, b=10),
         hovermode="x unified",
-        yaxis=dict(title="D/A Ratio"),
+        yaxis=dict(title=f"D/A {'Spread' if da_metric == 'Spread' else 'Ratio'}"),
         yaxis2=dict(overlaying="y", side="right", showgrid=False, title=da_ticker),
         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
-        title=dict(text=f"{da_ticker} Distribution / Accumulation Ratio", font=dict(size=13)),
+        title=dict(text=f"{da_ticker} Distribution / Accumulation {'Spread' if da_metric == 'Spread' else 'Ratio'}", font=dict(size=13)),
     )
     st.plotly_chart(fig_da, use_container_width=True)
 
