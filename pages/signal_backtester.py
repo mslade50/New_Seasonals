@@ -141,10 +141,10 @@ def load_data():
 
 
 @st.cache_data(ttl=3600)
-def load_ticker_ohlc(ticker: str):
+def load_ticker_ohlc(ticker: str, start: str = "2010-01-01"):
     """Download OHLC for any single ticker. Returns DataFrame with Close/Open/High/Low/Volume."""
     try:
-        raw = yf.download(ticker, start="2010-01-01", auto_adjust=True, progress=False)
+        raw = yf.download(ticker, start=start, auto_adjust=True, progress=False)
         if raw is None or raw.empty:
             return None
         if isinstance(raw.columns, pd.MultiIndex):
@@ -2166,7 +2166,7 @@ with tab8:
     if dsc_ticker == "SPY":
         dsc_close = spy_close
     else:
-        dsc_ohlc = load_ticker_ohlc(dsc_ticker)
+        dsc_ohlc = load_ticker_ohlc(dsc_ticker, start="1990-01-01")
         if dsc_ohlc is None or dsc_ohlc.empty:
             st.error(f"Could not download data for {dsc_ticker}.")
             st.stop()
