@@ -888,6 +888,109 @@ def compute_ar_signal(closes_df: pd.DataFrame,
     return signal, ar_series, ar_pctile
 
 
+# ---------------------------------------------------------------------------
+# SIGNAL 7: RV GAP (CLOSE-TO-CLOSE vs INTRADAY RANGE-BASED RV)
+# ---------------------------------------------------------------------------
+def _parkinson_rv(high: pd.Series, low: pd.Series, window: int) -> pd.Series:
+    """Parkinson (1980) range-based volatility estimator (annualized)."""
+    log_hl = np.log(high / low)
+    return (log_hl ** 2).rolling(window, min_periods=max(5, window // 2)).mean().pipe(
+        lambda x: np.sqrt(x / (4 * np.log(2))) * np.sqrt(252)
+    )
+
+
+def _garman_klass_rv(high: pd.Series, low: pd.Series,
+                     open_: pd.Series, close: pd.Series, window: int) -> pd.Series:
+    """Garman-Klass (1980) OHLC volatility estimator (annualized)."""
+    log_hl = np.log(high / low)
+    log_co = np.log(close / open_)
+    gk_daily = 0.5 * log_hl ** 2 - (2 * np.log(2) - 1) * log_co ** 2
+    return gk_daily.rolling(window, min_periods=max(5, window // 2)).mean().pipe(
+        lambda x: np.sqrt(x.clip(lower=0)) * np.sqrt(252)
+    )
+
+
+def _yang_zhang_rv(high: pd.Series, low: pd.Series,
+                   open_: pd.Series, close: pd.Series, window: int) -> pd.Series:
+    """Yang-Zhang (2000) full OHLC + overnight volatility estimator (annualized)."""
+    log_oc = np.log(open_ / close.shift(1))  # overnight
+    log_co = np.log(close / open_)            # open-to-close
+    log_ho = np.log(high / open_)
+    log_lo = np.log(low / open_)
+
+    # Rogers-Satchell variance (intraday, no drift assumption)
+    rs = log_ho * (log_ho - log_co) + log_lo * (log_lo - log_co)
+
+    n = window
+    k = 0.34 / (1.34 + (n + 1) / (n - 1))
+
+    overnight_var = log_oc.rolling(window, min_periods=max(5, window // 2)).var()
+    close_var = log_co.rolling(window, min_periods=max(5, window // 2)).var()
+    rs_var = rs.rolling(window, min_periods=max(5, window // 2)).mean()
+
+    yz_var = overnight_var + k * close_var + (1 - k) * rs_var
+    return np.sqrt(yz_var.clip(lower=0)) * np.sqrt(252)
+
+
+def compute_rv_gap_signal(ohlc: pd.DataFrame,
+                          rv_window: int = 21,
+                          pctile_lookback: int = 504,
+                          pctile_threshold: float = 75,
+                          estimator: str = "Parkinson",
+                          metric: str = "Ratio") -> tuple:
+    """
+    RV Gap signal: delta between intraday range-based RV and close-to-close RV.
+
+    When intraday RV >> close-to-close RV, the market is churning intraday
+    but not moving directionally — a potential distribution/instability signal.
+
+    Parameters
+    ----------
+    ohlc : DataFrame with Close, Open, High, Low columns
+    rv_window : rolling window for both RV measures
+    pctile_lookback : lookback for rolling percentile of the gap
+    pctile_threshold : percentile above which signal fires
+    estimator : "Parkinson", "Garman-Klass", or "Yang-Zhang"
+    metric : "Ratio" (intraday / CC) or "Spread" (intraday - CC)
+
+    Returns
+    -------
+    (signal, rv_gap, rv_gap_pctile, cc_rv, intraday_rv)
+    """
+    close = ohlc["Close"]
+    high = ohlc["High"]
+    low = ohlc["Low"]
+    open_ = ohlc["Open"]
+
+    # Close-to-close RV (annualized)
+    log_ret = np.log(close / close.shift(1))
+    cc_rv = log_ret.rolling(rv_window, min_periods=max(5, rv_window // 2)).std() * np.sqrt(252)
+
+    # Intraday range-based RV
+    if estimator == "Garman-Klass":
+        intraday_rv = _garman_klass_rv(high, low, open_, close, rv_window)
+    elif estimator == "Yang-Zhang":
+        intraday_rv = _yang_zhang_rv(high, low, open_, close, rv_window)
+    else:  # Parkinson (default)
+        intraday_rv = _parkinson_rv(high, low, rv_window)
+
+    # RV Gap
+    if metric == "Spread":
+        rv_gap = intraday_rv - cc_rv
+    else:
+        rv_gap = intraday_rv / cc_rv.replace(0, np.nan)
+
+    # Rolling percentile of gap
+    rv_gap_pctile = _rolling_percentile(rv_gap.dropna(), pctile_lookback)
+
+    # Signal: percentile above threshold
+    signal = pd.Series(False, index=ohlc.index)
+    pctile_valid = rv_gap_pctile.dropna()
+    signal.loc[pctile_valid.index] = pctile_valid > pctile_threshold
+
+    return signal, rv_gap, rv_gap_pctile, cc_rv, intraday_rv
+
+
 # ===========================================================================
 # MAIN PAGE
 # ===========================================================================
@@ -905,13 +1008,14 @@ if spy_df is None or spy_df.empty:
 
 spy_close = spy_df["Close"]
 
-tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
+tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
     "Distribution / Accumulation",
     "VIX Range Compression",
     "Sector Leadership",
     "Pre-Event Positioning",
     "Dispersion",
     "Absorption Ratio",
+    "RV Gap",
 ])
 
 # ========================== TAB 1 ==========================
@@ -1819,3 +1923,181 @@ with tab6:
                 xaxis=dict(showgrid=False),
             )
             st.plotly_chart(fig_ar_pctile, use_container_width=True)
+
+
+# ========================== TAB 7: RV GAP ===================================
+with tab7:
+    st.markdown("### RV Gap (Close-to-Close vs Intraday Range RV)")
+    st.markdown(
+        "> Compares **close-to-close realized volatility** (captures only directional moves) "
+        "with **intraday range-based RV** (captures the full day's churn including reversals). "
+        "When intraday RV >> close-to-close RV, the market is churning but not moving "
+        "directionally \u2014 a potential distribution / instability signal. The gap measures "
+        "'hidden volatility' that close-to-close RV misses."
+    )
+
+    # --- Primary ticker selector ---
+    rvg_ticker = st.text_input(
+        "Primary ticker", value="SPY", key="rvg_ticker",
+        help="Ticker to compute RV Gap on (e.g. SPY, QQQ, IWM, DIA)",
+    ).strip().upper()
+
+    # Load OHLC for the selected ticker
+    if rvg_ticker == "SPY":
+        rvg_ohlc = spy_df
+    else:
+        rvg_ohlc = load_ticker_ohlc(rvg_ticker)
+        if rvg_ohlc is None or rvg_ohlc.empty:
+            st.error(f"Could not download OHLC data for {rvg_ticker}.")
+            st.stop()
+
+    rvg_primary_close = rvg_ohlc["Close"]
+
+    c1, c2, c3 = st.columns(3)
+    with c1:
+        rvg_rv_window = st.slider("RV window (days)", 5, 63, 21, key="rvg_rv_win")
+    with c2:
+        rvg_pctile_lb = st.slider("Percentile lookback", 252, 1260, 504, key="rvg_pctile_lb")
+    with c3:
+        rvg_pctile_thresh = st.slider("Percentile threshold", 50, 95, 75, key="rvg_thresh")
+
+    c4, c5 = st.columns(2)
+    with c4:
+        rvg_estimator = st.selectbox(
+            "Intraday RV estimator",
+            ["Parkinson", "Garman-Klass", "Yang-Zhang"],
+            index=0, key="rvg_estimator",
+            help="Parkinson = purest range-only (H/L). "
+                 "Garman-Klass = OHLC. Yang-Zhang = full OHLC + overnight.",
+        )
+    with c5:
+        rvg_metric = st.selectbox(
+            "Gap metric", ["Ratio", "Spread"], index=0, key="rvg_metric",
+            help="Ratio = Intraday RV / CC RV. Spread = Intraday RV - CC RV.",
+        )
+
+    cf_rvg = _render_common_filters("rvg")
+
+    # --- Compute signal ---
+    rvg_signal, rv_gap, rv_gap_pctile, cc_rv, intraday_rv = compute_rv_gap_signal(
+        rvg_ohlc,
+        rv_window=rvg_rv_window,
+        pctile_lookback=rvg_pctile_lb,
+        pctile_threshold=rvg_pctile_thresh,
+        estimator=rvg_estimator,
+        metric=rvg_metric,
+    )
+
+    rvg_signal = apply_common_filters(rvg_signal, spy_close, **cf_rvg)
+
+    # Current reading
+    cur_gap = float(rv_gap.dropna().iloc[-1]) if len(rv_gap.dropna()) > 0 else None
+    cur_gap_pctile = float(rv_gap_pctile.dropna().iloc[-1]) if len(rv_gap_pctile.dropna()) > 0 else None
+    cur_cc = float(cc_rv.dropna().iloc[-1]) if len(cc_rv.dropna()) > 0 else None
+    cur_intra = float(intraday_rv.dropna().iloc[-1]) if len(intraday_rv.dropna()) > 0 else None
+
+    if cur_gap is not None:
+        pctile_str = f"{cur_gap_pctile:.0f}th" if cur_gap_pctile is not None else "N/A"
+        icon = "\U0001f534" if (cur_gap_pctile or 0) > rvg_pctile_thresh else "\U0001f7e2"
+        gap_label = "ratio" if rvg_metric == "Ratio" else "spread"
+        gap_fmt = f"{cur_gap:.2f}" if rvg_metric == "Ratio" else f"{cur_gap:.1%}"
+        st.markdown(
+            f"**Current RV Gap ({gap_label}):** {icon} **{gap_fmt}** ({pctile_str} percentile)  \n"
+            f"Close-to-close RV: {cur_cc:.1%} | {rvg_estimator} RV: {cur_intra:.1%} | "
+            f"Estimator: {rvg_estimator}"
+        )
+
+    study_rvg = run_event_study(rvg_signal, rvg_primary_close, signal_name="RV Gap")
+
+    # --- Chart 1: RV Gap + percentile with price overlay, signal shading ---
+    gap_clean = rv_gap.dropna()
+    pctile_clean = rv_gap_pctile.dropna()
+    if len(gap_clean) > 0:
+        st.markdown("#### RV Gap Over Time")
+        fig_rvg = go.Figure()
+
+        gap_label_full = f"RV Gap ({'Ratio' if rvg_metric == 'Ratio' else 'Spread'})"
+        fig_rvg.add_trace(go.Scatter(
+            x=gap_clean.index, y=gap_clean,
+            name=gap_label_full, line=dict(width=1.5, color="#e67e22"),
+        ))
+
+        if len(pctile_clean) > 0:
+            fig_rvg.add_trace(go.Scatter(
+                x=pctile_clean.index, y=pctile_clean,
+                name="Gap Percentile", line=dict(width=1, color="#8e44ad"),
+                yaxis="y2",
+            ))
+            fig_rvg.add_hline(
+                y=rvg_pctile_thresh, line_dash="dash", line_color="yellow",
+                annotation_text=f"Pctile threshold: {rvg_pctile_thresh}",
+                yref="y2",
+            )
+
+        # Shade signal-ON periods
+        sig_on = rvg_signal.fillna(False).astype(int)
+        transitions = sig_on.diff().fillna(0)
+        starts = transitions[transitions == 1].index
+        ends = transitions[transitions == -1].index
+        if len(sig_on) > 0 and sig_on.iloc[0] == 1:
+            starts = starts.insert(0, sig_on.index[0])
+        if len(sig_on) > 0 and sig_on.iloc[-1] == 1:
+            ends = ends.append(pd.DatetimeIndex([sig_on.index[-1]]))
+        for s, e in zip(starts[:len(ends)], ends):
+            fig_rvg.add_vrect(x0=s, x1=e, fillcolor="rgba(204,0,0,0.1)",
+                              line_width=0, layer="below")
+
+        fig_rvg.update_layout(
+            height=300,
+            margin=dict(l=10, r=10, t=30, b=10),
+            hovermode="x unified",
+            yaxis=dict(title=gap_label_full),
+            yaxis2=dict(overlaying="y", side="right", showgrid=False,
+                        title="Percentile", range=[0, 100]),
+            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+            title=dict(text=f"{rvg_ticker} RV Gap ({rvg_estimator}, {rvg_metric})", font=dict(size=13)),
+        )
+        st.plotly_chart(fig_rvg, use_container_width=True)
+
+    # --- Chart 2: Both RV measures plotted together ---
+    cc_clean = cc_rv.dropna()
+    intra_clean = intraday_rv.dropna()
+    common_rv_idx = cc_clean.index.intersection(intra_clean.index)
+    if len(common_rv_idx) > 0:
+        st.markdown("#### Close-to-Close RV vs Intraday RV")
+        fig_rv_comp = go.Figure()
+        fig_rv_comp.add_trace(go.Scatter(
+            x=common_rv_idx, y=cc_clean.reindex(common_rv_idx),
+            name="Close-to-Close RV", line=dict(width=1.5, color="#3498db"),
+        ))
+        fig_rv_comp.add_trace(go.Scatter(
+            x=common_rv_idx, y=intra_clean.reindex(common_rv_idx),
+            name=f"{rvg_estimator} RV", line=dict(width=1.5, color="#e74c3c"),
+        ))
+        # Fill gap between the two
+        fig_rv_comp.add_trace(go.Scatter(
+            x=common_rv_idx, y=intra_clean.reindex(common_rv_idx),
+            line=dict(width=0), showlegend=False,
+        ))
+        fig_rv_comp.add_trace(go.Scatter(
+            x=common_rv_idx, y=cc_clean.reindex(common_rv_idx),
+            line=dict(width=0), showlegend=False,
+            fill='tonexty', fillcolor='rgba(231,76,60,0.08)',
+        ))
+        fig_rv_comp.add_trace(go.Scatter(
+            x=rvg_primary_close.index, y=rvg_primary_close,
+            name=rvg_ticker, line=dict(width=1, color="rgba(100,100,100,0.4)"),
+            yaxis="y2",
+        ))
+        fig_rv_comp.update_layout(
+            height=300,
+            margin=dict(l=10, r=10, t=30, b=10),
+            hovermode="x unified",
+            yaxis=dict(title="Annualized RV", tickformat=".0%"),
+            yaxis2=dict(overlaying="y", side="right", showgrid=False, title=rvg_ticker),
+            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+            title=dict(text=f"CC RV vs {rvg_estimator} RV ({rvg_rv_window}d window)", font=dict(size=13)),
+        )
+        st.plotly_chart(fig_rv_comp, use_container_width=True)
+
+    render_event_study(study_rvg, "RV Gap", rvg_signal, rvg_primary_close, ticker_name=rvg_ticker)
