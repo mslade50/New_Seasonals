@@ -991,6 +991,48 @@ def compute_rv_gap_signal(ohlc: pd.DataFrame,
     return signal, rv_gap, rv_gap_pctile, cc_rv, intraday_rv
 
 
+# ---------------------------------------------------------------------------
+# SIGNAL 8: DAYS SINCE CORRECTION
+# ---------------------------------------------------------------------------
+def compute_days_since_signal(price: pd.Series,
+                              correction_pct: float = 10.0,
+                              threshold_mode: str = "Fixed",
+                              fixed_threshold: int = 200,
+                              pctile_lookback: int = 504,
+                              pctile_threshold: float = 80) -> tuple:
+    """
+    Days-since-correction complacency signal.
+
+    The longer the market goes without a drawdown of `correction_pct`%,
+    the more fragile it becomes. Signal fires when days-since exceeds
+    either a fixed threshold or a rolling percentile threshold.
+
+    Returns
+    -------
+    (signal, days_since, days_since_pctile)
+    """
+    rolling_high = price.expanding().max()
+    drawdown = (price - rolling_high) / rolling_high
+    correction_mask = drawdown <= -(correction_pct / 100)
+
+    # Days since last correction: cumulative count of non-correction days,
+    # resetting each time a correction occurs
+    not_corr = ~correction_mask
+    days_since = not_corr.groupby(correction_mask.cumsum()).cumsum().astype(int)
+
+    # Rolling percentile of days-since
+    days_since_pctile = _rolling_percentile(days_since, pctile_lookback)
+
+    if threshold_mode == "Percentile":
+        signal = pd.Series(False, index=price.index)
+        pctile_valid = days_since_pctile.dropna()
+        signal.loc[pctile_valid.index] = pctile_valid > pctile_threshold
+    else:
+        signal = days_since >= fixed_threshold
+
+    return signal, days_since, days_since_pctile
+
+
 # ===========================================================================
 # MAIN PAGE
 # ===========================================================================
@@ -1008,7 +1050,7 @@ if spy_df is None or spy_df.empty:
 
 spy_close = spy_df["Close"]
 
-tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
+tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8 = st.tabs([
     "Distribution / Accumulation",
     "VIX Range Compression",
     "Sector Leadership",
@@ -1016,6 +1058,7 @@ tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
     "Dispersion",
     "Absorption Ratio",
     "RV Gap",
+    "Days Since",
 ])
 
 # ========================== TAB 1 ==========================
@@ -2101,3 +2144,163 @@ with tab7:
         st.plotly_chart(fig_rv_comp, use_container_width=True)
 
     render_event_study(study_rvg, "RV Gap", rvg_signal, rvg_primary_close, ticker_name=rvg_ticker)
+
+
+# ========================== TAB 8: DAYS SINCE ===============================
+with tab8:
+    st.markdown("### Days Since Correction")
+    st.markdown(
+        "> Counts trading days since the last drawdown of a given depth from the "
+        "expanding all-time high. The longer the market goes without a correction, "
+        "the more complacent positioning becomes and the more fragile the tape. "
+        "Signal fires when the counter exceeds a fixed day count or a rolling "
+        "percentile threshold."
+    )
+
+    # --- Primary ticker selector ---
+    dsc_ticker = st.text_input(
+        "Primary ticker", value="SPY", key="dsc_ticker",
+        help="Ticker to measure corrections on (e.g. SPY, QQQ, IWM)",
+    ).strip().upper()
+
+    if dsc_ticker == "SPY":
+        dsc_close = spy_close
+    else:
+        dsc_ohlc = load_ticker_ohlc(dsc_ticker)
+        if dsc_ohlc is None or dsc_ohlc.empty:
+            st.error(f"Could not download data for {dsc_ticker}.")
+            st.stop()
+        dsc_close = dsc_ohlc["Close"]
+
+    c1, c2, c3 = st.columns(3)
+    with c1:
+        dsc_corr_pct = st.slider("Correction depth (%)", 3.0, 20.0, 10.0, 0.5, key="dsc_corr")
+    with c2:
+        dsc_mode = st.selectbox("Threshold mode", ["Fixed", "Percentile"], key="dsc_mode",
+                                help="Fixed = fire after N days. Percentile = fire when "
+                                     "days-since exceeds its own rolling percentile.")
+    with c3:
+        if dsc_mode == "Fixed":
+            dsc_fixed = st.slider("Days-since threshold", 50, 750, 200, 10, key="dsc_fixed")
+            dsc_pctile_lb = 504
+            dsc_pctile_thresh = 80
+        else:
+            dsc_fixed = 200
+            dsc_pctile_lb = st.slider("Percentile lookback", 252, 1260, 504, key="dsc_pctile_lb")
+            dsc_pctile_thresh = st.slider("Percentile threshold", 50, 95, 80, key="dsc_pctile_thresh")
+
+    cf_dsc = _render_common_filters("dsc")
+
+    dsc_signal, days_since, days_since_pctile = compute_days_since_signal(
+        dsc_close,
+        correction_pct=dsc_corr_pct,
+        threshold_mode=dsc_mode,
+        fixed_threshold=dsc_fixed,
+        pctile_lookback=dsc_pctile_lb,
+        pctile_threshold=dsc_pctile_thresh,
+    )
+
+    dsc_signal = apply_common_filters(dsc_signal, spy_close, **cf_dsc)
+
+    # Current reading
+    cur_days = int(days_since.iloc[-1]) if len(days_since) > 0 else None
+    cur_days_pctile = float(days_since_pctile.dropna().iloc[-1]) if len(days_since_pctile.dropna()) > 0 else None
+
+    if cur_days is not None:
+        pctile_str = f"{cur_days_pctile:.0f}th" if cur_days_pctile is not None else "N/A"
+        currently_on = bool(dsc_signal.iloc[-1]) if len(dsc_signal) > 0 else False
+        icon = "\U0001f534" if currently_on else "\U0001f7e2"
+        st.markdown(
+            f"**Current:** {icon} **{cur_days} trading days** since a "
+            f"{dsc_corr_pct:.1f}% correction ({pctile_str} percentile)"
+        )
+
+    study_dsc = run_event_study(dsc_signal, dsc_close, signal_name="Days Since Correction")
+
+    # --- Chart: Days-since sawtooth with price overlay ---
+    ds_clean = days_since.dropna()
+    if len(ds_clean) > 0:
+        st.markdown("#### Days Since Correction")
+        fig_dsc = go.Figure()
+        fig_dsc.add_trace(go.Scatter(
+            x=ds_clean.index, y=ds_clean,
+            name=f"Days since {dsc_corr_pct:.0f}% correction",
+            line=dict(width=1.5, color="#e67e22"),
+            fill='tozeroy', fillcolor='rgba(230,126,34,0.05)',
+        ))
+
+        if dsc_mode == "Fixed":
+            fig_dsc.add_hline(y=dsc_fixed, line_dash="dash", line_color="yellow",
+                              annotation_text=f"Threshold: {dsc_fixed}d")
+        else:
+            # Show percentile on secondary axis
+            pctile_clean = days_since_pctile.dropna()
+            if len(pctile_clean) > 0:
+                fig_dsc.add_trace(go.Scatter(
+                    x=pctile_clean.index, y=pctile_clean,
+                    name="Percentile", line=dict(width=1, color="#8e44ad"),
+                    yaxis="y2",
+                ))
+                fig_dsc.add_hline(
+                    y=dsc_pctile_thresh, line_dash="dash", line_color="yellow",
+                    annotation_text=f"Pctile threshold: {dsc_pctile_thresh}",
+                    yref="y2",
+                )
+
+        # Shade signal-ON periods
+        sig_on = dsc_signal.fillna(False).astype(int)
+        transitions = sig_on.diff().fillna(0)
+        starts = transitions[transitions == 1].index
+        ends = transitions[transitions == -1].index
+        if len(sig_on) > 0 and sig_on.iloc[0] == 1:
+            starts = starts.insert(0, sig_on.index[0])
+        if len(sig_on) > 0 and sig_on.iloc[-1] == 1:
+            ends = ends.append(pd.DatetimeIndex([sig_on.index[-1]]))
+        for s, e in zip(starts[:len(ends)], ends):
+            fig_dsc.add_vrect(x0=s, x1=e, fillcolor="rgba(204,0,0,0.1)",
+                              line_width=0, layer="below")
+
+        layout_kw = dict(
+            height=300,
+            margin=dict(l=10, r=10, t=30, b=10),
+            hovermode="x unified",
+            yaxis=dict(title="Trading Days"),
+            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+            title=dict(text=f"{dsc_ticker}: Days Since {dsc_corr_pct:.0f}% Correction", font=dict(size=13)),
+        )
+        if dsc_mode == "Percentile":
+            layout_kw["yaxis2"] = dict(overlaying="y", side="right", showgrid=False,
+                                       title="Percentile", range=[0, 100])
+        fig_dsc.update_layout(**layout_kw)
+        st.plotly_chart(fig_dsc, use_container_width=True)
+
+    # --- Chart 2: Price with drawdown shading ---
+    rolling_high = dsc_close.expanding().max()
+    drawdown = (dsc_close - rolling_high) / rolling_high
+    dd_clean = drawdown.dropna()
+    if len(dd_clean) > 0:
+        st.markdown("#### Drawdown from All-Time High")
+        fig_dd = go.Figure()
+        fig_dd.add_trace(go.Scatter(
+            x=dd_clean.index, y=dd_clean,
+            name="Drawdown", line=dict(width=1.5, color="#e74c3c"),
+            fill='tozeroy', fillcolor='rgba(231,76,60,0.08)',
+        ))
+        fig_dd.add_hline(y=-(dsc_corr_pct / 100), line_dash="dash", line_color="yellow",
+                         annotation_text=f"-{dsc_corr_pct:.0f}%")
+        fig_dd.add_trace(go.Scatter(
+            x=dsc_close.index, y=dsc_close,
+            name=dsc_ticker, line=dict(width=1, color="rgba(100,100,100,0.4)"),
+            yaxis="y2",
+        ))
+        fig_dd.update_layout(
+            height=250,
+            margin=dict(l=10, r=10, t=30, b=10),
+            hovermode="x unified",
+            yaxis=dict(title="Drawdown", tickformat=".0%"),
+            yaxis2=dict(overlaying="y", side="right", showgrid=False, title=dsc_ticker),
+            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+        )
+        st.plotly_chart(fig_dd, use_container_width=True)
+
+    render_event_study(study_dsc, "Days Since Correction", dsc_signal, dsc_close, ticker_name=dsc_ticker)
