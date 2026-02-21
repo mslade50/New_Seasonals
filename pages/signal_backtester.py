@@ -354,13 +354,18 @@ def compute_distribution_accumulation(spy_df: pd.DataFrame,
                                        require_uptrend: bool = True,
                                        require_near_high: bool = False,
                                        near_high_pct: float = 5.0,
-                                       da_metric: str = "Ratio") -> tuple:
+                                       da_metric: str = "Ratio",
+                                       require_perf: bool = False,
+                                       perf_window: int = 21,
+                                       perf_threshold: float = 0.0) -> tuple:
     """
     Compute distribution/accumulation signal.
 
     da_metric:
       "Ratio"  — dist_count / accum_count (default, used in production dashboard)
       "Spread" — dist_count - accum_count (simple subtraction)
+
+    require_perf: if True, only fire when rolling perf_window return > perf_threshold.
 
     Returns: (signal_series, da_series, dist_days, accum_days)
     """
@@ -398,6 +403,10 @@ def compute_distribution_accumulation(spy_df: pd.DataFrame,
     if require_near_high:
         high_52w = close.rolling(252, min_periods=60).max()
         signal = signal & (close >= high_52w * (1 - near_high_pct / 100))
+
+    if require_perf:
+        rolling_ret = close / close.shift(perf_window) - 1
+        signal = signal & (rolling_ret > perf_threshold)
 
     return signal, da_series, dist_days, accum_days
 
@@ -881,14 +890,24 @@ with tab1:
         else:
             da_ratio_thresh = st.slider("D/A ratio threshold", 1.0, 8.0, 1.5, 0.25, key="da_thresh")
 
-    c4, c5 = st.columns(2)
+    c4, c5, c6 = st.columns(3)
     with c4:
         da_uptrend = st.checkbox(f"Require uptrend ({da_ticker} > 50d SMA)", value=True, key="da_up")
     with c5:
         da_near_high = st.checkbox(f"Require {da_ticker} within % of 52w high", value=False, key="da_near_high")
+    with c6:
+        da_perf_filter = st.checkbox(f"Require rolling return filter", value=False, key="da_perf_on")
     da_near_high_pct = 5.0
     if da_near_high:
         da_near_high_pct = st.slider(f"{da_ticker} proximity to 52w high (%)", 1, 10, 5, key="da_high_pct")
+    da_perf_window = 21
+    da_perf_thresh = 0.0
+    if da_perf_filter:
+        pc1, pc2 = st.columns(2)
+        with pc1:
+            da_perf_window = st.slider("Performance window (days)", 5, 126, 21, key="da_perf_win")
+        with pc2:
+            da_perf_thresh = st.slider("Min return (%)", -10.0, 20.0, 0.0, 0.5, key="da_perf_thr") / 100
 
     # --- Confirmation ticker (optional) ---
     da_use_confirm = st.checkbox("Require confirmation from second ticker", value=False, key="da_confirm_on")
@@ -927,6 +946,8 @@ with tab1:
     signal, da_ratio, dist_days, accum_days = compute_distribution_accumulation(
         da_ohlc, da_vol_mult, da_window, da_ratio_thresh, da_uptrend,
         da_near_high, da_near_high_pct, da_metric=da_metric,
+        require_perf=da_perf_filter, perf_window=da_perf_window,
+        perf_threshold=da_perf_thresh,
     )
 
     # Apply confirmation filter
