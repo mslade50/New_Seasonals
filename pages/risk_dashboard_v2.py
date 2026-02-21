@@ -1148,6 +1148,9 @@ def _signal_edge(stats: dict, signal_key: str, horizon: str) -> float:
 
 HORIZON_DAYS = {'5d': 5, '21d': 21, '63d': 63}
 
+# Drawdown level at which decay weight reaches 0 (per horizon)
+HORIZON_DECAY_DD = {'5d': 0.05, '21d': 0.10, '63d': 0.20}
+
 
 def _days_since_last_fire(signal_history: pd.Series) -> int | None:
     """
@@ -1175,6 +1178,11 @@ def _signal_decay_weight(sig: dict, horizon: str, spy_pct_from_high: float) -> f
     - If OFF: linear decay based on remaining fraction of the horizon window,
       modulated by SPY proximity to highs.
 
+    Drawdown sensitivity varies by horizon:
+      5d:  decay → 0 at  5% drawdown (short-term thesis already invalidated)
+      21d: decay → 0 at 10% drawdown
+      63d: decay → 0 at 20% drawdown (structural concerns persist longer)
+
     spy_pct_from_high: positive value, e.g. 0.03 means SPY is 3% below 52w high.
     """
     if sig.get('on'):
@@ -1189,8 +1197,8 @@ def _signal_decay_weight(sig: dict, horizon: str, spy_pct_from_high: float) -> f
     if remaining_frac == 0.0:
         return 0.0
 
-    # SPY proximity: scales from 1.0 (at highs) to 0.0 (10%+ from highs)
-    spy_factor = max(0.0, 1.0 - (spy_pct_from_high / 0.10))
+    dd_zero = HORIZON_DECAY_DD.get(horizon, 0.10)
+    spy_factor = max(0.0, 1.0 - (spy_pct_from_high / dd_zero))
 
     return remaining_frac * spy_factor
 
@@ -1862,7 +1870,8 @@ def compute_fragility_timeseries(
             days_since = days_since.where(ever_fired, other=np.nan)
 
             remaining_frac = ((h_days - days_since) / h_days).clip(0.0, 1.0)
-            spy_factor = (1.0 - spy_pct_from_high / 0.10).clip(0.0, 1.0)
+            dd_zero = HORIZON_DECAY_DD.get(horizon, 0.10)
+            spy_factor = (1.0 - spy_pct_from_high / dd_zero).clip(0.0, 1.0)
 
             weight = np.where(
                 sig_on, 1.0,
