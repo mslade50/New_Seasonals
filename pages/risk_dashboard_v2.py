@@ -1955,6 +1955,85 @@ def chart_fragility_timeseries(
 
 
 # ============================================================================
+# CACHED COMPUTATION & FRAGMENT HELPERS
+# ============================================================================
+
+def _parquet_cache_key() -> tuple:
+    """Return parquet file mod times as a cheap cache key."""
+    return tuple(
+        os.path.getmtime(p) if os.path.exists(p) else 0
+        for p in [CACHE_SPY_OHLC, CACHE_CLOSES, CACHE_SP500]
+    )
+
+
+@st.cache_data(ttl=3600)
+def _cached_compute_signals(_spy_df, _closes, _sp500_closes, cache_key):
+    """Compute all signals and derived metrics. Cached to skip recomputation on widget changes."""
+    spy_close = _spy_df["Close"]
+
+    sector_cols = [c for c in SECTOR_ETFS if c in _closes.columns]
+    sector_closes = _closes[sector_cols].dropna(axis=1, how="all")
+    sector_returns = sector_closes.pct_change().dropna(how="all")
+
+    da = compute_da_signal(_spy_df)
+    vix_close = _closes["^VIX"].dropna() if "^VIX" in _closes.columns else pd.Series(dtype=float)
+    vrc = compute_vix_range_compression(vix_close)
+    dl = compute_defensive_leadership(_sp500_closes, spy_close)
+    fomc = compute_fomc_signal(spy_close)
+    ar = compute_low_ar_signal(sector_returns, spy_close)
+    srd = compute_seasonal_divergence_signal(spy_close)
+
+    signals_ordered = {
+        'Distribution Dominance': da,
+        'VIX Range Compression': vrc,
+        'Defensive Leadership': dl,
+        'Pre-FOMC Rally': fomc,
+        'Low Absorption Ratio': ar,
+        'Seasonal Rank Divergence': srd,
+    }
+    signals_bool = {name: sig['on'] for name, sig in signals_ordered.items()}
+
+    price_ctx = compute_price_context(spy_close)
+    regime_mult = compute_regime_multiplier(price_ctx)
+
+    horizon_stats = load_horizon_stats()
+    h_scores = None
+    frag_df = None
+    persist = None
+    if horizon_stats is not None:
+        h_scores = compute_horizon_fragility(signals_ordered, regime_mult, horizon_stats, price_ctx)
+        frag_df = compute_fragility_timeseries(signals_ordered, spy_close, horizon_stats)
+        persist = compute_persistence_context(frag_df)
+
+    return {
+        'signals_ordered': signals_ordered,
+        'signals_bool': signals_bool,
+        'price_ctx': price_ctx,
+        'regime_mult': regime_mult,
+        'horizon_stats': horizon_stats,
+        'h_scores': h_scores,
+        'frag_df': frag_df,
+        'persist': persist,
+        'vix_close': vix_close,
+        'spy_close': spy_close,
+    }
+
+
+@st.fragment
+def _render_fragility_chart(frag_df, spy_close, year_filter):
+    """Fragment: only this section re-runs when the horizon dropdown changes."""
+    frag_horizon = st.selectbox(
+        "Fragility horizon",
+        ['63d', '21d', '5d'],
+        format_func=lambda h: {'63d': '63-Day (Long-Term)', '21d': '21-Day (Intermediate)', '5d': '5-Day (Short-Term)'}[h],
+    )
+    st.plotly_chart(
+        chart_fragility_timeseries(frag_df, spy_close, frag_horizon, year_filter),
+        use_container_width=True,
+    )
+
+
+# ============================================================================
 # MAIN APP
 # ============================================================================
 
@@ -2022,47 +2101,23 @@ def main():
         st.info("No cached data found. Click **Refresh Data** in the sidebar to initialize.")
         st.stop()
 
-    spy_close = spy_df["Close"]
-
-    # Sector returns (needed for Absorption Ratio signal)
-    sector_cols = [c for c in SECTOR_ETFS if c in closes.columns]
-    sector_closes = closes[sector_cols].dropna(axis=1, how="all")
-    sector_returns = sector_closes.pct_change().dropna(how="all")
-
-    # -------------------------------------------------------------------
-    # COMPUTE 5 VALIDATED SIGNALS
-    # -------------------------------------------------------------------
-    da = compute_da_signal(spy_df)
-
-    vix_close = closes["^VIX"].dropna() if "^VIX" in closes.columns else pd.Series(dtype=float)
-    vrc = compute_vix_range_compression(vix_close)
-
-    dl = compute_defensive_leadership(sp500_closes, spy_close)
-
-    fomc = compute_fomc_signal(spy_close)
-
-    ar = compute_low_ar_signal(sector_returns, spy_close)
-
-    srd = compute_seasonal_divergence_signal(spy_close)
-
-    # Build ordered signal dict for rendering + persistence
-    signals_ordered = {
-        'Distribution Dominance': da,
-        'VIX Range Compression': vrc,
-        'Defensive Leadership': dl,
-        'Pre-FOMC Rally': fomc,
-        'Low Absorption Ratio': ar,
-        'Seasonal Rank Divergence': srd,
-    }
-    signals_bool = {name: sig['on'] for name, sig in signals_ordered.items()}
+    # --- Compute signals (cached — skips recomputation on widget changes) ---
+    computed = _cached_compute_signals(spy_df, closes, sp500_closes, _parquet_cache_key())
+    signals_ordered = computed['signals_ordered']
+    signals_bool = computed['signals_bool']
+    price_ctx = computed['price_ctx']
+    regime_mult = computed['regime_mult']
+    horizon_stats = computed['horizon_stats']
+    h_scores = computed['h_scores']
+    frag_df = computed['frag_df']
+    persist = computed['persist']
+    vix_close = computed['vix_close']
+    spy_close = computed['spy_close']
 
     # -------------------------------------------------------------------
     # EXECUTIVE SUMMARY
     # -------------------------------------------------------------------
 
-    # Price context + regime
-    price_ctx = compute_price_context(spy_close)
-    regime_mult = compute_regime_multiplier(price_ctx)
     render_price_context(price_ctx)
 
     # What Changed
@@ -2085,14 +2140,10 @@ def main():
     render_signal_board(signals_ordered, price_ctx)
 
     # Risk horizon dials
-    horizon_stats = load_horizon_stats()
     active_count = sum(1 for v in signals_bool.values() if v)
     total_count = len(signals_bool)
 
     if horizon_stats is not None:
-        h_scores = compute_horizon_fragility(signals_ordered, regime_mult, horizon_stats, price_ctx)
-        frag_df = compute_fragility_timeseries(signals_ordered, spy_close, horizon_stats)
-        persist = compute_persistence_context(frag_df)
 
         dial_c1, dial_c2, dial_c3 = st.columns(3)
         with dial_c1:
@@ -2185,17 +2236,9 @@ def main():
     # -------------------------------------------------------------------
     # FRAGILITY TIME SERIES
     # -------------------------------------------------------------------
-    if horizon_stats:
+    if horizon_stats and frag_df is not None:
         st.divider()
-        frag_horizon = st.selectbox(
-            "Fragility horizon",
-            ['63d', '21d', '5d'],
-            format_func=lambda h: {'63d': '63-Day (Long-Term)', '21d': '21-Day (Intermediate)', '5d': '5-Day (Short-Term)'}[h],
-        )
-        st.plotly_chart(
-            chart_fragility_timeseries(frag_df, spy_close, frag_horizon, year_filter),
-            use_container_width=True,
-        )
+        _render_fragility_chart(frag_df, spy_close, year_filter)
 
 
 main()
