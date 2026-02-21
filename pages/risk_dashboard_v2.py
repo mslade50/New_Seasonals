@@ -2020,8 +2020,85 @@ def _cached_compute_signals(_spy_df, _closes, _sp500_closes, cache_key):
 
 
 @st.fragment
+def _render_all_charts(signals_ordered, spy_close, vix_close,
+                       horizon_stats, frag_df, lookback_years):
+    """Fragment: year filter + all charts. Only this section re-runs on filter change."""
+    st.divider()
+
+    # Year filter (inside fragment so changes don't trigger full page rerun)
+    current_year = datetime.datetime.now().year
+    start_year = current_year - lookback_years
+    year_options = ["All (2yr)"] + [str(y) for y in range(current_year, start_year - 1, -1)]
+    year_filter = st.selectbox("Chart year filter", year_options, index=0)
+    if year_filter == "All (2yr)":
+        year_filter = None
+
+    da = signals_ordered['Distribution Dominance']
+    vrc = signals_ordered['VIX Range Compression']
+    dl = signals_ordered['Defensive Leadership']
+    fomc = signals_ordered['Pre-FOMC Rally']
+    ar = signals_ordered['Low Absorption Ratio']
+    srd = signals_ordered['Seasonal Rank Divergence']
+
+    row1_c1, row1_c2 = st.columns(2)
+
+    with row1_c1:
+        if len(da['da_ratio'].dropna()) > 0:
+            fig = chart_da_ratio(da['da_ratio'], spy_close, year_filter)
+            _add_signal_vlines(fig, da.get('signal_history'))
+            st.plotly_chart(fig, use_container_width=True)
+
+    with row1_c2:
+        if len(vrc['compression_pctile'].dropna()) > 0:
+            fig = chart_vix_compression(vix_close, vrc['compression_pctile'], year_filter)
+            _add_signal_vlines(fig, vrc.get('signal_history'))
+            st.plotly_chart(fig, use_container_width=True)
+        elif len(vix_close) > 0:
+            st.info("VIX compression data requires 504+ days of history.")
+
+    row2_c1, row2_c2 = st.columns(2)
+
+    with row2_c1:
+        if len(dl['spread'].dropna()) > 0:
+            fig = chart_leadership(dl['on_breadth'], dl['off_breadth'], spy_close, year_filter)
+            _add_signal_vlines(fig, dl.get('signal_history'))
+            st.plotly_chart(fig, use_container_width=True)
+        else:
+            st.info("Defensive Leadership requires S&P 500 data + risk classification.")
+
+    with row2_c2:
+        if len(fomc['signal_dates']) > 0:
+            st.plotly_chart(chart_fomc_signals(spy_close, fomc['signal_dates'], year_filter), use_container_width=True)
+
+    row3_c1, row3_c2 = st.columns(2)
+
+    with row3_c1:
+        if len(ar.get('ar_pctile', pd.Series(dtype=float)).dropna()) > 0:
+            fig = chart_ar_signal(ar['ar_pctile'], spy_close, year_filter)
+            _add_signal_vlines(fig, ar.get('signal_history'))
+            st.plotly_chart(fig, use_container_width=True)
+        elif len(ar.get('ar_series', pd.Series(dtype=float)).dropna()) > 0:
+            st.plotly_chart(chart_absorption_ratio(ar['ar_series']), use_container_width=True)
+
+    with row3_c2:
+        if len(srd.get('spread', pd.Series(dtype=float)).dropna()) > 0:
+            fig = chart_seasonal_divergence(srd['spread'], spy_close, year_filter)
+            _add_signal_vlines(fig, srd.get('signal_history'))
+            st.plotly_chart(fig, use_container_width=True)
+
+    # Signal overlay
+    st.divider()
+    st.plotly_chart(chart_signal_overlay(spy_close, signals_ordered, year_filter), use_container_width=True)
+
+    # Fragility time series (nested fragment — horizon toggle only re-runs this)
+    if horizon_stats and frag_df is not None:
+        st.divider()
+        _render_fragility_chart(frag_df, spy_close, year_filter)
+
+
+@st.fragment
 def _render_fragility_chart(frag_df, spy_close, year_filter):
-    """Fragment: only this section re-runs when the horizon dropdown changes."""
+    """Nested fragment: only this re-runs when the horizon dropdown changes."""
     frag_horizon = st.selectbox(
         "Fragility horizon",
         ['63d', '21d', '5d'],
@@ -2060,15 +2137,6 @@ def main():
     with st.sidebar:
         st.header("\u2699\ufe0f Dashboard Settings")
         lookback_years = st.slider("History (years)", 5, 15, 10)
-
-        # Year filter for all charts
-        current_year = datetime.datetime.now().year
-        start_year = current_year - lookback_years
-        year_options = ["All (2yr)"] + [str(y) for y in range(current_year, start_year - 1, -1)]
-        year_filter = st.selectbox("Chart year filter", year_options, index=0)
-        if year_filter == "All (2yr)":
-            year_filter = None
-
         st.divider()
         refresh = st.button("\U0001f504 Refresh Data", type="primary", use_container_width=True)
         st.caption(f"Last refreshed: {_cache_age_str()}")
@@ -2177,75 +2245,10 @@ def main():
         st.plotly_chart(build_risk_dial(min(100, fallback), 'Fragility'), use_container_width=True)
 
     # -------------------------------------------------------------------
-    # SIGNAL CHARTS (3x2 grid)
+    # CHARTS (all in one fragment — year filter changes only re-render here)
     # -------------------------------------------------------------------
-    st.divider()
-
-    da = signals_ordered['Distribution Dominance']
-    vrc = signals_ordered['VIX Range Compression']
-    dl = signals_ordered['Defensive Leadership']
-    fomc = signals_ordered['Pre-FOMC Rally']
-    ar = signals_ordered['Low Absorption Ratio']
-    srd = signals_ordered['Seasonal Rank Divergence']
-
-    row1_c1, row1_c2 = st.columns(2)
-
-    with row1_c1:
-        if len(da['da_ratio'].dropna()) > 0:
-            fig = chart_da_ratio(da['da_ratio'], spy_close, year_filter)
-            _add_signal_vlines(fig, da.get('signal_history'))
-            st.plotly_chart(fig, use_container_width=True)
-
-    with row1_c2:
-        if len(vrc['compression_pctile'].dropna()) > 0:
-            fig = chart_vix_compression(vix_close, vrc['compression_pctile'], year_filter)
-            _add_signal_vlines(fig, vrc.get('signal_history'))
-            st.plotly_chart(fig, use_container_width=True)
-        elif len(vix_close) > 0:
-            st.info("VIX compression data requires 504+ days of history.")
-
-    row2_c1, row2_c2 = st.columns(2)
-
-    with row2_c1:
-        if len(dl['spread'].dropna()) > 0:
-            fig = chart_leadership(dl['on_breadth'], dl['off_breadth'], spy_close, year_filter)
-            _add_signal_vlines(fig, dl.get('signal_history'))
-            st.plotly_chart(fig, use_container_width=True)
-        else:
-            st.info("Defensive Leadership requires S&P 500 data + risk classification.")
-
-    with row2_c2:
-        if len(fomc['signal_dates']) > 0:
-            st.plotly_chart(chart_fomc_signals(spy_close, fomc['signal_dates'], year_filter), use_container_width=True)
-
-    row3_c1, row3_c2 = st.columns(2)
-
-    with row3_c1:
-        if len(ar.get('ar_pctile', pd.Series(dtype=float)).dropna()) > 0:
-            fig = chart_ar_signal(ar['ar_pctile'], spy_close, year_filter)
-            _add_signal_vlines(fig, ar.get('signal_history'))
-            st.plotly_chart(fig, use_container_width=True)
-        elif len(ar.get('ar_series', pd.Series(dtype=float)).dropna()) > 0:
-            st.plotly_chart(chart_absorption_ratio(ar['ar_series']), use_container_width=True)
-
-    with row3_c2:
-        if len(srd.get('spread', pd.Series(dtype=float)).dropna()) > 0:
-            fig = chart_seasonal_divergence(srd['spread'], spy_close, year_filter)
-            _add_signal_vlines(fig, srd.get('signal_history'))
-            st.plotly_chart(fig, use_container_width=True)
-
-    # -------------------------------------------------------------------
-    # COMPOSITE SIGNAL OVERLAY
-    # -------------------------------------------------------------------
-    st.divider()
-    st.plotly_chart(chart_signal_overlay(spy_close, signals_ordered, year_filter), use_container_width=True)
-
-    # -------------------------------------------------------------------
-    # FRAGILITY TIME SERIES
-    # -------------------------------------------------------------------
-    if horizon_stats and frag_df is not None:
-        st.divider()
-        _render_fragility_chart(frag_df, spy_close, year_filter)
+    _render_all_charts(signals_ordered, spy_close, vix_close,
+                       horizon_stats, frag_df, lookback_years)
 
 
 main()
