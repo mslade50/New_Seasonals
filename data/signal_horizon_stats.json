@@ -81,7 +81,7 @@
             "horizons": {
                 "5d":  {"signal_mean": -0.14, "unconditional_mean": 0.20, "diff_mean": -0.34, "hit_rate": null, "p_value": 0.001},
                 "10d": {"signal_mean": -0.16, "unconditional_mean": 0.39, "diff_mean": -0.55, "hit_rate": null, "p_value": 0.001},
-                "21d": {"signal_mean": -0.02, "unconditional_mean": 0.81, "diff_mean": -0.84, "hit_rate": null, "p_value": 0.002},
+                "21d": {"signal_mean": -0.02, "unconditional_mean": 0.81, "diff_mean": -1.50, "hit_rate": null, "p_value": 0.002},
                 "42d": {"signal_mean": 1.46, "unconditional_mean": 1.63, "diff_mean": -0.17, "hit_rate": null, "p_value": 0.638},
                 "63d": {"signal_mean": 1.97, "unconditional_mean": 2.47, "diff_mean": -0.50, "hit_rate": null, "p_value": 0.342}
             }
