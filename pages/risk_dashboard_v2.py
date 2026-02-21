@@ -17,6 +17,7 @@ import sys
 import os
 import plotly.graph_objects as go
 import json
+from scipy import stats
 
 # ---------------------------------------------------------------------------
 # PAGE CONFIG (must be first Streamlit command)
@@ -1963,6 +1964,202 @@ def chart_fragility_timeseries(
     return fig
 
 
+# ---------------------------------------------------------------------------
+# FRAGILITY EVENT STUDY
+# ---------------------------------------------------------------------------
+
+def _run_fragility_event_study(
+    frag_series: pd.Series,
+    spy_close: pd.Series,
+    threshold: float = 85,
+    require_days_since: bool = False,
+    correction_pct: float = 10.0,
+    min_days_since: int = 200,
+    decluster: bool = True,
+    min_gap: int = 10,
+    forward_windows: list | None = None,
+) -> dict:
+    """
+    Self-contained event study: forward SPY returns when fragility > threshold.
+
+    Returns dict with signal_dates, n_activations, results (DataFrame),
+    forward_returns, unconditional_returns.
+    """
+    if forward_windows is None:
+        forward_windows = [5, 10, 21, 42, 63]
+
+    common_idx = frag_series.dropna().index.intersection(spy_close.dropna().index).sort_values()
+    frag = frag_series.reindex(common_idx)
+    price = spy_close.reindex(common_idx)
+
+    signal = frag > threshold
+
+    # Days-since-correction filter
+    if require_days_since:
+        rolling_high = price.expanding().max()
+        drawdown = (price - rolling_high) / rolling_high
+        correction_mask = drawdown <= -(correction_pct / 100)
+        not_corr = ~correction_mask
+        days_since = not_corr.groupby(correction_mask.cumsum()).cumsum().astype(int)
+        signal = signal & (days_since >= min_days_since)
+
+    # Decluster: greedy forward pass keeping first fire in each cluster
+    if decluster and min_gap > 0:
+        fire_positions = np.where(signal.values)[0]
+        mask = np.ones(len(signal), dtype=bool)
+        last_kept = -min_gap - 1
+        for pos in fire_positions:
+            if pos - last_kept <= min_gap:
+                mask[pos] = False
+            else:
+                last_kept = pos
+        signal = signal & pd.Series(mask, index=signal.index)
+
+    signal_dates = signal[signal].index
+
+    # Forward returns
+    results = {}
+    fwd_rets_signal = {}
+    fwd_rets_all = {}
+
+    for w in forward_windows:
+        fwd = price.shift(-w) / price - 1
+        fwd = fwd.dropna()
+        signal_fwd = fwd.reindex(signal_dates).dropna()
+
+        fwd_rets_signal[w] = signal_fwd
+        fwd_rets_all[w] = fwd
+
+        if len(signal_fwd) > 2:
+            _, p_val = stats.ttest_ind(signal_fwd.values, fwd.values, equal_var=False)
+        else:
+            p_val = np.nan
+
+        results[f"{w}d"] = {
+            "Signal Mean": signal_fwd.mean() if len(signal_fwd) > 0 else np.nan,
+            "Signal Median": signal_fwd.median() if len(signal_fwd) > 0 else np.nan,
+            "Unconditional Mean": fwd.mean(),
+            "Unconditional Median": fwd.median(),
+            "Difference (Mean)": (signal_fwd.mean() - fwd.mean()) if len(signal_fwd) > 0 else np.nan,
+            "Difference (Median)": (signal_fwd.median() - fwd.median()) if len(signal_fwd) > 0 else np.nan,
+            "Signal Worst": signal_fwd.min() if len(signal_fwd) > 0 else np.nan,
+            "Signal Best": signal_fwd.max() if len(signal_fwd) > 0 else np.nan,
+            "Hit Rate (neg fwd ret)": (signal_fwd < 0).mean() if len(signal_fwd) > 0 else np.nan,
+            "p-value": p_val,
+        }
+
+    results_df = pd.DataFrame(results).T
+
+    return {
+        "signal_dates": signal_dates,
+        "n_activations": len(signal_dates),
+        "results": results_df,
+        "forward_returns": fwd_rets_signal,
+        "unconditional_returns": fwd_rets_all,
+    }
+
+
+def _render_fragility_event_study(study: dict, spy_close: pd.Series, horizon_label: str):
+    """Render event study results: table, SPY chart with vlines, histogram."""
+
+    n = study["n_activations"]
+    total_days = len(spy_close.dropna())
+    st.markdown(f"**{n} activations** ({n / total_days:.1%} of trading days)")
+
+    if n < 5:
+        st.warning(f"Only {n} activations — results may not be statistically meaningful.")
+
+    if n == 0:
+        st.info("No activations for current settings.")
+        return
+
+    # --- Formatted results table ---
+    results_display = study["results"].copy()
+    for col in results_display.index:
+        for metric in results_display.columns:
+            val = results_display.loc[col, metric]
+            if metric == "p-value":
+                results_display.loc[col, metric] = f"{val:.3f}" if not np.isnan(val) else "N/A"
+            elif "Hit Rate" in metric:
+                results_display.loc[col, metric] = f"{val:.1%}" if not np.isnan(val) else "N/A"
+            else:
+                results_display.loc[col, metric] = f"{val:+.2%}" if not np.isnan(val) else "N/A"
+
+    st.dataframe(results_display, use_container_width=True)
+
+    # --- Minimum bar check: 21d median diff < -0.50% ---
+    raw_results = study["results"]
+    if "21d" in raw_results.index:
+        med_diff = raw_results.loc["21d", "Difference (Median)"]
+        if not np.isnan(med_diff) and med_diff < -0.005:
+            st.success(
+                f"Minimum bar met: 21d median difference = {med_diff:+.2%} "
+                f"(threshold: -0.50%)"
+            )
+        elif not np.isnan(med_diff):
+            st.info(
+                f"Minimum bar NOT met: 21d median difference = {med_diff:+.2%} "
+                f"(need < -0.50%)"
+            )
+
+    # --- SPY chart with signal onset vlines ---
+    signal_dates = study["signal_dates"]
+    onset_dates = []
+    last_onset = None
+    for dt in signal_dates:
+        if last_onset is None or (dt - last_onset).days > 10:
+            onset_dates.append(dt)
+            last_onset = dt
+
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(
+        x=spy_close.index, y=spy_close.values,
+        name="SPY", line=dict(width=1.5, color="rgba(150,150,150,0.8)"),
+    ))
+    for dt in onset_dates:
+        fig.add_vline(x=dt, line_color="rgba(204,0,0,0.6)", line_width=1, line_dash="solid")
+
+    fig.update_layout(
+        height=300,
+        margin=dict(l=10, r=10, t=30, b=10),
+        hovermode="x unified",
+        xaxis=dict(showgrid=False),
+        yaxis=dict(title="SPY"),
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+        title=dict(
+            text=f"{horizon_label} Fragility Signal Onsets ({len(onset_dates)} events)",
+            font=dict(size=13),
+        ),
+    )
+    st.plotly_chart(fig, use_container_width=True)
+
+    # --- Forward 21d return distribution histogram ---
+    if 21 in study["forward_returns"] and len(study["forward_returns"][21]) > 5:
+        fig_hist = go.Figure()
+        fig_hist.add_trace(go.Histogram(
+            x=study["unconditional_returns"][21],
+            name="All Days", opacity=0.5,
+            marker_color="rgba(100,100,100,0.5)",
+            histnorm="probability density", nbinsx=50,
+        ))
+        fig_hist.add_trace(go.Histogram(
+            x=study["forward_returns"][21],
+            name="Signal Days", opacity=0.7,
+            marker_color="rgba(204,0,0,0.7)",
+            histnorm="probability density", nbinsx=30,
+        ))
+        fig_hist.update_layout(
+            height=250,
+            margin=dict(l=10, r=10, t=30, b=10),
+            barmode="overlay",
+            title=dict(text="Forward 21d Return Distribution (density)", font=dict(size=13)),
+            xaxis=dict(tickformat=".1%"),
+            yaxis=dict(title="Density"),
+            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+        )
+        st.plotly_chart(fig_hist, use_container_width=True)
+
+
 # ============================================================================
 # CACHED COMPUTATION & FRAGMENT HELPERS
 # ============================================================================
@@ -2108,15 +2305,69 @@ def _render_all_charts(signals_ordered, spy_close, vix_close,
 @st.fragment
 def _render_fragility_chart(frag_df, spy_close, year_filter):
     """Nested fragment: only this re-runs when the horizon dropdown changes."""
+    h_labels = {'5d': '5-Day (Short-Term)', '21d': '21-Day (Intermediate)', '63d': '63-Day (Long-Term)'}
     frag_horizon = st.selectbox(
         "Fragility horizon",
         ['63d', '21d', '5d'],
-        format_func=lambda h: {'63d': '63-Day (Long-Term)', '21d': '21-Day (Intermediate)', '5d': '5-Day (Short-Term)'}[h],
+        format_func=lambda h: h_labels[h],
     )
     st.plotly_chart(
         chart_fragility_timeseries(frag_df, spy_close, frag_horizon, year_filter),
         use_container_width=True,
     )
+
+    # --- Fragility Forward Return Analysis ---
+    st.divider()
+    st.markdown("#### Fragility Forward Return Analysis")
+
+    fc1, fc2, fc3 = st.columns(3)
+    with fc1:
+        frag_threshold = st.slider(
+            "Fragility threshold", 50, 95, 85, step=5,
+            key="frag_evt_threshold",
+        )
+    with fc2:
+        require_days_since = st.checkbox(
+            "Require days since correction", value=False,
+            key="frag_evt_days_since",
+        )
+        if require_days_since:
+            correction_pct = st.slider(
+                "Correction depth (%)", 3.0, 20.0, 10.0, step=0.5,
+                key="frag_evt_corr_pct",
+            )
+            min_days_since = st.slider(
+                "Min trading days since correction", 50, 500, 200, step=10,
+                key="frag_evt_min_days",
+            )
+        else:
+            correction_pct = 10.0
+            min_days_since = 200
+    with fc3:
+        decluster = st.checkbox(
+            "Decluster signals", value=True,
+            key="frag_evt_decluster",
+        )
+        if decluster:
+            min_gap = st.slider(
+                "Min gap (trading days)", 1, 63, 10, step=1,
+                key="frag_evt_min_gap",
+            )
+        else:
+            min_gap = 0
+
+    study = _run_fragility_event_study(
+        frag_df[frag_horizon], spy_close,
+        threshold=frag_threshold,
+        require_days_since=require_days_since,
+        correction_pct=correction_pct,
+        min_days_since=min_days_since,
+        decluster=decluster,
+        min_gap=min_gap,
+    )
+
+    horizon_label = h_labels[frag_horizon].split(" (")[0]
+    _render_fragility_event_study(study, spy_close, horizon_label)
 
 
 # ============================================================================
