@@ -1420,10 +1420,19 @@ def chart_absorption_ratio(ar_series: pd.Series) -> go.Figure:
 # SIGNAL CHARTS
 # ---------------------------------------------------------------------------
 
-def _spy_y2_range(spy_close: pd.Series, days: int = 730, pad_pct: float = 0.03) -> list | None:
-    """Compute ±pad% range for SPY within the default view window."""
-    cutoff = (datetime.datetime.now() - datetime.timedelta(days=days)).strftime("%Y-%m-%d")
-    window = spy_close[spy_close.index >= cutoff]
+def _get_chart_date_range(year_filter: str | None) -> tuple[str, str]:
+    """Return (start, end) date strings for chart x-axis based on year filter."""
+    if year_filter and year_filter != "All (2yr)":
+        return f"{year_filter}-01-01", f"{year_filter}-12-31"
+    two_yr_ago = (datetime.datetime.now() - datetime.timedelta(days=730)).strftime("%Y-%m-%d")
+    return two_yr_ago, datetime.datetime.now().strftime("%Y-%m-%d")
+
+
+def _spy_y2_range(spy_close: pd.Series, year_filter: str | None = None,
+                  pad_pct: float = 0.03) -> list | None:
+    """Compute ±pad% range for SPY within the visible chart window."""
+    start, end = _get_chart_date_range(year_filter)
+    window = spy_close[(spy_close.index >= start) & (spy_close.index <= end)]
     if len(window) == 0:
         return None
     lo = float(window.min())
@@ -1431,7 +1440,8 @@ def _spy_y2_range(spy_close: pd.Series, days: int = 730, pad_pct: float = 0.03) 
     return [lo * (1 - pad_pct), hi * (1 + pad_pct)]
 
 
-def chart_da_ratio(da_ratio: pd.Series, spy_close: pd.Series) -> go.Figure:
+def chart_da_ratio(da_ratio: pd.Series, spy_close: pd.Series,
+                   year_filter: str | None = None) -> go.Figure:
     """D/A ratio with threshold lines and SPY overlay."""
     fig = go.Figure()
     clean = da_ratio.dropna()
@@ -1447,15 +1457,16 @@ def chart_da_ratio(da_ratio: pd.Series, spy_close: pd.Series) -> go.Figure:
         yaxis="y2",
     ))
     fig.update_layout(**_dual_y_layout("Distribution / Accumulation Ratio", "D/A Ratio", "SPY"))
-    two_yr_ago = (datetime.datetime.now() - datetime.timedelta(days=730)).strftime("%Y-%m-%d")
-    fig.update_xaxes(range=[two_yr_ago, datetime.datetime.now().strftime("%Y-%m-%d")])
-    spy_range = _spy_y2_range(spy_close)
+    x_start, x_end = _get_chart_date_range(year_filter)
+    fig.update_xaxes(range=[x_start, x_end])
+    spy_range = _spy_y2_range(spy_close, year_filter)
     if spy_range:
         fig.update_layout(yaxis2=dict(range=spy_range))
     return fig
 
 
-def chart_vix_compression(vix_close: pd.Series, compression_pctile: pd.Series) -> go.Figure:
+def chart_vix_compression(vix_close: pd.Series, compression_pctile: pd.Series,
+                          year_filter: str | None = None) -> go.Figure:
     """VIX + compression percentile with threshold."""
     fig = go.Figure()
     fig.add_trace(go.Scatter(
@@ -1472,13 +1483,14 @@ def chart_vix_compression(vix_close: pd.Series, compression_pctile: pd.Series) -
                   annotation_text="Threshold: 15th", yref="y2",
                   annotation_position="right")
     fig.update_layout(**_dual_y_layout("VIX Level + Range Compression Percentile", "VIX", "Range Pctile"))
-    two_yr_ago = (datetime.datetime.now() - datetime.timedelta(days=730)).strftime("%Y-%m-%d")
-    fig.update_xaxes(range=[two_yr_ago, datetime.datetime.now().strftime("%Y-%m-%d")])
+    x_start, x_end = _get_chart_date_range(year_filter)
+    fig.update_xaxes(range=[x_start, x_end])
     return fig
 
 
 def chart_leadership(on_breadth: pd.Series, off_breadth: pd.Series,
-                     spy_close: pd.Series) -> go.Figure:
+                     spy_close: pd.Series,
+                     year_filter: str | None = None) -> go.Figure:
     """Risk-on vs risk-off breadth with SPY overlay."""
     fig = go.Figure()
     on_clean = on_breadth.dropna()
@@ -1497,15 +1509,16 @@ def chart_leadership(on_breadth: pd.Series, off_breadth: pd.Series,
         yaxis="y2",
     ))
     fig.update_layout(**_dual_y_layout("Risk-On vs Risk-Off Breadth", "% Above 50d SMA", "SPY"))
-    two_yr_ago = (datetime.datetime.now() - datetime.timedelta(days=730)).strftime("%Y-%m-%d")
-    fig.update_xaxes(range=[two_yr_ago, datetime.datetime.now().strftime("%Y-%m-%d")])
-    spy_range = _spy_y2_range(spy_close)
+    x_start, x_end = _get_chart_date_range(year_filter)
+    fig.update_xaxes(range=[x_start, x_end])
+    spy_range = _spy_y2_range(spy_close, year_filter)
     if spy_range:
         fig.update_layout(yaxis2=dict(range=spy_range))
     return fig
 
 
-def chart_ar_signal(ar_pctile: pd.Series, spy_close: pd.Series) -> go.Figure:
+def chart_ar_signal(ar_pctile: pd.Series, spy_close: pd.Series,
+                    year_filter: str | None = None) -> go.Figure:
     """AR percentile with threshold line and SPY overlay."""
     fig = go.Figure()
     clean = ar_pctile.dropna()
@@ -1520,15 +1533,16 @@ def chart_ar_signal(ar_pctile: pd.Series, spy_close: pd.Series) -> go.Figure:
         yaxis="y2",
     ))
     fig.update_layout(**_dual_y_layout("Absorption Ratio Percentile (PCA w=21)", "AR Pctile", "SPY"))
-    two_yr_ago = (datetime.datetime.now() - datetime.timedelta(days=730)).strftime("%Y-%m-%d")
-    fig.update_xaxes(range=[two_yr_ago, datetime.datetime.now().strftime("%Y-%m-%d")])
-    spy_range = _spy_y2_range(spy_close)
+    x_start, x_end = _get_chart_date_range(year_filter)
+    fig.update_xaxes(range=[x_start, x_end])
+    spy_range = _spy_y2_range(spy_close, year_filter)
     if spy_range:
         fig.update_layout(yaxis2=dict(range=spy_range))
     return fig
 
 
-def chart_fomc_signals(spy_close: pd.Series, signal_dates: list) -> go.Figure:
+def chart_fomc_signals(spy_close: pd.Series, signal_dates: list,
+                       year_filter: str | None = None) -> go.Figure:
     """SPY price with vertical red lines at pre-FOMC signal fire dates."""
     fig = go.Figure()
     fig.add_trace(go.Scatter(
@@ -1542,15 +1556,16 @@ def chart_fomc_signals(spy_close: pd.Series, signal_dates: list) -> go.Figure:
     layout = _base_layout(f"Pre-FOMC Rally Signal ({len(signal_dates)} events)")
     layout['height'] = 300
     fig.update_layout(**layout)
-    two_yr_ago = (datetime.datetime.now() - datetime.timedelta(days=730)).strftime("%Y-%m-%d")
-    fig.update_xaxes(range=[two_yr_ago, datetime.datetime.now().strftime("%Y-%m-%d")])
-    spy_range = _spy_y2_range(spy_close)
+    x_start, x_end = _get_chart_date_range(year_filter)
+    fig.update_xaxes(range=[x_start, x_end])
+    spy_range = _spy_y2_range(spy_close, year_filter)
     if spy_range:
         fig.update_layout(yaxis=dict(range=spy_range))
     return fig
 
 
-def chart_seasonal_divergence(spread: pd.Series, spy_close: pd.Series) -> go.Figure:
+def chart_seasonal_divergence(spread: pd.Series, spy_close: pd.Series,
+                              year_filter: str | None = None) -> go.Figure:
     """Seasonal rank spread (risk-off - risk-on) with SPY overlay."""
     fig = go.Figure()
     clean = spread.dropna()
@@ -1566,9 +1581,9 @@ def chart_seasonal_divergence(spread: pd.Series, spy_close: pd.Series) -> go.Fig
         yaxis="y2",
     ))
     fig.update_layout(**_dual_y_layout("Seasonal Rank Divergence (Risk-Off \u2212 Risk-On)", "Spread (pp)", "SPY"))
-    two_yr_ago = (datetime.datetime.now() - datetime.timedelta(days=730)).strftime("%Y-%m-%d")
-    fig.update_xaxes(range=[two_yr_ago, datetime.datetime.now().strftime("%Y-%m-%d")])
-    spy_range = _spy_y2_range(spy_close)
+    x_start, x_end = _get_chart_date_range(year_filter)
+    fig.update_xaxes(range=[x_start, x_end])
+    spy_range = _spy_y2_range(spy_close, year_filter)
     if spy_range:
         fig.update_layout(yaxis2=dict(range=spy_range))
     return fig
@@ -1601,7 +1616,8 @@ SIGNAL_COLORS = {
 }
 
 
-def chart_signal_overlay(spy_close: pd.Series, signals_ordered: dict) -> go.Figure:
+def chart_signal_overlay(spy_close: pd.Series, signals_ordered: dict,
+                         year_filter: str | None = None) -> go.Figure:
     """
     Composite chart: SPY price on top, signal activity Gantt-style timeline on bottom.
     Each signal is a colored strip at its own y-level. Overlaps are visually obvious.
@@ -1670,8 +1686,8 @@ def chart_signal_overlay(spy_close: pd.Series, signals_ordered: dict) -> go.Figu
             fig.add_vline(x=dt, line_color="rgba(204,0,0,0.5)", line_width=1.5, row=1, col=1)
 
     # Configure axes
-    two_yr_ago = (datetime.datetime.now() - datetime.timedelta(days=730)).strftime("%Y-%m-%d")
-    fig.update_xaxes(range=[two_yr_ago, datetime.datetime.now().strftime("%Y-%m-%d")])
+    x_start, x_end = _get_chart_date_range(year_filter)
+    fig.update_xaxes(range=[x_start, x_end])
 
     fig.update_yaxes(
         showgrid=True, gridcolor="rgba(128,128,128,0.2)",
@@ -1695,7 +1711,7 @@ def chart_signal_overlay(spy_close: pd.Series, signals_ordered: dict) -> go.Figu
         xaxis=dict(showgrid=False),
     )
 
-    spy_range = _spy_y2_range(spy_close)
+    spy_range = _spy_y2_range(spy_close, year_filter)
     if spy_range:
         fig.update_yaxes(range=spy_range, row=1, col=1)
 
@@ -1872,6 +1888,7 @@ def chart_fragility_timeseries(
     frag_df: pd.DataFrame,
     spy_close: pd.Series,
     horizon: str,
+    year_filter: str | None = None,
 ) -> go.Figure:
     """Dual-axis chart: fragility score (area) + SPY (line) for one horizon."""
     from plotly.subplots import make_subplots
@@ -1925,8 +1942,14 @@ def chart_fragility_timeseries(
         hovermode="x unified",
         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1, font=dict(size=9)),
     )
+    x_start, x_end = _get_chart_date_range(year_filter)
+    fig.update_xaxes(range=[x_start, x_end])
     fig.update_yaxes(title_text="Fragility", range=[0, 105], secondary_y=False)
-    fig.update_yaxes(title_text="SPY", secondary_y=True)
+    spy_range = _spy_y2_range(spy_close, year_filter)
+    if spy_range:
+        fig.update_yaxes(title_text="SPY", range=spy_range, secondary_y=True)
+    else:
+        fig.update_yaxes(title_text="SPY", secondary_y=True)
 
     return fig
 
@@ -1958,6 +1981,15 @@ def main():
     with st.sidebar:
         st.header("\u2699\ufe0f Dashboard Settings")
         lookback_years = st.slider("History (years)", 5, 15, 10)
+
+        # Year filter for all charts
+        current_year = datetime.datetime.now().year
+        start_year = current_year - lookback_years
+        year_options = ["All (2yr)"] + [str(y) for y in range(current_year, start_year - 1, -1)]
+        year_filter = st.selectbox("Chart year filter", year_options, index=0)
+        if year_filter == "All (2yr)":
+            year_filter = None
+
         st.divider()
         refresh = st.button("\U0001f504 Refresh Data", type="primary", use_container_width=True)
         st.caption(f"Last refreshed: {_cache_age_str()}")
@@ -2102,13 +2134,13 @@ def main():
 
     with row1_c1:
         if len(da['da_ratio'].dropna()) > 0:
-            fig = chart_da_ratio(da['da_ratio'], spy_close)
+            fig = chart_da_ratio(da['da_ratio'], spy_close, year_filter)
             _add_signal_vlines(fig, da.get('signal_history'))
             st.plotly_chart(fig, use_container_width=True)
 
     with row1_c2:
         if len(vrc['compression_pctile'].dropna()) > 0:
-            fig = chart_vix_compression(vix_close, vrc['compression_pctile'])
+            fig = chart_vix_compression(vix_close, vrc['compression_pctile'], year_filter)
             _add_signal_vlines(fig, vrc.get('signal_history'))
             st.plotly_chart(fig, use_container_width=True)
         elif len(vix_close) > 0:
@@ -2118,7 +2150,7 @@ def main():
 
     with row2_c1:
         if len(dl['spread'].dropna()) > 0:
-            fig = chart_leadership(dl['on_breadth'], dl['off_breadth'], spy_close)
+            fig = chart_leadership(dl['on_breadth'], dl['off_breadth'], spy_close, year_filter)
             _add_signal_vlines(fig, dl.get('signal_history'))
             st.plotly_chart(fig, use_container_width=True)
         else:
@@ -2126,13 +2158,13 @@ def main():
 
     with row2_c2:
         if len(fomc['signal_dates']) > 0:
-            st.plotly_chart(chart_fomc_signals(spy_close, fomc['signal_dates']), use_container_width=True)
+            st.plotly_chart(chart_fomc_signals(spy_close, fomc['signal_dates'], year_filter), use_container_width=True)
 
     row3_c1, row3_c2 = st.columns(2)
 
     with row3_c1:
         if len(ar.get('ar_pctile', pd.Series(dtype=float)).dropna()) > 0:
-            fig = chart_ar_signal(ar['ar_pctile'], spy_close)
+            fig = chart_ar_signal(ar['ar_pctile'], spy_close, year_filter)
             _add_signal_vlines(fig, ar.get('signal_history'))
             st.plotly_chart(fig, use_container_width=True)
         elif len(ar.get('ar_series', pd.Series(dtype=float)).dropna()) > 0:
@@ -2140,7 +2172,7 @@ def main():
 
     with row3_c2:
         if len(srd.get('spread', pd.Series(dtype=float)).dropna()) > 0:
-            fig = chart_seasonal_divergence(srd['spread'], spy_close)
+            fig = chart_seasonal_divergence(srd['spread'], spy_close, year_filter)
             _add_signal_vlines(fig, srd.get('signal_history'))
             st.plotly_chart(fig, use_container_width=True)
 
@@ -2148,16 +2180,22 @@ def main():
     # COMPOSITE SIGNAL OVERLAY
     # -------------------------------------------------------------------
     st.divider()
-    st.plotly_chart(chart_signal_overlay(spy_close, signals_ordered), use_container_width=True)
+    st.plotly_chart(chart_signal_overlay(spy_close, signals_ordered, year_filter), use_container_width=True)
 
     # -------------------------------------------------------------------
     # FRAGILITY TIME SERIES
     # -------------------------------------------------------------------
     if horizon_stats:
         st.divider()
-        st.subheader("Fragility Score History")
-        for h in ['63d', '21d', '5d']:
-            st.plotly_chart(chart_fragility_timeseries(frag_df, spy_close, h), use_container_width=True)
+        frag_horizon = st.selectbox(
+            "Fragility horizon",
+            ['63d', '21d', '5d'],
+            format_func=lambda h: {'63d': '63-Day (Long-Term)', '21d': '21-Day (Intermediate)', '5d': '5-Day (Short-Term)'}[h],
+        )
+        st.plotly_chart(
+            chart_fragility_timeseries(frag_df, spy_close, frag_horizon, year_filter),
+            use_container_width=True,
+        )
 
 
 main()
