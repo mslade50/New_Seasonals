@@ -1693,9 +1693,12 @@ def chart_signal_overlay(spy_close: pd.Series, signals_ordered: dict,
         overlap_count = combined.sum(axis=1)
         srd_on = combined.get('Seasonal Rank Divergence', pd.Series(0, index=combined.index)).astype(bool)
         vrc_on = combined.get('VIX Range Compression', pd.Series(0, index=combined.index)).astype(bool)
-        red_mask = (overlap_count >= 3) | (srd_on & (overlap_count >= 2)) | (vrc_on & (overlap_count >= 2))
-        for dt in red_mask[red_mask].index:
+        triple_mask = overlap_count >= 3
+        pair_mask = ((srd_on & (overlap_count >= 2)) | (vrc_on & (overlap_count >= 2))) & ~triple_mask
+        for dt in pair_mask[pair_mask].index:
             fig.add_vline(x=dt, line_color="rgba(204,0,0,0.5)", line_width=1.5, row=1, col=1)
+        for dt in triple_mask[triple_mask].index:
+            fig.add_vline(x=dt, line_color="rgba(0,180,255,0.6)", line_width=1.5, row=1, col=1)
 
     # Configure axes
     x_start, x_end = _get_chart_date_range(year_filter)
