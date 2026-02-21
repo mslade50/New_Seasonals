@@ -2181,6 +2181,13 @@ def main():
     # -------------------------------------------------------------------
     st.divider()
 
+    da = signals_ordered['Distribution Dominance']
+    vrc = signals_ordered['VIX Range Compression']
+    dl = signals_ordered['Defensive Leadership']
+    fomc = signals_ordered['Pre-FOMC Rally']
+    ar = signals_ordered['Low Absorption Ratio']
+    srd = signals_ordered['Seasonal Rank Divergence']
+
     row1_c1, row1_c2 = st.columns(2)
 
     with row1_c1:
