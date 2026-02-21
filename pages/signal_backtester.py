@@ -345,6 +345,74 @@ def render_event_study(study: dict, signal_name: str, signal_series: pd.Series,
 
 
 # ---------------------------------------------------------------------------
+# SHARED FILTERS — applied post-compute to any signal series
+# ---------------------------------------------------------------------------
+
+def apply_common_filters(signal, spy_close,
+                         require_days_since=False, correction_pct=10.0,
+                         min_days_since=200, decluster=False, min_gap=10):
+    """Apply days-since-correction and decluster filters to any signal."""
+    if require_days_since:
+        common_idx = signal.index.intersection(spy_close.index)
+        sc = spy_close.reindex(common_idx)
+        rolling_high = sc.expanding().max()
+        drawdown = (sc - rolling_high) / rolling_high
+        correction_mask = drawdown <= -(correction_pct / 100)
+        not_corr = ~correction_mask
+        days_since = not_corr.groupby(correction_mask.cumsum()).cumsum().astype(int)
+        signal = signal.reindex(common_idx) & (days_since >= min_days_since)
+
+    if decluster and min_gap > 0:
+        fire_positions = np.where(signal.values)[0]
+        mask = np.ones(len(signal), dtype=bool)
+        last_kept = -min_gap - 1
+        for pos in fire_positions:
+            if pos - last_kept <= min_gap:
+                mask[pos] = False
+            else:
+                last_kept = pos
+        signal = signal & pd.Series(mask, index=signal.index)
+
+    return signal
+
+
+def _render_common_filters(tab_key):
+    """Render shared filter controls for days-since-correction and decluster."""
+    fc1, fc2 = st.columns(2)
+    with fc1:
+        days_since_on = st.checkbox("Require days since correction",
+                                     value=False, key=f"{tab_key}_days_since_on")
+    with fc2:
+        decluster_on = st.checkbox("Decluster signals (min gap)",
+                                    value=False, key=f"{tab_key}_decluster_on")
+
+    correction_pct = 10.0
+    min_days_since = 200
+    min_gap = 10
+
+    if days_since_on:
+        dc1, dc2 = st.columns(2)
+        with dc1:
+            correction_pct = st.slider("Correction depth (%)", 3.0, 20.0, 10.0, 0.5,
+                                        key=f"{tab_key}_corr_pct")
+        with dc2:
+            min_days_since = st.slider("Min trading days since correction",
+                                        50, 500, 200, 10, key=f"{tab_key}_min_days")
+
+    if decluster_on:
+        min_gap = st.slider("Min trading days between signals", 1, 63, 10, 1,
+                             key=f"{tab_key}_min_gap")
+
+    return {
+        'require_days_since': days_since_on,
+        'correction_pct': correction_pct,
+        'min_days_since': min_days_since,
+        'decluster': decluster_on,
+        'min_gap': min_gap,
+    }
+
+
+# ---------------------------------------------------------------------------
 # SIGNAL 1: DISTRIBUTION / ACCUMULATION RATIO
 # ---------------------------------------------------------------------------
 def compute_distribution_accumulation(spy_df: pd.DataFrame,
@@ -357,10 +425,7 @@ def compute_distribution_accumulation(spy_df: pd.DataFrame,
                                        da_metric: str = "Ratio",
                                        require_perf: bool = False,
                                        perf_window: int = 21,
-                                       perf_threshold: float = 0.0,
-                                       require_days_since: bool = False,
-                                       correction_pct: float = 10.0,
-                                       min_days_since: int = 200) -> tuple:
+                                       perf_threshold: float = 0.0) -> tuple:
     """
     Compute distribution/accumulation signal.
 
@@ -369,8 +434,6 @@ def compute_distribution_accumulation(spy_df: pd.DataFrame,
       "Spread" — dist_count - accum_count (simple subtraction)
 
     require_perf: if True, only fire when rolling perf_window return > perf_threshold.
-    require_days_since: if True, only fire when at least min_days_since trading days
-        have elapsed since the last correction_pct% drawdown (high to low).
 
     Returns: (signal_series, da_series, dist_days, accum_days)
     """
@@ -412,15 +475,6 @@ def compute_distribution_accumulation(spy_df: pd.DataFrame,
     if require_perf:
         rolling_ret = close / close.shift(perf_window) - 1
         signal = signal & (rolling_ret > perf_threshold)
-
-    if require_days_since:
-        rolling_high = close.expanding().max()
-        drawdown = (close - rolling_high) / rolling_high
-        correction_mask = drawdown <= -(correction_pct / 100)
-        # Vectorized days-since: 0 on correction days, incrementing after
-        not_corr = ~correction_mask
-        days_since = not_corr.groupby(correction_mask.cumsum()).cumsum().astype(int)
-        signal = signal & (days_since >= min_days_since)
 
     return signal, da_series, dist_days, accum_days
 
@@ -904,15 +958,13 @@ with tab1:
         else:
             da_ratio_thresh = st.slider("D/A ratio threshold", 1.0, 8.0, 1.5, 0.25, key="da_thresh")
 
-    c4, c5, c6, c7 = st.columns(4)
+    c4, c5, c6 = st.columns(3)
     with c4:
         da_uptrend = st.checkbox(f"Require uptrend ({da_ticker} > 50d SMA)", value=True, key="da_up")
     with c5:
         da_near_high = st.checkbox(f"Require {da_ticker} within % of 52w high", value=False, key="da_near_high")
     with c6:
         da_perf_filter = st.checkbox(f"Require rolling return filter", value=False, key="da_perf_on")
-    with c7:
-        da_days_since = st.checkbox("Require days since correction", value=False, key="da_days_since_on")
     da_near_high_pct = 5.0
     if da_near_high:
         da_near_high_pct = st.slider(f"{da_ticker} proximity to 52w high (%)", 1, 10, 5, key="da_high_pct")
@@ -924,14 +976,7 @@ with tab1:
             da_perf_window = st.slider("Performance window (days)", 5, 126, 21, key="da_perf_win")
         with pc2:
             da_perf_thresh = st.slider("Min return (%)", -10.0, 20.0, 0.0, 0.5, key="da_perf_thr") / 100
-    da_correction_pct = 10.0
-    da_min_days = 200
-    if da_days_since:
-        dc1, dc2 = st.columns(2)
-        with dc1:
-            da_correction_pct = st.slider("Correction depth (%)", 3.0, 20.0, 10.0, 0.5, key="da_corr_pct")
-        with dc2:
-            da_min_days = st.slider("Min trading days since correction", 50, 500, 200, 10, key="da_min_days")
+    cf_da = _render_common_filters("da")
 
     # --- Confirmation ticker (optional) ---
     da_use_confirm = st.checkbox("Require confirmation from second ticker", value=False, key="da_confirm_on")
@@ -972,8 +1017,6 @@ with tab1:
         da_near_high, da_near_high_pct, da_metric=da_metric,
         require_perf=da_perf_filter, perf_window=da_perf_window,
         perf_threshold=da_perf_thresh,
-        require_days_since=da_days_since, correction_pct=da_correction_pct,
-        min_days_since=da_min_days,
     )
 
     # Apply confirmation filter
@@ -982,6 +1025,8 @@ with tab1:
         # Align indices
         common_idx = signal.index.intersection(confirm_above.index)
         signal = signal.reindex(common_idx).fillna(False) & confirm_above.reindex(common_idx).fillna(False)
+
+    signal = apply_common_filters(signal, spy_close, **cf_da)
 
     # Current state summary
     recent_dist = int(dist_days.iloc[-da_window:].sum()) if len(dist_days) >= da_window else 0
@@ -1074,6 +1119,8 @@ with tab2:
     with c7:
         vc_sma_period = st.selectbox("SMA period", [10, 20, 50, 100, 200], index=1, key="vc_sma_p")
 
+    cf_vc = _render_common_filters("vc")
+
     vix_ohlc = load_vix_ohlc() if vc_metric == "ATR" else None
 
     signal_vc, vix_compression, vix_compression_pctile = compute_vix_compression(
@@ -1088,6 +1135,8 @@ with tab2:
         atr_period=vc_atr_period if vc_metric == "ATR" else 14,
         vix_ohlc=vix_ohlc,
     )
+
+    signal_vc = apply_common_filters(signal_vc, spy_close, **cf_vc)
 
     if "^VIX" not in closes.columns:
         st.error("VIX data not available in cache.")
@@ -1187,6 +1236,8 @@ with tab3:
         if sl_rel_perf:
             sl_rel_win = st.slider("Relative perf window (days)", 10, 63, 21, key="sl_relwin")
 
+        cf_sl = _render_common_filters("sl")
+
         # Compound filter: require a second SMA to also show risk-off leading
         use_compound = st.checkbox(
             "Require secondary SMA confirmation", value=False, key="sl_compound",
@@ -1219,6 +1270,8 @@ with tab3:
         # Apply compound filter: primary signal must fire AND secondary must also fire
         if compound_signal is not None:
             signal_sl = signal_sl & compound_signal
+
+        signal_sl = apply_common_filters(signal_sl, spy_close, **cf_sl)
 
         n_neutral = len(classification[classification["label"] == "neutral"])
         st.markdown(
@@ -1296,9 +1349,12 @@ with tab4:
     with c4:
         pe_post_win = st.slider("Post-event eval window (days)", 3, 21, 5, key="pe_post")
 
+    cf_pe = _render_common_filters("pe")
+
     signal_pe, event_df, all_events = compute_pre_event_positioning(
         spy_close, pe_window, pe_pctile, pe_cpi
     )
+    signal_pe = apply_common_filters(signal_pe, spy_close, **cf_pe)
 
     if event_df.empty:
         st.warning("No event dates found in the data range.")
@@ -1454,6 +1510,8 @@ with tab5:
     with c6:
         disp_min_stocks = st.slider("Min stocks", 20, 200, 50, key="disp_minstocks")
 
+    cf_disp = _render_common_filters("disp")
+
     with st.spinner("Computing dispersion signal (this may take a moment)..."):
         (disp_signal, avg_comp_rv, spy_rv_series, disp_ratio,
          disp_ratio_pctile, raw_disp) = compute_dispersion_signal(
@@ -1465,6 +1523,8 @@ with tab5:
             index_vol_threshold=disp_idx_vol_thresh,
             min_stocks=disp_min_stocks,
         )
+
+    disp_signal = apply_common_filters(disp_signal, spy_close, **cf_disp)
 
     # Current reading
     cur_ratio = float(disp_ratio.dropna().iloc[-1]) if len(disp_ratio.dropna()) > 0 else None
@@ -1640,6 +1700,8 @@ with tab6:
         if ar_near_high:
             ar_near_high_pct = st.slider("SPY proximity to high (%)", 1, 10, 5, key="ar_high_pct")
 
+    cf_ar = _render_common_filters("ar")
+
     # Load extended data when going beyond the default 2010 cache, otherwise reuse existing
     if ar_start_year < 2010:
         with st.spinner(f"Downloading sector data from {ar_start_year} (one-time, cached for 1hr)..."):
@@ -1672,6 +1734,8 @@ with tab6:
                 require_near_high=ar_near_high,
                 near_high_pct=ar_near_high_pct,
             )
+
+        ar_signal = apply_common_filters(ar_signal, ar_spy_close, **cf_ar)
 
         # Current reading
         cur_ar = float(ar_series.dropna().iloc[-1]) if len(ar_series.dropna()) > 0 else None
