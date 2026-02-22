@@ -1152,6 +1152,94 @@ HORIZON_DAYS = {'5d': 5, '21d': 21, '63d': 63}
 # Drawdown level at which decay weight reaches 0 (per horizon)
 HORIZON_DECAY_DD = {'5d': 0.05, '21d': 0.10, '63d': 0.20}
 
+# Calm duration multiplier: extended periods without corrections build stored energy
+# Thresholds from empirical percentiles of streak lengths (trading days)
+CALM_STREAK_THRESHOLDS = {
+    'corr_5pct':  {'p85': 94,  'p90': 125, 'p95': 152},
+    'corr_10pct': {'p85': 203, 'p90': 292, 'p95': 468},
+}
+CALM_STREAK_MULTIPLIERS = {'p85': 1.05, 'p90': 1.10, 'p95': 1.20}
+
+
+def _calm_mult_for_streak(streak_len, thresholds):
+    """Return calm duration multiplier for a single streak length."""
+    if streak_len >= thresholds['p95']:
+        return 1.20
+    if streak_len >= thresholds['p90']:
+        return 1.10
+    if streak_len >= thresholds['p85']:
+        return 1.05
+    return 1.0
+
+
+def _compute_calm_multiplier_scalar(spy_close: pd.Series) -> float:
+    """
+    Compute calm duration multiplier (scalar) for current point in time.
+    Product of 5% and 10% correction streak multipliers (max 1.44x).
+    """
+    if spy_close is None or len(spy_close) < 252:
+        return 1.0
+    high_52w = spy_close.rolling(252).max()
+    drawdown = spy_close / high_52w - 1
+
+    # Current streak: days since last 5% correction from 52w high
+    corr_5 = drawdown <= -0.05
+    if corr_5.any():
+        streak_5 = len(spy_close) - 1 - spy_close.index.get_loc(corr_5[corr_5].index[-1])
+    else:
+        streak_5 = len(spy_close)
+
+    # Current streak: days since last 10% correction from 52w high
+    corr_10 = drawdown <= -0.10
+    if corr_10.any():
+        streak_10 = len(spy_close) - 1 - spy_close.index.get_loc(corr_10[corr_10].index[-1])
+    else:
+        streak_10 = len(spy_close)
+
+    m5 = _calm_mult_for_streak(streak_5, CALM_STREAK_THRESHOLDS['corr_5pct'])
+    m10 = _calm_mult_for_streak(streak_10, CALM_STREAK_THRESHOLDS['corr_10pct'])
+    return m5 * m10
+
+
+def _compute_calm_multiplier_series(spy_close: pd.Series) -> pd.Series:
+    """
+    Compute calm duration multiplier as a time series (vectorized).
+    Product of 5% and 10% correction streak multipliers.
+    """
+    if spy_close is None or len(spy_close) < 252:
+        return pd.Series(1.0, index=spy_close.index if spy_close is not None else [])
+    high_52w = spy_close.rolling(252).max()
+    drawdown = spy_close / high_52w - 1
+
+    # Streak counters for 5% corrections
+    corr_5 = (drawdown <= -0.05).astype(int)
+    # Group by cumulative correction events; count days since last correction
+    grp_5 = corr_5.cumsum()
+    streak_5 = grp_5.groupby(grp_5).cumcount()
+    # Before first correction ever, streak = cumulative index position
+    never_5 = grp_5 == 0
+    streak_5[never_5] = range(never_5.sum())
+
+    # Streak counters for 10% corrections
+    corr_10 = (drawdown <= -0.10).astype(int)
+    grp_10 = corr_10.cumsum()
+    streak_10 = grp_10.groupby(grp_10).cumcount()
+    never_10 = grp_10 == 0
+    streak_10[never_10] = range(never_10.sum())
+
+    t5 = CALM_STREAK_THRESHOLDS['corr_5pct']
+    t10 = CALM_STREAK_THRESHOLDS['corr_10pct']
+
+    m5 = np.where(streak_5 >= t5['p95'], 1.20,
+         np.where(streak_5 >= t5['p90'], 1.10,
+         np.where(streak_5 >= t5['p85'], 1.05, 1.0)))
+
+    m10 = np.where(streak_10 >= t10['p95'], 1.20,
+          np.where(streak_10 >= t10['p90'], 1.10,
+          np.where(streak_10 >= t10['p85'], 1.05, 1.0)))
+
+    return pd.Series(m5 * m10, index=spy_close.index)
+
 
 def _days_since_last_fire(signal_history: pd.Series) -> int | None:
     """
@@ -1241,6 +1329,7 @@ def compute_horizon_fragility(
     regime_mult: float,
     horizon_stats: dict,
     price_ctx: dict,
+    spy_close: pd.Series = None,
 ) -> dict:
     """
     Compute 0-100 fragility scores for 3 horizons (5d, 21d, 63d).
@@ -1250,7 +1339,8 @@ def compute_horizon_fragility(
     Elevated/dire tiers use their own (typically larger) weights.
 
     Signals that recently turned OFF decay linearly over their horizon window,
-    modulated by SPY proximity to highs.
+    modulated by SPY proximity to highs. Score further scaled by calm duration
+    multiplier (extended periods without corrections amplify fragility).
     """
     horizons = ['5d', '21d', '63d']
     stats = horizon_stats
@@ -1310,7 +1400,8 @@ def compute_horizon_fragility(
             max_weight += _signal_edge(stats, 'Pre-FOMC Rally', h)
 
         if max_weight > 0:
-            score = (active_weight / max_weight) * 80 * regime_mult
+            calm_mult = _compute_calm_multiplier_scalar(spy_close) if spy_close is not None else 1.0
+            score = (active_weight / max_weight) * 80 * regime_mult * calm_mult
         else:
             score = 0.0
 
@@ -1850,6 +1941,7 @@ def compute_fragility_timeseries(
     m = m + np.where(drawdown > -0.02, 0.10,
             np.where(drawdown < -0.10, -0.20, 0.0))
     regime_mult = m.clip(0.6, 1.8)
+    calm_mult = _compute_calm_multiplier_series(spy_close)
 
     spy_pct_from_high = (-drawdown).clip(lower=0.0)
 
@@ -1895,7 +1987,7 @@ def compute_fragility_timeseries(
         max_weight = base_max + np.where(fomc_weight_series > 0, fomc_edge, 0.0)
         max_weight = np.maximum(max_weight, 1e-9)  # avoid division by zero
 
-        result[horizon] = ((active_weight / max_weight) * 80 * regime_mult).clip(0.0, 100.0)
+        result[horizon] = ((active_weight / max_weight) * 80 * regime_mult * calm_mult).clip(0.0, 100.0)
 
     return pd.DataFrame(result, index=spy_close.index)
 
@@ -2213,7 +2305,7 @@ def _cached_compute_signals(_spy_df, _closes, _sp500_closes, cache_key):
     frag_df = None
     persist = None
     if horizon_stats is not None:
-        h_scores = compute_horizon_fragility(signals_ordered, regime_mult, horizon_stats, price_ctx)
+        h_scores = compute_horizon_fragility(signals_ordered, regime_mult, horizon_stats, price_ctx, spy_close)
         frag_df = compute_fragility_timeseries(signals_ordered, spy_close, horizon_stats)
         persist = compute_persistence_context(frag_df)
 
