@@ -1405,7 +1405,7 @@ def compute_horizon_fragility(
         else:
             score = 0.0
 
-        scores[h] = min(100.0, max(0.0, score))
+        scores[h] = max(0.0, score)
 
     return scores
 
@@ -1421,8 +1421,10 @@ def build_risk_dial(fragility_score: float, title: str = "") -> go.Figure:
         bar_color = "#FFD700"
     elif fragility_score < 80:
         bar_color = "#FF8C00"
-    else:
+    elif fragility_score < 100:
         bar_color = "#CC0000"
+    else:
+        bar_color = "#8B0000"   # dark crimson for scores beyond 100
 
     fig = go.Figure(go.Indicator(
         mode="gauge+number",
@@ -1431,9 +1433,9 @@ def build_risk_dial(fragility_score: float, title: str = "") -> go.Figure:
         number={'suffix': '', 'font': {'size': 32}},
         gauge={
             'axis': {
-                'range': [0, 100],
-                'tickvals': [0, 50, 100],
-                'ticktext': ['Robust', 'Neutral', 'Fragile'],
+                'range': [0, 150],
+                'tickvals': [0, 50, 100, 150],
+                'ticktext': ['Robust', 'Neutral', 'Fragile', 'Extreme'],
                 'tickfont': {'size': 9},
             },
             'bar': {'color': bar_color, 'thickness': 0.3},
@@ -1444,6 +1446,7 @@ def build_risk_dial(fragility_score: float, title: str = "") -> go.Figure:
                 {'range': [40, 60], 'color': 'rgba(255,215,0,0.08)'},
                 {'range': [60, 80], 'color': 'rgba(255,140,0,0.10)'},
                 {'range': [80, 100], 'color': 'rgba(204,0,0,0.12)'},
+                {'range': [100, 150], 'color': 'rgba(139,0,0,0.18)'},
             ],
             'threshold': {
                 'line': {'color': bar_color, 'width': 3},
@@ -1987,7 +1990,7 @@ def compute_fragility_timeseries(
         max_weight = base_max + np.where(fomc_weight_series > 0, fomc_edge, 0.0)
         max_weight = np.maximum(max_weight, 1e-9)  # avoid division by zero
 
-        result[horizon] = ((active_weight / max_weight) * 80 * regime_mult * calm_mult).clip(0.0, 100.0)
+        result[horizon] = ((active_weight / max_weight) * 80 * regime_mult * calm_mult).clip(0.0)
 
     return pd.DataFrame(result, index=spy_close.index)
 
@@ -2026,6 +2029,7 @@ def chart_fragility_timeseries(
     for thresh, color, lbl in [
         (50, "rgba(255, 215, 0, 0.4)", "50"),
         (70, "rgba(255, 69, 0, 0.4)", "70"),
+        (100, "rgba(139, 0, 0, 0.5)", "100"),
     ]:
         fig.add_hline(
             y=thresh, line_dash="dot", line_color=color, line_width=1,
@@ -2052,7 +2056,8 @@ def chart_fragility_timeseries(
     )
     x_start, x_end = _get_chart_date_range(year_filter)
     fig.update_xaxes(range=[x_start, x_end])
-    fig.update_yaxes(title_text="Fragility", range=[0, 105], secondary_y=False)
+    y_max = max(105, frag.max() * 1.05) if len(frag) > 0 else 105
+    fig.update_yaxes(title_text="Fragility", range=[0, y_max], secondary_y=False)
     spy_range = _spy_y2_range(spy_close, year_filter)
     if spy_range:
         fig.update_yaxes(title_text="SPY", range=spy_range, secondary_y=True)
@@ -2600,7 +2605,7 @@ def main():
     else:
         st.warning("Horizon stats file missing — using equal-weight fallback.")
         fallback = (active_count / total_count * 80 * regime_mult) if total_count > 0 else 0
-        st.plotly_chart(build_risk_dial(min(100, fallback), 'Fragility'), use_container_width=True)
+        st.plotly_chart(build_risk_dial(max(0, fallback), 'Fragility'), use_container_width=True)
 
     # -------------------------------------------------------------------
     # CHARTS (all in one fragment — year filter changes only re-render here)
