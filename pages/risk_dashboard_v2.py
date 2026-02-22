@@ -912,6 +912,18 @@ def compute_price_context(spy_close: pd.Series) -> dict:
     else:
         regime_label = "Insufficient data"
 
+    # Days since 5% / 10% correction from rolling 52w high
+    if len(spy_close) >= 252:
+        rolling_high = spy_close.rolling(252).max()
+        dd_series = spy_close / rolling_high - 1
+        corr_5 = dd_series[dd_series <= -0.05]
+        corr_10 = dd_series[dd_series <= -0.10]
+        days_since_5pct = (len(spy_close) - 1 - spy_close.index.get_loc(corr_5.index[-1])) if len(corr_5) > 0 else len(spy_close)
+        days_since_10pct = (len(spy_close) - 1 - spy_close.index.get_loc(corr_10.index[-1])) if len(corr_10) > 0 else len(spy_close)
+    else:
+        days_since_5pct = None
+        days_since_10pct = None
+
     return {
         'price': latest,
         'ret_12m': ret_12m,
@@ -920,6 +932,8 @@ def compute_price_context(spy_close: pd.Series) -> dict:
         'sma_200': sma_200,
         'high_52w': high_52w,
         'regime_label': regime_label,
+        'days_since_5pct': days_since_5pct,
+        'days_since_10pct': days_since_10pct,
     }
 
 
@@ -975,6 +989,12 @@ def render_price_context(price_ctx: dict):
     ext_str = f"{p['extension_200d']:+.1%}" if p['extension_200d'] is not None else "N/A"
     dd_str = f"{p['drawdown']:+.1%}" if p['drawdown'] is not None else "N/A"
 
+    d5 = p.get('days_since_5pct')
+    d10 = p.get('days_since_10pct')
+    corr_str = ""
+    if d5 is not None and d10 is not None:
+        corr_str = f"{d5} days since 5% correction and {d10} days since 10% correction"
+
     st.markdown(f"""
     <div style="background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08);
                 padding: 10px 16px; border-radius: 6px; margin-bottom: 10px;">
@@ -986,7 +1006,7 @@ def render_price_context(price_ctx: dict):
                 </span>
             </div>
             <div style="font-size: 13px; color: #bbb;">
-                {p['regime_label']}
+                {corr_str}
             </div>
         </div>
     </div>
