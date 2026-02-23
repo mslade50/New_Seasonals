@@ -2215,7 +2215,7 @@ def render_similar_readings_table(similar_results: dict):
             if r is None:
                 row += '<td style="text-align:center; color:#666; font-size:11px;">n/a</td>'
             else:
-                row += _fmt_ret(r['median'])
+                row += _fmt_ret(r['mean'])
         row += '</tr>'
         rows += row
 
@@ -2240,7 +2240,7 @@ def render_similar_readings_table(similar_results: dict):
     html = (
         '<div style="margin-top:8px; margin-bottom:4px;">'
         f'<p style="font-size:12px; color:#aaa; margin-bottom:4px; text-align:center;">'
-        f'Historical Forward SPY Returns at Similar Fragility (median, \u00b15 pts band)</p>'
+        f'Historical Forward SPY Returns at Similar Fragility (mean, \u00b15 pts band)</p>'
         f'<table style="width:100%; border-collapse:collapse; font-family:monospace;">'
         f'{header}{rows}</table></div>'
     )
@@ -2771,12 +2771,7 @@ def main():
         with dial_c3:
             st.plotly_chart(build_risk_dial(h_scores['63d'], 'Long-Term (63d)'), use_container_width=True)
 
-        if active_count > 0:
-            st.markdown(
-                f"<p style='text-align: center; font-size: 12px; color: #888; margin-top: -8px;'>"
-                f"{active_count} of {total_count} signals active — dials show 5d avg, weighted by backtested forward returns</p>",
-                unsafe_allow_html=True,
-            )
+        pass
     else:
         st.warning("Horizon stats file missing — using equal-weight fallback.")
         fallback = (active_count / total_count * 80 * regime_mult) if total_count > 0 else 0
