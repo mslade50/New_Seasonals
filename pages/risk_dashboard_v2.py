@@ -2766,22 +2766,10 @@ def main():
         dial_c1, dial_c2, dial_c3 = st.columns(3)
         with dial_c1:
             st.plotly_chart(build_risk_dial(h_scores['5d'], 'Short-Term (5d)'), use_container_width=True)
-            if persist['5d']['note']:
-                st.markdown(
-                    f"<p style='text-align:center; font-size:11px; color:{persist['5d']['color']}; margin-top:-10px;'>"
-                    f"{persist['5d']['note']}</p>", unsafe_allow_html=True)
         with dial_c2:
             st.plotly_chart(build_risk_dial(h_scores['21d'], 'Intermediate (21d)'), use_container_width=True)
-            if persist['21d']['note']:
-                st.markdown(
-                    f"<p style='text-align:center; font-size:11px; color:{persist['21d']['color']}; margin-top:-10px;'>"
-                    f"{persist['21d']['note']}</p>", unsafe_allow_html=True)
         with dial_c3:
             st.plotly_chart(build_risk_dial(h_scores['63d'], 'Long-Term (63d)'), use_container_width=True)
-            if persist['63d']['note']:
-                st.markdown(
-                    f"<p style='text-align:center; font-size:11px; color:{persist['63d']['color']}; margin-top:-10px;'>"
-                    f"{persist['63d']['note']}</p>", unsafe_allow_html=True)
 
         if active_count > 0:
             st.markdown(
