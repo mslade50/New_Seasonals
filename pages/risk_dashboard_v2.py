@@ -2159,6 +2159,94 @@ def compute_similar_reading_returns(
     }
 
 
+def compute_similar_reading_drawdowns(
+    frag_series: pd.Series,
+    spy_close: pd.Series,
+    current_score: float,
+    band: float = 5.0,
+    min_gap: int = 10,
+    forward_windows: list | None = None,
+) -> dict | None:
+    """
+    For historical dates where fragility was within ±band of current_score,
+    compute max drawdown within each forward window.
+    """
+    if forward_windows is None:
+        forward_windows = [5, 10, 21, 42, 63]
+
+    common_idx = frag_series.dropna().index.intersection(spy_close.dropna().index).sort_values()
+    if len(common_idx) < 20:
+        return None
+    frag = frag_series.reindex(common_idx)
+    price = spy_close.reindex(common_idx)
+
+    band_low = max(0.0, current_score - band)
+    band_high = current_score + band
+    in_band = (frag >= band_low) & (frag <= band_high)
+
+    # Decluster: greedy forward pass keeping first fire in each cluster
+    fire_positions = np.where(in_band.values)[0]
+    mask = np.ones(len(in_band), dtype=bool)
+    last_kept = -min_gap - 1
+    for pos in fire_positions:
+        if pos - last_kept <= min_gap:
+            mask[pos] = False
+        else:
+            last_kept = pos
+    in_band = in_band & pd.Series(mask, index=in_band.index)
+    episode_dates = in_band[in_band].index
+
+    if len(episode_dates) == 0:
+        return None
+
+    price_arr = price.values
+    price_idx = price.index
+    idx_map = {d: i for i, d in enumerate(price_idx)}
+
+    drawdowns = {}
+    for w in forward_windows:
+        # Episode max drawdowns
+        ep_dds = []
+        for ep_date in episode_dates:
+            i = idx_map.get(ep_date)
+            if i is None or i + w >= len(price_arr):
+                continue
+            window_prices = price_arr[i: i + w + 1]
+            running_max = np.maximum.accumulate(window_prices)
+            dd_series = window_prices / running_max - 1.0
+            ep_dds.append(dd_series.min())
+
+        # Unconditional max drawdowns (all dates)
+        uncond_dds = []
+        for i in range(len(price_arr) - w):
+            window_prices = price_arr[i: i + w + 1]
+            running_max = np.maximum.accumulate(window_prices)
+            dd_series = window_prices / running_max - 1.0
+            uncond_dds.append(dd_series.min())
+
+        if len(ep_dds) >= 5:
+            ep_arr = np.array(ep_dds)
+            uncond_arr = np.array(uncond_dds) if uncond_dds else np.array([np.nan])
+            drawdowns[w] = {
+                'mean': np.nanmean(ep_arr),
+                'p85': np.nanpercentile(ep_arr, 15),  # 15th pctile of dd = P85 worst
+                'worst': np.nanmin(ep_arr),
+                'n': len(ep_arr),
+                'uncond_mean': np.nanmean(uncond_arr),
+                'uncond_p85': np.nanpercentile(uncond_arr, 15),
+            }
+        else:
+            drawdowns[w] = None
+
+    return {
+        'n_episodes': len(episode_dates),
+        'band_low': band_low,
+        'band_high': band_high,
+        'current_score': current_score,
+        'drawdowns': drawdowns,
+    }
+
+
 def render_similar_readings_table(similar_results: dict):
     """Render compact HTML table of forward returns at similar fragility readings."""
     # Check we have at least one valid result
@@ -2249,6 +2337,110 @@ def render_similar_readings_table(similar_results: dict):
     if detail_rows:
         with st.expander("Detailed stats (mean, worst, best, % negative, diff vs unconditional)", expanded=False):
             st.dataframe(pd.DataFrame(detail_rows), use_container_width=True, hide_index=True)
+
+
+def render_similar_readings_drawdown_table(dd_results: dict):
+    """Render compact HTML table of expected max drawdowns at similar fragility readings."""
+    if not any(v is not None for v in dd_results.values()):
+        return
+
+    horizon_labels = {'5d': 'Short (5d)', '21d': 'Intermed (21d)', '63d': 'Long (63d)'}
+    fwd_windows = [5, 10, 21, 42, 63]
+
+    def _fmt_dd(val):
+        """Format drawdown value — always red since drawdowns are negative."""
+        if val is None or np.isnan(val):
+            return '<td style="text-align:center; color:#666;">—</td>'
+        return f'<td style="text-align:center; color:#E53935; font-weight:500;">{val:+.2%}</td>'
+
+    header = (
+        '<tr style="border-bottom: 1px solid #444;">'
+        '<th style="text-align:left; padding:4px 8px; font-size:11px;">Horizon</th>'
+        '<th style="text-align:left; padding:4px 6px; font-size:11px;">Stat</th>'
+        '<th style="text-align:center; padding:4px 6px; font-size:11px;">N</th>'
+    )
+    for w in fwd_windows:
+        header += f'<th style="text-align:center; padding:4px 6px; font-size:11px;">{w}d</th>'
+    header += '</tr>'
+
+    rows = ''
+    for h_key in ['5d', '21d', '63d']:
+        res = dd_results.get(h_key)
+        if res is None:
+            rows += (
+                f'<tr><td style="padding:3px 8px; font-size:12px;">{horizon_labels[h_key]}</td>'
+                f'<td colspan="{2 + len(fwd_windows)}" style="text-align:center; color:#888; font-size:11px;">'
+                f'Insufficient data</td></tr>'
+            )
+            continue
+
+        n = res['n_episodes']
+        dds = res['drawdowns']
+
+        # Row 1: Mean MaxDD
+        row = (
+            f'<tr>'
+            f'<td style="padding:3px 8px; font-size:12px; white-space:nowrap;">{horizon_labels[h_key]}</td>'
+            f'<td style="padding:3px 6px; font-size:11px; color:#ccc;">Mean</td>'
+            f'<td style="text-align:center; font-size:12px;">{n}</td>'
+        )
+        for w in fwd_windows:
+            d = dds.get(w)
+            row += _fmt_dd(d['mean']) if d else '<td style="text-align:center; color:#666; font-size:11px;">n/a</td>'
+        row += '</tr>'
+        rows += row
+
+        # Row 2: P85 Worst
+        row = (
+            f'<tr style="border-bottom: 1px solid #333;">'
+            f'<td style="padding:3px 8px; font-size:12px;"></td>'
+            f'<td style="padding:3px 6px; font-size:11px; color:#ccc;">P85 Worst</td>'
+            f'<td style="text-align:center; font-size:12px;"></td>'
+        )
+        for w in fwd_windows:
+            d = dds.get(w)
+            row += _fmt_dd(d['p85']) if d else '<td style="text-align:center; color:#666; font-size:11px;">n/a</td>'
+        row += '</tr>'
+        rows += row
+
+    # Unconditional comparison row — use first valid result for uncond stats
+    first_valid = next((dd_results[k] for k in ['5d', '21d', '63d'] if dd_results.get(k) is not None), None)
+    if first_valid:
+        dds = first_valid['drawdowns']
+        # Uncond Mean row
+        row = (
+            '<tr style="border-top: 2px solid #555;">'
+            '<td style="padding:3px 8px; font-size:12px; color:#999;">Unconditional</td>'
+            '<td style="padding:3px 6px; font-size:11px; color:#999;">Mean</td>'
+            '<td style="text-align:center; font-size:12px; color:#999;">—</td>'
+        )
+        for w in fwd_windows:
+            d = dds.get(w)
+            row += _fmt_dd(d['uncond_mean']) if d else '<td style="text-align:center; color:#666; font-size:11px;">n/a</td>'
+        row += '</tr>'
+        rows += row
+
+        # Uncond P85 row
+        row = (
+            '<tr>'
+            '<td style="padding:3px 8px; font-size:12px;"></td>'
+            '<td style="padding:3px 6px; font-size:11px; color:#999;">P85 Worst</td>'
+            '<td style="text-align:center; font-size:12px;"></td>'
+        )
+        for w in fwd_windows:
+            d = dds.get(w)
+            row += _fmt_dd(d['uncond_p85']) if d else '<td style="text-align:center; color:#666; font-size:11px;">n/a</td>'
+        row += '</tr>'
+        rows += row
+
+    html = (
+        '<div style="margin-top:8px; margin-bottom:4px;">'
+        f'<p style="font-size:12px; color:#aaa; margin-bottom:4px; text-align:center;">'
+        f'Expected Max Drawdown at Similar Fragility (\u00b15 pts band)</p>'
+        f'<table style="width:100%; border-collapse:collapse; font-family:monospace;">'
+        f'{header}{rows}</table></div>'
+    )
+    st.markdown(html, unsafe_allow_html=True)
 
 
 # ---------------------------------------------------------------------------
@@ -2787,6 +2979,16 @@ def main():
             else:
                 similar_results[h_key] = None
         render_similar_readings_table(similar_results)
+
+        # Expected max drawdown table (same episodes)
+        dd_results = {}
+        for h_key in ['5d', '21d', '63d']:
+            if h_key in frag_df.columns and h_key in h_scores:
+                dd_results[h_key] = compute_similar_reading_drawdowns(
+                    frag_df[h_key], spy_close, h_scores[h_key])
+            else:
+                dd_results[h_key] = None
+        render_similar_readings_drawdown_table(dd_results)
 
     # -------------------------------------------------------------------
     # CHARTS (all in one fragment — year filter changes only re-render here)
