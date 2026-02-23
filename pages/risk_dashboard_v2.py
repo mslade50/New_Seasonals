@@ -2088,6 +2088,170 @@ def chart_fragility_timeseries(
 
 
 # ---------------------------------------------------------------------------
+# SIMILAR-READING FORWARD RETURNS
+# ---------------------------------------------------------------------------
+
+def compute_similar_reading_returns(
+    frag_series: pd.Series,
+    spy_close: pd.Series,
+    current_score: float,
+    band: float = 5.0,
+    min_gap: int = 10,
+    forward_windows: list | None = None,
+) -> dict | None:
+    """
+    For historical dates where fragility was within ±band of current_score,
+    compute forward SPY returns. Returns dict with episode count and stats,
+    or None if frag_series is empty.
+    """
+    if forward_windows is None:
+        forward_windows = [5, 10, 21, 42, 63]
+
+    common_idx = frag_series.dropna().index.intersection(spy_close.dropna().index).sort_values()
+    if len(common_idx) < 20:
+        return None
+    frag = frag_series.reindex(common_idx)
+    price = spy_close.reindex(common_idx)
+
+    band_low = max(0.0, current_score - band)
+    band_high = current_score + band
+    in_band = (frag >= band_low) & (frag <= band_high)
+
+    # Decluster: greedy forward pass keeping first fire in each cluster
+    fire_positions = np.where(in_band.values)[0]
+    mask = np.ones(len(in_band), dtype=bool)
+    last_kept = -min_gap - 1
+    for pos in fire_positions:
+        if pos - last_kept <= min_gap:
+            mask[pos] = False
+        else:
+            last_kept = pos
+    in_band = in_band & pd.Series(mask, index=in_band.index)
+    episode_dates = in_band[in_band].index
+
+    if len(episode_dates) == 0:
+        return None
+
+    returns = {}
+    for w in forward_windows:
+        fwd = (price.shift(-w) / price - 1).dropna()
+        sig_fwd = fwd.reindex(episode_dates).dropna()
+        uncond_mean = fwd.mean()
+        if len(sig_fwd) >= 5:
+            returns[w] = {
+                'mean': sig_fwd.mean(),
+                'median': sig_fwd.median(),
+                'pct_neg': (sig_fwd < 0).mean(),
+                'worst': sig_fwd.min(),
+                'best': sig_fwd.max(),
+                'uncond_mean': uncond_mean,
+                'n': len(sig_fwd),
+            }
+        else:
+            returns[w] = None
+
+    return {
+        'n_episodes': len(episode_dates),
+        'band_low': band_low,
+        'band_high': band_high,
+        'current_score': current_score,
+        'returns': returns,
+    }
+
+
+def render_similar_readings_table(similar_results: dict):
+    """Render compact HTML table of forward returns at similar fragility readings."""
+    # Check we have at least one valid result
+    if not any(v is not None for v in similar_results.values()):
+        return
+
+    horizon_labels = {'5d': 'Short (5d)', '21d': 'Intermed (21d)', '63d': 'Long (63d)'}
+    fwd_windows = [5, 10, 21, 42, 63]
+
+    def _fmt_ret(val):
+        """Format return with green/red coloring."""
+        if val is None or np.isnan(val):
+            return '<td style="text-align:center; color:#666;">—</td>'
+        color = '#4CAF50' if val >= 0 else '#E53935'
+        return f'<td style="text-align:center; color:{color}; font-weight:500;">{val:+.2%}</td>'
+
+    header = (
+        '<tr style="border-bottom: 1px solid #444;">'
+        '<th style="text-align:left; padding:4px 8px; font-size:11px;">Horizon</th>'
+        '<th style="text-align:center; padding:4px 6px; font-size:11px;">Score</th>'
+        '<th style="text-align:center; padding:4px 6px; font-size:11px;">Band</th>'
+        '<th style="text-align:center; padding:4px 6px; font-size:11px;">N</th>'
+    )
+    for w in fwd_windows:
+        header += f'<th style="text-align:center; padding:4px 6px; font-size:11px;">{w}d</th>'
+    header += '</tr>'
+
+    rows = ''
+    detail_rows = []
+    for h_key in ['5d', '21d', '63d']:
+        res = similar_results.get(h_key)
+        if res is None:
+            rows += (
+                f'<tr><td style="padding:3px 8px; font-size:12px;">{horizon_labels[h_key]}</td>'
+                f'<td colspan="{3 + len(fwd_windows)}" style="text-align:center; color:#888; font-size:11px;">'
+                f'Insufficient data</td></tr>'
+            )
+            continue
+
+        score = res['current_score']
+        bl, bh = res['band_low'], res['band_high']
+        n = res['n_episodes']
+        rets = res['returns']
+
+        row = (
+            f'<tr>'
+            f'<td style="padding:3px 8px; font-size:12px; white-space:nowrap;">{horizon_labels[h_key]}</td>'
+            f'<td style="text-align:center; font-size:12px;">{score:.0f}</td>'
+            f'<td style="text-align:center; font-size:11px; color:#999;">{bl:.0f}–{bh:.0f}</td>'
+            f'<td style="text-align:center; font-size:12px;">{n}</td>'
+        )
+        for w in fwd_windows:
+            r = rets.get(w)
+            if r is None:
+                row += '<td style="text-align:center; color:#666; font-size:11px;">n/a</td>'
+            else:
+                row += _fmt_ret(r['median'])
+        row += '</tr>'
+        rows += row
+
+        # Collect detail stats for expander
+        for w in fwd_windows:
+            r = rets.get(w)
+            if r is not None:
+                diff = r['mean'] - r['uncond_mean']
+                detail_rows.append({
+                    'Horizon': horizon_labels[h_key],
+                    'Window': f'{w}d',
+                    'N': r['n'],
+                    'Mean': f"{r['mean']:+.2%}",
+                    'Median': f"{r['median']:+.2%}",
+                    '% Neg': f"{r['pct_neg']:.0%}",
+                    'Worst': f"{r['worst']:+.2%}",
+                    'Best': f"{r['best']:+.2%}",
+                    'Uncond Mean': f"{r['uncond_mean']:+.2%}",
+                    'Diff vs Uncond': f"{diff:+.2%}",
+                })
+
+    html = (
+        '<div style="margin-top:8px; margin-bottom:4px;">'
+        f'<p style="font-size:12px; color:#aaa; margin-bottom:4px; text-align:center;">'
+        f'Historical Forward SPY Returns at Similar Fragility (median, \u00b15 pts band)</p>'
+        f'<table style="width:100%; border-collapse:collapse; font-family:monospace;">'
+        f'{header}{rows}</table></div>'
+    )
+    st.markdown(html, unsafe_allow_html=True)
+
+    if detail_rows:
+        with st.expander("Detailed stats (mean, worst, best, % negative, diff vs unconditional)", expanded=False):
+            st.dataframe(pd.DataFrame(detail_rows), use_container_width=True, hide_index=True)
+
+
+# ---------------------------------------------------------------------------
 # FRAGILITY EVENT STUDY
 # ---------------------------------------------------------------------------
 
@@ -2626,6 +2790,17 @@ def main():
         st.warning("Horizon stats file missing — using equal-weight fallback.")
         fallback = (active_count / total_count * 80 * regime_mult) if total_count > 0 else 0
         st.plotly_chart(build_risk_dial(max(0, fallback), 'Fragility'), use_container_width=True)
+
+    # Similar-reading forward returns table
+    if frag_df is not None and h_scores is not None:
+        similar_results = {}
+        for h_key in ['5d', '21d', '63d']:
+            if h_key in frag_df.columns and h_key in h_scores:
+                similar_results[h_key] = compute_similar_reading_returns(
+                    frag_df[h_key], spy_close, h_scores[h_key])
+            else:
+                similar_results[h_key] = None
+        render_similar_readings_table(similar_results)
 
     # -------------------------------------------------------------------
     # CHARTS (all in one fragment — year filter changes only re-render here)
