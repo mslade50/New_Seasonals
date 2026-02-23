@@ -1446,16 +1446,18 @@ def build_risk_dial(fragility_score: float, title: str = "") -> go.Figure:
     else:
         bar_color = "#8B0000"   # dark crimson for scores beyond 100
 
+    display_value = min(fragility_score, 100)
+
     fig = go.Figure(go.Indicator(
         mode="gauge+number",
-        value=fragility_score,
+        value=display_value,
         title={'text': title, 'font': {'size': 13}},
         number={'suffix': '', 'font': {'size': 32}},
         gauge={
             'axis': {
-                'range': [0, 150],
-                'tickvals': [0, 50, 100, 150],
-                'ticktext': ['Robust', 'Neutral', 'Fragile', 'Extreme'],
+                'range': [0, 100],
+                'tickvals': [0, 25, 50, 75, 100],
+                'ticktext': ['Robust', '', 'Neutral', '', 'Fragile'],
                 'tickfont': {'size': 9},
             },
             'bar': {'color': bar_color, 'thickness': 0.3},
@@ -1466,12 +1468,11 @@ def build_risk_dial(fragility_score: float, title: str = "") -> go.Figure:
                 {'range': [40, 60], 'color': 'rgba(255,215,0,0.08)'},
                 {'range': [60, 80], 'color': 'rgba(255,140,0,0.10)'},
                 {'range': [80, 100], 'color': 'rgba(204,0,0,0.12)'},
-                {'range': [100, 150], 'color': 'rgba(139,0,0,0.18)'},
             ],
             'threshold': {
                 'line': {'color': bar_color, 'width': 3},
                 'thickness': 0.8,
-                'value': fragility_score,
+                'value': display_value,
             },
         },
     ))
