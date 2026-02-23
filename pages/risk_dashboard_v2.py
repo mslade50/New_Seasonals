@@ -2496,6 +2496,9 @@ def _cached_compute_signals(_spy_df, _closes, _sp500_closes, cache_key):
     if horizon_stats is not None:
         h_scores = compute_horizon_fragility(signals_ordered, regime_mult, horizon_stats, price_ctx, spy_close)
         frag_df = compute_fragility_timeseries(signals_ordered, spy_close, horizon_stats)
+        # 5d moving average for dial display (smooths day-to-day noise)
+        if frag_df is not None and len(frag_df) >= 1:
+            h_scores = frag_df.rolling(5, min_periods=1).mean().iloc[-1].to_dict()
         persist = compute_persistence_context(frag_df)
 
     return {
@@ -2783,7 +2786,7 @@ def main():
         if active_count > 0:
             st.markdown(
                 f"<p style='text-align: center; font-size: 12px; color: #888; margin-top: -8px;'>"
-                f"{active_count} of {total_count} signals active — dials weighted by backtested forward returns</p>",
+                f"{active_count} of {total_count} signals active — dials show 5d avg, weighted by backtested forward returns</p>",
                 unsafe_allow_html=True,
             )
     else:
