@@ -538,3 +538,35 @@ The 80-90 range is the "muddled middle" — includes false-alarm episodes where 
 | `docs/backtesting_logic.md` | Backtester architecture notes |
 | `docs/screener_criteria.md` | Scanner/config documentation |
 | `docs/portfolio_logic.md` | Portfolio simulation notes |
+
+---
+
+## Session: 2026-02-23 - Expected Max Drawdown Table
+
+### Updated File: `pages/risk_dashboard_v2.py` (+202 lines)
+
+**What changed:** Added a companion table below the "Historical Forward SPY Returns at Similar Fragility" table showing **expected max drawdown** within each forward window at similar fragility readings.
+
+#### New Functions
+
+| Function | Purpose |
+|----------|---------|
+| `compute_similar_reading_drawdowns()` | Near-copy of `compute_similar_reading_returns()` — same episode identification (band matching, declustering with `min_gap=10`), but computes max drawdown within each forward window instead of endpoint returns. For each episode date `t` and window `w`: extracts price path `price[t:t+w]`, computes running max → drawdown series → takes the min (worst drawdown). Also computes unconditional max drawdowns across all dates. |
+| `render_similar_readings_drawdown_table()` | HTML table matching existing returns table style. Per horizon (5d/21d/63d): two rows — "Mean" MaxDD and "P85 Worst" (15th percentile of drawdowns). Below all horizons: "Unconditional" comparison rows (Mean + P85). All values rendered in red. |
+
+#### Table Structure
+
+For each of the 3 fragility horizons (Short 5d, Intermed 21d, Long 63d):
+- **Mean:** Average max drawdown experienced within each forward window (5d/10d/21d/42d/63d)
+- **P85 Worst:** 85th percentile worst case (i.e. `np.nanpercentile(drawdowns, 15)` since drawdowns are negative)
+
+Plus an **Unconditional** comparison section showing the same stats computed across all dates (not just similar-fragility episodes), enabling direct comparison of how much worse drawdowns are at current fragility vs baseline.
+
+#### How to Use This (Prop Trading Context)
+
+The gap between conditional and unconditional drawdowns is the actionable signal:
+
+1. **Size positions to the conditional P85, not unconditional.** If P85 worst at 63d is -17.6% conditional vs -11.7% unconditional, your VaR assumptions should reflect the worse distribution.
+2. **When conditional ≈ unconditional** (e.g. short-term 5d horizon), fragility isn't adding information — trade normally.
+3. **When conditional >> unconditional** (e.g. long-term horizons with high fragility scores), the tail is fatter than average — reduce exposure, shorten holding periods, or hedge.
+4. **The drawdown table + returns table together tell the full story:** if forward returns are negative AND drawdowns are worse than unconditional, the risk/reward is clearly unfavorable for passive long exposure at that horizon.
