@@ -727,9 +727,13 @@ def compute_dispersion_signal(component_closes: pd.DataFrame,
     High component RV relative to index RV = vol suppression via low correlation.
     When combined with low index vol, it's a fragility indicator — stored spring tension.
 
+    The composite score equal-weights two percentile-ranked measures:
+    - Ratio: avg component RV / index RV (captures relative divergence)
+    - Absolute gap: avg component RV - index RV (captures magnitude)
+
     Returns:
         signal_series, avg_component_rv, spy_rv, dispersion_ratio,
-        dispersion_ratio_pctile, raw_dispersion
+        composite_pctile, raw_dispersion, abs_gap
     """
     component_returns = component_closes.pct_change()
 
@@ -752,16 +756,26 @@ def compute_dispersion_signal(component_closes: pd.DataFrame,
                         / spy_rv.reindex(common_idx).replace(0, np.nan))
     dispersion_ratio = dispersion_ratio.reindex(spy_df.index)
 
+    # Absolute gap: component RV - index RV
+    abs_gap = (avg_component_rv.reindex(common_idx)
+               - spy_rv.reindex(common_idx))
+    abs_gap = abs_gap.reindex(spy_df.index)
+
     # Raw dispersion: cross-sectional std of trailing N-day returns
     trailing_returns = component_closes.pct_change(rv_window)
     raw_dispersion = trailing_returns.std(axis=1).where(sufficient_data)
 
-    # Rolling percentile of dispersion ratio
-    dispersion_ratio_pctile = _rolling_percentile(dispersion_ratio.dropna(), pctile_lookback)
+    # Composite percentile: equal-weight ratio pctile + gap pctile
+    ratio_pctile = _rolling_percentile(dispersion_ratio.dropna(), pctile_lookback)
+    gap_pctile = _rolling_percentile(abs_gap.dropna(), pctile_lookback)
+    common_pctile = ratio_pctile.dropna().index.intersection(gap_pctile.dropna().index)
+    composite_pctile = ((ratio_pctile.reindex(common_pctile)
+                         + gap_pctile.reindex(common_pctile)) / 2)
+    composite_pctile = composite_pctile.reindex(spy_df.index)
 
-    # Signal: dispersion ratio percentile above threshold
+    # Signal: composite percentile above threshold
     signal = pd.Series(False, index=spy_df.index)
-    pctile_valid = dispersion_ratio_pctile.dropna()
+    pctile_valid = composite_pctile.dropna()
     signal.loc[pctile_valid.index] = pctile_valid > pctile_threshold
 
     # Optional: also require low index vol
@@ -773,7 +787,7 @@ def compute_dispersion_signal(component_closes: pd.DataFrame,
         signal = signal & low_vol
 
     return (signal, avg_component_rv, spy_rv, dispersion_ratio,
-            dispersion_ratio_pctile, raw_dispersion)
+            composite_pctile, raw_dispersion, abs_gap)
 
 
 # ---------------------------------------------------------------------------
@@ -1661,7 +1675,7 @@ with tab5:
 
     with st.spinner("Computing dispersion signal (this may take a moment)..."):
         (disp_signal, avg_comp_rv, spy_rv_series, disp_ratio,
-         disp_ratio_pctile, raw_disp) = compute_dispersion_signal(
+         disp_composite_pctile, raw_disp, disp_abs_gap) = compute_dispersion_signal(
             component_closes, spy_df,
             rv_window=disp_rv_window,
             pctile_lookback=disp_pctile_lb,
@@ -1674,18 +1688,21 @@ with tab5:
     disp_signal = apply_common_filters(disp_signal, spy_close, **cf_disp)
 
     # Current reading — derive ratio from the component/index values to stay consistent
-    cur_pctile = float(disp_ratio_pctile.dropna().iloc[-1]) if len(disp_ratio_pctile.dropna()) > 0 else None
+    cur_pctile = float(disp_composite_pctile.dropna().iloc[-1]) if len(disp_composite_pctile.dropna()) > 0 else None
     cur_comp = float(avg_comp_rv.dropna().iloc[-1]) if len(avg_comp_rv.dropna()) > 0 else None
     cur_spy_rv = float(spy_rv_series.dropna().iloc[-1]) if len(spy_rv_series.dropna()) > 0 else None
     cur_ratio = (cur_comp / cur_spy_rv) if (cur_comp is not None and cur_spy_rv and cur_spy_rv != 0) else None
+    cur_gap = (cur_comp - cur_spy_rv) if (cur_comp is not None and cur_spy_rv is not None) else None
 
     if cur_ratio is not None:
         pctile_str = f"{cur_pctile:.0f}th" if cur_pctile is not None else "N/A"
+        gap_str = f"{cur_gap:.1%}" if cur_gap is not None else "N/A"
         icon = "\U0001f534" if (cur_pctile or 0) > disp_pctile_thresh else "\U0001f7e2"
         st.markdown(
-            f"**Current dispersion ratio:** {icon} **{cur_ratio:.2f}** ({pctile_str} percentile)  \n"
-            f"Avg component RV: {cur_comp:.1%} | SPY RV: {cur_spy_rv:.1%} | "
-            f"Components are **{cur_ratio:.1f}\u00d7** more volatile than the index"
+            f"**Composite dispersion score:** {icon} **{pctile_str} percentile** "
+            f"(avg of ratio pctile + gap pctile)  \n"
+            f"Ratio: **{cur_ratio:.2f}x** | Gap: **{gap_str}** | "
+            f"Avg component RV: {cur_comp:.1%} | SPY RV: {cur_spy_rv:.1%}"
         )
 
     study_disp = run_event_study(disp_signal, spy_close, signal_name="Dispersion")
@@ -1764,10 +1781,10 @@ with tab5:
         )
         st.plotly_chart(fig_gap, use_container_width=True)
 
-    # --- Chart 3: Dispersion ratio percentile ---
-    drp_clean = disp_ratio_pctile.dropna()
+    # --- Chart 3: Composite dispersion percentile ---
+    drp_clean = disp_composite_pctile.dropna()
     if len(drp_clean) > 0:
-        st.markdown("#### Dispersion Ratio Percentile")
+        st.markdown("#### Composite Dispersion Percentile (ratio + gap)")
         fig_pctile = go.Figure()
         fig_pctile.add_trace(go.Scatter(
             x=drp_clean.index, y=drp_clean,
