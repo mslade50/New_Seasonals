@@ -570,3 +570,31 @@ The gap between conditional and unconditional drawdowns is the actionable signal
 2. **When conditional ≈ unconditional** (e.g. short-term 5d horizon), fragility isn't adding information — trade normally.
 3. **When conditional >> unconditional** (e.g. long-term horizons with high fragility scores), the tail is fatter than average — reduce exposure, shorten holding periods, or hedge.
 4. **The drawdown table + returns table together tell the full story:** if forward returns are negative AND drawdowns are worse than unconditional, the risk/reward is clearly unfavorable for passive long exposure at that horizon.
+
+---
+
+## Session: 2026-02-23 - Composite Dispersion Score
+
+### Updated File: `pages/signal_backtester.py`
+
+**Problem:** The dispersion signal used only the ratio (avg component RV / index RV) to detect vol suppression. But the ratio alone misses magnitude — e.g. 38% vs 12% (ratio 3.2x, gap 26pp) is arguably more extreme than 25% vs 6% (ratio 4.2x, gap 19pp) because the absolute gap is much larger, even though the ratio is lower.
+
+**Solution:** Composite percentile score that equal-weights two measures:
+- **Ratio percentile:** rolling percentile of `avg_component_rv / spy_rv` (captures relative divergence)
+- **Gap percentile:** rolling percentile of `avg_component_rv - spy_rv` (captures absolute magnitude)
+
+`composite_pctile = (ratio_pctile + gap_pctile) / 2`
+
+Signal fires when composite exceeds threshold (default 75th). Both measures are percentile-ranked over the same lookback window before averaging, so they contribute equally regardless of units.
+
+**Also fixed:** Display now derives the shown ratio directly from `cur_comp / cur_spy_rv` instead of pulling `disp_ratio.dropna().iloc[-1]` independently, which could reference a different date and show inconsistent numbers.
+
+#### Changes to `compute_dispersion_signal()`
+- Added `abs_gap = avg_component_rv - spy_rv`
+- Added `gap_pctile = _rolling_percentile(abs_gap)`
+- Returns `composite_pctile` (was `dispersion_ratio_pctile`) and `abs_gap` as new 7th return value
+- Signal now fires on composite percentile, not ratio percentile alone
+
+#### Display Updates
+- Current reading shows: "Composite dispersion score: Nth percentile" with ratio and gap alongside
+- Chart 3 relabeled "Composite Dispersion Percentile (ratio + gap)"
