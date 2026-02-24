@@ -1673,11 +1673,11 @@ with tab5:
 
     disp_signal = apply_common_filters(disp_signal, spy_close, **cf_disp)
 
-    # Current reading
-    cur_ratio = float(disp_ratio.dropna().iloc[-1]) if len(disp_ratio.dropna()) > 0 else None
+    # Current reading — derive ratio from the component/index values to stay consistent
     cur_pctile = float(disp_ratio_pctile.dropna().iloc[-1]) if len(disp_ratio_pctile.dropna()) > 0 else None
     cur_comp = float(avg_comp_rv.dropna().iloc[-1]) if len(avg_comp_rv.dropna()) > 0 else None
     cur_spy_rv = float(spy_rv_series.dropna().iloc[-1]) if len(spy_rv_series.dropna()) > 0 else None
+    cur_ratio = (cur_comp / cur_spy_rv) if (cur_comp is not None and cur_spy_rv and cur_spy_rv != 0) else None
 
     if cur_ratio is not None:
         pctile_str = f"{cur_pctile:.0f}th" if cur_pctile is not None else "N/A"
