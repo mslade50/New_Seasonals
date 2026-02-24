@@ -83,7 +83,7 @@ def run_12month_backtest(starting_equity=None):
     CRITICAL: Downloads data since 2000 for accurate percentile calculations,
     but only backtests the last 12 months for the report.
     
-    Returns: (signals_df, equity_series, daily_pnl_series, master_dict)
+    Returns: (signals_df, equity_series, daily_pnl_series, master_dict, implied_start)
     """
     if starting_equity is None:
         starting_equity = ACCOUNT_VALUE
@@ -117,7 +117,7 @@ def run_12month_backtest(starting_equity=None):
     
     if not master_dict:
         print("❌ Failed to download data")
-        return None, None, None, None
+        return None, None, None, None, None
     
     # 3. Prepare market/VIX series
     spy_df = master_dict.get('SPY')
@@ -140,7 +140,7 @@ def run_12month_backtest(starting_equity=None):
     
     if not candidates:
         print("⚠️ No signals found in 12-month period")
-        return pd.DataFrame(), pd.Series(dtype=float), pd.Series(dtype=float), master_dict
+        return pd.DataFrame(), pd.Series(dtype=float), pd.Series(dtype=float), master_dict, starting_equity
     
     # 6. Process signals with MTM sizing
     print("   Processing trades...")
@@ -148,16 +148,20 @@ def run_12month_backtest(starting_equity=None):
     
     if sig_df.empty:
         print("⚠️ No valid trades executed")
-        return sig_df, pd.Series(dtype=float), pd.Series(dtype=float), master_dict
+        return sig_df, pd.Series(dtype=float), pd.Series(dtype=float), master_dict, starting_equity
     
     # 7. Calculate equity curve (only for backtest period)
+    # Back into starting equity so that today's equity = ACCOUNT_VALUE
     print("   Calculating equity curve...")
     daily_pnl = get_daily_mtm_series(sig_df, master_dict, start_date=backtest_start_date)
-    equity_series = starting_equity + daily_pnl.cumsum()
-    
+    total_cumulative_pnl = daily_pnl.sum()
+    implied_start = starting_equity - total_cumulative_pnl
+    equity_series = implied_start + daily_pnl.cumsum()
+
     print(f"✅ Backtest complete: {len(sig_df)} trades, {len(equity_series)} days")
-    
-    return sig_df, equity_series, daily_pnl, master_dict
+    print(f"   Implied starting equity: ${implied_start:,.0f} → Current: ${equity_series.iloc[-1]:,.0f}")
+
+    return sig_df, equity_series, daily_pnl, master_dict, implied_start
 
 
 # -----------------------------------------------------------------------------
@@ -719,7 +723,15 @@ def generate_sizing_recommendations(equity_series, daily_pnl_series, starting_eq
         best_day = 0
         worst_day = 0
         pnl_by_dow = {dow: 0 for dow in ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday']}
-    
+
+    # 12-month Sharpe ratio (annualized) using full series
+    avg_daily_pnl_12m = daily_pnl_series.mean() if len(daily_pnl_series) > 0 else 0
+    std_daily_pnl_12m = daily_pnl_series.std() if len(daily_pnl_series) > 0 else 0
+    sharpe_12m = (avg_daily_pnl_12m / std_daily_pnl_12m) * np.sqrt(252) if std_daily_pnl_12m > 0 else 0
+
+    # Today's PnL
+    today_pnl = daily_pnl_series.iloc[-1] if len(daily_pnl_series) > 0 else 0
+
     # Drawdown analysis
     running_max = equity_series.expanding().max()
     drawdown_series = (equity_series - running_max) / running_max * 100
@@ -808,19 +820,21 @@ def generate_sizing_recommendations(equity_series, daily_pnl_series, starting_eq
             'best_day': best_day,
             'worst_day': worst_day,
             # New metrics
-            'sharpe_ratio': avg_daily_pnl / std_daily_pnl if std_daily_pnl > 0 else 0,
+            'sharpe_ratio': sharpe_12m,
+            'today_pnl': today_pnl,
             'std_daily_pnl': std_daily_pnl,
             'plus_1std': avg_daily_pnl + std_daily_pnl,
             'plus_2std': avg_daily_pnl + (2 * std_daily_pnl),
             'minus_1std': avg_daily_pnl - std_daily_pnl,
             'minus_2std': avg_daily_pnl - (2 * std_daily_pnl),
             # Percentage versions (as % of equity)
-            'plus_1std_pct': ((avg_daily_pnl + std_daily_pnl) / starting_equity) * 100 if starting_equity > 0 else 0,
-            'plus_2std_pct': ((avg_daily_pnl + (2 * std_daily_pnl)) / starting_equity) * 100 if starting_equity > 0 else 0,
-            'minus_1std_pct': ((avg_daily_pnl - std_daily_pnl) / starting_equity) * 100 if starting_equity > 0 else 0,
-            'minus_2std_pct': ((avg_daily_pnl - (2 * std_daily_pnl)) / starting_equity) * 100 if starting_equity > 0 else 0,
+            'plus_1std_pct': ((avg_daily_pnl + std_daily_pnl) / current_equity) * 100 if current_equity > 0 else 0,
+            'plus_2std_pct': ((avg_daily_pnl + (2 * std_daily_pnl)) / current_equity) * 100 if current_equity > 0 else 0,
+            'minus_1std_pct': ((avg_daily_pnl - std_daily_pnl) / current_equity) * 100 if current_equity > 0 else 0,
+            'minus_2std_pct': ((avg_daily_pnl - (2 * std_daily_pnl)) / current_equity) * 100 if current_equity > 0 else 0,
             # Day of week breakdown
-            'pnl_by_dow': pnl_by_dow
+            'pnl_by_dow': pnl_by_dow,
+            'implied_start': starting_equity
         }
     }
 
@@ -908,13 +922,19 @@ def send_portfolio_email(chart_path, open_positions_df, sizing_analysis, metrics
                 </div>
             </div>
             <div>
+                <div style="color: #aaa; font-size: 12px;">Today P&L</div>
+                <div style="color: {'#00CC00' if metrics['today_pnl'] >= 0 else '#CC0000'}; font-size: 20px; font-weight: bold;">
+                    ${metrics['today_pnl']:+,.0f}
+                </div>
+            </div>
+            <div>
                 <div style="color: #aaa; font-size: 12px;">Current Equity</div>
                 <div style="color: #fff; font-size: 20px; font-weight: bold;">
                     ${metrics['current_equity']:,.0f}
                 </div>
             </div>
             <div>
-                <div style="color: #aaa; font-size: 12px;">Sharpe Ratio</div>
+                <div style="color: #aaa; font-size: 12px;">Sharpe Ratio (12M Ann.)</div>
                 <div style="color: {'#00CC00' if metrics['sharpe_ratio'] >= 1.0 else '#FFA500' if metrics['sharpe_ratio'] >= 0.5 else '#CC0000'}; font-size: 20px; font-weight: bold;">
                     {metrics['sharpe_ratio']:.2f}
                 </div>
@@ -1203,7 +1223,7 @@ def send_portfolio_email(chart_path, open_positions_df, sizing_analysis, metrics
 
                 <div class="section">
                     <h2>📈 12-Month Equity Curve</h2>
-                    <p style="color: #aaa; font-size: 13px; margin-top: -10px;">Starting Equity: ${ACCOUNT_VALUE:,} | Data from 2000 for percentiles</p>
+                    <p style="color: #aaa; font-size: 13px; margin-top: -10px;">Implied Starting Equity: ${metrics.get('implied_start', ACCOUNT_VALUE):,.0f} | Current: ${ACCOUNT_VALUE:,} | Data from 2000 for percentiles</p>
                     <img src="cid:equity_chart" style="max-width: 100%; border-radius: 8px;">
                 </div>
 
@@ -1273,7 +1293,7 @@ def main():
     
     try:
         # 1. Run 12-month backtest (uses data since 2000 for percentiles)
-        signals_df, equity_series, daily_pnl, master_dict = run_12month_backtest(starting_equity=CURRENT_ACCOUNT_SIZE)
+        signals_df, equity_series, daily_pnl, master_dict, implied_start = run_12month_backtest(starting_equity=CURRENT_ACCOUNT_SIZE)
         
         if signals_df is None or equity_series is None or equity_series.empty:
             print("❌ Backtest failed - cannot generate report")
@@ -1281,7 +1301,7 @@ def main():
         
         # 2. Generate chart
         print("\n📊 Generating charts...")
-        fig = create_portfolio_chart(equity_series, daily_pnl, CURRENT_ACCOUNT_SIZE)
+        fig = create_portfolio_chart(equity_series, daily_pnl, implied_start)
         
         if fig is None:
             print("❌ Failed to create chart")
@@ -1311,7 +1331,7 @@ def main():
 
         # 4. Generate sizing recommendations
         print("\n🎯 Analyzing performance...")
-        sizing_analysis = generate_sizing_recommendations(equity_series, daily_pnl, CURRENT_ACCOUNT_SIZE)
+        sizing_analysis = generate_sizing_recommendations(equity_series, daily_pnl, implied_start)
 
         print("\n" + "=" * 70)
         print(f"   {sizing_analysis['summary']}")
