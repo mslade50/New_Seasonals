@@ -654,9 +654,9 @@ def process_signals_fast(candidates, signal_data, processed_dict, strategies, st
             else:
                 valid_entry = False
         
-        # --- LIMIT (OPEN +/- ATR) with GTC: Fixed limit based on T+1 Open ---
+        # --- LIMIT (OPEN +/- ATR) with GTC: Fixed limit based on Signal Close ---
         elif is_limit_open_atr and is_persistent:
-            base_price = entry_row['Open']
+            base_price = row_data['close']
             limit_offset = 0.5 * atr
             
             if settings['trade_direction'] == 'Long':
@@ -700,21 +700,25 @@ def process_signals_fast(candidates, signal_data, processed_dict, strategies, st
             
             valid_entry = found_fill
         
-        # --- LIMIT (OPEN +/- ATR) Single Day ---
+        # --- LIMIT (OPEN +/- ATR) Single Day: Limit anchored to Signal Close ---
         elif is_limit_open_atr:
             limit_offset = 0.5 * atr
-            day_open = entry_row['Open']
-            
+            limit_base = row_data['close']
+
             if settings['trade_direction'] == 'Long':
-                limit_price = day_open - limit_offset
-                if entry_row['Low'] <= limit_price:
-                    entry_price = limit_price if entry_row['Open'] >= limit_price else entry_row['Open']
+                limit_price = limit_base - limit_offset
+                if entry_row['Open'] < limit_price:
+                    entry_price = entry_row['Open']
+                elif entry_row['Low'] <= limit_price:
+                    entry_price = limit_price
                 else:
                     valid_entry = False
             else:
-                limit_price = day_open + limit_offset
-                if entry_row['High'] >= limit_price:
-                    entry_price = limit_price if entry_row['Open'] <= limit_price else entry_row['Open']
+                limit_price = limit_base + limit_offset
+                if entry_row['Open'] > limit_price:
+                    entry_price = entry_row['Open']
+                elif entry_row['High'] >= limit_price:
+                    entry_price = limit_price
                 else:
                     valid_entry = False
             entry_date = entry_row.name
