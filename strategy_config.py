@@ -102,7 +102,7 @@ _STRATEGY_BOOK_RAW = [
         "settings": {
             "trade_direction": "Long",
             "entry_type": "Signal Close",
-            "max_one_pos": True,
+            "max_one_pos": False,
             "allow_same_day_reentry": False,
             "max_daily_entries": 30,
             "max_total_positions": 50,
@@ -200,7 +200,7 @@ _STRATEGY_BOOK_RAW = [
         "settings": {
             "trade_direction": "Long",
             "entry_type": "Signal Close",
-            "max_one_pos": True,
+            "max_one_pos": False,
             "allow_same_day_reentry": False,
             "max_daily_entries": 2,
             "max_total_positions": 10,
@@ -252,7 +252,7 @@ _STRATEGY_BOOK_RAW = [
         "settings": {
             "trade_direction": "Short",
             "entry_type": "Limit (Open +/- 0.5 ATR)",
-            "max_one_pos": True,
+            "max_one_pos": False,
             "allow_same_day_reentry": False,
             "max_daily_entries": 2,
             "max_total_positions": 10,
@@ -301,7 +301,7 @@ _STRATEGY_BOOK_RAW = [
         "settings": {
             "trade_direction": "Long",
             "entry_type": "Signal Close",
-            "max_one_pos": True,
+            "max_one_pos": False,
             "max_daily_entries": 3,
             "max_total_positions": 10,
             "use_perf_rank": True, "perf_window": 5, "perf_logic": "<", "perf_thresh": 15.0,
@@ -344,7 +344,7 @@ _STRATEGY_BOOK_RAW = [
         "settings": {
             "trade_direction": "Long",
             "entry_type": "Limit Order -0.5 ATR Persistent",
-            "max_one_pos": True,
+            "max_one_pos": False,
             "allow_same_day_reentry": False,
             "max_daily_entries": 2,
             "max_total_positions": 10,
@@ -402,7 +402,7 @@ _STRATEGY_BOOK_RAW = [
         "settings": {
             "trade_direction": "Long",
             "entry_type": "Signal Close",
-            "max_one_pos": True,
+            "max_one_pos": False,
             "allow_same_day_reentry": False,
             "max_daily_entries": 2,
             "max_total_positions": 10,
@@ -454,7 +454,7 @@ _STRATEGY_BOOK_RAW = [
         "settings": {
             "trade_direction": "Long",
             "entry_type": "Signal Close",
-            "max_one_pos": True,
+            "max_one_pos": False,
             "allow_same_day_reentry": False,
             "max_daily_entries": 2,
             "max_total_positions": 10,
@@ -510,7 +510,7 @@ _STRATEGY_BOOK_RAW = [
         "settings": {
             "trade_direction": "Long",
             "entry_type": "T+1 Close if < Signal Close",
-            "max_one_pos": True,
+            "max_one_pos": False,
             "allow_same_day_reentry": False,
             "max_daily_entries": 10,
             "max_total_positions": 20,
@@ -567,7 +567,7 @@ _STRATEGY_BOOK_RAW = [
         "settings": {
             "trade_direction": "Long",
             "entry_type": "Signal Close",
-            "max_one_pos": True,
+            "max_one_pos": False,
             "allow_same_day_reentry": False,
             "max_daily_entries": 30,
             "max_total_positions": 50,
@@ -627,7 +627,7 @@ _STRATEGY_BOOK_RAW = [
         "settings": {
             "trade_direction": "Short",
             "entry_type": "Limit (Open +/- 0.5 ATR)",
-            "max_one_pos": True,
+            "max_one_pos": False,
             "allow_same_day_reentry": True,
             "max_daily_entries": 2,
             "max_total_positions": 10,
@@ -681,7 +681,7 @@ _STRATEGY_BOOK_RAW = [
         "settings": {
             "trade_direction": "Long",
             "entry_type": "Limit (Open +/- 0.5 ATR) GTC",
-            "max_one_pos": True,
+            "max_one_pos": False,
             "allow_same_day_reentry": False,
             "max_daily_entries": 20,
             "max_total_positions": 99,
@@ -759,7 +759,7 @@ _STRATEGY_BOOK_RAW = [
         "settings": {
             "trade_direction": "Long",
             "entry_type": "Limit (Open +/- 0.5 ATR) GTC",
-            "max_one_pos": True,
+            "max_one_pos": False,
             "allow_same_day_reentry": False,
             "max_daily_entries": 20,
             "max_total_positions": 99,
@@ -826,7 +826,7 @@ _STRATEGY_BOOK_RAW = [
      'universe_tickers': LIQUID_UNIVERSE,
      'settings': {'trade_direction': 'Long',
                   'entry_type': 'Limit (Open +/- 0.5 ATR) GTC',
-                  'max_one_pos': True,
+                  'max_one_pos': False,
                   'allow_same_day_reentry': False,
                   'max_daily_entries': 30,
                   'max_total_positions': 99,

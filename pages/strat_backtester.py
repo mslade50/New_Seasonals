@@ -593,11 +593,13 @@ def process_signals_fast(candidates, signal_data, processed_dict, strategies, st
         strat_name = strat['name']
         execution = strat['execution']
         
-        pos_key = (strat_name, ticker)
-        
-        last_exit_ts = position_last_exit.get(pos_key)
-        if last_exit_ts is not None and signal_ts <= last_exit_ts:
-            continue
+        # Only block overlapping positions when max_one_pos is True
+        max_one_pos = settings.get('max_one_pos', False)
+        if max_one_pos:
+            pos_key = (strat_name, ticker)
+            last_exit_ts = position_last_exit.get(pos_key)
+            if last_exit_ts is not None and signal_ts <= last_exit_ts:
+                continue
         
         df = processed_dict[t_clean]
         row_data = signal_data[(t_clean, signal_idx)]
@@ -957,7 +959,8 @@ def process_signals_fast(candidates, signal_data, processed_dict, strategies, st
                     'shares': shares, 'direction': 'Long' if action == 'BUY' else 'Short',
                     'exit_idx': exit_idx, 'exit_date': exit_date, 'strat_name': strat_name
                 })
-                position_last_exit[pos_key] = exit_date.value
+                if max_one_pos:
+                    position_last_exit[(strat_name, ticker)] = exit_date.value
 
                 t1_open = entry_row['Open'] if entry_row is not None else entry_price
 
@@ -1048,7 +1051,8 @@ def process_signals_fast(candidates, signal_data, processed_dict, strategies, st
                             'exit_idx': loc_exit_idx, 'exit_date': loc_exit_date,
                             'strat_name': strat_name + " (LOC)"
                         })
-                        position_last_exit[pos_key] = loc_exit_date.value
+                        if max_one_pos:
+                            position_last_exit[(strat_name, ticker)] = loc_exit_date.value
 
                         results.append({
                             "Date": signal_date, "Entry Date": loc_entry_date,
