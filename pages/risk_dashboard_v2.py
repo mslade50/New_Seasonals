@@ -2889,7 +2889,8 @@ def compute_regime_deep_dive(_spy_df, _closes, _frag_df, cache_key):
             groups['breakdown_breakout'] = _compute_breakdown_breakout(sd_a, bkts_clean)
             groups['autocorrelation'] = _compute_autocorrelation(sd_a, dr_a, bkts_clean)
             groups['volatility_context'] = _compute_volatility_context(sd_a, dr_a, bkts_clean, vix_aa, vix3m_aa)
-            groups['tail_risk'] = _compute_tail_risk(dr_a, bkts_clean)
+            vix_prev = vix_aa.shift(1)   # yesterday's VIX → today's implied σ
+            groups['tail_risk'] = _compute_tail_risk(dr_a, bkts_clean, vix_prev)
             groups['forward_returns'] = _compute_forward_returns(sd_a, bkts_clean)
             groups['buy_and_hold'] = _compute_buy_and_hold(sd_a, dr_a, bkts_clean)
             transition = _compute_transition_matrix(bkts_clean)
@@ -3093,25 +3094,34 @@ def _compute_volatility_context(sd, daily_ret, buckets, vix_a, vix3m_a):
     return pd.DataFrame(rows).T.reindex(REGIME_ORDER)
 
 
-def _compute_tail_risk(daily_ret, buckets):
-    """Group 7: Distribution shape and tail stats."""
+def _compute_tail_risk(daily_ret, buckets, vix_a):
+    """Group 7: VIX-implied vol underpricing and distribution shape."""
     rows = {}
     for bkt in REGIME_ORDER:
         mask = buckets == bkt
-        r = daily_ret[mask].dropna()
-        n = len(r)
-        if n < 10:
-            rows[bkt] = {'N': n}
+        # Align returns and prior-day VIX, drop any NaN pairs
+        paired = pd.concat([daily_ret[mask], vix_a[mask]], axis=1).dropna()
+        if len(paired) < 10:
+            rows[bkt] = {'N': len(paired)}
             continue
-        sigma = r.std()
+        r = paired.iloc[:, 0]
+        vix_vals = paired.iloc[:, 1]
+        n = len(r)
+        # Per-day VIX-implied daily σ (VIX is annualized % vol)
+        implied_sigma = vix_vals / 100 / np.sqrt(252)
+        # Annualized versions for display
+        avg_iv = vix_vals.mean()
+        avg_rv = r.std() * np.sqrt(252) * 100
         rows[bkt] = {
             'N': n,
+            'Avg IV σ %': avg_iv,
+            'Avg RV σ %': avg_rv,
+            'RV / IV': avg_rv / avg_iv if avg_iv > 0 else np.nan,
+            '% > 1σ (VIX)': (r.abs() > implied_sigma).mean() * 100,
+            '% > 2σ (VIX)': (r.abs() > 2 * implied_sigma).mean() * 100,
+            'Left > 1σ': (r < -implied_sigma).mean() * 100,
             'Skew': r.skew(),
             'Kurtosis': r.kurtosis(),
-            '% > 1\u03c3': (r.abs() > sigma).mean() * 100,
-            '% > 2\u03c3': (r.abs() > 2 * sigma).mean() * 100,
-            'Left Tail %': (r < -sigma).mean() * 100,
-            'Right Tail %': (r > sigma).mean() * 100,
             'Worst Day %': r.min() * 100,
             'Best Day %': r.max() * 100,
             'P5 %': r.quantile(0.05) * 100,
