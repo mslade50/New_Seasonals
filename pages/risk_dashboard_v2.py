@@ -2835,8 +2835,10 @@ def _render_fragility_event_study(study: dict, spy_close: pd.Series, horizon_lab
 def compute_regime_deep_dive(_spy_df, _closes, _frag_df, cache_key):
     """
     Compute full regime deep-dive stats for all 3 horizons.
+    Uses lagged (prior-close) fragility scores for predictive analysis.
     Returns dict keyed by horizon ('5d','21d','63d'), each containing
-    group stats, summary table, transition matrix, and duration stats.
+    two bucketing methods ('prior_close', '10d_avg') with group stats,
+    summary table, transition matrix, and duration stats.
     """
     spy = _spy_df.copy()
     spy.index = pd.to_datetime(spy.index)
@@ -2859,8 +2861,9 @@ def compute_regime_deep_dive(_spy_df, _closes, _frag_df, cache_key):
         fs = frag.reindex(common)
         sd = spy.reindex(common)
 
-        # Assign buckets
-        buckets = fs.map(_assign_regime_bucket)
+        # Lagged bucketing: yesterday's reading → today's behavior
+        buckets_1d = fs.shift(1).map(_assign_regime_bucket)      # raw prior-close score
+        buckets_10d = fs.rolling(10).mean().shift(1).map(_assign_regime_bucket)  # 10d MA prior-close
 
         # Daily returns
         daily_ret = sd['Close'].pct_change()
@@ -2869,26 +2872,38 @@ def compute_regime_deep_dive(_spy_df, _closes, _frag_df, cache_key):
         vix_a = vix.reindex(common)
         vix3m_a = vix3m.reindex(common)
 
-        groups = {}
-        groups['return_profile'] = _compute_return_profile(sd, daily_ret, buckets)
-        groups['intraday_character'] = _compute_intraday_character(sd, buckets)
-        groups['overnight_rth'] = _compute_overnight_rth(sd, daily_ret, buckets)
-        groups['breakdown_breakout'] = _compute_breakdown_breakout(sd, buckets)
-        groups['autocorrelation'] = _compute_autocorrelation(sd, daily_ret, buckets)
-        groups['volatility_context'] = _compute_volatility_context(sd, daily_ret, buckets, vix_a, vix3m_a)
-        groups['tail_risk'] = _compute_tail_risk(daily_ret, buckets)
-        groups['forward_returns'] = _compute_forward_returns(sd, buckets)
-        groups['buy_and_hold'] = _compute_buy_and_hold(sd, daily_ret, buckets)
-        transition = _compute_transition_matrix(buckets)
-        durations = _compute_regime_durations(buckets)
-        summary = _build_summary_table(groups)
+        horizon_results = {}
+        for label, bkts in [('prior_close', buckets_1d), ('10d_avg', buckets_10d)]:
+            bkts_clean = bkts.dropna()
+            # Re-align all series to dates where buckets are defined
+            valid_idx = bkts_clean.index
+            sd_a = sd.reindex(valid_idx)
+            dr_a = daily_ret.reindex(valid_idx)
+            vix_aa = vix_a.reindex(valid_idx)
+            vix3m_aa = vix3m_a.reindex(valid_idx)
 
-        results[horizon] = {
-            'groups': groups,
-            'summary': summary,
-            'transition': transition,
-            'durations': durations,
-        }
+            groups = {}
+            groups['return_profile'] = _compute_return_profile(sd_a, dr_a, bkts_clean)
+            groups['intraday_character'] = _compute_intraday_character(sd_a, bkts_clean)
+            groups['overnight_rth'] = _compute_overnight_rth(sd_a, dr_a, bkts_clean)
+            groups['breakdown_breakout'] = _compute_breakdown_breakout(sd_a, bkts_clean)
+            groups['autocorrelation'] = _compute_autocorrelation(sd_a, dr_a, bkts_clean)
+            groups['volatility_context'] = _compute_volatility_context(sd_a, dr_a, bkts_clean, vix_aa, vix3m_aa)
+            groups['tail_risk'] = _compute_tail_risk(dr_a, bkts_clean)
+            groups['forward_returns'] = _compute_forward_returns(sd_a, bkts_clean)
+            groups['buy_and_hold'] = _compute_buy_and_hold(sd_a, dr_a, bkts_clean)
+            transition = _compute_transition_matrix(bkts_clean)
+            durations = _compute_regime_durations(bkts_clean)
+            summary = _build_summary_table(groups)
+
+            horizon_results[label] = {
+                'groups': groups,
+                'summary': summary,
+                'transition': transition,
+                'durations': durations,
+            }
+
+        results[horizon] = horizon_results
 
     return results
 
@@ -3410,14 +3425,14 @@ def _render_transition_heatmap(transition, current_regime):
 
 
 @st.fragment
-def _render_regime_deep_dive(deep_dive_data, h_scores):
+def _render_regime_deep_dive(deep_dive_data, h_scores, frag_df):
     """Fragment: Regime Deep Dive section with tabs for each horizon."""
     if not deep_dive_data:
         return
 
     st.divider()
     st.subheader("Regime Deep Dive")
-    st.caption("SPY return statistics bucketed by fragility score regime")
+    st.caption("Yesterday's fragility reading \u2192 today's expected SPY behavior")
 
     tab_labels = []
     tab_keys = []
@@ -3434,62 +3449,86 @@ def _render_regime_deep_dive(deep_dive_data, h_scores):
 
     for tab, h_key in zip(tabs, tab_keys):
         with tab:
-            data = deep_dive_data[h_key]
+            horizon_data = deep_dive_data[h_key]
+
+            # Current regime scores for this horizon
             current_score = h_scores.get(h_key, 50)
-            current_regime = _assign_regime_bucket(current_score)
+            current_regime_prior = _assign_regime_bucket(current_score)
 
-            # Current regime indicator
-            color = REGIME_COLORS.get(current_regime, '#ccc')
-            st.markdown(
-                f'<p style="font-size:13px; margin-bottom:8px;">'
-                f'Current: <span style="color:{color}; font-weight:bold;">{current_regime}</span> '
-                f'(score {current_score:.0f})</p>',
-                unsafe_allow_html=True,
-            )
+            # 10d MA current regime
+            if frag_df is not None and h_key in frag_df.columns:
+                frag_10d_ma = frag_df[h_key].rolling(10, min_periods=1).mean()
+                current_score_10d = frag_10d_ma.iloc[-1] if len(frag_10d_ma) > 0 else current_score
+            else:
+                current_score_10d = current_score
+            current_regime_10d = _assign_regime_bucket(current_score_10d)
 
-            # Summary table
-            _render_summary_html_table(data['summary'], current_regime)
+            sub_tabs = st.tabs(["Prior Close", "10d Average"])
 
-            groups = data['groups']
+            sub_tab_configs = [
+                (sub_tabs[0], 'prior_close', current_score, current_regime_prior),
+                (sub_tabs[1], '10d_avg', current_score_10d, current_regime_10d),
+            ]
 
-            with st.expander("Return Profile"):
-                _render_stat_group_table(groups['return_profile'], current_regime)
+            for sub_tab, data_key, score, regime in sub_tab_configs:
+                with sub_tab:
+                    if data_key not in horizon_data:
+                        st.info("No data for this bucketing method.")
+                        continue
+                    data = horizon_data[data_key]
 
-            with st.expander("Intraday Character"):
-                _render_stat_group_table(groups['intraday_character'], current_regime)
+                    # Current regime indicator
+                    color = REGIME_COLORS.get(regime, '#ccc')
+                    st.markdown(
+                        f'<p style="font-size:13px; margin-bottom:8px;">'
+                        f'Current: <span style="color:{color}; font-weight:bold;">{regime}</span> '
+                        f'(score {score:.0f})</p>',
+                        unsafe_allow_html=True,
+                    )
 
-            with st.expander("Overnight vs RTH"):
-                _render_stat_group_table(groups['overnight_rth'], current_regime)
+                    # Summary table
+                    _render_summary_html_table(data['summary'], regime)
 
-            with st.expander("Breakdown / Breakout"):
-                _render_stat_group_table(groups['breakdown_breakout'], current_regime)
+                    groups = data['groups']
 
-            with st.expander("Autocorrelation & Mean Reversion"):
-                _render_stat_group_table(groups['autocorrelation'], current_regime)
+                    with st.expander("Return Profile"):
+                        _render_stat_group_table(groups['return_profile'], regime)
 
-            with st.expander("Volatility Context"):
-                _render_stat_group_table(groups['volatility_context'], current_regime)
+                    with st.expander("Intraday Character"):
+                        _render_stat_group_table(groups['intraday_character'], regime)
 
-            with st.expander("Tail Risk & Distribution"):
-                _render_stat_group_table(groups['tail_risk'], current_regime)
+                    with st.expander("Overnight vs RTH"):
+                        _render_stat_group_table(groups['overnight_rth'], regime)
 
-            with st.expander("Forward Returns"):
-                _render_stat_group_table(groups['forward_returns'], current_regime)
+                    with st.expander("Breakdown / Breakout"):
+                        _render_stat_group_table(groups['breakdown_breakout'], regime)
 
-            with st.expander("Buy & Hold Performance"):
-                st.caption("Cumulative return of $1 invested only during each regime")
-                _render_buy_and_hold(groups['buy_and_hold'], current_regime)
+                    with st.expander("Autocorrelation & Mean Reversion"):
+                        _render_stat_group_table(groups['autocorrelation'], regime)
 
-            with st.expander("Transition Dynamics"):
-                col1, col2 = st.columns([3, 2])
-                with col1:
-                    st.caption("Next-day transition probability (%)")
-                    _render_transition_heatmap(data['transition'], current_regime)
-                with col2:
-                    st.caption("Regime duration stats (consecutive days)")
-                    dur = data['durations']
-                    if dur is not None and not dur.empty:
-                        _render_stat_group_table(dur, current_regime)
+                    with st.expander("Volatility Context"):
+                        _render_stat_group_table(groups['volatility_context'], regime)
+
+                    with st.expander("Tail Risk & Distribution"):
+                        _render_stat_group_table(groups['tail_risk'], regime)
+
+                    with st.expander("Forward Returns"):
+                        _render_stat_group_table(groups['forward_returns'], regime)
+
+                    with st.expander("Buy & Hold Performance"):
+                        st.caption("Cumulative return of $1 invested only during each regime")
+                        _render_buy_and_hold(groups['buy_and_hold'], regime)
+
+                    with st.expander("Transition Dynamics"):
+                        col1, col2 = st.columns([3, 2])
+                        with col1:
+                            st.caption("Next-day transition probability (%)")
+                            _render_transition_heatmap(data['transition'], regime)
+                        with col2:
+                            st.caption("Regime duration stats (consecutive days)")
+                            dur = data['durations']
+                            if dur is not None and not dur.empty:
+                                _render_stat_group_table(dur, regime)
 
 
 # ============================================================================
@@ -3841,7 +3880,7 @@ def main():
     if frag_df is not None and h_scores is not None:
         deep_dive = compute_regime_deep_dive(spy_df, closes, frag_df, _parquet_cache_key())
         if deep_dive:
-            _render_regime_deep_dive(deep_dive, h_scores)
+            _render_regime_deep_dive(deep_dive, h_scores, frag_df)
 
     # -------------------------------------------------------------------
     # CHARTS (all in one fragment — year filter changes only re-render here)
