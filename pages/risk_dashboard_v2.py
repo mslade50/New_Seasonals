@@ -3380,6 +3380,8 @@ def _cached_compute_signals(_spy_df, _closes, _sp500_closes, cache_key):
     if horizon_stats is not None:
         h_scores = compute_horizon_fragility(signals_ordered, regime_mult, horizon_stats, price_ctx, spy_close)
         frag_df = compute_fragility_timeseries(signals_ordered, spy_close, horizon_stats)
+        if frag_df is not None and not frag_df.empty:
+            frag_df.to_parquet(os.path.join(DATA_DIR, "rd2_fragility_ts.parquet"))
         # 5d moving average for dial display (smooths day-to-day noise)
         if frag_df is not None and len(frag_df) >= 1:
             h_scores = frag_df.rolling(5, min_periods=1).mean().iloc[-1].to_dict()

@@ -25,6 +25,7 @@ CACHE_SPY_OHLC = os.path.join(DATA_DIR, "rd2_spy_ohlc.parquet")
 CACHE_CLOSES = os.path.join(DATA_DIR, "rd2_closes.parquet")
 CACHE_SP500 = os.path.join(DATA_DIR, "rd2_sp500_closes.parquet")
 RISK_CLASSIFICATION = os.path.join(DATA_DIR, "sp500_risk_classification.csv")
+CACHE_FRAG_TS = os.path.join(DATA_DIR, "rd2_fragility_ts.parquet")
 
 # ---------------------------------------------------------------------------
 # FOMC & CPI CALENDARS
@@ -1073,7 +1074,7 @@ if spy_df is None or spy_df.empty:
 
 spy_close = spy_df["Close"]
 
-tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8 = st.tabs([
+tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9 = st.tabs([
     "Distribution / Accumulation",
     "VIX Range Compression",
     "Sector Leadership",
@@ -1082,6 +1083,7 @@ tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8 = st.tabs([
     "Absorption Ratio",
     "RV Gap",
     "Days Since",
+    "Regime-Weighted B&H",
 ])
 
 # ========================== TAB 1 ==========================
@@ -2330,3 +2332,206 @@ with tab8:
         st.plotly_chart(fig_dd, use_container_width=True)
 
     render_event_study(study_dsc, "Days Since Correction", dsc_signal, dsc_close, ticker_name=dsc_ticker)
+
+# ========================== TAB 9: REGIME-WEIGHTED BUY & HOLD ===============
+with tab9:
+    st.markdown("### Regime-Weighted Buy & Hold Backtester")
+    st.caption("Vary SPY investedness by yesterday's fragility regime. Weights apply to daily returns with 1-day lag.")
+
+    # --- Regime constants (inlined from risk_dashboard_v2 to keep module boundary) ---
+    _REGIME_BUCKETS = {
+        'Robust': (0, 20), 'Calm': (20, 40), 'Neutral': (40, 60),
+        'Elevated': (60, 80), 'Fragile': (80, 100.01),
+    }
+    _REGIME_ORDER = ['Robust', 'Calm', 'Neutral', 'Elevated', 'Fragile']
+    _REGIME_COLORS = {
+        'Robust': '#00CC00', 'Calm': '#7FCC00', 'Neutral': '#FFD700',
+        'Elevated': '#FF8C00', 'Fragile': '#CC0000',
+    }
+
+    def _assign_bucket(score):
+        for name, (lo, hi) in _REGIME_BUCKETS.items():
+            if lo <= score < hi:
+                return name
+        return 'Fragile' if score >= 80 else 'Robust'
+
+    # --- Load fragility timeseries ---
+    if not os.path.exists(CACHE_FRAG_TS):
+        st.warning("Fragility timeseries not found. Run the **Risk Dashboard V2** page first to generate it.")
+        st.stop()
+
+    @st.cache_data(ttl=3600)
+    def _load_frag_ts():
+        df = pd.read_parquet(CACHE_FRAG_TS)
+        if df.index.tz is not None:
+            df.index = df.index.tz_localize(None)
+        return df
+
+    frag_df = _load_frag_ts()
+
+    # --- Controls ---
+    ctrl_cols = st.columns([1.5, 1, 1, 1, 1, 1])
+    with ctrl_cols[0]:
+        horizon = st.selectbox("Horizon", ["21d", "63d", "Average (21d + 63d)"], index=0, key="rwbh_horizon")
+    defaults = {'Robust': 100, 'Calm': 100, 'Neutral': 100, 'Elevated': 50, 'Fragile': 0}
+    weights = {}
+    for i, regime in enumerate(_REGIME_ORDER):
+        with ctrl_cols[i + 1] if i < 5 else ctrl_cols[0]:
+            weights[regime] = st.slider(
+                f"{regime} %", min_value=-100, max_value=200, value=defaults[regime],
+                step=10, key=f"rwbh_w_{regime}",
+            )
+
+    # Preset buttons
+    preset_cols = st.columns(4)
+    with preset_cols[0]:
+        if st.button("Full Invested", key="rwbh_preset_full"):
+            st.session_state.update({f"rwbh_w_{r}": 100 for r in _REGIME_ORDER})
+            st.rerun()
+    with preset_cols[1]:
+        if st.button("Scale Down", key="rwbh_preset_scale"):
+            for r, v in zip(_REGIME_ORDER, [100, 80, 60, 30, 0]):
+                st.session_state[f"rwbh_w_{r}"] = v
+            st.rerun()
+    with preset_cols[2]:
+        if st.button("Risk Parity", key="rwbh_preset_rp"):
+            for r, v in zip(_REGIME_ORDER, [150, 120, 100, 50, 0]):
+                st.session_state[f"rwbh_w_{r}"] = v
+            st.rerun()
+    with preset_cols[3]:
+        if st.button("Inverse", key="rwbh_preset_inv"):
+            for r, v in zip(_REGIME_ORDER, [0, 50, 100, 150, 200]):
+                st.session_state[f"rwbh_w_{r}"] = v
+            st.rerun()
+
+    # --- Build weighted equity curve ---
+    # Select horizon
+    if horizon == "Average (21d + 63d)":
+        avail = [c for c in ['21d', '63d'] if c in frag_df.columns]
+        if len(avail) == 0:
+            st.error("Fragility timeseries has no 21d/63d columns.")
+            st.stop()
+        frag_score = frag_df[avail].mean(axis=1)
+    else:
+        if horizon not in frag_df.columns:
+            st.error(f"Column '{horizon}' not found in fragility timeseries.")
+            st.stop()
+        frag_score = frag_df[horizon]
+
+    # Lag by 1 day: yesterday's regime drives today's weight
+    frag_lagged = frag_score.shift(1)
+    regime_buckets = frag_lagged.map(_assign_bucket)
+
+    weight_map = {r: weights[r] / 100.0 for r in _REGIME_ORDER}
+    daily_weight = regime_buckets.map(weight_map)
+
+    # Align with SPY returns
+    spy_ret = spy_close.pct_change()
+    common_idx = spy_ret.index.intersection(daily_weight.dropna().index)
+    spy_ret_aligned = spy_ret.loc[common_idx]
+    daily_weight_aligned = daily_weight.loc[common_idx]
+    regime_aligned = regime_buckets.loc[common_idx]
+
+    weighted_ret = spy_ret_aligned * daily_weight_aligned
+    equity_strategy = (1 + weighted_ret.fillna(0)).cumprod()
+    equity_bh = (1 + spy_ret_aligned.fillna(0)).cumprod()
+
+    # --- Stats computation ---
+    def _compute_stats(returns, label):
+        total_ret = (1 + returns.fillna(0)).prod() - 1
+        n_years = len(returns) / 252
+        cagr = (1 + total_ret) ** (1 / max(n_years, 0.01)) - 1
+        cum = (1 + returns.fillna(0)).cumprod()
+        rolling_max = cum.cummax()
+        dd = (cum - rolling_max) / rolling_max
+        max_dd = dd.min()
+        ann_vol = returns.std() * np.sqrt(252)
+        sharpe = (returns.mean() * 252) / ann_vol if ann_vol > 0 else 0
+        downside = returns[returns < 0].std() * np.sqrt(252)
+        sortino = (returns.mean() * 252) / downside if downside > 0 else 0
+        calmar = cagr / abs(max_dd) if max_dd != 0 else 0
+        return {
+            'Label': label, 'Total Return %': total_ret * 100, 'CAGR %': cagr * 100,
+            'Max Drawdown %': max_dd * 100, 'Sharpe': sharpe,
+            'Sortino': sortino, 'Calmar': calmar, 'Ann Vol %': ann_vol * 100,
+        }
+
+    stats_strat = _compute_stats(weighted_ret, "Regime-Weighted")
+    stats_bh = _compute_stats(spy_ret_aligned, "Buy & Hold")
+    stats_df = pd.DataFrame([stats_strat, stats_bh]).set_index('Label')
+
+    # --- Equity curve chart ---
+    log_scale = st.checkbox("Log scale", value=True, key="rwbh_log")
+    fig_eq = go.Figure()
+    fig_eq.add_trace(go.Scatter(
+        x=equity_strategy.index, y=equity_strategy.values,
+        name="Regime-Weighted", line=dict(color="#1f77b4", width=2),
+    ))
+    fig_eq.add_trace(go.Scatter(
+        x=equity_bh.index, y=equity_bh.values,
+        name="Buy & Hold", line=dict(color="#aaaaaa", width=1.5, dash="dash"),
+    ))
+    fig_eq.update_layout(
+        height=400, margin=dict(l=10, r=10, t=30, b=10),
+        yaxis_title="Growth of $1", yaxis_type="log" if log_scale else "linear",
+        hovermode="x unified",
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+    )
+    st.plotly_chart(fig_eq, use_container_width=True)
+
+    # --- Stats table ---
+    st.markdown("#### Performance Comparison")
+    fmt_stats = stats_df.copy()
+    for c in fmt_stats.columns:
+        if '%' in c:
+            fmt_stats[c] = fmt_stats[c].map(lambda x: f"{x:+.1f}%" if pd.notna(x) else "")
+        else:
+            fmt_stats[c] = fmt_stats[c].map(lambda x: f"{x:.2f}" if pd.notna(x) else "")
+    st.dataframe(fmt_stats, use_container_width=True)
+
+    # --- Regime breakdown table ---
+    st.markdown("#### Regime Breakdown")
+    breakdown_rows = []
+    total_days = len(regime_aligned.dropna())
+    for regime in _REGIME_ORDER:
+        mask = regime_aligned == regime
+        n = mask.sum()
+        pct_time = n / total_days * 100 if total_days > 0 else 0
+        r = spy_ret_aligned[mask]
+        avg_ret = r.mean() * 100 if len(r) > 0 else 0
+        contribution = r.sum() * 100  # simple additive contribution
+        w = weight_map[regime]
+        breakdown_rows.append({
+            'Regime': regime, 'N Days': n, '% Time': f"{pct_time:.1f}%",
+            'Avg Daily Ret %': f"{avg_ret:.3f}%", 'Weight': f"{w:.0%}",
+            'Contribution (bps)': f"{contribution:.0f}",
+        })
+    breakdown_df = pd.DataFrame(breakdown_rows).set_index('Regime')
+    avg_weight = daily_weight_aligned.mean()
+    st.caption(f"Average daily weight: **{avg_weight:.0%}**")
+    st.dataframe(breakdown_df, use_container_width=True)
+
+    # --- Drawdown chart ---
+    st.markdown("#### Drawdown Comparison")
+    cum_strat = (1 + weighted_ret.fillna(0)).cumprod()
+    dd_strat = (cum_strat - cum_strat.cummax()) / cum_strat.cummax()
+    cum_bh = (1 + spy_ret_aligned.fillna(0)).cumprod()
+    dd_bh = (cum_bh - cum_bh.cummax()) / cum_bh.cummax()
+
+    fig_dd = go.Figure()
+    fig_dd.add_trace(go.Scatter(
+        x=dd_strat.index, y=dd_strat.values,
+        name="Regime-Weighted", fill="tozeroy",
+        line=dict(color="#1f77b4", width=1), fillcolor="rgba(31,119,180,0.2)",
+    ))
+    fig_dd.add_trace(go.Scatter(
+        x=dd_bh.index, y=dd_bh.values,
+        name="Buy & Hold", line=dict(color="#aaaaaa", width=1, dash="dash"),
+    ))
+    fig_dd.update_layout(
+        height=300, margin=dict(l=10, r=10, t=30, b=10),
+        yaxis_title="Drawdown", yaxis_tickformat=".0%",
+        hovermode="x unified",
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+    )
+    st.plotly_chart(fig_dd, use_container_width=True)
