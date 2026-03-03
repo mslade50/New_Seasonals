@@ -2,7 +2,7 @@
 Risk Dashboard V2 — Executive Summary + Absorption Ratio
 =========================================================
 Standalone market risk monitor.
-6 validated signals from event study backtesting, flat signal board
+7 validated signals from event study backtesting, flat signal board
 with metric summaries, individual signal charts, and fragility dial.
 
 Data: yfinance only. No broker connections. No strategy imports.
@@ -347,7 +347,7 @@ def _rolling_percentile(series: pd.Series, lookback: int) -> pd.Series:
 
 
 # ---------------------------------------------------------------------------
-# 6 VALIDATED SIGNAL FUNCTIONS
+# 7 VALIDATED SIGNAL FUNCTIONS
 # Each returns a dict with: on, detail, summary, and chart series.
 # ---------------------------------------------------------------------------
 
@@ -872,6 +872,133 @@ def compute_seasonal_divergence_signal(spy_close: pd.Series) -> dict:
     }
 
 
+def compute_dispersion_signal(sp500_closes: pd.DataFrame,
+                               spy_df: pd.DataFrame,
+                               spy_close: pd.Series) -> dict:
+    """
+    Cross-Sectional Return Dispersion signal.
+    High component RV relative to index RV = vol suppression via low correlation.
+    Combined with days-since-correction filter — fires when dispersion is extreme
+    AND market hasn't corrected recently (stored spring tension).
+
+    Parameters hardcoded from signal backtester event study:
+      RV window: 21d, Percentile lookback: 504, Threshold: 85th pctile
+      Require low index vol: OFF
+      Days since correction: ON (10%, 200 days)
+      Decluster: ON (10 day min gap)
+    """
+    rv_window = 21
+    pctile_lookback = 504
+    pctile_threshold = 85
+    correction_pct = 10.0
+    min_days_since = 200
+    min_gap = 10
+    min_stocks = 50
+
+    empty = {
+        'on': False, 'detail': '', 'summary': 'S&P 500 data unavailable',
+        'composite_pctile': pd.Series(dtype=float),
+        'signal_history': pd.Series(dtype=bool),
+    }
+    if sp500_closes is None or (hasattr(sp500_closes, 'empty') and sp500_closes.empty):
+        return empty
+
+    component_returns = sp500_closes.pct_change()
+
+    # Per-stock trailing RV (annualized)
+    component_rv = component_returns.rolling(
+        rv_window, min_periods=max(5, rv_window // 2)
+    ).std() * np.sqrt(252)
+
+    # Require at least min_stocks with valid RV each day
+    stocks_available = component_rv.notna().sum(axis=1)
+    sufficient_data = stocks_available >= min_stocks
+
+    avg_component_rv = component_rv.mean(axis=1).where(sufficient_data)
+
+    # SPY RV (close-to-close)
+    spy_returns = spy_close.pct_change()
+    spy_rv = spy_returns.rolling(
+        rv_window, min_periods=max(5, rv_window // 2)
+    ).std() * np.sqrt(252)
+
+    # Dispersion ratio: component RV / index RV
+    common_idx = avg_component_rv.dropna().index.intersection(spy_rv.dropna().index)
+    dispersion_ratio = (avg_component_rv.reindex(common_idx)
+                        / spy_rv.reindex(common_idx).replace(0, np.nan))
+    dispersion_ratio = dispersion_ratio.reindex(spy_close.index)
+
+    # Absolute gap: component RV - index RV
+    abs_gap = (avg_component_rv.reindex(common_idx)
+               - spy_rv.reindex(common_idx))
+    abs_gap = abs_gap.reindex(spy_close.index)
+
+    # Composite percentile: equal-weight ratio pctile + gap pctile
+    ratio_pctile = _rolling_percentile(dispersion_ratio.dropna(), pctile_lookback)
+    gap_pctile = _rolling_percentile(abs_gap.dropna(), pctile_lookback)
+    common_pctile = ratio_pctile.dropna().index.intersection(gap_pctile.dropna().index)
+    composite_pctile = ((ratio_pctile.reindex(common_pctile)
+                         + gap_pctile.reindex(common_pctile)) / 2)
+    composite_pctile = composite_pctile.reindex(spy_close.index)
+
+    # Signal: composite percentile above threshold
+    signal = pd.Series(False, index=spy_close.index)
+    pctile_valid = composite_pctile.dropna()
+    if len(pctile_valid) > 0:
+        signal.loc[pctile_valid.index] = pctile_valid > pctile_threshold
+
+    # Days-since-correction filter (10%, 200 days)
+    common_sig = signal.index.intersection(spy_close.index)
+    sc = spy_close.reindex(common_sig)
+    rolling_high = sc.expanding().max()
+    drawdown_corr = (sc - rolling_high) / rolling_high
+    correction_mask = drawdown_corr <= -(correction_pct / 100)
+    not_corr = ~correction_mask
+    days_since = not_corr.groupby(correction_mask.cumsum()).cumsum().astype(int)
+    signal = signal.reindex(common_sig) & (days_since >= min_days_since)
+
+    # Decluster (10 day min gap)
+    fire_positions = np.where(signal.values)[0]
+    mask = np.ones(len(signal), dtype=bool)
+    last_kept = -min_gap - 1
+    for pos in fire_positions:
+        if pos - last_kept <= min_gap:
+            mask[pos] = False
+        else:
+            last_kept = pos
+    signal = signal & pd.Series(mask, index=signal.index)
+
+    # Latest state
+    latest_pctile = float(composite_pctile.iloc[-1]) if len(composite_pctile) > 0 and not np.isnan(composite_pctile.iloc[-1]) else 0.0
+    signal_on = bool(signal.iloc[-1]) if len(signal) > 0 and not pd.isna(signal.iloc[-1]) else False
+
+    latest_comp_rv = float(avg_component_rv.iloc[-1]) if len(avg_component_rv) > 0 and not np.isnan(avg_component_rv.iloc[-1]) else 0.0
+    latest_spy_rv = float(spy_rv.iloc[-1]) if len(spy_rv) > 0 and not np.isnan(spy_rv.iloc[-1]) else 0.0
+
+    detail = ""
+    if signal_on:
+        detail = (
+            f"Dispersion composite at {latest_pctile:.0f}th percentile "
+            f"(threshold: {pctile_threshold}th). "
+            f"Avg component RV: {latest_comp_rv:.1%} vs SPY RV: {latest_spy_rv:.1%} \u2014 "
+            f"high cross-sectional vol with low index vol = correlation suppression. "
+            f"Stored tension tends to release violently."
+        )
+
+    summary = (
+        f"Composite pctile: {latest_pctile:.0f}th (fires above {pctile_threshold}th) "
+        f"\u2014 component RV: {latest_comp_rv:.1%} | SPY RV: {latest_spy_rv:.1%}"
+    )
+
+    return {
+        'on': signal_on,
+        'detail': detail,
+        'summary': summary,
+        'composite_pctile': composite_pctile,
+        'signal_history': signal,
+    }
+
+
 # ---------------------------------------------------------------------------
 # SIGNAL FRAMEWORK
 # ---------------------------------------------------------------------------
@@ -1377,6 +1504,7 @@ def compute_horizon_fragility(
     fomc = signals_ordered.get('Pre-FOMC Rally', {})
     ar = signals_ordered.get('Low Absorption Ratio', {})
     srd = signals_ordered.get('Seasonal Rank Divergence', {})
+    disp = signals_ordered.get('Dispersion', {})
 
     # SPY distance from highs (positive = below high)
     dd = price_ctx.get('drawdown')
@@ -1411,6 +1539,10 @@ def compute_horizon_fragility(
         if srd_w > 0:
             active_weight += _signal_edge(stats, 'Seasonal Rank Divergence', h) * srd_w
 
+        disp_w = _signal_decay_weight(disp, h, spy_pct_from_high)
+        if disp_w > 0:
+            active_weight += _signal_edge(stats, 'Dispersion', h) * disp_w
+
         # Dynamic max_weight: FOMC is calendar-dependent — only include its
         # edge in the denominator when it's contributing (ON or decaying).
         # Otherwise its large 5d edge (47% of total) prevents the dial from
@@ -1421,6 +1553,7 @@ def compute_horizon_fragility(
             + _signal_edge(stats, 'Defensive Leadership', h)
             + _signal_edge(stats, 'Low Absorption Ratio', h)
             + _signal_edge(stats, 'Seasonal Rank Divergence', h)
+            + _signal_edge(stats, 'Dispersion', h)
         )
         if fomc_w > 0:
             max_weight += _signal_edge(stats, 'Pre-FOMC Rally', h)
@@ -1719,6 +1852,30 @@ def chart_seasonal_divergence(spread: pd.Series, spy_close: pd.Series,
     return fig
 
 
+def chart_dispersion_signal(composite_pctile: pd.Series, spy_close: pd.Series,
+                             year_filter: str | None = None) -> go.Figure:
+    """Composite dispersion percentile with threshold line and SPY overlay."""
+    fig = go.Figure()
+    clean = composite_pctile.dropna()
+    fig.add_trace(go.Scatter(
+        x=clean.index, y=clean,
+        name="Composite Pctile", line=dict(width=1.5, color="#f39c12"),
+    ))
+    fig.add_hline(y=85, line_dash="dash", line_color="#CC0000", line_width=1)
+    fig.add_trace(go.Scatter(
+        x=spy_close.index, y=spy_close,
+        name="SPY", line=dict(width=1, color="rgba(100,100,100,0.4)"),
+        yaxis="y2",
+    ))
+    fig.update_layout(**_dual_y_layout("Cross-Sectional Return Dispersion", "Composite Pctile", "SPY"))
+    x_start, x_end = _get_chart_date_range(year_filter)
+    fig.update_xaxes(range=[x_start, x_end])
+    spy_range = _spy_y2_range(spy_close, year_filter)
+    if spy_range:
+        fig.update_layout(yaxis2=dict(range=spy_range))
+    return fig
+
+
 def _signal_periods(signal_history: pd.Series) -> list:
     """Convert boolean series to list of (start_date, end_date) tuples for contiguous active periods."""
     if signal_history is None or signal_history.empty:
@@ -1743,6 +1900,7 @@ SIGNAL_COLORS = {
     'Pre-FOMC Rally': '#3498db',
     'Low Absorption Ratio': '#9b59b6',
     'Seasonal Rank Divergence': '#1abc9c',
+    'Dispersion': '#f39c12',
 }
 
 
@@ -2674,6 +2832,7 @@ def _cached_compute_signals(_spy_df, _closes, _sp500_closes, cache_key):
     fomc = compute_fomc_signal(spy_close)
     ar = compute_low_ar_signal(sector_returns, spy_close)
     srd = compute_seasonal_divergence_signal(spy_close)
+    disp = compute_dispersion_signal(_sp500_closes, _spy_df, spy_close)
 
     signals_ordered = {
         'Distribution Dominance': da,
@@ -2682,6 +2841,7 @@ def _cached_compute_signals(_spy_df, _closes, _sp500_closes, cache_key):
         'Pre-FOMC Rally': fomc,
         'Low Absorption Ratio': ar,
         'Seasonal Rank Divergence': srd,
+        'Dispersion': disp,
     }
     signals_bool = {name: sig['on'] for name, sig in signals_ordered.items()}
 
@@ -2734,6 +2894,7 @@ def _render_all_charts(signals_ordered, spy_close, vix_close,
     fomc = signals_ordered['Pre-FOMC Rally']
     ar = signals_ordered['Low Absorption Ratio']
     srd = signals_ordered['Seasonal Rank Divergence']
+    disp = signals_ordered.get('Dispersion', {})
 
     row1_c1, row1_c2 = st.columns(2)
 
@@ -2779,6 +2940,14 @@ def _render_all_charts(signals_ordered, spy_close, vix_close,
         if len(srd.get('spread', pd.Series(dtype=float)).dropna()) > 0:
             fig = chart_seasonal_divergence(srd['spread'], spy_close, year_filter)
             _add_signal_vlines(fig, srd.get('signal_history'))
+            st.plotly_chart(fig, use_container_width=True)
+
+    row4_c1, row4_c2 = st.columns(2)
+
+    with row4_c1:
+        if len(disp.get('composite_pctile', pd.Series(dtype=float)).dropna()) > 0:
+            fig = chart_dispersion_signal(disp['composite_pctile'], spy_close, year_filter)
+            _add_signal_vlines(fig, disp.get('signal_history'))
             st.plotly_chart(fig, use_container_width=True)
 
     # Signal overlay

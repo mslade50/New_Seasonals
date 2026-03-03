@@ -85,6 +85,19 @@
                 "42d": {"signal_mean": 1.46, "unconditional_mean": 1.63, "diff_mean": -0.17, "hit_rate": null, "p_value": 0.638},
                 "63d": {"signal_mean": 1.97, "unconditional_mean": 2.47, "diff_mean": -1.20, "hit_rate": null, "p_value": 0.342}
             }
+        },
+        "Dispersion": {
+            "n_events": 12,
+            "pct_active": 0.5,
+            "params": "RV 21d, pctile lookback 504, threshold 85th, days since 10% correction > 200d, decluster 10d",
+            "note": "Cross-sectional return dispersion. diff_mean calibrated to 20% of each dial horizon.",
+            "horizons": {
+                "5d":  {"signal_mean": 0.10, "unconditional_mean": 0.31, "diff_mean": -0.36, "hit_rate": 41.7, "p_value": 0.310},
+                "10d": {"signal_mean": -0.29, "unconditional_mean": 0.62, "diff_mean": -0.91, "hit_rate": 58.3, "p_value": 0.138},
+                "21d": {"signal_mean": -0.43, "unconditional_mean": 1.30, "diff_mean": -1.90, "hit_rate": 58.3, "p_value": 0.094},
+                "42d": {"signal_mean": -0.67, "unconditional_mean": 2.56, "diff_mean": -3.23, "hit_rate": 58.3, "p_value": 0.065},
+                "63d": {"signal_mean": -0.34, "unconditional_mean": 3.83, "diff_mean": -2.91, "hit_rate": 58.3, "p_value": 0.042}
+            }
         }
     }
 }
