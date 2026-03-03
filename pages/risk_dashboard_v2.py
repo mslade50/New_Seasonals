@@ -68,6 +68,29 @@ SEASONAL_RANKS_BACKUP = os.path.join(parent_dir, "seasonal_ranks.csv")
 
 ALL_SIGNAL_TICKERS = sorted(set(VOL_TICKERS + SECTOR_ETFS + CROSS_ASSET_TICKERS))
 
+# Regime Deep Dive bucket definitions
+REGIME_BUCKETS = {
+    'Robust':   (0, 20),
+    'Calm':     (20, 40),
+    'Neutral':  (40, 60),
+    'Elevated': (60, 80),
+    'Fragile':  (80, 100.01),
+}
+REGIME_ORDER = ['Robust', 'Calm', 'Neutral', 'Elevated', 'Fragile']
+REGIME_COLORS = {
+    'Robust': '#00CC00', 'Calm': '#7FCC00', 'Neutral': '#FFD700',
+    'Elevated': '#FF8C00', 'Fragile': '#CC0000',
+}
+
+
+def _assign_regime_bucket(score: float) -> str:
+    """Map a fragility score to a regime bucket name."""
+    for name, (lo, hi) in REGIME_BUCKETS.items():
+        if lo <= score < hi:
+            return name
+    return 'Fragile' if score >= 80 else 'Robust'
+
+
 # FOMC announcement dates (for pre-FOMC rally signal)
 FOMC_DATES = pd.to_datetime([
     # 2015
@@ -2805,6 +2828,671 @@ def _render_fragility_event_study(study: dict, spy_close: pd.Series, horizon_lab
 
 
 # ============================================================================
+# REGIME DEEP DIVE — COMPUTATION
+# ============================================================================
+
+@st.cache_data(ttl=3600)
+def compute_regime_deep_dive(_spy_df, _closes, _frag_df, cache_key):
+    """
+    Compute full regime deep-dive stats for all 3 horizons.
+    Returns dict keyed by horizon ('5d','21d','63d'), each containing
+    group stats, summary table, transition matrix, and duration stats.
+    """
+    spy = _spy_df.copy()
+    spy.index = pd.to_datetime(spy.index)
+    spy = spy.sort_index()
+
+    # VIX / VIX3M from closes
+    vix = _closes["^VIX"].dropna() if "^VIX" in _closes.columns else pd.Series(dtype=float)
+    vix3m = _closes["^VIX3M"].dropna() if "^VIX3M" in _closes.columns else pd.Series(dtype=float)
+
+    results = {}
+    for horizon in ['5d', '21d', '63d']:
+        if horizon not in _frag_df.columns:
+            continue
+        frag = _frag_df[horizon].dropna()
+        if len(frag) < 50:
+            continue
+
+        # Align SPY OHLC with frag dates
+        common = frag.index.intersection(spy.index).sort_values()
+        fs = frag.reindex(common)
+        sd = spy.reindex(common)
+
+        # Assign buckets
+        buckets = fs.map(_assign_regime_bucket)
+
+        # Daily returns
+        daily_ret = sd['Close'].pct_change()
+
+        # Align VIX/VIX3M
+        vix_a = vix.reindex(common)
+        vix3m_a = vix3m.reindex(common)
+
+        groups = {}
+        groups['return_profile'] = _compute_return_profile(sd, daily_ret, buckets)
+        groups['intraday_character'] = _compute_intraday_character(sd, buckets)
+        groups['overnight_rth'] = _compute_overnight_rth(sd, daily_ret, buckets)
+        groups['breakdown_breakout'] = _compute_breakdown_breakout(sd, buckets)
+        groups['autocorrelation'] = _compute_autocorrelation(sd, daily_ret, buckets)
+        groups['volatility_context'] = _compute_volatility_context(sd, daily_ret, buckets, vix_a, vix3m_a)
+        groups['tail_risk'] = _compute_tail_risk(daily_ret, buckets)
+        groups['forward_returns'] = _compute_forward_returns(sd, buckets)
+        groups['buy_and_hold'] = _compute_buy_and_hold(sd, daily_ret, buckets)
+        transition = _compute_transition_matrix(buckets)
+        durations = _compute_regime_durations(buckets)
+        summary = _build_summary_table(groups)
+
+        results[horizon] = {
+            'groups': groups,
+            'summary': summary,
+            'transition': transition,
+            'durations': durations,
+        }
+
+    return results
+
+
+def _compute_return_profile(sd, daily_ret, buckets):
+    """Group 1: Return profile per regime bucket."""
+    rows = {}
+    for bkt in REGIME_ORDER:
+        mask = buckets == bkt
+        r = daily_ret[mask].dropna()
+        n = len(r)
+        if n < 5:
+            rows[bkt] = {'N': n}
+            continue
+        up = r[r > 0]
+        dn = r[r < 0]
+        avg_up = up.mean() * 100 if len(up) > 0 else 0
+        avg_dn = dn.mean() * 100 if len(dn) > 0 else 0
+        asym = abs(avg_up / avg_dn) if avg_dn != 0 else float('inf')
+        ann_ret = r.mean() * 252 * 100
+        ann_vol = r.std() * np.sqrt(252) * 100
+        sharpe = ann_ret / ann_vol if ann_vol > 0 else 0
+        rows[bkt] = {
+            'N': n,
+            'Avg Ret %': r.mean() * 100,
+            'Med Ret %': r.median() * 100,
+            'Std %': r.std() * 100,
+            '% Up': (r > 0).mean() * 100,
+            'Avg Up %': avg_up,
+            'Avg Dn %': avg_dn,
+            'Up/Dn Ratio': asym,
+            'Ann Ret %': ann_ret,
+            'Ann Vol %': ann_vol,
+            'Sharpe': sharpe,
+        }
+    return pd.DataFrame(rows).T.reindex(REGIME_ORDER)
+
+
+def _compute_intraday_character(sd, buckets):
+    """Group 2: Where SPY closes within its daily range."""
+    rows = {}
+    h, l, c = sd['High'], sd['Low'], sd['Close']
+    rng = h - l
+    close_range = (c - l) / rng.replace(0, np.nan)
+    daily_range_pct = rng / c * 100
+    for bkt in REGIME_ORDER:
+        mask = buckets == bkt
+        cr = close_range[mask].dropna()
+        dr = daily_range_pct[mask].dropna()
+        n = mask.sum()
+        if n < 5:
+            rows[bkt] = {'N': n}
+            continue
+        rows[bkt] = {
+            'N': n,
+            'Avg Close Range': cr.mean(),
+            '% Top Quartile': (cr > 0.75).mean() * 100,
+            '% Bot Quartile': (cr < 0.25).mean() * 100,
+            'Avg Range %': dr.mean(),
+            'Avg ATR %': dr.rolling(14, min_periods=1).mean().mean(),
+        }
+    return pd.DataFrame(rows).T.reindex(REGIME_ORDER)
+
+
+def _compute_overnight_rth(sd, daily_ret, buckets):
+    """Group 3: Overnight vs regular trading hours decomposition."""
+    rows = {}
+    o, c = sd['Open'], sd['Close']
+    prev_c = c.shift(1)
+    overnight = (o - prev_c) / prev_c
+    rth = (c - o) / o
+    for bkt in REGIME_ORDER:
+        mask = buckets == bkt
+        on = overnight[mask].dropna()
+        rt = rth[mask].dropna()
+        n = mask.sum()
+        if n < 5:
+            rows[bkt] = {'N': n}
+            continue
+        total = on.mean() + rt.mean()
+        on_pct = (on.mean() / total * 100) if total != 0 else 50
+        # Gap fill: did RTH cross previous close?
+        gap_up = (o > prev_c) & (sd['Low'] <= prev_c)
+        gap_dn = (o < prev_c) & (sd['High'] >= prev_c)
+        gap_fill = (gap_up | gap_dn)[mask]
+        rows[bkt] = {
+            'N': n,
+            'Avg ON Ret %': on.mean() * 100,
+            'Avg RTH Ret %': rt.mean() * 100,
+            'ON % of Total': on_pct,
+            'Gap Fill %': gap_fill.mean() * 100 if len(gap_fill) > 0 else 0,
+        }
+    return pd.DataFrame(rows).T.reindex(REGIME_ORDER)
+
+
+def _compute_breakdown_breakout(sd, buckets):
+    """Group 4: Breakdown/breakout/trap day percentages."""
+    rows = {}
+    c, h, l = sd['Close'], sd['High'], sd['Low']
+    prev_h = h.shift(1)
+    prev_l = l.shift(1)
+    for bkt in REGIME_ORDER:
+        mask = buckets == bkt
+        n = mask.sum()
+        if n < 5:
+            rows[bkt] = {'N': n}
+            continue
+        # Close below prior low
+        breakdown = (c < prev_l)[mask].mean() * 100
+        # Close above prior high
+        breakout = (c > prev_h)[mask].mean() * 100
+        # Trap: traded below prev low but recovered (close >= prev low)
+        trap = ((l < prev_l) & (c >= prev_l))[mask].mean() * 100
+        # Failed breakout: traded above prev high but closed below
+        failed = ((h > prev_h) & (c <= prev_h))[mask].mean() * 100
+        rows[bkt] = {
+            'N': n,
+            '% Breakdown': breakdown,
+            '% Breakout': breakout,
+            '% Trap/Wick': trap,
+            '% Failed BO': failed,
+        }
+    return pd.DataFrame(rows).T.reindex(REGIME_ORDER)
+
+
+def _compute_autocorrelation(sd, daily_ret, buckets):
+    """Group 5: Autocorrelation and mean reversion stats."""
+    rows = {}
+    r = daily_ret
+    next_r = r.shift(-1)
+    for bkt in REGIME_ORDER:
+        mask = buckets == bkt
+        n = mask.sum()
+        if n < 5:
+            rows[bkt] = {'N': n}
+            continue
+        r_bkt = r[mask].dropna()
+        nr_bkt = next_r[mask].dropna()
+        # Next-day return after up/down days
+        up_mask = (r > 0) & mask
+        dn_mask = (r < 0) & mask
+        next_after_up = next_r[up_mask].dropna()
+        next_after_dn = next_r[dn_mask].dropna()
+        # 2-day reversal rate: up followed by down or vice versa
+        sign_change = (r * r.shift(1) < 0)
+        rev_rate = sign_change[mask].mean() * 100
+        # Consecutive streak
+        same_sign = (r > 0).astype(int)
+        streaks = same_sign[mask].groupby((same_sign[mask] != same_sign[mask].shift()).cumsum())
+        streak_lens = streaks.sum()
+        rows[bkt] = {
+            'N': n,
+            'Next Ret After Up %': next_after_up.mean() * 100 if len(next_after_up) > 0 else 0,
+            'Next Ret After Dn %': next_after_dn.mean() * 100 if len(next_after_dn) > 0 else 0,
+            '2d Reversal %': rev_rate,
+            'Avg Streak': streak_lens.mean() if len(streak_lens) > 0 else 0,
+            'Max Streak': streak_lens.max() if len(streak_lens) > 0 else 0,
+        }
+    return pd.DataFrame(rows).T.reindex(REGIME_ORDER)
+
+
+def _compute_volatility_context(sd, daily_ret, buckets, vix_a, vix3m_a):
+    """Group 6: VIX levels and realized vol per regime."""
+    rows = {}
+    rng_pct = (sd['High'] - sd['Low']) / sd['Close'] * 100
+    for bkt in REGIME_ORDER:
+        mask = buckets == bkt
+        n = mask.sum()
+        if n < 5:
+            rows[bkt] = {'N': n}
+            continue
+        r_bkt = daily_ret[mask].dropna()
+        v = vix_a[mask].dropna()
+        v3 = vix3m_a[mask].dropna()
+        ratio = (v / v3).dropna() if len(v) > 0 and len(v3) > 0 else pd.Series(dtype=float)
+        rv = r_bkt.std() * np.sqrt(252) * 100
+        atr = rng_pct[mask].dropna()
+        vov = atr.rolling(21, min_periods=5).std().dropna()
+        rows[bkt] = {
+            'N': n,
+            'Avg VIX': v.mean() if len(v) > 0 else np.nan,
+            'Avg VIX/VIX3M': ratio.mean() if len(ratio) > 0 else np.nan,
+            '% Backwardation': (ratio > 1).mean() * 100 if len(ratio) > 0 else np.nan,
+            'Realized Vol %': rv,
+            'Vol-of-Vol': vov.mean() if len(vov) > 0 else np.nan,
+        }
+    return pd.DataFrame(rows).T.reindex(REGIME_ORDER)
+
+
+def _compute_tail_risk(daily_ret, buckets):
+    """Group 7: Distribution shape and tail stats."""
+    rows = {}
+    for bkt in REGIME_ORDER:
+        mask = buckets == bkt
+        r = daily_ret[mask].dropna()
+        n = len(r)
+        if n < 10:
+            rows[bkt] = {'N': n}
+            continue
+        sigma = r.std()
+        rows[bkt] = {
+            'N': n,
+            'Skew': r.skew(),
+            'Kurtosis': r.kurtosis(),
+            '% > 1\u03c3': (r.abs() > sigma).mean() * 100,
+            '% > 2\u03c3': (r.abs() > 2 * sigma).mean() * 100,
+            'Left Tail %': (r < -sigma).mean() * 100,
+            'Right Tail %': (r > sigma).mean() * 100,
+            'Worst Day %': r.min() * 100,
+            'Best Day %': r.max() * 100,
+            'P5 %': r.quantile(0.05) * 100,
+            'P95 %': r.quantile(0.95) * 100,
+        }
+    return pd.DataFrame(rows).T.reindex(REGIME_ORDER)
+
+
+def _compute_forward_returns(sd, buckets):
+    """Group 8: Forward returns at multiple horizons."""
+    fwd_windows = [5, 10, 21, 42, 63]
+    close = sd['Close']
+    rows = {}
+    for bkt in REGIME_ORDER:
+        mask = buckets == bkt
+        n = mask.sum()
+        if n < 10:
+            rows[bkt] = {'N': n}
+            continue
+        row = {'N': n}
+        for w in fwd_windows:
+            fwd = close.shift(-w) / close - 1
+            fr = fwd[mask].dropna()
+            row[f'{w}d Avg %'] = fr.mean() * 100 if len(fr) > 0 else np.nan
+            row[f'{w}d Hit %'] = (fr > 0).mean() * 100 if len(fr) > 0 else np.nan
+        rows[bkt] = row
+    return pd.DataFrame(rows).T.reindex(REGIME_ORDER)
+
+
+def _compute_buy_and_hold(sd, daily_ret, buckets):
+    """Group 10: Buy-and-hold equity curves — invested only during each regime."""
+    curves = {}
+    stats = {}
+    total_days = len(daily_ret.dropna())
+    for bkt in REGIME_ORDER:
+        mask = buckets == bkt
+        # Returns are SPY daily returns on days in this regime, 0 otherwise
+        regime_ret = daily_ret.where(mask, 0.0).fillna(0.0)
+        equity = (1 + regime_ret).cumprod()
+        curves[bkt] = equity
+
+        n = mask.sum()
+        if n < 5:
+            stats[bkt] = {'N Days': n, '% of Time': n / total_days * 100 if total_days > 0 else 0}
+            continue
+
+        total_ret = equity.iloc[-1] / equity.iloc[0] - 1
+        years = total_days / 252
+        cagr = (equity.iloc[-1] / equity.iloc[0]) ** (1 / years) - 1 if years > 0 else 0
+        running_max = equity.cummax()
+        drawdown = (equity - running_max) / running_max
+        max_dd = drawdown.min()
+
+        stats[bkt] = {
+            'N Days': n,
+            '% of Time': n / total_days * 100 if total_days > 0 else 0,
+            'Total Ret %': total_ret * 100,
+            'CAGR %': cagr * 100,
+            'Max DD %': max_dd * 100,
+        }
+
+    stats_df = pd.DataFrame(stats).T.reindex(REGIME_ORDER)
+    return {'curves': curves, 'stats': stats_df}
+
+
+def _compute_transition_matrix(buckets):
+    """Group 9a: Next-day regime transition probabilities (5x5)."""
+    current = buckets
+    nxt = buckets.shift(-1)
+    valid = current.dropna().index.intersection(nxt.dropna().index)
+    c, n = current.reindex(valid), nxt.reindex(valid)
+    matrix = pd.DataFrame(0.0, index=REGIME_ORDER, columns=REGIME_ORDER)
+    for from_bkt in REGIME_ORDER:
+        mask = c == from_bkt
+        total = mask.sum()
+        if total == 0:
+            continue
+        for to_bkt in REGIME_ORDER:
+            matrix.loc[from_bkt, to_bkt] = ((c == from_bkt) & (n == to_bkt)).sum() / total * 100
+    return matrix
+
+
+def _compute_regime_durations(buckets):
+    """Group 9b: Consecutive-day duration stats per regime."""
+    rows = {}
+    for bkt in REGIME_ORDER:
+        in_bkt = (buckets == bkt).astype(int)
+        groups = in_bkt.groupby((in_bkt != in_bkt.shift()).cumsum())
+        streaks = groups.sum()
+        streaks = streaks[streaks > 0]
+        if len(streaks) == 0:
+            rows[bkt] = {'Episodes': 0, 'Avg Days': 0, 'Med Days': 0, 'Max Days': 0}
+            continue
+        rows[bkt] = {
+            'Episodes': len(streaks),
+            'Avg Days': streaks.mean(),
+            'Med Days': streaks.median(),
+            'Max Days': streaks.max(),
+        }
+    return pd.DataFrame(rows).T.reindex(REGIME_ORDER)
+
+
+def _build_summary_table(groups):
+    """Extract ~17 key metrics from all groups into one summary DataFrame."""
+    summary = pd.DataFrame(index=REGIME_ORDER)
+
+    rp = groups['return_profile']
+    ic = groups['intraday_character']
+    onr = groups['overnight_rth']
+    bb = groups['breakdown_breakout']
+    ac = groups['autocorrelation']
+    vc = groups['volatility_context']
+    tr = groups['tail_risk']
+    fr = groups['forward_returns']
+
+    def _safe_col(df, col):
+        return df[col] if col in df.columns else pd.Series(np.nan, index=REGIME_ORDER)
+
+    summary['N Days'] = _safe_col(rp, 'N')
+    summary['Avg Ret %'] = _safe_col(rp, 'Avg Ret %')
+    summary['% Up'] = _safe_col(rp, '% Up')
+    summary['Ann Ret %'] = _safe_col(rp, 'Ann Ret %')
+    summary['Ann Vol %'] = _safe_col(rp, 'Ann Vol %')
+    summary['Sharpe'] = _safe_col(rp, 'Sharpe')
+    summary['Avg Range %'] = _safe_col(ic, 'Avg Range %')
+    summary['Close Range'] = _safe_col(ic, 'Avg Close Range')
+    summary['ON Ret %'] = _safe_col(onr, 'Avg ON Ret %')
+    summary['RTH Ret %'] = _safe_col(onr, 'Avg RTH Ret %')
+    summary['% Breakdown'] = _safe_col(bb, '% Breakdown')
+    summary['% Trap'] = _safe_col(bb, '% Trap/Wick')
+    summary['Reversal %'] = _safe_col(ac, '2d Reversal %')
+    summary['Avg VIX'] = _safe_col(vc, 'Avg VIX')
+    summary['Skew'] = _safe_col(tr, 'Skew')
+    summary['5d Fwd %'] = _safe_col(fr, '5d Avg %')
+    summary['21d Fwd %'] = _safe_col(fr, '21d Avg %')
+
+    return summary
+
+
+# ============================================================================
+# REGIME DEEP DIVE — RENDERING
+# ============================================================================
+
+def _render_summary_html_table(summary, current_regime):
+    """Render summary table with gold highlight on current regime column."""
+    cols = summary.columns.tolist()
+    buckets = summary.index.tolist()
+
+    # Header row
+    header = '<tr><th style="padding:4px 8px; text-align:left; font-size:12px; border-bottom:2px solid #555;">Metric</th>'
+    for bkt in buckets:
+        bg = 'background:rgba(255,215,0,0.15); border:1px solid #FFD700;' if bkt == current_regime else ''
+        color = REGIME_COLORS.get(bkt, '#ccc')
+        header += f'<th style="padding:4px 8px; text-align:center; font-size:12px; color:{color}; border-bottom:2px solid #555; {bg}">{bkt}</th>'
+    header += '</tr>'
+
+    # Data rows
+    rows = ''
+    for col in cols:
+        rows += '<tr>'
+        rows += f'<td style="padding:3px 8px; font-size:11px; color:#ccc; white-space:nowrap;">{col}</td>'
+        for bkt in buckets:
+            val = summary.loc[bkt, col]
+            bg = 'background:rgba(255,215,0,0.08);' if bkt == current_regime else ''
+            if pd.isna(val):
+                cell = '<span style="color:#666;">—</span>'
+            elif col == 'N Days':
+                cell = f'{int(val):,}'
+            elif col in ('Sharpe',):
+                cell = f'{val:.2f}'
+            elif col in ('Close Range', 'Skew'):
+                cell = f'{val:.2f}'
+            else:
+                cell = f'{val:+.2f}' if 'Ret' in col or 'Fwd' in col else f'{val:.1f}'
+            # Color positive green, negative red for return-type metrics
+            color = '#ccc'
+            if not pd.isna(val) and col not in ('N Days', 'Avg VIX', 'Avg Range %', 'Close Range'):
+                if 'Ret' in col or 'Fwd' in col or col == 'Sharpe':
+                    color = '#00CC00' if val > 0 else '#CC0000' if val < 0 else '#ccc'
+            rows += f'<td style="padding:3px 8px; text-align:center; font-size:11px; color:{color}; {bg}">{cell}</td>'
+        rows += '</tr>'
+
+    html = (
+        '<div style="overflow-x:auto; margin-bottom:12px;">'
+        f'<table style="width:100%; border-collapse:collapse; font-family:monospace;">'
+        f'{header}{rows}</table></div>'
+    )
+    st.markdown(html, unsafe_allow_html=True)
+
+
+def _render_stat_group_table(df, current_regime):
+    """Render a stat group DataFrame as an HTML table with gold highlight."""
+    if df is None or df.empty:
+        st.caption("Insufficient data")
+        return
+
+    cols = [c for c in df.columns if c != 'N']
+    buckets = df.index.tolist()
+
+    header = '<tr><th style="padding:3px 6px; text-align:left; font-size:11px; border-bottom:1px solid #444;">Metric</th>'
+    for bkt in buckets:
+        bg = 'background:rgba(255,215,0,0.15); border:1px solid #FFD700;' if bkt == current_regime else ''
+        color = REGIME_COLORS.get(bkt, '#ccc')
+        header += f'<th style="padding:3px 6px; text-align:center; font-size:11px; color:{color}; border-bottom:1px solid #444; {bg}">{bkt}</th>'
+    header += '</tr>'
+
+    rows = ''
+    for col in cols:
+        rows += '<tr>'
+        rows += f'<td style="padding:2px 6px; font-size:10px; color:#aaa; white-space:nowrap;">{col}</td>'
+        for bkt in buckets:
+            val = df.loc[bkt, col] if col in df.columns else np.nan
+            bg = 'background:rgba(255,215,0,0.08);' if bkt == current_regime else ''
+            if pd.isna(val):
+                cell = '—'
+                color = '#666'
+            elif isinstance(val, float):
+                cell = f'{val:.2f}'
+                color = '#ccc'
+            else:
+                cell = str(val)
+                color = '#ccc'
+            rows += f'<td style="padding:2px 6px; text-align:center; font-size:10px; color:{color}; {bg}">{cell}</td>'
+        rows += '</tr>'
+
+    html = (
+        f'<table style="width:100%; border-collapse:collapse; font-family:monospace;">'
+        f'{header}{rows}</table>'
+    )
+    st.markdown(html, unsafe_allow_html=True)
+
+
+def _render_buy_and_hold(bnh_data, current_regime):
+    """Plotly equity curves + stats table for regime-filtered buy-and-hold."""
+    curves = bnh_data['curves']
+    stats_df = bnh_data['stats']
+
+    fig = go.Figure()
+    for bkt in REGIME_ORDER:
+        if bkt not in curves:
+            continue
+        eq = curves[bkt]
+        fig.add_trace(go.Scatter(
+            x=eq.index, y=eq.values,
+            name=bkt,
+            line=dict(color=REGIME_COLORS.get(bkt, '#ccc'), width=2 if bkt == current_regime else 1),
+            opacity=1.0 if bkt == current_regime else 0.6,
+        ))
+
+    fig.update_layout(
+        yaxis_title='Growth of $1',
+        height=300,
+        margin=dict(l=10, r=10, t=10, b=10),
+        paper_bgcolor='rgba(0,0,0,0)',
+        plot_bgcolor='rgba(0,0,0,0)',
+        legend=dict(orientation='h', y=-0.15, font=dict(size=10)),
+        yaxis=dict(gridcolor='rgba(128,128,128,0.15)'),
+        xaxis=dict(gridcolor='rgba(128,128,128,0.15)'),
+    )
+    st.plotly_chart(fig, use_container_width=True)
+
+    _render_stat_group_table(stats_df, current_regime)
+
+
+def _render_transition_heatmap(transition, current_regime):
+    """Plotly heatmap for 5x5 regime transition matrix."""
+    z = transition.values
+    labels = transition.index.tolist()
+    text = [[f'{v:.1f}%' for v in row] for row in z]
+
+    # Highlight current regime row
+    row_idx = labels.index(current_regime) if current_regime in labels else -1
+
+    fig = go.Figure(data=go.Heatmap(
+        z=z,
+        x=labels,
+        y=labels,
+        text=text,
+        texttemplate='%{text}',
+        colorscale=[
+            [0, 'rgba(0,0,0,0)'],
+            [0.25, 'rgba(0,204,0,0.3)'],
+            [0.5, 'rgba(255,215,0,0.4)'],
+            [0.75, 'rgba(255,140,0,0.5)'],
+            [1.0, 'rgba(204,0,0,0.6)'],
+        ],
+        showscale=False,
+        hovertemplate='From %{y} → %{x}: %{text}<extra></extra>',
+    ))
+
+    # Add gold border around current regime row
+    if row_idx >= 0:
+        fig.add_shape(
+            type='rect',
+            x0=-0.5, x1=len(labels) - 0.5,
+            y0=row_idx - 0.5, y1=row_idx + 0.5,
+            line=dict(color='#FFD700', width=2),
+        )
+
+    fig.update_layout(
+        xaxis_title='To',
+        yaxis_title='From',
+        yaxis_autorange='reversed',
+        height=300,
+        margin=dict(l=10, r=10, t=10, b=10),
+        paper_bgcolor='rgba(0,0,0,0)',
+        plot_bgcolor='rgba(0,0,0,0)',
+        font=dict(size=11),
+    )
+    st.plotly_chart(fig, use_container_width=True)
+
+
+@st.fragment
+def _render_regime_deep_dive(deep_dive_data, h_scores):
+    """Fragment: Regime Deep Dive section with tabs for each horizon."""
+    if not deep_dive_data:
+        return
+
+    st.divider()
+    st.subheader("Regime Deep Dive")
+    st.caption("SPY return statistics bucketed by fragility score regime")
+
+    tab_labels = []
+    tab_keys = []
+    for h in ['5d', '21d', '63d']:
+        if h in deep_dive_data:
+            label = {'5d': 'Short-Term (5d)', '21d': 'Intermediate (21d)', '63d': 'Long-Term (63d)'}[h]
+            tab_labels.append(label)
+            tab_keys.append(h)
+
+    if not tab_labels:
+        return
+
+    tabs = st.tabs(tab_labels)
+
+    for tab, h_key in zip(tabs, tab_keys):
+        with tab:
+            data = deep_dive_data[h_key]
+            current_score = h_scores.get(h_key, 50)
+            current_regime = _assign_regime_bucket(current_score)
+
+            # Current regime indicator
+            color = REGIME_COLORS.get(current_regime, '#ccc')
+            st.markdown(
+                f'<p style="font-size:13px; margin-bottom:8px;">'
+                f'Current: <span style="color:{color}; font-weight:bold;">{current_regime}</span> '
+                f'(score {current_score:.0f})</p>',
+                unsafe_allow_html=True,
+            )
+
+            # Summary table
+            _render_summary_html_table(data['summary'], current_regime)
+
+            groups = data['groups']
+
+            with st.expander("Return Profile"):
+                _render_stat_group_table(groups['return_profile'], current_regime)
+
+            with st.expander("Intraday Character"):
+                _render_stat_group_table(groups['intraday_character'], current_regime)
+
+            with st.expander("Overnight vs RTH"):
+                _render_stat_group_table(groups['overnight_rth'], current_regime)
+
+            with st.expander("Breakdown / Breakout"):
+                _render_stat_group_table(groups['breakdown_breakout'], current_regime)
+
+            with st.expander("Autocorrelation & Mean Reversion"):
+                _render_stat_group_table(groups['autocorrelation'], current_regime)
+
+            with st.expander("Volatility Context"):
+                _render_stat_group_table(groups['volatility_context'], current_regime)
+
+            with st.expander("Tail Risk & Distribution"):
+                _render_stat_group_table(groups['tail_risk'], current_regime)
+
+            with st.expander("Forward Returns"):
+                _render_stat_group_table(groups['forward_returns'], current_regime)
+
+            with st.expander("Buy & Hold Performance"):
+                st.caption("Cumulative return of $1 invested only during each regime")
+                _render_buy_and_hold(groups['buy_and_hold'], current_regime)
+
+            with st.expander("Transition Dynamics"):
+                col1, col2 = st.columns([3, 2])
+                with col1:
+                    st.caption("Next-day transition probability (%)")
+                    _render_transition_heatmap(data['transition'], current_regime)
+                with col2:
+                    st.caption("Regime duration stats (consecutive days)")
+                    dur = data['durations']
+                    if dur is not None and not dur.empty:
+                        _render_stat_group_table(dur, current_regime)
+
+
+# ============================================================================
 # CACHED COMPUTATION & FRAGMENT HELPERS
 # ============================================================================
 
@@ -3100,32 +3788,15 @@ def main():
     vix_close = computed['vix_close']
     spy_close = computed['spy_close']
 
-    # -------------------------------------------------------------------
-    # EXECUTIVE SUMMARY
-    # -------------------------------------------------------------------
-
-    render_price_context(price_ctx)
-
-    # What Changed
+    # --- Signal state persistence (still needed for dial computation) ---
     prev_state = load_previous_signal_state()
     current_state = {'signals': signals_bool}
-    changes = compute_changes(current_state, prev_state)
-
-    if changes:
-        changes_text = " \u00b7 ".join(changes)
-        st.markdown(f"<div style='font-size: 13px; padding: 4px 0 8px 0;'>Since last session: {changes_text}</div>",
-                    unsafe_allow_html=True)
-    else:
-        st.markdown("<div style='font-size: 12px; color: #555; padding: 4px 0 8px 0;'>No signal changes since last session.</div>",
-                    unsafe_allow_html=True)
-
     save_current_signal_state(current_state)
     save_signal_fire_history(signals_ordered, spy_close)
 
-    # Signal board
-    render_signal_board(signals_ordered, price_ctx)
-
-    # Risk horizon dials
+    # -------------------------------------------------------------------
+    # RISK DIALS
+    # -------------------------------------------------------------------
     active_count = sum(1 for v in signals_bool.values() if v)
     total_count = len(signals_bool)
 
@@ -3165,6 +3836,12 @@ def main():
             else:
                 dd_results[h_key] = None
         render_similar_readings_drawdown_table(dd_results)
+
+    # Regime Deep Dive
+    if frag_df is not None and h_scores is not None:
+        deep_dive = compute_regime_deep_dive(spy_df, closes, frag_df, _parquet_cache_key())
+        if deep_dive:
+            _render_regime_deep_dive(deep_dive, h_scores)
 
     # -------------------------------------------------------------------
     # CHARTS (all in one fragment — year filter changes only re-render here)
