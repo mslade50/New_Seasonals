@@ -1,0 +1,32 @@
+name: Daily Risk Report
+
+on:
+  schedule:
+    # Run at 10:15 PM UTC (5:15 PM ET), weekdays only
+    - cron: '15 22 * * 1-5'
+  workflow_dispatch:  # Allow manual trigger
+
+jobs:
+  risk_report:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install kaleido
+
+      - name: Run risk report
+        env:
+          EMAIL_USER: ${{ secrets.EMAIL_USER }}
+          EMAIL_PASS: ${{ secrets.EMAIL_PASS }}
+        run: python daily_risk_report.py

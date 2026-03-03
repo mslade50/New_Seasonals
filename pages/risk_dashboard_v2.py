@@ -22,11 +22,14 @@ from scipy import stats
 # ---------------------------------------------------------------------------
 # PAGE CONFIG (must be first Streamlit command)
 # ---------------------------------------------------------------------------
-st.set_page_config(
-    page_title="Risk Dashboard V2",
-    page_icon="\U0001f4ca",
-    layout="wide",
-)
+try:
+    st.set_page_config(
+        page_title="Risk Dashboard V2",
+        page_icon="\U0001f4ca",
+        layout="wide",
+    )
+except Exception:
+    pass  # Not running under Streamlit (e.g. imported by daily_risk_report.py)
 
 # ---------------------------------------------------------------------------
 # PATH SETUP
@@ -256,7 +259,10 @@ def _download_ticker_group(tickers: list, start_date: str) -> dict:
     try:
         raw = yf.download(tickers, start=start_date, auto_adjust=True, threads=True)
     except Exception as e:
-        st.warning(f"yfinance bulk download failed: {e}")
+        try:
+            st.warning(f"yfinance bulk download failed: {e}")
+        except Exception:
+            print(f"Warning: yfinance bulk download failed: {e}")
         return result
 
     if raw is None or raw.empty:
@@ -2998,4 +3004,6 @@ def main():
                        horizon_stats, frag_df, lookback_years)
 
 
-main()
+# Guard: only run the Streamlit app when executed as a page, not when imported
+if __name__ == "__main__" or (hasattr(st, "runtime") and st.runtime.exists()):
+    main()
