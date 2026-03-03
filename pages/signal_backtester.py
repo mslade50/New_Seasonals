@@ -159,24 +159,33 @@ def load_ticker_ohlc(ticker: str, start: str = "2010-01-01"):
         return None
 
 
-@st.cache_data(ttl=3600)
 def load_sp500_closes():
     """Load S&P 500 constituent closes from parquet cache."""
     if os.path.exists(CACHE_SP500):
-        df = pd.read_parquet(CACHE_SP500)
-        if df.index.tz is not None:
-            df.index = df.index.tz_localize(None)
-        return df
+        return _load_sp500_closes_cached()
     return None
 
 
 @st.cache_data(ttl=3600)
+def _load_sp500_closes_cached():
+    """Cached inner loader — only called when the parquet file exists."""
+    df = pd.read_parquet(CACHE_SP500)
+    if df.index.tz is not None:
+        df.index = df.index.tz_localize(None)
+    return df
+
+
 def load_risk_classification():
     """Load risk-on/risk-off classification CSV."""
     if os.path.exists(RISK_CLASSIFICATION):
-        df = pd.read_csv(RISK_CLASSIFICATION)
-        return df
+        return _load_risk_classification_cached()
     return None
+
+
+@st.cache_data(ttl=3600)
+def _load_risk_classification_cached():
+    """Cached inner loader — only called when the CSV file exists."""
+    return pd.read_csv(RISK_CLASSIFICATION)
 
 
 # ---------------------------------------------------------------------------
