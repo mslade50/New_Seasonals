@@ -459,6 +459,74 @@ def render_spread_timeseries(
     st.plotly_chart(fig, use_container_width=True)
 
 
+def render_fragility_timeseries(frag_ts: pd.DataFrame, spy_close: pd.Series, horizon: str):
+    """Dual-axis chart: fragility score (area) + SPY (line). Matches dashboard chart."""
+    from plotly.subplots import make_subplots
+
+    h_labels = {"5d": "5-Day", "21d": "21-Day", "63d": "63-Day"}
+    if horizon == "Average (21d + 63d)":
+        frag = frag_ts[["21d", "63d"]].mean(axis=1).dropna()
+        label = "Avg (21d+63d)"
+    else:
+        frag = frag_ts[horizon].dropna()
+        label = h_labels.get(horizon, horizon)
+
+    common = frag.index.intersection(spy_close.dropna().index).sort_values()
+    frag = frag.reindex(common)
+    spy = spy_close.reindex(common)
+
+    fig = make_subplots(specs=[[{"secondary_y": True}]])
+
+    fig.add_trace(
+        go.Scatter(
+            x=common, y=frag.values,
+            name=f"{label} Fragility",
+            fill="tozeroy",
+            fillcolor="rgba(255, 140, 0, 0.15)",
+            line=dict(color="rgba(255, 140, 0, 0.8)", width=1),
+            hovertemplate=f"{label} Fragility: %{{y:.1f}}<extra></extra>",
+        ),
+        secondary_y=False,
+    )
+
+    # Regime threshold lines
+    for thresh, color, lbl in [
+        (50, "rgba(255, 215, 0, 0.4)", "50"),
+        (70, "rgba(255, 69, 0, 0.4)", "70"),
+        (100, "rgba(139, 0, 0, 0.5)", "100"),
+    ]:
+        fig.add_hline(
+            y=thresh, line_dash="dot", line_color=color, line_width=1,
+            annotation_text=lbl, annotation_position="left",
+            secondary_y=False,
+        )
+
+    fig.add_trace(
+        go.Scatter(
+            x=common, y=spy.values,
+            name="SPY",
+            line=dict(color="#4A90D9", width=1.5),
+            hovertemplate="SPY: $%{y:.2f}<extra></extra>",
+        ),
+        secondary_y=True,
+    )
+
+    y_max = max(105, frag.max() * 1.05) if len(frag) > 0 else 105
+    spy_min, spy_max = spy.min() * 0.95, spy.max() * 1.05
+
+    fig.update_layout(
+        title=dict(text=f"{label} Fragility Score vs SPY", font=dict(size=13)),
+        height=350,
+        margin=dict(l=10, r=10, t=35, b=10),
+        hovermode="x unified",
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1, font=dict(size=9)),
+    )
+    fig.update_yaxes(title_text="Fragility", range=[0, y_max], secondary_y=False)
+    fig.update_yaxes(title_text="SPY", range=[spy_min, spy_max], secondary_y=True)
+
+    st.plotly_chart(fig, use_container_width=True)
+
+
 def render_current_composition(
     closes: pd.DataFrame,
     lookback: int,
@@ -552,6 +620,10 @@ def main():
         "Fragility scores are lagged 1 day (yesterday's score → today's regime). "
         "Forward returns may overlap at longer horizons — interpret effective sample size carefully."
     )
+
+    # --- Fragility context chart ---
+    with st.expander("Fragility Score Time Series", expanded=True):
+        render_fragility_timeseries(frag_ts, spy_close, frag_horizon)
 
     # --- Tabs ---
     tab_sector, tab_sp500 = st.tabs(["Sector ETFs (11)", "S\u0026P 500 (~505)"])
