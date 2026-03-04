@@ -114,6 +114,31 @@ def load_spy_close():
 # ---------------------------------------------------------------------------
 # CORE COMPUTATION
 # ---------------------------------------------------------------------------
+def _decluster_dates(regime_series: pd.Series, min_gap: int) -> pd.Index:
+    """
+    Keep only the first cross into each regime bucket within a rolling window.
+
+    A date is kept if:
+      - the regime changed from the prior day, OR
+      - at least min_gap trading days have passed since the last kept date
+    """
+    kept = []
+    last_kept = None
+    prev_regime = None
+    for dt, regime in regime_series.items():
+        if last_kept is None:
+            kept.append(dt)
+            last_kept = dt
+            prev_regime = regime
+            continue
+        days_since = len(regime_series.loc[last_kept:dt]) - 1
+        if regime != prev_regime or days_since >= min_gap:
+            kept.append(dt)
+            last_kept = dt
+        prev_regime = regime
+    return pd.DatetimeIndex(kept)
+
+
 @st.cache_data(ttl=3600)
 def compute_study(
     closes: pd.DataFrame,
@@ -124,6 +149,7 @@ def compute_study(
     fwd_horizon: int,
     n_groups: int,
     excess: bool,
+    decluster_gap: int = 0,
 ):
     """
     Vectorised leader/laggard event study.
@@ -156,6 +182,13 @@ def compute_study(
     trail_ret = trail_ret.loc[common]
     fwd_ret = fwd_ret.loc[common]
     regime_series = regime_series.loc[common]
+
+    # --- decluster: first cross into regime with min gap ---
+    if decluster_gap > 0:
+        keep_dates = _decluster_dates(regime_series, decluster_gap)
+        trail_ret = trail_ret.loc[trail_ret.index.isin(keep_dates)]
+        fwd_ret = fwd_ret.loc[fwd_ret.index.isin(keep_dates)]
+        regime_series = regime_series.loc[regime_series.index.isin(keep_dates)]
 
     # --- cross-sectional percentile rank ---
     pct_rank = trail_ret.rank(axis=1, pct=True) * 100  # 0-100
@@ -616,9 +649,23 @@ def main():
     excess = st.sidebar.radio("Return type", ["Raw", "Excess vs SPY"]) == "Excess vs SPY"
 
     st.sidebar.markdown("---")
+    decluster = st.sidebar.checkbox("Decluster signals", value=True)
+    decluster_gap = 0
+    if decluster:
+        decluster_gap = st.sidebar.selectbox(
+            "Min gap between signals (days)",
+            [5, 10, 21],
+            index=1,
+        )
+        st.sidebar.caption(
+            "Only uses the first cross into each regime bucket, "
+            f"then skips {decluster_gap}d before the next signal. "
+            "Reduces forward return overlap."
+        )
+
+    st.sidebar.markdown("---")
     st.sidebar.caption(
-        "Fragility scores are lagged 1 day (yesterday's score → today's regime). "
-        "Forward returns may overlap at longer horizons — interpret effective sample size carefully."
+        "Fragility scores are lagged 1 day (yesterday's score → today's regime)."
     )
 
     # --- Fragility context chart ---
@@ -642,6 +689,7 @@ def main():
             fwd_horizon=fwd_horizon,
             n_groups=3,
             excess=excess,
+            decluster_gap=decluster_gap,
         )
 
         if len(result_sector) == 0:
@@ -708,6 +756,7 @@ def main():
             fwd_horizon=fwd_horizon,
             n_groups=10,
             excess=excess,
+            decluster_gap=decluster_gap,
         )
 
         if len(result_sp) == 0:
