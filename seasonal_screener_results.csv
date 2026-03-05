@@ -1,2 +1,4 @@
 Ticker,Date,Type,Seas_Score,Tech_Streak_Days,Curr_5d_Rank,Curr_10d_Rank,Curr_21d_Rank,Seas_All_Avg_5d,Seas_All_Med_5d,Seas_All_Win_5d,Seas_All_Avg_21d,Seas_All_Med_21d,Seas_All_Win_21d,Seas_Cyc_Avg_5d,Seas_Cyc_Med_5d,Seas_Cyc_Win_5d,Seas_Cyc_Avg_21d,Seas_Cyc_Med_21d,Seas_Cyc_Win_21d
-CRH,2026-03-03,Super Bull,89.2,1,3.8,7.8,11.1,0.92,0.41,60.0,3.16,1.82,56.0,4.3,2.45,66.7,10.41,11.37,83.3
+HBAN,2026-03-05,Super Bull,85.4,1,8.9,9.1,8.4,0.93,0.81,59.4,1.15,-0.02,50.0,1.74,0.87,62.5,6.35,6.19,75.0
+UCB,2026-03-05,Super Bull,88.6,1,8.1,12.3,14.1,0.94,2.59,62.5,3.71,0.65,56.2,9.02,9.87,100.0,11.88,15.56,100.0
+WSM,2026-03-05,Super Bull,89.6,1,6.5,11.8,13.5,0.96,0.05,50.0,4.46,5.49,70.0,3.68,1.02,71.4,8.03,9.06,71.4
