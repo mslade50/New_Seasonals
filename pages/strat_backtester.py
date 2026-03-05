@@ -25,30 +25,26 @@ except ImportError:
     def create_equity_curve_analysis_figure(*args, **kwargs): return None
     def generate_sizing_recommendations(*args, **kwargs): return []
 
-# Try importing risk dashboard for fragility analysis (legal: strategy -> risk is allowed)
-RD2_AVAILABLE = False
-try:
-    from pages.risk_dashboard_v2 import (
-        load_cached_data as rd2_load_cached_data,
-        compute_da_signal,
-        compute_vix_range_compression,
-        compute_defensive_leadership,
-        compute_fomc_signal,
-        compute_low_ar_signal,
-        compute_seasonal_divergence_signal,
-        compute_price_context,
-        compute_regime_multiplier,
-        load_horizon_stats,
-        compute_fragility_timeseries,
-        SECTOR_ETFS,
-        REGIME_BUCKETS,
-        REGIME_ORDER,
-        REGIME_COLORS,
-        _assign_regime_bucket,
-    )
-    RD2_AVAILABLE = True
-except ImportError:
-    pass
+# Fragility data — read from cached parquet (populated by daily_risk_report.py)
+FRAGILITY_CACHE = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data", "rd2_fragility.parquet")
+RD2_AVAILABLE = os.path.exists(FRAGILITY_CACHE)
+
+# Regime bucket definitions (lightweight — no risk_dashboard import needed)
+REGIME_BUCKETS = {
+    'Robust': (0, 20), 'Calm': (20, 40), 'Neutral': (40, 60),
+    'Elevated': (60, 80), 'Fragile': (80, 100.01),
+}
+REGIME_ORDER = ['Robust', 'Calm', 'Neutral', 'Elevated', 'Fragile']
+REGIME_COLORS = {
+    'Robust': '#00CC00', 'Calm': '#7FCC00', 'Neutral': '#FFD700',
+    'Elevated': '#FF8C00', 'Fragile': '#CC0000',
+}
+
+def _assign_regime_bucket(score):
+    for name, (lo, hi) in REGIME_BUCKETS.items():
+        if lo <= score < hi:
+            return name
+    return 'Fragile' if score >= 80 else 'Robust'
 
 # -----------------------------------------------------------------------------
 # IMPORT STRATEGY BOOK FROM ROOT
@@ -1583,48 +1579,15 @@ def create_portfolio_breakdown_charts(sig_df):
 
 def compute_fragility_for_backtest():
     """
-    Load cached risk data and compute fragility timeseries.
-    Returns (frag_df, spy_close) or (None, None) if data unavailable.
-    Same pattern as daily_risk_report.py lines 80-103.
+    Load pre-computed fragility timeseries from cached parquet.
+    Returns (frag_df, None) or (None, None) if cache unavailable.
+    Cache is populated by daily_risk_report.py.
     """
-    if not RD2_AVAILABLE:
+    if not os.path.exists(FRAGILITY_CACHE):
         return None, None
     try:
-        spy_df, closes, sp500_closes = rd2_load_cached_data()
-        if spy_df is None or closes is None:
-            return None, None
-
-        spy_close = spy_df["Close"]
-        sector_cols = [c for c in SECTOR_ETFS if c in closes.columns]
-        sector_closes = closes[sector_cols].dropna(axis=1, how="all")
-        sector_returns = sector_closes.pct_change().dropna(how="all")
-
-        da = compute_da_signal(spy_df)
-        vix_close = closes["^VIX"].dropna() if "^VIX" in closes.columns else pd.Series(dtype=float)
-        vrc = compute_vix_range_compression(vix_close)
-        dl = compute_defensive_leadership(sp500_closes, spy_close)
-        fomc = compute_fomc_signal(spy_close)
-        ar = compute_low_ar_signal(sector_returns, spy_close)
-        srd = compute_seasonal_divergence_signal(spy_close)
-
-        signals_ordered = {
-            'Distribution Dominance': da,
-            'VIX Range Compression': vrc,
-            'Defensive Leadership': dl,
-            'Pre-FOMC Rally': fomc,
-            'Low Absorption Ratio': ar,
-            'Seasonal Rank Divergence': srd,
-        }
-
-        horizon_stats = load_horizon_stats()
-        if horizon_stats is None:
-            return None, None
-
-        frag_df = compute_fragility_timeseries(signals_ordered, spy_close, horizon_stats)
-        # Apply 5d smoothing (matches dashboard logic)
-        if frag_df is not None and len(frag_df) >= 5:
-            frag_df = frag_df.rolling(5, min_periods=1).mean()
-        return frag_df, spy_close
+        frag_df = pd.read_parquet(FRAGILITY_CACHE)
+        return frag_df, None
     except Exception:
         return None, None
 

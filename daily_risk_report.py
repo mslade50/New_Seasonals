@@ -514,6 +514,33 @@ def main():
     print("[2/6] Computing signals...")
     computed = compute_all_signals(spy_df, closes, sp500_closes)
 
+    # 2b. Cache fragility timeseries + environment snapshot for PM dashboard/briefing
+    data_dir = os.path.join(current_dir, "data")
+    frag_df = computed.get('frag_df')
+    if frag_df is not None and not frag_df.empty:
+        frag_cache_path = os.path.join(data_dir, "rd2_fragility.parquet")
+        frag_smoothed = frag_df.rolling(5, min_periods=1).mean()
+        frag_smoothed.to_parquet(frag_cache_path)
+        print(f"  Cached fragility timeseries ({len(frag_smoothed)} rows)")
+
+    # Save environment snapshot (price context + h_scores + signal summaries)
+    env_snapshot = {
+        'date': datetime.datetime.now().strftime('%Y-%m-%d'),
+        'price_ctx': computed['price_ctx'],
+        'h_scores': computed.get('h_scores'),
+        'signals': {},
+    }
+    for name, sig in computed['signals_ordered'].items():
+        env_snapshot['signals'][name] = {
+            'on': bool(sig.get('on', False)),
+            'detail': sig.get('detail', ''),
+            'summary': sig.get('summary', ''),
+        }
+    env_path = os.path.join(data_dir, "rd2_environment.json")
+    with open(env_path, 'w') as f:
+        json.dump(env_snapshot, f, indent=2, default=str)
+    print(f"  Cached environment snapshot to {env_path}")
+
     # 3. Forward returns
     print("[3/6] Computing forward returns...")
     fwd_returns_data = build_forward_returns_data(

@@ -29,26 +29,6 @@ from email.mime.multipart import MIMEMultipart
 current_dir = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, current_dir)
 
-os.environ.setdefault("STREAMLIT_SERVER_HEADLESS", "true")
-
-from pages.risk_dashboard_v2 import (
-    load_cached_data as rd2_load_cached_data,
-    compute_da_signal,
-    compute_vix_range_compression,
-    compute_defensive_leadership,
-    compute_fomc_signal,
-    compute_low_ar_signal,
-    compute_seasonal_divergence_signal,
-    compute_price_context,
-    compute_regime_multiplier,
-    load_horizon_stats,
-    compute_horizon_fragility,
-    compute_fragility_timeseries,
-    SECTOR_ETFS,
-    REGIME_BUCKETS,
-    _assign_regime_bucket,
-)
-
 try:
     from strategy_config import _STRATEGY_BOOK_RAW, ACCOUNT_VALUE
 except ImportError:
@@ -56,6 +36,7 @@ except ImportError:
     ACCOUNT_VALUE = 750000
 
 DATA_DIR = os.path.join(current_dir, "data")
+ENV_CACHE = os.path.join(DATA_DIR, "rd2_environment.json")
 
 # Ticker → sector (same as pm_dashboard.py)
 TICKER_SECTOR = {
@@ -85,52 +66,22 @@ TICKER_SECTOR = {
 # ---------------------------------------------------------------------------
 
 def compute_environment():
-    """Compute risk signals from cached data."""
-    print("  Loading cached risk data...")
-    spy_df, closes, sp500_closes = rd2_load_cached_data()
-    if spy_df is None or closes is None:
-        raise RuntimeError("Risk data cache not available. Run daily_risk_report.py first.")
+    """Load environment from cached JSON (written by daily_risk_report.py)."""
+    print("  Loading cached environment snapshot...")
+    if not os.path.exists(ENV_CACHE):
+        raise RuntimeError(f"Environment cache not found at {ENV_CACHE}. Run daily_risk_report.py first.")
 
-    spy_close = spy_df["Close"]
-    sector_cols = [c for c in SECTOR_ETFS if c in closes.columns]
-    sector_closes = closes[sector_cols].dropna(axis=1, how="all")
-    sector_returns = sector_closes.pct_change().dropna(how="all")
+    with open(ENV_CACHE, 'r') as f:
+        snapshot = json.load(f)
 
-    da = compute_da_signal(spy_df)
-    vix_close = closes["^VIX"].dropna() if "^VIX" in closes.columns else pd.Series(dtype=float)
-    vrc = compute_vix_range_compression(vix_close)
-    dl = compute_defensive_leadership(sp500_closes, spy_close)
-    fomc = compute_fomc_signal(spy_close)
-    ar = compute_low_ar_signal(sector_returns, spy_close)
-    srd = compute_seasonal_divergence_signal(spy_close)
-
-    signals_ordered = {
-        'Distribution Dominance': da,
-        'VIX Range Compression': vrc,
-        'Defensive Leadership': dl,
-        'Pre-FOMC Rally': fomc,
-        'Low Absorption Ratio': ar,
-        'Seasonal Rank Divergence': srd,
-    }
-
-    price_ctx = compute_price_context(spy_close)
-    regime_mult = compute_regime_multiplier(price_ctx)
-    horizon_stats = load_horizon_stats()
-
-    h_scores = None
-    if horizon_stats is not None:
-        h_scores = compute_horizon_fragility(
-            signals_ordered, regime_mult, horizon_stats, price_ctx, spy_close
-        )
-        frag_df = compute_fragility_timeseries(signals_ordered, spy_close, horizon_stats)
-        if frag_df is not None and len(frag_df) >= 5:
-            frag_df_smooth = frag_df.rolling(5, min_periods=1).mean()
-            h_scores = frag_df_smooth.iloc[-1].to_dict()
+    signals_ordered = {}
+    for name, sig in snapshot.get('signals', {}).items():
+        signals_ordered[name] = sig
 
     return {
-        'price_ctx': price_ctx,
+        'price_ctx': snapshot.get('price_ctx', {}),
         'signals_ordered': signals_ordered,
-        'h_scores': h_scores,
+        'h_scores': snapshot.get('h_scores'),
         'active_count': sum(1 for s in signals_ordered.values() if s.get('on')),
     }
 

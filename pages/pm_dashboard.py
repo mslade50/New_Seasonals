@@ -3,8 +3,8 @@ PM Dashboard — Situation Room
 ===============================
 Single-page view combining environment + portfolio + decisions.
 
-Imports from BOTH risk_dashboard_v2 (environment) and strategy modules
-(portfolio). Legal per module boundaries: this file is a consumer of both.
+Reads all data from cached files (parquet + JSON) populated by
+daily_risk_report.py. No risk_dashboard_v2 import needed.
 
 Data: All cached — no yfinance downloads needed. Should render in <3 seconds.
 """
@@ -38,35 +38,8 @@ parent_dir = os.path.dirname(current_dir)
 sys.path.append(parent_dir)
 
 DATA_DIR = os.path.join(parent_dir, "data")
-
-# ---------------------------------------------------------------------------
-# IMPORTS — Risk Dashboard (environment)
-# ---------------------------------------------------------------------------
-RD2_AVAILABLE = False
-try:
-    from pages.risk_dashboard_v2 import (
-        load_cached_data as rd2_load_cached_data,
-        compute_da_signal,
-        compute_vix_range_compression,
-        compute_defensive_leadership,
-        compute_fomc_signal,
-        compute_low_ar_signal,
-        compute_seasonal_divergence_signal,
-        compute_price_context,
-        compute_regime_multiplier,
-        load_horizon_stats,
-        compute_horizon_fragility,
-        compute_fragility_timeseries,
-        build_risk_dial,
-        SECTOR_ETFS,
-        REGIME_BUCKETS,
-        REGIME_ORDER,
-        REGIME_COLORS,
-        _assign_regime_bucket,
-    )
-    RD2_AVAILABLE = True
-except ImportError:
-    pass
+ENV_CACHE = os.path.join(DATA_DIR, "rd2_environment.json")
+FRAG_CACHE = os.path.join(DATA_DIR, "rd2_fragility.parquet")
 
 # ---------------------------------------------------------------------------
 # IMPORTS — Strategy config (portfolio)
@@ -159,53 +132,21 @@ TICKER_SECTOR = {
 
 def _load_environment():
     """Compute risk signals and fragility from cached data. Returns dict or None."""
-    if not RD2_AVAILABLE:
+    if not os.path.exists(ENV_CACHE):
         return None
     try:
-        spy_df, closes, sp500_closes = rd2_load_cached_data()
-        if spy_df is None or closes is None:
-            return None
+        with open(ENV_CACHE, 'r') as f:
+            snapshot = json.load(f)
 
-        spy_close = spy_df["Close"]
-        sector_cols = [c for c in SECTOR_ETFS if c in closes.columns]
-        sector_closes = closes[sector_cols].dropna(axis=1, how="all")
-        sector_returns = sector_closes.pct_change().dropna(how="all")
-
-        da = compute_da_signal(spy_df)
-        vix_close = closes["^VIX"].dropna() if "^VIX" in closes.columns else pd.Series(dtype=float)
-        vrc = compute_vix_range_compression(vix_close)
-        dl = compute_defensive_leadership(sp500_closes, spy_close)
-        fomc = compute_fomc_signal(spy_close)
-        ar = compute_low_ar_signal(sector_returns, spy_close)
-        srd = compute_seasonal_divergence_signal(spy_close)
-
-        signals_ordered = {
-            'Distribution Dominance': da,
-            'VIX Range Compression': vrc,
-            'Defensive Leadership': dl,
-            'Pre-FOMC Rally': fomc,
-            'Low Absorption Ratio': ar,
-            'Seasonal Rank Divergence': srd,
-        }
-
-        price_ctx = compute_price_context(spy_close)
-        regime_mult = compute_regime_multiplier(price_ctx)
-        horizon_stats = load_horizon_stats()
-
-        h_scores = None
-        if horizon_stats is not None:
-            h_scores = compute_horizon_fragility(
-                signals_ordered, regime_mult, horizon_stats, price_ctx, spy_close
-            )
-            frag_df = compute_fragility_timeseries(signals_ordered, spy_close, horizon_stats)
-            if frag_df is not None and len(frag_df) >= 5:
-                frag_df_smooth = frag_df.rolling(5, min_periods=1).mean()
-                h_scores = frag_df_smooth.iloc[-1].to_dict()
+        # Convert signals dict to match expected format
+        signals_ordered = {}
+        for name, sig in snapshot.get('signals', {}).items():
+            signals_ordered[name] = sig
 
         return {
-            'price_ctx': price_ctx,
+            'price_ctx': snapshot.get('price_ctx', {}),
             'signals_ordered': signals_ordered,
-            'h_scores': h_scores,
+            'h_scores': snapshot.get('h_scores'),
             'active_count': sum(1 for s in signals_ordered.values() if s.get('on')),
         }
     except Exception:
@@ -256,13 +197,28 @@ def _render_panel_environment(env):
     regime = p.get('regime_label', 'Unknown')
     cols[4].markdown(f"**Regime:** {regime}")
 
-    # Fragility dials
+    # Fragility dials (inline — no risk_dashboard import needed)
     h_scores = env.get('h_scores')
     if h_scores:
         dial_cols = st.columns(3)
         for i, (key, label) in enumerate([('5d', '5-Day'), ('21d', '21-Day'), ('63d', '63-Day')]):
-            score = h_scores.get(key, 0)
-            fig = build_risk_dial(score, title=label)
+            score = float(h_scores.get(key, 0))
+            bar_color = '#00CC00' if score < 20 else '#7FCC00' if score < 40 else '#FFD700' if score < 60 else '#FF8C00' if score < 80 else '#CC0000'
+            fig = go.Figure(go.Indicator(
+                mode="gauge+number", value=min(score, 100),
+                title={'text': label, 'font': {'size': 13}},
+                number={'font': {'size': 32}},
+                gauge={'axis': {'range': [0, 100], 'tickvals': [0, 25, 50, 75, 100],
+                                'ticktext': ['Robust', '', 'Neutral', '', 'Fragile'], 'tickfont': {'size': 9}},
+                       'bar': {'color': bar_color, 'thickness': 0.3}, 'bgcolor': 'rgba(0,0,0,0)',
+                       'steps': [{'range': [0, 20], 'color': 'rgba(0,204,0,0.12)'},
+                                 {'range': [20, 40], 'color': 'rgba(0,204,0,0.06)'},
+                                 {'range': [40, 60], 'color': 'rgba(255,215,0,0.08)'},
+                                 {'range': [60, 80], 'color': 'rgba(255,140,0,0.10)'},
+                                 {'range': [80, 100], 'color': 'rgba(204,0,0,0.12)'}]},
+            ))
+            fig.update_layout(height=180, margin=dict(l=15, r=15, t=35, b=5),
+                              paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)')
             dial_cols[i].plotly_chart(fig, use_container_width=True)
 
     # Active signals summary
