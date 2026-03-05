@@ -2,9 +2,9 @@ name: Daily PM Briefing
 
 on:
   schedule:
-    # Run at 11:00 PM UTC (6:00 PM ET), weekdays — 45 min after risk report
+    # Run at 11:45 PM UTC (6:45 PM ET), weekdays — 90 min after risk report
     # Note: runs its own risk report step since Actions VMs don't share state
-    - cron: '0 23 * * 1-5'
+    - cron: '45 23 * * 1-5'
   workflow_dispatch:  # Allow manual trigger
 
 jobs:

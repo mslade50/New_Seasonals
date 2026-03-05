@@ -1847,14 +1847,38 @@ def main():
         long_term_tickers.add('SPY')
 
         long_term_list = [t.replace('.', '-') for t in long_term_tickers]
+
+        # Disk cache: load previously downloaded data from parquet
+        bt_cache_dir = os.path.join(parent_dir, "data", "bt_price_cache")
+        os.makedirs(bt_cache_dir, exist_ok=True)
+        if not st.session_state['backtest_data']:
+            loaded = 0
+            for t in long_term_list:
+                pq_path = os.path.join(bt_cache_dir, f"{t}.parquet")
+                if os.path.exists(pq_path):
+                    try:
+                        t_df = pd.read_parquet(pq_path)
+                        st.session_state['backtest_data'][t] = t_df
+                        loaded += 1
+                    except Exception:
+                        pass
+            if loaded:
+                st.caption(f"Loaded {loaded} tickers from disk cache")
+
         existing = set(st.session_state['backtest_data'].keys())
         missing = list(set(long_term_list) - existing)
-        
+
         if missing:
-            st.write(f"📥 Downloading {len(missing)} tickers...")
+            st.write(f"📥 Downloading {len(missing)} tickers (have {len(existing)} cached)...")
             data = download_historical_data(missing, start_date="2000-01-01")
             st.session_state['backtest_data'].update(data)
-            st.success("✅ Download complete.")
+            # Save newly downloaded data to disk cache
+            for t, t_df in data.items():
+                try:
+                    t_df.to_parquet(os.path.join(bt_cache_dir, f"{t}.parquet"))
+                except Exception:
+                    pass
+            st.success(f"✅ Downloaded {len(data)} tickers, saved to disk cache.")
 
         master_dict = st.session_state['backtest_data']
         
