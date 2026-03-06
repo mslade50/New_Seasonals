@@ -219,7 +219,7 @@ def _render_panel_environment(env):
             ))
             fig.update_layout(height=180, margin=dict(l=15, r=15, t=35, b=5),
                               paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)')
-            dial_cols[i].plotly_chart(fig, use_container_width=True)
+            dial_cols[i].plotly_chart(fig, width="stretch")
 
     # Active signals summary
     signals = env['signals_ordered']
@@ -255,7 +255,7 @@ def _render_panel_portfolio(sig_df, open_df):
                 'Price': '${:.2f}', 'Risk $': '${:,.0f}', 'Shares': '{:.0f}',
                 'Entry Date': '{:%Y-%m-%d}', 'Exit Date': '{:%Y-%m-%d}',
             }),
-            use_container_width=True, height=min(len(open_df) * 40 + 40, 300),
+            width="stretch", height=min(len(open_df) * 40 + 40, 300),
         )
 
     # Sector exposure
@@ -280,7 +280,7 @@ def _render_panel_portfolio(sig_df, open_df):
                     title=dict(text='Sector Exposure ($)', font=dict(size=13)),
                     xaxis=dict(tickformat='$,.0f'),
                 )
-                st.plotly_chart(fig, use_container_width=True)
+                st.plotly_chart(fig, width="stretch")
 
             with col2:
                 # Net/gross exposure
@@ -331,7 +331,7 @@ def _render_panel_algo_book(sig_df, open_df):
             recent[available].style.format({
                 'Price': '${:.2f}', 'Shares': '{:.0f}', 'Entry Date': '{:%Y-%m-%d}',
             }),
-            use_container_width=True, height=min(len(recent) * 40 + 40, 200),
+            width="stretch", height=min(len(recent) * 40 + 40, 200),
         )
     else:
         st.caption("No entries in last 5 days.")
@@ -349,7 +349,7 @@ def _render_panel_algo_book(sig_df, open_df):
                     'Price': '${:.2f}', 'Shares': '{:.0f}',
                     'Entry Date': '{:%Y-%m-%d}', 'Exit Date': '{:%Y-%m-%d}',
                 }),
-                use_container_width=True, height=min(len(upcoming_exits) * 40 + 40, 200),
+                width="stretch", height=min(len(upcoming_exits) * 40 + 40, 200),
             )
         else:
             st.caption("No positions expiring in next 5 days.")
@@ -370,7 +370,7 @@ def _render_panel_algo_book(sig_df, open_df):
                     'Utilization': f"{active}/{max_pos}",
                 })
         if util_rows:
-            st.dataframe(pd.DataFrame(util_rows), use_container_width=True, height=min(len(util_rows) * 40 + 40, 250))
+            st.dataframe(pd.DataFrame(util_rows), width="stretch", height=min(len(util_rows) * 40 + 40, 250))
 
 
 def _render_panel_decision_queue(env, open_df):
