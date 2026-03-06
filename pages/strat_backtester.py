@@ -122,22 +122,44 @@ def download_historical_data(tickers, start_date="2000-01-01"):
         progress_bar.progress(current_progress)
         try:
             df = yf.download(chunk, start=start_date, group_by='ticker', auto_adjust=False, progress=False, threads=True)
-            if df.empty: continue
-            if len(chunk) == 1:
-                ticker = chunk[0]
-                if 'Close' in df.columns:
-                    df.index = df.index.tz_localize(None)
-                    data_dict[ticker] = df
+            if df is None or df.empty:
+                continue
+            if df.index.tz is not None:
+                df.index = df.index.tz_localize(None)
+            if isinstance(df.columns, pd.MultiIndex):
+                # MultiIndex: could be (Ticker, Price) or (Price, Ticker)
+                lvl0 = df.columns.get_level_values(0).unique().tolist()
+                price_cols = {'Open', 'High', 'Low', 'Close', 'Adj Close', 'Volume',
+                              'open', 'high', 'low', 'close', 'adj close', 'volume'}
+                if set(lvl0) & price_cols:
+                    # (Price, Ticker) format — transpose to extract per-ticker
+                    tickers_in_data = df.columns.get_level_values(1).unique().tolist()
+                    for t in tickers_in_data:
+                        try:
+                            t_df = df.xs(t, level=1, axis=1).copy()
+                            t_df.columns = [str(c).capitalize() for c in t_df.columns]
+                            if 'Close' not in t_df.columns or t_df['Close'].dropna().empty:
+                                continue
+                            data_dict[str(t).upper()] = t_df
+                        except Exception:
+                            continue
+                else:
+                    # (Ticker, Price) format
+                    for t in lvl0:
+                        try:
+                            t_df = df[t].copy()
+                            if t_df.empty or 'Close' not in t_df.columns:
+                                continue
+                            data_dict[str(t).upper()] = t_df
+                        except Exception:
+                            continue
             else:
-                available_tickers = df.columns.levels[0]
-                for t in available_tickers:
-                    try:
-                        t_df = df[t].copy()
-                        if t_df.empty or 'Close' not in t_df.columns: continue
-                        t_df.index = t_df.index.tz_localize(None)
-                        data_dict[t] = t_df
-                    except Exception:
-                        continue
+                # Single ticker — flat columns
+                if len(chunk) == 1:
+                    ticker = chunk[0]
+                    df.columns = [str(c).capitalize() for c in df.columns]
+                    if 'Close' in df.columns:
+                        data_dict[ticker] = df
             time.sleep(0.25)
         except Exception:
             continue
