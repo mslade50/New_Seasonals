@@ -441,14 +441,22 @@ if not regime_trades.empty:
     portfolio_row = regime_trades.groupby('Regime')['R'].mean()
     pivot.loc['Total Portfolio'] = portfolio_row.reindex(pivot.columns, fill_value=0)
 
-    # Robust gradient: use percentile clipping to avoid outlier-driven scale
-    vmin = np.percentile(pivot.values, 5)
-    vmax = np.percentile(pivot.values, 95)
+    def _r_color(val):
+        if val > 0.5:
+            return 'background-color: #1a7a1a; color: white'
+        elif val > 0.3:
+            return 'background-color: #2ca02c; color: white'
+        elif val > 0.15:
+            return 'background-color: #90d890'
+        elif val >= 0:
+            return 'background-color: white'
+        elif val >= -0.1:
+            return 'background-color: #f4a0a0'
+        else:
+            return 'background-color: #cc0000; color: white'
 
     st.dataframe(
-        pivot.style.format('{:.2f}R').background_gradient(
-            cmap='RdYlGn', axis=None, vmin=vmin, vmax=vmax
-        ),
+        pivot.style.format('{:.2f}R').map(_r_color),
         use_container_width=True,
     )
 
