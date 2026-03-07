@@ -12,19 +12,6 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from indicators import calculate_indicators, get_sznl_val_series
 
-# Try/Except block for local imports to prevent crash if file missing
-try:
-    from equity_curve_analysis import (
-        analyze_equity_curve_effects, 
-        create_equity_curve_analysis_figure,
-        generate_sizing_recommendations
-    )
-except ImportError:
-    # Define dummy functions or handle the error if the module is missing
-    def analyze_equity_curve_effects(*args, **kwargs): return None
-    def create_equity_curve_analysis_figure(*args, **kwargs): return None
-    def generate_sizing_recommendations(*args, **kwargs): return []
-
 import json as _json
 
 # Fragility data paths
@@ -1039,7 +1026,9 @@ def process_signals_fast(candidates, signal_data, processed_dict, strategies, st
                     "Time Stop": time_stop_date, "Strategy": strat_name,
                     "Ticker": ticker, "Action": action,
                     "Entry Criteria": entry_type, "Price": entry_price,
+                    "Exit Price": exit_price,
                     "Shares": shares, "PnL": pnl, "ATR": atr,
+                    "stop_atr": stop_atr, "tgt_atr": tgt_atr,
                     "T+1 Open": t1_open, "Signal Close": row_data['close'],
                     "Range %": row_data['range_pct'],
                     "Equity at Signal": current_equity,
@@ -1129,8 +1118,10 @@ def process_signals_fast(candidates, signal_data, processed_dict, strategies, st
                             "Time Stop": loc_time_stop, "Strategy": strat_name + " (LOC)",
                             "Ticker": ticker, "Action": action,
                             "Entry Criteria": "LOC (T+1 Close > Signal+0.5ATR)",
-                            "Price": loc_entry_price, "Shares": loc_shares,
+                            "Price": loc_entry_price, "Exit Price": loc_exit_price,
+                            "Shares": loc_shares,
                             "PnL": loc_pnl, "ATR": atr,
+                            "stop_atr": stop_atr, "tgt_atr": tgt_atr,
                             "T+1 Open": df.iloc[t1_idx]['Open'],
                             "Signal Close": row_data['close'],
                             "Range %": row_data['range_pct'],
@@ -2381,62 +2372,6 @@ def main():
                 with col2:
                     if fig_dow:
                         st.plotly_chart(fig_dow, use_container_width=True)
-            st.divider()
-            st.subheader("🎯 Equity Curve Regime Analysis")
-            st.caption("Analyzing whether recent performance predicts tomorrow's returns - useful for adaptive position sizing.")
-            
-            # Run the analysis
-            ec_analysis = analyze_equity_curve_effects(port_daily_pnl, starting_equity, ma_window=20, bb_std=2.0)
-            
-            if ec_analysis is not None:
-                # Display the visualization
-                ec_fig = create_equity_curve_analysis_figure(ec_analysis, starting_equity)
-                if ec_fig:
-                    st.plotly_chart(ec_fig, use_container_width=True)
-                
-                # Display recommendations
-                recommendations = generate_sizing_recommendations(ec_analysis)
-                
-                st.markdown("### 📋 Sizing Recommendations")
-                for rec_text, confidence in recommendations:
-                    if confidence == "Medium":
-                        st.success(f"**{confidence}:** {rec_text}")
-                    elif confidence == "Low":
-                        st.info(f"**{confidence}:** {rec_text}")
-                    else:
-                        st.warning(rec_text)
-                
-                # Detailed stats in expander
-                with st.expander("📊 Detailed Statistics"):
-                    col1, col2 = st.columns(2)
-                    
-                    with col1:
-                        st.markdown("**Autocorrelation (does today predict tomorrow?)**")
-                        autocorr = ec_analysis.get('autocorr', {})
-                        for lag, val in autocorr.items():
-                            interpretation = "momentum" if val > 0 else "mean-reversion"
-                            st.write(f"• {lag.replace('_', ' ').title()}: {val:.3f} ({interpretation})")
-                        
-                        st.markdown("**Equity vs 20d MA**")
-                        ma = ec_analysis.get('ma_analysis', {})
-                        for state, data in ma.items():
-                            st.write(f"• {state.replace('_', ' ').title()}: {data.get('avg_fwd_ret_pct', 0):.3f}%/day avg, {data.get('win_rate', 0):.1%} win rate (n={data.get('count', 0):.0f})")
-                    
-                    with col2:
-                        st.markdown("**After Streaks**")
-                        streak = ec_analysis.get('streak_analysis', {})
-                        for state, data in streak.items():
-                            label = state.replace('_', ' ').replace('plus', '+').title()
-                            st.write(f"• {label}: {data.get('avg_fwd_ret_pct', 0):.3f}%/day avg, {data.get('win_rate', 0):.1%} win rate (n={data.get('count', 0):.0f})")
-                        
-                        st.markdown("**Drawdown Depth**")
-                        dd = ec_analysis.get('dd_analysis', {})
-                        for state, data in dd.items():
-                            label = state.replace('_', ' ').replace('pct', '%').title()
-                            st.write(f"• {label}: {data.get('avg_fwd_ret_pct', 0):.3f}%/day avg, {data.get('win_rate', 0):.1%} win rate (n={data.get('count', 0):.0f})")
-            else:
-                st.warning("Insufficient data for equity curve analysis (need at least 30 days of trading history).")
-
             # -----------------------------------------------------------------
             # FRAGILITY x STRATEGY PERFORMANCE ANALYSIS
             # -----------------------------------------------------------------
