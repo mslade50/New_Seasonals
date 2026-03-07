@@ -197,11 +197,20 @@ def _max_drawdown(equity_series):
     return dd.min() * 100  # as pct
 
 
-def _sharpe(pnl_series, periods_per_year=252):
-    """Annualized Sharpe from a PnL series."""
-    if pnl_series.std() == 0:
+def _daily_sharpe(result_df, pnl_col, starting_equity, periods_per_year=252):
+    """Annualized Sharpe from daily aggregate P&L (not per-trade).
+
+    Aggregates trade PnL by exit date, fills non-trading days with 0,
+    then computes Sharpe on daily portfolio returns.
+    """
+    daily_pnl = result_df.groupby('Exit Date')[pnl_col].sum()
+    # Fill to calendar trading days so quiet days count as 0
+    idx = pd.bdate_range(daily_pnl.index.min(), daily_pnl.index.max())
+    daily_pnl = daily_pnl.reindex(idx, fill_value=0.0)
+    daily_ret = daily_pnl / starting_equity
+    if daily_ret.std() == 0:
         return 0.0
-    return (pnl_series.mean() / pnl_series.std()) * np.sqrt(periods_per_year)
+    return (daily_ret.mean() / daily_ret.std()) * np.sqrt(periods_per_year)
 
 
 # ─── Main UI ────────────────────────────────────────────────────────────────
@@ -288,8 +297,8 @@ test_total_return = (result['Test Equity'].iloc[-1] / starting_equity - 1) * 100
 baseline_dd = _max_drawdown(result['Baseline Equity'])
 test_dd = _max_drawdown(result['Test Equity'])
 
-baseline_sharpe = _sharpe(result['Orig PnL'])
-test_sharpe = _sharpe(result['Adj PnL'])
+baseline_sharpe = _daily_sharpe(result, 'Orig PnL', starting_equity)
+test_sharpe = _daily_sharpe(result, 'Adj PnL', starting_equity)
 
 trades_skipped = result['Skipped'].sum()
 total_trades = len(result)
@@ -305,7 +314,7 @@ with c2:
               delta=f"{test_dd - baseline_dd:+.1f}%")
     st.caption(f"Baseline: {baseline_dd:.1f}%")
 with c3:
-    st.metric("Sharpe (trade-level)", f"{test_sharpe:.2f}",
+    st.metric("Sharpe (daily)", f"{test_sharpe:.2f}",
               delta=f"{test_sharpe - baseline_sharpe:+.2f}")
     st.caption(f"Baseline: {baseline_sharpe:.2f}")
 with c4:
