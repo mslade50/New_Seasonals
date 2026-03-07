@@ -91,10 +91,14 @@ def _ensure_columns(sig_df):
 def replay_equity(sig_df, frag_series, starting_equity, min_mult, cutoff,
                   enabled_strategies, threshold=55, mode='linear'):
     """
-    Replay trades sequentially, recalculating shares with fragility adjustment.
+    Replay trades with equal-weight sizing and fragility adjustment.
 
-    Returns DataFrame with one row per trade: original + adjusted PnL, shares,
-    multiplier, fragility score, regime, running equity (baseline & test).
+    Equal-weight: every trade risks the same fixed dollar amount (starting_equity
+    × risk_bps / 10000) regardless of when it occurs. This avoids placing excess
+    importance on later trades that would be larger with equity-scaled sizing.
+
+    Returns DataFrame with one row per trade: baseline + adjusted PnL, shares,
+    multiplier, fragility score, regime, running equity.
     """
     df = sig_df.copy()
     df = df[df['Strategy'].isin(enabled_strategies)].sort_values('Exit Date').reset_index(drop=True)
@@ -117,12 +121,31 @@ def replay_equity(sig_df, frag_series, starting_equity, min_mult, cutoff,
 
         regime = _assign_regime(frag_score)
 
-        # Baseline: use original shares & PnL
-        orig_shares = row['Shares']
-        orig_pnl = row['PnL']
-        baseline_equity += orig_pnl
+        # Equal-weight sizing: fixed risk from starting equity
+        risk_bps = row.get('Risk bps', 20)
+        fixed_risk = starting_equity * risk_bps / 10000
+        atr = row['ATR']
+        stop_atr = row.get('stop_atr', 2.0)
+        dist = atr * stop_atr
 
-        # Adjusted sizing
+        if pd.isna(dist) or dist <= 0:
+            continue
+
+        base_shares = int(fixed_risk / dist)
+        if base_shares <= 0:
+            continue
+
+        # PnL per share from entry/exit prices
+        is_long = row['Action'] == 'BUY'
+        if is_long:
+            pnl_per_share = row['Exit Price'] - row['Price']
+        else:
+            pnl_per_share = row['Price'] - row['Exit Price']
+
+        base_pnl = round(pnl_per_share * base_shares, 0)
+        baseline_equity += base_pnl
+
+        # Fragility-adjusted sizing
         skipped = False
         if frag_score > cutoff:
             adj_mult = 0.0
@@ -131,17 +154,11 @@ def replay_equity(sig_df, frag_series, starting_equity, min_mult, cutoff,
             if frag_score <= threshold:
                 adj_mult = 1.0
             else:
-                # Linear ramp from 1.0 at threshold to min_mult at 100
                 adj_mult = max(min_mult, 1.0 - ((frag_score - threshold) / (100 - threshold)) * (1 - min_mult))
         else:
-            adj_mult = 1.0  # step function: below cutoff = full size
+            adj_mult = 1.0
 
-        adj_shares = int(round(orig_shares * adj_mult)) if not skipped else 0
-        # PnL per share is constant (same entry/exit prices)
-        if orig_shares > 0:
-            pnl_per_share = orig_pnl / orig_shares
-        else:
-            pnl_per_share = 0.0
+        adj_shares = int(round(base_shares * adj_mult)) if not skipped else 0
         adj_pnl = round(pnl_per_share * adj_shares, 0)
         test_equity += adj_pnl
 
@@ -154,16 +171,16 @@ def replay_equity(sig_df, frag_series, starting_equity, min_mult, cutoff,
             'Action': row['Action'],
             'Price': row['Price'],
             'Exit Price': row['Exit Price'],
-            'ATR': row['ATR'],
+            'ATR': atr,
             'Fragility': frag_score,
             'Regime': regime,
             'Multiplier': adj_mult,
             'Skipped': skipped,
-            'Orig Shares': orig_shares,
+            'Orig Shares': base_shares,
             'Adj Shares': adj_shares,
-            'Orig PnL': orig_pnl,
+            'Orig PnL': base_pnl,
             'Adj PnL': adj_pnl,
-            'Risk $': row.get('Risk $', 0),
+            'Risk $': fixed_risk,
             'Baseline Equity': baseline_equity,
             'Test Equity': test_equity,
         })
@@ -206,9 +223,11 @@ sig_df = _ensure_columns(sig_df)
 
 frag_df = pd.read_parquet(FRAG_PATH)
 
-# Check for trades predating fragility data
+# Filter to fragility coverage period only
 frag_start = frag_df.index.min()
-trades_before_frag = (pd.to_datetime(sig_df['Date']) < frag_start).sum()
+total_before_filter = len(sig_df)
+sig_df = sig_df[pd.to_datetime(sig_df['Date']) >= frag_start].copy()
+trades_dropped = total_before_filter - len(sig_df)
 
 # ─── Sidebar ────────────────────────────────────────────────────────────────
 
@@ -246,8 +265,12 @@ if not enabled_strategies:
 
 # ─── Run replay ─────────────────────────────────────────────────────────────
 
-if trades_before_frag > 0:
-    st.info(f"{trades_before_frag:,} trades predate fragility data (before {frag_start.strftime('%Y-%m-%d')}). These get fragility=0 (no adjustment).")
+if trades_dropped > 0:
+    st.info(f"Filtered to fragility coverage period ({frag_start.strftime('%Y-%m-%d')}+). {trades_dropped:,} earlier trades excluded.")
+
+if sig_df.empty:
+    st.warning("No trades fall within fragility data coverage period.")
+    st.stop()
 
 result = replay_equity(sig_df, frag_series, starting_equity, min_mult, cutoff, enabled_strategies, threshold=threshold)
 
