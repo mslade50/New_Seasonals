@@ -89,13 +89,15 @@ def _ensure_columns(sig_df):
 # ─── Replay engine ──────────────────────────────────────────────────────────
 
 def replay_equity(sig_df, frag_series, starting_equity, min_mult, max_mult, cutoff,
-                  enabled_strategies, threshold=55, mode='linear'):
+                  enabled_strategies, threshold=55, mode='linear',
+                  scale_with_equity=False):
     """
-    Replay trades with equal-weight sizing and fragility adjustment.
+    Replay trades with fragility adjustment.
 
-    Equal-weight: every trade risks the same fixed dollar amount (starting_equity
-    × risk_bps / 10000) regardless of when it occurs. This avoids placing excess
-    importance on later trades that would be larger with equity-scaled sizing.
+    When scale_with_equity=False (default): every trade risks the same fixed
+    dollar amount for clean avg-R analysis.
+    When scale_with_equity=True: risk scales with running equity (baseline uses
+    baseline equity, test uses test equity) to see compounding effects.
 
     Returns DataFrame with one row per trade: baseline + adjusted PnL, shares,
     multiplier, fragility score, regime, running equity.
@@ -121,9 +123,12 @@ def replay_equity(sig_df, frag_series, starting_equity, min_mult, max_mult, cuto
 
         regime = _assign_regime(frag_score)
 
-        # Equal-weight sizing: fixed risk from starting equity
+        # Risk per trade
         risk_bps = row.get('Risk bps', 20)
-        fixed_risk = starting_equity * risk_bps / 10000
+        base_risk_equity = baseline_equity if scale_with_equity else starting_equity
+        test_risk_equity = test_equity if scale_with_equity else starting_equity
+        base_risk_dollar = base_risk_equity * risk_bps / 10000
+        test_risk_dollar = test_risk_equity * risk_bps / 10000
         atr = row['ATR']
         stop_atr = row.get('stop_atr', 2.0)
         dist = atr * stop_atr
@@ -131,7 +136,7 @@ def replay_equity(sig_df, frag_series, starting_equity, min_mult, max_mult, cuto
         if pd.isna(dist) or dist <= 0:
             continue
 
-        base_shares = int(fixed_risk / dist)
+        base_shares = int(base_risk_dollar / dist)
         if base_shares <= 0:
             continue
 
@@ -152,18 +157,17 @@ def replay_equity(sig_df, frag_series, starting_equity, min_mult, max_mult, cuto
             skipped = True
         elif mode == 'linear':
             if frag_score <= threshold:
-                # Scale up: max_mult at frag=0, 1.0 at frag=threshold
                 if threshold > 0:
                     adj_mult = max_mult - (frag_score / threshold) * (max_mult - 1.0)
                 else:
                     adj_mult = max_mult
             else:
-                # Scale down: 1.0 at threshold, min_mult at frag=100
                 adj_mult = max(min_mult, 1.0 - ((frag_score - threshold) / (100 - threshold)) * (1 - min_mult))
         else:
             adj_mult = 1.0
 
-        adj_shares = int(round(base_shares * adj_mult)) if not skipped else 0
+        test_base_shares = int(test_risk_dollar / dist)
+        adj_shares = int(round(test_base_shares * adj_mult)) if not skipped else 0
         adj_pnl = round(pnl_per_share * adj_shares, 0)
         test_equity += adj_pnl
 
@@ -185,7 +189,7 @@ def replay_equity(sig_df, frag_series, starting_equity, min_mult, max_mult, cuto
             'Adj Shares': adj_shares,
             'Orig PnL': base_pnl,
             'Adj PnL': adj_pnl,
-            'Risk $': fixed_risk,
+            'Risk $': test_risk_dollar,
             'Baseline Equity': baseline_equity,
             'Test Equity': test_equity,
         })
@@ -278,6 +282,9 @@ st.sidebar.subheader("Step Function Cutoff")
 cutoff = st.sidebar.slider("Skip trades above fragility", 0, 150, 150, 5,
                             help="Trades with fragility above this threshold are skipped entirely. Set to 150 to disable.")
 
+scale_with_equity = st.sidebar.checkbox("Scale size with portfolio growth", value=False,
+                                        help="When enabled, risk per trade scales with running equity instead of fixed starting equity.")
+
 st.sidebar.markdown("---")
 st.sidebar.subheader("Strategies")
 all_strategies = sorted(sig_df['Strategy'].unique())
@@ -299,7 +306,8 @@ if sig_df.empty:
     st.warning("No trades fall within fragility data coverage period.")
     st.stop()
 
-result = replay_equity(sig_df, frag_series, starting_equity, min_mult, max_mult, cutoff, enabled_strategies, threshold=threshold)
+result = replay_equity(sig_df, frag_series, starting_equity, min_mult, max_mult, cutoff,
+                       enabled_strategies, threshold=threshold, scale_with_equity=scale_with_equity)
 
 if result.empty:
     st.warning("No trades to replay with selected strategies.")
