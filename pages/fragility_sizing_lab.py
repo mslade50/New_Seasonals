@@ -247,7 +247,18 @@ horizon = st.sidebar.selectbox("Fragility Horizon", ['21d', '5d', '63d'], index=
 if horizon not in frag_df.columns:
     st.error(f"Horizon `{horizon}` not found in fragility data. Available: {list(frag_df.columns)}")
     st.stop()
+
+smoothing = st.sidebar.selectbox("Fragility Smoothing", ['None', '10d MA', '21d MA'], index=0,
+                                  help="Smooth fragility scores before applying sizing rules.")
+
 frag_series = frag_df[horizon].dropna()
+# Apply smoothing
+if smoothing == '10d MA':
+    frag_series = frag_series.rolling(10, min_periods=1).mean()
+elif smoothing == '21d MA':
+    frag_series = frag_series.rolling(21, min_periods=1).mean()
+# Lag by 1 day — at entry we only know yesterday's closing score
+frag_series = frag_series.shift(1).dropna()
 
 st.sidebar.markdown("---")
 st.sidebar.subheader("Linear Ramp")
