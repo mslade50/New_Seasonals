@@ -449,7 +449,7 @@ if not regime_trades.empty:
         elif val > 0.15:
             return 'background-color: #90d890'
         elif val >= 0:
-            return 'background-color: white'
+            return 'background-color: #d4f5d4'
         elif val >= -0.1:
             return 'background-color: #f4a0a0'
         else:
