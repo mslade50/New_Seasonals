@@ -89,7 +89,7 @@ def _ensure_columns(sig_df):
 # ─── Replay engine ──────────────────────────────────────────────────────────
 
 def replay_equity(sig_df, frag_series, starting_equity, min_mult, cutoff,
-                  enabled_strategies, mode='linear'):
+                  enabled_strategies, threshold=55, mode='linear'):
     """
     Replay trades sequentially, recalculating shares with fragility adjustment.
 
@@ -128,7 +128,11 @@ def replay_equity(sig_df, frag_series, starting_equity, min_mult, cutoff,
             adj_mult = 0.0
             skipped = True
         elif mode == 'linear':
-            adj_mult = max(min_mult, 1.0 - (frag_score / 100) * (1 - min_mult))
+            if frag_score <= threshold:
+                adj_mult = 1.0
+            else:
+                # Linear ramp from 1.0 at threshold to min_mult at 100
+                adj_mult = max(min_mult, 1.0 - ((frag_score - threshold) / (100 - threshold)) * (1 - min_mult))
         else:
             adj_mult = 1.0  # step function: below cutoff = full size
 
@@ -159,6 +163,7 @@ def replay_equity(sig_df, frag_series, starting_equity, min_mult, cutoff,
             'Adj Shares': adj_shares,
             'Orig PnL': orig_pnl,
             'Adj PnL': adj_pnl,
+            'Risk $': row.get('Risk $', 0),
             'Baseline Equity': baseline_equity,
             'Test Equity': test_equity,
         })
@@ -218,8 +223,10 @@ frag_series = frag_df[horizon].dropna()
 
 st.sidebar.markdown("---")
 st.sidebar.subheader("Linear Ramp")
+threshold = st.sidebar.slider("Ramp starts at fragility", 0, 95, 55, 5,
+                               help="No size reduction below this fragility score. Ramp begins above it.")
 min_mult = st.sidebar.slider("Min multiplier (at frag=100)", 0.1, 1.0, 0.5, 0.05,
-                              help="At frag=0 sizing is 1.0x. Scales linearly down to this value at frag=100.")
+                              help=f"Sizing is 1.0x at frag<={threshold}. Scales linearly down to this value at frag=100.")
 
 st.sidebar.subheader("Step Function Cutoff")
 cutoff = st.sidebar.slider("Skip trades above fragility", 0, 100, 100, 5,
@@ -242,7 +249,7 @@ if not enabled_strategies:
 if trades_before_frag > 0:
     st.info(f"{trades_before_frag:,} trades predate fragility data (before {frag_start.strftime('%Y-%m-%d')}). These get fragility=0 (no adjustment).")
 
-result = replay_equity(sig_df, frag_series, starting_equity, min_mult, cutoff, enabled_strategies)
+result = replay_equity(sig_df, frag_series, starting_equity, min_mult, cutoff, enabled_strategies, threshold=threshold)
 
 if result.empty:
     st.warning("No trades to replay with selected strategies.")
@@ -304,6 +311,7 @@ fig_eq.update_layout(
     margin=dict(l=0, r=0, t=30, b=0),
     legend=dict(yanchor="top", y=0.99, xanchor="left", x=0.01),
     yaxis_title="Equity ($)",
+    yaxis_type="log",
     xaxis_title="",
     hovermode="x unified",
 )
@@ -361,15 +369,18 @@ st.subheader("Strategy Performance by Regime")
 regime_trades = result[~result['Skipped']].copy()
 
 if not regime_trades.empty:
-    # Pivot: Strategy x Regime → Total PnL
+    # Compute R-multiple: PnL / risk$
+    regime_trades['R'] = regime_trades['Adj PnL'] / regime_trades['Risk $'].replace(0, np.nan)
+
+    # Pivot: Strategy x Regime → Avg R per trade
     pivot = regime_trades.pivot_table(
-        index='Strategy', columns='Regime', values='Adj PnL', aggfunc='sum', fill_value=0
+        index='Strategy', columns='Regime', values='R', aggfunc='mean', fill_value=0
     )
     # Reorder columns
     pivot = pivot.reindex(columns=[r for r in REGIME_ORDER if r in pivot.columns])
 
     st.dataframe(
-        pivot.style.format('${:,.0f}').background_gradient(cmap='RdYlGn', axis=None),
+        pivot.style.format('{:.2f}R').background_gradient(cmap='RdYlGn', axis=None),
         use_container_width=True,
     )
 
