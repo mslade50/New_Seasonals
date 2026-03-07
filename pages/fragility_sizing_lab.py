@@ -275,8 +275,8 @@ min_mult = st.sidebar.slider("Min multiplier (at frag=100)", 0.1, 1.0, 0.5, 0.05
                               help=f"Sizing floor when fragility is high.")
 
 st.sidebar.subheader("Step Function Cutoff")
-cutoff = st.sidebar.slider("Skip trades above fragility", 0, 100, 100, 5,
-                            help="Trades with fragility above this threshold are skipped entirely. Set to 100 to disable.")
+cutoff = st.sidebar.slider("Skip trades above fragility", 0, 150, 150, 5,
+                            help="Trades with fragility above this threshold are skipped entirely. Set to 150 to disable.")
 
 st.sidebar.markdown("---")
 st.sidebar.subheader("Strategies")
