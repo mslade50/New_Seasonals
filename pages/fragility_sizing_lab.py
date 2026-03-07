@@ -379,8 +379,18 @@ if not regime_trades.empty:
     # Reorder columns
     pivot = pivot.reindex(columns=[r for r in REGIME_ORDER if r in pivot.columns])
 
+    # Add total portfolio row (avg R across all strategies per regime)
+    portfolio_row = regime_trades.groupby('Regime')['R'].mean()
+    pivot.loc['Total Portfolio'] = portfolio_row.reindex(pivot.columns, fill_value=0)
+
+    # Robust gradient: use percentile clipping to avoid outlier-driven scale
+    vmin = np.percentile(pivot.values, 5)
+    vmax = np.percentile(pivot.values, 95)
+
     st.dataframe(
-        pivot.style.format('{:.2f}R').background_gradient(cmap='RdYlGn', axis=None),
+        pivot.style.format('{:.2f}R').background_gradient(
+            cmap='RdYlGn', axis=None, vmin=vmin, vmax=vmax
+        ),
         use_container_width=True,
     )
 
