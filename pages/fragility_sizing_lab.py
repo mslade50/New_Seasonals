@@ -443,17 +443,17 @@ if not regime_trades.empty:
 
     def _r_color(val):
         if val > 0.5:
-            return 'background-color: #1a7a1a; color: white'
+            return 'background-color: #1a7a1a; color: #c0f0c0'
         elif val > 0.3:
-            return 'background-color: #2ca02c; color: white'
+            return 'background-color: #2ca02c; color: #e0ffe0'
         elif val > 0.15:
-            return 'background-color: #90d890'
+            return 'background-color: #90d890; color: #1a5c1a'
         elif val >= 0:
-            return 'background-color: #d4f5d4'
+            return 'background-color: #d4f5d4; color: #2a7a2a'
         elif val >= -0.1:
-            return 'background-color: #f4a0a0'
+            return 'background-color: #f4a0a0; color: #7a1a1a'
         else:
-            return 'background-color: #cc0000; color: white'
+            return 'background-color: #cc0000; color: #ffcccc'
 
     st.dataframe(
         pivot.style.format('{:.2f}R').map(_r_color),
