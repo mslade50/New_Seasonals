@@ -88,7 +88,7 @@ def _ensure_columns(sig_df):
 
 # ─── Replay engine ──────────────────────────────────────────────────────────
 
-def replay_equity(sig_df, frag_series, starting_equity, min_mult, cutoff,
+def replay_equity(sig_df, frag_series, starting_equity, min_mult, max_mult, cutoff,
                   enabled_strategies, threshold=55, mode='linear'):
     """
     Replay trades with equal-weight sizing and fragility adjustment.
@@ -152,8 +152,13 @@ def replay_equity(sig_df, frag_series, starting_equity, min_mult, cutoff,
             skipped = True
         elif mode == 'linear':
             if frag_score <= threshold:
-                adj_mult = 1.0
+                # Scale up: max_mult at frag=0, 1.0 at frag=threshold
+                if threshold > 0:
+                    adj_mult = max_mult - (frag_score / threshold) * (max_mult - 1.0)
+                else:
+                    adj_mult = max_mult
             else:
+                # Scale down: 1.0 at threshold, min_mult at frag=100
                 adj_mult = max(min_mult, 1.0 - ((frag_score - threshold) / (100 - threshold)) * (1 - min_mult))
         else:
             adj_mult = 1.0
@@ -262,10 +267,12 @@ frag_series = frag_series.shift(1).dropna()
 
 st.sidebar.markdown("---")
 st.sidebar.subheader("Linear Ramp")
-threshold = st.sidebar.slider("Ramp starts at fragility", 0, 95, 55, 5,
-                               help="No size reduction below this fragility score. Ramp begins above it.")
+threshold = st.sidebar.slider("Ramp threshold (neutral zone)", 0, 95, 55, 5,
+                               help="Below this: size UP toward max. Above this: size DOWN toward min.")
+max_mult = st.sidebar.slider("Max multiplier (at frag=0)", 1.0, 1.5, 1.0, 0.05,
+                              help="Sizing boost when fragility is low. 1.0 = no boost.")
 min_mult = st.sidebar.slider("Min multiplier (at frag=100)", 0.1, 1.0, 0.5, 0.05,
-                              help=f"Sizing is 1.0x at frag<={threshold}. Scales linearly down to this value at frag=100.")
+                              help=f"Sizing floor when fragility is high.")
 
 st.sidebar.subheader("Step Function Cutoff")
 cutoff = st.sidebar.slider("Skip trades above fragility", 0, 100, 100, 5,
@@ -292,7 +299,7 @@ if sig_df.empty:
     st.warning("No trades fall within fragility data coverage period.")
     st.stop()
 
-result = replay_equity(sig_df, frag_series, starting_equity, min_mult, cutoff, enabled_strategies, threshold=threshold)
+result = replay_equity(sig_df, frag_series, starting_equity, min_mult, max_mult, cutoff, enabled_strategies, threshold=threshold)
 
 if result.empty:
     st.warning("No trades to replay with selected strategies.")
