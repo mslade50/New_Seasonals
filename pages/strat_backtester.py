@@ -25,9 +25,22 @@ except ImportError:
     def create_equity_curve_analysis_figure(*args, **kwargs): return None
     def generate_sizing_recommendations(*args, **kwargs): return []
 
-# Fragility data — read from cached parquet (populated by daily_risk_report.py)
-FRAGILITY_CACHE = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data", "rd2_fragility.parquet")
-RD2_AVAILABLE = os.path.exists(FRAGILITY_CACHE)
+import json as _json
+
+# Fragility data paths
+_DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data")
+FRAGILITY_CACHE = os.path.join(_DATA_DIR, "rd2_fragility.parquet")
+FRAGILITY_CACHE_TS = os.path.join(_DATA_DIR, "rd2_fragility_ts.parquet")
+FIRE_HISTORY_PATH = os.path.join(_DATA_DIR, "signal_fire_history.parquet")
+HORIZON_STATS_PATH = os.path.join(_DATA_DIR, "signal_horizon_stats.json")
+SPY_OHLC_PATH = os.path.join(_DATA_DIR, "rd2_spy_ohlc.parquet")
+
+# Can compute fragility if we have signal fire history + SPY data + horizon stats
+RD2_AVAILABLE = (
+    os.path.exists(FRAGILITY_CACHE)
+    or os.path.exists(FRAGILITY_CACHE_TS)
+    or (os.path.exists(FIRE_HISTORY_PATH) and os.path.exists(SPY_OHLC_PATH) and os.path.exists(HORIZON_STATS_PATH))
+)
 
 # Regime bucket definitions (lightweight — no risk_dashboard import needed)
 REGIME_BUCKETS = {
@@ -1601,17 +1614,155 @@ def create_portfolio_breakdown_charts(sig_df):
 
 def compute_fragility_for_backtest():
     """
-    Load pre-computed fragility timeseries from cached parquet.
-    Returns (frag_df, None) or (None, None) if cache unavailable.
-    Cache is populated by daily_risk_report.py.
+    Load fragility timeseries from cache, or compute inline from ingredients.
+    Returns (frag_df, None) or (None, None) if unavailable.
+
+    Cache sources (tried in order):
+    1. rd2_fragility.parquet (from daily_risk_report.py)
+    2. rd2_fragility_ts.parquet (from risk_dashboard_v2.py)
+    3. Compute from signal_fire_history.parquet + rd2_spy_ohlc.parquet + signal_horizon_stats.json
     """
-    if not os.path.exists(FRAGILITY_CACHE):
+    # Try cached files first
+    for path in [FRAGILITY_CACHE, FRAGILITY_CACHE_TS]:
+        if os.path.exists(path):
+            try:
+                frag_df = pd.read_parquet(path)
+                if not frag_df.empty:
+                    return frag_df, None
+            except Exception:
+                pass
+
+    # Compute inline from ingredients
+    if not (os.path.exists(FIRE_HISTORY_PATH) and os.path.exists(SPY_OHLC_PATH) and os.path.exists(HORIZON_STATS_PATH)):
         return None, None
+
     try:
-        frag_df = pd.read_parquet(FRAGILITY_CACHE)
+        fire_df = pd.read_parquet(FIRE_HISTORY_PATH).astype(bool)
+        spy_ohlc = pd.read_parquet(SPY_OHLC_PATH)
+        if isinstance(spy_ohlc.columns, pd.MultiIndex):
+            spy_ohlc.columns = spy_ohlc.columns.get_level_values(0)
+        spy_ohlc.columns = [c.capitalize() for c in spy_ohlc.columns]
+        spy_close = spy_ohlc['Close'].dropna()
+
+        with open(HORIZON_STATS_PATH, 'r') as f:
+            horizon_stats = _json.load(f)
+
+        frag_df = _compute_fragility_inline(fire_df, spy_close, horizon_stats)
+        if frag_df is not None and not frag_df.empty:
+            # Cache for next time
+            frag_df.to_parquet(FRAGILITY_CACHE)
         return frag_df, None
-    except Exception:
+    except Exception as e:
+        print(f"  Fragility inline computation failed: {e}")
         return None, None
+
+
+# ---------------------------------------------------------------------------
+# Inline fragility computation (mirrors risk_dashboard_v2 logic)
+# ---------------------------------------------------------------------------
+
+_HORIZON_DAYS = {'5d': 5, '21d': 21, '63d': 63}
+_HORIZON_DECAY_DD = {'5d': 0.05, '21d': 0.10, '63d': 0.20}
+_CALM_THRESHOLDS = {
+    'corr_5pct':  {'p85': 94,  'p90': 125, 'p95': 152},
+    'corr_10pct': {'p85': 203, 'p90': 292, 'p95': 468},
+}
+
+
+def _signal_edge_bt(stats, signal_key, horizon):
+    """Downside edge for a signal at a horizon (positive = worse)."""
+    dm = stats.get('signals', {}).get(signal_key, {}).get('horizons', {}).get(horizon, {}).get('diff_mean', 0)
+    return max(0.0, -(dm or 0.0))
+
+
+def _calm_multiplier_series(spy_close):
+    """Calm duration multiplier timeseries from correction streaks."""
+    if spy_close is None or len(spy_close) < 252:
+        return pd.Series(1.0, index=spy_close.index if spy_close is not None else [])
+    high_52w = spy_close.rolling(252).max()
+    drawdown = spy_close / high_52w - 1
+
+    def _streak(threshold):
+        corr = (drawdown <= threshold).astype(int)
+        grp = corr.cumsum()
+        s = grp.groupby(grp).cumcount()
+        never = grp == 0
+        s[never] = range(never.sum())
+        return s
+
+    s5 = _streak(-0.05)
+    s10 = _streak(-0.10)
+    t5 = _CALM_THRESHOLDS['corr_5pct']
+    t10 = _CALM_THRESHOLDS['corr_10pct']
+
+    m5 = np.where(s5 >= t5['p95'], 1.20, np.where(s5 >= t5['p90'], 1.10, np.where(s5 >= t5['p85'], 1.05, 1.0)))
+    m10 = np.where(s10 >= t10['p95'], 1.20, np.where(s10 >= t10['p90'], 1.10, np.where(s10 >= t10['p85'], 1.05, 1.0)))
+    return pd.Series(m5 * m10, index=spy_close.index)
+
+
+def _compute_fragility_inline(fire_df, spy_close, horizon_stats):
+    """Compute fragility timeseries from signal fires + SPY + horizon stats."""
+    fire_df = fire_df.reindex(spy_close.index).infer_objects(copy=False).fillna(False).astype(bool)
+
+    # Price context vectors
+    ret_12m = spy_close / spy_close.shift(252) - 1
+    sma_200 = spy_close.rolling(200).mean()
+    extension_200d = spy_close / sma_200 - 1
+    high_52w = spy_close.rolling(252).max()
+    drawdown = spy_close / high_52w - 1
+
+    # Regime multiplier
+    m = pd.Series(1.0, index=spy_close.index)
+    m = m + np.where(ret_12m > 0.25, 0.25, np.where(ret_12m > 0.15, 0.10, np.where(ret_12m < -0.05, -0.15, 0.0)))
+    m = m + np.where(extension_200d > 0.10, 0.25, np.where(extension_200d > 0.05, 0.10, np.where(extension_200d < -0.02, -0.15, 0.0)))
+    m = m + np.where(drawdown > -0.02, 0.10, np.where(drawdown < -0.10, -0.20, 0.0))
+    regime_mult = m.clip(0.6, 1.8)
+    calm_mult = _calm_multiplier_series(spy_close)
+    spy_pct_from_high = (-drawdown).clip(lower=0.0)
+
+    signal_names = list(fire_df.columns)
+    result = {}
+
+    for horizon, h_days in _HORIZON_DAYS.items():
+        edges = {name: _signal_edge_bt(horizon_stats, name, horizon) for name in signal_names}
+        active_weight = pd.Series(0.0, index=spy_close.index)
+        fomc_weight_series = pd.Series(0.0, index=spy_close.index)
+
+        for name in signal_names:
+            edge = edges.get(name, 0.0)
+            if edge == 0.0:
+                continue
+
+            sig_on = fire_df[name]
+            fire_int = sig_on.astype(int)
+            group = fire_int.cumsum()
+            days_since = group.groupby(group).cumcount()
+            ever_fired = group > 0
+            days_since = days_since.where(ever_fired, other=np.nan)
+
+            remaining_frac = ((h_days - days_since) / h_days).clip(0.0, 1.0)
+            dd_zero = _HORIZON_DECAY_DD.get(horizon, 0.10)
+            spy_factor = (1.0 - spy_pct_from_high / dd_zero).clip(0.0, 1.0)
+
+            weight = np.where(
+                sig_on, 1.0,
+                np.where(ever_fired & (remaining_frac > 0), remaining_frac * spy_factor, 0.0),
+            )
+            active_weight += edge * weight
+
+            if name == 'Pre-FOMC Rally':
+                fomc_weight_series = pd.Series(weight, index=spy_close.index)
+
+        base_max = sum(e for n, e in edges.items() if n != 'Pre-FOMC Rally')
+        fomc_edge = edges.get('Pre-FOMC Rally', 0.0)
+        max_weight = base_max + np.where(fomc_weight_series > 0, fomc_edge, 0.0)
+        max_weight = np.maximum(max_weight, 1e-9)
+
+        result[horizon] = ((active_weight / max_weight) * 80 * regime_mult * calm_mult).clip(0.0)
+
+    frag_df = pd.DataFrame(result, index=spy_close.index)
+    # Smooth (same as daily_risk_report.py)
+    return frag_df.rolling(5, min_periods=1).mean()
 
 
 def analyze_trades_by_fragility(sig_df, frag_df, horizon='21d'):
