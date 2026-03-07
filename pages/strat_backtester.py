@@ -1986,11 +1986,15 @@ def main():
             st.markdown("**🛡️ Fragility-Adjusted Sizing**")
             use_frag_sizing = st.checkbox("Apply fragility sizing", value=False,
                                           help="Scale position sizes down when market fragility is elevated")
+            frag_sizing_horizon = st.selectbox("Fragility horizon", ['21d', '63d'],
+                                               index=0, help="Which fragility horizon to use for sizing and analysis",
+                                               disabled=not use_frag_sizing)
             frag_min_mult = st.slider("Min size multiplier", 0.1, 1.0, 0.5, 0.05,
                                       help="Minimum sizing multiplier at max fragility (100). E.g. 0.5 = half size.",
                                       disabled=not use_frag_sizing)
         else:
             use_frag_sizing = False
+            frag_sizing_horizon = '21d'
             frag_min_mult = 0.5
         run_btn = st.form_submit_button("⚡ Run Backtest")
 
@@ -2078,9 +2082,9 @@ def main():
         if use_frag_sizing and RD2_AVAILABLE:
             st.write("🛡️ **Phase 3a:** Loading fragility data for sizing adjustment...")
             _frag_df, _ = compute_fragility_for_backtest()
-            if _frag_df is not None and '21d' in _frag_df.columns:
-                bt_frag_series = _frag_df['21d'].dropna()
-                st.write(f"   Fragility series loaded: {len(bt_frag_series):,} data points")
+            if _frag_df is not None and frag_sizing_horizon in _frag_df.columns:
+                bt_frag_series = _frag_df[frag_sizing_horizon].dropna()
+                st.write(f"   Fragility series loaded ({frag_sizing_horizon}): {len(bt_frag_series):,} data points")
             else:
                 st.warning("Could not load fragility data — running without fragility sizing.")
 
@@ -2441,9 +2445,11 @@ def main():
                 st.subheader("🔬 Fragility x Strategy Performance")
                 st.caption("How do strategies perform across different market fragility regimes? Uses Risk Dashboard V2 signal data.")
 
+                frag_options = ['21d', '63d']
+                frag_default = frag_options.index(frag_sizing_horizon) if frag_sizing_horizon in frag_options else 0
                 frag_horizon = st.selectbox(
-                    "Fragility Horizon", ['21d', '5d', '63d'],
-                    index=0, key='frag_horizon',
+                    "Fragility Horizon", frag_options,
+                    index=frag_default, key='frag_horizon',
                     help="Which fragility horizon to segment trades by"
                 )
 
