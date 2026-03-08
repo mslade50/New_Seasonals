@@ -1472,6 +1472,43 @@ def run_daily_scan():
     print(f"✅ Data dates validated. (Processing {len(master_dict)} tickers)\n")
     # -------------------------------------------------------------------------
 
+    # 3b. Load fragility score for sizing adjustment
+    # Uses 10d MA of 63d fragility, lagged 1 day (today's score → tomorrow's trades)
+    FRAG_CACHE = os.path.join(current_dir, "data", "rd2_fragility.parquet")
+    FRAG_CACHE_TS = os.path.join(current_dir, "data", "rd2_fragility_ts.parquet")
+    frag_mult = 1.0  # default: no adjustment
+
+    # Sizing schedule parameters (from Fragility Sizing Lab optimization)
+    FRAG_THRESHOLD = 25    # ramp neutral zone
+    FRAG_MAX_MULT = 1.25   # boost at frag=0
+    FRAG_MIN_MULT = 0.10   # floor at frag=100
+
+    frag_path = FRAG_CACHE if os.path.exists(FRAG_CACHE) else (FRAG_CACHE_TS if os.path.exists(FRAG_CACHE_TS) else None)
+    if frag_path:
+        try:
+            frag_df = pd.read_parquet(frag_path)
+            if '63d' in frag_df.columns:
+                frag_series = frag_df['63d'].dropna().rolling(10, min_periods=1).mean()
+                if not frag_series.empty:
+                    frag_score = float(frag_series.iloc[-1])
+                    # Linear ramp with threshold
+                    if frag_score <= FRAG_THRESHOLD:
+                        if FRAG_THRESHOLD > 0:
+                            frag_mult = FRAG_MAX_MULT - (frag_score / FRAG_THRESHOLD) * (FRAG_MAX_MULT - 1.0)
+                        else:
+                            frag_mult = FRAG_MAX_MULT
+                    else:
+                        frag_mult = max(FRAG_MIN_MULT, 1.0 - ((frag_score - FRAG_THRESHOLD) / (100 - FRAG_THRESHOLD)) * (1 - FRAG_MIN_MULT))
+                    print(f"🛡️ Fragility sizing: 63d score = {frag_score:.1f} → multiplier = {frag_mult:.2f}x")
+                else:
+                    print("⚠️ Fragility series empty after processing — using 1.0x")
+            else:
+                print("⚠️ 63d column not found in fragility cache — using 1.0x")
+        except Exception as e:
+            print(f"⚠️ Could not load fragility data: {e} — using 1.0x")
+    else:
+        print("⚠️ No fragility cache found — using 1.0x sizing")
+
     # 4. Prepare VIX Series (for strategies with VIX filter)
     vix_df = master_dict.get('^VIX')
     vix_series = None
@@ -1589,6 +1626,12 @@ def run_daily_scan():
                             risk = risk * 0.66
                             sizing_note = f"Low Sznl ({sznl_val:.0f}) = 0.66x"
                     # ---------------------------------------------------------
+
+                    # 2b. FRAGILITY SIZING ADJUSTMENT
+                    # Applied after strategy-specific adjustments
+                    if frag_mult != 1.0:
+                        risk = risk * frag_mult
+                        sizing_note += f" | Frag {frag_mult:.2f}x"
 
                     # 3. Calculate Prices & Shares
                     entry = last_row['Close']
