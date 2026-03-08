@@ -491,7 +491,7 @@ if not regime_trades.empty:
         else:
             return 'background-color: #cc0000; color: #ffcccc'
 
-    tab_r, tab_wr = st.tabs(["Avg R by Regime", "Win Rate by Regime"])
+    tab_r, tab_wr, tab_pf = st.tabs(["Avg R by Regime", "Win Rate by Regime", "Profit Factor by Regime"])
 
     with tab_r:
         st.dataframe(
@@ -525,6 +525,44 @@ if not regime_trades.empty:
 
         st.dataframe(
             pivot_wr.style.format('{:.1%}').map(_wr_color),
+            use_container_width=True,
+        )
+
+    with tab_pf:
+        # Profit factor pivot: Strategy x Regime
+        def _pf_by_group(grp):
+            wins = grp[grp > 0].sum()
+            losses = abs(grp[grp < 0].sum())
+            return wins / losses if losses > 0 else np.inf
+
+        pf_data = regime_trades.groupby(['Strategy', 'Regime'])['Adj PnL'].apply(_pf_by_group).reset_index()
+        pf_data.columns = ['Strategy', 'Regime', 'PF']
+        pivot_pf = pf_data.pivot(index='Strategy', columns='Regime', values='PF').fillna(0)
+        pivot_pf = pivot_pf.reindex(columns=[r for r in REGIME_ORDER if r in pivot_pf.columns])
+
+        # Total portfolio row
+        portfolio_pf = regime_trades.groupby('Regime')['Adj PnL'].apply(_pf_by_group)
+        pivot_pf.loc['Total Portfolio'] = portfolio_pf.reindex(pivot_pf.columns, fill_value=0)
+
+        # Cap inf for display
+        pivot_pf = pivot_pf.replace([np.inf], 99.0)
+
+        def _pf_color(val):
+            if val > 2.5:
+                return 'background-color: #1a7a1a; color: #c0f0c0'
+            elif val > 1.8:
+                return 'background-color: #2ca02c; color: #e0ffe0'
+            elif val > 1.2:
+                return 'background-color: #90d890; color: #1a5c1a'
+            elif val >= 1.0:
+                return 'background-color: #d4f5d4; color: #2a7a2a'
+            elif val >= 0.7:
+                return 'background-color: #f4a0a0; color: #7a1a1a'
+            else:
+                return 'background-color: #cc0000; color: #ffcccc'
+
+        st.dataframe(
+            pivot_pf.style.format('{:.2f}').map(_pf_color),
             use_container_width=True,
         )
 
