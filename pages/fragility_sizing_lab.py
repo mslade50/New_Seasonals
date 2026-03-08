@@ -491,10 +491,42 @@ if not regime_trades.empty:
         else:
             return 'background-color: #cc0000; color: #ffcccc'
 
-    st.dataframe(
-        pivot.style.format('{:.2f}R').map(_r_color),
-        use_container_width=True,
-    )
+    tab_r, tab_wr = st.tabs(["Avg R by Regime", "Win Rate by Regime"])
+
+    with tab_r:
+        st.dataframe(
+            pivot.style.format('{:.2f}R').map(_r_color),
+            use_container_width=True,
+        )
+
+    with tab_wr:
+        # Win rate pivot: Strategy x Regime
+        regime_trades['Win'] = (regime_trades['Adj PnL'] > 0).astype(int)
+        pivot_wr = regime_trades.pivot_table(
+            index='Strategy', columns='Regime', values='Win', aggfunc='mean', fill_value=0
+        )
+        pivot_wr = pivot_wr.reindex(columns=[r for r in REGIME_ORDER if r in pivot_wr.columns])
+        portfolio_wr = regime_trades.groupby('Regime')['Win'].mean()
+        pivot_wr.loc['Total Portfolio'] = portfolio_wr.reindex(pivot_wr.columns, fill_value=0)
+
+        def _wr_color(val):
+            if val > 0.65:
+                return 'background-color: #1a7a1a; color: #c0f0c0'
+            elif val > 0.58:
+                return 'background-color: #2ca02c; color: #e0ffe0'
+            elif val > 0.52:
+                return 'background-color: #90d890; color: #1a5c1a'
+            elif val >= 0.48:
+                return 'background-color: #d4f5d4; color: #2a7a2a'
+            elif val >= 0.40:
+                return 'background-color: #f4a0a0; color: #7a1a1a'
+            else:
+                return 'background-color: #cc0000; color: #ffcccc'
+
+        st.dataframe(
+            pivot_wr.style.format('{:.1%}').map(_wr_color),
+            use_container_width=True,
+        )
 
     with st.expander("Detailed Breakdown"):
         for regime in REGIME_ORDER:
