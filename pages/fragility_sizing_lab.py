@@ -285,6 +285,42 @@ cutoff = st.sidebar.slider("Skip trades above fragility", 0, 150, 150, 5,
 scale_with_equity = st.sidebar.checkbox("Scale size with portfolio growth", value=False,
                                         help="When enabled, risk per trade scales with running equity instead of fixed starting equity.")
 
+# ─── Sizing schedule preview ───────────────────────────────────────────────
+
+def _compute_mult(score, threshold, max_mult, min_mult, cutoff):
+    """Compute the sizing multiplier for a given fragility score."""
+    if score > cutoff:
+        return 0.0
+    if score <= threshold:
+        if threshold > 0:
+            return max_mult - (score / threshold) * (max_mult - 1.0)
+        return max_mult
+    return max(min_mult, 1.0 - ((score - threshold) / (100 - threshold)) * (1 - min_mult))
+
+# Sample points: regime boundaries + midpoints
+_schedule_scores = [0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100]
+_schedule_mults = [_compute_mult(s, threshold, max_mult, min_mult, cutoff) for s in _schedule_scores]
+_schedule_regimes = [_assign_regime(s) for s in _schedule_scores]
+
+_sched_df = pd.DataFrame({
+    'Fragility': _schedule_scores,
+    'Regime': _schedule_regimes,
+    'Multiplier': _schedule_mults,
+    'Sizing %': [f"{m:.0%}" for m in _schedule_mults],
+})
+
+st.sidebar.markdown("---")
+st.sidebar.subheader("Sizing Schedule")
+st.sidebar.dataframe(
+    _sched_df[['Fragility', 'Regime', 'Sizing %']].style.map(
+        lambda v: f'color: {REGIME_COLORS.get(v, "inherit")}',
+        subset=['Regime'],
+    ),
+    hide_index=True,
+    use_container_width=True,
+    height=422,
+)
+
 st.sidebar.markdown("---")
 st.sidebar.subheader("Strategies")
 all_strategies = sorted(sig_df['Strategy'].unique())
