@@ -1,4 +1,5 @@
 pandas
+pyarrow
 numpy
 yfinance
 streamlit>=1.23.0

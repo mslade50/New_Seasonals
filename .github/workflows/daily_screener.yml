@@ -37,7 +37,7 @@ jobs:
 
       - name: Install dependencies
         run: |
-          pip install pandas numpy yfinance gspread google-auth
+          pip install pandas pyarrow numpy yfinance gspread google-auth
 
       - name: Run Automation Script
         env:
