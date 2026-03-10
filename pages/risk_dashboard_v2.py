@@ -3641,15 +3641,26 @@ def main():
 
     if horizon_stats is not None:
 
+        # 10d moving average for context below each dial
+        ma10 = {}
+        if frag_df is not None and len(frag_df) >= 1:
+            ma10_series = frag_df.rolling(10, min_periods=1).mean().iloc[-1]
+            for k in ('5d', '21d', '63d'):
+                ma10[k] = ma10_series.get(k)
+
         dial_c1, dial_c2, dial_c3 = st.columns(3)
         with dial_c1:
             st.plotly_chart(build_risk_dial(h_scores['5d'], 'Short-Term (5d)'), use_container_width=True)
+            if '5d' in ma10 and ma10['5d'] is not None:
+                st.markdown(f"<div style='text-align:center;margin-top:-18px;color:gray;font-size:13px;'>10d avg: <b>{ma10['5d']:.1f}</b></div>", unsafe_allow_html=True)
         with dial_c2:
             st.plotly_chart(build_risk_dial(h_scores['21d'], 'Intermediate (21d)'), use_container_width=True)
+            if '21d' in ma10 and ma10['21d'] is not None:
+                st.markdown(f"<div style='text-align:center;margin-top:-18px;color:gray;font-size:13px;'>10d avg: <b>{ma10['21d']:.1f}</b></div>", unsafe_allow_html=True)
         with dial_c3:
             st.plotly_chart(build_risk_dial(h_scores['63d'], 'Long-Term (63d)'), use_container_width=True)
-
-        pass
+            if '63d' in ma10 and ma10['63d'] is not None:
+                st.markdown(f"<div style='text-align:center;margin-top:-18px;color:gray;font-size:13px;'>10d avg: <b>{ma10['63d']:.1f}</b></div>", unsafe_allow_html=True)
     else:
         st.warning("Horizon stats file missing — using equal-weight fallback.")
         fallback = (active_count / total_count * 80 * regime_mult) if total_count > 0 else 0
