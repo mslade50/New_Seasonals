@@ -2,8 +2,8 @@ name: Daily Risk Report
 
 on:
   schedule:
-    # Run at 10:15 PM UTC (5:15 PM ET), weekdays only
-    - cron: '15 22 * * 1-5'
+    # Run at 9:15 PM UTC (5:15 PM EDT), weekdays only
+    - cron: '15 21 * * 1-5'
   workflow_dispatch:  # Allow manual trigger
 
 permissions:

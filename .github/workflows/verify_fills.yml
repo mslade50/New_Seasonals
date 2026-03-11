@@ -2,8 +2,8 @@ name: Verify Fills (Post-Close)
 
 on:
   schedule:
-    # 5:15 PM ET = 22:15 UTC (after market close, after daily_scan finishes)
-    - cron: '15 22 * * 1-5'
+    # 5:15 PM EDT = 21:15 UTC (after market close, after daily_scan finishes)
+    - cron: '15 21 * * 1-5'
   workflow_dispatch:  # Manual trigger for testing
 
 jobs:

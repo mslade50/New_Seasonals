@@ -7,19 +7,20 @@ concurrency:
 
 on:
   schedule:
-    # 1. THE ORIGINALS (Keeping Early AM and Late PM only)
-    # 5:13 AM EST (10:13 UTC)
-    # 4:13 PM EST (21:13 UTC)
-    - cron: '13 10,21 * * 1-5'
+    # 1. THE ORIGINALS (Early AM and Late PM)
+    # 5:13 AM EDT (9:13 UTC)
+    # 4:13 PM EDT (20:13 UTC)
+    - cron: '13 9,20 * * 1-5'
 
-    # 2. THE NEW HOURLY BLOCKS
-    # 2:00 PM EST (19:00 UTC)
-    # 3:00 PM EST (20:00 UTC)
-    - cron: '0 19,20 * * 1-5'
+    # 2. THE AFTERNOON BLOCKS
+    # 1:40 PM EDT (17:40 UTC)
+    # 3:00 PM EDT (19:00 UTC)
+    - cron: '40 17 * * 1-5'
+    - cron: '0 19 * * 1-5'
 
-    # 3. THE NEW HALF-HOUR BLOCK
-    # 3:30 PM EST (20:30 UTC)
-    - cron: '30 20 * * 1-5'
+    # 3. THE HALF-HOUR BLOCK
+    # 3:30 PM EDT (19:30 UTC)
+    - cron: '30 19 * * 1-5'
 
   workflow_dispatch:
 

@@ -2,8 +2,8 @@ name: Daily Portfolio Health Report
 
 on:
   schedule:
-    # Run at 10 PM UTC (5 PM ET)
-    - cron: '0 22 * * *'
+    # Run at 9 PM UTC (5 PM EDT)
+    - cron: '0 21 * * *'
   workflow_dispatch:  # Allow manual trigger
 
 jobs:
