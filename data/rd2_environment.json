@@ -1,51 +1,51 @@
 {
-  "date": "2026-03-11",
+  "date": "2026-03-12",
   "price_ctx": {
-    "price": 676.3300170898438,
-    "ret_12m": 0.2308827294716176,
-    "extension_200d": 0.03166928031165517,
-    "drawdown": -0.027548884115606742,
-    "sma_200": 655.5686303710937,
+    "price": 666.0599975585938,
+    "ret_12m": 0.2057932783491987,
+    "extension_200d": 0.015291441977614229,
+    "drawdown": -0.042315479861706695,
+    "sma_200": 656.0283776855468,
     "high_52w": 695.489990234375,
     "regime_label": "Healthy uptrend",
-    "days_since_5pct": 74,
-    "days_since_10pct": 220
+    "days_since_5pct": 75,
+    "days_since_10pct": 221
   },
   "h_scores": {
-    "5d": 5.449009357161995,
-    "21d": 38.89890362024984,
-    "63d": 58.35092544003582
+    "5d": 2.439295767899141,
+    "21d": 34.446048933786464,
+    "63d": 55.917167111633226
   },
   "signals": {
     "Distribution Dominance": {
       "on": false,
       "detail": "",
-      "summary": "D/A ratio: 2.2 (threshold: 3.75) \u2014 9D / 4A last 63d"
+      "summary": "D/A ratio: 2.5 (threshold: 3.75) \u2014 10D / 4A last 63d"
     },
     "VIX Range Compression": {
       "on": false,
       "detail": "",
-      "summary": "21d range: 82th pctile (fires below 15th) \u2014 VIX at 24.2"
+      "summary": "21d range: 82th pctile (fires below 15th) \u2014 VIX at 27.3"
     },
     "Defensive Leadership": {
       "on": false,
       "detail": "",
-      "summary": "50d spread: -25pp (fires < -10) | 200d spread: -11pp (fires < 0)"
+      "summary": "50d spread: -29pp (fires < -10) | 200d spread: -19pp (fires < 0)"
     },
     "Pre-FOMC Rally": {
       "on": false,
       "detail": "",
-      "summary": "Next FOMC: Mar 18 (7d away) \u2014 5d return: 17th pctile (fires above 75th)"
+      "summary": "Next FOMC: Mar 18 (6d away) \u2014 5d return: 9th pctile (fires above 75th)"
     },
     "Low Absorption Ratio": {
       "on": false,
       "detail": "",
-      "summary": "AR: 0.361 (10th pctile, fires below 10th) \u2014 near high: no"
+      "summary": "AR: 0.345 (6th pctile, fires below 10th) \u2014 near high: no"
     },
     "Seasonal Rank Divergence": {
       "on": false,
       "detail": "",
-      "summary": "Spread: +1.9pp (fires above 10) \u2014 near high: no"
+      "summary": "Spread: +3.1pp (fires above 10) \u2014 near high: no"
     }
   }
 }
