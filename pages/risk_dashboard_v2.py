@@ -2620,7 +2620,7 @@ def _render_fragility_event_study(study: dict, spy_close: pd.Series, horizon_lab
 # ============================================================================
 
 @st.cache_data(ttl=3600)
-def compute_regime_deep_dive(_spy_df, _closes, _frag_df, cache_key):
+def compute_regime_deep_dive(_spy_df, _closes, _frag_df, cache_key, sma_filter=False):
     """
     Compute full regime deep-dive stats for all 3 horizons.
     Uses lagged (prior-close) fragility scores for predictive analysis.
@@ -2652,6 +2652,15 @@ def compute_regime_deep_dive(_spy_df, _closes, _frag_df, cache_key):
         # Lagged bucketing: yesterday's reading → today's behavior
         buckets_1d = fs.shift(1).map(_assign_regime_bucket)      # raw prior-close score
         buckets_10d = fs.rolling(10).mean().shift(1).map(_assign_regime_bucket)  # 10d MA prior-close
+
+        # Optional: filter Robust/Calm to SPY > 200d SMA only
+        if sma_filter:
+            sma_200 = sd['Close'].rolling(200, min_periods=180).mean()
+            below_sma = sd['Close'] < sma_200
+            buckets_1d = buckets_1d.copy()
+            buckets_10d = buckets_10d.copy()
+            buckets_1d[below_sma & buckets_1d.isin(['Robust', 'Calm'])] = np.nan
+            buckets_10d[below_sma & buckets_10d.isin(['Robust', 'Calm'])] = np.nan
 
         # Daily returns
         daily_ret = sd['Close'].pct_change()
@@ -3223,14 +3232,16 @@ def _render_transition_heatmap(transition, current_regime):
 
 
 @st.fragment
-def _render_regime_deep_dive(deep_dive_data, h_scores, frag_df):
+def _render_regime_deep_dive(spy_df, closes, frag_df, h_scores, cache_key):
     """Fragment: Regime Deep Dive section with tabs for each horizon."""
-    if not deep_dive_data:
-        return
-
     st.divider()
     st.subheader("Regime Deep Dive")
+    sma_filter = st.checkbox("Filter Robust & Calm to SPY > 200d SMA only", value=False, key="dd_sma_filter")
     st.caption("Yesterday's fragility reading \u2192 today's expected SPY behavior")
+
+    deep_dive_data = compute_regime_deep_dive(spy_df, closes, frag_df, cache_key, sma_filter=sma_filter)
+    if not deep_dive_data:
+        return
 
     tab_labels = []
     tab_keys = []
@@ -3679,9 +3690,7 @@ def main():
 
     # Regime Deep Dive
     if frag_df is not None and h_scores is not None:
-        deep_dive = compute_regime_deep_dive(spy_df, closes, frag_df, _parquet_cache_key())
-        if deep_dive:
-            _render_regime_deep_dive(deep_dive, h_scores, frag_df)
+        _render_regime_deep_dive(spy_df, closes, frag_df, h_scores, _parquet_cache_key())
 
     # -------------------------------------------------------------------
     # CHARTS (all in one fragment — year filter changes only re-render here)
