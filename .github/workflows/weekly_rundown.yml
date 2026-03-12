@@ -1,0 +1,32 @@
+name: Weekly Market Rundown
+
+on:
+  schedule:
+    # Sunday 2 PM UTC = 9 AM ET
+    - cron: '0 14 * * 0'
+  workflow_dispatch:  # Allow manual trigger
+
+jobs:
+  weekly_rundown:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install kaleido fpdf2
+
+      - name: Run weekly rundown
+        env:
+          EMAIL_USER: ${{ secrets.EMAIL_USER }}
+          EMAIL_PASS: ${{ secrets.EMAIL_PASS }}
+        run: python weekly_market_rundown.py

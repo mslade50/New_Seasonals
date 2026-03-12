@@ -16,3 +16,4 @@ gspread
 requests-cache
 pytz
 kaleido
+fpdf2
