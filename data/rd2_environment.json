@@ -1,51 +1,51 @@
 {
-  "date": "2026-03-16",
+  "date": "2026-03-17",
   "price_ctx": {
-    "price": 669.030029296875,
-    "ret_12m": 0.20269109751525427,
-    "extension_200d": 0.018556322841392747,
-    "drawdown": -0.03804506363719651,
-    "sma_200": 656.8414669799805,
+    "price": 670.7899780273438,
+    "ret_12m": 0.19662723466146104,
+    "extension_200d": 0.020568905149602745,
+    "drawdown": -0.03551454737502047,
+    "sma_200": 657.2706405639649,
     "high_52w": 695.489990234375,
     "regime_label": "Healthy uptrend",
-    "days_since_5pct": 77,
-    "days_since_10pct": 223
+    "days_since_5pct": 78,
+    "days_since_10pct": 224
   },
   "h_scores": {
-    "5d": 0.41317696126492126,
-    "21d": 27.74469417678394,
-    "63d": 52.22049362009625
+    "5d": 0.0,
+    "21d": 24.76008594432018,
+    "63d": 50.66519301433887
   },
   "signals": {
     "Distribution Dominance": {
       "on": false,
       "detail": "",
-      "summary": "D/A ratio: 3.3 (threshold: 3.75) \u2014 10D / 3A last 63d"
+      "summary": "D/A ratio: 3.0 (threshold: 3.75) \u2014 9D / 3A last 63d"
     },
     "VIX Range Compression": {
       "on": false,
       "detail": "",
-      "summary": "21d range: 80th pctile (fires below 15th) \u2014 VIX at 23.5"
+      "summary": "21d range: 80th pctile (fires below 15th) \u2014 VIX at 22.4"
     },
     "Defensive Leadership": {
       "on": false,
       "detail": "",
-      "summary": "50d spread: -27pp (fires < -10) | 200d spread: -18pp (fires < 0)"
+      "summary": "50d spread: -22pp (fires < -10) | 200d spread: -17pp (fires < 0)"
     },
     "Pre-FOMC Rally": {
       "on": false,
       "detail": "",
-      "summary": "Next FOMC: Mar 18 (2d away) \u2014 5d return: 17th pctile (fires above 75th)"
+      "summary": "Next FOMC: Mar 18 (1d away) \u2014 5d return: 23th pctile (fires above 75th)"
     },
     "Low Absorption Ratio": {
       "on": false,
       "detail": "",
-      "summary": "AR: 0.405 (24th pctile, fires below 10th) \u2014 near high: no"
+      "summary": "AR: 0.413 (26th pctile, fires below 10th) \u2014 near high: no"
     },
     "Seasonal Rank Divergence": {
       "on": false,
       "detail": "",
-      "summary": "Spread: +5.8pp (fires above 10) \u2014 near high: no"
+      "summary": "Spread: +6.8pp (fires above 10) \u2014 near high: no"
     }
   }
 }
