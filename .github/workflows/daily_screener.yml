@@ -14,9 +14,9 @@ on:
 
     # 2. THE AFTERNOON BLOCKS
     # 1:40 PM EDT (17:40 UTC)
-    # 3:00 PM EDT (19:00 UTC)
+    # 2:45 PM EDT (19:00 UTC)
     - cron: '40 17 * * 1-5'
-    - cron: '0 19 * * 1-5'
+    - cron: '45 18 * * 1-5'
 
     # 3. THE HALF-HOUR BLOCK
     # 3:30 PM EDT (19:30 UTC)
