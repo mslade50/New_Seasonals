@@ -12,39 +12,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from indicators import calculate_indicators, get_sznl_val_series
 
-import json as _json
-
-# Fragility data paths
 _DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data")
-FRAGILITY_CACHE = os.path.join(_DATA_DIR, "rd2_fragility.parquet")
-FRAGILITY_CACHE_TS = os.path.join(_DATA_DIR, "rd2_fragility_ts.parquet")
-FIRE_HISTORY_PATH = os.path.join(_DATA_DIR, "signal_fire_history.parquet")
-HORIZON_STATS_PATH = os.path.join(_DATA_DIR, "signal_horizon_stats.json")
-SPY_OHLC_PATH = os.path.join(_DATA_DIR, "rd2_spy_ohlc.parquet")
-
-# Can compute fragility if we have signal fire history + SPY data + horizon stats
-RD2_AVAILABLE = (
-    os.path.exists(FRAGILITY_CACHE)
-    or os.path.exists(FRAGILITY_CACHE_TS)
-    or (os.path.exists(FIRE_HISTORY_PATH) and os.path.exists(SPY_OHLC_PATH) and os.path.exists(HORIZON_STATS_PATH))
-)
-
-# Regime bucket definitions (lightweight — no risk_dashboard import needed)
-REGIME_BUCKETS = {
-    'Robust': (0, 20), 'Calm': (20, 40), 'Neutral': (40, 60),
-    'Elevated': (60, 80), 'Fragile': (80, 100.01),
-}
-REGIME_ORDER = ['Robust', 'Calm', 'Neutral', 'Elevated', 'Fragile']
-REGIME_COLORS = {
-    'Robust': '#00CC00', 'Calm': '#7FCC00', 'Neutral': '#FFD700',
-    'Elevated': '#FF8C00', 'Fragile': '#CC0000',
-}
-
-def _assign_regime_bucket(score):
-    for name, (lo, hi) in REGIME_BUCKETS.items():
-        if lo <= score < hi:
-            return name
-    return 'Fragile' if score >= 80 else 'Robust'
 
 # -----------------------------------------------------------------------------
 # IMPORT STRATEGY BOOK FROM ROOT
@@ -612,8 +580,7 @@ def build_price_matrix(processed_dict, tickers):
     return pd.DataFrame(price_data, index=all_dates)
 
 
-def process_signals_fast(candidates, signal_data, processed_dict, strategies, starting_equity,
-                         fragility_series=None, fragility_min_mult=0.5):
+def process_signals_fast(candidates, signal_data, processed_dict, strategies, starting_equity):
     """
     Process candidates chronologically with dynamic sizing based on REAL-TIME MTM equity.
     
@@ -942,14 +909,6 @@ def process_signals_fast(candidates, signal_data, processed_dict, strategies, st
         
         risk_bps = execution['risk_bps']
         base_risk = current_equity * risk_bps / 10000
-
-        # ========== FRAGILITY-ADJUSTED SIZING ==========
-        if fragility_series is not None:
-            frag_score = fragility_series.asof(signal_date)
-            if not pd.isna(frag_score):
-                min_mult = fragility_min_mult
-                fragility_mult = max(min_mult, 1.0 - (frag_score / 100) * (1 - min_mult))
-                base_risk *= fragility_mult
 
         # ========== STRATEGY-SPECIFIC RISK ADJUSTMENTS ==========
         _vol_spike_skip_primary = False
@@ -1610,352 +1569,6 @@ def create_portfolio_breakdown_charts(sig_df):
     fig_dow = make_bar_chart(dow_agg, "Log Return by Day of Week (Exit Day)")
 
     return fig_cycle, fig_month, fig_dow
-# -----------------------------------------------------------------------------
-# FRAGILITY x STRATEGY ANALYSIS (Step 1: Platform Coherence)
-# -----------------------------------------------------------------------------
-
-def compute_fragility_for_backtest():
-    """
-    Load fragility timeseries from cache, or compute inline from ingredients.
-    Returns (frag_df, None) or (None, None) if unavailable.
-
-    Cache sources (tried in order):
-    1. rd2_fragility.parquet (from daily_risk_report.py)
-    2. rd2_fragility_ts.parquet (from risk_dashboard_v2.py)
-    3. Compute from signal_fire_history.parquet + rd2_spy_ohlc.parquet + signal_horizon_stats.json
-    """
-    # Try cached files first
-    for path in [FRAGILITY_CACHE, FRAGILITY_CACHE_TS]:
-        if os.path.exists(path):
-            try:
-                frag_df = pd.read_parquet(path)
-                if not frag_df.empty:
-                    return frag_df, None
-            except Exception:
-                pass
-
-    # Compute inline from ingredients
-    if not (os.path.exists(FIRE_HISTORY_PATH) and os.path.exists(SPY_OHLC_PATH) and os.path.exists(HORIZON_STATS_PATH)):
-        return None, None
-
-    try:
-        fire_df = pd.read_parquet(FIRE_HISTORY_PATH).astype(bool)
-        spy_ohlc = pd.read_parquet(SPY_OHLC_PATH)
-        if isinstance(spy_ohlc.columns, pd.MultiIndex):
-            spy_ohlc.columns = spy_ohlc.columns.get_level_values(0)
-        spy_ohlc.columns = [c.capitalize() for c in spy_ohlc.columns]
-        spy_close = spy_ohlc['Close'].dropna()
-
-        with open(HORIZON_STATS_PATH, 'r') as f:
-            horizon_stats = _json.load(f)
-
-        frag_df = _compute_fragility_inline(fire_df, spy_close, horizon_stats)
-        if frag_df is not None and not frag_df.empty:
-            # Cache for next time
-            frag_df.to_parquet(FRAGILITY_CACHE)
-        return frag_df, None
-    except Exception as e:
-        print(f"  Fragility inline computation failed: {e}")
-        return None, None
-
-
-# ---------------------------------------------------------------------------
-# Inline fragility computation (mirrors risk_dashboard_v2 logic)
-# ---------------------------------------------------------------------------
-
-_HORIZON_DAYS = {'5d': 5, '21d': 21, '63d': 63}
-_HORIZON_DECAY_DD = {'5d': 0.05, '21d': 0.10, '63d': 0.20}
-_CALM_THRESHOLDS = {
-    'corr_5pct':  {'p85': 94,  'p90': 125, 'p95': 152},
-    'corr_10pct': {'p85': 203, 'p90': 292, 'p95': 468},
-}
-
-
-def _signal_edge_bt(stats, signal_key, horizon):
-    """Downside edge for a signal at a horizon (positive = worse)."""
-    dm = stats.get('signals', {}).get(signal_key, {}).get('horizons', {}).get(horizon, {}).get('diff_mean', 0)
-    return max(0.0, -(dm or 0.0))
-
-
-def _calm_multiplier_series(spy_close):
-    """Calm duration multiplier timeseries from correction streaks."""
-    if spy_close is None or len(spy_close) < 252:
-        return pd.Series(1.0, index=spy_close.index if spy_close is not None else [])
-    high_52w = spy_close.rolling(252).max()
-    drawdown = spy_close / high_52w - 1
-
-    def _streak(threshold):
-        corr = (drawdown <= threshold).astype(int)
-        grp = corr.cumsum()
-        s = grp.groupby(grp).cumcount()
-        never = grp == 0
-        s[never] = range(never.sum())
-        return s
-
-    s5 = _streak(-0.05)
-    s10 = _streak(-0.10)
-    t5 = _CALM_THRESHOLDS['corr_5pct']
-    t10 = _CALM_THRESHOLDS['corr_10pct']
-
-    m5 = np.where(s5 >= t5['p95'], 1.20, np.where(s5 >= t5['p90'], 1.10, np.where(s5 >= t5['p85'], 1.05, 1.0)))
-    m10 = np.where(s10 >= t10['p95'], 1.20, np.where(s10 >= t10['p90'], 1.10, np.where(s10 >= t10['p85'], 1.05, 1.0)))
-    return pd.Series(m5 * m10, index=spy_close.index)
-
-
-def _compute_fragility_inline(fire_df, spy_close, horizon_stats):
-    """Compute fragility timeseries from signal fires + SPY + horizon stats."""
-    fire_df = fire_df.reindex(spy_close.index).infer_objects(copy=False).fillna(False).astype(bool)
-
-    # Price context vectors
-    ret_12m = spy_close / spy_close.shift(252) - 1
-    sma_200 = spy_close.rolling(200).mean()
-    extension_200d = spy_close / sma_200 - 1
-    high_52w = spy_close.rolling(252).max()
-    drawdown = spy_close / high_52w - 1
-
-    # Regime multiplier
-    m = pd.Series(1.0, index=spy_close.index)
-    m = m + np.where(ret_12m > 0.25, 0.25, np.where(ret_12m > 0.15, 0.10, np.where(ret_12m < -0.05, -0.15, 0.0)))
-    m = m + np.where(extension_200d > 0.10, 0.25, np.where(extension_200d > 0.05, 0.10, np.where(extension_200d < -0.02, -0.15, 0.0)))
-    m = m + np.where(drawdown > -0.02, 0.10, np.where(drawdown < -0.10, -0.20, 0.0))
-    regime_mult = m.clip(0.6, 1.8)
-    calm_mult = _calm_multiplier_series(spy_close)
-    spy_pct_from_high = (-drawdown).clip(lower=0.0)
-
-    signal_names = list(fire_df.columns)
-    result = {}
-
-    for horizon, h_days in _HORIZON_DAYS.items():
-        edges = {name: _signal_edge_bt(horizon_stats, name, horizon) for name in signal_names}
-        active_weight = pd.Series(0.0, index=spy_close.index)
-        fomc_weight_series = pd.Series(0.0, index=spy_close.index)
-
-        for name in signal_names:
-            edge = edges.get(name, 0.0)
-            if edge == 0.0:
-                continue
-
-            sig_on = fire_df[name]
-            fire_int = sig_on.astype(int)
-            group = fire_int.cumsum()
-            days_since = group.groupby(group).cumcount()
-            ever_fired = group > 0
-            days_since = days_since.where(ever_fired, other=np.nan)
-
-            remaining_frac = ((h_days - days_since) / h_days).clip(0.0, 1.0)
-            dd_zero = _HORIZON_DECAY_DD.get(horizon, 0.10)
-            spy_factor = (1.0 - spy_pct_from_high / dd_zero).clip(0.0, 1.0)
-
-            weight = np.where(
-                sig_on, 1.0,
-                np.where(ever_fired & (remaining_frac > 0), remaining_frac * spy_factor, 0.0),
-            )
-            active_weight += edge * weight
-
-            if name == 'Pre-FOMC Rally':
-                fomc_weight_series = pd.Series(weight, index=spy_close.index)
-
-        base_max = sum(e for n, e in edges.items() if n != 'Pre-FOMC Rally')
-        fomc_edge = edges.get('Pre-FOMC Rally', 0.0)
-        max_weight = base_max + np.where(fomc_weight_series > 0, fomc_edge, 0.0)
-        max_weight = np.maximum(max_weight, 1e-9)
-
-        result[horizon] = ((active_weight / max_weight) * 80 * regime_mult * calm_mult).clip(0.0)
-
-    frag_df = pd.DataFrame(result, index=spy_close.index)
-    # Smooth (same as daily_risk_report.py)
-    return frag_df.rolling(5, min_periods=1).mean()
-
-
-def analyze_trades_by_fragility(sig_df, frag_df, horizon='21d'):
-    """
-    Join trades with fragility scores on their signal date,
-    segment into regime bins, compute aggregate stats per bin.
-    Returns DataFrame with columns: Regime, Trades, Win Rate, Avg R, PF, Total PnL.
-    """
-    if frag_df is None or sig_df.empty or horizon not in frag_df.columns:
-        return pd.DataFrame()
-
-    frag_series = frag_df[horizon].dropna()
-    if frag_series.empty:
-        return pd.DataFrame()
-
-    # Join fragility score to each trade on its signal Date
-    trade_dates = pd.to_datetime(sig_df['Date'])
-    frag_at_trade = frag_series.reindex(trade_dates, method='ffill')
-    df = sig_df.copy()
-    df['Fragility'] = frag_at_trade.values
-    df['Regime'] = df['Fragility'].apply(_assign_regime_bucket)
-    df = df.dropna(subset=['Fragility'])
-
-    if df.empty:
-        return pd.DataFrame()
-
-    rows = []
-    for regime in REGIME_ORDER:
-        bucket = df[df['Regime'] == regime]
-        if bucket.empty:
-            rows.append({
-                'Regime': regime, 'Trades': 0, 'Win Rate': None,
-                'Avg PnL': None, 'Profit Factor': None, 'Total PnL': 0,
-                'Avg R': None,
-            })
-            continue
-
-        wins = (bucket['PnL'] > 0).sum()
-        total = len(bucket)
-        gross_profit = bucket.loc[bucket['PnL'] > 0, 'PnL'].sum()
-        gross_loss = abs(bucket.loc[bucket['PnL'] < 0, 'PnL'].sum())
-        avg_r = bucket['PnL'].mean() / bucket['Risk $'].mean() if bucket['Risk $'].mean() > 0 else 0
-
-        rows.append({
-            'Regime': regime,
-            'Trades': total,
-            'Win Rate': wins / total if total > 0 else 0,
-            'Avg PnL': bucket['PnL'].mean(),
-            'Profit Factor': gross_profit / gross_loss if gross_loss > 0 else float('inf'),
-            'Total PnL': bucket['PnL'].sum(),
-            'Avg R': avg_r,
-        })
-
-    return pd.DataFrame(rows)
-
-
-def analyze_strategy_by_fragility(sig_df, frag_df, horizon='21d'):
-    """
-    Per-strategy breakdown by fragility regime.
-    Returns DataFrame: Strategy x Regime with win rate, avg R, total PnL.
-    """
-    if frag_df is None or sig_df.empty or horizon not in frag_df.columns:
-        return pd.DataFrame()
-
-    frag_series = frag_df[horizon].dropna()
-    if frag_series.empty:
-        return pd.DataFrame()
-
-    trade_dates = pd.to_datetime(sig_df['Date'])
-    frag_at_trade = frag_series.reindex(trade_dates, method='ffill')
-    df = sig_df.copy()
-    df['Fragility'] = frag_at_trade.values
-    df['Regime'] = df['Fragility'].apply(_assign_regime_bucket)
-    df = df.dropna(subset=['Fragility'])
-
-    if df.empty:
-        return pd.DataFrame()
-
-    rows = []
-    for strat in df['Strategy'].unique():
-        strat_df = df[df['Strategy'] == strat]
-        for regime in REGIME_ORDER:
-            bucket = strat_df[strat_df['Regime'] == regime]
-            if bucket.empty:
-                continue
-            wins = (bucket['PnL'] > 0).sum()
-            total = len(bucket)
-            gross_profit = bucket.loc[bucket['PnL'] > 0, 'PnL'].sum()
-            gross_loss = abs(bucket.loc[bucket['PnL'] < 0, 'PnL'].sum())
-            avg_r = bucket['PnL'].mean() / bucket['Risk $'].mean() if bucket['Risk $'].mean() > 0 else 0
-            rows.append({
-                'Strategy': strat,
-                'Regime': regime,
-                'Trades': total,
-                'Win Rate': wins / total,
-                'Avg R': avg_r,
-                'PF': gross_profit / gross_loss if gross_loss > 0 else float('inf'),
-                'Total PnL': bucket['PnL'].sum(),
-            })
-
-    return pd.DataFrame(rows)
-
-
-def chart_equity_by_fragility(sig_df, frag_df, master_dict, starting_equity, horizon='21d', start_date=None):
-    """
-    Dual-panel chart: equity curve colored by fragility regime (top)
-    + fragility area chart (bottom).
-    """
-    from plotly.subplots import make_subplots
-
-    if frag_df is None or sig_df.empty or horizon not in frag_df.columns:
-        return None
-
-    frag_series = frag_df[horizon].dropna()
-    if frag_series.empty:
-        return None
-
-    eq_df = calculate_mark_to_market_curve(sig_df, master_dict, starting_equity, start_date=start_date)
-    if eq_df.empty:
-        return None
-
-    common_idx = eq_df.index.intersection(frag_series.index).sort_values()
-    if len(common_idx) < 10:
-        return None
-
-    equity = eq_df['Equity'].reindex(common_idx, method='ffill')
-    frag = frag_series.reindex(common_idx, method='ffill')
-
-    fig = make_subplots(
-        rows=2, cols=1, shared_xaxes=True,
-        row_heights=[0.65, 0.35],
-        vertical_spacing=0.03,
-    )
-
-    # Top panel: equity curve colored by regime segments
-    prev_regime = None
-    seg_x, seg_y = [], []
-    for dt, eq_val in equity.items():
-        f_val = frag.get(dt, 0)
-        regime = _assign_regime_bucket(f_val) if not pd.isna(f_val) else 'Neutral'
-        if regime != prev_regime and seg_x:
-            color = REGIME_COLORS.get(prev_regime, '#888888')
-            fig.add_trace(go.Scatter(
-                x=seg_x, y=seg_y, mode='lines',
-                line=dict(color=color, width=2),
-                name=prev_regime, showlegend=False,
-                hovertemplate='Equity: $%{y:,.0f}<extra>' + prev_regime + '</extra>',
-            ), row=1, col=1)
-            seg_x, seg_y = [seg_x[-1]], [seg_y[-1]]  # overlap for continuity
-        seg_x.append(dt)
-        seg_y.append(eq_val)
-        prev_regime = regime
-    if seg_x:
-        color = REGIME_COLORS.get(prev_regime, '#888888')
-        fig.add_trace(go.Scatter(
-            x=seg_x, y=seg_y, mode='lines',
-            line=dict(color=color, width=2),
-            name=prev_regime, showlegend=False,
-        ), row=1, col=1)
-
-    # Add legend entries for each regime
-    for regime in REGIME_ORDER:
-        fig.add_trace(go.Scatter(
-            x=[None], y=[None], mode='lines',
-            line=dict(color=REGIME_COLORS[regime], width=3),
-            name=regime, showlegend=True,
-        ), row=1, col=1)
-
-    # Bottom panel: fragility area
-    fig.add_trace(go.Scatter(
-        x=common_idx, y=frag.values,
-        fill='tozeroy', fillcolor='rgba(255,140,0,0.15)',
-        line=dict(color='rgba(255,140,0,0.8)', width=1),
-        name='Fragility', showlegend=False,
-        hovertemplate='Fragility: %{y:.1f}<extra></extra>',
-    ), row=2, col=1)
-
-    # Regime threshold lines
-    for threshold in [20, 40, 60, 80]:
-        fig.add_hline(y=threshold, line_dash='dot', line_color='rgba(128,128,128,0.3)',
-                      line_width=1, row=2, col=1)
-
-    fig.update_layout(
-        height=550, margin=dict(l=10, r=10, t=30, b=10),
-        hovermode='x unified',
-        legend=dict(orientation='h', yanchor='bottom', y=1.02, xanchor='right', x=1, font=dict(size=10)),
-    )
-    fig.update_yaxes(title_text='Equity ($)', tickformat='$,.0f', row=1, col=1)
-    fig.update_yaxes(title_text='Fragility', range=[0, 105], row=2, col=1)
-
-    return fig
 
 
 # -----------------------------------------------------------------------------
@@ -1983,21 +1596,6 @@ def main():
         st.markdown("---")
         st.markdown("**🔄 Dynamic Position Sizing**")
         st.caption("Sizes scale with MTM equity (bps of current value including unrealized P&L).")
-        if RD2_AVAILABLE:
-            st.markdown("---")
-            st.markdown("**🛡️ Fragility-Adjusted Sizing**")
-            use_frag_sizing = st.checkbox("Apply fragility sizing", value=False,
-                                          help="Scale position sizes down when market fragility is elevated")
-            frag_sizing_horizon = st.selectbox("Fragility horizon", ['21d', '63d'],
-                                               index=0, help="Which fragility horizon to use for sizing and analysis",
-                                               disabled=not use_frag_sizing)
-            frag_min_mult = st.slider("Min size multiplier", 0.1, 1.0, 0.5, 0.05,
-                                      help="Minimum sizing multiplier at max fragility (100). E.g. 0.5 = half size.",
-                                      disabled=not use_frag_sizing)
-        else:
-            use_frag_sizing = False
-            frag_sizing_horizon = '21d'
-            frag_min_mult = 0.5
         run_btn = st.form_submit_button("⚡ Run Backtest")
 
     st.title("⚡ Strategy Backtest Lab v3")
@@ -2079,22 +1677,10 @@ def main():
         candidates, signal_data = generate_candidates_fast(processed_dict, strategies, sznl_map, user_start_date)
         st.write(f"   Found {len(candidates):,} candidates in {time.time()-t0:.1f}s")
 
-        # Fragility sizing: compute fragility series if enabled
-        bt_frag_series = None
-        if use_frag_sizing and RD2_AVAILABLE:
-            st.write("🛡️ **Phase 3a:** Loading fragility data for sizing adjustment...")
-            _frag_df, _ = compute_fragility_for_backtest()
-            if _frag_df is not None and frag_sizing_horizon in _frag_df.columns:
-                bt_frag_series = _frag_df[frag_sizing_horizon].dropna()
-                st.write(f"   Fragility series loaded ({frag_sizing_horizon}): {len(bt_frag_series):,} data points")
-            else:
-                st.warning("Could not load fragility data — running without fragility sizing.")
-
         st.write("📈 **Phase 3:** Processing with dynamic MTM-based sizing...")
         t0 = time.time()
         sig_df = process_signals_fast(
-            candidates, signal_data, processed_dict, strategies, starting_equity,
-            fragility_series=bt_frag_series, fragility_min_mult=frag_min_mult
+            candidates, signal_data, processed_dict, strategies, starting_equity
         )
         st.write(f"   Executed {len(sig_df):,} trades in {time.time()-t0:.1f}s")
 
@@ -2384,102 +1970,160 @@ def main():
                     if fig_dow:
                         st.plotly_chart(fig_dow, use_container_width=True)
             # -----------------------------------------------------------------
-            # FRAGILITY x STRATEGY PERFORMANCE ANALYSIS
+            # DRAWDOWN DEEP DIVE
             # -----------------------------------------------------------------
-            if RD2_AVAILABLE:
-                st.divider()
-                st.subheader("🔬 Fragility x Strategy Performance")
-                st.caption("How do strategies perform across different market fragility regimes? Uses Risk Dashboard V2 signal data.")
+            st.divider()
+            st.subheader("🔍 Drawdown Deep Dive")
+            st.caption("Worst rolling 3-month periods: what happened, what was the market doing, and which strategies drove the losses.")
 
-                frag_options = ['21d', '63d']
-                frag_default = frag_options.index(frag_sizing_horizon) if frag_sizing_horizon in frag_options else 0
-                frag_horizon = st.selectbox(
-                    "Fragility Horizon", frag_options,
-                    index=frag_default, key='frag_horizon',
-                    help="Which fragility horizon to segment trades by"
-                )
+            dd_window = st.selectbox("Rolling window", ["63 days (~3 mo)", "42 days (~2 mo)", "126 days (~6 mo)"],
+                                     index=0, key='dd_window')
+            dd_window_days = {'63 days (~3 mo)': 63, '42 days (~2 mo)': 42, '126 days (~6 mo)': 126}[dd_window]
 
-                with st.spinner("Computing fragility timeseries..."):
-                    frag_df, _spy_close = compute_fragility_for_backtest()
+            daily_pnl = get_daily_mtm_series(sig_df, master_dict, start_date=user_start_date)
+            if not daily_pnl.empty:
+                equity_curve = starting_equity + daily_pnl.cumsum()
+                rolling_return = equity_curve - equity_curve.shift(dd_window_days)
+                rolling_return = rolling_return.dropna()
 
-                if frag_df is not None and not frag_df.empty:
-                    # Aggregate stats by regime
-                    regime_stats = analyze_trades_by_fragility(sig_df, frag_df, frag_horizon)
-                    if not regime_stats.empty and regime_stats['Trades'].sum() > 0:
-                        st.markdown("#### Aggregate Performance by Regime")
-                        # Color-coded metrics
-                        regime_cols = st.columns(len(REGIME_ORDER))
-                        for i, regime in enumerate(REGIME_ORDER):
-                            row = regime_stats[regime_stats['Regime'] == regime]
-                            if row.empty or row.iloc[0]['Trades'] == 0:
-                                regime_cols[i].markdown(
-                                    f"<div style='text-align:center;color:{REGIME_COLORS[regime]};font-weight:bold'>{regime}</div>"
-                                    f"<div style='text-align:center;color:#888'>No trades</div>",
-                                    unsafe_allow_html=True
-                                )
-                                continue
-                            r = row.iloc[0]
-                            regime_cols[i].markdown(
-                                f"<div style='text-align:center;color:{REGIME_COLORS[regime]};font-weight:bold;font-size:16px'>{regime}</div>",
-                                unsafe_allow_html=True
-                            )
-                            regime_cols[i].metric("Trades", f"{r['Trades']:,}")
-                            regime_cols[i].metric("Win Rate", f"{r['Win Rate']:.1%}" if r['Win Rate'] is not None else "N/A")
-                            regime_cols[i].metric("Avg R", f"{r['Avg R']:.2f}" if r['Avg R'] is not None else "N/A")
-                            pf_str = f"{r['Profit Factor']:.2f}" if r['Profit Factor'] != float('inf') else "∞"
-                            regime_cols[i].metric("Profit Factor", pf_str)
-                            regime_cols[i].metric("Total PnL", f"${r['Total PnL']:,.0f}")
+                if not rolling_return.empty:
+                    # Find top 5 worst periods (non-overlapping)
+                    worst_periods = []
+                    remaining = rolling_return.copy()
+                    for _ in range(5):
+                        if remaining.empty:
+                            break
+                        worst_end = remaining.idxmin()
+                        worst_start = worst_end - pd.tseries.offsets.BusinessDay(dd_window_days)
+                        worst_pnl = remaining[worst_end]
+                        if pd.isna(worst_pnl):
+                            break
+                        worst_periods.append({
+                            'start': worst_start,
+                            'end': worst_end,
+                            'pnl': worst_pnl,
+                        })
+                        # Exclude overlapping dates
+                        mask = (remaining.index >= worst_start) & (remaining.index <= worst_end)
+                        remaining = remaining[~mask]
 
-                        # Detailed table
-                        with st.expander("Detailed Regime Stats Table"):
-                            st.dataframe(regime_stats.style.format({
-                                'Win Rate': '{:.1%}',
-                                'Avg PnL': '${:,.0f}',
-                                'Profit Factor': '{:.2f}',
-                                'Total PnL': '${:,.0f}',
-                                'Avg R': '{:.2f}',
-                            }), use_container_width=True)
+                    if worst_periods:
+                        # Get SPY data for market context
+                        spy_close = None
+                        spy_raw = master_dict.get('SPY')
+                        if spy_raw is not None and not spy_raw.empty:
+                            tmp = spy_raw.copy()
+                            if isinstance(tmp.columns, pd.MultiIndex):
+                                tmp.columns = tmp.columns.get_level_values(0)
+                            tmp.columns = [c.capitalize() for c in tmp.columns]
+                            spy_close = tmp['Close']
 
-                        # Per-strategy breakdown
-                        strat_regime = analyze_strategy_by_fragility(sig_df, frag_df, frag_horizon)
-                        if not strat_regime.empty:
-                            st.markdown("#### Per-Strategy Breakdown by Regime")
-                            # Pivot to show strategies as rows, regimes as column groups
-                            pivot_wr = strat_regime.pivot(index='Strategy', columns='Regime', values='Win Rate')
-                            pivot_wr = pivot_wr.reindex(columns=REGIME_ORDER)
-                            pivot_pnl = strat_regime.pivot(index='Strategy', columns='Regime', values='Total PnL')
-                            pivot_pnl = pivot_pnl.reindex(columns=REGIME_ORDER)
+                        for rank, wp in enumerate(worst_periods, 1):
+                            w_start, w_end, w_pnl = wp['start'], wp['end'], wp['pnl']
+                            eq_start = equity_curve.asof(w_start)
+                            pct_loss = w_pnl / eq_start * 100 if eq_start > 0 else 0
 
-                            tab_wr, tab_pnl, tab_avgr = st.tabs(["Win Rate by Regime", "Total PnL by Regime", "Avg R by Regime"])
-                            with tab_wr:
-                                st.dataframe(pivot_wr.style.format('{:.1%}', na_rep='—').background_gradient(
-                                    cmap='RdYlGn', axis=None, vmin=0.3, vmax=0.7
-                                ), use_container_width=True)
-                            with tab_pnl:
-                                st.dataframe(pivot_pnl.style.format('${:,.0f}', na_rep='—').background_gradient(
-                                    cmap='RdYlGn', axis=None
-                                ), use_container_width=True)
-                            with tab_avgr:
-                                pivot_ar = strat_regime.pivot(index='Strategy', columns='Regime', values='Avg R')
-                                pivot_ar = pivot_ar.reindex(columns=REGIME_ORDER)
-                                st.dataframe(pivot_ar.style.format('{:.2f}', na_rep='—').background_gradient(
-                                    cmap='RdYlGn', axis=None, vmin=-0.5, vmax=0.5
-                                ), use_container_width=True)
+                            with st.expander(
+                                f"#{rank}: {w_start.strftime('%Y-%m-%d')} to {w_end.strftime('%Y-%m-%d')} — "
+                                f"**${w_pnl:,.0f}** ({pct_loss:+.1f}%)",
+                                expanded=(rank == 1)
+                            ):
+                                # Market context
+                                if spy_close is not None:
+                                    spy_start_val = spy_close.asof(w_start)
+                                    spy_end_val = spy_close.asof(w_end)
+                                    spy_ret = (spy_end_val / spy_start_val - 1) * 100 if spy_start_val > 0 else 0
+                                    spy_high = spy_close.loc[w_start:w_end].max()
+                                    spy_low = spy_close.loc[w_start:w_end].min()
+                                    spy_dd = (spy_low / spy_high - 1) * 100
+                                    mc1, mc2, mc3, mc4 = st.columns(4)
+                                    mc1.metric("SPY Return", f"{spy_ret:+.1f}%")
+                                    mc2.metric("SPY Peak-to-Trough", f"{spy_dd:+.1f}%")
+                                    mc3.metric("Portfolio Loss", f"${w_pnl:,.0f}")
+                                    mc4.metric("Portfolio Drawdown", f"{pct_loss:+.1f}%")
 
-                        # Equity curve colored by fragility
-                        st.markdown("#### Equity Curve by Fragility Regime")
-                        fig_frag_eq = chart_equity_by_fragility(
-                            sig_df, frag_df, master_dict, starting_equity,
-                            horizon=frag_horizon, start_date=user_start_date
-                        )
-                        if fig_frag_eq:
-                            st.plotly_chart(fig_frag_eq, use_container_width=True)
-                        else:
-                            st.info("Insufficient overlapping data for fragility equity chart.")
+                                # Equity + SPY overlay chart
+                                from plotly.subplots import make_subplots
+                                period_eq = equity_curve.loc[w_start:w_end].dropna()
+                                if not period_eq.empty:
+                                    fig_dd = make_subplots(specs=[[{"secondary_y": True}]])
+                                    fig_dd.add_trace(go.Scatter(
+                                        x=period_eq.index, y=period_eq.values,
+                                        name='Portfolio Equity', line=dict(color='#EF553B', width=2),
+                                    ), secondary_y=False)
+                                    if spy_close is not None:
+                                        spy_period = spy_close.loc[w_start:w_end].dropna()
+                                        if not spy_period.empty:
+                                            fig_dd.add_trace(go.Scatter(
+                                                x=spy_period.index, y=spy_period.values,
+                                                name='SPY', line=dict(color='#636EFA', width=1.5, dash='dot'),
+                                            ), secondary_y=True)
+                                    fig_dd.update_layout(
+                                        height=300, margin=dict(l=10, r=10, t=10, b=10),
+                                        legend=dict(orientation='h', yanchor='bottom', y=1.02, x=0),
+                                        hovermode='x unified',
+                                    )
+                                    fig_dd.update_yaxes(title_text='Equity ($)', tickformat='$,.0f', secondary_y=False)
+                                    fig_dd.update_yaxes(title_text='SPY', tickformat='$,.0f', secondary_y=True)
+                                    st.plotly_chart(fig_dd, use_container_width=True)
+
+                                # Strategy attribution for this period
+                                period_trades = sig_df[
+                                    (sig_df['Entry Date'] <= w_end) & (sig_df['Exit Date'] >= w_start)
+                                ].copy()
+
+                                if not period_trades.empty:
+                                    strat_attr = period_trades.groupby('Strategy').agg(
+                                        Trades=('PnL', 'count'),
+                                        Total_PnL=('PnL', 'sum'),
+                                        Win_Rate=('PnL', lambda x: (x > 0).mean()),
+                                        Avg_PnL=('PnL', 'mean'),
+                                    ).sort_values('Total_PnL')
+
+                                    st.markdown("**Strategy Attribution**")
+                                    col_chart, col_table = st.columns([1, 1])
+
+                                    with col_chart:
+                                        fig_attr = go.Figure(go.Bar(
+                                            x=strat_attr['Total_PnL'].values,
+                                            y=strat_attr.index,
+                                            orientation='h',
+                                            marker_color=['#EF553B' if v < 0 else '#00CC96' for v in strat_attr['Total_PnL']],
+                                            hovertemplate='%{y}: $%{x:,.0f}<extra></extra>',
+                                        ))
+                                        fig_attr.update_layout(
+                                            height=max(200, len(strat_attr) * 35),
+                                            margin=dict(l=10, r=10, t=10, b=10),
+                                            xaxis_title='PnL ($)', xaxis_tickformat='$,.0f',
+                                        )
+                                        st.plotly_chart(fig_attr, use_container_width=True)
+
+                                    with col_table:
+                                        st.dataframe(strat_attr.style.format({
+                                            'Total_PnL': '${:,.0f}',
+                                            'Win_Rate': '{:.0%}',
+                                            'Avg_PnL': '${:,.0f}',
+                                        }), use_container_width=True)
+
+                                    # Worst individual trades in this period
+                                    worst_trades = period_trades.nsmallest(10, 'PnL')[
+                                        ['Date', 'Strategy', 'Ticker', 'Action', 'PnL', 'Risk $']
+                                    ].copy()
+                                    if not worst_trades.empty:
+                                        st.markdown("**Worst Trades in Period**")
+                                        st.dataframe(worst_trades.style.format({
+                                            'PnL': '${:,.0f}',
+                                            'Risk $': '${:,.0f}',
+                                            'Date': '{:%Y-%m-%d}',
+                                        }), use_container_width=True, hide_index=True)
+                                else:
+                                    st.info("No trades overlapped with this period.")
                     else:
-                        st.info("No trades could be matched with fragility data for the selected horizon.")
+                        st.info("Could not identify distinct drawdown periods.")
                 else:
-                    st.info("Risk Dashboard V2 data not available. Run the Risk Dashboard or daily_risk_report.py first to populate cache files.")
+                    st.info("Insufficient data for rolling drawdown analysis.")
+            else:
+                st.info("No daily PnL data available.")
 
             st.subheader("📜 Trade Log")
             display_cols = ["Date", "Entry Date", "Exit Date", "Exit Type", "Strategy", "Ticker", "Action",
