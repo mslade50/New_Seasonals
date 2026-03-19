@@ -185,8 +185,9 @@ _STRATEGY_BOOK_RAW = [
                 "5D + 10D + 21D ranks ALL < 15th %ile (deeply oversold)",
                 "Market seasonal > 20 (not fighting macro headwind)",
                 "Close in lower 20% of daily range (capitulation close)",
-                "Price > 200 SMA (uptrend filter)",
-                "ATR% > 3% (volatile names only)"
+                "Price > Rising 200 SMA (uptrend filter)",
+                "ATR% > 3% (volatile names only, exempt: SPY/QQQ/IWM/DIA)",
+                "No Tuesday signals"
             ]
         },
         "exit_summary": {
@@ -213,7 +214,8 @@ _STRATEGY_BOOK_RAW = [
             "breakout_mode": "None",
             "use_vol": False, "vol_thresh": 1.5,
             "use_vol_rank": False, "vol_rank_logic": ">", "vol_rank_thresh": 75.0,
-            "trend_filter": "Price > 200 SMA",
+            "trend_filter": "Price > Rising 200 SMA",
+            "use_dow_filter": True, "allowed_days": [0, 2, 3, 4],
             "use_range_filter": True, "range_min": 0, "range_max": 20,
             "min_price": 10.0, "min_vol": 100000,
             "min_age": 0.25, "max_age": 100.0,

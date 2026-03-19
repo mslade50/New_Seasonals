@@ -110,59 +110,70 @@ def download_historical_data(tickers, start_date="2000-01-01"):
     if not tickers: return {}
     clean_tickers = list(set([str(t).strip().upper().replace('.', '-') for t in tickers]))
     data_dict = {}
-    CHUNK_SIZE = 50 
+    CHUNK_SIZE = 20
+    MAX_RETRIES = 3
     total = len(clean_tickers)
     progress_bar = st.progress(0)
     status_text = st.empty()
-    
+
     for i in range(0, total, CHUNK_SIZE):
         chunk = clean_tickers[i : i + CHUNK_SIZE]
+        batch_num = i // CHUNK_SIZE + 1
+        total_batches = (total + CHUNK_SIZE - 1) // CHUNK_SIZE
         current_progress = min((i + CHUNK_SIZE) / total, 1.0)
-        status_text.text(f"📥 Downloading batch {i+1}-{min(i+CHUNK_SIZE, total)} of {total}...")
+        status_text.text(f"📥 Downloading batch {batch_num}/{total_batches} ({min(i+CHUNK_SIZE, total)}/{total} tickers)...")
         progress_bar.progress(current_progress)
-        try:
-            df = yf.download(chunk, start=start_date, group_by='ticker', auto_adjust=False, progress=False, threads=True)
-            if df is None or df.empty:
-                continue
-            if df.index.tz is not None:
-                df.index = df.index.tz_localize(None)
-            if isinstance(df.columns, pd.MultiIndex):
-                # MultiIndex: could be (Ticker, Price) or (Price, Ticker)
-                lvl0 = df.columns.get_level_values(0).unique().tolist()
-                price_cols = {'Open', 'High', 'Low', 'Close', 'Adj Close', 'Volume',
-                              'open', 'high', 'low', 'close', 'adj close', 'volume'}
-                if set(lvl0) & price_cols:
-                    # (Price, Ticker) format — transpose to extract per-ticker
-                    tickers_in_data = df.columns.get_level_values(1).unique().tolist()
-                    for t in tickers_in_data:
-                        try:
-                            t_df = df.xs(t, level=1, axis=1).copy()
-                            t_df.columns = [str(c).capitalize() for c in t_df.columns]
-                            if 'Close' not in t_df.columns or t_df['Close'].dropna().empty:
+
+        for attempt in range(MAX_RETRIES):
+            try:
+                df = yf.download(chunk, start=start_date, group_by='ticker', auto_adjust=False, progress=False, threads=True)
+                if df is None or df.empty:
+                    break
+                if df.index.tz is not None:
+                    df.index = df.index.tz_localize(None)
+                if isinstance(df.columns, pd.MultiIndex):
+                    # MultiIndex: could be (Ticker, Price) or (Price, Ticker)
+                    lvl0 = df.columns.get_level_values(0).unique().tolist()
+                    price_cols = {'Open', 'High', 'Low', 'Close', 'Adj Close', 'Volume',
+                                  'open', 'high', 'low', 'close', 'adj close', 'volume'}
+                    if set(lvl0) & price_cols:
+                        # (Price, Ticker) format — transpose to extract per-ticker
+                        tickers_in_data = df.columns.get_level_values(1).unique().tolist()
+                        for t in tickers_in_data:
+                            try:
+                                t_df = df.xs(t, level=1, axis=1).copy()
+                                t_df.columns = [str(c).capitalize() for c in t_df.columns]
+                                if 'Close' not in t_df.columns or t_df['Close'].dropna().empty:
+                                    continue
+                                data_dict[str(t).upper()] = t_df
+                            except Exception:
                                 continue
-                            data_dict[str(t).upper()] = t_df
-                        except Exception:
-                            continue
+                    else:
+                        # (Ticker, Price) format
+                        for t in lvl0:
+                            try:
+                                t_df = df[t].copy()
+                                if t_df.empty or 'Close' not in t_df.columns:
+                                    continue
+                                data_dict[str(t).upper()] = t_df
+                            except Exception:
+                                continue
                 else:
-                    # (Ticker, Price) format
-                    for t in lvl0:
-                        try:
-                            t_df = df[t].copy()
-                            if t_df.empty or 'Close' not in t_df.columns:
-                                continue
-                            data_dict[str(t).upper()] = t_df
-                        except Exception:
-                            continue
-            else:
-                # Single ticker — flat columns
-                if len(chunk) == 1:
-                    ticker = chunk[0]
-                    df.columns = [str(c).capitalize() for c in df.columns]
-                    if 'Close' in df.columns:
-                        data_dict[ticker] = df
-            time.sleep(0.25)
-        except Exception:
-            continue
+                    # Single ticker — flat columns
+                    if len(chunk) == 1:
+                        ticker = chunk[0]
+                        df.columns = [str(c).capitalize() for c in df.columns]
+                        if 'Close' in df.columns:
+                            data_dict[ticker] = df
+                break  # success — exit retry loop
+            except Exception:
+                if attempt < MAX_RETRIES - 1:
+                    wait = 2 ** (attempt + 1)  # 2s, 4s
+                    status_text.text(f"⏳ Rate limited — retrying batch {batch_num} in {wait}s...")
+                    time.sleep(wait)
+                # last attempt failed — move on
+
+        time.sleep(1.5)
 
     progress_bar.empty()
     status_text.empty()

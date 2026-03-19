@@ -442,7 +442,9 @@ def load_seasonal_map(csv_path="sznl_ranks.csv"):
 # 2. CALCULATION ENGINE
 # -----------------------------------------------------------------------------
 
-def check_signal(df, params, sznl_map):
+ETF_ATR_EXEMPT = {'SPY', 'QQQ', 'IWM', 'DIA'}
+
+def check_signal(df, params, sznl_map, ticker=None):
     last_row = df.iloc[-1]
     
     # 0. Day of Week Filter
@@ -467,7 +469,8 @@ def check_signal(df, params, sznl_map):
 
     if 'ATR_Pct' in df.columns:
         current_atr_pct = last_row['ATR_Pct']
-        if current_atr_pct < params.get('min_atr_pct', 0.0): return False
+        atr_exempt = ticker and ticker.upper() in ETF_ATR_EXEMPT
+        if not atr_exempt and current_atr_pct < params.get('min_atr_pct', 0.0): return False
         if current_atr_pct > params.get('max_atr_pct', 1000.0): return False
 
     if params.get('use_today_return', False):
@@ -1373,37 +1376,50 @@ def build_live_filters(strat, last_row, df):
 def download_historical_data(tickers, start_date="2000-01-01"):
     if not tickers: return {}
     clean_tickers = list(set([str(t).strip().upper().replace('.', '-') for t in tickers]))
-    
+
     data_dict = {}
-    CHUNK_SIZE = 50 
+    CHUNK_SIZE = 20
+    MAX_RETRIES = 3
     total = len(clean_tickers)
-    
+
     print(f"📥 Downloading data for {total} tickers...")
-    
+
     for i in range(0, total, CHUNK_SIZE):
         chunk = clean_tickers[i : i + CHUNK_SIZE]
-        try:
-            df = yf.download(chunk, start=start_date, group_by='ticker', auto_adjust=True, progress=False, threads=True)
-            if df.empty: continue
-            
-            if len(chunk) == 1:
-                ticker = chunk[0]
-                if 'Close' in df.columns:
-                    df.index = df.index.tz_localize(None)
-                    data_dict[ticker] = df
-            else:
-                available_tickers = df.columns.levels[0]
-                for t in available_tickers:
-                    try:
-                        t_df = df[t].copy()
-                        if t_df.empty or 'Close' not in t_df.columns: continue
-                        t_df.index = t_df.index.tz_localize(None)
-                        data_dict[t] = t_df
-                    except: continue
-            time.sleep(0.25)
-        except Exception as e:
-            print(f"⚠️ Batch Error: {e}")
-            
+        batch_num = i // CHUNK_SIZE + 1
+        total_batches = (total + CHUNK_SIZE - 1) // CHUNK_SIZE
+        print(f"   Batch {batch_num}/{total_batches}...")
+
+        for attempt in range(MAX_RETRIES):
+            try:
+                df = yf.download(chunk, start=start_date, group_by='ticker', auto_adjust=True, progress=False, threads=True)
+                if df.empty: break
+
+                if len(chunk) == 1:
+                    ticker = chunk[0]
+                    if 'Close' in df.columns:
+                        df.index = df.index.tz_localize(None)
+                        data_dict[ticker] = df
+                else:
+                    available_tickers = df.columns.levels[0]
+                    for t in available_tickers:
+                        try:
+                            t_df = df[t].copy()
+                            if t_df.empty or 'Close' not in t_df.columns: continue
+                            t_df.index = t_df.index.tz_localize(None)
+                            data_dict[t] = t_df
+                        except: continue
+                break  # success — exit retry loop
+            except Exception as e:
+                if attempt < MAX_RETRIES - 1:
+                    wait = 2 ** (attempt + 1)
+                    print(f"   ⏳ Rate limited — retrying batch {batch_num} in {wait}s...")
+                    time.sleep(wait)
+                else:
+                    print(f"   ⚠️ Batch {batch_num} failed after {MAX_RETRIES} attempts: {e}")
+
+        time.sleep(1.5)
+
     return data_dict
 
 
@@ -1563,7 +1579,7 @@ def run_daily_scan():
             try:
                 calc_df = calculate_indicators(df.copy(), sznl_map, t_clean, market_series, vix_series, ref_ticker_ranks=ref_ticker_ranks)
                 
-                if check_signal(calc_df, strat['settings'], sznl_map):
+                if check_signal(calc_df, strat['settings'], sznl_map, ticker=t_clean):
                     last_row = calc_df.iloc[-1]
                     
                     # 1. Entry Confirmation Check
