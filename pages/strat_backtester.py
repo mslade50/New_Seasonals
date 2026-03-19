@@ -2003,8 +2003,9 @@ def main():
                             'end': worst_end,
                             'pnl': worst_pnl,
                         })
-                        # Exclude overlapping dates
-                        mask = (remaining.index >= worst_start) & (remaining.index <= worst_end)
+                        # Exclude window + 63 business day buffer to force distinct drawdowns
+                        cooloff_end = worst_end + pd.tseries.offsets.BusinessDay(63)
+                        mask = (remaining.index >= worst_start) & (remaining.index <= cooloff_end)
                         remaining = remaining[~mask]
 
                     if worst_periods:
