@@ -1,20 +1,20 @@
 {
   "date": "2026-03-23",
   "price_ctx": {
-    "price": 660.75,
-    "ret_12m": 0.18501458537185012,
-    "extension_200d": 0.005892702532595884,
-    "drawdown": -0.04735577386336509,
-    "sma_200": 656.8792062377929,
+    "price": 655.3800048828125,
+    "ret_12m": 0.17538382859963253,
+    "extension_200d": -0.0022415293197799446,
+    "drawdown": -0.05509802863865165,
+    "sma_200": 656.8523587036133,
     "high_52w": 693.5957641601562,
-    "regime_label": "Healthy uptrend",
-    "days_since_5pct": 1,
+    "regime_label": "Correction underway",
+    "days_since_5pct": 0,
     "days_since_10pct": 228
   },
   "h_scores": {
     "5d": 0.0,
-    "21d": 13.911784438701773,
-    "63d": 43.665713240605136
+    "21d": 13.591627451747058,
+    "63d": 43.23442752324862
   },
   "signals": {
     "Distribution Dominance": {
@@ -25,17 +25,17 @@
     "VIX Range Compression": {
       "on": false,
       "detail": "",
-      "summary": "21d range: 79th pctile (fires below 15th) \u2014 VIX at 24.3"
+      "summary": "21d range: 79th pctile (fires below 15th) \u2014 VIX at 26.1"
     },
     "Defensive Leadership": {
       "on": false,
       "detail": "",
-      "summary": "50d spread: -4pp (fires < -10) | 200d spread: -12pp (fires < 0)"
+      "summary": "50d spread: -5pp (fires < -10) | 200d spread: -11pp (fires < 0)"
     },
     "Pre-FOMC Rally": {
       "on": false,
       "detail": "",
-      "summary": "Next FOMC: Apr 29 (37d away) \u2014 5d return: 23th pctile (outside window)"
+      "summary": "Next FOMC: Apr 29 (37d away) \u2014 5d return: 14th pctile (outside window)"
     },
     "Low Absorption Ratio": {
       "on": false,
