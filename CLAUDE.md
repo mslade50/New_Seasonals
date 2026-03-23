@@ -13,7 +13,11 @@ A quantitative equity trading platform built on Streamlit. Three pillars:
 ├── app.py                          # Main Streamlit entry point
 ├── strategy_config.py              # Strategy definitions (STRATEGY_BOOK)
 ├── daily_scan.py                   # Production scanner + email + Google Sheets
+├── daily_risk_report.py            # Daily risk email (fragility dials + signals + forward returns)
 ├── daily_portfolio_report.py       # Daily portfolio health report (imports from strat_backtester)
+├── weekly_market_rundown.py        # Weekly PDF rundown (tabloid landscape, 11 chart pages)
+├── radar_weekly_summary.py         # Weekly radar digest (reads daily briefs, Claude distills best-of)
+├── verify_fills.py                 # Post-close fill verification (updates Google Sheets)
 ├── indicators.py                   # Shared indicator library
 ├── abs_return_dispersion.py        # S&P 500 dispersion metric (~505 tickers)
 ├── risk_dashboard_clean_sheet.md   # Risk Dashboard V2 design doc
@@ -27,7 +31,10 @@ A quantitative equity trading platform built on Streamlit. Three pillars:
 │   ├── sector_trends.py            # Sector trend analysis
 │   ├── seasonal_sigs.py            # Seasonal signals
 │   └── user_input.py               # User input page
-├── data/                           # Persistent cache (parquet files)
+├── scripts/                        # Task Scheduler PowerShell wrappers
+│   ├── run_radar_weekly.ps1        # Sunday 8:30 AM ET — runs radar digest, commits + pushes
+│   └── setup_radar_weekly_task.ps1 # One-time admin setup for Task Scheduler
+├── data/                           # Persistent cache (parquet files + radar digest)
 ├── docs/                           # Documentation
 └── tests/                          # Tests
 ```
@@ -143,6 +150,38 @@ Legacy point system preserved in collapsed expander for reference. Alert = +1, A
 | `TAIL_RISK_TICKERS` | `risk_dashboard_v2.py` | 1 | ^SKEW |
 | `SIGNAL_CACHE_PATH` | `risk_dashboard_v2.py` | — | `data/risk_dashboard_signal_state.json` |
 
+## Automated Reports & Email Pipeline
+
+| Report | Script | Trigger | Format | Schedule |
+|--------|--------|---------|--------|----------|
+| Daily Scan | `daily_scan.py` | GitHub Actions | HTML email + Google Sheets | Weekdays 5x (9:13, 17:40, 18:45, 19:30, 20:13 UTC) |
+| Risk Report | `daily_risk_report.py` | GitHub Actions | HTML email (inline images) | Weekdays 21:15 UTC (5:15 PM ET) |
+| Portfolio Report | `daily_portfolio_report.py` | GitHub Actions | HTML email | Daily 21:00 UTC (5 PM ET) |
+| Fill Verification | `verify_fills.py` | GitHub Actions | Google Sheets update | Weekdays 21:15 UTC |
+| Radar Weekly Digest | `radar_weekly_summary.py` | Local Task Scheduler | Markdown → `data/radar_weekly_summary.md` | Sundays 8:30 AM ET |
+| Weekly Rundown | `weekly_market_rundown.py` | GitHub Actions | PDF attachment + HTML body (radar digest) | Sundays 14:00 UTC (9 AM ET) |
+
+### Sunday Pipeline (two-step)
+1. **8:30 AM ET (local)**: `radar_weekly_summary.py` reads last 7 days of radar briefs from `C:\Users\mckin\projects\last30days-radar\output\briefs\`, pulls yfinance snapshots for all tickers, pipes to Claude Code subprocess with PM-style distillation framework (variant perception required, "who's on the other side" required). Output committed + pushed to `data/radar_weekly_summary.md`.
+2. **9:00 AM ET (Actions)**: `weekly_market_rundown.py` generates tabloid (17x11") landscape PDF with all risk charts, reads the radar digest and includes it as styled HTML email body alongside the PDF attachment.
+
+### Daily Risk Report — Forward Returns Table
+Uses `compute_similar_reading_returns()` from `risk_dashboard_v2.py`. Forward returns at similar fragility readings include:
+- Mean and Median conditional returns
+- **Mean Z / Median Z** — z-scores vs unconditional sample (mean via z-test, median via bootstrap SE with 1000 resamples)
+- % Negative and Baseline (unconditional mean)
+- Mean column color follows Mean Z thresholds (green >= 0, yellow > -1, red <= -1)
+
+### Radar Weekly Digest Framework
+The Claude prompt enforces heavy filtration via two required gates:
+- **Variant Perception**: Must articulate specific disagreement with market pricing. If thesis = consensus, idea is killed.
+- **Who's on the other side**: Must identify why the opportunity exists (forced selling, informed disagreement, or neglect). If can't identify, idea is killed.
+
+Supporting lenses (non-dogmatic, context-dependent): catalyst magnitude, valuation vs forward reality, trend/market structure, persistence across the week, crowd positioning.
+
+Framework doc: `C:\Users\mckin\Documents\vault\trading\decisions\radar_weekly_digest_framework.md`
+
 ## Google Sheets Integration
 - `daily_scan.py` stages orders to Google Sheets (MOC + Order_Staging + Trade_Signals_Log)
+- `verify_fills.py` updates Trade_Signals_Log with fill status post-close
 - Uses gspread with GCP service account (from Streamlit secrets) or local `credentials.json`
