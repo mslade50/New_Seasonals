@@ -23,7 +23,7 @@ jobs:
         run: |
           pip install --upgrade pip
           pip install -r requirements.txt
-          pip install kaleido fpdf2
+          pip install kaleido fpdf2 markdown
 
       - name: Run weekly rundown
         env:

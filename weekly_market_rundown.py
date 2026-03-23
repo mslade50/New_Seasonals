@@ -17,8 +17,10 @@ import sys
 import tempfile
 import smtplib
 from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
 from email.mime.base import MIMEBase
 from email import encoders
+import markdown
 
 # Path setup
 current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -731,8 +733,46 @@ def build_pdf(computed, charts, dial_path, tmp_dir):
 # 8. EMAIL
 # ---------------------------------------------------------------------------
 
+RADAR_SUMMARY_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "radar_weekly_summary.md")
+
+
+def _build_email_body():
+    """Build HTML email body from the radar weekly digest, if available."""
+    if not os.path.exists(RADAR_SUMMARY_PATH):
+        print("  No radar weekly summary found — sending PDF-only email")
+        return None
+
+    md_text = open(RADAR_SUMMARY_PATH, encoding="utf-8").read()
+    if not md_text.strip():
+        return None
+
+    body_html = markdown.markdown(md_text, extensions=["tables", "fenced_code"])
+
+    html = f"""\
+<html>
+<body style="background-color: #1a1a2e; color: #e0e0e0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; padding: 20px; margin: 0;">
+<div style="max-width: 700px; margin: 0 auto;">
+{body_html}
+</div>
+</body>
+</html>
+"""
+    # Style overrides for email clients
+    html = html.replace("<h1", '<h1 style="color: #FFD700; border-bottom: 1px solid #444; padding-bottom: 8px;"')
+    html = html.replace("<h2", '<h2 style="color: #FFD700; margin-top: 24px;"')
+    html = html.replace("<hr", '<hr style="border: none; border-top: 1px solid #444; margin: 20px 0;"')
+    html = html.replace("<strong>Variant perception", '<strong style="color: #00CC00;">Variant perception')
+    html = html.replace("<strong>Who's on the other side", '<strong style="color: #FFD700;">Who\'s on the other side')
+    html = html.replace("<strong>The data", '<strong style="color: #87CEEB;">The data')
+    html = html.replace("<strong>What would change my mind", '<strong style="color: #FF6B6B;">What would change my mind')
+    html = html.replace("<strong>Thesis:", '<strong style="color: #ffffff;">Thesis:')
+
+    print(f"  Radar digest loaded ({len(md_text)} chars)")
+    return html
+
+
 def send_email(pdf_path, computed):
-    """Send the PDF as an email attachment."""
+    """Send the PDF as an email attachment with radar digest as body."""
     sender_email = os.environ.get("EMAIL_USER")
     sender_password = os.environ.get("EMAIL_PASS")
     receiver_email = "mckinleyslade@gmail.com"
@@ -752,6 +792,11 @@ def send_email(pdf_path, computed):
     msg["Subject"] = subject
     msg["From"] = sender_email
     msg["To"] = receiver_email
+
+    # Email body — radar weekly digest
+    body_html = _build_email_body()
+    if body_html:
+        msg.attach(MIMEText(body_html, "html"))
 
     # Attach PDF
     with open(pdf_path, "rb") as f:
