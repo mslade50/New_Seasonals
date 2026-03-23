@@ -358,7 +358,8 @@ def build_html_email(computed, fwd_returns_data):
             for window, stats in ret_data['returns'].items():
                 if stats is None:
                     continue
-                mean_color = '#00CC00' if stats['mean'] >= 0 else '#CC0000'
+                _mz = stats.get('mean_z', 0)
+                mean_color = '#CC0000' if _mz < -1 else '#FFD700' if _mz < 0 else '#00CC00'
                 baseline_color = '#00CC00' if stats['uncond_mean'] >= 0 else '#CC0000'
                 fwd_rows += f"""
                 <tr>
