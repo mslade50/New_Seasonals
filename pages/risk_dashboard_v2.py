@@ -2326,6 +2326,16 @@ def compute_similar_reading_returns(
         sig_fwd = fwd.reindex(episode_dates).dropna()
         uncond_mean = fwd.mean()
         if len(sig_fwd) >= 5:
+            uncond_std = fwd.std()
+            uncond_median = fwd.median()
+            # Bootstrap median SE (1000 resamples) for median z-score
+            boot_medians = np.array([
+                fwd.sample(n=len(sig_fwd), replace=True).median()
+                for _ in range(1000)
+            ])
+            median_se = boot_medians.std()
+            mean_z = (sig_fwd.mean() - uncond_mean) / (uncond_std / np.sqrt(len(sig_fwd))) if uncond_std > 0 else 0.0
+            median_z = (sig_fwd.median() - uncond_median) / median_se if median_se > 0 else 0.0
             returns[w] = {
                 'mean': sig_fwd.mean(),
                 'median': sig_fwd.median(),
@@ -2333,6 +2343,8 @@ def compute_similar_reading_returns(
                 'worst': sig_fwd.min(),
                 'best': sig_fwd.max(),
                 'uncond_mean': uncond_mean,
+                'mean_z': mean_z,
+                'median_z': median_z,
                 'n': len(sig_fwd),
             }
         else:

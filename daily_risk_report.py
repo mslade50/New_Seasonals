@@ -349,8 +349,8 @@ def build_html_email(computed, fwd_returns_data):
                 <td style="padding: 4px 12px; color: #888; font-size: 11px; font-weight: bold; text-align: right;">Mean</td>
                 <td style="padding: 4px 12px; color: #888; font-size: 11px; font-weight: bold; text-align: right;">Median</td>
                 <td style="padding: 4px 12px; color: #888; font-size: 11px; font-weight: bold; text-align: right;">% Negative</td>
-                <td style="padding: 4px 12px; color: #888; font-size: 11px; font-weight: bold; text-align: right;">Worst</td>
-                <td style="padding: 4px 12px; color: #888; font-size: 11px; font-weight: bold; text-align: right;">Best</td>
+                <td style="padding: 4px 12px; color: #888; font-size: 11px; font-weight: bold; text-align: right;">Mean Z</td>
+                <td style="padding: 4px 12px; color: #888; font-size: 11px; font-weight: bold; text-align: right;">Median Z</td>
                 <td style="padding: 4px 12px; color: #888; font-size: 11px; font-weight: bold; text-align: right;">Baseline</td>
             </tr>
             """
@@ -366,8 +366,8 @@ def build_html_email(computed, fwd_returns_data):
                     <td style="padding: 4px 12px; color: {mean_color}; text-align: right; font-weight: bold; font-family: monospace; border-bottom: 1px solid #2a2a2a;">{stats['mean']:+.2%}</td>
                     <td style="padding: 4px 12px; color: #aaa; text-align: right; font-family: monospace; border-bottom: 1px solid #2a2a2a;">{stats['median']:+.2%}</td>
                     <td style="padding: 4px 12px; color: {'#CC0000' if stats['pct_neg'] > 0.5 else '#aaa'}; text-align: right; font-family: monospace; border-bottom: 1px solid #2a2a2a;">{stats['pct_neg']:.0%}</td>
-                    <td style="padding: 4px 12px; color: #CC0000; text-align: right; font-family: monospace; border-bottom: 1px solid #2a2a2a;">{stats['worst']:+.2%}</td>
-                    <td style="padding: 4px 12px; color: #00CC00; text-align: right; font-family: monospace; border-bottom: 1px solid #2a2a2a;">{stats['best']:+.2%}</td>
+                    <td style="padding: 4px 12px; color: {'#CC0000' if stats.get('mean_z', 0) < -1 else '#FFD700' if stats.get('mean_z', 0) < 0 else '#00CC00'}; text-align: right; font-family: monospace; border-bottom: 1px solid #2a2a2a;">{stats.get('mean_z', 0):+.2f}</td>
+                    <td style="padding: 4px 12px; color: {'#CC0000' if stats.get('median_z', 0) < -1 else '#FFD700' if stats.get('median_z', 0) < 0 else '#00CC00'}; text-align: right; font-family: monospace; border-bottom: 1px solid #2a2a2a;">{stats.get('median_z', 0):+.2f}</td>
                     <td style="padding: 4px 12px; color: {baseline_color}; text-align: right; font-family: monospace; border-bottom: 1px solid #2a2a2a;">{stats['uncond_mean']:+.2%}</td>
                 </tr>
                 """
