@@ -83,15 +83,15 @@ def _latin1_safe(text):
     return text.encode("latin-1", errors="replace").decode("latin-1")
 
 
-CHART_WIDTH = 1800
-CHART_HEIGHT = 900
-CHART_SCALE = 2
+CHART_WIDTH = 2400
+CHART_HEIGHT = 1200
+CHART_SCALE = 3
 DARK_BG = {"paper_bgcolor": "#1a1a2e", "plot_bgcolor": "#16213e"}
 AXIS_GRID = "rgba(128,128,128,0.2)"
 
-# PDF dimensions (landscape letter)
-PDF_W = 279.4  # mm
-PDF_H = 215.9  # mm
+# PDF dimensions (landscape tabloid / ledger)
+PDF_W = 431.8  # mm (17 in)
+PDF_H = 279.4  # mm (11 in)
 
 
 # ---------------------------------------------------------------------------
@@ -217,13 +217,17 @@ def _style_fig(fig, width=CHART_WIDTH, height=CHART_HEIGHT):
     """Apply dark theme and sizing to a chart figure."""
     fig.update_layout(
         **DARK_BG,
-        font=dict(color="#ffffff", size=14),
+        font=dict(color="#ffffff", size=18),
         height=height,
         width=width,
-        margin=dict(l=60, r=30, t=60, b=40),
+        margin=dict(l=80, r=40, t=70, b=50),
     )
-    fig.update_xaxes(gridcolor=AXIS_GRID)
-    fig.update_yaxes(gridcolor=AXIS_GRID)
+    fig.update_xaxes(gridcolor=AXIS_GRID, tickfont=dict(size=16))
+    fig.update_yaxes(gridcolor=AXIS_GRID, tickfont=dict(size=16))
+    fig.update_layout(
+        title_font_size=22,
+        legend=dict(font=dict(size=16)),
+    )
     return fig
 
 
@@ -457,17 +461,17 @@ def _generate_regime_table(computed, tmp_dir):
         header=dict(
             values=header_vals,
             fill_color=header_fill_colors,
-            font=dict(color=header_font_colors, size=14, family="monospace"),
+            font=dict(color=header_font_colors, size=18, family="monospace"),
             align=["left"] + ["center"] * 5,
-            height=35,
+            height=40,
             line=dict(color="#333333", width=1),
         ),
         cells=dict(
             values=cell_vals,
             fill_color=cell_colors,
-            font=dict(color=cell_font_colors, size=12, family="monospace"),
+            font=dict(color=cell_font_colors, size=16, family="monospace"),
             align=["left"] + ["center"] * 5,
-            height=28,
+            height=34,
             line=dict(color="#333333", width=1),
         ),
     )])
@@ -477,7 +481,7 @@ def _generate_regime_table(computed, tmp_dir):
         title_text += f"  |  Current: {current_regime} ({current_score:.0f})"
 
     fig.update_layout(
-        title=dict(text=title_text, font=dict(color="#FFD700", size=18)),
+        title=dict(text=title_text, font=dict(color="#FFD700", size=24)),
         paper_bgcolor="#1a1a2e",
         font=dict(color="#ffffff"),
         width=CHART_WIDTH,
@@ -513,12 +517,12 @@ def generate_dial_image(h_scores, tmp_dir):
         fig.add_trace(indicator, row=1, col=i + 1)
 
     fig.update_layout(
-        height=350,
-        width=1200,
-        margin=dict(l=20, r=20, t=50, b=20),
+        height=500,
+        width=1600,
+        margin=dict(l=20, r=20, t=60, b=20),
         paper_bgcolor="#1a1a2e",
         plot_bgcolor="#1a1a2e",
-        font=dict(color="#ffffff", size=14),
+        font=dict(color="#ffffff", size=18),
     )
 
     path = os.path.join(tmp_dir, "cover_dials.png")
@@ -531,10 +535,10 @@ def generate_dial_image(h_scores, tmp_dir):
 # ---------------------------------------------------------------------------
 
 class RundownPDF(FPDF):
-    """Landscape letter PDF with dark background."""
+    """Landscape tabloid PDF with dark background."""
 
     def __init__(self):
-        super().__init__(orientation='L', unit='mm', format='letter')
+        super().__init__(orientation='L', unit='mm', format=(PDF_H, PDF_W))
         self.set_auto_page_break(auto=False)
 
     def _dark_page(self):
@@ -554,27 +558,27 @@ class RundownPDF(FPDF):
         date_str = datetime.datetime.now().strftime("%A, %B %d, %Y")
 
         # Title
-        self.set_font("Helvetica", "B", 28)
+        self.set_font("Helvetica", "B", 36)
         self.set_text_color(255, 255, 255)
-        self.set_xy(20, 15)
-        self.cell(0, 12, "Weekly Market Rundown", ln=True)
+        self.set_xy(25, 18)
+        self.cell(0, 14, "Weekly Market Rundown", ln=True)
 
-        self.set_font("Helvetica", "", 14)
+        self.set_font("Helvetica", "", 18)
         self.set_text_color(170, 170, 170)
-        self.set_xy(20, 30)
-        self.cell(0, 8, f"Week of {date_str}", ln=True)
+        self.set_xy(25, 36)
+        self.cell(0, 10, f"Week of {date_str}", ln=True)
 
         # Divider
         self.set_draw_color(80, 80, 80)
-        self.line(20, 42, PDF_W - 20, 42)
+        self.line(25, 52, PDF_W - 25, 52)
 
         # Market Context
-        y = 48
-        self.set_font("Helvetica", "B", 11)
+        y = 58
+        self.set_font("Helvetica", "B", 14)
         self.set_text_color(136, 136, 136)
-        self.set_xy(20, y)
-        self.cell(0, 6, "MARKET CONTEXT", ln=True)
-        y += 9
+        self.set_xy(25, y)
+        self.cell(0, 8, "MARKET CONTEXT", ln=True)
+        y += 12
 
         p = price_ctx
         ret_12m = f"{p['ret_12m']:+.1%}" if p['ret_12m'] is not None else "N/A"
@@ -600,8 +604,8 @@ class RundownPDF(FPDF):
             ("Since 10% Corr", days_10_str, 34),
         ]
 
-        self.set_font("Helvetica", "", 13)
-        x = 20
+        self.set_font("Helvetica", "", 16)
+        x = 25
         for label, val, label_w in row1:
             self.set_text_color(136, 136, 136)
             self.set_xy(x, y)
@@ -609,10 +613,10 @@ class RundownPDF(FPDF):
             self.set_text_color(255, 255, 255)
             self.set_xy(x + label_w, y)
             self.cell(0, 6, _latin1_safe(val))
-            x += label_w + 28
+            x += label_w + 35
 
-        y += 8
-        x = 20
+        y += 10
+        x = 25
         for label, val, label_w in row2:
             self.set_text_color(136, 136, 136)
             self.set_xy(x, y)
@@ -623,18 +627,18 @@ class RundownPDF(FPDF):
             x += label_w + 28
 
         # Signal Summary
-        y += 14
+        y += 16
         active = [name for name, sig in signals_ordered.items() if sig.get('on')]
         active_count = len(active)
         total = len(signals_ordered)
 
-        self.set_font("Helvetica", "B", 11)
+        self.set_font("Helvetica", "B", 14)
         self.set_text_color(136, 136, 136)
-        self.set_xy(20, y)
-        self.cell(0, 6, f"SIGNAL BOARD ({active_count}/{total} ACTIVE)", ln=True)
-        y += 9
+        self.set_xy(25, y)
+        self.cell(0, 8, f"SIGNAL BOARD ({active_count}/{total} ACTIVE)", ln=True)
+        y += 12
 
-        self.set_font("Helvetica", "", 11)
+        self.set_font("Helvetica", "", 14)
         for name, sig in signals_ordered.items():
             is_on = sig.get('on', False)
             badge = "ON" if is_on else "OFF"
@@ -642,41 +646,41 @@ class RundownPDF(FPDF):
             if not is_on:
                 detail = sig.get('summary', '')
 
-            self.set_xy(22, y)
+            self.set_xy(28, y)
             if is_on:
                 self.set_text_color(204, 0, 0)
             else:
                 self.set_text_color(0, 204, 0)
-            self.cell(12, 5, badge)
+            self.cell(16, 7, badge)
 
             self.set_text_color(255, 255, 255)
-            self.set_xy(36, y)
-            self.cell(50, 5, name)
+            self.set_xy(46, y)
+            self.cell(65, 7, name)
 
             self.set_text_color(170, 170, 170)
-            self.set_xy(90, y)
-            max_detail = 100
+            self.set_xy(115, y)
+            max_detail = 140
             if len(detail) > max_detail:
                 detail = detail[:max_detail] + "..."
-            self.cell(0, 5, _latin1_safe(detail))
-            y += 6
+            self.cell(0, 7, _latin1_safe(detail))
+            y += 9
 
         # Fragility Dials
         if dial_path and os.path.exists(dial_path):
-            y += 5
-            self.set_font("Helvetica", "B", 11)
-            self.set_text_color(136, 136, 136)
-            self.set_xy(20, y)
-            self.cell(0, 6, "FRAGILITY DIALS (5d / 21d / 63d)", ln=True)
             y += 8
-            dial_w = 160
+            self.set_font("Helvetica", "B", 14)
+            self.set_text_color(136, 136, 136)
+            self.set_xy(25, y)
+            self.cell(0, 8, "FRAGILITY DIALS (5d / 21d / 63d)", ln=True)
+            y += 10
+            dial_w = 240
             dial_x = (PDF_W - dial_w) / 2
             self.image(dial_path, x=dial_x, y=y, w=dial_w)
-            y += dial_w * 0.29 + 2  # approx image height ratio
+            y += dial_w * 0.29 + 4
 
         # 10d trailing average below dials
         if h_scores_10d:
-            self.set_font("Helvetica", "", 12)
+            self.set_font("Helvetica", "", 15)
             parts = []
             for key, label in [('5d', '5d'), ('21d', '21d'), ('63d', '63d')]:
                 score = h_scores_10d.get(key, 0)
@@ -699,16 +703,16 @@ class RundownPDF(FPDF):
         self._dark_page()
 
         # Title bar
-        self.set_font("Helvetica", "B", 16)
+        self.set_font("Helvetica", "B", 22)
         self.set_text_color(255, 215, 0)
-        self.set_xy(15, 8)
-        self.cell(0, 10, title)
+        self.set_xy(20, 10)
+        self.cell(0, 12, title)
 
         # Chart image — fill most of the page
-        img_y = 22
+        img_y = 26
         img_h = PDF_H - img_y - 10
-        img_w = PDF_W - 20
-        self.image(img_path, x=10, y=img_y, w=img_w, h=img_h)
+        img_w = PDF_W - 30
+        self.image(img_path, x=15, y=img_y, w=img_w, h=img_h)
 
 
 def build_pdf(computed, charts, dial_path, tmp_dir):
