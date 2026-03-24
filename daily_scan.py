@@ -1425,6 +1425,8 @@ def download_historical_data(tickers, start_date="2000-01-01"):
 
                 if len(chunk) == 1:
                     ticker = chunk[0]
+                    if isinstance(df.columns, pd.MultiIndex):
+                        df.columns = df.columns.get_level_values(0)
                     if 'Close' in df.columns:
                         df.index = df.index.tz_localize(None)
                         data_dict[ticker] = df
