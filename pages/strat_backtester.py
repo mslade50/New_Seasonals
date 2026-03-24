@@ -355,6 +355,24 @@ def get_historical_mask(df, params, sznl_map, ticker_name="UNK"):
     if params.get('exclude_52w_high', False):
         conditions.append(~df['is_52w_high'].values)
 
+    # Trailing 52w high filter
+    if params.get('use_recent_52w', False):
+        r52w_lookback = params.get('recent_52w_lookback', 21)
+        recent_52w_mask = df['is_52w_high'].rolling(window=r52w_lookback, min_periods=1).max().astype(bool).values
+        if params.get('recent_52w_invert', False):
+            conditions.append(~recent_52w_mask)
+        else:
+            conditions.append(recent_52w_mask)
+
+    # Trailing 52w low filter
+    if params.get('use_recent_52w_low', False):
+        r52w_low_lookback = params.get('recent_52w_low_lookback', 21)
+        recent_52w_low_mask = df['is_52w_low'].rolling(window=r52w_low_lookback, min_periods=1).max().astype(bool).values
+        if params.get('recent_52w_low_invert', False):
+            conditions.append(~recent_52w_low_mask)
+        else:
+            conditions.append(recent_52w_low_mask)
+
     # Volume filters
     if params.get('vol_gt_prev', False):
         conditions.append(df['Volume'].values > np.roll(df['Volume'].values, 1))

@@ -698,7 +698,25 @@ def check_signal(df, params, sznl_map, ticker=None):
         else:
             if last_row['is_ath']: return False
 
-    # 8d. Recent ATH Filter
+    # 8d. Trailing 52w High Filter
+    if params.get('use_recent_52w', False):
+        r52w_lookback = params.get('recent_52w_lookback', 21)
+        recent_52w = df['is_52w_high'].rolling(window=r52w_lookback, min_periods=1).max().iloc[-1]
+        if params.get('recent_52w_invert', False):
+            if bool(recent_52w): return False
+        else:
+            if not bool(recent_52w): return False
+
+    # 8e. Trailing 52w Low Filter
+    if params.get('use_recent_52w_low', False):
+        r52w_low_lookback = params.get('recent_52w_low_lookback', 21)
+        recent_52w_low = df['is_52w_low'].rolling(window=r52w_low_lookback, min_periods=1).max().iloc[-1]
+        if params.get('recent_52w_low_invert', False):
+            if bool(recent_52w_low): return False
+        else:
+            if not bool(recent_52w_low): return False
+
+    # 8f. Recent ATH Filter
     if params.get('use_recent_ath', False):
         ath_lookback = params.get('ath_lookback_days', 21)
         recent_ath = df['is_ath'].rolling(window=ath_lookback, min_periods=1).max().iloc[-1]
@@ -1295,7 +1313,17 @@ def build_live_filters(strat, last_row, df):
     
     if settings.get('exclude_52w_high', False):
         live_filters.append(("NOT at 52-week high", "✓", True))
-    
+
+    if settings.get('use_recent_52w', False):
+        prefix = "Has NOT made" if settings.get('recent_52w_invert') else "Made"
+        lb = settings.get('recent_52w_lookback', 21)
+        live_filters.append((f"{prefix} 52w high in last {lb}d", "✓", True))
+
+    if settings.get('use_recent_52w_low', False):
+        prefix = "Has NOT made" if settings.get('recent_52w_low_invert') else "Made"
+        lb = settings.get('recent_52w_low_lookback', 21)
+        live_filters.append((f"{prefix} 52w low in last {lb}d", "✓", True))
+
     # --- VIX Filter ---
     if settings.get('use_vix_filter', False):
         val = last_row.get('VIX_Value', 0)
