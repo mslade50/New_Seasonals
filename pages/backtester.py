@@ -1320,10 +1320,10 @@ def main():
         use_recent_52w = recent_52w_mode != "Disabled"
         recent_52w_invert = recent_52w_mode == "Has NOT Made 52w High in Last N Days"
         recent_52w_lookback = st.number_input("52w High Lookback (Days)", 1, 252, 21, disabled=not use_recent_52w)
-        recent_52w_low_mode = st.selectbox("Trailing 52w Low Filter", ["Disabled", "Made 52w Low in Last N Days", "Has NOT Made 52w Low in Last N Days"])
+        recent_52w_low_mode = st.selectbox("Trailing 52w Low Filter", ["Disabled", "Made 52w Low in Last N Days", "Has NOT Made 52w Low in Last N Days"], key="recent_52w_low_mode")
         use_recent_52w_low = recent_52w_low_mode != "Disabled"
         recent_52w_low_invert = recent_52w_low_mode == "Has NOT Made 52w Low in Last N Days"
-        recent_52w_low_lookback = st.number_input("52w Low Lookback (Days)", 1, 252, 21, disabled=not use_recent_52w_low)
+        recent_52w_low_lookback = st.number_input("52w Low Lookback (Days)", 1, 252, 21, disabled=not use_recent_52w_low, key="recent_52w_low_lb")
         st.markdown("---")
         use_ath = st.checkbox("Enable All-Time High Filter", value=False)
         ath_type = st.selectbox("ATH Condition", ["Today is ATH", "Today is NOT ATH"], disabled=not use_ath)
