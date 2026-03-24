@@ -459,6 +459,17 @@ def get_historical_mask(df, params, sznl_map, ticker_name="UNK"):
 
             conditions.append(is_slope_ok & was_untested & touched_today)
 
+    # Reference ticker filter
+    if params.get('use_ref_ticker_filter', False) and params.get('ref_filters'):
+        for rf in params['ref_filters']:
+            col = f"Ref_rank_ret_{rf['window']}d"
+            if col in df.columns:
+                col_vals = df[col].values
+                if rf['logic'] == '<':
+                    conditions.append(col_vals < rf['thresh'])
+                elif rf['logic'] == '>':
+                    conditions.append(col_vals > rf['thresh'])
+
     # Combine all conditions
     if conditions:
         # Handle NaN values in conditions
@@ -487,6 +498,31 @@ def precompute_all_indicators(_master_dict, _strategies, _sznl_map, _vix_series)
         temp['SMA200'] = temp['Close'].rolling(200).mean()
         market_series = temp['Close'] > temp['SMA200']
     
+    # Precompute reference ticker ranks for strategies that use ref_ticker_filter
+    ref_ticker_ranks_map = {}  # {ref_ticker: {window: rank_series}}
+    for strat in _strategies:
+        settings = strat['settings']
+        if settings.get('use_ref_ticker_filter', False) and settings.get('ref_filters'):
+            ref_ticker = settings.get('ref_ticker', 'IWM').replace('.', '-')
+            if ref_ticker not in ref_ticker_ranks_map:
+                ref_df = _master_dict.get(ref_ticker)
+                if ref_df is not None and len(ref_df) >= 200:
+                    try:
+                        ref_calc = calculate_indicators(ref_df.copy(), _sznl_map, ref_ticker, market_series, _vix_series)
+                        ref_ranks = {}
+                        for rf in settings['ref_filters']:
+                            col = f"rank_ret_{rf['window']}d"
+                            if col in ref_calc.columns:
+                                ref_ranks[rf['window']] = ref_calc[col]
+                        ref_ticker_ranks_map[ref_ticker] = ref_ranks
+                    except Exception:
+                        pass
+
+    # Build a merged ref_ticker_ranks dict across all strategies
+    all_ref_ticker_ranks = {}
+    for ref_ranks in ref_ticker_ranks_map.values():
+        all_ref_ticker_ranks.update(ref_ranks)
+
     ticker_params = {}
     for strat in _strategies:
         settings = strat['settings']
@@ -494,7 +530,7 @@ def precompute_all_indicators(_master_dict, _strategies, _sznl_map, _vix_series)
         acc_win = settings.get('acc_count_window') if settings.get('use_acc_count_filter') else None
         dist_win = settings.get('dist_count_window') if settings.get('use_dist_count_filter') else None
         req_custom_mas = list(set([f['length'] for f in settings.get('ma_consec_filters', [])]))
-        
+
         for ticker in strat['universe_tickers']:
             t_clean = ticker.replace('.', '-')
             if t_clean not in ticker_params:
@@ -504,7 +540,7 @@ def precompute_all_indicators(_master_dict, _strategies, _sznl_map, _vix_series)
                 if acc_win: ticker_params[t_clean]['acc'] = acc_win
                 if dist_win: ticker_params[t_clean]['dist'] = dist_win
                 ticker_params[t_clean]['mas'].update(req_custom_mas)
-    
+
     # Process tickers (can be parallelized if needed)
     for t_clean, params in ticker_params.items():
         df = _master_dict.get(t_clean)
@@ -516,7 +552,8 @@ def precompute_all_indicators(_master_dict, _strategies, _sznl_map, _vix_series)
                 gap_window=params['gap'],
                 acc_window=params['acc'],
                 dist_window=params['dist'],
-                custom_sma_lengths=list(params['mas'])
+                custom_sma_lengths=list(params['mas']),
+                ref_ticker_ranks=all_ref_ticker_ranks if all_ref_ticker_ranks else None
             )
         except Exception:
             continue
