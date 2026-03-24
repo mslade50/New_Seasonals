@@ -211,6 +211,9 @@ def _generate_key_filters(params):
     if params.get('use_recent_52w'):
         prefix = "Has NOT made" if params.get('recent_52w_invert') else "Made"
         filters.append(f"{prefix} 52w high in last {params['recent_52w_lookback']} days")
+    if params.get('use_recent_52w_low'):
+        prefix = "Has NOT made" if params.get('recent_52w_low_invert') else "Made"
+        filters.append(f"{prefix} 52w low in last {params['recent_52w_low_lookback']} days")
     if params.get('breakout_mode', 'None') != 'None':
         filters.append(params['breakout_mode'])
     
@@ -430,6 +433,7 @@ def build_strategy_dict(params, tickers_to_run, pf, sqn, win_rate, expectancy_r)
             "use_ath": params.get('use_ath', False), "ath_type": params.get('ath_type', 'Today is ATH'),
             "use_recent_ath": params.get('use_recent_ath', False), "recent_ath_invert": params.get('recent_ath_invert', False), "ath_lookback_days": params.get('ath_lookback_days', 21),
             "use_recent_52w": params.get('use_recent_52w', False), "recent_52w_invert": params.get('recent_52w_invert', False), "recent_52w_lookback": params.get('recent_52w_lookback', 21),
+            "use_recent_52w_low": params.get('use_recent_52w_low', False), "recent_52w_low_invert": params.get('recent_52w_low_invert', False), "recent_52w_low_lookback": params.get('recent_52w_low_lookback', 21),
             # Price action
             "breakout_mode": params.get('breakout_mode', 'None'),
             "require_close_gt_open": params.get('require_close_gt_open', False),
@@ -694,6 +698,13 @@ def run_engine(universe_dict, params, sznl_map, market_series=None, vix_series=N
                     conditions.append(~recent_52w_mask)
                 else:
                     conditions.append(recent_52w_mask)
+            if params.get('use_recent_52w_low', False):
+                r52w_low_lookback = params.get('recent_52w_low_lookback', 21)
+                recent_52w_low_mask = df['is_52w_low'].rolling(window=r52w_low_lookback, min_periods=1).max().astype(bool)
+                if params.get('recent_52w_low_invert', False):
+                    conditions.append(~recent_52w_low_mask)
+                else:
+                    conditions.append(recent_52w_low_mask)
             if params.get('vol_gt_prev', False): 
                 conditions.append(df['Volume'] > df['Volume'].shift(1))
             if params.get('use_vol', False): conditions.append(df['vol_ratio'] > params['vol_thresh'])
@@ -1309,6 +1320,10 @@ def main():
         use_recent_52w = recent_52w_mode != "Disabled"
         recent_52w_invert = recent_52w_mode == "Has NOT Made 52w High in Last N Days"
         recent_52w_lookback = st.number_input("52w High Lookback (Days)", 1, 252, 21, disabled=not use_recent_52w)
+        recent_52w_low_mode = st.selectbox("Trailing 52w Low Filter", ["Disabled", "Made 52w Low in Last N Days", "Has NOT Made 52w Low in Last N Days"])
+        use_recent_52w_low = recent_52w_low_mode != "Disabled"
+        recent_52w_low_invert = recent_52w_low_mode == "Has NOT Made 52w Low in Last N Days"
+        recent_52w_low_lookback = st.number_input("52w Low Lookback (Days)", 1, 252, 21, disabled=not use_recent_52w_low)
         st.markdown("---")
         use_ath = st.checkbox("Enable All-Time High Filter", value=False)
         ath_type = st.selectbox("ATH Condition", ["Today is ATH", "Today is NOT ATH"], disabled=not use_ath)
@@ -1447,6 +1462,7 @@ def main():
             'use_ath': use_ath, 'ath_type': ath_type,
             '52w_first_instance': first_52w, '52w_lookback': lookback_52w, '52w_lag': lag_52w, 'exclude_52w_high': exclude_52w_high, 'use_vix_filter': use_vix_filter, 'vix_min': vix_min, 'vix_max': vix_max,
             'use_recent_52w': use_recent_52w, 'recent_52w_invert': recent_52w_invert, 'recent_52w_lookback': recent_52w_lookback,
+            'use_recent_52w_low': use_recent_52w_low, 'recent_52w_low_invert': recent_52w_low_invert, 'recent_52w_low_lookback': recent_52w_low_lookback,
             'vol_gt_prev': use_vol_gt_prev, 'use_vol': use_vol, 'vol_thresh': vol_thresh, 'use_vol_rank': use_vol_rank, 'vol_rank_logic': vol_rank_logic, 'vol_rank_thresh': vol_rank_thresh,
             'use_ma_dist_filter': use_ma_dist_filter, 'dist_ma_type': dist_ma_type, 'dist_logic': dist_logic, 'dist_min': dist_min, 'dist_max': dist_max,
             'use_weekly_ma_pullback': use_weekly_ma_pullback, 'wma_type': wma_type, 'wma_period': wma_period, 'wma_min_ext_pct': wma_min_ext_pct, 'wma_lookback_months': wma_lookback_months, 'wma_touch_logic': wma_touch_logic,
