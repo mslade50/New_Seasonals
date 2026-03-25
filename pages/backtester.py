@@ -887,20 +887,36 @@ def run_engine(universe_dict, params, sznl_map, market_series=None, vix_series=N
                         elif direction == 'Short' and day_high >= limit_price:
                             found_entry, actual_entry_idx, actual_entry_price = True, next_idx, limit_price
                 elif is_limit_pivot:
-                    if 'LastPivotLow' in df.columns and direction == 'Long':
+                    sig_close = df['Close'].iloc[sig_idx]
+                    sig_atr = df['ATR'].iloc[sig_idx]
+                    if direction == 'Long' and 'LastPivotLow' in df.columns:
                         limit_price = df['LastPivotLow'].iloc[sig_idx]
-                        if pd.notna(limit_price):
-                            next_idx = sig_idx + 1
-                            if next_idx < len(df):
-                                day_low, day_open = df['Low'].iloc[next_idx], df['Open'].iloc[next_idx]
-                                if day_low <= limit_price: found_entry, actual_entry_idx, actual_entry_price = True, next_idx, min(limit_price, day_open) if day_open < limit_price else limit_price
-                    elif 'LastPivotHigh' in df.columns and direction == 'Short':
+                        # Pivot must be below close but within 2 ATR (not already breached)
+                        if pd.notna(limit_price) and limit_price < sig_close and (sig_close - limit_price) <= 2 * sig_atr:
+                            for wait_i in range(1, params['holding_days'] + 1):
+                                curr_idx = sig_idx + wait_i
+                                if curr_idx >= len(df): break
+                                day_low, day_open = df['Low'].iloc[curr_idx], df['Open'].iloc[curr_idx]
+                                if day_open <= limit_price:
+                                    found_entry, actual_entry_idx, actual_entry_price = True, curr_idx, day_open
+                                    break
+                                elif day_low <= limit_price:
+                                    found_entry, actual_entry_idx, actual_entry_price = True, curr_idx, limit_price
+                                    break
+                    elif direction == 'Short' and 'LastPivotHigh' in df.columns:
                         limit_price = df['LastPivotHigh'].iloc[sig_idx]
-                        if pd.notna(limit_price):
-                            next_idx = sig_idx + 1
-                            if next_idx < len(df):
-                                day_high, day_open = df['High'].iloc[next_idx], df['Open'].iloc[next_idx]
-                                if day_high >= limit_price: found_entry, actual_entry_idx, actual_entry_price = True, next_idx, max(limit_price, day_open) if day_open > limit_price else limit_price
+                        # Pivot must be above close but within 2 ATR (not already breached)
+                        if pd.notna(limit_price) and limit_price > sig_close and (limit_price - sig_close) <= 2 * sig_atr:
+                            for wait_i in range(1, params['holding_days'] + 1):
+                                curr_idx = sig_idx + wait_i
+                                if curr_idx >= len(df): break
+                                day_high, day_open = df['High'].iloc[curr_idx], df['Open'].iloc[curr_idx]
+                                if day_open >= limit_price:
+                                    found_entry, actual_entry_idx, actual_entry_price = True, curr_idx, day_open
+                                    break
+                                elif day_high >= limit_price:
+                                    found_entry, actual_entry_idx, actual_entry_price = True, curr_idx, limit_price
+                                    break
                 elif is_cond_close_lower:
                     atr_mult = 0.5 if "-0.5 ATR" in entry_mode else (1.0 if "-1 ATR" in entry_mode else 0.0)
                     sig_val, sig_atr = df['Close'].iloc[sig_idx], df['ATR'].iloc[sig_idx]
