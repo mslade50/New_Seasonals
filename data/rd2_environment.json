@@ -1,20 +1,20 @@
 {
-  "date": "2026-03-24",
+  "date": "2026-03-25",
   "price_ctx": {
-    "price": 653.1799926757812,
-    "ret_12m": 0.15082869078233796,
-    "extension_200d": -0.006096626148193396,
-    "drawdown": -0.05826992258713204,
-    "sma_200": 657.1866137695313,
+    "price": 656.8200073242188,
+    "ret_12m": 0.15446677995339786,
+    "extension_200d": -0.001047831240237107,
+    "drawdown": -0.05302188787220696,
+    "sma_200": 657.5089657592773,
     "high_52w": 693.5957641601562,
     "regime_label": "Correction underway",
     "days_since_5pct": 0,
-    "days_since_10pct": 229
+    "days_since_10pct": 230
   },
   "h_scores": {
     "5d": 0.0,
-    "21d": 10.72392956289342,
-    "63d": 41.04490539042719
+    "21d": 8.968169479046917,
+    "63d": 39.95809617891685
   },
   "signals": {
     "Distribution Dominance": {
@@ -25,27 +25,27 @@
     "VIX Range Compression": {
       "on": false,
       "detail": "",
-      "summary": "21d range: 79th pctile (fires below 15th) \u2014 VIX at 27.0"
+      "summary": "21d range: 79th pctile (fires below 15th) \u2014 VIX at 25.3"
     },
     "Defensive Leadership": {
       "on": false,
       "detail": "",
-      "summary": "50d spread: -4pp (fires < -10) | 200d spread: -11pp (fires < 0)"
+      "summary": "50d spread: -1pp (fires < -10) | 200d spread: -10pp (fires < 0)"
     },
     "Pre-FOMC Rally": {
       "on": false,
       "detail": "",
-      "summary": "Next FOMC: Apr 29 (36d away) \u2014 5d return: 8th pctile (outside window)"
+      "summary": "Next FOMC: Apr 29 (35d away) \u2014 5d return: 32th pctile (outside window)"
     },
     "Low Absorption Ratio": {
       "on": false,
       "detail": "",
-      "summary": "AR: 0.484 (47th pctile, fires below 10th) \u2014 near high: no"
+      "summary": "AR: 0.500 (54th pctile, fires below 10th) \u2014 near high: no"
     },
     "Seasonal Rank Divergence": {
       "on": false,
       "detail": "",
-      "summary": "Spread: +11.1pp (fires above 10) \u2014 near high: no"
+      "summary": "Spread: +8.3pp (fires above 10) \u2014 near high: no"
     }
   }
 }
