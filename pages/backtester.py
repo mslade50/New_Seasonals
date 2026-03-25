@@ -891,13 +891,8 @@ def run_engine(universe_dict, params, sznl_map, market_series=None, vix_series=N
                     sig_atr = df['ATR'].iloc[sig_idx]
                     if direction == 'Long' and 'LastPivotLow' in df.columns:
                         limit_price = df['LastPivotLow'].iloc[sig_idx]
-                        # Pivot must be below close, at least 0.3 ATR away, and untested in last 20 days
-                        untested = pd.notna(limit_price) and limit_price < sig_close and (sig_close - limit_price) >= 0.3 * sig_atr
-                        if untested and sig_idx >= 20:
-                            recent_lows = df['Low'].iloc[sig_idx - 20:sig_idx]
-                            if (recent_lows <= limit_price).any():
-                                untested = False
-                        if untested:
+                        # Pivot must be below close and at least 0.5 ATR away
+                        if pd.notna(limit_price) and limit_price < sig_close and (sig_close - limit_price) >= 0.5 * sig_atr:
                             for wait_i in range(1, params['holding_days'] + 1):
                                 curr_idx = sig_idx + wait_i
                                 if curr_idx >= len(df): break
@@ -910,13 +905,8 @@ def run_engine(universe_dict, params, sznl_map, market_series=None, vix_series=N
                                     break
                     elif direction == 'Short' and 'LastPivotHigh' in df.columns:
                         limit_price = df['LastPivotHigh'].iloc[sig_idx]
-                        # Pivot must be above close, at least 0.3 ATR away, and untested in last 20 days
-                        untested = pd.notna(limit_price) and limit_price > sig_close and (limit_price - sig_close) >= 0.3 * sig_atr
-                        if untested and sig_idx >= 20:
-                            recent_highs = df['High'].iloc[sig_idx - 20:sig_idx]
-                            if (recent_highs >= limit_price).any():
-                                untested = False
-                        if untested:
+                        # Pivot must be above close and at least 0.5 ATR away
+                        if pd.notna(limit_price) and limit_price > sig_close and (limit_price - sig_close) >= 0.5 * sig_atr:
                             for wait_i in range(1, params['holding_days'] + 1):
                                 curr_idx = sig_idx + wait_i
                                 if curr_idx >= len(df): break
