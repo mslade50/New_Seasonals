@@ -891,8 +891,8 @@ def run_engine(universe_dict, params, sznl_map, market_series=None, vix_series=N
                     sig_atr = df['ATR'].iloc[sig_idx]
                     if direction == 'Long' and 'LastPivotLow' in df.columns:
                         limit_price = df['LastPivotLow'].iloc[sig_idx]
-                        # Pivot must be below close but within 2 ATR (not already breached)
-                        if pd.notna(limit_price) and limit_price < sig_close and (sig_close - limit_price) <= 2 * sig_atr:
+                        # Pivot must be below close (not already breached)
+                        if pd.notna(limit_price) and limit_price < sig_close:
                             for wait_i in range(1, params['holding_days'] + 1):
                                 curr_idx = sig_idx + wait_i
                                 if curr_idx >= len(df): break
@@ -905,8 +905,8 @@ def run_engine(universe_dict, params, sznl_map, market_series=None, vix_series=N
                                     break
                     elif direction == 'Short' and 'LastPivotHigh' in df.columns:
                         limit_price = df['LastPivotHigh'].iloc[sig_idx]
-                        # Pivot must be above close but within 2 ATR (not already breached)
-                        if pd.notna(limit_price) and limit_price > sig_close and (limit_price - sig_close) <= 2 * sig_atr:
+                        # Pivot must be above close (not already breached)
+                        if pd.notna(limit_price) and limit_price > sig_close:
                             for wait_i in range(1, params['holding_days'] + 1):
                                 curr_idx = sig_idx + wait_i
                                 if curr_idx >= len(df): break
