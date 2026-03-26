@@ -198,15 +198,15 @@ def render_seasonal_chart(ticker):
     spx["year"] = spx.index.year
     spx["month"] = spx.index.month
     spx["day_count"] = spx.groupby("year").cumcount() + 1
-    
+
     current_year = dt.date.today().year
 
     # 1. Historical Pools (Exclude Current Year)
     df_history = spx[spx["year"] < current_year].copy()
-    
+
     # Path A: Selected Cycle
     path_cycle = calculate_path(df_history, cycle_label)
-    
+
     # Path B: All Years
     path_all = calculate_path(df_history, "All Years")
 
@@ -216,31 +216,54 @@ def render_seasonal_chart(ticker):
     if not df_current.empty:
         path_current = df_current["log_return"].cumsum().apply(np.exp) - 1
 
+    # Date mapping: trading day number -> calendar date label
+    theoretical_dates = pd.bdate_range(start=f"{current_year}-01-01", end=f"{current_year}-12-31")
+    date_map = {i+1: d.strftime("%b %d") for i, d in enumerate(theoretical_dates)}
+
+    def get_date_labels(day_indices):
+        return [date_map.get(int(i), f"Day {i}") for i in day_indices]
+
+    HOVER_TEMPLATE = (
+        "<b>%{customdata[0]}</b><br>"
+        "Day: %{x}<br>"
+        "Return: %{y:.2%}"
+        "<extra></extra>"
+    )
+
     # Plotting
     fig = go.Figure()
 
     # Cycle Average (Orange)
+    cycle_dates = get_date_labels(path_cycle.index)
     fig.add_trace(go.Scatter(
         x=path_cycle.index, y=path_cycle.values,
         mode="lines", name=f"{cycle_label} Avg",
-        line=dict(color="#FF8C00", width=2)
+        line=dict(color="#FF8C00", width=2),
+        customdata=[[d] for d in cycle_dates],
+        hovertemplate=HOVER_TEMPLATE
     ))
 
     # All Years Average (Blue Dashed)
     if not path_all.empty:
+        all_dates = get_date_labels(path_all.index)
         fig.add_trace(go.Scatter(
             x=path_all.index, y=path_all.values,
             mode="lines", name="All Years Avg",
-            line=dict(color="lightblue", width=1, dash='dot')
+            line=dict(color="lightblue", width=1, dash='dot'),
+            customdata=[[d] for d in all_dates],
+            hovertemplate=HOVER_TEMPLATE
         ))
 
     # Current Realized (Green)
     if not path_current.empty:
+        realized_dates = [d.strftime("%b %d") for d in df_current.index]
         fig.add_trace(go.Scatter(
             x=np.arange(1, len(path_current) + 1),
             y=path_current.values,
             mode="lines", name=f"{current_year} Realized",
-            line=dict(color="#39FF14", width=2)
+            line=dict(color="#39FF14", width=2),
+            customdata=[[d] for d in realized_dates],
+            hovertemplate=HOVER_TEMPLATE
         ))
 
     # Markers
