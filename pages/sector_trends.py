@@ -28,7 +28,7 @@ SECTOR_ETFS = [
     "CT=F", "SI=F",
 ]
 
-CSV_PATH = "sznl_ranks.csv"
+CSV_PATH = "sznl_sector_forecast.csv"
 
 # -----------------------------------------------------------------------------
 # CACHE MANAGEMENT
