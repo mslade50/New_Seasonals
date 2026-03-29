@@ -145,6 +145,49 @@ def pull_market_data(tickers):
             elif sma_50:
                 trend = f"{'Above' if current_price > sma_50 else 'Below'} 50d SMA"
 
+            # --- Forward estimates (structured) ---
+            forward_eps = {}
+            eps_range = {}
+            eps_growth = {}
+            analyst_count = {}
+            try:
+                ee = tk.earnings_estimate
+                if ee is not None and not ee.empty:
+                    for period in ee.index:
+                        label = str(period)  # '0q', '+1q', '0y', '+1y'
+                        avg = ee.loc[period, "avg"] if "avg" in ee.columns else None
+                        if avg is not None and not pd.isna(avg):
+                            forward_eps[label] = round(float(avg), 2)
+                        low = ee.loc[period, "low"] if "low" in ee.columns else None
+                        high = ee.loc[period, "high"] if "high" in ee.columns else None
+                        if low is not None and not pd.isna(low) and high is not None and not pd.isna(high):
+                            eps_range[f"{label}_low"] = round(float(low), 2)
+                            eps_range[f"{label}_high"] = round(float(high), 2)
+                        growth = ee.loc[period, "growth"] if "growth" in ee.columns else None
+                        if growth is not None and not pd.isna(growth):
+                            eps_growth[label] = f"{growth * 100:.1f}%"
+                        n_analysts = ee.loc[period, "numberOfAnalysts"] if "numberOfAnalysts" in ee.columns else None
+                        if n_analysts is not None and not pd.isna(n_analysts):
+                            analyst_count[label] = int(n_analysts)
+            except Exception:
+                pass
+
+            # --- Earnings surprise history ---
+            last_4q_surprises = []
+            next_earnings = None
+            try:
+                ed = tk.earnings_dates
+                if ed is not None and not ed.empty:
+                    # Future dates (no reported EPS) → next earnings
+                    future = ed[ed["Reported EPS"].isna()]
+                    if not future.empty:
+                        next_earnings = future.index[0].strftime("%Y-%m-%d")
+                    # Past dates with surprise data
+                    past = ed[ed["Surprise(%)"].notna()].head(4)
+                    last_4q_surprises = [f"{s:+.1f}%" for s in past["Surprise(%)"].tolist()]
+            except Exception:
+                pass
+
             snapshots[ticker] = {
                 "price": round(current_price, 2),
                 "sma_50": round(sma_50, 2) if sma_50 else None,
@@ -166,8 +209,13 @@ def pull_market_data(tickers):
                     if info.get("freeCashflow") and info.get("marketCap")
                     else None
                 ),
-                "revenue_growth": info.get("revenueGrowth"),
-                "earnings_growth": info.get("earningsGrowth"),
+                "revenue_growth_trailing": info.get("revenueGrowth"),
+                "forward_eps_consensus": forward_eps or None,
+                "eps_estimate_range": eps_range or None,
+                "eps_growth_by_period": eps_growth or None,
+                "analyst_count": analyst_count or None,
+                "last_4q_surprises": last_4q_surprises or None,
+                "next_earnings_date": next_earnings,
             }
             logger.info(f"  {ticker}: ${current_price:.2f}, {trend}")
 
@@ -199,8 +247,24 @@ Consider these lenses, but weight them as the situation demands:
 **Catalyst magnitude**: Is this a marginal news item or does it structurally change
 the earnings power of the business?
 
-**Valuation vs forward reality**: Current multiples reflect trailing or consensus
-expectations. If a catalyst meaningfully changes forward cash flows, the question is
+**Valuation vs forward reality**: You have structured forward estimates — use them
+precisely. The market data includes:
+- `forward_eps_consensus`: Consensus EPS by period (0q = current quarter, +1q = next
+  quarter, 0y = current fiscal year, +1y = next fiscal year)
+- `eps_estimate_range`: Low/high analyst estimates — wide ranges signal uncertainty
+- `eps_growth_by_period`: Growth rates by period — look for acceleration vs deceleration
+  (e.g., 0y +69% → +1y +8% = decelerating; the opposite = accelerating)
+- `analyst_count`: Number of analysts per period — thin coverage = less reliable consensus
+- `last_4q_surprises`: Recent beat/miss history — systematic beats suggest street is behind
+- `next_earnings_date`: Catalyst timing
+- `trailing_pe` and `forward_pe` are from Yahoo Finance info; cross-check forward PE
+  against price / forward_eps_consensus["0y"] or ["1y"] for consistency
+
+IMPORTANT: Never cite trailing metrics (trailing PE, trailing earnings growth) as if they
+are forward-looking. Always label trailing vs forward explicitly. If trailing and forward
+tell different stories, that IS the story — name it.
+
+If a catalyst meaningfully changes forward cash flows, the question is
 whether the market has re-priced to reflect that yet. A stock up 30% can still be cheap
 if the world just changed by more than 30%.
 
