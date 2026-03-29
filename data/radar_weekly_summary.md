@@ -1,84 +1,98 @@
-# Radar Weekly Digest — 2026-03-23
+# Radar Weekly Digest — 2026-03-29
 
-# Weekly Synthesis — March 17-23, 2026
-
-Three ideas cleared the bar this week. A lot didn't. The dominant macro themes — Iran/Hormuz, defense spending, AI infrastructure — are fully consensus and priced. The edge this week is in names where mechanical selling or narrative confusion has created dislocations the market hasn't corrected yet.
+# Weekly Distillation — March 23–29, 2026
 
 ---
 
-## STLD — Domestic Steel Mispriced as Cyclical When It's a Policy Trade
+## OWL — Blue Owl: The Private Credit Panic Is Mispriced
 
-**Thesis:** The most oversold large-cap steel name in the market is being sold as a generic cyclical while sitting directly in the path of the most aggressive domestic steel protection policy in decades.
+**Thesis:** The alt-credit sector selloff is creating a generational entry in OWL — accelerating fundamentals at a distressed valuation driven by mechanical/panic selling, not business deterioration.
 
-**Variant perception:** The market is selling STLD on recession/tariff-complexity fear — treating it as macro-sensitive cyclical exposure. But this is not a cyclical story right now. The USTR Section 301 investigations launched March 11 targeting 16 economies for steel overcapacity are a *new legal lever* on top of existing 25% duties. This isn't tariff noise — it's a structured, multi-year runway of domestic pricing protection that makes STLD's forward earnings more durable, not less. The market is pricing in demand destruction that the policy environment is actively preventing.
+**Variant perception:** The market is pricing OWL as if the $3T private credit "meltdown" is an existential event for the business. It's not. OWL is growing revenue 20% and earnings 57% YoY. Forward PE is 8.3x. FCF yield is 9.8%. The private credit panic narrative (BlackRock restricting HPS withdrawals, Blackstone BCRED redemptions) is being applied indiscriminately across the entire alt-credit space. But OWL's business model — permanent capital vehicles, long-duration locked-up capital — is structurally different from the gated funds making headlines. The market is conflating "private credit has a redemption problem" with "every alt-credit manager is impaired." At 8.3x forward earnings with 57% growth, the stock is priced for a business in secular decline. The business is accelerating.
 
-**Who's on the other side:** Macro funds mechanically de-risking cyclical exposure. RSI 19.4 — that's not informed selling, that's capitulation. When a 9/9 Buy consensus stock with 35% earnings growth prints a sub-20 RSI, someone is forced out the door. The BofA global fund manager survey showed cash hoards at 2020 levels — this is broad risk-off, not STLD-specific.
+**Who's on the other side:** Forced/mechanical selling. This is the cleanest setup type. Fund managers with "alt-credit exposure" mandates are being forced to de-risk the entire bucket regardless of individual company fundamentals. The KBW Bank Index is down 11% YTD vs SPX -3% — the sector is being sold as a block. JPMorgan says the panic is overblown. When the selling pressure is mechanical rather than thesis-driven, that's the gift.
 
 **The data:**
-- Price $167, forward PE 10.6x, earnings growth 34.7%, revenue growth 14%
-- RSI 19.4 — extreme oversold washout
-- 20% off 52w high ($208), 50d SMA at $184
-- Q1 2026 profitability guided "meaningfully higher" sequentially
-- Section 301 public hearings May 5-8 — catalyst timeline is defined
-- NUE showing identical setup: RSI 20.3, forward PE 11.8x
+- Price: $8.84 (down 60% from $21.88 52w high)
+- Forward PE: 8.3x — for a 20% revenue grower with 57% earnings growth
+- FCF yield: 9.8%
+- RSI: 28.1 (deeply oversold)
+- Trend: Full downtrend (price < 50d < 200d)
+- Analyst target: $23 (160% upside per JPMorgan)
+- Dividend yield: ~9.9%
+- Appeared Day 1 of the week and the theme (ALT_CREDIT_SHORT) scored 1.000
 
-**What would change my mind:** If the Section 301 investigations get shelved as a negotiating bluff (possible with this administration), the policy premium evaporates. Also if we see actual demand data showing US construction/manufacturing contracting hard enough to overwhelm the pricing protection. Watch ISM Manufacturing and steel mill utilization rates.
+**What would change my mind:** Evidence that OWL's specific fund structures are experiencing redemption pressure (not just the sector generically). If OWL's own LP redemptions accelerate, the reflexive spiral becomes real. Also watching for any regulatory action specifically targeting permanent capital vehicle structures.
 
 ---
 
-## PINS — Elliott's $1B Bet at 8.5x Forward PE
+## RYTM — Rhythm Pharma: First-in-Class Monopoly the Market Slept Through
 
-**Thesis:** A $1B activist position from one of the sharpest event-driven firms in the world, in a stock trading at 8.5x forward earnings with 8% FCF yield and double-digit revenue growth. The market is treating Pinterest like it's dying. Elliott disagrees by a billion dollars.
+**Thesis:** FDA approved the first-ever treatment for acquired hypothalamic obesity on March 19. The stock popped 5-11% and has since sold off to below pre-approval levels. The market treated this as a modest label extension. It's a monopoly in a new indication with $2B revenue potential.
 
-**Variant perception:** Consensus treats PINS as a second-tier social platform losing relevance in an AI-disrupted ad market — hence the 53% drawdown from 52w highs and the 8.5x forward PE. I believe the market is conflating *sector-level AI fear* (the IGV-wide P/E compression from 33x to 23x) with PINS-specific fundamentals that don't support this valuation. Revenue is growing 14%, FCF yield is 8.1%, and the platform has a uniquely commercial user intent that makes it more defensible against AI disruption than search or generic social. Elliott tripling to $1B in early March is not a passive bet — it's a catalyst in itself.
+**Variant perception:** Consensus sees IMCIVREE as a niche rare disease drug getting a modest TAM expansion. The Phase 3 TRANSCEND data was clean (-18.4% placebo-adjusted BMI reduction, 142 patients). RBC projects $2B revenue potential by 2030 from HO + Prader-Willi alone. First-in-class orphan drugs get premium pricing and long exclusivity windows with zero competition. The stock is at $75.82 — analysts range from $105 (H.C. Wainwright) to $143 (Wells Fargo). The market is pricing this like a speculative biotech when it's now a commercial-stage company with a regulatory monopoly in two indications.
 
-**Who's on the other side:** Generalist tech/growth funds de-risking out of anything with AI disruption exposure. The software/digital ad sector is being sold indiscriminately (IGV down 29% from highs). PINS is caught in sector-level forced selling. When Elliott triples a position to $1B in a name trading at 8.5x forward with positive FCF, the counter-party is usually a momentum fund running a sector-wide risk-off.
+**Who's on the other side:** Generalist funds de-risking small-cap biotech exposure in a risk-off tape. Nobody is selling RYTM because they think the FDA approval is bad — they're selling because it's a $5B market cap unprofitable biotech and the macro environment is hostile to duration assets. The selling is indifferent, not informed.
 
 **The data:**
-- Price $18.88, forward PE 8.5x, FCF yield 8.1%
-- Revenue growth 14.3%, price-to-sales 3.0x
-- Down 53% from 52w high ($39.93), near 52w low ($13.84)
-- Elliott tripled stake to $1B in early March
-- 26 analyst coverage with $27.73 consensus PT (47% upside)
-- Unusual options activity: 139K contracts (3.1x avg), split between bearish and bullish strikes
+- Price: $75.82 (down 38% from $122.20 52w high)
+- RSI: 27.8 (oversold)
+- Revenue growth: 36.9%
+- Market cap: $5.2B
+- Analyst targets: $105–$143 (38–89% upside)
+- Appeared 3 out of 5 days this week — high persistence, real catalyst
+- Still pre-profit (negative forward PE) — position size accordingly
 
-**What would change my mind:** If Q1 user engagement metrics show actual platform decline (DAU/MAU falling, not just slowing), the cheap multiple is warranted and Elliott is early/wrong. Also if Elliott's thesis is purely financial engineering (cost cuts, buybacks) rather than operational improvement — that has a shorter runway and less upside. Watch for Elliott's public letter or 13D amendment detailing their plan.
+**What would change my mind:** Competitive entry into the HO space from a major pharma. Reimbursement/payer pushback on IMCIVREE pricing for the new indication. Any post-marketing safety signal.
 
 ---
 
-## TOL — Luxury Homebuilder at Trough Multiples With a Policy Put
+## NUE — Nucor: The Tariff That Survived
 
-**Thesis:** A 9.5x forward PE on 25% EPS growth, 6.8% FCF yield, with the most pro-homebuilder federal policy in a generation — and the stock is at RSI 27 because the market can't see past "consumer sentiment is bad."
+**Thesis:** Everyone is focused on the $175B IEEPA tariff refund story. Almost nobody is talking about what the SCOTUS ruling did NOT touch: Section 232 steel tariffs at 50%. Import market share collapsed from 25% to 14%. Nucor is the primary beneficiary.
 
-**Variant perception:** The market is pricing TOL for a housing recession. But the policy stack is extraordinary: twin executive orders deregulating EPA/Army Corps permitting, directing Fannie/Freddie to buy $200B in MBS (30yr rates now below 6%), banning institutional investors from competing for single-family homes, and a "Trump Homes" program targeting 1M new units. TOL benefits *disproportionately* because luxury builds face the longest permitting delays — deregulation is more valuable per unit to a $800K home than a $300K home. The market hasn't connected the policy specificity to TOL's positioning.
+**Variant perception:** The headline narrative is "SCOTUS struck down tariffs = bad for protectionism." The actual outcome is the opposite for steel. Section 232 survived. The 50% tariff wall is intact. Import competition has been structurally reduced. Nucor's Q1 2026 guidance of $2.70-2.80 EPS is 56% above Q4's $1.73 — that's not a one-quarter bounce, that's the new run-rate in a protected market. Backlogs are up 40% YoY. The Warfighter First EO forces defense primes to spend on domestic production capacity instead of buybacks — that capital flows directly to domestic steel. UBS just upgraded to Buy with a $190 target. At 11.9x forward earnings, Nucor is priced like a cyclical at trough when it's actually in a structurally advantaged position.
 
-**Who's on the other side:** Cyclical bears who see AAII bearish sentiment at 46%, consumer confidence falling, and Iran war macro uncertainty. They're selling the sector (XHB down 19.5% from highs, RSI 22). This is top-down macro fear overriding bottom-up fundamentals. Goldman and BofA both raised PTs to $156-160 *after* the EOs were signed — the street is ahead of the stock.
+**Who's on the other side:** Commodity traders who see "steel" and assume cyclicality. The 50% tariff wall fundamentally changes the cycle dynamics — Nucor has pricing power it hasn't had in a decade. Also, macro bears selling industrials broadly on recession/stagflation fears (Michigan sentiment at 53.3) without distinguishing between companies with structural demand floors and those without.
 
 **The data:**
-- Price $136.66, forward PE 9.5x, trailing PE 9.8x
-- EPS growth 25.1%, revenue growth 15.4%
-- FCF yield 6.8%, price-to-book 1.5x
-- RSI 27.2 — deep oversold
-- 19% off 52w high ($168)
-- Goldman PT $156 (14% upside), BofA PT $160 (17% upside)
-- XHB (homebuilder ETF) RSI 22.2 — sector-wide washout
+- Price: $163.37 (down 17% from $196.90 52w high)
+- Forward PE: 11.9x
+- Earnings growth: 34.2%
+- Revenue growth: 8.6%
+- P/B: 1.78x
+- RSI: 38.8 (approaching oversold)
+- UBS upgrade to Buy, $190 PT (March 26)
+- Appeared 2 days this week with policy scores of 0.88–1.00
 
-**What would change my mind:** If 30yr mortgage rates reverse back above 6.5% (Fannie/Freddie MBS buying notwithstanding), the demand picture deteriorates regardless of supply-side deregulation. Also watch TOL's next quarterly contract data — if the "significant pickup in luxury contracts" from Q1 doesn't sustain into Q2, the growth story stalls. The EO permitting changes also take time to flow through — if the timeline is 12-18 months rather than 6, the stock may need patience.
+**What would change my mind:** Any legislative effort to repeal or reduce Section 232 tariffs. Demand destruction from a real recession (not just sentiment data). China dumping steel through non-tariffed intermediaries at scale.
+
+---
+
+## Watchlist — Not Actionable Yet But Worth Monitoring
+
+**HCA** — RSI of 1.5 on a $105B healthcare company with 44% earnings growth and 14x forward PE. This is an extreme statistical anomaly. The put/call ratio at 92% puts is max bearish. I don't have clear visibility into what's driving this specific selloff, which means I can't form a proper variant perception. But when a quality large-cap hits an RSI that low, the mean reversion trade has historically been violent. Watching for the catalyst to become visible.
+
+**SOC (Sable Offshore)** — The DPA invocation is genuinely unprecedented for a single offshore project. Forward PE 8.5x with first oil sales expected April 1. Binary outcome: if oil flows, this re-rates immediately at $112 Brent. If California finds a legal challenge, it goes back to zero. The risk/reward is asymmetric to the upside if you believe executive branch DPA authority holds — and the Iran conflict provides the political cover to sustain it. Too binary for a core position but interesting as a small tactical allocation.
 
 ---
 
 ## What Didn't Clear the Bar
 
-**LNG/Energy (Cheniere, VG, GPRE):** The Hormuz thesis is real and structural, but *it's consensus*. LNG is at RSI 80 with a 1,322% WSB mention surge. When retail, institutional, and the entire financial media agree on a trade, the remaining upside is in the tail scenario (Hormuz stays closed for years) and the downside is in the base case (ceasefire, de-escalation, or even partial reopening). I'd rather own this 30% lower. The time to buy LNG was March 4.
+**SOFI** — Showed up literally every day this week. Retail loves it. But the Muddy Waters allegations (circular financing, understated loss rates) are serious and specific. The bull case is "fundamentals are at all-time records" — but that's exactly what Muddy Waters is disputing. When the short thesis is "your reported fundamentals are wrong," you can't rebut it by citing the reported fundamentals. No variant perception until the accounting questions are resolved. The CEO's $500K buy is a positive signal but doesn't address the allegations.
 
-**Defense (KTOS, NOC, RTX, AVAV):** Same problem. The "Iran war = buy defense" trade is the single most crowded thematic bet in the market right now. KTOS at 78x forward PE and 187x EV/EBITDA is pricing in perfection. AVAV is down 51% from highs *despite* the perfect catalyst — that tells you something about who's trapped above. NOC RSI 21 is interesting as a tactical bounce but I have no variant perception on defense fundamentals.
+**LNG (Cheniere)** — The structural LNG thesis is correct but it's now consensus. Near ATH, RSI 77.6, everyone knows about Iran/Hormuz. The easy money was March 2. No variant perception remains.
 
-**PLTR:** 84x forward PE, 249x trailing, 84x P/S. The government AI spending thesis is consensus. No variant perception. You're paying a decade of growth upfront.
+**Defense primes (LMT, NOC, RTX)** — Up 30%+ YTD. The Iran spending cycle is real. But the buyback ban overhang creates a ceiling on capital return, and the stocks are no longer cheap after the run. The crowd that was short has already covered. Late.
 
-**SOFI:** The Muddy Waters report alleging $950M in EBITDA inflation is not something I can dismiss because the CEO bought 29K shares. If MW's charge-off analysis is even directionally correct, the stock is a zero on a relative basis. I don't have an edge on who's right. Pass.
+**FIX, STRL** — Extraordinary fundamentals but priced for it. FIX at 31x forward, STRL at 27x forward. The reshoring theme is real but these are consensus longs at premium valuations. No variant perception.
 
-**NBIS:** A $27B Meta deal for a company doing $228M revenue is transformative — but at 55x P/S and negative forward PE, the market is already pricing in the transformation. No margin of safety.
+**FSLR** — Policy tailwinds are real but the business is delivering flat guidance. The stock is cheap at 7.8x forward but that's because growth has stalled. Need to see OBBBA bonus depreciation actually drive orders before this is actionable.
 
-**OWL/Private Credit:** This is the most *interesting* theme I'm not acting on. OWL at 8.5x forward PE with 10% dividend yield and 57% earnings growth *looks* like a screaming buy. But the private credit sector has genuine contagion risk — BlackRock restricting withdrawals, Blackstone seeing 8% redemption requests. I can't distinguish between "panic overdone" and "early innings of a credit cycle turn." The right trade here is to build a watchlist and wait for redemption flows to stabilize. If OWL holds $8.50-9.00 for another 2-3 weeks while the credit headlines keep coming, that's the buy signal.
+**GEV** — $40B SMR commitment is a real catalyst but the stock is at 37x forward PE near all-time highs. The Rothschild upgrade from Sell to Buy is notable but the easy money is behind you. Best played on a 15-20% pullback.
 
-**HIMS:** The 46% short interest and Novo Nordisk partnership create squeeze mechanics, but the underlying business (telehealth GLP-1 prescriptions) has real regulatory risk. This is a momentum trade, not an investment thesis.
+---
+
+## The Week in One Line
+
+Three ideas cleared the bar: a panic-driven alt-credit dislocation (OWL), a monopoly FDA approval the market slept through (RYTM), and a tariff survival story hiding in plain sight (NUE). The common thread is mechanical or indifferent selling creating price-to-fundamental gaps in names where the catalyst is structural, not transient. Everything else — defense, LNG, reshoring small-caps, retail meme favorites — is either already consensus or lacks a clean variant perception.
