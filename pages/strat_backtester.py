@@ -73,13 +73,50 @@ def load_seasonal_map():
 # -----------------------------------------------------------------------------
 # HELPER: BATCH DOWNLOADER
 # -----------------------------------------------------------------------------
-@st.cache_data(show_spinner=False)
+def _parse_yf_result(df, chunk, data_dict):
+    """Parse a yfinance download result into per-ticker DataFrames."""
+    if df is None or df.empty:
+        return
+    if df.index.tz is not None:
+        df.index = df.index.tz_localize(None)
+    if isinstance(df.columns, pd.MultiIndex):
+        lvl0 = df.columns.get_level_values(0).unique().tolist()
+        price_cols = {'Open', 'High', 'Low', 'Close', 'Adj Close', 'Volume',
+                      'open', 'high', 'low', 'close', 'adj close', 'volume'}
+        if set(lvl0) & price_cols:
+            tickers_in_data = df.columns.get_level_values(1).unique().tolist()
+            for t in tickers_in_data:
+                try:
+                    t_df = df.xs(t, level=1, axis=1).copy()
+                    t_df.columns = [str(c).capitalize() for c in t_df.columns]
+                    if 'Close' not in t_df.columns or t_df['Close'].dropna().empty:
+                        continue
+                    data_dict[str(t).upper()] = t_df
+                except Exception:
+                    continue
+        else:
+            for t in lvl0:
+                try:
+                    t_df = df[t].copy()
+                    if t_df.empty or 'Close' not in t_df.columns:
+                        continue
+                    data_dict[str(t).upper()] = t_df
+                except Exception:
+                    continue
+    else:
+        if len(chunk) == 1:
+            ticker = chunk[0]
+            df.columns = [str(c).capitalize() for c in df.columns]
+            if 'Close' in df.columns:
+                data_dict[ticker] = df
+
+
 def download_historical_data(tickers, start_date="2000-01-01"):
     if not tickers: return {}
     clean_tickers = list(set([str(t).strip().upper().replace('.', '-') for t in tickers]))
     data_dict = {}
-    CHUNK_SIZE = 20
-    MAX_RETRIES = 3
+    CHUNK_SIZE = 40
+    MAX_RETRIES = 2
     total = len(clean_tickers)
     progress_bar = st.progress(0)
     status_text = st.empty()
@@ -95,57 +132,65 @@ def download_historical_data(tickers, start_date="2000-01-01"):
         for attempt in range(MAX_RETRIES):
             try:
                 df = yf.download(chunk, start=start_date, group_by='ticker', auto_adjust=False, progress=False, threads=True)
-                if df is None or df.empty:
-                    break
-                if df.index.tz is not None:
-                    df.index = df.index.tz_localize(None)
-                if isinstance(df.columns, pd.MultiIndex):
-                    # MultiIndex: could be (Ticker, Price) or (Price, Ticker)
-                    lvl0 = df.columns.get_level_values(0).unique().tolist()
-                    price_cols = {'Open', 'High', 'Low', 'Close', 'Adj Close', 'Volume',
-                                  'open', 'high', 'low', 'close', 'adj close', 'volume'}
-                    if set(lvl0) & price_cols:
-                        # (Price, Ticker) format — transpose to extract per-ticker
-                        tickers_in_data = df.columns.get_level_values(1).unique().tolist()
-                        for t in tickers_in_data:
-                            try:
-                                t_df = df.xs(t, level=1, axis=1).copy()
-                                t_df.columns = [str(c).capitalize() for c in t_df.columns]
-                                if 'Close' not in t_df.columns or t_df['Close'].dropna().empty:
-                                    continue
-                                data_dict[str(t).upper()] = t_df
-                            except Exception:
-                                continue
-                    else:
-                        # (Ticker, Price) format
-                        for t in lvl0:
-                            try:
-                                t_df = df[t].copy()
-                                if t_df.empty or 'Close' not in t_df.columns:
-                                    continue
-                                data_dict[str(t).upper()] = t_df
-                            except Exception:
-                                continue
-                else:
-                    # Single ticker — flat columns
-                    if len(chunk) == 1:
-                        ticker = chunk[0]
-                        df.columns = [str(c).capitalize() for c in df.columns]
-                        if 'Close' in df.columns:
-                            data_dict[ticker] = df
-                break  # success — exit retry loop
+                _parse_yf_result(df, chunk, data_dict)
+                break
             except Exception:
                 if attempt < MAX_RETRIES - 1:
-                    wait = 2 ** (attempt + 1)  # 2s, 4s
-                    status_text.text(f"⏳ Rate limited — retrying batch {batch_num} in {wait}s...")
-                    time.sleep(wait)
-                # last attempt failed — move on
+                    status_text.text(f"⏳ Rate limited — retrying batch {batch_num} in 2s...")
+                    time.sleep(2)
 
-        time.sleep(1.5)
+        time.sleep(0.5)
 
     progress_bar.empty()
     status_text.empty()
     return data_dict
+
+
+def update_stale_cache(cache_dir, tickers, data_dict):
+    """Incrementally update cached parquets — only download from last cached date."""
+    stale_tickers = {}  # {start_date_str: [tickers]}
+    today_str = datetime.date.today().strftime('%Y-%m-%d')
+
+    for t in tickers:
+        if t in data_dict:
+            cached_df = data_dict[t]
+            if cached_df is not None and not cached_df.empty:
+                last_date = cached_df.index.max()
+                if pd.Timestamp(last_date).date() >= datetime.date.today() - datetime.timedelta(days=2):
+                    continue  # fresh enough
+                start = (pd.Timestamp(last_date) + pd.Timedelta(days=1)).strftime('%Y-%m-%d')
+                stale_tickers.setdefault(start, []).append(t)
+
+    if not stale_tickers:
+        return 0
+
+    total_updated = 0
+    for start_date, tickers_batch in stale_tickers.items():
+        new_data = {}
+        CHUNK_SIZE = 40
+        for i in range(0, len(tickers_batch), CHUNK_SIZE):
+            chunk = tickers_batch[i : i + CHUNK_SIZE]
+            try:
+                df = yf.download(chunk, start=start_date, group_by='ticker', auto_adjust=False, progress=False, threads=True)
+                _parse_yf_result(df, chunk, new_data)
+            except Exception:
+                pass
+            time.sleep(0.5)
+
+        for t, new_df in new_data.items():
+            if t in data_dict and not new_df.empty:
+                existing = data_dict[t]
+                combined = pd.concat([existing, new_df])
+                combined = combined[~combined.index.duplicated(keep='last')]
+                combined = combined.sort_index()
+                data_dict[t] = combined
+                try:
+                    combined.to_parquet(os.path.join(cache_dir, f"{t}.parquet"))
+                except Exception:
+                    pass
+                total_updated += 1
+
+    return total_updated
 
 
 def get_historical_mask(df, params, sznl_map, ticker_name="UNK"):
@@ -1680,12 +1725,12 @@ def main():
 
         long_term_list = [t.replace('.', '-') for t in long_term_tickers]
 
-        # Disk cache: load previously downloaded data from parquet
+        # Step 1: Load from disk cache (always check for anything not in session_state)
         bt_cache_dir = os.path.join(parent_dir, "data", "bt_price_cache")
         os.makedirs(bt_cache_dir, exist_ok=True)
-        if not st.session_state['backtest_data']:
-            loaded = 0
-            for t in long_term_list:
+        loaded = 0
+        for t in long_term_list:
+            if t not in st.session_state['backtest_data']:
                 pq_path = os.path.join(bt_cache_dir, f"{t}.parquet")
                 if os.path.exists(pq_path):
                     try:
@@ -1694,23 +1739,28 @@ def main():
                         loaded += 1
                     except Exception:
                         pass
-            if loaded:
-                st.caption(f"Loaded {loaded} tickers from disk cache")
+        if loaded:
+            st.caption(f"Loaded {loaded} tickers from disk cache")
 
+        # Step 2: Download anything still missing (no disk cache exists)
         existing = set(st.session_state['backtest_data'].keys())
         missing = list(set(long_term_list) - existing)
 
         if missing:
-            st.write(f"📥 Downloading {len(missing)} tickers (have {len(existing)} cached)...")
+            st.write(f"📥 Downloading {len(missing)} new tickers (have {len(existing)} cached)...")
             data = download_historical_data(missing, start_date="2000-01-01")
             st.session_state['backtest_data'].update(data)
-            # Save newly downloaded data to disk cache
             for t, t_df in data.items():
                 try:
                     t_df.to_parquet(os.path.join(bt_cache_dir, f"{t}.parquet"))
                 except Exception:
                     pass
-            st.success(f"✅ Downloaded {len(data)} tickers, saved to disk cache.")
+            st.success(f"✅ Downloaded {len(data)} new tickers, saved to disk cache.")
+
+        # Step 3: Incrementally update stale cached data (only fetches delta)
+        stale_count = update_stale_cache(bt_cache_dir, long_term_list, st.session_state['backtest_data'])
+        if stale_count:
+            st.caption(f"🔄 Updated {stale_count} stale tickers with recent data")
 
         master_dict = st.session_state['backtest_data']
         
