@@ -1,51 +1,51 @@
 {
-  "date": "2026-03-30",
+  "date": "2026-03-31",
   "price_ctx": {
-    "price": 631.969970703125,
-    "ret_12m": 0.150370102409221,
-    "extension_200d": -0.03977288812568136,
-    "drawdown": -0.08884972579331007,
-    "sma_200": 658.1463519287109,
+    "price": 650.3400268554688,
+    "ret_12m": 0.17591519331989347,
+    "extension_200d": -0.012262035610861255,
+    "drawdown": -0.062364477322124245,
+    "sma_200": 658.4135168457032,
     "high_52w": 693.5957641601562,
     "regime_label": "Correction underway",
     "days_since_5pct": 0,
-    "days_since_10pct": 233
+    "days_since_10pct": 234
   },
   "h_scores": {
     "5d": 0.0,
-    "21d": 3.6628244865148245,
-    "63d": 30.556551085014252
+    "21d": 2.423110639548031,
+    "63d": 29.539797095667097
   },
   "signals": {
     "Distribution Dominance": {
       "on": false,
       "detail": "",
-      "summary": "D/A ratio: 2.2 (threshold: 3.75) \u2014 9D / 4A last 63d"
+      "summary": "D/A ratio: 1.8 (threshold: 3.75) \u2014 9D / 5A last 63d"
     },
     "VIX Range Compression": {
       "on": false,
       "detail": "",
-      "summary": "21d range: 72th pctile (fires below 15th) \u2014 VIX at 30.6"
+      "summary": "21d range: 72th pctile (fires below 15th) \u2014 VIX at 25.2"
     },
     "Defensive Leadership": {
       "on": false,
       "detail": "",
-      "summary": "50d spread: -18pp (fires < -10) | 200d spread: -17pp (fires < 0)"
+      "summary": "50d spread: -14pp (fires < -10) | 200d spread: -15pp (fires < 0)"
     },
     "Pre-FOMC Rally": {
       "on": false,
       "detail": "",
-      "summary": "Next FOMC: Apr 29 (30d away) \u2014 5d return: 3th pctile (outside window)"
+      "summary": "Next FOMC: Apr 29 (29d away) \u2014 5d return: 32th pctile (outside window)"
     },
     "Low Absorption Ratio": {
       "on": false,
       "detail": "",
-      "summary": "AR: 0.519 (57th pctile, fires below 10th) \u2014 near high: no"
+      "summary": "AR: 0.525 (59th pctile, fires below 10th) \u2014 near high: no"
     },
     "Seasonal Rank Divergence": {
       "on": false,
       "detail": "",
-      "summary": "Spread: +7.1pp (fires above 10) \u2014 near high: no"
+      "summary": "Spread: +4.0pp (fires above 10) \u2014 near high: no"
     }
   }
 }
