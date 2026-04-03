@@ -20,6 +20,7 @@ import tempfile
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from email.mime.image import MIMEImage
+from email.mime.application import MIMEApplication
 
 # Path setup — ensure project root is importable
 current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -212,6 +213,165 @@ def generate_overlay_image(spy_close, signals_ordered, tmp_dir):
     path = os.path.join(tmp_dir, "signal_overlay.png")
     fig.write_image(path, scale=2)
     print(f"  Overlay image saved: {path}")
+    return path
+
+
+def find_analog_dates(frag_df, h_scores, h_scores_10d, n_matches=20, min_gap=10):
+    """Find the N closest historical dates by Euclidean distance on 4 fragility dims.
+
+    Feature vector: [21d_raw, 21d_10d_avg, 63d_raw, 63d_10d_avg]
+    Enforces min_gap trading days between matches to prevent clustering.
+    """
+    if frag_df is None or h_scores is None or h_scores_10d is None:
+        return []
+
+    raw = frag_df[['21d', '63d']].copy()
+    avg10 = frag_df[['21d', '63d']].rolling(10, min_periods=1).mean()
+    avg10.columns = ['21d_10d', '63d_10d']
+    features = pd.concat([raw, avg10], axis=1).dropna()
+
+    if len(features) < 2:
+        return []
+
+    # Current feature vector
+    today_vec = np.array([
+        h_scores.get('21d', 0),
+        h_scores.get('63d', 0),
+        h_scores_10d.get('21d', 0),
+        h_scores_10d.get('63d', 0),
+    ])
+
+    # Exclude last 5 trading days (too recent / overlapping with "now")
+    features = features.iloc[:-5]
+    if features.empty:
+        return []
+
+    # Euclidean distance
+    hist_matrix = features.values
+    dists = np.sqrt(np.sum((hist_matrix - today_vec) ** 2, axis=1))
+    order = np.argsort(dists)
+
+    # Greedy selection with min_gap spacing
+    selected = []
+    selected_idx = set()
+    for i in order:
+        if any(abs(i - s) < min_gap for s in selected_idx):
+            continue
+        selected.append((features.index[i], float(dists[i])))
+        selected_idx.add(i)
+        if len(selected) >= n_matches:
+            break
+
+    return selected
+
+
+def generate_analog_pdf(spy_df, analog_dates, today_vec_str, tmp_dir):
+    """Generate a PDF with candlestick charts for each analog date.
+
+    Each page: 6 months of daily SPY candles centered on the match date,
+    vertical line on the match date, no weekend/holiday gaps.
+    """
+    import matplotlib
+    matplotlib.use('Agg')
+    import matplotlib.pyplot as plt
+    from matplotlib.backends.backend_pdf import PdfPages
+    import matplotlib.dates as mdates
+
+    if not analog_dates or spy_df is None or spy_df.empty:
+        return None
+
+    ohlc = spy_df[['Open', 'High', 'Low', 'Close']].copy()
+    ohlc.index = pd.to_datetime(ohlc.index)
+
+    path = os.path.join(tmp_dir, "fragility_analogs.pdf")
+
+    with PdfPages(path) as pdf:
+        for rank, (match_date, dist) in enumerate(analog_dates, 1):
+            match_date = pd.Timestamp(match_date)
+
+            # Find position in the trading-day index
+            if match_date not in ohlc.index:
+                # Find nearest trading day
+                idx_pos = ohlc.index.searchsorted(match_date)
+                if idx_pos >= len(ohlc.index):
+                    idx_pos = len(ohlc.index) - 1
+                match_date = ohlc.index[idx_pos]
+
+            match_pos = ohlc.index.get_loc(match_date)
+
+            # ~63 trading days each side ≈ 3 calendar months
+            start_pos = max(0, match_pos - 63)
+            end_pos = min(len(ohlc) - 1, match_pos + 63)
+            window = ohlc.iloc[start_pos:end_pos + 1]
+
+            if len(window) < 10:
+                continue
+
+            # Plot using sequential integer x-axis (no gaps)
+            fig, ax = plt.subplots(figsize=(14, 6), facecolor='#1a1a2e')
+            ax.set_facecolor('#16213e')
+
+            x = np.arange(len(window))
+            opens = window['Open'].values
+            highs = window['High'].values
+            lows = window['Low'].values
+            closes = window['Close'].values
+
+            # Candle colors
+            up = closes >= opens
+            down = ~up
+
+            # Wicks
+            ax.vlines(x[up], lows[up], highs[up], color='#00CC00', linewidth=0.8)
+            ax.vlines(x[down], lows[down], highs[down], color='#CC0000', linewidth=0.8)
+
+            # Bodies
+            body_width = 0.6
+            ax.bar(x[up], closes[up] - opens[up], body_width, bottom=opens[up],
+                   color='#00CC00', edgecolor='#00CC00', linewidth=0.5)
+            ax.bar(x[down], opens[down] - closes[down], body_width, bottom=closes[down],
+                   color='#CC0000', edgecolor='#CC0000', linewidth=0.5)
+
+            # Vertical line on match date
+            match_x = match_pos - start_pos
+            ax.axvline(match_x, color='#FFD700', linewidth=1.5, linestyle='--', alpha=0.9,
+                       label=f'Match: {match_date.strftime("%Y-%m-%d")}')
+
+            # X-axis: show ~10 date labels evenly spaced
+            n_labels = min(10, len(window))
+            tick_positions = np.linspace(0, len(window) - 1, n_labels, dtype=int)
+            tick_labels = [window.index[i].strftime('%b %d') for i in tick_positions]
+            ax.set_xticks(tick_positions)
+            ax.set_xticklabels(tick_labels, fontsize=8, color='#aaa')
+
+            ax.tick_params(axis='y', colors='#aaa', labelsize=9)
+            ax.set_ylabel('SPY', color='#aaa', fontsize=10)
+            ax.legend(loc='upper left', fontsize=9, facecolor='#1a1a2e',
+                      edgecolor='#444', labelcolor='#fff')
+            ax.set_title(
+                f'#{rank}  |  {match_date.strftime("%Y-%m-%d")}  |  Distance: {dist:.1f}  |  '
+                f'SPY: ${closes[match_x]:.2f}',
+                color='#fff', fontsize=12, fontweight='bold', pad=12,
+            )
+
+            # Suptitle on first page
+            if rank == 1:
+                fig.suptitle(
+                    f'Fragility Analog Matches — Current: {today_vec_str}',
+                    color='#FFD700', fontsize=10, y=0.98,
+                )
+
+            ax.grid(axis='y', color=(0.5, 0.5, 0.5, 0.15), linewidth=0.5)
+            ax.spines['top'].set_visible(False)
+            ax.spines['right'].set_visible(False)
+            ax.spines['bottom'].set_color('#444')
+            ax.spines['left'].set_color('#444')
+
+            fig.tight_layout()
+            pdf.savefig(fig, facecolor=fig.get_facecolor())
+            plt.close(fig)
+
+    print(f"  Analog PDF saved: {path} ({len(analog_dates)} pages)")
     return path
 
 
@@ -474,8 +634,8 @@ def build_html_email(computed, fwd_returns_data, fwd_returns_10d=None):
 # 6. SEND EMAIL
 # ---------------------------------------------------------------------------
 
-def send_email(subject, html_content, dial_path, overlay_path):
-    """Send the risk report email with inline images."""
+def send_email(subject, html_content, dial_path, overlay_path, pdf_path=None):
+    """Send the risk report email with inline images and optional PDF attachment."""
     sender_email = os.environ.get("EMAIL_USER")
     sender_password = os.environ.get("EMAIL_PASS")
     receiver_email = "mckinleyslade@gmail.com"
@@ -500,6 +660,14 @@ def send_email(subject, html_content, dial_path, overlay_path):
                 img.add_header('Content-ID', f'<{cid}>')
                 img.add_header('Content-Disposition', 'inline', filename=f'{cid}.png')
                 msg.attach(img)
+
+    # Attach PDF if provided
+    if pdf_path and os.path.exists(pdf_path):
+        with open(pdf_path, 'rb') as f:
+            pdf_att = MIMEApplication(f.read(), _subtype='pdf')
+            pdf_att.add_header('Content-Disposition', 'attachment',
+                               filename='fragility_analogs.pdf')
+            msg.attach(pdf_att)
 
     try:
         with smtplib.SMTP("smtp.gmail.com", 587) as server:
@@ -567,21 +735,38 @@ def main():
         computed['frag_df'], computed['spy_close'], computed['h_scores_10d']
     )
 
-    # 4. Generate images
-    print("[4/6] Generating images...")
+    # 4. Generate images + analog PDF
+    print("[4/7] Generating images...")
     tmp_dir = tempfile.mkdtemp()
     dial_path = generate_dial_image(computed['h_scores'], tmp_dir)
     overlay_path = generate_overlay_image(
         computed['spy_close'], computed['signals_ordered'], tmp_dir
     )
 
-    # 5. Build email
-    print("[5/6] Building email...")
+    print("[5/7] Finding analog dates & generating PDF...")
+    analog_dates = find_analog_dates(
+        computed['frag_df'], computed['h_scores'], computed['h_scores_10d']
+    )
+    pdf_path = None
+    if analog_dates:
+        h = computed['h_scores'] or {}
+        h10 = computed['h_scores_10d'] or {}
+        today_vec_str = (
+            f"21d={h.get('21d', 0):.0f} / 21d-10avg={h10.get('21d', 0):.0f} | "
+            f"63d={h.get('63d', 0):.0f} / 63d-10avg={h10.get('63d', 0):.0f}"
+        )
+        pdf_path = generate_analog_pdf(spy_df, analog_dates, today_vec_str, tmp_dir)
+        print(f"  Found {len(analog_dates)} analog matches")
+    else:
+        print("  No analog matches found (insufficient data)")
+
+    # 6. Build email
+    print("[6/7] Building email...")
     subject, html = build_html_email(computed, fwd_returns_data, fwd_returns_10d)
 
-    # 6. Send
-    print("[6/6] Sending email...")
-    send_email(subject, html, dial_path, overlay_path)
+    # 7. Send
+    print("[7/7] Sending email...")
+    send_email(subject, html, dial_path, overlay_path, pdf_path)
 
     print("\nDone.")
 
