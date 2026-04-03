@@ -117,6 +117,9 @@ def compute_all_signals(spy_df, closes, sp500_closes):
         # 5d moving average for dial display (matches dashboard logic, line 2694)
         if frag_df is not None and len(frag_df) >= 1:
             h_scores = frag_df.rolling(5, min_periods=1).mean().iloc[-1].to_dict()
+            h_scores_10d = frag_df.rolling(10, min_periods=1).mean().iloc[-1].to_dict()
+        else:
+            h_scores_10d = None
 
     return {
         'signals_ordered': signals_ordered,
@@ -124,6 +127,7 @@ def compute_all_signals(spy_df, closes, sp500_closes):
         'regime_mult': regime_mult,
         'horizon_stats': horizon_stats,
         'h_scores': h_scores,
+        'h_scores_10d': h_scores_10d if horizon_stats is not None else None,
         'frag_df': frag_df,
         'spy_close': spy_close,
     }
@@ -232,7 +236,68 @@ def _status_badge(sig, price_ctx):
     return 'OFF', '#00CC00'
 
 
-def build_html_email(computed, fwd_returns_data):
+def _build_fwd_returns_html(fwd_returns_data, title):
+    """Build HTML table for forward returns at a given fragility reading."""
+    if not fwd_returns_data:
+        return ""
+
+    fwd_rows = ""
+    for horizon in ['5d', '21d', '63d']:
+        ret_data = fwd_returns_data.get(horizon)
+        if ret_data is None:
+            continue
+        score = ret_data['current_score']
+        n_episodes = ret_data['n_episodes']
+
+        fwd_rows += f"""
+        <tr style="border-bottom: 1px solid #444;">
+            <td colspan="7" style="padding: 8px 12px; color: #FFD700; font-weight: bold; font-size: 13px;">
+                {horizon.upper()} Fragility = {score:.0f} | {n_episodes} historical episodes (band: {ret_data['band_low']:.0f}-{ret_data['band_high']:.0f})
+            </td>
+        </tr>
+        <tr style="border-bottom: 1px solid #333;">
+            <td style="padding: 4px 12px; color: #888; font-size: 11px; font-weight: bold;">Window</td>
+            <td style="padding: 4px 12px; color: #888; font-size: 11px; font-weight: bold; text-align: right;">Mean</td>
+            <td style="padding: 4px 12px; color: #888; font-size: 11px; font-weight: bold; text-align: right;">Median</td>
+            <td style="padding: 4px 12px; color: #888; font-size: 11px; font-weight: bold; text-align: right;">% Negative</td>
+            <td style="padding: 4px 12px; color: #888; font-size: 11px; font-weight: bold; text-align: right;">Mean Z</td>
+            <td style="padding: 4px 12px; color: #888; font-size: 11px; font-weight: bold; text-align: right;">Median Z</td>
+            <td style="padding: 4px 12px; color: #888; font-size: 11px; font-weight: bold; text-align: right;">Baseline</td>
+        </tr>
+        """
+
+        for window, stats in ret_data['returns'].items():
+            if stats is None:
+                continue
+            _mz = stats.get('mean_z', 0)
+            mean_color = '#CC0000' if _mz < -1 else '#FFD700' if _mz < 0 else '#00CC00'
+            baseline_color = '#00CC00' if stats['uncond_mean'] >= 0 else '#CC0000'
+            fwd_rows += f"""
+            <tr>
+                <td style="padding: 4px 12px; color: #fff; border-bottom: 1px solid #2a2a2a;">{window}d</td>
+                <td style="padding: 4px 12px; color: {mean_color}; text-align: right; font-weight: bold; font-family: monospace; border-bottom: 1px solid #2a2a2a;">{stats['mean']:+.2%}</td>
+                <td style="padding: 4px 12px; color: #aaa; text-align: right; font-family: monospace; border-bottom: 1px solid #2a2a2a;">{stats['median']:+.2%}</td>
+                <td style="padding: 4px 12px; color: {'#CC0000' if stats['pct_neg'] > 0.5 else '#aaa'}; text-align: right; font-family: monospace; border-bottom: 1px solid #2a2a2a;">{stats['pct_neg']:.0%}</td>
+                <td style="padding: 4px 12px; color: {'#CC0000' if stats.get('mean_z', 0) < -1 else '#FFD700' if stats.get('mean_z', 0) < 0 else '#00CC00'}; text-align: right; font-family: monospace; border-bottom: 1px solid #2a2a2a;">{stats.get('mean_z', 0):+.2f}</td>
+                <td style="padding: 4px 12px; color: {'#CC0000' if stats.get('median_z', 0) < -1 else '#FFD700' if stats.get('median_z', 0) < 0 else '#00CC00'}; text-align: right; font-family: monospace; border-bottom: 1px solid #2a2a2a;">{stats.get('median_z', 0):+.2f}</td>
+                <td style="padding: 4px 12px; color: {baseline_color}; text-align: right; font-family: monospace; border-bottom: 1px solid #2a2a2a;">{stats['uncond_mean']:+.2%}</td>
+            </tr>
+            """
+
+    if not fwd_rows:
+        return ""
+
+    return f"""
+    <div style="margin-bottom: 20px;">
+        <h2 style="color: #fff; margin-bottom: 10px;">{title}</h2>
+        <table style="width: 100%; border-collapse: collapse; background: rgba(255,255,255,0.03); border-radius: 8px;">
+            {fwd_rows}
+        </table>
+    </div>
+    """
+
+
+def build_html_email(computed, fwd_returns_data, fwd_returns_10d=None):
     """Build the full HTML email body."""
     price_ctx = computed['price_ctx']
     signals_ordered = computed['signals_ordered']
@@ -327,61 +392,9 @@ def build_html_email(computed, fwd_returns_data):
     </div>
     """
 
-    # --- Forward Returns Table ---
-    fwd_returns_html = ""
-    if fwd_returns_data:
-        fwd_rows = ""
-        for horizon in ['5d', '21d', '63d']:
-            ret_data = fwd_returns_data.get(horizon)
-            if ret_data is None:
-                continue
-            score = ret_data['current_score']
-            n_episodes = ret_data['n_episodes']
-
-            fwd_rows += f"""
-            <tr style="border-bottom: 1px solid #444;">
-                <td colspan="7" style="padding: 8px 12px; color: #FFD700; font-weight: bold; font-size: 13px;">
-                    {horizon.upper()} Fragility = {score:.0f} | {n_episodes} historical episodes (band: {ret_data['band_low']:.0f}-{ret_data['band_high']:.0f})
-                </td>
-            </tr>
-            <tr style="border-bottom: 1px solid #333;">
-                <td style="padding: 4px 12px; color: #888; font-size: 11px; font-weight: bold;">Window</td>
-                <td style="padding: 4px 12px; color: #888; font-size: 11px; font-weight: bold; text-align: right;">Mean</td>
-                <td style="padding: 4px 12px; color: #888; font-size: 11px; font-weight: bold; text-align: right;">Median</td>
-                <td style="padding: 4px 12px; color: #888; font-size: 11px; font-weight: bold; text-align: right;">% Negative</td>
-                <td style="padding: 4px 12px; color: #888; font-size: 11px; font-weight: bold; text-align: right;">Mean Z</td>
-                <td style="padding: 4px 12px; color: #888; font-size: 11px; font-weight: bold; text-align: right;">Median Z</td>
-                <td style="padding: 4px 12px; color: #888; font-size: 11px; font-weight: bold; text-align: right;">Baseline</td>
-            </tr>
-            """
-
-            for window, stats in ret_data['returns'].items():
-                if stats is None:
-                    continue
-                _mz = stats.get('mean_z', 0)
-                mean_color = '#CC0000' if _mz < -1 else '#FFD700' if _mz < 0 else '#00CC00'
-                baseline_color = '#00CC00' if stats['uncond_mean'] >= 0 else '#CC0000'
-                fwd_rows += f"""
-                <tr>
-                    <td style="padding: 4px 12px; color: #fff; border-bottom: 1px solid #2a2a2a;">{window}d</td>
-                    <td style="padding: 4px 12px; color: {mean_color}; text-align: right; font-weight: bold; font-family: monospace; border-bottom: 1px solid #2a2a2a;">{stats['mean']:+.2%}</td>
-                    <td style="padding: 4px 12px; color: #aaa; text-align: right; font-family: monospace; border-bottom: 1px solid #2a2a2a;">{stats['median']:+.2%}</td>
-                    <td style="padding: 4px 12px; color: {'#CC0000' if stats['pct_neg'] > 0.5 else '#aaa'}; text-align: right; font-family: monospace; border-bottom: 1px solid #2a2a2a;">{stats['pct_neg']:.0%}</td>
-                    <td style="padding: 4px 12px; color: {'#CC0000' if stats.get('mean_z', 0) < -1 else '#FFD700' if stats.get('mean_z', 0) < 0 else '#00CC00'}; text-align: right; font-family: monospace; border-bottom: 1px solid #2a2a2a;">{stats.get('mean_z', 0):+.2f}</td>
-                    <td style="padding: 4px 12px; color: {'#CC0000' if stats.get('median_z', 0) < -1 else '#FFD700' if stats.get('median_z', 0) < 0 else '#00CC00'}; text-align: right; font-family: monospace; border-bottom: 1px solid #2a2a2a;">{stats.get('median_z', 0):+.2f}</td>
-                    <td style="padding: 4px 12px; color: {baseline_color}; text-align: right; font-family: monospace; border-bottom: 1px solid #2a2a2a;">{stats['uncond_mean']:+.2%}</td>
-                </tr>
-                """
-
-        if fwd_rows:
-            fwd_returns_html = f"""
-            <div style="margin-bottom: 20px;">
-                <h2 style="color: #fff; margin-bottom: 10px;">Forward Returns at Similar Fragility</h2>
-                <table style="width: 100%; border-collapse: collapse; background: rgba(255,255,255,0.03); border-radius: 8px;">
-                    {fwd_rows}
-                </table>
-            </div>
-            """
+    # --- Forward Returns Tables ---
+    fwd_returns_html = _build_fwd_returns_html(fwd_returns_data, "Forward Returns at Similar Fragility (5d avg)")
+    fwd_returns_10d_html = _build_fwd_returns_html(fwd_returns_10d, "Forward Returns at Similar Fragility (10d avg)")
 
     # --- Dial scores for subject line ---
     s5 = h_scores.get('5d', 0) if h_scores else 0
@@ -437,6 +450,8 @@ def build_html_email(computed, fwd_returns_data):
                     </div>
 
                     {fwd_returns_html}
+
+                    {fwd_returns_10d_html}
 
                     <h2 style="color: #fff; margin-bottom: 10px; margin-top: 25px;">Signal Overlay (2yr)</h2>
                     <div style="text-align: center;">
@@ -548,6 +563,9 @@ def main():
     fwd_returns_data = build_forward_returns_data(
         computed['frag_df'], computed['spy_close'], computed['h_scores']
     )
+    fwd_returns_10d = build_forward_returns_data(
+        computed['frag_df'], computed['spy_close'], computed['h_scores_10d']
+    )
 
     # 4. Generate images
     print("[4/6] Generating images...")
@@ -559,7 +577,7 @@ def main():
 
     # 5. Build email
     print("[5/6] Building email...")
-    subject, html = build_html_email(computed, fwd_returns_data)
+    subject, html = build_html_email(computed, fwd_returns_data, fwd_returns_10d)
 
     # 6. Send
     print("[6/6] Sending email...")
