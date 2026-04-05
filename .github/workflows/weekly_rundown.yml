@@ -2,8 +2,8 @@ name: Weekly Market Rundown
 
 on:
   schedule:
-    # Sunday 2 PM UTC = 9 AM ET
-    - cron: '0 14 * * 0'
+    # Sunday 12 PM UTC = 8 AM ET
+    - cron: '0 12 * * 0'
   workflow_dispatch:  # Allow manual trigger
 
 jobs:
