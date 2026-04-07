@@ -1,20 +1,20 @@
 {
-  "date": "2026-04-06",
+  "date": "2026-04-07",
   "price_ctx": {
-    "price": 658.9299926757812,
-    "ret_12m": 0.24181789132345477,
-    "extension_200d": -0.0006814265095007599,
-    "drawdown": -0.04997979122082763,
-    "sma_200": 659.3793112182617,
+    "price": 659.219970703125,
+    "ret_12m": 0.3196187707720348,
+    "extension_200d": -0.0007610733178071705,
+    "drawdown": -0.049561711926910834,
+    "sma_200": 659.722067565918,
     "high_52w": 693.5957641601562,
     "regime_label": "Healthy uptrend",
-    "days_since_5pct": 1,
-    "days_since_10pct": 237
+    "days_since_5pct": 2,
+    "days_since_10pct": 238
   },
   "h_scores": {
     "5d": 0.0,
-    "21d": 0.4390901107101629,
-    "63d": 31.463091352236187
+    "21d": 0.34682855141359903,
+    "63d": 33.819572156387586
   },
   "signals": {
     "Distribution Dominance": {
@@ -25,27 +25,27 @@
     "VIX Range Compression": {
       "on": false,
       "detail": "",
-      "summary": "21d range: 64th pctile (fires below 15th) \u2014 VIX at 24.2"
+      "summary": "21d range: 64th pctile (fires below 15th) \u2014 VIX at 25.8"
     },
     "Defensive Leadership": {
       "on": false,
       "detail": "",
-      "summary": "50d spread: -11pp (fires < -10) | 200d spread: -15pp (fires < 0)"
+      "summary": "50d spread: -10pp (fires < -10) | 200d spread: -13pp (fires < 0)"
     },
     "Pre-FOMC Rally": {
       "on": false,
       "detail": "",
-      "summary": "Next FOMC: Apr 29 (23d away) \u2014 5d return: 96th pctile (outside window)"
+      "summary": "Next FOMC: Apr 29 (22d away) \u2014 5d return: 97th pctile (outside window)"
     },
     "Low Absorption Ratio": {
       "on": false,
       "detail": "",
-      "summary": "AR: 0.611 (76th pctile, fires below 10th) \u2014 near high: no"
+      "summary": "AR: 0.625 (80th pctile, fires below 10th) \u2014 near high: no"
     },
     "Seasonal Rank Divergence": {
       "on": false,
       "detail": "",
-      "summary": "Spread: +1.1pp (fires above 10) \u2014 near high: no"
+      "summary": "Spread: -2.3pp (fires above 10) \u2014 near high: no"
     }
   }
 }
