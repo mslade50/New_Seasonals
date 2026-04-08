@@ -447,7 +447,7 @@ def seasonals_chart(ticker, cycle_label, enable_time_travel, reference_year, sho
     fig.update_layout(
         height=800,
         title=f"Seasonal Analysis: {ticker} {title_suffix}",
-        xaxis_title="Trading Day of Year",
+        xaxis_title=None,
         yaxis_title="Cumulative Return",
         plot_bgcolor="black",
         paper_bgcolor="black",
@@ -457,7 +457,7 @@ def seasonals_chart(ticker, cycle_label, enable_time_travel, reference_year, sho
             font=dict(color="white"),
             orientation="h",
             yanchor="bottom",
-            y=0.01,
+            y=-0.05,
             xanchor="left",
             x=0.01
         ),
