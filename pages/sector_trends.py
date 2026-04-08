@@ -226,9 +226,19 @@ def render_seasonal_chart(ticker):
     if not df_current.empty:
         path_current = df_current["log_return"].cumsum().apply(np.exp) - 1
 
-    # Date mapping: trading day number -> calendar date label
-    theoretical_dates = pd.bdate_range(start=f"{current_year}-01-01", end=f"{current_year}-12-31")
-    date_map = {i+1: d.strftime("%b %d") for i, d in enumerate(theoretical_dates)}
+    # Date mapping: use actual trading dates from this year's data
+    map_year_data = spx[spx["year"] == current_year]
+    if not map_year_data.empty:
+        date_map = {row["day_count"]: idx.strftime("%b %d") for idx, row in map_year_data.iterrows()}
+        # Extend with business days for the rest of the year
+        last_date = map_year_data.index[-1]
+        last_day_count = int(map_year_data["day_count"].iloc[-1])
+        remaining = pd.bdate_range(start=last_date + timedelta(days=1), end=f"{current_year}-12-31")
+        for i, d in enumerate(remaining):
+            date_map[last_day_count + i + 1] = d.strftime("%b %d")
+    else:
+        theoretical_dates = pd.bdate_range(start=f"{current_year}-01-01", end=f"{current_year}-12-31")
+        date_map = {i+1: d.strftime("%b %d") for i, d in enumerate(theoretical_dates)}
 
     def get_date_labels(day_indices):
         return [date_map.get(int(i), f"Day {i}") for i in day_indices]
@@ -286,8 +296,6 @@ def render_seasonal_chart(ticker):
         if closest_idx >= len(df_current_ctx): closest_idx = len(df_current_ctx) - 1
         
         day_count_marker = df_current_ctx.iloc[closest_idx]["day_count"]
-        future_dates = pd.bdate_range(start=today, periods=30)
-        offsets = [5, 10, 21]
 
         # --- Plot on Cycle Path (ORANGE) ---
         if day_count_marker in path_cycle.index:
@@ -296,43 +304,18 @@ def render_seasonal_chart(ticker):
                 x=[day_count_marker], y=[y_val],
                 mode="markers", name="Today",
                 marker=dict(color="white", size=8, line=dict(width=1, color="black")),
-                showlegend=False
+                showlegend=False, hoverinfo="skip"
             ))
-            
-            for offset in offsets:
-                target_idx = day_count_marker + offset
-                if target_idx in path_cycle.index:
-                    proj_y = path_cycle.get(target_idx)
-                    d_label = future_dates[offset].strftime("%b %d") if offset < len(future_dates) else ""
-                    
-                    fig.add_trace(go.Scatter(
-                        x=[target_idx], y=[proj_y],
-                        mode="markers", name=f"T+{offset}",
-                        marker=dict(color="yellow", size=6),
-                        hovertemplate=f"T+{offset}: {d_label}<extra></extra>",
-                        showlegend=False
-                    ))
 
         # --- Plot on All Years Path (BLUE) ---
         if day_count_marker in path_all.index:
             y_val_all = path_all.get(day_count_marker)
             fig.add_trace(go.Scatter(
                 x=[day_count_marker], y=[y_val_all],
-                mode="markers", 
+                mode="markers",
                 marker=dict(color="lightblue", size=6, line=dict(width=1, color="white")),
                 showlegend=False, hoverinfo="skip"
             ))
-            
-            for offset in offsets:
-                target_idx = day_count_marker + offset
-                if target_idx in path_all.index:
-                    proj_y_all = path_all.get(target_idx)
-                    fig.add_trace(go.Scatter(
-                        x=[target_idx], y=[proj_y_all],
-                        mode="markers", 
-                        marker=dict(color="lightblue", size=5, symbol="circle"),
-                        showlegend=False, hoverinfo="skip"
-                    ))
 
     fig.update_layout(
         title=f"{ticker} Seasonality ({cycle_label})",
@@ -343,11 +326,13 @@ def render_seasonal_chart(ticker):
         font=dict(color="white"),
         showlegend=True,
         legend=dict(
+            bgcolor="rgba(20,20,20,0.8)",
+            font=dict(color="white"),
             orientation="h",
-            yanchor="bottom", y=1.02,
-            xanchor="right", x=1
+            yanchor="bottom", y=-0.05,
+            xanchor="left", x=0.01
         ),
-        xaxis=dict(showgrid=False, title="Day of Year"),
+        xaxis=dict(showgrid=False),
         yaxis=dict(showgrid=False, title="Return")
     )
     
