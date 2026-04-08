@@ -270,11 +270,16 @@ def seasonals_chart(ticker, cycle_label, enable_time_travel, reference_year, sho
             path_ref_realized = df_ref_year["log_return"].cumsum().apply(np.exp) - 1
 
     # -------------------------------------------------------------------------
-    # DATE MAPPING LOGIC
+    # DATE MAPPING LOGIC (uses actual trading dates, not bdate_range)
     # -------------------------------------------------------------------------
     map_year = reference_year if enable_time_travel else current_year
-    theoretical_dates = pd.bdate_range(start=f"{map_year}-01-01", end=f"{map_year}-12-31")
-    date_map = {i+1: d.strftime("%b %d") for i, d in enumerate(theoretical_dates)}
+    map_year_data = spx[spx["year"] == map_year]
+    if not map_year_data.empty:
+        date_map = {row["day_count"]: idx.strftime("%b %d") for idx, row in map_year_data.iterrows()}
+    else:
+        # Fallback to bdate_range if no data for the year
+        theoretical_dates = pd.bdate_range(start=f"{map_year}-01-01", end=f"{map_year}-12-31")
+        date_map = {i+1: d.strftime("%b %d") for i, d in enumerate(theoretical_dates)}
 
     def get_date_labels(series_index):
         return [date_map.get(i, f"Day {i}") for i in series_index]
@@ -477,8 +482,8 @@ def seasonals_chart(ticker, cycle_label, enable_time_travel, reference_year, sho
             font=dict(color="white"),
             yanchor="top",
             y=0.99,
-            xanchor="left",
-            x=0.01
+            xanchor="right",
+            x=0.99
         ),
         hovermode="x unified"
     )
