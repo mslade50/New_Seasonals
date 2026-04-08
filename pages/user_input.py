@@ -429,25 +429,7 @@ def seasonals_chart(ticker, cycle_label, enable_time_travel, reference_year, sho
                 hoverinfo="skip"
             ))
 
-            future_dates = pd.bdate_range(start=target_date_start, periods=30)
-            offsets = [5, 10, 21]
-            
-            for offset in offsets:
-                target_idx = day_count_marker + offset
-                if target_idx in model_to_plot_on.index:
-                    proj_y = model_to_plot_on.get(target_idx)
-                    d_label = future_dates[offset].strftime("%b %d") if offset < len(future_dates) else "N/A"
-                        
-                    fig.add_trace(go.Scatter(
-                        x=[target_idx],
-                        y=[proj_y],
-                        mode="markers",
-                        name=f"T+{offset} ({d_label})",
-                        marker=dict(color=marker_color, size=5, symbol="diamond"),
-                        hoverinfo="skip"
-                    ))
-
-        # --- PLOT MARKERS ON 'ALL YEARS' LINE (If Visible) ---
+        # --- PLOT MARKER ON 'ALL YEARS' LINE (If Visible) ---
         if not path_current_all_years.empty:
             if day_count_marker in path_current_all_years.index:
                 y_val_all = path_current_all_years.get(day_count_marker)
@@ -459,19 +441,6 @@ def seasonals_chart(ticker, cycle_label, enable_time_travel, reference_year, sho
                     showlegend=False,
                     hoverinfo="skip"
                 ))
-
-                for offset in offsets:
-                    target_idx = day_count_marker + offset
-                    if target_idx in path_current_all_years.index:
-                        proj_y_all = path_current_all_years.get(target_idx)
-                        fig.add_trace(go.Scatter(
-                            x=[target_idx],
-                            y=[proj_y_all],
-                            mode="markers",
-                            marker=dict(color="white", size=5, symbol="diamond"), 
-                            showlegend=False,
-                            hoverinfo="skip"
-                        ))
 
     # Layout
     title_suffix = f"vs {reference_year}" if enable_time_travel else ""
