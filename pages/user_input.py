@@ -276,6 +276,12 @@ def seasonals_chart(ticker, cycle_label, enable_time_travel, reference_year, sho
     map_year_data = spx[spx["year"] == map_year]
     if not map_year_data.empty:
         date_map = {row["day_count"]: idx.strftime("%b %d") for idx, row in map_year_data.iterrows()}
+        # Extend with business days for the rest of the year
+        last_date = map_year_data.index[-1]
+        last_day_count = int(map_year_data["day_count"].iloc[-1])
+        remaining = pd.bdate_range(start=last_date + timedelta(days=1), end=f"{map_year}-12-31")
+        for i, d in enumerate(remaining):
+            date_map[last_day_count + i + 1] = d.strftime("%b %d")
     else:
         # Fallback to bdate_range if no data for the year
         theoretical_dates = pd.bdate_range(start=f"{map_year}-01-01", end=f"{map_year}-12-31")
@@ -436,9 +442,9 @@ def seasonals_chart(ticker, cycle_label, enable_time_travel, reference_year, sho
                         x=[target_idx],
                         y=[proj_y],
                         mode="markers",
-                        name=f"T+{offset} ({d_label})", 
+                        name=f"T+{offset} ({d_label})",
                         marker=dict(color=marker_color, size=5, symbol="diamond"),
-                        hovertemplate=f"<b>{d_label}</b><br>T+{offset}<extra></extra>"
+                        hoverinfo="skip"
                     ))
 
         # --- PLOT MARKERS ON 'ALL YEARS' LINE (If Visible) ---
@@ -478,12 +484,13 @@ def seasonals_chart(ticker, cycle_label, enable_time_travel, reference_year, sho
         paper_bgcolor="black",
         font=dict(color="white"),
         legend=dict(
-            bgcolor="rgba(20,20,20,0.8)", 
+            bgcolor="rgba(20,20,20,0.8)",
             font=dict(color="white"),
-            yanchor="top",
-            y=0.99,
-            xanchor="right",
-            x=0.99
+            orientation="h",
+            yanchor="bottom",
+            y=0.01,
+            xanchor="left",
+            x=0.01
         ),
         hovermode="x unified"
     )
