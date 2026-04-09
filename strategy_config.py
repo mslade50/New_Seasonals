@@ -498,7 +498,8 @@ _STRATEGY_BOOK_RAW = [
                 "21D rank < 15th %ile for 3 consecutive days (persistent oversold)",
                 "5D rank < 33rd %ile (recent weakness)",
                 "10D volume rank < 15th %ile (low volume = lack of conviction selling)",
-                "Market > 200 SMA (bull market filter)"
+                "Market > 200 SMA (bull market filter)",
+                "No 52w low in last 10 days (exclude falling knives)"
             ]
         },
         "exit_summary": {
@@ -538,7 +539,8 @@ _STRATEGY_BOOK_RAW = [
             "use_ma_dist_filter": False, "dist_ma_type": "SMA 10", "dist_logic": "Greater Than (>)", "dist_min": 0.0, "dist_max": 2.0,
             "use_gap_filter": False, "gap_lookback": 21, "gap_logic": ">", "gap_thresh": 3,
             "use_acc_count_filter": False, "acc_count_window": 21, "acc_count_logic": ">", "acc_count_thresh": 3,
-            "use_dist_count_filter": False, "dist_count_window": 21, "dist_count_logic": ">", "dist_count_thresh": 3
+            "use_dist_count_filter": False, "dist_count_window": 21, "dist_count_logic": ">", "dist_count_thresh": 3,
+            "use_recent_52w_low": True, "recent_52w_low_invert": True, "recent_52w_low_lookback": 10
         },
         "execution": {"risk_bps": 15, "slippage_bps": 2, "stop_atr": 3.0, "tgt_atr": 8.0, "hold_days": 21,"use_stop_loss": False, "use_take_profit": False},
         "stats": {"grade": "A (Excellent)", "win_rate": "69.0%", "expectancy": "0.48r", "profit_factor": "2.82"}
@@ -555,7 +557,8 @@ _STRATEGY_BOOK_RAW = [
                 "5D rank < 33rd %ile",
                 "10D volume rank < 15th %ile",
                 "Market > 200 SMA",
-                "Excludes midterm election years"
+                "Excludes midterm election years",
+                "No 52w low in last 10 days (exclude falling knives)"
             ]
         },
         "exit_summary": {
@@ -596,7 +599,8 @@ _STRATEGY_BOOK_RAW = [
             "use_ma_dist_filter": False, "dist_ma_type": "SMA 10", "dist_logic": "Greater Than (>)", "dist_min": 0.0, "dist_max": 2.0,
             "use_gap_filter": False, "gap_lookback": 21, "gap_logic": ">", "gap_thresh": 3,
             "use_acc_count_filter": False, "acc_count_window": 21, "acc_count_logic": ">", "acc_count_thresh": 3,
-            "use_dist_count_filter": False, "dist_count_window": 21, "dist_count_logic": "<", "dist_count_thresh": 3
+            "use_dist_count_filter": False, "dist_count_window": 21, "dist_count_logic": "<", "dist_count_thresh": 3,
+            "use_recent_52w_low": True, "recent_52w_low_invert": True, "recent_52w_low_lookback": 10
         },
         "execution": {"risk_bps": 15, "slippage_bps": 2, "stop_atr": 3.0, "tgt_atr": 8.0, "hold_days": 21,"use_stop_loss": False, "use_take_profit": False},
         "stats": {"grade": "A (Excellent)", "win_rate": "67.3%", "expectancy": "$344.77", "profit_factor": "2.70"}
