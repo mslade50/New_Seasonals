@@ -1,133 +1,82 @@
-# Radar Weekly Digest — 2026-04-05
+# Radar Weekly Digest — 2026-04-12
 
-# Weekly Radar Digest — Week of March 30, 2026
-
-## The macro backdrop
-
-Three dominant themes ran through this week's briefs: (1) the "Fortress America" metals trade — 50% Section 232 tariffs on steel, aluminum, and now copper creating a structural pricing umbrella for domestic producers; (2) the Iran/Hormuz geopolitical premium still embedded in energy; and (3) a broadening "Silicon to Steel" rotation into small-cap industrials and materials. Let me separate the signal from the noise.
+# Weekly Radar Digest — Week of April 6-12, 2026
 
 ---
 
-## AA — Alcoa: The Aluminum Tariff Is a Direct Earnings Event
+## Enterprise SaaS: The Most Mispriced Sector in the Market
 
-**One-line thesis:** 50% tariffs on aluminum imports effective April 6 create an unprecedented domestic pricing umbrella, and AA reports earnings April 16 — 10 days from now.
+**Primary: NOW ($83) | Secondary: ADBE ($225), CRM ($165)**
 
-**Variant perception:** The market is treating this as another incremental tariff headline. It is not. The Midwest Premium at $1.05/lb is a record. Every cent of that premium flows directly to Alcoa's realized price per pound. Consensus 0y EPS of $5.80 was set before this tariff adjustment. The estimate range ($4.30–$7.85) is wide enough to drive a truck through, which tells you the street hasn't re-modeled this yet. At $71.53 with forward PE of 12.3x on consensus that is almost certainly too low, this is mispriced.
-
-**Who's on the other side:** The bears have two arguments: (1) aluminum is cyclical and Alcoa always disappoints eventually, and (2) tariffs invite retaliation that hurts downstream demand. The first is fair over a full cycle but irrelevant over a 1-2 quarter horizon when you have a pricing windfall this large. The second matters for downstream consumers (beverage cans, auto), not for the producer capturing the premium directly. The sellers here are generalist funds who see "commodity stock near 52-week high" and reflexively trim. That's mechanical, not informed.
+The SaaS bear market has created the most compelling valuation dislocation I've seen in enterprise software since 2013. The numbers are extraordinary and they don't require any heroic assumptions.
 
 **The data:**
-- Price $71.53, within 1% of 52-week high ($72.17). Strong uptrend (price > 50d > 200d).
-- Forward PE 12.5x on consensus — but consensus is stale pre-tariff.
-- Last 4 quarters: beat by +24.7%, +63.0%, +1.1%, +52.9%. This company systematically beats.
-- Earnings April 16. The tariff took effect April 6. Q1 won't fully capture it, but the guide-up on Q2/Q3 will be the catalyst.
-- FCF yield 6.3%. Not a speculation — this is a real business throwing off cash.
-- Forward EPS growth: 0y +54%, then flattening at +1y -1.7%. The street sees this as a one-year event. If tariffs are structural (and steel tariffs survived SCOTUS), that deceleration estimate is wrong.
+- **NOW**: 16.5x forward PE, 20% EPS growth, RSI 17.1 (extreme capitulation), 10.6% FCF yield implied, down 60.8% from 52w high. Forward EPS consensus $4.17 (0y) → $5.02 (+1y), both growing ~20%. CEO bought $3M in shares. 44 analysts, 4 consecutive beats. Volume ratio 1.57x — selling climax.
+- **ADBE**: 8.5x forward PE, 12% EPS growth, RSI 28.3, 10.15% FCF yield, down 46.7%. Forward EPS $23.49 → $26.37, steady double-digit growth. 35 analysts, 4 consecutive beats.
+- **CRM**: 11.1x forward PE, RSI 22.2, 10.59% FCF yield, down 44.3%. Forward EPS $13.20 → $14.89.
 
-**What would change my mind:** If the administration signals tariff rollback as part of a broader trade deal, or if downstream demand destruction (auto production cuts, construction slowdown) is larger than the pricing benefit. Watch the April 16 call for management's view on order books.
+Read those forward PEs again. Adobe — the company with 12% EPS growth, record forward estimates, and a 10% FCF yield — trades at 8.5x forward earnings. That's cheaper than US Steel. ServiceNow — growing 20% with record forward estimates — trades at 16.5x. The SaaS premium to the S&P 500 hasn't been this narrow since 2013.
 
----
+**Variant perception:** The market is pricing enterprise SaaS as if AI is an existential threat — as if Claude Code and its successors replace Salesforce CRM workflows, Adobe's creative suite, and ServiceNow's IT automation. I believe the opposite: AI is *additive* to these platforms. Their forward EPS estimates are at all-time highs precisely because AI features (NOW's AI agents, Adobe's Firefly, CRM's Einstein) are expanding TAM and improving monetization, not cannibalizing it. The de-rating is 100% sentiment — every single earnings print has beaten consensus. The market is pricing in destruction that the P&L explicitly contradicts, quarter after quarter.
 
-## STLD — Steel Dynamics: Better Positioning Than NUE, Less Crowded
+NOW is the most acute expression of this. An RSI of 17.1 with forward estimates still rising is a statistical rarity. The last time NOW traded at this forward multiple was never — it has always been a premium-multiple stock, and the business has never been stronger.
 
-**One-line thesis:** HRC steel at $1,074/ton, tariff wall intact, and STLD guided Q1 EPS of $2.73-2.77 — up 93% YoY — with a backlog extending into Q3.
+**Who's on the other side:** Forced and mechanical selling. The AI disruption narrative triggered sector-wide de-rating, which triggered momentum/quant strategies to dump the underperformers, which triggered further selling. Q1 tax-loss selling compounded the damage. This is the cleanest setup — sellers have no fundamental view, they are responding to price action and sector rotation mandates. The CEO buying $3M while quants sell is the signal.
 
-**Variant perception:** NUE gets all the attention as the domestic steel bellwether. STLD has better near-term earnings momentum (0q growth +93% vs NUE's +316% off a much lower base), tighter estimate dispersion, and a more diversified product mix including steel fabrication that captures margin twice — once on the steel, once on the value-add. At 11.4x forward earnings vs NUE at 12.5x, you're getting better growth cheaper. The market hasn't differentiated between the two.
-
-**Who's on the other side:** The informed bear case is that $1,000+ HRC is a tariff-inflated price that will mean-revert if trade policy shifts. This is a legitimate risk over 12+ months. But over the next 2-3 quarters, the backlog is locked in and pricing is contractual. The sellers are index-level commodity allocators who treat all steel names as interchangeable. They're wrong — STLD's fabrication segment is a structural differentiator.
-
-**The data:**
-- Price $180.20, 13.6% below 52-week high. Weakening trend (below 50d) — this is a dip in an uptrend, not a breakdown.
-- Forward PE 11.4x. Consensus 0y EPS $13.64, +1y $15.77 (+15.6% growth).
-- Q1 guided $2.73-2.77, consensus beat history: +7.9%, +4.2%, -3.5%, +4.0%. Consistent.
-- Order backlog 35% higher YoY extending into Q3 2026. This is real demand, not speculation.
-- UBS upgraded both NUE and STLD on the tariff catalyst — fresh institutional sponsorship.
-- Earnings April 20. Two weeks out. The guide matters more than the print.
-
-**What would change my mind:** HRC spot falling below $900/ton would signal demand destruction is overwhelming the tariff benefit. Or if management signals backlog deterioration on the call.
+**What would change my mind:** A material deceleration in forward EPS estimates. Specifically, if the next earnings cycle shows downward revisions rather than beats, the "AI disruption is real" thesis gets evidence. Also watching for large-enterprise deal cycle commentary — if CFOs are actually pausing software spend (as opposed to rotating it), that would validate the bear case. Earnings: NOW reports April 22. That's the catalyst.
 
 ---
 
-## DNLI — Denali Therapeutics: First-in-Class Approval, Market Hasn't Repriced
+## ABBV ($208): Maximum Pessimism Plus Structural Resolution
 
-**One-line thesis:** FDA approved Denali's first commercial product (AVLAYAH) on March 25 for Hunter syndrome — a first-ever brain-penetrating enzyme replacement therapy — and the stock is at $20.65 vs $34 consensus target.
+**Variant perception:** The market just sold ABBV on a Q1 EPS guide-down ($2.56-2.60 vs $3.01 consensus) while ignoring the most important event in the stock's 2026 story: AbbVie signed its MFN tariff deal with the White House, pledging $100B in US investment and securing exemption from 100% pharmaceutical import tariffs. The guidance miss is one quarter. The tariff exemption is multi-year and removes the single largest structural overhang on the entire pharma sector.
 
-**Variant perception:** The market is treating this as another small biotech approval. It's not. This is the first enzyme replacement therapy engineered to cross the blood-brain barrier — a platform technology, not just one drug. The approval validates the transport vehicle (TV) platform that Denali can apply across multiple lysosomal storage disorders. The street is valuing this as one drug at $270K-$811K/year for a small patient population. The platform optionality is free. H.C. Wainwright sees $42. RBC sees $2B revenue potential by 2030 from the broader pipeline.
+Forward PE is 12.9x on $14.42 FY EPS growing 44.2% this year. Price / +1y EPS ($16.09) = 12.9x for next year as well. Consistent beats across all four prior quarters. 31 analysts. Median target $250 — 20% upside.
 
-**Who's on the other side:** Pre-revenue biotech skeptics who've been burned by commercial launches that underperform (a legitimate pattern in rare disease). The specific risk is that patient identification and insurance coverage ramp slowly — rare disease launches always start slower than bulls expect. But the 89% upside to consensus from 15 analysts isn't a thin-coverage anomaly. The sellers are biotech generalists rotating out of unprofitable names in a risk-off tape. That's indiscriminate, not informed.
+**Who's on the other side:** Algorithmic selling on the headline guidance miss. The pre-announcement EPS cut hit screens and triggered automated risk reduction. Traders reacting to the headline number haven't yet processed that the tariff resolution is worth far more to the terminal value than one quarter of margin noise. The guidance miss was widely disseminated; the MFN deal significance requires actually reading the policy details.
 
-**The data:**
-- Price $20.65, strong uptrend (price > 50d > 200d), 13% below 52-week high.
-- 15 analysts covering, Strong Buy consensus. PT $34 (avg), $42 (HCW high).
-- Forward EPS: -$2.48 this year, -$2.44 next year — losses narrowing as revenue ramps.
-- Commercial launch within 2 weeks of approval. Earnings May 11 will be the first report with launch guidance.
-- Market cap $3.3B. If the TV platform validates across 2-3 more indications, this is a $10B+ company.
-- Beat/miss history: +2.5%, +2.4%, +2.1%, -10.8%. Consistent operational execution.
-
-**What would change my mind:** Slower-than-expected patient enrollment in the first 90 days. Any safety signal post-launch. Or if the May 11 earnings call shows insurance pushback on the $270K-$811K pricing.
+**What would change my mind:** If the tariff exemption comes with pricing concessions that structurally compress margins (i.e., the "deal" is really a price cap disguised as a tariff pass). Also watching for any reversal of the MFN framework in Congress. Earnings April 29 — the call should clarify the exemption terms.
 
 ---
 
-## CLF — Cleveland-Cliffs: Contrarian Steel at Trough Valuation
+## TMO ($496): Pick-and-Shovel Play on Forced Pharma Reshoring
 
-**One-line thesis:** CLF is down 50% from its 52-week high and priced for bankruptcy, but HRC just hit $1,074/ton and management guides $500M EBITDA improvement in 2026.
+**Variant perception:** The market values Thermo Fisher as a slow-growth life sciences tools company recovering from a post-COVID hangover. I believe the 100% tariff on branded pharmaceutical imports — effective July 31, forcing $150B+ in domestic manufacturing commitments — transforms TMO's CDMO business into a multi-year structural growth story that the current 18.2x forward PE does not reflect. This is not a typical "tariff beneficiary" trade. Companies that cannot build their own factories *must* use CDMOs, and TMO is the largest US-based provider. With Catalent compromised by the Novo Holdings acquisition and quality issues driving customer attrition, TMO is absorbing displaced demand on top of the reshoring wave.
 
-**Variant perception:** The market is pricing CLF as if it will never benefit from $1,000+ HRC. The stock is at $8.40 vs $13.08 avg analyst PT — 56% upside. CLF is the most leveraged domestic steelmaker to HRC prices because of its integrated blast furnace model — high fixed costs mean massive operating leverage when prices rise. The street downgraded to Sell at the bottom ($9.33 PT) based on trailing margins. But at $1,074 HRC, those trailing margins are irrelevant. Forward reality is radically different from trailing numbers.
+Forward EPS $24.78 (0y) → $27.22 (+1y), growing 8-10%. But the CDMO reshoring demand represents incremental upside not yet in consensus. $639 median PT vs $496 current — 29% upside per the Street, and I think the Street is behind.
 
-**Who's on the other side:** The informed bear case is real: CLF has $4.5B in debt, auto exposure is cyclically vulnerable, and management has a history of value-destructive M&A. The negative book value ($0.78 P/B) and negative trailing EPS reflect a genuinely distressed balance sheet. This is NOT a safe stock. But the question is whether $1,000+ HRC heals the P&L fast enough, and the forward estimates say yes — +1y EPS of $0.73 (from -$0.38 this year) represents a massive swing. At $8.40 that's 11.5x forward earnings on a company where the commodity price tailwind hasn't even shown up in the numbers yet.
+**Who's on the other side:** Generalist life sciences investors who sold the sector in 2023-2024 during the post-COVID destocking cycle and haven't returned. They're fighting the last war — the destocking headwind is over, and the reshoring tailwind is just beginning. Also, the tariff-driven CDMO demand acceleration is too new (April 2 EO) for consensus models to fully capture. Analyst count at 21 for 0q but only 4 for full-year — many haven't updated models yet.
 
-**The trade structure:** This is a higher-risk, higher-reward version of the STLD thesis. STLD is the quality play; CLF is the option on the same tariff thesis with more leverage. Position accordingly.
-
-**The data:**
-- Price $8.40, down 49.7% from 52-week high. Downtrend — this is catching a falling knife, but the catalyst (HRC at $1,074) is quantifiable.
-- Forward PE 11.4x on +1y EPS of $0.73. If HRC stays above $1,000 that number is too low.
-- Earnings April 20 — same week as STLD. The guide is everything.
-- Beat history: +30.1%, +0.6%, +25.9%, -26.2%. Volatile, but the beats are bigger than the misses.
-- Only 3-5 analysts covering near-term quarters. Thin coverage = more room for surprise.
-
-**What would change my mind:** If management uses the call to announce another acquisition instead of focusing on deleveraging. Or if auto production data deteriorates sharply (CLF's biggest end-market).
+**What would change my mind:** If the July 31 tariff deadline gets extended or reduced through MFN negotiations with enough pharma companies that the "forced reshoring" urgency dissipates. Also, if TMO's April 23 earnings call shows CDMO capacity is already fully utilized, the growth opportunity becomes a capital allocation question (can they build fast enough?) rather than a demand question. Earnings April 23.
 
 ---
 
-## HAL — Halliburton: Venezuela Reconstruction Is Multi-Year, Not Priced In
+## What I'm Watching But Not Yet Buying
 
-**One-line thesis:** Venezuela regime change opens a multi-year oilfield services reconstruction cycle, and HAL has unique operational expertise in Orinoco Belt heavy crude recovery.
+**Managed care (UNH $304, HUM $192):** The CMS rate surprise was genuinely large — 2.48% net increase vs 0.09% proposed — and the sector was massively underowned heading in. UNH at 15.1x forward and HUM at 12.6x are still cheap. But the initial repricing already happened (UNH +10.6%, HUM +12%). The variant perception is weaker now because the catalyst is known. I'd buy a pullback, not chase here. UNH earnings April 21 will set the next direction.
 
-**Variant perception:** The market gave a one-day pop to oil majors (CVX, XOM) on the Maduro capture headline. But the real beneficiary of Venezuela reconstruction isn't the company that owns the reserves — it's the company that rebuilds the wells. Venezuela's production collapsed from 3M+ bpd to under 500K bpd. Recovering even half that requires a decade of oilfield services spending. HAL has institutional knowledge of Venezuelan operations that can't be replicated. The street has HAL at 14.1x forward PE on EPS that doesn't yet include any Venezuela contribution.
-
-**Who's on the other side:** The bear case is that Venezuelan reconstruction faces political, legal, and logistical obstacles that will delay revenue for years. Sanctions uncertainty, property rights disputes, PDVSA's institutional decay. All true. But the market is pricing ZERO Venezuela contribution. Any contract announcement is pure upside.
-
-**The data:**
-- Price $38.17, strong uptrend, 7.3% from 52-week high. RSI 72 — overbought but trending.
-- Forward PE 14.1x. FCF yield 6.7%. This isn't expensive even without Venezuela.
-- Earnings April 21 — management commentary on Venezuela will be the catalyst.
-- 0y EPS -7.9% growth (post-cycle normalization), but +1y +21.0%. Street already sees re-acceleration.
-- Beat history: +26.3%, +16.9%, -0.7%, -0.4%. Systematic positive surprise on the earnings line.
-
-**What would change my mind:** If the new Venezuelan government signals it will use Chinese/Russian oilfield services companies instead of Western ones for political reasons. Or if Brent collapses below $80, removing the economic incentive for reconstruction.
+**DNLI ($19):** The platform validation (first drug to cross the blood-brain barrier) is genuinely novel, and Goldman's $40 target implies 108% upside. But this is a pre-revenue biotech with -$2.47 FY EPS and commercial execution is completely unproven. The science is exciting; the position sizing needs to reflect that this is binary. On the watchlist, not in the book yet.
 
 ---
 
-## What didn't clear the bar
+## What I'm Explicitly Killing
 
-- **NBIS**: Real catalysts (Nvidia, Meta, Microsoft contracts) but forward EPS is deeply negative (-$3.40 this year, -$4.32 next year) and the stock trades at $109 with no clear path to profitability. The variant perception ("de-risked revenue") is consensus — every analyst already knows about these contracts. No edge.
+**Metals/steel tariff beneficiaries (NUE, STLD, KALU, AA, FCX, RS):** The trade has already happened. RSIs: NUE 83.7, KALU 89.2, RS 91.9, FCX 84.7, AA 83.8. Everyone knows about 50% tariffs. Forward EPS growth decelerates sharply into +1y for most of these names (AA 0y +69.9% → +1y -3.0%; SCCO 0y +34.7% → +1y -14.5%). There is no variant perception — buying domestic metals on tariffs IS the consensus. You're the last one into this trade, not the first.
 
-- **INTC**: The government backstop narrative is interesting but the stock at $50 trades at 50x forward PE on $0.48 in 0y EPS. The turnaround story is consensus and the valuation assumes it works. Who's on the other side? Anyone who can read the P&L.
+**INTC ($62):** Up 50% YTD, forward PE of 61.4x on $0.49 EPS. The turnaround narrative (Terafab, NVIDIA investment, Fab 34 repurchase) is exciting, but it IS the consensus now — the stock has already tripled from its lows. You're paying 61x forward for a company that earned $0.49 last year. The variant would have been buying at $20. At $62, you ARE the crowd.
 
-- **SATS (EchoStar)**: Short squeeze setups are trades, not investments. Forward EPS is -$52.93. When the thesis requires "index funds are forced to buy," you're not analyzing a business.
+**FRO ($34):** Consensus already models the Hormuz rate spike (104.7% EPS growth 0y), and +1y shows -35% decline — the Street expects normalization. FRO has missed earnings 4 consecutive quarters by -8% to -34%. The tanker trade was Q1. The ceasefire instability is real, but you're betting on a geopolitical outcome with a management team that chronically underdelivers.
 
-- **TGT**: The tariff refund is a real cash event, but TGT's forward PE (14.2x) on anemic growth (+5.6% 0y EPS) is already fair value for a mature retailer. The refund is one-time. No durable edge.
+**CAR ($300):** Pure short-squeeze mechanics on a company with negative equity (-$3.04B), $995M net loss, RSI 94.3, and every analyst target far below the current price. Fascinating as a market structure event; untouchable as an investment. When this unwinds — and it will — the snap-back will be violent. Don't touch either side until the squeeze breaks.
 
-- **AG (First Majestic)**: Silver at $100 is a compelling macro story, but AG's last 4 quarterly surprises include -12.5%, -20.0%, and -40.0% misses. The company consistently fails to convert commodity price gains into earnings beats. Execution risk dominates.
-
-- **MU**: At $366 with forward PE of 3.7x on $98.55 +1y EPS, this is either absurdly cheap or the estimates are absurdly high. The TurboQuant overhang creates genuine uncertainty about whether AI memory demand sustains at this pace. The estimate range ($44.83–$142.48 for +1y) is so wide it's not an estimate — it's a guess. I can't articulate a variant perception when the range of outcomes is this binary.
-
-- **LFCR**: Compelling thesis on paper (pharma reshoring CDMO at 20% utilization), but RSI of 12.9 and price at $3.84 in a steep downtrend with negative book value. The market is telling you something. Earnings tomorrow — if the thesis is right, buy after confirmation, not before.
+**NBIS ($145):** Trading at 896x operating cash flow with negative EPS, missed on both revenue and EPS last quarter, forward estimates show deepening losses. The $27B Meta deal is real, but the market cap ($36.7B) already reflects it. This is peak euphoria pricing on a company burning cash — pure narrative with zero margin of safety.
 
 ---
 
-## Summary
+## The Bottom Line
 
-Four ideas clear the bar this week, all centered on the "Fortress America" industrial/metals policy regime: **AA** (aluminum tariff earnings catalyst, April 16), **STLD** (best-positioned domestic steelmaker, April 20 earnings), **CLF** (higher-risk leveraged version of the steel thesis, same timing), and **HAL** (Venezuela reconstruction optionality on top of a solid oilfield services business). One biotech — **DNLI** — clears on the strength of a genuine first-in-class platform approval trading at half of consensus.
+The highest-conviction idea this week is enterprise SaaS, specifically NOW ahead of April 22 earnings. The dislocation between record forward EPS estimates and capitulation-level pricing (RSI 17.1, 16.5x forward PE for 20% growth) is the widest I've seen in a quality name this year. The seller base is mechanical, not fundamental. If earnings confirm what the estimates already show, this re-rates violently.
 
-The common thread: the market is still processing the tariff regime as a series of headlines rather than a structural repricing of domestic industrial economics. The earnings cycle over the next 2-3 weeks will force that repricing.
+ABBV and TMO are the next tier — both have identifiable catalysts (tariff resolution and pharma reshoring respectively) that consensus hasn't fully processed, with near-term earnings to crystallize the story.
+
+Everything else this week was either already priced (metals), already moved (managed care), or lacked a defensible variant (geopolitical plays). The number of ideas that clear the bar is three. That itself tells you something: the market is pricing known catalysts efficiently, and the real opportunities are in sectors where sentiment has completely diverged from fundamentals.
