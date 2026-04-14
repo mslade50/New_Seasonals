@@ -99,6 +99,7 @@ def calculate_indicators(
     dist_window: Optional[int] = None,
     ref_ticker_ranks: Optional[Dict[int, pd.Series]] = None,
     weekly_ma_configs: Optional[List[Dict]] = None,
+    xsec_rank_matrices: Optional[Dict[int, 'pd.DataFrame']] = None,
 ) -> pd.DataFrame:
     """
     Calculate all technical indicators for a single ticker.
@@ -116,6 +117,7 @@ def calculate_indicators(
     acc_window : If set, compute AccCount for this specific window (backtester mode).
     dist_window : If set, compute DistCount for this specific window (backtester mode).
     ref_ticker_ranks : Dict of {window: rank_series} for reference ticker filter.
+    xsec_rank_matrices : Dict of {window: DataFrame} for cross-sectional rank filter.
 
     Returns
     -------
@@ -320,6 +322,14 @@ def calculate_indicators(
     if ref_ticker_ranks is not None:
         for window, series in ref_ticker_ranks.items():
             df[f'Ref_rank_ret_{window}d'] = series.reindex(df.index, method='ffill').fillna(50.0)
+
+    # -------------------------------------------------------------------------
+    # 13b. CROSS-SECTIONAL RANKS (rank vs universe peers on same date)
+    # -------------------------------------------------------------------------
+    if xsec_rank_matrices is not None:
+        for window, mat in xsec_rank_matrices.items():
+            if ticker in mat.columns:
+                df[f'xsec_rank_ret_{window}d'] = mat[ticker].reindex(df.index).fillna(50.0)
 
     # -------------------------------------------------------------------------
     # 14. CONVENIENCE COLUMNS (used by strat_backtester for vectorized signals)

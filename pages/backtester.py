@@ -53,6 +53,33 @@ def clean_ticker_df(df):
     df = df.dropna(subset=['Close'])
     return df
 
+def build_xsec_rank_matrices(data_dict, windows=[5, 10, 21]):
+    """Build cross-sectional percentile rank matrices from downloaded data.
+
+    For each return window, builds a Date x Ticker return matrix, then ranks
+    across tickers on each date. Result is 0-100 percentile where 100 = highest
+    return in the universe that day.
+
+    Returns dict {window: DataFrame} where each DataFrame has Date index and
+    ticker columns with values 0-100.
+    """
+    # Build return series per ticker
+    ret_dict = {}
+    for ticker, df in data_dict.items():
+        if 'Close' not in df.columns or len(df) < 50:
+            continue
+        for w in windows:
+            ret_dict.setdefault(w, {})[ticker] = df['Close'].pct_change(w)
+
+    result = {}
+    for w in windows:
+        if not ret_dict.get(w):
+            continue
+        mat = pd.DataFrame(ret_dict[w])
+        # Rank across tickers (axis=1) for each date, pct=True gives 0-1
+        result[w] = mat.rank(axis=1, pct=True) * 100.0
+    return result
+
 @st.cache_data(show_spinner=True)
 def download_universe_data(tickers, fetch_start_date):
     if not tickers: return {} 
@@ -294,7 +321,15 @@ def _generate_key_filters(params):
         ref_ticker = params.get('ref_ticker', 'IWM')
         for rf in params['ref_filters']:
             filters.append(f"{ref_ticker} {rf['window']}D rank {rf['logic']} {rf['thresh']:.0f}th %ile")
-    
+
+    if params.get('use_xsec_filter') and params.get('xsec_filters'):
+        for xf in params['xsec_filters']:
+            consec_str = f" ({xf['consecutive']}d consecutive)" if xf.get('consecutive', 1) > 1 else ""
+            if xf['logic'] == 'Between':
+                filters.append(f"XSec {xf['window']}D rank between {xf['thresh']:.0f}-{xf.get('thresh_max', 100):.0f}th %ile{consec_str}")
+            else:
+                filters.append(f"XSec {xf['window']}D rank {xf['logic']} {xf['thresh']:.0f}th %ile{consec_str}")
+
     if params.get('use_weekly_ma_pullback'):
         filters.append(f"First touch of Weekly {params['wma_type']}{params['wma_period']} after {params['wma_min_ext_pct']:.0f}%+ extension (lookback {params['wma_lookback_months']}mo, {params['wma_touch_logic']})")
 
@@ -380,6 +415,9 @@ def build_strategy_dict(params, tickers_to_run, pf, sqn, win_rate, expectancy_r)
         ref_ticker = params.get('ref_ticker', 'IWM')
         ref_str = "+".join([f"{ref_ticker} {f['window']}d {f['logic']} {f['thresh']:.0f}%ile" for f in params['ref_filters']])
         id_parts.append(ref_str)
+    if params.get('use_xsec_filter') and params.get('xsec_filters'):
+        xsec_str = "+".join([f"XSec {f['window']}d {f['logic']} {f['thresh']:.0f}%ile" for f in params['xsec_filters']])
+        id_parts.append(xsec_str)
     if params.get('use_t1_open_filter') and params.get('t1_open_filters'):
         for f in params['t1_open_filters']:
             t1_str = f"T+1 Open {f['logic']} {f['reference']}"
@@ -469,7 +507,9 @@ def build_strategy_dict(params, tickers_to_run, pf, sqn, win_rate, expectancy_r)
             # Reference ticker
             "use_ref_ticker_filter": params.get('use_ref_ticker_filter', False), "ref_ticker": params.get('ref_ticker', 'IWM'), "ref_filters": params.get('ref_filters', []),
             # T+1 open filter
-            "use_t1_open_filter": params.get('use_t1_open_filter', False), "t1_open_filters": params.get('t1_open_filters', [])
+            "use_t1_open_filter": params.get('use_t1_open_filter', False), "t1_open_filters": params.get('t1_open_filters', []),
+            # Cross-sectional rank
+            "use_xsec_filter": params.get('use_xsec_filter', False), "xsec_filters": params.get('xsec_filters', [])
         },
         "execution": {
             "risk_bps": 35,
@@ -490,7 +530,7 @@ def build_strategy_dict(params, tickers_to_run, pf, sqn, win_rate, expectancy_r)
     }
     return strategy
     
-def run_engine(universe_dict, params, sznl_map, market_series=None, vix_series=None, market_sznl_series=None, ref_ticker_ranks=None):
+def run_engine(universe_dict, params, sznl_map, market_series=None, vix_series=None, market_sznl_series=None, ref_ticker_ranks=None, xsec_rank_matrices=None):
     all_potential_trades = []
     total = len(universe_dict)
     bt_start_ts = pd.to_datetime(params['backtest_start_date'])
@@ -540,6 +580,10 @@ def run_engine(universe_dict, params, sznl_map, market_series=None, vix_series=N
     use_ref_ticker_filter = params.get('use_ref_ticker_filter', False)
     ref_filters = params.get('ref_filters', [])
 
+    # Cross-Sectional Rank Filter params
+    use_xsec_filter = params.get('use_xsec_filter', False)
+    xsec_filters = params.get('xsec_filters', [])
+
     for i, (ticker, df_raw) in enumerate(universe_dict.items()):
         status_text.text(f"Scanning signals for {ticker}...")
         progress_bar.progress((i+1)/total)
@@ -551,7 +595,7 @@ def run_engine(universe_dict, params, sznl_map, market_series=None, vix_series=N
         ticker_last_exit = pd.Timestamp.min
 
         try:
-            df = calculate_indicators(df_raw, sznl_map, ticker, market_series, vix_series, market_sznl_series, gap_window, req_custom_mas, acc_win, dist_win, ref_ticker_ranks, weekly_ma_configs)
+            df = calculate_indicators(df_raw, sznl_map, ticker, market_series, vix_series, market_sznl_series, gap_window, req_custom_mas, acc_win, dist_win, ref_ticker_ranks, weekly_ma_configs, xsec_rank_matrices)
             df = df[df.index >= bt_start_ts]
             if df.empty: continue
             
@@ -649,10 +693,22 @@ def run_engine(universe_dict, params, sznl_map, market_series=None, vix_series=N
                 if pf['logic'] == '<': c_f = (df[col] < pf['thresh'])
                 elif pf['logic'] == '>': c_f = (df[col] > pf['thresh'])
                 elif pf['logic'] == 'Between': c_f = (df[col] >= pf['thresh']) & (df[col] <= pf.get('thresh_max', 100.0))
-                else: continue 
+                else: continue
                 if pf['consecutive'] > 1: c_f = c_f.rolling(pf['consecutive']).sum() == pf['consecutive']
                 conditions.append(c_f)
-                
+
+            # --- CROSS-SECTIONAL RANK FILTER ---
+            if use_xsec_filter and xsec_filters:
+                for xf in xsec_filters:
+                    col = f"xsec_rank_ret_{xf['window']}d"
+                    if col in df.columns:
+                        if xf['logic'] == '<': c_f = (df[col] < xf['thresh'])
+                        elif xf['logic'] == '>': c_f = (df[col] > xf['thresh'])
+                        elif xf['logic'] == 'Between': c_f = (df[col] >= xf['thresh']) & (df[col] <= xf.get('thresh_max', 100.0))
+                        else: continue
+                        if xf.get('consecutive', 1) > 1: c_f = c_f.rolling(xf['consecutive']).sum() == xf['consecutive']
+                        conditions.append(c_f)
+
             for f in params.get('ma_consec_filters', []):
                 col = f"SMA{f['length']}"
                 mask = (df['Close'] > df[col]) if f['logic'] == 'Above' else (df['Close'] < df[col])
@@ -1291,6 +1347,41 @@ def main():
         with col_p_seq:
             perf_first = st.checkbox("First Instance", value=False)
             perf_lookback = st.number_input("Lookback (Days)", 1, 100, 21, disabled=not perf_first)
+    xsec_filters = []
+    with st.expander("Cross-Sectional Rank (vs Universe Peers)", expanded=False):
+        st.markdown("**Rank this ticker's return vs all other tickers in the universe on each date.** 100 = highest return that day, 0 = lowest.")
+        use_xsec_filter = st.checkbox("Enable Cross-Sectional Rank Filter", value=False)
+        xc5d, xc10d, xc21d = st.columns(3)
+        with xc5d:
+            st.markdown("**5-Day Rank**")
+            use_xsec_5d = st.checkbox("Enable", key="use_xsec_5d", value=False, disabled=not use_xsec_filter)
+            xsec_5d_logic = st.selectbox("Logic", [">", "<", "Between"], key="xsec_l5d", disabled=not (use_xsec_filter and use_xsec_5d))
+            xsec_5d_lbl = "Min %ile" if xsec_5d_logic == "Between" else "Threshold"
+            xsec_5d_thresh = st.number_input(xsec_5d_lbl, 0.0, 100.0, 85.0, key="xsec_t5d", disabled=not (use_xsec_filter and use_xsec_5d))
+            xsec_5d_max = 100.0
+            if xsec_5d_logic == "Between": xsec_5d_max = st.number_input("Max %ile", 0.0, 100.0, 99.0, key="xsec_t5d_max")
+            xsec_5d_consec = st.number_input("Consec Days", 1, 10, 1, key="xsec_c5d", disabled=not (use_xsec_filter and use_xsec_5d))
+            if use_xsec_5d: xsec_filters.append({'window': 5, 'logic': xsec_5d_logic, 'thresh': xsec_5d_thresh, 'thresh_max': xsec_5d_max, 'consecutive': xsec_5d_consec})
+        with xc10d:
+            st.markdown("**10-Day Rank**")
+            use_xsec_10d = st.checkbox("Enable", key="use_xsec_10d", value=False, disabled=not use_xsec_filter)
+            xsec_10d_logic = st.selectbox("Logic", [">", "<", "Between"], key="xsec_l10d", disabled=not (use_xsec_filter and use_xsec_10d))
+            xsec_10d_lbl = "Min %ile" if xsec_10d_logic == "Between" else "Threshold"
+            xsec_10d_thresh = st.number_input(xsec_10d_lbl, 0.0, 100.0, 85.0, key="xsec_t10d", disabled=not (use_xsec_filter and use_xsec_10d))
+            xsec_10d_max = 100.0
+            if xsec_10d_logic == "Between": xsec_10d_max = st.number_input("Max %ile", 0.0, 100.0, 99.0, key="xsec_t10d_max")
+            xsec_10d_consec = st.number_input("Consec Days", 1, 10, 1, key="xsec_c10d", disabled=not (use_xsec_filter and use_xsec_10d))
+            if use_xsec_10d: xsec_filters.append({'window': 10, 'logic': xsec_10d_logic, 'thresh': xsec_10d_thresh, 'thresh_max': xsec_10d_max, 'consecutive': xsec_10d_consec})
+        with xc21d:
+            st.markdown("**21-Day Rank**")
+            use_xsec_21d = st.checkbox("Enable", key="use_xsec_21d", value=False, disabled=not use_xsec_filter)
+            xsec_21d_logic = st.selectbox("Logic", [">", "<", "Between"], key="xsec_l21d", disabled=not (use_xsec_filter and use_xsec_21d))
+            xsec_21d_lbl = "Min %ile" if xsec_21d_logic == "Between" else "Threshold"
+            xsec_21d_thresh = st.number_input(xsec_21d_lbl, 0.0, 100.0, 85.0, key="xsec_t21d", disabled=not (use_xsec_filter and use_xsec_21d))
+            xsec_21d_max = 100.0
+            if xsec_21d_logic == "Between": xsec_21d_max = st.number_input("Max %ile", 0.0, 100.0, 99.0, key="xsec_t21d_max")
+            xsec_21d_consec = st.number_input("Consec Days", 1, 10, 1, key="xsec_c21d", disabled=not (use_xsec_filter and use_xsec_21d))
+            if use_xsec_21d: xsec_filters.append({'window': 21, 'logic': xsec_21d_logic, 'thresh': xsec_21d_thresh, 'thresh_max': xsec_21d_max, 'consecutive': xsec_21d_consec})
     ma_consec_filters = []
     with st.expander("Consecutive Closes vs SMA", expanded=False):
         c_ma1, c_ma2, c_ma3 = st.columns(3)
@@ -1488,9 +1579,19 @@ def main():
             'use_acc_dist_v2': use_acc_dist_v2,
             'use_t1_open_filter': use_t1_open_filter, 't1_open_filters': t1_open_filters,
             'use_recent_ath': use_recent_ath, 'recent_ath_invert': recent_ath_invert, 'ath_lookback_days': ath_lookback_days,
-            'use_ref_ticker_filter': use_ref_ticker_filter, 'ref_ticker': ref_ticker_input, 'ref_filters': ref_filters
+            'use_ref_ticker_filter': use_ref_ticker_filter, 'ref_ticker': ref_ticker_input, 'ref_filters': ref_filters,
+            'use_xsec_filter': use_xsec_filter, 'xsec_filters': xsec_filters
         }
-        trades_df, rejected_df, total_signals = run_engine(data_dict, params, sznl_map, market_series, vix_series, market_sznl_series, ref_ticker_ranks)
+
+        # Build cross-sectional rank matrices if enabled
+        xsec_rank_matrices = None
+        if use_xsec_filter and xsec_filters:
+            xsec_windows = list(set(f['window'] for f in xsec_filters))
+            st.info(f"Computing cross-sectional ranks ({len(data_dict)} tickers, windows: {xsec_windows})...")
+            xsec_rank_matrices = build_xsec_rank_matrices(data_dict, xsec_windows)
+            st.success(f"Cross-sectional ranks computed.")
+
+        trades_df, rejected_df, total_signals = run_engine(data_dict, params, sznl_map, market_series, vix_series, market_sznl_series, ref_ticker_ranks, xsec_rank_matrices)
         if trades_df.empty: st.warning("No executed signals.")
         if not trades_df.empty:
             trades_df = trades_df.sort_values("ExitDate")
