@@ -56,27 +56,32 @@ def clean_ticker_df(df):
 def build_xsec_rank_matrices(data_dict, windows=[5, 10, 21]):
     """Build cross-sectional percentile rank matrices from downloaded data.
 
-    For each return window, builds a Date x Ticker return matrix, then ranks
-    across tickers on each date. Result is 0-100 percentile where 100 = highest
-    return in the universe that day.
+    For each return window, first computes each ticker's temporal percentile
+    rank (expanding, min 252 days — same as indicators.py), then ranks those
+    percentiles across tickers on each date. This normalizes for volatility:
+    a stock at its 95th %ile of its own history is treated the same whether
+    it's a low-vol utility or a high-vol biotech.
 
     Returns dict {window: DataFrame} where each DataFrame has Date index and
     ticker columns with values 0-100.
     """
-    # Build return series per ticker
-    ret_dict = {}
+    RANK_MIN_PERIODS = 252
+    rank_dict = {}
     for ticker, df in data_dict.items():
         if 'Close' not in df.columns or len(df) < 50:
             continue
         for w in windows:
-            ret_dict.setdefault(w, {})[ticker] = df['Close'].pct_change(w)
+            ret = df['Close'].pct_change(w)
+            # Temporal percentile: where is this return vs ticker's own history
+            temporal_pctile = ret.expanding(min_periods=RANK_MIN_PERIODS).rank(pct=True) * 100.0
+            rank_dict.setdefault(w, {})[ticker] = temporal_pctile
 
     result = {}
     for w in windows:
-        if not ret_dict.get(w):
+        if not rank_dict.get(w):
             continue
-        mat = pd.DataFrame(ret_dict[w])
-        # Rank across tickers (axis=1) for each date, pct=True gives 0-1
+        mat = pd.DataFrame(rank_dict[w])
+        # Rank the temporal percentiles across tickers on each date
         result[w] = mat.rank(axis=1, pct=True) * 100.0
     return result
 
