@@ -164,7 +164,7 @@ def calculate_indicators(
     #    used 50, which could produce misleading ranks.
     # -------------------------------------------------------------------------
     RANK_MIN_PERIODS = 252
-    for window in [2, 5, 10, 21]:
+    for window in [2, 5, 10, 21, 126, 252]:
         df[f'ret_{window}d'] = df['Close'].pct_change(window, fill_method=None)
         df[f'rank_ret_{window}d'] = (
             df[f'ret_{window}d']

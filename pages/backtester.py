@@ -1367,7 +1367,7 @@ def main():
         col_p_config, col_p_seq = st.columns([3, 1])
         perf_filters = []
         with col_p_config:
-            c2d, c5d, c10d, c21d = st.columns(4)
+            c2d, c5d, c10d, c21d, c126d, c252d = st.columns(6)
             with c2d:
                 use_2d = st.checkbox("Enable 2D Rank")
                 logic_2d = st.selectbox("Logic", [">", "<", "Between"], key="l2d", disabled=not use_2d)
@@ -1404,14 +1404,32 @@ def main():
                 if logic_21d == "Between": thresh_21d_max = st.number_input("Max %ile", 0.0, 100.0, 99.0, key="t21d_max")
                 consec_21d = st.number_input("Consec Days", 1, 10, 1, key="c21d_days", disabled=not use_21d)
                 if use_21d: perf_filters.append({'window': 21, 'logic': logic_21d, 'thresh': thresh_21d, 'thresh_max': thresh_21d_max, 'consecutive': consec_21d})
+            with c126d:
+                use_126d = st.checkbox("Enable 126D Rank")
+                logic_126d = st.selectbox("Logic", [">", "<", "Between"], key="l126d", disabled=not use_126d)
+                l_126d_txt = "Min %ile" if logic_126d == "Between" else "Threshold"
+                thresh_126d = st.number_input(l_126d_txt, 0.0, 100.0, 85.0, key="t126d", disabled=not use_126d)
+                thresh_126d_max = 100.0
+                if logic_126d == "Between": thresh_126d_max = st.number_input("Max %ile", 0.0, 100.0, 99.0, key="t126d_max")
+                consec_126d = st.number_input("Consec Days", 1, 10, 1, key="c126d_days", disabled=not use_126d)
+                if use_126d: perf_filters.append({'window': 126, 'logic': logic_126d, 'thresh': thresh_126d, 'thresh_max': thresh_126d_max, 'consecutive': consec_126d})
+            with c252d:
+                use_252d = st.checkbox("Enable 252D Rank")
+                logic_252d = st.selectbox("Logic", [">", "<", "Between"], key="l252d", disabled=not use_252d)
+                l_252d_txt = "Min %ile" if logic_252d == "Between" else "Threshold"
+                thresh_252d = st.number_input(l_252d_txt, 0.0, 100.0, 85.0, key="t252d", disabled=not use_252d)
+                thresh_252d_max = 100.0
+                if logic_252d == "Between": thresh_252d_max = st.number_input("Max %ile", 0.0, 100.0, 99.0, key="t252d_max")
+                consec_252d = st.number_input("Consec Days", 1, 10, 1, key="c252d_days", disabled=not use_252d)
+                if use_252d: perf_filters.append({'window': 252, 'logic': logic_252d, 'thresh': thresh_252d, 'thresh_max': thresh_252d_max, 'consecutive': consec_252d})
         with col_p_seq:
             perf_first = st.checkbox("First Instance", value=False)
             perf_lookback = st.number_input("Lookback (Days)", 1, 100, 21, disabled=not perf_first)
     xsec_filters = []
     with st.expander("Cross-Sectional Rank (vs Universe Peers)", expanded=False):
-        st.markdown("**Rank this ticker's return vs all other tickers in the universe on each date.** 100 = highest return that day, 0 = lowest.")
+        st.markdown("**Rank this ticker's return percentile vs all other tickers in the universe on each date.** Normalized for volatility. 100 = most overbought vs peers, 0 = most oversold.")
         use_xsec_filter = st.checkbox("Enable Cross-Sectional Rank Filter", value=False)
-        xc5d, xc10d, xc21d = st.columns(3)
+        xc5d, xc10d, xc21d, xc126d, xc252d = st.columns(5)
         with xc5d:
             st.markdown("**5-Day Rank**")
             use_xsec_5d = st.checkbox("Enable", key="use_xsec_5d", value=False, disabled=not use_xsec_filter)
@@ -1442,6 +1460,26 @@ def main():
             if xsec_21d_logic == "Between": xsec_21d_max = st.number_input("Max %ile", 0.0, 100.0, 99.0, key="xsec_t21d_max")
             xsec_21d_consec = st.number_input("Consec Days", 1, 10, 1, key="xsec_c21d", disabled=not (use_xsec_filter and use_xsec_21d))
             if use_xsec_21d: xsec_filters.append({'window': 21, 'logic': xsec_21d_logic, 'thresh': xsec_21d_thresh, 'thresh_max': xsec_21d_max, 'consecutive': xsec_21d_consec})
+        with xc126d:
+            st.markdown("**126-Day Rank**")
+            use_xsec_126d = st.checkbox("Enable", key="use_xsec_126d", value=False, disabled=not use_xsec_filter)
+            xsec_126d_logic = st.selectbox("Logic", [">", "<", "Between"], key="xsec_l126d", disabled=not (use_xsec_filter and use_xsec_126d))
+            xsec_126d_lbl = "Min %ile" if xsec_126d_logic == "Between" else "Threshold"
+            xsec_126d_thresh = st.number_input(xsec_126d_lbl, 0.0, 100.0, 85.0, key="xsec_t126d", disabled=not (use_xsec_filter and use_xsec_126d))
+            xsec_126d_max = 100.0
+            if xsec_126d_logic == "Between": xsec_126d_max = st.number_input("Max %ile", 0.0, 100.0, 99.0, key="xsec_t126d_max")
+            xsec_126d_consec = st.number_input("Consec Days", 1, 10, 1, key="xsec_c126d", disabled=not (use_xsec_filter and use_xsec_126d))
+            if use_xsec_126d: xsec_filters.append({'window': 126, 'logic': xsec_126d_logic, 'thresh': xsec_126d_thresh, 'thresh_max': xsec_126d_max, 'consecutive': xsec_126d_consec})
+        with xc252d:
+            st.markdown("**252-Day Rank**")
+            use_xsec_252d = st.checkbox("Enable", key="use_xsec_252d", value=False, disabled=not use_xsec_filter)
+            xsec_252d_logic = st.selectbox("Logic", [">", "<", "Between"], key="xsec_l252d", disabled=not (use_xsec_filter and use_xsec_252d))
+            xsec_252d_lbl = "Min %ile" if xsec_252d_logic == "Between" else "Threshold"
+            xsec_252d_thresh = st.number_input(xsec_252d_lbl, 0.0, 100.0, 85.0, key="xsec_t252d", disabled=not (use_xsec_filter and use_xsec_252d))
+            xsec_252d_max = 100.0
+            if xsec_252d_logic == "Between": xsec_252d_max = st.number_input("Max %ile", 0.0, 100.0, 99.0, key="xsec_t252d_max")
+            xsec_252d_consec = st.number_input("Consec Days", 1, 10, 1, key="xsec_c252d", disabled=not (use_xsec_filter and use_xsec_252d))
+            if use_xsec_252d: xsec_filters.append({'window': 252, 'logic': xsec_252d_logic, 'thresh': xsec_252d_thresh, 'thresh_max': xsec_252d_max, 'consecutive': xsec_252d_consec})
     ma_consec_filters = []
     with st.expander("Consecutive Closes vs SMA", expanded=False):
         c_ma1, c_ma2, c_ma3 = st.columns(3)
