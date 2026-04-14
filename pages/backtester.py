@@ -769,6 +769,30 @@ def run_engine(universe_dict, params, sznl_map, market_series=None, vix_series=N
                         if xf.get('consecutive', 1) > 1: c_f = c_f.rolling(xf['consecutive']).sum() == xf['consecutive']
                         conditions.append(c_f)
 
+            # --- OR FILTER GROUPS (at least one condition in each group must be true) ---
+            for group in params.get('or_filter_groups', []):
+                group_conds = []
+                for cond in group:
+                    ctype = cond.get('type', 'perf')
+                    window = cond['window']
+                    if ctype == 'perf':
+                        col = f"rank_ret_{window}d"
+                    elif ctype == 'xsec':
+                        col = f"xsec_rank_ret_{window}d"
+                    else:
+                        continue
+                    if col not in df.columns:
+                        continue
+                    if cond['logic'] == '<':
+                        group_conds.append(df[col] < cond['thresh'])
+                    elif cond['logic'] == '>':
+                        group_conds.append(df[col] > cond['thresh'])
+                if group_conds:
+                    or_result = group_conds[0]
+                    for gc in group_conds[1:]:
+                        or_result = or_result | gc
+                    conditions.append(or_result)
+
             for f in params.get('ma_consec_filters', []):
                 col = f"SMA{f['length']}"
                 mask = (df['Close'] > df[col]) if f['logic'] == 'Above' else (df['Close'] < df[col])

@@ -89,12 +89,6 @@ def send_email_summary(signals_list, error_tickers=None):
     _primary_signals = [s for s in email_signals if not s.get('_is_companion', False)]
     _companion_map = {s['Ticker']: s for s in email_signals if s.get('_is_companion', False)}
     
-    # Orphaned companions (ATH routing: LOC staged but primary skipped)
-    _primary_vol_spike_tickers = {s['Ticker'] for s in _primary_signals if s.get('Strategy_Name') == 'Overbot Vol Spike'}
-    for ticker, comp in _companion_map.items():
-        if comp.get('_parent_strategy') == 'Overbot Vol Spike' and ticker not in _primary_vol_spike_tickers:
-            _primary_signals.append(comp)
-    
     # Build error tickers section (shared across both branches)
     error_html = ""
     if not error_tickers:
@@ -217,10 +211,6 @@ def send_email_summary(signals_list, error_tickers=None):
                 comp_price = _companion.get('Limit_Price', 0)
                 comp_shares = _companion.get('Shares', 0)
                 notes_parts.append(f"📋 Also staged: LOC {comp_shares:,} shares @ >${comp_price:.2f} (Close + 0.5 ATR)")
-            
-            # ATH routing explanation (orphaned companion shown as card)
-            if sig.get('_is_companion', False) and sig.get('_parent_strategy') == 'Overbot Vol Spike':
-                notes_parts.append(f"⚠️ ATH in last 10d — primary short suppressed, LOC only")
             
             if notes_parts:
                 notes_html = "<div style='font-size: 12px; color: #ff9800; margin-top: 8px;'>" + "<br>".join(notes_parts) + "</div>"
@@ -746,6 +736,24 @@ def check_signal(df, params, sznl_map, ticker=None):
             if xf['logic'] == '<' and not (val < xf['thresh']): return False
             if xf['logic'] == '>' and not (val > xf['thresh']): return False
             if xf['logic'] == 'Between' and not (val >= xf['thresh'] and val <= xf.get('thresh_max', 100.0)): return False
+    # 9d. OR Filter Groups (at least one condition in each group must be true)
+    for group in params.get('or_filter_groups', []):
+        any_pass = False
+        for cond in group:
+            ctype = cond.get('type', 'perf')
+            window = cond['window']
+            logic = cond['logic']
+            thresh = cond['thresh']
+            if ctype == 'perf':
+                val = last_row.get(f"rank_ret_{window}d", 50.0)
+            elif ctype == 'xsec':
+                val = last_row.get(f"xsec_rank_ret_{window}d", 50.0)
+            else:
+                continue
+            if logic == '<' and val < thresh: any_pass = True; break
+            if logic == '>' and val > thresh: any_pass = True; break
+        if not any_pass:
+            return False
     # 10. Volume (Ratio ONLY)
     if params['use_vol']:
         if not (last_row['vol_ratio'] > params['vol_thresh']): return False
@@ -1573,13 +1581,18 @@ def run_daily_scan():
             temp_vix.index = temp_vix.index.tz_localize(None)
         vix_series = temp_vix['Close']
     
-    # 4b. Build Cross-Sectional Rank Matrices (if any strategy uses xsec filters)
+    # 4b. Build Cross-Sectional Rank Matrices (if any strategy uses xsec filters or or_filter_groups)
     xsec_rank_matrices = None
     xsec_windows_needed = set()
     for strat in STRATEGY_BOOK:
-        if strat['settings'].get('use_xsec_filter', False):
-            for xf in strat['settings'].get('xsec_filters', []):
+        s = strat['settings']
+        if s.get('use_xsec_filter', False):
+            for xf in s.get('xsec_filters', []):
                 xsec_windows_needed.add(xf['window'])
+        for group in s.get('or_filter_groups', []):
+            for cond in group:
+                if cond.get('type') == 'xsec':
+                    xsec_windows_needed.add(cond['window'])
     if xsec_windows_needed:
         print(f"📊 Computing cross-sectional ranks (windows: {sorted(xsec_windows_needed)})...")
         RANK_MIN_PERIODS = 252
@@ -1662,36 +1675,6 @@ def run_daily_scan():
                     risk = base_risk 
 
                     sizing_note = "Standard (1.0x)"
-                    
-                    # Initialize overlay flags
-                    # Initialize overlay flags
-                    _skip_primary = False
-                    _skip_loc = False
-
-                    if strat['name'] == "Overbot Vol Spike":
-                        is_ath_l10 = bool(calc_df['is_ath'].rolling(window=10, min_periods=1).max().iloc[-1])
-                        is_52w_high_today = bool(last_row.get('is_52w_high', False))
-                        is_52w_high_l5 = bool(calc_df['is_52w_high'].rolling(window=5, min_periods=1).max().iloc[-1])
-
-                        if is_ath_l10:
-                            # Case 1: Made ATH in last 10 days → LOC only, normal risk
-                            _skip_primary = True
-                            risk = base_risk
-                            sizing_note = f"ATH in L10 → LOC only (1.0x)"
-                        elif is_52w_high_today:
-                            # Case 2: No ATH in L10 but 52w high today → primary only, 0.66x
-                            _skip_loc = True
-                            risk = base_risk * 0.66
-                            sizing_note = f"52w High today, no ATH L10 → Primary only (0.66x)"
-                        elif is_52w_high_l5:
-                            # Case 3: No ATH L10, no 52w high today, but 52w high in L5 → LOC only
-                            _skip_primary = True
-                            risk = base_risk
-                            sizing_note = f"52w High in L5 (not today) → LOC only (1.0x)"
-                        else:
-                            # Case 4: No ATH L10, no 52w high in L5 → both primary + LOC
-                            risk = base_risk
-                            sizing_note = f"No ATH L10, no 52w High L5 → Primary + LOC (1.0x)"
                     
                     if strat['name'] == "Weak Close Decent Sznls":
                         sznl_val = last_row.get('Sznl', 0)
@@ -1816,15 +1799,10 @@ def run_daily_scan():
                     }
                     
                     if strat['name'] == "Overbot Vol Spike":
-                        companion = None
-                        if not _skip_loc:
-                            companion = generate_vol_spike_companion(
-                                signal_dict, strat, last_row
-                            )
-
-                        if not _skip_primary:
-                            signals.append(signal_dict)
-
+                        signals.append(signal_dict)
+                        companion = generate_vol_spike_companion(
+                            signal_dict, strat, last_row
+                        )
                         if companion:
                             signals.append(companion)
                     else:

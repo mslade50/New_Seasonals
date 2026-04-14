@@ -70,6 +70,14 @@ LIQUID_NO_INDEX = [t for t in LIQUID_UNIVERSE if t not in ['^GSPC', '^NDX']]
 # Liquid universe + commodity ETFs for broader coverage (198 tickers)
 LIQUID_PLUS_COMMODITIES = LIQUID_UNIVERSE + ['CEF', 'GLD', 'OIH', 'SLV', 'UNG', 'USO', 'UVXY', 'XOP']
 
+# All CSV tickers from sznl_ranks.csv (~1062 tickers)
+import os as _os, pandas as _pd
+_csv_path = _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), 'sznl_ranks.csv')
+try:
+    CSV_UNIVERSE = sorted(_pd.read_csv(_csv_path)['ticker'].unique().tolist())
+except Exception:
+    CSV_UNIVERSE = LIQUID_UNIVERSE  # fallback
+
 # ============================================
 # STRATEGY DEFINITIONS
 # ============================================
@@ -611,12 +619,14 @@ _STRATEGY_BOOK_RAW = [
         "setup": {
             "type": "MeanReversion",
             "timeframe": "Overnight",
-            "thesis": "Fading overbought names with volume climax and weak seasonality",
+            "thesis": "Fading overbought names with volume climax — filtered to names NOT in long-term uptrend leaders",
             "key_filters": [
                 "5D + 10D + 21D ranks ALL > 85th %ile (extremely overbought)",
                 "21D > 85th %ile for 3 consecutive days",
                 "Volume > 1.25x 63-day average (climax volume)",
                 "At least 1 distribution day in last 21",
+                "252D return < 65th %ile (not a long-term leader)",
+                "EITHER 126D return < 65th %ile OR cross-sectional rank < 30th %ile",
                 "Market seasonal < 75 (not fighting strong macro)",
                 "Today's return > 0.25 ATR (up day)",
                 "Close in upper 50% of range (strong close to fade)"
@@ -626,10 +636,10 @@ _STRATEGY_BOOK_RAW = [
             "primary_exit": "2-day time stop",
             "stop_logic": "1.0 ATR above entry (short)",
             "target_logic": "8.0 ATR below entry (short)",
-            "notes": "DYNAMIC ROUTING: ATH in L10 → LOC only (1.0x) | 52w High, no ATH → Primary only (0.66x) | Neither → Primary + LOC (1.0x)"
+            "notes": "Primary + LOC always staged together"
         },
         "description": "Start: 2000-01-01. Universe: All CSV Tickers. Dir: Short. Filter: None. PF: 2.46. SQN: 4.44.",
-        "universe_tickers": LIQUID_UNIVERSE,
+        "universe_tickers": CSV_UNIVERSE,
         "settings": {
             "trade_direction": "Short",
             "entry_type": "Limit (Open +/- 0.5 ATR)",
@@ -637,7 +647,18 @@ _STRATEGY_BOOK_RAW = [
             "allow_same_day_reentry": True,
             "max_daily_entries": 2,
             "max_total_positions": 10,
-            "perf_filters": [{'window': 5, 'logic': '>', 'thresh': 85.0, 'consecutive': 1}, {'window': 10, 'logic': '>', 'thresh': 85.0, 'consecutive': 1}, {'window': 21, 'logic': '>', 'thresh': 85.0, 'consecutive': 3}],
+            "perf_filters": [
+                {'window': 5, 'logic': '>', 'thresh': 85.0, 'consecutive': 1},
+                {'window': 10, 'logic': '>', 'thresh': 85.0, 'consecutive': 1},
+                {'window': 21, 'logic': '>', 'thresh': 85.0, 'consecutive': 3},
+                {'window': 252, 'logic': '<', 'thresh': 65.0, 'consecutive': 1},
+            ],
+            "or_filter_groups": [
+                [
+                    {'type': 'perf', 'window': 126, 'logic': '<', 'thresh': 65.0},
+                    {'type': 'xsec', 'window': 5, 'logic': '<', 'thresh': 30.0},
+                ]
+            ],
             "perf_first_instance": False, "perf_lookback": 21,
             "use_sznl": False, "sznl_logic": ">", "sznl_thresh": 85.0, "sznl_first_instance": False, "sznl_lookback": 21,
             "use_market_sznl": True, "market_sznl_logic": "<", "market_sznl_thresh": 75.0,
@@ -646,7 +667,7 @@ _STRATEGY_BOOK_RAW = [
             "use_vol": True, "vol_thresh": 1.25,
             "use_vol_rank": False, "vol_rank_logic": "<", "vol_rank_thresh": 50.0,
             "trend_filter": "None",
-            "use_today_return": True, "return_min": 0.25, "return_max": 100, 
+            "use_today_return": True, "return_min": 0.25, "return_max": 100,
             "use_range_filter": True, "range_min": 50, "range_max": 100,
             "min_price": 10.0, "min_vol": 100000,
             "min_age": 0.25, "max_age": 100.0,
@@ -656,13 +677,7 @@ _STRATEGY_BOOK_RAW = [
             "use_gap_filter": False, "gap_lookback": 21, "gap_logic": ">", "gap_thresh": 3,
             "use_acc_count_filter": False, "acc_count_window": 21, "acc_count_logic": ">", "acc_count_thresh": 3,
             "use_dist_count_filter": True, "dist_count_window": 21, "dist_count_logic": ">", "dist_count_thresh": 0,
-            "use_xsec_filter": False, "xsec_filters": [
-                # {'window': 5, 'logic': '>', 'thresh': 80.0},
-                # {'window': 10, 'logic': '>', 'thresh': 80.0},
-                # {'window': 21, 'logic': '>', 'thresh': 80.0},
-                # {'window': 126, 'logic': '>', 'thresh': 80.0},
-                # {'window': 252, 'logic': '>', 'thresh': 80.0},
-            ]
+            "use_xsec_filter": True, "xsec_filters": []
         },
         "execution": {"risk_bps": 30, "slippage_bps": 2, "stop_atr": 1.0, "tgt_atr": 8.0, "hold_days": 2,"use_stop_loss": False, "use_take_profit": False},
         "stats": {"grade": "A (Excellent)", "win_rate": "58.0%", "expectancy": "0.28r", "profit_factor": "1.96"}
