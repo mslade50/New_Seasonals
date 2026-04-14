@@ -639,7 +639,7 @@ _STRATEGY_BOOK_RAW = [
             "notes": "Primary + LOC always staged together"
         },
         "description": "Start: 2000-01-01. Universe: All CSV Tickers. Dir: Short. Filter: None. PF: 2.46. SQN: 4.44.",
-        "universe_tickers": CSV_UNIVERSE,
+        "universe_tickers": LIQUID_PLUS_COMMODITIES,
         "settings": {
             "trade_direction": "Short",
             "entry_type": "Limit (Open +/- 0.5 ATR)",
