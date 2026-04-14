@@ -738,6 +738,14 @@ def check_signal(df, params, sznl_map, ticker=None):
             val = last_row.get(col, 50.0)
             if rf['logic'] == '<' and not (val < rf['thresh']): return False
             if rf['logic'] == '>' and not (val > rf['thresh']): return False
+    # 9c. Cross-Sectional Rank Filter
+    if params.get('use_xsec_filter', False) and params.get('xsec_filters'):
+        for xf in params['xsec_filters']:
+            col = f"xsec_rank_ret_{xf['window']}d"
+            val = last_row.get(col, 50.0)
+            if xf['logic'] == '<' and not (val < xf['thresh']): return False
+            if xf['logic'] == '>' and not (val > xf['thresh']): return False
+            if xf['logic'] == 'Between' and not (val >= xf['thresh'] and val <= xf.get('thresh_max', 100.0)): return False
     # 10. Volume (Ratio ONLY)
     if params['use_vol']:
         if not (last_row['vol_ratio'] > params['vol_thresh']): return False
@@ -1565,6 +1573,31 @@ def run_daily_scan():
             temp_vix.index = temp_vix.index.tz_localize(None)
         vix_series = temp_vix['Close']
     
+    # 4b. Build Cross-Sectional Rank Matrices (if any strategy uses xsec filters)
+    xsec_rank_matrices = None
+    xsec_windows_needed = set()
+    for strat in STRATEGY_BOOK:
+        if strat['settings'].get('use_xsec_filter', False):
+            for xf in strat['settings'].get('xsec_filters', []):
+                xsec_windows_needed.add(xf['window'])
+    if xsec_windows_needed:
+        print(f"📊 Computing cross-sectional ranks (windows: {sorted(xsec_windows_needed)})...")
+        RANK_MIN_PERIODS = 252
+        rank_dict = {}
+        for ticker, df in master_dict.items():
+            if df is None or 'Close' not in df.columns or len(df) < 50:
+                continue
+            for w in xsec_windows_needed:
+                ret = df['Close'].pct_change(w)
+                temporal_pctile = ret.expanding(min_periods=RANK_MIN_PERIODS).rank(pct=True) * 100.0
+                rank_dict.setdefault(w, {})[ticker] = temporal_pctile
+        xsec_rank_matrices = {}
+        for w in xsec_windows_needed:
+            if rank_dict.get(w):
+                mat = pd.DataFrame(rank_dict[w])
+                xsec_rank_matrices[w] = mat.rank(axis=1, pct=True) * 100.0
+        print(f"   Done — {len(next(iter(xsec_rank_matrices.values())).columns)} tickers ranked")
+
     all_signals = []
     error_tickers = []  # (ticker, reason) tuples for email reporting
 
@@ -1607,7 +1640,7 @@ def run_daily_scan():
                 continue
             
             try:
-                calc_df = calculate_indicators(df.copy(), sznl_map, t_clean, market_series, vix_series, ref_ticker_ranks=ref_ticker_ranks)
+                calc_df = calculate_indicators(df.copy(), sznl_map, t_clean, market_series, vix_series, ref_ticker_ranks=ref_ticker_ranks, xsec_rank_matrices=xsec_rank_matrices)
                 
                 if check_signal(calc_df, strat['settings'], sznl_map, ticker=t_clean):
                     last_row = calc_df.iloc[-1]

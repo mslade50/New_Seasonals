@@ -655,7 +655,12 @@ _STRATEGY_BOOK_RAW = [
             "use_ma_dist_filter": False, "dist_ma_type": "SMA 10", "dist_logic": "Greater Than (>)", "dist_min": 0.0, "dist_max": 2.0,
             "use_gap_filter": False, "gap_lookback": 21, "gap_logic": ">", "gap_thresh": 3,
             "use_acc_count_filter": False, "acc_count_window": 21, "acc_count_logic": ">", "acc_count_thresh": 3,
-            "use_dist_count_filter": True, "dist_count_window": 21, "dist_count_logic": ">", "dist_count_thresh": 0
+            "use_dist_count_filter": True, "dist_count_window": 21, "dist_count_logic": ">", "dist_count_thresh": 0,
+            "use_xsec_filter": False, "xsec_filters": [
+                # {'window': 5, 'logic': '>', 'thresh': 80.0},
+                # {'window': 10, 'logic': '>', 'thresh': 80.0},
+                # {'window': 21, 'logic': '>', 'thresh': 80.0},
+            ]
         },
         "execution": {"risk_bps": 30, "slippage_bps": 2, "stop_atr": 1.0, "tgt_atr": 8.0, "hold_days": 2,"use_stop_loss": False, "use_take_profit": False},
         "stats": {"grade": "A (Excellent)", "win_rate": "58.0%", "expectancy": "0.28r", "profit_factor": "1.96"}
