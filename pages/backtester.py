@@ -85,6 +85,61 @@ def build_xsec_rank_matrices(data_dict, windows=[5, 10, 21]):
         result[w] = mat.rank(axis=1, pct=True) * 100.0
     return result
 
+def build_mtm_equity_curve(trades_df, data_dict, risk_per_trade):
+    """Build a daily mark-to-market equity curve from executed trades.
+
+    For each trade, looks up daily closes between entry and exit from data_dict
+    and computes daily unrealized P&L. Aggregates across all concurrent positions
+    to produce a continuous equity curve.
+
+    Returns a date-indexed Series of cumulative portfolio P&L in dollars.
+    """
+    daily_pnl = {}  # date -> total unrealized + realized P&L change
+
+    for _, trade in trades_df.iterrows():
+        ticker = trade['Ticker']
+        if ticker not in data_dict:
+            continue
+        ticker_df = data_dict[ticker]
+        entry_date = pd.to_datetime(trade['EntryDate'])
+        exit_date = pd.to_datetime(trade['ExitDate'])
+        entry_price = trade['Entry']
+        exit_price = trade['Exit']
+        direction = trade['Direction']
+        tech_risk = trade['TechRisk']
+        shares = risk_per_trade / tech_risk if tech_risk > 0 else 0
+        if shares == 0:
+            continue
+
+        # Get closes during the holding period
+        mask = (ticker_df.index >= entry_date) & (ticker_df.index <= exit_date)
+        holding = ticker_df.loc[mask, 'Close']
+        if holding.empty:
+            continue
+
+        # Daily unrealized P&L vs entry
+        prev_val = 0.0
+        for date, close in holding.items():
+            # On exit date, use actual exit price (may differ from close for stop/target)
+            if date == exit_date:
+                px = exit_price
+            else:
+                px = close
+            if direction == 'Long':
+                unrealized = (px - entry_price) * shares
+            else:
+                unrealized = (entry_price - px) * shares
+            # Daily change in this position's value
+            change = unrealized - prev_val
+            daily_pnl[date] = daily_pnl.get(date, 0.0) + change
+            prev_val = unrealized
+
+    if not daily_pnl:
+        return pd.Series(dtype=float)
+
+    pnl_series = pd.Series(daily_pnl).sort_index()
+    return pnl_series.cumsum()
+
 @st.cache_data(show_spinner=True)
 def download_universe_data(tickers, fetch_start_date):
     if not tickers: return {} 
@@ -1066,7 +1121,7 @@ def run_engine(universe_dict, params, sznl_map, market_series=None, vix_series=N
                 if tech_risk <= 0: tech_risk = 0.001
                 pnl = (exit_price*(1-slip) - actual_entry_price*(1+slip)) if direction == 'Long' else (actual_entry_price*(1-slip) - exit_price*(1+slip))
                 
-                all_potential_trades.append({"Ticker": ticker, "SignalDate": signal_date, "EntryDate": df.index[actual_entry_idx], "Direction": direction, "Entry": actual_entry_price, "Exit": exit_price, "ExitDate": exit_date, "Type": exit_type, "R": pnl / tech_risk, "Age": df['age_years'].iloc[sig_idx], "AvgVol": df['vol_ma'].iloc[sig_idx], "Status": "Valid Signal", "Reason": "Executed"})
+                all_potential_trades.append({"Ticker": ticker, "SignalDate": signal_date, "EntryDate": df.index[actual_entry_idx], "Direction": direction, "Entry": actual_entry_price, "Exit": exit_price, "ExitDate": exit_date, "Type": exit_type, "R": pnl / tech_risk, "TechRisk": tech_risk, "Age": df['age_years'].iloc[sig_idx], "AvgVol": df['vol_ma'].iloc[sig_idx], "Status": "Valid Signal", "Reason": "Executed"})
         except Exception: continue
 
     progress_bar.empty()
@@ -1602,6 +1657,8 @@ def main():
             trades_df = trades_df.sort_values("ExitDate")
             trades_df['PnL_Dollar'] = trades_df['R'] * risk_per_trade
             trades_df['CumPnL'] = trades_df['PnL_Dollar'].cumsum()
+            # Build daily MTM equity curve before dates get stringified
+            mtm_curve = build_mtm_equity_curve(trades_df, data_dict, risk_per_trade)
             trades_df['SignalDate'] = pd.to_datetime(trades_df['SignalDate'])
             trades_df['EntryDate'] = pd.to_datetime(trades_df['EntryDate'])
             trades_df['DayOfWeek'] = trades_df['EntryDate'].dt.day_name()
@@ -1652,7 +1709,18 @@ def main():
                 st.code(py_code, language="python")
                 st.download_button("Download as Python", py_code, file_name="strategy_export.py", mime="text/x-python")
         if not trades_df.empty:
-            fig = px.line(trades_df, x="ExitDate", y="CumPnL", title=f"Actual Portfolio Equity (Risk: ${risk_per_trade}/trade)", markers=True)
+            if not mtm_curve.empty:
+                mtm_df = mtm_curve.reset_index()
+                mtm_df.columns = ['Date', 'CumPnL']
+                fig = px.line(mtm_df, x="Date", y="CumPnL", title=f"Daily Mark-to-Market Equity (Risk: ${risk_per_trade}/trade)")
+                fig.update_traces(line=dict(width=1.5))
+                # Overlay trade-exit markers
+                exit_points = trades_df[['ExitDate', 'CumPnL']].copy()
+                exit_points['ExitDate'] = pd.to_datetime(exit_points['ExitDate'])
+                fig.add_scatter(x=exit_points['ExitDate'], y=exit_points['CumPnL'], mode='markers',
+                                marker=dict(size=5, color='rgba(255,255,255,0.4)'), name='Trade Exits', showlegend=False)
+            else:
+                fig = px.line(trades_df, x="ExitDate", y="CumPnL", title=f"Portfolio Equity (Risk: ${risk_per_trade}/trade)", markers=True)
             st.plotly_chart(fig, use_container_width=True)
             st.subheader("Performance Breakdowns")
             y1, y2 = st.columns(2)
