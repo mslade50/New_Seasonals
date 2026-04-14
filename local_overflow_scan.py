@@ -41,7 +41,7 @@ from strategy_config import (
 from daily_scan import (
     check_signal, load_seasonal_map, generate_vol_spike_companion,
     get_entry_type_short, get_sizing_variable, build_live_filters,
-    save_signals_to_gsheet, save_staging_orders, save_moc_orders
+    get_google_client
 )
 
 TRADING_DAY = CustomBusinessDay(calendar=USFederalHolidayCalendar())
@@ -218,6 +218,104 @@ def update_cache(data_dict, force_rebuild=False):
         print("✅ Cache is current — no downloads needed")
 
     return result
+
+
+# ============================================================================
+# APPEND-ONLY GOOGLE SHEETS (safe — never clears or overwrites)
+# ============================================================================
+
+def append_signals_to_gsheet(signals_list, sheet_name='Trade_Signals_Log'):
+    """Append overflow signals to the Trade_Signals_Log sheet.
+
+    APPEND-ONLY: uses worksheet.append_rows() so it never clears or
+    overwrites existing data from the Actions scan.
+    """
+    if not signals_list:
+        return
+
+    gc = get_google_client()
+    if not gc:
+        return
+
+    df = pd.DataFrame(signals_list)
+
+    # Drop email-only fields (same as daily_scan)
+    cols_to_drop = [
+        'Setup_Type', 'Setup_Timeframe', 'Setup_Thesis', 'Setup_Filters',
+        'Exit_Primary', 'Exit_Stop', 'Exit_Target', 'Exit_Notes',
+        'Live_Filters', 'Entry_Type',
+        'Notional', 'Days_To_Exit', 'Use_Stop', 'Use_Target', 'Sizing_Variable',
+        '_is_companion', '_parent_strategy'
+    ]
+    df = df.drop(columns=[c for c in cols_to_drop if c in df.columns], errors='ignore')
+
+    # Round and tag
+    for c in ['Entry', 'Stop', 'Target', 'ATR']:
+        if c in df.columns:
+            df[c] = df[c].astype(float).round(2)
+    df['Date'] = df['Date'].astype(str)
+    df['Scan_Timestamp'] = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    df['Source'] = 'overflow'
+    cols = ['Scan_Timestamp'] + [c for c in df.columns if c != 'Scan_Timestamp']
+    df = df[cols]
+
+    try:
+        sh = gc.open(sheet_name)
+        worksheet = sh.sheet1
+        rows = df.astype(str).values.tolist()
+        worksheet.append_rows(rows, value_input_option='RAW')
+        print(f"✅ Appended {len(rows)} rows to {sheet_name}")
+    except Exception as e:
+        print(f"❌ Google Sheet append error: {e}")
+
+
+def append_orders_to_gsheet(signals_list, sheet_name='Order_Staging'):
+    """Append overflow orders to Order_Staging sheet.
+
+    APPEND-ONLY: uses worksheet.append_rows().
+    """
+    if not signals_list:
+        return
+
+    gc = get_google_client()
+    if not gc:
+        return
+
+    rows = []
+    for sig in signals_list:
+        entry_mode = sig.get('Entry_Type', '')
+        if 'Signal Close' in entry_mode:
+            continue  # MOC handled separately
+
+        direction = sig.get('Action', 'BUY')
+        action = 'SELL' if 'SHORT' in direction.upper() or 'SELL' in direction.upper() else 'BUY'
+
+        rows.append([
+            datetime.datetime.now().strftime("%Y-%m-%d"),
+            sig.get('Ticker', ''),
+            'STK',
+            'SMART',
+            action,
+            sig.get('Shares', 0),
+            sig.get('Entry_Type_Short', ''),
+            sig.get('Limit_Price', 0),
+            sig.get('ATR', 0),
+            sig.get('Entry', 0),
+            str(sig.get('Time Exit', '')),
+            sig.get('Strategy_Name', ''),
+            'overflow'
+        ])
+
+    if not rows:
+        return
+
+    try:
+        sh = gc.open(sheet_name)
+        worksheet = sh.sheet1
+        worksheet.append_rows(rows, value_input_option='RAW')
+        print(f"✅ Appended {len(rows)} orders to {sheet_name}")
+    except Exception as e:
+        print(f"❌ Order staging append error: {e}")
 
 
 # ============================================================================
@@ -598,19 +696,15 @@ def run_overflow_scan(dry_run=False, force_rebuild=False):
             print(f"   {sig['Ticker']:6s} | {sig['Action']:10s} | {sig['Strategy_Name']}")
         return
 
-    # 8. Save & notify
+    # 8. Save & notify (APPEND-ONLY — never clears or overwrites)
     if all_signals:
-        df_sig = pd.DataFrame(all_signals)
         try:
-            save_signals_to_gsheet(df_sig)
-            print("✅ Signals logged to Google Sheets")
+            append_signals_to_gsheet(all_signals)
         except Exception as e:
             print(f"⚠️ Google Sheets failed: {e}")
 
         try:
-            save_moc_orders(all_signals, STRATEGY_BOOK, sheet_name='moc_orders')
-            save_staging_orders(all_signals, STRATEGY_BOOK, sheet_name='Order_Staging')
-            print("✅ Orders staged")
+            append_orders_to_gsheet(all_signals)
         except Exception as e:
             print(f"⚠️ Order staging failed: {e}")
 
