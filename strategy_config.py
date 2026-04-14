@@ -660,6 +660,8 @@ _STRATEGY_BOOK_RAW = [
                 # {'window': 5, 'logic': '>', 'thresh': 80.0},
                 # {'window': 10, 'logic': '>', 'thresh': 80.0},
                 # {'window': 21, 'logic': '>', 'thresh': 80.0},
+                # {'window': 126, 'logic': '>', 'thresh': 80.0},
+                # {'window': 252, 'logic': '>', 'thresh': 80.0},
             ]
         },
         "execution": {"risk_bps": 30, "slippage_bps": 2, "stop_atr": 1.0, "tgt_atr": 8.0, "hold_days": 2,"use_stop_loss": False, "use_take_profit": False},
