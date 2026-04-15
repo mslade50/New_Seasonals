@@ -4,6 +4,7 @@ import numpy as np
 import yfinance as yf
 import plotly.graph_objects as go
 import datetime as dt
+import os
 from datetime import timedelta
 
 # -----------------------------------------------------------------------------
@@ -29,6 +30,9 @@ SECTOR_ETFS = [
 ]
 
 CSV_PATH = "sznl_sector_forecast.csv"
+ATR_SZNL_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "atr_seasonal_ranks.parquet")
+ATR_SZNL_WINDOWS = [5, 10, 21, 63, 126, 252]
+ATR_SZNL_COLS = [f"atr_sznl_{w}d" for w in ATR_SZNL_WINDOWS]
 
 # -----------------------------------------------------------------------------
 # CACHE MANAGEMENT
@@ -98,6 +102,37 @@ def get_sznl_val(ticker, target_date, sznl_map):
     except:
         return np.nan
 
+@st.cache_data(show_spinner=False)
+def load_atr_seasonal_map():
+    """Load ATR seasonal ranks. Returns {ticker: DataFrame with 6 rank columns}."""
+    if not os.path.exists(ATR_SZNL_PATH):
+        return {}
+    try:
+        df = pd.read_parquet(ATR_SZNL_PATH)
+        df['Date'] = pd.to_datetime(df['Date']).dt.normalize()
+        output = {}
+        for ticker, group in df.groupby('ticker'):
+            output[ticker] = group.set_index('Date')[ATR_SZNL_COLS].sort_index()
+        return output
+    except Exception:
+        return {}
+
+
+def get_atr_sznl_vals(ticker, target_date, atr_sznl_map):
+    """Look up ATR seasonal ranks for a ticker at a date. Returns dict of {col: value}."""
+    if not atr_sznl_map or ticker not in atr_sznl_map:
+        return {col: np.nan for col in ATR_SZNL_COLS}
+    df = atr_sznl_map[ticker]
+    target = pd.Timestamp(target_date).normalize()
+    result = {}
+    for col in ATR_SZNL_COLS:
+        try:
+            result[col] = df[col].asof(target)
+        except Exception:
+            result[col] = np.nan
+    return result
+
+
 def percentile_rank(series: pd.Series, value) -> float:
     s = series.dropna().values
     if s.size == 0: return np.nan
@@ -109,12 +144,12 @@ def percentile_rank(series: pd.Series, value) -> float:
 @st.cache_data(show_spinner=True)
 def load_sector_metrics(tickers):
     sznl_map = load_seasonal_map()
+    atr_sznl_map = load_atr_seasonal_map()
     today = dt.datetime.now()
     rows = []
 
     for t in tickers:
         try:
-            # We fetch a smaller window for the table to keep it fast
             df = yf.download(t, period="2y", interval="1d", auto_adjust=True, progress=False)
         except: continue
         if df.empty: continue
@@ -127,18 +162,18 @@ def load_sector_metrics(tickers):
         if close.empty: continue
 
         ma5, ma20, ma50, ma200 = [close.rolling(w).mean() for w in [5, 20, 50, 200]]
-        
+
         dist5 = (close - ma5) / ma5 * 100.0
         dist20 = (close - ma20) / ma20 * 100.0
         dist50 = (close - ma50) / ma50 * 100.0
         dist200 = (close - ma200) / ma200 * 100.0
 
-        vals = [d.dropna().iloc[-1] if not d.dropna().empty else np.nan 
+        vals = [d.dropna().iloc[-1] if not d.dropna().empty else np.nan
                 for d in [dist5, dist20, dist50, dist200]]
-        
+
         ranks = [percentile_rank(d, v) for d, v in zip([dist5, dist20, dist50, dist200], vals)]
 
-        rows.append({
+        row = {
             "Ticker": t,
             "Price": float(close.iloc[-1]),
             "Sznl": get_sznl_val(t, today, sznl_map),
@@ -146,15 +181,20 @@ def load_sector_metrics(tickers):
             "PctRank20": ranks[1],
             "PctRank50": ranks[2],
             "PctRank200": ranks[3],
-        })
+        }
+
+        # Add ATR seasonal ranks
+        atr_vals = get_atr_sznl_vals(t, today, atr_sznl_map)
+        row.update(atr_vals)
+
+        rows.append(row)
 
     if not rows: return pd.DataFrame()
 
     df_out = pd.DataFrame(rows)
-    # SORT BY SEASONAL RANK (High to Low)
     if "Sznl" in df_out.columns:
         df_out = df_out.sort_values("Sznl", ascending=False, ignore_index=True)
-    
+
     return df_out
 
 # -----------------------------------------------------------------------------
@@ -170,33 +210,35 @@ def get_chart_data(ticker):
         df.columns = df.columns.get_level_values(0)
     return df
 
-def calculate_path(df, cycle_label):
+def calculate_path(df, cycle_label, use_atr=False):
     cycle_start_mapping = {
         "Election": 1952, "Pre-Election": 1951,
         "Post-Election": 1953, "Midterm": 1950
     }
-    
+
     if df.empty: return pd.Series()
 
     if cycle_label == "All Years":
         cycle_data = df.copy()
     else:
         cycle_start = cycle_start_mapping.get(cycle_label, 1953)
-        years_in_cycle = [cycle_start + i * 4 for i in range(30)] 
+        years_in_cycle = [cycle_start + i * 4 for i in range(30)]
         cycle_data = df[df["year"].isin(years_in_cycle)].copy()
 
     if "week_of_month_5day" in cycle_data.columns:
         cycle_data.loc[cycle_data["week_of_month_5day"] > 4, "week_of_month_5day"] = 4
 
-    avg_path = (
-        cycle_data.groupby("day_count")["log_return"]
-        .mean()
-        .cumsum()
-        .apply(np.exp) - 1
-    )
+    ret_col = "atr_return" if use_atr else "log_return"
+    avg_daily = cycle_data.groupby("day_count")[ret_col].mean()
+
+    if use_atr:
+        avg_path = avg_daily.cumsum()
+    else:
+        avg_path = avg_daily.cumsum().apply(np.exp) - 1
+
     return avg_path
 
-def render_seasonal_chart(ticker):
+def render_seasonal_chart(ticker, use_atr=False):
     cycle_label = get_current_cycle_label()
     spx = get_chart_data(ticker)
 
@@ -207,6 +249,16 @@ def render_seasonal_chart(ticker):
     # Feature Engineering
     spx = spx.copy()
     spx["log_return"] = np.log(spx["Close"] / spx["Close"].shift(1))
+    # ATR for normalization
+    prev_close = spx["Close"].shift(1)
+    tr = pd.concat([
+        spx["High"] - spx["Low"],
+        (spx["High"] - prev_close).abs(),
+        (spx["Low"] - prev_close).abs()
+    ], axis=1).max(axis=1)
+    spx["ATR"] = tr.rolling(14).mean()
+    spx["atr_return"] = (spx["Close"] - prev_close) / spx["ATR"]
+
     spx["year"] = spx.index.year
     spx["month"] = spx.index.month
     spx["day_count"] = spx.groupby("year").cumcount() + 1
@@ -217,16 +269,19 @@ def render_seasonal_chart(ticker):
     df_history = spx[spx["year"] < current_year].copy()
 
     # Path A: Selected Cycle
-    path_cycle = calculate_path(df_history, cycle_label)
+    path_cycle = calculate_path(df_history, cycle_label, use_atr=use_atr)
 
     # Path B: All Years
-    path_all = calculate_path(df_history, "All Years")
+    path_all = calculate_path(df_history, "All Years", use_atr=use_atr)
 
     # Path C: Current Realized
     df_current = spx[spx["year"] == current_year].copy()
     path_current = pd.Series()
     if not df_current.empty:
-        path_current = df_current["log_return"].cumsum().apply(np.exp) - 1
+        if use_atr:
+            path_current = df_current["atr_return"].cumsum()
+        else:
+            path_current = df_current["log_return"].cumsum().apply(np.exp) - 1
 
     # Date mapping: use actual trading dates from this year's data
     map_year_data = spx[spx["year"] == current_year]
@@ -245,12 +300,20 @@ def render_seasonal_chart(ticker):
     def get_date_labels(day_indices):
         return [date_map.get(int(i), f"Day {i}") for i in day_indices]
 
-    HOVER_TEMPLATE = (
-        "<b>%{customdata[0]}</b><br>"
-        "Day: %{x}<br>"
-        "Return: %{y:.2%}"
-        "<extra></extra>"
-    )
+    if use_atr:
+        HOVER_TEMPLATE = (
+            "<b>%{customdata[0]}</b><br>"
+            "Day: %{x}<br>"
+            "Cumulative ATR: %{y:.2f}"
+            "<extra></extra>"
+        )
+    else:
+        HOVER_TEMPLATE = (
+            "<b>%{customdata[0]}</b><br>"
+            "Day: %{x}<br>"
+            "Return: %{y:.2%}"
+            "<extra></extra>"
+        )
 
     # Plotting
     fig = go.Figure()
@@ -319,10 +382,12 @@ def render_seasonal_chart(ticker):
                 showlegend=False, hoverinfo="skip"
             ))
 
+    atr_suffix = " (ATR)" if use_atr else ""
+    y_label = "Cumulative ATR Moves" if use_atr else "Return"
     fig.update_layout(
-        title=f"{ticker} Seasonality ({cycle_label})",
+        title=f"{ticker} Seasonality{atr_suffix} ({cycle_label})",
         margin=dict(l=10, r=10, t=40, b=10),
-        height=600, # <--- UPDATED HEIGHT (600px)
+        height=600,
         plot_bgcolor="black",
         paper_bgcolor="black",
         font=dict(color="white"),
@@ -335,7 +400,8 @@ def render_seasonal_chart(ticker):
             xanchor="left", x=0.01
         ),
         xaxis=dict(showgrid=False),
-        yaxis=dict(showgrid=False, title="Return")
+        yaxis=dict(showgrid=False, title=y_label,
+                   tickformat=".1f" if use_atr else None)
     )
     
     st.plotly_chart(fig, use_container_width=True)
@@ -375,15 +441,21 @@ def main():
 
     format_dict = {
         "Price": "{:.2f}", "Sznl": "{:.1f}",
-        "PctRank5": "{:.1f}", "PctRank20": "{:.1f}", 
+        "PctRank5": "{:.1f}", "PctRank20": "{:.1f}",
         "PctRank50": "{:.1f}", "PctRank200": "{:.1f}",
     }
+    for col in ATR_SZNL_COLS:
+        if col in table.columns:
+            format_dict[col] = "{:.1f}"
+
+    atr_cols_present = [c for c in ATR_SZNL_COLS if c in table.columns]
 
     styled = (
         table.style
         .format(format_dict)
         .map(highlight_pct_rank, subset=["PctRank5", "PctRank20", "PctRank50", "PctRank200"])
         .map(highlight_sznl, subset=["Sznl"])
+        .map(highlight_sznl, subset=atr_cols_present)
     )
 
     st.dataframe(styled, use_container_width=True)
@@ -391,17 +463,21 @@ def main():
     # 2. CHARTS SECTION
     st.divider()
     st.subheader("Seasonal Charts")
-    st.caption(f"Current Cycle: {get_current_cycle_label()} (Orange). All Years (Blue Dashed). Current Year Realized (Green).")
-    
+    c1, c2 = st.columns([3, 1])
+    with c1:
+        st.caption(f"Current Cycle: {get_current_cycle_label()} (Orange). All Years (Blue Dashed). Current Year Realized (Green).")
+    with c2:
+        use_atr_norm = st.checkbox("Normalize by ATR", value=False)
+
     # Grid layout for charts (2 per row for better visibility)
     tickers_to_plot = table["Ticker"].tolist()
-    
+
     # Create columns for grid layout
     cols = st.columns(2)
-    
+
     for i, ticker in enumerate(tickers_to_plot):
         with cols[i % 2]:
-            render_seasonal_chart(ticker)
+            render_seasonal_chart(ticker, use_atr=use_atr_norm)
 
 if __name__ == "__main__":
     main()

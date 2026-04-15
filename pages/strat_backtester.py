@@ -33,8 +33,30 @@ except ImportError:
 # -----------------------------------------------------------------------------
 PRIMARY_SZNL_PATH = "sznl_ranks.csv"
 BACKUP_SZNL_PATH = "seasonal_ranks.csv"
+ATR_SZNL_PATH = "atr_seasonal_ranks.parquet"
 
-@st.cache_resource 
+ATR_SZNL_WINDOWS = [5, 10, 21, 63, 126, 252]
+ATR_SZNL_COLS = [f"atr_sznl_{w}d" for w in ATR_SZNL_WINDOWS]
+
+
+@st.cache_resource
+def load_atr_seasonal_map():
+    """Load ATR-normalized seasonal ranks. Returns {ticker: DataFrame with 6 rank columns}."""
+    path = os.path.join(parent_dir, ATR_SZNL_PATH)
+    if not os.path.exists(path):
+        return {}
+    try:
+        df = pd.read_parquet(path)
+        df['Date'] = pd.to_datetime(df['Date']).dt.normalize()
+        output = {}
+        for ticker, group in df.groupby('ticker'):
+            output[ticker] = group.set_index('Date')[ATR_SZNL_COLS].sort_index()
+        return output
+    except Exception:
+        return {}
+
+
+@st.cache_resource
 def load_seasonal_map():
     def load_raw_csv(path):
         try:
@@ -377,6 +399,19 @@ def get_historical_mask(df, params, sznl_map, ticker_name="UNK"):
         else:
             conditions.append(mkt_sznl > params['market_sznl_thresh'])
 
+    # ATR seasonal rank filters
+    for asf in params.get('atr_sznl_filters', []):
+        col = f"atr_sznl_{asf['window']}d"
+        if col in df.columns:
+            vals = df[col].values
+            logic = asf.get('logic', '>')
+            if logic == '<':
+                conditions.append(vals < asf['thresh'])
+            elif logic == '>':
+                conditions.append(vals > asf['thresh'])
+            elif logic == 'Between':
+                conditions.append((vals >= asf['thresh']) & (vals <= asf.get('thresh_max', 100.0)))
+
     # 52-week high/low filter
     if params.get('use_52w', False):
         if params['52w_type'] == 'New 52w High':
@@ -571,9 +606,9 @@ def get_historical_mask(df, params, sznl_map, ticker_name="UNK"):
 
 
 @st.cache_data(show_spinner=False)
-def precompute_all_indicators(_master_dict, _strategies, _sznl_map, _vix_series):
+def precompute_all_indicators(_master_dict, _strategies, _sznl_map, _vix_series, _atr_sznl_map=None):
     processed = {}
-    
+
     spy_df = _master_dict.get('SPY')
     market_series = None
     if spy_df is not None:
@@ -680,7 +715,19 @@ def precompute_all_indicators(_master_dict, _strategies, _sznl_map, _vix_series)
     with ThreadPoolExecutor(max_workers=8) as pool:
         for result in pool.map(_compute_one, ticker_params.items()):
             if result is not None:
-                processed[result[0]] = result[1]
+                t_clean, t_df = result
+                # Merge ATR seasonal ranks onto the processed DataFrame
+                if _atr_sznl_map and t_clean in _atr_sznl_map:
+                    atr_ranks = _atr_sznl_map[t_clean]
+                    for col in ATR_SZNL_COLS:
+                        if col in atr_ranks.columns:
+                            t_df[col] = atr_ranks[col].reindex(t_df.index, method='ffill').fillna(50.0)
+                        else:
+                            t_df[col] = 50.0
+                else:
+                    for col in ATR_SZNL_COLS:
+                        t_df[col] = 50.0
+                processed[t_clean] = t_df
 
     return processed
 
@@ -1800,6 +1847,7 @@ def main():
 
     if run_btn:
         sznl_map = load_seasonal_map()
+        atr_sznl_map = load_atr_seasonal_map()
         if 'backtest_data' not in st.session_state:
             st.session_state['backtest_data'] = {}
 
@@ -1869,7 +1917,7 @@ def main():
 
         st.write("📊 **Phase 1:** Computing indicators...")
         t0 = time.time()
-        processed_dict = precompute_all_indicators(master_dict, strategies, sznl_map, vix_series)
+        processed_dict = precompute_all_indicators(master_dict, strategies, sznl_map, vix_series, atr_sznl_map)
         st.write(f"   Processed {len(processed_dict)} tickers in {time.time()-t0:.1f}s")
 
         st.write("🔍 **Phase 2:** Finding signals...")
