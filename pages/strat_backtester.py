@@ -515,6 +515,47 @@ def get_historical_mask(df, params, sznl_map, ticker_name="UNK"):
                 elif rf['logic'] == '>':
                     conditions.append(col_vals > rf['thresh'])
 
+    # Cross-sectional rank filter
+    if params.get('use_xsec_filter', False) and params.get('xsec_filters'):
+        for xf in params['xsec_filters']:
+            col = f"xsec_rank_ret_{xf['window']}d"
+            if col in df.columns:
+                col_vals = df[col].values
+                if xf['logic'] == '<':
+                    conditions.append(col_vals < xf['thresh'])
+                elif xf['logic'] == '>':
+                    conditions.append(col_vals > xf['thresh'])
+                elif xf['logic'] == 'Between':
+                    conditions.append((col_vals >= xf['thresh']) & (col_vals <= xf.get('thresh_max', 100.0)))
+
+    # OR filter groups (at least one condition in each group must be true)
+    for group in params.get('or_filter_groups', []):
+        group_masks = []
+        for cond in group:
+            ctype = cond.get('type', 'perf')
+            window = cond['window']
+            logic = cond['logic']
+            thresh = cond['thresh']
+            if ctype == 'perf':
+                col = f"rank_ret_{window}d"
+            elif ctype == 'xsec':
+                col = f"xsec_rank_ret_{window}d"
+            else:
+                continue
+            if col not in df.columns:
+                continue
+            col_vals = df[col].values
+            if logic == '<':
+                group_masks.append(col_vals < thresh)
+            elif logic == '>':
+                group_masks.append(col_vals > thresh)
+        if group_masks:
+            # OR: any condition in the group passing is sufficient
+            combined_or = np.zeros(n, dtype=bool)
+            for m in group_masks:
+                combined_or = combined_or | np.nan_to_num(m, nan=0).astype(bool)
+            conditions.append(combined_or)
+
     # Combine all conditions
     if conditions:
         # Handle NaN values in conditions
@@ -568,6 +609,36 @@ def precompute_all_indicators(_master_dict, _strategies, _sznl_map, _vix_series)
     for ref_ranks in ref_ticker_ranks_map.values():
         all_ref_ticker_ranks.update(ref_ranks)
 
+    # Build cross-sectional rank matrices (if any strategy uses xsec filters or or_filter_groups)
+    xsec_windows_needed = set()
+    for strat in _strategies:
+        s = strat['settings']
+        if s.get('use_xsec_filter', False):
+            for xf in s.get('xsec_filters', []):
+                xsec_windows_needed.add(xf['window'])
+        for group in s.get('or_filter_groups', []):
+            for cond in group:
+                if cond.get('type') == 'xsec':
+                    xsec_windows_needed.add(cond['window'])
+
+    xsec_rank_matrices = None
+    if xsec_windows_needed:
+        RANK_MIN_PERIODS = 252
+        rank_dict = {}
+        for ticker, df in _master_dict.items():
+            if df is None or 'Close' not in df.columns or len(df) < 50:
+                continue
+            close = df['Close']
+            for w in xsec_windows_needed:
+                ret = close.pct_change(w)
+                temporal_pctile = ret.expanding(min_periods=RANK_MIN_PERIODS).rank(pct=True) * 100.0
+                rank_dict.setdefault(w, {})[ticker] = temporal_pctile
+        xsec_rank_matrices = {}
+        for w in xsec_windows_needed:
+            if rank_dict.get(w):
+                mat = pd.DataFrame(rank_dict[w])
+                xsec_rank_matrices[w] = mat.rank(axis=1, pct=True) * 100.0
+
     ticker_params = {}
     for strat in _strategies:
         settings = strat['settings']
@@ -599,7 +670,8 @@ def precompute_all_indicators(_master_dict, _strategies, _sznl_map, _vix_series)
                 acc_window=params['acc'],
                 dist_window=params['dist'],
                 custom_sma_lengths=list(params['mas']),
-                ref_ticker_ranks=all_ref_ticker_ranks if all_ref_ticker_ranks else None
+                ref_ticker_ranks=all_ref_ticker_ranks if all_ref_ticker_ranks else None,
+                xsec_rank_matrices=xsec_rank_matrices
             )
             return (t_clean, result)
         except Exception:
