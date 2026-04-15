@@ -118,7 +118,9 @@ def load_sector_metrics(tickers):
             df = yf.download(t, period="2y", interval="1d", auto_adjust=True, progress=False)
         except: continue
         if df.empty: continue
-        
+        if isinstance(df.columns, pd.MultiIndex):
+            df.columns = df.columns.get_level_values(0)
+
         col_name = "Adj Close" if "Adj Close" in df.columns else "Close"
         if col_name not in df.columns: continue
         close = df[col_name].dropna()
