@@ -84,25 +84,28 @@ def calculate_seasonal_rank(df, cycle_label, cycle_start_mapping, cutoff_year):
 # MAIN CHART LOGIC
 # -----------------------------------------------------------------------------
 
-def calculate_path(df, cycle_label, cycle_start_mapping):
+def calculate_path(df, cycle_label, cycle_start_mapping, use_atr=False):
     if df.empty: return pd.Series()
 
     if cycle_label == "All Years":
         cycle_data = df.copy()
     else:
         cycle_start = cycle_start_mapping[cycle_label]
-        years_in_cycle = [cycle_start + i * 4 for i in range(30)] 
+        years_in_cycle = [cycle_start + i * 4 for i in range(30)]
         cycle_data = df[df["year"].isin(years_in_cycle)].copy()
 
     if "week_of_month_5day" in cycle_data.columns:
         cycle_data.loc[cycle_data["week_of_month_5day"] > 4, "week_of_month_5day"] = 4
 
-    avg_path = (
-        cycle_data.groupby("day_count")["log_return"]
-        .mean()
-        .cumsum()
-        .apply(np.exp) - 1
-    )
+    ret_col = "atr_return" if use_atr else "log_return"
+    avg_daily = cycle_data.groupby("day_count")[ret_col].mean()
+
+    if use_atr:
+        # ATR returns are additive — just cumsum
+        avg_path = avg_daily.cumsum()
+    else:
+        avg_path = avg_daily.cumsum().apply(np.exp) - 1
+
     return avg_path
 
 # -----------------------------------------------------------------------------
@@ -192,7 +195,7 @@ def recent_performance_analysis(df, cycle_label, cycle_start_mapping):
 # -----------------------------------------------------------------------------
 # MAIN LOGIC
 # -----------------------------------------------------------------------------
-def seasonals_chart(ticker, cycle_label, enable_time_travel, reference_year, show_all_years_line):
+def seasonals_chart(ticker, cycle_label, enable_time_travel, reference_year, show_all_years_line, use_atr_norm=False):
     cycle_start_mapping = {
         "Election": 1952,
         "Pre-Election": 1951,
@@ -219,6 +222,7 @@ def seasonals_chart(ticker, cycle_label, enable_time_travel, reference_year, sho
         current_atr_pct = spx["ATR%"].dropna().iloc[-1]
 
     spx["log_return"] = np.log(spx["Close"] / spx["Close"].shift(1))
+    spx["atr_return"] = (spx["Close"] - spx["Close"].shift(1)) / spx["ATR"]
     spx["year"] = spx.index.year
     spx["month"] = spx.index.month
     spx["day_count"] = spx.groupby("year").cumcount() + 1
@@ -246,16 +250,19 @@ def seasonals_chart(ticker, cycle_label, enable_time_travel, reference_year, sho
     # -----------------------------------------------------------------
     # 1. CURRENT MODEL CONSTRUCTION
     df_all_history = spx[spx["year"] < current_year].copy()
-    path_current_avg = calculate_path(df_all_history, cycle_label, cycle_start_mapping)
-    
+    path_current_avg = calculate_path(df_all_history, cycle_label, cycle_start_mapping, use_atr=use_atr_norm)
+
     path_current_all_years = pd.Series()
     if show_all_years_line:
-        path_current_all_years = calculate_path(df_all_history, "All Years", cycle_start_mapping)
+        path_current_all_years = calculate_path(df_all_history, "All Years", cycle_start_mapping, use_atr=use_atr_norm)
 
     df_current_year = spx[spx["year"] == current_year].copy()
     path_current_realized = pd.Series()
     if not df_current_year.empty:
-        path_current_realized = df_current_year["log_return"].cumsum().apply(np.exp) - 1
+        if use_atr_norm:
+            path_current_realized = df_current_year["atr_return"].cumsum()
+        else:
+            path_current_realized = df_current_year["log_return"].cumsum().apply(np.exp) - 1
 
     # 2. TIME TRAVEL CONSTRUCTION
     path_historical_avg = pd.Series()
@@ -263,11 +270,14 @@ def seasonals_chart(ticker, cycle_label, enable_time_travel, reference_year, sho
     
     if enable_time_travel:
         df_historical_pool = spx[spx["year"] < reference_year].copy()
-        path_historical_avg = calculate_path(df_historical_pool, cycle_label, cycle_start_mapping)
+        path_historical_avg = calculate_path(df_historical_pool, cycle_label, cycle_start_mapping, use_atr=use_atr_norm)
         
         df_ref_year = spx[spx["year"] == reference_year].copy()
         if not df_ref_year.empty:
-            path_ref_realized = df_ref_year["log_return"].cumsum().apply(np.exp) - 1
+            if use_atr_norm:
+                path_ref_realized = df_ref_year["atr_return"].cumsum()
+            else:
+                path_ref_realized = df_ref_year["log_return"].cumsum().apply(np.exp) - 1
 
     # -------------------------------------------------------------------------
     # DATE MAPPING LOGIC (uses actual trading dates, not bdate_range)
@@ -306,13 +316,22 @@ def seasonals_chart(ticker, cycle_label, enable_time_travel, reference_year, sho
             result.append([label, rank])
         return result
 
-    HOVER_WITH_RANK = (
-        "<b>%{customdata[0]}</b><br>"
-        "Day: %{x}<br>"
-        "Return: %{y:.2%}<br>"
-        "Seasonal Rank: %{customdata[1]:.0f}"
-        "<extra></extra>"
-    )
+    if use_atr_norm:
+        HOVER_WITH_RANK = (
+            "<b>%{customdata[0]}</b><br>"
+            "Day: %{x}<br>"
+            "Cumulative ATR: %{y:.2f}<br>"
+            "Seasonal Rank: %{customdata[1]:.0f}"
+            "<extra></extra>"
+        )
+    else:
+        HOVER_WITH_RANK = (
+            "<b>%{customdata[0]}</b><br>"
+            "Day: %{x}<br>"
+            "Return: %{y:.2%}<br>"
+            "Seasonal Rank: %{customdata[1]:.0f}"
+            "<extra></extra>"
+        )
 
     # -------------------------------------------------------------------------
     # PLOTTING
@@ -444,11 +463,13 @@ def seasonals_chart(ticker, cycle_label, enable_time_travel, reference_year, sho
 
     # Layout
     title_suffix = f"vs {reference_year}" if enable_time_travel else ""
+    atr_suffix = " (ATR-Normalized)" if use_atr_norm else ""
+    y_label = "Cumulative ATR Moves" if use_atr_norm else "Cumulative Return"
     fig.update_layout(
         height=800,
-        title=f"Seasonal Analysis: {ticker} {title_suffix}",
+        title=f"Seasonal Analysis: {ticker}{atr_suffix} {title_suffix}",
         xaxis_title=None,
-        yaxis_title="Cumulative Return",
+        yaxis_title=y_label,
         plot_bgcolor="black",
         paper_bgcolor="black",
         font=dict(color="white"),
@@ -464,7 +485,10 @@ def seasonals_chart(ticker, cycle_label, enable_time_travel, reference_year, sho
         hovermode="x unified"
     )
     fig.update_xaxes(showgrid=False)
-    fig.update_yaxes(showgrid=False)
+    if use_atr_norm:
+        fig.update_yaxes(showgrid=False, tickformat=".1f")
+    else:
+        fig.update_yaxes(showgrid=False)
 
     st.plotly_chart(fig, use_container_width=True)
 
@@ -643,13 +667,13 @@ def main():
                 st.write("")
 
     with col4:
-        st.write("")
         show_all_years_line = st.checkbox("Overlay 'All Years' Avg", value=False)
+        use_atr_norm = st.checkbox("Normalize by ATR", value=False)
 
     if st.button("Run Analysis", type="primary", use_container_width=True):
         try:
             with st.spinner("Calculating cycle stats..."):
-                seasonals_chart(ticker, cycle_label, enable_time_travel, reference_year, show_all_years_line)
+                seasonals_chart(ticker, cycle_label, enable_time_travel, reference_year, show_all_years_line, use_atr_norm)
         except Exception as e:
             st.error(f"Error generating chart: {e}")
 

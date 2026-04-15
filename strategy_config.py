@@ -566,14 +566,15 @@ _STRATEGY_BOOK_RAW = [
                 "10D volume rank < 15th %ile",
                 "Market > 200 SMA",
                 "Excludes midterm election years",
-                "No 52w low in last 10 days (exclude falling knives)"
+                "No 52w low in last 10 days (exclude falling knives)",
+                "20-day signal cooldown (no rebuy within 20d)"
             ]
         },
         "exit_summary": {
             "primary_exit": "21-day time stop",
             "stop_logic": "3.0 ATR below entry",
             "target_logic": "8.0 ATR above entry",
-            "notes": "Signal Close entry (MOC order)"
+            "notes": "MOC primary + LOC companion (T+1 close < signal close)"
         },
         "description": "Start: 2000-01-01. Universe: All CSV Tickers. Dir: Long. Filter: Market > 200 SMA. PF: 2.70. SQN: 7.14.",
         "universe_tickers": LIQUID_UNIVERSE,
@@ -585,7 +586,7 @@ _STRATEGY_BOOK_RAW = [
             "max_daily_entries": 30,
             "max_total_positions": 50,
             "perf_filters": [{'window': 5, 'logic': '<', 'thresh': 33.0, 'consecutive': 1}, {'window': 21, 'logic': '<', 'thresh': 15.0, 'consecutive': 3}],
-            "perf_first_instance": False, "perf_lookback": 21,
+            "perf_first_instance": True, "perf_lookback": 20,
             "ma_consec_filters": [],
             "use_sznl": False, "sznl_logic": ">", "sznl_thresh": 33.0, "sznl_first_instance": False, "sznl_lookback": 21,
             "use_market_sznl": False, "market_sznl_logic": "<", "market_sznl_thresh": 15.0,

@@ -854,6 +854,7 @@ def save_staging_orders(signals_list, strategy_book, sheet_name='Order_Staging')
             # LOC companion orders
             if "LOC" in entry_mode:
                 ib_action = "SELL" if "SHORT" in row['Action'] else "BUY"
+                trade_dir = "Short" if "SHORT" in row['Action'] else "Long"
                 staging_data.append({
                     "Scan_Date": datetime.datetime.now().strftime("%Y-%m-%d"),
                     "Symbol": row['Ticker'],
@@ -875,7 +876,7 @@ def save_staging_orders(signals_list, strategy_book, sheet_name='Order_Staging')
                     "Use_Target": False,
                     "Use_Stop": False,
                     "Hold_Days": row.get('Days_To_Exit', 0),
-                    "Trade_Direction": "Short",
+                    "Trade_Direction": trade_dir,
                 })
             continue
         
@@ -1200,7 +1201,82 @@ def generate_vol_spike_companion(primary_signal, strat, last_row, override_risk=
         "_is_companion": True,
         "_parent_strategy": "Overbot Vol Spike"
     }
-    
+
+
+def generate_oversold_lv_companion(primary_signal, strat, last_row):
+    """
+    Generates a companion LOC (Limit-on-Close) order for Oversold low volume (moc).
+
+    Logic: When the MOC fires, also stage a LOC buy for T+1 at signal close.
+    Only fills if T+1 close < signal close (buying further weakness).
+    Same share count as the primary MOC order.
+
+    Returns a signal dict for the companion order, or None if not applicable.
+    """
+    if strat['name'] != "Oversold low volume (moc)":
+        return None
+
+    signal_close = primary_signal['Entry']
+    atr = primary_signal['ATR']
+    shares = primary_signal['Shares']
+
+    if shares == 0:
+        return None
+
+    # LOC threshold: only fill if T+1 close < signal close
+    loc_threshold = signal_close
+
+    # Calculate exit date (same hold period as primary)
+    hold_days = strat['execution']['hold_days']
+    effective_entry_date = last_row.name + TRADING_DAY  # T+1 close entry
+    exit_date = (effective_entry_date + (TRADING_DAY * hold_days)).date()
+
+    # Stop/target from signal close
+    stop_atr = strat['execution']['stop_atr']
+    tgt_atr = strat['execution']['tgt_atr']
+    stop_price = signal_close - (atr * stop_atr)
+    tgt_price = signal_close + (atr * tgt_atr)
+
+    sizing_notes = primary_signal['Sizing_Notes'] + " | LOC Companion"
+
+    return {
+        "Strategy_ID": strat['id'] + " (LOC Add)",
+        "Strategy_Name": "Oversold LV LOC Add",
+        "Ticker": primary_signal['Ticker'],
+        "Date": primary_signal['Date'],
+        "Action": "BUY",
+        "Shares": shares,
+        "Risk_Amt": primary_signal['Risk_Amt'],
+        "Sizing_Notes": sizing_notes,
+        "Stats": primary_signal['Stats'],
+        "Entry": loc_threshold,
+        "Stop": round(stop_price, 2),
+        "Target": round(tgt_price, 2),
+        "Time Exit": exit_date,
+        "ATR": atr,
+        "Entry_Type": "LOC (Limit-on-Close)",
+        "Entry_Type_Short": f"LOC <${loc_threshold:.2f}",
+        "Limit_Price": loc_threshold,
+        "Notional": shares * loc_threshold,
+        "Days_To_Exit": hold_days,
+        "Use_Stop": strat['execution'].get('use_stop_loss', False),
+        "Use_Target": strat['execution'].get('use_take_profit', False),
+        "Setup_Type": "MeanReversion",
+        "Setup_Timeframe": "Position",
+        "Setup_Thesis": "Oversold low volume — buying further weakness at close",
+        "Setup_Filters": ["Same conditions as Oversold LV MOC",
+                          f"T+1 Close < ${loc_threshold:.2f} (Signal Close)"],
+        "Live_Filters": [("T+1 Close must be below", f"${loc_threshold:.2f}", False)],
+        "Exit_Primary": f"{hold_days}-day time stop",
+        "Exit_Stop": strat.get('exit_summary', {}).get('stop_logic', ''),
+        "Exit_Target": strat.get('exit_summary', {}).get('target_logic', ''),
+        "Exit_Notes": "Companion to Oversold LV MOC — only fills if price kept falling",
+        "Sizing_Variable": primary_signal.get('Sizing_Variable'),
+        "_is_companion": True,
+        "_parent_strategy": "Oversold low volume (moc)"
+    }
+
+
 def build_live_filters(strat, last_row, df):
     """
     Builds a list of filter descriptions with their LIVE values from the scan.
@@ -1801,6 +1877,13 @@ def run_daily_scan():
                     if strat['name'] == "Overbot Vol Spike":
                         signals.append(signal_dict)
                         companion = generate_vol_spike_companion(
+                            signal_dict, strat, last_row
+                        )
+                        if companion:
+                            signals.append(companion)
+                    elif strat['name'] == "Oversold low volume (moc)":
+                        signals.append(signal_dict)
+                        companion = generate_oversold_lv_companion(
                             signal_dict, strat, last_row
                         )
                         if companion:
