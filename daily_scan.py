@@ -1116,15 +1116,15 @@ def get_sizing_variable(strat_name, last_row):
 def generate_vol_spike_companion(primary_signal, strat, last_row, override_risk=None):
     """
     Generates a companion LOC (Limit-on-Close) order for Vol Spike signals.
-    
-    Logic: If Vol Spike fires, we also want to catch the scenario where price
-    keeps running higher the next day. Stage a LOC sell order at 
-    (Signal_Close + 0.5 ATR) — only fills if T+1 Close exceeds that threshold.
-    
+
+    Logic: If Vol Spike fires, we stage two entries:
+      1. Primary: Limit at Open + 0.5 ATR (standard path)
+      2. This companion: LOC sell if T+1 Close > Signal Close
+
     Args:
         override_risk: If provided, use this risk instead of the primary signal's risk.
                        Used for Tuesday+ATH where primary is killed but LOC stays normal.
-    
+
     Returns a signal dict for the companion order, or None if not applicable.
     """
     if strat['name'] != "Overbot Vol Spike":
@@ -1132,9 +1132,9 @@ def generate_vol_spike_companion(primary_signal, strat, last_row, override_risk=
     
     signal_close = primary_signal['Entry']
     atr = primary_signal['ATR']
-    
-    # LOC threshold: only fill if close > signal_close + 0.5 ATR
-    loc_threshold = signal_close + (0.5 * atr)
+
+    # LOC threshold: fill if T+1 close > signal close
+    loc_threshold = signal_close
     
     # Use override risk if provided (e.g. Tuesday+ATH), otherwise match primary
     risk = primary_signal['Risk_Amt']
@@ -1188,8 +1188,8 @@ def generate_vol_spike_companion(primary_signal, strat, last_row, override_risk=
         "Setup_Type": "MeanReversion",
         "Setup_Timeframe": "Overnight",
         "Setup_Thesis": "Vol Spike ran higher — catching extended move at close",
-        "Setup_Filters": ["Same conditions as Vol Spike", 
-                          f"T+1 Close > ${loc_threshold:.2f} (Signal Close + 0.5 ATR)"],
+        "Setup_Filters": ["Same conditions as Vol Spike",
+                          f"T+1 Close > ${loc_threshold:.2f} (Signal Close)"],
         "Live_Filters": [("T+1 Close must exceed", f"${loc_threshold:.2f}", False)],
         "Exit_Primary": f"{hold_days}-day time stop",
         "Exit_Stop": strat.get('exit_summary', {}).get('stop_logic', ''),

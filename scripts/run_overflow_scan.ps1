@@ -9,6 +9,16 @@ $ErrorActionPreference = "Stop"
 # Set environment
 $env:PYTHONIOENCODING = "utf-8"
 $ProjectDir = "C:\Users\mckin\New_Seasonals"
+
+# Load .env file for email credentials
+$EnvFile = Join-Path $ProjectDir ".env"
+if (Test-Path $EnvFile) {
+    Get-Content $EnvFile | ForEach-Object {
+        if ($_ -match '^\s*([^#][^=]+)=(.*)$') {
+            [System.Environment]::SetEnvironmentVariable($Matches[1].Trim(), $Matches[2].Trim(), "Process")
+        }
+    }
+}
 $LogDir = Join-Path $ProjectDir "logs"
 $DateStr = Get-Date -Format "yyyy-MM-dd"
 $TimeStr = Get-Date -Format "HHmmss"

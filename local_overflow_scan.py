@@ -34,12 +34,26 @@ current_dir = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, current_dir)
 
 from indicators import calculate_indicators
+import copy
 from strategy_config import (
     STRATEGY_BOOK, CSV_UNIVERSE, LIQUID_PLUS_COMMODITIES,
     ACCOUNT_VALUE, build_strategy_book
 )
+
+# Overflow only runs these two strategies
+OVERFLOW_STRATEGIES = []
+for _s in STRATEGY_BOOK:
+    if _s['name'] == "Overbot Vol Spike":
+        OVERFLOW_STRATEGIES.append(_s)
+    elif _s['name'] == "LT Trend ST OS":
+        _s_copy = copy.deepcopy(_s)
+        _s_copy['settings']['use_recent_ath'] = True
+        _s_copy['settings']['recent_ath_invert'] = False
+        _s_copy['settings']['ath_lookback_days'] = 63
+        _s_copy['settings']['range_max'] = 15
+        OVERFLOW_STRATEGIES.append(_s_copy)
 from daily_scan import (
-    check_signal, load_seasonal_map, generate_vol_spike_companion,
+    check_signal, load_seasonal_map,
     get_entry_type_short, get_sizing_variable, build_live_filters,
     get_google_client
 )
@@ -402,7 +416,7 @@ def run_overflow_scan(dry_run=False, force_rebuild=False):
     start_time = time.time()
     print("=" * 60)
     print(f"OVERFLOW SCAN — {len(OVERFLOW_TICKERS)} tickers")
-    print(f"Strategies: {[s['name'] for s in STRATEGY_BOOK]}")
+    print(f"Strategies: {[s['name'] for s in OVERFLOW_STRATEGIES]}")
     print("=" * 60)
 
     # 1. Load seasonal map
@@ -479,7 +493,7 @@ def run_overflow_scan(dry_run=False, force_rebuild=False):
     # 6. Build cross-sectional rank matrices
     xsec_rank_matrices = None
     xsec_windows_needed = set()
-    for strat in STRATEGY_BOOK:
+    for strat in OVERFLOW_STRATEGIES:
         s = strat['settings']
         if s.get('use_xsec_filter', False):
             for xf in s.get('xsec_filters', []):
@@ -510,7 +524,7 @@ def run_overflow_scan(dry_run=False, force_rebuild=False):
     all_signals = []
     error_count = 0
 
-    for strat in STRATEGY_BOOK:
+    for strat in OVERFLOW_STRATEGIES:
         strat_name = strat['name']
         # Only scan overflow tickers
         overflow_in_strat = [t for t in strat['universe_tickers'] if t in master_dict and t in OVERFLOW_TICKERS]
@@ -668,14 +682,7 @@ def run_overflow_scan(dry_run=False, force_rebuild=False):
                         "Sizing_Variable": get_sizing_variable(strat_name, last_row)
                     }
 
-                    # Vol Spike companion
-                    if strat_name == "Overbot Vol Spike":
-                        signals.append(signal_dict)
-                        companion = generate_vol_spike_companion(signal_dict, strat, last_row)
-                        if companion:
-                            signals.append(companion)
-                    else:
-                        signals.append(signal_dict)
+                    signals.append(signal_dict)
 
             except Exception as e:
                 error_count += 1
