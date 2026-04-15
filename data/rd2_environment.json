@@ -1,20 +1,20 @@
 {
-  "date": "2026-04-14",
+  "date": "2026-04-15",
   "price_ctx": {
-    "price": 694.4600219726562,
-    "ret_12m": 0.3155430299141222,
-    "extension_200d": 0.04930624612786727,
+    "price": 699.9400024414062,
+    "ret_12m": 0.3131841995815332,
+    "extension_200d": 0.0568661008525253,
     "drawdown": 0.0,
-    "sma_200": 661.8277786254882,
-    "high_52w": 694.4600219726562,
-    "regime_label": "Healthy uptrend",
-    "days_since_5pct": 7,
-    "days_since_10pct": 243
+    "sma_200": 662.2787899780274,
+    "high_52w": 699.9400024414062,
+    "regime_label": "Strong uptrend, moderately extended",
+    "days_since_5pct": 8,
+    "days_since_10pct": 244
   },
   "h_scores": {
     "5d": 0.0,
     "21d": 0.0,
-    "63d": 44.728208404283826
+    "63d": 46.01260163476974
   },
   "signals": {
     "Distribution Dominance": {
@@ -25,27 +25,27 @@
     "VIX Range Compression": {
       "on": false,
       "detail": "",
-      "summary": "21d range: 84th pctile (fires below 15th) \u2014 VIX at 18.4"
+      "summary": "21d range: 84th pctile (fires below 15th) \u2014 VIX at 18.2"
     },
     "Defensive Leadership": {
       "on": false,
       "detail": "",
-      "summary": "50d spread: +27pp (fires < -10) | 200d spread: -2pp (fires < 0)"
+      "summary": "50d spread: +35pp (fires < -10) | 200d spread: +0pp (fires < 0)"
     },
     "Pre-FOMC Rally": {
       "on": false,
       "detail": "",
-      "summary": "Next FOMC: Apr 29 (15d away) \u2014 5d return: 99th pctile (outside window)"
+      "summary": "Next FOMC: Apr 29 (14d away) \u2014 5d return: 94th pctile (outside window)"
     },
     "Low Absorption Ratio": {
       "on": false,
       "detail": "",
-      "summary": "AR: 0.656 (86th pctile, fires below 10th) \u2014 near high: yes"
+      "summary": "AR: 0.655 (85th pctile, fires below 10th) \u2014 near high: yes"
     },
     "Seasonal Rank Divergence": {
       "on": false,
       "detail": "",
-      "summary": "Spread: +2.3pp (fires above 10) \u2014 near high: yes"
+      "summary": "Spread: +0.1pp (fires above 10) \u2014 near high: yes"
     }
   }
 }
