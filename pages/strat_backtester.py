@@ -586,13 +586,14 @@ def precompute_all_indicators(_master_dict, _strategies, _sznl_map, _vix_series)
                 if dist_win: ticker_params[t_clean]['dist'] = dist_win
                 ticker_params[t_clean]['mas'].update(req_custom_mas)
 
-    # Process tickers (can be parallelized if needed)
-    for t_clean, params in ticker_params.items():
+    # Process tickers in parallel for speed
+    def _compute_one(args):
+        t_clean, params = args
         df = _master_dict.get(t_clean)
         if df is None or len(df) < 200:
-            continue
+            return None
         try:
-            processed[t_clean] = calculate_indicators(
+            result = calculate_indicators(
                 df, _sznl_map, t_clean, market_series, _vix_series,
                 gap_window=params['gap'],
                 acc_window=params['acc'],
@@ -600,9 +601,15 @@ def precompute_all_indicators(_master_dict, _strategies, _sznl_map, _vix_series)
                 custom_sma_lengths=list(params['mas']),
                 ref_ticker_ranks=all_ref_ticker_ranks if all_ref_ticker_ranks else None
             )
+            return (t_clean, result)
         except Exception:
-            continue
-    
+            return None
+
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        for result in pool.map(_compute_one, ticker_params.items()):
+            if result is not None:
+                processed[result[0]] = result[1]
+
     return processed
 
 
@@ -703,7 +710,8 @@ def process_signals_fast(candidates, signal_data, processed_dict, strategies, st
     open_positions = []
     realized_pnl = 0.0
     position_last_exit = {}
-    
+    last_signal_ts = None
+
     results = []
     
     for cand in candidates:
@@ -965,47 +973,50 @@ def process_signals_fast(candidates, signal_data, processed_dict, strategies, st
                         break
         
         # ========== CALCULATE REAL-TIME MTM EQUITY ==========
-        still_open = []
-        for pos in open_positions:
-            if signal_date >= pos['exit_date']:
-                if pos['t_clean'] in price_matrix.columns:
-                    exit_price_mtm = price_matrix.loc[pos['exit_date'], pos['t_clean']] if pos['exit_date'] in price_matrix.index else pos['entry_price']
+        # Only recompute when signal date changes — all same-day signals share one equity snapshot
+        if signal_ts != last_signal_ts:
+            still_open = []
+            for pos in open_positions:
+                if signal_date >= pos['exit_date']:
+                    if pos['t_clean'] in price_matrix.columns:
+                        exit_price_mtm = price_matrix.loc[pos['exit_date'], pos['t_clean']] if pos['exit_date'] in price_matrix.index else pos['entry_price']
+                    else:
+                        pos_df = processed_dict.get(pos['t_clean'])
+                        exit_price_mtm = pos_df.iloc[pos['exit_idx']]['Close'] if pos_df is not None else pos['entry_price']
+
+                    if pos['direction'] == 'Long':
+                        realized_pnl += (exit_price_mtm - pos['entry_price']) * pos['shares']
+                    else:
+                        realized_pnl += (pos['entry_price'] - exit_price_mtm) * pos['shares']
+                else:
+                    still_open.append(pos)
+
+            open_positions = still_open
+
+            # Calculate unrealized P&L
+            unrealized_pnl = 0.0
+            for pos in open_positions:
+                if pos['t_clean'] in price_matrix.columns and signal_date in price_matrix.index:
+                    current_price = price_matrix.loc[signal_date, pos['t_clean']]
                 else:
                     pos_df = processed_dict.get(pos['t_clean'])
-                    exit_price_mtm = pos_df.iloc[pos['exit_idx']]['Close'] if pos_df is not None else pos['entry_price']
-                
+                    if pos_df is None:
+                        continue
+                    price_slice = pos_df[pos_df.index <= signal_date]
+                    if price_slice.empty:
+                        continue
+                    current_price = price_slice.iloc[-1]['Close']
+
+                if pd.isna(current_price):
+                    continue
+
                 if pos['direction'] == 'Long':
-                    realized_pnl += (exit_price_mtm - pos['entry_price']) * pos['shares']
+                    unrealized_pnl += (current_price - pos['entry_price']) * pos['shares']
                 else:
-                    realized_pnl += (pos['entry_price'] - exit_price_mtm) * pos['shares']
-            else:
-                still_open.append(pos)
-        
-        open_positions = still_open
-        
-        # Calculate unrealized P&L
-        unrealized_pnl = 0.0
-        for pos in open_positions:
-            if pos['t_clean'] in price_matrix.columns and signal_date in price_matrix.index:
-                current_price = price_matrix.loc[signal_date, pos['t_clean']]
-            else:
-                pos_df = processed_dict.get(pos['t_clean'])
-                if pos_df is None:
-                    continue
-                price_slice = pos_df[pos_df.index <= signal_date]
-                if price_slice.empty:
-                    continue
-                current_price = price_slice.iloc[-1]['Close']
-            
-            if pd.isna(current_price):
-                continue
-                
-            if pos['direction'] == 'Long':
-                unrealized_pnl += (current_price - pos['entry_price']) * pos['shares']
-            else:
-                unrealized_pnl += (pos['entry_price'] - current_price) * pos['shares']
-        
-        current_equity = starting_equity + realized_pnl + unrealized_pnl
+                    unrealized_pnl += (pos['entry_price'] - current_price) * pos['shares']
+
+            current_equity = starting_equity + realized_pnl + unrealized_pnl
+            last_signal_ts = signal_ts
         
         risk_bps = execution['risk_bps']
         base_risk = current_equity * risk_bps / 10000
@@ -1242,30 +1253,39 @@ def get_daily_mtm_series(sig_df, master_dict, start_date=None):
             temp_df.columns = [c.capitalize() for c in temp_df.columns]
             price_cache[ticker] = temp_df['Close'].reindex(all_dates, method='ffill')
     
-    # Process trades using iterrows with explicit column access
-    for idx, trade in sig_df.iterrows():
-        ticker = trade['Ticker']
-        action = trade['Action']
-        shares = trade['Shares']
-        entry_date = trade['Entry Date']
-        exit_date = trade['Exit Date']
-        entry_price = trade['Price']
-        
+    # Process trades using array-based iteration (much faster than iterrows)
+    _tickers = sig_df['Ticker'].values
+    _actions = sig_df['Action'].values
+    _shares = sig_df['Shares'].values
+    _entry_dates = pd.to_datetime(sig_df['Entry Date']).values
+    _exit_dates = pd.to_datetime(sig_df['Exit Date']).values
+    _entry_prices = sig_df['Price'].values
+    _pnl_values = sig_df['PnL'].values
+
+    for i in range(len(sig_df)):
+        ticker = _tickers[i]
+        action = _actions[i]
+        shares = float(_shares[i])
+        entry_date = _entry_dates[i]
+        exit_date = _exit_dates[i]
+        entry_price = float(_entry_prices[i])
+
         if ticker not in price_cache:
-            if exit_date in daily_pnl.index:
-                daily_pnl[exit_date] += trade['PnL']
+            exit_ts = pd.Timestamp(exit_date)
+            if exit_ts in daily_pnl.index:
+                daily_pnl[exit_ts] += float(_pnl_values[i])
             continue
-        
+
         closes = price_cache[ticker]
         trade_dates = all_dates[(all_dates >= entry_date) & (all_dates <= exit_date)]
-        
+
         if len(trade_dates) == 0:
             continue
-        
+
         trade_closes = closes.loc[trade_dates]
         if trade_closes.empty:
             continue
-        
+
         # First day P&L
         first_date = trade_dates[0]
         if first_date in trade_closes.index and not pd.isna(trade_closes[first_date]):
@@ -1273,16 +1293,17 @@ def get_daily_mtm_series(sig_df, master_dict, start_date=None):
                 daily_pnl[first_date] += (trade_closes[first_date] - entry_price) * shares
             else:
                 daily_pnl[first_date] += (entry_price - trade_closes[first_date]) * shares
-        
-        # Subsequent days - daily changes
+
+        # Subsequent days - vectorized daily changes
         if len(trade_dates) > 1:
             diffs = trade_closes.diff().dropna()
             if action == "SELL SHORT":
                 diffs = -diffs
-            for d, val in (diffs * shares).items():
-                if d in daily_pnl.index and not pd.isna(val):
-                    daily_pnl[d] += val
-    
+            pnl_contrib = (diffs * shares).dropna()
+            common_idx = pnl_contrib.index.intersection(daily_pnl.index)
+            if len(common_idx) > 0:
+                daily_pnl[common_idx] += pnl_contrib[common_idx]
+
     return daily_pnl
 
 
@@ -1304,23 +1325,25 @@ def calculate_daily_exposure(sig_df, starting_equity=None):
     all_dates = pd.date_range(start=min_date, end=max_date)
     exposure_df = pd.DataFrame(0.0, index=all_dates, columns=['Long Exposure', 'Short Exposure'])
     
-    # Use iterrows with explicit column names - more robust than positional itertuples access
-    for idx, row in sig_df.iterrows():
-        trade_dates = pd.date_range(start=row['Date'], end=row['Exit Date'])
-        dollar_val = row['Price'] * row['Shares']
-        col = 'Long Exposure' if row['Action'] == 'BUY' else 'Short Exposure'
-        exposure_df.loc[exposure_df.index.isin(trade_dates), col] += dollar_val
-    
+    _dates = sig_df['Date'].values
+    _exit_dates = sig_df['Exit Date'].values
+    _prices = sig_df['Price'].values
+    _shares_arr = sig_df['Shares'].values
+    _actions = sig_df['Action'].values
+
+    for i in range(len(sig_df)):
+        mask = (exposure_df.index >= _dates[i]) & (exposure_df.index <= _exit_dates[i])
+        dollar_val = float(_prices[i]) * float(_shares_arr[i])
+        col = 'Long Exposure' if _actions[i] == 'BUY' else 'Short Exposure'
+        exposure_df.loc[mask, col] += dollar_val
+
     exposure_df['Net Exposure'] = exposure_df['Long Exposure'] - exposure_df['Short Exposure']
     exposure_df['Gross Exposure'] = exposure_df['Long Exposure'] + exposure_df['Short Exposure']
-    
+
     if starting_equity is not None:
-        equity_series = pd.Series(starting_equity, index=all_dates)
-        
-        for date in all_dates:
-            closed_trades = sig_df[sig_df['Exit Date'] <= date]
-            realized_pnl = closed_trades['PnL'].sum()
-            equity_series[date] = starting_equity + realized_pnl
+        pnl_by_exit = sig_df.groupby('Exit Date')['PnL'].sum()
+        cum_realized = pnl_by_exit.reindex(all_dates, fill_value=0).cumsum()
+        equity_series = starting_equity + cum_realized
         
         exposure_df['Long Exposure %'] = (exposure_df['Long Exposure'] / equity_series) * 100
         exposure_df['Short Exposure %'] = (exposure_df['Short Exposure'] / equity_series) * 100
