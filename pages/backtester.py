@@ -22,9 +22,12 @@ SPX=['^GSPC','SPY']
 INDEX_ETFS = ["SPY", "QQQ", "IWM", "DIA", "SMH"]
 INTERNATIONAL_ETFS = ["EWZ", "EWC", "ECH", "ECOL", "EWW", "ARGT", "EWQ", "EWG", "EWI", "EWU", "EWP", "EWK", "EWO", "EWN", "EWD", "EWL",
     "EWJ", "EWH", "MCHI", "INDA", "EWY", "EWT", "EWA", "EWS", "EWM", "THD", "EIDO", "VNM", "EPHE", "EZA", "TUR", "EGPT"]
-CSV_PATH = "seasonal_ranks.csv" 
+CSV_PATH = "seasonal_ranks.csv"
+ATR_SZNL_PATH = "atr_seasonal_ranks.parquet"
+ATR_SZNL_WINDOWS = [5, 10, 21, 63, 126, 252]
+ATR_SZNL_COLS = [f"atr_sznl_{w}d" for w in ATR_SZNL_WINDOWS]
 
-@st.cache_resource 
+@st.cache_resource
 def load_seasonal_map():
     try:
         df = pd.read_csv(CSV_PATH)
@@ -37,6 +40,22 @@ def load_seasonal_map():
     for ticker, group in df.groupby("ticker"):
         output_map[str(ticker).upper()] = pd.Series(group.seasonal_rank.values, index=group.Date)
     return output_map
+
+
+@st.cache_resource
+def load_atr_seasonal_map():
+    """Load ATR-normalized seasonal ranks. Returns {ticker: DataFrame with 6 rank columns}."""
+    try:
+        df = pd.read_parquet(ATR_SZNL_PATH)
+    except Exception:
+        return {}
+    if df.empty:
+        return {}
+    df['Date'] = pd.to_datetime(df['Date']).dt.normalize()
+    output = {}
+    for ticker, group in df.groupby('ticker'):
+        output[str(ticker).upper()] = group.set_index('Date')[ATR_SZNL_COLS].sort_index()
+    return output
 
 def clean_ticker_df(df):
     if df.empty: return df
@@ -276,6 +295,13 @@ def _generate_key_filters(params):
             filters.append(f"{pf['window']}D rank between {pf['thresh']:.0f}-{pf.get('thresh_max', 100):.0f}th %ile{consec_str}")
         else:
             filters.append(f"{pf['window']}D rank {pf['logic']} {pf['thresh']:.0f}th %ile{consec_str}")
+
+    for asf in params.get('atr_sznl_filters', []):
+        consec_str = f" ({asf['consecutive']}d consecutive)" if asf.get('consecutive', 1) > 1 else ""
+        if asf['logic'] == 'Between':
+            filters.append(f"{asf['window']}D ATR seasonal rank between {asf['thresh']:.0f}-{asf.get('thresh_max', 100):.0f}th %ile{consec_str}")
+        else:
+            filters.append(f"{asf['window']}D ATR seasonal rank {asf['logic']} {asf['thresh']:.0f}th %ile{consec_str}")
     
     for maf in params.get('ma_consec_filters', []):
         filters.append(f"Close {maf['logic'].lower()} {maf['length']} SMA ({maf['consec']}d consecutive)")
@@ -590,7 +616,7 @@ def build_strategy_dict(params, tickers_to_run, pf, sqn, win_rate, expectancy_r)
     }
     return strategy
     
-def run_engine(universe_dict, params, sznl_map, market_series=None, vix_series=None, market_sznl_series=None, ref_ticker_ranks=None, xsec_rank_matrices=None):
+def run_engine(universe_dict, params, sznl_map, market_series=None, vix_series=None, market_sznl_series=None, ref_ticker_ranks=None, xsec_rank_matrices=None, atr_sznl_map=None):
     all_potential_trades = []
     total = len(universe_dict)
     bt_start_ts = pd.to_datetime(params['backtest_start_date'])
@@ -658,6 +684,14 @@ def run_engine(universe_dict, params, sznl_map, market_series=None, vix_series=N
             df = calculate_indicators(df_raw, sznl_map, ticker, market_series, vix_series, market_sznl_series, gap_window, req_custom_mas, acc_win, dist_win, ref_ticker_ranks, weekly_ma_configs, xsec_rank_matrices)
             df = df[df.index >= bt_start_ts]
             if df.empty: continue
+
+            # Merge ATR seasonal ranks (if available) — 6 rank columns joined by date
+            if atr_sznl_map and ticker in atr_sznl_map:
+                atr_ranks = atr_sznl_map[ticker]
+                df_dates = df.index.normalize()
+                for col in ATR_SZNL_COLS:
+                    if col in atr_ranks.columns:
+                        df[col] = atr_ranks[col].reindex(df_dates).values
             
             # --- SIGNAL GENERATION ---
             conditions = []
@@ -755,6 +789,16 @@ def run_engine(universe_dict, params, sznl_map, market_series=None, vix_series=N
                 elif pf['logic'] == 'Between': c_f = (df[col] >= pf['thresh']) & (df[col] <= pf.get('thresh_max', 100.0))
                 else: continue
                 if pf['consecutive'] > 1: c_f = c_f.rolling(pf['consecutive']).sum() == pf['consecutive']
+                conditions.append(c_f)
+
+            for asf in params.get('atr_sznl_filters', []):
+                col = f"atr_sznl_{asf['window']}d"
+                if col not in df.columns: continue
+                if asf['logic'] == '<': c_f = (df[col] < asf['thresh'])
+                elif asf['logic'] == '>': c_f = (df[col] > asf['thresh'])
+                elif asf['logic'] == 'Between': c_f = (df[col] >= asf['thresh']) & (df[col] <= asf.get('thresh_max', 100.0))
+                else: continue
+                if asf.get('consecutive', 1) > 1: c_f = c_f.rolling(asf['consecutive']).sum() == asf['consecutive']
                 conditions.append(c_f)
 
             # --- CROSS-SECTIONAL RANK FILTER ---
@@ -1449,6 +1493,28 @@ def main():
         with col_p_seq:
             perf_first = st.checkbox("First Instance", value=False)
             perf_lookback = st.number_input("Lookback (Days)", 1, 100, 21, disabled=not perf_first)
+
+    atr_sznl_filters = []
+    with st.expander("ATR Seasonal Rank Filter", expanded=False):
+        st.markdown("**Rank historical ATR-normalized forward returns per day-of-year.** Walk-forward safe. 100 = best seasonal window, 0 = worst. Requires `atr_seasonal_ranks.parquet`.")
+        asz_cols = st.columns(6)
+        _asz_windows = [5, 10, 21, 63, 126, 252]
+        for _col, _w in zip(asz_cols, _asz_windows):
+            with _col:
+                _use = st.checkbox(f"Enable {_w}D", key=f"use_asz_{_w}")
+                _logic = st.selectbox("Logic", [">", "<", "Between"], key=f"asz_l_{_w}", disabled=not _use)
+                _lbl = "Min %ile" if _logic == "Between" else "Threshold"
+                _thresh = st.number_input(_lbl, 0.0, 100.0, 80.0, key=f"asz_t_{_w}", disabled=not _use)
+                _thresh_max = 100.0
+                if _logic == "Between":
+                    _thresh_max = st.number_input("Max %ile", 0.0, 100.0, 99.0, key=f"asz_tmax_{_w}", disabled=not _use)
+                _consec = st.number_input("Consec Days", 1, 10, 1, key=f"asz_c_{_w}", disabled=not _use)
+                if _use:
+                    atr_sznl_filters.append({
+                        'window': _w, 'logic': _logic, 'thresh': _thresh,
+                        'thresh_max': _thresh_max, 'consecutive': _consec
+                    })
+
     xsec_filters = []
     with st.expander("Cross-Sectional Rank (vs Universe Peers)", expanded=False):
         st.markdown("**Rank this ticker's return percentile vs all other tickers in the universe on each date.** Normalized for volatility. 100 = most overbought vs peers, 0 = most oversold.")
@@ -1702,7 +1768,8 @@ def main():
             'use_t1_open_filter': use_t1_open_filter, 't1_open_filters': t1_open_filters,
             'use_recent_ath': use_recent_ath, 'recent_ath_invert': recent_ath_invert, 'ath_lookback_days': ath_lookback_days,
             'use_ref_ticker_filter': use_ref_ticker_filter, 'ref_ticker': ref_ticker_input, 'ref_filters': ref_filters,
-            'use_xsec_filter': use_xsec_filter, 'xsec_filters': xsec_filters
+            'use_xsec_filter': use_xsec_filter, 'xsec_filters': xsec_filters,
+            'atr_sznl_filters': atr_sznl_filters
         }
 
         # Build cross-sectional rank matrices if enabled
@@ -1713,7 +1780,11 @@ def main():
             xsec_rank_matrices = build_xsec_rank_matrices(data_dict, xsec_windows)
             st.success(f"Cross-sectional ranks computed.")
 
-        trades_df, rejected_df, total_signals = run_engine(data_dict, params, sznl_map, market_series, vix_series, market_sznl_series, ref_ticker_ranks, xsec_rank_matrices)
+        atr_sznl_map = load_atr_seasonal_map() if atr_sznl_filters else None
+        if atr_sznl_filters and not atr_sznl_map:
+            st.warning("ATR Seasonal Rank filter is enabled but atr_seasonal_ranks.parquet could not be loaded. Filter will be skipped.")
+
+        trades_df, rejected_df, total_signals = run_engine(data_dict, params, sznl_map, market_series, vix_series, market_sznl_series, ref_ticker_ranks, xsec_rank_matrices, atr_sznl_map)
         if trades_df.empty: st.warning("No executed signals.")
         if not trades_df.empty:
             trades_df = trades_df.sort_values("ExitDate")
