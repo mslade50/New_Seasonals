@@ -62,17 +62,17 @@ TICKER_INFO = {
     "GBPUSD=X": ("GBP/USD", "F"), "AUDUSD=X": ("AUD/USD", "F"),
     "NZDUSD=X": ("NZD/USD", "F"), "CAD=X": ("USD/CAD", "F"),
     "CHF=X": ("USD/CHF", "F"), "DX-Y.NYB": ("US Dollar Index", "F"),
-    # US Indices (not directly tradeable — use ETF)
-    "^GSPC": ("S&P 500", "ETF:SPY"), "^NDX": ("Nasdaq 100", "ETF:QQQ"),
-    "^RUT": ("Russell 2000", "ETF:IWM"), "^DJI": ("Dow Jones", "ETF:DIA"),
+    # US Indices
+    "^GSPC": ("S&P 500", "F:ES"), "^NDX": ("Nasdaq 100", "F:NQ"),
+    "^RUT": ("Russell 2000", "F:RTY"), "^DJI": ("Dow Jones", "F:YM"),
     # International Indices
-    "^FTSE": ("FTSE 100 (UK)", "ETF:EWU"), "^GDAXI": ("DAX (Germany)", "ETF:EWG"),
-    "^FCHI": ("CAC 40 (France)", "ETF:EWQ"), "^N225": ("Nikkei 225 (Japan)", "ETF:EWJ"),
-    "^HSI": ("Hang Seng (HK)", "ETF:EWH"), "^STI": ("Straits Times (Singapore)", "ETF:EWS"),
-    "^AXJO": ("ASX 200 (Australia)", "ETF:EWA"), "^KS11": ("KOSPI (South Korea)", "ETF:EWY"),
+    "^FTSE": ("FTSE 100 (UK)", "F:Z"), "^GDAXI": ("DAX (Germany)", "F:FDAX"),
+    "^FCHI": ("CAC 40 (France)", "ETF:EWQ"), "^N225": ("Nikkei 225 (Japan)", "F:NIY"),
+    "^HSI": ("Hang Seng (HK)", "F:HSI"), "^STI": ("Straits Times (Singapore)", "ETF:EWS"),
+    "^AXJO": ("ASX 200 (Australia)", "F:AP"), "^KS11": ("KOSPI (South Korea)", "F:KS"),
     "^TWII": ("TAIEX (Taiwan)", "ETF:EWT"), "^BSESN": ("Sensex (India)", "ETF:INDA"),
-    "^GSPTSE": ("S&P/TSX (Canada)", "ETF:EWC"), "^MXX": ("IPC (Mexico)", "ETF:EWW"),
-    "^BVSP": ("Bovespa (Brazil)", "ETF:EWZ"), "^STOXX50E": ("Euro Stoxx 50", "ETF:FEZ"),
+    "^GSPTSE": ("S&P/TSX (Canada)", "F:SXF"), "^MXX": ("IPC (Mexico)", "ETF:EWW"),
+    "^BVSP": ("Bovespa (Brazil)", "F:IND"), "^STOXX50E": ("Euro Stoxx 50", "F:ESTX50"),
     # Fixed Income
     "TLT": ("20+ Yr Treasury", "Y"), "IEF": ("7-10 Yr Treasury", "Y"),
     "TIP": ("TIPS", "Y"), "LQD": ("Inv Grade Corp", "Y"),
