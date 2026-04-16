@@ -1,51 +1,51 @@
 {
-  "date": "2026-04-15",
+  "date": "2026-04-16",
   "price_ctx": {
-    "price": 699.9400024414062,
-    "ret_12m": 0.3131841995815332,
-    "extension_200d": 0.0568661008525253,
+    "price": 701.6599731445312,
+    "ret_12m": 0.32010847491259264,
+    "extension_200d": 0.0587517008978069,
     "drawdown": 0.0,
-    "sma_200": 662.2787899780274,
-    "high_52w": 699.9400024414062,
+    "sma_200": 662.7238214111328,
+    "high_52w": 701.6599731445312,
     "regime_label": "Strong uptrend, moderately extended",
-    "days_since_5pct": 8,
-    "days_since_10pct": 244
+    "days_since_5pct": 9,
+    "days_since_10pct": 245
   },
   "h_scores": {
     "5d": 0.0,
     "21d": 0.0,
-    "63d": 46.01260163476974
+    "63d": 46.26813697289863
   },
   "signals": {
     "Distribution Dominance": {
       "on": false,
       "detail": "",
-      "summary": "D/A ratio: 1.8 (threshold: 3.75) \u2014 9D / 5A last 63d"
+      "summary": "D/A ratio: 1.6 (threshold: 3.75) \u2014 8D / 5A last 63d"
     },
     "VIX Range Compression": {
       "on": false,
       "detail": "",
-      "summary": "21d range: 84th pctile (fires below 15th) \u2014 VIX at 18.2"
+      "summary": "21d range: 85th pctile (fires below 15th) \u2014 VIX at 17.9"
     },
     "Defensive Leadership": {
       "on": false,
       "detail": "",
-      "summary": "50d spread: +35pp (fires < -10) | 200d spread: +0pp (fires < 0)"
+      "summary": "50d spread: +32pp (fires < -10) | 200d spread: -3pp (fires < 0)"
     },
     "Pre-FOMC Rally": {
       "on": false,
       "detail": "",
-      "summary": "Next FOMC: Apr 29 (14d away) \u2014 5d return: 94th pctile (outside window)"
+      "summary": "Next FOMC: Apr 29 (13d away) \u2014 5d return: 93th pctile (outside window)"
     },
     "Low Absorption Ratio": {
       "on": false,
       "detail": "",
-      "summary": "AR: 0.655 (85th pctile, fires below 10th) \u2014 near high: yes"
+      "summary": "AR: 0.639 (82th pctile, fires below 10th) \u2014 near high: yes"
     },
     "Seasonal Rank Divergence": {
       "on": false,
       "detail": "",
-      "summary": "Spread: +0.1pp (fires above 10) \u2014 near high: yes"
+      "summary": "Spread: -2.1pp (fires above 10) \u2014 near high: yes"
     }
   }
 }
