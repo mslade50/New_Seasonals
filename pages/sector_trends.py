@@ -29,6 +29,66 @@ SECTOR_ETFS = [
     "CT=F", "SI=F",
 ]
 
+# Glossary: (description, IBKR tradeable?)
+# "Y" = directly tradeable, "ETF" = trade via ETF proxy, "F" = futures, "N" = not tradeable
+TICKER_INFO = {
+    # Sector ETFs
+    "IBB": ("Biotech", "Y"), "IHI": ("Medical Devices", "Y"), "ITA": ("Aerospace & Defense", "Y"),
+    "ITB": ("Homebuilders", "Y"), "IYR": ("Real Estate", "Y"), "KRE": ("Regional Banks", "Y"),
+    "OIH": ("Oil Services", "Y"), "SMH": ("Semiconductors", "Y"), "VNQ": ("REITs", "Y"),
+    "XBI": ("Biotech (Equal Wt)", "Y"), "XHB": ("Homebuilders (Equal Wt)", "Y"),
+    "XLB": ("Materials", "Y"), "XLC": ("Communication Svcs", "Y"), "XLE": ("Energy", "Y"),
+    "XLF": ("Financials", "Y"), "XLI": ("Industrials", "Y"), "XLK": ("Technology", "Y"),
+    "XLP": ("Consumer Staples", "Y"), "XLU": ("Utilities", "Y"), "XLV": ("Healthcare", "Y"),
+    "XLY": ("Consumer Disc", "Y"), "XME": ("Metals & Mining", "Y"), "XOP": ("Oil & Gas E&P", "Y"),
+    "XRT": ("Retail", "Y"),
+    # Broad US
+    "SPY": ("S&P 500 ETF", "Y"), "QQQ": ("Nasdaq 100 ETF", "Y"),
+    "IWM": ("Russell 2000 ETF", "Y"), "DIA": ("Dow Jones ETF", "Y"),
+    # Commodities & Alternatives
+    "GLD": ("Gold ETF", "Y"), "SLV": ("Silver ETF", "Y"), "CEF": ("Gold/Silver CEF", "Y"),
+    "UNG": ("Natural Gas ETF", "Y"), "UVXY": ("VIX Short-Term Futures", "Y"),
+    "BTC-USD": ("Bitcoin", "F"), "ETH-USD": ("Ethereum", "F"),
+    # Commodity Futures
+    "CL=F": ("Crude Oil (WTI)", "F"), "NG=F": ("Natural Gas", "F"),
+    "GC=F": ("Gold", "F"), "HG=F": ("Copper", "F"),
+    "KC=F": ("Coffee", "F"), "PL=F": ("Platinum", "F"),
+    "ZC=F": ("Corn", "F"), "ZW=F": ("Wheat", "F"),
+    "CC=F": ("Cocoa", "F"), "SB=F": ("Sugar", "F"),
+    "PA=F": ("Palladium", "F"), "ZS=F": ("Soybeans", "F"),
+    "CT=F": ("Cotton", "F"), "SI=F": ("Silver", "F"),
+    # FX
+    "EURUSD=X": ("EUR/USD", "F"), "JPY=X": ("USD/JPY", "F"),
+    "GBPUSD=X": ("GBP/USD", "F"), "AUDUSD=X": ("AUD/USD", "F"),
+    "NZDUSD=X": ("NZD/USD", "F"), "CAD=X": ("USD/CAD", "F"),
+    "CHF=X": ("USD/CHF", "F"), "DX-Y.NYB": ("US Dollar Index", "F"),
+    # US Indices (not directly tradeable — use ETF)
+    "^GSPC": ("S&P 500", "ETF:SPY"), "^NDX": ("Nasdaq 100", "ETF:QQQ"),
+    "^RUT": ("Russell 2000", "ETF:IWM"), "^DJI": ("Dow Jones", "ETF:DIA"),
+    # International Indices
+    "^FTSE": ("FTSE 100 (UK)", "ETF:EWU"), "^GDAXI": ("DAX (Germany)", "ETF:EWG"),
+    "^FCHI": ("CAC 40 (France)", "ETF:EWQ"), "^N225": ("Nikkei 225 (Japan)", "ETF:EWJ"),
+    "^HSI": ("Hang Seng (HK)", "ETF:EWH"), "^STI": ("Straits Times (Singapore)", "ETF:EWS"),
+    "^AXJO": ("ASX 200 (Australia)", "ETF:EWA"), "^KS11": ("KOSPI (South Korea)", "ETF:EWY"),
+    "^TWII": ("TAIEX (Taiwan)", "ETF:EWT"), "^BSESN": ("Sensex (India)", "ETF:INDA"),
+    "^GSPTSE": ("S&P/TSX (Canada)", "ETF:EWC"), "^MXX": ("IPC (Mexico)", "ETF:EWW"),
+    "^BVSP": ("Bovespa (Brazil)", "ETF:EWZ"), "^STOXX50E": ("Euro Stoxx 50", "ETF:FEZ"),
+    # Fixed Income
+    "TLT": ("20+ Yr Treasury", "Y"), "IEF": ("7-10 Yr Treasury", "Y"),
+    "TIP": ("TIPS", "Y"), "LQD": ("Inv Grade Corp", "Y"),
+    "HYG": ("High Yield Corp", "Y"), "AGG": ("US Agg Bond", "Y"),
+    # Volatility
+    "^VIX": ("VIX", "F:VX"),
+}
+
+
+def get_ticker_label(ticker):
+    """Return 'TICKER — Description' for chart titles."""
+    info = TICKER_INFO.get(ticker)
+    if info:
+        return f"{ticker} — {info[0]}"
+    return ticker
+
 CSV_PATH = "sznl_sector_forecast.csv"
 ATR_SZNL_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "atr_seasonal_ranks.parquet")
 ATR_SZNL_WINDOWS = [5, 10, 21, 63, 126, 252]
@@ -173,8 +233,11 @@ def load_sector_metrics(tickers):
 
         ranks = [percentile_rank(d, v) for d, v in zip([dist5, dist20, dist50, dist200], vals)]
 
+        info = TICKER_INFO.get(t, ("", ""))
         row = {
             "Ticker": t,
+            "Name": info[0],
+            "IBKR": info[1],
             "Price": float(close.iloc[-1]),
             "Sznl": get_sznl_val(t, today, sznl_map),
             "PctRank5": ranks[0],
@@ -407,7 +470,7 @@ def render_seasonal_chart(ticker, show_pct=True, show_atr=True):
             ), secondary_y=True)
 
     fig.update_layout(
-        title=f"{ticker} Seasonality ({cycle_label})",
+        title=f"{get_ticker_label(ticker)} ({cycle_label})",
         margin=dict(l=10, r=10, t=40, b=10),
         height=600,
         plot_bgcolor="black",
