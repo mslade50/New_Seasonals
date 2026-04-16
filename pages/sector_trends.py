@@ -486,13 +486,12 @@ def main():
     # 2. CHARTS SECTION
     st.divider()
     st.subheader("Seasonal Charts")
-    c1, c2, c3 = st.columns([3, 1, 1])
+    c1, c2 = st.columns([3, 1])
     with c1:
-        st.caption(f"Solid = % return (left axis). Dashed = ATR-normalized (right axis). Click legend to toggle.")
+        st.caption(f"ATR-normalized path (default). Check box to overlay raw % return.")
     with c2:
-        show_pct = st.checkbox("% Return", value=True)
-    with c3:
-        show_atr = st.checkbox("ATR Path", value=True)
+        show_pct = st.checkbox("Show % Return", value=False)
+    show_atr = True
 
     tickers_to_plot = table["Ticker"].tolist()
     cols = st.columns(2)

@@ -671,11 +671,8 @@ def main():
 
     with col4:
         show_all_years_line = st.checkbox("Overlay 'All Years' Avg", value=False)
-        c4a, c4b = st.columns(2)
-        with c4a:
-            show_pct = st.checkbox("% Return", value=True)
-        with c4b:
-            show_atr = st.checkbox("ATR Path", value=True)
+        show_pct = st.checkbox("Show % Return", value=False)
+        show_atr = True
 
     if st.button("Run Analysis", type="primary", use_container_width=True):
         try:
