@@ -40,7 +40,7 @@ from strategy_config import (
     ACCOUNT_VALUE, build_strategy_book
 )
 
-# Overflow only runs these two strategies
+# Overflow runs these strategies
 OVERFLOW_STRATEGIES = []
 for _s in STRATEGY_BOOK:
     if _s['name'] == "Overbot Vol Spike":
@@ -52,10 +52,15 @@ for _s in STRATEGY_BOOK:
         _s_copy['settings']['ath_lookback_days'] = 63
         _s_copy['settings']['range_max'] = 15
         OVERFLOW_STRATEGIES.append(_s_copy)
+    elif _s['name'] == "Oversold Low Volume":
+        OVERFLOW_STRATEGIES.append(_s)
 from daily_scan import (
     check_signal, load_seasonal_map,
     get_entry_type_short, get_sizing_variable, build_live_filters,
-    get_google_client
+    get_google_client,
+    generate_oversold_lv_companion, generate_vol_spike_companion,
+    load_olv_cooldown,
+    OLV_STRATEGY_NAME, OLV_COOLDOWN_DAYS,
 )
 
 TRADING_DAY = CustomBusinessDay(calendar=USFederalHolidayCalendar())
@@ -298,11 +303,32 @@ def append_orders_to_gsheet(signals_list, sheet_name='Order_Staging'):
     rows = []
     for sig in signals_list:
         entry_mode = sig.get('Entry_Type', '')
-        if 'Signal Close' in entry_mode:
-            continue  # MOC handled separately
+
+        # Overflow intentionally does not stage MOC primaries
+        if entry_mode == 'Signal Close':
+            continue
 
         direction = sig.get('Action', 'BUY')
         action = 'SELL' if 'SHORT' in direction.upper() or 'SELL' in direction.upper() else 'BUY'
+
+        # LOC companion: write clean LOC fields instead of the Entry_Type_Short label
+        if sig.get('_is_companion', False) and 'LOC' in entry_mode:
+            rows.append([
+                datetime.datetime.now().strftime("%Y-%m-%d"),
+                sig.get('Ticker', ''),
+                'STK',
+                'SMART',
+                action,
+                sig.get('Shares', 0),
+                'LOC',
+                round(float(sig.get('Limit_Price', sig.get('Entry', 0))), 2),
+                round(float(sig.get('ATR', 0)), 2),
+                round(float(sig.get('Entry', 0)), 2),
+                str(sig.get('Time Exit', '')),
+                sig.get('Strategy_Name', ''),
+                'overflow'
+            ])
+            continue
 
         rows.append([
             datetime.datetime.now().strftime("%Y-%m-%d"),
@@ -350,10 +376,13 @@ def send_overflow_email(signals_list, error_count=0, scan_time_sec=0):
     now = datetime.datetime.now(eastern)
     date_str = now.strftime("%Y-%m-%d %H:%M ET")
 
-    if signals_list:
-        subject = f"🔍 {len(signals_list)} OVERFLOW SIGNAL(S) ({date_str})"
+    # Display primaries only — companions are a derived staging artifact
+    display_signals = [s for s in signals_list if not s.get('_is_companion', False)]
+
+    if display_signals:
+        subject = f"🔍 {len(display_signals)} OVERFLOW SIGNAL(S) ({date_str})"
         rows = []
-        for sig in signals_list:
+        for sig in display_signals:
             rows.append(f"""
             <tr>
                 <td style="padding:6px;border:1px solid #444;">{sig['Ticker']}</td>
@@ -366,7 +395,7 @@ def send_overflow_email(signals_list, error_count=0, scan_time_sec=0):
 
         body = f"""
         <div style="font-family:monospace;background:#0e1117;color:#e0e0e0;padding:20px;">
-            <h2>Overflow Scan: {len(signals_list)} Signal(s)</h2>
+            <h2>Overflow Scan: {len(display_signals)} Signal(s)</h2>
             <p style="color:#888;">Extended universe ({len(OVERFLOW_TICKERS)} tickers) · Scan time: {scan_time_sec:.0f}s</p>
             <table style="border-collapse:collapse;width:100%;margin-top:10px;">
                 <tr style="background:#1a1a2e;">
@@ -524,6 +553,12 @@ def run_overflow_scan(dry_run=False, force_rebuild=False):
     all_signals = []
     error_count = 0
 
+    # OLV cooldown — shared across main + overflow via Trade_Signals_Log
+    olv_cooldown = load_olv_cooldown(lookback_trading_days=OLV_COOLDOWN_DAYS + 5)
+    olv_cutoff = (pd.Timestamp(datetime.date.today()) - TRADING_DAY * OLV_COOLDOWN_DAYS).date()
+    if olv_cooldown:
+        print(f"🛑 OLV cooldown: {len(olv_cooldown)} tickers with signals since {olv_cutoff}")
+
     for strat in OVERFLOW_STRATEGIES:
         strat_name = strat['name']
         # Only scan overflow tickers
@@ -589,6 +624,13 @@ def run_overflow_scan(dry_run=False, force_rebuild=False):
                 if check_signal(calc_df, strat['settings'], sznl_map, ticker=t_clean):
                     last_row = calc_df.iloc[-1]
 
+                    # Cooldown gate: OLV suppresses re-fires within 20 trading days
+                    if strat_name == OLV_STRATEGY_NAME:
+                        last_sig = olv_cooldown.get(t_clean)
+                        if last_sig is not None and last_sig >= olv_cutoff:
+                            print(f"   ⏭ OLV cooldown: {t_clean} (last signal {last_sig})")
+                            continue
+
                     # Entry confirmation
                     entry_conf_bps = strat['settings'].get('entry_conf_bps', 0)
                     entry_mode = strat['settings'].get('entry_type', 'Signal Close')
@@ -628,7 +670,7 @@ def run_overflow_scan(dry_run=False, force_rebuild=False):
                     hold_days = strat['execution']['hold_days']
 
                     # Entry date & exit date
-                    if "Signal Close" in entry_mode:
+                    if entry_mode == "Signal Close":
                         effective_entry_date = last_row.name
                     else:
                         effective_entry_date = last_row.name + TRADING_DAY
@@ -683,6 +725,15 @@ def run_overflow_scan(dry_run=False, force_rebuild=False):
                     }
 
                     signals.append(signal_dict)
+
+                    if strat_name == OLV_STRATEGY_NAME:
+                        companion = generate_oversold_lv_companion(signal_dict, strat, last_row)
+                        if companion:
+                            signals.append(companion)
+                    elif strat_name == "Overbot Vol Spike":
+                        companion = generate_vol_spike_companion(signal_dict, strat, last_row)
+                        if companion:
+                            signals.append(companion)
 
             except Exception as e:
                 error_count += 1

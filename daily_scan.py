@@ -799,7 +799,7 @@ def save_moc_orders(signals_list, strategy_book, sheet_name='moc_orders'):
                 settings = strat['settings']
                 entry_mode = settings.get('entry_type', 'Signal Close')
 
-                if "Signal Close" in entry_mode:
+                if entry_mode == "Signal Close":
                     ib_action = "SELL" if "SHORT" in row['Action'] else "BUY"
                     
                     moc_data.append({
@@ -888,7 +888,7 @@ def save_staging_orders(signals_list, strategy_book, sheet_name='Order_Staging')
         entry_mode = settings.get('entry_type', 'Signal Close')
         
         # *** SKIP MOC ORDERS (They go to the other sheet) ***
-        if "Signal Close" in entry_mode:
+        if entry_mode == "Signal Close":
             continue
         
         # Defaults
@@ -1070,12 +1070,12 @@ def get_entry_type_short(entry_mode, limit_price=None):
     Returns a concise entry type label for the summary table.
     For Open-based limits, we can't show a price since T+1 Open is unknown.
     """
-    if "Signal Close" in entry_mode:
+    if "T+1 Close if <" in entry_mode:
+        return "Cond Close"
+    elif entry_mode == "Signal Close":
         return "MOC"
     elif "T+1 Open" in entry_mode and "Limit" not in entry_mode:
         return "MOO"
-    elif "T+1 Close if <" in entry_mode:
-        return "Cond Close"
     elif "Limit" in entry_mode:
         # Check if it's Open-based (unknown price) or Close-based (known price)
         if "Open" in entry_mode:
@@ -1205,7 +1205,7 @@ def generate_vol_spike_companion(primary_signal, strat, last_row, override_risk=
 
 def generate_oversold_lv_companion(primary_signal, strat, last_row):
     """
-    Generates a companion LOC (Limit-on-Close) order for Oversold low volume (moc).
+    Generates a companion LOC (Limit-on-Close) order for Oversold Low Volume.
 
     Logic: When the MOC fires, also stage a LOC buy for T+1 at signal close.
     Only fills if T+1 close < signal close (buying further weakness).
@@ -1213,7 +1213,7 @@ def generate_oversold_lv_companion(primary_signal, strat, last_row):
 
     Returns a signal dict for the companion order, or None if not applicable.
     """
-    if strat['name'] != "Oversold low volume (moc)":
+    if strat['name'] != "Oversold Low Volume":
         return None
 
     signal_close = primary_signal['Entry']
@@ -1273,7 +1273,7 @@ def generate_oversold_lv_companion(primary_signal, strat, last_row):
         "Exit_Notes": "Companion to Oversold LV MOC — only fills if price kept falling",
         "Sizing_Variable": primary_signal.get('Sizing_Variable'),
         "_is_companion": True,
-        "_parent_strategy": "Oversold low volume (moc)"
+        "_parent_strategy": "Oversold Low Volume"
     }
 
 
@@ -1545,6 +1545,64 @@ def download_historical_data(tickers, start_date="2000-01-01"):
     return data_dict
 
 
+OLV_COOLDOWN_DAYS = 20
+OLV_STRATEGY_NAME = "Oversold Low Volume"
+
+
+def load_olv_cooldown(lookback_trading_days=25):
+    """Build {ticker: latest_signal_date} for Oversold Low Volume primary
+    signals fired within the lookback window. Companion "LOC Add" rows are
+    excluded. Returns {} on any failure so the scan proceeds without cooldown.
+    """
+    gc = get_google_client()
+    if not gc:
+        return {}
+
+    try:
+        sh = gc.open("Trade_Signals_Log")
+        ws = sh.sheet1
+        rows = ws.get_all_values()
+    except Exception as e:
+        print(f"⚠️ Cooldown lookup failed (reading Trade_Signals_Log): {e}")
+        return {}
+
+    if not rows or len(rows) < 2:
+        return {}
+
+    headers = rows[0]
+    try:
+        name_idx = headers.index("Strategy_Name")
+        ticker_idx = headers.index("Ticker")
+        date_idx = headers.index("Date")
+    except ValueError:
+        return {}
+
+    sid_idx = headers.index("Strategy_ID") if "Strategy_ID" in headers else None
+
+    cutoff = (pd.Timestamp(datetime.date.today()) - TRADING_DAY * lookback_trading_days).date()
+    latest = {}
+
+    for r in rows[1:]:
+        if len(r) <= max(name_idx, ticker_idx, date_idx):
+            continue
+        if r[name_idx] != OLV_STRATEGY_NAME:
+            continue
+        # Exclude LOC companion rows — they share the strategy name prefix
+        if sid_idx is not None and "LOC Add" in r[sid_idx]:
+            continue
+        try:
+            sig_date = pd.to_datetime(r[date_idx]).date()
+        except Exception:
+            continue
+        if sig_date < cutoff:
+            continue
+        tkr = r[ticker_idx]
+        if tkr not in latest or sig_date > latest[tkr]:
+            latest[tkr] = sig_date
+
+    return latest
+
+
 def run_daily_scan():
     print("--- Starting Daily Automated Scan (Synced) ---")
     sznl_map = load_seasonal_map()
@@ -1690,6 +1748,13 @@ def run_daily_scan():
     all_signals = []
     error_tickers = []  # (ticker, reason) tuples for email reporting
 
+    # 4b. Cooldown lookup for Oversold Low Volume — 20 trading day lockout
+    olv_cooldown = load_olv_cooldown(lookback_trading_days=OLV_COOLDOWN_DAYS + 5)
+    olv_cutoff = (pd.Timestamp(datetime.date.today()) - TRADING_DAY * OLV_COOLDOWN_DAYS).date()
+    if olv_cooldown:
+        print(f"🛑 OLV cooldown: {len(olv_cooldown)} tickers with signals since {olv_cutoff}")
+    olv_skipped = []
+
     # 5. Run Strategies
     for strat in STRATEGY_BOOK:
         print(f"Running: {strat['name']}...")
@@ -1733,7 +1798,15 @@ def run_daily_scan():
                 
                 if check_signal(calc_df, strat['settings'], sznl_map, ticker=t_clean):
                     last_row = calc_df.iloc[-1]
-                    
+
+                    # Cooldown gate: OLV suppresses re-fires within 20 trading days
+                    if strat['name'] == OLV_STRATEGY_NAME:
+                        last_sig = olv_cooldown.get(t_clean)
+                        if last_sig is not None and last_sig >= olv_cutoff:
+                            olv_skipped.append((t_clean, last_sig))
+                            print(f"   ⏭ OLV cooldown: {t_clean} (last signal {last_sig})")
+                            continue
+
                     # 1. Entry Confirmation Check
                     entry_conf_bps = strat['settings'].get('entry_conf_bps', 0)
                     entry_mode = strat['settings'].get('entry_type', 'Signal Close')
@@ -1793,8 +1866,8 @@ def run_daily_scan():
                     hold_days = strat['execution']['hold_days']
 
                     # Determine the effective Entry Date
-                    if "Signal Close" in entry_mode:
-                        effective_entry_date = last_row.name 
+                    if entry_mode == "Signal Close":
+                        effective_entry_date = last_row.name
                     else:
                         effective_entry_date = last_row.name + TRADING_DAY
 
@@ -1881,7 +1954,7 @@ def run_daily_scan():
                         )
                         if companion:
                             signals.append(companion)
-                    elif strat['name'] == "Oversold low volume (moc)":
+                    elif strat['name'] == "Oversold Low Volume":
                         signals.append(signal_dict)
                         companion = generate_oversold_lv_companion(
                             signal_dict, strat, last_row

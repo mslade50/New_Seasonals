@@ -496,36 +496,40 @@ _STRATEGY_BOOK_RAW = [
         "stats": {"grade": "A (Excellent)", "win_rate": "63.2%", "expectancy": "0.45r", "profit_factor": "2.19"}
     },
     {
-        "id": "21dr < 15 3 consec, 5dr < 33, rel vol < 15, SPY > 200d, 21d time stop",
+        "id": "21dr < 15 3 consec, 5dr < 33, 252dr > 50, rel vol < 15, MOC + LOC companion, 20d cooldown",
         "name": "Oversold Low Volume",
         "setup": {
             "type": "MeanReversion",
             "timeframe": "Position",
-            "thesis": "Buying oversold names during low-volume selloffs in bull markets",
+            "thesis": "Buying oversold names during low-volume selloffs, filtered to uptrending names (252d > 50th pctile)",
             "key_filters": [
                 "21D rank < 15th %ile for 3 consecutive days (persistent oversold)",
                 "5D rank < 33rd %ile (recent weakness)",
+                "252D rank > 50th %ile (in longer-term uptrend)",
                 "10D volume rank < 15th %ile (low volume = lack of conviction selling)",
-                "Market > 200 SMA (bull market filter)",
-                "No 52w low in last 10 days (exclude falling knives)"
+                "20 trading day cooldown per ticker"
             ]
         },
         "exit_summary": {
             "primary_exit": "21-day time stop",
             "stop_logic": "3.0 ATR below entry",
             "target_logic": "8.0 ATR above entry",
-            "notes": "Conditional entry: only enters if T+1 Close < Signal Close"
+            "notes": "MOC primary (today's close) + LOC companion (T+1 close if < signal close)"
         },
-        "description": "Start: 2000-01-01. Universe: All CSV Tickers. Dir: Long. Filter: Market > 200 SMA. PF: 2.90. SQN: 6.46.",
-        "universe_tickers": LIQUID_UNIVERSE,
+        "description": "Start: 2000-01-01. Universe: Liquid + commodities. Dir: Long. MOC + LOC companion. 20d cooldown.",
+        "universe_tickers": LIQUID_PLUS_COMMODITIES,
         "settings": {
             "trade_direction": "Long",
-            "entry_type": "T+1 Close if < Signal Close",
+            "entry_type": "Signal Close",
             "max_one_pos": False,
             "allow_same_day_reentry": False,
             "max_daily_entries": 10,
             "max_total_positions": 20,
-            "perf_filters": [{'window': 5, 'logic': '<', 'thresh': 33.0, 'consecutive': 1}, {'window': 21, 'logic': '<', 'thresh': 15.0, 'consecutive': 3}],
+            "perf_filters": [
+                {'window': 5, 'logic': '<', 'thresh': 33.0, 'consecutive': 1},
+                {'window': 21, 'logic': '<', 'thresh': 15.0, 'consecutive': 3},
+                {'window': 252, 'logic': '>', 'thresh': 50.0, 'consecutive': 1}
+            ],
             "perf_first_instance": False, "perf_lookback": 21,
             "ma_consec_filters": [],
             "use_sznl": False, "sznl_logic": "<", "sznl_thresh": 15.0, "sznl_first_instance": True, "sznl_lookback": 21,
@@ -539,80 +543,19 @@ _STRATEGY_BOOK_RAW = [
             "use_vix_filter": False, "vix_min": 0.0, "vix_max": 20.0,
             "use_vol": False, "vol_thresh": 1.5,
             "use_vol_rank": True, "vol_rank_logic": "<", "vol_rank_thresh": 15.0,
-            "trend_filter": "Market > 200 SMA",
+            "trend_filter": "None",
             "min_price": 10.0, "min_vol": 100000,
             "min_age": 0.25, "max_age": 100.0,
-            "min_atr_pct": 0.2, "max_atr_pct": 10.0,
+            "min_atr_pct": 0.0, "max_atr_pct": 100.0,
             "entry_conf_bps": 0,
             "use_ma_dist_filter": False, "dist_ma_type": "SMA 10", "dist_logic": "Greater Than (>)", "dist_min": 0.0, "dist_max": 2.0,
             "use_gap_filter": False, "gap_lookback": 21, "gap_logic": ">", "gap_thresh": 3,
             "use_acc_count_filter": False, "acc_count_window": 21, "acc_count_logic": ">", "acc_count_thresh": 3,
             "use_dist_count_filter": False, "dist_count_window": 21, "dist_count_logic": ">", "dist_count_thresh": 3,
-            "use_recent_52w_low": True, "recent_52w_low_invert": True, "recent_52w_low_lookback": 10
+            "use_recent_52w_low": False, "recent_52w_low_invert": True, "recent_52w_low_lookback": 10
         },
         "execution": {"risk_bps": 15, "slippage_bps": 2, "stop_atr": 3.0, "tgt_atr": 8.0, "hold_days": 21,"use_stop_loss": False, "use_take_profit": False},
         "stats": {"grade": "A (Excellent)", "win_rate": "69.0%", "expectancy": "0.48r", "profit_factor": "2.82"}
-    },
-    {
-        "id": "21dr < 15 3 consec, 5dr < 33, rel vol < 15, SPY > 200d, 21d time stop (no midterms)",
-        "name": "Oversold low volume (moc)",
-        "setup": {
-            "type": "MeanReversion",
-            "timeframe": "Position",
-            "thesis": "Same as Oversold Low Volume but with MOC entry and cycle filter",
-            "key_filters": [
-                "21D rank < 15th %ile for 3 consecutive days",
-                "5D rank < 33rd %ile",
-                "10D volume rank < 15th %ile",
-                "Market > 200 SMA",
-                "Excludes midterm election years",
-                "No 52w low in last 10 days (exclude falling knives)",
-                "20-day signal cooldown (no rebuy within 20d)"
-            ]
-        },
-        "exit_summary": {
-            "primary_exit": "21-day time stop",
-            "stop_logic": "3.0 ATR below entry",
-            "target_logic": "8.0 ATR above entry",
-            "notes": "MOC primary + LOC companion (T+1 close < signal close)"
-        },
-        "description": "Start: 2000-01-01. Universe: All CSV Tickers. Dir: Long. Filter: Market > 200 SMA. PF: 2.70. SQN: 7.14.",
-        "universe_tickers": LIQUID_UNIVERSE,
-        "settings": {
-            "trade_direction": "Long",
-            "entry_type": "Signal Close",
-            "max_one_pos": False,
-            "allow_same_day_reentry": False,
-            "max_daily_entries": 30,
-            "max_total_positions": 50,
-            "perf_filters": [{'window': 5, 'logic': '<', 'thresh': 33.0, 'consecutive': 1}, {'window': 21, 'logic': '<', 'thresh': 15.0, 'consecutive': 3}],
-            "perf_first_instance": True, "perf_lookback": 20,
-            "ma_consec_filters": [],
-            "use_sznl": False, "sznl_logic": ">", "sznl_thresh": 33.0, "sznl_first_instance": False, "sznl_lookback": 21,
-            "use_market_sznl": False, "market_sznl_logic": "<", "market_sznl_thresh": 15.0,
-            "market_ticker": "^GSPC",
-            "use_52w": False, "52w_type": "New 52w High", "52w_first_instance": True, "52w_lookback": 21, "52w_lag": 0,
-            "exclude_52w_high": False,
-            "breakout_mode": "None",
-            "use_range_filter": False, "range_min": 0, "range_max": 20,
-            "use_dow_filter": True, "allowed_days": [0, 1, 2, 3, 4],
-            "allowed_cycles": [1, 3, 0],
-            "use_vix_filter": False, "vix_min": 0.0, "vix_max": 20.0,
-            "use_vol": False, "vol_thresh": 1.5,
-            "use_vol_rank": True, "vol_rank_logic": "<", "vol_rank_thresh": 15.0,
-            "trend_filter": "Market > 200 SMA",
-            "min_price": 10.0, "min_vol": 100000,
-            "min_age": 0.25, "max_age": 100.0,
-            "min_atr_pct": 0.2, "max_atr_pct": 10.0,
-            "entry_conf_bps": 0,
-            "use_ma_dist_filter": False, "dist_ma_type": "SMA 10", "dist_logic": "Greater Than (>)", "dist_min": 0.0, "dist_max": 2.0,
-            "use_gap_filter": False, "gap_lookback": 21, "gap_logic": ">", "gap_thresh": 3,
-            "use_acc_count_filter": False, "acc_count_window": 21, "acc_count_logic": ">", "acc_count_thresh": 3,
-            "use_dist_count_filter": False, "dist_count_window": 21, "dist_count_logic": "<", "dist_count_thresh": 3,
-            "use_recent_52w_low": True, "recent_52w_low_invert": True, "recent_52w_low_lookback": 10
-        },
-        "execution": {"risk_bps": 15, "slippage_bps": 2, "stop_atr": 3.0, "tgt_atr": 8.0, "hold_days": 21,"use_stop_loss": False, "use_take_profit": False},
-        "stats": {"grade": "A (Excellent)", "win_rate": "67.3%", "expectancy": "$344.77", "profit_factor": "2.70"}
     },
     {
         "id": "5+10+21d > 85, 21d 3x, vol >1.25x, >0 dist day, sell open +0.5 atr",
