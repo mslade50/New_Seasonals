@@ -238,7 +238,7 @@ def calculate_path(df, cycle_label, use_atr=False):
 
     return avg_path
 
-def render_seasonal_chart(ticker, use_atr=False):
+def render_seasonal_chart(ticker, show_pct=True, show_atr=True):
     cycle_label = get_current_cycle_label()
     spx = get_chart_data(ticker)
 
@@ -249,7 +249,6 @@ def render_seasonal_chart(ticker, use_atr=False):
     # Feature Engineering
     spx = spx.copy()
     spx["log_return"] = np.log(spx["Close"] / spx["Close"].shift(1))
-    # ATR for normalization
     prev_close = spx["Close"].shift(1)
     tr = pd.concat([
         spx["High"] - spx["Low"],
@@ -264,24 +263,21 @@ def render_seasonal_chart(ticker, use_atr=False):
     spx["day_count"] = spx.groupby("year").cumcount() + 1
 
     current_year = dt.date.today().year
-
-    # 1. Historical Pools (Exclude Current Year)
     df_history = spx[spx["year"] < current_year].copy()
-
-    # Path A: Selected Cycle
-    path_cycle = calculate_path(df_history, cycle_label, use_atr=use_atr)
-
-    # Path B: All Years
-    path_all = calculate_path(df_history, "All Years", use_atr=use_atr)
-
-    # Path C: Current Realized
     df_current = spx[spx["year"] == current_year].copy()
-    path_current = pd.Series()
-    if not df_current.empty:
-        if use_atr:
-            path_current = df_current["atr_return"].cumsum()
-        else:
-            path_current = df_current["log_return"].cumsum().apply(np.exp) - 1
+
+    # Compute both path sets
+    path_cycle_pct = calculate_path(df_history, cycle_label, use_atr=False) if show_pct else pd.Series()
+    path_all_pct = calculate_path(df_history, "All Years", use_atr=False) if show_pct else pd.Series()
+    path_current_pct = pd.Series()
+    if show_pct and not df_current.empty:
+        path_current_pct = df_current["log_return"].cumsum().apply(np.exp) - 1
+
+    path_cycle_atr = calculate_path(df_history, cycle_label, use_atr=True) if show_atr else pd.Series()
+    path_all_atr = calculate_path(df_history, "All Years", use_atr=True) if show_atr else pd.Series()
+    path_current_atr = pd.Series()
+    if show_atr and not df_current.empty:
+        path_current_atr = df_current["atr_return"].cumsum()
 
     # Date mapping: use actual trading dates from this year's data
     map_year_data = spx[spx["year"] == current_year]
@@ -300,56 +296,85 @@ def render_seasonal_chart(ticker, use_atr=False):
     def get_date_labels(day_indices):
         return [date_map.get(int(i), f"Day {i}") for i in day_indices]
 
-    if use_atr:
-        HOVER_TEMPLATE = (
-            "<b>%{customdata[0]}</b><br>"
-            "Day: %{x}<br>"
-            "Cumulative ATR: %{y:.2f}"
-            "<extra></extra>"
-        )
-    else:
-        HOVER_TEMPLATE = (
-            "<b>%{customdata[0]}</b><br>"
-            "Day: %{x}<br>"
-            "Return: %{y:.2%}"
-            "<extra></extra>"
-        )
+    HOVER_PCT = (
+        "<b>%{customdata[0]}</b><br>"
+        "Day: %{x}<br>"
+        "Return: %{y:.2%}"
+        "<extra></extra>"
+    )
+    HOVER_ATR = (
+        "<b>%{customdata[0]}</b><br>"
+        "Day: %{x}<br>"
+        "Cumulative ATR: %{y:.2f}"
+        "<extra></extra>"
+    )
 
-    # Plotting
-    fig = go.Figure()
+    from plotly.subplots import make_subplots
+    fig = make_subplots(specs=[[{"secondary_y": True}]])
 
-    # Cycle Average (Orange)
-    cycle_dates = get_date_labels(path_cycle.index)
-    fig.add_trace(go.Scatter(
-        x=path_cycle.index, y=path_cycle.values,
-        mode="lines", name=f"{cycle_label} Avg",
-        line=dict(color="#FF8C00", width=2),
-        customdata=[[d] for d in cycle_dates],
-        hovertemplate=HOVER_TEMPLATE
-    ))
-
-    # All Years Average (Blue Dashed)
-    if not path_all.empty:
-        all_dates = get_date_labels(path_all.index)
+    # --- % Return traces (left y-axis) ---
+    if not path_cycle_pct.empty:
+        cycle_dates = get_date_labels(path_cycle_pct.index)
         fig.add_trace(go.Scatter(
-            x=path_all.index, y=path_all.values,
-            mode="lines", name="All Years Avg",
+            x=path_cycle_pct.index, y=path_cycle_pct.values,
+            mode="lines", name=f"{cycle_label} %",
+            line=dict(color="#FF8C00", width=2),
+            customdata=[[d] for d in cycle_dates],
+            hovertemplate=HOVER_PCT
+        ), secondary_y=False)
+
+    if not path_all_pct.empty:
+        all_dates = get_date_labels(path_all_pct.index)
+        fig.add_trace(go.Scatter(
+            x=path_all_pct.index, y=path_all_pct.values,
+            mode="lines", name="All Years %",
             line=dict(color="lightblue", width=1, dash='dot'),
             customdata=[[d] for d in all_dates],
-            hovertemplate=HOVER_TEMPLATE
-        ))
+            hovertemplate=HOVER_PCT
+        ), secondary_y=False)
 
-    # Current Realized (Green)
-    if not path_current.empty:
+    if not path_current_pct.empty:
         realized_dates = [d.strftime("%b %d") for d in df_current.index]
         fig.add_trace(go.Scatter(
-            x=np.arange(1, len(path_current) + 1),
-            y=path_current.values,
-            mode="lines", name=f"{current_year} Realized",
+            x=np.arange(1, len(path_current_pct) + 1),
+            y=path_current_pct.values,
+            mode="lines", name=f"{current_year} %",
             line=dict(color="#39FF14", width=2),
             customdata=[[d] for d in realized_dates],
-            hovertemplate=HOVER_TEMPLATE
-        ))
+            hovertemplate=HOVER_PCT
+        ), secondary_y=False)
+
+    # --- ATR traces (right y-axis) ---
+    if not path_cycle_atr.empty:
+        cycle_dates_atr = get_date_labels(path_cycle_atr.index)
+        fig.add_trace(go.Scatter(
+            x=path_cycle_atr.index, y=path_cycle_atr.values,
+            mode="lines", name=f"{cycle_label} ATR",
+            line=dict(color="#FF8C00", width=2, dash="dash"),
+            customdata=[[d] for d in cycle_dates_atr],
+            hovertemplate=HOVER_ATR
+        ), secondary_y=True)
+
+    if not path_all_atr.empty:
+        all_dates_atr = get_date_labels(path_all_atr.index)
+        fig.add_trace(go.Scatter(
+            x=path_all_atr.index, y=path_all_atr.values,
+            mode="lines", name="All Years ATR",
+            line=dict(color="lightblue", width=1, dash='dashdot'),
+            customdata=[[d] for d in all_dates_atr],
+            hovertemplate=HOVER_ATR
+        ), secondary_y=True)
+
+    if not path_current_atr.empty:
+        realized_dates = [d.strftime("%b %d") for d in df_current.index]
+        fig.add_trace(go.Scatter(
+            x=np.arange(1, len(path_current_atr) + 1),
+            y=path_current_atr.values,
+            mode="lines", name=f"{current_year} ATR",
+            line=dict(color="#39FF14", width=2, dash="dash"),
+            customdata=[[d] for d in realized_dates],
+            hovertemplate=HOVER_ATR
+        ), secondary_y=True)
 
     # Markers
     today = dt.date.today()
@@ -362,30 +387,27 @@ def render_seasonal_chart(ticker, use_atr=False):
         
         day_count_marker = df_current_ctx.iloc[closest_idx]["day_count"]
 
-        # --- Plot on Cycle Path (ORANGE) ---
-        if day_count_marker in path_cycle.index:
-            y_val = path_cycle.get(day_count_marker)
+        # --- Markers on % cycle path ---
+        if show_pct and not path_cycle_pct.empty and day_count_marker in path_cycle_pct.index:
             fig.add_trace(go.Scatter(
-                x=[day_count_marker], y=[y_val],
-                mode="markers", name="Today",
+                x=[day_count_marker], y=[path_cycle_pct.get(day_count_marker)],
+                mode="markers",
                 marker=dict(color="white", size=8, line=dict(width=1, color="black")),
                 showlegend=False, hoverinfo="skip"
-            ))
+            ), secondary_y=False)
 
-        # --- Plot on All Years Path (BLUE) ---
-        if day_count_marker in path_all.index:
-            y_val_all = path_all.get(day_count_marker)
+        # --- Markers on ATR cycle path ---
+        if show_atr and not path_cycle_atr.empty and day_count_marker in path_cycle_atr.index:
             fig.add_trace(go.Scatter(
-                x=[day_count_marker], y=[y_val_all],
+                x=[day_count_marker], y=[path_cycle_atr.get(day_count_marker)],
                 mode="markers",
-                marker=dict(color="lightblue", size=6, line=dict(width=1, color="white")),
+                marker=dict(color="white", size=8, symbol="diamond",
+                            line=dict(width=1, color="black")),
                 showlegend=False, hoverinfo="skip"
-            ))
+            ), secondary_y=True)
 
-    atr_suffix = " (ATR)" if use_atr else ""
-    y_label = "Cumulative ATR Moves" if use_atr else "Return"
     fig.update_layout(
-        title=f"{ticker} Seasonality{atr_suffix} ({cycle_label})",
+        title=f"{ticker} Seasonality ({cycle_label})",
         margin=dict(l=10, r=10, t=40, b=10),
         height=600,
         plot_bgcolor="black",
@@ -400,8 +422,9 @@ def render_seasonal_chart(ticker, use_atr=False):
             xanchor="left", x=0.01
         ),
         xaxis=dict(showgrid=False),
-        yaxis=dict(showgrid=False, title=y_label,
-                   tickformat=".1f" if use_atr else None)
+        yaxis=dict(showgrid=False, title="Return" if show_pct else None),
+        yaxis2=dict(showgrid=False, title="Cumulative ATR" if show_atr else None,
+                    tickformat=".1f")
     )
     
     st.plotly_chart(fig, use_container_width=True)
@@ -463,21 +486,20 @@ def main():
     # 2. CHARTS SECTION
     st.divider()
     st.subheader("Seasonal Charts")
-    c1, c2 = st.columns([3, 1])
+    c1, c2, c3 = st.columns([3, 1, 1])
     with c1:
-        st.caption(f"Current Cycle: {get_current_cycle_label()} (Orange). All Years (Blue Dashed). Current Year Realized (Green).")
+        st.caption(f"Solid = % return (left axis). Dashed = ATR-normalized (right axis). Click legend to toggle.")
     with c2:
-        use_atr_norm = st.checkbox("Normalize by ATR", value=False)
+        show_pct = st.checkbox("% Return", value=True)
+    with c3:
+        show_atr = st.checkbox("ATR Path", value=True)
 
-    # Grid layout for charts (2 per row for better visibility)
     tickers_to_plot = table["Ticker"].tolist()
-
-    # Create columns for grid layout
     cols = st.columns(2)
 
     for i, ticker in enumerate(tickers_to_plot):
         with cols[i % 2]:
-            render_seasonal_chart(ticker, use_atr=use_atr_norm)
+            render_seasonal_chart(ticker, show_pct=show_pct, show_atr=show_atr)
 
 if __name__ == "__main__":
     main()

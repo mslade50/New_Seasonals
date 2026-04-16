@@ -195,7 +195,7 @@ def recent_performance_analysis(df, cycle_label, cycle_start_mapping):
 # -----------------------------------------------------------------------------
 # MAIN LOGIC
 # -----------------------------------------------------------------------------
-def seasonals_chart(ticker, cycle_label, enable_time_travel, reference_year, show_all_years_line, use_atr_norm=False):
+def seasonals_chart(ticker, cycle_label, enable_time_travel, reference_year, show_all_years_line, show_pct=True, show_atr=True):
     cycle_start_mapping = {
         "Election": 1952,
         "Pre-Election": 1951,
@@ -246,38 +246,42 @@ def seasonals_chart(ticker, cycle_label, enable_time_travel, reference_year, sho
         rank_profile_historical = calculate_seasonal_rank(spx, cycle_label, cycle_start_mapping, reference_year)
 
     # -----------------------------------------------------------------
-    # PATH CALCULATIONS (unchanged logic)
+    # PATH CALCULATIONS — compute both % and ATR sets
     # -----------------------------------------------------------------
-    # 1. CURRENT MODEL CONSTRUCTION
     df_all_history = spx[spx["year"] < current_year].copy()
-    path_current_avg = calculate_path(df_all_history, cycle_label, cycle_start_mapping, use_atr=use_atr_norm)
-
-    path_current_all_years = pd.Series()
-    if show_all_years_line:
-        path_current_all_years = calculate_path(df_all_history, "All Years", cycle_start_mapping, use_atr=use_atr_norm)
-
     df_current_year = spx[spx["year"] == current_year].copy()
-    path_current_realized = pd.Series()
-    if not df_current_year.empty:
-        if use_atr_norm:
-            path_current_realized = df_current_year["atr_return"].cumsum()
-        else:
-            path_current_realized = df_current_year["log_return"].cumsum().apply(np.exp) - 1
 
-    # 2. TIME TRAVEL CONSTRUCTION
-    path_historical_avg = pd.Series()
-    path_ref_realized = pd.Series()
-    
+    # % paths
+    pct_cycle = calculate_path(df_all_history, cycle_label, cycle_start_mapping, use_atr=False) if show_pct else pd.Series()
+    pct_all = calculate_path(df_all_history, "All Years", cycle_start_mapping, use_atr=False) if (show_pct and show_all_years_line) else pd.Series()
+    pct_realized = pd.Series()
+    if show_pct and not df_current_year.empty:
+        pct_realized = df_current_year["log_return"].cumsum().apply(np.exp) - 1
+
+    # ATR paths
+    atr_cycle = calculate_path(df_all_history, cycle_label, cycle_start_mapping, use_atr=True) if show_atr else pd.Series()
+    atr_all = calculate_path(df_all_history, "All Years", cycle_start_mapping, use_atr=True) if (show_atr and show_all_years_line) else pd.Series()
+    atr_realized = pd.Series()
+    if show_atr and not df_current_year.empty:
+        atr_realized = df_current_year["atr_return"].cumsum()
+
+    # Time travel paths
+    pct_hist_avg = pd.Series()
+    pct_ref_realized = pd.Series()
+    atr_hist_avg = pd.Series()
+    atr_ref_realized = pd.Series()
+
     if enable_time_travel:
         df_historical_pool = spx[spx["year"] < reference_year].copy()
-        path_historical_avg = calculate_path(df_historical_pool, cycle_label, cycle_start_mapping, use_atr=use_atr_norm)
-        
         df_ref_year = spx[spx["year"] == reference_year].copy()
-        if not df_ref_year.empty:
-            if use_atr_norm:
-                path_ref_realized = df_ref_year["atr_return"].cumsum()
-            else:
-                path_ref_realized = df_ref_year["log_return"].cumsum().apply(np.exp) - 1
+        if show_pct:
+            pct_hist_avg = calculate_path(df_historical_pool, cycle_label, cycle_start_mapping, use_atr=False)
+            if not df_ref_year.empty:
+                pct_ref_realized = df_ref_year["log_return"].cumsum().apply(np.exp) - 1
+        if show_atr:
+            atr_hist_avg = calculate_path(df_historical_pool, cycle_label, cycle_start_mapping, use_atr=True)
+            if not df_ref_year.empty:
+                atr_ref_realized = df_ref_year["atr_return"].cumsum()
 
     # -------------------------------------------------------------------------
     # DATE MAPPING LOGIC (uses actual trading dates, not bdate_range)
@@ -316,100 +320,118 @@ def seasonals_chart(ticker, cycle_label, enable_time_travel, reference_year, sho
             result.append([label, rank])
         return result
 
-    if use_atr_norm:
-        HOVER_WITH_RANK = (
-            "<b>%{customdata[0]}</b><br>"
-            "Day: %{x}<br>"
-            "Cumulative ATR: %{y:.2f}<br>"
-            "Seasonal Rank: %{customdata[1]:.0f}"
-            "<extra></extra>"
-        )
-    else:
-        HOVER_WITH_RANK = (
-            "<b>%{customdata[0]}</b><br>"
-            "Day: %{x}<br>"
-            "Return: %{y:.2%}<br>"
-            "Seasonal Rank: %{customdata[1]:.0f}"
-            "<extra></extra>"
-        )
+    HOVER_PCT = (
+        "<b>%{customdata[0]}</b><br>"
+        "Day: %{x}<br>"
+        "Return: %{y:.2%}<br>"
+        "Seasonal Rank: %{customdata[1]:.0f}"
+        "<extra></extra>"
+    )
+    HOVER_ATR = (
+        "<b>%{customdata[0]}</b><br>"
+        "Day: %{x}<br>"
+        "Cumulative ATR: %{y:.2f}<br>"
+        "Seasonal Rank: %{customdata[1]:.0f}"
+        "<extra></extra>"
+    )
 
     # -------------------------------------------------------------------------
-    # PLOTTING
+    # PLOTTING (dual y-axis: % left, ATR right)
     # -------------------------------------------------------------------------
-    fig = go.Figure()
+    from plotly.subplots import make_subplots
+    fig = make_subplots(specs=[[{"secondary_y": True}]])
 
-    # A. Current Cycle Model (Orange)
-    fig.add_trace(go.Scatter(
-        x=path_current_avg.index,
-        y=path_current_avg.values,
-        mode="lines",
-        name=f"Current Model ({cycle_label})",
-        line=dict(color="#FF8C00", width=3),
-        customdata=build_customdata(path_current_avg.index, rank_profile_current),
-        hovertemplate=HOVER_WITH_RANK
-    ))
-
-    # B. Current All Years Model (Light Blue - Optional)
-    if not path_current_all_years.empty:
+    # --- % Return traces (left y-axis, solid lines) ---
+    if not pct_cycle.empty:
         fig.add_trace(go.Scatter(
-            x=path_current_all_years.index,
-            y=path_current_all_years.values,
-            mode="lines",
-            name="Current Model (All Years)",
-            line=dict(color="lightblue", width=1, dash='dot'),
-            customdata=build_customdata(path_current_all_years.index, rank_profile_all_years),
-            hovertemplate=HOVER_WITH_RANK
-        ))
+            x=pct_cycle.index, y=pct_cycle.values, mode="lines",
+            name=f"{cycle_label} %", line=dict(color="#FF8C00", width=3),
+            customdata=build_customdata(pct_cycle.index, rank_profile_current),
+            hovertemplate=HOVER_PCT
+        ), secondary_y=False)
 
-    # C. Historical Model (Gold Dashed - Time Travel)
-    if enable_time_travel and not path_historical_avg.empty:
+    if not pct_all.empty:
         fig.add_trace(go.Scatter(
-            x=path_historical_avg.index,
-            y=path_historical_avg.values,
-            mode="lines",
-            name=f"Model in {reference_year} (Pre-{reference_year} Data)",
-            line=dict(color="#FCD12A", width=2, dash='dash'),
-            customdata=build_customdata(path_historical_avg.index, rank_profile_historical),
-            hovertemplate=HOVER_WITH_RANK
-        ))
+            x=pct_all.index, y=pct_all.values, mode="lines",
+            name="All Years %", line=dict(color="lightblue", width=1, dash='dot'),
+            customdata=build_customdata(pct_all.index, rank_profile_all_years),
+            hovertemplate=HOVER_PCT
+        ), secondary_y=False)
 
-    # D. Current Realized (Green)
-    if not path_current_realized.empty:
+    if enable_time_travel and not pct_hist_avg.empty:
+        fig.add_trace(go.Scatter(
+            x=pct_hist_avg.index, y=pct_hist_avg.values, mode="lines",
+            name=f"Model {reference_year} %", line=dict(color="#FCD12A", width=2),
+            customdata=build_customdata(pct_hist_avg.index, rank_profile_historical),
+            hovertemplate=HOVER_PCT
+        ), secondary_y=False)
+
+    if not pct_realized.empty:
         realized_dates = [d.strftime("%b %d") for d in df_current_year.index]
-        realized_day_counts = df_current_year["day_count"].values
-        cdata = build_customdata(realized_day_counts, rank_profile_current, date_labels=realized_dates)
-
+        cdata = build_customdata(df_current_year["day_count"].values, rank_profile_current, date_labels=realized_dates)
         fig.add_trace(go.Scatter(
-            x=np.arange(1, len(path_current_realized) + 1),
-            y=path_current_realized.values,
-            mode="lines",
-            name=f"{current_year} Realized (YTD)",
-            line=dict(color="#39FF14", width=2),
-            customdata=cdata,
-            hovertemplate=HOVER_WITH_RANK
-        ))
+            x=np.arange(1, len(pct_realized) + 1), y=pct_realized.values, mode="lines",
+            name=f"{current_year} %", line=dict(color="#39FF14", width=2),
+            customdata=cdata, hovertemplate=HOVER_PCT
+        ), secondary_y=False)
 
-    # E. Historical Realized (Cyan - Time Travel)
-    if enable_time_travel and not path_ref_realized.empty:
+    if enable_time_travel and not pct_ref_realized.empty:
         realized_dates_ref = [d.strftime("%b %d") for d in df_ref_year.index]
-        ref_day_counts = df_ref_year["day_count"].values
-        cdata_ref = build_customdata(ref_day_counts, rank_profile_historical, date_labels=realized_dates_ref)
-
+        cdata_ref = build_customdata(df_ref_year["day_count"].values, rank_profile_historical, date_labels=realized_dates_ref)
         fig.add_trace(go.Scatter(
-            x=np.arange(1, len(path_ref_realized) + 1),
-            y=path_ref_realized.values,
-            mode="lines",
-            name=f"{reference_year} Realized",
-            line=dict(color="#00FFFF", width=2),
-            customdata=cdata_ref,
-            hovertemplate=HOVER_WITH_RANK
-        ))
+            x=np.arange(1, len(pct_ref_realized) + 1), y=pct_ref_realized.values, mode="lines",
+            name=f"{reference_year} %", line=dict(color="#00FFFF", width=2),
+            customdata=cdata_ref, hovertemplate=HOVER_PCT
+        ), secondary_y=False)
+
+    # --- ATR traces (right y-axis, dashed lines) ---
+    if not atr_cycle.empty:
+        fig.add_trace(go.Scatter(
+            x=atr_cycle.index, y=atr_cycle.values, mode="lines",
+            name=f"{cycle_label} ATR", line=dict(color="#FF8C00", width=2, dash="dash"),
+            customdata=build_customdata(atr_cycle.index, rank_profile_current),
+            hovertemplate=HOVER_ATR
+        ), secondary_y=True)
+
+    if not atr_all.empty:
+        fig.add_trace(go.Scatter(
+            x=atr_all.index, y=atr_all.values, mode="lines",
+            name="All Years ATR", line=dict(color="lightblue", width=1, dash='dashdot'),
+            customdata=build_customdata(atr_all.index, rank_profile_all_years),
+            hovertemplate=HOVER_ATR
+        ), secondary_y=True)
+
+    if enable_time_travel and not atr_hist_avg.empty:
+        fig.add_trace(go.Scatter(
+            x=atr_hist_avg.index, y=atr_hist_avg.values, mode="lines",
+            name=f"Model {reference_year} ATR", line=dict(color="#FCD12A", width=2, dash="dash"),
+            customdata=build_customdata(atr_hist_avg.index, rank_profile_historical),
+            hovertemplate=HOVER_ATR
+        ), secondary_y=True)
+
+    if not atr_realized.empty:
+        realized_dates = [d.strftime("%b %d") for d in df_current_year.index]
+        cdata = build_customdata(df_current_year["day_count"].values, rank_profile_current, date_labels=realized_dates)
+        fig.add_trace(go.Scatter(
+            x=np.arange(1, len(atr_realized) + 1), y=atr_realized.values, mode="lines",
+            name=f"{current_year} ATR", line=dict(color="#39FF14", width=2, dash="dash"),
+            customdata=cdata, hovertemplate=HOVER_ATR
+        ), secondary_y=True)
+
+    if enable_time_travel and not atr_ref_realized.empty:
+        realized_dates_ref = [d.strftime("%b %d") for d in df_ref_year.index]
+        cdata_ref = build_customdata(df_ref_year["day_count"].values, rank_profile_historical, date_labels=realized_dates_ref)
+        fig.add_trace(go.Scatter(
+            x=np.arange(1, len(atr_ref_realized) + 1), y=atr_ref_realized.values, mode="lines",
+            name=f"{reference_year} ATR", line=dict(color="#00FFFF", width=2, dash="dash"),
+            customdata=cdata_ref, hovertemplate=HOVER_ATR
+        ), secondary_y=True)
 
     # -------------------------------------------------------------------------
-    # MARKERS & DATES
+    # MARKERS
     # -------------------------------------------------------------------------
     today = dt.date.today()
-    
+
     if enable_time_travel:
         target_year = reference_year
         try:
@@ -417,13 +439,11 @@ def seasonals_chart(ticker, cycle_label, enable_time_travel, reference_year, sho
         except ValueError:
             target_date_start = dt.date(target_year, 2, 28)
         df_context = spx[spx["year"] == target_year]
-        model_to_plot_on = path_historical_avg if not path_historical_avg.empty else path_current_avg
-        marker_color = "#FCD12A" 
+        marker_color = "#FCD12A"
     else:
         target_year = current_year
         target_date_start = today
         df_context = spx[spx["year"] == target_year]
-        model_to_plot_on = path_current_avg
         marker_color = "white"
 
     day_count_marker = None
@@ -431,45 +451,31 @@ def seasonals_chart(ticker, cycle_label, enable_time_travel, reference_year, sho
         closest_idx = df_context.index.searchsorted(dt.datetime.combine(target_date_start, dt.time.min))
         if closest_idx >= len(df_context):
             closest_idx = len(df_context) - 1
-        
         day_count_marker = df_context.iloc[closest_idx]["day_count"]
 
-        # --- PLOT MARKERS ON MAIN CYCLE LINE ---
-        if day_count_marker in model_to_plot_on.index:
-            y_val = model_to_plot_on.get(day_count_marker)
-            
+        # Marker on % cycle path
+        if show_pct and not pct_cycle.empty and day_count_marker in pct_cycle.index:
             fig.add_trace(go.Scatter(
-                x=[day_count_marker],
-                y=[y_val],
-                mode="markers",
-                name=f"Current Date ({target_date_start.strftime('%b %d')})",
-                marker=dict(color=marker_color, size=8, line=dict(width=1, color="black")),
-                showlegend=False,
-                hoverinfo="skip"
-            ))
+                x=[day_count_marker], y=[pct_cycle.get(day_count_marker)],
+                mode="markers", marker=dict(color=marker_color, size=8, line=dict(width=1, color="black")),
+                showlegend=False, hoverinfo="skip"
+            ), secondary_y=False)
 
-        # --- PLOT MARKER ON 'ALL YEARS' LINE (If Visible) ---
-        if not path_current_all_years.empty:
-            if day_count_marker in path_current_all_years.index:
-                y_val_all = path_current_all_years.get(day_count_marker)
-                fig.add_trace(go.Scatter(
-                    x=[day_count_marker],
-                    y=[y_val_all],
-                    mode="markers",
-                    marker=dict(color="white", size=5, line=dict(width=1, color="white")),
-                    showlegend=False,
-                    hoverinfo="skip"
-                ))
+        # Marker on ATR cycle path
+        if show_atr and not atr_cycle.empty and day_count_marker in atr_cycle.index:
+            fig.add_trace(go.Scatter(
+                x=[day_count_marker], y=[atr_cycle.get(day_count_marker)],
+                mode="markers", marker=dict(color=marker_color, size=8, symbol="diamond",
+                                            line=dict(width=1, color="black")),
+                showlegend=False, hoverinfo="skip"
+            ), secondary_y=True)
 
     # Layout
     title_suffix = f"vs {reference_year}" if enable_time_travel else ""
-    atr_suffix = " (ATR-Normalized)" if use_atr_norm else ""
-    y_label = "Cumulative ATR Moves" if use_atr_norm else "Cumulative Return"
     fig.update_layout(
         height=800,
-        title=f"Seasonal Analysis: {ticker}{atr_suffix} {title_suffix}",
+        title=f"Seasonal Analysis: {ticker} {title_suffix}",
         xaxis_title=None,
-        yaxis_title=y_label,
         plot_bgcolor="black",
         paper_bgcolor="black",
         font=dict(color="white"),
@@ -477,18 +483,15 @@ def seasonals_chart(ticker, cycle_label, enable_time_travel, reference_year, sho
             bgcolor="rgba(20,20,20,0.8)",
             font=dict(color="white"),
             orientation="h",
-            yanchor="bottom",
-            y=-0.05,
-            xanchor="left",
-            x=0.01
+            yanchor="bottom", y=-0.05,
+            xanchor="left", x=0.01
         ),
-        hovermode="x unified"
+        hovermode="x unified",
+        yaxis=dict(showgrid=False, title="Return" if show_pct else None),
+        yaxis2=dict(showgrid=False, title="Cumulative ATR" if show_atr else None,
+                    tickformat=".1f"),
     )
     fig.update_xaxes(showgrid=False)
-    if use_atr_norm:
-        fig.update_yaxes(showgrid=False, tickformat=".1f")
-    else:
-        fig.update_yaxes(showgrid=False)
 
     st.plotly_chart(fig, use_container_width=True)
 
@@ -668,12 +671,16 @@ def main():
 
     with col4:
         show_all_years_line = st.checkbox("Overlay 'All Years' Avg", value=False)
-        use_atr_norm = st.checkbox("Normalize by ATR", value=False)
+        c4a, c4b = st.columns(2)
+        with c4a:
+            show_pct = st.checkbox("% Return", value=True)
+        with c4b:
+            show_atr = st.checkbox("ATR Path", value=True)
 
     if st.button("Run Analysis", type="primary", use_container_width=True):
         try:
             with st.spinner("Calculating cycle stats..."):
-                seasonals_chart(ticker, cycle_label, enable_time_travel, reference_year, show_all_years_line, use_atr_norm)
+                seasonals_chart(ticker, cycle_label, enable_time_travel, reference_year, show_all_years_line, show_pct, show_atr)
         except Exception as e:
             st.error(f"Error generating chart: {e}")
 
