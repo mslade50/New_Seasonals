@@ -388,7 +388,7 @@ def seasonals_chart(ticker, cycle_label, enable_time_travel, reference_year, sho
     if not atr_cycle.empty:
         fig.add_trace(go.Scatter(
             x=atr_cycle.index, y=atr_cycle.values, mode="lines",
-            name=f"{cycle_label} ATR", line=dict(color="#FF8C00", width=2, dash="dash"),
+            name=f"{cycle_label} ATR", line=dict(color="#FF8C00", width=2),
             customdata=build_customdata(atr_cycle.index, rank_profile_current),
             hovertemplate=HOVER_ATR
         ), secondary_y=True)
@@ -396,7 +396,7 @@ def seasonals_chart(ticker, cycle_label, enable_time_travel, reference_year, sho
     if not atr_all.empty:
         fig.add_trace(go.Scatter(
             x=atr_all.index, y=atr_all.values, mode="lines",
-            name="All Years ATR", line=dict(color="lightblue", width=1, dash='dashdot'),
+            name="All Years ATR", line=dict(color="lightblue", width=1, dash='dot'),
             customdata=build_customdata(atr_all.index, rank_profile_all_years),
             hovertemplate=HOVER_ATR
         ), secondary_y=True)
@@ -404,7 +404,7 @@ def seasonals_chart(ticker, cycle_label, enable_time_travel, reference_year, sho
     if enable_time_travel and not atr_hist_avg.empty:
         fig.add_trace(go.Scatter(
             x=atr_hist_avg.index, y=atr_hist_avg.values, mode="lines",
-            name=f"Model {reference_year} ATR", line=dict(color="#FCD12A", width=2, dash="dash"),
+            name=f"Model {reference_year} ATR", line=dict(color="#FCD12A", width=2),
             customdata=build_customdata(atr_hist_avg.index, rank_profile_historical),
             hovertemplate=HOVER_ATR
         ), secondary_y=True)
@@ -414,7 +414,7 @@ def seasonals_chart(ticker, cycle_label, enable_time_travel, reference_year, sho
         cdata = build_customdata(df_current_year["day_count"].values, rank_profile_current, date_labels=realized_dates)
         fig.add_trace(go.Scatter(
             x=np.arange(1, len(atr_realized) + 1), y=atr_realized.values, mode="lines",
-            name=f"{current_year} ATR", line=dict(color="#39FF14", width=2, dash="dash"),
+            name=f"{current_year} ATR", line=dict(color="#39FF14", width=2),
             customdata=cdata, hovertemplate=HOVER_ATR
         ), secondary_y=True)
 
@@ -423,7 +423,7 @@ def seasonals_chart(ticker, cycle_label, enable_time_travel, reference_year, sho
         cdata_ref = build_customdata(df_ref_year["day_count"].values, rank_profile_historical, date_labels=realized_dates_ref)
         fig.add_trace(go.Scatter(
             x=np.arange(1, len(atr_ref_realized) + 1), y=atr_ref_realized.values, mode="lines",
-            name=f"{reference_year} ATR", line=dict(color="#00FFFF", width=2, dash="dash"),
+            name=f"{reference_year} ATR", line=dict(color="#00FFFF", width=2),
             customdata=cdata_ref, hovertemplate=HOVER_ATR
         ), secondary_y=True)
 

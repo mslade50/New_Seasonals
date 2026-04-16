@@ -350,7 +350,7 @@ def render_seasonal_chart(ticker, show_pct=True, show_atr=True):
         fig.add_trace(go.Scatter(
             x=path_cycle_atr.index, y=path_cycle_atr.values,
             mode="lines", name=f"{cycle_label} ATR",
-            line=dict(color="#FF8C00", width=2, dash="dash"),
+            line=dict(color="#FF8C00", width=2),
             customdata=[[d] for d in cycle_dates_atr],
             hovertemplate=HOVER_ATR
         ), secondary_y=True)
@@ -360,7 +360,7 @@ def render_seasonal_chart(ticker, show_pct=True, show_atr=True):
         fig.add_trace(go.Scatter(
             x=path_all_atr.index, y=path_all_atr.values,
             mode="lines", name="All Years ATR",
-            line=dict(color="lightblue", width=1, dash='dashdot'),
+            line=dict(color="lightblue", width=1, dash='dot'),
             customdata=[[d] for d in all_dates_atr],
             hovertemplate=HOVER_ATR
         ), secondary_y=True)
@@ -371,7 +371,7 @@ def render_seasonal_chart(ticker, show_pct=True, show_atr=True):
             x=np.arange(1, len(path_current_atr) + 1),
             y=path_current_atr.values,
             mode="lines", name=f"{current_year} ATR",
-            line=dict(color="#39FF14", width=2, dash="dash"),
+            line=dict(color="#39FF14", width=2),
             customdata=[[d] for d in realized_dates],
             hovertemplate=HOVER_ATR
         ), secondary_y=True)
