@@ -82,11 +82,39 @@ def get_google_client():
         return None
 
 
-def send_email_summary(signals_list, error_tickers=None):
+def send_email_summary(signals_list, error_tickers=None, frag_score=None, frag_mult=None):
     """
     Sends an HTML email summary of the signals using Gmail SMTP.
     Card-based layout showing full signal criteria with LIVE values.
+
+    frag_score / frag_mult: today's 10d-MA 63d fragility reading and the
+    corresponding sizing multiplier from the risk dial schedule. Rendered
+    as a header line so the reader sees where on the schedule we're sized.
     """
+    # Build the risk-dial header line (shared across both branches)
+    if frag_score is not None and frag_mult is not None:
+        if frag_score <= 25:
+            _dial_label = "Robust"
+            _dial_color = "#c8e6c9"
+        elif frag_score <= 60:
+            _dial_label = "Neutral"
+            _dial_color = "#fff59d"
+        else:
+            _dial_label = "Fragile"
+            _dial_color = "#ffcdd2"
+        risk_dial_html = (
+            f'<div style="font-size: 13px; margin-top: 6px; opacity: 0.95;">'
+            f'🛡️ Risk Dial: <strong>{frag_score:.1f}</strong> '
+            f'<span style="background: {_dial_color}; color: #333; padding: 1px 6px; border-radius: 3px; font-size: 11px; margin: 0 4px;">{_dial_label}</span>'
+            f'→ sizing <strong>{frag_mult:.2f}x</strong>'
+            f'</div>'
+        )
+    else:
+        risk_dial_html = (
+            '<div style="font-size: 13px; margin-top: 6px; opacity: 0.7;">'
+            '🛡️ Risk Dial: n/a (fragility cache missing) — sizing 1.00x'
+            '</div>'
+        )
     sender_email = os.environ.get("EMAIL_USER")
     sender_password = os.environ.get("EMAIL_PASS")
     receiver_email = "mckinleyslade@gmail.com"
@@ -148,6 +176,7 @@ def send_email_summary(signals_list, error_tickers=None):
                 <div style="max-width: 700px; margin: 0 auto; background: white; padding: 30px; border-radius: 8px;">
                     <h2 style="color: #333; margin-top: 0;">Daily Strategy Scan: {date_str}</h2>
                     <p style="color: #666;">The scan completed successfully.</p>
+                    <div style="font-size: 13px; color: #555; margin: 10px 0 15px 0;">{risk_dial_html}</div>
                     <p style="font-size: 18px; color: #888;"><strong>Result:</strong> No signals found matching criteria today.</p>
                     {error_html}
                 </div>
@@ -390,6 +419,7 @@ def send_email_summary(signals_list, error_tickers=None):
                         <div style="font-size: 14px; margin-top: 8px; opacity: 0.9;">
                             {long_count} Long | {short_count} Short | ${total_risk:,.0f} Risk | {net_notional_str} Net Exposure
                         </div>
+                        {risk_dial_html}
                     </div>
                     
                     <!-- Quick Summary -->
@@ -1374,7 +1404,27 @@ def build_live_filters(strat, last_row, df):
         logic = settings['market_sznl_logic']
         thresh = settings['market_sznl_thresh']
         live_filters.append((f"Market seasonal {logic} {thresh:.0f}", f"{val:.0f}", False))
-    
+
+    # --- ATR Seasonal Rank Filters (ATR-normalized forward-return rank per DOY) ---
+    for asf in settings.get('atr_sznl_filters', []):
+        window = asf['window']
+        col = f"atr_sznl_{window}d"
+        val = last_row.get(col)
+        logic = asf.get('logic', '>')
+        thresh = asf.get('thresh', 50.0)
+        thresh_max = asf.get('thresh_max', 100.0)
+        consec = asf.get('consecutive', 1)
+
+        if logic == 'Between':
+            desc = f"{window}D ATR sznl rank between {thresh:.0f}-{thresh_max:.0f}"
+        else:
+            desc = f"{window}D ATR sznl rank {logic} {thresh:.0f}th %ile"
+        if consec > 1:
+            desc += f" ({consec}d consecutive)"
+
+        val_str = f"{val:.1f}" if val is not None and pd.notna(val) else "N/A"
+        live_filters.append((desc, val_str, False))
+
     # --- Range Filter ---
     if settings.get('use_range_filter', False):
         val = last_row.get('RangePct', 0.5) * 100
@@ -1722,6 +1772,7 @@ def run_daily_scan():
     FRAG_CACHE = os.path.join(current_dir, "data", "rd2_fragility.parquet")
     FRAG_CACHE_TS = os.path.join(current_dir, "data", "rd2_fragility_ts.parquet")
     frag_mult = 1.0  # default: no adjustment
+    frag_score = None  # populated below if fragility cache loads
 
     # Sizing schedule parameters (from Fragility Sizing Lab optimization)
     FRAG_THRESHOLD = 25    # ramp neutral zone
@@ -2062,7 +2113,7 @@ def run_daily_scan():
             seen_errors.add(key)
             unique_errors.append((ticker, reason))
 
-    send_email_summary(all_signals, error_tickers=unique_errors)
+    send_email_summary(all_signals, error_tickers=unique_errors, frag_score=frag_score, frag_mult=frag_mult)
 
     print("--- Scan Complete ---")
 

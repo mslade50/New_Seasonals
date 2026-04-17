@@ -317,74 +317,157 @@ def append_signals_to_gsheet(signals_list, sheet_name='Trade_Signals_Log'):
         print(f"❌ Google Sheet append error: {e}")
 
 
-def append_orders_to_gsheet(signals_list, sheet_name='Order_Staging'):
-    """Append overflow orders to Order_Staging sheet.
+def append_orders_to_gsheet(signals_list, workbook_name='Trade_Signals_Log', tab_name='Overflow'):
+    """Write overflow orders to a dedicated tab in the Trade_Signals_Log workbook.
 
-    APPEND-ONLY: uses worksheet.append_rows().
+    Emits the same 20-column schema as daily_scan.save_staging_orders so the
+    order_staging.py consumer can concat the two tabs and run the same
+    enrichment path.
+
+    Always clears the tab at start of run — even if no signals are found —
+    so stale rows from a prior run never linger and get re-submitted.
     """
-    if not signals_list:
-        return
-
     gc = get_google_client()
     if not gc:
         return
 
+    strat_map = {s['id']: s for s in STRATEGY_BOOK}
+    today_str = datetime.datetime.now().strftime("%Y-%m-%d")
+
+    headers = [
+        "Scan_Date", "Symbol", "SecType", "Exchange", "Action", "Quantity",
+        "Order_Type", "Limit_Price", "Offset_ATR_Mult", "TIF",
+        "Frozen_ATR", "Signal_Close", "Time_Exit_Date", "Strategy_Ref",
+        "Tgt_ATR_Mult", "Stop_ATR_Mult", "Use_Target", "Use_Stop",
+        "Hold_Days", "Trade_Direction",
+    ]
+
     rows = []
-    for sig in signals_list:
+    for sig in (signals_list or []):
         entry_mode = sig.get('Entry_Type', '')
 
-        # Overflow intentionally does not stage MOC primaries
-        if entry_mode == 'Signal Close':
-            continue
-
-        direction = sig.get('Action', 'BUY')
-        action = 'SELL' if 'SHORT' in direction.upper() or 'SELL' in direction.upper() else 'BUY'
-
-        # LOC companion: write clean LOC fields instead of the Entry_Type_Short label
-        if sig.get('_is_companion', False) and 'LOC' in entry_mode:
+        # LOC companion: clean LOC row (mirrors daily_scan companion handling)
+        if sig.get('_is_companion', False) is True:
+            if "LOC" not in entry_mode:
+                continue
+            ib_action = "SELL" if "SHORT" in sig.get('Action', '') else "BUY"
+            trade_dir = "Short" if "SHORT" in sig.get('Action', '') else "Long"
             rows.append([
-                datetime.datetime.now().strftime("%Y-%m-%d"),
+                today_str,
                 sig.get('Ticker', ''),
-                'STK',
-                'SMART',
-                action,
+                "STK", "SMART",
+                ib_action,
                 sig.get('Shares', 0),
-                'LOC',
+                "LOC",
                 round(float(sig.get('Limit_Price', sig.get('Entry', 0))), 2),
+                0.0,
+                "DAY",
                 round(float(sig.get('ATR', 0)), 2),
                 round(float(sig.get('Entry', 0)), 2),
                 str(sig.get('Time Exit', '')),
-                sig.get('Strategy_Name', ''),
-                'overflow'
+                sig.get('Strategy_Name', 'Companion'),
+                0.0, 0.0, False, False,
+                sig.get('Days_To_Exit', 0),
+                trade_dir,
             ])
             continue
 
+        strat = strat_map.get(sig.get('Strategy_ID'))
+        if not strat:
+            continue
+
+        settings = strat['settings']
+        execution = strat['execution']
+        entry_mode = settings.get('entry_type', 'Signal Close')
+
+        # Overflow intentionally does not stage MOC primaries
+        if entry_mode == "Signal Close":
+            continue
+
+        # Defaults
+        entry_instruction = "MKT"
+        offset_atr = 0.0
+        limit_price = 0.0
+        tif_instruction = "DAY"
+
+        # 1. ATR Limit entry (Close-anchored GTC/Persistent vs Open-anchored DAY)
+        if "Limit" in entry_mode and "ATR" in entry_mode:
+            is_persistent = "Persistent" in entry_mode or "GTC" in entry_mode
+            if is_persistent:
+                entry_instruction = "REL_CLOSE"
+                tif_instruction = "GTC"
+            else:
+                entry_instruction = "REL_OPEN"
+                tif_instruction = "DAY"
+            if "0.5" in entry_mode:
+                offset_atr = 0.5
+            elif "1 ATR" in entry_mode:
+                offset_atr = 1.0
+
+        elif "LOC" in entry_mode:
+            entry_instruction = "LOC"
+            limit_price = sig.get('Limit_Price', sig.get('Entry', 0))
+            tif_instruction = "DAY"
+
+        # 2. Market on Open
+        elif "T+1 Open" in entry_mode:
+            entry_instruction = "MOO"
+            tif_instruction = "OPG"
+
+        # 3. Conditional Close
+        elif "T+1 Close if < Signal Close" in entry_mode:
+            entry_instruction = "LMT"
+            limit_price = float(sig.get('Entry', 0)) - 0.01
+            tif_instruction = "DAY"
+
+        ib_action = "SELL" if "SHORT" in sig.get('Action', '') else "BUY"
+
+        # Bracket metadata from strategy config (multipliers, not prices)
+        use_target = execution.get('use_take_profit', False)
+        use_stop = execution.get('use_stop_loss', False)
+        tgt_atr_mult = execution.get('tgt_atr', 0.0)
+        stop_atr_mult = execution.get('stop_atr', 0.0)
+        hold_days = execution.get('hold_days', 0)
+        trade_direction = settings.get('trade_direction', 'Long')
+
         rows.append([
-            datetime.datetime.now().strftime("%Y-%m-%d"),
+            today_str,
             sig.get('Ticker', ''),
-            'STK',
-            'SMART',
-            action,
+            "STK", "SMART",
+            ib_action,
             sig.get('Shares', 0),
-            sig.get('Entry_Type_Short', ''),
-            sig.get('Limit_Price', 0),
-            sig.get('ATR', 0),
-            sig.get('Entry', 0),
+            entry_instruction,
+            round(float(limit_price), 2),
+            offset_atr,
+            tif_instruction,
+            round(float(sig.get('ATR', 0)), 2),
+            round(float(sig.get('Entry', 0)), 2),
             str(sig.get('Time Exit', '')),
-            sig.get('Strategy_Name', ''),
-            'overflow'
+            strat['name'],
+            tgt_atr_mult,
+            stop_atr_mult,
+            use_target,
+            use_stop,
+            hold_days,
+            trade_direction,
         ])
 
-    if not rows:
-        return
-
     try:
-        sh = gc.open(sheet_name)
-        worksheet = sh.sheet1
-        worksheet.append_rows(rows, value_input_option='RAW')
-        print(f"✅ Appended {len(rows)} orders to {sheet_name}")
+        sh = gc.open(workbook_name)
+        try:
+            worksheet = sh.worksheet(tab_name)
+        except Exception:
+            worksheet = sh.add_worksheet(title=tab_name, rows=200, cols=len(headers))
+
+        worksheet.clear()
+        data = [headers] + [[str(v) for v in r] for r in rows]
+        worksheet.update(values=data)
+        if rows:
+            print(f"✅ Wrote {len(rows)} orders to {workbook_name}!{tab_name}")
+        else:
+            print(f"🧹 No overflow orders — '{tab_name}' cleared (headers only)")
     except Exception as e:
-        print(f"❌ Order staging append error: {e}")
+        print(f"❌ Order staging write error: {e}")
 
 
 # ============================================================================
@@ -1048,17 +1131,20 @@ def run_overflow_scan(dry_run=False, force_rebuild=False):
             print(f"   {sig['Ticker']:6s} | {sig['Action']:10s} | {sig['Strategy_Name']}")
         return
 
-    # 8. Save & notify (APPEND-ONLY — never clears or overwrites)
+    # 8. Save & notify
+    #    - Trade_Signals_Log is append-only (no clear)
+    #    - Overflow staging tab is always cleared+rewritten, even on zero-signal
+    #      days, so stale rows can't linger and get re-submitted by order_staging.
     if all_signals:
         try:
             append_signals_to_gsheet(all_signals)
         except Exception as e:
             print(f"⚠️ Google Sheets failed: {e}")
 
-        try:
-            append_orders_to_gsheet(all_signals)
-        except Exception as e:
-            print(f"⚠️ Order staging failed: {e}")
+    try:
+        append_orders_to_gsheet(all_signals)
+    except Exception as e:
+        print(f"⚠️ Order staging failed: {e}")
 
     send_overflow_email(all_signals, error_tickers=unique_errors)
 
