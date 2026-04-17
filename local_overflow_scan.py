@@ -196,8 +196,13 @@ def download_batch(tickers, start_date="2000-01-01"):
     return data_dict
 
 
-def update_cache(data_dict, force_rebuild=False):
+def update_cache(data_dict, force_rebuild=False, expected_data_date=None):
     """Load cache, download missing/stale data, merge and save.
+
+    A ticker is stale if its last cached bar predates `expected_data_date`
+    (typically yesterday's trading close pre-market, today's close post-open).
+    Falling back to a 5-day threshold when no date is provided keeps ad-hoc
+    runs from re-fetching the whole universe unnecessarily.
 
     Returns the fully updated data_dict.
     """
@@ -212,15 +217,22 @@ def update_cache(data_dict, force_rebuild=False):
     # Find tickers that need downloading
     missing = [t for t in OVERFLOW_TICKERS if t not in cached]
     stale = []
-    today = pd.Timestamp.today().normalize()
 
     if cached:
-        # Check staleness: if last cached date is >3 trading days old, update
-        for t, df in cached.items():
-            if t not in OVERFLOW_TICKERS:
-                continue
-            if df.empty or (today - df.index.max()).days > 5:
-                stale.append(t)
+        if expected_data_date is not None:
+            cutoff = pd.Timestamp(expected_data_date)
+            for t, df in cached.items():
+                if t not in OVERFLOW_TICKERS:
+                    continue
+                if df.empty or df.index.max() < cutoff:
+                    stale.append(t)
+        else:
+            today = pd.Timestamp.today().normalize()
+            for t, df in cached.items():
+                if t not in OVERFLOW_TICKERS:
+                    continue
+                if df.empty or (today - df.index.max()).days > 5:
+                    stale.append(t)
 
     to_download_full = missing
     to_update = stale
@@ -379,64 +391,301 @@ def append_orders_to_gsheet(signals_list, sheet_name='Order_Staging'):
 # EMAIL
 # ============================================================================
 
-def send_overflow_email(signals_list, error_count=0, scan_time_sec=0):
-    """Send a summary email for overflow scan results."""
+def send_overflow_email(signals_list, error_tickers=None, scan_time_sec=0):
+    """
+    Sends an HTML email summary of overflow scan signals.
+    Format mirrors daily_scan.send_email_summary exactly — gradient header,
+    quick summary table, per-signal detail cards, companion annotation,
+    grouped error breakdown, footer.
+    """
     sender_email = os.environ.get("EMAIL_USER")
     sender_password = os.environ.get("EMAIL_PASS")
     receiver_email = "mckinleyslade@gmail.com"
 
     if not sender_email or not sender_password:
-        print("⚠️ EMAIL_USER / EMAIL_PASS not set — skipping email")
+        print("⚠️ Email credentials (EMAIL_USER/EMAIL_PASS) not found. Skipping email.")
         return
 
-    eastern = pytz.timezone('America/New_York')
-    now = datetime.datetime.now(eastern)
-    date_str = now.strftime("%Y-%m-%d %H:%M ET")
+    date_str = datetime.datetime.now().strftime("%Y-%m-%d")
 
-    # Display primaries only — companions are a derived staging artifact
-    display_signals = [s for s in signals_list if not s.get('_is_companion', False)]
+    email_signals = list(signals_list) if signals_list else []
 
-    if display_signals:
-        subject = f"🔍 {len(display_signals)} OVERFLOW SIGNAL(S) ({date_str})"
-        rows = []
-        for sig in display_signals:
-            rows.append(f"""
-            <tr>
-                <td style="padding:6px;border:1px solid #444;">{sig['Ticker']}</td>
-                <td style="padding:6px;border:1px solid #444;">{sig['Action']}</td>
-                <td style="padding:6px;border:1px solid #444;">{sig.get('Shares', 0):,}</td>
-                <td style="padding:6px;border:1px solid #444;">{sig.get('Entry_Type_Short', sig.get('Entry_Type', ''))}</td>
-                <td style="padding:6px;border:1px solid #444;">${sig.get('Risk_Amt', 0):,.0f}</td>
-                <td style="padding:6px;border:1px solid #444;">{sig['Strategy_Name']}</td>
-            </tr>""")
+    # Count unique LOGICAL signals (primary + companion on same ticker = 1 signal)
+    _seen_logical = set()
+    for s in email_signals:
+        base_strat = s.get('_parent_strategy', s.get('Strategy_Name', s['Strategy_ID']))
+        _seen_logical.add((s['Ticker'], base_strat))
+    signal_count = len(_seen_logical)
 
-        body = f"""
-        <div style="font-family:monospace;background:#0e1117;color:#e0e0e0;padding:20px;">
-            <h2>Overflow Scan: {len(display_signals)} Signal(s)</h2>
-            <p style="color:#888;">Extended universe ({len(OVERFLOW_TICKERS)} tickers) · Scan time: {scan_time_sec:.0f}s</p>
-            <table style="border-collapse:collapse;width:100%;margin-top:10px;">
-                <tr style="background:#1a1a2e;">
-                    <th style="padding:6px;border:1px solid #444;">Ticker</th>
-                    <th style="padding:6px;border:1px solid #444;">Action</th>
-                    <th style="padding:6px;border:1px solid #444;">Shares</th>
-                    <th style="padding:6px;border:1px solid #444;">Entry</th>
-                    <th style="padding:6px;border:1px solid #444;">Risk</th>
-                    <th style="padding:6px;border:1px solid #444;">Strategy</th>
-                </tr>
-                {"".join(rows)}
+    _primary_signals = [s for s in email_signals if not s.get('_is_companion', False)]
+    _companion_map = {s['Ticker']: s for s in email_signals if s.get('_is_companion', False)}
+
+    # Error tickers section — grouped by reason
+    error_html = ""
+    if not error_tickers:
+        error_html = '<div style="margin-top: 20px; font-size: 12px; color: #888;">✅ All tickers successfully parsed</div>'
+    else:
+        from collections import defaultdict
+        by_reason = defaultdict(list)
+        for tk, reason in error_tickers:
+            by_reason[reason].append(tk)
+
+        error_rows = []
+        for reason, tickers in sorted(by_reason.items()):
+            ticker_str = ", ".join(sorted(tickers))
+            error_rows.append(
+                f"<tr><td style='padding: 4px 8px; color: #888; font-size: 12px; border-bottom: 1px solid #eee;'>{reason}</td>"
+                f"<td style='padding: 4px 8px; color: #999; font-size: 11px; border-bottom: 1px solid #eee;'>{ticker_str}</td></tr>"
+            )
+
+        error_html = f"""
+        <div style="margin-top: 20px; padding: 15px; background: #fafafa; border: 1px solid #eee; border-radius: 6px;">
+            <div style="font-size: 12px; color: #888; margin-bottom: 8px;">⚠️ <strong>{len(error_tickers)} ticker(s) skipped</strong></div>
+            <table style="width: 100%; border-collapse: collapse; font-size: 12px;">
+                {"".join(error_rows)}
             </table>
-            {f'<p style="color:#ff9800;margin-top:10px;">⚠️ {error_count} tickers had errors</p>' if error_count else ''}
         </div>
+        """
+
+    if not email_signals:
+        subject = f"📉 Overflow Scan: NO SIGNALS ({date_str})"
+        html_content = f"""
+        <html>
+            <body style="font-family: Arial, sans-serif; background-color: #f5f5f5; padding: 20px;">
+                <div style="max-width: 700px; margin: 0 auto; background: white; padding: 30px; border-radius: 8px;">
+                    <h2 style="color: #333; margin-top: 0;">Overflow Strategy Scan: {date_str}</h2>
+                    <p style="color: #666;">The scan completed successfully.</p>
+                    <p style="font-size: 18px; color: #888;"><strong>Result:</strong> No signals found matching criteria today.</p>
+                    {error_html}
+                </div>
+            </body>
+        </html>
         """
     else:
-        subject = f"📉 Overflow Scan: NO SIGNALS ({date_str})"
-        body = f"""
-        <div style="font-family:monospace;background:#0e1117;color:#e0e0e0;padding:20px;">
-            <h2>Overflow Scan: No Signals</h2>
-            <p style="color:#888;">Scanned {len(OVERFLOW_TICKERS)} tickers · {scan_time_sec:.0f}s</p>
-        </div>
+        subject = f"🚀 {signal_count} OVERFLOW SIGNAL{'S' if signal_count > 1 else ''} ({date_str})"
+
+        signal_cards = []
+        for sig in _primary_signals:
+            _companion = _companion_map.get(sig['Ticker']) if not sig.get('_is_companion', False) else None
+
+            header_color = "#2e7d32" if sig['Action'] == "BUY" else "#c62828"
+            action_emoji = "📈" if sig['Action'] == "BUY" else "📉"
+
+            # Key filters with live values
+            live_filters = sig.get('Live_Filters', [])
+            if live_filters:
+                filters_html_parts = []
+                for filter_desc, live_val, is_binary in live_filters:
+                    if is_binary:
+                        filters_html_parts.append(
+                            f"<li style='margin: 4px 0; color: #444;'>{filter_desc} <span style='color: #2e7d32; font-weight: bold;'>{live_val}</span></li>"
+                        )
+                    else:
+                        filters_html_parts.append(
+                            f"<li style='margin: 4px 0; color: #444;'>{filter_desc}, <span style='color: #1565c0; font-weight: bold;'>{live_val}</span></li>"
+                        )
+                filters_html = "".join(filters_html_parts)
+            else:
+                static_filters = sig.get('Setup_Filters', [])
+                if static_filters:
+                    filters_html = "".join([f"<li style='margin: 4px 0; color: #444;'>{f}</li>" for f in static_filters])
+                else:
+                    filters_html = "<li style='color: #999;'>No filter details available</li>"
+
+            # Exit section — suppress stop/target for time-exit-only strategies
+            use_stop = sig.get('Use_Stop', True)
+            use_target = sig.get('Use_Target', True)
+            exit_primary = sig.get('Exit_Primary', '')
+            if 'time stop' in exit_primary.lower() or 'time exit' in exit_primary.lower():
+                if 'stop' not in exit_primary.lower().replace('time stop', ''):
+                    use_stop = False
+                if 'target' not in exit_primary.lower():
+                    use_target = False
+
+            exit_parts = []
+            if use_stop:
+                exit_parts.append(f"Stop: ${sig['Stop']:.2f}")
+            if use_target:
+                exit_parts.append(f"Target: ${sig['Target']:.2f}")
+
+            if exit_parts:
+                exit_prices_str = " | ".join(exit_parts)
+                exit_prices_html = f"<div style='color: #666; font-size: 12px; margin-top: 5px;'>{exit_prices_str}</div>"
+            else:
+                exit_prices_html = ""
+
+            exit_notes = sig.get('Exit_Notes', '')
+            sizing_var = sig.get('Sizing_Variable', '')
+
+            notes_parts = []
+            if sizing_var:
+                notes_parts.append(f"📊 {sizing_var}")
+            if exit_notes:
+                notes_parts.append(f"⚡ {exit_notes}")
+
+            if _companion:
+                comp_price = _companion.get('Limit_Price', 0)
+                comp_shares = _companion.get('Shares', 0)
+                notes_parts.append(f"📋 Also staged: LOC {comp_shares:,} shares @ >${comp_price:.2f} (Close + 0.5 ATR)")
+
+            if notes_parts:
+                notes_html = "<div style='font-size: 12px; color: #ff9800; margin-top: 8px;'>" + "<br>".join(notes_parts) + "</div>"
+            else:
+                notes_html = ""
+
+            thesis = sig.get('Setup_Thesis', '')
+            thesis_html = f"<div style='font-style: italic; color: #555; margin: 10px 0; padding: 10px; background: #f9f9f9; border-left: 3px solid #2196f3;'>{thesis}</div>" if thesis else ""
+
+            entry_type = sig.get('Entry_Type', 'Signal Close')
+            limit_price = sig.get('Limit_Price')
+            is_open_based = "Open" in entry_type and "Limit" in entry_type
+            if is_open_based:
+                entry_display = entry_type
+            elif "Signal Close" in entry_type or "T+1 Close" in entry_type:
+                entry_display = f"{entry_type} @ ${sig['Entry']:.2f}"
+            elif limit_price and "Close" in entry_type:
+                entry_display = f"{entry_type} @ ${limit_price:.2f}"
+            else:
+                entry_display = f"{entry_type} @ ${sig['Entry']:.2f}"
+
+            notional = sig.get('Notional', 0)
+            days_to_exit = sig.get('Days_To_Exit', 0)
+
+            card_html = f"""
+            <div style="border: 1px solid #ddd; border-radius: 8px; margin-bottom: 20px; overflow: hidden; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
+                <div style="background: {header_color}; color: white; padding: 15px;">
+                    <div style="font-size: 18px; font-weight: bold;">
+                        {action_emoji} {sig.get('Strategy_Name', sig['Strategy_ID'])}
+                    </div>
+                    <div style="font-size: 13px; opacity: 0.9; margin-top: 3px;">
+                        {sig.get('Setup_Type', 'Custom')} | {sig.get('Setup_Timeframe', 'Swing')}
+                    </div>
+                </div>
+
+                <div style="padding: 15px; background: #fafafa; border-bottom: 1px solid #eee;">
+                    <div style="display: flex; justify-content: space-between; align-items: center;">
+                        <div>
+                            <span style="font-size: 24px; font-weight: bold; color: #333;">{sig['Ticker']}</span>
+                            <span style="color: #666; margin-left: 10px; font-size: 14px;">
+                                {sig['Action']} {sig['Shares']:,} shares
+                            </span>
+                        </div>
+                        <div style="text-align: right;">
+                            <div style="font-size: 14px; color: #333;"><strong>${sig['Risk_Amt']:,.0f}</strong> risk</div>
+                            <div style="font-size: 12px; color: #888;">${notional:,.0f} notional</div>
+                        </div>
+                    </div>
+                    <div style="margin-top: 10px; padding-top: 10px; border-top: 1px dashed #ddd; font-size: 13px; color: #555;">
+                        <strong>Entry:</strong> {entry_display}
+                        <span style="margin-left: 20px;"><strong>Exit:</strong> {sig['Time Exit']} ({days_to_exit}d)</span>
+                    </div>
+                </div>
+
+                {thesis_html}
+
+                <div style="padding: 15px;">
+                    <div style="font-weight: bold; color: #333; margin-bottom: 8px; font-size: 14px;">
+                        🎯 WHY IT FLAGGED:
+                    </div>
+                    <ul style="margin: 0; padding-left: 20px; font-size: 13px;">
+                        {filters_html}
+                    </ul>
+                </div>
+
+                <div style="padding: 15px; background: #f5f5f5; border-top: 1px solid #eee;">
+                    <div style="font-weight: bold; color: #333; font-size: 13px;">
+                        🚪 EXIT: {sig.get('Exit_Primary', f'{days_to_exit}-day time stop')}
+                    </div>
+                    {exit_prices_html}
+                    {notes_html}
+                </div>
+
+                <div style="padding: 10px 15px; background: #333; color: #aaa; font-size: 11px;">
+                    📊 {sig['Stats']}
+                </div>
+            </div>
+            """
+            signal_cards.append(card_html)
+
+        all_cards_html = "".join(signal_cards)
+
+        # Quick summary table
+        df = pd.DataFrame(email_signals)
+        summary_rows = []
+        for _, row in df.iterrows():
+            color = "#2e7d32" if row['Action'] == "BUY" else "#c62828"
+            entry_short = row.get('Entry_Type_Short', 'MOC')
+            risk_amt = row.get('Risk_Amt', 0)
+            summary_rows.append(f"""
+                <tr>
+                    <td style="padding: 8px; border-bottom: 1px solid #eee;"><strong>{row['Ticker']}</strong></td>
+                    <td style="padding: 8px; border-bottom: 1px solid #eee; color: {color};">{row['Action']}</td>
+                    <td style="padding: 8px; border-bottom: 1px solid #eee;">{row['Shares']:,}</td>
+                    <td style="padding: 8px; border-bottom: 1px solid #eee; font-family: monospace;">{entry_short}</td>
+                    <td style="padding: 8px; border-bottom: 1px solid #eee;"><strong>${risk_amt:,.0f}</strong></td>
+                    <td style="padding: 8px; border-bottom: 1px solid #eee; color: #666; font-size: 12px;">{row.get('Strategy_Name', row['Strategy_ID'][:25])}</td>
+                </tr>
+            """)
+        summary_table = f"""
+        <table style="width: 100%; border-collapse: collapse; margin-bottom: 25px; font-size: 13px;">
+            <tr style="background: #f0f0f0;">
+                <th style="padding: 10px; text-align: left;">Ticker</th>
+                <th style="padding: 10px; text-align: left;">Action</th>
+                <th style="padding: 10px; text-align: left;">Shares</th>
+                <th style="padding: 10px; text-align: left;">Entry</th>
+                <th style="padding: 10px; text-align: left;">$ Risk</th>
+                <th style="padding: 10px; text-align: left;">Strategy</th>
+            </tr>
+            {"".join(summary_rows)}
+        </table>
         """
 
+        total_risk = sum(s.get('Risk_Amt', 0) for s in email_signals)
+        long_notional = sum(s.get('Notional', 0) for s in email_signals if s['Action'] == 'BUY')
+        short_notional = sum(s.get('Notional', 0) for s in email_signals if s['Action'] != 'BUY')
+        net_notional = long_notional - short_notional
+        long_count = len({(s['Ticker'], s.get('_parent_strategy', s.get('Strategy_Name'))) for s in email_signals if s['Action'] == 'BUY'})
+        short_count = signal_count - long_count
+
+        if net_notional >= 0:
+            net_notional_str = f"+${net_notional:,.0f}"
+        else:
+            net_notional_str = f"-${abs(net_notional):,.0f}"
+
+        html_content = f"""
+        <html>
+            <body style="font-family: Arial, sans-serif; background-color: #f5f5f5; padding: 20px;">
+                <div style="max-width: 700px; margin: 0 auto;">
+                    <div style="background: linear-gradient(135deg, #1a237e, #283593); color: white; padding: 25px; border-radius: 8px 8px 0 0; text-align: center;">
+                        <h1 style="margin: 0; font-size: 24px;">Overflow Strategy Scan</h1>
+                        <div style="font-size: 14px; opacity: 0.8; margin-top: 5px;">{date_str}</div>
+                        <div style="font-size: 28px; margin-top: 10px;">🎯 {signal_count} Signal{'s' if signal_count > 1 else ''}</div>
+                        <div style="font-size: 14px; margin-top: 8px; opacity: 0.9;">
+                            {long_count} Long | {short_count} Short | ${total_risk:,.0f} Risk | {net_notional_str} Net Exposure
+                        </div>
+                    </div>
+
+                    <div style="background: white; padding: 20px; border-bottom: 1px solid #ddd;">
+                        <h3 style="margin-top: 0; color: #333;">⚡ Quick Summary</h3>
+                        {summary_table}
+                    </div>
+
+                    <div style="background: white; padding: 20px; border-radius: 0 0 8px 8px;">
+                        <h3 style="color: #333;">📋 Signal Details</h3>
+                        {all_cards_html}
+                    </div>
+
+                    {error_html}
+
+                    <div style="text-align: center; padding: 15px; color: #888; font-size: 12px;">
+                        Check Google Sheet for staging details
+                    </div>
+                </div>
+            </body>
+        </html>
+        """
+
+    body = html_content
     msg = MIMEMultipart("alternative")
     msg["Subject"] = subject
     msg["From"] = sender_email
@@ -468,13 +717,7 @@ def run_overflow_scan(dry_run=False, force_rebuild=False):
     # 1. Load seasonal map
     sznl_map = load_seasonal_map()
 
-    # 2. Update cache and get data
-    master_dict = update_cache({}, force_rebuild=force_rebuild)
-    if not master_dict:
-        print("❌ No data available — aborting")
-        return
-
-    # 3. Date validation (same as daily_scan)
+    # 2. Compute expected data date first so cache-staleness knows the target
     eastern = pytz.timezone('America/New_York')
     now_eastern = datetime.datetime.now(eastern)
     current_date = now_eastern.date()
@@ -486,6 +729,12 @@ def run_overflow_scan(dry_run=False, force_rebuild=False):
     else:
         expected_data_date = current_date
         print(f"☀️ Day Run: allowing data through {expected_data_date}")
+
+    # 3. Update cache — any ticker whose last bar is before expected_data_date is stale
+    master_dict = update_cache({}, force_rebuild=force_rebuild, expected_data_date=expected_data_date)
+    if not master_dict:
+        print("❌ No data available — aborting")
+        return
 
     validated_dict = {}
     for ticker, df in master_dict.items():
@@ -568,7 +817,7 @@ def run_overflow_scan(dry_run=False, force_rebuild=False):
 
     # 7. Run strategies
     all_signals = []
-    error_count = 0
+    error_tickers = []  # (ticker, reason) tuples
 
     # OLV cooldown — shared across main + overflow via Trade_Signals_Log
     olv_cooldown = load_olv_cooldown(lookback_trading_days=OLV_COOLDOWN_DAYS + 5)
@@ -636,8 +885,11 @@ def run_overflow_scan(dry_run=False, force_rebuild=False):
         for ticker in overflow_in_strat:
             t_clean = ticker.replace('.', '-')
             df = master_dict.get(t_clean)
-            if df is None or len(df) < 250:
-                error_count += 1
+            if df is None:
+                error_tickers.append((t_clean, "No data returned"))
+                continue
+            if len(df) < 250:
+                error_tickers.append((t_clean, f"Insufficient history ({len(df)} bars)"))
                 continue
 
             try:
@@ -770,16 +1022,24 @@ def run_overflow_scan(dry_run=False, force_rebuild=False):
                             signals.append(companion)
 
             except Exception as e:
-                error_count += 1
+                error_tickers.append((t_clean, str(e)[:80]))
                 continue
 
         if signals:
             all_signals.extend(signals)
             print(f"   → {len(signals)} signals")
 
+    # Dedup error tickers across strategies
+    seen_errors = set()
+    unique_errors = []
+    for tk, reason in error_tickers:
+        if (tk, reason) not in seen_errors:
+            seen_errors.add((tk, reason))
+            unique_errors.append((tk, reason))
+
     elapsed = time.time() - start_time
     print(f"\n{'=' * 60}")
-    print(f"SCAN COMPLETE: {len(all_signals)} signals, {error_count} errors, {elapsed:.0f}s")
+    print(f"SCAN COMPLETE: {len(all_signals)} signals, {len(unique_errors)} errors, {elapsed:.0f}s")
     print("=" * 60)
 
     if dry_run:
@@ -800,7 +1060,7 @@ def run_overflow_scan(dry_run=False, force_rebuild=False):
         except Exception as e:
             print(f"⚠️ Order staging failed: {e}")
 
-    send_overflow_email(all_signals, error_count, elapsed)
+    send_overflow_email(all_signals, error_tickers=unique_errors)
 
 
 # ============================================================================
