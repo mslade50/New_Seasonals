@@ -595,7 +595,9 @@ def build_strategy_dict(params, tickers_to_run, pf, sqn, win_rate, expectancy_r)
             # T+1 open filter
             "use_t1_open_filter": params.get('use_t1_open_filter', False), "t1_open_filters": params.get('t1_open_filters', []),
             # Cross-sectional rank
-            "use_xsec_filter": params.get('use_xsec_filter', False), "xsec_filters": params.get('xsec_filters', [])
+            "use_xsec_filter": params.get('use_xsec_filter', False), "xsec_filters": params.get('xsec_filters', []),
+            # ATR seasonal ranks
+            "atr_sznl_filters": params.get('atr_sznl_filters', [])
         },
         "execution": {
             "risk_bps": 35,

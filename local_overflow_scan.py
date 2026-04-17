@@ -40,20 +40,36 @@ from strategy_config import (
     ACCOUNT_VALUE, build_strategy_book
 )
 
-# Overflow runs these strategies
+# Overflow runs these strategies against the extended universe.
+# We deep-copy each and swap universe_tickers to CSV_UNIVERSE so the
+# overflow filter (strat['universe_tickers'] ∩ OVERFLOW_TICKERS) actually
+# yields the 870 extended names instead of an empty intersection.
 OVERFLOW_STRATEGIES = []
 for _s in STRATEGY_BOOK:
     if _s['name'] == "Overbot Vol Spike":
-        OVERFLOW_STRATEGIES.append(_s)
+        _s_copy = copy.deepcopy(_s)
+        _s_copy['universe_tickers'] = CSV_UNIVERSE
+        OVERFLOW_STRATEGIES.append(_s_copy)
     elif _s['name'] == "LT Trend ST OS":
         _s_copy = copy.deepcopy(_s)
+        _s_copy['universe_tickers'] = CSV_UNIVERSE
         _s_copy['settings']['use_recent_ath'] = True
         _s_copy['settings']['recent_ath_invert'] = False
         _s_copy['settings']['ath_lookback_days'] = 63
         _s_copy['settings']['range_max'] = 15
         OVERFLOW_STRATEGIES.append(_s_copy)
     elif _s['name'] == "Oversold Low Volume":
-        OVERFLOW_STRATEGIES.append(_s)
+        _s_copy = copy.deepcopy(_s)
+        _s_copy['universe_tickers'] = CSV_UNIVERSE
+        OVERFLOW_STRATEGIES.append(_s_copy)
+    elif _s['name'] == "St OS Sznl":
+        _s_copy = copy.deepcopy(_s)
+        _s_copy['universe_tickers'] = CSV_UNIVERSE
+        OVERFLOW_STRATEGIES.append(_s_copy)
+    elif _s['name'] == "LT OS Sznl":
+        _s_copy = copy.deepcopy(_s)
+        _s_copy['universe_tickers'] = CSV_UNIVERSE
+        OVERFLOW_STRATEGIES.append(_s_copy)
 from daily_scan import (
     check_signal, load_seasonal_map,
     get_entry_type_short, get_sizing_variable, build_live_filters,
@@ -61,6 +77,7 @@ from daily_scan import (
     generate_oversold_lv_companion, generate_vol_spike_companion,
     load_olv_cooldown,
     OLV_STRATEGY_NAME, OLV_COOLDOWN_DAYS,
+    load_atr_seasonal_map, ATR_SZNL_COLS,
 )
 
 TRADING_DAY = CustomBusinessDay(calendar=USFederalHolidayCalendar())
@@ -559,6 +576,15 @@ def run_overflow_scan(dry_run=False, force_rebuild=False):
     if olv_cooldown:
         print(f"🛑 OLV cooldown: {len(olv_cooldown)} tickers with signals since {olv_cutoff}")
 
+    # ATR seasonal ranks — load once if any overflow strategy uses them
+    _uses_atr_sznl = any(s['settings'].get('atr_sznl_filters') for s in OVERFLOW_STRATEGIES)
+    atr_sznl_map = load_atr_seasonal_map() if _uses_atr_sznl else {}
+    if _uses_atr_sznl:
+        if atr_sznl_map:
+            print(f"📊 Loaded ATR seasonal ranks: {len(atr_sznl_map)} tickers")
+        else:
+            print(f"⚠️ atr_seasonal_ranks.parquet not found — atr_sznl_filters will match nothing")
+
     for strat in OVERFLOW_STRATEGIES:
         strat_name = strat['name']
         # Only scan overflow tickers
@@ -620,6 +646,14 @@ def run_overflow_scan(dry_run=False, force_rebuild=False):
                     ref_ticker_ranks=ref_ticker_ranks,
                     xsec_rank_matrices=xsec_rank_matrices
                 )
+
+                # Merge ATR seasonal ranks (if strategy needs them)
+                if atr_sznl_map and t_clean in atr_sznl_map:
+                    _atr_ranks = atr_sznl_map[t_clean]
+                    _dates = calc_df.index.normalize()
+                    for _col in ATR_SZNL_COLS:
+                        if _col in _atr_ranks.columns:
+                            calc_df[_col] = _atr_ranks[_col].reindex(_dates).values
 
                 if check_signal(calc_df, strat['settings'], sznl_map, ticker=t_clean):
                     last_row = calc_df.iloc[-1]

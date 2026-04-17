@@ -32,6 +32,29 @@ except ImportError:
     print("❌ Could not find strategy_config.py in the root directory.")
     STRATEGY_BOOK = []
 
+# ATR-normalized seasonal ranks (built by build_atr_seasonal_ranks.py)
+ATR_SZNL_PATH = os.path.join(current_dir, "atr_seasonal_ranks.parquet")
+ATR_SZNL_WINDOWS = [5, 10, 21, 63, 126, 252]
+ATR_SZNL_COLS = [f"atr_sznl_{w}d" for w in ATR_SZNL_WINDOWS]
+
+
+def load_atr_seasonal_map():
+    """Load ATR-normalized seasonal ranks. Returns {ticker: DataFrame} or {} on failure."""
+    if not os.path.exists(ATR_SZNL_PATH):
+        return {}
+    try:
+        df = pd.read_parquet(ATR_SZNL_PATH)
+    except Exception as e:
+        print(f"⚠️ Failed to load {ATR_SZNL_PATH}: {e}")
+        return {}
+    if df.empty:
+        return {}
+    df['Date'] = pd.to_datetime(df['Date']).dt.normalize()
+    output = {}
+    for ticker, group in df.groupby('ticker'):
+        output[str(ticker).upper()] = group.set_index('Date')[ATR_SZNL_COLS].sort_index()
+    return output
+
 # -----------------------------------------------------------------------------
 # 1. AUTHENTICATION & HELPERS
 # -----------------------------------------------------------------------------
@@ -595,6 +618,26 @@ def check_signal(df, params, sznl_map, ticker=None):
             final_perf = final_perf & (prev_inst == 0)
 
         if not final_perf.iloc[-1]:
+            return False
+
+    # 4b. ATR seasonal rank filters (ATR-normalized per-day-of-year rank)
+    for asf in params.get('atr_sznl_filters', []):
+        col = f"atr_sznl_{asf['window']}d"
+        if col not in df.columns:
+            return False  # ranks missing for this ticker — fail closed
+        consec = asf.get('consecutive', 1)
+        logic = asf.get('logic', '>')
+        if logic == '<':
+            cond_f = df[col] < asf['thresh']
+        elif logic == '>':
+            cond_f = df[col] > asf['thresh']
+        elif logic == 'Between':
+            cond_f = (df[col] >= asf['thresh']) & (df[col] <= asf.get('thresh_max', 100.0))
+        else:
+            continue
+        if consec > 1:
+            cond_f = cond_f.rolling(consec).sum() == consec
+        if not bool(cond_f.iloc[-1]):
             return False
 
     # 5. Gap/Acc/Dist Filters
@@ -1748,6 +1791,15 @@ def run_daily_scan():
     all_signals = []
     error_tickers = []  # (ticker, reason) tuples for email reporting
 
+    # 4a. Load ATR seasonal ranks once if any strategy uses them
+    _uses_atr_sznl = any(s['settings'].get('atr_sznl_filters') for s in STRATEGY_BOOK)
+    atr_sznl_map = load_atr_seasonal_map() if _uses_atr_sznl else {}
+    if _uses_atr_sznl:
+        if atr_sznl_map:
+            print(f"📊 Loaded ATR seasonal ranks: {len(atr_sznl_map)} tickers")
+        else:
+            print(f"⚠️ atr_seasonal_ranks.parquet not found — atr_sznl_filters will match nothing")
+
     # 4b. Cooldown lookup for Oversold Low Volume — 20 trading day lockout
     olv_cooldown = load_olv_cooldown(lookback_trading_days=OLV_COOLDOWN_DAYS + 5)
     olv_cutoff = (pd.Timestamp(datetime.date.today()) - TRADING_DAY * OLV_COOLDOWN_DAYS).date()
@@ -1795,7 +1847,15 @@ def run_daily_scan():
             
             try:
                 calc_df = calculate_indicators(df.copy(), sznl_map, t_clean, market_series, vix_series, ref_ticker_ranks=ref_ticker_ranks, xsec_rank_matrices=xsec_rank_matrices)
-                
+
+                # Merge ATR seasonal ranks onto the ticker frame (if strategy needs them)
+                if atr_sznl_map and t_clean in atr_sznl_map:
+                    _atr_ranks = atr_sznl_map[t_clean]
+                    _dates = calc_df.index.normalize()
+                    for _col in ATR_SZNL_COLS:
+                        if _col in _atr_ranks.columns:
+                            calc_df[_col] = _atr_ranks[_col].reindex(_dates).values
+
                 if check_signal(calc_df, strat['settings'], sznl_map, ticker=t_clean):
                     last_row = calc_df.iloc[-1]
 
