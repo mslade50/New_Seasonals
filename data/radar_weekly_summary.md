@@ -1,82 +1,111 @@
-# Radar Weekly Digest — 2026-04-12
+# Radar Weekly Digest — 2026-04-17
 
-# Weekly Radar Digest — Week of April 6-12, 2026
-
----
-
-## Enterprise SaaS: The Most Mispriced Sector in the Market
-
-**Primary: NOW ($83) | Secondary: ADBE ($225), CRM ($165)**
-
-The SaaS bear market has created the most compelling valuation dislocation I've seen in enterprise software since 2013. The numbers are extraordinary and they don't require any heroic assumptions.
-
-**The data:**
-- **NOW**: 16.5x forward PE, 20% EPS growth, RSI 17.1 (extreme capitulation), 10.6% FCF yield implied, down 60.8% from 52w high. Forward EPS consensus $4.17 (0y) → $5.02 (+1y), both growing ~20%. CEO bought $3M in shares. 44 analysts, 4 consecutive beats. Volume ratio 1.57x — selling climax.
-- **ADBE**: 8.5x forward PE, 12% EPS growth, RSI 28.3, 10.15% FCF yield, down 46.7%. Forward EPS $23.49 → $26.37, steady double-digit growth. 35 analysts, 4 consecutive beats.
-- **CRM**: 11.1x forward PE, RSI 22.2, 10.59% FCF yield, down 44.3%. Forward EPS $13.20 → $14.89.
-
-Read those forward PEs again. Adobe — the company with 12% EPS growth, record forward estimates, and a 10% FCF yield — trades at 8.5x forward earnings. That's cheaper than US Steel. ServiceNow — growing 20% with record forward estimates — trades at 16.5x. The SaaS premium to the S&P 500 hasn't been this narrow since 2013.
-
-**Variant perception:** The market is pricing enterprise SaaS as if AI is an existential threat — as if Claude Code and its successors replace Salesforce CRM workflows, Adobe's creative suite, and ServiceNow's IT automation. I believe the opposite: AI is *additive* to these platforms. Their forward EPS estimates are at all-time highs precisely because AI features (NOW's AI agents, Adobe's Firefly, CRM's Einstein) are expanding TAM and improving monetization, not cannibalizing it. The de-rating is 100% sentiment — every single earnings print has beaten consensus. The market is pricing in destruction that the P&L explicitly contradicts, quarter after quarter.
-
-NOW is the most acute expression of this. An RSI of 17.1 with forward estimates still rising is a statistical rarity. The last time NOW traded at this forward multiple was never — it has always been a premium-multiple stock, and the business has never been stronger.
-
-**Who's on the other side:** Forced and mechanical selling. The AI disruption narrative triggered sector-wide de-rating, which triggered momentum/quant strategies to dump the underperformers, which triggered further selling. Q1 tax-loss selling compounded the damage. This is the cleanest setup — sellers have no fundamental view, they are responding to price action and sector rotation mandates. The CEO buying $3M while quants sell is the signal.
-
-**What would change my mind:** A material deceleration in forward EPS estimates. Specifically, if the next earnings cycle shows downward revisions rather than beats, the "AI disruption is real" thesis gets evidence. Also watching for large-enterprise deal cycle commentary — if CFOs are actually pausing software spend (as opposed to rotating it), that would validate the bear case. Earnings: NOW reports April 22. That's the catalyst.
+> **Data note**: yfinance returned HTTP 403 (host not in allowlist) for all 9 tickers. No live price, valuation, or forward-EPS data is available this week. Analysis below is built entirely from the daily brief narratives. Quantitative claims cite the brief sources directly; no trailing/forward metric comparisons are possible. Flag this to the reader.
 
 ---
 
-## ABBV ($208): Maximum Pessimism Plus Structural Resolution
+## Week in context
 
-**Variant perception:** The market just sold ABBV on a Q1 EPS guide-down ($2.56-2.60 vs $3.01 consensus) while ignoring the most important event in the stock's 2026 story: AbbVie signed its MFN tariff deal with the White House, pledging $100B in US investment and securing exemption from 100% pharmaceutical import tariffs. The guidance miss is one quarter. The tariff exemption is multi-year and removes the single largest structural overhang on the entire pharma sector.
+One brief this week (2026-04-17). Three distinct themes collided:
 
-Forward PE is 12.9x on $14.42 FY EPS growing 44.2% this year. Price / +1y EPS ($16.09) = 12.9x for next year as well. Consistent beats across all four prior quarters. 31 analysts. Median target $250 — 20% upside.
+1. **AI-rebrand pump cycle** — companies with no AI infrastructure rebranding and extracting retail capital, then collapsing within 24-48h (BIRD fully played out; MYSE live as of April 16-17).
+2. **Space nuclear policy inflection** — NSTM-3 (April 14) mandates orbital reactors by 2028 and lunar units by 2030. NNE and LEU are the highest-signal names in the resulting sector move.
+3. **Defense drone institutionalization** — AEVEX IPO ($320M, April 17) and fresh AVAV Switchblade contracts signal DoD unmanned-systems spend is becoming a durable capex line item, not a cycle.
 
-**Who's on the other side:** Algorithmic selling on the headline guidance miss. The pre-announcement EPS cut hit screens and triggered automated risk reduction. Traders reacting to the headline number haven't yet processed that the tariff resolution is worth far more to the terminal value than one quarter of margin noise. The guidance miss was widely disseminated; the MFN deal significance requires actually reading the policy details.
-
-**What would change my mind:** If the tariff exemption comes with pricing concessions that structurally compress margins (i.e., the "deal" is really a price cap disguised as a tariff pass). Also watching for any reversal of the MFN framework in Congress. Earnings April 29 — the call should clarify the exemption terms.
-
----
-
-## TMO ($496): Pick-and-Shovel Play on Forced Pharma Reshoring
-
-**Variant perception:** The market values Thermo Fisher as a slow-growth life sciences tools company recovering from a post-COVID hangover. I believe the 100% tariff on branded pharmaceutical imports — effective July 31, forcing $150B+ in domestic manufacturing commitments — transforms TMO's CDMO business into a multi-year structural growth story that the current 18.2x forward PE does not reflect. This is not a typical "tariff beneficiary" trade. Companies that cannot build their own factories *must* use CDMOs, and TMO is the largest US-based provider. With Catalent compromised by the Novo Holdings acquisition and quality issues driving customer attrition, TMO is absorbing displaced demand on top of the reshoring wave.
-
-Forward EPS $24.78 (0y) → $27.22 (+1y), growing 8-10%. But the CDMO reshoring demand represents incremental upside not yet in consensus. $639 median PT vs $496 current — 29% upside per the Street, and I think the Street is behind.
-
-**Who's on the other side:** Generalist life sciences investors who sold the sector in 2023-2024 during the post-COVID destocking cycle and haven't returned. They're fighting the last war — the destocking headwind is over, and the reshoring tailwind is just beginning. Also, the tariff-driven CDMO demand acceleration is too new (April 2 EO) for consensus models to fully capture. Analyst count at 21 for 0q but only 4 for full-year — many haven't updated models yet.
-
-**What would change my mind:** If the July 31 tariff deadline gets extended or reduced through MFN negotiations with enough pharma companies that the "forced reshoring" urgency dissipates. Also, if TMO's April 23 earnings call shows CDMO capacity is already fully utilized, the growth opportunity becomes a capital allocation question (can they build fast enough?) rather than a demand question. Earnings April 23.
+The week also produced a single, technically clean short signal in BE — smart money buying puts at a stock ATH 45% above analyst consensus.
 
 ---
 
-## What I'm Watching But Not Yet Buying
+## BE — Short/Fade
 
-**Managed care (UNH $304, HUM $192):** The CMS rate surprise was genuinely large — 2.48% net increase vs 0.09% proposed — and the sector was massively underowned heading in. UNH at 15.1x forward and HUM at 12.6x are still cheap. But the initial repricing already happened (UNH +10.6%, HUM +12%). The variant perception is weaker now because the catalyst is known. I'd buy a pullback, not chase here. UNH earnings April 21 will set the next direction.
+**Bloom Energy: Oracle halo fully priced, smart money buying downside**
 
-**DNLI ($19):** The platform validation (first drug to cross the blood-brain barrier) is genuinely novel, and Goldman's $40 target implies 108% upside. But this is a pre-revenue biotech with -$2.47 FY EPS and commercial execution is completely unproven. The science is exciting; the position sizing needs to reflect that this is binary. On the watchlist, not in the book yet.
+The Oracle 2.8 GW fuel-cell expansion (April 14) is real and strategically significant. It is also already in the stock. BE hit $219 on April 14 — all-time high — on the announcement. The brief reports analyst consensus target of $143 vs. current ~$209: a 32% overshoot of professional coverage. Simultaneously, the April 15 options session showed a documented surge in put activity (GuruFocus confirmed bearish options sentiment; Benzinga flagged whale activity). The setup: retail is overwhelmingly bullish (the CNBC / media cycle is in full "AI power" mode), smart money is using the ATH to build downside protection.
 
----
+**Variant perception**: The market is treating this as a clean catalyst re-rating — Oracle validates the technology, stock reprices permanently higher. I think the Oracle warrant ($400M in stock) is being misread. Oracle's incentive is now to talk the stock up; that's not independent validation, it's a partially conflicted endorsement. More importantly, the deal expands total capacity but doesn't create LEU-like monopoly economics — BE competes in a market with other fuel-cell and gas-turbine alternatives. A 60%+ run in days to levels 45% above analyst consensus requires a thesis that the world changed by more than 60%. It didn't.
 
-## What I'm Explicitly Killing
+**Who's on the other side**: Retail momentum buyers who chased the Oracle headline. The put buyers are not making a noise trade — they built multi-leg put positions during the euphoria window. This is informed positioning against an overshooting crowd.
 
-**Metals/steel tariff beneficiaries (NUE, STLD, KALU, AA, FCX, RS):** The trade has already happened. RSIs: NUE 83.7, KALU 89.2, RS 91.9, FCX 84.7, AA 83.8. Everyone knows about 50% tariffs. Forward EPS growth decelerates sharply into +1y for most of these names (AA 0y +69.9% → +1y -3.0%; SCCO 0y +34.7% → +1y -14.5%). There is no variant perception — buying domestic metals on tariffs IS the consensus. You're the last one into this trade, not the first.
-
-**INTC ($62):** Up 50% YTD, forward PE of 61.4x on $0.49 EPS. The turnaround narrative (Terafab, NVIDIA investment, Fab 34 repurchase) is exciting, but it IS the consensus now — the stock has already tripled from its lows. You're paying 61x forward for a company that earned $0.49 last year. The variant would have been buying at $20. At $62, you ARE the crowd.
-
-**FRO ($34):** Consensus already models the Hormuz rate spike (104.7% EPS growth 0y), and +1y shows -35% decline — the Street expects normalization. FRO has missed earnings 4 consecutive quarters by -8% to -34%. The tanker trade was Q1. The ceasefire instability is real, but you're betting on a geopolitical outcome with a management team that chronically underdelivers.
-
-**CAR ($300):** Pure short-squeeze mechanics on a company with negative equity (-$3.04B), $995M net loss, RSI 94.3, and every analyst target far below the current price. Fascinating as a market structure event; untouchable as an investment. When this unwinds — and it will — the snap-back will be violent. Don't touch either side until the squeeze breaks.
-
-**NBIS ($145):** Trading at 896x operating cash flow with negative EPS, missed on both revenue and EPS last quarter, forward estimates show deepening losses. The $27B Meta deal is real, but the market cap ($36.7B) already reflects it. This is peak euphoria pricing on a company burning cash — pure narrative with zero margin of safety.
+**What would change my mind**: Oracle announces a second, larger-scale deal with a separate hyperscaler at comparable economics — evidence BE is becoming a de facto standard rather than a bilateral relationship. Or analyst consensus revisions close the gap to ~$190+ in the next 60 days.
 
 ---
 
-## The Bottom Line
+## NNE — Long (near/medium term)
 
-The highest-conviction idea this week is enterprise SaaS, specifically NOW ahead of April 22 earnings. The dislocation between record forward EPS estimates and capitulation-level pricing (RSI 17.1, 16.5x forward PE for 20% growth) is the widest I've seen in a quality name this year. The seller base is mechanical, not fundamental. If earnings confirm what the estimates already show, this re-rates violently.
+**Nano Nuclear Energy: Policy catalyst with real teeth + DOE validation + neglect premium**
 
-ABBV and TMO are the next tier — both have identifiable catalysts (tariff resolution and pharma reshoring respectively) that consensus hasn't fully processed, with near-term earnings to crystallize the story.
+NSTM-3 (April 14) is not a press release. It sets legislated timelines: orbital reactors by 2028, lunar surface units by 2030. This is the White House committing federal procurement to advanced nuclear with a 2-4 year delivery window. NNE received a separate DOE GAIN voucher for its KRONOS MMR microreactor — direct government technical validation independent of the space mandate, same week.
 
-Everything else this week was either already priced (metals), already moved (managed care), or lacked a defensible variant (geopolitical plays). The number of ideas that clear the bar is three. That itself tells you something: the market is pricing known catalysts efficiently, and the real opportunities are in sectors where sentiment has completely diverged from fundamentals.
+**Variant perception**: The market is treating NSTM-3 as another policy announcement in a long line of policy announcements (most of which do nothing to earnings). I believe two things that consensus doesn't: (1) The 2028/2030 timeline is short enough that it creates near-term procurement decisions — NNE either gets contracts in 12-18 months or it doesn't. That's a binary, not a decade-long call. (2) NNE is the least-followed name in the nuclear group (the brief explicitly flags this). Institutional analyst coverage is 12-24 months behind the operational reality. The current price is a neglect price, not an informed price.
+
+**Who's on the other side**: Early investors taking gains from the 4-10% news bump on April 14-15. Institutional sellers rotating out of momentum positions after the spike. Neither group is making a fundamental bear case — they're exiting for size/risk reasons. This is the cleanest setup in the bundle: the seller has no directional view.
+
+**What would change my mind**: The 2028/2030 timelines slip or are de-prioritized in the FY2027 NASA/DOE budget reconciliation. Or a larger competitor wins the GAIN framework contract that NNE's KRONOS was being evaluated for.
+
+---
+
+## LEU — Momentum Long (explicit 3-6 month time frame)
+
+**Centrus Energy: HALEU monopoly + space mandate TAM expansion — own the valuation risk**
+
+Centrus is the only U.S. company enriching HALEU at commercial scale. $3.8B backlog to 2040. $900M DOE task order. NSTM-3 directly expands the total addressable market for HALEU — every microreactor targeting space applications needs this fuel, and Centrus is the domestic monopoly. Seeking Alpha downgraded on valuation (~60x forward P/E).
+
+**Variant perception**: The SA downgrade applies a current-year earnings multiple to a backlog-based business. The correct lens is the backlog duration (to 2040) and the structural monopoly in HALEU. If NSTM-3 adds even 15-20% to the HALEU demand pipeline, the forward earnings denominator is being revised up while the multiple hasn't compressed. The market is pricing this as an expensive growth stock; I think it's a regulated monopoly with a 14-year demand backstop that happens to be growing fast. These deserve different multiples.
+
+**Who's on the other side**: Valuation-focused fundamental investors who sold on the SA piece. They are not wrong that 60x forward P/E is expensive on this year's numbers — that is the correct observation. Where they're wrong is treating a monopoly backlog-to-2040 as if it's a commodity business subject to competitive compression.
+
+**Time frame**: This is not a multi-year hold at 60x. It's a 3-6 month momentum trade riding the policy cycle. Exit when the space nuclear narrative fades or forward earnings revisions stop. Do not hold through a drawdown waiting for the monopoly thesis to "work" at an expensive multiple.
+
+**What would change my mind**: A second domestic HALEU enricher receives DOE approval and begins operations. NSTM-3 timelines slip by more than 18 months. Or Q2 earnings reveal backlog has not grown from new contract awards.
+
+---
+
+## MYSE — Short/Avoid (if still elevated above $10)
+
+**Myseum.AI: BIRD template repeating in real time**
+
+Myseum rebranded to Myseum.AI on April 15, ran from $6.24 to $18.79 on April 16 (+130%), with Barchart and CNBC explicitly calling it "the next Allbirds." As of the April 17 brief, the falling leg "has likely not yet fully materialized." The company has no operational AI infrastructure, low float, no institutional volume.
+
+**Variant perception**: Retail is treating this as a momentum trade that could have legs because it hasn't yet collapsed. BIRD peaked April 15, crashed 31%+ by April 16, and is back near $1 — a ~90%+ round-trip in under 48 hours. MYSE's operating business (museum services) has no synergy with AI compute infrastructure. The float is thin enough that institutional selling doesn't need to be large to gap the stock 50-70% lower.
+
+**Who's on the other side**: Long-holders are retail momentum traders who bought the narrative. The seller is providing exit liquidity to buyers paying for a story with no underlying cash flow. This is textbook forced-buying meeting informed selling.
+
+**Risk management**: Low-float names carry short-squeeze risk. If no live price data is available, size accordingly. Define loss before entry. Do not carry overnight into a potential gamma squeeze without a stop.
+
+**What would change my mind**: Myseum announces a credible AI partnership with real revenue economics (not an MOU), or a named institutional investor takes a disclosed long position. Neither has happened as of the brief date.
+
+---
+
+## AVEX — IPO Entry (time-sensitive, April 17 only)
+
+**AEVEX Aerospace: Defense drone IPO with pre-analyst-coverage entry window**
+
+AEVEX raised $320M at $20/share today (April 17) on NYSE. $433M TTM revenue, 78% U.S. government. $2.35B valuation at ~5x sales. No analyst initiation coverage exists yet.
+
+**Variant perception**: IPO pricing for defense companies with majority government-contract revenue is systematically conservative because banks cannot price in contracted backlog value before analysts build models. At 5x sales with 78% of revenue from U.S. government procurement (visible, contracted revenue), AVEX is priced at a discount to comps that trade at 6-9x sales on similar revenue quality. Once institutional analysts publish initiation coverage (~25-30 days post-IPO), the pre-coverage discount closes.
+
+**Who's on the other side**: Pre-IPO investors exiting at the $20 offer price. Classic IPO dynamic — early holders at lower cost basis exiting into the public market event, not distributing because the thesis changed.
+
+**Time caveat**: Entry thesis is specific to first-day/early-week trading before coverage begins. Without live price data I cannot confirm whether the stock is trading above or below the $20 offer. If it has already gapped up 15-20%+, the window has narrowed materially.
+
+**What would change my mind**: First-day trading shows weak institutional demand (stock breaks below $20). Or Q1 10-Q reveals revenue concentration in a single contract at renewal risk.
+
+---
+
+## Ideas that didn't clear the bar
+
+**BIRD**: Thesis fully executed — stock back near $1. Information value is the MYSE parallel, not a standalone trade.
+
+**UAL**: The multi-fill put sweep ($202K, 9 fills, Sept 2026, $92.50 strike) is a genuine tell of institutional directional conviction. But a single options event without price, trend, or valuation context does not build a standalone thesis. The macro linkage (tariffs → consumer spending pressure → airline yield compression) is coherent but now widely discussed. Carry forward when live data is available.
+
+**NUE**: Tariff benefit is real. Problem: Jefferies named NUE explicitly as a winner and CNBC ran the domestic industrials narrative. This is consensus-in-formation. Without price data I can't tell if the stock has already re-rated 20-30% on tariff expectations. If it has, the thesis is priced. If it hasn't, it may be interesting — but that requires live data. Carry forward to next week.
+
+**AVAV**: $186M Switchblade contracts and $1.1B backlog are real. But the stock is already up 37% past year, and without valuation data I can't confirm discount or premium vs. AVEX's IPO comp. AEVEX is the cleaner entry in the drone theme today — no overhead supply from a prior run. AVAV is a hold/monitor if already long.
+
+---
+
+## Summary
+
+Four ideas cleared the bar: **BE** (short), **NNE** (long), **LEU** (momentum long, 3-6 month), **MYSE** (short/avoid if elevated), **AVEX** (IPO entry, time-sensitive). Highest conviction: NNE — neglected name, policy mandate with real delivery timelines, DOE technical endorsement, sellers with no fundamental view. Most technically clean short: BE — ATH, 45% above analyst consensus, documented institutional put flow.
+
+Critical caveat: yfinance was rate-limited for all tickers this week. Every directional thesis above needs live price and valuation verification before sizing. Treat as orientation, not final conviction.
