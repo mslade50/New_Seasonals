@@ -444,8 +444,15 @@ def _generate_exit_summary(params):
     use_stop = params.get('use_stop_loss', True)
     use_tgt = params.get('use_take_profit', True)
     
+    use_partial = params.get('use_partial_exits', False) and use_tgt
+    tgt_frac = float(params.get('partial_target_fraction', 0.5)) if use_partial else 0.0
+
     if not use_stop and not use_tgt:
         primary = f"{hold_days}-day time stop"
+    elif use_partial and use_stop:
+        primary = f"{int(tgt_frac*100)}% at target, {int((1-tgt_frac)*100)}% at {hold_days}d time stop (or stop if first)"
+    elif use_partial:
+        primary = f"{int(tgt_frac*100)}% at target, {int((1-tgt_frac)*100)}% at {hold_days}d time stop"
     elif use_tgt and use_stop:
         primary = f"Target, Stop, or {hold_days}-day time stop"
     elif use_tgt:
@@ -1166,28 +1173,65 @@ def run_engine(universe_dict, params, sznl_map, market_series=None, vix_series=N
                     if future.empty: continue
                     stop_price = actual_entry_price - (atr * params['stop_atr']) if direction == 'Long' else actual_entry_price + (atr * params['stop_atr'])
                     tgt_price = actual_entry_price + (atr * params['tgt_atr']) if direction == 'Long' else actual_entry_price - (atr * params['tgt_atr'])
+
+                    use_partial = params.get('use_partial_exits', False) and params.get('use_take_profit', False)
+                    tgt_frac = float(params.get('partial_target_fraction', 0.5)) if use_partial else 0.0
+
                     exit_price, exit_type, exit_date = actual_entry_price, "Hold", None
+                    target_filled = False
+                    target_fill_px = None
+
                     for f_date, f_row in future.iterrows():
                         if direction == 'Long':
+                            # Stop check — closes remaining fraction (or full pos if no partial target hit yet)
                             if params['use_stop_loss'] and f_row['Low'] <= stop_price:
-                                # If open already below stop, we're filled at the open (gap through)
                                 actual_stop_px = min(f_row['Open'], stop_price) if f_row['Open'] <= stop_price else stop_price
-                                exit_price, exit_type, exit_date = actual_stop_px, "Stop", f_date
+                                if use_partial and target_filled:
+                                    exit_price = tgt_frac * target_fill_px + (1 - tgt_frac) * actual_stop_px
+                                    exit_type, exit_date = "Target→Stop", f_date
+                                else:
+                                    exit_price, exit_type, exit_date = actual_stop_px, "Stop", f_date
                                 break
+                            # Target check
                             if params['use_take_profit'] and f_row['High'] >= tgt_price:
                                 actual_tgt_px = max(f_row['Open'], tgt_price) if f_row['Open'] >= tgt_price else tgt_price
-                                exit_price, exit_type, exit_date = actual_tgt_px, "Target", f_date
-                                break
+                                if not use_partial:
+                                    exit_price, exit_type, exit_date = actual_tgt_px, "Target", f_date
+                                    break
+                                elif not target_filled:
+                                    # Book the target leg; remaining fraction keeps walking forward
+                                    target_filled = True
+                                    target_fill_px = actual_tgt_px
                         else:
+                            # Stop check
                             if params['use_stop_loss'] and f_row['High'] >= stop_price:
                                 actual_stop_px = max(f_row['Open'], stop_price) if f_row['Open'] >= stop_price else stop_price
-                                exit_price, exit_type, exit_date = actual_stop_px, "Stop", f_date
+                                if use_partial and target_filled:
+                                    exit_price = tgt_frac * target_fill_px + (1 - tgt_frac) * actual_stop_px
+                                    exit_type, exit_date = "Target→Stop", f_date
+                                else:
+                                    exit_price, exit_type, exit_date = actual_stop_px, "Stop", f_date
                                 break
+                            # Target check
                             if params['use_take_profit'] and f_row['Low'] <= tgt_price:
                                 actual_tgt_px = min(f_row['Open'], tgt_price) if f_row['Open'] <= tgt_price else tgt_price
-                                exit_price, exit_type, exit_date = actual_tgt_px, "Target", f_date
-                                break
-                    if exit_type == "Hold": exit_price, exit_date, exit_type = future['Close'].iloc[-1], future.index[-1], "Time"
+                                if not use_partial:
+                                    exit_price, exit_type, exit_date = actual_tgt_px, "Target", f_date
+                                    break
+                                elif not target_filled:
+                                    target_filled = True
+                                    target_fill_px = actual_tgt_px
+
+                    # No stop fired — if partial target was booked, blend with time-stop close;
+                    # otherwise close full position at time stop.
+                    if exit_type == "Hold":
+                        time_exit_px = future['Close'].iloc[-1]
+                        time_exit_date = future.index[-1]
+                        if use_partial and target_filled:
+                            exit_price = tgt_frac * target_fill_px + (1 - tgt_frac) * time_exit_px
+                            exit_type, exit_date = "Target→Time", time_exit_date
+                        else:
+                            exit_price, exit_date, exit_type = time_exit_px, time_exit_date, "Time"
                     
                 ticker_last_exit = exit_date
                 slip = slippage_bps / 10000.0
@@ -1289,6 +1333,30 @@ def main():
     with c3: tgt_atr = st.number_input("Target (ATR)", value=8.0, step=0.1, disabled=not use_take_profit)
     with c4: hold_days = st.number_input("Max Holding Days", min_value=1, value=10, step=1)
     with c5: risk_per_trade = st.number_input("Risk Amount ($)", value=1000, step=100)
+
+    # --- Partial exits: scale out at target, let remainder ride ---
+    with st.expander("Partial Exits (scale out at target)", expanded=False):
+        st.markdown(
+            "Take profit on a fraction of the position when the target prints, "
+            "then let the remainder ride to the time stop. If the stop triggers "
+            "before the remaining fraction exits, the remainder exits at the stop."
+        )
+        pe_c1, pe_c2 = st.columns([1, 2])
+        with pe_c1:
+            use_partial_exits = st.checkbox(
+                "Enable partial profit-taking",
+                value=False,
+                disabled=not use_take_profit,
+            )
+            if use_partial_exits and not use_take_profit:
+                st.caption("⚠ Requires a profit target (change Exit Mode).")
+        with pe_c2:
+            partial_target_fraction = st.slider(
+                "Fraction exiting at target",
+                min_value=0.10, max_value=0.90, value=0.50, step=0.05,
+                disabled=not (use_partial_exits and use_take_profit),
+                help="The remaining fraction exits at the time stop or, if it fires first, the stop.",
+            )
     st.markdown("---")
     st.subheader("3. Signal Criteria")
     with st.expander("Liquidity & Data History Filters", expanded=True):
@@ -1751,6 +1819,7 @@ def main():
         params = {
             'backtest_start_date': start_date, 'trade_direction': trade_direction, 'max_one_pos': max_one_pos, 'allow_same_day_reentry': allow_same_day_reentry,
             'max_daily_entries': max_daily_entries, 'max_total_positions': max_total_positions, 'use_stop_loss': use_stop_loss, 'use_take_profit': use_take_profit, 'time_exit_only': time_exit_only,
+            'use_partial_exits': use_partial_exits, 'partial_target_fraction': partial_target_fraction,
             'stop_atr': stop_atr, 'tgt_atr': tgt_atr, 'holding_days': hold_days, 'entry_type': entry_type, 'use_ma_entry_filter': use_ma_entry_filter, 'require_close_gt_open': req_green_candle,
             'breakout_mode': breakout_mode, 'use_range_filter': use_range_filter, 'range_min': range_min, 'range_max': range_max, 'use_dow_filter': use_dow_filter, 'allowed_days': valid_days,
             'allowed_cycles': allowed_cycles, 'min_price': min_price, 'min_vol': min_vol, 'min_age': min_age, 'max_age': max_age, 'min_atr_pct': min_atr_pct, 'max_atr_pct': max_atr_pct,
