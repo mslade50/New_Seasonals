@@ -132,7 +132,30 @@ def extract_tickers(briefs):
 # ---------------------------------------------------------------------------
 
 def pull_market_data(tickers):
-    """Pull yfinance snapshot for each ticker. Returns dict of ticker -> data."""
+    """Pull yfinance snapshot for each ticker. Returns dict of ticker -> data.
+
+    If MARKET_DATA_SNAPSHOT env var is set, loads the pre-pulled snapshot JSON
+    instead of calling yfinance. Used by the cloud Scheduled Agent, which is
+    sandboxed off Yahoo Finance — a GHA pulls the data Sunday 10 UTC and
+    commits it; the agent reads it at 11 UTC.
+    """
+    snapshot_path = os.environ.get("MARKET_DATA_SNAPSHOT")
+    if snapshot_path:
+        p = Path(snapshot_path)
+        if p.exists():
+            try:
+                payload = json.loads(p.read_text(encoding="utf-8"))
+                snapshots = payload.get("snapshots", payload)
+                logger.info(
+                    f"Loaded pre-pulled market snapshot from {p} "
+                    f"({len(snapshots)} tickers)"
+                )
+                return {t: snapshots[t] for t in tickers if t in snapshots}
+            except (json.JSONDecodeError, KeyError) as exc:
+                logger.warning(f"Snapshot at {p} unreadable ({exc}); falling back to yfinance")
+        else:
+            logger.warning(f"MARKET_DATA_SNAPSHOT={p} not found; falling back to yfinance")
+
     snapshots = {}
 
     for ticker in tickers:
