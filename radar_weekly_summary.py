@@ -465,6 +465,17 @@ def main():
     # 3. Build prompt and invoke Claude
     print("[3/4] Running through Claude...")
     prompt = build_prompt(briefs, market_data)
+
+    # Prep-only mode: write the assembled prompt bundle and exit.
+    # Used by cloud Scheduled Agents that do the analysis themselves
+    # (instead of subprocessing to the `claude` CLI).
+    if os.environ.get("WEEKLY_PREPARE_ONLY"):
+        bundle_path = Path(os.environ.get("WEEKLY_BUNDLE_PATH", "weekly_bundle.md"))
+        bundle_path.parent.mkdir(parents=True, exist_ok=True)
+        bundle_path.write_text(prompt, encoding="utf-8")
+        print(f"  Wrote prepare-only bundle to {bundle_path} ({len(prompt)} chars)")
+        return
+
     summary = invoke_claude(prompt, timeout_seconds=900)
 
     if not summary:
