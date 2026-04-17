@@ -474,6 +474,12 @@ def check_signal(df, params, sznl_map, ticker=None):
             cycle_rem = current_year % 4
             if cycle_rem not in allowed_cycles: return False
 
+    # 0c. Month Filter
+    if params.get('use_month_filter', False):
+        allowed_months = params.get('allowed_months', list(range(1, 13)))
+        if last_row.name.month not in allowed_months:
+            return False
+
     # 1. Liquidity Gates
     if last_row['Close'] < params.get('min_price', 0): return False
     if last_row['vol_ma'] < params.get('min_vol', 0): return False

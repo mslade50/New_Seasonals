@@ -756,7 +756,11 @@ def run_engine(universe_dict, params, sznl_map, market_series=None, vix_series=N
                 elif pa_type == 'close_lt_prev_low':
                     conditions.append(df['Close'].shift(pa_lag) < df['Low'].shift(pa_lag + 1))
             if params.get('use_dow_filter', False): conditions.append(df['DayOfWeekVal'].isin(params['allowed_days']))
-            
+
+            if params.get('use_month_filter', False):
+                allowed_months = params.get('allowed_months', list(range(1, 13)))
+                conditions.append(pd.Series(df.index.month, index=df.index).isin(allowed_months))
+
             if 'allowed_cycles' in params and len(params['allowed_cycles']) < 4:
                 year_rems = df.index.year % 4
                 conditions.append(pd.Series(year_rems, index=df.index).isin(params['allowed_cycles']))
