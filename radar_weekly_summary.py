@@ -31,7 +31,13 @@ logger = logging.getLogger(__name__)
 # Paths
 # ---------------------------------------------------------------------------
 PROJECT_ROOT = Path(__file__).resolve().parent
-RADAR_BRIEFS_DIR = Path(r"C:\Users\mckin\projects\last30days-radar\output\briefs")
+
+# RADAR_BRIEFS_DIR can point at one of two layouts:
+#   - Legacy (local): .../last30days-radar/output/briefs/ with equity_radar_YYYYMMDD_*.md
+#   - Cloud:          .../radar-briefings/briefings/ with YYYY-MM-DD/equity.{md,json}
+# Set the RADAR_BRIEFS_DIR env var to switch; the collector auto-detects which layout it is.
+_DEFAULT_BRIEFS_DIR = Path(r"C:\Users\mckin\projects\last30days-radar\output\briefs")
+RADAR_BRIEFS_DIR = Path(os.environ.get("RADAR_BRIEFS_DIR", str(_DEFAULT_BRIEFS_DIR)))
 RADAR_JSON_DIR = Path(r"C:\Users\mckin\projects\last30days-radar\output\json")
 OUTPUT_PATH = PROJECT_ROOT / "data" / "radar_weekly_summary.md"
 
@@ -41,22 +47,48 @@ OUTPUT_PATH = PROJECT_ROOT / "data" / "radar_weekly_summary.md"
 # ---------------------------------------------------------------------------
 
 def collect_briefs(days_back=7):
-    """Read equity_radar briefs from the last N days. Returns list of (date_str, text)."""
+    """Read equity_radar briefs from the last N days.
+
+    Supports two layouts (auto-detected from RADAR_BRIEFS_DIR contents):
+      - Cloud:  RADAR_BRIEFS_DIR/YYYY-MM-DD/equity.{md,json}
+      - Legacy: RADAR_BRIEFS_DIR/equity_radar_YYYYMMDD_*.md
+    Returns list of (date_str, markdown_text, json_obj_or_None).
+    """
     cutoff = datetime.now() - timedelta(days=days_back)
     briefs = []
 
-    for f in sorted(RADAR_BRIEFS_DIR.glob("equity_radar_*.md")):
-        # Parse date from filename: equity_radar_20260323_073309.md
-        match = re.search(r"equity_radar_(\d{8})_", f.name)
-        if not match:
-            continue
-        file_date = datetime.strptime(match.group(1), "%Y%m%d")
-        if file_date >= cutoff:
-            text = f.read_text(encoding="utf-8")
-            date_str = file_date.strftime("%Y-%m-%d")
-            briefs.append((date_str, text))
+    cloud_dirs = [d for d in RADAR_BRIEFS_DIR.glob("????-??-??") if d.is_dir()]
+    if cloud_dirs:
+        for d in sorted(cloud_dirs):
+            try:
+                file_date = datetime.strptime(d.name, "%Y-%m-%d")
+            except ValueError:
+                continue
+            if file_date < cutoff:
+                continue
+            md_path = d / "equity.md"
+            if not md_path.exists():
+                continue
+            text = md_path.read_text(encoding="utf-8")
+            json_path = d / "equity.json"
+            parsed = None
+            if json_path.exists():
+                try:
+                    parsed = json.loads(json_path.read_text(encoding="utf-8"))
+                except json.JSONDecodeError:
+                    pass
+            briefs.append((d.name, text, parsed))
+    else:
+        for f in sorted(RADAR_BRIEFS_DIR.glob("equity_radar_*.md")):
+            match = re.search(r"equity_radar_(\d{8})_", f.name)
+            if not match:
+                continue
+            file_date = datetime.strptime(match.group(1), "%Y%m%d")
+            if file_date >= cutoff:
+                text = f.read_text(encoding="utf-8")
+                briefs.append((file_date.strftime("%Y-%m-%d"), text, None))
 
-    logger.info(f"Collected {len(briefs)} briefs from last {days_back} days")
+    logger.info(f"Collected {len(briefs)} briefs from last {days_back} days (dir={RADAR_BRIEFS_DIR})")
     return briefs
 
 
@@ -65,22 +97,31 @@ def collect_briefs(days_back=7):
 # ---------------------------------------------------------------------------
 
 def extract_tickers(briefs):
-    """Pull unique tickers from brief markdown tables and catalyst headers."""
+    """Pull unique tickers. Prefers structured JSON when available."""
     tickers = set()
-    for _, text in briefs:
-        # Table rows: | TICKER | ...
+    for _, text, parsed in briefs:
+        if parsed:
+            for item in parsed.get("divergences", []) or []:
+                t = (item.get("ticker") or "").strip().upper()
+                if t and t.isalpha() and 1 <= len(t) <= 5:
+                    tickers.add(t)
+            for item in parsed.get("catalysts", []) or []:
+                t = (item.get("ticker") or "").strip().upper()
+                if t and t.isalpha() and 1 <= len(t) <= 5:
+                    tickers.add(t)
+            continue
+
         for m in re.finditer(r"^\|\s*([A-Z]{1,5})\s*\|", text, re.MULTILINE):
             candidate = m.group(1)
-            # Skip table header words
             if candidate not in {"Ticker", "Score", "Type", "Why"}:
                 tickers.add(candidate)
-        # Catalyst headers: ### TICKER [category]
         for m in re.finditer(r"^###\s+([A-Z_]{1,20})\s+\[", text, re.MULTILINE):
             candidate = m.group(1)
-            # Skip basket/theme names with underscores for now,
-            # but keep single tickers
             if "_" not in candidate:
                 tickers.add(candidate)
+        # New cloud-format catalyst header: "### 1. TICKER — type | Score: X"
+        for m in re.finditer(r"^###\s+\d+\.\s+([A-Z]{1,5})\s+[\u2014\-]", text, re.MULTILINE):
+            tickers.add(m.group(1))
 
     logger.info(f"Extracted {len(tickers)} unique tickers")
     return sorted(tickers)
@@ -342,7 +383,7 @@ def build_prompt(briefs, market_data):
 
     # Briefs
     parts.append("# This Week's Radar Briefs\n")
-    for date_str, text in briefs:
+    for date_str, text, _ in briefs:
         parts.append(f"## {date_str}\n{text}\n")
 
     # Market data
