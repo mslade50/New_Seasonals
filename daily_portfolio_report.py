@@ -317,37 +317,62 @@ def get_open_positions_from_backtest(sig_df, master_dict):
     print(f"   Found {len(open_df)} open positions from backtest")
     
     # Calculate current prices and P&L (exact same logic as strat_backtester)
-    current_prices, open_pnls, current_values = [], [], []
-    
-    for row in open_df.itertuples():
-        t_clean = row.Ticker.replace('.', '-')
+    current_prices, open_pnls, current_values, pnl_days = [], [], [], []
+
+    for idx, row in open_df.iterrows():
+        ticker = row['Ticker']
+        action = row['Action']
+        shares = row['Shares']
+        entry_price = row['Price']
+        entry_date = pd.Timestamp(row['Entry Date']).normalize()
+
+        t_clean = ticker.replace('.', '-')
         t_df = master_dict.get(t_clean)
-        
+        prev_close = None
+
         if t_df is not None and not t_df.empty:
             if isinstance(t_df.columns, pd.MultiIndex):
                 t_df.columns = t_df.columns.get_level_values(0)
             t_df.columns = [c.capitalize() for c in t_df.columns]
             last_close = t_df['Close'].iloc[-1]
+            if len(t_df['Close']) >= 2:
+                prev_close = t_df['Close'].iloc[-2]
         else:
             # Fallback: download just this ticker
-            temp = yf.download(row.Ticker, period='1d', progress=False)
+            temp = yf.download(ticker, period='2d', progress=False)
             if not temp.empty:
                 if isinstance(temp.columns, pd.MultiIndex):
                     temp.columns = temp.columns.get_level_values(0)
                 temp.columns = [c.capitalize() for c in temp.columns]
                 last_close = temp['Close'].iloc[-1]
+                if len(temp['Close']) >= 2:
+                    prev_close = temp['Close'].iloc[-2]
             else:
-                last_close = row.Price
-        
+                last_close = entry_price
+
         # Calculate P&L (same as strat_backtester)
-        if row.Action == 'BUY':
-            pnl = (last_close - row.Price) * row.Shares
+        if action == 'BUY':
+            pnl = (last_close - entry_price) * shares
         else:
-            pnl = (row.Price - last_close) * row.Shares
-        
+            pnl = (entry_price - last_close) * shares
+
+        # Today's P&L — if entered today, baseline is entry price; else prior close
+        if entry_date == today:
+            baseline = entry_price
+        elif prev_close is not None:
+            baseline = prev_close
+        else:
+            baseline = last_close  # no prior data → zero day P&L
+
+        if action == 'BUY':
+            pnl_day = (last_close - baseline) * shares
+        else:
+            pnl_day = (baseline - last_close) * shares
+
         current_prices.append(last_close)
         open_pnls.append(pnl)
-        current_values.append(last_close * row.Shares)
+        current_values.append(last_close * shares)
+        pnl_days.append(pnl_day)
     
     # Build result dataframe with ALL columns from strat_backtester
     result = pd.DataFrame({
@@ -363,6 +388,7 @@ def get_open_positions_from_backtest(sig_df, master_dict):
         'Price': open_df['Price'].values,
         'Shares': open_df['Shares'].values,
         'PnL': open_df['PnL'].values,
+        'PnL_day': pnl_days,
         'ATR': open_df['ATR'].values,
         'T+1 Open': open_df['T+1 Open'].values,
         'Signal Close': open_df['Signal Close'].values,
@@ -374,7 +400,7 @@ def get_open_positions_from_backtest(sig_df, master_dict):
         'Open PnL': open_pnls,
         'Mkt Value': current_values
     })
-    
+
     return result
 
 
@@ -1039,24 +1065,25 @@ def send_portfolio_email(chart_path, open_positions_df, sizing_analysis, metrics
         </div>
         """
         
-        # SLIMMED DOWN: 11 columns (removed Date, Exit Type, Entry Criteria, Equity at Signal)
+        # SLIMMED DOWN: PnL_day next to PnL; Current Price & Mkt Value dropped
         pos_table = open_positions_df[[
-            'Entry Date', 'Time Stop', 'Strategy', 'Ticker', 'Price', 'Shares', 
-            'PnL', 'Risk $', 'Risk bps', 'Current Price', 'Mkt Value'
+            'Entry Date', 'Time Stop', 'Strategy', 'Ticker', 'Price', 'Shares',
+            'PnL', 'PnL_day', 'Risk $', 'Risk bps'
         ]].copy()
-        
+
         # Format dates
         pos_table['Entry Date'] = pos_table['Entry Date'].apply(lambda x: x.strftime('%Y-%m-%d'))
         pos_table['Time Stop'] = pos_table['Time Stop'].apply(lambda x: x.strftime('%Y-%m-%d'))
-        
+
         # Format numbers with PnL color coding
         pos_table['Price'] = pos_table['Price'].apply(lambda x: f"${x:.2f}")
-        pos_table['Current Price'] = pos_table['Current Price'].apply(lambda x: f"${x:.2f}")
         # PnL with conditional formatting (green if positive, red if negative)
         pos_table['PnL'] = pos_table['PnL'].apply(
             lambda x: f'<span style="color: {"#00CC00" if x >= 0 else "#CC0000"}; font-weight: bold;">${x:,.0f}</span>'
         )
-        pos_table['Mkt Value'] = pos_table['Mkt Value'].apply(lambda x: f"${x:,.0f}")
+        pos_table['PnL_day'] = pos_table['PnL_day'].apply(
+            lambda x: f'<span style="color: {"#00CC00" if x >= 0 else "#CC0000"}; font-weight: bold;">${x:,.0f}</span>'
+        )
         pos_table['Risk $'] = pos_table['Risk $'].apply(lambda x: f"${x:,.0f}")
         pos_table['Shares'] = pos_table['Shares'].apply(lambda x: f"{x:,}")
         
