@@ -70,6 +70,24 @@ LIQUID_NO_INDEX = [t for t in LIQUID_UNIVERSE if t not in ['^GSPC', '^NDX']]
 # Liquid universe + commodity ETFs for broader coverage (198 tickers)
 LIQUID_PLUS_COMMODITIES = LIQUID_UNIVERSE + ['CEF', 'GLD', 'OIH', 'SLV', 'UNG', 'USO', 'UVXY', 'XOP']
 
+# 3x Leveraged ETFs — broad + sector equities, bonds, commodities (bull + bear)
+# Must stay in sync with LEV3X_ALL in pages/backtester.py
+LEV3X_ALL = [
+    # Broad equity bull
+    'SPXL', 'TQQQ', 'UDOW', 'TNA', 'MIDU',
+    # Broad equity bear
+    'SPXS', 'SQQQ', 'SDOW', 'TZA',
+    # Sector equity bull
+    'SOXL', 'FAS', 'TECL', 'LABU', 'CURE', 'ERX', 'DPST',
+    'DRN', 'NAIL', 'RETL', 'WEBL', 'DFEN', 'YINN', 'BRZU', 'EDC', 'MEXX',
+    # Sector equity bear
+    'SOXS', 'FAZ', 'TECS', 'LABD', 'ERY', 'DRV', 'WEBS', 'YANG', 'EDZ',
+    # Bonds
+    'TMF', 'TMV',
+    # Commodities
+    'NUGT', 'JNUG', 'GUSH', 'DUST', 'JDST', 'DRIP',
+]
+
 # All CSV tickers from sznl_ranks.csv (~1062 tickers)
 import os as _os, pandas as _pd
 _csv_path = _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), 'sznl_ranks.csv')
@@ -1001,6 +1019,149 @@ _STRATEGY_BOOK_RAW = [
             "use_take_profit": False
         },
         "stats": {"grade": "A (Excellent)", "win_rate": "72.9%", "expectancy": "1.36r", "profit_factor": "4.14"}
+    },
+    {
+        "id": "5d > 85%ile+10d > 85%ile+21d > 85%ile+252d < 65%ile, Entry: Limit (Open +/- 0.5 ATR), 2d hold",
+        "name": "3x ETF Overbot Fade",
+        "setup": {
+            "type": "MeanReversion",
+            "timeframe": "Overnight",
+            "thesis": "Overbought fade setup on 3x leveraged ETFs",
+            "key_filters": [
+                "5D rank > 85th %ile",
+                "10D rank > 85th %ile",
+                "21D rank > 85th %ile (3d consecutive)",
+                "252D rank < 65th %ile",
+                "Close in 50-100% of daily range",
+                "Volume > 1.2x 63-day avg"
+            ]
+        },
+        "exit_summary": {
+            "primary_exit": "2-day time stop",
+            "stop_logic": "None (time exit only)",
+            "target_logic": "None (time exit only)",
+            "notes": None
+        },
+        "description": "Backtest: 2000-01-01 to present. Universe: 3x Leveraged (All) — 42 tickers.",
+        "universe_tickers": LEV3X_ALL,
+        "settings": {
+            "trade_direction": "Short",
+            "entry_type": "Limit (Open +/- 0.5 ATR)",
+            "max_one_pos": True,
+            "allow_same_day_reentry": False,
+            "max_daily_entries": 20,
+            "max_total_positions": 99,
+            "entry_conf_bps": 0,
+            "perf_filters": [
+                {'window': 5, 'logic': '>', 'thresh': 85.0, 'thresh_max': 100.0, 'consecutive': 1},
+                {'window': 10, 'logic': '>', 'thresh': 85.0, 'thresh_max': 100.0, 'consecutive': 1},
+                {'window': 21, 'logic': '>', 'thresh': 85.0, 'thresh_max': 100.0, 'consecutive': 3},
+                {'window': 252, 'logic': '<', 'thresh': 65.0, 'thresh_max': 100.0, 'consecutive': 1}
+            ],
+            "perf_first_instance": False,
+            "perf_lookback": 21,
+            "ma_consec_filters": [],
+            "use_sznl": False,
+            "sznl_logic": "<",
+            "sznl_thresh": 15.0,
+            "sznl_first_instance": False,
+            "sznl_lookback": 21,
+            "use_market_sznl": False,
+            "market_sznl_logic": "<",
+            "market_sznl_thresh": 15.0,
+            "market_ticker": "^GSPC",
+            "use_52w": False,
+            "52w_type": "New 52w High",
+            "52w_first_instance": False,
+            "52w_lookback": 21,
+            "52w_lag": 0,
+            "exclude_52w_high": False,
+            "use_ath": False,
+            "ath_type": "Today is ATH",
+            "use_recent_ath": False,
+            "recent_ath_invert": False,
+            "ath_lookback_days": 21,
+            "use_recent_52w": False,
+            "recent_52w_invert": False,
+            "recent_52w_lookback": 21,
+            "use_recent_52w_low": False,
+            "recent_52w_low_invert": False,
+            "recent_52w_low_lookback": 21,
+            "breakout_mode": "None",
+            "require_close_gt_open": False,
+            "use_range_filter": True,
+            "range_min": 50,
+            "range_max": 100,
+            "use_atr_ret_filter": False,
+            "atr_ret_min": 0.0,
+            "atr_ret_max": 1.0,
+            "use_range_atr_filter": False,
+            "range_atr_logic": ">",
+            "range_atr_min": 1.0,
+            "range_atr_max": 3.0,
+            "price_action_filters": [],
+            "use_ma_dist_filter": False,
+            "dist_ma_type": "SMA 10",
+            "dist_logic": "Greater Than (>)",
+            "dist_min": 0.0,
+            "dist_max": 2.0,
+            "use_weekly_ma_pullback": False,
+            "wma_type": "EMA",
+            "wma_period": 8,
+            "wma_min_ext_pct": 30.0,
+            "wma_lookback_months": 6,
+            "wma_touch_logic": "Low <= MA",
+            "vol_gt_prev": False,
+            "use_vol": True,
+            "vol_thresh": 1.2,
+            "use_vol_rank": False,
+            "vol_rank_logic": "<",
+            "vol_rank_thresh": 50.0,
+            "use_acc_count_filter": False,
+            "acc_count_window": 21,
+            "acc_count_logic": "=",
+            "acc_count_thresh": 0,
+            "use_dist_count_filter": False,
+            "dist_count_window": 21,
+            "dist_count_logic": ">",
+            "dist_count_thresh": 3,
+            "use_gap_filter": False,
+            "gap_lookback": 21,
+            "gap_logic": ">",
+            "gap_thresh": 3,
+            "trend_filter": "None",
+            "use_vix_filter": False,
+            "vix_min": 0.0,
+            "vix_max": 20.0,
+            "min_price": 10.0,
+            "min_vol": 100000,
+            "min_age": 0.25,
+            "max_age": 100.0,
+            "min_atr_pct": 0.2,
+            "max_atr_pct": 10.0,
+            "use_dow_filter": False,
+            "allowed_days": [0, 1, 2, 3, 4],
+            "allowed_cycles": [1, 2, 3, 0],
+            "use_ref_ticker_filter": False,
+            "ref_ticker": "IWM",
+            "ref_filters": [],
+            "use_t1_open_filter": False,
+            "t1_open_filters": [],
+            "use_xsec_filter": False,
+            "xsec_filters": [],
+            "atr_sznl_filters": []
+        },
+        "execution": {
+            "risk_bps": 40,
+            "risk_per_trade": "[EDIT: calculated from account size]",
+            "slippage_bps": 2,
+            "stop_atr": 1.0,
+            "tgt_atr": 8.0,
+            "hold_days": 2,
+            "use_stop_loss": False,
+            "use_take_profit": False
+        },
+        "stats": {"grade": "A (Excellent)", "win_rate": "79.6%", "expectancy": "0.87r", "profit_factor": "7.58"}
     },
 ]
 
