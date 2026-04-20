@@ -25,6 +25,12 @@
 # ============================================
 ACCOUNT_VALUE = 750000  # Adjust this to your current account size
 
+# Global aggregate daily risk cap (bps of account) across all strategies' signals.
+# If total new-risk from today's staged signals exceeds this, ALL signals are
+# proportionally scaled down so aggregate == cap. Applied in daily_scan.py,
+# local_overflow_scan.py, and the backtester (strat_backtester.py).
+DAILY_RISK_CAP_BPS = 150
+
 # ============================================
 # TICKER UNIVERSES
 # ============================================

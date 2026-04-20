@@ -27,16 +27,12 @@ parent_dir = os.path.dirname(current_dir)
 sys.path.append(parent_dir)
 
 try:
-    from strategy_config import STRATEGY_BOOK, ACCOUNT_VALUE
+    from strategy_config import STRATEGY_BOOK, ACCOUNT_VALUE, DAILY_RISK_CAP_BPS
 except ImportError:
     print("❌ Could not find strategy_config.py in the root directory.")
     STRATEGY_BOOK = []
     ACCOUNT_VALUE = 0
-
-# Global aggregate daily risk cap (bps of account) across all strategies' signals.
-# If total new-risk from today's staged signals exceeds this, ALL signals are
-# proportionally scaled down so the aggregate == cap.
-DAILY_RISK_CAP_BPS = 150
+    DAILY_RISK_CAP_BPS = 0
 
 # ATR-normalized seasonal ranks (built by build_atr_seasonal_ranks.py)
 ATR_SZNL_PATH = os.path.join(current_dir, "atr_seasonal_ranks.parquet")

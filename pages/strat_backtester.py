@@ -22,11 +22,12 @@ parent_dir = os.path.dirname(current_dir)
 sys.path.append(parent_dir)
 
 try:
-    from strategy_config import _STRATEGY_BOOK_RAW, ACCOUNT_VALUE
+    from strategy_config import _STRATEGY_BOOK_RAW, ACCOUNT_VALUE, DAILY_RISK_CAP_BPS
 except ImportError:
     # st.error("Could not find strategy_config.py in the root directory.")
     _STRATEGY_BOOK_RAW = []
     ACCOUNT_VALUE = 150000
+    DAILY_RISK_CAP_BPS = 0
 
 # -----------------------------------------------------------------------------
 # CONSTANTS & SETUP
@@ -1333,12 +1334,33 @@ def process_signals_fast(candidates, signal_data, processed_dict, strategies, st
         return pd.DataFrame()
     
     sig_df = pd.DataFrame(results)
-    
+
     sig_df['Date'] = pd.to_datetime(sig_df['Date'])
     sig_df['Entry Date'] = pd.to_datetime(sig_df['Entry Date'])
     sig_df['Exit Date'] = pd.to_datetime(sig_df['Exit Date'])
     sig_df['Time Stop'] = pd.to_datetime(sig_df['Time Stop'])
-    
+
+    # Global aggregate daily risk cap across ALL strategies.
+    # Mirrors daily_scan.py / local_overflow_scan.py: for each signal date,
+    # if total Risk $ from all strategies' signals exceeds DAILY_RISK_CAP_BPS
+    # of equity at that date, scale every signal's Shares + PnL + Risk $ down.
+    # Cap scales dynamically with "Equity at Signal" (first signal's equity
+    # on that date is representative).
+    if DAILY_RISK_CAP_BPS and len(sig_df) > 0:
+        cap_bps = DAILY_RISK_CAP_BPS
+        sig_df = sig_df.sort_values(by="Date").reset_index(drop=True)
+        grouped = sig_df.groupby('Date', sort=False)
+        for date, idx in grouped.groups.items():
+            rows = sig_df.loc[idx]
+            day_equity = float(rows['Equity at Signal'].iloc[0])
+            cap_dollars = day_equity * cap_bps / 10000.0
+            total_risk = float(rows['Risk $'].sum())
+            if total_risk > cap_dollars > 0:
+                scale = cap_dollars / total_risk
+                sig_df.loc[idx, 'Shares']  = (sig_df.loc[idx, 'Shares']  * scale).round().astype(int)
+                sig_df.loc[idx, 'PnL']     = (sig_df.loc[idx, 'PnL']     * scale).round()
+                sig_df.loc[idx, 'Risk $']  = sig_df.loc[idx, 'Risk $']   * scale
+
     return sig_df.sort_values(by="Exit Date")
 
 def get_daily_mtm_series(sig_df, master_dict, start_date=None):
