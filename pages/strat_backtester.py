@@ -134,35 +134,57 @@ def _parse_yf_result(df, chunk, data_dict):
                 data_dict[ticker] = df
 
 
+def _download_chunk(chunk, start_date, max_retries=2):
+    """Download a single chunk with retries; returns a dict. Isolated so one
+    failed chunk (rate-limited or a single bad ticker) can't hang the whole run."""
+    out = {}
+    for attempt in range(max_retries):
+        try:
+            df = yf.download(
+                chunk, start=start_date, group_by='ticker',
+                auto_adjust=False, progress=False, threads=True,
+            )
+            _parse_yf_result(df, chunk, out)
+            if out:
+                return out
+        except Exception:
+            pass
+        if attempt < max_retries - 1:
+            time.sleep(1.0)
+    # Last resort: fall back to per-ticker download so one bad ticker doesn't nuke the chunk.
+    for t in chunk:
+        if t in out:
+            continue
+        try:
+            df = yf.download(t, start=start_date, auto_adjust=False, progress=False, threads=False)
+            _parse_yf_result(df, [t], out)
+        except Exception:
+            continue
+    return out
+
+
 def download_historical_data(tickers, start_date="2000-01-01"):
     if not tickers: return {}
     clean_tickers = list(set([str(t).strip().upper().replace('.', '-') for t in tickers]))
     data_dict = {}
     CHUNK_SIZE = 40
-    MAX_RETRIES = 2
+    MAX_WORKERS = 3  # Parallel chunks — I/O bound, so threading helps; cap to avoid rate limits.
     total = len(clean_tickers)
+    chunks = [clean_tickers[i:i + CHUNK_SIZE] for i in range(0, total, CHUNK_SIZE)]
+    total_batches = len(chunks)
     progress_bar = st.progress(0)
     status_text = st.empty()
+    completed = 0
 
-    for i in range(0, total, CHUNK_SIZE):
-        chunk = clean_tickers[i : i + CHUNK_SIZE]
-        batch_num = i // CHUNK_SIZE + 1
-        total_batches = (total + CHUNK_SIZE - 1) // CHUNK_SIZE
-        current_progress = min((i + CHUNK_SIZE) / total, 1.0)
-        status_text.text(f"📥 Downloading batch {batch_num}/{total_batches} ({min(i+CHUNK_SIZE, total)}/{total} tickers)...")
-        progress_bar.progress(current_progress)
-
-        for attempt in range(MAX_RETRIES):
-            try:
-                df = yf.download(chunk, start=start_date, group_by='ticker', auto_adjust=False, progress=False, threads=True)
-                _parse_yf_result(df, chunk, data_dict)
-                break
-            except Exception:
-                if attempt < MAX_RETRIES - 1:
-                    status_text.text(f"⏳ Rate limited — retrying batch {batch_num} in 2s...")
-                    time.sleep(2)
-
-        time.sleep(0.5)
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+    with ThreadPoolExecutor(max_workers=MAX_WORKERS) as ex:
+        futures = {ex.submit(_download_chunk, c, start_date): c for c in chunks}
+        for fut in as_completed(futures):
+            chunk_result = fut.result()
+            data_dict.update(chunk_result)
+            completed += 1
+            status_text.text(f"📥 Downloaded batch {completed}/{total_batches} ({len(data_dict)}/{total} tickers)...")
+            progress_bar.progress(min(completed / total_batches, 1.0))
 
     progress_bar.empty()
     status_text.empty()
@@ -821,20 +843,59 @@ def process_signals_fast(candidates, signal_data, processed_dict, strategies, st
         return pd.DataFrame()
     
     candidates.sort(key=lambda x: x[0])
-    
-    # Build price matrix for all relevant tickers
+
+    # Build price matrix for all relevant tickers (forward-filled by ticker).
     all_tickers = set(c[2] for c in candidates)
     price_matrix = build_price_matrix(processed_dict, all_tickers)
-    
+
+    # Numpy-backed lookup: O(1) access to close price for (date, ticker)
+    # vs ~100k pandas `.loc` calls over the course of a 25yr backtest.
+    if not price_matrix.empty:
+        _pm_values = price_matrix.values
+        _pm_date_idx = {d: i for i, d in enumerate(price_matrix.index)}
+        _pm_ticker_idx = {t: i for i, t in enumerate(price_matrix.columns)}
+    else:
+        _pm_values = None
+        _pm_date_idx = {}
+        _pm_ticker_idx = {}
+
+    def _mtm_price(ticker, date):
+        """O(1) price lookup with fallback to processed_dict slice."""
+        row = _pm_date_idx.get(date)
+        col = _pm_ticker_idx.get(ticker)
+        if row is not None and col is not None and _pm_values is not None:
+            p = _pm_values[row, col]
+            if not pd.isna(p):
+                return float(p)
+        # Fallback: ticker missing from price_matrix or date out of range
+        pos_df = processed_dict.get(ticker)
+        if pos_df is None:
+            return None
+        sub = pos_df.index.asof(date)
+        if pd.isna(sub):
+            return None
+        p = pos_df.at[sub, 'Close']
+        return float(p) if not pd.isna(p) else None
+
     # Track open positions for MTM
     open_positions = []
     realized_pnl = 0.0
     position_last_exit = {}
     last_signal_ts = None
 
+    # Progress updates — Streamlit Cloud kills silent scripts; also user feedback.
+    _total_cands = len(candidates)
+    _progress_bar = st.progress(0.0) if _total_cands > 500 else None
+    _status = st.empty() if _total_cands > 500 else None
+    _update_every = max(250, _total_cands // 200)
+
     results = []
-    
-    for cand in candidates:
+
+    for _cand_i, cand in enumerate(candidates):
+        if _progress_bar is not None and _cand_i % _update_every == 0:
+            _progress_bar.progress(min(_cand_i / _total_cands, 1.0))
+            _status.text(f"⚙️ Processing signal {_cand_i:,}/{_total_cands:,}…")
+
         signal_ts, ticker, t_clean, strat_idx, signal_idx = cand
         signal_date = pd.Timestamp(signal_ts)
         
@@ -1098,9 +1159,9 @@ def process_signals_fast(candidates, signal_data, processed_dict, strategies, st
             still_open = []
             for pos in open_positions:
                 if signal_date >= pos['exit_date']:
-                    if pos['t_clean'] in price_matrix.columns:
-                        exit_price_mtm = price_matrix.loc[pos['exit_date'], pos['t_clean']] if pos['exit_date'] in price_matrix.index else pos['entry_price']
-                    else:
+                    exit_price_mtm = _mtm_price(pos['t_clean'], pos['exit_date'])
+                    if exit_price_mtm is None:
+                        # Last-resort fallback: use processed_dict by integer idx.
                         pos_df = processed_dict.get(pos['t_clean'])
                         exit_price_mtm = pos_df.iloc[pos['exit_idx']]['Close'] if pos_df is not None else pos['entry_price']
 
@@ -1116,18 +1177,8 @@ def process_signals_fast(candidates, signal_data, processed_dict, strategies, st
             # Calculate unrealized P&L
             unrealized_pnl = 0.0
             for pos in open_positions:
-                if pos['t_clean'] in price_matrix.columns and signal_date in price_matrix.index:
-                    current_price = price_matrix.loc[signal_date, pos['t_clean']]
-                else:
-                    pos_df = processed_dict.get(pos['t_clean'])
-                    if pos_df is None:
-                        continue
-                    price_slice = pos_df[pos_df.index <= signal_date]
-                    if price_slice.empty:
-                        continue
-                    current_price = price_slice.iloc[-1]['Close']
-
-                if pd.isna(current_price):
+                current_price = _mtm_price(pos['t_clean'], signal_date)
+                if current_price is None:
                     continue
 
                 if pos['direction'] == 'Long':
@@ -1330,9 +1381,13 @@ def process_signals_fast(candidates, signal_data, processed_dict, strategies, st
                             "Risk $": loc_risk, "Risk bps": risk_bps
                         })
     
+    if _progress_bar is not None:
+        _progress_bar.empty()
+        _status.empty()
+
     if not results:
         return pd.DataFrame()
-    
+
     sig_df = pd.DataFrame(results)
 
     sig_df['Date'] = pd.to_datetime(sig_df['Date'])
@@ -1464,19 +1519,38 @@ def calculate_daily_exposure(sig_df, starting_equity=None):
     min_date = sig_df['Date'].min()
     max_date = sig_df['Exit Date'].max()
     all_dates = pd.date_range(start=min_date, end=max_date)
-    exposure_df = pd.DataFrame(0.0, index=all_dates, columns=['Long Exposure', 'Short Exposure'])
-    
-    _dates = sig_df['Date'].values
-    _exit_dates = sig_df['Exit Date'].values
-    _prices = sig_df['Price'].values
-    _shares_arr = sig_df['Shares'].values
+    n_days = len(all_dates)
+
+    _dates = pd.to_datetime(sig_df['Date'].values)
+    _exit_dates = pd.to_datetime(sig_df['Exit Date'].values)
+    _prices = sig_df['Price'].values.astype(float)
+    _shares_arr = sig_df['Shares'].values.astype(float)
     _actions = sig_df['Action'].values
 
-    for i in range(len(sig_df)):
-        mask = (exposure_df.index >= _dates[i]) & (exposure_df.index <= _exit_dates[i])
-        dollar_val = float(_prices[i]) * float(_shares_arr[i])
-        col = 'Long Exposure' if _actions[i] == 'BUY' else 'Short Exposure'
-        exposure_df.loc[mask, col] += dollar_val
+    # Map trade dates to integer positions in all_dates with a vectorized searchsorted.
+    _all_vals = all_dates.values.astype('datetime64[ns]')
+    start_idx = np.searchsorted(_all_vals, _dates.values.astype('datetime64[ns]'))
+    end_idx = np.searchsorted(_all_vals, _exit_dates.values.astype('datetime64[ns]'))
+
+    dollar_vals = _prices * _shares_arr
+    long_mask = _actions == 'BUY'
+
+    # Difference-array trick: for each trade, +val at entry, -val at exit+1, then cumsum.
+    # Turns O(trades × days) into O(trades + days).
+    long_delta = np.zeros(n_days + 1, dtype=float)
+    short_delta = np.zeros(n_days + 1, dtype=float)
+    np.add.at(long_delta,  start_idx[long_mask],      dollar_vals[long_mask])
+    np.add.at(long_delta,  end_idx[long_mask] + 1,   -dollar_vals[long_mask])
+    np.add.at(short_delta, start_idx[~long_mask],     dollar_vals[~long_mask])
+    np.add.at(short_delta, end_idx[~long_mask] + 1,  -dollar_vals[~long_mask])
+
+    long_exp = long_delta[:n_days].cumsum()
+    short_exp = short_delta[:n_days].cumsum()
+
+    exposure_df = pd.DataFrame(
+        {'Long Exposure': long_exp, 'Short Exposure': short_exp},
+        index=all_dates,
+    )
 
     exposure_df['Net Exposure'] = exposure_df['Long Exposure'] - exposure_df['Short Exposure']
     exposure_df['Gross Exposure'] = exposure_df['Long Exposure'] + exposure_df['Short Exposure']
