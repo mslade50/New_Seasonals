@@ -22,6 +22,24 @@ SPX=['^GSPC','SPY']
 INDEX_ETFS = ["SPY", "QQQ", "IWM", "DIA", "SMH"]
 INTERNATIONAL_ETFS = ["EWZ", "EWC", "ECH", "ECOL", "EWW", "ARGT", "EWQ", "EWG", "EWI", "EWU", "EWP", "EWK", "EWO", "EWN", "EWD", "EWL",
     "EWJ", "EWH", "MCHI", "INDA", "EWY", "EWT", "EWA", "EWS", "EWM", "THD", "EIDO", "VNM", "EPHE", "EZA", "TUR", "EGPT"]
+
+# 3x Leveraged ETFs (most-liquid pick per underlying; dedupe SPXL/UPRO, TNA/URTY, etc.)
+LEV3X_EQUITY_BULL_BROAD  = ["SPXL", "TQQQ", "UDOW", "TNA", "MIDU"]
+LEV3X_EQUITY_BEAR_BROAD  = ["SPXS", "SQQQ", "SDOW", "TZA"]
+LEV3X_EQUITY_BULL_SECTOR = ["SOXL", "FAS", "TECL", "LABU", "CURE", "ERX", "DPST",
+                            "DRN", "NAIL", "RETL", "WEBL", "DFEN", "YINN", "BRZU", "EDC", "MEXX"]
+LEV3X_EQUITY_BEAR_SECTOR = ["SOXS", "FAZ", "TECS", "LABD", "ERY", "DRV", "WEBS", "YANG", "EDZ"]
+LEV3X_BOND_BULL          = ["TMF"]
+LEV3X_BOND_BEAR          = ["TMV"]
+LEV3X_COMMODITY_BULL     = ["NUGT", "JNUG", "GUSH"]
+LEV3X_COMMODITY_BEAR     = ["DUST", "JDST", "DRIP"]
+
+LEV3X_EQUITY_BULL_ALL = LEV3X_EQUITY_BULL_BROAD + LEV3X_EQUITY_BULL_SECTOR
+LEV3X_EQUITY_BEAR_ALL = LEV3X_EQUITY_BEAR_BROAD + LEV3X_EQUITY_BEAR_SECTOR
+LEV3X_EQUITY_ALL      = LEV3X_EQUITY_BULL_ALL + LEV3X_EQUITY_BEAR_ALL
+LEV3X_EQUITY_BROAD    = LEV3X_EQUITY_BULL_BROAD + LEV3X_EQUITY_BEAR_BROAD
+LEV3X_ALL             = (LEV3X_EQUITY_ALL + LEV3X_BOND_BULL + LEV3X_BOND_BEAR
+                         + LEV3X_COMMODITY_BULL + LEV3X_COMMODITY_BEAR)
 CSV_PATH = "seasonal_ranks.csv"
 ATR_SZNL_PATH = "atr_seasonal_ranks.parquet"
 ATR_SZNL_WINDOWS = [5, 10, 21, 63, 126, 252]
@@ -1272,7 +1290,7 @@ def main():
     st.subheader("1. Universe & Data")
     col_u1, col_u2, col_u3 = st.columns([1, 1, 2])
     sample_pct = 100; use_full_history = False
-    with col_u1: univ_choice = st.selectbox("Choose Universe", ["All CSV Tickers", "Sector ETFs","SPX", "Indices", "International ETFs", "Sector + Index ETFs", "All CSV (Equities Only)", "Custom (Upload CSV)"])
+    with col_u1: univ_choice = st.selectbox("Choose Universe", ["All CSV Tickers", "Sector ETFs","SPX", "Indices", "International ETFs", "Sector + Index ETFs", "All CSV (Equities Only)", "3x Leveraged (All)", "3x Leveraged Equities", "3x Leveraged Equities (Bull)", "3x Leveraged Equities (Bear)", "3x Leveraged Equities (Broad Only)", "Custom (Upload CSV)"])
     with col_u2:
         default_start = datetime.date(2000, 1, 1)
         start_date = st.date_input("Backtest Start Date", value=default_start, min_value=datetime.date(1950, 1, 1), max_value=datetime.date.today())
@@ -1755,6 +1773,11 @@ def main():
         elif univ_choice == "Sector + Index ETFs": tickers_to_run = list(set(SECTOR_ETFS + INDEX_ETFS))
         elif univ_choice == "All CSV Tickers": tickers_to_run = [t for t in list(sznl_map.keys())]
         elif univ_choice == "All CSV (Equities Only)": tickers_to_run = [t for t in list(sznl_map.keys()) if t not in ["BTC-USD", "ETH-USD", "SLV", "GLD", "USO", "UVXY", "CEF", "UNG", "XOP"] + SECTOR_ETFS + INDEX_ETFS + INTERNATIONAL_ETFS + SPX]
+        elif univ_choice == "3x Leveraged (All)": tickers_to_run = LEV3X_ALL
+        elif univ_choice == "3x Leveraged Equities": tickers_to_run = LEV3X_EQUITY_ALL
+        elif univ_choice == "3x Leveraged Equities (Bull)": tickers_to_run = LEV3X_EQUITY_BULL_ALL
+        elif univ_choice == "3x Leveraged Equities (Bear)": tickers_to_run = LEV3X_EQUITY_BEAR_ALL
+        elif univ_choice == "3x Leveraged Equities (Broad Only)": tickers_to_run = LEV3X_EQUITY_BROAD
         elif univ_choice == "Custom (Upload CSV)": tickers_to_run = custom_tickers
         if tickers_to_run and sample_pct < 100:
             count = max(1, int(len(tickers_to_run) * (sample_pct / 100)))
