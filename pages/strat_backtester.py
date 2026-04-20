@@ -1315,40 +1315,10 @@ def process_signals_fast(candidates, signal_data, processed_dict, strategies, st
 
         # ========== STRATEGY-SPECIFIC RISK ADJUSTMENTS ==========
         _vol_spike_skip_primary = False
-        _vol_spike_emit_loc = False
-
-        if strat_name == "Overbot Vol Spike":
-            NEW_OVERLAY_START = pd.Timestamp('2026-02-06')
-
-            if signal_date >= NEW_OVERLAY_START:
-                # NEW: Three-branch ATH/52w overlay (2026-02-06+)
-                is_ath_l10 = bool(df['is_ath'].iloc[:signal_idx + 1].rolling(window=10, min_periods=1).max().iloc[-1])
-                is_52w_high = bool(df.iloc[signal_idx]['is_52w_high'])
-
-                if is_ath_l10:
-                    # Case 1: ATH in last 10 days → LOC only, normal risk
-                    _vol_spike_skip_primary = True
-                    _vol_spike_emit_loc = True
-                elif is_52w_high:
-                    # Case 2: No ATH in L10 but 52w high today → primary only, 0.66x
-                    base_risk *= 0.66
-                else:
-                    # Check 52w high in last 5 days
-                    is_52w_high_l5 = bool(df['is_52w_high'].iloc[:signal_idx + 1].rolling(window=5, min_periods=1).max().iloc[-1])
-                    if is_52w_high_l5:
-                        # Case 3: 52w high in L5 (not today) → LOC only, normal risk
-                        _vol_spike_skip_primary = True
-                        _vol_spike_emit_loc = True
-                    else:
-                        # Case 4: No ATH L10, no 52w high L5 → primary + LOC, normal risk
-                        _vol_spike_emit_loc = True
-            else:
-                # LEGACY: Vol-ratio sizing (pre-2026-02-06)
-                vol_ratio = row_data['vol_ratio']
-                if vol_ratio > 2.0:
-                    base_risk = current_equity * 45 / 10000
-                elif vol_ratio > 1.5:
-                    base_risk = current_equity * 35 / 10000
+        # Overbot Vol Spike: always emit a LOC companion alongside the primary
+        # short. LOC uses the same signal criteria — only differs in entry:
+        # fills at T+1 Close when T+1 Close > Signal Close.
+        _vol_spike_emit_loc = (strat_name == "Overbot Vol Spike")
 
         if strat_name == "Weak Close Decent Sznls":
             sznl_val = row_data['sznl']
@@ -1408,9 +1378,11 @@ def process_signals_fast(candidates, signal_data, processed_dict, strategies, st
                     "Risk $": base_risk, "Risk bps": risk_bps
                 })
 
-        # ========== LOC COMPANION TRADE (Vol Spike only, 2026-02-06+) ==========
+        # ========== LOC COMPANION TRADE (Vol Spike) ==========
+        # Same signal criteria as primary; only entry differs. Fills at T+1 Close
+        # if T+1 Close > Signal Close (simple confirmation the fade didn't invalidate).
         if _vol_spike_emit_loc:
-            loc_threshold = row_data['close'] + (0.5 * atr)
+            loc_threshold = row_data['close']
             t1_idx = signal_idx + 1
 
             if t1_idx < len(df):
@@ -1490,7 +1462,7 @@ def process_signals_fast(candidates, signal_data, processed_dict, strategies, st
                             "Exit Date": loc_exit_date, "Exit Type": loc_exit_type,
                             "Time Stop": loc_time_stop, "Strategy": strat_name + " (LOC)",
                             "Ticker": ticker, "Action": action,
-                            "Entry Criteria": "LOC (T+1 Close > Signal+0.5ATR)",
+                            "Entry Criteria": "LOC (T+1 Close > Signal Close)",
                             "Price": loc_entry_price, "Exit Price": loc_exit_price,
                             "Shares": loc_shares,
                             "PnL": loc_pnl, "ATR": atr,
@@ -2357,9 +2329,10 @@ def main():
                         ))
                         
                     fig_strat.update_layout(
-                        height=400, 
+                        height=400,
                         margin=dict(l=10, r=10, t=30, b=10),
                         hovermode="x unified",
+                        yaxis_type="log",
                         legend=dict(
                             orientation="h",
                             yanchor="bottom",
