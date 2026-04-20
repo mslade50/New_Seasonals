@@ -39,6 +39,13 @@ ATR_SZNL_PATH = "atr_seasonal_ranks.parquet"
 ATR_SZNL_WINDOWS = [5, 10, 21, 63, 126, 252]
 ATR_SZNL_COLS = [f"atr_sznl_{w}d" for w in ATR_SZNL_WINDOWS]
 
+# OLV cooldown: block re-fires within N trading days of the last primary signal.
+# Mirrors live-scan gate in daily_scan.py (load_olv_cooldown). Primary MOC + its
+# LOC companion both fire within the same candidate iteration; cooldown applies
+# to the NEXT candidate on the same ticker.
+OLV_STRATEGY_NAME = "Oversold Low Volume"
+OLV_COOLDOWN_DAYS = 20
+
 
 @st.cache_resource
 def load_atr_seasonal_map():
@@ -1003,6 +1010,9 @@ def process_signals_fast(candidates, signal_data, processed_dict, strategies, st
     realized_pnl = 0.0
     position_last_exit = {}
     last_signal_ts = None
+    # OLV cooldown: {t_clean: signal_idx of last primary signal}. Subsequent OLV
+    # candidates within OLV_COOLDOWN_DAYS trading days of last primary are skipped.
+    olv_last_signal_idx = {}
 
     # Progress updates — Streamlit Cloud kills silent scripts; also user feedback.
     _total_cands = len(candidates)
@@ -1031,6 +1041,12 @@ def process_signals_fast(candidates, signal_data, processed_dict, strategies, st
             pos_key = (strat_name, ticker)
             last_exit_ts = position_last_exit.get(pos_key)
             if last_exit_ts is not None and signal_ts <= last_exit_ts:
+                continue
+
+        # OLV cooldown gate — block re-fires within 20 trading days of last primary
+        if strat_name == OLV_STRATEGY_NAME:
+            _last_idx = olv_last_signal_idx.get(t_clean)
+            if _last_idx is not None and (signal_idx - _last_idx) <= OLV_COOLDOWN_DAYS:
                 continue
         
         df = processed_dict[t_clean]
@@ -1319,6 +1335,15 @@ def process_signals_fast(candidates, signal_data, processed_dict, strategies, st
         # short. LOC uses the same signal criteria — only differs in entry:
         # fills at T+1 Close when T+1 Close > Signal Close.
         _vol_spike_emit_loc = (strat_name == "Overbot Vol Spike")
+        # Oversold Low Volume: emit a LOC companion (long) on T+1 Close when
+        # T+1 Close < Signal Close (buying the continued dip).
+        _olv_emit_loc = (strat_name == OLV_STRATEGY_NAME)
+
+        # Record this primary for OLV cooldown bookkeeping. Filters upstream
+        # already vetted the signal; LOC companion fires within this iteration
+        # and is NOT gated by cooldown.
+        if strat_name == OLV_STRATEGY_NAME:
+            olv_last_signal_idx[t_clean] = signal_idx
 
         if strat_name == "Weak Close Decent Sznls":
             sznl_val = row_data['sznl']
@@ -1473,7 +1498,84 @@ def process_signals_fast(candidates, signal_data, processed_dict, strategies, st
                             "Equity at Signal": current_equity,
                             "Risk $": loc_risk, "Risk bps": risk_bps
                         })
-    
+
+        # ========== LOC COMPANION TRADE (OLV) ==========
+        # OLV is Long: companion fires when T+1 Close < Signal Close (buying
+        # the continued dip). Cooldown applies to the NEXT primary, not this
+        # companion (which shares the current iteration's signal).
+        if _olv_emit_loc:
+            loc_threshold = row_data['close']
+            t1_idx = signal_idx + 1
+
+            if t1_idx < len(df):
+                t1_close = df.iloc[t1_idx]['Close']
+
+                if t1_close < loc_threshold:
+                    loc_entry_price = t1_close
+                    loc_entry_date = df.index[t1_idx]
+                    loc_entry_idx = t1_idx
+
+                    loc_risk = current_equity * risk_bps / 10000
+                    loc_shares = int(loc_risk / dist) if dist > 0 else 0
+
+                    if loc_shares > 0:
+                        # Long stops/targets from LOC entry price
+                        loc_stop = loc_entry_price - (atr * stop_atr)
+                        loc_tgt = loc_entry_price + (atr * tgt_atr)
+
+                        loc_hold = execution['hold_days']
+                        loc_max_exit_idx = min(loc_entry_idx + loc_hold, len(df) - 1)
+                        loc_exit_idx = loc_max_exit_idx
+                        loc_exit_price = df.iloc[loc_exit_idx]['Close']
+                        loc_exit_date = df.index[loc_exit_idx]
+                        loc_exit_type = "Time"
+
+                        use_stop_loc = execution.get('use_stop_loss', True)
+                        use_tgt_loc = execution.get('use_take_profit', True)
+
+                        if use_stop_loc or use_tgt_loc:
+                            for ci in range(loc_entry_idx + 1, loc_max_exit_idx + 1):
+                                cr = df.iloc[ci]
+                                if use_stop_loc and cr['Low'] <= loc_stop:
+                                    loc_exit_price, loc_exit_date, loc_exit_idx, loc_exit_type = loc_stop, cr.name, ci, "Stop"
+                                    break
+                                if use_tgt_loc and cr['High'] >= loc_tgt:
+                                    loc_exit_price, loc_exit_date, loc_exit_idx, loc_exit_type = loc_tgt, cr.name, ci, "Target"
+                                    break
+
+                        loc_pnl = ((loc_exit_price - loc_entry_price) * loc_shares).round(0)
+
+                        loc_ts_idx = loc_entry_idx + loc_hold
+                        if loc_ts_idx < len(df):
+                            loc_time_stop = df.index[loc_ts_idx]
+                        else:
+                            loc_time_stop = loc_entry_date + BusinessDay(loc_hold)
+
+                        open_positions.append({
+                            'ticker': ticker, 't_clean': t_clean,
+                            'entry_date': loc_entry_date, 'entry_price': loc_entry_price,
+                            'shares': loc_shares, 'direction': 'Long',
+                            'exit_idx': loc_exit_idx, 'exit_date': loc_exit_date,
+                            'strat_name': strat_name + " (LOC)"
+                        })
+
+                        results.append({
+                            "Date": signal_date, "Entry Date": loc_entry_date,
+                            "Exit Date": loc_exit_date, "Exit Type": loc_exit_type,
+                            "Time Stop": loc_time_stop, "Strategy": strat_name + " (LOC)",
+                            "Ticker": ticker, "Action": "BUY",
+                            "Entry Criteria": "LOC (T+1 Close < Signal Close)",
+                            "Price": loc_entry_price, "Exit Price": loc_exit_price,
+                            "Shares": loc_shares,
+                            "PnL": loc_pnl, "ATR": atr,
+                            "stop_atr": stop_atr, "tgt_atr": tgt_atr,
+                            "T+1 Open": df.iloc[t1_idx]['Open'],
+                            "Signal Close": row_data['close'],
+                            "Range %": row_data['range_pct'],
+                            "Equity at Signal": current_equity,
+                            "Risk $": loc_risk, "Risk bps": risk_bps
+                        })
+
     if _progress_bar is not None:
         _progress_bar.empty()
         _status.empty()
