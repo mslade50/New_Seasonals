@@ -2313,13 +2313,19 @@ def main():
             
             with col2:
                 st.subheader("📉 PnL by Strategy (Interactive)")
-                strat_pnl = sig_df.pivot_table(index='Exit Date', columns='Strategy', values='PnL', aggfunc='sum')
-                
+                # Filter out low-sample strategies — they clutter the chart with noise
+                MIN_SAMPLE = 200
+                strat_counts = sig_df.groupby('Strategy').size()
+                eligible_strats = strat_counts[strat_counts >= MIN_SAMPLE].index.tolist()
+                excluded = strat_counts[strat_counts < MIN_SAMPLE]
+                filtered_sig = sig_df[sig_df['Strategy'].isin(eligible_strats)]
+                strat_pnl = filtered_sig.pivot_table(index='Exit Date', columns='Strategy', values='PnL', aggfunc='sum')
+
                 if not strat_pnl.empty:
                     strat_pnl_cum = strat_pnl.fillna(0).cumsum()
-                    
+
                     fig_strat = go.Figure()
-                    
+
                     for column in strat_pnl_cum.columns:
                         fig_strat.add_trace(go.Scatter(
                             x=strat_pnl_cum.index,
@@ -2327,12 +2333,11 @@ def main():
                             mode='lines',
                             name=str(column)
                         ))
-                        
+
                     fig_strat.update_layout(
                         height=400,
                         margin=dict(l=10, r=10, t=30, b=10),
                         hovermode="x unified",
-                        yaxis_type="log",
                         legend=dict(
                             orientation="h",
                             yanchor="bottom",
@@ -2342,8 +2347,13 @@ def main():
                         )
                     )
                     st.plotly_chart(fig_strat, use_container_width=True)
+                    if len(excluded) > 0:
+                        st.caption(
+                            f"Hidden (n < {MIN_SAMPLE}): "
+                            + ", ".join(f"{s} ({c})" for s, c in excluded.items())
+                        )
                 else:
-                    st.info("No strategy data available.")
+                    st.info(f"No strategy has >= {MIN_SAMPLE} trades.")
 
             st.subheader("⚖️ Exposure Over Time (% of Equity)")
             exposure_df = calculate_daily_exposure(sig_df, starting_equity=starting_equity)
