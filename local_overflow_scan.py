@@ -78,6 +78,7 @@ from daily_scan import (
     load_olv_cooldown,
     OLV_STRATEGY_NAME, OLV_COOLDOWN_DAYS,
     load_atr_seasonal_map, ATR_SZNL_COLS,
+    DAILY_RISK_CAP_BPS,
 )
 
 TRADING_DAY = CustomBusinessDay(calendar=USFederalHolidayCalendar())
@@ -1111,6 +1112,23 @@ def run_overflow_scan(dry_run=False, force_rebuild=False):
         if signals:
             all_signals.extend(signals)
             print(f"   → {len(signals)} signals")
+
+    # Global aggregate daily risk cap across ALL strategies.
+    # If total Risk_Amt across today's overflow signals exceeds DAILY_RISK_CAP_BPS,
+    # scale every signal's Shares / Risk_Amt / Notional down proportionally.
+    if all_signals and ACCOUNT_VALUE > 0:
+        cap_dollars = ACCOUNT_VALUE * DAILY_RISK_CAP_BPS / 10000.0
+        total_risk = sum(float(s.get('Risk_Amt', 0) or 0) for s in all_signals)
+        if total_risk > cap_dollars > 0:
+            scale = cap_dollars / total_risk
+            for s in all_signals:
+                s['Shares'] = int(s.get('Shares', 0) * scale)
+                s['Risk_Amt'] = float(s.get('Risk_Amt', 0) or 0) * scale
+                entry_px = s.get('Entry') or 0
+                s['Notional'] = s['Shares'] * float(entry_px)
+                s['Sizing_Notes'] = f"{s.get('Sizing_Notes', '')} | Daily cap {DAILY_RISK_CAP_BPS}bps: {scale:.2f}x"
+            print(f"\n>>> Global risk cap hit: {len(all_signals)} signals scaled by {scale:.2f}x "
+                  f"(${total_risk:,.0f} -> ${cap_dollars:,.0f})\n")
 
     # Dedup error tickers across strategies
     seen_errors = set()
