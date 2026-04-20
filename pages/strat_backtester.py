@@ -628,7 +628,23 @@ def get_historical_mask(df, params, sznl_map, ticker_name="UNK"):
         return pd.Series(True, index=df.index)
 
 
-@st.cache_data(show_spinner=False)
+# Bump when indicators.py changes in a way that invalidates old cache files.
+INDICATOR_CACHE_VERSION = "v1"
+
+
+def _indicator_cache_path(t_clean, df, params_sig):
+    """Per-ticker indicator cache file path. Key = ticker + row count +
+    last date + params signature + indicator version."""
+    import hashlib
+    last_date = df.index[-1].strftime('%Y%m%d') if len(df) else 'empty'
+    first_date = df.index[0].strftime('%Y%m%d') if len(df) else 'empty'
+    key_str = f"{len(df)}|{first_date}|{last_date}|{params_sig}|{INDICATOR_CACHE_VERSION}"
+    key_hash = hashlib.md5(key_str.encode()).hexdigest()[:10]
+    cache_dir = os.path.join(parent_dir, "data", "bt_indicator_cache")
+    os.makedirs(cache_dir, exist_ok=True)
+    return os.path.join(cache_dir, f"{t_clean}_{key_hash}.parquet")
+
+
 def precompute_all_indicators(_master_dict, _strategies, _sznl_map, _vix_series, _atr_sznl_map=None):
     processed = {}
 
@@ -682,20 +698,67 @@ def precompute_all_indicators(_master_dict, _strategies, _sznl_map, _vix_series,
     xsec_rank_matrices = None
     if xsec_windows_needed:
         RANK_MIN_PERIODS = 252
-        rank_dict = {}
-        for ticker, df in _master_dict.items():
-            if df is None or 'Close' not in df.columns or len(df) < 50:
-                continue
-            close = df['Close']
+        # Disk cache: xsec matrices are slow (O(n^2) expanding rank per ticker per window,
+        # previously run serially) but depend only on the universe + latest date, so they
+        # cache well. Key = (sorted universe, sorted windows, latest shared date, version).
+        import hashlib as _hashlib
+        _universe_sig = tuple(sorted(_master_dict.keys()))
+        _windows_sig = tuple(sorted(xsec_windows_needed))
+        _latest_dates = [df.index[-1] for df in _master_dict.values() if df is not None and len(df) > 0]
+        _latest = max(_latest_dates).strftime('%Y%m%d') if _latest_dates else 'empty'
+        _xsec_key = f"{len(_universe_sig)}|{_latest}|{_windows_sig}|{INDICATOR_CACHE_VERSION}"
+        _xsec_hash = _hashlib.md5(_xsec_key.encode()).hexdigest()[:10]
+        _xsec_dir = os.path.join(parent_dir, "data", "bt_xsec_cache")
+        os.makedirs(_xsec_dir, exist_ok=True)
+        _xsec_cache_path = os.path.join(_xsec_dir, f"xsec_{_xsec_hash}.pkl")
+
+        xsec_rank_matrices = None
+        if os.path.exists(_xsec_cache_path):
+            try:
+                import pickle
+                with open(_xsec_cache_path, 'rb') as _f:
+                    xsec_rank_matrices = pickle.load(_f)
+            except Exception:
+                xsec_rank_matrices = None
+
+        if xsec_rank_matrices is None:
+            _x_status = st.empty()
+            _x_status.text(f"⚙️ Computing xsec rank matrices for {len(_master_dict)} tickers...")
+
+            # Parallelize per-ticker expanding rank (the O(n^2) hot path). These are
+            # numpy/pandas ops that release the GIL, so threads genuinely help.
+            def _compute_xsec_for_ticker(item):
+                ticker, df = item
+                if df is None or 'Close' not in df.columns or len(df) < 50:
+                    return ticker, None
+                close = df['Close']
+                out = {}
+                for w in xsec_windows_needed:
+                    ret = close.pct_change(w)
+                    out[w] = ret.expanding(min_periods=RANK_MIN_PERIODS).rank(pct=True) * 100.0
+                return ticker, out
+
+            rank_dict = {}
+            with ThreadPoolExecutor(max_workers=8) as _xpool:
+                for ticker, out in _xpool.map(_compute_xsec_for_ticker, _master_dict.items()):
+                    if out is None:
+                        continue
+                    for w, s in out.items():
+                        rank_dict.setdefault(w, {})[ticker] = s
+
+            xsec_rank_matrices = {}
             for w in xsec_windows_needed:
-                ret = close.pct_change(w)
-                temporal_pctile = ret.expanding(min_periods=RANK_MIN_PERIODS).rank(pct=True) * 100.0
-                rank_dict.setdefault(w, {})[ticker] = temporal_pctile
-        xsec_rank_matrices = {}
-        for w in xsec_windows_needed:
-            if rank_dict.get(w):
-                mat = pd.DataFrame(rank_dict[w])
-                xsec_rank_matrices[w] = mat.rank(axis=1, pct=True) * 100.0
+                if rank_dict.get(w):
+                    mat = pd.DataFrame(rank_dict[w])
+                    xsec_rank_matrices[w] = mat.rank(axis=1, pct=True) * 100.0
+
+            try:
+                import pickle
+                with open(_xsec_cache_path, 'wb') as _f:
+                    pickle.dump(xsec_rank_matrices, _f)
+            except Exception:
+                pass
+            _x_status.empty()
 
     ticker_params = {}
     for strat in _strategies:
@@ -715,42 +778,100 @@ def precompute_all_indicators(_master_dict, _strategies, _sznl_map, _vix_series,
                 if dist_win: ticker_params[t_clean]['dist'] = dist_win
                 ticker_params[t_clean]['mas'].update(req_custom_mas)
 
-    # Process tickers in parallel for speed
+    # Process tickers in parallel. Base indicators (per-ticker only) are disk-cached
+    # in data/bt_indicator_cache so reruns skip the expensive O(n^2) expanding ranks.
+    # Cross-ticker deps (xsec rank matrices, ref ticker ranks) are applied post-load.
     def _compute_one(args):
         t_clean, params = args
         df = _master_dict.get(t_clean)
         if df is None or len(df) < 200:
             return None
-        try:
-            result = calculate_indicators(
-                df, _sznl_map, t_clean, market_series, _vix_series,
-                gap_window=params['gap'],
-                acc_window=params['acc'],
-                dist_window=params['dist'],
-                custom_sma_lengths=list(params['mas']),
-                ref_ticker_ranks=all_ref_ticker_ranks if all_ref_ticker_ranks else None,
-                xsec_rank_matrices=xsec_rank_matrices
-            )
-            return (t_clean, result)
-        except Exception:
-            return None
+
+        params_sig = (
+            params['gap'], params['acc'], params['dist'],
+            tuple(sorted(params['mas'])),
+        )
+        cache_path = _indicator_cache_path(t_clean, df, params_sig)
+
+        t_df = None
+        if os.path.exists(cache_path):
+            try:
+                t_df = pd.read_parquet(cache_path)
+            except Exception:
+                t_df = None
+
+        if t_df is None:
+            try:
+                # Compute base indicators WITHOUT xsec / ref cols so the cache is
+                # reusable across different strategy-set configurations.
+                t_df = calculate_indicators(
+                    df, _sznl_map, t_clean, market_series, _vix_series,
+                    gap_window=params['gap'],
+                    acc_window=params['acc'],
+                    dist_window=params['dist'],
+                    custom_sma_lengths=list(params['mas']),
+                    ref_ticker_ranks=None,
+                    xsec_rank_matrices=None,
+                )
+                try:
+                    t_df.to_parquet(cache_path)
+                except Exception:
+                    pass
+            except Exception:
+                return None
+
+        return (t_clean, t_df)
+
+    items = list(ticker_params.items())
+    total = len(items)
+    progress = st.progress(0.0) if total > 20 else None
+    status = st.empty() if total > 20 else None
+    completed = 0
+    cache_hits = 0
+    update_every = max(1, total // 50)
 
     with ThreadPoolExecutor(max_workers=8) as pool:
-        for result in pool.map(_compute_one, ticker_params.items()):
-            if result is not None:
-                t_clean, t_df = result
-                # Merge ATR seasonal ranks onto the processed DataFrame
-                if _atr_sznl_map and t_clean in _atr_sznl_map:
-                    atr_ranks = _atr_sznl_map[t_clean]
-                    for col in ATR_SZNL_COLS:
-                        if col in atr_ranks.columns:
-                            t_df[col] = atr_ranks[col].reindex(t_df.index, method='ffill').fillna(50.0)
-                        else:
-                            t_df[col] = 50.0
-                else:
-                    for col in ATR_SZNL_COLS:
+        futures = {pool.submit(_compute_one, it): it[0] for it in items}
+        for fut in as_completed(futures):
+            result = fut.result()
+            completed += 1
+            if progress is not None and (completed % update_every == 0 or completed == total):
+                progress.progress(min(completed / total, 1.0))
+                status.text(f"⚙️ Indicators: {completed:,}/{total:,} tickers...")
+            if result is None:
+                continue
+            t_clean, t_df = result
+
+            # --- Cross-ticker layer: apply xsec ranks + ref ticker ranks on top ---
+            if xsec_rank_matrices is not None:
+                for window, mat in xsec_rank_matrices.items():
+                    col = f'xsec_rank_ret_{window}d'
+                    if t_clean in mat.columns:
+                        t_df[col] = mat[t_clean].reindex(t_df.index).fillna(50.0)
+                    else:
                         t_df[col] = 50.0
-                processed[t_clean] = t_df
+            if all_ref_ticker_ranks:
+                for window, series in all_ref_ticker_ranks.items():
+                    t_df[f'Ref_rank_ret_{window}d'] = series.reindex(
+                        t_df.index, method='ffill'
+                    ).fillna(50.0)
+
+            # Merge ATR seasonal ranks onto the processed DataFrame
+            if _atr_sznl_map and t_clean in _atr_sznl_map:
+                atr_ranks = _atr_sznl_map[t_clean]
+                for col in ATR_SZNL_COLS:
+                    if col in atr_ranks.columns:
+                        t_df[col] = atr_ranks[col].reindex(t_df.index, method='ffill').fillna(50.0)
+                    else:
+                        t_df[col] = 50.0
+            else:
+                for col in ATR_SZNL_COLS:
+                    t_df[col] = 50.0
+            processed[t_clean] = t_df
+
+    if progress is not None:
+        progress.empty()
+        status.empty()
 
     return processed
 
