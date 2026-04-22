@@ -702,6 +702,45 @@ def seasonals_chart(ticker, cycle_label, enable_time_travel, reference_year, sho
 
             st.plotly_chart(fig2, use_container_width=True)
 
+            # -----------------------------------------------------------------
+            # Path-similarity ranking: MAE vs current-year YTD cum ATR path
+            # -----------------------------------------------------------------
+            current_year_data = spx[spx['year'] == current_year]
+            if not current_year_data.empty and day_count_marker is not None:
+                current_path_by_dc = pd.Series(
+                    current_year_data['atr_return'].cumsum().values,
+                    index=current_year_data['day_count'].values
+                )
+                max_compare_dc = min(int(day_count_marker), int(current_path_by_dc.index.max()))
+
+                mae_rows = []
+                for y in modern_cycle_years:
+                    if y == current_year:
+                        continue
+                    yr_data = spx[spx['year'] == y]
+                    if yr_data.empty:
+                        continue
+                    yr_path_by_dc = pd.Series(
+                        yr_data['atr_return'].cumsum().values,
+                        index=yr_data['day_count'].values
+                    )
+                    common = [dc for dc in current_path_by_dc.index
+                              if dc in yr_path_by_dc.index and dc <= max_compare_dc]
+                    if not common:
+                        continue
+                    diff = (current_path_by_dc.loc[common] - yr_path_by_dc.loc[common]).abs()
+                    mae_rows.append({"Year": int(y), "MAE (ATR)": float(diff.mean()), "N": len(common)})
+
+                if mae_rows:
+                    mae_df = pd.DataFrame(mae_rows).sort_values("MAE (ATR)", ascending=True).reset_index(drop=True)
+                    st.markdown(f"##### 🎯 Path Similarity — MAE vs {current_year} YTD (lower = closer match)")
+                    mae_styler = mae_df.style.format({
+                        "Year": "{:.0f}",
+                        "MAE (ATR)": "{:.3f}",
+                        "N": "{:.0f}"
+                    }).background_gradient(subset=["MAE (ATR)"], cmap="RdYlGn_r")
+                    st.dataframe(mae_styler, use_container_width=True, hide_index=True)
+
 # -----------------------------------------------------------------------------
 # APP ENTRY POINT
 # -----------------------------------------------------------------------------
