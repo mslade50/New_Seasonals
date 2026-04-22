@@ -29,10 +29,46 @@ def get_default_cycle_index():
     return 0
 
 # -----------------------------------------------------------------------------
+# RECENCY WEIGHTING (exponential decay by year)
+# -----------------------------------------------------------------------------
+
+def recency_weights(years, anchor_year, half_life):
+    """Exponential decay: weight = 0.5 ** ((anchor_year - year) / half_life)."""
+    if half_life is None or half_life <= 0:
+        return np.ones(len(years))
+    return np.power(0.5, (anchor_year - np.asarray(years, dtype=float)) / half_life)
+
+def weighted_mean(values, weights):
+    values = np.asarray(values, dtype=float)
+    weights = np.asarray(weights, dtype=float)
+    mask = ~np.isnan(values)
+    if not mask.any():
+        return np.nan
+    v, w = values[mask], weights[mask]
+    tot = w.sum()
+    return float((v * w).sum() / tot) if tot > 0 else np.nan
+
+def weighted_median(values, weights):
+    values = np.asarray(values, dtype=float)
+    weights = np.asarray(weights, dtype=float)
+    mask = ~np.isnan(values)
+    if not mask.any():
+        return np.nan
+    v, w = values[mask], weights[mask]
+    order = np.argsort(v)
+    v_sorted, w_sorted = v[order], w[order]
+    cum_w = np.cumsum(w_sorted)
+    tot = cum_w[-1]
+    if tot <= 0:
+        return np.nan
+    idx = np.searchsorted(cum_w, tot / 2.0)
+    return float(v_sorted[min(idx, len(v_sorted) - 1)])
+
+# -----------------------------------------------------------------------------
 # SEASONAL RANK CALCULATION (Correct Forward Returns)
 # -----------------------------------------------------------------------------
 
-def calculate_seasonal_rank(df, cycle_label, cycle_start_mapping, cutoff_year):
+def calculate_seasonal_rank(df, cycle_label, cycle_start_mapping, cutoff_year, half_life=None):
     """
     Calculate 0-100 seasonal rank for each day_count using correct forward log returns.
     Uses data strictly prior to cutoff_year (walk-forward safe).
@@ -47,18 +83,29 @@ def calculate_seasonal_rank(df, cycle_label, cycle_start_mapping, cutoff_year):
         hist[f'Fwd_{w}d'] = np.log(hist['Close'].shift(-w) / hist['Close'])
 
     fwd_cols = [f'Fwd_{w}d' for w in [5, 10, 21]]
+    hist['_weight'] = recency_weights(hist['year'].values, cutoff_year, half_life)
 
-    # All-years profile
-    stats_all = hist.groupby('day_count')[fwd_cols].mean()
+    def _wmean_by_daycount(sub):
+        out = {}
+        for col in fwd_cols:
+            valid = sub[col].notna()
+            s = sub.loc[valid]
+            num = (s[col] * s['_weight']).groupby(s['day_count']).sum()
+            den = s['_weight'].groupby(s['day_count']).sum()
+            out[col] = num / den
+        return pd.DataFrame(out)
+
+    # All-years profile (weighted)
+    stats_all = _wmean_by_daycount(hist)
     rank_all = stats_all.rank(pct=True) * 100
 
-    # Cycle-specific profile
+    # Cycle-specific profile (weighted)
     if cycle_label != "All Years":
         start_yr = cycle_start_mapping[cycle_label]
         valid_years = [start_yr + i * 4 for i in range(30)]
         cycle_data = hist[hist['year'].isin(valid_years)]
         if not cycle_data.empty:
-            stats_cycle = cycle_data.groupby('day_count')[fwd_cols].mean()
+            stats_cycle = _wmean_by_daycount(cycle_data)
             rank_cycle = stats_cycle.rank(pct=True) * 100
         else:
             rank_cycle = rank_all.copy()
@@ -84,7 +131,8 @@ def calculate_seasonal_rank(df, cycle_label, cycle_start_mapping, cutoff_year):
 # MAIN CHART LOGIC
 # -----------------------------------------------------------------------------
 
-def calculate_path(df, cycle_label, cycle_start_mapping, use_atr=False):
+def calculate_path(df, cycle_label, cycle_start_mapping, use_atr=False,
+                   half_life=None, anchor_year=None):
     if df.empty: return pd.Series()
 
     if cycle_label == "All Years":
@@ -98,7 +146,17 @@ def calculate_path(df, cycle_label, cycle_start_mapping, use_atr=False):
         cycle_data.loc[cycle_data["week_of_month_5day"] > 4, "week_of_month_5day"] = 4
 
     ret_col = "atr_return" if use_atr else "log_return"
-    avg_daily = cycle_data.groupby("day_count")[ret_col].mean()
+
+    if half_life is None or anchor_year is None:
+        avg_daily = cycle_data.groupby("day_count")[ret_col].mean()
+    else:
+        cycle_data = cycle_data.copy()
+        cycle_data["_weight"] = recency_weights(cycle_data["year"].values, anchor_year, half_life)
+        valid = cycle_data[ret_col].notna()
+        sub = cycle_data.loc[valid]
+        num = (sub[ret_col] * sub["_weight"]).groupby(sub["day_count"]).sum()
+        den = sub["_weight"].groupby(sub["day_count"]).sum()
+        avg_daily = num / den
 
     if use_atr:
         # ATR returns are additive — just cumsum
@@ -111,7 +169,7 @@ def calculate_path(df, cycle_label, cycle_start_mapping, use_atr=False):
 # -----------------------------------------------------------------------------
 # MAIN LOGIC
 # -----------------------------------------------------------------------------
-def seasonals_chart(ticker, cycle_label, enable_time_travel, reference_year, show_all_years_line, show_pct=True, show_atr=True):
+def seasonals_chart(ticker, cycle_label, enable_time_travel, reference_year, show_all_years_line, show_pct=True, show_atr=True, half_life=20):
     cycle_start_mapping = {
         "Election": 1952,
         "Pre-Election": 1951,
@@ -153,17 +211,17 @@ def seasonals_chart(ticker, cycle_label, enable_time_travel, reference_year, sho
     # SEASONAL RANK PROFILES
     # -----------------------------------------------------------------
     # Current model rank (uses data < current_year)
-    rank_profile_current = calculate_seasonal_rank(spx, cycle_label, cycle_start_mapping, current_year)
+    rank_profile_current = calculate_seasonal_rank(spx, cycle_label, cycle_start_mapping, current_year, half_life=half_life)
 
     # All-years rank (for the optional overlay)
     rank_profile_all_years = pd.Series(dtype=float)
     if show_all_years_line:
-        rank_profile_all_years = calculate_seasonal_rank(spx, "All Years", cycle_start_mapping, current_year)
+        rank_profile_all_years = calculate_seasonal_rank(spx, "All Years", cycle_start_mapping, current_year, half_life=half_life)
 
     # Time travel rank (uses data < reference_year)
     rank_profile_historical = pd.Series(dtype=float)
     if enable_time_travel:
-        rank_profile_historical = calculate_seasonal_rank(spx, cycle_label, cycle_start_mapping, reference_year)
+        rank_profile_historical = calculate_seasonal_rank(spx, cycle_label, cycle_start_mapping, reference_year, half_life=half_life)
 
     # -----------------------------------------------------------------
     # PATH CALCULATIONS — compute both % and ATR sets
@@ -172,15 +230,19 @@ def seasonals_chart(ticker, cycle_label, enable_time_travel, reference_year, sho
     df_current_year = spx[spx["year"] == current_year].copy()
 
     # % paths
-    pct_cycle = calculate_path(df_all_history, cycle_label, cycle_start_mapping, use_atr=False) if show_pct else pd.Series()
-    pct_all = calculate_path(df_all_history, "All Years", cycle_start_mapping, use_atr=False) if (show_pct and show_all_years_line) else pd.Series()
+    pct_cycle = calculate_path(df_all_history, cycle_label, cycle_start_mapping, use_atr=False,
+                               half_life=half_life, anchor_year=current_year) if show_pct else pd.Series()
+    pct_all = calculate_path(df_all_history, "All Years", cycle_start_mapping, use_atr=False,
+                             half_life=half_life, anchor_year=current_year) if (show_pct and show_all_years_line) else pd.Series()
     pct_realized = pd.Series()
     if show_pct and not df_current_year.empty:
         pct_realized = df_current_year["log_return"].cumsum().apply(np.exp) - 1
 
     # ATR paths
-    atr_cycle = calculate_path(df_all_history, cycle_label, cycle_start_mapping, use_atr=True) if show_atr else pd.Series()
-    atr_all = calculate_path(df_all_history, "All Years", cycle_start_mapping, use_atr=True) if (show_atr and show_all_years_line) else pd.Series()
+    atr_cycle = calculate_path(df_all_history, cycle_label, cycle_start_mapping, use_atr=True,
+                               half_life=half_life, anchor_year=current_year) if show_atr else pd.Series()
+    atr_all = calculate_path(df_all_history, "All Years", cycle_start_mapping, use_atr=True,
+                             half_life=half_life, anchor_year=current_year) if (show_atr and show_all_years_line) else pd.Series()
     atr_realized = pd.Series()
     if show_atr and not df_current_year.empty:
         atr_realized = df_current_year["atr_return"].cumsum()
@@ -195,11 +257,13 @@ def seasonals_chart(ticker, cycle_label, enable_time_travel, reference_year, sho
         df_historical_pool = spx[spx["year"] < reference_year].copy()
         df_ref_year = spx[spx["year"] == reference_year].copy()
         if show_pct:
-            pct_hist_avg = calculate_path(df_historical_pool, cycle_label, cycle_start_mapping, use_atr=False)
+            pct_hist_avg = calculate_path(df_historical_pool, cycle_label, cycle_start_mapping, use_atr=False,
+                                          half_life=half_life, anchor_year=reference_year)
             if not df_ref_year.empty:
                 pct_ref_realized = df_ref_year["log_return"].cumsum().apply(np.exp) - 1
         if show_atr:
-            atr_hist_avg = calculate_path(df_historical_pool, cycle_label, cycle_start_mapping, use_atr=True)
+            atr_hist_avg = calculate_path(df_historical_pool, cycle_label, cycle_start_mapping, use_atr=True,
+                                          half_life=half_life, anchor_year=reference_year)
             if not df_ref_year.empty:
                 atr_ref_realized = df_ref_year["atr_return"].cumsum()
 
@@ -447,11 +511,13 @@ def seasonals_chart(ticker, cycle_label, enable_time_travel, reference_year, sho
     
     if enable_time_travel:
         st.subheader(f"📜 Historical Returns (Pre-{reference_year})")
-        st.caption(f"Stats exclude {reference_year} and later. Forward returns expressed in ATR units.")
+        st.caption(f"Stats exclude {reference_year} and later. Forward returns in ATR units. "
+                   f"Recency weighting: {half_life}yr half-life.")
         cutoff_year = reference_year
     else:
         st.subheader(f"📜 Historical Returns (Pre-{current_year})")
-        st.caption(f"Stats exclude {current_year}. Forward returns expressed in ATR units.")
+        st.caption(f"Stats exclude {current_year}. Forward returns in ATR units. "
+                   f"Recency weighting: {half_life}yr half-life.")
         cutoff_year = current_year
 
     if day_count_marker:
@@ -488,14 +554,28 @@ def seasonals_chart(ticker, cycle_label, enable_time_travel, reference_year, sho
                                                 "10_median", "10_mean", "10_pospct", "rv_10",
                                                 "21_median", "21_mean", "21_pospct", "rv_21"]}
 
+                weights = recency_weights(sub_df['year'].values, cutoff_year, half_life)
                 res = {"n": int(len(sub_df))}
                 for d in [5, 10, 21]:
                     ret_col = f"Fwd_{d}d"
                     rv_col = f"rv_{d}"
-                    res[f"{d}_median"] = sub_df[ret_col].median()
-                    res[f"{d}_mean"] = sub_df[ret_col].mean()
-                    res[f"{d}_pospct"] = (sub_df[ret_col] > 0).mean() * 100
-                    res[rv_col] = sub_df[rv_col].mean()
+                    vals = sub_df[ret_col].values
+                    rv_vals = sub_df[rv_col].values
+                    res[f"{d}_median"] = weighted_median(vals, weights)
+                    res[f"{d}_mean"] = weighted_mean(vals, weights)
+                    # Weighted positive-percentage
+                    mask_ret = ~np.isnan(vals)
+                    if mask_ret.any():
+                        w_valid = weights[mask_ret]
+                        tot_w = w_valid.sum()
+                        if tot_w > 0:
+                            pos_w = w_valid[vals[mask_ret] > 0].sum()
+                            res[f"{d}_pospct"] = pos_w / tot_w * 100
+                        else:
+                            res[f"{d}_pospct"] = np.nan
+                    else:
+                        res[f"{d}_pospct"] = np.nan
+                    res[rv_col] = weighted_mean(rv_vals, weights)
                 return res
 
             stats_all = calculate_stats_row(display_df)
@@ -586,11 +666,17 @@ def main():
         show_all_years_line = st.checkbox("Overlay 'All Years' Avg", value=False)
         show_pct = st.checkbox("Show % Return", value=False)
         show_atr = True
+        half_life = st.slider(
+            "Recency half-life (yrs)",
+            min_value=5, max_value=100, value=20, step=1,
+            help="Exponential decay applied to all averages. e.g. 20 → a year 20 ago has half the weight of today."
+        )
 
     if st.button("Run Analysis", type="primary", use_container_width=True):
         try:
             with st.spinner("Calculating cycle stats..."):
-                seasonals_chart(ticker, cycle_label, enable_time_travel, reference_year, show_all_years_line, show_pct, show_atr)
+                seasonals_chart(ticker, cycle_label, enable_time_travel, reference_year,
+                                show_all_years_line, show_pct, show_atr, half_life=half_life)
         except Exception as e:
             st.error(f"Error generating chart: {e}")
 
