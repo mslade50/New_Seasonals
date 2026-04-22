@@ -221,6 +221,10 @@ def seasonals_chart(ticker, cycle_label, enable_time_travel, reference_year, sho
     if not spx["ATR%"].dropna().empty:
         current_atr_pct = spx["ATR%"].dropna().iloc[-1]
 
+    current_price = float(spx["Close"].iloc[-1])
+    atr_nonan_series = spx["ATR"].dropna()
+    current_atr_dollars = float(atr_nonan_series.iloc[-1]) if not atr_nonan_series.empty else 0.0
+
     spx["log_return"] = np.log(spx["Close"] / spx["Close"].shift(1))
     spx["atr_return"] = (spx["Close"] - spx["Close"].shift(1)) / spx["ATR"]
     spx["year"] = spx.index.year
@@ -305,19 +309,55 @@ def seasonals_chart(ticker, cycle_label, enable_time_travel, reference_year, sho
         return [date_map.get(i, f"Day {i}") for i in series_index]
 
     # -------------------------------------------------------------------------
-    # HELPER: Build customdata array with date + seasonal rank
+    # MARKER / ANCHOR DAY (needed for theoretical price projection)
     # -------------------------------------------------------------------------
-    def build_customdata(day_indices, rank_profile, date_labels=None):
+    today = dt.date.today()
+
+    if enable_time_travel:
+        target_year = reference_year
+        try:
+            target_date_start = dt.date(target_year, today.month, today.day)
+        except ValueError:
+            target_date_start = dt.date(target_year, 2, 28)
+        df_context = spx[spx["year"] == target_year]
+        marker_color = "#FCD12A"
+    else:
+        target_year = current_year
+        target_date_start = today
+        df_context = spx[spx["year"] == target_year]
+        marker_color = "white"
+
+    day_count_marker = None
+    if not df_context.empty:
+        closest_idx = df_context.index.searchsorted(dt.datetime.combine(target_date_start, dt.time.min))
+        if closest_idx >= len(df_context):
+            closest_idx = len(df_context) - 1
+        day_count_marker = df_context.iloc[closest_idx]["day_count"]
+
+    # -------------------------------------------------------------------------
+    # HELPER: Build customdata array with date + seasonal rank (+ theoretical price)
+    # -------------------------------------------------------------------------
+    def build_customdata(day_indices, rank_profile, date_labels=None, atr_path=None, anchor_day=None):
         """
-        Returns a list of [date_label, seasonal_rank] for each day index.
+        Returns a list of [date_label, seasonal_rank, theo_price_str] for each day index.
+        Theoretical price uses ATR delta from anchor_day on atr_path, scaled by today's $-ATR.
         """
         if date_labels is None:
             date_labels = get_date_labels(day_indices)
+        anchor_val = None
+        if (atr_path is not None and not atr_path.empty
+                and anchor_day is not None and anchor_day in atr_path.index):
+            anchor_val = atr_path.loc[anchor_day]
         result = []
         for i, day in enumerate(day_indices):
             label = date_labels[i] if i < len(date_labels) else f"Day {day}"
             rank = rank_profile.get(day, np.nan) if not rank_profile.empty else np.nan
-            result.append([label, rank])
+            if anchor_val is not None and day in atr_path.index:
+                theo = current_price + (atr_path.loc[day] - anchor_val) * current_atr_dollars
+                theo_str = f"${theo:,.2f}"
+            else:
+                theo_str = ""
+            result.append([label, rank, theo_str])
         return result
 
     HOVER_PCT = (
@@ -331,6 +371,14 @@ def seasonals_chart(ticker, cycle_label, enable_time_travel, reference_year, sho
         "<b>%{customdata[0]}</b><br>"
         "Day: %{x}<br>"
         "Cumulative ATR: %{y:.2f}<br>"
+        "Seasonal Rank: %{customdata[1]:.0f}"
+        "<extra></extra>"
+    )
+    HOVER_ATR_PROJ = (
+        "<b>%{customdata[0]}</b><br>"
+        "Day: %{x}<br>"
+        "Cumulative ATR: %{y:.2f}<br>"
+        "Theoretical: %{customdata[2]}<br>"
         "Seasonal Rank: %{customdata[1]:.0f}"
         "<extra></extra>"
     )
@@ -389,24 +437,27 @@ def seasonals_chart(ticker, cycle_label, enable_time_travel, reference_year, sho
         fig.add_trace(go.Scatter(
             x=atr_cycle.index, y=atr_cycle.values, mode="lines",
             name=f"{cycle_label} ATR", line=dict(color="#FF8C00", width=2),
-            customdata=build_customdata(atr_cycle.index, rank_profile_current),
-            hovertemplate=HOVER_ATR
+            customdata=build_customdata(atr_cycle.index, rank_profile_current,
+                                        atr_path=atr_cycle, anchor_day=day_count_marker),
+            hovertemplate=HOVER_ATR_PROJ
         ), secondary_y=True)
 
     if not atr_all.empty:
         fig.add_trace(go.Scatter(
             x=atr_all.index, y=atr_all.values, mode="lines",
             name="All Years ATR", line=dict(color="lightblue", width=1, dash='dot'),
-            customdata=build_customdata(atr_all.index, rank_profile_all_years),
-            hovertemplate=HOVER_ATR
+            customdata=build_customdata(atr_all.index, rank_profile_all_years,
+                                        atr_path=atr_all, anchor_day=day_count_marker),
+            hovertemplate=HOVER_ATR_PROJ
         ), secondary_y=True)
 
     if enable_time_travel and not atr_hist_avg.empty:
         fig.add_trace(go.Scatter(
             x=atr_hist_avg.index, y=atr_hist_avg.values, mode="lines",
             name=f"Model {reference_year} ATR", line=dict(color="#FCD12A", width=2),
-            customdata=build_customdata(atr_hist_avg.index, rank_profile_historical),
-            hovertemplate=HOVER_ATR
+            customdata=build_customdata(atr_hist_avg.index, rank_profile_historical,
+                                        atr_path=atr_hist_avg, anchor_day=day_count_marker),
+            hovertemplate=HOVER_ATR_PROJ
         ), secondary_y=True)
 
     if not atr_realized.empty:
@@ -430,29 +481,7 @@ def seasonals_chart(ticker, cycle_label, enable_time_travel, reference_year, sho
     # -------------------------------------------------------------------------
     # MARKERS
     # -------------------------------------------------------------------------
-    today = dt.date.today()
-
-    if enable_time_travel:
-        target_year = reference_year
-        try:
-            target_date_start = dt.date(target_year, today.month, today.day)
-        except ValueError:
-            target_date_start = dt.date(target_year, 2, 28)
-        df_context = spx[spx["year"] == target_year]
-        marker_color = "#FCD12A"
-    else:
-        target_year = current_year
-        target_date_start = today
-        df_context = spx[spx["year"] == target_year]
-        marker_color = "white"
-
-    day_count_marker = None
-    if not df_context.empty:
-        closest_idx = df_context.index.searchsorted(dt.datetime.combine(target_date_start, dt.time.min))
-        if closest_idx >= len(df_context):
-            closest_idx = len(df_context) - 1
-        day_count_marker = df_context.iloc[closest_idx]["day_count"]
-
+    if day_count_marker is not None:
         # Marker on % cycle path
         if show_pct and not pct_cycle.empty and day_count_marker in pct_cycle.index:
             fig.add_trace(go.Scatter(
