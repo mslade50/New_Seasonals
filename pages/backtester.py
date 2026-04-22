@@ -456,6 +456,10 @@ def _generate_key_filters(params):
         cycle_names = {0: 'Election', 1: 'Post-Election', 2: 'Midterm', 3: 'Pre-Election'}
         cycles_str = ", ".join([cycle_names.get(c, '?') for c in params['allowed_cycles']])
         filters.append(f"Cycle years: {cycles_str}")
+
+    if params.get('excluded_years'):
+        yrs = sorted(params['excluded_years'])
+        filters.append(f"Excluded years: {', '.join(str(y) for y in yrs)}")
     
     if params.get('use_t1_open_filter'):
         for f in params.get('t1_open_filters', []):
@@ -629,6 +633,7 @@ def build_strategy_dict(params, tickers_to_run, pf, sqn, win_rate, expectancy_r)
             # Time & cycle
             "use_dow_filter": params.get('use_dow_filter', False), "allowed_days": params.get('allowed_days', [0, 1, 2, 3, 4]),
             "allowed_cycles": params.get('allowed_cycles', [0, 1, 2, 3]),
+            "excluded_years": params.get('excluded_years', []),
             # Reference ticker
             "use_ref_ticker_filter": params.get('use_ref_ticker_filter', False), "ref_ticker": params.get('ref_ticker', 'IWM'), "ref_filters": params.get('ref_filters', []),
             # T+1 open filter
@@ -803,6 +808,10 @@ def run_engine(universe_dict, params, sznl_map, market_series=None, vix_series=N
             if 'allowed_cycles' in params and len(params['allowed_cycles']) < 4:
                 year_rems = df.index.year % 4
                 conditions.append(pd.Series(year_rems, index=df.index).isin(params['allowed_cycles']))
+
+            _excluded_years = params.get('excluded_years', [])
+            if _excluded_years:
+                conditions.append(~pd.Series(df.index.year, index=df.index).isin(_excluded_years))
                 
             if params.get('use_gap_filter', False):
                 if params['gap_logic'] == ">": conditions.append(df['GapCount'] > params['gap_thresh'])
@@ -1552,6 +1561,12 @@ def main():
             cycle_options = {"1. Post-Election": 1, "2. Midterm Year": 2, "3. Pre-Election": 3, "4. Election Year": 0}
             sel_cycles = st.multiselect("Include Years:", options=list(cycle_options.keys()), default=list(cycle_options.keys()))
             allowed_cycles = [cycle_options[x] for x in sel_cycles]
+            _year_options = list(range(2000, datetime.datetime.now().year + 1))
+            excluded_years = st.multiselect(
+                "Exclude Years (drop trades entered in these years):",
+                options=_year_options, default=[],
+                help="Signals that would enter in these years are skipped. Useful for seeing how the strategy looks ex-2008, ex-2020, etc."
+            )
     with st.expander("Trend Filter", expanded=False):
         trend_filter = st.selectbox("Trend Condition", ["None", "Price > 200 SMA", "Not Below Declining 200 SMA", "Price > Rising 200 SMA", "Market > 200 SMA", "Price < 200 SMA", "Price < Falling 200 SMA", "Market < 200 SMA"])
     with st.expander("Performance Percentile Rank", expanded=False):
@@ -1903,7 +1918,7 @@ def main():
             'use_partial_exits': use_partial_exits, 'partial_target_fraction': partial_target_fraction,
             'stop_atr': stop_atr, 'tgt_atr': tgt_atr, 'holding_days': hold_days, 'entry_type': entry_type, 'use_ma_entry_filter': use_ma_entry_filter, 'require_close_gt_open': req_green_candle,
             'breakout_mode': breakout_mode, 'use_range_filter': use_range_filter, 'range_min': range_min, 'range_max': range_max, 'use_dow_filter': use_dow_filter, 'allowed_days': valid_days,
-            'allowed_cycles': allowed_cycles, 'min_price': min_price, 'min_vol': min_vol, 'min_age': min_age, 'max_age': max_age, 'min_atr_pct': min_atr_pct, 'max_atr_pct': max_atr_pct,
+            'allowed_cycles': allowed_cycles, 'excluded_years': excluded_years, 'min_price': min_price, 'min_vol': min_vol, 'min_age': min_age, 'max_age': max_age, 'min_atr_pct': min_atr_pct, 'max_atr_pct': max_atr_pct,
             'trend_filter': trend_filter, 'universe_tickers': tickers_to_run, 'slippage_bps': slippage_bps, 'entry_conf_bps': entry_conf_bps, 'perf_filters': perf_filters, 'perf_atr_filters': perf_atr_filters, 'perf_first_instance': perf_first,
             'use_atr_ret_filter': use_atr_ret_filter, 'atr_ret_min': atr_ret_min, 'atr_ret_max': atr_ret_max,
             'use_range_atr_filter': use_range_atr_filter, 'range_atr_logic': range_atr_logic, 'range_atr_min': range_atr_min, 'range_atr_max': range_atr_max,
