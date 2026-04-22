@@ -314,6 +314,13 @@ def _generate_key_filters(params):
         else:
             filters.append(f"{pf['window']}D rank {pf['logic']} {pf['thresh']:.0f}th %ile{consec_str}")
 
+    for paf in params.get('perf_atr_filters', []):
+        consec_str = f" ({paf['consecutive']}d consecutive)" if paf.get('consecutive', 1) > 1 else ""
+        if paf['logic'] == 'Between':
+            filters.append(f"{paf['window']}D ATR rank between {paf['thresh']:.0f}-{paf.get('thresh_max', 100):.0f}th %ile{consec_str}")
+        else:
+            filters.append(f"{paf['window']}D ATR rank {paf['logic']} {paf['thresh']:.0f}th %ile{consec_str}")
+
     for asf in params.get('atr_sznl_filters', []):
         consec_str = f" ({asf['consecutive']}d consecutive)" if asf.get('consecutive', 1) > 1 else ""
         if asf['logic'] == 'Between':
@@ -519,6 +526,9 @@ def build_strategy_dict(params, tickers_to_run, pf, sqn, win_rate, expectancy_r)
     if params.get('perf_filters'):
         perf_str = "+".join([f"{f['window']}d {f['logic']} {f['thresh']:.0f}%ile" for f in params['perf_filters']])
         id_parts.append(perf_str)
+    if params.get('perf_atr_filters'):
+        patr_str = "+".join([f"{f['window']}d ATR {f['logic']} {f['thresh']:.0f}%ile" for f in params['perf_atr_filters']])
+        id_parts.append(patr_str)
     if params.get('use_sznl'): id_parts.append(f"Sznl {params['sznl_logic']} {params['sznl_thresh']:.0f}")
     if params.get('use_acc_count_filter'): id_parts.append(f"{params['acc_count_thresh']} acc {params['acc_count_logic']} in {params['acc_count_window']}d")
     if params.get('use_dist_count_filter'): id_parts.append(f"{params['dist_count_thresh']} dist {params['dist_count_logic']} in {params['dist_count_window']}d")
@@ -566,6 +576,7 @@ def build_strategy_dict(params, tickers_to_run, pf, sqn, win_rate, expectancy_r)
             "entry_conf_bps": params.get('entry_conf_bps', 0),
             # Performance rank filters
             "perf_filters": params.get('perf_filters', []),
+            "perf_atr_filters": params.get('perf_atr_filters', []),
             "perf_first_instance": params.get('perf_first_instance', False),
             "perf_lookback": params.get('perf_lookback', 21),
             # MA consecutive filters
@@ -820,6 +831,16 @@ def run_engine(universe_dict, params, sznl_map, market_series=None, vix_series=N
                 elif pf['logic'] == 'Between': c_f = (df[col] >= pf['thresh']) & (df[col] <= pf.get('thresh_max', 100.0))
                 else: continue
                 if pf['consecutive'] > 1: c_f = c_f.rolling(pf['consecutive']).sum() == pf['consecutive']
+                conditions.append(c_f)
+
+            for paf in params.get('perf_atr_filters', []):
+                col = f"rank_ret_atr_{paf['window']}d"
+                if col not in df.columns: continue
+                if paf['logic'] == '<': c_f = (df[col] < paf['thresh'])
+                elif paf['logic'] == '>': c_f = (df[col] > paf['thresh'])
+                elif paf['logic'] == 'Between': c_f = (df[col] >= paf['thresh']) & (df[col] <= paf.get('thresh_max', 100.0))
+                else: continue
+                if paf.get('consecutive', 1) > 1: c_f = c_f.rolling(paf['consecutive']).sum() == paf['consecutive']
                 conditions.append(c_f)
 
             for asf in params.get('atr_sznl_filters', []):
@@ -1586,6 +1607,27 @@ def main():
             perf_first = st.checkbox("First Instance", value=False)
             perf_lookback = st.number_input("Lookback (Days)", 1, 100, 21, disabled=not perf_first)
 
+    perf_atr_filters = []
+    with st.expander("ATR-Normalized Performance Percentile Rank", expanded=False):
+        st.markdown("**Same as Performance Percentile Rank, but N-day moves are measured in ATR units before ranking.** Better for comparing moves across vol regimes within the same ticker.")
+        _atr_windows = [2, 5, 10, 21, 126, 252]
+        _atr_cols = st.columns(6)
+        for _col, _w in zip(_atr_cols, _atr_windows):
+            with _col:
+                _use = st.checkbox(f"Enable {_w}D ATR Rank", key=f"use_atrp_{_w}")
+                _logic = st.selectbox("Logic", [">", "<", "Between"], key=f"atrp_l_{_w}", disabled=not _use)
+                _lbl = "Min %ile" if _logic == "Between" else "Threshold"
+                _thresh = st.number_input(_lbl, 0.0, 100.0, 85.0, key=f"atrp_t_{_w}", disabled=not _use)
+                _thresh_max = 100.0
+                if _logic == "Between":
+                    _thresh_max = st.number_input("Max %ile", 0.0, 100.0, 99.0, key=f"atrp_tmax_{_w}", disabled=not _use)
+                _consec = st.number_input("Consec Days", 1, 10, 1, key=f"atrp_c_{_w}", disabled=not _use)
+                if _use:
+                    perf_atr_filters.append({
+                        'window': _w, 'logic': _logic, 'thresh': _thresh,
+                        'thresh_max': _thresh_max, 'consecutive': _consec
+                    })
+
     atr_sznl_filters = []
     with st.expander("ATR Seasonal Rank Filter", expanded=False):
         st.markdown("**Rank historical ATR-normalized forward returns per day-of-year.** Walk-forward safe. 100 = best seasonal window, 0 = worst. Requires `atr_seasonal_ranks.parquet`.")
@@ -1846,7 +1888,7 @@ def main():
             'stop_atr': stop_atr, 'tgt_atr': tgt_atr, 'holding_days': hold_days, 'entry_type': entry_type, 'use_ma_entry_filter': use_ma_entry_filter, 'require_close_gt_open': req_green_candle,
             'breakout_mode': breakout_mode, 'use_range_filter': use_range_filter, 'range_min': range_min, 'range_max': range_max, 'use_dow_filter': use_dow_filter, 'allowed_days': valid_days,
             'allowed_cycles': allowed_cycles, 'min_price': min_price, 'min_vol': min_vol, 'min_age': min_age, 'max_age': max_age, 'min_atr_pct': min_atr_pct, 'max_atr_pct': max_atr_pct,
-            'trend_filter': trend_filter, 'universe_tickers': tickers_to_run, 'slippage_bps': slippage_bps, 'entry_conf_bps': entry_conf_bps, 'perf_filters': perf_filters, 'perf_first_instance': perf_first,
+            'trend_filter': trend_filter, 'universe_tickers': tickers_to_run, 'slippage_bps': slippage_bps, 'entry_conf_bps': entry_conf_bps, 'perf_filters': perf_filters, 'perf_atr_filters': perf_atr_filters, 'perf_first_instance': perf_first,
             'use_atr_ret_filter': use_atr_ret_filter, 'atr_ret_min': atr_ret_min, 'atr_ret_max': atr_ret_max,
             'use_range_atr_filter': use_range_atr_filter, 'range_atr_logic': range_atr_logic, 'range_atr_min': range_atr_min, 'range_atr_max': range_atr_max,
             'price_action_filters': price_action_filters,

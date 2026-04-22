@@ -190,6 +190,17 @@ def calculate_indicators(
     # Today's range in ATR units (for range_atr filter)
     df['range_in_atr'] = (df['High'] - df['Low']) / df['ATR']
 
+    # ATR-normalized performance ranks — parallel to rank_ret_{window}d but
+    # measures the N-day move in ATR units rather than raw %. Useful when you
+    # want to compare moves across vol regimes within the same ticker.
+    for window in [2, 5, 10, 21, 126, 252]:
+        df[f'ret_atr_{window}d'] = (df['Close'] - df['Close'].shift(window)) / df['ATR']
+        df[f'rank_ret_atr_{window}d'] = (
+            df[f'ret_atr_{window}d']
+            .expanding(min_periods=RANK_MIN_PERIODS)
+            .rank(pct=True) * 100.0
+        )
+
     # -------------------------------------------------------------------------
     # 4. CANDLE RANGE LOCATION %
     #    Where did Close land within today's High-Low range?
