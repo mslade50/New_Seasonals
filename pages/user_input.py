@@ -502,18 +502,18 @@ def seasonals_chart(ticker, cycle_label, enable_time_travel, reference_year, sho
     
     if enable_time_travel:
         st.subheader(f"📜 Historical Returns (Pre-{reference_year})")
-        st.caption(f"Stats exclude {reference_year} and later. Color scale based on **Today's** ATR ({current_atr_pct:.2f}%).")
+        st.caption(f"Stats exclude {reference_year} and later. Forward returns expressed in ATR units.")
         cutoff_year = reference_year
     else:
         st.subheader(f"📜 Historical Returns (Pre-{current_year})")
-        st.caption(f"Stats exclude {current_year}. Color scale based on **Current** ATR ({current_atr_pct:.2f}%).")
+        st.caption(f"Stats exclude {current_year}. Forward returns expressed in ATR units.")
         cutoff_year = current_year
 
     if day_count_marker:
         spx_full = spx.copy()
-        spx_full['Fwd_5d'] = spx_full['Close'].shift(-5) / spx_full['Close'] - 1
-        spx_full['Fwd_10d'] = spx_full['Close'].shift(-10) / spx_full['Close'] - 1
-        spx_full['Fwd_21d'] = spx_full['Close'].shift(-21) / spx_full['Close'] - 1
+        spx_full['Fwd_5d'] = (spx_full['Close'].shift(-5) - spx_full['Close']) / spx_full['ATR']
+        spx_full['Fwd_10d'] = (spx_full['Close'].shift(-10) - spx_full['Close']) / spx_full['ATR']
+        spx_full['Fwd_21d'] = (spx_full['Close'].shift(-21) - spx_full['Close']) / spx_full['ATR']
 
         spx_full['Daily_Pct'] = spx_full['Close'].pct_change()
 
@@ -526,26 +526,23 @@ def seasonals_chart(ticker, cycle_label, enable_time_travel, reference_year, sho
 
         if not display_df.empty:
             display_df = display_df[['year', 'Fwd_5d', 'Fwd_10d', 'Fwd_21d', 'rv_5', 'rv_10', 'rv_21']]
-            display_df['Fwd_5d'] = display_df['Fwd_5d'] * 100
-            display_df['Fwd_10d'] = display_df['Fwd_10d'] * 100
-            display_df['Fwd_21d'] = display_df['Fwd_21d'] * 100
             display_df = display_df.sort_values('year', ascending=False)
 
             if cycle_label != "All Years":
                 start_yr = cycle_start_mapping.get(cycle_label)
-                highlight_years = [start_yr + i * 4 for i in range(30)] 
+                highlight_years = [start_yr + i * 4 for i in range(30)]
             else:
                 highlight_years = []
 
             # --- STATS ---
-            st.markdown(f"##### 🎯 Fwd Return Statistics")
-            
+            st.markdown(f"##### 🎯 Fwd Return Statistics (ATR units)")
+
             def calculate_stats_row(sub_df):
                 if sub_df.empty:
-                    return {k: np.nan for k in ["n", "5_median", "5_mean", "5_pospct", "rv_5", 
-                                                "10_median", "10_mean", "10_pospct", "rv_10", 
+                    return {k: np.nan for k in ["n", "5_median", "5_mean", "5_pospct", "rv_5",
+                                                "10_median", "10_mean", "10_pospct", "rv_10",
                                                 "21_median", "21_mean", "21_pospct", "rv_21"]}
-                
+
                 res = {"n": int(len(sub_df))}
                 for d in [5, 10, 21]:
                     ret_col = f"Fwd_{d}d"
@@ -557,7 +554,7 @@ def seasonals_chart(ticker, cycle_label, enable_time_travel, reference_year, sho
                 return res
 
             stats_all = calculate_stats_row(display_df)
-            
+
             if cycle_label != "All Years":
                 df_cycle = display_df[display_df['year'].isin(highlight_years)]
                 stats_cycle = calculate_stats_row(df_cycle)
@@ -567,7 +564,7 @@ def seasonals_chart(ticker, cycle_label, enable_time_travel, reference_year, sho
                 cycle_row_name = f"All Years"
 
             stats_df = pd.DataFrame([stats_all, stats_cycle], index=[f"All History (<{cutoff_year})", cycle_row_name])
-            
+
             ordered_cols = ["n"]
             for d in [5, 10, 21]:
                 ordered_cols.extend([f"{d}_median", f"{d}_mean", f"{d}_pospct", f"rv_{d}"])
@@ -575,59 +572,36 @@ def seasonals_chart(ticker, cycle_label, enable_time_travel, reference_year, sho
 
             def color_pos_pct(val):
                 if pd.isna(val): return ''
-                if val > 80: return 'color: #90ee90; font-weight: bold;' 
-                elif val < 25: return 'color: #ffcccb; font-weight: bold;' 
+                if val > 80: return 'color: #90ee90; font-weight: bold;'
+                elif val < 25: return 'color: #ffcccb; font-weight: bold;'
                 return ''
 
             styler = stats_df.style.format({
                 "n": "{:.0f}",
-                "5_median": "{:.2f}%", "5_mean": "{:.2f}%", "5_pospct": "{:.1f}%", "rv_5": "{:.2f}%",
-                "10_median": "{:.2f}%", "10_mean": "{:.2f}%", "10_pospct": "{:.1f}%", "rv_10": "{:.2f}%",
-                "21_median": "{:.2f}%", "21_mean": "{:.2f}%", "21_pospct": "{:.1f}%", "rv_21": "{:.2f}%",
+                "5_median": "{:+.2f}", "5_mean": "{:+.2f}", "5_pospct": "{:.1f}%", "rv_5": "{:.2f}%",
+                "10_median": "{:+.2f}", "10_mean": "{:+.2f}", "10_pospct": "{:.1f}%", "rv_10": "{:.2f}%",
+                "21_median": "{:+.2f}", "21_mean": "{:+.2f}", "21_pospct": "{:.1f}%", "rv_21": "{:.2f}%",
             }).map(color_pos_pct, subset=["5_pospct", "10_pospct", "21_pospct"])
 
-            if current_atr_pct > 0:
-                for d in [5, 10, 21]:
-                    vol_scale = current_atr_pct * np.sqrt(d)
-                    
-                    mean_limit = 1.5 * vol_scale
-                    styler = styler.background_gradient(
-                        subset=[f"{d}_mean"], 
-                        cmap="RdYlGn", 
-                        vmin=-mean_limit, 
-                        vmax=mean_limit
-                    )
-                    
-                    median_limit = 1.0 * vol_scale
-                    styler = styler.background_gradient(
-                        subset=[f"{d}_median"], 
-                        cmap="RdYlGn", 
-                        vmin=-median_limit, 
-                        vmax=median_limit
-                    )
+            for d in [5, 10, 21]:
+                # Expected dispersion ~ sqrt(N) ATRs; scale gradient accordingly
+                vol_scale = np.sqrt(d)
+                mean_limit = 0.75 * vol_scale
+                styler = styler.background_gradient(
+                    subset=[f"{d}_mean"],
+                    cmap="RdYlGn",
+                    vmin=-mean_limit,
+                    vmax=mean_limit
+                )
+                median_limit = 0.5 * vol_scale
+                styler = styler.background_gradient(
+                    subset=[f"{d}_median"],
+                    cmap="RdYlGn",
+                    vmin=-median_limit,
+                    vmax=median_limit
+                )
 
             st.dataframe(styler, use_container_width=True)
-
-            # --- MAIN DATAFRAME RENDER ---
-            def highlight_year_cell(val):
-                if val in highlight_years:
-                    return 'background-color: #d4af37; color: black; font-weight: bold;' 
-                return ''
-
-            st.dataframe(
-                display_df.style
-                .format({
-                    "year": "{:.0f}",
-                    "Fwd_5d": "{:+.2f}%",
-                    "Fwd_10d": "{:+.2f}%",
-                    "Fwd_21d": "{:+.2f}%"
-                })
-                .background_gradient(subset=["Fwd_5d", "Fwd_10d", "Fwd_21d"], cmap="RdYlGn", vmin=-5, vmax=5)
-                .map(highlight_year_cell, subset=['year']),
-                use_container_width=True,
-                height=400,
-                hide_index=True
-            )
         else:
             st.warning(f"No historical data available prior to {cutoff_year}.")
 
