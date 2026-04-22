@@ -630,6 +630,64 @@ def seasonals_chart(ticker, cycle_label, enable_time_travel, reference_year, sho
         else:
             st.warning(f"No historical data available prior to {cutoff_year}.")
 
+    # -------------------------------------------------------------------------
+    # SECONDARY CHART: Individual cycle-year paths since 2000 (ATR)
+    # -------------------------------------------------------------------------
+    if cycle_label != "All Years":
+        cycle_start = cycle_start_mapping[cycle_label]
+        cycle_years_all = [cycle_start + i * 4 for i in range(30)]
+        years_in_data = set(spx['year'].unique())
+        modern_cycle_years = sorted([y for y in cycle_years_all if y >= 2000 and y in years_in_data])
+
+        if modern_cycle_years:
+            st.divider()
+            st.subheader(f"📈 {cycle_label} Years Since 2000 (Cumulative ATR)")
+
+            fig2 = go.Figure()
+            palette = ["#FF8C00", "#00FFFF", "#FCD12A", "#FF4DFF", "#87CEFA",
+                       "#FF6347", "#ADFF2F", "#FF69B4", "#DDA0DD"]
+
+            for i, y in enumerate(modern_cycle_years):
+                yr_data = spx[spx['year'] == y]
+                if yr_data.empty:
+                    continue
+                path = yr_data['atr_return'].cumsum()
+                is_current = (y == current_year)
+                color = "#39FF14" if is_current else palette[i % len(palette)]
+                fig2.add_trace(go.Scatter(
+                    x=yr_data['day_count'].values,
+                    y=path.values,
+                    mode='lines',
+                    name=f"{y}" + (" (YTD)" if is_current else ""),
+                    line=dict(color=color, width=3 if is_current else 1.5),
+                    hovertemplate=f"<b>{y}</b><br>Day: %{{x}}<br>Cum ATR: %{{y:.2f}}<extra></extra>"
+                ))
+
+            # Overlay weighted cycle average
+            if not atr_cycle.empty:
+                fig2.add_trace(go.Scatter(
+                    x=atr_cycle.index, y=atr_cycle.values,
+                    mode='lines',
+                    name=f"{cycle_label} Avg (weighted)",
+                    line=dict(color='white', width=2.5, dash='dot'),
+                    hovertemplate="Day: %{x}<br>Avg Cum ATR: %{y:.2f}<extra></extra>"
+                ))
+
+            fig2.update_layout(
+                height=500,
+                plot_bgcolor="black",
+                paper_bgcolor="black",
+                font=dict(color="white"),
+                legend=dict(bgcolor="rgba(20,20,20,0.8)", font=dict(color="white"),
+                            orientation="h", yanchor="bottom", y=-0.15,
+                            xanchor="left", x=0.01),
+                hovermode="x unified",
+                yaxis=dict(showgrid=False, title="Cumulative ATR", tickformat=".1f"),
+            )
+            fig2.update_xaxes(showgrid=False, title=None)
+
+            st.plotly_chart(fig2, use_container_width=True)
+
 # -----------------------------------------------------------------------------
 # APP ENTRY POINT
 # -----------------------------------------------------------------------------
