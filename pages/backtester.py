@@ -407,7 +407,7 @@ def _generate_key_filters(params):
             filters.append(f"Distance from {ma_type} between {params['dist_min']:.1f}-{params['dist_max']:.1f} ATR")
     
     if params.get('use_vol'):
-        filters.append(f"Volume > {params['vol_thresh']:.1f}x 63-day avg")
+        filters.append(f"Volume {params.get('vol_logic', '>')} {params['vol_thresh']:.1f}x 63-day avg")
     if params.get('use_vol_rank'):
         filters.append(f"10D vol rank {params['vol_rank_logic']} {params['vol_rank_thresh']:.0f}th %ile")
     if params.get('vol_gt_prev'):
@@ -609,7 +609,7 @@ def build_strategy_dict(params, tickers_to_run, pf, sqn, win_rate, expectancy_r)
             "wma_min_ext_pct": params.get('wma_min_ext_pct', 30.0), "wma_lookback_months": params.get('wma_lookback_months', 6), "wma_touch_logic": params.get('wma_touch_logic', 'Low <= MA'),
             # Volume
             "vol_gt_prev": params.get('vol_gt_prev', False),
-            "use_vol": params.get('use_vol', False), "vol_thresh": params.get('vol_thresh', 1.5),
+            "use_vol": params.get('use_vol', False), "vol_logic": params.get('vol_logic', '>'), "vol_thresh": params.get('vol_thresh', 1.5),
             "use_vol_rank": params.get('use_vol_rank', False), "vol_rank_logic": params.get('vol_rank_logic', '<'), "vol_rank_thresh": params.get('vol_rank_thresh', 15.0),
             # Acc/Dist counts
             "use_acc_count_filter": params.get('use_acc_count_filter', False), "acc_count_window": params.get('acc_count_window', 21), "acc_count_logic": params.get('acc_count_logic', '>'), "acc_count_thresh": params.get('acc_count_thresh', 3),
@@ -943,7 +943,11 @@ def run_engine(universe_dict, params, sznl_map, market_series=None, vix_series=N
                     conditions.append(recent_52w_low_mask)
             if params.get('vol_gt_prev', False): 
                 conditions.append(df['Volume'] > df['Volume'].shift(1))
-            if params.get('use_vol', False): conditions.append(df['vol_ratio'] > params['vol_thresh'])
+            if params.get('use_vol', False):
+                if params.get('vol_logic', '>') == '<':
+                    conditions.append(df['vol_ratio'] < params['vol_thresh'])
+                else:
+                    conditions.append(df['vol_ratio'] > params['vol_thresh'])
             
             if params.get('use_vol_rank', False):
                 vr_col = 'vol_ratio_10d_rank'
@@ -1770,7 +1774,9 @@ def main():
         c1, c2 = st.columns(2)
         with c1:
             use_vol = st.checkbox("Enable Spike Filter", value=False)
-            vol_thresh = st.number_input("Vol Multiple (> X * 63d Avg)", 1.0, 10.0, 1.5, disabled=not use_vol)
+            vs_col1, vs_col2 = st.columns(2)
+            with vs_col1: vol_logic = st.selectbox("Logic", [">", "<"], key="vs_logic", disabled=not use_vol)
+            with vs_col2: vol_thresh = st.number_input("Vol Multiple (vs 63d Avg)", 0.1, 10.0, 1.5, disabled=not use_vol)
         with c2:
             use_vol_rank = st.checkbox("Enable Regime Filter", value=False)
             v_col1, v_col2 = st.columns(2)
@@ -1898,7 +1904,7 @@ def main():
             '52w_first_instance': first_52w, '52w_lookback': lookback_52w, '52w_lag': lag_52w, 'exclude_52w_high': exclude_52w_high, 'use_vix_filter': use_vix_filter, 'vix_min': vix_min, 'vix_max': vix_max,
             'use_recent_52w': use_recent_52w, 'recent_52w_invert': recent_52w_invert, 'recent_52w_lookback': recent_52w_lookback,
             'use_recent_52w_low': use_recent_52w_low, 'recent_52w_low_invert': recent_52w_low_invert, 'recent_52w_low_lookback': recent_52w_low_lookback,
-            'vol_gt_prev': use_vol_gt_prev, 'use_vol': use_vol, 'vol_thresh': vol_thresh, 'use_vol_rank': use_vol_rank, 'vol_rank_logic': vol_rank_logic, 'vol_rank_thresh': vol_rank_thresh,
+            'vol_gt_prev': use_vol_gt_prev, 'use_vol': use_vol, 'vol_logic': vol_logic, 'vol_thresh': vol_thresh, 'use_vol_rank': use_vol_rank, 'vol_rank_logic': vol_rank_logic, 'vol_rank_thresh': vol_rank_thresh,
             'use_ma_dist_filter': use_ma_dist_filter, 'dist_ma_type': dist_ma_type, 'dist_logic': dist_logic, 'dist_min': dist_min, 'dist_max': dist_max,
             'use_weekly_ma_pullback': use_weekly_ma_pullback, 'wma_type': wma_type, 'wma_period': wma_period, 'wma_min_ext_pct': wma_min_ext_pct, 'wma_lookback_months': wma_lookback_months, 'wma_touch_logic': wma_touch_logic,
             'use_gap_filter': use_gap_filter, 'gap_lookback': gap_lookback, 'gap_logic': gap_logic, 'gap_thresh': gap_thresh,
