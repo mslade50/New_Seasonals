@@ -74,7 +74,7 @@ from daily_scan import (
     check_signal, load_seasonal_map,
     get_entry_type_short, get_sizing_variable, build_live_filters,
     generate_oversold_lv_companion, generate_vol_spike_companion,
-    load_olv_cooldown,
+    load_olv_cooldown, load_open_position_counts,
     OLV_STRATEGY_NAME, OLV_COOLDOWN_DAYS,
     load_atr_seasonal_map, ATR_SZNL_COLS,
     DAILY_RISK_CAP_BPS,
@@ -943,6 +943,12 @@ def run_overflow_scan(dry_run=False, force_rebuild=False):
     if olv_cooldown:
         print(f"🛑 OLV cooldown: {len(olv_cooldown)} tickers with signals since {olv_cutoff}")
 
+    # Ladder sizing — count currently-held filled positions per (ticker, strategy).
+    ladder_strats = {s['name'] for s in OVERFLOW_STRATEGIES if s['execution'].get('ladder_multipliers')}
+    ladder_counts = load_open_position_counts(ladder_strats)
+    if ladder_counts:
+        print(f"📈 Ladder: {len(ladder_counts)} open positions tracked")
+
     # ATR seasonal ranks — load once if any overflow strategy uses them
     _uses_atr_sznl = any(s['settings'].get('atr_sznl_filters') for s in OVERFLOW_STRATEGIES)
     atr_sznl_map = load_atr_seasonal_map() if _uses_atr_sznl else {}
@@ -1053,6 +1059,20 @@ def run_overflow_scan(dry_run=False, force_rebuild=False):
                         risk = risk * frag_mult
                         sizing_note += f" | Frag {frag_mult:.2f}x"
 
+                    # Ladder sizing — scale up on repeat signals when prior
+                    # positions are still open. Companion LOC stays flat.
+                    ladder_mults = strat['execution'].get('ladder_multipliers')
+                    companion_risk_override = None
+                    if ladder_mults:
+                        open_count = ladder_counts.get((t_clean, strat['name']), 0)
+                        rung_idx = min(open_count, len(ladder_mults) - 1)
+                        ladder_mult = ladder_mults[rung_idx]
+                        loc_mult = strat['execution'].get('loc_companion_multiplier')
+                        if loc_mult is not None:
+                            companion_risk_override = risk * loc_mult
+                        risk = risk * ladder_mult
+                        sizing_note += f" | Ladder rung {rung_idx + 1} ({ladder_mult:.2f}x, {open_count} open)"
+
                     # Calculate prices & shares
                     entry = last_row['Close']
                     direction = strat['settings'].get('trade_direction', 'Long')
@@ -1131,11 +1151,11 @@ def run_overflow_scan(dry_run=False, force_rebuild=False):
                     signals.append(signal_dict)
 
                     if strat_name == OLV_STRATEGY_NAME:
-                        companion = generate_oversold_lv_companion(signal_dict, strat, last_row)
+                        companion = generate_oversold_lv_companion(signal_dict, strat, last_row, override_risk=companion_risk_override)
                         if companion:
                             signals.append(companion)
                     elif strat_name == "Overbot Vol Spike":
-                        companion = generate_vol_spike_companion(signal_dict, strat, last_row)
+                        companion = generate_vol_spike_companion(signal_dict, strat, last_row, override_risk=companion_risk_override)
                         if companion:
                             signals.append(companion)
 

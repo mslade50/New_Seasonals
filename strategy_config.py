@@ -596,7 +596,8 @@ _STRATEGY_BOOK_RAW = [
             "use_dist_count_filter": False, "dist_count_window": 21, "dist_count_logic": ">", "dist_count_thresh": 3,
             "use_recent_52w_low": False, "recent_52w_low_invert": True, "recent_52w_low_lookback": 10
         },
-        "execution": {"risk_bps": 15, "slippage_bps": 2, "stop_atr": 3.0, "tgt_atr": 8.0, "hold_days": 21,"use_stop_loss": False, "use_take_profit": False},
+        "execution": {"risk_bps": 15, "slippage_bps": 2, "stop_atr": 3.0, "tgt_atr": 8.0, "hold_days": 21,"use_stop_loss": False, "use_take_profit": False,
+                      "ladder_multipliers": [0.85, 1.00, 1.15], "loc_companion_multiplier": 0.85},
         "stats": {"grade": "A (Excellent)", "win_rate": "69.0%", "expectancy": "0.48r", "profit_factor": "2.82"}
     },
     {
@@ -659,7 +660,8 @@ _STRATEGY_BOOK_RAW = [
             "use_dist_count_filter": True, "dist_count_window": 21, "dist_count_logic": ">", "dist_count_thresh": 0,
             "use_xsec_filter": True, "xsec_filters": []
         },
-        "execution": {"risk_bps": 25, "slippage_bps": 2, "stop_atr": 1.0, "tgt_atr": 8.0, "hold_days": 2,"use_stop_loss": False, "use_take_profit": False},
+        "execution": {"risk_bps": 25, "slippage_bps": 2, "stop_atr": 1.0, "tgt_atr": 8.0, "hold_days": 2,"use_stop_loss": False, "use_take_profit": False,
+                      "ladder_multipliers": [0.85, 1.00, 1.15], "loc_companion_multiplier": 0.85},
         "stats": {"grade": "A (Excellent)", "win_rate": "58.0%", "expectancy": "0.28r", "profit_factor": "1.96"}
     },
     {

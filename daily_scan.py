@@ -1204,22 +1204,24 @@ def generate_vol_spike_companion(primary_signal, strat, last_row, override_risk=
       2. This companion: LOC sell if T+1 Close > Signal Close
 
     Args:
-        override_risk: If provided, use this risk instead of the primary signal's risk.
-                       Used for Tuesday+ATH where primary is killed but LOC stays normal.
+        override_risk: If provided, size the companion at this risk amount
+                       instead of inheriting the primary's Risk_Amt. Used for
+                       ladder sizing where the LOC stays flat at loc_companion_multiplier
+                       while the primary scales up with each repeat fill.
 
     Returns a signal dict for the companion order, or None if not applicable.
     """
     if strat['name'] != "Overbot Vol Spike":
         return None
-    
+
     signal_close = primary_signal['Entry']
     atr = primary_signal['ATR']
 
     # LOC threshold: fill if T+1 close > signal close
     loc_threshold = signal_close
-    
-    # Use override risk if provided (e.g. Tuesday+ATH), otherwise match primary
-    risk = primary_signal['Risk_Amt']
+
+    # Use override risk if provided (ladder sizing), otherwise match primary
+    risk = override_risk if override_risk is not None else primary_signal['Risk_Amt']
     
     # For LOC, estimate entry at threshold for sizing
     direction = "Short"
@@ -1240,8 +1242,12 @@ def generate_vol_spike_companion(primary_signal, strat, last_row, override_risk=
     tgt_atr = strat['execution']['tgt_atr']
     tgt_price = loc_threshold - (atr * tgt_atr)
     
-    # Build sizing notes — if override, note it's using pre-overlay risk
-    sizing_notes = primary_signal['Sizing_Notes'] + " | LOC Companion"
+    # Build sizing notes — if override (ladder path) note the flat LOC rate
+    if override_risk is not None:
+        loc_mult = strat['execution'].get('loc_companion_multiplier', 1.0)
+        sizing_notes = f"LOC Companion — flat {loc_mult:.2f}x base (${risk:.0f})"
+    else:
+        sizing_notes = primary_signal['Sizing_Notes'] + " | LOC Companion"
     
     return {
         "Strategy_ID": strat['id'] + " (LOC Add)",
@@ -1284,13 +1290,18 @@ def generate_vol_spike_companion(primary_signal, strat, last_row, override_risk=
     }
 
 
-def generate_oversold_lv_companion(primary_signal, strat, last_row):
+def generate_oversold_lv_companion(primary_signal, strat, last_row, override_risk=None):
     """
     Generates a companion LOC (Limit-on-Close) order for Oversold Low Volume.
 
     Logic: When the MOC fires, also stage a LOC buy for T+1 at signal close.
     Only fills if T+1 close < signal close (buying further weakness).
-    Same share count as the primary MOC order.
+
+    Args:
+        override_risk: If provided, size the companion at this risk amount
+                       (flat loc_companion_multiplier × base) instead of
+                       inheriting the primary's ladder-scaled Risk_Amt. Shares
+                       are recomputed from this risk and the stop distance.
 
     Returns a signal dict for the companion order, or None if not applicable.
     """
@@ -1299,10 +1310,6 @@ def generate_oversold_lv_companion(primary_signal, strat, last_row):
 
     signal_close = primary_signal['Entry']
     atr = primary_signal['ATR']
-    shares = primary_signal['Shares']
-
-    if shares == 0:
-        return None
 
     # LOC threshold: only fill if T+1 close < signal close
     loc_threshold = signal_close
@@ -1318,7 +1325,21 @@ def generate_oversold_lv_companion(primary_signal, strat, last_row):
     stop_price = signal_close - (atr * stop_atr)
     tgt_price = signal_close + (atr * tgt_atr)
 
-    sizing_notes = primary_signal['Sizing_Notes'] + " | LOC Companion"
+    # Size companion: if override_risk provided (ladder path), recompute shares
+    # from the flat LOC risk; otherwise inherit primary's shares & risk.
+    if override_risk is not None:
+        dist = atr * stop_atr
+        shares = int(override_risk / dist) if dist > 0 else 0
+        risk_amt = override_risk
+        loc_mult = strat['execution'].get('loc_companion_multiplier', 1.0)
+        sizing_notes = f"LOC Companion — flat {loc_mult:.2f}x base (${risk_amt:.0f})"
+    else:
+        shares = primary_signal['Shares']
+        risk_amt = primary_signal['Risk_Amt']
+        sizing_notes = primary_signal['Sizing_Notes'] + " | LOC Companion"
+
+    if shares == 0:
+        return None
 
     return {
         "Strategy_ID": strat['id'] + " (LOC Add)",
@@ -1327,7 +1348,7 @@ def generate_oversold_lv_companion(primary_signal, strat, last_row):
         "Date": primary_signal['Date'],
         "Action": "BUY",
         "Shares": shares,
-        "Risk_Amt": primary_signal['Risk_Amt'],
+        "Risk_Amt": risk_amt,
         "Sizing_Notes": sizing_notes,
         "Stats": primary_signal['Stats'],
         "Entry": loc_threshold,
@@ -1704,6 +1725,79 @@ def load_olv_cooldown(lookback_trading_days=25):
     return latest
 
 
+def load_open_position_counts(ladder_strategy_names):
+    """Build {(ticker, strategy_name): count} of filled primary signals whose
+    hold period has not yet expired. Used to drive per-strategy ladder sizing.
+
+    A 'line item' counts if:
+      - Strategy_Name matches one of `ladder_strategy_names`
+      - Fill_Status == 'FILLED' (staged-but-unfilled orders don't count)
+      - Time Exit >= today (position still held)
+      - Row is not an LOC companion (companion shares a ticker with its primary)
+
+    Returns {} on any failure so the scan proceeds without the ladder overlay.
+    """
+    if not ladder_strategy_names:
+        return {}
+
+    gc = get_google_client()
+    if not gc:
+        return {}
+
+    try:
+        sh = gc.open("Trade_Signals_Log")
+        ws = sh.sheet1
+        rows = ws.get_all_values()
+    except Exception as e:
+        print(f"⚠️ Ladder position lookup failed (reading Trade_Signals_Log): {e}")
+        return {}
+
+    if not rows or len(rows) < 2:
+        return {}
+
+    headers = rows[0]
+    try:
+        name_idx = headers.index("Strategy_Name")
+        ticker_idx = headers.index("Ticker")
+        exit_idx = headers.index("Time Exit")
+    except ValueError:
+        return {}
+
+    fill_idx = headers.index("Fill_Status") if "Fill_Status" in headers else None
+    sid_idx = headers.index("Strategy_ID") if "Strategy_ID" in headers else None
+
+    today = datetime.date.today()
+    counts = {}
+
+    target_names = set(ladder_strategy_names)
+
+    for r in rows[1:]:
+        if len(r) <= max(name_idx, ticker_idx, exit_idx):
+            continue
+        strat_name = r[name_idx].strip()
+        if strat_name not in target_names:
+            continue
+        # Skip LOC companion rows — their Strategy_ID has "(LOC Add)"
+        if sid_idx is not None and "LOC Add" in r[sid_idx]:
+            continue
+        # Require FILLED if the column exists; without fill tracking we can't
+        # distinguish stale staged orders from real positions, so skip.
+        if fill_idx is None:
+            continue
+        if r[fill_idx].strip().upper() != 'FILLED':
+            continue
+        try:
+            exit_date = pd.to_datetime(r[exit_idx].strip()).date()
+        except Exception:
+            continue
+        if exit_date < today:
+            continue
+        key = (r[ticker_idx].strip(), strat_name)
+        counts[key] = counts.get(key, 0) + 1
+
+    return counts
+
+
 def run_daily_scan():
     print("--- Starting Daily Automated Scan (Synced) ---")
     sznl_map = load_seasonal_map()
@@ -1866,6 +1960,13 @@ def run_daily_scan():
         print(f"🛑 OLV cooldown: {len(olv_cooldown)} tickers with signals since {olv_cutoff}")
     olv_skipped = []
 
+    # 4c. Ladder position counts — counts currently-held filled primary signals
+    # per (ticker, strategy) so repeat signals size up on each successive day.
+    ladder_strats = {s['name'] for s in STRATEGY_BOOK if s['execution'].get('ladder_multipliers')}
+    ladder_counts = load_open_position_counts(ladder_strats)
+    if ladder_counts:
+        print(f"📈 Ladder: {len(ladder_counts)} open ({', '.join(f'{t}/{s[:12]}={c}' for (t, s), c in list(ladder_counts.items())[:5])}{'...' if len(ladder_counts) > 5 else ''})")
+
     # 5. Run Strategies
     for strat in STRATEGY_BOOK:
         print(f"Running: {strat['name']}...")
@@ -1962,6 +2063,23 @@ def run_daily_scan():
                     if frag_mult != 1.0:
                         risk = risk * frag_mult
                         sizing_note += f" | Frag {frag_mult:.2f}x"
+
+                    # 2c. LADDER SIZING — scale up on repeat signals for the same
+                    # (ticker, strategy) while prior positions are still held.
+                    # Companion LOC uses flat loc_companion_multiplier (see below).
+                    ladder_mults = strat['execution'].get('ladder_multipliers')
+                    companion_risk_override = None
+                    if ladder_mults:
+                        open_count = ladder_counts.get((t_clean, strat['name']), 0)
+                        rung_idx = min(open_count, len(ladder_mults) - 1)
+                        ladder_mult = ladder_mults[rung_idx]
+                        # Snapshot pre-ladder risk (base × strat-specific × frag) so
+                        # the LOC companion can be flat-sized independent of rung.
+                        loc_mult = strat['execution'].get('loc_companion_multiplier')
+                        if loc_mult is not None:
+                            companion_risk_override = risk * loc_mult
+                        risk = risk * ladder_mult
+                        sizing_note += f" | Ladder rung {rung_idx + 1} ({ladder_mult:.2f}x, {open_count} open)"
 
                     # 3. Calculate Prices & Shares
                     entry = last_row['Close']
@@ -2069,14 +2187,14 @@ def run_daily_scan():
                     if strat['name'] == "Overbot Vol Spike":
                         signals.append(signal_dict)
                         companion = generate_vol_spike_companion(
-                            signal_dict, strat, last_row
+                            signal_dict, strat, last_row, override_risk=companion_risk_override
                         )
                         if companion:
                             signals.append(companion)
                     elif strat['name'] == "Oversold Low Volume":
                         signals.append(signal_dict)
                         companion = generate_oversold_lv_companion(
-                            signal_dict, strat, last_row
+                            signal_dict, strat, last_row, override_risk=companion_risk_override
                         )
                         if companion:
                             signals.append(companion)
