@@ -73,13 +73,42 @@ for _s in STRATEGY_BOOK:
 from daily_scan import (
     check_signal, load_seasonal_map,
     get_entry_type_short, get_sizing_variable, build_live_filters,
-    get_google_client,
     generate_oversold_lv_companion, generate_vol_spike_companion,
     load_olv_cooldown,
     OLV_STRATEGY_NAME, OLV_COOLDOWN_DAYS,
     load_atr_seasonal_map, ATR_SZNL_COLS,
     DAILY_RISK_CAP_BPS,
 )
+import json as _json
+import gspread as _gspread
+
+
+def get_google_client():
+    """Local credential lookup for Task Scheduler runs.
+
+    Checks GCP_JSON env var, project-dir credentials.json, and OneDrive
+    fallback. daily_scan's version only checks cwd, which fails when this
+    script runs from Task Scheduler.
+    """
+    try:
+        if "GCP_JSON" in os.environ:
+            creds_dict = _json.loads(os.environ["GCP_JSON"])
+            return _gspread.service_account_from_dict(creds_dict)
+
+        candidate_paths = [
+            os.path.join(current_dir, "credentials.json"),
+            "credentials.json",
+            os.path.expanduser(r"~\OneDrive\credentials.json"),
+        ]
+        for path in candidate_paths:
+            if os.path.exists(path):
+                return _gspread.service_account(filename=path)
+
+        print(f"❌ No credentials found. Checked: {candidate_paths}")
+        return None
+    except Exception as e:
+        print(f"❌ Auth Error: {e}")
+        return None
 
 TRADING_DAY = CustomBusinessDay(calendar=USFederalHolidayCalendar())
 
@@ -288,13 +317,14 @@ def append_signals_to_gsheet(signals_list, sheet_name='Trade_Signals_Log'):
 
     df = pd.DataFrame(signals_list)
 
-    # Drop email-only fields (same as daily_scan)
+    # Drop email-only fields (mirrors daily_scan.save_signals_to_gsheet — keep
+    # _is_companion / _parent_strategy so companion rows are flagged in the log).
     cols_to_drop = [
         'Setup_Type', 'Setup_Timeframe', 'Setup_Thesis', 'Setup_Filters',
         'Exit_Primary', 'Exit_Stop', 'Exit_Target', 'Exit_Notes',
         'Live_Filters', 'Entry_Type',
         'Notional', 'Days_To_Exit', 'Use_Stop', 'Use_Target', 'Sizing_Variable',
-        '_is_companion', '_parent_strategy'
+        'Scan_Date',
     ]
     df = df.drop(columns=[c for c in cols_to_drop if c in df.columns], errors='ignore')
 
@@ -304,13 +334,17 @@ def append_signals_to_gsheet(signals_list, sheet_name='Trade_Signals_Log'):
             df[c] = df[c].astype(float).round(2)
     df['Date'] = df['Date'].astype(str)
     df['Scan_Timestamp'] = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    df['Source'] = 'overflow'
-    cols = ['Scan_Timestamp'] + [c for c in df.columns if c != 'Scan_Timestamp']
-    df = df[cols]
 
     try:
         sh = gc.open(sheet_name)
         worksheet = sh.sheet1
+
+        # Align columns to the sheet's actual header row — append_rows writes
+        # positionally, so mismatched key order would shift every field.
+        header_row = worksheet.row_values(1)
+        if header_row:
+            df = df.reindex(columns=header_row)
+
         rows = df.astype(str).values.tolist()
         worksheet.append_rows(rows, value_input_option='RAW')
         print(f"✅ Appended {len(rows)} rows to {sheet_name}")
@@ -462,7 +496,7 @@ def append_orders_to_gsheet(signals_list, workbook_name='Trade_Signals_Log', tab
 
         worksheet.clear()
         data = [headers] + [[str(v) for v in r] for r in rows]
-        worksheet.update(values=data)
+        worksheet.update(range_name='A1', values=data)
         if rows:
             print(f"✅ Wrote {len(rows)} orders to {workbook_name}!{tab_name}")
         else:
