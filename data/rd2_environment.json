@@ -1,20 +1,20 @@
 {
-  "date": "2026-04-21",
+  "date": "2026-04-22",
   "price_ctx": {
-    "price": 704.0800170898438,
-    "ret_12m": 0.38583185042024626,
-    "extension_200d": 0.06020230292682971,
-    "drawdown": -0.008533524986046315,
-    "sma_200": 664.0996865844727,
-    "high_52w": 710.1400146484375,
+    "price": 711.2100219726562,
+    "ret_12m": 0.364367952964203,
+    "extension_200d": 0.07016716242211785,
+    "drawdown": 0.0,
+    "sma_200": 664.5784387207032,
+    "high_52w": 711.2100219726562,
     "regime_label": "Strong uptrend, moderately extended",
-    "days_since_5pct": 12,
-    "days_since_10pct": 248
+    "days_since_5pct": 13,
+    "days_since_10pct": 249
   },
   "h_scores": {
     "5d": 0.0,
     "21d": 0.0,
-    "63d": 45.618881070497366
+    "63d": 44.09917689722743
   },
   "signals": {
     "Distribution Dominance": {
@@ -25,27 +25,27 @@
     "VIX Range Compression": {
       "on": false,
       "detail": "",
-      "summary": "21d range: 86th pctile (fires below 15th) \u2014 VIX at 19.5"
+      "summary": "21d range: 86th pctile (fires below 15th) \u2014 VIX at 18.9"
     },
     "Defensive Leadership": {
       "on": false,
       "detail": "",
-      "summary": "50d spread: +35pp (fires < -10) | 200d spread: +3pp (fires < 0)"
+      "summary": "50d spread: +38pp (fires < -10) | 200d spread: +4pp (fires < 0)"
     },
     "Pre-FOMC Rally": {
-      "on": false,
-      "detail": "",
-      "summary": "Next FOMC: Apr 29 (8d away) \u2014 5d return: 73th pctile (fires above 75th)"
+      "on": true,
+      "detail": "FOMC on Apr 29 \u2014 SPY trailing 5d return at 77th percentile. Strong pre-FOMC rally increases 'buy the rumor, sell the news' reversal risk.",
+      "summary": "Next FOMC: Apr 29 (7d away) \u2014 5d return: 77th pctile (fires above 75th)"
     },
     "Low Absorption Ratio": {
       "on": false,
       "detail": "",
-      "summary": "AR: 0.622 (78th pctile, fires below 10th) \u2014 near high: yes"
+      "summary": "AR: 0.644 (83th pctile, fires below 10th) \u2014 near high: yes"
     },
     "Seasonal Rank Divergence": {
       "on": false,
       "detail": "",
-      "summary": "Spread: -0.2pp (fires above 10) \u2014 near high: yes"
+      "summary": "Spread: -2.1pp (fires above 10) \u2014 near high: yes"
     }
   }
 }
