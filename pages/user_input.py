@@ -109,90 +109,6 @@ def calculate_path(df, cycle_label, cycle_start_mapping, use_atr=False):
     return avg_path
 
 # -----------------------------------------------------------------------------
-# RECENT PERFORMANCE ANALYSIS (Table Only - Weighted Logic)
-# -----------------------------------------------------------------------------
-def recent_performance_analysis(df, cycle_label, cycle_start_mapping):
-    """
-    Calculates percentile ranks for returns and seasonality for the last 21 days.
-    Seasonality uses a weighted average: (All_Years + 3 * Cycle_Years) / 4.
-    """
-    df = df.copy()
-    
-    # 1. Calculate Historical Returns Windows (Standard Overbought/Oversold Ranks)
-    for w in [5, 10, 21]:
-        df[f'Ret_{w}d'] = df['Close'].pct_change(w)
-        df[f'Rank_{w}d'] = df[f'Ret_{w}d'].expanding(min_periods=252).rank(pct=True) * 100
-        
-    df['Daily_Ret'] = df['Close'].pct_change() * 100
-
-    # 2. Calculate Weighted Seasonal Rank
-    # A. Get Baseline (All Years)
-    daily_seasonality_all = df.groupby('day_count')['log_return'].mean()
-
-    # B. Get Cycle Specific
-    if cycle_label == "All Years":
-        combined_seasonality = daily_seasonality_all
-    else:
-        start_yr = cycle_start_mapping[cycle_label]
-        valid_years = [start_yr + i * 4 for i in range(30)]
-        cycle_df = df[df['year'].isin(valid_years)].copy()
-        daily_seasonality_cycle = cycle_df.groupby('day_count')['log_return'].mean()
-        combined_seasonality = (daily_seasonality_all + (daily_seasonality_cycle * 3)) / 4
-
-    seasonal_score_map = combined_seasonality.rank(pct=True) * 100
-    df['Seasonal_Rank'] = df['day_count'].map(seasonal_score_map)
-
-    # 3. Filter Last 21 Days
-    recent = df.tail(21).copy()
-    
-    # -------------------------------------------------------------------------
-    # DISPLAY TABLE
-    # -------------------------------------------------------------------------
-    st.markdown(f"### 📋 Recent Performance Data")
-    
-    display_cols = ['Close', 'Daily_Ret', 'Volume', 'Rank_5d', 'Rank_10d', 'Rank_21d', 'Seasonal_Rank']
-    table_df = recent[display_cols].sort_index(ascending=False)
-    
-    def color_ret_rank(val):
-        if pd.isna(val): return ''
-        if val >= 90: return 'color: #ff4444; font-weight: bold;'
-        if val >= 80: return 'color: #ff8888;'
-        if val <= 10: return 'color: #00ff00; font-weight: bold;'
-        if val <= 20: return 'color: #90ee90;'
-        return 'color: #cccccc;'
-
-    def color_seasonal_rank(val):
-        if pd.isna(val): return ''
-        if val >= 85: return 'color: #00ff00; font-weight: bold;'
-        if val >= 65: return 'color: #90ee90;'
-        if val <= 15: return 'color: #ff4444; font-weight: bold;'
-        if val <= 35: return 'color: #ff8888;'
-        return 'color: #cccccc;'
-    
-    def color_ret(val):
-        color = '#ff6666' if val < 0 else '#66ff66'
-        return f'color: {color}'
-
-    styler = table_df.style.format({
-        "Close": "{:.2f}",
-        "Daily_Ret": "{:+.2f}%",
-        "Volume": "{:,.0f}",
-        "Rank_5d": "{:.0f}",
-        "Rank_10d": "{:.0f}",
-        "Rank_21d": "{:.0f}",
-        "Seasonal_Rank": "{:.0f}"
-    })
-    
-    styler = styler.map(color_ret_rank, subset=['Rank_5d', 'Rank_10d', 'Rank_21d'])
-    styler = styler.map(color_seasonal_rank, subset=['Seasonal_Rank'])
-    styler = styler.map(color_ret, subset=['Daily_Ret'])
-    styler = styler.bar(subset=['Volume'], color='#444444') 
-
-    st.caption(f"**Seasonal Rank** is based on a weighted average: 75% {cycle_label} data, 25% All Years data. >85 (Green) indicates historically strong days.")
-    st.dataframe(styler, use_container_width=True, height=600)
-
-
-# -----------------------------------------------------------------------------
 # MAIN LOGIC
 # -----------------------------------------------------------------------------
 def seasonals_chart(ticker, cycle_label, enable_time_travel, reference_year, show_all_years_line, show_pct=True, show_atr=True):
@@ -633,12 +549,6 @@ def seasonals_chart(ticker, cycle_label, enable_time_travel, reference_year, sho
             st.dataframe(styler, use_container_width=True)
         else:
             st.warning(f"No historical data available prior to {cutoff_year}.")
-
-    # -------------------------------------------------------------------------
-    # RECENT PERFORMANCE ANALYSIS
-    # -------------------------------------------------------------------------
-    st.divider()
-    recent_performance_analysis(spx, cycle_label, cycle_start_mapping)
 
 # -----------------------------------------------------------------------------
 # APP ENTRY POINT
