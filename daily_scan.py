@@ -1726,14 +1726,17 @@ def load_olv_cooldown(lookback_trading_days=25):
 
 
 def load_open_position_counts(ladder_strategy_names):
-    """Build {(ticker, strategy_name): count} of filled primary signals whose
-    hold period has not yet expired. Used to drive per-strategy ladder sizing.
+    """Build {(ticker, strategy_name): count} of currently-held positions
+    for ladder sizing.
 
-    A 'line item' counts if:
-      - Strategy_Name matches one of `ladder_strategy_names`
-      - Fill_Status == 'FILLED' (staged-but-unfilled orders don't count)
-      - Time Exit >= today (position still held)
-      - Row is not an LOC companion (companion shares a ticker with its primary)
+    Reads the dedicated 'Portfolio' tab of Trade_Signals_Log, which is
+    refreshed nightly by daily_portfolio_report.write_portfolio_to_sheet().
+    That snapshot already reflects only truly-open positions (from the
+    portfolio simulation), so we don't need to filter by fill status or
+    check exit dates here — every row is an open line item.
+
+    The Portfolio tab uses the backtest schema with a 'Strategy' column
+    (not 'Strategy_Name'), and already excludes LOC companion rows.
 
     Returns {} on any failure so the scan proceeds without the ladder overlay.
     """
@@ -1746,10 +1749,10 @@ def load_open_position_counts(ladder_strategy_names):
 
     try:
         sh = gc.open("Trade_Signals_Log")
-        ws = sh.sheet1
+        ws = sh.worksheet("Portfolio")
         rows = ws.get_all_values()
     except Exception as e:
-        print(f"⚠️ Ladder position lookup failed (reading Trade_Signals_Log): {e}")
+        print(f"⚠️ Ladder position lookup failed (reading Portfolio tab): {e}")
         return {}
 
     if not rows or len(rows) < 2:
@@ -1757,40 +1760,20 @@ def load_open_position_counts(ladder_strategy_names):
 
     headers = rows[0]
     try:
-        name_idx = headers.index("Strategy_Name")
+        name_idx = headers.index("Strategy")
         ticker_idx = headers.index("Ticker")
-        exit_idx = headers.index("Time Exit")
     except ValueError:
+        print(f"⚠️ Portfolio tab missing Strategy/Ticker columns (got {headers[:5]}...)")
         return {}
 
-    fill_idx = headers.index("Fill_Status") if "Fill_Status" in headers else None
-    sid_idx = headers.index("Strategy_ID") if "Strategy_ID" in headers else None
-
-    today = datetime.date.today()
+    target_names = set(ladder_strategy_names)
     counts = {}
 
-    target_names = set(ladder_strategy_names)
-
     for r in rows[1:]:
-        if len(r) <= max(name_idx, ticker_idx, exit_idx):
+        if len(r) <= max(name_idx, ticker_idx):
             continue
         strat_name = r[name_idx].strip()
         if strat_name not in target_names:
-            continue
-        # Skip LOC companion rows — their Strategy_ID has "(LOC Add)"
-        if sid_idx is not None and "LOC Add" in r[sid_idx]:
-            continue
-        # Require FILLED if the column exists; without fill tracking we can't
-        # distinguish stale staged orders from real positions, so skip.
-        if fill_idx is None:
-            continue
-        if r[fill_idx].strip().upper() != 'FILLED':
-            continue
-        try:
-            exit_date = pd.to_datetime(r[exit_idx].strip()).date()
-        except Exception:
-            continue
-        if exit_date < today:
             continue
         key = (r[ticker_idx].strip(), strat_name)
         counts[key] = counts.get(key, 0) + 1

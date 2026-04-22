@@ -72,6 +72,47 @@ def get_google_client():
         return None
 
 
+def write_portfolio_to_sheet(open_positions_df, workbook_name='Trade_Signals_Log', tab_name='Portfolio'):
+    """Write the current open-positions snapshot to a dedicated tab so other
+    scripts (daily_scan, local_overflow_scan) can read it for ladder sizing.
+
+    Always clears the tab at start — even on a zero-position day — so stale
+    rows from a prior run never linger. Silently no-ops on auth failure so
+    the report email still sends.
+    """
+    gc = get_google_client()
+    if not gc:
+        print("   ⚠️ No Google creds — skipping Portfolio tab write")
+        return
+
+    df = open_positions_df.copy() if open_positions_df is not None else pd.DataFrame()
+    df['Snapshot_Timestamp'] = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+    # Reorder so Snapshot_Timestamp comes first
+    if not df.empty:
+        cols = ['Snapshot_Timestamp'] + [c for c in df.columns if c != 'Snapshot_Timestamp']
+        df = df[cols]
+
+    try:
+        sh = gc.open(workbook_name)
+        try:
+            worksheet = sh.worksheet(tab_name)
+        except Exception:
+            worksheet = sh.add_worksheet(title=tab_name, rows=500, cols=max(26, len(df.columns) + 2))
+
+        worksheet.clear()
+        if df.empty:
+            # Still write a headers-only row so readers can detect the snapshot ran.
+            worksheet.update(range_name='A1', values=[['Snapshot_Timestamp'], [datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')]])
+            print(f"   🧹 No open positions — '{tab_name}' cleared (timestamp-only)")
+            return
+        data = [df.columns.tolist()] + df.astype(str).values.tolist()
+        worksheet.update(range_name='A1', values=data)
+        print(f"   ✅ Wrote {len(df)} open positions to {workbook_name}!{tab_name}")
+    except Exception as e:
+        print(f"   ⚠️ Portfolio tab write failed: {e}")
+
+
 # -----------------------------------------------------------------------------
 # 2. PORTFOLIO SIMULATION (12-Month Lite Backtest)
 # -----------------------------------------------------------------------------
@@ -1343,7 +1384,12 @@ def main():
         # 3. Get open positions - FIXED: Use backtest data (same as strat_backtester)
         print("\n💼 Calculating open positions from backtest...")
         open_positions = get_open_positions_from_backtest(signals_df, master_dict)
-        
+
+        # 3a. Mirror open positions to Trade_Signals_Log!Portfolio so daily_scan
+        # and local_overflow_scan can read them for ladder sizing.
+        print("\n📤 Syncing open positions to Portfolio tab...")
+        write_portfolio_to_sheet(open_positions)
+
         # 3b. Get today's entered & exited positions
         print("\n📅 Checking today's activity...")
         entered_today, exited_today = get_todays_activity(signals_df, master_dict)
