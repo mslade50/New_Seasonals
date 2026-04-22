@@ -932,19 +932,19 @@ _STRATEGY_BOOK_RAW = [
         "stats": {"grade": "A (Excellent)", "win_rate": "72.9%", "expectancy": "1.36r", "profit_factor": "4.14"}
     },
     {
-        "id": "5d > 85%ile+10d > 85%ile+21d > 85%ile+252d < 65%ile, Entry: Limit (Open +/- 0.5 ATR), 2d hold",
+        "id": "2d > 85%ile+5d > 85%ile+10d > 85%ile+21d > 85%ile+126d < 65%ile+252d < 65%ile, Entry: Limit (Open +/- 0.5 ATR), 2d hold",
         "name": "3x ETF Overbot Fade",
         "setup": {
             "type": "MeanReversion",
             "timeframe": "Overnight",
-            "thesis": "Overbought fade setup on 3x leveraged ETFs",
+            "thesis": "Overbought fade on 3x leveraged ETFs that are NOT medium/long-term leaders — pure multi-horizon overbought fade (no volume or range requirement)",
             "key_filters": [
+                "2D rank > 85th %ile",
                 "5D rank > 85th %ile",
                 "10D rank > 85th %ile",
                 "21D rank > 85th %ile (3d consecutive)",
-                "252D rank < 65th %ile",
-                "Close in 50-100% of daily range",
-                "Volume > 1.2x 63-day avg"
+                "126D rank < 65th %ile",
+                "252D rank < 65th %ile"
             ]
         },
         "exit_summary": {
@@ -964,9 +964,11 @@ _STRATEGY_BOOK_RAW = [
             "max_total_positions": 99,
             "entry_conf_bps": 0,
             "perf_filters": [
+                {'window': 2, 'logic': '>', 'thresh': 85.0, 'thresh_max': 100.0, 'consecutive': 1},
                 {'window': 5, 'logic': '>', 'thresh': 85.0, 'thresh_max': 100.0, 'consecutive': 1},
                 {'window': 10, 'logic': '>', 'thresh': 85.0, 'thresh_max': 100.0, 'consecutive': 1},
                 {'window': 21, 'logic': '>', 'thresh': 85.0, 'thresh_max': 100.0, 'consecutive': 3},
+                {'window': 126, 'logic': '<', 'thresh': 65.0, 'thresh_max': 100.0, 'consecutive': 1},
                 {'window': 252, 'logic': '<', 'thresh': 65.0, 'thresh_max': 100.0, 'consecutive': 1}
             ],
             "perf_first_instance": False,
@@ -1000,7 +1002,7 @@ _STRATEGY_BOOK_RAW = [
             "recent_52w_low_lookback": 21,
             "breakout_mode": "None",
             "require_close_gt_open": False,
-            "use_range_filter": True,
+            "use_range_filter": False,
             "range_min": 50,
             "range_max": 100,
             "use_atr_ret_filter": False,
@@ -1023,7 +1025,7 @@ _STRATEGY_BOOK_RAW = [
             "wma_lookback_months": 6,
             "wma_touch_logic": "Low <= MA",
             "vol_gt_prev": False,
-            "use_vol": True,
+            "use_vol": False,
             "vol_thresh": 1.2,
             "use_vol_rank": False,
             "vol_rank_logic": "<",
