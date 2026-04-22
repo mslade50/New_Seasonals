@@ -652,16 +652,30 @@ def seasonals_chart(ticker, cycle_label, enable_time_travel, reference_year, sho
                 if yr_data.empty:
                     continue
                 path = yr_data['atr_return'].cumsum()
+                yr_day_counts = yr_data['day_count'].values
                 is_current = (y == current_year)
                 color = "#39FF14" if is_current else palette[i % len(palette)]
                 fig2.add_trace(go.Scatter(
-                    x=yr_data['day_count'].values,
+                    x=yr_day_counts,
                     y=path.values,
                     mode='lines',
                     name=f"{y}" + (" (YTD)" if is_current else ""),
                     line=dict(color=color, width=3 if is_current else 1.5),
                     hovertemplate=f"<b>{y}</b><br>Day: %{{x}}<br>Cum ATR: %{{y:.2f}}<extra></extra>"
                 ))
+
+                # "Today" marker: row with day_count closest to today's day_count_marker
+                if day_count_marker is not None and len(yr_day_counts) > 0:
+                    pos = int(np.argmin(np.abs(yr_day_counts - day_count_marker)))
+                    fig2.add_trace(go.Scatter(
+                        x=[yr_day_counts[pos]],
+                        y=[path.values[pos]],
+                        mode='markers',
+                        marker=dict(color=color, size=9, symbol="circle",
+                                    line=dict(color="white", width=1)),
+                        showlegend=False,
+                        hovertemplate=f"<b>{y} — today equiv.</b><br>Day: %{{x}}<br>Cum ATR: %{{y:.2f}}<extra></extra>"
+                    ))
 
             # Overlay weighted cycle average
             if not atr_cycle.empty:
