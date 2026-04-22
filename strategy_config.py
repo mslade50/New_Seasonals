@@ -600,22 +600,20 @@ _STRATEGY_BOOK_RAW = [
         "stats": {"grade": "A (Excellent)", "win_rate": "69.0%", "expectancy": "0.48r", "profit_factor": "2.82"}
     },
     {
-        "id": "5+10+21d > 85, 21d 3x, vol >1.25x, >0 dist day, sell open +0.5 atr",
+        "id": "2+5+10+21d > 85, 126d<65, 252d<65, >0 dist day, sell open +0.5 atr",
         "name": "Overbot Vol Spike",
         "setup": {
             "type": "MeanReversion",
             "timeframe": "Overnight",
-            "thesis": "Fading overbought names with volume climax — filtered to names NOT in long-term uptrend leaders",
+            "thesis": "Fading overbought names that are NOT long-term leaders — pure multi-horizon overbought fade (no volume or range requirement)",
             "key_filters": [
-                "5D + 10D + 21D ranks ALL > 85th %ile (extremely overbought)",
+                "2D + 5D + 10D + 21D ranks ALL > 85th %ile (extremely overbought)",
                 "21D > 85th %ile for 3 consecutive days",
-                "Volume > 1.25x 63-day average (climax volume)",
-                "At least 1 distribution day in last 21",
+                "126D return < 65th %ile (not a medium-term leader)",
                 "252D return < 65th %ile (not a long-term leader)",
-                "EITHER 126D return < 65th %ile OR cross-sectional rank < 30th %ile",
+                "At least 1 distribution day in last 21",
                 "Market seasonal < 75 (not fighting strong macro)",
-                "Today's return > 0.25 ATR (up day)",
-                "Close in upper 50% of range (strong close to fade)"
+                "Today's return > 0.25 ATR (up day)"
             ]
         },
         "exit_summary": {
@@ -624,7 +622,7 @@ _STRATEGY_BOOK_RAW = [
             "target_logic": "8.0 ATR below entry (short)",
             "notes": "Primary + LOC always staged together"
         },
-        "description": "Start: 2000-01-01. Universe: All CSV Tickers. Dir: Short. Filter: None. PF: 2.46. SQN: 4.44.",
+        "description": "Start: 2000-01-01. Universe: All CSV Tickers. Dir: Short. Pure multi-horizon overbought fade (no volume/range filter).",
         "universe_tickers": LIQUID_PLUS_COMMODITIES,
         "settings": {
             "trade_direction": "Short",
@@ -634,27 +632,23 @@ _STRATEGY_BOOK_RAW = [
             "max_daily_entries": 2,
             "max_total_positions": 10,
             "perf_filters": [
+                {'window': 2, 'logic': '>', 'thresh': 85.0, 'consecutive': 1},
                 {'window': 5, 'logic': '>', 'thresh': 85.0, 'consecutive': 1},
                 {'window': 10, 'logic': '>', 'thresh': 85.0, 'consecutive': 1},
                 {'window': 21, 'logic': '>', 'thresh': 85.0, 'consecutive': 3},
+                {'window': 126, 'logic': '<', 'thresh': 65.0, 'consecutive': 1},
                 {'window': 252, 'logic': '<', 'thresh': 65.0, 'consecutive': 1},
-            ],
-            "or_filter_groups": [
-                [
-                    {'type': 'perf', 'window': 126, 'logic': '<', 'thresh': 65.0},
-                    {'type': 'xsec', 'window': 5, 'logic': '<', 'thresh': 30.0},
-                ]
             ],
             "perf_first_instance": False, "perf_lookback": 21,
             "use_sznl": False, "sznl_logic": ">", "sznl_thresh": 85.0, "sznl_first_instance": False, "sznl_lookback": 21,
             "use_market_sznl": True, "market_sznl_logic": "<", "market_sznl_thresh": 75.0,
             "market_ticker": "^GSPC",
             "use_52w": False, "52w_type": "New 52w High", "52w_first_instance": True, "52w_lookback": 21,
-            "use_vol": True, "vol_thresh": 1.25,
+            "use_vol": False, "vol_thresh": 1.25,
             "use_vol_rank": False, "vol_rank_logic": "<", "vol_rank_thresh": 50.0,
             "trend_filter": "None",
             "use_today_return": True, "return_min": 0.25, "return_max": 100,
-            "use_range_filter": True, "range_min": 50, "range_max": 100,
+            "use_range_filter": False, "range_min": 50, "range_max": 100,
             "min_price": 10.0, "min_vol": 100000,
             "min_age": 0.25, "max_age": 100.0,
             "min_atr_pct": 0.0, "max_atr_pct": 100.0,
