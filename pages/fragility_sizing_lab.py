@@ -24,6 +24,7 @@ sys.path.append(parent_dir)
 DATA_DIR = os.path.join(parent_dir, "data")
 SIG_DF_PATH = os.path.join(DATA_DIR, "backtest_sig_df.parquet")
 FRAG_PATH = os.path.join(DATA_DIR, "rd2_fragility.parquet")
+CLOSES_PATH = os.path.join(DATA_DIR, "backtest_closes.parquet")
 
 # Regime buckets (same as strat_backtester)
 REGIME_BUCKETS = {
@@ -222,6 +223,103 @@ def _daily_sharpe(result_df, pnl_col, starting_equity, periods_per_year=252):
     return (daily_ret.mean() / daily_ret.std()) * np.sqrt(periods_per_year)
 
 
+def _sharpe_from_equity(equity_series, starting_equity, periods_per_year=252):
+    """Annualized Sharpe from a daily equity series."""
+    daily_pnl = equity_series.diff().fillna(equity_series.iloc[0] - starting_equity)
+    daily_ret = daily_pnl / starting_equity
+    if daily_ret.std() == 0:
+        return 0.0
+    return (daily_ret.mean() / daily_ret.std()) * np.sqrt(periods_per_year)
+
+
+def compute_mtm_series(result_df, closes_df, starting_equity):
+    """Build daily MTM equity series (baseline + test) from per-trade closes.
+
+    Mirrors strat_backtester.get_daily_mtm_series methodology: close-to-close
+    diffs * shares during each trade's hold period. First-day PnL uses
+    entry_price anchor. Trades whose ticker is missing from closes_df fall
+    back to stair-step (PnL booked on Exit Date).
+
+    Returns (baseline_equity, test_equity) as pd.Series indexed by business
+    days, each starting at starting_equity.
+    """
+    if result_df.empty:
+        idx = pd.bdate_range(pd.Timestamp.today(), periods=1)
+        empty = pd.Series(starting_equity, index=idx)
+        return empty, empty
+
+    min_date = pd.to_datetime(result_df['Entry Date']).min()
+    max_date = pd.to_datetime(result_df['Exit Date']).max()
+    all_dates = pd.bdate_range(min_date, max_date)
+    base_pnl = pd.Series(0.0, index=all_dates)
+    test_pnl = pd.Series(0.0, index=all_dates)
+
+    tickers_available = set(closes_df.columns) if closes_df is not None else set()
+
+    # Pre-reindex closes once to the business-day grid
+    if closes_df is not None:
+        closes_aligned = closes_df.reindex(all_dates, method='ffill')
+    else:
+        closes_aligned = None
+
+    _tickers = result_df['Ticker'].values
+    _actions = result_df['Action'].values
+    _entry_dates = pd.to_datetime(result_df['Entry Date']).values
+    _exit_dates = pd.to_datetime(result_df['Exit Date']).values
+    _entry_prices = result_df['Price'].values
+    _base_shares = result_df['Orig Shares'].values
+    _adj_shares = result_df['Adj Shares'].values
+    _realized_base = result_df['Orig PnL'].values
+    _realized_adj = result_df['Adj PnL'].values
+
+    for i in range(len(result_df)):
+        ticker = _tickers[i]
+        entry_date = pd.Timestamp(_entry_dates[i])
+        exit_date = pd.Timestamp(_exit_dates[i])
+        action = _actions[i]
+        entry_price = float(_entry_prices[i])
+        base_shares = float(_base_shares[i])
+        adj_shares = float(_adj_shares[i])
+        realized_base = float(_realized_base[i])
+        realized_adj = float(_realized_adj[i])
+
+        def _book_realized():
+            if exit_date in base_pnl.index:
+                base_pnl.loc[exit_date] += realized_base
+                test_pnl.loc[exit_date] += realized_adj
+
+        if ticker not in tickers_available or closes_aligned is None:
+            _book_realized()
+            continue
+
+        mask = (all_dates >= entry_date) & (all_dates <= exit_date)
+        trade_dates = all_dates[mask]
+        if len(trade_dates) == 0:
+            _book_realized()
+            continue
+
+        trade_closes = closes_aligned[ticker].loc[trade_dates].dropna()
+        if trade_closes.empty:
+            _book_realized()
+            continue
+
+        sign = 1.0 if action == 'BUY' else -1.0
+
+        first_date = trade_closes.index[0]
+        first_pnl_per_share = sign * (trade_closes.iloc[0] - entry_price)
+        base_pnl.loc[first_date] += first_pnl_per_share * base_shares
+        test_pnl.loc[first_date] += first_pnl_per_share * adj_shares
+
+        if len(trade_closes) > 1:
+            diffs = trade_closes.diff().dropna() * sign
+            base_pnl.loc[diffs.index] += diffs.values * base_shares
+            test_pnl.loc[diffs.index] += diffs.values * adj_shares
+
+    baseline_equity = starting_equity + base_pnl.cumsum()
+    test_equity = starting_equity + test_pnl.cumsum()
+    return baseline_equity, test_equity
+
+
 # ─── Main UI ────────────────────────────────────────────────────────────────
 
 st.title("Fragility Sizing Lab")
@@ -240,6 +338,15 @@ sig_df = pd.read_parquet(SIG_DF_PATH)
 sig_df = _ensure_columns(sig_df)
 
 frag_df = pd.read_parquet(FRAG_PATH)
+
+# Optional: consolidated closes for MTM equity curve
+closes_df = None
+if os.path.exists(CLOSES_PATH):
+    try:
+        closes_df = pd.read_parquet(CLOSES_PATH)
+        closes_df.index = pd.to_datetime(closes_df.index)
+    except Exception as e:
+        st.warning(f"Could not load closes parquet: {e}")
 
 # Filter to fragility coverage period only
 frag_start = frag_df.index.min()
@@ -349,18 +456,36 @@ if result.empty:
     st.warning("No trades to replay with selected strategies.")
     st.stop()
 
+# ─── Build equity curves (MTM if closes available, else stair-step) ─────────
+
+use_mtm = closes_df is not None
+if use_mtm:
+    baseline_eq, test_eq = compute_mtm_series(result, closes_df, starting_equity)
+else:
+    baseline_eq = result.set_index('Exit Date')['Baseline Equity']
+    test_eq = result.set_index('Exit Date')['Test Equity']
+
 # ─── Section 1: Comparison Metrics ──────────────────────────────────────────
 
 st.subheader("Comparison Metrics")
 
-baseline_total_return = (result['Baseline Equity'].iloc[-1] / starting_equity - 1) * 100
-test_total_return = (result['Test Equity'].iloc[-1] / starting_equity - 1) * 100
+if use_mtm:
+    st.caption("Equity curve uses daily mark-to-market (matches Strategy Backtester methodology).")
+else:
+    st.caption("⚠️ Stair-step equity (realized PnL on exit dates). Re-run the Strategy Backtester to generate `data/backtest_closes.parquet` for daily MTM.")
 
-baseline_dd = _max_drawdown(result['Baseline Equity'])
-test_dd = _max_drawdown(result['Test Equity'])
+baseline_total_return = (baseline_eq.iloc[-1] / starting_equity - 1) * 100
+test_total_return = (test_eq.iloc[-1] / starting_equity - 1) * 100
 
-baseline_sharpe = _daily_sharpe(result, 'Orig PnL', starting_equity)
-test_sharpe = _daily_sharpe(result, 'Adj PnL', starting_equity)
+baseline_dd = _max_drawdown(baseline_eq)
+test_dd = _max_drawdown(test_eq)
+
+if use_mtm:
+    baseline_sharpe = _sharpe_from_equity(baseline_eq, starting_equity)
+    test_sharpe = _sharpe_from_equity(test_eq, starting_equity)
+else:
+    baseline_sharpe = _daily_sharpe(result, 'Orig PnL', starting_equity)
+    test_sharpe = _daily_sharpe(result, 'Adj PnL', starting_equity)
 
 trades_skipped = result['Skipped'].sum()
 total_trades = len(result)
@@ -390,12 +515,12 @@ st.subheader("Equity Curves")
 fig_eq = go.Figure()
 
 fig_eq.add_trace(go.Scatter(
-    x=result['Exit Date'], y=result['Baseline Equity'],
+    x=baseline_eq.index, y=baseline_eq.values,
     mode='lines', name='Baseline (no adjustment)',
     line=dict(color='gray', width=1.5),
 ))
 fig_eq.add_trace(go.Scatter(
-    x=result['Exit Date'], y=result['Test Equity'],
+    x=test_eq.index, y=test_eq.values,
     mode='lines', name=f'Test (min={min_mult}, cutoff={cutoff})',
     line=dict(color='#1f77b4', width=2),
 ))
