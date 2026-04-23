@@ -920,7 +920,8 @@ def generate_candidates_fast(processed_dict, strategies, sznl_map, user_start_da
                             'low': row['Low'],
                             'vol_ratio': row.get('vol_ratio', 0),
                             'sznl': row.get('Sznl', 50),
-                            'range_pct': row['RangePct'] * 100
+                            'range_pct': row['RangePct'] * 100,
+                            'atr_sznl_5d': row.get('atr_sznl_5d', 50.0),
                         }
                     
                     candidates.append((
@@ -1363,6 +1364,14 @@ def process_signals_fast(candidates, signal_data, processed_dict, strategies, st
                 base_risk *= 1.5
             elif sznl_val >= 33:
                 base_risk *= 0.66 if sznl_val < 50 else 1.0
+
+        # Overbot Vol Spike: 1.33x when 5d ATR seasonal rank is in the bottom
+        # quartile — weak short-horizon seasonal reinforces the fade thesis.
+        # Applies regardless of gap; compounds with the gap-based 2x sizer below.
+        if strat_name == "Overbot Vol Spike":
+            _atr_sznl_5d = row_data.get('atr_sznl_5d', 50.0)
+            if pd.notna(_atr_sznl_5d) and _atr_sznl_5d < 25:
+                base_risk *= 1.33
 
         # Apply Overbot Vol Spike 2x sizer when T+1 open gaps > 0.25 ATR above signal close
         if _ovs_size_mult != 1.0:

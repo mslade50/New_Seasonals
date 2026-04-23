@@ -1833,7 +1833,10 @@ def run_daily_scan():
     error_tickers = []  # (ticker, reason) tuples for email reporting
 
     # 4a. Load ATR seasonal ranks once if any strategy uses them
-    _uses_atr_sznl = any(s['settings'].get('atr_sznl_filters') for s in STRATEGY_BOOK)
+    _uses_atr_sznl = (
+        any(s['settings'].get('atr_sznl_filters') for s in STRATEGY_BOOK)
+        or any(s['name'] == "Overbot Vol Spike" for s in STRATEGY_BOOK)  # uses atr_sznl_5d for the 1.33x sizer
+    )
     atr_sznl_map = load_atr_seasonal_map() if _uses_atr_sznl else {}
     if _uses_atr_sznl:
         if atr_sznl_map:
@@ -1944,6 +1947,14 @@ def run_daily_scan():
                         elif sznl_val >= 33:
                             risk = risk * 0.66
                             sizing_note = f"Low Sznl ({sznl_val:.0f}) = 0.66x"
+
+                    # Overbot Vol Spike: 1.33x when 5d ATR seasonal is in the bottom
+                    # quartile — weak short-horizon seasonal reinforces the fade thesis.
+                    if strat['name'] == "Overbot Vol Spike":
+                        _atr_sznl_5d = last_row.get('atr_sznl_5d', None)
+                        if _atr_sznl_5d is not None and pd.notna(_atr_sznl_5d) and _atr_sznl_5d < 25:
+                            risk = risk * 1.33
+                            sizing_note = f"ATR Sznl 5d {_atr_sznl_5d:.0f} < 25 → 1.33x"
                     # ---------------------------------------------------------
 
                     # 2b. FRAGILITY SIZING ADJUSTMENT
