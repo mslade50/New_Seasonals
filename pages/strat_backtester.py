@@ -6,6 +6,7 @@ import datetime
 import time
 from pandas.tseries.offsets import BusinessDay
 import plotly.graph_objects as go
+import plotly.express as px
 import sys
 import os
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -1702,10 +1703,56 @@ def calculate_mark_to_market_curve(sig_df, master_dict, starting_equity, start_d
     daily_pnl = get_daily_mtm_series(sig_df, master_dict, start_date)
     if daily_pnl.empty:
         return pd.DataFrame(columns=['Equity'])
-    
+
     equity_curve = starting_equity + daily_pnl.cumsum()
-    
+
     return equity_curve.to_frame(name='Equity')
+
+
+def build_strategy_correlation_matrix(sig_df, master_dict, min_trades=30, mode='calendar'):
+    """Daily-return correlation matrix across strategies.
+
+    Walks sig_df grouped by Strategy, builds per-strategy daily MTM P&L via
+    get_daily_mtm_series, aligns all series on a common date index, and
+    returns the Pearson correlation matrix.
+
+    mode='calendar' — correlate on all trading days (zero days included).
+      Answers: "how does the portfolio equity curve co-move?" Standard for
+      book-level vol / diversification analysis.
+    mode='active'   — correlate only on days where at least one of the two
+      strategies has a non-zero return. Filters out the trivially-correlated
+      double-zero days. Answers: "when either strategy is deployed, do they
+      agree?" More useful for identifying genuinely redundant signals.
+
+    Strategies with fewer than `min_trades` trades are excluded (noise).
+    Returns (corr_df, pnl_df, eligible_list). corr_df is None if <2 eligible.
+    """
+    if sig_df.empty or 'Strategy' not in sig_df.columns:
+        return None, None, []
+
+    counts = sig_df.groupby('Strategy').size()
+    eligible = counts[counts >= min_trades].index.tolist()
+    if len(eligible) < 2:
+        return None, None, eligible
+
+    min_date = pd.to_datetime(sig_df['Entry Date']).min()
+    pnl_by_strat = {}
+    for strat in eligible:
+        sub = sig_df[sig_df['Strategy'] == strat]
+        series = get_daily_mtm_series(sub, master_dict, start_date=min_date)
+        pnl_by_strat[strat] = series
+
+    pnl_df = pd.DataFrame(pnl_by_strat).fillna(0.0)
+
+    if mode == 'active':
+        # Day is kept if ANY strategy had a non-zero P&L that day — drops
+        # double-zero rows that inflate positive correlation.
+        pnl_df = pnl_df[(pnl_df != 0).any(axis=1)]
+        if len(pnl_df) < 10:
+            return None, pnl_df, eligible
+
+    corr_df = pnl_df.corr()
+    return corr_df, pnl_df, eligible
 
 
 def calculate_daily_exposure(sig_df, starting_equity=None):
@@ -2482,6 +2529,74 @@ def main():
                         )
                 else:
                     st.info(f"No strategy has >= {MIN_SAMPLE} trades.")
+
+            # ========== STRATEGY CORRELATION MATRIX ==========
+            st.subheader("🔗 Strategy Correlation Matrix (Daily P&L)")
+            corr_c1, corr_c2 = st.columns([1, 1])
+            with corr_c1:
+                corr_mode = st.radio(
+                    "Correlation mode", ["Calendar (all days)", "Active (non-zero days)"],
+                    horizontal=True, index=0, key="corr_mode",
+                    help="Calendar: correlate on all trading days including shared zero-return days (standard for portfolio vol analysis). Active: correlate only on days where at least one strategy had P&L — filters out trivially-correlated double-zero days, more useful for spotting genuinely redundant signals.",
+                )
+            with corr_c2:
+                min_trades_corr = st.number_input(
+                    "Min trades for inclusion", min_value=5, max_value=500, value=30, step=5,
+                    key="corr_min_trades",
+                )
+            _mode_key = 'active' if 'Active' in corr_mode else 'calendar'
+            corr_df, _pnl_df, _eligible = build_strategy_correlation_matrix(
+                sig_df, master_dict, min_trades=int(min_trades_corr), mode=_mode_key,
+            )
+            if corr_df is None or corr_df.empty or len(corr_df) < 2:
+                st.info(f"Need ≥2 strategies with ≥{int(min_trades_corr)} trades each for a correlation matrix.")
+            else:
+                # Heatmap — zero-centered diverging scale
+                fig_corr = px.imshow(
+                    corr_df.values,
+                    x=corr_df.columns, y=corr_df.index,
+                    text_auto='.2f', aspect='auto',
+                    color_continuous_scale='RdBu_r', zmin=-1, zmax=1,
+                    labels=dict(color='Correlation'),
+                )
+                fig_corr.update_layout(
+                    height=max(350, 40 * len(corr_df) + 120),
+                    margin=dict(l=120, r=30, t=20, b=120),
+                    xaxis=dict(tickangle=45),
+                )
+                st.plotly_chart(fig_corr, use_container_width=True)
+
+                # Diversification score per strategy — avg correlation to OTHER strategies.
+                # Lower = more independent = better diversifier.
+                np.fill_diagonal(corr_df.values, np.nan)
+                avg_corr = corr_df.mean(axis=1).sort_values()
+                max_corr = corr_df.max(axis=1)
+                max_corr_with = corr_df.idxmax(axis=1)
+                div_df = pd.DataFrame({
+                    'Strategy': avg_corr.index,
+                    'Avg Corr (vs others)': avg_corr.values,
+                    'Max Corr': [max_corr[s] for s in avg_corr.index],
+                    'Most Correlated With': [max_corr_with[s] for s in avg_corr.index],
+                }).reset_index(drop=True)
+
+                def _color_avg(v):
+                    if v < 0.2: return 'background-color: #1a4d1a; color: #9fe09f;'     # green
+                    if v < 0.4: return 'background-color: #4d4d1a; color: #e0e09f;'     # yellow-green
+                    if v < 0.6: return 'background-color: #663f1a; color: #e0b89f;'     # orange
+                    return 'background-color: #661a1a; color: #e09f9f;'                 # red
+
+                st.markdown("**Diversification score** — avg correlation vs other strategies. Lower = better diversifier.")
+                st.dataframe(
+                    div_df.style
+                        .format({'Avg Corr (vs others)': '{:.2f}', 'Max Corr': '{:.2f}'})
+                        .map(_color_avg, subset=['Avg Corr (vs others)']),
+                    use_container_width=True, hide_index=True,
+                )
+                st.caption(
+                    "Rules of thumb for book-level diversification: avg corr < 0.2 → strong diversifier, include at full size. "
+                    "0.2-0.4 → useful diversifier, size at 75-100%. 0.4-0.6 → partial overlap, consider 50-75% of normal sizing. "
+                    ">0.6 → largely redundant with another strategy in the book; either reduce sizing or retire one of the pair."
+                )
 
             st.subheader("⚖️ Exposure Over Time (% of Equity)")
             exposure_df = calculate_daily_exposure(sig_df, starting_equity=starting_equity)
