@@ -75,6 +75,30 @@ def load_atr_seasonal_map():
         output[str(ticker).upper()] = group.set_index('Date')[ATR_SZNL_COLS].sort_index()
     return output
 
+
+@st.cache_resource
+def load_fragility_dials():
+    """Load daily fragility dial history (5d/21d/63d scores) from the Risk Dashboard.
+
+    Returns a DataFrame indexed by date with columns '5d', '21d', '63d' (0-100).
+    Returns None if the parquet is missing or unreadable. Available 2016-04-25+
+    for most backtests; trades before that date will fail any dial-based filter
+    (NaN > threshold evaluates False).
+    """
+    path = "data/rd2_fragility.parquet"
+    try:
+        df = pd.read_parquet(path)
+    except Exception:
+        return None
+    if df.empty:
+        return None
+    df.index = pd.to_datetime(df.index).normalize()
+    try:
+        df.index = df.index.tz_localize(None)
+    except (TypeError, AttributeError):
+        pass
+    return df.sort_index()
+
 def clean_ticker_df(df):
     if df.empty: return df
     if isinstance(df.columns, pd.MultiIndex):
@@ -947,7 +971,7 @@ def build_strategy_dict(params, tickers_to_run, pf, sqn, win_rate, expectancy_r)
     }
     return strategy
     
-def run_engine(universe_dict, params, sznl_map, market_series=None, vix_series=None, market_sznl_series=None, ref_ticker_ranks=None, xsec_rank_matrices=None, atr_sznl_map=None):
+def run_engine(universe_dict, params, sznl_map, market_series=None, vix_series=None, market_sznl_series=None, ref_ticker_ranks=None, xsec_rank_matrices=None, atr_sznl_map=None, fragility_df=None):
     all_potential_trades = []
     total = len(universe_dict)
     bt_start_ts = pd.to_datetime(params['backtest_start_date'])
@@ -1320,8 +1344,32 @@ def run_engine(universe_dict, params, sznl_map, market_series=None, vix_series=N
                     else: continue
                     conditions.append(t1_cond)
 
+            # Risk dial filters — apply fragility score thresholds on signal date
+            dial_filters = params.get('dial_filters', [])
+            if dial_filters and fragility_df is not None and not fragility_df.empty:
+                for df_filter in dial_filters:
+                    dial_col = df_filter.get('dial')
+                    if dial_col not in fragility_df.columns:
+                        continue
+                    win = max(1, int(df_filter.get('window', 1)))
+                    dial_series = fragility_df[dial_col]
+                    if win > 1:
+                        dial_series = dial_series.rolling(win, min_periods=win).mean()
+                    dial_on_date = dial_series.reindex(df.index, method='ffill')
+                    thresh = float(df_filter.get('thresh', 0))
+                    logic = df_filter.get('logic', '>')
+                    vals = dial_on_date.values
+                    if logic == '>':    cond = (vals > thresh)
+                    elif logic == '<':  cond = (vals < thresh)
+                    elif logic == '>=': cond = (vals >= thresh)
+                    elif logic == '<=': cond = (vals <= thresh)
+                    else: continue
+                    # NaN dial (pre-2016 or missing) → fails the filter
+                    cond = np.where(np.isnan(vals), False, cond)
+                    conditions.append(pd.Series(cond, index=df.index))
+
             if not conditions: continue
-            
+
             final_signal = conditions[0]
             for c in conditions[1:]: final_signal = final_signal & c
             
@@ -2116,6 +2164,52 @@ def main():
         v1, v2 = st.columns(2)
         with v1: vix_min = st.number_input("Min VIX Value", 0.0, 200.0, 0.0, disabled=not use_vix_filter)
         with v2: vix_max = st.number_input("Max VIX Value", 0.0, 200.0, 20.0, disabled=not use_vix_filter)
+
+    with st.expander("Risk Dial Filters (Fragility Score, 2016+)", expanded=False):
+        _frag_df = load_fragility_dials()
+        if _frag_df is None or _frag_df.empty:
+            st.warning("data/rd2_fragility.parquet not found — run the Risk Dashboard once to generate it.")
+            dial_filters = []
+        else:
+            st.caption(
+                f"Fragility dial (0-100) from Risk Dashboard. History: {_frag_df.index.min().strftime('%Y-%m-%d')} to "
+                f"{_frag_df.index.max().strftime('%Y-%m-%d')}. Pre-history trades fail any enabled dial filter."
+            )
+            dial_filters = []
+            for i in range(1, 4):
+                fc1, fc2, fc3, fc4, fc5 = st.columns([1, 1, 1.1, 0.9, 1])
+                with fc1:
+                    _use = st.checkbox(f"Filter {i}", key=f"dial_use_{i}")
+                with fc2:
+                    _dial = st.selectbox(
+                        "Dial", ["5d", "21d", "63d"], key=f"dial_col_{i}",
+                        index=(i - 1) if i <= 3 else 0, disabled=not _use,
+                    )
+                with fc3:
+                    _win = st.number_input(
+                        "Rolling avg (days)", 1, 63, 10, step=1,
+                        key=f"dial_win_{i}", disabled=not _use,
+                        help="1 = raw dial value; higher = smoothed over N days",
+                    )
+                with fc4:
+                    _log = st.selectbox(
+                        "Logic", [">", "<", ">=", "<="], key=f"dial_log_{i}", disabled=not _use,
+                    )
+                with fc5:
+                    _thr = st.number_input(
+                        "Threshold", 0.0, 100.0, 40.0 if i == 1 else 30.0 if i == 2 else 20.0,
+                        step=5.0, key=f"dial_thr_{i}", disabled=not _use,
+                    )
+                if _use:
+                    dial_filters.append({
+                        'dial': _dial, 'window': int(_win),
+                        'logic': _log, 'thresh': float(_thr),
+                    })
+            if dial_filters:
+                st.success(
+                    "Active dial filters: "
+                    + "; ".join(f"{f['dial']} dial ({f['window']}d avg) {f['logic']} {f['thresh']:.0f}" for f in dial_filters)
+                )
     with st.expander("Volume Filters", expanded=False):
         use_vol_gt_prev = st.checkbox("Require Volume > Prev Day Volume", value=False)
         c1, c2 = st.columns(2)
@@ -2281,7 +2375,8 @@ def main():
             'use_recent_ath': use_recent_ath, 'recent_ath_invert': recent_ath_invert, 'ath_lookback_days': ath_lookback_days,
             'use_ref_ticker_filter': use_ref_ticker_filter, 'ref_ticker': ref_ticker_input, 'ref_filters': ref_filters,
             'use_xsec_filter': use_xsec_filter, 'xsec_filters': xsec_filters,
-            'atr_sznl_filters': atr_sznl_filters
+            'atr_sznl_filters': atr_sznl_filters,
+            'dial_filters': dial_filters
         }
 
         # Build cross-sectional rank matrices if enabled
@@ -2296,7 +2391,8 @@ def main():
         if atr_sznl_filters and not atr_sznl_map:
             st.warning("ATR Seasonal Rank filter is enabled but atr_seasonal_ranks.parquet could not be loaded. Filter will be skipped.")
 
-        trades_df, rejected_df, total_signals = run_engine(data_dict, params, sznl_map, market_series, vix_series, market_sznl_series, ref_ticker_ranks, xsec_rank_matrices, atr_sznl_map)
+        fragility_df = load_fragility_dials() if dial_filters else None
+        trades_df, rejected_df, total_signals = run_engine(data_dict, params, sznl_map, market_series, vix_series, market_sznl_series, ref_ticker_ranks, xsec_rank_matrices, atr_sznl_map, fragility_df=fragility_df)
         if trades_df.empty: st.warning("No executed signals.")
         if not trades_df.empty:
             trades_df = trades_df.sort_values("ExitDate")
