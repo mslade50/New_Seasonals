@@ -160,14 +160,20 @@ def build_mtm_curves(trades_df, data_dict, starting_equity, risk_bps, mode='flat
             if tr['Exit'] < sub.loc[exit_dt, 'Low']:  sub.loc[exit_dt, 'Low']  = tr['Exit']
         trade_prices[idx] = sub
 
-    # Build calendar from all trading days spanned by any position
-    all_dates = set()
-    for sub in trade_prices.values():
-        if sub is not None:
-            all_dates.update(sub.index)
-    if not all_dates:
+    # Build calendar: ALL trading days in [min_entry, max_exit] from the full data_dict,
+    # not just days spanned by positions. Without this, gap days (no active positions)
+    # are absent from the index entirely — which silently forces Time-in-Market to 100%
+    # and reduces the denominator for Sharpe/Parkinson vol.
+    min_dt = trades['EntryDate'].min()
+    max_dt = trades['ExitDate'].max()
+    cal_set = set()
+    for _df in data_dict.values():
+        if _df is None or _df.empty:
+            continue
+        cal_set.update(_df.index[(_df.index >= min_dt) & (_df.index <= max_dt)])
+    if not cal_set:
         return pd.DataFrame(columns=['Equity_Close', 'Equity_High', 'Equity_Low', 'InMarket'])
-    all_dates = sorted(all_dates)
+    all_dates = sorted(cal_set)
 
     entries_by_date = {}
     for idx, tr in trades.iterrows():
