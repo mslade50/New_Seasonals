@@ -618,7 +618,7 @@ _STRATEGY_BOOK_RAW = [
             "primary_exit": "2-day time stop OR 2.0 ATR target (whichever first)",
             "stop_logic": "None (time/target exit only)",
             "target_logic": "2.0 ATR below entry (short)",
-            "notes": "Primary + LOC always staged together. Target reduced from 8 ATR → 2 ATR per path-analysis give-back profile."
+            "notes": "LOC companion retired. Target reduced from 8 ATR → 2 ATR per path-analysis give-back profile."
         },
         "description": "Start: 2000-01-01. Universe: LIQUID_PLUS_COMMODITIES. Dir: Short. Pure multi-horizon overbought fade, no 126d/252d leader filter, no market seasonal filter.",
         "universe_tickers": LIQUID_PLUS_COMMODITIES,
@@ -656,7 +656,7 @@ _STRATEGY_BOOK_RAW = [
             "use_xsec_filter": True, "xsec_filters": []
         },
         "execution": {"risk_bps": 25, "slippage_bps": 2, "stop_atr": 1.0, "tgt_atr": 2.0, "hold_days": 2,"use_stop_loss": False, "use_take_profit": True,
-                      "ladder_multipliers": [0.85, 1.00, 1.15], "loc_companion_multiplier": 0.85},
+                      "ladder_multipliers": [0.85, 1.00, 1.15]},
         "stats": {"grade": "A (Excellent)", "win_rate": "58.0%", "expectancy": "0.28r", "profit_factor": "1.96"}
     },
     {

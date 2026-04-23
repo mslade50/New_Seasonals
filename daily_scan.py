@@ -1195,101 +1195,6 @@ def get_sizing_variable(strat_name, last_row):
     else:
         return None
 
-def generate_vol_spike_companion(primary_signal, strat, last_row, override_risk=None):
-    """
-    Generates a companion LOC (Limit-on-Close) order for Vol Spike signals.
-
-    Logic: If Vol Spike fires, we stage two entries:
-      1. Primary: Limit at Open + 0.5 ATR (standard path)
-      2. This companion: LOC sell if T+1 Close > Signal Close
-
-    Args:
-        override_risk: If provided, size the companion at this risk amount
-                       instead of inheriting the primary's Risk_Amt. Used for
-                       ladder sizing where the LOC stays flat at loc_companion_multiplier
-                       while the primary scales up with each repeat fill.
-
-    Returns a signal dict for the companion order, or None if not applicable.
-    """
-    if strat['name'] != "Overbot Vol Spike":
-        return None
-
-    signal_close = primary_signal['Entry']
-    atr = primary_signal['ATR']
-
-    # LOC threshold: fill if T+1 close > signal close
-    loc_threshold = signal_close
-
-    # Use override risk if provided (ladder sizing), otherwise match primary
-    risk = override_risk if override_risk is not None else primary_signal['Risk_Amt']
-    
-    # For LOC, estimate entry at threshold for sizing
-    direction = "Short"
-    stop_atr = strat['execution']['stop_atr']
-    dist = atr * stop_atr
-    shares = int(risk / dist) if dist > 0 else 0
-    
-    if shares == 0:
-        return None
-    
-    # Calculate exit date (same hold period as primary)
-    hold_days = strat['execution']['hold_days']
-    effective_entry_date = last_row.name + TRADING_DAY  # T+1 close entry
-    exit_date = (effective_entry_date + (TRADING_DAY * hold_days)).date()
-    
-    # Stop/target from threshold price
-    stop_price = loc_threshold + (atr * stop_atr)
-    tgt_atr = strat['execution']['tgt_atr']
-    tgt_price = loc_threshold - (atr * tgt_atr)
-    
-    # Build sizing notes — if override (ladder path) note the flat LOC rate
-    if override_risk is not None:
-        loc_mult = strat['execution'].get('loc_companion_multiplier', 1.0)
-        sizing_notes = f"LOC Companion — flat {loc_mult:.2f}x base (${risk:.0f})"
-    else:
-        sizing_notes = primary_signal['Sizing_Notes'] + " | LOC Companion"
-    
-    return {
-        "Strategy_ID": strat['id'] + " (LOC Add)",
-        "Strategy_Name": "Vol Spike LOC Add",
-        "Ticker": primary_signal['Ticker'],
-        "Date": primary_signal['Date'],
-        "Action": "SELL SHORT",
-        "Shares": shares,
-        "Risk_Amt": risk,
-        "Sizing_Notes": sizing_notes,
-        "Stats": primary_signal['Stats'],
-        "Entry": loc_threshold,  # Threshold price (actual fill at close)
-        "Stop": stop_price,
-        "Target": tgt_price,
-        "Time Exit": exit_date,
-        "ATR": atr,
-        # Execution context - LOC specific
-        "Entry_Type": "LOC (Limit-on-Close)",
-        "Entry_Type_Short": f"LOC >${loc_threshold:.2f}",
-        "Limit_Price": loc_threshold,
-        "Notional": shares * loc_threshold,
-        "Days_To_Exit": hold_days,
-        "Use_Stop": strat['execution'].get('use_stop_loss', False),
-        "Use_Target": strat['execution'].get('use_take_profit', False),
-        # Setup context
-        "Setup_Type": "MeanReversion",
-        "Setup_Timeframe": "Overnight",
-        "Setup_Thesis": "Vol Spike ran higher — catching extended move at close",
-        "Setup_Filters": ["Same conditions as Vol Spike",
-                          f"T+1 Close > ${loc_threshold:.2f} (Signal Close)"],
-        "Live_Filters": [("T+1 Close must exceed", f"${loc_threshold:.2f}", False)],
-        "Exit_Primary": f"{hold_days}-day time stop",
-        "Exit_Stop": strat.get('exit_summary', {}).get('stop_logic', ''),
-        "Exit_Target": strat.get('exit_summary', {}).get('target_logic', ''),
-        "Exit_Notes": "Companion to Vol Spike — only fills if price kept running",
-        "Sizing_Variable": primary_signal.get('Sizing_Variable'),
-        # Internal flags
-        "_is_companion": True,
-        "_parent_strategy": "Overbot Vol Spike"
-    }
-
-
 def generate_oversold_lv_companion(primary_signal, strat, last_row, override_risk=None):
     """
     Generates a companion LOC (Limit-on-Close) order for Oversold Low Volume.
@@ -2167,14 +2072,7 @@ def run_daily_scan():
                         "Sizing_Variable": get_sizing_variable(strat['name'], last_row)
                     }
                     
-                    if strat['name'] == "Overbot Vol Spike":
-                        signals.append(signal_dict)
-                        companion = generate_vol_spike_companion(
-                            signal_dict, strat, last_row, override_risk=companion_risk_override
-                        )
-                        if companion:
-                            signals.append(companion)
-                    elif strat['name'] == "Oversold Low Volume":
+                    if strat['name'] == "Oversold Low Volume":
                         signals.append(signal_dict)
                         companion = generate_oversold_lv_companion(
                             signal_dict, strat, last_row, override_risk=companion_risk_override

@@ -73,7 +73,7 @@ for _s in STRATEGY_BOOK:
 from daily_scan import (
     check_signal, load_seasonal_map,
     get_entry_type_short, get_sizing_variable, build_live_filters,
-    generate_oversold_lv_companion, generate_vol_spike_companion,
+    generate_oversold_lv_companion,
     load_olv_cooldown, load_open_position_counts,
     OLV_STRATEGY_NAME, OLV_COOLDOWN_DAYS,
     load_atr_seasonal_map, ATR_SZNL_COLS,
@@ -1152,10 +1152,6 @@ def run_overflow_scan(dry_run=False, force_rebuild=False):
 
                     if strat_name == OLV_STRATEGY_NAME:
                         companion = generate_oversold_lv_companion(signal_dict, strat, last_row, override_risk=companion_risk_override)
-                        if companion:
-                            signals.append(companion)
-                    elif strat_name == "Overbot Vol Spike":
-                        companion = generate_vol_spike_companion(signal_dict, strat, last_row, override_risk=companion_risk_override)
                         if companion:
                             signals.append(companion)
 
