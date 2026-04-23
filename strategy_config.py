@@ -601,33 +601,30 @@ _STRATEGY_BOOK_RAW = [
         "stats": {"grade": "A (Excellent)", "win_rate": "69.0%", "expectancy": "0.48r", "profit_factor": "2.82"}
     },
     {
-        "id": "2+5+10+21d > 85, 126d<65, 252d<65, >0 dist day, sell open +0.5 atr",
+        "id": "2+5+10+21d > 85, >0 dist day, sell open +0.75 atr, 2 ATR tgt",
         "name": "Overbot Vol Spike",
         "setup": {
             "type": "MeanReversion",
             "timeframe": "Overnight",
-            "thesis": "Fading overbought names that are NOT long-term leaders — pure multi-horizon overbought fade (no volume or range requirement)",
+            "thesis": "Fading multi-horizon overbought names — pure short-term overbought fade (no long-term-leader filter, no seasonal gate)",
             "key_filters": [
                 "2D + 5D + 10D + 21D ranks ALL > 85th %ile (extremely overbought)",
                 "21D > 85th %ile for 3 consecutive days",
-                "126D return < 65th %ile (not a medium-term leader)",
-                "252D return < 65th %ile (not a long-term leader)",
                 "At least 1 distribution day in last 21",
-                "Market seasonal < 75 (not fighting strong macro)",
                 "Today's return > 0.25 ATR (up day)"
             ]
         },
         "exit_summary": {
-            "primary_exit": "2-day time stop",
-            "stop_logic": "1.0 ATR above entry (short)",
-            "target_logic": "8.0 ATR below entry (short)",
-            "notes": "Primary + LOC always staged together"
+            "primary_exit": "2-day time stop OR 2.0 ATR target (whichever first)",
+            "stop_logic": "None (time/target exit only)",
+            "target_logic": "2.0 ATR below entry (short)",
+            "notes": "Primary + LOC always staged together. Target reduced from 8 ATR → 2 ATR per path-analysis give-back profile."
         },
-        "description": "Start: 2000-01-01. Universe: All CSV Tickers. Dir: Short. Pure multi-horizon overbought fade (no volume/range filter).",
+        "description": "Start: 2000-01-01. Universe: LIQUID_PLUS_COMMODITIES. Dir: Short. Pure multi-horizon overbought fade, no 126d/252d leader filter, no market seasonal filter.",
         "universe_tickers": LIQUID_PLUS_COMMODITIES,
         "settings": {
             "trade_direction": "Short",
-            "entry_type": "Limit (Open +/- 0.5 ATR)",
+            "entry_type": "Limit (Open +/- 0.75 ATR)",
             "max_one_pos": False,
             "allow_same_day_reentry": True,
             "max_daily_entries": 2,
@@ -637,12 +634,10 @@ _STRATEGY_BOOK_RAW = [
                 {'window': 5, 'logic': '>', 'thresh': 85.0, 'consecutive': 1},
                 {'window': 10, 'logic': '>', 'thresh': 85.0, 'consecutive': 1},
                 {'window': 21, 'logic': '>', 'thresh': 85.0, 'consecutive': 3},
-                {'window': 126, 'logic': '<', 'thresh': 65.0, 'consecutive': 1},
-                {'window': 252, 'logic': '<', 'thresh': 65.0, 'consecutive': 1},
             ],
             "perf_first_instance": False, "perf_lookback": 21,
             "use_sznl": False, "sznl_logic": ">", "sznl_thresh": 85.0, "sznl_first_instance": False, "sznl_lookback": 21,
-            "use_market_sznl": True, "market_sznl_logic": "<", "market_sznl_thresh": 75.0,
+            "use_market_sznl": False, "market_sznl_logic": "<", "market_sznl_thresh": 75.0,
             "market_ticker": "^GSPC",
             "use_52w": False, "52w_type": "New 52w High", "52w_first_instance": True, "52w_lookback": 21,
             "use_vol": False, "vol_thresh": 1.25,
@@ -660,7 +655,7 @@ _STRATEGY_BOOK_RAW = [
             "use_dist_count_filter": True, "dist_count_window": 21, "dist_count_logic": ">", "dist_count_thresh": 0,
             "use_xsec_filter": True, "xsec_filters": []
         },
-        "execution": {"risk_bps": 25, "slippage_bps": 2, "stop_atr": 1.0, "tgt_atr": 8.0, "hold_days": 2,"use_stop_loss": False, "use_take_profit": False,
+        "execution": {"risk_bps": 25, "slippage_bps": 2, "stop_atr": 1.0, "tgt_atr": 2.0, "hold_days": 2,"use_stop_loss": False, "use_take_profit": True,
                       "ladder_multipliers": [0.85, 1.00, 1.15], "loc_companion_multiplier": 0.85},
         "stats": {"grade": "A (Excellent)", "win_rate": "58.0%", "expectancy": "0.28r", "profit_factor": "1.96"}
     },
