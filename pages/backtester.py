@@ -1532,11 +1532,12 @@ def main():
     st.subheader("1. Universe & Data")
     col_u1, col_u2, col_u3 = st.columns([1, 1, 2])
     sample_pct = 100; use_full_history = False
-    with col_u1: univ_choice = st.selectbox("Choose Universe", ["All CSV Tickers", "Sector ETFs","SPX", "Indices", "International ETFs", "Sector + Index ETFs", "All CSV (Equities Only)", "3x Leveraged (All)", "3x Leveraged Equities", "3x Leveraged Equities (Bull)", "3x Leveraged Equities (Bear)", "3x Leveraged Equities (Broad Only)", "Custom (Upload CSV)"])
+    with col_u1: univ_choice = st.selectbox("Choose Universe", ["All CSV Tickers", "All CSV + Overflow Extras", "Sector ETFs","SPX", "Indices", "International ETFs", "Sector + Index ETFs", "All CSV (Equities Only)", "3x Leveraged (All)", "3x Leveraged Equities", "3x Leveraged Equities (Bull)", "3x Leveraged Equities (Bear)", "3x Leveraged Equities (Broad Only)", "Custom (Upload CSV)"])
     with col_u2:
         default_start = datetime.date(2000, 1, 1)
         start_date = st.date_input("Backtest Start Date", value=default_start, min_value=datetime.date(1950, 1, 1), max_value=datetime.date.today())
     custom_tickers = []
+    extras_tickers = []
     if univ_choice == "Custom (Upload CSV)":
         with col_u3:
             sample_pct = st.slider("Random Sample %", 1, 100, 100)
@@ -1550,6 +1551,42 @@ def main():
                         custom_tickers = c_df["Ticker"].unique().tolist()
                         if len(custom_tickers) > 0: st.success(f"Loaded {len(custom_tickers)} valid tickers.")
                 except: st.error("Invalid CSV.")
+    elif univ_choice == "All CSV + Overflow Extras":
+        with col_u3:
+            ex_c1, ex_c2 = st.columns([2, 1])
+            with ex_c1:
+                n_extras = st.number_input(
+                    "# Random extras from overflow pool", min_value=0, max_value=2000,
+                    value=300, step=50, key="n_overflow_extras",
+                    help="Randomly drawn from sznl_ranks.csv (overflow universe), excluding tickers already in the All CSV base. Sample persists across backtests in this session so the cache stays warm — click Reshuffle to regenerate.",
+                )
+            with ex_c2:
+                reshuffle = st.button("🎲 Reshuffle", help="Generate a new random sample from the overflow pool")
+
+            # Build / refresh the sample. Cached in session_state so repeated backtests
+            # hit the same ticker list (and thus the same @st.cache_data key).
+            _regen = (
+                reshuffle
+                or 'overflow_extras_sample' not in st.session_state
+                or st.session_state.get('_overflow_n') != n_extras
+            )
+            if _regen:
+                try:
+                    _of_df = pd.read_csv("sznl_ranks.csv")
+                    _of_pool = [str(t).strip().upper() for t in _of_df['ticker'].dropna().unique().tolist()]
+                    _base_keys = set(load_seasonal_map().keys())
+                    _of_pool = [t for t in _of_pool if t and t not in _base_keys and t not in {"NAN", "NONE", "NULL"}]
+                    if n_extras == 0 or n_extras >= len(_of_pool):
+                        st.session_state.overflow_extras_sample = sorted(_of_pool)
+                    else:
+                        st.session_state.overflow_extras_sample = sorted(random.sample(_of_pool, n_extras))
+                    st.session_state._overflow_n = n_extras
+                except Exception as e:
+                    st.error(f"Couldn't read sznl_ranks.csv: {e}")
+                    st.session_state.overflow_extras_sample = []
+            extras_tickers = st.session_state.get('overflow_extras_sample', [])
+            if extras_tickers:
+                st.success(f"Sample: {len(extras_tickers)} extras (pinned for this session — reshuffle resets)")
     st.write("")
     use_full_history = st.checkbox("Download Full History (1950+) for Accurate 'Age'", value=False)
     st.markdown("---")
@@ -2051,6 +2088,13 @@ def main():
         elif univ_choice == "International ETFs": tickers_to_run = INTERNATIONAL_ETFS
         elif univ_choice == "Sector + Index ETFs": tickers_to_run = list(set(SECTOR_ETFS + INDEX_ETFS))
         elif univ_choice == "All CSV Tickers": tickers_to_run = [t for t in list(sznl_map.keys())]
+        elif univ_choice == "All CSV + Overflow Extras":
+            _base = [t for t in list(sznl_map.keys())]
+            _base_set = set(_base)
+            _new_extras = [t for t in extras_tickers if t not in _base_set]
+            tickers_to_run = _base + _new_extras
+            if extras_tickers:
+                st.info(f"Universe: {len(_base)} base (All CSV) + {len(_new_extras)} overflow extras = **{len(tickers_to_run)}** total")
         elif univ_choice == "All CSV (Equities Only)": tickers_to_run = [t for t in list(sznl_map.keys()) if t not in ["BTC-USD", "ETH-USD", "SLV", "GLD", "USO", "UVXY", "CEF", "UNG", "XOP"] + SECTOR_ETFS + INDEX_ETFS + INTERNATIONAL_ETFS + SPX]
         elif univ_choice == "3x Leveraged (All)": tickers_to_run = LEV3X_ALL
         elif univ_choice == "3x Leveraged Equities": tickers_to_run = LEV3X_EQUITY_ALL
@@ -2064,8 +2108,16 @@ def main():
             st.info(f"Randomly selected {len(tickers_to_run)} tickers.")
         if not tickers_to_run: st.error("No tickers found."); return
         fetch_start = "1950-01-01" if use_full_history else start_date - datetime.timedelta(days=365)
-        st.info(f"Downloading data ({len(tickers_to_run)} tickers)...")
-        data_dict = download_universe_data(tickers_to_run, fetch_start)
+        # Split download: in hybrid mode, fetch base and extras separately so the 1k-ticker
+        # base keeps its cache key across different extras uploads (only the delta re-fetches).
+        if univ_choice == "All CSV + Overflow Extras" and extras_tickers:
+            st.info(f"Downloading base ({len(_base)}, cached) + extras ({len(_new_extras)} new)...")
+            base_data = download_universe_data(_base, fetch_start)
+            extras_data = download_universe_data(_new_extras, fetch_start) if _new_extras else {}
+            data_dict = {**base_data, **extras_data}
+        else:
+            st.info(f"Downloading data ({len(tickers_to_run)} tickers)...")
+            data_dict = download_universe_data(tickers_to_run, fetch_start)
         if not data_dict: return
         market_series, market_sznl_series = None, None
         need_market_data = ("Market" in trend_filter) or use_market_sznl
