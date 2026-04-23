@@ -122,60 +122,178 @@ def build_xsec_rank_matrices(data_dict, windows=[5, 10, 21]):
         result[w] = mat.rank(axis=1, pct=True) * 100.0
     return result
 
-def build_mtm_equity_curve(trades_df, data_dict, risk_per_trade):
-    """Build a daily mark-to-market equity curve from executed trades.
+def build_mtm_curves(trades_df, data_dict, starting_equity, risk_bps, mode='flat'):
+    """Build daily MTM equity curves with intraday H/L envelopes.
 
-    For each trade, looks up daily closes between entry and exit from data_dict
-    and computes daily unrealized P&L. Aggregates across all concurrent positions
-    to produce a continuous equity curve.
+    Chronologically walks trades in EntryDate order, sizing each at either a
+    flat fraction of starting_equity or a dynamic fraction of running equity.
+    For each day, computes the aggregate close-based equity and the best/worst
+    intraday equity bounds using daily H/L of every open position.
 
-    Returns a date-indexed Series of cumulative portfolio P&L in dollars.
+    Returns a DataFrame indexed by Date with columns:
+        Equity_Close, Equity_High, Equity_Low, InMarket (bool)
     """
-    daily_pnl = {}  # date -> total unrealized + realized P&L change
+    if trades_df.empty:
+        return pd.DataFrame(columns=['Equity_Close', 'Equity_High', 'Equity_Low', 'InMarket'])
 
-    for _, trade in trades_df.iterrows():
-        ticker = trade['Ticker']
-        if ticker not in data_dict:
+    trades = trades_df.copy()
+    trades['EntryDate'] = pd.to_datetime(trades['EntryDate'])
+    trades['ExitDate']  = pd.to_datetime(trades['ExitDate'])
+    trades = trades[trades['Ticker'].isin(data_dict.keys())].sort_values('EntryDate').reset_index(drop=True)
+    if trades.empty:
+        return pd.DataFrame(columns=['Equity_Close', 'Equity_High', 'Equity_Low', 'InMarket'])
+
+    # Pre-slice OHLC for each trade's holding period; override exit-day close with
+    # the realized exit price so stop/target fills are honored.
+    trade_prices = {}
+    for idx, tr in trades.iterrows():
+        df = data_dict[tr['Ticker']]
+        mask = (df.index >= tr['EntryDate']) & (df.index <= tr['ExitDate'])
+        sub = df.loc[mask, ['Open', 'High', 'Low', 'Close']].copy() if all(c in df.columns for c in ['Open','High','Low','Close']) else None
+        if sub is None or sub.empty:
+            trade_prices[idx] = None
             continue
-        ticker_df = data_dict[ticker]
-        entry_date = pd.to_datetime(trade['EntryDate'])
-        exit_date = pd.to_datetime(trade['ExitDate'])
-        entry_price = trade['Entry']
-        exit_price = trade['Exit']
-        direction = trade['Direction']
-        tech_risk = trade['TechRisk']
-        shares = risk_per_trade / tech_risk if tech_risk > 0 else 0
-        if shares == 0:
-            continue
+        exit_dt = tr['ExitDate']
+        if exit_dt in sub.index:
+            sub.loc[exit_dt, 'Close'] = tr['Exit']
+            if tr['Exit'] > sub.loc[exit_dt, 'High']: sub.loc[exit_dt, 'High'] = tr['Exit']
+            if tr['Exit'] < sub.loc[exit_dt, 'Low']:  sub.loc[exit_dt, 'Low']  = tr['Exit']
+        trade_prices[idx] = sub
 
-        # Get closes during the holding period
-        mask = (ticker_df.index >= entry_date) & (ticker_df.index <= exit_date)
-        holding = ticker_df.loc[mask, 'Close']
-        if holding.empty:
-            continue
+    # Build calendar from all trading days spanned by any position
+    all_dates = set()
+    for sub in trade_prices.values():
+        if sub is not None:
+            all_dates.update(sub.index)
+    if not all_dates:
+        return pd.DataFrame(columns=['Equity_Close', 'Equity_High', 'Equity_Low', 'InMarket'])
+    all_dates = sorted(all_dates)
 
-        # Daily unrealized P&L vs entry
-        prev_val = 0.0
-        for date, close in holding.items():
-            # On exit date, use actual exit price (may differ from close for stop/target)
-            if date == exit_date:
-                px = exit_price
-            else:
-                px = close
-            if direction == 'Long':
-                unrealized = (px - entry_price) * shares
-            else:
-                unrealized = (entry_price - px) * shares
-            # Daily change in this position's value
-            change = unrealized - prev_val
-            daily_pnl[date] = daily_pnl.get(date, 0.0) + change
-            prev_val = unrealized
+    entries_by_date = {}
+    for idx, tr in trades.iterrows():
+        entries_by_date.setdefault(tr['EntryDate'], []).append(idx)
 
-    if not daily_pnl:
-        return pd.Series(dtype=float)
+    flat_risk_dollars = starting_equity * risk_bps / 10000.0
+    equity = float(starting_equity)
 
-    pnl_series = pd.Series(daily_pnl).sort_index()
-    return pnl_series.cumsum()
+    eq_close, eq_high, eq_low, in_mkt = [], [], [], []
+    active = {}  # idx -> {'shares','entry_price','direction','prev_close_val'}
+
+    for date in all_dates:
+        # 1. Open today's new trades, sized against equity at prior close
+        for idx in entries_by_date.get(date, []):
+            sub = trade_prices.get(idx)
+            if sub is None or sub.empty:
+                continue
+            tr = trades.iloc[idx]
+            tech_risk = tr['TechRisk']
+            if not (tech_risk and tech_risk > 0):
+                continue
+            risk_dollars = flat_risk_dollars if mode == 'flat' else equity * risk_bps / 10000.0
+            shares = risk_dollars / tech_risk
+            if shares <= 0:
+                continue
+            active[idx] = {
+                'shares': shares,
+                'entry_price': tr['Entry'],
+                'direction': tr['Direction'],
+                'prev_close_val': 0.0,
+            }
+
+        # 2. Walk each active position and accumulate daily P&L deltas
+        chg_close, chg_best, chg_worst = 0.0, 0.0, 0.0
+        closing_today = []
+        for idx, pos in active.items():
+            sub = trade_prices[idx]
+            if date not in sub.index:
+                continue
+            c = sub.at[date, 'Close']
+            h = sub.at[date, 'High']
+            l = sub.at[date, 'Low']
+            if pos['direction'] == 'Long':
+                val_c = (c - pos['entry_price']) * pos['shares']
+                val_h = (h - pos['entry_price']) * pos['shares']
+                val_l = (l - pos['entry_price']) * pos['shares']
+            else:  # Short
+                val_c = (pos['entry_price'] - c) * pos['shares']
+                val_h = (pos['entry_price'] - l) * pos['shares']  # best case short = low print
+                val_l = (pos['entry_price'] - h) * pos['shares']  # worst case short = high print
+            prev = pos['prev_close_val']
+            chg_close += (val_c - prev)
+            chg_best  += (val_h - prev)
+            chg_worst += (val_l - prev)
+            pos['prev_close_val'] = val_c
+            if date >= trades.iloc[idx]['ExitDate']:
+                closing_today.append(idx)
+
+        start_of_day = equity
+        equity += chg_close
+        eq_close.append(equity)
+        eq_high.append(start_of_day + chg_best)
+        eq_low.append(start_of_day + chg_worst)
+        in_mkt.append(len(active) > 0)
+
+        for idx in closing_today:
+            del active[idx]
+
+    return pd.DataFrame(
+        {'Equity_Close': eq_close, 'Equity_High': eq_high, 'Equity_Low': eq_low, 'InMarket': in_mkt},
+        index=pd.DatetimeIndex(all_dates, name='Date'),
+    )
+
+
+def compute_portfolio_stats(equity_df, starting_equity):
+    """Portfolio-level stats from an MTM equity curve with H/L envelope.
+
+    Uses close-to-close daily returns for Sharpe/Sortino, Parkinson estimator
+    on daily H/L for annualized vol (captures intraday swings), and
+    peak-to-trough Close for max drawdown.
+    """
+    empty = {'CAGR_Pct': 0, 'TotalReturn_Pct': 0, 'MaxDD_Pct': 0, 'Sharpe': 0,
+             'Sortino': 0, 'Calmar': 0, 'ParkinsonVol_Pct': 0,
+             'TimeInMarket_Pct': 0, 'FinalEquity': starting_equity}
+    if equity_df.empty or len(equity_df) < 2:
+        return empty
+
+    close = equity_df['Equity_Close']
+    high = equity_df['Equity_High']
+    low = equity_df['Equity_Low']
+
+    years = max((equity_df.index[-1] - equity_df.index[0]).days / 365.25, 1e-9)
+    total_ret = close.iloc[-1] / starting_equity
+    cagr = (total_ret ** (1 / years) - 1) * 100 if total_ret > 0 else -100
+
+    peak = close.cummax()
+    max_dd = ((close - peak) / peak).min() * 100
+
+    daily_ret = close.pct_change().dropna()
+    sharpe = (daily_ret.mean() / daily_ret.std() * np.sqrt(252)) if daily_ret.std() > 0 else 0
+    downside = daily_ret[daily_ret < 0]
+    sortino = (daily_ret.mean() / downside.std() * np.sqrt(252)) if len(downside) > 1 and downside.std() > 0 else 0
+
+    # Parkinson vol from aggregate daily H/L envelope of the equity curve itself
+    valid = (high > 0) & (low > 0) & (high >= low)
+    if valid.any():
+        log_hl = np.log(high[valid] / low[valid])
+        park_daily = np.sqrt((1.0 / (4 * np.log(2))) * (log_hl ** 2).mean())
+        park_annual = park_daily * np.sqrt(252) * 100
+    else:
+        park_annual = 0
+
+    calmar = (cagr / abs(max_dd)) if max_dd != 0 else 0
+    tim_pct = equity_df['InMarket'].sum() / len(equity_df) * 100 if 'InMarket' in equity_df.columns else 0
+
+    return {
+        'CAGR_Pct': cagr,
+        'TotalReturn_Pct': (total_ret - 1) * 100,
+        'MaxDD_Pct': max_dd,
+        'Sharpe': sharpe,
+        'Sortino': sortino,
+        'Calmar': calmar,
+        'ParkinsonVol_Pct': park_annual,
+        'TimeInMarket_Pct': tim_pct,
+        'FinalEquity': close.iloc[-1],
+    }
 
 @st.cache_data(show_spinner=True)
 def download_universe_data(tickers, fetch_start_date):
@@ -1390,7 +1508,11 @@ def main():
     with c2: stop_atr = st.number_input("Stop Loss (ATR)", value=1.0, step=0.1, disabled=not use_stop_loss)
     with c3: tgt_atr = st.number_input("Target (ATR)", value=8.0, step=0.1, disabled=not use_take_profit)
     with c4: hold_days = st.number_input("Max Holding Days", min_value=1, value=10, step=1)
-    with c5: risk_per_trade = st.number_input("Risk Amount ($)", value=1000, step=100)
+    with c5:
+        starting_portfolio = st.number_input("Starting Portfolio ($)", value=100000, step=1000, min_value=100)
+        risk_bps_input = st.number_input("Risk per Trade (bps)", value=25, step=5, min_value=1, max_value=500,
+                                         help="Basis points of starting portfolio risked per trade. 25 bps on $100k = $250/trade.")
+    risk_per_trade = starting_portfolio * risk_bps_input / 10000.0
 
     # --- Partial exits: scale out at target, let remainder ride ---
     with st.expander("Partial Exits (scale out at target)", expanded=False):
@@ -1961,8 +2083,10 @@ def main():
             trades_df = trades_df.sort_values("ExitDate")
             trades_df['PnL_Dollar'] = trades_df['R'] * risk_per_trade
             trades_df['CumPnL'] = trades_df['PnL_Dollar'].cumsum()
-            # Build daily MTM equity curve before dates get stringified
-            mtm_curve = build_mtm_equity_curve(trades_df, data_dict, risk_per_trade)
+            # Build MTM curves (flat + dynamic) before dates get stringified
+            mtm_flat = build_mtm_curves(trades_df, data_dict, starting_portfolio, risk_bps_input, mode='flat')
+            mtm_dyn  = build_mtm_curves(trades_df, data_dict, starting_portfolio, risk_bps_input, mode='dynamic')
+            portfolio_stats = compute_portfolio_stats(mtm_dyn, starting_portfolio)
             trades_df['SignalDate'] = pd.to_datetime(trades_df['SignalDate'])
             trades_df['EntryDate'] = pd.to_datetime(trades_df['EntryDate'])
             trades_df['DayOfWeek'] = trades_df['EntryDate'].dt.day_name()
@@ -2013,20 +2137,28 @@ def main():
                 st.code(py_code, language="python")
                 st.download_button("Download as Python", py_code, file_name="strategy_export.py", mime="text/x-python")
         if not trades_df.empty:
-            if not mtm_curve.empty:
-                mtm_df = mtm_curve.reset_index()
-                mtm_df.columns = ['Date', 'CumPnL']
-                fig = px.line(mtm_df, x="Date", y="CumPnL", title=f"Daily Mark-to-Market Equity (Risk: ${risk_per_trade}/trade)")
-                fig.update_traces(line=dict(width=1.5))
-                # Overlay trade-exit markers
-                exit_points = trades_df[['ExitDate', 'CumPnL']].copy()
-                exit_points['ExitDate'] = pd.to_datetime(exit_points['ExitDate'])
-                fig.add_scatter(x=exit_points['ExitDate'], y=exit_points['CumPnL'], mode='markers',
-                                marker=dict(size=5, color='rgba(255,255,255,0.4)'), name='Trade Exits', showlegend=False)
-            else:
-                fig = px.line(trades_df, x="ExitDate", y="CumPnL", title=f"Portfolio Equity (Risk: ${risk_per_trade}/trade)", markers=True)
-            st.plotly_chart(fig, use_container_width=True)
-            st.subheader("Performance Breakdowns")
+            def _mtm_fig(df, title):
+                d = df.reset_index()
+                fig = go.Figure()
+                fig.add_trace(go.Scatter(x=d['Date'], y=d['Equity_High'], mode='lines',
+                                         line=dict(width=0), hoverinfo='skip', showlegend=False))
+                fig.add_trace(go.Scatter(x=d['Date'], y=d['Equity_Low'], mode='lines',
+                                         line=dict(width=0), fill='tonexty',
+                                         fillcolor='rgba(100,149,237,0.18)',
+                                         name='Intraday H/L band', hoverinfo='skip'))
+                fig.add_trace(go.Scatter(x=d['Date'], y=d['Equity_Close'], mode='lines',
+                                         line=dict(width=1.8, color='rgb(100,149,237)'),
+                                         name='Close MTM'))
+                fig.update_layout(title=title, yaxis_title='Equity ($)', xaxis_title='Date',
+                                  hovermode='x unified', height=420, margin=dict(t=50, b=40, l=40, r=20))
+                return fig
+
+            # ========== SECTION 1: FLAT STAKING ==========
+            st.subheader(f"Flat Staking — ${risk_per_trade:,.0f} per trade ({risk_bps_input} bps of ${starting_portfolio:,})")
+            if not mtm_flat.empty:
+                st.plotly_chart(_mtm_fig(mtm_flat, "Mark-to-Market Equity — Flat Risk"), use_container_width=True)
+
+            st.subheader("Performance Breakdowns (Trade-level, Flat Risk)")
             y1, y2 = st.columns(2)
             y1.plotly_chart(px.bar(trades_df.groupby('Year')['PnL_Dollar'].sum().reset_index(), x='Year', y='PnL_Dollar', title="Net Profit ($) by Year", text_auto='.2s'), use_container_width=True)
             trades_per_year = trades_df.groupby('Year').size().reset_index(name='Count')
@@ -2042,6 +2174,35 @@ def main():
             ticker_pnl = trades_df.groupby("Ticker")["PnL_Dollar"].sum().reset_index()
             ticker_pnl = ticker_pnl.sort_values("PnL_Dollar", ascending=False).head(75)
             st.plotly_chart(px.bar(ticker_pnl, x="Ticker", y="PnL_Dollar", title="Cumulative PnL by Ticker (Top 75)", text_auto='.2s'), use_container_width=True)
+
+            # ========== SECTION 2: DYNAMIC SIZING (COMPOUNDING) ==========
+            st.markdown("---")
+            st.subheader(f"Dynamic Sizing — {risk_bps_input} bps of running equity (starting ${starting_portfolio:,})")
+            if not mtm_dyn.empty:
+                st.plotly_chart(_mtm_fig(mtm_dyn, "Mark-to-Market Equity — Dynamic Risk (Compounded)"), use_container_width=True)
+
+                ps = portfolio_stats
+                dd_color = '#00ff00' if ps['MaxDD_Pct'] > -15 else '#ffaa00' if ps['MaxDD_Pct'] > -30 else '#ff0000'
+                sh_color = '#00ff00' if ps['Sharpe'] >= 1.0 else '#ffaa00' if ps['Sharpe'] >= 0.5 else '#ff0000'
+                st.markdown(f"""
+                <div style="background-color: #0e1117; padding: 20px; border-radius: 10px; border: 1px solid #444; margin-top: 10px;">
+                    <h3 style="margin-top:0; color:#ffffff;">Portfolio Stats (Dynamic, MTM)</h3>
+                    <div style="display: flex; flex-wrap: wrap; gap: 24px;">
+                        <div><strong>Final Equity:</strong> ${ps['FinalEquity']:,.0f}</div>
+                        <div><strong>Total Return:</strong> {ps['TotalReturn_Pct']:.1f}%</div>
+                        <div><strong>CAGR:</strong> {ps['CAGR_Pct']:.2f}%</div>
+                        <div><strong style="color:{dd_color};">Max Drawdown:</strong> {ps['MaxDD_Pct']:.2f}%</div>
+                        <div><strong style="color:{sh_color};">Sharpe:</strong> {ps['Sharpe']:.2f}</div>
+                        <div><strong>Sortino:</strong> {ps['Sortino']:.2f}</div>
+                        <div><strong>Calmar:</strong> {ps['Calmar']:.2f}</div>
+                        <div><strong>Parkinson Vol (ann.):</strong> {ps['ParkinsonVol_Pct']:.2f}%</div>
+                        <div><strong>Time in Market:</strong> {ps['TimeInMarket_Pct']:.1f}%</div>
+                    </div>
+                    <div style="margin-top: 10px; color:#aaa; font-size: 13px;">
+                        Sharpe/Sortino use close-to-close daily returns (annualized). Parkinson vol uses daily high/low of the aggregate equity envelope — captures intraday swings, ~4× more efficient than close-to-close vol.
+                    </div>
+                </div>
+                """, unsafe_allow_html=True)
         st.subheader("Trade Logs")
         tab1, tab2 = st.tabs(["Executed Trades", "Missed Trades"])
         with tab1:
