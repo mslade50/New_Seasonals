@@ -248,16 +248,21 @@ def build_mtm_curves(trades_df, data_dict, starting_equity, risk_bps, mode='flat
     )
 
 
-def compute_portfolio_stats(equity_df, starting_equity):
+def compute_portfolio_stats(equity_df, starting_equity, risk_bps=None, trades_df=None):
     """Portfolio-level stats from an MTM equity curve with H/L envelope.
 
     Uses close-to-close daily returns for Sharpe/Sortino, Parkinson estimator
     on daily H/L for annualized vol (captures intraday swings), and
-    peak-to-trough Close for max drawdown.
+    peak-to-trough Close for max drawdown. Also reports MaxDD @ Lows which
+    uses the low envelope (worst intraday mark) vs close-based running peak,
+    with R-unit conversion and time-to-recover metrics.
     """
-    empty = {'CAGR_Pct': 0, 'TotalReturn_Pct': 0, 'MaxDD_Pct': 0, 'Sharpe': 0, 'Sharpe_Active': 0,
+    empty = {'CAGR_Pct': 0, 'TotalReturn_Pct': 0, 'MaxDD_Pct': 0, 'MaxDD_Low_Pct': 0,
+             'MaxDD_R': 0, 'MaxDD_Low_R': 0, 'Sharpe': 0, 'Sharpe_Active': 0,
              'Sortino': 0, 'Sortino_Active': 0, 'Calmar': 0, 'ParkinsonVol_Pct': 0,
-             'TimeInMarket_Pct': 0, 'FinalEquity': starting_equity}
+             'TimeInMarket_Pct': 0, 'FinalEquity': starting_equity,
+             'UnderwaterDays': 0, 'TradesDuringDD': None, 'DDStillOngoing': False,
+             'PeakDate': None, 'TroughDate': None, 'RecoveryDate': None}
     if equity_df.empty or len(equity_df) < 2:
         return empty
 
@@ -270,7 +275,51 @@ def compute_portfolio_stats(equity_df, starting_equity):
     cagr = (total_ret ** (1 / years) - 1) * 100 if total_ret > 0 else -100
 
     peak = close.cummax()
-    max_dd = ((close - peak) / peak).min() * 100
+    dd_series = (close - peak) / peak
+    max_dd = dd_series.min() * 100
+
+    # Max DD @ Lows: intraday low vs close-based running peak. More conservative
+    # (deeper) than C-C drawdown — reflects the worst mark you actually saw.
+    dd_low_series = (low - peak) / peak
+    max_dd_low = dd_low_series.min() * 100
+
+    # R-unit conversion: DD_pct / risk_bps_as_pct = # of R. Equivalent to
+    # dd_dollars (at starting-equity basis) / risk-per-trade.
+    if risk_bps and risk_bps > 0:
+        max_dd_R = abs(max_dd) * 100.0 / risk_bps
+        max_dd_low_R = abs(max_dd_low) * 100.0 / risk_bps
+    else:
+        max_dd_R = 0.0
+        max_dd_low_R = 0.0
+
+    # Underwater duration + time-to-recover for the C-C max drawdown
+    peak_date = trough_date = recovery_date = None
+    underwater_days = 0
+    trades_during_dd = None
+    still_underwater = False
+    if dd_series.min() < 0:
+        trough_date = dd_series.idxmin()
+        # Peak date = last date at-or-before trough where close equals its running peak
+        _peak_mask = (equity_df.index <= trough_date) & (close == peak)
+        peak_date = equity_df.index[_peak_mask][-1] if _peak_mask.any() else equity_df.index[0]
+        peak_value = close.loc[peak_date]
+        # Recovery = first date after trough where close reaches back to peak value
+        _post = close.loc[trough_date:]
+        _recov_mask = _post >= peak_value
+        if _recov_mask.any():
+            recovery_date = _post[_recov_mask].index[0]
+            underwater_days = (recovery_date - peak_date).days
+        else:
+            # Still underwater at the end of the backtest
+            still_underwater = True
+            recovery_date = None
+            underwater_days = (equity_df.index[-1] - peak_date).days
+
+        if trades_df is not None and not trades_df.empty and 'EntryDate' in trades_df.columns:
+            _tc = trades_df.copy()
+            _ed = pd.to_datetime(_tc['EntryDate'], errors='coerce')
+            end_cut = recovery_date if recovery_date is not None else equity_df.index[-1]
+            trades_during_dd = int(((_ed >= peak_date) & (_ed <= end_cut)).sum())
 
     daily_ret = close.pct_change().dropna()
     sharpe = (daily_ret.mean() / daily_ret.std() * np.sqrt(252)) if daily_ret.std() > 0 else 0
@@ -310,6 +359,9 @@ def compute_portfolio_stats(equity_df, starting_equity):
         'CAGR_Pct': cagr,
         'TotalReturn_Pct': (total_ret - 1) * 100,
         'MaxDD_Pct': max_dd,
+        'MaxDD_Low_Pct': max_dd_low,
+        'MaxDD_R': max_dd_R,
+        'MaxDD_Low_R': max_dd_low_R,
         'Sharpe': sharpe,
         'Sharpe_Active': sharpe_active,
         'Sortino': sortino,
@@ -318,6 +370,12 @@ def compute_portfolio_stats(equity_df, starting_equity):
         'ParkinsonVol_Pct': park_annual,
         'TimeInMarket_Pct': tim_pct,
         'FinalEquity': close.iloc[-1],
+        'UnderwaterDays': underwater_days,
+        'TradesDuringDD': trades_during_dd,
+        'DDStillOngoing': still_underwater,
+        'PeakDate': peak_date,
+        'TroughDate': trough_date,
+        'RecoveryDate': recovery_date,
     }
 
 
@@ -2247,7 +2305,7 @@ def main():
             # Build MTM curves (flat + dynamic) before dates get stringified
             mtm_flat = build_mtm_curves(trades_df, data_dict, starting_portfolio, risk_bps_input, mode='flat')
             mtm_dyn  = build_mtm_curves(trades_df, data_dict, starting_portfolio, risk_bps_input, mode='dynamic')
-            portfolio_stats = compute_portfolio_stats(mtm_dyn, starting_portfolio)
+            portfolio_stats = compute_portfolio_stats(mtm_dyn, starting_portfolio, risk_bps=risk_bps_input, trades_df=trades_df)
             trades_df = compute_trade_path_stats(trades_df, data_dict)
             trades_df['SignalDate'] = pd.to_datetime(trades_df['SignalDate'])
             trades_df['EntryDate'] = pd.to_datetime(trades_df['EntryDate'])
@@ -2345,8 +2403,23 @@ def main():
 
                 ps = portfolio_stats
                 dd_color = '#00ff00' if ps['MaxDD_Pct'] > -15 else '#ffaa00' if ps['MaxDD_Pct'] > -30 else '#ff0000'
+                dd_low_color = '#00ff00' if ps['MaxDD_Low_Pct'] > -20 else '#ffaa00' if ps['MaxDD_Low_Pct'] > -35 else '#ff0000'
                 sh_color = '#00ff00' if ps['Sharpe'] >= 1.0 else '#ffaa00' if ps['Sharpe'] >= 0.5 else '#ff0000'
                 sha_color = '#00ff00' if ps['Sharpe_Active'] >= 1.0 else '#ffaa00' if ps['Sharpe_Active'] >= 0.5 else '#ff0000'
+
+                # Build underwater / recovery display strings
+                _pd_str = ps['PeakDate'].strftime('%Y-%m-%d') if ps.get('PeakDate') is not None else '—'
+                _td_str = ps['TroughDate'].strftime('%Y-%m-%d') if ps.get('TroughDate') is not None else '—'
+                if ps.get('DDStillOngoing'):
+                    _rd_str = f"<span style='color:#ffaa00;'>still underwater</span>"
+                elif ps.get('RecoveryDate') is not None:
+                    _rd_str = ps['RecoveryDate'].strftime('%Y-%m-%d')
+                else:
+                    _rd_str = '—'
+                _uw_days = ps.get('UnderwaterDays', 0)
+                _uw_trades = ps.get('TradesDuringDD')
+                _uw_trades_str = f"{_uw_trades:,}" if _uw_trades is not None else '—'
+
                 st.markdown(f"""
                 <div style="background-color: #0e1117; padding: 20px; border-radius: 10px; border: 1px solid #444; margin-top: 10px;">
                     <h3 style="margin-top:0; color:#ffffff;">Portfolio Stats (Dynamic, MTM)</h3>
@@ -2354,7 +2427,6 @@ def main():
                         <div><strong>Final Equity:</strong> ${ps['FinalEquity']:,.0f}</div>
                         <div><strong>Total Return:</strong> {ps['TotalReturn_Pct']:.1f}%</div>
                         <div><strong>CAGR:</strong> {ps['CAGR_Pct']:.2f}%</div>
-                        <div><strong style="color:{dd_color};">Max Drawdown:</strong> {ps['MaxDD_Pct']:.2f}%</div>
                         <div><strong>Calmar:</strong> {ps['Calmar']:.2f}</div>
                         <div><strong>Parkinson Vol (ann.):</strong> {ps['ParkinsonVol_Pct']:.2f}%</div>
                         <div><strong>Time in Market:</strong> {ps['TimeInMarket_Pct']:.1f}%</div>
@@ -2369,8 +2441,26 @@ def main():
                             <div><strong style="color:{sha_color};">Sharpe:</strong> {ps['Sharpe_Active']:.2f} &nbsp; <strong>Sortino:</strong> {ps['Sortino_Active']:.2f}</div>
                         </div>
                     </div>
+                    <div style="margin-top: 14px; padding-top: 12px; border-top: 1px dashed #333; display: flex; flex-wrap: wrap; gap: 24px;">
+                        <div>
+                            <div style="color:#aaa; font-size:11px;">MAX DD (close-to-close)</div>
+                            <div><strong style="color:{dd_color};">{ps['MaxDD_Pct']:.2f}%</strong> &nbsp; / &nbsp; <strong>{ps['MaxDD_R']:.1f} R</strong></div>
+                        </div>
+                        <div>
+                            <div style="color:#aaa; font-size:11px;">MAX DD @ LOWS (worst intraday mark)</div>
+                            <div><strong style="color:{dd_low_color};">{ps['MaxDD_Low_Pct']:.2f}%</strong> &nbsp; / &nbsp; <strong>{ps['MaxDD_Low_R']:.1f} R</strong></div>
+                        </div>
+                        <div>
+                            <div style="color:#aaa; font-size:11px;">UNDERWATER</div>
+                            <div><strong>{_uw_days:,}</strong> calendar days &nbsp; / &nbsp; <strong>{_uw_trades_str}</strong> trades</div>
+                        </div>
+                        <div>
+                            <div style="color:#aaa; font-size:11px;">PEAK → TROUGH → RECOVERY</div>
+                            <div style="font-size:13px;">{_pd_str} → {_td_str} → {_rd_str}</div>
+                        </div>
+                    </div>
                     <div style="margin-top: 10px; color:#aaa; font-size: 13px;">
-                        Calendar Sharpe/Sortino use all trading days (idle days = 0 return). Active-period uses only days with an open position — more relevant when this strategy is one block in a multi-strategy book, since idle days get filled by other strategies. Relationship: Sharpe_calendar ≈ Sharpe_active × √(TIM). Parkinson vol uses daily H/L of the aggregate equity envelope, ~4× more efficient than close-to-close vol.
+                        Calendar Sharpe/Sortino use all trading days (idle days = 0 return). Active-period uses only days with an open position — more relevant when this strategy is one block in a multi-strategy book. Relationship: Sharpe_calendar ≈ Sharpe_active × √(TIM). Max DD @ Lows uses the intraday low envelope vs close-based running peak — reflects the worst mark you actually felt. R-units use starting-equity basis: DD_R = |DD_pct| / risk_bps × 100 (so 4% DD at 25 bps = 16 R). Underwater = days & trades between the pre-trough peak and the eventual recovery to new highs.
                     </div>
                 </div>
                 """, unsafe_allow_html=True)
