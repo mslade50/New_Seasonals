@@ -255,8 +255,8 @@ def compute_portfolio_stats(equity_df, starting_equity):
     on daily H/L for annualized vol (captures intraday swings), and
     peak-to-trough Close for max drawdown.
     """
-    empty = {'CAGR_Pct': 0, 'TotalReturn_Pct': 0, 'MaxDD_Pct': 0, 'Sharpe': 0,
-             'Sortino': 0, 'Calmar': 0, 'ParkinsonVol_Pct': 0,
+    empty = {'CAGR_Pct': 0, 'TotalReturn_Pct': 0, 'MaxDD_Pct': 0, 'Sharpe': 0, 'Sharpe_Active': 0,
+             'Sortino': 0, 'Sortino_Active': 0, 'Calmar': 0, 'ParkinsonVol_Pct': 0,
              'TimeInMarket_Pct': 0, 'FinalEquity': starting_equity}
     if equity_df.empty or len(equity_df) < 2:
         return empty
@@ -277,6 +277,23 @@ def compute_portfolio_stats(equity_df, starting_equity):
     downside = daily_ret[daily_ret < 0]
     sortino = (daily_ret.mean() / downside.std() * np.sqrt(252)) if len(downside) > 1 and downside.std() > 0 else 0
 
+    # Active-period Sharpe/Sortino: compute on in-market days only. More relevant
+    # for ensemble-book sizing — answers "what's the quality of returns *when deployed*",
+    # ignoring the cost of idle days (which other strategies in the book will fill).
+    # Relationship: sharpe_calendar ≈ sharpe_active * sqrt(TIM).
+    if 'InMarket' in equity_df.columns:
+        # Align InMarket to daily_ret (both drop first NaN row of pct_change)
+        active_mask = equity_df['InMarket'].iloc[1:].reset_index(drop=True)
+        active_ret = daily_ret.reset_index(drop=True)[active_mask.values]
+        if len(active_ret) > 1 and active_ret.std() > 0:
+            sharpe_active = active_ret.mean() / active_ret.std() * np.sqrt(252)
+            ds_active = active_ret[active_ret < 0]
+            sortino_active = (active_ret.mean() / ds_active.std() * np.sqrt(252)) if len(ds_active) > 1 and ds_active.std() > 0 else 0
+        else:
+            sharpe_active, sortino_active = 0, 0
+    else:
+        sharpe_active, sortino_active = sharpe, sortino
+
     # Parkinson vol from aggregate daily H/L envelope of the equity curve itself
     valid = (high > 0) & (low > 0) & (high >= low)
     if valid.any():
@@ -294,7 +311,9 @@ def compute_portfolio_stats(equity_df, starting_equity):
         'TotalReturn_Pct': (total_ret - 1) * 100,
         'MaxDD_Pct': max_dd,
         'Sharpe': sharpe,
+        'Sharpe_Active': sharpe_active,
         'Sortino': sortino,
+        'Sortino_Active': sortino_active,
         'Calmar': calmar,
         'ParkinsonVol_Pct': park_annual,
         'TimeInMarket_Pct': tim_pct,
@@ -2327,6 +2346,7 @@ def main():
                 ps = portfolio_stats
                 dd_color = '#00ff00' if ps['MaxDD_Pct'] > -15 else '#ffaa00' if ps['MaxDD_Pct'] > -30 else '#ff0000'
                 sh_color = '#00ff00' if ps['Sharpe'] >= 1.0 else '#ffaa00' if ps['Sharpe'] >= 0.5 else '#ff0000'
+                sha_color = '#00ff00' if ps['Sharpe_Active'] >= 1.0 else '#ffaa00' if ps['Sharpe_Active'] >= 0.5 else '#ff0000'
                 st.markdown(f"""
                 <div style="background-color: #0e1117; padding: 20px; border-radius: 10px; border: 1px solid #444; margin-top: 10px;">
                     <h3 style="margin-top:0; color:#ffffff;">Portfolio Stats (Dynamic, MTM)</h3>
@@ -2335,14 +2355,22 @@ def main():
                         <div><strong>Total Return:</strong> {ps['TotalReturn_Pct']:.1f}%</div>
                         <div><strong>CAGR:</strong> {ps['CAGR_Pct']:.2f}%</div>
                         <div><strong style="color:{dd_color};">Max Drawdown:</strong> {ps['MaxDD_Pct']:.2f}%</div>
-                        <div><strong style="color:{sh_color};">Sharpe:</strong> {ps['Sharpe']:.2f}</div>
-                        <div><strong>Sortino:</strong> {ps['Sortino']:.2f}</div>
                         <div><strong>Calmar:</strong> {ps['Calmar']:.2f}</div>
                         <div><strong>Parkinson Vol (ann.):</strong> {ps['ParkinsonVol_Pct']:.2f}%</div>
                         <div><strong>Time in Market:</strong> {ps['TimeInMarket_Pct']:.1f}%</div>
                     </div>
+                    <div style="margin-top: 14px; padding-top: 12px; border-top: 1px dashed #333; display: flex; flex-wrap: wrap; gap: 24px;">
+                        <div>
+                            <div style="color:#aaa; font-size:11px;">CALENDAR (standalone view)</div>
+                            <div><strong style="color:{sh_color};">Sharpe:</strong> {ps['Sharpe']:.2f} &nbsp; <strong>Sortino:</strong> {ps['Sortino']:.2f}</div>
+                        </div>
+                        <div>
+                            <div style="color:#aaa; font-size:11px;">ACTIVE-PERIOD (ensemble-relevant)</div>
+                            <div><strong style="color:{sha_color};">Sharpe:</strong> {ps['Sharpe_Active']:.2f} &nbsp; <strong>Sortino:</strong> {ps['Sortino_Active']:.2f}</div>
+                        </div>
+                    </div>
                     <div style="margin-top: 10px; color:#aaa; font-size: 13px;">
-                        Sharpe/Sortino use close-to-close daily returns (annualized). Parkinson vol uses daily high/low of the aggregate equity envelope — captures intraday swings, ~4× more efficient than close-to-close vol.
+                        Calendar Sharpe/Sortino use all trading days (idle days = 0 return). Active-period uses only days with an open position — more relevant when this strategy is one block in a multi-strategy book, since idle days get filled by other strategies. Relationship: Sharpe_calendar ≈ Sharpe_active × √(TIM). Parkinson vol uses daily H/L of the aggregate equity envelope, ~4× more efficient than close-to-close vol.
                     </div>
                 </div>
                 """, unsafe_allow_html=True)
