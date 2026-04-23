@@ -23,7 +23,6 @@ A quantitative equity trading platform built on Streamlit. Three pillars:
 ├── risk_dashboard_clean_sheet.md   # Risk Dashboard V2 design doc
 ├── pages/                          # Streamlit pages (FLAT — no subfolders)
 │   ├── risk_dashboard_v2.py        # Multi-layer regime monitor (standalone)
-│   ├── screener.py                 # Daily strategy screener
 │   ├── backtester.py               # Strategy backtesting UI
 │   ├── strat_backtester.py         # Extended backtester
 │   ├── heatmaps.py                 # Market heatmap inspector
@@ -79,7 +78,7 @@ sys.path.append(parent_dir)
 
 It may optionally import `SP500_TICKERS` from `abs_return_dispersion.py` (with try/except fallback).
 
-**Strategy modules** (`screener.py`, `strat_backtester.py`, `daily_scan.py`, `daily_portfolio_report.py`) all depend on `strategy_config.py` for `STRATEGY_BOOK` and `ACCOUNT_VALUE`.
+**Strategy modules** (`strat_backtester.py`, `daily_scan.py`, `daily_portfolio_report.py`) all depend on `strategy_config.py` for `STRATEGY_BOOK` and `ACCOUNT_VALUE`.
 
 **daily_portfolio_report.py** imports backtesting logic from `strat_backtester.py`. Both must stay in sync with `daily_scan.py` for signal detection, sizing, and trade processing. `ACCOUNT_VALUE` from `strategy_config.py` is the single source of truth for portfolio sizing across all three.
 

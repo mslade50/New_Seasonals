@@ -50,7 +50,6 @@ The system is designed as a unidirectional pipeline moving from **Research** $\t
     * *Action:* Runs daily (via GitHub Actions or locally).
     * *Logic:* Imports rules from `strategy_config.py` $\to$ Downloads fresh data $\to$ Checks conditions.
     * *Output:* Valid orders are pushed via API to the **Private Google Sheet**.
-* **`pages/screener.py`**: A front-end interface to manually verify the output of `daily_scan.py`.
 
 ---
 
@@ -70,4 +69,4 @@ The system is designed as a unidirectional pipeline moving from **Research** $\t
 * **Streamlit Structure:** This is a multi-page app. The `pages/` directory must remain flat. Do not create sub-folders inside `pages/` as it breaks the sidebar navigation.
 * **Documentation:** Detailed logic for complex modules can be found in the `docs/` directory:
     * [Backtester Logic](docs/backtesting_logic.md)
-    * [Screener & Config Logic](docs/screener_criteria.md)
+    * [Scanner & Config Logic](docs/screener_criteria.md)

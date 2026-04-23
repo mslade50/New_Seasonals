@@ -1,4 +1,4 @@
-# Module: Live Screener & Configuration Logic
+# Module: Daily Scanner & Configuration Logic
 
 ## 📄 File Reference
 * **Configuration:** `strategy_config.py` (The "Brain")
