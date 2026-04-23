@@ -987,6 +987,7 @@ def run_engine(universe_dict, params, sznl_map, market_series=None, vix_series=N
     is_limit_atr = entry_mode == "Limit (Close -0.5 ATR)"
     is_limit_prev = entry_mode == "Limit (Prev Close)"
     is_limit_open_atr = entry_mode == "Limit (Open +/- 0.5 ATR)"
+    is_limit_open_atr_075 = entry_mode == "Limit (Open +/- 0.75 ATR)"
     is_limit_open_atr_gtc = entry_mode == "Limit (Open +/- 0.5 ATR) GTC"
     is_day_trade_limit = entry_mode == "Day Trade (Limit Open +/- 0.5 ATR, Exit Close)"
     is_limit_pivot = entry_mode == "Limit (Untested Pivot)"
@@ -1445,6 +1446,14 @@ def run_engine(universe_dict, params, sznl_map, market_series=None, vix_series=N
                         limit_price = (day_open - (sig_atr * 0.5)) if direction == 'Long' else (day_open + (sig_atr * 0.5))
                         if direction == 'Long' and day_low <= limit_price: found_entry, actual_entry_idx, actual_entry_price = True, next_idx, limit_price
                         elif direction == 'Short' and day_high >= limit_price: found_entry, actual_entry_idx, actual_entry_price = True, next_idx, limit_price
+                elif is_limit_open_atr_075:
+                    next_idx = sig_idx + 1
+                    if next_idx < len(df):
+                        sig_atr, day_open = df['ATR'].iloc[sig_idx], df['Open'].iloc[next_idx]
+                        day_low, day_high = df['Low'].iloc[next_idx], df['High'].iloc[next_idx]
+                        limit_price = (day_open - (sig_atr * 0.75)) if direction == 'Long' else (day_open + (sig_atr * 0.75))
+                        if direction == 'Long' and day_low <= limit_price: found_entry, actual_entry_idx, actual_entry_price = True, next_idx, limit_price
+                        elif direction == 'Short' and day_high >= limit_price: found_entry, actual_entry_idx, actual_entry_price = True, next_idx, limit_price
                 elif is_limit_open_atr_gtc:
                     next_idx = sig_idx + 1
                     if next_idx < len(df):
@@ -1742,6 +1751,7 @@ def main():
     with c1: 
         entry_type = st.selectbox("Entry Price", [
             "Limit (Open +/- 0.5 ATR)",
+            "Limit (Open +/- 0.75 ATR)",
             "Signal Close", "T+1 Open", "T+1 Close",
             "Overnight (Buy Close, Sell T+1 Open)", "Intraday (Buy Open, Sell Close)",
             "Day Trade (Limit Open +/- 0.5 ATR, Exit Close)",
