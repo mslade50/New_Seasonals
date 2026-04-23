@@ -2241,7 +2241,9 @@ def main():
                 closes = {}
                 for ticker in sig_df['Ticker'].unique():
                     t_clean = ticker.replace('.', '-')
-                    t_df = master_dict.get(t_clean) or master_dict.get(ticker)
+                    t_df = master_dict.get(t_clean)
+                    if t_df is None:
+                        t_df = master_dict.get(ticker)
                     if t_df is None or t_df.empty:
                         continue
                     tmp = t_df.copy()
@@ -2255,6 +2257,8 @@ def main():
                     closes_path = os.path.join(cache_dir, "backtest_closes.parquet")
                     closes_df.to_parquet(closes_path)
                     st.caption(f"📦 Cached {closes_df.shape[1]} close series to data/backtest_closes.parquet")
+                else:
+                    st.caption("⚠️ No closes found in master_dict — MTM replay in Fragility Lab will fall back to stair-step.")
             except Exception as e:
                 st.caption(f"⚠️ Could not cache closes: {e}")
 
