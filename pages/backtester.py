@@ -295,6 +295,90 @@ def compute_portfolio_stats(equity_df, starting_equity):
         'FinalEquity': close.iloc[-1],
     }
 
+
+def compute_trade_path_stats(trades_df, data_dict):
+    """Compute per-trade MAE/MFE/Give-back/Capture using daily H/L.
+
+    Entry-day handling is pessimistic: only adverse excursion counts
+    (Long -> day's Low; Short -> day's High). Favorable side is zeroed
+    because we don't know where in the bar the fill happened. For MOC
+    entries (entry_price == entry-day close) the entry day is skipped
+    entirely — the bar was complete before we got in. Middle days use
+    full H/L both sides. Exit day uses full H/L (peak-after-exit is a
+    minor overstatement flagged in the UI).
+
+    Returns the trades_df with four new columns: MAE_R, MFE_R,
+    GiveBack_R, Capture_Pct.
+    """
+    if trades_df.empty:
+        return trades_df
+
+    trades = trades_df.copy()
+    # Dates may have been stringified already by upstream; normalize
+    e_dt = pd.to_datetime(trades['EntryDate'])
+    x_dt = pd.to_datetime(trades['ExitDate'])
+
+    mae_R = np.full(len(trades), np.nan)
+    mfe_R = np.full(len(trades), np.nan)
+
+    for i, (_, tr) in enumerate(trades.iterrows()):
+        ticker = tr['Ticker']
+        if ticker not in data_dict:
+            continue
+        df = data_dict[ticker]
+        if not all(c in df.columns for c in ['High', 'Low', 'Close']):
+            continue
+        entry_dt = e_dt.iloc[i]
+        exit_dt  = x_dt.iloc[i]
+        entry_px = float(tr['Entry'])
+        tech_risk = float(tr['TechRisk']) if tr['TechRisk'] else 0.0
+        if tech_risk <= 0:
+            continue
+        direction = tr['Direction']
+
+        mask = (df.index >= entry_dt) & (df.index <= exit_dt)
+        hold = df.loc[mask, ['High', 'Low', 'Close']]
+        if hold.empty:
+            continue
+
+        worst_excursion = 0.0  # most adverse (negative)
+        best_excursion  = 0.0  # most favorable (positive)
+        for j, (dt, row) in enumerate(hold.iterrows()):
+            h, l, c = float(row['High']), float(row['Low']), float(row['Close'])
+            is_entry_day = (dt == entry_dt)
+            is_moc_entry = is_entry_day and abs(entry_px - c) < 1e-9
+
+            if is_moc_entry:
+                continue  # bar completed before entry
+
+            if direction == 'Long':
+                adverse = l - entry_px   # negative when worse
+                favor   = h - entry_px   # positive when better
+            else:  # Short
+                adverse = entry_px - h   # negative when worse (stock rallied)
+                favor   = entry_px - l   # positive when better
+
+            if is_entry_day:
+                # Pessimistic: count adverse, zero favorable
+                worst_excursion = min(worst_excursion, adverse)
+            else:
+                worst_excursion = min(worst_excursion, adverse)
+                best_excursion  = max(best_excursion, favor)
+
+        mae_R[i] = worst_excursion / tech_risk
+        mfe_R[i] = best_excursion / tech_risk
+
+    trades['MAE_R'] = mae_R
+    trades['MFE_R'] = mfe_R
+    trades['GiveBack_R'] = trades['MFE_R'] - trades['R']
+    trades['Capture_Pct'] = np.where(
+        trades['MFE_R'] > 0,
+        trades['R'] / trades['MFE_R'] * 100,
+        np.nan,
+    )
+    return trades
+
+
 @st.cache_data(show_spinner=True)
 def download_universe_data(tickers, fetch_start_date):
     if not tickers: return {} 
@@ -2087,6 +2171,7 @@ def main():
             mtm_flat = build_mtm_curves(trades_df, data_dict, starting_portfolio, risk_bps_input, mode='flat')
             mtm_dyn  = build_mtm_curves(trades_df, data_dict, starting_portfolio, risk_bps_input, mode='dynamic')
             portfolio_stats = compute_portfolio_stats(mtm_dyn, starting_portfolio)
+            trades_df = compute_trade_path_stats(trades_df, data_dict)
             trades_df['SignalDate'] = pd.to_datetime(trades_df['SignalDate'])
             trades_df['EntryDate'] = pd.to_datetime(trades_df['EntryDate'])
             trades_df['DayOfWeek'] = trades_df['EntryDate'].dt.day_name()
@@ -2203,6 +2288,120 @@ def main():
                     </div>
                 </div>
                 """, unsafe_allow_html=True)
+
+            # ========== SECTION 3: INTRA-TRADE PATH ANALYSIS ==========
+            if 'MAE_R' in trades_df.columns and trades_df['MAE_R'].notna().any():
+                st.markdown("---")
+                st.subheader("Intra-Trade Path (MAE / MFE / Give-back)")
+
+                path = trades_df.dropna(subset=['MAE_R', 'MFE_R']).copy()
+                wins_p = path[path['R'] > 0]
+                losses_p = path[path['R'] <= 0]
+
+                def _avg(s): return s.mean() if len(s) else 0.0
+
+                avg_mae_all = _avg(path['MAE_R'])
+                avg_mae_win = _avg(wins_p['MAE_R'])
+                avg_mae_los = _avg(losses_p['MAE_R'])
+                avg_mfe_all = _avg(path['MFE_R'])
+                avg_mfe_win = _avg(wins_p['MFE_R'])
+                avg_mfe_los = _avg(losses_p['MFE_R'])
+                avg_gb_win  = _avg(wins_p['GiveBack_R']) if len(wins_p) else 0.0
+                # Capture efficiency: total R on winners / total MFE on winners
+                mfe_sum = wins_p['MFE_R'].sum()
+                capture_eff = (wins_p['R'].sum() / mfe_sum * 100) if mfe_sum > 0 else 0.0
+
+                st.markdown(f"""
+                <div style="background-color: #0e1117; padding: 18px; border-radius: 10px; border: 1px solid #444; margin-top: 6px;">
+                    <div style="display: flex; flex-wrap: wrap; gap: 28px;">
+                        <div>
+                            <div style="color:#aaa; font-size:12px;">AVG MAE (R)</div>
+                            <div style="color:#ff6b6b;"><strong>All:</strong> {avg_mae_all:.2f} &nbsp; <strong>Win:</strong> {avg_mae_win:.2f} &nbsp; <strong>Loss:</strong> {avg_mae_los:.2f}</div>
+                        </div>
+                        <div>
+                            <div style="color:#aaa; font-size:12px;">AVG MFE (R)</div>
+                            <div style="color:#6bcf7f;"><strong>All:</strong> {avg_mfe_all:.2f} &nbsp; <strong>Win:</strong> {avg_mfe_win:.2f} &nbsp; <strong>Loss:</strong> {avg_mfe_los:.2f}</div>
+                        </div>
+                        <div>
+                            <div style="color:#aaa; font-size:12px;">GIVE-BACK (winners, MFE − R)</div>
+                            <div><strong>{avg_gb_win:.2f} R</strong> avg per winner</div>
+                        </div>
+                        <div>
+                            <div style="color:#aaa; font-size:12px;">CAPTURE EFFICIENCY (winners)</div>
+                            <div><strong>{capture_eff:.1f}%</strong> of MFE locked in</div>
+                        </div>
+                        <div>
+                            <div style="color:#aaa; font-size:12px;">TRADES ANALYZED</div>
+                            <div><strong>{len(path):,}</strong> ({len(wins_p):,} W / {len(losses_p):,} L)</div>
+                        </div>
+                    </div>
+                </div>
+                """, unsafe_allow_html=True)
+
+                # Build binned bar charts
+                mae_edges = [-float('inf'), -2.0, -1.0, -0.5, -0.25, 0.0001]
+                mae_labels = ['≤ -2R', '-2 to -1R', '-1 to -0.5R', '-0.5 to -0.25R', '0 to -0.25R']
+                mfe_edges = [-0.0001, 0.25, 0.5, 1.0, 2.0, float('inf')]
+                mfe_labels = ['0 to 0.25R', '0.25 to 0.5R', '0.5 to 1R', '1 to 2R', '≥ 2R']
+
+                path['MAE_Bucket'] = pd.cut(path['MAE_R'], bins=mae_edges, labels=mae_labels, include_lowest=True)
+                path['MFE_Bucket'] = pd.cut(path['MFE_R'], bins=mfe_edges, labels=mfe_labels, include_lowest=True)
+
+                mae_group = path.groupby('MAE_Bucket', observed=True).agg(
+                    avg_R=('R', 'mean'),
+                    win_rate=('R', lambda s: (s > 0).mean() * 100),
+                    count=('R', 'size'),
+                ).reindex(mae_labels).fillna(0).reset_index()
+                mfe_group = path.groupby('MFE_Bucket', observed=True).agg(
+                    avg_R=('R', 'mean'),
+                    win_rate=('R', lambda s: (s > 0).mean() * 100),
+                    count=('R', 'size'),
+                ).reindex(mfe_labels).fillna(0).reset_index()
+
+                def _dual_axis_bar(df, x_col, title, x_title):
+                    fig = go.Figure()
+                    fig.add_trace(go.Bar(
+                        x=df[x_col], y=df['avg_R'], name='Avg Final R',
+                        marker_color=['#ff6b6b' if v < 0 else '#6bcf7f' for v in df['avg_R']],
+                        text=[f"n={int(c)}" for c in df['count']], textposition='outside',
+                    ))
+                    fig.add_trace(go.Scatter(
+                        x=df[x_col], y=df['win_rate'], name='Win Rate (%)',
+                        mode='lines+markers', yaxis='y2',
+                        line=dict(color='rgba(200,200,200,0.9)', width=2, dash='dot'),
+                        marker=dict(size=8),
+                    ))
+                    fig.update_layout(
+                        title=title, xaxis_title=x_title,
+                        yaxis=dict(title='Avg Final R', zeroline=True, zerolinecolor='rgba(255,255,255,0.3)'),
+                        yaxis2=dict(title='Win Rate (%)', overlaying='y', side='right', range=[0, 100]),
+                        height=380, margin=dict(t=60, b=60, l=50, r=50),
+                        legend=dict(orientation='h', y=1.12, x=0.5, xanchor='center'),
+                    )
+                    return fig
+
+                colA, colB = st.columns(2)
+                colA.plotly_chart(
+                    _dual_axis_bar(mae_group, 'MAE_Bucket',
+                                   "Did trades that suffered more still tend to win?",
+                                   'MAE bucket (worst intra-trade drawdown, R)'),
+                    use_container_width=True,
+                )
+                colB.plotly_chart(
+                    _dual_axis_bar(mfe_group, 'MFE_Bucket',
+                                   "Did trades that ran further close strong, or fade?",
+                                   'MFE bucket (best intra-trade run, R)'),
+                    use_container_width=True,
+                )
+
+                st.caption(
+                    "MAE/MFE computed from daily H/L. Entry day is pessimistic — only adverse "
+                    "excursion counts (we don't know where in the bar our fill happened); MOC entries "
+                    "skip entry day entirely. Exit day uses full H/L, which can slightly overstate MFE "
+                    "if the peak printed after the exit fill. Intraday ordering within a bar is unknown, "
+                    "so a trade that got stopped intraday and recovered to close profitable cannot be "
+                    "detected at this resolution."
+                )
         st.subheader("Trade Logs")
         tab1, tab2 = st.tabs(["Executed Trades", "Missed Trades"])
         with tab1:
