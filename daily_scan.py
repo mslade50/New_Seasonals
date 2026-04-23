@@ -252,11 +252,16 @@ def send_email_summary(signals_list, error_tickers=None, frag_score=None, frag_m
             # Exit notes (dynamic sizing info)
             exit_notes = sig.get('Exit_Notes', '')
             sizing_var = sig.get('Sizing_Variable', '')
-            
+            sizing_notes = sig.get('Sizing_Notes', '')
+
             # Combine exit notes with sizing variable if present
             notes_parts = []
             if sizing_var:
                 notes_parts.append(f"📊 {sizing_var}")
+            # Surface the multiplier chain (ATR sznl 1.33x, Frag, Ladder rung, etc.)
+            # so we can see at-a-glance why the staged risk isn't just base 1.0x.
+            if sizing_notes and sizing_notes != "Standard (1.0x)" and "Standard (1.0x) |" not in sizing_notes:
+                notes_parts.append(f"⚖️ Sizing: {sizing_notes}")
             if exit_notes:
                 notes_parts.append(f"⚡ {exit_notes}")
             
