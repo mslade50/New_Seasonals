@@ -1151,7 +1151,9 @@ def process_signals_fast(candidates, signal_data, processed_dict, strategies, st
         
         # --- LIMIT (OPEN +/- ATR) Single Day: Limit anchored to Signal Close ---
         elif is_limit_open_atr:
-            limit_offset = 0.5 * atr
+            # Parse ATR multiplier from entry_type: "Limit (Open +/- 0.75 ATR)" -> 0.75
+            _limit_mult = 0.75 if '0.75' in entry_type else 0.5
+            limit_offset = _limit_mult * atr
             limit_base = row_data['close']
 
             if settings['trade_direction'] == 'Long':
@@ -1228,7 +1230,20 @@ def process_signals_fast(candidates, signal_data, processed_dict, strategies, st
         
         if not valid_entry or entry_price is None or pd.isna(entry_price):
             continue
-        
+
+        # ========== OVERBOT VOL SPIKE — GAP CONTINUATION FILTER + 2X SIZER ==========
+        # Require T+1 Open > Signal Close (continuing rally confirms the overbought
+        # thesis). If open gaps up >= 0.25 ATR above signal close, size at 2x —
+        # bigger gap = more obviously overextended = higher-conviction short.
+        _ovs_size_mult = 1.0
+        if strat_name == "Overbot Vol Spike" and entry_row is not None:
+            _sig_close = row_data['close']
+            _t1_open = float(entry_row['Open'])
+            if pd.isna(_t1_open) or _t1_open <= _sig_close:
+                continue  # no gap up → skip the trade
+            if _t1_open > _sig_close + 0.25 * atr:
+                _ovs_size_mult = 2.0
+
         # ========== EXIT LOGIC SECTION ==========
         direction = settings.get('trade_direction', 'Long')
         stop_atr = execution['stop_atr']
@@ -1353,6 +1368,10 @@ def process_signals_fast(candidates, signal_data, processed_dict, strategies, st
             elif sznl_val >= 33:
                 base_risk *= 0.66 if sznl_val < 50 else 1.0
 
+        # Apply Overbot Vol Spike 2x sizer when T+1 open gaps > 0.25 ATR above signal close
+        if _ovs_size_mult != 1.0:
+            base_risk *= _ovs_size_mult
+
         dist = atr * stop_atr
         action = "BUY" if direction == 'Long' else "SELL SHORT"
 
@@ -1420,8 +1439,8 @@ def process_signals_fast(candidates, signal_data, processed_dict, strategies, st
                     loc_entry_date = df.index[t1_idx]
                     loc_entry_idx = t1_idx
 
-                    # Base risk for LOC (always standard bps, not reduced)
-                    loc_risk = current_equity * risk_bps / 10000
+                    # Base risk for LOC; apply OVS gap-2x multiplier for consistency with primary
+                    loc_risk = current_equity * risk_bps / 10000 * _ovs_size_mult
                     loc_shares = int(loc_risk / dist) if dist > 0 else 0
 
                     if loc_shares > 0:
