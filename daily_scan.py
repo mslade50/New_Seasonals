@@ -1516,6 +1516,16 @@ def build_live_filters(strat, last_row, df):
             val = last_row.get(col, 50)
             live_filters.append((f"{ref_ticker} {rf['window']}D rank {rf['logic']} {rf['thresh']:.0f}", f"{val:.0f}", False))
 
+    # --- Cross-Sectional Rank (e.g. XSec 252D > 50 for LT Trend ST OS) ---
+    if settings.get('use_xsec_filter', False) and settings.get('xsec_filters'):
+        for xf in settings['xsec_filters']:
+            window = xf['window']
+            logic = xf['logic']
+            thresh = xf['thresh']
+            col = f"xsec_rank_ret_{window}d"
+            val = last_row.get(col, 50.0)
+            live_filters.append((f"XSec {window}D rank {logic} {thresh:.0f}", f"{val:.0f}", False))
+
     # --- Day of Week ---
     if settings.get('use_dow_filter', False):
         day_names = {0: 'Mon', 1: 'Tue', 2: 'Wed', 3: 'Thu', 4: 'Fri'}
