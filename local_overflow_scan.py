@@ -434,7 +434,10 @@ def append_orders_to_gsheet(signals_list, workbook_name='Trade_Signals_Log', tab
             else:
                 entry_instruction = "REL_OPEN"
                 tif_instruction = "DAY"
-            if "0.5" in entry_mode:
+            # Order matters: 0.75 before 0.5 (substring-safe); 1 ATR last.
+            if "0.75" in entry_mode:
+                offset_atr = 0.75
+            elif "0.5" in entry_mode:
                 offset_atr = 0.5
             elif "1 ATR" in entry_mode:
                 offset_atr = 1.0
@@ -1114,7 +1117,9 @@ def run_overflow_scan(dry_run=False, force_rebuild=False):
 
                     # Limit price
                     limit_price = 0.0
-                    if "0.5 ATR" in entry_mode:
+                    if "0.75 ATR" in entry_mode:
+                        limit_price = (entry + 0.75 * atr) if direction == 'Short' else (entry - 0.75 * atr)
+                    elif "0.5 ATR" in entry_mode:
                         limit_price = (entry + 0.5 * atr) if direction == 'Short' else (entry - 0.5 * atr)
                     elif "1 ATR" in entry_mode:
                         limit_price = (entry + 1.0 * atr) if direction == 'Short' else (entry - 1.0 * atr)
