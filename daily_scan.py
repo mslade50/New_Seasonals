@@ -258,7 +258,7 @@ def send_email_summary(signals_list, error_tickers=None, frag_score=None, frag_m
             notes_parts = []
             if sizing_var:
                 notes_parts.append(f"📊 {sizing_var}")
-            # Surface the multiplier chain (ATR sznl 1.33x, Frag, Ladder rung, etc.)
+            # Surface the multiplier chain (ATR sznl 1.5x, Frag, Ladder rung, etc.)
             # so we can see at-a-glance why the staged risk isn't just base 1.0x.
             if sizing_notes and sizing_notes != "Standard (1.0x)" and "Standard (1.0x) |" not in sizing_notes:
                 notes_parts.append(f"⚖️ Sizing: {sizing_notes}")
@@ -1991,7 +1991,7 @@ def run_daily_scan():
     # 4a. Load ATR seasonal ranks once if any strategy uses them
     _uses_atr_sznl = (
         any(s['settings'].get('atr_sznl_filters') for s in STRATEGY_BOOK)
-        or any(s['name'] == "Overbot Vol Spike" for s in STRATEGY_BOOK)  # uses atr_sznl_5d for the 1.33x sizer
+        or any(s['name'] == "Overbot Vol Spike" for s in STRATEGY_BOOK)  # uses atr_sznl_5d for the 1.5x sizer
     )
     atr_sznl_map = load_atr_seasonal_map() if _uses_atr_sznl else {}
     if _uses_atr_sznl:
@@ -2116,13 +2116,13 @@ def run_daily_scan():
                             risk = risk * 0.66
                             sizing_note = f"Low Sznl ({sznl_val:.0f}) = 0.66x"
 
-                    # Overbot Vol Spike: 1.33x when 5d ATR seasonal is in the bottom
+                    # Overbot Vol Spike: 1.5x when 5d ATR seasonal is in the bottom
                     # quartile — weak short-horizon seasonal reinforces the fade thesis.
                     if strat['name'] == "Overbot Vol Spike":
                         _atr_sznl_5d = last_row.get('atr_sznl_5d', None)
                         if _atr_sznl_5d is not None and pd.notna(_atr_sznl_5d) and _atr_sznl_5d < 25:
-                            risk = risk * 1.33
-                            sizing_note = f"ATR Sznl 5d {_atr_sznl_5d:.0f} < 25 → 1.33x"
+                            risk = risk * 1.5
+                            sizing_note = f"ATR Sznl 5d {_atr_sznl_5d:.0f} < 25 → 1.5x"
 
                     # Overbot Vol Spike: 0.5x when 126D or 252D rank > 65 — name is
                     # a medium/long-term leader, so the mean-reversion fade thesis

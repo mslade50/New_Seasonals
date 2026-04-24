@@ -1430,17 +1430,17 @@ def process_signals_fast(candidates, signal_data, processed_dict, strategies, st
             elif sznl_val >= 33:
                 base_risk *= 0.66 if sznl_val < 50 else 1.0
 
-        # Overbot Vol Spike: 1.33x when 5d ATR seasonal rank is in the bottom
+        # Overbot Vol Spike: 1.5x when 5d ATR seasonal rank is in the bottom
         # quartile — weak short-horizon seasonal reinforces the fade thesis.
         # Applies regardless of gap; compounds with the gap-based 2x sizer below.
         if strat_name == "Overbot Vol Spike":
             _atr_sznl_5d = row_data.get('atr_sznl_5d', 50.0)
             if pd.notna(_atr_sznl_5d) and _atr_sznl_5d < 25:
-                base_risk *= 1.33
+                base_risk *= 1.5
 
         # Overbot Vol Spike: 0.5x when 126D or 252D rank > 65 (leader penalty —
         # fade thesis weaker against an established medium/long-term uptrend).
-        # Compounds with the 1.33x and 2x sizers above/below.
+        # Compounds with the 1.5x and 2x sizers above/below.
         if strat_name == "Overbot Vol Spike":
             _r126 = row_data.get('rank_ret_126d', 50.0)
             _r252 = row_data.get('rank_ret_252d', 50.0)
