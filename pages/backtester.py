@@ -1676,6 +1676,8 @@ def main():
     with col_u2:
         default_start = datetime.date(2000, 1, 1)
         start_date = st.date_input("Backtest Start Date", value=default_start, min_value=datetime.date(1950, 1, 1), max_value=datetime.date.today())
+        end_date = st.date_input("Backtest End Date", value=datetime.date.today(), min_value=start_date, max_value=datetime.date.today(),
+                                 help="Truncate the backtest at this date. Useful for out-of-sample testing — set start to e.g. 2000 and end to 2020 to leave 2020-present untouched as a holdout.")
     custom_tickers = []
     extras_tickers = []
     if univ_choice == "Custom (Upload CSV)":
@@ -2306,6 +2308,24 @@ def main():
             st.info(f"Downloading data ({len(tickers_to_run)} tickers)...")
             data_dict = download_universe_data(tickers_to_run, fetch_start)
         if not data_dict: return
+
+        # Truncate to end_date — drops any data after the chosen end so signals
+        # can't fire and trades can't extend past the backtest window. Useful
+        # for out-of-sample testing.
+        if end_date < datetime.date.today():
+            _end_ts = pd.Timestamp(end_date)
+            _truncated = 0
+            for _t, _df in list(data_dict.items()):
+                if _df is None or _df.empty:
+                    continue
+                _sliced = _df[_df.index <= _end_ts]
+                if len(_sliced) < len(_df):
+                    _truncated += 1
+                if _sliced.empty:
+                    del data_dict[_t]
+                else:
+                    data_dict[_t] = _sliced
+            st.info(f"Truncated {_truncated} ticker(s) to end date {end_date}")
         market_series, market_sznl_series = None, None
         need_market_data = ("Market" in trend_filter) or use_market_sznl
         if need_market_data:
