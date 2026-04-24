@@ -660,12 +660,12 @@ _STRATEGY_BOOK_RAW = [
         "stats": {"grade": "A (Excellent)", "win_rate": "58.0%", "expectancy": "0.28r", "profit_factor": "1.96"}
     },
     {
-        "id": "2d+5d+10d+21d < 15%ile, 126d+252d between 65-90, vol > 1.25x, >0 dist days, 2 ATR tgt, 2d hold",
+        "id": "2d+5d+10d+21d < 15%ile, 126d+252d between 65-90, vol > 1.25x, conditional entry on 21d consec, 2 ATR tgt, 2d hold",
         "name": "LT Trend ST OS",
         "setup": {
             "type": "MeanReversion",
             "timeframe": "Overnight",
-            "thesis": "Oversold bounce in long-term uptrenders — but NOT extreme leaders (126D/252D capped at 90th %ile) to avoid buying climactic tops",
+            "thesis": "Oversold bounce in long-term uptrenders — but NOT extreme leaders (126D/252D capped at 90th %ile) to avoid buying climactic tops. Persistent oversold (21D consec ≥ 3) gets MOC entry; fresher oversold gets a deeper limit at Open - 0.75 ATR.",
             "key_filters": [
                 "2D rank < 15th %ile",
                 "5D rank < 15th %ile",
@@ -675,8 +675,8 @@ _STRATEGY_BOOK_RAW = [
                 "252D rank between 65-90th %ile",
                 "Close in 0-25% of daily range",
                 "Volume > 1.25x 63-day avg",
-                "Dist days > 0 in last 21d",
-                "63d dial (10d avg) < 50 (not in fragile regime)"
+                "63d dial (10d avg) < 65 (not in extreme fragile regime)",
+                "Entry: Signal Close if 21D < 15 for ≥3 consec days, else Limit Open - 0.75 ATR"
             ]
         },
         "exit_summary": {
@@ -727,7 +727,7 @@ _STRATEGY_BOOK_RAW = [
             "use_vol": True, "vol_logic": ">", "vol_thresh": 1.25, "vol_thresh_max": 10.0,
             "use_vol_rank": False, "vol_rank_logic": "<", "vol_rank_thresh": 50.0,
             "use_acc_count_filter": False, "acc_count_window": 21, "acc_count_logic": ">", "acc_count_thresh": 3,
-            "use_dist_count_filter": True, "dist_count_window": 21, "dist_count_logic": ">", "dist_count_thresh": 0,
+            "use_dist_count_filter": False, "dist_count_window": 21, "dist_count_logic": ">", "dist_count_thresh": 0,
             "use_gap_filter": False, "gap_lookback": 21, "gap_logic": ">", "gap_thresh": 3,
             "trend_filter": "None",
             "use_vix_filter": False, "vix_min": 0.0, "vix_max": 20.0,
@@ -741,7 +741,7 @@ _STRATEGY_BOOK_RAW = [
             "use_t1_open_filter": False, "t1_open_filters": [],
             "use_xsec_filter": True, "xsec_filters": [],
             "atr_sznl_filters": [],
-            "dial_filters": [{'dial': '63d', 'window': 10, 'logic': '<', 'thresh': 50.0}]
+            "dial_filters": [{'dial': '63d', 'window': 10, 'logic': '<', 'thresh': 65.0}]
         },
         "execution": {
             "risk_bps": 35,

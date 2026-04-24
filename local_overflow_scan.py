@@ -1050,6 +1050,24 @@ def run_overflow_scan(dry_run=False, force_rebuild=False):
                     # Entry confirmation
                     entry_conf_bps = strat['settings'].get('entry_conf_bps', 0)
                     entry_mode = strat['settings'].get('entry_type', 'Signal Close')
+
+                    # LT Trend ST OS conditional entry: persistent oversold (21D < 15
+                    # for ≥3 consec days) gets MOC; fresher oversold gets a deeper
+                    # limit at Open - 0.75 ATR. Mirrors logic in daily_scan.py.
+                    if strat['name'] == "LT Trend ST OS" and 'rank_ret_21d' in calc_df.columns:
+                        _r21 = calc_df['rank_ret_21d']
+                        _consec = 0
+                        for _v in _r21.iloc[::-1]:
+                            if pd.notna(_v) and _v < 15:
+                                _consec += 1
+                            else:
+                                break
+                        if _consec < 3:
+                            entry_mode = "Limit (Open +/- 0.75 ATR)"
+                            print(f"   ↻ {t_clean}: 21D consec={_consec} (<3) → Limit Open -0.75 ATR entry")
+                        else:
+                            print(f"   ✓ {t_clean}: 21D consec={_consec} (≥3) → Signal Close (MOC)")
+
                     if entry_mode == 'Signal Close' and entry_conf_bps > 0:
                         threshold = last_row['Open'] * (1 + entry_conf_bps / 10000.0)
                         if last_row['High'] < threshold:
