@@ -463,7 +463,9 @@ def get_historical_mask(df, params, sznl_map, ticker_name="UNK"):
         for df_filter in dial_filters:
             dial_col = df_filter.get('dial')
             if frag_df is None or dial_col not in frag_df.columns:
-                conditions.append(np.zeros(len(df), dtype=bool))  # fail closed
+                # File missing or column unavailable → skip the filter for this
+                # backtest (pass-through, don't penalize). daily_scan still
+                # fail-closes for live safety.
                 continue
             win = max(1, int(df_filter.get('window', 1)))
             dial_series = frag_df[dial_col]
@@ -476,8 +478,10 @@ def get_historical_mask(df, params, sznl_map, ticker_name="UNK"):
             elif logic == '<':  cond_d = aligned < thresh
             elif logic == '>=': cond_d = aligned >= thresh
             elif logic == '<=': cond_d = aligned <= thresh
-            else:               cond_d = np.zeros(len(df), dtype=bool)
-            cond_d = np.where(np.isnan(aligned), False, cond_d)
+            else:               cond_d = np.ones(len(df), dtype=bool)
+            # NaN dial (pre-2016 or missing) → pass through, treat as if
+            # the dial filter doesn't apply for those trades.
+            cond_d = np.where(np.isnan(aligned), True, cond_d)
             conditions.append(cond_d)
 
     # 52-week high/low filter

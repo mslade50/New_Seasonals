@@ -1365,8 +1365,11 @@ def run_engine(universe_dict, params, sznl_map, market_series=None, vix_series=N
                     elif logic == '>=': cond = (vals >= thresh)
                     elif logic == '<=': cond = (vals <= thresh)
                     else: continue
-                    # NaN dial (pre-2016 or missing) → fails the filter
-                    cond = np.where(np.isnan(vals), False, cond)
+                    # NaN dial (pre-2016 or missing) → pass through, treat as if
+                    # the dial filter doesn't apply for those trades. Lets the
+                    # full historical sample contribute to backtest stats while
+                    # still gating modern-era trades on the dial criterion.
+                    cond = np.where(np.isnan(vals), True, cond)
                     conditions.append(pd.Series(cond, index=df.index))
 
             if not conditions: continue
