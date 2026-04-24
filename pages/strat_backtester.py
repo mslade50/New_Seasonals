@@ -1296,17 +1296,17 @@ def process_signals_fast(candidates, signal_data, processed_dict, strategies, st
             continue
 
         # ========== OVERBOT VOL SPIKE — GAP CONTINUATION FILTER + 2X SIZER ==========
-        # Require T+1 Open > Signal Close (continuing rally confirms the overbought
-        # thesis). If open gaps up >= 0.25 ATR above signal close, size at 2x —
-        # bigger gap = more obviously overextended = higher-conviction short.
+        # Require DECISIVE gap up (T+1 Open > Signal Close + 0.25 ATR) to enter
+        # OVS at all. Weaker gaps skip entirely. Decisive-gap trades size at 2×.
+        # Matches order_staging.py's live gate.
         _ovs_size_mult = 1.0
         if strat_name == "Overbot Vol Spike" and entry_row is not None:
             _sig_close = row_data['close']
             _t1_open = float(entry_row['Open'])
-            if pd.isna(_t1_open) or _t1_open <= _sig_close:
-                continue  # no gap up → skip the trade
-            if _t1_open > _sig_close + 0.25 * atr:
-                _ovs_size_mult = 2.0
+            _gap_threshold = _sig_close + 0.25 * atr
+            if pd.isna(_t1_open) or _t1_open <= _gap_threshold:
+                continue  # gap not decisive → skip the trade
+            _ovs_size_mult = 2.0
 
         # ========== EXIT LOGIC SECTION ==========
         direction = settings.get('trade_direction', 'Long')
