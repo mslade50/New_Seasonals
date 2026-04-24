@@ -167,191 +167,6 @@ _STRATEGY_BOOK_RAW = [
         "stats": {"grade": "A (Excellent)", "win_rate": "66.6%", "expectancy": "0.28r", "profit_factor": "2.51"}
     },
     {
-        "id": "Indx sznl > 85, 21dr < 15 (add on additional sigs)",
-        "name": "Index Seasonals",
-        "setup": {
-            "type": "Seasonal",
-            "timeframe": "Position",
-            "thesis": "Buying index ETFs during historically strong seasonal windows when oversold",
-            "key_filters": [
-                "Ticker seasonal rank > 85 (strong seasonal tailwind)",
-                "21D rank < 15th %ile (oversold entry)",
-                "Allows adding to position on repeated signals"
-            ]
-        },
-        "exit_summary": {
-            "primary_exit": "21-day time stop",
-            "stop_logic": "2.0 ATR below entry",
-            "target_logic": "8.0 ATR above entry",
-            "notes": "Allows multiple positions per ticker (pyramiding)"
-        },
-        "description": "Start: 2000-01-01. Universe: Indices. Dir: Long. Filter: None. PF: 4.51. SQN: 4.85.",
-        "universe_tickers": INDEX_ETFS,
-        "settings": {
-            "trade_direction": "Long",
-            "entry_type": "T+1 Open",
-            "max_one_pos": False,
-            "max_daily_entries": 5,
-            "max_total_positions": 10,
-            "use_perf_rank": True, "perf_window": 21, "perf_logic": "<", "perf_thresh": 15.0,
-            "perf_first_instance": False, "perf_lookback": 21, "perf_consecutive": 1,
-            "use_sznl": True, "sznl_logic": ">", "sznl_thresh": 85.0, "sznl_first_instance": False, "sznl_lookback": 21,
-            "use_52w": False, "52w_type": "New 52w High", "52w_first_instance": True, "52w_lookback": 21,
-            "use_vol": False, "vol_thresh": 1.5,
-            "use_vol_rank": False, "vol_rank_logic": "<", "vol_rank_thresh": 50.0,
-            "trend_filter": "None",
-            "min_price": 10.0, "min_vol": 100000,
-            "min_age": 0.25, "max_age": 100.0
-        },
-        "execution": {"risk_bps": 33, "stop_atr": 2, "tgt_atr": 8.0, "hold_days": 21,"use_stop_loss": False, "use_take_profit": False},
-        "stats": {"grade": "A (Excellent)", "win_rate": "64.1%", "expectancy": "0.47r", "profit_factor": "4.51"}
-    },
-    {
-        "id": "5+10+21d<15, SPX sznl > 20, lower 20% range, 2d time stop 1.5 atr tgt",
-        "name": "Deep Oversold Weak Close",
-        "setup": {
-            "type": "MeanReversion",
-            "timeframe": "Overnight",
-            "thesis": "Extreme oversold bounce with weak close, filtered by uptrend and market seasonality",
-            "key_filters": [
-                "5D + 10D + 21D ranks ALL < 15th %ile (deeply oversold)",
-                "Market seasonal > 20 (not fighting macro headwind)",
-                "Close in lower 20% of daily range (capitulation close)",
-                "Price > Rising 200 SMA (uptrend filter)",
-                "ATR% > 3% (volatile names only, exempt: SPY/QQQ/IWM/DIA)",
-                "No Tuesday signals"
-            ]
-        },
-        "exit_summary": {
-            "primary_exit": "2-day time stop (quick bounce or cut)",
-            "stop_logic": "1.0 ATR below entry",
-            "target_logic": "1.5 ATR above entry",
-            "notes": "Tight stop/target for quick mean reversion"
-        },
-        "description": "Start: 2000-01-01. Universe: All CSV Tickers. Dir: Long. Filter: Price > 200 SMA. PF: 2.20. SQN: 7.35.",
-        "universe_tickers": LIQUID_UNIVERSE,
-        "settings": {
-            "trade_direction": "Long",
-            "entry_type": "Signal Close",
-            "max_one_pos": False,
-            "allow_same_day_reentry": False,
-            "max_daily_entries": 2,
-            "max_total_positions": 10,
-            "perf_filters": [{'window': 5, 'logic': '<', 'thresh': 15.0, 'consecutive': 1}, {'window': 10, 'logic': '<', 'thresh': 15.0, 'consecutive': 1}, {'window': 21, 'logic': '<', 'thresh': 15.0, 'consecutive': 1}],
-            "perf_first_instance": False, "perf_lookback": 21,
-            "use_sznl": False, "sznl_logic": "<", "sznl_thresh": 15.0, "sznl_first_instance": True, "sznl_lookback": 21,
-            "use_market_sznl": True, "market_sznl_logic": ">", "market_sznl_thresh": 20.0,
-            "market_ticker": "^GSPC",
-            "use_52w": False, "52w_type": "New 52w High", "52w_first_instance": True, "52w_lookback": 21, "52w_lag": 1,
-            "breakout_mode": "None",
-            "use_vol": False, "vol_thresh": 1.5,
-            "use_vol_rank": False, "vol_rank_logic": ">", "vol_rank_thresh": 75.0,
-            "trend_filter": "Price > Rising 200 SMA",
-            "use_dow_filter": True, "allowed_days": [0, 2, 3, 4],
-            "use_range_filter": True, "range_min": 0, "range_max": 20,
-            "min_price": 10.0, "min_vol": 100000,
-            "min_age": 0.25, "max_age": 100.0,
-            "min_atr_pct": 3.0, "max_atr_pct": 10.0,
-            "entry_conf_bps": 0,
-            "use_ma_dist_filter": False, "dist_ma_type": "SMA 10", "dist_logic": "Greater Than (>)", "dist_min": 0.0, "dist_max": 2.0,
-            "use_gap_filter": False, "gap_lookback": 21, "gap_logic": ">", "gap_thresh": 3,
-            "use_acc_count_filter": False, "acc_count_window": 21, "acc_count_logic": ">", "acc_count_thresh": 3,
-            "use_dist_count_filter": False, "dist_count_window": 21, "dist_count_logic": ">", "dist_count_thresh": 3
-        },
-        "execution": {"risk_bps": 40, "slippage_bps": 2, "stop_atr": 1.0, "tgt_atr": 1.5, "hold_days": 2,"use_stop_loss": False, "use_take_profit": True},
-        "stats": {"grade": "A (Excellent)", "win_rate": "67.1%", "expectancy": "0.30r", "profit_factor": "2.20"}
-    },
-    {
-        "id": "5+10+21d > 85%ile, 0 acc days in last 21, sell t+1 open + 0.5 ATR 10d time stop",
-        "name": "No Accumulation Days",
-        "setup": {
-            "type": "MeanReversion",
-            "timeframe": "Swing",
-            "thesis": "Fading overbought names with zero institutional accumulation and weak seasonality",
-            "key_filters": [
-                "5D + 10D + 21D ranks ALL > 85th %ile (extremely overbought)",
-                "ZERO accumulation days in last 21 (no institutional support)",
-                "At least 1 distribution day in last 21",
-                "Ticker seasonal < 33 (fighting seasonal headwind)"
-            ]
-        },
-        "exit_summary": {
-            "primary_exit": "10-day time stop",
-            "stop_logic": "2.0 ATR above entry (short)",
-            "target_logic": "5.0 ATR below entry (short)",
-            "notes": "Limit entry at Open + 0.5 ATR for better fill"
-        },
-        "description": "Start: 2000-01-01. Universe: All CSV Tickers. Dir: Short. Filter: None. PF: 5.15. SQN: 3.82.",
-        "universe_tickers": LIQUID_UNIVERSE,
-        "settings": {
-            "trade_direction": "Short",
-            "entry_type": "Limit (Open +/- 0.5 ATR)",
-            "max_one_pos": False,
-            "allow_same_day_reentry": False,
-            "max_daily_entries": 2,
-            "max_total_positions": 10,
-            "perf_filters": [{'window': 5, 'logic': '>', 'thresh': 85.0, 'consecutive': 1}, {'window': 10, 'logic': '>', 'thresh': 85.0, 'consecutive': 1}, {'window': 21, 'logic': '>', 'thresh': 85.0, 'consecutive': 1}],
-            "perf_first_instance": False, "perf_lookback": 21,
-            "use_sznl": True, "sznl_logic": "<", "sznl_thresh": 33.0, "sznl_first_instance": False, "sznl_lookback": 21,
-            "use_market_sznl": False, "market_sznl_logic": "<", "market_sznl_thresh": 40.0,
-            "market_ticker": "^GSPC",
-            "use_52w": False, "52w_type": "New 52w High", "52w_first_instance": True, "52w_lookback": 21, "52w_lag": 0,
-            "breakout_mode": "None",
-            "use_vol": False, "vol_thresh": 1.5,
-            "use_vol_rank": False, "vol_rank_logic": "<", "vol_rank_thresh": 15.0,
-            "trend_filter": "None",
-            "min_price": 10.0, "min_vol": 100000,
-            "min_age": 0.25, "max_age": 100.0,
-            "min_atr_pct": 0.0, "max_atr_pct": 10.0,
-            "entry_conf_bps": 0,
-            "use_ma_dist_filter": False, "dist_ma_type": "SMA 10", "dist_logic": "Greater Than (>)", "dist_min": 0.0, "dist_max": 2.0,
-            "use_gap_filter": False, "gap_lookback": 21, "gap_logic": ">", "gap_thresh": 3,
-            "use_acc_count_filter": True, "acc_count_window": 21, "acc_count_logic": "=", "acc_count_thresh": 0,
-            "use_dist_count_filter": True, "dist_count_window": 21, "dist_count_logic": ">", "dist_count_thresh": 0
-        },
-        "execution": {"risk_bps": 20, "slippage_bps": 5, "stop_atr": 2.0, "tgt_atr": 5.0, "hold_days": 10,"use_stop_loss": False, "use_take_profit": False},
-        "stats": {"grade": "A (Excellent)", "win_rate": "66.7%", "expectancy": "0.61r", "profit_factor": "5.15"}
-    },
-    {
-        "id": "Sznl > 90, 5d <15 for 3d consec, 5d time stop",
-        "name": "Liquid Seasonals (short term)",
-        "setup": {
-            "type": "Seasonal",
-            "timeframe": "Swing",
-            "thesis": "Buying oversold names during peak seasonal windows for quick bounce",
-            "key_filters": [
-                "Ticker seasonal rank > 90 (top decile seasonal strength)",
-                "5D rank < 15th %ile for 3 consecutive days (persistent oversold)"
-            ]
-        },
-        "exit_summary": {
-            "primary_exit": "5-day time stop",
-            "stop_logic": "2.0 ATR below entry",
-            "target_logic": "3.0 ATR above entry",
-            "notes": None
-        },
-        "description": "Start: 2000-01-01. Universe: All CSV Tickers. Dir: Long. Filter: None. PF: 2.80. SQN: 4.76.",
-        "universe_tickers": LIQUID_NO_INDEX,
-        "settings": {
-            "trade_direction": "Long",
-            "entry_type": "Signal Close",
-            "max_one_pos": False,
-            "max_daily_entries": 3,
-            "max_total_positions": 10,
-            "use_perf_rank": True, "perf_window": 5, "perf_logic": "<", "perf_thresh": 15.0,
-            "perf_first_instance": False, "perf_lookback": 21, "perf_consecutive": 3,
-            "use_sznl": True, "sznl_logic": ">", "sznl_thresh": 90.0, "sznl_first_instance": False, "sznl_lookback": 21,
-            "use_52w": False, "52w_type": "New 52w High", "52w_first_instance": True, "52w_lookback": 21,
-            "use_vol": False, "vol_thresh": 1.5,
-            "use_vol_rank": False, "vol_rank_logic": "<", "vol_rank_thresh": 50.0,
-            "trend_filter": "None",
-            "min_price": 10.0, "min_vol": 100000,
-            "min_age": 0.25, "max_age": 100.0
-        },
-        "execution": {"risk_bps": 35, "stop_atr": 2.0, "tgt_atr": 3.0, "hold_days": 5,"use_stop_loss": False, "use_take_profit": False},
-        "stats": {"grade": "A (Excellent)", "win_rate": "61.1%", "expectancy": "0.32r", "profit_factor": "2.80"}
-    },
-    {
         "id": "252d Between 50-90, New 52w High, Today is ATH, vol > 2.5x, Market > 200 SMA, 63d dial 10ma < 30, Entry: Limit -0.5 ATR Persistent, 63d hold",
         "name": "52wh Breakout",
         "setup": {
@@ -439,56 +254,6 @@ _STRATEGY_BOOK_RAW = [
         "stats": {"grade": "A (Excellent)", "win_rate": "47.3%", "expectancy": "0.77r", "profit_factor": "2.43"}
     },
     {
-        "id": "5+10+21d r <15, 21d 3 consec + sznl > 85, 21d time stop",
-        "name": "Liquid Seasonals (1 Month)",
-        "setup": {
-            "type": "Seasonal",
-            "timeframe": "Position",
-            "thesis": "Buying deeply oversold names with strong seasonal tailwind for month-long hold",
-            "key_filters": [
-                "5D + 10D + 21D ranks ALL < 15th %ile (multi-timeframe oversold)",
-                "21D < 15th %ile for 3 consecutive days (persistent weakness)",
-                "Ticker seasonal rank > 85 (strong seasonal support)",
-                "ATR% > 2.5% (volatile enough for mean reversion)"
-            ]
-        },
-        "exit_summary": {
-            "primary_exit": "21-day time stop",
-            "stop_logic": "3.0 ATR below entry",
-            "target_logic": "8.0 ATR above entry",
-            "notes": None
-        },
-        "description": "Start: 2000-01-01. Universe: All CSV Tickers. Dir: Long. Filter: None. PF: 3.28. SQN: 7.41.",
-        "universe_tickers": LIQUID_UNIVERSE,
-        "settings": {
-            "trade_direction": "Long",
-            "entry_type": "Signal Close",
-            "max_one_pos": False,
-            "allow_same_day_reentry": False,
-            "max_daily_entries": 2,
-            "max_total_positions": 10,
-            "perf_filters": [{'window': 5, 'logic': '<', 'thresh': 15.0, 'consecutive': 1}, {'window': 10, 'logic': '<', 'thresh': 15.0, 'consecutive': 1}, {'window': 21, 'logic': '<', 'thresh': 15.0, 'consecutive': 3}],
-            "perf_first_instance": False, "perf_lookback": 21,
-            "use_sznl": True, "sznl_logic": ">", "sznl_thresh": 85.0, "sznl_first_instance": False, "sznl_lookback": 21,
-            "use_market_sznl": False, "market_sznl_logic": ">", "market_sznl_thresh": 25.0,
-            "market_ticker": "^GSPC",
-            "use_52w": False, "52w_type": "New 52w High", "52w_first_instance": True, "52w_lookback": 21,
-            "use_vol": False, "vol_thresh": 1.5,
-            "use_vol_rank": False, "vol_rank_logic": "<", "vol_rank_thresh": 50.0,
-            "trend_filter": "None",
-            "min_price": 10.0, "min_vol": 100000,
-            "min_age": 0.25, "max_age": 100.0,
-            "min_atr_pct": 2.5,
-            "entry_conf_bps": 0,
-            "use_ma_dist_filter": False, "dist_ma_type": "SMA 10", "dist_logic": "Greater Than (>)", "dist_min": 0.0, "dist_max": 2.0,
-            "use_gap_filter": False, "gap_lookback": 21, "gap_logic": ">", "gap_thresh": 3,
-            "use_acc_count_filter": False, "acc_count_window": 21, "acc_count_logic": ">", "acc_count_thresh": 3,
-            "use_dist_count_filter": False, "dist_count_window": 21, "dist_count_logic": ">", "dist_count_thresh": 3
-        },
-        "execution": {"risk_bps": 15, "slippage_bps": 5, "stop_atr": 3.0, "tgt_atr": 8.0, "hold_days": 21,"use_stop_loss": False, "use_take_profit": False},
-        "stats": {"grade": "A (Excellent)", "win_rate": "65.4%", "expectancy": "0.395r", "profit_factor": "3.28"}
-    },
-    {
         "id": "5d < 50, 5D ATR sznl > 50, close > 20d, close in 0-20% range, 3 acc > + 3 dist < (21d), Feb-May & Sep-Dec only, Entry: Signal Close, 5d hold",
         "name": "Weak Close Decent Sznls",
         "setup": {
@@ -565,27 +330,27 @@ _STRATEGY_BOOK_RAW = [
         "stats": {"grade": "A (Excellent)", "win_rate": "64.8%", "expectancy": "0.49r", "profit_factor": "2.21"}
     },
     {
-        "id": "21dr < 15 3 consec, 5dr < 33, 252dr > 50, rel vol < 15, MOC + LOC companion, 20d cooldown",
+        "id": "21dr < 15 3 consec, 5dr < 33, 252dr 50-90, rel vol < 15, 63d dial 10ma < 65, MOC, 10d hold, 6 ATR tgt",
         "name": "Oversold Low Volume",
         "setup": {
             "type": "MeanReversion",
             "timeframe": "Position",
-            "thesis": "Buying oversold names during low-volume selloffs, filtered to uptrending names (252d > 50th pctile)",
+            "thesis": "Buying oversold names during low-volume selloffs in uptrenders (252d 50-90) when the 63D risk dial (10d avg) is below 65 — avoid entering during fragile regimes",
             "key_filters": [
                 "21D rank < 15th %ile for 3 consecutive days (persistent oversold)",
                 "5D rank < 33rd %ile (recent weakness)",
-                "252D rank > 50th %ile (in longer-term uptrend)",
+                "252D rank between 50-90th %ile (uptrending but not extreme leader)",
                 "10D volume rank < 15th %ile (low volume = lack of conviction selling)",
-                "20 trading day cooldown per ticker"
+                "63D risk dial (10d avg) < 65 (non-fragile regime)"
             ]
         },
         "exit_summary": {
-            "primary_exit": "21-day time stop",
+            "primary_exit": "10-day time stop OR 6.0 ATR target (whichever first)",
             "stop_logic": "3.0 ATR below entry",
-            "target_logic": "8.0 ATR above entry",
-            "notes": "MOC primary (today's close) + LOC companion (T+1 close if < signal close)"
+            "target_logic": "6.0 ATR above entry",
+            "notes": "MOC primary (today's close). No cooldown — consecutive signals on same ticker allowed."
         },
-        "description": "Start: 2000-01-01. Universe: Liquid + commodities. Dir: Long. MOC + LOC companion. 20d cooldown.",
+        "description": "Start: 2000-01-01. Universe: Liquid + commodities. Dir: Long. MOC. 10d hold, 6 ATR target. No LOC add, no cooldown.",
         "universe_tickers": LIQUID_PLUS_COMMODITIES,
         "settings": {
             "trade_direction": "Long",
@@ -597,7 +362,7 @@ _STRATEGY_BOOK_RAW = [
             "perf_filters": [
                 {'window': 5, 'logic': '<', 'thresh': 33.0, 'consecutive': 1},
                 {'window': 21, 'logic': '<', 'thresh': 15.0, 'consecutive': 3},
-                {'window': 252, 'logic': '>', 'thresh': 50.0, 'consecutive': 1}
+                {'window': 252, 'logic': 'Between', 'thresh': 50.0, 'thresh_max': 90.0, 'consecutive': 1}
             ],
             "perf_first_instance": False, "perf_lookback": 21,
             "ma_consec_filters": [],
@@ -621,10 +386,11 @@ _STRATEGY_BOOK_RAW = [
             "use_gap_filter": False, "gap_lookback": 21, "gap_logic": ">", "gap_thresh": 3,
             "use_acc_count_filter": False, "acc_count_window": 21, "acc_count_logic": ">", "acc_count_thresh": 3,
             "use_dist_count_filter": False, "dist_count_window": 21, "dist_count_logic": ">", "dist_count_thresh": 3,
-            "use_recent_52w_low": False, "recent_52w_low_invert": True, "recent_52w_low_lookback": 10
+            "use_recent_52w_low": False, "recent_52w_low_invert": True, "recent_52w_low_lookback": 10,
+            "dial_filters": [{'dial': '63d', 'window': 10, 'logic': '<', 'thresh': 65.0}]
         },
-        "execution": {"risk_bps": 15, "slippage_bps": 2, "stop_atr": 3.0, "tgt_atr": 8.0, "hold_days": 21,"use_stop_loss": False, "use_take_profit": False,
-                      "ladder_multipliers": [0.85, 1.00, 1.15], "loc_companion_multiplier": 0.85},
+        "execution": {"risk_bps": 35, "slippage_bps": 2, "stop_atr": 3.0, "tgt_atr": 6.0, "hold_days": 10, "use_stop_loss": False, "use_take_profit": True,
+                      "ladder_multipliers": [0.85, 1.00, 1.15]},
         "stats": {"grade": "A (Excellent)", "win_rate": "69.0%", "expectancy": "0.48r", "profit_factor": "2.82"}
     },
     {

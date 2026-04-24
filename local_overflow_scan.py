@@ -57,6 +57,9 @@ for _s in STRATEGY_BOOK:
     elif _s['name'] == "Oversold Low Volume":
         _s_copy = copy.deepcopy(_s)
         _s_copy['universe_tickers'] = CSV_UNIVERSE
+        # Overflow sizes OLV smaller than main scan (25 vs 35 bps) — wider pool
+        # of candidates, less conviction per name.
+        _s_copy['execution']['risk_bps'] = 25
         OVERFLOW_STRATEGIES.append(_s_copy)
     elif _s['name'] == "St OS Sznl":
         _s_copy = copy.deepcopy(_s)
@@ -69,9 +72,7 @@ for _s in STRATEGY_BOOK:
 from daily_scan import (
     check_signal, load_seasonal_map,
     get_entry_type_short, get_sizing_variable, build_live_filters,
-    generate_oversold_lv_companion,
-    load_olv_cooldown, load_open_position_counts,
-    OLV_STRATEGY_NAME, OLV_COOLDOWN_DAYS,
+    load_open_position_counts,
     load_atr_seasonal_map, ATR_SZNL_COLS,
     DAILY_RISK_CAP_BPS,
 )
@@ -944,12 +945,6 @@ def run_overflow_scan(dry_run=False, force_rebuild=False):
     all_signals = []
     error_tickers = []  # (ticker, reason) tuples
 
-    # OLV cooldown — shared across main + overflow via Trade_Signals_Log
-    olv_cooldown = load_olv_cooldown(lookback_trading_days=OLV_COOLDOWN_DAYS + 5)
-    olv_cutoff = (pd.Timestamp(datetime.date.today()) - TRADING_DAY * OLV_COOLDOWN_DAYS).date()
-    if olv_cooldown:
-        print(f"🛑 OLV cooldown: {len(olv_cooldown)} tickers with signals since {olv_cutoff}")
-
     # Ladder sizing — count currently-held filled positions per (ticker, strategy).
     ladder_strats = {s['name'] for s in OVERFLOW_STRATEGIES if s['execution'].get('ladder_multipliers')}
     ladder_counts = load_open_position_counts(ladder_strats)
@@ -1054,13 +1049,6 @@ def run_overflow_scan(dry_run=False, force_rebuild=False):
                 if check_signal(calc_df, _eff_settings, sznl_map, ticker=t_clean):
                     last_row = calc_df.iloc[-1]
 
-                    # Cooldown gate: OLV suppresses re-fires within 20 trading days
-                    if strat_name == OLV_STRATEGY_NAME:
-                        last_sig = olv_cooldown.get(t_clean)
-                        if last_sig is not None and last_sig >= olv_cutoff:
-                            print(f"   ⏭ OLV cooldown: {t_clean} (last signal {last_sig})")
-                            continue
-
                     # Entry confirmation
                     entry_conf_bps = strat['settings'].get('entry_conf_bps', 0)
                     entry_mode = strat['settings'].get('entry_type', 'Signal Close')
@@ -1118,16 +1106,12 @@ def run_overflow_scan(dry_run=False, force_rebuild=False):
                         sizing_note += f" | Frag {frag_mult:.2f}x"
 
                     # Ladder sizing — scale up on repeat signals when prior
-                    # positions are still open. Companion LOC stays flat.
+                    # positions are still open.
                     ladder_mults = strat['execution'].get('ladder_multipliers')
-                    companion_risk_override = None
                     if ladder_mults:
                         open_count = ladder_counts.get((t_clean, strat['name']), 0)
                         rung_idx = min(open_count, len(ladder_mults) - 1)
                         ladder_mult = ladder_mults[rung_idx]
-                        loc_mult = strat['execution'].get('loc_companion_multiplier')
-                        if loc_mult is not None:
-                            companion_risk_override = risk * loc_mult
                         risk = risk * ladder_mult
                         sizing_note += f" | Ladder rung {rung_idx + 1} ({ladder_mult:.2f}x, {open_count} open)"
 
@@ -1211,11 +1195,6 @@ def run_overflow_scan(dry_run=False, force_rebuild=False):
                     }
 
                     signals.append(signal_dict)
-
-                    if strat_name == OLV_STRATEGY_NAME:
-                        companion = generate_oversold_lv_companion(signal_dict, strat, last_row, override_risk=companion_risk_override)
-                        if companion:
-                            signals.append(companion)
 
             except Exception as e:
                 error_tickers.append((t_clean, str(e)[:80]))

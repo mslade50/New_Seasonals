@@ -971,7 +971,7 @@ def build_strategy_dict(params, tickers_to_run, pf, sqn, win_rate, expectancy_r)
     }
     return strategy
     
-def run_engine(universe_dict, params, sznl_map, market_series=None, vix_series=None, market_sznl_series=None, ref_ticker_ranks=None, xsec_rank_matrices=None, atr_sznl_map=None, fragility_df=None):
+def run_engine(universe_dict, params, sznl_map, market_series=None, vix_series=None, market_sznl_series=None, ref_ticker_ranks=None, xsec_rank_matrices=None, atr_sznl_map=None, fragility_df=None, market_sma_not_declining_series=None):
     all_potential_trades = []
     total = len(universe_dict)
     bt_start_ts = pd.to_datetime(params['backtest_start_date'])
@@ -1039,6 +1039,8 @@ def run_engine(universe_dict, params, sznl_map, market_series=None, vix_series=N
 
         try:
             df = calculate_indicators(df_raw, sznl_map, ticker, market_series, vix_series, market_sznl_series, gap_window, req_custom_mas, acc_win, dist_win, ref_ticker_ranks, weekly_ma_configs, xsec_rank_matrices)
+            if market_sma_not_declining_series is not None:
+                df['Market_SMA200_Not_Declining'] = market_sma_not_declining_series.reindex(df.index, method='ffill').fillna(False)
             df = df[df.index >= bt_start_ts]
             if df.empty: continue
 
@@ -1062,6 +1064,8 @@ def run_engine(universe_dict, params, sznl_map, market_series=None, vix_series=N
             elif "Market" in trend_opt and 'Market_Above_SMA200' in df.columns:
                 if trend_opt == "Market > 200 SMA": conditions.append(df['Market_Above_SMA200'])
                 elif trend_opt == "Market < 200 SMA": conditions.append(~df['Market_Above_SMA200'])
+                elif trend_opt == "Market Not Declining 200 SMA" and 'Market_SMA200_Not_Declining' in df.columns:
+                    conditions.append(df['Market_SMA200_Not_Declining'])
                 
             conditions.append((df['Close'] >= params['min_price']) & (df['vol_ma'] >= params['min_vol']) & (df['age_years'] >= params['min_age']) & (df['age_years'] <= params['max_age']) & (df['ATR_Pct'] >= params['min_atr_pct']) & (df['ATR_Pct'] <= params['max_atr_pct']))
             
@@ -1733,6 +1737,13 @@ def main():
             extras_tickers = st.session_state.get('overflow_extras_sample', [])
             if extras_tickers:
                 st.success(f"Sample: {len(extras_tickers)} extras (pinned for this session — reshuffle resets)")
+            run_scope = st.radio(
+                "Run scope (subset — doesn't affect cache)",
+                ["All (base + extras)", "Base only (All CSV)", "Extras only (overflow)"],
+                horizontal=True,
+                key="overflow_run_scope",
+                help="Both base and extras are still downloaded so their caches stay warm. Scope only filters which tickers the strategy is tested on.",
+            )
     st.write("")
     use_full_history = st.checkbox("Download Full History (1950+) for Accurate 'Age'", value=False)
     st.markdown("---")
@@ -1958,7 +1969,7 @@ def main():
                 help="Signals that would enter in these years are skipped. Useful for seeing how the strategy looks ex-2008, ex-2020, etc."
             )
     with st.expander("Trend Filter", expanded=False):
-        trend_filter = st.selectbox("Trend Condition", ["None", "Price > 200 SMA", "Not Below Declining 200 SMA", "Price > Rising 200 SMA", "Market > 200 SMA", "Price < 200 SMA", "Price < Falling 200 SMA", "Market < 200 SMA"])
+        trend_filter = st.selectbox("Trend Condition", ["None", "Price > 200 SMA", "Not Below Declining 200 SMA", "Price > Rising 200 SMA", "Market > 200 SMA", "Market Not Declining 200 SMA", "Price < 200 SMA", "Price < Falling 200 SMA", "Market < 200 SMA"])
     with st.expander("Performance Percentile Rank", expanded=False):
         col_p_config, col_p_seq = st.columns([3, 1])
         perf_filters = []
@@ -2285,9 +2296,15 @@ def main():
             _base = [t for t in list(sznl_map.keys())]
             _base_set = set(_base)
             _new_extras = [t for t in extras_tickers if t not in _base_set]
-            tickers_to_run = _base + _new_extras
+            _scope = st.session_state.get('overflow_run_scope', 'All (base + extras)')
+            if _scope == "Base only (All CSV)":
+                tickers_to_run = list(_base)
+            elif _scope == "Extras only (overflow)":
+                tickers_to_run = list(_new_extras)
+            else:
+                tickers_to_run = _base + _new_extras
             if extras_tickers:
-                st.info(f"Universe: {len(_base)} base (All CSV) + {len(_new_extras)} overflow extras = **{len(tickers_to_run)}** total")
+                st.info(f"Universe cached: {len(_base)} base + {len(_new_extras)} extras. **Running on {len(tickers_to_run)}** ({_scope}).")
         elif univ_choice == "All CSV (Equities Only)": tickers_to_run = [t for t in list(sznl_map.keys()) if t not in ["BTC-USD", "ETH-USD", "SLV", "GLD", "USO", "UVXY", "CEF", "UNG", "XOP"] + SECTOR_ETFS + INDEX_ETFS + INTERNATIONAL_ETFS + SPX]
         elif univ_choice == "3x Leveraged (All)": tickers_to_run = LEV3X_ALL
         elif univ_choice == "3x Leveraged Equities": tickers_to_run = LEV3X_EQUITY_ALL
@@ -2307,7 +2324,9 @@ def main():
             st.info(f"Downloading base ({len(_base)}, cached) + extras ({len(_new_extras)} new)...")
             base_data = download_universe_data(_base, fetch_start)
             extras_data = download_universe_data(_new_extras, fetch_start) if _new_extras else {}
-            data_dict = {**base_data, **extras_data}
+            _full_data = {**base_data, **extras_data}
+            _run_set = set(tickers_to_run)
+            data_dict = {t: df for t, df in _full_data.items() if t in _run_set}
         else:
             st.info(f"Downloading data ({len(tickers_to_run)} tickers)...")
             data_dict = download_universe_data(tickers_to_run, fetch_start)
@@ -2331,6 +2350,7 @@ def main():
                     data_dict[_t] = _sliced
             st.info(f"Truncated {_truncated} ticker(s) to end date {end_date}")
         market_series, market_sznl_series = None, None
+        market_sma_not_declining_series = None
         need_market_data = ("Market" in trend_filter) or use_market_sznl
         if need_market_data:
             market_df = data_dict.get(MARKET_TICKER)
@@ -2343,6 +2363,7 @@ def main():
                 market_df.index = market_df.index.normalize()
                 market_df['SMA200'] = market_df['Close'].rolling(200).mean()
                 market_series = market_df['Close'] > market_df['SMA200']
+                market_sma_not_declining_series = market_df['SMA200'] >= market_df['SMA200'].shift(1)
                 if use_market_sznl: market_sznl_series = get_sznl_val_series(MARKET_TICKER, market_df.index, sznl_map)
         vix_series = None
         if use_vix_filter:
@@ -2426,7 +2447,7 @@ def main():
             st.warning("ATR Seasonal Rank filter is enabled but atr_seasonal_ranks.parquet could not be loaded. Filter will be skipped.")
 
         fragility_df = load_fragility_dials() if dial_filters else None
-        trades_df, rejected_df, total_signals = run_engine(data_dict, params, sznl_map, market_series, vix_series, market_sznl_series, ref_ticker_ranks, xsec_rank_matrices, atr_sznl_map, fragility_df=fragility_df)
+        trades_df, rejected_df, total_signals = run_engine(data_dict, params, sznl_map, market_series, vix_series, market_sznl_series, ref_ticker_ranks, xsec_rank_matrices, atr_sznl_map, fragility_df=fragility_df, market_sma_not_declining_series=market_sma_not_declining_series)
         if trades_df.empty: st.warning("No executed signals.")
         if not trades_df.empty:
             trades_df = trades_df.sort_values("ExitDate")

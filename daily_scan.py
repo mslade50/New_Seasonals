@@ -1269,95 +1269,6 @@ def get_sizing_variable(strat_name, last_row):
     else:
         return None
 
-def generate_oversold_lv_companion(primary_signal, strat, last_row, override_risk=None):
-    """
-    Generates a companion LOC (Limit-on-Close) order for Oversold Low Volume.
-
-    Logic: When the MOC fires, also stage a LOC buy for T+1 at signal close.
-    Only fills if T+1 close < signal close (buying further weakness).
-
-    Args:
-        override_risk: If provided, size the companion at this risk amount
-                       (flat loc_companion_multiplier × base) instead of
-                       inheriting the primary's ladder-scaled Risk_Amt. Shares
-                       are recomputed from this risk and the stop distance.
-
-    Returns a signal dict for the companion order, or None if not applicable.
-    """
-    if strat['name'] != "Oversold Low Volume":
-        return None
-
-    signal_close = primary_signal['Entry']
-    atr = primary_signal['ATR']
-
-    # LOC threshold: only fill if T+1 close < signal close
-    loc_threshold = signal_close
-
-    # Calculate exit date (same hold period as primary)
-    hold_days = strat['execution']['hold_days']
-    effective_entry_date = last_row.name + TRADING_DAY  # T+1 close entry
-    exit_date = (effective_entry_date + (TRADING_DAY * hold_days)).date()
-
-    # Stop/target from signal close
-    stop_atr = strat['execution']['stop_atr']
-    tgt_atr = strat['execution']['tgt_atr']
-    stop_price = signal_close - (atr * stop_atr)
-    tgt_price = signal_close + (atr * tgt_atr)
-
-    # Size companion: if override_risk provided (ladder path), recompute shares
-    # from the flat LOC risk; otherwise inherit primary's shares & risk.
-    if override_risk is not None:
-        dist = atr * stop_atr
-        shares = int(override_risk / dist) if dist > 0 else 0
-        risk_amt = override_risk
-        loc_mult = strat['execution'].get('loc_companion_multiplier', 1.0)
-        sizing_notes = f"LOC Companion — flat {loc_mult:.2f}x base (${risk_amt:.0f})"
-    else:
-        shares = primary_signal['Shares']
-        risk_amt = primary_signal['Risk_Amt']
-        sizing_notes = primary_signal['Sizing_Notes'] + " | LOC Companion"
-
-    if shares == 0:
-        return None
-
-    return {
-        "Strategy_ID": strat['id'] + " (LOC Add)",
-        "Strategy_Name": "Oversold LV LOC Add",
-        "Ticker": primary_signal['Ticker'],
-        "Date": primary_signal['Date'],
-        "Action": "BUY",
-        "Shares": shares,
-        "Risk_Amt": risk_amt,
-        "Sizing_Notes": sizing_notes,
-        "Stats": primary_signal['Stats'],
-        "Entry": loc_threshold,
-        "Stop": round(stop_price, 2),
-        "Target": round(tgt_price, 2),
-        "Time Exit": exit_date,
-        "ATR": atr,
-        "Entry_Type": "LOC (Limit-on-Close)",
-        "Entry_Type_Short": f"LOC <${loc_threshold:.2f}",
-        "Limit_Price": loc_threshold,
-        "Notional": shares * loc_threshold,
-        "Days_To_Exit": hold_days,
-        "Use_Stop": strat['execution'].get('use_stop_loss', False),
-        "Use_Target": strat['execution'].get('use_take_profit', False),
-        "Setup_Type": "MeanReversion",
-        "Setup_Timeframe": "Position",
-        "Setup_Thesis": "Oversold low volume — buying further weakness at close",
-        "Setup_Filters": ["Same conditions as Oversold LV MOC",
-                          f"T+1 Close < ${loc_threshold:.2f} (Signal Close)"],
-        "Live_Filters": [("T+1 Close must be below", f"${loc_threshold:.2f}", False)],
-        "Exit_Primary": f"{hold_days}-day time stop",
-        "Exit_Stop": strat.get('exit_summary', {}).get('stop_logic', ''),
-        "Exit_Target": strat.get('exit_summary', {}).get('target_logic', ''),
-        "Exit_Notes": "Companion to Oversold LV MOC — only fills if price kept falling",
-        "Sizing_Variable": primary_signal.get('Sizing_Variable'),
-        "_is_companion": True,
-        "_parent_strategy": "Oversold Low Volume"
-    }
-
-
 def build_live_filters(strat, last_row, df):
     """
     Builds a list of filter descriptions with their LIVE values from the scan.
@@ -1685,64 +1596,6 @@ def download_historical_data(tickers, start_date="2000-01-01"):
     return data_dict
 
 
-OLV_COOLDOWN_DAYS = 20
-OLV_STRATEGY_NAME = "Oversold Low Volume"
-
-
-def load_olv_cooldown(lookback_trading_days=25):
-    """Build {ticker: latest_signal_date} for Oversold Low Volume primary
-    signals fired within the lookback window. Companion "LOC Add" rows are
-    excluded. Returns {} on any failure so the scan proceeds without cooldown.
-    """
-    gc = get_google_client()
-    if not gc:
-        return {}
-
-    try:
-        sh = gc.open("Trade_Signals_Log")
-        ws = sh.sheet1
-        rows = ws.get_all_values()
-    except Exception as e:
-        print(f"⚠️ Cooldown lookup failed (reading Trade_Signals_Log): {e}")
-        return {}
-
-    if not rows or len(rows) < 2:
-        return {}
-
-    headers = rows[0]
-    try:
-        name_idx = headers.index("Strategy_Name")
-        ticker_idx = headers.index("Ticker")
-        date_idx = headers.index("Date")
-    except ValueError:
-        return {}
-
-    sid_idx = headers.index("Strategy_ID") if "Strategy_ID" in headers else None
-
-    cutoff = (pd.Timestamp(datetime.date.today()) - TRADING_DAY * lookback_trading_days).date()
-    latest = {}
-
-    for r in rows[1:]:
-        if len(r) <= max(name_idx, ticker_idx, date_idx):
-            continue
-        if r[name_idx] != OLV_STRATEGY_NAME:
-            continue
-        # Exclude LOC companion rows — they share the strategy name prefix
-        if sid_idx is not None and "LOC Add" in r[sid_idx]:
-            continue
-        try:
-            sig_date = pd.to_datetime(r[date_idx]).date()
-        except Exception:
-            continue
-        if sig_date < cutoff:
-            continue
-        tkr = r[ticker_idx]
-        if tkr not in latest or sig_date > latest[tkr]:
-            latest[tkr] = sig_date
-
-    return latest
-
-
 def load_open_position_counts(ladder_strategy_names):
     """Build {(ticker, strategy_name): count} of currently-held positions
     for ladder sizing.
@@ -2000,13 +1853,6 @@ def run_daily_scan():
         else:
             print(f"⚠️ atr_seasonal_ranks.parquet not found — atr_sznl_filters will match nothing")
 
-    # 4b. Cooldown lookup for Oversold Low Volume — 20 trading day lockout
-    olv_cooldown = load_olv_cooldown(lookback_trading_days=OLV_COOLDOWN_DAYS + 5)
-    olv_cutoff = (pd.Timestamp(datetime.date.today()) - TRADING_DAY * OLV_COOLDOWN_DAYS).date()
-    if olv_cooldown:
-        print(f"🛑 OLV cooldown: {len(olv_cooldown)} tickers with signals since {olv_cutoff}")
-    olv_skipped = []
-
     # 4c. Ladder position counts — counts currently-held filled primary signals
     # per (ticker, strategy) so repeat signals size up on each successive day.
     ladder_strats = {s['name'] for s in STRATEGY_BOOK if s['execution'].get('ladder_multipliers')}
@@ -2077,14 +1923,6 @@ def run_daily_scan():
 
                 if check_signal(calc_df, _eff_settings, sznl_map, ticker=t_clean):
                     last_row = calc_df.iloc[-1]
-
-                    # Cooldown gate: OLV suppresses re-fires within 20 trading days
-                    if strat['name'] == OLV_STRATEGY_NAME:
-                        last_sig = olv_cooldown.get(t_clean)
-                        if last_sig is not None and last_sig >= olv_cutoff:
-                            olv_skipped.append((t_clean, last_sig))
-                            print(f"   ⏭ OLV cooldown: {t_clean} (last signal {last_sig})")
-                            continue
 
                     # 1. Entry Confirmation Check
                     entry_conf_bps = strat['settings'].get('entry_conf_bps', 0)
@@ -2163,18 +2001,11 @@ def run_daily_scan():
 
                     # 2c. LADDER SIZING — scale up on repeat signals for the same
                     # (ticker, strategy) while prior positions are still held.
-                    # Companion LOC uses flat loc_companion_multiplier (see below).
                     ladder_mults = strat['execution'].get('ladder_multipliers')
-                    companion_risk_override = None
                     if ladder_mults:
                         open_count = ladder_counts.get((t_clean, strat['name']), 0)
                         rung_idx = min(open_count, len(ladder_mults) - 1)
                         ladder_mult = ladder_mults[rung_idx]
-                        # Snapshot pre-ladder risk (base × strat-specific × frag) so
-                        # the LOC companion can be flat-sized independent of rung.
-                        loc_mult = strat['execution'].get('loc_companion_multiplier')
-                        if loc_mult is not None:
-                            companion_risk_override = risk * loc_mult
                         risk = risk * ladder_mult
                         sizing_note += f" | Ladder rung {rung_idx + 1} ({ladder_mult:.2f}x, {open_count} open)"
 
@@ -2302,15 +2133,7 @@ def run_daily_scan():
                         "Sizing_Variable": get_sizing_variable(strat['name'], last_row)
                     }
                     
-                    if strat['name'] == "Oversold Low Volume":
-                        signals.append(signal_dict)
-                        companion = generate_oversold_lv_companion(
-                            signal_dict, strat, last_row, override_risk=companion_risk_override
-                        )
-                        if companion:
-                            signals.append(companion)
-                    else:
-                        signals.append(signal_dict)
+                    signals.append(signal_dict)
             except Exception as e:
                 error_tickers.append((t_clean, str(e)[:80]))
                 print(f"Error processing {ticker}: {e}")
