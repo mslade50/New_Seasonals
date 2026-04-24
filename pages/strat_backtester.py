@@ -1011,7 +1011,7 @@ def build_price_matrix(processed_dict, tickers):
     return pd.DataFrame(price_data, index=all_dates)
 
 
-def process_signals_fast(candidates, signal_data, processed_dict, strategies, starting_equity):
+def process_signals_fast(candidates, signal_data, processed_dict, strategies, starting_equity, cap_bps=None):
     """
     Process candidates chronologically with dynamic sizing based on REAL-TIME MTM equity.
     
@@ -1583,12 +1583,14 @@ def process_signals_fast(candidates, signal_data, processed_dict, strategies, st
 
     # Global aggregate daily risk cap across ALL strategies.
     # Mirrors daily_scan.py / local_overflow_scan.py: for each signal date,
-    # if total Risk $ from all strategies' signals exceeds DAILY_RISK_CAP_BPS
-    # of equity at that date, scale every signal's Shares + PnL + Risk $ down.
+    # if total Risk $ from all strategies' signals exceeds cap_bps of equity
+    # at that date, scale every signal's Shares + PnL + Risk $ down.
     # Cap scales dynamically with "Equity at Signal" (first signal's equity
     # on that date is representative).
-    if DAILY_RISK_CAP_BPS and len(sig_df) > 0:
-        cap_bps = DAILY_RISK_CAP_BPS
+    # cap_bps=None falls back to the strategy_config constant; 0 disables.
+    _effective_cap = DAILY_RISK_CAP_BPS if cap_bps is None else cap_bps
+    if _effective_cap and len(sig_df) > 0:
+        cap_bps = _effective_cap
         sig_df = sig_df.sort_values(by="Date").reset_index(drop=True)
         grouped = sig_df.groupby('Date', sort=False)
         for date, idx in grouped.groups.items():
@@ -2177,6 +2179,17 @@ def main():
                 "Other strategies keep their default universes."
             ),
         )
+        cap_bps_input = st.number_input(
+            f"Aggregate risk cap (bps, 0 = off)",
+            min_value=0, max_value=1000,
+            value=int(DAILY_RISK_CAP_BPS or 0), step=25,
+            help=(
+                f"Per-signal-date cap on total risk across all staged signals, "
+                f"as bps of MTM equity at that date. Default {DAILY_RISK_CAP_BPS} bps "
+                "(from strategy_config.DAILY_RISK_CAP_BPS). Set to 0 to disable and "
+                "see the raw uncapped backtest."
+            ),
+        )
         run_btn = st.form_submit_button("⚡ Run Backtest")
 
     st.title("⚡ Strategy Backtest Lab v3")
@@ -2277,9 +2290,14 @@ def main():
         st.write(f"   Found {len(candidates):,} candidates in {time.time()-t0:.1f}s")
 
         st.write("📈 **Phase 3:** Processing with dynamic MTM-based sizing...")
+        if cap_bps_input == 0:
+            st.info("🚫 Aggregate risk cap disabled for this backtest — signals execute at raw per-strategy sizing.")
+        elif cap_bps_input != DAILY_RISK_CAP_BPS:
+            st.info(f"⚖️ Aggregate risk cap overridden: {cap_bps_input} bps (config default: {DAILY_RISK_CAP_BPS} bps).")
         t0 = time.time()
         sig_df = process_signals_fast(
-            candidates, signal_data, processed_dict, strategies, starting_equity
+            candidates, signal_data, processed_dict, strategies, starting_equity,
+            cap_bps=cap_bps_input,
         )
         st.write(f"   Executed {len(sig_df):,} trades in {time.time()-t0:.1f}s")
 
