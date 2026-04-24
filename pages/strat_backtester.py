@@ -366,6 +366,8 @@ def get_historical_mask(df, params, sznl_map, ticker_name="UNK"):
         col_vals = df[col].values
         if pf['logic'] == '<':
             cond = col_vals < pf['thresh']
+        elif pf['logic'] == 'Between':
+            cond = (col_vals >= pf['thresh']) & (col_vals <= pf.get('thresh_max', 100.0))
         else:
             cond = col_vals > pf['thresh']
         if pf['consecutive'] > 1:

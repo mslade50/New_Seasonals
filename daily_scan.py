@@ -645,6 +645,8 @@ def check_signal(df, params, sznl_map, ticker=None):
 
             if pf['logic'] == '<':
                 cond_f = df[col] < pf['thresh']
+            elif pf['logic'] == 'Between':
+                cond_f = (df[col] >= pf['thresh']) & (df[col] <= pf.get('thresh_max', 100.0))
             else:
                 cond_f = df[col] > pf['thresh']
 
@@ -1310,8 +1312,12 @@ def build_live_filters(strat, last_row, df):
         logic = pf['logic']
         thresh = pf['thresh']
         consec = pf.get('consecutive', 1)
-        
-        desc = f"{window}D rank {logic} {thresh:.0f}th %ile"
+
+        if logic == 'Between':
+            thresh_max = pf.get('thresh_max', 100.0)
+            desc = f"{window}D rank between {thresh:.0f}-{thresh_max:.0f}th %ile"
+        else:
+            desc = f"{window}D rank {logic} {thresh:.0f}th %ile"
         if consec > 1:
             desc += f" ({consec}d consecutive)"
         live_filters.append((desc, f"{val:.1f}", False))
