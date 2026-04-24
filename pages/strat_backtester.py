@@ -23,12 +23,23 @@ parent_dir = os.path.dirname(current_dir)
 sys.path.append(parent_dir)
 
 try:
-    from strategy_config import _STRATEGY_BOOK_RAW, ACCOUNT_VALUE, DAILY_RISK_CAP_BPS
+    from strategy_config import _STRATEGY_BOOK_RAW, ACCOUNT_VALUE, DAILY_RISK_CAP_BPS, CSV_UNIVERSE
 except ImportError:
     # st.error("Could not find strategy_config.py in the root directory.")
     _STRATEGY_BOOK_RAW = []
+    CSV_UNIVERSE = []
     ACCOUNT_VALUE = 150000
     DAILY_RISK_CAP_BPS = 0
+
+# Strategies that the overflow scanner runs against the broader CSV_UNIVERSE.
+# When the "Run on Overflow Universe" UI toggle is on, strat_backtester swaps
+# universe_tickers to CSV_UNIVERSE for these (mirrors local_overflow_scan.py).
+OVERFLOW_ELIGIBLE_STRATEGIES = {
+    "Oversold Low Volume",
+    "Overbot Vol Spike",
+    "LT Trend ST OS",
+    "St OS Sznl",
+}
 
 # -----------------------------------------------------------------------------
 # CONSTANTS & SETUP
@@ -2155,6 +2166,17 @@ def main():
         st.markdown("---")
         st.markdown("**🔄 Dynamic Position Sizing**")
         st.caption("Sizes scale with MTM equity (bps of current value including unrealized P&L).")
+        st.markdown("---")
+        use_overflow_universe = st.checkbox(
+            f"🌊 Run on Overflow Universe ({len(CSV_UNIVERSE):,} tickers)",
+            value=False,
+            help=(
+                "Swap eligible strategies' universe to CSV_UNIVERSE (sznl_ranks.csv, "
+                f"~{len(CSV_UNIVERSE):,} tickers). Mirrors local_overflow_scan.py. "
+                f"Affects: {', '.join(sorted(OVERFLOW_ELIGIBLE_STRATEGIES))}. "
+                "Other strategies keep their default universes."
+            ),
+        )
         run_btn = st.form_submit_button("⚡ Run Backtest")
 
     st.title("⚡ Strategy Backtest Lab v3")
@@ -2170,6 +2192,18 @@ def main():
 
         import copy
         strategies = [copy.deepcopy(s) for s in _STRATEGY_BOOK_RAW]
+
+        if use_overflow_universe and CSV_UNIVERSE:
+            _swapped = []
+            for s in strategies:
+                if s['name'] in OVERFLOW_ELIGIBLE_STRATEGIES:
+                    s['universe_tickers'] = CSV_UNIVERSE
+                    _swapped.append(s['name'])
+            if _swapped:
+                st.info(
+                    f"🌊 Overflow universe active — swapped {len(_swapped)} strategies to "
+                    f"CSV_UNIVERSE ({len(CSV_UNIVERSE):,} tickers): {', '.join(_swapped)}"
+                )
 
         long_term_tickers = set()
         for strat in strategies:
