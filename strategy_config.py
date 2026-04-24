@@ -675,7 +675,8 @@ _STRATEGY_BOOK_RAW = [
                 "252D rank between 65-90th %ile",
                 "Close in 0-25% of daily range",
                 "Volume > 1.25x 63-day avg",
-                "Dist days > 0 in last 21d"
+                "Dist days > 0 in last 21d",
+                "63d dial (10d avg) < 50 (not in fragile regime)"
             ]
         },
         "exit_summary": {
@@ -739,7 +740,8 @@ _STRATEGY_BOOK_RAW = [
             "use_ref_ticker_filter": False, "ref_ticker": "SPY", "ref_filters": [],
             "use_t1_open_filter": False, "t1_open_filters": [],
             "use_xsec_filter": True, "xsec_filters": [],
-            "atr_sznl_filters": []
+            "atr_sznl_filters": [],
+            "dial_filters": [{'dial': '63d', 'window': 10, 'logic': '<', 'thresh': 50.0}]
         },
         "execution": {
             "risk_bps": 35,

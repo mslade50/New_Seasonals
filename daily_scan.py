@@ -494,6 +494,29 @@ def load_seasonal_map(csv_path="sznl_ranks.csv"):
 
 ETF_ATR_EXEMPT = {'SPY', 'QQQ', 'IWM', 'DIA'}
 
+_FRAG_DF_CACHE = {}  # key='loaded' → DataFrame or None
+def _get_fragility_df_cached():
+    """Load data/rd2_fragility.parquet once per process. Returns None if missing."""
+    if 'loaded' in _FRAG_DF_CACHE:
+        return _FRAG_DF_CACHE['loaded']
+    try:
+        import os as _os
+        here = _os.path.dirname(_os.path.abspath(__file__))
+        path = _os.path.join(here, 'data', 'rd2_fragility.parquet')
+        df = pd.read_parquet(path) if _os.path.exists(path) else None
+        if df is not None:
+            df.index = pd.to_datetime(df.index).normalize()
+            try:
+                df.index = df.index.tz_localize(None)
+            except (TypeError, AttributeError):
+                pass
+            df = df.sort_index()
+    except Exception:
+        df = None
+    _FRAG_DF_CACHE['loaded'] = df
+    return df
+
+
 def check_signal(df, params, sznl_map, ticker=None):
     last_row = df.iloc[-1]
     
@@ -845,6 +868,42 @@ def check_signal(df, params, sznl_map, ticker=None):
     # 10. Volume (Ratio ONLY)
     if params['use_vol']:
         if not (last_row['vol_ratio'] > params['vol_thresh']): return False
+
+    # Risk dial filters — gate signals by the fragility score (from Risk Dashboard).
+    # Example: {'dial': '63d', 'window': 10, 'logic': '<', 'thresh': 50.0}
+    # means "10-day rolling avg of 63d dial must be < 50 on signal date".
+    # Fails closed if the fragility parquet is missing/stale — we don't trade
+    # through an unknown regime when a filter was explicitly configured.
+    dial_filters = params.get('dial_filters', [])
+    if dial_filters:
+        frag_df = _get_fragility_df_cached()
+        if frag_df is None or frag_df.empty:
+            return False
+        signal_date = df.index[-1]
+        try:
+            signal_date = pd.Timestamp(signal_date).normalize().tz_localize(None)
+        except (TypeError, AttributeError):
+            signal_date = pd.Timestamp(signal_date).normalize()
+        for df_filter in dial_filters:
+            dial_col = df_filter.get('dial')
+            if dial_col not in frag_df.columns:
+                return False
+            win = max(1, int(df_filter.get('window', 1)))
+            dial_series = frag_df[dial_col]
+            if win > 1:
+                dial_series = dial_series.rolling(win, min_periods=win).mean()
+            try:
+                val = float(dial_series.reindex([signal_date], method='ffill').iloc[0])
+            except (IndexError, KeyError):
+                return False
+            if pd.isna(val):
+                return False
+            thresh = float(df_filter.get('thresh', 0))
+            logic = df_filter.get('logic', '>')
+            if logic == '>' and not (val > thresh): return False
+            if logic == '<' and not (val < thresh): return False
+            if logic == '>=' and not (val >= thresh): return False
+            if logic == '<=' and not (val <= thresh): return False
 
     if params.get('use_vol_rank'):
         val = last_row['vol_ratio_10d_rank']
@@ -1531,6 +1590,31 @@ def build_live_filters(strat, last_row, df):
             col = f"xsec_rank_ret_{window}d"
             val = last_row.get(col, 50.0)
             live_filters.append((f"XSec {window}D rank {logic} {thresh:.0f}", f"{val:.0f}", False))
+
+    # --- Risk Dial Filters (fragility score gate) ---
+    for df_filter in settings.get('dial_filters', []):
+        dial_col = df_filter.get('dial')
+        win = int(df_filter.get('window', 1))
+        logic = df_filter.get('logic', '>')
+        thresh = float(df_filter.get('thresh', 0))
+        frag_df = _get_fragility_df_cached()
+        if frag_df is None or dial_col not in frag_df.columns:
+            live_filters.append((f"{dial_col} dial ({win}d avg) {logic} {thresh:.0f}", "n/a", False))
+            continue
+        dial_series = frag_df[dial_col]
+        if win > 1:
+            dial_series = dial_series.rolling(win, min_periods=win).mean()
+        try:
+            signal_date = pd.Timestamp(last_row.name).normalize()
+            try:
+                signal_date = signal_date.tz_localize(None)
+            except (TypeError, AttributeError):
+                pass
+            val = float(dial_series.reindex([signal_date], method='ffill').iloc[0])
+        except Exception:
+            val = float('nan')
+        val_str = f"{val:.1f}" if not pd.isna(val) else "n/a"
+        live_filters.append((f"{dial_col} dial ({win}d avg) {logic} {thresh:.0f}", val_str, False))
 
     # --- Day of Week ---
     if settings.get('use_dow_filter', False):

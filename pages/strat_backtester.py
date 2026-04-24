@@ -445,6 +445,41 @@ def get_historical_mask(df, params, sznl_map, ticker_name="UNK"):
             elif logic == 'Between':
                 conditions.append((vals >= asf['thresh']) & (vals <= asf.get('thresh_max', 100.0)))
 
+    # Risk dial filters (e.g. 63d dial 10d-avg < 50). Loads rd2_fragility.parquet
+    # once per process; fails closed if missing/stale or column unavailable.
+    dial_filters = params.get('dial_filters', [])
+    if dial_filters:
+        try:
+            import os as _os
+            _here = _os.path.dirname(_os.path.abspath(__file__))
+            _frag_path = _os.path.join(_here, '..', 'data', 'rd2_fragility.parquet')
+            frag_df = pd.read_parquet(_frag_path) if _os.path.exists(_frag_path) else None
+            if frag_df is not None:
+                frag_df.index = pd.to_datetime(frag_df.index).normalize()
+                try: frag_df.index = frag_df.index.tz_localize(None)
+                except (TypeError, AttributeError): pass
+        except Exception:
+            frag_df = None
+        for df_filter in dial_filters:
+            dial_col = df_filter.get('dial')
+            if frag_df is None or dial_col not in frag_df.columns:
+                conditions.append(np.zeros(len(df), dtype=bool))  # fail closed
+                continue
+            win = max(1, int(df_filter.get('window', 1)))
+            dial_series = frag_df[dial_col]
+            if win > 1:
+                dial_series = dial_series.rolling(win, min_periods=win).mean()
+            aligned = dial_series.reindex(df.index, method='ffill').values
+            thresh = float(df_filter.get('thresh', 0))
+            logic = df_filter.get('logic', '>')
+            if   logic == '>':  cond_d = aligned > thresh
+            elif logic == '<':  cond_d = aligned < thresh
+            elif logic == '>=': cond_d = aligned >= thresh
+            elif logic == '<=': cond_d = aligned <= thresh
+            else:               cond_d = np.zeros(len(df), dtype=bool)
+            cond_d = np.where(np.isnan(aligned), False, cond_d)
+            conditions.append(cond_d)
+
     # 52-week high/low filter
     if params.get('use_52w', False):
         if params['52w_type'] == 'New 52w High':
