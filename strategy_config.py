@@ -755,33 +755,35 @@ _STRATEGY_BOOK_RAW = [
         "stats": {"grade": "A (Excellent)", "win_rate": "68.4%", "expectancy": "0.40r", "profit_factor": "2.91"}
     },
     {
-        "id": "2d < 15%ile+5d < 15%ile+10d < 15%ile+21d < 15%ile+252d > 50%ile, 5D ATR sznl > 90, Entry: Signal Close, 5d hold",
+        "id": "2d+5d+10d+21d < 15%ile, 252d between 50-90, 5D ATR sznl > 90, vol_rank < 65, range 0-25, dial 63d 10ma < 65, Entry: signal close -0.25 ATR GTC, 1.5 ATR tgt, 5d hold",
         "name": "St OS Sznl",
         "setup": {
             "type": "MeanReversion",
             "timeframe": "Swing",
-            "thesis": "Short-term oversold bounce filtered to the best seasonal windows (ATR-normalized 5D seasonal rank > 90th %ile)",
+            "thesis": "Short-term oversold bounce in long-term-uptrenders-but-not-leaders during top-decile seasonal windows. Persistent limit at signal close - 0.25 ATR catches dips within the holding window for a slight price improvement vs MOC.",
             "key_filters": [
                 "2D rank < 15th %ile",
                 "5D rank < 15th %ile",
                 "10D rank < 15th %ile",
                 "21D rank < 15th %ile",
-                "252D rank > 50th %ile",
+                "252D rank between 50-90th %ile",
                 "5D ATR seasonal rank > 90th %ile",
-                "10D vol rank < 65th %ile"
+                "10D vol rank < 65th %ile",
+                "Close in 0-25% of daily range",
+                "63d dial (10d avg) < 65 (not in extreme fragile regime)"
             ]
         },
         "exit_summary": {
-            "primary_exit": "5-day time stop",
-            "stop_logic": "None (time exit only)",
-            "target_logic": "None (time exit only)",
+            "primary_exit": "5-day time stop OR 1.5 ATR target (whichever first)",
+            "stop_logic": "None (time/target exit only)",
+            "target_logic": "1.5 ATR above entry",
             "notes": None
         },
         "description": "Short-term oversold + seasonal tailwind. Universe: LIQUID_PLUS_COMMODITIES. 5d hold, MOC entry.",
         "universe_tickers": LIQUID_PLUS_COMMODITIES,
         "settings": {
             "trade_direction": "Long",
-            "entry_type": "Signal Close",
+            "entry_type": "Limit Order -0.25 ATR (Persistent)",
             "max_one_pos": True,
             "allow_same_day_reentry": False,
             "max_daily_entries": 20,
@@ -792,7 +794,7 @@ _STRATEGY_BOOK_RAW = [
                 {'window': 5, 'logic': '<', 'thresh': 15.0, 'thresh_max': 100.0, 'consecutive': 1},
                 {'window': 10, 'logic': '<', 'thresh': 15.0, 'thresh_max': 100.0, 'consecutive': 1},
                 {'window': 21, 'logic': '<', 'thresh': 15.0, 'thresh_max': 100.0, 'consecutive': 1},
-                {'window': 252, 'logic': '>', 'thresh': 50.0, 'thresh_max': 100.0, 'consecutive': 1},
+                {'window': 252, 'logic': 'Between', 'thresh': 50.0, 'thresh_max': 90.0, 'consecutive': 1},
             ],
             "perf_first_instance": False,
             "perf_lookback": 21,
@@ -810,7 +812,7 @@ _STRATEGY_BOOK_RAW = [
             "use_recent_52w_low": False, "recent_52w_low_invert": False, "recent_52w_low_lookback": 21,
             "breakout_mode": 'None',
             "require_close_gt_open": False,
-            "use_range_filter": False, "range_min": 0, "range_max": 100,
+            "use_range_filter": True, "range_min": 0, "range_max": 25,
             "use_atr_ret_filter": False, "atr_ret_min": 0.0, "atr_ret_max": 1.0,
             "use_range_atr_filter": False, "range_atr_logic": '>', "range_atr_min": 1.0, "range_atr_max": 3.0,
             "price_action_filters": [],
@@ -831,17 +833,18 @@ _STRATEGY_BOOK_RAW = [
             "use_ref_ticker_filter": False, "ref_ticker": 'IWM', "ref_filters": [],
             "use_t1_open_filter": False, "t1_open_filters": [],
             "use_xsec_filter": False, "xsec_filters": [],
-            "atr_sznl_filters": [{'window': 5, 'logic': '>', 'thresh': 90.0, 'thresh_max': 100.0, 'consecutive': 1}]
+            "atr_sznl_filters": [{'window': 5, 'logic': '>', 'thresh': 90.0, 'thresh_max': 100.0, 'consecutive': 1}],
+            "dial_filters": [{'dial': '63d', 'window': 10, 'logic': '<', 'thresh': 65.0}]
         },
         "execution": {
             "risk_bps": 40,
             "risk_per_trade": "[EDIT: calculated from account size]",
             "slippage_bps": 2,
             "stop_atr": 1.0,
-            "tgt_atr": 8.0,
+            "tgt_atr": 1.5,
             "hold_days": 5,
             "use_stop_loss": False,
-            "use_take_profit": False
+            "use_take_profit": True
         },
         "stats": {"grade": "A (Excellent)", "win_rate": "64.5%", "expectancy": "0.45r", "profit_factor": "2.17"}
     },

@@ -1062,9 +1062,10 @@ def save_staging_orders(signals_list, strategy_book, sheet_name='Order_Staging')
                 entry_instruction = "REL_OPEN"   # Anchored to T+1 Open
                 tif_instruction = "DAY"
             
-            # Order matters: check 0.75 before 0.5 (substring-safe). "1 ATR" last
-            # so "0.5" / "0.75" don't accidentally match it.
+            # Order matters: check 0.75/0.25 before 0.5 (substring-safe). "1 ATR" last
+            # so "0.5" / "0.75" / "0.25" don't accidentally match it.
             if "0.75" in entry_mode: offset_atr = 0.75
+            elif "0.25" in entry_mode: offset_atr = 0.25
             elif "0.5" in entry_mode: offset_atr = 0.5
             elif "1 ATR" in entry_mode: offset_atr = 1.0
 
@@ -1232,6 +1233,8 @@ def get_entry_type_short(entry_mode, limit_price=None):
             # Open-based: can't show price, it depends on T+1 Open
             if "0.75" in entry_mode:
                 return "Open ±0.75 ATR"
+            elif "0.25" in entry_mode:
+                return "Open ±0.25 ATR"
             elif "0.5" in entry_mode:
                 return "Open ±0.5 ATR"
             elif "1 ATR" in entry_mode:
@@ -2165,6 +2168,8 @@ def run_daily_scan():
                     if "Limit" in entry_mode and "ATR" in entry_mode:
                         if "0.75" in entry_mode:
                             limit_price = entry - (0.75 * atr) if direction == 'Long' else entry + (0.75 * atr)
+                        elif "0.25" in entry_mode:
+                            limit_price = entry - (0.25 * atr) if direction == 'Long' else entry + (0.25 * atr)
                         elif "0.5" in entry_mode:
                             limit_price = entry - (0.5 * atr) if direction == 'Long' else entry + (0.5 * atr)
                         elif "1 ATR" in entry_mode:
