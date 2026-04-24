@@ -1188,26 +1188,25 @@ def process_signals_fast(candidates, signal_data, processed_dict, strategies, st
             
             valid_entry = found_fill
         
-        # --- LIMIT (OPEN +/- ATR) Single Day: Limit anchored to Signal Close ---
+        # --- LIMIT (OPEN +/- ATR) Single Day: Limit anchored to T+1 Open ---
+        # Mirrors live REL_OPEN order: limit price is set relative to the T+1
+        # open once it's known. Short fills only if intraday price rallies to
+        # open + offset; long fills only if price drops to open - offset.
+        # No fallback to T+1 Open itself — if the limit isn't touched, skip.
         elif is_limit_open_atr:
-            # Parse ATR multiplier from entry_type: "Limit (Open +/- 0.75 ATR)" -> 0.75
             _limit_mult = 0.75 if '0.75' in entry_type else 0.5
             limit_offset = _limit_mult * atr
-            limit_base = row_data['close']
+            t1_open = entry_row['Open']
 
             if settings['trade_direction'] == 'Long':
-                limit_price = limit_base - limit_offset
-                if entry_row['Open'] < limit_price:
-                    entry_price = entry_row['Open']
-                elif entry_row['Low'] <= limit_price:
+                limit_price = t1_open - limit_offset
+                if entry_row['Low'] <= limit_price:
                     entry_price = limit_price
                 else:
                     valid_entry = False
             else:
-                limit_price = limit_base + limit_offset
-                if entry_row['Open'] > limit_price:
-                    entry_price = entry_row['Open']
-                elif entry_row['High'] >= limit_price:
+                limit_price = t1_open + limit_offset
+                if entry_row['High'] >= limit_price:
                     entry_price = limit_price
                 else:
                     valid_entry = False
