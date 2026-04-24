@@ -1006,7 +1006,7 @@ def build_price_matrix(processed_dict, tickers):
     return pd.DataFrame(price_data, index=all_dates)
 
 
-def process_signals_fast(candidates, signal_data, processed_dict, strategies, starting_equity, cap_bps=None):
+def process_signals_fast(candidates, signal_data, processed_dict, strategies, starting_equity, cap_bps=None, ovs_overflow_haircut=False):
     """
     Process candidates chronologically with dynamic sizing based on REAL-TIME MTM equity.
     
@@ -1433,6 +1433,12 @@ def process_signals_fast(candidates, signal_data, processed_dict, strategies, st
             _is_high_sznl_t = pd.notna(_atr_5d_t) and _atr_5d_t > 65
             if _is_leader_t and _is_high_sznl_t:
                 base_risk = current_equity * 5.0 / 10000.0
+
+        # OVS overflow-wide 0.8× haircut — mirrors local_overflow_scan. Applied
+        # after all OVS-specific sizing, before frag/ladder. Only active when the
+        # "Run on Overflow Universe" UI toggle is on.
+        if strat_name == "Overbot Vol Spike" and ovs_overflow_haircut:
+            base_risk *= 0.8
 
         # Apply Overbot Vol Spike 2x sizer when T+1 open gaps > 0.25 ATR above signal close
         if _ovs_size_mult != 1.0:
@@ -2220,6 +2226,7 @@ def main():
         sig_df = process_signals_fast(
             candidates, signal_data, processed_dict, strategies, starting_equity,
             cap_bps=cap_bps_input,
+            ovs_overflow_haircut=bool(use_overflow_universe),
         )
         st.write(f"   Executed {len(sig_df):,} trades in {time.time()-t0:.1f}s")
 

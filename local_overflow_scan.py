@@ -1100,6 +1100,13 @@ def run_overflow_scan(dry_run=False, force_rebuild=False):
                             risk = ACCOUNT_VALUE * 5 / 10000.0
                             sizing_note = f"OVS leader+high-sznl (5D ATR={_atr_5d_t:.0f}>65) → flat 5 bps (${risk:.0f})"
 
+                    # OVS overflow-wide 0.8× haircut — applied after all OVS-specific
+                    # sizing (incl. terminal override) but before frag/ladder, so every
+                    # effective overflow OVS size is 80% of the main-tab equivalent.
+                    if strat['name'] == "Overbot Vol Spike":
+                        risk = risk * 0.8
+                        sizing_note += " | OVS overflow 0.8x"
+
                     # Fragility adjustment
                     if frag_mult != 1.0:
                         risk = risk * frag_mult
