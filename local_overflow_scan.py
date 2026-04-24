@@ -1098,6 +1098,20 @@ def run_overflow_scan(dry_run=False, force_rebuild=False):
                             if _is_leader_252: _which.append(f"252D={_r252:.0f}")
                             sizing_note = f"{sizing_note} | OVS leader ({', '.join(_which)}>65) → 0.5x"
 
+                    # OVS: terminal flat 5 bps when BOTH leader (126D/252D > 65)
+                    # AND strong 5D ATR seasonal (> 65). Weakest fade setup — tiny
+                    # lottery-ticket sizing. Overrides prior OVS multipliers.
+                    if strat['name'] == "Overbot Vol Spike":
+                        _atr_5d_t = last_row.get('atr_sznl_5d', None)
+                        _r126_t = last_row.get('rank_ret_126d', None)
+                        _r252_t = last_row.get('rank_ret_252d', None)
+                        _is_leader_t = ((pd.notna(_r126_t) and _r126_t > 65)
+                                        or (pd.notna(_r252_t) and _r252_t > 65))
+                        _is_high_sznl_t = pd.notna(_atr_5d_t) and _atr_5d_t > 65
+                        if _is_leader_t and _is_high_sznl_t:
+                            risk = ACCOUNT_VALUE * 5 / 10000.0
+                            sizing_note = f"OVS leader+high-sznl (5D ATR={_atr_5d_t:.0f}>65) → flat 5 bps (${risk:.0f})"
+
                     # Fragility adjustment
                     if frag_mult != 1.0:
                         risk = risk * frag_mult

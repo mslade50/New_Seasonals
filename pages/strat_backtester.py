@@ -1448,6 +1448,18 @@ def process_signals_fast(candidates, signal_data, processed_dict, strategies, st
             if _is_leader:
                 base_risk *= 0.5
 
+        # OVS terminal override: flat 5 bps of current equity when BOTH leader
+        # (126D/252D > 65) AND strong 5D ATR seasonal (> 65). Weakest fade
+        # setup → lottery-ticket sizing. Replaces all prior OVS multipliers.
+        if strat_name == "Overbot Vol Spike":
+            _r126_t = row_data.get('rank_ret_126d', 50.0)
+            _r252_t = row_data.get('rank_ret_252d', 50.0)
+            _atr_5d_t = row_data.get('atr_sznl_5d', 50.0)
+            _is_leader_t = (pd.notna(_r126_t) and _r126_t > 65) or (pd.notna(_r252_t) and _r252_t > 65)
+            _is_high_sznl_t = pd.notna(_atr_5d_t) and _atr_5d_t > 65
+            if _is_leader_t and _is_high_sznl_t:
+                base_risk = current_equity * 5.0 / 10000.0
+
         # Apply Overbot Vol Spike 2x sizer when T+1 open gaps > 0.25 ATR above signal close
         if _ovs_size_mult != 1.0:
             base_risk *= _ovs_size_mult
