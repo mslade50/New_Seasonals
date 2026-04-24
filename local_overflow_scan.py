@@ -62,6 +62,10 @@ for _s in STRATEGY_BOOK:
         _s_copy = copy.deepcopy(_s)
         _s_copy['universe_tickers'] = CSV_UNIVERSE
         OVERFLOW_STRATEGIES.append(_s_copy)
+    elif _s['name'] == "52wh Breakout":
+        _s_copy = copy.deepcopy(_s)
+        _s_copy['universe_tickers'] = CSV_UNIVERSE
+        OVERFLOW_STRATEGIES.append(_s_copy)
 from daily_scan import (
     check_signal, load_seasonal_map,
     get_entry_type_short, get_sizing_variable, build_live_filters,

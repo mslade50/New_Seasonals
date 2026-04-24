@@ -39,6 +39,7 @@ OVERFLOW_ELIGIBLE_STRATEGIES = {
     "Overbot Vol Spike",
     "LT Trend ST OS",
     "St OS Sznl",
+    "52wh Breakout",
 }
 
 # -----------------------------------------------------------------------------
