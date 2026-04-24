@@ -110,26 +110,26 @@ except Exception:
 
 _STRATEGY_BOOK_RAW = [
     {
-        "id": "5d <50, 21d > 50 3x, lower 20% range, sznl > 33, 5d time stop",
+        "id": "5d <50, 21d > 50 3x, lower 20% range, 5D ATR sznl > 33, 2d time stop, 1.5 ATR tgt",
         "name": "Weak Close Reversion",
         "setup": {
             "type": "MeanReversion",
             "timeframe": "Swing",
-            "thesis": "Oversold bounce in names with relative strength and positive seasonality",
+            "thesis": "Oversold bounce in names with relative strength during periods of elevated short-horizon ATR seasonality",
             "key_filters": [
                 "5D rank < 50th %ile (short-term weakness)",
                 "21D rank > 50th %ile for 3 consecutive days (underlying strength)",
                 "Close in lower 20% of daily range (weak close)",
-                "Ticker seasonal rank > 33 (not fighting seasonality)"
+                "5D ATR seasonal rank > 33 (not fighting ATR seasonality)"
             ]
         },
         "exit_summary": {
-            "primary_exit": "5-day time stop",
-            "stop_logic": "2.0 ATR below entry",
-            "target_logic": "8.0 ATR above entry",
+            "primary_exit": "2-day time stop OR 1.5 ATR target (whichever first)",
+            "stop_logic": "2.0 ATR below entry (inactive — stop disabled)",
+            "target_logic": "1.5 ATR above entry",
             "notes": None
         },
-        "description": "Start: 2000-01-01. Universe: Indices. Dir: Long. Filter: None. PF: 2.51. SQN: 8.88.",
+        "description": "Start: 2000-01-01. Universe: Indices. Dir: Long. 2d hold, 1.5 ATR target.",
         "universe_tickers": INDEX_ETFS,
         "settings": {
             "trade_direction": "Long",
@@ -141,7 +141,8 @@ _STRATEGY_BOOK_RAW = [
             "perf_filters": [{'window': 5, 'logic': '<', 'thresh': 50.0, 'consecutive': 1}, {'window': 21, 'logic': '>', 'thresh': 50.0, 'consecutive': 3}],
             "perf_first_instance": False, "perf_lookback": 21,
             "ma_consec_filters": [],
-            "use_sznl": True, "sznl_logic": ">", "sznl_thresh": 33.0, "sznl_first_instance": False, "sznl_lookback": 21,
+            "use_sznl": False, "sznl_logic": ">", "sznl_thresh": 33.0, "sznl_first_instance": False, "sznl_lookback": 21,
+            "atr_sznl_filters": [{'window': 5, 'logic': '>', 'thresh': 33.0, 'thresh_max': 100.0, 'consecutive': 1}],
             "use_market_sznl": False, "market_sznl_logic": "<", "market_sznl_thresh": 15.0,
             "market_ticker": "^GSPC",
             "use_52w": False, "52w_type": "New 52w High", "52w_first_instance": True, "52w_lookback": 21, "52w_lag": 0,
@@ -163,7 +164,7 @@ _STRATEGY_BOOK_RAW = [
             "use_acc_count_filter": False, "acc_count_window": 21, "acc_count_logic": ">", "acc_count_thresh": 3,
             "use_dist_count_filter": False, "dist_count_window": 21, "dist_count_logic": "<", "dist_count_thresh": 3
         },
-        "execution": {"risk_bps": 35, "slippage_bps": 2, "stop_atr": 2.0, "tgt_atr": 8.0, "hold_days": 5,"use_stop_loss": False, "use_take_profit": False},
+        "execution": {"risk_bps": 35, "slippage_bps": 2, "stop_atr": 2.0, "tgt_atr": 1.5, "hold_days": 2, "use_stop_loss": False, "use_take_profit": True},
         "stats": {"grade": "A (Excellent)", "win_rate": "66.6%", "expectancy": "0.28r", "profit_factor": "2.51"}
     },
     {
