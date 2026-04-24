@@ -23,13 +23,23 @@ parent_dir = os.path.dirname(current_dir)
 sys.path.append(parent_dir)
 
 try:
-    from strategy_config import _STRATEGY_BOOK_RAW, ACCOUNT_VALUE, DAILY_RISK_CAP_BPS, CSV_UNIVERSE
+    from strategy_config import _STRATEGY_BOOK_RAW, ACCOUNT_VALUE, DAILY_RISK_CAP_BPS, CSV_UNIVERSE, LIQUID_PLUS_COMMODITIES
 except ImportError:
     # st.error("Could not find strategy_config.py in the root directory.")
     _STRATEGY_BOOK_RAW = []
     CSV_UNIVERSE = []
+    LIQUID_PLUS_COMMODITIES = []
     ACCOUNT_VALUE = 150000
     DAILY_RISK_CAP_BPS = 0
+
+# Live OVS ticker classification:
+#   Main tab (daily_scan):      LIQUID_PLUS_COMMODITIES
+#   Overflow tab (local_overflow): CSV_UNIVERSE − LIQUID_PLUS_COMMODITIES
+# Each ticker is in exactly one tab in live; the backtester uses the same split
+# so main-side sizing applies to liquid names and overflow-side sizing applies
+# to overflow names, even within a single combined backtest run.
+_MAIN_OVS_SET = set(LIQUID_PLUS_COMMODITIES)
+_OVERFLOW_OVS_SET = set(CSV_UNIVERSE) - _MAIN_OVS_SET
 
 # Strategies that the overflow scanner runs against the broader CSV_UNIVERSE.
 # When the "Run on Overflow Universe" UI toggle is on, strat_backtester swaps
@@ -1006,7 +1016,7 @@ def build_price_matrix(processed_dict, tickers):
     return pd.DataFrame(price_data, index=all_dates)
 
 
-def process_signals_fast(candidates, signal_data, processed_dict, strategies, starting_equity, cap_bps=None, ovs_overflow_haircut=False):
+def process_signals_fast(candidates, signal_data, processed_dict, strategies, starting_equity, cap_bps=None):
     """
     Process candidates chronologically with dynamic sizing based on REAL-TIME MTM equity.
     
@@ -1279,18 +1289,44 @@ def process_signals_fast(candidates, signal_data, processed_dict, strategies, st
         if not valid_entry or entry_price is None or pd.isna(entry_price):
             continue
 
-        # ========== OVERBOT VOL SPIKE — GAP CONTINUATION FILTER + 2X SIZER ==========
-        # Require DECISIVE gap up (T+1 Open > Signal Close + 0.25 ATR) to enter
-        # OVS at all. Weaker gaps skip entirely. Decisive-gap trades size at 2×.
-        # Matches order_staging.py's live gate.
+        # ========== OVERBOT VOL SPIKE — TIERED GAP SIZER ==========
+        # Mirrors order_staging.py live behavior. Tab classification is per-ticker
+        # to match the disjoint live universes (daily_scan on LIQUID_PLUS_COMMODITIES,
+        # local_overflow_scan on CSV_UNIVERSE − LIQUID_PLUS_COMMODITIES):
+        #   open ≤ close                         → skip (no gap)
+        #   close < open ≤ close+0.25 ATR (mild):
+        #     Main,     non-leader → 1.0×
+        #     Main,     leader     → 0.75×
+        #     Overflow, non-leader → 0.5×
+        #     Overflow, leader     → skip (0×)
+        #   open > close+0.25 ATR (decisive)     → 2× (all tabs)
+        # Leader = 126D or 252D rank > 65.
         _ovs_size_mult = 1.0
+        _ovs_is_overflow_ticker = False
         if strat_name == "Overbot Vol Spike" and entry_row is not None:
+            _ovs_is_overflow_ticker = t_clean in _OVERFLOW_OVS_SET
+
             _sig_close = row_data['close']
             _t1_open = float(entry_row['Open'])
-            _gap_threshold = _sig_close + 0.25 * atr
-            if pd.isna(_t1_open) or _t1_open <= _gap_threshold:
-                continue  # gap not decisive → skip the trade
-            _ovs_size_mult = 2.0
+            _decisive_gap = _sig_close + 0.25 * atr
+
+            _r126 = row_data.get('rank_ret_126d', 50.0)
+            _r252 = row_data.get('rank_ret_252d', 50.0)
+            _is_leader_gap = (pd.notna(_r126) and _r126 > 65) or (pd.notna(_r252) and _r252 > 65)
+
+            if pd.isna(_t1_open) or _t1_open <= _sig_close:
+                continue  # no gap → skip
+            elif _t1_open <= _decisive_gap:
+                # Mild gap tier
+                if _ovs_is_overflow_ticker:
+                    if _is_leader_gap:
+                        continue  # overflow + leader + mild gap → skip
+                    _ovs_size_mult = 0.5
+                else:
+                    _ovs_size_mult = 0.75 if _is_leader_gap else 1.0
+            else:
+                # Decisive gap tier
+                _ovs_size_mult = 2.0
 
         # ========== EXIT LOGIC SECTION ==========
         direction = settings.get('trade_direction', 'Long')
@@ -1434,9 +1470,9 @@ def process_signals_fast(candidates, signal_data, processed_dict, strategies, st
                 base_risk = current_equity * 5.0 / 10000.0
 
         # OVS overflow-wide 0.8× haircut — mirrors local_overflow_scan. Applied
-        # after all OVS-specific sizing, before frag/ladder. Only active when the
-        # "Run on Overflow Universe" UI toggle is on.
-        if strat_name == "Overbot Vol Spike" and ovs_overflow_haircut:
+        # after all OVS-specific sizing, before frag/ladder. Per-ticker: only
+        # overflow-universe tickers get the haircut; liquid names use main sizing.
+        if strat_name == "Overbot Vol Spike" and _ovs_is_overflow_ticker:
             base_risk *= 0.8
 
         # Apply Overbot Vol Spike 2x sizer when T+1 open gaps > 0.25 ATR above signal close
@@ -1776,7 +1812,31 @@ def calculate_annual_stats(daily_pnl_series, starting_equity):
             "Sortino Ratio": sortino,
             "Std Dev": std_dev
         })
-    
+
+    # Full-lifespan total row — same metrics computed across the entire series.
+    if yearly_stats and len(equity_series) >= 2:
+        tot_start = equity_series.iloc[0]
+        tot_end = equity_series.iloc[-1]
+        tot_ret_pct = (tot_end - tot_start) / tot_start if tot_start != 0 else 0
+        tot_ret_dollar = tot_end - tot_start
+        tot_std = daily_rets.std() * np.sqrt(252)
+        tot_mean = daily_rets.mean() * 252
+        tot_sharpe = tot_mean / tot_std if tot_std != 0 else 0
+        tot_neg = daily_rets[daily_rets < 0]
+        tot_downside = np.sqrt((tot_neg**2).mean()) * np.sqrt(252) if len(tot_neg) > 0 else 0
+        tot_sortino = tot_mean / tot_downside if tot_downside != 0 else 0
+        tot_running_max = equity_series.expanding().max()
+        tot_dd = ((equity_series - tot_running_max) / tot_running_max).min()
+        yearly_stats.append({
+            "Year": "Total",
+            "Total Return ($)": tot_ret_dollar,
+            "Total Return (%)": tot_ret_pct,
+            "Max Drawdown": tot_dd,
+            "Sharpe Ratio": tot_sharpe,
+            "Sortino Ratio": tot_sortino,
+            "Std Dev": tot_std,
+        })
+
     return pd.DataFrame(yearly_stats)
 
 
@@ -2097,11 +2157,13 @@ def main():
         st.caption("Sizes scale with MTM equity (bps of current value including unrealized P&L).")
         st.markdown("---")
         use_overflow_universe = st.checkbox(
-            f"🌊 Run on Overflow Universe ({len(CSV_UNIVERSE):,} tickers)",
+            f"🌊 Include Overflow Universe ({len(CSV_UNIVERSE):,} tickers)",
             value=False,
             help=(
-                "Swap eligible strategies' universe to CSV_UNIVERSE (sznl_ranks.csv, "
-                f"~{len(CSV_UNIVERSE):,} tickers). Mirrors local_overflow_scan.py. "
+                "Expand eligible strategies to CSV_UNIVERSE (sznl_ranks.csv, "
+                f"~{len(CSV_UNIVERSE):,} tickers). Mirrors main + overflow running "
+                "together: liquid tickers get main-tab sizing, overflow tickers get "
+                "overflow-tab sizing (0.8× haircut + overflow mild-gap multipliers). "
                 f"Affects: {', '.join(sorted(OVERFLOW_ELIGIBLE_STRATEGIES))}. "
                 "Other strategies keep their default universes."
             ),
@@ -2225,7 +2287,6 @@ def main():
         sig_df = process_signals_fast(
             candidates, signal_data, processed_dict, strategies, starting_equity,
             cap_bps=cap_bps_input,
-            ovs_overflow_haircut=bool(use_overflow_universe),
         )
         st.write(f"   Executed {len(sig_df):,} trades in {time.time()-t0:.1f}s")
 
@@ -2510,6 +2571,9 @@ def main():
             if corr_df is None or corr_df.empty or len(corr_df) < 2:
                 st.info(f"Need ≥2 strategies with ≥{int(min_trades_corr)} trades each for a correlation matrix.")
             else:
+                # Mask the diagonal so the self-correlation 1.0 doesn't dominate
+                # the red end of the scale. NaN cells render gray.
+                np.fill_diagonal(corr_df.values, np.nan)
                 # Heatmap — zero-centered diverging scale
                 fig_corr = px.imshow(
                     corr_df.values,
@@ -2518,16 +2582,17 @@ def main():
                     color_continuous_scale='RdBu_r', zmin=-1, zmax=1,
                     labels=dict(color='Correlation'),
                 )
+                fig_corr.update_traces(zmid=0)
                 fig_corr.update_layout(
                     height=max(350, 40 * len(corr_df) + 120),
                     margin=dict(l=120, r=30, t=20, b=120),
                     xaxis=dict(tickangle=45),
+                    plot_bgcolor='#888',
                 )
                 st.plotly_chart(fig_corr, use_container_width=True)
 
                 # Diversification score per strategy — avg correlation to OTHER strategies.
-                # Lower = more independent = better diversifier.
-                np.fill_diagonal(corr_df.values, np.nan)
+                # Lower = more independent = better diversifier. Diagonal already NaN'd above.
                 avg_corr = corr_df.mean(axis=1).sort_values()
                 max_corr = corr_df.max(axis=1)
                 max_corr_with = corr_df.idxmax(axis=1)
