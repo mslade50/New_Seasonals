@@ -1084,6 +1084,20 @@ def run_overflow_scan(dry_run=False, force_rebuild=False):
                             risk = risk * 1.33
                             sizing_note = f"ATR Sznl 5d {_atr_sznl_5d:.0f} < 25 → 1.33x"
 
+                    # Overbot Vol Spike: 0.5x when 126D or 252D rank > 65 (leader
+                    # penalty — fade thesis weaker against established strength).
+                    if strat['name'] == "Overbot Vol Spike":
+                        _r126 = last_row.get('rank_ret_126d', None)
+                        _r252 = last_row.get('rank_ret_252d', None)
+                        _is_leader_126 = _r126 is not None and pd.notna(_r126) and _r126 > 65
+                        _is_leader_252 = _r252 is not None and pd.notna(_r252) and _r252 > 65
+                        if _is_leader_126 or _is_leader_252:
+                            risk = risk * 0.5
+                            _which = []
+                            if _is_leader_126: _which.append(f"126D={_r126:.0f}")
+                            if _is_leader_252: _which.append(f"252D={_r252:.0f}")
+                            sizing_note = f"{sizing_note} | OVS leader ({', '.join(_which)}>65) → 0.5x"
+
                     # Fragility adjustment
                     if frag_mult != 1.0:
                         risk = risk * frag_mult

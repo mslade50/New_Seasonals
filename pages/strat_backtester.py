@@ -975,6 +975,8 @@ def generate_candidates_fast(processed_dict, strategies, sznl_map, user_start_da
                             'sznl': row.get('Sznl', 50),
                             'range_pct': row['RangePct'] * 100,
                             'atr_sznl_5d': row.get('atr_sznl_5d', 50.0),
+                            'rank_ret_126d': row.get('rank_ret_126d', 50.0),
+                            'rank_ret_252d': row.get('rank_ret_252d', 50.0),
                         }
                     
                     candidates.append((
@@ -1435,6 +1437,16 @@ def process_signals_fast(candidates, signal_data, processed_dict, strategies, st
             _atr_sznl_5d = row_data.get('atr_sznl_5d', 50.0)
             if pd.notna(_atr_sznl_5d) and _atr_sznl_5d < 25:
                 base_risk *= 1.33
+
+        # Overbot Vol Spike: 0.5x when 126D or 252D rank > 65 (leader penalty —
+        # fade thesis weaker against an established medium/long-term uptrend).
+        # Compounds with the 1.33x and 2x sizers above/below.
+        if strat_name == "Overbot Vol Spike":
+            _r126 = row_data.get('rank_ret_126d', 50.0)
+            _r252 = row_data.get('rank_ret_252d', 50.0)
+            _is_leader = (pd.notna(_r126) and _r126 > 65) or (pd.notna(_r252) and _r252 > 65)
+            if _is_leader:
+                base_risk *= 0.5
 
         # Apply Overbot Vol Spike 2x sizer when T+1 open gaps > 0.25 ATR above signal close
         if _ovs_size_mult != 1.0:
