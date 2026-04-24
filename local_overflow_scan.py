@@ -53,10 +53,6 @@ for _s in STRATEGY_BOOK:
     elif _s['name'] == "LT Trend ST OS":
         _s_copy = copy.deepcopy(_s)
         _s_copy['universe_tickers'] = CSV_UNIVERSE
-        _s_copy['settings']['use_recent_ath'] = True
-        _s_copy['settings']['recent_ath_invert'] = False
-        _s_copy['settings']['ath_lookback_days'] = 63
-        _s_copy['settings']['range_max'] = 15
         OVERFLOW_STRATEGIES.append(_s_copy)
     elif _s['name'] == "Oversold Low Volume":
         _s_copy = copy.deepcopy(_s)
