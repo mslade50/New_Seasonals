@@ -1837,8 +1837,9 @@ def run_daily_scan():
     # filter on volume can have false negatives. LT Trend ST OS specifically
     # relaxes its 1.25× volume requirement to 1.0× during this window.
     is_intraday_partial = (market_open_time <= now_eastern < market_close_time)
+    is_morning_run = now_eastern < market_open_time
 
-    if now_eastern < market_open_time:
+    if is_morning_run:
         # Morning Run (e.g. 5:30 AM): Strict cutoff at YESTERDAY'S close.
         # We must remove any partial data stamped with today's date.
         expected_data_date = (pd.Timestamp(current_date) - TRADING_DAY).date()
@@ -1849,6 +1850,39 @@ def run_daily_scan():
         print(f"☀️ Day Run (Post-Open): Allowing data through {expected_data_date}")
     if is_intraday_partial:
         print(f"🕐 Intraday partial-bar window — LT Trend ST OS will use vol_thresh 1.0× (else 1.25×)")
+
+    # 3c. Morning-run-only: read pre-existing OVS quantities from Overflow tab.
+    # When daily_scan fires Overbot Vol Spike signals in the 5 AM run, any ticker
+    # that already has an OVS order in the Overflow tab (staged by yesterday's
+    # overflow scan) gets its daily_scan shares CAPPED to the overflow quantity.
+    # Rationale: avoid doubling exposure when the same ticker fires in both
+    # scanners — keep the pre-staged overflow size as the authoritative cap.
+    # User-acknowledged: this may cross the aggregate bps risk threshold.
+    overflow_ovs_quantities = {}
+    if is_morning_run:
+        try:
+            _gc = get_google_client()
+            if _gc:
+                _sh = _gc.open("Trade_Signals_Log")
+                try:
+                    _ws = _sh.worksheet("Overflow")
+                    _rows = _ws.get_all_records()
+                    for _r in _rows:
+                        if str(_r.get('Strategy_Ref', '')).strip() == "Overbot Vol Spike":
+                            _tkr = str(_r.get('Symbol', '')).strip().upper()
+                            try:
+                                _qty = int(float(_r.get('Quantity', 0)))
+                            except (ValueError, TypeError):
+                                _qty = 0
+                            if _tkr and _qty > 0:
+                                # Multiple rows for same ticker → keep max (conservative cap)
+                                overflow_ovs_quantities[_tkr] = max(overflow_ovs_quantities.get(_tkr, 0), _qty)
+                    if overflow_ovs_quantities:
+                        print(f"📋 Morning run: {len(overflow_ovs_quantities)} OVS tickers already in Overflow — daily_scan OVS shares will cap to match")
+                except Exception as _e:
+                    print(f"ℹ️ No Overflow tab to read for OVS size match (or empty): {_e}")
+        except Exception as e:
+            print(f"⚠️ Could not read Overflow tab for OVS size match: {e}")
 
     validated_dict = {}
     for ticker, df in master_dict.items():
@@ -2132,6 +2166,23 @@ def run_daily_scan():
                         action = "SELL SHORT"
                     
                     shares = int(risk / dist) if dist > 0 else 0
+
+                    # Morning-run OVS size match: if this ticker already has an OVS
+                    # order in the Overflow tab, cap the daily_scan shares to that
+                    # quantity (never increase, only reduce). Keeps us from staging
+                    # a full-size main order on top of an existing overflow order.
+                    if (is_morning_run
+                            and strat['name'] == "Overbot Vol Spike"
+                            and t_clean in overflow_ovs_quantities):
+                        _of_qty = overflow_ovs_quantities[t_clean]
+                        if shares > _of_qty:
+                            _orig_shares = shares
+                            shares = _of_qty
+                            # Recompute risk $ to reflect capped shares
+                            risk = shares * dist
+                            sizing_note = f"{sizing_note} | OVS morning-match overflow: {_orig_shares} → {shares} shares"
+                            print(f"   🔄 {t_clean}: OVS shares {_orig_shares} → {shares} (capped to Overflow)")
+
                     entry_mode = strat['settings'].get('entry_type', 'Signal Close')
                     hold_days = strat['execution']['hold_days']
 
