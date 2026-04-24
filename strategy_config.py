@@ -660,12 +660,12 @@ _STRATEGY_BOOK_RAW = [
         "stats": {"grade": "A (Excellent)", "win_rate": "58.0%", "expectancy": "0.28r", "profit_factor": "1.96"}
     },
     {
-        "id": "2d+5d+10d+21d < 15%ile, 126d+252d between 65-90, vol > 1.25x, conditional entry on 21d consec, 2 ATR tgt, 2d hold",
+        "id": "2d+5d+10d+21d < 15%ile, 126d+252d between 65-90, vol > 1.25x (1.0x intraday), 2 ATR tgt, 2d hold",
         "name": "LT Trend ST OS",
         "setup": {
             "type": "MeanReversion",
             "timeframe": "Overnight",
-            "thesis": "Oversold bounce in long-term uptrenders — but NOT extreme leaders (126D/252D capped at 90th %ile) to avoid buying climactic tops. Persistent oversold (21D consec ≥ 3) gets MOC entry; fresher oversold gets a deeper limit at Open - 0.75 ATR.",
+            "thesis": "Oversold bounce in long-term uptrenders — but NOT extreme leaders (126D/252D capped at 90th %ile) to avoid buying climactic tops",
             "key_filters": [
                 "2D rank < 15th %ile",
                 "5D rank < 15th %ile",
@@ -674,9 +674,8 @@ _STRATEGY_BOOK_RAW = [
                 "126D rank between 65-90th %ile",
                 "252D rank between 65-90th %ile",
                 "Close in 0-25% of daily range",
-                "Volume > 1.25x 63-day avg",
-                "63d dial (10d avg) < 65 (not in extreme fragile regime)",
-                "Entry: Signal Close if 21D < 15 for ≥3 consec days, else Limit Open - 0.75 ATR"
+                "Volume > 1.25x 63-day avg (relaxed to 1.0x for intraday scan runs)",
+                "63d dial (10d avg) < 65 (not in extreme fragile regime)"
             ]
         },
         "exit_summary": {

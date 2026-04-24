@@ -1828,6 +1828,13 @@ def run_daily_scan():
     # Define Market Open (9:30 AM EST)
     market_open_time = now_eastern.replace(hour=9, minute=30, second=0, microsecond=0)
     
+    market_close_time = now_eastern.replace(hour=16, minute=0, second=0, microsecond=0)
+    # Intraday partial = market is open AND today's session hasn't closed yet.
+    # During this window, today's bar volume is incomplete, so strategies that
+    # filter on volume can have false negatives. LT Trend ST OS specifically
+    # relaxes its 1.25× volume requirement to 1.0× during this window.
+    is_intraday_partial = (market_open_time <= now_eastern < market_close_time)
+
     if now_eastern < market_open_time:
         # Morning Run (e.g. 5:30 AM): Strict cutoff at YESTERDAY'S close.
         # We must remove any partial data stamped with today's date.
@@ -1837,6 +1844,8 @@ def run_daily_scan():
         # Day Run (e.g. 10:00 AM): Allow today's partial bar.
         expected_data_date = current_date
         print(f"☀️ Day Run (Post-Open): Allowing data through {expected_data_date}")
+    if is_intraday_partial:
+        print(f"🕐 Intraday partial-bar window — LT Trend ST OS will use vol_thresh 1.0× (else 1.25×)")
 
     validated_dict = {}
     for ticker, df in master_dict.items():
@@ -2017,7 +2026,19 @@ def run_daily_scan():
                         if _col in _atr_ranks.columns:
                             calc_df[_col] = _atr_ranks[_col].reindex(_dates).values
 
-                if check_signal(calc_df, strat['settings'], sznl_map, ticker=t_clean):
+                # LT Trend ST OS intraday volume relaxation: during partial-bar
+                # window (market open through 4 PM ET), today's bar volume is
+                # incomplete. Drop the 1.25× threshold to 1.0× so we don't get
+                # false negatives — the assumption is the rest of the session
+                # will bring volume up to the strict threshold by close.
+                _eff_settings = strat['settings']
+                if (is_intraday_partial
+                        and strat['name'] == "LT Trend ST OS"
+                        and _eff_settings.get('use_vol')):
+                    _eff_settings = dict(_eff_settings)
+                    _eff_settings['vol_thresh'] = 1.0
+
+                if check_signal(calc_df, _eff_settings, sznl_map, ticker=t_clean):
                     last_row = calc_df.iloc[-1]
 
                     # Cooldown gate: OLV suppresses re-fires within 20 trading days
@@ -2031,23 +2052,6 @@ def run_daily_scan():
                     # 1. Entry Confirmation Check
                     entry_conf_bps = strat['settings'].get('entry_conf_bps', 0)
                     entry_mode = strat['settings'].get('entry_type', 'Signal Close')
-
-                    # LT Trend ST OS conditional entry: persistent oversold (21D < 15
-                    # for ≥3 consec days) gets MOC; fresher oversold gets a deeper
-                    # limit at Open - 0.75 ATR to wait for further weakness.
-                    if strat['name'] == "LT Trend ST OS" and 'rank_ret_21d' in calc_df.columns:
-                        _r21 = calc_df['rank_ret_21d']
-                        _consec = 0
-                        for _v in _r21.iloc[::-1]:
-                            if pd.notna(_v) and _v < 15:
-                                _consec += 1
-                            else:
-                                break
-                        if _consec < 3:
-                            entry_mode = "Limit (Open +/- 0.75 ATR)"
-                            print(f"   ↻ {t_clean}: 21D consec={_consec} (<3) → Limit Open -0.75 ATR entry")
-                        else:
-                            print(f"   ✓ {t_clean}: 21D consec={_consec} (≥3) → Signal Close (MOC)")
 
                     if entry_mode == 'Signal Close' and entry_conf_bps > 0:
                         threshold = last_row['Open'] * (1 + entry_conf_bps/10000.0)
