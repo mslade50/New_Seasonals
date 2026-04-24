@@ -1218,7 +1218,17 @@ def process_signals_fast(candidates, signal_data, processed_dict, strategies, st
         
         # --- PERSISTENT LIMIT anchored to SIGNAL CLOSE ---
         elif is_persistent or is_limit_close_anchored:
-            limit_offset = 0.5 * atr
+            # Parse offset multiplier from entry_type string. Defaults to 0.5
+            # for backward-compat with configs that don't specify a multiplier.
+            if '0.25' in entry_type:
+                _pers_mult = 0.25
+            elif '1 ATR' in entry_type or '1.0 ATR' in entry_type:
+                _pers_mult = 1.0
+            elif '0.75' in entry_type:
+                _pers_mult = 0.75
+            else:
+                _pers_mult = 0.5
+            limit_offset = _pers_mult * atr
             limit_base = row_data['close']
             
             if settings['trade_direction'] == 'Long':

@@ -982,6 +982,7 @@ def run_engine(universe_dict, params, sznl_map, market_series=None, vix_series=N
     # --- ENTRY MODES ---
     entry_mode = params['entry_type']
     is_pullback = "Pullback" in entry_mode
+    is_limit_pers_025 = "Limit Order -0.25 ATR" in entry_mode
     is_limit_pers_05 = "Limit Order -0.5 ATR" in entry_mode
     is_limit_pers_10 = "Limit Order -1 ATR" in entry_mode
     is_limit_atr = entry_mode == "Limit (Close -0.5 ATR)"
@@ -1408,8 +1409,8 @@ def run_engine(universe_dict, params, sznl_map, market_series=None, vix_series=N
                 elif is_gap_up:
                     if df['Open'].iloc[sig_idx + 1] > df['High'].iloc[sig_idx]:
                         found_entry, actual_entry_idx, actual_entry_price = True, sig_idx + 1, df['Open'].iloc[sig_idx + 1]
-                elif is_limit_pers_05 or is_limit_pers_10:
-                    atr_mult = 0.5 if is_limit_pers_05 else 1.0
+                elif is_limit_pers_025 or is_limit_pers_05 or is_limit_pers_10:
+                    atr_mult = 0.25 if is_limit_pers_025 else (0.5 if is_limit_pers_05 else 1.0)
                     sig_close, sig_atr = df['Close'].iloc[sig_idx], df['ATR'].iloc[sig_idx]
                     limit_price = (sig_close - (sig_atr * atr_mult)) if direction == 'Long' else (sig_close + (sig_atr * atr_mult))
                     for wait_i in range(1, params['holding_days'] + 1):
@@ -1761,7 +1762,7 @@ def main():
             "Overnight (Buy Close, Sell T+1 Open)", "Intraday (Buy Open, Sell Close)",
             "Day Trade (Limit Open +/- 0.5 ATR, Exit Close)",
             "Gap Up Only (Open > Prev High)",
-            "Limit Order -0.5 ATR (Persistent)", "Limit Order -1 ATR (Persistent)",
+            "Limit Order -0.25 ATR (Persistent)", "Limit Order -0.5 ATR (Persistent)", "Limit Order -1 ATR (Persistent)",
             "Limit (Close -0.5 ATR)", "Limit (Prev Close)",
             "Limit (Open +/- 0.5 ATR) GTC",
             "Limit (Untested Pivot)", 
