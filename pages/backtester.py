@@ -219,7 +219,8 @@ def build_mtm_curves(trades_df, data_dict, starting_equity, risk_bps, mode='flat
             tech_risk = tr['TechRisk']
             if not (tech_risk and tech_risk > 0):
                 continue
-            risk_dollars = flat_risk_dollars if mode == 'flat' else equity * risk_bps / 10000.0
+            risk_scale = float(tr['RiskScale']) if 'RiskScale' in trades.columns and pd.notna(tr.get('RiskScale')) else 1.0
+            risk_dollars = (flat_risk_dollars if mode == 'flat' else equity * risk_bps / 10000.0) * risk_scale
             shares = risk_dollars / tech_risk
             if shares <= 0:
                 continue
@@ -620,6 +621,8 @@ def _generate_key_filters(params):
         consec_str = f" ({pf['consecutive']}d consecutive)" if pf.get('consecutive', 1) > 1 else ""
         if pf['logic'] == 'Between':
             filters.append(f"{pf['window']}D rank between {pf['thresh']:.0f}-{pf.get('thresh_max', 100):.0f}th %ile{consec_str}")
+        elif pf['logic'] == 'Not Between':
+            filters.append(f"{pf['window']}D rank NOT between {pf['thresh']:.0f}-{pf.get('thresh_max', 100):.0f}th %ile{consec_str}")
         else:
             filters.append(f"{pf['window']}D rank {pf['logic']} {pf['thresh']:.0f}th %ile{consec_str}")
 
@@ -627,6 +630,8 @@ def _generate_key_filters(params):
         consec_str = f" ({paf['consecutive']}d consecutive)" if paf.get('consecutive', 1) > 1 else ""
         if paf['logic'] == 'Between':
             filters.append(f"{paf['window']}D ATR rank between {paf['thresh']:.0f}-{paf.get('thresh_max', 100):.0f}th %ile{consec_str}")
+        elif paf['logic'] == 'Not Between':
+            filters.append(f"{paf['window']}D ATR rank NOT between {paf['thresh']:.0f}-{paf.get('thresh_max', 100):.0f}th %ile{consec_str}")
         else:
             filters.append(f"{paf['window']}D ATR rank {paf['logic']} {paf['thresh']:.0f}th %ile{consec_str}")
 
@@ -634,6 +639,8 @@ def _generate_key_filters(params):
         consec_str = f" ({asf['consecutive']}d consecutive)" if asf.get('consecutive', 1) > 1 else ""
         if asf['logic'] == 'Between':
             filters.append(f"{asf['window']}D ATR seasonal rank between {asf['thresh']:.0f}-{asf.get('thresh_max', 100):.0f}th %ile{consec_str}")
+        elif asf['logic'] == 'Not Between':
+            filters.append(f"{asf['window']}D ATR seasonal rank NOT between {asf['thresh']:.0f}-{asf.get('thresh_max', 100):.0f}th %ile{consec_str}")
         else:
             filters.append(f"{asf['window']}D ATR seasonal rank {asf['logic']} {asf['thresh']:.0f}th %ile{consec_str}")
     
@@ -750,6 +757,8 @@ def _generate_key_filters(params):
             consec_str = f" ({xf['consecutive']}d consecutive)" if xf.get('consecutive', 1) > 1 else ""
             if xf['logic'] == 'Between':
                 filters.append(f"XSec {xf['window']}D rank between {xf['thresh']:.0f}-{xf.get('thresh_max', 100):.0f}th %ile{consec_str}")
+            elif xf['logic'] == 'Not Between':
+                filters.append(f"XSec {xf['window']}D rank NOT between {xf['thresh']:.0f}-{xf.get('thresh_max', 100):.0f}th %ile{consec_str}")
             else:
                 filters.append(f"XSec {xf['window']}D rank {xf['logic']} {xf['thresh']:.0f}th %ile{consec_str}")
 
@@ -1156,6 +1165,7 @@ def run_engine(universe_dict, params, sznl_map, market_series=None, vix_series=N
                 if pf['logic'] == '<': c_f = (df[col] < pf['thresh'])
                 elif pf['logic'] == '>': c_f = (df[col] > pf['thresh'])
                 elif pf['logic'] == 'Between': c_f = (df[col] >= pf['thresh']) & (df[col] <= pf.get('thresh_max', 100.0))
+                elif pf['logic'] == 'Not Between': c_f = (df[col] < pf['thresh']) | (df[col] > pf.get('thresh_max', 100.0))
                 else: continue
                 if pf['consecutive'] > 1: c_f = c_f.rolling(pf['consecutive']).sum() == pf['consecutive']
                 conditions.append(c_f)
@@ -1166,6 +1176,7 @@ def run_engine(universe_dict, params, sznl_map, market_series=None, vix_series=N
                 if paf['logic'] == '<': c_f = (df[col] < paf['thresh'])
                 elif paf['logic'] == '>': c_f = (df[col] > paf['thresh'])
                 elif paf['logic'] == 'Between': c_f = (df[col] >= paf['thresh']) & (df[col] <= paf.get('thresh_max', 100.0))
+                elif paf['logic'] == 'Not Between': c_f = (df[col] < paf['thresh']) | (df[col] > paf.get('thresh_max', 100.0))
                 else: continue
                 if paf.get('consecutive', 1) > 1: c_f = c_f.rolling(paf['consecutive']).sum() == paf['consecutive']
                 conditions.append(c_f)
@@ -1176,6 +1187,7 @@ def run_engine(universe_dict, params, sznl_map, market_series=None, vix_series=N
                 if asf['logic'] == '<': c_f = (df[col] < asf['thresh'])
                 elif asf['logic'] == '>': c_f = (df[col] > asf['thresh'])
                 elif asf['logic'] == 'Between': c_f = (df[col] >= asf['thresh']) & (df[col] <= asf.get('thresh_max', 100.0))
+                elif asf['logic'] == 'Not Between': c_f = (df[col] < asf['thresh']) | (df[col] > asf.get('thresh_max', 100.0))
                 else: continue
                 if asf.get('consecutive', 1) > 1: c_f = c_f.rolling(asf['consecutive']).sum() == asf['consecutive']
                 conditions.append(c_f)
@@ -1188,6 +1200,7 @@ def run_engine(universe_dict, params, sznl_map, market_series=None, vix_series=N
                         if xf['logic'] == '<': c_f = (df[col] < xf['thresh'])
                         elif xf['logic'] == '>': c_f = (df[col] > xf['thresh'])
                         elif xf['logic'] == 'Between': c_f = (df[col] >= xf['thresh']) & (df[col] <= xf.get('thresh_max', 100.0))
+                        elif xf['logic'] == 'Not Between': c_f = (df[col] < xf['thresh']) | (df[col] > xf.get('thresh_max', 100.0))
                         else: continue
                         if xf.get('consecutive', 1) > 1: c_f = c_f.rolling(xf['consecutive']).sum() == xf['consecutive']
                         conditions.append(c_f)
@@ -1791,6 +1804,15 @@ def main():
         starting_portfolio = st.number_input("Starting Portfolio ($)", value=100000, step=1000, min_value=100)
         risk_bps_input = st.number_input("Risk per Trade (bps)", value=25, step=5, min_value=1, max_value=500,
                                          help="Basis points of starting portfolio risked per trade. 25 bps on $100k = $250/trade.")
+        use_max_daily_risk = st.checkbox(
+            "Cap Total Daily Risk", value=False,
+            help="If a day's signals would risk more than the cap in aggregate, scale every trade that day down pro-rata so total risk = cap. No effect on days under the cap.",
+        )
+        max_daily_risk_pct = st.number_input(
+            "Max Daily Risk (% of equity)", value=3.0, step=0.25, min_value=0.05, max_value=100.0,
+            disabled=not use_max_daily_risk,
+            help="E.g. 3.0%. With 25bps/trade, 12 trades fit under 3%; a 25-signal day would scale each down by 0.48x.",
+        )
     risk_per_trade = starting_portfolio * risk_bps_input / 10000.0
 
     # --- Partial exits: scale out at target, let remainder ride ---
@@ -1977,56 +1999,56 @@ def main():
             c2d, c5d, c10d, c21d, c126d, c252d = st.columns(6)
             with c2d:
                 use_2d = st.checkbox("Enable 2D Rank")
-                logic_2d = st.selectbox("Logic", [">", "<", "Between"], key="l2d", disabled=not use_2d)
-                l_2d_txt = "Min %ile" if logic_2d == "Between" else "Threshold"
+                logic_2d = st.selectbox("Logic", [">", "<", "Between", "Not Between"], key="l2d", disabled=not use_2d)
+                l_2d_txt = "Min %ile" if logic_2d in ("Between", "Not Between") else "Threshold"
                 thresh_2d = st.number_input(l_2d_txt, 0.0, 100.0, 85.0, key="t2d", disabled=not use_2d)
                 thresh_2d_max = 100.0
-                if logic_2d == "Between": thresh_2d_max = st.number_input("Max %ile", 0.0, 100.0, 99.0, key="t2d_max")
+                if logic_2d in ("Between", "Not Between"): thresh_2d_max = st.number_input("Max %ile", 0.0, 100.0, 99.0, key="t2d_max")
                 consec_2d = st.number_input("Consec Days", 1, 10, 1, key="c2d_days", disabled=not use_2d)
                 if use_2d: perf_filters.append({'window': 2, 'logic': logic_2d, 'thresh': thresh_2d, 'thresh_max': thresh_2d_max, 'consecutive': consec_2d})
             with c5d:
                 use_5d = st.checkbox("Enable 5D Rank")
-                logic_5d = st.selectbox("Logic", [">", "<", "Between"], key="l5d", disabled=not use_5d)
-                l_5d_txt = "Min %ile" if logic_5d == "Between" else "Threshold"
+                logic_5d = st.selectbox("Logic", [">", "<", "Between", "Not Between"], key="l5d", disabled=not use_5d)
+                l_5d_txt = "Min %ile" if logic_5d in ("Between", "Not Between") else "Threshold"
                 thresh_5d = st.number_input(l_5d_txt, 0.0, 100.0, 85.0, key="t5d", disabled=not use_5d)
                 thresh_5d_max = 100.0
-                if logic_5d == "Between": thresh_5d_max = st.number_input("Max %ile", 0.0, 100.0, 99.0, key="t5d_max")
+                if logic_5d in ("Between", "Not Between"): thresh_5d_max = st.number_input("Max %ile", 0.0, 100.0, 99.0, key="t5d_max")
                 consec_5d = st.number_input("Consec Days", 1, 10, 1, key="c5d_days", disabled=not use_5d)
                 if use_5d: perf_filters.append({'window': 5, 'logic': logic_5d, 'thresh': thresh_5d, 'thresh_max': thresh_5d_max, 'consecutive': consec_5d})
             with c10d:
                 use_10d = st.checkbox("Enable 10D Rank")
-                logic_10d = st.selectbox("Logic", [">", "<", "Between"], key="l10d", disabled=not use_10d)
-                l_10d_txt = "Min %ile" if logic_10d == "Between" else "Threshold"
+                logic_10d = st.selectbox("Logic", [">", "<", "Between", "Not Between"], key="l10d", disabled=not use_10d)
+                l_10d_txt = "Min %ile" if logic_10d in ("Between", "Not Between") else "Threshold"
                 thresh_10d = st.number_input(l_10d_txt, 0.0, 100.0, 85.0, key="t10d", disabled=not use_10d)
                 thresh_10d_max = 100.0
-                if logic_10d == "Between": thresh_10d_max = st.number_input("Max %ile", 0.0, 100.0, 99.0, key="t10d_max")
+                if logic_10d in ("Between", "Not Between"): thresh_10d_max = st.number_input("Max %ile", 0.0, 100.0, 99.0, key="t10d_max")
                 consec_10d = st.number_input("Consec Days", 1, 10, 1, key="c10d_days", disabled=not use_10d)
                 if use_10d: perf_filters.append({'window': 10, 'logic': logic_10d, 'thresh': thresh_10d, 'thresh_max': thresh_10d_max, 'consecutive': consec_10d})
             with c21d:
                 use_21d = st.checkbox("Enable 21D Rank")
-                logic_21d = st.selectbox("Logic", [">", "<", "Between"], key="l21d", disabled=not use_21d)
-                l_21d_txt = "Min %ile" if logic_21d == "Between" else "Threshold"
+                logic_21d = st.selectbox("Logic", [">", "<", "Between", "Not Between"], key="l21d", disabled=not use_21d)
+                l_21d_txt = "Min %ile" if logic_21d in ("Between", "Not Between") else "Threshold"
                 thresh_21d = st.number_input(l_21d_txt, 0.0, 100.0, 85.0, key="t21d", disabled=not use_21d)
                 thresh_21d_max = 100.0
-                if logic_21d == "Between": thresh_21d_max = st.number_input("Max %ile", 0.0, 100.0, 99.0, key="t21d_max")
+                if logic_21d in ("Between", "Not Between"): thresh_21d_max = st.number_input("Max %ile", 0.0, 100.0, 99.0, key="t21d_max")
                 consec_21d = st.number_input("Consec Days", 1, 10, 1, key="c21d_days", disabled=not use_21d)
                 if use_21d: perf_filters.append({'window': 21, 'logic': logic_21d, 'thresh': thresh_21d, 'thresh_max': thresh_21d_max, 'consecutive': consec_21d})
             with c126d:
                 use_126d = st.checkbox("Enable 126D Rank")
-                logic_126d = st.selectbox("Logic", [">", "<", "Between"], key="l126d", disabled=not use_126d)
-                l_126d_txt = "Min %ile" if logic_126d == "Between" else "Threshold"
+                logic_126d = st.selectbox("Logic", [">", "<", "Between", "Not Between"], key="l126d", disabled=not use_126d)
+                l_126d_txt = "Min %ile" if logic_126d in ("Between", "Not Between") else "Threshold"
                 thresh_126d = st.number_input(l_126d_txt, 0.0, 100.0, 85.0, key="t126d", disabled=not use_126d)
                 thresh_126d_max = 100.0
-                if logic_126d == "Between": thresh_126d_max = st.number_input("Max %ile", 0.0, 100.0, 99.0, key="t126d_max")
+                if logic_126d in ("Between", "Not Between"): thresh_126d_max = st.number_input("Max %ile", 0.0, 100.0, 99.0, key="t126d_max")
                 consec_126d = st.number_input("Consec Days", 1, 10, 1, key="c126d_days", disabled=not use_126d)
                 if use_126d: perf_filters.append({'window': 126, 'logic': logic_126d, 'thresh': thresh_126d, 'thresh_max': thresh_126d_max, 'consecutive': consec_126d})
             with c252d:
                 use_252d = st.checkbox("Enable 252D Rank")
-                logic_252d = st.selectbox("Logic", [">", "<", "Between"], key="l252d", disabled=not use_252d)
-                l_252d_txt = "Min %ile" if logic_252d == "Between" else "Threshold"
+                logic_252d = st.selectbox("Logic", [">", "<", "Between", "Not Between"], key="l252d", disabled=not use_252d)
+                l_252d_txt = "Min %ile" if logic_252d in ("Between", "Not Between") else "Threshold"
                 thresh_252d = st.number_input(l_252d_txt, 0.0, 100.0, 85.0, key="t252d", disabled=not use_252d)
                 thresh_252d_max = 100.0
-                if logic_252d == "Between": thresh_252d_max = st.number_input("Max %ile", 0.0, 100.0, 99.0, key="t252d_max")
+                if logic_252d in ("Between", "Not Between"): thresh_252d_max = st.number_input("Max %ile", 0.0, 100.0, 99.0, key="t252d_max")
                 consec_252d = st.number_input("Consec Days", 1, 10, 1, key="c252d_days", disabled=not use_252d)
                 if use_252d: perf_filters.append({'window': 252, 'logic': logic_252d, 'thresh': thresh_252d, 'thresh_max': thresh_252d_max, 'consecutive': consec_252d})
         with col_p_seq:
@@ -2041,11 +2063,11 @@ def main():
         for _col, _w in zip(_atr_cols, _atr_windows):
             with _col:
                 _use = st.checkbox(f"Enable {_w}D ATR Rank", key=f"use_atrp_{_w}")
-                _logic = st.selectbox("Logic", [">", "<", "Between"], key=f"atrp_l_{_w}", disabled=not _use)
-                _lbl = "Min %ile" if _logic == "Between" else "Threshold"
+                _logic = st.selectbox("Logic", [">", "<", "Between", "Not Between"], key=f"atrp_l_{_w}", disabled=not _use)
+                _lbl = "Min %ile" if _logic in ("Between", "Not Between") else "Threshold"
                 _thresh = st.number_input(_lbl, 0.0, 100.0, 85.0, key=f"atrp_t_{_w}", disabled=not _use)
                 _thresh_max = 100.0
-                if _logic == "Between":
+                if _logic in ("Between", "Not Between"):
                     _thresh_max = st.number_input("Max %ile", 0.0, 100.0, 99.0, key=f"atrp_tmax_{_w}", disabled=not _use)
                 _consec = st.number_input("Consec Days", 1, 10, 1, key=f"atrp_c_{_w}", disabled=not _use)
                 if _use:
@@ -2062,11 +2084,11 @@ def main():
         for _col, _w in zip(asz_cols, _asz_windows):
             with _col:
                 _use = st.checkbox(f"Enable {_w}D", key=f"use_asz_{_w}")
-                _logic = st.selectbox("Logic", [">", "<", "Between"], key=f"asz_l_{_w}", disabled=not _use)
-                _lbl = "Min %ile" if _logic == "Between" else "Threshold"
+                _logic = st.selectbox("Logic", [">", "<", "Between", "Not Between"], key=f"asz_l_{_w}", disabled=not _use)
+                _lbl = "Min %ile" if _logic in ("Between", "Not Between") else "Threshold"
                 _thresh = st.number_input(_lbl, 0.0, 100.0, 80.0, key=f"asz_t_{_w}", disabled=not _use)
                 _thresh_max = 100.0
-                if _logic == "Between":
+                if _logic in ("Between", "Not Between"):
                     _thresh_max = st.number_input("Max %ile", 0.0, 100.0, 99.0, key=f"asz_tmax_{_w}", disabled=not _use)
                 _consec = st.number_input("Consec Days", 1, 10, 1, key=f"asz_c_{_w}", disabled=not _use)
                 if _use:
@@ -2083,51 +2105,51 @@ def main():
         with xc5d:
             st.markdown("**5-Day Rank**")
             use_xsec_5d = st.checkbox("Enable", key="use_xsec_5d", value=False, disabled=not use_xsec_filter)
-            xsec_5d_logic = st.selectbox("Logic", [">", "<", "Between"], key="xsec_l5d", disabled=not (use_xsec_filter and use_xsec_5d))
-            xsec_5d_lbl = "Min %ile" if xsec_5d_logic == "Between" else "Threshold"
+            xsec_5d_logic = st.selectbox("Logic", [">", "<", "Between", "Not Between"], key="xsec_l5d", disabled=not (use_xsec_filter and use_xsec_5d))
+            xsec_5d_lbl = "Min %ile" if xsec_5d_logic in ("Between", "Not Between") else "Threshold"
             xsec_5d_thresh = st.number_input(xsec_5d_lbl, 0.0, 100.0, 85.0, key="xsec_t5d", disabled=not (use_xsec_filter and use_xsec_5d))
             xsec_5d_max = 100.0
-            if xsec_5d_logic == "Between": xsec_5d_max = st.number_input("Max %ile", 0.0, 100.0, 99.0, key="xsec_t5d_max")
+            if xsec_5d_logic in ("Between", "Not Between"): xsec_5d_max = st.number_input("Max %ile", 0.0, 100.0, 99.0, key="xsec_t5d_max")
             xsec_5d_consec = st.number_input("Consec Days", 1, 10, 1, key="xsec_c5d", disabled=not (use_xsec_filter and use_xsec_5d))
             if use_xsec_5d: xsec_filters.append({'window': 5, 'logic': xsec_5d_logic, 'thresh': xsec_5d_thresh, 'thresh_max': xsec_5d_max, 'consecutive': xsec_5d_consec})
         with xc10d:
             st.markdown("**10-Day Rank**")
             use_xsec_10d = st.checkbox("Enable", key="use_xsec_10d", value=False, disabled=not use_xsec_filter)
-            xsec_10d_logic = st.selectbox("Logic", [">", "<", "Between"], key="xsec_l10d", disabled=not (use_xsec_filter and use_xsec_10d))
-            xsec_10d_lbl = "Min %ile" if xsec_10d_logic == "Between" else "Threshold"
+            xsec_10d_logic = st.selectbox("Logic", [">", "<", "Between", "Not Between"], key="xsec_l10d", disabled=not (use_xsec_filter and use_xsec_10d))
+            xsec_10d_lbl = "Min %ile" if xsec_10d_logic in ("Between", "Not Between") else "Threshold"
             xsec_10d_thresh = st.number_input(xsec_10d_lbl, 0.0, 100.0, 85.0, key="xsec_t10d", disabled=not (use_xsec_filter and use_xsec_10d))
             xsec_10d_max = 100.0
-            if xsec_10d_logic == "Between": xsec_10d_max = st.number_input("Max %ile", 0.0, 100.0, 99.0, key="xsec_t10d_max")
+            if xsec_10d_logic in ("Between", "Not Between"): xsec_10d_max = st.number_input("Max %ile", 0.0, 100.0, 99.0, key="xsec_t10d_max")
             xsec_10d_consec = st.number_input("Consec Days", 1, 10, 1, key="xsec_c10d", disabled=not (use_xsec_filter and use_xsec_10d))
             if use_xsec_10d: xsec_filters.append({'window': 10, 'logic': xsec_10d_logic, 'thresh': xsec_10d_thresh, 'thresh_max': xsec_10d_max, 'consecutive': xsec_10d_consec})
         with xc21d:
             st.markdown("**21-Day Rank**")
             use_xsec_21d = st.checkbox("Enable", key="use_xsec_21d", value=False, disabled=not use_xsec_filter)
-            xsec_21d_logic = st.selectbox("Logic", [">", "<", "Between"], key="xsec_l21d", disabled=not (use_xsec_filter and use_xsec_21d))
-            xsec_21d_lbl = "Min %ile" if xsec_21d_logic == "Between" else "Threshold"
+            xsec_21d_logic = st.selectbox("Logic", [">", "<", "Between", "Not Between"], key="xsec_l21d", disabled=not (use_xsec_filter and use_xsec_21d))
+            xsec_21d_lbl = "Min %ile" if xsec_21d_logic in ("Between", "Not Between") else "Threshold"
             xsec_21d_thresh = st.number_input(xsec_21d_lbl, 0.0, 100.0, 85.0, key="xsec_t21d", disabled=not (use_xsec_filter and use_xsec_21d))
             xsec_21d_max = 100.0
-            if xsec_21d_logic == "Between": xsec_21d_max = st.number_input("Max %ile", 0.0, 100.0, 99.0, key="xsec_t21d_max")
+            if xsec_21d_logic in ("Between", "Not Between"): xsec_21d_max = st.number_input("Max %ile", 0.0, 100.0, 99.0, key="xsec_t21d_max")
             xsec_21d_consec = st.number_input("Consec Days", 1, 10, 1, key="xsec_c21d", disabled=not (use_xsec_filter and use_xsec_21d))
             if use_xsec_21d: xsec_filters.append({'window': 21, 'logic': xsec_21d_logic, 'thresh': xsec_21d_thresh, 'thresh_max': xsec_21d_max, 'consecutive': xsec_21d_consec})
         with xc126d:
             st.markdown("**126-Day Rank**")
             use_xsec_126d = st.checkbox("Enable", key="use_xsec_126d", value=False, disabled=not use_xsec_filter)
-            xsec_126d_logic = st.selectbox("Logic", [">", "<", "Between"], key="xsec_l126d", disabled=not (use_xsec_filter and use_xsec_126d))
-            xsec_126d_lbl = "Min %ile" if xsec_126d_logic == "Between" else "Threshold"
+            xsec_126d_logic = st.selectbox("Logic", [">", "<", "Between", "Not Between"], key="xsec_l126d", disabled=not (use_xsec_filter and use_xsec_126d))
+            xsec_126d_lbl = "Min %ile" if xsec_126d_logic in ("Between", "Not Between") else "Threshold"
             xsec_126d_thresh = st.number_input(xsec_126d_lbl, 0.0, 100.0, 85.0, key="xsec_t126d", disabled=not (use_xsec_filter and use_xsec_126d))
             xsec_126d_max = 100.0
-            if xsec_126d_logic == "Between": xsec_126d_max = st.number_input("Max %ile", 0.0, 100.0, 99.0, key="xsec_t126d_max")
+            if xsec_126d_logic in ("Between", "Not Between"): xsec_126d_max = st.number_input("Max %ile", 0.0, 100.0, 99.0, key="xsec_t126d_max")
             xsec_126d_consec = st.number_input("Consec Days", 1, 10, 1, key="xsec_c126d", disabled=not (use_xsec_filter and use_xsec_126d))
             if use_xsec_126d: xsec_filters.append({'window': 126, 'logic': xsec_126d_logic, 'thresh': xsec_126d_thresh, 'thresh_max': xsec_126d_max, 'consecutive': xsec_126d_consec})
         with xc252d:
             st.markdown("**252-Day Rank**")
             use_xsec_252d = st.checkbox("Enable", key="use_xsec_252d", value=False, disabled=not use_xsec_filter)
-            xsec_252d_logic = st.selectbox("Logic", [">", "<", "Between"], key="xsec_l252d", disabled=not (use_xsec_filter and use_xsec_252d))
-            xsec_252d_lbl = "Min %ile" if xsec_252d_logic == "Between" else "Threshold"
+            xsec_252d_logic = st.selectbox("Logic", [">", "<", "Between", "Not Between"], key="xsec_l252d", disabled=not (use_xsec_filter and use_xsec_252d))
+            xsec_252d_lbl = "Min %ile" if xsec_252d_logic in ("Between", "Not Between") else "Threshold"
             xsec_252d_thresh = st.number_input(xsec_252d_lbl, 0.0, 100.0, 85.0, key="xsec_t252d", disabled=not (use_xsec_filter and use_xsec_252d))
             xsec_252d_max = 100.0
-            if xsec_252d_logic == "Between": xsec_252d_max = st.number_input("Max %ile", 0.0, 100.0, 99.0, key="xsec_t252d_max")
+            if xsec_252d_logic in ("Between", "Not Between"): xsec_252d_max = st.number_input("Max %ile", 0.0, 100.0, 99.0, key="xsec_t252d_max")
             xsec_252d_consec = st.number_input("Consec Days", 1, 10, 1, key="xsec_c252d", disabled=not (use_xsec_filter and use_xsec_252d))
             if use_xsec_252d: xsec_filters.append({'window': 252, 'logic': xsec_252d_logic, 'thresh': xsec_252d_thresh, 'thresh_max': xsec_252d_max, 'consecutive': xsec_252d_consec})
     ma_consec_filters = []
@@ -2403,6 +2425,7 @@ def main():
                 st.warning(f"Could not load data for reference ticker {ref_ticker_input}. Filter will be skipped.")
         
         params = {
+            'use_max_daily_risk': use_max_daily_risk, 'max_daily_risk_pct': max_daily_risk_pct,
             'backtest_start_date': start_date, 'trade_direction': trade_direction, 'max_one_pos': max_one_pos, 'allow_same_day_reentry': allow_same_day_reentry,
             'max_daily_entries': max_daily_entries, 'max_total_positions': max_total_positions, 'use_stop_loss': use_stop_loss, 'use_take_profit': use_take_profit, 'time_exit_only': time_exit_only,
             'use_partial_exits': use_partial_exits, 'partial_target_fraction': partial_target_fraction,
@@ -2451,7 +2474,25 @@ def main():
         if trades_df.empty: st.warning("No executed signals.")
         if not trades_df.empty:
             trades_df = trades_df.sort_values("ExitDate")
-            trades_df['PnL_Dollar'] = trades_df['R'] * risk_per_trade
+
+            # Per-trade RiskScale: pro-rata down on days where aggregate raw risk
+            # would exceed the daily cap. Always present (1.0 when feature off).
+            if use_max_daily_risk and risk_bps_input > 0:
+                per_trade_pct = risk_bps_input / 100.0  # bps → %
+                _entry_dt = pd.to_datetime(trades_df['EntryDate'])
+                day_counts = _entry_dt.value_counts()
+                day_raw_pct = day_counts * per_trade_pct
+                day_scale = (max_daily_risk_pct / day_raw_pct).clip(upper=1.0)
+                trades_df['RiskScale'] = _entry_dt.map(day_scale).astype(float)
+                _capped_days = int((day_scale < 1.0).sum())
+                _capped_trades = int((trades_df['RiskScale'] < 1.0).sum())
+                if _capped_days > 0:
+                    _avg_scale = float(trades_df.loc[trades_df['RiskScale'] < 1.0, 'RiskScale'].mean())
+                    st.info(f"Daily risk cap engaged on **{_capped_days}** day(s), scaling **{_capped_trades}** trades (avg scale {_avg_scale:.2f}x).")
+            else:
+                trades_df['RiskScale'] = 1.0
+
+            trades_df['PnL_Dollar'] = trades_df['R'] * risk_per_trade * trades_df['RiskScale']
             trades_df['CumPnL'] = trades_df['PnL_Dollar'].cumsum()
             # Build MTM curves (flat + dynamic) before dates get stringified
             mtm_flat = build_mtm_curves(trades_df, data_dict, starting_portfolio, risk_bps_input, mode='flat')

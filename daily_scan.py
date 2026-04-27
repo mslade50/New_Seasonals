@@ -670,6 +670,8 @@ def check_signal(df, params, sznl_map, ticker=None):
                 cond_f = df[col] < pf['thresh']
             elif pf['logic'] == 'Between':
                 cond_f = (df[col] >= pf['thresh']) & (df[col] <= pf.get('thresh_max', 100.0))
+            elif pf['logic'] == 'Not Between':
+                cond_f = (df[col] < pf['thresh']) | (df[col] > pf.get('thresh_max', 100.0))
             else:
                 cond_f = df[col] > pf['thresh']
 
@@ -1024,6 +1026,9 @@ def save_staging_orders(signals_list, strategy_book, sheet_name='Order_Staging')
                     "Use_Stop": False,
                     "Hold_Days": row.get('Days_To_Exit', 0),
                     "Trade_Direction": trade_dir,
+                    "Rank_252D": row.get('Rank_252D', ''),
+                    "Risk_Amt": float(row.get('Risk_Amt', 0) or 0),
+                    "Risk_Bps": 0,
                 })
             continue
         
@@ -1107,10 +1112,10 @@ def save_staging_orders(signals_list, strategy_book, sheet_name='Order_Staging')
             "Exchange": "SMART",
             "Action": ib_action,
             "Quantity": row['Shares'],
-            "Order_Type": entry_instruction,  
-            "Limit_Price": round(limit_price, 2), 
-            "Offset_ATR_Mult": offset_atr,    
-            "TIF": tif_instruction,           
+            "Order_Type": entry_instruction,
+            "Limit_Price": round(limit_price, 2),
+            "Offset_ATR_Mult": offset_atr,
+            "TIF": tif_instruction,
             "Frozen_ATR": round(row['ATR'], 2),
             "Signal_Close": round(row['Entry'], 2),
             "Time_Exit_Date": str(row['Time Exit']),
@@ -1122,6 +1127,13 @@ def save_staging_orders(signals_list, strategy_book, sheet_name='Order_Staging')
             "Use_Stop": use_stop,
             "Hold_Days": hold_days,
             "Trade_Direction": trade_direction,
+            # 252D rank stamped for OVS gap-tier sizing in order_staging.py
+            "Rank_252D": row.get('Rank_252D', ''),
+            # Per-trade risk $ (post all scanner multipliers). order_staging.py
+            # uses this as the canonical base for the daily cap — staging
+            # recomputes size from this rather than back-deriving from Quantity.
+            "Risk_Amt": float(row.get('Risk_Amt', 0) or 0),
+            "Risk_Bps": int(execution.get('risk_bps', 0)),
         })
 
     # If all orders were "Signal Close", this list is empty now
@@ -1289,6 +1301,9 @@ def build_live_filters(strat, last_row, df):
         if logic == 'Between':
             thresh_max = pf.get('thresh_max', 100.0)
             desc = f"{window}D rank between {thresh:.0f}-{thresh_max:.0f}th %ile"
+        elif logic == 'Not Between':
+            thresh_max = pf.get('thresh_max', 100.0)
+            desc = f"{window}D rank NOT between {thresh:.0f}-{thresh_max:.0f}th %ile"
         else:
             desc = f"{window}D rank {logic} {thresh:.0f}th %ile"
         if consec > 1:
@@ -1941,7 +1956,7 @@ def run_daily_scan():
                     risk = base_risk 
 
                     sizing_note = "Standard (1.0x)"
-                    
+
                     if strat['name'] == "Weak Close Decent Sznls":
                         sznl_val = last_row.get('Sznl', 0)
                         if sznl_val >= 65:
@@ -1954,48 +1969,22 @@ def run_daily_scan():
                             risk = risk * 0.66
                             sizing_note = f"Low Sznl ({sznl_val:.0f}) = 0.66x"
 
-                    # Overbot Vol Spike: 1.5x when 5d ATR seasonal is in the bottom
-                    # quartile — weak short-horizon seasonal reinforces the fade thesis.
+                    # Overbot Vol Spike: 1.3x when 5D ATR seasonal rank < 30 (weak
+                    # short-horizon seasonal reinforces the fade thesis). Otherwise
+                    # flat 25 bps. All prior OVS conditional sizing (leader penalty,
+                    # high-sznl terminal) was retired in favor of this single rule.
                     if strat['name'] == "Overbot Vol Spike":
                         _atr_sznl_5d = last_row.get('atr_sznl_5d', None)
-                        if _atr_sznl_5d is not None and pd.notna(_atr_sznl_5d) and _atr_sznl_5d < 25:
-                            risk = risk * 1.5
-                            sizing_note = f"ATR Sznl 5d {_atr_sznl_5d:.0f} < 25 → 1.5x"
-
-                    # Overbot Vol Spike: 0.5x when 126D or 252D rank > 65 — name is
-                    # a medium/long-term leader, so the mean-reversion fade thesis
-                    # is weaker against underlying strength. Size down.
-                    if strat['name'] == "Overbot Vol Spike":
-                        _r126 = last_row.get('rank_ret_126d', None)
-                        _r252 = last_row.get('rank_ret_252d', None)
-                        _is_leader_126 = _r126 is not None and pd.notna(_r126) and _r126 > 65
-                        _is_leader_252 = _r252 is not None and pd.notna(_r252) and _r252 > 65
-                        if _is_leader_126 or _is_leader_252:
-                            risk = risk * 0.5
-                            _which = []
-                            if _is_leader_126: _which.append(f"126D={_r126:.0f}")
-                            if _is_leader_252: _which.append(f"252D={_r252:.0f}")
-                            sizing_note = f"{sizing_note} | OVS leader ({', '.join(_which)}>65) → 0.5x"
-
-                    # Overbot Vol Spike: terminal flat 5 bps when BOTH a leader
-                    # (126D or 252D > 65) AND in a strong 5D ATR seasonal window
-                    # (> 65). Weakest fade setup — tiny lottery-ticket sizing.
-                    # Overrides all prior OVS multipliers (1.5x sznl, 0.5x leader).
-                    if strat['name'] == "Overbot Vol Spike":
-                        _atr_5d_t = last_row.get('atr_sznl_5d', None)
-                        _r126_t = last_row.get('rank_ret_126d', None)
-                        _r252_t = last_row.get('rank_ret_252d', None)
-                        _is_leader_t = ((pd.notna(_r126_t) and _r126_t > 65)
-                                        or (pd.notna(_r252_t) and _r252_t > 65))
-                        _is_high_sznl_t = pd.notna(_atr_5d_t) and _atr_5d_t > 65
-                        if _is_leader_t and _is_high_sznl_t:
-                            risk = ACCOUNT_VALUE * 5 / 10000.0
-                            sizing_note = f"OVS leader+high-sznl (5D ATR={_atr_5d_t:.0f}>65) → flat 5 bps (${risk:.0f})"
+                        if pd.notna(_atr_sznl_5d) and _atr_sznl_5d < 30:
+                            risk = risk * 1.3
+                            sizing_note = f"ATR Sznl 5d {_atr_sznl_5d:.0f} < 30 → 1.3x"
                     # ---------------------------------------------------------
 
                     # 2b. FRAGILITY SIZING ADJUSTMENT
-                    # Applied after strategy-specific adjustments
-                    if frag_mult != 1.0:
+                    # Applied after strategy-specific adjustments. OVS is exempt —
+                    # its sizing is governed entirely by the 5D ATR sznl rule and
+                    # the post-open gap-tier adjuster in order_staging.py.
+                    if frag_mult != 1.0 and strat['name'] != "Overbot Vol Spike":
                         risk = risk * frag_mult
                         sizing_note += f" | Frag {frag_mult:.2f}x"
 
@@ -2096,6 +2085,9 @@ def run_daily_scan():
                     # Build short entry type label for summary
                     entry_type_short = get_entry_type_short(entry_mode, limit_price)
                     
+                    _r252_stamp = last_row.get('rank_ret_252d', None)
+                    _r252_val = float(_r252_stamp) if _r252_stamp is not None and pd.notna(_r252_stamp) else None
+
                     signal_dict = {
                         "Strategy_ID": strat['id'],
                         "Strategy_Name": strat['name'],
@@ -2103,8 +2095,9 @@ def run_daily_scan():
                         "Date": last_row.name.date(),
                         "Action": action,
                         "Shares": shares,
-                        "Risk_Amt": risk, 
+                        "Risk_Amt": risk,
                         "Sizing_Notes": sizing_with_risk,
+                        "Rank_252D": _r252_val if _r252_val is not None else '',
                         "Stats": stats_str,
                         "Entry": entry,
                         "Stop": stop_price,
@@ -2143,21 +2136,22 @@ def run_daily_scan():
             all_signals.extend(signals)
             print(f"  -> Found {len(signals)} signals.")
 
-    # Global aggregate daily risk cap across ALL strategies.
-    # If total Risk_Amt across today's signals exceeds DAILY_RISK_CAP_BPS,
-    # scale every signal's Shares / Risk_Amt / Notional down proportionally.
+    # Global aggregate daily risk cap across ALL strategies EXCEPT OVS.
+    # OVS sizing is fully owned by the 5D ATR sznl rule + the post-open gap-tier
+    # and 2.5% cap in order_staging.py — no scanner-side adjustment.
     if all_signals and ACCOUNT_VALUE > 0:
         cap_dollars = ACCOUNT_VALUE * DAILY_RISK_CAP_BPS / 10000.0
-        total_risk = sum(float(s.get('Risk_Amt', 0) or 0) for s in all_signals)
+        capped_signals = [s for s in all_signals if s.get('Strategy_Name') != "Overbot Vol Spike"]
+        total_risk = sum(float(s.get('Risk_Amt', 0) or 0) for s in capped_signals)
         if total_risk > cap_dollars > 0:
             scale = cap_dollars / total_risk
-            for s in all_signals:
+            for s in capped_signals:
                 s['Shares'] = int(s.get('Shares', 0) * scale)
                 s['Risk_Amt'] = float(s.get('Risk_Amt', 0) or 0) * scale
                 entry_px = s.get('Entry') or 0
                 s['Notional'] = s['Shares'] * float(entry_px)
                 s['Sizing_Notes'] = f"{s.get('Sizing_Notes', '')} | Daily cap {DAILY_RISK_CAP_BPS}bps: {scale:.2f}x"
-            print(f"\n>>> Global risk cap hit: {len(all_signals)} signals scaled by {scale:.2f}x "
+            print(f"\n>>> Global risk cap hit: {len(capped_signals)} non-OVS signals scaled by {scale:.2f}x "
                   f"(${total_risk:,.0f} -> ${cap_dollars:,.0f})\n")
 
     # 6. Save Results

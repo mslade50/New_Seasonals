@@ -400,10 +400,12 @@ _STRATEGY_BOOK_RAW = [
         "setup": {
             "type": "MeanReversion",
             "timeframe": "Overnight",
-            "thesis": "Fading multi-horizon overbought names — pure short-term overbought fade (no long-term-leader filter, no seasonal gate)",
+            "thesis": "Fading multi-horizon overbought names — short-term overbought fade with a 252D barbell (skip mediocre 65-95th %ile) and a 5D seasonal headwind gate",
             "key_filters": [
                 "2D + 5D + 10D + 21D ranks ALL > 85th %ile (extremely overbought)",
                 "21D > 85th %ile for 3 consecutive days",
+                "252D rank NOT between 65-95th %ile (avoid mediocre LT names)",
+                "5D ATR seasonal rank < 85 (skip strong 5d seasonal windows)",
                 "At least 1 distribution day in last 21",
                 "Today's return > 0.25 ATR (up day)"
             ]
@@ -412,9 +414,9 @@ _STRATEGY_BOOK_RAW = [
             "primary_exit": "2-day time stop OR 2.0 ATR target (whichever first)",
             "stop_logic": "None (time/target exit only)",
             "target_logic": "2.0 ATR below entry (short)",
-            "notes": "LOC companion retired. Target reduced from 8 ATR → 2 ATR per path-analysis give-back profile."
+            "notes": "LOC companion retired. Target reduced from 8 ATR → 2 ATR per path-analysis give-back profile. Variable sizing collapsed to flat 25 bps × 1.3 when 5D ATR sznl < 30."
         },
-        "description": "Start: 2000-01-01. Universe: LIQUID_PLUS_COMMODITIES. Dir: Short. Pure multi-horizon overbought fade, no 126d/252d leader filter, no market seasonal filter.",
+        "description": "Start: 2000-01-01. Universe: LIQUID_PLUS_COMMODITIES. Dir: Short. Multi-horizon overbought fade with 252D barbell + 5D seasonal headwind gate. Flat 25 bps sizing (1.3x when 5D ATR sznl < 30).",
         "universe_tickers": LIQUID_PLUS_COMMODITIES,
         "settings": {
             "trade_direction": "Short",
@@ -428,6 +430,10 @@ _STRATEGY_BOOK_RAW = [
                 {'window': 5, 'logic': '>', 'thresh': 85.0, 'consecutive': 1},
                 {'window': 10, 'logic': '>', 'thresh': 85.0, 'consecutive': 1},
                 {'window': 21, 'logic': '>', 'thresh': 85.0, 'consecutive': 3},
+                {'window': 252, 'logic': 'Not Between', 'thresh': 65.0, 'thresh_max': 95.0, 'consecutive': 1},
+            ],
+            "atr_sznl_filters": [
+                {'window': 5, 'logic': '<', 'thresh': 85.0, 'thresh_max': 100.0, 'consecutive': 1},
             ],
             "perf_first_instance": False, "perf_lookback": 21,
             "use_sznl": False, "sznl_logic": ">", "sznl_thresh": 85.0, "sznl_first_instance": False, "sznl_lookback": 21,
@@ -449,8 +455,7 @@ _STRATEGY_BOOK_RAW = [
             "use_dist_count_filter": True, "dist_count_window": 21, "dist_count_logic": ">", "dist_count_thresh": 0,
             "use_xsec_filter": True, "xsec_filters": []
         },
-        "execution": {"risk_bps": 25, "slippage_bps": 2, "stop_atr": 1.0, "tgt_atr": 2.0, "hold_days": 2,"use_stop_loss": False, "use_take_profit": True,
-                      "ladder_multipliers": [0.85, 1.00, 1.15]},
+        "execution": {"risk_bps": 25, "slippage_bps": 2, "stop_atr": 1.0, "tgt_atr": 2.0, "hold_days": 2, "use_stop_loss": False, "use_take_profit": True},
         "stats": {"grade": "A (Excellent)", "win_rate": "58.0%", "expectancy": "0.28r", "profit_factor": "1.96"}
     },
     {
