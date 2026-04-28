@@ -23,23 +23,13 @@ parent_dir = os.path.dirname(current_dir)
 sys.path.append(parent_dir)
 
 try:
-    from strategy_config import _STRATEGY_BOOK_RAW, ACCOUNT_VALUE, DAILY_RISK_CAP_BPS, CSV_UNIVERSE, LIQUID_PLUS_COMMODITIES
+    from strategy_config import _STRATEGY_BOOK_RAW, ACCOUNT_VALUE, CSV_UNIVERSE, LIQUID_PLUS_COMMODITIES
 except ImportError:
     # st.error("Could not find strategy_config.py in the root directory.")
     _STRATEGY_BOOK_RAW = []
     CSV_UNIVERSE = []
     LIQUID_PLUS_COMMODITIES = []
     ACCOUNT_VALUE = 150000
-    DAILY_RISK_CAP_BPS = 0
-
-# Live OVS ticker classification:
-#   Main tab (daily_scan):      LIQUID_PLUS_COMMODITIES
-#   Overflow tab (local_overflow): CSV_UNIVERSE − LIQUID_PLUS_COMMODITIES
-# Each ticker is in exactly one tab in live; the backtester uses the same split
-# so main-side sizing applies to liquid names and overflow-side sizing applies
-# to overflow names, even within a single combined backtest run.
-_MAIN_OVS_SET = set(LIQUID_PLUS_COMMODITIES)
-_OVERFLOW_OVS_SET = set(CSV_UNIVERSE) - _MAIN_OVS_SET
 
 # Strategies that the overflow scanner runs against the broader CSV_UNIVERSE.
 # When the "Run on Overflow Universe" UI toggle is on, strat_backtester swaps
@@ -378,10 +368,14 @@ def get_historical_mask(df, params, sznl_map, ticker_name="UNK"):
     for pf in params.get('perf_filters', []):
         col = f"rank_ret_{pf['window']}d"
         col_vals = df[col].values
+        thresh_max = pf.get('thresh_max', 100.0)
         if pf['logic'] == '<':
             cond = col_vals < pf['thresh']
         elif pf['logic'] == 'Between':
-            cond = (col_vals >= pf['thresh']) & (col_vals <= pf.get('thresh_max', 100.0))
+            cond = (col_vals >= pf['thresh']) & (col_vals <= thresh_max)
+        elif pf['logic'] == 'Not Between':
+            # NaN comparisons return False on both branches → NaN excluded.
+            cond = (col_vals < pf['thresh']) | (col_vals > thresh_max)
         else:
             cond = col_vals > pf['thresh']
         if pf['consecutive'] > 1:
@@ -649,6 +643,51 @@ def get_historical_mask(df, params, sznl_map, ticker_name="UNK"):
                 elif xf['logic'] == 'Between':
                     conditions.append((col_vals >= xf['thresh']) & (col_vals <= xf.get('thresh_max', 100.0)))
 
+    # Transition / crossover filter — fires when a series was in a "from" state
+    # at any point in the past `within_days` AND is in a "to" state TODAY.
+    # Enables trend-following and rotation entries like
+    # "xsec 252d rank was <50 in last 5 days, is >65 today". Series options:
+    #   series_type='perf'      → rank_ret_{window}d        (per-ticker perf rank)
+    #   series_type='xsec'      → xsec_rank_ret_{window}d   (cross-sectional rank)
+    #   series_type='atr_sznl'  → atr_sznl_{window}d        (ATR-seasonal rank)
+    # Each filter: {series_type, window, from_logic, from_thresh,
+    #               to_logic, to_thresh, within_days}.
+    for tf in params.get('transition_filters', []):
+        st_type = tf.get('series_type', 'perf')
+        win = tf['window']
+        if st_type == 'xsec':
+            col = f"xsec_rank_ret_{win}d"
+        elif st_type == 'atr_sznl':
+            col = f"atr_sznl_{win}d"
+        else:
+            col = f"rank_ret_{win}d"
+        if col not in df.columns:
+            continue
+
+        col_vals = df[col].values.astype(float)
+
+        def _logic_mask(vals, logic, thresh):
+            if logic == '<':
+                return vals < thresh
+            if logic == '<=':
+                return vals <= thresh
+            if logic == '>':
+                return vals > thresh
+            if logic == '>=':
+                return vals >= thresh
+            return np.zeros_like(vals, dtype=bool)
+
+        to_mask = _logic_mask(col_vals, tf.get('to_logic', '>'), tf.get('to_thresh', 0.0))
+        from_mask = _logic_mask(col_vals, tf.get('from_logic', '<'), tf.get('from_thresh', 0.0))
+
+        within = max(1, int(tf.get('within_days', 5)))
+        # "from state occurred in last N days before today" — rolling max over a
+        # trailing window of length `within`, shifted by 1 so today is excluded.
+        from_series = pd.Series(from_mask.astype(float), index=df.index)
+        from_rolling = from_series.rolling(within, min_periods=1).max().shift(1).fillna(0).values.astype(bool)
+
+        conditions.append(to_mask & from_rolling)
+
     # OR filter groups (at least one condition in each group must be true)
     for group in params.get('or_filter_groups', []):
         group_masks = []
@@ -757,6 +796,14 @@ def precompute_all_indicators(_master_dict, _strategies, _sznl_map, _vix_series,
             for cond in group:
                 if cond.get('type') == 'xsec':
                     xsec_windows_needed.add(cond['window'])
+        # Transition filters may request xsec series — register their windows too.
+        for tf in s.get('transition_filters', []):
+            if tf.get('series_type') == 'xsec':
+                xsec_windows_needed.add(tf['window'])
+        # Signal-exit filters (during held position) may also reference xsec.
+        for sf in s.get('signal_exit_filters', []):
+            if sf.get('series_type') == 'xsec':
+                xsec_windows_needed.add(sf['window'])
 
     xsec_rank_matrices = None
     if xsec_windows_needed:
@@ -1016,9 +1063,13 @@ def build_price_matrix(processed_dict, tickers):
     return pd.DataFrame(price_data, index=all_dates)
 
 
-def process_signals_fast(candidates, signal_data, processed_dict, strategies, starting_equity, cap_bps=None):
+def process_signals_fast(candidates, signal_data, processed_dict, strategies, starting_equity, cap_bps=None, flat_sizing=False):
     """
     Process candidates chronologically with dynamic sizing based on REAL-TIME MTM equity.
+
+    flat_sizing=True forces every trade to size off `starting_equity` (no
+    compounding). Useful for evaluating per-strategy edge without recent
+    equity-bloated trades dominating the time-weighted PnL.
     
     COMPLETE FIX v4:
     - Entry: GTC limits now use FIXED limit price (based on T+1 Open)
@@ -1069,6 +1120,11 @@ def process_signals_fast(candidates, signal_data, processed_dict, strategies, st
     realized_pnl = 0.0
     position_last_exit = {}
     last_signal_ts = None
+
+    # Track per-strategy placed-order risk for the post-loop daily cap.
+    # Mirrors order_staging.py: cap is applied to ALL orders that would be
+    # staged, not just the ones whose limit happens to fill that day.
+    placed_risk_by_strat_date = {}
 
     # Progress updates — Streamlit Cloud kills silent scripts; also user feedback.
     _total_cands = len(candidates)
@@ -1128,7 +1184,94 @@ def process_signals_fast(candidates, signal_data, processed_dict, strategies, st
         entry_price = None
         entry_date = None
         entry_row = df.iloc[signal_idx + 1] if signal_idx + 1 < len(df) else None
-        
+
+        # ========== STAGING-TIME (mirrors order_staging.py) ==========
+        # MTM equity, OVS gap-tier, and sizing all happen BEFORE the entry-fill
+        # check so we can track "would-be placed risk" for the per-strategy
+        # daily cap regardless of whether the limit actually fills. This matches
+        # how prod's order_staging caps total daily risk at staging time, with
+        # no knowledge of intraday fill outcomes.
+
+        # --- 1. MTM equity (only recompute on new signal_ts) ---
+        if signal_ts != last_signal_ts:
+            still_open = []
+            for pos in open_positions:
+                if signal_date >= pos['exit_date']:
+                    exit_price_mtm = _mtm_price(pos['t_clean'], pos['exit_date'])
+                    if exit_price_mtm is None:
+                        pos_df = processed_dict.get(pos['t_clean'])
+                        exit_price_mtm = pos_df.iloc[pos['exit_idx']]['Close'] if pos_df is not None else pos['entry_price']
+                    if pos['direction'] == 'Long':
+                        realized_pnl += (exit_price_mtm - pos['entry_price']) * pos['shares']
+                    else:
+                        realized_pnl += (pos['entry_price'] - exit_price_mtm) * pos['shares']
+                else:
+                    still_open.append(pos)
+            open_positions = still_open
+            unrealized_pnl = 0.0
+            for pos in open_positions:
+                current_price = _mtm_price(pos['t_clean'], signal_date)
+                if current_price is None:
+                    continue
+                if pos['direction'] == 'Long':
+                    unrealized_pnl += (current_price - pos['entry_price']) * pos['shares']
+                else:
+                    unrealized_pnl += (pos['entry_price'] - current_price) * pos['shares']
+            current_equity = starting_equity + realized_pnl + unrealized_pnl
+            last_signal_ts = signal_ts
+
+        # --- 2. OVS gap-tier (staging decision; can drop signal entirely) ---
+        # Reachable 252D values for OVS are <65 or >95 (the Not Between filter
+        # excludes 65-95 and NaN at signal time). Any other case here means
+        # the filter wasn't applied — fail closed by skipping.
+        _ovs_size_mult = 1.0
+        if strat_name == "Overbot Vol Spike" and entry_row is not None:
+            _sig_close = row_data['close']
+            _t1_open = float(entry_row['Open'])
+            _decisive_gap = _sig_close + 0.25 * atr
+            _r252 = row_data.get('rank_ret_252d', None)
+            if pd.isna(_t1_open) or _t1_open <= _sig_close:
+                continue  # no gap → no order placed
+            elif _t1_open <= _decisive_gap:
+                # Mild gap — only take if 252D < 65 (weak long-term, fade thesis strong)
+                if pd.notna(_r252) and _r252 < 65:
+                    _ovs_size_mult = 0.7
+                else:
+                    continue  # mild gap + (252D > 95 or NaN or 65-95) → skip
+            else:
+                _ovs_size_mult = 1.0  # decisive gap → full size
+
+        # --- 3. Sizing (base_risk × strategy multipliers × ladder × gap_mult) ---
+        risk_bps = execution['risk_bps']
+        equity_for_sizing = starting_equity if flat_sizing else current_equity
+        base_risk = equity_for_sizing * risk_bps / 10000
+        _vol_spike_skip_primary = False
+        if strat_name == "Weak Close Decent Sznls":
+            sznl_val = row_data['sznl']
+            if sznl_val >= 65:
+                base_risk *= 1.5
+            elif sznl_val >= 33:
+                base_risk *= 0.66 if sznl_val < 50 else 1.0
+        if strat_name == "Overbot Vol Spike":
+            _atr_sznl_5d = row_data.get('atr_sznl_5d', None)
+            if pd.notna(_atr_sznl_5d) and _atr_sznl_5d < 30:
+                base_risk *= 1.3
+        ladder_mults = execution.get('ladder_multipliers')
+        if ladder_mults:
+            open_count = sum(
+                1 for p in open_positions
+                if p['t_clean'] == t_clean and p['strat_name'] == strat_name
+            )
+            rung_idx = min(open_count, len(ladder_mults) - 1)
+            base_risk *= ladder_mults[rung_idx]
+        if _ovs_size_mult != 1.0:
+            base_risk *= _ovs_size_mult
+
+        # --- 4. Track placed risk for the per-strategy daily cap ---
+        placed_risk_by_strat_date[(signal_date, strat_name)] = (
+            placed_risk_by_strat_date.get((signal_date, strat_name), 0) + base_risk
+        )
+
         # --- SIGNAL CLOSE: Enter at today's close ---
         if is_signal_close:
             entry_price = row_data['close']
@@ -1289,44 +1432,10 @@ def process_signals_fast(candidates, signal_data, processed_dict, strategies, st
         if not valid_entry or entry_price is None or pd.isna(entry_price):
             continue
 
-        # ========== OVERBOT VOL SPIKE — TIERED GAP SIZER ==========
-        # Mirrors order_staging.py live behavior. Tab classification is per-ticker
-        # to match the disjoint live universes (daily_scan on LIQUID_PLUS_COMMODITIES,
-        # local_overflow_scan on CSV_UNIVERSE − LIQUID_PLUS_COMMODITIES):
-        #   open ≤ close                         → skip (no gap)
-        #   close < open ≤ close+0.25 ATR (mild):
-        #     Main,     non-leader → 1.0×
-        #     Main,     leader     → 0.75×
-        #     Overflow, non-leader → 0.5×
-        #     Overflow, leader     → skip (0×)
-        #   open > close+0.25 ATR (decisive)     → 2× (all tabs)
-        # Leader = 126D or 252D rank > 65.
-        _ovs_size_mult = 1.0
-        _ovs_is_overflow_ticker = False
-        if strat_name == "Overbot Vol Spike" and entry_row is not None:
-            _ovs_is_overflow_ticker = t_clean in _OVERFLOW_OVS_SET
-
-            _sig_close = row_data['close']
-            _t1_open = float(entry_row['Open'])
-            _decisive_gap = _sig_close + 0.25 * atr
-
-            _r126 = row_data.get('rank_ret_126d', 50.0)
-            _r252 = row_data.get('rank_ret_252d', 50.0)
-            _is_leader_gap = (pd.notna(_r126) and _r126 > 65) or (pd.notna(_r252) and _r252 > 65)
-
-            if pd.isna(_t1_open) or _t1_open <= _sig_close:
-                continue  # no gap → skip
-            elif _t1_open <= _decisive_gap:
-                # Mild gap tier
-                if _ovs_is_overflow_ticker:
-                    if _is_leader_gap:
-                        continue  # overflow + leader + mild gap → skip
-                    _ovs_size_mult = 0.5
-                else:
-                    _ovs_size_mult = 0.75 if _is_leader_gap else 1.0
-            else:
-                # Decisive gap tier
-                _ovs_size_mult = 2.0
+        # OVS gap-tier and sizing already handled in the staging-time block
+        # above (before the entry-fill check). base_risk and _ovs_size_mult
+        # are computed there so the per-strategy daily cap can be applied to
+        # all placed orders, not just filled ones.
 
         # ========== EXIT LOGIC SECTION ==========
         direction = settings.get('trade_direction', 'Long')
@@ -1356,13 +1465,47 @@ def process_signals_fast(candidates, signal_data, processed_dict, strategies, st
         exit_date = df.index[exit_idx]
         exit_type = "Time"
         
-        # Check for stop/target hits day by day
-        if use_stop or use_target:
+        # Signal-deactivate exit: re-evaluate filter(s) each held day; exit at
+        # that day's close if any filter fires. Complements stop/target. Useful
+        # for trend-following or rotation strategies that should exit when the
+        # entry thesis no longer holds (e.g., "xsec 252d rank drops below 50").
+        # Stop/target take priority — signal-deact only fires if neither hit.
+        signal_exit_filters = settings.get('signal_exit_filters', [])
+        use_signal_exit = bool(signal_exit_filters)
+
+        def _signal_exit_fires(day_row):
+            for sf in signal_exit_filters:
+                st_type = sf.get('series_type', 'perf')
+                win = sf['window']
+                if st_type == 'xsec':
+                    col = f"xsec_rank_ret_{win}d"
+                elif st_type == 'atr_sznl':
+                    col = f"atr_sznl_{win}d"
+                else:
+                    col = f"rank_ret_{win}d"
+                if col not in day_row.index:
+                    continue
+                val = day_row[col]
+                if pd.isna(val):
+                    continue
+                logic = sf.get('logic', '<')
+                thresh = float(sf.get('thresh', 0.0))
+                if logic == '<' and val < thresh: return True
+                if logic == '<=' and val <= thresh: return True
+                if logic == '>' and val > thresh: return True
+                if logic == '>=' and val >= thresh: return True
+                if logic == 'Between':
+                    tmax = float(sf.get('thresh_max', 100.0))
+                    if thresh <= val <= tmax: return True
+            return False
+
+        # Check for stop/target/signal-deact hits day by day
+        if use_stop or use_target or use_signal_exit:
             for check_idx in range(entry_idx + 1, max_exit_idx + 1):
                 check_row = df.iloc[check_idx]
                 day_low = check_row['Low']
                 day_high = check_row['High']
-                
+
                 if direction == 'Long':
                     if use_stop and day_low <= stop_price:
                         exit_price = stop_price
@@ -1389,95 +1532,18 @@ def process_signals_fast(candidates, signal_data, processed_dict, strategies, st
                         exit_idx = check_idx
                         exit_type = "Target"
                         break
+
+                if use_signal_exit and _signal_exit_fires(check_row):
+                    exit_price = check_row['Close']
+                    exit_date = check_row.name
+                    exit_idx = check_idx
+                    exit_type = "SignalDeact"
+                    break
         
-        # ========== CALCULATE REAL-TIME MTM EQUITY ==========
-        # Only recompute when signal date changes — all same-day signals share one equity snapshot
-        if signal_ts != last_signal_ts:
-            still_open = []
-            for pos in open_positions:
-                if signal_date >= pos['exit_date']:
-                    exit_price_mtm = _mtm_price(pos['t_clean'], pos['exit_date'])
-                    if exit_price_mtm is None:
-                        # Last-resort fallback: use processed_dict by integer idx.
-                        pos_df = processed_dict.get(pos['t_clean'])
-                        exit_price_mtm = pos_df.iloc[pos['exit_idx']]['Close'] if pos_df is not None else pos['entry_price']
-
-                    if pos['direction'] == 'Long':
-                        realized_pnl += (exit_price_mtm - pos['entry_price']) * pos['shares']
-                    else:
-                        realized_pnl += (pos['entry_price'] - exit_price_mtm) * pos['shares']
-                else:
-                    still_open.append(pos)
-
-            open_positions = still_open
-
-            # Calculate unrealized P&L
-            unrealized_pnl = 0.0
-            for pos in open_positions:
-                current_price = _mtm_price(pos['t_clean'], signal_date)
-                if current_price is None:
-                    continue
-
-                if pos['direction'] == 'Long':
-                    unrealized_pnl += (current_price - pos['entry_price']) * pos['shares']
-                else:
-                    unrealized_pnl += (pos['entry_price'] - current_price) * pos['shares']
-
-            current_equity = starting_equity + realized_pnl + unrealized_pnl
-            last_signal_ts = signal_ts
-        
-        risk_bps = execution['risk_bps']
-        base_risk = current_equity * risk_bps / 10000
-
-        # ========== STRATEGY-SPECIFIC RISK ADJUSTMENTS ==========
-        _vol_spike_skip_primary = False
-
-        if strat_name == "Weak Close Decent Sznls":
-            sznl_val = row_data['sznl']
-            if sznl_val >= 65:
-                base_risk *= 1.5
-            elif sznl_val >= 33:
-                base_risk *= 0.66 if sznl_val < 50 else 1.0
-
-        # Overbot Vol Spike: 1.5x when 5d ATR seasonal rank is in the bottom
-        # quartile — weak short-horizon seasonal reinforces the fade thesis.
-        # Applies regardless of gap; compounds with the gap-based 2x sizer below.
-        if strat_name == "Overbot Vol Spike":
-            _atr_sznl_5d = row_data.get('atr_sznl_5d', 50.0)
-            if pd.notna(_atr_sznl_5d) and _atr_sznl_5d < 25:
-                base_risk *= 1.5
-
-        # Overbot Vol Spike: 0.5x when 126D or 252D rank > 65 (leader penalty —
-        # fade thesis weaker against an established medium/long-term uptrend).
-        # Compounds with the 1.5x and 2x sizers above/below.
-        if strat_name == "Overbot Vol Spike":
-            _r126 = row_data.get('rank_ret_126d', 50.0)
-            _r252 = row_data.get('rank_ret_252d', 50.0)
-            _is_leader = (pd.notna(_r126) and _r126 > 65) or (pd.notna(_r252) and _r252 > 65)
-            if _is_leader:
-                base_risk *= 0.5
-
-        # OVS terminal override: flat 5 bps of current equity when BOTH leader
-        # (126D/252D > 65) AND strong 5D ATR seasonal (> 65). Weakest fade
-        # setup → lottery-ticket sizing. Replaces all prior OVS multipliers.
-        if strat_name == "Overbot Vol Spike":
-            _r126_t = row_data.get('rank_ret_126d', 50.0)
-            _r252_t = row_data.get('rank_ret_252d', 50.0)
-            _atr_5d_t = row_data.get('atr_sznl_5d', 50.0)
-            _is_leader_t = (pd.notna(_r126_t) and _r126_t > 65) or (pd.notna(_r252_t) and _r252_t > 65)
-            _is_high_sznl_t = pd.notna(_atr_5d_t) and _atr_5d_t > 65
-            if _is_leader_t and _is_high_sznl_t:
-                base_risk = current_equity * 5.0 / 10000.0
-
-        # OVS overflow-wide 0.8× haircut — mirrors local_overflow_scan. Applied
-        # after all OVS-specific sizing, before frag/ladder. Per-ticker: only
-        # overflow-universe tickers get the haircut; liquid names use main sizing.
-        if strat_name == "Overbot Vol Spike" and _ovs_is_overflow_ticker:
-            base_risk *= 0.8
-
-        # Apply Overbot Vol Spike 2x sizer when T+1 open gaps > 0.25 ATR above signal close
-        if _ovs_size_mult != 1.0:
-            base_risk *= _ovs_size_mult
+        # MTM equity, sizing, and OVS gap-tier mult were all computed in the
+        # staging-time block above (before the entry-fill check). We arrive
+        # here only if the limit actually filled, and proceed to open the
+        # position using the already-computed base_risk.
 
         dist = atr * stop_atr
         action = "BUY" if direction == 'Long' else "SELL SHORT"
@@ -1544,28 +1610,31 @@ def process_signals_fast(candidates, signal_data, processed_dict, strategies, st
     sig_df['Exit Date'] = pd.to_datetime(sig_df['Exit Date'])
     sig_df['Time Stop'] = pd.to_datetime(sig_df['Time Stop'])
 
-    # Global aggregate daily risk cap across ALL strategies.
-    # Mirrors daily_scan.py / local_overflow_scan.py: for each signal date,
-    # if total Risk $ from all strategies' signals exceeds cap_bps of equity
-    # at that date, scale every signal's Shares + PnL + Risk $ down.
-    # Cap scales dynamically with "Equity at Signal" (first signal's equity
-    # on that date is representative).
-    # cap_bps=None falls back to the strategy_config constant; 0 disables.
-    _effective_cap = DAILY_RISK_CAP_BPS if cap_bps is None else cap_bps
+    # Per-strategy daily risk backstop — each strategy independently capped at
+    # cap_bps of MTM equity per signal date. Scaling is computed against
+    # PLACED-order risk (every signal that survived gap-tier filtering),
+    # not filled-trade risk. This mirrors how order_staging.py applies the
+    # cap at staging time, before knowing intraday fill outcomes — orders
+    # get scaled by cap/total_placed regardless of whether their limits
+    # eventually fill that day.
+    # cap_bps=None falls back to 250; 0 disables.
+    _effective_cap = 250 if cap_bps is None else cap_bps
     if _effective_cap and len(sig_df) > 0:
-        cap_bps = _effective_cap
         sig_df = sig_df.sort_values(by="Date").reset_index(drop=True)
-        grouped = sig_df.groupby('Date', sort=False)
-        for date, idx in grouped.groups.items():
-            rows = sig_df.loc[idx]
-            day_equity = float(rows['Equity at Signal'].iloc[0])
-            cap_dollars = day_equity * cap_bps / 10000.0
-            total_risk = float(rows['Risk $'].sum())
-            if total_risk > cap_dollars > 0:
-                scale = cap_dollars / total_risk
-                sig_df.loc[idx, 'Shares']  = (sig_df.loc[idx, 'Shares']  * scale).round().astype(int)
-                sig_df.loc[idx, 'PnL']     = (sig_df.loc[idx, 'PnL']     * scale).round()
-                sig_df.loc[idx, 'Risk $']  = sig_df.loc[idx, 'Risk $']   * scale
+        for (date, strat), grp_idx in sig_df.groupby(['Date', 'Strategy'], sort=False).groups.items():
+            placed_total = placed_risk_by_strat_date.get((date, strat), 0.0)
+            if placed_total <= 0:
+                continue
+            day_equity = (
+                float(starting_equity) if flat_sizing
+                else float(sig_df.loc[grp_idx, 'Equity at Signal'].iloc[0])
+            )
+            cap_dollars = day_equity * _effective_cap / 10000.0
+            if placed_total > cap_dollars:
+                scale = cap_dollars / placed_total
+                sig_df.loc[grp_idx, 'Shares'] = (sig_df.loc[grp_idx, 'Shares'] * scale).round().astype(int)
+                sig_df.loc[grp_idx, 'PnL']    = (sig_df.loc[grp_idx, 'PnL']    * scale).round()
+                sig_df.loc[grp_idx, 'Risk $'] = sig_df.loc[grp_idx, 'Risk $']  * scale
 
     return sig_df.sort_values(by="Exit Date")
 
@@ -1684,6 +1753,16 @@ def build_strategy_correlation_matrix(sig_df, master_dict, min_trades=30, mode='
     """
     if sig_df.empty or 'Strategy' not in sig_df.columns:
         return None, None, []
+
+    # Fold 3x ETF Overbot Fade into Overbot Vol Spike for correlation purposes.
+    # Same thesis (multi-horizon overbought fade, short bias) on a different
+    # universe slice — treating them as distinct rows just inflates a 0.9+
+    # correlation cell that tells you nothing. Pool their daily P&L under one
+    # row before counting eligibility / computing corr.
+    sig_df = sig_df.copy()
+    sig_df['Strategy'] = sig_df['Strategy'].replace(
+        {'3x ETF Overbot Fade': 'Overbot Vol Spike'}
+    )
 
     counts = sig_df.groupby('Strategy').size()
     eligible = counts[counts >= min_trades].index.tolist()
@@ -1841,13 +1920,44 @@ def calculate_annual_stats(daily_pnl_series, starting_equity):
 
 
 def calculate_performance_stats(sig_df, master_dict, starting_equity, start_date=None):
-    """Calculate performance stats - removed Sharpe/Sortino from per-strategy breakdown."""
+    """Per-strategy metrics including Sharpe/Sortino computed only over the
+    days each strategy has open positions (time-in-market basis). This
+    avoids penalizing strategies that are idle most of the time and gives
+    a comparable risk-adjusted return across strategies with very different
+    duty cycles.
+    """
     stats = []
-    
+
+    def _time_in_market_metrics(strat_df):
+        """Sharpe + Sortino over days the strategy has any open position."""
+        if strat_df.empty:
+            return np.nan, np.nan
+        daily_pnl = get_daily_mtm_series(strat_df, master_dict, start_date=start_date)
+        if daily_pnl.empty:
+            return np.nan, np.nan
+        # Mark each day as "in market" if any trade in strat_df spans that day
+        in_market = pd.Series(False, index=daily_pnl.index)
+        entry_dates = pd.to_datetime(strat_df['Entry Date']).values
+        exit_dates  = pd.to_datetime(strat_df['Exit Date']).values
+        for ed, xd in zip(entry_dates, exit_dates):
+            in_market.loc[(in_market.index >= ed) & (in_market.index <= xd)] = True
+        pnl_im = daily_pnl[in_market]
+        if len(pnl_im) < 5 or starting_equity <= 0:
+            return np.nan, np.nan
+        rets = pnl_im / float(starting_equity)
+        mean_r = rets.mean()
+        std_r = rets.std()
+        sharpe = (mean_r / std_r * np.sqrt(252)) if std_r > 0 else np.nan
+        downside = rets[rets < 0]
+        if len(downside) >= 2 and downside.std() > 0:
+            sortino = mean_r / downside.std() * np.sqrt(252)
+        else:
+            sortino = np.nan
+        return sharpe, sortino
+
     def get_metrics(df, name):
         if df.empty:
             return None
-        
         count = len(df)
         total_pnl = df['PnL'].sum()
         gross_profit = df[df['PnL'] > 0]['PnL'].sum()
@@ -1856,21 +1966,22 @@ def calculate_performance_stats(sig_df, master_dict, starting_equity, start_date
         avg_pnl = df['PnL'].mean()
         std_pnl = df['PnL'].std()
         sqn = (avg_pnl / std_pnl * np.sqrt(count)) if std_pnl != 0 else 0
-        
+        sharpe_im, sortino_im = _time_in_market_metrics(df)
         return {
             "Strategy": name, "Trades": count, "Total PnL": total_pnl,
-            "Profit Factor": profit_factor, "SQN": sqn
+            "Profit Factor": profit_factor, "SQN": sqn,
+            "Sharpe (TIM)": sharpe_im, "Sortino (TIM)": sortino_im,
         }
-    
+
     for strat in sig_df['Strategy'].unique():
         m = get_metrics(sig_df[sig_df['Strategy'] == strat], strat)
         if m:
             stats.append(m)
-    
+
     total_m = get_metrics(sig_df, "TOTAL PORTFOLIO")
     if total_m:
         stats.append(total_m)
-    
+
     return pd.DataFrame(stats)
 
 
@@ -1995,140 +2106,6 @@ def analyze_density_by_strategy(sig_df):
     return pd.DataFrame(results).sort_values('Isolation Edge', ascending=False)
 
 
-def calculate_capital_efficiency(sig_df, strategies):
-    if sig_df.empty:
-        return pd.DataFrame()
-    
-    strat_settings = {s['name']: s for s in strategies}
-    results = []
-    
-    for strat_name in sig_df['Strategy'].unique():
-        strat_df = sig_df[sig_df['Strategy'] == strat_name].copy()
-        
-        if strat_df.empty:
-            continue
-        
-        n_trades = len(strat_df)
-        total_pnl = strat_df['PnL'].sum()
-        total_risk = strat_df['Risk $'].sum()
-        
-        winners = strat_df[strat_df['PnL'] > 0]
-        losers = strat_df[strat_df['PnL'] <= 0]
-        win_rate = len(winners) / n_trades if n_trades > 0 else 0
-        
-        strat_df['Hold Days'] = (strat_df['Exit Date'] - strat_df['Entry Date']).dt.days
-        avg_hold_days = strat_df['Hold Days'].mean()
-        
-        current_bps = strat_settings.get(strat_name, {}).get('execution', {}).get('risk_bps', 0)
-        
-        pnl_per_risk = total_pnl / total_risk if total_risk > 0 else 0
-        capital_turns_per_year = 252 / avg_hold_days if avg_hold_days > 0 else 0
-        annualized_ror = pnl_per_risk * capital_turns_per_year
-        
-        date_range = (strat_df['Date'].max() - strat_df['Date'].min()).days
-        years = date_range / 365.25 if date_range > 0 else 1
-        signals_per_year = n_trades / years if years > 0 else n_trades
-        
-        total_portfolio_risk = sig_df['Risk $'].sum()
-        risk_contribution = total_risk / total_portfolio_risk if total_portfolio_risk > 0 else 0
-        
-        total_portfolio_pnl = sig_df['PnL'].sum()
-        pnl_contribution = total_pnl / total_portfolio_pnl if total_portfolio_pnl > 0 else 0
-        
-        efficiency_ratio = pnl_contribution / risk_contribution if risk_contribution > 0 else 0
-        
-        results.append({
-            'Strategy': strat_name,
-            'Trades': n_trades,
-            'Signals/Yr': signals_per_year,
-            'Avg Days': avg_hold_days,
-            'Win Rate': win_rate,
-            'Total $ Risked': total_risk,
-            'Total PnL': total_pnl,
-            'PnL/$ Risk': pnl_per_risk,
-            'Ann. Turns': capital_turns_per_year,
-            'Ann. RoR': annualized_ror,
-            '% of Risk': risk_contribution,
-            '% of PnL': pnl_contribution,
-            'Efficiency': efficiency_ratio,
-            'Current Bps': current_bps,
-        })
-    
-    df = pd.DataFrame(results)
-    
-    if df.empty:
-        return df
-    
-    total_current_bps = df['Current Bps'].sum()
-    df['RoR Weight'] = df['Ann. RoR'] / df['Ann. RoR'].sum() if df['Ann. RoR'].sum() > 0 else 1 / len(df)
-    df['Suggested Bps'] = (df['RoR Weight'] * total_current_bps).round(0).astype(int)
-    df['Suggested Bps'] = df['Suggested Bps'].clip(lower=10)
-    df['Bps Δ'] = df['Suggested Bps'] - df['Current Bps']
-    
-    df = df.sort_values('Ann. RoR', ascending=False)
-    
-    return df
-
-def create_portfolio_breakdown_charts(sig_df):
-    """Create cycle year, monthly, and day-of-week bar charts using log % returns."""
-    if sig_df.empty:
-        return None, None, None
-
-    df = sig_df.copy()
-    df['Exit Date'] = pd.to_datetime(df['Exit Date'])
-    df['Log Return'] = np.log1p(df['PnL'] / df['Equity at Signal']) * 100  # in log %
-
-    def make_bar_chart(agg_df, title):
-        colors = ['#00CC00' if v >= 0 else '#CC0000' for v in agg_df['LogPnL']]
-        fig = go.Figure(go.Bar(
-            x=agg_df['Label'], y=agg_df['LogPnL'],
-            marker_color=colors,
-            text=[f"{v:+.2f}%<br>{n:.0f} trades<br>{w:.0%} WR" for v, n, w in
-                  zip(agg_df['LogPnL'], agg_df['Trades'], agg_df['WinRate'])],
-            textposition='outside'
-        ))
-        fig.update_layout(
-            title=title,
-            yaxis_title="Cumulative Log Return (%)", height=400,
-            margin=dict(l=10, r=10, t=40, b=10)
-        )
-        return fig
-
-    def agg_group(grouped):
-        return grouped.agg(
-            LogPnL=('Log Return', 'sum'),
-            Trades=('Log Return', 'count'),
-            WinRate=('PnL', lambda x: (x > 0).mean())
-        )
-
-    # --- Presidential Cycle ---
-    cycle_map = {0: 'Election', 1: 'Post-Election', 2: 'Midterm', 3: 'Pre-Election'}
-    df['Cycle'] = df['Exit Date'].dt.year % 4
-    df['Cycle Label'] = df['Cycle'].map(cycle_map)
-    cycle_agg = agg_group(df.groupby('Cycle Label'))
-    cycle_agg = cycle_agg.reindex(['Post-Election', 'Midterm', 'Pre-Election', 'Election'])
-    cycle_agg['Label'] = cycle_agg.index
-    fig_cycle = make_bar_chart(cycle_agg, "Log Return by Presidential Cycle Year")
-
-    # --- Monthly ---
-    month_names = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-                   'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
-    df['Month'] = df['Exit Date'].dt.month
-    month_agg = agg_group(df.groupby('Month'))
-    month_agg = month_agg.reindex(range(1, 13))
-    month_agg['Label'] = month_names
-    fig_month = make_bar_chart(month_agg, "Log Return by Month")
-
-    # --- Day of Week ---
-    dow_names = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday']
-    df['DOW'] = df['Exit Date'].dt.dayofweek
-    dow_agg = agg_group(df.groupby('DOW'))
-    dow_agg = dow_agg.reindex(range(5))
-    dow_agg['Label'] = dow_names
-    fig_dow = make_bar_chart(dow_agg, "Log Return by Day of Week (Exit Day)")
-
-    return fig_cycle, fig_month, fig_dow
-
 
 # -----------------------------------------------------------------------------
 # MAIN APP
@@ -2161,22 +2138,46 @@ def main():
             value=False,
             help=(
                 "Expand eligible strategies to CSV_UNIVERSE (sznl_ranks.csv, "
-                f"~{len(CSV_UNIVERSE):,} tickers). Mirrors main + overflow running "
-                "together: liquid tickers get main-tab sizing, overflow tickers get "
-                "overflow-tab sizing (0.8× haircut + overflow mild-gap multipliers). "
+                f"~{len(CSV_UNIVERSE):,} tickers). Liquid and overflow tickers "
+                "receive identical OVS sizing — overflow-specific haircuts and "
+                "mild-gap multipliers were retired in prod. "
                 f"Affects: {', '.join(sorted(OVERFLOW_ELIGIBLE_STRATEGIES))}. "
                 "Other strategies keep their default universes."
             ),
         )
         cap_bps_input = st.number_input(
-            f"Aggregate risk cap (bps, 0 = off)",
+            f"Per-strategy daily risk backstop (bps, 0 = off)",
             min_value=0, max_value=1000,
-            value=int(DAILY_RISK_CAP_BPS or 0), step=25,
+            value=250, step=25,
             help=(
-                f"Per-signal-date cap on total risk across all staged signals, "
-                f"as bps of MTM equity at that date. Default {DAILY_RISK_CAP_BPS} bps "
-                "(from strategy_config.DAILY_RISK_CAP_BPS). Set to 0 to disable and "
-                "see the raw uncapped backtest."
+                "Per-signal-date, per-strategy cap on total risk, in bps of "
+                "MTM equity. Each strategy independently constrained — OVS, "
+                "OLV, 52wh, etc. each get their own bucket. Default 250 bps "
+                "mirrors order_staging.MAX_DAILY_RISK_PCT (2.5%) but scoped "
+                "per strategy rather than pooled. Set to 0 to disable."
+            ),
+        )
+        flat_sizing_input = st.checkbox(
+            "Flat sizing (no compounding)",
+            value=False,
+            help=(
+                "Size every trade off the BACKTEST starting equity instead of "
+                "live MTM equity. Eliminates the recency bias where late-period "
+                "trades dominate total PnL because compounded equity made each "
+                "trade much larger. Useful for evaluating per-strategy edge "
+                "across the full history on equal terms."
+            ),
+        )
+        use_master_parquet = st.checkbox(
+            "📦 Use master parquet (data_provider)",
+            value=True,
+            help=(
+                "Read OHLCV from data/master_prices.parquet — the shared "
+                "source backed by scripts/build_master_prices.py + "
+                "scripts/update_master_prices.py. No per-run yfinance calls. "
+                "Identical data to pages/backtester.py when both use master. "
+                "Uncheck to fall back to legacy yfinance + data/bt_price_cache "
+                "(slower, hits yfinance every run)."
             ),
         )
         run_btn = st.form_submit_button("⚡ Run Backtest")
@@ -2196,15 +2197,20 @@ def main():
         strategies = [copy.deepcopy(s) for s in _STRATEGY_BOOK_RAW]
 
         if use_overflow_universe and CSV_UNIVERSE:
+            # Union CSV_UNIVERSE (sznl_ranks.csv) with seasonal_ranks.csv tickers
+            # so the strat_backtester overflow universe matches what legacy
+            # backtester runs under "All CSV + Overflow Extras". sznl_map keys
+            # are already the union of both CSVs (see load_seasonal_map).
+            _overflow_tickers = sorted(set(CSV_UNIVERSE) | set(sznl_map.keys()))
             _swapped = []
             for s in strategies:
                 if s['name'] in OVERFLOW_ELIGIBLE_STRATEGIES:
-                    s['universe_tickers'] = CSV_UNIVERSE
+                    s['universe_tickers'] = _overflow_tickers
                     _swapped.append(s['name'])
             if _swapped:
                 st.info(
                     f"🌊 Overflow universe active — swapped {len(_swapped)} strategies to "
-                    f"CSV_UNIVERSE ({len(CSV_UNIVERSE):,} tickers): {', '.join(_swapped)}"
+                    f"CSV_UNIVERSE ∪ seasonal_ranks ({len(_overflow_tickers):,} tickers): {', '.join(_swapped)}"
                 )
 
         long_term_tickers = set()
@@ -2221,44 +2227,62 @@ def main():
 
         long_term_list = [t.replace('.', '-') for t in long_term_tickers]
 
-        # Step 1: Load from disk cache (always check for anything not in session_state)
-        bt_cache_dir = os.path.join(parent_dir, "data", "bt_price_cache")
-        os.makedirs(bt_cache_dir, exist_ok=True)
-        loaded = 0
-        for t in long_term_list:
-            if t not in st.session_state['backtest_data']:
-                pq_path = os.path.join(bt_cache_dir, f"{t}.parquet")
-                if os.path.exists(pq_path):
+        if use_master_parquet:
+            import data_provider
+            if not data_provider.has_master():
+                st.error(
+                    "Master parquet not found at data/master_prices.parquet. "
+                    "Run `python scripts/build_master_prices.py` first, or "
+                    "uncheck 'Use master parquet' to fall back to yfinance."
+                )
+                return
+            t0_load = time.time()
+            master_dict = data_provider.get_history(long_term_list)
+            st.session_state['backtest_data'] = master_dict
+            n_missing = len(set(long_term_list) - set(master_dict.keys()))
+            st.caption(
+                f"📦 Loaded {len(master_dict):,} tickers from master parquet "
+                f"in {time.time()-t0_load:.1f}s "
+                f"({n_missing} of {len(long_term_list)} requested missing — "
+                "see scripts/audit_master_prices.py)"
+            )
+        else:
+            # Legacy yfinance + per-ticker bt_price_cache flow.
+            bt_cache_dir = os.path.join(parent_dir, "data", "bt_price_cache")
+            os.makedirs(bt_cache_dir, exist_ok=True)
+            loaded = 0
+            for t in long_term_list:
+                if t not in st.session_state['backtest_data']:
+                    pq_path = os.path.join(bt_cache_dir, f"{t}.parquet")
+                    if os.path.exists(pq_path):
+                        try:
+                            t_df = pd.read_parquet(pq_path)
+                            st.session_state['backtest_data'][t] = t_df
+                            loaded += 1
+                        except Exception:
+                            pass
+            if loaded:
+                st.caption(f"Loaded {loaded} tickers from disk cache")
+
+            existing = set(st.session_state['backtest_data'].keys())
+            missing = list(set(long_term_list) - existing)
+
+            if missing:
+                st.write(f"📥 Downloading {len(missing)} new tickers (have {len(existing)} cached)...")
+                data = download_historical_data(missing, start_date="2000-01-01")
+                st.session_state['backtest_data'].update(data)
+                for t, t_df in data.items():
                     try:
-                        t_df = pd.read_parquet(pq_path)
-                        st.session_state['backtest_data'][t] = t_df
-                        loaded += 1
+                        t_df.to_parquet(os.path.join(bt_cache_dir, f"{t}.parquet"))
                     except Exception:
                         pass
-        if loaded:
-            st.caption(f"Loaded {loaded} tickers from disk cache")
+                st.success(f"✅ Downloaded {len(data)} new tickers, saved to disk cache.")
 
-        # Step 2: Download anything still missing (no disk cache exists)
-        existing = set(st.session_state['backtest_data'].keys())
-        missing = list(set(long_term_list) - existing)
+            stale_count = update_stale_cache(bt_cache_dir, long_term_list, st.session_state['backtest_data'])
+            if stale_count:
+                st.caption(f"🔄 Updated {stale_count} stale tickers with recent data")
 
-        if missing:
-            st.write(f"📥 Downloading {len(missing)} new tickers (have {len(existing)} cached)...")
-            data = download_historical_data(missing, start_date="2000-01-01")
-            st.session_state['backtest_data'].update(data)
-            for t, t_df in data.items():
-                try:
-                    t_df.to_parquet(os.path.join(bt_cache_dir, f"{t}.parquet"))
-                except Exception:
-                    pass
-            st.success(f"✅ Downloaded {len(data)} new tickers, saved to disk cache.")
-
-        # Step 3: Incrementally update stale cached data (only fetches delta)
-        stale_count = update_stale_cache(bt_cache_dir, long_term_list, st.session_state['backtest_data'])
-        if stale_count:
-            st.caption(f"🔄 Updated {stale_count} stale tickers with recent data")
-
-        master_dict = st.session_state['backtest_data']
+            master_dict = st.session_state['backtest_data']
         
         vix_df = master_dict.get('^VIX')
         vix_series = None
@@ -2280,13 +2304,14 @@ def main():
 
         st.write("📈 **Phase 3:** Processing with dynamic MTM-based sizing...")
         if cap_bps_input == 0:
-            st.info("🚫 Aggregate risk cap disabled for this backtest — signals execute at raw per-strategy sizing.")
-        elif cap_bps_input != DAILY_RISK_CAP_BPS:
-            st.info(f"⚖️ Aggregate risk cap overridden: {cap_bps_input} bps (config default: {DAILY_RISK_CAP_BPS} bps).")
+            st.info("🚫 Aggregate risk backstop disabled — signals execute at raw per-strategy sizing.")
+        elif cap_bps_input != 250:
+            st.info(f"⚖️ Aggregate risk backstop overridden: {cap_bps_input} bps (prod default: 250 bps).")
         t0 = time.time()
         sig_df = process_signals_fast(
             candidates, signal_data, processed_dict, strategies, starting_equity,
             cap_bps=cap_bps_input,
+            flat_sizing=flat_sizing_input,
         )
         st.write(f"   Executed {len(sig_df):,} trades in {time.time()-t0:.1f}s")
 
@@ -2433,44 +2458,13 @@ def main():
                 }), use_container_width=True)
 
             st.subheader("📊 Strategy Metrics")
+            st.caption("Sharpe / Sortino are time-in-market — computed only over days each strategy has open positions, normalized by starting equity.")
             stats_df = calculate_performance_stats(sig_df, master_dict, starting_equity, start_date=user_start_date)
             st.dataframe(stats_df.style.format({
                 "Total PnL": "${:,.0f}",
-                "Profit Factor": "{:.2f}", "SQN": "{:.2f}"
+                "Profit Factor": "{:.2f}", "SQN": "{:.2f}",
+                "Sharpe (TIM)": "{:.2f}", "Sortino (TIM)": "{:.2f}",
             }), use_container_width=True)
-
-            st.subheader("💰 Capital Efficiency & Sizing Analysis")
-            efficiency_df = calculate_capital_efficiency(sig_df, strategies)
-            
-            if not efficiency_df.empty:
-                col1, col2, col3 = st.columns(3)
-                
-                most_efficient = efficiency_df.iloc[0]['Strategy']
-                best_ror = efficiency_df.iloc[0]['Ann. RoR']
-                col1.metric("Most Efficient Strategy", most_efficient, delta=f"{best_ror:.1%} Ann. RoR")
-                
-                under_allocated = efficiency_df[efficiency_df['Efficiency'] > 1.2]
-                over_allocated = efficiency_df[efficiency_df['Efficiency'] < 0.8]
-                col2.metric("Under-allocated", f"{len(under_allocated)} strategies")
-                col3.metric("Over-allocated", f"{len(over_allocated)} strategies")
-                
-                display_cols = ['Strategy', 'Trades', 'Signals/Yr', 'Avg Days', 'Win Rate', 
-                               'PnL/$ Risk', 'Ann. RoR', '% of Risk', '% of PnL', 'Efficiency',
-                               'Current Bps', 'Suggested Bps', 'Bps Δ']
-                
-                st.dataframe(efficiency_df[display_cols].style.format({
-                    'Signals/Yr': '{:.1f}',
-                    'Avg Days': '{:.1f}',
-                    'Win Rate': '{:.1%}',
-                    'PnL/$ Risk': '{:.2f}',
-                    'Ann. RoR': '{:.1%}',
-                    '% of Risk': '{:.1%}',
-                    '% of PnL': '{:.1%}',
-                    'Efficiency': '{:.2f}x',
-                    'Current Bps': '{:.0f}',
-                    'Suggested Bps': '{:.0f}',
-                    'Bps Δ': '{:+.0f}'
-                }), use_container_width=True)
 
             st.divider()
             col1, col2 = st.columns(2)
@@ -2671,176 +2665,7 @@ def main():
                 col4.metric("Max Net Exposure", f"{exposure_df['Net Exposure %'].max():.1f}%")
 
             st.divider()
-            st.subheader("📊 Portfolio Breakdown")
-            fig_cycle, fig_month, fig_dow = create_portfolio_breakdown_charts(sig_df)
-
-            if fig_cycle:
-                st.plotly_chart(fig_cycle, use_container_width=True)
-
-                col1, col2 = st.columns(2)
-                with col1:
-                    if fig_month:
-                        st.plotly_chart(fig_month, use_container_width=True)
-                with col2:
-                    if fig_dow:
-                        st.plotly_chart(fig_dow, use_container_width=True)
-            # -----------------------------------------------------------------
-            # DRAWDOWN DEEP DIVE
-            # -----------------------------------------------------------------
-            st.divider()
-            st.subheader("🔍 Drawdown Deep Dive")
-            st.caption("Worst rolling 3-month periods: what happened, what was the market doing, and which strategies drove the losses.")
-
-            dd_window = st.selectbox("Rolling window", ["63 days (~3 mo)", "42 days (~2 mo)", "126 days (~6 mo)"],
-                                     index=0, key='dd_window')
-            dd_window_days = {'63 days (~3 mo)': 63, '42 days (~2 mo)': 42, '126 days (~6 mo)': 126}[dd_window]
-
-            daily_pnl = get_daily_mtm_series(sig_df, master_dict, start_date=user_start_date)
-            if not daily_pnl.empty:
-                equity_curve = starting_equity + daily_pnl.cumsum()
-                rolling_return = equity_curve - equity_curve.shift(dd_window_days)
-                rolling_return = rolling_return.dropna()
-
-                if not rolling_return.empty:
-                    # Find top 5 worst periods (non-overlapping)
-                    worst_periods = []
-                    remaining = rolling_return.copy()
-                    for _ in range(5):
-                        if remaining.empty:
-                            break
-                        worst_end = remaining.idxmin()
-                        worst_start = worst_end - pd.tseries.offsets.BusinessDay(dd_window_days)
-                        worst_pnl = remaining[worst_end]
-                        if pd.isna(worst_pnl):
-                            break
-                        worst_periods.append({
-                            'start': worst_start,
-                            'end': worst_end,
-                            'pnl': worst_pnl,
-                        })
-                        # Exclude window + 63 business day buffer to force distinct drawdowns
-                        cooloff_end = worst_end + pd.tseries.offsets.BusinessDay(63)
-                        mask = (remaining.index >= worst_start) & (remaining.index <= cooloff_end)
-                        remaining = remaining[~mask]
-
-                    if worst_periods:
-                        # Get SPY data for market context
-                        spy_close = None
-                        spy_raw = master_dict.get('SPY')
-                        if spy_raw is not None and not spy_raw.empty:
-                            tmp = spy_raw.copy()
-                            if isinstance(tmp.columns, pd.MultiIndex):
-                                tmp.columns = tmp.columns.get_level_values(0)
-                            tmp.columns = [c.capitalize() for c in tmp.columns]
-                            spy_close = tmp['Close']
-
-                        for rank, wp in enumerate(worst_periods, 1):
-                            w_start, w_end, w_pnl = wp['start'], wp['end'], wp['pnl']
-                            eq_start = equity_curve.asof(w_start)
-                            pct_loss = w_pnl / eq_start * 100 if eq_start > 0 else 0
-
-                            with st.expander(
-                                f"#{rank}: {w_start.strftime('%Y-%m-%d')} to {w_end.strftime('%Y-%m-%d')} — "
-                                f"**${w_pnl:,.0f}** ({pct_loss:+.1f}%)",
-                                expanded=(rank == 1)
-                            ):
-                                # Market context
-                                if spy_close is not None:
-                                    spy_start_val = spy_close.asof(w_start)
-                                    spy_end_val = spy_close.asof(w_end)
-                                    spy_ret = (spy_end_val / spy_start_val - 1) * 100 if spy_start_val > 0 else 0
-                                    spy_high = spy_close.loc[w_start:w_end].max()
-                                    spy_low = spy_close.loc[w_start:w_end].min()
-                                    spy_dd = (spy_low / spy_high - 1) * 100
-                                    mc1, mc2, mc3, mc4 = st.columns(4)
-                                    mc1.metric("SPY Return", f"{spy_ret:+.1f}%")
-                                    mc2.metric("SPY Peak-to-Trough", f"{spy_dd:+.1f}%")
-                                    mc3.metric("Portfolio Loss", f"${w_pnl:,.0f}")
-                                    mc4.metric("Portfolio Drawdown", f"{pct_loss:+.1f}%")
-
-                                # Equity + SPY overlay chart
-                                from plotly.subplots import make_subplots
-                                period_eq = equity_curve.loc[w_start:w_end].dropna()
-                                if not period_eq.empty:
-                                    fig_dd = make_subplots(specs=[[{"secondary_y": True}]])
-                                    fig_dd.add_trace(go.Scatter(
-                                        x=period_eq.index, y=period_eq.values,
-                                        name='Portfolio Equity', line=dict(color='#EF553B', width=2),
-                                    ), secondary_y=False)
-                                    if spy_close is not None:
-                                        spy_period = spy_close.loc[w_start:w_end].dropna()
-                                        if not spy_period.empty:
-                                            fig_dd.add_trace(go.Scatter(
-                                                x=spy_period.index, y=spy_period.values,
-                                                name='SPY', line=dict(color='#636EFA', width=1.5, dash='dot'),
-                                            ), secondary_y=True)
-                                    fig_dd.update_layout(
-                                        height=300, margin=dict(l=10, r=10, t=10, b=10),
-                                        legend=dict(orientation='h', yanchor='bottom', y=1.02, x=0),
-                                        hovermode='x unified',
-                                    )
-                                    fig_dd.update_yaxes(title_text='Equity ($)', tickformat='$,.0f', secondary_y=False)
-                                    fig_dd.update_yaxes(title_text='SPY', tickformat='$,.0f', secondary_y=True)
-                                    st.plotly_chart(fig_dd, use_container_width=True)
-
-                                # Strategy attribution for this period
-                                period_trades = sig_df[
-                                    (sig_df['Entry Date'] <= w_end) & (sig_df['Exit Date'] >= w_start)
-                                ].copy()
-
-                                if not period_trades.empty:
-                                    strat_attr = period_trades.groupby('Strategy').agg(
-                                        Trades=('PnL', 'count'),
-                                        Total_PnL=('PnL', 'sum'),
-                                        Win_Rate=('PnL', lambda x: (x > 0).mean()),
-                                        Avg_PnL=('PnL', 'mean'),
-                                    ).sort_values('Total_PnL')
-
-                                    st.markdown("**Strategy Attribution**")
-                                    col_chart, col_table = st.columns([1, 1])
-
-                                    with col_chart:
-                                        fig_attr = go.Figure(go.Bar(
-                                            x=strat_attr['Total_PnL'].values,
-                                            y=strat_attr.index,
-                                            orientation='h',
-                                            marker_color=['#EF553B' if v < 0 else '#00CC96' for v in strat_attr['Total_PnL']],
-                                            hovertemplate='%{y}: $%{x:,.0f}<extra></extra>',
-                                        ))
-                                        fig_attr.update_layout(
-                                            height=max(200, len(strat_attr) * 35),
-                                            margin=dict(l=10, r=10, t=10, b=10),
-                                            xaxis_title='PnL ($)', xaxis_tickformat='$,.0f',
-                                        )
-                                        st.plotly_chart(fig_attr, use_container_width=True)
-
-                                    with col_table:
-                                        st.dataframe(strat_attr.style.format({
-                                            'Total_PnL': '${:,.0f}',
-                                            'Win_Rate': '{:.0%}',
-                                            'Avg_PnL': '${:,.0f}',
-                                        }), use_container_width=True)
-
-                                    # Worst individual trades in this period
-                                    worst_trades = period_trades.nsmallest(10, 'PnL')[
-                                        ['Date', 'Strategy', 'Ticker', 'Action', 'PnL', 'Risk $']
-                                    ].copy()
-                                    if not worst_trades.empty:
-                                        st.markdown("**Worst Trades in Period**")
-                                        st.dataframe(worst_trades.style.format({
-                                            'PnL': '${:,.0f}',
-                                            'Risk $': '${:,.0f}',
-                                            'Date': '{:%Y-%m-%d}',
-                                        }), use_container_width=True, hide_index=True)
-                                else:
-                                    st.info("No trades overlapped with this period.")
-                    else:
-                        st.info("Could not identify distinct drawdown periods.")
-                else:
-                    st.info("Insufficient data for rolling drawdown analysis.")
-            else:
-                st.info("No daily PnL data available.")
-
+            # (Portfolio Breakdown and Drawdown Deep Dive removed; kept Trade Log below.)
             st.subheader("📜 Trade Log")
             display_cols = ["Date", "Entry Date", "Exit Date", "Exit Type", "Strategy", "Ticker", "Action",
                           "Entry Criteria", "Signal Close", "T+1 Open", "Price", "Shares", "PnL", 

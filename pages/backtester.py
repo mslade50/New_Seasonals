@@ -1759,6 +1759,16 @@ def main():
             )
     st.write("")
     use_full_history = st.checkbox("Download Full History (1950+) for Accurate 'Age'", value=False)
+    use_master_parquet = st.checkbox(
+        "📦 Use master parquet (opt-in) — read OHLCV from data/master_prices.parquet instead of yfinance",
+        value=False,
+        help=(
+            "Off by default: legacy yfinance behavior is preserved exactly. "
+            "When checked, reads from data/master_prices.parquet (built via "
+            "scripts/build_master_prices.py, refreshed via scripts/update_master_prices.py). "
+            "Falls back to yfinance per-ticker if the master file is missing."
+        ),
+    )
     st.markdown("---")
     st.subheader("2. Execution & Risk")
     r_c1, r_c2, r_c3 = st.columns(3)
@@ -2308,6 +2318,25 @@ def main():
     if st.button("Run Backtest", type="primary", use_container_width=True):
         tickers_to_run = []
         sznl_map = load_seasonal_map()
+
+        def _fetch_prices(tickers, start):
+            """Default behavior: yfinance via download_universe_data (legacy).
+            When use_master_parquet checkbox is on AND master file exists, read
+            from data/master_prices.parquet via data_provider instead.
+            Returns dict {ticker: DataFrame} matching the legacy shape."""
+            if use_master_parquet:
+                try:
+                    import data_provider
+                    if data_provider.has_master():
+                        return data_provider.get_history(tickers, start=start)
+                    st.warning(
+                        "Master parquet not found at data/master_prices.parquet — "
+                        "falling back to yfinance for this run."
+                    )
+                except Exception as _e:
+                    st.warning(f"data_provider unavailable ({_e}); using yfinance.")
+            return download_universe_data(tickers, start)
+
         if univ_choice == "Sector ETFs": tickers_to_run = SECTOR_ETFS
         elif univ_choice == "Indices": tickers_to_run = INDEX_ETFS
         elif univ_choice == "SPX": tickers_to_run = SPX
@@ -2343,15 +2372,15 @@ def main():
         # Split download: in hybrid mode, fetch base and extras separately so the 1k-ticker
         # base keeps its cache key across different extras uploads (only the delta re-fetches).
         if univ_choice == "All CSV + Overflow Extras" and extras_tickers:
-            st.info(f"Downloading base ({len(_base)}, cached) + extras ({len(_new_extras)} new)...")
-            base_data = download_universe_data(_base, fetch_start)
-            extras_data = download_universe_data(_new_extras, fetch_start) if _new_extras else {}
+            st.info(f"Loading base ({len(_base)}) + extras ({len(_new_extras)} new)...")
+            base_data = _fetch_prices(_base, fetch_start)
+            extras_data = _fetch_prices(_new_extras, fetch_start) if _new_extras else {}
             _full_data = {**base_data, **extras_data}
             _run_set = set(tickers_to_run)
             data_dict = {t: df for t, df in _full_data.items() if t in _run_set}
         else:
-            st.info(f"Downloading data ({len(tickers_to_run)} tickers)...")
-            data_dict = download_universe_data(tickers_to_run, fetch_start)
+            st.info(f"Loading data ({len(tickers_to_run)} tickers)...")
+            data_dict = _fetch_prices(tickers_to_run, fetch_start)
         if not data_dict: return
 
         # Truncate to end_date — drops any data after the chosen end so signals
@@ -2378,7 +2407,7 @@ def main():
             market_df = data_dict.get(MARKET_TICKER)
             if market_df is None:
                 st.info(f"Fetching {MARKET_TICKER} data...")
-                market_dict_temp = download_universe_data([MARKET_TICKER], fetch_start)
+                market_dict_temp = _fetch_prices([MARKET_TICKER], fetch_start)
                 market_df = market_dict_temp.get(MARKET_TICKER, None)
             if market_df is not None and not market_df.empty:
                 if market_df.index.tz is not None: market_df.index = market_df.index.tz_localize(None)
@@ -2392,7 +2421,7 @@ def main():
             vix_df = data_dict.get(VIX_TICKER)
             if vix_df is None:
                 st.info(f"Fetching {VIX_TICKER} data...")
-                vix_dict_temp = download_universe_data([VIX_TICKER], fetch_start)
+                vix_dict_temp = _fetch_prices([VIX_TICKER], fetch_start)
                 vix_df = vix_dict_temp.get(VIX_TICKER, None)
             if vix_df is not None and not vix_df.empty:
                 if vix_df.index.tz is not None: vix_df.index = vix_df.index.tz_localize(None)
@@ -2408,7 +2437,7 @@ def main():
             ref_ticker_clean = ref_ticker_input.replace('.', '-')
             ref_df = data_dict.get(ref_ticker_clean)
             if ref_df is None:
-                ref_dict_temp = download_universe_data([ref_ticker_clean], fetch_start)
+                ref_dict_temp = _fetch_prices([ref_ticker_clean], fetch_start)
                 ref_df = ref_dict_temp.get(ref_ticker_clean, None)
             if ref_df is not None and not ref_df.empty:
                 # Calculate indicators for the reference ticker

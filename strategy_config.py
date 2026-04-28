@@ -25,12 +25,6 @@
 # ============================================
 ACCOUNT_VALUE = 750000  # Adjust this to your current account size
 
-# Global aggregate daily risk cap (bps of account) across all strategies' signals.
-# If total new-risk from today's staged signals exceeds this, ALL signals are
-# proportionally scaled down so aggregate == cap. Applied in daily_scan.py,
-# local_overflow_scan.py, and the backtester (strat_backtester.py).
-DAILY_RISK_CAP_BPS = 225
-
 # ============================================
 # TICKER UNIVERSES
 # ============================================
@@ -136,8 +130,6 @@ _STRATEGY_BOOK_RAW = [
             "entry_type": "Signal Close",
             "max_one_pos": False,
             "allow_same_day_reentry": False,
-            "max_daily_entries": 30,
-            "max_total_positions": 50,
             "perf_filters": [{'window': 5, 'logic': '<', 'thresh': 50.0, 'consecutive': 1}, {'window': 21, 'logic': '>', 'thresh': 50.0, 'consecutive': 3}],
             "perf_first_instance": False, "perf_lookback": 21,
             "ma_consec_filters": [],
@@ -196,8 +188,6 @@ _STRATEGY_BOOK_RAW = [
             "entry_type": "Limit Order -0.5 ATR (Persistent)",
             "max_one_pos": True,
             "allow_same_day_reentry": False,
-            "max_daily_entries": 20,
-            "max_total_positions": 99,
             "entry_conf_bps": 0,
             "perf_filters": [
                 {'window': 252, 'logic': 'Between', 'thresh': 50.0, 'thresh_max': 90.0, 'consecutive': 1},
@@ -208,7 +198,7 @@ _STRATEGY_BOOK_RAW = [
             "use_sznl": False, "sznl_logic": "<", "sznl_thresh": 15.0, "sznl_first_instance": False, "sznl_lookback": 21,
             "use_market_sznl": False, "market_sznl_logic": "<", "market_sznl_thresh": 15.0,
             "market_ticker": "^GSPC",
-            "use_52w": True, "52w_type": "New 52w High", "52w_first_instance": False, "52w_lookback": 21, "52w_lag": 0,
+            "use_52w": True, "52w_type": "New 52w High", "52w_first_instance": True, "52w_lookback": 63, "52w_lag": 0,
             "exclude_52w_high": False,
             "use_ath": True, "ath_type": "Today is ATH",
             "use_recent_ath": False, "recent_ath_invert": False, "ath_lookback_days": 21,
@@ -239,7 +229,12 @@ _STRATEGY_BOOK_RAW = [
             "use_ref_ticker_filter": False, "ref_ticker": "IWM", "ref_filters": [],
             "use_t1_open_filter": False, "t1_open_filters": [],
             "use_xsec_filter": False, "xsec_filters": [],
-            "atr_sznl_filters": [],
+            "atr_sznl_filters": [
+                {'window': 5,  'logic': '>', 'thresh': 15.0, 'thresh_max': 100.0, 'consecutive': 1},
+                {'window': 10, 'logic': '>', 'thresh': 15.0, 'thresh_max': 100.0, 'consecutive': 1},
+                {'window': 21, 'logic': '>', 'thresh': 15.0, 'thresh_max': 100.0, 'consecutive': 1},
+                {'window': 63, 'logic': '>', 'thresh': 15.0, 'thresh_max': 100.0, 'consecutive': 1},
+            ],
             "dial_filters": [{'dial': '63d', 'window': 10, 'logic': '<', 'thresh': 30.0}]
         },
         "execution": {
@@ -284,8 +279,6 @@ _STRATEGY_BOOK_RAW = [
             "entry_type": "Signal Close",
             "max_one_pos": True,
             "allow_same_day_reentry": False,
-            "max_daily_entries": 20,
-            "max_total_positions": 99,
             "entry_conf_bps": 0,
             "perf_filters": [{'window': 5, 'logic': '<', 'thresh': 50.0, 'thresh_max': 100.0, 'consecutive': 1}],
             "perf_first_instance": False, "perf_lookback": 21,
@@ -331,39 +324,41 @@ _STRATEGY_BOOK_RAW = [
         "stats": {"grade": "A (Excellent)", "win_rate": "64.8%", "expectancy": "0.49r", "profit_factor": "2.21"}
     },
     {
-        "id": "21dr < 15 3 consec, 5dr < 33, 252dr 50-90, rel vol < 15, 63d dial 10ma < 65, MOC, 10d hold, 6 ATR tgt",
+        "id": "21dr < 15 3 consec, 5dr < 33, 252dr 50-90, rel vol < 15, 10d ATR sznl > 50, 63d dial 10ma < 65, GTC limit close-0.25 ATR, 10d hold, 1/2 ATR",
         "name": "Oversold Low Volume",
         "setup": {
             "type": "MeanReversion",
             "timeframe": "Position",
-            "thesis": "Buying oversold names during low-volume selloffs in uptrenders (252d 50-90) when the 63D risk dial (10d avg) is below 65 — avoid entering during fragile regimes",
+            "thesis": "Buying oversold names during low-volume selloffs in uptrenders (252d 50-90) with a positive 10d ATR seasonal tailwind, gated to non-fragile regimes (63D dial < 65). Persistent limit at close - 0.25 ATR lets overflow signals (post-close scan) still get filled overnight or intraday.",
             "key_filters": [
                 "21D rank < 15th %ile for 3 consecutive days (persistent oversold)",
                 "5D rank < 33rd %ile (recent weakness)",
                 "252D rank between 50-90th %ile (uptrending but not extreme leader)",
                 "10D volume rank < 15th %ile (low volume = lack of conviction selling)",
+                "10D ATR seasonal rank > 50th %ile (favorable short-horizon seasonality)",
                 "63D risk dial (10d avg) < 65 (non-fragile regime)"
             ]
         },
         "exit_summary": {
-            "primary_exit": "10-day time stop OR 6.0 ATR target (whichever first)",
-            "stop_logic": "3.0 ATR below entry",
-            "target_logic": "6.0 ATR above entry",
-            "notes": "MOC primary (today's close). No cooldown — consecutive signals on same ticker allowed."
+            "primary_exit": "10-day time stop, 2.0 ATR target, or 1.0 ATR stop (whichever first)",
+            "stop_logic": "1.0 ATR below entry",
+            "target_logic": "2.0 ATR above entry",
+            "notes": "Persistent limit at close - 0.25 ATR; GTC for the hold window. No cooldown — consecutive signals on same ticker allowed."
         },
-        "description": "Start: 2000-01-01. Universe: Liquid + commodities. Dir: Long. MOC. 10d hold, 6 ATR target. No LOC add, no cooldown.",
+        "description": "Start: 2000-01-01. Universe: Liquid + commodities. Dir: Long. Entry: limit at close-0.25 ATR (GTC). 10d hold, 2 ATR target, 1 ATR stop.",
         "universe_tickers": LIQUID_PLUS_COMMODITIES,
         "settings": {
             "trade_direction": "Long",
-            "entry_type": "Signal Close",
+            "entry_type": "Limit Order -0.25 ATR (Persistent)",
             "max_one_pos": False,
             "allow_same_day_reentry": False,
-            "max_daily_entries": 10,
-            "max_total_positions": 20,
             "perf_filters": [
                 {'window': 5, 'logic': '<', 'thresh': 33.0, 'consecutive': 1},
                 {'window': 21, 'logic': '<', 'thresh': 15.0, 'consecutive': 3},
                 {'window': 252, 'logic': 'Between', 'thresh': 50.0, 'thresh_max': 90.0, 'consecutive': 1}
+            ],
+            "atr_sznl_filters": [
+                {'window': 10, 'logic': '>', 'thresh': 50.0, 'thresh_max': 100.0, 'consecutive': 1}
             ],
             "perf_first_instance": False, "perf_lookback": 21,
             "ma_consec_filters": [],
@@ -390,7 +385,7 @@ _STRATEGY_BOOK_RAW = [
             "use_recent_52w_low": False, "recent_52w_low_invert": True, "recent_52w_low_lookback": 10,
             "dial_filters": [{'dial': '63d', 'window': 10, 'logic': '<', 'thresh': 65.0}]
         },
-        "execution": {"risk_bps": 35, "slippage_bps": 2, "stop_atr": 3.0, "tgt_atr": 6.0, "hold_days": 10, "use_stop_loss": False, "use_take_profit": True,
+        "execution": {"risk_bps": 35, "slippage_bps": 2, "stop_atr": 1.0, "tgt_atr": 2.0, "hold_days": 10, "use_stop_loss": True, "use_take_profit": True,
                       "ladder_multipliers": [0.85, 1.00, 1.15]},
         "stats": {"grade": "A (Excellent)", "win_rate": "69.0%", "expectancy": "0.48r", "profit_factor": "2.82"}
     },
@@ -423,8 +418,6 @@ _STRATEGY_BOOK_RAW = [
             "entry_type": "Limit (Open +/- 0.75 ATR)",
             "max_one_pos": False,
             "allow_same_day_reentry": True,
-            "max_daily_entries": 2,
-            "max_total_positions": 10,
             "perf_filters": [
                 {'window': 2, 'logic': '>', 'thresh': 85.0, 'consecutive': 1},
                 {'window': 5, 'logic': '>', 'thresh': 85.0, 'consecutive': 1},
@@ -490,8 +483,6 @@ _STRATEGY_BOOK_RAW = [
             "entry_type": "Signal Close",
             "max_one_pos": False,
             "allow_same_day_reentry": False,
-            "max_daily_entries": 20,
-            "max_total_positions": 99,
             "entry_conf_bps": 0,
             "perf_filters": [
                 {'window': 2, 'logic': '<', 'thresh': 15.0, 'thresh_max': 100.0, 'consecutive': 1},
@@ -585,8 +576,6 @@ _STRATEGY_BOOK_RAW = [
             "entry_type": "Limit Order -0.25 ATR (Persistent)",
             "max_one_pos": True,
             "allow_same_day_reentry": False,
-            "max_daily_entries": 20,
-            "max_total_positions": 99,
             "entry_conf_bps": 0,
             "perf_filters": [
                 {'window': 2, 'logic': '<', 'thresh': 15.0, 'thresh_max': 100.0, 'consecutive': 1},
@@ -676,8 +665,6 @@ _STRATEGY_BOOK_RAW = [
             "entry_type": "Limit (Open +/- 0.5 ATR)",
             "max_one_pos": True,
             "allow_same_day_reentry": False,
-            "max_daily_entries": 20,
-            "max_total_positions": 99,
             "entry_conf_bps": 0,
             "perf_filters": [
                 {'window': 2, 'logic': '>', 'thresh': 85.0, 'thresh_max': 100.0, 'consecutive': 1},

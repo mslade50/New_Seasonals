@@ -27,12 +27,11 @@ parent_dir = os.path.dirname(current_dir)
 sys.path.append(parent_dir)
 
 try:
-    from strategy_config import STRATEGY_BOOK, ACCOUNT_VALUE, DAILY_RISK_CAP_BPS
+    from strategy_config import STRATEGY_BOOK, ACCOUNT_VALUE
 except ImportError:
     print("❌ Could not find strategy_config.py in the root directory.")
     STRATEGY_BOOK = []
     ACCOUNT_VALUE = 0
-    DAILY_RISK_CAP_BPS = 0
 
 # ATR-normalized seasonal ranks (built by build_atr_seasonal_ranks.py)
 ATR_SZNL_PATH = os.path.join(current_dir, "atr_seasonal_ranks.parquet")
@@ -2136,23 +2135,9 @@ def run_daily_scan():
             all_signals.extend(signals)
             print(f"  -> Found {len(signals)} signals.")
 
-    # Global aggregate daily risk cap across ALL strategies EXCEPT OVS.
-    # OVS sizing is fully owned by the 5D ATR sznl rule + the post-open gap-tier
-    # and 2.5% cap in order_staging.py — no scanner-side adjustment.
-    if all_signals and ACCOUNT_VALUE > 0:
-        cap_dollars = ACCOUNT_VALUE * DAILY_RISK_CAP_BPS / 10000.0
-        capped_signals = [s for s in all_signals if s.get('Strategy_Name') != "Overbot Vol Spike"]
-        total_risk = sum(float(s.get('Risk_Amt', 0) or 0) for s in capped_signals)
-        if total_risk > cap_dollars > 0:
-            scale = cap_dollars / total_risk
-            for s in capped_signals:
-                s['Shares'] = int(s.get('Shares', 0) * scale)
-                s['Risk_Amt'] = float(s.get('Risk_Amt', 0) or 0) * scale
-                entry_px = s.get('Entry') or 0
-                s['Notional'] = s['Shares'] * float(entry_px)
-                s['Sizing_Notes'] = f"{s.get('Sizing_Notes', '')} | Daily cap {DAILY_RISK_CAP_BPS}bps: {scale:.2f}x"
-            print(f"\n>>> Global risk cap hit: {len(capped_signals)} non-OVS signals scaled by {scale:.2f}x "
-                  f"(${total_risk:,.0f} -> ${cap_dollars:,.0f})\n")
+    # No scanner-side risk cap — order_staging.py applies the 2.5% backstop
+    # post-open across all signals (incl. OVS), which is the single source of
+    # truth for aggregate risk control.
 
     # 6. Save Results
     if all_signals:
