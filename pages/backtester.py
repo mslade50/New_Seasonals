@@ -6,6 +6,7 @@ import plotly.express as px
 import plotly.graph_objects as go
 import datetime
 import random
+import re
 import time
 import uuid
 import json
@@ -20,6 +21,7 @@ SECTOR_ETFS = ["IBB", "IHI", "ITA", "ITB", "IYR", "KRE", "OIH", "SMH", "VNQ",
     "XLU", "XLV", "XLY", "XME", "XOP", "XRT"]
 SPX=['^GSPC','SPY']
 INDEX_ETFS = ["SPY", "QQQ", "IWM", "DIA", "SMH"]
+INDICES_SPOT = ["^GSPC", "^NDX"]
 INTERNATIONAL_ETFS = ["EWZ", "EWC", "ECH", "ECOL", "EWW", "ARGT", "EWQ", "EWG", "EWI", "EWU", "EWP", "EWK", "EWO", "EWN", "EWD", "EWL",
     "EWJ", "EWH", "MCHI", "INDA", "EWY", "EWT", "EWA", "EWS", "EWM", "THD", "EIDO", "VNM", "EPHE", "EZA", "TUR", "EGPT"]
 
@@ -1693,7 +1695,7 @@ def main():
     st.subheader("1. Universe & Data")
     col_u1, col_u2, col_u3 = st.columns([1, 1, 2])
     sample_pct = 100; use_full_history = False
-    with col_u1: univ_choice = st.selectbox("Choose Universe", ["All CSV Tickers", "All CSV + Overflow Extras", "Sector ETFs","SPX", "Indices", "International ETFs", "Sector + Index ETFs", "All CSV (Equities Only)", "3x Leveraged (All)", "3x Leveraged Equities", "3x Leveraged Equities (Bull)", "3x Leveraged Equities (Bear)", "3x Leveraged Equities (Broad Only)", "Custom (Upload CSV)"])
+    with col_u1: univ_choice = st.selectbox("Choose Universe", ["All CSV Tickers", "All CSV + Overflow Extras", "Sector ETFs","SPX", "Indices", "Indices (Spot — ^GSPC/^NDX)", "International ETFs", "Sector + Index ETFs", "All CSV (Equities Only)", "3x Leveraged (All)", "3x Leveraged Equities", "3x Leveraged Equities (Bull)", "3x Leveraged Equities (Bear)", "3x Leveraged Equities (Broad Only)", "Custom (Comma-Separated)", "Custom (Upload CSV)"])
     with col_u2:
         default_start = datetime.date(2000, 1, 1)
         start_date = st.date_input("Backtest Start Date", value=default_start, min_value=datetime.date(1950, 1, 1), max_value=datetime.date.today())
@@ -1714,6 +1716,27 @@ def main():
                         custom_tickers = c_df["Ticker"].unique().tolist()
                         if len(custom_tickers) > 0: st.success(f"Loaded {len(custom_tickers)} valid tickers.")
                 except: st.error("Invalid CSV.")
+    elif univ_choice == "Custom (Comma-Separated)":
+        with col_u3:
+            ticker_text = st.text_area(
+                "Tickers (comma, space, or newline separated)",
+                value="",
+                height=80,
+                key="custom_csl_tickers",
+                placeholder="AAPL, MSFT, NVDA, GOOGL",
+                help="Paste any ticker list. Separators: commas, spaces, tabs, or newlines.",
+            )
+            if ticker_text.strip():
+                raw = re.split(r"[,\s]+", ticker_text)
+                seen = set()
+                custom_tickers = []
+                for t in raw:
+                    t = t.strip().upper()
+                    if t and t not in {"NAN", "NONE", "NULL"} and t not in seen:
+                        seen.add(t)
+                        custom_tickers.append(t)
+                if custom_tickers:
+                    st.success(f"Parsed {len(custom_tickers)} unique tickers.")
     elif univ_choice == "All CSV + Overflow Extras":
         with col_u3:
             ex_c1, ex_c2 = st.columns([2, 1])
@@ -2339,6 +2362,7 @@ def main():
 
         if univ_choice == "Sector ETFs": tickers_to_run = SECTOR_ETFS
         elif univ_choice == "Indices": tickers_to_run = INDEX_ETFS
+        elif univ_choice == "Indices (Spot — ^GSPC/^NDX)": tickers_to_run = INDICES_SPOT
         elif univ_choice == "SPX": tickers_to_run = SPX
         elif univ_choice == "International ETFs": tickers_to_run = INTERNATIONAL_ETFS
         elif univ_choice == "Sector + Index ETFs": tickers_to_run = list(set(SECTOR_ETFS + INDEX_ETFS))
@@ -2363,6 +2387,7 @@ def main():
         elif univ_choice == "3x Leveraged Equities (Bear)": tickers_to_run = LEV3X_EQUITY_BEAR_ALL
         elif univ_choice == "3x Leveraged Equities (Broad Only)": tickers_to_run = LEV3X_EQUITY_BROAD
         elif univ_choice == "Custom (Upload CSV)": tickers_to_run = custom_tickers
+        elif univ_choice == "Custom (Comma-Separated)": tickers_to_run = custom_tickers
         if tickers_to_run and sample_pct < 100:
             count = max(1, int(len(tickers_to_run) * (sample_pct / 100)))
             tickers_to_run = random.sample(tickers_to_run, count)

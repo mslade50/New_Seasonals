@@ -27,11 +27,12 @@ parent_dir = os.path.dirname(current_dir)
 sys.path.append(parent_dir)
 
 try:
-    from strategy_config import STRATEGY_BOOK, ACCOUNT_VALUE
+    from strategy_config import STRATEGY_BOOK, ACCOUNT_VALUE, SPOT_TO_TRADEABLE
 except ImportError:
     print("❌ Could not find strategy_config.py in the root directory.")
     STRATEGY_BOOK = []
     ACCOUNT_VALUE = 0
+    SPOT_TO_TRADEABLE = {}
 
 # ATR-normalized seasonal ranks (built by build_atr_seasonal_ranks.py)
 ATR_SZNL_PATH = os.path.join(current_dir, "atr_seasonal_ranks.parquet")
@@ -1674,6 +1675,11 @@ def run_daily_scan():
     all_tickers = set()
     for strat in STRATEGY_BOOK:
         all_tickers.update(strat['universe_tickers'])
+        # Spot-index alias: ensure tradeable ETF (SPY/QQQ) is downloaded so its
+        # ATR/close/indicators are available at substitution time.
+        for _spot, _tradeable in SPOT_TO_TRADEABLE.items():
+            if _spot in strat['universe_tickers']:
+                all_tickers.add(_tradeable)
         s = strat['settings']
         if s.get('use_market_sznl'): all_tickers.add(s.get('market_ticker', '^GSPC'))
         if "Market" in s.get('trend_filter', ''): all_tickers.add(s.get('market_ticker', 'SPY'))
@@ -1936,6 +1942,33 @@ def run_daily_scan():
                     _eff_settings['vol_thresh'] = 1.0
 
                 if check_signal(calc_df, _eff_settings, sznl_map, ticker=t_clean):
+                    # Spot-index alias: detection happens on ^GSPC/^NDX (purer price),
+                    # but staging happens on SPY/QQQ. Recompute calc_df against the
+                    # tradeable so all downstream values (entry, ATR, stop/target,
+                    # share count, notional) reflect the ETF as a 1:1 replacement.
+                    if t_clean in SPOT_TO_TRADEABLE:
+                        tradeable = SPOT_TO_TRADEABLE[t_clean]
+                        tradeable_clean = tradeable.replace('.', '-')
+                        sub_df = master_dict.get(tradeable_clean)
+                        if sub_df is None or len(sub_df) < 250:
+                            error_tickers.append((t_clean, f"Signal fired but tradeable {tradeable} unavailable"))
+                            continue
+                        calc_df = calculate_indicators(
+                            sub_df.copy(), sznl_map, tradeable_clean,
+                            market_series, vix_series,
+                            ref_ticker_ranks=ref_ticker_ranks,
+                            xsec_rank_matrices=xsec_rank_matrices,
+                        )
+                        if atr_sznl_map and tradeable_clean in atr_sznl_map:
+                            _atr_ranks = atr_sznl_map[tradeable_clean]
+                            _dates = calc_df.index.normalize()
+                            for _col in ATR_SZNL_COLS:
+                                if _col in _atr_ranks.columns:
+                                    calc_df[_col] = _atr_ranks[_col].reindex(_dates).values
+                        print(f"   🔁 {t_clean} signal → staging as {tradeable}")
+                        ticker = tradeable
+                        t_clean = tradeable_clean
+
                     last_row = calc_df.iloc[-1]
 
                     # 1. Entry Confirmation Check
