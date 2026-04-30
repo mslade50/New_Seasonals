@@ -42,6 +42,12 @@ OVERFLOW_ELIGIBLE_STRATEGIES = {
     "52wh Breakout",
 }
 
+# Tickers in this set are sized at the strategy's configured risk_bps
+# (i.e. "liquid" / daily_scan sizing). Tickers outside this set are
+# considered overflow universe and may be sized differently per
+# strategy-specific overrides — currently OVS at 10 bps vs 30 liquid.
+_LIQUID_SET = set(LIQUID_PLUS_COMMODITIES)
+
 # -----------------------------------------------------------------------------
 # CONSTANTS & SETUP
 # -----------------------------------------------------------------------------
@@ -1063,7 +1069,7 @@ def build_price_matrix(processed_dict, tickers):
     return pd.DataFrame(price_data, index=all_dates)
 
 
-def process_signals_fast(candidates, signal_data, processed_dict, strategies, starting_equity, cap_bps=None, flat_sizing=False):
+def process_signals_fast(candidates, signal_data, processed_dict, strategies, starting_equity, cap_bps=None, flat_sizing=False, overflow_active=False):
     """
     Process candidates chronologically with dynamic sizing based on REAL-TIME MTM equity.
 
@@ -1228,21 +1234,42 @@ def process_signals_fast(candidates, signal_data, processed_dict, strategies, st
         if strat_name == "Overbot Vol Spike" and entry_row is not None:
             _sig_close = row_data['close']
             _t1_open = float(entry_row['Open'])
-            _decisive_gap = _sig_close + 0.25 * atr
-            _r252 = row_data.get('rank_ret_252d', None)
-            if pd.isna(_t1_open) or _t1_open <= _sig_close:
-                continue  # no gap → no order placed
-            elif _t1_open <= _decisive_gap:
-                # Mild gap — only take if 252D < 65 (weak long-term, fade thesis strong)
-                if pd.notna(_r252) and _r252 < 65:
-                    _ovs_size_mult = 0.7
-                else:
-                    continue  # mild gap + (252D > 95 or NaN or 65-95) → skip
+            _is_overflow_ovs = overflow_active and t_clean not in _LIQUID_SET
+            if _is_overflow_ovs:
+                # Overflow OVS: stricter gate. Require a decisive open-gap up
+                # (>= signal close + 0.5 ATR). Anything weaker is skipped.
+                # Sized at 20 bps (vs liquid 30) — see risk_bps override below.
+                if pd.isna(_t1_open) or _t1_open <= _sig_close + 0.5 * atr:
+                    continue
+                _ovs_size_mult = 1.0
             else:
-                _ovs_size_mult = 1.0  # decisive gap → full size
+                # Liquid OVS — original gate (no gap → skip; mild gap + 252D<65
+                # → 0.7x; decisive gap +0.25 ATR → full).
+                _decisive_gap = _sig_close + 0.25 * atr
+                _r252 = row_data.get('rank_ret_252d', None)
+                if pd.isna(_t1_open) or _t1_open <= _sig_close:
+                    continue
+                elif _t1_open <= _decisive_gap:
+                    if pd.notna(_r252) and _r252 < 65:
+                        _ovs_size_mult = 0.7
+                    else:
+                        continue
+                else:
+                    _ovs_size_mult = 1.0
 
         # --- 3. Sizing (base_risk × strategy multipliers × ladder × gap_mult) ---
         risk_bps = execution['risk_bps']
+        # OVS sized 20 bps for overflow tickers when overflow universe is on,
+        # vs 30 bps for the liquid universe (mirrors local_overflow_scan vs
+        # daily_scan split). Overflow OVS also requires a stricter T+1 open
+        # gap-up filter (>= signal close + 0.5 ATR) — see _is_overflow_ovs
+        # block above. Liquid set = LIQUID_PLUS_COMMODITIES.
+        if (
+            strat_name == "Overbot Vol Spike"
+            and overflow_active
+            and t_clean not in _LIQUID_SET
+        ):
+            risk_bps = 20
         equity_for_sizing = starting_equity if flat_sizing else current_equity
         base_risk = equity_for_sizing * risk_bps / 10000
         _vol_spike_skip_primary = False
@@ -2312,6 +2339,7 @@ def main():
             candidates, signal_data, processed_dict, strategies, starting_equity,
             cap_bps=cap_bps_input,
             flat_sizing=flat_sizing_input,
+            overflow_active=bool(use_overflow_universe),
         )
         st.write(f"   Executed {len(sig_df):,} trades in {time.time()-t0:.1f}s")
 

@@ -23,6 +23,7 @@ import sys
 import os
 import json
 import smtplib
+import tempfile
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from email.mime.image import MIMEImage
@@ -36,21 +37,70 @@ parent_dir = os.path.dirname(current_dir)
 sys.path.append(parent_dir)
 
 try:
-    from strategy_config import STRATEGY_BOOK, ACCOUNT_VALUE
+    from strategy_config import (
+        STRATEGY_BOOK, ACCOUNT_VALUE, CSV_UNIVERSE, LIQUID_PLUS_COMMODITIES,
+    )
 except ImportError:
     print("❌ Could not import strategy_config.py")
     STRATEGY_BOOK = []
+    CSV_UNIVERSE = []
+    LIQUID_PLUS_COMMODITIES = []
     ACCOUNT_VALUE = 750000
+
+import copy
+import data_provider
 
 # Import backtesting functions from strat_backtester
 from pages.strat_backtester import (
     download_historical_data,
     load_seasonal_map,
+    load_atr_seasonal_map,
     precompute_all_indicators,
     generate_candidates_fast,
     process_signals_fast,
     get_daily_mtm_series
 )
+
+# Overflow universe = CSV_UNIVERSE minus the liquid daily_scan universe.
+# Mirrors local_overflow_scan.OVERFLOW_TICKERS.
+OVERFLOW_TICKERS = sorted(set(CSV_UNIVERSE) - set(LIQUID_PLUS_COMMODITIES))
+
+# Strategies that the local overflow scanner runs against the extended pool.
+# Per-strategy risk bps overrides for the overflow pass — match
+# local_overflow_scan.py exactly so the report's PnL reflects what was
+# actually staged.
+OVERFLOW_ELIGIBLE = {
+    "Overbot Vol Spike",
+    "LT Trend ST OS",
+    "Oversold Low Volume",
+    "St OS Sznl",
+    "52wh Breakout",
+}
+OVERFLOW_RISK_OVERRIDES = {
+    "Overbot Vol Spike": 20,        # vs liquid 30 bps; backtest also gates
+                                    # entries on T+1 open >= signal close + 0.5 ATR
+    "Oversold Low Volume": 25,      # vs liquid 35 bps
+}
+
+
+def build_full_strategy_book():
+    """Liquid pass + overflow variants, mirroring local_overflow_scan.
+
+    For each overflow-eligible strategy, deep-copy and swap universe_tickers
+    to OVERFLOW_TICKERS (extended-only — no overlap with liquid). Apply
+    per-strategy risk_bps overrides where defined. Names kept identical so
+    the report's per-strategy stats aggregate liquid + overflow trades.
+    """
+    book = list(STRATEGY_BOOK)
+    for s in STRATEGY_BOOK:
+        if s['name'] not in OVERFLOW_ELIGIBLE:
+            continue
+        of_strat = copy.deepcopy(s)
+        of_strat['universe_tickers'] = OVERFLOW_TICKERS
+        if s['name'] in OVERFLOW_RISK_OVERRIDES:
+            of_strat['execution']['risk_bps'] = OVERFLOW_RISK_OVERRIDES[s['name']]
+        book.append(of_strat)
+    return book
 
 # -----------------------------------------------------------------------------
 # 1. AUTHENTICATION (Same as daily_scan.py)
@@ -130,62 +180,109 @@ def run_12month_backtest(starting_equity=None):
         starting_equity = ACCOUNT_VALUE
     
     print("📊 Running 12-month portfolio backtest...")
-    
-    # FIXED: Download from 2000 for percentile accuracy
+
+    # Download from 2000 for percentile accuracy
     data_start_date = datetime.date(2000, 1, 1)
-    
+
     # But only backtest last 12 months
     end_date = datetime.date.today()
     backtest_start_date = end_date - datetime.timedelta(days=365)
-    
+
     print(f"   Data range: {data_start_date} to {end_date}")
     print(f"   Backtest range: {backtest_start_date} to {end_date}")
-    
+
     # 1. Load seasonal data
     sznl_map = load_seasonal_map()
-    
-    # 2. Gather all tickers from strategy book
+
+    # 2. Build full strategy book (liquid + overflow variants).
+    full_book = build_full_strategy_book()
+    n_liquid = len(STRATEGY_BOOK)
+    n_overflow = len(full_book) - n_liquid
+    print(f"   Strategy book: {n_liquid} liquid passes + {n_overflow} overflow passes")
+
+    # 3. Gather all tickers from full strategy book
     all_tickers = set()
-    for strat in STRATEGY_BOOK:
+    for strat in full_book:
         all_tickers.update(strat['universe_tickers'])
-    
+
     # Add market/VIX tickers
     all_tickers.add('SPY')
     all_tickers.add('^VIX')
-    
-    print(f"   Downloading {len(all_tickers)} tickers from 2000...")
-    master_dict = download_historical_data(list(all_tickers), start_date=data_start_date.strftime('%Y-%m-%d'))
-    
+
+    # 4. Load OHLCV — prefer master_prices.parquet over yfinance.
+    #    Local execution (Task Scheduler) reads the same parquet that the
+    #    overflow scanner uses, so the report's PnL reflects exactly what
+    #    was staged earlier in the day. yfinance fallback for emergencies.
+    if data_provider.has_master():
+        print(f"   Loading {len(all_tickers)} tickers from master_prices.parquet...")
+        master_dict = data_provider.get_history(
+            list(all_tickers),
+            start=data_start_date.strftime('%Y-%m-%d'),
+        )
+        # Backfill any tickers missing from the parquet via yfinance so the
+        # backtest doesn't silently skip strategies that depend on them.
+        missing = [t for t in all_tickers if t not in master_dict]
+        if missing:
+            print(f"   ⚠️ {len(missing)} tickers missing from parquet — backfilling via yfinance: {missing[:10]}{'...' if len(missing) > 10 else ''}")
+            yf_dict = download_historical_data(missing, start_date=data_start_date.strftime('%Y-%m-%d'))
+            master_dict.update(yf_dict)
+    else:
+        print(f"   master_prices.parquet not found — downloading {len(all_tickers)} tickers from yfinance...")
+        master_dict = download_historical_data(list(all_tickers), start_date=data_start_date.strftime('%Y-%m-%d'))
+
     if not master_dict:
-        print("❌ Failed to download data")
+        print("❌ Failed to load data")
         return None, None, None, None, None
-    
-    # 3. Prepare market/VIX series
+
+    # 5. Prepare market/VIX series
     spy_df = master_dict.get('SPY')
     vix_df = master_dict.get('^VIX')
     vix_series = None
-    
+
     if vix_df is not None and not vix_df.empty:
         if isinstance(vix_df.columns, pd.MultiIndex):
             vix_df.columns = vix_df.columns.get_level_values(0)
         vix_df.columns = [c.capitalize() for c in vix_df.columns]
         vix_series = vix_df['Close']
-    
-    # 4. Precompute indicators (uses all data since 2000 for percentiles)
+
+    # 6. Precompute indicators (uses all data since 2000 for percentiles).
+    #    CRITICAL: pass atr_sznl_map. Without it, every atr_sznl_*d column
+    #    silently defaults to 50.0 — which silently kills strategies whose
+    #    filters depend on those ranks (OLV: atr_sznl_10d > 50; St OS Sznl,
+    #    52wh Breakout, OVS sizing-multiplier, etc.). Same parquet the
+    #    strat_backtester UI consumes.
+    atr_sznl_map = load_atr_seasonal_map()
+    if not atr_sznl_map:
+        print("   ⚠️ atr_seasonal_ranks.parquet not found — strategies depending "
+              "on ATR seasonal ranks will silently produce zero signals. "
+              "Run scripts/build_atr_seasonal_ranks.py to generate it.")
     print("   Computing indicators (percentiles use full history)...")
-    processed_dict = precompute_all_indicators(master_dict, STRATEGY_BOOK, sznl_map, vix_series)
-    
-    # 5. Generate candidates (only for last 12 months)
+    processed_dict = precompute_all_indicators(
+        master_dict, full_book, sznl_map, vix_series, atr_sznl_map,
+    )
+
+    # 7. Generate candidates (only for last 12 months)
     print(f"   Finding signals since {backtest_start_date}...")
-    candidates, signal_data = generate_candidates_fast(processed_dict, STRATEGY_BOOK, sznl_map, backtest_start_date)
-    
+    candidates, signal_data = generate_candidates_fast(processed_dict, full_book, sznl_map, backtest_start_date)
+
     if not candidates:
         print("⚠️ No signals found in 12-month period")
         return pd.DataFrame(), pd.Series(dtype=float), pd.Series(dtype=float), master_dict, starting_equity
-    
-    # 6. Process signals with MTM sizing
+
+    # 8. Process signals with MTM sizing
     print("   Processing trades...")
-    sig_df = process_signals_fast(candidates, signal_data, processed_dict, STRATEGY_BOOK, starting_equity)
+    # overflow_active=True triggers the OVS overflow-specific logic in
+    # process_signals_fast: stricter T+1 open >= signal close + 0.5 ATR gate
+    # for non-LIQUID_PLUS_COMMODITIES tickers. Liquid OVS keeps its existing
+    # 0.25 ATR gate (the per-ticker check skips when t_clean is liquid).
+    # cap_bps=250 mirrors the strat_backtester default — caps total
+    # per-strategy daily risk at 250 bps so a big signal day doesn't blow
+    # past the prod risk envelope. Same as order_staging.MAX_DAILY_RISK_PCT.
+    sig_df = process_signals_fast(
+        candidates, signal_data, processed_dict, full_book, starting_equity,
+        cap_bps=250,
+        overflow_active=True,
+    )
     
     if sig_df.empty:
         print("⚠️ No valid trades executed")
@@ -319,7 +416,7 @@ def create_portfolio_chart(equity_series, daily_pnl_series, starting_equity):
     return fig
 
 
-def save_chart_as_png(fig, filepath='/tmp/portfolio_health.png'):
+def save_chart_as_png(fig, filepath=os.path.join(tempfile.gettempdir(), 'portfolio_health.png')):
     """
     Saves plotly figure as PNG file.
     Requires kaleido: pip install kaleido
@@ -1375,7 +1472,7 @@ def main():
             print("❌ Failed to create chart")
             return
         
-        chart_path = save_chart_as_png(fig, filepath='/tmp/portfolio_health.png')
+        chart_path = save_chart_as_png(fig, filepath=os.path.join(tempfile.gettempdir(), 'portfolio_health.png'))
         
         if not chart_path:
             print("❌ Failed to save chart - check kaleido installation")

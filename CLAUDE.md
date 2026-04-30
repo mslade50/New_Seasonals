@@ -80,7 +80,7 @@ It may optionally import `SP500_TICKERS` from `abs_return_dispersion.py` (with t
 
 **Strategy modules** (`strat_backtester.py`, `daily_scan.py`, `daily_portfolio_report.py`) all depend on `strategy_config.py` for `STRATEGY_BOOK` and `ACCOUNT_VALUE`.
 
-**daily_portfolio_report.py** imports backtesting logic from `strat_backtester.py`. Both must stay in sync with `daily_scan.py` for signal detection, sizing, and trade processing. `ACCOUNT_VALUE` from `strategy_config.py` is the single source of truth for portfolio sizing across all three.
+**daily_portfolio_report.py** imports backtesting logic from `strat_backtester.py`. Both must stay in sync with `daily_scan.py` for signal detection, sizing, and trade processing. `ACCOUNT_VALUE` from `strategy_config.py` is the single source of truth for portfolio sizing across all three. Runs **locally** via Task Scheduler (weekdays 5:30 PM ET) so it can read `data/master_prices.parquet` and reflect the exact data the overflow scanner staged. Reports cover both liquid (LIQUID_PLUS_COMMODITIES) and overflow (CSV_UNIVERSE − LIQUID_PLUS_COMMODITIES) universes — overflow-eligible strategies get a second deep-copied pass with `OVERFLOW_RISK_OVERRIDES` (OVS 30→10 bps, OLV 35→25 bps) mirroring `local_overflow_scan.py`. Setup: `scripts/setup_portfolio_report_task.ps1` (one-time, admin).
 
 ## Risk Dashboard V2 — Current State
 
@@ -155,7 +155,7 @@ Legacy point system preserved in collapsed expander for reference. Alert = +1, A
 |--------|--------|---------|--------|----------|
 | Daily Scan | `daily_scan.py` | GitHub Actions | HTML email + Google Sheets | Weekdays 5x (9:13, 17:40, 18:45, 19:30, 20:13 UTC) |
 | Risk Report | `daily_risk_report.py` | GitHub Actions | HTML email (inline images) | Weekdays 21:15 UTC (5:15 PM ET) |
-| Portfolio Report | `daily_portfolio_report.py` | GitHub Actions | HTML email | Daily 21:00 UTC (5 PM ET) |
+| Portfolio Report | `daily_portfolio_report.py` | Local Task Scheduler | HTML email | Weekdays 5:30 PM ET |
 | Fill Verification | `verify_fills.py` | GitHub Actions | Google Sheets update | Weekdays 21:15 UTC |
 | Radar Weekly Digest | `radar_weekly_summary.py` | Local Task Scheduler | Markdown → `data/radar_weekly_summary.md` | Sundays 8:30 AM ET |
 | Weekly Rundown | `weekly_market_rundown.py` | GitHub Actions | PDF attachment + HTML body (radar digest) | Sundays 14:00 UTC (9 AM ET) |

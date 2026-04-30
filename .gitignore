@@ -8,6 +8,23 @@ data/rd2_sp500_closes.parquet
 data/rd2_closes.parquet
 data/fragility_vs_spy.html
 data/overflow_price_cache.parquet
+data/master_prices.parquet
+data/earnings_calendar.parquet
+data/backtest_closes.parquet
+data/backtest_sig_df.parquet
+data/SNA_dump.csv
+data/bt_indicator_cache/
+
+# Runtime / generated artifacts
+logs/
+Weekly_Market_Rundown_*.pdf
+
+# Streamlit watcher temp files
+pages/*.tmp.*
+pages/*.py.tmp.*
+
+# Local Claude Code config
+.claude/
 
 # Large generated data (re-built by build scripts)
 atr_seasonal_ranks.csv

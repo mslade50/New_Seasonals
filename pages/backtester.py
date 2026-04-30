@@ -101,6 +101,79 @@ def load_fragility_dials():
         pass
     return df.sort_index()
 
+
+def compute_signed_earnings_offsets(df_dates, earnings_dates, holidays_d64):
+    """For each date in df_dates, return the signed trading-day offset to the
+    nearest earnings announcement.
+
+    Convention: offset = signal_date - earnings_date in trading days.
+        positive → signal is AFTER earnings (e.g. +2 = 2 trading days after)
+        negative → signal is BEFORE earnings (e.g. -2 = 2 trading days before)
+        0        → signal IS the earnings day
+        NaN      → ticker has no earnings dates
+
+    Vectorized: O(N log M + N) per ticker. Uses np.busday_count with the
+    same US-federal-holiday calendar as order_staging.py.
+    """
+    if earnings_dates is None or len(earnings_dates) == 0:
+        return pd.Series(np.nan, index=df_dates)
+    d64 = pd.DatetimeIndex(df_dates).to_numpy().astype('datetime64[D]')
+    e_sorted = np.sort(pd.DatetimeIndex(earnings_dates).to_numpy().astype('datetime64[D]'))
+    pos = np.searchsorted(e_sorted, d64, side='right')
+
+    # Past earnings: e_sorted[pos-1] when pos>0
+    past_mask = pos > 0
+    past_e = e_sorted[np.clip(pos - 1, 0, len(e_sorted) - 1)]
+    past_off = np.where(
+        past_mask,
+        np.busday_count(past_e, d64, holidays=holidays_d64),
+        2**31 - 1,  # sentinel: huge so it loses min-abs comparison
+    ).astype(np.int64)
+
+    # Future earnings: e_sorted[pos] when pos<len
+    future_mask = pos < len(e_sorted)
+    future_e = e_sorted[np.clip(pos, 0, len(e_sorted) - 1)]
+    future_off = np.where(
+        future_mask,
+        -np.busday_count(d64, future_e, holidays=holidays_d64),
+        -(2**31 - 1),
+    ).astype(np.int64)
+
+    # Pick the offset with smaller |value|
+    use_past = np.abs(past_off) <= np.abs(future_off)
+    nearest = np.where(use_past, past_off, future_off).astype(float)
+
+    # NaN where neither past nor future earnings exist
+    no_data = ~past_mask & ~future_mask
+    nearest[no_data] = np.nan
+
+    return pd.Series(nearest, index=df_dates)
+
+
+@st.cache_resource
+def load_earnings_map():
+    """Load earnings calendar from data/earnings_calendar.parquet.
+
+    Returns a dict {ticker: pd.DatetimeIndex of earnings announcement dates}.
+    Empty dict if the parquet is missing — earnings filter will silently no-op.
+    Backfilled via scripts/build_earnings_calendar.py from FMP /stable/earnings.
+    """
+    path = "data/earnings_calendar.parquet"
+    try:
+        df = pd.read_parquet(path)
+    except Exception:
+        return {}
+    if df.empty or 'ticker' not in df.columns or 'date' not in df.columns:
+        return {}
+    df['date'] = pd.to_datetime(df['date'], errors='coerce').dt.normalize()
+    df = df.dropna(subset=['date', 'ticker'])
+    df['ticker'] = df['ticker'].astype(str).str.upper().str.strip()
+    out = {}
+    for tkr, grp in df.groupby('ticker'):
+        out[tkr] = pd.DatetimeIndex(sorted(grp['date'].unique()))
+    return out
+
+
 def clean_ticker_df(df):
     if df.empty: return df
     if isinstance(df.columns, pd.MultiIndex):
@@ -205,6 +278,10 @@ def build_mtm_curves(trades_df, data_dict, starting_equity, risk_bps, mode='flat
     for idx, tr in trades.iterrows():
         entries_by_date.setdefault(tr['EntryDate'], []).append(idx)
 
+    # Per-trade EffectiveBps overrides the global risk_bps when present.
+    # Lets variable-sizing universes (liquid base vs overflow extras) flow
+    # into MTM curves with the right per-trade $ risk.
+    _has_per_trade_bps = 'EffectiveBps' in trades.columns
     flat_risk_dollars = starting_equity * risk_bps / 10000.0
     equity = float(starting_equity)
 
@@ -222,7 +299,13 @@ def build_mtm_curves(trades_df, data_dict, starting_equity, risk_bps, mode='flat
             if not (tech_risk and tech_risk > 0):
                 continue
             risk_scale = float(tr['RiskScale']) if 'RiskScale' in trades.columns and pd.notna(tr.get('RiskScale')) else 1.0
-            risk_dollars = (flat_risk_dollars if mode == 'flat' else equity * risk_bps / 10000.0) * risk_scale
+            if _has_per_trade_bps and pd.notna(tr.get('EffectiveBps')):
+                _bps = float(tr['EffectiveBps'])
+                _flat_d = starting_equity * _bps / 10000.0
+                _dyn_d  = equity * _bps / 10000.0
+                risk_dollars = (_flat_d if mode == 'flat' else _dyn_d) * risk_scale
+            else:
+                risk_dollars = (flat_risk_dollars if mode == 'flat' else equity * risk_bps / 10000.0) * risk_scale
             shares = risk_dollars / tech_risk
             if shares <= 0:
                 continue
@@ -1000,6 +1083,7 @@ def run_engine(universe_dict, params, sznl_map, market_series=None, vix_series=N
     is_limit_prev = entry_mode == "Limit (Prev Close)"
     is_limit_open_atr = entry_mode == "Limit (Open +/- 0.5 ATR)"
     is_limit_open_atr_075 = entry_mode == "Limit (Open +/- 0.75 ATR)"
+    is_limit_open_atr_100 = entry_mode == "Limit (Open +/- 1 ATR)"
     is_limit_open_atr_gtc = entry_mode == "Limit (Open +/- 0.5 ATR) GTC"
     is_day_trade_limit = entry_mode == "Day Trade (Limit Open +/- 0.5 ATR, Exit Close)"
     is_limit_pivot = entry_mode == "Limit (Untested Pivot)"
@@ -1143,6 +1227,53 @@ def run_engine(universe_dict, params, sznl_map, market_series=None, vix_series=N
                 if params['gap_logic'] == ">": conditions.append(df['GapCount'] > params['gap_thresh'])
                 elif params['gap_logic'] == "<": conditions.append(df['GapCount'] < params['gap_thresh'])
                 elif params['gap_logic'] == "=": conditions.append(df['GapCount'] == params['gap_thresh'])
+
+            # Earnings proximity filter — comparison operator on the SIGNED
+            # trading-day offset to the nearest earnings announcement.
+            # Convention: offset = signal_date - earnings_date (trading days).
+            #   negative → signal is before earnings; positive → after; 0 → day-of.
+            # NaN (ticker has no earnings) is treated as False for positive
+            # operators (=, <, >, Between) and True for Not Between, mirroring
+            # the prior Within/Outside semantics.
+            if params.get('use_earnings_filter', False):
+                _e_map = params.get('earnings_map') or {}
+                _e_dates = _e_map.get(ticker.upper()) if _e_map else None
+                _holidays = params.get('_earnings_holidays')
+                if _holidays is None:
+                    from pandas.tseries.holiday import USFederalHolidayCalendar
+                    _hcal = USFederalHolidayCalendar()
+                    _holidays = _hcal.holidays(start='1990-01-01', end='2035-01-01').to_numpy().astype('datetime64[D]')
+                    params['_earnings_holidays'] = _holidays
+                _nearest = compute_signed_earnings_offsets(df.index, _e_dates, _holidays)
+                _op = params.get('earnings_logic', 'Between')
+                if _op == '=':
+                    _v = int(params.get('earnings_value', 0))
+                    cond = (_nearest == _v)
+                elif _op == '<':
+                    _v = int(params.get('earnings_value', 0))
+                    cond = (_nearest < _v)
+                elif _op == '>':
+                    _v = int(params.get('earnings_value', 0))
+                    cond = (_nearest > _v)
+                elif _op == 'Between':
+                    _lo = int(params.get('earnings_min', 0))
+                    _hi = int(params.get('earnings_max', 0))
+                    if _lo > _hi:
+                        _lo, _hi = _hi, _lo
+                    cond = (_nearest >= _lo) & (_nearest <= _hi)
+                elif _op == 'Not Between':
+                    _lo = int(params.get('earnings_min', 0))
+                    _hi = int(params.get('earnings_max', 0))
+                    if _lo > _hi:
+                        _lo, _hi = _hi, _lo
+                    cond = (_nearest < _lo) | (_nearest > _hi) | _nearest.isna()
+                else:
+                    cond = pd.Series(True, index=df.index)
+                # NaN safety: positive ops treat NaN as False (signal excluded);
+                # Not Between explicitly OR'd NaN above so leave alone.
+                if _op != 'Not Between':
+                    cond = cond.fillna(False)
+                conditions.append(cond)
 
             if params.get('use_acc_count_filter', False):
                 v2_prefix = "AccCount_v2_" if params.get('use_acc_dist_v2', False) else "AccCount_"
@@ -1477,6 +1608,14 @@ def run_engine(universe_dict, params, sznl_map, market_series=None, vix_series=N
                         limit_price = (day_open - (sig_atr * 0.75)) if direction == 'Long' else (day_open + (sig_atr * 0.75))
                         if direction == 'Long' and day_low <= limit_price: found_entry, actual_entry_idx, actual_entry_price = True, next_idx, limit_price
                         elif direction == 'Short' and day_high >= limit_price: found_entry, actual_entry_idx, actual_entry_price = True, next_idx, limit_price
+                elif is_limit_open_atr_100:
+                    next_idx = sig_idx + 1
+                    if next_idx < len(df):
+                        sig_atr, day_open = df['ATR'].iloc[sig_idx], df['Open'].iloc[next_idx]
+                        day_low, day_high = df['Low'].iloc[next_idx], df['High'].iloc[next_idx]
+                        limit_price = (day_open - sig_atr) if direction == 'Long' else (day_open + sig_atr)
+                        if direction == 'Long' and day_low <= limit_price: found_entry, actual_entry_idx, actual_entry_price = True, next_idx, limit_price
+                        elif direction == 'Short' and day_high >= limit_price: found_entry, actual_entry_idx, actual_entry_price = True, next_idx, limit_price
                 elif is_limit_open_atr_gtc:
                     next_idx = sig_idx + 1
                     if next_idx < len(df):
@@ -1695,7 +1834,7 @@ def main():
     st.subheader("1. Universe & Data")
     col_u1, col_u2, col_u3 = st.columns([1, 1, 2])
     sample_pct = 100; use_full_history = False
-    with col_u1: univ_choice = st.selectbox("Choose Universe", ["All CSV Tickers", "All CSV + Overflow Extras", "Sector ETFs","SPX", "Indices", "Indices (Spot — ^GSPC/^NDX)", "International ETFs", "Sector + Index ETFs", "All CSV (Equities Only)", "3x Leveraged (All)", "3x Leveraged Equities", "3x Leveraged Equities (Bull)", "3x Leveraged Equities (Bear)", "3x Leveraged Equities (Broad Only)", "Custom (Comma-Separated)", "Custom (Upload CSV)"])
+    with col_u1: univ_choice = st.selectbox("Choose Universe", ["All CSV Tickers", "All CSV + Overflow Extras", "All CSV + Overflow Extras (no ^ indices)", "Sector ETFs","SPX", "Indices", "Indices (Spot — ^GSPC/^NDX)", "International ETFs", "Sector + Index ETFs", "All CSV (Equities Only)", "3x Leveraged (All)", "3x Leveraged Equities", "3x Leveraged Equities (Bull)", "3x Leveraged Equities (Bear)", "3x Leveraged Equities (Broad Only)", "Custom (Comma-Separated)", "Custom (Upload CSV)"])
     with col_u2:
         default_start = datetime.date(2000, 1, 1)
         start_date = st.date_input("Backtest Start Date", value=default_start, min_value=datetime.date(1950, 1, 1), max_value=datetime.date.today())
@@ -1737,7 +1876,7 @@ def main():
                         custom_tickers.append(t)
                 if custom_tickers:
                     st.success(f"Parsed {len(custom_tickers)} unique tickers.")
-    elif univ_choice == "All CSV + Overflow Extras":
+    elif univ_choice in ("All CSV + Overflow Extras", "All CSV + Overflow Extras (no ^ indices)"):
         with col_u3:
             ex_c1, ex_c2 = st.columns([2, 1])
             with ex_c1:
@@ -1815,6 +1954,7 @@ def main():
         entry_type = st.selectbox("Entry Price", [
             "Limit (Open +/- 0.5 ATR)",
             "Limit (Open +/- 0.75 ATR)",
+            "Limit (Open +/- 1 ATR)",
             "Signal Close", "T+1 Open", "T+1 Close",
             "Overnight (Buy Close, Sell T+1 Open)", "Intraday (Buy Open, Sell Close)",
             "Day Trade (Limit Open +/- 0.5 ATR, Exit Close)",
@@ -1837,6 +1977,22 @@ def main():
         starting_portfolio = st.number_input("Starting Portfolio ($)", value=100000, step=1000, min_value=100)
         risk_bps_input = st.number_input("Risk per Trade (bps)", value=25, step=5, min_value=1, max_value=500,
                                          help="Basis points of starting portfolio risked per trade. 25 bps on $100k = $250/trade.")
+        _is_overflow_universe = univ_choice in (
+            "All CSV + Overflow Extras",
+            "All CSV + Overflow Extras (no ^ indices)",
+        )
+        overflow_bps_input = st.number_input(
+            "Overflow Ticker Risk (bps)",
+            value=int(risk_bps_input), step=5, min_value=1, max_value=500,
+            disabled=not _is_overflow_universe,
+            help=(
+                "Per-trade risk (bps) applied to overflow extras tickers — "
+                "i.e. tickers in the random sample drawn from sznl_ranks that "
+                "are NOT in the All CSV base. Liquid base tickers still size "
+                "off 'Risk per Trade'. Only relevant when 'All CSV + Overflow "
+                "Extras' is selected. Set equal to primary risk for uniform sizing."
+            ),
+        )
         use_max_daily_risk = st.checkbox(
             "Cap Total Daily Risk", value=False,
             help="If a day's signals would risk more than the cap in aggregate, scale every trade that day down pro-rata so total risk = cap. No effect on days under the cap.",
@@ -1932,6 +2088,48 @@ def main():
         with g1: gap_lookback = st.number_input("Lookback Window (Days)", 1, 252, 21, disabled=not use_gap_filter)
         with g2: gap_logic = st.selectbox("Gap Count Logic", [">", "<", "="], disabled=not use_gap_filter)
         with g3: gap_thresh = st.number_input("Count Threshold", 0, 50, 3, disabled=not use_gap_filter)
+    with st.expander("Earnings Proximity Filter", expanded=False):
+        st.caption(
+            "Filter signals by their **trading-day offset** to the nearest earnings "
+            "announcement. Convention: `offset = signal_date - earnings_date` "
+            "in trading days. **Negative = before earnings, 0 = day-of, "
+            "positive = after.** Operator behaves like the perf-rank filters: "
+            "`= -2` keeps only T-2 entries, `> 2` keeps signals more than 2 "
+            "trading days past earnings, `Between -2 and 2` keeps the full "
+            "±2 window, `Not Between 0 and 2` skips the 'today + last 2 days' "
+            "blackout. Source: data/earnings_calendar.parquet (FMP)."
+        )
+        use_earnings_filter = st.checkbox("Enable Earnings Proximity Filter", value=False)
+        ec1, ec2, ec3 = st.columns(3)
+        with ec1:
+            earnings_logic = st.selectbox(
+                "Logic", ["=", "<", ">", "Between", "Not Between"],
+                index=3,
+                disabled=not use_earnings_filter,
+                key="earnings_logic_op",
+            )
+        if earnings_logic in ("Between", "Not Between"):
+            with ec2:
+                earnings_min = st.number_input(
+                    "Min Offset (trading days)", -252, 252, -2, step=1,
+                    disabled=not use_earnings_filter,
+                    help="Negative = before earnings.",
+                )
+            with ec3:
+                earnings_max = st.number_input(
+                    "Max Offset (trading days)", -252, 252, 2, step=1,
+                    disabled=not use_earnings_filter,
+                    help="Positive = after earnings.",
+                )
+            earnings_value = 0  # unused
+        else:
+            with ec2:
+                earnings_value = st.number_input(
+                    "Offset (trading days)", -252, 252, 0, step=1,
+                    disabled=not use_earnings_filter,
+                    help="Negative = before earnings, 0 = day-of, positive = after.",
+                )
+            earnings_min, earnings_max = 0, 0  # unused
     with st.expander("Distance from MA Filter", expanded=False):
         use_ma_dist_filter = st.checkbox("Enable Distance Filter", value=False)
         d1, d2, d3, d4 = st.columns(4)
@@ -2367,10 +2565,15 @@ def main():
         elif univ_choice == "International ETFs": tickers_to_run = INTERNATIONAL_ETFS
         elif univ_choice == "Sector + Index ETFs": tickers_to_run = list(set(SECTOR_ETFS + INDEX_ETFS))
         elif univ_choice == "All CSV Tickers": tickers_to_run = [t for t in list(sznl_map.keys())]
-        elif univ_choice == "All CSV + Overflow Extras":
+        elif univ_choice in ("All CSV + Overflow Extras", "All CSV + Overflow Extras (no ^ indices)"):
+            _drop_caret = univ_choice == "All CSV + Overflow Extras (no ^ indices)"
             _base = [t for t in list(sznl_map.keys())]
+            if _drop_caret:
+                _base = [t for t in _base if "^" not in t]
             _base_set = set(_base)
             _new_extras = [t for t in extras_tickers if t not in _base_set]
+            if _drop_caret:
+                _new_extras = [t for t in _new_extras if "^" not in t]
             _scope = st.session_state.get('overflow_run_scope', 'All (base + extras)')
             if _scope == "Base only (All CSV)":
                 tickers_to_run = list(_base)
@@ -2379,7 +2582,8 @@ def main():
             else:
                 tickers_to_run = _base + _new_extras
             if extras_tickers:
-                st.info(f"Universe cached: {len(_base)} base + {len(_new_extras)} extras. **Running on {len(tickers_to_run)}** ({_scope}).")
+                _suffix = " — ^ indices excluded" if _drop_caret else ""
+                st.info(f"Universe cached: {len(_base)} base + {len(_new_extras)} extras{_suffix}. **Running on {len(tickers_to_run)}** ({_scope}).")
         elif univ_choice == "All CSV (Equities Only)": tickers_to_run = [t for t in list(sznl_map.keys()) if t not in ["BTC-USD", "ETH-USD", "SLV", "GLD", "USO", "UVXY", "CEF", "UNG", "XOP"] + SECTOR_ETFS + INDEX_ETFS + INTERNATIONAL_ETFS + SPX]
         elif univ_choice == "3x Leveraged (All)": tickers_to_run = LEV3X_ALL
         elif univ_choice == "3x Leveraged Equities": tickers_to_run = LEV3X_EQUITY_ALL
@@ -2396,7 +2600,7 @@ def main():
         fetch_start = "1950-01-01" if use_full_history else start_date - datetime.timedelta(days=365)
         # Split download: in hybrid mode, fetch base and extras separately so the 1k-ticker
         # base keeps its cache key across different extras uploads (only the delta re-fetches).
-        if univ_choice == "All CSV + Overflow Extras" and extras_tickers:
+        if univ_choice in ("All CSV + Overflow Extras", "All CSV + Overflow Extras (no ^ indices)") and extras_tickers:
             st.info(f"Loading base ({len(_base)}) + extras ({len(_new_extras)} new)...")
             base_data = _fetch_prices(_base, fetch_start)
             extras_data = _fetch_prices(_new_extras, fetch_start) if _new_extras else {}
@@ -2500,6 +2704,8 @@ def main():
             'use_ma_dist_filter': use_ma_dist_filter, 'dist_ma_type': dist_ma_type, 'dist_logic': dist_logic, 'dist_min': dist_min, 'dist_max': dist_max,
             'use_weekly_ma_pullback': use_weekly_ma_pullback, 'wma_type': wma_type, 'wma_period': wma_period, 'wma_min_ext_pct': wma_min_ext_pct, 'wma_lookback_months': wma_lookback_months, 'wma_touch_logic': wma_touch_logic,
             'use_gap_filter': use_gap_filter, 'gap_lookback': gap_lookback, 'gap_logic': gap_logic, 'gap_thresh': gap_thresh,
+            'use_earnings_filter': use_earnings_filter, 'earnings_logic': earnings_logic,
+            'earnings_value': earnings_value, 'earnings_min': earnings_min, 'earnings_max': earnings_max,
             'use_acc_count_filter': use_acc_count_filter, 'acc_count_window': acc_count_window, 'acc_count_logic': acc_count_logic, 'acc_count_thresh': acc_count_thresh,
             'use_dist_count_filter': use_dist_count_filter, 'dist_count_window': dist_count_window, 'dist_count_logic': dist_count_logic, 'dist_count_thresh': dist_count_thresh,
             'use_acc_dist_v2': use_acc_dist_v2,
@@ -2524,18 +2730,63 @@ def main():
             st.warning("ATR Seasonal Rank filter is enabled but atr_seasonal_ranks.parquet could not be loaded. Filter will be skipped.")
 
         fragility_df = load_fragility_dials() if dial_filters else None
+
+        # Earnings calendar — load once and stash in params so the engine can
+        # look up per-ticker dates inside its loop without re-reading parquet.
+        if use_earnings_filter:
+            earnings_map = load_earnings_map()
+            if not earnings_map:
+                st.warning(
+                    "Earnings filter enabled but data/earnings_calendar.parquet "
+                    "missing — filter will silently no-op. Run "
+                    "`python scripts/build_earnings_calendar.py` to backfill."
+                )
+            else:
+                _n_tkrs = len(earnings_map)
+                _n_rows = sum(len(v) for v in earnings_map.values())
+                if earnings_logic in ("Between", "Not Between"):
+                    _cond_str = f"{earnings_logic} {earnings_min} and {earnings_max}"
+                else:
+                    _cond_str = f"offset {earnings_logic} {earnings_value}"
+                st.info(
+                    f"📅 Earnings filter active ({_cond_str} trading days from "
+                    f"earnings): {_n_tkrs} tickers, {_n_rows:,} earnings dates loaded."
+                )
+            params['earnings_map'] = earnings_map
+
         trades_df, rejected_df, total_signals = run_engine(data_dict, params, sznl_map, market_series, vix_series, market_sznl_series, ref_ticker_ranks, xsec_rank_matrices, atr_sznl_map, fragility_df=fragility_df, market_sma_not_declining_series=market_sma_not_declining_series)
         if trades_df.empty: st.warning("No executed signals.")
         if not trades_df.empty:
             trades_df = trades_df.sort_values("ExitDate")
 
+            # Per-trade EffectiveBps: overflow-extras tickers get overflow_bps_input,
+            # everyone else gets primary risk_bps_input. Identical to primary
+            # when 'All CSV + Overflow Extras*' is not the universe (overflow set empty).
+            try:
+                _overflow_ticker_set = set(_new_extras) if _is_overflow_universe else set()
+            except NameError:
+                _overflow_ticker_set = set()
+            trades_df['IsOverflow'] = trades_df['Ticker'].isin(_overflow_ticker_set)
+            trades_df['EffectiveBps'] = np.where(
+                trades_df['IsOverflow'], int(overflow_bps_input), int(risk_bps_input)
+            )
+            _split_used = trades_df['IsOverflow'].any() and overflow_bps_input != risk_bps_input
+            if _split_used:
+                _n_of = int(trades_df['IsOverflow'].sum())
+                st.info(
+                    f"📐 Variable sizing active: {len(trades_df) - _n_of} liquid trades @ {risk_bps_input} bps · "
+                    f"{_n_of} overflow trades @ {overflow_bps_input} bps."
+                )
+
             # Per-trade RiskScale: pro-rata down on days where aggregate raw risk
-            # would exceed the daily cap. Always present (1.0 when feature off).
+            # would exceed the daily cap. Uses each trade's EffectiveBps so a
+            # day mixing 30/10 bps trades caps correctly. Always present (1.0 when off).
             if use_max_daily_risk and risk_bps_input > 0:
-                per_trade_pct = risk_bps_input / 100.0  # bps → %
                 _entry_dt = pd.to_datetime(trades_df['EntryDate'])
-                day_counts = _entry_dt.value_counts()
-                day_raw_pct = day_counts * per_trade_pct
+                # Per-trade %: EffectiveBps / 100 (bps → %)
+                _per_trade_pct = trades_df['EffectiveBps'].astype(float) / 100.0
+                _per_trade_pct.index = _entry_dt
+                day_raw_pct = _per_trade_pct.groupby(_per_trade_pct.index).sum()
                 day_scale = (max_daily_risk_pct / day_raw_pct).clip(upper=1.0)
                 trades_df['RiskScale'] = _entry_dt.map(day_scale).astype(float)
                 _capped_days = int((day_scale < 1.0).sum())
@@ -2546,9 +2797,14 @@ def main():
             else:
                 trades_df['RiskScale'] = 1.0
 
-            trades_df['PnL_Dollar'] = trades_df['R'] * risk_per_trade * trades_df['RiskScale']
+            # Per-trade risk dollars use EffectiveBps (split-aware).
+            trades_df['_RiskPerTradeDollar'] = starting_portfolio * trades_df['EffectiveBps'] / 10000.0
+            trades_df['PnL_Dollar'] = trades_df['R'] * trades_df['_RiskPerTradeDollar'] * trades_df['RiskScale']
+            trades_df = trades_df.drop(columns=['_RiskPerTradeDollar'])
             trades_df['CumPnL'] = trades_df['PnL_Dollar'].cumsum()
-            # Build MTM curves (flat + dynamic) before dates get stringified
+            # Build MTM curves (flat + dynamic) before dates get stringified.
+            # build_mtm_curves picks up trades_df['EffectiveBps'] when present,
+            # so per-trade sizing flows into MTM equity automatically.
             mtm_flat = build_mtm_curves(trades_df, data_dict, starting_portfolio, risk_bps_input, mode='flat')
             mtm_dyn  = build_mtm_curves(trades_df, data_dict, starting_portfolio, risk_bps_input, mode='dynamic')
             portfolio_stats = compute_portfolio_stats(mtm_dyn, starting_portfolio, risk_bps=risk_bps_input, trades_df=trades_df)

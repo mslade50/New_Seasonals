@@ -49,6 +49,11 @@ for _s in STRATEGY_BOOK:
     if _s['name'] == "Overbot Vol Spike":
         _s_copy = copy.deepcopy(_s)
         _s_copy['universe_tickers'] = CSV_UNIVERSE
+        # Overflow OVS sized at 20 bps (vs liquid 30). The stricter open >=
+        # signal close + 0.5 ATR gate (else skip) is enforced live at staging
+        # time in order_staging.py — this scanner just stages every signal at
+        # 20 bps and lets order_staging zero-out qty for rows that don't gap.
+        _s_copy['execution']['risk_bps'] = 20
         OVERFLOW_STRATEGIES.append(_s_copy)
     elif _s['name'] == "LT Trend ST OS":
         _s_copy = copy.deepcopy(_s)
