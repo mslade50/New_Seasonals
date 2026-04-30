@@ -67,7 +67,7 @@ ATR_SZNL_WINDOWS = [5, 10, 21, 63, 126, 252]
 ATR_SZNL_COLS = [f"atr_sznl_{w}d" for w in ATR_SZNL_WINDOWS]
 
 
-def build_effective_strategy_book(scope='liquid'):
+def build_effective_strategy_book(scope='liquid', moc_only=False):
     """Build the strategy list daily_scan iterates against, given a scope.
 
     scope='liquid' (default, matches today's GHA behavior): every entry in
@@ -83,20 +83,31 @@ def build_effective_strategy_book(scope='liquid'):
         set. Signals are tagged with `_scan_source` so downstream code can
         stamp Scan_Source on the staged row.
 
+    moc_only=True restricts to strategies with entry_type='Signal Close'.
+        Overflow tier is auto-excluded (it doesn't stage MOC by convention,
+        see save_moc_orders). Used by intraday GHA runs to skip the bulk
+        of the work — limit-entry strategies don't change between morning
+        and post-close so re-running them intraday is wasted compute.
+
     Each entry gets `_scan_source` set to 'Liquid' or 'Overflow'.
     """
     import copy as _copy
     liquid_set = set(LIQUID_PLUS_COMMODITIES)
     overflow_tickers = sorted(set(CSV_UNIVERSE) - liquid_set)
 
+    def _is_moc(s):
+        return str(s['settings'].get('entry_type', '')).strip() == 'Signal Close'
+
     book = []
     if scope in ('liquid', 'all'):
         for s in STRATEGY_BOOK:
+            if moc_only and not _is_moc(s):
+                continue
             ws = _copy.deepcopy(s)
             ws['_scan_source'] = 'Liquid'
             book.append(ws)
 
-    if scope in ('overflow', 'all'):
+    if scope in ('overflow', 'all') and not moc_only:
         for s in STRATEGY_BOOK:
             if s['name'] not in OVERFLOW_ELIGIBLE_STRATEGIES:
                 continue
@@ -1815,15 +1826,18 @@ def load_open_position_counts(ladder_strategy_names):
     return counts
 
 
-def run_daily_scan(scope='liquid'):
+def run_daily_scan(scope='liquid', moc_only=False):
     """Run the daily scan against `scope` (liquid|overflow|all).
 
-    See build_effective_strategy_book() for scope semantics.
+    moc_only=True restricts to MOC strategies (entry_type='Signal Close')
+    and skips the overflow tier entirely. Used by intraday GHA runs.
+
+    See build_effective_strategy_book() for full scope semantics.
     """
     if scope not in ('liquid', 'overflow', 'all'):
         raise ValueError(f"Invalid scope: {scope!r} (expected liquid|overflow|all)")
 
-    print(f"--- Starting Daily Automated Scan (scope={scope}) ---")
+    print(f"--- Starting Daily Automated Scan (scope={scope}, moc_only={moc_only}) ---")
     sznl_map = load_seasonal_map()
 
     # Build the strategy list this run iterates over. For scope=liquid (the
@@ -1831,9 +1845,9 @@ def run_daily_scan(scope='liquid'):
     # it's the 5 overflow-eligible strategies with universes swapped to
     # CSV_UNIVERSE − LIQUID_PLUS_COMMODITIES and per-strategy bps overrides
     # applied. scope=all is liquid + overflow concatenated.
-    effective_book = build_effective_strategy_book(scope)
+    effective_book = build_effective_strategy_book(scope, moc_only=moc_only)
     if not effective_book:
-        print(f"⚠️ scope={scope} produced an empty strategy book — nothing to scan.")
+        print(f"⚠️ scope={scope} (moc_only={moc_only}) produced an empty strategy book — nothing to scan.")
         return
 
     # 1. Gather Tickers
@@ -2451,5 +2465,11 @@ if __name__ == "__main__":
              "overflow-eligible strategies with bps overrides. "
              "all: liquid + overflow (signals tagged with Scan_Source).",
     )
+    _ap.add_argument(
+        "--moc-only", action="store_true",
+        help="Restrict to MOC strategies (entry_type='Signal Close'). Skips the "
+             "overflow tier entirely (overflow doesn't MOC). Use for intraday "
+             "GHA runs — limit-entry strategies don't change with intraday data.",
+    )
     _args = _ap.parse_args()
-    run_daily_scan(scope=_args.scope)
+    run_daily_scan(scope=_args.scope, moc_only=_args.moc_only)

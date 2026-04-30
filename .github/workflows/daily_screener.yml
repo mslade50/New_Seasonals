@@ -47,12 +47,35 @@ jobs:
         run: |
           pip install pandas pyarrow numpy yfinance gspread google-auth boto3
 
+      - name: Determine scan args by time-of-day
+        # Morning (09 UTC = 5:13 AM ET) and post-close (20 UTC = 4:13 PM ET)
+        # runs do the full scope=all scan (both tiers, all strategies) since
+        # those bracket the trading session. The 3 intraday slots
+        # (17:40, 18:45, 19:30 UTC) skip everything that isn't a MOC entry —
+        # limit-entry strategies don't change with partial-bar intraday data,
+        # and the overflow tier doesn't MOC at all. That keeps each intraday
+        # run to ~3 strategies × 190 liquid tickers (~1-2 min) instead of
+        # the full ~14 strategies × 1000+ tickers (~7-10 min).
+        # Manual workflow_dispatch always runs scope=all for ad-hoc testing.
+        id: cfg
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "args=--scope=all" >> "$GITHUB_OUTPUT"
+            echo "label=full (workflow_dispatch)" >> "$GITHUB_OUTPUT"
+          else
+            HOUR=$(date -u +%H)
+            case "$HOUR" in
+              09|20) echo "args=--scope=all" >> "$GITHUB_OUTPUT"; echo "label=full (pre-market or post-close)" >> "$GITHUB_OUTPUT" ;;
+              *)     echo "args=--scope=liquid --moc-only" >> "$GITHUB_OUTPUT"; echo "label=intraday MOC-only" >> "$GITHUB_OUTPUT" ;;
+            esac
+          fi
+          echo "Scan mode: ${{ steps.cfg.outputs.label }}" || true
+
       - name: Pull caches from R2
         # master_prices.parquet  -> read by the overflow scope (~870 tickers)
         # earnings_calendar.parquet -> OVS ±10 TD blackout for both tiers
-        # No-op if R2 secrets aren't yet configured. Liquid scan still works
-        # (yfinance live for liquid tickers); overflow scope falls back to
-        # yfinance for everything not in cache (slower).
+        # We always download both — small enough to be cheap, lets the
+        # workflow not branch on scope here.
         env:
           R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
           R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
@@ -66,4 +89,4 @@ jobs:
           GCP_JSON: ${{ secrets.GCP_JSON }}
           EMAIL_USER: ${{ secrets.EMAIL_USER }}
           EMAIL_PASS: ${{ secrets.EMAIL_PASS }}
-        run: python daily_scan.py --scope=all
+        run: python daily_scan.py ${{ steps.cfg.outputs.args }}
