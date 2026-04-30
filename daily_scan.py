@@ -15,6 +15,7 @@ from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 
 from indicators import calculate_indicators, get_sznl_val_series
+from earnings_filter import load_earnings_dates_map, in_blackout
 
 # Define a "Trading Day" offset that skips Weekends AND US Holidays
 TRADING_DAY = CustomBusinessDay(calendar=USFederalHolidayCalendar())
@@ -27,17 +28,121 @@ parent_dir = os.path.dirname(current_dir)
 sys.path.append(parent_dir)
 
 try:
-    from strategy_config import STRATEGY_BOOK, ACCOUNT_VALUE, SPOT_TO_TRADEABLE
+    from strategy_config import (
+        STRATEGY_BOOK, ACCOUNT_VALUE, SPOT_TO_TRADEABLE,
+        CSV_UNIVERSE, LIQUID_PLUS_COMMODITIES,
+    )
 except ImportError:
     print("❌ Could not find strategy_config.py in the root directory.")
     STRATEGY_BOOK = []
     ACCOUNT_VALUE = 0
     SPOT_TO_TRADEABLE = {}
+    CSV_UNIVERSE = []
+    LIQUID_PLUS_COMMODITIES = []
+
+# Master prices parquet — full CSV_UNIVERSE history, built/maintained by
+# scripts/update_master_prices.py. Used for the overflow scope to avoid
+# 870+ ticker yfinance pulls.
+MASTER_PRICES_PATH = os.path.join(current_dir, "data", "master_prices.parquet")
+
+# Strategies the overflow scope expands to CSV_UNIVERSE − LIQUID_PLUS_COMMODITIES.
+# Mirrors local_overflow_scan.OVERFLOW_STRATEGIES + daily_portfolio_report.OVERFLOW_ELIGIBLE.
+OVERFLOW_ELIGIBLE_STRATEGIES = {
+    "Overbot Vol Spike",
+    "LT Trend ST OS",
+    "Oversold Low Volume",
+    "St OS Sznl",
+    "52wh Breakout",
+}
+
+# Per-strategy bps overrides for the overflow tier. OVS uses path-1 nominal
+# (40 bps) for both universes — see strategy_config.py + order_staging.py.
+OVERFLOW_RISK_OVERRIDES = {
+    "Oversold Low Volume": 25,  # vs liquid 35
+}
 
 # ATR-normalized seasonal ranks (built by build_atr_seasonal_ranks.py)
 ATR_SZNL_PATH = os.path.join(current_dir, "atr_seasonal_ranks.parquet")
 ATR_SZNL_WINDOWS = [5, 10, 21, 63, 126, 252]
 ATR_SZNL_COLS = [f"atr_sznl_{w}d" for w in ATR_SZNL_WINDOWS]
+
+
+def build_effective_strategy_book(scope='liquid'):
+    """Build the strategy list daily_scan iterates against, given a scope.
+
+    scope='liquid' (default, matches today's GHA behavior): every entry in
+        STRATEGY_BOOK as-is, scanning each strategy's native universe_tickers
+        (typically LIQUID_PLUS_COMMODITIES).
+
+    scope='overflow': only the 5 overflow-eligible strategies, with their
+        universe swapped to CSV_UNIVERSE − LIQUID_PLUS_COMMODITIES and
+        per-strategy risk_bps overrides applied (e.g. OLV 35 → 25).
+
+    scope='all': liquid pass + overflow pass concatenated. The same strategy
+        name may appear twice (once per tier), each scanning its own ticker
+        set. Signals are tagged with `_scan_source` so downstream code can
+        stamp Scan_Source on the staged row.
+
+    Each entry gets `_scan_source` set to 'Liquid' or 'Overflow'.
+    """
+    import copy as _copy
+    liquid_set = set(LIQUID_PLUS_COMMODITIES)
+    overflow_tickers = sorted(set(CSV_UNIVERSE) - liquid_set)
+
+    book = []
+    if scope in ('liquid', 'all'):
+        for s in STRATEGY_BOOK:
+            ws = _copy.deepcopy(s)
+            ws['_scan_source'] = 'Liquid'
+            book.append(ws)
+
+    if scope in ('overflow', 'all'):
+        for s in STRATEGY_BOOK:
+            if s['name'] not in OVERFLOW_ELIGIBLE_STRATEGIES:
+                continue
+            ws = _copy.deepcopy(s)
+            ws['universe_tickers'] = overflow_tickers
+            if s['name'] in OVERFLOW_RISK_OVERRIDES:
+                new_bps = OVERFLOW_RISK_OVERRIDES[s['name']]
+                ws['execution']['risk_bps'] = new_bps
+                ws['execution']['risk_per_trade'] = ACCOUNT_VALUE * new_bps / 10000
+            ws['_scan_source'] = 'Overflow'
+            book.append(ws)
+
+    return book
+
+
+def load_master_prices_dict(tickers):
+    """Load price history for `tickers` from master_prices.parquet → {ticker: DataFrame}.
+
+    Used by the overflow scope to avoid yfinance bulk-pulling ~870 tickers
+    on every run. Returns empty dict if the parquet is missing — caller
+    should fall back to download_historical_data() in that case.
+    """
+    if not os.path.exists(MASTER_PRICES_PATH):
+        return {}
+    try:
+        df = pd.read_parquet(MASTER_PRICES_PATH)
+    except Exception as e:
+        print(f"⚠️ Failed to load {MASTER_PRICES_PATH}: {e}")
+        return {}
+    if df.empty:
+        return {}
+    wanted = set(t.strip().upper().replace('.', '-') for t in tickers)
+    df['ticker'] = df['ticker'].astype(str).str.upper().str.strip()
+    df = df[df['ticker'].isin(wanted)]
+    if df.empty:
+        return {}
+    df['date'] = pd.to_datetime(df['date'])
+    out = {}
+    for tkr, grp in df.groupby('ticker'):
+        sub = grp.set_index('date').sort_index()
+        sub = sub[[c for c in ['Open', 'High', 'Low', 'Close', 'Volume'] if c in sub.columns]]
+        if sub.index.tz is not None:
+            sub.index = sub.index.tz_localize(None)
+        sub.index = sub.index.normalize()
+        out[tkr] = sub
+    return out
 
 
 def load_atr_seasonal_map():
@@ -944,7 +1049,12 @@ def save_moc_orders(signals_list, strategy_book, sheet_name='moc_orders'):
             for row in pd.DataFrame(signals_list).to_dict('records'):
                 strat = strat_map.get(row['Strategy_ID'])
                 if not strat: continue
-                
+
+                # Skip overflow-tier rows: thin-liquidity tickers shouldn't be
+                # MOC'd. Mirrors the original local_overflow_scan convention.
+                if str(row.get('Scan_Source', 'Liquid')).strip() == 'Overflow':
+                    continue
+
                 settings = strat['settings']
                 entry_mode = settings.get('entry_type', 'Signal Close')
 
@@ -977,18 +1087,44 @@ def save_moc_orders(signals_list, strategy_book, sheet_name='moc_orders'):
         print(f"❌ MOC Staging Error: {e}")
 
 
-def save_staging_orders(signals_list, strategy_book, sheet_name='Order_Staging'):
-    """
-    Saves non-MOC orders (Limits, T+1, etc) to 'Order_Staging'.
-    Excludes 'Signal Close' orders.
-    
+def save_staging_orders(signals_list, strategy_book, sheet_name='Order_Staging', tier_filter=None):
+    """Save non-MOC orders to a Google Sheets tab.
+
+    Excludes 'Signal Close' (those go to moc_orders).
+
+    tier_filter: if 'Liquid' or 'Overflow', only stage rows whose Scan_Source
+        matches. Used by the merged scan to write Liquid → Order_Staging and
+        Overflow → Overflow without touching the other tab.
+
     CHANGES from previous version:
     - FIX: GTC entry types now correctly detected (was only checking "Persistent")
-    - NEW: Bracket exit metadata columns (Tgt_ATR_Mult, Stop_ATR_Mult, 
+    - NEW: Bracket exit metadata columns (Tgt_ATR_Mult, Stop_ATR_Mult,
            Use_Target, Use_Stop, Hold_Days, Trade_Direction) so order_staging.py
            can compute exit prices anchored to the resolved entry limit price.
+    - NEW: tier_filter for tier-aware tab writes (Liquid → Order_Staging,
+           Overflow → Overflow). If unset, behaves as before (writes everything).
     """
-    if not signals_list: return
+    if tier_filter is not None:
+        signals_list = [
+            s for s in (signals_list or [])
+            if str(s.get('Scan_Source', 'Liquid')).strip() == tier_filter
+        ]
+    if not signals_list:
+        # Even on zero-signal days we clear the tab so stale rows from a
+        # prior run never linger and get re-staged by order_staging.
+        gc = get_google_client()
+        if gc:
+            try:
+                sh = gc.open("Trade_Signals_Log")
+                try:
+                    ws = sh.worksheet(sheet_name)
+                    ws.clear()
+                    print(f"🧹 '{sheet_name}' cleared — no rows for tier_filter={tier_filter}")
+                except Exception:
+                    pass
+            except Exception as e:
+                print(f"❌ Tab clear failed for {sheet_name}: {e}")
+        return
 
     df = pd.DataFrame(signals_list)
     strat_map = {s['id']: s for s in strategy_book}
@@ -1029,6 +1165,7 @@ def save_staging_orders(signals_list, strategy_book, sheet_name='Order_Staging')
                     "Rank_252D": row.get('Rank_252D', ''),
                     "Risk_Amt": float(row.get('Risk_Amt', 0) or 0),
                     "Risk_Bps": 0,
+                    "Scan_Source": str(row.get('Scan_Source', 'Liquid')),
                 })
             continue
         
@@ -1134,6 +1271,17 @@ def save_staging_orders(signals_list, strategy_book, sheet_name='Order_Staging')
             # recomputes size from this rather than back-deriving from Quantity.
             "Risk_Amt": float(row.get('Risk_Amt', 0) or 0),
             "Risk_Bps": int(execution.get('risk_bps', 0)),
+            # OVS 2-path sizing fields (empty for non-OVS rows). order_staging
+            # reads these to apply the path-1/path-2/skip decision and the
+            # path-2 daily aggregate cap.
+            "Path1_Bps": execution.get('path1_bps', '') if strat['name'] == "Overbot Vol Spike" else '',
+            "Path2_Bps": execution.get('path2_bps', '') if strat['name'] == "Overbot Vol Spike" else '',
+            "Path2_Daily_Cap_Pct": execution.get('path2_daily_cap_pct', '') if strat['name'] == "Overbot Vol Spike" else '',
+            # Tier this signal's universe sits in. order_staging used to read
+            # this from the (now retired) Scan_Source column on the Overflow
+            # tab — post-merge we stage everything to Order_Staging and the
+            # field travels with the row.
+            "Scan_Source": str(row.get('Scan_Source', 'Liquid')),
         })
 
     # If all orders were "Signal Close", this list is empty now
@@ -1667,13 +1815,30 @@ def load_open_position_counts(ladder_strategy_names):
     return counts
 
 
-def run_daily_scan():
-    print("--- Starting Daily Automated Scan (Synced) ---")
+def run_daily_scan(scope='liquid'):
+    """Run the daily scan against `scope` (liquid|overflow|all).
+
+    See build_effective_strategy_book() for scope semantics.
+    """
+    if scope not in ('liquid', 'overflow', 'all'):
+        raise ValueError(f"Invalid scope: {scope!r} (expected liquid|overflow|all)")
+
+    print(f"--- Starting Daily Automated Scan (scope={scope}) ---")
     sznl_map = load_seasonal_map()
-    
+
+    # Build the strategy list this run iterates over. For scope=liquid (the
+    # default GHA path) this is every entry in STRATEGY_BOOK. For scope=overflow
+    # it's the 5 overflow-eligible strategies with universes swapped to
+    # CSV_UNIVERSE − LIQUID_PLUS_COMMODITIES and per-strategy bps overrides
+    # applied. scope=all is liquid + overflow concatenated.
+    effective_book = build_effective_strategy_book(scope)
+    if not effective_book:
+        print(f"⚠️ scope={scope} produced an empty strategy book — nothing to scan.")
+        return
+
     # 1. Gather Tickers
     all_tickers = set()
-    for strat in STRATEGY_BOOK:
+    for strat in effective_book:
         all_tickers.update(strat['universe_tickers'])
         # Spot-index alias: ensure tradeable ETF (SPY/QQQ) is downloaded so its
         # ATR/close/indicators are available at substitution time.
@@ -1689,7 +1854,30 @@ def run_daily_scan():
             all_tickers.add(s['ref_ticker'].replace('.', '-'))
     
     # 2. Download Data
-    master_dict = download_historical_data(list(all_tickers))
+    # For scope=overflow|all, prefer master_prices.parquet for the ~870
+    # overflow-tier tickers (yfinance bulk-pulls of that size are slow and
+    # rate-limit unstable). Liquid + special tickers (^VIX, SPY, ^GSPC, etc.)
+    # always go through yfinance live for the freshest bars.
+    _liquid_set = set(LIQUID_PLUS_COMMODITIES)
+    _overflow_in_scope = scope in ('overflow', 'all')
+    if _overflow_in_scope:
+        # Split tickers: those in master_prices vs those that should hit yfinance.
+        _master_candidates = [t for t in all_tickers if t.replace('.', '-').upper() not in _liquid_set]
+        master_dict = load_master_prices_dict(_master_candidates)
+        if master_dict:
+            print(f"📦 Loaded master_prices.parquet: {len(master_dict)} overflow-tier tickers")
+            _yf_tickers = [
+                t for t in all_tickers
+                if t.replace('.', '-').upper() not in {k.upper() for k in master_dict}
+            ]
+        else:
+            print(f"⚠️ master_prices.parquet unavailable — falling back to yfinance for all tickers")
+            _yf_tickers = list(all_tickers)
+        if _yf_tickers:
+            yf_dict = download_historical_data(_yf_tickers)
+            master_dict.update(yf_dict)
+    else:
+        master_dict = download_historical_data(list(all_tickers))
     
     # -------------------------------------------------------------------------
     # 3. DATE VALIDATION & ENFORCEMENT (Morning vs. Day Logic)
@@ -1724,38 +1912,43 @@ def run_daily_scan():
     if is_intraday_partial:
         print(f"🕐 Intraday partial-bar window — LT Trend ST OS will use vol_thresh 1.0× (else 1.25×)")
 
-    # 3c. Morning-run-only: read pre-existing OVS quantities from Overflow tab.
-    # When daily_scan fires Overbot Vol Spike signals in the 5 AM run, any ticker
-    # that already has an OVS order in the Overflow tab (staged by yesterday's
-    # overflow scan) gets its daily_scan shares CAPPED to the overflow quantity.
-    # Rationale: avoid doubling exposure when the same ticker fires in both
-    # scanners — keep the pre-staged overflow size as the authoritative cap.
+    # 3c. Morning-run-only: read pre-existing overflow OVS quantities from
+    # the Order_Staging tab (filtered by Scan_Source='Overflow'). When the
+    # liquid scan fires Overbot Vol Spike signals in the 5 AM run, any ticker
+    # that already has an Overflow OVS row from yesterday's scope=overflow run
+    # gets its daily_scan shares CAPPED to that quantity — avoids doubling
+    # exposure when the same ticker fires in both tiers.
     # User-acknowledged: this may cross the aggregate bps risk threshold.
+    # (Pre-merge this read targeted a separate "Overflow" tab; that tab is
+    # retired as of the daily_scan + local_overflow_scan merge.)
     overflow_ovs_quantities = {}
-    if is_morning_run:
+    if is_morning_run and scope in ('liquid', 'all'):
         try:
             _gc = get_google_client()
             if _gc:
                 _sh = _gc.open("Trade_Signals_Log")
                 try:
-                    _ws = _sh.worksheet("Overflow")
+                    _ws = _sh.worksheet("Order_Staging")
                     _rows = _ws.get_all_records()
                     for _r in _rows:
-                        if str(_r.get('Strategy_Ref', '')).strip() == "Overbot Vol Spike":
-                            _tkr = str(_r.get('Symbol', '')).strip().upper()
-                            try:
-                                _qty = int(float(_r.get('Quantity', 0)))
-                            except (ValueError, TypeError):
-                                _qty = 0
-                            if _tkr and _qty > 0:
-                                # Multiple rows for same ticker → keep max (conservative cap)
-                                overflow_ovs_quantities[_tkr] = max(overflow_ovs_quantities.get(_tkr, 0), _qty)
+                        if str(_r.get('Strategy_Ref', '')).strip() != "Overbot Vol Spike":
+                            continue
+                        if str(_r.get('Scan_Source', 'Liquid')).strip() != 'Overflow':
+                            continue
+                        _tkr = str(_r.get('Symbol', '')).strip().upper()
+                        try:
+                            _qty = int(float(_r.get('Quantity', 0)))
+                        except (ValueError, TypeError):
+                            _qty = 0
+                        if _tkr and _qty > 0:
+                            # Multiple rows for same ticker → keep max (conservative cap)
+                            overflow_ovs_quantities[_tkr] = max(overflow_ovs_quantities.get(_tkr, 0), _qty)
                     if overflow_ovs_quantities:
-                        print(f"📋 Morning run: {len(overflow_ovs_quantities)} OVS tickers already in Overflow — daily_scan OVS shares will cap to match")
+                        print(f"📋 Morning run: {len(overflow_ovs_quantities)} Overflow OVS tickers in Order_Staging — liquid OVS shares will cap to match")
                 except Exception as _e:
-                    print(f"ℹ️ No Overflow tab to read for OVS size match (or empty): {_e}")
+                    print(f"ℹ️ No Order_Staging rows to read for OVS size match (or empty): {_e}")
         except Exception as e:
-            print(f"⚠️ Could not read Overflow tab for OVS size match: {e}")
+            print(f"⚠️ Could not read Order_Staging for OVS size match: {e}")
 
     validated_dict = {}
     for ticker, df in master_dict.items():
@@ -1831,7 +2024,7 @@ def run_daily_scan():
     # 4b. Build Cross-Sectional Rank Matrices (if any strategy uses xsec filters or or_filter_groups)
     xsec_rank_matrices = None
     xsec_windows_needed = set()
-    for strat in STRATEGY_BOOK:
+    for strat in effective_book:
         s = strat['settings']
         if s.get('use_xsec_filter', False):
             for xf in s.get('xsec_filters', []):
@@ -1863,8 +2056,8 @@ def run_daily_scan():
 
     # 4a. Load ATR seasonal ranks once if any strategy uses them
     _uses_atr_sznl = (
-        any(s['settings'].get('atr_sznl_filters') for s in STRATEGY_BOOK)
-        or any(s['name'] == "Overbot Vol Spike" for s in STRATEGY_BOOK)  # uses atr_sznl_5d for the 1.5x sizer
+        any(s['settings'].get('atr_sznl_filters') for s in effective_book)
+        or any(s['name'] == "Overbot Vol Spike" for s in effective_book)  # uses atr_sznl_5d for the 1.5x sizer
     )
     atr_sznl_map = load_atr_seasonal_map() if _uses_atr_sznl else {}
     if _uses_atr_sznl:
@@ -1873,16 +2066,30 @@ def run_daily_scan():
         else:
             print(f"⚠️ atr_seasonal_ranks.parquet not found — atr_sznl_filters will match nothing")
 
+    # 4b. Earnings calendar — used by OVS earnings blackout (±10 trading days).
+    # Tickers with no earnings data (commodity ETFs, indices, futures, FX) pass
+    # through automatically (NaN-as-True). Empty dict ⇒ filter is a silent no-op.
+    _uses_earnings_blackout = any(
+        s['execution'].get('earnings_blackout_td') for s in effective_book
+    )
+    earnings_map = load_earnings_dates_map() if _uses_earnings_blackout else {}
+    if _uses_earnings_blackout:
+        if earnings_map:
+            print(f"📊 Loaded earnings calendar: {len(earnings_map)} tickers")
+        else:
+            print(f"⚠️ data/earnings_calendar.parquet not found — earnings blackout disabled")
+
     # 4c. Ladder position counts — counts currently-held filled primary signals
     # per (ticker, strategy) so repeat signals size up on each successive day.
-    ladder_strats = {s['name'] for s in STRATEGY_BOOK if s['execution'].get('ladder_multipliers')}
+    ladder_strats = {s['name'] for s in effective_book if s['execution'].get('ladder_multipliers')}
     ladder_counts = load_open_position_counts(ladder_strats)
     if ladder_counts:
         print(f"📈 Ladder: {len(ladder_counts)} open ({', '.join(f'{t}/{s[:12]}={c}' for (t, s), c in list(ladder_counts.items())[:5])}{'...' if len(ladder_counts) > 5 else ''})")
 
     # 5. Run Strategies
-    for strat in STRATEGY_BOOK:
-        print(f"Running: {strat['name']}...")
+    for strat in effective_book:
+        _scan_source = strat.get('_scan_source', 'Liquid')
+        print(f"Running: {strat['name']} [{_scan_source}]...")
         
         # Prepare Market Series
         mkt_ticker = strat['settings'].get('market_ticker', 'SPY')
@@ -1942,6 +2149,16 @@ def run_daily_scan():
                     _eff_settings['vol_thresh'] = 1.0
 
                 if check_signal(calc_df, _eff_settings, sznl_map, ticker=t_clean):
+                    # Earnings blackout (OVS-only currently). Reject signals
+                    # within ±N trading days of earnings. NaN passes through —
+                    # commodity ETFs / futures / indices have no earnings data
+                    # and shouldn't be silently killed by a stock-only filter.
+                    _eb_window = strat['execution'].get('earnings_blackout_td')
+                    if _eb_window and earnings_map:
+                        _e_arr = earnings_map.get(t_clean.upper())
+                        if in_blackout(calc_df.index[-1], _e_arr, window=_eb_window):
+                            continue
+
                     # Spot-index alias: detection happens on ^GSPC/^NDX (purer price),
                     # but staging happens on SPY/QQQ. Recompute calc_df against the
                     # tradeable so all downstream values (entry, ATR, stop/target,
@@ -2001,21 +2218,17 @@ def run_daily_scan():
                             risk = risk * 0.66
                             sizing_note = f"Low Sznl ({sznl_val:.0f}) = 0.66x"
 
-                    # Overbot Vol Spike: 1.3x when 5D ATR seasonal rank < 30 (weak
-                    # short-horizon seasonal reinforces the fade thesis). Otherwise
-                    # flat 25 bps. All prior OVS conditional sizing (leader penalty,
-                    # high-sznl terminal) was retired in favor of this single rule.
-                    if strat['name'] == "Overbot Vol Spike":
-                        _atr_sznl_5d = last_row.get('atr_sznl_5d', None)
-                        if pd.notna(_atr_sznl_5d) and _atr_sznl_5d < 30:
-                            risk = risk * 1.3
-                            sizing_note = f"ATR Sznl 5d {_atr_sznl_5d:.0f} < 30 → 1.3x"
+                    # OVS sizing is governed by the 2-path scheme in
+                    # order_staging.py: path-1 (decisive 0.25 ATR gap) → 40 bps,
+                    # path-2 (mild gap, open ≤ close + 0.25 ATR) → 8 bps with a
+                    # 1% aggregate path-2 cap, no gap → skip. Scanner stages at
+                    # path-1 nominal; order_staging downsizes path-2 rows.
                     # ---------------------------------------------------------
 
                     # 2b. FRAGILITY SIZING ADJUSTMENT
                     # Applied after strategy-specific adjustments. OVS is exempt —
-                    # its sizing is governed entirely by the 5D ATR sznl rule and
-                    # the post-open gap-tier adjuster in order_staging.py.
+                    # its sizing is governed by the 2-path gap-tier adjuster in
+                    # order_staging.py.
                     if frag_mult != 1.0 and strat['name'] != "Overbot Vol Spike":
                         risk = risk * frag_mult
                         sizing_note += f" | Frag {frag_mult:.2f}x"
@@ -2155,9 +2368,14 @@ def run_daily_scan():
                         "Exit_Target": exit_block.get('target_logic', ''),
                         "Exit_Notes": exit_block.get('notes', ''),
                         # Sizing context variable (for strategies with dynamic sizing)
-                        "Sizing_Variable": get_sizing_variable(strat['name'], last_row)
+                        "Sizing_Variable": get_sizing_variable(strat['name'], last_row),
+                        # Tier this signal belongs to ('Liquid' or 'Overflow').
+                        # Stamped onto the staging row so order_staging knows
+                        # which universe sized it. The 5 overflow-eligible
+                        # strategies appear twice in scope=all (once per tier).
+                        "Scan_Source": _scan_source,
                     }
-                    
+
                     signals.append(signal_dict)
             except Exception as e:
                 error_tickers.append((t_clean, str(e)[:80]))
@@ -2177,14 +2395,34 @@ def run_daily_scan():
         df_sig = pd.DataFrame(all_signals)
         # 1. Log to Master Sheet (APPEND MODE)
         save_signals_to_gsheet(df_sig)
-        
-        # 2. Stage MOC Orders (Signal Close)
-        save_moc_orders(all_signals, STRATEGY_BOOK, sheet_name='moc_orders')
-        
-        # 3. Stage Rest of Orders (Limits, MOO)
-        save_staging_orders(all_signals, STRATEGY_BOOK, sheet_name='Order_Staging')
+
+        # 2. Stage MOC Orders (Signal Close) — Liquid only by convention
+        # (overflow tier is too thin for safe MOC participation; save_moc_orders
+        # skips rows with Scan_Source='Overflow').
+        if scope in ('liquid', 'all'):
+            save_moc_orders(all_signals, effective_book, sheet_name='moc_orders')
+
+        # 3. Stage non-MOC orders to per-tier tabs:
+        #    Liquid rows → Order_Staging   (read by order_staging.py)
+        #    Overflow rows → Overflow      (also read by order_staging.py)
+        # Both tabs are managed by the same function with a tier_filter.
+        if scope in ('liquid', 'all'):
+            save_staging_orders(
+                all_signals, effective_book,
+                sheet_name='Order_Staging', tier_filter='Liquid',
+            )
+        if scope in ('overflow', 'all'):
+            save_staging_orders(
+                all_signals, effective_book,
+                sheet_name='Overflow', tier_filter='Overflow',
+            )
     else:
         print("No signals found today.")
+        # Clear whichever tabs THIS scope owns so stale rows don't linger.
+        if scope in ('liquid', 'all'):
+            save_staging_orders([], effective_book, sheet_name='Order_Staging', tier_filter='Liquid')
+        if scope in ('overflow', 'all'):
+            save_staging_orders([], effective_book, sheet_name='Overflow', tier_filter='Overflow')
 
     # 7. Send Email Summary
     # Deduplicate error tickers (same ticker may appear across multiple strategies)
@@ -2202,4 +2440,16 @@ def run_daily_scan():
 
 
 if __name__ == "__main__":
-    run_daily_scan()
+    import argparse
+    _ap = argparse.ArgumentParser(description="Daily scan — liquid + overflow universes")
+    _ap.add_argument(
+        "--scope",
+        choices=("liquid", "overflow", "all"),
+        default="liquid",
+        help="liquid (default, GHA path): scan LIQUID_PLUS_COMMODITIES per strategy. "
+             "overflow: scan CSV_UNIVERSE − LIQUID_PLUS_COMMODITIES for the 5 "
+             "overflow-eligible strategies with bps overrides. "
+             "all: liquid + overflow (signals tagged with Scan_Source).",
+    )
+    _args = _ap.parse_args()
+    run_daily_scan(scope=_args.scope)

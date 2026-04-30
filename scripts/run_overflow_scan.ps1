@@ -52,7 +52,10 @@ Set-Location $ProjectDir
 
 try {
     $ErrorActionPreference = "Continue"
-    $output = python local_overflow_scan.py 2>&1
+    # Post-merge (2026-04-30): local_overflow_scan.py is retired and the
+    # overflow universe is now scanned via daily_scan.py --scope=overflow.
+    # Same Overflow Google Sheets tab is written; same email pipeline.
+    $output = python daily_scan.py --scope=overflow 2>&1
     $output | Tee-Object -FilePath $LogFile -Append
     $ErrorActionPreference = "Stop"
 
