@@ -12,14 +12,17 @@ A quantitative equity trading platform built on Streamlit. Three pillars:
 ```
 ├── app.py                          # Main Streamlit entry point
 ├── strategy_config.py              # Strategy definitions (STRATEGY_BOOK)
-├── daily_scan.py                   # Production scanner + email + Google Sheets
+├── daily_scan.py                   # Unified scanner — supports --scope=liquid|overflow|all and --moc-only
 ├── daily_risk_report.py            # Daily risk email (fragility dials + signals + forward returns)
 ├── daily_portfolio_report.py       # Daily portfolio health report (imports from strat_backtester)
 ├── weekly_market_rundown.py        # Weekly PDF rundown (tabloid landscape, 11 chart pages)
 ├── radar_weekly_summary.py         # Weekly radar digest (reads daily briefs, Claude distills best-of)
 ├── verify_fills.py                 # Post-close fill verification (updates Google Sheets)
 ├── indicators.py                   # Shared indicator library
+├── earnings_filter.py              # Shared OVS earnings blackout helpers (load parquet, compute offset)
+├── cache_io.py                     # Cloudflare R2 read/write wrapper (boto3) — graceful no-op without creds
 ├── abs_return_dispersion.py        # S&P 500 dispersion metric (~505 tickers)
+├── local_overflow_scan.py          # DEPRECATED stub — forwards to `daily_scan.py --scope=overflow`
 ├── risk_dashboard_clean_sheet.md   # Risk Dashboard V2 design doc
 ├── pages/                          # Streamlit pages (FLAT — no subfolders)
 │   ├── risk_dashboard_v2.py        # Multi-layer regime monitor (standalone)
@@ -30,10 +33,23 @@ A quantitative equity trading platform built on Streamlit. Three pillars:
 │   ├── sector_trends.py            # Sector trend analysis
 │   ├── seasonal_sigs.py            # Seasonal signals
 │   └── user_input.py               # User input page
-├── scripts/                        # Task Scheduler PowerShell wrappers
-│   ├── run_radar_weekly.ps1        # Sunday 8:30 AM ET — runs radar digest, commits + pushes
-│   └── setup_radar_weekly_task.ps1 # One-time admin setup for Task Scheduler
-├── data/                           # Persistent cache (parquet files + radar digest)
+├── .github/workflows/              # GitHub Actions — see "Automated Pipeline" below
+│   ├── daily_screener.yml          # 5x/day unified scan (full at 09/20 UTC, MOC-only intraday)
+│   ├── build_earnings_calendar.yml # Nightly FMP refresh → R2
+│   ├── update_master_prices.yml    # Nightly yfinance incremental → R2
+│   ├── portfolio_report.yml        # Daily portfolio email
+│   ├── bootstrap_caches.yml        # workflow_dispatch only — one-shot full master_prices rebuild
+│   ├── risk_report.yml             # Daily risk dashboard email
+│   ├── verify_fills.yml            # Post-close fill verification
+│   └── weekly_rundown.yml          # Sunday weekly PDF
+├── scripts/                        # Task Scheduler PowerShell wrappers (most disabled post-Phase-2)
+│   ├── run_radar_weekly.ps1        # Sundays 8:30 AM ET — runs radar digest, commits + pushes
+│   ├── run_earnings_calendar.ps1   # Weekdays 5:30 PM ET — local backup of GHA build (dual writers OK)
+│   ├── build_earnings_calendar.py  # FMP earnings backfill (used by both local + GHA)
+│   ├── update_master_prices.py     # yfinance incremental update (used by both local + GHA)
+│   ├── build_master_prices.py      # One-shot full rebuild (used by bootstrap_caches.yml)
+│   └── (DISABLED locally: run_overflow_scan.ps1, run_daily_portfolio_report.ps1, run_master_prices_update.ps1)
+├── data/                           # Persistent cache (parquet files + radar digest) — gitignored
 ├── docs/                           # Documentation
 └── tests/                          # Tests
 ```
@@ -80,7 +96,15 @@ It may optionally import `SP500_TICKERS` from `abs_return_dispersion.py` (with t
 
 **Strategy modules** (`strat_backtester.py`, `daily_scan.py`, `daily_portfolio_report.py`) all depend on `strategy_config.py` for `STRATEGY_BOOK` and `ACCOUNT_VALUE`.
 
-**daily_portfolio_report.py** imports backtesting logic from `strat_backtester.py`. Both must stay in sync with `daily_scan.py` for signal detection, sizing, and trade processing. `ACCOUNT_VALUE` from `strategy_config.py` is the single source of truth for portfolio sizing across all three. Runs **locally** via Task Scheduler (weekdays 5:30 PM ET) so it can read `data/master_prices.parquet` and reflect the exact data the overflow scanner staged. Reports cover both liquid (LIQUID_PLUS_COMMODITIES) and overflow (CSV_UNIVERSE − LIQUID_PLUS_COMMODITIES) universes — overflow-eligible strategies get a second deep-copied pass with `OVERFLOW_RISK_OVERRIDES` (OVS 30→10 bps, OLV 35→25 bps) mirroring `local_overflow_scan.py`. Setup: `scripts/setup_portfolio_report_task.ps1` (one-time, admin).
+**daily_portfolio_report.py** imports backtesting logic from `strat_backtester.py`. Both must stay in sync with `daily_scan.py` for signal detection, sizing, and trade processing. `ACCOUNT_VALUE` from `strategy_config.py` is the single source of truth for portfolio sizing across all three. Runs in **GitHub Actions** (weekdays 21:30 UTC = 5:30 PM ET) — pulls `data/master_prices.parquet` and `data/earnings_calendar.parquet` from Cloudflare R2 before running. Reports cover both liquid (LIQUID_PLUS_COMMODITIES) and overflow (CSV_UNIVERSE − LIQUID_PLUS_COMMODITIES) universes — overflow-eligible strategies get a second deep-copied pass with `OVERFLOW_RISK_OVERRIDES` (only OLV 35→25 bps remains; OVS uses path-1 nominal 40 bps for both tiers). Workflow: `.github/workflows/portfolio_report.yml`.
+
+**daily_scan.py** is the single unified scanner (post-2026-04-30 merge with the retired `local_overflow_scan.py`). CLI flags:
+- `--scope=liquid` (default) — scans every strategy against its native universe (typically LIQUID_PLUS_COMMODITIES)
+- `--scope=overflow` — only the 5 overflow-eligible strategies, swapped to CSV_UNIVERSE − LIQUID_PLUS_COMMODITIES with OLV bps override
+- `--scope=all` — both passes concatenated, signals stamped with `Scan_Source='Liquid'` or `'Overflow'`
+- `--moc-only` — restricts to strategies with `entry_type='Signal Close'`. Skips the overflow tier entirely (overflow doesn't MOC by convention). Used by intraday GHA runs.
+
+Per-tier tab routing inside `save_staging_orders`: Liquid rows → `Order_Staging`, Overflow rows → `Overflow`. Both tabs are read by `order_staging.py` (which lives in `C:\Users\mckin\OneDrive\trading_ibkr\` — IBKR-bound, stays local).
 
 ## Risk Dashboard V2 — Current State
 
@@ -142,25 +166,99 @@ Legacy point system preserved in collapsed expander for reference. Alert = +1, A
 | Variable | Location | Count | Description |
 |----------|----------|-------|-------------|
 | `SP500_TICKERS` | `abs_return_dispersion.py` | ~505 | Full S&P 500 constituents |
-| `LIQUID_UNIVERSE` | `strategy_config.py` | 190 | Liquid stocks for strategies |
+| `LIQUID_PLUS_COMMODITIES` | `strategy_config.py` | ~190 | Liquid universe — daily_scan default scope |
+| `CSV_UNIVERSE` | `strategy_config.py` | ~1060 | Full universe (liquid + overflow tier ~870) |
+| `OVERFLOW_ELIGIBLE_STRATEGIES` | `daily_scan.py` | 5 | OVS, OLV, LT Trend ST OS, St OS Sznl, 52wh Breakout |
+| `OVERFLOW_RISK_OVERRIDES` | `daily_scan.py`, `daily_portfolio_report.py` | 1 | OLV: 35→25 bps for overflow tier |
 | `SECTOR_ETFS` | `risk_dashboard_v2.py` | 11 | SPDR sector ETFs |
 | `VOL_TICKERS` | `risk_dashboard_v2.py` | 4 | SPY, ^VIX, ^VIX3M, ^VVIX |
 | `CROSS_ASSET_TICKERS` | `risk_dashboard_v2.py` | 7 | LQD, HYG, IEF, UUP, ^MOVE, ^TNX, ^IRX |
 | `TAIL_RISK_TICKERS` | `risk_dashboard_v2.py` | 1 | ^SKEW |
 | `SIGNAL_CACHE_PATH` | `risk_dashboard_v2.py` | — | `data/risk_dashboard_signal_state.json` |
 
-## Automated Reports & Email Pipeline
+## OVS Strategy — Earnings Blackout + 2-Path Sizing
 
-| Report | Script | Trigger | Format | Schedule |
-|--------|--------|---------|--------|----------|
-| Daily Scan | `daily_scan.py` | GitHub Actions | HTML email + Google Sheets | Weekdays 5x (9:13, 17:40, 18:45, 19:30, 20:13 UTC) |
-| Risk Report | `daily_risk_report.py` | GitHub Actions | HTML email (inline images) | Weekdays 21:15 UTC (5:15 PM ET) |
-| Portfolio Report | `daily_portfolio_report.py` | Local Task Scheduler | HTML email | Weekdays 5:30 PM ET |
-| Fill Verification | `verify_fills.py` | GitHub Actions | Google Sheets update | Weekdays 21:15 UTC |
-| Radar Weekly Digest | `radar_weekly_summary.py` | Local Task Scheduler | Markdown → `data/radar_weekly_summary.md` | Sundays 8:30 AM ET |
-| Weekly Rundown | `weekly_market_rundown.py` | GitHub Actions | PDF attachment + HTML body (radar digest) | Sundays 14:00 UTC (9 AM ET) |
+Overbot Vol Spike has special-cased execution as of the 2026-04-30 merge.
 
-### Sunday Pipeline (two-step)
+### Earnings blackout (±10 trading days)
+The OVS execution dict in `strategy_config.py` carries `earnings_blackout_td: 10`. Signals within ±10 trading days of an earnings announcement are dropped. Tickers with no earnings data in `data/earnings_calendar.parquet` (commodity ETFs, indices, futures, FX) **pass through** — NaN-as-True, mirroring the `Not Between` behavior in `pages/backtester.py`.
+
+Implementation:
+- `earnings_filter.py` — shared module with `load_earnings_dates_map()`, `signed_offset()`, `in_blackout(window=10)`. Loads `data/earnings_calendar.parquet`.
+- `daily_scan.py` — applies the filter inline during the strategy loop (drops the signal before the dict is built).
+- `pages/strat_backtester.py` — pre-pass that drops candidates from the chronological loop entirely, so the daily portfolio report's PnL reflects what live would do.
+
+### Two-path execution (replaces the prior 30/20 bps + 1.3× ATR-sznl-5d sizer)
+The OVS execution dict carries:
+- `path1_bps: 40` — full size on a decisive open gap
+- `path2_bps: 8` — reduced size on a mild gap
+- `path2_daily_cap_pct: 1.0` — 1% of ACCOUNT_VALUE aggregate cap on path-2 risk
+
+Decision happens in `order_staging.py` (in `C:\Users\mckin\OneDrive\trading_ibkr\`) using IBKR's T+1 session open vs the signal's close + 0.25 ATR threshold. Same scheme for liquid AND overflow universes.
+
+| T+1 open vs close | Path | Per-trade size |
+|---|---|---|
+| Open > Close + 0.25 ATR | **Path 1: Decisive** | 40 bps (full) |
+| Close < Open ≤ Close + 0.25 ATR | **Path 2: Mild** | 8 bps, capped at 1% aggregate (pro-rata scale-down across all path-2 rows that day) |
+| Open ≤ Close | **Skip** | 0 |
+
+Scanner-side stamps `Path1_Bps`, `Path2_Bps`, `Path2_Daily_Cap_Pct` columns on every OVS staging row so order_staging can compute the multiplier without importing strategy_config.
+
+### Reference
+- Trading-day arithmetic: `compute_signed_earnings_offsets()` in `pages/backtester.py` (np.busday_count + USFederalHolidayCalendar).
+- Earnings parquet: `data/earnings_calendar.parquet` — 117k rows, 946 tickers, FMP-backfilled, includes forward dates.
+- 2-path validation note (2026-04-29): 12 of 13 OVS signals on that date would have been killed by the blackout — only USO survived because no earnings data.
+
+## Cloudflare R2 Cache + GHA Migration
+
+As of 2026-04-30, the nightly pipeline runs entirely in GitHub Actions. The local Task Scheduler retains only the radar tasks. R2 is the persistence layer that lets cloud workflows share parquet caches.
+
+### R2 secrets (in GHA repo settings)
+- `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET=seasonals-cache`
+
+### Bucket contents (key-value)
+- `master_prices.parquet` — full ~2000 ticker × 25-yr OHLCV (~50-200 MB). Read by `daily_scan --scope=overflow|all` and `daily_portfolio_report.py`. Written by `update_master_prices.yml` weekdays at 22:00 UTC.
+- `earnings_calendar.parquet` — FMP-backfilled (117k rows, 946 tickers). Read by `daily_scan` (any scope, OVS filter) and `daily_portfolio_report.py`. Written by `build_earnings_calendar.yml` weekdays at 21:30 UTC + the local belt-and-suspenders entry at the same slot.
+
+### `cache_io.py` API
+```python
+from cache_io import upload_from_local, download_to_local, is_configured
+
+upload_from_local("data/foo.parquet", "foo.parquet")   # local → R2
+download_to_local("foo.parquet", "data/foo.parquet")   # R2 → local
+is_configured()                                          # bool: R2_* env vars set?
+```
+Both helpers no-op gracefully when R2 isn't configured (returns False, prints a notice). ASCII-only output to avoid Windows cp1252 crashes when running locally.
+
+## Automated Pipeline
+
+All five trading-day workflows now run in GHA. Order staging stays local (IBKR-bound).
+
+| Workflow file | Schedule | What it does |
+|---|---|---|
+| `daily_screener.yml` | Weekdays 5x: 09:13, 17:40, 18:45, 19:30, 20:13 UTC | Unified scan. Pre-market (09) + post-close (20) → `--scope=all` (full liquid + overflow, ~7-10 min). Intraday (17:40, 18:45, 19:30) → `--scope=liquid --moc-only` (3 MOC strategies × 190 liquid tickers, ~1-2 min). Workflow auto-picks scope based on UTC hour. Manual workflow_dispatch always uses `--scope=all`. |
+| `build_earnings_calendar.yml` | Weekdays 21:30 UTC (5:30 PM ET) | FMP `/stable/earnings` pull → writes `data/earnings_calendar.parquet` → uploads to R2. Local `EarningsCalendarRefresh` Task Scheduler entry mirrors this for redundancy (last write wins). |
+| `update_master_prices.yml` | Weekdays 22:00 UTC (6:00 PM ET) | Pulls `master_prices.parquet` from R2, fetches today's bars from yfinance for ~2000 tickers, appends, dedupes, writes back to R2. |
+| `portfolio_report.yml` | Weekdays 21:30 UTC (5:30 PM ET) | Pulls master_prices + earnings caches from R2, runs `daily_portfolio_report.py`, sends HTML email + writes Portfolio Sheets tab. |
+| `bootstrap_caches.yml` | workflow_dispatch only | One-shot: builds `master_prices.parquet` from scratch via yfinance (~10-15 min for ~2000 tickers, 25-yr history) and uploads to R2. Used to seed the bucket (already run during Phase 2 setup). |
+| `risk_report.yml` | Weekdays 21:15 UTC (5:15 PM ET) | Daily risk dashboard email (fragility dials + signals + forward returns). |
+| `verify_fills.yml` | Weekdays 21:15 UTC | Post-close fill verification — updates Trade_Signals_Log. |
+| `weekly_rundown.yml` | Sundays 14:00 UTC (9 AM ET) | Tabloid PDF with all risk charts + radar digest body. |
+
+### Local Task Scheduler (post-Phase-2)
+
+| Task | State | Notes |
+|---|---|---|
+| `EarningsCalendarRefresh` | Enabled | Belt-and-suspenders for the GHA equivalent. Both write to R2. |
+| `RadarMorningBriefing` | Enabled | Lives in separate `last30days-radar` project — not yet migrated. |
+| `RadarWeeklySummary` | Enabled | Sundays 8:30 AM ET — depends on radar briefs from above. Not yet migrated. |
+| `DailyPortfolioReport` | Disabled | Replaced by `portfolio_report.yml`. Re-enable as fallback if GHA breaks. |
+| `MasterPricesUpdate` | Disabled | Replaced by `update_master_prices.yml`. |
+| `OverflowDailyScan` | Disabled | Replaced by the unified `daily_screener.yml --scope=all` post-close run. |
+
+Order staging (`C:\Users\mckin\OneDrive\trading_ibkr\order_staging.py`) is a manual / scheduled local launch — talks to IBKR TWS on `127.0.0.1:7496`. Reads `Order_Staging` + `Overflow` Sheets tabs and submits orders pre-market.
+
+### Sunday Pipeline (two-step, still partially local)
 1. **8:30 AM ET (local)**: `radar_weekly_summary.py` reads last 7 days of radar briefs from `C:\Users\mckin\projects\last30days-radar\output\briefs\`, pulls yfinance snapshots for all tickers, pipes to Claude Code subprocess with PM-style distillation framework (variant perception required, "who's on the other side" required). Output committed + pushed to `data/radar_weekly_summary.md`.
 2. **9:00 AM ET (Actions)**: `weekly_market_rundown.py` generates tabloid (17x11") landscape PDF with all risk charts, reads the radar digest and includes it as styled HTML email body alongside the PDF attachment.
 
@@ -181,6 +279,19 @@ Supporting lenses (non-dogmatic, context-dependent): catalyst magnitude, valuati
 Framework doc: `C:\Users\mckin\Documents\vault\trading\decisions\radar_weekly_digest_framework.md`
 
 ## Google Sheets Integration
-- `daily_scan.py` stages orders to Google Sheets (MOC + Order_Staging + Trade_Signals_Log)
-- `verify_fills.py` updates Trade_Signals_Log with fill status post-close
-- Uses gspread with GCP service account (from Streamlit secrets) or local `credentials.json`
+
+Tab layout in the `Trade_Signals_Log` workbook:
+- `Order_Staging` — Liquid-tier signals (Limits, T+1 Open, Persistent GTC). Cleared + rewritten by every `daily_scan` run with `Scan_Source='Liquid'`.
+- `Overflow` — Overflow-tier signals (same entry types, no MOC). Cleared + rewritten by `daily_scan --scope=overflow|all` with `Scan_Source='Overflow'`.
+- `moc_orders` — MOC entries from liquid tier only (`save_moc_orders` skips overflow rows). MOC strategies: Weak Close Reversion, Weak Close Decent Sznls, LT Trend ST OS.
+- `Trade_Signals_Log` (sheet1) — append-only signal history.
+- `Portfolio` — open-positions snapshot from `daily_portfolio_report.py`.
+- `execution`, `execution_2` — order_staging.py output for primary + small-account execution.
+
+`daily_scan.py` writes both `Order_Staging` and `Overflow` via `save_staging_orders(..., tier_filter='Liquid'|'Overflow')`. The function clears+rewrites only the tier it's responsible for (so a `--scope=liquid` run never touches `Overflow`).
+
+`order_staging.py` (in `C:\Users\mckin\OneDrive\trading_ibkr\`) reads BOTH tabs and concatenates with `Scan_Source` distinguishing tier. Applies the OVS 2-path gap-tier sizer + path-2 daily aggregate cap + global 2.5% daily risk cap before submitting to IBKR.
+
+`verify_fills.py` updates Trade_Signals_Log with fill status post-close.
+
+Auth: `gspread` with GCP service account from Streamlit secrets / `GCP_JSON` env var (GHA) / `credentials.json` (local).
