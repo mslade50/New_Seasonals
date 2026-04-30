@@ -1,6 +1,13 @@
-name: Daily Strategy Scan
+name: Daily Strategy Scan (Liquid + Overflow)
 
-# Keeps your queue clean if GitHub lags
+# Unified scan: each run hits LIQUID_PLUS_COMMODITIES (190 tickers) AND
+# the overflow universe CSV_UNIVERSE − LIQUID_PLUS_COMMODITIES (~870
+# tickers). Liquid signals -> Order_Staging tab, overflow -> Overflow tab.
+# One combined email per run.
+#
+# Replaces both the legacy liquid-only daily_screener AND the separate
+# daily_overflow workflow.
+
 concurrency:
   group: ${{ github.workflow }}
   cancel-in-progress: false
@@ -40,22 +47,23 @@ jobs:
         run: |
           pip install pandas pyarrow numpy yfinance gspread google-auth boto3
 
-      - name: Pull cache from R2
-        # Pulls data/earnings_calendar.parquet so the OVS earnings blackout
-        # actually fires in GHA (the local-built parquet is gitignored).
-        # No-op if R2 secrets aren't yet configured — daily_scan continues
-        # to run, the earnings filter just no-ops gracefully.
+      - name: Pull caches from R2
+        # master_prices.parquet  -> read by the overflow scope (~870 tickers)
+        # earnings_calendar.parquet -> OVS ±10 TD blackout for both tiers
+        # No-op if R2 secrets aren't yet configured. Liquid scan still works
+        # (yfinance live for liquid tickers); overflow scope falls back to
+        # yfinance for everything not in cache (slower).
         env:
           R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
           R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
           R2_BUCKET: ${{ secrets.R2_BUCKET }}
         run: |
-          python -c "from cache_io import download_to_local; download_to_local('earnings_calendar.parquet', 'data/earnings_calendar.parquet')"
+          python -c "from cache_io import download_to_local; download_to_local('master_prices.parquet', 'data/master_prices.parquet'); download_to_local('earnings_calendar.parquet', 'data/earnings_calendar.parquet')"
 
       - name: Run Automation Script
         env:
           GCP_JSON: ${{ secrets.GCP_JSON }}
           EMAIL_USER: ${{ secrets.EMAIL_USER }}
           EMAIL_PASS: ${{ secrets.EMAIL_PASS }}
-        run: python daily_scan.py
+        run: python daily_scan.py --scope=all
