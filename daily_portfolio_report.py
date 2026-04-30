@@ -77,9 +77,11 @@ OVERFLOW_ELIGIBLE = {
     "52wh Breakout",
 }
 OVERFLOW_RISK_OVERRIDES = {
-    "Overbot Vol Spike": 20,        # vs liquid 30 bps; backtest also gates
-                                    # entries on T+1 open >= signal close + 0.5 ATR
     "Oversold Low Volume": 25,      # vs liquid 35 bps
+    # OVS uses the same path-1 nominal (40 bps) for both liquid and overflow
+    # universes — sizing is governed by the 2-path gap-tier in
+    # order_staging.py (path-1 40 bps decisive / path-2 8 bps mild + 1%
+    # aggregate cap / skip).
 }
 
 
@@ -271,13 +273,12 @@ def run_12month_backtest(starting_equity=None):
 
     # 8. Process signals with MTM sizing
     print("   Processing trades...")
-    # overflow_active=True triggers the OVS overflow-specific logic in
-    # process_signals_fast: stricter T+1 open >= signal close + 0.5 ATR gate
-    # for non-LIQUID_PLUS_COMMODITIES tickers. Liquid OVS keeps its existing
-    # 0.25 ATR gate (the per-ticker check skips when t_clean is liquid).
-    # cap_bps=250 mirrors the strat_backtester default — caps total
-    # per-strategy daily risk at 250 bps so a big signal day doesn't blow
-    # past the prod risk envelope. Same as order_staging.MAX_DAILY_RISK_PCT.
+    # OVS sizing is governed by the 2-path scheme in process_signals_fast:
+    # path-1 (40 bps decisive 0.25 ATR gap), path-2 (8 bps mild gap, 1%
+    # aggregate cap pro-rata), skip (no gap). Same scheme for liquid and
+    # overflow universes. Earnings blackout (±10 TD) drops candidates inside
+    # the window. cap_bps=250 mirrors strat_backtester's per-strategy daily
+    # cap — same as order_staging.MAX_DAILY_RISK_PCT.
     sig_df = process_signals_fast(
         candidates, signal_data, processed_dict, full_book, starting_equity,
         cap_bps=250,

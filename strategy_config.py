@@ -419,9 +419,9 @@ _STRATEGY_BOOK_RAW = [
             "primary_exit": "2-day time stop OR 2.0 ATR target (whichever first)",
             "stop_logic": "None (time/target exit only)",
             "target_logic": "2.0 ATR below entry (short)",
-            "notes": "LOC companion retired. Target reduced from 8 ATR → 2 ATR per path-analysis give-back profile. Variable sizing collapsed to flat 30 bps × 1.3 when 5D ATR sznl < 30. Overflow universe sized at 20 bps with a stricter live open >= signal close + 0.5 ATR gate (else skip). Main scan keeps the 0.25 ATR / 252D-driven gap-tier rules. Live filter applied at staging time in order_staging.py using IBKR session open."
+            "notes": "Two-path execution. Path 1 (decisive): T+1 open > signal close + 0.25 ATR → flat 40 bps. Path 2 (mild): signal close < T+1 open ≤ close + 0.25 ATR → 8 bps with 1% aggregate path-2 cap (pro-rata scale-down). Open ≤ close → skip. ±10 trading-day earnings blackout applied at scan time (NaN passes through for tickers without earnings data). Same scheme for liquid and overflow universes."
         },
-        "description": "Start: 2000-01-01. Universe: LIQUID_PLUS_COMMODITIES. Dir: Short. Multi-horizon overbought fade with 252D barbell + 5D seasonal headwind gate. Flat 30 bps sizing (1.3x when 5D ATR sznl < 30). Overflow universe sized at 20 bps + 0.5 ATR open-gap gate (backtest).",
+        "description": "Start: 2000-01-01. Universe: LIQUID_PLUS_COMMODITIES. Dir: Short. Multi-horizon overbought fade with 252D barbell + 5D seasonal headwind gate. Two-path sizing (40 bps decisive / 8 bps mild + 1% aggregate cap) keyed off T+1 open vs close+0.25 ATR. ±10 TD earnings blackout.",
         "universe_tickers": LIQUID_PLUS_COMMODITIES,
         "settings": {
             "trade_direction": "Short",
@@ -458,7 +458,9 @@ _STRATEGY_BOOK_RAW = [
             "use_dist_count_filter": True, "dist_count_window": 21, "dist_count_logic": ">", "dist_count_thresh": 0,
             "use_xsec_filter": True, "xsec_filters": []
         },
-        "execution": {"risk_bps": 30, "slippage_bps": 2, "stop_atr": 1.0, "tgt_atr": 2.0, "hold_days": 2, "use_stop_loss": False, "use_take_profit": True},
+        "execution": {"risk_bps": 40, "slippage_bps": 2, "stop_atr": 1.0, "tgt_atr": 2.0, "hold_days": 2, "use_stop_loss": False, "use_take_profit": True,
+                      "path1_bps": 40, "path2_bps": 8, "path2_daily_cap_pct": 1.0,
+                      "earnings_blackout_td": 10},
         "stats": {"grade": "A (Excellent)", "win_rate": "58.0%", "expectancy": "0.28r", "profit_factor": "1.96"}
     },
     {

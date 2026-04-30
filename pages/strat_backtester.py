@@ -12,6 +12,7 @@ import os
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from indicators import calculate_indicators, get_sznl_val_series
+from earnings_filter import load_earnings_dates_map, in_blackout
 
 _DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data")
 
@@ -45,7 +46,10 @@ OVERFLOW_ELIGIBLE_STRATEGIES = {
 # Tickers in this set are sized at the strategy's configured risk_bps
 # (i.e. "liquid" / daily_scan sizing). Tickers outside this set are
 # considered overflow universe and may be sized differently per
-# strategy-specific overrides — currently OVS at 10 bps vs 30 liquid.
+# strategy-specific overrides (currently OLV 35→25 bps in
+# daily_portfolio_report.OVERFLOW_RISK_OVERRIDES). OVS uses the same path-1
+# nominal (40 bps) across both universes — see the OVS pre-pass +
+# _ovs_size_mult block in process_signals_fast for the 2-path scheme.
 _LIQUID_SET = set(LIQUID_PLUS_COMMODITIES)
 
 # -----------------------------------------------------------------------------
@@ -1085,8 +1089,79 @@ def process_signals_fast(candidates, signal_data, processed_dict, strategies, st
     """
     if not candidates:
         return pd.DataFrame()
-    
+
     candidates.sort(key=lambda x: x[0])
+
+    # ----------------------------------------------------
+    # OVS PRE-PASS: earnings blackout + path-2 aggregate cap
+    # ----------------------------------------------------
+    # Earnings blackout: drop OVS candidates whose signal_date sits within
+    # ±N trading days of an earnings announcement (NaN passes through —
+    # commodity ETFs / futures / indices have no earnings data and aren't
+    # silently killed). Mirrors daily_scan / local_overflow_scan.
+    # Path-2 aggregate cap: sum path-2 risk per signal_date and compute the
+    # pro-rata scale factor so total path-2 risk = path2_daily_cap_pct ×
+    # starting_equity. Mirrors order_staging.py's path-2 cap (which uses
+    # ACCOUNT_VALUE — same fixed denominator in production).
+    _ovs_strat = next((s for s in strategies if s.get('name') == "Overbot Vol Spike"), None)
+    _eb_window = _ovs_strat['execution'].get('earnings_blackout_td') if _ovs_strat else None
+    _earnings_map = load_earnings_dates_map() if _eb_window else {}
+    _ovs_p2_scale_by_date = {}
+    if _ovs_strat is not None:
+        _exe = _ovs_strat['execution']
+        _p1_bps = float(_exe.get('path1_bps', _exe.get('risk_bps', 40)))
+        _p2_bps = float(_exe.get('path2_bps', 8))
+        _p2_mult = (_p2_bps / _p1_bps) if _p1_bps > 0 else 0.0
+        _p2_cap_pct = float(_exe.get('path2_daily_cap_pct', 1.0))
+        _p2_cap_dollars = starting_equity * _p2_cap_pct / 100.0
+
+        _p2_risk_by_date = {}
+        _filtered_candidates = []
+        _eb_dropped = 0
+        for cand in candidates:
+            _sig_ts, _tkr, _t_clean, _strat_idx, _signal_idx = cand
+            _s = strategies[_strat_idx]
+            if _s.get('name') != "Overbot Vol Spike":
+                _filtered_candidates.append(cand)
+                continue
+            # Earnings blackout
+            if _eb_window and _earnings_map:
+                _e_arr = _earnings_map.get(_t_clean.upper())
+                if in_blackout(pd.Timestamp(_sig_ts), _e_arr, window=_eb_window):
+                    _eb_dropped += 1
+                    continue
+            _filtered_candidates.append(cand)
+            # Path-2 contribution (only for OVS that survives blackout)
+            _df_t = processed_dict.get(_t_clean)
+            if _df_t is None or _signal_idx + 1 >= len(_df_t):
+                continue
+            _rd = signal_data.get((_t_clean, _signal_idx))
+            if _rd is None:
+                continue
+            _atr = _rd.get('atr')
+            if pd.isna(_atr) or _atr <= 0:
+                continue
+            _sc = _rd.get('close')
+            try:
+                _t1_open = float(_df_t.iloc[_signal_idx + 1]['Open'])
+            except (KeyError, IndexError, ValueError, TypeError):
+                continue
+            if pd.isna(_t1_open) or _t1_open <= _sc:
+                continue  # SKIP — no risk
+            if _t1_open > _sc + 0.25 * _atr:
+                continue  # P1 — no path-2 contribution
+            # P2: accumulate base_risk × p2_mult per signal_date
+            _base_risk_p1 = starting_equity * _p1_bps / 10000.0
+            _p2_risk = _base_risk_p1 * _p2_mult
+            _sd = pd.Timestamp(_sig_ts).normalize()
+            _p2_risk_by_date[_sd] = _p2_risk_by_date.get(_sd, 0.0) + _p2_risk
+
+        candidates = _filtered_candidates
+        if _eb_dropped > 0:
+            print(f"   ⛔ OVS earnings blackout: dropped {_eb_dropped} candidates within ±{_eb_window} TD of earnings")
+
+        for _d, _r in _p2_risk_by_date.items():
+            _ovs_p2_scale_by_date[_d] = min(1.0, _p2_cap_dollars / _r) if _r > 0 else 1.0
 
     # Build price matrix for all relevant tickers (forward-filled by ticker).
     all_tickers = set(c[2] for c in candidates)
@@ -1226,50 +1301,34 @@ def process_signals_fast(candidates, signal_data, processed_dict, strategies, st
             current_equity = starting_equity + realized_pnl + unrealized_pnl
             last_signal_ts = signal_ts
 
-        # --- 2. OVS gap-tier (staging decision; can drop signal entirely) ---
-        # Reachable 252D values for OVS are <65 or >95 (the Not Between filter
-        # excludes 65-95 and NaN at signal time). Any other case here means
-        # the filter wasn't applied — fail closed by skipping.
+        # --- 2. OVS 2-path gap-tier (staging decision; can drop signal entirely) ---
+        # Unified for liquid and overflow universes (no per-source nuance).
+        #   Open > Close + 0.25 ATR                → Path 1: full path-1 bps (40)
+        #   Close < Open ≤ Close + 0.25 ATR        → Path 2: 8 bps × per-day pro-rata cap
+        #   Open ≤ Close                           → Skip
+        # The path-2 daily aggregate cap (1% of starting_equity) was pre-computed
+        # in _ovs_p2_scale_by_date during the OVS pre-pass above.
         _ovs_size_mult = 1.0
         if strat_name == "Overbot Vol Spike" and entry_row is not None:
             _sig_close = row_data['close']
             _t1_open = float(entry_row['Open'])
-            _is_overflow_ovs = overflow_active and t_clean not in _LIQUID_SET
-            if _is_overflow_ovs:
-                # Overflow OVS: stricter gate. Require a decisive open-gap up
-                # (>= signal close + 0.5 ATR). Anything weaker is skipped.
-                # Sized at 20 bps (vs liquid 30) — see risk_bps override below.
-                if pd.isna(_t1_open) or _t1_open <= _sig_close + 0.5 * atr:
-                    continue
-                _ovs_size_mult = 1.0
+            if pd.isna(_t1_open) or _t1_open <= _sig_close:
+                continue  # SKIP — no gap
+            if _t1_open > _sig_close + 0.25 * atr:
+                _ovs_size_mult = 1.0  # Path 1 — full path-1 bps
             else:
-                # Liquid OVS — original gate (no gap → skip; mild gap + 252D<65
-                # → 0.7x; decisive gap +0.25 ATR → full).
-                _decisive_gap = _sig_close + 0.25 * atr
-                _r252 = row_data.get('rank_ret_252d', None)
-                if pd.isna(_t1_open) or _t1_open <= _sig_close:
-                    continue
-                elif _t1_open <= _decisive_gap:
-                    if pd.notna(_r252) and _r252 < 65:
-                        _ovs_size_mult = 0.7
-                    else:
-                        continue
-                else:
-                    _ovs_size_mult = 1.0
+                # Path 2 — multiplier = path2_bps / path1_bps × per-day aggregate scale
+                _exe = execution
+                _p1 = float(_exe.get('path1_bps', _exe.get('risk_bps', 40)))
+                _p2 = float(_exe.get('path2_bps', 8))
+                _p2_base_mult = (_p2 / _p1) if _p1 > 0 else 0.0
+                _p2_scale = _ovs_p2_scale_by_date.get(pd.Timestamp(signal_ts).normalize(), 1.0)
+                _ovs_size_mult = _p2_base_mult * _p2_scale
 
         # --- 3. Sizing (base_risk × strategy multipliers × ladder × gap_mult) ---
+        # OVS uses path1_bps (40) as the nominal — path-2 downsizing is folded
+        # into _ovs_size_mult above. No per-universe risk_bps override.
         risk_bps = execution['risk_bps']
-        # OVS sized 20 bps for overflow tickers when overflow universe is on,
-        # vs 30 bps for the liquid universe (mirrors local_overflow_scan vs
-        # daily_scan split). Overflow OVS also requires a stricter T+1 open
-        # gap-up filter (>= signal close + 0.5 ATR) — see _is_overflow_ovs
-        # block above. Liquid set = LIQUID_PLUS_COMMODITIES.
-        if (
-            strat_name == "Overbot Vol Spike"
-            and overflow_active
-            and t_clean not in _LIQUID_SET
-        ):
-            risk_bps = 20
         equity_for_sizing = starting_equity if flat_sizing else current_equity
         base_risk = equity_for_sizing * risk_bps / 10000
         _vol_spike_skip_primary = False
@@ -1279,10 +1338,6 @@ def process_signals_fast(candidates, signal_data, processed_dict, strategies, st
                 base_risk *= 1.5
             elif sznl_val >= 33:
                 base_risk *= 0.66 if sznl_val < 50 else 1.0
-        if strat_name == "Overbot Vol Spike":
-            _atr_sznl_5d = row_data.get('atr_sznl_5d', None)
-            if pd.notna(_atr_sznl_5d) and _atr_sznl_5d < 30:
-                base_risk *= 1.3
         ladder_mults = execution.get('ladder_multipliers')
         if ladder_mults:
             open_count = sum(
