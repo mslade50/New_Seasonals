@@ -475,12 +475,12 @@ _STRATEGY_BOOK_RAW = [
         "stats": {"grade": "A (Excellent)", "win_rate": "58.0%", "expectancy": "0.28r", "profit_factor": "1.96"}
     },
     {
-        "id": "2d+5d+10d+21d < 15%ile, 126d+252d between 65-90, vol > 1.25x (1.0x intraday), 2 ATR tgt, 2d hold",
+        "id": "2d+5d+10d+21d < 15%ile, 126d+252d between 65-90, vol > 1.25x (1.0x intraday), age >= 5y, ±10 earnings blackout, GTC limit close-0.25 ATR, 2 ATR tgt, 2d hold",
         "name": "LT Trend ST OS",
         "setup": {
             "type": "MeanReversion",
             "timeframe": "Overnight",
-            "thesis": "Oversold bounce in long-term uptrenders — but NOT extreme leaders (126D/252D capped at 90th %ile) to avoid buying climactic tops",
+            "thesis": "Oversold bounce in long-term uptrenders — but NOT extreme leaders (126D/252D capped at 90th %ile) to avoid buying climactic tops. Persistent limit at close - 0.25 ATR for entry. ±10 TD earnings blackout to avoid catching a knife into a binary event.",
             "key_filters": [
                 "2D rank < 15th %ile",
                 "5D rank < 15th %ile",
@@ -490,20 +490,21 @@ _STRATEGY_BOOK_RAW = [
                 "252D rank between 65-90th %ile",
                 "Close in 0-25% of daily range",
                 "Volume > 1.25x 63-day avg (relaxed to 1.0x for intraday scan runs)",
-                "63d dial (10d avg) < 65 (not in extreme fragile regime)"
+                "Min 5 years of price history",
+                "No earnings within ±10 trading days"
             ]
         },
         "exit_summary": {
             "primary_exit": "2-day time stop OR 2.0 ATR target (whichever first)",
             "stop_logic": "None (time/target exit only)",
             "target_logic": "2.0 ATR above entry",
-            "notes": None
+            "notes": "Entry changed from Signal Close (MOC) to Limit Order -0.25 ATR (Persistent GTC). No longer a MOC strategy — won't be picked up by the intraday --moc-only GHA runs."
         },
-        "description": "Start: 2000-01-01. Universe: LIQUID_PLUS_COMMODITIES. Dir: Long. WR 68.4% / PF 2.91 / Exp 0.40r.",
+        "description": "Start: 2000-01-01. Universe: LIQUID_PLUS_COMMODITIES + overflow tier. Dir: Long. Entry: limit at close-0.25 ATR (GTC). 2d hold, 2 ATR target, no stop. WR 68.4% / PF 2.91 / Exp 0.40r (pre-changes).",
         "universe_tickers": LIQUID_PLUS_COMMODITIES,
         "settings": {
             "trade_direction": "Long",
-            "entry_type": "Signal Close",
+            "entry_type": "Limit Order -0.25 ATR (Persistent)",
             "max_one_pos": False,
             "allow_same_day_reentry": False,
             "entry_conf_bps": 0,
@@ -544,7 +545,7 @@ _STRATEGY_BOOK_RAW = [
             "trend_filter": "None",
             "use_vix_filter": False, "vix_min": 0.0, "vix_max": 20.0,
             "min_price": 10.0, "min_vol": 100000,
-            "min_age": 0.25, "max_age": 100.0,
+            "min_age": 5.0, "max_age": 100.0,
             "min_atr_pct": 0.2, "max_atr_pct": 10.0,
             "use_dow_filter": False, "allowed_days": [0, 1, 2, 3, 4],
             "allowed_cycles": [1, 2, 3, 0],
@@ -553,7 +554,7 @@ _STRATEGY_BOOK_RAW = [
             "use_t1_open_filter": False, "t1_open_filters": [],
             "use_xsec_filter": True, "xsec_filters": [],
             "atr_sznl_filters": [],
-            "dial_filters": [{'dial': '63d', 'window': 10, 'logic': '<', 'thresh': 65.0}]
+            "dial_filters": []
         },
         "execution": {
             "risk_bps": 35,
@@ -563,7 +564,11 @@ _STRATEGY_BOOK_RAW = [
             "tgt_atr": 2.0,
             "hold_days": 2,
             "use_stop_loss": False,
-            "use_take_profit": True
+            "use_take_profit": True,
+            # Symmetric earnings blackout: skip if signal_date is within ±10
+            # trading days of an earnings announcement. NaN (commodities /
+            # ETFs / futures with no earnings data) passes through.
+            "earnings_blackout_td": 10
         },
         "stats": {"grade": "A (Excellent)", "win_rate": "68.4%", "expectancy": "0.40r", "profit_factor": "2.91"}
     },
