@@ -38,7 +38,20 @@ jobs:
 
       - name: Install dependencies
         run: |
-          pip install pandas pyarrow numpy yfinance gspread google-auth
+          pip install pandas pyarrow numpy yfinance gspread google-auth boto3
+
+      - name: Pull cache from R2
+        # Pulls data/earnings_calendar.parquet so the OVS earnings blackout
+        # actually fires in GHA (the local-built parquet is gitignored).
+        # No-op if R2 secrets aren't yet configured — daily_scan continues
+        # to run, the earnings filter just no-ops gracefully.
+        env:
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+        run: |
+          python -c "from cache_io import download_to_local; download_to_local('earnings_calendar.parquet', 'data/earnings_calendar.parquet')"
 
       - name: Run Automation Script
         env:

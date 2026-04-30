@@ -1,0 +1,43 @@
+name: Build Earnings Calendar
+
+# Refreshes data/earnings_calendar.parquet from FMP and uploads to R2 so
+# downstream workflows (daily_scan, portfolio_report) can pull the same
+# cache. Runs once per weekday after market close and before the daily_scan
+# morning run that needs the freshest forward dates.
+
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
+on:
+  schedule:
+    # 21:30 UTC = 5:30 PM ET — same slot as the local Task Scheduler entry.
+    # GHA gives us a redundant remote refresh; both writers push to the same
+    # R2 key (earnings_calendar.parquet). Last write wins.
+    - cron: '30 21 * * 1-5'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+
+      - name: Install dependencies
+        run: |
+          pip install pandas pyarrow requests boto3
+
+      - name: Build + upload earnings calendar
+        env:
+          FMP_API_KEY: ${{ secrets.FMP_API_KEY }}
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+        run: python scripts/build_earnings_calendar.py

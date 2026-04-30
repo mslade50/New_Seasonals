@@ -143,6 +143,16 @@ def build_calendar(tickers, api_key, output_path):
         print(f"    sample: {failures[:10]}")
     print(f"\nSaved: {output_path}")
 
+    # Optional: upload the fresh parquet to Cloudflare R2 so GHA workflows
+    # (daily_scan, portfolio_report, etc.) can pull it before scanning.
+    # No-op if R2_* env vars aren't set — local-only runs are unaffected.
+    try:
+        sys.path.insert(0, parent_dir)
+        from cache_io import upload_from_local
+        upload_from_local(output_path, "earnings_calendar.parquet")
+    except Exception as e:
+        print(f"[r2 upload] non-fatal error: {e}")
+
 
 def main():
     parser = argparse.ArgumentParser(description="Backfill earnings calendar from FMP.")

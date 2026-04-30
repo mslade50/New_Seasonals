@@ -125,6 +125,15 @@ def main():
     elapsed = time.time() - t_start
     new_max = combined.groupby("ticker")["date"].max().max()
     print(f"\nDone in {elapsed:.1f}s. Added {added:,} rows. New max date: {new_max.date()}")
+
+    # Optional: push the updated parquet to Cloudflare R2 so GHA workflows
+    # can pull the same cache. No-op if R2_* env vars aren't set.
+    try:
+        from cache_io import upload_from_local
+        upload_from_local(PATH, "master_prices.parquet")
+    except Exception as e:
+        print(f"[r2 upload] non-fatal error: {e}")
+
     return 0
 
 
