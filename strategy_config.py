@@ -334,28 +334,31 @@ _STRATEGY_BOOK_RAW = [
         "stats": {"grade": "A (Excellent)", "win_rate": "64.8%", "expectancy": "0.49r", "profit_factor": "2.21"}
     },
     {
-        "id": "21dr < 15 3 consec, 5dr < 33, 252dr 50-90, rel vol < 15, 10d ATR sznl > 50, 63d dial 10ma < 65, GTC limit close-0.25 ATR, 10d hold, 1/2 ATR",
+        "id": "21dr < 15 3 consec, 5dr < 33, 2dr < 25, 252dr 50-90, rel vol < 15, 10d ATR sznl > 50, market > 200 SMA, age >= 5y, pre-earnings -> 10 bps, GTC limit close-0.25 ATR, 10d hold, 2 ATR tgt, no stop",
         "name": "Oversold Low Volume",
         "setup": {
             "type": "MeanReversion",
             "timeframe": "Position",
-            "thesis": "Buying oversold names during low-volume selloffs in uptrenders (252d 50-90) with a positive 10d ATR seasonal tailwind, gated to non-fragile regimes (63D dial < 65). Persistent limit at close - 0.25 ATR lets overflow signals (post-close scan) still get filled overnight or intraday.",
+            "thesis": "Buying oversold names during low-volume selloffs in uptrenders (252d 50-90) with a positive 10d ATR seasonal tailwind, gated to a market uptrend regime (SPY > 200 SMA) and minimum 5y of trading history. Persistent limit at close - 0.25 ATR lets overflow signals (post-close scan) still get filled overnight or intraday. Pre-earnings signals (signal_date in [-10, 0] TD relative to earnings) are still allowed but sized at 10 bps instead of the default 35 bps to dampen binary-event risk.",
             "key_filters": [
                 "21D rank < 15th %ile for 3 consecutive days (persistent oversold)",
                 "5D rank < 33rd %ile (recent weakness)",
+                "2D rank < 25th %ile (acute today/yesterday weakness)",
                 "252D rank between 50-90th %ile (uptrending but not extreme leader)",
                 "10D volume rank < 15th %ile (low volume = lack of conviction selling)",
                 "10D ATR seasonal rank > 50th %ile (favorable short-horizon seasonality)",
-                "63D risk dial (10d avg) < 65 (non-fragile regime)"
+                "Market (SPY) > 200 SMA (uptrend regime)",
+                "Min 5 years of price history (mature liquid name)",
+                "Pre-earnings (-10..0 TD) signals: sized 10 bps instead of default"
             ]
         },
         "exit_summary": {
-            "primary_exit": "10-day time stop, 2.0 ATR target, or 1.0 ATR stop (whichever first)",
-            "stop_logic": "1.0 ATR below entry",
+            "primary_exit": "10-day time stop OR 2.0 ATR target (whichever first)",
+            "stop_logic": "None (time/target exit only)",
             "target_logic": "2.0 ATR above entry",
-            "notes": "Persistent limit at close - 0.25 ATR; GTC for the hold window. No cooldown — consecutive signals on same ticker allowed."
+            "notes": "Persistent limit at close - 0.25 ATR; GTC for the hold window. No cooldown — consecutive signals on same ticker allowed. Earnings handling: signals 10 TD before through earnings day get sized at 10 bps (vs. default 35 bps liquid / 25 bps overflow); commodity ETFs / indices / futures with no earnings data pass through at default sizing. Stop loss removed — exit on target or 10d time stop only. Sizing still uses stop_atr=1.0 as the risk denominator (1 ATR distance for share count)."
         },
-        "description": "Start: 2000-01-01. Universe: Liquid + commodities. Dir: Long. Entry: limit at close-0.25 ATR (GTC). 10d hold, 2 ATR target, 1 ATR stop.",
+        "description": "Start: 2000-01-01. Universe: Liquid + commodities + overflow tier (CSV_UNIVERSE via OVERFLOW_ELIGIBLE). Dir: Long. Entry: limit at close-0.25 ATR (GTC). 10d hold, 2 ATR target, no stop. Liquid 35 bps / overflow 25 bps; pre-earnings window sizes both at 10 bps.",
         "universe_tickers": LIQUID_PLUS_COMMODITIES,
         "settings": {
             "trade_direction": "Long",
@@ -363,6 +366,7 @@ _STRATEGY_BOOK_RAW = [
             "max_one_pos": False,
             "allow_same_day_reentry": False,
             "perf_filters": [
+                {'window': 2, 'logic': '<', 'thresh': 25.0, 'consecutive': 1},
                 {'window': 5, 'logic': '<', 'thresh': 33.0, 'consecutive': 1},
                 {'window': 21, 'logic': '<', 'thresh': 15.0, 'consecutive': 3},
                 {'window': 252, 'logic': 'Between', 'thresh': 50.0, 'thresh_max': 90.0, 'consecutive': 1}
@@ -374,7 +378,7 @@ _STRATEGY_BOOK_RAW = [
             "ma_consec_filters": [],
             "use_sznl": False, "sznl_logic": "<", "sznl_thresh": 15.0, "sznl_first_instance": True, "sznl_lookback": 21,
             "use_market_sznl": False, "market_sznl_logic": "<", "market_sznl_thresh": 15.0,
-            "market_ticker": "^GSPC",
+            "market_ticker": "SPY",
             "use_52w": False, "52w_type": "New 52w High", "52w_first_instance": True, "52w_lookback": 21, "52w_lag": 0,
             "exclude_52w_high": False,
             "breakout_mode": "None",
@@ -383,9 +387,9 @@ _STRATEGY_BOOK_RAW = [
             "use_vix_filter": False, "vix_min": 0.0, "vix_max": 20.0,
             "use_vol": False, "vol_thresh": 1.5,
             "use_vol_rank": True, "vol_rank_logic": "<", "vol_rank_thresh": 15.0,
-            "trend_filter": "None",
+            "trend_filter": "Market > 200 SMA",
             "min_price": 10.0, "min_vol": 100000,
-            "min_age": 0.25, "max_age": 100.0,
+            "min_age": 5.0, "max_age": 100.0,
             "min_atr_pct": 0.0, "max_atr_pct": 100.0,
             "entry_conf_bps": 0,
             "use_ma_dist_filter": False, "dist_ma_type": "SMA 10", "dist_logic": "Greater Than (>)", "dist_min": 0.0, "dist_max": 2.0,
@@ -393,10 +397,17 @@ _STRATEGY_BOOK_RAW = [
             "use_acc_count_filter": False, "acc_count_window": 21, "acc_count_logic": ">", "acc_count_thresh": 3,
             "use_dist_count_filter": False, "dist_count_window": 21, "dist_count_logic": ">", "dist_count_thresh": 3,
             "use_recent_52w_low": False, "recent_52w_low_invert": True, "recent_52w_low_lookback": 10,
-            "dial_filters": [{'dial': '63d', 'window': 10, 'logic': '<', 'thresh': 65.0}]
+            "dial_filters": []
         },
-        "execution": {"risk_bps": 35, "slippage_bps": 2, "stop_atr": 1.0, "tgt_atr": 2.0, "hold_days": 10, "use_stop_loss": True, "use_take_profit": True,
-                      "ladder_multipliers": [0.85, 1.00, 1.15]},
+        "execution": {"risk_bps": 35, "slippage_bps": 2, "stop_atr": 1.0, "tgt_atr": 2.0, "hold_days": 10, "use_stop_loss": False, "use_take_profit": True,
+                      "ladder_multipliers": [0.85, 1.00, 1.15],
+                      # Earnings size override: when signal_date sits in the
+                      # offset range [min_td, max_td] (trading days relative to
+                      # earnings, negative = before), reduce risk to risk_bps
+                      # instead of using the strategy's default. NaN offsets
+                      # (commodity ETFs / indices / futures with no earnings
+                      # data) bypass the override — they keep default sizing.
+                      "earnings_size_override": {"min_td": -10, "max_td": 0, "risk_bps": 10}},
         "stats": {"grade": "A (Excellent)", "win_rate": "69.0%", "expectancy": "0.48r", "profit_factor": "2.82"}
     },
     {

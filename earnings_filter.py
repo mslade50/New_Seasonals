@@ -91,16 +91,28 @@ def signed_offset(signal_date, earnings_arr):
     return float(past_off if abs(past_off) <= abs(future_off) else future_off)
 
 
-def in_blackout(signal_date, earnings_arr, window=10):
-    """True if |offset| <= window. NaN (no earnings data) → False (pass through).
+def in_blackout(signal_date, earnings_arr, window=None, lo=None, hi=None):
+    """Return True if signal_date sits inside an earnings blackout window.
 
-    `window` is in trading days. window=10 → reject signals within ±10 TD of an
-    earnings announcement.
+    Two ways to specify the window:
+        symmetric:   window=N  → reject if |offset| <= N (e.g. ±10 TD around earnings)
+        asymmetric:  lo=L, hi=H → reject if L <= offset <= H
+                                  (e.g. lo=-10, hi=0 blocks 10 TD before earnings
+                                  through the announcement day, but allows post-earnings)
+
+    NaN (ticker has no earnings data — commodity ETFs, indices, futures) → False
+    (pass through), mirroring `Not Between` semantics in pages/backtester.py.
+
+    If neither `window` nor (lo, hi) is provided, returns False (no blackout).
     """
     off = signed_offset(signal_date, earnings_arr)
     if pd.isna(off):
         return False
-    return abs(off) <= window
+    if window is not None:
+        return abs(off) <= window
+    if lo is not None and hi is not None:
+        return lo <= off <= hi
+    return False
 
 
 def signed_offset_series(df_dates, earnings_dates_arr):

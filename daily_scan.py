@@ -15,7 +15,7 @@ from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 
 from indicators import calculate_indicators, get_sznl_val_series
-from earnings_filter import load_earnings_dates_map, in_blackout
+from earnings_filter import load_earnings_dates_map, in_blackout, signed_offset
 
 # Define a "Trading Day" offset that skips Weekends AND US Holidays
 TRADING_DAY = CustomBusinessDay(calendar=USFederalHolidayCalendar())
@@ -2084,7 +2084,9 @@ def run_daily_scan(scope='liquid', moc_only=False):
     # Tickers with no earnings data (commodity ETFs, indices, futures, FX) pass
     # through automatically (NaN-as-True). Empty dict ⇒ filter is a silent no-op.
     _uses_earnings_blackout = any(
-        s['execution'].get('earnings_blackout_td') for s in effective_book
+        s['execution'].get('earnings_blackout_td')
+        or s['execution'].get('earnings_size_override')
+        for s in effective_book
     )
     earnings_map = load_earnings_dates_map() if _uses_earnings_blackout else {}
     if _uses_earnings_blackout:
@@ -2256,6 +2258,22 @@ def run_daily_scan(scope='liquid', moc_only=False):
                         ladder_mult = ladder_mults[rung_idx]
                         risk = risk * ladder_mult
                         sizing_note += f" | Ladder rung {rung_idx + 1} ({ladder_mult:.2f}x, {open_count} open)"
+
+                    # 2d. EARNINGS SIZE OVERRIDE — flat-replace risk with the
+                    # configured bps when signal_date sits in the offset range.
+                    # Used by OLV: pre-earnings (-10..0 TD) -> 10 bps regardless
+                    # of liquid/overflow tier or any prior multiplier (frag,
+                    # ladder, etc.). NaN offsets (commodity ETFs / indices /
+                    # futures with no earnings data) bypass the override.
+                    _eo = strat['execution'].get('earnings_size_override')
+                    if _eo and earnings_map:
+                        _e_arr = earnings_map.get(t_clean.upper())
+                        _off = signed_offset(last_row.name, _e_arr)
+                        if pd.notna(_off) and _eo['min_td'] <= _off <= _eo['max_td']:
+                            _ovr_bps = _eo['risk_bps']
+                            _prior_note = sizing_note
+                            risk = ACCOUNT_VALUE * _ovr_bps / 10000
+                            sizing_note = f"Pre-earnings override: {_ovr_bps} bps (offset {int(_off):+d} TD; default was {_prior_note})"
 
                     # 3. Calculate Prices & Shares
                     entry = last_row['Close']

@@ -12,7 +12,7 @@ import os
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from indicators import calculate_indicators, get_sznl_val_series
-from earnings_filter import load_earnings_dates_map, in_blackout
+from earnings_filter import load_earnings_dates_map, in_blackout, signed_offset
 
 _DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data")
 
@@ -1095,17 +1095,20 @@ def process_signals_fast(candidates, signal_data, processed_dict, strategies, st
     # ----------------------------------------------------
     # OVS PRE-PASS: earnings blackout + path-2 aggregate cap
     # ----------------------------------------------------
-    # Earnings blackout: drop OVS candidates whose signal_date sits within
-    # ±N trading days of an earnings announcement (NaN passes through —
-    # commodity ETFs / futures / indices have no earnings data and aren't
-    # silently killed). Mirrors daily_scan / local_overflow_scan.
+    # Earnings blackout (OVS only): drop candidates whose signal_date sits within
+    # ±earnings_blackout_td trading days of an earnings announcement. NaN passes
+    # through (commodity ETFs / futures / indices).
     # Path-2 aggregate cap: sum path-2 risk per signal_date and compute the
     # pro-rata scale factor so total path-2 risk = path2_daily_cap_pct ×
     # starting_equity. Mirrors order_staging.py's path-2 cap (which uses
     # ACCOUNT_VALUE — same fixed denominator in production).
+    #
+    # Other strategies' earnings_size_override (e.g. OLV) is NOT a blackout —
+    # it's applied per-signal in the main sizing block below.
     _ovs_strat = next((s for s in strategies if s.get('name') == "Overbot Vol Spike"), None)
     _eb_window = _ovs_strat['execution'].get('earnings_blackout_td') if _ovs_strat else None
-    _earnings_map = load_earnings_dates_map() if _eb_window else {}
+    _any_size_override = any(s.get('execution', {}).get('earnings_size_override') for s in strategies)
+    _earnings_map = load_earnings_dates_map() if (_eb_window or _any_size_override) else {}
     _ovs_p2_scale_by_date = {}
     if _ovs_strat is not None:
         _exe = _ovs_strat['execution']
@@ -1124,7 +1127,7 @@ def process_signals_fast(candidates, signal_data, processed_dict, strategies, st
             if _s.get('name') != "Overbot Vol Spike":
                 _filtered_candidates.append(cand)
                 continue
-            # Earnings blackout
+            # Earnings blackout (OVS only)
             if _eb_window and _earnings_map:
                 _e_arr = _earnings_map.get(_t_clean.upper())
                 if in_blackout(pd.Timestamp(_sig_ts), _e_arr, window=_eb_window):
@@ -1150,7 +1153,6 @@ def process_signals_fast(candidates, signal_data, processed_dict, strategies, st
                 continue  # SKIP — no risk
             if _t1_open > _sc + 0.25 * _atr:
                 continue  # P1 — no path-2 contribution
-            # P2: accumulate base_risk × p2_mult per signal_date
             _base_risk_p1 = starting_equity * _p1_bps / 10000.0
             _p2_risk = _base_risk_p1 * _p2_mult
             _sd = pd.Timestamp(_sig_ts).normalize()
@@ -1348,6 +1350,17 @@ def process_signals_fast(candidates, signal_data, processed_dict, strategies, st
             base_risk *= ladder_mults[rung_idx]
         if _ovs_size_mult != 1.0:
             base_risk *= _ovs_size_mult
+
+        # --- 3b. Earnings size override (e.g. OLV pre-earnings -> 10 bps) ---
+        # Replaces base_risk entirely (clobbers prior multipliers) when the
+        # signal's offset to nearest earnings sits inside the configured range.
+        # NaN offsets (commodity ETFs / indices / futures) bypass.
+        _eo = execution.get('earnings_size_override')
+        if _eo and _earnings_map:
+            _e_arr = _earnings_map.get(t_clean.upper())
+            _off = signed_offset(pd.Timestamp(signal_ts), _e_arr)
+            if pd.notna(_off) and _eo['min_td'] <= _off <= _eo['max_td']:
+                base_risk = starting_equity * float(_eo['risk_bps']) / 10000.0
 
         # --- 4. Track placed risk for the per-strategy daily cap ---
         placed_risk_by_strat_date[(signal_date, strat_name)] = (
