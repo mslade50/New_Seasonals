@@ -167,6 +167,14 @@ def main():
     print(f"  file:    {size_mb:.1f} MB ({OUT_PATH})")
     if failed:
         print(f"\nFailed ({len(failed)}): {failed[:30]}{' ...' if len(failed) > 30 else ''}")
+
+    # Optional: seed the R2 cache. No-op when R2 isn't configured.
+    try:
+        from cache_io import upload_from_local
+        upload_from_local(OUT_PATH, "master_prices.parquet")
+    except Exception as e:
+        print(f"[r2 upload] non-fatal error: {e}")
+
     return 0
 
 

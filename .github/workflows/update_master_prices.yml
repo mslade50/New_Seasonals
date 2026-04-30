@@ -1,0 +1,56 @@
+name: Update Master Prices
+
+# Daily incremental update of master_prices.parquet (the canonical
+# 2000-ticker, 25-yr price cache). Pulls fresh bars from yfinance,
+# appends to the cache pulled from R2, writes back to R2.
+#
+# Replaces the local Task Scheduler entry (run_master_prices_update.ps1)
+# once R2 is configured.
+
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
+on:
+  schedule:
+    # 22:00 UTC = 6:00 PM ET — same slot as the legacy local task.
+    # Runs after market close; before daily_overflow (23:00 UTC) and
+    # portfolio_report (21:30 UTC) so they see the fresh cache.
+    - cron: '0 22 * * 1-5'
+  workflow_dispatch:
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+
+      - name: Install dependencies
+        run: |
+          pip install pandas pyarrow numpy yfinance boto3
+
+      - name: Pull master_prices from R2
+        # Bootstrapping: the very first run will skip download (parquet
+        # not in R2 yet). update_master_prices.py errors out if the local
+        # parquet is missing — see the bootstrap workflow for the seed run.
+        env:
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+        run: |
+          python -c "from cache_io import download_to_local; download_to_local('master_prices.parquet', 'data/master_prices.parquet')"
+
+      - name: Update master_prices (incremental yfinance pull + R2 upload)
+        env:
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+        run: python scripts/update_master_prices.py
