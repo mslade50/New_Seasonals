@@ -35,7 +35,7 @@ jobs:
 
       - name: Install dependencies
         run: |
-          pip install pandas pyarrow numpy yfinance gspread google-auth boto3 streamlit plotly matplotlib
+          pip install pandas pyarrow numpy yfinance gspread google-auth boto3 streamlit plotly matplotlib kaleido
 
       - name: Pull caches from R2
         env:
