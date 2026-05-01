@@ -2423,6 +2423,12 @@ def run_daily_scan(scope='liquid', moc_only=False):
     # truth for aggregate risk control.
 
     # 6. Save Results
+    # IMPORTANT: --moc-only runs only scan MOC strategies (entry_type='Signal
+    # Close'). They never produce limit/persistent signals, so they MUST NOT
+    # touch the Order_Staging or Overflow tabs — those tabs hold persistent
+    # GTC limit signals from the bookend scope=all runs that should survive
+    # across intraday MOC-only runs. Touching them with empty data would
+    # clear and wipe the legitimate signals already there.
     if all_signals:
         df_sig = pd.DataFrame(all_signals)
         # 1. Log to Master Sheet (APPEND MODE)
@@ -2434,16 +2440,14 @@ def run_daily_scan(scope='liquid', moc_only=False):
         if scope in ('liquid', 'all'):
             save_moc_orders(all_signals, effective_book, sheet_name='moc_orders')
 
-        # 3. Stage non-MOC orders to per-tier tabs:
-        #    Liquid rows → Order_Staging   (read by order_staging.py)
-        #    Overflow rows → Overflow      (also read by order_staging.py)
-        # Both tabs are managed by the same function with a tier_filter.
-        if scope in ('liquid', 'all'):
+        # 3. Stage non-MOC orders to per-tier tabs (skip when moc_only —
+        # those tabs are owned by the bookend scope=all runs).
+        if scope in ('liquid', 'all') and not moc_only:
             save_staging_orders(
                 all_signals, effective_book,
                 sheet_name='Order_Staging', tier_filter='Liquid',
             )
-        if scope in ('overflow', 'all'):
+        if scope in ('overflow', 'all') and not moc_only:
             save_staging_orders(
                 all_signals, effective_book,
                 sheet_name='Overflow', tier_filter='Overflow',
@@ -2451,9 +2455,10 @@ def run_daily_scan(scope='liquid', moc_only=False):
     else:
         print("No signals found today.")
         # Clear whichever tabs THIS scope owns so stale rows don't linger.
-        if scope in ('liquid', 'all'):
+        # moc_only runs intentionally leave Order_Staging / Overflow alone.
+        if scope in ('liquid', 'all') and not moc_only:
             save_staging_orders([], effective_book, sheet_name='Order_Staging', tier_filter='Liquid')
-        if scope in ('overflow', 'all'):
+        if scope in ('overflow', 'all') and not moc_only:
             save_staging_orders([], effective_book, sheet_name='Overflow', tier_filter='Overflow')
 
     # 7. Send Email Summary

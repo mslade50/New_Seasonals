@@ -47,29 +47,33 @@ jobs:
         run: |
           pip install pandas pyarrow numpy yfinance gspread google-auth boto3
 
-      - name: Determine scan args by time-of-day
-        # Morning (09 UTC = 5:13 AM ET) and post-close (20 UTC = 4:13 PM ET)
-        # runs do the full scope=all scan (both tiers, all strategies) since
-        # those bracket the trading session. The 3 intraday slots
-        # (17:40, 18:45, 19:30 UTC) skip everything that isn't a MOC entry —
-        # limit-entry strategies don't change with partial-bar intraday data,
-        # and the overflow tier doesn't MOC at all. That keeps each intraday
-        # run to ~3 strategies × 190 liquid tickers (~1-2 min) instead of
-        # the full ~14 strategies × 1000+ tickers (~7-10 min).
+      - name: Determine scan args by trigger
+        # The bookend runs (pre-market 09:13 UTC / post-close 20:13 UTC) do
+        # the full scope=all scan (both tiers, all strategies). The 3 intraday
+        # slots (17:40, 18:45, 19:30 UTC) skip everything that isn't a MOC
+        # entry — limit-entry strategies don't change with partial-bar
+        # intraday data, and the overflow tier doesn't MOC at all. That keeps
+        # each intraday run to ~3 strategies × 190 liquid tickers (~1-2 min).
+        #
+        # IMPORTANT: scope is keyed off the cron EXPRESSION that fired
+        # (github.event.schedule), NOT the actual UTC runtime hour. GHA cron
+        # is best-effort and can delay 30-60+ min — using the runtime hour
+        # would misclassify a delayed 20:13 UTC run firing at 21:14 UTC as
+        # an intraday run, accidentally clobbering the post-close staging.
         # Manual workflow_dispatch always runs scope=all for ad-hoc testing.
         id: cfg
         run: |
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             echo "args=--scope=all" >> "$GITHUB_OUTPUT"
             echo "label=full (workflow_dispatch)" >> "$GITHUB_OUTPUT"
+          elif [ "${{ github.event.schedule }}" = "13 9,20 * * 1-5" ]; then
+            echo "args=--scope=all" >> "$GITHUB_OUTPUT"
+            echo "label=full (bookend: pre-market or post-close)" >> "$GITHUB_OUTPUT"
           else
-            HOUR=$(date -u +%H)
-            case "$HOUR" in
-              09|20) echo "args=--scope=all" >> "$GITHUB_OUTPUT"; echo "label=full (pre-market or post-close)" >> "$GITHUB_OUTPUT" ;;
-              *)     echo "args=--scope=liquid --moc-only" >> "$GITHUB_OUTPUT"; echo "label=intraday MOC-only" >> "$GITHUB_OUTPUT" ;;
-            esac
+            echo "args=--scope=liquid --moc-only" >> "$GITHUB_OUTPUT"
+            echo "label=intraday MOC-only" >> "$GITHUB_OUTPUT"
           fi
-          echo "Scan mode: ${{ steps.cfg.outputs.label }}" || true
+          echo "Scan mode: $(cat $GITHUB_OUTPUT | grep label= | cut -d= -f2-)"
 
       - name: Pull caches from R2
         # master_prices.parquet  -> read by the overflow scope (~870 tickers)
