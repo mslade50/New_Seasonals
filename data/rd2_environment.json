@@ -1,20 +1,20 @@
 {
-  "date": "2026-04-30",
+  "date": "2026-05-01",
   "price_ctx": {
-    "price": 718.6599731445312,
-    "ret_12m": 0.3108133382168434,
-    "extension_200d": 0.07675827318619999,
+    "price": 720.6500244140625,
+    "ret_12m": 0.3051931901214533,
+    "extension_200d": 0.0789180926782711,
     "drawdown": 0.0,
-    "sma_200": 667.4292559814453,
-    "high_52w": 718.6599731445312,
+    "sma_200": 667.9376583862305,
+    "high_52w": 720.6500244140625,
     "regime_label": "Strong uptrend, moderately extended",
-    "days_since_5pct": 19,
-    "days_since_10pct": 255
+    "days_since_5pct": 20,
+    "days_since_10pct": 256
   },
   "h_scores": {
     "5d": 0.0,
     "21d": 0.0,
-    "63d": 35.09460182110271
+    "63d": 33.57489764783277
   },
   "signals": {
     "Distribution Dominance": {
@@ -25,27 +25,27 @@
     "VIX Range Compression": {
       "on": false,
       "detail": "",
-      "summary": "21d range: 62th pctile (fires below 15th) \u2014 VIX at 16.9"
+      "summary": "21d range: 62th pctile (fires below 15th) \u2014 VIX at 17.0"
     },
     "Defensive Leadership": {
       "on": false,
       "detail": "",
-      "summary": "50d spread: +17pp (fires < -10) | 200d spread: -2pp (fires < 0)"
+      "summary": "50d spread: +19pp (fires < -10) | 200d spread: -1pp (fires < 0)"
     },
     "Pre-FOMC Rally": {
       "on": false,
       "detail": "",
-      "summary": "Next FOMC: Jun 17 (48d away) \u2014 5d return: 73th pctile (outside window)"
+      "summary": "Next FOMC: Jun 17 (47d away) \u2014 5d return: 61th pctile (outside window)"
     },
     "Low Absorption Ratio": {
       "on": false,
       "detail": "",
-      "summary": "AR: 0.571 (69th pctile, fires below 10th) \u2014 near high: yes"
+      "summary": "AR: 0.512 (55th pctile, fires below 10th) \u2014 near high: yes"
     },
     "Seasonal Rank Divergence": {
       "on": false,
       "detail": "",
-      "summary": "Spread: +1.7pp (fires above 10) \u2014 near high: yes"
+      "summary": "Spread: +0.4pp (fires above 10) \u2014 near high: yes"
     }
   }
 }
