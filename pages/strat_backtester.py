@@ -592,6 +592,34 @@ def get_historical_mask(df, params, sznl_map, ticker_name="UNK"):
             (atr_ret >= params.get('atr_ret_min', -100)) &
             (atr_ret <= params.get('atr_ret_max', 100))
         )
+
+    # T+1 Open filter — next-day open vs today's OHLC (+/- ATR offset).
+    # Mirrors pages/backtester.py:1487. Uses the pre-computed 'NextOpen' column
+    # from indicators.py (Open.shift(-1)). Last row of each ticker has NextOpen
+    # NaN; comparisons with NaN return False so those candidates get dropped.
+    if params.get('use_t1_open_filter', False):
+        _t1_filters = params.get('t1_open_filters', []) or []
+        if _t1_filters and 'NextOpen' in df.columns:
+            _next_open = df['NextOpen'].values
+            _atr_vals = df['ATR'].values
+            for _f in _t1_filters:
+                _ref_col = _f.get('reference')
+                _atr_offset = float(_f.get('atr_offset', 0) or 0)
+                _logic = _f.get('logic')
+                if _ref_col not in df.columns or _logic not in ('>', '>=', '<', '<='):
+                    continue
+                _threshold = df[_ref_col].values + (_atr_offset * _atr_vals)
+                with np.errstate(invalid='ignore'):
+                    if _logic == '>':
+                        _cond = _next_open > _threshold
+                    elif _logic == '>=':
+                        _cond = _next_open >= _threshold
+                    elif _logic == '<':
+                        _cond = _next_open < _threshold
+                    else:
+                        _cond = _next_open <= _threshold
+                conditions.append(_cond)
+
     # MA touch filter
     if params.get('use_ma_touch', False):
         ma_col_map = {"SMA 10": "SMA10", "SMA 20": "SMA20", "SMA 50": "SMA50", "SMA 100": "SMA100", "SMA 200": "SMA200", 
@@ -1093,22 +1121,32 @@ def process_signals_fast(candidates, signal_data, processed_dict, strategies, st
     candidates.sort(key=lambda x: x[0])
 
     # ----------------------------------------------------
-    # OVS PRE-PASS: earnings blackout + path-2 aggregate cap
+    # PRE-PASS: earnings blackout (any strategy) + OVS path-2 aggregate cap
     # ----------------------------------------------------
-    # Earnings blackout (OVS only): drop candidates whose signal_date sits within
-    # ±earnings_blackout_td trading days of an earnings announcement. NaN passes
-    # through (commodity ETFs / futures / indices).
-    # Path-2 aggregate cap: sum path-2 risk per signal_date and compute the
+    # Earnings blackout: drop candidates whose signal_date sits within
+    # ±earnings_blackout_td trading days of an earnings announcement, for ANY
+    # strategy that sets earnings_blackout_td in its execution dict (e.g. OVS,
+    # LT Trend ST OS). NaN passes through (commodity ETFs / futures / indices).
+    # Mirrors the per-strategy filter applied inline in daily_scan.py so the
+    # backtest reflects what live scanning will actually trade.
+    #
+    # OVS path-2 aggregate cap: sum path-2 risk per signal_date and compute the
     # pro-rata scale factor so total path-2 risk = path2_daily_cap_pct ×
     # starting_equity. Mirrors order_staging.py's path-2 cap (which uses
-    # ACCOUNT_VALUE — same fixed denominator in production).
+    # ACCOUNT_VALUE — same fixed denominator in production). OVS-only.
     #
     # Other strategies' earnings_size_override (e.g. OLV) is NOT a blackout —
     # it's applied per-signal in the main sizing block below.
-    _ovs_strat = next((s for s in strategies if s.get('name') == "Overbot Vol Spike"), None)
-    _eb_window = _ovs_strat['execution'].get('earnings_blackout_td') if _ovs_strat else None
+    _eb_windows_by_strat = {
+        i: s['execution'].get('earnings_blackout_td')
+        for i, s in enumerate(strategies)
+        if s.get('execution', {}).get('earnings_blackout_td')
+    }
     _any_size_override = any(s.get('execution', {}).get('earnings_size_override') for s in strategies)
-    _earnings_map = load_earnings_dates_map() if (_eb_window or _any_size_override) else {}
+    _need_earnings_map = bool(_eb_windows_by_strat) or _any_size_override
+    _earnings_map = load_earnings_dates_map() if _need_earnings_map else {}
+
+    _ovs_strat = next((s for s in strategies if s.get('name') == "Overbot Vol Spike"), None)
     _ovs_p2_scale_by_date = {}
     if _ovs_strat is not None:
         _exe = _ovs_strat['execution']
@@ -1117,24 +1155,36 @@ def process_signals_fast(candidates, signal_data, processed_dict, strategies, st
         _p2_mult = (_p2_bps / _p1_bps) if _p1_bps > 0 else 0.0
         _p2_cap_pct = float(_exe.get('path2_daily_cap_pct', 1.0))
         _p2_cap_dollars = starting_equity * _p2_cap_pct / 100.0
+    else:
+        _p1_bps = _p2_bps = _p2_mult = _p2_cap_pct = _p2_cap_dollars = 0.0
 
+    # Per-strategy daily-cap dollars (used by the OVS P1-budget gate below).
+    # Mirrors the post-loop cap that scales each strategy independently.
+    _strat_daily_cap_bps = 250 if cap_bps is None else cap_bps
+    _strat_daily_cap_dollars = starting_equity * _strat_daily_cap_bps / 10000.0
+    _ovs_p1_gate_dollars = 0.6 * _strat_daily_cap_dollars  # P1 risk above this kills all P2
+
+    if _eb_windows_by_strat or _ovs_strat is not None:
         _p2_risk_by_date = {}
+        _p1_risk_by_date = {}  # OVS P1 risk dollars per signal date
         _filtered_candidates = []
-        _eb_dropped = 0
+        _eb_dropped_by_strat = {}  # strat_idx -> count
         for cand in candidates:
             _sig_ts, _tkr, _t_clean, _strat_idx, _signal_idx = cand
             _s = strategies[_strat_idx]
-            if _s.get('name') != "Overbot Vol Spike":
-                _filtered_candidates.append(cand)
-                continue
-            # Earnings blackout (OVS only)
+
+            # Generic earnings blackout — any strategy with earnings_blackout_td set.
+            _eb_window = _eb_windows_by_strat.get(_strat_idx)
             if _eb_window and _earnings_map:
                 _e_arr = _earnings_map.get(_t_clean.upper())
                 if in_blackout(pd.Timestamp(_sig_ts), _e_arr, window=_eb_window):
-                    _eb_dropped += 1
+                    _eb_dropped_by_strat[_strat_idx] = _eb_dropped_by_strat.get(_strat_idx, 0) + 1
                     continue
             _filtered_candidates.append(cand)
-            # Path-2 contribution (only for OVS that survives blackout)
+
+            # OVS path-2 contribution — only for OVS rows that survived blackout.
+            if _s.get('name') != "Overbot Vol Spike":
+                continue
             _df_t = processed_dict.get(_t_clean)
             if _df_t is None or _signal_idx + 1 >= len(_df_t):
                 continue
@@ -1151,19 +1201,38 @@ def process_signals_fast(candidates, signal_data, processed_dict, strategies, st
                 continue
             if pd.isna(_t1_open) or _t1_open <= _sc:
                 continue  # SKIP — no risk
-            if _t1_open > _sc + 0.25 * _atr:
-                continue  # P1 — no path-2 contribution
-            _base_risk_p1 = starting_equity * _p1_bps / 10000.0
-            _p2_risk = _base_risk_p1 * _p2_mult
             _sd = pd.Timestamp(_sig_ts).normalize()
+            _base_risk_p1 = starting_equity * _p1_bps / 10000.0
+            if _t1_open > _sc + 0.25 * _atr:
+                # P1 — track risk for the daily-cap gate, no path-2 contribution.
+                _p1_risk_by_date[_sd] = _p1_risk_by_date.get(_sd, 0.0) + _base_risk_p1
+                continue
+            # P2 — accumulate risk contribution for the pro-rata cap below.
+            _p2_risk = _base_risk_p1 * _p2_mult
             _p2_risk_by_date[_sd] = _p2_risk_by_date.get(_sd, 0.0) + _p2_risk
 
         candidates = _filtered_candidates
-        if _eb_dropped > 0:
-            print(f"   ⛔ OVS earnings blackout: dropped {_eb_dropped} candidates within ±{_eb_window} TD of earnings")
+        for _strat_idx, _n in _eb_dropped_by_strat.items():
+            _name = strategies[_strat_idx].get('name', f'strat#{_strat_idx}')
+            _w = _eb_windows_by_strat.get(_strat_idx)
+            print(f"   [BLOCK] {_name} earnings blackout: dropped {_n} candidates within +/-{_w} TD of earnings")
 
+        # Resolve per-date P2 scale: kill all P2 if P1 already used >60% of the
+        # OVS daily cap; otherwise pro-rata cap at path2_daily_cap_pct.
+        _p2_killed_days = 0
         for _d, _r in _p2_risk_by_date.items():
-            _ovs_p2_scale_by_date[_d] = min(1.0, _p2_cap_dollars / _r) if _r > 0 else 1.0
+            _p1_today = _p1_risk_by_date.get(_d, 0.0)
+            if _p1_today > _ovs_p1_gate_dollars:
+                _ovs_p2_scale_by_date[_d] = 0.0
+                _p2_killed_days += 1
+            else:
+                _ovs_p2_scale_by_date[_d] = min(1.0, _p2_cap_dollars / _r) if _r > 0 else 1.0
+        if _p2_killed_days > 0:
+            print(
+                f"   [GATE] OVS P1-budget gate engaged on {_p2_killed_days} day(s): "
+                f"P1 risk > 60% × {_strat_daily_cap_bps} bps cap "
+                f"(${_ovs_p1_gate_dollars:,.0f}) — all P2 trades dropped those days"
+            )
 
     # Build price matrix for all relevant tickers (forward-filled by ticker).
     all_tickers = set(c[2] for c in candidates)
@@ -1326,6 +1395,8 @@ def process_signals_fast(candidates, signal_data, processed_dict, strategies, st
                 _p2_base_mult = (_p2 / _p1) if _p1 > 0 else 0.0
                 _p2_scale = _ovs_p2_scale_by_date.get(pd.Timestamp(signal_ts).normalize(), 1.0)
                 _ovs_size_mult = _p2_base_mult * _p2_scale
+                if _ovs_size_mult <= 0:
+                    continue  # P1-budget gate killed all P2 today
 
         # --- 3. Sizing (base_risk × strategy multipliers × ladder × gap_mult) ---
         # OVS uses path1_bps (40) as the nominal — path-2 downsizing is folded
@@ -2220,10 +2291,19 @@ def main():
     selected_year = st.sidebar.slider("Select Start Year", 1997, current_year, current_year - 2)
     default_date = datetime.date(selected_year, 1, 1)
     
+    _all_strat_names = [s['name'] for s in _STRATEGY_BOOK_RAW]
+
     with st.sidebar.form("backtest_form"):
         user_start_date = st.date_input("Backtest Start Date", value=default_date, min_value=datetime.date(1997, 1, 1))
         starting_equity = st.number_input("Starting Equity ($)", value=ACCOUNT_VALUE, step=10000)
         st.caption(f"Data buffer: 365 days prior to {user_start_date}.")
+        st.markdown("---")
+        selected_strats = st.multiselect(
+            "Strategies to include",
+            options=_all_strat_names,
+            default=_all_strat_names,
+            help="Uncheck any strategy to exclude it from this run. Default = all strategies.",
+        )
         st.markdown("---")
         st.markdown("**🔄 Dynamic Position Sizing**")
         st.caption("Sizes scale with MTM equity (bps of current value including unrealized P&L).")
@@ -2289,7 +2369,14 @@ def main():
             st.session_state['backtest_data'] = {}
 
         import copy
-        strategies = [copy.deepcopy(s) for s in _STRATEGY_BOOK_RAW]
+        if not selected_strats:
+            st.error("Select at least one strategy to run the backtest.")
+            st.stop()
+        _selected_set = set(selected_strats)
+        strategies = [copy.deepcopy(s) for s in _STRATEGY_BOOK_RAW if s['name'] in _selected_set]
+        if len(strategies) < len(_STRATEGY_BOOK_RAW):
+            _excluded = [n for n in _all_strat_names if n not in _selected_set]
+            st.caption(f"Excluded {len(_excluded)} strategy(ies): {', '.join(_excluded)}")
 
         if use_overflow_universe and CSV_UNIVERSE:
             # Union CSV_UNIVERSE (sznl_ranks.csv) with seasonal_ranks.csv tickers

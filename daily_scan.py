@@ -1267,6 +1267,7 @@ def save_staging_orders(signals_list, strategy_book, sheet_name='Order_Staging',
             "TIF": tif_instruction,
             "Frozen_ATR": round(row['ATR'], 2),
             "Signal_Close": round(row['Entry'], 2),
+            "Signal_High": round(float(row.get('Signal_High', 0) or 0), 2),
             "Time_Exit_Date": str(row['Time Exit']),
             "Strategy_Ref": strat['name'],
             # Bracket exit metadata (NEW)
@@ -1289,6 +1290,14 @@ def save_staging_orders(signals_list, strategy_book, sheet_name='Order_Staging',
             "Path1_Bps": execution.get('path1_bps', '') if strat['name'] == "Overbot Vol Spike" else '',
             "Path2_Bps": execution.get('path2_bps', '') if strat['name'] == "Overbot Vol Spike" else '',
             "Path2_Daily_Cap_Pct": execution.get('path2_daily_cap_pct', '') if strat['name'] == "Overbot Vol Spike" else '',
+            # T+1 Open filter spec (JSON list of {logic, reference, atr_offset}).
+            # order_staging reads this and drops the trade if any condition
+            # fails when T+1 open prints. Empty for strategies that don't use it.
+            "T1_Open_Filters": (
+                json.dumps(strat['settings'].get('t1_open_filters', []))
+                if strat['settings'].get('use_t1_open_filter')
+                else ''
+            ),
             # Tier this signal's universe sits in. order_staging used to read
             # this from the (now retired) Scan_Source column on the Overflow
             # tab — post-merge we stage everything to Order_Staging and the
@@ -2382,6 +2391,14 @@ def run_daily_scan(scope='liquid', moc_only=False):
                         "Target": tgt_price,
                         "Time Exit": exit_date,
                         "ATR": atr,
+                        # Signal-day High (post spot-alias substitution if applicable).
+                        # Stamped so order_staging can evaluate use_t1_open_filter
+                        # gates that reference today's High (e.g. SPX OB Fade's
+                        # "T+1 Open > High + 0.05 ATR" condition). Only High is
+                        # stamped today — Signal_Close + Frozen_ATR cover the
+                        # other current filter; add Open/Low here only when a
+                        # future strategy references them.
+                        "Signal_High": float(last_row['High']),
                         # Execution context
                         "Entry_Type": entry_mode,
                         "Entry_Type_Short": entry_type_short,

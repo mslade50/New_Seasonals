@@ -878,7 +878,22 @@ def _generate_exit_summary(params):
     hold_days = params.get('holding_days', 10)
     use_stop = params.get('use_stop_loss', True)
     use_tgt = params.get('use_take_profit', True)
-    
+    use_trail = params.get('use_trailing_stop', False)
+    trail_atr = params.get('trail_atr', 2.0)
+    trail_anchor = params.get('trail_anchor', 'Peak High')
+
+    if use_trail:
+        side = "below" if direction == 'Long' else "above"
+        anchor_desc = "running peak high" if trail_anchor == 'Peak High' else "running peak close"
+        if direction == 'Short':
+            anchor_desc = anchor_desc.replace("peak", "trough").replace("high", "low")
+        return {
+            "primary_exit": f"Trailing stop ({trail_atr:.2f} ATR off {anchor_desc}) or {hold_days}-day time stop",
+            "stop_logic": f"Trail {trail_atr:.2f} ATR {side} {anchor_desc}, ATR frozen at signal-day value",
+            "target_logic": "None (trail captures upside)",
+            "notes": None
+        }
+
     use_partial = params.get('use_partial_exits', False) and use_tgt
     tgt_frac = float(params.get('partial_target_fraction', 0.5)) if use_partial else 0.0
 
@@ -1054,7 +1069,10 @@ def build_strategy_dict(params, tickers_to_run, pf, sqn, win_rate, expectancy_r)
             "tgt_atr": params.get('tgt_atr', 5.0),
             "hold_days": params.get('holding_days', 10),
             "use_stop_loss": params.get('use_stop_loss', True),
-            "use_take_profit": params.get('use_take_profit', True)
+            "use_take_profit": params.get('use_take_profit', True),
+            "use_trailing_stop": params.get('use_trailing_stop', False),
+            "trail_atr": params.get('trail_atr', 2.0),
+            "trail_anchor": params.get('trail_anchor', 'Peak High')
         },
         "stats": {
             "grade": f"{grade} ({verdict})",
@@ -1081,6 +1099,7 @@ def run_engine(universe_dict, params, sznl_map, market_series=None, vix_series=N
     is_limit_pers_10 = "Limit Order -1 ATR" in entry_mode
     is_limit_atr = entry_mode == "Limit (Close -0.5 ATR)"
     is_limit_prev = entry_mode == "Limit (Prev Close)"
+    is_limit_open_atr_025 = entry_mode == "Limit (Open +/- 0.25 ATR)"
     is_limit_open_atr = entry_mode == "Limit (Open +/- 0.5 ATR)"
     is_limit_open_atr_075 = entry_mode == "Limit (Open +/- 0.75 ATR)"
     is_limit_open_atr_100 = entry_mode == "Limit (Open +/- 1 ATR)"
@@ -1592,6 +1611,14 @@ def run_engine(universe_dict, params, sznl_map, market_series=None, vix_series=N
                             found_entry, actual_entry_idx, actual_entry_price = True, next_idx, min(limit_price, day_open) if day_open < limit_price else limit_price
                         elif direction == 'Short' and day_high >= limit_price:
                             found_entry, actual_entry_idx, actual_entry_price = True, next_idx, max(limit_price, day_open) if day_open > limit_price else limit_price
+                elif is_limit_open_atr_025:
+                    next_idx = sig_idx + 1
+                    if next_idx < len(df):
+                        sig_atr, day_open = df['ATR'].iloc[sig_idx], df['Open'].iloc[next_idx]
+                        day_low, day_high = df['Low'].iloc[next_idx], df['High'].iloc[next_idx]
+                        limit_price = (day_open - (sig_atr * 0.25)) if direction == 'Long' else (day_open + (sig_atr * 0.25))
+                        if direction == 'Long' and day_low <= limit_price: found_entry, actual_entry_idx, actual_entry_price = True, next_idx, limit_price
+                        elif direction == 'Short' and day_high >= limit_price: found_entry, actual_entry_idx, actual_entry_price = True, next_idx, limit_price
                 elif is_limit_open_atr:
                     next_idx = sig_idx + 1
                     if next_idx < len(df):
@@ -1733,6 +1760,49 @@ def run_engine(universe_dict, params, sznl_map, market_series=None, vix_series=N
                     fixed_exit_idx = min(actual_entry_idx + params['holding_days'], len(df) - 1)
                     future = df.iloc[actual_entry_idx + 1 : fixed_exit_idx + 1]
                     if future.empty: continue
+
+                    if params.get('use_trailing_stop', False):
+                        trail_dist = atr * params.get('trail_atr', 2.0)
+                        anchor_mode = params.get('trail_anchor', 'Peak High')
+                        if direction == 'Long':
+                            anchor = actual_entry_price
+                            trail_stop = actual_entry_price - trail_dist
+                        else:
+                            anchor = actual_entry_price
+                            trail_stop = actual_entry_price + trail_dist
+                        exit_price, exit_type, exit_date = actual_entry_price, "Hold", None
+                        for f_date, f_row in future.iterrows():
+                            if direction == 'Long':
+                                if f_row['Low'] <= trail_stop:
+                                    actual_stop_px = min(f_row['Open'], trail_stop) if f_row['Open'] <= trail_stop else trail_stop
+                                    exit_price, exit_type, exit_date = actual_stop_px, "Trail", f_date
+                                    break
+                                new_anchor = f_row['High'] if anchor_mode == 'Peak High' else f_row['Close']
+                                if new_anchor > anchor:
+                                    anchor = new_anchor
+                                    trail_stop = max(trail_stop, anchor - trail_dist)
+                            else:
+                                if f_row['High'] >= trail_stop:
+                                    actual_stop_px = max(f_row['Open'], trail_stop) if f_row['Open'] >= trail_stop else trail_stop
+                                    exit_price, exit_type, exit_date = actual_stop_px, "Trail", f_date
+                                    break
+                                new_anchor = f_row['Low'] if anchor_mode == 'Peak High' else f_row['Close']
+                                if new_anchor < anchor:
+                                    anchor = new_anchor
+                                    trail_stop = min(trail_stop, anchor + trail_dist)
+                        if exit_type == "Hold":
+                            exit_price = future['Close'].iloc[-1]
+                            exit_date = future.index[-1]
+                            exit_type = "Time"
+
+                        ticker_last_exit = exit_date
+                        slip = slippage_bps / 10000.0
+                        tech_risk = atr * params.get('trail_atr', 2.0)
+                        if tech_risk <= 0: tech_risk = 0.001
+                        pnl = (exit_price*(1-slip) - actual_entry_price*(1+slip)) if direction == 'Long' else (actual_entry_price*(1-slip) - exit_price*(1+slip))
+                        all_potential_trades.append({"Ticker": ticker, "SignalDate": signal_date, "EntryDate": df.index[actual_entry_idx], "Direction": direction, "Entry": actual_entry_price, "Exit": exit_price, "ExitDate": exit_date, "Type": exit_type, "R": pnl / tech_risk, "TechRisk": tech_risk, "Age": df['age_years'].iloc[sig_idx], "AvgVol": df['vol_ma'].iloc[sig_idx], "Status": "Valid Signal", "Reason": "Executed"})
+                        continue
+
                     stop_price = actual_entry_price - (atr * params['stop_atr']) if direction == 'Long' else actual_entry_price + (atr * params['stop_atr'])
                     tgt_price = actual_entry_price + (atr * params['tgt_atr']) if direction == 'Long' else actual_entry_price - (atr * params['tgt_atr'])
 
@@ -1935,10 +2005,11 @@ def main():
     st.subheader("2. Execution & Risk")
     r_c1, r_c2, r_c3 = st.columns(3)
     with r_c1: trade_direction = st.selectbox("Trade Direction", ["Long", "Short"])
-    with r_c2: 
-        exit_mode = st.selectbox("Exit Mode", ["Time Only (Hold)", "Standard (Stop & Target)", "No Stop (Target + Time)"])
+    with r_c2:
+        exit_mode = st.selectbox("Exit Mode", ["Time Only (Hold)", "Standard (Stop & Target)", "No Stop (Target + Time)", "Trailing Stop (ATR)"])
+        use_trailing_stop = (exit_mode == "Trailing Stop (ATR)")
         use_stop_loss = (exit_mode == "Standard (Stop & Target)")
-        use_take_profit = (exit_mode != "Time Only (Hold)")
+        use_take_profit = (exit_mode in ("Standard (Stop & Target)", "No Stop (Target + Time)"))
         time_exit_only = (exit_mode == "Time Only (Hold)")
     with r_c3: max_one_pos = st.checkbox("Max 1 Position/Ticker", value=True)
     p_c1, p_c2, p_c3 = st.columns(3)
@@ -1952,6 +2023,7 @@ def main():
     c1, c2, c3, c4, c5 = st.columns(5)
     with c1: 
         entry_type = st.selectbox("Entry Price", [
+            "Limit (Open +/- 0.25 ATR)",
             "Limit (Open +/- 0.5 ATR)",
             "Limit (Open +/- 0.75 ATR)",
             "Limit (Open +/- 1 ATR)",
@@ -1972,6 +2044,26 @@ def main():
         use_ma_entry_filter = st.checkbox("Filter: Close > MA - 0.25*ATR", value=False) if "Pullback" in entry_type else False
     with c2: stop_atr = st.number_input("Stop Loss (ATR)", value=1.0, step=0.1, disabled=not use_stop_loss)
     with c3: tgt_atr = st.number_input("Target (ATR)", value=8.0, step=0.1, disabled=not use_take_profit)
+    if use_trailing_stop:
+        ts_c1, ts_c2 = st.columns([1, 2])
+        with ts_c1:
+            trail_atr = st.number_input(
+                "Trail Distance (ATR)", value=2.0, step=0.1, min_value=0.1,
+                help="Trailing stop distance in ATR units. ATR is frozen at signal-day value.",
+            )
+        with ts_c2:
+            trail_anchor = st.selectbox(
+                "Trail Anchor",
+                ["Peak High", "Close"],
+                help=(
+                    "Peak High: stop ratchets to running max bar high - N*ATR (Long) / "
+                    "running min low + N*ATR (Short). Close: anchored to running max/min close instead — "
+                    "smoother, lets pullback wicks ride."
+                ),
+            )
+    else:
+        trail_atr = 2.0
+        trail_anchor = "Peak High"
     with c4: hold_days = st.number_input("Max Holding Days", min_value=1, value=10, step=1)
     with c5:
         starting_portfolio = st.number_input("Starting Portfolio ($)", value=100000, step=1000, min_value=100)
@@ -2688,6 +2780,7 @@ def main():
             'max_daily_entries': max_daily_entries, 'max_total_positions': max_total_positions, 'use_stop_loss': use_stop_loss, 'use_take_profit': use_take_profit, 'time_exit_only': time_exit_only,
             'use_partial_exits': use_partial_exits, 'partial_target_fraction': partial_target_fraction,
             'stop_atr': stop_atr, 'tgt_atr': tgt_atr, 'holding_days': hold_days, 'entry_type': entry_type, 'use_ma_entry_filter': use_ma_entry_filter, 'require_close_gt_open': req_green_candle,
+            'use_trailing_stop': use_trailing_stop, 'trail_atr': trail_atr, 'trail_anchor': trail_anchor,
             'breakout_mode': breakout_mode, 'use_range_filter': use_range_filter, 'range_min': range_min, 'range_max': range_max, 'use_dow_filter': use_dow_filter, 'allowed_days': valid_days,
             'allowed_cycles': allowed_cycles, 'excluded_years': excluded_years, 'min_price': min_price, 'min_vol': min_vol, 'min_age': min_age, 'max_age': max_age, 'min_atr_pct': min_atr_pct, 'max_atr_pct': max_atr_pct,
             'trend_filter': trend_filter, 'universe_tickers': tickers_to_run, 'slippage_bps': slippage_bps, 'entry_conf_bps': entry_conf_bps, 'perf_filters': perf_filters, 'perf_atr_filters': perf_atr_filters, 'perf_first_instance': perf_first,

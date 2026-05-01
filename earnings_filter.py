@@ -36,6 +36,36 @@ _HOLIDAYS_D64 = pd.DatetimeIndex(
 ).to_numpy().astype("datetime64[D]")
 
 
+# Staleness threshold for the local parquet. The local Task Scheduler entry
+# (and the GHA build) refresh it weekdays around 21:30 UTC, so anything older
+# than ~18h on a weekday means the daily refresh missed and we should grab
+# the latest from R2 if creds are available.
+_STALE_AFTER_SECONDS = 18 * 3600
+
+
+def _refresh_from_r2_if_needed(local_path):
+    """Pull data/earnings_calendar.parquet from R2 when the local copy is
+    missing or stale. No-op if R2 isn't configured (then we just use whatever
+    is on disk, or fail quietly via load's try/except).
+    """
+    try:
+        from cache_io import is_configured, download_to_local
+    except ImportError:
+        return
+    if not is_configured():
+        return
+    needs_pull = False
+    if not os.path.exists(local_path):
+        needs_pull = True
+    else:
+        import time
+        age = time.time() - os.path.getmtime(local_path)
+        if age > _STALE_AFTER_SECONDS:
+            needs_pull = True
+    if needs_pull:
+        download_to_local("earnings_calendar.parquet", local_path)
+
+
 def load_earnings_dates_map(path=None):
     """Load earnings calendar parquet → {ticker: np.array of datetime64[D]}.
 
@@ -43,6 +73,7 @@ def load_earnings_dates_map(path=None):
     treat that as "filter off" (every ticker passes through).
     """
     p = path or _PARQUET_PATH
+    _refresh_from_r2_if_needed(p)
     try:
         df = pd.read_parquet(p)
     except Exception:

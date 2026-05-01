@@ -30,6 +30,17 @@ import os
 import sys
 from typing import Optional
 
+# Auto-load .env from the project root so local entry points (Streamlit,
+# ad-hoc scripts) pick up R2_* credentials without setting Windows env vars.
+# In GHA the secrets are already in os.environ; load_dotenv won't override
+# unless explicitly told to (default override=False).
+try:
+    from dotenv import load_dotenv  # type: ignore
+    _DOTENV_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env")
+    load_dotenv(_DOTENV_PATH, override=False)
+except ImportError:
+    pass
+
 
 _R2_REQUIRED_VARS = (
     "R2_ACCOUNT_ID",
