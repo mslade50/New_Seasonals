@@ -411,7 +411,7 @@ _STRATEGY_BOOK_RAW = [
         "stats": {"grade": "A (Excellent)", "win_rate": "69.0%", "expectancy": "0.48r", "profit_factor": "2.82"}
     },
     {
-        "id": "2+5+10+21d > 85, >0 dist day, sell open +0.75 atr, 2 ATR tgt",
+        "id": "2+5+10+21d > 85, sell open +0.75 atr, 2 ATR tgt",
         "name": "Overbot Vol Spike",
         "setup": {
             "type": "MeanReversion",
@@ -422,7 +422,6 @@ _STRATEGY_BOOK_RAW = [
                 "21D > 85th %ile for 3 consecutive days",
                 "252D rank NOT between 65-95th %ile (avoid mediocre LT names)",
                 "5D ATR seasonal rank < 85 (skip strong 5d seasonal windows)",
-                "At least 1 distribution day in last 21",
                 "Today's return > 0.25 ATR (up day)"
             ]
         },
@@ -466,41 +465,42 @@ _STRATEGY_BOOK_RAW = [
             "use_ma_dist_filter": False, "dist_ma_type": "SMA 10", "dist_logic": "Greater Than (>)", "dist_min": 0.0, "dist_max": 2.0,
             "use_gap_filter": False, "gap_lookback": 21, "gap_logic": ">", "gap_thresh": 3,
             "use_acc_count_filter": False, "acc_count_window": 21, "acc_count_logic": ">", "acc_count_thresh": 3,
-            "use_dist_count_filter": True, "dist_count_window": 21, "dist_count_logic": ">", "dist_count_thresh": 0,
+            "use_dist_count_filter": False, "dist_count_window": 21, "dist_count_logic": ">", "dist_count_thresh": 0,
             "use_xsec_filter": True, "xsec_filters": []
         },
         "execution": {"risk_bps": 40, "slippage_bps": 2, "stop_atr": 1.0, "tgt_atr": 2.0, "hold_days": 2, "use_stop_loss": False, "use_take_profit": True,
-                      "path1_bps": 40, "path2_bps": 8, "path2_daily_cap_pct": 1.0,
+                      "path1_bps": 40, "path2_bps": 8, "path2_daily_cap_pct": 0.75,
                       "earnings_blackout_td": 10},
         "stats": {"grade": "A (Excellent)", "win_rate": "58.0%", "expectancy": "0.28r", "profit_factor": "1.96"}
     },
     {
-        "id": "2d+5d+10d+21d < 15%ile, 126d+252d between 65-90, vol > 1.25x (1.0x intraday), age >= 5y, ±10 earnings blackout, GTC limit close-0.25 ATR, 2 ATR tgt, 2d hold",
+        "id": "2d+5d+10d+21d < 15%ile, 252d between 65-90, range 0-15, today ret -10..-0.25 ATR, 100sma 20 consec above, 200sma 50 consec above, age >= 5y, ±10 earnings blackout, GTC limit close-0.25 ATR, 2 ATR tgt, 1d hold",
         "name": "LT Trend ST OS",
         "setup": {
             "type": "MeanReversion",
             "timeframe": "Overnight",
-            "thesis": "Oversold bounce in long-term uptrenders — but NOT extreme leaders (126D/252D capped at 90th %ile) to avoid buying climactic tops. Persistent limit at close - 0.25 ATR for entry. ±10 TD earnings blackout to avoid catching a knife into a binary event.",
+            "thesis": "Oversold bounce in long-term uptrenders — but NOT extreme leaders (252D capped at 90th %ile) to avoid buying climactic tops. Persistent uptrend confirmed via consecutive closes above 100D SMA (>=20) and 200D SMA (>=50). Demand a sharp red bar today (close in lower 15% of range AND today return <= -0.25 ATR) for the oversold setup. Persistent limit at close - 0.25 ATR for entry. ±10 TD earnings blackout to avoid catching a knife into a binary event.",
             "key_filters": [
                 "2D rank < 15th %ile",
                 "5D rank < 15th %ile",
                 "10D rank < 15th %ile",
                 "21D rank < 15th %ile",
-                "126D rank between 65-90th %ile",
                 "252D rank between 65-90th %ile",
-                "Close in 0-25% of daily range",
-                "Volume > 1.25x 63-day avg (relaxed to 1.0x for intraday scan runs)",
+                "Close in 0-15% of daily range",
+                "Today return between -10 ATR and -0.25 ATR (decisive red day)",
+                "Close above 100D SMA for 20+ consecutive days",
+                "Close above 200D SMA for 50+ consecutive days",
                 "Min 5 years of price history",
                 "No earnings within ±10 trading days"
             ]
         },
         "exit_summary": {
-            "primary_exit": "2-day time stop OR 2.0 ATR target (whichever first)",
+            "primary_exit": "1-day time stop OR 2.0 ATR target (whichever first)",
             "stop_logic": "None (time/target exit only)",
             "target_logic": "2.0 ATR above entry",
             "notes": "Entry changed from Signal Close (MOC) to Limit Order -0.25 ATR (Persistent GTC). No longer a MOC strategy — won't be picked up by the intraday --moc-only GHA runs."
         },
-        "description": "Start: 2000-01-01. Universe: LIQUID_PLUS_COMMODITIES + overflow tier. Dir: Long. Entry: limit at close-0.25 ATR (GTC). 2d hold, 2 ATR target, no stop. WR 68.4% / PF 2.91 / Exp 0.40r (pre-changes).",
+        "description": "Start: 2000-01-01. Universe: LIQUID_PLUS_COMMODITIES + overflow tier. Dir: Long. Entry: limit at close-0.25 ATR (GTC). 1d hold, 2 ATR target, no stop. 40 bps risk. WR 68.4% / PF 2.91 / Exp 0.40r (pre-changes).",
         "universe_tickers": LIQUID_PLUS_COMMODITIES,
         "settings": {
             "trade_direction": "Long",
@@ -513,12 +513,14 @@ _STRATEGY_BOOK_RAW = [
                 {'window': 5, 'logic': '<', 'thresh': 15.0, 'thresh_max': 100.0, 'consecutive': 1},
                 {'window': 10, 'logic': '<', 'thresh': 15.0, 'thresh_max': 100.0, 'consecutive': 1},
                 {'window': 21, 'logic': '<', 'thresh': 15.0, 'thresh_max': 100.0, 'consecutive': 1},
-                {'window': 126, 'logic': 'Between', 'thresh': 65.0, 'thresh_max': 90.0, 'consecutive': 1},
                 {'window': 252, 'logic': 'Between', 'thresh': 65.0, 'thresh_max': 90.0, 'consecutive': 1},
             ],
             "perf_atr_filters": [],
             "perf_first_instance": False, "perf_lookback": 21,
-            "ma_consec_filters": [],
+            "ma_consec_filters": [
+                {'length': 100, 'logic': 'Above', 'consec': 20},
+                {'length': 200, 'logic': 'Above', 'consec': 50},
+            ],
             "use_sznl": False, "sznl_logic": "<", "sznl_thresh": 15.0, "sznl_first_instance": False, "sznl_lookback": 21,
             "use_market_sznl": False, "market_sznl_logic": ">", "market_sznl_thresh": 30.0,
             "market_ticker": "^GSPC",
@@ -529,15 +531,15 @@ _STRATEGY_BOOK_RAW = [
             "use_recent_52w_low": False, "recent_52w_low_invert": False, "recent_52w_low_lookback": 21,
             "breakout_mode": "None",
             "require_close_gt_open": False,
-            "use_range_filter": True, "range_min": 0, "range_max": 25,
-            "use_atr_ret_filter": False, "atr_ret_min": -10.0, "atr_ret_max": 0.0,
+            "use_range_filter": True, "range_min": 0, "range_max": 15,
+            "use_atr_ret_filter": True, "atr_ret_min": -10.0, "atr_ret_max": -0.25,
             "use_range_atr_filter": False, "range_atr_logic": ">", "range_atr_min": 1.0, "range_atr_max": 3.0,
             "price_action_filters": [],
             "use_ma_dist_filter": False, "dist_ma_type": "SMA 10", "dist_logic": "Greater Than (>)", "dist_min": 0.0, "dist_max": 2.0,
             "use_weekly_ma_pullback": False, "wma_type": "EMA", "wma_period": 8,
             "wma_min_ext_pct": 30.0, "wma_lookback_months": 6, "wma_touch_logic": "Low <= MA",
             "vol_gt_prev": False,
-            "use_vol": True, "vol_logic": ">", "vol_thresh": 1.25, "vol_thresh_max": 10.0,
+            "use_vol": False, "vol_logic": ">", "vol_thresh": 1.25, "vol_thresh_max": 10.0,
             "use_vol_rank": False, "vol_rank_logic": "<", "vol_rank_thresh": 50.0,
             "use_acc_count_filter": False, "acc_count_window": 21, "acc_count_logic": ">", "acc_count_thresh": 3,
             "use_dist_count_filter": False, "dist_count_window": 21, "dist_count_logic": ">", "dist_count_thresh": 0,
@@ -557,12 +559,12 @@ _STRATEGY_BOOK_RAW = [
             "dial_filters": []
         },
         "execution": {
-            "risk_bps": 35,
+            "risk_bps": 40,
             "risk_per_trade": "[EDIT: calculated from account size]",
             "slippage_bps": 2,
             "stop_atr": 1.0,
             "tgt_atr": 2.0,
-            "hold_days": 2,
+            "hold_days": 1,
             "use_stop_loss": False,
             "use_take_profit": True,
             # Symmetric earnings blackout: skip if signal_date is within ±10
