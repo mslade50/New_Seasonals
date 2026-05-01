@@ -200,7 +200,7 @@ def get_google_client():
         return None
 
 
-def send_email_summary(signals_list, error_tickers=None, frag_score=None, frag_mult=None):
+def send_email_summary(signals_list, error_tickers=None, frag_score=None, frag_mult=None, scope_label=None):
     """
     Sends an HTML email summary of the signals using Gmail SMTP.
     Card-based layout showing full signal criteria with LIVE values.
@@ -286,8 +286,9 @@ def send_email_summary(signals_list, error_tickers=None, frag_score=None, frag_m
         </div>
         """
 
+    _scope_suffix = f" — {scope_label}" if scope_label else ""
     if not email_signals:
-        subject = f"📉 Scan Result: NO SIGNALS ({date_str})"
+        subject = f"📉 Scan Result: NO SIGNALS ({date_str}){_scope_suffix}"
         html_content = f"""
         <html>
             <body style="font-family: Arial, sans-serif; background-color: #f5f5f5; padding: 20px;">
@@ -302,7 +303,7 @@ def send_email_summary(signals_list, error_tickers=None, frag_score=None, frag_m
         </html>
         """
     else:
-        subject = f"🚀 {signal_count} SIGNAL{'S' if signal_count > 1 else ''} ({date_str})"
+        subject = f"🚀 {signal_count} SIGNAL{'S' if signal_count > 1 else ''} ({date_str}){_scope_suffix}"
         
         # Build card-based HTML for each signal
         signal_cards = []
@@ -2471,7 +2472,17 @@ def run_daily_scan(scope='liquid', moc_only=False):
             seen_errors.add(key)
             unique_errors.append((ticker, reason))
 
-    send_email_summary(all_signals, error_tickers=unique_errors, frag_score=frag_score, frag_mult=frag_mult)
+    # Pass scope label to email subject so the run mode is visible in the
+    # inbox — quick way to spot a misclassified scan at a glance.
+    if moc_only:
+        _scope_label = "intraday MOC-only"
+    elif scope == 'all':
+        _scope_label = "bookend full (scope=all)"
+    elif scope == 'overflow':
+        _scope_label = "scope=overflow"
+    else:
+        _scope_label = "scope=liquid"
+    send_email_summary(all_signals, error_tickers=unique_errors, frag_score=frag_score, frag_mult=frag_mult, scope_label=_scope_label)
 
     print("--- Scan Complete ---")
 

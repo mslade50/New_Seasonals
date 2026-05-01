@@ -1,5 +1,11 @@
 name: Daily Strategy Scan (Liquid + Overflow)
 
+# Suffixes the run with its scope mode so misclassifications jump out in
+# the Actions tab (e.g. "Daily Strategy Scan: bookend full" vs "intraday
+# MOC"). Cron delays no longer change the mode, but the label makes it
+# trivial to verify at a glance.
+run-name: "Daily Strategy Scan — ${{ github.event_name == 'workflow_dispatch' && 'manual full' || (github.event.schedule == '13 9,20 * * 1-5' && 'bookend full (scope=all)' || 'intraday MOC-only') }}"
+
 # Unified scan: each run hits LIQUID_PLUS_COMMODITIES (190 tickers) AND
 # the overflow universe CSV_UNIVERSE − LIQUID_PLUS_COMMODITIES (~870
 # tickers). Liquid signals -> Order_Staging tab, overflow -> Overflow tab.
