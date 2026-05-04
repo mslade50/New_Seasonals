@@ -1,53 +1,59 @@
-# Radar Weekly Digest — 2026-04-26
+# Radar Weekly Digest — 2026-05-04
 
-# Weekly Distillation — April 20-26, 2026
+# Weekly Distillation — Apr 28 to May 1, 2026
 
-The dominant narratives this week were the squeeze trades (CAR), the psychedelic EO basket (CMPS, ATAI, PBM, ENVB, GHRS, CMND), and the rare-earth/critical-minerals cluster (USAR, MP, CRML). Most of these don't clear the bar — either the move already happened with consensus now agreeing with the bull case (psychedelics, USAR), or the structure has broken and the radar is chasing dead-cat unwinds (CAR -70% in 48 hours).
+The week was dominated by recurring policy themes (critical minerals, nuclear, psychedelics, cannabis rescheduling) and several extreme retail-positioning setups. Most policy names are now consensus and crowded. I'm surfacing five ideas: three longs where the catalyst is structural and not yet priced, and two short/fade setups where retail is buying directly into identifiable forced supply.
 
-The two ideas that clear the bar are quieter — both have specific events in the next week and clean variant perception against actual forced sellers.
+## HII — Long, the cleanest setup of the week
+
+The defense shipbuilder sold off into RSI 21.5 (deeply oversold) at $360.60, ~22% off the $460 high, while forward earnings estimates are *accelerating*: +13.1% this fiscal year stepping up to +17.0% next. Trailing PE 23.4 / forward 17.7. Last four quarterly surprises: +35%, +12.5%, +9.4%, +3.7% — they're systematically beating.
+
+**Variant perception:** The Maritime Action Plan released Feb 13 includes a Maritime Security Trust Fund — *dedicated* funding, not annual appropriations. The market is pricing HII as a cyclical defense name vulnerable to budget swings. The Trust Fund structure converts revenue from cyclical to annuity-like for the largest US military shipbuilder. That re-rating is not in a 17.7x forward PE.
+
+**Who's on the other side:** Generalists rotating out of defense on tariff/macro headlines, plus profit-takers from the +100% YoY run. Their argument is "already up a lot, defense budgets always disappoint." They're missing the funding-mechanism shift and selling into RSI 21.
+
+**What would change my mind:** Trust Fund mechanism gets stripped in reconciliation, or May 5 earnings show margin compression that breaks the surprise streak.
+
+## MP — Long, structural earnings reset
+
+Price $66.63, RSI 63, forward EPS growth profile is the most extreme in the live data: +224% this fiscal year, *accelerating* to +326% next year. Last four surprises: +163%, +38%, +35%, +1.3%.
+
+**Variant perception:** China's April 4 export restrictions on 7 of 17 rare earth elements (including dysprosium and terbium — the heavy REEs used in F-35 magnets) are being treated as a tariff-cycle event. They're a structural pricing reset for the only at-scale US miner+processor. Pair that with the Trump administration taking direct equity stakes in MP/USAR — government as cap-table holder is an implicit price floor and offtake commitment. A 52x forward PE on +326% growth is reasonable; forward PE drops fast if the +1y consensus prints.
+
+**Who's on the other side:** Cyclicality-stigma generalists who view rare earths as a 2010-style bubble redux, plus quants screening on trailing financials (revenue growth 70%, but EBITDA still negative). The bear case: China backs down on export controls, prices mean-revert. Why I think they're wrong: the controls are reciprocal to Trump tariffs that aren't going away, and DoD procurement language now explicitly excludes Chinese-processed material — the demand side is locked in regardless of China's posture.
+
+**What would change my mind:** A US-China trade deal that explicitly carves out rare earths, or +1q EPS print that misses consensus enough to call the +326% +1y trajectory into question.
+
+## LEU — Long, sole-source HALEU into the SMR funding wave
+
+Centrus Energy at $206.64, recovering trend, RSI 55, still 55% off its $464 high. Last four quarterly surprises: +1468%, +96%, -47%, -44% — volatile but the recent pair are blowouts. Forward PE 47 on +11.6% / +17.0% EPS growth is rich on its face, but the structural position isn't.
+
+**Variant perception:** LEU is the only non-Russian, non-Chinese licensed HALEU producer. Every advanced reactor program — Oklo, X-energy, TerraPower, BWXT — needs this fuel. The market is still anchored to the broad nuclear correction (LEU is down 55% from highs while OKLO is down 64%) and treating LEU as just another SMR derivative. It's actually a sole-source choke point with $2.7B of DOE money funneling at it. The +11.6% / +17% consensus doesn't reflect the volume ramp implied by 5-10 reactor loan commitments coming online.
+
+**Who's on the other side:** Generalists who got burned in the 2024 nuclear top and lump LEU with the broader correction, plus uranium-mining bulls focused on CCJ/UEC who don't distinguish between fuel cycle stages. Their bear case: HALEU demand is years away. Why I think they're wrong: the contracts and DOE flow are showing up *now* — the 1468% recent surprise is the data validating that.
+
+**What would change my mind:** A new HALEU competitor gets DOE funding (would break sole-source thesis), or DOE pulls the Centrus contract extension.
+
+## STX — Short, distribution top with insider confirmation
+
+Price $726.93, RSI 86.4, literally 0.1% off the 52w high after a 130% YTD rip and ~700% off the lows. Forward PE 27.7, fwd EPS +83.8% this year decelerating to +76.5% next. Insiders have sold $38M with zero buys. WSB mentions surged 1,625% in 24 hours into the rally.
+
+**Variant perception:** The HAMR / AI-storage demand thesis is real and consensus. What's not priced: insiders are signaling the upside is exhausted at this multiple by liquidating into peak retail FOMO. Decelerating forward EPS growth (+83.8 → +76.5%) plus 27.7x forward is no longer cheap if the AI-storage ramp normalizes. The setup is timing, not thesis — sellers and buyers are now identified.
+
+**Who's on the other side:** Retail FOMO chasing the +1,625% WSB mention surge, momentum funds extending exposure into the breakout. Their argument is "secular HAMR ramp, multi-year." They're not wrong about the trend; they're wrong about the entry point — paying RSI 86 to retail-handoff candle.
+
+**What would change my mind:** An accelerating revision (+1y consensus moves above +90%), or insider buying resumes. Either reframes the distribution-top read.
+
+## SMR — Fade rallies, real forced supply
+
+Price $12.14. Three concrete negatives stacked Apr 28: securities-fraud class action filed, Fluor *fully exited* a 40M share stake (~$2.43B), Citi cut PT to $9 with Sell. Stock still 79% off its 52w high. Retail bid is still anchored to the DOE loan narrative.
+
+**Variant perception:** Most retail/FinTwit treats Fluor's exit as backward-looking news. It's actually live forced supply — 40M shares is enormous for a $4B market cap, and class-action overhang creates ongoing distribution pressure as funds with litigation policies trim. The DOE loan optionality the retail bid is paying for can't absorb that supply at $12+. Fade rallies into $12-13.
+
+**Who's on the other side:** Retail and momentum buying the DOE testimony narrative, plus arb funds covering. Their argument: NRC certification + DOE loan = re-rating. Why I think they're wrong: Fluor's liquidation is the smartest informed seller in the cap table, and they didn't trim — they exited entirely. That's a stronger signal than any policy headline.
+
+**What would change my mind:** Class action gets dismissed quickly, or DOE loan list gets published with NuScale named — at that point the supply may be absorbable.
 
 ---
 
-## HII — Defense oversold into accelerating fundamentals
-
-**Thesis:** HII is sitting at RSI 19.9, -22% from 52w highs, while FY26 appropriations dropped explicit nuclear shipyard carve-outs ($1.6B productivity + $521M wages + $1.9B Virginia-class) that flow disproportionately to one of two qualified builders.
-
-**Variant perception:** The street is still pricing HII (and LMT, RSI 4.9) as "buyback-ban prime contractors" — that narrative is from the January EO and is now stale. What's not yet in numbers: Trump's proposed +$500B for FY27 ($1.5T total, up from $1T FY26) plus the nuclear shipyard line items that landed *after* the recent selloff. The fact that EPS is **accelerating** (+13.1% 0y → +17.0% +1y) with last-four-quarter surprises of +3.7%/+8.3%/+12.5%/+35.0% means analyst estimates are too low, not too high. Forward PE 17.7 is priced for deceleration that isn't happening.
-
-**Who's on the other side:** ESG/dividend-mandate holders rotating out after the underperforming-contractor buyback EO — mechanical, not informed. RSI 4.9 on LMT and 19.9 on HII says the systematic + factor selling has exhausted itself against a fundamental tape that keeps beating.
-
-**The data:**
-- HII: $359.29, fwd PE 17.7, EPS +17% +1y, four-quarter average beat ~+15%
-- LMT: $513.45 (cleaner pair candidate), RSI 4.9, fwd PE 16.0, +387.7% 0q EPS
-- HII reports 5/5; LMT 7/21
-- Defense budget: FY26 $838.7B passed, FY27 proposed +$500B
-
-**What changes my mind:** A specific HII contract cancellation or quality issue on Virginia-class delivery. Or appropriations getting clawed back in a CR fight. The thesis is "tape is mispricing what's already in the budget" — if the budget breaks, so does the trade.
-
----
-
-## SOFI — Earnings 4/29 against the Muddy Waters short-stack
-
-**Thesis:** Two Muddy Waters reports, three sell-side downgrades to $17-18, and the stock is at $18.44 — up 21% off the lows and refused to go down on the second short report. The setup is a classic "won't go down on bad news, so the bad news is priced in" with a hard catalyst in 3 days.
-
-**Variant perception:** The bear case (BofA/TD Cowen/KBW) is that the $312M JPM loan misclassification could trigger a restatement reversing ~$1B of EBITDA. I think this conflates a one-line accounting dispute with the underlying business trajectory. Last-four-quarter EPS surprises were **+93.9%, +44.7%, +23.0%, +8.7%**. Forward consensus has 0q EPS growth at +99.7% accelerating off +57.9% for the year. Revenue growth trailing 40.2%. The accounting question may be real but the consumer-banking flywheel is shipping numbers that don't depend on how that one loan is booked. Q1 print on 4/29 is the test — another monster beat collapses the short narrative.
-
-**Who's on the other side:** Two layers of mechanical selling — short-fund traders piggybacking on the MW report, and three banks that downgraded after the short report (forced cover for sell-side analysts who can't be wrong-with-a-Buy). Both are pressure that the tape is already absorbing. Insider buy from Noto reinforces this.
-
-**The data:**
-- $18.44, RSI 68.5, recovering trend, 5d/20d volume ratio 0.95 (no panic flow)
-- Forward PE 23.4, fwd EPS +57.9% 0y / +33.1% +1y
-- Earnings 4/29 — known, dated, binary
-
-**What changes my mind:** A miss or a guide-down on 4/29. Or the SEC opening an investigation into the MW allegations specifically — that goes beyond noise into an actual restatement risk that fundamentals can't outrun.
-
----
-
-## What I'm passing on and why
-
-- **Psychedelics basket (CMPS, ATAI, PBM, ENVB, GHRS, CMND):** EO is real, but consensus now agrees with the bull case. CMPS at RSI 81.4, ENVB RSI 80.8, GHRS RSI 72.4 — these aren't variant trades, they're chasing a thesis Jefferies and Oppenheimer have already published. No edge left.
-- **CAR:** Squeeze broke, retail is bag-holding, no setup either direction worth the chop.
-- **Rare earths (USAR, MP, CRML):** Real policy, but already up huge and street-known. USAR P/S 2,900x. The picks-and-shovels narrative without a specific mispricing isn't an idea.
-- **NVDA at 18-25x forward with 75% EPS growth** is structurally interesting but RSI 86.7 is the wrong entry; wait for a pullback.
-- **AXSM (PDUFA 4/30) and NTLA (HAELO 4/27):** Pure binary lottery in 1-4 days. Stocks are already priced for approval/positive readout. No edge — coin flip.
-- **RDDT, PLTR, TSLA:** All still working through positioning unwinds. Tape is voting against retail conviction. Setups will get cleaner after capitulation, not now.
+**What I excluded and why:** USAR (extended at RSI 74 after +90% YTD; thesis right but late), CMPS/ATAI/ENVB/PSIL (psychedelic EO is now consensus and front-run), CGC/TLRY/MSOS (cannabis Schedule III is fully priced — buy-the-rumor is over), CAR (squeeze already unwound from $847 to $185, no edge left), POET (Marvell cancellation already in price), IBM (cheap and oversold but no specific variant — just "buy the dip"), STLD (RSI 83.8 at 52w high, tariff thesis fully reflected), CRWV (still squeezing but earnings May 7 makes it binary not asymmetric), SCHW (TrumpIRA TAM expansion is real but implementation timeline too vague to size).
