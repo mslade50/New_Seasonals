@@ -4,7 +4,7 @@ name: Daily Strategy Scan (Liquid + Overflow)
 # the Actions tab (e.g. "Daily Strategy Scan: bookend full" vs "intraday
 # MOC"). Cron delays no longer change the mode, but the label makes it
 # trivial to verify at a glance.
-run-name: "Daily Strategy Scan — ${{ github.event_name == 'workflow_dispatch' && 'manual full' || (github.event.schedule == '13 9,20 * * 1-5' && 'bookend full (scope=all)' || 'intraday MOC-only') }}"
+run-name: "Daily Strategy Scan — ${{ github.event_name == 'workflow_dispatch' && 'manual full' || ((github.event.schedule == '13 9 * * 1-5' || github.event.schedule == '0 22 * * 1-5') && 'bookend full (scope=all)' || 'intraday MOC-only') }}"
 
 # Unified scan: each run hits LIQUID_PLUS_COMMODITIES (190 tickers) AND
 # the overflow universe CSV_UNIVERSE − LIQUID_PLUS_COMMODITIES (~870
@@ -20,18 +20,22 @@ concurrency:
 
 on:
   schedule:
-    # 1. THE ORIGINALS (Early AM and Late PM)
-    # 5:13 AM EDT (9:13 UTC)
-    # 4:13 PM EDT (20:13 UTC)
-    - cron: '13 9,20 * * 1-5'
+    # 1. THE BOOKENDS (Pre-market and Post-close, scope=all)
+    # 5:13 AM EDT (9:13 UTC) — pre-market full scan
+    - cron: '13 9 * * 1-5'
+    # 6:00 PM EDT (22:00 UTC) — post-close full scan. Runs 1.5h after the
+    # update_master_prices job (20:30 UTC + ~3 min runtime + cron lag) so
+    # the overflow tier reads a fresh master_prices.parquet that includes
+    # today's close.
+    - cron: '0 22 * * 1-5'
 
-    # 2. THE AFTERNOON BLOCKS
+    # 2. THE AFTERNOON BLOCKS (intraday MOC-only)
     # 1:40 PM EDT (17:40 UTC)
-    # 2:45 PM EDT (19:00 UTC)
+    # 2:45 PM EDT (18:45 UTC)
     - cron: '40 17 * * 1-5'
     - cron: '45 18 * * 1-5'
 
-    # 3. THE HALF-HOUR BLOCK
+    # 3. THE HALF-HOUR BLOCK (intraday MOC-only)
     # 3:30 PM EDT (19:30 UTC)
     - cron: '30 19 * * 1-5'
 
@@ -72,7 +76,7 @@ jobs:
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             echo "args=--scope=all" >> "$GITHUB_OUTPUT"
             echo "label=full (workflow_dispatch)" >> "$GITHUB_OUTPUT"
-          elif [ "${{ github.event.schedule }}" = "13 9,20 * * 1-5" ]; then
+          elif [ "${{ github.event.schedule }}" = "13 9 * * 1-5" ] || [ "${{ github.event.schedule }}" = "0 22 * * 1-5" ]; then
             echo "args=--scope=all" >> "$GITHUB_OUTPUT"
             echo "label=full (bookend: pre-market or post-close)" >> "$GITHUB_OUTPUT"
           else

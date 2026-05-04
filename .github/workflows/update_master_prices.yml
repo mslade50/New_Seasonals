@@ -13,10 +13,16 @@ concurrency:
 
 on:
   schedule:
-    # 22:00 UTC = 6:00 PM ET — same slot as the legacy local task.
-    # Runs after market close; before daily_overflow (23:00 UTC) and
-    # portfolio_report (21:30 UTC) so they see the fresh cache.
-    - cron: '0 22 * * 1-5'
+    # 20:30 UTC = 4:30 PM ET — 30 min after close. Lands BEFORE the post-close
+    # daily_screener bookend at 22:00 UTC so overflow sees Friday's actual
+    # close instead of Thursday's stale bar.
+    - cron: '30 20 * * 1-5'
+    # 07:00 UTC = 3:00 AM ET — pre-market refresh. Catches any prior-session
+    # close that the 4:30 PM run missed (yfinance can be slow to publish
+    # immediately after market close) and refreshes any revisions yfinance
+    # made overnight. Uses --exclude-today so a stale/placeholder bar for the
+    # current day (market hasn't opened yet) doesn't slip into the cache.
+    - cron: '0 7 * * 1-5'
   workflow_dispatch:
 
 jobs:
@@ -47,10 +53,23 @@ jobs:
         run: |
           python -c "from cache_io import download_to_local; download_to_local('master_prices.parquet', 'data/master_prices.parquet')"
 
+      - name: Determine update args by trigger
+        # Pre-market 07:00 UTC run passes --exclude-today so any stale
+        # placeholder bar for the current day (market hasn't opened) is
+        # filtered out. The 20:30 UTC post-close run pulls everything yfinance
+        # has, including today's close.
+        id: cfg
+        run: |
+          if [ "${{ github.event.schedule }}" = "0 7 * * 1-5" ]; then
+            echo "args=--exclude-today" >> "$GITHUB_OUTPUT"
+          else
+            echo "args=" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Update master_prices (incremental yfinance pull + R2 upload)
         env:
           R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
           R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
           R2_BUCKET: ${{ secrets.R2_BUCKET }}
-        run: python scripts/update_master_prices.py
+        run: python scripts/update_master_prices.py ${{ steps.cfg.outputs.args }}

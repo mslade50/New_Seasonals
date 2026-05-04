@@ -14,10 +14,10 @@ concurrency:
 on:
   schedule:
     # 21:30 UTC = 5:30 PM ET — same slot as the legacy local task.
-    # Runs AFTER the daily_screener final run (20:13 UTC) but BEFORE
-    # update_master_prices (22:00 UTC). Uses YESTERDAY's master_prices
-    # parquet (the report doesn't need today's incremental bar — its
-    # backtest reads through the prior trading day).
+    # Runs AFTER update_master_prices (20:30 UTC) so it sees a parquet that
+    # includes today's close, and BEFORE the post-close daily_screener
+    # bookend (22:00 UTC). The backtest only reads through the prior trading
+    # day so today's bar is informational only.
     - cron: '30 21 * * 1-5'
   workflow_dispatch:
 

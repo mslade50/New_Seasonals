@@ -5,10 +5,14 @@ Idempotent: re-running on the same day is safe (drops duplicate (ticker, date)).
 Run after market close. Wire into Task Scheduler for unattended daily updates.
 
 Usage:
-    python scripts/update_master_prices.py [--buffer-days 5]
+    python scripts/update_master_prices.py [--buffer-days 5] [--exclude-today]
 
 The buffer pulls a few extra days back from the earliest stale max-date so
 late-reporting bars or splits get refreshed.
+
+--exclude-today drops any newly-fetched bars dated today (Eastern). Use on
+pre-market refresh runs (e.g. 3 AM ET) where yfinance might surface a stale
+or placeholder bar for "today" before the session has opened.
 """
 import argparse
 import os
@@ -70,6 +74,8 @@ def download_chunk(tickers, start_date):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--buffer-days", type=int, default=5)
+    ap.add_argument("--exclude-today", action="store_true",
+                    help="Drop bars dated today (Eastern) from the fetch — for pre-market refresh runs")
     args = ap.parse_args()
 
     if not os.path.exists(PATH):
@@ -107,6 +113,12 @@ def main():
         return 0
 
     new_data = pd.concat(all_frames, ignore_index=True)
+    if args.exclude_today:
+        today_eastern = pd.Timestamp.now(tz="America/New_York").normalize().tz_localize(None)
+        new_data["date"] = pd.to_datetime(new_data["date"])
+        before = len(new_data)
+        new_data = new_data[new_data["date"] < today_eastern]
+        print(f"  --exclude-today: dropped {before - len(new_data):,} rows dated >= {today_eastern.date()}")
     combined = pd.concat([master, new_data], ignore_index=True)
     combined = combined.dropna(subset=["Close"])
     combined = combined.drop_duplicates(subset=["ticker", "date"], keep="last")
