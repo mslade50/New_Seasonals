@@ -41,7 +41,7 @@ Added two new blocks to each strategy for improved email/signal clarity:
 
 | Variable | Count | Used By |
 |----------|-------|---------|
-| `INDEX_ETFS` | 5 | Weak Close Reversion, Index Seasonals |
+| `INDEX_ETFS` | 5 | Monday Dip |
 | `SECTOR_INDEX_ETFS` | 26 | Weak Close Decent Sznls |
 | `LIQUID_UNIVERSE` | 190 | 7 strategies |
 | `LIQUID_NO_INDEX` | 188 | Liquid Seasonals (short term) |

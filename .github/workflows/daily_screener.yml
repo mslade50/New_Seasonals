@@ -1,10 +1,9 @@
 name: Daily Strategy Scan (Liquid + Overflow)
 
-# Suffixes the run with its scope mode so misclassifications jump out in
-# the Actions tab (e.g. "Daily Strategy Scan: bookend full" vs "intraday
-# MOC"). Cron delays no longer change the mode, but the label makes it
-# trivial to verify at a glance.
-run-name: "Daily Strategy Scan — ${{ github.event_name == 'workflow_dispatch' && 'manual full' || ((github.event.schedule == '13 9 * * 1-5' || github.event.schedule == '0 22 * * 1-5') && 'bookend full (scope=all)' || 'intraday MOC-only') }}"
+# Pre-market and post-close bookend scans only — intraday MOC slots were
+# retired when the strategy book lost its last MOC entry. Add them back if
+# a Signal Close strategy is reintroduced.
+run-name: "Daily Strategy Scan — ${{ github.event_name == 'workflow_dispatch' && 'manual full' || 'bookend full (scope=all)' }}"
 
 # Unified scan: each run hits LIQUID_PLUS_COMMODITIES (190 tickers) AND
 # the overflow universe CSV_UNIVERSE − LIQUID_PLUS_COMMODITIES (~870
@@ -23,24 +22,14 @@ permissions:
 
 on:
   schedule:
-    # 1. THE BOOKENDS (Pre-market and Post-close, scope=all)
-    # 5:13 AM EDT (9:13 UTC) — pre-market full scan
+    # Pre-market full scan: 4:47 AM EDT (8:47 UTC). Writes the exposure-leg
+    # state file and commits it back to main.
     - cron: '47 8 * * 1-5'
-    # 6:00 PM EDT (22:00 UTC) — post-close full scan. Runs 1.5h after the
+    # Post-close full scan: 6:00 PM EDT (22:00 UTC). Runs 1.5h after the
     # update_master_prices job (20:30 UTC + ~3 min runtime + cron lag) so
     # the overflow tier reads a fresh master_prices.parquet that includes
     # today's close.
     - cron: '0 22 * * 1-5'
-
-    # 2. THE AFTERNOON BLOCKS (intraday MOC-only)
-    # 1:40 PM EDT (17:40 UTC)
-    # 2:45 PM EDT (18:45 UTC)
-    - cron: '40 17 * * 1-5'
-    - cron: '45 18 * * 1-5'
-
-    # 3. THE HALF-HOUR BLOCK (intraday MOC-only)
-    # 3:30 PM EDT (19:30 UTC)
-    - cron: '30 19 * * 1-5'
 
   workflow_dispatch:
 
@@ -60,39 +49,9 @@ jobs:
         run: |
           pip install pandas pyarrow numpy yfinance gspread google-auth boto3
 
-      - name: Determine scan args by trigger
-        # The bookend runs (pre-market 09:13 UTC / post-close 20:13 UTC) do
-        # the full scope=all scan (both tiers, all strategies). The 3 intraday
-        # slots (17:40, 18:45, 19:30 UTC) skip everything that isn't a MOC
-        # entry — limit-entry strategies don't change with partial-bar
-        # intraday data, and the overflow tier doesn't MOC at all. That keeps
-        # each intraday run to ~3 strategies × 190 liquid tickers (~1-2 min).
-        #
-        # IMPORTANT: scope is keyed off the cron EXPRESSION that fired
-        # (github.event.schedule), NOT the actual UTC runtime hour. GHA cron
-        # is best-effort and can delay 30-60+ min — using the runtime hour
-        # would misclassify a delayed 20:13 UTC run firing at 21:14 UTC as
-        # an intraday run, accidentally clobbering the post-close staging.
-        # Manual workflow_dispatch always runs scope=all for ad-hoc testing.
-        id: cfg
-        run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            echo "args=--scope=all" >> "$GITHUB_OUTPUT"
-            echo "label=full (workflow_dispatch)" >> "$GITHUB_OUTPUT"
-          elif [ "${{ github.event.schedule }}" = "13 9 * * 1-5" ] || [ "${{ github.event.schedule }}" = "0 22 * * 1-5" ]; then
-            echo "args=--scope=all" >> "$GITHUB_OUTPUT"
-            echo "label=full (bookend: pre-market or post-close)" >> "$GITHUB_OUTPUT"
-          else
-            echo "args=--scope=liquid --moc-only" >> "$GITHUB_OUTPUT"
-            echo "label=intraday MOC-only" >> "$GITHUB_OUTPUT"
-          fi
-          echo "Scan mode: $(cat $GITHUB_OUTPUT | grep label= | cut -d= -f2-)"
-
       - name: Pull caches from R2
         # master_prices.parquet  -> read by the overflow scope (~870 tickers)
         # earnings_calendar.parquet -> OVS ±10 TD blackout for both tiers
-        # We always download both — small enough to be cheap, lets the
-        # workflow not branch on scope here.
         env:
           R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
           R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
@@ -106,12 +65,12 @@ jobs:
           GCP_JSON: ${{ secrets.GCP_JSON }}
           EMAIL_USER: ${{ secrets.EMAIL_USER }}
           EMAIL_PASS: ${{ secrets.EMAIL_PASS }}
-        run: python daily_scan.py ${{ steps.cfg.outputs.args }}
+        run: python daily_scan.py --scope=all
 
       - name: Commit exposure state (AM bookend only)
-        # Only the AM bookend writes data/exposure_state.json (PM bookend +
-        # intraday MOC runs leave it untouched). git diff exits 0 when no
-        # change, so this is a no-op outside the AM run.
+        # Only the AM bookend writes data/exposure_state.json (PM bookend
+        # leaves it untouched). git diff exits 0 when no change, so this is
+        # a no-op on the PM run.
         if: always()
         run: |
           git config user.name "github-actions[bot]"

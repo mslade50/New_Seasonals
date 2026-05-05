@@ -12,7 +12,7 @@ A quantitative equity trading platform built on Streamlit. Three pillars:
 ```
 ├── app.py                          # Main Streamlit entry point
 ├── strategy_config.py              # Strategy definitions (STRATEGY_BOOK)
-├── daily_scan.py                   # Unified scanner — supports --scope=liquid|overflow|all and --moc-only
+├── daily_scan.py                   # Unified scanner — supports --scope=liquid|overflow|all (--moc-only flag retained for future use; no MOC strategies in book currently)
 ├── daily_risk_report.py            # Daily risk email (fragility dials + signals + forward returns)
 ├── daily_portfolio_report.py       # Daily portfolio health report (imports from strat_backtester)
 ├── weekly_market_rundown.py        # Weekly PDF rundown (tabloid landscape, 11 chart pages)
@@ -34,7 +34,7 @@ A quantitative equity trading platform built on Streamlit. Three pillars:
 │   ├── seasonal_sigs.py            # Seasonal signals
 │   └── user_input.py               # User input page
 ├── .github/workflows/              # GitHub Actions — see "Automated Pipeline" below
-│   ├── daily_screener.yml          # 5x/day unified scan (full at 09/20 UTC, MOC-only intraday)
+│   ├── daily_screener.yml          # 2x/day unified scan — pre-market (08:47 UTC) and post-close (22:00 UTC) bookends, both --scope=all
 │   ├── build_earnings_calendar.yml # Nightly FMP refresh → R2
 │   ├── update_master_prices.yml    # Nightly yfinance incremental → R2
 │   ├── portfolio_report.yml        # Daily portfolio email
@@ -102,7 +102,7 @@ It may optionally import `SP500_TICKERS` from `abs_return_dispersion.py` (with t
 - `--scope=liquid` (default) — scans every strategy against its native universe (typically LIQUID_PLUS_COMMODITIES)
 - `--scope=overflow` — only the 5 overflow-eligible strategies, swapped to CSV_UNIVERSE − LIQUID_PLUS_COMMODITIES with OLV bps override
 - `--scope=all` — both passes concatenated, signals stamped with `Scan_Source='Liquid'` or `'Overflow'`
-- `--moc-only` — restricts to strategies with `entry_type='Signal Close'`. Skips the overflow tier entirely (overflow doesn't MOC by convention). Used by intraday GHA runs.
+- `--moc-only` — restricts to strategies with `entry_type='Signal Close'`. Skips the overflow tier entirely (overflow doesn't MOC by convention). Currently a no-op since the strategy book has no MOC entries; the flag is retained for future use if a Signal Close strategy is added back.
 
 Per-tier tab routing inside `save_staging_orders`: Liquid rows → `Order_Staging`, Overflow rows → `Overflow`. Both tabs are read by `order_staging.py` (which lives in `C:\Users\mckin\OneDrive\trading_ibkr\` — IBKR-bound, stays local).
 
@@ -236,7 +236,7 @@ All five trading-day workflows now run in GHA. Order staging stays local (IBKR-b
 
 | Workflow file | Schedule | What it does |
 |---|---|---|
-| `daily_screener.yml` | Weekdays 5x: 09:13, 17:40, 18:45, 19:30, 20:13 UTC | Unified scan. Pre-market (09) + post-close (20) → `--scope=all` (full liquid + overflow, ~7-10 min). Intraday (17:40, 18:45, 19:30) → `--scope=liquid --moc-only` (3 MOC strategies × 190 liquid tickers, ~1-2 min). Workflow auto-picks scope based on UTC hour. Manual workflow_dispatch always uses `--scope=all`. |
+| `daily_screener.yml` | Weekdays 2x: 08:47 UTC (pre-market) + 22:00 UTC (post-close) | Unified scan, both runs `--scope=all` (full liquid + overflow, ~7-10 min). AM run also writes `data/exposure_state.json` and commits it back to main. Intraday MOC slots were retired when the strategy book lost its last Signal Close entry; restore them if MOC strategies are added back. |
 | `build_earnings_calendar.yml` | Weekdays 21:30 UTC (5:30 PM ET) | FMP `/stable/earnings` pull → writes `data/earnings_calendar.parquet` → uploads to R2. Local `EarningsCalendarRefresh` Task Scheduler entry mirrors this for redundancy (last write wins). |
 | `update_master_prices.yml` | Weekdays 22:00 UTC (6:00 PM ET) | Pulls `master_prices.parquet` from R2, fetches today's bars from yfinance for ~2000 tickers, appends, dedupes, writes back to R2. |
 | `portfolio_report.yml` | Weekdays 21:30 UTC (5:30 PM ET) | Pulls master_prices + earnings caches from R2, runs `daily_portfolio_report.py`, sends HTML email + writes Portfolio Sheets tab. |
@@ -283,7 +283,7 @@ Framework doc: `C:\Users\mckin\Documents\vault\trading\decisions\radar_weekly_di
 Tab layout in the `Trade_Signals_Log` workbook:
 - `Order_Staging` — Liquid-tier signals (Limits, T+1 Open, Persistent GTC). Cleared + rewritten by every `daily_scan` run with `Scan_Source='Liquid'`.
 - `Overflow` — Overflow-tier signals (same entry types, no MOC). Cleared + rewritten by `daily_scan --scope=overflow|all` with `Scan_Source='Overflow'`.
-- `moc_orders` — MOC entries from liquid tier only (`save_moc_orders` skips overflow rows). MOC strategies: Weak Close Reversion, Weak Close Decent Sznls, LT Trend ST OS.
+- `moc_orders` — MOC entries from liquid tier only (`save_moc_orders` skips overflow rows). Currently vestigial: the strategy book has no Signal Close entries, so this tab is never written. Reactivates automatically if any strategy is set to `entry_type='Signal Close'`.
 - `Trade_Signals_Log` (sheet1) — append-only signal history.
 - `Portfolio` — open-positions snapshot from `daily_portfolio_report.py`.
 - `execution`, `execution_2` — order_staging.py output for primary + small-account execution.
