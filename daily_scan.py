@@ -16,6 +16,12 @@ from email.mime.multipart import MIMEMultipart
 
 from indicators import calculate_indicators, get_sznl_val_series
 from earnings_filter import load_earnings_dates_map, in_blackout, signed_offset
+from exposure_leg import (
+    compute_exposure_targets,
+    load_prior_state,
+    save_state,
+    build_exposure_email_html,
+)
 
 # Define a "Trading Day" offset that skips Weekends AND US Holidays
 TRADING_DAY = CustomBusinessDay(calendar=USFederalHolidayCalendar())
@@ -200,7 +206,7 @@ def get_google_client():
         return None
 
 
-def send_email_summary(signals_list, error_tickers=None, frag_score=None, frag_mult=None, scope_label=None):
+def send_email_summary(signals_list, error_tickers=None, frag_score=None, frag_mult=None, scope_label=None, exposure_html=None):
     """
     Sends an HTML email summary of the signals using Gmail SMTP.
     Card-based layout showing full signal criteria with LIVE values.
@@ -296,6 +302,7 @@ def send_email_summary(signals_list, error_tickers=None, frag_score=None, frag_m
                     <h2 style="color: #333; margin-top: 0;">Daily Strategy Scan: {date_str}</h2>
                     <p style="color: #666;">The scan completed successfully.</p>
                     <div style="font-size: 13px; color: #555; margin: 10px 0 15px 0;">{risk_dial_html}</div>
+                    {exposure_html or ''}
                     <p style="font-size: 18px; color: #888;"><strong>Result:</strong> No signals found matching criteria today.</p>
                     {error_html}
                 </div>
@@ -545,7 +552,8 @@ def send_email_summary(signals_list, error_tickers=None, frag_score=None, frag_m
                         </div>
                         {risk_dial_html}
                     </div>
-                    
+                    {exposure_html or ''}
+
                     <!-- Quick Summary -->
                     <div style="background: white; padding: 20px; border-bottom: 1px solid #ddd;">
                         <h3 style="margin-top: 0; color: #333;">⚡ Quick Summary</h3>
@@ -2499,7 +2507,29 @@ def run_daily_scan(scope='liquid', moc_only=False):
         _scope_label = "scope=overflow"
     else:
         _scope_label = "scope=liquid"
-    send_email_summary(all_signals, error_tickers=unique_errors, frag_score=frag_score, frag_mult=frag_mult, scope_label=_scope_label)
+
+    # Exposure leg — only on the AM bookend run (scope=all + UTC hour < 12).
+    # The PM bookend at ~20:13 UTC and intraday MOC runs skip it.
+    exposure_html = None
+    is_am_run = (scope == 'all' and not moc_only and datetime.datetime.utcnow().hour < 12)
+    if is_am_run:
+        try:
+            today_snap = compute_exposure_targets(
+                account_value=ACCOUNT_VALUE,
+                master_dict=master_dict if 'master_dict' in dir() else None,
+            )
+            prior_snap = load_prior_state()
+            exposure_html = build_exposure_email_html(today_snap, prior_snap)
+            if today_snap is not None:
+                save_state(today_snap)
+                print(f"[exposure] Mult={today_snap['mult']:.2f}x rule={today_snap['active_rule']} reason={today_snap['reason']}")
+            else:
+                print("[exposure] Fragility cache missing — exposure leg skipped.")
+        except Exception as e:
+            print(f"[exposure] Failed to build exposure leg: {e}")
+            exposure_html = None
+
+    send_email_summary(all_signals, error_tickers=unique_errors, frag_score=frag_score, frag_mult=frag_mult, scope_label=_scope_label, exposure_html=exposure_html)
 
     print("--- Scan Complete ---")
 

@@ -157,8 +157,16 @@ def load_earnings_map():
     Returns a dict {ticker: pd.DatetimeIndex of earnings announcement dates}.
     Empty dict if the parquet is missing — earnings filter will silently no-op.
     Backfilled via scripts/build_earnings_calendar.py from FMP /stable/earnings.
+
+    Falls back to pulling the parquet from R2 (seasonals-cache bucket) when
+    it's missing or stale locally — same logic as earnings_filter.py.
     """
     path = "data/earnings_calendar.parquet"
+    try:
+        from earnings_filter import _refresh_from_r2_if_needed
+        _refresh_from_r2_if_needed(path)
+    except Exception:
+        pass
     try:
         df = pd.read_parquet(path)
     except Exception:
@@ -172,6 +180,55 @@ def load_earnings_map():
     for tkr, grp in df.groupby('ticker'):
         out[tkr] = pd.DatetimeIndex(sorted(grp['date'].unique()))
     return out
+
+
+_EARNINGS_METRIC_COLS = ['eps_surprise_pct', 'rev_surprise_pct', 'eps_yoy', 'rev_yoy']
+
+
+@st.cache_resource
+def load_earnings_metrics_map():
+    """Load per-ticker DataFrame of earnings-quality metrics, indexed by date.
+
+    Returns {ticker: DataFrame[eps_surprise_pct, rev_surprise_pct, eps_yoy,
+    rev_yoy]}. Index is the earnings announcement date (normalized, tz-naive).
+
+    Used by the engine to look up the most recent reported metrics at or
+    before each bar via reindex(method='ffill'). Source columns are derived
+    by scripts/build_earnings_calendar.py — older parquets without the
+    derived columns yield an empty map (filter silently no-ops).
+    """
+    path = "data/earnings_calendar.parquet"
+    try:
+        from earnings_filter import _refresh_from_r2_if_needed
+        _refresh_from_r2_if_needed(path)
+    except Exception:
+        pass
+    try:
+        df = pd.read_parquet(path)
+    except Exception:
+        return {}
+    needed = ['ticker', 'date'] + _EARNINGS_METRIC_COLS
+    if df.empty or not all(c in df.columns for c in needed):
+        return {}
+    df = df[needed].copy()
+    df['date'] = pd.to_datetime(df['date'], errors='coerce').dt.normalize()
+    df['ticker'] = df['ticker'].astype(str).str.upper().str.strip()
+    df = df.dropna(subset=['date', 'ticker'])
+    df = df.sort_values(['ticker', 'date'])
+    out = {}
+    for tkr, grp in df.groupby('ticker'):
+        out[tkr] = grp.drop(columns=['ticker']).set_index('date')[_EARNINGS_METRIC_COLS]
+    return out
+
+
+@st.cache_resource
+def load_grades_map_cached():
+    """Streamlit-cached wrapper around analyst_grades.load_grades_map()."""
+    try:
+        from analyst_grades import load_grades_map
+        return load_grades_map()
+    except Exception:
+        return {}
 
 
 def clean_ticker_df(df):
@@ -773,6 +830,15 @@ def _generate_key_filters(params):
             filters.append(f"Today's range < {params['range_atr_max']:.1f} ATR")
         else:
             filters.append(f"Today's range between {params['range_atr_min']:.1f}-{params['range_atr_max']:.1f} ATR")
+
+    if params.get('use_open_gap_atr_filter'):
+        logic = params.get('open_gap_atr_logic', 'Between')
+        if logic == '>':
+            filters.append(f"Open vs prev close > {params['open_gap_atr_min']:.1f} ATR")
+        elif logic == '<':
+            filters.append(f"Open vs prev close < {params['open_gap_atr_max']:.1f} ATR")
+        else:
+            filters.append(f"Open vs prev close between {params['open_gap_atr_min']:.1f}-{params['open_gap_atr_max']:.1f} ATR")
     day_label = {0: "Signal day", 1: "T-1", 2: "T-2", 3: "T-3", 4: "T-4", 5: "T-5"}
     for pa in params.get('price_action_filters', []):
         dl = day_label.get(pa.get('lag', 0), f"T-{pa.get('lag', 0)}")
@@ -1025,6 +1091,7 @@ def build_strategy_dict(params, tickers_to_run, pf, sqn, win_rate, expectancy_r)
             "use_range_filter": params.get('use_range_filter', False), "range_min": params.get('range_min', 0), "range_max": params.get('range_max', 100),
             "use_atr_ret_filter": params.get('use_atr_ret_filter', False), "atr_ret_min": params.get('atr_ret_min', 0.0), "atr_ret_max": params.get('atr_ret_max', 1.0),
             "use_range_atr_filter": params.get('use_range_atr_filter', False), "range_atr_logic": params.get('range_atr_logic', 'Between'), "range_atr_min": params.get('range_atr_min', 1.0), "range_atr_max": params.get('range_atr_max', 3.0),
+            "use_open_gap_atr_filter": params.get('use_open_gap_atr_filter', False), "open_gap_atr_logic": params.get('open_gap_atr_logic', 'Between'), "open_gap_atr_min": params.get('open_gap_atr_min', 0.0), "open_gap_atr_max": params.get('open_gap_atr_max', 1.0),
             # Multi-day price action
             "price_action_filters": params.get('price_action_filters', []),
             # Distance from MA
@@ -1181,7 +1248,11 @@ def run_engine(universe_dict, params, sznl_map, market_series=None, vix_series=N
                 elif trend_opt == "Market Not Declining 200 SMA" and 'Market_SMA200_Not_Declining' in df.columns:
                     conditions.append(df['Market_SMA200_Not_Declining'])
                 
-            conditions.append((df['Close'] >= params['min_price']) & (df['vol_ma'] >= params['min_vol']) & (df['age_years'] >= params['min_age']) & (df['age_years'] <= params['max_age']) & (df['ATR_Pct'] >= params['min_atr_pct']) & (df['ATR_Pct'] <= params['max_atr_pct']))
+            _max_vol = params.get('max_vol', 0) or 0
+            _vol_cond = (df['vol_ma'] >= params['min_vol'])
+            if _max_vol > 0:
+                _vol_cond = _vol_cond & (df['vol_ma'] <= _max_vol)
+            conditions.append((df['Close'] >= params['min_price']) & _vol_cond & (df['age_years'] >= params['min_age']) & (df['age_years'] <= params['max_age']) & (df['ATR_Pct'] >= params['min_atr_pct']) & (df['ATR_Pct'] <= params['max_atr_pct']))
             
             if params.get('require_close_gt_open', False): conditions.append(df['Close'] > df['Open'])
             
@@ -1201,6 +1272,14 @@ def run_engine(universe_dict, params, sznl_map, market_series=None, vix_series=N
                     conditions.append(range_in_atr < params['range_atr_max'])
                 elif params['range_atr_logic'] == 'Between':
                     conditions.append((range_in_atr >= params['range_atr_min']) & (range_in_atr <= params['range_atr_max']))
+            if params.get('use_open_gap_atr_filter', False):
+                open_gap_atr = (df['Open'] - df['Close'].shift(1)) / df['ATR']
+                if params['open_gap_atr_logic'] == '>':
+                    conditions.append(open_gap_atr > params['open_gap_atr_min'])
+                elif params['open_gap_atr_logic'] == '<':
+                    conditions.append(open_gap_atr < params['open_gap_atr_max'])
+                elif params['open_gap_atr_logic'] == 'Between':
+                    conditions.append((open_gap_atr >= params['open_gap_atr_min']) & (open_gap_atr <= params['open_gap_atr_max']))
             # --- MULTI-DAY PRICE ACTION FILTERS ---
             for pa in params.get('price_action_filters', []):
                 pa_lag = pa.get('lag', 0)
@@ -1293,6 +1372,94 @@ def run_engine(universe_dict, params, sznl_map, market_series=None, vix_series=N
                 if _op != 'Not Between':
                     cond = cond.fillna(False)
                 conditions.append(cond)
+
+            # Earnings-quality filters — eps_surprise_pct, rev_surprise_pct,
+            # eps_yoy, rev_yoy from the LAST reported earnings at or before
+            # each bar. We reindex the per-ticker metrics frame onto df.index
+            # with method='ffill' so each bar inherits the most recent
+            # announcement's metrics. NaN before the first earnings (or for
+            # tickers with no coverage) -> filter excludes the signal.
+            _quality_active = any(
+                params.get(k, False) for k in (
+                    'use_eps_surp_filter', 'use_rev_surp_filter',
+                    'use_eps_yoy_filter',  'use_rev_yoy_filter',
+                )
+            )
+            if _quality_active:
+                _met_map = params.get('earnings_metrics_map') or {}
+                _met_df = _met_map.get(ticker.upper())
+                if _met_df is not None and not _met_df.empty:
+                    _bar_dates = pd.DatetimeIndex(df.index).normalize()
+                    try:
+                        _bar_dates = _bar_dates.tz_localize(None)
+                    except (TypeError, AttributeError):
+                        pass
+                    _met_aligned = _met_df.reindex(_bar_dates, method='ffill')
+                    _met_aligned.index = df.index
+                else:
+                    _met_aligned = pd.DataFrame(
+                        np.nan, index=df.index,
+                        columns=['eps_surprise_pct', 'rev_surprise_pct', 'eps_yoy', 'rev_yoy'],
+                    )
+
+                def _apply_quality(use_key, logic_key, lo_key, hi_key, col):
+                    if not params.get(use_key, False):
+                        return
+                    _series = _met_aligned[col]
+                    _op_q = params.get(logic_key, '>')
+                    _lo_q = float(params.get(lo_key, 0.0))
+                    if _op_q == '>':
+                        _c = _series > _lo_q
+                    elif _op_q == '<':
+                        _c = _series < _lo_q
+                    elif _op_q == 'Between':
+                        _hi_q = float(params.get(hi_key, _lo_q))
+                        if _lo_q > _hi_q:
+                            _lo_q, _hi_q = _hi_q, _lo_q
+                        _c = (_series >= _lo_q) & (_series <= _hi_q)
+                    else:
+                        _c = pd.Series(True, index=df.index)
+                    conditions.append(_c.fillna(False))
+
+                _apply_quality('use_eps_surp_filter', 'eps_surp_logic',
+                               'eps_surp_min', 'eps_surp_max', 'eps_surprise_pct')
+                _apply_quality('use_rev_surp_filter', 'rev_surp_logic',
+                               'rev_surp_min', 'rev_surp_max', 'rev_surprise_pct')
+                _apply_quality('use_eps_yoy_filter', 'eps_yoy_logic',
+                               'eps_yoy_min', 'eps_yoy_max', 'eps_yoy')
+                _apply_quality('use_rev_yoy_filter', 'rev_yoy_logic',
+                               'rev_yoy_min', 'rev_yoy_max', 'rev_yoy')
+
+            # Analyst grades filter — trailing net upgrades (upgrades minus
+            # downgrades) over a calendar-day window ending on each bar.
+            # Tickers without coverage produce all-zero counts, so ">= 1"
+            # naturally excludes them.
+            if params.get('use_grades_filter', False):
+                _g_map = params.get('grades_map') or {}
+                _g_df = _g_map.get(ticker.upper())
+                try:
+                    from analyst_grades import trailing_counts as _trailing_counts
+                except ImportError:
+                    _trailing_counts = None
+                if _trailing_counts is not None:
+                    _window = int(params.get('grades_window_days', 30))
+                    _counts = _trailing_counts(_g_df, df.index, _window)
+                    _net = _counts['net'].reindex(df.index)
+                    _op_g = params.get('grades_logic', '>=')
+                    _t_g = int(params.get('grades_thresh', 1))
+                    if _op_g == '>=':
+                        _c = _net >= _t_g
+                    elif _op_g == '<=':
+                        _c = _net <= _t_g
+                    elif _op_g == '>':
+                        _c = _net > _t_g
+                    elif _op_g == '<':
+                        _c = _net < _t_g
+                    elif _op_g == '=':
+                        _c = _net == _t_g
+                    else:
+                        _c = pd.Series(True, index=df.index)
+                    conditions.append(_c.fillna(False))
 
             if params.get('use_acc_count_filter', False):
                 v2_prefix = "AccCount_v2_" if params.get('use_acc_dist_v2', False) else "AccCount_"
@@ -2122,13 +2289,15 @@ def main():
     st.markdown("---")
     st.subheader("3. Signal Criteria")
     with st.expander("Liquidity & Data History Filters", expanded=True):
-        l1, l2, l3, l4, l5, l6 = st.columns(6) 
+        l1, l2, l3, l4, l5, l6, l7 = st.columns(7)
         with l1: min_price = st.number_input("Min Price ($)", value=10.0, step=1.0)
         with l2: min_vol = st.number_input("Min Avg Volume", value=100000, step=50000)
-        with l3: min_age = st.number_input("Min True Age (Yrs)", value=0.25, step=0.25)
-        with l4: max_age = st.number_input("Max True Age (Yrs)", value=100.0, step=1.0)
-        with l5: min_atr_pct = st.number_input("Min ATR %", value=0.2, step=0.1)
-        with l6: max_atr_pct = st.number_input("Max ATR %", value=10.0, step=0.1)
+        with l3: max_vol = st.number_input("Max Avg Volume", value=1_000_000_000, step=1_000_000,
+                                            help="0 = no upper bound. Useful for capping mega-cap names that dominate liquid screens.")
+        with l4: min_age = st.number_input("Min True Age (Yrs)", value=0.25, step=0.25)
+        with l5: max_age = st.number_input("Max True Age (Yrs)", value=100.0, step=1.0)
+        with l6: min_atr_pct = st.number_input("Min ATR %", value=0.2, step=0.1)
+        with l7: max_atr_pct = st.number_input("Max ATR %", value=10.0, step=0.1)
     with st.expander("T+1 Open Filter (Next Day Open vs Today's OHLC)", expanded=False):
         st.markdown("**Filter signals based on how the next day opens relative to today's price action.**")
         use_t1_open_filter = st.checkbox("Enable T+1 Open Filter", value=False)
@@ -2222,6 +2391,74 @@ def main():
                     help="Negative = before earnings, 0 = day-of, positive = after.",
                 )
             earnings_min, earnings_max = 0, 0  # unused
+    with st.expander("Earnings Quality + Analyst Grades Filters", expanded=False):
+        st.caption(
+            "Filter signals by the **last reported** earnings (most recent announcement "
+            "at or before the signal date) and by trailing analyst grade activity. All "
+            "default off. Sources: `data/earnings_calendar.parquet` (derived "
+            "`eps_surprise_pct`, `rev_surprise_pct`, `eps_yoy`, `rev_yoy`) and "
+            "`data/analyst_grades.parquet` (FMP `/stable/grades`). Thresholds are "
+            "fractions: `0.05` = +5%."
+        )
+
+        def _quality_filter_row(label, key_prefix, default_min=0.0, default_max=1.0,
+                                min_bound=-2.0, max_bound=10.0, step=0.01):
+            use = st.checkbox(f"Filter by Last {label}", value=False, key=f"{key_prefix}_chk")
+            c1, c2, c3 = st.columns(3)
+            with c1:
+                logic = st.selectbox(
+                    "Logic", [">", "<", "Between"], index=0,
+                    key=f"{key_prefix}_logic", disabled=not use,
+                )
+            with c2:
+                lo = st.number_input(
+                    "Threshold / Min", min_bound, max_bound, default_min, step=step,
+                    key=f"{key_prefix}_lo", disabled=not use,
+                )
+            with c3:
+                hi = st.number_input(
+                    "Max (Between only)", min_bound, max_bound, default_max, step=step,
+                    key=f"{key_prefix}_hi",
+                    disabled=not use or logic != "Between",
+                )
+            return use, logic, lo, hi
+
+        use_eps_surp_filter, eps_surp_logic, eps_surp_min, eps_surp_max = \
+            _quality_filter_row("EPS Surprise %", "eps_surp", 0.05, 1.0)
+        use_rev_surp_filter, rev_surp_logic, rev_surp_min, rev_surp_max = \
+            _quality_filter_row("Revenue Surprise %", "rev_surp", 0.02, 0.50)
+        use_eps_yoy_filter, eps_yoy_logic, eps_yoy_min, eps_yoy_max = \
+            _quality_filter_row("EPS YoY Growth", "eps_yoy", 0.10, 5.0)
+        use_rev_yoy_filter, rev_yoy_logic, rev_yoy_min, rev_yoy_max = \
+            _quality_filter_row("Revenue YoY Growth", "rev_yoy", 0.10, 5.0)
+
+        st.markdown("---")
+        st.caption(
+            "**Trailing Analyst Net Upgrades** — counts upgrades minus downgrades "
+            "in the lookback window ending on the signal date (calendar days). "
+            "Maintains are ignored. Tickers without analyst coverage (FX, futures, "
+            "crypto) silently fail this filter when enabled."
+        )
+        use_grades_filter = st.checkbox(
+            "Filter by Trailing Analyst Net Upgrades", value=False, key="grades_chk",
+        )
+        gr1, gr2, gr3 = st.columns(3)
+        with gr1:
+            grades_window_days = st.number_input(
+                "Lookback (calendar days)", 7, 365, 30, step=1,
+                key="grades_window", disabled=not use_grades_filter,
+            )
+        with gr2:
+            grades_logic = st.selectbox(
+                "Logic", [">=", "<=", ">", "<", "="], index=0,
+                key="grades_logic_op", disabled=not use_grades_filter,
+            )
+        with gr3:
+            grades_thresh = st.number_input(
+                "Net Upgrades Threshold", -20, 20, 1, step=1,
+                key="grades_thresh", disabled=not use_grades_filter,
+                help="net = upgrades - downgrades over the lookback.",
+            )
     with st.expander("Distance from MA Filter", expanded=False):
         use_ma_dist_filter = st.checkbox("Enable Distance Filter", value=False)
         d1, d2, d3, d4 = st.columns(4)
@@ -2261,6 +2498,13 @@ def main():
         with ra1: range_atr_logic = st.selectbox("Logic", [">", "<", "Between"], key="range_atr_logic", disabled=not use_range_atr_filter)
         with ra2: range_atr_min = st.number_input("Min Range (ATR)", 0.0, 20.0, 1.0, step=0.1, key="range_atr_min", disabled=not use_range_atr_filter)
         with ra3: range_atr_max = st.number_input("Max Range (ATR)", 0.0, 20.0, 3.0, step=0.1, key="range_atr_max", disabled=not use_range_atr_filter)
+        st.markdown("---")
+        use_open_gap_atr_filter = st.checkbox("Filter by Today's Open vs Prev Close (in ATR units)", value=False)
+        st.caption("Calculates (Today's Open - Prev Close) / ATR. Overnight gap in ATR units.")
+        og1, og2, og3 = st.columns(3)
+        with og1: open_gap_atr_logic = st.selectbox("Logic", [">", "<", "Between"], key="open_gap_atr_logic", disabled=not use_open_gap_atr_filter)
+        with og2: open_gap_atr_min = st.number_input("Min Gap (ATR)", -10.0, 10.0, 0.0, step=0.1, key="open_gap_atr_min", disabled=not use_open_gap_atr_filter)
+        with og3: open_gap_atr_max = st.number_input("Max Gap (ATR)", -10.0, 10.0, 1.0, step=0.1, key="open_gap_atr_max", disabled=not use_open_gap_atr_filter)
         st.markdown("---")
         st.markdown("#### Multi-Day Price Action Conditions")
         st.caption("Add conditions on prior days' candles. Lag 0 = signal day, 1 = day before signal, etc. All conditions are AND logic.")
@@ -2782,10 +3026,11 @@ def main():
             'stop_atr': stop_atr, 'tgt_atr': tgt_atr, 'holding_days': hold_days, 'entry_type': entry_type, 'use_ma_entry_filter': use_ma_entry_filter, 'require_close_gt_open': req_green_candle,
             'use_trailing_stop': use_trailing_stop, 'trail_atr': trail_atr, 'trail_anchor': trail_anchor,
             'breakout_mode': breakout_mode, 'use_range_filter': use_range_filter, 'range_min': range_min, 'range_max': range_max, 'use_dow_filter': use_dow_filter, 'allowed_days': valid_days,
-            'allowed_cycles': allowed_cycles, 'excluded_years': excluded_years, 'min_price': min_price, 'min_vol': min_vol, 'min_age': min_age, 'max_age': max_age, 'min_atr_pct': min_atr_pct, 'max_atr_pct': max_atr_pct,
+            'allowed_cycles': allowed_cycles, 'excluded_years': excluded_years, 'min_price': min_price, 'min_vol': min_vol, 'max_vol': max_vol, 'min_age': min_age, 'max_age': max_age, 'min_atr_pct': min_atr_pct, 'max_atr_pct': max_atr_pct,
             'trend_filter': trend_filter, 'universe_tickers': tickers_to_run, 'slippage_bps': slippage_bps, 'entry_conf_bps': entry_conf_bps, 'perf_filters': perf_filters, 'perf_atr_filters': perf_atr_filters, 'perf_first_instance': perf_first,
             'use_atr_ret_filter': use_atr_ret_filter, 'atr_ret_min': atr_ret_min, 'atr_ret_max': atr_ret_max,
             'use_range_atr_filter': use_range_atr_filter, 'range_atr_logic': range_atr_logic, 'range_atr_min': range_atr_min, 'range_atr_max': range_atr_max,
+            'use_open_gap_atr_filter': use_open_gap_atr_filter, 'open_gap_atr_logic': open_gap_atr_logic, 'open_gap_atr_min': open_gap_atr_min, 'open_gap_atr_max': open_gap_atr_max,
             'price_action_filters': price_action_filters,
             'perf_lookback': perf_lookback, 'ma_consec_filters': ma_consec_filters, 'use_sznl': use_sznl, 'sznl_logic': sznl_logic, 'sznl_thresh': sznl_thresh, 'sznl_first_instance': sznl_first,
             'sznl_lookback': sznl_lookback, 'use_market_sznl': use_market_sznl, 'market_sznl_logic': market_sznl_logic, 'market_sznl_thresh': market_sznl_thresh, 'use_52w': use_52w, '52w_type': type_52w,
@@ -2799,6 +3044,16 @@ def main():
             'use_gap_filter': use_gap_filter, 'gap_lookback': gap_lookback, 'gap_logic': gap_logic, 'gap_thresh': gap_thresh,
             'use_earnings_filter': use_earnings_filter, 'earnings_logic': earnings_logic,
             'earnings_value': earnings_value, 'earnings_min': earnings_min, 'earnings_max': earnings_max,
+            'use_eps_surp_filter': use_eps_surp_filter, 'eps_surp_logic': eps_surp_logic,
+            'eps_surp_min': eps_surp_min, 'eps_surp_max': eps_surp_max,
+            'use_rev_surp_filter': use_rev_surp_filter, 'rev_surp_logic': rev_surp_logic,
+            'rev_surp_min': rev_surp_min, 'rev_surp_max': rev_surp_max,
+            'use_eps_yoy_filter': use_eps_yoy_filter, 'eps_yoy_logic': eps_yoy_logic,
+            'eps_yoy_min': eps_yoy_min, 'eps_yoy_max': eps_yoy_max,
+            'use_rev_yoy_filter': use_rev_yoy_filter, 'rev_yoy_logic': rev_yoy_logic,
+            'rev_yoy_min': rev_yoy_min, 'rev_yoy_max': rev_yoy_max,
+            'use_grades_filter': use_grades_filter, 'grades_window_days': grades_window_days,
+            'grades_logic': grades_logic, 'grades_thresh': grades_thresh,
             'use_acc_count_filter': use_acc_count_filter, 'acc_count_window': acc_count_window, 'acc_count_logic': acc_count_logic, 'acc_count_thresh': acc_count_thresh,
             'use_dist_count_filter': use_dist_count_filter, 'dist_count_window': dist_count_window, 'dist_count_logic': dist_count_logic, 'dist_count_thresh': dist_count_thresh,
             'use_acc_dist_v2': use_acc_dist_v2,
@@ -2846,6 +3101,53 @@ def main():
                     f"earnings): {_n_tkrs} tickers, {_n_rows:,} earnings dates loaded."
                 )
             params['earnings_map'] = earnings_map
+
+        # Earnings-quality (beat-size + YoY) filters — same parquet, different
+        # cached view that exposes the derived metric columns indexed by date.
+        _need_metrics = any(
+            params.get(k, False) for k in (
+                'use_eps_surp_filter', 'use_rev_surp_filter',
+                'use_eps_yoy_filter',  'use_rev_yoy_filter',
+            )
+        )
+        if _need_metrics:
+            metrics_map = load_earnings_metrics_map()
+            if not metrics_map:
+                st.warning(
+                    "Earnings-quality filter enabled but derived columns not "
+                    "found in data/earnings_calendar.parquet — filter will "
+                    "silently no-op. Run `python scripts/build_earnings_calendar.py "
+                    "--derive-only` to backfill the derived columns."
+                )
+            else:
+                _active = [
+                    label for k, label in [
+                        ('use_eps_surp_filter', 'EPS surprise'),
+                        ('use_rev_surp_filter', 'Rev surprise'),
+                        ('use_eps_yoy_filter',  'EPS YoY'),
+                        ('use_rev_yoy_filter',  'Rev YoY'),
+                    ] if params.get(k, False)
+                ]
+                st.info(f"📈 Earnings-quality filters active ({', '.join(_active)}): "
+                        f"{len(metrics_map)} tickers loaded.")
+            params['earnings_metrics_map'] = metrics_map
+
+        if params.get('use_grades_filter', False):
+            grades_map = load_grades_map_cached()
+            if not grades_map:
+                st.warning(
+                    "Analyst grades filter enabled but data/analyst_grades.parquet "
+                    "is missing — filter will silently no-op. Run "
+                    "`python scripts/build_analyst_grades.py` to backfill."
+                )
+            else:
+                _n_evt = sum(len(v) for v in grades_map.values())
+                st.info(
+                    f"🏷️ Analyst grades filter active ({grades_logic} {grades_thresh} "
+                    f"net upgrades over {grades_window_days}d): "
+                    f"{len(grades_map)} tickers, {_n_evt:,} events loaded."
+                )
+            params['grades_map'] = grades_map
 
         trades_df, rejected_df, total_signals = run_engine(data_dict, params, sznl_map, market_series, vix_series, market_sznl_series, ref_ticker_ranks, xsec_rank_matrices, atr_sznl_map, fragility_df=fragility_df, market_sma_not_declining_series=market_sma_not_declining_series)
         if trades_df.empty: st.warning("No executed signals.")

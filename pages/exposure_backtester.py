@@ -449,11 +449,62 @@ cash_apr = st.sidebar.number_input(
 
 # --- Section 1: Base Portfolio ---
 st.subheader("1. Base Portfolio")
+
+# Preset loader — wired to the portfolio text + rules below via session_state.
+# Page renormalizes base weights to 100%, so the VOO/VGK/VTI preset models the
+# leg as a standalone fully-invested portfolio. The production daily-scan
+# version sizes it to 25% of account; multiply the equity curve by 0.25 to
+# picture the live impact. Risk-adjusted ratios (Sharpe, drawdown %) are
+# identical either way.
+ps1, ps2, _ = st.columns([2, 2, 4])
+with ps1:
+    if st.button("📥 Load preset: VOO/VGK/VTI Fragility Gate"):
+        st.session_state['exp_portfolio_text'] = "VOO:40, VGK:40, VTI:20"
+        st.session_state['exp_rules'] = [
+            # Rule 1: ALL × 0.0 when Raw 21D fragility > 50
+            {
+                'target': 'ALL',
+                'scaler': 0.0,
+                'conditions': [{
+                    'indicator_ticker': 'self', 'signal_type': 'Fragility Dial (Raw)',
+                    'window': 21, 'logic': '>', 'thresh': 50.0,
+                    'thresh_min': 0.0, 'thresh_max': 100.0,
+                }],
+            },
+            # Rule 2: ALL × 1.25 when Raw 21D < 5 AND Raw 63D < 5
+            {
+                'target': 'ALL',
+                'scaler': 1.25,
+                'conditions': [
+                    {'indicator_ticker': 'self', 'signal_type': 'Fragility Dial (Raw)',
+                     'window': 21, 'logic': '<', 'thresh': 5.0,
+                     'thresh_min': 0.0, 'thresh_max': 100.0},
+                    {'indicator_ticker': 'self', 'signal_type': 'Fragility Dial (Raw)',
+                     'window': 63, 'logic': '<', 'thresh': 5.0,
+                     'thresh_min': 0.0, 'thresh_max': 100.0},
+                ],
+            },
+            # Rule 3: ALL × 0.0 when 10d-MA 63D fragility > 50
+            {
+                'target': 'ALL',
+                'scaler': 0.0,
+                'conditions': [{
+                    'indicator_ticker': 'self', 'signal_type': 'Fragility Dial (10d MA)',
+                    'window': 63, 'logic': '>', 'thresh': 50.0,
+                    'thresh_min': 0.0, 'thresh_max': 100.0,
+                }],
+            },
+        ]
+        st.rerun()
+with ps2:
+    st.caption("Loads VOO 40 / VGK 40 / VTI 20 + the 3 fragility rules from `daily_scan` exposure leg.")
+
 portfolio_text = st.text_area(
     "Tickers and weights (e.g. `SPY:50, QQQ:50` or `SPY 60, QQQ 30, GLD 10`)",
-    value="SPY:50, QQQ:50",
+    value=st.session_state.get('exp_portfolio_text', "SPY:50, QQQ:50"),
     height=70,
     help="Weights are percentages; if they don't sum to 100 they'll be renormalized.",
+    key='exp_portfolio_text',
 )
 base_weights = parse_portfolio_text(portfolio_text)
 if base_weights:

@@ -18,6 +18,9 @@ concurrency:
   group: ${{ github.workflow }}
   cancel-in-progress: false
 
+permissions:
+  contents: write
+
 on:
   schedule:
     # 1. THE BOOKENDS (Pre-market and Post-close, scope=all)
@@ -104,3 +107,18 @@ jobs:
           EMAIL_USER: ${{ secrets.EMAIL_USER }}
           EMAIL_PASS: ${{ secrets.EMAIL_PASS }}
         run: python daily_scan.py ${{ steps.cfg.outputs.args }}
+
+      - name: Commit exposure state (AM bookend only)
+        # Only the AM bookend writes data/exposure_state.json (PM bookend +
+        # intraday MOC runs leave it untouched). git diff exits 0 when no
+        # change, so this is a no-op outside the AM run.
+        if: always()
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          if [ -f data/exposure_state.json ]; then
+            git add data/exposure_state.json
+            git diff --cached --quiet || git commit -m "exposure: state snapshot $(date -u +'%Y-%m-%d %H:%M UTC')"
+            git pull --rebase origin main || true
+            git push || true
+          fi

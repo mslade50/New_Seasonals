@@ -13,6 +13,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from indicators import calculate_indicators, get_sznl_val_series
 from earnings_filter import load_earnings_dates_map, in_blackout, signed_offset
+from exposure_leg import compute_exposure_leg_backtest, EXPOSURE_TICKERS, BASE_WEIGHTS
 
 _DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data")
 
@@ -1899,7 +1900,7 @@ def calculate_mark_to_market_curve(sig_df, master_dict, starting_equity, start_d
     return equity_curve.to_frame(name='Equity')
 
 
-def build_strategy_correlation_matrix(sig_df, master_dict, min_trades=30, mode='calendar'):
+def build_strategy_correlation_matrix(sig_df, master_dict, min_trades=30, mode='calendar', extra_pnl_series=None):
     """Daily-return correlation matrix across strategies.
 
     Walks sig_df grouped by Strategy, builds per-strategy daily MTM P&L via
@@ -1932,8 +1933,11 @@ def build_strategy_correlation_matrix(sig_df, master_dict, min_trades=30, mode='
 
     counts = sig_df.groupby('Strategy').size()
     eligible = counts[counts >= min_trades].index.tolist()
-    if len(eligible) < 2:
-        return None, None, eligible
+    # Continuous-holding extras (exposure leg, etc.) are added to the matrix
+    # regardless of the min_trades gate — they don't have trades.
+    extras = list((extra_pnl_series or {}).keys())
+    if len(eligible) + len(extras) < 2:
+        return None, None, eligible + extras
 
     min_date = pd.to_datetime(sig_df['Entry Date']).min()
     pnl_by_strat = {}
@@ -1941,6 +1945,11 @@ def build_strategy_correlation_matrix(sig_df, master_dict, min_trades=30, mode='
         sub = sig_df[sig_df['Strategy'] == strat]
         series = get_daily_mtm_series(sub, master_dict, start_date=min_date)
         pnl_by_strat[strat] = series
+
+    if extra_pnl_series:
+        for name, series in extra_pnl_series.items():
+            if series is not None and not series.empty:
+                pnl_by_strat[name] = series
 
     pnl_df = pd.DataFrame(pnl_by_strat).fillna(0.0)
 
@@ -1952,7 +1961,7 @@ def build_strategy_correlation_matrix(sig_df, master_dict, min_trades=30, mode='
             return None, pnl_df, eligible
 
     corr_df = pnl_df.corr()
-    return corr_df, pnl_df, eligible
+    return corr_df, pnl_df, eligible + extras
 
 
 def calculate_daily_exposure(sig_df, starting_equity=None):
@@ -2085,12 +2094,19 @@ def calculate_annual_stats(daily_pnl_series, starting_equity):
     return pd.DataFrame(yearly_stats)
 
 
-def calculate_performance_stats(sig_df, master_dict, starting_equity, start_date=None):
+def calculate_performance_stats(sig_df, master_dict, starting_equity, start_date=None, extra_pnl_series=None):
     """Per-strategy metrics including Sharpe/Sortino computed only over the
     days each strategy has open positions (time-in-market basis). This
     avoids penalizing strategies that are idle most of the time and gives
     a comparable risk-adjusted return across strategies with very different
     duty cycles.
+
+    extra_pnl_series: optional {name: daily_pnl_series} of continuous-holding
+    overlays (e.g. exposure leg). Each gets a row showing Total PnL +
+    Sharpe + Sortino computed on its full daily-return series. Profit Factor
+    / SQN / Trades are NaN for these rows since they are not trade-based.
+    A second total row "TOTAL + EXTRAS" is appended that combines the
+    strategies' daily MTM with the extra series.
     """
     stats = []
 
@@ -2111,6 +2127,21 @@ def calculate_performance_stats(sig_df, master_dict, starting_equity, start_date
         if len(pnl_im) < 5 or starting_equity <= 0:
             return np.nan, np.nan
         rets = pnl_im / float(starting_equity)
+        mean_r = rets.mean()
+        std_r = rets.std()
+        sharpe = (mean_r / std_r * np.sqrt(252)) if std_r > 0 else np.nan
+        downside = rets[rets < 0]
+        if len(downside) >= 2 and downside.std() > 0:
+            sortino = mean_r / downside.std() * np.sqrt(252)
+        else:
+            sortino = np.nan
+        return sharpe, sortino
+
+    def _series_sharpe_sortino(daily_pnl_series):
+        """Sharpe + Sortino over the full series (no in-market filter)."""
+        if daily_pnl_series is None or daily_pnl_series.empty or starting_equity <= 0:
+            return np.nan, np.nan
+        rets = daily_pnl_series / float(starting_equity)
         mean_r = rets.mean()
         std_r = rets.std()
         sharpe = (mean_r / std_r * np.sqrt(252)) if std_r > 0 else np.nan
@@ -2147,6 +2178,34 @@ def calculate_performance_stats(sig_df, master_dict, starting_equity, start_date
     total_m = get_metrics(sig_df, "TOTAL PORTFOLIO")
     if total_m:
         stats.append(total_m)
+
+    # Append continuous-holding overlay rows (e.g. exposure leg).
+    if extra_pnl_series:
+        for name, series in extra_pnl_series.items():
+            if series is None or series.empty:
+                continue
+            sh, so = _series_sharpe_sortino(series)
+            stats.append({
+                "Strategy": name, "Trades": np.nan, "Total PnL": float(series.sum()),
+                "Profit Factor": np.nan, "SQN": np.nan,
+                "Sharpe (TIM)": sh, "Sortino (TIM)": so,
+            })
+
+        # Combined "TOTAL + EXTRAS" row: strategies' daily MTM + extras.
+        if total_m is not None:
+            strat_daily = get_daily_mtm_series(sig_df, master_dict, start_date=start_date)
+            combined = strat_daily.copy() if not strat_daily.empty else pd.Series(dtype=float)
+            for name, series in extra_pnl_series.items():
+                if series is None or series.empty:
+                    continue
+                combined = combined.add(series, fill_value=0.0)
+            sh_c, so_c = _series_sharpe_sortino(combined)
+            stats.append({
+                "Strategy": "TOTAL + EXTRAS", "Trades": np.nan,
+                "Total PnL": float(combined.sum()),
+                "Profit Factor": np.nan, "SQN": np.nan,
+                "Sharpe (TIM)": sh_c, "Sortino (TIM)": so_c,
+            })
 
     return pd.DataFrame(stats)
 
@@ -2353,6 +2412,19 @@ def main():
                 "Identical data to pages/backtester.py when both use master. "
                 "Uncheck to fall back to legacy yfinance + data/bt_price_cache "
                 "(slower, hits yfinance every run)."
+            ),
+        )
+        include_exposure_leg = st.checkbox(
+            "Include Exposure Leg overlay (VOO/VGK/VTI fragility-gated)",
+            value=False,
+            help=(
+                "Adds a continuous-holding overlay sized to 25% of starting "
+                "equity (10% VOO / 10% VGK / 5% VTI at 1.0x), with the daily "
+                "scan's three fragility rules applied: ALL x 0.0 when Raw "
+                "21D > 50, ALL x 1.25 when Raw 21D < 5 AND Raw 63D < 5, "
+                "ALL x 0.0 when 10d-MA 63D > 50. Renders as a second equity "
+                "curve and adds a comparison stats card. Fragility data "
+                "starts ~2016-05; pre-2016 the leg sits at 0% contribution."
             ),
         )
         run_btn = st.form_submit_button("⚡ Run Backtest")
@@ -2641,13 +2713,41 @@ def main():
                 }), use_container_width=True)
 
             st.subheader("📊 Strategy Metrics")
-            st.caption("Sharpe / Sortino are time-in-market — computed only over days each strategy has open positions, normalized by starting equity.")
-            stats_df = calculate_performance_stats(sig_df, master_dict, starting_equity, start_date=user_start_date)
+            st.caption("Sharpe / Sortino are time-in-market — computed only over days each strategy has open positions, normalized by starting equity. Continuous-holding overlays (e.g. Exposure Leg) are computed on their full daily-return series.")
+            # Compute exposure overlay early so it can feed metrics + correlation matrix.
+            # The equity-curve render below reuses this same dict.
+            extras_for_stats = {}
+            if include_exposure_leg:
+                # Anchor end date to sig_df's MTM curve so we don't extend past
+                # the strategies' coverage. If sig_df is empty we skip the leg.
+                _df_eq_for_end = calculate_mark_to_market_curve(sig_df, master_dict, starting_equity, start_date=user_start_date)
+                if not _df_eq_for_end.empty:
+                    _exp = compute_exposure_leg_backtest(
+                        start_date=user_start_date,
+                        end_date=_df_eq_for_end.index.max(),
+                        prices_dict=master_dict,
+                        starting_equity=starting_equity,
+                    )
+                    if not _exp['daily_pnl'].empty:
+                        extras_for_stats['Exposure Leg'] = _exp['daily_pnl']
+                    # Stash for downstream reuse so we don't recompute.
+                    st.session_state['_exposure_overlay'] = _exp
+                else:
+                    st.session_state['_exposure_overlay'] = None
+            else:
+                st.session_state['_exposure_overlay'] = None
+
+            stats_df = calculate_performance_stats(
+                sig_df, master_dict, starting_equity,
+                start_date=user_start_date,
+                extra_pnl_series=extras_for_stats or None,
+            )
             st.dataframe(stats_df.style.format({
+                "Trades": "{:.0f}",
                 "Total PnL": "${:,.0f}",
                 "Profit Factor": "{:.2f}", "SQN": "{:.2f}",
                 "Sharpe (TIM)": "{:.2f}", "Sortino (TIM)": "{:.2f}",
-            }), use_container_width=True)
+            }, na_rep=""), use_container_width=True)
 
             st.divider()
             col1, col2 = st.columns(2)
@@ -2655,21 +2755,41 @@ def main():
             with col1:
                 st.subheader("📈 Portfolio Equity (MTM) - Log Scale")
                 df_eq = calculate_mark_to_market_curve(sig_df, master_dict, starting_equity, start_date=user_start_date)
-                
+
+                # Reuse the overlay computed during the metrics pass (cached
+                # in session state) so we don't run the rule evaluation twice.
+                exposure_overlay = st.session_state.get('_exposure_overlay') if include_exposure_leg else None
+                if exposure_overlay is not None and exposure_overlay.get('errors'):
+                    for e in exposure_overlay['errors']:
+                        st.warning(f"Exposure leg: {e}")
+
                 if not df_eq.empty:
                     fig = go.Figure()
                     fig.add_trace(go.Scatter(
-                        x=df_eq.index, 
-                        y=df_eq['Equity'], 
-                        mode='lines', 
-                        name='Portfolio Equity', 
+                        x=df_eq.index,
+                        y=df_eq['Equity'],
+                        mode='lines',
+                        name='Strategies only',
                         line=dict(color='#00FF00', width=2)
                     ))
-                    
+
+                    if exposure_overlay is not None and not exposure_overlay['daily_pnl'].empty:
+                        leg_pnl = exposure_overlay['daily_pnl']
+                        # Align to df_eq's calendar; days outside leg coverage = 0 contribution
+                        leg_aligned = leg_pnl.reindex(df_eq.index).fillna(0.0)
+                        combined = df_eq['Equity'] + leg_aligned.cumsum()
+                        fig.add_trace(go.Scatter(
+                            x=combined.index,
+                            y=combined.values,
+                            mode='lines',
+                            name='Strategies + Exposure Leg',
+                            line=dict(color='#1E88E5', width=2),
+                        ))
+
                     # Add starting equity reference line
-                    fig.add_hline(y=starting_equity, line_dash="dash", line_color="gray", 
+                    fig.add_hline(y=starting_equity, line_dash="dash", line_color="gray",
                                   annotation_text=f"Start: ${starting_equity:,.0f}")
-                    
+
                     fig.update_layout(
                         height=400,
                         margin=dict(l=10, r=10, t=30, b=10),
@@ -2680,6 +2800,44 @@ def main():
                         )
                     )
                     st.plotly_chart(fig, use_container_width=True)
+
+                    # Exposure leg stats card — shown only when overlay computed.
+                    if exposure_overlay is not None and not exposure_overlay['daily_pnl'].empty:
+                        leg_pnl = exposure_overlay['daily_pnl']
+                        leg_aligned = leg_pnl.reindex(df_eq.index).fillna(0.0)
+                        leg_total = float(leg_aligned.sum())
+                        # Sharpe of the leg's daily PnL (annualized, vs starting_equity base)
+                        leg_ret = leg_aligned / float(starting_equity)
+                        leg_sharpe = (
+                            float(leg_ret.mean() / leg_ret.std()) * (252 ** 0.5)
+                            if leg_ret.std() > 0 else 0.0
+                        )
+                        leg_equity = float(starting_equity) + leg_aligned.cumsum()
+                        leg_dd = float((leg_equity / leg_equity.cummax() - 1.0).min())
+                        # Strategies-only stats
+                        strat_total = float(df_eq['Equity'].iloc[-1] - starting_equity)
+                        combined_total = strat_total + leg_total
+
+                        mult = exposure_overlay['mult'].reindex(df_eq.index).ffill()
+                        days_total = len(mult.dropna())
+                        days_off = int((mult == 0.0).sum())
+                        days_base = int((mult == 1.0).sum())
+                        days_boost = int((mult == 1.25).sum())
+
+                        cA, cB, cC, cD = st.columns(4)
+                        cA.metric("Strategies P&L", f"${strat_total:,.0f}")
+                        cB.metric("Exposure Leg P&L", f"${leg_total:,.0f}")
+                        cC.metric("Combined P&L", f"${combined_total:,.0f}",
+                                  delta=f"+${leg_total:,.0f}")
+                        cD.metric("Leg Sharpe (ann.)", f"{leg_sharpe:.2f}")
+
+                        st.caption(
+                            f"Leg max DD: {leg_dd*100:.1f}% &nbsp;|&nbsp; "
+                            f"Days at 0.0x: {days_off} ({days_off/max(1,days_total)*100:.1f}%) &nbsp;|&nbsp; "
+                            f"1.0x: {days_base} ({days_base/max(1,days_total)*100:.1f}%) &nbsp;|&nbsp; "
+                            f"1.25x: {days_boost} ({days_boost/max(1,days_total)*100:.1f}%)",
+                            unsafe_allow_html=True,
+                        )
                 else:
                     st.info("No trades to plot.")
             
@@ -2704,6 +2862,17 @@ def main():
                             y=strat_pnl_cum[column],
                             mode='lines',
                             name=str(column)
+                        ))
+
+                    # Add the exposure leg as a sibling line if overlay computed.
+                    if include_exposure_leg and exposure_overlay is not None and not exposure_overlay['daily_pnl'].empty:
+                        leg_cum = exposure_overlay['daily_pnl'].cumsum()
+                        fig_strat.add_trace(go.Scatter(
+                            x=leg_cum.index,
+                            y=leg_cum.values,
+                            mode='lines',
+                            name='Exposure Leg',
+                            line=dict(color='#1E88E5', width=2, dash='dot'),
                         ))
 
                     fig_strat.update_layout(
@@ -2742,8 +2911,14 @@ def main():
                     key="corr_min_trades",
                 )
             _mode_key = 'active' if 'Active' in corr_mode else 'calendar'
+            _corr_extras = None
+            if include_exposure_leg:
+                _ovr = st.session_state.get('_exposure_overlay')
+                if _ovr is not None and not _ovr['daily_pnl'].empty:
+                    _corr_extras = {'Exposure Leg': _ovr['daily_pnl']}
             corr_df, _pnl_df, _eligible = build_strategy_correlation_matrix(
                 sig_df, master_dict, min_trades=int(min_trades_corr), mode=_mode_key,
+                extra_pnl_series=_corr_extras,
             )
             if corr_df is None or corr_df.empty or len(corr_df) < 2:
                 st.info(f"Need ≥2 strategies with ≥{int(min_trades_corr)} trades each for a correlation matrix.")
