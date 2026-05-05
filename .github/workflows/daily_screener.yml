@@ -22,7 +22,7 @@ on:
   schedule:
     # 1. THE BOOKENDS (Pre-market and Post-close, scope=all)
     # 5:13 AM EDT (9:13 UTC) — pre-market full scan
-    - cron: '13 9 * * 1-5'
+    - cron: '47 8 * * 1-5'
     # 6:00 PM EDT (22:00 UTC) — post-close full scan. Runs 1.5h after the
     # update_master_prices job (20:30 UTC + ~3 min runtime + cron lag) so
     # the overflow tier reads a fresh master_prices.parquet that includes
