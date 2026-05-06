@@ -1,0 +1,33 @@
+{
+  "asof": "2026-05-01",
+  "computed_at": "2026-05-06T11:00:36.957051Z",
+  "mult": 1.0,
+  "active_rule": null,
+  "reason": "No rule active \u2014 base allocation",
+  "readings": {
+    "raw_21d": 0.0,
+    "raw_63d": 33.57489764783277,
+    "ma10_63d": 40.26058856134019
+  },
+  "targets": {
+    "VOO": {
+      "weight": 0.1,
+      "dollars": 75000.0,
+      "price": 665.2999877929688,
+      "shares": 113
+    },
+    "VGK": {
+      "weight": 0.1,
+      "dollars": 75000.0,
+      "price": 86.87000274658203,
+      "shares": 863
+    },
+    "VTI": {
+      "weight": 0.05,
+      "dollars": 37500.0,
+      "price": 356.989990234375,
+      "shares": 105
+    }
+  },
+  "account_value": 750000
+}
