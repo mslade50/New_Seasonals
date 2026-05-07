@@ -1998,9 +1998,9 @@ def chart_signal_overlay(spy_close: pd.Series, signals_ordered: dict,
         triple_mask = overlap_count >= 3
         pair_mask = ((srd_on & (overlap_count >= 2)) | (vrc_on & (overlap_count >= 2))) & ~triple_mask
         for dt in pair_mask[pair_mask].index:
-            fig.add_vline(x=dt, line_color="rgba(204,0,0,0.5)", line_width=1.5, row=1, col=1)
+            fig.add_vline(x=pd.Timestamp(dt).strftime('%Y-%m-%d'), line_color="rgba(204,0,0,0.5)", line_width=1.5, row=1, col=1)
         for dt in triple_mask[triple_mask].index:
-            fig.add_vline(x=dt, line_color="rgba(0,180,255,0.6)", line_width=1.5, row=1, col=1)
+            fig.add_vline(x=pd.Timestamp(dt).strftime('%Y-%m-%d'), line_color="rgba(0,180,255,0.6)", line_width=1.5, row=1, col=1)
 
     # Configure axes
     x_start, x_end = _get_chart_date_range(year_filter)
