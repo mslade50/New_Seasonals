@@ -1,9 +1,9 @@
 {
   "asof": "2026-05-01",
-  "computed_at": "2026-05-06T11:00:36.957051Z",
+  "computed_at": "2026-05-07T11:03:55.079276Z",
   "mult": 1.0,
   "active_rule": null,
-  "reason": "No rule active \u2014 base allocation",
+  "reason": "No global rule active \u2014 base allocation",
   "readings": {
     "raw_21d": 0.0,
     "raw_63d": 33.57489764783277,
@@ -11,22 +11,34 @@
   },
   "targets": {
     "VOO": {
-      "weight": 0.1,
-      "dollars": 75000.0,
-      "price": 665.2999877929688,
-      "shares": 113
+      "weight": 0.0,
+      "dollars": 0.0,
+      "price": 674.6599731445312,
+      "shares": 0,
+      "ticker_mult": 0.0,
+      "ticker_rule": "Rule 4",
+      "ticker_reason": "2D rank 95 / 5D rank 94 / 21D rank 99 all > 85",
+      "ticker_readings": {
+        "rank_2d": 95.27439024390245,
+        "rank_5d": 93.59267734553775,
+        "rank_21d": 99.23410773551187,
+        "sma200_dist": 9.109382428099206
+      }
     },
-    "VGK": {
-      "weight": 0.1,
-      "dollars": 75000.0,
-      "price": 86.87000274658203,
-      "shares": 863
-    },
-    "VTI": {
-      "weight": 0.05,
-      "dollars": 37500.0,
-      "price": 356.989990234375,
-      "shares": 105
+    "QQQ": {
+      "weight": 0.0,
+      "dollars": 0.0,
+      "price": 695.77001953125,
+      "shares": 0,
+      "ticker_mult": 0.0,
+      "ticker_rule": "Rule 4",
+      "ticker_reason": "2D rank 95 / 5D rank 95 / 21D rank 99 all > 85",
+      "ticker_readings": {
+        "rank_2d": 95.12305601691077,
+        "rank_5d": 94.87915407854986,
+        "rank_21d": 99.2580254391278,
+        "sma200_dist": 15.058395446590383
+      }
     }
   },
   "account_value": 750000
