@@ -1967,8 +1967,10 @@ def chart_signal_overlay(spy_close: pd.Series, signals_ordered: dict,
 
         # First period gets the legend entry
         for j, (start, end) in enumerate(periods):
+            s = pd.Timestamp(start).strftime('%Y-%m-%d')
+            e = pd.Timestamp(end).strftime('%Y-%m-%d')
             fig.add_trace(go.Scatter(
-                x=[start, end, end, start, start],
+                x=[s, e, e, s, s],
                 y=[i - 0.35, i - 0.35, i + 0.35, i + 0.35, i - 0.35],
                 fill='toself', fillcolor=color,
                 line=dict(width=0, color=color),
