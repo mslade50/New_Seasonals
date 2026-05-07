@@ -1102,7 +1102,7 @@ def build_price_matrix(processed_dict, tickers):
     return pd.DataFrame(price_data, index=all_dates)
 
 
-def process_signals_fast(candidates, signal_data, processed_dict, strategies, starting_equity, cap_bps=None, flat_sizing=False, overflow_active=False):
+def process_signals_fast(candidates, signal_data, processed_dict, strategies, starting_equity, cap_bps=None, flat_sizing=False, overflow_active=False, ovs_p1_only=False):
     """
     Process candidates chronologically with dynamic sizing based on REAL-TIME MTM equity.
 
@@ -1389,6 +1389,11 @@ def process_signals_fast(candidates, signal_data, processed_dict, strategies, st
             if _t1_open > _sig_close + 0.25 * atr:
                 _ovs_size_mult = 1.0  # Path 1 — full path-1 bps
             else:
+                # Path 2 mild gap. The optional p1_only switch drops these
+                # entirely (test "what if we only took decisive-gap OVS?");
+                # default behavior keeps the production path-2 sizer.
+                if ovs_p1_only:
+                    continue
                 # Path 2 — multiplier = path2_bps / path1_bps × per-day aggregate scale
                 _exe = execution
                 _p1 = float(_exe.get('path1_bps', _exe.get('risk_bps', 40)))
@@ -2414,17 +2419,28 @@ def main():
                 "(slower, hits yfinance every run)."
             ),
         )
+        ovs_p1_only_input = st.checkbox(
+            "OVS: P1 only (skip mild-gap path-2 trades)",
+            value=False,
+            help=(
+                "Drop OVS Path-2 (mild-gap) signals entirely — only keep "
+                "decisive Path-1 (Open > Close + 0.25 ATR). Lets you "
+                "evaluate the strategy without the path-2 filler tier."
+            ),
+        )
         include_exposure_leg = st.checkbox(
-            "Include Exposure Leg overlay (VOO/VGK/VTI fragility-gated)",
+            "Include Exposure Leg overlay (VOO/QQQ fragility + per-ticker gated)",
             value=False,
             help=(
                 "Adds a continuous-holding overlay sized to 25% of starting "
-                "equity (10% VOO / 10% VGK / 5% VTI at 1.0x), with the daily "
-                "scan's three fragility rules applied: ALL x 0.0 when Raw "
+                "equity (12.5% VOO / 12.5% QQQ at 1.0x). Three global "
+                "fragility rules + two per-ticker rules: ALL x 0.0 when Raw "
                 "21D > 50, ALL x 1.25 when Raw 21D < 5 AND Raw 63D < 5, "
-                "ALL x 0.0 when 10d-MA 63D > 50. Renders as a second equity "
-                "curve and adds a comparison stats card. Fragility data "
-                "starts ~2016-05; pre-2016 the leg sits at 0% contribution."
+                "ALL x 0.0 when 10d-MA 63D > 50, self x 0.0 when 2D/5D/21D "
+                "return ranks all > 85, self x 0.0 when 200 SMA distance "
+                "in [-10%, -3%]. Renders as a second equity curve and adds "
+                "a comparison stats card. Fragility data starts ~2016-05; "
+                "pre-2016 the leg sits at 0% contribution."
             ),
         )
         run_btn = st.form_submit_button("⚡ Run Backtest")
@@ -2567,6 +2583,7 @@ def main():
             cap_bps=cap_bps_input,
             flat_sizing=flat_sizing_input,
             overflow_active=bool(use_overflow_universe),
+            ovs_p1_only=bool(ovs_p1_only_input),
         )
         st.write(f"   Executed {len(sig_df):,} trades in {time.time()-t0:.1f}s")
 

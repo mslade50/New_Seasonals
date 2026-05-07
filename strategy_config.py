@@ -482,7 +482,7 @@ _STRATEGY_BOOK_RAW = [
             "use_range_filter": False, "range_min": 50, "range_max": 100,
             "min_price": 10.0, "min_vol": 100000,
             "min_age": 0.25, "max_age": 100.0,
-            "min_atr_pct": 0.0, "max_atr_pct": 100.0,
+            "min_atr_pct": 0.2, "max_atr_pct": 10.0,
             "entry_conf_bps": 0,
             "use_ma_dist_filter": False, "dist_ma_type": "SMA 10", "dist_logic": "Greater Than (>)", "dist_min": 0.0, "dist_max": 2.0,
             "use_gap_filter": False, "gap_lookback": 21, "gap_logic": ">", "gap_thresh": 3,

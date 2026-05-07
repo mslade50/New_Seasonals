@@ -177,6 +177,8 @@ SIGNAL_TYPES = [
     "Seasonal Rank",
     "Fragility Dial (Raw)",
     "Fragility Dial (10d MA)",
+    "SMA Distance (%)",
+    "EMA Distance (%)",
 ]
 LOGIC_OPS = ["<", ">", "Between"]
 # Signals that ignore indicator_ticker because they're market-wide
@@ -256,6 +258,20 @@ def get_indicator_series(cond, target_ticker, prices_dict, atr_sznl_map,
         if s is None or s.empty:
             return None, f"sznl missing for {ind_tkr}"
         return s, None
+    elif sig in ("SMA Distance (%)", "EMA Distance (%)"):
+        df = prices_dict.get(ind_tkr)
+        if df is None or df.empty or 'Close' not in df.columns:
+            return None, f"prices missing for {ind_tkr}"
+        close = df['Close']
+        if sig == "SMA Distance (%)":
+            ma = close.rolling(win, min_periods=max(2, win // 4)).mean()
+        else:
+            ma = close.ewm(span=win, adjust=False, min_periods=max(2, win // 4)).mean()
+        # Percent above (positive) / below (negative) the MA. Threshold 0 with
+        # logic '>' = "price above MA"; '<' = "price below MA". Non-zero
+        # thresholds gate by % distance, e.g. thresh=-5 with '<' = "more than
+        # 5% below MA".
+        return ((close - ma) / ma * 100.0), None
     return None, f"unknown signal {sig}"
 
 
@@ -458,8 +474,8 @@ st.subheader("1. Base Portfolio")
 # identical either way.
 ps1, ps2, _ = st.columns([2, 2, 4])
 with ps1:
-    if st.button("📥 Load preset: VOO/VGK/VTI Fragility Gate"):
-        st.session_state['exp_portfolio_text'] = "VOO:40, VGK:40, VTI:20"
+    if st.button("📥 Load preset: VOO/QQQ Fragility Gate"):
+        st.session_state['exp_portfolio_text'] = "VOO:50, QQQ:50"
         st.session_state['exp_rules'] = [
             # Rule 1: ALL × 0.0 when Raw 21D fragility > 50
             {
@@ -494,10 +510,36 @@ with ps1:
                     'thresh_min': 0.0, 'thresh_max': 100.0,
                 }],
             },
+            # Rule 4 (per-ticker): self × 0.0 when 2D + 5D + 21D return ranks all > 85
+            {
+                'target': 'ALL',
+                'scaler': 0.0,
+                'conditions': [
+                    {'indicator_ticker': 'self', 'signal_type': 'Return Rank',
+                     'window': 2, 'logic': '>', 'thresh': 85.0,
+                     'thresh_min': 0.0, 'thresh_max': 100.0},
+                    {'indicator_ticker': 'self', 'signal_type': 'Return Rank',
+                     'window': 5, 'logic': '>', 'thresh': 85.0,
+                     'thresh_min': 0.0, 'thresh_max': 100.0},
+                    {'indicator_ticker': 'self', 'signal_type': 'Return Rank',
+                     'window': 21, 'logic': '>', 'thresh': 85.0,
+                     'thresh_min': 0.0, 'thresh_max': 100.0},
+                ],
+            },
+            # Rule 5 (per-ticker): self × 0.0 when 200 SMA distance in [-10%, -3%]
+            {
+                'target': 'ALL',
+                'scaler': 0.0,
+                'conditions': [{
+                    'indicator_ticker': 'self', 'signal_type': 'SMA Distance (%)',
+                    'window': 200, 'logic': 'Between', 'thresh': 0.0,
+                    'thresh_min': -10.0, 'thresh_max': -3.0,
+                }],
+            },
         ]
         st.rerun()
 with ps2:
-    st.caption("Loads VOO 40 / VGK 40 / VTI 20 + the 3 fragility rules from `daily_scan` exposure leg.")
+    st.caption("Loads VOO 50 / QQQ 50 + the 3 fragility rules + 2 per-ticker rules (overbought, 200 SMA knife-catch band) from `daily_scan` exposure leg.")
 
 portfolio_text = st.text_area(
     "Tickers and weights (e.g. `SPY:50, QQQ:50` or `SPY 60, QQQ 30, GLD 10`)",
@@ -662,12 +704,26 @@ for i, r in enumerate(st.session_state.exp_rules):
                 elif sig == "Seasonal Rank":
                     window = 0  # not used for plain seasonal_rank
                     st.text("daily")
+                elif sig in ("SMA Distance (%)", "EMA Distance (%)"):
+                    # Common MA periods used as setup gates (10/20/50/200).
+                    # Stored as int; max 252 to match other windows.
+                    window = st.number_input(
+                        "MA period (days)", value=int(cond['window']) if cond['window'] >= 2 else 200,
+                        min_value=2, max_value=252,
+                        step=1, key=f'cond_win_{i}_{c_i}',
+                    )
                 else:  # Return Rank
                     window = st.number_input(
                         "Window (days)", value=int(cond['window']),
                         min_value=1, max_value=252,
                         step=1, key=f'cond_win_{i}_{c_i}',
                     )
+            # MA distance is signed % (negative = below MA), so widen the
+            # threshold range and switch label. Other signals stay 0-100.
+            _is_ma_dist = sig in ("SMA Distance (%)", "EMA Distance (%)")
+            _th_min, _th_max = (-50.0, 100.0) if _is_ma_dist else (0.0, 100.0)
+            _th_step = 0.5 if _is_ma_dist else 5.0
+            _th_label = "Threshold %" if _is_ma_dist else "Threshold %ile"
             with cc4_:
                 logic = st.selectbox(
                     "Logic", LOGIC_OPS,
@@ -680,23 +736,23 @@ for i, r in enumerate(st.session_state.exp_rules):
                     with sub1:
                         thresh_min = st.number_input(
                             "Min", value=float(cond['thresh_min']),
-                            min_value=0.0, max_value=100.0, step=5.0,
+                            min_value=_th_min, max_value=_th_max, step=_th_step,
                             key=f'cond_min_{i}_{c_i}',
                         )
                     with sub2:
                         thresh_max = st.number_input(
                             "Max", value=float(cond['thresh_max']),
-                            min_value=0.0, max_value=100.0, step=5.0,
+                            min_value=_th_min, max_value=_th_max, step=_th_step,
                             key=f'cond_max_{i}_{c_i}',
                         )
                     thresh = thresh_min
                 else:
                     thresh = st.number_input(
-                        "Threshold %ile", value=float(cond['thresh']),
-                        min_value=0.0, max_value=100.0, step=5.0,
+                        _th_label, value=float(cond['thresh']),
+                        min_value=_th_min, max_value=_th_max, step=_th_step,
                         key=f'cond_thresh_{i}_{c_i}',
                     )
-                    thresh_min, thresh_max = 0.0, 100.0
+                    thresh_min, thresh_max = _th_min, _th_max
 
             rmc1, rmc2 = st.columns([1, 6])
             with rmc1:

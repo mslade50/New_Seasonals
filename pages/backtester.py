@@ -796,7 +796,9 @@ def _generate_key_filters(params):
     
     if params.get('use_52w'):
         first_str = " (first in {0}d)".format(params.get('52w_lookback', 21)) if params.get('52w_first_instance') else ""
-        filters.append(f"{params['52w_type']}{first_str}")
+        _w52 = int(params.get('52w_window', 252))
+        _hl = "High" if params.get('52w_type', 'New High') in ('New High', 'New 52w High') else "Low"
+        filters.append(f"New {_w52}d {_hl}{first_str}")
     if params.get('exclude_52w_high'):
         filters.append("NOT at 52-week high")
     if params.get('use_ath'):
@@ -1078,8 +1080,9 @@ def build_strategy_dict(params, tickers_to_run, pf, sqn, win_rate, expectancy_r)
             "use_market_sznl": params.get('use_market_sznl', False), "market_sznl_logic": params.get('market_sznl_logic', '<'), "market_sznl_thresh": params.get('market_sznl_thresh', 40.0),
             "market_ticker": "^GSPC",
             # 52-week / ATH
-            "use_52w": params.get('use_52w', False), "52w_type": params.get('52w_type', 'New 52w High'), "52w_first_instance": params.get('52w_first_instance', True),
+            "use_52w": params.get('use_52w', False), "52w_type": params.get('52w_type', 'New High'), "52w_first_instance": params.get('52w_first_instance', True),
             "52w_lookback": params.get('52w_lookback', 21), "52w_lag": params.get('52w_lag', 0),
+            "52w_window": params.get('52w_window', 252),
             "exclude_52w_high": params.get('exclude_52w_high', False),
             "use_ath": params.get('use_ath', False), "ath_type": params.get('ath_type', 'Today is ATH'),
             "use_recent_ath": params.get('use_recent_ath', False), "recent_ath_invert": params.get('recent_ath_invert', False), "ath_lookback_days": params.get('ath_lookback_days', 21),
@@ -1564,7 +1567,21 @@ def run_engine(universe_dict, params, sznl_map, market_series=None, vix_series=N
                 conditions.append(market_sznl_cond)
                 
             if params.get('use_52w', False):
-                c_52_raw = df['is_52w_high'] if params['52w_type'] == 'New 52w High' else df['is_52w_low']
+                # Window now configurable (default 252 = 52w). Old strategies
+                # carrying '52w_type': 'New 52w High'/'New 52w Low' continue
+                # to work — the type-string check accepts both legacy and new
+                # forms ('New High' / 'New Low'). At window=252 the result is
+                # identical to df['is_52w_high'] / df['is_52w_low'], so behavior
+                # of legacy configs is unchanged.
+                _w52 = int(params.get('52w_window', 252))
+                _t52 = params.get('52w_type', 'New High')
+                _is_high = _t52 in ('New High', 'New 52w High')
+                if _is_high:
+                    _rolling_max = df['High'].shift(1).rolling(_w52).max()
+                    c_52_raw = df['High'] > _rolling_max
+                else:
+                    _rolling_min = df['Low'].shift(1).rolling(_w52).min()
+                    c_52_raw = df['Low'] < _rolling_min
                 lag_days = params.get('52w_lag', 0)
                 if lag_days > 0: c_52_raw = c_52_raw.shift(lag_days).fillna(False)
                 if params.get('52w_first_instance', False): c_52 = apply_first_instance_filter(c_52_raw, params.get('52w_lookback', 21))
@@ -2752,13 +2769,18 @@ def main():
         spy1, spy2 = st.columns(2)
         with spy1: market_sznl_logic = st.selectbox("Market Logic", ["<", ">"], key="spy_sl", disabled=not use_market_sznl)
         with spy2: market_sznl_thresh = st.number_input("Market Threshold", 0.0, 100.0, 15.0, key="spy_st", disabled=not use_market_sznl)
-    with st.expander("52-Week High/Low", expanded=False):
-        use_52w = st.checkbox("Enable 52w High/Low Filter", value=False)
-        h1, h2, h3, h4 = st.columns(4) 
-        with h1: type_52w = st.selectbox("Condition", ["New 52w High", "New 52w Low"], disabled=not use_52w)
-        with h2: first_52w = st.checkbox("First Instance Only", value=False, key="hf", disabled=not use_52w)
-        with h3: lookback_52w = st.number_input("Instance Lookback (Days)", 1, 252, 21, key="hlb", disabled=not use_52w)
-        with h4: lag_52w = st.number_input("Lag (Days)", 0, 10, 0, disabled=not use_52w)
+    with st.expander("Rolling High/Low (N-day)", expanded=False):
+        use_52w = st.checkbox("Enable Rolling High/Low Filter", value=False)
+        h1, h2, h3, h4, h5 = st.columns(5)
+        with h1: type_52w = st.selectbox("Condition", ["New High", "New Low"], disabled=not use_52w)
+        with h2: window_52w = st.number_input(
+            "Window (days)", 5, 1260, 252,
+            help="Rolling lookback for the high/low. 252 = 52w (default), 63 = ~3mo, 21 = ~1mo, 1260 = 5y.",
+            disabled=not use_52w,
+        )
+        with h3: first_52w = st.checkbox("First Instance Only", value=False, key="hf", disabled=not use_52w)
+        with h4: lookback_52w = st.number_input("Instance Lookback (Days)", 1, 252, 21, key="hlb", disabled=not use_52w)
+        with h5: lag_52w = st.number_input("Lag (Days)", 0, 10, 0, disabled=not use_52w)
         exclude_52w_high = st.checkbox("Exclude if Today IS a 52w High", value=False)
         recent_52w_mode = st.selectbox("Trailing 52w High Filter", ["Disabled", "Made 52w High in Last N Days", "Has NOT Made 52w High in Last N Days"])
         use_recent_52w = recent_52w_mode != "Disabled"
@@ -3035,7 +3057,7 @@ def main():
             'perf_lookback': perf_lookback, 'ma_consec_filters': ma_consec_filters, 'use_sznl': use_sznl, 'sznl_logic': sznl_logic, 'sznl_thresh': sznl_thresh, 'sznl_first_instance': sznl_first,
             'sznl_lookback': sznl_lookback, 'use_market_sznl': use_market_sznl, 'market_sznl_logic': market_sznl_logic, 'market_sznl_thresh': market_sznl_thresh, 'use_52w': use_52w, '52w_type': type_52w,
             'use_ath': use_ath, 'ath_type': ath_type,
-            '52w_first_instance': first_52w, '52w_lookback': lookback_52w, '52w_lag': lag_52w, 'exclude_52w_high': exclude_52w_high, 'use_vix_filter': use_vix_filter, 'vix_min': vix_min, 'vix_max': vix_max,
+            '52w_first_instance': first_52w, '52w_lookback': lookback_52w, '52w_lag': lag_52w, '52w_window': window_52w, 'exclude_52w_high': exclude_52w_high, 'use_vix_filter': use_vix_filter, 'vix_min': vix_min, 'vix_max': vix_max,
             'use_recent_52w': use_recent_52w, 'recent_52w_invert': recent_52w_invert, 'recent_52w_lookback': recent_52w_lookback,
             'use_recent_52w_low': use_recent_52w_low, 'recent_52w_low_invert': recent_52w_low_invert, 'recent_52w_low_lookback': recent_52w_low_lookback,
             'vol_gt_prev': use_vol_gt_prev, 'use_vol': use_vol, 'vol_logic': vol_logic, 'vol_thresh': vol_thresh, 'vol_thresh_max': vol_thresh_max, 'use_vol_rank': use_vol_rank, 'vol_rank_logic': vol_rank_logic, 'vol_rank_thresh': vol_rank_thresh,
@@ -3270,6 +3292,71 @@ def main():
                                   hovermode='x unified', height=420, margin=dict(t=50, b=40, l=40, r=20))
                 return fig
 
+            def _edge_over_time_fig(trades, window=None):
+                """Rolling mean R + std R — direct view of edge vs variance.
+
+                Two lines, same R-unit scale. The gap between mean R and
+                std R is the quality (implied per-trade Sharpe = mean / std);
+                each line read separately tells you whether changes are
+                driven by edge or by regime variance.
+
+                Window size adapts to total trade count: roughly 10% of
+                trades, clamped to [20, 100], so the chart shows ~10 buckets
+                across the backtest regardless of strategy frequency.
+
+                Read it as:
+                  Mean rising / std flat       -> edge improving cleanly
+                  Mean flat / std rising       -> same edge, more variance
+                                                  required to capture it
+                  Mean falling / std rising    -> unfavorable regime
+                  Both falling together        -> trade-size compression
+                """
+                if trades is None or trades.empty or 'R' not in trades.columns:
+                    return None
+                tr = trades.copy()
+                tr['EntryDate'] = pd.to_datetime(tr['EntryDate'])
+                tr = tr.sort_values('EntryDate').reset_index(drop=True)
+                if len(tr) < 20:
+                    return None
+                if window is None:
+                    window = max(20, min(100, len(tr) // 10))
+                rolling_mean = tr['R'].rolling(window, min_periods=window).mean()
+                rolling_std = tr['R'].rolling(window, min_periods=window).std()
+                avg_r = float(tr['R'].mean())
+                avg_std = float(tr['R'].std())
+
+                fig = go.Figure()
+                # Std R band: lighter, on top — represents the "variance budget"
+                fig.add_trace(go.Scatter(
+                    x=tr['EntryDate'], y=rolling_std,
+                    mode='lines', line=dict(width=1.4, color='rgba(200,200,200,0.85)', dash='dot'),
+                    name=f'Std R ({window}-trade)',
+                    hovertemplate='%{x|%Y-%m-%d}: %{y:.2f}r<extra></extra>',
+                ))
+                # Mean R: solid bright orange — the edge
+                fig.add_trace(go.Scatter(
+                    x=tr['EntryDate'], y=rolling_mean,
+                    mode='lines', line=dict(width=1.8, color='rgb(255,176,0)'),
+                    name=f'Mean R ({window}-trade)',
+                    hovertemplate='%{x|%Y-%m-%d}: %{y:.3f}r<extra></extra>',
+                ))
+                fig.add_hline(y=avg_r, line_dash='dash', line_color='rgba(255,176,0,0.5)',
+                              line_width=1, annotation_text=f'All-trade mean: {avg_r:.2f}r',
+                              annotation_position='top right', annotation_font_size=10)
+                fig.add_hline(y=avg_std, line_dash='dash', line_color='rgba(200,200,200,0.5)',
+                              line_width=1, annotation_text=f'All-trade std: {avg_std:.2f}r',
+                              annotation_position='bottom right', annotation_font_size=10)
+                fig.add_hline(y=0, line_dash='dot', line_color='#888', line_width=1)
+                fig.update_layout(
+                    title=(f'Edge vs Variance Over Time — Rolling {window}-Trade '
+                           f'(N={len(tr)}, mean {avg_r:.2f}r / std {avg_std:.2f}r)'),
+                    xaxis_title='Entry Date',
+                    yaxis=dict(title='R-multiples (rolling)'),
+                    hovermode='x unified', height=260, margin=dict(t=40, b=30, l=40, r=40),
+                    legend=dict(orientation='h', yanchor='bottom', y=1.02, xanchor='right', x=1),
+                )
+                return fig
+
             # ========== SECTION 1: FLAT STAKING ==========
             st.subheader(f"Flat Staking — ${risk_per_trade:,.0f} per trade ({risk_bps_input} bps of ${starting_portfolio:,})")
             if not mtm_flat.empty:
@@ -3297,6 +3384,9 @@ def main():
             st.subheader(f"Dynamic Sizing — {risk_bps_input} bps of running equity (starting ${starting_portfolio:,})")
             if not mtm_dyn.empty:
                 st.plotly_chart(_mtm_fig(mtm_dyn, "Mark-to-Market Equity — Dynamic Risk (Compounded)"), use_container_width=True)
+                _edge_fig = _edge_over_time_fig(trades_df)
+                if _edge_fig is not None:
+                    st.plotly_chart(_edge_fig, use_container_width=True)
 
                 ps = portfolio_stats
                 dd_color = '#00ff00' if ps['MaxDD_Pct'] > -15 else '#ffaa00' if ps['MaxDD_Pct'] > -30 else '#ff0000'
