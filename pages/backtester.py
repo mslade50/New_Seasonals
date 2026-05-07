@@ -1945,6 +1945,28 @@ def run_engine(universe_dict, params, sznl_map, market_series=None, vix_series=N
                     future = df.iloc[actual_entry_idx + 1 : fixed_exit_idx + 1]
                     if future.empty: continue
 
+                    # End-of-entry-day drawdown stop: exit at signal/entry-day close if the
+                    # trade is underwater by more than the configured ATR threshold. Naturally
+                    # a no-op for entry types where actual_entry_price == entry-day close
+                    # (Signal Close, T+1 Close, persistent limits filling at close).
+                    if params.get('use_eod_dd_exit', False):
+                        entry_close = df['Close'].iloc[actual_entry_idx]
+                        if direction == 'Long':
+                            dd_atr = (actual_entry_price - entry_close) / atr
+                        else:
+                            dd_atr = (entry_close - actual_entry_price) / atr
+                        if dd_atr > params.get('eod_dd_atr', 1.0):
+                            exit_price = entry_close
+                            exit_date = df.index[actual_entry_idx]
+                            exit_type = "EOD-DD"
+                            ticker_last_exit = exit_date
+                            slip = slippage_bps / 10000.0
+                            tech_risk = atr * params['stop_atr']
+                            if tech_risk <= 0: tech_risk = 0.001
+                            pnl = (exit_price*(1-slip) - actual_entry_price*(1+slip)) if direction == 'Long' else (actual_entry_price*(1-slip) - exit_price*(1+slip))
+                            all_potential_trades.append({"Ticker": ticker, "SignalDate": signal_date, "EntryDate": df.index[actual_entry_idx], "Direction": direction, "Entry": actual_entry_price, "Exit": exit_price, "ExitDate": exit_date, "Type": exit_type, "R": pnl / tech_risk, "TechRisk": tech_risk, "Age": df['age_years'].iloc[sig_idx], "AvgVol": df['vol_ma'].iloc[sig_idx], "Status": "Valid Signal", "Reason": "Executed"})
+                            continue
+
                     if params.get('use_trailing_stop', False):
                         trail_dist = atr * params.get('trail_atr', 2.0)
                         anchor_mode = params.get('trail_anchor', 'Peak High')
@@ -2302,6 +2324,26 @@ def main():
                 min_value=0.10, max_value=0.90, value=0.50, step=0.05,
                 disabled=not (use_partial_exits and use_take_profit),
                 help="The remaining fraction exits at the time stop or, if it fires first, the stop.",
+            )
+
+    # --- End-of-entry-day drawdown stop ---
+    with st.expander("End-of-Entry-Day Drawdown Exit", expanded=False):
+        st.markdown(
+            "Cuts a position at the close of its entry day if it's already underwater "
+            "by more than the configured ATR threshold (signal-day ATR). Useful for "
+            "killing trades that immediately go offsides. No effect on entry types that "
+            "fill at the close (Signal Close, T+1 Close, persistent limits) — drawdown "
+            "is zero by construction."
+        )
+        eod_c1, eod_c2 = st.columns([1, 2])
+        with eod_c1:
+            use_eod_dd_exit = st.checkbox("Enable EOD drawdown exit", value=False)
+        with eod_c2:
+            eod_dd_atr = st.number_input(
+                "Min Loss to Exit (ATR)",
+                value=1.0, step=0.1, min_value=0.1,
+                disabled=not use_eod_dd_exit,
+                help="If entry-day close shows a loss greater than this many ATRs, exit at that close. Tagged 'EOD-DD' in the trade log.",
             )
     st.markdown("---")
     st.subheader("3. Signal Criteria")
@@ -3045,6 +3087,7 @@ def main():
             'backtest_start_date': start_date, 'trade_direction': trade_direction, 'max_one_pos': max_one_pos, 'allow_same_day_reentry': allow_same_day_reentry,
             'max_daily_entries': max_daily_entries, 'max_total_positions': max_total_positions, 'use_stop_loss': use_stop_loss, 'use_take_profit': use_take_profit, 'time_exit_only': time_exit_only,
             'use_partial_exits': use_partial_exits, 'partial_target_fraction': partial_target_fraction,
+            'use_eod_dd_exit': use_eod_dd_exit, 'eod_dd_atr': eod_dd_atr,
             'stop_atr': stop_atr, 'tgt_atr': tgt_atr, 'holding_days': hold_days, 'entry_type': entry_type, 'use_ma_entry_filter': use_ma_entry_filter, 'require_close_gt_open': req_green_candle,
             'use_trailing_stop': use_trailing_stop, 'trail_atr': trail_atr, 'trail_anchor': trail_anchor,
             'breakout_mode': breakout_mode, 'use_range_filter': use_range_filter, 'range_min': range_min, 'range_max': range_max, 'use_dow_filter': use_dow_filter, 'allowed_days': valid_days,
