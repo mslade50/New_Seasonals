@@ -41,6 +41,7 @@ from pages.risk_dashboard_v2 import (
     compute_fomc_signal,
     compute_low_ar_signal,
     compute_seasonal_divergence_signal,
+    compute_dispersion_signal,
     compute_price_context,
     compute_regime_multiplier,
     load_horizon_stats,
@@ -94,6 +95,7 @@ def compute_all_signals(spy_df, closes, sp500_closes):
     fomc = compute_fomc_signal(spy_close)
     ar = compute_low_ar_signal(sector_returns, spy_close)
     srd = compute_seasonal_divergence_signal(spy_close)
+    disp = compute_dispersion_signal(sp500_closes, spy_df, spy_close)
 
     signals_ordered = {
         'Distribution Dominance': da,
@@ -102,6 +104,7 @@ def compute_all_signals(spy_df, closes, sp500_closes):
         'Pre-FOMC Rally': fomc,
         'Low Absorption Ratio': ar,
         'Seasonal Rank Divergence': srd,
+        'Dispersion': disp,
     }
 
     price_ctx = compute_price_context(spy_close)
