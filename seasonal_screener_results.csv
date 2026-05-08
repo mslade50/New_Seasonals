@@ -1,4 +1,3 @@
 Ticker,Date,Type,Seas_Score,Tech_Streak_Days,Curr_5d_Rank,Curr_10d_Rank,Curr_21d_Rank,Seas_All_Avg_5d,Seas_All_Med_5d,Seas_All_Win_5d,Seas_All_Avg_21d,Seas_All_Med_21d,Seas_All_Win_21d,Seas_Cyc_Avg_5d,Seas_Cyc_Med_5d,Seas_Cyc_Win_5d,Seas_Cyc_Avg_21d,Seas_Cyc_Med_21d,Seas_Cyc_Win_21d
-JEF,2026-05-07,Super Bear,9.4,2,92.8,95.9,95.0,-0.08,-0.47,39.4,-0.8,-1.72,42.4,-1.04,-0.96,12.5,-6.58,-6.51,12.5
-ANGI,2026-05-07,Super Bull,86.1,2,0.6,2.1,6.2,1.93,1.43,50.0,6.11,6.04,80.0,0.58,0.58,50.0,12.59,12.59,100.0
-FLUT,2026-05-07,Super Bull,86.4,1,4.9,10.5,10.2,0.25,0.0,25.0,5.23,0.0,37.5,0.0,0.0,0.0,6.88,0.0,33.3
+JEF,2026-05-08,Super Bear,9.4,3,94.1,95.0,94.9,-1.84,-1.01,33.3,-1.3,-1.5,33.3,-1.9,-2.32,14.3,-3.44,-1.71,14.3
+ANGI,2026-05-08,Super Bull,86.1,3,1.1,3.1,13.0,4.5,5.38,72.7,8.58,10.45,72.7,0.13,0.13,50.0,13.28,13.28,100.0
