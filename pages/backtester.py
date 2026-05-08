@@ -918,6 +918,9 @@ def _generate_key_filters(params):
     if params.get('use_weekly_ma_pullback'):
         filters.append(f"First touch of Weekly {params['wma_type']}{params['wma_period']} after {params['wma_min_ext_pct']:.0f}%+ extension (lookback {params['wma_lookback_months']}mo, {params['wma_touch_logic']})")
 
+    if params.get('use_volret_delta'):
+        filters.append(f"Vol/Ret delta ({params.get('vrd_method', 'Z-score diff')}, halflife {params.get('vrd_vol_halflife', 20)}d, ret {params.get('vrd_ret_horizon', 20)}d, ΔN {params.get('vrd_delta_n', 5)}d) rank in [{params.get('vrd_pctile_min', 70.0):.0f},{params.get('vrd_pctile_max', 90.0):.0f}] ({params.get('vrd_rank_window', 'Expanding')})")
+
     if params.get('use_dow_filter'):
         day_names = {0: 'Mon', 1: 'Tue', 2: 'Wed', 3: 'Thu', 4: 'Fri'}
         days_str = ", ".join([day_names.get(d, '?') for d in params.get('allowed_days', [])])
@@ -1102,6 +1105,10 @@ def build_strategy_dict(params, tickers_to_run, pf, sqn, win_rate, expectancy_r)
             # Weekly MA Pullback
             "use_weekly_ma_pullback": params.get('use_weekly_ma_pullback', False), "wma_type": params.get('wma_type', 'EMA'), "wma_period": params.get('wma_period', 8),
             "wma_min_ext_pct": params.get('wma_min_ext_pct', 30.0), "wma_lookback_months": params.get('wma_lookback_months', 6), "wma_touch_logic": params.get('wma_touch_logic', 'Low <= MA'),
+            # Vol/Return Delta Ratio
+            "use_volret_delta": params.get('use_volret_delta', False), "vrd_method": params.get('vrd_method', 'Z-score diff'), "vrd_rank_window": params.get('vrd_rank_window', 'Expanding'),
+            "vrd_vol_halflife": params.get('vrd_vol_halflife', 20), "vrd_ret_horizon": params.get('vrd_ret_horizon', 20), "vrd_delta_n": params.get('vrd_delta_n', 5),
+            "vrd_min_periods": params.get('vrd_min_periods', 252), "vrd_pctile_min": params.get('vrd_pctile_min', 70.0), "vrd_pctile_max": params.get('vrd_pctile_max', 90.0),
             # Volume
             "vol_gt_prev": params.get('vol_gt_prev', False),
             "use_vol": params.get('use_vol', False), "vol_logic": params.get('vol_logic', '>'), "vol_thresh": params.get('vol_thresh', 1.5), "vol_thresh_max": params.get('vol_thresh_max', 10.0),
@@ -1675,6 +1682,55 @@ def run_engine(universe_dict, params, sznl_map, market_series=None, vix_series=N
                     first_touch = is_touch & (ext_cumsum > prev_touch_ext) & recently_extended
 
                     conditions.append(first_touch)
+
+            # --- VOL/RETURN DELTA RATIO FILTER ---
+            # "Is vol expanding more abnormally than return is changing, relative
+            # to each series' own history?" Three metric variants; ranked vs own
+            # history (expanding or rolling 5y); rank shifted by 1 to avoid
+            # look-ahead. Fires when rank lands in the configured pctile band.
+            if params.get('use_volret_delta', False):
+                halflife = int(params.get('vrd_vol_halflife', 20))
+                ret_horizon = int(params.get('vrd_ret_horizon', 20))
+                delta_n = int(params.get('vrd_delta_n', 5))
+                method = params.get('vrd_method', 'Z-score diff')
+                rank_window = params.get('vrd_rank_window', 'Expanding')
+                p_min = params.get('vrd_pctile_min', 70.0) / 100.0
+                p_max = params.get('vrd_pctile_max', 90.0) / 100.0
+                min_periods = int(params.get('vrd_min_periods', 252))
+
+                rets = df['Close'].pct_change()
+                vol_t = rets.ewm(halflife=halflife, min_periods=halflife).std() * np.sqrt(252)
+                ret_t = df['Close'].pct_change(ret_horizon)
+                d_vol = vol_t.diff(delta_n)
+                d_ret = ret_t.diff(delta_n)
+
+                if method == 'd_vol / |d_ret|':
+                    abs_dret = d_ret.abs()
+                    eps = abs_dret.rolling(252, min_periods=21).mean() * 0.01
+                    safe_dret = abs_dret.where(abs_dret > eps, eps).replace(0, np.nan)
+                    metric = d_vol / safe_dret
+                elif method == 'Pct-change diff':
+                    vol_ref = vol_t.shift(delta_n)
+                    ret_ref = ret_t.shift(delta_n)
+                    vol_ref = vol_ref.where(vol_ref.abs() > 1e-8)
+                    ret_ref = ret_ref.where(ret_ref.abs() > 1e-6)
+                    metric = (d_vol / vol_ref) - (d_ret / ret_ref)
+                elif method == 'Vol delta only':
+                    metric = d_vol
+                else:  # Z-score diff (default, most stable)
+                    z_win = 252
+                    vol_z = (d_vol - d_vol.rolling(z_win).mean()) / d_vol.rolling(z_win).std()
+                    ret_z = (d_ret - d_ret.rolling(z_win).mean()) / d_ret.rolling(z_win).std()
+                    metric = vol_z - ret_z
+
+                if rank_window == 'Rolling 5y':
+                    metric_rank = metric.rolling(252 * 5, min_periods=min_periods).rank(pct=True)
+                else:
+                    metric_rank = metric.expanding(min_periods=min_periods).rank(pct=True)
+
+                metric_rank = metric_rank.shift(1)
+                in_band = (metric_rank > p_min) & (metric_rank < p_max)
+                conditions.append(in_band.fillna(False))
 
             # --- REFERENCE TICKER FILTER ---
             if use_ref_ticker_filter and ref_filters:
@@ -2534,6 +2590,19 @@ def main():
         with wma_c3: wma_min_ext_pct = st.number_input("Min Extension %", 1.0, 200.0, 30.0, step=5.0, key="wma_min_ext", disabled=not use_weekly_ma_pullback, help="Stock must have been at least this % above the weekly MA at some point in the lookback window")
         with wma_c4: wma_lookback_months = st.number_input("Lookback Months", 1, 24, 6, key="wma_lookback_mo", disabled=not use_weekly_ma_pullback, help="How far back to check for the extension")
         wma_touch_logic = st.selectbox("Touch Logic", ["Low <= MA", "Close <= MA"], key="wma_touch", disabled=not use_weekly_ma_pullback, help="How to define 'touching' the weekly MA on the signal day")
+    with st.expander("Vol/Return Delta Ratio", expanded=False):
+        use_volret_delta = st.checkbox("Enable Vol/Return Delta Ratio Filter", value=False, key="vrd_enable")
+        st.caption("Fires when vol is expanding abnormally vs return change, ranked vs own history. Pct band selects which slice of the rank distribution counts as a signal.")
+        vrd_c1, vrd_c2, vrd_c3, vrd_c4 = st.columns(4)
+        with vrd_c1: vrd_vol_halflife = st.number_input("Vol EWM Halflife (d)", 2, 252, 20, key="vrd_hl", disabled=not use_volret_delta, help="Halflife for the EWM stdev of daily returns (annualized)")
+        with vrd_c2: vrd_ret_horizon = st.number_input("Return Horizon (d)", 1, 252, 20, key="vrd_rh", disabled=not use_volret_delta, help="Window for pct_change return")
+        with vrd_c3: vrd_delta_n = st.number_input("Delta Lookback N (d)", 1, 60, 5, key="vrd_dn", disabled=not use_volret_delta, help="N for d_vol = vol_t.diff(N) and d_ret = ret_t.diff(N)")
+        with vrd_c4: vrd_min_periods = st.number_input("Rank Min Periods", 50, 2520, 252, step=21, key="vrd_mp", disabled=not use_volret_delta, help="Burn-in before rank/pctile is computed (~1y default)")
+        vrd_c5, vrd_c6, vrd_c7, vrd_c8 = st.columns(4)
+        with vrd_c5: vrd_method = st.selectbox("Metric", ["Z-score diff", "d_vol / |d_ret|", "Pct-change diff", "Vol delta only"], key="vrd_method", disabled=not use_volret_delta, help="Z-score diff (default): z(d_vol)-z(d_ret), most stable. d_vol/|d_ret|: classic ratio with sign preserved. Pct-change diff: (d_vol/vol)-(d_ret/ret), dimensionless. Vol delta only: rank d_vol against own history, ignore returns — high band = expanding vol, low band = contracting vol")
+        with vrd_c6: vrd_rank_window = st.selectbox("Rank Window", ["Expanding", "Rolling 5y"], key="vrd_rw", disabled=not use_volret_delta, help="Expanding uses full history; Rolling 5y is more responsive to regime shifts")
+        with vrd_c7: vrd_pctile_min = st.number_input("Pctile Min", 0.0, 100.0, 70.0, step=5.0, key="vrd_pmin", disabled=not use_volret_delta)
+        with vrd_c8: vrd_pctile_max = st.number_input("Pctile Max", 0.0, 100.0, 90.0, step=5.0, key="vrd_pmax", disabled=not use_volret_delta)
     with st.expander("Price Action", expanded=False):
         pa1, pa2 = st.columns(2)
         with pa1: 
@@ -3106,6 +3175,7 @@ def main():
             'vol_gt_prev': use_vol_gt_prev, 'use_vol': use_vol, 'vol_logic': vol_logic, 'vol_thresh': vol_thresh, 'vol_thresh_max': vol_thresh_max, 'use_vol_rank': use_vol_rank, 'vol_rank_logic': vol_rank_logic, 'vol_rank_thresh': vol_rank_thresh,
             'use_ma_dist_filter': use_ma_dist_filter, 'dist_ma_type': dist_ma_type, 'dist_logic': dist_logic, 'dist_min': dist_min, 'dist_max': dist_max,
             'use_weekly_ma_pullback': use_weekly_ma_pullback, 'wma_type': wma_type, 'wma_period': wma_period, 'wma_min_ext_pct': wma_min_ext_pct, 'wma_lookback_months': wma_lookback_months, 'wma_touch_logic': wma_touch_logic,
+            'use_volret_delta': use_volret_delta, 'vrd_method': vrd_method, 'vrd_rank_window': vrd_rank_window, 'vrd_vol_halflife': vrd_vol_halflife, 'vrd_ret_horizon': vrd_ret_horizon, 'vrd_delta_n': vrd_delta_n, 'vrd_min_periods': vrd_min_periods, 'vrd_pctile_min': vrd_pctile_min, 'vrd_pctile_max': vrd_pctile_max,
             'use_gap_filter': use_gap_filter, 'gap_lookback': gap_lookback, 'gap_logic': gap_logic, 'gap_thresh': gap_thresh,
             'use_earnings_filter': use_earnings_filter, 'earnings_logic': earnings_logic,
             'earnings_value': earnings_value, 'earnings_min': earnings_min, 'earnings_max': earnings_max,
