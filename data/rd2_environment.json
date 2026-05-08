@@ -1,20 +1,20 @@
 {
-  "date": "2026-05-07",
+  "date": "2026-05-08",
   "price_ctx": {
     "price": 731.5800170898438,
     "ret_12m": 0.31866076282976685,
-    "extension_200d": 0.09188920549621837,
+    "extension_200d": 0.091889205993549,
     "drawdown": -0.0030661051573263043,
-    "sma_200": 670.0130502319336,
+    "sma_200": 670.0130499267578,
     "high_52w": 733.8300170898438,
     "regime_label": "Extended uptrend, stretched above trend",
     "days_since_5pct": 24,
     "days_since_10pct": 260
   },
   "h_scores": {
-    "5d": 0.0,
-    "21d": 0.0,
-    "63d": 27.655185714207384
+    "5d": 9.529824170988203,
+    "21d": 20.583038044881107,
+    "63d": 44.063794491711555
   },
   "signals": {
     "Distribution Dominance": {
@@ -46,6 +46,11 @@
       "on": false,
       "detail": "",
       "summary": "Spread: -4.3pp (fires above 10) \u2014 near high: yes"
+    },
+    "Dispersion": {
+      "on": false,
+      "detail": "",
+      "summary": "Composite pctile: 97th (fires above 85th) \u2014 component RV: 35.2% | SPY RV: 10.2%"
     }
   }
 }
