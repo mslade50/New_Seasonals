@@ -1,20 +1,19 @@
 """
-Rotation Backtester — momentum / mean-reversion rotation across a basket
-of tickers.
+Cross-Asset Trend Backtester — vol-targeted time-series momentum.
 
-At each rebalance date, ranks the basket by N-day return (cross-sectional
-within the basket OR time-series vs each ticker's own history), applies
-optional eligibility filters, and rotates equal-weight into the top-N
-(or bottom-N in reverse mode). Slack to cash when filters reject every
-candidate.
+Per asset, blends vol-scaled point-in-time log returns at multiple lookbacks
+(default 1m / 3m / 12m, equal weights), caps the blended signal at +/-2, and
+sizes each position to an equal vol contribution (target_vol_i = 10% /
+sqrt(N)). The whole book is then scaled by a 252-day ex-ante covariance
+estimate so the portfolio targets a fixed annualized vol (default 10%).
 
-Designed for "always invested, slow moving" experiments — pair a long
-ranking window (63d / 252d) with a forgiving eligibility filter and a
-weekly/monthly rebalance to size momentum exposure without chasing
-extremes. Reverse mode covers the deep-oversold mean-reversion case.
+Rebalances monthly (last business day) by default. T+1 execution. Vol
+estimate is EWMA of daily log returns, 60-day half-life, annualized by
+sqrt(252).
 
-Companion to pages/exposure_backtester.py — exposure_backtester scales
-fixed weights via rules; this page picks weights dynamically by ranking.
+Universe is free-text. master_prices.parquet is the primary source; missing
+tickers (FX, some commodities, indices) fall back to yfinance and are cached
+for the session.
 """
 import streamlit as st
 import pandas as pd
@@ -23,7 +22,6 @@ import datetime
 import os
 import sys
 import plotly.graph_objects as go
-import plotly.express as px
 
 # -----------------------------------------------------------------------------
 # PATH SETUP
@@ -34,162 +32,213 @@ sys.path.append(parent_dir)
 
 import data_provider
 
-try:
-    from strategy_config import SECTOR_INDEX_ETFS, INDEX_ETFS, LIQUID_UNIVERSE
-except ImportError:
-    SECTOR_INDEX_ETFS, INDEX_ETFS, LIQUID_UNIVERSE = [], [], []
-
 # -----------------------------------------------------------------------------
 # CONSTANTS
 # -----------------------------------------------------------------------------
-WINDOWS = [5, 10, 21, 63, 126, 252]
-TS_RANK_DEFAULT_LOOKBACK = 252  # rolling lookback for time-series rank
-LOGIC_OPS = ["<", ">", "Between"]
-RANK_TYPES = ["xsec", "ts"]
-RANK_TYPE_LABELS = {"xsec": "Cross-sectional (within basket)", "ts": "Time-series (own history)"}
+DEFAULT_BASKET = [
+    "QQQ", "SPY", "TLT", "GLD", "SLV", "USO", "WEAT", "UNG", "CPER",
+    "BTC-USD", "^GDAXI", "^N225",
+    "USDEUR=X", "USDJPY=X", "USDCHF=X", "USDMXN=X", "USDAUD=X", "USDCAD=X",
+    "EEM",
+]
+PRESETS = {
+    "Cross-asset starter (19)": DEFAULT_BASKET,
+    "Concentrated (5)": ["SPY", "TLT", "GLD", "DBC", "UUP"],
+    "Equity index ETFs (6)": ["SPY", "QQQ", "IWM", "EFA", "EEM", "VEA"],
+    "(custom)": [],
+}
 
-st.set_page_config(page_title="Rotation Backtester", layout="wide")
+st.set_page_config(page_title="Cross-Asset Trend Backtester", layout="wide")
+
 
 # -----------------------------------------------------------------------------
 # DATA LOADING
 # -----------------------------------------------------------------------------
-@st.cache_data(ttl=3600)
+@st.cache_data(ttl=3600, show_spinner=False)
+def _yf_fetch(tickers_tuple, start, end):
+    """Live yfinance fetch for tickers missing from master_prices.
+
+    Returns {ticker: Series of close} indexed by date. Handles the MultiIndex
+    columns yfinance returns for multi-ticker downloads.
+    """
+    if not tickers_tuple:
+        return {}
+    try:
+        import yfinance as yf
+    except ImportError:
+        return {}
+    raw = yf.download(
+        list(tickers_tuple), start=start, end=end,
+        auto_adjust=True, progress=False, threads=True,
+    )
+    if raw is None or raw.empty:
+        return {}
+    out = {}
+    if isinstance(raw.columns, pd.MultiIndex):
+        for tk in tickers_tuple:
+            try:
+                df = raw.xs(tk, level=1, axis=1)
+            except (KeyError, ValueError):
+                continue
+            if 'Close' not in df.columns:
+                continue
+            s = df['Close'].dropna()
+            if s.empty:
+                continue
+            s.index = pd.to_datetime(s.index).normalize()
+            if hasattr(s.index, 'tz') and s.index.tz is not None:
+                s.index = s.index.tz_localize(None)
+            out[tk] = s
+    else:
+        # Single-ticker download
+        if 'Close' in raw.columns and tickers_tuple:
+            s = raw['Close'].dropna()
+            s.index = pd.to_datetime(s.index).normalize()
+            if hasattr(s.index, 'tz') and s.index.tz is not None:
+                s.index = s.index.tz_localize(None)
+            out[tickers_tuple[0]] = s
+    return out
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
 def load_basket_closes(tickers_tuple):
-    """Pull close-price DataFrame for a basket. Cached on the tickers tuple."""
+    """Return DataFrame of close prices, columns=tickers, index=dates.
+
+    Tries master_prices first, then yfinance for missing tickers. Forward-fills
+    so daily-frequency assets (FX has fewer holidays than equities) align.
+    """
     tickers = list(tickers_tuple)
     if not tickers:
-        return pd.DataFrame()
-    if not data_provider.has_master():
-        return pd.DataFrame()
-    hist = data_provider.get_history(tickers)
+        return pd.DataFrame(), []
     closes = {}
-    for tk in tickers:
-        df = hist.get(tk)
-        if df is None or df.empty:
-            continue
-        s = df['Close'].copy()
-        s.index = pd.to_datetime(s.index).normalize()
-        if hasattr(s.index, 'tz') and s.index.tz is not None:
-            s.index = s.index.tz_localize(None)
-        closes[tk] = s.dropna()
+    if data_provider.has_master():
+        hist = data_provider.get_history(tickers)
+        for tk in tickers:
+            df = hist.get(tk)
+            if df is None or df.empty:
+                continue
+            s = df['Close'].copy()
+            s.index = pd.to_datetime(s.index).normalize()
+            if hasattr(s.index, 'tz') and s.index.tz is not None:
+                s.index = s.index.tz_localize(None)
+            closes[tk] = s.dropna()
+
+    missing = [t for t in tickers if t not in closes]
+    if missing:
+        # yfinance fallback for FX / non-master tickers
+        yf_data = _yf_fetch(tuple(missing), start="1995-01-01",
+                            end=(datetime.date.today() + datetime.timedelta(days=1)).isoformat())
+        for tk, s in yf_data.items():
+            if not s.empty:
+                closes[tk] = s
+
+    failed = [t for t in tickers if t not in closes]
     if not closes:
-        return pd.DataFrame()
-    return pd.DataFrame(closes).sort_index().ffill()
+        return pd.DataFrame(), failed
+    df = pd.DataFrame(closes).sort_index()
+    # Forward-fill to align trading days; cap at 5 days so a delisted/halted
+    # asset doesn't contaminate later signals indefinitely.
+    df = df.ffill(limit=5)
+    return df, failed
 
 
 # -----------------------------------------------------------------------------
-# RANK COMPUTATION
+# SIGNAL & VOL
 # -----------------------------------------------------------------------------
-def compute_returns(close_df, windows):
-    """Return {window: DataFrame of N-day returns}."""
-    return {w: close_df.pct_change(w) for w in windows}
+def compute_log_returns(close_df):
+    return np.log(close_df / close_df.shift(1))
 
 
-def compute_xsec_ranks(rets_dict):
-    """Cross-sectional rank within basket per row, expressed as 0-100 percentile.
+def compute_ewma_vol(log_rets, halflife):
+    """EWMA realized vol of daily log returns, annualized by sqrt(252).
 
-    100 = best return today within basket. Tickers with NaN (insufficient
-    history) get NaN rank — the filter+selection logic skips NaNs.
+    pandas .ewm(halflife=...) uses the standard formula; .std() returns the
+    sample stdev with bias correction. We use that and annualize.
     """
-    return {w: rets_dict[w].rank(axis=1, pct=True) * 100 for w in rets_dict}
+    ewma_var = log_rets.ewm(halflife=halflife, min_periods=halflife).var()
+    return np.sqrt(ewma_var) * np.sqrt(252)
 
 
-def compute_ts_ranks(rets_dict, lookback):
-    """Time-series rank for each ticker — its N-day return today vs its own
-    last `lookback` trading days. 100 = best within the lookback window.
+def compute_signal(close_df, log_rets, sigma_ann, lookbacks, weights, cap):
+    """Per-asset blended trend signal, capped at +/- cap.
 
-    Per-column rolling rank is O(n*lookback) but vectorized with .rank(pct=True).
+    For each lookback w (in trading days), compute the point-in-time log
+    return r_w = log(P_t / P_{t-w}), divide by annualized vol, and blend
+    across lookbacks with the supplied weights. Then clip.
+
+    Note on convention: this divides by annualized sigma (not horizon-scaled
+    sigma). Long-lookback components are naturally larger in magnitude than
+    short-lookback ones; the cap limits the blend rather than each component.
+    Iterate the spec here if you want each lookback z-like instead.
     """
-    out = {}
-    min_p = max(20, int(lookback * 0.25))
-    for w, ret_df in rets_dict.items():
-        ts = pd.DataFrame(index=ret_df.index, columns=ret_df.columns, dtype=float)
-        for col in ret_df.columns:
-            ts[col] = ret_df[col].rolling(lookback, min_periods=min_p).rank(pct=True) * 100
-        out[w] = ts
-    return out
+    weights = np.asarray(weights, dtype=float)
+    weights = weights / weights.sum()
+    components = []
+    for w, wt in zip(lookbacks, weights):
+        r_w = np.log(close_df / close_df.shift(w))
+        scaled = r_w / sigma_ann
+        components.append(scaled * wt)
+    blended = sum(components)
+    return blended.clip(lower=-cap, upper=cap)
+
+
+# -----------------------------------------------------------------------------
+# POSITION SIZING
+# -----------------------------------------------------------------------------
+def compute_per_asset_weights(signal_row, sigma_row, target_vol_per_asset):
+    """w_i = signal_i * (target_vol_i / sigma_i). Returns Series (NaN-safe)."""
+    valid = signal_row.notna() & sigma_row.notna() & (sigma_row > 0)
+    w = pd.Series(0.0, index=signal_row.index)
+    if not valid.any():
+        return w
+    w.loc[valid] = signal_row.loc[valid] * (target_vol_per_asset / sigma_row.loc[valid])
+    return w
+
+
+def scale_to_portfolio_vol(weights, cov_matrix_ann, target_vol):
+    """Scale a weight vector so ex-ante portfolio vol = target.
+
+    cov_matrix_ann is the annualized covariance matrix over the assets that
+    are tradeable on this rebalance date. Returns scaled weights and the
+    pre-scale ex-ante vol.
+    """
+    if cov_matrix_ann is None or cov_matrix_ann.empty:
+        return weights, np.nan
+    common = [t for t in weights.index if t in cov_matrix_ann.index]
+    if not common:
+        return weights, np.nan
+    w_vec = weights.reindex(common).fillna(0.0).values
+    cov = cov_matrix_ann.reindex(index=common, columns=common).values
+    var = float(w_vec @ cov @ w_vec)
+    if var <= 0 or not np.isfinite(var):
+        return weights, np.nan
+    ex_ante_vol = np.sqrt(var)
+    if ex_ante_vol == 0:
+        return weights, ex_ante_vol
+    scaled = weights.copy()
+    scaled.loc[common] = scaled.loc[common] * (target_vol / ex_ante_vol)
+    return scaled, ex_ante_vol
 
 
 # -----------------------------------------------------------------------------
 # REBALANCE CALENDAR
 # -----------------------------------------------------------------------------
 def get_rebal_dates(date_index, freq):
-    """Resolve rebalance dates from a daily trading-day index.
-
-    'Weekly (Mon)' — first trading day of each calendar week (Mon if open,
-                     else Tue, etc.).
-    'Monthly (EOM)' — last trading day of each calendar month.
-    'Every N days' — every Nth row of the index.
-    'Daily' — every trading day.
-    """
     di = pd.DatetimeIndex(date_index)
     if di.empty:
         return di
-    if freq == 'Weekly (Mon)':
-        s = di.to_series()
-        # Group by ISO year+week so we don't merge week 52 with the next year's week 1
+    s = di.to_series()
+    if freq == 'Monthly (last bday)':
+        return pd.DatetimeIndex(sorted(s.groupby([s.dt.year.values, s.dt.month.values]).max().values))
+    if freq == 'Weekly (Fri)':
         ic = s.dt.isocalendar()
-        first = s.groupby([ic.year.values, ic.week.values]).min()
-        return pd.DatetimeIndex(sorted(first.values))
-    if freq == 'Monthly (EOM)':
-        s = di.to_series()
-        last = s.groupby([s.dt.year.values, s.dt.month.values]).max()
-        return pd.DatetimeIndex(sorted(last.values))
+        return pd.DatetimeIndex(sorted(s.groupby([ic.year.values, ic.week.values]).max().values))
+    if freq == 'Quarterly (last bday)':
+        q = ((s.dt.month - 1) // 3 + 1).values
+        return pd.DatetimeIndex(sorted(s.groupby([s.dt.year.values, q]).max().values))
     if freq == 'Daily':
         return di
-    if freq.startswith('Every'):
-        n = int(freq.split()[1])
-        return di[::n]
     return di
-
-
-# -----------------------------------------------------------------------------
-# FILTER EVALUATION
-# -----------------------------------------------------------------------------
-def _filter_mask(filt, candidates_row):
-    """Apply one filter spec to a Series of rank values keyed by ticker."""
-    op = filt['logic']
-    if op == '<':
-        return candidates_row < filt['thresh']
-    if op == '>':
-        return candidates_row > filt['thresh']
-    if op == 'Between':
-        return (candidates_row >= filt['thresh_min']) & (candidates_row <= filt['thresh_max'])
-    return pd.Series(False, index=candidates_row.index)
-
-
-def evaluate_eligibility(filters, candidates, rebal_date, xsec_ranks, ts_ranks):
-    """Return boolean Series — True for candidates that pass ALL filters."""
-    if not filters:
-        return pd.Series(True, index=candidates)
-    mask = pd.Series(True, index=candidates)
-    for f in filters:
-        ranks_df = xsec_ranks[f['window']] if f['type'] == 'xsec' else ts_ranks[f['window']]
-        if rebal_date not in ranks_df.index:
-            return pd.Series(False, index=candidates)
-        row = ranks_df.loc[rebal_date].reindex(candidates)
-        m = _filter_mask(f, row).fillna(False)
-        mask &= m
-    return mask
-
-
-def evaluate_reverse_trigger(filters, candidates, rebal_date, xsec_ranks, ts_ranks):
-    """Return True iff EVERY candidate satisfies EVERY filter (AND across filters,
-    AND across candidates). This is the "all members oversold" gate.
-    """
-    if not filters:
-        return False
-    for f in filters:
-        ranks_df = xsec_ranks[f['window']] if f['type'] == 'xsec' else ts_ranks[f['window']]
-        if rebal_date not in ranks_df.index:
-            return False
-        row = ranks_df.loc[rebal_date].reindex(candidates).dropna()
-        if row.empty:
-            return False
-        m = _filter_mask(f, row)
-        if not bool(m.all()):
-            return False
-    return True
 
 
 # -----------------------------------------------------------------------------
@@ -197,28 +246,26 @@ def evaluate_reverse_trigger(filters, candidates, rebal_date, xsec_ranks, ts_ran
 # -----------------------------------------------------------------------------
 def run_backtest(
     close_df, rebal_dates,
-    select_window, select_type, direction, top_n,
-    eligibility_filters,
-    reverse_enabled, reverse_filters, reverse_n,
-    starting_equity, execution_lag, cash_apr,
-    xsec_ranks, ts_ranks,
+    lookbacks, lookback_weights, signal_cap, ewma_halflife,
+    target_portfolio_vol, cov_window,
+    starting_equity, execution_lag,
 ):
-    """Walk rebal dates, pick winners, hold until next rebal, compute MTM.
+    """Walk rebal dates, build vol-targeted weights, simulate daily PnL.
 
-    execution_lag=True → ranks computed at rebal_date close, position taken at
-                        next trading day (T+1). More realistic.
-    execution_lag=False → ranks AND position both at rebal_date close. Cleaner
-                        backtest but introduces look-ahead since you can't act
-                        on the close until the next bar.
+    Returns dict with equity, weights timeline, ex-ante vol series, etc.
     """
     cal = close_df.index
     if cal.empty:
         return None
-    weights = pd.DataFrame(0.0, index=cal, columns=close_df.columns)
-    cash_w = pd.Series(1.0, index=cal)
-    trade_log = []
 
-    # Resolve (decision_date, execution_date) pairs
+    log_rets = compute_log_returns(close_df)
+    simple_rets = close_df.pct_change()
+    sigma_ann = compute_ewma_vol(log_rets, ewma_halflife)
+    signal_df = compute_signal(close_df, log_rets, sigma_ann, lookbacks, lookback_weights, signal_cap)
+
+    weights = pd.DataFrame(0.0, index=cal, columns=close_df.columns)
+    rebal_records = []
+
     pairs = []
     for rd in rebal_dates:
         if rd not in cal:
@@ -231,172 +278,134 @@ def run_backtest(
         else:
             ed = rd
         pairs.append((rd, ed))
-
     if not pairs:
         return None
 
-    candidates = list(close_df.columns)
+    max_lookback = max(lookbacks)
 
     for i, (rd, ed) in enumerate(pairs):
-        # Holding period: [ed, next_ed)
         next_ed = pairs[i + 1][1] if i + 1 < len(pairs) else cal[-1] + pd.Timedelta(days=1)
         hold_mask = (cal >= ed) & (cal < next_ed)
 
-        ranks_df = xsec_ranks[select_window] if select_type == 'xsec' else ts_ranks[select_window]
-        if rd not in ranks_df.index:
-            trade_log.append({'date': ed, 'mode': 'no-data', 'picks': []})
-            continue
-        rank_row = ranks_df.loc[rd].reindex(candidates).dropna()
-        live_candidates = list(rank_row.index)
-        if not live_candidates:
-            trade_log.append({'date': ed, 'mode': 'no-candidates', 'picks': []})
-            continue
+        # Per-asset eligibility: need enough history for signal + sigma
+        sig_row = signal_df.loc[rd] if rd in signal_df.index else None
+        sig_row = sig_row.dropna() if sig_row is not None else pd.Series(dtype=float)
+        sig_row = sig_row.reindex([c for c in close_df.columns if c in sig_row.index])
 
-        # Reverse mode takes precedence — fires only when ALL candidates satisfy.
-        chosen_picks, mode = [], 'normal'
-        if reverse_enabled and reverse_filters:
-            if evaluate_reverse_trigger(reverse_filters, live_candidates, rd, xsec_ranks, ts_ranks):
-                chosen_picks = rank_row.nsmallest(reverse_n).index.tolist()
-                mode = 'reverse'
+        sigma_row = sigma_ann.loc[rd] if rd in sigma_ann.index else pd.Series(dtype=float)
 
-        if mode == 'normal':
-            elig = evaluate_eligibility(eligibility_filters, live_candidates, rd, xsec_ranks, ts_ranks)
-            keep = rank_row[elig.reindex(rank_row.index).fillna(False)]
-            if keep.empty:
-                trade_log.append({'date': ed, 'mode': 'cash', 'picks': []})
-                continue
-            chosen_picks = (keep.nlargest(top_n).index.tolist()
-                            if direction == 'best'
-                            else keep.nsmallest(top_n).index.tolist())
-
-        if not chosen_picks:
-            trade_log.append({'date': ed, 'mode': 'cash', 'picks': []})
+        eligible = [t for t in sig_row.index if pd.notna(sigma_row.get(t)) and sigma_row.get(t, 0) > 0]
+        if not eligible:
+            rebal_records.append({'date': ed, 'n_assets': 0, 'ex_ante_vol_pre': np.nan,
+                                  'scale': np.nan, 'gross': 0.0, 'net': 0.0})
             continue
 
-        weight = 1.0 / len(chosen_picks)
-        for p in chosen_picks:
-            weights.loc[hold_mask, p] = weight
-        cash_w.loc[hold_mask] = 0.0
-        trade_log.append({'date': ed, 'mode': mode, 'picks': chosen_picks})
+        n_eligible = len(eligible)
+        target_vol_per_asset = target_portfolio_vol / np.sqrt(n_eligible)
+        sig_e = sig_row.reindex(eligible)
+        sigma_e = sigma_row.reindex(eligible)
 
-    # MTM — yesterday's weights drive today's return (no look-ahead)
-    ret_df = close_df.pct_change().fillna(0.0)
+        per_asset_w = compute_per_asset_weights(sig_e, sigma_e, target_vol_per_asset)
+
+        # Annualized covariance matrix from a trailing window of log returns
+        win_start_idx = max(0, cal.searchsorted(rd) - cov_window + 1)
+        cov_slice = log_rets.iloc[win_start_idx:cal.searchsorted(rd) + 1][eligible]
+        # Drop columns with too few observations
+        valid_cols = [c for c in cov_slice.columns if cov_slice[c].notna().sum() >= max(20, cov_window // 4)]
+        cov_slice = cov_slice[valid_cols].dropna(how='any')
+        if len(cov_slice) >= max(20, cov_window // 4):
+            cov_ann = cov_slice.cov() * 252
+        else:
+            cov_ann = pd.DataFrame()
+
+        scaled_w, ex_ante = scale_to_portfolio_vol(per_asset_w, cov_ann, target_portfolio_vol)
+        if not np.isfinite(ex_ante) or ex_ante == 0:
+            scale = 1.0
+        else:
+            scale = target_portfolio_vol / ex_ante
+
+        # Apply weights from ed to next_ed (exclusive)
+        for t in scaled_w.index:
+            weights.loc[hold_mask, t] = scaled_w[t]
+
+        gross = float(scaled_w.abs().sum())
+        net = float(scaled_w.sum())
+        rebal_records.append({
+            'date': ed, 'n_assets': int(n_eligible),
+            'ex_ante_vol_pre': float(ex_ante) if np.isfinite(ex_ante) else np.nan,
+            'scale': float(scale),
+            'gross': gross, 'net': net,
+        })
+
+    # MTM: yesterday's weights drive today's return
     weights_lagged = weights.shift(1).fillna(0.0)
-    cash_lagged = cash_w.shift(1).fillna(1.0)
-    daily_cash = (cash_apr / 100.0) / 252.0
-    port_ret = (weights_lagged * ret_df).sum(axis=1) + cash_lagged * daily_cash
-    equity = starting_equity * (1 + port_ret).cumprod()
+    daily_pnl_pct = (weights_lagged * simple_rets.fillna(0.0)).sum(axis=1)
+    equity = starting_equity * (1 + daily_pnl_pct).cumprod()
     equity.iloc[0] = starting_equity
 
-    # Equal-weight basket benchmark
-    bench_w = pd.Series(1.0 / len(candidates), index=candidates)
-    bench_ret = (ret_df * bench_w).sum(axis=1)
+    # Equal-weight buy-and-hold benchmark across the same universe
+    n_assets = close_df.shape[1]
+    bench_w = pd.Series(1.0 / n_assets, index=close_df.columns)
+    bench_ret = (simple_rets.fillna(0.0) * bench_w).sum(axis=1)
     bench_eq = starting_equity * (1 + bench_ret).cumprod()
     bench_eq.iloc[0] = starting_equity
 
     return {
         'equity': equity, 'benchmark': bench_eq,
-        'port_ret': port_ret, 'bench_ret': bench_ret,
-        'weights': weights, 'cash_weight': cash_w,
-        'trade_log': pd.DataFrame(trade_log),
+        'port_ret': daily_pnl_pct, 'bench_ret': bench_ret,
+        'weights': weights, 'signal': signal_df, 'sigma_ann': sigma_ann,
+        'rebal_log': pd.DataFrame(rebal_records),
         'cal': cal,
     }
 
 
 # -----------------------------------------------------------------------------
-# UI HELPERS
-# -----------------------------------------------------------------------------
-def _filter_widget(prefix, idx, default, list_key):
-    """Render one filter row. Returns the filter dict."""
-    cc = st.columns([1.6, 0.8, 0.8, 0.9, 0.9, 0.4])
-    with cc[0]:
-        t = st.selectbox(
-            "Rank type", RANK_TYPES,
-            index=RANK_TYPES.index(default.get('type', 'xsec')),
-            format_func=lambda x: RANK_TYPE_LABELS[x],
-            key=f'{prefix}_t_{idx}',
-        )
-    with cc[1]:
-        w = st.selectbox(
-            "Window (d)", WINDOWS,
-            index=WINDOWS.index(default.get('window', 21)),
-            key=f'{prefix}_w_{idx}',
-        )
-    with cc[2]:
-        l = st.selectbox(
-            "Logic", LOGIC_OPS,
-            index=LOGIC_OPS.index(default.get('logic', '<')),
-            key=f'{prefix}_l_{idx}',
-        )
-    if l == 'Between':
-        with cc[3]:
-            tmn = st.number_input(
-                "Min", min_value=0.0, max_value=100.0, step=1.0,
-                value=float(default.get('thresh_min', 0.0)),
-                key=f'{prefix}_min_{idx}',
-            )
-        with cc[4]:
-            tmx = st.number_input(
-                "Max", min_value=0.0, max_value=100.0, step=1.0,
-                value=float(default.get('thresh_max', 100.0)),
-                key=f'{prefix}_max_{idx}',
-            )
-        thresh = 0.0
-    else:
-        with cc[3]:
-            thresh = st.number_input(
-                "Threshold", min_value=0.0, max_value=100.0, step=1.0,
-                value=float(default.get('thresh', 90.0)),
-                key=f'{prefix}_th_{idx}',
-            )
-        tmn, tmx = 0.0, 100.0
-    with cc[5]:
-        st.markdown("&nbsp;", unsafe_allow_html=True)
-        if st.button("X", key=f'{prefix}_rm_{idx}'):
-            st.session_state[list_key].pop(idx)
-            st.rerun()
-    return {'type': t, 'window': w, 'logic': l, 'thresh': thresh, 'thresh_min': tmn, 'thresh_max': tmx}
-
-
-# -----------------------------------------------------------------------------
 # UI
 # -----------------------------------------------------------------------------
-st.title("Rotation Backtester")
+st.title("Cross-Asset Trend Backtester")
 st.caption(
-    "Pick top-N (or bottom-N in reverse mode) from a basket at each rebalance and "
-    "hold until the next rebalance. Equal-weight within picks; slack goes to cash "
-    "when filters reject every candidate."
+    "Per-asset trend signal (blend of vol-scaled returns at multiple lookbacks), "
+    "vol-targeted positions sized to equal vol contribution, then portfolio "
+    "scaled to a fixed ex-ante vol via rolling covariance."
 )
 
-# --- Sidebar ---
+# --- Sidebar: globals ---
 st.sidebar.header("Globals")
 starting_equity = st.sidebar.number_input("Starting Equity ($)", value=100000, step=10000, min_value=1000)
-cash_apr = st.sidebar.number_input(
-    "Cash APR (%)", value=0.0, step=0.25, min_value=-5.0, max_value=10.0,
-    help="Annualized return on cash slack. 0 = no return on uninvested capital.",
+target_portfolio_vol_pct = st.sidebar.number_input(
+    "Target portfolio vol (%, annualized)", value=10.0, min_value=1.0, max_value=50.0, step=0.5,
 )
-ts_lookback = st.sidebar.number_input(
-    "Time-series rank lookback (trading days)", value=252, min_value=63, max_value=2520, step=21,
-    help="Rolling window for the per-ticker time-series percentile rank. 252 ≈ 1 year.",
+ewma_halflife = st.sidebar.number_input(
+    "EWMA vol half-life (days)", value=60, min_value=10, max_value=252, step=5,
+    help="Half-life for the EWMA realized-vol estimator on daily log returns.",
+)
+cov_window = st.sidebar.number_input(
+    "Covariance window (days)", value=252, min_value=63, max_value=1260, step=21,
+    help="Trailing window of daily log returns used for the ex-ante covariance estimate.",
+)
+signal_cap = st.sidebar.number_input(
+    "Signal cap (+/-)", value=2.0, min_value=0.5, max_value=5.0, step=0.5,
 )
 
-# --- 1. Basket ---
-st.subheader("1. Basket")
-preset = st.selectbox(
-    "Preset", ["(custom)", "Sector + Index ETFs (26)", "Index ETFs only (5)"],
-    index=1,
-)
-if preset.startswith("Sector + Index"):
-    default_basket = ", ".join(SECTOR_INDEX_ETFS) if SECTOR_INDEX_ETFS else "SPY, QQQ, IWM"
-elif preset.startswith("Index ETFs only"):
-    default_basket = ", ".join(INDEX_ETFS) if INDEX_ETFS else "SPY, QQQ, IWM, DIA, SMH"
-else:
-    default_basket = "SPY, QQQ, IWM, DIA, SMH"
+st.sidebar.divider()
+st.sidebar.subheader("Lookbacks")
+lb_short = st.sidebar.number_input("Short (days)", value=21, min_value=5, max_value=63, step=1)
+lb_med = st.sidebar.number_input("Medium (days)", value=63, min_value=10, max_value=252, step=1)
+lb_long = st.sidebar.number_input("Long (days)", value=252, min_value=63, max_value=756, step=1)
+weight_short = st.sidebar.number_input("Weight short", value=1.0, min_value=0.0, max_value=10.0, step=0.5)
+weight_med = st.sidebar.number_input("Weight medium", value=1.0, min_value=0.0, max_value=10.0, step=0.5)
+weight_long = st.sidebar.number_input("Weight long", value=1.0, min_value=0.0, max_value=10.0, step=0.5)
+
+# --- 1. Universe ---
+st.subheader("1. Universe")
+preset_name = st.selectbox("Preset", list(PRESETS.keys()), index=0)
+default_text = ", ".join(PRESETS[preset_name]) if PRESETS[preset_name] else ""
 basket_text = st.text_area(
-    "Tickers (comma-separated)", value=default_basket, height=70,
-    help="Free-text. Anything not in master_prices.parquet is silently dropped.",
+    "Tickers (comma-separated)", value=default_text, height=70,
+    help="Master_prices is checked first, then yfinance for the rest. "
+         "Use yfinance notation for FX (USDJPY=X), indices (^GDAXI), crypto (BTC-USD).",
 )
-basket = sorted({t.strip().upper() for t in basket_text.replace('\n', ',').split(',') if t.strip()})
+basket = sorted({t.strip() for t in basket_text.replace('\n', ',').split(',') if t.strip()})
 st.caption(f"{len(basket)} tickers parsed")
 
 # --- 2. Date range ---
@@ -404,11 +413,11 @@ st.subheader("2. Backtest period")
 c1, c2 = st.columns(2)
 with c1:
     start_date = st.date_input("Start", value=datetime.date(2010, 1, 1),
-                               min_value=datetime.date(1990, 1, 1))
+                               min_value=datetime.date(1995, 1, 1))
 with c2:
     end_date = st.date_input("End", value=datetime.date.today(),
                              min_value=start_date)
-st.caption("400-day buffer is added before the start so rolling ranks have history.")
+st.caption("400-day buffer is added before the start so EWMA vol and 12m returns warm up.")
 
 # --- 3. Rebalance ---
 st.subheader("3. Rebalance")
@@ -416,103 +425,14 @@ c1, c2 = st.columns(2)
 with c1:
     rebal_freq = st.selectbox(
         "Frequency",
-        ["Weekly (Mon)", "Monthly (EOM)", "Every 5 days", "Every 10 days", "Every 21 days", "Daily"],
+        ["Monthly (last bday)", "Weekly (Fri)", "Quarterly (last bday)", "Daily"],
         index=0,
     )
 with c2:
     execution_lag = st.checkbox(
         "Execute next-day open (T+1 lag)", value=True,
-        help="True (recommended): rank at rebal-day close, take position next bar. "
-             "False: rank AND take position at the same close (look-ahead in practice).",
+        help="Recommended. Compute signal at rebal-day close, take position next bar.",
     )
-
-# --- 4. Selection rule ---
-st.subheader("4. Selection rule")
-c1, c2, c3, c4 = st.columns(4)
-with c1:
-    select_window = st.selectbox("Ranking window", WINDOWS, index=2)
-with c2:
-    select_type = st.radio(
-        "Rank type", RANK_TYPES, index=0,
-        format_func=lambda x: RANK_TYPE_LABELS[x],
-        horizontal=False,
-    )
-with c3:
-    direction = st.radio("Direction", ["best", "worst"], index=0,
-                         format_func=lambda x: "Best (highest rank)" if x == 'best' else "Worst (lowest rank)")
-with c4:
-    top_n = int(st.number_input("How many to hold", value=1, min_value=1, max_value=10))
-
-# --- 5. Eligibility filters ---
-st.subheader("5. Eligibility filters")
-st.caption(
-    "Applied to candidates BEFORE selection. Each filter narrows the eligible "
-    "pool (AND across filters). Empty = no filter, full basket eligible."
-)
-if 'rot_elig_filters' not in st.session_state:
-    st.session_state.rot_elig_filters = []
-
-ec1, ec2 = st.columns([1, 5])
-with ec1:
-    if st.button("Add eligibility filter"):
-        st.session_state.rot_elig_filters.append(
-            {'type': 'xsec', 'window': 21, 'logic': '<', 'thresh': 90.0,
-             'thresh_min': 0.0, 'thresh_max': 100.0}
-        )
-        st.rerun()
-with ec2:
-    if st.button("Clear eligibility filters"):
-        st.session_state.rot_elig_filters = []
-        st.rerun()
-
-eligibility_filters = []
-for i, f in enumerate(list(st.session_state.rot_elig_filters)):
-    eligibility_filters.append(_filter_widget('ef', i, f, 'rot_elig_filters'))
-st.session_state.rot_elig_filters = eligibility_filters
-
-# --- 6. Reverse mode ---
-st.subheader("6. Reverse mode (optional)")
-reverse_enabled = st.checkbox(
-    "Enable reverse mode",
-    value=False,
-    help="When EVERY basket member satisfies the reverse-trigger conditions, "
-         "rotate into the bottom-N (most-oversold) instead of the top-N. "
-         "Useful for deep-oversold mean reversion gates.",
-)
-
-if 'rot_rev_filters' not in st.session_state:
-    st.session_state.rot_rev_filters = []
-
-if reverse_enabled:
-    rc1, rc2, rc3 = st.columns([1, 1, 4])
-    with rc1:
-        if st.button("Add reverse condition"):
-            st.session_state.rot_rev_filters.append(
-                {'type': 'ts', 'window': 5, 'logic': '<', 'thresh': 15.0,
-                 'thresh_min': 0.0, 'thresh_max': 100.0}
-            )
-            st.rerun()
-    with rc2:
-        if st.button("Clear reverse"):
-            st.session_state.rot_rev_filters = []
-            st.rerun()
-    with rc3:
-        reverse_n = int(st.number_input(
-            "Bottom-N to hold when reverse fires", value=1, min_value=1, max_value=10,
-            key='rev_n',
-        ))
-    st.caption(
-        "Reverse fires when ALL filters below evaluate True for ALL basket members "
-        "(AND across filters AND across members). Common pattern: time-series rank < 15 "
-        "on a short window like 5d — every member is in the bottom 15% of its own history."
-    )
-    reverse_filters = []
-    for i, f in enumerate(list(st.session_state.rot_rev_filters)):
-        reverse_filters.append(_filter_widget('rf', i, f, 'rot_rev_filters'))
-    st.session_state.rot_rev_filters = reverse_filters
-else:
-    reverse_filters = []
-    reverse_n = 1
 
 # --- Run ---
 st.divider()
@@ -520,28 +440,25 @@ run_btn = st.button("Run Backtest", type="primary")
 
 if run_btn:
     if not basket:
-        st.error("Add at least one ticker to the basket.")
+        st.error("Add at least one ticker.")
         st.stop()
 
-    with st.spinner("Loading prices..."):
-        close_df = load_basket_closes(tuple(basket))
+    with st.spinner("Loading prices (master_prices + yfinance fallback)..."):
+        close_df, failed = load_basket_closes(tuple(basket))
     if close_df.empty:
-        st.error("No data loaded for basket. Check tickers exist in master_prices.parquet.")
+        st.error(f"No data loaded. Failed tickers: {failed}")
         st.stop()
-    missing = sorted(set(basket) - set(close_df.columns))
-    if missing:
-        st.warning(f"Dropped (no data): {', '.join(missing)}")
+    if failed:
+        st.warning(f"Dropped (no data anywhere): {', '.join(failed)}")
+    missing_in_master = sorted(set(basket) - set(close_df.columns) - set(failed))
+    if missing_in_master:
+        st.info(f"Loaded via yfinance fallback (not in master): {', '.join(missing_in_master)}")
 
-    buffer_start = pd.Timestamp(start_date) - pd.Timedelta(days=400)
+    buffer_start = pd.Timestamp(start_date) - pd.Timedelta(days=500)
     close_df = close_df[(close_df.index >= buffer_start) & (close_df.index <= pd.Timestamp(end_date))]
     if close_df.empty:
-        st.error("No price data in selected date range.")
+        st.error("No price data in the selected window.")
         st.stop()
-
-    with st.spinner("Computing ranks..."):
-        rets = compute_returns(close_df, WINDOWS)
-        xsec_ranks = compute_xsec_ranks(rets)
-        ts_ranks = compute_ts_ranks(rets, int(ts_lookback))
 
     backtest_cal = close_df.index[close_df.index >= pd.Timestamp(start_date)]
     if backtest_cal.empty:
@@ -549,26 +466,29 @@ if run_btn:
         st.stop()
     rebal_dates = get_rebal_dates(backtest_cal, rebal_freq)
 
+    lookbacks = [int(lb_short), int(lb_med), int(lb_long)]
+    lookback_weights = [float(weight_short), float(weight_med), float(weight_long)]
+    if sum(lookback_weights) <= 0:
+        st.error("Lookback weights must sum to > 0.")
+        st.stop()
+
+    target_vol = target_portfolio_vol_pct / 100.0
+
     with st.spinner(f"Running backtest over {len(rebal_dates)} rebalances..."):
         result = run_backtest(
             close_df=close_df.reindex(backtest_cal),
             rebal_dates=rebal_dates,
-            select_window=int(select_window),
-            select_type=select_type,
-            direction=direction,
-            top_n=top_n,
-            eligibility_filters=eligibility_filters,
-            reverse_enabled=reverse_enabled,
-            reverse_filters=reverse_filters,
-            reverse_n=reverse_n,
+            lookbacks=lookbacks,
+            lookback_weights=lookback_weights,
+            signal_cap=float(signal_cap),
+            ewma_halflife=int(ewma_halflife),
+            target_portfolio_vol=target_vol,
+            cov_window=int(cov_window),
             starting_equity=float(starting_equity),
             execution_lag=execution_lag,
-            cash_apr=float(cash_apr),
-            xsec_ranks=xsec_ranks,
-            ts_ranks=ts_ranks,
         )
     if result is None:
-        st.error("No rebalance dates resolved. Try a longer date range or different frequency.")
+        st.error("No rebalance dates resolved.")
         st.stop()
 
     # ---- RESULTS ----
@@ -577,7 +497,6 @@ if run_btn:
 
     eq, bench = result['equity'], result['benchmark']
     rot_rets, bench_rets = result['port_ret'], result['bench_ret']
-
     n_years = max((eq.index[-1] - eq.index[0]).days / 365.25, 1e-9)
     rot_total = float(eq.iloc[-1] / eq.iloc[0] - 1)
     bench_total = float(bench.iloc[-1] / bench.iloc[0] - 1)
@@ -595,26 +514,26 @@ if run_btn:
     rot_sortino, bench_sortino = _sortino(rot_rets), _sortino(bench_rets)
     rot_dd = float((eq / eq.cummax() - 1).min())
     bench_dd = float((bench / bench.cummax() - 1).min())
-    cash_pct = float((result['cash_weight'] > 0.99).mean() * 100)
-    n_rebals = len(result['trade_log'])
+    realized_vol = float(rot_rets.std() * np.sqrt(252))
 
     s1, s2, s3, s4 = st.columns(4)
     s1.metric("CAGR", f"{rot_cagr*100:.1f}%", delta=f"{(rot_cagr-bench_cagr)*100:+.1f}% vs basket")
     s2.metric("Sharpe", f"{rot_sharpe:.2f}", delta=f"{rot_sharpe-bench_sharpe:+.2f}")
     s3.metric("Max DD", f"{rot_dd*100:.1f}%", delta=f"{(rot_dd-bench_dd)*100:+.1f}% vs basket",
               delta_color="inverse")
-    s4.metric("Time in cash", f"{cash_pct:.1f}%")
+    s4.metric("Realized vol", f"{realized_vol*100:.1f}%",
+              delta=f"target {target_portfolio_vol_pct:.1f}%", delta_color="off")
 
     s5, s6, s7, s8 = st.columns(4)
     s5.metric("Total return", f"{rot_total*100:.1f}%")
     s6.metric("Sortino", f"{rot_sortino:.2f}", delta=f"{rot_sortino-bench_sortino:+.2f}")
-    s7.metric("Rebalances", f"{n_rebals}")
+    s7.metric("Rebalances", f"{len(result['rebal_log'])}")
     s8.metric("Years", f"{n_years:.1f}")
 
-    # Equity curve
+    # Equity
     fig = go.Figure()
     fig.add_trace(go.Scatter(x=eq.index, y=eq.values, mode='lines',
-                             name='Rotation', line=dict(color='#1E88E5', width=2)))
+                             name='Trend portfolio', line=dict(color='#1E88E5', width=2)))
     fig.add_trace(go.Scatter(x=bench.index, y=bench.values, mode='lines',
                              name='Equal-weight basket', line=dict(color='#888', width=1, dash='dash')))
     fig.update_layout(height=420, yaxis_type='log', yaxis_title='Equity ($)',
@@ -626,7 +545,7 @@ if run_btn:
     bench_dd_series = (bench / bench.cummax() - 1) * 100
     fig_dd = go.Figure()
     fig_dd.add_trace(go.Scatter(x=rot_dd_series.index, y=rot_dd_series.values, mode='lines',
-                                name='Rotation', line=dict(color='#1E88E5', width=1.5),
+                                name='Trend', line=dict(color='#1E88E5', width=1.5),
                                 fill='tozeroy'))
     fig_dd.add_trace(go.Scatter(x=bench_dd_series.index, y=bench_dd_series.values, mode='lines',
                                 name='Basket', line=dict(color='#888', width=1, dash='dash')))
@@ -634,57 +553,65 @@ if run_btn:
                          margin=dict(l=10, r=10, t=30, b=10), title='Drawdown')
     st.plotly_chart(fig_dd, use_container_width=True)
 
-    # Pick frequency
-    pick_counts = {}
-    mode_counts = {'normal': 0, 'reverse': 0, 'cash': 0, 'no-data': 0, 'no-candidates': 0}
-    for _, row in result['trade_log'].iterrows():
-        mode_counts[row['mode']] = mode_counts.get(row['mode'], 0) + 1
-        for p in row['picks']:
-            pick_counts[p] = pick_counts.get(p, 0) + 1
-    st.subheader("Pick frequency")
-    pf1, pf2 = st.columns([2, 1])
-    with pf1:
-        if pick_counts:
-            pf_df = pd.DataFrame(
-                sorted(pick_counts.items(), key=lambda x: -x[1]),
-                columns=['Ticker', 'Times Picked'],
-            )
-            fig_pf = px.bar(pf_df, x='Ticker', y='Times Picked', text='Times Picked')
-            fig_pf.update_layout(height=320, margin=dict(l=10, r=10, t=20, b=10))
-            st.plotly_chart(fig_pf, use_container_width=True)
-        else:
-            st.info("No tickers were picked — backtest stayed in cash the entire period.")
-    with pf2:
-        st.markdown("**Mode breakdown**")
-        mb_df = pd.DataFrame(
-            [(m, c) for m, c in mode_counts.items() if c > 0],
-            columns=['Mode', 'Count'],
-        )
-        st.dataframe(mb_df, hide_index=True, use_container_width=True)
+    # Gross / net exposure over time
+    weights = result['weights']
+    gross = weights.abs().sum(axis=1)
+    net = weights.sum(axis=1)
+    fig_exp = go.Figure()
+    fig_exp.add_trace(go.Scatter(x=gross.index, y=gross.values * 100, mode='lines',
+                                 name='Gross', line=dict(color='#1E88E5', width=1.5)))
+    fig_exp.add_trace(go.Scatter(x=net.index, y=net.values * 100, mode='lines',
+                                 name='Net', line=dict(color='#43A047', width=1.5)))
+    fig_exp.update_layout(height=260, yaxis_title='Exposure (% of equity)',
+                          margin=dict(l=10, r=10, t=30, b=10), title='Gross / Net Exposure')
+    st.plotly_chart(fig_exp, use_container_width=True)
 
-    # Trade log
-    with st.expander("Trade log (every rebalance)", expanded=False):
-        tl = result['trade_log'].copy()
-        if not tl.empty:
-            tl['picks'] = tl['picks'].apply(lambda x: ', '.join(x) if x else '(cash)')
-            tl['date'] = pd.to_datetime(tl['date']).dt.strftime('%Y-%m-%d')
-            st.dataframe(tl, hide_index=True, use_container_width=True)
+    # Rebalance log
+    with st.expander("Rebalance log", expanded=False):
+        rl = result['rebal_log'].copy()
+        if not rl.empty:
+            rl['date'] = pd.to_datetime(rl['date']).dt.strftime('%Y-%m-%d')
+            rl['ex_ante_vol_pre'] = (rl['ex_ante_vol_pre'] * 100).round(2)
+            rl['scale'] = rl['scale'].round(3)
+            rl['gross'] = (rl['gross'] * 100).round(1)
+            rl['net'] = (rl['net'] * 100).round(1)
+            rl = rl.rename(columns={
+                'ex_ante_vol_pre': 'ex_ante_vol_pre (%)',
+                'gross': 'gross (%)', 'net': 'net (%)',
+            })
+            st.dataframe(rl, hide_index=True, use_container_width=True)
 
-    # Holdings timeline (sampled monthly)
-    with st.expander("Holdings timeline (monthly snapshot)", expanded=False):
-        weights = result['weights']
+    # Per-asset weight heatmap (monthly snapshot)
+    with st.expander("Weight timeline (monthly)", expanded=False):
         if not weights.empty:
-            monthly = weights.resample('ME').last()
-            monthly = monthly.loc[:, (monthly > 0).any(axis=0)]  # drop never-held
-            if not monthly.empty:
-                fig_hm = px.imshow(
-                    monthly.T.values,
-                    x=monthly.index, y=monthly.columns,
-                    aspect='auto', color_continuous_scale='Blues',
-                    labels=dict(x='Date', y='Ticker', color='Weight'),
-                )
-                fig_hm.update_layout(height=max(280, 26 * len(monthly.columns) + 80),
-                                     margin=dict(l=80, r=10, t=20, b=40))
-                st.plotly_chart(fig_hm, use_container_width=True)
-            else:
-                st.info("No tickers were ever held.")
+            try:
+                import plotly.express as px
+                monthly = weights.resample('ME').last()
+                monthly = monthly.loc[:, (monthly.abs() > 1e-6).any(axis=0)]
+                if not monthly.empty:
+                    fig_hm = px.imshow(
+                        monthly.T.values * 100,
+                        x=monthly.index, y=monthly.columns,
+                        aspect='auto', color_continuous_scale='RdBu', color_continuous_midpoint=0,
+                        labels=dict(x='Date', y='Ticker', color='Weight (%)'),
+                    )
+                    fig_hm.update_layout(height=max(280, 26 * len(monthly.columns) + 80),
+                                         margin=dict(l=80, r=10, t=20, b=40))
+                    st.plotly_chart(fig_hm, use_container_width=True)
+            except ImportError:
+                pass
+
+    # Final-state diagnostic table — last signal & sigma per asset
+    with st.expander("Latest signal snapshot", expanded=False):
+        sig_df = result['signal']
+        sig_ann = result['sigma_ann']
+        last_dt = sig_df.dropna(how='all').index.max()
+        if pd.notna(last_dt):
+            snap = pd.DataFrame({
+                'signal': sig_df.loc[last_dt],
+                'sigma_ann': sig_ann.loc[last_dt] * 100,
+                'last_weight': weights.loc[last_dt] * 100,
+            }).dropna(subset=['signal']).sort_values('signal', key=abs, ascending=False)
+            snap.columns = ['signal', 'sigma_ann (%)', 'weight (%)']
+            st.caption(f"As of {last_dt.strftime('%Y-%m-%d')}")
+            st.dataframe(snap.round(3), use_container_width=True)
