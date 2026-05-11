@@ -12,6 +12,7 @@ import uuid
 import json
 
 from indicators import calculate_indicators, apply_first_instance_filter, get_sznl_val_series
+from tr_vcr import log_returns as _tr_log_returns, rv_daily as _tr_rv_daily, rv_sampled as _tr_rv_sampled, vcr as _tr_vcr
 
 MARKET_TICKER = "^GSPC" 
 VIX_TICKER = "^VIX"
@@ -920,6 +921,30 @@ def _generate_key_filters(params):
 
     if params.get('use_volret_delta'):
         filters.append(f"Vol/Ret delta ({params.get('vrd_method', 'Z-score diff')}, halflife {params.get('vrd_vol_halflife', 20)}d, ret {params.get('vrd_ret_horizon', 20)}d, ΔN {params.get('vrd_delta_n', 5)}d) rank in [{params.get('vrd_pctile_min', 70.0):.0f},{params.get('vrd_pctile_max', 90.0):.0f}] ({params.get('vrd_rank_window', 'Expanding')})")
+    if params.get('use_tr_vcr_filter'):
+        _tv_metric = params.get('tr_vcr_metric', 'Trend Ratio (TR)')
+        _tv_win = params.get('tr_vcr_window', 20)
+        _tv_sf = params.get('tr_vcr_sample_freq', 5)
+        _tv_rw = params.get('tr_vcr_rank_window', 'Expanding')
+        _tv_mode = params.get('tr_vcr_filter_mode', 'Percentile rank')
+        _tv_consec = int(params.get('tr_vcr_min_consec', 1))
+        _tv_first = params.get('tr_vcr_consec_first', False)
+        _consec_str = ""
+        if _tv_consec > 1:
+            _consec_str = f", >={_tv_consec}d streak{' (first hit)' if _tv_first else ''}"
+        if _tv_metric == 'Regime quadrant':
+            _quads = ", ".join(params.get('tr_vcr_regime_quadrants', []) or []) or "(none)"
+            filters.append(f"TR/VCR regime: {{{_quads}}} (win {_tv_win}d, sf {_tv_sf}d, {_tv_rw}{_consec_str})")
+        elif _tv_mode == 'Raw value':
+            _logic = params.get('tr_vcr_raw_logic', 'Between')
+            _rmin = params.get('tr_vcr_raw_min', 1.0)
+            _rmax = params.get('tr_vcr_raw_max', 5.0)
+            if _logic == 'Between':
+                filters.append(f"{_tv_metric} raw in [{_rmin:.2f},{_rmax:.2f}] (win {_tv_win}d, sf {_tv_sf}d{_consec_str})")
+            else:
+                filters.append(f"{_tv_metric} raw {_logic} {_rmin:.2f} (win {_tv_win}d, sf {_tv_sf}d{_consec_str})")
+        else:
+            filters.append(f"{_tv_metric} rank in [{params.get('tr_vcr_pctile_min', 70.0):.0f},{params.get('tr_vcr_pctile_max', 100.0):.0f}] (win {_tv_win}d, sf {_tv_sf}d, {_tv_rw}{_consec_str})")
 
     if params.get('use_dow_filter'):
         day_names = {0: 'Mon', 1: 'Tue', 2: 'Wed', 3: 'Thu', 4: 'Fri'}
@@ -1109,6 +1134,15 @@ def build_strategy_dict(params, tickers_to_run, pf, sqn, win_rate, expectancy_r)
             "use_volret_delta": params.get('use_volret_delta', False), "vrd_method": params.get('vrd_method', 'Z-score diff'), "vrd_rank_window": params.get('vrd_rank_window', 'Expanding'),
             "vrd_vol_halflife": params.get('vrd_vol_halflife', 20), "vrd_ret_horizon": params.get('vrd_ret_horizon', 20), "vrd_delta_n": params.get('vrd_delta_n', 5),
             "vrd_min_periods": params.get('vrd_min_periods', 252), "vrd_pctile_min": params.get('vrd_pctile_min', 70.0), "vrd_pctile_max": params.get('vrd_pctile_max', 90.0),
+            # Trend Ratio / VCR
+            "use_tr_vcr_filter": params.get('use_tr_vcr_filter', False), "tr_vcr_metric": params.get('tr_vcr_metric', 'Trend Ratio (TR)'),
+            "tr_vcr_window": params.get('tr_vcr_window', 20), "tr_vcr_sample_freq": params.get('tr_vcr_sample_freq', 5),
+            "tr_vcr_min_periods": params.get('tr_vcr_min_periods', 252), "tr_vcr_rank_window": params.get('tr_vcr_rank_window', 'Expanding'),
+            "tr_vcr_filter_mode": params.get('tr_vcr_filter_mode', 'Percentile rank'),
+            "tr_vcr_pctile_min": params.get('tr_vcr_pctile_min', 70.0), "tr_vcr_pctile_max": params.get('tr_vcr_pctile_max', 100.0),
+            "tr_vcr_raw_min": params.get('tr_vcr_raw_min', 1.0), "tr_vcr_raw_max": params.get('tr_vcr_raw_max', 5.0), "tr_vcr_raw_logic": params.get('tr_vcr_raw_logic', 'Between'),
+            "tr_vcr_regime_quadrants": tuple(params.get('tr_vcr_regime_quadrants', ()) or ()),
+            "tr_vcr_min_consec": params.get('tr_vcr_min_consec', 1), "tr_vcr_consec_first": params.get('tr_vcr_consec_first', False),
             # Volume
             "vol_gt_prev": params.get('vol_gt_prev', False),
             "use_vol": params.get('use_vol', False), "vol_logic": params.get('vol_logic', '>'), "vol_thresh": params.get('vol_thresh', 1.5), "vol_thresh_max": params.get('vol_thresh_max', 10.0),
@@ -1181,7 +1215,35 @@ def run_engine(universe_dict, params, sznl_map, market_series=None, vix_series=N
     is_limit_open_atr_075 = entry_mode == "Limit (Open +/- 0.75 ATR)"
     is_limit_open_atr_100 = entry_mode == "Limit (Open +/- 1 ATR)"
     is_limit_open_atr_gtc = entry_mode == "Limit (Open +/- 0.5 ATR) GTC"
-    is_day_trade_limit = entry_mode == "Day Trade (Limit Open +/- 0.5 ATR, Exit Close)"
+    is_day_trade_limit = entry_mode in (
+        "Day Trade (Limit Open +/- 0.5 ATR, Exit Close)",
+        "Day Trade (Limit Open +/- 0.75 ATR, Exit Close)",
+        "Day Trade (Limit Open +/- 1 ATR, Exit Close)",
+    )
+    # Pull the ATR offset out of the label so the entry block stays generic.
+    if is_day_trade_limit:
+        if "0.75 ATR" in entry_mode:
+            day_trade_atr_mult = 0.75
+        elif "1 ATR" in entry_mode:
+            day_trade_atr_mult = 1.0
+        else:
+            day_trade_atr_mult = 0.5
+    else:
+        day_trade_atr_mult = 0.5
+
+    # Intraday mode toggle — only meaningful for Day Trade entries. When on,
+    # 15min bars from intraday_data drive the entry-bar fill and bar-by-bar
+    # stop/target walk on the entry day.
+    intraday_mode = bool(is_day_trade_limit and params.get('use_intraday', False))
+    intraday_loader = None
+    intraday_universe = set()
+    if intraday_mode:
+        try:
+            import intraday_data as _intraday_loader_mod
+            intraday_loader = _intraday_loader_mod
+            intraday_universe = intraday_loader.available_tickers()
+        except Exception:
+            intraday_mode = False
     is_limit_pivot = entry_mode == "Limit (Untested Pivot)"
     is_gap_up = "Gap Up Only" in entry_mode
     is_overnight = "Overnight" in entry_mode
@@ -1644,7 +1706,13 @@ def run_engine(universe_dict, params, sznl_map, market_series=None, vix_series=N
                 ma_col_map = {"SMA 10": "SMA10", "SMA 20": "SMA20", "SMA 50": "SMA50", "SMA 100": "SMA100", "SMA 200": "SMA200", "EMA 8": "EMA8", "EMA 11": "EMA11", "EMA 21": "EMA21","52-Week High": "High_52w", "All-Time High": "ATH_Level"}
                 ma_target = ma_col_map.get(params['dist_ma_type'])
                 if ma_target and ma_target in df.columns:
-                    dist_val = (df['Close'] - df[ma_target]) / df['ATR']
+                    # Percent-space distance: distance from MA expressed as a
+                    # percentage of the MA itself, divided by ATR as a percent
+                    # of price. Differs from (Close - MA) / ATR because the
+                    # MA-distance denominator is the MA, not the price.
+                    atr_pct = df['ATR'] / df['Close']
+                    ma_pct = (df['Close'] - df[ma_target]) / df[ma_target]
+                    dist_val = ma_pct / atr_pct
                     if params['dist_logic'] == "Greater Than (>)": conditions.append(dist_val > params['dist_min'])
                     elif params['dist_logic'] == "Less Than (<)": conditions.append(dist_val < params['dist_max'])
                     elif params['dist_logic'] == "Between": conditions.append((dist_val >= params['dist_min']) & (dist_val <= params['dist_max']))
@@ -1731,6 +1799,81 @@ def run_engine(universe_dict, params, sznl_map, market_series=None, vix_series=N
                 metric_rank = metric_rank.shift(1)
                 in_band = (metric_rank > p_min) & (metric_rank < p_max)
                 conditions.append(in_band.fillna(False))
+
+            # --- TREND RATIO / VCR FILTER (Abdelmessih) ---
+            # TR = weekly-sampled RV / daily-sampled RV; VCR = max(r^2)/sum(r^2)
+            # over a rolling window. Median-split (or pctile-band) classifier
+            # of trend vs spike. All series shift(1) before evaluation to use
+            # only data through prior close.
+            if params.get('use_tr_vcr_filter', False):
+                metric_name = params.get('tr_vcr_metric', 'Trend Ratio (TR)')
+                window_tv = int(params.get('tr_vcr_window', 20))
+                sample_freq_tv = int(params.get('tr_vcr_sample_freq', 5))
+                rank_window_tv = params.get('tr_vcr_rank_window', 'Expanding')
+                min_periods_tv = int(params.get('tr_vcr_min_periods', 252))
+                filter_mode_tv = params.get('tr_vcr_filter_mode', 'Percentile rank')
+                p_min_tv = params.get('tr_vcr_pctile_min', 70.0) / 100.0
+                p_max_tv = params.get('tr_vcr_pctile_max', 100.0) / 100.0
+                raw_min_tv = float(params.get('tr_vcr_raw_min', 1.0))
+                raw_max_tv = float(params.get('tr_vcr_raw_max', 5.0))
+                raw_logic_tv = params.get('tr_vcr_raw_logic', 'Between')
+                quadrants_tv = list(params.get('tr_vcr_regime_quadrants', []) or [])
+
+                close_tv = df['Close']
+                r_tv = _tr_log_returns(close_tv)
+                vcr_series = _tr_vcr(r_tv, window_tv)
+                tr_series = None
+                if metric_name in ('Trend Ratio (TR)', 'Regime quadrant'):
+                    if window_tv % sample_freq_tv == 0:
+                        rv_d = _tr_rv_daily(r_tv, window_tv)
+                        rv_w = _tr_rv_sampled(close_tv, window_tv, sample_freq_tv)
+                        tr_series = rv_w / rv_d
+                    else:
+                        tr_series = pd.Series(np.nan, index=df.index)
+
+                def _rank(s):
+                    if rank_window_tv == 'Rolling 5y':
+                        return s.rolling(252 * 5, min_periods=min_periods_tv).rank(pct=True)
+                    return s.expanding(min_periods=min_periods_tv).rank(pct=True)
+
+                def _raw_cond(s):
+                    s_lag = s.shift(1)
+                    if   raw_logic_tv == '>':  return s_lag > raw_min_tv
+                    elif raw_logic_tv == '>=': return s_lag >= raw_min_tv
+                    elif raw_logic_tv == '<':  return s_lag < raw_min_tv
+                    elif raw_logic_tv == '<=': return s_lag <= raw_min_tv
+                    else:                      return (s_lag >= raw_min_tv) & (s_lag <= raw_max_tv)
+
+                if metric_name == 'Regime quadrant':
+                    # Always median-split rank, irrespective of filter mode.
+                    tr_rk = _rank(tr_series).shift(1)
+                    vcr_rk = _rank(vcr_series).shift(1)
+                    high_tr_rk = tr_rk > 0.5
+                    high_vcr_rk = vcr_rk > 0.5
+                    cond_tv = pd.Series(False, index=df.index)
+                    if 'grinding_trend' in quadrants_tv: cond_tv = cond_tv | (high_tr_rk & ~high_vcr_rk)
+                    if 'spike_trend' in quadrants_tv:    cond_tv = cond_tv | (high_tr_rk & high_vcr_rk)
+                    if 'choppy_grind' in quadrants_tv:   cond_tv = cond_tv | (~high_tr_rk & ~high_vcr_rk)
+                    if 'spike_revert' in quadrants_tv:   cond_tv = cond_tv | (~high_tr_rk & high_vcr_rk)
+                else:
+                    target = vcr_series if metric_name == 'Variance Contribution (VCR)' else tr_series
+                    if filter_mode_tv == 'Raw value':
+                        cond_tv = _raw_cond(target)
+                    else:
+                        rk = _rank(target).shift(1)
+                        cond_tv = (rk > p_min_tv) & (rk < p_max_tv)
+
+                cond_tv = cond_tv.fillna(False).astype(bool)
+                min_consec_tv = int(params.get('tr_vcr_min_consec', 1))
+                if min_consec_tv > 1:
+                    streak_ok = cond_tv.rolling(min_consec_tv, min_periods=min_consec_tv).sum() >= min_consec_tv
+                    streak_ok = streak_ok.fillna(False).astype(bool)
+                    if params.get('tr_vcr_consec_first', False):
+                        # Fire only on the first bar the streak threshold is hit
+                        streak_ok = streak_ok & (~streak_ok.shift(1).fillna(False).astype(bool))
+                    cond_tv = streak_ok
+
+                conditions.append(cond_tv.fillna(False))
 
             # --- REFERENCE TICKER FILTER ---
             if use_ref_ticker_filter and ref_filters:
@@ -1902,16 +2045,43 @@ def run_engine(universe_dict, params, sznl_map, market_series=None, vix_series=N
                                 elif day_high >= limit_price: filled, fill_px = True, limit_price
                             if filled: found_entry, actual_entry_idx, actual_entry_price = True, curr_idx, fill_px; break
                 elif is_day_trade_limit:
+                    # Reset per-signal intraday context; the exit block reads these.
+                    _id_bars = None
+                    _id_entry_pos = None
                     next_idx = sig_idx + 1
                     if next_idx < len(df):
                         sig_atr = df['ATR'].iloc[sig_idx]
-                        day_open = df['Open'].iloc[next_idx]
-                        day_low, day_high = df['Low'].iloc[next_idx], df['High'].iloc[next_idx]
-                        limit_price = (day_open - (sig_atr * 0.5)) if direction == 'Long' else (day_open + (sig_atr * 0.5))
-                        if direction == 'Long' and day_low <= limit_price:
-                            found_entry, actual_entry_idx, actual_entry_price = True, next_idx, limit_price
-                        elif direction == 'Short' and day_high >= limit_price:
-                            found_entry, actual_entry_idx, actual_entry_price = True, next_idx, limit_price
+                        if intraday_mode:
+                            if ticker not in intraday_universe:
+                                continue
+                            next_date = df.index[next_idx]
+                            try:
+                                _id_bars = intraday_loader.get_intraday_for_date(ticker, next_date)
+                            except Exception:
+                                _id_bars = None
+                            if _id_bars is None or _id_bars.empty:
+                                continue
+                            day_open = float(_id_bars['open'].iloc[0])
+                            limit_price = (day_open - (sig_atr * day_trade_atr_mult)) if direction == 'Long' else (day_open + (sig_atr * day_trade_atr_mult))
+                            for _bp in range(len(_id_bars)):
+                                bar = _id_bars.iloc[_bp]
+                                bar_open, bar_low, bar_high = float(bar['open']), float(bar['low']), float(bar['high'])
+                                if direction == 'Long' and bar_low <= limit_price:
+                                    fill_px = bar_open if bar_open <= limit_price else limit_price
+                                    found_entry, actual_entry_idx, actual_entry_price = True, next_idx, fill_px
+                                    _id_entry_pos = _bp; break
+                                if direction == 'Short' and bar_high >= limit_price:
+                                    fill_px = bar_open if bar_open >= limit_price else limit_price
+                                    found_entry, actual_entry_idx, actual_entry_price = True, next_idx, fill_px
+                                    _id_entry_pos = _bp; break
+                        else:
+                            day_open = df['Open'].iloc[next_idx]
+                            day_low, day_high = df['Low'].iloc[next_idx], df['High'].iloc[next_idx]
+                            limit_price = (day_open - (sig_atr * day_trade_atr_mult)) if direction == 'Long' else (day_open + (sig_atr * day_trade_atr_mult))
+                            if direction == 'Long' and day_low <= limit_price:
+                                found_entry, actual_entry_idx, actual_entry_price = True, next_idx, limit_price
+                            elif direction == 'Short' and day_high >= limit_price:
+                                found_entry, actual_entry_idx, actual_entry_price = True, next_idx, limit_price
                 elif is_limit_pivot:
                     sig_close = df['Close'].iloc[sig_idx]
                     sig_atr = df['ATR'].iloc[sig_idx]
@@ -1985,17 +2155,39 @@ def run_engine(universe_dict, params, sznl_map, market_series=None, vix_series=N
                 elif is_day_trade_limit:
                     exit_idx = actual_entry_idx
                     exit_date = df.index[exit_idx]
-                    exit_price = df['Close'].iloc[exit_idx]
-                    exit_type = "Time (EOD)"
-                    day_low, day_high = df['Low'].iloc[exit_idx], df['High'].iloc[exit_idx]
                     stop_price = actual_entry_price - (atr * params['stop_atr']) if direction == 'Long' else actual_entry_price + (atr * params['stop_atr'])
                     tgt_price = actual_entry_price + (atr * params['tgt_atr']) if direction == 'Long' else actual_entry_price - (atr * params['tgt_atr'])
-                    if direction == 'Long':
-                        if params['use_take_profit'] and day_high >= tgt_price: exit_price, exit_type = tgt_price, "Target"
-                        elif params['use_stop_loss'] and day_low <= stop_price: exit_price, exit_type = stop_price, "Stop"
+                    if intraday_mode and _id_bars is not None and _id_entry_pos is not None:
+                        # Walk 15min bars from the bar AFTER entry forward, checking
+                        # stop/target each bar. Same-bar ambiguity: assume stop wins
+                        # (conservative). EOD = last bar's close.
+                        exit_price, exit_type = None, None
+                        for _bp in range(_id_entry_pos + 1, len(_id_bars)):
+                            bar = _id_bars.iloc[_bp]
+                            bar_low, bar_high = float(bar['low']), float(bar['high'])
+                            if direction == 'Long':
+                                if params['use_stop_loss'] and bar_low <= stop_price:
+                                    exit_price, exit_type = stop_price, "Stop"; break
+                                if params['use_take_profit'] and bar_high >= tgt_price:
+                                    exit_price, exit_type = tgt_price, "Target"; break
+                            else:
+                                if params['use_stop_loss'] and bar_high >= stop_price:
+                                    exit_price, exit_type = stop_price, "Stop"; break
+                                if params['use_take_profit'] and bar_low <= tgt_price:
+                                    exit_price, exit_type = tgt_price, "Target"; break
+                        if exit_price is None:
+                            exit_price = float(_id_bars['close'].iloc[-1])
+                            exit_type = "Time (EOD)"
                     else:
-                        if params['use_take_profit'] and day_low <= tgt_price: exit_price, exit_type = tgt_price, "Target"
-                        elif params['use_stop_loss'] and day_high >= stop_price: exit_price, exit_type = stop_price, "Stop"
+                        exit_price = df['Close'].iloc[exit_idx]
+                        exit_type = "Time (EOD)"
+                        day_low, day_high = df['Low'].iloc[exit_idx], df['High'].iloc[exit_idx]
+                        if direction == 'Long':
+                            if params['use_take_profit'] and day_high >= tgt_price: exit_price, exit_type = tgt_price, "Target"
+                            elif params['use_stop_loss'] and day_low <= stop_price: exit_price, exit_type = stop_price, "Stop"
+                        else:
+                            if params['use_take_profit'] and day_low <= tgt_price: exit_price, exit_type = tgt_price, "Target"
+                            elif params['use_stop_loss'] and day_high >= stop_price: exit_price, exit_type = stop_price, "Stop"
                 else:
                     fixed_exit_idx = min(actual_entry_idx + params['holding_days'], len(df) - 1)
                     future = df.iloc[actual_entry_idx + 1 : fixed_exit_idx + 1]
@@ -2292,6 +2484,8 @@ def main():
             "Signal Close", "T+1 Open", "T+1 Close",
             "Overnight (Buy Close, Sell T+1 Open)", "Intraday (Buy Open, Sell Close)",
             "Day Trade (Limit Open +/- 0.5 ATR, Exit Close)",
+            "Day Trade (Limit Open +/- 0.75 ATR, Exit Close)",
+            "Day Trade (Limit Open +/- 1 ATR, Exit Close)",
             "Gap Up Only (Open > Prev High)",
             "Limit Order -0.25 ATR (Persistent)", "Limit Order -0.5 ATR (Persistent)", "Limit Order -1 ATR (Persistent)",
             "Limit (Close -0.5 ATR)", "Limit (Prev Close)",
@@ -2304,6 +2498,22 @@ def main():
             "T+1 Close if > Signal Close +0.5 ATR", "T+1 Close if > Signal Close +1 ATR"
         ])
         use_ma_entry_filter = st.checkbox("Filter: Close > MA - 0.25*ATR", value=False) if "Pullback" in entry_type else False
+        # Intraday Day Trade option — only meaningful for Day Trade entry modes.
+        # When enabled, uses 15min bars from data/intraday/ (R2 cache) to find
+        # the actual fill bar/price and walk stops/targets bar-by-bar instead of
+        # approximating with daily H/L. Available for ~31 ETFs and a few liquids.
+        is_day_trade_entry = "Day Trade" in entry_type
+        try:
+            import intraday_data as _id_loader
+            _intraday_universe = _id_loader.available_tickers()
+        except Exception:
+            _intraday_universe = set()
+        use_intraday = st.checkbox(
+            f"Use Intraday 15min for Day Trade ({len(_intraday_universe)} tickers available)",
+            value=False, disabled=not is_day_trade_entry,
+            help="When entry is Day Trade, walks 15min bars to find precise fill, "
+                 "then bar-by-bar stop/target. Tickers without intraday data are skipped silently.",
+        ) if is_day_trade_entry else False
     with c2: stop_atr = st.number_input("Stop Loss (ATR)", value=1.0, step=0.1, disabled=not use_stop_loss)
     with c3: tgt_atr = st.number_input("Target (ATR)", value=8.0, step=0.1, disabled=not use_take_profit)
     if use_trailing_stop:
@@ -2603,6 +2813,41 @@ def main():
         with vrd_c6: vrd_rank_window = st.selectbox("Rank Window", ["Expanding", "Rolling 5y"], key="vrd_rw", disabled=not use_volret_delta, help="Expanding uses full history; Rolling 5y is more responsive to regime shifts")
         with vrd_c7: vrd_pctile_min = st.number_input("Pctile Min", 0.0, 100.0, 70.0, step=5.0, key="vrd_pmin", disabled=not use_volret_delta)
         with vrd_c8: vrd_pctile_max = st.number_input("Pctile Max", 0.0, 100.0, 90.0, step=5.0, key="vrd_pmax", disabled=not use_volret_delta)
+    with st.expander("Trend Ratio / VCR (Abdelmessih)", expanded=False):
+        use_tr_vcr_filter = st.checkbox("Enable TR/VCR Filter", value=False, key="trvcr_enable")
+        st.caption("TR = weekly-RV / daily-RV (>1 = trending). VCR = max(r^2)/sum(r^2) (high = single-day spike). Filter by raw value (asset-natural levels) or by percentile rank (vs own history). Regime quadrant uses median-split rank regardless of mode.")
+        tv_c1, tv_c2, tv_c3, tv_c4 = st.columns(4)
+        with tv_c1: tr_vcr_metric = st.selectbox("Metric", ["Trend Ratio (TR)", "Variance Contribution (VCR)", "Regime quadrant"], key="trvcr_metric", disabled=not use_tr_vcr_filter)
+        with tv_c2: tr_vcr_window = st.number_input("Window (d)", 5, 252, 20, step=1, key="trvcr_win", disabled=not use_tr_vcr_filter, help="Rolling window for the RV/VCR estimator (Kris uses 20d).")
+        with tv_c3: tr_vcr_sample_freq = st.number_input("Sample Freq (d)", 1, 21, 5, step=1, key="trvcr_sf", disabled=not use_tr_vcr_filter, help="Block size for weekly-sampled RV (TR/regime only). Window must be divisible by this.")
+        with tv_c4: tr_vcr_filter_mode = st.selectbox("Filter Mode", ["Percentile rank", "Raw value"], key="trvcr_mode", disabled=not use_tr_vcr_filter, help="Percentile: rank vs own history (asset-relative). Raw: gate on the natural value (TR ~1 = noise; VCR in [1/n, 1]). Regime quadrant ignores this — always uses median-split rank.")
+
+        _is_regime = (tr_vcr_metric == "Regime quadrant")
+        _is_raw = (tr_vcr_filter_mode == "Raw value") and (not _is_regime)
+        _is_pctile = (tr_vcr_filter_mode == "Percentile rank") and (not _is_regime)
+
+        tv_c5, tv_c6, tv_c7, tv_c8 = st.columns(4)
+        with tv_c5: tr_vcr_rank_window = st.selectbox("Rank Window", ["Expanding", "Rolling 5y"], key="trvcr_rw", disabled=(not use_tr_vcr_filter) or _is_raw, help="Used by Percentile mode and by Regime quadrant medians.")
+        with tv_c6: tr_vcr_min_periods = st.number_input("Rank Min Periods", 50, 2520, 252, step=21, key="trvcr_mp", disabled=(not use_tr_vcr_filter) or _is_raw, help="Burn-in before rank is computed (~1y default).")
+        with tv_c7: tr_vcr_pctile_min = st.number_input("Pctile Min", 0.0, 100.0, 70.0, step=5.0, key="trvcr_pmin", disabled=not _is_pctile)
+        with tv_c8: tr_vcr_pctile_max = st.number_input("Pctile Max", 0.0, 100.0, 100.0, step=5.0, key="trvcr_pmax", disabled=not _is_pctile)
+
+        tv_c9, tv_c10, tv_c11, tv_c12 = st.columns(4)
+        # Defaults pick a "trending" cut for TR and pass-through bounds for VCR.
+        _is_vcr = (tr_vcr_metric == "Variance Contribution (VCR)")
+        _raw_default_min = 0.0 if _is_vcr else 1.0
+        _raw_default_max = 1.0 if _is_vcr else 5.0
+        _raw_upper_cap = 1.0 if _is_vcr else 10.0
+        with tv_c9:  tr_vcr_raw_min = st.number_input("Raw Min", 0.0, _raw_upper_cap, _raw_default_min, step=0.05, key="trvcr_rmin", disabled=not _is_raw, help="TR ~1.0 separates noise from trend; VCR floor = 1/n_blocks where n_blocks = window/sample_freq (e.g. 0.25 for window=20/sf=5).")
+        with tv_c10: tr_vcr_raw_max = st.number_input("Raw Max", 0.0, _raw_upper_cap, _raw_default_max, step=0.05, key="trvcr_rmax", disabled=not _is_raw)
+        with tv_c11: tr_vcr_raw_logic = st.selectbox("Raw Logic", ["Between", ">", ">=", "<", "<="], key="trvcr_rlogic", disabled=not _is_raw, help="Between uses [Raw Min, Raw Max] inclusive. Comparison uses Raw Min as the threshold.")
+        with tv_c12:
+            tr_vcr_regime_quadrants = st.multiselect("Quadrants", ["grinding_trend", "spike_trend", "choppy_grind", "spike_revert"], default=["grinding_trend"], key="trvcr_quad", disabled=(not use_tr_vcr_filter) or (not _is_regime), help="Median-split (rank) of TR and VCR; pick the quadrant(s) you want to allow.")
+        tv_c13, tv_c14, _tv_pad1, _tv_pad2 = st.columns(4)
+        with tv_c13: tr_vcr_min_consec = st.number_input("Min Consec Days", 1, 252, 1, step=1, key="trvcr_consec", disabled=not use_tr_vcr_filter, help="Require the regime/condition to have held for at least N consecutive days ending at the prior close. 1 = no streak requirement; e.g. 30 = grinding_trend has held for at least 30 trading days.")
+        with tv_c14: tr_vcr_consec_first = st.checkbox("First instance only", value=False, key="trvcr_first", disabled=(not use_tr_vcr_filter) or (tr_vcr_min_consec <= 1), help="When checked, fires only on the first day the streak length is reached, not every day the streak persists. Useful for stored-energy / unwind setups so you don't re-enter the same regime episode.")
+        if use_tr_vcr_filter and tr_vcr_window % tr_vcr_sample_freq != 0 and tr_vcr_metric != "Variance Contribution (VCR)":
+            st.warning(f"Window ({tr_vcr_window}) is not divisible by Sample Freq ({tr_vcr_sample_freq}); TR computation will be skipped on signal evaluation.")
     with st.expander("Price Action", expanded=False):
         pa1, pa2 = st.columns(2)
         with pa1: 
@@ -3158,6 +3403,7 @@ def main():
             'use_partial_exits': use_partial_exits, 'partial_target_fraction': partial_target_fraction,
             'use_eod_dd_exit': use_eod_dd_exit, 'eod_dd_atr': eod_dd_atr,
             'stop_atr': stop_atr, 'tgt_atr': tgt_atr, 'holding_days': hold_days, 'entry_type': entry_type, 'use_ma_entry_filter': use_ma_entry_filter, 'require_close_gt_open': req_green_candle,
+            'use_intraday': use_intraday,
             'use_trailing_stop': use_trailing_stop, 'trail_atr': trail_atr, 'trail_anchor': trail_anchor,
             'breakout_mode': breakout_mode, 'use_range_filter': use_range_filter, 'range_min': range_min, 'range_max': range_max, 'use_dow_filter': use_dow_filter, 'allowed_days': valid_days,
             'allowed_cycles': allowed_cycles, 'excluded_years': excluded_years, 'min_price': min_price, 'min_vol': min_vol, 'max_vol': max_vol, 'min_age': min_age, 'max_age': max_age, 'min_atr_pct': min_atr_pct, 'max_atr_pct': max_atr_pct,
@@ -3176,6 +3422,7 @@ def main():
             'use_ma_dist_filter': use_ma_dist_filter, 'dist_ma_type': dist_ma_type, 'dist_logic': dist_logic, 'dist_min': dist_min, 'dist_max': dist_max,
             'use_weekly_ma_pullback': use_weekly_ma_pullback, 'wma_type': wma_type, 'wma_period': wma_period, 'wma_min_ext_pct': wma_min_ext_pct, 'wma_lookback_months': wma_lookback_months, 'wma_touch_logic': wma_touch_logic,
             'use_volret_delta': use_volret_delta, 'vrd_method': vrd_method, 'vrd_rank_window': vrd_rank_window, 'vrd_vol_halflife': vrd_vol_halflife, 'vrd_ret_horizon': vrd_ret_horizon, 'vrd_delta_n': vrd_delta_n, 'vrd_min_periods': vrd_min_periods, 'vrd_pctile_min': vrd_pctile_min, 'vrd_pctile_max': vrd_pctile_max,
+            'use_tr_vcr_filter': use_tr_vcr_filter, 'tr_vcr_metric': tr_vcr_metric, 'tr_vcr_window': tr_vcr_window, 'tr_vcr_sample_freq': tr_vcr_sample_freq, 'tr_vcr_min_periods': tr_vcr_min_periods, 'tr_vcr_rank_window': tr_vcr_rank_window, 'tr_vcr_filter_mode': tr_vcr_filter_mode, 'tr_vcr_pctile_min': tr_vcr_pctile_min, 'tr_vcr_pctile_max': tr_vcr_pctile_max, 'tr_vcr_raw_min': tr_vcr_raw_min, 'tr_vcr_raw_max': tr_vcr_raw_max, 'tr_vcr_raw_logic': tr_vcr_raw_logic, 'tr_vcr_regime_quadrants': tr_vcr_regime_quadrants, 'tr_vcr_min_consec': tr_vcr_min_consec, 'tr_vcr_consec_first': tr_vcr_consec_first,
             'use_gap_filter': use_gap_filter, 'gap_lookback': gap_lookback, 'gap_logic': gap_logic, 'gap_thresh': gap_thresh,
             'use_earnings_filter': use_earnings_filter, 'earnings_logic': earnings_logic,
             'earnings_value': earnings_value, 'earnings_min': earnings_min, 'earnings_max': earnings_max,
