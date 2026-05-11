@@ -235,7 +235,7 @@ def upload_from_local(local_path: str, key: str) -> bool:
     if client is None:
         print(f"[cache_io] R2 not configured - skipping upload of {key}")
         return False
-    bucket = os.environ["R2_BUCKET"]
+    bucket = _r2_creds()["R2_BUCKET"]
     try:
         client.upload_file(local_path, bucket, key)
         size = os.path.getsize(local_path)
@@ -262,7 +262,7 @@ def download_to_local(key: str, local_path: str) -> bool:
         _LAST_DOWNLOAD_ERROR = msg
         print(f"[cache_io] {msg}")
         return False
-    bucket = os.environ["R2_BUCKET"]
+    bucket = _r2_creds()["R2_BUCKET"]
     parent = os.path.dirname(os.path.abspath(local_path))
     if parent:
         os.makedirs(parent, exist_ok=True)
@@ -282,7 +282,7 @@ def head(key: str) -> Optional[dict]:
     client = _client()
     if client is None:
         return None
-    bucket = os.environ["R2_BUCKET"]
+    bucket = _r2_creds()["R2_BUCKET"]
     try:
         return client.head_object(Bucket=bucket, Key=key)
     except Exception:
