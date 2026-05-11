@@ -11,12 +11,17 @@ from datetime import timedelta
 # CONFIGURATION
 # -----------------------------------------------------------------------------
 SECTOR_ETFS = [
-    "IBB", "IHI", "ITA", "ITB", "IYR", "KRE", "OIH", "SMH", "VNQ",
-    "XBI", "XHB", "XLB", "XLC", "XLE", "XLF", "XLI", "XLK", "XLP",
-    "XLU", "XLV", "XLY", "XME", "XOP", "XRT", "GLD", "CEF", "SLV", "BTC-USD",
-    "ETH-USD", "UNG", "UVXY",'EURUSD=X', 'JPY=X', 'GBPUSD=X', 'AUDUSD=X', 'NZDUSD=X',
-    'CAD=X', 'CHF=X', 'DX-Y.NYB','^GSPC','^NDX','^RUT','^DJI','CL=F','NG=F','GC=F','HG=F',
-    "SPY", "QQQ", "IWM", "DIA",'KC=F','PL=F','ZC=F','ZW=F','CC=F','SB=F','PA=F','ZS=F',
+    # US headline indices (replacing the SPY/QQQ/IWM/DIA ETFs and the SPDR sector pack)
+    "^GSPC", "^NDX", "^IXIC", "^DJI", "^DJT", "^RUT", "^MID", "^SOX",
+    # Commodities & alternatives
+    "GLD", "CEF", "SLV", "BTC-USD", "ETH-USD", "UNG", "UVXY",
+    # FX
+    "EURUSD=X", "JPY=X", "GBPUSD=X", "AUDUSD=X", "NZDUSD=X",
+    "CAD=X", "CHF=X", "DX-Y.NYB",
+    # Commodity futures
+    "CL=F", "NG=F", "GC=F", "HG=F",
+    "KC=F", "PL=F", "ZC=F", "ZW=F", "CC=F", "SB=F", "PA=F", "ZS=F",
+    "CT=F", "SI=F",
     # International equity indices (15+ years on yfinance)
     "^FTSE", "^GDAXI", "^FCHI", "^N225", "^HSI", "^STI",
     "^AXJO", "^KS11", "^TWII", "^BSESN", "^GSPTSE", "^MXX",
@@ -25,26 +30,11 @@ SECTOR_ETFS = [
     "TLT", "IEF", "TIP", "LQD", "HYG", "AGG",
     # Volatility
     "^VIX",
-    # Additional commodities
-    "CT=F", "SI=F",
 ]
 
 # Glossary: (description, IBKR tradeable?)
 # "Y" = directly tradeable, "ETF" = trade via ETF proxy, "F" = futures, "N" = not tradeable
 TICKER_INFO = {
-    # Sector ETFs
-    "IBB": ("Biotech", "Y"), "IHI": ("Medical Devices", "Y"), "ITA": ("Aerospace & Defense", "Y"),
-    "ITB": ("Homebuilders", "Y"), "IYR": ("Real Estate", "Y"), "KRE": ("Regional Banks", "Y"),
-    "OIH": ("Oil Services", "Y"), "SMH": ("Semiconductors", "Y"), "VNQ": ("REITs", "Y"),
-    "XBI": ("Biotech (Equal Wt)", "Y"), "XHB": ("Homebuilders (Equal Wt)", "Y"),
-    "XLB": ("Materials", "Y"), "XLC": ("Communication Svcs", "Y"), "XLE": ("Energy", "Y"),
-    "XLF": ("Financials", "Y"), "XLI": ("Industrials", "Y"), "XLK": ("Technology", "Y"),
-    "XLP": ("Consumer Staples", "Y"), "XLU": ("Utilities", "Y"), "XLV": ("Healthcare", "Y"),
-    "XLY": ("Consumer Disc", "Y"), "XME": ("Metals & Mining", "Y"), "XOP": ("Oil & Gas E&P", "Y"),
-    "XRT": ("Retail", "Y"),
-    # Broad US
-    "SPY": ("S&P 500 ETF", "Y"), "QQQ": ("Nasdaq 100 ETF", "Y"),
-    "IWM": ("Russell 2000 ETF", "Y"), "DIA": ("Dow Jones ETF", "Y"),
     # Commodities & Alternatives
     "GLD": ("Gold ETF", "Y"), "SLV": ("Silver ETF", "Y"), "CEF": ("Gold/Silver CEF", "Y"),
     "UNG": ("Natural Gas ETF", "Y"), "UVXY": ("VIX Short-Term Futures", "Y"),
@@ -64,7 +54,11 @@ TICKER_INFO = {
     "CHF=X": ("USD/CHF", "F"), "DX-Y.NYB": ("US Dollar Index", "F"),
     # US Indices
     "^GSPC": ("S&P 500", "F:ES"), "^NDX": ("Nasdaq 100", "F:NQ"),
-    "^RUT": ("Russell 2000", "F:RTY"), "^DJI": ("Dow Jones", "F:YM"),
+    "^IXIC": ("Nasdaq Composite", "ETF:ONEQ"),
+    "^RUT": ("Russell 2000", "F:RTY"), "^DJI": ("Dow Jones Industrial", "F:YM"),
+    "^DJT": ("Dow Jones Transports", "ETF:IYT"),
+    "^MID": ("S&P MidCap 400", "F:EMD"),
+    "^SOX": ("PHLX Semiconductor", "ETF:SOXX"),
     # International Indices
     "^FTSE": ("FTSE 100 (UK)", "F:Z"), "^GDAXI": ("DAX (Germany)", "F:FDAX"),
     "^FCHI": ("CAC 40 (France)", "ETF:EWQ"), "^N225": ("Nikkei 225 (Japan)", "F:NIY"),
@@ -93,6 +87,10 @@ CSV_PATH = "sznl_sector_forecast.csv"
 ATR_SZNL_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "atr_seasonal_ranks.parquet")
 ATR_SZNL_WINDOWS = [5, 10, 21, 63, 126, 252]
 ATR_SZNL_COLS = [f"atr_sznl_{w}d" for w in ATR_SZNL_WINDOWS]
+# Display names for the table — atr_sznl_5d renders as Sznl_5, etc.
+ATR_SZNL_DISPLAY = {f"atr_sznl_{w}d": f"Sznl_{w}" for w in ATR_SZNL_WINDOWS}
+SORT_WINDOWS = [5, 10, 21, 63]
+SORT_DISPLAY_COLS = [f"Sznl_{w}" for w in SORT_WINDOWS]
 
 # -----------------------------------------------------------------------------
 # CACHE MANAGEMENT
@@ -239,24 +237,44 @@ def load_sector_metrics(tickers):
             "Name": info[0],
             "IBKR": info[1],
             "Price": float(close.iloc[-1]),
-            "Sznl": get_sznl_val(t, today, sznl_map),
-            "PctRank5": ranks[0],
-            "PctRank20": ranks[1],
-            "PctRank50": ranks[2],
-            "PctRank200": ranks[3],
+            "5d_r": ranks[0],
+            "20d_r": ranks[1],
+            "50d_r": ranks[2],
+            "200d_r": ranks[3],
         }
 
-        # Add ATR seasonal ranks
+        # Add ATR seasonal ranks (renamed to Sznl_5/10/21/63/126/252 for display)
         atr_vals = get_atr_sznl_vals(t, today, atr_sznl_map)
-        row.update(atr_vals)
+        for raw_col, val in atr_vals.items():
+            row[ATR_SZNL_DISPLAY[raw_col]] = val
 
         rows.append(row)
 
     if not rows: return pd.DataFrame()
 
     df_out = pd.DataFrame(rows)
-    if "Sznl" in df_out.columns:
-        df_out = df_out.sort_values("Sznl", ascending=False, ignore_index=True)
+
+    # Interleave returns and seasonals by window length so each return pctile
+    # sits next to the seasonals at comparable horizons.
+    base_cols = ["Ticker", "Name", "IBKR", "Price"]
+    metric_order = [
+        "5d_r", "Sznl_5", "Sznl_10",
+        "20d_r", "Sznl_21",
+        "50d_r", "Sznl_63", "Sznl_126",
+        "200d_r", "Sznl_252",
+    ]
+    ordered = base_cols + [c for c in metric_order if c in df_out.columns]
+    leftover = [c for c in df_out.columns if c not in ordered]
+    df_out = df_out[ordered + leftover]
+
+    # Sort key: max |Sznl_w - 50| across the short-window seasonals (5/10/21/63).
+    # Surfaces the strongest seasonal bias in either direction on any window.
+    sort_cols = [c for c in SORT_DISPLAY_COLS if c in df_out.columns]
+    if sort_cols:
+        deviations = (df_out[sort_cols] - 50).abs()
+        df_out["_sort_key"] = deviations.max(axis=1)
+        df_out = df_out.sort_values("_sort_key", ascending=False, ignore_index=True)
+        df_out = df_out.drop(columns=["_sort_key"])
 
     return df_out
 
@@ -496,10 +514,11 @@ def render_seasonal_chart(ticker, show_pct=True, show_atr=True):
 # MAIN APP
 # -----------------------------------------------------------------------------
 def main():
-    st.set_page_config(layout="wide", page_title="Sector Trend & Seasonals")
-    
-    st.title("Sector ETF Trend Dashboard")
-    st.write("Top: MA Extension Ranks. Bottom: Individual Seasonal Charts.")
+    st.set_page_config(layout="wide", page_title="Macro Seasonality")
+
+    st.title("Macro Seasonality")
+    st.write("Top: MA Extension Ranks. Bottom: Individual Seasonal Charts. "
+             "Charts sort by the largest |Sznl_w - 50| across 5/10/21/63d windows.")
 
     if st.button("Refresh data"):
         clear_all_caches()
@@ -525,23 +544,24 @@ def main():
         if val < 15: return "background-color: #ffcccc; color: #8b0000;"
         return ""
 
-    format_dict = {
-        "Price": "{:.2f}", "Sznl": "{:.1f}",
-        "PctRank5": "{:.1f}", "PctRank20": "{:.1f}",
-        "PctRank50": "{:.1f}", "PctRank200": "{:.1f}",
-    }
-    for col in ATR_SZNL_COLS:
+    return_cols = ["5d_r", "20d_r", "50d_r", "200d_r"]
+    format_dict = {"Price": "{:.2f}"}
+    for col in return_cols:
+        if col in table.columns:
+            format_dict[col] = "{:.1f}"
+    sznl_display_cols = list(ATR_SZNL_DISPLAY.values())
+    for col in sznl_display_cols:
         if col in table.columns:
             format_dict[col] = "{:.1f}"
 
-    atr_cols_present = [c for c in ATR_SZNL_COLS if c in table.columns]
+    return_cols_present = [c for c in return_cols if c in table.columns]
+    sznl_cols_present = [c for c in sznl_display_cols if c in table.columns]
 
     styled = (
         table.style
         .format(format_dict)
-        .map(highlight_pct_rank, subset=["PctRank5", "PctRank20", "PctRank50", "PctRank200"])
-        .map(highlight_sznl, subset=["Sznl"])
-        .map(highlight_sznl, subset=atr_cols_present)
+        .map(highlight_pct_rank, subset=return_cols_present)
+        .map(highlight_sznl, subset=sznl_cols_present)
     )
 
     st.dataframe(styled, use_container_width=True)

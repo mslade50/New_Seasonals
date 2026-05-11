@@ -17,10 +17,10 @@ from pandas.tseries.offsets import CustomBusinessDay
 import sys
 import os
 
-# Import SECTOR_ETFS from sector_trends
+# Import SECTOR_ETFS from the macro seasonality page (formerly sector_trends)
 current_dir = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(current_dir, "pages"))
-from sector_trends import SECTOR_ETFS
+from macro_seasonality import SECTOR_ETFS
 
 # --- CONFIGURATION ---
 DB_PATH = os.path.join(current_dir, "data", "sznl_forecast.db")

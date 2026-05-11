@@ -35,7 +35,7 @@ The system is designed as a unidirectional pipeline moving from **Research** $\t
 *Objective: Filter signals based on broader market conditions.*
 * **`pages/seasonal_sigs.py`**: Checks if a ticker is entering a historically strong/weak window.
     * *Dependency:* Relies on pre-computed static files (`seasonal_ranks.csv`).
-* **`pages/sector_trends.py`**: Analyzes relative strength of sectors to avoid trading against the tide.
+* **`pages/macro_seasonality.py`**: Macro seasonality dashboard — MA extension ranks plus per-ticker seasonal paths sorted by largest seasonal deviation across short windows.
 
 ### 3. Portfolio Simulation
 *Objective: Test how multiple signals perform together.*

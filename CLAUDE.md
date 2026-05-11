@@ -30,7 +30,7 @@ A quantitative equity trading platform built on Streamlit. Three pillars:
 │   ├── strat_backtester.py         # Extended backtester
 │   ├── heatmaps.py                 # Market heatmap inspector
 │   ├── correlation_heatmaps.py     # Correlation analysis
-│   ├── sector_trends.py            # Sector trend analysis
+│   ├── macro_seasonality.py        # Macro seasonality (formerly sector_trends)
 │   ├── seasonal_sigs.py            # Seasonal signals
 │   └── user_input.py               # User input page
 ├── .github/workflows/              # GitHub Actions — see "Automated Pipeline" below
