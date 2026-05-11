@@ -1084,7 +1084,26 @@ if spy_df is None or spy_df.empty:
 
 spy_close = spy_df["Close"]
 
-tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9 = st.tabs([
+# Shared registry for the Combinations tab. Each per-signal tab writes its
+# final (post-filter) boolean Series into this dict under a friendly name so
+# the combo tab can AND-combine arbitrary subsets without re-running the
+# upstream computations. Streamlit runs every tab on every rerun, so by the
+# time the combo tab body executes the dict is fully populated.
+st.session_state.setdefault("sig_combo", {})
+
+def _stash_signal(name: str, signal: pd.Series) -> None:
+    """Cast to bool + drop NaT/NaN labels, then snapshot into the combo registry."""
+    try:
+        s = signal.copy()
+        s.index = pd.DatetimeIndex(s.index)
+        s = s.dropna().astype(bool)
+        st.session_state["sig_combo"][name] = s
+    except Exception:
+        # Bad input shouldn't break the host tab — combo just won't see this signal.
+        pass
+
+
+tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9, tab10 = st.tabs([
     "Distribution / Accumulation",
     "VIX Range Compression",
     "Sector Leadership",
@@ -1094,6 +1113,7 @@ tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9 = st.tabs([
     "RV Gap",
     "Days Since",
     "Regime-Weighted B&H",
+    "Combinations",
 ])
 
 # ========================== TAB 1 ==========================
@@ -1209,6 +1229,7 @@ with tab1:
         signal = signal.reindex(common_idx).fillna(False) & confirm_above.reindex(common_idx).fillna(False)
 
     signal = apply_common_filters(signal, spy_close, **cf_da)
+    _stash_signal("Distribution / Accumulation", signal)
 
     # Current state summary
     recent_dist = int(dist_days.iloc[-da_window:].sum()) if len(dist_days) >= da_window else 0
@@ -1319,6 +1340,7 @@ with tab2:
     )
 
     signal_vc = apply_common_filters(signal_vc, spy_close, **cf_vc)
+    _stash_signal("VIX Range Compression", signal_vc)
 
     if "^VIX" not in closes.columns:
         st.error("VIX data not available in cache.")
@@ -1454,6 +1476,7 @@ with tab3:
             signal_sl = signal_sl & compound_signal
 
         signal_sl = apply_common_filters(signal_sl, spy_close, **cf_sl)
+        _stash_signal("Sector Leadership", signal_sl)
 
         n_neutral = len(classification[classification["label"] == "neutral"])
         st.markdown(
@@ -1537,6 +1560,7 @@ with tab4:
         spy_close, pe_window, pe_pctile, pe_cpi
     )
     signal_pe = apply_common_filters(signal_pe, spy_close, **cf_pe)
+    _stash_signal("Pre-Event Positioning", signal_pe)
 
     if event_df.empty:
         st.warning("No event dates found in the data range.")
@@ -1707,6 +1731,7 @@ with tab5:
         )
 
     disp_signal = apply_common_filters(disp_signal, spy_close, **cf_disp)
+    _stash_signal("Dispersion", disp_signal)
 
     # Current reading — derive ratio from the component/index values to stay consistent
     cur_pctile = float(disp_composite_pctile.dropna().iloc[-1]) if len(disp_composite_pctile.dropna()) > 0 else None
@@ -1921,6 +1946,7 @@ with tab6:
             )
 
         ar_signal = apply_common_filters(ar_signal, ar_spy_close, **cf_ar)
+        _stash_signal("Absorption Ratio", ar_signal)
 
         # Current reading
         cur_ar = float(ar_series.dropna().iloc[-1]) if len(ar_series.dropna()) > 0 else None
@@ -2070,6 +2096,7 @@ with tab7:
     )
 
     rvg_signal = apply_common_filters(rvg_signal, spy_close, **cf_rvg)
+    _stash_signal("RV Gap", rvg_signal)
 
     # Current reading
     cur_gap = float(rv_gap.dropna().iloc[-1]) if len(rv_gap.dropna()) > 0 else None
@@ -2239,6 +2266,7 @@ with tab8:
     )
 
     dsc_signal = apply_common_filters(dsc_signal, spy_close, **cf_dsc)
+    _stash_signal("Days Since Correction", dsc_signal)
 
     # Current reading
     cur_days = int(days_since.iloc[-1]) if len(days_since) > 0 else None
@@ -2545,3 +2573,120 @@ with tab9:
         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
     )
     st.plotly_chart(fig_dd, use_container_width=True)
+
+
+# ========================== TAB 10: COMBINATIONS ============================
+# Lets the user AND-combine any subset of the signals stashed by the tabs
+# above. The "Overlap window" relaxation expands each signal to True on any
+# day within the trailing window of an activation (rolling().max()), so e.g.
+# "VIX Range Compression AND Dispersion within 5 days" fires on day t when
+# both signals have been active sometime in [t-5, t]. window=0 = strict AND
+# on the same calendar day.
+with tab10:
+    st.markdown("### Signal Combinations")
+    st.markdown(
+        "> Pick two or more signals and study the windows where they were "
+        "all active. **Overlap window** relaxes strict same-day AND to "
+        "*both signals fired sometime in the trailing N days*. Forward "
+        "returns are measured on the same SPY series the other tabs use, "
+        "so direct apples-to-apples vs the single-signal tabs."
+    )
+
+    sig_dict = st.session_state.get("sig_combo", {})
+    if not sig_dict:
+        st.info(
+            "No signals stashed yet. Visit each per-signal tab once to populate "
+            "this list — every tab writes its final filtered signal here on "
+            "each run, so just clicking through them is enough."
+        )
+    else:
+        available_names = sorted(sig_dict.keys())
+        cc1, cc2 = st.columns([3, 1])
+        with cc1:
+            picked = st.multiselect(
+                "Signals to combine (AND)",
+                available_names,
+                default=available_names[:2],
+                key="combo_pick",
+                help="At least 2 signals required.",
+            )
+        with cc2:
+            combo_window = st.number_input(
+                "Overlap window (days)", min_value=0, max_value=63, value=0, step=1,
+                key="combo_window",
+                help="0 = strict same-day AND. >0 = each signal expanded to "
+                     "include any day within the trailing N days of an activation.",
+            )
+
+        if len(picked) < 2:
+            st.warning("Pick at least 2 signals to combine.")
+        else:
+            # Align everyone onto spy_close.index, expand by window if requested, AND.
+            ref_idx = spy_close.index
+            combined_df = pd.DataFrame(index=ref_idx)
+            for name in picked:
+                s = sig_dict[name].reindex(ref_idx, fill_value=False).astype(bool)
+                if combo_window > 0:
+                    # rolling().max() over a bool series is equivalent to "any
+                    # activation in the last combo_window+1 bars". min_periods=1
+                    # so leading edge isn't NaN.
+                    s = (s.astype(int)
+                           .rolling(combo_window + 1, min_periods=1).max()
+                           .fillna(0).astype(bool))
+                combined_df[name] = s
+
+            combo_signal = combined_df.all(axis=1)
+
+            # Per-signal + overlap activation counts so the user can see how
+            # rare the joint signal is before reading the event study numbers.
+            stats_rows = []
+            for name in picked:
+                n_act = int(combined_df[name].sum())
+                stats_rows.append({
+                    "Signal": name,
+                    "Active days (after window expansion)": n_act,
+                    "% of trading days": f"{n_act / max(len(ref_idx), 1) * 100:.1f}%",
+                })
+            stats_rows.append({
+                "Signal": f"**JOINT ({' AND '.join(picked)})**",
+                "Active days (after window expansion)": int(combo_signal.sum()),
+                "% of trading days": f"{int(combo_signal.sum()) / max(len(ref_idx), 1) * 100:.1f}%",
+            })
+            st.dataframe(pd.DataFrame(stats_rows), use_container_width=True, hide_index=True)
+
+            if int(combo_signal.sum()) < 5:
+                st.warning(
+                    f"Only {int(combo_signal.sum())} joint activations — too few for "
+                    "meaningful event-study stats. Try fewer signals or a wider window."
+                )
+            else:
+                # Overlap timeline: SPY with vertical bands on joint-active days
+                fig_ov = go.Figure()
+                fig_ov.add_trace(go.Scatter(
+                    x=spy_close.index, y=spy_close.values,
+                    name="SPY", line=dict(width=1.2, color="rgba(120,120,120,0.7)"),
+                ))
+                on = combo_signal.astype(bool)
+                transitions = on.astype(int).diff().fillna(0)
+                starts = list(transitions[transitions == 1].index)
+                ends = list(transitions[transitions == -1].index)
+                if len(on) > 0 and on.iloc[0]:
+                    starts.insert(0, on.index[0])
+                if len(on) > 0 and on.iloc[-1]:
+                    ends.append(on.index[-1])
+                for s_, e_ in zip(starts, ends):
+                    fig_ov.add_vrect(x0=s_, x1=e_, fillcolor="rgba(204,0,0,0.18)",
+                                     line_width=0, layer="below")
+                fig_ov.update_layout(
+                    height=300, margin=dict(l=10, r=10, t=30, b=10),
+                    yaxis_title="SPY", hovermode="x unified",
+                    title=dict(text=f"Joint activations: {' AND '.join(picked)}"
+                                    f" (window={combo_window}d)", font=dict(size=13)),
+                )
+                st.plotly_chart(fig_ov, use_container_width=True)
+
+                # Event study on the combined signal vs SPY forward returns
+                study_combo = run_event_study(combo_signal, spy_close,
+                                              signal_name=" + ".join(picked))
+                render_event_study(study_combo, " + ".join(picked),
+                                   combo_signal, spy_close)
