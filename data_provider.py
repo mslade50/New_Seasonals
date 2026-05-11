@@ -54,16 +54,26 @@ def _refresh_from_r2_if_needed():
     global _LAST_R2_ERROR
     _LAST_R2_ERROR = None
     try:
-        from cache_io import is_configured, download_to_local, last_download_error
+        from cache_io import (
+            is_configured,
+            download_to_local,
+            last_download_error,
+            diagnose_creds,
+        )
     except ImportError as e:
         _LAST_R2_ERROR = f"cache_io import failed: {e}"
         print(f"[data_provider] {_LAST_R2_ERROR}")
         return
     if not is_configured():
         _LAST_R2_ERROR = (
-            "R2 credentials not present (set R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, "
-            "R2_SECRET_ACCESS_KEY, R2_BUCKET in .env or environment)"
+            "R2 credentials not present. "
+            f"Diagnostics: {diagnose_creds()}. "
+            "Local: set R2_* in .env. "
+            "Streamlit Cloud: paste R2_ACCOUNT_ID / R2_ACCESS_KEY_ID / "
+            "R2_SECRET_ACCESS_KEY / R2_BUCKET into Manage app -> Settings "
+            "-> Secrets as top-level TOML keys."
         )
+        print(f"[data_provider] {_LAST_R2_ERROR}")
         return
     needs_pull = False
     if not os.path.exists(MASTER_PATH):

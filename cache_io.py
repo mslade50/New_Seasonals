@@ -87,15 +87,111 @@ def last_download_error() -> Optional[str]:
     return _LAST_DOWNLOAD_ERROR
 
 
+def _get_streamlit_secrets():
+    """Return st.secrets mapping if available (Streamlit Cloud), else None.
+
+    The eager hydrate at module import can race with Streamlit's secret
+    loader, so we look this up at every call to keep credential resolution
+    correct regardless of import order.
+    """
+    try:
+        import streamlit as st  # type: ignore
+    except Exception:
+        return None
+    secrets = getattr(st, "secrets", None)
+    if secrets is None:
+        return None
+    # Touching secrets without a ScriptRunContext throws on some Streamlit
+    # versions; the broad except keeps non-Streamlit callers safe.
+    try:
+        len(secrets)  # cheap "can I access this?" probe
+        return secrets
+    except Exception:
+        return None
+
+
+def _lookup_secret(name: str, secrets):
+    """Pull a single key from st.secrets, tolerating sectioned layouts.
+
+    Accepts the flat layout we recommend (top-level R2_* keys) AND a
+    sectioned layout like:
+        [r2]
+        ACCOUNT_ID = "..."
+    or:
+        [R2]
+        R2_ACCOUNT_ID = "..."
+    by checking common section names if the flat lookup fails.
+    """
+    if secrets is None:
+        return ""
+    try:
+        if name in secrets:
+            return str(secrets[name]).strip()
+    except Exception:
+        pass
+    short = name[3:] if name.startswith("R2_") else name  # ACCOUNT_ID, etc.
+    for section in ("r2", "R2"):
+        try:
+            sub = secrets.get(section) if hasattr(secrets, "get") else None
+            if sub is None:
+                continue
+            if name in sub:
+                return str(sub[name]).strip()
+            if short in sub:
+                return str(sub[short]).strip()
+        except Exception:
+            continue
+    return ""
+
+
 def _r2_creds():
-    """Return dict of R2 creds, or None if any required var is missing."""
+    """Return dict of R2 creds, or None if any required var is missing.
+
+    Resolves each var by checking os.environ first (set by .env in local
+    runs, GHA secrets in CI), then st.secrets (Streamlit Cloud). The
+    Streamlit lookup is intentionally call-time so it doesn't depend on
+    import-order timing.
+    """
+    secrets = _get_streamlit_secrets()
     out = {}
     for v in _R2_REQUIRED_VARS:
         val = os.environ.get(v, "").strip()
         if not val:
+            val = _lookup_secret(v, secrets)
+        if not val:
             return None
         out[v] = val
     return out
+
+
+def diagnose_creds() -> str:
+    """One-line summary of where each R2 cred is (or isn't) coming from.
+
+    Used by the Streamlit error path so users can see at a glance whether
+    secrets are set, partially set, or set in the wrong layout. Never
+    returns the values themselves — only their source / presence.
+    """
+    secrets = _get_streamlit_secrets()
+    parts = []
+    for v in _R2_REQUIRED_VARS:
+        if os.environ.get(v, "").strip():
+            parts.append(f"{v}=env")
+        elif _lookup_secret(v, secrets):
+            parts.append(f"{v}=st.secrets")
+        else:
+            parts.append(f"{v}=MISSING")
+    found_streamlit = secrets is not None
+    visible_top = []
+    if found_streamlit:
+        try:
+            visible_top = [k for k in list(secrets.keys()) if not str(k).startswith("_")]
+        except Exception:
+            visible_top = ["<unreadable>"]
+    return (
+        f"st.secrets={'present' if found_streamlit else 'absent'}; "
+        f"top-level keys={visible_top}; "
+        f"resolution: {', '.join(parts)}"
+    )
 
 
 def _client():
