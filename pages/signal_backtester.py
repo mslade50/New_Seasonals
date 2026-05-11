@@ -790,17 +790,18 @@ def compute_dispersion_signal(component_closes: pd.DataFrame,
                          + gap_pctile.reindex(common_pctile)) / 2)
     composite_pctile = composite_pctile.reindex(spy_df.index)
 
-    # Signal: composite percentile above threshold
-    signal = pd.Series(False, index=spy_df.index)
+    # Signal: composite percentile above threshold. Reindex onto spy_df.index
+    # because composite_pctile carries dates from a sectors/components frame
+    # that may not be a strict subset of SPY's calendar (pandas 3.0+ raises
+    # KeyError on direct .loc assignment with non-matching dates).
     pctile_valid = composite_pctile.dropna()
-    signal.loc[pctile_valid.index] = pctile_valid > pctile_threshold
+    signal = (pctile_valid > pctile_threshold).reindex(spy_df.index, fill_value=False).astype(bool)
 
     # Optional: also require low index vol
     if require_low_index_vol:
         spy_rv_pctile = _rolling_percentile(spy_rv.dropna(), pctile_lookback)
-        low_vol = pd.Series(False, index=spy_df.index)
         spv_valid = spy_rv_pctile.dropna()
-        low_vol.loc[spv_valid.index] = spv_valid < index_vol_threshold
+        low_vol = (spv_valid < index_vol_threshold).reindex(spy_df.index, fill_value=False).astype(bool)
         signal = signal & low_vol
 
     return (signal, avg_component_rv, spy_rv, dispersion_ratio,
@@ -902,14 +903,17 @@ def compute_ar_signal(closes_df: pd.DataFrame,
 
     ar_pctile = _rolling_percentile(ar_series.dropna(), pctile_lookback)
 
+    # ar_pctile is indexed by sector_returns dates (closes_df.pct_change().dropna);
+    # that index may not be a strict subset of spy_close.index (different
+    # ticker calendars, the leading pct_change NaN, etc.), so a direct
+    # signal.loc[ar_pctile.index] = ... raises KeyError in pandas 3.0+.
+    # Build the boolean mask from ar_pctile, then reindex onto spy_close.
+    pctile_valid = ar_pctile.dropna()
     if direction == "Low AR (<threshold)":
-        signal = pd.Series(False, index=spy_close.index)
-        pctile_valid = ar_pctile.dropna()
-        signal.loc[pctile_valid.index] = pctile_valid < pctile_threshold
+        bool_mask = pctile_valid < pctile_threshold
     else:
-        signal = pd.Series(False, index=spy_close.index)
-        pctile_valid = ar_pctile.dropna()
-        signal.loc[pctile_valid.index] = pctile_valid > pctile_threshold
+        bool_mask = pctile_valid > pctile_threshold
+    signal = bool_mask.reindex(spy_close.index, fill_value=False).astype(bool)
 
     if require_near_high:
         high_52w = spy_close.rolling(252, min_periods=60).max()
@@ -1014,10 +1018,10 @@ def compute_rv_gap_signal(ohlc: pd.DataFrame,
     # Rolling percentile of gap
     rv_gap_pctile = _rolling_percentile(rv_gap.dropna(), pctile_lookback)
 
-    # Signal: percentile above threshold
-    signal = pd.Series(False, index=ohlc.index)
+    # Signal: percentile above threshold. Reindex onto ohlc.index to stay
+    # robust against rv_gap_pctile carrying dates the ohlc frame doesn't.
     pctile_valid = rv_gap_pctile.dropna()
-    signal.loc[pctile_valid.index] = pctile_valid > pctile_threshold
+    signal = (pctile_valid > pctile_threshold).reindex(ohlc.index, fill_value=False).astype(bool)
 
     return signal, rv_gap, rv_gap_pctile, cc_rv, intraday_rv
 
@@ -1055,9 +1059,8 @@ def compute_days_since_signal(price: pd.Series,
     days_since_pctile = _rolling_percentile(days_since, pctile_lookback)
 
     if threshold_mode == "Percentile":
-        signal = pd.Series(False, index=price.index)
         pctile_valid = days_since_pctile.dropna()
-        signal.loc[pctile_valid.index] = pctile_valid > pctile_threshold
+        signal = (pctile_valid > pctile_threshold).reindex(price.index, fill_value=False).astype(bool)
     else:
         signal = days_since >= fixed_threshold
 
