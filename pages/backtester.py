@@ -23,6 +23,10 @@ SECTOR_ETFS = ["IBB", "IHI", "ITA", "ITB", "IYR", "KRE", "OIH", "SMH", "VNQ",
 SPX=['^GSPC','SPY']
 INDEX_ETFS = ["SPY", "QQQ", "IWM", "DIA", "SMH"]
 INDICES_SPOT = ["^GSPC", "^NDX"]
+# Mirrors strategy_config.LIQUID_PLUS_COMMODITIES' commodity additions —
+# the OIH/XOP overlap with SECTOR_ETFS is intentional (commodity-proxy
+# sector ETFs); the union below dedupes.
+COMMODITY_ETFS = ["CEF", "GLD", "OIH", "SLV", "UNG", "USO", "UVXY", "XOP"]
 INTERNATIONAL_ETFS = ["EWZ", "EWC", "ECH", "ECOL", "EWW", "ARGT", "EWQ", "EWG", "EWI", "EWU", "EWP", "EWK", "EWO", "EWN", "EWD", "EWL",
     "EWJ", "EWH", "MCHI", "INDA", "EWY", "EWT", "EWA", "EWS", "EWM", "THD", "EIDO", "VNM", "EPHE", "EZA", "TUR", "EGPT"]
 
@@ -43,6 +47,13 @@ LEV3X_EQUITY_ALL      = LEV3X_EQUITY_BULL_ALL + LEV3X_EQUITY_BEAR_ALL
 LEV3X_EQUITY_BROAD    = LEV3X_EQUITY_BULL_BROAD + LEV3X_EQUITY_BEAR_BROAD
 LEV3X_ALL             = (LEV3X_EQUITY_ALL + LEV3X_BOND_BULL + LEV3X_BOND_BEAR
                          + LEV3X_COMMODITY_BULL + LEV3X_COMMODITY_BEAR)
+
+# Macro mix: commodities + sector ETFs + index ETFs (incl. ^GSPC/^NDX) +
+# every 3x leveraged ETF the backtester knows about. Sorted+deduped so the
+# selectbox option produces the same ordering on every rerun.
+COMMODITY_SECTOR_INDEX_LEV3X = sorted(set(
+    COMMODITY_ETFS + SECTOR_ETFS + INDEX_ETFS + INDICES_SPOT + LEV3X_ALL
+))
 CSV_PATH = "seasonal_ranks.csv"
 ATR_SZNL_PATH = "atr_seasonal_ranks.parquet"
 ATR_SZNL_WINDOWS = [5, 10, 21, 63, 126, 252]
@@ -2358,7 +2369,7 @@ def main():
     st.subheader("1. Universe & Data")
     col_u1, col_u2, col_u3 = st.columns([1, 1, 2])
     sample_pct = 100; use_full_history = False
-    with col_u1: univ_choice = st.selectbox("Choose Universe", ["All CSV Tickers", "All CSV + Overflow Extras", "All CSV + Overflow Extras (no ^ indices)", "Sector ETFs","SPX", "Indices", "Indices (Spot — ^GSPC/^NDX)", "International ETFs", "Sector + Index ETFs", "All CSV (Equities Only)", "3x Leveraged (All)", "3x Leveraged Equities", "3x Leveraged Equities (Bull)", "3x Leveraged Equities (Bear)", "3x Leveraged Equities (Broad Only)", "Custom (Comma-Separated)", "Custom (Upload CSV)"])
+    with col_u1: univ_choice = st.selectbox("Choose Universe", ["All CSV Tickers", "All CSV + Overflow Extras", "All CSV + Overflow Extras (no ^ indices)", "Sector ETFs","SPX", "Indices", "Indices (Spot — ^GSPC/^NDX)", "International ETFs", "Sector + Index ETFs", "Commodity + Sector + Index + 3x Lev", "All CSV (Equities Only)", "3x Leveraged (All)", "3x Leveraged Equities", "3x Leveraged Equities (Bull)", "3x Leveraged Equities (Bear)", "3x Leveraged Equities (Broad Only)", "Custom (Comma-Separated)", "Custom (Upload CSV)"])
     with col_u2:
         default_start = datetime.date(2000, 1, 1)
         start_date = st.date_input("Backtest Start Date", value=default_start, min_value=datetime.date(1950, 1, 1), max_value=datetime.date.today())
@@ -3280,6 +3291,7 @@ def main():
         elif univ_choice == "SPX": tickers_to_run = SPX
         elif univ_choice == "International ETFs": tickers_to_run = INTERNATIONAL_ETFS
         elif univ_choice == "Sector + Index ETFs": tickers_to_run = list(set(SECTOR_ETFS + INDEX_ETFS))
+        elif univ_choice == "Commodity + Sector + Index + 3x Lev": tickers_to_run = COMMODITY_SECTOR_INDEX_LEV3X
         elif univ_choice == "All CSV Tickers": tickers_to_run = [t for t in list(sznl_map.keys())]
         elif univ_choice in ("All CSV + Overflow Extras", "All CSV + Overflow Extras (no ^ indices)"):
             _drop_caret = univ_choice == "All CSV + Overflow Extras (no ^ indices)"
@@ -3719,6 +3731,87 @@ def main():
                 )
                 return fig
 
+            def _trade_scatter_fig(trades, stop_atr_val):
+                """Scatter of every trade's return in ATR-multiples vs exit date.
+
+                ATR-multiple = R * stop_atr (R is PnL per unit risk, where risk
+                is stop_atr * ATR_at_signal, so R * stop_atr collapses back to
+                PnL_per_share / ATR_at_signal). The y-axis shows raw
+                ATR-normalized returns; markers are colored by sign and sized
+                by absolute return so big winners/losers pop visually.
+                """
+                if trades is None or trades.empty or 'R' not in trades.columns:
+                    return None
+                df_s = trades.copy()
+                df_s['ExitDate'] = pd.to_datetime(df_s['ExitDate'])
+                stop_atr_mult = float(stop_atr_val) if stop_atr_val else 1.0
+                df_s['ATR_Multiple'] = df_s['R'] * stop_atr_mult
+                df_s = df_s.dropna(subset=['ATR_Multiple'])
+                if df_s.empty:
+                    return None
+
+                mean_v = float(df_s['ATR_Multiple'].mean())
+                std_v = float(df_s['ATR_Multiple'].std())
+                med_v = float(df_s['ATR_Multiple'].median())
+                # Symmetric color range capped at the 95th absolute percentile
+                # so a single outlier doesn't wash out the rest of the cloud.
+                colour_cap = max(float(df_s['ATR_Multiple'].abs().quantile(0.95)), 1e-6)
+
+                # Marker size scaled by abs return, clipped so outliers don't
+                # become giant blobs. 5 = minimum legible, 16 = max.
+                _abs_atr = df_s['ATR_Multiple'].abs()
+                _abs_cap = max(float(_abs_atr.quantile(0.95)), 1e-6)
+                marker_size = (5.0 + 11.0 * (_abs_atr / _abs_cap).clip(0, 1)).tolist()
+
+                hover_text = df_s.apply(
+                    lambda r: (
+                        f"<b>{r['Ticker']}</b> ({r.get('Direction', '')})<br>"
+                        f"Entry {pd.to_datetime(r['EntryDate']):%Y-%m-%d} @ {r['Entry']:.2f}<br>"
+                        f"Exit  {pd.to_datetime(r['ExitDate']):%Y-%m-%d} @ {r['Exit']:.2f}<br>"
+                        f"R {r['R']:+.2f} | ATR-mult {r['ATR_Multiple']:+.2f}<br>"
+                        f"Exit type: {r.get('Type', '')}"
+                    ),
+                    axis=1,
+                )
+
+                fig = go.Figure()
+                fig.add_trace(go.Scatter(
+                    x=df_s['ExitDate'], y=df_s['ATR_Multiple'],
+                    mode='markers',
+                    marker=dict(
+                        size=marker_size,
+                        color=df_s['ATR_Multiple'],
+                        colorscale='RdYlGn',
+                        cmin=-colour_cap, cmax=colour_cap, cmid=0,
+                        line=dict(width=0.4, color='rgba(0,0,0,0.35)'),
+                        showscale=False,
+                    ),
+                    text=hover_text,
+                    hovertemplate='%{text}<extra></extra>',
+                    showlegend=False,
+                ))
+                fig.add_hline(y=0, line_dash='dot', line_color='#888', line_width=1)
+                fig.add_hline(y=mean_v, line_dash='dash', line_color='rgba(255,176,0,0.7)',
+                              line_width=1, annotation_text=f'Mean {mean_v:+.2f}',
+                              annotation_position='top right', annotation_font_size=10)
+                fig.add_hline(y=mean_v + std_v, line_dash='dot',
+                              line_color='rgba(200,200,200,0.45)', line_width=1)
+                fig.add_hline(y=mean_v - std_v, line_dash='dot',
+                              line_color='rgba(200,200,200,0.45)', line_width=1)
+                title = (
+                    f'Per-Trade Return Distribution (ATR-multiples) — '
+                    f'N={len(df_s)}, mean {mean_v:+.2f}, median {med_v:+.2f}, '
+                    f'std {std_v:.2f} (stop_atr={stop_atr_mult:g})'
+                )
+                fig.update_layout(
+                    title=title,
+                    xaxis_title='Exit Date',
+                    yaxis=dict(title='Return (ATR-multiples)', zeroline=False),
+                    height=320, margin=dict(t=40, b=30, l=40, r=40),
+                    hovermode='closest',
+                )
+                return fig
+
             # ========== SECTION 1: FLAT STAKING ==========
             st.subheader(f"Flat Staking — ${risk_per_trade:,.0f} per trade ({risk_bps_input} bps of ${starting_portfolio:,})")
             if not mtm_flat.empty:
@@ -3746,6 +3839,9 @@ def main():
             st.subheader(f"Dynamic Sizing — {risk_bps_input} bps of running equity (starting ${starting_portfolio:,})")
             if not mtm_dyn.empty:
                 st.plotly_chart(_mtm_fig(mtm_dyn, "Mark-to-Market Equity — Dynamic Risk (Compounded)"), use_container_width=True)
+                _scatter_fig = _trade_scatter_fig(trades_df, params.get('stop_atr', 1.0))
+                if _scatter_fig is not None:
+                    st.plotly_chart(_scatter_fig, use_container_width=True)
                 _edge_fig = _edge_over_time_fig(trades_df)
                 if _edge_fig is not None:
                     st.plotly_chart(_edge_fig, use_container_width=True)
