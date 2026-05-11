@@ -41,6 +41,32 @@ try:
 except ImportError:
     pass
 
+# Streamlit Cloud exposes secrets via st.secrets, not os.environ. Mirror any
+# R2_* secrets defined there into os.environ so the rest of this module
+# (which reads os.environ) works the same on Cloud as it does locally / in
+# GHA. The probe is wrapped in a broad except because importing streamlit
+# outside a script-run context can raise on some versions.
+def _hydrate_from_streamlit_secrets():
+    try:
+        import streamlit as st  # type: ignore
+        secrets = getattr(st, "secrets", None)
+        if secrets is None:
+            return
+        for v in ("R2_ACCOUNT_ID", "R2_ACCESS_KEY_ID",
+                  "R2_SECRET_ACCESS_KEY", "R2_BUCKET"):
+            if os.environ.get(v):
+                continue
+            try:
+                if v in secrets:
+                    os.environ[v] = str(secrets[v])
+            except Exception:
+                pass
+    except Exception:
+        pass
+
+
+_hydrate_from_streamlit_secrets()
+
 
 _R2_REQUIRED_VARS = (
     "R2_ACCOUNT_ID",
