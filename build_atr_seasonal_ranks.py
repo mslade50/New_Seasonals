@@ -275,7 +275,11 @@ def build_atr_ranks(tickers, target_years, output_path=OUTPUT_PATH):
 
     # 1. Load price data
     print("Loading price data...")
-    clean_tickers = [t.replace('.', '-') for t in tickers]
+    # Convert equity share-class dots to hyphens for yfinance (BRK.B -> BRK-B),
+    # but leave dots alone in tickers that already contain a hyphen — those
+    # are typically Yahoo-suffix tickers like DX-Y.NYB where the dot is part
+    # of the symbol and a swap would break the lookup.
+    clean_tickers = [t if '-' in t else t.replace('.', '-') for t in tickers]
 
     # Only load the heavy overflow cache for large runs
     if len(clean_tickers) > 50:
