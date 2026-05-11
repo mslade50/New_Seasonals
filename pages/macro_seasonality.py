@@ -291,7 +291,21 @@ def get_chart_data(ticker):
         df.columns = df.columns.get_level_values(0)
     return df
 
-def calculate_path(df, cycle_label, use_atr=False):
+def _recency_weights(years, anchor_year, half_life):
+    """Exponential decay: weight = 0.5 ** ((anchor_year - year) / half_life).
+    Matches pages/user_input.recency_weights so both pages produce identical
+    paths for the same ticker."""
+    if half_life is None or half_life <= 0:
+        return np.ones(len(years))
+    return np.power(0.5, (anchor_year - np.asarray(years, dtype=float)) / half_life)
+
+
+def calculate_path(df, cycle_label, use_atr=False, half_life=20, anchor_year=None):
+    """Average seasonal path indexed by day_count. Mirrors
+    pages/user_input.calculate_path so the two pages stay in sync:
+    exponentially recency-weighted by year with half_life (default 20y)
+    anchored on anchor_year (default = current calendar year). Pass
+    half_life=None to fall back to an unweighted mean."""
     cycle_start_mapping = {
         "Election": 1952, "Pre-Election": 1951,
         "Post-Election": 1953, "Midterm": 1950
@@ -310,7 +324,20 @@ def calculate_path(df, cycle_label, use_atr=False):
         cycle_data.loc[cycle_data["week_of_month_5day"] > 4, "week_of_month_5day"] = 4
 
     ret_col = "atr_return" if use_atr else "log_return"
-    avg_daily = cycle_data.groupby("day_count")[ret_col].mean()
+
+    if anchor_year is None:
+        anchor_year = dt.date.today().year
+
+    if half_life is None or half_life <= 0:
+        avg_daily = cycle_data.groupby("day_count")[ret_col].mean()
+    else:
+        cycle_data = cycle_data.copy()
+        cycle_data["_weight"] = _recency_weights(cycle_data["year"].values, anchor_year, half_life)
+        valid = cycle_data[ret_col].notna()
+        sub = cycle_data.loc[valid]
+        num = (sub[ret_col] * sub["_weight"]).groupby(sub["day_count"]).sum()
+        den = sub["_weight"].groupby(sub["day_count"]).sum()
+        avg_daily = num / den
 
     if use_atr:
         avg_path = avg_daily.cumsum()
