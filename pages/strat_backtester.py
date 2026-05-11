@@ -558,13 +558,18 @@ def get_historical_mask(df, params, sznl_map, ticker_name="UNK"):
         elif params['vol_rank_logic'] == "<":
             conditions.append(col_vals < params['vol_rank_thresh'])
 
-    # MA distance filter
+    # MA distance filter — percent-space (matches pages/backtester.py and
+    # daily_scan.py): distance from MA expressed as a percentage of the MA,
+    # divided by ATR as a percentage of price. Differs from (Close - MA) /
+    # ATR because the MA-distance denominator is the MA, not the price.
     if params.get('use_ma_dist_filter', False):
-        ma_col_map = {"SMA 10": "SMA10", "SMA 20": "SMA20", "SMA 50": "SMA50", "SMA 100": "SMA100", "SMA 200": "SMA200", 
+        ma_col_map = {"SMA 10": "SMA10", "SMA 20": "SMA20", "SMA 50": "SMA50", "SMA 100": "SMA100", "SMA 200": "SMA200",
                       "EMA 8": "EMA8", "EMA 11": "EMA11", "EMA 21": "EMA21"}
         ma_target = ma_col_map.get(params['dist_ma_type'])
         if ma_target and ma_target in df.columns:
-            dist_val = (df['Close'].values - df[ma_target].values) / df['ATR'].values
+            atr_pct = df['ATR'].values / df['Close'].values
+            ma_pct = (df['Close'].values - df[ma_target].values) / df[ma_target].values
+            dist_val = ma_pct / atr_pct
             if params['dist_logic'] == "Greater Than (>)":
                 conditions.append(dist_val > params['dist_min'])
             elif params['dist_logic'] == "Less Than (<)":

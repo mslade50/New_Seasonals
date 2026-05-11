@@ -868,7 +868,11 @@ def check_signal(df, params, sznl_map, ticker=None):
             if dist_logic == ">" and not (dist_val > dist_thresh): return False
             if dist_logic == "<" and not (dist_val < dist_thresh): return False
 
-    # 6. Distance Filter
+    # 6. Distance Filter — percent-space (matches pages/backtester.py and
+    # pages/strat_backtester.py): distance from MA expressed as a percentage
+    # of the MA, divided by ATR as a percentage of price. Differs from
+    # (Close - MA) / ATR because the MA-distance denominator is the MA, not
+    # the price.
     if params.get('use_ma_dist_filter', False) or params.get('use_dist_filter', False):
         ma_type = params.get('dist_ma_type', 'SMA 200')
         ma_col_map = {"52-Week High": "High_52w", "All-Time High": "ATH_Level"}
@@ -877,8 +881,12 @@ def check_signal(df, params, sznl_map, ticker=None):
             ma_val = last_row[ma_col]
             atr = last_row['ATR']
             close = last_row['Close']
-            if atr > 0: dist_units = (close - ma_val) / atr
-            else: dist_units = 0
+            if atr > 0 and ma_val > 0 and close > 0:
+                atr_pct = atr / close
+                ma_pct = (close - ma_val) / ma_val
+                dist_units = ma_pct / atr_pct
+            else:
+                dist_units = 0
             d_logic = params.get('dist_logic', 'Between')
             d_min = params.get('dist_min', 0)
             d_max = params.get('dist_max', 0)
