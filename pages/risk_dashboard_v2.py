@@ -2543,16 +2543,23 @@ def _render_fragility_event_study(study: dict, spy_close: pd.Series, horizon_lab
         return
 
     # --- Formatted results table ---
-    results_display = study["results"].copy()
+    # Cast to object up front: pandas 3.0 no longer silently upcasts a float
+    # column when a string is assigned into it (raises TypeError). Snapshot
+    # the numeric values before the cast so the loop below reads numbers
+    # while writing formatted strings into the object-dtype frame.
+    numeric_results = study["results"].copy()
+    results_display = numeric_results.astype(object)
     for col in results_display.index:
         for metric in results_display.columns:
-            val = results_display.loc[col, metric]
-            if metric == "p-value":
-                results_display.loc[col, metric] = f"{val:.3f}" if not np.isnan(val) else "N/A"
+            val = numeric_results.loc[col, metric]
+            if pd.isna(val):
+                results_display.loc[col, metric] = "N/A"
+            elif metric == "p-value":
+                results_display.loc[col, metric] = f"{val:.3f}"
             elif "Hit Rate" in metric:
-                results_display.loc[col, metric] = f"{val:.1%}" if not np.isnan(val) else "N/A"
+                results_display.loc[col, metric] = f"{val:.1%}"
             else:
-                results_display.loc[col, metric] = f"{val:+.2%}" if not np.isnan(val) else "N/A"
+                results_display.loc[col, metric] = f"{val:+.2%}"
 
     st.dataframe(results_display, use_container_width=True)
 
