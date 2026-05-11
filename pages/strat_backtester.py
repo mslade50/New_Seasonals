@@ -1636,6 +1636,26 @@ def process_signals_fast(candidates, signal_data, processed_dict, strategies, st
         exit_price = df.iloc[exit_idx]['Close']
         exit_date = df.index[exit_idx]
         exit_type = "Time"
+
+        # End-of-entry-day drawdown stop (e.g. OVS at 0.25 ATR). Mirrors the
+        # live STP-with-goodAfterTime=15:58 leg added in eq_order_entry.py:
+        # if entry-day close is more than eod_dd_atr offside vs the actual
+        # fill, exit at that close. Only the daily loop is short-circuited;
+        # trade recording continues with this overridden exit.
+        eod_dd_atr_mult = float(execution.get('eod_dd_atr', 0.0) or 0.0)
+        eod_dd_triggered = False
+        if eod_dd_atr_mult > 0 and atr > 0:
+            entry_close = df.iloc[entry_idx]['Close']
+            if direction == 'Long':
+                dd = (entry_price - entry_close) / atr
+            else:
+                dd = (entry_close - entry_price) / atr
+            if dd > eod_dd_atr_mult:
+                exit_idx = entry_idx
+                exit_date = df.index[entry_idx]
+                exit_price = entry_close
+                exit_type = "EOD-DD"
+                eod_dd_triggered = True
         
         # Signal-deactivate exit: re-evaluate filter(s) each held day; exit at
         # that day's close if any filter fires. Complements stop/target. Useful
@@ -1672,7 +1692,7 @@ def process_signals_fast(candidates, signal_data, processed_dict, strategies, st
             return False
 
         # Check for stop/target/signal-deact hits day by day
-        if use_stop or use_target or use_signal_exit:
+        if not eod_dd_triggered and (use_stop or use_target or use_signal_exit):
             for check_idx in range(entry_idx + 1, max_exit_idx + 1):
                 check_row = df.iloc[check_idx]
                 day_low = check_row['Low']
