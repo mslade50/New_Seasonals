@@ -1,0 +1,49 @@
+name: Build Indicator Cache (weekly)
+
+# Precomputes the per-ticker indicator parquets the strat_backtester loads on
+# every cold start and mirrors them to R2 under bt_indicator_cache/. Streamlit
+# Cloud (and any fresh checkout) then pulls precomputed files instead of
+# rebuilding the expanding-rank columns on every backtest click - a
+# ~10-minute cold-start drops to a few-second download per ticker.
+#
+# Runs both backtester modes:
+#   * liquid   - per-strategy native universes (typically LIQUID_PLUS_COMMODITIES)
+#   * overflow - OVERFLOW_ELIGIBLE_STRATEGIES re-pointed at CSV_UNIVERSE ∪ sznl
+#
+# Weekly cadence: Mondays 07:00 UTC = 3 AM EDT / 2 AM EST. Strategy-book
+# changes between Monday runs will cold-build on Cloud the first time they
+# hit; the following Monday's build catches them up.
+
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
+on:
+  schedule:
+    - cron: '0 7 * * 1'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+
+      - name: Install dependencies
+        run: |
+          pip install pandas pyarrow numpy scipy boto3 yfinance
+
+      - name: Build + upload indicator cache
+        env:
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+        run: python scripts/build_indicator_cache.py

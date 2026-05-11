@@ -273,7 +273,17 @@ def download_to_local(key: str, local_path: str) -> bool:
         return True
     except Exception as e:
         _LAST_DOWNLOAD_ERROR = f"{type(e).__name__}: {e}"
-        print(f"[cache_io] download failed for r2://{bucket}/{key}: {e}", file=sys.stderr)
+        # 404 is the expected response for caches that haven't been built
+        # yet (new ticker, new params_sig). Don't spam stderr — the caller
+        # falls through to a local rebuild. Real failures (auth, network)
+        # still log loudly so they're visible in Streamlit Cloud / GHA.
+        is_not_found = (
+            "404" in str(e)
+            or "NoSuchKey" in type(e).__name__
+            or "Not Found" in str(e)
+        )
+        if not is_not_found:
+            print(f"[cache_io] download failed for r2://{bucket}/{key}: {e}", file=sys.stderr)
         return False
 
 

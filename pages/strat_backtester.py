@@ -949,6 +949,23 @@ def precompute_all_indicators(_master_dict, _strategies, _sznl_map, _vix_series,
             except Exception:
                 t_df = None
 
+        # R2 fallback: on local miss, try to pull a precomputed parquet from
+        # bt_indicator_cache/{filename}. Mirrors what the weekly GHA build
+        # writes — on Streamlit Cloud this turns a 10-minute cold rebuild
+        # into a few-second download. No-ops cleanly if R2 isn't configured.
+        if t_df is None:
+            try:
+                from cache_io import download_to_local, is_configured
+                if is_configured():
+                    r2_key = f"bt_indicator_cache/{os.path.basename(cache_path)}"
+                    if download_to_local(r2_key, cache_path):
+                        try:
+                            t_df = pd.read_parquet(cache_path)
+                        except Exception:
+                            t_df = None
+            except Exception:
+                pass
+
         if t_df is None:
             try:
                 # Compute base indicators WITHOUT xsec / ref cols so the cache is
