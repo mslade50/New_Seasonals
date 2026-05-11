@@ -11,10 +11,24 @@ fresh checkout) read prices without rebuilding from yfinance.
 """
 import os
 import time
+from typing import Optional
+
 import pandas as pd
 
 _ROOT = os.path.dirname(os.path.abspath(__file__))
 MASTER_PATH = os.path.join(_ROOT, "data", "master_prices.parquet")
+
+# Last reason _refresh_from_r2_if_needed bailed out without producing a fresh
+# parquet (missing cache_io, missing creds, boto3 exception, etc.). The
+# Streamlit pages read this via `last_r2_error()` and surface it in the
+# "master parquet not found" error so the underlying R2 failure is visible.
+_LAST_R2_ERROR: Optional[str] = None
+
+
+def last_r2_error() -> Optional[str]:
+    """Return the most recent R2 refresh failure reason, or None if the last
+    attempt succeeded / was skipped because the local cache was fresh."""
+    return _LAST_R2_ERROR
 
 _OHLCV_COLS = ["Open", "High", "Low", "Close", "Volume"]
 
@@ -32,22 +46,42 @@ def _refresh_from_r2_if_needed():
     Fresh checkouts pull on first use; subsequent reruns within the window
     use the local file. R2 isn't queried at all when creds aren't set —
     callers fall back to the local file (or fail closed via has_master).
+
+    Failure reasons are stashed in module-level `_LAST_R2_ERROR` so the
+    calling layer (Streamlit) can surface them instead of the generic
+    "master parquet not found" message.
     """
+    global _LAST_R2_ERROR
+    _LAST_R2_ERROR = None
     try:
-        from cache_io import is_configured, download_to_local
-    except ImportError:
+        from cache_io import is_configured, download_to_local, last_download_error
+    except ImportError as e:
+        _LAST_R2_ERROR = f"cache_io import failed: {e}"
+        print(f"[data_provider] {_LAST_R2_ERROR}")
         return
     if not is_configured():
+        _LAST_R2_ERROR = (
+            "R2 credentials not present (set R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, "
+            "R2_SECRET_ACCESS_KEY, R2_BUCKET in .env or environment)"
+        )
         return
     needs_pull = False
     if not os.path.exists(MASTER_PATH):
         needs_pull = True
+        reason = "local cache missing"
     else:
         age = time.time() - os.path.getmtime(MASTER_PATH)
         if age > _STALE_AFTER_SECONDS:
             needs_pull = True
+            reason = f"local cache stale ({age/3600:.1f}h > {_STALE_AFTER_SECONDS/3600:.0f}h)"
     if needs_pull:
-        download_to_local("master_prices.parquet", MASTER_PATH)
+        print(f"[data_provider] pulling master_prices.parquet from R2 ({reason})")
+        ok = download_to_local("master_prices.parquet", MASTER_PATH)
+        if not ok:
+            _LAST_R2_ERROR = (
+                last_download_error()
+                or "R2 download returned False (unknown error - check cache_io stderr)"
+            )
 
 
 def has_master():

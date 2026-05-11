@@ -49,6 +49,17 @@ _R2_REQUIRED_VARS = (
     "R2_BUCKET",
 )
 
+# Last error from a download_to_local attempt — callers (data_provider,
+# analyst_grades, etc.) read this to surface the underlying R2 failure to
+# the UI when a fetch silently fails. Reset to None on each download call.
+_LAST_DOWNLOAD_ERROR: Optional[str] = None
+
+
+def last_download_error() -> Optional[str]:
+    """Return the exception string from the most recent download_to_local
+    attempt, or None if it succeeded / was skipped."""
+    return _LAST_DOWNLOAD_ERROR
+
 
 def _r2_creds():
     """Return dict of R2 creds, or None if any required var is missing."""
@@ -117,11 +128,17 @@ def download_to_local(key: str, local_path: str) -> bool:
     """Download R2 object `key` to `local_path`. Returns True on success.
 
     No-ops (returns False) if R2 isn't configured. Creates the parent
-    directory if it doesn't exist.
+    directory if it doesn't exist. On failure, the exception is stashed in
+    `last_download_error()` so the calling layer (Streamlit, GHA) can show
+    *why* the fetch failed instead of just "file not found."
     """
+    global _LAST_DOWNLOAD_ERROR
+    _LAST_DOWNLOAD_ERROR = None
     client = _client()
     if client is None:
-        print(f"[cache_io] R2 not configured - skipping download of {key}")
+        msg = f"R2 not configured (missing one of {_R2_REQUIRED_VARS}) - skipping download of {key}"
+        _LAST_DOWNLOAD_ERROR = msg
+        print(f"[cache_io] {msg}")
         return False
     bucket = os.environ["R2_BUCKET"]
     parent = os.path.dirname(os.path.abspath(local_path))
@@ -133,7 +150,8 @@ def download_to_local(key: str, local_path: str) -> bool:
         print(f"[cache_io] downloaded r2://{bucket}/{key} -> {local_path} ({size:,} bytes)")
         return True
     except Exception as e:
-        print(f"[cache_io] download failed for {key}: {e}", file=sys.stderr)
+        _LAST_DOWNLOAD_ERROR = f"{type(e).__name__}: {e}"
+        print(f"[cache_io] download failed for r2://{bucket}/{key}: {e}", file=sys.stderr)
         return False
 
 

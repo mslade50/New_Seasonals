@@ -3264,10 +3264,12 @@ def main():
                     import data_provider
                     if data_provider.has_master():
                         return data_provider.get_history(tickers, start=start)
-                    st.warning(
-                        "Master parquet not found at data/master_prices.parquet — "
-                        "falling back to yfinance for this run."
-                    )
+                    r2_err = data_provider.last_r2_error()
+                    warn = "Master parquet not found at data/master_prices.parquet"
+                    if r2_err:
+                        warn += f" (R2 refresh failed: {r2_err})"
+                    warn += " — falling back to yfinance for this run."
+                    st.warning(warn)
                 except Exception as _e:
                     st.warning(f"data_provider unavailable ({_e}); using yfinance.")
             return download_universe_data(tickers, start)

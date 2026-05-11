@@ -2520,11 +2520,19 @@ def main():
         if use_master_parquet:
             import data_provider
             if not data_provider.has_master():
-                st.error(
-                    "Master parquet not found at data/master_prices.parquet. "
-                    "Run `python scripts/build_master_prices.py` first, or "
+                r2_err = data_provider.last_r2_error()
+                msg = (
+                    "Master parquet not found at data/master_prices.parquet "
+                    "and R2 refresh did not produce one."
+                )
+                if r2_err:
+                    msg += f"\n\nR2 failure reason: `{r2_err}`"
+                msg += (
+                    "\n\nFix: run `python scripts/build_master_prices.py` to "
+                    "rebuild locally, check R2 credentials in `.env`, or "
                     "uncheck 'Use master parquet' to fall back to yfinance."
                 )
+                st.error(msg)
                 return
             t0_load = time.time()
             master_dict = data_provider.get_history(long_term_list)
