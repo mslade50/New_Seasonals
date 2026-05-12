@@ -169,7 +169,9 @@ def calculate_path(df, cycle_label, cycle_start_mapping, use_atr=False,
 # -----------------------------------------------------------------------------
 # MAIN LOGIC
 # -----------------------------------------------------------------------------
-def seasonals_chart(ticker, cycle_label, enable_time_travel, reference_year, show_all_years_line, show_pct=True, show_atr=True, half_life=20):
+def seasonals_chart(ticker, cycle_label, enable_time_travel, reference_year,
+                    show_all_years_line, show_pct=True, show_atr=True,
+                    half_life=20, fast_forward_date=None):
     cycle_start_mapping = {
         "Election": 1952,
         "Pre-Election": 1951,
@@ -293,17 +295,32 @@ def seasonals_chart(ticker, cycle_label, enable_time_travel, reference_year, sho
     # -------------------------------------------------------------------------
     today = dt.date.today()
 
+    # Choose the "where on the calendar are we?" reference date. When fast
+    # forward is on, use the picked date's month/day (the year is forced to
+    # target_year so the marker lands on the right cycle). Falls back
+    # gracefully on Feb 29 in non-leap years. When fast forward is off, use
+    # today's actual date (or today's month/day in target_year for time
+    # travel) — preserves the original behavior.
+    ff_month_day = None
+    if fast_forward_date is not None:
+        ff_month_day = (fast_forward_date.month, fast_forward_date.day)
+    pick_month = ff_month_day[0] if ff_month_day else today.month
+    pick_day = ff_month_day[1] if ff_month_day else today.day
+
     if enable_time_travel:
         target_year = reference_year
         try:
-            target_date_start = dt.date(target_year, today.month, today.day)
+            target_date_start = dt.date(target_year, pick_month, pick_day)
         except ValueError:
             target_date_start = dt.date(target_year, 2, 28)
         df_context = spx[spx["year"] == target_year]
         marker_color = "#FCD12A"
     else:
         target_year = current_year
-        target_date_start = today
+        try:
+            target_date_start = dt.date(target_year, pick_month, pick_day) if ff_month_day else today
+        except ValueError:
+            target_date_start = dt.date(target_year, 2, 28)
         df_context = spx[spx["year"] == target_year]
         marker_color = "white"
 
@@ -313,6 +330,27 @@ def seasonals_chart(ticker, cycle_label, enable_time_travel, reference_year, sho
         if closest_idx >= len(df_context):
             closest_idx = len(df_context) - 1
         day_count_marker = df_context.iloc[closest_idx]["day_count"]
+
+    # Fast-forward to a date we don't have data for yet (e.g. picking Dec 1
+    # in May). df_context's last row's day_count isn't what we want — fall
+    # back to the prior completed year's day_count for the same calendar
+    # date so the marker lands at the right point on the seasonal path.
+    if ff_month_day is not None and not df_context.empty:
+        last_date_in_context = df_context.index.max().date()
+        if target_date_start > last_date_in_context:
+            for fallback_year in range(target_year - 1, target_year - 6, -1):
+                df_fb = spx[spx["year"] == fallback_year]
+                if df_fb.empty:
+                    continue
+                try:
+                    target_fb = dt.date(fallback_year, pick_month, pick_day)
+                except ValueError:
+                    target_fb = dt.date(fallback_year, 2, 28)
+                idx_fb = df_fb.index.searchsorted(dt.datetime.combine(target_fb, dt.time.min))
+                if idx_fb >= len(df_fb):
+                    idx_fb = len(df_fb) - 1
+                day_count_marker = df_fb.iloc[idx_fb]["day_count"]
+                break
 
     # -------------------------------------------------------------------------
     # HELPER: Build customdata array with date + seasonal rank (+ theoretical price)
@@ -772,6 +810,29 @@ def main():
             else:
                 reference_year = current_year
                 st.write("")
+        # Fast-forward control: pick any date and the chart marker + the
+        # forward-returns table snap to that calendar day. The year of the
+        # picked date is ignored — only month/day matters; it's projected
+        # onto target_year (current_year or the time-travel reference year).
+        c3_3, c3_4 = st.columns([1, 1])
+        with c3_3:
+            fast_forward_enabled = st.checkbox(
+                "Fast forward",
+                value=False,
+                help="Pick a specific calendar day to anchor the marker / forward stats on, "
+                     "instead of today's date.",
+            )
+        with c3_4:
+            if fast_forward_enabled:
+                fast_forward_date = st.date_input(
+                    "FF date",
+                    value=dt.date.today(),
+                    key="ff_date",
+                    help="Only the month and day are used; the year is forced to the target year.",
+                )
+            else:
+                fast_forward_date = None
+                st.write("")
 
     with col4:
         show_all_years_line = st.checkbox("Overlay 'All Years' Avg", value=False)
@@ -787,7 +848,9 @@ def main():
         try:
             with st.spinner("Calculating cycle stats..."):
                 seasonals_chart(ticker, cycle_label, enable_time_travel, reference_year,
-                                show_all_years_line, show_pct, show_atr, half_life=half_life)
+                                show_all_years_line, show_pct, show_atr,
+                                half_life=half_life,
+                                fast_forward_date=fast_forward_date)
         except Exception as e:
             st.error(f"Error generating chart: {e}")
 
