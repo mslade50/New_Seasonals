@@ -25,13 +25,14 @@ parent_dir = os.path.dirname(current_dir)
 sys.path.append(parent_dir)
 
 try:
-    from strategy_config import _STRATEGY_BOOK_RAW, ACCOUNT_VALUE, CSV_UNIVERSE, LIQUID_PLUS_COMMODITIES
+    from strategy_config import _STRATEGY_BOOK_RAW, ACCOUNT_VALUE, CSV_UNIVERSE, LIQUID_PLUS_COMMODITIES, SPOT_TO_TRADEABLE
 except ImportError:
     # st.error("Could not find strategy_config.py in the root directory.")
     _STRATEGY_BOOK_RAW = []
     CSV_UNIVERSE = []
     LIQUID_PLUS_COMMODITIES = []
     ACCOUNT_VALUE = 150000
+    SPOT_TO_TRADEABLE = {}
 
 # Strategies that the overflow scanner runs against the broader CSV_UNIVERSE.
 # When the "Run on Overflow Universe" UI toggle is on, strat_backtester swaps
@@ -1850,6 +1851,45 @@ def process_signals_fast(candidates, signal_data, processed_dict, strategies, st
                 sig_df.loc[grp_idx, 'PnL']    = (sig_df.loc[grp_idx, 'PnL']    * scale).round()
                 sig_df.loc[grp_idx, 'Risk $'] = sig_df.loc[grp_idx, 'Risk $']  * scale
 
+    # ---- Cross-Strategy Overlap Clamp ----
+    # Apply CROSS_STRATEGY_OVERLAP_OVERRIDES. For each pair defined there,
+    # scan sig_df for (Date, tradeable) collisions and scale each side's
+    # Shares/PnL/Risk $ down to the configured clamp bps. SPOT_TO_TRADEABLE
+    # is applied so spot/ETF pairs (e.g. ^GSPC + SPY) collide as expected.
+    try:
+        from strategy_config import CROSS_STRATEGY_OVERLAP_OVERRIDES as _CSOO
+    except ImportError:
+        _CSOO = []
+    if _CSOO and len(sig_df) > 0 and 'Strategy' in sig_df.columns and 'Risk bps' in sig_df.columns:
+        sig_df['_TradedAs'] = sig_df['Ticker'].map(lambda t: SPOT_TO_TRADEABLE.get(t, t))
+        for _ovr in _CSOO:
+            _pair = set(_ovr['strategies'])
+            _clamp = float(_ovr['risk_bps_when_overlapping'])
+            _hits = sig_df[sig_df['Strategy'].isin(_pair)]
+            if _hits.empty:
+                continue
+            _keys = (
+                _hits.groupby(['Date', '_TradedAs'])['Strategy']
+                .nunique().reset_index(name='_N')
+            )
+            _ov_keys = _keys[_keys['_N'] >= 2][['Date', '_TradedAs']]
+            if _ov_keys.empty:
+                continue
+            # Scale each overlapping row by clamp / original Risk bps.
+            for _, _row in _ov_keys.iterrows():
+                _mask = (
+                    (sig_df['Date'] == _row['Date']) &
+                    (sig_df['_TradedAs'] == _row['_TradedAs']) &
+                    (sig_df['Strategy'].isin(_pair))
+                )
+                _orig_bps = sig_df.loc[_mask, 'Risk bps'].astype(float)
+                _scale_per_row = (_clamp / _orig_bps).clip(upper=1.0)  # never scale UP
+                sig_df.loc[_mask, 'Shares'] = (sig_df.loc[_mask, 'Shares'] * _scale_per_row).round().astype(int)
+                sig_df.loc[_mask, 'PnL']    = (sig_df.loc[_mask, 'PnL']    * _scale_per_row).round()
+                sig_df.loc[_mask, 'Risk $'] = sig_df.loc[_mask, 'Risk $']  * _scale_per_row
+                sig_df.loc[_mask, 'Risk bps'] = np.minimum(_orig_bps, _clamp)
+        sig_df = sig_df.drop(columns='_TradedAs')
+
     return sig_df.sort_values(by="Exit Date")
 
 def get_daily_mtm_series(sig_df, master_dict, start_date=None):
@@ -3090,8 +3130,80 @@ def main():
                 col4.metric("Max Net Exposure", f"{exposure_df['Net Exposure %'].max():.1f}%")
 
             st.divider()
+            # ---- Cross-Strategy Signal Overlap (same signal Date) ----
+            # Resolve each row to its tradeable ticker via SPOT_TO_TRADEABLE so
+            # an Indices Oversold Bounce fire on ^GSPC gets bucketed with a
+            # SPY QQQ MonFri Reversion fire on SPY. Then surface dates where
+            # >= 2 distinct strategies fired on the same tradeable. This is
+            # the order-staging cross-contamination view — same-day fires
+            # that would compete for capital under the daily risk cap.
+            st.subheader("Cross-Strategy Signal Overlap (same date, same tradeable)")
+            if 'Strategy' in sig_df.columns and 'Ticker' in sig_df.columns:
+                _ov = sig_df[['Date', 'Strategy', 'Ticker', 'Action', 'Risk $']].copy()
+                _ov['Date'] = pd.to_datetime(_ov['Date']).dt.normalize()
+                _ov['TradedAs'] = _ov['Ticker'].map(lambda t: SPOT_TO_TRADEABLE.get(t, t))
+                # Count distinct strategies per (Date, TradedAs)
+                _grp = _ov.groupby(['Date', 'TradedAs'])['Strategy'].nunique().reset_index(name='NumStrats')
+                _ov_keys = _grp[_grp['NumStrats'] >= 2][['Date', 'TradedAs']]
+                if len(_ov_keys) == 0:
+                    st.success("No same-date / same-tradeable overlaps across the selected strategies.")
+                else:
+                    _hits = _ov.merge(_ov_keys, on=['Date', 'TradedAs'], how='inner')
+                    # Pivot one row per (Date, TradedAs) with each strategy as a column showing Action
+                    _pivot = _hits.pivot_table(
+                        index=['Date', 'TradedAs'],
+                        columns='Strategy',
+                        values='Action',
+                        aggfunc=lambda s: ' / '.join(sorted(set(s))),
+                    ).reset_index()
+                    _pivot = _pivot.sort_values('Date', ascending=False).rename(columns={'TradedAs': 'Traded As'})
+
+                    # Pair-frequency summary (which strategy pairs co-fire most often)
+                    _pairs = []
+                    for (_d, _t), _g in _hits.groupby(['Date', 'TradedAs']):
+                        _strats = sorted(set(_g['Strategy']))
+                        for i in range(len(_strats)):
+                            for j in range(i + 1, len(_strats)):
+                                _pairs.append((_strats[i], _strats[j]))
+                    if _pairs:
+                        _pair_df = pd.DataFrame(_pairs, columns=['Strategy A', 'Strategy B'])
+                        _pair_summary = (
+                            _pair_df.groupby(['Strategy A', 'Strategy B']).size()
+                            .reset_index(name='Co-Fire Days')
+                            .sort_values('Co-Fire Days', ascending=False)
+                        )
+                    else:
+                        _pair_summary = pd.DataFrame(columns=['Strategy A', 'Strategy B', 'Co-Fire Days'])
+
+                    _c1, _c2 = st.columns([2, 1])
+                    with _c1:
+                        st.markdown(f"**{len(_ov_keys)} overlap days** across {_ov_keys['TradedAs'].nunique()} tickers.")
+                        st.dataframe(
+                            _pivot.style.format({'Date': '{:%Y-%m-%d}'}),
+                            use_container_width=True,
+                            hide_index=True,
+                            height=380,
+                        )
+                    with _c2:
+                        st.markdown("**Strategy pair co-fire frequency**")
+                        st.dataframe(
+                            _pair_summary,
+                            use_container_width=True,
+                            hide_index=True,
+                            height=380,
+                        )
+                    st.caption(
+                        "TradedAs maps ^GSPC -> SPY and ^NDX -> QQQ via SPOT_TO_TRADEABLE so "
+                        "spot-index signals get bucketed with their tradeable ETF fires. "
+                        "Each cell shows the Action(s) that strategy took on that date "
+                        "(typically the same direction; opposing actions flag a contradiction)."
+                    )
+            else:
+                st.info("Signal frame missing Strategy or Ticker columns; cannot compute overlap.")
+
+            st.divider()
             # (Portfolio Breakdown and Drawdown Deep Dive removed; kept Trade Log below.)
-            st.subheader("📜 Trade Log")
+            st.subheader("Trade Log")
             display_cols = ["Date", "Entry Date", "Exit Date", "Exit Type", "Strategy", "Ticker", "Action",
                           "Entry Criteria", "Signal Close", "T+1 Open", "Price", "Shares", "PnL", 
                           "ATR", "Equity at Signal", "Risk $"]
