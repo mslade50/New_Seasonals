@@ -44,6 +44,19 @@ INDICES_SPOT = ['^GSPC', '^NDX']
 # (use ETF's ATR, close, etc.) and stages the order on the ETF as a 1:1 alias.
 SPOT_TO_TRADEABLE = {'^GSPC': 'SPY', '^NDX': 'QQQ'}
 
+# Cross-strategy risk clamps. When two strategies in `strategies` fire on the
+# same signal date AND the same tradeable ticker (compared after
+# SPOT_TO_TRADEABLE substitution), each side's per-trade risk is reduced to
+# `risk_bps_when_overlapping`. Prevents same-day, same-tradeable double-up
+# across structurally similar strategies that would otherwise compete for the
+# same dollar of capital under the aggregate daily risk cap.
+CROSS_STRATEGY_OVERLAP_OVERRIDES = [
+    {
+        'strategies': ('Indices Oversold Bounce', 'SPY QQQ MonFri Reversion'),
+        'risk_bps_when_overlapping': 20,
+    },
+]
+
 # Sector + Index ETFs for rotation strategies (26 tickers)
 SECTOR_INDEX_ETFS = [
     'DIA', 'IBB', 'IHI', 'ITA', 'ITB', 'IWM', 'IYR', 'KRE', 'QQQ', 'SMH',
@@ -497,94 +510,6 @@ _STRATEGY_BOOK_RAW = [
         "stats": {"grade": "A (Excellent)", "win_rate": "58.0%", "expectancy": "0.28r", "profit_factor": "1.96"}
     },
     {
-        "id": "21d > 90%ile, T+1 Open > Close +0.25 ATR, T+1 Open > High +0.05 ATR, Entry: Limit (Open +/- 0.5 ATR), 2d hold",
-        "name": "SPX OB Fade",
-        "setup": {
-            "type": "MeanReversion",
-            "timeframe": "Overnight",
-            "thesis": "Overbought fade on SPX-tracking instruments — only takes the trade when T+1 opens decisively above the prior day (>= close + 0.25 ATR AND >= prior high + 0.05 ATR), so we're fading a confirmed gap-up rather than a flat or weak open.",
-            "key_filters": [
-                "21D rank > 90th %ile",
-                "Net change between 0.25 and 10.0 ATR (up day)",
-                "T+1 Open > Close + 0.25 ATR",
-                "T+1 Open > High + 0.05 ATR"
-            ]
-        },
-        "exit_summary": {
-            "primary_exit": "Target, Stop, or 2-day time stop",
-            "stop_logic": "1.0 ATR above entry",
-            "target_logic": "2.0 ATR below entry",
-            "notes": "Detection on ^GSPC (purer price); orders staged 1:1 on SPY via SPOT_TO_TRADEABLE."
-        },
-        "description": "Backtest: 2000-01-01 to present. Detection on ^GSPC (purer price); orders staged 1:1 on SPY via SPOT_TO_TRADEABLE. Short overbought fade with T+1 gap-up confirmation. 35 bps, 2d hold, 1.0 ATR stop, 2.0 ATR target.",
-        "universe_tickers": ['^GSPC'],
-        "settings": {
-            "trade_direction": "Short",
-            "entry_type": "Limit (Open +/- 0.5 ATR)",
-            "max_one_pos": False,
-            "allow_same_day_reentry": False,
-            "max_daily_entries": 20,
-            "max_total_positions": 99,
-            "entry_conf_bps": 0,
-            "perf_filters": [
-                {'window': 21, 'logic': '>', 'thresh': 90.0, 'thresh_max': 100.0, 'consecutive': 1},
-            ],
-            "perf_atr_filters": [],
-            "perf_first_instance": False, "perf_lookback": 21,
-            "ma_consec_filters": [],
-            "use_sznl": False, "sznl_logic": "<", "sznl_thresh": 15.0, "sznl_first_instance": False, "sznl_lookback": 21,
-            "use_market_sznl": False, "market_sznl_logic": "<", "market_sznl_thresh": 15.0,
-            "market_ticker": "^GSPC",
-            "use_52w": False, "52w_type": "New 52w High", "52w_first_instance": False, "52w_lookback": 21, "52w_lag": 0, "exclude_52w_high": False,
-            "use_ath": False, "ath_type": "Today is ATH",
-            "use_recent_ath": False, "recent_ath_invert": False, "ath_lookback_days": 21,
-            "use_recent_52w": False, "recent_52w_invert": False, "recent_52w_lookback": 21,
-            "use_recent_52w_low": False, "recent_52w_low_invert": False, "recent_52w_low_lookback": 21,
-            "breakout_mode": "None",
-            "require_close_gt_open": False,
-            "use_range_filter": False, "range_min": 0, "range_max": 100,
-            "use_atr_ret_filter": True, "atr_ret_min": 0.25, "atr_ret_max": 10.0,
-            "use_range_atr_filter": False, "range_atr_logic": ">", "range_atr_min": 1.0, "range_atr_max": 3.0,
-            "price_action_filters": [],
-            "use_ma_dist_filter": False, "dist_ma_type": "SMA 10", "dist_logic": "Greater Than (>)", "dist_min": 0.0, "dist_max": 2.0,
-            "use_weekly_ma_pullback": False, "wma_type": "EMA", "wma_period": 8,
-            "wma_min_ext_pct": 30.0, "wma_lookback_months": 6, "wma_touch_logic": "Low <= MA",
-            "vol_gt_prev": False,
-            "use_vol": False, "vol_logic": ">", "vol_thresh": 1.5, "vol_thresh_max": 10.0,
-            "use_vol_rank": False, "vol_rank_logic": "<", "vol_rank_thresh": 50.0,
-            "use_acc_count_filter": False, "acc_count_window": 21, "acc_count_logic": ">", "acc_count_thresh": 3,
-            "use_dist_count_filter": False, "dist_count_window": 21, "dist_count_logic": ">", "dist_count_thresh": 3,
-            "use_gap_filter": False, "gap_lookback": 21, "gap_logic": ">", "gap_thresh": 3,
-            "trend_filter": "None",
-            "use_vix_filter": False, "vix_min": 0.0, "vix_max": 20.0,
-            "min_price": 10.0, "min_vol": 100000,
-            "min_age": 0.25, "max_age": 100.0,
-            "min_atr_pct": 0.2, "max_atr_pct": 10.0,
-            "use_dow_filter": False, "allowed_days": [0, 1, 2, 3, 4],
-            "allowed_cycles": [1, 2, 3, 0],
-            "excluded_years": [],
-            "use_ref_ticker_filter": False, "ref_ticker": "IWM", "ref_filters": [],
-            "use_t1_open_filter": True,
-            "t1_open_filters": [
-                {'logic': '>', 'reference': 'Close', 'atr_offset': 0.25},
-                {'logic': '>', 'reference': 'High', 'atr_offset': 0.05},
-            ],
-            "use_xsec_filter": False, "xsec_filters": [],
-            "atr_sznl_filters": [],
-            "dial_filters": []
-        },
-        "execution": {
-            "risk_bps": 35,
-            "slippage_bps": 2,
-            "stop_atr": 1.0,
-            "tgt_atr": 2.0,
-            "hold_days": 2,
-            "use_stop_loss": True,
-            "use_take_profit": True
-        },
-        "stats": {"grade": "A (Excellent)", "win_rate": "75.0%", "expectancy": "0.58r", "profit_factor": "3.82"}
-    },
-    {
         "id": "2d+5d+10d+21d < 15%ile, 252d between 65-90, range 0-15, today ret -10..-0.25 ATR, 100sma 20 consec above, 200sma 50 consec above, age >= 5y, ±10 earnings blackout, GTC limit close-0.25 ATR, 2 ATR tgt, 1d hold",
         "name": "LT Trend ST OS",
         "setup": {
@@ -1007,6 +932,93 @@ _STRATEGY_BOOK_RAW = [
         "stats": {"grade": "A (Excellent)", "win_rate": "64.6%", "expectancy": "0.34r", "profit_factor": "1.90"}
     },
     {
+        "id": "2d < 85%ile, Close 0-15% range, VIX >= 13, Mon/Fri only, Entry: Limit (Open +/- 0.25 ATR), 2d hold",
+        "name": "SPY QQQ MonFri Reversion",
+        "setup": {
+            "type": "MeanReversion",
+            "timeframe": "Overnight",
+            "thesis": "Short-horizon mean-reversion harvest on SPY/QQQ — fades closes that finished in the lower 15% of the daily range, but only on Mondays and Fridays where weekly seasonality tends to amplify reversal odds. VIX >= 13 gate ensures there's enough realized vol for the 2-day mean reversion drift to be worth harvesting. Time stop captures the bulk of the edge; 1 ATR stop / 2 ATR target are path bounds that net to roughly zero.",
+            "key_filters": [
+                "2D rank < 85th %ile",
+                "Close in 0-15% of daily range",
+                "VIX >= 13",
+                "Entry days: Mon, Fri",
+            ]
+        },
+        "exit_summary": {
+            "primary_exit": "Target, Stop, or 2-day time stop",
+            "stop_logic": "1.0 ATR below entry",
+            "target_logic": "2.0 ATR above entry",
+            "notes": "Mon/Fri-only mean-reversion harvest on liquid index ETFs. Time exit is the dominant PnL contributor — stops and targets approximately cancel."
+        },
+        "description": "Backtest: 2000-01-01 to present. Universe: SPY, QQQ. Dir: Long. WR 62.9% / PF 2.21 / Exp 0.40r. 35 bps, 2d hold, 1 ATR stop, 2 ATR target.",
+        "universe_tickers": ['SPY', 'QQQ'],
+        "settings": {
+            "trade_direction": "Long",
+            "entry_type": "Limit (Open +/- 0.25 ATR)",
+            "max_one_pos": False,
+            "allow_same_day_reentry": False,
+            "max_daily_entries": 20,
+            "max_total_positions": 99,
+            "entry_conf_bps": 0,
+            "perf_filters": [{'window': 2, 'logic': '<', 'thresh': 85.0, 'thresh_max': 100.0, 'consecutive': 1}],
+            "perf_atr_filters": [],
+            "perf_first_instance": False, "perf_lookback": 21,
+            "ma_consec_filters": [],
+            "use_sznl": False, "sznl_logic": '<', "sznl_thresh": 15.0, "sznl_first_instance": False, "sznl_lookback": 21,
+            "use_market_sznl": False, "market_sznl_logic": '<', "market_sznl_thresh": 15.0, "market_ticker": "^GSPC",
+            "use_52w": False, "52w_type": "New High", "52w_first_instance": False, "52w_lookback": 21, "52w_lag": 0, "52w_window": 252,
+            "exclude_52w_high": False,
+            "use_ath": False, "ath_type": "Today is ATH",
+            "use_recent_ath": False, "recent_ath_invert": False, "ath_lookback_days": 21,
+            "use_recent_52w": False, "recent_52w_invert": False, "recent_52w_lookback": 21,
+            "use_recent_52w_low": False, "recent_52w_low_invert": False, "recent_52w_low_lookback": 21,
+            "breakout_mode": "None",
+            "require_close_gt_open": False,
+            "use_range_filter": True, "range_min": 0, "range_max": 15,
+            "use_atr_ret_filter": False, "atr_ret_min": 0.5, "atr_ret_max": 10.0,
+            "use_range_atr_filter": False, "range_atr_logic": '>', "range_atr_min": 1.0, "range_atr_max": 3.0,
+            "use_open_gap_atr_filter": False, "open_gap_atr_logic": '>', "open_gap_atr_min": 0.0, "open_gap_atr_max": 1.0,
+            "price_action_filters": [],
+            "use_ma_dist_filter": False, "dist_ma_type": "SMA 50", "dist_logic": "Greater Than (>)", "dist_min": 6.0, "dist_max": 20.0,
+            "use_weekly_ma_pullback": False, "wma_type": "EMA", "wma_period": 8, "wma_min_ext_pct": 30.0, "wma_lookback_months": 6, "wma_touch_logic": "Low <= MA",
+            "use_volret_delta": False, "vrd_method": "Z-score diff", "vrd_rank_window": "Expanding", "vrd_vol_halflife": 20, "vrd_ret_horizon": 20, "vrd_delta_n": 5, "vrd_min_periods": 252, "vrd_pctile_min": 70.0, "vrd_pctile_max": 90.0,
+            "use_tr_vcr_filter": False, "tr_vcr_metric": "Trend Ratio (TR)", "tr_vcr_window": 20, "tr_vcr_sample_freq": 5, "tr_vcr_min_periods": 252, "tr_vcr_rank_window": "Expanding", "tr_vcr_filter_mode": "Percentile rank", "tr_vcr_pctile_min": 70.0, "tr_vcr_pctile_max": 100.0, "tr_vcr_raw_min": 1.0, "tr_vcr_raw_max": 5.0, "tr_vcr_raw_logic": "Between", "tr_vcr_regime_quadrants": ('grinding_trend',), "tr_vcr_min_consec": 1, "tr_vcr_consec_first": False,
+            "vol_gt_prev": False,
+            "use_vol": False, "vol_logic": '>', "vol_thresh": 1.5, "vol_thresh_max": 10.0,
+            "use_vol_rank": False, "vol_rank_logic": '<', "vol_rank_thresh": 50.0,
+            "use_acc_count_filter": False, "acc_count_window": 21, "acc_count_logic": '>', "acc_count_thresh": 3,
+            "use_dist_count_filter": False, "dist_count_window": 21, "dist_count_logic": '>', "dist_count_thresh": 3,
+            "use_gap_filter": False, "gap_lookback": 21, "gap_logic": '>', "gap_thresh": 3,
+            "trend_filter": "None",
+            "use_vix_filter": True, "vix_min": 13.0, "vix_max": 100.0,
+            "min_price": 10.0, "min_vol": 100000,
+            "min_age": 0.25, "max_age": 100.0,
+            "min_atr_pct": 0.2, "max_atr_pct": 10.0,
+            "use_dow_filter": True, "allowed_days": [0, 4],
+            "allowed_cycles": [1, 2, 3, 0],
+            "excluded_years": [],
+            "use_ref_ticker_filter": False, "ref_ticker": "IWM", "ref_filters": [],
+            "use_t1_open_filter": False, "t1_open_filters": [],
+            "use_xsec_filter": False, "xsec_filters": [],
+            "atr_sznl_filters": []
+        },
+        "execution": {
+            "risk_bps": 35,
+            "risk_per_trade": "[EDIT: calculated from account size]",
+            "slippage_bps": 2,
+            "stop_atr": 1.0,
+            "tgt_atr": 2.0,
+            "hold_days": 2,
+            "use_stop_loss": True,
+            "use_take_profit": True,
+            "use_trailing_stop": False,
+            "trail_atr": 2.0,
+            "trail_anchor": "Peak High"
+        },
+        "stats": {"grade": "A (Excellent)", "win_rate": "62.9%", "expectancy": "0.40r", "profit_factor": "2.21"}
+    },
+    {
         "id": "252d Between 65-90%ile, New 52wH first in 21d, XSec 252d > 85%ile, Entry: Limit Order -0.5 ATR (Persistent), 63d hold",
         "name": "Sector BO",
         "setup": {
@@ -1095,22 +1107,23 @@ _STRATEGY_BOOK_RAW = [
         },
         "stats": {"grade": "A (Excellent)", "win_rate": "28.9%", "expectancy": "1.17r", "profit_factor": "2.53"}
     },
-    {'id': '2d < 50%ile, Entry: Limit (Open +/- 0.25 ATR), 2d hold',
+    {'id': '2d < 50%ile, VIX >= 13, Entry: Limit (Open +/- 0.25 ATR), 2d hold',
      'name': 'Monday Dip',
      'setup': {'type': 'Custom',
                'timeframe': 'Overnight',
-               'thesis': 'Short term oversold, closing near the lows of the day. Expecting mean reversion.',
+               'thesis': 'Short term oversold, closing near the lows of the day. Expecting mean reversion. Universe trimmed to IWM/DIA/SMH (SPY/QQQ carved out to the SPY QQQ MonFri Reversion strat to avoid same-day cross-fire). VIX >= 13 floor ensures enough realized vol for the 2-day drift to be worth harvesting.',
                'key_filters': ['2D rank < 50th %ile',
                                '5D ATR seasonal rank > 15th %ile',
                                'Close above 200 SMA (15d consecutive)',
                                'Close in 0-15% of daily range',
+                               'VIX >= 13',
                                'Entry days: Mon']},
      'exit_summary': {'primary_exit': 'Target, Stop, or 2-day time stop',
                       'stop_logic': '1.0 ATR below entry',
                       'target_logic': '2.0 ATR above entry',
-                      'notes': None},
-     'description': 'Backtest: 2000-01-01 to present. Tested on 5 tickers.',
-     'universe_tickers': INDEX_ETFS,
+                      'notes': 'SPY/QQQ excluded — handled by SPY QQQ MonFri Reversion to prevent same-date overlap.'},
+     'description': 'Backtest: 2000-01-01 to present. Universe: IWM, DIA, SMH (SPY/QQQ excluded). VIX >= 13 gate added. Stats below are pre-change (5-ticker, no VIX gate) — re-run to refresh.',
+     'universe_tickers': ['IWM', 'DIA', 'SMH'],
      'settings': {'trade_direction': 'Long',
                   'entry_type': 'Limit (Open +/- 0.25 ATR)',
                   'max_one_pos': True,
@@ -1194,9 +1207,9 @@ _STRATEGY_BOOK_RAW = [
                   'gap_logic': '>',
                   'gap_thresh': 3,
                   'trend_filter': 'None',
-                  'use_vix_filter': False,
-                  'vix_min': 0.0,
-                  'vix_max': 20.0,
+                  'use_vix_filter': True,
+                  'vix_min': 13.0,
+                  'vix_max': 100.0,
                   'min_price': 10.0,
                   'min_vol': 100000,
                   'min_age': 0.25,
@@ -1215,7 +1228,7 @@ _STRATEGY_BOOK_RAW = [
                   'use_xsec_filter': False,
                   'xsec_filters': [],
                   'atr_sznl_filters': [{'window': 5, 'logic': '>', 'thresh': 15.0, 'thresh_max': 100.0, 'consecutive': 1}]},
-     'execution': {'risk_bps': 35,
+     'execution': {'risk_bps': 30,
                    'risk_per_trade': '[EDIT: calculated from account size]',
                    'slippage_bps': 2,
                    'stop_atr': 1.0,
