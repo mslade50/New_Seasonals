@@ -14,7 +14,30 @@ import json
 from indicators import calculate_indicators, apply_first_instance_filter, get_sznl_val_series
 from tr_vcr import log_returns as _tr_log_returns, rv_daily as _tr_rv_daily, rv_sampled as _tr_rv_sampled, vcr as _tr_vcr
 
-MARKET_TICKER = "^GSPC" 
+try:
+    from strategy_config import STRATEGY_BOOK as _STRATEGY_BOOK
+except Exception:
+    _STRATEGY_BOOK = []
+
+# Params keys that always come from the UI widgets, never overridden by a
+# loaded preset. Everything else in the preset's `settings` dict overrides
+# the corresponding param value at Run Backtest time.
+_USER_ADJUSTABLE_PARAM_KEYS = frozenset({
+    'universe_tickers', 'backtest_start_date',
+    'entry_type', 'entry_conf_bps',
+    'stop_atr', 'tgt_atr', 'holding_days',
+    'use_stop_loss', 'use_take_profit', 'time_exit_only',
+    'use_trailing_stop', 'trail_atr', 'trail_anchor',
+    'use_eod_dd_exit', 'eod_dd_atr',
+    'use_partial_exits', 'partial_target_fraction',
+    'use_intraday',
+    'slippage_bps',
+    'use_max_daily_risk', 'max_daily_risk_pct',
+    'max_one_pos', 'allow_same_day_reentry',
+    'max_daily_entries', 'max_total_positions',
+})
+
+MARKET_TICKER = "^GSPC"
 VIX_TICKER = "^VIX"
 
 SECTOR_ETFS = ["IBB", "IHI", "ITA", "ITB", "IYR", "KRE", "OIH", "SMH", "VNQ",
@@ -2365,6 +2388,55 @@ def run_engine(universe_dict, params, sznl_map, market_series=None, vix_series=N
 def main():
     st.set_page_config(layout="wide", page_title="Quantitative Backtester")
     st.title("Quantitative Strategy Backtester")
+
+    # Strategy preset loader. When active, the preset's `settings` dict
+    # overrides every params field NOT in _USER_ADJUSTABLE_PARAM_KEYS at
+    # Run Backtest time. The filter widgets below are visually ignored
+    # while a preset is loaded — the banner makes that explicit.
+    _active_preset = st.session_state.get('_active_preset')
+    with st.expander(
+        f"Load Strategy Preset  [{_active_preset['name']}]" if _active_preset
+        else "Load Strategy Preset",
+        expanded=False,
+    ):
+        if not _STRATEGY_BOOK:
+            st.warning("strategy_config.STRATEGY_BOOK not importable — preset loader disabled.")
+        else:
+            _preset_names = ['(none)'] + [s['name'] for s in _STRATEGY_BOOK]
+            _default_idx = 0
+            if _active_preset and _active_preset['name'] in _preset_names:
+                _default_idx = _preset_names.index(_active_preset['name'])
+            _pick = st.selectbox(
+                "Strategy",
+                _preset_names,
+                index=_default_idx,
+                key='_preset_pick',
+                help=(
+                    "Loading a preset overrides every filter/condition at Run Backtest time. "
+                    "Universe, dates, entry/exit, and risk inputs remain user-adjustable."
+                ),
+            )
+            pc1, pc2, _ = st.columns([1, 1, 4])
+            with pc1:
+                if st.button("Load Preset", disabled=(_pick == '(none)')):
+                    chosen = next((s for s in _STRATEGY_BOOK if s['name'] == _pick), None)
+                    if chosen:
+                        st.session_state['_active_preset'] = {
+                            'name': chosen['name'],
+                            'settings': dict(chosen.get('settings', {})),
+                        }
+                        st.rerun()
+            with pc2:
+                if st.button("Clear Preset", disabled=(_active_preset is None)):
+                    st.session_state.pop('_active_preset', None)
+                    st.rerun()
+            if _active_preset:
+                st.success(
+                    f"Active preset: **{_active_preset['name']}** — filter widgets below "
+                    "are overridden at Run Backtest time. Universe / dates / entry / "
+                    "exit / risk inputs still apply."
+                )
+
     st.markdown("---")
     st.subheader("1. Universe & Data")
     col_u1, col_u2, col_u3 = st.columns([1, 1, 2])
@@ -2628,7 +2700,7 @@ def main():
         l1, l2, l3, l4, l5, l6, l7 = st.columns(7)
         with l1: min_price = st.number_input("Min Price ($)", value=10.0, step=1.0)
         with l2: min_vol = st.number_input("Min Avg Volume", value=100000, step=50000)
-        with l3: max_vol = st.number_input("Max Avg Volume", value=1_000_000_000, step=1_000_000,
+        with l3: max_vol = st.number_input("Max Avg Volume", value=0, step=1_000_000,
                                             help="0 = no upper bound. Useful for capping mega-cap names that dominate liquid screens.")
         with l4: min_age = st.number_input("Min True Age (Yrs)", value=0.25, step=0.25)
         with l5: max_age = st.number_input("Max True Age (Yrs)", value=100.0, step=1.0)
@@ -3461,6 +3533,28 @@ def main():
             'dial_filters': dial_filters
         }
 
+        _active_preset = st.session_state.get('_active_preset')
+        if _active_preset:
+            _ps = _active_preset.get('settings', {})
+            _injected = []
+            for _k, _v in _ps.items():
+                if _k in _USER_ADJUSTABLE_PARAM_KEYS:
+                    continue
+                params[_k] = _v
+                _injected.append(_k)
+            st.info(
+                f"Preset '{_active_preset['name']}' applied — overrode "
+                f"{len(_injected)} filter/condition fields from STRATEGY_BOOK. "
+                "Universe / dates / entry / exit / risk inputs from the UI above were kept."
+            )
+            # Re-derive the exit-mode booleans inside run_engine's view by also
+            # honoring the preset's xsec_filters for the cross-sectional rank
+            # builder a few lines below (otherwise xsec ranks are skipped when
+            # the preset turns the filter on but the UI checkbox is off).
+            use_xsec_filter = bool(params.get('use_xsec_filter'))
+            xsec_filters = params.get('xsec_filters', []) or []
+            atr_sznl_filters = params.get('atr_sznl_filters', []) or []
+
         # Build cross-sectional rank matrices if enabled
         xsec_rank_matrices = None
         if use_xsec_filter and xsec_filters:
@@ -3834,6 +3928,80 @@ def main():
             ticker_pnl = ticker_pnl.sort_values("PnL_Dollar", ascending=False).head(75)
             st.plotly_chart(px.bar(ticker_pnl, x="Ticker", y="PnL_Dollar", title="Cumulative PnL by Ticker (Top 75)", text_auto='.2s'), use_container_width=True)
 
+            # ---- Exit-Reason Breakdown ----
+            # What's actually closing the trades — stop, target, time, trailing,
+            # EOD-DD, etc. Surfaces which exit mechanism is load-bearing for the
+            # strategy's edge and which is mostly defensive.
+            if 'Type' in trades_df.columns and trades_df['Type'].notna().any():
+                _exit = trades_df.dropna(subset=['Type']).copy()
+                if 'EntryDate' in _exit.columns and 'ExitDate' in _exit.columns:
+                    _hold = (
+                        pd.to_datetime(_exit['ExitDate']) - pd.to_datetime(_exit['EntryDate'])
+                    ).dt.days
+                else:
+                    _hold = pd.Series([float('nan')] * len(_exit), index=_exit.index)
+                _exit['_HoldDays'] = _hold
+
+                _grp = _exit.groupby('Type', dropna=False).agg(
+                    Trades=('R', 'size'),
+                    WinRate=('R', lambda s: (s > 0).mean() * 100),
+                    AvgR=('R', 'mean'),
+                    MedianR=('R', 'median'),
+                    TotalR=('R', 'sum'),
+                    AvgHoldDays=('_HoldDays', 'mean'),
+                    PnL_Dollar=('PnL_Dollar', 'sum'),
+                ).reset_index()
+                _grp['PctTrades'] = _grp['Trades'] / _grp['Trades'].sum() * 100
+                _grp['PctTotalR'] = _grp['TotalR'] / _grp['TotalR'].sum() * 100 if _grp['TotalR'].sum() != 0 else 0.0
+                _grp = _grp.sort_values('TotalR', ascending=False).reset_index(drop=True)
+
+                st.markdown("---")
+                st.subheader("Exit-Reason Breakdown")
+                ec1, ec2 = st.columns([3, 2])
+                with ec1:
+                    _disp = _grp[['Type', 'Trades', 'PctTrades', 'WinRate', 'AvgR', 'MedianR', 'TotalR', 'PctTotalR', 'AvgHoldDays', 'PnL_Dollar']].copy()
+                    _disp.columns = ['Exit Type', 'N', '% of N', 'Win %', 'Avg R', 'Median R', 'Total R', '% Total R', 'Avg Hold (d)', 'PnL $']
+                    st.dataframe(
+                        _disp.style.format({
+                            'N': '{:,.0f}',
+                            '% of N': '{:.1f}%',
+                            'Win %': '{:.1f}%',
+                            'Avg R': '{:+.2f}',
+                            'Median R': '{:+.2f}',
+                            'Total R': '{:+.1f}',
+                            '% Total R': '{:+.1f}%',
+                            'Avg Hold (d)': '{:.1f}',
+                            'PnL $': '${:,.0f}',
+                        }),
+                        use_container_width=True,
+                        hide_index=True,
+                    )
+                with ec2:
+                    _bar = _grp.copy()
+                    _bar['_color'] = ['#6bcf7f' if v >= 0 else '#ff6b6b' for v in _bar['TotalR']]
+                    _fig_ex = go.Figure(go.Bar(
+                        x=_bar['TotalR'],
+                        y=_bar['Type'],
+                        orientation='h',
+                        marker_color=_bar['_color'],
+                        text=[f"{n:,.0f} trades" for n in _bar['Trades']],
+                        textposition='auto',
+                    ))
+                    _fig_ex.update_layout(
+                        title='Total R Contribution by Exit Type',
+                        xaxis_title='Total R',
+                        yaxis=dict(autorange='reversed'),
+                        height=max(220, 40 * len(_bar) + 80),
+                        margin=dict(t=40, b=30, l=10, r=10),
+                    )
+                    st.plotly_chart(_fig_ex, use_container_width=True)
+                st.caption(
+                    "Where the edge actually comes from. Positive Total R from `Target` "
+                    "means the target is doing the work; positive `Time` means winners "
+                    "are slow grinders; large negative `Stop` is the defensive cost. "
+                    "Avg Hold (d) flags exits firing earlier or later than intended."
+                )
+
             # ========== SECTION 2: DYNAMIC SIZING (COMPOUNDING) ==========
             st.markdown("---")
             st.subheader(f"Dynamic Sizing — {risk_bps_input} bps of running equity (starting ${starting_portfolio:,})")
@@ -3909,6 +4077,110 @@ def main():
                     </div>
                 </div>
                 """, unsafe_allow_html=True)
+
+            # ---- Bootstrap Confidence Intervals (trade-level) ----
+            # Resample the per-trade R series with replacement N times to build
+            # a distribution of each headline stat. The 5th/95th percentile band
+            # tells you the range of "true" values the historical sample is
+            # consistent with — wide bands = small sample / not yet trustworthy.
+            _R_vals = trades_df['R'].dropna().to_numpy(dtype=float) if 'R' in trades_df.columns else np.array([])
+            if len(_R_vals) >= 30:
+                st.markdown("---")
+                st.subheader("Bootstrap Confidence Intervals (1000 resamples)")
+
+                _N_BOOT = 1000
+                _rng = np.random.default_rng(42)
+                _n = len(_R_vals)
+                _idx = _rng.integers(0, _n, size=(_N_BOOT, _n))
+                _samples = _R_vals[_idx]  # (B, n)
+
+                _wr_b = (_samples > 0).mean(axis=1) * 100.0
+                _avgR_b = _samples.mean(axis=1)
+                _totR_b = _samples.sum(axis=1)
+                _std_b = _samples.std(axis=1, ddof=1)
+                _sharpe_b = np.where(_std_b > 0, _avgR_b / _std_b, np.nan)
+                _gains_b = np.where(_samples > 0, _samples, 0).sum(axis=1)
+                _losses_b = np.where(_samples < 0, _samples, 0).sum(axis=1)
+                _pf_b = np.where(_losses_b < 0, _gains_b / -_losses_b, np.nan)
+                # Random-order MaxDD: resampled cumulative R curve drawdown.
+                _cum_b = np.cumsum(_samples, axis=1)
+                _running_max = np.maximum.accumulate(_cum_b, axis=1)
+                _maxDD_b = (_cum_b - _running_max).min(axis=1)
+
+                _pt_wr = (_R_vals > 0).mean() * 100.0
+                _pt_avgR = _R_vals.mean()
+                _pt_totR = _R_vals.sum()
+                _pt_std = _R_vals.std(ddof=1)
+                _pt_sharpe = _pt_avgR / _pt_std if _pt_std > 0 else float('nan')
+                _pt_gains = _R_vals[_R_vals > 0].sum()
+                _pt_losses = _R_vals[_R_vals < 0].sum()
+                _pt_pf = (_pt_gains / -_pt_losses) if _pt_losses < 0 else float('nan')
+                # Historical-order MaxDD (matches the actual equity path users felt)
+                _cum_hist = np.cumsum(_R_vals)
+                _pt_maxDD = (_cum_hist - np.maximum.accumulate(_cum_hist)).min()
+
+                _ci_rows = [
+                    ('Win Rate (%)',     _pt_wr,     _wr_b,     '{:.1f}%',   '{:.1f}%'),
+                    ('Avg R per Trade',  _pt_avgR,   _avgR_b,   '{:+.3f}',   '{:+.3f}'),
+                    ('Sharpe per Trade', _pt_sharpe, _sharpe_b, '{:.3f}',    '{:.3f}'),
+                    ('Profit Factor',    _pt_pf,     _pf_b,     '{:.2f}',    '{:.2f}'),
+                    ('Total R',          _pt_totR,   _totR_b,   '{:+.1f}',   '{:+.1f}'),
+                    ('Max DD (R, random order)', _pt_maxDD, _maxDD_b, '{:+.1f}', '{:+.1f}'),
+                ]
+
+                _ci_table = []
+                for _name, _point, _arr, _pfmt, _bfmt in _ci_rows:
+                    _arr = _arr[~np.isnan(_arr)]
+                    if len(_arr) == 0:
+                        continue
+                    _p05, _p50, _p95 = np.percentile(_arr, [5, 50, 95])
+                    _row = {
+                        'Stat': _name,
+                        'Point': _pfmt.format(_point) if not np.isnan(_point) else '—',
+                        'p5':    _bfmt.format(_p05),
+                        'Median': _bfmt.format(_p50),
+                        'p95':   _bfmt.format(_p95),
+                        '90% CI Width': _bfmt.format(_p95 - _p05),
+                    }
+                    _ci_table.append(_row)
+
+                bc1, bc2 = st.columns([3, 2])
+                with bc1:
+                    st.dataframe(pd.DataFrame(_ci_table), use_container_width=True, hide_index=True)
+                with bc2:
+                    _sharpe_arr_clean = _sharpe_b[~np.isnan(_sharpe_b)]
+                    if len(_sharpe_arr_clean) > 0:
+                        _sp_p05, _sp_p95 = np.percentile(_sharpe_arr_clean, [5, 95])
+                        _fig_hist = go.Figure(go.Histogram(
+                            x=_sharpe_arr_clean,
+                            nbinsx=40,
+                            marker_color='#6bcf7f' if _pt_sharpe > 0 else '#ff6b6b',
+                            opacity=0.75,
+                        ))
+                        _fig_hist.add_vline(x=_pt_sharpe, line_color='#ffaa00', line_width=2,
+                                            annotation_text=f"Point {_pt_sharpe:.2f}", annotation_position='top')
+                        _fig_hist.add_vline(x=_sp_p05, line_dash='dot', line_color='#888',
+                                            annotation_text=f"p5 {_sp_p05:.2f}", annotation_position='bottom left')
+                        _fig_hist.add_vline(x=_sp_p95, line_dash='dot', line_color='#888',
+                                            annotation_text=f"p95 {_sp_p95:.2f}", annotation_position='bottom right')
+                        _fig_hist.add_vline(x=0, line_color='#444', line_width=1)
+                        _fig_hist.update_layout(
+                            title=f'Bootstrap distribution: Sharpe per Trade (N={_n:,} trades)',
+                            xaxis_title='Sharpe per Trade',
+                            yaxis_title='Count',
+                            height=320, margin=dict(t=40, b=30, l=40, r=10),
+                            showlegend=False,
+                        )
+                        st.plotly_chart(_fig_hist, use_container_width=True)
+                st.caption(
+                    "Trade-level bootstrap with replacement (1000 resamples, IID assumption). "
+                    "Point = actual sample statistic; p5/p95 = 90% confidence band on the 'true' "
+                    "value the sample is consistent with. Tight band = enough trades to trust the "
+                    "edge. Wide band crossing zero = sample too small or noisy to distinguish from "
+                    "no-edge. Max DD here uses random-order resamples and is generally MORE optimistic "
+                    "than the historical MTM Max DD above (which preserves serial dependence and "
+                    "regime clustering)."
+                )
 
             # ========== SECTION 3: INTRA-TRADE PATH ANALYSIS ==========
             if 'MAE_R' in trades_df.columns and trades_df['MAE_R'].notna().any():
