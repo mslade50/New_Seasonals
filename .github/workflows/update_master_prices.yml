@@ -17,12 +17,10 @@ on:
     # daily_screener bookend at 22:00 UTC so overflow sees Friday's actual
     # close instead of Thursday's stale bar.
     - cron: '30 20 * * 1-5'
-    # 07:00 UTC = 3:00 AM ET — pre-market refresh. Catches any prior-session
-    # close that the 4:30 PM run missed (yfinance can be slow to publish
-    # immediately after market close) and refreshes any revisions yfinance
-    # made overnight. Uses --exclude-today so a stale/placeholder bar for the
-    # current day (market hasn't opened yet) doesn't slip into the cache.
-    - cron: '0 7 * * 1-5'
+  # Pre-market refresh (4:17 AM ET weekdays, 30 min before daily_screener AM
+  # dispatch) is fired via workflow_dispatch from a local Task Scheduler entry.
+  # Replaced the prior 07:00 UTC cron to align with the dispatched screener
+  # run and avoid GitHub's congested 8:47 UTC slot lag.
   workflow_dispatch:
 
 jobs:

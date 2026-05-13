@@ -22,15 +22,16 @@ permissions:
 
 on:
   schedule:
-    # Pre-market full scan: 4:47 AM EDT (8:47 UTC). Writes the exposure-leg
-    # state file and commits it back to main.
-    - cron: '47 8 * * 1-5'
     # Post-close full scan: 6:00 PM EDT (22:00 UTC). Runs 1.5h after the
     # update_master_prices job (20:30 UTC + ~3 min runtime + cron lag) so
     # the overflow tier reads a fresh master_prices.parquet that includes
     # today's close.
     - cron: '0 22 * * 1-5'
 
+  # Pre-market full scan (4:47 AM ET weekdays) is fired via workflow_dispatch
+  # from a local Task Scheduler entry on McKinley's machine — GitHub's shared
+  # cron scheduler had 1-3h queue delays at 8:47 UTC. The dispatched run
+  # writes exposure_state.json and commits it back to main, same as before.
   workflow_dispatch:
 
 jobs:
