@@ -37,14 +37,16 @@ try:
     from strategy_config import (
         STRATEGY_BOOK, ACCOUNT_VALUE, SPOT_TO_TRADEABLE,
         CSV_UNIVERSE, LIQUID_PLUS_COMMODITIES,
+        CROSS_STRATEGY_OVERLAP_OVERRIDES,
     )
 except ImportError:
-    print("❌ Could not find strategy_config.py in the root directory.")
+    print("[ERROR] Could not find strategy_config.py in the root directory.")
     STRATEGY_BOOK = []
     ACCOUNT_VALUE = 0
     SPOT_TO_TRADEABLE = {}
     CSV_UNIVERSE = []
     LIQUID_PLUS_COMMODITIES = []
+    CROSS_STRATEGY_OVERLAP_OVERRIDES = []
 
 # Master prices parquet — full CSV_UNIVERSE history, built/maintained by
 # scripts/update_master_prices.py. Used for the overflow scope to avoid
@@ -2455,6 +2457,59 @@ def run_daily_scan(scope='liquid', moc_only=False):
     # No scanner-side risk cap — order_staging.py applies the 2.5% backstop
     # post-open across all signals (incl. OVS), which is the single source of
     # truth for aggregate risk control.
+
+    # 5b. Cross-Strategy Overlap Clamp — apply CROSS_STRATEGY_OVERLAP_OVERRIDES.
+    # When a defined pair of strategies both fire on the same date and same
+    # tradeable ticker (after SPOT_TO_TRADEABLE substitution), each side's
+    # Shares / Risk_Amt / Notional is scaled down so the per-trade risk lands
+    # at the configured clamp bps. This runs BEFORE staging so the Sheets row
+    # already reflects the reduced size; order_staging.py honors what's there.
+    if CROSS_STRATEGY_OVERLAP_OVERRIDES and all_signals:
+        # Build (Date, TradedAs) -> {strategy names} index
+        from collections import defaultdict as _dd
+        _date_traded_to_strats = _dd(set)
+        for _s in all_signals:
+            _tkr = str(_s.get('Ticker', ''))
+            _td = SPOT_TO_TRADEABLE.get(_tkr, _tkr)
+            _date_traded_to_strats[(_s.get('Date'), _td)].add(_s.get('Strategy_Name'))
+
+        # Map strategy name -> original risk_bps so we can compute the scale.
+        _strat_bps = {s['name']: int(s['execution'].get('risk_bps', 0)) for s in effective_book}
+
+        _clamp_count = 0
+        for _ovr in CROSS_STRATEGY_OVERLAP_OVERRIDES:
+            _pair = set(_ovr['strategies'])
+            _clamp_bps = float(_ovr['risk_bps_when_overlapping'])
+            # Find collision keys: (date, traded) where >= 2 strategies in _pair fired.
+            _collisions = {
+                _key for _key, _strats in _date_traded_to_strats.items()
+                if len(_strats & _pair) >= 2
+            }
+            if not _collisions:
+                continue
+            for _s in all_signals:
+                if _s.get('Strategy_Name') not in _pair:
+                    continue
+                _tkr = str(_s.get('Ticker', ''))
+                _td = SPOT_TO_TRADEABLE.get(_tkr, _tkr)
+                if (_s.get('Date'), _td) not in _collisions:
+                    continue
+                _orig_bps = _strat_bps.get(_s.get('Strategy_Name'), 0)
+                if _orig_bps <= 0 or _clamp_bps >= _orig_bps:
+                    continue
+                _scale = _clamp_bps / _orig_bps
+                _orig_shares = _s.get('Shares', 0)
+                _s['Shares'] = int(round(_orig_shares * _scale))
+                _s['Risk_Amt'] = float(_s.get('Risk_Amt', 0.0)) * _scale
+                _s['Notional'] = float(_s.get('Notional', 0.0)) * _scale
+                _s['Sizing_Notes'] = (
+                    f"{_s.get('Sizing_Notes', '')} | "
+                    f"Cross-strategy overlap clamp -> {int(_clamp_bps)} bps "
+                    f"({_orig_bps}->{int(_clamp_bps)}, scale {_scale:.2f})"
+                )
+                _clamp_count += 1
+        if _clamp_count:
+            print(f"[OVERLAP CLAMP] Reduced risk on {_clamp_count} signal(s) due to cross-strategy date+tradeable collisions.")
 
     # 6. Save Results
     # IMPORTANT: --moc-only runs only scan MOC strategies (entry_type='Signal
