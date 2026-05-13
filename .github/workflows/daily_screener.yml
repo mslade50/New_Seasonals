@@ -27,15 +27,53 @@ on:
     # the overflow tier reads a fresh master_prices.parquet that includes
     # today's close.
     - cron: '0 22 * * 1-5'
+    # AM fallback: 10:30 UTC (6:30 AM EDT / 5:30 AM EST). Only runs if the
+    # local workflow_dispatch at 4:47 AM ET didn't fire today (machine off,
+    # network outage, etc.). The `check` job below queries this workflow's
+    # recent runs and skips if a successful workflow_dispatch already
+    # happened today UTC.
+    - cron: '30 10 * * 1-5'
 
   # Pre-market full scan (4:47 AM ET weekdays) is fired via workflow_dispatch
   # from a local Task Scheduler entry on McKinley's machine — GitHub's shared
-  # cron scheduler had 1-3h queue delays at 8:47 UTC. The dispatched run
-  # writes exposure_state.json and commits it back to main, same as before.
+  # cron scheduler had 1-3h queue delays at 8:47 UTC. The 10:30 UTC cron
+  # above is a fallback that auto-skips when the local dispatch fired.
   workflow_dispatch:
 
 jobs:
+  check:
+    runs-on: ubuntu-latest
+    outputs:
+      should_run: ${{ steps.gate.outputs.should_run }}
+    steps:
+      - name: Decide whether to run
+        # Only the AM fallback cron is gated — dispatch and PM cron always run.
+        id: gate
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          SHOULD_RUN=true
+          if [ "${{ github.event_name }}" = "schedule" ] && [ "${{ github.event.schedule }}" = "30 10 * * 1-5" ]; then
+            TODAY=$(date -u +%Y-%m-%d)
+            COUNT=$(gh run list \
+              --workflow=daily_screener.yml \
+              --status=success \
+              --event=workflow_dispatch \
+              --created="$TODAY" \
+              --repo "${{ github.repository }}" \
+              --json databaseId --jq 'length')
+            if [ "$COUNT" -gt 0 ]; then
+              echo "::notice::Local AM dispatch already succeeded today ($COUNT run). Skipping fallback."
+              SHOULD_RUN=false
+            else
+              echo "::notice::No successful AM dispatch found. Running fallback."
+            fi
+          fi
+          echo "should_run=$SHOULD_RUN" >> "$GITHUB_OUTPUT"
+
   run-scanner:
+    needs: check
+    if: needs.check.outputs.should_run == 'true'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repo

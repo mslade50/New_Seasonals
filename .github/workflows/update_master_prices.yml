@@ -17,14 +17,52 @@ on:
     # daily_screener bookend at 22:00 UTC so overflow sees Friday's actual
     # close instead of Thursday's stale bar.
     - cron: '30 20 * * 1-5'
+    # AM fallback: 9:30 UTC (5:30 AM EDT / 4:30 AM EST). Only runs if the
+    # local workflow_dispatch at 4:17 AM ET didn't fire today. The `check`
+    # job below skips it when a successful workflow_dispatch already
+    # happened today UTC.
+    - cron: '30 9 * * 1-5'
+
   # Pre-market refresh (4:17 AM ET weekdays, 30 min before daily_screener AM
   # dispatch) is fired via workflow_dispatch from a local Task Scheduler entry.
-  # Replaced the prior 07:00 UTC cron to align with the dispatched screener
-  # run and avoid GitHub's congested 8:47 UTC slot lag.
+  # The 9:30 UTC cron above is a fallback that auto-skips when the local
+  # dispatch fired.
   workflow_dispatch:
 
 jobs:
+  check:
+    runs-on: ubuntu-latest
+    outputs:
+      should_run: ${{ steps.gate.outputs.should_run }}
+    steps:
+      - name: Decide whether to run
+        # Only the AM fallback cron is gated — dispatch and PM cron always run.
+        id: gate
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          SHOULD_RUN=true
+          if [ "${{ github.event_name }}" = "schedule" ] && [ "${{ github.event.schedule }}" = "30 9 * * 1-5" ]; then
+            TODAY=$(date -u +%Y-%m-%d)
+            COUNT=$(gh run list \
+              --workflow=update_master_prices.yml \
+              --status=success \
+              --event=workflow_dispatch \
+              --created="$TODAY" \
+              --repo "${{ github.repository }}" \
+              --json databaseId --jq 'length')
+            if [ "$COUNT" -gt 0 ]; then
+              echo "::notice::Local AM dispatch already succeeded today ($COUNT run). Skipping fallback."
+              SHOULD_RUN=false
+            else
+              echo "::notice::No successful AM dispatch found. Running fallback."
+            fi
+          fi
+          echo "should_run=$SHOULD_RUN" >> "$GITHUB_OUTPUT"
+
   update:
+    needs: check
+    if: needs.check.outputs.should_run == 'true'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repo
@@ -52,16 +90,17 @@ jobs:
           python -c "from cache_io import download_to_local; download_to_local('master_prices.parquet', 'data/master_prices.parquet')"
 
       - name: Determine update args by trigger
-        # Pre-market 07:00 UTC run passes --exclude-today so any stale
-        # placeholder bar for the current day (market hasn't opened) is
-        # filtered out. The 20:30 UTC post-close run pulls everything yfinance
-        # has, including today's close.
+        # PM cron (20:30 UTC, post-close) pulls everything yfinance has,
+        # including today's close. Everything else (AM workflow_dispatch
+        # from the local trigger, AM fallback cron, manual dispatch) is
+        # pre-market and passes --exclude-today so yfinance's placeholder
+        # bar for today is filtered out.
         id: cfg
         run: |
-          if [ "${{ github.event.schedule }}" = "0 7 * * 1-5" ]; then
-            echo "args=--exclude-today" >> "$GITHUB_OUTPUT"
-          else
+          if [ "${{ github.event.schedule }}" = "30 20 * * 1-5" ]; then
             echo "args=" >> "$GITHUB_OUTPUT"
+          else
+            echo "args=--exclude-today" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Update master_prices (incremental yfinance pull + R2 upload)
