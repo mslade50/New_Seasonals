@@ -488,9 +488,20 @@ if not cpc.empty:
     fig.update_yaxes(title_text="P/C", row=6, col=1, secondary_y=True,
                      showgrid=False)
 
-# Hide candlestick rangebreaks (weekends) for a tidy axis
+# Hide non-trading days (weekends + US market holidays) for a tidy axis.
+# Holidays are derived from gaps in the SPX trading calendar itself, so the
+# breaks track exactly which sessions yfinance returns.
+_plot_start_ts = pd.Timestamp(plot_start).normalize()
+_plot_end_ts = pd.Timestamp(spx_plot.index.max()).normalize()
+_expected_bdays = pd.bdate_range(_plot_start_ts, _plot_end_ts)
+_actual_sessions = set(pd.DatetimeIndex(spx_plot.index).normalize())
+_holiday_breaks = [d.strftime("%Y-%m-%d") for d in _expected_bdays
+                   if d not in _actual_sessions]
 fig.update_xaxes(
-    rangebreaks=[dict(bounds=["sat", "mon"])],
+    rangebreaks=[
+        dict(bounds=["sat", "mon"]),
+        dict(values=_holiday_breaks),
+    ],
 )
 
 st.plotly_chart(fig, use_container_width=True)
