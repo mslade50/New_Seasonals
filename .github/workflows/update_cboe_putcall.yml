@@ -1,0 +1,49 @@
+name: Update CBOE Put/Call Cache
+
+# Scrapes any missing trading days from cboe.com/us/options/market_statistics/daily
+# into data/cboe_putcall.parquet and commits the updated parquet back to main.
+# Powers the bottom panel of the SPX Breadth page (pages/spx_breadth.py).
+#
+# The backfill in cboe_putcall.py is incremental — it only fetches dates not
+# already in the cache, so steady-state cost is ~1 request per weekday.
+
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+on:
+  schedule:
+    # 21:30 UTC = 5:30 PM ET — after close, alongside earnings + portfolio jobs.
+    - cron: '30 21 * * 1-5'
+  workflow_dispatch:
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+
+      - name: Install dependencies
+        run: pip install pandas pyarrow
+
+      - name: Backfill missing days
+        run: python -m cboe_putcall --start 2024-01-01
+
+      - name: Commit + push updated parquet
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add data/cboe_putcall.parquet
+          git diff --cached --quiet || git commit -m "data: CBOE put/call refresh $(date -u +'%Y-%m-%d')"
+          git pull --rebase origin main || true
+          git push || true
