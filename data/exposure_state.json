@@ -1,43 +1,43 @@
 {
-  "asof": "2026-05-18",
-  "computed_at": "2026-05-19T08:56:31.021735Z",
+  "asof": "2026-05-19",
+  "computed_at": "2026-05-20T08:57:11.052401Z",
   "mult": 1.0,
   "active_rule": null,
   "reason": "No global rule active \u2014 base allocation",
   "readings": {
-    "raw_21d": 24.401485421384365,
-    "raw_63d": 47.34269794134138,
-    "ma10_63d": 46.21395421120015
+    "raw_21d": 24.56186538782821,
+    "raw_63d": 45.17916848007447,
+    "ma10_63d": 46.32969540082313
   },
   "targets": {
     "VOO": {
       "weight": 0.125,
       "dollars": 93750.0,
-      "price": 678.9099731445312,
-      "shares": 138,
+      "price": 674.5900268554688,
+      "shares": 139,
       "ticker_mult": 1.0,
       "ticker_rule": null,
       "ticker_reason": "No per-ticker rule active",
       "ticker_readings": {
-        "rank_2d": 12.956389452332656,
-        "rank_5d": 37.12255772646537,
-        "rank_21d": 80.53503184713375,
-        "sma200_dist": 9.11377949019099
+        "rank_2d": 21.216730038022813,
+        "rank_5d": 27.32115677321157,
+        "rank_21d": 75.47121752419766,
+        "sma200_dist": 8.329695016571034
       }
     },
     "QQQ": {
       "weight": 0.125,
       "dollars": 93750.0,
-      "price": 705.8800048828125,
-      "shares": 133,
+      "price": 701.530029296875,
+      "shares": 134,
       "ticker_mult": 1.0,
       "ticker_rule": null,
       "ticker_reason": "No per-ticker rule active",
       "ticker_readings": {
-        "rank_2d": 14.040114613180515,
-        "rank_5d": 28.92275196137598,
-        "rank_21d": 92.664851784634,
-        "sma200_dist": 15.613840301667887
+        "rank_2d": 24.019903498190594,
+        "rank_5d": 31.663901040880976,
+        "rank_21d": 91.75865719038258,
+        "sma200_dist": 14.76068268096101
       }
     }
   },
