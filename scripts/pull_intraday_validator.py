@@ -204,15 +204,36 @@ def process_ticker(ticker, interval, start_date):
 
 def main():
     p = argparse.ArgumentParser()
-    p.add_argument("--tickers", nargs="+", default=DEFAULT_TICKERS)
+    p.add_argument("--tickers", nargs="+", default=None)
+    p.add_argument("--tickers-file", default=None,
+                   help="Path to file containing whitespace-separated tickers. Used when --tickers not given.")
     p.add_argument("--interval", default=DEFAULT_INTERVAL)
     p.add_argument("--start", default=DEFAULT_START)
+    p.add_argument("--skip-existing", action="store_true",
+                   help="Skip tickers that already have a parquet on disk.")
     args = p.parse_args()
 
     if not FMP_KEY:
         print("FMP_API_KEY missing from .env")
         sys.exit(1)
 
+    if args.tickers:
+        tickers = args.tickers
+    elif args.tickers_file:
+        with open(args.tickers_file) as f:
+            tickers = f.read().split()
+    else:
+        tickers = DEFAULT_TICKERS
+
+    if args.skip_existing:
+        before = len(tickers)
+        tickers = [
+            t for t in tickers
+            if not os.path.exists(os.path.join(OUT_DIR, f"{t}_{args.interval}.parquet"))
+        ]
+        print(f"--skip-existing: {before - len(tickers)} ticker(s) already on disk, processing {len(tickers)}")
+
+    args.tickers = tickers
     print(f"Tickers: {args.tickers}")
     print(f"Interval: {args.interval} | start: {args.start}")
     print(f"Output: {OUT_DIR}")

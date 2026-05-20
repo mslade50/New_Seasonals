@@ -1,0 +1,71 @@
+name: Update Intraday Prices
+
+# Daily incremental update of data/intraday/*.parquet (15-min OHLCV cache).
+# Pulls each ticker's parquet from R2, appends recent bars from yfinance,
+# writes back to R2. yfinance has ~60 days rolling intraday history, so
+# this needs to run at least every ~50 days to avoid gaps.
+#
+# Note: FMP was used for the historical backfill (22 years), but ongoing
+# maintenance runs entirely on yfinance — no API key required, free.
+# See scripts/update_intraday_yfinance.py and docs/intraday_data_plan.md.
+
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
+on:
+  schedule:
+    # 20:45 UTC = 4:45 PM ET — 15 min after update_master_prices (20:30) so
+    # they don't compete for yfinance throughput, but still before the
+    # post-close daily_screener bookend at 22:00 UTC.
+    - cron: '45 20 * * 1-5'
+
+  workflow_dispatch:
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+
+      - name: Install dependencies
+        run: |
+          pip install pandas pyarrow numpy yfinance boto3
+
+      - name: Pull intraday meta + parquets from R2
+        env:
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+        run: |
+          mkdir -p data/intraday
+          python <<'PY'
+          from cache_io import download_to_local
+          import pandas as pd
+          import os
+          ok = download_to_local("intraday/15min/_meta.parquet", "data/intraday/_meta.parquet")
+          if not ok:
+              print("No meta in R2 — nothing to update.")
+              raise SystemExit(0)
+          meta = pd.read_parquet("data/intraday/_meta.parquet")
+          print(f"Meta lists {len(meta)} tickers")
+          for t in meta["ticker"]:
+              key = f"intraday/15min/{t}.parquet"
+              local = f"data/intraday/{t}_15min.parquet"
+              download_to_local(key, local)
+          PY
+
+      - name: Update intraday parquets (yfinance incremental + R2 upload)
+        env:
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+        run: python scripts/update_intraday_yfinance.py --upload

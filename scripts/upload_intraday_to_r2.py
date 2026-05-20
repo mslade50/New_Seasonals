@@ -85,10 +85,6 @@ def main():
         sys.exit(1)
 
     print(f"Found {len(files)} {args.interval} parquet(s) to upload")
-    meta = build_meta(files)
-    if meta.empty:
-        print("Meta inspection failed.")
-        sys.exit(1)
 
     n_ok = 0
     for ticker, interval, path in files:
@@ -96,7 +92,13 @@ def main():
         if upload_from_local(path, key):
             n_ok += 1
 
-    # Write meta last so it never points to non-uploaded files
+    # Rebuild meta from *all* local files (not just the filtered upload set)
+    # so partial uploads don't shrink the index.
+    all_files = collect_files(args.interval, tickers_filter=None)
+    meta = build_meta(all_files)
+    if meta.empty:
+        print("Meta inspection failed.")
+        sys.exit(1)
     meta.to_parquet(META_LOCAL, index=False)
     upload_from_local(META_LOCAL, f"intraday/{args.interval}/_meta.parquet")
 
