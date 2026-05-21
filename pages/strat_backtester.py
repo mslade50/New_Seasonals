@@ -2108,44 +2108,52 @@ def calculate_daily_exposure(sig_df, starting_equity=None):
     return exposure_df
 
 
-def calculate_annual_stats(daily_pnl_series, starting_equity):
+def calculate_annual_stats(daily_pnl_series, starting_equity, trades_df=None):
     if daily_pnl_series.empty:
         return pd.DataFrame()
-    
+
     equity_series = starting_equity + daily_pnl_series.cumsum()
     daily_rets = equity_series.pct_change().fillna(0)
-    
+
+    trades_by_year = {}
+    total_trades = None
+    if trades_df is not None and not trades_df.empty and 'Entry Date' in trades_df.columns:
+        entry_years = pd.to_datetime(trades_df['Entry Date']).dt.year
+        trades_by_year = entry_years.value_counts().to_dict()
+        total_trades = int(len(trades_df))
+
     yearly_stats = []
     for year_date, rets in daily_rets.resample('YE'):
         year = year_date.year
         if rets.empty:
             continue
-        
+
         year_mask = equity_series.index.year == year
         year_eq = equity_series[year_mask]
         if len(year_eq) < 2:
             continue
-            
+
         year_start = year_eq.iloc[0]
         year_end = year_eq.iloc[-1]
-        
+
         total_ret_pct = (year_end - year_start) / year_start if year_start != 0 else 0
         total_ret_dollar = year_end - year_start
-        
+
         std_dev = rets.std() * np.sqrt(252)
         mean_ret = rets.mean() * 252
         sharpe = mean_ret / std_dev if std_dev != 0 else 0
-        
+
         neg_rets = rets[rets < 0]
         downside_std = np.sqrt((neg_rets**2).mean()) * np.sqrt(252) if len(neg_rets) > 0 else 0
         sortino = mean_ret / downside_std if downside_std != 0 else 0
-        
+
         running_max = year_eq.expanding().max()
         drawdown = (year_eq - running_max) / running_max
         max_dd = drawdown.min()
-        
+
         yearly_stats.append({
             "Year": year,
+            "Trades": int(trades_by_year.get(year, 0)),
             "Total Return ($)": total_ret_dollar,
             "Total Return (%)": total_ret_pct,
             "Max Drawdown": max_dd,
@@ -2170,6 +2178,7 @@ def calculate_annual_stats(daily_pnl_series, starting_equity):
         tot_dd = ((equity_series - tot_running_max) / tot_running_max).min()
         yearly_stats.append({
             "Year": "Total",
+            "Trades": total_trades if total_trades is not None else sum(s['Trades'] for s in yearly_stats),
             "Total Return ($)": tot_ret_dollar,
             "Total Return (%)": tot_ret_pct,
             "Max Drawdown": tot_dd,
@@ -2717,7 +2726,10 @@ def main():
                 st.caption(f"⚠️ Could not cache closes: {e}")
 
             today = pd.Timestamp(datetime.date.today())
-            open_mask = sig_df['Time Stop'] >= today
+            # A position is genuinely active only if its actual Exit Date hasn't
+            # happened yet. Filtering on Time Stop alone leaves stop/target
+            # exits visible as "open" until their time-stop date elapses.
+            open_mask = (sig_df['Time Stop'] >= today) & (sig_df['Exit Date'] >= today)
             open_df = sig_df[open_mask].copy()
 
             if not open_df.empty:
@@ -2812,9 +2824,10 @@ def main():
             
             st.subheader("📅 Annual Performance")
             port_daily_pnl = get_daily_mtm_series(sig_df, master_dict, start_date=user_start_date)
-            annual_df = calculate_annual_stats(port_daily_pnl, starting_equity)
+            annual_df = calculate_annual_stats(port_daily_pnl, starting_equity, trades_df=sig_df)
             if not annual_df.empty:
                 st.dataframe(annual_df.style.format({
+                    "Trades": "{:,}",
                     "Total Return ($)": "${:,.0f}", "Total Return (%)": "{:.1%}", "Max Drawdown": "{:.1%}",
                     "Sharpe Ratio": "{:.2f}", "Sortino Ratio": "{:.2f}", "Std Dev": "{:.1%}"
                 }), use_container_width=True)

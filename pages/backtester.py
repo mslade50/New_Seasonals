@@ -900,6 +900,18 @@ def _generate_key_filters(params):
             filters.append(f"{dl}: Close > Prev High")
         elif pa_type == 'close_lt_prev_low':
             filters.append(f"{dl}: Close < Prev Low")
+        elif pa_type == 'atr_move':
+            n = int(pa.get('n_bars', 1))
+            filters.append(f"{dl}: {n}-bar move {pa['min']:.1f} to {pa['max']:.1f} ATR")
+        elif pa_type in ('trailing_low', 'trailing_high'):
+            window = int(pa.get('window', 21))
+            end_lag = int(pa.get('end_lag', pa.get('lag', 0)))
+            side = 'low' if pa_type == 'trailing_low' else 'high'
+            if end_lag > pa.get('lag', 0):
+                el = day_label.get(end_lag, f"T-{end_lag}")
+                filters.append(f"{dl}..{el}: prints {window}-bar {side}")
+            else:
+                filters.append(f"{dl}: prints {window}-bar {side}")
     if params.get('use_ma_dist_filter'):
         ma_type = params.get('dist_ma_type', 'SMA 200')
         logic = params.get('dist_logic', 'Between')
@@ -1413,6 +1425,25 @@ def run_engine(universe_dict, params, sznl_map, market_series=None, vix_series=N
                     conditions.append(df['Close'].shift(pa_lag) > df['High'].shift(pa_lag + 1))
                 elif pa_type == 'close_lt_prev_low':
                     conditions.append(df['Close'].shift(pa_lag) < df['Low'].shift(pa_lag + 1))
+                elif pa_type == 'atr_move':
+                    n_bars = int(pa.get('n_bars', 1))
+                    series = (df['Close'].shift(pa_lag) - df['Close'].shift(pa_lag + n_bars)) / df['ATR'].shift(pa_lag)
+                    conditions.append((series >= pa['min']) & (series <= pa['max']))
+                elif pa_type in ('trailing_low', 'trailing_high'):
+                    window = int(pa.get('window', 21))
+                    end_lag = int(pa.get('end_lag', pa_lag))
+                    if end_lag < pa_lag:
+                        end_lag = pa_lag
+                    if pa_type == 'trailing_low':
+                        rolling = df['Low'].rolling(window).min()
+                        match = lambda L: df['Low'].shift(L) <= rolling.shift(L)
+                    else:
+                        rolling = df['High'].rolling(window).max()
+                        match = lambda L: df['High'].shift(L) >= rolling.shift(L)
+                    combined = match(pa_lag)
+                    for L in range(pa_lag + 1, end_lag + 1):
+                        combined = combined | match(L)
+                    conditions.append(combined)
             if params.get('use_dow_filter', False): conditions.append(df['DayOfWeekVal'].isin(params['allowed_days']))
 
             if params.get('use_month_filter', False):
@@ -2973,8 +3004,14 @@ def main():
                 pa_type = st.selectbox("Type", [
                     "range_pct", "atr_ret", "range_atr",
                     "close_gt_open", "close_lt_open",
-                    "close_gt_prev_high", "close_lt_prev_low"
-                ], key=f"pa_type_{pa_i}")
+                    "close_gt_prev_high", "close_lt_prev_low",
+                    "atr_move", "trailing_low", "trailing_high",
+                ], key=f"pa_type_{pa_i}",
+                help=(
+                    "atr_move: cumulative N-bar return in ATR units, anchored at lag.\n"
+                    "trailing_low/high: bar at lag (or anywhere in [lag, end_lag]) "
+                    "prints the trailing N-bar extreme."
+                ))
             with pa_cols[1]:
                 pa_lag = st.number_input("Day Offset", 0, 5, 0, key=f"pa_lag_{pa_i}")
             pa_dict = {"type": pa_type, "lag": pa_lag}
@@ -2986,6 +3023,21 @@ def main():
                 if pa_type == "range_atr":
                     with pa_cols[4]:
                         pa_dict["logic"] = st.selectbox("Logic", [">", "<", "Between"], key=f"pa_ra_logic_{pa_i}")
+            elif pa_type == "atr_move":
+                with pa_cols[2]:
+                    pa_dict["n_bars"] = st.number_input("Over N Bars", 1, 252, 21, key=f"pa_atrmove_n_{pa_i}",
+                        help="(close[lag] - close[lag+N]) / atr[lag]. N=21 over a 21-bar window.")
+                with pa_cols[3]:
+                    pa_dict["min"] = st.number_input("Min ATR", -50.0, 50.0, -10.0, step=0.5, key=f"pa_atrmove_min_{pa_i}")
+                with pa_cols[4]:
+                    pa_dict["max"] = st.number_input("Max ATR", -50.0, 50.0, 10.0, step=0.5, key=f"pa_atrmove_max_{pa_i}")
+            elif pa_type in ("trailing_low", "trailing_high"):
+                with pa_cols[2]:
+                    pa_dict["window"] = st.number_input("Window (bars)", 2, 252, 21, key=f"pa_te_w_{pa_i}",
+                        help="Trailing window for the rolling low/high.")
+                with pa_cols[3]:
+                    pa_dict["end_lag"] = st.number_input("End Lag (incl.)", 0, 5, pa_lag, key=f"pa_te_endlag_{pa_i}",
+                        help="If > 'Day Offset', the filter passes if ANY bar from lag to end_lag prints the trailing extreme.")
             price_action_filters.append(pa_dict)
     with st.expander("Time & Cycle Filters", expanded=False):
         t_c1, t_c2 = st.columns(2)

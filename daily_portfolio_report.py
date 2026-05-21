@@ -446,8 +446,10 @@ def get_open_positions_from_backtest(sig_df, master_dict):
     
     today = pd.Timestamp(datetime.date.today())
     
-    # Filter for open positions (same as strat_backtester)
-    open_mask = sig_df['Time Stop'] >= today
+    # Filter for open positions (same as strat_backtester). A position is only
+    # genuinely active if its actual Exit Date hasn't happened yet — Time Stop
+    # alone misses stop/target exits that fired before the time stop.
+    open_mask = (sig_df['Time Stop'] >= today) & (sig_df['Exit Date'] >= today)
     open_df = sig_df[open_mask].copy()
     
     if open_df.empty:

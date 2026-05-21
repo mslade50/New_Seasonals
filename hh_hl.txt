@@ -1,0 +1,250 @@
+//@version=5
+indicator("Higher Lows / Lower Highs — Pullback Swings w/ State", overlay=true, max_labels_count=500)
+
+// ════════════════════════════════════════════════════════════════════════
+// INPUTS
+// ════════════════════════════════════════════════════════════════════════
+
+rocFastLen = input.int(20, "ROC Fast Length", minval=1, group="Regime")
+rocSlowLen = input.int(50, "ROC Slow Length", minval=1, group="Regime")
+useRegime = input.bool(true, "Apply ROC Regime Filter", group="Regime")
+regimeMode = input.string("Both must agree (AND)", "Regime Logic", options=["Both must agree (AND)", "Either agrees (OR)"], group="Regime")
+
+useMAFilter = input.bool(true, "Apply MA Trend Filter (price vs MAs + slope)", group="Regime")
+maFastLen = input.int(20, "MA Fast Length", minval=1, group="Regime")
+maSlowLen = input.int(50, "MA Slow Length", minval=1, group="Regime")
+
+extremeLookback = input.int(20, "Lookback for New High/Low (wick)", minval=1, group="Swing Logic")
+streakLen = input.int(5, "Min Pullback Bars (incl. setup bar)", minval=1, group="Swing Logic")
+
+coolOffBars = input.int(50, "Cool-Off Bars After Invalidation", minval=1, group="State Machine")
+oneSignalPerLeg = input.bool(true, "One Signal Per Swing Leg (lock until new 20d extreme)", group="State Machine")
+showDebug = input.bool(true, "Show Active/Invalidated Levels (debug)", group="State Machine")
+
+enableReversal = input.bool(true, "Enable Reversal Signal", group="Reversal Signal")
+revLen = input.int(21, "Reversal Lookback (low + decline window 1)", minval=1, group="Reversal Signal")
+revLen2 = input.int(42, "Reversal Decline Window 2 (alt)", minval=1, group="Reversal Signal")
+revAtrLen = input.int(14, "Reversal ATR Length", minval=1, group="Reversal Signal")
+revDeclineATR = input.float(5.0, "Min Decline into Bottom Low (× ATR)", minval=0.0, step=0.5, group="Reversal Signal")
+revBounceATR = input.float(1.5, "Min 2-Candle Bounce from t-2 Close (× ATR)", minval=0.0, step=0.5, group="Reversal Signal")
+revColor = input.color(color.new(color.blue, 0), "Reversal Triangle Color", group="Reversal Signal")
+
+bullColor = input.color(color.new(color.green, 0), "Higher Low Color", group="Style")
+bearColor = input.color(color.new(color.red, 0), "Lower High Color", group="Style")
+debugActiveCol = input.color(color.new(color.aqua, 0), "Debug: Active Level", group="Style")
+debugInvalidCol = input.color(color.new(color.gray, 40), "Debug: Invalidated Level", group="Style")
+
+
+// ════════════════════════════════════════════════════════════════════════
+// REGIME — dual ROC
+// ════════════════════════════════════════════════════════════════════════
+
+rocFast = ta.roc(close, rocFastLen)
+rocSlow = ta.roc(close, rocSlowLen)
+
+bool useAnd = regimeMode == "Both must agree (AND)"
+upRoc = useAnd ? (rocFast > 0 and rocSlow > 0) : (rocFast > 0 or rocSlow > 0)
+downRoc = useAnd ? (rocFast < 0 and rocSlow < 0) : (rocFast < 0 or rocSlow < 0)
+
+rocUptrend = useRegime ? upRoc : true
+rocDowntrend = useRegime ? downRoc : true
+
+
+// ════════════════════════════════════════════════════════════════════════
+// REGIME — dual SMA (price location + slope)
+// ════════════════════════════════════════════════════════════════════════
+
+maFast = ta.sma(close, maFastLen)
+maSlow = ta.sma(close, maSlowLen)
+
+maBullish = close > maFast and close > maSlow and maFast > maFast[1] and maSlow > maSlow[1]
+maBearish = close < maFast and close < maSlow and maFast < maFast[1] and maSlow < maSlow[1]
+
+maUptrend = useMAFilter ? maBullish : true
+maDowntrend = useMAFilter ? maBearish : true
+
+
+// ════════════════════════════════════════════════════════════════════════
+// COMBINED REGIME
+// ════════════════════════════════════════════════════════════════════════
+
+uptrend = rocUptrend and maUptrend
+downtrend = rocDowntrend and maDowntrend
+
+
+// ════════════════════════════════════════════════════════════════════════
+// NEW EXTREMES (wick basis) + ATR
+// ════════════════════════════════════════════════════════════════════════
+
+priorHigh = ta.highest(high, extremeLookback)[1]
+priorLow = ta.lowest(low, extremeLookback)[1]
+newHigh = high > priorHigh
+newLow = low < priorLow
+
+barsSinceNewHigh = ta.barssince(newHigh)
+barsSinceNewLow = ta.barssince(newLow)
+
+revAtr = ta.atr(revAtrLen)
+is21dLow = low <= ta.lowest(low, revLen)
+
+
+// ════════════════════════════════════════════════════════════════════════
+// SETUP & CONFIRMATION (HL / LH)
+// ════════════════════════════════════════════════════════════════════════
+
+greenBar = close > open
+redBar = close < open
+
+hlSetup = greenBar and (barsSinceNewHigh >= streakLen) and uptrend
+lhSetup = redBar and (barsSinceNewLow >= streakLen) and downtrend
+
+hlConfirm = hlSetup[1] and close > high[1]
+lhConfirm = lhSetup[1] and close < low[1]
+
+
+// ════════════════════════════════════════════════════════════════════════
+// REVERSAL SIGNAL
+//   On confirmation bar C:
+//     Bar 1 (C-1): close > open (green)
+//     Bar 2 (C):   close > Bar 1 high
+//   Bottom (low basis) = C-1 or C-2 must be trailing-revLen low
+//   Decline into bottom LOW >= revDeclineATR × ATR over 21d OR 42d
+//   2-candle bounce from t-2 close >= revBounceATR × ATR
+// ════════════════════════════════════════════════════════════════════════
+
+revBar1Green = close[1] > open[1]
+revBar2Confirm = close > high[1]
+revBottomOK = is21dLow[1] or is21dLow[2]
+revBottomOff = is21dLow[1] ? 1 : 2
+
+revLow = low[revBottomOff]
+revAtrBottom = revAtr[revBottomOff]
+ret21 = revLow - close[revBottomOff + revLen]
+ret42 = revLow - close[revBottomOff + revLen2]
+decline21OK = not na(revAtrBottom) and ret21 <= -revDeclineATR * revAtrBottom
+decline42OK = not na(revAtrBottom) and ret42 <= -revDeclineATR * revAtrBottom
+revDeclineOK = decline21OK or decline42OK
+
+revTwoBarRet = close - close[2]
+revBounceOK = not na(revAtr) and revTwoBarRet >= revBounceATR * revAtr
+
+revSignal = enableReversal and revBar1Green and revBar2Confirm and revBottomOK and revDeclineOK and revBounceOK
+
+
+// ════════════════════════════════════════════════════════════════════════
+// STATE MACHINE — per side (HL / LH)
+// ════════════════════════════════════════════════════════════════════════
+
+var float lastHL = na
+var float invalidHL = na
+var int hlPauseEnd = na
+var bool hlLocked = false
+
+var float lastLH = na
+var float invalidLH = na
+var int lhPauseEnd = na
+var bool lhLocked = false
+
+if newHigh
+    hlLocked := false
+if newLow
+    lhLocked := false
+
+if not na(hlPauseEnd) and bar_index >= hlPauseEnd
+    invalidHL := na
+    hlPauseEnd := na
+
+bool hlInvalidatedThisBar = false
+if not na(lastHL) and close < lastHL
+    invalidHL := lastHL
+    lastHL := na
+    hlPauseEnd := bar_index + coolOffBars
+    hlLocked := false
+    hlInvalidatedThisBar := true
+
+if not hlInvalidatedThisBar and not na(invalidHL) and close > invalidHL
+    invalidHL := na
+    hlPauseEnd := na
+
+if not na(lhPauseEnd) and bar_index >= lhPauseEnd
+    invalidLH := na
+    lhPauseEnd := na
+
+bool lhInvalidatedThisBar = false
+if not na(lastLH) and close > lastLH
+    invalidLH := lastLH
+    lastLH := na
+    lhPauseEnd := bar_index + coolOffBars
+    lhLocked := false
+    lhInvalidatedThisBar := true
+
+if not lhInvalidatedThisBar and not na(invalidLH) and close < invalidLH
+    invalidLH := na
+    lhPauseEnd := na
+
+hlFree = na(invalidHL) and na(hlPauseEnd) and (not oneSignalPerLeg or not hlLocked)
+lhFree = na(invalidLH) and na(lhPauseEnd) and (not oneSignalPerLeg or not lhLocked)
+
+
+// ════════════════════════════════════════════════════════════════════════
+// PRINT TRIANGLES — HL / LH anchored at swing low/high of pullback
+// ════════════════════════════════════════════════════════════════════════
+
+if hlConfirm and hlFree
+    pbLen = math.max(1, nz(barsSinceNewHigh[1], 1))
+    float minLow = low[1]
+    int minOff = 1
+    for k = 1 to 500
+        if k > pbLen
+            break
+        if low[k] < minLow
+            minLow := low[k]
+            minOff := k
+    if na(lastHL) or minLow > lastHL
+        label.new(x=bar_index - minOff, y=minLow, text="▲", yloc=yloc.belowbar, style=label.style_none, textcolor=bullColor, size=size.small)
+        lastHL := minLow
+        hlLocked := true
+
+if lhConfirm and lhFree
+    pbLen = math.max(1, nz(barsSinceNewLow[1], 1))
+    float maxHigh = high[1]
+    int maxOff = 1
+    for k = 1 to 500
+        if k > pbLen
+            break
+        if high[k] > maxHigh
+            maxHigh := high[k]
+            maxOff := k
+    if na(lastLH) or maxHigh < lastLH
+        label.new(x=bar_index - maxOff, y=maxHigh, text="▼", yloc=yloc.abovebar, style=label.style_none, textcolor=bearColor, size=size.small)
+        lastLH := maxHigh
+        lhLocked := true
+
+
+// ════════════════════════════════════════════════════════════════════════
+// PRINT REVERSAL TRIANGLE (blue) — below the bottom (low) bar
+// ════════════════════════════════════════════════════════════════════════
+
+if revSignal
+    label.new(x=bar_index - revBottomOff, y=low[revBottomOff], text="▲", yloc=yloc.belowbar, style=label.style_none, textcolor=revColor, size=size.small)
+
+
+// ════════════════════════════════════════════════════════════════════════
+// DEBUG PLOTS
+// ════════════════════════════════════════════════════════════════════════
+
+plot(showDebug ? lastHL : na, "Active HL", color=debugActiveCol, linewidth=1, style=plot.style_linebr)
+plot(showDebug ? lastLH : na, "Active LH", color=debugActiveCol, linewidth=1, style=plot.style_linebr)
+plot(showDebug ? invalidHL : na, "Invalidated HL", color=debugInvalidCol, linewidth=1, style=plot.style_linebr)
+plot(showDebug ? invalidLH : na, "Invalidated LH", color=debugInvalidCol, linewidth=1, style=plot.style_linebr)
+
+
+// ════════════════════════════════════════════════════════════════════════
+// ALERTS
+// ════════════════════════════════════════════════════════════════════════
+
+alertcondition(hlConfirm, "HL Confirmed", "Higher Low confirmed.")
+alertcondition(lhConfirm, "LH Confirmed", "Lower High confirmed.")
+alertcondition(revSignal, "Reversal Signal", "Reversal pattern confirmed at trailing low.")
+alertcondition(not na(lastHL) and close < lastHL, "HL Invalidated", "Active HL broken on close.")
+alertcondition(not na(lastLH) and close > lastLH, "LH Invalidated", "Active LH broken on close.")
