@@ -1,306 +1,112 @@
-# Radar Weekly Digest — 2026-05-17
+# Radar Weekly Digest — 2026-05-24
 
-> **Data note:** Today's market-data snapshot (2026-05-17) did not land in the
-> radar-briefings cache before this run. The structured forward-EPS / trend
-> figures below are pulled from the 2026-05-10 snapshot — i.e., one trading
-> week stale. For names that moved hard this week (WOLF +tripled, INTC RSI 88,
-> FRO/BWET regime), I've leaned on the brief narratives and treated the
-> snapshot fields as orientation only. Tickers without snapshot coverage
-> (AKAM, BA, BYND, CBRS, CRSP, FIG, FRO, GME, HII, HUBS, NNE, SMMT, TRAW,
-> UMAC, WOLF) get brief-driven treatment with that flag noted.
+The week was dominated by two industrial-policy shocks: the **May 21 CHIPS-for-equity quantum package** ($2B across nine firms — first-ever federal equity stakes in pure-plays) and the **May 18 Trump-Xi rare-earth framework** layered on top of an existing Pentagon equity stake in USAR. Underneath that, defense primes and naval shipbuilders are basing out at oversold levels while the AI-mega-cap cohort (NVDA/PLTR/TSLA) keeps printing beat-and-fall patterns. Four ideas cleared the bar. The loved-but-falling AI complex did not — that trade is now consensus, not variant.
 
-The dominant theme this week was the **Trump industrial-policy stack
-hardening into actual cash flows** — July-4 reactor criticality deadline,
-federal equity stakes in rare-earth juniors, $80B Westinghouse backstop,
-hypersonic procurement awards, EO 14307 drone push — while the mega-cap
-narrative leaders (PLTR, TSLA, BA) quietly disconnected from sentiment.
-The Trump-Xi summit resolved as a sell-the-news event; Iran/Hormuz is in
-its 11th week with tanker dayrates at records. Most of the alpha is in
-small/mid-cap policy beneficiaries that the quant sentiment scanners
-underweight relative to AI-infra darlings.
-
-Six ideas cleared the bar.
+> **Data caveat:** The Sunday market-snapshot GHA did not produce a 2026-05-24 file; the latest available snapshot is 2026-05-17. All quoted prices/RSI/SMAs are as of 2026-05-17 close. Forward-EPS consensus and analyst counts are still current (yfinance refreshes these on a longer cadence). Tickers without snapshot coverage (IBM, RGTI, QBTS, GFS, AEP, INVH, UNH, FLY, CAPR, NVDA) are flagged in-line where I reference them.
 
 ---
 
-## 1. WOLF (Wolfspeed) — AI-power SiC scarcity, not a busted SiC junior
+## MP Materials (MP) — the cleanest expression of US rare-earth re-shoring
 
-**Thesis:** A 57%-shorted name that tripled in three weeks on the Citrini
-reframe is not just a short squeeze — it's a thesis reset that the market
-has only begun pricing.
+**Thesis:** MP is no longer a rare-earth miner; it is a federally backstopped magnet utility trading at a 50x forward PE on consensus EPS growth of **+238% (FY26) and +270% (FY27)**. Independence facility magnet sales begin H2 2026 — the inflection from concentrate seller to integrated producer is right in front of us and is not in the price.
 
-**Variant perception:** Consensus saw WOLF as a structurally broken
-auto-SiC supplier with a balance sheet that required dilution at a price
-that would wipe equity holders. The variant: AI data-center power
-infrastructure (48V/HVDC, GPU rack power supplies, switch-mode topologies)
-needs SiC modules at volumes the auto-SiC glut narrative never modeled.
-WOLF's already-built Mohawk Valley capacity is a scarcity asset, not a
-stranded cost, in that scenario. The 2025 dilution risk premium gets
-re-rated as the AI-power buyer of last resort emerges. The market is
-pricing this as "squeeze exhaustion ahead"; the variant is that the AI
-infra customer pipeline is real and Q3/Q4 prints will validate it.
+**Variant perception:** Consensus is reading the May 18 Trump-Xi rare-earth framework as risk-off for the trade (China commits to lift export controls → "deal kills the squeeze"). I read it the opposite way: the deal makes rare-earth processing capacity a permanent geopolitical chip. MP's structure — **$110/kg NdPr price floor** with Treasury paying the delta, **100% magnet offtake for 10 years**, $400M DoD preferred + 10% federal equity, and the $500M Apple offtake — converts MP into a sovereign-anchored cash-flow stream. The market is still valuing the equity on commodity-cyclical multiples ($61.27, **-38.9% from 52w high** of $100.25) while the underlying business has been re-engineered into a regulated utility with policy-guaranteed margins.
 
-**Who's on the other side:** Short interest at 57% is informed disagreement
-(semis specialists who know the auto SiC unit-pricing collapse cold) layered
-on mechanical short cover. The bear case — "auto SiC ASPs deflate faster
-than AI demand ramps, balance sheet still requires dilution at $30" — is
-real and defensible. They are wrong if the AI infra contract cadence is
-faster than the auto pricing collapse, which is exactly what the Citrini
-note argued. You're not buying a clean setup; you're buying that the AI
-infra timing wins the race.
+**Who's on the other side:** Macro tourists who chased the rare-earth ETFs into the China-restriction headlines and are unwinding now that Trump-Xi removed the immediate scarcity narrative. Trend-followers who got long at $90+ and are still capitulating after the -39% drawdown. Neither side has read the actual offtake-and-floor agreement structure — they're trading the headline.
 
-**The data:** Brief narrative: $24.70 (April 21) → ~$70 (May 14), back-to-back
-18-22% daily spikes. 57%+ short float. APAC president hire signals
-operational gearing for Japan/Korea/ASEAN AI customers. No snapshot data
-this week — but the +180% one-month move is the read-through. The brief
-flags WOLF as "the only listed US pure-play at scale" in SiC.
+**The data:**
+- Price $61.27; SMA50 $59.28, SMA200 $63.22 (recovering trend, basing above 50d)
+- RSI 43.7 (mid-range, room to run); volume_ratio 1.03 (no climax buying yet)
+- Forward EPS growth: 0q +148.7%, +1q +196.5%, 0y +238.4%, +1y +270.0%
+- Forward PE 49.9x on +270% +1y growth (PEG <0.2 if you trust the consensus)
+- EPS estimate range +1y: $0.84–$1.72 (wide — but the *low* end is still a forward PE of 73x at $61, and the *high* end is 36x; analysts can't agree on magnitude, only direction)
+- Persistent across **4 of 7** briefs this week; recurring theme for two months running
 
-**What would change my mind:** A Q3 print that shows AI-infra contract
-revenue *not* materializing (vs auto SiC still in unit-price decline) plus
-a fresh dilutive raise. Either alone is survivable; both together kills
-the thesis. Also: if the broader AI-power narrative cracks (e.g. NVDA
-Blackwell power draw revised down materially), the SiC scarcity premium
-deflates.
+**What would change my mind:** Apple or DoD renegotiating the offtake terms; a faster-than-expected China deal that explicitly includes magnet price commitments; magnet production at Independence slipping past Q1 2027.
 
 ---
 
-## 2. AVAV (AeroVironment) — backlog says one thing, the chart says another
+## USA Rare Earth (USAR) — the second-derivative the street hasn't underwritten
 
-**Thesis:** AVAV trades like a defense disappointment (-59.7% from 52w
-high, price below 50d below 200d) while the underlying contract book is
-the strongest in company history. Mispriced setup.
+**Thesis:** USAR is the only US-listed pure-play heavy-rare-earth processor with a **direct federal equity stake (~10%) and $354M Pentagon contracts in hand**, yet it trades at a market cap **half of MP's** with the same structural tailwinds. The Serra Verde / Pela Ema acquisition gives it the largest non-China heavy-REE deposit in the West.
 
-**Variant perception:** Consensus reads the -60% chart and the 0y forward
-EPS contraction (-12.2%) as "the AeroVironment story is broken — revenue
-is growing but earnings aren't, R&D is consuming margin." The variant:
-the EPS dip is hypersonic-program investment (PANTHER integration, Project
-Helios-adjacent infrastructure) being expensed against current revenue
-while the $3.5B backlog with **~93% of FY revenue already covered by firm
-orders** monetizes over 2026-2027. The +1y consensus is +40.6% EPS growth —
-which itself is conservative if the Switchblade-to-drone-component
-mandate from EO 14307 plays out. You're buying the chart-fundamentals gap.
+**Variant perception:** Sell-side modeling USAR as a pre-revenue miner — that's why thin coverage (2 analysts for FY27) and a -21x forward PE (still loss-making). I think the *correct* mental model is that **the DoD/MP precedent (price floor + 100% offtake) is the template** the administration has signaled it will extend to USAR — and it isn't priced. USAR's $1.75B cash + $1.5B PIPE + $1.6B CHIPS access has already eliminated the dilution risk that has historically capped junior miner valuations. Heavy REE is the harder bottleneck than light REE (where MP plays), and Pentagon's January equity infusion at higher prices establishes the gov't strike basis well above current spot.
 
-**Who's on the other side:** Defense ETF flows that overweighted on the
-2025 breakout and trimmed post-correction. Generalists who can't reconcile
-"backlog grew, stock down 60%" without concluding execution is broken.
-They're not entirely wrong about the EPS volatility — but firm backlog at
-93% coverage materially reduces fundamental tail risk vs what the chart
-implies.
+**Who's on the other side:** Long-only mandates that exclude pre-revenue equities by policy — they cannot buy USAR until the first earnings print regardless of structural setup. Specialty mining funds that prefer MP for liquidity. Recently the unwind of PIPE participants (Q1 PIPE allocation expiring lockup) creating mechanical supply.
 
-**The data:** Price $168.29, sma_50 $198.73, sma_200 $268.61. RSI 34.5
-(mildly oversold). Forward PE 41.5x on 0y EPS $2.88 / +1y EPS $4.05.
-Backlog: $3.5B per brief, 93% revenue coverage. EPS growth path: 0y
--12.2%, +1q +123.0%, +1y +40.6% — the cadence inflects sharply. 14-17
-analysts covering, so this isn't a thin-coverage name where consensus is
-lazy. (Note: snapshot is May 10 — likely directionally similar today.)
+**The data:**
+- Price $24.39; SMA50 $20.37, SMA200 $18.82 — **strong uptrend, the only rare-earth name making higher highs** on the snapshot date
+- RSI 52.9 (neutral — not extended), volume_ratio 0.78 (orderly accumulation, not climax)
+- Forward EPS: still negative ($-0.54 FY26, $-0.01 FY27). Inflection to breakeven is +1y consensus; the +1y_high estimate is $1.11 (range $-1.14 to $1.11 — wide divergence reflects model uncertainty, not directional doubt)
+- P/S 741x is meaningless given the revenue ramp inflection; mark this as a forward-cash-flow story, not a multiple story
+- Persistent across **6 of 7** briefs this week — strongest persistence in the dataset
 
-**What would change my mind:** A Q-print where the $3.5B backlog doesn't
-convert at the implied rate — specifically book-to-bill <0.8 for two
-quarters or a material contract slip. Also: a real Iran/Hormuz
-de-escalation that compresses defense-budget urgency.
+**What would change my mind:** A formal Trump-Xi deal that includes binding magnet-pricing commitments below the $110/kg MP floor — that would reset the entire US-domestic-magnet thesis. Pentagon walking back the equity stake (highly unlikely given political optics).
 
 ---
 
-## 3. CCJ (Cameco) — Westinghouse is the part the market isn't pricing
+## Kratos Defense (KTOS) — accelerating earnings into a 60% drawdown
 
-**Thesis:** Forward EPS accelerating from +11.6% (0y) to +65.1% (+1y),
-with the Westinghouse JV becoming a deployment equity vehicle backed by
-$80B. CCJ remains priced as a uranium-spot proxy.
+**Thesis:** Forward EPS growth of **+33% / +45% / +40% / +42%** across the next four periods, raised guidance ($1.70–1.76B FY26 revenue), Valkyrie Program of Record status, and a new $50M Project Helios hypersonic test facility — yet the stock is **-61.1% from its 52w high** and **RSI 31.3 (oversold)**. The fundamentals went up and to the right; the chart went the other way. That divergence is rare and resolves toward fundamentals when the catalyst pipeline is concrete.
 
-**Variant perception:** Consensus values CCJ on uranium spot price and
-Cigar Lake throughput — the textbook model. The variant: the
-US-Government / Brookfield strategic partnership converts Westinghouse
-from a services-revenue line into an equity participant in the reactor
-*deployment* cycle. With Trump EO deadlines forcing reactor criticality
-by July 4, 2026 and an $80B aggregate investment backstop, Westinghouse
-becomes a flow-through valuation asset. The +65% +1y EPS jump in consensus
-captures *some* of this, but the multi-year build cycle isn't fully
-reflected — because uranium-spot pricing models cap the out-year cash
-flow estimates that haven't yet been re-modeled with Westinghouse equity
-returns.
+**Variant perception:** The street narrative is "AVAV is the cleaner drone play; KTOS is over-diversified and indirect." I disagree: KTOS is the only mid-cap defense name with **(a)** legislated Drone Dominance pull, **(b)** hypersonic test infrastructure that the entire DoD will need to rent, and **(c)** a Valkyrie Program of Record that delivers 8→40/yr production scaling. AVAV is in a worse setup (also down 62%, BlueHalo integration friction, SCAR program issues) — analysts prefer it on legacy brand, not fundamentals. The Trump FY27 defense budget request of **$1.5T (+39% YoY)** is a legislated, not speculative, tailwind, and KTOS sits in three of the fastest-growing line items (CCA, hypersonics, counter-UAS).
 
-**Who's on the other side:** Uranium-cyclical bears (rightly skeptical
-of the 2007 spot-bubble redux); valuation purists looking at 60x forward
-and saying "obviously not"; passive index flows. The bear case — that
-the Westinghouse build cycle slips, reactor deployments miss the EO
-deadline, and uranium spot mean-reverts on supply restart — is the real
-risk. But the EO has hard dates and the administration has shown
-willingness to expedite NRC review.
+**Who's on the other side:** Systematic momentum strategies that mechanically exited after the -50% peak-to-trough drop. Growth-fund holders who paid up at $100+ in 2025 are tax-loss-harvesting. Sell-side analysts whose preference for AVAV diverts allocator dollars to the wrong drone name. None of these sellers have a view on FY26 contract flow — they're forced or anchored, not informed.
 
-**The data:** Price $116.75, sma_50 $114.99, sma_200 $98.41 (strong
-uptrend). RSI 44.7 (not stretched). -13.7% from 52w high. Forward EPS
-$1.61 (0y, +11.6%) → $2.65 (+1y, +65.1%). 15-19 analysts — well-covered.
-Trailing PE 106 vs forward PE 60 already tells the operational re-rate
-story. Forward consensus range for +1y is $1.86-$3.87 — wide range
-signals uncertainty on Westinghouse contribution, which is exactly where
-the variant lives.
+**The data:**
+- Price $52.09; SMA50 $71.81, SMA200 $80.79 — clear downtrend (price < 50d < 200d)
+- RSI 31.3 (oversold), volume_ratio 1.36 (capitulation volume pattern emerging)
+- Forward EPS growth: 0q +33.4%, +1q +45.2%, 0y +39.6%, +1y +42.3% (acceleration sustained across all periods)
+- Forward PE 47.7x on +42% +1y growth = PEG ~1.1; trailing PE 306x is the wrong frame
+- EPS range 0y: $0.56–$0.88, +1y: $0.84–$1.39 — 15 to 18 analysts, healthy coverage
+- Persistent across **3 of 7** briefs this week with consistent catalyst stacking
 
-**What would change my mind:** A Westinghouse-specific cost overrun
-disclosure, July 4 deadline slip with no DOE workaround, or uranium spot
-breaking back below $70/lb on Kazatomprom restart news.
+**What would change my mind:** Q1 FY26 cash burn accelerating beyond current -1.1% FCF yield; Valkyrie or Helios timeline slippage of >2 quarters; a peer drone-prime (AVAV, RCAT) winning a flagship CCA award that crowds out KTOS.
 
 ---
 
-## 4. USAR (USA Rare Earth) — federal equity stake is a regime change
+## Huntington Ingalls (HII) — sole-source naval shipbuilder, oversold into MAP funding tranches
 
-**Thesis:** Pre-revenue REE junior where the *capital structure* itself
-has been re-engineered by federal equity participation. Stillwater
-magnet plant opens imminently (end of spring 2026). The "REE juniors
-always dilute to zero" template doesn't apply when the government owns
-8-16%.
+**Thesis:** HII is the only company in America that builds nuclear aircraft carriers and submarines. The May 21 implementation blueprint for **America's Maritime Action Plan** pulls in hundreds of billions across four pillars; management has flagged **up to $50B of potential new contracts over 24 months**. Backlog is already $54B. Stock is **-12.6% over 30 days at $326 vs. sell-side fair-value of ~$407**, RSI 32.9 (oversold), forward PE 16x.
 
-**Variant perception:** Consensus prices USAR using the same template
-that killed Molycorp, Lynas (1.0), and every other 2010-2020 REE junior:
-high cash burn, China-priced revenue, dilution risk that wipes equity
-holders before the plant scales. The variant: the federal equity stake
-(8-16%, $1.6B Commerce pathway expected in May 2026 documentation), the
-$12B Project Vault stockpile creating a *floor-priced buyer of last
-resort*, and the explicit Jan 2026 Section 232 tariff backstop on
-imported processed REEs collectively rewrite the unit economics. This
-isn't a normal junior; it's a sovereign-funded vertical integration play
-with a fiscal sponsor. The dilution risk has been *transferred to the
-federal balance sheet*, which the equity multiples haven't repriced.
+**Variant perception:** The market is treating HII as a defense prime that got over-loved post-Trump-rally and needs to consolidate. I think it's mispriced because **the MAP funding tranches are sequential, not lumpy** — the $283M FF(X) frigate award is the first of what will be quarterly headline drops over 24 months, each of which forces analysts to re-mark the backlog. The forward PE of 15.9x is a **20-30% discount to LMT/NOC** despite HII having a tighter structural moat (sole-source carrier construction, Ingalls CBA labor stability through 2031). Trump's January EO restricting buybacks/comp at underperforming defense contractors is a regulatory *floor* that protects HII's capex-heavy execution model — not a headwind.
 
-**Who's on the other side:** REE bears with PTSD from a decade of zeros.
-Valuation purists looking at P/S = 3,576x and saying "not even pretending
-to be cheap." Passive flows that can't model policy-engineered floors.
-Most of these objections are correct on the standalone metrics — they're
-wrong only if the policy stack stays funded and the Stillwater plant
-opens on time. Both are tractable risks but neither is currently priced
-as base case.
+**Who's on the other side:** Allocators rotating *out* of defense after the post-Trump-rally exhaustion. Generalists who don't distinguish between primes and read "defense down 30 days" as a sector signal. Sellers of an Ingalls labor-cost narrative that is now obsolete (CBA extends through 2031).
 
-**The data:** Price $26.96, sma_50 $19.79, sma_200 $18.48 (strong
-uptrend). RSI 60.7 — running but not stretched. -38.7% from 52w high
-of $43.98. Forward EPS still negative (0y -$0.49, +1y -$1.34) — analyst
-count 2/1/1, which is thin coverage and explains why consensus is wide.
-The brief notes the federal equity stake conversion path mirrors the MP
-Materials 15% template.
+**The data:**
+- Price $326.17; SMA50 $381.68, SMA200 $340.74 — weakening trend, just below 200d
+- RSI 32.9 (oversold), volume_ratio 0.96 (no panic — orderly sell-down)
+- Forward EPS: 0q $3.87 / +1q $4.67 / 0y $17.47 / +1y $20.45
+- Forward EPS growth: 0q +0.1% / +1q +26.9% / 0y +13.5% / +1y +17.1% — clean upward sequence
+- Forward PE 15.95x; trailing PE 21.2x — *forward* multiple is the relevant frame given the MAP-tailwind acceleration
+- $54B backlog vs $12.9B market cap — book-to-market of 4.2x revenue
 
-**What would change my mind:** Stillwater plant opening slips past Q3,
-Project Vault deployment delay, or a Section 232 tariff carve-out for
-allied processors (which would dilute the price-floor mechanic). Also:
-any Trump-administration policy reversal — though the bipartisan REE
-consensus makes this lower probability.
+**What would change my mind:** MAP funding being clawed back or significantly delayed past FY27; CVN-79 sea trials revealing reactor-side cost overruns; Newport News/Ingalls labor disputes despite the 2031 CBA.
 
 ---
 
-## 5. FRO (Frontline) — Hormuz duration, not Hormuz spike
+## What I'm killing
 
-**Thesis:** The market is pricing FRO as a spike trade that mean-reverts
-when Hormuz reopens. The variant: ton-mile demand has been permanently
-lengthened by Cape rerouting and 1,500+ stranded vessels, and forward
-dayrate contracts being signed now lock in the new pricing for 12-36
-months regardless of what happens to the Strait next quarter.
+**PLTR, NVDA, TSLA (loved-but-falling AI cohort):** Every brief this week flagged these as crowded longs unwinding. **That thesis is now consensus.** PLTR -26% YTD, NVDA can't rally on a clean beat-and-raise, TSLA 208x forward PE on decelerating fundamentals — the chart, the headline, *and* the smart-money commentary all point the same direction. There is no variant perception left. Anyone with a Bloomberg knows these are de-rating. Fading them here is mechanical, not edged.
 
-**Variant perception:** Consensus models FRO as spot-rate exposure that
-mean-reverts to the 2018-2024 average TCE within two quarters of any
-partial reopening. The variant: (1) the IEA's 100M bbl/wk supply loss
-estimate puts the vessel backlog at 1,550+ — that's six months of clearing
-even on a full reopen scenario; (2) shippers and refiners are signing
-12-month and longer contracts at near-record rates *now*, locking in the
-new pricing; (3) Cape rerouting permanently lengthens ton-miles for
-non-Hormuz-routable cargo. FRO's spot leverage means each quarter of
-elevated rates compounds straight to TCE-driven cash flow that the
-forward consensus EPS curve still treats as a one-off.
+**OPEN, BYND (meme squeezes):** Real short interest, real Reddit chatter, but I cannot construct a non-flow-driven variant perception. BYND trades at $0.80 with -$0.34 forward EPS and a -2.4 forward PE; OPEN at $4.38 with negative forward EPS across every period. Squeeze trades work or they don't — there's no fundamental thesis to anchor sizing or stop-out logic.
 
-**Who's on the other side:** Macro tourists who shorted into the spike
-expecting mean reversion in week 4 (and got run over for 7 more weeks).
-Tanker-cycle bears scarred by 2020 dayrate collapse. Passive holders who
-don't model spot rates. The informed bear is whoever has actual fixture
-visibility and sees rate softening that isn't in the headlines — that's a
-real risk, but BWET +600% YTD and "VLGC and VLCC dayrates at records"
-suggests no soft-rate undertone yet.
+**CBRS (Cerebras post-IPO):** Recent IPO, lockup not yet in chart, P/S 118x, no forward EPS data, no SMAs because of insufficient price history. Setup is real but unanalyzable without 60-90 days of trading data.
 
-**The data:** No snapshot coverage for FRO this week. Per brief: Hormuz
-blocked since Feb 28, 11-week duration, IEA flagging 100M bbl/wk supply
-loss, Baker Hughes assuming no full reopen until H2 2026. BWET tanker
-ETF +600% YTD as proxy.
+**WMT, INTU (consumer/earnings disappointments):** Post-print mechanics — the move has happened. Reading these as macro tells, not single-name trades.
 
-**What would change my mind:** Any credible Iran-US back-channel that
-prices in a Hormuz reopening by Q3 (would compress forward TCE curves
-fast), or signs that fixtures are softening 4-6 weeks ahead of reported
-spot rates. Watch the Baltic Indices for that.
+**AVAV (drone peer to KTOS):** Same end-market thesis, worse fundamentals (BlueHalo integration friction, SCAR program issues, +1y EPS growth +40.6% vs KTOS +42.3%), no catalyst as concrete as KTOS's Helios facility. Forward PE 39x is similar to KTOS — picking one drone name means picking KTOS.
 
 ---
 
-## 6. SMMT (Summit Therapeutics) — ASCO Plenary asymmetry
+## Things I want to own but can't size from this snapshot
 
-**Thesis:** Binary catalyst 14 days out (May 31). ASCO Plenary slot
-selection itself is informational — those slots are reserved for
-abstracts where the data already cleared internal Plenary committee
-review. The market is pricing this as a coin flip; the slot signals it
-isn't.
+**Quantum CHIPS-for-equity basket (RGTI, QBTS, GFS, IBM):** The single biggest policy event of the week, and arguably of the quarter — the federal government taking equity stakes is a regime change. RGTI and QBTS each +23% on May 21; GFS at new 52w high after $375M LOI; IBM +12.4% on the Anderon foundry. **The variant perception is straightforward:** the market is pricing each of these on incremental upside from the CHIPS dollars, not on the structural balance-sheet event of having Commerce as a long-term equity holder (which a) removes dilution risk, b) implies a federal customer pipeline, and c) creates a political cost to ever letting these firms fail). I'd be a buyer of the basket on any 10%+ pullback, **but the snapshot file is missing data for all four names**, so I cannot make precise valuation calls today. Flag for next week's digest assuming the snapshot pipeline is restored.
 
-**Variant perception:** Consensus prices the HARMONi-6 OS readout as a
-~60% probability of statistically positive OS. The variant: ASCO Plenary
-selection criteria effectively require pre-spec OS HR ≤ 0.7 or magnitude
-that's *already* convincing to the Plenary committee — i.e., the slot
-allocation is a partial readout itself. Combined with the fact that
-ivonescimab is a PD-1/VEGF bispecific that already showed activity in
-HARMONi-A, the probability of a clinically meaningful OS win is closer
-to 80-85%, not 60%. A clean OS win in EGFR-mutated NSCLC positions
-ivonescimab to take share from Keytruda in that subset — $2B+ in
-addressable revenue. PDUFA Nov 14 is the de-risking confirmation; the
-May 31 readout is the price-mover.
-
-**Who's on the other side:** Biotech generalists with scars from
-HARMONi-2 (PFS-only Plenary readouts that disappointed on OS), and deep
-skepticism toward US-trial bispecifics with Chinese-trial origins
-(Akeso AK112 Phase 3 was Chinese-sponsored, and US clinical-data
-translation has historically been imperfect). That's the legitimate
-informed disagreement. They're wrong if ASCO Plenary committee
-pre-screening is genuinely predictive — which it has been for ~80% of
-recent Plenary OS readouts.
-
-**The data:** No snapshot coverage. Per brief: ASCO Plenary May 31,
-PDUFA Nov 14, mid-cap. Trial: HARMONi-6 in EGFR-mutated NSCLC. Retail
-flow has been biotech-specialist Twitter, not WSB — i.e., the catalyst
-is priced by specialists, not retail froth, which is a positive setup.
-
-**What would change my mind:** Any pre-readout pharmacovigilance signal
-or partial-dataset leak. Also: a Keytruda label-expansion announcement
-between now and May 31 that compresses the addressable subset SMMT can
-take share from.
+**AEP (American Electric Power):** Got the **first-ever DOE Energy Dominance Financing loan** ($1.6B guarantee) for 5,000 miles of transmission reconductoring, on top of a $78B capex plan ($50B in transmission). Transmission is the actual AI-power bottleneck — not generation. Single-brief mention so persistence is low, no snapshot data so valuation framing is incomplete. Watch for follow-through next week.
 
 ---
 
-## Killed (with reasons)
+## Position sizing note
 
-- **INTC**: Variant might have been valid at $60. At $124.92 with RSI
-  88.4 and forward PE 81.6x against 0y EPS $1.09, the squeeze has done
-  its work. Late shorts covering ≠ fresh long opportunity. Consensus PT
-  $79 is below current price by ~37% — the informed-bear disagreement
-  is *real* and at this RSI the asymmetry has flipped. Watch for unwind.
-- **PLTR**: Q1 was a blowout (revenue +85%, US commercial +133%), but my
-  thesis on the stock is identical to consensus ("great business at a
-  bad price"). No variant. Forward PE 66.9x on consensus +94.8% 0y /
-  +40.9% +1y EPS — even great execution leaves valuation tight. Wait
-  for a capitulation flush.
-- **HIMS**: Variant on Wegovy unit economics isn't strongly
-  differentiated from the bull consensus. Forward PE 20.5x looks
-  reasonable but the margin-permanence bear case is defensible. The
-  squeeze setup (31% short, retail flipped bullish) is real but "shorts
-  capitulate" alone isn't a variant view.
-- **AKAM**: The Anthropic $1.8B deal was real, but +26.6% in one tape
-  day already prices most of the variant. The "more AI labs follow"
-  thesis is plausible but speculative; would re-engage on the next deal
-  announcement, not on the first one.
-- **BYND, TRAW, FIG, GME**: Pure squeeze / pure binary with no
-  articulable variant beyond "the chart says up" or "the catalyst is
-  positive." That's not edge.
-- **OKLO, NNE, RKLB**: Real policy beneficiaries but the cleaner trades
-  in the same thesis stack (CCJ for nuclear deployment cycle, USAR for
-  federal-equity REE) have sharper variant arguments. OKLO at $72.51
-  with forward PE -80x is a faith trade; the Friday Q1-print fade
-  suggests the loved-name unwind is already starting.
-
-## What to watch into next week
-
-- **May 31 SMMT readout** is the biggest dated catalyst on the board.
-- **WOLF sustainability** — does the AI-infra contract cadence show up
-  in any Q2 management commentary, or does the squeeze unwind into
-  another dilutive raise?
-- **Hormuz** — any back-channel headline could compress the FRO trade
-  fast. The 11-week duration is the bull's friend.
-- **Project Vault documentation** — definitive USAR docs expected in
-  May; if delayed into June, the policy-floor variant weakens.
+If I were running capital this week, I'd weight roughly: **MP 40% / USAR 25% / KTOS 20% / HII 15%** of the radar-trade book — the rare-earth pair gets the largest weight because the structural setup is cleanest (price floor + offtake + federal equity) and the catalyst (Independence magnet sales H2 2026) is calendar-driven. KTOS and HII are both oversold-with-improving-fundamentals trades; KTOS gets a slightly higher weight because the EPS acceleration is steeper and more uniform across periods. Skip the quantum basket until snapshot data is back and you can size it precisely.
