@@ -1,5 +1,5 @@
 {
-  "date": "2026-05-22",
+  "date": "2026-05-25",
   "price_ctx": {
     "price": 745.6400146484375,
     "ret_12m": 0.2934326711926949,
@@ -13,8 +13,8 @@
   },
   "h_scores": {
     "5d": 17.319360031985617,
-    "21d": 24.744174126447607,
-    "63d": 40.19452025737361
+    "21d": 24.7441741264476,
+    "63d": 40.19452025737362
   },
   "signals": {
     "Distribution Dominance": {
@@ -25,7 +25,7 @@
     "VIX Range Compression": {
       "on": false,
       "detail": "",
-      "summary": "21d range: 3th pctile (fires below 15th) \u2014 VIX at 16.7"
+      "summary": "21d range: 3th pctile (fires below 15th) \u2014 VIX at 16.6"
     },
     "Defensive Leadership": {
       "on": false,
@@ -40,7 +40,7 @@
     "Low Absorption Ratio": {
       "on": false,
       "detail": "",
-      "summary": "AR: 0.432 (33th pctile, fires below 10th) \u2014 near high: yes"
+      "summary": "AR: 0.460 (41th pctile, fires below 10th) \u2014 near high: yes"
     },
     "Seasonal Rank Divergence": {
       "on": false,
