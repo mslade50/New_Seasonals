@@ -38,6 +38,7 @@ try:
         STRATEGY_BOOK, ACCOUNT_VALUE, SPOT_TO_TRADEABLE,
         CSV_UNIVERSE, LIQUID_PLUS_COMMODITIES,
         CROSS_STRATEGY_OVERLAP_OVERRIDES,
+        GLOBAL_RISK_MULTIPLIER,
     )
 except ImportError:
     print("[ERROR] Could not find strategy_config.py in the root directory.")
@@ -46,6 +47,7 @@ except ImportError:
     SPOT_TO_TRADEABLE = {}
     CSV_UNIVERSE = []
     LIQUID_PLUS_COMMODITIES = []
+    GLOBAL_RISK_MULTIPLIER = 1.0
     CROSS_STRATEGY_OVERLAP_OVERRIDES = []
 
 # Master prices parquet — full CSV_UNIVERSE history, built/maintained by
@@ -122,7 +124,7 @@ def build_effective_strategy_book(scope='liquid', moc_only=False):
             ws = _copy.deepcopy(s)
             ws['universe_tickers'] = overflow_tickers
             if s['name'] in OVERFLOW_RISK_OVERRIDES:
-                new_bps = OVERFLOW_RISK_OVERRIDES[s['name']]
+                new_bps = OVERFLOW_RISK_OVERRIDES[s['name']] * GLOBAL_RISK_MULTIPLIER
                 ws['execution']['risk_bps'] = new_bps
                 ws['execution']['risk_per_trade'] = ACCOUNT_VALUE * new_bps / 10000
             ws['_scan_source'] = 'Overflow'

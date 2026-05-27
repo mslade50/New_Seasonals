@@ -25,6 +25,14 @@
 # ============================================
 ACCOUNT_VALUE = 750000  # Adjust this to your current account size
 
+# Global risk multiplier — scales every strategy's per-trade risk uniformly
+# across the whole book (daily_scan, strat_backtester, daily_portfolio_report).
+# Affects: execution['risk_bps'], OVS path1_bps/path2_bps and
+# path2_daily_cap_pct, the OLV earnings_size_override.risk_bps, and the
+# OVERFLOW_RISK_OVERRIDES in daily_scan / daily_portfolio_report. Set to 1.0
+# for prod-default sizing; raise to lever up, lower to throttle the whole book.
+GLOBAL_RISK_MULTIPLIER = 1.5
+
 # ============================================
 # TICKER UNIVERSES
 # ============================================
@@ -1467,6 +1475,21 @@ def list_strategies():
     """List all strategy names and their risk in bps."""
     return [(s["name"], s["execution"]["risk_bps"]) for s in _STRATEGY_BOOK_RAW]
 
+
+# ============================================
+# APPLY GLOBAL RISK MULTIPLIER (in-place on _STRATEGY_BOOK_RAW)
+# ============================================
+# Done before STRATEGY_BOOK = build_strategy_book() so both the raw book
+# (imported by strat_backtester) and the public book see scaled bps.
+if GLOBAL_RISK_MULTIPLIER != 1.0:
+    for _s in _STRATEGY_BOOK_RAW:
+        _exe = _s.get('execution', {})
+        for _k in ('risk_bps', 'path1_bps', 'path2_bps', 'path2_daily_cap_pct'):
+            if _k in _exe:
+                _exe[_k] = _exe[_k] * GLOBAL_RISK_MULTIPLIER
+        _eo = _exe.get('earnings_size_override')
+        if _eo and 'risk_bps' in _eo:
+            _eo['risk_bps'] = _eo['risk_bps'] * GLOBAL_RISK_MULTIPLIER
 
 # ============================================
 # DEFAULT EXPORT

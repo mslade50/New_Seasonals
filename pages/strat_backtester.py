@@ -1125,7 +1125,7 @@ def build_price_matrix(processed_dict, tickers):
     return pd.DataFrame(price_data, index=all_dates)
 
 
-def process_signals_fast(candidates, signal_data, processed_dict, strategies, starting_equity, cap_bps=None, flat_sizing=False, overflow_active=False, ovs_p1_only=False):
+def process_signals_fast(candidates, signal_data, processed_dict, strategies, starting_equity, cap_bps=None, flat_sizing=False, overflow_active=False, ovs_p1_only=False, risk_multipliers=None, max_net_long_pct=None, max_net_short_pct=None, max_long_risk_bps=None, max_short_risk_bps=None):
     """
     Process candidates chronologically with dynamic sizing based on REAL-TIME MTM equity.
 
@@ -1170,6 +1170,9 @@ def process_signals_fast(candidates, signal_data, processed_dict, strategies, st
     _need_earnings_map = bool(_eb_windows_by_strat) or _any_size_override
     _earnings_map = load_earnings_dates_map() if _need_earnings_map else {}
 
+    _rm = risk_multipliers or {}
+    _ovs_mult = float(_rm.get("Overbot Vol Spike", 1.0))
+
     _ovs_strat = next((s for s in strategies if s.get('name') == "Overbot Vol Spike"), None)
     _ovs_p2_scale_by_date = {}
     if _ovs_strat is not None:
@@ -1178,15 +1181,17 @@ def process_signals_fast(candidates, signal_data, processed_dict, strategies, st
         _p2_bps = float(_exe.get('path2_bps', 8))
         _p2_mult = (_p2_bps / _p1_bps) if _p1_bps > 0 else 0.0
         _p2_cap_pct = float(_exe.get('path2_daily_cap_pct', 1.0))
-        _p2_cap_dollars = starting_equity * _p2_cap_pct / 100.0
+        _p2_cap_dollars = starting_equity * _p2_cap_pct / 100.0 * _ovs_mult
     else:
         _p1_bps = _p2_bps = _p2_mult = _p2_cap_pct = _p2_cap_dollars = 0.0
 
     # Per-strategy daily-cap dollars (used by the OVS P1-budget gate below).
     # Mirrors the post-loop cap that scales each strategy independently.
+    # OVS multiplier scales the gate so the 60% threshold tracks the
+    # multiplied per-trade risk; post-loop cap scales likewise per-strategy.
     _strat_daily_cap_bps = 250 if cap_bps is None else cap_bps
     _strat_daily_cap_dollars = starting_equity * _strat_daily_cap_bps / 10000.0
-    _ovs_p1_gate_dollars = 0.6 * _strat_daily_cap_dollars  # P1 risk above this kills all P2
+    _ovs_p1_gate_dollars = 0.6 * _strat_daily_cap_dollars * _ovs_mult  # P1 risk above this kills all P2
 
     if _eb_windows_by_strat or _ovs_strat is not None:
         _p2_risk_by_date = {}
@@ -1226,7 +1231,7 @@ def process_signals_fast(candidates, signal_data, processed_dict, strategies, st
             if pd.isna(_t1_open) or _t1_open <= _sc:
                 continue  # SKIP — no risk
             _sd = pd.Timestamp(_sig_ts).normalize()
-            _base_risk_p1 = starting_equity * _p1_bps / 10000.0
+            _base_risk_p1 = starting_equity * _p1_bps / 10000.0 * _ovs_mult
             if _t1_open > _sc + 0.25 * _atr:
                 # P1 — track risk for the daily-cap gate, no path-2 contribution.
                 _p1_risk_by_date[_sd] = _p1_risk_by_date.get(_sd, 0.0) + _base_risk_p1
@@ -1296,11 +1301,20 @@ def process_signals_fast(candidates, signal_data, processed_dict, strategies, st
     realized_pnl = 0.0
     position_last_exit = {}
     last_signal_ts = None
+    # Running MTM notionals (recomputed once per signal_ts, then incremented
+    # intra-date as new trades are placed). Used by the optional portfolio
+    # net-exposure cap below.
+    current_long_notional = 0.0
+    current_short_notional = 0.0
 
     # Track per-strategy placed-order risk for the post-loop daily cap.
     # Mirrors order_staging.py: cap is applied to ALL orders that would be
     # staged, not just the ones whose limit happens to fill that day.
     placed_risk_by_strat_date = {}
+    # Same staging-time semantic, but keyed by (date, direction) for the
+    # pooled long/short caps. Live can only budget what it stages — unfilled
+    # limits effectively waste their share of the budget.
+    placed_risk_by_dir_date = {}
 
     # Progress updates — Streamlit Cloud kills silent scripts; also user feedback.
     _total_cands = len(candidates)
@@ -1385,14 +1399,19 @@ def process_signals_fast(candidates, signal_data, processed_dict, strategies, st
                     still_open.append(pos)
             open_positions = still_open
             unrealized_pnl = 0.0
+            current_long_notional = 0.0
+            current_short_notional = 0.0
             for pos in open_positions:
                 current_price = _mtm_price(pos['t_clean'], signal_date)
                 if current_price is None:
                     continue
+                notional = current_price * pos['shares']
                 if pos['direction'] == 'Long':
                     unrealized_pnl += (current_price - pos['entry_price']) * pos['shares']
+                    current_long_notional += notional
                 else:
                     unrealized_pnl += (pos['entry_price'] - current_price) * pos['shares']
+                    current_short_notional += notional
             current_equity = starting_equity + realized_pnl + unrealized_pnl
             last_signal_ts = signal_ts
 
@@ -1462,9 +1481,21 @@ def process_signals_fast(candidates, signal_data, processed_dict, strategies, st
             if pd.notna(_off) and _eo['min_td'] <= _off <= _eo['max_td']:
                 base_risk = starting_equity * float(_eo['risk_bps']) / 10000.0
 
+        # --- 3c. User-configured per-strategy risk multiplier (size-up dial) ---
+        # Applied as the FINAL sizing step so it scales whichever rule won
+        # above (OVS gap-tier, ladder, WCDS sznl tier, OLV earnings override,
+        # plain risk_bps). Post-loop daily cap scales by the same factor.
+        _strat_mult = float(_rm.get(strat_name, 1.0))
+        if _strat_mult != 1.0:
+            base_risk *= _strat_mult
+
         # --- 4. Track placed risk for the per-strategy daily cap ---
         placed_risk_by_strat_date[(signal_date, strat_name)] = (
             placed_risk_by_strat_date.get((signal_date, strat_name), 0) + base_risk
+        )
+        _dir_pre = settings.get('trade_direction', 'Long')
+        placed_risk_by_dir_date[(signal_date, _dir_pre)] = (
+            placed_risk_by_dir_date.get((signal_date, _dir_pre), 0) + base_risk
         )
 
         # --- SIGNAL CLOSE: Enter at today's close ---
@@ -1773,6 +1804,32 @@ def process_signals_fast(candidates, signal_data, processed_dict, strategies, st
             except (ValueError, OverflowError):
                 shares = 0
 
+            # ---- Portfolio-level net-exposure cap (entry-time scaling) ----
+            # Net exposure = (long_notional - short_notional) / current_equity.
+            # max_net_long_pct caps net at +X%; max_net_short_pct caps net at -Y%.
+            # For a new Long the cap is on the long side; for a new Short, the
+            # short side. We scale shares down (or skip) to fit the remaining
+            # budget. The unscaled risk already pushed into the per-strategy
+            # daily-cap tracker gets refunded by the cut amount so the
+            # post-loop cap sees what we actually deployed.
+            if shares > 0 and (max_net_long_pct is not None or max_net_short_pct is not None) and entry_price and entry_price > 0:
+                new_notional = entry_price * shares
+                allowed = float('inf')
+                if direction == 'Long' and max_net_long_pct is not None:
+                    allowed = (max_net_long_pct / 100.0) * current_equity - current_long_notional + current_short_notional
+                elif direction == 'Short' and max_net_short_pct is not None:
+                    allowed = (max_net_short_pct / 100.0) * current_equity - current_short_notional + current_long_notional
+                if allowed <= 0 or new_notional > allowed:
+                    _scale = 0.0 if allowed <= 0 else (allowed / new_notional)
+                    _orig_base_risk = base_risk
+                    shares = int(shares * _scale)
+                    base_risk *= _scale
+                    placed_risk_by_strat_date[(signal_date, strat_name)] -= _orig_base_risk * (1.0 - _scale)
+                    placed_risk_by_dir_date[(signal_date, direction)] -= _orig_base_risk * (1.0 - _scale)
+                    if shares <= 0:
+                        placed_risk_by_strat_date[(signal_date, strat_name)] -= base_risk
+                        placed_risk_by_dir_date[(signal_date, direction)] -= base_risk
+
             if shares > 0:
                 if action == "BUY":
                     pnl = ((exit_price - entry_price) * shares).round(0)
@@ -1791,6 +1848,12 @@ def process_signals_fast(candidates, signal_data, processed_dict, strategies, st
                     'shares': shares, 'direction': 'Long' if action == 'BUY' else 'Short',
                     'exit_idx': exit_idx, 'exit_date': exit_date, 'strat_name': strat_name
                 })
+                # Keep intra-date exposure tracker in sync so multiple signals
+                # on the same date compete for the remaining cap budget.
+                if action == "BUY":
+                    current_long_notional += entry_price * shares
+                else:
+                    current_short_notional += entry_price * shares
                 if max_one_pos:
                     position_last_exit[(strat_name, ticker)] = exit_date.value
 
@@ -1844,12 +1907,41 @@ def process_signals_fast(candidates, signal_data, processed_dict, strategies, st
                 float(starting_equity) if flat_sizing
                 else float(sig_df.loc[grp_idx, 'Equity at Signal'].iloc[0])
             )
-            cap_dollars = day_equity * _effective_cap / 10000.0
+            _strat_mult_cap = float(_rm.get(strat, 1.0))
+            cap_dollars = day_equity * _effective_cap * _strat_mult_cap / 10000.0
             if placed_total > cap_dollars:
                 scale = cap_dollars / placed_total
                 sig_df.loc[grp_idx, 'Shares'] = (sig_df.loc[grp_idx, 'Shares'] * scale).round().astype(int)
                 sig_df.loc[grp_idx, 'PnL']    = (sig_df.loc[grp_idx, 'PnL']    * scale).round()
                 sig_df.loc[grp_idx, 'Risk $'] = sig_df.loc[grp_idx, 'Risk $']  * scale
+
+    # ---- Pooled long/short daily risk cap (staging-based) ----
+    # Bounds each side (long/short) across ALL strategies combined. The
+    # scale factor is computed from STAGED risk (placed_risk_by_dir_date),
+    # not filled risk — mirroring how live can only budget what it stages.
+    # If only N% of orders fill, the scale derived from full staged risk
+    # implicitly shrinks deployed risk to N% × cap. Stacks on top of the
+    # per-strategy backstop above.
+    if (max_long_risk_bps or max_short_risk_bps) and len(sig_df) > 0:
+        sig_df['_Dir'] = np.where(sig_df['Action'] == 'BUY', 'Long', 'Short')
+        for (date, _dir), grp_idx in sig_df.groupby(['Date', '_Dir'], sort=False).groups.items():
+            _cap_bps_dir = max_long_risk_bps if _dir == 'Long' else max_short_risk_bps
+            if not _cap_bps_dir:
+                continue
+            _placed_total = placed_risk_by_dir_date.get((date, _dir), 0.0)
+            if _placed_total <= 0:
+                continue
+            _day_equity = (
+                float(starting_equity) if flat_sizing
+                else float(sig_df.loc[grp_idx, 'Equity at Signal'].iloc[0])
+            )
+            _cap_dollars = _day_equity * _cap_bps_dir / 10000.0
+            if _placed_total > _cap_dollars:
+                _scale = _cap_dollars / _placed_total
+                sig_df.loc[grp_idx, 'Shares'] = (sig_df.loc[grp_idx, 'Shares'] * _scale).round().astype(int)
+                sig_df.loc[grp_idx, 'PnL']    = (sig_df.loc[grp_idx, 'PnL']    * _scale).round()
+                sig_df.loc[grp_idx, 'Risk $'] = sig_df.loc[grp_idx, 'Risk $']  * _scale
+        sig_df = sig_df.drop(columns='_Dir')
 
     # ---- Cross-Strategy Overlap Clamp ----
     # Apply CROSS_STRATEGY_OVERLAP_OVERRIDES. For each pair defined there,
@@ -2460,6 +2552,29 @@ def main():
             help="Uncheck any strategy to exclude it from this run. Default = all strategies.",
         )
         st.markdown("---")
+        st.markdown("**🔼 Risk Multiplier (Size-Up Dial)**")
+        risk_multiplier_input = st.number_input(
+            "Multiplier",
+            min_value=0.1, max_value=5.0, value=1.0, step=0.1,
+            help=(
+                "Scales per-trade risk dollars for the strategies selected "
+                "below. The per-strategy daily backstop cap is scaled by the "
+                "same factor, so a sized-up strategy actually trades the "
+                "extra risk instead of getting clipped. 1.0 = no change."
+            ),
+        )
+        risk_mult_strats = st.multiselect(
+            "Apply multiplier to",
+            options=_all_strat_names,
+            default=_all_strat_names,
+            help=(
+                "Strategies the multiplier applies to. Default = all. "
+                "Unselect any you want held at 1.0x. Strategies excluded "
+                "from the main 'Strategies to include' selector above are "
+                "ignored regardless of what's set here."
+            ),
+        )
+        st.markdown("---")
         st.markdown("**🔄 Dynamic Position Sizing**")
         st.caption("Sizes scale with MTM equity (bps of current value including unrealized P&L).")
         st.markdown("---")
@@ -2485,6 +2600,55 @@ def main():
                 "OLV, 52wh, etc. each get their own bucket. Default 250 bps "
                 "mirrors order_staging.MAX_DAILY_RISK_PCT (2.5%) but scoped "
                 "per strategy rather than pooled. Set to 0 to disable."
+            ),
+        )
+        max_long_risk_bps_input = st.number_input(
+            "Pooled long daily risk cap (bps, 0 = off)",
+            min_value=0, max_value=2000,
+            value=0, step=25,
+            help=(
+                "Caps TOTAL long-side STAGED risk across ALL strategies "
+                "per signal date, in bps of MTM equity. Mirrors live: "
+                "scale is computed from staged (pre-fill) risk so unfilled "
+                "limits consume their share of the budget. Stacks on top "
+                "of the per-strategy backstop. Set to 0 to disable. "
+                "Example: 400 = combined long staged risk ≤ 4% of equity / day."
+            ),
+        )
+        max_short_risk_bps_input = st.number_input(
+            "Pooled short daily risk cap (bps, 0 = off)",
+            min_value=0, max_value=2000,
+            value=0, step=25,
+            help=(
+                "Same as the long pooled cap, but for short-side staged risk. "
+                "Set to 0 to disable. Example: 300 = combined short staged "
+                "risk ≤ 3% of equity / day."
+            ),
+        )
+        st.markdown("**🪜 Portfolio Net-Exposure Caps**")
+        st.caption("Notional caps applied at entry time. New trades scale down (or skip) to fit. Existing positions are never forcibly closed.")
+        max_net_long_input = st.number_input(
+            "Max net long exposure (% of equity, 0 = off)",
+            min_value=0, max_value=2000,
+            value=0, step=25,
+            help=(
+                "Caps net exposure at +X% of current MTM equity, where "
+                "net = (sum long notional - sum short notional). When a "
+                "new LONG would push net above this, its shares are scaled "
+                "down pro-rata to the remaining budget (or dropped). Set "
+                "to 0 to disable. Example: 500 = net can go up to +500%."
+            ),
+        )
+        max_net_short_input = st.number_input(
+            "Max net short exposure (% of equity, 0 = off)",
+            min_value=0, max_value=500,
+            value=0, step=10,
+            help=(
+                "Caps net exposure at -X% of current MTM equity (positive "
+                "magnitude — interpreted as a floor at -X%). When a new "
+                "SHORT would push net below -X%, its shares scale down "
+                "pro-rata. Set to 0 to disable. Example: 100 = net can "
+                "go down to -100%."
             ),
         )
         flat_sizing_input = st.checkbox(
@@ -2556,6 +2720,18 @@ def main():
         if len(strategies) < len(_STRATEGY_BOOK_RAW):
             _excluded = [n for n in _all_strat_names if n not in _selected_set]
             st.caption(f"Excluded {len(_excluded)} strategy(ies): {', '.join(_excluded)}")
+
+        _mult_set = set(risk_mult_strats) & _selected_set
+        risk_multipliers = {
+            n: (float(risk_multiplier_input) if n in _mult_set else 1.0)
+            for n in selected_strats
+        }
+        if risk_multiplier_input != 1.0 and _mult_set:
+            _skipped = [n for n in selected_strats if n not in _mult_set]
+            _msg = f"🔼 Risk multiplier {risk_multiplier_input:.2f}x applied to {len(_mult_set)} strategy(ies): {', '.join(sorted(_mult_set))}"
+            if _skipped:
+                _msg += f" — held at 1.0x: {', '.join(_skipped)}"
+            st.info(_msg)
 
         if use_overflow_universe and CSV_UNIVERSE:
             # Union CSV_UNIVERSE (sznl_ranks.csv) with seasonal_ranks.csv tickers
@@ -2677,12 +2853,37 @@ def main():
         elif cap_bps_input != 250:
             st.info(f"⚖️ Aggregate risk backstop overridden: {cap_bps_input} bps (prod default: 250 bps).")
         t0 = time.time()
+        _max_long = float(max_net_long_input) if max_net_long_input else None
+        _max_short = float(max_net_short_input) if max_net_short_input else None
+        if _max_long is not None or _max_short is not None:
+            _msg_bits = []
+            if _max_long is not None:
+                _msg_bits.append(f"long ≤ +{_max_long:.0f}%")
+            if _max_short is not None:
+                _msg_bits.append(f"short ≥ -{_max_short:.0f}%")
+            st.info(f"🪜 Portfolio net-exposure caps active: {', '.join(_msg_bits)} (entry-time scaling).")
+
+        _max_long_risk = int(max_long_risk_bps_input) if max_long_risk_bps_input else None
+        _max_short_risk = int(max_short_risk_bps_input) if max_short_risk_bps_input else None
+        if _max_long_risk or _max_short_risk:
+            _bits = []
+            if _max_long_risk:
+                _bits.append(f"long ≤ {_max_long_risk} bps")
+            if _max_short_risk:
+                _bits.append(f"short ≤ {_max_short_risk} bps")
+            st.info(f"💼 Pooled daily risk caps active: {', '.join(_bits)} (staging-based — scaled by staged risk, so unfilled limits eat budget).")
+
         sig_df = process_signals_fast(
             candidates, signal_data, processed_dict, strategies, starting_equity,
             cap_bps=cap_bps_input,
             flat_sizing=flat_sizing_input,
             overflow_active=bool(use_overflow_universe),
             ovs_p1_only=bool(ovs_p1_only_input),
+            risk_multipliers=risk_multipliers,
+            max_net_long_pct=_max_long,
+            max_net_short_pct=_max_short,
+            max_long_risk_bps=_max_long_risk,
+            max_short_risk_bps=_max_short_risk,
         )
         st.write(f"   Executed {len(sig_df):,} trades in {time.time()-t0:.1f}s")
 

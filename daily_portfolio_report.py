@@ -39,6 +39,7 @@ sys.path.append(parent_dir)
 try:
     from strategy_config import (
         STRATEGY_BOOK, ACCOUNT_VALUE, CSV_UNIVERSE, LIQUID_PLUS_COMMODITIES,
+        GLOBAL_RISK_MULTIPLIER,
     )
 except ImportError:
     print("❌ Could not import strategy_config.py")
@@ -46,6 +47,7 @@ except ImportError:
     CSV_UNIVERSE = []
     LIQUID_PLUS_COMMODITIES = []
     ACCOUNT_VALUE = 750000
+    GLOBAL_RISK_MULTIPLIER = 1.0
 
 import copy
 import data_provider
@@ -100,7 +102,7 @@ def build_full_strategy_book():
         of_strat = copy.deepcopy(s)
         of_strat['universe_tickers'] = OVERFLOW_TICKERS
         if s['name'] in OVERFLOW_RISK_OVERRIDES:
-            of_strat['execution']['risk_bps'] = OVERFLOW_RISK_OVERRIDES[s['name']]
+            of_strat['execution']['risk_bps'] = OVERFLOW_RISK_OVERRIDES[s['name']] * GLOBAL_RISK_MULTIPLIER
         book.append(of_strat)
     return book
 
