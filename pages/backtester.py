@@ -1336,6 +1336,17 @@ def run_engine(universe_dict, params, sznl_map, market_series=None, vix_series=N
 
         ticker_last_exit = pd.Timestamp.min
 
+        # Intraday prefetch: pull the full 15min parquet for this ticker into
+        # an in-memory cache once, so each per-signal-day lookup below is an
+        # O(1) dict hit instead of re-reading the parquet (~200x speedup).
+        # Single-slot cache: clearing first keeps memory bounded to one ticker.
+        if intraday_mode and ticker in intraday_universe:
+            try:
+                intraday_loader.clear_bars_cache()
+                intraday_loader.prefetch_ticker(ticker)
+            except Exception:
+                pass
+
         try:
             df = calculate_indicators(df_raw, sznl_map, ticker, market_series, vix_series, market_sznl_series, gap_window, req_custom_mas, acc_win, dist_win, ref_ticker_ranks, weekly_ma_configs, xsec_rank_matrices)
             if market_sma_not_declining_series is not None:
@@ -2223,23 +2234,41 @@ def run_engine(universe_dict, params, sznl_map, market_series=None, vix_series=N
                     stop_price = actual_entry_price - (atr * params['stop_atr']) if direction == 'Long' else actual_entry_price + (atr * params['stop_atr'])
                     tgt_price = actual_entry_price + (atr * params['tgt_atr']) if direction == 'Long' else actual_entry_price - (atr * params['tgt_atr'])
                     if intraday_mode and _id_bars is not None and _id_entry_pos is not None:
-                        # Walk 15min bars from the bar AFTER entry forward, checking
-                        # stop/target each bar. Same-bar ambiguity: assume stop wins
-                        # (conservative). EOD = last bar's close.
+                        # Entry-bar handling: the trigger bar fired BECAUSE
+                        # price moved in the entry direction (long limit pullback
+                        # → bar dipped; short limit rally → bar spiked). Post-fill
+                        # continuation of that move is realistic, so the entry
+                        # bar IS eligible for a stop hit — but NOT for a target
+                        # hit (that would require an immediate reversal inside
+                        # the same 15min bar, indistinguishable from noise without
+                        # tick data).
                         exit_price, exit_type = None, None
-                        for _bp in range(_id_entry_pos + 1, len(_id_bars)):
-                            bar = _id_bars.iloc[_bp]
-                            bar_low, bar_high = float(bar['low']), float(bar['high'])
-                            if direction == 'Long':
-                                if params['use_stop_loss'] and bar_low <= stop_price:
-                                    exit_price, exit_type = stop_price, "Stop"; break
-                                if params['use_take_profit'] and bar_high >= tgt_price:
-                                    exit_price, exit_type = tgt_price, "Target"; break
-                            else:
-                                if params['use_stop_loss'] and bar_high >= stop_price:
-                                    exit_price, exit_type = stop_price, "Stop"; break
-                                if params['use_take_profit'] and bar_low <= tgt_price:
-                                    exit_price, exit_type = tgt_price, "Target"; break
+                        _entry_bar = _id_bars.iloc[_id_entry_pos]
+                        _eb_low, _eb_high = float(_entry_bar['low']), float(_entry_bar['high'])
+                        if direction == 'Long':
+                            if params['use_stop_loss'] and _eb_low <= stop_price:
+                                exit_price, exit_type = stop_price, "Stop"
+                        else:
+                            if params['use_stop_loss'] and _eb_high >= stop_price:
+                                exit_price, exit_type = stop_price, "Stop"
+
+                        # Post-entry walk: 15min bars from the bar AFTER entry
+                        # forward. Stop-first within a bar (conservative on
+                        # collisions). EOD = last bar's close.
+                        if exit_price is None:
+                            for _bp in range(_id_entry_pos + 1, len(_id_bars)):
+                                bar = _id_bars.iloc[_bp]
+                                bar_low, bar_high = float(bar['low']), float(bar['high'])
+                                if direction == 'Long':
+                                    if params['use_stop_loss'] and bar_low <= stop_price:
+                                        exit_price, exit_type = stop_price, "Stop"; break
+                                    if params['use_take_profit'] and bar_high >= tgt_price:
+                                        exit_price, exit_type = tgt_price, "Target"; break
+                                else:
+                                    if params['use_stop_loss'] and bar_high >= stop_price:
+                                        exit_price, exit_type = stop_price, "Stop"; break
+                                    if params['use_take_profit'] and bar_low <= tgt_price:
+                                        exit_price, exit_type = tgt_price, "Target"; break
                         if exit_price is None:
                             exit_price = float(_id_bars['close'].iloc[-1])
                             exit_type = "Time (EOD)"
@@ -2247,12 +2276,17 @@ def run_engine(universe_dict, params, sznl_map, market_series=None, vix_series=N
                         exit_price = df['Close'].iloc[exit_idx]
                         exit_type = "Time (EOD)"
                         day_low, day_high = df['Low'].iloc[exit_idx], df['High'].iloc[exit_idx]
+                        # Stop-first convention (conservative): if the day's range
+                        # swept through both stop AND target, assume stop fired
+                        # first. Matches the intraday exit path (line ~2245) and
+                        # the multi-day-hold exit path (line ~2349). Without
+                        # sub-day data we can't know the actual sequence.
                         if direction == 'Long':
-                            if params['use_take_profit'] and day_high >= tgt_price: exit_price, exit_type = tgt_price, "Target"
-                            elif params['use_stop_loss'] and day_low <= stop_price: exit_price, exit_type = stop_price, "Stop"
+                            if params['use_stop_loss'] and day_low <= stop_price: exit_price, exit_type = stop_price, "Stop"
+                            elif params['use_take_profit'] and day_high >= tgt_price: exit_price, exit_type = tgt_price, "Target"
                         else:
-                            if params['use_take_profit'] and day_low <= tgt_price: exit_price, exit_type = tgt_price, "Target"
-                            elif params['use_stop_loss'] and day_high >= stop_price: exit_price, exit_type = stop_price, "Stop"
+                            if params['use_stop_loss'] and day_high >= stop_price: exit_price, exit_type = stop_price, "Stop"
+                            elif params['use_take_profit'] and day_low <= tgt_price: exit_price, exit_type = tgt_price, "Target"
                 else:
                     fixed_exit_idx = min(actual_entry_idx + params['holding_days'], len(df) - 1)
                     future = df.iloc[actual_entry_idx + 1 : fixed_exit_idx + 1]
