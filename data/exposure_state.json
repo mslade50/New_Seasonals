@@ -1,6 +1,6 @@
 {
   "asof": "2026-06-01",
-  "computed_at": "2026-06-02T08:56:12.088601Z",
+  "computed_at": "2026-06-02T11:25:47.257508Z",
   "mult": 1.0,
   "active_rule": null,
   "reason": "No global rule active \u2014 base allocation",
@@ -34,10 +34,10 @@
       "ticker_rule": null,
       "ticker_reason": "No per-ticker rule active",
       "ticker_readings": {
-        "rank_2d": 69.4578313253012,
+        "rank_2d": 69.44277108433735,
         "rank_5d": 88.71478077444628,
         "rank_21d": 96.1939284096058,
-        "sma200_dist": 20.25314373308338
+        "sma200_dist": 20.25314403016525
       }
     }
   },
