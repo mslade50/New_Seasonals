@@ -567,11 +567,9 @@ def get_todays_activity(sig_df, master_dict):
     )
     entered_df = sig_df[entered_mask].copy()
 
-    # --- Exited Today: Exit Date == today AND position is closed (Time Stop <= today) ---
-    exited_mask = (
-        sig_df['Exit Date'].apply(lambda x: pd.Timestamp(x).normalize() == today)
-        & sig_df['Time Stop'].apply(lambda x: pd.Timestamp(x).normalize() <= today)
-    )
+    # --- Exited Today: Exit Date == today (Time Stop irrelevant — early exits
+    # like stop/target/EOD-DD have Time Stop in the future) ---
+    exited_mask = sig_df['Exit Date'].apply(lambda x: pd.Timestamp(x).normalize() == today)
     exited_df = sig_df[exited_mask].copy()
 
     print(f"   Today's activity: {len(entered_df)} entries, {len(exited_df)} exits")
@@ -763,11 +761,12 @@ def get_recent_exits(sig_df, master_dict, trading_days=5):
         # Fallback: use calendar days
         cutoff_date = today - pd.Timedelta(days=7)
 
-    # Filter for positions exited in the period (Exit Date >= cutoff AND Time Stop <= today)
+    # Filter for positions exited in the period. Use Exit Date alone — Time Stop
+    # would exclude same-day stop/target/EOD-DD exits whose natural time stop
+    # is still in the future.
     exited_mask = (
         sig_df['Exit Date'].apply(lambda x: pd.Timestamp(x).normalize() >= cutoff_date)
         & sig_df['Exit Date'].apply(lambda x: pd.Timestamp(x).normalize() <= today)
-        & sig_df['Time Stop'].apply(lambda x: pd.Timestamp(x).normalize() <= today)
     )
     exited_df = sig_df[exited_mask].copy()
 
