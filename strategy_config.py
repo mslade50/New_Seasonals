@@ -456,11 +456,11 @@ _STRATEGY_BOOK_RAW = [
         "setup": {
             "type": "MeanReversion",
             "timeframe": "Overnight",
-            "thesis": "Fading multi-horizon overbought names — short-term overbought fade with a 252D barbell (skip mediocre 50-95th %ile) and a 5D seasonal headwind gate",
+            "thesis": "Fading multi-horizon overbought names — short-term overbought fade with a 252D barbell (skip mediocre 65-95th %ile) and a 5D seasonal headwind gate",
             "key_filters": [
                 "2D + 5D + 10D + 21D ranks ALL > 85th %ile (extremely overbought)",
                 "21D > 85th %ile for 3 consecutive days",
-                "252D rank NOT between 50-95th %ile (avoid mediocre LT names)",
+                "252D rank NOT between 65-95th %ile (avoid mediocre LT names)",
                 "5D ATR seasonal rank < 85 (skip strong 5d seasonal windows)",
                 "Today's return > 0.25 ATR (up day)"
             ]
@@ -483,7 +483,7 @@ _STRATEGY_BOOK_RAW = [
                 {'window': 5, 'logic': '>', 'thresh': 85.0, 'consecutive': 1},
                 {'window': 10, 'logic': '>', 'thresh': 85.0, 'consecutive': 1},
                 {'window': 21, 'logic': '>', 'thresh': 85.0, 'consecutive': 3},
-                {'window': 252, 'logic': 'Not Between', 'thresh': 50.0, 'thresh_max': 95.0, 'consecutive': 1},
+                {'window': 252, 'logic': 'Not Between', 'thresh': 65.0, 'thresh_max': 95.0, 'consecutive': 1},
             ],
             "atr_sznl_filters": [
                 {'window': 5, 'logic': '<', 'thresh': 85.0, 'thresh_max': 100.0, 'consecutive': 1},
