@@ -1,6 +1,6 @@
 {
   "asof": "2026-06-02",
-  "computed_at": "2026-06-03T00:03:17.945678Z",
+  "computed_at": "2026-06-03T08:56:30.081862Z",
   "mult": 1.0,
   "active_rule": null,
   "reason": "No global rule active \u2014 base allocation",
@@ -37,7 +37,7 @@
         "rank_2d": 71.70606836319831,
         "rank_5d": 76.92075926483881,
         "rank_21d": 95.72636665659921,
-        "sma200_dist": 20.642376408040374
+        "sma200_dist": 20.642375931820123
       }
     }
   },
