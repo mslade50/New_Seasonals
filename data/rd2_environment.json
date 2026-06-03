@@ -1,20 +1,20 @@
 {
-  "date": "2026-06-02",
+  "date": "2026-06-03",
   "price_ctx": {
-    "price": 759.5700073242188,
-    "ret_12m": 0.2962112926913101,
-    "extension_200d": 0.11722498904747991,
-    "drawdown": 0.0,
-    "sma_200": 679.8720175170898,
+    "price": 754.239990234375,
+    "ret_12m": 0.2798171764907411,
+    "extension_200d": 0.10843791531196922,
+    "drawdown": -0.007017150543661033,
+    "sma_200": 680.4530770874023,
     "high_52w": 759.5700073242188,
     "regime_label": "Extended uptrend, stretched above trend",
-    "days_since_5pct": 41,
-    "days_since_10pct": 277
+    "days_since_5pct": 42,
+    "days_since_10pct": 278
   },
   "h_scores": {
-    "5d": 5.376000000000002,
-    "21d": 23.33054868475183,
-    "63d": 36.289607784694134
+    "5d": 9.073212778836458,
+    "21d": 24.08700839510643,
+    "63d": 35.12652187757946
   },
   "signals": {
     "Distribution Dominance": {
@@ -25,32 +25,32 @@
     "VIX Range Compression": {
       "on": false,
       "detail": "",
-      "summary": "21d range: 16th pctile (fires below 15th) \u2014 VIX at 15.8"
+      "summary": "21d range: 16th pctile (fires below 15th) \u2014 VIX at 16.1"
     },
     "Defensive Leadership": {
       "on": false,
       "detail": "",
-      "summary": "50d spread: +32pp (fires < -10) | 200d spread: +14pp (fires < 0)"
+      "summary": "50d spread: +29pp (fires < -10) | 200d spread: +14pp (fires < 0)"
     },
     "Pre-FOMC Rally": {
       "on": false,
       "detail": "",
-      "summary": "Next FOMC: Jun 17 (15d away) \u2014 5d return: 69th pctile (outside window)"
+      "summary": "Next FOMC: Jun 17 (14d away) \u2014 5d return: 49th pctile (outside window)"
     },
     "Low Absorption Ratio": {
       "on": false,
       "detail": "",
-      "summary": "AR: 0.476 (45th pctile, fires below 10th) \u2014 near high: yes"
+      "summary": "AR: 0.434 (20th pctile, fires below 10th) \u2014 near high: yes"
     },
     "Seasonal Rank Divergence": {
       "on": false,
       "detail": "",
-      "summary": "Spread: +4.9pp (fires above 10) \u2014 near high: yes"
+      "summary": "Spread: +5.7pp (fires above 10) \u2014 near high: yes"
     },
     "Dispersion": {
-      "on": true,
-      "detail": "Dispersion composite at 97th percentile (threshold: 85th). Avg component RV: 35.2% vs SPY RV: 9.5% \u2014 high cross-sectional vol with low index vol = correlation suppression. Stored tension tends to release violently.",
-      "summary": "Composite pctile: 97th (fires above 85th) \u2014 component RV: 35.2% | SPY RV: 9.5%"
+      "on": false,
+      "detail": "",
+      "summary": "Composite pctile: 96th (fires above 85th) \u2014 component RV: 35.3% | SPY RV: 9.9%"
     }
   }
 }
