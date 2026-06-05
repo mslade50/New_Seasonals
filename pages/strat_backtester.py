@@ -2601,20 +2601,21 @@ def main():
                 "Other strategies keep their default universes."
             ),
         )
-        overflow_source = "Static (CSV ∪ seasonal)"
-        if use_overflow_universe:
-            overflow_source = st.radio(
-                "Overflow source",
-                ["Static (CSV ∪ seasonal)", "Dynamic screen (~1,270)"],
-                index=0,
-                horizontal=True,
-                help=(
-                    "Static = legacy CSV_UNIVERSE ∪ seasonal_ranks. "
-                    "Dynamic = the liquidity/vol-screened overflow_universe.parquet "
-                    "(~1,270 names); prices stream from master_prices ∪ overflow_prices "
-                    "(R2), so the ~481 names that live only in overflow_prices resolve."
-                ),
-            )
+        # Rendered unconditionally: this lives inside st.form, where widgets don't
+        # rerun on change, so a conditional render would lag one submit behind the
+        # checkbox and silently fall back to Static on the first overflow run.
+        overflow_source = st.radio(
+            "Overflow source (applies when Include Overflow Universe is checked)",
+            ["Static (CSV ∪ seasonal)", "Dynamic screen (~1,270)"],
+            index=0,
+            horizontal=True,
+            help=(
+                "Static = legacy CSV_UNIVERSE ∪ seasonal_ranks. "
+                "Dynamic = the liquidity/vol-screened overflow_universe.parquet "
+                "(~1,270 names); prices stream from master_prices ∪ overflow_prices "
+                "(R2), so the ~481 names that live only in overflow_prices resolve."
+            ),
+        )
         _use_dynamic_overflow = use_overflow_universe and overflow_source.startswith("Dynamic")
         cap_bps_input = st.number_input(
             f"Per-strategy daily risk backstop (bps, 0 = off)",
