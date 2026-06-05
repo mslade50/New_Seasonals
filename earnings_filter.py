@@ -30,6 +30,16 @@ _PARQUET_PATH = os.path.join(
     "earnings_calendar.parquet",
 )
 
+# Isolated staging earnings for the NEW overflow names (those absent from the
+# production calendar, which is rebuilt nightly from CSV_UNIVERSE only). Unioned
+# into the default earnings map so the OVS blackout covers the dynamic overflow
+# tier live, mirroring backtester._load_earnings_frame.
+_OVERFLOW_PARQUET_PATH = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)),
+    "data",
+    "earnings_calendar_overflow.parquet",
+)
+
 # Cached holidays_d64 used by np.busday_count — same calendar as pages/backtester.
 _HOLIDAYS_D64 = pd.DatetimeIndex(
     USFederalHolidayCalendar().holidays(start="1990-01-01", end="2035-12-31")
@@ -43,8 +53,8 @@ _HOLIDAYS_D64 = pd.DatetimeIndex(
 _STALE_AFTER_SECONDS = 18 * 3600
 
 
-def _refresh_from_r2_if_needed(local_path):
-    """Pull data/earnings_calendar.parquet from R2 when the local copy is
+def _refresh_from_r2_if_needed(local_path, r2_key="earnings_calendar.parquet"):
+    """Pull the earnings parquet (``r2_key``) from R2 when the local copy is
     missing or stale. No-op if R2 isn't configured (then we just use whatever
     is on disk, or fail quietly via load's try/except).
     """
@@ -63,7 +73,7 @@ def _refresh_from_r2_if_needed(local_path):
         if age > _STALE_AFTER_SECONDS:
             needs_pull = True
     if needs_pull:
-        download_to_local("earnings_calendar.parquet", local_path)
+        download_to_local(r2_key, local_path)
 
 
 def load_earnings_dates_map(path=None):
@@ -73,11 +83,25 @@ def load_earnings_dates_map(path=None):
     treat that as "filter off" (every ticker passes through).
     """
     p = path or _PARQUET_PATH
-    _refresh_from_r2_if_needed(p)
+    _refresh_from_r2_if_needed(p, "earnings_calendar.parquet")
+    frames = []
     try:
-        df = pd.read_parquet(p)
+        frames.append(pd.read_parquet(p))
     except Exception:
+        pass
+    # When reading the default production calendar, also union the overflow
+    # staging file so OVS blackout covers the dynamic overflow names (their
+    # earnings are absent from production). Skipped when a caller passes an
+    # explicit path (e.g. tests).
+    if path is None:
+        _refresh_from_r2_if_needed(_OVERFLOW_PARQUET_PATH, "earnings_calendar_overflow.parquet")
+        try:
+            frames.append(pd.read_parquet(_OVERFLOW_PARQUET_PATH))
+        except Exception:
+            pass
+    if not frames:
         return {}
+    df = pd.concat(frames, ignore_index=True) if len(frames) > 1 else frames[0]
     if df.empty or "ticker" not in df.columns or "date" not in df.columns:
         return {}
     df = df.copy()

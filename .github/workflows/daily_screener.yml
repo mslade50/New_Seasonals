@@ -89,21 +89,31 @@ jobs:
           pip install pandas pyarrow numpy yfinance gspread google-auth boto3
 
       - name: Pull caches from R2
-        # master_prices.parquet  -> read by the overflow scope (~870 tickers)
-        # earnings_calendar.parquet -> OVS ±10 TD blackout for both tiers
+        # master_prices.parquet              -> overflow scope (~870 static tickers)
+        # earnings_calendar.parquet          -> OVS ±10 TD blackout (production names)
+        # overflow_universe.parquet          -> comprehensive overflow list (gate ON)
+        # earnings_calendar_overflow.parquet -> OVS blackout for the new overflow names
         env:
           R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
           R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
           R2_BUCKET: ${{ secrets.R2_BUCKET }}
         run: |
-          python -c "from cache_io import download_to_local; download_to_local('master_prices.parquet', 'data/master_prices.parquet'); download_to_local('earnings_calendar.parquet', 'data/earnings_calendar.parquet')"
+          python -c "from cache_io import download_to_local; download_to_local('master_prices.parquet', 'data/master_prices.parquet'); download_to_local('earnings_calendar.parquet', 'data/earnings_calendar.parquet'); download_to_local('overflow_universe.parquet', 'data/overflow_universe.parquet'); download_to_local('earnings_calendar_overflow.parquet', 'data/earnings_calendar_overflow.parquet')"
 
       - name: Run Automation Script
         env:
           GCP_JSON: ${{ secrets.GCP_JSON }}
           EMAIL_USER: ${{ secrets.EMAIL_USER }}
           EMAIL_PASS: ${{ secrets.EMAIL_PASS }}
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+          # Comprehensive overflow universe live (dynamic screen ∪ static tier).
+          # daily_scan reads overflow_universe.parquet + unions overflow earnings;
+          # the ~481 new names price via yfinance live-fallback.
+          OVERFLOW_UNIVERSE_ACTIVE: "1"
         run: python daily_scan.py --scope=all
 
       - name: Commit exposure state (AM bookend only)
