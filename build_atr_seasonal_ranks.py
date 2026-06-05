@@ -73,6 +73,54 @@ def load_overflow_cache():
         return {}
 
 
+def _read_price_parquet(path, wanted):
+    """Pushdown read of a long-format price parquet → {TICKER: DataFrame}."""
+    if not os.path.exists(path):
+        return {}
+    cols = ['ticker', 'date', 'Open', 'High', 'Low', 'Close', 'Volume']
+    try:
+        df = pd.read_parquet(path, columns=cols, filters=[('ticker', 'in', list(wanted))])
+    except Exception:
+        try:
+            df = pd.read_parquet(path)
+        except Exception as e:
+            print(f"   price cache load failed ({path}): {e}")
+            return {}
+    if df.empty:
+        return {}
+    df['ticker'] = df['ticker'].astype(str).str.upper().str.strip().str.replace('.', '-', regex=False)
+    df = df[df['ticker'].isin(wanted)]
+    out = {}
+    for tkr, grp in df.groupby('ticker'):
+        sub = grp.drop(columns=['ticker']).copy()
+        sub.index = pd.to_datetime(sub['date'])
+        sub = sub.drop(columns=['date']).sort_index()
+        if sub.index.tz is not None:
+            sub.index = sub.index.tz_localize(None)
+        sub.index = sub.index.normalize()
+        out[tkr] = sub
+    return out
+
+
+def load_master_prices_cache(tickers):
+    """Seed the price cache from master_prices.parquet AND the isolated overflow
+    staging cache (overflow_prices.parquet) — avoids re-downloading from yfinance
+    what either cache already holds (big win during the overflow backfill).
+    Returns {TICKER: DataFrame[Open..Volume]} indexed by date. Empty dict if
+    neither parquet is present. Uses predicate/column pushdown.
+    """
+    wanted = {str(t).upper().strip().replace('.', '-') for t in tickers}
+    master = _read_price_parquet(os.path.join(current_dir, "data", "master_prices.parquet"), wanted)
+    overflow = _read_price_parquet(os.path.join(current_dir, "data", "overflow_prices.parquet"), wanted)
+    out = dict(master)
+    for t, df in overflow.items():
+        out.setdefault(t, df)  # prefer master if a name is somehow in both
+    if out:
+        print(f"   Seeded {len(out)} tickers from price caches "
+              f"(master={len(master)}, overflow_staging={len(overflow)})")
+    return out
+
+
 def download_tickers(tickers, start_date="1990-01-01"):
     """Download OHLCV for a list of tickers. Returns {ticker: DataFrame}."""
     data_dict = {}
@@ -265,7 +313,7 @@ def generate_trading_dates(year):
 # MAIN BUILD
 # ============================================================================
 
-def build_atr_ranks(tickers, target_years, output_path=OUTPUT_PATH):
+def build_atr_ranks(tickers, target_years, output_path=OUTPUT_PATH, merge=False):
     """Build ATR seasonal ranks for all tickers and target years."""
     print(f"Building ATR seasonal ranks")
     print(f"  Tickers: {len(tickers)}")
@@ -281,11 +329,14 @@ def build_atr_ranks(tickers, target_years, output_path=OUTPUT_PATH):
     # of the symbol and a swap would break the lookup.
     clean_tickers = [t if '-' in t else t.replace('.', '-') for t in tickers]
 
-    # Only load the heavy overflow cache for large runs
+    # Seed from master_prices.parquet first (authoritative, freshly backfilled)
+    # so the overflow run reuses prices instead of re-downloading them.
+    cached = load_master_prices_cache(clean_tickers)
+
+    # Then fill any remaining gaps from the legacy overflow cache (large runs).
     if len(clean_tickers) > 50:
-        cached = load_overflow_cache()
-    else:
-        cached = {}
+        for _t, _df in load_overflow_cache().items():
+            cached.setdefault(_t, _df)
 
     # 2. Download missing tickers
     missing = [t for t in clean_tickers if t not in cached]
@@ -357,14 +408,33 @@ def build_atr_ranks(tickers, target_years, output_path=OUTPUT_PATH):
     result_df = pd.concat(all_results, ignore_index=True)
     result_df['Date'] = pd.to_datetime(result_df['Date'])
 
+    # Merge mode: preserve the existing file's other tickers exactly, replacing
+    # only the ones we just computed. Lets us incrementally add the overflow
+    # names without recomputing (or perturbing) the existing universe.
+    if merge and os.path.exists(output_path):
+        try:
+            existing = pd.read_parquet(output_path)
+            existing['Date'] = pd.to_datetime(existing['Date'])
+            new_tk = set(result_df['ticker'].unique())
+            kept = existing[~existing['ticker'].isin(new_tk)]
+            print(f"   merge: kept {kept['ticker'].nunique()} existing + "
+                  f"{len(new_tk)} new/updated tickers")
+            result_df = pd.concat([kept, result_df], ignore_index=True)
+        except Exception as e:
+            print(f"   merge failed ({e}) - writing computed tickers only")
+
     print(f"\nSaving to {output_path}...")
     result_df.to_parquet(output_path, index=False)
     print(f"   {len(result_df):,} rows, {result_df['ticker'].nunique()} tickers")
 
-    # Also save CSV for inspection
-    csv_path = output_path.replace('.parquet', '.csv')
-    result_df.to_csv(csv_path, index=False)
-    print(f"   CSV copy: {csv_path}")
+    # CSV copy is for quick inspection of small runs only — skip it for large
+    # (merged / full-universe) files, where it would be hundreds of MB.
+    if len(result_df) <= 500_000:
+        csv_path = output_path.replace('.parquet', '.csv')
+        result_df.to_csv(csv_path, index=False)
+        print(f"   CSV copy: {csv_path}")
+    else:
+        print(f"   (skipped CSV copy - {len(result_df):,} rows too large)")
 
     print(f"\nDone: {success} tickers OK, {errors} errors")
 
@@ -387,6 +457,19 @@ if __name__ == "__main__":
                         help=f"Compute all years from {FULL_START_YEAR} to {DEFAULT_YEAR}")
     parser.add_argument("--tickers", nargs="+", default=None,
                         help="Specific tickers (default: full CSV_UNIVERSE)")
+    parser.add_argument("--with-symbol-master", action="store_true",
+                        help="Also include data/symbol_master.parquet tickers (overflow Layer A) "
+                             "so seasonal-gated overflow strategies (52wh Breakout, OVS, St OS Sznl) "
+                             "get ranks for the new names.")
+    parser.add_argument("--only-missing", action="store_true",
+                        help="Compute only tickers NOT already in the existing parquet "
+                             "(incremental add — implies --merge).")
+    parser.add_argument("--merge", action="store_true",
+                        help="Merge results into the existing parquet (preserve other tickers "
+                             "exactly) instead of overwriting the whole file.")
+    parser.add_argument("--upload", action="store_true",
+                        help="Upload the result to R2 (key: atr_seasonal_ranks.parquet) so the "
+                             "GHA daily scan can read it from R2 instead of the git checkout.")
     args = parser.parse_args()
 
     if args.full:
@@ -396,6 +479,54 @@ if __name__ == "__main__":
     else:
         years = [DEFAULT_YEAR]
 
-    tickers = args.tickers if args.tickers else CSV_UNIVERSE
+    if args.tickers:
+        tickers = args.tickers
+    else:
+        tickers = list(CSV_UNIVERSE)
+        if args.with_symbol_master:
+            import os as _os
+            import pandas as _pd
+            _sm = _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), "data", "symbol_master.parquet")
+            if _os.path.exists(_sm):
+                try:
+                    _extra = _pd.read_parquet(_sm, columns=["ticker"])["ticker"].astype(str).str.upper().tolist()
+                    tickers = sorted(set(tickers) | set(_extra))
+                    print(f"[universe] +symbol_master -> {len(tickers)} tickers")
+                except Exception as _e:
+                    print(f"[universe] warn: could not read {_sm}: {_e}")
+            else:
+                print(f"[universe] warn: --with-symbol-master set but {_sm} missing")
 
-    build_atr_ranks(tickers, years)
+    # --only-missing: drop tickers already present in the existing parquet so we
+    # only compute the genuinely-new names (and force merge so the rest survive).
+    merge = args.merge or args.only_missing
+    if args.only_missing and os.path.exists(OUTPUT_PATH):
+        try:
+            _have = set(pd.read_parquet(OUTPUT_PATH, columns=["ticker"])["ticker"].astype(str).str.upper())
+            _norm = lambda t: str(t).upper() if '-' in str(t) else str(t).upper().replace('.', '-')
+            before = len(tickers)
+            tickers = [t for t in tickers if _norm(t) not in {_norm(x) for x in _have}]
+            print(f"[only-missing] {before} -> {len(tickers)} tickers not yet in {OUTPUT_PATH}")
+        except Exception as _e:
+            print(f"[only-missing] warn: could not read existing parquet: {_e}")
+
+    if not tickers:
+        print("Nothing to compute (all requested tickers already present).")
+    else:
+        build_atr_ranks(tickers, years, merge=merge)
+
+    if args.upload:
+        # Load .env so cache_io sees R2 creds when run standalone, then push.
+        _env = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env")
+        if os.path.exists(_env):
+            with open(_env) as _f:
+                for _line in _f:
+                    _line = _line.strip()
+                    if "=" in _line and not _line.startswith("#"):
+                        _k, _v = _line.split("=", 1)
+                        os.environ.setdefault(_k.strip(), _v.strip())
+        try:
+            from cache_io import upload_from_local
+            upload_from_local(OUTPUT_PATH, "atr_seasonal_ranks.parquet")
+        except Exception as _e:
+            print(f"[r2 upload] non-fatal error: {_e}")

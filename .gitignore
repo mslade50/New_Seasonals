@@ -16,6 +16,13 @@ data/SNA_dump.csv
 data/bt_indicator_cache/
 data/bt_xsec_cache/
 data/intraday/
+# Dynamic overflow universe caches (R2-distributed, not committed)
+data/symbol_master.parquet
+data/overflow_prices.parquet
+data/overflow_universe.parquet
+data/overflow_universe.txt
+data/overflow_universe_config.json
+data/earnings_calendar_overflow.parquet
 
 # Runtime / generated artifacts
 logs/
@@ -30,6 +37,9 @@ pages/*.py.tmp.*
 
 # Large generated data (re-built by build scripts)
 atr_seasonal_ranks.csv
+# atr_seasonal_ranks.parquet exceeds GitHub's 100 MB limit at full universe;
+# distributed via R2 (key: atr_seasonal_ranks.parquet) instead of git.
+atr_seasonal_ranks.parquet
 *.db
 
 # Environment / IDE

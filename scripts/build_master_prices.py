@@ -50,11 +50,25 @@ def load_csv_tickers(path):
         return set()
 
 
+def load_symbol_master_tickers():
+    """Candidate symbols from data/symbol_master.parquet (Layer A) if present."""
+    path = os.path.join(ROOT, "data", "symbol_master.parquet")
+    if not os.path.exists(path):
+        return set()
+    try:
+        df = pd.read_parquet(path, columns=["ticker"])
+        return set(df["ticker"].astype(str).str.upper().str.strip().str.replace(".", "-", regex=False))
+    except Exception as e:
+        print(f"  warn: could not read {path}: {e}")
+        return set()
+
+
 def build_universe():
     u = set()
     u.update(t.upper() for t in CSV_UNIVERSE)
     u.update(load_csv_tickers(os.path.join(ROOT, "sznl_ranks.csv")))
     u.update(load_csv_tickers(os.path.join(ROOT, "seasonal_ranks.csv")))
+    u.update(load_symbol_master_tickers())  # Layer A broad candidate pool
     u.update(INDICES_AND_ETFS)
     u.discard("")
     return sorted(u)

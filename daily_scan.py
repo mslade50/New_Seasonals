@@ -50,6 +50,31 @@ except ImportError:
     GLOBAL_RISK_MULTIPLIER = 1.0
     CROSS_STRATEGY_OVERLAP_OVERRIDES = []
 
+# Dynamic overflow universe (Layer C). When data/overflow_universe.parquet is
+# absent, the loaders return the caller-supplied fallback / {} so the scan
+# behaves exactly as before the universe was bootstrapped.
+try:
+    from overflow_universe import (
+        load_overflow_universe, load_overflow_meta, filter_by_addv, adv_share_cap,
+        ADV_PARTICIPATION_CAP,
+    )
+except ImportError:
+    print("[WARN] overflow_universe.py not importable — using static overflow tier.")
+
+    def load_overflow_universe(fallback=None, **_kw):
+        return list(fallback) if fallback is not None else []
+
+    def load_overflow_meta(**_kw):
+        return {}
+
+    def filter_by_addv(tickers, strategy_name, meta):
+        return list(tickers)
+
+    def adv_share_cap(addv_63d, entry_price, participation=0.02):
+        return None
+
+    ADV_PARTICIPATION_CAP = 0.02
+
 # Master prices parquet — full CSV_UNIVERSE history, built/maintained by
 # scripts/update_master_prices.py. Used for the overflow scope to avoid
 # 870+ ticker yfinance pulls.
@@ -103,7 +128,11 @@ def build_effective_strategy_book(scope='liquid', moc_only=False):
     """
     import copy as _copy
     liquid_set = set(LIQUID_PLUS_COMMODITIES)
-    overflow_tickers = sorted(set(CSV_UNIVERSE) - liquid_set)
+    # Dynamic overflow universe (Layer C) with graceful fallback to the static
+    # CSV_UNIVERSE − LIQUID_PLUS_COMMODITIES tier when the parquet is absent.
+    _static_overflow = sorted(set(CSV_UNIVERSE) - liquid_set)
+    overflow_tickers = load_overflow_universe(fallback=_static_overflow)
+    overflow_meta = load_overflow_meta()  # {} when no parquet → ADDV gate is a no-op
 
     def _is_moc(s):
         return str(s['settings'].get('entry_type', '')).strip() == 'Signal Close'
@@ -122,7 +151,9 @@ def build_effective_strategy_book(scope='liquid', moc_only=False):
             if s['name'] not in OVERFLOW_ELIGIBLE_STRATEGIES:
                 continue
             ws = _copy.deepcopy(s)
-            ws['universe_tickers'] = overflow_tickers
+            # Per-strategy ADDV floor (R-T3): OVS shorts need deeper liquidity
+            # than patient GTC-limit strategies. No-op when overflow_meta is {}.
+            ws['universe_tickers'] = filter_by_addv(overflow_tickers, s['name'], overflow_meta)
             if s['name'] in OVERFLOW_RISK_OVERRIDES:
                 new_bps = OVERFLOW_RISK_OVERRIDES[s['name']] * GLOBAL_RISK_MULTIPLIER
                 ws['execution']['risk_bps'] = new_bps
@@ -142,14 +173,29 @@ def load_master_prices_dict(tickers):
     """
     if not os.path.exists(MASTER_PRICES_PATH):
         return {}
+    wanted = set(t.strip().upper().replace('.', '-') for t in tickers)
+    # Predicate + column pushdown so we never materialize the full parquet in
+    # memory (critical once master_prices grows to thousands of tickers × 20y —
+    # a naive full read risks OOM on a 7 GB GHA runner). master_prices stores
+    # tickers uppercased with '.'→'-' already, so the filter matches directly.
+    _cols = ['ticker', 'date', 'Open', 'High', 'Low', 'Close', 'Volume']
     try:
-        df = pd.read_parquet(MASTER_PRICES_PATH)
+        df = pd.read_parquet(
+            MASTER_PRICES_PATH,
+            columns=_cols,
+            filters=[('ticker', 'in', list(wanted))],
+        )
     except Exception as e:
-        print(f"⚠️ Failed to load {MASTER_PRICES_PATH}: {e}")
-        return {}
+        # Older pyarrow / engines may not support the filters kwarg — fall back
+        # to a full read + in-memory filter (correct, just heavier).
+        print(f"⚠️ pushdown read failed ({e}); falling back to full read")
+        try:
+            df = pd.read_parquet(MASTER_PRICES_PATH)
+        except Exception as e2:
+            print(f"⚠️ Failed to load {MASTER_PRICES_PATH}: {e2}")
+            return {}
     if df.empty:
         return {}
-    wanted = set(t.strip().upper().replace('.', '-') for t in tickers)
     df['ticker'] = df['ticker'].astype(str).str.upper().str.strip()
     df = df[df['ticker'].isin(wanted)]
     if df.empty:
@@ -1856,7 +1902,7 @@ def load_open_position_counts(ladder_strategy_names):
     return counts
 
 
-def run_daily_scan(scope='liquid', moc_only=False):
+def run_daily_scan(scope='liquid', moc_only=False, dry_run=False):
     """Run the daily scan against `scope` (liquid|overflow|all).
 
     moc_only=True restricts to MOC strategies (entry_type='Signal Close')
@@ -2098,6 +2144,10 @@ def run_daily_scan(scope='liquid', moc_only=False):
     all_signals = []
     error_tickers = []  # (ticker, reason) tuples for email reporting
 
+    # Overflow universe metadata (addv_63d etc.) for the ADV participation cap.
+    # {} when the parquet is absent → the cap is a no-op (current behavior).
+    _overflow_meta = load_overflow_meta()
+
     # 4a. Load ATR seasonal ranks once if any strategy uses them
     _uses_atr_sznl = (
         any(s['settings'].get('atr_sznl_filters') for s in effective_book)
@@ -2199,10 +2249,19 @@ def run_daily_scan(scope='liquid', moc_only=False):
                     # within ±N trading days of earnings. NaN passes through —
                     # commodity ETFs / futures / indices have no earnings data
                     # and shouldn't be silently killed by a stock-only filter.
+                    _no_earn_cov = False
                     _eb_window = strat['execution'].get('earnings_blackout_td')
                     if _eb_window and earnings_map:
                         _e_arr = earnings_map.get(t_clean.upper())
-                        if in_blackout(calc_df.index[-1], _e_arr, window=_eb_window):
+                        # Overflow tier (R-T5): an OVS short on a thin small-cap
+                        # with NO earnings coverage is real gap risk. SOFT drop —
+                        # still stage it, but flag the gap (Sizing_Notes +
+                        # Earnings_Cov column) so it can be eyeballed before fill.
+                        # Liquid tier keeps silent passthrough (commodity ETFs /
+                        # indices legitimately have no earnings rows).
+                        if strat.get('_scan_source') == 'Overflow' and (_e_arr is None or len(_e_arr) == 0):
+                            _no_earn_cov = True
+                        elif in_blackout(calc_df.index[-1], _e_arr, window=_eb_window):
                             continue
 
                     # Spot-index alias: detection happens on ^GSPC/^NDX (purer price),
@@ -2340,6 +2399,23 @@ def run_daily_scan(scope='liquid', moc_only=False):
                             sizing_note = f"{sizing_note} | OVS morning-match overflow: {_orig_shares} → {shares} shares"
                             print(f"   🔄 {t_clean}: OVS shares {_orig_shares} → {shares} (capped to Overflow)")
 
+                    # ADV participation cap (R-T3): never let a single overflow
+                    # position exceed ADV_PARTICIPATION_CAP × 63d ADDV in notional.
+                    # No-op when meta is absent or the name has no ADDV. Stamped
+                    # onto the row so order_staging can re-enforce if it wishes.
+                    _addv_63d = None
+                    if strat.get('_scan_source') == 'Overflow' and _overflow_meta:
+                        _info = _overflow_meta.get(t_clean.upper())
+                        if _info is not None:
+                            _addv_63d = _info.get('addv_63d')
+                            _cap = adv_share_cap(_addv_63d, entry, ADV_PARTICIPATION_CAP)
+                            if _cap is not None and 0 < _cap < shares:
+                                _orig = shares
+                                shares = _cap
+                                risk = shares * dist
+                                sizing_note = (f"{sizing_note} | ADV cap "
+                                               f"({ADV_PARTICIPATION_CAP:.0%} ADDV): {_orig} → {shares} sh")
+
                     entry_mode = strat['settings'].get('entry_type', 'Signal Close')
                     hold_days = strat['execution']['hold_days']
 
@@ -2355,6 +2431,8 @@ def run_daily_scan(scope='liquid', moc_only=False):
                     # Build enhanced sizing note with risk info
                     risk_bps = strat['execution'].get('risk_bps', 0)
                     sizing_with_risk = f"{sizing_note} | Risk: {risk_bps}bps (${risk:.0f})"
+                    if _no_earn_cov:
+                        sizing_with_risk += " | ⚠️ No earnings data — verify before fill"
                     
                     # Pull stats from strategy config
                     stats_dict = strat.get('stats', {})
@@ -2424,6 +2502,8 @@ def run_daily_scan(scope='liquid', moc_only=False):
                         "Entry_Type_Short": entry_type_short,
                         "Limit_Price": limit_price,
                         "Notional": notional,
+                        "Addv_63d": float(_addv_63d) if _addv_63d is not None and pd.notna(_addv_63d) else '',
+                        "Earnings_Cov": 'MISSING' if _no_earn_cov else '',
                         "Days_To_Exit": days_to_exit,
                         "Use_Stop": use_stop,
                         "Use_Target": use_target,
@@ -2514,6 +2594,27 @@ def run_daily_scan(scope='liquid', moc_only=False):
             print(f"[OVERLAP CLAMP] Reduced risk on {_clamp_count} signal(s) due to cross-strategy date+tradeable collisions.")
 
     # 6. Save Results
+    # Dry-run: print a summary and skip ALL side effects (no Google Sheets
+    # writes, no R2, no email). Used to validate a new universe / config safely.
+    if dry_run:
+        print("\n=== DRY RUN (no Sheets / R2 / email writes) ===")
+        if all_signals:
+            _df = pd.DataFrame(all_signals)
+            _by = _df.groupby(['Scan_Source', 'Strategy_Name']).size() if 'Scan_Source' in _df.columns else _df.groupby('Strategy_Name').size()
+            print(f"Total signals: {len(_df)}")
+            print(_by.to_string())
+            if 'Earnings_Cov' in _df.columns:
+                _miss = int((_df['Earnings_Cov'] == 'MISSING').sum())
+                print(f"Overflow signals flagged 'no earnings coverage': {_miss}")
+            print("\nSample:")
+            _cols = [c for c in ['Scan_Source', 'Strategy_Name', 'Ticker', 'Action', 'Shares', 'Notional', 'Addv_63d', 'Earnings_Cov', 'Sizing_Notes'] if c in _df.columns]
+            print(_df[_cols].head(25).to_string(index=False))
+        else:
+            print("No signals found today.")
+        print(f"Errors/skips: {len(error_tickers)}")
+        print("--- Dry Run Complete ---")
+        return all_signals
+
     # IMPORTANT: --moc-only runs only scan MOC strategies (entry_type='Signal
     # Close'). They never produce limit/persistent signals, so they MUST NOT
     # touch the Order_Staging or Overflow tabs — those tabs hold persistent
@@ -2617,5 +2718,12 @@ if __name__ == "__main__":
              "overflow tier entirely (overflow doesn't MOC). Use for intraday "
              "GHA runs — limit-entry strategies don't change with intraday data.",
     )
+    _ap.add_argument(
+        "--dry-run", action="store_true",
+        help="Run the full scan but skip ALL side effects (no Google Sheets, no "
+             "R2, no email) — print a signal summary only. Safe for validating a "
+             "new universe or config. Note: pair with OVERFLOW_UNIVERSE_ACTIVE=1 "
+             "to preview the dynamic overflow universe before activating it live.",
+    )
     _args = _ap.parse_args()
-    run_daily_scan(scope=_args.scope, moc_only=_args.moc_only)
+    run_daily_scan(scope=_args.scope, moc_only=_args.moc_only, dry_run=_args.dry_run)

@@ -76,6 +76,12 @@ def main():
     ap.add_argument("--buffer-days", type=int, default=5)
     ap.add_argument("--exclude-today", action="store_true",
                     help="Drop bars dated today (Eastern) from the fetch — for pre-market refresh runs")
+    ap.add_argument("--add-tickers", nargs="*", default=None,
+                    help="Extra tickers to add to the cache (backfilled from --backfill-start the first time).")
+    ap.add_argument("--from-symbol-master", action="store_true",
+                    help="Add any tickers in data/symbol_master.parquet not already in the cache.")
+    ap.add_argument("--backfill-start", default="2005-01-01",
+                    help="Start date for newly-added tickers' first backfill (default 2005-01-01).")
     args = ap.parse_args()
 
     if not os.path.exists(PATH):
@@ -84,15 +90,34 @@ def main():
 
     print(f"Loading {PATH}...")
     master = pd.read_parquet(PATH)
-    universe = sorted(master["ticker"].unique().tolist())
+    existing = set(master["ticker"].astype(str).str.upper().str.strip())
+    universe = sorted(existing)
     last_dates = master.groupby("ticker")["date"].max()
     earliest_stale = last_dates.min()
     today = pd.Timestamp.today().normalize()
 
+    # New tickers to backfill (Layer A / explicit) — not yet in the cache.
+    add_set = set()
+    if args.add_tickers:
+        add_set.update(t.upper().strip().replace(".", "-") for t in args.add_tickers)
+    if args.from_symbol_master:
+        sm_path = os.path.join(ROOT, "data", "symbol_master.parquet")
+        if os.path.exists(sm_path):
+            try:
+                sm = pd.read_parquet(sm_path, columns=["ticker"])
+                add_set.update(sm["ticker"].astype(str).str.upper().str.strip().str.replace(".", "-", regex=False))
+            except Exception as e:
+                print(f"  warn: could not read {sm_path}: {e}")
+        else:
+            print(f"  warn: --from-symbol-master set but {sm_path} missing")
+    new_tickers = sorted(t for t in add_set if t and t not in existing)
+
     fetch_start = (earliest_stale - pd.Timedelta(days=args.buffer_days)).strftime("%Y-%m-%d")
     print(f"  tickers:        {len(universe)}")
+    print(f"  new to backfill:{len(new_tickers)}")
     print(f"  earliest stale: {earliest_stale.date()}")
     print(f"  fetch from:     {fetch_start}")
+    print(f"  backfill from:  {args.backfill_start} (new tickers)")
     print(f"  today:          {today.date()}\n")
 
     all_frames = []
@@ -101,6 +126,18 @@ def main():
         chunk = universe[i:i + CHUNK_SIZE]
         print(f"[{i+1:>5}-{min(i+CHUNK_SIZE, len(universe)):>5} / {len(universe)}] updating...", flush=True)
         result = download_chunk(chunk, fetch_start)
+        for t, df in result.items():
+            df = df.copy()
+            df["ticker"] = t
+            df = df.reset_index().rename(columns={"index": "date", "Date": "date"})
+            all_frames.append(df)
+        time.sleep(0.3)
+
+    # Backfill new tickers from the longer start date.
+    for i in range(0, len(new_tickers), CHUNK_SIZE):
+        chunk = new_tickers[i:i + CHUNK_SIZE]
+        print(f"[backfill {i+1:>5}-{min(i+CHUNK_SIZE, len(new_tickers)):>5} / {len(new_tickers)}] new...", flush=True)
+        result = download_chunk(chunk, args.backfill_start)
         for t, df in result.items():
             df = df.copy()
             df["ticker"] = t

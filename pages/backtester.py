@@ -1,4 +1,5 @@
 import streamlit as st
+import os
 import pandas as pd
 import numpy as np
 import yfinance as yf
@@ -18,6 +19,12 @@ try:
     from strategy_config import STRATEGY_BOOK as _STRATEGY_BOOK
 except Exception:
     _STRATEGY_BOOK = []
+
+try:
+    from overflow_universe import load_overflow_universe
+except Exception:
+    def load_overflow_universe(fallback=None, **_kw):
+        return list(fallback) if fallback is not None else []
 
 # Params keys that always come from the UI widgets, never overridden by a
 # loaded preset. Everything else in the preset's `settings` dict overrides
@@ -99,7 +106,19 @@ def load_seasonal_map():
 
 @st.cache_resource
 def load_atr_seasonal_map():
-    """Load ATR-normalized seasonal ranks. Returns {ticker: DataFrame with 6 rank columns}."""
+    """Load ATR-normalized seasonal ranks. Returns {ticker: DataFrame with 6 rank columns}.
+
+    Pulls atr_seasonal_ranks.parquet from R2 when missing/stale so a fresh
+    machine (R2 creds in .env) gets the expanded ranks. NOTE: while the file is
+    still git-tracked it checks out 'present + fresh', so this pull only fires
+    once the file is git-removed (`git rm --cached` + .gitignore) or deleted
+    locally. Until then a fresh checkout sees the committed (pre-overflow) ranks.
+    """
+    try:
+        from overflow_universe import _maybe_pull_from_r2
+        _maybe_pull_from_r2(ATR_SZNL_PATH, "atr_seasonal_ranks.parquet")
+    except Exception:
+        pass
     try:
         df = pd.read_parquet(ATR_SZNL_PATH)
     except Exception:
@@ -185,27 +204,43 @@ def compute_signed_earnings_offsets(df_dates, earnings_dates, holidays_d64):
     return pd.Series(nearest, index=df_dates)
 
 
-@st.cache_resource
-def load_earnings_map():
-    """Load earnings calendar from data/earnings_calendar.parquet.
-
-    Returns a dict {ticker: pd.DatetimeIndex of earnings announcement dates}.
-    Empty dict if the parquet is missing — earnings filter will silently no-op.
-    Backfilled via scripts/build_earnings_calendar.py from FMP /stable/earnings.
-
-    Falls back to pulling the parquet from R2 (seasonals-cache bucket) when
-    it's missing or stale locally — same logic as earnings_filter.py.
-    """
-    path = "data/earnings_calendar.parquet"
+def _load_earnings_frame():
+    """Production earnings_calendar.parquet UNION the isolated overflow staging
+    file (earnings_calendar_overflow.parquet), each pulled from R2 if missing/
+    stale. Returns one concatenated DataFrame (possibly empty). The staging file
+    carries the new overflow names' earnings so the daily CSV_UNIVERSE rebuild
+    of production can't wipe them."""
+    prod = "data/earnings_calendar.parquet"
+    staging = "data/earnings_calendar_overflow.parquet"
     try:
         from earnings_filter import _refresh_from_r2_if_needed
-        _refresh_from_r2_if_needed(path)
+        _refresh_from_r2_if_needed(prod)
     except Exception:
         pass
     try:
-        df = pd.read_parquet(path)
+        from cache_io import download_to_local
+        if (not os.path.exists(staging)) or (time.time() - os.path.getmtime(staging) > 18 * 3600):
+            download_to_local("earnings_calendar_overflow.parquet", staging)
     except Exception:
-        return {}
+        pass
+    frames = []
+    for p in (prod, staging):
+        try:
+            frames.append(pd.read_parquet(p))
+        except Exception:
+            pass
+    if not frames:
+        return pd.DataFrame()
+    return pd.concat(frames, ignore_index=True) if len(frames) > 1 else frames[0]
+
+
+@st.cache_resource
+def load_earnings_map():
+    """Load earnings calendar (production + overflow staging) as
+    {ticker: pd.DatetimeIndex of earnings dates}. Empty dict if unavailable —
+    earnings filter then silently no-ops.
+    """
+    df = _load_earnings_frame()
     if df.empty or 'ticker' not in df.columns or 'date' not in df.columns:
         return {}
     df['date'] = pd.to_datetime(df['date'], errors='coerce').dt.normalize()
@@ -232,16 +267,7 @@ def load_earnings_metrics_map():
     by scripts/build_earnings_calendar.py — older parquets without the
     derived columns yield an empty map (filter silently no-ops).
     """
-    path = "data/earnings_calendar.parquet"
-    try:
-        from earnings_filter import _refresh_from_r2_if_needed
-        _refresh_from_r2_if_needed(path)
-    except Exception:
-        pass
-    try:
-        df = pd.read_parquet(path)
-    except Exception:
-        return {}
+    df = _load_earnings_frame()
     needed = ['ticker', 'date'] + _EARNINGS_METRIC_COLS
     if df.empty or not all(c in df.columns for c in needed):
         return {}
@@ -250,6 +276,11 @@ def load_earnings_metrics_map():
     df['ticker'] = df['ticker'].astype(str).str.upper().str.strip()
     df = df.dropna(subset=['date', 'ticker'])
     df = df.sort_values(['ticker', 'date'])
+    # Dedup (ticker, date) so the per-ticker date index is unique — otherwise the
+    # engine's reindex(method='ffill') raises "cannot reindex on an axis with
+    # duplicate labels". Production already carries dup dates; the staging union
+    # adds more. keep='last' = the most recently reported value for that date.
+    df = df.drop_duplicates(subset=['ticker', 'date'], keep='last')
     out = {}
     for tkr, grp in df.groupby('ticker'):
         out[tkr] = grp.drop(columns=['ticker']).set_index('date')[_EARNINGS_METRIC_COLS]
@@ -2506,7 +2537,7 @@ def main():
     st.subheader("1. Universe & Data")
     col_u1, col_u2, col_u3 = st.columns([1, 1, 2])
     sample_pct = 100; use_full_history = False
-    with col_u1: univ_choice = st.selectbox("Choose Universe", ["All CSV Tickers", "All CSV + Overflow Extras", "All CSV + Overflow Extras (no ^ indices)", "Sector ETFs","SPX", "Indices", "Indices (Spot — ^GSPC/^NDX)", "International ETFs", "Sector + Index ETFs", "Commodity + Sector + Index + 3x Lev", "All CSV (Equities Only)", "3x Leveraged (All)", "3x Leveraged Equities", "3x Leveraged Equities (Bull)", "3x Leveraged Equities (Bear)", "3x Leveraged Equities (Broad Only)", "Custom (Comma-Separated)", "Custom (Upload CSV)"])
+    with col_u1: univ_choice = st.selectbox("Choose Universe", ["All CSV Tickers", "All CSV + Overflow Extras", "All CSV + Overflow Extras (no ^ indices)", "Overflow (dynamic)", "Sector ETFs","SPX", "Indices", "Indices (Spot — ^GSPC/^NDX)", "International ETFs", "Sector + Index ETFs", "Commodity + Sector + Index + 3x Lev", "All CSV (Equities Only)", "3x Leveraged (All)", "3x Leveraged Equities", "3x Leveraged Equities (Bull)", "3x Leveraged Equities (Bear)", "3x Leveraged Equities (Broad Only)", "Custom (Comma-Separated)", "Custom (Upload CSV)"])
     with col_u2:
         default_start = datetime.date(2000, 1, 1)
         start_date = st.date_input("Backtest Start Date", value=default_start, min_value=datetime.date(1950, 1, 1), max_value=datetime.date.today())
@@ -3425,14 +3456,17 @@ def main():
 
         def _fetch_prices(tickers, start):
             """Default behavior: yfinance via download_universe_data (legacy).
-            When use_master_parquet checkbox is on AND master file exists, read
-            from data/master_prices.parquet via data_provider instead.
+            When use_master_parquet is on — OR the dynamic Overflow universe is
+            selected — AND the master file exists, read from the parquet caches
+            via data_provider instead. The Overflow universe also unions the
+            isolated overflow_prices.parquet staging cache (include_overflow).
             Returns dict {ticker: DataFrame} matching the legacy shape."""
-            if use_master_parquet:
+            _is_overflow = (univ_choice == "Overflow (dynamic)")
+            if use_master_parquet or _is_overflow:
                 try:
                     import data_provider
                     if data_provider.has_master():
-                        return data_provider.get_history(tickers, start=start)
+                        return data_provider.get_history(tickers, start=start, include_overflow=_is_overflow)
                     r2_err = data_provider.last_r2_error()
                     warn = "Master parquet not found at data/master_prices.parquet"
                     if r2_err:
@@ -3470,6 +3504,15 @@ def main():
             if extras_tickers:
                 _suffix = " — ^ indices excluded" if _drop_caret else ""
                 st.info(f"Universe cached: {len(_base)} base + {len(_new_extras)} extras{_suffix}. **Running on {len(tickers_to_run)}** ({_scope}).")
+        elif univ_choice == "Overflow (dynamic)":
+            # Dynamic liquidity/vol-screened overflow universe (data/overflow_universe.parquet).
+            # respect_active=False so backtests read it regardless of the live activation gate.
+            tickers_to_run = load_overflow_universe(respect_active=False)
+            st.info(f"🌊 Overflow (dynamic): **{len(tickers_to_run)}** screened names. "
+                    "Prices read from master_prices ∪ overflow_prices; earnings from "
+                    "production ∪ overflow staging; ATR-seasonal ranks from atr_seasonal_ranks.parquet. "
+                    "Caveats: membership is today's screen (survivorship); names not in the seasonal "
+                    "map get a neutral Sznl=50, so seasonal-rank filters are degraded on those.")
         elif univ_choice == "All CSV (Equities Only)": tickers_to_run = [t for t in list(sznl_map.keys()) if t not in ["BTC-USD", "ETH-USD", "SLV", "GLD", "USO", "UVXY", "CEF", "UNG", "XOP"] + SECTOR_ETFS + INDEX_ETFS + INTERNATIONAL_ETFS + SPX]
         elif univ_choice == "3x Leveraged (All)": tickers_to_run = LEV3X_ALL
         elif univ_choice == "3x Leveraged Equities": tickers_to_run = LEV3X_EQUITY_ALL
