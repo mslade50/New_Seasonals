@@ -55,6 +55,8 @@ jobs:
           R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
           R2_BUCKET: ${{ secrets.R2_BUCKET }}
-          # Comprehensive overflow universe live (dynamic screen ∪ static tier).
-          OVERFLOW_UNIVERSE_ACTIVE: "1"
+          # Overflow universe gate. "1" = comprehensive (dynamic ∪ static, ~1,351);
+          # "0" = legacy static tier (~870). Currently REVERTED to static — flip to
+          # "1" to re-activate the comprehensive universe live.
+          OVERFLOW_UNIVERSE_ACTIVE: "0"
         run: python daily_portfolio_report.py
