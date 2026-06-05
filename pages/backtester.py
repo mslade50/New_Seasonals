@@ -2634,6 +2634,18 @@ def main():
             "Falls back to yfinance per-ticker if the master file is missing."
         ),
     )
+    include_dynamic_overflow = st.checkbox(
+        "🌊 Also run Overflow (dynamic) names alongside the selected universe",
+        value=False,
+        help=(
+            "Unions the dynamic overflow screen (~1,270 names) on top of whatever 'Choose Universe' "
+            "is set to, so an older list (or the older 'Overflow Extras') can be backtested together "
+            "with the new dynamic overflow in one run. The dynamic names are always priced from "
+            "master_prices + overflow_prices (about 481 live only in overflow_prices); the base "
+            "universe keeps its normal source. No effect when the universe is already "
+            "'Overflow (dynamic)'."
+        ),
+    )
     st.markdown("---")
     st.subheader("2. Execution & Risk")
     r_c1, r_c2, r_c3 = st.columns(3)
@@ -3477,6 +3489,20 @@ def main():
                     st.warning(f"data_provider unavailable ({_e}); using yfinance.")
             return download_universe_data(tickers, start)
 
+        def _fetch_overflow(tickers, start):
+            """Always price dynamic-overflow names from master_prices ∪ overflow_prices
+            (include_overflow=True), regardless of the master-parquet toggle — ~481 of
+            them live only in overflow_prices. Falls back to yfinance if the master
+            file/R2 is unavailable."""
+            try:
+                import data_provider
+                if data_provider.has_master():
+                    return data_provider.get_history(tickers, start=start, include_overflow=True)
+                st.warning("Master parquet unavailable for dynamic-overflow names — using yfinance.")
+            except Exception as _e:
+                st.warning(f"data_provider unavailable ({_e}); using yfinance for dynamic names.")
+            return download_universe_data(tickers, start)
+
         if univ_choice == "Sector ETFs": tickers_to_run = SECTOR_ETFS
         elif univ_choice == "Indices": tickers_to_run = INDEX_ETFS
         elif univ_choice == "Indices (Spot — ^GSPC/^NDX)": tickers_to_run = INDICES_SPOT
@@ -3525,10 +3551,24 @@ def main():
             count = max(1, int(len(tickers_to_run) * (sample_pct / 100)))
             tickers_to_run = random.sample(tickers_to_run, count)
             st.info(f"Randomly selected {len(tickers_to_run)} tickers.")
+        # Optional union: graft the dynamic overflow screen on top of the selected
+        # universe so older lists / older overflow extras can be backtested alongside
+        # the new dynamic overflow in a single run. These names are fetched separately
+        # via _fetch_overflow (master ∪ overflow), so the base universe's data source
+        # is untouched. No-op when the universe is already "Overflow (dynamic)".
+        _dyn_overflow_add = []
+        if include_dynamic_overflow and univ_choice != "Overflow (dynamic)":
+            _dyn = load_overflow_universe(respect_active=False)
+            _seen = {str(t).upper() for t in tickers_to_run}
+            _dyn_overflow_add = [t for t in _dyn if str(t).upper() not in _seen]
+            tickers_to_run = list(tickers_to_run) + _dyn_overflow_add
+            st.info(f"🌊 Unioned Overflow (dynamic): +{len(_dyn_overflow_add)} new names "
+                    f"on top of {univ_choice} (**{len(tickers_to_run)}** total to run).")
         if not tickers_to_run: st.error("No tickers found."); return
         fetch_start = "1950-01-01" if use_full_history else start_date - datetime.timedelta(days=365)
         # Split download: in hybrid mode, fetch base and extras separately so the 1k-ticker
         # base keeps its cache key across different extras uploads (only the delta re-fetches).
+        _dyn_add_set = set(_dyn_overflow_add)
         if univ_choice in ("All CSV + Overflow Extras", "All CSV + Overflow Extras (no ^ indices)") and extras_tickers:
             st.info(f"Loading base ({len(_base)}) + extras ({len(_new_extras)} new)...")
             base_data = _fetch_prices(_base, fetch_start)
@@ -3537,8 +3577,14 @@ def main():
             _run_set = set(tickers_to_run)
             data_dict = {t: df for t, df in _full_data.items() if t in _run_set}
         else:
-            st.info(f"Loading data ({len(tickers_to_run)} tickers)...")
-            data_dict = _fetch_prices(tickers_to_run, fetch_start)
+            _base_only = [t for t in tickers_to_run if t not in _dyn_add_set] if _dyn_add_set else tickers_to_run
+            st.info(f"Loading data ({len(_base_only)} tickers)...")
+            data_dict = _fetch_prices(_base_only, fetch_start)
+        # Merge the dynamic-overflow names (master ∪ overflow), priced independently
+        # of the base universe's source.
+        if _dyn_overflow_add:
+            st.info(f"Loading {len(_dyn_overflow_add)} dynamic-overflow names (master ∪ overflow)...")
+            data_dict.update(_fetch_overflow(_dyn_overflow_add, fetch_start))
         if not data_dict: return
 
         # Truncate to end_date — drops any data after the chosen end so signals
