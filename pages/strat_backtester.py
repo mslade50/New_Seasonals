@@ -1696,9 +1696,14 @@ def process_signals_fast(candidates, signal_data, processed_dict, strategies, st
         # if entry-day close is more than eod_dd_atr offside vs the actual
         # fill, exit at that close. Only the daily loop is short-circuited;
         # trade recording continues with this overridden exit.
+        # eod_dd_weekdays restricts the trigger to specific weekdays (Mon=0..Fri=4);
+        # missing/empty = all weekdays. OVS uses [4] so the entry-day cutoff only
+        # fires on Friday entries, matching order_staging.py.
         eod_dd_atr_mult = float(execution.get('eod_dd_atr', 0.0) or 0.0)
+        eod_dd_weekdays = execution.get('eod_dd_weekdays', [0, 1, 2, 3, 4])
+        eod_dd_dow_ok = (not eod_dd_weekdays) or (df.index[entry_idx].weekday() in eod_dd_weekdays)
         eod_dd_triggered = False
-        if eod_dd_atr_mult > 0 and atr > 0:
+        if eod_dd_atr_mult > 0 and atr > 0 and eod_dd_dow_ok:
             entry_close = df.iloc[entry_idx]['Close']
             if direction == 'Long':
                 dd = (entry_price - entry_close) / atr

@@ -177,7 +177,7 @@ Legacy point system preserved in collapsed expander for reference. Alert = +1, A
 | `TAIL_RISK_TICKERS` | `risk_dashboard_v2.py` | 1 | ^SKEW |
 | `SIGNAL_CACHE_PATH` | `risk_dashboard_v2.py` | — | `data/risk_dashboard_signal_state.json` |
 
-## OVS Strategy — Earnings Blackout + 2-Path Sizing
+## OVS Strategy — Earnings Blackout + 2-Path Sizing + Friday-only EOD-DD
 
 Overbot Vol Spike has special-cased execution as of the 2026-04-30 merge.
 
@@ -204,6 +204,16 @@ Decision happens in `order_staging.py` (in `C:\Users\mckin\OneDrive\trading_ibkr
 | Open ≤ Close | **Skip** | 0 |
 
 Scanner-side stamps `Path1_Bps`, `Path2_Bps`, `Path2_Daily_Cap_Pct` columns on every OVS staging row so order_staging can compute the multiplier without importing strategy_config.
+
+### Entry-day drawdown stop (EOD-DD, Friday entries only)
+The OVS execution dict carries `eod_dd_atr: 0.25` and `eod_dd_weekdays: [4]`. If a Friday-entered OVS trade is more than 0.25 ATR offside vs the entry-day fill by 15:58 ET, exit at the entry-day close. Mon-Thu entries skip the check entirely — those positions get the full hold window instead. Weekday list uses Python conventions (Mon=0..Fri=4); empty/missing = all weekdays.
+
+Aligned across four systems — change `eod_dd_weekdays` in one place and they all move together:
+- `strategy_config.py` — execution dict (single source of truth)
+- `pages/strat_backtester.py` — reads `execution['eod_dd_weekdays']`, gates the EOD-DD block on `df.index[entry_idx].weekday() in [...]`. Drives both the backtester page and `daily_portfolio_report.py`.
+- `pages/backtester.py` — UI multiselect lets you override per-run for exploration (separate from the prod-locked rule above).
+- `order_staging.py` (in `C:\Users\mckin\OneDrive\trading_ibkr\`) — hardcoded `weekday() == 4` gate on the STP-with-goodAfterTime=15:58 leg. Update both sides if you change the rule.
+- Regression coverage: `tests/test_eod_dd.py` Cases C/D assert Fri fires + Tue skipped under `[4]`.
 
 ### Reference
 - Trading-day arithmetic: `compute_signed_earnings_offsets()` in `pages/backtester.py` (np.busday_count + USFederalHolidayCalendar).

@@ -511,7 +511,7 @@ _STRATEGY_BOOK_RAW = [
         "execution": {"risk_bps": 40, "slippage_bps": 2, "stop_atr": 1.0, "tgt_atr": 2.0, "hold_days": 2, "use_stop_loss": False, "use_take_profit": True,
                       "path1_bps": 40, "path2_bps": 8, "path2_daily_cap_pct": 0.75,
                       "earnings_blackout_td": 10,
-                      "eod_dd_atr": 0.25},
+                      "eod_dd_atr": 0.25, "eod_dd_weekdays": [4]},
         "stats": {"grade": "A (Excellent)", "win_rate": "58.0%", "expectancy": "0.28r", "profit_factor": "1.96"}
     },
     {

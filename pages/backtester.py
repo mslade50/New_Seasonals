@@ -35,7 +35,7 @@ _USER_ADJUSTABLE_PARAM_KEYS = frozenset({
     'stop_atr', 'tgt_atr', 'holding_days',
     'use_stop_loss', 'use_take_profit', 'time_exit_only',
     'use_trailing_stop', 'trail_atr', 'trail_anchor',
-    'use_eod_dd_exit', 'eod_dd_atr',
+    'use_eod_dd_exit', 'eod_dd_atr', 'eod_dd_weekdays',
     'use_partial_exits', 'partial_target_fraction',
     'use_intraday',
     'slippage_bps',
@@ -2328,12 +2328,15 @@ def run_engine(universe_dict, params, sznl_map, market_series=None, vix_series=N
                     # a no-op for entry types where actual_entry_price == entry-day close
                     # (Signal Close, T+1 Close, persistent limits filling at close).
                     if params.get('use_eod_dd_exit', False):
+                        entry_date = df.index[actual_entry_idx]
+                        allowed_eod_dow = params.get('eod_dd_weekdays', [0, 1, 2, 3, 4])
+                        eod_dow_ok = (not allowed_eod_dow) or (entry_date.weekday() in allowed_eod_dow)
                         entry_close = df['Close'].iloc[actual_entry_idx]
                         if direction == 'Long':
                             dd_atr = (actual_entry_price - entry_close) / atr
                         else:
                             dd_atr = (entry_close - actual_entry_price) / atr
-                        if dd_atr > params.get('eod_dd_atr', 1.0):
+                        if eod_dow_ok and dd_atr > params.get('eod_dd_atr', 1.0):
                             exit_price = entry_close
                             exit_date = df.index[actual_entry_idx]
                             exit_type = "EOD-DD"
@@ -2792,7 +2795,7 @@ def main():
             "fill at the close (Signal Close, T+1 Close, persistent limits) — drawdown "
             "is zero by construction."
         )
-        eod_c1, eod_c2 = st.columns([1, 2])
+        eod_c1, eod_c2, eod_c3 = st.columns([1, 1, 2])
         with eod_c1:
             use_eod_dd_exit = st.checkbox("Enable EOD drawdown exit", value=False)
         with eod_c2:
@@ -2802,6 +2805,18 @@ def main():
                 disabled=not use_eod_dd_exit,
                 help="If entry-day close shows a loss greater than this many ATRs, exit at that close. Tagged 'EOD-DD' in the trade log.",
             )
+        with eod_c3:
+            _eod_dow_options = [("Mon", 0), ("Tue", 1), ("Wed", 2), ("Thu", 3), ("Fri", 4)]
+            _eod_dow_labels = [lbl for lbl, _ in _eod_dow_options]
+            _eod_label_to_val = dict(_eod_dow_options)
+            eod_dd_dow_selected = st.multiselect(
+                "Apply on weekdays",
+                options=_eod_dow_labels,
+                default=_eod_dow_labels,
+                disabled=not use_eod_dd_exit,
+                help="Restrict EOD-DD exit to signals whose entry day falls on these weekdays. Default = all weekdays (no restriction).",
+            )
+            eod_dd_weekdays = sorted({_eod_label_to_val[lbl] for lbl in eod_dd_dow_selected})
     st.markdown("---")
     st.subheader("3. Signal Criteria")
     with st.expander("Liquidity & Data History Filters", expanded=True):
@@ -3662,7 +3677,7 @@ def main():
             'backtest_start_date': start_date, 'trade_direction': trade_direction, 'max_one_pos': max_one_pos, 'allow_same_day_reentry': allow_same_day_reentry,
             'max_daily_entries': max_daily_entries, 'max_total_positions': max_total_positions, 'use_stop_loss': use_stop_loss, 'use_take_profit': use_take_profit, 'time_exit_only': time_exit_only,
             'use_partial_exits': use_partial_exits, 'partial_target_fraction': partial_target_fraction,
-            'use_eod_dd_exit': use_eod_dd_exit, 'eod_dd_atr': eod_dd_atr,
+            'use_eod_dd_exit': use_eod_dd_exit, 'eod_dd_atr': eod_dd_atr, 'eod_dd_weekdays': eod_dd_weekdays,
             'stop_atr': stop_atr, 'tgt_atr': tgt_atr, 'holding_days': hold_days, 'entry_type': entry_type, 'use_ma_entry_filter': use_ma_entry_filter, 'require_close_gt_open': req_green_candle,
             'use_intraday': use_intraday,
             'use_trailing_stop': use_trailing_stop, 'trail_atr': trail_atr, 'trail_anchor': trail_anchor,
@@ -4000,6 +4015,83 @@ def main():
                 )
                 return fig
 
+            def _trade_mae_scatter_fig(trades, stop_atr_val):
+                """Scatter of every trade's max intra-trade drawdown (MAE) in
+                ATR-multiples vs exit date. Mirrors `_trade_scatter_fig` styling
+                but plots MAE_R * stop_atr — the worst unrealized loss the trade
+                ever showed before closing, normalized by ATR.
+                """
+                if trades is None or trades.empty or 'MAE_R' not in trades.columns:
+                    return None
+                df_s = trades.copy()
+                df_s['ExitDate'] = pd.to_datetime(df_s['ExitDate'])
+                stop_atr_mult = float(stop_atr_val) if stop_atr_val else 1.0
+                df_s['MAE_ATR'] = df_s['MAE_R'] * stop_atr_mult
+                df_s = df_s.dropna(subset=['MAE_ATR'])
+                if df_s.empty:
+                    return None
+
+                df_s['ATR_Multiple'] = df_s['R'] * stop_atr_mult
+
+                mean_v = float(df_s['MAE_ATR'].mean())
+                std_v = float(df_s['MAE_ATR'].std())
+                med_v = float(df_s['MAE_ATR'].median())
+                colour_cap = max(float(df_s['ATR_Multiple'].abs().quantile(0.95)), 1e-6)
+
+                _abs_mae = df_s['MAE_ATR'].abs()
+                _abs_cap = max(float(_abs_mae.quantile(0.95)), 1e-6)
+                marker_size = (5.0 + 11.0 * (_abs_mae / _abs_cap).clip(0, 1)).tolist()
+
+                hover_text = df_s.apply(
+                    lambda r: (
+                        f"<b>{r['Ticker']}</b> ({r.get('Direction', '')})<br>"
+                        f"Entry {pd.to_datetime(r['EntryDate']):%Y-%m-%d} @ {r['Entry']:.2f}<br>"
+                        f"Exit  {pd.to_datetime(r['ExitDate']):%Y-%m-%d} @ {r['Exit']:.2f}<br>"
+                        f"MAE {r['MAE_R']:+.2f}R | ATR-mult {r['MAE_ATR']:+.2f}<br>"
+                        f"Realized R {r['R']:+.2f} | ATR-mult {r['ATR_Multiple']:+.2f}<br>"
+                        f"Exit type: {r.get('Type', '')}"
+                    ),
+                    axis=1,
+                )
+
+                fig = go.Figure()
+                fig.add_trace(go.Scatter(
+                    x=df_s['ExitDate'], y=df_s['MAE_ATR'],
+                    mode='markers',
+                    marker=dict(
+                        size=marker_size,
+                        color=df_s['ATR_Multiple'],
+                        colorscale='RdYlGn',
+                        cmin=-colour_cap, cmax=colour_cap, cmid=0,
+                        line=dict(width=0.4, color='rgba(0,0,0,0.35)'),
+                        showscale=False,
+                    ),
+                    text=hover_text,
+                    hovertemplate='%{text}<extra></extra>',
+                    showlegend=False,
+                ))
+                fig.add_hline(y=0, line_dash='dot', line_color='#888', line_width=1)
+                fig.add_hline(y=mean_v, line_dash='dash', line_color='rgba(255,176,0,0.7)',
+                              line_width=1, annotation_text=f'Mean {mean_v:+.2f}',
+                              annotation_position='top right', annotation_font_size=10)
+                fig.add_hline(y=mean_v + std_v, line_dash='dot',
+                              line_color='rgba(200,200,200,0.45)', line_width=1)
+                fig.add_hline(y=mean_v - std_v, line_dash='dot',
+                              line_color='rgba(200,200,200,0.45)', line_width=1)
+                title = (
+                    f'Per-Trade Max Intra-Trade Drawdown (ATR-multiples) — '
+                    f'N={len(df_s)}, mean {mean_v:+.2f}, median {med_v:+.2f}, '
+                    f'std {std_v:.2f} (stop_atr={stop_atr_mult:g})'
+                )
+                fig.update_layout(
+                    title=title,
+                    xaxis_title='Exit Date',
+                    yaxis=dict(title='MAE (ATR-multiples)', zeroline=False),
+                    height=320, margin=dict(t=40, b=30, l=40, r=40),
+                    hovermode='closest',
+                )
+                return fig
+
             def _trade_scatter_fig(trades, stop_atr_val):
                 """Scatter of every trade's return in ATR-multiples vs exit date.
 
@@ -4185,6 +4277,9 @@ def main():
                 _scatter_fig = _trade_scatter_fig(trades_df, params.get('stop_atr', 1.0))
                 if _scatter_fig is not None:
                     st.plotly_chart(_scatter_fig, use_container_width=True)
+                _mae_scatter_fig = _trade_mae_scatter_fig(trades_df, params.get('stop_atr', 1.0))
+                if _mae_scatter_fig is not None:
+                    st.plotly_chart(_mae_scatter_fig, use_container_width=True)
                 _edge_fig = _edge_over_time_fig(trades_df)
                 if _edge_fig is not None:
                     st.plotly_chart(_edge_fig, use_container_width=True)

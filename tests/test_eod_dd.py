@@ -33,7 +33,17 @@ import numpy as np
 from strat_backtester import process_signals_fast
 
 
-def _ovs_strategy(eod_dd_atr=0.25):
+def _ovs_strategy(eod_dd_atr=0.25, eod_dd_weekdays=None):
+    execution = {
+        'risk_bps': 40, 'slippage_bps': 2,
+        'stop_atr': 1.0, 'tgt_atr': 2.0,
+        'hold_days': 2,
+        'use_stop_loss': False, 'use_take_profit': True,
+        'path1_bps': 40, 'path2_bps': 8, 'path2_daily_cap_pct': 0.75,
+        'eod_dd_atr': eod_dd_atr,
+    }
+    if eod_dd_weekdays is not None:
+        execution['eod_dd_weekdays'] = eod_dd_weekdays
     return {
         'name': 'Overbot Vol Spike',
         'settings': {
@@ -41,21 +51,18 @@ def _ovs_strategy(eod_dd_atr=0.25):
             'entry_type': 'Limit (Open +/- 0.75 ATR)',
             'max_one_pos': False,
         },
-        'execution': {
-            'risk_bps': 40, 'slippage_bps': 2,
-            'stop_atr': 1.0, 'tgt_atr': 2.0,
-            'hold_days': 2,
-            'use_stop_loss': False, 'use_take_profit': True,
-            'path1_bps': 40, 'path2_bps': 8, 'path2_daily_cap_pct': 0.75,
-            'eod_dd_atr': eod_dd_atr,
-        },
+        'execution': execution,
         'universe_tickers': ['TEST'],
     }
 
 
-def _build_inputs(entry_close):
-    """OVS short entry on day 1 at limit 102.5; entry_close drives EOD-DD."""
-    dates = pd.date_range('2024-01-02', periods=5, freq='B')
+def _build_inputs(entry_close, start_date='2024-01-02'):
+    """OVS short entry on day 1 at limit 102.5; entry_close drives EOD-DD.
+
+    start_date is the signal date; entry lands on the next business day, so
+    pick start_date so dates[1] hits the weekday under test.
+    """
+    dates = pd.date_range(start_date, periods=5, freq='B')
     df = pd.DataFrame({
         'Open':  [100.0, 101.0, 100.0, 100.0, 100.0],
         'High':  [101.0, max(103.5, entry_close), 102.0, 102.0, 102.0],
@@ -82,9 +89,10 @@ def _build_inputs(entry_close):
     return candidates, signal_data, {'TEST': df}
 
 
-def run_case(label, entry_close, expected_type):
-    candidates, signal_data, processed = _build_inputs(entry_close)
-    strategies = [_ovs_strategy()]
+def run_case(label, entry_close, expected_type, start_date='2024-01-02',
+             eod_dd_weekdays=None):
+    candidates, signal_data, processed = _build_inputs(entry_close, start_date=start_date)
+    strategies = [_ovs_strategy(eod_dd_weekdays=eod_dd_weekdays)]
     sig_df = process_signals_fast(
         candidates, signal_data, processed, strategies,
         starting_equity=100_000,
@@ -112,6 +120,14 @@ def main():
     run_case('A: triggers', 103.5, 'EOD-DD')
     # Case B: EOD-DD does NOT fire (close = 102.6, dd = 0.05 ATR < 0.25)
     run_case('B: does not trigger', 102.6, 'Time')
+    # Case C: weekday gate — Friday entry with [4] should fire.
+    # Signal 2024-01-04 (Thu) -> entry 2024-01-05 (Fri).
+    run_case('C: Friday entry, gate=[4], fires',
+             103.5, 'EOD-DD', start_date='2024-01-04', eod_dd_weekdays=[4])
+    # Case D: weekday gate — Tuesday entry with [4] should NOT fire even
+    # though dd > threshold. Signal 2024-01-08 (Mon) -> entry 2024-01-09 (Tue).
+    run_case('D: Tuesday entry, gate=[4], skipped',
+             103.5, 'Time', start_date='2024-01-08', eod_dd_weekdays=[4])
     print('\nAll EOD-DD cases passed.')
 
 
