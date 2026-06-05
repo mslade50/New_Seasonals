@@ -34,6 +34,12 @@ except ImportError:
     ACCOUNT_VALUE = 150000
     SPOT_TO_TRADEABLE = {}
 
+try:
+    from overflow_universe import load_overflow_universe
+except Exception:
+    def load_overflow_universe(fallback=None, **_kw):
+        return list(fallback) if fallback is not None else []
+
 # Strategies that the overflow scanner runs against the broader CSV_UNIVERSE.
 # When the "Run on Overflow Universe" UI toggle is on, strat_backtester swaps
 # universe_tickers to CSV_UNIVERSE for these (mirrors local_overflow_scan.py).
@@ -2595,6 +2601,21 @@ def main():
                 "Other strategies keep their default universes."
             ),
         )
+        overflow_source = "Static (CSV ∪ seasonal)"
+        if use_overflow_universe:
+            overflow_source = st.radio(
+                "Overflow source",
+                ["Static (CSV ∪ seasonal)", "Dynamic screen (~1,270)"],
+                index=0,
+                horizontal=True,
+                help=(
+                    "Static = legacy CSV_UNIVERSE ∪ seasonal_ranks. "
+                    "Dynamic = the liquidity/vol-screened overflow_universe.parquet "
+                    "(~1,270 names); prices stream from master_prices ∪ overflow_prices "
+                    "(R2), so the ~481 names that live only in overflow_prices resolve."
+                ),
+            )
+        _use_dynamic_overflow = use_overflow_universe and overflow_source.startswith("Dynamic")
         cap_bps_input = st.number_input(
             f"Per-strategy daily risk backstop (bps, 0 = off)",
             min_value=0, max_value=1000,
@@ -2738,12 +2759,21 @@ def main():
                 _msg += f" — held at 1.0x: {', '.join(_skipped)}"
             st.info(_msg)
 
-        if use_overflow_universe and CSV_UNIVERSE:
-            # Union CSV_UNIVERSE (sznl_ranks.csv) with seasonal_ranks.csv tickers
-            # so the strat_backtester overflow universe matches what legacy
-            # backtester runs under "All CSV + Overflow Extras". sznl_map keys
-            # are already the union of both CSVs (see load_seasonal_map).
-            _overflow_tickers = sorted(set(CSV_UNIVERSE) | set(sznl_map.keys()))
+        if use_overflow_universe and (CSV_UNIVERSE or _use_dynamic_overflow):
+            # Static = CSV_UNIVERSE (sznl_ranks.csv) unioned with seasonal_ranks.csv
+            # tickers, matching the legacy backtester "All CSV + Overflow Extras".
+            # Dynamic = the liquidity/vol-screened overflow_universe.parquet (~1,270),
+            # read regardless of the live activation gate (respect_active=False), with
+            # the static union as a graceful fallback when the parquet is unavailable.
+            _static_overflow = sorted(set(CSV_UNIVERSE) | set(sznl_map.keys()))
+            if _use_dynamic_overflow:
+                _overflow_tickers = load_overflow_universe(
+                    fallback=_static_overflow, respect_active=False
+                )
+                _src_label = f"dynamic screen ({len(_overflow_tickers):,} tickers)"
+            else:
+                _overflow_tickers = _static_overflow
+                _src_label = f"CSV_UNIVERSE ∪ seasonal_ranks ({len(_overflow_tickers):,} tickers)"
             _swapped = []
             for s in strategies:
                 if s['name'] in OVERFLOW_ELIGIBLE_STRATEGIES:
@@ -2752,7 +2782,7 @@ def main():
             if _swapped:
                 st.info(
                     f"🌊 Overflow universe active — swapped {len(_swapped)} strategies to "
-                    f"CSV_UNIVERSE ∪ seasonal_ranks ({len(_overflow_tickers):,} tickers): {', '.join(_swapped)}"
+                    f"{_src_label}: {', '.join(_swapped)}"
                 )
 
         long_term_tickers = set()
@@ -2769,7 +2799,7 @@ def main():
 
         long_term_list = [t.replace('.', '-') for t in long_term_tickers]
 
-        if use_master_parquet:
+        if use_master_parquet or _use_dynamic_overflow:
             import data_provider
             if not data_provider.has_master():
                 r2_err = data_provider.last_r2_error()
@@ -2787,7 +2817,7 @@ def main():
                 st.error(msg)
                 return
             t0_load = time.time()
-            master_dict = data_provider.get_history(long_term_list)
+            master_dict = data_provider.get_history(long_term_list, include_overflow=_use_dynamic_overflow)
             st.session_state['backtest_data'] = master_dict
             n_missing = len(set(long_term_list) - set(master_dict.keys()))
             st.caption(
