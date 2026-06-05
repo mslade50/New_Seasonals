@@ -154,6 +154,38 @@ def load_overflow_universe(
     return sorted(t for t in tickers if t)
 
 
+def load_overflow_universe_full(
+    static_fallback=None,
+    path: str = OVERFLOW_UNIVERSE_PATH,
+    respect_active: bool = False,
+) -> list:
+    """Comprehensive overflow universe = the screened dynamic parquet UNIONed with
+    the legacy static overflow tier (``static_fallback``).
+
+    This is the single consolidated list — callers no longer choose between the
+    static tier and the dynamic screen. Every legacy static name is kept AND the
+    dynamic-screen names are added. ``static_fallback`` is normalized the same way
+    as the parquet tickers.
+
+    respect_active defaults False so backtests/tooling get the full union
+    regardless of the live gate. Live callers pass respect_active=True: when the
+    gate is OFF the dynamic component is omitted and only the static tier is
+    returned (preserving legacy live behavior until activation); when ON they get
+    the full union.
+    """
+    static_list = list(static_fallback or [])
+    dyn = load_overflow_universe(fallback=[], path=path, respect_active=respect_active)
+    if not dyn:
+        # Gate OFF (or no parquet): return the static tier VERBATIM — matches the
+        # legacy load_overflow_universe(fallback=...) path exactly (no normalization)
+        # so live behavior is byte-for-byte unchanged until activation.
+        return static_list
+    # Union: normalize both sides so the (normalized) dynamic screen and the static
+    # tier merge without dupes (e.g. BRK.B vs BRK-B).
+    out = {_norm(t) for t in static_list if str(t).strip()} | set(dyn)
+    return sorted(t for t in out if t)
+
+
 def load_overflow_meta(path: str = OVERFLOW_UNIVERSE_PATH, respect_active: bool = True) -> dict:
     """Return ``{TICKER: {addv_63d, atr_pct_63d, last_close, n_bars, last_bar_date}}``.
 

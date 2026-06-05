@@ -17,14 +17,25 @@ from tr_vcr import log_returns as _tr_log_returns, rv_daily as _tr_rv_daily, rv_
 
 try:
     from strategy_config import STRATEGY_BOOK as _STRATEGY_BOOK
+    from strategy_config import CSV_UNIVERSE as _CSV_UNIVERSE, LIQUID_PLUS_COMMODITIES as _LIQUID_PLUS
 except Exception:
     _STRATEGY_BOOK = []
+    _CSV_UNIVERSE = []
+    _LIQUID_PLUS = []
 
 try:
-    from overflow_universe import load_overflow_universe
+    from overflow_universe import load_overflow_universe, load_overflow_universe_full
 except Exception:
     def load_overflow_universe(fallback=None, **_kw):
         return list(fallback) if fallback is not None else []
+
+    def load_overflow_universe_full(static_fallback=None, **_kw):
+        return sorted(set(static_fallback or []))
+
+# The legacy static overflow tier (CSV_UNIVERSE minus the liquid set). Unioned
+# with the dynamic screen by load_overflow_universe_full to form the single
+# comprehensive overflow universe used in backtests.
+_OVERFLOW_STATIC_TIER = sorted(set(_CSV_UNIVERSE) - set(_LIQUID_PLUS))
 
 # Params keys that always come from the UI widgets, never overridden by a
 # loaded preset. Everything else in the preset's `settings` dict overrides
@@ -2638,14 +2649,14 @@ def main():
         ),
     )
     include_dynamic_overflow = st.checkbox(
-        "🌊 Also run Overflow (dynamic) names alongside the selected universe",
+        "🌊 Also run the comprehensive Overflow universe alongside the selected universe",
         value=False,
         help=(
-            "Unions the dynamic overflow screen (~1,270 names) on top of whatever 'Choose Universe' "
-            "is set to, so an older list (or the older 'Overflow Extras') can be backtested together "
-            "with the new dynamic overflow in one run. The dynamic names are always priced from "
-            "master_prices + overflow_prices (about 481 live only in overflow_prices); the base "
-            "universe keeps its normal source. No effect when the universe is already "
+            "Unions the comprehensive overflow universe (dynamic screen ∪ legacy static tier, "
+            "~1,350 names) on top of whatever 'Choose Universe' is set to, so an older list can be "
+            "backtested together with the overflow names in one run. The overflow names are always "
+            "priced from master_prices + overflow_prices (some live only in overflow_prices); the "
+            "base universe keeps its normal source. No effect when the universe is already "
             "'Overflow (dynamic)'."
         ),
     )
@@ -3546,14 +3557,18 @@ def main():
                 _suffix = " — ^ indices excluded" if _drop_caret else ""
                 st.info(f"Universe cached: {len(_base)} base + {len(_new_extras)} extras{_suffix}. **Running on {len(tickers_to_run)}** ({_scope}).")
         elif univ_choice == "Overflow (dynamic)":
-            # Dynamic liquidity/vol-screened overflow universe (data/overflow_universe.parquet).
-            # respect_active=False so backtests read it regardless of the live activation gate.
-            tickers_to_run = load_overflow_universe(respect_active=False)
-            st.info(f"🌊 Overflow (dynamic): **{len(tickers_to_run)}** screened names. "
+            # Comprehensive overflow universe = dynamic screen ∪ legacy static tier
+            # (CSV_UNIVERSE − liquid). respect_active=False so backtests read the full
+            # union regardless of the live activation gate.
+            tickers_to_run = load_overflow_universe_full(
+                static_fallback=_OVERFLOW_STATIC_TIER, respect_active=False
+            )
+            st.info(f"🌊 Overflow (comprehensive): **{len(tickers_to_run)}** names "
+                    "(dynamic screen ∪ legacy static tier). "
                     "Prices read from master_prices ∪ overflow_prices; earnings from "
                     "production ∪ overflow staging; ATR-seasonal ranks from atr_seasonal_ranks.parquet. "
-                    "Caveats: membership is today's screen (survivorship); names not in the seasonal "
-                    "map get a neutral Sznl=50, so seasonal-rank filters are degraded on those.")
+                    "Caveats: dynamic membership is today's screen (survivorship); names not in the "
+                    "seasonal map get a neutral Sznl=50, so seasonal-rank filters are degraded on those.")
         elif univ_choice == "All CSV (Equities Only)": tickers_to_run = [t for t in list(sznl_map.keys()) if t not in ["BTC-USD", "ETH-USD", "SLV", "GLD", "USO", "UVXY", "CEF", "UNG", "XOP"] + SECTOR_ETFS + INDEX_ETFS + INTERNATIONAL_ETFS + SPX]
         elif univ_choice == "3x Leveraged (All)": tickers_to_run = LEV3X_ALL
         elif univ_choice == "3x Leveraged Equities": tickers_to_run = LEV3X_EQUITY_ALL
@@ -3573,11 +3588,13 @@ def main():
         # is untouched. No-op when the universe is already "Overflow (dynamic)".
         _dyn_overflow_add = []
         if include_dynamic_overflow and univ_choice != "Overflow (dynamic)":
-            _dyn = load_overflow_universe(respect_active=False)
+            _dyn = load_overflow_universe_full(
+                static_fallback=_OVERFLOW_STATIC_TIER, respect_active=False
+            )
             _seen = {str(t).upper() for t in tickers_to_run}
             _dyn_overflow_add = [t for t in _dyn if str(t).upper() not in _seen]
             tickers_to_run = list(tickers_to_run) + _dyn_overflow_add
-            st.info(f"🌊 Unioned Overflow (dynamic): +{len(_dyn_overflow_add)} new names "
+            st.info(f"🌊 Unioned Overflow (comprehensive): +{len(_dyn_overflow_add)} new names "
                     f"on top of {univ_choice} (**{len(tickers_to_run)}** total to run).")
         if not tickers_to_run: st.error("No tickers found."); return
         fetch_start = "1950-01-01" if use_full_history else start_date - datetime.timedelta(days=365)

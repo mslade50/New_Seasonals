@@ -55,14 +55,17 @@ except ImportError:
 # behaves exactly as before the universe was bootstrapped.
 try:
     from overflow_universe import (
-        load_overflow_universe, load_overflow_meta, filter_by_addv, adv_share_cap,
-        ADV_PARTICIPATION_CAP,
+        load_overflow_universe, load_overflow_universe_full, load_overflow_meta,
+        filter_by_addv, adv_share_cap, ADV_PARTICIPATION_CAP,
     )
 except ImportError:
     print("[WARN] overflow_universe.py not importable — using static overflow tier.")
 
     def load_overflow_universe(fallback=None, **_kw):
         return list(fallback) if fallback is not None else []
+
+    def load_overflow_universe_full(static_fallback=None, **_kw):
+        return sorted(set(static_fallback or []))
 
     def load_overflow_meta(**_kw):
         return {}
@@ -128,11 +131,13 @@ def build_effective_strategy_book(scope='liquid', moc_only=False):
     """
     import copy as _copy
     liquid_set = set(LIQUID_PLUS_COMMODITIES)
-    # Dynamic overflow universe (Layer C) with graceful fallback to the static
-    # CSV_UNIVERSE − LIQUID_PLUS_COMMODITIES tier when the parquet is absent.
+    # Comprehensive overflow universe = dynamic screen ∪ legacy static tier
+    # (CSV_UNIVERSE − LIQUID_PLUS_COMMODITIES). respect_active=True keeps live on the
+    # static tier alone until OVERFLOW_UNIVERSE_ACTIVE is set; once active, the full
+    # union is scanned. Falls back to the static tier when the parquet is absent.
     _static_overflow = sorted(set(CSV_UNIVERSE) - liquid_set)
-    overflow_tickers = load_overflow_universe(fallback=_static_overflow)
-    overflow_meta = load_overflow_meta()  # {} when no parquet → ADDV gate is a no-op
+    overflow_tickers = load_overflow_universe_full(static_fallback=_static_overflow, respect_active=True)
+    overflow_meta = load_overflow_meta()  # {} when gate OFF / no parquet → ADDV gate is a no-op
 
     def _is_moc(s):
         return str(s['settings'].get('entry_type', '')).strip() == 'Signal Close'

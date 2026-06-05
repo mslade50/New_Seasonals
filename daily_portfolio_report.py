@@ -68,8 +68,11 @@ from pages.strat_backtester import (
 # the report identical to today's behavior until the universe is bootstrapped.
 _static_overflow = sorted(set(CSV_UNIVERSE) - set(LIQUID_PLUS_COMMODITIES))
 try:
-    from overflow_universe import load_overflow_universe
-    OVERFLOW_TICKERS = load_overflow_universe(fallback=_static_overflow)
+    from overflow_universe import load_overflow_universe_full
+    # Comprehensive overflow = dynamic screen ∪ static tier. respect_active=True so
+    # the report stays on the static tier until OVERFLOW_UNIVERSE_ACTIVE is set, then
+    # matches the live scan's full union.
+    OVERFLOW_TICKERS = load_overflow_universe_full(static_fallback=_static_overflow, respect_active=True)
 except ImportError:
     OVERFLOW_TICKERS = _static_overflow
 
