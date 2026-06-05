@@ -2551,7 +2551,7 @@ def main():
     st.subheader("1. Universe & Data")
     col_u1, col_u2, col_u3 = st.columns([1, 1, 2])
     sample_pct = 100; use_full_history = False
-    with col_u1: univ_choice = st.selectbox("Choose Universe", ["All CSV Tickers", "All CSV + Overflow Extras", "All CSV + Overflow Extras (no ^ indices)", "Overflow (dynamic)", "Sector ETFs","SPX", "Indices", "Indices (Spot — ^GSPC/^NDX)", "International ETFs", "Sector + Index ETFs", "Commodity + Sector + Index + 3x Lev", "All CSV (Equities Only)", "3x Leveraged (All)", "3x Leveraged Equities", "3x Leveraged Equities (Bull)", "3x Leveraged Equities (Bear)", "3x Leveraged Equities (Broad Only)", "Custom (Comma-Separated)", "Custom (Upload CSV)"])
+    with col_u1: univ_choice = st.selectbox("Choose Universe", ["All CSV Tickers", "All CSV + Overflow Extras", "All CSV + Overflow Extras (no ^ indices)", "Overflow (dynamic)", "OOS", "Sector ETFs","SPX", "Indices", "Indices (Spot — ^GSPC/^NDX)", "International ETFs", "Sector + Index ETFs", "Commodity + Sector + Index + 3x Lev", "All CSV (Equities Only)", "3x Leveraged (All)", "3x Leveraged Equities", "3x Leveraged Equities (Bull)", "3x Leveraged Equities (Bear)", "3x Leveraged Equities (Broad Only)", "Custom (Comma-Separated)", "Custom (Upload CSV)"])
     with col_u2:
         default_start = datetime.date(2000, 1, 1)
         start_date = st.date_input("Backtest Start Date", value=default_start, min_value=datetime.date(1950, 1, 1), max_value=datetime.date.today())
@@ -3499,7 +3499,7 @@ def main():
             via data_provider instead. The Overflow universe also unions the
             isolated overflow_prices.parquet staging cache (include_overflow).
             Returns dict {ticker: DataFrame} matching the legacy shape."""
-            _is_overflow = (univ_choice == "Overflow (dynamic)")
+            _is_overflow = univ_choice in ("Overflow (dynamic)", "OOS")
             if use_master_parquet or _is_overflow:
                 try:
                     import data_provider
@@ -3569,6 +3569,18 @@ def main():
                     "production ∪ overflow staging; ATR-seasonal ranks from atr_seasonal_ranks.parquet. "
                     "Caveats: dynamic membership is today's screen (survivorship); names not in the "
                     "seasonal map get a neutral Sznl=50, so seasonal-rank filters are degraded on those.")
+        elif univ_choice == "OOS":
+            # Out-of-sample: the comprehensive overflow names that are NOT in the
+            # legacy static tier (CSV_UNIVERSE − liquid) — i.e. the brand-new names
+            # the dynamic screen added. A holdout set never present in the old universe.
+            _comp = load_overflow_universe_full(static_fallback=_OVERFLOW_STATIC_TIER, respect_active=False)
+            _static_norm = {str(t).upper().replace('.', '-') for t in _OVERFLOW_STATIC_TIER}
+            tickers_to_run = [t for t in _comp if t not in _static_norm]
+            st.info(f"🧪 OOS: **{len(tickers_to_run)}** out-of-sample names "
+                    "(dynamic overflow screen minus the legacy static tier — never in the old universe). "
+                    "Prices from master_prices ∪ overflow_prices; earnings from production ∪ overflow staging. "
+                    "Caveats: survivorship (today's screen across history); recent IPOs may lack ATR-seasonal "
+                    "ranks (fail-closed on those filters) and seasonal-map coverage (neutral Sznl=50).")
         elif univ_choice == "All CSV (Equities Only)": tickers_to_run = [t for t in list(sznl_map.keys()) if t not in ["BTC-USD", "ETH-USD", "SLV", "GLD", "USO", "UVXY", "CEF", "UNG", "XOP"] + SECTOR_ETFS + INDEX_ETFS + INTERNATIONAL_ETFS + SPX]
         elif univ_choice == "3x Leveraged (All)": tickers_to_run = LEV3X_ALL
         elif univ_choice == "3x Leveraged Equities": tickers_to_run = LEV3X_EQUITY_ALL
