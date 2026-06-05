@@ -63,9 +63,15 @@ from pages.strat_backtester import (
     get_daily_mtm_series
 )
 
-# Overflow universe = CSV_UNIVERSE minus the liquid daily_scan universe.
-# Mirrors local_overflow_scan.OVERFLOW_TICKERS.
-OVERFLOW_TICKERS = sorted(set(CSV_UNIVERSE) - set(LIQUID_PLUS_COMMODITIES))
+# Overflow universe (Layer C, dynamic) with graceful fallback to the static
+# CSV_UNIVERSE − LIQUID_PLUS_COMMODITIES tier when the parquet is absent — keeps
+# the report identical to today's behavior until the universe is bootstrapped.
+_static_overflow = sorted(set(CSV_UNIVERSE) - set(LIQUID_PLUS_COMMODITIES))
+try:
+    from overflow_universe import load_overflow_universe
+    OVERFLOW_TICKERS = load_overflow_universe(fallback=_static_overflow)
+except ImportError:
+    OVERFLOW_TICKERS = _static_overflow
 
 # Strategies that the local overflow scanner runs against the extended pool.
 # Per-strategy risk bps overrides for the overflow pass — match

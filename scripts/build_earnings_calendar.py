@@ -137,11 +137,11 @@ def compute_derived_columns(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
-def upload_to_r2(output_path: str):
+def upload_to_r2(output_path: str, key: str = "earnings_calendar.parquet"):
     """Push the parquet to R2 so cloud workflows + Streamlit Cloud can read it."""
     try:
         from cache_io import upload_from_local
-        upload_from_local(output_path, "earnings_calendar.parquet")
+        upload_from_local(output_path, key)
     except Exception as e:
         print(f"[r2 upload] non-fatal error: {e}")
 
@@ -165,7 +165,7 @@ def derive_only(output_path: str):
     upload_to_r2(output_path)
 
 
-def build_calendar(tickers, api_key, output_path):
+def build_calendar(tickers, api_key, output_path, r2_key="earnings_calendar.parquet"):
     print(f"Building earnings calendar for {len(tickers)} tickers...")
     print(f"Output: {output_path}\n")
 
@@ -230,29 +230,69 @@ def build_calendar(tickers, api_key, output_path):
         print(f"    sample: {failures[:10]}")
     print(f"\nSaved: {output_path}")
 
-    upload_to_r2(output_path)
+    upload_to_r2(output_path, key=r2_key)
 
 
 def main():
     parser = argparse.ArgumentParser(description="Backfill earnings calendar from FMP.")
     parser.add_argument("--tickers", nargs="+", default=None,
                         help="Specific tickers (default: full CSV_UNIVERSE)")
+    parser.add_argument("--with-symbol-master", action="store_true",
+                        help="Also include data/symbol_master.parquet tickers (overflow Layer A) so "
+                             "overflow OVS names have earnings coverage for the blackout filter.")
     parser.add_argument("--output", default=OUTPUT_PATH,
                         help=f"Output parquet path (default: {OUTPUT_PATH})")
+    parser.add_argument("--overflow-staging", action="store_true",
+                        help="ISOLATED mode: build earnings for ONLY the new overflow names "
+                             "(symbol_master - CSV_UNIVERSE) into a separate staging parquet "
+                             "(data/earnings_calendar_overflow.parquet, R2 key "
+                             "earnings_calendar_overflow.parquet). Production earnings_calendar is "
+                             "never touched, so the daily CSV_UNIVERSE rebuild can't wipe these.")
     parser.add_argument("--derive-only", action="store_true",
                         help="Skip API calls; recompute derived columns on the existing parquet only.")
     args = parser.parse_args()
 
+    if args.derive_only and args.overflow_staging:
+        raise SystemExit("--derive-only cannot be combined with --overflow-staging "
+                         "(derive-only would re-upload the PRODUCTION parquet).")
     if args.derive_only:
         derive_only(args.output)
         return
 
     api_key = load_env()
-    tickers = args.tickers if args.tickers else sorted(set(CSV_UNIVERSE))
+    r2_key = "earnings_calendar.parquet"
+    output = args.output
+
+    if args.overflow_staging:
+        # New overflow names only -> isolated staging parquet + R2 key.
+        output = os.path.join(parent_dir, "data", "earnings_calendar_overflow.parquet")
+        r2_key = "earnings_calendar_overflow.parquet"
+        _sm = os.path.join(parent_dir, "data", "symbol_master.parquet")
+        if not os.path.exists(_sm):
+            raise SystemExit(f"--overflow-staging needs {_sm} (run build_symbol_master.py first).")
+        _extra = set(pd.read_parquet(_sm, columns=["ticker"])["ticker"].astype(str).str.upper())
+        tickers = sorted(_extra - set(t.upper() for t in CSV_UNIVERSE))
+        print(f"[overflow-staging] {len(tickers)} new names -> {output} (R2: {r2_key})")
+    elif args.tickers:
+        tickers = args.tickers
+    else:
+        _u = set(CSV_UNIVERSE)
+        if args.with_symbol_master:
+            _sm = os.path.join(parent_dir, "data", "symbol_master.parquet")
+            if os.path.exists(_sm):
+                try:
+                    _extra = pd.read_parquet(_sm, columns=["ticker"])["ticker"].astype(str).str.upper().tolist()
+                    _u |= set(_extra)
+                    print(f"[universe] +symbol_master -> {len(_u)} tickers")
+                except Exception as _e:
+                    print(f"[universe] warn: could not read {_sm}: {_e}")
+            else:
+                print(f"[universe] warn: --with-symbol-master set but {_sm} missing")
+        tickers = sorted(_u)
     if not tickers:
         raise SystemExit("No tickers to process.")
 
-    build_calendar(tickers, api_key, args.output)
+    build_calendar(tickers, api_key, output, r2_key=r2_key)
 
 
 if __name__ == "__main__":

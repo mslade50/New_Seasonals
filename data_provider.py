@@ -17,6 +17,11 @@ import pandas as pd
 
 _ROOT = os.path.dirname(os.path.abspath(__file__))
 MASTER_PATH = os.path.join(_ROOT, "data", "master_prices.parquet")
+# Isolated staging price cache for the new overflow candidate tickers. Only
+# unioned in when a caller explicitly passes include_overflow=True (the
+# backtester does, for the "Overflow (dynamic)" universe). Production callers
+# (daily_portfolio_report) leave it False, so master_prices is the only source.
+OVERFLOW_PATH = os.path.join(_ROOT, "data", "overflow_prices.parquet")
 
 # Last reason _refresh_from_r2_if_needed bailed out without producing a fresh
 # parquet (missing cache_io, missing creds, boto3 exception, etc.). The
@@ -99,19 +104,52 @@ def has_master():
     return os.path.exists(MASTER_PATH)
 
 
-def _load_full():
-    return pd.read_parquet(MASTER_PATH)
+def _refresh_overflow_from_r2_if_needed():
+    """Best-effort pull of overflow_prices.parquet from R2 (for Streamlit Cloud).
+    Silent no-op if cache_io/creds are absent or the local copy is fresh."""
+    try:
+        from cache_io import download_to_local
+    except Exception:
+        return
+    need = (not os.path.exists(OVERFLOW_PATH)) or (
+        time.time() - os.path.getmtime(OVERFLOW_PATH) > _STALE_AFTER_SECONDS
+    )
+    if need:
+        try:
+            download_to_local("overflow_prices.parquet", OVERFLOW_PATH)
+        except Exception:
+            pass
 
 
-def get_history(tickers=None, start=None, end=None):
+def _load_full(include_overflow=False):
+    df = pd.read_parquet(MASTER_PATH)
+    if include_overflow:
+        _refresh_overflow_from_r2_if_needed()
+        if os.path.exists(OVERFLOW_PATH):
+            try:
+                odf = pd.read_parquet(OVERFLOW_PATH)
+                # master wins on any ticker+date overlap (listed first)
+                df = pd.concat([df, odf], ignore_index=True).drop_duplicates(
+                    subset=["ticker", "date"], keep="first"
+                )
+            except Exception:
+                pass
+    return df
+
+
+def get_history(tickers=None, start=None, end=None, include_overflow=False):
     """Return {ticker: DataFrame[Open, High, Low, Close, Volume]} indexed by Date.
 
     Mirrors the per-ticker df shape produced by yfinance after auto_adjust=True
     (no Adj Close column). Both backtesters consume this shape directly.
+
+    include_overflow=True also unions data/overflow_prices.parquet (the isolated
+    staging cache for new overflow names). Default False keeps production callers
+    on master_prices only.
     """
     if not has_master():
         return {}
-    df = _load_full()
+    df = _load_full(include_overflow=include_overflow)
     if tickers is not None:
         wanted = {str(t).upper().strip() for t in tickers}
         df = df[df["ticker"].isin(wanted)]
