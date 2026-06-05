@@ -37,15 +37,15 @@ PUBLIC_PAGES = [
     st.Page("pages/correlation_heatmaps.py", title="Correlation Heatmaps"),
     st.Page("pages/fx_sizer.py", title="FX Sizer"),
     st.Page("pages/fragility_sizing_lab.py", title="Fragility Sizing Lab"),
-    st.Page("pages/exposure_backtester.py", title="Exposure Backtester"),
-    st.Page("pages/rotation_backtester.py", title="Rotation Backtester"),
-    st.Page("pages/signal_backtester.py", title="Signal Backtester"),
 ]
 
 # Pages shown only on the local machine, hidden from the deployed web app.
 LOCAL_ONLY_PAGES = [
     st.Page("pages/backtester.py", title="Backtester"),
     st.Page("pages/strat_backtester.py", title="Strat Backtester"),
+    st.Page("pages/exposure_backtester.py", title="Exposure Backtester"),
+    st.Page("pages/rotation_backtester.py", title="Rotation Backtester"),
+    st.Page("pages/signal_backtester.py", title="Signal Backtester"),
 ]
 
 pages = PUBLIC_PAGES if _is_cloud() else PUBLIC_PAGES + LOCAL_ONLY_PAGES
