@@ -1337,7 +1337,13 @@ def run_engine(universe_dict, params, sznl_map, market_series=None, vix_series=N
     is_overnight = "Overnight" in entry_mode
     is_intraday = "Intraday" in entry_mode
     is_cond_close_lower = "T+1 Close if < Signal Close" in entry_mode
-    is_cond_close_higher = "T+1 Close if > Signal Close" in entry_mode
+    # Band-conditional T+1 close entry: "+X to +Y ATR" parsed from entry_mode.
+    # Adds new modes (e.g. +0.5 to +1, +0.75 to +1) without separate flags.
+    _band_match = re.search(r'\+(\d+(?:\.\d+)?) to \+(\d+(?:\.\d+)?) ATR', entry_mode)
+    is_cond_close_higher_band = _band_match is not None
+    _band_lower_mult = float(_band_match.group(1)) if is_cond_close_higher_band else 0.0
+    _band_upper_mult = float(_band_match.group(2)) if is_cond_close_higher_band else 0.0
+    is_cond_close_higher = ("T+1 Close if > Signal Close" in entry_mode) and not is_cond_close_higher_band
     
     pullback_col = None
     if "10 SMA" in entry_mode: pullback_col = "SMA10"
@@ -2239,6 +2245,18 @@ def run_engine(universe_dict, params, sznl_map, market_series=None, vix_series=N
                     if next_idx < len(df):
                         t1_close = df['Close'].iloc[next_idx]
                         if t1_close < limit_price: found_entry, actual_entry_idx, actual_entry_price = True, next_idx, t1_close
+                elif is_cond_close_higher_band:
+                    # Band-conditional: T+1 close must be inside [+lower, +upper] ATR
+                    # above signal close. Captures "moderate continuation" without
+                    # chasing the parabolic gap. Bounds parsed from entry_mode name.
+                    sig_val, sig_atr = df['Close'].iloc[sig_idx], df['ATR'].iloc[sig_idx]
+                    lower_bound = sig_val + (_band_lower_mult * sig_atr)
+                    upper_bound = sig_val + (_band_upper_mult * sig_atr)
+                    next_idx = sig_idx + 1
+                    if next_idx < len(df):
+                        t1_close = df['Close'].iloc[next_idx]
+                        if lower_bound <= t1_close <= upper_bound:
+                            found_entry, actual_entry_idx, actual_entry_price = True, next_idx, t1_close
                 elif is_cond_close_higher:
                     atr_mult = 0.5 if "+0.5 ATR" in entry_mode else (1.0 if "+1 ATR" in entry_mode else 0.0)
                     sig_val, sig_atr = df['Close'].iloc[sig_idx], df['ATR'].iloc[sig_idx]
@@ -2698,9 +2716,11 @@ def main():
             "Limit (Untested Pivot)", 
             "Pullback 10 SMA (Entry: Close)", "Pullback 10 SMA (Entry: Level)", 
             "Pullback 21 EMA (Entry: Close)", "Pullback 21 EMA (Entry: Level)", 
-            "T+1 Close if < Signal Close", "T+1 Close if < Signal Close -0.5 ATR", 
-            "T+1 Close if < Signal Close -1 ATR", "T+1 Close if > Signal Close", 
-            "T+1 Close if > Signal Close +0.5 ATR", "T+1 Close if > Signal Close +1 ATR"
+            "T+1 Close if < Signal Close", "T+1 Close if < Signal Close -0.5 ATR",
+            "T+1 Close if < Signal Close -1 ATR", "T+1 Close if > Signal Close",
+            "T+1 Close if > Signal Close +0.5 ATR", "T+1 Close if > Signal Close +1 ATR",
+            "T+1 Close if > Signal Close +0.5 to +1 ATR",
+            "T+1 Close if > Signal Close +0.75 to +1 ATR"
         ])
         use_ma_entry_filter = st.checkbox("Filter: Close > MA - 0.25*ATR", value=False) if "Pullback" in entry_type else False
         # Intraday Day Trade option — only meaningful for Day Trade entry modes.
