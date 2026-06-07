@@ -1,85 +1,84 @@
-# Radar Weekly Digest — 2026-05-31
+# Radar Weekly Digest — 2026-06-07
 
-> **Data caveat:** Sunday market-data snapshot didn't run this morning; the digest is built off the 2026-05-24 snapshot (prices ~7 days stale) for the 16 tickers that overlap, plus the brief narratives. Forward EPS, analyst counts, and trend labels below are still usable; absolute prices may be 5–10% off where the tape moved this week. Calling that out so nobody mistakes a stale tag for a fresh entry.
+*Data note: today's market snapshot (2026-06-07) was not deposited by the upstream Sunday GHA before this run, and the cloud sandbox can't reach Yahoo. Forward-EPS, valuation, and trend figures below are from the 2026-05-31 snapshot; week-of price action and catalyst dates are taken from the briefs themselves.*
 
-The week was defined by two unrelated catalyst stacks running in parallel:
-1. **Pentagon equity-stakes leak** (WSJ 5/27) lit up small-cap drone OEMs (UMAC, ONDS, RCAT) and added structural narrative weight to the larger primes (KTOS).
-2. **Uranium + rare-earth policy bundle** — Trump's four nuclear EOs (criticality target July 4 2026), uranium added to the critical-minerals list, USAR signing federal grants, Meta 7.8GW + Microsoft 800MW PPAs, spot U holding $85–86/lb.
+The week had one persistent under-the-radar policy stack (rare-earth / nuclear / drone — appearing every single day), one clean sentiment-tape rotation (managed care), one durable commodity-cash-flow reset (LNG), one dated tariff catalyst landing Monday (steel), and one violent crowded-long unwind (AI semis + CrowdStrike) where the variant is plausible but unconfirmed. Five ideas cleared. The semi unwind, OKLO/SMR, ASTS, RKLB, GME, AVGO, CRWD, and TSLA did not, for the reasons in the closing section.
 
-Underneath both, AAII bull sentiment dropped below 32% for the first time in five weeks while the S&P and Nasdaq printed fresh ATHs and short interest hit the highest level since 2008. That regime favors hated-but-rising over chasing what's already crowded. Three ideas clear the bar this week.
+## 1. USAR — Long. Federally underwritten infrastructure asset trading as a speculative miner.
 
-## 1. UNH — Long
+**Variant perception.** The market is still pricing USA Rare Earth as a speculative pre-revenue micro-cap (forward 0y EPS −$0.54, no trailing earnings, forward PE meaningless at −1,867x). The variant is that USAR is no longer a mining bet — between the **June 3 definitive agreements with Commerce for up to $1.6B** ($277M federal + $1.3B CHIPS senior secured loans), the **$1.2B Cherokee County, SC magnet hub announced June 2**, and the existing Round Top Mountain / Stillwater plant, the company now has roughly **$3.5B in committed federal capital against a ~$6.2B market cap**. Stack on top the **DoD ban on Chinese-origin sintered NdFeB magnets effective January 1, 2027** — a hard demand cliff inside 19 months — and the right framing is utility-economics dressed as a speculative miner. Forward EPS doesn't yet reflect any of the federal-loan-financed magnet revenue.
 
-**Thesis:** Mega-cap healthcare insurer that survived a five-front 2025 disaster (criminal probe, Thompson shooting, two earnings misses, MA reimbursement squeeze, Berkshire's exit) and has quietly rerated to forward earnings on a bottoming underwriting cycle. The retail narrative is still litigating 2025; the tape and Goldman/Bernstein are voting forward.
+**Who's on the other side.** Three identifiable sellers:
+1. **Mechanical dilution supply.** The June financing structure created 16.1M new shares + 17.6M warrants. Index funds had to absorb, dilution-arb shops are shorting against the warrants. This is forced/mechanical selling — the cleanest setup.
+2. **Generalist screen-outs.** Negative forward EPS, P/S 851, P/B 8.4 — every quant value screen kicks USAR out automatically. Indifference, not informed disagreement.
+3. **Informed bears worried about Round Top execution timeline.** Mining capex always slips. Their case is real, but the federal loan structure (reimbursement-based, not equity dilution) means execution slippage hurts management more than equity holders.
 
-**Variant perception:** Consensus is pricing UNH as a structurally impaired insurer at 18.7x forward EPS — defensive multiple, no growth premium. The variant is that the 2.48% MA 2027 rate bump + the May 1 Goldman U.S. Conviction Buy add + the Q1 $7.23 beat + raised $18.25 FY guide aren't a dead-cat; they're the first quarter of a new underwriting cycle. Forward EPS consensus (23 analysts) is $18.37 (0y) → $20.81 (+1y) = +13% growth at 19x. That's a margin-recovery story trading like a mature utility. The market has rerated the *price* (+47% off March lows, +20% YTD, 50/200d golden cross) but hasn't yet rerated the *multiple* to reflect the cycle inflection.
+**The data.** Price $28.01 (5/31 close, but the brief flow through June 6 keeps the name supportive on every USAR-specific headline), 50d $21.36, 200d $19.27, RSI 53 (not extended), -36% from 52w high $43.98. Strong uptrend by definition (price > 50d > 200d). Forward EPS path: 0y −$0.54 → +1y −$0.01 (~97% loss compression). Market cap $6.2B. Federal commitments $3.5B+.
 
-**Who's on the other side:** Reddit/AltIndex sentiment still 42/100 "neutral-bearish" — retail anchored to 2025's catastrophe story (narrative stickiness, not informed disagreement). Berkshire exited the position publicly, which gives institutional skeptics permission to stay underweight. The forced selling already happened in 2025; the holders now are conviction holders or new institutional rotators. That's the cleanest setup — supply has already cleared.
+**What would change my mind.** (a) The DoD magnet ban is delayed or weakened — that's the entire backstop. (b) Round Top Mountain timeline pushes past 2027 in an 8-K. (c) A material drawdown on the CHIPS facility gets paused by a Commerce review. Absent those, this is the rare case where the persistent radar signal, the catalyst stack, and the chart all line up.
 
-**The data (5/24 snapshot, will be moderately stale):**
-- Price $388.47 (3.9% off 52w high $404)
-- RSI 14: 62.9 — strong but not extreme
-- Forward PE 18.67, trailing PE 29.23 — gap is the cycle inflection
-- FCF yield 5.01%, EV/EBITDA 18.96 — defensible valuation
-- Forward EPS: $4.83 (0q, +18.5% growth) → $3.73 (+1q, +27.7%) → $18.37 (0y, +12.3%) → $20.81 (+1y, +13.3%)
-- 23 analysts on near-term; tight estimate range ($18.25–18.99 for 0y) = high conviction
-- Bernstein PT $492 = ~27% upside; sell-side has not yet caught up
+## 2. UNH — Long. Post-capitulation rotation; sentiment hasn't caught up to the tape.
 
-**What kills it:** A Q2 EPS print materially below $4.50 that breaks the cycle-bottoming narrative, or a fresh DOJ action that expands the criminal exposure beyond the existing probe. Either would force the multiple back to the 14–15x trough.
+**Variant perception.** The market story still defaults to "UNH is broken" — H1 guidance cut, DOJ Optum scrutiny, CMS 0.09% MA rate proposal. But the **June 5 BofA upgrade to Buy with a $450 PT plus a dividend hike** and the simultaneous **HUM (+32% YTD, +46% MoM) / CI rally on softer medical-cost-trend reads** are the actual signal: the medical-cost-trend reset that was supposed to cripple FY26 EPS is rolling in *better* than the panic case priced in Q1. UNH printed ~+5.4% Friday and is now **+20% YTD pressing 52-week highs while Stocktwits retail sentiment only just flipped from bearish to neutral**. The variant: this isn't a bounce, it's a multi-quarter margin recovery and the consensus EPS path is still anchored to the pessimistic Q1 print.
 
-## 2. CCJ — Long
+The forward numbers do the work. Forward PE **18.2x** on **+12.4% (0y) and +13.6% (+1y) EPS growth** (forward 0y $18.37, +1y $20.87). Trailing PE 28.7 looks expensive — but that's anchored to the depressed trailing earnings base, and the *variant the radar is built for* is precisely the cases where trailing and forward tell different stories. PEG ~1.3x for the largest managed-care business in the country.
 
-**Thesis:** The senior uranium producer is the only nuclear name selling off (-22% from 52w high) while every other ingredient of the bull case is firming — spot U holding $85–86/lb, uranium added to the critical-minerals list, Meta 7.8GW + Microsoft 800MW PPAs signed this month, RSI at 34 (oversold). The OKLO/SMR/UEC crowd is chasing higher-beta vehicles; the institutional dollar that wants the same theme can't own those names and has nowhere to rotate but Cameco.
+**Who's on the other side.** Sell-side analysts who already printed 5 downward revisions in the last week (passive momentum revisions trailing the news, not leading). Long-only value funds that puked the position into the H1 capitulation and now can't re-establish without explaining the round trip. Headline-driven retail still trading the lawsuit narrative. None of those holders are *informed* about the medical-cost trajectory — they're constrained or backward-looking. That's the gift.
 
-**Variant perception:** The market is treating CCJ as "fully discounted" — the implicit consensus is that spot U at $86 is the ceiling, the hyperscaler PPAs are already in numbers, and the next leg has to come from new spot momentum. The variant is that the critical-minerals designation unlocks DPA Title III pathways and creates the realistic possibility of a DOE strategic uranium reserve (parallel to the SPR for oil) — and Cameco is the *only* producer with operational capacity to be the day-one fill. That optionality is worth real money and is in zero models. Meanwhile forward EPS consensus (19 analysts) is $1.60 (0y, +11%) → $2.65 (+1y, +66%) — material acceleration the price has not absorbed. Forward PE 54 is high in absolute terms but compresses to ~33x +1y EPS, with the tail call-option from a reserve program on top of that.
+**The data.** Price $380.31, 50d $338.33, 200d $323.72, strong uptrend, RSI 50.2 (room to run), -5.9% from 52w high $404.15. Forward PE 18.2x. Mkt cap $345B.
 
-**Who's on the other side:** Momentum funds rotated to OKLO/SMR for higher beta; macro funds reading uranium spot's stall at $86 as exhaustion. They're wrong about the catalyst path — the next leg is policy/procurement, not spot momentum. Plus the price-momentum quants who are mechanically selling on the technical break (price < 50d SMA, weakening trend label).
+**What would change my mind.** (a) Q2 print confirms medical-cost trend reaccelerated. (b) DOJ Optum brings a concrete enforcement action with structural remedies. (c) Forward EPS revisions turn negative again — the bullish thesis assumes the revision cycle is bottoming. Watch the next two weeks of street model updates.
 
-**The data (5/24 snapshot, stale):**
-- Price $104.75 (22.5% off 52w high $135.24), RSI 14: 34.1 — oversold
-- Trend label "weakening" (price < 50d, 50d > 200d) — that's the entry
-- Forward PE 54.4, trailing PE 97.0
-- Forward EPS: $0.35 (0q, -50%) → $0.32 (+1q, +355%) → $1.60 (0y, +11%) → $2.65 (+1y, +66%)
-- EPS estimate range +1y: $1.86 to $3.90 — wide range = optionality not priced
-- 19 analysts at +1y, 15 at 0y — deep coverage, can trust the number
-- Volume ratio 0.95 = no panic; this is rotation, not capitulation
+## 3. LNG (Cheniere) — Long. Crude/LNG decoupled; market is selling the contracted utility cash flows.
 
-**What kills it:** Spot U breaks below $75 in the next four weeks (would imply hyperscaler PPAs are softer than headline), or the administration formally rules out a strategic reserve program. Either would remove the optionality leg and leave you owning a 54x forward PE name at trough rate of change.
+**Variant perception.** The Iran-ceasefire trade pulled crude back ~19% in May. Macro funds treat "energy" as one bucket and sell LNG into the same flow. The variant: **Cheniere's $7.25–7.75B FY26 adj. EBITDA guide** is not commodity-driven — it's locked in by long-dated take-or-pay contracts at TTF/JKM-indexed prices that are *up* on the back of (i) the Iran/Hormuz disruption to QatarEnergy's Ras Laffan complex, (ii) the EU Russian-LNG ban, (iii) AI-data-center power demand pulling US Gulf molecules to both Europe and Asia. Spot WTI fading doesn't drain Cheniere's contracted cash flows. This is *utility* cash flow being treated as *commodity* cash flow.
 
-## 3. USAR — Long (smaller size; speculative)
+VG (Venture Global) is the levered, higher-beta way to express it after the **June 1 $2.25B senior secured notes refi** removed the dominant short pillar (cost-of-capital crisis). Use VG for asymmetry, LNG for quality.
 
-**Thesis:** The cleanest under-followed vehicle for the heavy-rare-earth supply shock, with federal-grade capital backing that converts a speculative junior into a quasi-sovereign-backed name. The combination of a $1.6B CHIPS Program LOI ($277M federal + $1.3B senior secured loan, due to finalize this month), a closed $1.5B PIPE, a $2.83B Serra Verde acquisition (the only large-scale producer of all four magnetic rare earths outside Asia), $19.3M DOE grant, and a $14.2M Texas Semiconductor Innovation Fund grant is structurally different from the typical small-cap mining story.
+**Who's on the other side.** Macro funds short energy on the ceasefire narrative — they're conflating spot crude with contracted LNG cash flows. They're informed traders making a category error. Their bear case ("oil rolls over, the whole sector rolls over") is the variant they're missing.
 
-**Variant perception:** The market is pricing USAR as "junior with optionality" — at a forward EPS of -$0.54 (0y) heading to roughly break-even at -$0.01 (+1y), the inflection to profitability is right at the cliff and the federal capital is what funds it through. Consensus (only 2 analysts at +1y, which is the point) hasn't modeled what happens when a mine-to-magnet vertical with explicit federal capital actually monetizes the Round Top heavy-REE deposit + Serra Verde feedstock. Cantor's $35 PT (≈38% upside from $25.30) anchors that, but the institutional money that wants the China-decoupling theme can't own MP at 5x book and 55x forward PE on a stock already up 221% TTM — they need a fresher vehicle. USAR is it. The variant is that the federal capital stack closes (it doesn't have to *all* close — even the CHIPS LOI finalizing alone is a multi-step rerating event).
+**The data.** From the briefs: Cheniere Q1 record exports, FY26 guide raised to $7.25–7.75B EBITDA, DCF $4.75–5.25B. Iran ceasefire took WTI -19% in May. VG refi printed at $2.25B June 1.
 
-**Who's on the other side:** Neglect, primarily — only 2 analysts at +1y EPS, no deep institutional coverage. The reflexive shorts on small-cap rare-earth names ("they always disappoint on execution"). They have history on their side, but they don't have history on a federally-capitalized mine-to-magnet stack — that structure is novel post-2025.
+**What would change my mind.** (a) A durable rapprochement that reopens Qatari capacity faster than expected. (b) TTF / JKM forward curves invert sharply (would imply oversupply 12+ months out). (c) A US export-cap policy reversal. None of those are on the table this week.
 
-**The data (5/24 snapshot, stale; tape has moved):**
-- Price $25.30, +18% above 50d/200d SMAs, +200%+ TTM
-- RSI 14: 49.2 — neutral, not extended
-- Forward EPS: -$0.11 (0q) → -$0.16 (+1q) → -$0.54 (0y) → -$0.01 (+1y) — break-even +1y is the inflection
-- EPS estimate range +1y: -$1.14 to +$1.11 — that's the optionality the market isn't pricing
-- Only 2 analysts at +1y = neglect angle
-- Volume ratio 0.96, RSI 49 — no froth, base structure intact
-- Wedbush PT $35 (May 12); Cantor PT $35 (Overweight) — anchored sell-side targets
+## 4. NUE / CLF — Long into June 8 effective date. Section 232 step-change isn't in estimates yet.
 
-**What kills it:** CHIPS LOI slips past Q3 2026 (timing risk on the catalyst window stretching), or Serra Verde permitting/ramp issues that delay heavy-REE feedstock past 2027. Either pushes the model out a year and the stock back to $18–20.
+**Variant perception.** Trump's **June 1 Section 232 proclamation** (50% finished goods, 25% derivatives) takes effect **Monday June 8**. Steel equities already rallied on the announcement, so the consensus take is "rally already happened." The variant: this is a **multi-quarter ASP step-change** that the sell-side hasn't flowed through estimates yet. Domestic HRC pricing will reprice this week as buyers front-run, and Q2/Q3 prints will show the spread widen. NUE captures it cleanly because it's the largest US producer; **CLF has higher operating leverage** — as the brief flagged, small ASP moves swing EBITDA hard because of its vertically integrated iron-ore-to-flat-rolled position.
 
-## Watching but not committing
+This is the weaker of the five ideas in terms of variant edge because the catalyst was announced, not surprise. But the *timing edge* — pre-empting sell-side model updates that don't reset until late-Q2 — is real and dated.
 
-**Pentagon drone equity-stakes (UMAC, ONDS, RCAT, KTOS).** The WSJ leak was the headline of the week, but the *variant* is gone — "government might take direct equity" is now consensus. Owning UMAC or ONDS at this point is buying the headline; owning KTOS requires conviction that a Marine Valkyrie Program-of-Record plus $750M classified Poseidon revenue absorbs the 52x forward PE, and the brief data doesn't support that conviction yet (KTOS forward EPS +29% 0q / +43% +1q is real growth, but EV/EBITDA 114 still discounts a lot). If the Office of Strategic Capital formally announces a structure, KTOS is the cleanest add — until then this is a policy lottery ticket, not a PM trade.
+**Who's on the other side.** Tariff-skeptics worried about retaliation and demand destruction. Their case is legitimate (OEM substitution, downstream margin pressure), but they're playing the medium-term game while the trade here is the short-term repricing into the effective date.
 
-**RKLB.** Real catalyst stack ($2.2B backlog, SDA TRKT3, $90M Space Force, Blue Origin failure removes competitor) but no snapshot data this week. The +50% move in a month is the headline-chasing trade; the institutional rerating from "small launcher" → "DoD-funded space/defense prime" is a real multi-year thesis. Without forward-EPS data this week I can't size it. Flagging for next week's digest when fresh data lands.
+**The data.** From the brief: Section 232 modification proclamation signed June 1, effective June 8. Steel-stock rally on the news already. Brief flagged NUE as largest cap, CLF as operating-leverage play.
 
-**SNOW.** Q1 blew out (+37% AH on 5/27 on $6B AWS deal + Natoma + raised FY27 guide). Real fundamental inflection — AI workloads moving POC → production. No snapshot data this week. The cleanest read-through is the AI-infra-broadening trade (DDOG, MDB, CFLT) — flagging for next week.
+**What would change my mind.** (a) An immediate WTO challenge or carve-out announcement before June 8. (b) Major OEM substitution data point in the first week of the tariff regime. (c) Sell-side estimate revisions catch up faster than expected (compresses the timing edge).
 
-**PLTR.** Mixed signals across the week (5/27 brief says "loved-but-falling," 5/31 brief flips to "hated-but-rising" after Dell AI-server read-through). The flip is the tell that consensus is in flux but there's no clean variant on either side — forward PE 65.99 is still expensive on +95% 0y / +42% +1y EPS growth, and the multi-day insider selling ($137M over 90 days) is the institutional disagreement. No conviction either direction; skip until the chart resolves the $130 shelf one way or the other.
+## 5. PLTR — Avoid long / pressing short. The loved-but-falling tape is breaking the bull case.
 
-## What didn't clear the bar
+**Variant perception.** Retail/Reddit still narrates Palantir as the marquee Trump-AI trade and the consensus PT remains anchored on the "85% revenue growth" Q1 print. The variant: at **forward PE 75.5x on +41.7% (+1y) EPS growth** (PEG ~1.8x), valuation discount-rate sensitivity is the entire story. Trump's June 2 AI executive order — voluntary pre-release model review — is a real friction on the government-contract sales motion that no one is modeling. **Insider selling of ~$422M with zero buys**, **Burry publicly reiterating the short citing a head-and-shoulders top**, and the stock breaking its 50-week SMA on June 3 — these are the tells that the technical and policy regimes both flipped. The variant: the rerating from 75x forward → 40x forward is *underway, not done*.
 
-- **NOK** — variant is gone (JPMorgan doubled PT *after* the move; "AI-networking dark horse" is now the consensus narrative).
-- **NVDA** — at 17x forward EPS on +87% 0y / +42% +1y growth it's reasonable, but the +20% sequential growth print didn't even move the stock — "beats no longer matter" is exactly the regime where you don't take new exposure.
-- **TSLA / SPCE / BYND / FIG / BB** — squeeze setups, not PM trades. The 30%+ short interest names are tape mechanics, not edge.
-- **ACHR / HYLN / FIX / PFE** — interesting catalysts, but each falls into "consensus has caught up" (ACHR, FIX), "thesis is real but optionality dominates" (HYLN), or "structural but waiting for July 31 tariff cliff" (PFE — revisit in 4–6 weeks).
-- **UMAC / ONDS** — pure speculation chase. Sub-$1B drone OEMs with political-tailwind narratives are retail bag-holder setups.
-- **OKLO / SMR** — both decelerating EPS (-22%, -29% +1y respectively) at >100x P/S and >200x P/S. The catalyst flow is real but the higher-quality way to express it is CCJ.
+Importantly, this is not a "valuation is high so short it" call — that's been a money-losing trade for two years. The specific catalyst: PLTR needs to reclaim ~$175 to repair the trend; current ~$142 is below that level *and* below the 50-week SMA *and* below where insiders are aggressive sellers. The technical, policy, and positioning regimes all aligned bearish this week.
+
+**Who's on the other side.** WSB/retail still long the story. Long-only growth managers who can't sell on a single bad week without justifying the round trip. They're informed but constrained.
+
+**The data.** Price ~$142 (June 7 brief), down from $156.54 on 5/31. Forward PE 75.5x. Forward 0y EPS $1.46, +1y $2.07. RSI was 71.3 on 5/31 (overbought into the break — the worst possible setup for a hot stock entering a derating). 50d $141.79, 200d $161.78 (recovering trend that just failed). Insiders sold $422M YTD, zero buys.
+
+**What would change my mind.** (a) PLTR reclaims and holds $175. (b) The AI EO is rescinded or modified to remove the pre-release review. (c) A net insider buy print at any size. (d) Q2 print delivers another 10-point guide raise — at which point the multiple resets up and the technical break gets overridden by fundamentals. Until then, this is the cleanest loved-but-falling setup on the board, and a short pressed at $142 with a stop above $175 has 2:1 minimum asymmetry to my $103 fundamental target (Motley Fool normalized-multiple work).
+
+---
+
+## Did not clear the bar
+
+- **OKLO / SMR / NNE (nuclear).** The catalyst stack is real (NRC design approvals, **July 4 criticality target** in Trump's EO, hyperscaler PPAs). But the variant inside this corner is already crowded — every retail nuclear watcher is staring at the July 4 date. OKLO is -65.5% from highs, SMR -77.9% — these aren't loved-but-falling, they're hated-and-rebuilding, with negative forward EPS through +1y. The cleanest expression is *to own the basket through July 4 if AI-power demand remains a dominant theme*, but I can't articulate a specific variant vs. consensus that justifies a press here. **Skip, revisit if any one of the three gets a hard-dated PPA signing.**
+- **AVGO / SOX unwind.** The brief flagged it as the most violent move of the week. But calling a top on the 18-month AI-capex trend after one print is exactly the trade that's burned bears for two years. Need at least one more confirming print (MU, NVDA earnings) before underwriting the variant. **Defensive-rotation cue, not a fresh idea.**
+- **CRWD.** Billings miss + insider selling + Google AI Threat Defense launch is a real derating setup, but I can't underwrite "billings deceleration confirms next quarter" without seeing the next print. **Watch, don't press.**
+- **ASTS.** RSI 69.8, already +47% above 200d SMA, mid-June BlueBird 8/9/10 launch is a high-IV binary. The FCC SCS authorization is the durable de-risking event but the launch is too close — sizing is dominated by IV crush mechanics, not the variant. **Skip until post-launch reset.**
+- **RKLB.** $1.3B+ in SDA contracts is real, the GEO program is a structural step up — but **four insiders cashed out $18M at the May highs** and the stock had its worst single-day in 2 years. When insiders sell into record contract wins, fade the retail bid. **Skip the long; not interested in pressing a short into a name with a fresh $90M Space Force GEO contract.**
+- **GME.** Record Q1 net income $389.6M is genuinely a fundamentals turn. But the variant ("collectibles + treasury option") is fuzzy — I can't articulate the specific number consensus has wrong. **Skip until a more specific catalyst.**
+- **TSLA.** Composite divergence score was 0.58 — weak. Both narrative *and* price are softening, which isn't the loved-but-falling or hated-but-rising shape that produces edge. Forward PE 174x for 22.5% growth is a non-starter on its own. **Skip.**
+
+## Closing read
+
+The persistent signal this week was the **policy stack underneath the AI-infrastructure noise**: rare earths (USAR is the standout), steel tariffs (June 8 is dated), drone/defense (AVAV is the quality version inside a crowded retail cohort), LNG (cash-flow contracted, market mispriced as commodity). The crowded-long unwind in AI semis and CrowdStrike is the most violent tape move but the hardest to underwrite without one more print. The single cleanest sentiment-tape divergence on the board is **UNH** — and it's a $345B large cap, so the trade is real and scalable.
+
+If I had to allocate one fresh dollar this week, it goes to **USAR + UNH** as the core, with **LNG (or VG for beta) and a NUE/CLF basket into June 8** as satellites. PLTR is the only press-short worth running, and only against a tight $175 invalidation.
