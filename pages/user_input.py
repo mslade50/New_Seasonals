@@ -751,6 +751,96 @@ def seasonals_chart(ticker, cycle_label, enable_time_travel, reference_year,
                     }).background_gradient(subset=["MAE (ATR)"], cmap="RdYlGn_r")
                     st.dataframe(mae_styler, use_container_width=True, hide_index=True)
 
+    # -------------------------------------------------------------------------
+    # PER-YEAR ANALOG DETAIL — actual entry date + actual +5/10/21d dates,
+    # with ATR-normalized performance to each forward date. One row per year.
+    # Mirrors the stats table's marker (trading-day-of-year) and cutoff, so the
+    # rows are the exact analogs the Fwd-return statistics aggregate over.
+    # -------------------------------------------------------------------------
+    if day_count_marker is not None:
+        st.divider()
+        st.subheader("🗓️ Cycle-Year Analogs — Actual Dates & Forward ATR Performance")
+
+        if cycle_label != "All Years":
+            cstart = cycle_start_mapping[cycle_label]
+            analog_years = {cstart + i * 4 for i in range(40)}
+            scope_note = f"{cycle_label} cycle years"
+        else:
+            analog_years = None  # all years
+            scope_note = "all years"
+
+        idx = spx.index
+        closes = spx["Close"].values
+        atrs = spx["ATR"].values
+        n = len(spx)
+
+        snaps = spx[(spx["day_count"] == day_count_marker) & (spx["year"] < cutoff_year)]
+        if analog_years is not None:
+            snaps = snaps[snaps["year"].isin(analog_years)]
+
+        detail_rows = []
+        for ts, srow in snaps.iterrows():
+            p = idx.get_indexer([ts])[0]
+            if p == -1:
+                continue
+            entry_close = closes[p]
+            entry_atr = atrs[p]
+            if not np.isfinite(entry_atr) or entry_atr <= 0:
+                continue
+            row = {
+                "Year": int(srow["year"]),
+                "Entry Date": idx[p].strftime("%Y-%m-%d"),
+                "Entry": float(entry_close),
+            }
+            for k in [5, 10, 21]:
+                fp = p + k
+                if fp < n and np.isfinite(closes[fp]):
+                    row[f"+{k}d Date"] = idx[fp].strftime("%Y-%m-%d")
+                    row[f"+{k}d ATR"] = float((closes[fp] - entry_close) / entry_atr)
+                else:
+                    row[f"+{k}d Date"] = ""
+                    row[f"+{k}d ATR"] = np.nan
+            detail_rows.append(row)
+
+        if detail_rows:
+            detail_df = (pd.DataFrame(detail_rows)
+                         .sort_values("Year", ascending=False)
+                         .reset_index(drop=True))
+            col_order = ["Year", "Entry Date", "Entry",
+                         "+5d Date", "+5d ATR",
+                         "+10d Date", "+10d ATR",
+                         "+21d Date", "+21d ATR"]
+            detail_df = detail_df[col_order]
+
+            atr_cols = ["+5d ATR", "+10d ATR", "+21d ATR"]
+
+            def color_atr(val):
+                if pd.isna(val):
+                    return ''
+                if val > 0:
+                    return 'color: #90ee90;'
+                if val < 0:
+                    return 'color: #ffcccb;'
+                return ''
+
+            detail_styler = detail_df.style.format({
+                "Entry": "{:.2f}",
+                "+5d ATR": "{:+.2f}", "+10d ATR": "{:+.2f}", "+21d ATR": "{:+.2f}",
+            }).map(color_atr, subset=atr_cols)
+            for k, c in zip([5, 10, 21], atr_cols):
+                lim = 0.75 * np.sqrt(k)
+                detail_styler = detail_styler.background_gradient(
+                    subset=[c], cmap="RdYlGn", vmin=-lim, vmax=lim)
+
+            st.caption(
+                f"Entry = trading day {int(day_count_marker)} of the year (today's day-of-year), "
+                f"{scope_note}, pre-{cutoff_year}. "
+                f"ATR perf = (Close[+k] − Close[entry]) / ATR[entry]."
+            )
+            st.dataframe(detail_styler, use_container_width=True, hide_index=True)
+        else:
+            st.info("No completed analog years available for the detail table.")
+
 # -----------------------------------------------------------------------------
 # APP ENTRY POINT
 # -----------------------------------------------------------------------------
