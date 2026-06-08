@@ -30,6 +30,7 @@ PUBLIC_PAGES = [
     st.Page("pages/user_input.py", title="Seasonality", default=True),
     st.Page("pages/seasonal_sigs.py", title="Seasonal Signals"),
     st.Page("pages/macro_seasonality.py", title="Macro Seasonality"),
+    st.Page("pages/equity_seasonals.py", title="Equity Seasonals"),
     st.Page("pages/macro_trend.py", title="Macro Trend"),
     st.Page("pages/risk_dashboard_v2.py", title="Risk Dashboard"),
     st.Page("pages/spx_breadth.py", title="SPX Breadth"),
