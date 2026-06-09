@@ -163,18 +163,29 @@ def get_sznl_val(ticker, target_date, sznl_map):
 
 @st.cache_data(show_spinner=False)
 def load_atr_seasonal_map():
-    """Load ATR seasonal ranks. Returns {ticker: DataFrame with 6 rank columns}."""
-    if not os.path.exists(ATR_SZNL_PATH):
-        return {}
+    """Load ATR seasonal ranks. Returns {ticker: DataFrame with 6 rank columns}.
+
+    Pulls atr_seasonal_ranks.parquet from R2 when missing/stale (mirrors
+    pages/backtester.load_atr_seasonal_map) so a fresh machine / Streamlit Cloud
+    deploy -- where the file is gitignored and absent -- still populates the
+    ranks instead of rendering blank Sznl_* columns.
+    """
+    try:
+        from overflow_universe import _maybe_pull_from_r2
+        _maybe_pull_from_r2(ATR_SZNL_PATH, "atr_seasonal_ranks.parquet")
+    except Exception:
+        pass
     try:
         df = pd.read_parquet(ATR_SZNL_PATH)
-        df['Date'] = pd.to_datetime(df['Date']).dt.normalize()
-        output = {}
-        for ticker, group in df.groupby('ticker'):
-            output[ticker] = group.set_index('Date')[ATR_SZNL_COLS].sort_index()
-        return output
     except Exception:
         return {}
+    if df.empty:
+        return {}
+    df['Date'] = pd.to_datetime(df['Date']).dt.normalize()
+    output = {}
+    for ticker, group in df.groupby('ticker'):
+        output[str(ticker).upper()] = group.set_index('Date')[ATR_SZNL_COLS].sort_index()
+    return output
 
 
 def get_atr_sznl_vals(ticker, target_date, atr_sznl_map):
