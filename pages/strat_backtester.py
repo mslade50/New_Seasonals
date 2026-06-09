@@ -52,6 +52,7 @@ OVERFLOW_ELIGIBLE_STRATEGIES = {
     "LT Trend ST OS",
     "St OS Sznl",
     "52wh Breakout",
+    "ATR Extended Gap Up",  # added 2026-06-09; native 60 bps on overflow (no override)
 }
 
 # Tickers in this set are sized at the strategy's configured risk_bps

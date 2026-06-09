@@ -86,6 +86,7 @@ OVERFLOW_ELIGIBLE = {
     "Oversold Low Volume",
     "St OS Sznl",
     "52wh Breakout",
+    "ATR Extended Gap Up",  # added 2026-06-09; native 60 bps on overflow (no override)
 }
 OVERFLOW_RISK_OVERRIDES = {
     "Oversold Low Volume": 25,      # vs liquid 35 bps

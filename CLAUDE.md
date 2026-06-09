@@ -101,7 +101,7 @@ It may optionally import `SP500_TICKERS` from `abs_return_dispersion.py` (with t
 
 **daily_scan.py** is the single unified scanner (post-2026-04-30 merge with the retired `local_overflow_scan.py`). CLI flags:
 - `--scope=liquid` (default) — scans every strategy against its native universe (typically LIQUID_PLUS_COMMODITIES)
-- `--scope=overflow` — only the 5 overflow-eligible strategies, swapped to CSV_UNIVERSE − LIQUID_PLUS_COMMODITIES with OLV bps override
+- `--scope=overflow` — only the 6 overflow-eligible strategies, swapped to CSV_UNIVERSE − LIQUID_PLUS_COMMODITIES with OLV bps override
 - `--scope=all` — both passes concatenated, signals stamped with `Scan_Source='Liquid'` or `'Overflow'`
 - `--moc-only` — restricts to strategies with `entry_type='Signal Close'`. Skips the overflow tier entirely (overflow doesn't MOC by convention). Currently a no-op since the strategy book has no MOC entries; the flag is retained for future use if a Signal Close strategy is added back.
 
@@ -169,7 +169,7 @@ Legacy point system preserved in collapsed expander for reference. Alert = +1, A
 | `SP500_TICKERS` | `abs_return_dispersion.py` | ~505 | Full S&P 500 constituents |
 | `LIQUID_PLUS_COMMODITIES` | `strategy_config.py` | ~190 | Liquid universe — daily_scan default scope |
 | `CSV_UNIVERSE` | `strategy_config.py` | ~1060 | Full universe (liquid + overflow tier ~870) |
-| `OVERFLOW_ELIGIBLE_STRATEGIES` | `daily_scan.py` | 5 | OVS, OLV, LT Trend ST OS, St OS Sznl, 52wh Breakout |
+| `OVERFLOW_ELIGIBLE_STRATEGIES` | `daily_scan.py` | 6 | OVS, OLV, LT Trend ST OS, St OS Sznl, 52wh Breakout, ATR Extended Gap Up (native 60 bps on overflow) |
 | `OVERFLOW_RISK_OVERRIDES` | `daily_scan.py`, `daily_portfolio_report.py` | 1 | OLV: 35→25 bps for overflow tier |
 | `SECTOR_ETFS` | `risk_dashboard_v2.py` | 11 | SPDR sector ETFs |
 | `VOL_TICKERS` | `risk_dashboard_v2.py` | 4 | SPY, ^VIX, ^VIX3M, ^VVIX |

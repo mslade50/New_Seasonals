@@ -91,6 +91,7 @@ OVERFLOW_ELIGIBLE_STRATEGIES = {
     "Oversold Low Volume",
     "St OS Sznl",
     "52wh Breakout",
+    "ATR Extended Gap Up",  # added 2026-06-09; native 60 bps on overflow (no override)
 }
 
 # Per-strategy bps overrides for the overflow tier. OVS uses path-1 nominal
@@ -112,7 +113,7 @@ def build_effective_strategy_book(scope='liquid', moc_only=False):
         STRATEGY_BOOK as-is, scanning each strategy's native universe_tickers
         (typically LIQUID_PLUS_COMMODITIES).
 
-    scope='overflow': only the 5 overflow-eligible strategies, with their
+    scope='overflow': only the 6 overflow-eligible strategies, with their
         universe swapped to CSV_UNIVERSE − LIQUID_PLUS_COMMODITIES and
         per-strategy risk_bps overrides applied (e.g. OLV 35 → 25).
 
@@ -1923,7 +1924,7 @@ def run_daily_scan(scope='liquid', moc_only=False, dry_run=False):
 
     # Build the strategy list this run iterates over. For scope=liquid (the
     # default GHA path) this is every entry in STRATEGY_BOOK. For scope=overflow
-    # it's the 5 overflow-eligible strategies with universes swapped to
+    # it's the 6 overflow-eligible strategies with universes swapped to
     # CSV_UNIVERSE − LIQUID_PLUS_COMMODITIES and per-strategy bps overrides
     # applied. scope=all is liquid + overflow concatenated.
     effective_book = build_effective_strategy_book(scope, moc_only=moc_only)
@@ -2526,7 +2527,7 @@ def run_daily_scan(scope='liquid', moc_only=False, dry_run=False):
                         "Sizing_Variable": get_sizing_variable(strat['name'], last_row),
                         # Tier this signal belongs to ('Liquid' or 'Overflow').
                         # Stamped onto the staging row so order_staging knows
-                        # which universe sized it. The 5 overflow-eligible
+                        # which universe sized it. The 6 overflow-eligible
                         # strategies appear twice in scope=all (once per tier).
                         "Scan_Source": _scan_source,
                     }

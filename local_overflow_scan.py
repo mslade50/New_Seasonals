@@ -4,7 +4,7 @@ DEPRECATED — merged into daily_scan.py on 2026-04-30.
 The local overflow scan is now invoked as:
     python daily_scan.py --scope=overflow
 
-That command runs the 5 overflow-eligible strategies against
+That command runs the 6 overflow-eligible strategies against
 CSV_UNIVERSE − LIQUID_PLUS_COMMODITIES with the OLV bps override (35→25),
 applies the OVS earnings blackout, stages to the Overflow Google Sheets tab,
 and sends the standard daily_scan email — same outputs as the legacy
