@@ -11,7 +11,7 @@ from datetime import timedelta
 # CONFIGURATION
 # -----------------------------------------------------------------------------
 # Megacap US equities: the 30 Dow Jones Industrial Average components (as of the
-# Nov 2024 reshuffle — NVDA/SHW in, INTC/DOW out) plus 20 diversified megacaps
+# Nov 2024 reshuffle — NVDA/SHW in, INTC/DOW out) plus 18 diversified megacaps
 # that have traded for >20 years and carry huge market caps. The extra names
 # fill sectors the Dow under-represents (utilities, real estate, energy,
 # semis, communication services) and add the megacaps the Dow omits (GOOGL,
@@ -25,7 +25,6 @@ SECTOR_ETFS = [
     "GOOGL",   # Communication Services
     "XOM",     # Energy
     "LLY",     # Health Care / Pharma
-    "TMO",     # Health Care / Life Sciences
     "ORCL",    # Technology / Software
     "ADBE",    # Technology / Software
     "TXN",     # Technology / Semiconductors
@@ -66,7 +65,7 @@ TICKER_INFO = {
     # --- Diversified megacaps ---
     "GOOGL": ("Alphabet (Google)", "Y"),
     "XOM": ("Exxon Mobil", "Y"), "LLY": ("Eli Lilly", "Y"),
-    "TMO": ("Thermo Fisher", "Y"), "ORCL": ("Oracle", "Y"),
+    "ORCL": ("Oracle", "Y"),
     "ADBE": ("Adobe", "Y"), "TXN": ("Texas Instruments", "Y"),
     "QCOM": ("Qualcomm", "Y"), "PEP": ("PepsiCo", "Y"),
     "COST": ("Costco", "Y"), "LOW": ("Lowe's", "Y"),
@@ -556,7 +555,7 @@ def main():
     st.set_page_config(layout="wide", page_title="Equity Seasonals")
 
     st.title("Equity Seasonals")
-    st.write("Megacap US equities — Dow Jones 30 + 20 diversified >20yr megacaps. "
+    st.write("Megacap US equities — Dow Jones 30 + 18 diversified >20yr megacaps. "
              "Top: MA Extension Ranks. Bottom: Individual Seasonal Charts. "
              "Charts sort by the largest |Sznl_w - 50| across 5/10/21/63d windows.")
 
