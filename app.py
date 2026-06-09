@@ -12,12 +12,18 @@ def _is_cloud():
 
     Priority:
       1. IS_LOCAL env var (escape hatch — forces local even on a server).
-      2. IS_CLOUD secret set to true in the Community Cloud app's secrets.
-      3. Otherwise assume local (no secrets file locally -> st.secrets raises).
+      2. /mount/src mount path — Streamlit Community Cloud always mounts the
+         repo there. Reliable and secret-free, so a misordered/missing
+         IS_CLOUD secret can no longer silently un-gate the deployed app.
+      3. IS_CLOUD secret set to true (back-compat override).
+      4. Otherwise assume local (no secrets file locally -> st.secrets raises).
     """
     env = os.environ.get("IS_LOCAL")
     if env is not None and env.strip().lower() in ("1", "true", "yes", "on"):
         return False
+    # Community Cloud mounts the repo under /mount/src; local (Windows) never has it.
+    if os.path.isdir("/mount/src") or os.path.abspath(__file__).startswith("/mount/src"):
+        return True
     try:
         return bool(st.secrets.get("IS_CLOUD", False))
     except Exception:
