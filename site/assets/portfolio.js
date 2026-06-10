@@ -16,13 +16,20 @@ const S = {
   dateIdx: [],            // sd.dates as strings
   dateToI: new Map(),
   f: { strategies: null, tier: "All", dir: "All", preset: "All", from: null, to: null, tickerQ: "" },
-  sizing: "scaled",       // "scaled" (compounds with equity) | "flat" ($750k fixed)
+  sizing: "scaled",       // "scaled" (compounds with equity) | "flat" (fixed base)
   lev: 1.0,               // portfolio leverage multiplier
   mult: new Map(),        // strategy -> risk multiplier (default 1)
   nativeBps: new Map(),   // strategy -> median Risk_bps from the ledger
+  rangeTouched: false,    // user has interacted with the Range control
   tradeLogTable: null,
 };
+// Portfolio-level math runs on the ledger's $750k flat allocation; equity
+// curves and portfolio dollars are DISPLAYED from a $10k start (returns,
+// Sharpe, DD are scale-invariant). Trade-level dollars (trade log, open
+// positions, expectancy, per-strategy PnL) stay at the $750k allocation.
 const START_EQ = 750000;
+const DISPLAY_EQ = 10000;
+const DSCALE = DISPLAY_EQ / START_EQ;
 
 function multFor(strat) {
   const m = S.mult.get(strat);
@@ -138,6 +145,7 @@ function buildFilterBar() {
   const presets = ["All", "10Y", "5Y", "3Y", "1Y", "YTD"];
   const presetSeg = makeSeg("Range", presets, v => {
     S.f.preset = v;
+    S.rangeTouched = true;
     const max = S.meta.date_max;
     const maxD = new Date(max + "T00:00:00Z");
     let from = null;
@@ -157,8 +165,8 @@ function buildFilterBar() {
   fromInp.type = "date"; fromInp.title = "From";
   const toInp = document.createElement("input");
   toInp.type = "date"; toInp.title = "To";
-  fromInp.addEventListener("change", () => { S.f.from = fromInp.value || null; S.f.preset = "Custom"; markSeg(presetSeg, null); apply(); });
-  toInp.addEventListener("change", () => { S.f.to = toInp.value || null; S.f.preset = "Custom"; markSeg(presetSeg, null); apply(); });
+  fromInp.addEventListener("change", () => { S.f.from = fromInp.value || null; S.f.preset = "Custom"; S.rangeTouched = true; markSeg(presetSeg, null); apply(); });
+  toInp.addEventListener("change", () => { S.f.to = toInp.value || null; S.f.preset = "Custom"; S.rangeTouched = true; markSeg(presetSeg, null); apply(); });
   el.appendChild(fromInp); el.appendChild(toInp);
 
   // ticker search
@@ -177,6 +185,7 @@ function buildFilterBar() {
   rb.className = "btn ghost"; rb.textContent = "Reset";
   rb.addEventListener("click", () => {
     S.f = { strategies: new Set(names), tier: "All", dir: "All", preset: "All", from: null, to: null, tickerQ: "" };
+    S.rangeTouched = false;
     boxes.forEach(b => b.checked = true); syncStratBtn();
     fromInp.value = ""; toInp.value = ""; tInp.value = "";
     el.querySelectorAll(".seg").forEach(seg => {
@@ -324,16 +333,18 @@ function tickerTokens() {
   return S.f.tickerQ.toUpperCase().split(",").map(s => s.trim()).filter(Boolean);
 }
 
-function filteredTrades() {
+function filteredTrades(ignoreDates) {
   const toks = tickerTokens();
   const { strategies, tier, dir, from, to } = S.f;
   return S.trades.filter(t => {
     if (!strategies.has(t.Strategy)) return false;
     if (tier !== "All" && t.Tier !== tier) return false;
     if (dir !== "All" && t.Direction !== dir) return false;
-    const d = t.Entry_Date || t.Signal_Date;
-    if (from && d < from) return false;
-    if (to && d > to) return false;
+    if (!ignoreDates) {
+      const d = t.Entry_Date || t.Signal_Date;
+      if (from && d < from) return false;
+      if (to && d > to) return false;
+    }
     if (toks && !toks.some(tok => (t.Ticker || "").toUpperCase().startsWith(tok))) return false;
     return true;
   });
@@ -344,7 +355,7 @@ function curveExact() {
 }
 
 /* daily pnl array (risk multipliers + leverage applied) for current filters */
-function dailySeries(trades) {
+function dailySeries(trades, ignoreDates) {
   if (curveExact()) {
     const keys = Object.keys(S.sd.series).filter(k => {
       const [strat, tier] = k.split("||");
@@ -353,8 +364,8 @@ function dailySeries(trades) {
       return true;
     });
     let i0 = 0, i1 = S.dateIdx.length - 1;
-    if (S.f.from) i0 = lowerBound(S.dateIdx, S.f.from);
-    if (S.f.to) i1 = upperBound(S.dateIdx, S.f.to) - 1;
+    if (!ignoreDates && S.f.from) i0 = lowerBound(S.dateIdx, S.f.from);
+    if (!ignoreDates && S.f.to) i1 = upperBound(S.dateIdx, S.f.to) - 1;
     if (i1 < i0) return { dates: [], pnl: [], exact: true };
     const n = i1 - i0 + 1;
     const pnl = new Float64Array(n);
@@ -443,14 +454,15 @@ function dailyMetrics(ds) {
   const downside = rets.filter(v => v < 0);
   const dsd = downside.length > 1 ?
     Math.sqrt(sum(downside.map(v => v * v)) / downside.length) : 0;
-  // equity path + max drawdown vs running peak (per active sizing mode)
-  let eq = START_EQ, peak = START_EQ, maxDD = 0;
+  // equity path + max drawdown vs running peak (per active sizing mode),
+  // displayed from a $10k start (scale-invariant in % terms)
+  let eq = DISPLAY_EQ, peak = DISPLAY_EQ, maxDD = 0;
   let bestDay = -Infinity, worstDay = Infinity;
   const equity = new Array(n);
   for (let i = 0; i < n; i++) {
-    const dayPnl = scaled ? eq * rets[i] : pnl[i];
+    const dayPnl = scaled ? eq * rets[i] : pnl[i] * DSCALE;
     eq += dayPnl;
-    if (eq <= 0) eq = 1; // leverage blow-up floor; keeps log axis sane
+    if (eq <= 0) eq = 0.01; // leverage blow-up floor; keeps log axis sane
     equity[i] = eq;
     if (dayPnl > bestDay) bestDay = dayPnl;
     if (dayPnl < worstDay) worstDay = dayPnl;
@@ -460,8 +472,8 @@ function dailyMetrics(ds) {
   }
   const years = n / 252;
   const annRet = scaled
-    ? (years > 0 ? Math.pow(eq / START_EQ, 1 / years) - 1 : null)  // CAGR
-    : m * 252;                                                      // arithmetic
+    ? (years > 0 ? Math.pow(eq / DISPLAY_EQ, 1 / years) - 1 : null)  // CAGR
+    : m * 252;                                                        // arithmetic
   const annVol = sd * Math.sqrt(252);
   return {
     equity, annRet, annVol,
@@ -469,7 +481,7 @@ function dailyMetrics(ds) {
     sortino: dsd ? (m / dsd) * Math.sqrt(252) : null,
     maxDD,
     mar: (maxDD && annRet != null) ? annRet / Math.abs(maxDD) : null,
-    totPnl: eq - START_EQ,
+    totPnl: eq - DISPLAY_EQ,
     bestDay, worstDay,
   };
 }
@@ -484,7 +496,9 @@ function apply() {
   renderEquity(ds, dm);
   renderCumR(tr);
   renderMonthly(ds);
-  renderRolling(ds);
+  // rolling Sharpe needs 252d of warmup, so it computes on the date-unbounded
+  // stream (same strategy/tier/dir/ticker filters) and only displays the window
+  renderRolling(dailySeries(filteredTrades(true), true));
   renderHist(tr);
   renderSeasonality(tr);
   renderHoldBuckets(tr);
@@ -509,11 +523,11 @@ function renderKPIs(tm, dm, exact) {
     kpiCard("Total R", fmt.num(tm.totR, 0), clsSign(tm.totR)),
     kpiCard("Avg R", tm.avgR == null ? "-" : fmt.num(tm.avgR, 3), clsSign(tm.avgR)),
     kpiCard("Profit Factor", tm.pf == null ? "-" : fmt.num(tm.pf, 2)),
-    kpiCard("Expectancy", tm.expectancy == null ? "-" : fmt.money(tm.expectancy), clsSign(tm.expectancy), "per trade, $750k base"),
+    kpiCard("Expectancy", tm.expectancy == null ? "-" : fmt.money(tm.expectancy), clsSign(tm.expectancy), "per trade @ $750k alloc"),
     kpiCard("SQN", tm.sqn == null ? "-" : fmt.num(tm.sqn, 2)),
     kpiCard("Payoff", tm.payoff == null ? "-" : fmt.num(tm.payoff, 2), null, "avg win / avg loss"),
     kpiCard("Total PnL", dm.totPnl == null ? "-" : fmt.money(dm.totPnl), clsSign(dm.totPnl),
-            scaled ? "compounded" : "flat $750k"),
+            scaled ? "compounded, $10k start" : "flat, $10k base"),
     kpiCard(scaled ? "CAGR" : "Ann Return",
             dm.annRet == null ? "-" : fmt.pct(dm.annRet, 1), clsSign(dm.annRet),
             scaled ? "geometric" : "of $750k"),
@@ -535,24 +549,33 @@ function renderEquity(ds, dm) {
   const cap = document.getElementById("eqCaption");
   if (!ds.dates.length) { Plotly.purge(eqEl); Plotly.purge(ddEl); cap.textContent = ""; return; }
   const scaled = S.sizing === "scaled";
-  cap.textContent = scaled
-    ? "Scaled with portfolio size: daily returns compound geometrically (risk grows/shrinks with equity). Log scale. Defaults to trailing 1y — double-click to see full history."
-    : "Flat $750k: every trade risks bps of a fixed base. Era-comparable; best for judging raw edge. Defaults to trailing 1y — double-click to see full history.";
+  cap.textContent = (scaled
+    ? "Scaled with portfolio size: daily returns compound geometrically (risk grows/shrinks with equity). Log scale, $10k start."
+    : "Flat sizing: every trade risks bps of a fixed allocation. Era-comparable; best for judging raw edge. $10k display base.")
+    + (S.rangeTouched ? "" : " Showing trailing 1y by default — pick a Range or double-click to zoom out.");
   const equity = dm.equity;
-
-  // default view: trailing 1y window, full data behind it (double-click = all)
   const lastDate = ds.dates[ds.dates.length - 1];
-  const cut = new Date(lastDate + "T00:00:00Z");
-  cut.setUTCFullYear(cut.getUTCFullYear() - 1);
-  const cutStr = cut.toISOString().slice(0, 10);
-  const w0 = lowerBound(ds.dates, cutStr);
-  const winEq = equity.slice(w0);
-  let yRange = null;
-  if (winEq.length) {
-    const lo = Math.min(...winEq), hi = Math.max(...winEq);
-    yRange = scaled
-      ? [Math.log10(Math.max(lo, 1) * 0.98), Math.log10(hi * 1.02)]
-      : [lo - (hi - lo) * 0.06 - 1, hi + (hi - lo) * 0.06 + 1];
+
+  // Default (untouched Range): trailing-1y viewport over full-history data.
+  // Once the user picks a Range, show exactly the filtered span (autorange).
+  let xRange = null, yRange = null, ddRangeY = null, w0 = 0;
+  let peak = -Infinity;
+  const dd = equity.map(v => { peak = Math.max(peak, v); return (v / peak - 1) * 100; });
+  if (!S.rangeTouched) {
+    const cut = new Date(lastDate + "T00:00:00Z");
+    cut.setUTCFullYear(cut.getUTCFullYear() - 1);
+    const cutStr = cut.toISOString().slice(0, 10);
+    w0 = lowerBound(ds.dates, cutStr);
+    const winEq = equity.slice(w0);
+    if (winEq.length) {
+      xRange = [cutStr, lastDate];
+      const lo = Math.min(...winEq), hi = Math.max(...winEq);
+      yRange = scaled
+        ? [Math.log10(Math.max(lo, 0.01) * 0.98), Math.log10(hi * 1.02)]
+        : [lo - (hi - lo) * 0.06 - 1, hi + (hi - lo) * 0.06 + 1];
+      const winDD = dd.slice(w0);
+      ddRangeY = [Math.min(...winDD) * 1.15 - 0.1, 0.5];
+    }
   }
 
   Plotly.react(eqEl, [{
@@ -560,26 +583,21 @@ function renderEquity(ds, dm) {
     line: { color: "#00d18f", width: 1.8 },
   }], plotLayout({
     height: 330,
-    xaxis: { range: [cutStr, lastDate] },
+    xaxis: xRange ? { range: xRange } : {},
     yaxis: { type: scaled ? "log" : "linear", tickformat: "$,.4~s",
              range: yRange,
-             title: { text: scaled ? "Equity (compounded, log)" : "Equity (flat $750k)", font: { size: 11 } } },
-    shapes: [{ type: "line", xref: "paper", x0: 0, x1: 1, y0: START_EQ, y1: START_EQ,
+             title: { text: scaled ? "Equity (compounded, log, $10k start)" : "Equity (flat, $10k base)", font: { size: 11 } } },
+    shapes: [{ type: "line", xref: "paper", x0: 0, x1: 1, y0: DISPLAY_EQ, y1: DISPLAY_EQ,
                line: { color: "#444c5c", width: 1, dash: "dot" } }],
   }), PLOT_CFG);
 
-  // underwater drawdown (same default window)
-  let peak = -Infinity;
-  const dd = equity.map(v => { peak = Math.max(peak, v); return (v / peak - 1) * 100; });
-  const winDD = dd.slice(w0);
-  const ddRange = winDD.length ? [Math.min(...winDD) * 1.15 - 0.1, 0.5] : null;
   Plotly.react(ddEl, [{
     x: ds.dates, y: dd, mode: "lines", name: "Drawdown",
     fill: "tozeroy", line: { color: "#ff5d5d", width: 1 }, fillcolor: "rgba(255,93,93,.18)",
   }], plotLayout({
     height: 150, margin: { t: 8 },
-    xaxis: { range: [cutStr, lastDate] },
-    yaxis: { ticksuffix: "%", range: ddRange },
+    xaxis: xRange ? { range: xRange } : {},
+    yaxis: { ticksuffix: "%", range: ddRangeY },
   }), PLOT_CFG);
 }
 
@@ -648,12 +666,16 @@ function renderMonthly(ds) {
   }), PLOT_CFG);
 }
 
-function renderRolling(ds) {
+function renderRolling(dsAll) {
   const el = document.getElementById("rollSharpeChart");
   const W = 252;
-  if (ds.pnl.length < W + 10) { Plotly.purge(el); el.innerHTML = '<p class="cap">Not enough days in window for rolling 252d Sharpe.</p>'; return; }
+  if (dsAll.pnl.length < W + 10) {
+    Plotly.purge(el);
+    el.innerHTML = '<p class="cap">Fewer than ~262 trading days of history for these filters — rolling 252d Sharpe unavailable.</p>';
+    return;
+  }
   el.innerHTML = "";
-  const rets = ds.pnl.map(v => v / START_EQ);
+  const rets = dsAll.pnl.map(v => v / START_EQ);
   // prefix sums for O(n) rolling mean/std
   const n = rets.length, ps = new Float64Array(n + 1), ps2 = new Float64Array(n + 1);
   for (let i = 0; i < n; i++) { ps[i + 1] = ps[i] + rets[i]; ps2[i + 1] = ps2[i] + rets[i] * rets[i]; }
@@ -662,14 +684,20 @@ function renderRolling(ds) {
     const s = ps[i] - ps[i - W], s2 = ps2[i] - ps2[i - W];
     const m = s / W, varr = (s2 - W * m * m) / (W - 1);
     const sd = varr > 0 ? Math.sqrt(varr) : 0;
-    xs.push(ds.dates[i - 1]);
+    xs.push(dsAll.dates[i - 1]);
     ys.push(sd ? +(m / sd * Math.sqrt(252)).toFixed(3) : null);
+  }
+  // display only the active date window (computed with full-history warmup)
+  let xRange = null;
+  if (S.f.from || S.f.to) {
+    xRange = [S.f.from || xs[0], S.f.to || xs[xs.length - 1]];
   }
   Plotly.react(el, [{
     x: xs, y: ys, mode: "lines", name: "Sharpe (252d)",
     line: { color: "#4da3ff", width: 1.4 },
   }], plotLayout({
     height: 280,
+    xaxis: xRange ? { range: xRange } : {},
     shapes: [{ type: "line", xref: "paper", x0: 0, x1: 1, y0: 0, y1: 0,
                line: { color: "#444c5c", width: 1, dash: "dot" } }],
   }), PLOT_CFG);
@@ -804,7 +832,7 @@ function renderYearTable(tr, ds) {
     for (const v of g.pnl) { eq += v; peak = Math.max(peak, eq); maxDD = Math.min(maxDD, eq / peak - 1); }
     return {
       Year: y, Trades: g.trades, Win: g.closed ? g.wins / g.closed : null,
-      TotR: g.r, PnL: tot, Ret: tot / START_EQ,
+      TotR: g.r, PnL: tot * DSCALE, Ret: tot / START_EQ,
       MaxDD: maxDD, Sharpe: sd ? m / sd * Math.sqrt(252) : null,
     };
   });
@@ -814,7 +842,7 @@ function renderYearTable(tr, ds) {
       { key: "Trades", label: "Trades" },
       { key: "Win", label: "Win %", fmt: v => fmt.pct(v, 1) },
       { key: "TotR", label: "Total R", fmt: v => fmt.num(v, 1), cls: clsSign },
-      { key: "PnL", label: "PnL ($)", fmt: v => fmt.money(v), cls: clsSign },
+      { key: "PnL", label: "PnL ($10k base)", fmt: v => fmt.money(v), cls: clsSign },
       { key: "Ret", label: "Return %", fmt: v => fmt.pct(v, 1), cls: clsSign },
       { key: "MaxDD", label: "Max DD", fmt: v => fmt.pct(v, 1), cls: () => "neg" },
       { key: "Sharpe", label: "Sharpe", fmt: v => v == null ? "" : fmt.num(v, 2) },
@@ -842,7 +870,10 @@ function renderTradeLog(tr) {
     { key: "Exit_Type", label: "Exit Type", align: "l" },
     { key: "Entry_Criteria", label: "Criteria", align: "l" },
   ];
-  const rows = tr.slice().sort((a, b) => (b.Entry_Date || "").localeCompare(a.Entry_Date || ""));
+  // closed trades only — open positions (time stop not reached) live in the
+  // Open Positions section above
+  const rows = tr.filter(t => !t.Open)
+    .sort((a, b) => (b.Entry_Date || "").localeCompare(a.Entry_Date || ""));
   if (S.tradeLogTable) S.tradeLogTable.setRows(rows);
   else S.tradeLogTable = makeTable(el, {
     columns, rows, pageSize: 25, search: true, csvName: "trades_filtered.csv",

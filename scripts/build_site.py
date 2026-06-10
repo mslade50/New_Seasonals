@@ -146,6 +146,12 @@ def load_master_for(df):
 
 # ---------------------------------------------------------------- payloads
 def build_trades_json(df):
+    # Open = time stop not yet reached (same rule as build_positions). These
+    # rows live in the Open Positions section; the trade log excludes them.
+    today = pd.Timestamp.today().normalize()
+    if "Time Stop" in df.columns:
+        df = df.copy()
+        df["Open_Flag"] = (df["Time Stop"] >= today).astype(bool)
     cols = {
         "trade_id": ("trade_id", "auto", None),
         "Strategy": ("Strategy", "str", None),
@@ -166,6 +172,7 @@ def build_trades_json(df):
         "Hold_Days": ("Hold_Days", "num", 0),
         "Entry_Criteria": ("Entry Criteria", "str", None),
         "ATR": ("ATR", "num", 3),
+        "Open": ("Open_Flag", "auto", None),
     }
     out = {}
     for key, (src, kind, nd) in cols.items():
