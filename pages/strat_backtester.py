@@ -1518,6 +1518,16 @@ def process_signals_fast(candidates, signal_data, processed_dict, strategies, st
             if pd.notna(_off) and _eo['min_td'] <= _off <= _eo['max_td']:
                 base_risk = starting_equity * float(_eo['risk_bps']) / 10000.0
 
+        # --- 3b2. Cycle-year risk multiplier (e.g. OVS midterm 0.75x) ---
+        # execution['cycle_risk_mults'] = {year%4: mult}; 0=Election,
+        # 1=Post-Election, 2=Midterm, 3=Pre-Election. Applied to whatever
+        # sizing rule won above so the tilt scales the final size.
+        _cyc = execution.get('cycle_risk_mults')
+        if _cyc:
+            _cm = float(_cyc.get(pd.Timestamp(signal_ts).year % 4, 1.0))
+            if _cm != 1.0:
+                base_risk *= _cm
+
         # --- 3c. User-configured per-strategy risk multiplier (size-up dial) ---
         # Applied as the FINAL sizing step so it scales whichever rule won
         # above (OVS gap-tier, ladder, WCDS sznl tier, OLV earnings override,

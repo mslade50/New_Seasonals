@@ -228,6 +228,30 @@ Aligned across four systems — change `eod_dd_weekdays` in one place and they a
 - Earnings parquet: `data/earnings_calendar.parquet` — 117k rows, 946 tickers, FMP-backfilled, includes forward dates.
 - 2-path validation note (2026-04-29): 12 of 13 OVS signals on that date would have been killed by the blackout — only USO survived because no earnings data.
 
+## Cycle-Year Risk Tilt (OVS, 2026-06-10)
+
+OVS runs at 0.75x risk in midterm years (year%4==2). Evidence: all six
+midterm years 2006-2026 underperform (avgR +0.19 vs +0.49 non-midterm),
+leave-one-year-out stable, damage concentrated in P1 decisive-gap entries
+(+0.63 -> +0.23 avgR). ~1.5 sigma after episode clustering -> shrunk-Kelly
+0.75x, not the full-conviction 0.4x. Validated by LOYO, NOT by re-running
+the backtest with the rule on (in-sample rules flatter themselves).
+
+Four aligned sites -- change together:
+- `strategy_config.py` OVS execution `cycle_risk_mults: {2: 0.75}` (source of truth)
+- `pages/strat_backtester.py` sizing step 3b2 (generic: any strategy with the field)
+- `daily_scan.py` sizing step 2c2 (stamps the mult into Sizing notes)
+- `order_staging.py` `OVS_CYCLE_MULTS` -- needed because the live OVS P1
+  resize to a FIXED dollar target (OVS_PATH1_RISK_DOLLARS) clobbers the
+  scanner's Risk_Amt, so the tilt must be applied to the target itself.
+
+NOTE a live-vs-backtest divergence found during this work: order_staging
+RETIRED the OVS mild-gap Path 2 (P1-only, fixed $3,000 target; mild gaps
+dropped), while the backtest/ledger still models the 2-path scheme
+(P2 = 407 trades, +0.20 avgR, +82R/24y). Engine has `ovs_p1_only` parameter
+if the ledger should be aligned to live instead. Unresolved -- decide
+whether to re-enable P2 live or flip the backtest to P1-only.
+
 ## Stop-Arming Convention (book-wide, 2026-06-09)
 
 Stop legs ARM AT THE NEXT SESSION, not at the fill. Decided after measuring

@@ -2378,6 +2378,18 @@ def run_daily_scan(scope='liquid', moc_only=False, dry_run=False):
                         risk = risk * ladder_mult
                         sizing_note += f" | Ladder rung {rung_idx + 1} ({ladder_mult:.2f}x, {open_count} open)"
 
+                    # 2c2. CYCLE-YEAR RISK MULTIPLIER (e.g. OVS midterm 0.75x).
+                    # execution['cycle_risk_mults'] = {year%4: mult}. Applies to
+                    # OVS too (unlike the fragility multiplier) — but note the
+                    # OVS P1 fixed-dollar resize in order_staging.py carries its
+                    # own OVS_CYCLE_MULTS mirror, since it clobbers Risk_Amt.
+                    _cyc = strat['execution'].get('cycle_risk_mults')
+                    if _cyc:
+                        _cm = float(_cyc.get(last_row.name.year % 4, 1.0))
+                        if _cm != 1.0:
+                            risk = risk * _cm
+                            sizing_note += f" | Cycle yr%4={last_row.name.year % 4}: {_cm:.2f}x"
+
                     # 2d. EARNINGS SIZE OVERRIDE — flat-replace risk with the
                     # configured bps when signal_date sits in the offset range.
                     # Used by OLV: pre-earnings (-10..0 TD) -> 10 bps regardless

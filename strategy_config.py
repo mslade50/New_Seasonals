@@ -511,7 +511,16 @@ _STRATEGY_BOOK_RAW = [
         "execution": {"risk_bps": 40, "slippage_bps": 2, "stop_atr": 1.0, "tgt_atr": 2.0, "hold_days": 2, "use_stop_loss": False, "use_take_profit": True,
                       "path1_bps": 40, "path2_bps": 8, "path2_daily_cap_pct": 0.75,
                       "earnings_blackout_td": 10,
-                      "eod_dd_atr": 0.25, "eod_dd_weekdays": [4]},
+                      "eod_dd_atr": 0.25, "eod_dd_weekdays": [4],
+                      # Cycle-year risk tilt (2026-06-10): midterm years (year%4==2)
+                      # run OVS at 0.75x. Evidence: all 6 midterm years 2006-2026
+                      # underperform (avgR +0.19 vs +0.49 baseline), leave-one-year-
+                      # out stable (-0.28..-0.37R gap), damage concentrated in P1
+                      # decisive-gap entries (+0.63 -> +0.23 avgR). ~1.5 sigma after
+                      # episode clustering, so 0.75x (shrunk-Kelly), not full 0.4x.
+                      # Mirrored: strat_backtester sizing 3b2, daily_scan sizing 2e,
+                      # order_staging OVS_CYCLE_MULTS (P1 fixed-dollar target).
+                      "cycle_risk_mults": {2: 0.75}},
         "stats": {"grade": "A (Excellent)", "win_rate": "58.0%", "expectancy": "0.28r", "profit_factor": "1.96"}
     },
     {
