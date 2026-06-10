@@ -1370,6 +1370,24 @@ def save_staging_orders(signals_list, strategy_book, sheet_name='Order_Staging',
                 if strat['settings'].get('use_t1_open_filter')
                 else ''
             ),
+            # Monday-gap kill spec. The Friday post-close scan can't see Monday's
+            # open, so the scanner only STAMPS the rule; order_staging.py enforces
+            # it at the IBKR T+1 session open. For a row whose Scan_Date.weekday()
+            # is in MonGapKill_Weekdays (e.g. [4]=Friday), order_staging drops the
+            # trade if the T+1 open gaps > MonGapKill_ATR * Frozen_ATR above
+            # Signal_Close (MonGapKill_Dir='up'). Empty for strats that don't set it.
+            "MonGapKill_ATR": (
+                strat['settings'].get('t1_gap_kill_atr', '')
+                if strat['settings'].get('use_t1_gap_kill') else ''
+            ),
+            "MonGapKill_Weekdays": (
+                json.dumps(strat['settings'].get('t1_gap_kill_signal_weekdays', []))
+                if strat['settings'].get('use_t1_gap_kill') else ''
+            ),
+            "MonGapKill_Dir": (
+                strat['settings'].get('t1_gap_kill_dir', 'up')
+                if strat['settings'].get('use_t1_gap_kill') else ''
+            ),
             # Tier this signal's universe sits in. order_staging used to read
             # this from the (now retired) Scan_Source column on the Overflow
             # tab — post-merge we stage everything to Order_Staging and the

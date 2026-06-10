@@ -637,6 +637,33 @@ def get_historical_mask(df, params, sznl_map, ticker_name="UNK"):
                         _cond = _next_open <= _threshold
                 conditions.append(_cond)
 
+    # Monday-gap kill — weekday-gated T+1 open gap. Drops a signal when its T+1
+    # open gaps more than t1_gap_kill_atr ATR in the kill direction vs today's
+    # close, but ONLY for signals whose weekday is in t1_gap_kill_signal_weekdays
+    # (e.g. [4] = Friday signals, whose T+1 open lands on Monday). A gap UP kills
+    # the long mean-reversion edge (the bounce already happened at the open), so
+    # 'up' compares NextOpen > Close + atr*ATR. Uses the pre-computed 'NextOpen'
+    # (Open.shift(-1)) and 'DayOfWeekVal' columns. Last row of each ticker has
+    # NextOpen NaN -> kill False -> kept (harmless; there is no T+1 bar to trade).
+    # Mirrored live by order_staging.py via the MonGapKill_* staging stamps.
+    if params.get('use_t1_gap_kill', False) and 'NextOpen' in df.columns:
+        _kill_wds = params.get('t1_gap_kill_signal_weekdays', []) or []
+        _kill_atr = float(params.get('t1_gap_kill_atr', 0) or 0)
+        if _kill_wds and _kill_atr > 0:
+            _kill_dir = params.get('t1_gap_kill_dir', 'up')
+            _no = df['NextOpen'].values
+            _close = df['Close'].values
+            _atr = df['ATR'].values
+            _wd_gated = np.isin(df['DayOfWeekVal'].values, _kill_wds)
+            with np.errstate(invalid='ignore'):
+                if _kill_dir == 'down':
+                    _gap_kill = _no < (_close - (_kill_atr * _atr))
+                else:
+                    _gap_kill = _no > (_close + (_kill_atr * _atr))
+            _gap_kill = np.nan_to_num(_gap_kill, nan=False).astype(bool)
+            # Keep everything EXCEPT (gated weekday AND gap beyond threshold).
+            conditions.append(~(_wd_gated & _gap_kill))
+
     # MA touch filter
     if params.get('use_ma_touch', False):
         ma_col_map = {"SMA 10": "SMA10", "SMA 20": "SMA20", "SMA 50": "SMA50", "SMA 100": "SMA100", "SMA 200": "SMA200", 

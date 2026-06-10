@@ -1005,6 +1005,15 @@ _STRATEGY_BOOK_RAW = [
             "excluded_years": [],
             "use_ref_ticker_filter": False, "ref_ticker": "IWM", "ref_filters": [],
             "use_t1_open_filter": False, "t1_open_filters": [],
+            # Monday-gap kill: drop a signal when its T+1 open gaps more than
+            # t1_gap_kill_atr ATR in the kill direction vs the signal close, but
+            # ONLY for signals whose weekday is in t1_gap_kill_signal_weekdays.
+            # [4] = Friday signals (T+1 open lands on Monday); a Monday signal
+            # (T+1 = Tuesday) is untouched. A gap UP kills the long mean-reversion
+            # edge (the bounce already happened at the open). Enforced in the
+            # backtest by get_historical_mask (drops the candidate); enforced live
+            # by order_staging.py via the MonGapKill_* staging stamps.
+            "use_t1_gap_kill": True, "t1_gap_kill_atr": 0.5, "t1_gap_kill_dir": "up", "t1_gap_kill_signal_weekdays": [4],
             "use_xsec_filter": False, "xsec_filters": [],
             "atr_sznl_filters": []
         },
