@@ -256,7 +256,7 @@ def cap_per_channel(candidates: list[dict], n: int = TOPN_PER_CHANNEL) -> list[d
 
 
 # -----------------------------------------------------------------------------
-def build(asof: pd.Timestamp) -> tuple[str, dict]:
+def build(asof: pd.Timestamp, grades=("A",)) -> tuple[str, dict]:
     regime = load_regime(asof)
     ctx = {"asof": asof, "regime": regime, "min_rr": 2.0, "universe": list(IDEA_UNIVERSE)}
     print(f"[regime] {regime.get('summary')}")
@@ -265,6 +265,10 @@ def build(asof: pd.Timestamp) -> tuple[str, dict]:
     candidates = universe_filter(candidates)
     candidates = negative_filter(candidates, asof, ctx)
     candidates = apply_fdr(candidates)
+    if grades:
+        kept = [c for c in candidates if c.get("conviction") in grades]
+        print(f"[grade-filter] showing {'+'.join(grades)} only: {len(kept)}/{len(candidates)} kept")
+        candidates = kept
     candidates = cap_per_channel(candidates)
 
     n_ideas = sum(1 for c in candidates if c["direction"] != "context")
@@ -275,7 +279,8 @@ def build(asof: pd.Timestamp) -> tuple[str, dict]:
     for c in candidates:
         c["channel"] = CHANNEL_TITLES.get(c["channel"], c["channel"])
 
-    summary = (f"**{n_ideas} discretionary setups** flagged across {n_channels} channels. "
+    grade_lbl = ("+".join(grades) + "-grade") if grades else "all"
+    summary = (f"**{n_ideas} {grade_lbl} setups** flagged across {n_channels} channels. "
                f"These are NOT live-book signals - the systematic scanner trades those separately.")
 
     meta = {
@@ -294,11 +299,13 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--asof", default=None, help="override as-of date (YYYY-MM-DD)")
     ap.add_argument("--stdout", action="store_true", help="print markdown to stdout instead of writing")
+    ap.add_argument("--grades", default="A", help="conviction grades to show, e.g. A / AB / ABC; 'all' for no filter")
     args = ap.parse_args()
 
+    grades = None if args.grades.lower() == "all" else tuple(args.grades.upper())
     asof = resolve_asof(args.asof)
     print(f"=== daily_seasonal_ideas asof {asof.date()} ===")
-    md, payload = build(asof)
+    md, payload = build(asof, grades=grades)
 
     if args.stdout:
         print("\n" + md)

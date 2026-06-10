@@ -594,14 +594,187 @@ def _confirms(stat, direction, min_n: int = 8) -> bool:
     return stat["pct_down"] <= 0.40 and stat["mean"] > 0.003
 
 
+def cycle_blended_expected_move(px, asof, N, blend: float = 0.75):
+    """Expected ATR move blended `blend` current-cycle + (1-blend) all-years,
+    matching the rank engine's 75/25 cycle weighting. Falls back to whichever
+    component is available."""
+    allm = expected_atr_move(px, asof, N)
+    cyc = expected_atr_move(px, asof, N, cycle_phase_filter=pd.Timestamp(asof).year % 4)
+    if allm is None:
+        return cyc
+    if cyc is None:
+        return allm
+    return blend * cyc + (1 - blend) * allm
+
+
+def seasonal_window_blended(px, asof, N, blend: float = 0.75) -> dict | None:
+    """Blend current-cycle and all-years realized window stats (cycle gets
+    `blend` weight - the rank engine's 75/25). Confirmation and sizing both key
+    off this so the tool screens and sizes on the SAME seasonal the rank is
+    built from. Returns blended mean/pct_down, the blended ATR expected move,
+    both component stat dicts, and a sign-conflict `disagree` flag."""
+    s_all = seasonal_window_returns(px, asof, N)
+    if not s_all or s_all.get("insufficient"):
+        return None
+    s_cyc = seasonal_window_returns(px, asof, N, cycle_phase_filter=pd.Timestamp(asof).year % 4)
+    cyc_ok = bool(s_cyc and not s_cyc.get("insufficient"))
+    if cyc_ok:
+        b_mean = blend * s_cyc["mean"] + (1 - blend) * s_all["mean"]
+        b_pct_down = blend * s_cyc["pct_down"] + (1 - blend) * s_all["pct_down"]
+    else:
+        b_mean, b_pct_down = s_all["mean"], s_all["pct_down"]
+    disagree = cyc_ok and (np.sign(s_cyc["mean"]) != np.sign(s_all["mean"]))
+    ea_all = expected_atr_move(px, asof, N)
+    ea_cyc = expected_atr_move(px, asof, N, cycle_phase_filter=pd.Timestamp(asof).year % 4)
+    if ea_all is None:
+        ea = ea_cyc
+    elif ea_cyc is None:
+        ea = ea_all
+    else:
+        ea = blend * ea_cyc + (1 - blend) * ea_all
+    return {"mean": b_mean, "pct_down": b_pct_down, "ea": ea,
+            "ea_all": ea_all, "ea_cyc": ea_cyc,
+            "all": s_all, "cyc": s_cyc, "cyc_ok": cyc_ok, "disagree": disagree}
+
+
+def _confirms_blended(blend, direction, min_n: int = 8) -> bool:
+    """The 75/25-blended realized window confirms the claimed direction. Needs a
+    baseline of all-years history (n >= min_n) so the cycle isn't trusted alone."""
+    if blend is None or blend["all"].get("n", 0) < min_n:
+        return False
+    if direction == "short":
+        return blend["pct_down"] >= 0.60 and blend["mean"] < -0.003
+    return blend["pct_down"] <= 0.40 and blend["mean"] > 0.003
+
+
+# Short-duration mandate: 5/10/21d only. The 63d swing bucket is retired.
+TACTICAL_HORIZONS = (5, 10, 21)
+SWING_HORIZONS = ()
+
+
+_CYCLE_NAME = {0: "election", 1: "post-elec", 2: "midterm", 3: "pre-elec"}
+
+# Signal-quality 2x2 (magnitude x consistency). A leg is STRONG when the move is
+# BIG and the hit-rate is RELIABLE; OK when both are decent; else WEAK. The
+# magnitude bars are anchored at the 21d horizon and scaled DOWN by sqrt(time)
+# for shorter windows -- a 5d move can't be held to a 21d move's size (price
+# dispersion grows ~ sqrt(N)).
+SZN_HIT_STRONG = 0.66
+SZN_MAG_STRONG = 1.5    # ATR at the reference horizon
+SZN_HIT_OK = 0.58
+SZN_MAG_OK = 0.7        # ATR at the reference horizon
+SZN_REF_HORIZON = 21
+
+
+def _horizon_scale(N) -> float:
+    """sqrt(time) scaling of magnitude expectations, anchored at SZN_REF_HORIZON."""
+    return (float(N) / SZN_REF_HORIZON) ** 0.5
+
+
+def _leg_grade(hit, ea, N) -> str:
+    """Grade one sample's leg by magnitude AND consistency, with the magnitude
+    bar scaled to the horizon (shorter window -> smaller required move)."""
+    if hit is None or not np.isfinite(hit) or ea is None:
+        return "WEAK"
+    mag = abs(ea)
+    sc = _horizon_scale(N)
+    if hit >= SZN_HIT_STRONG and mag >= SZN_MAG_STRONG * sc:
+        return "STRONG"
+    if hit >= SZN_HIT_OK and mag >= SZN_MAG_OK * sc:
+        return "OK"
+    return "WEAK"
+
+
+def _grade_2x2(cyc_leg: str, all_leg: str, disagree: bool) -> str:
+    """Conviction from the cycle (primary) + all-years (upgrade) legs.
+
+    A = STRONG cycle confirmed by all-years (OK or STRONG) - big + reliable in
+        the cycle AND it carries to the full sample.
+    B = STRONG cycle alone, or STRONG all-years with a supporting cycle - a
+        cycle-specific (or all-years-driven) bet.
+    C = marginal, or the two samples conflict in direction.
+    """
+    if disagree:
+        return "C"
+    if cyc_leg == "STRONG" and all_leg in ("STRONG", "OK"):
+        return "A"
+    if (cyc_leg == "STRONG" and all_leg == "WEAK") or (all_leg == "STRONG" and cyc_leg in ("STRONG", "OK")):
+        return "B"
+    return "C"
+
+
+def _seasonal_candidate(channel, t, px, asof, h, direction, blend, ticket, rk, bucket):
+    """Build one ticketed candidate from a confirmed (direction, horizon). Sizing
+    and screening are 75/25 cycle-blended; both the cycle and all-years realized
+    counts are shown, and a sign-conflict between them is flagged."""
+    s_all, s_cyc = blend["all"], blend["cyc"]
+    ea, ea_all, ea_cyc = blend["ea"], blend["ea_all"], blend["ea_cyc"]
+    phase = pd.Timestamp(asof).year % 4
+    cyc_name = _CYCLE_NAME[phase]
+    word = "lower" if direction == "short" else "higher"
+    ndir_all = s_all["n_down"] if direction == "short" else s_all["n_up"]
+    all_hit = ndir_all / s_all["n"]
+    binom_p = binom_p_greater(ndir_all, s_all["n"])  # all-years significance, for FDR
+    cyc_shown = blend["cyc_ok"] and s_cyc.get("n", 0) >= 3
+    if cyc_shown:
+        ndir_cyc = s_cyc["n_down"] if direction == "short" else s_cyc["n_up"]
+        cyc_hit = ndir_cyc / s_cyc["n"]
+    else:
+        ndir_cyc = None
+        cyc_hit = float("nan")
+
+    # conviction = the magnitude x consistency 2x2, cycle primary + all-years
+    # upgrade; magnitude bars scaled to the horizon (shorter -> smaller move)
+    cyc_leg = _leg_grade(cyc_hit, ea_cyc, h)
+    all_leg = _leg_grade(all_hit, ea_all, h)
+    conviction = _grade_2x2(cyc_leg, all_leg, blend["disagree"])
+
+    verb = "SELL" if direction == "short" else "BUY"
+    head = f"{verb} {t} - {h}d {bucket} window"
+    if cyc_shown:
+        head += f", {cyc_name} {ndir_cyc}/{s_cyc['n']}"
+    head += f" + all-yrs {ndir_all}/{s_all['n']} {word}"
+    ev = {
+        "TICKET": (f"{verb} ~{ticket['entry']:.2f} | stop {ticket['stop']:.2f} ({ticket['stop_atr']:.1f} ATR) | "
+                   f"target {ticket['target']:.2f} | time-stop {h}td | R/R {ticket['rr']:.1f}"),
+        "quality": f"cycle {cyc_leg} / all-years {all_leg} (magnitude x consistency)",
+        f"{cyc_name} cycle": (f"{ndir_cyc}/{s_cyc['n']} {word}, {ea_cyc:+.1f} ATR"
+                              if cyc_shown and ea_cyc is not None else "insufficient cycle history"),
+        "all-years": (f"{ndir_all}/{s_all['n']} {word}, {ea_all:+.1f} ATR"
+                      if ea_all is not None else f"{ndir_all}/{s_all['n']} {word}"),
+        "blended target": f"{ea:+.2f} ATR over {h}td (75/25 cycle-blend)",
+        "rank": f"atr_sznl_{h}d = {rk:.0f}",
+        "binomial p (all-yrs)": f"{binom_p:.3f}" if np.isfinite(binom_p) else "n/a",
+    }
+    notes = None
+    if blend["disagree"]:
+        notes = f"all-years seasonal disagrees in sign with {cyc_name} - graded C (conflict)"
+
+    # rank by grade tier, then magnitude x consistency (cycle-weighted), then R/R
+    base = {"A": 300.0, "B": 200.0, "C": 100.0}[conviction]
+    cyc_s = (cyc_hit if np.isfinite(cyc_hit) else 0.0) * abs(ea_cyc or 0.0)
+    all_s = all_hit * abs(ea_all or 0.0)
+    sort_key = base + 6.5 * cyc_s + 3.5 * all_s + ticket["rr"]
+    return make_candidate(
+        channel, t, direction, head, horizon=f"{h}d", evidence=ev,
+        conviction=conviction, p_value=float(binom_p) if np.isfinite(binom_p) else None,
+        sort_key=sort_key, asof=asof, notes=notes,
+    )
+
+
 def scan_seasonal_tickets(universe, asof, channel, *, min_rr: float = 2.0,
                           ranks: pd.DataFrame | None = None,
-                          horizons=(5, 10, 21, 63), short_thr: float = 15,
-                          long_thr: float = 85, min_dollar_vol: float = 5e6) -> list:
-    """Scan `universe` across all `horizons`, surface the best realized-confirmed
-    seasonal setup per name, and attach a trade ticket. Emits SWING TICKETS only
-    (R/R >= min_rr); names whose seasonal move is too small to clear the R/R bar
-    are dropped. Returns candidate dicts (via make_candidate)."""
+                          horizons=(5, 10, 21), short_thr: float = 15,
+                          long_thr: float = 85, min_dollar_vol: float = 5e6,
+                          cycle_blend: float = 0.75) -> list:
+    """Scan `universe` across `horizons`; emit swing tickets (R/R >= min_rr).
+
+    Horizon selection: a name can yield up to TWO tickets - one tactical (<=21d)
+    and one swing (>=63d) - when it clears the R/R + realized gate in both
+    buckets. Within a bucket the horizon with the best R/R wins, ties broken
+    toward the SHORTER window (so a tight tactical setup is not buried by a
+    larger-but-sprawling long-horizon move). Names whose seasonal move is too
+    small to clear the R/R bar at any horizon are dropped."""
     asof = pd.Timestamp(asof).normalize()
     cs = seasonal_cross_section(asof=asof, ranks=ranks)
     names = [t for t in universe if t in cs.index]
@@ -611,7 +784,15 @@ def scan_seasonal_tickets(universe, asof, channel, *, min_rr: float = 2.0,
         px = prices.get(_norm_ticker(t))
         if px is None or len(px) < 300:
             continue
-        best = None
+        is_fut_or_idx = t.startswith("^") or t.endswith("=F") or t.endswith("=X")
+        if not is_fut_or_idx:
+            dvol = recent_dollar_volume(px)
+            if np.isfinite(dvol) and dvol < min_dollar_vol:
+                continue
+
+        # collect every (direction, horizon) that clears the 75/25-blended
+        # realized gate AND the R/R bar (confirmation + sizing both cycle-blended)
+        quals = []
         for h in horizons:
             col = f"atr_sznl_{h}d"
             if col not in cs.columns:
@@ -620,74 +801,31 @@ def scan_seasonal_tickets(universe, asof, channel, *, min_rr: float = 2.0,
             for direction, ext in (("short", rk < short_thr), ("long", rk > long_thr)):
                 if not ext:
                     continue
-                s = seasonal_window_returns(px, asof, h)
-                if not _confirms(s, direction):
+                blend = seasonal_window_blended(px, asof, h, blend=cycle_blend)
+                if not _confirms_blended(blend, direction):
                     continue
-                score = (s["pct_down"] if direction == "short" else 1 - s["pct_down"]) * abs(s["mean"])
-                if best is None or score > best[0]:
-                    best = (score, h, direction, s, rk)
-        if best is None:
+                ea = blend["ea"]
+                if ea is None:
+                    continue
+                if (direction == "short" and ea >= 0) or (direction == "long" and ea <= 0):
+                    continue  # blended expected move sign must match the trade
+                ticket = build_trade_ticket(px, asof, direction, h, ea, min_rr=min_rr,
+                                            min_stop_atr=max(0.5, 0.8 * _horizon_scale(h)))
+                if ticket is None or not ticket["is_ticket"]:
+                    continue  # swing tickets only
+                quals.append({"h": h, "direction": direction, "blend": blend,
+                              "ticket": ticket, "rk": rk})
+        if not quals:
             continue
-        score, h, direction, s, rk = best
 
-        is_fut_or_idx = t.startswith("^") or t.endswith("=F") or t.endswith("=X")
-        if not is_fut_or_idx:
-            dvol = recent_dollar_volume(px)
-            if np.isfinite(dvol) and dvol < min_dollar_vol:
+        # one ticket per bucket: best R/R, tie-break toward the shorter horizon
+        for bucket_hz, bucket_name in ((TACTICAL_HORIZONS, "tactical"), (SWING_HORIZONS, "swing")):
+            bucket = [q for q in quals if q["h"] in bucket_hz]
+            if not bucket:
                 continue
-
-        ea = expected_atr_move(px, asof, h)
-        if ea is None:
-            continue
-        if (direction == "short" and ea >= 0) or (direction == "long" and ea <= 0):
-            continue  # expected move sign must match the trade
-
-        ticket = build_trade_ticket(px, asof, direction, h, ea, min_rr=min_rr)
-        if ticket is None or not ticket["is_ticket"]:
-            continue  # swing tickets only
-
-        mt = seasonal_window_returns(px, asof, h, cycle_phase_filter=2)
-        ndir = s["n_down"] if direction == "short" else s["n_up"]
-        binom_p = binom_p_greater(ndir, s["n"])
-        midterm_ok = bool(mt and not mt.get("insufficient") and mt.get("n", 0) >= 4)
-        word = "lower" if direction == "short" else "higher"
-
-        if midterm_ok:
-            md = mt["n_down"] if direction == "short" else mt["n_up"]
-            midterm_strong = (md / mt["n"]) >= (5 / 6)
-        else:
-            midterm_strong = False
-        pct_dir = s["pct_down"] if direction == "short" else (1 - s["pct_down"])
-        allyr_strong = pct_dir >= 0.65
-        p_ok = np.isfinite(binom_p) and binom_p < 0.10
-        if midterm_strong and allyr_strong:
-            conviction = "A"
-        elif allyr_strong and (midterm_ok or p_ok or ticket["rr"] >= 2.5):
-            conviction = "B"
-        else:
-            conviction = "C"
-
-        verb = "SELL" if direction == "short" else "BUY"
-        head = f"{verb} {t} - {h}d seasonal window, closed {word} {ndir}/{s['n']} all-yrs ({s['mean']:+.1%})"
-        if midterm_ok:
-            md = mt["n_down"] if direction == "short" else mt["n_up"]
-            head += f", midterm {md}/{mt['n']}"
-        ev = {
-            "TICKET": (f"{verb} ~{ticket['entry']:.2f} | stop {ticket['stop']:.2f} ({ticket['stop_atr']:.1f} ATR) | "
-                       f"target {ticket['target']:.2f} | time-stop {h}td | R/R {ticket['rr']:.1f}"),
-            "seasonal": f"{ndir}/{s['n']} {word} all-yrs ({s['mean']:+.1%}, med {s['median']:+.1%})",
-            "expected move": f"{ea:+.2f} ATR over {h}td",
-            "rank": f"atr_sznl_{h}d = {rk:.0f}",
-            "binomial p": f"{binom_p:.3f}" if np.isfinite(binom_p) else "n/a",
-        }
-        if midterm_ok:
-            md = mt["n_down"] if direction == "short" else mt["n_up"]
-            ev["midterm"] = f"{md}/{mt['n']} {word} ({mt['mean']:+.1%})"
-        out.append(make_candidate(
-            channel, t, direction, head, horizon=f"{h}d", evidence=ev,
-            conviction=conviction, p_value=float(binom_p) if np.isfinite(binom_p) else None,
-            sort_key=ticket["rr"] * score * 100.0, asof=asof,
-        ))
+            q = sorted(bucket, key=lambda x: (-x["ticket"]["rr"], x["h"]))[0]
+            out.append(_seasonal_candidate(channel, t, px, asof, q["h"], q["direction"],
+                                           q["blend"], q["ticket"], q["rk"], bucket_name))
     return out
 
 
