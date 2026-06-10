@@ -674,7 +674,10 @@ function renderRolling(dsAll) {
     el.innerHTML = '<p class="cap">Fewer than ~262 trading days of history for these filters — rolling 252d Sharpe unavailable.</p>';
     return;
   }
-  el.innerHTML = "";
+  // Only clear the container when it holds the fallback caption (no live plot).
+  // Wiping innerHTML on an element Plotly has already initialized breaks
+  // Plotly.react on every subsequent render.
+  if (!el._fullLayout) el.innerHTML = "";
   const rets = dsAll.pnl.map(v => v / START_EQ);
   // prefix sums for O(n) rolling mean/std
   const n = rets.length, ps = new Float64Array(n + 1), ps2 = new Float64Array(n + 1);

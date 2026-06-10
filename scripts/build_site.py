@@ -339,7 +339,20 @@ def main():
             shutil.copytree(src, dst, dirs_exist_ok=True)
         else:
             shutil.copy2(src, dst)
-    print(f"  copied static assets from site/")
+    # Cache-bust local asset references so browsers never run stale JS/CSS
+    # against a newer page (Pages caches assets; HTML revalidates).
+    import re
+    bust = datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%d%H%M")
+    for name in os.listdir(out_dir):
+        if not name.endswith(".html"):
+            continue
+        p = os.path.join(out_dir, name)
+        with open(p, encoding="utf-8") as f:
+            html = f.read()
+        html = re.sub(r'(assets/[\w.-]+\.(?:js|css))(?:\?v=\d+)?', rf"\1?v={bust}", html)
+        with open(p, "w", encoding="utf-8") as f:
+            f.write(html)
+    print(f"  copied static assets from site/ (cache-bust v={bust})")
 
     # 2. ledger payloads
     df = load_ledger()
