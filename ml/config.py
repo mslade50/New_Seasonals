@@ -55,8 +55,15 @@ MARKET_FEATURES = [
 META_NUMERIC_FEATURES = ["hold_days_target", "stop_atr", "tgt_atr", "dow", "month"]
 CATEGORICAL_FEATURES = ["Strategy", "Direction", "Tier"]
 
+# Run-3 additions — data the strategy filters do NOT condition on
+# (see ml/ortho_features.py for sources and point-in-time treatment)
+ORTHO_MARKET_FEATURES = ["pc_equity", "pc_equity_z63", "naaim_level", "naaim_z52"]
+ORTHO_TICKER_FEATURES = ["grades_net_21d", "grades_n_63d",
+                         "days_since_earn", "days_to_earn"]
+ORTHO_FEATURES = ORTHO_MARKET_FEATURES + ORTHO_TICKER_FEATURES
+
 ALL_FEATURES = (
-    TICKER_FEATURES + ATR_SZNL_FEATURES + MARKET_FEATURES
+    TICKER_FEATURES + ATR_SZNL_FEATURES + MARKET_FEATURES + ORTHO_FEATURES
     + META_NUMERIC_FEATURES + CATEGORICAL_FEATURES
 )
 # Sensitivity-run ablation: everything seasonal
@@ -116,10 +123,11 @@ BOOTSTRAP_N = 10_000
 # per-batch drift checks (ml.monitor covers them over trailing windows).
 PSI_WARN = 0.20
 PSI_MIN_BATCH = 50
-DAILY_PSI_EXCLUDE = set(MARKET_FEATURES) | {"dow", "month"}
+DAILY_PSI_EXCLUDE = set(MARKET_FEATURES) | set(ORTHO_MARKET_FEATURES) | {"dow", "month"}
 
-RUN_NOTE = ("run-2: market-feature ffill plumbing fix (rolling-window NaN "
-            "holes); design unchanged from run-1")
+RUN_NOTE = ("run-3: + orthogonal features (equity put/call, NAAIM, analyst-"
+            "grade momentum, earnings distance); evaluation design and ship "
+            "criteria unchanged from run-1/2")
 
 
 def ensure_dirs():

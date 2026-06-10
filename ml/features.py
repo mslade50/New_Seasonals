@@ -167,4 +167,8 @@ def assemble_features(trades: pd.DataFrame, price_map: dict, sznl_map: dict,
     for c in config.CATEGORICAL_FEATURES:
         feat[c] = trades.get(c, pd.Series("Unknown", index=trades.index)).astype(str)
 
+    # Run-3 orthogonal features (single code path for train + inference)
+    from ml import ortho_features
+    feat = ortho_features.add_ortho_features(feat, trades, date_col)
+
     return feat[config.ALL_FEATURES]

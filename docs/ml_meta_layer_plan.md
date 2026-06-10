@@ -274,3 +274,20 @@ objective instead of P(win) — though the flat decile-R table suggests little
 headroom; per-strategy stop-hit probability as a *risk* (not expectancy) signal;
 adding features orthogonal to the strategies' own filters (positioning,
 liquidity, cross-asset states); live-fill labels once enough accumulate.
+
+### Run-3 (2026-06-10) — orthogonal features
+
+Added 8 features the strategy filters do not condition on (ml/ortho_features.py):
+CBOE equity put/call level + 63d z (2024+ only — thin, disclosed), NAAIM level +
+52w z (2006+, 86% coverage), analyst-grade momentum (net upgrades 21d, activity
+63d; 2012+, 50% coverage), and earnings distance (days since/to, 71-76%
+coverage). Evaluation design and ship criteria unchanged.
+
+**Verdict: NO SHIP — identical failure mode.** Uplift -0.015R (bootstrap CI
+[-0.047, +0.017], contains zero), 7/15 positive years, SKIP bucket still +0.60R
+at a 47% win rate. Brier 0.2387 vs base-rate 0.2402 (modest real skill,
+unchanged). Conclusion upgraded to high confidence: **per-trade expectancy in
+this book is not gateable by P(win) on any feature set tried — the payoff
+asymmetry is structural, not an artifact of feature overlap with the entry
+rules.** The expectancy-gating line of inquiry is closed; remaining credible
+directions are risk-targeted labels (adverse excursion) and live-fill labels.
