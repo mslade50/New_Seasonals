@@ -305,6 +305,130 @@ def build_correlation(df_flat, md):
     }
 
 
+def build_strat_notes(df):
+    """Per-strategy regime notes: where does trailing performance sit vs the
+    strategy's own history, and what has historically FOLLOWED similar
+    readings (mean reversion vs persistence)?
+
+    Method: rolling 20-trade avg R per strategy; current reading's percentile
+    vs all historical windows; conditional next-20-trade avg R after past
+    readings in the same tail (<=20th or >=80th pctile), with episodes
+    deduplicated at a 10-trade minimum gap. Descriptive, not predictive —
+    overlapping windows and post-selection caveats apply.
+    """
+    W, F, MINGAP, MINTRADES, MINEP = 20, 20, 10, 80, 6
+    MARGIN = 0.08  # min |cond - base| in R to call a tilt
+    closed = df[df["R_Multiple"].notna()].sort_values("Exit Date")
+    asof = closed["Exit Date"].max()
+    notes = []
+    for strat, g in closed.groupby("Strategy"):
+        r = g["R_Multiple"].values.astype(float)
+        T = len(r)
+        if T < MINTRADES:
+            continue
+        trail = np.array([r[i - W + 1:i + 1].mean() for i in range(W - 1, T)])
+        cur = float(trail[-1])
+        pct = float((trail <= cur).mean() * 100)
+        fwd = np.array([r[i + 1:i + 1 + F].mean() if i + F < T else np.nan
+                        for i in range(W - 1, T)])
+        ok = ~np.isnan(fwd)
+        if ok.sum() < 20:
+            continue
+        base = float(fwd[ok].mean())
+        lo_th, hi_th = np.percentile(trail, 20), np.percentile(trail, 80)
+        bucket = "cold" if cur <= lo_th else "hot" if cur >= hi_th else "mid"
+
+        cond_m, cond_n = None, 0
+        if bucket != "mid":
+            mask = (trail <= lo_th) if bucket == "cold" else (trail >= hi_th)
+            sel, last = [], -10**9
+            for j in np.where(mask & ok)[0]:
+                if j - last >= MINGAP:
+                    sel.append(j)
+                    last = j
+            if sel:
+                cond_m, cond_n = float(np.mean(fwd[sel])), len(sel)
+
+        # trailing ~3 months realized R for display
+        recent = g[g["Exit Date"] >= asof - pd.Timedelta(days=91)]
+        r3 = float(recent["R_Multiple"].sum())
+        n3 = int(len(recent))
+
+        # verdict
+        action, verdict = "neutral", ""
+        if bucket == "mid":
+            verdict = (f"Mid-range reading ({pct:.0f}th pctile) — no historical "
+                       f"edge either way from here.")
+        elif cond_n < MINEP or cond_m is None:
+            action = "thin"
+            verdict = (f"Only {cond_n} comparable historical episodes — too thin "
+                       f"to call. Treat as no signal.")
+        else:
+            diff = cond_m - base
+            if bucket == "cold":
+                if diff >= MARGIN:
+                    action = "size_up"
+                    verdict = (f"After past readings this cold, the next {F} trades "
+                               f"averaged {cond_m:+.2f}R vs {base:+.2f}R baseline "
+                               f"({cond_n} episodes) — cold streaks have historically "
+                               f"mean-reverted. If anything, a size-up spot.")
+                elif diff <= -MARGIN:
+                    action = "size_down"
+                    verdict = (f"After past readings this cold, the next {F} trades "
+                               f"averaged {cond_m:+.2f}R vs {base:+.2f}R baseline "
+                               f"({cond_n} episodes) — weakness has historically "
+                               f"persisted. Consider sizing down until it stabilizes.")
+                else:
+                    action = "hold"
+                    verdict = (f"Cold reading, but forward performance after similar "
+                               f"readings ({cond_m:+.2f}R vs {base:+.2f}R baseline, "
+                               f"{cond_n} episodes) is indistinguishable from normal. "
+                               f"No sizing edge — hold native risk.")
+            else:  # hot
+                if diff >= MARGIN:
+                    action = "hold"
+                    verdict = (f"Hot streaks have historically persisted — next {F} "
+                               f"trades averaged {cond_m:+.2f}R vs {base:+.2f}R "
+                               f"baseline ({cond_n} episodes). Comfortable holding "
+                               f"full size.")
+                elif diff <= -MARGIN:
+                    action = "size_down"
+                    verdict = (f"After past readings this hot, the next {F} trades "
+                               f"averaged {cond_m:+.2f}R vs {base:+.2f}R baseline "
+                               f"({cond_n} episodes) — hot streaks have historically "
+                               f"cooled. Don't extrapolate; native size or a trim.")
+                else:
+                    action = "hold"
+                    verdict = (f"Hot reading, but forward performance after similar "
+                               f"readings ({cond_m:+.2f}R vs {base:+.2f}R baseline, "
+                               f"{cond_n} episodes) is roughly normal. Hold native risk.")
+
+        notes.append({
+            "strategy": strat,
+            "n_trades": int(T),
+            "trail_avg_r": round(cur, 3),
+            "trail_pct": round(pct, 1),
+            "bucket": bucket,
+            "fwd_cond": None if cond_m is None else round(cond_m, 3),
+            "fwd_base": round(base, 3),
+            "n_episodes": int(cond_n),
+            "trail_3mo_r": round(r3, 2),
+            "n_3mo_trades": n3,
+            "action": action,
+            "verdict": verdict,
+        })
+
+    # strongest actionable tilts first, then holds, then mid/thin
+    rank = {"size_up": 0, "size_down": 0, "hold": 1, "thin": 2, "neutral": 3}
+    notes.sort(key=lambda x: (rank.get(x["action"], 3),
+                              -abs((x["fwd_cond"] or 0) - x["fwd_base"])))
+    return {
+        "asof": asof.strftime("%Y-%m-%d"),
+        "window": W, "forward": F,
+        "notes": notes,
+    }
+
+
 def fetch_signals():
     """Latest staged orders from Google Sheets (Order_Staging + Overflow)."""
     try:
@@ -383,9 +507,12 @@ def main():
           f"{df['Signal Date'].min().date()} -> {df['Signal Date'].max().date()}")
     write_json(build_trades_json(df), os.path.join(data_dir, "trades.json"))
 
+    write_json(build_strat_notes(df), os.path.join(data_dir, "strat_notes.json"))
+
     df_flat = page_shaped(df)
     flags = {"strategy_daily": False, "positions": False, "exposure": False,
-             "correlation": False, "ideas": False, "signals": False, "risk": False}
+             "correlation": False, "ideas": False, "signals": False, "risk": False,
+             "strat_notes": True}
     if args.no_mtm:
         # dev iteration: keep flags true for payloads already present in dist
         for k, fn in [("strategy_daily", "strategy_daily.json"), ("positions", "positions.json"),
