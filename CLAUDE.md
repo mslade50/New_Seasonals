@@ -228,6 +228,26 @@ Aligned across four systems — change `eod_dd_weekdays` in one place and they a
 - Earnings parquet: `data/earnings_calendar.parquet` — 117k rows, 946 tickers, FMP-backfilled, includes forward dates.
 - 2-path validation note (2026-04-29): 12 of 13 OVS signals on that date would have been killed by the blackout — only USO survived because no earnings data.
 
+## Stop-Arming Convention (book-wide, 2026-06-09)
+
+Stop legs ARM AT THE NEXT SESSION, not at the fill. Decided after measuring
+81 entry-day-stop episodes over 24y: booking -1R each vs arming on day 2 cost
+-33R book-wide (dip-buy limit entries get stopped at max fear; a third of
+MonFri's day-1 stop-outs went on to hit +2R targets).
+
+Aligned across both sides -- change one, change both:
+- `pages/strat_backtester.py` (`process_signals_fast`): entry-day stop check
+  gated on `execution['stop_active_entry_day']`, **default False** (= day-2
+  arming). Set True on a strategy to model a day-1-armed stop.
+- `eq_order_entry.py` (in `C:\Users\mckin\OneDrive\trading_ibkr\`): STP
+  child submitted with `goodAfterTime = next_session_gat()` (next trading day
+  09:30, BDay-aware; holiday dates harmlessly defer to the next real session).
+  Still in the OCA group, so a TARGET/TIME fill cancels the inactive stop.
+
+Related conventions: entry-day TARGETS are never credited in the backtest
+(intraday timing vs fill is ambiguous); OVS has `use_stop_loss=False` entirely
+(its day-one valve is the Friday-only EOD-DD, see section above).
+
 ## Cloudflare R2 Cache + GHA Migration
 
 As of 2026-04-30, the nightly pipeline runs entirely in GitHub Actions. The local Task Scheduler retains the radar tasks plus (as of 2026-05-13) two AM `workflow_dispatch` triggers that bypass GitHub's congested 8-9 UTC cron-queue lag. R2 is the persistence layer that lets cloud workflows share parquet caches.

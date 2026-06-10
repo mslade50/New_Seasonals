@@ -1728,18 +1728,21 @@ def process_signals_fast(candidates, signal_data, processed_dict, strategies, st
         exit_date = df.index[exit_idx]
         exit_type = "Time"
 
-        # ---- Entry-day stop check (live brackets are working from the fill) ----
-        # Live, the stop leg is active the moment the entry fills, so an
-        # entry-day breach stops the position out same-day. With daily bars
-        # this is unambiguous for the book's entry styles: a long limit fills
-        # on the FIRST touch of the limit, so any print at or below the stop
-        # (which sits a full stop_atr*ATR beneath the entry) is chronologically
-        # AFTER the fill; symmetric for shorts. At-open fills are post-fill by
-        # construction. Entry-day TARGET hits stay uncredited — the favorable
-        # extreme may predate the fill (open -> high -> dip to limit), so
-        # crediting them would be optimistic. Net effect: conservative.
+        # ---- Entry-day stop check (only if the stop is armed on day 1) ----
+        # Book-wide convention (2026-06-09): stop legs ARM AT THE NEXT SESSION
+        # (eq_order_entry.py submits the STP child with goodAfterTime = next
+        # trading day 09:30), so entry-day breaches do NOT stop live positions
+        # and this check is OFF by default. Historical basis: across 81
+        # entry-day-stop episodes (24y), booking -1R each vs letting the stop
+        # arm on day 2 cost -33R — dip-buy entries get stopped at max fear.
+        # Set execution['stop_active_entry_day'] = True on a strategy to model
+        # a day-1-armed stop again (and mirror it in eq_order_entry.py). The
+        # check itself is unambiguous with daily bars: a long limit fills on
+        # the FIRST touch, so any print at/below the stop is post-fill;
+        # entry-day TARGETS stay uncredited either way (timing ambiguous).
         entry_day_stopped = False
-        if use_stop and not (pd.isna(stop_price) or stop_price <= 0):
+        if (use_stop and execution.get('stop_active_entry_day', False)
+                and not (pd.isna(stop_price) or stop_price <= 0)):
             _row0 = df.iloc[entry_idx]
             if direction == 'Long':
                 _hit0 = _row0['Low'] <= stop_price
