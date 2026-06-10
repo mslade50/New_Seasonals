@@ -42,6 +42,7 @@ A quantitative equity trading platform built on Streamlit. Three pillars:
 │   ├── bootstrap_caches.yml        # workflow_dispatch only — one-shot full master_prices rebuild
 │   ├── risk_report.yml             # Daily risk dashboard email
 │   ├── verify_fills.yml            # Post-close fill verification
+│   ├── deploy_site.yml             # Nightly private-site build + Cloudflare Pages deploy (22:35 UTC)
 │   └── weekly_rundown.yml          # Sunday weekly PDF
 ├── scripts/                        # Task Scheduler PowerShell wrappers (most disabled post-Phase-2)
 │   ├── run_radar_weekly.ps1        # Sundays 8:30 AM ET — runs radar digest, commits + pushes
@@ -49,9 +50,16 @@ A quantitative equity trading platform built on Streamlit. Three pillars:
 │   ├── build_earnings_calendar.py  # FMP earnings backfill (used by both local + GHA)
 │   ├── update_master_prices.py     # yfinance incremental update (used by both local + GHA)
 │   ├── build_master_prices.py      # One-shot full rebuild (used by bootstrap_caches.yml)
+│   ├── build_trade_ledger.py       # Full-history trade ledger (data/backtest_trades_full.parquet)
+│   ├── build_site.py               # Private-site JSON payloads + static assets -> dist/
+│   ├── build_risk_json.py          # Condensed risk summary for the site (best effort, exits 0)
+│   ├── backtester_html_report.py   # Legacy single-file HTML view (reports/portfolio/)
+│   ├── refresh_view.py             # Local one-command ledger + HTML refresh
 │   └── (DISABLED locally: run_overflow_scan.ps1, run_daily_portfolio_report.ps1, run_master_prices_update.ps1)
+├── site/                           # Private-site frontend (static HTML/CSS/JS, committed)
+├── dist/                           # Site build output — gitignored, deployed to Cloudflare Pages
 ├── data/                           # Persistent cache (parquet files + radar digest) — gitignored
-├── docs/                           # Documentation
+├── docs/                           # Documentation (private_site_setup.md = Cloudflare one-time setup)
 └── tests/                          # Tests
 ```
 
@@ -256,6 +264,7 @@ All five trading-day workflows now run in GHA. Order staging stays local (IBKR-b
 | `bootstrap_caches.yml` | workflow_dispatch only | One-shot: builds `master_prices.parquet` from scratch via yfinance (~10-15 min for ~2000 tickers, 25-yr history) and uploads to R2. Used to seed the bucket (already run during Phase 2 setup). |
 | `risk_report.yml` | Weekdays 21:15 UTC (5:15 PM ET) | Daily risk dashboard email (fragility dials + signals + forward returns). |
 | `verify_fills.yml` | Weekdays 21:15 UTC | Post-close fill verification — updates Trade_Signals_Log. |
+| `deploy_site.yml` | Weekdays 22:35 UTC (6:35 PM ET) | Builds + deploys the private analytics site to Cloudflare Pages (behind Cloudflare Access). Pipeline: R2 caches → `scripts/build_trade_ledger.py` (full-history ledger) → `daily_seasonal_ideas.py` (best effort) → `scripts/build_risk_json.py` (best effort) → `scripts/build_site.py` (JSON payloads + `site/` assets → `dist/`) → wrangler Pages deploy. Needs `CLOUDFLARE_API_TOKEN` + `CLOUDFLARE_ACCOUNT_ID` secrets. One-time setup: `docs/private_site_setup.md`. |
 | `weekly_rundown.yml` | Sundays 14:00 UTC (9 AM ET) | Tabloid PDF with all risk charts + radar digest body. |
 
 ### Local Task Scheduler (post-Phase-2)
@@ -310,6 +319,31 @@ The Claude prompt enforces heavy filtration via two required gates:
 Supporting lenses (non-dogmatic, context-dependent): catalyst magnitude, valuation vs forward reality, trend/market structure, persistence across the week, crowd positioning.
 
 Framework doc: `C:\Users\mckin\Documents\vault\trading\decisions\radar_weekly_digest_framework.md`
+
+## Private Site (Cloudflare Pages)
+
+Static, client-side analytics site deployed nightly by `deploy_site.yml` to
+Cloudflare Pages project `seasonals-mslade`, locked behind Cloudflare Access
+(email OTP, allowlist = mckinleyslade@gmail.com). One-time setup doc:
+`docs/private_site_setup.md`.
+
+- **Frontend** lives in `site/` (committed): `index.html` (portfolio app),
+  `ideas.html`, `signals.html`, `risk.html` + `assets/` (vanilla JS + Plotly
+  CDN, no build step, no framework). `site/_headers` sets no-store on `/data/*`.
+- **Payload contract** (written by `scripts/build_site.py` into `dist/data/`):
+  `meta.json`, `trades.json` (columnar full ledger), `strategy_daily.json`
+  (per `Strategy||Tier` daily MTM PnL on the FLAT $750k basis + book totals),
+  `positions.json`, `exposure.json`, `correlation.json`, plus optional
+  `ideas.json` / `signals.json` (Sheets snapshot) / `risk.json`.
+- **Sizing-basis rule**: client-side filtering recomputes everything on the
+  flat $750k basis because per-trade dollars are additive. Strategy/tier/date
+  filters get exact daily MTM curves (sum of per-strategy series);
+  direction/ticker filters fall back to realized-PnL-at-exit step curves and
+  the UI shows a badge. The compounded curve is shipped read-only — it cannot
+  be decomposed per-filter (sizing depended on whole-book equity).
+- **Local dev**: `python scripts/build_site.py --no-signals` then
+  `python -m http.server 8123 --directory dist`. `--no-mtm` skips the slow
+  payloads when iterating on frontend only.
 
 ## Google Sheets Integration
 

@@ -1,0 +1,79 @@
+name: Deploy Private Site
+
+# Builds the static private analytics site (full-history trade ledger ->
+# client-side analytics app) and deploys it to Cloudflare Pages, behind
+# Cloudflare Access. See docs/private_site_setup.md for the one-time
+# Cloudflare configuration.
+#
+# Runs after the post-close pipeline so every payload is fresh:
+#   20:30 UTC  update_master_prices (PM cron — today's close lands in R2)
+#   21:30 UTC  portfolio report / earnings calendar
+#   22:00 UTC  daily_screener PM bookend (Sheets staging tabs rewritten)
+#   22:35 UTC  THIS — rebuild ledger + site, deploy
+
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
+on:
+  schedule:
+    - cron: '35 22 * * 1-5'
+  workflow_dispatch:
+
+jobs:
+  build-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Pull caches from R2
+        env:
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+        run: |
+          python -c "from cache_io import download_to_local; \
+            download_to_local('master_prices.parquet', 'data/master_prices.parquet'); \
+            download_to_local('earnings_calendar.parquet', 'data/earnings_calendar.parquet'); \
+            download_to_local('atr_seasonal_ranks.parquet', 'atr_seasonal_ranks.parquet'); \
+            download_to_local('overflow_universe.parquet', 'data/overflow_universe.parquet'); \
+            download_to_local('earnings_calendar_overflow.parquet', 'data/earnings_calendar_overflow.parquet')"
+
+      - name: Build full-history trade ledger
+        env:
+          OVERFLOW_UNIVERSE_ACTIVE: "0"
+        run: python scripts/build_trade_ledger.py
+
+      - name: Build daily seasonal ideas (best effort)
+        continue-on-error: true
+        env:
+          OVERFLOW_UNIVERSE_ACTIVE: "0"
+        run: python daily_seasonal_ideas.py
+
+      - name: Build risk summary JSON (best effort, always exits 0)
+        run: python scripts/build_risk_json.py
+
+      - name: Build site
+        env:
+          GCP_JSON: ${{ secrets.GCP_JSON }}
+          OVERFLOW_UNIVERSE_ACTIVE: "0"
+        run: python scripts/build_site.py
+
+      - name: Deploy to Cloudflare Pages
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: pages deploy dist --project-name=seasonals-mslade --branch=main

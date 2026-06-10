@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>Portfolio — Seasonals</title>
+<link rel="stylesheet" href="assets/style.css">
+<script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
+<script src="assets/common.js"></script>
+<script src="assets/portfolio.js"></script>
+</head>
+<body>
+<header class="topbar" id="topbar"></header>
+<div class="wrap">
+  <h1>Portfolio — full strategy book</h1>
+  <p class="sub" id="subtitle">Loading...</p>
+
+  <div class="filters" id="filters"></div>
+
+  <div class="kpis" id="kpis"><div class="spin">Loading ledger...</div></div>
+
+  <h2>Equity &amp; Drawdown — flat $750k basis
+    <span class="note" id="basisNote" style="display:none">direction / ticker filter active —
+      curve uses realized PnL booked at exit (vol metrics approximate)</span></h2>
+  <div class="card">
+    <div class="chart" id="eqChart"></div>
+    <div class="chart" id="ddChart"></div>
+  </div>
+
+  <div class="grid2">
+    <div>
+      <h2>Cumulative R by strategy</h2>
+      <div class="card"><div class="chart" id="cumRChart"></div></div>
+    </div>
+    <div>
+      <h2>Rolling 252d Sharpe</h2>
+      <div class="card"><div class="chart" id="rollSharpeChart"></div></div>
+    </div>
+  </div>
+
+  <h2>Monthly returns (% of $750k)</h2>
+  <div class="card"><div class="chart" id="monthlyChart"></div></div>
+
+  <div class="grid3">
+    <div>
+      <h2>R distribution</h2>
+      <div class="card"><div class="chart" id="histChart"></div></div>
+    </div>
+    <div>
+      <h2>Month seasonality</h2>
+      <div class="card"><div class="chart" id="monthSeasChart"></div></div>
+    </div>
+    <div>
+      <h2>Weekday &amp; hold</h2>
+      <div class="card"><div class="chart" id="weekdaySeasChart"></div>
+      <div class="chart" id="holdChart"></div></div>
+    </div>
+  </div>
+
+  <h2>Per-strategy metrics <span class="cap" style="display:inline">(filtered)</span></h2>
+  <div id="stratTable"></div>
+
+  <h2>Annual performance <span class="cap" style="display:inline">(filtered)</span></h2>
+  <div id="yearTable"></div>
+
+  <h2>Open positions <span class="cap" style="display:inline">(full book — unaffected by filters)</span></h2>
+  <div class="kpis" id="posCards"></div>
+  <div id="positionsTable"></div>
+
+  <h2>Trade log <span class="cap" style="display:inline">(filtered)</span></h2>
+  <div id="tradeLog"></div>
+
+  <h2>Book reference — fixed sections</h2>
+  <p class="cap">These reflect the FULL book and do not respond to filters: compounded sizing
+     depends on whole-book equity and cannot be decomposed per-filter.</p>
+  <div class="grid2">
+    <div>
+      <h3 class="cap">Compounded equity (log, $750k start)</h3>
+      <div class="card"><div class="chart" id="refChart"></div></div>
+    </div>
+    <div>
+      <h3 class="cap">Exposure over time (% of $750k, flat basis)</h3>
+      <div class="card"><div class="chart" id="expChart"></div></div>
+    </div>
+  </div>
+  <div class="grid2">
+    <div>
+      <h3 class="cap">Strategy daily-PnL correlation</h3>
+      <div class="card"><div class="chart" id="corrChart"></div></div>
+    </div>
+    <div>
+      <h3 class="cap">Diversification scorecard</h3>
+      <div id="divTable"></div>
+    </div>
+  </div>
+
+  <footer>Private analytics site. Data regenerated nightly from the persistent backtest ledger.</footer>
+</div>
+</body>
+</html>
