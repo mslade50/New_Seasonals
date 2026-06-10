@@ -910,6 +910,16 @@ function renderStatic() {
           fmt: v => `<span class="badge ${v === "Short" ? "dirS" : "dirL"}">${v || ""}</span>` },
         { key: "Entry_Price", label: "Entry $", fmt: v => fmt.num(v, 2) },
         { key: "Current_Price", label: "Last $", fmt: v => v == null ? "" : fmt.num(v, 2) },
+        { key: "Stop_Price", label: "Stop $", fmt: v => v == null ? "" : fmt.num(v, 2),
+          cls: (v, r) => {
+            if (v == null || r.Current_Price == null) return "";
+            const long = r.Direction !== "Short";
+            const distAtr = Math.abs(r.Current_Price - v) /
+              Math.max(1e-9, Math.abs(r.Entry_Price - v));
+            return (long ? r.Current_Price <= v : r.Current_Price >= v) ? "neg"
+              : distAtr < 0.35 ? "neg" : "";
+          } },
+        { key: "Tgt_Price", label: "Target $", fmt: v => v == null ? "" : fmt.num(v, 2) },
         { key: "Shares", label: "Shares", fmt: v => fmt.num(v, 1) },
         { key: "Mkt_Value", label: "Mkt Value", fmt: v => fmt.money(v) },
         { key: "Open_PnL", label: "Open PnL", fmt: v => fmt.money(v), cls: clsSign },

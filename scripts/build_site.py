@@ -145,13 +145,24 @@ def load_master_for(df):
 
 
 # ---------------------------------------------------------------- payloads
-def build_trades_json(df):
-    # Open = time stop not yet reached (same rule as build_positions). These
-    # rows live in the Open Positions section; the trade log excludes them.
+def open_mask(df):
+    """Genuinely-open trades: time stop not yet reached AND no stop/target/
+    other exit has triggered (open trades are marked Exit Type == 'Time' at
+    the last bar by the backtester). A trade that stopped out before its
+    time stop is CLOSED even though its Time Stop date is still in the future."""
     today = pd.Timestamp.today().normalize()
-    if "Time Stop" in df.columns:
-        df = df.copy()
-        df["Open_Flag"] = (df["Time Stop"] >= today).astype(bool)
+    if "Time Stop" not in df.columns:
+        return pd.Series(False, index=df.index)
+    m = df["Time Stop"] >= today
+    if "Exit Type" in df.columns:
+        m &= df["Exit Type"].astype(str).eq("Time")
+    return m
+
+
+def build_trades_json(df):
+    # Open rows live in the Open Positions section; the trade log excludes them.
+    df = df.copy()
+    df["Open_Flag"] = open_mask(df).astype(bool)
     cols = {
         "trade_id": ("trade_id", "auto", None),
         "Strategy": ("Strategy", "str", None),
@@ -215,7 +226,7 @@ def build_positions(df, md):
     today = pd.Timestamp.today().normalize()
     if "Time Stop" not in df.columns:
         return {"asof": today.strftime("%Y-%m-%d"), "positions": []}
-    open_df = df[df["Time Stop"] >= today].copy()
+    open_df = df[open_mask(df)].copy()
     out = []
     for i in open_df.index:
         rec = open_df.loc[i]
@@ -232,12 +243,24 @@ def build_positions(df, md):
         entry = float(rec["Entry Price"])
         is_long = str(rec.get("Direction", "Long")) == "Long"
         opnl = None if last is None else round((last - entry) * shares * (1 if is_long else -1), 2)
+        # Stop / target levels from the strategy's bracket params
+        atr = rec.get("ATR")
+        s_atr, t_atr = rec.get("stop_atr"), rec.get("tgt_atr")
+        stop_px = tgt_px = None
+        if atr is not None and not pd.isna(atr):
+            sgn = 1 if is_long else -1
+            if s_atr is not None and not pd.isna(s_atr):
+                stop_px = round(entry - sgn * float(s_atr) * float(atr), 4)
+            if t_atr is not None and not pd.isna(t_atr):
+                tgt_px = round(entry + sgn * float(t_atr) * float(atr), 4)
         out.append({
             "Strategy": rec["Strategy"], "Tier": rec.get("Tier"),
             "Ticker": rec["Ticker"], "Direction": rec.get("Direction"),
             "Entry_Date": _clean(rec["Entry Date"]), "Time_Stop": _clean(rec["Time Stop"]),
             "Entry_Price": round(entry, 4),
             "Current_Price": None if last is None else round(last, 4),
+            "Stop_Price": stop_px,
+            "Tgt_Price": tgt_px,
             "Shares": round(shares, 2),
             "Mkt_Value": None if last is None else round(last * shares, 2),
             "Open_PnL": opnl,
