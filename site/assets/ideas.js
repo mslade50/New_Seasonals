@@ -3,10 +3,44 @@
 
 document.addEventListener("DOMContentLoaded", init);
 
+const NOTE_BADGE = {
+  size_up:   { cls: "dirL", label: "SIZE-UP TILT" },
+  size_down: { cls: "dirS", label: "SIZE-DOWN TILT" },
+  hold:      { cls: "conv", label: "HOLD NATIVE" },
+  thin:      { cls: "warn", label: "THIN SAMPLE" },
+  neutral:   { cls: "conv", label: "NEUTRAL" },
+};
+
+function renderStratNotes(payload) {
+  if (!payload || !payload.notes || !payload.notes.length) return;
+  document.getElementById("stratNotesSection").style.display = "";
+  const W = payload.window;
+  document.getElementById("stratNotes").innerHTML = payload.notes.map(n => {
+    const b = NOTE_BADGE[n.action] || NOTE_BADGE.neutral;
+    const pctCls = n.bucket === "cold" ? "neg" : n.bucket === "hot" ? "pos" : "neu";
+    const r3Cls = clsSign(n.trail_3mo_r);
+    return `<div class="card idea">
+      <div class="head">
+        <span class="tkr">${esc(n.strategy)}</span>
+        <span class="badge ${b.cls}">${b.label}</span>
+        <span class="chan">${n.n_trades.toLocaleString()} trades all-time</span>
+      </div>
+      <div class="headline">Trailing ${W}-trade avg R <b class="${pctCls}">${fmt.signed(n.trail_avg_r, 2)}</b>
+        — <b class="${pctCls}">${Math.round(n.trail_pct)}th %ile</b> of its own history.
+        Trailing 3mo: <b class="${r3Cls}">${fmt.signed(n.trail_3mo_r, 1)}R</b> over ${n.n_3mo_trades} trades.</div>
+      <p class="cap" style="margin:4px 0 0">${esc(n.verdict)}</p>
+    </div>`;
+  }).join("");
+}
+
 async function init() {
   renderNav("ideas.html");
   const el = document.getElementById("content");
-  const data = await fetchJSONOrNull("data/ideas.json");
+  const [data, notes] = await Promise.all([
+    fetchJSONOrNull("data/ideas.json"),
+    fetchJSONOrNull("data/strat_notes.json"),
+  ]);
+  renderStratNotes(notes);
   if (!data) {
     el.innerHTML = '<p class="cap">No ideas payload in this build (daily_seasonal_ideas.py did not run).</p>';
     return;

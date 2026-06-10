@@ -50,14 +50,13 @@ async function init() {
       fetchJSON("data/meta.json"), fetchJSON("data/trades.json")]);
     S.meta = meta;
     S.trades = rowsFromColumnar(trades);
-    const [sd, pos, exp, corr, notes] = await Promise.all([
+    const [sd, pos, exp, corr] = await Promise.all([
       meta.payloads.strategy_daily ? fetchJSONOrNull("data/strategy_daily.json") : null,
       meta.payloads.positions ? fetchJSONOrNull("data/positions.json") : null,
       meta.payloads.exposure ? fetchJSONOrNull("data/exposure.json") : null,
       meta.payloads.correlation ? fetchJSONOrNull("data/correlation.json") : null,
-      fetchJSONOrNull("data/strat_notes.json"),
     ]);
-    S.sd = sd; S.positions = pos; S.exposure = exp; S.corr = corr; S.stratNotes = notes;
+    S.sd = sd; S.positions = pos; S.exposure = exp; S.corr = corr;
     if (sd) {
       S.dateIdx = sd.dates;
       sd.dates.forEach((d, i) => S.dateToI.set(d, i));
@@ -885,43 +884,7 @@ function renderTradeLog(tr) {
 }
 
 /* ---------- static (full-book) sections ---------- */
-const NOTE_BADGE = {
-  size_up:   { cls: "dirL", label: "SIZE-UP TILT" },
-  size_down: { cls: "dirS", label: "SIZE-DOWN TILT" },
-  hold:      { cls: "conv", label: "HOLD NATIVE" },
-  thin:      { cls: "warn", label: "THIN SAMPLE" },
-  neutral:   { cls: "conv", label: "NEUTRAL" },
-};
-
-function renderStratNotes() {
-  const el = document.getElementById("stratNotes");
-  if (!S.stratNotes || !S.stratNotes.notes || !S.stratNotes.notes.length) {
-    el.innerHTML = '<p class="cap">No strategy notes in this build (older data payload — refreshes tonight).</p>';
-    return;
-  }
-  const esc = s => String(s).replace(/[&<>"']/g, c =>
-    ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
-  const W = S.stratNotes.window;
-  el.innerHTML = S.stratNotes.notes.map(n => {
-    const b = NOTE_BADGE[n.action] || NOTE_BADGE.neutral;
-    const pctCls = n.bucket === "cold" ? "neg" : n.bucket === "hot" ? "pos" : "neu";
-    const r3Cls = clsSign(n.trail_3mo_r);
-    return `<div class="card idea">
-      <div class="head">
-        <span class="tkr">${esc(n.strategy)}</span>
-        <span class="badge ${b.cls}">${b.label}</span>
-        <span class="chan">${n.n_trades.toLocaleString()} trades all-time</span>
-      </div>
-      <div class="headline">Trailing ${W}-trade avg R <b class="${pctCls}">${fmt.signed(n.trail_avg_r, 2)}</b>
-        — <b class="${pctCls}">${Math.round(n.trail_pct)}th %ile</b> of its own history.
-        Trailing 3mo: <b class="${r3Cls}">${fmt.signed(n.trail_3mo_r, 1)}R</b> over ${n.n_3mo_trades} trades.</div>
-      <p class="cap" style="margin:4px 0 0">${esc(n.verdict)}</p>
-    </div>`;
-  }).join("");
-}
-
 function renderStatic() {
-  renderStratNotes();
   // open positions
   const posEl = document.getElementById("positionsTable");
   if (S.positions && S.positions.positions.length) {
