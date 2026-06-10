@@ -1728,6 +1728,30 @@ def process_signals_fast(candidates, signal_data, processed_dict, strategies, st
         exit_date = df.index[exit_idx]
         exit_type = "Time"
 
+        # ---- Entry-day stop check (live brackets are working from the fill) ----
+        # Live, the stop leg is active the moment the entry fills, so an
+        # entry-day breach stops the position out same-day. With daily bars
+        # this is unambiguous for the book's entry styles: a long limit fills
+        # on the FIRST touch of the limit, so any print at or below the stop
+        # (which sits a full stop_atr*ATR beneath the entry) is chronologically
+        # AFTER the fill; symmetric for shorts. At-open fills are post-fill by
+        # construction. Entry-day TARGET hits stay uncredited — the favorable
+        # extreme may predate the fill (open -> high -> dip to limit), so
+        # crediting them would be optimistic. Net effect: conservative.
+        entry_day_stopped = False
+        if use_stop and not (pd.isna(stop_price) or stop_price <= 0):
+            _row0 = df.iloc[entry_idx]
+            if direction == 'Long':
+                _hit0 = _row0['Low'] <= stop_price
+            else:
+                _hit0 = _row0['High'] >= stop_price
+            if _hit0:
+                exit_idx = entry_idx
+                exit_date = df.index[entry_idx]
+                exit_price = stop_price
+                exit_type = "Stop"
+                entry_day_stopped = True
+
         # End-of-entry-day drawdown stop (e.g. OVS at 0.25 ATR). Mirrors the
         # live STP-with-goodAfterTime=15:58 leg added in eq_order_entry.py:
         # if entry-day close is more than eod_dd_atr offside vs the actual
@@ -1740,7 +1764,7 @@ def process_signals_fast(candidates, signal_data, processed_dict, strategies, st
         eod_dd_weekdays = execution.get('eod_dd_weekdays', [0, 1, 2, 3, 4])
         eod_dd_dow_ok = (not eod_dd_weekdays) or (df.index[entry_idx].weekday() in eod_dd_weekdays)
         eod_dd_triggered = False
-        if eod_dd_atr_mult > 0 and atr > 0 and eod_dd_dow_ok:
+        if eod_dd_atr_mult > 0 and atr > 0 and eod_dd_dow_ok and not entry_day_stopped:
             entry_close = df.iloc[entry_idx]['Close']
             if direction == 'Long':
                 dd = (entry_price - entry_close) / atr
@@ -1788,7 +1812,7 @@ def process_signals_fast(candidates, signal_data, processed_dict, strategies, st
             return False
 
         # Check for stop/target/signal-deact hits day by day
-        if not eod_dd_triggered and (use_stop or use_target or use_signal_exit):
+        if not entry_day_stopped and not eod_dd_triggered and (use_stop or use_target or use_signal_exit):
             for check_idx in range(entry_idx + 1, max_exit_idx + 1):
                 check_row = df.iloc[check_idx]
                 day_low = check_row['Low']
