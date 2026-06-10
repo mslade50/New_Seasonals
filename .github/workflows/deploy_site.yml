@@ -5,23 +5,29 @@ name: Deploy Private Site
 # Cloudflare Access. See docs/private_site_setup.md for the one-time
 # Cloudflare configuration.
 #
-# Runs after the post-close pipeline so every payload is fresh:
-#   20:30 UTC  update_master_prices (PM cron — today's close lands in R2)
-#   21:30 UTC  portfolio report / earnings calendar
-#   22:00 UTC  daily_screener PM bookend (Sheets staging tabs rewritten)
-#   22:35 UTC  THIS — rebuild ledger + site, deploy
+# Trigger: EVENT-DRIVEN off daily_screener completion (not cron). GitHub's
+# shared-cron queue delays the 22:00 UTC PM scan to ~23:20 UTC in practice,
+# so a fixed-time site cron raced the scan and could snapshot stale staging
+# tabs. Chaining off workflow_run guarantees ordering and gives two fresh
+# rebuilds per trading day:
+#   ~09:00 UTC  after the 4:47 AM ET dispatch scan  -> morning staging + marks
+#   ~23:40 UTC  after the (lagged) PM bookend scan  -> tomorrow's staged orders
+# Failed scans don't trigger a rebuild — the previous deploy stays up and the
+# next successful scan self-heals the site.
 
 concurrency:
   group: ${{ github.workflow }}
   cancel-in-progress: false
 
 on:
-  schedule:
-    - cron: '35 22 * * 1-5'
+  workflow_run:
+    workflows: ["Daily Strategy Scan (Liquid + Overflow)"]
+    types: [completed]
   workflow_dispatch:
 
 jobs:
   build-deploy:
+    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repo

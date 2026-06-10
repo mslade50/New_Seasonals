@@ -42,7 +42,7 @@ A quantitative equity trading platform built on Streamlit. Three pillars:
 │   ├── bootstrap_caches.yml        # workflow_dispatch only — one-shot full master_prices rebuild
 │   ├── risk_report.yml             # Daily risk dashboard email
 │   ├── verify_fills.yml            # Post-close fill verification
-│   ├── deploy_site.yml             # Nightly private-site build + Cloudflare Pages deploy (22:35 UTC)
+│   ├── deploy_site.yml             # Private-site build + Pages deploy — chained off daily_screener completion (2x/day)
 │   └── weekly_rundown.yml          # Sunday weekly PDF
 ├── scripts/                        # Task Scheduler PowerShell wrappers (most disabled post-Phase-2)
 │   ├── run_radar_weekly.ps1        # Sundays 8:30 AM ET — runs radar digest, commits + pushes
@@ -308,7 +308,7 @@ All five trading-day workflows now run in GHA. Order staging stays local (IBKR-b
 | `bootstrap_caches.yml` | workflow_dispatch only | One-shot: builds `master_prices.parquet` from scratch via yfinance (~10-15 min for ~2000 tickers, 25-yr history) and uploads to R2. Used to seed the bucket (already run during Phase 2 setup). |
 | `risk_report.yml` | Weekdays 21:15 UTC (5:15 PM ET) | Daily risk dashboard email (fragility dials + signals + forward returns). |
 | `verify_fills.yml` | Weekdays 21:15 UTC | Post-close fill verification — updates Trade_Signals_Log. |
-| `deploy_site.yml` | Weekdays 22:35 UTC (6:35 PM ET) | Builds + deploys the private analytics site to Cloudflare Pages (behind Cloudflare Access). Pipeline: R2 caches → `scripts/build_trade_ledger.py` (full-history ledger) → `daily_seasonal_ideas.py` (best effort) → `scripts/build_risk_json.py` (best effort) → `scripts/build_site.py` (JSON payloads + `site/` assets → `dist/`) → wrangler Pages deploy. Needs `CLOUDFLARE_API_TOKEN` + `CLOUDFLARE_ACCOUNT_ID` secrets. One-time setup: `docs/private_site_setup.md`. |
+| `deploy_site.yml` | Event-driven: fires on successful `daily_screener` completion (2x/trading day — after the ~4:47 AM ET dispatch scan and after the PM bookend, which cron-lag pushes to ~7:20-7:40 PM ET). No cron of its own; failed scans skip the rebuild and the prior deploy stays up. | Builds + deploys the private analytics site to Cloudflare Pages (behind Cloudflare Access). Pipeline: R2 caches → `scripts/build_trade_ledger.py` (full-history ledger) → `daily_seasonal_ideas.py` (best effort) → `scripts/build_risk_json.py` (best effort) → `scripts/build_site.py` (JSON payloads + `site/` assets → `dist/`) → wrangler Pages deploy. Needs `CLOUDFLARE_API_TOKEN` + `CLOUDFLARE_ACCOUNT_ID` secrets. One-time setup: `docs/private_site_setup.md`. |
 | `weekly_rundown.yml` | Sundays 14:00 UTC (9 AM ET) | Tabloid PDF with all risk charts + radar digest body. |
 
 ### Local Task Scheduler (post-Phase-2)
