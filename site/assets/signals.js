@@ -9,10 +9,40 @@
 
 document.addEventListener("DOMContentLoaded", init);
 
+// strategy (UPPERCASE) -> {note, cycle} context joined from the ideas-page
+// payloads; rendered as a "Strategy context" block on each card
+let S_CTX = new Map();
+
+const NOTE_LABEL = {
+  size_up: ["dirL", "SIZE-UP TILT"], size_down: ["dirS", "SIZE-DOWN TILT"],
+  hold: ["conv", "HOLD NATIVE"], thin: ["warn", "THIN SAMPLE"], neutral: ["conv", "NEUTRAL"],
+};
+
+function buildStratContext(notes, ideas) {
+  const m = new Map();
+  for (const n of (notes && notes.notes) || []) {
+    m.set(n.strategy.toUpperCase(), { note: n, cycle: null });
+  }
+  // Regime / Sleeve Tilt candidates use the strategy name (uppercased) as
+  // their ticker; "BOOK" is book-level and stays on the ideas page.
+  for (const c of (ideas && ideas.candidates) || []) {
+    if (!/sleeve|regime/i.test(c.channel || "") || !c.ticker || c.ticker === "BOOK") continue;
+    const k = String(c.ticker).toUpperCase();
+    if (!m.has(k)) m.set(k, { note: null, cycle: null });
+    m.get(k).cycle = c;
+  }
+  return m;
+}
+
 async function init() {
   renderNav("signals.html");
   const el = document.getElementById("content");
-  const data = await fetchJSONOrNull("data/signals.json");
+  const [data, notes, ideas] = await Promise.all([
+    fetchJSONOrNull("data/signals.json"),
+    fetchJSONOrNull("data/strat_notes.json"),
+    fetchJSONOrNull("data/ideas.json"),
+  ]);
+  S_CTX = buildStratContext(notes, ideas);
   if (!data) {
     el.innerHTML = '<p class="cap">No signals payload in this build (Sheets fetch skipped or failed).</p>';
     return;
@@ -133,7 +163,33 @@ function signalCard(r) {
       lmt && qty ? ` | ~${money(lmt * qty)} notional` : ""}</div>
     ${openHtml}
     ${critHtml}
+    ${stratContextHtml(strat)}
   </div>`;
+}
+
+/* "Strategy context" block — joined from strat_notes.json (trailing-percentile
+   regime note) and ideas.json (cycle/sleeve tilt). Same data as the Ideas page,
+   surfaced where the order decision happens. */
+function stratContextHtml(stratName) {
+  const ctx = S_CTX.get(String(stratName).toUpperCase());
+  if (!ctx || (!ctx.note && !ctx.cycle)) return "";
+  const lines = [];
+  if (ctx.note) {
+    const n = ctx.note;
+    const [cls, label] = NOTE_LABEL[n.action] || NOTE_LABEL.neutral;
+    const pctCls = n.bucket === "cold" ? "neg" : n.bucket === "hot" ? "pos" : "";
+    lines.push(`<div class="oc-line"><span class="badge ${cls}">${label}</span> ` +
+      `trailing 20-trade avg R <b class="${pctCls}">${fmt.signed(n.trail_avg_r, 2)}</b> ` +
+      `(<b class="${pctCls}">${Math.round(n.trail_pct)}th %ile</b> of its history); ` +
+      `3mo ${fmt.signed(n.trail_3mo_r, 1)}R.</div>`);
+    if (n.verdict) lines.push(`<div class="oc-line">${esc(n.verdict)}</div>`);
+  }
+  if (ctx.cycle && ctx.cycle.headline) {
+    const h = String(ctx.cycle.headline);
+    const tone = /fade|de-risk|under/i.test(h) ? "dirS" : /lean into|favorable|outperform/i.test(h) ? "dirL" : "conv";
+    lines.push(`<div class="oc-line"><span class="badge ${tone}">CYCLE</span> ${esc(h)}</div>`);
+  }
+  return `<div class="openconds"><div class="oc-h">Strategy context</div>${lines.join("")}</div>`;
 }
 
 /* Concrete price levels for the rules order_staging enforces at the T+1 open */
