@@ -1,0 +1,52 @@
+# ML advisory scoring — runs after the PM scan has rewritten the staging tabs
+# (daily_screener PM cron 22:00 UTC + ~10 min runtime). ADVISORY ONLY: scores
+# go to data/ml/scores (artifact) + the dedicated ML_Scores Sheets tab; no
+# existing tab or pipeline consumes them. Model artifact is pulled from R2
+# (uploaded by `python -m ml.train`). Fail-safe: ml.score_daily always exits 0.
+# Activated 2026-06-10 (was workflow_dispatch-only at first build).
+name: ML Advisory Score
+
+on:
+  schedule:
+    - cron: "25 22 * * 1-5"
+  workflow_dispatch:
+
+jobs:
+  score:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Pull caches from R2
+        env:
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+        run: |
+          python -c "from cache_io import download_to_local; \
+            download_to_local('master_prices.parquet', 'data/master_prices.parquet'); \
+            download_to_local('atr_seasonal_ranks.parquet', 'atr_seasonal_ranks.parquet')"
+
+      - name: Score staged signals (advisory, fail-safe)
+        env:
+          GCP_JSON: ${{ secrets.GCP_JSON }}
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+        run: python -m ml.score_daily --source sheets --sheets-out
+
+      - name: Upload scores artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ml-scores
+          path: data/ml/scores/
+          if-no-files-found: warn
