@@ -1,0 +1,187 @@
+{
+  "meta": {
+    "asof": "2026-06-08",
+    "regime": "Extended uptrend, stretched above trend; fragility 63d 31 (robust); 45d since 5% pullback; 0 fragility signals on; core exposure mult 1.0x",
+    "summary": "**3 discretionary setups** flagged across 4 channels. These are NOT live-book signals - the systematic scanner trades those separately.",
+    "stale_notes": [],
+    "footer": "Methodology: binomial p tests the realized day-of-year count (k of n years closed the claimed way vs 50%) for THIS calendar window - a selected, descriptive stat (post-selection optimistic), not an out-of-sample guarantee. FDR badge = Benjamini-Hochberg multiplicity control across the day's statistical candidates (strict; 'borderline' is common and expected). Conviction (A/B/C) is driven by the realized cycle + all-years counts and magnitude. Near-miss is negative-filtered against the live book so it never duplicates a systematic signal. 'midterm' stats are re-derived from raw prices filtered to year%4==2, since the blended seasonal rank collapses the cycle and cannot express it."
+  },
+  "candidates": [
+    {
+      "channel": "Equity Seasonal Tickets",
+      "ticker": "AMT",
+      "direction": "long",
+      "headline": "BUY AMT - 63d seasonal window, closed higher 13/21 all-yrs (+5.3%), midterm 4/5",
+      "horizon": "63d",
+      "evidence": {
+        "TICKET": "BUY ~193.91 | stop 186.23 (1.5 ATR) | target 209.28 | time-stop 63td | R/R 2.0",
+        "seasonal": "13/21 higher all-yrs (+5.3%, med +6.9%)",
+        "expected move": "+3.04 ATR over 63td",
+        "rank": "atr_sznl_63d = 92",
+        "binomial p": "0.192",
+        "midterm": "4/5 higher (+8.7%)",
+        "FDR": "borderline"
+      },
+      "conviction": "C",
+      "p_value": 0.19165515899658203,
+      "sort_key": 5.552066419940957,
+      "asof": "2026-06-08",
+      "notes": null
+    },
+    {
+      "channel": "Regime / Sleeve Tilt",
+      "ticker": "BOOK",
+      "direction": "context",
+      "headline": "Midterm Year regime: book win% 52.5 vs 58.8 all-years, n=734 - de-risk",
+      "horizon": "regime",
+      "evidence": {
+        "regime": "Midterm Year (cycle=2), Jun",
+        "book_win": "52.5% vs 58.8% (gap -6.4pp)",
+        "book_R": "+0.29R vs +0.46R all-years",
+        "n": "734 midterm trades",
+        "vol": "VIX 18.9 (mid tercile)"
+      },
+      "conviction": "A",
+      "p_value": null,
+      "sort_key": 4662.343842950621,
+      "asof": "2026-06-08",
+      "notes": "Sleeve cells gated at n>=15; favorable=lean into, unfavorable=fade. Current VIX 18.9 (mid tercile)."
+    },
+    {
+      "channel": "Regime / Sleeve Tilt",
+      "ticker": "OVERBOT VOL SPIKE",
+      "direction": "context",
+      "headline": "Midterm Year Overbot Vol Spike (Short): win% 53.8 vs 64.5 all-years (n=210) - fade",
+      "horizon": "regime",
+      "evidence": {
+        "regime_win": "53.8% vs 64.5% (gap -10.6pp)",
+        "regime_R": "+0.19R vs +0.43R",
+        "n": "210 midterm / 1100 all-years",
+        "month": "Jun win% 69.5 (n=128, all cycles)"
+      },
+      "conviction": "A",
+      "p_value": null,
+      "sort_key": 2235.454545454545,
+      "asof": "2026-06-08",
+      "notes": "VIX 18.9 (mid tercile). Sleeve = Strategy x Direction; fade in Midterm Year years."
+    },
+    {
+      "channel": "Regime / Sleeve Tilt",
+      "ticker": "LT TREND ST OS",
+      "direction": "context",
+      "headline": "Midterm Year LT Trend ST OS (Long): win% 55.3 vs 68.2 all-years (n=76) - fade",
+      "horizon": "regime",
+      "evidence": {
+        "regime_win": "55.3% vs 68.2% (gap -12.9pp)",
+        "regime_R": "+0.19R vs +0.31R",
+        "n": "76 midterm / 242 all-years",
+        "month": "Jun win% 51.7 (n=29, all cycles)"
+      },
+      "conviction": "A",
+      "p_value": null,
+      "sort_key": 981.8181818181806,
+      "asof": "2026-06-08",
+      "notes": "VIX 18.9 (mid tercile). Sleeve = Strategy x Direction; fade in Midterm Year years."
+    },
+    {
+      "channel": "Regime / Sleeve Tilt",
+      "ticker": "SPY QQQ MONFRI REVERSION",
+      "direction": "context",
+      "headline": "Midterm Year SPY QQQ MonFri Reversion (Long): win% 47.3 vs 62.7 all-years (n=55) - fade",
+      "horizon": "regime",
+      "evidence": {
+        "regime_win": "47.3% vs 62.7% (gap -15.4pp)",
+        "regime_R": "+0.22R vs +0.52R",
+        "n": "55 midterm / 209 all-years",
+        "month": "Jun win% 73.1 (n=26, all cycles)"
+      },
+      "conviction": "A",
+      "p_value": null,
+      "sort_key": 847.3684210526318,
+      "asof": "2026-06-08",
+      "notes": "VIX 18.9 (mid tercile). Sleeve = Strategy x Direction; fade in Midterm Year years."
+    },
+    {
+      "channel": "Regime / Sleeve Tilt",
+      "ticker": "OVERSOLD LOW VOLUME",
+      "direction": "context",
+      "headline": "Midterm Year Oversold Low Volume (Long): win% 56.8 vs 59.9 all-years (n=81) - fade",
+      "horizon": "regime",
+      "evidence": {
+        "regime_win": "56.8% vs 59.9% (gap -3.2pp)",
+        "regime_R": "+0.41R vs +0.56R",
+        "n": "81 midterm / 372 all-years",
+        "month": "Jun win% 56.0 (n=25, all cycles)"
+      },
+      "conviction": "C",
+      "p_value": null,
+      "sort_key": 255.6451612903228,
+      "asof": "2026-06-08",
+      "notes": "VIX 18.9 (mid tercile). Sleeve = Strategy x Direction; fade in Midterm Year years."
+    },
+    {
+      "channel": "Macro / Cross-Asset Tickets",
+      "ticker": "ZS=F",
+      "direction": "short",
+      "headline": "SELL ZS=F - 63d seasonal window, closed lower 17/25 all-yrs (-5.8%), midterm 4/6",
+      "horizon": "63d",
+      "evidence": {
+        "TICKET": "SELL ~1115.75 | stop 1141.29 (1.4 ATR) | target 1064.68 | time-stop 63td | R/R 2.0",
+        "seasonal": "17/25 lower all-yrs (-5.8%, med -6.8%)",
+        "expected move": "-2.84 ATR over 63td",
+        "rank": "atr_sznl_63d = 8",
+        "binomial p": "0.054",
+        "midterm": "4/6 lower (-7.6%)",
+        "FDR": "borderline"
+      },
+      "conviction": "B",
+      "p_value": 0.05387607216835022,
+      "sort_key": 6.726739477157594,
+      "asof": "2026-06-08",
+      "notes": null
+    },
+    {
+      "channel": "Macro / Cross-Asset Tickets",
+      "ticker": "SB=F",
+      "direction": "long",
+      "headline": "BUY SB=F - 21d seasonal window, closed higher 17/26 all-yrs (+5.6%), midterm 5/6",
+      "horizon": "21d",
+      "evidence": {
+        "TICKET": "BUY ~14.12 | stop 13.81 (0.8 ATR) | target 14.77 | time-stop 21td | R/R 2.1",
+        "seasonal": "17/26 higher all-yrs (+5.6%, med +2.1%)",
+        "expected move": "+1.68 ATR over 21td",
+        "rank": "atr_sznl_21d = 85",
+        "binomial p": "0.084",
+        "midterm": "5/6 higher (+4.6%)",
+        "FDR": "borderline"
+      },
+      "conviction": "A",
+      "p_value": 0.08431877195835114,
+      "sort_key": 6.532609085006827,
+      "asof": "2026-06-08",
+      "notes": null
+    },
+    {
+      "channel": "Sentiment / Positioning",
+      "ticker": "SPY",
+      "direction": "context",
+      "headline": "CBOE put/call elevated (equity 0.67, pctile 81) - fear/washout, contrarian-long context",
+      "horizon": "5-21d",
+      "evidence": {
+        "equity P/C": "0.67 (pctile 81)",
+        "total P/C": "0.97 (pctile 81)",
+        "fwd 5d": "+0.25% mean, 53% pos, N=51",
+        "fwd 10d": "+0.81% mean, 69% pos, N=51",
+        "fwd 21d": "+2.03% mean, 76% pos, N=51",
+        "episodes": "52 declustered",
+        "proxy": "^GSPC",
+        "FDR": "robust"
+      },
+      "conviction": "B",
+      "p_value": 0.009987780995377902,
+      "sort_key": 35.254098360655725,
+      "asof": "2026-06-08",
+      "notes": "Thin ~2.4yr P/C history (since 2024-01-02); unconditional baseline is a bull-market window so absolute means run rich - read the lift, not the level. Conviction capped at B. Reading asof 2026-06-05."
+    }
+  ]
+}

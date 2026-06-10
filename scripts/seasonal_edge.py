@@ -1,0 +1,715 @@
+"""
+seasonal_edge.py - shared core for the daily discretionary trade-idea process.
+
+Pure stats/data helpers with NO daily_scan / strategy_config import, so this
+module stays lightweight and is safely importable (and unit-testable) on its
+own. The heavier engine (daily_seasonal_ideas.py) wires these together with
+the live-book negative filter and the detector channels.
+
+Building blocks
+---------------
+- load_seasonal_ranks / seasonal_cross_section / seasonal_series
+    ATR-normalized 0-100 seasonal ranks at 6 horizons (atr_seasonal_ranks.parquet)
+- load_prices
+    daily OHLCV from master_prices.parquet (+ overflow_prices.parquet fallback)
+- run_event_study(price, condition, ...)
+    generalized lift of risk_dashboard_v2._run_fragility_event_study: forward
+    returns on condition=True dates vs unconditional, declustered, Welch t-test
+- seasonal_window_returns(price, asof, fwd, cycle_phase=...)
+    TRUE presidential-cycle re-derivation from raw prices (the blended rank
+    parquet cannot answer "worked 5/6 in midterm years"; this can)
+- benjamini_hochberg
+    FDR control across the day's candidate set (the dominant multiple-comparisons guard)
+- make_candidate / render_markdown
+    common candidate schema + markdown output
+
+All data sources confirmed present 2026-06-09.
+"""
+
+from __future__ import annotations
+
+import os
+import json
+import sqlite3
+from functools import lru_cache
+
+import numpy as np
+import pandas as pd
+
+try:
+    from scipy import stats as _stats
+except Exception:  # scipy should be present (used by risk_dashboard); degrade if not
+    _stats = None
+
+# -----------------------------------------------------------------------------
+# Paths (resolve relative to repo root = parent of scripts/)
+# -----------------------------------------------------------------------------
+_SCRIPTS_DIR = os.path.dirname(os.path.abspath(__file__))
+REPO_ROOT = os.path.dirname(_SCRIPTS_DIR)
+DATA_DIR = os.path.join(REPO_ROOT, "data")
+
+ATR_SZNL_PATH = os.path.join(REPO_ROOT, "atr_seasonal_ranks.parquet")
+MASTER_PRICES_PATH = os.path.join(DATA_DIR, "master_prices.parquet")
+OVERFLOW_PRICES_PATH = os.path.join(DATA_DIR, "overflow_prices.parquet")
+SZNL_FORECAST_DB = os.path.join(DATA_DIR, "sznl_forecast.db")
+OVERFLOW_UNIVERSE_PATH = os.path.join(DATA_DIR, "overflow_universe.parquet")
+
+ATR_SZNL_WINDOWS = [5, 10, 21, 63, 126, 252]
+ATR_SZNL_COLS = [f"atr_sznl_{w}d" for w in ATR_SZNL_WINDOWS]
+
+DEFAULT_FWD_WINDOWS = [5, 10, 21, 63]
+
+CYCLE_LABELS = {0: "Election Year", 1: "Post-Election", 2: "Midterm Year", 3: "Pre-Election"}
+
+
+def cycle_phase(year: int) -> int:
+    """Presidential-cycle phase: year % 4 (2 == Midterm). 2026 -> 2."""
+    return int(year) % 4
+
+
+def cycle_label(year: int) -> str:
+    return CYCLE_LABELS.get(cycle_phase(year), "Unknown")
+
+
+def _norm_ticker(t: str) -> str:
+    """Match master_prices storage convention (upper, '.'->'-'); leave ^ and =F."""
+    return str(t).strip().upper().replace(".", "-")
+
+
+# -----------------------------------------------------------------------------
+# Seasonal ranks
+# -----------------------------------------------------------------------------
+@lru_cache(maxsize=1)
+def load_seasonal_ranks(path: str | None = None) -> pd.DataFrame:
+    """Long DataFrame [Date(datetime), atr_sznl_*, ticker(upper)]. Cached."""
+    path = path or ATR_SZNL_PATH
+    df = pd.read_parquet(path)
+    df["Date"] = pd.to_datetime(df["Date"]).dt.normalize()
+    df["ticker"] = df["ticker"].astype(str).str.upper()
+    return df
+
+
+def seasonal_cross_section(asof=None, ranks: pd.DataFrame | None = None) -> pd.DataFrame:
+    """Latest seasonal ranks per ticker as of `asof` (default: max date).
+
+    Returns a frame indexed by ticker with the 6 rank columns + the as-of Date
+    each ticker's row was taken from. Uses each ticker's most recent row <= asof
+    (so a ticker that stopped updating still reports its last known rank, with
+    its own Date stamped).
+    """
+    ranks = load_seasonal_ranks() if ranks is None else ranks
+    if asof is not None:
+        ranks = ranks[ranks["Date"] <= pd.Timestamp(asof).normalize()]
+    if ranks.empty:
+        return pd.DataFrame(columns=ATR_SZNL_COLS)
+    idx = ranks.groupby("ticker")["Date"].idxmax()
+    cs = ranks.loc[idx].set_index("ticker")
+    return cs[["Date"] + ATR_SZNL_COLS].sort_index()
+
+
+def seasonal_series(ticker: str, ranks: pd.DataFrame | None = None) -> pd.DataFrame:
+    """Per-ticker seasonal-rank history indexed by Date."""
+    ranks = load_seasonal_ranks() if ranks is None else ranks
+    t = str(ticker).upper()
+    sub = ranks[ranks["ticker"] == t]
+    if sub.empty:
+        return pd.DataFrame(columns=ATR_SZNL_COLS)
+    return sub.set_index("Date")[ATR_SZNL_COLS].sort_index()
+
+
+# -----------------------------------------------------------------------------
+# Prices
+# -----------------------------------------------------------------------------
+def load_prices(tickers, include_overflow: bool = True) -> dict[str, pd.DataFrame]:
+    """{ticker: OHLCV DataFrame indexed by normalized date}.
+
+    Reads master_prices first, then overflow_prices for any still-missing
+    tickers. Uses pyarrow predicate pushdown when available, falls back to a
+    full read + in-memory filter otherwise.
+    """
+    wanted = {_norm_ticker(t) for t in tickers}
+    out: dict[str, pd.DataFrame] = {}
+    cols = ["ticker", "date", "Open", "High", "Low", "Close", "Volume"]
+    paths = [MASTER_PRICES_PATH] + ([OVERFLOW_PRICES_PATH] if include_overflow else [])
+    for path in paths:
+        if not os.path.exists(path):
+            continue
+        need = wanted - set(out)
+        if not need:
+            break
+        try:
+            df = pd.read_parquet(path, columns=cols, filters=[("ticker", "in", list(need))])
+        except Exception:
+            df = pd.read_parquet(path)
+            df = df[[c for c in cols if c in df.columns]]
+            df = df[df["ticker"].astype(str).str.upper().isin(need)]
+        if df is None or df.empty:
+            continue
+        df = df.copy()
+        df["ticker"] = df["ticker"].astype(str).str.upper().str.strip()
+        df["date"] = pd.to_datetime(df["date"])
+        for t, g in df.groupby("ticker"):
+            if t in out:
+                continue
+            sub = g.set_index("date").sort_index()[["Open", "High", "Low", "Close", "Volume"]]
+            if getattr(sub.index, "tz", None) is not None:
+                sub.index = sub.index.tz_localize(None)
+            sub.index = sub.index.normalize()
+            out[t] = sub
+    return out
+
+
+def load_one_price(ticker: str) -> pd.DataFrame | None:
+    d = load_prices([ticker])
+    return d.get(_norm_ticker(ticker))
+
+
+def recent_dollar_volume(price_df: pd.DataFrame, window: int = 63) -> float:
+    """Mean Close*Volume over the trailing `window` bars (liquidity screen)."""
+    if price_df is None or price_df.empty or "Volume" not in price_df:
+        return float("nan")
+    tail = price_df.tail(window)
+    return float((tail["Close"] * tail["Volume"]).mean())
+
+
+# -----------------------------------------------------------------------------
+# Event study (generalized from risk_dashboard_v2._run_fragility_event_study)
+# -----------------------------------------------------------------------------
+def run_event_study(
+    price: pd.Series,
+    condition: pd.Series,
+    forward_windows: list | None = None,
+    decluster: bool = True,
+    min_gap: int = 5,
+) -> dict:
+    """Forward returns on condition=True dates vs the unconditional baseline.
+
+    price      : Series of closes (DatetimeIndex)
+    condition  : boolean Series (DatetimeIndex) — True on candidate signal dates
+    Returns {n_episodes, episode_dates, windows: {w: {...}}} where each window
+    carries n, mean, median, pct_neg, pct_pos, uncond_mean, diff_mean, p_value,
+    worst, best. Forward windows that overlap the (incomplete) tail are dropped
+    via the shift/dropna, so there is no look-ahead on the most recent dates.
+    """
+    if forward_windows is None:
+        forward_windows = DEFAULT_FWD_WINDOWS
+
+    price = price.dropna().sort_index()
+    condition = condition.reindex(price.index).fillna(False).astype(bool)
+
+    sig = condition.copy()
+    if decluster and min_gap > 0:
+        fire = np.where(sig.values)[0]
+        keep = np.ones(len(sig), dtype=bool)
+        last = -min_gap - 1
+        for pos in fire:
+            if pos - last <= min_gap:
+                keep[pos] = False
+            else:
+                last = pos
+        sig = sig & pd.Series(keep, index=sig.index)
+
+    episode_dates = sig[sig].index
+    windows: dict[int, dict] = {}
+    for w in forward_windows:
+        fwd = (price.shift(-w) / price - 1.0).dropna()
+        s = fwd.reindex(episode_dates).dropna()
+        if len(s) == 0:
+            windows[w] = None
+            continue
+        if _stats is not None and len(s) > 2 and len(fwd) > 2:
+            try:
+                _, p_val = _stats.ttest_ind(s.values, fwd.values, equal_var=False)
+            except Exception:
+                p_val = float("nan")
+        else:
+            p_val = float("nan")
+        windows[w] = {
+            "n": int(len(s)),
+            "mean": float(s.mean()),
+            "median": float(s.median()),
+            "pct_neg": float((s < 0).mean()),
+            "pct_pos": float((s > 0).mean()),
+            "uncond_mean": float(fwd.mean()),
+            "diff_mean": float(s.mean() - fwd.mean()),
+            "worst": float(s.min()),
+            "best": float(s.max()),
+            "p_value": float(p_val),
+        }
+    return {
+        "n_episodes": int(len(episode_dates)),
+        "episode_dates": list(episode_dates),
+        "windows": windows,
+    }
+
+
+# -----------------------------------------------------------------------------
+# True presidential-cycle re-derivation (the blended rank parquet cannot do this)
+# -----------------------------------------------------------------------------
+def _trading_doy(index: pd.DatetimeIndex) -> pd.Series:
+    """Trading-day-of-year (1-based) for each date — mirrors the rank builder's
+    day_count index, so cross-year matching aligns with the seasonal grid."""
+    yr = pd.Series(index.year, index=index)
+    doy = yr.groupby(yr.values).cumcount() + 1
+    return pd.Series(doy.values, index=index)
+
+
+def seasonal_window_returns(
+    price_df: pd.DataFrame,
+    asof,
+    forward_window: int,
+    cycle_phase_filter: int | None = None,
+    doy_tol: int = 2,
+    min_years: int = 3,
+    exclude_current_year: bool = True,
+) -> dict | None:
+    """Realized forward returns for THIS calendar window across prior years.
+
+    Picks, in each prior year, the trading day whose day-of-year is closest to
+    `asof`'s day-of-year (within +/-doy_tol), and records the realized
+    `forward_window`-day return from there. With cycle_phase_filter set to
+    asof.year%4 you get the literal "in midterm years it did X" — the stat the
+    blended rank cannot express because the cycle weighting is collapsed in.
+
+    Returns {n, mean, median, n_down, n_up, pct_down, years, rets} or
+    {n, insufficient: True} when fewer than `min_years` matches exist.
+    """
+    if price_df is None or price_df.empty:
+        return None
+    close = price_df["Close"].dropna().sort_index()
+    if close.empty:
+        return None
+    asof = pd.Timestamp(asof).normalize()
+    doy = _trading_doy(close.index)
+    prior = doy[close.index <= asof]
+    if prior.empty:
+        return None
+    target_doy = int(prior.iloc[-1])
+    asof_year = asof.year
+
+    fwd = close.shift(-forward_window) / close - 1.0
+    years_idx = close.index.year
+    rows = []
+    for y in sorted(set(years_idx)):
+        if exclude_current_year and y >= asof_year:
+            continue
+        if cycle_phase_filter is not None and (y % 4) != cycle_phase_filter:
+            continue
+        ymask = years_idx == y
+        ydoy = doy[ymask]
+        cand = ydoy[(ydoy >= target_doy - doy_tol) & (ydoy <= target_doy + doy_tol)]
+        if cand.empty:
+            continue
+        pick_date = (cand - target_doy).abs().idxmin()
+        r = fwd.get(pick_date, np.nan)
+        if pd.notna(r):
+            rows.append((int(y), float(r)))
+
+    if len(rows) < min_years:
+        return {"n": len(rows), "insufficient": True}
+    rets = np.array([r for _, r in rows], dtype=float)
+    return {
+        "n": int(len(rets)),
+        "mean": float(rets.mean()),
+        "median": float(np.median(rets)),
+        "n_down": int((rets < 0).sum()),
+        "n_up": int((rets > 0).sum()),
+        "pct_down": float((rets < 0).mean()),
+        "years": [y for y, _ in rows],
+        "rets": [round(r, 4) for r in rets],
+    }
+
+
+# -----------------------------------------------------------------------------
+# Multiple-comparisons control
+# -----------------------------------------------------------------------------
+def binom_p_greater(k: int, n: int, p0: float = 0.5) -> float:
+    """One-sided binomial p-value: P(X >= k) under Binomial(n, p0).
+
+    This is the honest test for a "this window closed lower k of n years" claim
+    (k = directional count: n_down for a short, n_up for a long). NaN if n < 1.
+    Note: when k is selected on the same seasonal signal used to pick the name,
+    this p is post-selection-optimistic -- treat it as descriptive support for a
+    discretionary idea, not an out-of-sample guarantee.
+    """
+    if n is None or n < 1:
+        return float("nan")
+    k = int(k)
+    n = int(n)
+    if _stats is not None:
+        try:
+            return float(_stats.binomtest(k, n, p0, alternative="greater").pvalue)
+        except Exception:
+            pass
+    from math import sqrt, erf
+    mu = n * p0
+    sd = sqrt(n * p0 * (1 - p0))
+    if sd == 0:
+        return 1.0
+    z = (k - 0.5 - mu) / sd  # continuity correction
+    return float(0.5 * (1 - erf(z / sqrt(2))))
+
+
+def benjamini_hochberg(pvals, alpha: float = 0.10):
+    """Benjamini-Hochberg FDR. Returns (reject_mask: np.bool array, crit_p: float).
+
+    crit_p is the largest p-value still rejected (0.0 if none survive). NaN
+    p-values never reject.
+    """
+    p = np.asarray(pvals, dtype=float)
+    n = len(p)
+    if n == 0:
+        return np.zeros(0, dtype=bool), 0.0
+    valid = ~np.isnan(p)
+    pv = p[valid]
+    m = len(pv)
+    if m == 0:
+        return np.zeros(n, dtype=bool), 0.0
+    order = np.argsort(pv)
+    ranked = pv[order]
+    crit = alpha * (np.arange(1, m + 1) / m)
+    passed = ranked <= crit
+    if not passed.any():
+        return np.zeros(n, dtype=bool), 0.0
+    kmax = int(np.max(np.where(passed)[0]))
+    thresh = float(ranked[kmax])
+    reject = valid & (p <= thresh)
+    return reject, thresh
+
+
+# -----------------------------------------------------------------------------
+# Candidate schema + markdown rendering
+# -----------------------------------------------------------------------------
+def make_candidate(
+    channel: str,
+    ticker: str,
+    direction: str,
+    headline: str,
+    *,
+    horizon: str | None = None,
+    evidence: dict | None = None,
+    conviction: str | None = None,
+    p_value: float | None = None,
+    sort_key: float = 0.0,
+    asof=None,
+    notes: str | None = None,
+) -> dict:
+    """Common candidate record consumed by the engine and the markdown renderer."""
+    return {
+        "channel": channel,
+        "ticker": str(ticker).upper(),
+        "direction": direction,  # 'long' | 'short' | 'context'
+        "headline": headline,
+        "horizon": horizon,
+        "evidence": evidence or {},
+        "conviction": conviction,  # 'A' | 'B' | 'C' | None
+        "p_value": p_value,
+        "sort_key": float(sort_key),
+        "asof": str(pd.Timestamp(asof).date()) if asof is not None else None,
+        "notes": notes,
+    }
+
+
+_DIR_TAG = {"long": "[LONG]", "short": "[SHORT]", "context": "[CONTEXT]"}
+
+
+def render_markdown(candidates: list[dict], meta: dict | None = None) -> str:
+    """Render the ranked candidate set to a committed-markdown digest."""
+    meta = meta or {}
+    asof = meta.get("asof", "")
+    lines = []
+    lines.append(f"# Daily Seasonal / Whitespace Ideas - {asof}")
+    lines.append("")
+    if meta.get("regime"):
+        lines.append(f"_Regime: {meta['regime']}_")
+        lines.append("")
+    if meta.get("summary"):
+        lines.append(meta["summary"])
+        lines.append("")
+    if meta.get("stale_notes"):
+        lines.append("> Data staleness: " + "; ".join(meta["stale_notes"]))
+        lines.append("")
+
+    if not candidates:
+        lines.append("**No setups cleared the bar today.** (This is a feature, not a bug -- "
+                     "the statistical gates are meant to emit zero on quiet days.)")
+        return "\n".join(lines)
+
+    # group by channel, preserve channel order of first appearance
+    order = []
+    by_channel: dict[str, list] = {}
+    for c in candidates:
+        ch = c["channel"]
+        if ch not in by_channel:
+            by_channel[ch] = []
+            order.append(ch)
+        by_channel[ch].append(c)
+
+    for ch in order:
+        rows = sorted(by_channel[ch], key=lambda x: -x["sort_key"])
+        lines.append(f"## {ch}")
+        lines.append("")
+        for c in rows:
+            tag = _DIR_TAG.get(c["direction"], "")
+            conv = f" ({c['conviction']})" if c.get("conviction") else ""
+            hz = f" [{c['horizon']}]" if c.get("horizon") else ""
+            lines.append(f"- {tag} **{c['ticker']}**{hz}{conv} - {c['headline']}")
+            ev = c.get("evidence") or {}
+            if ev:
+                ev_str = "; ".join(f"{k}: {v}" for k, v in ev.items())
+                lines.append(f"  - {ev_str}")
+            if c.get("notes"):
+                lines.append(f"  - _{c['notes']}_")
+        lines.append("")
+    if meta.get("footer"):
+        lines.append("---")
+        lines.append("")
+        lines.append(f"_{meta['footer']}_")
+    return "\n".join(lines)
+
+
+# -----------------------------------------------------------------------------
+# Curated idea universes (megacap equities + macro/cross-asset). Mirrors
+# pages/equity_seasonals.py and pages/macro_seasonality.py, copied here so the
+# core has no streamlit dependency.
+# -----------------------------------------------------------------------------
+MEGACAP_TICKERS = [
+    "MMM", "AXP", "AMGN", "AMZN", "AAPL", "BA", "CAT", "CVX", "CSCO", "KO",
+    "DIS", "GS", "HD", "HON", "IBM", "JNJ", "JPM", "MCD", "MRK", "MSFT",
+    "NKE", "NVDA", "PG", "CRM", "SHW", "TRV", "UNH", "VZ", "V", "WMT",
+    "GOOGL", "XOM", "LLY", "ORCL", "ADBE", "TXN", "QCOM", "PEP", "COST", "LOW",
+    "NFLX", "CMCSA", "T", "NEE", "UNP", "MA", "BAC", "AMT",
+]
+MACRO_TICKERS = [
+    "^GSPC", "^NDX", "^IXIC", "^DJI", "^DJT", "^RUT", "^MID", "^SOX", "GLD",
+    "CEF", "SLV", "BTC-USD", "ETH-USD", "UNG", "UVXY", "EURUSD=X", "JPY=X",
+    "GBPUSD=X", "AUDUSD=X", "NZDUSD=X", "CAD=X", "CHF=X", "DX-Y.NYB", "CL=F",
+    "NG=F", "GC=F", "HG=F", "KC=F", "PL=F", "ZC=F", "ZW=F", "CC=F", "SB=F",
+    "PA=F", "ZS=F", "CT=F", "SI=F", "^FTSE", "^GDAXI", "^FCHI", "^N225", "^HSI",
+    "^STI", "^AXJO", "^KS11", "^TWII", "^BSESN", "^GSPTSE", "^MXX", "^BVSP",
+    "^STOXX50E", "TLT", "IEF", "TIP", "LQD", "HYG", "AGG", "^VIX",
+]
+IDEA_UNIVERSE = MEGACAP_TICKERS + MACRO_TICKERS
+
+
+# -----------------------------------------------------------------------------
+# Trade tickets: expected seasonal move (ATR units) + structure -> entry/stop/target
+# -----------------------------------------------------------------------------
+def atr_wilder(price_df: pd.DataFrame, n: int = 14) -> pd.Series:
+    """Wilder ATR series."""
+    h, l, c = price_df["High"], price_df["Low"], price_df["Close"]
+    pc = c.shift(1)
+    tr = pd.concat([(h - l), (h - pc).abs(), (l - pc).abs()], axis=1).max(axis=1)
+    return tr.ewm(alpha=1.0 / n, adjust=False).mean()
+
+
+def expected_atr_move(price_df, asof, forward_window, cycle_phase_filter=None,
+                      doy_tol: int = 2, min_years: int = 3,
+                      exclude_current_year: bool = True):
+    """Mean ATR-normalized seasonal forward move ((Close[t+N]-Close[t])/ATR) for
+    this calendar window across prior years. This is the magnitude estimate that
+    sizes a ticket's target. Returns float (ATR units) or None."""
+    if price_df is None or price_df.empty:
+        return None
+    close = price_df["Close"].dropna().sort_index()
+    if close.empty:
+        return None
+    atr = atr_wilder(price_df).reindex(close.index)
+    asof = pd.Timestamp(asof).normalize()
+    doy = _trading_doy(close.index)
+    prior = doy[close.index <= asof]
+    if prior.empty:
+        return None
+    target_doy = int(prior.iloc[-1])
+    asof_year = asof.year
+    fwd = (close.shift(-forward_window) - close) / atr
+    yrs = close.index.year
+    vals = []
+    for y in sorted(set(yrs)):
+        if exclude_current_year and y >= asof_year:
+            continue
+        if cycle_phase_filter is not None and (y % 4) != cycle_phase_filter:
+            continue
+        ydoy = doy[yrs == y]
+        cand = ydoy[(ydoy >= target_doy - doy_tol) & (ydoy <= target_doy + doy_tol)]
+        if cand.empty:
+            continue
+        pick = (cand - target_doy).abs().idxmin()
+        v = fwd.get(pick, np.nan)
+        if pd.notna(v):
+            vals.append(float(v))
+    if len(vals) < min_years:
+        return None
+    return float(np.mean(vals))
+
+
+def build_trade_ticket(price_df, asof, direction, forward_window, expected_move_atr,
+                       *, min_rr: float = 2.0, min_stop_atr: float = 0.8,
+                       swing_lookback: int = 20) -> dict | None:
+    """Concrete trade ticket from TA structure + the expected seasonal move.
+
+    target = full expected seasonal move (ATR units); stop sits at the recent
+    swing (structure) but is bounded so reward/risk >= min_rr, floored at
+    min_stop_atr ATR; time-stop = the seasonal window. is_ticket flags whether
+    R/R clears min_rr (below that it's a 'lean', not a standalone swing)."""
+    if price_df is None or len(price_df) < 30:
+        return None
+    atr = float(atr_wilder(price_df).iloc[-1])
+    if not np.isfinite(atr) or atr <= 0:
+        return None
+    entry = float(price_df["Close"].iloc[-1])
+    hi = float(price_df["High"].tail(swing_lookback).max())
+    lo = float(price_df["Low"].tail(swing_lookback).min())
+    em = abs(float(expected_move_atr))
+    if em <= 0:
+        return None
+    if direction == "short":
+        struct_dist = (hi - entry) / atr if hi > entry else 99.0
+    else:
+        struct_dist = (entry - lo) / atr if lo < entry else 99.0
+    stop_dist = max(min(struct_dist, em / min_rr), min_stop_atr)
+    rr = em / stop_dist
+    if direction == "short":
+        stop = entry + stop_dist * atr
+        target = entry - em * atr
+    else:
+        stop = entry - stop_dist * atr
+        target = entry + em * atr
+    return {
+        "entry": round(entry, 4), "stop": round(stop, 4), "target": round(target, 4),
+        "atr": round(atr, 4), "stop_atr": round(stop_dist, 2),
+        "time_stop_days": int(forward_window), "rr": round(rr, 2),
+        "is_ticket": bool(rr >= min_rr - 1e-9),
+        "swing_hi": round(hi, 4), "swing_lo": round(lo, 4),
+        "expected_move_atr": round(float(expected_move_atr), 2),
+    }
+
+
+def _confirms(stat, direction, min_n: int = 8) -> bool:
+    """Realized day-of-year window confirms the claimed direction."""
+    if not stat or stat.get("insufficient") or stat.get("n", 0) < min_n:
+        return False
+    if direction == "short":
+        return stat["pct_down"] >= 0.60 and stat["mean"] < -0.003
+    return stat["pct_down"] <= 0.40 and stat["mean"] > 0.003
+
+
+def scan_seasonal_tickets(universe, asof, channel, *, min_rr: float = 2.0,
+                          ranks: pd.DataFrame | None = None,
+                          horizons=(5, 10, 21, 63), short_thr: float = 15,
+                          long_thr: float = 85, min_dollar_vol: float = 5e6) -> list:
+    """Scan `universe` across all `horizons`, surface the best realized-confirmed
+    seasonal setup per name, and attach a trade ticket. Emits SWING TICKETS only
+    (R/R >= min_rr); names whose seasonal move is too small to clear the R/R bar
+    are dropped. Returns candidate dicts (via make_candidate)."""
+    asof = pd.Timestamp(asof).normalize()
+    cs = seasonal_cross_section(asof=asof, ranks=ranks)
+    names = [t for t in universe if t in cs.index]
+    prices = load_prices(names)
+    out = []
+    for t in names:
+        px = prices.get(_norm_ticker(t))
+        if px is None or len(px) < 300:
+            continue
+        best = None
+        for h in horizons:
+            col = f"atr_sznl_{h}d"
+            if col not in cs.columns:
+                continue
+            rk = float(cs.loc[t, col])
+            for direction, ext in (("short", rk < short_thr), ("long", rk > long_thr)):
+                if not ext:
+                    continue
+                s = seasonal_window_returns(px, asof, h)
+                if not _confirms(s, direction):
+                    continue
+                score = (s["pct_down"] if direction == "short" else 1 - s["pct_down"]) * abs(s["mean"])
+                if best is None or score > best[0]:
+                    best = (score, h, direction, s, rk)
+        if best is None:
+            continue
+        score, h, direction, s, rk = best
+
+        is_fut_or_idx = t.startswith("^") or t.endswith("=F") or t.endswith("=X")
+        if not is_fut_or_idx:
+            dvol = recent_dollar_volume(px)
+            if np.isfinite(dvol) and dvol < min_dollar_vol:
+                continue
+
+        ea = expected_atr_move(px, asof, h)
+        if ea is None:
+            continue
+        if (direction == "short" and ea >= 0) or (direction == "long" and ea <= 0):
+            continue  # expected move sign must match the trade
+
+        ticket = build_trade_ticket(px, asof, direction, h, ea, min_rr=min_rr)
+        if ticket is None or not ticket["is_ticket"]:
+            continue  # swing tickets only
+
+        mt = seasonal_window_returns(px, asof, h, cycle_phase_filter=2)
+        ndir = s["n_down"] if direction == "short" else s["n_up"]
+        binom_p = binom_p_greater(ndir, s["n"])
+        midterm_ok = bool(mt and not mt.get("insufficient") and mt.get("n", 0) >= 4)
+        word = "lower" if direction == "short" else "higher"
+
+        if midterm_ok:
+            md = mt["n_down"] if direction == "short" else mt["n_up"]
+            midterm_strong = (md / mt["n"]) >= (5 / 6)
+        else:
+            midterm_strong = False
+        pct_dir = s["pct_down"] if direction == "short" else (1 - s["pct_down"])
+        allyr_strong = pct_dir >= 0.65
+        p_ok = np.isfinite(binom_p) and binom_p < 0.10
+        if midterm_strong and allyr_strong:
+            conviction = "A"
+        elif allyr_strong and (midterm_ok or p_ok or ticket["rr"] >= 2.5):
+            conviction = "B"
+        else:
+            conviction = "C"
+
+        verb = "SELL" if direction == "short" else "BUY"
+        head = f"{verb} {t} - {h}d seasonal window, closed {word} {ndir}/{s['n']} all-yrs ({s['mean']:+.1%})"
+        if midterm_ok:
+            md = mt["n_down"] if direction == "short" else mt["n_up"]
+            head += f", midterm {md}/{mt['n']}"
+        ev = {
+            "TICKET": (f"{verb} ~{ticket['entry']:.2f} | stop {ticket['stop']:.2f} ({ticket['stop_atr']:.1f} ATR) | "
+                       f"target {ticket['target']:.2f} | time-stop {h}td | R/R {ticket['rr']:.1f}"),
+            "seasonal": f"{ndir}/{s['n']} {word} all-yrs ({s['mean']:+.1%}, med {s['median']:+.1%})",
+            "expected move": f"{ea:+.2f} ATR over {h}td",
+            "rank": f"atr_sznl_{h}d = {rk:.0f}",
+            "binomial p": f"{binom_p:.3f}" if np.isfinite(binom_p) else "n/a",
+        }
+        if midterm_ok:
+            md = mt["n_down"] if direction == "short" else mt["n_up"]
+            ev["midterm"] = f"{md}/{mt['n']} {word} ({mt['mean']:+.1%})"
+        out.append(make_candidate(
+            channel, t, direction, head, horizon=f"{h}d", evidence=ev,
+            conviction=conviction, p_value=float(binom_p) if np.isfinite(binom_p) else None,
+            sort_key=ticket["rr"] * score * 100.0, asof=asof,
+        ))
+    return out
+
+
+if __name__ == "__main__":
+    # Smoke test against today's data.
+    ranks = load_seasonal_ranks()
+    cs = seasonal_cross_section()
+    asof = cs["Date"].max()
+    print(f"seasonal ranks: {ranks.shape}, cross-section asof {asof.date()}, {len(cs)} tickers")
+    low5 = cs[cs["atr_sznl_5d"] < 5].sort_values("atr_sznl_5d")
+    print(f"names at 5d rank < 5: {len(low5)} -> {list(low5.index[:10])}")
+    # event study + cycle re-derivation on the most extreme name
+    if not low5.empty:
+        t = low5.index[0]
+        px = load_one_price(t)
+        if px is not None and len(px) > 300:
+            rk = seasonal_series(t)["atr_sznl_5d"].reindex(px.index).ffill()
+            es = run_event_study(px["Close"], rk < 15, forward_windows=[5, 10, 21])
+            w5 = es["windows"].get(5)
+            print(f"{t}: rank<15 event study 5d -> n={w5['n'] if w5 else 0} "
+                  f"mean={w5['mean']:+.2%} pct_neg={w5['pct_neg']:.0%} p={w5['p_value']:.3f}" if w5 else f"{t}: no 5d window")
+            mt = seasonal_window_returns(px, asof, 5, cycle_phase_filter=2)
+            allp = seasonal_window_returns(px, asof, 5)
+            print(f"{t}: midterm window 5d -> {mt}")
+            print(f"{t}: all-years window 5d -> {allp}")
