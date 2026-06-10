@@ -36,6 +36,8 @@ PUTCALL_PATH = os.path.join(config.DATA_DIR, "cboe_putcall.parquet")
 NAAIM_PATH = os.path.join(config.REPO_ROOT, "naaim.csv")
 GRADES_PATH = os.path.join(config.DATA_DIR, "analyst_grades.parquet")
 EARNINGS_PATH = os.path.join(config.DATA_DIR, "earnings_calendar.parquet")
+FRAGILITY_PATHS = [os.path.join(config.DATA_DIR, "rd2_fragility.parquet"),
+                   os.path.join(config.DATA_DIR, "rd2_fragility_ts.parquet")]
 
 _CACHE = {}
 
@@ -84,6 +86,38 @@ def market_ortho_frame() -> pd.DataFrame:
         out = pd.DataFrame(columns=["pc_equity", "pc_equity_z63",
                                     "naaim_level", "naaim_z52"])
     _CACHE["market"] = out
+    return out
+
+
+def fragility_frame() -> pd.DataFrame:
+    """Risk-dial fragility scores at 5d/21d/63d windows (risk_dashboard_v2
+    composite, data/rd2_fragility.parquet, daily 2016-06 onward; the _ts copy
+    is the slightly-stale site fallback).
+
+    Run-4 disclosure: the series is a reconstruction by the current dashboard
+    code — historical values use today's signal definitions and in-window
+    percentile bands (mild within-window lookahead, inherited from the
+    existing risk system the same way seasonal ranks are).
+    """
+    if "fragility" in _CACHE:
+        return _CACHE["fragility"]
+    out = pd.DataFrame(columns=config.FRAGILITY_FEATURES)
+    for path in FRAGILITY_PATHS:
+        try:
+            fr = pd.read_parquet(path)
+            fr.index = pd.to_datetime(fr.index).normalize()
+            fr = fr[~fr.index.duplicated(keep="last")].sort_index()
+            fr = fr.rename(columns={"5d": "frag_5d", "21d": "frag_21d",
+                                    "63d": "frag_63d"})
+            cols = [c for c in config.FRAGILITY_FEATURES if c in fr.columns]
+            if not cols:
+                continue
+            cal = pd.date_range(fr.index.min(), fr.index.max(), freq="D")
+            out = fr[cols].reindex(cal).ffill(limit=7)
+            break
+        except Exception:
+            continue
+    _CACHE["fragility"] = out
     return out
 
 
@@ -179,6 +213,10 @@ def add_ortho_features(feat: pd.DataFrame, trades: pd.DataFrame,
     mkt.index = trades.index
     for c in ["pc_equity", "pc_equity_z63", "naaim_level", "naaim_z52"]:
         feat[c] = mkt[c] if c in mkt.columns else np.nan
+    frag = fragility_frame().reindex(dts.values)
+    frag.index = trades.index
+    for c in config.FRAGILITY_FEATURES:
+        feat[c] = frag[c] if c in frag.columns else np.nan
     feat = pd.concat([feat, grades_features(trades, date_col),
                       earnings_distance(trades, date_col)], axis=1)
     return feat

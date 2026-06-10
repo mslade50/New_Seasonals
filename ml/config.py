@@ -60,7 +60,11 @@ CATEGORICAL_FEATURES = ["Strategy", "Direction", "Tier"]
 ORTHO_MARKET_FEATURES = ["pc_equity", "pc_equity_z63", "naaim_level", "naaim_z52"]
 ORTHO_TICKER_FEATURES = ["grades_net_21d", "grades_n_63d",
                          "days_since_earn", "days_to_earn"]
-ORTHO_FEATURES = ORTHO_MARKET_FEATURES + ORTHO_TICKER_FEATURES
+# Run-4 additions — risk-dial fragility scores (risk_dashboard_v2 composite,
+# 5d/21d/63d windows, daily 2016-06+; reconstruction caveat disclosed in
+# ml/ortho_features.fragility_frame)
+FRAGILITY_FEATURES = ["frag_5d", "frag_21d", "frag_63d"]
+ORTHO_FEATURES = ORTHO_MARKET_FEATURES + ORTHO_TICKER_FEATURES + FRAGILITY_FEATURES
 
 ALL_FEATURES = (
     TICKER_FEATURES + ATR_SZNL_FEATURES + MARKET_FEATURES + ORTHO_FEATURES
@@ -123,11 +127,11 @@ BOOTSTRAP_N = 10_000
 # per-batch drift checks (ml.monitor covers them over trailing windows).
 PSI_WARN = 0.20
 PSI_MIN_BATCH = 50
-DAILY_PSI_EXCLUDE = set(MARKET_FEATURES) | set(ORTHO_MARKET_FEATURES) | {"dow", "month"}
+DAILY_PSI_EXCLUDE = (set(MARKET_FEATURES) | set(ORTHO_MARKET_FEATURES)
+                     | set(FRAGILITY_FEATURES) | {"dow", "month"})
 
-RUN_NOTE = ("run-3: + orthogonal features (equity put/call, NAAIM, analyst-"
-            "grade momentum, earnings distance); evaluation design and ship "
-            "criteria unchanged from run-1/2")
+RUN_NOTE = ("run-4: + risk-dial fragility scores (frag_5d/21d/63d, 2016-06+); "
+            "evaluation design and ship criteria unchanged from run-1/2/3")
 
 
 def ensure_dirs():

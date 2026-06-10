@@ -308,3 +308,25 @@ implication: modest incremental tail-risk signal exists for OVS specifically,
 where it could inform the EOD-DD valve / stop-arming conventions — but ONLY
 via a dedicated policy backtest (e.g. re-run the 81-episode stop-arming study
 conditioned on predicted risk). No policy change is made here.
+
+### Run-4 (2026-06-10) — risk-dial fragility scores
+
+Added frag_5d / frag_21d / frag_63d from `data/rd2_fragility.parquet`
+(risk_dashboard_v2 composite, daily 2016-06+, ~100% coverage of the 1,921
+trades since; reconstruction caveat: historical values computed by current
+dashboard code with in-window percentile bands — inherited bias, disclosed).
+
+**Findings (permutation importance on OOS folds 2018+, both targets):**
+- Expectancy model: fragility is marginal — frag_63d ranks 16/49, frag_21d
+  24/49, frag_5d noise. Verdict unchanged (NO SHIP, identical failure mode).
+- Excursion model: **frag_63d ranks 6/49** — a genuinely used tail-risk input
+  (behind pct_off_52w_high, rank_ret_atr_21d, spx_rv_21d, atr_sznl_252d,
+  hyg_ief_z63). frag_5d/21d add nothing (too twitchy). Pooled AUC however is
+  flat (0.599 vs 0.606 run-3): the 63d fragility information largely overlaps
+  the vol/credit state features already present — the model substitutes
+  rather than gains.
+
+Net: fragility features RETAINED (model uses frag_63d; daily scoring now
+carries current regime state; no headline degradation), but they do not
+change any verdict. The 5d/21d windows are kept for completeness at zero
+marginal cost; candidates for pruning in a future cleanup run.
