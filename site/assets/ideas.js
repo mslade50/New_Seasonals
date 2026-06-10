@@ -33,13 +33,39 @@ function renderStratNotes(payload) {
   }).join("");
 }
 
+const NUGGET_TONE = {
+  good: { cls: "off",  label: "SUPPORTIVE" },
+  warn: { cls: "warn", label: "WATCH" },
+  bad:  { cls: "on",   label: "CAUTION" },
+  info: { cls: "conv", label: "CONTEXT" },
+};
+
+function renderRiskRead(risk) {
+  if (!risk || !risk.nuggets || !risk.nuggets.length) return;
+  document.getElementById("riskReadSection").style.display = "";
+  document.getElementById("riskRead").innerHTML = risk.nuggets.map(n => {
+    const t = NUGGET_TONE[n.tone] || NUGGET_TONE.info;
+    const lines = (n.lines || []).filter(Boolean).map(l =>
+      `<div class="cap" style="margin:3px 0">${esc(l)}</div>`).join("");
+    return `<div class="card idea">
+      <div class="head"><span class="tkr" style="font-size:13.5px">${esc(n.title)}</span>
+        <span class="badge ${t.cls}">${t.label}</span></div>
+      ${lines}
+    </div>`;
+  }).join("") +
+  `<p class="cap" style="grid-column:1/-1;margin-top:0">As of ${esc(risk.asof || "?")} — full detail on the
+   <a href="risk.html">Risk page</a>. Deterministic read of the same payload; not advice, not predictive.</p>`;
+}
+
 async function init() {
   renderNav("ideas.html");
   const el = document.getElementById("content");
-  const [data, notes] = await Promise.all([
+  const [data, notes, risk] = await Promise.all([
     fetchJSONOrNull("data/ideas.json"),
     fetchJSONOrNull("data/strat_notes.json"),
+    fetchJSONOrNull("data/risk.json"),
   ]);
+  renderRiskRead(risk);
   renderStratNotes(notes);
   if (!data) {
     el.innerHTML = '<p class="cap">No ideas payload in this build (daily_seasonal_ideas.py did not run).</p>';

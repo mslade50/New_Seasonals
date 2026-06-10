@@ -184,6 +184,19 @@ input[type="range"]::-moz-range-thumb {
 }
 .multrow input.tweaked { border-color: var(--amber); }
 
+/* ---------- signal cards ---------- */
+.sigcards { display: grid; grid-template-columns: repeat(auto-fill, minmax(330px, 1fr)); gap: 12px; margin: 10px 0 16px; }
+.sigcard .tkr { font-size: 17px; }
+.sigcard .entryline { margin: 8px 0 6px; font-size: 13px; }
+.sigcard .entryline .muted { color: var(--faint); font-size: 12px; }
+.sigcard .levels { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px; margin: 6px 0; }
+.sigcard .lv { background: var(--card2); border: 1px solid var(--border); border-radius: 7px; padding: 6px 8px; }
+.sigcard .lv span { display: block; color: var(--faint); font-size: 10.5px; text-transform: uppercase; letter-spacing: .4px; }
+.sigcard .lv b { font-size: 12px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.sigcard .riskline { color: var(--muted); font-size: 12px; margin-top: 4px; font-variant-numeric: tabular-nums; }
+.sigcard .chips { margin-top: 7px; display: flex; flex-wrap: wrap; gap: 5px; }
+.rawtbl { padding: 0 14px 12px; }
+
 .chart { width: 100%; }
 .spin { color: var(--faint); padding: 30px 0; text-align: center; }
 .err { color: var(--red); padding: 14px; }
