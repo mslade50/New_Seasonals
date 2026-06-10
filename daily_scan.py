@@ -1393,6 +1393,12 @@ def save_staging_orders(signals_list, strategy_book, sheet_name='Order_Staging',
             # tab — post-merge we stage everything to Order_Staging and the
             # field travels with the row.
             "Scan_Source": str(row.get('Scan_Source', 'Liquid')),
+            # Live filter readings at signal time (desc, value) — same data the
+            # scan email shows. Display-only: the private site's signal cards
+            # render "why it fired"; order_staging ignores the column.
+            "Live_Filters": json.dumps([
+                (d, v) for d, v, *_ in (row.get('Live_Filters') or [])
+            ]),
         })
 
     # If all orders were "Signal Close", this list is empty now

@@ -100,13 +100,23 @@ function signalCard(r) {
        hold ? ` (${hold}td)` : ""}</b></div>`,
   ].join("");
 
-  // special stamps
-  const chips = [];
-  if (num(r.Path1_Bps)) chips.push(`OVS 2-path: P1 ${num(r.Path1_Bps)} bps / P2 ${num(r.Path2_Bps)} bps`);
-  if (num(r.MonGapKill_ATR)) chips.push(`Gap-kill ${num(r.MonGapKill_ATR)} ATR ${esc(r.MonGapKill_Dir || "up")}`);
-  if (r.T1_Open_Filters && String(r.T1_Open_Filters).length > 2) chips.push("T+1 open filter");
-  const chipHtml = chips.length
-    ? `<div class="chips">${chips.map(c => `<span class="badge conv">${c}</span>`).join(" ")}</div>` : "";
+  // open-dependent execution rules, with concrete computed levels
+  const openLines = openConditions(r, sigClose, atr, isShort);
+  const openHtml = openLines.length
+    ? `<div class="openconds"><div class="oc-h">At the open</div>${
+        openLines.map(l => `<div class="oc-line">${l}</div>`).join("")}</div>` : "";
+
+  // why it fired — live filter readings stamped at signal time
+  let critHtml = "";
+  try {
+    const lf = typeof r.Live_Filters === "string" && r.Live_Filters.length > 2
+      ? JSON.parse(r.Live_Filters) : null;
+    if (lf && lf.length) {
+      critHtml = `<div class="openconds"><div class="oc-h">Why it fired</div>${
+        lf.map(([d, v]) =>
+          `<div class="oc-line">${esc(d)} <b>${esc(String(v))}</b></div>`).join("")}</div>`;
+    }
+  } catch (e) { /* malformed stamp — skip */ }
 
   return `<div class="card sigcard">
     <div class="head">
@@ -121,8 +131,58 @@ function signalCard(r) {
     <div class="riskline">Risk ${money(risk)}${bps ? ` (${bps} bps)` : ""}${
       qty ? ` | ${qty.toLocaleString()} sh` : ""}${
       lmt && qty ? ` | ~${money(lmt * qty)} notional` : ""}</div>
-    ${chipHtml}
+    ${openHtml}
+    ${critHtml}
   </div>`;
+}
+
+/* Concrete price levels for the rules order_staging enforces at the T+1 open */
+function openConditions(r, sigClose, atr, isShort) {
+  const lines = [];
+  if (!sigClose || !atr) return lines;
+
+  // OVS 2-path gap tier (threshold = close + 0.25 ATR, shorts enter into strength)
+  if (num(r.Path1_Bps)) {
+    const thr = sigClose + 0.25 * atr;
+    lines.push(`<b class="pos">Path 1</b> (${num(r.Path1_Bps)} bps full) if open &gt; ${money(thr)}`);
+    lines.push(`<b>Path 2</b> (${num(r.Path2_Bps)} bps, 1% daily cap) if open ${money(sigClose)}&ndash;${money(thr)}`);
+    lines.push(`<b class="neg">Skip</b> if open &le; ${money(sigClose)}`);
+  }
+
+  // Monday-gap kill (weekday-gated by SIGNAL date)
+  if (num(r.MonGapKill_ATR)) {
+    const mult = num(r.MonGapKill_ATR);
+    const dir = String(r.MonGapKill_Dir || "up");
+    const level = dir === "down" ? sigClose - mult * atr : sigClose + mult * atr;
+    let active = true;
+    try {
+      const wds = JSON.parse(r.MonGapKill_Weekdays || "[]");
+      const sd = new Date(String(r.Scan_Date) + "T00:00:00Z");
+      // JS getUTCDay: Sun=0..Sat=6 -> python Mon=0..Fri=4
+      active = wds.length === 0 || wds.includes((sd.getUTCDay() + 6) % 7);
+    } catch (e) { /* keep active=true */ }
+    if (active) {
+      lines.push(`<b class="neg">Killed</b> if open ${dir === "down" ? "&lt;" : "&gt;"} ${money(level)} ` +
+                 `(${mult} ATR gap-${dir} rule)`);
+    }
+  }
+
+  // generic T+1 open filters: [{logic, reference, atr_offset}]
+  try {
+    const tf = typeof r.T1_Open_Filters === "string" && r.T1_Open_Filters.length > 2
+      ? JSON.parse(r.T1_Open_Filters) : null;
+    if (tf) {
+      for (const f of tf) {
+        const refVal = /high/i.test(f.reference || "") ? num(r.Signal_High) : sigClose;
+        if (!refVal) continue;
+        const lvl = refVal + (parseFloat(f.atr_offset) || 0) * atr;
+        const off = f.atr_offset ? ` (${f.reference} ${f.atr_offset > 0 ? "+" : ""}${f.atr_offset} ATR)` : ` (${f.reference})`;
+        lines.push(`Requires open ${esc(f.logic)} ${money(lvl)}${esc(off)}`);
+      }
+    }
+  } catch (e) { /* malformed spec — skip */ }
+
+  return lines;
 }
 
 /* ---------- helpers ---------- */
