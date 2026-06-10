@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Private Site Runbook — New_Seasonals</title>
+<style>
+body{background:#0b0e14;color:#e8eaf0;font-family:-apple-system,"Segoe UI",Roboto,Arial,sans-serif;max-width:980px;margin:0 auto;padding:30px 24px;font-size:14px;line-height:1.55}
+h1{font-size:22px;border-bottom:2px solid #232a38;padding-bottom:8px}
+h2{font-size:16px;color:#4da3ff;margin-top:30px;border-bottom:1px solid #232a38;padding-bottom:5px}
+h3{font-size:14px;color:#98a0ae;margin-bottom:4px}
+code,pre{background:#131822;border:1px solid #232a38;border-radius:5px;font-size:12.5px}
+code{padding:1px 5px}
+pre{padding:10px 14px;overflow-x:auto}
+table{border-collapse:collapse;width:100%;font-size:12.5px;margin:10px 0}
+th{background:#131822;color:#98a0ae;text-align:left;padding:6px 9px;border-bottom:1px solid #232a38}
+td{padding:5px 9px;border-bottom:1px solid #1a2030;vertical-align:top}
+.warn{background:rgba(255,193,77,.08);border:1px solid rgba(255,193,77,.35);border-radius:6px;padding:8px 12px;margin:8px 0}
+.open{background:rgba(255,93,93,.07);border:1px solid rgba(255,93,93,.3);border-radius:6px;padding:8px 12px;margin:8px 0}
+.muted{color:#6b7382;font-size:12px}
+a{color:#4da3ff}
+</style>
+</head>
+<body>
+<h1>Private Site Runbook</h1>
+<p class="muted">Written 2026-06-10, the session the site was built. For future Claude (or McKinley)
+when something breaks or a question comes up. CLAUDE.md is the source of truth for conventions;
+this is the operational fallback. Verify file paths/values still exist before acting on them.</p>
+
+<h2>1. What exists</h2>
+<table>
+<tr><th>Thing</th><th>Where</th></tr>
+<tr><td>The site</td><td><code>https://seasonals-mslade.pages.dev</code> — Cloudflare Pages project <code>seasonals-mslade</code> (name <code>seasonals-private</code> was taken globally; CF returns useless error 8000000 on name collisions)</td></tr>
+<tr><td>Access wall</td><td>Cloudflare Zero Trust org <code>denaliassetmanagement</code>, app "Seasonals private site", allow-list: mckinleyslade@gmail.com, pj.pierre@denalifunds.com, scott@denalifunds.com. One-time PIN, 730h sessions. Covers apex + *.pages.dev previews.</td></tr>
+<tr><td>Frontend</td><td><code>site/</code> (committed): index/ideas/signals/risk .html + <code>assets/</code>. Vanilla JS + Plotly CDN, no build step. <code>_headers</code> sets no-store on /data/*.</td></tr>
+<tr><td>Builder</td><td><code>scripts/build_site.py</code> → JSON payloads + assets → <code>dist/</code> (gitignored). <code>--no-mtm --no-signals</code> for fast frontend iteration.</td></tr>
+<tr><td>Deploy</td><td><code>.github/workflows/deploy_site.yml</code> — see section 2.</td></tr>
+<tr><td>Cloudflare creds</td><td>GH secrets <code>CLOUDFLARE_API_TOKEN</code> + <code>CLOUDFLARE_ACCOUNT_ID</code> (= ba4875f01f2bc46dd48e1e26d2ec9080). Local copy of the token: <code>HKCU\Environment\CLOUDFLARE_API_TOKEN_NS</code> ("seasonals_access": Pages Edit + Access Apps/Orgs Edit). wrangler OAuth login also works locally for Pages (not Access).</td></tr>
+</table>
+
+<h2>2. Pipeline + triggers (the part that breaks)</h2>
+<pre>
+4:17a ET  local task -> dispatch update_master_prices (R2 gets fresh parquet)
+4:47a ET  local task -> dispatch daily_screener (scope=all, rewrites Sheets tabs)
+            \-> on SUCCESS, workflow_run triggers deploy_site (~5:00a, morning staging)
+4:30p ET  PM master_prices cron (today's close -> R2)
+5:15-6p   risk email / earnings / portfolio report crons
+6:00p ET  PM screener cron 22:00 UTC -- GITHUB CRON LAG pushes actual run to ~7:20-7:40p
+            \-> on SUCCESS, workflow_run triggers deploy_site (~7:50p, tomorrow's orders)
+</pre>
+<ul>
+<li><b>deploy_site has NO cron.</b> It fires only on successful screener completion
+(<code>workflow_run</code>, name-matched to "Daily Strategy Scan (Liquid + Overflow)" — renaming the
+screener workflow silently breaks the chain) or manual dispatch.</li>
+<li>Deploy steps: R2 pull (incl. <code>atr_seasonal_ranks.parquet</code>) → <code>build_trade_ledger.py</code>
+(full 24y rebuild, ~200s, BY DESIGN — config changes re-derive all history; prices get revised) →
+<code>daily_seasonal_ideas.py</code> (best effort) → <code>build_risk_json.py</code> (best effort, yfinance,
+always exits 0) → <code>build_site.py</code> (signals read FROM Sheets tabs via GCP_JSON — the site never
+runs daily_scan) → wrangler Pages deploy. Total ~6.5 min.</li>
+<li>The signals page shows whatever the last scan staged; <code>fetched</code> timestamp top-right says which.</li>
+</ul>
+
+<h2>3. Failure modes seen / anticipated</h2>
+<table>
+<tr><th>Symptom</th><th>Diagnosis / fix</th></tr>
+<tr><td>Site stale</td><td>Actions tab → did the screener succeed? Failed scan = no rebuild (by design; next success self-heals). Manual fix: <code>gh workflow run deploy_site.yml</code>.</td></tr>
+<tr><td>Page looks broken after update</td><td>Assets are cache-busted (<code>?v=timestamp</code> stamped by build_site) — hard refresh once. If a Plotly chart vanishes after interacting: we hit this once (clearing innerHTML on a live Plotly div kills react()); pattern is fixed in renderRolling, copy it.</td></tr>
+<tr><td>Signals page empty</td><td>Sheets tabs were empty at build time (no staged orders), or GCP_JSON fetch failed (logged "signals: skipped"). Both benign.</td></tr>
+<tr><td>Risk page "no payload"</td><td>build_risk_json's yfinance download failed (it never fails the build). Self-heals next run.</td></tr>
+<tr><td>Strategies silently never fire in scans</td><td>HAPPENED 4/30-6/9: workflows didn't pull <code>atr_seasonal_ranks.parquet</code> from R2; "atr_sznl_filters will match nothing" warning in logs; 6 strategies dark. Grep scan logs for that warning if signal flow looks thin.</td></tr>
+<tr><td>Deploying from local machine</td><td>DON'T for data — local ledger may be stale and it regressed the site once. Data deploys go through CI (always pulls fresh R2). Local <code>wrangler pages deploy</code> only for emergency UI fixes.</td></tr>
+<tr><td>wrangler auth errors locally</td><td>"can't retrieve account IDs" = expired OAuth → <code>npx wrangler login</code>, or set CLOUDFLARE_ACCOUNT_ID + the registry token.</td></tr>
+</table>
+
+<h2>4. Decisions log (don't re-litigate without new evidence)</h2>
+<table>
+<tr><th>Decision</th><th>Basis</th></tr>
+<tr><td><b>Stops arm day 2</b>, book-wide (2026-06-09). Engine: <code>stop_active_entry_day</code> default False; live: STP child goodAfterTime=next session (eq_order_entry.py).</td><td>81 entry-day-stop episodes / 24y: day-1 stops cost -33R vs day-2 arming. Dip-buy entries stop at max fear.</td></tr>
+<tr><td><b>OVS 0.75x in midterm years</b> (year%4==2). 4 sites: strategy_config <code>cycle_risk_mults</code>, strat_backtester 3b2, daily_scan 2c2, order_staging <code>OVS_CYCLE_MULTS</code>.</td><td>All 6 midterm years underperform, LOYO-stable, P1-concentrated. ~1.5 sigma clustered → shrunk-Kelly 0.75, not 0.4.</td></tr>
+<tr><td><b>No book-wide midterm scalar.</b> Dashboard has the dial (risk panel, OVS-exempt) for what-ifs.</td><td>0.8x ex-OVS: Sharpe 1.78→1.79, CAGR -0.9pt, MaxDD unchanged. Dilution, not improvement.</td></tr>
+<tr><td><b>Entry-day targets never credited</b> in backtest.</td><td>Favorable extreme may predate the fill; crediting would be optimistic.</td></tr>
+<tr><td><b>Site analytics on flat $750k basis</b>, $10k display; compounded curve = read-only reference; client filters recompute exactly only on strategy/tier/date.</td><td>Per-trade dollars additive on flat basis; compounded sizing not decomposable.</td></tr>
+<tr><td><b>OLV stop 1.25/2.5</b> (not 1/2) and <b>backtest per-strat cap 250bps vs live 200bps + live-only 2.5% book cap</b>.</td><td>Both flagged to McKinley; he said leave as-is (2026-06-09).</td></tr>
+</table>
+
+<div class="open"><b>OPEN: OVS Path-2 divergence.</b> Live order_staging is P1-only (fixed $3,000 target,
+mild gaps dropped); backtest/ledger still models 2-path (P2: 407 trades, +0.20 avgR, +82R/24y, positive
+in 5/6 midterm years). Either re-enable P2 live or set <code>ovs_p1_only=True</code> in
+build_trade_ledger + daily_portfolio_report. McKinley aware, undecided.</div>
+<div class="warn"><b>Upcoming:</b> GitHub forces Node 24 on actions June 16, 2026 — repo-wide bump of
+checkout@v4/setup-python@v4/wrangler-action@v3 is cheap insurance. Also: tests/test_eod_dd.py is
+script-style; pytest reports "no tests ran" — run it directly.</div>
+
+<h2>5. Quick commands</h2>
+<pre>
+# local preview (frontend iteration; reuses existing dist/data)
+python scripts/build_site.py --no-signals --no-mtm
+python -m http.server 8123 --directory dist
+
+# full local rebuild (ledger ~2 min + payloads ~2 min)
+python -c "from cache_io import download_to_local as d; d('master_prices.parquet','data/master_prices.parquet')"
+python scripts/build_trade_ledger.py && python scripts/build_site.py --no-signals
+
+# cloud refresh / watch
+gh workflow run deploy_site.yml
+gh workflow run daily_screener.yml      # re-stage signals (manual dispatch always runs)
+gh run list --workflow=deploy_site.yml --limit 3
+</pre>
+
+<h2>6. Things that live OUTSIDE the repo</h2>
+<ul>
+<li><code>C:\Users\mckin\OneDrive\trading_ibkr\order_staging.py</code> — caps (2.5% book, 200bps/strat),
+OVS P1 fixed target + <code>OVS_CYCLE_MULTS</code>, gap-tier, MonGapKill enforcement, EOD-DD prices.</li>
+<li><code>C:\Users\mckin\OneDrive\trading_ibkr\eq_order_entry.py</code> — IBKR bracket placement:
+stop child GAT day-2 (<code>next_session_gat()</code>), EOD-DD leg (Fri 15:58), time exit. Not in git;
+OneDrive version history is the backup.</li>
+<li>Local Task Scheduler AM triggers + PAT in <code>HKCU\Environment\GH_PAT_NEW_SEASONALS</code>.</li>
+<li>R2 bucket <code>seasonals-cache</code>: master_prices, earnings calendars, atr_seasonal_ranks, intraday/.</li>
+</ul>
+
+<p class="muted">Rule of thumb that held all session: when live and backtest disagree, neither is
+automatically right — find which one matches intent, fix the other, and write the convention into
+CLAUDE.md as a change-together set.</p>
+</body>
+</html>
