@@ -18,11 +18,22 @@
 
   <div class="filters" id="filters"></div>
 
+  <details class="card riskpanel" id="riskPanel">
+    <summary>Risk allocation &amp; leverage <span class="cap" style="display:inline" id="riskSummary"></span></summary>
+    <div id="levRow"></div>
+    <div class="multgrid" id="multGrid"></div>
+    <p class="cap">Linear what-if: scales each strategy's risk allocation (and the whole book via
+      leverage) on the daily PnL stream. Ignores the live book's 250 bps/day cap and other
+      path-dependent sizing effects. R-based stats are per unit of risk and do not move.</p>
+  </details>
+
   <div class="kpis" id="kpis"><div class="spin">Loading ledger...</div></div>
 
-  <h2>Equity &amp; Drawdown — flat $750k basis
+  <h2>Equity &amp; Drawdown
+    <span id="sizingSeg" style="margin-left:10px; vertical-align:middle"></span>
     <span class="note" id="basisNote" style="display:none">direction / ticker filter active —
       curve uses realized PnL booked at exit (vol metrics approximate)</span></h2>
+  <p class="cap" id="eqCaption"></p>
   <div class="card">
     <div class="chart" id="eqChart"></div>
     <div class="chart" id="ddChart"></div>

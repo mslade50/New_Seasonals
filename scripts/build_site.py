@@ -343,6 +343,11 @@ def main():
     df_flat = page_shaped(df)
     flags = {"strategy_daily": False, "positions": False, "exposure": False,
              "correlation": False, "ideas": False, "signals": False, "risk": False}
+    if args.no_mtm:
+        # dev iteration: keep flags true for payloads already present in dist
+        for k, fn in [("strategy_daily", "strategy_daily.json"), ("positions", "positions.json"),
+                      ("exposure", "exposure.json"), ("correlation", "correlation.json")]:
+            flags[k] = os.path.exists(os.path.join(data_dir, fn))
 
     if not args.no_mtm:
         md = load_master_for(df)

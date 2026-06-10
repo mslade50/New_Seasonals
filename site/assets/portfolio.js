@@ -16,9 +16,23 @@ const S = {
   dateIdx: [],            // sd.dates as strings
   dateToI: new Map(),
   f: { strategies: null, tier: "All", dir: "All", preset: "All", from: null, to: null, tickerQ: "" },
+  sizing: "scaled",       // "scaled" (compounds with equity) | "flat" ($750k fixed)
+  lev: 1.0,               // portfolio leverage multiplier
+  mult: new Map(),        // strategy -> risk multiplier (default 1)
+  nativeBps: new Map(),   // strategy -> median Risk_bps from the ledger
   tradeLogTable: null,
 };
 const START_EQ = 750000;
+
+function multFor(strat) {
+  const m = S.mult.get(strat);
+  return (m == null ? 1 : m) * S.lev;
+}
+function anyMultActive() {
+  if (S.lev !== 1) return true;
+  for (const v of S.mult.values()) if (v !== 1) return true;
+  return false;
+}
 
 document.addEventListener("DOMContentLoaded", init);
 
@@ -43,8 +57,11 @@ async function init() {
     setAsof(`ledger thru ${meta.ledger_last_signal} · built ${meta.built_at}`);
     document.getElementById("subtitle").textContent =
       `${meta.n_trades.toLocaleString()} trades · ${meta.n_tickers} tickers · ` +
-      `${meta.date_min} to ${meta.date_max} · flat $750k risk basis (filter-exact)`;
+      `${meta.date_min} to ${meta.date_max} · $750k base, filter-exact recompute`;
+    computeNativeBps();
     buildFilterBar();
+    buildSizingSeg();
+    buildRiskPanel();
     renderStatic();
     apply();
   } catch (e) {
@@ -195,6 +212,112 @@ function markSeg(segBox, value) {
     b.classList.toggle("on", b.textContent === value));
 }
 
+/* ================= sizing toggle + risk panel ================= */
+function buildSizingSeg() {
+  const host = document.getElementById("sizingSeg");
+  const seg = document.createElement("span");
+  seg.className = "seg";
+  for (const [val, label] of [["scaled", "Scaled with portfolio"], ["flat", "Flat $750k"]]) {
+    const b = document.createElement("button");
+    b.textContent = label;
+    if (val === S.sizing) b.classList.add("on");
+    b.addEventListener("click", () => {
+      S.sizing = val;
+      seg.querySelectorAll("button").forEach(x => x.classList.remove("on"));
+      b.classList.add("on");
+      apply();
+    });
+    seg.appendChild(b);
+  }
+  host.appendChild(seg);
+}
+
+function computeNativeBps() {
+  const byStrat = new Map();
+  for (const t of S.trades) {
+    if (t.Risk_bps == null) continue;
+    if (!byStrat.has(t.Strategy)) byStrat.set(t.Strategy, []);
+    byStrat.get(t.Strategy).push(t.Risk_bps);
+  }
+  for (const [s, arr] of byStrat) {
+    arr.sort((a, b) => a - b);
+    S.nativeBps.set(s, arr[Math.floor(arr.length / 2)]);
+  }
+}
+
+function buildRiskPanel() {
+  const names = allStrategyNames();
+  for (const n of names) if (!S.mult.has(n)) S.mult.set(n, 1);
+
+  // leverage slider row
+  const levRow = document.getElementById("levRow");
+  levRow.className = "levrow";
+  levRow.innerHTML = `<label>Portfolio leverage</label>
+    <input type="range" id="levSlider" min="0" max="3" step="0.05" value="1">
+    <span class="lv" id="levVal">1.00x</span>
+    <button class="btn ghost" id="riskReset">Reset all</button>`;
+  const slider = levRow.querySelector("#levSlider");
+  const levVal = levRow.querySelector("#levVal");
+  let tmr = null;
+  slider.addEventListener("input", () => {
+    S.lev = +slider.value;
+    levVal.textContent = S.lev.toFixed(2) + "x";
+    syncRiskUI();
+    clearTimeout(tmr);
+    tmr = setTimeout(apply, 160);
+  });
+
+  // per-strategy multiplier grid
+  const grid = document.getElementById("multGrid");
+  grid.innerHTML = "";
+  const rows = [];
+  for (const n of names) {
+    const row = document.createElement("div");
+    row.className = "multrow";
+    const native = S.nativeBps.get(n);
+    row.innerHTML = `<span class="nm" title="${n}">${n}</span>
+      <input type="number" min="0" max="5" step="0.1" value="1">
+      <span class="bps"></span>`;
+    const inp = row.querySelector("input");
+    inp.addEventListener("change", () => {
+      let v = parseFloat(inp.value);
+      if (!isFinite(v) || v < 0) v = 0;
+      if (v > 5) v = 5;
+      inp.value = v;
+      S.mult.set(n, v);
+      syncRiskUI();
+      apply();
+    });
+    rows.push({ name: n, inp, bpsEl: row.querySelector(".bps"), native });
+    grid.appendChild(row);
+  }
+
+  levRow.querySelector("#riskReset").addEventListener("click", () => {
+    S.lev = 1; slider.value = "1"; levVal.textContent = "1.00x";
+    for (const r of rows) { r.inp.value = "1"; S.mult.set(r.name, 1); }
+    syncRiskUI();
+    apply();
+  });
+
+  function syncRiskUI() {
+    for (const r of rows) {
+      const m = S.mult.get(r.name);
+      r.inp.classList.toggle("tweaked", m !== 1);
+      if (r.native != null) {
+        const eff = r.native * m * S.lev;
+        r.bpsEl.textContent = `${r.native.toFixed(0)} -> ${eff.toFixed(0)} bps`;
+      } else r.bpsEl.textContent = "";
+    }
+    const summary = document.getElementById("riskSummary");
+    summary.textContent = anyMultActive()
+      ? `(ACTIVE: ${S.lev.toFixed(2)}x leverage` +
+        ([...S.mult.values()].some(v => v !== 1) ? ", per-strategy overrides set)" : ")")
+      : "(all at native risk)";
+  }
+  S.syncRiskUI = syncRiskUI;
+  syncRiskUI();
+}
+
 /* ================= filtering ================= */
 function tickerTokens() {
   if (!S.f.tickerQ) return null;
@@ -220,7 +343,7 @@ function curveExact() {
   return S.sd && S.f.dir === "All" && !tickerTokens();
 }
 
-/* daily pnl array + matching date subarray for current filters */
+/* daily pnl array (risk multipliers + leverage applied) for current filters */
 function dailySeries(trades) {
   if (curveExact()) {
     const keys = Object.keys(S.sd.series).filter(k => {
@@ -236,8 +359,10 @@ function dailySeries(trades) {
     const n = i1 - i0 + 1;
     const pnl = new Float64Array(n);
     for (const k of keys) {
+      const m = multFor(k.split("||")[0]);
+      if (m === 0) continue;
       const arr = S.sd.series[k];
-      for (let i = 0; i < n; i++) pnl[i] += arr[i0 + i];
+      for (let i = 0; i < n; i++) pnl[i] += arr[i0 + i] * m;
     }
     return { dates: S.dateIdx.slice(i0, i1 + 1), pnl: Array.from(pnl), exact: true };
   }
@@ -246,7 +371,7 @@ function dailySeries(trades) {
   for (const t of trades) {
     const d = t.Exit_Date;
     if (!d || t.PnL_flat == null) continue;
-    map.set(d, (map.get(d) || 0) + t.PnL_flat);
+    map.set(d, (map.get(d) || 0) + t.PnL_flat * multFor(t.Strategy));
   }
   const dates = [...map.keys()].sort();
   return { dates, pnl: dates.map(d => map.get(d)), exact: false };
@@ -267,7 +392,10 @@ function upperBound(arr, x) {
 function tradeMetrics(tr) {
   const n = tr.length;
   const rs = tr.map(t => t.R).filter(v => v != null);
-  const pnls = tr.map(t => t.PnL_flat).filter(v => v != null);
+  // Dollar metrics carry the risk multipliers + leverage; R stats stay raw
+  // (R is per unit of risk by definition).
+  const pnls = tr.filter(t => t.PnL_flat != null)
+                 .map(t => t.PnL_flat * multFor(t.Strategy));
   const wins = pnls.filter(v => v > 0), losses = pnls.filter(v => v < 0);
   const sum = a => a.reduce((x, y) => x + y, 0);
   const mean = a => a.length ? sum(a) / a.length : null;
@@ -304,6 +432,10 @@ function dailyMetrics(ds) {
   const { pnl } = ds;
   const n = pnl.length;
   if (!n) return {};
+  const scaled = S.sizing === "scaled";
+  // Arithmetic daily returns on the $750k base drive Sharpe / Sortino / vol
+  // in both modes (standard convention). In scaled mode the equity path
+  // compounds them geometrically: sizes grow/shrink with equity each day.
   const rets = pnl.map(v => v / START_EQ);
   const sum = a => a.reduce((x, y) => x + y, 0);
   const m = sum(rets) / n;
@@ -311,24 +443,34 @@ function dailyMetrics(ds) {
   const downside = rets.filter(v => v < 0);
   const dsd = downside.length > 1 ?
     Math.sqrt(sum(downside.map(v => v * v)) / downside.length) : 0;
-  // equity + max drawdown vs running peak
+  // equity path + max drawdown vs running peak (per active sizing mode)
   let eq = START_EQ, peak = START_EQ, maxDD = 0;
+  let bestDay = -Infinity, worstDay = Infinity;
   const equity = new Array(n);
   for (let i = 0; i < n; i++) {
-    eq += pnl[i];
+    const dayPnl = scaled ? eq * rets[i] : pnl[i];
+    eq += dayPnl;
+    if (eq <= 0) eq = 1; // leverage blow-up floor; keeps log axis sane
     equity[i] = eq;
+    if (dayPnl > bestDay) bestDay = dayPnl;
+    if (dayPnl < worstDay) worstDay = dayPnl;
     if (eq > peak) peak = eq;
     const dd = eq / peak - 1;
     if (dd < maxDD) maxDD = dd;
   }
-  const annRet = m * 252, annVol = sd * Math.sqrt(252);
+  const years = n / 252;
+  const annRet = scaled
+    ? (years > 0 ? Math.pow(eq / START_EQ, 1 / years) - 1 : null)  // CAGR
+    : m * 252;                                                      // arithmetic
+  const annVol = sd * Math.sqrt(252);
   return {
     equity, annRet, annVol,
     sharpe: sd ? (m / sd) * Math.sqrt(252) : null,
     sortino: dsd ? (m / dsd) * Math.sqrt(252) : null,
     maxDD,
-    mar: maxDD ? annRet / Math.abs(maxDD) : null,
-    bestDay: Math.max(...pnl), worstDay: Math.min(...pnl),
+    mar: (maxDD && annRet != null) ? annRet / Math.abs(maxDD) : null,
+    totPnl: eq - START_EQ,
+    bestDay, worstDay,
   };
 }
 
@@ -360,21 +502,26 @@ function renderKPIs(tm, dm, exact) {
   const el = document.getElementById("kpis");
   const basisNote = document.getElementById("basisNote");
   basisNote.style.display = exact ? "none" : "inline-block";
+  const scaled = S.sizing === "scaled";
   el.innerHTML = [
     kpiCard("Trades", tm.n.toLocaleString()),
     kpiCard("Win Rate", tm.winRate == null ? "-" : fmt.pct(tm.winRate, 1)),
     kpiCard("Total R", fmt.num(tm.totR, 0), clsSign(tm.totR)),
     kpiCard("Avg R", tm.avgR == null ? "-" : fmt.num(tm.avgR, 3), clsSign(tm.avgR)),
     kpiCard("Profit Factor", tm.pf == null ? "-" : fmt.num(tm.pf, 2)),
-    kpiCard("Expectancy", tm.expectancy == null ? "-" : fmt.money(tm.expectancy), clsSign(tm.expectancy), "per trade"),
+    kpiCard("Expectancy", tm.expectancy == null ? "-" : fmt.money(tm.expectancy), clsSign(tm.expectancy), "per trade, $750k base"),
     kpiCard("SQN", tm.sqn == null ? "-" : fmt.num(tm.sqn, 2)),
     kpiCard("Payoff", tm.payoff == null ? "-" : fmt.num(tm.payoff, 2), null, "avg win / avg loss"),
-    kpiCard("Total PnL", fmt.money(tm.totPnl), clsSign(tm.totPnl)),
-    kpiCard("Ann Return", dm.annRet == null ? "-" : fmt.pct(dm.annRet, 1), clsSign(dm.annRet), "of $750k"),
+    kpiCard("Total PnL", dm.totPnl == null ? "-" : fmt.money(dm.totPnl), clsSign(dm.totPnl),
+            scaled ? "compounded" : "flat $750k"),
+    kpiCard(scaled ? "CAGR" : "Ann Return",
+            dm.annRet == null ? "-" : fmt.pct(dm.annRet, 1), clsSign(dm.annRet),
+            scaled ? "geometric" : "of $750k"),
     kpiCard("Ann Vol", dm.annVol == null ? "-" : fmt.pct(dm.annVol, 1)),
     kpiCard("Sharpe", dm.sharpe == null ? "-" : fmt.num(dm.sharpe, 2), clsSign(dm.sharpe)),
     kpiCard("Sortino", dm.sortino == null ? "-" : fmt.num(dm.sortino, 2)),
-    kpiCard("Max Drawdown", dm.maxDD == null ? "-" : fmt.pct(dm.maxDD, 1), "neg"),
+    kpiCard("Max Drawdown", dm.maxDD == null ? "-" : fmt.pct(dm.maxDD, 1), "neg",
+            scaled ? "compounded path" : "flat path"),
     kpiCard("MAR", dm.mar == null ? "-" : fmt.num(dm.mar, 2)),
     kpiCard("Tail Ratio", tm.tail == null ? "-" : fmt.num(tm.tail, 2), null, "|p95 / p5| of R"),
     kpiCard("Max Consec Losses", tm.maxConsecL),
@@ -385,23 +532,55 @@ function renderKPIs(tm, dm, exact) {
 function renderEquity(ds, dm) {
   const eqEl = document.getElementById("eqChart");
   const ddEl = document.getElementById("ddChart");
-  if (!ds.dates.length) { Plotly.purge(eqEl); Plotly.purge(ddEl); return; }
+  const cap = document.getElementById("eqCaption");
+  if (!ds.dates.length) { Plotly.purge(eqEl); Plotly.purge(ddEl); cap.textContent = ""; return; }
+  const scaled = S.sizing === "scaled";
+  cap.textContent = scaled
+    ? "Scaled with portfolio size: daily returns compound geometrically (risk grows/shrinks with equity). Log scale. Defaults to trailing 1y — double-click to see full history."
+    : "Flat $750k: every trade risks bps of a fixed base. Era-comparable; best for judging raw edge. Defaults to trailing 1y — double-click to see full history.";
   const equity = dm.equity;
+
+  // default view: trailing 1y window, full data behind it (double-click = all)
+  const lastDate = ds.dates[ds.dates.length - 1];
+  const cut = new Date(lastDate + "T00:00:00Z");
+  cut.setUTCFullYear(cut.getUTCFullYear() - 1);
+  const cutStr = cut.toISOString().slice(0, 10);
+  const w0 = lowerBound(ds.dates, cutStr);
+  const winEq = equity.slice(w0);
+  let yRange = null;
+  if (winEq.length) {
+    const lo = Math.min(...winEq), hi = Math.max(...winEq);
+    yRange = scaled
+      ? [Math.log10(Math.max(lo, 1) * 0.98), Math.log10(hi * 1.02)]
+      : [lo - (hi - lo) * 0.06 - 1, hi + (hi - lo) * 0.06 + 1];
+  }
+
   Plotly.react(eqEl, [{
     x: ds.dates, y: equity, mode: "lines", name: "Equity",
     line: { color: "#00d18f", width: 1.8 },
   }], plotLayout({
-    height: 330, yaxis: { tickformat: "$,.0f", title: { text: "Equity (flat $750k)", font: { size: 11 } } },
+    height: 330,
+    xaxis: { range: [cutStr, lastDate] },
+    yaxis: { type: scaled ? "log" : "linear", tickformat: "$,.4~s",
+             range: yRange,
+             title: { text: scaled ? "Equity (compounded, log)" : "Equity (flat $750k)", font: { size: 11 } } },
     shapes: [{ type: "line", xref: "paper", x0: 0, x1: 1, y0: START_EQ, y1: START_EQ,
                line: { color: "#444c5c", width: 1, dash: "dot" } }],
   }), PLOT_CFG);
-  // underwater
+
+  // underwater drawdown (same default window)
   let peak = -Infinity;
   const dd = equity.map(v => { peak = Math.max(peak, v); return (v / peak - 1) * 100; });
+  const winDD = dd.slice(w0);
+  const ddRange = winDD.length ? [Math.min(...winDD) * 1.15 - 0.1, 0.5] : null;
   Plotly.react(ddEl, [{
     x: ds.dates, y: dd, mode: "lines", name: "Drawdown",
     fill: "tozeroy", line: { color: "#ff5d5d", width: 1 }, fillcolor: "rgba(255,93,93,.18)",
-  }], plotLayout({ height: 150, margin: { t: 8 }, yaxis: { ticksuffix: "%" } }), PLOT_CFG);
+  }], plotLayout({
+    height: 150, margin: { t: 8 },
+    xaxis: { range: [cutStr, lastDate] },
+    yaxis: { ticksuffix: "%", range: ddRange },
+  }), PLOT_CFG);
 }
 
 function renderCumR(tr) {

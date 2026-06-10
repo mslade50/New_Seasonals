@@ -146,6 +146,44 @@ table.tbl tbody tr:hover { background: #161c29; }
 .kv .k { color: var(--faint); }
 .kv .v { color: var(--text); font-variant-numeric: tabular-nums; }
 
+/* ---------- risk allocation panel ---------- */
+.riskpanel { margin: 12px 0; padding: 0; }
+.riskpanel summary {
+  cursor: pointer; padding: 12px 16px; font-weight: 600; user-select: none;
+  list-style: none;
+}
+.riskpanel summary::-webkit-details-marker { display: none; }
+.riskpanel summary::before { content: "\25B8"; color: var(--accent); margin-right: 8px; font-size: 11px; }
+.riskpanel[open] summary::before { content: "\25BE"; }
+.riskpanel > div, .riskpanel > p { padding: 0 16px; }
+.riskpanel > p { padding-bottom: 12px; }
+.levrow { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin: 4px 0 12px; }
+.levrow .lv { font-size: 16px; font-weight: 700; min-width: 56px; font-variant-numeric: tabular-nums; }
+input[type="range"] {
+  -webkit-appearance: none; appearance: none; width: 260px; height: 4px;
+  background: #2a3242; border-radius: 4px; outline: none;
+}
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none; appearance: none; width: 15px; height: 15px;
+  border-radius: 50%; background: var(--accent); cursor: pointer; border: none;
+}
+input[type="range"]::-moz-range-thumb {
+  width: 15px; height: 15px; border-radius: 50%; background: var(--accent);
+  cursor: pointer; border: none;
+}
+.multgrid {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(290px, 1fr));
+  gap: 6px 18px; margin-bottom: 10px;
+}
+.multrow { display: flex; align-items: center; gap: 8px; font-size: 12.5px; }
+.multrow .nm { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.multrow .bps { color: var(--faint); font-size: 11px; min-width: 92px; text-align: right; font-variant-numeric: tabular-nums; }
+.multrow input[type="number"] {
+  width: 62px; background: var(--card2); color: var(--text);
+  border: 1px solid var(--border); border-radius: 6px; padding: 4px 6px; font-size: 12.5px;
+}
+.multrow input.tweaked { border-color: var(--amber); }
+
 .chart { width: 100%; }
 .spin { color: var(--faint); padding: 30px 0; text-align: center; }
 .err { color: var(--red); padding: 14px; }
