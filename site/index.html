@@ -24,7 +24,10 @@
     <div class="multgrid" id="multGrid"></div>
     <p class="cap">Linear what-if: scales each strategy's risk allocation (and the whole book via
       leverage) on the daily PnL stream. Ignores the live book's 250 bps/day cap and other
-      path-dependent sizing effects. R-based stats are per unit of risk and do not move.</p>
+      path-dependent sizing effects. R-based stats are per unit of risk and do not move.
+      <b>Leverage alone moves vol / CAGR / drawdown / MAR / dollars but NOT Sharpe, Sortino or PF
+      — risk-adjusted ratios are scale-invariant (mean and vol scale together). Those only move
+      when the per-strategy dials change the mix.</b></p>
   </details>
 
   <div class="kpis" id="kpis"><div class="spin">Loading ledger...</div></div>
