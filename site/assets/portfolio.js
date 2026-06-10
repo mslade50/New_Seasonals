@@ -19,10 +19,25 @@ const S = {
   sizing: "scaled",       // "scaled" (compounds with equity) | "flat" (fixed base)
   lev: 1.0,               // portfolio leverage multiplier
   mult: new Map(),        // strategy -> risk multiplier (default 1)
+  midScalar: 1.0,         // midterm-year (year%4==2) risk scalar; OVS exempt
+                          // (its 0.75x midterm tilt is already in the ledger)
+  midMask: null,          // Uint8Array aligned to dateIdx: 1 = midterm year
   nativeBps: new Map(),   // strategy -> median Risk_bps from the ledger
   rangeTouched: false,    // user has interacted with the Range control
   tradeLogTable: null,
 };
+const MID_EXEMPT = new Set(["Overbot Vol Spike"]);
+
+function isMidYearStr(d) { return d ? (parseInt(d.slice(0, 4), 10) % 4) === 2 : false; }
+
+/* full dollar multiplier for a trade under the current dials */
+function tradeMult(t) {
+  let m = multFor(t.Strategy);
+  if (S.midScalar !== 1 && !MID_EXEMPT.has(t.Strategy) && isMidYearStr(t.Entry_Date || t.Signal_Date)) {
+    m *= S.midScalar;
+  }
+  return m;
+}
 // Portfolio-level math runs on the ledger's $750k flat allocation; equity
 // curves and portfolio dollars are DISPLAYED from a $10k start (returns,
 // Sharpe, DD are scale-invariant). Trade-level dollars (trade log, open
@@ -36,7 +51,7 @@ function multFor(strat) {
   return (m == null ? 1 : m) * S.lev;
 }
 function anyMultActive() {
-  if (S.lev !== 1) return true;
+  if (S.lev !== 1 || S.midScalar !== 1) return true;
   for (const v of S.mult.values()) if (v !== 1) return true;
   return false;
 }
@@ -60,6 +75,8 @@ async function init() {
     if (sd) {
       S.dateIdx = sd.dates;
       sd.dates.forEach((d, i) => S.dateToI.set(d, i));
+      S.midMask = new Uint8Array(sd.dates.length);
+      sd.dates.forEach((d, i) => { if (isMidYearStr(d)) S.midMask[i] = 1; });
     }
     setAsof(`ledger thru ${meta.ledger_last_signal} · built ${meta.built_at}`);
     document.getElementById("subtitle").textContent =
@@ -258,19 +275,31 @@ function buildRiskPanel() {
   const names = allStrategyNames();
   for (const n of names) if (!S.mult.has(n)) S.mult.set(n, 1);
 
-  // leverage slider row
+  // leverage + midterm-scalar slider row
   const levRow = document.getElementById("levRow");
   levRow.className = "levrow";
   levRow.innerHTML = `<label>Portfolio leverage</label>
     <input type="range" id="levSlider" min="0" max="3" step="0.05" value="1">
     <span class="lv" id="levVal">1.00x</span>
+    <label title="Scales risk only in presidential midterm years (year%4==2: 2002, 2006, ... 2026). OVS exempt — its 0.75x midterm tilt is already baked into the ledger.">Midterm-yr scalar</label>
+    <input type="range" id="midSlider" min="0.5" max="1.25" step="0.05" value="1">
+    <span class="lv" id="midVal">1.00x</span>
     <button class="btn ghost" id="riskReset">Reset all</button>`;
   const slider = levRow.querySelector("#levSlider");
   const levVal = levRow.querySelector("#levVal");
+  const midSlider = levRow.querySelector("#midSlider");
+  const midVal = levRow.querySelector("#midVal");
   let tmr = null;
   slider.addEventListener("input", () => {
     S.lev = +slider.value;
     levVal.textContent = S.lev.toFixed(2) + "x";
+    syncRiskUI();
+    clearTimeout(tmr);
+    tmr = setTimeout(apply, 160);
+  });
+  midSlider.addEventListener("input", () => {
+    S.midScalar = +midSlider.value;
+    midVal.textContent = S.midScalar.toFixed(2) + "x";
     syncRiskUI();
     clearTimeout(tmr);
     tmr = setTimeout(apply, 160);
@@ -303,6 +332,7 @@ function buildRiskPanel() {
 
   levRow.querySelector("#riskReset").addEventListener("click", () => {
     S.lev = 1; slider.value = "1"; levVal.textContent = "1.00x";
+    S.midScalar = 1; midSlider.value = "1"; midVal.textContent = "1.00x";
     for (const r of rows) { r.inp.value = "1"; S.mult.set(r.name, 1); }
     syncRiskUI();
     apply();
@@ -317,11 +347,12 @@ function buildRiskPanel() {
         r.bpsEl.textContent = `${r.native.toFixed(0)} -> ${eff.toFixed(0)} bps`;
       } else r.bpsEl.textContent = "";
     }
+    const bits = [];
+    if (S.lev !== 1) bits.push(`${S.lev.toFixed(2)}x leverage`);
+    if (S.midScalar !== 1) bits.push(`midterm ${S.midScalar.toFixed(2)}x (ex-OVS)`);
+    if ([...S.mult.values()].some(v => v !== 1)) bits.push("per-strategy overrides");
     const summary = document.getElementById("riskSummary");
-    summary.textContent = anyMultActive()
-      ? `(ACTIVE: ${S.lev.toFixed(2)}x leverage` +
-        ([...S.mult.values()].some(v => v !== 1) ? ", per-strategy overrides set)" : ")")
-      : "(all at native risk)";
+    summary.textContent = bits.length ? `(ACTIVE: ${bits.join(", ")})` : "(all at native risk)";
   }
   S.syncRiskUI = syncRiskUI;
   syncRiskUI();
@@ -370,10 +401,15 @@ function dailySeries(trades, ignoreDates) {
     const n = i1 - i0 + 1;
     const pnl = new Float64Array(n);
     for (const k of keys) {
-      const m = multFor(k.split("||")[0]);
+      const strat = k.split("||")[0];
+      const m = multFor(strat);
       if (m === 0) continue;
       const arr = S.sd.series[k];
-      for (let i = 0; i < n; i++) pnl[i] += arr[i0 + i] * m;
+      const applyMid = S.midScalar !== 1 && S.midMask && !MID_EXEMPT.has(strat);
+      for (let i = 0; i < n; i++) {
+        const mm = (applyMid && S.midMask[i0 + i]) ? S.midScalar : 1;
+        pnl[i] += arr[i0 + i] * m * mm;
+      }
     }
     return { dates: S.dateIdx.slice(i0, i1 + 1), pnl: Array.from(pnl), exact: true };
   }
@@ -382,7 +418,7 @@ function dailySeries(trades, ignoreDates) {
   for (const t of trades) {
     const d = t.Exit_Date;
     if (!d || t.PnL_flat == null) continue;
-    map.set(d, (map.get(d) || 0) + t.PnL_flat * multFor(t.Strategy));
+    map.set(d, (map.get(d) || 0) + t.PnL_flat * tradeMult(t));
   }
   const dates = [...map.keys()].sort();
   return { dates, pnl: dates.map(d => map.get(d)), exact: false };
@@ -403,10 +439,10 @@ function upperBound(arr, x) {
 function tradeMetrics(tr) {
   const n = tr.length;
   const rs = tr.map(t => t.R).filter(v => v != null);
-  // Dollar metrics carry the risk multipliers + leverage; R stats stay raw
-  // (R is per unit of risk by definition).
+  // Dollar metrics carry the risk multipliers + leverage + midterm scalar;
+  // R stats stay raw (R is per unit of risk by definition).
   const pnls = tr.filter(t => t.PnL_flat != null)
-                 .map(t => t.PnL_flat * multFor(t.Strategy));
+                 .map(t => t.PnL_flat * tradeMult(t));
   const wins = pnls.filter(v => v > 0), losses = pnls.filter(v => v < 0);
   const sum = a => a.reduce((x, y) => x + y, 0);
   const mean = a => a.length ? sum(a) / a.length : null;
