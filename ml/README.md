@@ -25,6 +25,9 @@ python -m ml.score_daily --input signals.csv    # or any CSV with Ticker,Strateg
 
 # 5. Drift check (PSI vs training reference)
 python -m ml.monitor
+
+# 6. Adverse-excursion risk model (research-only, no policy attached)
+python -m ml.evaluate_excursion
 ```
 
 ## Module map
@@ -41,6 +44,8 @@ python -m ml.monitor
 | `evaluate.py` | Walk-forward eval vs baseline, ship/no-ship verdict, ablation run |
 | `score_daily.py` | Daily advisory scorer (fail-safe, exit 0 always) |
 | `monitor.py` | PSI drift helpers + CLI |
+| `ortho_features.py` | Run-3 features the strategies don't condition on |
+| `excursion.py` / `evaluate_excursion.py` | MAE-in-R labels + tail-risk model (research) |
 
 ## Tests
 

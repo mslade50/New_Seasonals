@@ -291,3 +291,20 @@ this book is not gateable by P(win) on any feature set tried — the payoff
 asymmetry is structural, not an artifact of feature overlap with the entry
 rules.** The expectancy-gating line of inquiry is closed; remaining credible
 directions are risk-targeted labels (adverse excursion) and live-fill labels.
+
+### Adverse-excursion risk model (2026-06-10) — research-only
+
+Re-targeted the harness at tail risk: P(MAE >= 1R) from entry-to-exit price
+paths (ml/excursion.py, base rate 34.5%). Walk-forward OOS on 2,449 trades:
+**AUC 0.606, Brier-skilled, well calibrated** — predicted-risk deciles span
+realized MAE>=1R rates 18% -> 52% and stop-exit rates 1% -> 45%, while mean
+trade R stays flat across deciles (the signal is orthogonal to expectancy —
+the right shape for risk management).
+
+Caveat that matters: pooled AUC is substantially strategy mix. Within-strategy
+AUC: OVS 0.582 (n=877, real), LT Trend ST OS 0.572, MonFri 0.540, Weak Close
+0.537 — but 52wh 0.494, OLV 0.506, Indices OSB 0.482 (nothing). Practical
+implication: modest incremental tail-risk signal exists for OVS specifically,
+where it could inform the EOD-DD valve / stop-arming conventions — but ONLY
+via a dedicated policy backtest (e.g. re-run the 81-episode stop-arming study
+conditioned on predicted risk). No policy change is made here.
