@@ -1974,30 +1974,32 @@ def run_daily_scan(scope='liquid', moc_only=False, dry_run=False):
             all_tickers.add(s['ref_ticker'].replace('.', '-'))
     
     # 2. Download Data
-    # For scope=overflow|all, prefer master_prices.parquet for the ~870
-    # overflow-tier tickers (yfinance bulk-pulls of that size are slow and
-    # rate-limit unstable). Liquid + special tickers (^VIX, SPY, ^GSPC, etc.)
-    # always go through yfinance live for the freshest bars.
-    _liquid_set = set(LIQUID_PLUS_COMMODITIES)
-    _overflow_in_scope = scope in ('overflow', 'all')
-    if _overflow_in_scope:
-        # Split tickers: those in master_prices vs those that should hit yfinance.
-        _master_candidates = [t for t in all_tickers if t.replace('.', '-').upper() not in _liquid_set]
-        master_dict = load_master_prices_dict(_master_candidates)
-        if master_dict:
-            print(f"📦 Loaded master_prices.parquet: {len(master_dict)} overflow-tier tickers")
-            _yf_tickers = [
-                t for t in all_tickers
-                if t.replace('.', '-').upper() not in {k.upper() for k in master_dict}
-            ]
-        else:
-            print(f"⚠️ master_prices.parquet unavailable — falling back to yfinance for all tickers")
-            _yf_tickers = list(all_tickers)
-        if _yf_tickers:
-            yf_dict = download_historical_data(_yf_tickers)
-            master_dict.update(yf_dict)
+    # Cache-first for ALL tickers (liquid + overflow + strategy universes):
+    # read OHLCV from master_prices.parquet and hit yfinance ONLY for names the
+    # cache genuinely lacks. The cache is the deterministic, resilient source —
+    # it retains the prior session's bars even when the morning
+    # update_master_prices job can't fetch a day, so the scan never silently
+    # slips to a stale evaluation date.
+    #
+    # History: the liquid tier (incl. the 3x-ETF universe) used to pull live
+    # from yfinance every run. On 2026-06-11 the pre-market run's live pull came
+    # back with a stale last bar (June 9), so EVERY liquid strategy found zero
+    # signals and the morning scan then wiped the staged liquid orders (DUST/JDST
+    # etc.) that the post-close scan had correctly staged. Reading from the cache
+    # removes that single point of failure; yfinance is now only a fallback for
+    # carets / freshly-added names not yet backfilled, so nothing disappears.
+    master_dict = load_master_prices_dict(list(all_tickers))
+    if master_dict:
+        print(f"📦 Loaded master_prices.parquet: {len(master_dict)} tickers from cache")
     else:
-        master_dict = download_historical_data(list(all_tickers))
+        print("⚠️ master_prices.parquet unavailable — falling back to yfinance for all tickers")
+    _have = {k.replace('.', '-').upper() for k in master_dict}
+    _yf_tickers = [t for t in all_tickers if t.replace('.', '-').upper() not in _have]
+    if _yf_tickers:
+        print(f"🌐 {len(_yf_tickers)} ticker(s) not in cache — fetching live from yfinance: "
+              f"{sorted(_yf_tickers)[:12]}{' ...' if len(_yf_tickers) > 12 else ''}")
+        yf_dict = download_historical_data(_yf_tickers)
+        master_dict.update(yf_dict)
     
     # -------------------------------------------------------------------------
     # 3. DATE VALIDATION & ENFORCEMENT (Morning vs. Day Logic)
