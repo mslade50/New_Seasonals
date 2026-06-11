@@ -5,29 +5,30 @@ name: Deploy Private Site
 # Cloudflare Access. See docs/private_site_setup.md for the one-time
 # Cloudflare configuration.
 #
-# Trigger: EVENT-DRIVEN off daily_screener completion (not cron). GitHub's
-# shared-cron queue delays the 22:00 UTC PM scan to ~23:20 UTC in practice,
-# so a fixed-time site cron raced the scan and could snapshot stale staging
-# tabs. Chaining off workflow_run guarantees ordering and gives two fresh
-# rebuilds per trading day:
-#   ~09:00 UTC  after the 4:47 AM ET dispatch scan  -> morning staging + marks
-#   ~23:40 UTC  after the (lagged) PM bookend scan  -> tomorrow's staged orders
-# Failed scans don't trigger a rebuild — the previous deploy stays up and the
-# next successful scan self-heals the site.
+# Trigger: invoked as a REUSABLE WORKFLOW (workflow_call) from a dependent
+# `deploy-site` job at the tail of daily_screener.yml (needs: run-scanner),
+# so the rebuild runs in the SAME run as the scan and is guaranteed to start
+# only after the scanner job succeeds. This replaces the old workflow_run
+# chain, which is best-effort and was silently failing to fire — incompatible
+# with the "must run after the scan" guarantee we need. Two scanner runs per
+# trading day (AM dispatch + PM bookend) => two fresh rebuilds; a skipped or
+# failed scan skips the deploy and the previous deploy stays up.
+#
+# workflow_dispatch is retained for manual / ad-hoc rebuilds.
 
 concurrency:
-  group: ${{ github.workflow }}
+  # Literal group (not ${{ github.workflow }}) so chained + manual deploys
+  # serialize into the SAME queue regardless of how they were invoked — when
+  # called via workflow_call, github.workflow resolves to the CALLER's name.
+  group: deploy-private-site
   cancel-in-progress: false
 
 on:
-  workflow_run:
-    workflows: ["Daily Strategy Scan (Liquid + Overflow)"]
-    types: [completed]
+  workflow_call:
   workflow_dispatch:
 
 jobs:
   build-deploy:
-    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repo

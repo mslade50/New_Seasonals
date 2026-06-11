@@ -134,3 +134,13 @@ jobs:
             git pull --rebase origin main || true
             git push || true
           fi
+
+  deploy-site:
+    # Tail of the pipeline: rebuild + deploy the private analytics site in the
+    # SAME run, only after the scanner job succeeds. Replaces the old
+    # best-effort workflow_run chain — deploy_site.yml is now a reusable
+    # workflow. `needs: run-scanner` means a skipped (AM fallback) or failed
+    # scan also skips the deploy, leaving the previous deploy up.
+    needs: run-scanner
+    uses: ./.github/workflows/deploy_site.yml
+    secrets: inherit

@@ -41,16 +41,18 @@ this is the operational fallback. Verify file paths/values still exist before ac
 <pre>
 4:17a ET  local task -> dispatch update_master_prices (R2 gets fresh parquet)
 4:47a ET  local task -> dispatch daily_screener (scope=all, rewrites Sheets tabs)
-            \-> on SUCCESS, workflow_run triggers deploy_site (~5:00a, morning staging)
+            \-> deploy_site runs as the deploy-site job IN THE SAME RUN (~5:00a, morning staging)
 4:30p ET  PM master_prices cron (today's close -> R2)
 5:15-6p   risk email / earnings / portfolio report crons
 6:00p ET  PM screener cron 22:00 UTC -- GITHUB CRON LAG pushes actual run to ~7:20-7:40p
-            \-> on SUCCESS, workflow_run triggers deploy_site (~7:50p, tomorrow's orders)
+            \-> deploy_site runs as the deploy-site job IN THE SAME RUN (~7:50p, tomorrow's orders)
 </pre>
 <ul>
-<li><b>deploy_site has NO cron.</b> It fires only on successful screener completion
-(<code>workflow_run</code>, name-matched to "Daily Strategy Scan (Liquid + Overflow)" — renaming the
-screener workflow silently breaks the chain) or manual dispatch.</li>
+<li><b>deploy_site has NO cron.</b> It runs as the <code>deploy-site</code> job at the tail of
+daily_screener (<code>uses: ./.github/workflows/deploy_site.yml</code>, <code>needs: run-scanner</code>) —
+i.e. in the same run, only after the scan job succeeds. This replaced an earlier
+<code>workflow_run</code> chain that was best-effort and silently stopped firing. Also runs on a
+manual <code>workflow_dispatch</code> of deploy_site.</li>
 <li>Deploy steps: R2 pull (incl. <code>atr_seasonal_ranks.parquet</code>) → <code>build_trade_ledger.py</code>
 (full 24y rebuild, ~200s, BY DESIGN — config changes re-derive all history; prices get revised) →
 <code>daily_seasonal_ideas.py</code> (best effort) → <code>build_risk_json.py</code> (best effort, yfinance,
