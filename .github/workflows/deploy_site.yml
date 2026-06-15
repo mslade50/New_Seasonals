@@ -92,6 +92,8 @@ jobs:
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          # No positional dir: wrangler.jsonc sets pages_build_output_dir=dist
+          # No positional dir: wrangler.toml sets pages_build_output_dir=dist
           # and binds the CHARTS R2 bucket for functions/chartimg/[[path]].js.
+          # (wrangler.toml, not .jsonc: the action's wrangler 3.90.0 only reads
+          #  pages_build_output_dir from .toml.)
           command: pages deploy --project-name=seasonals-mslade --branch=main

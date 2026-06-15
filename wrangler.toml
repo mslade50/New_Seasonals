@@ -1,0 +1,18 @@
+# Cloudflare Pages config for the private analytics site (seasonals-mslade).
+#
+# TOML (not jsonc) on purpose: cloudflare/wrangler-action@v3 installs
+# wrangler 3.90.0, which only picks up pages_build_output_dir from wrangler.toml
+# (it ignored a wrangler.jsonc). pages_build_output_dir marks this as a Pages
+# config so `wrangler pages deploy` (no positional dir) finds dist/ AND binds
+# the R2 bucket below for functions/chartimg/[[path]].js to stream chart PNGs.
+#
+# Fallback if a future wrangler still won't apply the binding from config: set
+# it in the dashboard (Pages -> seasonals-mslade -> Settings -> Functions ->
+# R2 bucket bindings -> CHARTS = seasonals-cache).
+name = "seasonals-mslade"
+pages_build_output_dir = "dist"
+compatibility_date = "2026-06-01"
+
+[[r2_buckets]]
+binding = "CHARTS"
+bucket_name = "seasonals-cache"
