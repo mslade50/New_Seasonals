@@ -60,8 +60,10 @@ pages/*.py.tmp.*
 # Local Claude Code config
 .claude/
 
-# Wrangler local state (OAuth cache, logs)
+# Wrangler local state (OAuth cache, logs) + local npx/npm installs
 .wrangler/
+node_modules/
+package-lock.json
 
 # Large generated data (re-built by build scripts)
 atr_seasonal_ranks.csv
