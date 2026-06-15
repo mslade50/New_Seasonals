@@ -108,7 +108,63 @@ gh workflow run daily_screener.yml      # re-stage signals (manual dispatch alwa
 gh run list --workflow=deploy_site.yml --limit 3
 </pre>
 
-<h2>6. Things that live OUTSIDE the repo</h2>
+<h2>6. Trade charts (the Charts tab) — how to update</h2>
+<p class="muted">Added 2026-06-15. Per-trade candlestick gallery: 126 td before signal → trade → 63 td after exit;
+white/black candles + green/red volume, Signal/Entry/Exit verticals, dotted entry/stop/target, MAE/MFE stats box.</p>
+<table>
+<tr><th>Piece</th><th>Where</th></tr>
+<tr><td>Renderer</td><td><code>scripts/build_signal_charts.py</code> — renders PNGs → <code>charts/</code> (gitignored local mirror) and uploads to R2 under the <code>charts/</code> prefix.</td></tr>
+<tr><td>Shared logic</td><td><code>scripts/signal_chart_common.py</code> — stable key (<code>chart_relpath</code>) + MAE/MFE math, imported by BOTH the renderer and build_site so they can't drift.</td></tr>
+<tr><td>Manifest</td><td><code>build_site.py</code> → <code>dist/data/charts.json</code> (path + MAE/MFE per trade; built in the non-<code>--no-mtm</code> path, needs prices).</td></tr>
+<tr><td>Serving</td><td><code>functions/chartimg/[[path]].js</code> streams PNGs from the <code>CHARTS</code> R2 binding (route <code>/chartimg/*</code> → R2 key <code>charts/*</code>). Binding declared in <code>wrangler.toml</code>.</td></tr>
+<tr><td>Gallery UI</td><td><code>site/charts.html</code> + <code>site/assets/charts.js</code> (+ <code>.gallery/.viewer/.tradelist</code> in style.css). Nav entry in <code>common.js</code>.</td></tr>
+<tr><td>CI step</td><td>deploy_site renders only NEW charts each run: <code>build_signal_charts.py --all --upload --skip-existing</code> (continue-on-error). R2 source of truth; PNGs are never bundled into the deploy.</td></tr>
+</table>
+
+<h3>Common update tasks</h3>
+<table>
+<tr><th>I want to…</th><th>Do this</th></tr>
+<tr><td>Add a new strategy / new trades show up</td><td><b>Nothing.</b> CI renders new keys automatically next deploy; gallery picks them up via charts.json.</td></tr>
+<tr><td>Spot-check a format change on one trade</td><td><code>python scripts/build_signal_charts.py --trade-id N --upload</code> (overwrites that one PNG in R2). View it via the live Charts tab or local <code>wrangler pages dev</code> (below).</td></tr>
+<tr><td>Change chart <b>appearance</b> (candle style, markers, annotations, add an indicator)</td><td>Edit <code>make_chart()</code> in build_signal_charts.py. Then FORCE a full re-render — <code>--skip-existing</code> would keep the old images: <code>python scripts/build_signal_charts.py --all --upload</code> (NO --skip-existing; ~30-40 min for 3,440). CI stays incremental afterward.</td></tr>
+<tr><td>Change the <b>window</b> (PRE_TD/POST_TD) or <b>MAE/MFE</b> math</td><td>Edit <code>signal_chart_common.py</code> (shared on purpose). Re-render all as above AND the next build_site re-emits charts.json with the new MAE/MFE — they stay consistent because the math is shared.</td></tr>
+<tr><td>Change the gallery UI / layout</td><td>Edit <code>site/charts.html</code> + <code>assets/charts.js</code> + style.css. build_site copies <code>site/</code> → dist verbatim (cache-busted).</td></tr>
+<tr><td>Change the stable <b>key</b> (chart_relpath)</td><td><span class="warn" style="display:inline">Avoid.</span> Old R2 objects orphan under the old keys and new keys 404 until a full re-render. If you must: re-render all (<code>--all --upload</code>) and delete the old keys from R2 manually.</td></tr>
+</table>
+
+<h3>Charts-specific failure modes</h3>
+<table>
+<tr><th>Symptom</th><th>Diagnosis / fix</th></tr>
+<tr><td>Gallery lists trades + captions, but every image is "Chart not generated yet"</td><td>PNGs aren't reaching R2. Check the deploy log's <b>"Render new signal charts → R2"</b> step (it's continue-on-error, so it can fail quietly — e.g. mplfinance missing, R2 creds). Or the key changed. Fix: re-run the render (<code>--all --upload --skip-existing</code> locally, or redeploy).</td></tr>
+<tr><td>ALL images fail (503), gallery list still fine</td><td><code>CHARTS</code> R2 binding didn't apply. Confirm <code>wrangler.toml</code> exists with <code>pages_build_output_dir</code> + the <code>r2_buckets</code> block, and the deploy log's Deploy step printed an R2 binding. Fallback: set it in the dashboard (Pages → seasonals-mslade → Settings → Functions → R2 bindings → <code>CHARTS</code> = <code>seasonals-cache</code>), then redeploy.</td></tr>
+<tr><td>Charts tab says "No charts payload"</td><td>charts.json wasn't built — build_site ran with <code>--no-mtm</code> (dev), or prices failed to load. <code>meta.json</code> → <code>payloads.charts</code> should be true.</td></tr>
+</table>
+
+<div class="warn"><b>Gotcha — config MUST be <code>wrangler.toml</code>, not <code>.jsonc</code>.</b> cloudflare/wrangler-action@v3
+installs wrangler <b>3.90.0</b>, which ignores <code>pages_build_output_dir</code> in a <code>.jsonc</code>
+(deploy aborts: "Must specify a directory of assets… or configure pages_build_output_dir in your
+wrangler.toml"). The first chained deploy failed exactly this way. If you regenerate the config, keep it TOML.
+The deploy command is config-driven (<code>pages deploy</code>, no positional dir) so it relies on pages_build_output_dir.</div>
+
+<h3>Verify locally before deploying</h3>
+<p class="muted">Match the action's wrangler version (3.90.0), not your global 4.x — that's how the .jsonc bug was caught.</p>
+<pre>
+# build the site (charts.json needs prices, so a real build, not --no-mtm)
+python scripts/build_site.py --no-signals
+# serve dist + the function with the R2 binding read from wrangler.toml
+npx wrangler@3.90.0 pages dev          # prints "R2 Buckets: CHARTS: seasonals-cache"
+# seed one real PNG into the LOCAL r2 sim, then hit it through the function:
+npx wrangler@3.90.0 r2 object put "seasonals-cache/charts/signals/52wh_Breakout/CRM_20231130.png" \
+    --file charts/signals/52wh_Breakout/CRM_20231130.png --local
+curl -I http://127.0.0.1:8788/chartimg/signals/52wh_Breakout/CRM_20231130.png   # -> 200 image/png
+
+# full backfill (rare — only after an appearance/window/key change)
+python scripts/build_signal_charts.py --all --upload
+</pre>
+<p class="muted">Cost: $0/mo — ~360 MB of PNGs sits inside R2's 10 GB free storage; reads/egress are free.
+Keys are stable (strategy+ticker+signal-date), so incremental runs only ever add the day's new trades.</p>
+
+<h2>7. Things that live OUTSIDE the repo</h2>
 <ul>
 <li><code>C:\Users\mckin\OneDrive\trading_ibkr\order_staging.py</code> — caps (2.5% book, 200bps/strat),
 OVS P1 fixed target + <code>OVS_CYCLE_MULTS</code>, gap-tier, MonGapKill enforcement, EOD-DD prices.</li>
