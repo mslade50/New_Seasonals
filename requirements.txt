@@ -11,6 +11,7 @@ yfscreen
 yahooquery
 scipy
 matplotlib
+mplfinance
 scikit-learn
 gspread
 requests-cache

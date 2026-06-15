@@ -52,12 +52,17 @@ A quantitative equity trading platform built on Streamlit. Three pillars:
 │   ├── build_master_prices.py      # One-shot full rebuild (used by bootstrap_caches.yml)
 │   ├── build_trade_ledger.py       # Full-history trade ledger (data/backtest_trades_full.parquet)
 │   ├── build_site.py               # Private-site JSON payloads + static assets -> dist/
+│   ├── build_signal_charts.py      # Per-trade candlestick charts -> charts/ + R2 (lazy-served on the site)
+│   ├── signal_chart_common.py      # Shared chart key + MAE/MFE helpers (build_signal_charts + build_site)
 │   ├── build_risk_json.py          # Condensed risk summary for the site (best effort, exits 0)
 │   ├── backtester_html_report.py   # Legacy single-file HTML view (reports/portfolio/)
 │   ├── refresh_view.py             # Local one-command ledger + HTML refresh
 │   └── (DISABLED locally: run_overflow_scan.ps1, run_daily_portfolio_report.ps1, run_master_prices_update.ps1)
 ├── site/                           # Private-site frontend (static HTML/CSS/JS, committed)
+├── functions/                      # Cloudflare Pages Functions — chartimg/[[path]].js streams chart PNGs from R2
+├── wrangler.jsonc                  # Pages config: pages_build_output_dir=dist + CHARTS R2 binding
 ├── dist/                           # Site build output — gitignored, deployed to Cloudflare Pages
+├── charts/                         # Per-trade chart PNGs — gitignored; R2 (charts/ prefix) is the source of truth
 ├── data/                           # Persistent cache (parquet files + radar digest) — gitignored
 ├── docs/                           # Documentation (private_site_setup.md = Cloudflare one-time setup)
 └── tests/                          # Tests
@@ -308,7 +313,7 @@ All five trading-day workflows now run in GHA. Order staging stays local (IBKR-b
 | `bootstrap_caches.yml` | workflow_dispatch only | One-shot: builds `master_prices.parquet` from scratch via yfinance (~10-15 min for ~2000 tickers, 25-yr history) and uploads to R2. Used to seed the bucket (already run during Phase 2 setup). |
 | `risk_report.yml` | Weekdays 21:15 UTC (5:15 PM ET) | Daily risk dashboard email (fragility dials + signals + forward returns). |
 | `verify_fills.yml` | Weekdays 21:15 UTC | Post-close fill verification — updates Trade_Signals_Log. |
-| `deploy_site.yml` | Reusable workflow (`workflow_call`), invoked by the `deploy-site` job at the tail of `daily_screener.yml` (`needs: run-scanner`) so it runs in the SAME run, right after the scan succeeds — 2x/trading day (after the ~4:47 AM ET dispatch scan and the PM bookend). Replaced the old best-effort `workflow_run` chain, which was silently not firing. A skipped (AM fallback) or failed scan skips the deploy and the prior deploy stays up. `workflow_dispatch` retained for manual rebuilds. | Builds + deploys the private analytics site to Cloudflare Pages (behind Cloudflare Access). Pipeline: R2 caches → `scripts/build_trade_ledger.py` (full-history ledger) → `daily_seasonal_ideas.py` (best effort) → `scripts/build_risk_json.py` (best effort) → `scripts/build_site.py` (JSON payloads + `site/` assets → `dist/`) → wrangler Pages deploy. Needs `CLOUDFLARE_API_TOKEN` + `CLOUDFLARE_ACCOUNT_ID` secrets. One-time setup: `docs/private_site_setup.md`. Operational runbook (failure modes, decisions log,
+| `deploy_site.yml` | Reusable workflow (`workflow_call`), invoked by the `deploy-site` job at the tail of `daily_screener.yml` (`needs: run-scanner`) so it runs in the SAME run, right after the scan succeeds — 2x/trading day (after the ~4:47 AM ET dispatch scan and the PM bookend). Replaced the old best-effort `workflow_run` chain, which was silently not firing. A skipped (AM fallback) or failed scan skips the deploy and the prior deploy stays up. `workflow_dispatch` retained for manual rebuilds. | Builds + deploys the private analytics site to Cloudflare Pages (behind Cloudflare Access). Pipeline: R2 caches → `scripts/build_trade_ledger.py` (full-history ledger) → `scripts/build_signal_charts.py --all --upload --skip-existing` (renders only NEW per-trade charts to R2, best effort) → `daily_seasonal_ideas.py` (best effort) → `scripts/build_risk_json.py` (best effort) → `scripts/build_site.py` (JSON payloads + `site/` assets → `dist/`) → wrangler Pages deploy (config-driven via `wrangler.jsonc`; no positional dir, so the CHARTS R2 binding applies). Needs `CLOUDFLARE_API_TOKEN` + `CLOUDFLARE_ACCOUNT_ID` secrets. One-time setup: `docs/private_site_setup.md`. Operational runbook (failure modes, decisions log,
 trigger chain, out-of-repo file map): `docs/site_runbook.html`. |
 | `weekly_rundown.yml` | Sundays 14:00 UTC (9 AM ET) | Tabloid PDF with all risk charts + radar digest body. |
 
@@ -373,13 +378,27 @@ Cloudflare Pages project `seasonals-mslade`, locked behind Cloudflare Access
 `docs/private_site_setup.md`.
 
 - **Frontend** lives in `site/` (committed): `index.html` (portfolio app),
-  `ideas.html`, `signals.html`, `risk.html` + `assets/` (vanilla JS + Plotly
-  CDN, no build step, no framework). `site/_headers` sets no-store on `/data/*`.
+  `ideas.html`, `signals.html`, `charts.html` (per-trade chart gallery),
+  `risk.html` + `assets/` (vanilla JS + Plotly CDN, no build step, no
+  framework). `site/_headers` sets no-store on `/data/*`.
 - **Payload contract** (written by `scripts/build_site.py` into `dist/data/`):
   `meta.json`, `trades.json` (columnar full ledger), `strategy_daily.json`
   (per `Strategy||Tier` daily MTM PnL on the FLAT $750k basis + book totals),
-  `positions.json`, `exposure.json`, `correlation.json`, plus optional
+  `positions.json`, `exposure.json`, `correlation.json`, `charts.json`
+  (per-trade chart manifest: stable image path + MAE/MFE), plus optional
   `ideas.json` / `signals.json` (Sheets snapshot) / `risk.json`.
+- **Trade charts** (the `charts.html` gallery): `scripts/build_signal_charts.py`
+  renders a candlestick per trade (126 td before signal -> trade -> 63 td after
+  exit; white/black candles, green/red volume, Signal/Entry/Exit verticals,
+  dotted entry/stop/target, MAE/MFE stats box) and uploads to R2 under the
+  `charts/` prefix. Keys are STABLE (`signals/<strategy>/<TICKER>_<YYYYMMDD>.png`,
+  see `signal_chart_common.chart_relpath`) — not trade_id (reshuffles) or exit
+  type (can flip). The site never bundles the PNGs (~360 MB); the
+  `functions/chartimg/[[path]].js` Pages Function streams them from the `CHARTS`
+  R2 binding on demand (route `/chartimg/*` -> R2 key `charts/*`; route differs
+  from `/charts` so it doesn't shadow the gallery page). `deploy_site.yml`
+  renders only NEW charts each run (`--all --upload --skip-existing`, best
+  effort). Full backfill: `python scripts/build_signal_charts.py --all --upload`.
 - **Sizing-basis rule**: client-side filtering recomputes everything on the
   flat $750k basis because per-trade dollars are additive. Strategy/tier/date
   filters get exact daily MTM curves (sum of per-strategy series);

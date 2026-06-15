@@ -51,6 +51,7 @@ from pages.strat_backtester import (
     calculate_daily_exposure,
     build_strategy_correlation_matrix,
 )
+from signal_chart_common import chart_relpath, trade_geometry, lookup_prices
 
 LEDGER = os.path.join(_ROOT, "data", "backtest_trades_full.parquet")
 DAILY = os.path.join(_ROOT, "data", "backtest_daily_pnl.parquet")
@@ -429,6 +430,61 @@ def build_strat_notes(df):
     }
 
 
+def build_charts_json(df, md):
+    """Manifest for the per-trade chart gallery: R2 image path + MAE/MFE.
+
+    The PNGs themselves live in R2 (charts/ prefix) and are streamed lazily by
+    functions/charts/[[path]].js — this payload only tells the frontend which
+    charts exist and their headline stats. Paths come from the SAME stable key
+    the renderer uses (signal_chart_common.chart_relpath). Columnar to stay
+    compact across the full ~3.4k-trade book.
+    """
+    rows = []
+    miss = 0
+    for _, t in df.iterrows():
+        p = lookup_prices(md, str(t["Ticker"]))
+        geom = trade_geometry(t, p)
+        if geom is None:
+            miss += 1
+            continue
+        rel = chart_relpath(t["Strategy"], t["Ticker"], t["Signal Date"])
+        rows.append({
+            "strategy": t["Strategy"], "tier": t["Tier"], "ticker": t["Ticker"],
+            "direction": t["Direction"],
+            "signal_date": pd.Timestamp(t["Signal Date"]),
+            "exit_date": pd.Timestamp(t["Exit Date"]),
+            "exit_type": t["Exit Type"],
+            "r": float(t["R_Multiple"]) if pd.notna(t["R_Multiple"]) else None,
+            "ret": float(t["Return_Pct"]),
+            "pnl": float(t["PnL_flat_750k"]),
+            "mfe_r": geom["mfe_r"], "mae_r": geom["mae_r"],
+            "post_short": bool(geom["post_short"]),
+            "path": "/chartimg/" + rel,   # served by functions/chartimg/[[path]].js
+        })
+    if not rows:
+        print(f"  charts manifest: 0 trades ({miss} missing prices)")
+        return None
+    cdf = pd.DataFrame(rows)
+    print(f"  charts manifest: {len(cdf)} trades ({miss} missing prices)")
+    cols = {
+        "strategy": col_list(cdf["strategy"], "str"),
+        "tier": col_list(cdf["tier"], "str"),
+        "ticker": col_list(cdf["ticker"], "str"),
+        "direction": col_list(cdf["direction"], "str"),
+        "signal_date": col_list(cdf["signal_date"], "date"),
+        "exit_date": col_list(cdf["exit_date"], "date"),
+        "exit_type": col_list(cdf["exit_type"], "str"),
+        "r": col_list(cdf["r"], "num", 2),
+        "ret": col_list(cdf["ret"], "num", 2),
+        "pnl": col_list(cdf["pnl"], "num", 0),
+        "mfe_r": col_list(cdf["mfe_r"], "num", 2),
+        "mae_r": col_list(cdf["mae_r"], "num", 2),
+        "post_short": [bool(v) for v in cdf["post_short"]],
+        "path": col_list(cdf["path"], "str"),
+    }
+    return {"n": len(cdf), "columns": cols}
+
+
 def fetch_signals():
     """Latest staged orders from Google Sheets (Order_Staging + Overflow)."""
     try:
@@ -511,12 +567,13 @@ def main():
 
     df_flat = page_shaped(df)
     flags = {"strategy_daily": False, "positions": False, "exposure": False,
-             "correlation": False, "ideas": False, "signals": False, "risk": False,
-             "strat_notes": True}
+             "correlation": False, "charts": False, "ideas": False, "signals": False,
+             "risk": False, "strat_notes": True}
     if args.no_mtm:
         # dev iteration: keep flags true for payloads already present in dist
         for k, fn in [("strategy_daily", "strategy_daily.json"), ("positions", "positions.json"),
-                      ("exposure", "exposure.json"), ("correlation", "correlation.json")]:
+                      ("exposure", "exposure.json"), ("correlation", "correlation.json"),
+                      ("charts", "charts.json")]:
             flags[k] = os.path.exists(os.path.join(data_dir, fn))
 
     if not args.no_mtm:
@@ -539,6 +596,11 @@ def main():
         if corr:
             write_json(corr, os.path.join(data_dir, "correlation.json"))
             flags["correlation"] = True
+
+        charts = build_charts_json(df, md)
+        if charts:
+            write_json(charts, os.path.join(data_dir, "charts.json"))
+            flags["charts"] = True
 
     # 3. companion payloads
     if os.path.exists(IDEAS):

@@ -297,3 +297,33 @@ def head(key: str) -> Optional[dict]:
         return client.head_object(Bucket=bucket, Key=key)
     except Exception:
         return None
+
+
+def list_keys(prefix: str = "") -> set:
+    """Return the set of object keys under `prefix` (empty prefix = whole bucket).
+
+    One paginated ListObjectsV2 sweep — far cheaper than a HEAD per candidate
+    when checking which charts already exist before an incremental render.
+    Returns an empty set if R2 isn't configured.
+    """
+    client = _client()
+    if client is None:
+        return set()
+    bucket = _r2_creds()["R2_BUCKET"]
+    keys = set()
+    token = None
+    try:
+        while True:
+            kw = {"Bucket": bucket, "Prefix": prefix, "MaxKeys": 1000}
+            if token:
+                kw["ContinuationToken"] = token
+            resp = client.list_objects_v2(**kw)
+            for o in resp.get("Contents", []):
+                keys.add(o["Key"])
+            if resp.get("IsTruncated"):
+                token = resp.get("NextContinuationToken")
+            else:
+                break
+    except Exception as e:
+        print(f"[cache_io] list_keys failed for {prefix!r}: {e}", file=sys.stderr)
+    return keys

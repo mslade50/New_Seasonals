@@ -63,6 +63,15 @@ jobs:
           OVERFLOW_UNIVERSE_ACTIVE: "0"
         run: python scripts/build_trade_ledger.py
 
+      - name: Render new signal charts -> R2 (incremental, best effort)
+        continue-on-error: true
+        env:
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+        run: python scripts/build_signal_charts.py --all --upload --skip-existing
+
       - name: Build daily seasonal ideas (best effort)
         continue-on-error: true
         env:
@@ -83,4 +92,6 @@ jobs:
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          command: pages deploy dist --project-name=seasonals-mslade --branch=main
+          # No positional dir: wrangler.jsonc sets pages_build_output_dir=dist
+          # and binds the CHARTS R2 bucket for functions/chartimg/[[path]].js.
+          command: pages deploy --project-name=seasonals-mslade --branch=main
