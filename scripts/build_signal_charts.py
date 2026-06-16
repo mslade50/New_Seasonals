@@ -162,22 +162,6 @@ def make_chart(trade, prices, geom, out_path):
             x1 = min(n - 1, i + PIV_FWD)
             ax.plot([i, x1], [cv, cv], color="#ff8c00", linewidth=0.8, zorder=1.6)
 
-    # Signal / Entry / Exit verticals live at the BOTTOM only: a short dashed stub
-    # from the chart floor up to the low of that bar's wick. The label sits at the
-    # very bottom but is offset to the SIDE of the stub (signal left, entry/exit
-    # right) so the text is off the line and adjacent signal/entry labels don't clash.
-    for pos, lab, col, side in [(geom["sig_pos"], "SIGNAL", "#1f77b4", -1),
-                                (geom["ent_pos"], "ENTRY", "#2ca02c", +1),
-                                (geom["exit_pos"], "EXIT", "#d62728", +1)]:
-        xp = pos - geom["lo"]
-        if xp < 0 or xp >= n:
-            continue
-        bar_low = float(win["Low"].iloc[xp])
-        ax.plot([xp, xp], [ymin, bar_low], color=col, linestyle="--",
-                linewidth=1.1, zorder=2.5)
-        ax.text(xp + side * 3.5, ymin + 0.01 * (ymax - ymin), lab, rotation=90,
-                va="bottom", ha="center", fontsize=8, color=col, fontweight="bold")
-
     # Price lines all extend RIGHT-ONLY. Stop/target/entry anchor at the entry
     # candle; the exit (sell-price) line anchors at the exit candle. They sit BEHIND
     # the candles (low zorder) and are thin + semi-transparent so they read as faint
@@ -197,7 +181,8 @@ def make_chart(trade, prices, geom, out_path):
         exit_xp = geom["exit_pos"] - geom["lo"]
         ax.plot([exit_xp, n - 1], [exit_px, exit_px], color="#000000",
                 linestyle=":", linewidth=0.9, alpha=LVL_A, zorder=LVL_Z)
-        right_labels.append((exit_px, "EXIT", "#000000"))
+        exit_lab = "EXIT (time)" if str(trade["Exit Type"]) == "Time" else "EXIT"
+        right_labels.append((exit_px, exit_lab, "#000000"))
     _place_right_labels(ax, right_labels, ymin, ymax, n - 1)
 
     ax.set_ylim(ymin, ymax)

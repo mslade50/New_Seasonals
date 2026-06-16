@@ -26,6 +26,11 @@ concurrency:
 on:
   workflow_call:
   workflow_dispatch:
+    inputs:
+      full_chart_rebuild:
+        description: "Re-render ALL signal charts (drop --skip-existing). One-time use after a chart-style change; normal runs stay incremental."
+        type: boolean
+        default: false
 
 jobs:
   build-deploy:
@@ -63,14 +68,20 @@ jobs:
           OVERFLOW_UNIVERSE_ACTIVE: "0"
         run: python scripts/build_trade_ledger.py
 
-      - name: Render new signal charts -> R2 (incremental, best effort)
+      - name: Render signal charts -> R2 (incremental, or full on dispatch flag; best effort)
         continue-on-error: true
         env:
           R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
           R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
           R2_BUCKET: ${{ secrets.R2_BUCKET }}
-        run: python scripts/build_signal_charts.py --all --upload --skip-existing
+        run: |
+          if [ "${{ github.event.inputs.full_chart_rebuild }}" = "true" ]; then
+            echo "FULL chart rebuild: re-rendering ALL charts (no --skip-existing)"
+            python scripts/build_signal_charts.py --all --upload
+          else
+            python scripts/build_signal_charts.py --all --upload --skip-existing
+          fi
 
       - name: Build daily seasonal ideas (best effort)
         continue-on-error: true
