@@ -38,6 +38,7 @@ sys.path.insert(0, _ROOT)
 
 import data_provider
 import cache_io
+import strategy_config
 from signal_chart_common import (
     chart_relpath, trade_geometry, lookup_prices, REL_ROOT,
 )
@@ -45,6 +46,15 @@ from signal_chart_common import (
 LEDGER = os.path.join(_ROOT, "data", "backtest_trades_full.parquet")
 CHARTS_ROOT = os.path.join(_ROOT, "charts")   # local mirror of the R2 charts/ prefix
 R2_PREFIX = "charts"                           # bucket keys live under charts/
+
+# Strategies that don't take profits (use_take_profit=False) carry a placeholder
+# tgt_atr (e.g. 8.0) that never fires and would balloon the y-axis. For those, show
+# a 2-ATR reference target instead so the level is meaningful.
+NO_TARGET_STRATS = {
+    s["name"] for s in strategy_config.STRATEGY_BOOK
+    if not s.get("execution", {}).get("use_take_profit", True)
+}
+NO_TARGET_REF_ATR = 2.0
 
 # white/black candles, hollow-up / filled-down, black wicks+edges;
 # volume bars green-up / red-down
@@ -54,6 +64,32 @@ _MC = mpf.make_marketcolors(up="white", down="black", edge="black",
 _STYLE = mpf.make_mpf_style(marketcolors=_MC, gridstyle=":", gridcolor="#dddddd",
                             facecolor="white", figcolor="white", edgecolor="#333333",
                             rc={"axes.edgecolor": "#333333"})
+
+
+def _place_right_labels(ax, items, ymin, ymax, x_right):
+    """Draw right-edge price labels, nudging them apart vertically so labels at
+    close price levels don't overlap. `items` = list of (price, text, color);
+    labels are anchored at x_right and extend into the right margin."""
+    if not items:
+        return
+    items = sorted(items, key=lambda t: t[0])  # ascending price
+    span = ymax - ymin
+    min_gap = 0.032 * span
+    adj = [min(max(p, ymin), ymax) for p, _, _ in items]
+    # forward pass: keep each at least min_gap above the previous
+    for i in range(1, len(adj)):
+        if adj[i] - adj[i - 1] < min_gap:
+            adj[i] = adj[i - 1] + min_gap
+    # if that pushed the top label past the ceiling, pin it and back-fill downward
+    ceil = ymax - 0.015 * span
+    if adj[-1] > ceil:
+        adj[-1] = ceil
+        for i in range(len(adj) - 2, -1, -1):
+            if adj[i + 1] - adj[i] < min_gap:
+                adj[i] = adj[i + 1] - min_gap
+    for (price, text, color), y in zip(items, adj):
+        ax.text(x_right, y, f" {text}", va="center", ha="left", fontsize=8,
+                color=color, fontweight="bold", clip_on=False)
 
 
 def make_chart(trade, prices, geom, out_path):
@@ -69,34 +105,102 @@ def make_chart(trade, prices, geom, out_path):
     idx = prices.index
     win = prices.iloc[geom["lo"]:geom["hi"] + 1]
 
-    vlines = dict(
-        vlines=[idx[geom["sig_pos"]], idx[geom["ent_pos"]], idx[geom["exit_pos"]]],
-        colors=["#1f77b4", "#2ca02c", "#d62728"],
-        linestyle="--", linewidths=1.1,
-    )
-    hlines = dict(
-        hlines=[entry_px, geom["stop_px"], geom["tgt_px"]],
-        colors=["#000000", "#d62728", "#2ca02c"],
-        linestyle=[":", ":", ":"], linewidths=[1.6, 0.9, 0.9],
-    )
+    # 200d SMA, computed on full history so it is valid at the window's left edge,
+    # then sliced to the window. Thin red overlay.
+    ma_full = prices["Close"].rolling(200, min_periods=200).mean()
+    ma_win = ma_full.iloc[geom["lo"]:geom["hi"] + 1]
+    addplots = []
+    if ma_win.notna().any():
+        addplots.append(mpf.make_addplot(ma_win.values, color="#cc0000", width=0.8))
 
-    fig, axes = mpf.plot(
-        win, type="candle", style=_STYLE, returnfig=True, figsize=(16, 9),
-        vlines=vlines, hlines=hlines, datetime_format="%b '%y", xrotation=0,
+    # All price lines (entry, exit, stop, target) are drawn manually after the plot
+    # so they anchor at the trade candles and extend right-only (see below).
+    plot_kw = dict(
+        type="candle", style=_STYLE, returnfig=True, figsize=(16, 9),
+        datetime_format="%b '%y", xrotation=0,
         volume=True, panel_ratios=(4, 1),
         scale_padding={"left": 0.4, "right": 0.6, "top": 0.5, "bottom": 0.4},
     )
+    if addplots:
+        plot_kw["addplot"] = addplots
+    fig, axes = mpf.plot(win, **plot_kw)
     ax = axes[0]
     ymin, ymax = ax.get_ylim()
 
-    def _xp(d):
-        return int(win.index.get_indexer([pd.Timestamp(d)], method="nearest")[0])
+    # The exit line is drawn only when the exit price isn't already shown by the
+    # stop or target line (i.e. Time / EOD-DD exits).
+    ent_xp = geom["ent_pos"] - geom["lo"]
+    draw_exit = str(trade["Exit Type"]) not in ("Stop", "Target")
 
-    for d, lab, col in [(idx[geom["sig_pos"]], "SIGNAL", "#1f77b4"),
-                        (idx[geom["ent_pos"]], "ENTRY", "#2ca02c"),
-                        (idx[geom["exit_pos"]], "EXIT", "#d62728")]:
-        ax.text(_xp(d), ymax - 0.01 * (ymax - ymin), f" {lab}", rotation=90,
-                va="top", ha="left", fontsize=8, color=col, fontweight="bold")
+    # No-target strats: replace the placeholder target with a 2-ATR reference level.
+    if str(trade["Strategy"]) in NO_TARGET_STRATS:
+        atr = float(trade["ATR"])
+        tgt_px = (entry_px + NO_TARGET_REF_ATR * atr) if str(trade["Direction"]) == "Long" \
+            else (entry_px - NO_TARGET_REF_ATR * atr)
+    else:
+        tgt_px = geom["tgt_px"]
+
+    # mpf autoscales to the candles only; expand the view to include every price
+    # line (entry/stop/target, + exit when drawn) so none get clipped or land in
+    # the padding, the way the old full-width hlines did.
+    levels = [entry_px, geom["stop_px"], tgt_px] + ([exit_px] if draw_exit else [])
+    pad = 0.03 * (ymax - ymin)
+    ymin = min(ymin, min(levels) - pad)
+    ymax = max(ymax, max(levels) + pad)
+
+    # Pivot high/low levels from closing prices (N=20 swing strength): a bar whose
+    # close is the extreme close within +/-20 bars. The swing is detected both ways,
+    # but the line is drawn FORWARD ONLY from the pivot bar, out 200 candles (so the
+    # level projects forward as support/resistance). mpf x-axis is ordinal (0..len-1).
+    close = win["Close"].to_numpy()
+    n = len(close)
+    PIV_N, PIV_FWD = 20, 200
+    for i in range(PIV_N, n - PIV_N):
+        seg = close[i - PIV_N:i + PIV_N + 1]
+        cv = close[i]
+        if cv == seg.max() or cv == seg.min():
+            x1 = min(n - 1, i + PIV_FWD)
+            ax.plot([i, x1], [cv, cv], color="#ff8c00", linewidth=0.8, zorder=1.6)
+
+    # Signal / Entry / Exit verticals live at the BOTTOM only: a short dashed stub
+    # from the chart floor up to the low of that bar's wick. The label sits at the
+    # very bottom but is offset to the SIDE of the stub (signal left, entry/exit
+    # right) so the text is off the line and adjacent signal/entry labels don't clash.
+    for pos, lab, col, side in [(geom["sig_pos"], "SIGNAL", "#1f77b4", -1),
+                                (geom["ent_pos"], "ENTRY", "#2ca02c", +1),
+                                (geom["exit_pos"], "EXIT", "#d62728", +1)]:
+        xp = pos - geom["lo"]
+        if xp < 0 or xp >= n:
+            continue
+        bar_low = float(win["Low"].iloc[xp])
+        ax.plot([xp, xp], [ymin, bar_low], color=col, linestyle="--",
+                linewidth=1.1, zorder=2.5)
+        ax.text(xp + side * 3.5, ymin + 0.01 * (ymax - ymin), lab, rotation=90,
+                va="bottom", ha="center", fontsize=8, color=col, fontweight="bold")
+
+    # Price lines all extend RIGHT-ONLY. Stop/target/entry anchor at the entry
+    # candle; the exit (sell-price) line anchors at the exit candle. They sit BEHIND
+    # the candles (low zorder) and are thin + semi-transparent so they read as faint
+    # reference levels without obscuring the candles; the full-opacity right-edge
+    # labels (decluttered below) anchor each level and keep the left side clean.
+    LVL_Z, LVL_A = 0.8, 0.5
+    ax.plot([ent_xp, n - 1], [geom["stop_px"], geom["stop_px"]], color="#d62728",
+            linestyle=":", linewidth=0.8, alpha=LVL_A, zorder=LVL_Z)
+    ax.plot([ent_xp, n - 1], [tgt_px, tgt_px], color="#2ca02c",
+            linestyle=":", linewidth=0.8, alpha=LVL_A, zorder=LVL_Z)
+    ax.plot([ent_xp, n - 1], [entry_px, entry_px], color="#000000",
+            linestyle=":", linewidth=0.9, alpha=LVL_A, zorder=LVL_Z)
+    right_labels = [(entry_px, "ENTRY", "#000000"),
+                    (geom["stop_px"], "STOP", "#d62728"),
+                    (tgt_px, "TARGET", "#2ca02c")]
+    if draw_exit:
+        exit_xp = geom["exit_pos"] - geom["lo"]
+        ax.plot([exit_xp, n - 1], [exit_px, exit_px], color="#000000",
+                linestyle=":", linewidth=0.9, alpha=LVL_A, zorder=LVL_Z)
+        right_labels.append((exit_px, "EXIT", "#000000"))
+    _place_right_labels(ax, right_labels, ymin, ymax, n - 1)
+
+    ax.set_ylim(ymin, ymax)
 
     pnl = float(trade["PnL_flat_750k"])
     rmult = float(trade["R_Multiple"])
