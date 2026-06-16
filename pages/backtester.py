@@ -1307,11 +1307,14 @@ def run_engine(universe_dict, params, sznl_map, market_series=None, vix_series=N
         "Day Trade (Limit Open +/- 0.5 ATR, Exit Close)",
         "Day Trade (Limit Open +/- 0.75 ATR, Exit Close)",
         "Day Trade (Limit Open +/- 1 ATR, Exit Close)",
+        "Day Trade (Limit Open +/- 1.5 ATR, Exit Close)",
     )
     # Pull the ATR offset out of the label so the entry block stays generic.
     if is_day_trade_limit:
         if "0.75 ATR" in entry_mode:
             day_trade_atr_mult = 0.75
+        elif "1.5 ATR" in entry_mode:
+            day_trade_atr_mult = 1.5
         elif "1 ATR" in entry_mode:
             day_trade_atr_mult = 1.0
         else:
@@ -2683,9 +2686,9 @@ def main():
     r_c1, r_c2, r_c3 = st.columns(3)
     with r_c1: trade_direction = st.selectbox("Trade Direction", ["Long", "Short"])
     with r_c2:
-        exit_mode = st.selectbox("Exit Mode", ["Time Only (Hold)", "Standard (Stop & Target)", "No Stop (Target + Time)", "Trailing Stop (ATR)"])
+        exit_mode = st.selectbox("Exit Mode", ["Time Only (Hold)", "Standard (Stop & Target)", "No Stop (Target + Time)", "Stop Only (No Target)", "Trailing Stop (ATR)"])
         use_trailing_stop = (exit_mode == "Trailing Stop (ATR)")
-        use_stop_loss = (exit_mode == "Standard (Stop & Target)")
+        use_stop_loss = (exit_mode in ("Standard (Stop & Target)", "Stop Only (No Target)"))
         use_take_profit = (exit_mode in ("Standard (Stop & Target)", "No Stop (Target + Time)"))
         time_exit_only = (exit_mode == "Time Only (Hold)")
     with r_c3: max_one_pos = st.checkbox("Max 1 Position/Ticker", value=True)
@@ -2709,6 +2712,7 @@ def main():
             "Day Trade (Limit Open +/- 0.5 ATR, Exit Close)",
             "Day Trade (Limit Open +/- 0.75 ATR, Exit Close)",
             "Day Trade (Limit Open +/- 1 ATR, Exit Close)",
+            "Day Trade (Limit Open +/- 1.5 ATR, Exit Close)",
             "Gap Up Only (Open > Prev High)",
             "Limit Order -0.25 ATR (Persistent)", "Limit Order -0.5 ATR (Persistent)", "Limit Order -1 ATR (Persistent)",
             "Limit (Close -0.5 ATR)", "Limit (Prev Close)",
@@ -4141,6 +4145,84 @@ def main():
                 )
                 return fig
 
+            def _trade_mfe_scatter_fig(trades, stop_atr_val):
+                """Scatter of every trade's max intra-trade drawup (MFE) in
+                ATR-multiples vs exit date. Mirror image of
+                `_trade_mae_scatter_fig` — plots MFE_R * stop_atr, the best
+                unrealized gain the trade ever showed before closing,
+                normalized by ATR.
+                """
+                if trades is None or trades.empty or 'MFE_R' not in trades.columns:
+                    return None
+                df_s = trades.copy()
+                df_s['ExitDate'] = pd.to_datetime(df_s['ExitDate'])
+                stop_atr_mult = float(stop_atr_val) if stop_atr_val else 1.0
+                df_s['MFE_ATR'] = df_s['MFE_R'] * stop_atr_mult
+                df_s = df_s.dropna(subset=['MFE_ATR'])
+                if df_s.empty:
+                    return None
+
+                df_s['ATR_Multiple'] = df_s['R'] * stop_atr_mult
+
+                mean_v = float(df_s['MFE_ATR'].mean())
+                std_v = float(df_s['MFE_ATR'].std())
+                med_v = float(df_s['MFE_ATR'].median())
+                colour_cap = max(float(df_s['ATR_Multiple'].abs().quantile(0.95)), 1e-6)
+
+                _abs_mfe = df_s['MFE_ATR'].abs()
+                _abs_cap = max(float(_abs_mfe.quantile(0.95)), 1e-6)
+                marker_size = (5.0 + 11.0 * (_abs_mfe / _abs_cap).clip(0, 1)).tolist()
+
+                hover_text = df_s.apply(
+                    lambda r: (
+                        f"<b>{r['Ticker']}</b> ({r.get('Direction', '')})<br>"
+                        f"Entry {pd.to_datetime(r['EntryDate']):%Y-%m-%d} @ {r['Entry']:.2f}<br>"
+                        f"Exit  {pd.to_datetime(r['ExitDate']):%Y-%m-%d} @ {r['Exit']:.2f}<br>"
+                        f"MFE {r['MFE_R']:+.2f}R | ATR-mult {r['MFE_ATR']:+.2f}<br>"
+                        f"Realized R {r['R']:+.2f} | ATR-mult {r['ATR_Multiple']:+.2f}<br>"
+                        f"Exit type: {r.get('Type', '')}"
+                    ),
+                    axis=1,
+                )
+
+                fig = go.Figure()
+                fig.add_trace(go.Scatter(
+                    x=df_s['ExitDate'], y=df_s['MFE_ATR'],
+                    mode='markers',
+                    marker=dict(
+                        size=marker_size,
+                        color=df_s['ATR_Multiple'],
+                        colorscale='RdYlGn',
+                        cmin=-colour_cap, cmax=colour_cap, cmid=0,
+                        line=dict(width=0.4, color='rgba(0,0,0,0.35)'),
+                        showscale=False,
+                    ),
+                    text=hover_text,
+                    hovertemplate='%{text}<extra></extra>',
+                    showlegend=False,
+                ))
+                fig.add_hline(y=0, line_dash='dot', line_color='#888', line_width=1)
+                fig.add_hline(y=mean_v, line_dash='dash', line_color='rgba(255,176,0,0.7)',
+                              line_width=1, annotation_text=f'Mean {mean_v:+.2f}',
+                              annotation_position='top right', annotation_font_size=10)
+                fig.add_hline(y=mean_v + std_v, line_dash='dot',
+                              line_color='rgba(200,200,200,0.45)', line_width=1)
+                fig.add_hline(y=mean_v - std_v, line_dash='dot',
+                              line_color='rgba(200,200,200,0.45)', line_width=1)
+                title = (
+                    f'Per-Trade Max Intra-Trade Drawup (ATR-multiples) — '
+                    f'N={len(df_s)}, mean {mean_v:+.2f}, median {med_v:+.2f}, '
+                    f'std {std_v:.2f} (stop_atr={stop_atr_mult:g})'
+                )
+                fig.update_layout(
+                    title=title,
+                    xaxis_title='Exit Date',
+                    yaxis=dict(title='MFE (ATR-multiples)', zeroline=False),
+                    height=320, margin=dict(t=40, b=30, l=40, r=40),
+                    hovermode='closest',
+                )
+                return fig
+
             def _trade_scatter_fig(trades, stop_atr_val):
                 """Scatter of every trade's return in ATR-multiples vs exit date.
 
@@ -4329,6 +4411,9 @@ def main():
                 _mae_scatter_fig = _trade_mae_scatter_fig(trades_df, params.get('stop_atr', 1.0))
                 if _mae_scatter_fig is not None:
                     st.plotly_chart(_mae_scatter_fig, use_container_width=True)
+                _mfe_scatter_fig = _trade_mfe_scatter_fig(trades_df, params.get('stop_atr', 1.0))
+                if _mfe_scatter_fig is not None:
+                    st.plotly_chart(_mfe_scatter_fig, use_container_width=True)
                 _edge_fig = _edge_over_time_fig(trades_df)
                 if _edge_fig is not None:
                     st.plotly_chart(_edge_fig, use_container_width=True)
