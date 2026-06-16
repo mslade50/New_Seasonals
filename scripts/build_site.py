@@ -45,6 +45,7 @@ _ROOT = os.path.dirname(_HERE)
 sys.path.insert(0, _ROOT)
 
 import data_provider
+import cache_io
 from strategy_config import ACCOUNT_VALUE
 from pages.strat_backtester import (
     get_daily_mtm_series,
@@ -439,6 +440,14 @@ def build_charts_json(df, md):
     the renderer uses (signal_chart_common.chart_relpath). Columnar to stay
     compact across the full ~3.4k-trade book.
     """
+    # Content-version map so each chart URL carries ?v=<R2 last-modified epoch>.
+    # The chartimg route /chartimg/<rel> -> R2 key charts/<rel>; the function
+    # ignores the query string, so ?v= is a pure cache buster. Per-object means
+    # only re-rendered charts get a fresh v (their LastModified bumps on re-upload)
+    # -> precise busting on a full rebuild, stable URLs (stay cached) otherwise.
+    # Empty when R2 isn't configured (local dev) -> plain paths, current behavior.
+    ver_map = cache_io.list_keys_with_meta("charts/signals/")
+
     rows = []
     miss = 0
     for _, t in df.iterrows():
@@ -448,6 +457,8 @@ def build_charts_json(df, md):
             miss += 1
             continue
         rel = chart_relpath(t["Strategy"], t["Ticker"], t["Signal Date"])
+        ver = ver_map.get("charts/" + rel)
+        path = "/chartimg/" + rel + (f"?v={ver}" if ver else "")
         rows.append({
             "strategy": t["Strategy"], "tier": t["Tier"], "ticker": t["Ticker"],
             "direction": t["Direction"],
@@ -459,7 +470,7 @@ def build_charts_json(df, md):
             "pnl": float(t["PnL_flat_750k"]),
             "mfe_r": geom["mfe_r"], "mae_r": geom["mae_r"],
             "post_short": bool(geom["post_short"]),
-            "path": "/chartimg/" + rel,   # served by functions/chartimg/[[path]].js
+            "path": path,   # /chartimg/<rel>[?v=<ver>], served by functions/chartimg/[[path]].js
         })
     if not rows:
         print(f"  charts manifest: 0 trades ({miss} missing prices)")

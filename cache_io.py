@@ -327,3 +327,35 @@ def list_keys(prefix: str = "") -> set:
     except Exception as e:
         print(f"[cache_io] list_keys failed for {prefix!r}: {e}", file=sys.stderr)
     return keys
+
+
+def list_keys_with_meta(prefix: str = "") -> dict:
+    """Return {key: last_modified_epoch_int} for objects under `prefix`.
+
+    Same paginated ListObjectsV2 sweep as list_keys, but keeps each object's
+    LastModified (as an int epoch) so callers can build content-version cache
+    busters (e.g. `?v=<epoch>` on a stable URL). Empty dict if R2 isn't
+    configured.
+    """
+    client = _client()
+    if client is None:
+        return {}
+    bucket = _r2_creds()["R2_BUCKET"]
+    out = {}
+    token = None
+    try:
+        while True:
+            kw = {"Bucket": bucket, "Prefix": prefix, "MaxKeys": 1000}
+            if token:
+                kw["ContinuationToken"] = token
+            resp = client.list_objects_v2(**kw)
+            for o in resp.get("Contents", []):
+                lm = o.get("LastModified")
+                out[o["Key"]] = int(lm.timestamp()) if lm is not None else 0
+            if resp.get("IsTruncated"):
+                token = resp.get("NextContinuationToken")
+            else:
+                break
+    except Exception as e:
+        print(f"[cache_io] list_keys_with_meta failed for {prefix!r}: {e}", file=sys.stderr)
+    return out
