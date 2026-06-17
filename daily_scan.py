@@ -1647,7 +1647,15 @@ def build_live_filters(strat, last_row, df):
     # --- Trend Filter ---
     trend = settings.get('trend_filter', 'None')
     if trend != 'None':
-        if "200 SMA" in trend:
+        # NOTE: check "Market"/"SPY" BEFORE the generic "200 SMA" branch.
+        # "Market > 200 SMA" contains the substring "200 SMA", so a 200-SMA-first
+        # ordering swallows it and prints the TICKER's close vs the TICKER's own
+        # 200 SMA — misleading, since this filter actually evaluates SPY's regime
+        # (Market_Above_SMA200) in check_signal.
+        if "Market" in trend or "SPY" in trend:
+            mkt_above = last_row.get('Market_Above_SMA200', False)
+            live_filters.append((trend, "✓" if mkt_above else "✗", True))
+        elif "200 SMA" in trend:
             sma200 = last_row.get('SMA200', 0)
             close = last_row['Close']
             if "Price >" in trend:
@@ -1656,9 +1664,6 @@ def build_live_filters(strat, last_row, df):
                 live_filters.append((f"Price < 200 SMA", f"${close:.2f} vs ${sma200:.2f}", False))
             else:
                 live_filters.append((trend, f"${close:.2f} vs ${sma200:.2f}", False))
-        elif "Market" in trend:
-            mkt_above = last_row.get('Market_Above_SMA200', False)
-            live_filters.append((trend, "✓" if mkt_above else "✗", True))
     
     # --- Volume Filters ---
     if settings.get('use_vol', False):
