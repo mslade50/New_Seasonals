@@ -609,7 +609,7 @@ _STRATEGY_BOOK_RAW = [
             "dial_filters": []
         },
         "execution": {
-            "risk_bps": 40,
+            "risk_bps": 30,
             "risk_per_trade": "[EDIT: calculated from account size]",
             "slippage_bps": 2,
             "stop_atr": 1.0,
