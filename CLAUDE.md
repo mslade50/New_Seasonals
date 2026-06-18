@@ -82,6 +82,13 @@ df.columns = [c.capitalize() for c in df.columns]
 ```
 Skipping this causes silent crashes. Every data function must handle it.
 
+### Dividend-Adjustment Basis (raw vs adjusted) — book-wide invariant
+The rule, applied per surface:
+- **Compare a FROZEN dollar level against RAW bars** (`auto_adjust=False`). A limit/stop/entry that was computed once and stored (sheet `Limit_Price`/`Entry`/`ATR`, a ledger entry, a live working order) lives in the as-traded basis it was minted in. Re-pulling ADJUSTED bars re-scales history down whenever a later dividend goes ex, dropping a past low below a limit that was never touched live (the EWZ 33.51 ex-div phantom fill, 2026-06). `verify_fills.py` pulls raw for exactly this reason.
+- **RECOMPUTE a relative level each run → ADJUSTED bars are safe.** The backtest engines (`pages/backtester.py`, `pages/strat_backtester.py`) derive the limit from the same adjusted series each run (`Close ± k·ATR`) and compare to that series' forward bars. Both sides scale by the dividend factor `f`, so the fill decision is exactly scale-invariant — no phantom, and returns stay on the correct total-return basis. The engines do NOT round the limit (rounding is the one thing that could break invariance; `verify_fills` rounds, but it's moot there since it uses raw).
+- **This holds only while every entry/exit level in the book is RELATIVE.** The moment an ABSOLUTE dollar level is added to the engine path (a hard limit price, a `$`-pivot, a fixed stop), scale-invariance breaks and that level must follow the frozen-level rule (raw bars), or move the cache to raw-OHLCV + read-time adjustment (the deferred "Tier 2" fix). Guard: `tests/test_verify_fills_exdiv.py`.
+- **Cache note:** `master_prices.parquet` stores ADJUSTED OHLCV and `update_master_prices.py` re-adjusts a rolling window (`--max-lookback-days`, default 120 — capped above the 63-day max hold + ATR lookback so recent signals stay uniformly adjusted). Per-trade returns are unaffected by the cap; only buy-and-hold accounting past the cap drifts. Do NOT converge the engine basis (adjusted) with the `verify_fills` basis (raw).
+
 ### Pages Directory
 The `pages/` directory must remain **FLAT** — no subfolders. Streamlit discovers pages by scanning this directory.
 

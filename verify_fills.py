@@ -181,8 +181,19 @@ def fetch_price_data(tickers: list, start_date, end_date) -> dict:
     """
     Fetch daily OHLC for tickers from yfinance.
     Returns: {ticker: DataFrame[Open, High, Low, Close]}
-    
-    Handles the yfinance MultiIndex column trap.
+
+    RAW (auto_adjust=False) on purpose: this fill check compares limits that were
+    FROZEN into the sheet in as-traded (pre-ex) dollars (Entry/ATR/Limit_Price)
+    against the bars. Adjusted bars get back-scaled down whenever a dividend goes
+    ex AFTER the signal, which would drop a past low below a limit that, in raw
+    prices, was never touched (the EWZ 33.51 ex-div phantom fill). Comparing the
+    frozen dollar limit against raw bars keeps both sides in the same basis, so
+    verify_fills matches live execution. The backtest engines stay auto_adjust=True;
+    they recompute the limit off the same adjusted series each run and are
+    scale-invariant, so DO NOT converge the two bases. See tests/test_verify_fills_exdiv.py.
+
+    Handles the yfinance MultiIndex column trap. With auto_adjust=False yfinance
+    returns an extra 'Adj Close' column, which the fill check simply ignores.
     """
     if not tickers:
         return {}
@@ -198,7 +209,7 @@ def fetch_price_data(tickers: list, start_date, end_date) -> dict:
     for i in range(0, len(ticker_list), batch_size):
         batch = ticker_list[i:i + batch_size]
         try:
-            df = yf.download(batch, start=start_dt, end=end_dt, auto_adjust=True, progress=False)
+            df = yf.download(batch, start=start_dt, end=end_dt, auto_adjust=False, progress=False)
             if df.empty:
                 continue
 

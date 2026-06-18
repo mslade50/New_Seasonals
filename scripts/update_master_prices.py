@@ -74,6 +74,18 @@ def download_chunk(tickers, start_date):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--buffer-days", type=int, default=5)
+    ap.add_argument("--max-lookback-days", type=int, default=120,
+                    help="Cap the daily refresh window at today - this many days. "
+                         "earliest_stale is the MIN over all tickers, so one "
+                         "dead/delisted name (e.g. LBS=F, frozen 2023-05-15) would "
+                         "otherwise drag fetch_start back years and re-pull + "
+                         "re-adjust all history for every ticker each night. 120d "
+                         "stays well above the 63-day max hold + ATR lookback, so a "
+                         "recent signal's bars are still re-adjusted uniformly "
+                         "(engine fill checks stay scale-invariant) and per-trade "
+                         "returns are unaffected; only deep buy-and-hold accounting "
+                         "past the cap drifts. Stale-but-live names need an explicit "
+                         "--add-tickers backfill or a full rebuild.")
     ap.add_argument("--exclude-today", action="store_true",
                     help="Drop bars dated today (Eastern) from the fetch — for pre-market refresh runs")
     ap.add_argument("--add-tickers", nargs="*", default=None,
@@ -112,11 +124,22 @@ def main():
             print(f"  warn: --from-symbol-master set but {sm_path} missing")
     new_tickers = sorted(t for t in add_set if t and t not in existing)
 
-    fetch_start = (earliest_stale - pd.Timedelta(days=args.buffer_days)).strftime("%Y-%m-%d")
+    # Cap how far back the daily refresh reaches. earliest_stale is the MIN of every
+    # ticker's last date, so one dead/delisted name (e.g. LBS=F, frozen 2023-05-15)
+    # otherwise drags fetch_start back years and forces a full-history re-pull +
+    # re-adjust for ALL tickers every night. Floor the window at today - max_lookback.
+    floor = today - pd.Timedelta(days=args.max_lookback_days)
+    fetch_start_dt = max(earliest_stale - pd.Timedelta(days=args.buffer_days), floor)
+    fetch_start = fetch_start_dt.strftime("%Y-%m-%d")
+    stale = last_dates[last_dates < floor]
     print(f"  tickers:        {len(universe)}")
     print(f"  new to backfill:{len(new_tickers)}")
     print(f"  earliest stale: {earliest_stale.date()}")
-    print(f"  fetch from:     {fetch_start}")
+    print(f"  fetch from:     {fetch_start}  (capped at {args.max_lookback_days}d lookback)")
+    if len(stale):
+        sample = ", ".join(stale.sort_values().index[:5].astype(str))
+        print(f"  stale > {args.max_lookback_days}d: {len(stale)} ticker(s) not "
+              f"deep-refreshed by daily job (e.g. {sample}) — backfill explicitly if live")
     print(f"  backfill from:  {args.backfill_start} (new tickers)")
     print(f"  today:          {today.date()}\n")
 
