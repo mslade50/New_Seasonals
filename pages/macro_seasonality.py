@@ -162,7 +162,17 @@ def get_sznl_val(ticker, target_date, sznl_map):
 
 @st.cache_data(show_spinner=False)
 def load_atr_seasonal_map():
-    """Load ATR seasonal ranks. Returns {ticker: DataFrame with 6 rank columns}."""
+    """Load ATR seasonal ranks. Returns {ticker: DataFrame with 6 rank columns}.
+
+    Pulls atr_seasonal_ranks.parquet from R2 when missing/stale (the file is
+    .gitignore'd — too big for the repo — so on Streamlit Cloud it is absent
+    until this fetch runs). No-ops without cache_io/creds, mirroring
+    pages/backtester.load_atr_seasonal_map."""
+    try:
+        from overflow_universe import _maybe_pull_from_r2
+        _maybe_pull_from_r2(ATR_SZNL_PATH, "atr_seasonal_ranks.parquet")
+    except Exception:
+        pass
     if not os.path.exists(ATR_SZNL_PATH):
         return {}
     try:
@@ -558,6 +568,22 @@ def main():
     if table.empty:
         st.error("No data available.")
         return
+
+    # Surface a missing/empty ATR seasonal cache instead of silently rendering
+    # blank Sznl_* columns (the usual cloud failure mode: parquet absent + R2
+    # fetch couldn't run). Only warn when every seasonal cell is blank.
+    sznl_present = [c for c in ATR_SZNL_DISPLAY.values() if c in table.columns]
+    if not sznl_present or table[sznl_present].isna().all().all():
+        try:
+            from cache_io import diagnose_creds
+            detail = diagnose_creds()
+        except Exception as e:
+            detail = f"cache_io unavailable: {e}"
+        st.warning(
+            "Seasonal ranks (Sznl_*) are empty — atr_seasonal_ranks.parquet "
+            "was not loaded. It is distributed via R2, not committed. "
+            f"R2 credential status: {detail}"
+        )
 
     def highlight_pct_rank(val):
         if pd.isna(val): return ""
