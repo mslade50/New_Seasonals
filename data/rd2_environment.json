@@ -1,20 +1,20 @@
 {
-  "date": "2026-06-18",
+  "date": "2026-06-19",
   "price_ctx": {
     "price": 746.739990234375,
-    "ret_12m": 0.2642278733038781,
-    "extension_200d": 0.08815985561928041,
-    "drawdown": -0.016891158110679982,
-    "sma_200": 686.2410760498046,
-    "high_52w": 759.5700073242188,
+    "ret_12m": 0.26748475626022317,
+    "extension_200d": 0.0909479188896769,
+    "drawdown": -0.014358465125200781,
+    "sma_200": 684.4872952270508,
+    "high_52w": 757.6182250976562,
     "regime_label": "Extended uptrend, stretched above trend",
     "days_since_5pct": 53,
     "days_since_10pct": 289
   },
   "h_scores": {
-    "5d": 43.413819102246805,
-    "21d": 15.0745482703615,
-    "63d": 24.016319071024988
+    "5d": 43.824060107138386,
+    "21d": 15.150506055402138,
+    "63d": 24.082973020877965
   },
   "signals": {
     "Distribution Dominance": {
@@ -25,7 +25,7 @@
     "VIX Range Compression": {
       "on": false,
       "detail": "",
-      "summary": "21d range: 48th pctile (fires below 15th) \u2014 VIX at 16.4"
+      "summary": "21d range: 47th pctile (fires below 15th) \u2014 VIX at 16.8"
     },
     "Defensive Leadership": {
       "on": false,
@@ -35,12 +35,12 @@
     "Pre-FOMC Rally": {
       "on": false,
       "detail": "",
-      "summary": "Next FOMC: Jul 29 (41d away) \u2014 5d return: 70th pctile (outside window)"
+      "summary": "Next FOMC: Jul 29 (41d away) \u2014 5d return: 74th pctile (outside window)"
     },
     "Low Absorption Ratio": {
       "on": false,
       "detail": "",
-      "summary": "AR: 0.444 (37th pctile, fires below 10th) \u2014 near high: yes"
+      "summary": "AR: 0.440 (36th pctile, fires below 10th) \u2014 near high: yes"
     },
     "Seasonal Rank Divergence": {
       "on": false,
@@ -50,7 +50,7 @@
     "Dispersion": {
       "on": false,
       "detail": "",
-      "summary": "Composite pctile: 62th (fires above 85th) \u2014 component RV: 35.7% | SPY RV: 16.2%"
+      "summary": "Composite pctile: 61th (fires above 85th) \u2014 component RV: 35.7% | SPY RV: 16.3%"
     }
   }
 }
