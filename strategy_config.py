@@ -440,6 +440,17 @@ _STRATEGY_BOOK_RAW = [
             "dial_filters": []
         },
         "execution": {"risk_bps": 35, "slippage_bps": 2, "stop_atr": 1.25, "tgt_atr": 2.5, "hold_days": 10, "use_stop_loss": True, "use_take_profit": True,
+                      # Entry-order live window (2026-06-24): the persistent
+                      # close-0.25 ATR limit is cancelled if unfilled after 3
+                      # trading days (T+1..T+3), NOT the full 10-day hold. 89% of
+                      # OLV fills land by T+3; the day 4-10 fills add ~0 total R
+                      # (+211 -> +211) while diluting per-trade edge (avgR +0.637
+                      # T+3 vs +0.566 T+10, win 62.8% vs 60.6%, PF 2.90 vs 2.65).
+                      # Defaults to hold_days when absent, so other persistent
+                      # strategies are unchanged. Aligned: strat_backtester fill
+                      # loop, daily_scan Fill_Window_Days stamp, order_staging
+                      # GTC cancel-after-N. Evidence: scratch/olv_fill_window.py.
+                      "fill_window_days": 3,
                       "ladder_multipliers": [0.85, 1.00, 1.15],
                       # Earnings size override: when signal_date sits in the
                       # offset range [min_td, max_td] (trading days relative to

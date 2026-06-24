@@ -1392,7 +1392,13 @@ def process_signals_fast(candidates, signal_data, processed_dict, strategies, st
         # ========== ENTRY LOGIC SECTION ==========
         entry_type = settings.get('entry_type', 'T+1 Open')
         hold_days = execution['hold_days']
-        
+        # Order-live window for persistent (GTC) limits: cancel if unfilled after
+        # this many trading days (T+1..T+fill_window). Defaults to hold_days, so
+        # only strategies that set it (OLV=3) deviate. The hold reduction on a
+        # fill still references execution['hold_days'] below, so a kept trade is
+        # byte-identical to the full-window run — only late fills are dropped.
+        fill_window = execution.get('fill_window_days', hold_days)
+
         # Normalize entry type for matching (case-insensitive)
         entry_type_upper = entry_type.upper()
         is_signal_close = 'SIGNAL CLOSE' in entry_type_upper
@@ -1579,7 +1585,7 @@ def process_signals_fast(candidates, signal_data, processed_dict, strategies, st
                 limit_price = base_price + limit_offset
             
             found_fill = False
-            search_end = min(signal_idx + 1 + hold_days, len(df))
+            search_end = min(signal_idx + 1 + fill_window, len(df))
             
             for i in range(signal_idx + 1, search_end):
                 check_row = df.iloc[i]
@@ -1659,7 +1665,7 @@ def process_signals_fast(candidates, signal_data, processed_dict, strategies, st
                 limit_price = limit_base + limit_offset
             
             found_fill = False
-            search_end = min(signal_idx + 1 + hold_days, len(df))
+            search_end = min(signal_idx + 1 + fill_window, len(df))
             
             for i in range(signal_idx + 1, search_end):
                 check_row = df.iloc[i]

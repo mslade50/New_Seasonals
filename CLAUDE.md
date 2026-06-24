@@ -284,6 +284,44 @@ Related conventions: entry-day TARGETS are never credited in the backtest
 (intraday timing vs fill is ambiguous); OVS has `use_stop_loss=False` entirely
 (its day-one valve is the Friday-only EOD-DD, see section above).
 
+## OLV Entry-Order Live Window (T+3, 2026-06-24)
+
+The OLV (Oversold Low Volume) persistent close-0.25 ATR limit is cancelled if
+unfilled after **3 trading days** (T+1..T+3), not the full 10-day hold. A fill
+inside the window is kept and unchanged (its hold is still reduced by wait time
+off `hold_days`); a signal that hasn't filled by T+3 close is dropped.
+
+Evidence (`scratch/olv_fill_window.py`, bucketing the full ledger by fill day):
+89% of OLV fills land by T+3. The day 4-10 fills add ~0 total R (+211 -> +211 R
+over 21y) while diluting per-trade edge: avgR +0.637 (T+3) vs +0.566 (T+10),
+win 62.8% vs 60.6%, PF 2.90 vs 2.65. So total return is unchanged but
+risk-adjusted quality improves, and capital isn't tied up in stale GTC orders
+that mostly fill into names that kept bleeding for a week+.
+
+Generic mechanism: `execution['fill_window_days']` caps the persistent-limit
+fill search; **defaults to `hold_days` when absent**, so the other 5 persistent
+strategies are untouched. Aligned sites (change together):
+- `strategy_config.py` — OLV execution `fill_window_days: 3` (source of truth).
+- `pages/strat_backtester.py` — `fill_window` bounds `search_end` in both
+  persistent fill loops; the hold reduction still references `hold_days`.
+  Drives the ledger + `daily_portfolio_report.py`.
+- `daily_scan.py` — stamps `Fill_Window_Days` on every primary staging row.
+- `order_staging.py` (in `OneDrive\trading_ibkr\`) — stamps `Entry_Expire_Time`
+  = signal + `Fill_Window_Days` BDays = `Exit_Condition_Time` − (1 + hold − fill)
+  BDays, into the execution CSV + `execution`/`execution_2` tabs. Defaults to
+  `Exit_Condition_Time` (the 10-day-hold expiry) unless the row carries a valid
+  `0 < Fill_Window_Days < Hold_Days`, so only OLV is affected.
+- `eq_order_entry.py` + `pa_order_entry.py` (same dir) — the persistent GTC
+  parent's `goodTillDate` reads `Entry_Expire_Time` (falls back to the time-exit
+  `gat_time` when absent/blank). The TIME exit leg still uses `gat_time`, so a
+  filled OLV position keeps its full reduced hold — only the unfilled entry order
+  is cancelled early. The order is live T+1..T+3 (expires T+3 15:59).
+- `pages/backtester.py` UI still uses `holding_days` as its fill window (an
+  exploration surface, deliberately separate from the prod-locked rule).
+- Regression coverage: `tests/test_olv_fill_window.py` (backtest engine);
+  the live date math is validated by the entry-expire chain (daily_scan exit-date
+  build ↔ order_staging back-computation, identical `CustomBusinessDay` calendar).
+
 ## Cloudflare R2 Cache + GHA Migration
 
 As of 2026-04-30, the nightly pipeline runs entirely in GitHub Actions. The local Task Scheduler retains the radar tasks plus (as of 2026-05-13) two AM `workflow_dispatch` triggers that bypass GitHub's congested 8-9 UTC cron-queue lag. R2 is the persistence layer that lets cloud workflows share parquet caches.

@@ -1324,6 +1324,10 @@ def save_staging_orders(signals_list, strategy_book, sheet_name='Order_Staging',
         tgt_atr_mult = execution.get('tgt_atr', 0.0)
         stop_atr_mult = execution.get('stop_atr', 0.0)
         hold_days = execution.get('hold_days', 0)
+        # Entry-order live window: order_staging cancels a persistent (GTC) limit
+        # if unfilled after this many trading days. Defaults to hold_days so
+        # non-persistent / unspecified strategies are unaffected. OLV=3 (2026-06-24).
+        fill_window_days = execution.get('fill_window_days', hold_days)
         trade_direction = settings.get('trade_direction', 'Long')
 
         staging_data.append({
@@ -1348,6 +1352,7 @@ def save_staging_orders(signals_list, strategy_book, sheet_name='Order_Staging',
             "Use_Target": use_target,
             "Use_Stop": use_stop,
             "Hold_Days": hold_days,
+            "Fill_Window_Days": fill_window_days,
             "Trade_Direction": trade_direction,
             # 252D rank stamped for OVS gap-tier sizing in order_staging.py
             "Rank_252D": row.get('Rank_252D', ''),
