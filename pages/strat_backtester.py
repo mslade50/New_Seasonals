@@ -537,6 +537,15 @@ def get_historical_mask(df, params, sznl_map, ticker_name="UNK"):
     if params.get('exclude_52w_high', False):
         conditions.append(~df['is_52w_high'].values)
 
+    # ATH filter (parity with daily_scan.py 8c — backtester previously
+    # ignored this gate, so strategies like 52wh Breakout fired on new
+    # 52-week highs that were NOT all-time highs)
+    if params.get('use_ath', False):
+        if params.get('ath_type') == 'Today is ATH':
+            conditions.append(df['is_ath'].values)
+        else:  # Today is NOT ATH
+            conditions.append(~df['is_ath'].values)
+
     # Trailing 52w high filter
     if params.get('use_recent_52w', False):
         r52w_lookback = params.get('recent_52w_lookback', 21)
@@ -554,6 +563,15 @@ def get_historical_mask(df, params, sznl_map, ticker_name="UNK"):
             conditions.append(~recent_52w_low_mask)
         else:
             conditions.append(recent_52w_low_mask)
+
+    # Trailing ATH filter (parity with daily_scan.py 8f)
+    if params.get('use_recent_ath', False):
+        ath_lookback = params.get('ath_lookback_days', 21)
+        recent_ath_mask = df['is_ath'].rolling(window=ath_lookback, min_periods=1).max().astype(bool).values
+        if params.get('recent_ath_invert', False):
+            conditions.append(~recent_ath_mask)
+        else:
+            conditions.append(recent_ath_mask)
 
     # Volume filters
     if params.get('vol_gt_prev', False):
