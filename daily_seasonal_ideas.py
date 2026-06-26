@@ -318,6 +318,14 @@ def main():
     print(f"\n[written] {OUT_MD}")
     print(f"[written] {OUT_JSON}")
 
+    # Forward log: append today's tickets to the append-only track-record ledger
+    # (best-effort — a logging failure must never break the digest).
+    try:
+        from scripts.seasonal_ideas_ledger import append_emitted
+        append_emitted(payload, logged_at=str(asof.date()))
+    except Exception as _e:
+        print(f"[ledger] hook skipped ({_e})")
+
 
 if __name__ == "__main__":
     main()
