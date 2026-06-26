@@ -1,56 +1,56 @@
 {
-  "date": "2026-06-25",
+  "date": "2026-06-26",
   "price_ctx": {
-    "price": 734.2999877929688,
-    "ret_12m": 0.22288204152714464,
-    "extension_200d": 0.06976558221010443,
-    "drawdown": -0.030778347896371905,
-    "sma_200": 686.4120513916016,
+    "price": 728.989990234375,
+    "ret_12m": 0.2046143743374318,
+    "extension_200d": 0.06136646298317161,
+    "drawdown": -0.037787151780292905,
+    "sma_200": 686.8409881591797,
     "high_52w": 757.6182250976562,
     "regime_label": "Strong uptrend, moderately extended",
-    "days_since_5pct": 57,
-    "days_since_10pct": 293
+    "days_since_5pct": 58,
+    "days_since_10pct": 294
   },
   "h_scores": {
-    "5d": 11.57656591604147,
-    "21d": 8.638072748362807,
-    "63d": 20.230780929260597
+    "5d": 5.803414899812156,
+    "21d": 6.95390764047189,
+    "63d": 18.660297490756705
   },
   "signals": {
     "Distribution Dominance": {
       "on": false,
       "detail": "",
-      "summary": "D/A ratio: 2.5 (threshold: 3.75) \u2014 5D / 2A last 63d"
+      "summary": "D/A ratio: 1.7 (threshold: 3.75) \u2014 5D / 3A last 63d"
     },
     "VIX Range Compression": {
       "on": false,
       "detail": "",
-      "summary": "21d range: 47th pctile (fires below 15th) \u2014 VIX at 18.9"
+      "summary": "21d range: 47th pctile (fires below 15th) \u2014 VIX at 18.4"
     },
     "Defensive Leadership": {
       "on": false,
       "detail": "",
-      "summary": "50d spread: +3pp (fires < -10) | 200d spread: +6pp (fires < 0)"
+      "summary": "50d spread: -8pp (fires < -10) | 200d spread: +3pp (fires < 0)"
     },
     "Pre-FOMC Rally": {
       "on": false,
       "detail": "",
-      "summary": "Next FOMC: Jul 29 (34d away) \u2014 5d return: 28th pctile (outside window)"
+      "summary": "Next FOMC: Jul 29 (33d away) \u2014 5d return: 8th pctile (outside window)"
     },
     "Low Absorption Ratio": {
       "on": false,
       "detail": "",
-      "summary": "AR: 0.466 (45th pctile, fires below 10th) \u2014 near high: no"
+      "summary": "AR: 0.444 (38th pctile, fires below 10th) \u2014 near high: no"
     },
     "Seasonal Rank Divergence": {
       "on": false,
       "detail": "",
-      "summary": "Spread: +2.0pp (fires above 10) \u2014 near high: no"
+      "summary": "Spread: +1.0pp (fires above 10) \u2014 near high: no"
     },
     "Dispersion": {
       "on": false,
       "detail": "",
-      "summary": "Composite pctile: 68th (fires above 85th) \u2014 component RV: 37.9% | SPY RV: 16.5%"
+      "summary": "Composite pctile: 69th (fires above 85th) \u2014 component RV: 38.6% | SPY RV: 16.7%"
     }
   }
 }
