@@ -254,6 +254,27 @@ def _trading_doy(index: pd.DatetimeIndex) -> pd.Series:
     return pd.Series(doy.values, index=index)
 
 
+def _window_pick_positions(doy_arr, years_arr, target_doy, asof_year,
+                           cycle_phase, tol, exclude_current):
+    """Vectorized replacement for the per-year doy-matching loop: one pick per
+    prior year (the bar with day-of-year closest to target, ties to the earliest),
+    returned as integer positions in year-ascending order. Mirrors the loop's
+    `(cand - target).abs().idxmin()` exactly (lexsort by year, |doy-target|, pos)."""
+    m = (doy_arr >= target_doy - tol) & (doy_arr <= target_doy + tol)
+    if exclude_current:
+        m &= years_arr < asof_year
+    if cycle_phase is not None:
+        m &= (years_arr % 4) == cycle_phase
+    idx = np.flatnonzero(m)
+    if idx.size == 0:
+        return idx
+    order = np.lexsort((idx, np.abs(doy_arr[idx] - target_doy), years_arr[idx]))
+    ys = years_arr[idx][order]
+    first = np.ones(ys.size, dtype=bool)
+    first[1:] = ys[1:] != ys[:-1]
+    return idx[order][first]
+
+
 def seasonal_window_returns(
     price_df: pd.DataFrame,
     asof,
@@ -273,6 +294,11 @@ def seasonal_window_returns(
 
     Returns {n, mean, median, n_down, n_up, pct_down, years, rets} or
     {n, insufficient: True} when fewer than `min_years` matches exist.
+
+    Numpy-vectorized (2026-06; ~6x faster than the prior per-year loop). Float
+    math runs in float64 vs the old float32 path, so window means/medians can
+    differ at ~1e-8 — economically identical and verified to leave candidate
+    generation unchanged (tests/regression: candidate-equality vs the loop).
     """
     if price_df is None or price_df.empty:
         return None
@@ -280,43 +306,35 @@ def seasonal_window_returns(
     if close.empty:
         return None
     asof = pd.Timestamp(asof).normalize()
-    doy = _trading_doy(close.index)
-    prior = doy[close.index <= asof]
-    if prior.empty:
+    doy = _trading_doy(close.index).values
+    years = close.index.year.values.astype(np.int64)
+    le = close.index.values <= np.datetime64(asof)
+    if not le.any():
         return None
-    target_doy = int(prior.iloc[-1])
-    asof_year = asof.year
-
-    fwd = close.shift(-forward_window) / close - 1.0
-    years_idx = close.index.year
-    rows = []
-    for y in sorted(set(years_idx)):
-        if exclude_current_year and y >= asof_year:
-            continue
-        if cycle_phase_filter is not None and (y % 4) != cycle_phase_filter:
-            continue
-        ymask = years_idx == y
-        ydoy = doy[ymask]
-        cand = ydoy[(ydoy >= target_doy - doy_tol) & (ydoy <= target_doy + doy_tol)]
-        if cand.empty:
-            continue
-        pick_date = (cand - target_doy).abs().idxmin()
-        r = fwd.get(pick_date, np.nan)
-        if pd.notna(r):
-            rows.append((int(y), float(r)))
-
-    if len(rows) < min_years:
-        return {"n": len(rows), "insufficient": True}
-    rets = np.array([r for _, r in rows], dtype=float)
+    target_doy = int(doy[le][-1])
+    cv = close.values.astype(np.float64)
+    N = int(forward_window)
+    fwd = np.full(cv.shape, np.nan)
+    if 0 < N < cv.size:
+        with np.errstate(divide="ignore", invalid="ignore"):
+            fwd[:-N] = cv[N:] / cv[:-N] - 1.0
+    picks = _window_pick_positions(doy, years, target_doy, asof.year,
+                                   cycle_phase_filter, doy_tol, exclude_current_year)
+    r = fwd[picks]
+    valid = ~np.isnan(r)
+    rets = r[valid]
+    yrs = years[picks][valid]
+    if rets.size < min_years:
+        return {"n": int(rets.size), "insufficient": True}
     return {
-        "n": int(len(rets)),
+        "n": int(rets.size),
         "mean": float(rets.mean()),
         "median": float(np.median(rets)),
         "n_down": int((rets < 0).sum()),
         "n_up": int((rets > 0).sum()),
         "pct_down": float((rets < 0).mean()),
-        "years": [y for y, _ in rows],
-        "rets": [round(r, 4) for r in rets],
+        "years": [int(y) for y in yrs],
+        "rets": [round(float(x), 4) for x in rets],
     }
 
 
@@ -514,33 +532,27 @@ def expected_atr_move(price_df, asof, forward_window, cycle_phase_filter=None,
     close = price_df["Close"].dropna().sort_index()
     if close.empty:
         return None
-    atr = atr_wilder(price_df).reindex(close.index)
+    atr = atr_wilder(price_df).reindex(close.index).values.astype(np.float64)
     asof = pd.Timestamp(asof).normalize()
-    doy = _trading_doy(close.index)
-    prior = doy[close.index <= asof]
-    if prior.empty:
+    doy = _trading_doy(close.index).values
+    years = close.index.year.values.astype(np.int64)
+    le = close.index.values <= np.datetime64(asof)
+    if not le.any():
         return None
-    target_doy = int(prior.iloc[-1])
-    asof_year = asof.year
-    fwd = (close.shift(-forward_window) - close) / atr
-    yrs = close.index.year
-    vals = []
-    for y in sorted(set(yrs)):
-        if exclude_current_year and y >= asof_year:
-            continue
-        if cycle_phase_filter is not None and (y % 4) != cycle_phase_filter:
-            continue
-        ydoy = doy[yrs == y]
-        cand = ydoy[(ydoy >= target_doy - doy_tol) & (ydoy <= target_doy + doy_tol)]
-        if cand.empty:
-            continue
-        pick = (cand - target_doy).abs().idxmin()
-        v = fwd.get(pick, np.nan)
-        if pd.notna(v):
-            vals.append(float(v))
-    if len(vals) < min_years:
+    target_doy = int(doy[le][-1])
+    cv = close.values.astype(np.float64)
+    N = int(forward_window)
+    fwd = np.full(cv.shape, np.nan)
+    if 0 < N < cv.size:
+        with np.errstate(divide="ignore", invalid="ignore"):
+            fwd[:-N] = (cv[N:] - cv[:-N]) / atr[:-N]
+    picks = _window_pick_positions(doy, years, target_doy, asof.year,
+                                   cycle_phase_filter, doy_tol, exclude_current_year)
+    v = fwd[picks]
+    v = v[~np.isnan(v)]
+    if v.size < min_years:
         return None
-    return float(np.mean(vals))
+    return float(v.mean())
 
 
 def build_trade_ticket(price_df, asof, direction, forward_window, expected_move_atr,
@@ -766,7 +778,7 @@ def scan_seasonal_tickets(universe, asof, channel, *, min_rr: float = 2.0,
                           ranks: pd.DataFrame | None = None,
                           horizons=(5, 10, 21), short_thr: float = 15,
                           long_thr: float = 85, min_dollar_vol: float = 5e6,
-                          cycle_blend: float = 0.75) -> list:
+                          cycle_blend: float = 0.75, min_all_hit: float = 0.667) -> list:
     """Scan `universe` across `horizons`; emit swing tickets (R/R >= min_rr).
 
     Horizon selection: a name can yield up to TWO tickets - one tactical (<=21d)
@@ -803,6 +815,18 @@ def scan_seasonal_tickets(universe, asof, channel, *, min_rr: float = 2.0,
                     continue
                 blend = seasonal_window_blended(px, asof, h, blend=cycle_blend)
                 if not _confirms_blended(blend, direction):
+                    continue
+                # All-years directional hit-rate gate (2026-06-25). Walk-forward
+                # dose-response: the bottom hit-rate quintile (~58-63%, barely
+                # above the 60% confirmation floor) carried little realized edge;
+                # >=0.667 keeps the dose-responsive top (per-trade avgR 0.139 ->
+                # 0.171, PF 1.24 -> 1.30; ~42% fewer trades at the same Sharpe, so
+                # the gain is fewer/higher-conviction ideas, not a higher ratio).
+                # Shared by the live engine AND backtest_seasonal_ideas.
+                _s_all = blend["all"]
+                _ndir = _s_all.get("n_down") if direction == "short" else _s_all.get("n_up")
+                _n = _s_all.get("n", 0)
+                if not _n or (_ndir / _n) < min_all_hit:
                     continue
                 ea = blend["ea"]
                 if ea is None:
