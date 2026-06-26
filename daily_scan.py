@@ -1233,6 +1233,12 @@ def save_staging_orders(signals_list, strategy_book, sheet_name='Order_Staging',
                     "Quantity": row['Shares'],
                     "Order_Type": "LOC",
                     "Limit_Price": round(row.get('Limit_Price', row['Entry']), 2),
+                    # Manual entry-price override (always emitted empty). A user
+                    # types a price here in the sheet to pin a specific limit for
+                    # one signal; order_staging.py uses it verbatim as a LMT and
+                    # anchors the bracket to it. Emitted empty so the column
+                    # survives daily_scan's clear+rewrite.
+                    "Manual_Limit": "",
                     "Offset_ATR_Mult": 0.0,
                     "TIF": "DAY",
                     "Frozen_ATR": round(row['ATR'], 2),
@@ -1339,6 +1345,11 @@ def save_staging_orders(signals_list, strategy_book, sheet_name='Order_Staging',
             "Quantity": row['Shares'],
             "Order_Type": entry_instruction,
             "Limit_Price": round(limit_price, 2),
+            # Manual entry-price override (always emitted empty). A user types a
+            # price here in the sheet to pin a specific limit for one signal;
+            # order_staging.py uses it verbatim as a LMT and anchors the bracket
+            # to it. Emitted empty so the column survives the clear+rewrite.
+            "Manual_Limit": "",
             "Offset_ATR_Mult": offset_atr,
             "TIF": tif_instruction,
             "Frozen_ATR": round(row['ATR'], 2),
