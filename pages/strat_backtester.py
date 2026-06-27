@@ -1180,7 +1180,41 @@ def build_price_matrix(processed_dict, tickers):
     return pd.DataFrame(price_data, index=all_dates)
 
 
-def process_signals_fast(candidates, signal_data, processed_dict, strategies, starting_equity, cap_bps=None, flat_sizing=False, overflow_active=False, ovs_p1_only=False, risk_multipliers=None, max_net_long_pct=None, max_net_short_pct=None, max_long_risk_bps=None, max_short_risk_bps=None):
+# ---- Stop-fill model (book-wide, 2026-06-27) ----------------------------------
+# A stop that the bar GAPS THROUGH does not fill at the stop price — the STP
+# becomes a market order at the open, so the realized fill is the worse of the
+# stop and that day's open (the old engine always booked the stop, which pinned
+# every stop-out at exactly -1R and understated the gap-down tail). Every stop
+# fill also eats slippage: STOP_SLIP_BPS on any stop, plus an ADDITIONAL
+# STOP_GAP_SLIP_BPS when the bar gapped through (worse fill, wider market).
+# Slippage always hurts: a long sells lower, a short covers higher.
+STOP_SLIP_BPS = 3.0       # slippage on every stop fill
+STOP_GAP_SLIP_BPS = 10.0  # ADDITIONAL slippage when the bar gaps through the stop
+
+
+def _stop_fill_price(direction, stop_price, day_open,
+                     gap_fill=True, slip_bps=STOP_SLIP_BPS,
+                     gap_slip_bps=STOP_GAP_SLIP_BPS):
+    """Gap-aware stop fill with slippage. Returns (fill_price, gapped_bool).
+
+    gap_fill=False reproduces the legacy engine (fill exactly at the stop, no
+    slippage) for before/after measurement. slip_bps / gap_slip_bps in basis
+    points of the fill level.
+    """
+    if not gap_fill:
+        return stop_price, False
+    if direction == 'Long':
+        gapped = day_open < stop_price
+        fill = min(stop_price, day_open)            # worse of stop / open
+        bps = slip_bps + (gap_slip_bps if gapped else 0.0)
+        return fill * (1.0 - bps / 1e4), gapped     # long sells lower
+    gapped = day_open > stop_price
+    fill = max(stop_price, day_open)
+    bps = slip_bps + (gap_slip_bps if gapped else 0.0)
+    return fill * (1.0 + bps / 1e4), gapped         # short covers higher
+
+
+def process_signals_fast(candidates, signal_data, processed_dict, strategies, starting_equity, cap_bps=None, flat_sizing=False, overflow_active=False, ovs_p1_only=False, risk_multipliers=None, max_net_long_pct=None, max_net_short_pct=None, max_long_risk_bps=None, max_short_risk_bps=None, stop_gap_fill=True, stop_slip_bps=STOP_SLIP_BPS, stop_gap_slip_bps=STOP_GAP_SLIP_BPS):
     """
     Process candidates chronologically with dynamic sizing based on REAL-TIME MTM equity.
 
@@ -1785,7 +1819,12 @@ def process_signals_fast(candidates, signal_data, processed_dict, strategies, st
             if _hit0:
                 exit_idx = entry_idx
                 exit_date = df.index[entry_idx]
-                exit_price = stop_price
+                # Slippage only on the entry day: the open precedes the intraday
+                # limit fill, so a gap-through-the-open fill model doesn't apply.
+                exit_price, _ = _stop_fill_price(
+                    direction, stop_price, stop_price,
+                    gap_fill=stop_gap_fill, slip_bps=stop_slip_bps,
+                    gap_slip_bps=stop_gap_slip_bps)
                 exit_type = "Stop"
                 entry_day_stopped = True
 
@@ -1857,7 +1896,10 @@ def process_signals_fast(candidates, signal_data, processed_dict, strategies, st
 
                 if direction == 'Long':
                     if use_stop and day_low <= stop_price:
-                        exit_price = stop_price
+                        exit_price, _ = _stop_fill_price(
+                            'Long', stop_price, check_row['Open'],
+                            gap_fill=stop_gap_fill, slip_bps=stop_slip_bps,
+                            gap_slip_bps=stop_gap_slip_bps)
                         exit_date = check_row.name
                         exit_idx = check_idx
                         exit_type = "Stop"
@@ -1870,7 +1912,10 @@ def process_signals_fast(candidates, signal_data, processed_dict, strategies, st
                         break
                 else:
                     if use_stop and day_high >= stop_price:
-                        exit_price = stop_price
+                        exit_price, _ = _stop_fill_price(
+                            'Short', stop_price, check_row['Open'],
+                            gap_fill=stop_gap_fill, slip_bps=stop_slip_bps,
+                            gap_slip_bps=stop_gap_slip_bps)
                         exit_date = check_row.name
                         exit_idx = check_idx
                         exit_type = "Stop"

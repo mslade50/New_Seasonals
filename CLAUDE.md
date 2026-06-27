@@ -284,6 +284,44 @@ Related conventions: entry-day TARGETS are never credited in the backtest
 (intraday timing vs fill is ambiguous); OVS has `use_stop_loss=False` entirely
 (its day-one valve is the Friday-only EOD-DD, see section above).
 
+## Stop-Fill Convention — gap-through + slippage (book-wide, 2026-06-27)
+
+A stop the bar GAPS THROUGH fills at the OPEN, not the stop. The old engine
+always booked the exit at exactly `stop_price`, which pinned every stop-out at
+exactly -1R and understated the gap-down tail (the website showed OLV — and
+every stop strategy — "never losing more than 1R"). The realized fill is now the
+worse of the stop and that day's open, plus slippage.
+
+`process_signals_fast` (`pages/strat_backtester.py`) — drives the full-history
+ledger (`scripts/build_trade_ledger.py` -> site) AND `daily_portfolio_report.py`:
+- `_stop_fill_price(direction, stop_price, day_open, gap_fill, slip_bps, gap_slip_bps)`
+  is the single fill model. Long: `min(stop, open)`; Short: `max(stop, open)`.
+- Slippage: `STOP_SLIP_BPS = 3.0` on EVERY stop fill, plus an ADDITIONAL
+  `STOP_GAP_SLIP_BPS = 10.0` (so 13 bps total) when the bar gapped through.
+  Always worsens the fill (long sells lower, short covers higher). Targets and
+  time exits get NO slippage. OVS EOD-DD (close exit) is untouched.
+- New kwargs `stop_gap_fill=True, stop_slip_bps=3.0, stop_gap_slip_bps=10.0`
+  default to the prod behavior; pass `stop_gap_fill=False` to reproduce the
+  legacy fill-at-stop for before/after measurement.
+- Entry-day stop (off by default) gets slippage only — no gap-to-open, since the
+  open precedes the intraday limit fill.
+- Scale-invariant under the dividend-adjustment rule: the stop is relative and
+  `Open` is on the same adjusted basis within a run, so both scale by the same
+  factor (CLAUDE.md "Dividend-Adjustment Basis").
+
+Impact (full book, 2003-2026, flat $750k, `scratch/stop_gap_slippage_impact.py`):
+85 of 434 stop-outs (~20%) gapped through. Book TotR 605.9 -> 560.2 (-45.7R),
+AvgR 0.525 -> 0.485, worst single trade -1.0R -> -4.56R, -$157.7k flat (~8% of
+these strategies' PnL). OLV: 25/116 stops gapped, TotR 193.5 -> 182.9, worst
+-1.0R -> -2.29R.
+
+Live trading was already correct (IBKR STP -> market order fills at the gap
+open); this only removes backtest/ledger/site optimism. `pages/backtester.py`
+(interactive UI) is a separate engine: its persistent-limit path already does
+`min(Open, stop)` (line ~2439); the simpler paths (~2312-2351) still fill at the
+stop and would need the same treatment for full parity (deliberately separate
+exploration surface, not yet aligned).
+
 ## OLV Entry-Order Live Window (T+3, 2026-06-24)
 
 The OLV (Oversold Low Volume) persistent close-0.25 ATR limit is cancelled if

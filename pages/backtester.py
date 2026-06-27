@@ -2321,17 +2321,24 @@ def run_engine(universe_dict, params, sznl_map, market_series=None, vix_series=N
                         if exit_price is None:
                             for _bp in range(_id_entry_pos + 1, len(_id_bars)):
                                 bar = _id_bars.iloc[_bp]
-                                bar_low, bar_high = float(bar['low']), float(bar['high'])
+                                bar_low, bar_high, bar_open = float(bar['low']), float(bar['high']), float(bar['open'])
+                                # Gap-aware fill (matches the multi-day path ~2439):
+                                # a bar that gaps through the level fills at the
+                                # bar open, not the level.
                                 if direction == 'Long':
                                     if params['use_stop_loss'] and bar_low <= stop_price:
-                                        exit_price, exit_type = stop_price, "Stop"; break
+                                        exit_price = min(bar_open, stop_price) if bar_open <= stop_price else stop_price
+                                        exit_type = "Stop"; break
                                     if params['use_take_profit'] and bar_high >= tgt_price:
-                                        exit_price, exit_type = tgt_price, "Target"; break
+                                        exit_price = max(bar_open, tgt_price) if bar_open >= tgt_price else tgt_price
+                                        exit_type = "Target"; break
                                 else:
                                     if params['use_stop_loss'] and bar_high >= stop_price:
-                                        exit_price, exit_type = stop_price, "Stop"; break
+                                        exit_price = max(bar_open, stop_price) if bar_open >= stop_price else stop_price
+                                        exit_type = "Stop"; break
                                     if params['use_take_profit'] and bar_low <= tgt_price:
-                                        exit_price, exit_type = tgt_price, "Target"; break
+                                        exit_price = min(bar_open, tgt_price) if bar_open <= tgt_price else tgt_price
+                                        exit_type = "Target"; break
                         if exit_price is None:
                             exit_price = float(_id_bars['close'].iloc[-1])
                             exit_type = "Time (EOD)"

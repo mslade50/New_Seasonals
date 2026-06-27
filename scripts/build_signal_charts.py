@@ -6,10 +6,10 @@ For each trade in data/backtest_trades_full.parquet, render a candlestick chart:
   - the full trade (signal -> entry -> exit)
   - 63 trading days AFTER the exit bar
 Candles are classic white/black (hollow up, filled down) on an ordinal x-axis
-(weekends/holidays collapsed, no gaps), with a green/red volume panel. Three
-dashed verticals mark Signal / Entry / Exit; a dotted horizontal line marks the
-actual entry fill; faint dotted lines mark stop and target. A stats box reports
-Entry / Exit / PnL / Max DU (MFE) / Max DD (MAE).
+(weekends/holidays collapsed, no gaps), with a green/red volume panel. Dotted
+horizontal lines mark the entry fill and the exit (drawn a touch darker) plus
+faint stop and target levels; forward-projected pivots mark swing highs/lows.
+A stats box reports Entry / Exit / PnL / Max DU (MFE) / Max DD (MAE).
 
 Charts are written under charts/signals/<strategy>/<TICKER>_<YYYYMMDD>.png and,
 with --upload, pushed to R2 at the same key under charts/ (the private site
@@ -127,10 +127,7 @@ def make_chart(trade, prices, geom, out_path):
     ax = axes[0]
     ymin, ymax = ax.get_ylim()
 
-    # The exit line is drawn only when the exit price isn't already shown by the
-    # stop or target line (i.e. Time / EOD-DD exits).
     ent_xp = geom["ent_pos"] - geom["lo"]
-    draw_exit = str(trade["Exit Type"]) not in ("Stop", "Target")
 
     # No-target strats: replace the placeholder target with a 2-ATR reference level.
     if str(trade["Strategy"]) in NO_TARGET_STRATS:
@@ -139,6 +136,19 @@ def make_chart(trade, prices, geom, out_path):
             else (entry_px - NO_TARGET_REF_ATR * atr)
     else:
         tgt_px = geom["tgt_px"]
+
+    # The exit line is drawn when the fill isn't already shown by a level line.
+    # Time / EOD-DD always draw it. Stop/Target normally fill AT their level (no
+    # separate line), but a gap-through fills at the open, away from the level
+    # (gap-aware engine, 2026-06) — draw the exit then. A few-bps slippage gap is
+    # treated as overlap and skipped.
+    _etype = str(trade["Exit Type"])
+    if _etype == "Stop":
+        draw_exit = abs(exit_px - geom["stop_px"]) > 0.005 * abs(geom["stop_px"])
+    elif _etype == "Target":
+        draw_exit = abs(exit_px - tgt_px) > 0.005 * abs(tgt_px)
+    else:
+        draw_exit = True
 
     # mpf autoscales to the candles only; expand the view to include every price
     # line (entry/stop/target, + exit when drawn) so none get clipped or land in
@@ -167,21 +177,28 @@ def make_chart(trade, prices, geom, out_path):
     # the candles (low zorder) and are thin + semi-transparent so they read as faint
     # reference levels without obscuring the candles; the full-opacity right-edge
     # labels (decluttered below) anchor each level and keep the left side clean.
-    LVL_Z, LVL_A = 0.8, 0.5
+    # Stop/target sit faint (LVL_A); the entry/exit fill lines read a touch darker
+    # (LVL_A_EMPH) since they mark where the trade actually got in and out.
+    LVL_Z, LVL_A, LVL_A_EMPH = 0.8, 0.5, 0.75
     ax.plot([ent_xp, n - 1], [geom["stop_px"], geom["stop_px"]], color="#d62728",
             linestyle=":", linewidth=0.8, alpha=LVL_A, zorder=LVL_Z)
     ax.plot([ent_xp, n - 1], [tgt_px, tgt_px], color="#2ca02c",
             linestyle=":", linewidth=0.8, alpha=LVL_A, zorder=LVL_Z)
     ax.plot([ent_xp, n - 1], [entry_px, entry_px], color="#000000",
-            linestyle=":", linewidth=0.9, alpha=LVL_A, zorder=LVL_Z)
+            linestyle=":", linewidth=1.0, alpha=LVL_A_EMPH, zorder=LVL_Z)
     right_labels = [(entry_px, "ENTRY", "#000000"),
                     (geom["stop_px"], "STOP", "#d62728"),
                     (tgt_px, "TARGET", "#2ca02c")]
     if draw_exit:
         exit_xp = geom["exit_pos"] - geom["lo"]
         ax.plot([exit_xp, n - 1], [exit_px, exit_px], color="#000000",
-                linestyle=":", linewidth=0.9, alpha=LVL_A, zorder=LVL_Z)
-        exit_lab = "EXIT (time)" if str(trade["Exit Type"]) == "Time" else "EXIT"
+                linestyle=":", linewidth=1.0, alpha=LVL_A_EMPH, zorder=LVL_Z)
+        if _etype == "Time":
+            exit_lab = "EXIT (time)"
+        elif _etype in ("Stop", "Target"):
+            exit_lab = "EXIT (gap)"
+        else:
+            exit_lab = "EXIT"
         right_labels.append((exit_px, exit_lab, "#000000"))
     _place_right_labels(ax, right_labels, ymin, ymax, n - 1)
 
