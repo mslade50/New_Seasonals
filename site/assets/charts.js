@@ -101,18 +101,35 @@ function renderList() {
     el.innerHTML = '<div class="cap" style="padding:12px">No trades match.</div>';
     return;
   }
-  el.innerHTML = VIEW.map((r, i) => {
+  const head = `<div class="tl-row tl-head">
+    <span class="tk">Tkr</span><span class="dt">Signal</span>
+    <span class="xt" title="Exit type">Exit</span>
+    <span class="r" title="Normalized R (1 unit of risk)">R</span>
+    <span class="ar" title="Actual return = R x sizing multiplier">Act</span>
+    <span class="dd" title="Max drawdown in-trade (MAE), R">DD</span></div>`;
+  el.innerHTML = head + VIEW.map((r, i) => {
     const rc = r.r == null ? "neu" : r.r > 0 ? "pos" : "neg";
+    const arc = r.actual_r == null ? "neu" : r.actual_r > 0 ? "pos" : "neg";
+    const ds = r.size_mult != null && r.size_mult < 0.999;
+    const dsTitle = ds ? ` title="sized ${Math.round(r.size_mult * 100)}% of full"` : "";
     return `<div class="tl-row${i === IDX ? " on" : ""}" data-i="${i}">
       <span class="tk">${esc(r.ticker)}</span>
       <span class="dt">${fmt.date(r.signal_date)}</span>
-      <span class="r ${rc}">${r.r == null ? "" : fmt.signed(r.r, 1) + "R"}</span>
+      <span class="xt" title="${esc(r.exit_type)}">${esc(exitAbbr(r.exit_type))}</span>
+      <span class="r ${rc}">${r.r == null ? "" : fmt.signed(r.r, 1)}</span>
+      <span class="ar ${arc}"${dsTitle}>${r.actual_r == null ? "" : fmt.signed(r.actual_r, 1) + (ds ? "*" : "")}</span>
+      <span class="dd neg">${r.mae_r == null ? "" : fmt.signed(r.mae_r, 1)}</span>
     </div>`;
   }).join("");
-  el.querySelectorAll(".tl-row").forEach(row =>
+  el.querySelectorAll(".tl-row[data-i]").forEach(row =>
     row.addEventListener("click", () => {
       IDX = +row.dataset.i; renderList(); renderViewer(); scrollActive();
     }));
+}
+
+function exitAbbr(t) {
+  return ({ Stop: "Stop", Target: "Tgt", Time: "Time", "EOD-DD": "EOD", SignalDeact: "Sig" })[t]
+    || String(t || "").slice(0, 4);
 }
 
 function renderViewer() {
@@ -123,6 +140,8 @@ function renderViewer() {
   }
   const r = VIEW[IDX];
   const rc = r.r == null ? "neu" : r.r > 0 ? "pos" : "neg";
+  const arc = r.actual_r == null ? "neu" : r.actual_r > 0 ? "pos" : "neg";
+  const ds = r.size_mult != null && r.size_mult < 0.999;
   const trunc = r.post_short ? ' <span class="note">post-window &lt; 3mo</span>' : "";
   el.innerHTML = `
     <div class="vcap">
@@ -131,6 +150,7 @@ function renderViewer() {
       <span class="badge ${r.tier === "Overflow" ? "warn" : "conv"}">${esc(r.tier)}</span>
       <span class="muted">signal ${fmt.date(r.signal_date)} &rarr; exit ${fmt.date(r.exit_date)} (${esc(r.exit_type)})</span>
       &nbsp; R <b class="${rc}">${r.r == null ? "?" : fmt.signed(r.r, 2)}</b>
+      ${ds ? `&nbsp; actual <b class="${arc}">${fmt.signed(r.actual_r, 2)}R</b> <span class="muted">(${Math.round(r.size_mult * 100)}% size)</span>` : ""}
       &nbsp; ret <b class="${rc}">${fmt.signed(r.ret, 2)}%</b>
       &nbsp; <span class="muted">MFE ${fmt.signed(r.mfe_r, 2)}R / MAE ${fmt.signed(r.mae_r, 2)}R</span>${trunc}
     </div>

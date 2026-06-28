@@ -1547,6 +1547,7 @@ def process_signals_fast(candidates, signal_data, processed_dict, strategies, st
         risk_bps = execution['risk_bps']
         equity_for_sizing = starting_equity if flat_sizing else current_equity
         base_risk = equity_for_sizing * risk_bps / 10000
+        _nominal_risk = base_risk  # full-size baseline; Size_Mult = final / nominal (pre-cap)
         _vol_spike_skip_primary = False
         if strat_name == "Weak Close Decent Sznls":
             sznl_val = row_data['sznl']
@@ -1593,6 +1594,13 @@ def process_signals_fast(candidates, signal_data, processed_dict, strategies, st
         _strat_mult = float(_rm.get(strat_name, 1.0))
         if _strat_mult != 1.0:
             base_risk *= _strat_mult
+
+        # Per-trade sizing multiplier vs the full-size nominal (pre-cap): 1.0 for a
+        # normal full-size trade, < 1 for deliberate downsizes (OLV pre-earnings,
+        # OVS path-2 gap, OVS midterm tilt, WCDS sznl tier, ladder). Lets the site
+        # show an "actual return" = R_Multiple x Size_Mult. Excludes the post-loop
+        # daily cap + net-exposure cap (portfolio-level, not the trade's decision).
+        _size_mult = (base_risk / _nominal_risk) if _nominal_risk > 0 else 1.0
 
         # --- 4. Track placed risk for the per-strategy daily cap ---
         placed_risk_by_strat_date[(signal_date, strat_name)] = (
@@ -2019,7 +2027,8 @@ def process_signals_fast(candidates, signal_data, processed_dict, strategies, st
                     "T+1 Open": t1_open, "Signal Close": row_data['close'],
                     "Range %": row_data['range_pct'],
                     "Equity at Signal": current_equity,
-                    "Risk $": base_risk, "Risk bps": risk_bps
+                    "Risk $": base_risk, "Risk bps": risk_bps,
+                    "Size_Mult": round(_size_mult, 4)
                 })
 
     if _progress_bar is not None:

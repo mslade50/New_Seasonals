@@ -466,6 +466,10 @@ def build_charts_json(df, md):
             "exit_date": pd.Timestamp(t["Exit Date"]),
             "exit_type": t["Exit Type"],
             "r": float(t["R_Multiple"]) if pd.notna(t["R_Multiple"]) else None,
+            # actual return = normalized R scaled by the trade's sizing multiplier
+            # (1.0 full-size; < 1 for OLV pre-earnings / OVS small-gap / midterm tilt).
+            "size_mult": float(t["Size_Mult"]) if "Size_Mult" in t.index and pd.notna(t["Size_Mult"]) else 1.0,
+            "actual_r": (float(t["R_Multiple"]) * (float(t["Size_Mult"]) if "Size_Mult" in t.index and pd.notna(t["Size_Mult"]) else 1.0)) if pd.notna(t["R_Multiple"]) else None,
             "ret": float(t["Return_Pct"]),
             "pnl": float(t["PnL_flat_750k"]),
             "mfe_r": geom["mfe_r"], "mae_r": geom["mae_r"],
@@ -486,6 +490,8 @@ def build_charts_json(df, md):
         "exit_date": col_list(cdf["exit_date"], "date"),
         "exit_type": col_list(cdf["exit_type"], "str"),
         "r": col_list(cdf["r"], "num", 2),
+        "size_mult": col_list(cdf["size_mult"], "num", 3),
+        "actual_r": col_list(cdf["actual_r"], "num", 2),
         "ret": col_list(cdf["ret"], "num", 2),
         "pnl": col_list(cdf["pnl"], "num", 0),
         "mfe_r": col_list(cdf["mfe_r"], "num", 2),

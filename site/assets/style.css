@@ -202,22 +202,32 @@ input[type="range"]::-moz-range-thumb {
 .rawtbl { padding: 0 14px 12px; }
 
 /* ---------- chart gallery ---------- */
-.gallery { display: grid; grid-template-columns: 320px 1fr; gap: 14px; margin-top: 12px; align-items: start; }
+.gallery { display: grid; grid-template-columns: 372px 1fr; gap: 14px; margin-top: 12px; align-items: start; }
 @media (max-width: 900px) { .gallery { grid-template-columns: 1fr; } }
 .tradelist {
   background: var(--card); border: 1px solid var(--border); border-radius: var(--radius);
   max-height: 80vh; overflow: auto;
 }
 .tradelist .tl-row {
-  display: flex; align-items: baseline; gap: 8px; padding: 7px 11px;
+  display: flex; align-items: baseline; gap: 6px; padding: 7px 10px;
   border-bottom: 1px solid #1a2030; cursor: pointer; font-size: 12.5px;
   font-variant-numeric: tabular-nums;
 }
 .tradelist .tl-row:hover { background: #161c29; }
 .tradelist .tl-row.on { background: #1c2433; }
-.tradelist .tl-row .tk { font-weight: 700; min-width: 56px; }
-.tradelist .tl-row .dt { color: var(--faint); }
-.tradelist .tl-row .r { margin-left: auto; font-weight: 600; }
+.tradelist .tl-row .tk { font-weight: 700; min-width: 48px; }
+.tradelist .tl-row .dt { color: var(--faint); min-width: 70px; }
+.tradelist .tl-row .xt { margin-left: auto; min-width: 30px; text-align: right; color: var(--faint); }
+.tradelist .tl-row .r,
+.tradelist .tl-row .ar,
+.tradelist .tl-row .dd { min-width: 38px; text-align: right; font-weight: 600; }
+.tradelist .tl-row .dd { font-weight: 500; opacity: 0.85; }
+.tradelist .tl-head {
+  position: sticky; top: 0; z-index: 1; background: #11161f; cursor: default;
+  color: var(--faint); font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.03em;
+}
+.tradelist .tl-head:hover { background: #11161f; }
+.tradelist .tl-head .tk { font-weight: 600; }
 .viewer { background: var(--card); border: 1px solid var(--border); border-radius: var(--radius); padding: 12px; }
 .viewer .vcap { font-size: 13px; margin-bottom: 8px; font-variant-numeric: tabular-nums; }
 .viewer .vcap .muted { color: var(--faint); }

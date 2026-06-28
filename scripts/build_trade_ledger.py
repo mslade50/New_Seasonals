@@ -154,15 +154,19 @@ def main():
         df["PnL_flat_750k"] = sig_flat["PnL"].values
         df["Risk_flat_750k"] = sig_flat["Risk $"].values
         df["Shares_flat"] = sig_flat["Shares"].values
+        # Size_Mult from the FLAT pass (equity-basis-clean; the earnings override
+        # uses starting_equity so the compounded ratio drifts with book growth).
+        df["Size_Mult"] = sig_flat["Size_Mult"].values
     else:
         print("  NOTE: sizing passes not positionally aligned — merging on key.")
-        fl = sig_flat[key + ["PnL", "Risk $", "Shares"]].copy()
+        fl = sig_flat[key + ["PnL", "Risk $", "Shares", "Size_Mult"]].copy()
         fl["_k"] = fl[key].round({"Price": 4}).astype(str).agg("|".join, axis=1)
         df["_k"] = df[key].round({"Price": 4}).astype(str).agg("|".join, axis=1)
         fl_dedup = fl.drop_duplicates("_k").set_index("_k")
         df["PnL_flat_750k"] = df["_k"].map(fl_dedup["PnL"]).values
         df["Risk_flat_750k"] = df["_k"].map(fl_dedup["Risk $"]).values
         df["Shares_flat"] = df["_k"].map(fl_dedup["Shares"]).values
+        df["Size_Mult"] = df["_k"].map(fl_dedup["Size_Mult"]).values
         df.drop(columns="_k", inplace=True)
 
     # --- derive analysis columns ---
