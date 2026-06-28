@@ -497,7 +497,8 @@ def build_charts_json(df, md):
 
 
 def fetch_signals():
-    """Latest staged orders from Google Sheets (Order_Staging + Overflow)."""
+    """Latest staged orders from Google Sheets (Order_Staging + Overflow +
+    Seasonal + sznl_nostage)."""
     try:
         import gspread
         if "GCP_JSON" in os.environ:
@@ -511,7 +512,7 @@ def fetch_signals():
         sh = gc.open("Trade_Signals_Log")
         out = {"fetched_at": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d %H:%M UTC"),
                "tabs": {}}
-        for tab in ["Order_Staging", "Overflow"]:
+        for tab in ["Order_Staging", "Overflow", "Seasonal", "sznl_nostage"]:
             try:
                 ws = sh.worksheet(tab)
                 recs = ws.get_all_records()

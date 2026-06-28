@@ -2,11 +2,12 @@
 "use strict";
 
 const PAGES = [
-  { href: "index.html",   label: "Portfolio" },
-  { href: "ideas.html",   label: "Ideas" },
-  { href: "signals.html", label: "Signals" },
-  { href: "charts.html",  label: "Charts" },
-  { href: "risk.html",    label: "Risk" },
+  { href: "index.html",    label: "Portfolio" },
+  { href: "ideas.html",    label: "Ideas" },
+  { href: "signals.html",  label: "Signals" },
+  { href: "seasonal.html", label: "Seasonal" },
+  { href: "charts.html",   label: "Charts" },
+  { href: "risk.html",     label: "Risk" },
 ];
 
 function renderNav(active) {
