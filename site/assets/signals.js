@@ -35,9 +35,6 @@ function buildStratContext(notes, ideas) {
 }
 
 async function init() {
-  // seasonal.html reuses signalCard() from this file (shared classic-script
-  // scope) but runs its own init in seasonal.js — bail so we don't double-render.
-  if (document.body.dataset.page === "seasonal") return;
   renderNav("signals.html");
   const el = document.getElementById("content");
   const [data, notes, ideas] = await Promise.all([
