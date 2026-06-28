@@ -326,6 +326,16 @@ def main():
     except Exception as _e:
         print(f"[ledger] hook skipped ({_e})")
 
+    # Order staging: write tradeable tickets to the Seasonal / sznl_nostage Sheets
+    # tabs for order_staging.py to read (best-effort — save_seasonal_tabs no-ops
+    # without Sheets creds, and a failure must never break the digest).
+    try:
+        from seasonal_order_staging import build_seasonal_rows, save_seasonal_tabs
+        _seasonal, _nostage = build_seasonal_rows(payload)
+        save_seasonal_tabs(_seasonal, _nostage)
+    except Exception as _e:
+        print(f"[seasonal-staging] hook skipped ({_e})")
+
 
 if __name__ == "__main__":
     main()
