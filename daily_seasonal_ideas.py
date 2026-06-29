@@ -255,6 +255,18 @@ def cap_per_channel(candidates: list[dict], n: int = TOPN_PER_CHANNEL) -> list[d
     return out
 
 
+def nadir_filter(candidates: list[dict]) -> list[dict]:
+    """Surface a seasonal/cross-asset ticket only on the session BEFORE its
+    expected nadir/peak — i.e. when the ATR path bottoms on the very NEXT session
+    (entry_offset_days == 0). Candidates with no path offset (context / non-seasonal
+    channels) pass through untouched."""
+    kept = [c for c in candidates
+            if "entry_offset_days" not in c or c.get("entry_offset_days") == 0]
+    dropped = len(candidates) - len(kept)
+    print(f"[nadir-filter] kept {len(kept)}, dropped {dropped} (nadir not next session)")
+    return kept
+
+
 # -----------------------------------------------------------------------------
 def build(asof: pd.Timestamp, grades=("A",)) -> tuple[str, dict]:
     regime = load_regime(asof)
@@ -269,6 +281,7 @@ def build(asof: pd.Timestamp, grades=("A",)) -> tuple[str, dict]:
         kept = [c for c in candidates if c.get("conviction") in grades]
         print(f"[grade-filter] showing {'+'.join(grades)} only: {len(kept)}/{len(candidates)} kept")
         candidates = kept
+    candidates = nadir_filter(candidates)
     candidates = cap_per_channel(candidates)
 
     n_ideas = sum(1 for c in candidates if c["direction"] != "context")
@@ -326,15 +339,10 @@ def main():
     except Exception as _e:
         print(f"[ledger] hook skipped ({_e})")
 
-    # Order staging: write tradeable tickets to the Seasonal / sznl_nostage Sheets
-    # tabs for order_staging.py to read (best-effort — save_seasonal_tabs no-ops
-    # without Sheets creds, and a failure must never break the digest).
-    try:
-        from seasonal_order_staging import build_seasonal_rows, save_seasonal_tabs
-        _seasonal, _nostage = build_seasonal_rows(payload)
-        save_seasonal_tabs(_seasonal, _nostage)
-    except Exception as _e:
-        print(f"[seasonal-staging] hook skipped ({_e})")
+    # NOTE: order staging is intentionally OFF for now — the seasonal signals are
+    # display-only on the site (sourced from the ideas payload), no order tabs are
+    # written. seasonal_order_staging.py + the Entry_Offset_Days/Entry_Activate_Date
+    # plumbing remain for when we turn staging back on.
 
 
 if __name__ == "__main__":

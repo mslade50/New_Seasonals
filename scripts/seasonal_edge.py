@@ -338,20 +338,21 @@ def seasonal_window_returns(
     }
 
 
-def expected_seasonal_path(close, asof, forward_window, doy_tol=2, min_years=3):
-    """Average per-day cumulative-return path (length forward_window) over the
-    same calendar window in prior years (same pick logic as
-    seasonal_window_returns, all-years). The day the path BOTTOMS (long) / PEAKS
-    (short) is the expected entry-timing nadir/peak — known ex-ante from history,
-    so it is tradeable, not look-ahead on the live instance. Returns the
-    np.ndarray path or None when fewer than `min_years` prior matches exist.
-    Validated (scratch/seasonal_path_entry.py): delaying the entry to the path
-    nadir lifts the seasonal book's Sharpe ~1.21 -> 1.38 at full participation."""
-    if close is None or len(close) == 0:
+def expected_seasonal_path(price_df, asof, forward_window, doy_tol=2, min_years=3):
+    """Average ATR-NORMALIZED per-day path (length forward_window) over the same
+    calendar window in prior years (same pick logic as seasonal_window_returns,
+    all-years). Each prior year's cumulative move is divided by that year's Wilder
+    ATR at the anchor bar — identical to expected_atr_move / the atr_sznl ranks —
+    so one high-volatility year can't skew where the AVERAGE path bottoms. The day
+    the path BOTTOMS (long) / PEAKS (short) is the ex-ante entry-timing nadir/peak.
+    Returns the np.ndarray path (ATR units) or None when fewer than `min_years`
+    prior matches exist."""
+    if price_df is None or len(price_df) == 0:
         return None
-    close = close.dropna().sort_index()
+    close = price_df["Close"].dropna().sort_index()
     if close.empty:
         return None
+    atr = atr_wilder(price_df).reindex(close.index).values.astype(np.float64)
     asof = pd.Timestamp(asof).normalize()
     doy = _trading_doy(close.index).values
     years = close.index.year.values.astype(np.int64)
@@ -364,7 +365,8 @@ def expected_seasonal_path(close, asof, forward_window, doy_tol=2, min_years=3):
         return None
     cv = close.values.astype(np.float64)
     N = int(forward_window)
-    paths = [cv[p + 1:p + N + 1] / cv[p] - 1.0 for p in picks if p + N < cv.size]
+    paths = [(cv[p + 1:p + N + 1] - cv[p]) / atr[p]
+             for p in picks if p + N < cv.size and np.isfinite(atr[p]) and atr[p] > 0]
     if len(paths) < min_years:
         return None
     return np.nanmean(np.vstack(paths), axis=0)
@@ -797,7 +799,7 @@ def _seasonal_candidate(channel, t, px, asof, h, direction, blend, ticket, rk, b
     # step). 0-indexed offset (0 = T+1 = day 1).
     entry_off = 0
     try:
-        _pth = expected_seasonal_path(px["Close"], asof, h)
+        _pth = expected_seasonal_path(px, asof, h)  # full OHLC: ATR-normalized path
         if _pth is not None and len(_pth):
             entry_off = int(np.argmin(_pth)) if direction == "long" else int(np.argmax(_pth))
     except Exception:
