@@ -6,6 +6,7 @@
 name = "execution-broker"
 main = "src/index.js"
 compatibility_date = "2026-06-01"
+workers_dev = true   # publish to execution-broker.<subdomain>.workers.dev
 
 # Durable Object that holds the agent WebSocket + heartbeat state.
 [[durable_objects.bindings]]
