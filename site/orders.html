@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>Orders — Seasonals</title>
+<link rel="stylesheet" href="assets/style.css">
+<script src="assets/common.js"></script>
+<script src="assets/orders.js"></script>
+</head>
+<body data-page="orders">
+<header class="topbar" id="topbar"></header>
+<div class="wrap">
+  <h1>Morning Order Chain</h1>
+  <p class="sub" id="subtitle">Read-only confirmation of this morning's submitted orders across both accounts —
+    each staged order's state (working / filled / cancelled / missing), its exit legs
+    (target / stop / EOD-DD / profit-taker / time), and risk in $ and bps. Generated locally by the
+    9:31 AM order chain; this view never places, modifies, or cancels anything.</p>
+  <div id="content"><div class="spin">Loading...</div></div>
+  <footer>Order submission stays local (IBKR); this is a read-only mirror of the morning confirmation.</footer>
+</div>
+</body>
+</html>
