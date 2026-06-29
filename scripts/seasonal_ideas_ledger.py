@@ -28,7 +28,7 @@ R2_KEY = "seasonal_ideas_log.parquet"
 KEY = ["asof", "ticker", "channel", "direction", "time_stop_days"]
 COLS = ["asof", "ticker", "channel", "direction", "horizon", "conviction",
         "p_value", "entry", "stop", "target", "time_stop_days", "rr",
-        "headline", "logged_at"]
+        "entry_offset_days", "headline", "logged_at"]
 
 
 def rows_from_payload(payload: dict, logged_at: str | None = None) -> pd.DataFrame:
@@ -46,6 +46,7 @@ def rows_from_payload(payload: dict, logged_at: str | None = None) -> pd.DataFra
             "conviction": tk["conviction"], "p_value": tk["p_value"],
             "entry": tk["entry"], "stop": tk["stop"], "target": tk["target"],
             "time_stop_days": tk["time_stop_days"], "rr": tk["rr"],
+            "entry_offset_days": int(c.get("entry_offset_days", 0) or 0),
             "headline": tk["headline"], "logged_at": logged_at or "",
         })
     df = pd.DataFrame(rows, columns=COLS)

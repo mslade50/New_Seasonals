@@ -88,6 +88,7 @@ COLUMNS = [
     "Frozen_ATR", "Signal_Close", "Time_Exit_Date", "Strategy_Ref",
     "Tgt_ATR_Mult", "Stop_ATR_Mult", "Use_Target", "Use_Stop", "Hold_Days",
     "Trade_Direction", "Rank_252D", "Risk_Amt", "Risk_Bps", "Scan_Source",
+    "Entry_Offset_Days", "Entry_Activate_Date",
 ]
 
 # BUY ~332.23 | stop 323.91 (1.2 ATR) | target 348.86 | time-stop 21td | R/R 2.0
@@ -184,6 +185,11 @@ def _row(cand: dict, tk: dict, risk_bps: float, account_value: float, asof: str,
     time_exit = (pd.Timestamp(asof) + pd.tseries.offsets.BDay(tk["time_stop_days"])).strftime("%Y-%m-%d")
     horizon = cand.get("horizon", "")
     conv = cand.get("conviction", "")
+    # Expected seasonal-path entry day: 0 = T+1 (next session), k = T+(k+1). The
+    # order rests with goodAfterTime = Entry_Activate_Date so it activates that
+    # session instead of T+1. order_staging reads this; default 0 keeps T+1.
+    entry_off = int(cand.get("entry_offset_days", 0) or 0)
+    activate = (pd.Timestamp(asof) + pd.tseries.offsets.BDay(entry_off + 1)).strftime("%Y-%m-%d")
 
     return {
         "Scan_Date": asof,
@@ -211,6 +217,8 @@ def _row(cand: dict, tk: dict, risk_bps: float, account_value: float, asof: str,
         "Risk_Amt": round(risk_amt, 2),
         "Risk_Bps": risk_bps,
         "Scan_Source": scan_source,
+        "Entry_Offset_Days": entry_off,
+        "Entry_Activate_Date": activate,
     }
 
 

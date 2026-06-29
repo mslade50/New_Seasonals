@@ -91,7 +91,12 @@ def score(scored_at: str | None = None, upload: bool = True) -> pd.DataFrame:
             tk = {"ticker": ticker, "direction": r["direction"], "entry": float(r["entry"]),
                   "stop": float(r["stop"]), "target": float(r["target"]),
                   "time_stop_days": int(r["time_stop_days"])}
-            out = simulate_ticket(tk, raw, r["asof"])  # None until matured
+            # Live-consistent model (2026-06): enter on the expected seasonal-path
+            # nadir/peak day (entry_offset_days; 0 = T+1) and anchor the bracket to
+            # the actual fill, exactly as order_staging brackets off the fill.
+            _off = int(r["entry_offset_days"]) if "entry_offset_days" in r and pd.notna(r["entry_offset_days"]) else 0
+            out = simulate_ticket(tk, raw, r["asof"], entry_mode="delayed",
+                                  entry_window=_off, reanchor=True)  # None until matured
             if out is None:
                 continue
             row = {k: r[k] for k in KEY}

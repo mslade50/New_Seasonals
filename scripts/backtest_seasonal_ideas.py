@@ -188,10 +188,17 @@ def run(start, end, cadence, grades, entry_mode, negative_filter, channels=None,
                     "time_stop_days": tk["time_stop_days"], "conviction": tk["conviction"],
                     "rr": tk["rr"], "cycle": int(asof.year % 4),
                     "t_entry": tk["entry"], "t_stop": tk["stop"], "t_target": tk["target"],
+                    "entry_offset_days": int(c.get("entry_offset_days", 0) or 0),
                 }
                 candidates.append(rec)  # every flagged ticket, for fast entry re-sims
+                # Live-consistent model: delay to the expected path nadir/peak
+                # (entry_offset_days, used when entry_mode='delayed') and bracket
+                # off the fill (reanchor). reanchor matches order_staging and fixes
+                # the fixed-level mismatch; entry_window is ignored by non-delayed
+                # modes, so entry-mode sweeps still work.
                 out = simulate_ticket(tk, full, asof, entry_mode=entry_mode,
-                                      entry_atr_mult=entry_atr_mult)
+                                      entry_atr_mult=entry_atr_mult,
+                                      entry_window=rec["entry_offset_days"], reanchor=True)
                 if out is None:
                     continue  # not matured (too recent) — drop from the backtest
                 if not out.get("filled", True):
