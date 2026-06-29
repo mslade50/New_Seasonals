@@ -22,7 +22,7 @@ jobs:
       - name: Deploy Worker + set its secrets
         working-directory: execution-broker
         env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CF_BROKER_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           AGENT_TOKEN: ${{ secrets.AGENT_TOKEN }}
           STATUS_TOKEN: ${{ secrets.STATUS_TOKEN }}
@@ -37,7 +37,7 @@ jobs:
 
       - name: Wire the Pages site (EXEC_BROKER_URL + STATUS_TOKEN)
         env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CF_BROKER_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           STATUS_TOKEN: ${{ secrets.STATUS_TOKEN }}
         run: |
