@@ -27,9 +27,9 @@ jobs:
           AGENT_TOKEN: ${{ secrets.AGENT_TOKEN }}
           STATUS_TOKEN: ${{ secrets.STATUS_TOKEN }}
         run: |
-          set -e
-          out=$(wrangler deploy 2>&1); echo "$out"
-          url=$(printf '%s\n' "$out" | grep -oE 'https://[a-z0-9._-]+\.workers\.dev' | head -1)
+          wrangler deploy 2>&1 | tee deploy.log; rc=${PIPESTATUS[0]}
+          if [ "$rc" -ne 0 ]; then echo "wrangler deploy failed (rc=$rc)"; exit "$rc"; fi
+          url=$(grep -oE 'https://[a-z0-9._-]+\.workers\.dev' deploy.log | head -1)
           if [ -z "$url" ]; then echo "::warning::no workers.dev URL parsed from deploy output"; fi
           echo "BROKER_URL=$url" >> "$GITHUB_ENV"
           printf '%s' "$AGENT_TOKEN"  | wrangler secret put AGENT_TOKEN
