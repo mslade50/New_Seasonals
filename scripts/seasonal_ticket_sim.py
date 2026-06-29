@@ -103,7 +103,8 @@ def _atr_at(df: pd.DataFrame, asof, n: int = 14) -> float:
 
 def simulate_ticket(tk: dict, price_df: pd.DataFrame, asof,
                     entry_mode: str = "t1_open", stop_first: bool = True,
-                    entry_atr_mult: float = 0.25) -> dict | None:
+                    entry_atr_mult: float = 0.25, entry_window: int = None,
+                    reanchor: bool = False, entry_day_target: bool = True) -> dict | None:
     """Walk forward bars and realize the ticket. price_df: OHLC indexed by date
     (raw or adjusted — caller's choice). Returns an outcome dict, or None if the
     idea has not matured yet (no post-asof bars / window not complete)."""
@@ -151,6 +152,88 @@ def simulate_ticket(tk: dict, price_df: pd.DataFrame, asof,
         entry_price = float(lim)
         entry_date = fwd.index[0]
         window = fwd.iloc[:n]
+    elif entry_mode == "oracle":
+        # LOOK-AHEAD ceiling (NOT tradeable): enter at the best price actually
+        # reached in the first `entry_window` forward bars that does not breach
+        # the stop (long: lowest Low > stop; short: highest High < stop), and
+        # never worse than the T+1 open. The exit window runs from that bar
+        # through the original time-stop (asof + n), so this isolates ENTRY
+        # timing from hold length. Diagnostic for "are entries systematically
+        # early / how much does the nadir-vs-open gap cost".
+        k = int(entry_window) if entry_window else n
+        search = fwd.iloc[:max(1, min(k, len(fwd)))]
+        o = float(fwd.iloc[0]["Open"])
+        if tk["direction"] == "long":
+            elig = search["Low"][search["Low"] > stop]
+            entry_price = min(o, float(elig.min())) if len(elig) else o
+            reached = search.index[(search["Low"] <= entry_price).values]
+        else:
+            elig = search["High"][search["High"] < stop]
+            entry_price = max(o, float(elig.max())) if len(elig) else o
+            reached = search.index[(search["High"] >= entry_price).values]
+        entry_date = reached[0] if len(reached) else fwd.index[0]
+        epos = int(fwd.index.get_loc(entry_date))
+        window = fwd.iloc[epos:n] if n > epos else fwd.iloc[epos:epos + 1]
+    elif entry_mode == "delayed":
+        # Enter at the OPEN of forward bar `entry_window` (0-indexed: 0 = T+1),
+        # then hold to the original time-stop (asof + n). Used to enter at the
+        # EXPECTED seasonal-path nadir (long) / peak (short) day, computed
+        # ex-ante from prior years — tradeable, not look-ahead on this instance.
+        d = max(0, min(int(entry_window or 0), n - 1, len(fwd) - 1))
+        entry_price = float(fwd.iloc[d]["Open"])
+        entry_date = fwd.index[d]
+        window = fwd.iloc[d:n]
+    elif entry_mode == "limit_persistent":
+        # Limit on the favorable side of the T+1 open, GTC for the whole window:
+        # fills the FIRST day in [T+1, asof+n] the price trades through it (the
+        # plain `limit` mode expires after T+1). Tradeable "wait for a deeper
+        # pullback during the trade" entry; misses (NoFill) if never touched.
+        o = float(fwd.iloc[0]["Open"])
+        atr = _atr_at(df, asof)
+        if not np.isfinite(atr) or atr <= 0:
+            return None
+        win0 = fwd.iloc[:n]
+        if tk["direction"] == "long":
+            lim = o - entry_atr_mult * atr
+            fills = np.flatnonzero(win0["Low"].values <= lim)
+        else:
+            lim = o + entry_atr_mult * atr
+            fills = np.flatnonzero(win0["High"].values >= lim)
+        if fills.size == 0:
+            return {"filled": False, "exit_type": "NoFill", "R": np.nan,
+                    "entry_date": pd.Timestamp(fwd.index[0]), "entry_price": round(o, 4),
+                    "limit_price": round(float(lim), 4), "exit_date": pd.NaT,
+                    "exit_price": np.nan, "mae_R": np.nan, "mfe_R": np.nan,
+                    "bars_held": 0, "risk_per_unit": round(float(risk), 4)}
+        d = int(fills[0])
+        entry_price = float(lim)
+        entry_date = fwd.index[d]
+        window = fwd.iloc[d:n]
+    elif entry_mode == "delayed_limit":
+        # COMBINED: wait to the expected path-nadir day `entry_window`, then rest a
+        # persistent limit at THAT day's open -/+ mult*ATR through the time-stop.
+        # Fill on the first day >= nadir the price trades through it; if never
+        # touched, fall back to market-on-open at the nadir day (keeps fill rate up
+        # while still capturing a deeper pullback when one shows).
+        d0 = max(0, min(int(entry_window or 0), n - 1, len(fwd) - 1))
+        atr = _atr_at(df, asof)
+        if not np.isfinite(atr) or atr <= 0:
+            return None
+        o = float(fwd.iloc[d0]["Open"])
+        win0 = fwd.iloc[d0:n]
+        if tk["direction"] == "long":
+            lim = o - entry_atr_mult * atr
+            fills = np.flatnonzero(win0["Low"].values <= lim)
+        else:
+            lim = o + entry_atr_mult * atr
+            fills = np.flatnonzero(win0["High"].values >= lim)
+        if fills.size:
+            d = d0 + int(fills[0])
+            entry_price = float(lim)
+        else:
+            d, entry_price = d0, o  # MOO fallback at the nadir day
+        entry_date = fwd.index[d]
+        window = fwd.iloc[d:n]
     else:  # t1_open
         entry_price = float(fwd.iloc[0]["Open"])
         entry_date = fwd.index[0]
@@ -158,12 +241,23 @@ def simulate_ticket(tk: dict, price_df: pd.DataFrame, asof,
 
     if window.empty:
         return None
+    if reanchor:
+        # Anchor stop/target to the ACTUAL entry at the ticket's ATR distances
+        # (as live order_staging brackets off the fill), so a deeper entry never
+        # sits below the ticket's fixed stop (which would phantom-exit at the stop
+        # for a gain). risk (= stop distance) is unchanged.
+        sd = abs(tk["entry"] - tk["stop"])
+        td = abs(tk["target"] - tk["entry"])
+        if tk["direction"] == "long":
+            stop, target = entry_price - sd, entry_price + td
+        else:
+            stop, target = entry_price + sd, entry_price - td
     # require the window to be complete for a settled outcome (else still open)
     matured = len(fwd) >= n
 
     exit_price = exit_date = exit_type = None
     mae = mfe = 0.0  # in R, signed against the trade
-    for dt, row in window.iterrows():
+    for i, (dt, row) in enumerate(window.iterrows()):
         hi, lo, close = float(row["High"]), float(row["Low"]), float(row["Close"])
         # running excursion in R (favorable / adverse) using intrabar extremes
         fav = sign * ((hi if sign > 0 else lo) - entry_price) / risk
@@ -174,6 +268,12 @@ def simulate_ticket(tk: dict, price_df: pd.DataFrame, asof,
             hit_stop, hit_tgt = lo <= stop, hi >= target
         else:
             hit_stop, hit_tgt = hi >= stop, lo <= target
+        # On a limit fill the intrabar order is ambiguous: the bar can dip to the
+        # limit AND tag the target the same day, but we can't know which came
+        # first. entry_day_target=False forbids crediting the target on the fill
+        # bar (only the stop, a continuation down, can fire) — target arms T+1.
+        if i == 0 and not entry_day_target:
+            hit_tgt = False
         order = [("Stop", hit_stop, stop), ("Target", hit_tgt, target)]
         if not stop_first:
             order = order[::-1]

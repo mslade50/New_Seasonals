@@ -338,6 +338,38 @@ def seasonal_window_returns(
     }
 
 
+def expected_seasonal_path(close, asof, forward_window, doy_tol=2, min_years=3):
+    """Average per-day cumulative-return path (length forward_window) over the
+    same calendar window in prior years (same pick logic as
+    seasonal_window_returns, all-years). The day the path BOTTOMS (long) / PEAKS
+    (short) is the expected entry-timing nadir/peak — known ex-ante from history,
+    so it is tradeable, not look-ahead on the live instance. Returns the
+    np.ndarray path or None when fewer than `min_years` prior matches exist.
+    Validated (scratch/seasonal_path_entry.py): delaying the entry to the path
+    nadir lifts the seasonal book's Sharpe ~1.21 -> 1.38 at full participation."""
+    if close is None or len(close) == 0:
+        return None
+    close = close.dropna().sort_index()
+    if close.empty:
+        return None
+    asof = pd.Timestamp(asof).normalize()
+    doy = _trading_doy(close.index).values
+    years = close.index.year.values.astype(np.int64)
+    le = close.index.values <= np.datetime64(asof)
+    if not le.any():
+        return None
+    target = int(doy[le][-1])
+    picks = _window_pick_positions(doy, years, target, asof.year, None, doy_tol, True)
+    if picks.size < min_years:
+        return None
+    cv = close.values.astype(np.float64)
+    N = int(forward_window)
+    paths = [cv[p + 1:p + N + 1] / cv[p] - 1.0 for p in picks if p + N < cv.size]
+    if len(paths) < min_years:
+        return None
+    return np.nanmean(np.vstack(paths), axis=0)
+
+
 # -----------------------------------------------------------------------------
 # Multiple-comparisons control
 # -----------------------------------------------------------------------------
@@ -758,6 +790,22 @@ def _seasonal_candidate(channel, t, px, asof, h, direction, blend, ticket, rk, b
         "rank": f"atr_sznl_{h}d = {rk:.0f}",
         "binomial p (all-yrs)": f"{binom_p:.3f}" if np.isfinite(binom_p) else "n/a",
     }
+    # Expected seasonal-path entry timing: the day the average prior-years path
+    # bottoms (long) / peaks (short). Enter there instead of T+1. Best-effort —
+    # a failure or short history just leaves the default T+1. Displayed only for
+    # now; the live order path still stages T+1 (delayed execution is a separate
+    # step). 0-indexed offset (0 = T+1 = day 1).
+    entry_off = 0
+    try:
+        _pth = expected_seasonal_path(px["Close"], asof, h)
+        if _pth is not None and len(_pth):
+            entry_off = int(np.argmin(_pth)) if direction == "long" else int(np.argmax(_pth))
+    except Exception:
+        entry_off = 0
+    ev["entry timing"] = (
+        f"enter T+{entry_off + 1} (expected path {'nadir' if direction == 'long' else 'peak'} day)"
+        if entry_off > 0 else "enter T+1 (path bottoms day 1)")
+
     notes = None
     if blend["disagree"]:
         notes = f"all-years seasonal disagrees in sign with {cyc_name} - graded C (conflict)"
@@ -767,11 +815,13 @@ def _seasonal_candidate(channel, t, px, asof, h, direction, blend, ticket, rk, b
     cyc_s = (cyc_hit if np.isfinite(cyc_hit) else 0.0) * abs(ea_cyc or 0.0)
     all_s = all_hit * abs(ea_all or 0.0)
     sort_key = base + 6.5 * cyc_s + 3.5 * all_s + ticket["rr"]
-    return make_candidate(
+    cand = make_candidate(
         channel, t, direction, head, horizon=f"{h}d", evidence=ev,
         conviction=conviction, p_value=float(binom_p) if np.isfinite(binom_p) else None,
         sort_key=sort_key, asof=asof, notes=notes,
     )
+    cand["entry_offset_days"] = entry_off
+    return cand
 
 
 def scan_seasonal_tickets(universe, asof, channel, *, min_rr: float = 2.0,
