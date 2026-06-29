@@ -1,0 +1,21 @@
+# execution-broker — standalone Cloudflare Worker for the site's execution bridge.
+#
+# Deployed SEPARATELY from the Pages site (seasonals-mslade) on purpose: the
+# Durable Object migration lives here, so a broker change can never break the
+# live site deploy. See README.md for the one-time deploy + secrets.
+name = "execution-broker"
+main = "src/index.js"
+compatibility_date = "2026-06-01"
+
+# Durable Object that holds the agent WebSocket + heartbeat state.
+[[durable_objects.bindings]]
+name = "EXEC_BROKER"
+class_name = "ExecBroker"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["ExecBroker"]
+
+# Secrets (NOT stored here) — set with `wrangler secret put`:
+#   AGENT_TOKEN   bearer token the local agent presents on /agent
+#   STATUS_TOKEN  bearer token the Pages /exec-status proxy presents on /status
