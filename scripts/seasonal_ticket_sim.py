@@ -101,10 +101,33 @@ def _atr_at(df: pd.DataFrame, asof, n: int = 14) -> float:
     return float(tr.ewm(alpha=1.0 / n, adjust=False).mean().iloc[-1])
 
 
+# Gap-through stop fill + slippage (ported from strat_backtester, 2026-06): a stop
+# the bar GAPS THROUGH fills at the open, not the stop (booking the stop pins every
+# stop-out at -1R and hides the gap-down tail). Long sells at min(stop, open),
+# short covers at max(stop, open); every stop eats STOP_SLIP_BPS, gapped fills eat
+# an additional STOP_GAP_SLIP_BPS. Slippage always worsens the fill.
+STOP_SLIP_BPS = 3.0
+STOP_GAP_SLIP_BPS = 10.0
+
+
+def _stop_fill(direction, stop_price, day_open,
+               slip_bps=STOP_SLIP_BPS, gap_slip_bps=STOP_GAP_SLIP_BPS):
+    if direction == "long":
+        gapped = day_open < stop_price
+        fill = min(stop_price, day_open)
+        bps = slip_bps + (gap_slip_bps if gapped else 0.0)
+        return fill * (1.0 - bps / 1e4)
+    gapped = day_open > stop_price
+    fill = max(stop_price, day_open)
+    bps = slip_bps + (gap_slip_bps if gapped else 0.0)
+    return fill * (1.0 + bps / 1e4)
+
+
 def simulate_ticket(tk: dict, price_df: pd.DataFrame, asof,
                     entry_mode: str = "t1_open", stop_first: bool = True,
                     entry_atr_mult: float = 0.25, entry_window: int = None,
-                    reanchor: bool = False, entry_day_target: bool = True) -> dict | None:
+                    reanchor: bool = False, entry_day_target: bool = True,
+                    stop_gap_fill: bool = True) -> dict | None:
     """Walk forward bars and realize the ticket. price_df: OHLC indexed by date
     (raw or adjusted — caller's choice). Returns an outcome dict, or None if the
     idea has not matured yet (no post-asof bars / window not complete)."""
@@ -183,6 +206,14 @@ def simulate_ticket(tk: dict, price_df: pd.DataFrame, asof,
         entry_price = float(fwd.iloc[d]["Open"])
         entry_date = fwd.index[d]
         window = fwd.iloc[d:n]
+    elif entry_mode == "delayed_close":
+        # MOC on the expected path-nadir day: enter at that day's CLOSE (the low
+        # of the close-to-close path) and hold to the time-stop. Stop/target are
+        # checked from the NEXT bar — the entry day is finished at the close.
+        d = max(0, min(int(entry_window or 0), n - 1, len(fwd) - 1))
+        entry_price = float(fwd.iloc[d]["Close"])
+        entry_date = fwd.index[d]
+        window = fwd.iloc[d + 1:n]
     elif entry_mode == "limit_persistent":
         # Limit on the favorable side of the T+1 open, GTC for the whole window:
         # fills the FIRST day in [T+1, asof+n] the price trades through it (the
@@ -279,7 +310,12 @@ def simulate_ticket(tk: dict, price_df: pd.DataFrame, asof,
             order = order[::-1]
         for etype, hit, lvl in order:
             if hit:
-                exit_price, exit_date, exit_type = float(lvl), dt, etype
+                if etype == "Stop" and stop_gap_fill:
+                    # gap-through -> fill at the open (+ slippage), not the stop
+                    exit_price = _stop_fill(tk["direction"], float(lvl), float(row["Open"]))
+                else:
+                    exit_price = float(lvl)
+                exit_date, exit_type = dt, etype
                 break
         if exit_type:
             break

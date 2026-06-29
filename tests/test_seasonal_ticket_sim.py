@@ -12,7 +12,7 @@ import pandas as pd
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 
-from scripts.seasonal_ticket_sim import parse_ticket, simulate_ticket
+from scripts.seasonal_ticket_sim import parse_ticket, simulate_ticket, _stop_fill
 
 
 def _bars(rows, start="2020-01-02"):
@@ -66,7 +66,30 @@ def test_long_hits_stop_before_target_same_bar():
     tk = {"direction": "long", "entry": 100.0, "stop": 98.0, "target": 104.0, "time_stop_days": 5}
     out = simulate_ticket(tk, px, px.index[0])
     assert out["exit_type"] == "Stop"
-    assert abs(out["R"] - ((98.0 - 101.0) / 2.0)) < 1e-6  # (-3)/2 = -1.5
+    # open (101) didn't gap through the stop -> fill at the stop minus 3 bps slippage
+    fill = _stop_fill("long", 98.0, 101.0)
+    assert abs(out["exit_price"] - fill) < 1e-6
+    assert abs(out["R"] - ((fill - 101.0) / 2.0)) < 1e-6
+
+
+def test_long_stop_gap_through():
+    # T+2 bar OPENS below the stop (gap-down through it) -> fill at the open
+    # (+ 13 bps), worse than the stop, so the loss exceeds the planned -1.5R.
+    px = _bars([
+        [100, 100, 100, 100],   # asof
+        [101, 102, 100, 101],   # T+1 entry @101
+        [95, 96, 94, 95],       # T+2: open 95 < stop 98 -> gap-through
+        [95, 96, 94, 95],
+        [95, 96, 94, 95],
+        [95, 96, 94, 95],
+    ])
+    tk = {"direction": "long", "entry": 100.0, "stop": 98.0, "target": 104.0, "time_stop_days": 5}
+    out = simulate_ticket(tk, px, px.index[0])
+    assert out["exit_type"] == "Stop"
+    fill = _stop_fill("long", 98.0, 95.0)  # gapped: 95 * (1 - 13/1e4)
+    assert abs(out["exit_price"] - fill) < 1e-6
+    assert out["exit_price"] < 98.0                      # worse than the stop
+    assert out["R"] < (98.0 - 101.0) / 2.0               # loss bigger than -1.5R
 
 
 def test_time_exit_at_window_last_close():
