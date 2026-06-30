@@ -89,6 +89,13 @@ export class ExecBroker extends DurableObject {
       return Response.json({ commands: recent, server_now: Date.now() });
     }
 
+    // --- Live book (positions / orders / NLV) the site polls ---
+    if (url.pathname === "/book") {
+      if (!this._authed(request, this.env.STATUS_TOKEN)) return new Response("unauthorized", { status: 401 });
+      const book = (await this.ctx.storage.get("book")) || null;
+      return Response.json({ book, server_now: Date.now() });
+    }
+
     return new Response("not found", { status: 404 });
   }
 
@@ -100,6 +107,13 @@ export class ExecBroker extends DurableObject {
     if (msg.type === "hello" || msg.type === "heartbeat") {
       await this.ctx.storage.put("last_seen", Date.now());
       ws.send(JSON.stringify({ type: "ack", of: msg.type, server_now: Date.now() }));
+      return;
+    }
+
+    // Live read-only book snapshot from the agent (positions / orders / NLV).
+    if (msg.type === "book") {
+      await this.ctx.storage.put("book", { ...(msg.book || {}), at: msg.at || Date.now() });
+      await this.ctx.storage.put("last_seen", Date.now());
       return;
     }
 
@@ -125,7 +139,7 @@ export class ExecBroker extends DurableObject {
   }
 }
 
-const DO_PATHS = new Set(["/agent", "/status", "/command", "/commands"]);
+const DO_PATHS = new Set(["/agent", "/status", "/command", "/commands", "/book"]);
 
 export default {
   async fetch(request, env) {
