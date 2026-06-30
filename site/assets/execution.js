@@ -26,6 +26,7 @@ async function initExecution() {
     b.addEventListener("click", () => setAccount(b.dataset.acct)));
   document.getElementById("cmdType").addEventListener("change", syncFields);
   document.getElementById("cmdSend").addEventListener("click", sendTicket);
+  document.getElementById("cmdFields").addEventListener("input", updateReadout);
   syncFields();
   await poll();
   pollTimer = setInterval(poll, 4000);
@@ -53,7 +54,8 @@ function shell() {
         </select>
         <span class="cap">Account: <b id="ticketAcct">primary</b></span>
       </div>
-      <div id="cmdFields" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:10px"></div>
+      <div id="cmdFields" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:8px"></div>
+      <div id="ticketReadout" style="font:12px inherit;margin:0 0 10px;min-height:16px"></div>
       <button class="btn" id="cmdSend">Send dry-run</button>
       <span id="cmdMsg" class="cap" style="margin-left:10px"></span>
     </div>
@@ -205,6 +207,35 @@ function syncFields() {
       <label class="cap">Entry</label>${inp("f_entry", "104.80", 80)}
       <label class="cap">Stop</label>${inp("f_stop", "103.29", 80)}
       <label class="cap">Target</label>${inp("f_target", "123.21", 80)}`;
+  }
+  updateReadout();
+}
+
+function updateReadout() {
+  const t = document.getElementById("cmdType").value;
+  const el = document.getElementById("ticketReadout");
+  if (!el) return;
+  if (t === "entry_bracket") {
+    const qty = Number(val("f_qty")), entry = Number(val("f_entry")), stop = Number(val("f_stop")), target = Number(val("f_target"));
+    const action = val("f_action"), dist = Math.abs(entry - stop);
+    let warn = "";
+    if (action === "BUY" && !(stop < entry && entry < target)) warn = "BUY needs stop &lt; entry &lt; target";
+    if (action === "SELL" && !(target < entry && entry < stop)) warn = "SELL needs target &lt; entry &lt; stop";
+    if (warn) { el.innerHTML = `<span style="color:#ff6b6b">${warn}</span>`; return; }
+    const parts = [];
+    if (qty && dist) parts.push(`Risk <b>${fmt.money(qty * dist)}</b>`);
+    if (dist && target) parts.push(`R:R <b>${(Math.abs(target - entry) / dist).toFixed(2)}:1</b>`);
+    if (qty && entry) parts.push(`Notional <b>${fmt.money(qty * entry)}</b>`);
+    el.innerHTML = `<span style="color:#9aa3b2">${parts.join(" &nbsp;·&nbsp; ")}</span>`;
+  } else if (t === "flatten") {
+    const sym = String(val("f_symbol") || "").toUpperCase();
+    const ab = acctBook();
+    const pos = ((ab && ab.positions) || []).find((p) => String(p.symbol).toUpperCase() === sym);
+    el.innerHTML = pos
+      ? `<span style="color:#9aa3b2">Current position: <b>${fmt.num(pos.position, 0)}</b> ${esc(sym)} (${state.account})</span>`
+      : `<span style="color:#ffc14d">No ${esc(sym || "?")} position in ${state.account}</span>`;
+  } else {
+    el.innerHTML = "";
   }
 }
 function val(id) { const e = document.getElementById(id); return e ? e.value : undefined; }
