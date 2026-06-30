@@ -16,18 +16,40 @@ async function initOptions() {
   el.innerHTML = shell();
   document.getElementById("optGo").addEventListener("click", () => quote());
   document.getElementById("optTicker").addEventListener("keydown", (e) => { if (e.key === "Enter") quote(); });
+  document.getElementById("optExpiry").addEventListener("change", () => quote());
+}
+
+// Upcoming Friday weekly expiries (computed from today, so the list auto-rolls
+// each week). Returns {date:"YYYYMMDD", dte, label}.
+function upcomingFridays(n) {
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const d = new Date(today);
+  do { d.setDate(d.getDate() + 1); } while (d.getDay() !== 5);   // next Friday after today
+  const out = [];
+  for (let i = 0; i < n; i++) {
+    const date = `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, "0")}${String(d.getDate()).padStart(2, "0")}`;
+    const dte = Math.round((d - today) / 86400000);
+    out.push({ date, dte, label: d.toLocaleDateString("en-US", { month: "short", day: "numeric" }) + ` (${dte}d)` });
+    d.setDate(d.getDate() + 7);
+  }
+  return out;
 }
 
 function shell() {
+  const fris = upcomingFridays(6);
+  let defIdx = fris.findIndex((f) => f.dte >= 7);
+  if (defIdx < 0) defIdx = 0;
+  const opts = fris.map((f, i) => `<option value="${f.date}"${i === defIdx ? " selected" : ""}>${f.label}</option>`).join("");
   return `
     <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:6px">
       <input id="optTicker" placeholder="ticker (e.g. AAPL)" style="width:170px;text-transform:uppercase">
-      <select id="optExpiry" style="min-width:150px"><option value="">nearest weekly+</option></select>
+      <select id="optExpiry" style="min-width:150px">${opts}</select>
       <button class="btn" id="optGo">Quote 40&Delta;/20&Delta; spreads</button>
       <span id="optMsg" class="cap"></span>
     </div>
-    <p class="cap" style="margin:0 0 14px">Debit verticals at the mid &mdash; buy the ~40&Delta;, sell the ~20&Delta;.
-      Strikes are the nearest available to those deltas, so they're approximate.</p>
+    <p class="cap" style="margin:0 0 14px">Debit verticals at the mid &mdash; buy the ~40&Delta;, sell the ~20&Delta;
+      (nearest available strikes, so approximate). Expiries are upcoming Friday weeklies; if a ticker doesn't list a
+      given Friday, the result shows the actual expiry used.</p>
     <div id="optResult"></div>`;
 }
 
@@ -64,12 +86,6 @@ async function pollResult(n) {
 function render(data) {
   const el = document.getElementById("optResult");
   if (data.error) { el.innerHTML = `<div class="card"><span class="neg">${esc(data.error)}</span></div>`; return; }
-  const sel = document.getElementById("optExpiry");
-  if (data.expiries && data.expiries.length) {
-    sel.innerHTML = data.expiries.map((e) =>
-      `<option value="${e.date}" ${e.date === data.expiry ? "selected" : ""}>${e.date} (${e.dte}d)</option>`).join("");
-    sel.onchange = () => quote(sel.value);
-  }
   el.innerHTML = `
     <div class="card" style="margin-bottom:14px">
       <span style="font:700 16px inherit">${esc(data.ticker)}</span>
