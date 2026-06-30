@@ -46,7 +46,7 @@ function shell() {
 
     <div class="card" style="max-width:760px;margin-top:18px">
       <div style="font:700 14px inherit;margin-bottom:4px">New order</div>
-      <p class="cap" style="margin:0 0 10px">Bracket: entry limit + stop + target, plus an optional <b>time stop</b> (closes at market 15:59 ET on that date if neither exit hit). Submits per the mode banner above &mdash; live when armed.</p>
+      <p class="cap" style="margin:0 0 10px">Bracket: entry limit + stop + target, plus an optional <b>time stop</b> (closes at market 15:59 ET on that date) and <b>entry expiry</b> (the entry order is DAY unless you set a date &mdash; then GTD to that date's close). Submits per the mode banner above &mdash; live when armed.</p>
       <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:8px">
         <label class="cap">Type</label>
         <select id="cmdType">
@@ -224,6 +224,7 @@ function syncFields() {
       <label class="cap">Entry</label>${inp("f_entry", "104.80", 80)}
       <label class="cap">Stop</label>${inp("f_stop", "103.29", 80)}
       <label class="cap">Target</label>${inp("f_target", "123.21", 80)}
+      <label class="cap">Entry exp</label><input type="date" id="f_expiry" style="width:140px">
       <label class="cap">Time stop</label><input type="date" id="f_timestop" style="width:140px">`;
   }
   updateReadout();
@@ -246,6 +247,8 @@ function updateReadout() {
     if (qty && entry) parts.push(`Notional <b>${fmt.money(qty * entry)}</b>`);
     const ts = val("f_timestop");
     if (ts) parts.push(`Time-exit <b>${ts}</b>`);
+    const ex = val("f_expiry");
+    parts.push(`Entry <b>${ex ? "GTD " + ex : "DAY"}</b>`);
     el.innerHTML = `<span style="color:#9aa3b2">${parts.join(" &nbsp;·&nbsp; ")}</span>`;
   } else if (t === "flatten") {
     const sym = String(val("f_symbol") || "").toUpperCase();
@@ -264,14 +267,14 @@ function ticketPayload(t) {
   if (t === "flatten") return { symbol: val("f_symbol"), fraction: Number(val("f_frac")), order_type: "MKT" };
   return { symbol: val("f_symbol"), action: val("f_action"), quantity: Number(val("f_qty")),
     entry: Number(val("f_entry")), stop: Number(val("f_stop")), target: Number(val("f_target")),
-    time_stop: val("f_timestop") || null };
+    time_stop: val("f_timestop") || null, expiry: val("f_expiry") || null };
 }
 function sendTicket() {
   const t = document.getElementById("cmdType").value;
   const p = ticketPayload(t);
   if (t !== "echo") {
     const summary = t === "entry_bracket"
-      ? `${p.action} ${p.quantity} ${p.symbol} @ ${p.entry} (stop ${p.stop}, target ${p.target}${p.time_stop ? ", time " + p.time_stop : ""})`
+      ? `${p.action} ${p.quantity} ${p.symbol} @ ${p.entry} [${p.expiry ? "GTD " + p.expiry : "DAY"}] (stop ${p.stop}, target ${p.target}${p.time_stop ? ", time " + p.time_stop : ""})`
       : `flatten ${Math.round((p.fraction || 1) * 100)}% of ${p.symbol}`;
     if (!confirm(`${actionLead(t === "entry_bracket" ? "place" : "flatten")} ${summary} on ${state.account}?`)) return;
   }
