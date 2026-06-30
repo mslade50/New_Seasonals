@@ -177,7 +177,7 @@ function renderOrders() {
       <td>${px != null ? fmt.num(px, 2) : "&mdash;"}</td>
       <td class="l">${esc(o.tif || "")}</td>
       <td class="l" style="color:#8c95a2">${esc(o.status || "")}</td>
-      <td class="l"><button class="btn xs ghost" onclick='execCancel(${o.order_id || 0},"${esc(o.symbol)}")'>Cancel</button></td>
+      <td class="l"><button class="btn xs ghost" onclick='execCancel(${o.perm_id || 0},${o.order_id || 0},"${esc(o.symbol)}")'>Cancel</button></td>
     </tr>`;
   }).join("");
   return head + `<div class="tblwrap"><table class="tbl"><thead><tr>
@@ -191,14 +191,17 @@ function posJson(p) {
 }
 
 /* ---------- row actions (dry-run commands) ---------- */
+function isLive() { return !!(state.book && state.book.mode === "live"); }
+function actionLead(verb) { return isLive() ? `⚠️ LIVE — ${verb}` : `Dry-run: ${verb}`; }
+
 function execFlatten(pos, fraction) {
   const pct = fraction === 1 ? "100%" : "50%";
-  if (!confirm(`Dry-run: flatten ${pct} of ${pos.symbol} (${state.account})?`)) return;
+  if (!confirm(`${actionLead("flatten")} ${pct} of ${pos.symbol} (${state.account})? Cancels its working orders first.`)) return;
   sendDryRun("flatten", { symbol: pos.symbol, sec_type: pos.sec_type, expiry: pos.expiry, fraction, order_type: "MKT" });
 }
-function execCancel(orderId, symbol) {
-  if (!confirm(`Dry-run: cancel order ${orderId} (${symbol}, ${state.account})?`)) return;
-  sendDryRun("cancel", orderId ? { scope: "order", order_id: orderId } : { scope: "symbol", symbol });
+function execCancel(permId, orderId, symbol) {
+  if (!confirm(`${actionLead("cancel")} order ${orderId} (${symbol}, ${state.account})?`)) return;
+  sendDryRun("cancel", permId ? { scope: "order", perm_id: permId, order_id: orderId } : { scope: "symbol", symbol });
 }
 window.execFlatten = execFlatten;
 window.execCancel = execCancel;
