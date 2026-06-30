@@ -34,6 +34,7 @@ async function initExecution() {
 
 function shell() {
   return `
+    <div id="modeBanner"></div>
     <div id="connBar"></div>
     <div class="exec-tabs" style="margin:10px 0 4px">
       <button class="btn" data-acct="primary">Primary</button>
@@ -91,12 +92,24 @@ async function poll() {
 }
 
 function renderPanels() {
+  set("modeBanner", renderModeBanner());
   set("connBar", renderConnBar());
   set("positions", renderPositions());
   set("orders", renderOrders());
   set("activity", renderActivity());
 }
 function set(id, html) { const el = document.getElementById(id); if (el) el.innerHTML = html; }
+
+/* ---------- mode banner (dry-run vs live) ---------- */
+function renderModeBanner() {
+  const mode = (state.book && state.book.mode) || "dry-run";
+  if (mode === "live") {
+    return `<div class="card" style="border-color:#a8852f;background:rgba(255,193,77,.10);padding:9px 14px;font:700 13px inherit;color:#ffc14d">
+      &#9888;&#65039; LIVE ARMED &mdash; orders ARE transmitted to IBKR.</div>`;
+  }
+  return `<div class="card" style="border-color:#2c8f63;background:rgba(61,219,143,.08);padding:9px 14px;font:700 13px inherit;color:#3ddb8f">
+    &#9679; DRY-RUN MODE &mdash; actions are validated and previewed, but <u>nothing is transmitted</u> to IBKR.</div>`;
+}
 
 /* ---------- connection bar ---------- */
 function dot(c) { return `<span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:${c};box-shadow:0 0 8px ${c}"></span>`; }
