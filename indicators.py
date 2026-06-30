@@ -318,6 +318,26 @@ def calculate_indicators(
     df['High_52w'] = df['High'].rolling(252).max()
 
     # -------------------------------------------------------------------------
+    # 11b. TRAILING ANCHORED VWAP (252d / 1-year)
+    #      Added 2026-06-29. A rolling 1-year volume-weighted average price:
+    #      each bar re-anchors ~252 trading days back and accumulates forward,
+    #      so it behaves like an anchored VWAP whose anchor walks with the bar
+    #      (vs a fixed-date anchor). Typical price = (H+L+C)/3 weighted by
+    #      Volume. NaN until a full year of bars (same window as the 52w block
+    #      above). Zero-volume bars (some indices/futures) -> NaN, not inf.
+    #      This is a RELATIVE level recomputed from the adjusted series each run,
+    #      so it is dividend scale-invariant and safe to use as a fill level on
+    #      adjusted bars (CLAUDE.md basis rule: recompute-each-run relative
+    #      levels are fine on ADJUSTED bars).
+    # -------------------------------------------------------------------------
+    typical_price = (df['High'] + df['Low'] + df['Close']) / 3.0
+    pv_252 = (typical_price * df['Volume']).rolling(252).sum()
+    vol_252 = df['Volume'].rolling(252).sum()
+    df['VWAP_252'] = pv_252 / vol_252.replace(0, np.nan)
+    # Distance of Close above/below the 1y VWAP, in ATR units (signed; >0 = above)
+    df['dist_vwap252_atr'] = (df['Close'] - df['VWAP_252']) / df['ATR']
+
+    # -------------------------------------------------------------------------
     # 12. ALL-TIME HIGH
     #     RESOLVED DIVERGENCE: Using >= (daily_scan's approach).
     #     Rationale: If today's high exactly matches the prior ATH, that IS

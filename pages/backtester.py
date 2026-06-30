@@ -623,16 +623,23 @@ def compute_portfolio_stats(equity_df, starting_equity, risk_bps=None, trades_df
     }
 
 
-def compute_trade_path_stats(trades_df, data_dict):
+def compute_trade_path_stats(trades_df, data_dict, hold_days=None):
     """Compute per-trade MAE/MFE/Give-back/Capture using daily H/L.
+
+    NO-STOP / FULL-HOLD WINDOW: when ``hold_days`` is supplied the excursion
+    is measured over the FULL intended holding period
+    (entry .. entry + hold_days), regardless of how the trade actually exited
+    (stop / target / EOD-DD / trail / time). This deliberately ignores the
+    stop so MAE/MFE reflect the raw intra-trade movement given the stop width
+    and hold length, not the stop-truncated path. If ``hold_days`` is None (or
+    the entry bar isn't in the frame) it falls back to the realized ExitDate.
 
     Entry-day handling is pessimistic: only adverse excursion counts
     (Long -> day's Low; Short -> day's High). Favorable side is zeroed
     because we don't know where in the bar the fill happened. For MOC
     entries (entry_price == entry-day close) the entry day is skipped
     entirely — the bar was complete before we got in. Middle days use
-    full H/L both sides. Exit day uses full H/L (peak-after-exit is a
-    minor overstatement flagged in the UI).
+    full H/L both sides.
 
     Returns the trades_df with four new columns: MAE_R, MFE_R,
     GiveBack_R, Capture_Pct.
@@ -663,7 +670,19 @@ def compute_trade_path_stats(trades_df, data_dict):
             continue
         direction = tr['Direction']
 
-        mask = (df.index >= entry_dt) & (df.index <= exit_dt)
+        # No-stop / full-hold window: extend the excursion measurement to the
+        # full intended hold (entry .. entry + hold_days), ignoring the actual
+        # (possibly stop/target/EOD-DD-truncated) exit. Never shrinks the
+        # window since the realized exit is always at or before the time stop.
+        window_end_dt = exit_dt
+        if hold_days is not None:
+            pos = df.index.get_indexer([entry_dt])
+            entry_pos = int(pos[0]) if len(pos) else -1
+            if entry_pos != -1:
+                end_pos = min(entry_pos + int(hold_days), len(df.index) - 1)
+                window_end_dt = df.index[end_pos]
+
+        mask = (df.index >= entry_dt) & (df.index <= window_end_dt)
         hold = df.loc[mask, ['High', 'Low', 'Close']]
         if hold.empty:
             continue
@@ -1336,6 +1355,7 @@ def run_engine(universe_dict, params, sznl_map, market_series=None, vix_series=N
         except Exception:
             intraday_mode = False
     is_limit_pivot = entry_mode == "Limit (Untested Pivot)"
+    is_limit_vwap = entry_mode == "Limit (252d VWAP, Persistent)"
     is_gap_up = "Gap Up Only" in entry_mode
     is_overnight = "Overnight" in entry_mode
     is_intraday = "Intraday" in entry_mode
@@ -1830,7 +1850,7 @@ def run_engine(universe_dict, params, sznl_map, market_series=None, vix_series=N
                 elif params['vol_rank_logic'] == "<": conditions.append(df[vr_col] < params['vol_rank_thresh'])
 
             if params.get('use_ma_dist_filter', False):
-                ma_col_map = {"SMA 10": "SMA10", "SMA 20": "SMA20", "SMA 50": "SMA50", "SMA 100": "SMA100", "SMA 200": "SMA200", "EMA 8": "EMA8", "EMA 11": "EMA11", "EMA 21": "EMA21","52-Week High": "High_52w", "All-Time High": "ATH_Level"}
+                ma_col_map = {"SMA 10": "SMA10", "SMA 20": "SMA20", "SMA 50": "SMA50", "SMA 100": "SMA100", "SMA 200": "SMA200", "EMA 8": "EMA8", "EMA 11": "EMA11", "EMA 21": "EMA21","52-Week High": "High_52w", "All-Time High": "ATH_Level", "252d VWAP": "VWAP_252"}
                 ma_target = ma_col_map.get(params['dist_ma_type'])
                 if ma_target and ma_target in df.columns:
                     # Percent-space distance: distance from MA expressed as a
@@ -2102,6 +2122,27 @@ def run_engine(universe_dict, params, sznl_map, market_series=None, vix_series=N
                         else:
                             if day_high >= limit_price: filled = True; fill_px = day_open if day_open > limit_price else limit_price
                         if filled: found_entry, actual_entry_idx, actual_entry_price = True, curr_idx, fill_px; break
+                elif is_limit_vwap:
+                    # Buy/sell AT the trailing 1-year anchored VWAP, held as a
+                    # persistent limit across the hold window (same fill mechanics
+                    # as the Limit Order -k ATR persistent modes). Level is frozen
+                    # at the signal-day VWAP: over a swing hold the 252d VWAP
+                    # barely drifts, and a frozen RELATIVE level keeps the fill
+                    # decision dividend scale-invariant on adjusted bars. Pair with
+                    # the "252d VWAP" Distance filter to control which side of the
+                    # VWAP the setup must be on (e.g. oversold below it).
+                    limit_price = df['VWAP_252'].iloc[sig_idx] if 'VWAP_252' in df.columns else np.nan
+                    if pd.notna(limit_price) and limit_price > 0:
+                        for wait_i in range(1, params['holding_days'] + 1):
+                            curr_idx = sig_idx + wait_i
+                            if curr_idx >= len(df): break
+                            day_low, day_high, day_open = df['Low'].iloc[curr_idx], df['High'].iloc[curr_idx], df['Open'].iloc[curr_idx]
+                            filled, fill_px = False, limit_price
+                            if direction == 'Long':
+                                if day_low <= limit_price: filled = True; fill_px = day_open if day_open < limit_price else limit_price
+                            else:
+                                if day_high >= limit_price: filled = True; fill_px = day_open if day_open > limit_price else limit_price
+                            if filled: found_entry, actual_entry_idx, actual_entry_price = True, curr_idx, fill_px; break
                 elif is_limit_atr:
                     sig_close, sig_atr = df['Close'].iloc[sig_idx], df['ATR'].iloc[sig_idx]
                     limit_price = (sig_close - (sig_atr * 0.5)) if direction == 'Long' else (sig_close + (sig_atr * 0.5))
@@ -2724,7 +2765,8 @@ def main():
             "Limit Order -0.25 ATR (Persistent)", "Limit Order -0.5 ATR (Persistent)", "Limit Order -1 ATR (Persistent)",
             "Limit (Close -0.5 ATR)", "Limit (Prev Close)",
             "Limit (Open +/- 0.5 ATR) GTC",
-            "Limit (Untested Pivot)", 
+            "Limit (Untested Pivot)",
+            "Limit (252d VWAP, Persistent)",
             "Pullback 10 SMA (Entry: Close)", "Pullback 10 SMA (Entry: Level)", 
             "Pullback 21 EMA (Entry: Close)", "Pullback 21 EMA (Entry: Level)", 
             "T+1 Close if < Signal Close", "T+1 Close if < Signal Close -0.5 ATR",
@@ -3035,7 +3077,7 @@ def main():
     with st.expander("Distance from MA Filter", expanded=False):
         use_ma_dist_filter = st.checkbox("Enable Distance Filter", value=False)
         d1, d2, d3, d4 = st.columns(4)
-        with d1: dist_ma_type = st.selectbox("Select MA", ["SMA 10", "SMA 20", "SMA 50", "SMA 100", "SMA 200", "EMA 8", "EMA 11", "EMA 21","52-Week High", "All-Time High"], disabled=not use_ma_dist_filter)
+        with d1: dist_ma_type = st.selectbox("Select MA", ["SMA 10", "SMA 20", "SMA 50", "SMA 100", "SMA 200", "EMA 8", "EMA 11", "EMA 21","52-Week High", "All-Time High", "252d VWAP"], disabled=not use_ma_dist_filter)
         with d2: dist_logic = st.selectbox("Logic", ["Greater Than (>)", "Less Than (<)", "Between"], disabled=not use_ma_dist_filter)
         with d3: dist_min = st.number_input("Min ATR Dist", -50.0, 50.0, 0.0, step=0.5, disabled=not use_ma_dist_filter)
         with d4: dist_max = st.number_input("Max ATR Dist", -50.0, 50.0, 2.0, step=0.5, disabled=not use_ma_dist_filter)
@@ -3943,7 +3985,7 @@ def main():
             mtm_flat = build_mtm_curves(trades_df, data_dict, starting_portfolio, risk_bps_input, mode='flat')
             mtm_dyn  = build_mtm_curves(trades_df, data_dict, starting_portfolio, risk_bps_input, mode='dynamic')
             portfolio_stats = compute_portfolio_stats(mtm_dyn, starting_portfolio, risk_bps=risk_bps_input, trades_df=trades_df)
-            trades_df = compute_trade_path_stats(trades_df, data_dict)
+            trades_df = compute_trade_path_stats(trades_df, data_dict, hold_days=params['holding_days'])
             trades_df['SignalDate'] = pd.to_datetime(trades_df['SignalDate'])
             trades_df['EntryDate'] = pd.to_datetime(trades_df['EntryDate'])
             trades_df['DayOfWeek'] = trades_df['EntryDate'].dt.day_name()
@@ -4079,7 +4121,8 @@ def main():
                 """Scatter of every trade's max intra-trade drawdown (MAE) in
                 ATR-multiples vs exit date. Mirrors `_trade_scatter_fig` styling
                 but plots MAE_R * stop_atr — the worst unrealized loss the trade
-                ever showed before closing, normalized by ATR.
+                showed over the FULL holding window (stop ignored), normalized
+                by ATR.
                 """
                 if trades is None or trades.empty or 'MAE_R' not in trades.columns:
                     return None
@@ -4139,7 +4182,7 @@ def main():
                 fig.add_hline(y=mean_v - std_v, line_dash='dot',
                               line_color='rgba(200,200,200,0.45)', line_width=1)
                 title = (
-                    f'Per-Trade Max Intra-Trade Drawdown (ATR-multiples) — '
+                    f'Per-Trade Max Intra-Trade Drawdown (no-stop, full hold; ATR-multiples) — '
                     f'N={len(df_s)}, mean {mean_v:+.2f}, median {med_v:+.2f}, '
                     f'std {std_v:.2f} (stop_atr={stop_atr_mult:g})'
                 )
@@ -4156,8 +4199,8 @@ def main():
                 """Scatter of every trade's max intra-trade drawup (MFE) in
                 ATR-multiples vs exit date. Mirror image of
                 `_trade_mae_scatter_fig` — plots MFE_R * stop_atr, the best
-                unrealized gain the trade ever showed before closing,
-                normalized by ATR.
+                unrealized gain the trade showed over the FULL holding window
+                (stop ignored), normalized by ATR.
                 """
                 if trades is None or trades.empty or 'MFE_R' not in trades.columns:
                     return None
@@ -4217,7 +4260,7 @@ def main():
                 fig.add_hline(y=mean_v - std_v, line_dash='dot',
                               line_color='rgba(200,200,200,0.45)', line_width=1)
                 title = (
-                    f'Per-Trade Max Intra-Trade Drawup (ATR-multiples) — '
+                    f'Per-Trade Max Intra-Trade Drawup (no-stop, full hold; ATR-multiples) — '
                     f'N={len(df_s)}, mean {mean_v:+.2f}, median {med_v:+.2f}, '
                     f'std {std_v:.2f} (stop_atr={stop_atr_mult:g})'
                 )
