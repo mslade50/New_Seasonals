@@ -233,24 +233,38 @@ async function sendDryRun(type, payload, msgId) {
 }
 
 /* ---------- activity ---------- */
+function stateBadge(state) {
+  const map = { dry_run: ["#3ddb8f", "DRY-RUN OK"], rejected: ["#ff6b6b", "REJECTED"],
+                pushed: ["#9aa3b2", "pushed"], error: ["#ffc14d", "ERROR"] };
+  const [c, t] = map[state] || ["#9aa3b2", state || ""];
+  return `<span style="color:${c};font-weight:600">${esc(t)}</span>`;
+}
+function resultCell(c) {
+  const res = c.result || {};
+  const tone = res.ok === true ? "pos" : res.ok === false ? "neg" : "neu";
+  let html = `<span class="${tone}">${esc(res.detail || c.state || "pending")}</span>`;
+  const pv = res.preview || {};
+  if (pv.legs && pv.legs.length) {
+    html += `<div class="exec-legs">${pv.legs.map((l) => esc(l)).join("<br>")}` +
+      (pv.summary ? `<br><span style="color:#c7ccd6;font-weight:600">${esc(pv.summary)}</span>` : "") + `</div>`;
+  }
+  return html;
+}
 function renderActivity() {
   const cmds = state.commands || [];
   if (!cmds.length) return "";
   const rows = cmds.map((c) => {
-    const res = c.result || {};
-    const tone = res.ok === true ? "pos" : res.ok === false ? "neg" : "neu";
     const age = c.created_at ? Math.round((Date.now() - c.created_at) / 1000) + "s" : "";
-    return `<tr>
-      <td class="l" style="color:#8c95a2">${esc((c.id || "").slice(0, 8))}</td>
+    return `<tr style="vertical-align:top">
       <td class="l" style="font-weight:600">${esc(c.type || "")}</td>
       <td class="l">${esc(c.account || "")}</td>
-      <td class="l">${esc(c.state || "")}</td>
-      <td class="l ${tone}">${esc(res.detail || "")}</td>
+      <td class="l">${stateBadge(c.state)}</td>
+      <td class="l">${resultCell(c)}</td>
       <td class="l" style="color:#8c95a2">${esc(age)}</td></tr>`;
   }).join("");
-  return `<div style="font:700 14px inherit;margin-bottom:6px">Activity <span class="cap" style="display:inline;font-weight:400">· dry-run</span></div>
+  return `<div style="font:700 14px inherit;margin-bottom:6px">Activity <span class="cap" style="display:inline;font-weight:400">· dry-run, places nothing</span></div>
     <div class="tblwrap"><table class="tbl"><thead><tr>
-    <th class="l">id</th><th class="l">type</th><th class="l">acct</th><th class="l">state</th><th class="l">result</th><th class="l">ago</th>
+    <th class="l">type</th><th class="l">acct</th><th class="l">state</th><th class="l">result / order preview</th><th class="l">ago</th>
     </tr></thead><tbody>${rows}</tbody></table></div>`;
 }
 

@@ -123,7 +123,7 @@ export class ExecBroker extends DurableObject {
       const i = recent.findIndex((r) => r.id === msg.id);
       if (i >= 0) {
         recent[i].state = msg.state || "done";
-        recent[i].result = { ok: msg.ok, detail: msg.detail, at: msg.at };
+        recent[i].result = { ok: msg.ok, detail: msg.detail, validation: msg.validation, preview: msg.preview, at: msg.at };
         await this.ctx.storage.put("recent_commands", recent);
       }
     }

@@ -91,6 +91,8 @@ h2 { font-size: 16px; margin: 26px 0 10px; padding-bottom: 6px; border-bottom: 1
 .btn:hover { border-color: var(--accent); }
 .btn.ghost { background: transparent; color: var(--muted); }
 .btn.xs { padding: 2px 8px; font-size: 11px; border-radius: 5px; }
+.exec-legs { font: 11px/1.6 ui-monospace, Menlo, Consolas, monospace; color: #9aa3b2;
+  margin-top: 4px; white-space: pre-wrap; }
 .exec-tabs .btn { margin-right: 6px; }
 #cmdFields input, #cmdFields select, #connBar select { background: #141a26; color: var(--text);
   border: 1px solid var(--border); border-radius: 5px; padding: 4px 6px; font-size: 12px; }
