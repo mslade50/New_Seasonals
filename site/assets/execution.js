@@ -1,15 +1,16 @@
-/* execution.js — execution-bridge dashboard (TWS-style, read-only / dry-run).
+/* execution.js — execution-bridge dashboard (TWS-style).
 
    Layout, top to bottom:
      - connection bar: agent online light + account tabs (Primary / PA) + NLV
      - Positions panel  (live read-only book from the agent) + row actions
      - Open Orders panel (live working orders) + Cancel
-     - New Order ticket (dry-run): echo / flatten / entry_bracket
-     - Activity: recent commands + the agent's "would do" results
+     - New Order ticket: entry bracket (+ optional time stop) / flatten / echo
+     - Activity: recent commands + results
 
-   Every action sends a DRY-RUN command (the agent logs what it would do and
-   places nothing). Positions/orders come from book_snapshot.py over the agent's
-   read-only IBKR connection. Static parts (tabs, ticket) render once; the data
+   Commands execute LIVE when the agent is armed (mode banner amber) and DRY-RUN
+   otherwise — the agent decides by AGENT_LIVE_ENABLED + LIVE_TYPES, and every
+   mutating action confirms with a LIVE/Dry-run dialog. Positions/orders come from
+   book_snapshot.py over the agent's read-only IBKR connection. Static parts render once; the data
    panels refresh every 4s. */
 "use strict";
 
@@ -44,8 +45,8 @@ function shell() {
     <div id="orders" style="margin-top:14px"></div>
 
     <div class="card" style="max-width:760px;margin-top:18px">
-      <div style="font:700 14px inherit;margin-bottom:4px">New order &mdash; DRY-RUN</div>
-      <p class="cap" style="margin:0 0 10px">The agent validates and reports what it <b>would</b> submit. Nothing reaches IBKR.</p>
+      <div style="font:700 14px inherit;margin-bottom:4px">New order</div>
+      <p class="cap" style="margin:0 0 10px">Bracket: entry limit + stop + target, plus an optional <b>time stop</b> (closes at market 15:59 ET on that date if neither exit hit). Submits per the mode banner above &mdash; live when armed.</p>
       <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:8px">
         <label class="cap">Type</label>
         <select id="cmdType">
@@ -57,7 +58,7 @@ function shell() {
       </div>
       <div id="cmdFields" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:8px"></div>
       <div id="ticketReadout" style="font:12px inherit;margin:0 0 10px;min-height:16px"></div>
-      <button class="btn" id="cmdSend">Send dry-run</button>
+      <button class="btn" id="cmdSend">Send order</button>
       <span id="cmdMsg" class="cap" style="margin-left:10px"></span>
     </div>
 
@@ -197,11 +198,11 @@ function actionLead(verb) { return isLive() ? `⚠️ LIVE — ${verb}` : `Dry-r
 function execFlatten(pos, fraction) {
   const pct = fraction === 1 ? "100%" : "50%";
   if (!confirm(`${actionLead("flatten")} ${pct} of ${pos.symbol} (${state.account})? Cancels its working orders first.`)) return;
-  sendDryRun("flatten", { symbol: pos.symbol, sec_type: pos.sec_type, expiry: pos.expiry, fraction, order_type: "MKT" });
+  sendCommand("flatten", { symbol: pos.symbol, sec_type: pos.sec_type, expiry: pos.expiry, fraction, order_type: "MKT" });
 }
 function execCancel(permId, orderId, symbol) {
   if (!confirm(`${actionLead("cancel")} order ${orderId} (${symbol}, ${state.account})?`)) return;
-  sendDryRun("cancel", permId ? { scope: "order", perm_id: permId, order_id: orderId } : { scope: "symbol", symbol });
+  sendCommand("cancel", permId ? { scope: "order", perm_id: permId, order_id: orderId } : { scope: "symbol", symbol });
 }
 window.execFlatten = execFlatten;
 window.execCancel = execCancel;
@@ -222,7 +223,8 @@ function syncFields() {
       <label class="cap">Qty</label>${inp("f_qty", "692", 70)}
       <label class="cap">Entry</label>${inp("f_entry", "104.80", 80)}
       <label class="cap">Stop</label>${inp("f_stop", "103.29", 80)}
-      <label class="cap">Target</label>${inp("f_target", "123.21", 80)}`;
+      <label class="cap">Target</label>${inp("f_target", "123.21", 80)}
+      <label class="cap">Time stop</label><input type="date" id="f_timestop" style="width:140px">`;
   }
   updateReadout();
 }
@@ -242,6 +244,8 @@ function updateReadout() {
     if (qty && dist) parts.push(`Risk <b>${fmt.money(qty * dist)}</b>`);
     if (dist && target) parts.push(`R:R <b>${(Math.abs(target - entry) / dist).toFixed(2)}:1</b>`);
     if (qty && entry) parts.push(`Notional <b>${fmt.money(qty * entry)}</b>`);
+    const ts = val("f_timestop");
+    if (ts) parts.push(`Time-exit <b>${ts}</b>`);
     el.innerHTML = `<span style="color:#9aa3b2">${parts.join(" &nbsp;·&nbsp; ")}</span>`;
   } else if (t === "flatten") {
     const sym = String(val("f_symbol") || "").toUpperCase();
@@ -259,11 +263,22 @@ function ticketPayload(t) {
   if (t === "echo") return { note: val("f_note") };
   if (t === "flatten") return { symbol: val("f_symbol"), fraction: Number(val("f_frac")), order_type: "MKT" };
   return { symbol: val("f_symbol"), action: val("f_action"), quantity: Number(val("f_qty")),
-    entry: Number(val("f_entry")), stop: Number(val("f_stop")), target: Number(val("f_target")) };
+    entry: Number(val("f_entry")), stop: Number(val("f_stop")), target: Number(val("f_target")),
+    time_stop: val("f_timestop") || null };
 }
-function sendTicket() { sendDryRun(document.getElementById("cmdType").value, ticketPayload(document.getElementById("cmdType").value), "cmdMsg"); }
+function sendTicket() {
+  const t = document.getElementById("cmdType").value;
+  const p = ticketPayload(t);
+  if (t !== "echo") {
+    const summary = t === "entry_bracket"
+      ? `${p.action} ${p.quantity} ${p.symbol} @ ${p.entry} (stop ${p.stop}, target ${p.target}${p.time_stop ? ", time " + p.time_stop : ""})`
+      : `flatten ${Math.round((p.fraction || 1) * 100)}% of ${p.symbol}`;
+    if (!confirm(`${actionLead(t === "entry_bracket" ? "place" : "flatten")} ${summary} on ${state.account}?`)) return;
+  }
+  sendCommand(t, p, "cmdMsg");
+}
 
-async function sendDryRun(type, payload, msgId) {
+async function sendCommand(type, payload, msgId) {
   const msg = msgId ? document.getElementById(msgId) : null;
   if (msg) msg.textContent = "sending...";
   try {
