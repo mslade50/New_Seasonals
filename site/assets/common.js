@@ -7,6 +7,7 @@ const PAGES = [
   { href: "signals.html",  label: "Signals" },
   { href: "orders.html",   label: "Orders" },
   { href: "execution.html", label: "Execution" },
+  { href: "options.html",  label: "Options" },
   { href: "seasonal.html", label: "Seasonal" },
   { href: "charts.html",   label: "Charts" },
   { href: "risk.html",     label: "Risk" },

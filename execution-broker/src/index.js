@@ -96,6 +96,26 @@ export class ExecBroker extends DurableObject {
       return Response.json({ book, server_now: Date.now() });
     }
 
+    // --- Option spread query: POST kicks off a read-only chain fetch on the agent ---
+    if (url.pathname === "/option" && request.method === "POST") {
+      if (!this._authed(request, this.env.STATUS_TOKEN)) return new Response("unauthorized", { status: 401 });
+      let body;
+      try { body = await request.json(); } catch { return Response.json({ ok: false, error: "bad json" }, { status: 400 }); }
+      const ticker = String((body && body.ticker) || "").toUpperCase().trim();
+      if (!ticker) return Response.json({ ok: false, error: "ticker required" }, { status: 400 });
+      const sockets = this.ctx.getWebSockets();
+      if (!sockets.length) return Response.json({ ok: false, error: "agent offline" }, { status: 503 });
+      const id = crypto.randomUUID();
+      const expiry = (body && body.expiry) || null;
+      await this.ctx.storage.put("option_query", { id, ticker, expiry, at: Date.now(), result: null });
+      for (const s of sockets) s.send(JSON.stringify({ type: "option_query", id, ticker, expiry }));
+      return Response.json({ ok: true, id, ticker });
+    }
+    if (url.pathname === "/option") {
+      if (!this._authed(request, this.env.STATUS_TOKEN)) return new Response("unauthorized", { status: 401 });
+      return Response.json({ query: (await this.ctx.storage.get("option_query")) || null, server_now: Date.now() });
+    }
+
     return new Response("not found", { status: 404 });
   }
 
@@ -114,6 +134,16 @@ export class ExecBroker extends DurableObject {
     if (msg.type === "book") {
       await this.ctx.storage.put("book", { ...(msg.book || {}), at: msg.at || Date.now() });
       await this.ctx.storage.put("last_seen", Date.now());
+      return;
+    }
+
+    // Option-spread result from the agent -> attach to the pending query.
+    if (msg.type === "option_result" && msg.id) {
+      const q = await this.ctx.storage.get("option_query");
+      if (q && q.id === msg.id) {
+        q.result = msg.data; q.result_at = Date.now();
+        await this.ctx.storage.put("option_query", q);
+      }
       return;
     }
 
@@ -140,7 +170,7 @@ export class ExecBroker extends DurableObject {
   }
 }
 
-const DO_PATHS = new Set(["/agent", "/status", "/command", "/commands", "/book"]);
+const DO_PATHS = new Set(["/agent", "/status", "/command", "/commands", "/book", "/option"]);
 
 export default {
   async fetch(request, env) {
