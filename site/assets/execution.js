@@ -279,6 +279,7 @@ async function sendDryRun(type, payload, msgId) {
 /* ---------- activity ---------- */
 function stateBadge(state) {
   const map = { dry_run: ["#3ddb8f", "DRY-RUN OK"], rejected: ["#ff6b6b", "REJECTED"],
+                executed: ["#ffc14d", "EXECUTED"], duplicate: ["#9aa3b2", "duplicate"],
                 pushed: ["#9aa3b2", "pushed"], error: ["#ffc14d", "ERROR"] };
   const [c, t] = map[state] || ["#9aa3b2", state || ""];
   return `<span style="color:${c};font-weight:600">${esc(t)}</span>`;
@@ -292,23 +293,30 @@ function resultCell(c) {
     html += `<div class="exec-legs">${pv.legs.map((l) => esc(l)).join("<br>")}` +
       (pv.summary ? `<br><span style="color:#c7ccd6;font-weight:600">${esc(pv.summary)}</span>` : "") + `</div>`;
   }
+  if (res.fill) {
+    const f = res.fill;
+    html += `<div class="exec-legs" style="color:#ffc14d">filled ${esc(String(f.filled ?? "?"))} @ ${esc(String(f.avg_fill ?? "—"))} · #${esc(String(f.order_id ?? ""))} (${esc(String(f.status ?? ""))})</div>`;
+  }
   return html;
+}
+function clockTime(ms) {
+  if (!ms) return "";
+  try { return new Date(ms).toLocaleTimeString("en-US", { hour12: false }); } catch (e) { return ""; }
 }
 function renderActivity() {
   const cmds = state.commands || [];
+  const liveTrail = (state.book && state.book.mode === "live");
   if (!cmds.length) return "";
-  const rows = cmds.map((c) => {
-    const age = c.created_at ? Math.round((Date.now() - c.created_at) / 1000) + "s" : "";
-    return `<tr style="vertical-align:top">
+  const rows = cmds.map((c) => `<tr style="vertical-align:top">
+      <td class="l" style="color:#8c95a2">${esc(clockTime(c.created_at))}</td>
       <td class="l" style="font-weight:600">${esc(c.type || "")}</td>
       <td class="l">${esc(c.account || "")}</td>
       <td class="l">${stateBadge(c.state)}</td>
-      <td class="l">${resultCell(c)}</td>
-      <td class="l" style="color:#8c95a2">${esc(age)}</td></tr>`;
-  }).join("");
-  return `<div style="font:700 14px inherit;margin-bottom:6px">Activity <span class="cap" style="display:inline;font-weight:400">· dry-run, places nothing</span></div>
+      <td class="l">${resultCell(c)}</td></tr>`).join("");
+  return `<div style="font:700 14px inherit;margin-bottom:6px">Activity / audit
+      <span class="cap" style="display:inline;font-weight:400">· ${liveTrail ? "LIVE" : "dry-run, places nothing"} · last ${cmds.length}</span></div>
     <div class="tblwrap"><table class="tbl"><thead><tr>
-    <th class="l">type</th><th class="l">acct</th><th class="l">state</th><th class="l">result / order preview</th><th class="l">ago</th>
+    <th class="l">time</th><th class="l">type</th><th class="l">acct</th><th class="l">state</th><th class="l">result / order preview</th>
     </tr></thead><tbody>${rows}</tbody></table></div>`;
 }
 

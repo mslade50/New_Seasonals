@@ -23,7 +23,7 @@ import { DurableObject } from "cloudflare:workers";
 
 const BROKER_NAME = "main";          // single book -> single DO instance
 const HEARTBEAT_STALE_MS = 30_000;   // online iff a heartbeat landed within this
-const CMD_CAP = 25;                  // recent-command ring size
+const CMD_CAP = 50;                  // recent-command ring size (audit trail)
 
 export class ExecBroker extends DurableObject {
   _authed(request, token) {
@@ -123,7 +123,8 @@ export class ExecBroker extends DurableObject {
       const i = recent.findIndex((r) => r.id === msg.id);
       if (i >= 0) {
         recent[i].state = msg.state || "done";
-        recent[i].result = { ok: msg.ok, detail: msg.detail, validation: msg.validation, preview: msg.preview, at: msg.at };
+        recent[i].result = { ok: msg.ok, detail: msg.detail, validation: msg.validation,
+                             preview: msg.preview, fill: msg.fill, at: msg.at };
         await this.ctx.storage.put("recent_commands", recent);
       }
     }
