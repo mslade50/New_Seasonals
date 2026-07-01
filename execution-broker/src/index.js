@@ -116,6 +116,29 @@ export class ExecBroker extends DurableObject {
       return Response.json({ query: (await this.ctx.storage.get("option_query")) || null, server_now: Date.now() });
     }
 
+    // --- Futures sizing query: POST kicks off a pure read-only sizing calc on the agent ---
+    if (url.pathname === "/futures_size" && request.method === "POST") {
+      if (!this._authed(request, this.env.STATUS_TOKEN)) return new Response("unauthorized", { status: 401 });
+      let body;
+      try { body = await request.json(); } catch { return Response.json({ ok: false, error: "bad json" }, { status: 400 }); }
+      const symbol = String((body && body.symbol) || "").toUpperCase().trim();
+      if (!symbol) return Response.json({ ok: false, error: "symbol required" }, { status: 400 });
+      const sockets = this.ctx.getWebSockets();
+      if (!sockets.length) return Response.json({ ok: false, error: "agent offline" }, { status: 503 });
+      const id = crypto.randomUUID();
+      const q = { id, symbol, entry: body.entry ?? null, stop: body.stop ?? null,
+        target: body.target ?? null, risk: body.risk ?? null, risk_pct: body.risk_pct ?? null,
+        account_key: body.account_key || "primary", account_value: body.account_value ?? null,
+        at: Date.now(), result: null };
+      await this.ctx.storage.put("futures_size", q);
+      for (const s of sockets) s.send(JSON.stringify({ type: "futures_size", ...q }));
+      return Response.json({ ok: true, id, symbol });
+    }
+    if (url.pathname === "/futures_size") {
+      if (!this._authed(request, this.env.STATUS_TOKEN)) return new Response("unauthorized", { status: 401 });
+      return Response.json({ query: (await this.ctx.storage.get("futures_size")) || null, server_now: Date.now() });
+    }
+
     return new Response("not found", { status: 404 });
   }
 
@@ -147,6 +170,16 @@ export class ExecBroker extends DurableObject {
       return;
     }
 
+    // Futures-sizing result from the agent -> attach to the pending query.
+    if (msg.type === "futures_result" && msg.id) {
+      const q = await this.ctx.storage.get("futures_size");
+      if (q && q.id === msg.id) {
+        q.result = msg.data; q.result_at = Date.now();
+        await this.ctx.storage.put("futures_size", q);
+      }
+      return;
+    }
+
     // Command result from the agent -> attach to the recent-commands ring.
     if (msg.type === "result" && msg.id) {
       const recent = (await this.ctx.storage.get("recent_commands")) || [];
@@ -170,7 +203,7 @@ export class ExecBroker extends DurableObject {
   }
 }
 
-const DO_PATHS = new Set(["/agent", "/status", "/command", "/commands", "/book", "/option"]);
+const DO_PATHS = new Set(["/agent", "/status", "/command", "/commands", "/book", "/option", "/futures_size"]);
 
 export default {
   async fetch(request, env) {

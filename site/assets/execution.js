@@ -18,16 +18,23 @@ document.addEventListener("DOMContentLoaded", initExecution);
 
 const state = { account: "primary", book: null, status: null };
 let pollTimer = null;
+let FUT_SPECS = {};   // symbol/alias -> {exchange,multiplier,min_tick,...}; drives the FUT readout
 
 async function initExecution() {
   renderNav("execution.html");
   const el = document.getElementById("content");
   el.innerHTML = shell();
+  FUT_SPECS = (await fetchJSONOrNull("assets/futures_specs.json")) || {};   // for the FUT ticket readout
   document.querySelectorAll("[data-acct]").forEach((b) =>
     b.addEventListener("click", () => setAccount(b.dataset.acct)));
   document.getElementById("cmdType").addEventListener("change", syncFields);
   document.getElementById("cmdSend").addEventListener("click", sendTicket);
   document.getElementById("cmdFields").addEventListener("input", updateReadout);
+  document.getElementById("fs_go").addEventListener("click", sizeFutures);
+  ["fs_symbol", "fs_entry", "fs_stop", "fs_target", "fs_risk", "fs_riskpct"].forEach((id) => {
+    const e = document.getElementById(id);
+    if (e) e.addEventListener("keydown", (ev) => { if (ev.key === "Enter") sizeFutures(); });
+  });
   syncFields();
   await poll();
   pollTimer = setInterval(poll, 4000);
@@ -60,6 +67,22 @@ function shell() {
       <div id="ticketReadout" style="font:12px inherit;margin:0 0 10px;min-height:16px"></div>
       <button class="btn" id="cmdSend">Send order</button>
       <span id="cmdMsg" class="cap" style="margin-left:10px"></span>
+    </div>
+
+    <div class="card" style="max-width:760px;margin-top:18px">
+      <div style="font:700 14px inherit;margin-bottom:4px">Futures sizing <span class="cap" style="display:inline;font-weight:400">&mdash; risk &rarr; contracts + notional (read-only)</span></div>
+      <p class="cap" style="margin:0 0 10px">Enter a futures symbol with entry/stop and a risk budget; the agent sizes the contract count off the live multiplier and shows the notional exposure. Places nothing. Risk % uses the selected account's NLV.</p>
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:8px">
+        <label class="cap">Symbol</label><input id="fs_symbol" value="ES" style="width:70px;text-transform:uppercase">
+        <label class="cap">Entry</label><input id="fs_entry" style="width:78px">
+        <label class="cap">Stop</label><input id="fs_stop" style="width:78px">
+        <label class="cap">Target</label><input id="fs_target" style="width:78px">
+        <label class="cap">Risk $</label><input id="fs_risk" style="width:78px">
+        <label class="cap">or %</label><input id="fs_riskpct" style="width:52px">
+        <button class="btn" id="fs_go">Size</button>
+        <span id="fs_msg" class="cap"></span>
+      </div>
+      <div id="fs_result"></div>
     </div>
 
     <div id="activity" style="margin-top:18px"></div>`;
@@ -218,16 +241,35 @@ function syncFields() {
     f.innerHTML = `<label class="cap">Symbol</label>${inp("f_symbol", "USO", 90)}
       <label class="cap">Fraction</label><select id="f_frac"><option value="1">100%</option><option value="0.5">50%</option></select>`;
   } else {
-    f.innerHTML = `<label class="cap">Symbol</label>${inp("f_symbol", "USO", 80)}
+    f.innerHTML = `<label class="cap">Instr</label><select id="f_sectype"><option value="STK">Stock</option><option value="FUT">Future</option></select>
+      <label class="cap">Symbol</label>${inp("f_symbol", "USO", 80)}
       <label class="cap">Side</label><select id="f_action"><option>BUY</option><option>SELL</option></select>
       <label class="cap">Qty</label>${inp("f_qty", "692", 70)}
       <label class="cap">Entry</label>${inp("f_entry", "104.80", 80)}
       <label class="cap">Stop</label>${inp("f_stop", "103.29", 80)}
       <label class="cap">Target</label>${inp("f_target", "123.21", 80)}
+      <span id="f_futrow"></span>
       <label class="cap">Entry exp</label><input type="date" id="f_expiry" style="width:140px">
       <label class="cap">Time stop</label><input type="date" id="f_timestop" style="width:140px">`;
+    const st = document.getElementById("f_sectype");
+    if (st) st.addEventListener("change", () => {
+      if (val("f_sectype") === "FUT" && !futSpec(val("f_symbol"))) {
+        const s = document.getElementById("f_symbol"); if (s) s.value = "ES";   // sensible FUT default
+      }
+      renderFutRow(); updateReadout();
+    });
+    renderFutRow();
   }
   updateReadout();
+}
+
+function futSpec(sym) { return FUT_SPECS[String(sym || "").toUpperCase().trim()] || null; }
+function renderFutRow() {
+  const row = document.getElementById("f_futrow");
+  if (!row) return;
+  if (val("f_sectype") !== "FUT") { row.innerHTML = ""; return; }
+  row.innerHTML = `<label class="cap">Contract</label><input id="f_futexp" placeholder="202609" style="width:78px">
+    <span id="f_futhint" class="cap" style="display:inline"></span>`;
 }
 
 function updateReadout() {
@@ -235,16 +277,27 @@ function updateReadout() {
   const el = document.getElementById("ticketReadout");
   if (!el) return;
   if (t === "entry_bracket") {
+    const isFut = (val("f_sectype") === "FUT");
+    const sym = String(val("f_symbol") || "").toUpperCase().trim();
+    const spec = isFut ? futSpec(sym) : null;
+    const mult = spec ? spec.multiplier : 1;
+    const hint = document.getElementById("f_futhint");
+    if (hint) hint.innerHTML = spec
+      ? `${esc(spec.exchange)} · mult ${spec.multiplier} · tick ${spec.min_tick}`
+      : (sym ? `<span style="color:#ff6b6b">not in spec table</span>` : "");
     const qty = Number(val("f_qty")), entry = Number(val("f_entry")), stop = Number(val("f_stop")), target = Number(val("f_target"));
     const action = val("f_action"), dist = Math.abs(entry - stop);
     let warn = "";
     if (action === "BUY" && !(stop < entry && entry < target)) warn = "BUY needs stop &lt; entry &lt; target";
     if (action === "SELL" && !(target < entry && entry < stop)) warn = "SELL needs target &lt; entry &lt; stop";
+    if (isFut && sym && !spec) warn = "unknown futures symbol — not in the spec table";
+    if (isFut && !val("f_futexp")) warn = warn || "enter the contract month (e.g. 202609)";
     if (warn) { el.innerHTML = `<span style="color:#ff6b6b">${warn}</span>`; return; }
     const parts = [];
-    if (qty && dist) parts.push(`Risk <b>${fmt.money(qty * dist)}</b>`);
+    if (isFut && qty) parts.push(`<b>${qty} contract${qty === 1 ? "" : "s"}</b>`);
+    if (qty && dist) parts.push(`Risk <b>${fmt.money(qty * dist * mult)}</b>`);
     if (dist && target) parts.push(`R:R <b>${(Math.abs(target - entry) / dist).toFixed(2)}:1</b>`);
-    if (qty && entry) parts.push(`Notional <b>${fmt.money(qty * entry)}</b>`);
+    if (qty && entry) parts.push(`Notional <b>${fmt.money(qty * entry * mult)}</b>`);
     const ts = val("f_timestop");
     if (ts) parts.push(`Time-exit <b>${ts}</b>`);
     const ex = val("f_expiry");
@@ -265,16 +318,23 @@ function val(id) { const e = document.getElementById(id); return e ? e.value : u
 function ticketPayload(t) {
   if (t === "echo") return { note: val("f_note") };
   if (t === "flatten") return { symbol: val("f_symbol"), fraction: Number(val("f_frac")), order_type: "MKT" };
-  return { symbol: val("f_symbol"), action: val("f_action"), quantity: Number(val("f_qty")),
+  const sec_type = val("f_sectype") || "STK";
+  const fut_expiry = sec_type === "FUT" ? String(val("f_futexp") || "").replace(/\D/g, "") : null;
+  return { symbol: val("f_symbol"), sec_type, fut_expiry, action: val("f_action"), quantity: Number(val("f_qty")),
     entry: Number(val("f_entry")), stop: Number(val("f_stop")), target: Number(val("f_target")),
     time_stop: val("f_timestop") || null, expiry: val("f_expiry") || null };
 }
 function sendTicket() {
   const t = document.getElementById("cmdType").value;
   const p = ticketPayload(t);
+  if (t === "entry_bracket" && p.sec_type === "FUT" && !p.fut_expiry) {
+    document.getElementById("cmdMsg").textContent = "enter the contract month (e.g. 202609)";
+    return;
+  }
   if (t !== "echo") {
+    const inst = p.sec_type === "FUT" ? `${p.symbol} FUT ${p.fut_expiry}` : p.symbol;
     const summary = t === "entry_bracket"
-      ? `${p.action} ${p.quantity} ${p.symbol} @ ${p.entry} [${p.expiry ? "GTD " + p.expiry : "DAY"}] (stop ${p.stop}, target ${p.target}${p.time_stop ? ", time " + p.time_stop : ""})`
+      ? `${p.action} ${p.quantity} ${inst} @ ${p.entry} [${p.expiry ? "GTD " + p.expiry : "DAY"}] (stop ${p.stop}, target ${p.target}${p.time_stop ? ", time " + p.time_stop : ""})`
       : `flatten ${Math.round((p.fraction || 1) * 100)}% of ${p.symbol}`;
     if (!confirm(`${actionLead(t === "entry_bracket" ? "place" : "flatten")} ${summary} on ${state.account}?`)) return;
   }
@@ -295,6 +355,62 @@ async function sendCommand(type, payload, msgId) {
     if (msg) msg.textContent = "error: " + e;
   }
   setTimeout(poll, 600);
+}
+
+/* ---------- futures sizing (read-only: risk -> contracts + notional) ---------- */
+const sizeState = { id: null, timer: null };
+async function sizeFutures() {
+  const msg = document.getElementById("fs_msg");
+  const symbol = String(val("fs_symbol") || "").toUpperCase().trim();
+  if (!symbol) { msg.textContent = "symbol required"; return; }
+  const entry = Number(val("fs_entry")), stop = Number(val("fs_stop"));
+  if (!entry || !stop) { msg.textContent = "entry and stop required"; return; }
+  const target = val("fs_target") ? Number(val("fs_target")) : null;
+  const risk = val("fs_risk") ? Number(val("fs_risk")) : null;
+  const risk_pct = val("fs_riskpct") ? Number(val("fs_riskpct")) : null;
+  if (risk == null && risk_pct == null) { msg.textContent = "enter risk $ or %"; return; }
+  msg.textContent = "sizing…";
+  clearTimeout(sizeState.timer);
+  try {
+    const r = await fetch("/exec-futures-size", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ symbol, entry, stop, target, risk, risk_pct, account_key: state.account }),
+    });
+    const d = await r.json();
+    if (!d.ok) { msg.textContent = "error: " + (d.error || ("HTTP " + r.status)); return; }
+    sizeState.id = d.id;
+    pollSize(0);
+  } catch (e) { msg.textContent = "error: " + e; }
+}
+async function pollSize(n) {
+  if (n > 30) { document.getElementById("fs_msg").textContent = "timed out — is the agent online?"; return; }
+  const d = (await fetchJSONOrNull("/exec-futures-size")) || {};
+  const q = d.query;
+  if (q && q.id === sizeState.id && q.result) {
+    document.getElementById("fs_msg").textContent = "";
+    renderSize(q.result);
+    return;
+  }
+  sizeState.timer = setTimeout(() => pollSize(n + 1), 1500);
+}
+function renderSize(data) {
+  const el = document.getElementById("fs_result");
+  if (!data || data.error) {
+    el.innerHTML = `<div class="card" style="padding:10px 14px"><span class="neg">${esc((data && data.error) || "no result")}</span></div>`;
+    return;
+  }
+  const notPct = data.notional_pct != null ? ` · ${fmt.num(data.notional_pct, 1)}% of acct (${fmt.num(data.leverage, 2)}x)` : "";
+  const rr = data.rr != null ? ` · R:R ${fmt.num(data.rr, 2)}:1` : "";
+  const note = data.note ? `<div class="cap" style="color:#ffc14d;margin-top:8px">${esc(data.note)}</div>` : "";
+  el.innerHTML = `<div class="card" style="padding:12px 14px">
+    <span style="font:700 16px inherit">${esc(data.symbol)} ${esc(data.action)} &mdash;
+      <span style="color:#4da3ff">${data.contracts} contract${data.contracts === 1 ? "" : "s"}</span></span>
+    <div class="kv" style="margin-top:10px">
+      <div class="k">Risk / contract</div><div class="v">${fmt.money(data.risk_per_contract)} (${fmt.num(data.stop_ticks, 0)} ticks)</div>
+      <div class="k">Total risk</div><div class="v">${fmt.money(data.total_risk)} <span class="cap" style="display:inline">/ budget ${fmt.money(data.risk_budget)}</span></div>
+      <div class="k">Total notional</div><div class="v">${fmt.money(data.total_notional)}${notPct}</div>
+      <div class="k">Multiplier</div><div class="v">${fmt.num(data.multiplier, 2)} <span class="cap" style="display:inline">· tick ${data.min_tick}${rr}</span></div>
+    </div>${note}</div>`;
 }
 
 /* ---------- activity ---------- */
