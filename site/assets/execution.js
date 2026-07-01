@@ -185,29 +185,54 @@ function renderPositions() {
 }
 
 /* ---------- open orders ---------- */
+function orderPx(o) {
+  const t = String(o.order_type || "").toUpperCase();
+  if (t.startsWith("STP")) return o.aux != null ? o.aux : o.lmt;   // stop trigger, not the 0.00 lmt
+  if (o.lmt) return o.lmt;
+  if (o.aux) return o.aux;
+  return null;                                                      // MKT / MOC / MOO — no price
+}
+function fmtOrderTime(s) {
+  if (!s) return "";
+  const m = String(s).match(/(\d{4})(\d{2})(\d{2})[ -](\d{2}):(\d{2})/);
+  return m ? `${m[2]}/${m[3]} ${m[4]}:${m[5]}` : esc(String(s));    // MM/DD HH:MM
+}
+function orderRow(o) {
+  const buy = String(o.action).toUpperCase() === "BUY";
+  const px = orderPx(o);
+  return `<tr>
+    <td class="l" style="font-weight:600">${esc(o.symbol)}</td>
+    <td class="l ${buy ? "pos" : "neg"}" style="font-weight:600">${esc(o.action)}</td>
+    <td>${fmt.num(o.qty, 0)}</td>
+    <td class="l">${esc(o.order_type)}</td>
+    <td>${px != null ? fmt.num(px, 2) : "&mdash;"}</td>
+    <td class="l">${esc(o.tif || "")}</td>
+    <td class="l" style="color:#8c95a2">${fmtOrderTime(o.good_after) || "&mdash;"}</td>
+    <td class="l" style="color:#8c95a2">${fmtOrderTime(o.good_till) || "&mdash;"}</td>
+    <td class="l" style="color:#8c95a2">${esc(o.status || "")}</td>
+    <td class="l"><button class="btn xs ghost" onclick='execCancel(${o.perm_id || 0},${o.order_id || 0},"${esc(o.symbol)}")'>Cancel</button></td>
+  </tr>`;
+}
+function ordersSection(title, list) {
+  const h = `<div class="cap" style="font-weight:700;margin:10px 0 4px">${title} <span style="font-weight:400">&middot; ${list.length}</span></div>`;
+  if (!list.length) return h + `<div class="cap" style="color:#8c95a2;margin-bottom:6px">(none)</div>`;
+  return h + `<div class="tblwrap"><table class="tbl"><thead><tr>
+    <th class="l">Symbol</th><th class="l">Side</th><th>Qty</th><th class="l">Type</th><th>Price</th><th class="l">TIF</th><th class="l">Start</th><th class="l">End</th><th class="l">Status</th><th class="l"></th>
+    </tr></thead><tbody>${list.map(orderRow).join("")}</tbody></table></div>`;
+}
 function renderOrders() {
   const ab = acctBook();
   const head = `<div style="font:700 14px inherit;margin:0 0 6px">Open Orders</div>`;
   if (!ab || ab.error) return head + panelNote("&mdash;");
   const ords = ab.orders || [];
   if (!ords.length) return head + panelNote("No working orders.");
-  const rows = ords.map((o) => {
-    const buy = String(o.action).toUpperCase() === "BUY";
-    const px = o.lmt != null ? o.lmt : (o.aux != null ? o.aux : null);
-    return `<tr>
-      <td class="l" style="font-weight:600">${esc(o.symbol)}</td>
-      <td class="l ${buy ? "pos" : "neg"}" style="font-weight:600">${esc(o.action)}</td>
-      <td>${fmt.num(o.qty, 0)}</td>
-      <td class="l">${esc(o.order_type)}</td>
-      <td>${px != null ? fmt.num(px, 2) : "&mdash;"}</td>
-      <td class="l">${esc(o.tif || "")}</td>
-      <td class="l" style="color:#8c95a2">${esc(o.status || "")}</td>
-      <td class="l"><button class="btn xs ghost" onclick='execCancel(${o.perm_id || 0},${o.order_id || 0},"${esc(o.symbol)}")'>Cancel</button></td>
-    </tr>`;
-  }).join("");
-  return head + `<div class="tblwrap"><table class="tbl"><thead><tr>
-    <th class="l">Symbol</th><th class="l">Side</th><th>Qty</th><th class="l">Type</th><th>Price</th><th class="l">TIF</th><th class="l">Status</th><th class="l"></th>
-    </tr></thead><tbody>${rows}</tbody></table></div>`;
+  // Split by whether the symbol has an open position: exits-on-positions vs pending entries.
+  const posSyms = new Set((ab.positions || []).map((p) => String(p.symbol).toUpperCase()));
+  const onPos = ords.filter((o) => posSyms.has(String(o.symbol).toUpperCase()));
+  const pending = ords.filter((o) => !posSyms.has(String(o.symbol).toUpperCase()));
+  return head
+    + ordersSection("On open positions (working exits)", onPos)
+    + ordersSection("Pending entries — not filled yet", pending);
 }
 
 function panelNote(html) { return `<div class="card" style="padding:12px 14px"><span class="cap">${html}</span></div>`; }
