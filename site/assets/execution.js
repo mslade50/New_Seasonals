@@ -19,6 +19,7 @@ document.addEventListener("DOMContentLoaded", initExecution);
 const state = { account: "primary", book: null, status: null };
 let pollTimer = null;
 let FUT_SPECS = {};   // symbol/alias -> {exchange,multiplier,min_tick,...}; drives the FUT readout
+const frontState = { id: null, timer: null, manual: false };   // FUT contract-month auto-resolve
 
 async function initExecution() {
   renderNav("execution.html");
@@ -256,8 +257,11 @@ function syncFields() {
       if (val("f_sectype") === "FUT" && !futSpec(val("f_symbol"))) {
         const s = document.getElementById("f_symbol"); if (s) s.value = "ES";   // sensible FUT default
       }
-      renderFutRow(); updateReadout();
+      frontState.manual = false;
+      renderFutRow(); updateReadout(); scheduleFrontResolve();
     });
+    const sym = document.getElementById("f_symbol");
+    if (sym) sym.addEventListener("input", () => { frontState.manual = false; scheduleFrontResolve(); });
     renderFutRow();
   }
   updateReadout();
@@ -268,8 +272,10 @@ function renderFutRow() {
   const row = document.getElementById("f_futrow");
   if (!row) return;
   if (val("f_sectype") !== "FUT") { row.innerHTML = ""; return; }
-  row.innerHTML = `<label class="cap">Contract</label><input id="f_futexp" placeholder="202609" style="width:78px">
+  row.innerHTML = `<label class="cap">Contract</label><input id="f_futexp" placeholder="auto" style="width:78px">
     <span id="f_futhint" class="cap" style="display:inline"></span>`;
+  const exp = document.getElementById("f_futexp");
+  if (exp) exp.addEventListener("input", () => { frontState.manual = true; });   // stop auto-fill once typed
 }
 
 function updateReadout() {
@@ -411,6 +417,44 @@ function renderSize(data) {
       <div class="k">Total notional</div><div class="v">${fmt.money(data.total_notional)}${notPct}</div>
       <div class="k">Multiplier</div><div class="v">${fmt.num(data.multiplier, 2)} <span class="cap" style="display:inline">· tick ${data.min_tick}${rr}</span></div>
     </div>${note}</div>`;
+}
+
+/* ---------- futures contract-month auto-resolve (read-only reqContractDetails) ---------- */
+function scheduleFrontResolve() {
+  if (val("f_sectype") !== "FUT") return;
+  clearTimeout(frontState.timer);
+  frontState.timer = setTimeout(resolveFront, 500);   // debounce while the symbol is typed
+}
+async function resolveFront() {
+  const symbol = String(val("f_symbol") || "").toUpperCase().trim();
+  if (!symbol || !futSpec(symbol)) return;            // unknown symbol: the readout already warns
+  const exp = document.getElementById("f_futexp");
+  try {
+    const r = await fetch("/exec-futures-front", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ symbol }),
+    });
+    const d = await r.json();
+    if (!d.ok) return;
+    frontState.id = d.id;
+    if (exp && !frontState.manual && !exp.value) exp.placeholder = "resolving…";
+    pollFront(0);
+  } catch (e) { /* silent — the field stays manual/editable */ }
+}
+async function pollFront(n) {
+  const exp = document.getElementById("f_futexp");
+  if (n > 20) { if (exp) exp.placeholder = "202609"; return; }
+  const d = (await fetchJSONOrNull("/exec-futures-front")) || {};
+  const q = d.query;
+  if (q && q.id === frontState.id && q.result) {
+    const res = q.result;
+    const cur = String(val("f_symbol") || "").toUpperCase().trim();
+    if (exp && res.expiry && !res.error && !frontState.manual && cur === res.symbol) {
+      exp.value = res.expiry; exp.placeholder = "auto"; updateReadout();
+    } else if (exp) { exp.placeholder = "202609"; }
+    return;
+  }
+  setTimeout(() => pollFront(n + 1), 1200);
 }
 
 /* ---------- activity ---------- */
