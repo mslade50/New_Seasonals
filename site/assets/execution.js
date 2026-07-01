@@ -230,7 +230,47 @@ function orderLegPreview(o) {
   const px = orderPx(o);
   return px != null ? `${esc(o.order_type || "")} ${fmt.num(px, 2)}` : esc(o.order_type || "");
 }
-function ordersSection(title, list) {
+function pnlSpan(label, v) {
+  return v == null ? `${label} &mdash;` : `${label} <b class="${clsSign(v)}">${fmt.money(v)}</b>`;
+}
+// Best case (all profit-target LMTs fill) / worst case (all stops fill), per ticker.
+// entryPrice is derived from live PnL (avoids the futures averageCost-includes-multiplier
+// ambiguity); pending groups reference the parent entry limit. mult from sec_type (FUT only).
+function groupPnl(sym, legs, ab) {
+  const pos = (ab.positions || []).find((p) => String(p.symbol).toUpperCase() === sym && p.position);
+  let entryPrice, sign, mult, exits;
+  if (pos) {
+    mult = pos.sec_type === "FUT" ? ((futSpec(sym) || {}).multiplier || 1) : 1;
+    sign = pos.position > 0 ? 1 : -1;
+    if (pos.market_price != null && pos.unrealized_pnl != null) {
+      entryPrice = pos.market_price - pos.unrealized_pnl / (pos.position * mult);
+    } else if (pos.avg_cost != null) {
+      entryPrice = pos.avg_cost / mult;
+    } else return { best: null, worst: null };
+    exits = legs;
+  } else {
+    const entry = legs.find((o) => (o.parent_id || 0) === 0);
+    const ep = entry ? orderPx(entry) : null;
+    if (ep == null) return { best: null, worst: null };
+    mult = entry.sec_type === "FUT" ? ((futSpec(sym) || {}).multiplier || 1) : 1;
+    sign = String(entry.action).toUpperCase() === "BUY" ? 1 : -1;
+    entryPrice = ep;
+    exits = legs.filter((o) => o !== entry);
+  }
+  let best = null, worst = null;
+  for (const o of exits) {
+    const t = String(o.order_type || "").toUpperCase();
+    const q = o.qty || 0;
+    if (t.startsWith("STP")) {
+      const px = o.aux != null ? o.aux : o.lmt;
+      if (px != null) worst = (worst || 0) + (px - entryPrice) * mult * sign * q;
+    } else if (t === "LMT" && o.lmt != null) {
+      best = (best || 0) + (o.lmt - entryPrice) * mult * sign * q;
+    }
+  }
+  return { best, worst };
+}
+function ordersSection(title, list, ab) {
   const h = `<div class="cap" style="font-weight:700;margin:10px 0 4px">${title} <span style="font-weight:400">&middot; ${list.length}</span></div>`;
   if (!list.length) return h + `<div class="cap" style="color:#8c95a2;margin-bottom:6px">(none)</div>`;
   const groups = new Map();
@@ -246,9 +286,13 @@ function ordersSection(title, list) {
     const open = expandedTickers.has(sym);
     const caret = open ? "&#9662;" : "&#9656;";          // triangle down / right
     const preview = open ? "" : legs.map(orderLegPreview).join(" &middot; ");
+    const bw = groupPnl(sym, legs, ab);
+    const bwFrag = (bw.best != null || bw.worst != null)
+      ? ` &nbsp;&middot;&nbsp; ${pnlSpan("best", bw.best)} &middot; ${pnlSpan("worst", bw.worst)}`
+      : "";
     body += `<tr style="cursor:pointer;background:rgba(255,255,255,.03)" onclick="toggleOrderGroup('${esc(sym)}')">
       <td class="l" colspan="10" style="font-weight:600">${caret} ${esc(sym)}
-        <span class="cap" style="font-weight:400;display:inline">&nbsp;(${legs.length})${preview ? " &nbsp;&middot;&nbsp; " + preview : ""}</span></td></tr>`;
+        <span class="cap" style="font-weight:400;display:inline">&nbsp;(${legs.length})${preview ? " &nbsp;&middot;&nbsp; " + preview : ""}${bwFrag}</span></td></tr>`;
     if (open) body += legs.map(orderRow).join("");
   }
   return h + `<div class="tblwrap"><table class="tbl"><thead><tr>
@@ -266,8 +310,8 @@ function renderOrders() {
   const onPos = ords.filter((o) => posSyms.has(String(o.symbol).toUpperCase()));
   const pending = ords.filter((o) => !posSyms.has(String(o.symbol).toUpperCase()));
   return head
-    + ordersSection("On open positions (working exits)", onPos)
-    + ordersSection("Pending entries — not filled yet", pending);
+    + ordersSection("On open positions (working exits)", onPos, ab)
+    + ordersSection("Pending entries — not filled yet", pending, ab);
 }
 
 function panelNote(html) { return `<div class="card" style="padding:12px 14px"><span class="cap">${html}</span></div>`; }
