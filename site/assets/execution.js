@@ -213,12 +213,47 @@ function orderRow(o) {
     <td class="l"><button class="btn xs ghost" onclick='execCancel(${o.perm_id || 0},${o.order_id || 0},"${esc(o.symbol)}")'>Cancel</button></td>
   </tr>`;
 }
+const expandedTickers = new Set();   // Open Orders: which tickers are expanded (persists across 4s polls)
+function toggleOrderGroup(sym) {
+  const k = String(sym).toUpperCase();
+  if (expandedTickers.has(k)) expandedTickers.delete(k); else expandedTickers.add(k);
+  set("orders", renderOrders());
+}
+window.toggleOrderGroup = toggleOrderGroup;
+function typeRank(o) {                                    // sort order within a ticker
+  const t = String(o.order_type || "").toUpperCase();
+  if (t.startsWith("STP")) return 1;                     // stops after limit legs
+  if (t === "MKT" || t.startsWith("MO")) return 2;       // MKT / MOC / MOO time-stops last
+  return 0;                                              // LMT (entry / target) first
+}
+function orderLegPreview(o) {
+  const px = orderPx(o);
+  return px != null ? `${esc(o.order_type || "")} ${fmt.num(px, 2)}` : esc(o.order_type || "");
+}
 function ordersSection(title, list) {
   const h = `<div class="cap" style="font-weight:700;margin:10px 0 4px">${title} <span style="font-weight:400">&middot; ${list.length}</span></div>`;
   if (!list.length) return h + `<div class="cap" style="color:#8c95a2;margin-bottom:6px">(none)</div>`;
+  const groups = new Map();
+  for (const o of list) {
+    const k = String(o.symbol).toUpperCase();
+    if (!groups.has(k)) groups.set(k, []);
+    groups.get(k).push(o);
+  }
+  let body = "";
+  for (const sym of [...groups.keys()].sort()) {
+    const legs = groups.get(sym).slice()
+      .sort((a, b) => typeRank(a) - typeRank(b) || (a.order_id || 0) - (b.order_id || 0));
+    const open = expandedTickers.has(sym);
+    const caret = open ? "&#9662;" : "&#9656;";          // triangle down / right
+    const preview = open ? "" : legs.map(orderLegPreview).join(" &middot; ");
+    body += `<tr style="cursor:pointer;background:rgba(255,255,255,.03)" onclick="toggleOrderGroup('${esc(sym)}')">
+      <td class="l" colspan="10" style="font-weight:600">${caret} ${esc(sym)}
+        <span class="cap" style="font-weight:400;display:inline">&nbsp;(${legs.length})${preview ? " &nbsp;&middot;&nbsp; " + preview : ""}</span></td></tr>`;
+    if (open) body += legs.map(orderRow).join("");
+  }
   return h + `<div class="tblwrap"><table class="tbl"><thead><tr>
     <th class="l">Symbol</th><th class="l">Side</th><th>Qty</th><th class="l">Type</th><th>Price</th><th class="l">TIF</th><th class="l">Start</th><th class="l">End</th><th class="l">Status</th><th class="l"></th>
-    </tr></thead><tbody>${list.map(orderRow).join("")}</tbody></table></div>`;
+    </tr></thead><tbody>${body}</tbody></table></div>`;
 }
 function renderOrders() {
   const ab = acctBook();
