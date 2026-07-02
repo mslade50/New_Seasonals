@@ -77,10 +77,10 @@ jobs:
         run: python -m ml.score_daily --source sheets --sheets-out
 
       - name: Surface scoring failures
-        # ml.score_daily is fail-safe (always exits 0) and its exception path never
-        # rewrites the ML_Scores tab, so a scoring error silently leaves yesterday's
-        # SKIP/TRIM rows live against today's book. Turn the run red when the score
-        # file degraded to the model_unavailable pass-through so it is not dismissed.
+        # ml.score_daily is fail-safe (always exits 0). Its degrade paths now
+        # rewrite the ML_Scores tab with 1.0x pass-through rows so yesterday's
+        # SKIP/TRIM decisions never persist against today's book. Still turn the
+        # run red when scoring degraded so the root cause gets investigated.
         run: |
           latest=$(ls -1t data/ml/scores/ml_scores_*.csv 2>/dev/null | head -n1)
           if [ -z "$latest" ]; then

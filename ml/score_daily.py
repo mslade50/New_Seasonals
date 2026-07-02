@@ -123,7 +123,10 @@ def _write_sheets_tab(out: pd.DataFrame, tab: str = "ML_Scores"):
             ws.clear()
         except gspread.WorksheetNotFound:
             ws = sh.add_worksheet(title=tab, rows=200, cols=12)
-        body = out.copy()
+        keep = [c for c in ("Ticker", "Strategy", "Direction", "Tier", "Signal Date",
+                            "p_win", "decision", "size_multiplier", "flags", "model")
+                if c in out.columns]
+        body = out[keep].copy() if keep else out.copy()
         for c in body.columns:
             body[c] = body[c].astype(str)
         ws.update([body.columns.tolist()] + body.values.tolist())
@@ -173,7 +176,10 @@ def main(argv=None) -> int:
                 raw = pd.DataFrame()
         if raw is None or raw.empty:
             print("[score] no staged signals found — writing empty score file")
-            _passthrough_frame(pd.DataFrame(), "no_signals").to_csv(out_path, index=False)
+            pt = _passthrough_frame(pd.DataFrame(), "no_signals")
+            pt.to_csv(out_path, index=False)
+            if args.sheets_out:
+                _write_sheets_tab(pt)
             return 0
         if not {"Ticker", "Strategy"}.issubset(raw.columns):
             raise ValueError(f"input must have Ticker and Strategy columns, "
@@ -244,8 +250,11 @@ def main(argv=None) -> int:
         # FAIL-SAFE: pass-through, exit 0, never block the pipeline.
         print(f"[score] ERROR — degrading to pass-through (1.0x): {e}")
         traceback.print_exc()
-        _passthrough_frame(raw, "model_unavailable").to_csv(out_path, index=False)
+        pt = _passthrough_frame(raw, "model_unavailable")
+        pt.to_csv(out_path, index=False)
         print(f"[score] pass-through written -> {out_path}")
+        if args.sheets_out:
+            _write_sheets_tab(pt)
         return 0
 
 

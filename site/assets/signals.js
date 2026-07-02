@@ -51,10 +51,22 @@ async function init() {
   el.innerHTML = "";
   const tabs = data.tabs || {};
   for (const [tab, label] of [["Order_Staging", "Liquid"], ["Overflow", "Overflow"]]) {
+    // tabs[tab] === null means the Sheets read ERRORED during the build
+    // (build_site.fetch_signals contract) — not an empty scan.
+    const failed = tabs[tab] == null;
     const rows = (tabs[tab] || []).slice().sort((a, b) => num(b.Risk_Amt) - num(a.Risk_Amt));
     const h = document.createElement("h2");
-    h.textContent = `${label} (${rows.length})`;
+    h.textContent = failed ? `${label} — fetch FAILED` : `${label} (${rows.length})`;
     el.appendChild(h);
+    if (failed) {
+      const msg = (data.errors && data.errors[tab]) || "no error detail in payload";
+      const div = document.createElement("div");
+      div.className = "fetchfail";
+      div.innerHTML = `<b>FETCH FAILED</b> — the ${esc(tab)} tab read errored during the site ` +
+        `build; staged orders may exist that are not shown here. <span class="mono">${esc(msg)}</span>`;
+      el.appendChild(div);
+      continue;
+    }
     if (!rows.length) {
       const p = document.createElement("p");
       p.className = "cap";

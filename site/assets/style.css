@@ -249,4 +249,9 @@ input[type="range"]::-moz-range-thumb {
 .chart { width: 100%; }
 .spin { color: var(--faint); padding: 30px 0; text-align: center; }
 .err { color: var(--red); padding: 14px; }
+.fetchfail {
+  border: 1px solid rgba(255,107,107,.5); background: rgba(255,107,107,.08);
+  color: var(--red); border-radius: 8px; padding: 12px 14px; margin: 8px 0 18px;
+}
+.fetchfail .mono { font-family: var(--mono, monospace); font-size: 12px; opacity: .85; }
 footer { color: var(--faint); font-size: 11px; margin-top: 40px; border-top: 1px solid var(--border); padding-top: 12px; }
