@@ -56,6 +56,7 @@ from signal_chart_common import chart_relpath, trade_geometry, lookup_prices
 
 LEDGER = os.path.join(_ROOT, "data", "backtest_trades_full.parquet")
 DAILY = os.path.join(_ROOT, "data", "backtest_daily_pnl.parquet")
+FRAGILITY = os.path.join(_ROOT, "data", "rd2_fragility.parquet")
 IDEAS = os.path.join(_ROOT, "data", "daily_seasonal_ideas.json")
 RISK = os.path.join(_ROOT, "data", "site_risk.json")
 SITE_SRC = os.path.join(_ROOT, "site")
@@ -278,6 +279,36 @@ def build_positions(df, md):
             "Entry_Criteria": _clean(rec.get("Entry Criteria")),
         })
     return {"asof": today.strftime("%Y-%m-%d"), "basis": ACCOUNT_VALUE, "positions": out}
+
+
+def build_fragility():
+    """Fragility dial series for the portfolio page's sizing adjuster.
+
+    Ships the rd2_fragility.parquet columns verbatim (5d-smoothed basis, same
+    file live sizing reads); the client applies its own MA window / threshold /
+    floor so schedules can be explored without a rebuild.
+    """
+    if not os.path.exists(FRAGILITY):
+        return None
+    frag = pd.read_parquet(FRAGILITY)
+    frag.index = pd.to_datetime(frag.index).normalize()
+    try:
+        frag.index = frag.index.tz_localize(None)
+    except (TypeError, AttributeError):
+        pass
+    frag = frag.sort_index().dropna(how="all")
+    dials = {}
+    for col in ("5d", "21d", "63d"):
+        if col in frag.columns:
+            dials[col] = [None if pd.isna(v) else round(float(v), 2)
+                          for v in frag[col].values]
+    if not dials:
+        return None
+    return {
+        "basis": "5d_smoothed",
+        "dates": [d.strftime("%Y-%m-%d") for d in frag.index],
+        "dials": dials,
+    }
 
 
 def build_exposure(df_flat):
@@ -597,7 +628,7 @@ def main():
     df_flat = page_shaped(df)
     flags = {"strategy_daily": False, "positions": False, "exposure": False,
              "correlation": False, "charts": False, "ideas": False, "signals": False,
-             "risk": False, "strat_notes": True}
+             "risk": False, "strat_notes": True, "fragility": False}
     if args.no_mtm:
         # dev iteration: keep flags true for payloads already present in dist
         for k, fn in [("strategy_daily", "strategy_daily.json"), ("positions", "positions.json"),
@@ -630,6 +661,13 @@ def main():
         if charts:
             write_json(charts, os.path.join(data_dir, "charts.json"))
             flags["charts"] = True
+
+    fragility = build_fragility()
+    if fragility:
+        write_json(fragility, os.path.join(data_dir, "fragility.json"))
+        flags["fragility"] = True
+        print(f"  wrote fragility.json ({len(fragility['dates'])} days, "
+              f"dials: {', '.join(fragility['dials'])})")
 
     # 3. companion payloads
     if os.path.exists(IDEAS):

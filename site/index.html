@@ -21,21 +21,27 @@
   <details class="card riskpanel" id="riskPanel">
     <summary>Risk allocation &amp; leverage <span class="cap" style="display:inline" id="riskSummary"></span></summary>
     <div id="levRow"></div>
+    <div id="fragRow"></div>
     <div class="multgrid" id="multGrid"></div>
     <p class="cap">Linear what-if: scales each strategy's risk allocation (and the whole book via
       leverage) on the daily PnL stream. Ignores the live book's 250 bps/day cap and other
       path-dependent sizing effects. R-based stats are per unit of risk and do not move.
       <b>Leverage alone moves vol / CAGR / drawdown / MAR / dollars but NOT Sharpe, Sortino or PF
       — risk-adjusted ratios are scale-invariant (mean and vol scale together). Those only move
-      when the per-strategy dials change the mix.</b></p>
+      when the per-strategy dials change the mix.</b>
+      Fragility sizing scales each trade by the risk-dial score on its signal date (Step: boost
+      below threshold, floor at/above; Ramp: live-style linear — 63d / MA 10 / thr 25 / floor 0.10 /
+      boost 1.25 reproduces the live schedule). Because it is per-trade, the equity curve drops to
+      the realized-at-exit basis while active. OVS is exempt, matching live; pre-2016 trades have no
+      score and keep native size.</p>
   </details>
 
   <div class="kpis" id="kpis"><div class="spin">Loading ledger...</div></div>
 
   <h2>Equity &amp; Drawdown
     <span id="sizingSeg" style="margin-left:10px; vertical-align:middle"></span>
-    <span class="note" id="basisNote" style="display:none">direction / ticker filter active —
-      curve uses realized PnL booked at exit (vol metrics approximate)</span></h2>
+    <span class="note" id="basisNote" style="display:none">direction / ticker filter or fragility
+      sizing active — curve uses realized PnL booked at exit (vol metrics approximate)</span></h2>
   <p class="cap" id="eqCaption"></p>
   <div class="card">
     <div class="chart" id="eqChart"></div>

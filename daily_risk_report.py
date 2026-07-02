@@ -137,6 +137,27 @@ def compute_all_signals(spy_df, closes, sp500_closes):
     }
 
 
+def merge_fragility_history(
+    recomputed: pd.DataFrame,
+    existing: pd.DataFrame,
+    run_date: pd.Timestamp,
+) -> tuple[pd.DataFrame, pd.Timestamp | None]:
+    """Append-only merge for the fragility cache.
+
+    Existing rows dated before run_date are FROZEN (returned unchanged, on the
+    existing column schema). Recomputed rows after the frozen edge are appended
+    — this covers today's new row, a same-day rerun refresh, and any dates a
+    broken producer missed. Returns (merged, frozen_through); frozen_through is
+    None when there was nothing to freeze (bootstrap: full recompute returned).
+    """
+    frozen = existing[existing.index < run_date]
+    if frozen.empty:
+        return recomputed, None
+    append = recomputed[recomputed.index > frozen.index.max()]
+    append = append.reindex(columns=frozen.columns)
+    return pd.concat([frozen, append]), frozen.index.max()
+
+
 # ---------------------------------------------------------------------------
 # 3. FORWARD RETURNS TABLE
 # ---------------------------------------------------------------------------
@@ -712,20 +733,58 @@ def main():
         # treat the two as interchangeable. Stamp basis + generation date + last
         # date so a consumer can detect a wrong-basis or stale (e.g. two-month-old)
         # fallback and refuse to size off it rather than silently double-smoothing.
+        #
+        # APPEND-ONLY (2026-07-02): historical rows are FROZEN point-in-time.
+        # The full recompute still runs in memory (the report's charts/analogs
+        # need it), but the cache keeps whatever it already holds for dates
+        # before today and only appends new dates. Before this, the nightly
+        # full rewrite let history drift with data revisions and code changes
+        # (May-vs-July vintages differed by up to ~7 pts on the 63d dial) —
+        # unacceptable for a series that sizes live orders and gets backtested.
+        # Rows dated today (same-day rerun) are refreshed; a missing/corrupt
+        # cache falls back to a full bootstrap write.
         frag_smoothed = frag_df.rolling(5, min_periods=1).mean()
+        frag_smoothed.index = pd.to_datetime(frag_smoothed.index).normalize()
+        try:
+            frag_smoothed.index = frag_smoothed.index.tz_localize(None)
+        except (TypeError, AttributeError):
+            pass
+
+        frag_out = frag_smoothed
+        frozen_through = None
+        if os.path.exists(frag_cache_path):
+            try:
+                existing = pd.read_parquet(frag_cache_path)
+                existing.index = pd.to_datetime(existing.index).normalize()
+                try:
+                    existing.index = existing.index.tz_localize(None)
+                except (TypeError, AttributeError):
+                    pass
+                run_date = pd.Timestamp.today().normalize()
+                frag_out, frozen_through = merge_fragility_history(
+                    frag_smoothed, existing.sort_index(), run_date)
+            except Exception as e:
+                print(f"  WARNING: unreadable fragility cache ({e}) — full rewrite")
+
         try:
             import pyarrow as pa
             import pyarrow.parquet as pq
-            table = pa.Table.from_pandas(frag_smoothed)
+            table = pa.Table.from_pandas(frag_out)
             md = dict(table.schema.metadata or {})
             md[b"fragility_basis"] = b"5d_smoothed"
             md[b"fragility_generated"] = datetime.datetime.now().strftime(
                 "%Y-%m-%d %H:%M:%S").encode()
-            md[b"fragility_last_date"] = str(frag_smoothed.index.max()).encode()
+            md[b"fragility_last_date"] = str(frag_out.index.max()).encode()
+            if frozen_through is not None:
+                md[b"fragility_frozen_through"] = str(frozen_through).encode()
             pq.write_table(table.replace_schema_metadata(md), frag_cache_path)
         except Exception:
-            frag_smoothed.to_parquet(frag_cache_path)
-        print(f"  Cached fragility timeseries ({len(frag_smoothed)} rows)")
+            frag_out.to_parquet(frag_cache_path)
+        if frozen_through is not None:
+            print(f"  Cached fragility timeseries ({len(frag_out)} rows; "
+                  f"history frozen through {frozen_through.date()})")
+        else:
+            print(f"  Cached fragility timeseries ({len(frag_out)} rows; full bootstrap write)")
 
     # Save environment snapshot (price context + h_scores + signal summaries)
     env_snapshot = {

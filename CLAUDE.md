@@ -394,7 +394,7 @@ All five trading-day workflows now run in GHA. Order staging stays local (IBKR-b
 | `update_intraday_prices.yml` | Weekdays 20:45 UTC (4:45 PM ET) | Pulls per-ticker 15min parquets + meta from R2, runs `scripts/update_intraday_yfinance.py --upload` — fetches recent bars from yfinance for every ticker in meta, converts UTC→ET, appends, dedupes, writes back. yfinance has 60d rolling intraday history so this must run at least every ~50 days to avoid gaps; weekday cadence is fine in practice. |
 | `portfolio_report.yml` | Weekdays 21:30 UTC (5:30 PM ET) | Pulls master_prices + earnings caches from R2, runs `daily_portfolio_report.py`, sends HTML email + writes Portfolio Sheets tab. |
 | `bootstrap_caches.yml` | workflow_dispatch only | One-shot: builds `master_prices.parquet` from scratch via yfinance (~10-15 min for ~2000 tickers, 25-yr history) and uploads to R2. Used to seed the bucket (already run during Phase 2 setup). |
-| `risk_report.yml` | Weekdays 21:15 UTC (5:15 PM ET) | Daily risk dashboard email (fragility dials + signals + forward returns). |
+| `risk_report.yml` | Weekdays 21:15 UTC (5:15 PM ET) | Daily risk dashboard email (fragility dials + signals + forward returns). Writes `data/rd2_fragility.parquet` APPEND-ONLY (since 2026-07-02): history is frozen point-in-time, only new dates append (same-day rerun refreshes today's row). The full recompute still runs in memory for the report itself. Guard: `tests/test_fragility_append.py`. This series sizes live orders (`daily_scan.fragility_size_mult`) — do not revert to full rewrites; recompute vintages drifted up to ~7 pts on the 63d dial. |
 | `verify_fills.yml` | Weekdays 21:15 UTC | Post-close fill verification — updates Trade_Signals_Log. |
 | `deploy_site.yml` | Reusable workflow (`workflow_call`), invoked by the `deploy-site` job at the tail of `daily_screener.yml` (`needs: run-scanner`) so it runs in the SAME run, right after the scan succeeds — 2x/trading day (after the ~4:47 AM ET dispatch scan and the PM bookend). Replaced the old best-effort `workflow_run` chain, which was silently not firing. A skipped (AM fallback) or failed scan skips the deploy and the prior deploy stays up. `workflow_dispatch` retained for manual rebuilds. | Builds + deploys the private analytics site to Cloudflare Pages (behind Cloudflare Access). Pipeline: R2 caches → `scripts/build_trade_ledger.py` (full-history ledger) → `scripts/build_signal_charts.py --all --upload --skip-existing` (renders only NEW per-trade charts to R2, best effort) → `daily_seasonal_ideas.py` (best effort) → `scripts/build_risk_json.py` (best effort) → `scripts/build_site.py` (JSON payloads + `site/` assets → `dist/`) → wrangler Pages deploy (config-driven via `wrangler.toml`; no positional dir, so the CHARTS R2 binding applies). Needs `CLOUDFLARE_API_TOKEN` + `CLOUDFLARE_ACCOUNT_ID` secrets. One-time setup: `docs/private_site_setup.md`. Operational runbook (failure modes, decisions log,
 trigger chain, out-of-repo file map): `docs/site_runbook.html`. |
@@ -469,7 +469,10 @@ Cloudflare Pages project `seasonals-mslade`, locked behind Cloudflare Access
   (per `Strategy||Tier` daily MTM PnL on the FLAT $750k basis + book totals),
   `positions.json`, `exposure.json`, `correlation.json`, `charts.json`
   (per-trade chart manifest: stable image path + MAE/MFE), plus optional
-  `ideas.json` / `signals.json` (Sheets snapshot) / `risk.json`.
+  `ideas.json` / `signals.json` (Sheets snapshot) / `risk.json` / `fragility.json`
+  (rd2 fragility dial series feeding the portfolio page's interactive sizing
+  adjuster — per-trade what-ifs on dial/MA/threshold/floor/boost; forces the
+  realized-at-exit curve basis while active).
 - **Trade charts** (the `charts.html` gallery): `scripts/build_signal_charts.py`
   renders a candlestick per trade (126 td before signal -> trade -> 63 td after
   exit; white/black candles, green/red volume, Signal/Entry/Exit verticals,

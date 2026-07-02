@@ -25,8 +25,15 @@ const S = {
   nativeBps: new Map(),   // strategy -> median Risk_bps from the ledger
   rangeTouched: false,    // user has interacted with the Range control
   tradeLogTable: null,
+  fragility: null,        // fragility.json payload (dial series, 5d-smoothed basis)
+  // fragility sizing adjuster (off by default = today's exact-curve behavior).
+  // step:  mult = boost below thr, floor at/above thr.
+  // ramp:  live-style — boost at 0 -> 1.0 at thr, then linear down to floor at 100
+  //        (dial 63d / ma 10 / thr 25 / floor 0.10 / boost 1.25 = the live ramp).
+  frag: { dial: "off", ma: 10, thr: 50, floor: 0.5, boost: 1.0, shape: "step" },
 };
 const MID_EXEMPT = new Set(["Overbot Vol Spike"]);
+const FRAG_EXEMPT = MID_EXEMPT;   // live frag mult applies to non-OVS orders only
 
 function isMidYearStr(d) { return d ? (parseInt(d.slice(0, 4), 10) % 4) === 2 : false; }
 
@@ -36,7 +43,58 @@ function tradeMult(t) {
   if (S.midScalar !== 1 && !MID_EXEMPT.has(t.Strategy) && isMidYearStr(t.Entry_Date || t.Signal_Date)) {
     m *= S.midScalar;
   }
+  if (fragActive() && !FRAG_EXEMPT.has(t.Strategy)) m *= fragMultForTrade(t);
   return m;
+}
+
+/* ---- fragility sizing adjuster ---- */
+function fragActive() { return !!(S.fragility && S.frag.dial !== "off"); }
+
+let _fragCache = { key: "", vals: null };
+/* dial series with the trailing MA applied (nulls skipped, live parity:
+   dropna().rolling(ma, min_periods=1).mean()) */
+function fragSeries() {
+  const { dial, ma } = S.frag;
+  const key = dial + "|" + ma;
+  if (_fragCache.key === key) return _fragCache.vals;
+  const raw = S.fragility.dials[dial];
+  if (!raw) return null;
+  const n = raw.length, vals = new Array(n).fill(null);
+  const win = [];
+  let sum = 0;
+  for (let i = 0; i < n; i++) {
+    if (raw[i] != null) {
+      win.push(raw[i]); sum += raw[i];
+      if (win.length > ma) sum -= win.shift();
+    }
+    if (win.length) vals[i] = sum / win.length;
+  }
+  _fragCache = { key, vals };
+  return vals;
+}
+
+/* score as of a signal date: last reading on/before it, none if > 7 days stale */
+function fragScoreFor(dateStr) {
+  const dates = S.fragility.dates;
+  const i = upperBound(dates, dateStr) - 1;
+  if (i < 0) return null;
+  if ((Date.parse(dateStr) - Date.parse(dates[i])) > 7 * 86400e3) return null;
+  const vals = fragSeries();
+  return vals ? vals[i] : null;
+}
+
+function fragMultOf(score) {
+  if (score == null) return 1.0;          // no data -> native size (live parity)
+  const { thr, floor, boost, shape } = S.frag;
+  if (shape === "step") return score >= thr ? floor : boost;
+  // ramp: boost at 0 -> 1.0 at thr, then linear 1.0 -> floor at 100
+  if (score <= thr) return thr > 0 ? boost - (score / thr) * (boost - 1) : boost;
+  return Math.max(floor, 1 - ((score - thr) / (100 - thr)) * (1 - floor));
+}
+
+function fragMultForTrade(t) {
+  const d = t.Signal_Date || t.Entry_Date;
+  return d ? fragMultOf(fragScoreFor(d)) : 1.0;
 }
 // Portfolio-level math runs on the ledger's $750k flat allocation; equity
 // curves and portfolio dollars are DISPLAYED from a $10k start (returns,
@@ -65,13 +123,14 @@ async function init() {
       fetchJSON("data/meta.json"), fetchJSON("data/trades.json")]);
     S.meta = meta;
     S.trades = rowsFromColumnar(trades);
-    const [sd, pos, exp, corr] = await Promise.all([
+    const [sd, pos, exp, corr, frag] = await Promise.all([
       meta.payloads.strategy_daily ? fetchJSONOrNull("data/strategy_daily.json") : null,
       meta.payloads.positions ? fetchJSONOrNull("data/positions.json") : null,
       meta.payloads.exposure ? fetchJSONOrNull("data/exposure.json") : null,
       meta.payloads.correlation ? fetchJSONOrNull("data/correlation.json") : null,
+      meta.payloads.fragility ? fetchJSONOrNull("data/fragility.json") : null,
     ]);
-    S.sd = sd; S.positions = pos; S.exposure = exp; S.corr = corr;
+    S.sd = sd; S.positions = pos; S.exposure = exp; S.corr = corr; S.fragility = frag;
     if (sd) {
       S.dateIdx = sd.dates;
       sd.dates.forEach((d, i) => S.dateToI.set(d, i));
@@ -305,6 +364,79 @@ function buildRiskPanel() {
     tmr = setTimeout(apply, 160);
   });
 
+  // fragility sizing adjuster row
+  const fragRow = document.getElementById("fragRow");
+  let fragEls = null;
+  if (S.fragility) {
+    fragRow.className = "levrow";
+    fragRow.innerHTML = `
+      <label title="Sizes each trade by the risk-dial fragility score on its signal date (10d-MA basis lives in daily_scan). OVS exempt, matching live. Trades before ${S.fragility.dates[0]} keep native size (no score data).">Fragility sizing</label>
+      <span class="seg" id="fragDialSeg"></span>
+      <span class="seg" id="fragShapeSeg"></span>
+      <label>MA</label>
+      <input type="number" id="fragMa" min="1" max="42" step="1" value="10" style="width:52px">
+      <label>Threshold</label>
+      <input type="range" id="fragThr" min="0" max="100" step="1" value="50">
+      <span class="lv" id="fragThrVal">50</span>
+      <label>Floor</label>
+      <input type="range" id="fragFloor" min="0" max="1" step="0.05" value="0.5">
+      <span class="lv" id="fragFloorVal">0.50x</span>
+      <label>Boost</label>
+      <input type="range" id="fragBoost" min="1" max="1.5" step="0.05" value="1">
+      <span class="lv" id="fragBoostVal">1.00x</span>
+      <span class="cap" id="fragInfo"></span>`;
+    const mkSeg = (hostId, values, cur, onpick) => {
+      const seg = fragRow.querySelector(hostId);
+      for (const v of values) {
+        const b = document.createElement("button");
+        b.textContent = v;
+        if (v === cur) b.classList.add("on");
+        b.addEventListener("click", () => {
+          seg.querySelectorAll("button").forEach(x => x.classList.remove("on"));
+          b.classList.add("on");
+          onpick(v);
+          syncRiskUI();
+          apply();
+        });
+        seg.appendChild(b);
+      }
+      return seg;
+    };
+    mkSeg("#fragDialSeg", ["Off", ...Object.keys(S.fragility.dials)], "Off",
+          v => { S.frag.dial = v === "Off" ? "off" : v; });
+    mkSeg("#fragShapeSeg", ["Step", "Ramp"], "Step",
+          v => { S.frag.shape = v.toLowerCase(); });
+    fragEls = {
+      ma: fragRow.querySelector("#fragMa"),
+      thr: fragRow.querySelector("#fragThr"), thrVal: fragRow.querySelector("#fragThrVal"),
+      floor: fragRow.querySelector("#fragFloor"), floorVal: fragRow.querySelector("#fragFloorVal"),
+      boost: fragRow.querySelector("#fragBoost"), boostVal: fragRow.querySelector("#fragBoostVal"),
+      info: fragRow.querySelector("#fragInfo"),
+    };
+    fragEls.ma.addEventListener("change", () => {
+      let v = parseInt(fragEls.ma.value, 10);
+      if (!isFinite(v) || v < 1) v = 1;
+      if (v > 42) v = 42;
+      fragEls.ma.value = v;
+      S.frag.ma = v;
+      syncRiskUI();
+      if (fragActive()) apply();
+    });
+    const wireSlider = (el, valEl, field, fmtV) => {
+      el.addEventListener("input", () => {
+        S.frag[field] = +el.value;
+        valEl.textContent = fmtV(+el.value);
+        syncRiskUI();
+        if (!fragActive()) return;
+        clearTimeout(tmr);
+        tmr = setTimeout(apply, 160);
+      });
+    };
+    wireSlider(fragEls.thr, fragEls.thrVal, "thr", v => String(v));
+    wireSlider(fragEls.floor, fragEls.floorVal, "floor", v => v.toFixed(2) + "x");
+    wireSlider(fragEls.boost, fragEls.boostVal, "boost", v => v.toFixed(2) + "x");
+  }
+
   // per-strategy multiplier grid
   const grid = document.getElementById("multGrid");
   grid.innerHTML = "";
@@ -334,6 +466,18 @@ function buildRiskPanel() {
     S.lev = 1; slider.value = "1"; levVal.textContent = "1.00x";
     S.midScalar = 1; midSlider.value = "1"; midVal.textContent = "1.00x";
     for (const r of rows) { r.inp.value = "1"; S.mult.set(r.name, 1); }
+    if (fragEls) {
+      S.frag = { dial: "off", ma: 10, thr: 50, floor: 0.5, boost: 1.0, shape: "step" };
+      fragEls.ma.value = "10";
+      fragEls.thr.value = "50"; fragEls.thrVal.textContent = "50";
+      fragEls.floor.value = "0.5"; fragEls.floorVal.textContent = "0.50x";
+      fragEls.boost.value = "1"; fragEls.boostVal.textContent = "1.00x";
+      for (const segId of ["#fragDialSeg", "#fragShapeSeg"]) {
+        const seg = fragRow.querySelector(segId);
+        seg.querySelectorAll("button").forEach((b, i) =>
+          b.classList.toggle("on", i === 0));
+      }
+    }
     syncRiskUI();
     apply();
   });
@@ -351,6 +495,35 @@ function buildRiskPanel() {
     if (S.lev !== 1) bits.push(`${S.lev.toFixed(2)}x leverage`);
     if (S.midScalar !== 1) bits.push(`midterm ${S.midScalar.toFixed(2)}x (ex-OVS)`);
     if ([...S.mult.values()].some(v => v !== 1)) bits.push("per-strategy overrides");
+    if (fragActive()) {
+      const f = S.frag;
+      bits.push(`frag ${f.dial}/MA${f.ma} ${f.shape} thr${f.thr} floor${f.floor.toFixed(2)}` +
+                (f.boost !== 1 ? ` boost${f.boost.toFixed(2)}` : ""));
+    }
+    if (fragEls) {
+      if (fragActive()) {
+        const vals = fragSeries();
+        const last = vals ? vals[vals.length - 1] : null;
+        // coverage + average multiplier over the frag-eligible trades
+        let nCov = 0, nAll = 0, mSum = 0, nThrot = 0;
+        for (const t of S.trades) {
+          if (FRAG_EXEMPT.has(t.Strategy)) continue;
+          nAll++;
+          const sc = (t.Signal_Date || t.Entry_Date) ? fragScoreFor(t.Signal_Date || t.Entry_Date) : null;
+          if (sc == null) continue;
+          nCov++;
+          const m = fragMultOf(sc);
+          mSum += m;
+          if (m < 1) nThrot++;
+        }
+        fragEls.info.textContent =
+          `today ${last == null ? "n/a" : last.toFixed(1)} -> ${fragMultOf(last).toFixed(2)}x · ` +
+          `covers ${nCov}/${nAll} non-OVS trades, avg ${nCov ? (mSum / nCov).toFixed(2) : "-"}x, ` +
+          `${nCov ? Math.round(100 * nThrot / nCov) : 0}% throttled`;
+      } else {
+        fragEls.info.textContent = "";
+      }
+    }
     const summary = document.getElementById("riskSummary");
     summary.textContent = bits.length ? `(ACTIVE: ${bits.join(", ")})` : "(all at native risk)";
   }
@@ -382,7 +555,9 @@ function filteredTrades(ignoreDates) {
 }
 
 function curveExact() {
-  return S.sd && S.f.dir === "All" && !tickerTokens();
+  // per-trade fragility multipliers can't be applied to the per-strategy
+  // aggregated daily series -> fall back to the realized step curve
+  return S.sd && S.f.dir === "All" && !tickerTokens() && !fragActive();
 }
 
 /* daily pnl array (risk multipliers + leverage applied) for current filters */
