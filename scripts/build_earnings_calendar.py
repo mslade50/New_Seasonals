@@ -90,13 +90,15 @@ def fetch_ticker(symbol, api_key):
                 data = r.json()
                 if isinstance(data, list):
                     return data
-                # Dict response = error message
-                return []
+                # Dict response = error/quota payload, NOT a legit-empty ticker.
+                # Treat as a hard failure so it is not misread as 'no earnings'.
+                return None
             if r.status_code == 429:
                 wait = 2 ** attempt
                 time.sleep(wait)
                 continue
-            return []
+            # Any other non-200 (5xx, 4xx) is a fetch failure, not empty data.
+            return None
         except requests.exceptions.RequestException:
             if attempt < MAX_RETRIES - 1:
                 time.sleep(2 ** attempt)
@@ -209,6 +211,32 @@ def build_calendar(tickers, api_key, output_path, r2_key="earnings_calendar.parq
     df["last_updated"] = pd.to_datetime(df["last_updated"], errors="coerce")
     df = df.dropna(subset=["date"])
     df = compute_derived_columns(df)
+
+    # Coverage sanity gate: a degraded FMP day (5xx / quota) drops tickers,
+    # which silently disables the OVS earnings blackout for the missing names
+    # (NaN-as-True pass-through downstream). Refuse to overwrite the last good
+    # calendar if this build lost more than COVERAGE_DROP_TOL of the prior
+    # ticker coverage or row count.
+    COVERAGE_DROP_TOL = 0.02
+    new_tickers = df["ticker"].nunique()
+    new_rows = len(df)
+    if os.path.exists(output_path):
+        try:
+            prev = pd.read_parquet(output_path, columns=["ticker"])
+            prev_tickers = prev["ticker"].nunique()
+            prev_rows = len(prev)
+            ticker_floor = prev_tickers * (1 - COVERAGE_DROP_TOL)
+            row_floor = prev_rows * (1 - COVERAGE_DROP_TOL)
+            if new_tickers < ticker_floor or new_rows < row_floor:
+                print(
+                    f"\nABORT: coverage dropped beyond {COVERAGE_DROP_TOL:.0%} tolerance — "
+                    f"tickers {new_tickers} vs prev {prev_tickers}, rows {new_rows:,} vs "
+                    f"prev {prev_rows:,}. Failures={len(failures)}. Keeping last good copy; "
+                    f"not writing or uploading."
+                )
+                return
+        except Exception as _e:
+            print(f"[coverage-check] warn: could not read existing parquet: {_e}")
 
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
     df.to_parquet(output_path, index=False)

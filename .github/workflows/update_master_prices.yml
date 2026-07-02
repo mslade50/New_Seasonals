@@ -13,10 +13,14 @@ concurrency:
 
 on:
   schedule:
-    # 20:30 UTC = 4:30 PM ET — 30 min after close. Lands BEFORE the post-close
-    # daily_screener bookend at 22:00 UTC so overflow sees Friday's actual
-    # close instead of Thursday's stale bar.
-    - cron: '30 20 * * 1-5'
+    # 21:10 UTC — post-close year-round (16:10 PM EST / 17:10 PM EDT). The
+    # old 20:30 UTC slot was 30 min after the EDT close but 30 min BEFORE the
+    # EST close, so every winter weekday this was the one path that appended
+    # yfinance's in-progress 3:30 PM bar as the canonical daily close. 21:10
+    # stays before portfolio_report (21:30) and the daily_screener bookend
+    # (22:00) so ordering is preserved; the 'Determine update args' step below
+    # adds a belt-and-suspenders ET-time guard.
+    - cron: '10 21 * * 1-5'
     # AM fallback: 9:30 UTC (5:30 AM EDT / 4:30 AM EST). Only runs if the
     # local workflow_dispatch at 4:17 AM ET didn't fire today. The `check`
     # job below skips it when a successful workflow_dispatch already
@@ -90,14 +94,14 @@ jobs:
           python -c "from cache_io import download_to_local; download_to_local('master_prices.parquet', 'data/master_prices.parquet')"
 
       - name: Determine update args by trigger
-        # PM cron (20:30 UTC, post-close) pulls everything yfinance has,
-        # including today's close. Everything else (AM workflow_dispatch
+        # PM cron (21:10 UTC, post-close year-round) pulls everything yfinance
+        # has, including today's close. Everything else (AM workflow_dispatch
         # from the local trigger, AM fallback cron, manual dispatch) is
         # pre-market and passes --exclude-today so yfinance's placeholder
         # bar for today is filtered out.
         id: cfg
         run: |
-          if [ "${{ github.event.schedule }}" = "30 20 * * 1-5" ]; then
+          if [ "${{ github.event.schedule }}" = "10 21 * * 1-5" ]; then
             echo "args=" >> "$GITHUB_OUTPUT"
           else
             echo "args=--exclude-today" >> "$GITHUB_OUTPUT"

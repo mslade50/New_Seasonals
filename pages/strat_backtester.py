@@ -1083,17 +1083,21 @@ def precompute_all_indicators(_master_dict, _strategies, _sznl_map, _vix_series,
                         t_df.index, method='ffill'
                     ).fillna(50.0)
 
-            # Merge ATR seasonal ranks onto the processed DataFrame
+            # Merge ATR seasonal ranks onto the processed DataFrame. Leave NaN
+            # (not a neutral 50.0) where a ticker/date has no rank: NaN combines
+            # to False in every atr_sznl comparison, so the filter fails CLOSED
+            # to match daily_scan's live behavior (missing rank -> signal dropped).
+            # Filling 50.0 would pass the filter and book trades live never staged.
             if _atr_sznl_map and t_clean in _atr_sznl_map:
                 atr_ranks = _atr_sznl_map[t_clean]
                 for col in ATR_SZNL_COLS:
                     if col in atr_ranks.columns:
-                        t_df[col] = atr_ranks[col].reindex(t_df.index, method='ffill').fillna(50.0)
+                        t_df[col] = atr_ranks[col].reindex(t_df.index, method='ffill')
                     else:
-                        t_df[col] = 50.0
+                        t_df[col] = np.nan
             else:
                 for col in ATR_SZNL_COLS:
-                    t_df[col] = 50.0
+                    t_df[col] = np.nan
             processed[t_clean] = t_df
 
     if progress is not None:
@@ -1271,8 +1275,10 @@ def process_signals_fast(candidates, signal_data, processed_dict, strategies, st
         _p2_mult = (_p2_bps / _p1_bps) if _p1_bps > 0 else 0.0
         _p2_cap_pct = float(_exe.get('path2_daily_cap_pct', 1.0))
         _p2_cap_dollars = starting_equity * _p2_cap_pct / 100.0 * _ovs_mult
+        _ovs_cyc = _exe.get('cycle_risk_mults') or {}
     else:
         _p1_bps = _p2_bps = _p2_mult = _p2_cap_pct = _p2_cap_dollars = 0.0
+        _ovs_cyc = {}
 
     # Per-strategy daily-cap dollars (used by the OVS P1-budget gate below).
     # Mirrors the post-loop cap that scales each strategy independently.
@@ -1320,7 +1326,13 @@ def process_signals_fast(candidates, signal_data, processed_dict, strategies, st
             if pd.isna(_t1_open) or _t1_open <= _sc:
                 continue  # SKIP — no risk
             _sd = pd.Timestamp(_sig_ts).normalize()
-            _base_risk_p1 = starting_equity * _p1_bps / 10000.0 * _ovs_mult
+            # Fold the per-date cycle-year tilt (e.g. OVS midterm 0.75x) into the
+            # tracked P1 risk exactly as the main sizing loop does (step 3b2), so
+            # the P1-budget gate and P2 pro-rata cap evaluate the risk the engine
+            # actually stages. The gate/cap threshold dollars stay un-tilted, to
+            # match the fixed post-loop daily cap.
+            _cyc_m = float(_ovs_cyc.get(_sd.year % 4, 1.0)) if _ovs_cyc else 1.0
+            _base_risk_p1 = starting_equity * _p1_bps / 10000.0 * _ovs_mult * _cyc_m
             if _t1_open > _sc + 0.25 * _atr:
                 # P1 — track risk for the daily-cap gate, no path-2 contribution.
                 _p1_risk_by_date[_sd] = _p1_risk_by_date.get(_sd, 0.0) + _base_risk_p1
@@ -1655,26 +1667,26 @@ def process_signals_fast(candidates, signal_data, processed_dict, strategies, st
                     if day_open < limit_price:
                         entry_price = day_open
                         entry_date = check_row.name
-                        hold_days = max(1, execution['hold_days'] - (i - signal_idx))
+                        hold_days = max(1, execution['hold_days'] - (i - signal_idx - 1))
                         found_fill = True
                         break
                     elif day_low <= limit_price:
                         entry_price = limit_price
                         entry_date = check_row.name
-                        hold_days = max(1, execution['hold_days'] - (i - signal_idx))
+                        hold_days = max(1, execution['hold_days'] - (i - signal_idx - 1))
                         found_fill = True
                         break
                 else:
                     if day_open > limit_price:
                         entry_price = day_open
                         entry_date = check_row.name
-                        hold_days = max(1, execution['hold_days'] - (i - signal_idx))
+                        hold_days = max(1, execution['hold_days'] - (i - signal_idx - 1))
                         found_fill = True
                         break
                     elif day_high >= limit_price:
                         entry_price = limit_price
                         entry_date = check_row.name
-                        hold_days = max(1, execution['hold_days'] - (i - signal_idx))
+                        hold_days = max(1, execution['hold_days'] - (i - signal_idx - 1))
                         found_fill = True
                         break
             
@@ -1686,7 +1698,14 @@ def process_signals_fast(candidates, signal_data, processed_dict, strategies, st
         # open + offset; long fills only if price drops to open - offset.
         # No fallback to T+1 Open itself — if the limit isn't touched, skip.
         elif is_limit_open_atr:
-            _limit_mult = 0.75 if '0.75' in entry_type else 0.5
+            if '0.25' in entry_type:
+                _limit_mult = 0.25
+            elif '1 ATR' in entry_type or '1.0 ATR' in entry_type:
+                _limit_mult = 1.0
+            elif '0.75' in entry_type:
+                _limit_mult = 0.75
+            else:
+                _limit_mult = 0.5
             limit_offset = _limit_mult * atr
             t1_open = entry_row['Open']
 
@@ -1735,26 +1754,26 @@ def process_signals_fast(candidates, signal_data, processed_dict, strategies, st
                     if day_open < limit_price:
                         entry_price = day_open
                         entry_date = check_row.name
-                        hold_days = max(1, execution['hold_days'] - (i - signal_idx))
+                        hold_days = max(1, execution['hold_days'] - (i - signal_idx - 1))
                         found_fill = True
                         break
                     elif day_low <= limit_price:
                         entry_price = limit_price
                         entry_date = check_row.name
-                        hold_days = max(1, execution['hold_days'] - (i - signal_idx))
+                        hold_days = max(1, execution['hold_days'] - (i - signal_idx - 1))
                         found_fill = True
                         break
                 else:
                     if day_open > limit_price:
                         entry_price = day_open
                         entry_date = check_row.name
-                        hold_days = max(1, execution['hold_days'] - (i - signal_idx))
+                        hold_days = max(1, execution['hold_days'] - (i - signal_idx - 1))
                         found_fill = True
                         break
                     elif day_high >= limit_price:
                         entry_price = limit_price
                         entry_date = check_row.name
-                        hold_days = max(1, execution['hold_days'] - (i - signal_idx))
+                        hold_days = max(1, execution['hold_days'] - (i - signal_idx - 1))
                         found_fill = True
                         break
             
@@ -2223,6 +2242,22 @@ def get_daily_mtm_series(sig_df, master_dict, start_date=None):
             if len(common_idx) > 0:
                 daily_pnl[common_idx] += pnl_contrib[common_idx]
 
+        # Reconcile the exit-day mark to the realized fill. The close-to-close
+        # path above books the last trade day at that day's Close, but the
+        # trade's realized PnL uses the gap-aware stop/target fill (Exit Price).
+        # Add the difference on the last trade day so the daily series sums to
+        # the trade log. Both legs are on the same adjusted-close basis within a
+        # run, so the correction stays scale-invariant.
+        last_date = trade_dates[-1]
+        last_close = trade_closes.get(last_date, np.nan)
+        if (last_date in daily_pnl.index and not pd.isna(last_close)
+                and not pd.isna(_pnl_values[i])):
+            if action == "BUY":
+                curve_pnl = (last_close - entry_price) * shares
+            else:
+                curve_pnl = (entry_price - last_close) * shares
+            daily_pnl[last_date] += float(_pnl_values[i]) - curve_pnl
+
     return daily_pnl
 
 
@@ -2308,7 +2343,11 @@ def calculate_daily_exposure(sig_df, starting_equity=None):
     all_dates = pd.date_range(start=min_date, end=max_date)
     n_days = len(all_dates)
 
-    _dates = pd.to_datetime(sig_df['Date'].values)
+    # Exposure starts when capital is deployed (fill), not at the signal. Every
+    # book strategy enters T+1 or later, so counting from Signal Date overstates
+    # gross on overlap days. Use Entry Date when the caller ships it.
+    _start_col = 'Entry Date' if 'Entry Date' in sig_df.columns else 'Date'
+    _dates = pd.to_datetime(sig_df[_start_col].values)
     _exit_dates = pd.to_datetime(sig_df['Exit Date'].values)
     _prices = sig_df['Price'].values.astype(float)
     _shares_arr = sig_df['Shares'].values.astype(float)

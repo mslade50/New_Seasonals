@@ -11,11 +11,42 @@ on:
     - cron: "25 22 * * 1-5"
   workflow_dispatch:
 
+permissions:
+  actions: read
+
 jobs:
   score:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
+      - name: Wait for today's PM screener to finish staging
+        # The 22:00 UTC daily_screener PM run clears+rewrites Order_Staging/Overflow.
+        # Score only AFTER a screener run has SUCCEEDED inside today's PM window, else
+        # we'd read yesterday's rows (or catch the clear-rewrite window and score an
+        # empty tab). GHA cron queue lag (1-3h in this repo) can push the screener
+        # late, so poll up to ~50 min, then fail loudly instead of scoring stale tabs.
+        if: github.event_name == 'schedule'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TODAY=$(date -u +%Y-%m-%d)
+          for attempt in $(seq 1 11); do
+            COUNT=$(gh run list \
+              --workflow=daily_screener.yml \
+              --status=success \
+              --created="${TODAY}T21:55Z..${TODAY}T23:59Z" \
+              --repo "${{ github.repository }}" \
+              --json databaseId --jq 'length')
+            if [ "$COUNT" -gt 0 ]; then
+              echo "PM screener run found for $TODAY ($COUNT). Proceeding."
+              exit 0
+            fi
+            echo "No successful PM screener run yet for $TODAY (attempt $attempt/11); waiting 5 min."
+            sleep 300
+          done
+          echo "::error::PM daily_screener has not completed for $TODAY; refusing to score stale tabs."
+          exit 1
 
       - uses: actions/setup-python@v5
         with:
@@ -44,6 +75,23 @@ jobs:
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
           R2_BUCKET: ${{ secrets.R2_BUCKET }}
         run: python -m ml.score_daily --source sheets --sheets-out
+
+      - name: Surface scoring failures
+        # ml.score_daily is fail-safe (always exits 0) and its exception path never
+        # rewrites the ML_Scores tab, so a scoring error silently leaves yesterday's
+        # SKIP/TRIM rows live against today's book. Turn the run red when the score
+        # file degraded to the model_unavailable pass-through so it is not dismissed.
+        run: |
+          latest=$(ls -1t data/ml/scores/ml_scores_*.csv 2>/dev/null | head -n1)
+          if [ -z "$latest" ]; then
+            echo "::error::no ml score file was produced"
+            exit 1
+          fi
+          if grep -q "model_unavailable" "$latest"; then
+            echo "::error::scoring degraded to pass-through (model_unavailable); ML_Scores tab may be stale"
+            exit 1
+          fi
+          echo "scores OK: $latest"
 
       - name: Upload scores artifact
         uses: actions/upload-artifact@v4

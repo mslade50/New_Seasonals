@@ -138,7 +138,7 @@ def compute_all_signals(spy_df, closes, sp500_closes):
         'Pre-FOMC Rally': fomc,
         'Low Absorption Ratio': ar,
         'Seasonal Rank Divergence': srd,
-        'Dispersion Signal': disp,
+        'Dispersion': disp,
     }
 
     price_ctx = compute_price_context(spy_close)

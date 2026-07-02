@@ -10,8 +10,12 @@
  *   EXEC_BROKER_URL  e.g. https://execution-broker.<subdomain>.workers.dev
  *   STATUS_TOKEN     matches the Worker's STATUS_TOKEN secret
  */
-export async function onRequestGet({ env }) {
+import { requireAccess } from "./_access.js";
+
+export async function onRequestGet({ request, env }) {
   const headers = { "Content-Type": "application/json", "Cache-Control": "no-store" };
+  const denied = await requireAccess(request, env);
+  if (denied) return denied;
   const base = env.EXEC_BROKER_URL;
   if (!base) {
     return new Response(JSON.stringify({ online: false, configured: false }), { headers });

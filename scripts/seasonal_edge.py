@@ -830,7 +830,8 @@ def scan_seasonal_tickets(universe, asof, channel, *, min_rr: float = 2.0,
                           ranks: pd.DataFrame | None = None,
                           horizons=(5, 10, 21), short_thr: float = 15,
                           long_thr: float = 85, min_dollar_vol: float = 5e6,
-                          cycle_blend: float = 0.75, min_all_hit: float = 0.667) -> list:
+                          cycle_blend: float = 0.75, min_all_hit: float = 0.667,
+                          max_rank_age_days: int = 10) -> list:
     """Scan `universe` across `horizons`; emit swing tickets (R/R >= min_rr).
 
     Horizon selection: a name can yield up to TWO tickets - one tactical (<=21d)
@@ -841,7 +842,25 @@ def scan_seasonal_tickets(universe, asof, channel, *, min_rr: float = 2.0,
     small to clear the R/R bar at any horizon are dropped."""
     asof = pd.Timestamp(asof).normalize()
     cs = seasonal_cross_section(asof=asof, ranks=ranks)
-    names = [t for t in universe if t in cs.index]
+    # Staleness gate: seasonal_cross_section carries each ticker's last-known row
+    # forward with no age limit, so past the parquet's build horizon (e.g. the
+    # first asof in a year the ranks were never rebuilt for) a wrong-window rank
+    # would mint a phantom signal. Drop names whose rank row is older than
+    # max_rank_age_days calendar days from asof; a fully stale cross-section
+    # (year-rollover) then yields no tickets and prints a loud warning.
+    if not cs.empty:
+        age_days = (asof - cs["Date"]).dt.days
+        fresh = set(cs.index[age_days <= max_rank_age_days])
+        n_stale = len(cs.index) - len(fresh)
+        if n_stale:
+            newest = cs["Date"].max()
+            print(f"[seasonal] WARNING: dropped {n_stale} names with stale ranks "
+                  f">{max_rank_age_days}d before asof {asof.date()} "
+                  f"(newest rank date {newest.date() if pd.notna(newest) else 'n/a'}); "
+                  f"rebuild atr_seasonal_ranks for the current year.")
+        names = [t for t in universe if t in fresh]
+    else:
+        names = []
     prices = load_prices(names)
     out = []
     for t in names:

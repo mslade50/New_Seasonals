@@ -94,6 +94,27 @@ def get_google_client():
 # STRATEGY LOOKUP — Used for signals that predate the Entry_Type_Short column
 # =============================================================================
 
+def parse_atr_offset(entry_type: str, default: float = 0.25) -> float:
+    """ATR-offset multiplier from a strategy's RAW entry_type string.
+
+    Mirrors daily_scan.save_staging_orders exactly — ordered so '0.75'/'0.25'
+    are matched before the '0.5'/'1 ATR' fallbacks (a naive "'0.5' in s" test
+    misfires on '0.75'). NEVER pass a formatted price label here: a persistent
+    limit's "LMT $30.55 GTC" would spuriously match '0.5'. Use the raw
+    entry_type ("Limit (Open +/- 0.75 ATR)"), not Entry_Type_Short.
+    """
+    s = str(entry_type)
+    if '0.75' in s:
+        return 0.75
+    if '0.25' in s:
+        return 0.25
+    if '0.5' in s:
+        return 0.5
+    if '1 ATR' in s:
+        return 1.0
+    return default
+
+
 def build_strategy_map() -> dict:
     """
     Build lookup: Strategy_ID -> order classification details.
@@ -115,8 +136,7 @@ def build_strategy_map() -> dict:
             else:
                 order_class = 'REL_OPEN'
                 tif = 'DAY'
-            if '0.5' in entry_type:
-                offset = 0.5
+            offset = parse_atr_offset(entry_type)
         elif 'LOC' in entry_type:
             order_class = 'LOC'
         elif 'T+1 Open' in entry_type:
@@ -144,6 +164,21 @@ def classify_order(row, strategy_map: dict) -> tuple:
     Returns:
         (order_class, offset, tif) — e.g. ('REL_OPEN', 0.25, 'DAY')
     """
+    # Offset source of truth: the RAW entry_type stamped by daily_scan, parsed
+    # the same ordered way ('0.75'→'0.25'→'0.5'→'1 ATR'). Falls back to the
+    # strategy-config offset. NEVER inferred from Entry_Type_Short, whose
+    # persistent form ("LMT $102.31 GTC") carries a price, not the offset.
+    strat_id = str(row.get('Strategy_ID', '')).strip()
+    strat_info = strategy_map.get(strat_id)
+    entry_type_raw = str(row.get('Entry_Type', '')).strip()
+
+    def _offset() -> float:
+        if entry_type_raw and 'ATR' in entry_type_raw:
+            return parse_atr_offset(entry_type_raw)
+        if strat_info:
+            return strat_info['offset']
+        return 0.25
+
     # --- Priority 1: Entry_Type_Short column (present if daily_scan preserves it) ---
     ets = str(row.get('Entry_Type_Short', '')).strip()
     if ets and ets not in ('', 'nan', 'None'):
@@ -154,21 +189,18 @@ def classify_order(row, strategy_map: dict) -> tuple:
             return 'MOO', 0.0, 'OPG'
         elif 'PERS' in ets_upper or 'REL_CLOSE' in ets_upper or 'GTC' in ets_upper:
             # Persistent ATR Limit → anchored to signal close, GTC
-            offset = 0.5 if '0.5' in ets else 0.25
-            return 'REL_CLOSE', offset, 'GTC'
-        elif 'REL_OPEN' in ets_upper or 'ATR LMT' in ets_upper:
-            offset = 0.5 if '0.5' in ets else 0.25
-            return 'REL_OPEN', offset, 'DAY'
+            return 'REL_CLOSE', _offset(), 'GTC'
+        elif ('REL_OPEN' in ets_upper or 'ATR LMT' in ets_upper
+              or ('OPEN' in ets_upper and 'ATR' in ets_upper)):
+            return 'REL_OPEN', _offset(), 'DAY'
         elif 'LOC' in ets_upper:
             return 'LOC', 0.0, 'DAY'
         elif 'LMT' in ets_upper:
             return 'LMT', 0.0, 'DAY'
 
     # --- Priority 2: Strategy config lookup ---
-    strat_id = str(row.get('Strategy_ID', '')).strip()
-    if strat_id in strategy_map:
-        info = strategy_map[strat_id]
-        return info['order_class'], info['offset'], info['tif']
+    if strat_info:
+        return strat_info['order_class'], strat_info['offset'], strat_info['tif']
 
     return 'UNKNOWN', 0.0, 'DAY'
 
@@ -247,7 +279,8 @@ def fetch_price_data(tickers: list, start_date, end_date) -> dict:
 
 def check_fill(order_class: str, action: str, signal_close: float, atr: float,
                offset: float, limit_price_override: float,
-               ticker_prices: pd.DataFrame, signal_date, exit_date, tif: str) -> tuple:
+               ticker_prices: pd.DataFrame, signal_date, exit_date, tif: str,
+               fill_window: int = 0) -> tuple:
     """
     Core fill-check logic for a single signal.
     
@@ -290,6 +323,16 @@ def check_fill(order_class: str, action: str, signal_close: float, atr: float,
 
     if tif == 'GTC' and exit_dt:
         last_check = exit_dt
+        # Live cancels a persistent GTC entry after fill_window trading days
+        # (OLV T+3, 2026-06-24) — well before the full-hold Time Exit. A fill
+        # after that window would be phantom (the live order no longer exists),
+        # so clamp the search. fill_window defaults to hold_days upstream, so
+        # non-OLV strategies keep the full window. Uses the same TRADING_DAY
+        # calendar daily_scan / order_staging use to back-compute the expiry.
+        if fill_window and fill_window > 0:
+            fw_last = signal_dt + fill_window * TRADING_DAY
+            if fw_last < last_check:
+                last_check = fw_last
     else:
         last_check = t1  # DAY: only check T+1
 
@@ -472,6 +515,18 @@ def run_fill_verification():
             except ValueError:
                 limit_px = None
 
+        # Entry-order live window (OLV T+3): bounds the GTC fill search below so
+        # a fill after the live order was cancelled is not marked FILLED. Absent
+        # / invalid → 0 → check_fill keeps the full-hold window (all other GTC
+        # strategies default fill_window_days to hold_days upstream).
+        fill_window = 0
+        fw_str = str(row.get('Fill_Window_Days', '')).strip()
+        if fw_str not in ('', 'nan', 'None'):
+            try:
+                fill_window = int(float(fw_str))
+            except ValueError:
+                fill_window = 0
+
         if signal_date is None:
             df.at[idx, 'Fill_Status'] = 'MANUAL_REVIEW'
             status_summary['MANUAL_REVIEW'] += 1
@@ -491,6 +546,7 @@ def run_fill_verification():
             signal_date=signal_date,
             exit_date=exit_date,
             tif=tif,
+            fill_window=fill_window,
         )
 
         df.at[idx, 'Fill_Status'] = status

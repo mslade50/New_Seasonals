@@ -692,13 +692,17 @@ def compute_fomc_signal(spy_close: pd.Series) -> dict:
     else:
         summary = "No upcoming FOMC dates in calendar"
 
-    # Build boolean signal_history from point events
-    # Each FOMC signal fire covers the ~5 trading days leading up to the FOMC date
+    # Build boolean signal_history point-in-time within each pre-FOMC window.
+    # A day fires only if ITS OWN trailing-5d return percentile already cleared
+    # the threshold as of that day (the same test the live path applies to
+    # 'today'). Backfilling every window day from the FOMC-date reading would
+    # leak the return path through the meeting into days before it was
+    # measurable, inflating the reconstructed 5d/21d fragility on those days.
     signal_history = pd.Series(False, index=spy_close.index)
-    for sd in signal_dates:
-        # Mark the 5 trading days up to and including the signal date
-        mask = (spy_close.index <= sd) & (spy_close.index >= sd - pd.Timedelta(days=8))
-        signal_history.loc[mask] = True
+    fires = (pre_pctile > pctile_threshold).reindex(spy_close.index, fill_value=False)
+    for fomc_date in FOMC_DATES:
+        in_window = (spy_close.index <= fomc_date) & (spy_close.index >= fomc_date - pd.Timedelta(days=8))
+        signal_history.loc[in_window & fires.to_numpy()] = True
 
     return {
         'on': signal_on,
@@ -1266,6 +1270,17 @@ def save_current_signal_state(signal_states: dict):
             json.dump(signal_states, f)
     except Exception:
         pass
+
+
+def stored_signal_state_date() -> str:
+    """Raw stored date of the signal-state cache (unfiltered by same-day gate)."""
+    try:
+        if os.path.exists(SIGNAL_CACHE_PATH):
+            with open(SIGNAL_CACHE_PATH, 'r') as f:
+                return json.load(f).get('date', '')
+    except Exception:
+        pass
+    return ''
 
 
 def save_signal_fire_history(signals_ordered: dict, spy_close: pd.Series):
@@ -3659,11 +3674,30 @@ def main():
     vix_close = computed['vix_close']
     spy_close = computed['spy_close']
 
-    # --- Signal state persistence (still needed for dial computation) ---
+    # --- Signal state persistence + "What Changed" diff ---
+    # Diff against yesterday's stored state BEFORE overwriting the cache, and
+    # only persist once per calendar day: load_previous_signal_state returns {}
+    # for same-day reads, so saving on every rerun would erase the baseline and
+    # flag every active signal as newly activated. Stash the diff in
+    # session_state so it survives the reruns that follow the same-day save.
     prev_state = load_previous_signal_state()
     current_state = {'signals': signals_bool}
-    save_current_signal_state(current_state)
+    if prev_state:
+        st.session_state['signal_changes'] = compute_changes(current_state, prev_state)
+    if stored_signal_state_date() != datetime.datetime.now().strftime('%Y-%m-%d'):
+        save_current_signal_state(current_state)
     save_signal_fire_history(signals_ordered, spy_close)
+
+    signal_changes = st.session_state.get('signal_changes', [])
+    if signal_changes:
+        st.markdown(
+            "<div style='background: rgba(255,255,255,0.03); border: 1px solid "
+            "rgba(255,255,255,0.08); padding: 8px 14px; border-radius: 6px; "
+            "margin-bottom: 10px; font-size: 13px; color: #bbb;'>"
+            "<strong>What changed since last session:</strong> "
+            + " &nbsp;|&nbsp; ".join(signal_changes) + "</div>",
+            unsafe_allow_html=True,
+        )
 
     # -------------------------------------------------------------------
     # RISK DIALS

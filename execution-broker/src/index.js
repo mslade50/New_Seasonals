@@ -30,6 +30,20 @@ export class ExecBroker extends DurableObject {
     return (request.headers.get("Authorization") || "") === `Bearer ${token}`;
   }
 
+  // Newest socket = most recently accepted or heartbeated (attachment stamps).
+  // With >1 socket connected (zombie left by a restart/reconnect), commands go
+  // to this one only — never fanned out — so a stale socket can't double-execute.
+  _newestSocket(sockets) {
+    let best = sockets[0], bestAt = -1;
+    for (const s of sockets) {
+      let att;
+      try { att = s.deserializeAttachment() || {}; } catch { att = {}; }
+      const at = Math.max(att.lastSeenAt || 0, att.connectedAt || 0);
+      if (at > bestAt) { bestAt = at; best = s; }
+    }
+    return best;
+  }
+
   async fetch(request) {
     const url = new URL(request.url);
 
@@ -71,14 +85,24 @@ export class ExecBroker extends DurableObject {
       if (!signed || !sig) return Response.json({ ok: false, error: "missing signed/sig" }, { status: 400 });
       let cmd;
       try { cmd = JSON.parse(signed); } catch { return Response.json({ ok: false, error: "bad signed payload" }, { status: 400 }); }
+      // Idempotency: an id already in the ring is a resubmit of the same intent
+      // (retry after a client-side timeout/error) — do NOT push it to the agent
+      // again; return the existing record so the client can display it.
+      const recent = (await this.ctx.storage.get("recent_commands")) || [];
+      const existing = recent.find((r) => r.id === cmd.id);
+      if (existing) {
+        return Response.json({ ok: true, deduped: true, id: cmd.id, state: existing.state, command: existing });
+      }
       const sockets = this.ctx.getWebSockets();
       if (!sockets.length) return Response.json({ ok: false, error: "agent offline" }, { status: 503 });
-      // record + push to the agent (it verifies the sig and dry-run validates)
-      const recent = (await this.ctx.storage.get("recent_commands")) || [];
-      recent.unshift({ id: cmd.id, type: cmd.type, account: cmd.account, dry_run: cmd.dry_run !== false,
-                       state: "pushed", created_at: Date.now(), result: null });
+      // record + push to the NEWEST agent socket only (it verifies the sig and
+      // validates); >1 connected socket is an anomaly worth keeping in the audit trail
+      const record = { id: cmd.id, type: cmd.type, account: cmd.account, dry_run: cmd.dry_run !== false,
+                       state: "pushed", created_at: Date.now(), result: null };
+      if (sockets.length > 1) record.sockets_at_delivery = sockets.length;
+      recent.unshift(record);
       await this.ctx.storage.put("recent_commands", recent.slice(0, CMD_CAP));
-      for (const s of sockets) s.send(JSON.stringify({ type: "command", signed, sig }));
+      this._newestSocket(sockets).send(JSON.stringify({ type: "command", signed, sig }));
       return Response.json({ ok: true, id: cmd.id, state: "pushed" });
     }
 
@@ -168,6 +192,9 @@ export class ExecBroker extends DurableObject {
 
     if (msg.type === "hello" || msg.type === "heartbeat") {
       await this.ctx.storage.put("last_seen", Date.now());
+      // stamp the socket so _newestSocket can prefer the live one over a zombie
+      try { ws.serializeAttachment({ ...(ws.deserializeAttachment() || {}), lastSeenAt: Date.now() }); }
+      catch (_) { /* best effort — connectedAt still breaks the tie */ }
       ws.send(JSON.stringify({ type: "ack", of: msg.type, server_now: Date.now() }));
       return;
     }

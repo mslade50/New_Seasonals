@@ -68,13 +68,24 @@ from pages.strat_backtester import (
 # the report identical to today's behavior until the universe is bootstrapped.
 _static_overflow = sorted(set(CSV_UNIVERSE) - set(LIQUID_PLUS_COMMODITIES))
 try:
-    from overflow_universe import load_overflow_universe_full
+    from overflow_universe import (
+        load_overflow_universe_full, load_overflow_meta,
+        filter_by_addv, adv_share_cap, ADV_PARTICIPATION_CAP,
+    )
     # Comprehensive overflow = dynamic screen ∪ static tier. respect_active=True so
     # the report stays on the static tier until OVERFLOW_UNIVERSE_ACTIVE is set, then
     # matches the live scan's full union.
     OVERFLOW_TICKERS = load_overflow_universe_full(static_fallback=_static_overflow, respect_active=True)
 except ImportError:
     OVERFLOW_TICKERS = _static_overflow
+    # Fallbacks mirror daily_scan's stubs → ADDV floor + ADV cap become no-ops.
+    def load_overflow_meta(**_kw):
+        return {}
+    def filter_by_addv(tickers, strategy_name, meta):
+        return list(tickers)
+    def adv_share_cap(addv_63d, entry_price, participation=0.02):
+        return None
+    ADV_PARTICIPATION_CAP = 0.02
 
 # Strategies that the local overflow scanner runs against the extended pool.
 # Per-strategy risk bps overrides for the overflow pass — match
@@ -105,12 +116,16 @@ def build_full_strategy_book():
     per-strategy risk_bps overrides where defined. Names kept identical so
     the report's per-strategy stats aggregate liquid + overflow trades.
     """
+    # Per-strategy ADDV floor (R-T3) — mirror daily_scan so the report's overflow
+    # universe matches what live actually scans. No-op when meta is {} (gate OFF /
+    # no parquet), so behavior is unchanged until OVERFLOW_UNIVERSE_ACTIVE is set.
+    of_meta = load_overflow_meta()
     book = list(STRATEGY_BOOK)
     for s in STRATEGY_BOOK:
         if s['name'] not in OVERFLOW_ELIGIBLE:
             continue
         of_strat = copy.deepcopy(s)
-        of_strat['universe_tickers'] = OVERFLOW_TICKERS
+        of_strat['universe_tickers'] = filter_by_addv(OVERFLOW_TICKERS, s['name'], of_meta)
         if s['name'] in OVERFLOW_RISK_OVERRIDES:
             of_strat['execution']['risk_bps'] = OVERFLOW_RISK_OVERRIDES[s['name']] * GLOBAL_RISK_MULTIPLIER
         book.append(of_strat)
@@ -300,7 +315,33 @@ def run_12month_backtest(starting_equity=None):
     if sig_df.empty:
         print("⚠️ No valid trades executed")
         return sig_df, pd.Series(dtype=float), pd.Series(dtype=float), master_dict, starting_equity
-    
+
+    # 8b. Overflow ADV participation cap (R-T3). process_signals_fast has no ADV
+    #     cap, so mirror daily_scan's sizing-time guard here: never let an
+    #     overflow-source position exceed ADV_PARTICIPATION_CAP × 63d ADDV in
+    #     notional. Post-scales Shares / PnL / Risk $ proportionally (Shares are
+    #     additive on the flat basis, so scaling the realized dollars is exact).
+    #     No-op when meta is {} (gate OFF) — behavior unchanged until activation.
+    of_meta = load_overflow_meta()
+    if of_meta:
+        of_set = {str(t).upper().replace('.', '-') for t in OVERFLOW_TICKERS}
+        for _i in sig_df.index:
+            if sig_df.at[_i, 'Strategy'] not in OVERFLOW_ELIGIBLE:
+                continue
+            _tk = str(sig_df.at[_i, 'Ticker']).upper().replace('.', '-')
+            if _tk not in of_set:
+                continue
+            _info = of_meta.get(_tk)
+            if not _info:
+                continue
+            _shares = sig_df.at[_i, 'Shares']
+            _cap = adv_share_cap(_info.get('addv_63d'), sig_df.at[_i, 'Price'], ADV_PARTICIPATION_CAP)
+            if _cap is not None and 0 < _cap < _shares:
+                _scale = _cap / _shares
+                sig_df.at[_i, 'Shares'] = int(_cap)
+                sig_df.at[_i, 'PnL'] = round(sig_df.at[_i, 'PnL'] * _scale)
+                sig_df.at[_i, 'Risk $'] = sig_df.at[_i, 'Risk $'] * _scale
+
     # 7. Calculate equity curve (only for backtest period)
     # Back into starting equity so that today's equity = ACCOUNT_VALUE
     print("   Calculating equity curve...")

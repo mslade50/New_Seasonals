@@ -232,6 +232,7 @@ _STRATEGY_BOOK_RAW = [
             "stop_atr": 2.0,
             "tgt_atr": 8.0,
             "hold_days": 63,
+            "fill_window_days": 10,
             "use_stop_loss": True,
             "use_take_profit": True
         },
@@ -1133,6 +1134,7 @@ _STRATEGY_BOOK_RAW = [
             "stop_atr": 1.0,
             "tgt_atr": 8.0,
             "hold_days": 63,
+            "fill_window_days": 10,
             "use_stop_loss": True,
             "use_take_profit": True,
             "use_trailing_stop": False,

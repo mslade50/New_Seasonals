@@ -39,5 +39,23 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add data/rd2_fragility.parquet data/rd2_environment.json
-          git diff --cached --quiet || git commit -m "Detailed Update: $(date -u +'%Y-%m-%d %H:%M UTC')"
-          git push
+          if git diff --cached --quiet; then
+            echo "No fragility change to commit."
+          else
+            git commit -m "Detailed Update: $(date -u +'%Y-%m-%d %H:%M UTC')"
+            # This push races the 21:32 UTC CBOE commit. A bare push loses to a
+            # non-fast-forward and silently strands rd2_fragility.parquet at
+            # yesterday's values, which daily_scan reads to size every order.
+            # Rebase, verify the push landed, and fail the job loudly if it did not.
+            pushed=false
+            for attempt in 1 2 3; do
+              git pull --rebase origin main || true
+              if git push; then pushed=true; break; fi
+              echo "push attempt $attempt rejected; re-rebasing and retrying."
+              sleep 5
+            done
+            if [ "$pushed" != true ]; then
+              echo "::error::failed to push rd2_fragility.parquet after 3 attempts — live sizing would read stale fragility"
+              exit 1
+            fi
+          fi

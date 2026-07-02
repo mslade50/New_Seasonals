@@ -44,6 +44,22 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add data/cboe_putcall.parquet
-          git diff --cached --quiet || git commit -m "data: CBOE put/call refresh $(date -u +'%Y-%m-%d')"
-          git pull --rebase origin main || true
-          git push || true
+          if git diff --cached --quiet; then
+            echo "No CBOE put/call change to commit."
+          else
+            git commit -m "data: CBOE put/call refresh $(date -u +'%Y-%m-%d')"
+            # Rebase, verify the push landed, and fail loudly if it did not so a
+            # lost push (racing the other 21:30 UTC bot commits) is visible rather
+            # than silently swallowed by `|| true`.
+            pushed=false
+            for attempt in 1 2 3; do
+              git pull --rebase origin main || true
+              if git push; then pushed=true; break; fi
+              echo "push attempt $attempt rejected; re-rebasing and retrying."
+              sleep 5
+            done
+            if [ "$pushed" != true ]; then
+              echo "::error::failed to push cboe_putcall.parquet after 3 attempts"
+              exit 1
+            fi
+          fi

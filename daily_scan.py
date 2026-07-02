@@ -675,6 +675,43 @@ def load_seasonal_map(csv_path="sznl_ranks.csv"):
 
 ETF_ATR_EXEMPT = {'SPY', 'QQQ', 'IWM', 'DIA'}
 
+# Trading-day staleness bound for the fragility cache (data/rd2_fragility.parquet).
+# The producer (risk_report.yml → daily_risk_report.py) writes it every weekday
+# post-close; a value older than this many trading days means the producer is
+# broken / missed runs, so we must NOT trade through it. Sizing falls back to
+# 1.0x and the dial-filter gate fails closed. Tolerates a long weekend + one
+# missed run without over-triggering.
+FRAG_STALE_TD = 3
+
+# Fragility sizing schedule (from the Fragility Sizing Lab optimization).
+# Live non-OVS orders are scaled by fragility_size_mult(frag_score): a linear
+# ramp that boosts size in calm regimes and throttles it in fragile ones.
+FRAG_THRESHOLD = 25    # ramp neutral zone (mult == 1.0 exactly here)
+FRAG_MAX_MULT = 1.25   # boost at frag=0
+FRAG_MIN_MULT = 0.10   # floor at frag=100
+
+
+def fragility_size_mult(frag_score):
+    """Per-order sizing multiplier for a 10d-MA 63d fragility score.
+
+    Single source of truth for the live sizing ramp. NOTE: the historical
+    engine (pages/strat_backtester.process_signals_fast) does NOT replay this
+    multiplier, so the report / ledger model un-adjusted sizes — a known
+    live-vs-model divergence (finding #26). Exposed as a shared helper so a
+    future point-in-time replay can reuse the exact ramp without duplicating it.
+    """
+    if frag_score is None:
+        return 1.0
+    if frag_score <= FRAG_THRESHOLD:
+        if FRAG_THRESHOLD > 0:
+            return FRAG_MAX_MULT - (frag_score / FRAG_THRESHOLD) * (FRAG_MAX_MULT - 1.0)
+        return FRAG_MAX_MULT
+    return max(
+        FRAG_MIN_MULT,
+        1.0 - ((frag_score - FRAG_THRESHOLD) / (100 - FRAG_THRESHOLD)) * (1 - FRAG_MIN_MULT),
+    )
+
+
 _FRAG_DF_CACHE = {}  # key='loaded' → DataFrame or None
 def _get_fragility_df_cached():
     """Load data/rd2_fragility.parquet once per process. Returns None if missing."""
@@ -1075,6 +1112,16 @@ def check_signal(df, params, sznl_map, ticker=None):
             signal_date = pd.Timestamp(signal_date).normalize().tz_localize(None)
         except (TypeError, AttributeError):
             signal_date = pd.Timestamp(signal_date).normalize()
+        # Fail closed if the fragility cache is stale relative to the signal
+        # date (producer broken / missed run) — matches the "fails closed if
+        # missing/stale" contract above, which ffill alone would silently
+        # violate by carrying a weeks-old reading forward.
+        _last_frag = pd.Timestamp(frag_df.index[-1]).normalize()
+        try:
+            if np.busday_count(_last_frag.date(), signal_date.date()) > FRAG_STALE_TD:
+                return False
+        except (ValueError, AttributeError):
+            return False
         for df_filter in dial_filters:
             dial_col = df_filter.get('dial')
             if dial_col not in frag_df.columns:
@@ -1404,10 +1451,10 @@ def save_staging_orders(signals_list, strategy_book, sheet_name='Order_Staging',
                 strat['settings'].get('t1_gap_kill_dir', 'up')
                 if strat['settings'].get('use_t1_gap_kill') else ''
             ),
-            # Tier this signal's universe sits in. order_staging used to read
-            # this from the (now retired) Scan_Source column on the Overflow
-            # tab — post-merge we stage everything to Order_Staging and the
-            # field travels with the row.
+            # Tier this signal's universe sits in. save_staging_orders routes by
+            # tier — Liquid rows → Order_Staging, Overflow rows → the Overflow tab
+            # — and this field travels with the row so order_staging can tell the
+            # tiers apart after it concatenates both tabs.
             "Scan_Source": str(row.get('Scan_Source', 'Liquid')),
             # Live filter readings at signal time (desc, value) — same data the
             # scan email shows. Display-only: the private site's signal cards
@@ -2055,15 +2102,17 @@ def run_daily_scan(scope='liquid', moc_only=False, dry_run=False):
     if is_intraday_partial:
         print(f"🕐 Intraday partial-bar window — LT Trend ST OS will use vol_thresh 1.0× (else 1.25×)")
 
-    # 3c. Morning-run-only: read pre-existing overflow OVS quantities from
-    # the Order_Staging tab (filtered by Scan_Source='Overflow'). When the
-    # liquid scan fires Overbot Vol Spike signals in the 5 AM run, any ticker
-    # that already has an Overflow OVS row from yesterday's scope=overflow run
-    # gets its daily_scan shares CAPPED to that quantity — avoids doubling
-    # exposure when the same ticker fires in both tiers.
+    # 3c. Morning-run-only: read pre-existing overflow OVS quantities from the
+    # 'Overflow' tab. When the liquid scan fires Overbot Vol Spike signals in the
+    # 5 AM run, any ticker that already has an Overflow OVS row from yesterday's
+    # scope=overflow run gets its daily_scan shares CAPPED to that quantity —
+    # avoids doubling exposure when the same ticker fires in both tiers.
     # User-acknowledged: this may cross the aggregate bps risk threshold.
-    # (Pre-merge this read targeted a separate "Overflow" tab; that tab is
-    # retired as of the daily_scan + local_overflow_scan merge.)
+    # Must read 'Overflow' (not 'Order_Staging'): save_staging_orders routes
+    # Scan_Source='Overflow' rows to the Overflow tab (tier_filter), so
+    # Order_Staging only ever holds Liquid rows — the old read there was inert.
+    # No-op today because the tiers are disjoint (static overflow = CSV − liquid),
+    # but the control now fires correctly if a name ever lands in both.
     overflow_ovs_quantities = {}
     if is_morning_run and scope in ('liquid', 'all'):
         try:
@@ -2071,12 +2120,10 @@ def run_daily_scan(scope='liquid', moc_only=False, dry_run=False):
             if _gc:
                 _sh = _gc.open("Trade_Signals_Log")
                 try:
-                    _ws = _sh.worksheet("Order_Staging")
+                    _ws = _sh.worksheet("Overflow")
                     _rows = _ws.get_all_records()
                     for _r in _rows:
                         if str(_r.get('Strategy_Ref', '')).strip() != "Overbot Vol Spike":
-                            continue
-                        if str(_r.get('Scan_Source', 'Liquid')).strip() != 'Overflow':
                             continue
                         _tkr = str(_r.get('Symbol', '')).strip().upper()
                         try:
@@ -2087,11 +2134,11 @@ def run_daily_scan(scope='liquid', moc_only=False, dry_run=False):
                             # Multiple rows for same ticker → keep max (conservative cap)
                             overflow_ovs_quantities[_tkr] = max(overflow_ovs_quantities.get(_tkr, 0), _qty)
                     if overflow_ovs_quantities:
-                        print(f"📋 Morning run: {len(overflow_ovs_quantities)} Overflow OVS tickers in Order_Staging — liquid OVS shares will cap to match")
+                        print(f"📋 Morning run: {len(overflow_ovs_quantities)} Overflow OVS tickers in Overflow tab — liquid OVS shares will cap to match")
                 except Exception as _e:
-                    print(f"ℹ️ No Order_Staging rows to read for OVS size match (or empty): {_e}")
+                    print(f"ℹ️ No Overflow rows to read for OVS size match (or empty): {_e}")
         except Exception as e:
-            print(f"⚠️ Could not read Order_Staging for OVS size match: {e}")
+            print(f"⚠️ Could not read Overflow tab for OVS size match: {e}")
 
     validated_dict = {}
     for ticker, df in master_dict.items():
@@ -2121,12 +2168,7 @@ def run_daily_scan(scope='liquid', moc_only=False, dry_run=False):
     FRAG_CACHE = os.path.join(current_dir, "data", "rd2_fragility.parquet")
     FRAG_CACHE_TS = os.path.join(current_dir, "data", "rd2_fragility_ts.parquet")
     frag_mult = 1.0  # default: no adjustment
-    frag_score = None  # populated below if fragility cache loads
-
-    # Sizing schedule parameters (from Fragility Sizing Lab optimization)
-    FRAG_THRESHOLD = 25    # ramp neutral zone
-    FRAG_MAX_MULT = 1.25   # boost at frag=0
-    FRAG_MIN_MULT = 0.10   # floor at frag=100
+    frag_score = None  # populated below if fragility cache loads AND is fresh
 
     frag_path = FRAG_CACHE if os.path.exists(FRAG_CACHE) else (FRAG_CACHE_TS if os.path.exists(FRAG_CACHE_TS) else None)
     if frag_path:
@@ -2135,16 +2177,30 @@ def run_daily_scan(scope='liquid', moc_only=False, dry_run=False):
             if '63d' in frag_df.columns:
                 frag_series = frag_df['63d'].dropna().rolling(10, min_periods=1).mean()
                 if not frag_series.empty:
-                    frag_score = float(frag_series.iloc[-1])
-                    # Linear ramp with threshold
-                    if frag_score <= FRAG_THRESHOLD:
-                        if FRAG_THRESHOLD > 0:
-                            frag_mult = FRAG_MAX_MULT - (frag_score / FRAG_THRESHOLD) * (FRAG_MAX_MULT - 1.0)
-                        else:
-                            frag_mult = FRAG_MAX_MULT
+                    # Staleness guard: a fragility reading older than FRAG_STALE_TD
+                    # trading days means the producer (risk_report.yml) is broken or
+                    # missed runs. Fall back to 1.0x rather than boost/throttle on a
+                    # regime that may no longer hold. Leaves frag_score=None so the
+                    # summary email omits the (misleading) stale reading.
+                    _last_frag_dt = pd.Timestamp(frag_series.index[-1]).normalize()
+                    try:
+                        _last_frag_dt = _last_frag_dt.tz_localize(None)
+                    except (TypeError, AttributeError):
+                        pass
+                    _today = pd.Timestamp.today().normalize()
+                    try:
+                        _age_td = int(np.busday_count(_last_frag_dt.date(), _today.date()))
+                    except (ValueError, AttributeError):
+                        _age_td = FRAG_STALE_TD + 1
+                    if _age_td > FRAG_STALE_TD:
+                        frag_mult = 1.0
+                        print(f"🚨 STALE FRAGILITY: last score {_last_frag_dt.date()} is "
+                              f"{_age_td} trading days old (> {FRAG_STALE_TD}) — falling back "
+                              f"to 1.0x sizing (producer may be broken)")
                     else:
-                        frag_mult = max(FRAG_MIN_MULT, 1.0 - ((frag_score - FRAG_THRESHOLD) / (100 - FRAG_THRESHOLD)) * (1 - FRAG_MIN_MULT))
-                    print(f"🛡️ Fragility sizing: 63d score = {frag_score:.1f} → multiplier = {frag_mult:.2f}x")
+                        frag_score = float(frag_series.iloc[-1])
+                        frag_mult = fragility_size_mult(frag_score)
+                        print(f"🛡️ Fragility sizing: 63d score = {frag_score:.1f} → multiplier = {frag_mult:.2f}x")
                 else:
                     print("⚠️ Fragility series empty after processing — using 1.0x")
             else:
@@ -2570,6 +2626,10 @@ def run_daily_scan(scope='liquid', moc_only=False, dry_run=False):
                         "Addv_63d": float(_addv_63d) if _addv_63d is not None and pd.notna(_addv_63d) else '',
                         "Earnings_Cov": 'MISSING' if _no_earn_cov else '',
                         "Days_To_Exit": days_to_exit,
+                        # Entry-order live window (OLV T+3). Defaults to hold_days
+                        # so verify_fills bounds the GTC fill search to the same
+                        # window order_staging cancels the live limit on.
+                        "Fill_Window_Days": strat['execution'].get('fill_window_days', hold_days),
                         "Use_Stop": use_stop,
                         "Use_Target": use_target,
                         # Setup context

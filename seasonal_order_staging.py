@@ -66,6 +66,16 @@ SEASONAL_MIDTERM_RISK_BPS = 13.0  # midterm-year downsize (year % 4 == 2).
 SEASONAL_DAILY_CAP_PCT = 1.0      # Seasonal-tab aggregate risk cap, % of ACCOUNT_VALUE
 ENTRY_ATR_OFFSET = 0.25           # REL_OPEN limit offset for US-session names
 
+# Only these conviction grades reach the executed Seasonal tab. The digest
+# defaults to --grades A, but the same JSON also feeds the display-only site,
+# so a richer --grades ABC render must NOT silently widen execution to B/C
+# (incl. sign-conflict C setups). Lower grades are routed to nostage instead.
+STAGE_GRADES = ("A",)
+
+# Forward log of prior emissions — used to dedupe across sessions so a
+# multi-week idea isn't re-staged at full size every day it re-fires.
+LOG_PATH = os.path.join(_HERE, "data", "seasonal_ideas_log.parquet")
+
 SEASONAL_TAB = "Seasonal"
 NOSTAGE_TAB = "sznl_nostage"
 SCAN_SOURCE = "Seasonal"
@@ -257,6 +267,46 @@ def _apply_daily_cap(rows: list, account_value: float, cap_pct: float) -> list:
     return rows
 
 
+def _open_prior_tickets(asof: str) -> set:
+    """(ticker, direction) pairs from PRIOR sessions whose hold window still
+    covers `asof`. We don't re-stage a fresh full-size order on top of a
+    position the idea engine already opened on an earlier day (mirrors the
+    backtest dedup — one open position per ticker+direction). Best-effort:
+    returns an empty set if the forward log is missing/unreadable, so staging
+    degrades to the old always-stage behavior rather than failing."""
+    if not os.path.exists(LOG_PATH):
+        return set()
+    try:
+        log = pd.read_parquet(LOG_PATH)
+    except Exception as e:
+        print(f"  [dedupe] could not read {LOG_PATH}: {e}")
+        return set()
+    if log.empty:
+        return set()
+    asof_ts = pd.Timestamp(asof)
+    open_pairs = set()
+    for _, r in log.iterrows():
+        try:
+            r_asof = pd.Timestamp(str(r.get("asof")))
+        except Exception:
+            continue
+        # Only earlier sessions count: today's own emission (or a future-dated
+        # row) is not evidence of an already-open position.
+        if pd.isna(r_asof) or r_asof >= asof_ts:
+            continue
+        try:
+            tsd = int(r.get("time_stop_days", 0) or 0)
+        except (TypeError, ValueError):
+            continue
+        if tsd <= 0:
+            continue
+        expiry = r_asof + pd.tseries.offsets.BDay(tsd)
+        if expiry >= asof_ts:
+            open_pairs.add((str(r.get("ticker", "")).strip().upper(),
+                            str(r.get("direction", "")).strip().capitalize()))
+    return open_pairs
+
+
 def build_seasonal_rows(payload: dict, account_value: float = ACCOUNT_VALUE):
     """Return (seasonal_rows, nostage_rows). Tradeable longs + non-equity shorts go
     to `seasonal`; single-stock equity shorts and non-tradeable signals (which need
@@ -265,6 +315,8 @@ def build_seasonal_rows(payload: dict, account_value: float = ACCOUNT_VALUE):
     year = pd.Timestamp(asof).year
     risk_bps = SEASONAL_MIDTERM_RISK_BPS if (year % 4 == 2) else SEASONAL_RISK_BPS
 
+    open_pairs = _open_prior_tickets(asof)
+
     seasonal, nostage = [], []
     for cand in payload.get("candidates", []):
         tk = parse_seasonal_ticket(cand)
@@ -272,13 +324,21 @@ def build_seasonal_rows(payload: dict, account_value: float = ACCOUNT_VALUE):
             continue  # context/regime/tilt rows with no order
         ticker = str(cand.get("ticker", "")).strip().upper()
         channel = cand.get("channel", "")
+        if (ticker, tk["direction"]) in open_pairs:
+            continue  # already on from a prior session — don't stack a duplicate
         if not is_tradeable_stk(ticker):
             nostage.append(_deferred_row(cand, tk, asof))      # needs a proxy ETF
             continue
         is_equity = not is_macro_channel(channel)
+        conv = str(cand.get("conviction", "")).strip().upper()
         if is_equity and tk["direction"] == "Short":
             nostage.append(_row(cand, tk, risk_bps, account_value, asof,
                                 scan_source=NOSTAGE_SOURCE, note="[eq-short]"))
+        elif conv not in STAGE_GRADES:
+            # conviction gate: below-A tickets are surfaced for review but never
+            # auto-submitted, independent of what grades the digest rendered.
+            nostage.append(_row(cand, tk, risk_bps, account_value, asof,
+                                scan_source=NOSTAGE_SOURCE, note="[grade-gated]"))
         else:
             seasonal.append(_row(cand, tk, risk_bps, account_value, asof))
 

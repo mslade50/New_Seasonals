@@ -3,8 +3,12 @@
  * server-side. Returns {commands:[...]} (newest first), or an empty list when the
  * broker isn't configured/reachable. READ-ONLY.
  */
-export async function onRequestGet({ env }) {
+import { requireAccess } from "./_access.js";
+
+export async function onRequestGet({ request, env }) {
   const headers = { "Content-Type": "application/json", "Cache-Control": "no-store" };
+  const denied = await requireAccess(request, env);
+  if (denied) return denied;
   const base = env.EXEC_BROKER_URL, token = env.STATUS_TOKEN;
   if (!base || !token) {
     return new Response(JSON.stringify({ commands: [], configured: false }), { headers });

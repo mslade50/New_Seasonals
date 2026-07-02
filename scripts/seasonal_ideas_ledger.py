@@ -54,6 +54,18 @@ def rows_from_payload(payload: dict, logged_at: str | None = None) -> pd.DataFra
 
 
 def load_log() -> pd.DataFrame:
+    # On an ephemeral runner / fresh clone the local parquet is absent. Pull the
+    # accumulated log from R2 first so append_emitted extends the out-of-sample
+    # record instead of clobbering it with a single day of rows.
+    if not os.path.exists(LOG_PATH):
+        try:
+            import cache_io
+            if cache_io.is_configured():
+                os.makedirs(os.path.dirname(LOG_PATH), exist_ok=True)
+                if cache_io.download_to_local(R2_KEY, LOG_PATH):
+                    print(f"[ledger] synced {R2_KEY} from R2 -> {LOG_PATH}")
+        except Exception as e:
+            print(f"[ledger] R2 sync skipped ({e})")
     if os.path.exists(LOG_PATH):
         try:
             return pd.read_parquet(LOG_PATH)

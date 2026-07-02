@@ -9,7 +9,9 @@
 
    Commands execute LIVE when the agent is armed (mode banner amber) and DRY-RUN
    otherwise — the agent decides by AGENT_LIVE_ENABLED + LIVE_TYPES, and every
-   mutating action confirms with a LIVE/Dry-run dialog. Positions/orders come from
+   mutating action confirms with a LIVE/Dry-run dialog. Mode is only trusted from
+   a FRESH book while the agent is online; a null/stale book or offline agent is
+   UNKNOWN and treated as LIVE (fail dangerous). Positions/orders come from
    book_snapshot.py over the agent's read-only IBKR connection. Static parts render once; the data
    panels refresh every 4s. */
 "use strict";
@@ -125,12 +127,29 @@ function renderPanels() {
 }
 function set(id, html) { const el = document.getElementById(id); if (el) el.innerHTML = html; }
 
-/* ---------- mode banner (dry-run vs live) ---------- */
+/* ---------- mode banner (live vs dry-run vs unknown) ---------- */
+const BOOK_STALE_MS = 90000;   // ~2 agent book-push cycles; older than this the reported mode is stale
+function bookFresh() {
+  return !!(state.book && state.book.at && (Date.now() - state.book.at) <= BOOK_STALE_MS);
+}
+// Tri-state: "live" | "dry-run" | "unknown". Dry-run is only believed when a FRESH book
+// explicitly reports it while the agent is online; a null/stale book or an offline agent
+// means UNKNOWN, which is treated as live everywhere (fail dangerous, never fail open).
+function execMode() {
+  if (state.book && state.book.mode === "live") return "live";
+  const online = !!(state.status && state.status.online);
+  if (online && bookFresh() && state.book.mode === "dry-run") return "dry-run";
+  return "unknown";
+}
 function renderModeBanner() {
-  const mode = (state.book && state.book.mode) || "dry-run";
+  const mode = execMode();
   if (mode === "live") {
     return `<div class="card" style="border-color:#a8852f;background:rgba(255,193,77,.10);padding:9px 14px;font:700 13px inherit;color:#ffc14d">
       &#9888;&#65039; LIVE ARMED &mdash; orders ARE transmitted to IBKR.</div>`;
+  }
+  if (mode === "unknown") {
+    return `<div class="card" style="border-color:#a8852f;background:rgba(255,193,77,.10);padding:9px 14px;font:700 13px inherit;color:#ffc14d">
+      &#9888;&#65039; MODE UNKNOWN &mdash; assume LIVE. No fresh book confirms dry-run (book missing/stale or agent offline); treat every action as if it transmits to IBKR.</div>`;
   }
   return `<div class="card" style="border-color:#2c8f63;background:rgba(61,219,143,.08);padding:9px 14px;font:700 13px inherit;color:#3ddb8f">
     &#9679; DRY-RUN MODE &mdash; actions are validated and previewed, but <u>nothing is transmitted</u> to IBKR.</div>`;
@@ -233,30 +252,9 @@ function orderLegPreview(o) {
 function pnlSpan(label, v) {
   return v == null ? `${label} &mdash;` : `${label} <b class="${clsSign(v)}">${fmt.money(v)}</b>`;
 }
-// Best case (all profit-target LMTs fill) / worst case (all stops fill), per ticker.
-// entryPrice is derived from live PnL (avoids the futures averageCost-includes-multiplier
-// ambiguity); pending groups reference the parent entry limit. mult from sec_type (FUT only).
-function groupPnl(sym, legs, ab) {
-  const pos = (ab.positions || []).find((p) => String(p.symbol).toUpperCase() === sym && p.position);
-  let entryPrice, sign, mult, exits;
-  if (pos) {
-    mult = pos.sec_type === "FUT" ? ((futSpec(sym) || {}).multiplier || 1) : 1;
-    sign = pos.position > 0 ? 1 : -1;
-    if (pos.market_price != null && pos.unrealized_pnl != null) {
-      entryPrice = pos.market_price - pos.unrealized_pnl / (pos.position * mult);
-    } else if (pos.avg_cost != null) {
-      entryPrice = pos.avg_cost / mult;
-    } else return { best: null, worst: null };
-    exits = legs;
-  } else {
-    const entry = legs.find((o) => (o.parent_id || 0) === 0);
-    const ep = entry ? orderPx(entry) : null;
-    if (ep == null) return { best: null, worst: null };
-    mult = entry.sec_type === "FUT" ? ((futSpec(sym) || {}).multiplier || 1) : 1;
-    sign = String(entry.action).toUpperCase() === "BUY" ? 1 : -1;
-    entryPrice = ep;
-    exits = legs.filter((o) => o !== entry);
-  }
+// Best case (all profit-target LMTs fill) / worst case (all stops fill) for one bracket's
+// exit legs against its own basis. MKT/MOC time-stops carry no price and are ignored.
+function exitPnl(exits, entryPrice, sign, mult) {
   let best = null, worst = null;
   for (const o of exits) {
     const t = String(o.order_type || "").toUpperCase();
@@ -269,6 +267,62 @@ function groupPnl(sym, legs, ab) {
     }
   }
   return { best, worst };
+}
+// Best/worst per ticker. Entry (position-increasing) orders are NEVER counted as exits:
+// each pending bracket is keyed by parent_id and priced off its OWN entry limit/side/qty;
+// the on-position group uses only genuine exit legs (children of filled parents, or
+// parent-less opposite-side orders) against the position's derived basis. entryPrice is
+// derived from live PnL (avoids the futures averageCost-includes-multiplier ambiguity).
+// Rows the data model can't classify make the group indeterminate -> {na:true} ("n/a").
+function groupPnl(sym, legs, ab) {
+  const pos = (ab.positions || []).find((p) => String(p.symbol).toUpperCase() === sym && p.position);
+  const ids = new Set(legs.map((o) => o.order_id).filter(Boolean));
+  const hasChild = (o) => !!o.order_id && legs.some((c) => (c.parent_id || 0) === o.order_id);
+  const acc = { best: null, worst: null, na: false };
+  const add = (part) => {
+    if (part.best != null) acc.best = (acc.best || 0) + part.best;
+    if (part.worst != null) acc.worst = (acc.worst || 0) + part.worst;
+  };
+  const bracket = (parent) => {                       // a working entry order + its own children
+    const ep = orderPx(parent);
+    const kids = parent.order_id ? legs.filter((c) => (c.parent_id || 0) === parent.order_id) : [];
+    if (ep == null || !kids.length) { acc.na = true; return; }   // unpriced or naked entry: no defined best/worst
+    const mult = parent.sec_type === "FUT" ? ((futSpec(sym) || {}).multiplier || 1) : 1;
+    const sign = String(parent.action).toUpperCase() === "BUY" ? 1 : -1;
+    add(exitPnl(kids, ep, sign, mult));
+  };
+  if (pos) {
+    const mult = pos.sec_type === "FUT" ? ((futSpec(sym) || {}).multiplier || 1) : 1;
+    const sign = pos.position > 0 ? 1 : -1;
+    let entryPrice = null;
+    if (pos.market_price != null && pos.unrealized_pnl != null) {
+      entryPrice = pos.market_price - pos.unrealized_pnl / (pos.position * mult);
+    } else if (pos.avg_cost != null) {
+      entryPrice = pos.avg_cost / mult;
+    }
+    const posSide = sign > 0 ? "BUY" : "SELL";
+    const posExits = [];
+    for (const o of legs) {
+      const pid = o.parent_id || 0;
+      if (pid && ids.has(pid)) continue;              // child of a working entry: priced with its bracket
+      if (pid) { posExits.push(o); continue; }        // child of a filled parent: exit leg of the position
+      if (hasChild(o)) { bracket(o); continue; }      // working bracket parent (add-on entry): own basis
+      if (String(o.action).toUpperCase() === posSide) { acc.na = true; continue; }  // bare position-increasing entry: no exits to price
+      posExits.push(o);                               // parent-less opposite-side order: manual/OCA exit
+    }
+    if (posExits.length) {
+      if (entryPrice == null) acc.na = true;          // exits exist but the basis is unknowable
+      else add(exitPnl(posExits, entryPrice, sign, mult));
+    }
+  } else {
+    for (const o of legs) {
+      const pid = o.parent_id || 0;
+      if (pid && ids.has(pid)) continue;              // child: priced with its parent via bracket()
+      if (pid) { acc.na = true; continue; }           // orphan child (parent not in book): can't classify
+      bracket(o);
+    }
+  }
+  return acc;
 }
 function ordersSection(title, list, ab) {
   const h = `<div class="cap" style="font-weight:700;margin:10px 0 4px">${title} <span style="font-weight:400">&middot; ${list.length}</span></div>`;
@@ -287,9 +341,11 @@ function ordersSection(title, list, ab) {
     const caret = open ? "&#9662;" : "&#9656;";          // triangle down / right
     const preview = open ? "" : legs.map(orderLegPreview).join(" &middot; ");
     const bw = groupPnl(sym, legs, ab);
-    const bwFrag = (bw.best != null || bw.worst != null)
-      ? ` &nbsp;&middot;&nbsp; ${pnlSpan("best", bw.best)} &middot; ${pnlSpan("worst", bw.worst)}`
-      : "";
+    const bwFrag = bw.na
+      ? ` &nbsp;&middot;&nbsp; best/worst n/a`
+      : (bw.best != null || bw.worst != null)
+        ? ` &nbsp;&middot;&nbsp; ${pnlSpan("best", bw.best)} &middot; ${pnlSpan("worst", bw.worst)}`
+        : "";
     body += `<tr style="cursor:pointer;background:rgba(255,255,255,.03)" onclick="toggleOrderGroup('${esc(sym)}')">
       <td class="l" colspan="10" style="font-weight:600">${caret} ${esc(sym)}
         <span class="cap" style="font-weight:400;display:inline">&nbsp;(${legs.length})${preview ? " &nbsp;&middot;&nbsp; " + preview : ""}${bwFrag}</span></td></tr>`;
@@ -319,9 +375,14 @@ function posJson(p) {
   return JSON.stringify({ symbol: p.symbol, sec_type: p.sec_type, expiry: p.expiry }).replace(/'/g, "&#39;");
 }
 
-/* ---------- row actions (dry-run commands) ---------- */
-function isLive() { return !!(state.book && state.book.mode === "live"); }
-function actionLead(verb) { return isLive() ? `⚠️ LIVE — ${verb}` : `Dry-run: ${verb}`; }
+/* ---------- row actions (live / dry-run / unknown commands) ---------- */
+function isLive() { return execMode() !== "dry-run"; }   // unknown fails DANGEROUS: treated as live
+function actionLead(verb) {
+  const m = execMode();
+  return m === "dry-run" ? `Dry-run: ${verb}`
+    : m === "live" ? `⚠️ LIVE — ${verb}`
+    : `⚠️ MODE UNKNOWN (may be LIVE) — ${verb}`;
+}
 
 function execFlatten(pos, fraction) {
   const pct = fraction === 1 ? "100%" : "50%";
@@ -329,15 +390,44 @@ function execFlatten(pos, fraction) {
   sendCommand("flatten", { symbol: pos.symbol, sec_type: pos.sec_type, expiry: pos.expiry, fraction, order_type: "MKT" });
 }
 function execCancel(permId, orderId, symbol) {
-  if (!confirm(`${actionLead("cancel")} order ${orderId} (${symbol}, ${state.account})?`)) return;
-  sendCommand("cancel", permId ? { scope: "order", perm_id: permId, order_id: orderId } : { scope: "symbol", symbol });
+  if (permId || orderId) {
+    // A real order/perm id in hand: cancel EXACTLY this order. The agent matches on
+    // perm_id and falls through to order_id, so a nonzero order_id alone is enough — a
+    // missing perm_id must NEVER widen to symbol scope (that would take out a position's
+    // protective stop/target).
+    if (!confirm(`${actionLead("cancel")} order ${orderId || permId} (${symbol}, ${state.account})?`)) return;
+    sendCommand("cancel", { scope: "order", perm_id: permId || null, order_id: orderId || null });
+    return;
+  }
+  // No id at all: the only available command is SYMBOL-scoped, which cancels EVERY working
+  // order on the ticker, INCLUDING protective stops/targets of any open position. Require an
+  // explicit symbol type-in and say so plainly — never send it silently.
+  const typed = prompt(
+    `${actionLead("cancel")} — this ${symbol} order has no id yet, so this will cancel ALL working ` +
+    `orders for ${symbol} on ${state.account}, INCLUDING protective stops/targets of any open ` +
+    `position.\n\nType the symbol (${symbol}) to proceed, or Cancel to abort:`);
+  if (typed == null || typed.trim().toUpperCase() !== String(symbol).toUpperCase().trim()) return;
+  sendCommand("cancel", { scope: "symbol", symbol });
 }
 window.execFlatten = execFlatten;
 window.execCancel = execCancel;
 
 /* ---------- new-order ticket ---------- */
-function inp(id, val, w) { return `<input id="${id}" value="${val}" style="width:${w || 90}px">`; }
+// Ticket fields ship EMPTY: the examples are placeholder hints, never submitted values,
+// so a reflexive Send can't queue a stale live order (numOrNull reads "" as null, and
+// bracketWarnings blocks empty qty/entry/stop). ticketDraft carries the last user entry
+// across cmdType toggles so switching Type and back doesn't wipe a typed ticket.
+const ticketDraft = {};
+const TICKET_FIELDS = ["f_note", "f_symbol", "f_qty", "f_entry", "f_stop", "f_target", "f_expiry", "f_timestop"];
+function snapshotTicket() {
+  TICKET_FIELDS.forEach((id) => { const e = document.getElementById(id); if (e) ticketDraft[id] = e.value; });
+}
+function inp(id, ph, w) {
+  const v = ticketDraft[id] != null ? esc(String(ticketDraft[id])) : "";
+  return `<input id="${id}" value="${v}" placeholder="${esc(ph)}" style="width:${w || 90}px">`;
+}
 function syncFields() {
+  snapshotTicket();   // preserve what's typed before the fields are rebuilt
   const t = document.getElementById("cmdType").value;
   const f = document.getElementById("cmdFields");
   if (t === "echo") {
@@ -354,8 +444,8 @@ function syncFields() {
       <label class="cap">Stop</label>${inp("f_stop", "103.29", 80)}
       <label class="cap">Target</label>${inp("f_target", "123.21", 80)}
       <span id="f_futrow"></span>
-      <label class="cap">Entry exp</label><input type="date" id="f_expiry" style="width:140px">
-      <label class="cap">Time stop</label><input type="date" id="f_timestop" style="width:140px">`;
+      <label class="cap">Entry exp</label><input type="date" id="f_expiry" value="${ticketDraft.f_expiry ? esc(ticketDraft.f_expiry) : ""}" style="width:140px">
+      <label class="cap">Time stop</label><input type="date" id="f_timestop" value="${ticketDraft.f_timestop ? esc(ticketDraft.f_timestop) : ""}" style="width:140px">`;
     const st = document.getElementById("f_sectype");
     if (st) st.addEventListener("change", () => {
       if (val("f_sectype") === "FUT" && !futSpec(val("f_symbol"))) {
@@ -365,7 +455,12 @@ function syncFields() {
       renderFutRow(); updateReadout(); scheduleFrontResolve();
     });
     const sym = document.getElementById("f_symbol");
-    if (sym) sym.addEventListener("input", () => { frontState.manual = false; scheduleFrontResolve(); });
+    if (sym) sym.addEventListener("input", () => {
+      frontState.manual = false;
+      clearFutExp();                 // a previous symbol's month must NEVER survive a symbol change
+      scheduleFrontResolve();
+      updateReadout();
+    });
     renderFutRow();
   }
   updateReadout();
@@ -377,11 +472,53 @@ function renderFutRow() {
   if (!row) return;
   if (val("f_sectype") !== "FUT") { row.innerHTML = ""; return; }
   row.innerHTML = `<label class="cap">Contract</label><input id="f_futexp" placeholder="auto" style="width:78px">
+    <span id="f_futnote" class="cap" style="display:inline;color:#ff6b6b"></span>
     <span id="f_futhint" class="cap" style="display:inline"></span>`;
   const exp = document.getElementById("f_futexp");
-  if (exp) exp.addEventListener("input", () => { frontState.manual = true; });   // stop auto-fill once typed
+  if (exp) exp.addEventListener("input", () => { frontState.manual = true; setFutNote(""); });   // stop auto-fill once typed
+}
+function setFutNote(txt) { const n = document.getElementById("f_futnote"); if (n) n.textContent = txt || ""; }
+// Blank the auto-filled month BEFORE a new resolve: if the resolve fails the field stays
+// empty and the "enter the contract month" gate blocks submission (no stale month).
+function clearFutExp() {
+  const exp = document.getElementById("f_futexp");
+  if (exp) { exp.value = ""; exp.placeholder = "resolving…"; }
+  setFutNote("");
 }
 
+// Hard gate shared by the readout and sendTicket. Plain-text messages; [] = sendable.
+// Empty inputs are null (never 0): a bracket REQUIRES qty/entry/stop; target may be
+// null (= NO TARGET, entry + stop only) but 0/negative is rejected.
+function bracketWarnings() {
+  const isFut = (val("f_sectype") === "FUT");
+  const sym = String(val("f_symbol") || "").toUpperCase().trim();
+  const spec = isFut ? futSpec(sym) : null;
+  const qty = numOrNull("f_qty"), entry = numOrNull("f_entry"), stop = numOrNull("f_stop"), target = numOrNull("f_target");
+  const action = val("f_action");
+  const warns = [];
+  if (!sym) warns.push("symbol required");
+  if (!(qty > 0)) warns.push("qty must be a positive number");
+  if (!(entry > 0)) warns.push("entry price required");
+  if (!(stop > 0)) warns.push("stop price required — no bracket without a protective stop");
+  if (target != null && !(target > 0)) warns.push("target must be > 0 (leave blank for NO TARGET)");
+  if (entry > 0 && stop > 0) {
+    if (action === "BUY" && !(stop < entry && (target == null || entry < target)))
+      warns.push(target == null ? "BUY needs stop < entry" : "BUY needs stop < entry < target");
+    if (action === "SELL" && !(entry < stop && (target == null || target < entry)))
+      warns.push(target == null ? "SELL needs entry < stop" : "SELL needs target < entry < stop");
+  }
+  if (isFut && sym && !spec) warns.push("unknown futures symbol — not in the spec table");
+  if (isFut && !val("f_futexp")) warns.push("enter the contract month (e.g. 202609)");
+  // Date guards: an ISO YYYY-MM-DD string compares chronologically as text. A past
+  // time-stop closes the position at market the instant the entry fills; a past entry
+  // expiry ships an already-dead GTD order; expiry after the time-stop is contradictory.
+  const todayISO = new Date().toLocaleDateString("en-CA");
+  const ts = val("f_timestop"), ex = val("f_expiry");
+  if (ts && ts < todayISO) warns.push("time stop date is in the past");
+  if (ex && ex < todayISO) warns.push("entry expiry date is in the past");
+  if (ts && ex && ex > ts) warns.push("entry expiry is after the time stop");
+  return warns;
+}
 function updateReadout() {
   const t = document.getElementById("cmdType").value;
   const el = document.getElementById("ticketReadout");
@@ -395,18 +532,15 @@ function updateReadout() {
     if (hint) hint.innerHTML = spec
       ? `${esc(spec.exchange)} · mult ${spec.multiplier} · tick ${spec.min_tick}`
       : (sym ? `<span style="color:#ff6b6b">not in spec table</span>` : "");
-    const qty = Number(val("f_qty")), entry = Number(val("f_entry")), stop = Number(val("f_stop")), target = Number(val("f_target"));
-    const action = val("f_action"), dist = Math.abs(entry - stop);
-    let warn = "";
-    if (action === "BUY" && !(stop < entry && entry < target)) warn = "BUY needs stop &lt; entry &lt; target";
-    if (action === "SELL" && !(target < entry && entry < stop)) warn = "SELL needs target &lt; entry &lt; stop";
-    if (isFut && sym && !spec) warn = "unknown futures symbol — not in the spec table";
-    if (isFut && !val("f_futexp")) warn = warn || "enter the contract month (e.g. 202609)";
-    if (warn) { el.innerHTML = `<span style="color:#ff6b6b">${warn}</span>`; return; }
+    const warns = bracketWarnings();
+    if (warns.length) { el.innerHTML = `<span style="color:#ff6b6b">${warns.map(esc).join(" &middot; ")}</span>`; return; }
+    const qty = numOrNull("f_qty"), entry = numOrNull("f_entry"), stop = numOrNull("f_stop"), target = numOrNull("f_target");
+    const dist = Math.abs(entry - stop);
     const parts = [];
     if (isFut && qty) parts.push(`<b>${qty} contract${qty === 1 ? "" : "s"}</b>`);
     if (qty && dist) parts.push(`Risk <b>${fmt.money(qty * dist * mult)}</b>`);
-    if (dist && target) parts.push(`R:R <b>${(Math.abs(target - entry) / dist).toFixed(2)}:1</b>`);
+    if (target == null) parts.push(`<b style="color:#ffc14d">NO TARGET</b>`);
+    else if (dist) parts.push(`R:R <b>${(Math.abs(target - entry) / dist).toFixed(2)}:1</b>`);
     if (qty && entry) parts.push(`Notional <b>${fmt.money(qty * entry * mult)}</b>`);
     const ts = val("f_timestop");
     if (ts) parts.push(`Time-exit <b>${ts}</b>`);
@@ -425,44 +559,66 @@ function updateReadout() {
   }
 }
 function val(id) { const e = document.getElementById(id); return e ? e.value : undefined; }
+// Empty/whitespace inputs are null, NEVER 0 (Number("") === 0 turned a cleared stop into a $0.00 stop).
+function numOrNull(id) {
+  const v = val(id);
+  return v == null || String(v).trim() === "" ? null : Number(v);
+}
 function ticketPayload(t) {
   if (t === "echo") return { note: val("f_note") };
   if (t === "flatten") return { symbol: val("f_symbol"), fraction: Number(val("f_frac")), order_type: "MKT" };
   const sec_type = val("f_sectype") || "STK";
   const fut_expiry = sec_type === "FUT" ? String(val("f_futexp") || "").replace(/\D/g, "") : null;
-  return { symbol: val("f_symbol"), sec_type, fut_expiry, action: val("f_action"), quantity: Number(val("f_qty")),
-    entry: Number(val("f_entry")), stop: Number(val("f_stop")), target: Number(val("f_target")),
+  return { symbol: val("f_symbol"), sec_type, fut_expiry, action: val("f_action"), quantity: numOrNull("f_qty"),
+    entry: numOrNull("f_entry"), stop: numOrNull("f_stop"), target: numOrNull("f_target"),
     time_stop: val("f_timestop") || null, expiry: val("f_expiry") || null };
 }
 function sendTicket() {
   const t = document.getElementById("cmdType").value;
   const p = ticketPayload(t);
-  if (t === "entry_bracket" && p.sec_type === "FUT" && !p.fut_expiry) {
-    document.getElementById("cmdMsg").textContent = "enter the contract month (e.g. 202609)";
-    return;
+  const msg = document.getElementById("cmdMsg");
+  if (t === "entry_bracket") {
+    const warns = bracketWarnings();   // hard block: never submit while any warning is up
+    if (warns.length) { if (msg) msg.textContent = "BLOCKED: " + warns.join("; "); return; }
   }
   if (t !== "echo") {
     const inst = p.sec_type === "FUT" ? `${p.symbol} FUT ${p.fut_expiry}` : p.symbol;
     const summary = t === "entry_bracket"
-      ? `${p.action} ${p.quantity} ${inst} @ ${p.entry} [${p.expiry ? "GTD " + p.expiry : "DAY"}] (stop ${p.stop}, target ${p.target}${p.time_stop ? ", time " + p.time_stop : ""})`
+      ? `${p.action} ${p.quantity} ${inst} @ ${p.entry} [${p.expiry ? "GTD " + p.expiry : "DAY"}] (stop ${p.stop}, ${p.target == null ? "NO TARGET" : "target " + p.target}${p.time_stop ? ", time " + p.time_stop : ""})`
       : `flatten ${Math.round((p.fraction || 1) * 100)}% of ${p.symbol}`;
     if (!confirm(`${actionLead(t === "entry_bracket" ? "place" : "flatten")} ${summary} on ${state.account}?`)) return;
   }
   sendCommand(t, p, "cmdMsg");
 }
 
+// Idempotency: the command id is minted HERE, once per confirmed intent, and reused on a
+// retry of the SAME {type, account, payload} after a failed send (network error / non-2xx),
+// so the server can dedup a double-submit. A payload change or a confirmed 2xx success
+// mints a fresh id for the next intent.
+const idemState = { id: null, key: null };
+function commandId(type, account, payload) {
+  const key = JSON.stringify({ type, account, payload });
+  if (idemState.key !== key || !idemState.id) {
+    idemState.id = crypto.randomUUID();
+    idemState.key = key;
+  }
+  return idemState.id;
+}
 async function sendCommand(type, payload, msgId) {
   const msg = msgId ? document.getElementById(msgId) : null;
   if (msg) msg.textContent = "sending...";
+  const id = commandId(type, state.account, payload);
   try {
     const r = await fetch("/exec-command", {
       method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ type, account: state.account, payload }),
+      body: JSON.stringify({ id, type, account: state.account, payload }),
     });
     const d = await r.json();
-    if (msg) msg.textContent = d.ok ? `queued ${(d.id || "").slice(0, 8)}` : `error: ${d.error || ("HTTP " + r.status)}`;
+    const ok = r.ok && d && d.ok;
+    if (ok) { idemState.id = null; idemState.key = null; }   // confirmed success: next intent gets a fresh id
+    if (msg) msg.textContent = ok ? `queued ${(d.id || id).slice(0, 8)}` : `error: ${(d && d.error) || ("HTTP " + r.status)}`;
   } catch (e) {
-    if (msg) msg.textContent = "error: " + e;
+    if (msg) msg.textContent = "error: " + e;                // id kept: an unchanged resend reuses it
   }
   setTimeout(poll, 600);
 }
@@ -531,31 +687,39 @@ function scheduleFrontResolve() {
 }
 async function resolveFront() {
   const symbol = String(val("f_symbol") || "").toUpperCase().trim();
-  if (!symbol || !futSpec(symbol)) return;            // unknown symbol: the readout already warns
   const exp = document.getElementById("f_futexp");
+  if (!symbol || !futSpec(symbol)) {                  // unknown symbol: the readout already warns
+    if (exp) exp.placeholder = "auto";
+    return;
+  }
   try {
     const r = await fetch("/exec-futures-front", {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ symbol }),
     });
     const d = await r.json();
-    if (!d.ok) return;
+    if (!d.ok) { frontResolveFailed(); return; }
     frontState.id = d.id;
     if (exp && !frontState.manual && !exp.value) exp.placeholder = "resolving…";
     pollFront(0);
-  } catch (e) { /* silent — the field stays manual/editable */ }
+  } catch (e) { frontResolveFailed(); }               // field stays BLANK; the submit gate blocks
+}
+function frontResolveFailed() {
+  const exp = document.getElementById("f_futexp");
+  if (exp) exp.placeholder = "202609";
+  setFutNote("front-month resolve failed — enter the contract month");
 }
 async function pollFront(n) {
   const exp = document.getElementById("f_futexp");
-  if (n > 20) { if (exp) exp.placeholder = "202609"; return; }
+  if (n > 20) { frontResolveFailed(); return; }
   const d = (await fetchJSONOrNull("/exec-futures-front")) || {};
   const q = d.query;
   if (q && q.id === frontState.id && q.result) {
     const res = q.result;
     const cur = String(val("f_symbol") || "").toUpperCase().trim();
     if (exp && res.expiry && !res.error && !frontState.manual && cur === res.symbol) {
-      exp.value = res.expiry; exp.placeholder = "auto"; updateReadout();
-    } else if (exp) { exp.placeholder = "202609"; }
+      exp.value = res.expiry; exp.placeholder = "auto"; setFutNote(""); updateReadout();
+    } else if (!frontState.manual) { frontResolveFailed(); }
     return;
   }
   setTimeout(() => pollFront(n + 1), 1200);
@@ -590,7 +754,8 @@ function clockTime(ms) {
 }
 function renderActivity() {
   const cmds = state.commands || [];
-  const liveTrail = (state.book && state.book.mode === "live");
+  const m = execMode();
+  const trailLabel = m === "live" ? "LIVE" : m === "dry-run" ? "dry-run, places nothing" : "mode unknown — may be LIVE";
   if (!cmds.length) return "";
   const rows = cmds.map((c) => `<tr style="vertical-align:top">
       <td class="l" style="color:#8c95a2">${esc(clockTime(c.created_at))}</td>
@@ -599,7 +764,7 @@ function renderActivity() {
       <td class="l">${stateBadge(c.state)}</td>
       <td class="l">${resultCell(c)}</td></tr>`).join("");
   return `<div style="font:700 14px inherit;margin-bottom:6px">Activity / audit
-      <span class="cap" style="display:inline;font-weight:400">· ${liveTrail ? "LIVE" : "dry-run, places nothing"} · last ${cmds.length}</span></div>
+      <span class="cap" style="display:inline;font-weight:400">· ${trailLabel} · last ${cmds.length}</span></div>
     <div class="tblwrap"><table class="tbl"><thead><tr>
     <th class="l">time</th><th class="l">type</th><th class="l">acct</th><th class="l">state</th><th class="l">result / order preview</th>
     </tr></thead><tbody>${rows}</tbody></table></div>`;

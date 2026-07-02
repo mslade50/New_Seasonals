@@ -28,7 +28,7 @@ async function init() {
   const ctx = d.price_ctx || {};
   html += `<div class="kpis">
     <div class="kpi"><div class="l">SPY</div><div class="v">${fmt.num(d.spy_last, 2)}</div>
-      <div class="s">${esc(ctx.regime || ctx.label || "")}</div></div>
+      <div class="s">${esc(ctx.regime_label || "")}</div></div>
     ${cards}
     <div class="kpi"><div class="l">Active Signals</div>
       <div class="v ${d.n_active > 0 ? "neg" : "pos"}">${d.n_active} / ${(d.signals || []).length}</div>

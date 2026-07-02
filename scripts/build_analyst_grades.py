@@ -66,11 +66,13 @@ def fetch_ticker(symbol, api_key):
                 data = r.json()
                 if isinstance(data, list):
                     return data
-                return []
+                # Dict response = error/quota payload, not a legit-empty ticker.
+                return None
             if r.status_code == 429:
                 time.sleep(2 ** attempt)
                 continue
-            return []
+            # Any other non-200 is a fetch failure, not empty data.
+            return None
         except requests.exceptions.RequestException:
             if attempt < MAX_RETRIES - 1:
                 time.sleep(2 ** attempt)

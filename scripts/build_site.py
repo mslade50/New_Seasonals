@@ -151,11 +151,19 @@ def open_mask(df):
     """Genuinely-open trades: time stop not yet reached AND no stop/target/
     other exit has triggered (open trades are marked Exit Type == 'Time' at
     the last bar by the backtester). A trade that stopped out before its
-    time stop is CLOSED even though its Time Stop date is still in the future."""
-    today = pd.Timestamp.today().normalize()
+    time stop is CLOSED even though its Time Stop date is still in the future.
+
+    Openness is keyed off the ledger's data as-of (the last bar the engine
+    saw), NOT wall-clock today: on the PM build the master-prices close pull
+    has already run, so a trade whose Time Stop is today is exited (Exit Date
+    == today) and must read closed. Comparing to today with >= would keep it
+    open for one evening and drop the closed row from the trade log."""
     if "Time Stop" not in df.columns:
         return pd.Series(False, index=df.index)
-    m = df["Time Stop"] >= today
+    asof = pd.to_datetime(df["Exit Date"]).max() if "Exit Date" in df.columns else None
+    if asof is None or pd.isna(asof):
+        asof = pd.Timestamp.today().normalize()
+    m = pd.to_datetime(df["Time Stop"]) > asof
     if "Exit Type" in df.columns:
         m &= df["Exit Type"].astype(str).eq("Time")
     return m
@@ -524,8 +532,12 @@ def fetch_signals():
                 out["tabs"][tab] = recs
                 print(f"  signals: {tab} -> {len(recs)} rows")
             except Exception as e:
+                # Mark the tab errored (None) so the frontend can distinguish a
+                # failed read from a genuinely empty scan; [] would render as the
+                # calm 'No staged orders' caption and hide a dropped read.
                 print(f"  signals: {tab} failed ({e})")
-                out["tabs"][tab] = []
+                out["tabs"][tab] = None
+                out.setdefault("errors", {})[tab] = str(e)
         return out
     except Exception as e:
         print(f"  signals: skipped ({e})")

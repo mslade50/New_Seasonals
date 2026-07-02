@@ -707,8 +707,24 @@ def main():
     frag_df = computed.get('frag_df')
     if frag_df is not None and not frag_df.empty:
         frag_cache_path = os.path.join(data_dir, "rd2_fragility.parquet")
+        # This file is the 5d-ROLLING-MEAN basis. The Streamlit page writes the
+        # RAW timeseries to rd2_fragility_ts.parquet; fallback consumers must NOT
+        # treat the two as interchangeable. Stamp basis + generation date + last
+        # date so a consumer can detect a wrong-basis or stale (e.g. two-month-old)
+        # fallback and refuse to size off it rather than silently double-smoothing.
         frag_smoothed = frag_df.rolling(5, min_periods=1).mean()
-        frag_smoothed.to_parquet(frag_cache_path)
+        try:
+            import pyarrow as pa
+            import pyarrow.parquet as pq
+            table = pa.Table.from_pandas(frag_smoothed)
+            md = dict(table.schema.metadata or {})
+            md[b"fragility_basis"] = b"5d_smoothed"
+            md[b"fragility_generated"] = datetime.datetime.now().strftime(
+                "%Y-%m-%d %H:%M:%S").encode()
+            md[b"fragility_last_date"] = str(frag_smoothed.index.max()).encode()
+            pq.write_table(table.replace_schema_metadata(md), frag_cache_path)
+        except Exception:
+            frag_smoothed.to_parquet(frag_cache_path)
         print(f"  Cached fragility timeseries ({len(frag_smoothed)} rows)")
 
     # Save environment snapshot (price context + h_scores + signal summaries)

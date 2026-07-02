@@ -3,10 +3,14 @@
  *        -> kicks off a pure read-only sizing calc on the agent, returns {id}
  *   GET  /exec-futures-size  -> returns the latest {query:{id,symbol,result}}
  * Keeps the broker URL + token server-side. READ-ONLY — no order is placed. */
+import { requireAccess } from "./_access.js";
+
 const base = (env) => (env.EXEC_BROKER_URL || "").replace(/\/$/, "");
 const H = { "Content-Type": "application/json", "Cache-Control": "no-store" };
 
 export async function onRequestPost({ request, env }) {
+  const denied = await requireAccess(request, env);
+  if (denied) return denied;
   if (!base(env) || !env.STATUS_TOKEN) return new Response(JSON.stringify({ ok: false, error: "broker not configured" }), { status: 503, headers: H });
   let body;
   try { body = await request.json(); } catch { return new Response(JSON.stringify({ ok: false, error: "bad json" }), { status: 400, headers: H }); }
@@ -26,7 +30,9 @@ export async function onRequestPost({ request, env }) {
   }
 }
 
-export async function onRequestGet({ env }) {
+export async function onRequestGet({ request, env }) {
+  const denied = await requireAccess(request, env);
+  if (denied) return denied;
   if (!base(env) || !env.STATUS_TOKEN) return new Response(JSON.stringify({ query: null, configured: false }), { headers: H });
   try {
     const r = await fetch(`${base(env)}/futures_size`, { headers: { Authorization: `Bearer ${env.STATUS_TOKEN}` } });

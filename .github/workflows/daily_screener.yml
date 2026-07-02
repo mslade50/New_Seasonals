@@ -55,11 +55,16 @@ jobs:
           SHOULD_RUN=true
           if [ "${{ github.event_name }}" = "schedule" ] && [ "${{ github.event.schedule }}" = "30 10 * * 1-5" ]; then
             TODAY=$(date -u +%Y-%m-%d)
+            # Only count a dispatch inside the AM pre-market window (local trigger
+            # fires 4:47 AM ET = 08:47 UTC EDT / 09:47 UTC EST). Keying on the whole
+            # UTC day let an evening manual dispatch (after 00:00 UTC = 8 PM EDT /
+            # 7 PM EST the prior night) suppress this fallback, so no pre-market
+            # scan ran and order_staging read the stale prior-evening tabs.
             COUNT=$(gh run list \
               --workflow=daily_screener.yml \
               --status=success \
               --event=workflow_dispatch \
-              --created="$TODAY" \
+              --created="${TODAY}T07:00Z..${TODAY}T10:30Z" \
               --repo "${{ github.repository }}" \
               --json databaseId --jq 'length')
             if [ "$COUNT" -gt 0 ]; then
@@ -130,9 +135,24 @@ jobs:
           git config user.email "github-actions[bot]@users.noreply.github.com"
           if [ -f data/exposure_state.json ]; then
             git add data/exposure_state.json
-            git diff --cached --quiet || git commit -m "exposure: state snapshot $(date -u +'%Y-%m-%d %H:%M UTC')"
-            git pull --rebase origin main || true
-            git push || true
+            if git diff --cached --quiet; then
+              echo "No exposure_state.json change to commit."
+            else
+              git commit -m "exposure: state snapshot $(date -u +'%Y-%m-%d %H:%M UTC')"
+              # Race other bot commits: rebase then verify the push landed. A lost
+              # push here drops the morning exposure snapshot order_staging reads.
+              pushed=false
+              for attempt in 1 2 3; do
+                git pull --rebase origin main || true
+                if git push; then pushed=true; break; fi
+                echo "push attempt $attempt rejected; re-rebasing and retrying."
+                sleep 5
+              done
+              if [ "$pushed" != true ]; then
+                echo "::error::failed to push exposure_state.json after 3 attempts"
+                exit 1
+              fi
+            fi
           fi
 
   deploy-site:

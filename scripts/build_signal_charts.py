@@ -46,6 +46,7 @@ from signal_chart_common import (
 LEDGER = os.path.join(_ROOT, "data", "backtest_trades_full.parquet")
 CHARTS_ROOT = os.path.join(_ROOT, "charts")   # local mirror of the R2 charts/ prefix
 R2_PREFIX = "charts"                           # bucket keys live under charts/
+POST_TD = 63                                   # trading days of post-exit window drawn
 
 # Strategies that don't take profits (use_take_profit=False) carry a placeholder
 # tgt_atr (e.g. 8.0) that never fires and would balloon the y-axis. For those, show
@@ -258,9 +259,11 @@ def main():
         return
 
     # For incremental uploads, one ListObjectsV2 sweep beats a HEAD per trade.
-    existing_r2 = set()
+    # Keep each object's LastModified so we can re-render a chart whose cached
+    # PNG predates the trade's exit materializing (see the skip check below).
+    existing_r2 = {}
     if args.skip_existing and args.upload:
-        existing_r2 = cache_io.list_keys(f"{R2_PREFIX}/{REL_ROOT}/")
+        existing_r2 = cache_io.list_keys_with_meta(f"{R2_PREFIX}/{REL_ROOT}/")
         print(f"  {len(existing_r2)} charts already in R2")
 
     tickers = sorted(df["Ticker"].unique())
@@ -275,9 +278,21 @@ def main():
         r2_key = f"{R2_PREFIX}/{rel}"
 
         if args.skip_existing:
-            exists = (r2_key in existing_r2) if args.upload \
-                else os.path.exists(local_path)
-            if exists:
+            # A chart is final only once its post-exit window has fully drawn
+            # (exit + POST_TD trading days). The ledger marks an OPEN trade as
+            # Exit Type 'Time' at the last bar, so a chart first rendered while
+            # the trade is in flight freezes on a wrong exit/MAE/MFE. Skip only
+            # when the cached render post-dates that cutoff; otherwise the exit
+            # has since materialized or moved, so re-render. Open/recent trades
+            # have a future cutoff and are always re-rendered.
+            cutoff_epoch = (trade["Exit Date"] + pd.offsets.BDay(POST_TD)).timestamp()
+            if args.upload:
+                lm = existing_r2.get(r2_key)
+                fresh = lm is not None and lm >= cutoff_epoch
+            else:
+                fresh = os.path.exists(local_path) and \
+                    os.path.getmtime(local_path) >= cutoff_epoch
+            if fresh:
                 n_skip += 1
                 continue
 
