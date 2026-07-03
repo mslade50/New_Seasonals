@@ -12,7 +12,7 @@ yahooquery
 scipy
 matplotlib
 mplfinance
-scikit-learn
+scikit-learn==1.3.0  # pinned: ml/ meta-model pickle (HGB) must match train-time sklearn; unpin only when retraining + re-uploading the R2 artifact
 gspread
 requests-cache
 pytz
