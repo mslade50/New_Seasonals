@@ -561,15 +561,18 @@ _STRATEGY_BOOK_RAW = [
                       # Mirrored: strat_backtester sizing 3b2, daily_scan sizing 2e,
                       # order_staging OVS_CYCLE_MULTS (P1 fixed-dollar target).
                       "cycle_risk_mults": {2: 0.75},
-                      # Fragility mid-band tilt (2026-07-02): 0.75x when the 63d
-                      # 10d-MA score sits in [21, 44). OVS is U-shaped in
-                      # fragility: +0.60 avgR in deep calm, ~0.0 in the mid-band
-                      # (block-bootstrap z=-3.0, discounted to ~2 sigma effective
-                      # -> 0.75x shrunk-Kelly, same grading as the midterm tilt;
-                      # the two stack multiplicatively to 0.5625x when both hit),
-                      # and +0.48 at 55+ (real, NOT 2022-driven) — so no throttle
-                      # at the top: OVS stays exempt above 44 affirmatively.
-                      "frag_risk_bands": [[21, 44, 0.75]]},
+                      # Fragility mid-band tilt REMOVED (2026-07-03, PIT gate).
+                      # A 0.75x tilt in [21,44) shipped 2026-07-02 on full-sample
+                      # z=-3.0, but the point-in-time edge-weight re-estimation
+                      # (roadmap step 5, scratch/pit_reestimate.py) failed it on
+                      # the testable window: 2018+ clustered t=-1.34 PIT /
+                      # t=-0.63 even with current weights — the evidence lived in
+                      # 2016-17 trades no honest vintage can grade. Unwound per
+                      # the pre-agreed gate. OVS remains fully EXEMPT from
+                      # fragility sizing (its 55+ strength was affirmative and
+                      # is untouched by this). Do not re-add without fresh
+                      # out-of-window evidence.
+                      },
         "stats": {"grade": "A (Excellent)", "win_rate": "58.0%", "expectancy": "0.28r", "profit_factor": "1.96"}
     },
     {

@@ -272,13 +272,24 @@ Per-strategy fragility sizing via `execution['frag_risk_bands']` =
 REPLACED the retired book-wide ramp (1.25x boost -> 0.10x floor): the boost had
 no edge case, and only specific pockets degrade at high fragility. Current
 bands: the dip-buy FAMILY4 (Weak Close Decent Sznls, SPY QQQ MonFri Reversion,
-Monday Dip, Indices Oversold Bounce) run `[[50, 999, 0.25]]` (family avgR
--0.283 N=74 at >=50 vs +0.607 below, clustered p=0.032, LOYO-stable; the rest
-of the book shows NO degradation there, p=0.47); OVS runs `[[21, 44, 0.75]]`
-(U-shaped: mid-band ~2 sigma weak, 55+ affirmatively strong so no top throttle;
-stacks with the midterm 0.75x). Unlike the old ramp, the ENGINE REPLAYS the
-bands point-in-time, so ledger and live agree (finding #26 closed for this
-scheme). Evidence: scratch/ultracode_research/PORTFOLIO_RESEARCH_2026-07-02.md.
+Monday Dip, Indices Oversold Bounce) run `[[50, 999, 0.25]]`; the rest of the
+book (including OVS) is 1.0x at all scores. Unlike the old ramp, the ENGINE
+REPLAYS the bands point-in-time, so ledger and live agree (finding #26 closed
+for this scheme). Evidence: scratch/ultracode_research/PORTFOLIO_RESEARCH_2026-07-02.md.
+
+PIT edge-weight gate (roadmap step 5, run 2026-07-03, scratch/pit_reestimate.py
++ pit_extract_signals.py): the fragility composite's signal weights were
+re-estimated on expanding windows (vintage Y-1 weights score year Y, 2018+)
+to remove calibration lookahead. Results: PIT-vs-current series corr 0.94,
+>=50 day agreement 92%. FAMILY4 throttle SURVIVED (hi -0.10 vs lo +0.63,
+clustered t=-1.96 p=0.057; LOYO floor ~1.4-1.5 sigma; negative in 6 of 9
+years) — stands, conviction one notch lower than the current-weights grading.
+The OVS [21,44) 0.75x tilt FAILED (PIT t=-1.34; even current weights only
+t=-0.63 on 2018+ — its z=-3.0 lived in untestable 2016-17) and was REMOVED
+per the pre-agreed gate; OVS is fully exempt again. The aggregate book-wide
+>=50 effect also fails PIT (t=-0.23), vindicating the family-only design.
+Residual lookahead the PIT gate cannot cure: signal definitions/parameters
+are today's code. Re-examine FAMILY4 at +20 high-frag family trades (~2029).
 
 Three aligned sites -- change together (order_staging needs nothing: it takes
 scanner-staged sizes as-is since 2026-06-11):

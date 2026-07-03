@@ -35,7 +35,6 @@ import pages.strat_backtester as sb
 FAMILY4 = {"Weak Close Decent Sznls", "SPY QQQ MonFri Reversion",
            "Monday Dip", "Indices Oversold Bounce"}
 FAMILY_BANDS = [[50, 999, 0.25]]
-OVS_BANDS = [[21, 44, 0.75]]
 
 
 def _exec_of(name):
@@ -45,13 +44,14 @@ def _exec_of(name):
     raise AssertionError(f"strategy {name!r} not in STRATEGY_BOOK")
 
 
-def test_config_carries_exactly_the_five_band_entries():
+def test_config_carries_exactly_the_family_band_entries():
+    # OVS mid-band tilt was removed 2026-07-03 after failing the PIT
+    # edge-weight gate (roadmap step 5) — OVS must stay fully exempt.
     with_bands = {s["name"]: s["execution"]["frag_risk_bands"]
                   for s in STRATEGY_BOOK if s["execution"].get("frag_risk_bands")}
-    assert set(with_bands) == FAMILY4 | {"Overbot Vol Spike"}
+    assert set(with_bands) == FAMILY4
     for name in FAMILY4:
         assert with_bands[name] == FAMILY_BANDS
-    assert with_bands["Overbot Vol Spike"] == OVS_BANDS
 
 
 def test_family_band_boundaries():
@@ -63,13 +63,10 @@ def test_family_band_boundaries():
     assert frag_band_mult(ex, None) == 1.0    # missing/stale score -> native
 
 
-def test_ovs_band_boundaries():
+def test_ovs_fully_exempt_at_every_score():
     ex = _exec_of("Overbot Vol Spike")
-    assert frag_band_mult(ex, 20.99) == 1.0
-    assert frag_band_mult(ex, 21.0) == 0.75
-    assert frag_band_mult(ex, 43.99) == 0.75
-    assert frag_band_mult(ex, 44.0) == 1.0    # top-end exemption is affirmative
-    assert frag_band_mult(ex, 70.0) == 1.0
+    for score in (0.0, 21.0, 43.99, 50.0, 70.0, 95.0, None):
+        assert frag_band_mult(ex, score) == 1.0
 
 
 def test_bandless_strategy_untouched_at_any_score():
