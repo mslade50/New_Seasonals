@@ -217,6 +217,15 @@ def main():
     df.to_parquet(OUT_PARQUET, index=False)
     print(f"\n  Wrote {len(df)} trades -> {OUT_PARQUET}")
 
+    # Mirror the ledger to R2 so daily_scan's sector_loss_gate (which reads
+    # recent closed trades at scan time) sees exits through yesterday in the
+    # GHA screener job. Graceful no-op without R2 creds (local runs).
+    try:
+        from cache_io import upload_from_local
+        upload_from_local(OUT_PARQUET, "backtest_trades_full.parquet")
+    except Exception as e:
+        print(f"  (R2 mirror skipped: {e})")
+
     # --- daily portfolio MTM series (both sizing bases) for equity/DD figs ---
     # Uses the raw process_signals_fast frames (Price/PnL/Shares column names).
     print("  Computing daily portfolio MTM series ...")

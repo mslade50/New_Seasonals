@@ -17,6 +17,82 @@ from exposure_leg import compute_exposure_leg_backtest, EXPOSURE_TICKERS, BASE_W
 
 _DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data")
 
+# --- Fragility score series for execution['frag_risk_bands'] (sizing 3b3) ---
+# Point-in-time replay basis: 10d MA of the 63d dial from rd2_fragility.parquet
+# (5d-smoothed, append-only since 2026-07-02), looked up as of signal date with
+# a 5-day ffill. Signals before the series starts (2016-07) or with a missing
+# cache resolve to None -> 1.0x, matching live daily_scan behavior.
+_FRAG_SCORE_CACHE = {}
+
+
+def _frag_score_series():
+    if 'series' in _FRAG_SCORE_CACHE:
+        return _FRAG_SCORE_CACHE['series']
+    series = None
+    try:
+        _fp = os.path.join(_DATA_DIR, "rd2_fragility.parquet")
+        if os.path.exists(_fp):
+            _fdf = pd.read_parquet(_fp)
+            if '63d' in _fdf.columns:
+                _s = _fdf['63d'].dropna().rolling(10, min_periods=1).mean()
+                _s.index = pd.to_datetime(_s.index).normalize()
+                try:
+                    _s.index = _s.index.tz_localize(None)
+                except (TypeError, AttributeError):
+                    pass
+                _grid = pd.date_range(_s.index.min(), _s.index.max(), freq='D')
+                series = _s.reindex(_grid).ffill(limit=5)
+    except Exception:
+        series = None
+    _FRAG_SCORE_CACHE['series'] = series
+    return series
+
+
+def frag_band_mult_at(execution, signal_ts):
+    """Multiplier from execution['frag_risk_bands'] at a signal timestamp.
+    Bands are [lo, hi, mult], first match wins (lo <= score < hi); 1.0 when the
+    strategy has no bands or no score exists for that date. Mirrors
+    daily_scan.frag_band_mult — change together."""
+    bands = execution.get('frag_risk_bands') if execution else None
+    if not bands:
+        return 1.0
+    series = _frag_score_series()
+    if series is None:
+        return 1.0
+    ts = pd.Timestamp(signal_ts).normalize()
+    if ts not in series.index:
+        return 1.0
+    score = series.loc[ts]
+    if pd.isna(score):
+        return 1.0
+    for lo, hi, mult in bands:
+        if lo <= score < hi:
+            return float(mult)
+    return 1.0
+
+
+# --- Sector map for execution['sector_loss_gate'] (candidate drop in the
+# chronological loop). data/sector_map.parquet is committed: yfinance sectors
+# for the liquid names union FMP sectors from symbol_master; ETFs carry coarse
+# labels (Commodity, etc.). Missing ticker -> gate passes through (no drop).
+_SECTOR_MAP_CACHE = {}
+
+
+def _sector_map():
+    if 'map' in _SECTOR_MAP_CACHE:
+        return _SECTOR_MAP_CACHE['map']
+    m = {}
+    try:
+        _sp = os.path.join(_DATA_DIR, "sector_map.parquet")
+        if os.path.exists(_sp):
+            _sdf = pd.read_parquet(_sp)
+            m = dict(zip(_sdf['ticker'].astype(str).str.upper(), _sdf['sector']))
+    except Exception:
+        m = {}
+    _SECTOR_MAP_CACHE['map'] = m
+    return m
+
+
 # -----------------------------------------------------------------------------
 # IMPORT STRATEGY BOOK FROM ROOT
 # -----------------------------------------------------------------------------
@@ -1402,6 +1478,11 @@ def process_signals_fast(candidates, signal_data, processed_dict, strategies, st
     realized_pnl = 0.0
     position_last_exit = {}
     last_signal_ts = None
+    # Closed-trade log for execution['sector_loss_gate']:
+    # {strat_name: [(exit_ts_value, sector, realized_r), ...]}. Appended when a
+    # gated strategy's trade finalizes; read at candidate time to drop signals
+    # into sectors that are demonstrably not bouncing (see gate block below).
+    _gate_closed = {}
     # Running MTM notionals (recomputed once per signal_ts, then incremented
     # intra-date as new trades are placed). Used by the optional portfolio
     # net-exposure cap below.
@@ -1452,7 +1533,29 @@ def process_signals_fast(candidates, signal_data, processed_dict, strategies, st
         atr = row_data['atr']
         if pd.isna(atr) or atr <= 0:
             continue
-        
+
+        # --- Sector loss gate (OLV, 2026-07-02) ---
+        # execution['sector_loss_gate'] = {'window_td': N, 'max_realized_r': X}:
+        # drop the candidate when this strategy's realized R in the SAME SECTOR
+        # over the trailing N business days is X or worse. Catches the June-2026
+        # failure mode (sequential stop-outs re-entering one falling sector,
+        # -20.4R) that count caps and MTM gates cannot: live stops truncate each
+        # position near -1R, so damage only shows up as realized exits. Study
+        # (scratch/olv_cap_study*.py): gate at 10td/-2R drops 12 trades worth
+        # NET -2.7R over 20y and removes ~36% of the June cluster; count caps
+        # cost +52R (OLV's sector clustering is usually its winning mode).
+        # Unknown-sector tickers pass through. Mirrored in daily_scan (reads the
+        # nightly ledger for closed trades); change together.
+        _slg = execution.get('sector_loss_gate')
+        if _slg:
+            _gsec = _sector_map().get(t_clean.upper())
+            if _gsec:
+                _glo = (pd.Timestamp(signal_ts) - BusinessDay(int(_slg['window_td']))).value
+                _grsum = sum(r for x, s, r in _gate_closed.get(strat_name, ())
+                             if s == _gsec and _glo <= x < signal_ts)
+                if _grsum < float(_slg['max_realized_r']):
+                    continue
+
         # ========== ENTRY LOGIC SECTION ==========
         entry_type = settings.get('entry_type', 'T+1 Open')
         hold_days = execution['hold_days']
@@ -1598,6 +1701,15 @@ def process_signals_fast(candidates, signal_data, processed_dict, strategies, st
             _cm = float(_cyc.get(pd.Timestamp(signal_ts).year % 4, 1.0))
             if _cm != 1.0:
                 base_risk *= _cm
+
+        # --- 3b3. Fragility risk bands (2026-07-02) ---
+        # execution['frag_risk_bands'] = [[lo, hi, mult]] on the 10d-MA 63d
+        # dial, replayed point-in-time by signal date (no score -> 1.0x, incl.
+        # every pre-2016 signal). Mirrors daily_scan sizing 2b — the ledger and
+        # live sizing agree on this rule, unlike the retired book-wide ramp.
+        _fbm = frag_band_mult_at(execution, signal_ts)
+        if _fbm != 1.0:
+            base_risk *= _fbm
 
         # --- 3c. User-configured per-strategy risk multiplier (size-up dial) ---
         # Applied as the FINAL sizing step so it scales whichever rule won
@@ -2031,6 +2143,13 @@ def process_signals_fast(candidates, signal_data, processed_dict, strategies, st
                     current_short_notional += entry_price * shares
                 if max_one_pos:
                     position_last_exit[(strat_name, ticker)] = exit_date.value
+
+                # feed the sector-loss gate's closed-trade log (see gate block)
+                if execution.get('sector_loss_gate') and base_risk > 0:
+                    _gsec2 = _sector_map().get(t_clean.upper())
+                    if _gsec2:
+                        _gate_closed.setdefault(strat_name, []).append(
+                            (exit_date.value, _gsec2, float(pnl) / float(base_risk)))
 
                 t1_open = entry_row['Open'] if entry_row is not None else entry_price
 

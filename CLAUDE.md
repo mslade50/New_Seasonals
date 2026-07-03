@@ -264,6 +264,59 @@ dropped), while the backtest/ledger still models the 2-path scheme
 if the ledger should be aligned to live instead. Unresolved -- decide
 whether to re-enable P2 live or flip the backtest to P1-only.
 
+## Fragility Risk Bands (2026-07-02)
+
+Per-strategy fragility sizing via `execution['frag_risk_bands']` =
+`[[lo, hi, mult], ...]` on the 10d-MA 63d risk-dial score as of signal date
+(first match wins, `lo <= score < hi`; missing/stale score or no bands = 1.0x).
+REPLACED the retired book-wide ramp (1.25x boost -> 0.10x floor): the boost had
+no edge case, and only specific pockets degrade at high fragility. Current
+bands: the dip-buy FAMILY4 (Weak Close Decent Sznls, SPY QQQ MonFri Reversion,
+Monday Dip, Indices Oversold Bounce) run `[[50, 999, 0.25]]` (family avgR
+-0.283 N=74 at >=50 vs +0.607 below, clustered p=0.032, LOYO-stable; the rest
+of the book shows NO degradation there, p=0.47); OVS runs `[[21, 44, 0.75]]`
+(U-shaped: mid-band ~2 sigma weak, 55+ affirmatively strong so no top throttle;
+stacks with the midterm 0.75x). Unlike the old ramp, the ENGINE REPLAYS the
+bands point-in-time, so ledger and live agree (finding #26 closed for this
+scheme). Evidence: scratch/ultracode_research/PORTFOLIO_RESEARCH_2026-07-02.md.
+
+Three aligned sites -- change together (order_staging needs nothing: it takes
+scanner-staged sizes as-is since 2026-06-11):
+- `strategy_config.py` execution `frag_risk_bands` (source of truth)
+- `pages/strat_backtester.py` sizing step 3b3 (`frag_band_mult_at`, reads
+  data/rd2_fragility.parquet point-in-time; pre-2016 signals -> 1.0x)
+- `daily_scan.py` sizing step 2b (`frag_band_mult`, today's score, stamps
+  Sizing notes; scan-summary email shows active band tilts)
+- Guard: `tests/test_frag_risk_bands.py` (config invariants + boundary
+  behavior + engine/live parity). Replay parity vs the research cells:
+  scratch/parity_check_frag_bands.py (FAMILY4 74@0.25x exact, OVS 226/230
+  @0.75x exact with 4 cap-interaction deviations of 0.0004 on one day).
+
+## OLV Sector Loss Gate (2026-07-02)
+
+`execution['sector_loss_gate'] = {'window_td': 10, 'max_realized_r': -2.0}`
+(OLV only): skip a new signal when the strategy's realized R in the SAME
+SECTOR over the trailing 10 trading days is -2R or worse -- the sector dip is
+demonstrably trending, not bouncing. Motivated by June 2026: one oil cluster
+re-signaled ~30x lost -20.4R (worst DD in the ledger) entirely below fragility
+50, out of any dial's jurisdiction. Count caps and MTM gates were tested and
+REJECTED (sector clustering is usually OLV's WINNING mode -- a 2-cap costs
++52R over 20y; live stops truncate unrealized pain before an MTM gate can
+see it). This gate drops 12 net-losing trades (-2.7R) over 20y and removes
+~36% of a June-type cluster. Study: scratch/olv_cap_study*.py.
+
+Aligned sites -- change together:
+- `strategy_config.py` OLV execution `sector_loss_gate` (source of truth)
+- `pages/strat_backtester.py` candidate gate (chronological loop keeps its own
+  closed-trade log; exits strictly before signal date)
+- `daily_scan.py` `sector_gate_blocked()` -- reads recent closed trades from
+  `data/backtest_trades_full.parquet` (deploy_site's ledger build now mirrors
+  it to R2; `daily_screener.yml` pulls it). Missing ledger/sector map = gate
+  off with a printed notice (fail-open overlay).
+- `data/sector_map.parquet` (committed): ticker->sector union of yfinance
+  sector_overrides + FMP symbol_master, 1,447 tickers.
+- Guard: `tests/test_sector_loss_gate.py`.
+
 ## Stop-Arming Convention (book-wide, 2026-06-09)
 
 Stop legs ARM AT THE NEXT SESSION, not at the fill. Decided after measuring
@@ -394,7 +447,7 @@ All five trading-day workflows now run in GHA. Order staging stays local (IBKR-b
 | `update_intraday_prices.yml` | Weekdays 20:45 UTC (4:45 PM ET) | Pulls per-ticker 15min parquets + meta from R2, runs `scripts/update_intraday_yfinance.py --upload` — fetches recent bars from yfinance for every ticker in meta, converts UTC→ET, appends, dedupes, writes back. yfinance has 60d rolling intraday history so this must run at least every ~50 days to avoid gaps; weekday cadence is fine in practice. |
 | `portfolio_report.yml` | Weekdays 21:30 UTC (5:30 PM ET) | Pulls master_prices + earnings caches from R2, runs `daily_portfolio_report.py`, sends HTML email + writes Portfolio Sheets tab. |
 | `bootstrap_caches.yml` | workflow_dispatch only | One-shot: builds `master_prices.parquet` from scratch via yfinance (~10-15 min for ~2000 tickers, 25-yr history) and uploads to R2. Used to seed the bucket (already run during Phase 2 setup). |
-| `risk_report.yml` | Weekdays 21:15 UTC (5:15 PM ET) | Daily risk dashboard email (fragility dials + signals + forward returns). Writes `data/rd2_fragility.parquet` APPEND-ONLY (since 2026-07-02): history is frozen point-in-time, only new dates append (same-day rerun refreshes today's row). The full recompute still runs in memory for the report itself. Guard: `tests/test_fragility_append.py`. This series sizes live orders (`daily_scan.fragility_size_mult`) — do not revert to full rewrites; recompute vintages drifted up to ~7 pts on the 63d dial. |
+| `risk_report.yml` | Weekdays 21:15 UTC (5:15 PM ET) | Daily risk dashboard email (fragility dials + signals + forward returns). Writes `data/rd2_fragility.parquet` APPEND-ONLY (since 2026-07-02): history is frozen point-in-time, only new dates append (same-day rerun refreshes today's row). The full recompute still runs in memory for the report itself. Guard: `tests/test_fragility_append.py`. This series sizes live orders (`frag_risk_bands`, see "Fragility Risk Bands") — do not revert to full rewrites; recompute vintages drifted up to ~7 pts on the 63d dial. |
 | `verify_fills.yml` | Weekdays 21:15 UTC | Post-close fill verification — updates Trade_Signals_Log. |
 | `deploy_site.yml` | Reusable workflow (`workflow_call`), invoked by the `deploy-site` job at the tail of `daily_screener.yml` (`needs: run-scanner`) so it runs in the SAME run, right after the scan succeeds — 2x/trading day (after the ~4:47 AM ET dispatch scan and the PM bookend). Replaced the old best-effort `workflow_run` chain, which was silently not firing. A skipped (AM fallback) or failed scan skips the deploy and the prior deploy stays up. `workflow_dispatch` retained for manual rebuilds. | Builds + deploys the private analytics site to Cloudflare Pages (behind Cloudflare Access). Pipeline: R2 caches → `scripts/build_trade_ledger.py` (full-history ledger) → `scripts/build_signal_charts.py --all --upload --skip-existing` (renders only NEW per-trade charts to R2, best effort) → `daily_seasonal_ideas.py` (best effort) → `scripts/build_risk_json.py` (best effort) → `scripts/build_site.py` (JSON payloads + `site/` assets → `dist/`) → wrangler Pages deploy (config-driven via `wrangler.toml`; no positional dir, so the CHARTS R2 binding applies). Needs `CLOUDFLARE_API_TOKEN` + `CLOUDFLARE_ACCOUNT_ID` secrets. One-time setup: `docs/private_site_setup.md`. Operational runbook (failure modes, decisions log,
 trigger chain, out-of-repo file map): `docs/site_runbook.html`. |

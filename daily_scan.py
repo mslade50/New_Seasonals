@@ -262,17 +262,17 @@ def get_google_client():
         return None
 
 
-def send_email_summary(signals_list, error_tickers=None, frag_score=None, frag_mult=None, scope_label=None, exposure_html=None):
+def send_email_summary(signals_list, error_tickers=None, frag_score=None, scope_label=None, exposure_html=None):
     """
     Sends an HTML email summary of the signals using Gmail SMTP.
     Card-based layout showing full signal criteria with LIVE values.
 
-    frag_score / frag_mult: today's 10d-MA 63d fragility reading and the
-    corresponding sizing multiplier from the risk dial schedule. Rendered
-    as a header line so the reader sees where on the schedule we're sized.
+    frag_score: today's 10d-MA 63d fragility reading. Sizing is per-strategy
+    (execution['frag_risk_bands']); the header line shows the score and which
+    band tilts are active so the reader sees the regime at a glance.
     """
     # Build the risk-dial header line (shared across both branches)
-    if frag_score is not None and frag_mult is not None:
+    if frag_score is not None:
         if frag_score <= 25:
             _dial_label = "Robust"
             _dial_color = "#c8e6c9"
@@ -282,17 +282,23 @@ def send_email_summary(signals_list, error_tickers=None, frag_score=None, frag_m
         else:
             _dial_label = "Fragile"
             _dial_color = "#ffcdd2"
+        _tilts = []
+        if frag_score >= 50:
+            _tilts.append("dip-buy family 0.25x")
+        if 21 <= frag_score < 44:
+            _tilts.append("OVS 0.75x")
+        _tilt_txt = ", ".join(_tilts) if _tilts else "no band tilts active"
         risk_dial_html = (
             f'<div style="font-size: 13px; margin-top: 6px; opacity: 0.95;">'
             f'🛡️ Risk Dial: <strong>{frag_score:.1f}</strong> '
             f'<span style="background: {_dial_color}; color: #333; padding: 1px 6px; border-radius: 3px; font-size: 11px; margin: 0 4px;">{_dial_label}</span>'
-            f'→ sizing <strong>{frag_mult:.2f}x</strong>'
+            f'→ <strong>{_tilt_txt}</strong>'
             f'</div>'
         )
     else:
         risk_dial_html = (
             '<div style="font-size: 13px; margin-top: 6px; opacity: 0.7;">'
-            '🛡️ Risk Dial: n/a (fragility cache missing) — sizing 1.00x'
+            '🛡️ Risk Dial: n/a (fragility cache missing) — all bands 1.00x'
             '</div>'
         )
     sender_email = os.environ.get("EMAIL_USER")
@@ -683,33 +689,92 @@ ETF_ATR_EXEMPT = {'SPY', 'QQQ', 'IWM', 'DIA'}
 # missed run without over-triggering.
 FRAG_STALE_TD = 3
 
-# Fragility sizing schedule (from the Fragility Sizing Lab optimization).
-# Live non-OVS orders are scaled by fragility_size_mult(frag_score): a linear
-# ramp that boosts size in calm regimes and throttles it in fragile ones.
-FRAG_THRESHOLD = 25    # ramp neutral zone (mult == 1.0 exactly here)
-FRAG_MAX_MULT = 1.25   # boost at frag=0
-FRAG_MIN_MULT = 0.10   # floor at frag=100
+# Fragility risk bands (2026-07-02) — replaced the retired book-wide ramp
+# (1.25x boost -> 0.10x floor; the boost had no edge case and the rest of the
+# book shows no high-frag degradation). Per-strategy now: strategies opt in via
+# execution['frag_risk_bands'] = [[lo, hi, mult], ...] on the 10d-MA 63d score
+# (FAMILY4 dip-buyers 0.25x at >=50; OVS 0.75x in [21,44)). Aligned with
+# strat_backtester sizing 3b3, which replays the same bands point-in-time —
+# unlike the old ramp, the ledger and live now agree.
 
 
-def fragility_size_mult(frag_score):
-    """Per-order sizing multiplier for a 10d-MA 63d fragility score.
-
-    Single source of truth for the live sizing ramp. NOTE: the historical
-    engine (pages/strat_backtester.process_signals_fast) does NOT replay this
-    multiplier, so the report / ledger model un-adjusted sizes — a known
-    live-vs-model divergence (finding #26). Exposed as a shared helper so a
-    future point-in-time replay can reuse the exact ramp without duplicating it.
-    """
-    if frag_score is None:
+def frag_band_mult(execution, frag_score):
+    """Sizing multiplier from execution['frag_risk_bands'] for a 10d-MA 63d
+    fragility score. 1.0 when the strategy has no bands, the score is
+    None/stale, or no band matches. Bands are [lo, hi, mult], first match wins,
+    mult applies when lo <= score < hi."""
+    bands = execution.get('frag_risk_bands') if execution else None
+    if not bands or frag_score is None:
         return 1.0
-    if frag_score <= FRAG_THRESHOLD:
-        if FRAG_THRESHOLD > 0:
-            return FRAG_MAX_MULT - (frag_score / FRAG_THRESHOLD) * (FRAG_MAX_MULT - 1.0)
-        return FRAG_MAX_MULT
-    return max(
-        FRAG_MIN_MULT,
-        1.0 - ((frag_score - FRAG_THRESHOLD) / (100 - FRAG_THRESHOLD)) * (1 - FRAG_MIN_MULT),
-    )
+    for lo, hi, mult in bands:
+        if lo <= frag_score < hi:
+            return float(mult)
+    return 1.0
+
+
+_SLG_CACHE = {}  # key='state' → (ledger_df or None, sector_map dict)
+def _sector_gate_state():
+    """Closed-trade ledger + sector map for execution['sector_loss_gate'].
+
+    The ledger (data/backtest_trades_full.parquet) is the modeled book rebuilt
+    nightly by deploy_site and mirrored to R2 (pulled by daily_screener.yml),
+    so at scan time it holds exits through yesterday — the same "exits strictly
+    before the signal date" window the backtest gate uses. Missing ledger or
+    sector map degrades to gate-off with a printed notice (fail-open: the gate
+    is an overlay, not a dependency)."""
+    if 'state' in _SLG_CACHE:
+        return _SLG_CACHE['state']
+    ledger, smap = None, {}
+    try:
+        _lp = os.path.join(current_dir, 'data', 'backtest_trades_full.parquet')
+        if os.path.exists(_lp):
+            ledger = pd.read_parquet(
+                _lp, columns=['Strategy', 'Ticker', 'Exit Date', 'R_Multiple'])
+            ledger['Exit Date'] = pd.to_datetime(ledger['Exit Date'])
+        else:
+            print("⚠️ sector_loss_gate: data/backtest_trades_full.parquet missing — gate disabled")
+    except Exception as e:
+        print(f"⚠️ sector_loss_gate: ledger unreadable ({e}) — gate disabled")
+        ledger = None
+    try:
+        _sp = os.path.join(current_dir, 'data', 'sector_map.parquet')
+        if os.path.exists(_sp):
+            _sd = pd.read_parquet(_sp)
+            smap = dict(zip(_sd['ticker'].astype(str).str.upper(), _sd['sector']))
+        else:
+            print("⚠️ sector_loss_gate: data/sector_map.parquet missing — gate disabled")
+    except Exception:
+        smap = {}
+    _SLG_CACHE['state'] = (ledger, smap)
+    return _SLG_CACHE['state']
+
+
+def sector_gate_blocked(strat_name, execution, t_clean, asof):
+    """(blocked, note) for execution['sector_loss_gate'] at a signal date.
+    Blocks when the strategy's realized R in the same sector over the trailing
+    window_td business days is max_realized_r or worse. Mirrors the candidate
+    gate in pages/strat_backtester.py — change together."""
+    cfg = execution.get('sector_loss_gate') if execution else None
+    if not cfg:
+        return False, ''
+    ledger, smap = _sector_gate_state()
+    if ledger is None or not smap:
+        return False, ''
+    sec = smap.get(t_clean.upper())
+    if not sec:
+        return False, ''
+    asof = pd.Timestamp(asof).normalize()
+    lo = asof - pd.tseries.offsets.BDay(int(cfg['window_td']))
+    sub = ledger[(ledger['Strategy'] == strat_name)
+                 & (ledger['Exit Date'] >= lo) & (ledger['Exit Date'] < asof)]
+    if sub.empty:
+        return False, ''
+    same = sub[sub['Ticker'].astype(str).str.upper().map(smap).eq(sec)]
+    rsum = float(same['R_Multiple'].sum()) if len(same) else 0.0
+    if rsum < float(cfg['max_realized_r']):
+        return True, (f"{sec}: {rsum:+.1f}R realized over last {cfg['window_td']}td "
+                      f"({len(same)} exits) < {cfg['max_realized_r']}R")
+    return False, ''
 
 
 _FRAG_DF_CACHE = {}  # key='loaded' → DataFrame or None
@@ -2167,7 +2232,6 @@ def run_daily_scan(scope='liquid', moc_only=False, dry_run=False):
     # Uses 10d MA of 63d fragility, lagged 1 day (today's score → tomorrow's trades)
     FRAG_CACHE = os.path.join(current_dir, "data", "rd2_fragility.parquet")
     FRAG_CACHE_TS = os.path.join(current_dir, "data", "rd2_fragility_ts.parquet")
-    frag_mult = 1.0  # default: no adjustment
     frag_score = None  # populated below if fragility cache loads AND is fresh
 
     frag_path = FRAG_CACHE if os.path.exists(FRAG_CACHE) else (FRAG_CACHE_TS if os.path.exists(FRAG_CACHE_TS) else None)
@@ -2193,14 +2257,13 @@ def run_daily_scan(scope='liquid', moc_only=False, dry_run=False):
                     except (ValueError, AttributeError):
                         _age_td = FRAG_STALE_TD + 1
                     if _age_td > FRAG_STALE_TD:
-                        frag_mult = 1.0
                         print(f"🚨 STALE FRAGILITY: last score {_last_frag_dt.date()} is "
                               f"{_age_td} trading days old (> {FRAG_STALE_TD}) — falling back "
                               f"to 1.0x sizing (producer may be broken)")
                     else:
                         frag_score = float(frag_series.iloc[-1])
-                        frag_mult = fragility_size_mult(frag_score)
-                        print(f"🛡️ Fragility sizing: 63d score = {frag_score:.1f} → multiplier = {frag_mult:.2f}x")
+                        print(f"🛡️ Fragility score: 63d 10d-MA = {frag_score:.1f} "
+                              f"(per-strategy frag_risk_bands apply at sizing)")
                 else:
                     print("⚠️ Fragility series empty after processing — using 1.0x")
             else:
@@ -2373,6 +2436,15 @@ def run_daily_scan(scope='liquid', moc_only=False, dry_run=False):
                         elif in_blackout(calc_df.index[-1], _e_arr, window=_eb_window):
                             continue
 
+                    # Sector loss gate (OLV, 2026-07-02): skip a signal into a
+                    # sector where this strategy just realized heavy losses —
+                    # the dip is trending, not bouncing (June 2026 oil cluster).
+                    _slg_block, _slg_note = sector_gate_blocked(
+                        strat['name'], strat['execution'], t_clean, calc_df.index[-1])
+                    if _slg_block:
+                        print(f"   ⛔ {t_clean}: sector loss gate — {_slg_note}")
+                        continue
+
                     # Spot-index alias: detection happens on ^GSPC/^NDX (purer price),
                     # but staging happens on SPY/QQQ. Recompute calc_df against the
                     # tradeable so all downstream values (entry, ATR, stop/target,
@@ -2439,13 +2511,16 @@ def run_daily_scan(scope='liquid', moc_only=False, dry_run=False):
                     # path-1 nominal; order_staging downsizes path-2 rows.
                     # ---------------------------------------------------------
 
-                    # 2b. FRAGILITY SIZING ADJUSTMENT
-                    # Applied after strategy-specific adjustments. OVS is exempt —
-                    # its sizing is governed by the 2-path gap-tier adjuster in
-                    # order_staging.py.
-                    if frag_mult != 1.0 and strat['name'] != "Overbot Vol Spike":
-                        risk = risk * frag_mult
-                        sizing_note += f" | Frag {frag_mult:.2f}x"
+                    # 2b. FRAGILITY RISK BANDS (per-strategy, 2026-07-02).
+                    # execution['frag_risk_bands'] = [[lo, hi, mult], ...] on
+                    # the 10d-MA 63d score; strategies without the field (and
+                    # missing/stale scores) run 1.0x. FAMILY4 dip-buyers 0.25x
+                    # at >=50, OVS 0.75x in [21,44). Mirrored in
+                    # strat_backtester sizing 3b3 (point-in-time replay).
+                    _fbm = frag_band_mult(strat['execution'], frag_score)
+                    if _fbm != 1.0:
+                        risk = risk * _fbm
+                        sizing_note += f" | Frag band ({frag_score:.0f}): {_fbm:.2f}x"
 
                     # 2c. LADDER SIZING — scale up on repeat signals for the same
                     # (ticker, strategy) while prior positions are still held.
@@ -2820,7 +2895,7 @@ def run_daily_scan(scope='liquid', moc_only=False, dry_run=False):
             print(f"[exposure] Failed to build exposure leg: {e}")
             exposure_html = None
 
-    send_email_summary(all_signals, error_tickers=unique_errors, frag_score=frag_score, frag_mult=frag_mult, scope_label=_scope_label, exposure_html=exposure_html)
+    send_email_summary(all_signals, error_tickers=unique_errors, frag_score=frag_score, scope_label=_scope_label, exposure_html=exposure_html)
 
     print("--- Scan Complete ---")
 

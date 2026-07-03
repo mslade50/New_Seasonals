@@ -375,7 +375,20 @@ _STRATEGY_BOOK_RAW = [
                    'use_take_profit': True,
                    'use_trailing_stop': False,
                    'trail_atr': 2.0,
-                   'trail_anchor': 'Peak High'},
+                   'trail_anchor': 'Peak High',
+                   # Fragility risk bands (2026-07-02): [lo, hi, mult] on the
+                   # 63d 10d-MA risk-dial score as of signal date; mult applies
+                   # when lo <= score < hi, else 1.0 (also 1.0 when the score
+                   # is missing/stale). The dip-buy FAMILY4 (this, MonFri
+                   # Reversion, Monday Dip, Indices OS Bounce) runs 0.25x at
+                   # >= 50: family avgR -0.283 (N=74) above 50 vs +0.607 below,
+                   # clustered p=0.032, survives every single-year exclusion;
+                   # the rest of the book shows NO degradation there (p=0.47)
+                   # and stays 1.0x. Replaces the retired book-wide ramp (1.25x
+                   # boost -> 0.10x floor). Aligned sites: daily_scan sizing 2b,
+                   # strat_backtester sizing 3b3. Evidence:
+                   # scratch/ultracode_research/PORTFOLIO_RESEARCH_2026-07-02.md
+                   'frag_risk_bands': [[50, 999, 0.25]]},
      'stats': {'grade': 'A (Excellent)', 'win_rate': '61.3%', 'expectancy': '0.28r', 'profit_factor': '1.78'}},
     {
         "id": "21dr < 15 3 consec, 5dr < 33, 2dr < 25, 252dr 50-90, rel vol < 15, market > 200 SMA, age >= 5y, pre-earnings -> 10 bps, GTC limit close-0.25 ATR, 10d hold, 1.25 ATR stop, 2.5 ATR tgt",
@@ -452,6 +465,21 @@ _STRATEGY_BOOK_RAW = [
                       # loop, daily_scan Fill_Window_Days stamp, order_staging
                       # GTC cancel-after-N. Evidence: scratch/olv_fill_window.py.
                       "fill_window_days": 3,
+                      # Sector loss gate (2026-07-02): skip a new OLV signal
+                      # when realized OLV R in the SAME SECTOR over the trailing
+                      # 10 trading days is -2R or worse — the sector dip is
+                      # demonstrably trending, not bouncing (June 2026: one oil
+                      # cluster re-signaled ~30x lost -20.4R, the worst DD in
+                      # the ledger, entirely below fragility 50). Count caps and
+                      # MTM gates were tested and REJECTED: sector clustering is
+                      # usually OLV's winning mode (+52R of drops), and live
+                      # stops truncate unrealized pain before an MTM gate sees
+                      # it. This gate drops NET-losing trades historically
+                      # (-2.7R over 20y) while cutting ~36% of a June-type
+                      # cluster. Aligned: strat_backtester candidate gate,
+                      # daily_scan live gate (nightly ledger + sector_map).
+                      # Study: scratch/olv_cap_study*.py.
+                      "sector_loss_gate": {"window_td": 10, "max_realized_r": -2.0},
                       "ladder_multipliers": [0.85, 1.00, 1.15],
                       # Earnings size override: when signal_date sits in the
                       # offset range [min_td, max_td] (trading days relative to
@@ -532,7 +560,16 @@ _STRATEGY_BOOK_RAW = [
                       # episode clustering, so 0.75x (shrunk-Kelly), not full 0.4x.
                       # Mirrored: strat_backtester sizing 3b2, daily_scan sizing 2e,
                       # order_staging OVS_CYCLE_MULTS (P1 fixed-dollar target).
-                      "cycle_risk_mults": {2: 0.75}},
+                      "cycle_risk_mults": {2: 0.75},
+                      # Fragility mid-band tilt (2026-07-02): 0.75x when the 63d
+                      # 10d-MA score sits in [21, 44). OVS is U-shaped in
+                      # fragility: +0.60 avgR in deep calm, ~0.0 in the mid-band
+                      # (block-bootstrap z=-3.0, discounted to ~2 sigma effective
+                      # -> 0.75x shrunk-Kelly, same grading as the midterm tilt;
+                      # the two stack multiplicatively to 0.5625x when both hit),
+                      # and +0.48 at 55+ (real, NOT 2022-driven) — so no throttle
+                      # at the top: OVS stays exempt above 44 affirmatively.
+                      "frag_risk_bands": [[21, 44, 0.75]]},
         "stats": {"grade": "A (Excellent)", "win_rate": "58.0%", "expectancy": "0.28r", "profit_factor": "1.96"}
     },
     {
@@ -953,7 +990,10 @@ _STRATEGY_BOOK_RAW = [
             "tgt_atr": 2.0,
             "hold_days": 2,
             "use_stop_loss": False,
-            "use_take_profit": True
+            "use_take_profit": True,
+            # Dip-buy FAMILY4 fragility throttle — see Weak Close Decent Sznls
+            # for the full evidence note.
+            "frag_risk_bands": [[50, 999, 0.25]]
         },
         "stats": {"grade": "A (Excellent)", "win_rate": "64.6%", "expectancy": "0.34r", "profit_factor": "1.90"}
     },
@@ -1049,7 +1089,10 @@ _STRATEGY_BOOK_RAW = [
             "use_take_profit": True,
             "use_trailing_stop": False,
             "trail_atr": 2.0,
-            "trail_anchor": "Peak High"
+            "trail_anchor": "Peak High",
+            # Dip-buy FAMILY4 fragility throttle — see Weak Close Decent Sznls
+            # for the full evidence note.
+            "frag_risk_bands": [[50, 999, 0.25]]
         },
         "stats": {"grade": "A (Excellent)", "win_rate": "62.9%", "expectancy": "0.40r", "profit_factor": "2.21"}
     },
@@ -1274,7 +1317,10 @@ _STRATEGY_BOOK_RAW = [
                    'use_take_profit': True,
                    'use_trailing_stop': False,
                    'trail_atr': 2.0,
-                   'trail_anchor': 'Peak High'},
+                   'trail_anchor': 'Peak High',
+                   # Dip-buy FAMILY4 fragility throttle — see Weak Close Decent
+                   # Sznls for the full evidence note.
+                   'frag_risk_bands': [[50, 999, 0.25]]},
      'stats': {'grade': 'A (Excellent)', 'win_rate': '64.1%', 'expectancy': '0.40r', 'profit_factor': '2.17'}},
     {'id': 'T+1 Open > Close +0.5 ATR, Entry: Limit (Open +/- 0.75 ATR), 2d hold',
      'name': 'ATR Extended Gap Up',
