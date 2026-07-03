@@ -71,14 +71,21 @@ SHEET_NAME = "Trade_Signals_Log"
 TAB_NAME = "Trend"
 
 
+def _today_et() -> pd.Timestamp:
+    """Trading-calendar 'today' in ET — GHA runs on UTC, where a late-evening
+    dispatch has already rolled to tomorrow's date and would mis-stamp
+    Execute_On by one session."""
+    return pd.Timestamp.now(tz="America/New_York").tz_localize(None).normalize()
+
+
 def is_last_trading_day(today=None) -> bool:
     """True when the next business day (US federal holidays) starts a new
     month. NYSE-only closures (e.g. Good Friday) can slip the rebalance one
     session — a 1-day slip is verified immaterial vs the 0.55-Sharpe
     full-month-delay bound."""
     cbd = CustomBusinessDay(calendar=USFederalHolidayCalendar())
-    today = pd.Timestamp(today or pd.Timestamp.today()).normalize()
-    return (today + cbd).month != today.month
+    today = pd.Timestamp(today) if today is not None else _today_et()
+    return (today.normalize() + cbd).month != today.normalize().month
 
 
 def load_closes() -> pd.DataFrame:
@@ -177,7 +184,7 @@ def build_orders(targets: pd.DataFrame, state: dict) -> pd.DataFrame:
         # new month; an off-schedule --force run stages for the next open.
         # Stale rows are ignored forever after.
         cbd = CustomBusinessDay(calendar=USFederalHolidayCalendar())
-        exec_on = pd.Timestamp.today().normalize() + cbd
+        exec_on = _today_et() + cbd
         out["Execute_On"] = str(exec_on.date())
     return out
 
@@ -250,7 +257,7 @@ def main():
     if missing:
         print(f"ERROR: universe tickers missing from master_prices: {missing}")
         sys.exit(1)
-    stale_days = (pd.Timestamp.today().normalize() - closes.index.max()).days
+    stale_days = (_today_et() - closes.index.max()).days
     if stale_days > 5:
         print(f"ERROR: master_prices stale ({closes.index.max().date()}) — refusing to rebalance")
         sys.exit(1)

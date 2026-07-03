@@ -294,24 +294,28 @@ scanner-staged sizes as-is since 2026-06-11):
 
 ## Trend Sleeve (pilot, 2026-07-02)
 
-`trend_sleeve.py` + `.github/workflows/trend_sleeve.yml`: monthly 13-ETF
-trend-following ballast at 0.5x NAV (combo = 12-1 momentum AND 10-month MA,
-long/flat, inverse-vol slots capped 20%, cash otherwise). Universe = equity/
-RE/intl core + GLD/SLV/DBC/UUP + TLT/LQD, NO USO (roll-decay; dropped
-2026-07-02) — study basis Sharpe 0.87 / maxDD -6.4% / 2008 +5.8% / 2022 +0.5%
-(same-close; next-open shaves ~0.06 Sharpe). Sector-ETF and intl-single
-expansion tested and REJECTED (equity slots crowd out diversifiers, 2008/2022
-flip negative); exhaustion scale-down overlay tested and REJECTED (Sharpe
-flat). Signals on the month's last trading-day close, staged MOO (TIF=OPG) to
-the `Trend` Sheets tab for next-session execution; held-share state in
-`trend_sleeve_state.json` (R2). The workflow runs weekdays 21:35 UTC (AFTER
-update_master_prices' 21:10 PM cron — the script hard-fails if today's close
-is missing) and no-ops except on the last trading day. Ballast ONLY — it
-loses ~-0.4%/mo in high-fragility months (frag_risk_bands handles that hole).
-Scale to 1.0x only after 2 clean quarters (fills track model, corr < ~0.25).
-Universe study: scratch/tf_universe_study.py.
-NOTE: order_staging.py does not read the `Trend` tab yet (needs the same MOO
-handling as the Seasonal pipeline). Evidence:
+`trend_sleeve.py` + `.github/workflows/trend_sleeve.yml`: monthly 12-ETF
+trend-following ballast at 0.6x NAV (combo = 12-1 momentum AND 10-month MA,
+long/flat, inverse-vol slots capped 20%, cash otherwise). Universe = SPY QQQ
+IWM EFA EEM FXI VNQ GLD SLV DBC TLT LQD — NO USO (roll decay) and NO UUP
+(capital inefficiency: 20% slot for +0.00%/mo contribution + K-1; costs 2022
++0.5% -> -1.9%, accepted). Sector-ETF / intl-single expansion tested and
+REJECTED (equity slots crowd out diversifiers, 2008/2022 flip negative);
+exhaustion scale-down overlay REJECTED (Sharpe flat). Signals on the month's
+last trading-day close, staged MOO (TIF=OPG) to the `Trend` Sheets tab for
+next-session execution; held-share state in `trend_sleeve_state.json` (R2 —
+the month-end run computes DELTAS against it; if staged orders were never
+executed, clear the state or the next rebalance is wrong). The workflow runs
+weekdays 21:35 UTC (AFTER update_master_prices' 21:10 PM cron — the script
+hard-fails if today's close is missing) and no-ops except on the last trading
+day; `Execute_On` (next ET trading day after the run) gates submission.
+FULLY AUTOMATED end-to-end: order_staging.py (`load_trend_rows`) reads the
+tab on Execute_On morning and emits naked-MOO rows (appended AFTER risk caps,
+excluded from PA/execution_2); eq_order_entry.py places them as MKT/OPG
+parent-only (Exit_Condition_Time='NONE' -> no exit legs — positions unwind
+via future rebalance SELL rows). Ballast ONLY — it loses ~-0.4%/mo in
+high-fragility months (frag_risk_bands handles that hole). Scale to 1.0x of
+the fraction only after 2 clean quarters. Studies: scratch/tf_universe_study.py,
 scratch/ultracode_research/trend-following.md + trend_prework_gates.md.
 
 ## OLV Sector Loss Gate (2026-07-02)
