@@ -1,0 +1,57 @@
+name: Trend Sleeve Rebalance
+
+# Monthly trend-following ballast sleeve (see trend_sleeve.py header).
+# Runs every weekday post-close; the script exits immediately unless today is
+# the month's last trading day, so the effective cadence is monthly. Orders
+# are staged to the 'Trend' Sheets tab as MOO (next-session open).
+
+on:
+  schedule:
+    # 21:35 UTC = 5:35 PM ET — AFTER update_master_prices' PM cron (21:10 UTC)
+    # has written today's close to R2. The signal is computed on the month-end
+    # close, so running before that update would silently use yesterday's bar.
+    - cron: '35 21 * * 1-5'
+  workflow_dispatch:
+    inputs:
+      force:
+        description: 'Run even if not the last trading day of the month'
+        required: false
+        default: 'false'
+
+jobs:
+  rebalance:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+
+      - name: Install dependencies
+        run: pip install pandas pyarrow numpy gspread google-auth boto3
+
+      - name: Pull master prices from R2
+        env:
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+        run: |
+          python -c "from cache_io import download_to_local; download_to_local('master_prices.parquet', 'data/master_prices.parquet')"
+
+      - name: Rebalance trend sleeve
+        env:
+          GCP_JSON: ${{ secrets.GCP_JSON }}
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+        run: |
+          if [ "${{ github.event.inputs.force }}" = "true" ]; then
+            python trend_sleeve.py --force
+          else
+            python trend_sleeve.py
+          fi
