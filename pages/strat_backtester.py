@@ -1549,6 +1549,8 @@ def process_signals_fast(candidates, signal_data, processed_dict, strategies, st
         _slg = execution.get('sector_loss_gate')
         if _slg:
             _gsec = _sector_map().get(t_clean.upper())
+            if _gsec == 'UNKNOWN':
+                _gsec = None  # no real sector -> pass through, never pool UNKNOWNs
             if _gsec:
                 _glo = (pd.Timestamp(signal_ts) - BusinessDay(int(_slg['window_td']))).value
                 _grsum = sum(r for x, s, r in _gate_closed.get(strat_name, ())
@@ -2147,6 +2149,8 @@ def process_signals_fast(candidates, signal_data, processed_dict, strategies, st
                 # feed the sector-loss gate's closed-trade log (see gate block)
                 if execution.get('sector_loss_gate') and base_risk > 0:
                     _gsec2 = _sector_map().get(t_clean.upper())
+                    if _gsec2 == 'UNKNOWN':
+                        _gsec2 = None
                     if _gsec2:
                         _gate_closed.setdefault(strat_name, []).append(
                             (exit_date.value, _gsec2, float(pnl) / float(base_risk)))

@@ -64,8 +64,15 @@ jobs:
             download_to_local('earnings_calendar_overflow.parquet', 'data/earnings_calendar_overflow.parquet')"
 
       - name: Build full-history trade ledger
+        # R2 env needed: build_trade_ledger mirrors the ledger to R2 for
+        # daily_scan's sector_loss_gate (without it the upload silently
+        # no-ops and the gate reads a stale ledger).
         env:
           OVERFLOW_UNIVERSE_ACTIVE: "0"
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
         run: python scripts/build_trade_ledger.py
 
       - name: Render signal charts -> R2 (incremental, or full on dispatch flag; best effort)

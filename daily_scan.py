@@ -761,7 +761,10 @@ def sector_gate_blocked(strat_name, execution, t_clean, asof):
     if ledger is None or not smap:
         return False, ''
     sec = smap.get(t_clean.upper())
-    if not sec:
+    if not sec or sec == 'UNKNOWN':
+        # no real sector info -> pass through. Never pool UNKNOWN tickers into
+        # one pseudo-sector (2026-07-03 fix: USO was gated off unrelated
+        # no-sector names' losses before the ETF sector table existed).
         return False, ''
     asof = pd.Timestamp(asof).normalize()
     lo = asof - pd.tseries.offsets.BDay(int(cfg['window_td']))

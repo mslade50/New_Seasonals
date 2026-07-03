@@ -339,8 +339,12 @@ re-signaled ~30x lost -20.4R (worst DD in the ledger) entirely below fragility
 50, out of any dial's jurisdiction. Count caps and MTM gates were tested and
 REJECTED (sector clustering is usually OLV's WINNING mode -- a 2-cap costs
 +52R over 20y; live stops truncate unrealized pain before an MTM gate can
-see it). This gate drops 12 net-losing trades (-2.7R) over 20y and removes
-~36% of a June-type cluster. Study: scratch/olv_cap_study*.py.
+see it). With the corrected sector map (2026-07-03) the gate drops 20
+net-losing trades (-5.3R, i.e. it ADDS R) over 20y and removes ~50% of a
+June-type cluster -- the drop list is precisely the oil complex.
+UNKNOWN-sector tickers PASS THROUGH in both gate sites: never pool no-sector
+names into one pseudo-sector (the 2026-07-03 live bug: USO was gated off
+unrelated UNKNOWN names' losses). Study: scratch/olv_cap_study*.py.
 
 Aligned sites -- change together:
 - `strategy_config.py` OLV execution `sector_loss_gate` (source of truth)
@@ -351,7 +355,8 @@ Aligned sites -- change together:
   it to R2; `daily_screener.yml` pulls it). Missing ledger/sector map = gate
   off with a printed notice (fail-open overlay).
 - `data/sector_map.parquet` (committed): ticker->sector union of yfinance
-  sector_overrides + FMP symbol_master, 1,447 tickers.
+  sector_overrides + FMP symbol_master + a curated sector/commodity ETF
+  table, 1,460 tickers. Rebuild: `scripts/build_sector_map.py`.
 - Guard: `tests/test_sector_loss_gate.py`.
 
 ## Stop-Arming Convention (book-wide, 2026-06-09)
