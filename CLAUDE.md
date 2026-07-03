@@ -294,18 +294,22 @@ scanner-staged sizes as-is since 2026-06-11):
 
 ## Trend Sleeve (pilot, 2026-07-02)
 
-`trend_sleeve.py` + `.github/workflows/trend_sleeve.yml`: monthly ex-bonds
-12-ETF trend-following ballast at 0.5x NAV (combo = 12-1 momentum AND 10-month
-MA, long/flat, inverse-vol slots capped 20%, cash otherwise). Signals on the
-month's last trading-day close, staged MOO (TIF=OPG) to the `Trend` Sheets tab
-for next-session execution; held-share state in `trend_sleeve_state.json` (R2).
-The workflow runs weekdays 21:35 UTC (AFTER update_master_prices' 21:10 PM
-cron — the script hard-fails if today's close is missing) and no-ops except on
-the last trading day. Verified numbers (next-open basis, net): Sharpe ~0.74,
-CAGR ~6.5%, maxDD ~-10.5%, corr to book +0.16; ballast ONLY — it loses
-~-0.4%/mo in high-fragility months (frag_risk_bands handles that hole).
-Full-16 variant (adds TLT/IEF/LQD/HYG) documented in the script header.
+`trend_sleeve.py` + `.github/workflows/trend_sleeve.yml`: monthly 13-ETF
+trend-following ballast at 0.5x NAV (combo = 12-1 momentum AND 10-month MA,
+long/flat, inverse-vol slots capped 20%, cash otherwise). Universe = equity/
+RE/intl core + GLD/SLV/DBC/UUP + TLT/LQD, NO USO (roll-decay; dropped
+2026-07-02) — study basis Sharpe 0.87 / maxDD -6.4% / 2008 +5.8% / 2022 +0.5%
+(same-close; next-open shaves ~0.06 Sharpe). Sector-ETF and intl-single
+expansion tested and REJECTED (equity slots crowd out diversifiers, 2008/2022
+flip negative); exhaustion scale-down overlay tested and REJECTED (Sharpe
+flat). Signals on the month's last trading-day close, staged MOO (TIF=OPG) to
+the `Trend` Sheets tab for next-session execution; held-share state in
+`trend_sleeve_state.json` (R2). The workflow runs weekdays 21:35 UTC (AFTER
+update_master_prices' 21:10 PM cron — the script hard-fails if today's close
+is missing) and no-ops except on the last trading day. Ballast ONLY — it
+loses ~-0.4%/mo in high-fragility months (frag_risk_bands handles that hole).
 Scale to 1.0x only after 2 clean quarters (fills track model, corr < ~0.25).
+Universe study: scratch/tf_universe_study.py.
 NOTE: order_staging.py does not read the `Trend` tab yet (needs the same MOO
 handling as the Seasonal pipeline). Evidence:
 scratch/ultracode_research/trend-following.md + trend_prework_gates.md.

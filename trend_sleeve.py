@@ -1,9 +1,9 @@
 """Trend-following ballast sleeve — monthly rebalance pilot (2026-07-02).
 
 Spec (validated: scratch/ultracode_research/trend-following.md + adversarial
-verification + trend_prework_gates.md):
-  - Universe: ex-bonds 12 liquid ETFs (default; FULL16 adds TLT/IEF/LQD/HYG —
-    better 2008/dead-zone profile, worse post-2020, one-line swap below).
+verification + trend_prework_gates.md + scratch/tf_universe_study.py):
+  - Universe: 13 liquid ETFs — equities/RE/intl core + GLD/SLV/DBC/UUP +
+    TLT/LQD, no USO (see TREND_UNIVERSE note below for the full evidence).
   - Signal (month-end adjusted closes): combo = 12-1 momentum > 0 AND close >
     10-month SMA. Long/flat only — the short leg is dead (Sharpe 0.32).
   - Weights: inverse-vol slots over ALL eligible assets (>= 13 monthly closes),
@@ -11,12 +11,12 @@ verification + trend_prework_gates.md):
   - Size: TREND_NAV_FRACTION x ACCOUNT_VALUE deployed (0.5x pilot per the
     roadmap; scale to 1.0x after 2 clean quarters).
   - Execution: signals computed on the LAST trading day's close, staged as MOO
-    (TIF=OPG) for the next session's open. Next-open basis verified: Sharpe
-    0.74 vs 0.80 same-close, inside the pre-work gate (gate A, PASS).
-  - Numbers to expect (ex-bonds, next-open, net of 5 bps/side): CAGR ~6.5%,
-    vol ~6.5%, Sharpe ~0.74, maxDD ~-10.5%, corr to book ~+0.16. This sleeve
-    is BALLAST — it loses ~-0.4%/mo in high-fragility months; the frag hole is
-    handled by frag_risk_bands, not this.
+    (TIF=OPG) for the next session's open. Next-open slippage vs same-close
+    was measured at ~0.06 Sharpe on the 12-ETF variant (gate A, PASS);
+    expect roughly Sharpe ~0.8, CAGR ~5.5%, maxDD ~-6.5%, corr to book ~+0.12
+    for this universe on the next-open basis. This sleeve is BALLAST — it
+    loses ~-0.4%/mo in high-fragility months; the frag hole is handled by
+    frag_risk_bands, not this.
 
 Runs weekdays post-close via .github/workflows/trend_sleeve.yml; exits
 immediately unless today is the month's last trading day (--force overrides).
@@ -44,11 +44,18 @@ sys.path.append(current_dir)
 from strategy_config import ACCOUNT_VALUE
 from cache_io import download_to_local, upload_from_local
 
-# Ex-bonds 12 (pilot default). FULL16 = TREND_UNIVERSE + ["TLT","IEF","LQD","HYG"]
-# is better in 2008-style extended bears and the Jul-Sep/midterm dead zones,
-# worse post-2020 (duration regime). Swap deliberately, not casually.
+# 13-ETF universe (2026-07-02, McKinley's spec, confirmed by
+# scratch/tf_universe_study.py): USO dropped (roll-decay vehicle; its removal
+# costs some 2021-22 oil-trend CAGR but improves Sharpe and halves maxDD),
+# TLT+LQD added (trend-filtered duration: +5.8% in 2008 vs +2.1% without,
+# still +0.5% in 2022 because the trend filter sidesteps the bond bear;
+# IEF/HYG add nothing over these two). Same-close study basis: Sharpe 0.87,
+# maxDD -6.4%, corr to book +0.12. Tested and REJECTED: 11 SPDR sectors and
+# intl singles (Sharpe 0.74-0.78, 2008/2022 flip negative — correlated equity
+# slots crowd out the real diversifiers); an exhaustion scale-down overlay
+# (252d & 21d pctile > 95) — Sharpe flat, trends persist past the 95th pctile.
 TREND_UNIVERSE = ["SPY", "QQQ", "IWM", "EFA", "EEM", "FXI", "VNQ",
-                  "GLD", "SLV", "DBC", "USO", "UUP"]
+                  "GLD", "SLV", "DBC", "UUP", "TLT", "LQD"]
 TREND_NAV_FRACTION = 0.5     # pilot size; 1.0x after 2 clean quarters
 WEIGHT_CAP = 0.20
 MIN_MONTHLY_CLOSES = 13      # eligibility (needs a valid 12-month lookback)
