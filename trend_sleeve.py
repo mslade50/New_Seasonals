@@ -44,19 +44,21 @@ sys.path.append(current_dir)
 from strategy_config import ACCOUNT_VALUE
 from cache_io import download_to_local, upload_from_local
 
-# 13-ETF universe (2026-07-02, McKinley's spec, confirmed by
+# 12-ETF universe (2026-07-02, McKinley's spec, confirmed by
 # scratch/tf_universe_study.py): USO dropped (roll-decay vehicle; its removal
 # costs some 2021-22 oil-trend CAGR but improves Sharpe and halves maxDD),
-# TLT+LQD added (trend-filtered duration: +5.8% in 2008 vs +2.1% without,
-# still +0.5% in 2022 because the trend filter sidesteps the bond bear;
-# IEF/HYG add nothing over these two). Same-close study basis: Sharpe 0.87,
-# maxDD -6.4%, corr to book +0.12. Tested and REJECTED: 11 SPDR sectors and
-# intl singles (Sharpe 0.74-0.78, 2008/2022 flip negative — correlated equity
-# slots crowd out the real diversifiers); an exhaustion scale-down overlay
-# (252d & 21d pctile > 95) — Sharpe flat, trends persist past the 95th pctile.
+# TLT+LQD added (trend-filtered duration: +5.8% in 2008, +0.5% in 2022 because
+# the trend filter sidesteps the bond bear; IEF/HYG add nothing over these two),
+# UUP dropped (capital inefficiency: 20% of sleeve parked in a ~7%-vol asset
+# for +0.00%/mo average contribution, plus a K-1; costs Sharpe 0.87 -> 0.86
+# and gives back 2022 (+0.5% -> -1.9%, the dollar was the only long trend in
+# the everything-bear) — accepted trade-off, McKinley 2026-07-02). Tested and
+# REJECTED: 11 SPDR sectors and intl singles (Sharpe 0.74-0.78, 2008/2022 flip
+# negative — correlated equity slots crowd out the real diversifiers); an
+# exhaustion scale-down overlay (252d & 21d pctile > 95) — Sharpe flat.
 TREND_UNIVERSE = ["SPY", "QQQ", "IWM", "EFA", "EEM", "FXI", "VNQ",
-                  "GLD", "SLV", "DBC", "UUP", "TLT", "LQD"]
-TREND_NAV_FRACTION = 0.5     # pilot size; 1.0x after 2 clean quarters
+                  "GLD", "SLV", "DBC", "TLT", "LQD"]
+TREND_NAV_FRACTION = 0.6     # sized to 60% of NAV (liquidity/capacity headroom)
 WEIGHT_CAP = 0.20
 MIN_MONTHLY_CLOSES = 13      # eligibility (needs a valid 12-month lookback)
 VOL_FLOOR = 0.04             # ann. vol floor avoids inf inverse-vol weights
@@ -167,7 +169,17 @@ def build_orders(targets: pd.DataFrame, state: dict) -> pd.DataFrame:
             "Scan_Source": "Trend",
             "Asof": r.Asof,
         })
-    return pd.DataFrame(orders)
+    out = pd.DataFrame(orders)
+    if not out.empty:
+        # order_staging.py only submits Trend rows on their execution day: the
+        # next session after this run (post-close). On the normal month-end
+        # schedule run-date == signal date, so this is the first session of the
+        # new month; an off-schedule --force run stages for the next open.
+        # Stale rows are ignored forever after.
+        cbd = CustomBusinessDay(calendar=USFederalHolidayCalendar())
+        exec_on = pd.Timestamp.today().normalize() + cbd
+        out["Execute_On"] = str(exec_on.date())
+    return out
 
 
 def save_state(targets: pd.DataFrame, dry_run: bool):
