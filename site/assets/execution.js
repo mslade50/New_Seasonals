@@ -122,7 +122,8 @@ function renderPanels() {
   set("modeBanner", renderModeBanner());
   set("connBar", renderConnBar());
   set("positions", renderPositions());
-  set("orders", renderOrders());
+  // an open inline Modify must survive the 4s poll — don't redraw under the inputs
+  if (!orderEdit.key) set("orders", renderOrders());
   set("activity", renderActivity());
 }
 function set(id, html) { const el = document.getElementById(id); if (el) el.innerHTML = html; }
@@ -216,9 +217,12 @@ function fmtOrderTime(s) {
   const m = String(s).match(/(\d{4})(\d{2})(\d{2})[ -](\d{2}):(\d{2})/);
   return m ? `${m[2]}/${m[3]} ${m[4]}:${m[5]}` : esc(String(s));    // MM/DD HH:MM
 }
+function orderKey(o) { return `${o.perm_id || 0}:${o.order_id || 0}`; }
 function orderRow(o) {
   const buy = String(o.action).toUpperCase() === "BUY";
   const px = orderPx(o);
+  if (orderEdit.key && orderEdit.key === orderKey(o) && (o.perm_id || o.order_id)) return orderEditRow(o);
+  const canModify = !!(o.perm_id || o.order_id);   // no id yet: IBKR can't address the order to modify it
   return `<tr>
     <td class="l" style="font-weight:600">${esc(o.symbol)}</td>
     <td class="l ${buy ? "pos" : "neg"}" style="font-weight:600">${esc(o.action)}</td>
@@ -229,10 +233,37 @@ function orderRow(o) {
     <td class="l" style="color:#8c95a2">${fmtOrderTime(o.good_after) || "&mdash;"}</td>
     <td class="l" style="color:#8c95a2">${fmtOrderTime(o.good_till) || "&mdash;"}</td>
     <td class="l" style="color:#8c95a2">${esc(o.status || "")}</td>
-    <td class="l"><button class="btn xs ghost" onclick='execCancel(${o.perm_id || 0},${o.order_id || 0},"${esc(o.symbol)}")'>Cancel</button></td>
+    <td class="l" style="white-space:nowrap">${canModify ? `<button class="btn xs ghost" onclick='execModifyStart("${orderKey(o)}")'>Modify</button> ` : ""}<button class="btn xs ghost" onclick='execCancel(${o.perm_id || 0},${o.order_id || 0},"${esc(o.symbol)}")'>Cancel</button></td>
+  </tr>`;
+}
+// Inline edit row: qty always; limit price on *LMT orders; stop trigger on STP*.
+// While an edit is open the Open Orders panel is NOT re-rendered by the 4s poll
+// (renderPanels skips it), so typed values survive until Save / Esc.
+function orderEditRow(o) {
+  const typ = String(o.order_type || "").toUpperCase();
+  const hasLmt = typ.includes("LMT");
+  const hasStp = typ.startsWith("STP");
+  const pxCell =
+    (hasStp ? `<span class="cap" style="display:inline">stop</span> <input id="me_stp" value="${o.aux != null ? esc(String(o.aux)) : ""}" style="width:70px"> ` : "") +
+    (hasLmt ? `<span class="cap" style="display:inline">lmt</span> <input id="me_lmt" value="${o.lmt != null ? esc(String(o.lmt)) : ""}" style="width:70px">` : "") +
+    (!hasStp && !hasLmt ? "&mdash;" : "");
+  return `<tr style="background:rgba(77,163,255,.08)">
+    <td class="l" style="font-weight:600">${esc(o.symbol)}</td>
+    <td class="l" style="font-weight:600">${esc(o.action)}</td>
+    <td><input id="me_qty" value="${o.qty != null ? esc(String(o.qty)) : ""}" style="width:60px"></td>
+    <td class="l">${esc(o.order_type)}</td>
+    <td class="l" style="white-space:nowrap">${pxCell}</td>
+    <td class="l">${esc(o.tif || "")}</td>
+    <td class="l" style="color:#8c95a2">${fmtOrderTime(o.good_after) || "&mdash;"}</td>
+    <td class="l" style="color:#8c95a2">${fmtOrderTime(o.good_till) || "&mdash;"}</td>
+    <td class="l" style="color:#8c95a2">${esc(o.status || "")}</td>
+    <td class="l" style="white-space:nowrap">
+      <button class="btn xs" onclick='execModifySave(${o.perm_id || 0},${o.order_id || 0},"${esc(o.symbol)}")'>Save</button>
+      <button class="btn xs ghost" onclick='execModifyAbort()'>&times;</button></td>
   </tr>`;
 }
 const expandedTickers = new Set();   // Open Orders: which tickers are expanded (persists across 4s polls)
+const orderEdit = { key: null, orig: null };   // inline Modify: row being edited + its pre-edit values
 function toggleOrderGroup(sym) {
   const k = String(sym).toUpperCase();
   if (expandedTickers.has(k)) expandedTickers.delete(k); else expandedTickers.add(k);
@@ -411,6 +442,54 @@ function execCancel(permId, orderId, symbol) {
 }
 window.execFlatten = execFlatten;
 window.execCancel = execCancel;
+
+/* ---------- inline order modify ---------- */
+function findBookOrder(key) {
+  const ab = acctBook();
+  return ((ab && ab.orders) || []).find((o) => orderKey(o) === key) || null;
+}
+function execModifyStart(key) {
+  const o = findBookOrder(key);
+  if (!o) return;
+  orderEdit.key = key;
+  orderEdit.orig = { qty: o.qty, lmt: o.lmt, aux: o.aux };
+  set("orders", renderOrders());
+  const q = document.getElementById("me_qty");
+  if (q) q.focus();
+}
+function execModifyAbort() {
+  orderEdit.key = null; orderEdit.orig = null;
+  set("orders", renderOrders());
+}
+// Only CHANGED fields are sent: the agent + executor treat absent fields as
+// "leave alone", so an untouched stop trigger is never re-quoted from a possibly
+// stale book value.
+function execModifySave(permId, orderId, symbol) {
+  const orig = orderEdit.orig || {};
+  const read = (id) => {
+    const e = document.getElementById(id);
+    if (!e) return undefined;                       // field not rendered for this order type
+    const v = String(e.value).trim();
+    return v === "" ? null : Number(v);
+  };
+  const qty = read("me_qty"), lmt = read("me_lmt"), stp = read("me_stp");
+  const bad = [qty, lmt, stp].some((v) => v !== undefined && v !== null && (!isFinite(v) || v <= 0));
+  if (bad) { alert("qty / prices must be positive numbers"); return; }
+  const payload = { symbol };
+  if (permId) payload.perm_id = permId;
+  if (orderId) payload.order_id = orderId;
+  const changes = [];
+  if (qty != null && qty !== Number(orig.qty)) { payload.new_qty = qty; changes.push(`qty ${orig.qty} -> ${qty}`); }
+  if (lmt !== undefined && lmt != null && lmt !== Number(orig.lmt)) { payload.new_limit = lmt; changes.push(`lmt ${orig.lmt} -> ${lmt}`); }
+  if (stp !== undefined && stp != null && stp !== Number(orig.aux)) { payload.new_stop = stp; changes.push(`stop ${orig.aux} -> ${stp}`); }
+  if (!changes.length) { execModifyAbort(); return; }   // nothing changed: just close the editor
+  if (!confirm(`${actionLead("modify")} order ${orderId || permId} (${symbol}, ${state.account})?\n${changes.join("\n")}`)) return;
+  sendCommand("modify", payload);
+  execModifyAbort();
+}
+window.execModifyStart = execModifyStart;
+window.execModifyAbort = execModifyAbort;
+window.execModifySave = execModifySave;
 
 /* ---------- new-order ticket ---------- */
 // Ticket fields ship EMPTY: the examples are placeholder hints, never submitted values,
