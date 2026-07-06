@@ -4,6 +4,7 @@
      - connection bar: agent online light + account tabs (Primary / PA) + NLV
      - Positions panel  (live read-only book from the agent) + row actions
      - Open Orders panel (live working orders) + Cancel
+     - Scheduled closing orders (legs that fire at today's close)
      - New Order ticket: entry bracket (+ optional time stop) / flatten / echo
      - Activity: recent commands + results
 
@@ -53,6 +54,7 @@ function shell() {
     </div>
     <div id="positions"></div>
     <div id="orders" style="margin-top:14px"></div>
+    <div id="closers" style="margin-top:14px"></div>
 
     <div class="card" style="max-width:760px;margin-top:18px">
       <div style="font:700 14px inherit;margin-bottom:4px">New order</div>
@@ -124,6 +126,7 @@ function renderPanels() {
   set("positions", renderPositions());
   // an open inline Modify must survive the 4s poll — don't redraw under the inputs
   if (!orderEdit.key) set("orders", renderOrders());
+  set("closers", renderClosers());
   set("activity", renderActivity());
 }
 function set(id, html) { const el = document.getElementById(id); if (el) el.innerHTML = html; }
@@ -399,6 +402,68 @@ function renderOrders() {
   return head
     + ordersSection("On open positions (working exits)", onPos, ab)
     + ordersSection("Pending entries — not filled yet", pending, ab);
+}
+
+/* ---------- scheduled closing orders (fire at today's close) ---------- */
+// A working order is a scheduled closer when its goodAfterTime lands TODAY (ET)
+// in the close window: TIME-exit MKT legs (15:59), OVS Friday EOD-DD stops
+// (15:58). MOC orders count too. Earlier goodAfterTimes (e.g. a stop arming at
+// 09:30) are protective legs, not scheduled closes. good_after is stamped in
+// the TWS timezone (ET), so "today" is computed in America/New_York.
+const CLOSE_WINDOW_START = "15:00";
+function etToday() {
+  return new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York" }).format(new Date()).replace(/-/g, "");
+}
+function etNowHM() {
+  return new Intl.DateTimeFormat("en-GB", { timeZone: "America/New_York", hour: "2-digit", minute: "2-digit", hour12: false }).format(new Date());
+}
+function firesAtClose(o) {
+  if (String(o.order_type || "").toUpperCase() === "MOC") return "MOC";
+  const m = String(o.good_after || "").match(/(\d{8})[ -](\d{2}):(\d{2})/);
+  if (!m || m[1] !== etToday()) return null;
+  const hm = `${m[2]}:${m[3]}`;
+  return hm >= CLOSE_WINDOW_START ? hm : null;
+}
+function untilFrag(hm) {
+  if (hm === "MOC") return "at close";
+  const mins = (+hm.slice(0, 2)) * 60 + (+hm.slice(3)) - ((+etNowHM().slice(0, 2)) * 60 + (+etNowHM().slice(3)));
+  if (mins <= 0) return "due";
+  return mins >= 60 ? `in ${Math.floor(mins / 60)}h ${mins % 60}m` : `in ${mins}m`;
+}
+function renderClosers() {
+  const ab = acctBook();
+  const head = `<div style="font:700 14px inherit;margin:0 0 6px">Scheduled closing orders <span class="cap" style="display:inline;font-weight:400">&mdash; fire at today's close</span></div>`;
+  if (!ab || ab.error) return head + panelNote("&mdash;");
+  const ords = ab.orders || [];
+  const hits = ords.map((o) => ({ o, at: firesAtClose(o) })).filter((x) => x.at);
+  if (!hits.length) return head + panelNote("None &mdash; nothing is scheduled to close at today's close.");
+  const ids = new Set(ords.map((o) => o.order_id).filter(Boolean));
+  const rows = hits
+    .sort((a, b) => String(a.at).localeCompare(String(b.at)) || String(a.o.symbol).localeCompare(String(b.o.symbol)))
+    .map(({ o, at }) => {
+      const sym = String(o.symbol).toUpperCase();
+      const buy = String(o.action).toUpperCase() === "BUY";
+      const t = String(o.order_type || "").toUpperCase();
+      const mult = o.sec_type === "FUT" ? ((futSpec(sym) || {}).multiplier || 1) : 1;
+      const pos = (ab.positions || []).find((p) => String(p.symbol).toUpperCase() === sym && p.position);
+      // MKT/MOC legs close at the market: value off the position's last price; STP off its trigger.
+      const px = t.startsWith("STP") ? (o.aux != null ? o.aux : o.lmt) : (pos && pos.market_price != null ? pos.market_price : null);
+      const val = px != null && o.qty ? o.qty * px * mult : null;
+      const conditional = (o.parent_id || 0) && ids.has(o.parent_id);   // parent entry still working
+      return `<tr>
+        <td class="l" style="font-weight:600">${esc(o.symbol)}</td>
+        <td class="l ${buy ? "pos" : "neg"}" style="font-weight:600">${esc(o.action)}</td>
+        <td>${fmt.num(o.qty, 0)}</td>
+        <td class="l">${esc(t)}${t.startsWith("STP") ? ` @ ${fmt.num(px, 2)}` : ""}</td>
+        <td class="l">${at === "MOC" ? "MOC" : at + " ET"}</td>
+        <td class="l" style="color:#8c95a2">${untilFrag(at)}</td>
+        <td>${val != null ? fmt.money(val) : "&mdash;"}</td>
+        <td class="l" style="color:${conditional ? "#ffc14d" : "#8c95a2"}">${conditional ? "only if entry fills first" : esc(o.status || "")}</td>
+      </tr>`;
+    }).join("");
+  return head + `<div class="tblwrap"><table class="tbl"><thead><tr>
+    <th class="l">Symbol</th><th class="l">Side</th><th>Qty</th><th class="l">Type</th><th class="l">Fires</th><th class="l"></th><th>Est. value</th><th class="l">Note</th>
+    </tr></thead><tbody>${rows}</tbody></table></div>`;
 }
 
 function panelNote(html) { return `<div class="card" style="padding:12px 14px"><span class="cap">${html}</span></div>`; }
