@@ -117,7 +117,7 @@ It may optionally import `SP500_TICKERS` from `abs_return_dispersion.py` (with t
 
 **Strategy modules** (`strat_backtester.py`, `daily_scan.py`, `daily_portfolio_report.py`) all depend on `strategy_config.py` for `STRATEGY_BOOK` and `ACCOUNT_VALUE`.
 
-**daily_portfolio_report.py** imports backtesting logic from `strat_backtester.py`. Both must stay in sync with `daily_scan.py` for signal detection, sizing, and trade processing. `ACCOUNT_VALUE` from `strategy_config.py` is the single source of truth for portfolio sizing across all three. Runs in **GitHub Actions** (weekdays 21:30 UTC = 5:30 PM ET) — pulls `data/master_prices.parquet` and `data/earnings_calendar.parquet` from Cloudflare R2 before running. Reports cover both liquid (LIQUID_PLUS_COMMODITIES) and overflow (CSV_UNIVERSE − LIQUID_PLUS_COMMODITIES) universes — overflow-eligible strategies get a second deep-copied pass with `OVERFLOW_RISK_OVERRIDES` (only OLV 35→25 bps remains; OVS uses path-1 nominal 40 bps for both tiers). Workflow: `.github/workflows/portfolio_report.yml`.
+**daily_portfolio_report.py** imports backtesting logic from `strat_backtester.py`. Both must stay in sync with `daily_scan.py` for signal detection, sizing, and trade processing. `ACCOUNT_VALUE` from `strategy_config.py` is the single source of truth for portfolio sizing across all three. Runs in **GitHub Actions** (weekdays 21:30 UTC = 5:30 PM ET) — pulls `data/master_prices.parquet` and `data/earnings_calendar.parquet` from Cloudflare R2 before running. Reports cover both liquid (LIQUID_PLUS_COMMODITIES) and overflow (CSV_UNIVERSE − LIQUID_PLUS_COMMODITIES) universes — overflow-eligible strategies get a second deep-copied pass with `OVERFLOW_RISK_OVERRIDES` (only OLV 35→25 bps nominal remains; OVS uses path-1 nominal 40 bps for both tiers; all nominals scale by `GLOBAL_RISK_MULTIPLIER` — see "Sizing Conventions"). Workflow: `.github/workflows/portfolio_report.yml`.
 
 **daily_scan.py** is the single unified scanner (post-2026-04-30 merge with the retired `local_overflow_scan.py`). CLI flags:
 - `--scope=liquid` (default) — scans every strategy against its native universe (typically LIQUID_PLUS_COMMODITIES)
@@ -189,13 +189,55 @@ Legacy point system preserved in collapsed expander for reference. Alert = +1, A
 | `SP500_TICKERS` | `abs_return_dispersion.py` | ~505 | Full S&P 500 constituents |
 | `LIQUID_PLUS_COMMODITIES` | `strategy_config.py` | ~190 | Liquid universe — daily_scan default scope |
 | `CSV_UNIVERSE` | `strategy_config.py` | ~1060 | Full universe (liquid + overflow tier ~870) |
-| `OVERFLOW_ELIGIBLE_STRATEGIES` | `daily_scan.py` | 6 | OVS, OLV, LT Trend ST OS, St OS Sznl, 52wh Breakout, ATR Extended Gap Up (native 60 bps on overflow) |
-| `OVERFLOW_RISK_OVERRIDES` | `daily_scan.py`, `daily_portfolio_report.py` | 1 | OLV: 35→25 bps for overflow tier |
+| `OVERFLOW_ELIGIBLE_STRATEGIES` | `daily_scan.py` | 6 | OVS, OLV, LT Trend ST OS, St OS Sznl, 52wh Breakout, ATR Extended Gap Up (no override — native 40 bps nominal on overflow) |
+| `OVERFLOW_RISK_OVERRIDES` | `daily_scan.py`, `daily_portfolio_report.py` | 1 | OLV: 35→25 bps nominal for overflow tier (52.5→37.5 effective) |
+| `GLOBAL_RISK_MULTIPLIER` | `strategy_config.py` | 1.5 | Book-wide risk scaler applied at import — see "Sizing Conventions" |
 | `SECTOR_ETFS` | `risk_dashboard_v2.py` | 11 | SPDR sector ETFs |
 | `VOL_TICKERS` | `risk_dashboard_v2.py` | 4 | SPY, ^VIX, ^VIX3M, ^VVIX |
 | `CROSS_ASSET_TICKERS` | `risk_dashboard_v2.py` | 7 | LQD, HYG, IEF, UUP, ^MOVE, ^TNX, ^IRX |
 | `TAIL_RISK_TICKERS` | `risk_dashboard_v2.py` | 1 | ^SKEW |
 | `SIGNAL_CACHE_PATH` | `risk_dashboard_v2.py` | — | `data/risk_dashboard_signal_state.json` |
+
+## Sizing Conventions — GLOBAL_RISK_MULTIPLIER + overlays (2026-05-27)
+
+`strategy_config.GLOBAL_RISK_MULTIPLIER` (currently **1.5**) scales the whole
+book at import time: every execution `risk_bps`, OVS `path1_bps` / `path2_bps`
+/ `path2_daily_cap_pct`, the OLV `earnings_size_override.risk_bps`, and the
+`OVERFLOW_RISK_OVERRIDES` in daily_scan / daily_portfolio_report. The dicts in
+strategy_config SOURCE are nominal; everything downstream (scan, engines,
+reports, staged `Risk_Amt`/`Risk_Bps`) sees SCALED values. **All bps in this
+doc are nominal unless marked effective** — e.g. OLV liquid 35 nominal = 52.5
+effective, overflow 25 = 37.5.
+
+daily_scan per-signal sizing order (mirrored in strat_backtester step 3b):
+base bps (tier x GRM) -> 2b fragility band -> 2c ladder rung -> 2c2 cycle-year
+mult -> 2d earnings size override (flat REPLACE, itself GRM-scaled: OLV signals
+-10..0 TD from earnings get 10 bps nominal / 15 effective) -> shares.
+
+## Ladder Sizing (OLV, 2026-04-22)
+
+`execution['ladder_multipliers'] = [0.85, 1.00, 1.15]` (OLV only; OVS had it
+at launch, removed in the OVS sizing overhaul): a repeat signal on the same
+(ticker, strategy) while prior positions are still OPEN sizes at the next
+rung — rung = min(open_count, last): 0 open = 0.85x, 1 open = 1.00x,
+2+ open = 1.15x. Scales into a working cluster instead of equal-sizing every
+re-signal. Aligned sites — change together:
+- `strategy_config.py` execution `ladder_multipliers` (source of truth)
+- `daily_scan.py` sizing step 2c — open counts from the `Portfolio` Sheets tab
+  (`load_open_position_counts`; tab written nightly by daily_portfolio_report;
+  lookup failure = no overlay, everything sizes at rung 1)
+- `pages/strat_backtester.py` sizing (~line 1675) — replays generically for
+  any strategy with the field, using the in-backtest open count (drives the
+  ledger + daily_portfolio_report)
+
+## Cross-Strategy Overlap Clamp (2026-05-12)
+
+`strategy_config.CROSS_STRATEGY_OVERLAP_OVERRIDES`: when the named strategies
+fire on the SAME signal date and SAME tradeable ticker (compared after
+`SPOT_TO_TRADEABLE` aliasing, ^GSPC->SPY ^NDX->QQQ), each side's risk is
+clamped to `risk_bps_when_overlapping`. Currently one pair: Indices Oversold
+Bounce + SPY QQQ MonFri Reversion -> 20 bps nominal each. Applied in
+daily_scan step 5b and replayed in `pages/strat_backtester.py` (~line 2258).
 
 ## OVS Strategy — Earnings Blackout + 2-Path Sizing + Friday-only EOD-DD
 
@@ -210,17 +252,17 @@ Implementation:
 - `pages/strat_backtester.py` — pre-pass that drops candidates from the chronological loop entirely, so the daily portfolio report's PnL reflects what live would do.
 
 ### Two-path execution (replaces the prior 30/20 bps + 1.3× ATR-sznl-5d sizer)
-The OVS execution dict carries:
+The OVS execution dict carries (nominal; ×GRM 1.5 at import → 60 / 12 / 1.125%):
 - `path1_bps: 40` — full size on a decisive open gap
 - `path2_bps: 8` — reduced size on a mild gap
-- `path2_daily_cap_pct: 1.0` — 1% of ACCOUNT_VALUE aggregate cap on path-2 risk
+- `path2_daily_cap_pct: 0.75` — 0.75% of ACCOUNT_VALUE aggregate cap on path-2 risk (was 1.0 pre-2026-05-01)
 
 Decision happens in `order_staging.py` (in `C:\Users\mckin\OneDrive\trading_ibkr\`) using IBKR's T+1 session open vs the signal's close + 0.25 ATR threshold. Same scheme for liquid AND overflow universes.
 
 | T+1 open vs close | Path | Per-trade size |
 |---|---|---|
-| Open > Close + 0.25 ATR | **Path 1: Decisive** | 40 bps (full) |
-| Close < Open ≤ Close + 0.25 ATR | **Path 2: Mild** | 8 bps, capped at 1% aggregate (pro-rata scale-down across all path-2 rows that day) |
+| Open > Close + 0.25 ATR | **Path 1: Decisive** | 40 bps nominal / 60 effective (full) |
+| Close < Open ≤ Close + 0.25 ATR | **Path 2: Mild** | 8 bps nominal / 12 effective, capped at the 0.75% nominal path-2 aggregate (pro-rata scale-down across all path-2 rows that day) |
 | Open ≤ Close | **Skip** | 0 |
 
 Scanner-side stamps `Path1_Bps`, `Path2_Bps`, `Path2_Daily_Cap_Pct` columns on every OVS staging row so order_staging can compute the multiplier without importing strategy_config.
@@ -613,6 +655,7 @@ Cloudflare Pages project `seasonals-mslade`, locked behind Cloudflare Access
 Tab layout in the `Trade_Signals_Log` workbook:
 - `Order_Staging` — Liquid-tier signals (Limits, T+1 Open, Persistent GTC). Cleared + rewritten by every `daily_scan` run with `Scan_Source='Liquid'`.
 - `Overflow` — Overflow-tier signals (same entry types, no MOC). Cleared + rewritten by `daily_scan --scope=overflow|all` with `Scan_Source='Overflow'`.
+- Both staging tabs carry a `Manual_Limit` column (emitted empty by the scanner): type a price into it to pin that signal's entry — order_staging uses it verbatim as a LMT and anchors the bracket to it, skipping the gap clamp. Rows survive only until the next scan's clear+rewrite, so manual rows/pins must be added AFTER the ~4:47 AM ET scan and BEFORE order_staging runs (e.g. the 2026-07-06 TS/USO makeup rows via `scratch/stage_makeup_ts_uso.py`). Entry expiry is back-computed from `Time_Exit_Date` − (1 + `Hold_Days` − `Fill_Window_Days`) BDays, NOT from `Scan_Date`, so a makeup row can carry its true original schedule.
 - `moc_orders` — MOC entries from liquid tier only (`save_moc_orders` skips overflow rows). Currently vestigial: the strategy book has no Signal Close entries, so this tab is never written. Reactivates automatically if any strategy is set to `entry_type='Signal Close'`.
 - `Seasonal` — tradeable seasonal-ideas tickets (longs + non-equity shorts). Written by `seasonal_order_staging.py` from `data/daily_seasonal_ideas.json`, `Scan_Source='Seasonal'`. Separate pipeline from the systematic book. Entry type per instrument (validated geography rule): US single stocks + US-session equity ETFs → `REL_OPEN` limit (0.25 ATR, DAY); everything that gaps overnight (intl/commodity/bond/FX ETFs, GLD/TLT) → `MOO` (market-on-open, `TIF=OPG`). Sizing: 20 bps/trade (13 bps in midterm years, `year%4==2`), 1% aggregate daily cap. order_staging must add `MOO` handling — see `docs/seasonal_order_staging_spec.md`.
 - `sznl_nostage` — NOT auto-executed. Single-stock equity shorts (sized, tagged `[eq-short]`) + non-tradeable signals (futures/index/FX/crypto, `Quantity=0`, `Order_Type=NONE`, tagged `[need-proxy]` pending the proxy-ETF promotion). order_staging does not read this tab.
