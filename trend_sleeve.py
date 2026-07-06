@@ -240,13 +240,53 @@ def write_sheet(orders: pd.DataFrame, dry_run: bool):
         sys.exit(1)
 
 
+def reset_state():
+    """Reset the sleeve to a FLAT book: empty positions in the R2 state file
+    and a cleared Trend tab. Used when a staged basket was never executed
+    (inception 2026-07-06: McKinley chose to wait for the natural month-end
+    deployment) — without this, the next rebalance computes deltas against
+    phantom holdings and stages the wrong orders."""
+    state = {
+        "asof": _today_et().strftime("%Y-%m-%d"),
+        "generated": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "nav_fraction": TREND_NAV_FRACTION,
+        "universe": TREND_UNIVERSE,
+        "positions": {},
+        "note": "state reset to flat (staged basket not executed)",
+    }
+    with open(STATE_LOCAL, "w", encoding="utf-8") as f:
+        json.dump(state, f, indent=2)
+    upload_from_local(STATE_LOCAL, STATE_R2_KEY)
+    print("State reset to FLAT (0 positions) -> local + R2")
+    try:
+        import gspread
+        if "GCP_JSON" in os.environ:
+            gc = gspread.service_account_from_dict(json.loads(os.environ["GCP_JSON"]))
+        else:
+            gc = gspread.service_account(filename=os.path.join(current_dir, "credentials.json"))
+        ws = gc.open(SHEET_NAME).worksheet(TAB_NAME)
+        ws.clear()
+        ws.update([["Sleeve flat - awaiting next month-end rebalance",
+                    datetime.datetime.now().strftime("%Y-%m-%d %H:%M")]])
+        print(f"Cleared '{TAB_NAME}' tab")
+    except Exception as e:
+        print(f"WARNING: Trend tab clear failed ({e}) — stale rows are harmless "
+              "(Execute_On gate ignores them) but untidy")
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--force", action="store_true",
                     help="run even if today is not the month's last trading day")
     ap.add_argument("--dry-run", action="store_true",
                     help="compute and print; no Sheets write, no state save")
+    ap.add_argument("--reset-state", action="store_true",
+                    help="reset the sleeve to a flat book (unexecuted staged basket)")
     args = ap.parse_args()
+
+    if args.reset_state:
+        reset_state()
+        return
 
     if not args.force and not is_last_trading_day():
         print("Not the last trading day of the month — nothing to do.")
