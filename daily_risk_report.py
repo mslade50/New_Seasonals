@@ -30,6 +30,7 @@ sys.path.insert(0, current_dir)
 os.environ.setdefault("STREAMLIT_SERVER_HEADLESS", "true")
 
 import plotly.graph_objects as go
+import plotly.io as pio
 from plotly.subplots import make_subplots
 
 from pages.risk_dashboard_v2 import (
@@ -185,6 +186,16 @@ def build_forward_returns_data(frag_df, spy_close, h_scores):
 # 4. IMAGE GENERATION
 # ---------------------------------------------------------------------------
 
+def _write_png(fig, path, scale=2):
+    """write_image with a JSON round-trip first: kaleido v1 serializes figures
+    with orjson, which cannot encode pandas Timestamps in trace/layout data
+    (killed weekly_market_rundown every Sunday 2026-05-10 -> 2026-07-05; this
+    report's figures happened to be clean but are one Timestamp away from the
+    same failure). pio.to_json converts to plain JSON types; rendered output
+    is identical, and it's a no-op-safe under kaleido 0.2.x."""
+    pio.from_json(pio.to_json(fig)).write_image(path, scale=scale)
+
+
 def generate_dial_image(h_scores, tmp_dir):
     """Generate combined 3-dial gauge image."""
     if h_scores is None:
@@ -214,7 +225,7 @@ def generate_dial_image(h_scores, tmp_dir):
     )
 
     path = os.path.join(tmp_dir, "risk_dials.png")
-    fig.write_image(path, scale=2)
+    _write_png(fig, path)
     print(f"  Dial image saved: {path}")
     return path
 
@@ -235,7 +246,7 @@ def generate_overlay_image(spy_close, signals_ordered, tmp_dir):
     fig.update_yaxes(gridcolor="rgba(128,128,128,0.2)")
 
     path = os.path.join(tmp_dir, "signal_overlay.png")
-    fig.write_image(path, scale=2)
+    _write_png(fig, path)
     print(f"  Overlay image saved: {path}")
     return path
 
