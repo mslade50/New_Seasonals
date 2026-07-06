@@ -29,6 +29,7 @@ sys.path.insert(0, current_dir)
 os.environ.setdefault("STREAMLIT_SERVER_HEADLESS", "true")
 
 import plotly.graph_objects as go
+import plotly.io as pio
 from plotly.subplots import make_subplots
 from fpdf import FPDF
 
@@ -232,7 +233,16 @@ def _style_fig(fig, width=CHART_WIDTH, height=CHART_HEIGHT):
 
 
 def _save_fig(fig, path):
-    """Write figure to PNG."""
+    """Write figure to PNG.
+
+    Round-trips through plotly's JSON encoder first: kaleido v1 (unpinned,
+    installed in GHA since ~2026-05-10) serializes figures with orjson, which
+    cannot encode pandas Timestamps in trace/layout data and killed every
+    Sunday run with "TypeError: Type is not JSON serializable: Timestamp".
+    pio.to_json converts Timestamps/ndarrays to plain JSON types; the rendered
+    figure is identical. Harmless under kaleido 0.2.x.
+    """
+    fig = pio.from_json(pio.to_json(fig))
     fig.write_image(path, scale=CHART_SCALE)
     print(f"  Saved: {os.path.basename(path)}")
 
