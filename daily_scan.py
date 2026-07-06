@@ -712,6 +712,33 @@ def frag_band_mult(execution, frag_score):
     return 1.0
 
 
+def _print_ledger_provenance(path, n_rows):
+    """Surface the ledger vintage the gate is about to act on. The ledger is a
+    full backtest rebuild whose recent trades can flicker between vintages, and
+    the R2 key can in principle be written from anywhere — so every scan logs
+    who built the copy it's using and warns on stale/non-GHA vintages
+    (2026-07-06: an unattributed weekend vintage false-blocked TS/USO)."""
+    try:
+        import pyarrow.parquet as _pq
+        meta = _pq.read_schema(path).metadata or {}
+        built = (meta.get(b'ledger_build_utc') or b'').decode()
+        source = (meta.get(b'ledger_source') or b'').decode()
+        if not built:
+            print("⚠️ sector_loss_gate: ledger has no provenance metadata "
+                  "(pre-2026-07-06 vintage or non-standard writer)")
+            return
+        print(f"   sector_loss_gate ledger: {n_rows} trades, built {built} by {source or 'unknown'}")
+        age = pd.Timestamp.now(tz='UTC') - pd.Timestamp(built)
+        if age > pd.Timedelta(days=4):
+            print(f"⚠️ sector_loss_gate: ledger vintage is {age.days} days old — "
+                  "gate may act on outdated exits (fail-open by design, not disabling)")
+        if not source.startswith('gha:'):
+            print(f"⚠️ sector_loss_gate: ledger was built OUTSIDE the deploy pipeline "
+                  f"({source or 'unknown'}) — verify this vintage is intentional")
+    except Exception:
+        pass
+
+
 _SLG_CACHE = {}  # key='state' → (ledger_df or None, sector_map dict)
 def _sector_gate_state():
     """Closed-trade ledger + sector map for execution['sector_loss_gate'].
@@ -731,6 +758,7 @@ def _sector_gate_state():
             ledger = pd.read_parquet(
                 _lp, columns=['Strategy', 'Ticker', 'Exit Date', 'R_Multiple'])
             ledger['Exit Date'] = pd.to_datetime(ledger['Exit Date'])
+            _print_ledger_provenance(_lp, len(ledger))
         else:
             print("⚠️ sector_loss_gate: data/backtest_trades_full.parquet missing — gate disabled")
     except Exception as e:
@@ -775,8 +803,14 @@ def sector_gate_blocked(strat_name, execution, t_clean, asof):
     same = sub[sub['Ticker'].astype(str).str.upper().map(smap).eq(sec)]
     rsum = float(same['R_Multiple'].sum()) if len(same) else 0.0
     if rsum < float(cfg['max_realized_r']):
+        # Name every contributing exit: the threshold is a knife edge and the
+        # ledger rebuilds nightly, so a block must be auditable after the
+        # vintage that produced it is gone (2026-07-06 TS/USO forensics).
+        detail = ', '.join(
+            f"{r['Ticker']} {r['Exit Date'].strftime('%m-%d')} {r['R_Multiple']:+.2f}R"
+            for _, r in same.sort_values('Exit Date').iterrows())
         return True, (f"{sec}: {rsum:+.1f}R realized over last {cfg['window_td']}td "
-                      f"({len(same)} exits) < {cfg['max_realized_r']}R")
+                      f"({len(same)} exits: {detail}) < {cfg['max_realized_r']}R")
     return False, ''
 
 

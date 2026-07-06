@@ -66,14 +66,17 @@ jobs:
       - name: Build full-history trade ledger
         # R2 env needed: build_trade_ledger mirrors the ledger to R2 for
         # daily_scan's sector_loss_gate (without it the upload silently
-        # no-ops and the gate reads a stale ledger).
+        # no-ops and the gate reads a stale ledger). --upload is required:
+        # this pipeline is the only sanctioned writer of the prod ledger key;
+        # local runs (refresh_view) build but never upload (2026-07-06 fix
+        # after an unattributed weekend vintage drove live gate blocks).
         env:
           OVERFLOW_UNIVERSE_ACTIVE: "0"
           R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
           R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
           R2_BUCKET: ${{ secrets.R2_BUCKET }}
-        run: python scripts/build_trade_ledger.py
+        run: python scripts/build_trade_ledger.py --upload
 
       - name: Render signal charts -> R2 (incremental, or full on dispatch flag; best effort)
         continue-on-error: true

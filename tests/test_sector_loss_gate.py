@@ -59,6 +59,9 @@ def test_blocks_after_sector_losses_inside_window():
     blocked, note = daily_scan.sector_gate_blocked(
         'Oversold Low Volume', CFG, 'XOM', '2026-06-26')
     assert blocked and 'Energy' in note
+    # note must name every contributing exit (auditability: the ledger vintage
+    # that produced a block is overwritten by the next rebuild)
+    assert 'OXY' in note and 'USO' in note and '-1.10R' in note
 
 
 def test_passes_when_losses_precede_window():

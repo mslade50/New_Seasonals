@@ -359,6 +359,23 @@ Aligned sites -- change together:
   table, 1,460 tickers. Rebuild: `scripts/build_sector_map.py`.
 - Guard: `tests/test_sector_loss_gate.py`.
 
+Ledger provenance + integrity (2026-07-06, after a false TS/USO block): the
+ledger is a FULL BACKTEST REBUILD, not a fill record -- marginal limit fills
+flicker between vintages as yfinance revises recent bars, and the gate's -2.0R
+threshold is a knife edge (the false block was -2.008R from a since-rebooked
+trade in a weekend vintage of unknown origin). Mitigations, all in place:
+- `build_trade_ledger.py` embeds provenance in the parquet schema metadata
+  (`ledger_build_utc`, `ledger_source` = gha:<run_id> | local:<host>,
+  `ledger_git_sha`, `ledger_rows`) and prints a vintage diff vs the prior
+  ledger (new/gone/rebooked trades touching the last 15td) on every build.
+- R2 upload of the prod ledger key is gated behind `--upload`; only
+  `deploy_site.yml` passes it. Local runs (`refresh_view.py`) build but never
+  overwrite the key that gates live orders.
+- `daily_scan.py` prints the ledger's provenance at gate load and warns when
+  the vintage is >4 days old or was built outside GHA (still fail-open).
+- Blocked-signal notes name every contributing exit (ticker, date, R) so a
+  block stays auditable after its vintage is overwritten.
+
 ## Stop-Arming Convention (book-wide, 2026-06-09)
 
 Stop legs ARM AT THE NEXT SESSION, not at the fill. Decided after measuring
