@@ -38,7 +38,7 @@ jobs:
 
       - name: Install dependencies
         run: |
-          pip install pandas pyarrow numpy scipy boto3 yfinance
+          pip install pandas pyarrow numpy scipy boto3 yfinance plotly
 
       - name: Build + upload indicator cache
         env:
