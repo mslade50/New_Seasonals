@@ -11,6 +11,9 @@ const PAGES = [
   { href: "seasonal.html", label: "Seasonal" },
   { href: "charts.html",   label: "Charts" },
   { href: "risk.html",     label: "Risk" },
+  { href: "pipeline.html", label: "Pipeline" },
+  { href: "futures.html",  label: "Futures Lab" },
+  { href: "entry.html",    label: "Entry Lab" },
 ];
 
 function renderNav(active) {

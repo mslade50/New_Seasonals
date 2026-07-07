@@ -84,12 +84,29 @@
   <h2>Annual performance <span class="cap" style="display:inline">(filtered)</span></h2>
   <div id="yearTable"></div>
 
-  <h2>Open positions <span class="cap" style="display:inline">(full book — unaffected by filters; sized at $750k allocation)</span></h2>
+  <h2 id="openrisk">Open positions &amp; overnight gap stress <span class="cap" style="display:inline">(full book — unaffected by filters; sized at $750k allocation)</span></h2>
   <div class="kpis" id="posCards"></div>
   <div id="positionsTable"></div>
+  <p class="cap" id="posStressNote"></p>
 
   <h2>Trade log <span class="cap" style="display:inline">(filtered; closed trades only — dollars at $750k allocation)</span></h2>
   <div id="tradeLog"></div>
+
+  <h2 id="stopfills">Stop-fill quality <span class="cap" style="display:inline">(filtered by strategy / direction / date / ticker — stop exits only)</span></h2>
+  <div id="sfSection">
+    <div class="kpis" id="sfKpis"></div>
+    <div class="grid2">
+      <div>
+        <h3 class="cap">Gap-through rate &amp; slippage drag per strategy</h3>
+        <div class="card"><div class="chart" id="sfChart"></div></div>
+      </div>
+      <div>
+        <h3 class="cap">Worst stop-exit tail</h3>
+        <div id="sfTable"></div>
+      </div>
+    </div>
+    <p class="cap" id="sfCaption"></p>
+  </div>
 
   <h2>Book reference — fixed sections</h2>
   <p class="cap">These reflect the FULL book and do not respond to filters: compounded sizing
@@ -113,6 +130,45 @@
       <h3 class="cap">Diversification scorecard</h3>
       <div id="divTable"></div>
     </div>
+  </div>
+
+  <h2 id="drawdowns">Drawdown anatomy <span class="cap" style="display:inline">(full book, flat $750k, native sizing — unaffected by filters and risk-panel dials)</span></h2>
+  <div id="ddaSection">
+    <div class="filters" id="ddaSeg"></div>
+    <div class="kpis" id="ddaKpis"></div>
+    <div class="card"><div class="chart" id="ddaCurve"></div></div>
+    <div class="grid3">
+      <div>
+        <h3 class="cap">Attribution by strategy (daily MTM in window)</h3>
+        <div class="card"><div class="chart" id="ddaStrat"></div></div>
+      </div>
+      <div>
+        <h3 class="cap">Attribution by sector (realized at exit)</h3>
+        <div class="card"><div class="chart" id="ddaSector"></div></div>
+      </div>
+      <div>
+        <h3 class="cap">Worst trades in window</h3>
+        <div id="ddaTrades"></div>
+      </div>
+    </div>
+    <p class="cap" id="ddaNote"></p>
+  </div>
+
+  <h2 id="sectorrisk">Sector concentration &amp; sector-loss gate <span class="cap" style="display:inline">(full book — unaffected by filters)</span></h2>
+  <div id="srSection">
+    <h3 class="cap">Gross notional by sector over time (% of $750k, weekly)</h3>
+    <div class="card"><div class="chart" id="srTimeline"></div></div>
+    <div class="grid2">
+      <div>
+        <h3 class="cap">Current open concentration (% of $750k gross notional)</h3>
+        <div class="card"><div class="chart" id="srOpen"></div></div>
+      </div>
+      <div>
+        <h3 class="cap">Sector-loss gate telemetry</h3>
+        <div id="srGate"></div>
+      </div>
+    </div>
+    <p class="cap" id="srCaption"></p>
   </div>
 
   <footer>Private analytics site. Data regenerated nightly from the persistent backtest ledger.</footer>

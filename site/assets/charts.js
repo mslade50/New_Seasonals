@@ -30,7 +30,8 @@ async function init() {
   state.strat = strats[0];
   el.innerHTML = controlsHtml(strats) +
     '<div class="gallery"><div class="tradelist" id="tradelist"></div>' +
-    '<div class="viewer" id="viewer"></div></div>';
+    '<div class="viewer" id="viewer"></div></div>' +
+    '<div id="effSection"></div>';
   wireControls();
   refilter();
   document.addEventListener("keydown", onKey);
@@ -92,6 +93,15 @@ function refilter() {
   IDX = 0;
   renderList();
   renderViewer();
+  scheduleEfficiency();
+}
+
+// The efficiency section rebuilds two Plotly plots (one WebGL) — debounce so
+// per-keystroke ticker filtering stays as light as the pre-existing list render.
+let effTimer = null;
+function scheduleEfficiency() {
+  clearTimeout(effTimer);
+  effTimer = setTimeout(renderEfficiency, 250);
 }
 
 function renderList() {
@@ -199,6 +209,128 @@ function preloadNeighbors() {
     const r = VIEW[(IDX + d + VIEW.length) % VIEW.length];
     if (r) { const im = new Image(); im.src = r.path; }
   }
+}
+
+/* ---------- Exit Efficiency (MFE capture) ----------
+   Aggregates the geometry already shipped in charts.json (mfe_r / mae_r /
+   exit_type / r) for the CURRENT filter selection. Geometry-only reads:
+   MFE/MAE use full-bar highs/lows (entry-day bar included, which flatters MFE
+   for limit entries), and the R denominator is the conventional stop_atr x ATR
+   unit even for strategies that trade without a live stop. No post-exit or
+   stop-survival panels here — charts.json carries no post-exit-direction or
+   live-stop fields (post_short is only a chart-window truncation flag). */
+
+const EXIT_COLORS = {
+  Time: "#4da3ff", Target: "#00d18f", Stop: "#ff5d5d",
+  "EOD-DD": "#ffc14d", SignalDeact: "#b07cff",
+};
+const CAPTURE_MIN_MFE = 0.25; // R — guard tiny denominators in the capture ratio
+
+function renderEfficiency() {
+  const el = document.getElementById("effSection");
+  if (!el) return;
+  if (typeof Plotly !== "undefined") {
+    // release prior WebGL contexts before innerHTML wipes the plot divs
+    el.querySelectorAll(".chart").forEach(d => { try { Plotly.purge(d); } catch (e) {} });
+  }
+  if (typeof Plotly === "undefined") {
+    el.innerHTML = '<p class="cap">Plotly failed to load — exit-efficiency charts unavailable.</p>';
+    return;
+  }
+  // Open trades are booked Exit Type=='Time' at the last bar the engine saw
+  // (never a future exit_date), so openness comes from the payload's open
+  // flag — a date comparison can't detect them.
+  const rows = VIEW.filter(r => r.mfe_r != null && r.r != null && !r.open);
+  const scope = state.strat === "All" ? "All strategies" : state.strat;
+
+  let html = `<h2 style="margin-top:22px">Exit efficiency — MFE capture (${esc(scope)})</h2>
+    <p class="cap">${rows.length.toLocaleString()} closed trades with geometry / ${VIEW.length.toLocaleString()}
+      in the current filter. Capture ratio = realized R / MFE R, computed only where
+      MFE &ge; ${CAPTURE_MIN_MFE}R. Geometry-only read: full-bar MFE (entry day included)
+      is an upper bound on what any exit rule could have banked — a real answer needs an engine sweep.</p>`;
+
+  if (rows.length < 5) {
+    el.innerHTML = html + '<p class="cap">Not enough closed trades in this selection.</p>';
+    return;
+  }
+
+  html += `<div class="grid2">
+      <div class="card"><div class="cap" style="margin-top:0">MFE vs realized R, by exit type
+        (dotted line = full capture)</div><div class="chart" id="effScatter"></div></div>
+      <div class="card"><div class="cap" style="margin-top:0">Capture-ratio distribution
+        (MFE &ge; ${CAPTURE_MIN_MFE}R)</div><div class="chart" id="effHist"></div></div>
+    </div>
+    <div class="card" style="margin-top:14px">
+      <div class="cap" style="margin-top:0">Money left on the table, by exit type (R units)</div>
+      <div id="effTable"></div>
+    </div>`;
+  el.innerHTML = html;
+
+  // scatter: one trace per exit type
+  const types = [...new Set(rows.map(r => r.exit_type))].sort();
+  const scatter = types.map(t => {
+    const sub = rows.filter(r => r.exit_type === t);
+    return {
+      x: sub.map(r => r.mfe_r), y: sub.map(r => r.r),
+      name: `${t} (${sub.length})`, mode: "markers", type: "scattergl",
+      marker: { color: EXIT_COLORS[t] || "#8fd3ff", size: 5, opacity: 0.55 },
+      text: sub.map(r => `${r.ticker} ${fmt.date(r.signal_date)}`),
+      hovertemplate: "%{text}<br>MFE %{x:.2f}R &rarr; realized %{y:.2f}R<extra>" + t + "</extra>",
+    };
+  });
+  const maxMfe = Math.max(1, ...rows.map(r => r.mfe_r));
+  scatter.push({
+    x: [0, maxMfe], y: [0, maxMfe], mode: "lines", name: "Full capture",
+    line: { color: "#5a6478", width: 1, dash: "dot" }, hoverinfo: "skip",
+  });
+  Plotly.newPlot(document.getElementById("effScatter"), scatter, plotLayout({
+    height: 320, hovermode: "closest",
+    xaxis: { title: { text: "MFE (R)", font: { size: 11 } } },
+    yaxis: { title: { text: "Realized R", font: { size: 11 } }, zerolinecolor: "#3a4356" },
+  }), PLOT_CFG);
+
+  // capture-ratio histogram
+  const captures = rows.filter(r => r.mfe_r >= CAPTURE_MIN_MFE)
+    .map(r => Math.max(-3, Math.min(1.05, r.r / r.mfe_r)));
+  Plotly.newPlot(document.getElementById("effHist"), [{
+    x: captures, type: "histogram", marker: { color: "#4da3ff", opacity: 0.85 },
+    xbins: { start: -3, end: 1.1, size: 0.1 },
+    hovertemplate: "capture %{x}<br>n=%{y}<extra></extra>",
+  }], plotLayout({
+    height: 320, bargap: 0.05,
+    xaxis: { title: { text: "Capture ratio (clipped to [-3, 1])", font: { size: 11 } } },
+    yaxis: { title: { text: "Trades", font: { size: 11 } } },
+  }), PLOT_CFG);
+
+  // money-left-on-table summary by exit type
+  const groups = types.map(t => [t, rows.filter(r => r.exit_type === t)])
+    .concat([["All", rows]]);
+  const trs = groups.map(([t, sub]) => {
+    if (!sub.length) return "";
+    const avg = a => a.reduce((s, v) => s + v, 0) / a.length;
+    const med = a => {
+      if (!a.length) return null;
+      const s = a.slice().sort((x, y) => x - y);
+      const m = s.length >> 1;
+      return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
+    };
+    const avgMfe = avg(sub.map(r => r.mfe_r));
+    const avgR = avg(sub.map(r => r.r));
+    const left = avgMfe - avgR;
+    const capMed = med(sub.filter(r => r.mfe_r >= CAPTURE_MIN_MFE).map(r => r.r / r.mfe_r));
+    const win = sub.filter(r => r.r > 0).length / sub.length;
+    return `<tr${t === "All" ? ' style="font-weight:650"' : ""}>
+      <td class="l">${esc(t)}</td><td>${sub.length.toLocaleString()}</td>
+      <td>${fmt.signed(avgMfe, 2)}</td>
+      <td class="${avgR > 0 ? "pos" : avgR < 0 ? "neg" : ""}">${fmt.signed(avgR, 2)}</td>
+      <td class="${left > 0.5 ? "neg" : ""}">${fmt.signed(left, 2)}</td>
+      <td>${capMed == null ? "" : fmt.num(capMed, 2)}</td>
+      <td>${fmt.pct(win, 0)}</td></tr>`;
+  }).join("");
+  document.getElementById("effTable").innerHTML = `<div class="tblwrap"><table class="tbl">
+    <thead><tr><th class="l">Exit type</th><th>N</th><th>Avg MFE (R)</th><th>Avg realized (R)</th>
+      <th>Avg left on table (R)</th><th>Median capture</th><th>Win %</th></tr></thead>
+    <tbody>${trs}</tbody></table></div>`;
 }
 
 function esc(s) {

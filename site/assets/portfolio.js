@@ -26,6 +26,12 @@ const S = {
   rangeTouched: false,    // user has interacted with the Range control
   tradeLogTable: null,
   fragility: null,        // fragility.json payload (dial series, 5d-smoothed basis)
+  stopfills: null,        // stopfills.json (stop-exit fill quality, flat $750k)
+  sfRows: null,           // stopfills.trades unpacked to row objects
+  sfTable: null,          // makeTable handle for the stop-tail table
+  drawdowns: null,        // drawdowns.json (full-book flat episodes)
+  ddaUW: null,            // cached full-book underwater curve (from S.sd)
+  sectorRisk: null,       // sector_risk.json (exposure timeline + gate telemetry)
   // fragility sizing adjuster (off by default = today's exact-curve behavior).
   // step:  mult = boost below thr, floor at/above thr.
   // ramp:  live-style — boost at 0 -> 1.0 at thr, then linear down to floor at 100
@@ -123,14 +129,19 @@ async function init() {
       fetchJSON("data/meta.json"), fetchJSON("data/trades.json")]);
     S.meta = meta;
     S.trades = rowsFromColumnar(trades);
-    const [sd, pos, exp, corr, frag] = await Promise.all([
+    const [sd, pos, exp, corr, frag, sf, dda, sr] = await Promise.all([
       meta.payloads.strategy_daily ? fetchJSONOrNull("data/strategy_daily.json") : null,
       meta.payloads.positions ? fetchJSONOrNull("data/positions.json") : null,
       meta.payloads.exposure ? fetchJSONOrNull("data/exposure.json") : null,
       meta.payloads.correlation ? fetchJSONOrNull("data/correlation.json") : null,
       meta.payloads.fragility ? fetchJSONOrNull("data/fragility.json") : null,
+      meta.payloads.stopfills ? fetchJSONOrNull("data/stopfills.json") : null,
+      meta.payloads.drawdowns ? fetchJSONOrNull("data/drawdowns.json") : null,
+      meta.payloads.sector_risk ? fetchJSONOrNull("data/sector_risk.json") : null,
     ]);
     S.sd = sd; S.positions = pos; S.exposure = exp; S.corr = corr; S.fragility = frag;
+    S.stopfills = sf; S.drawdowns = dda; S.sectorRisk = sr;
+    if (sf && sf.trades) S.sfRows = rowsFromColumnar(sf.trades);
     if (sd) {
       S.dateIdx = sd.dates;
       sd.dates.forEach((d, i) => S.dateToI.set(d, i));
@@ -716,6 +727,7 @@ function apply() {
   renderStratTable(tr);
   renderYearTable(tr, ds);
   renderTradeLog(tr);
+  renderStopFills();
 }
 
 function kpiCard(label, value, cls, sub) {
@@ -1096,20 +1108,55 @@ function renderTradeLog(tr) {
 
 /* ---------- static (full-book) sections ---------- */
 function renderStatic() {
-  // open positions
+  // open positions + overnight gap stress
   const posEl = document.getElementById("positionsTable");
+  const stressNote = document.getElementById("posStressNote");
   if (S.positions && S.positions.positions.length) {
     const rows = S.positions.positions;
+    // flatten Gap_Stress into sortable columns (older payloads without the
+    // field just render blanks)
+    for (const r of rows) {
+      for (const k of [1, 2, 3]) {
+        const g = Array.isArray(r.Gap_Stress) ? r.Gap_Stress.find(x => x.gap_atr === k) : null;
+        r["Gap" + k] = g ? g.impact : null;
+        r["GapB" + k] = g ? g.stop_blown : null;
+        r["GapC" + k] = g && g.stop_cap != null ? g.stop_cap : null;
+      }
+    }
     const totLong = rows.filter(r => r.Direction === "Long").reduce((x, r) => x + (r.Mkt_Value || 0), 0);
     const totShort = rows.filter(r => r.Direction === "Short").reduce((x, r) => x + (r.Mkt_Value || 0), 0);
     const opnl = rows.reduce((x, r) => x + (r.Open_PnL || 0), 0);
-    document.getElementById("posCards").innerHTML = [
+    const hasStress = rows.some(r => r.Gap1 != null);
+    const gapSum = k => rows.reduce((x, r) => x + (r["Gap" + k] || 0), 0);
+    const cards = [
       kpiCard("Open Positions", rows.length),
       kpiCard("Long Mkt Value", fmt.money(totLong)),
       kpiCard("Short Mkt Value", fmt.money(totShort)),
       kpiCard("Net", fmt.money(totLong - totShort), clsSign(totLong - totShort)),
       kpiCard("Open PnL", fmt.money(opnl), clsSign(opnl)),
-    ].join("");
+    ];
+    if (hasStress) {
+      for (const k of [1, 2, 3]) {
+        const s = gapSum(k);
+        cards.push(kpiCard(`Gap −${k} ATR`, fmt.money(s), "neg",
+          `book gap stress · w/ open PnL ${fmt.money(opnl + s)}`));
+      }
+    }
+    document.getElementById("posCards").innerHTML = cards.join("");
+    const noStop = '<span class="cap" title="No live stop for this strategy — level shown is only the R denominator">—</span>';
+    const gapCol = k => ({
+      key: "Gap" + k, label: `Gap −${k} ATR`,
+      fmt: (v, r) => {
+        if (v == null) return "";
+        const b = r["GapB" + k];
+        const cap = r["GapC" + k];
+        const tag = b === false
+          ? ` <span class="cap" title="Stop survives this gap — further intraday slide bounded at the stop${cap != null ? " (" + fmt.money(cap) + ")" : ""}">s</span>`
+          : b === true ? ' <span class="cap" title="Gap opens beyond the stop — fills at the gapped price">g</span>' : "";
+        return fmt.money(v) + tag;
+      },
+      cls: clsSign,
+    });
     makeTable(posEl, {
       columns: [
         { key: "Entry_Date", label: "Entry", align: "l" },
@@ -1117,28 +1164,49 @@ function renderStatic() {
         { key: "Strategy", label: "Strategy", align: "l" },
         { key: "Tier", label: "Tier", align: "l" },
         { key: "Ticker", label: "Ticker", align: "l" },
+        { key: "Sector", label: "Sector", align: "l" },
         { key: "Direction", label: "Dir", align: "l",
           fmt: v => `<span class="badge ${v === "Short" ? "dirS" : "dirL"}">${v || ""}</span>` },
         { key: "Entry_Price", label: "Entry $", fmt: v => fmt.num(v, 2) },
         { key: "Current_Price", label: "Last $", fmt: v => v == null ? "" : fmt.num(v, 2) },
-        { key: "Stop_Price", label: "Stop $", fmt: v => v == null ? "" : fmt.num(v, 2),
+        { key: "Stop_Price", label: "Stop $",
+          fmt: (v, r) => r.Use_Stop === false ? noStop : (v == null ? "" : fmt.num(v, 2)),
           cls: (v, r) => {
-            if (v == null || r.Current_Price == null) return "";
+            if (r.Use_Stop === false || v == null || r.Current_Price == null) return "";
             const long = r.Direction !== "Short";
             const distAtr = Math.abs(r.Current_Price - v) /
               Math.max(1e-9, Math.abs(r.Entry_Price - v));
             return (long ? r.Current_Price <= v : r.Current_Price >= v) ? "neg"
               : distAtr < 0.35 ? "neg" : "";
           } },
+        { key: "Stop_Dist_ATR", label: "Stop dist",
+          fmt: (v, r) => (r.Use_Stop === false || v == null) ? "" :
+            fmt.num(v, 2) + (r.Stop_Armed === false ? ' <span class="cap" title="Stop arms next session (day-2 arming)">u</span>' : ""),
+          cls: (v, r) => (r.Use_Stop === false || v == null) ? "" :
+            v <= 0.25 ? "neg" : v < 0.75 ? "neu" : "pos" },
         { key: "Tgt_Price", label: "Target $", fmt: v => v == null ? "" : fmt.num(v, 2) },
+        { key: "Days_Held", label: "Held", fmt: v => v == null ? "" : v + "d" },
+        { key: "Days_To_Time_Stop", label: "T-stop in",
+          fmt: v => v == null ? "" : v + "d", cls: v => (v != null && v <= 1) ? "neu" : "" },
         { key: "Shares", label: "Shares", fmt: v => fmt.num(v, 1) },
         { key: "Mkt_Value", label: "Mkt Value", fmt: v => fmt.money(v) },
         { key: "Open_PnL", label: "Open PnL", fmt: v => fmt.money(v), cls: clsSign },
+        gapCol(1), gapCol(2), gapCol(3),
       ],
       rows, defaultSort: { key: "Entry_Date", dir: -1 },
     });
+    stressNote.textContent = hasStress
+      ? "Gap stress: adverse overnight gap of 1/2/3 ATR applied to every open position at flat-$750k shares, " +
+        "slippage excluded. Every dollar figure is the pure mark-to-gap at the next open, so the book KPIs sum " +
+        "one consistent model. Tags describe what the stop does next: (s) stop survives the gap and bounds " +
+        "further intraday slide at the stop level; (g) gap opens beyond the stop and fills at the gapped price; " +
+        "no tag = no armed stop. Day-2 arming means even today's entries have live stops at the open being " +
+        "stressed. Stop dist = ATRs of room left before the stop. Positions are backtest-modeled opens (not " +
+        "broker fills); dollars ignore the risk-panel dials."
+      : "";
   } else {
     posEl.innerHTML = '<p class="cap">No open positions.</p>';
+    if (stressNote) stressNote.textContent = "";
   }
 
   // compounded reference curve
@@ -1194,4 +1262,327 @@ function renderStatic() {
     corrEl.innerHTML = '<p class="cap">No correlation matrix in this build.</p>';
     divEl.innerHTML = "";
   }
+
+  renderDrawdownAnatomy();
+  renderSectorRisk();
+}
+
+/* ---------- stop-fill quality (filter-reactive; stopfills.json) ---------- */
+function renderStopFills() {
+  const section = document.getElementById("sfSection");
+  if (!S.stopfills || !S.sfRows) {
+    section.innerHTML = '<p class="cap">No stop-fill payload in this build.</p>';
+    return;
+  }
+  const kEl = document.getElementById("sfKpis");
+  const chEl = document.getElementById("sfChart");
+  const capEl = document.getElementById("sfCaption");
+  const toks = tickerTokens();
+  const { strategies, dir, from, to } = S.f;
+  // Date range matches the trade log's basis (entry date) so the two adjacent
+  // sections agree on which trades are in scope; older payloads without
+  // entry_date fall back to exit_date.
+  const rows = S.sfRows.filter(r => {
+    const d = r.entry_date || r.exit_date;
+    return strategies.has(r.strategy) &&
+      (dir === "All" || r.direction === dir) &&
+      (!from || d >= from) && (!to || d <= to) &&
+      (!toks || toks.some(tk => (r.ticker || "").toUpperCase().startsWith(tk)));
+  });
+
+  const cl = S.stopfills.classifier || {};
+  capEl.textContent =
+    `Engine fill model: ${cl.slip_bps ?? 3} bps slippage on every stop fill, +${cl.gap_extra_bps ?? 10} bps when ` +
+    `the bar gaps through (fill at the open); classifier threshold ${cl.gap_threshold_bps ?? 8} bps beyond the ` +
+    "reconstructed stop. Dollars are flat $750k and ignore the risk-panel dials. The Tier filter is not applied " +
+    "here (stop rows carry no tier). Ledger is a full backtest rebuild — marginal fills can flicker between vintages.";
+
+  if (!rows.length) {
+    kEl.innerHTML = '<p class="cap">No stop exits under the current filters.</p>';
+    Plotly.purge(chEl);
+    if (!chEl._fullLayout) chEl.innerHTML = "";
+    if (S.sfTable) S.sfTable.setRows([]);
+    else document.getElementById("sfTable").innerHTML = "";
+    return;
+  }
+  if (chEl.firstChild && !chEl._fullLayout) chEl.innerHTML = "";
+
+  const sum = a => a.reduce((x, y) => x + y, 0);
+  const nGap = rows.filter(r => r.gapped).length;
+  const slips = rows.map(r => r.slip_r).filter(v => v != null);
+  const rs = rows.map(r => r.r).filter(v => v != null);
+  kEl.innerHTML = [
+    kpiCard("Stop Exits", rows.length.toLocaleString()),
+    kpiCard("Gap-Through Rate", fmt.pct(nGap / rows.length, 1), nGap / rows.length > 0.25 ? "neg" : "neu",
+            `${nGap} of ${rows.length} gapped`),
+    kpiCard("Avg Slip (R)", slips.length ? fmt.num(sum(slips) / slips.length, 3) : "-", "neg",
+            "beyond the stop level"),
+    kpiCard("Avg Stop R", rs.length ? fmt.num(sum(rs) / rs.length, 2) : "-", "neg"),
+    kpiCard("Worst Stop R", rs.length ? fmt.num(Math.min(...rs), 2) : "-", "neg"),
+    kpiCard("Cum Slip+Gap Cost", fmt.money(sum(rows.map(r => r.cost_flat || 0))), "neg", "flat $750k, vs fill-at-stop"),
+  ].join("");
+
+  // per-strategy aggregates from the filtered rows
+  const byStrat = new Map();
+  for (const r of rows) {
+    if (!byStrat.has(r.strategy)) byStrat.set(r.strategy, { n: 0, gap: 0, slip: 0 });
+    const a = byStrat.get(r.strategy);
+    a.n++; if (r.gapped) a.gap++; a.slip += (r.slip_r || 0);
+  }
+  const stats = [...byStrat.entries()]
+    .map(([s, a]) => ({ s, n: a.n, rate: a.gap / a.n, slip: a.slip / a.n }))
+    .sort((a, b) => b.n - a.n);
+  Plotly.react(chEl, [
+    { x: stats.map(d => d.s), y: stats.map(d => +(d.rate * 100).toFixed(1)), type: "bar",
+      name: "Gap-through %", marker: { color: "#ffc14d" },
+      customdata: stats.map(d => d.n),
+      hovertemplate: "%{x}: %{y:.1f}% of %{customdata} stops<extra></extra>" },
+    { x: stats.map(d => d.s), y: stats.map(d => +d.slip.toFixed(3)), type: "scatter",
+      mode: "markers", name: "Avg slip (R)", yaxis: "y2",
+      marker: { color: "#4da3ff", size: 9, symbol: "diamond" },
+      hovertemplate: "%{x}: %{y:.3f}R avg slip<extra></extra>" },
+  ], plotLayout({
+    height: 320, hovermode: "closest", bargap: 0.35,
+    margin: { b: 90, r: 46 },
+    xaxis: { tickangle: 30, tickfont: { size: 9.5 } },
+    yaxis: { ticksuffix: "%", title: { text: "Gap-through rate", font: { size: 11 } }, rangemode: "tozero" },
+    yaxis2: { overlaying: "y", side: "right", title: { text: "Avg slip (R)", font: { size: 11 } },
+              gridcolor: "rgba(0,0,0,0)", rangemode: "tozero" },
+  }), PLOT_CFG);
+
+  const tail = rows.slice().sort((a, b) => (a.r ?? 0) - (b.r ?? 0)).slice(0, 12);
+  const columns = [
+    { key: "exit_date", label: "Exit", align: "l" },
+    { key: "strategy", label: "Strategy", align: "l" },
+    { key: "ticker", label: "Ticker", align: "l" },
+    { key: "direction", label: "Dir", align: "l",
+      fmt: v => `<span class="badge ${v === "Short" ? "dirS" : "dirL"}">${v || ""}</span>` },
+    { key: "r", label: "R", fmt: v => v == null ? "" : fmt.signed(v, 2), cls: clsSign },
+    { key: "slip_r", label: "Slip (R)", fmt: v => v == null ? "" : fmt.num(v, 2), cls: () => "neg" },
+    { key: "gapped", label: "Fill", align: "l",
+      fmt: v => v ? '<span class="badge warn">GAP</span>' : '<span class="badge off">AT STOP</span>' },
+    { key: "cost_flat", label: "Cost ($)", fmt: v => fmt.money(v), cls: () => "neg" },
+  ];
+  if (S.sfTable) S.sfTable.setRows(tail);
+  else S.sfTable = makeTable(document.getElementById("sfTable"), {
+    columns, rows: tail, defaultSort: { key: "r", dir: 1 },
+  });
+}
+
+/* ---------- drawdown anatomy (static full-book; drawdowns.json) ---------- */
+function renderDrawdownAnatomy() {
+  const section = document.getElementById("ddaSection");
+  const dd = S.drawdowns;
+  if (!dd || !dd.episodes || !dd.episodes.length) {
+    section.innerHTML = '<p class="cap">No drawdowns payload in this build (skipped under --no-mtm).</p>';
+    return;
+  }
+  // episode selector
+  const segHost = document.getElementById("ddaSeg");
+  segHost.innerHTML = "";
+  const lbl = document.createElement("label");
+  lbl.textContent = "Episode";
+  segHost.appendChild(lbl);
+  const sel = document.createElement("select");
+  sel.className = "btn";
+  dd.episodes.forEach((e, i) => {
+    const o = document.createElement("option");
+    o.value = String(i);
+    o.textContent = `#${i + 1}  -${e.depth_pct.toFixed(1)}%  ${e.peak_date} → ${e.trough_date}` +
+                    (e.recovery_date ? "" : "  (unrecovered)");
+    sel.appendChild(o);
+  });
+  sel.addEventListener("change", () => renderDDEpisode(+sel.value));
+
+  // full-book flat underwater curve from the per-strategy daily series
+  if (S.sd && S.sd.total_flat && !S.ddaUW) {
+    const pnl = S.sd.total_flat, n = pnl.length;
+    const uw = new Array(n);
+    let eq = START_EQ, peak = START_EQ;
+    for (let i = 0; i < n; i++) {
+      eq += pnl[i];
+      if (eq > peak) peak = eq;
+      uw[i] = +((eq - peak) / START_EQ * 100).toFixed(3);
+    }
+    S.ddaUW = { dates: S.sd.dates, uw };
+  }
+  segHost.appendChild(sel);
+  renderDDEpisode(0);
+}
+
+function renderDDEpisode(i) {
+  const dd = S.drawdowns;
+  const e = dd.episodes[i];
+  document.getElementById("ddaKpis").innerHTML = [
+    kpiCard("Depth", fmt.money(-Math.abs(e.depth_dollars)), "neg", "flat $750k dollars"),
+    kpiCard("Depth %", "-" + fmt.num(e.depth_pct, 1) + "%", "neg", "of the fixed $750k base"),
+    kpiCard("Peak → Trough", e.length_td + " td", null, `${e.peak_date} → ${e.trough_date}`),
+    kpiCard("Recovery", e.recovery_td == null ? "not yet" : e.recovery_td + " td",
+            e.recovery_td == null ? "neg" : null,
+            e.recovery_date ? `recovered ${e.recovery_date}` : "still underwater"),
+  ].join("");
+
+  // underwater curve with the episode window shaded
+  const curveEl = document.getElementById("ddaCurve");
+  if (S.ddaUW) {
+    const endX = e.recovery_date || S.ddaUW.dates[S.ddaUW.dates.length - 1];
+    Plotly.react(curveEl, [{
+      x: S.ddaUW.dates, y: S.ddaUW.uw, mode: "lines", name: "Underwater",
+      fill: "tozeroy", line: { color: "#ff5d5d", width: 1 }, fillcolor: "rgba(255,93,93,.15)",
+    }], plotLayout({
+      height: 220, margin: { t: 10 },
+      yaxis: { ticksuffix: "%", title: { text: "Underwater (% of $750k)", font: { size: 11 } } },
+      shapes: [{ type: "rect", xref: "x", yref: "paper",
+                 x0: e.peak_date, x1: endX, y0: 0, y1: 1,
+                 fillcolor: "rgba(255,193,77,.12)", line: { color: "rgba(255,193,77,.5)", width: 1 } }],
+    }), PLOT_CFG);
+  } else {
+    curveEl.innerHTML = '<p class="cap">No daily book series in this build — underwater context unavailable.</p>';
+  }
+
+  const hbar = (el, items, labelKey, valKey, height) => {
+    const node = document.getElementById(el);
+    if (!items || !items.length) {
+      Plotly.purge(node);
+      node.innerHTML = '<p class="cap">No attribution rows for this episode.</p>';
+      return;
+    }
+    if (node.firstChild && !node._fullLayout) node.innerHTML = "";
+    const ys = items.map(x => x[labelKey]).reverse();
+    const xs = items.map(x => x[valKey]).reverse();
+    Plotly.react(node, [{
+      y: ys, x: xs, type: "bar", orientation: "h",
+      marker: { color: xs.map(v => v >= 0 ? "#00d18f" : "#ff5d5d") },
+      hovertemplate: "%{y}: %{x:$,.0f}<extra></extra>",
+    }], plotLayout({
+      height: height || Math.max(180, 24 * items.length + 70),
+      margin: { l: 190, t: 8 }, hovermode: "closest",
+      xaxis: { tickformat: "$,.3~s" },
+      yaxis: { tickfont: { size: 9.5 }, gridcolor: "rgba(0,0,0,0)" },
+    }), PLOT_CFG);
+  };
+  hbar("ddaStrat", e.strategies, "key", "pnl");
+  hbar("ddaSector", e.sectors, "sector", "pnl");
+
+  makeTable(document.getElementById("ddaTrades"), {
+    columns: [
+      { key: "exit_date", label: "Exit", align: "l" },
+      { key: "ticker", label: "Ticker", align: "l" },
+      { key: "strategy", label: "Strategy", align: "l" },
+      { key: "exit_type", label: "Exit Type", align: "l" },
+      { key: "r", label: "R", fmt: v => v == null ? "" : fmt.signed(v, 2), cls: clsSign },
+      { key: "pnl_flat", label: "PnL ($)", fmt: v => fmt.money(v), cls: clsSign },
+    ],
+    rows: e.worst_trades || [],
+  });
+
+  document.getElementById("ddaNote").textContent =
+    (dd.note ? dd.note + " " : "") +
+    "Episodes are detected on the full-book flat-$750k curve at native sizing; they do not respond to page " +
+    "filters, the risk-panel dials, or the fragility adjuster.";
+}
+
+/* ---------- sector concentration + sector-loss gate (sector_risk.json) ---------- */
+function renderSectorRisk() {
+  const section = document.getElementById("srSection");
+  const sr = S.sectorRisk;
+  if (!sr) {
+    section.innerHTML = '<p class="cap">No sector-risk payload in this build.</p>';
+    return;
+  }
+
+  // stacked-area gross exposure timeline (sector keys pre-ordered by lifetime exposure)
+  const tlEl = document.getElementById("srTimeline");
+  if (sr.exposure && sr.exposure.dates && sr.exposure.dates.length) {
+    const secs = Object.keys(sr.exposure.sectors);
+    const traces = secs.map((s, i) => ({
+      x: sr.exposure.dates, y: sr.exposure.sectors[s],
+      stackgroup: "one", mode: "lines", name: s,
+      line: { width: 0.5, color: PALETTE[i % PALETTE.length] },
+      hovertemplate: `${s}: %{y:.1f}%<extra></extra>`,
+    }));
+    Plotly.react(tlEl, traces, plotLayout({
+      height: 340, yaxis: { ticksuffix: "%" },
+      legend: { font: { size: 9.5 } },
+    }), PLOT_CFG);
+  } else {
+    tlEl.innerHTML = '<p class="cap">No sector exposure series in this build.</p>';
+  }
+
+  // current open concentration
+  const openEl = document.getElementById("srOpen");
+  if (sr.open_concentration && sr.open_concentration.length) {
+    const oc = sr.open_concentration.slice().reverse();  // desc -> bottom-up for hbar
+    Plotly.react(openEl, [{
+      y: oc.map(o => o.sector), x: oc.map(o => o.pct), type: "bar", orientation: "h",
+      marker: { color: oc.map((_, i) => PALETTE[(oc.length - 1 - i) % PALETTE.length]) },
+      customdata: oc.map(o => [o.notional, o.n]),
+      hovertemplate: "%{y}: %{x:.1f}% · %{customdata[0]:$,.0f} · %{customdata[1]} pos<extra></extra>",
+    }], plotLayout({
+      height: Math.max(180, 30 * oc.length + 70), margin: { l: 150, t: 8 },
+      hovermode: "closest",
+      xaxis: { ticksuffix: "%" }, yaxis: { gridcolor: "rgba(0,0,0,0)" },
+    }), PLOT_CFG);
+  } else {
+    openEl.innerHTML = '<p class="cap">No open positions.</p>';
+  }
+
+  // gate telemetry
+  const gateEl = document.getElementById("srGate");
+  gateEl.innerHTML = "";
+  const gate = sr.gate;
+  if (gate && gate.strategies && gate.strategies.length) {
+    for (const st of gate.strategies) {
+      const head = document.createElement("p");
+      head.className = "cap";
+      head.textContent = `${st.strategy} — trailing ${st.window_td}td realized R by sector; ` +
+        `blocks at ${fmt.num(st.max_realized_r, 1)}R or worse (asof ${gate.asof}, next trading day)`;
+      gateEl.appendChild(head);
+      const tblHost = document.createElement("div");
+      gateEl.appendChild(tblHost);
+      if (st.sectors && st.sectors.length) {
+        makeTable(tblHost, {
+          columns: [
+            { key: "sector", label: "Sector", align: "l" },
+            { key: "r_sum", label: `Trailing ${st.window_td}td R`,
+              fmt: v => fmt.signed(v, 2), cls: clsSign },
+            { key: "n_exits", label: "Exits" },
+            { key: "distance_r", label: "Margin to block",
+              fmt: v => v == null ? "" : fmt.num(v, 2) + "R",
+              cls: v => v == null ? "" : v <= 0 ? "neg" : v < 0.5 ? "neu" : "pos" },
+            { key: "blocked", label: "Gate", align: "l",
+              fmt: v => v ? '<span class="badge on">BLOCKED</span>' : '<span class="badge off">CLEAR</span>' },
+            // pre-stringified so makeTable's click-sort compares the visible
+            // text instead of '[object Object]' arrays
+            { key: "exits_str", label: "Contributing exits", align: "l" },
+          ],
+          rows: st.sectors.map(s => ({
+            ...s,
+            exits_str: (s.exits || []).map(x => `${x.ticker} ${x.date} ${fmt.signed(x.r, 2)}R`).join(", "),
+          })),
+        });
+      } else {
+        tblHost.innerHTML = '<p class="cap">No sector exits in the trailing window — gate clear everywhere.</p>';
+      }
+      if (st.unknown_exits && st.unknown_exits.length) {
+        const u = document.createElement("p");
+        u.className = "cap";
+        u.textContent = "UNKNOWN-sector exits (pass through, never pooled or gated): " +
+          st.unknown_exits.map(x => `${x.ticker} ${x.date} ${fmt.signed(x.r, 2)}R`).join(", ");
+        gateEl.appendChild(u);
+      }
+    }
+  } else {
+    gateEl.innerHTML = '<p class="cap">No gate telemetry in this build.</p>';
+  }
+
+  const prov = sr.provenance || {};
+  document.getElementById("srCaption").textContent =
+    "Exposure is gross notional at entry, held to exit, as % of the flat $750k base (weekly samples). " +
+    "UNKNOWN-sector names are shown as their own bucket and never pooled. " +
+    (prov.build_utc
+      ? `Ledger vintage: built ${prov.build_utc} (${prov.source || "unknown source"}, ` +
+        `${prov.git_sha || "no sha"}, ${prov.rows || "?"} trades). The ledger is a full backtest rebuild — ` +
+        "near-threshold gate values can differ from the vintage that gated the morning scan."
+      : "Ledger provenance unavailable in this build.");
 }

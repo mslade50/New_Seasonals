@@ -45,6 +45,121 @@ def _clean(v):
     return str(v)
 
 
+def _hedge_recommendation(regime: str, protection_percentile) -> tuple:
+    """(rec, detail, color) — the Layer 4C decision tree, output strings
+    replicated verbatim from the pre-4f5890f risk_dashboard_v2 (deliberately
+    copied, NOT imported: risk_dashboard_v2 stays standalone and no longer
+    carries this code)."""
+    import numpy as np
+    if protection_percentile is None or np.isnan(protection_percentile):
+        return ("Protection cost data unavailable",
+                "Cannot generate recommendation without protection cost percentile.",
+                "#888888")
+    if protection_percentile < 20:
+        return ("Protection is historically cheap",
+                "3-month ~5% OTM index puts are priced below the 20th percentile of history. "
+                "Consider allocating 1-2% of NAV to put protection. This is a positive expected "
+                "value allocation at current pricing regardless of market outlook.",
+                "#00CC00")
+    if regime in ("Caution", "Stress") and protection_percentile < 60:
+        return ("Protection is fairly priced and conditions warrant it",
+                "Consider 0.5-1% of NAV on 3-month puts. "
+                "Alternatively, reduce gross exposure to 0.75x.",
+                "#FFD700")
+    if regime in ("Stress", "Crisis") and 60 <= protection_percentile < 85:
+        return ("Protection is moderately expensive — prefer collars or exposure reduction",
+                "Consider a collar: buy 5% OTM put, sell 3-5% OTM call on SPY for near-zero "
+                "net premium. Or simply reduce gross exposure to 0.50x.",
+                "#FF8C00")
+    if protection_percentile >= 85:
+        return ("Protection is expensive — reduce exposure directly",
+                "Buying puts at this pricing is likely negative EV. Reduce gross exposure to "
+                "0.50x or lower. Hold existing hedges but don't add.",
+                "#CC0000")
+    return ("No hedge action needed",
+            "Market conditions are normal and protection is not attractively priced. "
+            "Standard operations.",
+            "#888888")
+
+
+def _legacy_regime(signals: list) -> tuple:
+    """Map the current signal roster onto the retired point-system taxonomy
+    the 4C tree keys on: on = +1, on & elevated = +2 (alert/alarm analogue).
+    0 = Normal, 1-2 = Caution, 3-4 = Stress, 5+ = Crisis."""
+    pts = 0
+    for s in signals or []:
+        if s.get("on"):
+            pts += 2 if s.get("elevated") else 1
+    regime = ("Normal" if pts == 0 else "Caution" if pts <= 2
+              else "Stress" if pts <= 4 else "Crisis")
+    return regime, pts
+
+
+def build_hedge(signals: list):
+    """Protection-cost proxy + hedge recommendation ('hedge' payload block).
+
+    Proxy = VIX3M x (SKEW/130), percentile-ranked over a trailing 5y window,
+    read straight from data/master_prices.parquet (^VIX3M/^SKEW/^VIX) — the
+    hedge data path deliberately does NOT touch risk_dashboard_v2's shared
+    download chain. Returns None when inputs are missing."""
+    import numpy as np
+    import pandas as pd
+
+    mp = os.path.join(_ROOT, "data", "master_prices.parquet")
+    if not os.path.exists(mp):
+        print("risk: hedge skipped (no master_prices.parquet)")
+        return None
+    px = pd.read_parquet(mp, columns=["ticker", "date", "Close"],
+                         filters=[("ticker", "in", ["^VIX3M", "^SKEW", "^VIX"])])
+
+    def ser(tk):
+        s = px[px["ticker"] == tk].set_index("date")["Close"]
+        s.index = pd.to_datetime(s.index)
+        return s.sort_index().dropna()
+
+    vix3m, skew, vix = ser("^VIX3M"), ser("^SKEW"), ser("^VIX")
+    if vix3m.empty or skew.empty:
+        print("risk: hedge skipped (^VIX3M/^SKEW missing from master_prices)")
+        return None
+    common = vix3m.index.intersection(skew.index)
+    cost = vix3m.reindex(common) * (skew.reindex(common) / 130)
+    pctile = cost.rolling(1260, min_periods=252).rank(pct=True) * 100
+
+    cur_cost = float(cost.iloc[-1])
+    cur_pct = float(pctile.iloc[-1]) if pctile.notna().any() else float("nan")
+    cur_vix3m = float(vix3m.iloc[-1])
+    cur_vix = float(vix.iloc[-1]) if not vix.empty else None
+    term_ratio = None if cur_vix is None else round(cur_vix / cur_vix3m, 3)
+
+    regime, pts = _legacy_regime(signals)
+    rec, detail, color = _hedge_recommendation(regime, cur_pct)
+
+    # 2y weekly sparkline of the proxy + its percentile
+    wk_cost = cost.tail(504).resample("W-FRI").last().dropna()
+    wk_pct = pctile.tail(504).resample("W-FRI").last().reindex(wk_cost.index)
+    return {
+        "asof": common[-1].strftime("%Y-%m-%d"),
+        "proxy": round(cur_cost, 2),
+        "pctile": None if math.isnan(cur_pct) else round(cur_pct, 1),
+        "vix": None if cur_vix is None else round(cur_vix, 2),
+        "vix3m": round(cur_vix3m, 2),
+        "term_ratio": term_ratio,
+        "regime": regime,
+        "regime_points": pts,
+        "regime_basis": ("legacy point-system analogue: active signal = +1, "
+                         "active+elevated = +2; 0 Normal / 1-2 Caution / "
+                         "3-4 Stress / 5+ Crisis"),
+        "rec": rec,
+        "detail": detail,
+        "color": color,
+        "spark": {
+            "dates": [d.strftime("%Y-%m-%d") for d in wk_cost.index],
+            "proxy": [round(float(v), 2) for v in wk_cost.values],
+            "pctile": [None if (v != v) else round(float(v), 1) for v in wk_pct.values],
+        },
+    }
+
+
 def build_nuggets(p):
     """Deterministic interpretation of the risk payload -> idea-page nuggets.
 
@@ -233,6 +348,17 @@ def main():
                 **{c: [_clean(round(float(v), 1)) if v == v else None for v in ft[c].values]
                    for c in ft.columns},
             }
+
+        # hedge block is best-effort inside the best-effort script: a failure
+        # here must not cost the rest of the risk payload
+        try:
+            hedge = build_hedge(signals)
+            if hedge:
+                payload["hedge"] = hedge
+                print(f"risk: hedge block ok (pctile {hedge['pctile']}, {hedge['regime']})")
+        except Exception:
+            print("risk: hedge block FAILED (continuing without it)")
+            traceback.print_exc()
 
         payload["nuggets"] = build_nuggets(payload)
 

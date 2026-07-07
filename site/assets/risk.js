@@ -72,6 +72,39 @@ async function init() {
     }
   }
 
+  // protection cost + hedge recommendation (optional 'hedge' block)
+  const hg = d.hedge;
+  if (hg) {
+    const ratioTxt = hg.term_ratio == null ? "" :
+      ` = ${fmt.num(hg.term_ratio, 3)}${hg.term_ratio > 1 ? " (inverted)" : ""}`;
+    html += `<h2>Protection cost &amp; hedge posture</h2>
+    <div class="grid2">
+      <div class="card">
+        ${hg.pctile != null ? '<div class="chart" id="hedgeGauge"></div>' :
+          '<p class="cap">Protection-cost percentile unavailable (needs ~1y of proxy history).</p>'}
+        <div class="kv">
+          <div class="k">Proxy (VIX3M x SKEW/130)</div><div class="v">${fmt.num(hg.proxy, 2)}</div>
+          <div class="k">VIX / VIX3M</div>
+          <div class="v">${hg.vix != null ? fmt.num(hg.vix, 2) : "-"} / ${fmt.num(hg.vix3m, 2)}${esc(ratioTxt)}</div>
+          <div class="k">Regime input</div><div class="v">${esc(hg.regime || "-")} (${hg.regime_points != null ? hg.regime_points : "-"} pts)</div>
+          <div class="k">As of</div><div class="v">${esc(hg.asof || "-")}</div>
+        </div>
+      </div>
+      <div class="card">
+        <div style="font-weight:700;font-size:15px;color:${esc(hg.color || "#c7ccd6")}">${esc(hg.rec || "")}</div>
+        <p style="margin:8px 0 0;font-size:13px;line-height:1.5">${esc(hg.detail || "")}</p>
+        <p class="cap">Regime basis: ${esc(hg.regime_basis || "")}.
+          Advisory text only (legacy Layer 4C decision tree, hit rates are placeholder
+          estimates) — not an order instruction.</p>
+      </div>
+    </div>`;
+    if (hg.spark && hg.spark.dates && hg.spark.dates.length) {
+      html += `<div class="card" style="margin-top:14px">
+        <div class="cap" style="margin-top:0">Protection-cost proxy, 2y weekly, with trailing-5y percentile</div>
+        <div class="chart" id="hedgeSpark"></div></div>`;
+    }
+  }
+
   el.innerHTML = html;
 
   if (d.spy_series) {
@@ -91,6 +124,55 @@ async function init() {
       yaxis: { title: { text: "SPY", font: { size: 11 } } },
       yaxis2: { overlaying: "y", side: "right", range: [0, 100], showgrid: false,
                 title: { text: "Fragility", font: { size: 11 } } },
+    }), PLOT_CFG);
+  }
+
+  if (hg) renderHedgeCharts(hg);
+}
+
+/* Layer 4B-style gauge (green/yellow/orange/red bands match the 4C decision
+   tree thresholds: <20 cheap, 20-60 fair, 60-85 expensive, >=85 very) plus
+   the 2y weekly proxy sparkline with its trailing-5y percentile. */
+function renderHedgeCharts(hg) {
+  const gaugeEl = document.getElementById("hedgeGauge");
+  if (gaugeEl && hg.pctile != null) {
+    Plotly.newPlot(gaugeEl, [{
+      type: "indicator", mode: "gauge+number", value: hg.pctile,
+      number: { suffix: "", font: { size: 30, color: "#e8eaf0" } },
+      title: { text: "Protection cost percentile (trailing 5y)",
+               font: { size: 12, color: "#c7ccd6" } },
+      gauge: {
+        axis: { range: [0, 100], tickcolor: "#2a3242",
+                tickfont: { color: "#c7ccd6", size: 10 } },
+        bar: { color: "#e8eaf0", thickness: 0.22 },
+        bgcolor: "rgba(0,0,0,0)", borderwidth: 0,
+        steps: [
+          { range: [0, 20],   color: "rgba(0,204,0,.45)" },
+          { range: [20, 60],  color: "rgba(255,215,0,.40)" },
+          { range: [60, 85],  color: "rgba(255,140,0,.45)" },
+          { range: [85, 100], color: "rgba(204,0,0,.50)" },
+        ],
+      },
+    }], plotLayout({ height: 210, margin: { l: 28, r: 28, t: 40, b: 6 } }), PLOT_CFG);
+  }
+
+  const sparkEl = document.getElementById("hedgeSpark");
+  if (sparkEl && hg.spark) {
+    const traces = [{
+      x: hg.spark.dates, y: hg.spark.proxy, name: "Proxy",
+      mode: "lines", line: { color: "#4da3ff", width: 1.6 },
+    }];
+    if ((hg.spark.pctile || []).some(v => v != null)) {
+      traces.push({
+        x: hg.spark.dates, y: hg.spark.pctile, name: "Pctile (5y)", yaxis: "y2",
+        mode: "lines", line: { color: "#ffc14d", width: 1.1, dash: "dot" },
+      });
+    }
+    Plotly.newPlot(sparkEl, traces, plotLayout({
+      height: 220,
+      yaxis: { title: { text: "VIX3M x SKEW/130", font: { size: 11 } } },
+      yaxis2: { overlaying: "y", side: "right", range: [0, 100], showgrid: false,
+                title: { text: "Pctile", font: { size: 11 } } },
     }), PLOT_CFG);
   }
 }
