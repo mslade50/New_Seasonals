@@ -4,7 +4,14 @@ import numpy as np
 import yfinance as yf
 import datetime
 import time
-from pandas.tseries.offsets import BusinessDay
+from pandas.tseries.offsets import BusinessDay, CustomBusinessDay
+from pandas.tseries.holiday import USFederalHolidayCalendar
+
+# Holiday-aware trading-day offset for projecting time stops past the last
+# price bar. Must match daily_scan.py's TRADING_DAY: plain BusinessDay counts
+# market holidays (e.g. 2026-07-03), which shifted every open position's
+# projected Time Stop a day early and let the site book time exits early.
+TRADING_DAY = CustomBusinessDay(calendar=USFederalHolidayCalendar())
 import plotly.graph_objects as go
 import plotly.express as px
 import sys
@@ -2129,7 +2136,7 @@ def process_signals_fast(candidates, signal_data, processed_dict, strategies, st
                 if target_ts_idx < len(df):
                     time_stop_date = df.index[target_ts_idx]
                 else:
-                    time_stop_date = entry_date + BusinessDay(hold_days)
+                    time_stop_date = entry_date + (TRADING_DAY * hold_days)
 
                 open_positions.append({
                     'ticker': ticker, 't_clean': t_clean,
