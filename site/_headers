@@ -4,3 +4,6 @@
 
 /data/*
   Cache-Control: no-store
+
+/research/*
+  Cache-Control: no-store

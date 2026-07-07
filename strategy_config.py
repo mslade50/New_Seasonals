@@ -151,7 +151,7 @@ except Exception:
 
 _STRATEGY_BOOK_RAW = [
     {
-        "id": "252d Between 50-90, New 52w High, Today is ATH, vol > 2.5x, Market > 200 SMA, 63d dial 10ma < 30, Entry: Limit -0.5 ATR Persistent, 63d hold",
+        "id": "252d Between 50-90, New 52w High, Today is ATH, vol > 2.5x, Market > 200 SMA, 63d dial 10ma < 30, Entry: Limit -0.25 ATR Persistent, 63d hold",
         "name": "52wh Breakout",
         "setup": {
             "type": "Breakout",
@@ -172,11 +172,11 @@ _STRATEGY_BOOK_RAW = [
             "target_logic": "8.0 ATR above entry",
             "notes": None
         },
-        "description": "Backtest: 2016-01-01 to present. Universe: LIQUID_UNIVERSE. Dir: Long. WR 47.3% / Exp 0.77r / PF 2.43.",
+        "description": "Backtest: 2016-01-01 to present. Universe: LIQUID_UNIVERSE. Dir: Long. WR 47.3% / Exp 0.77r / PF 2.43. Entry moved -0.5 -> -0.25 ATR 2026-07-07 (entry-lab sweep: -0.25 wins every era, totR +131.8 vs +98.3, fill 87% vs 76% — shallower limit misses fewer runners; scratch/entry_lab_era_split.csv). Stats above are pre-change — re-run to refresh.",
         "universe_tickers": LIQUID_UNIVERSE,
         "settings": {
             "trade_direction": "Long",
-            "entry_type": "Limit Order -0.5 ATR (Persistent)",
+            "entry_type": "Limit Order -0.25 ATR (Persistent)",
             "max_one_pos": True,
             "allow_same_day_reentry": False,
             "entry_conf_bps": 0,
