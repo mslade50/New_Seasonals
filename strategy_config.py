@@ -119,6 +119,15 @@ LEV3X_ALL = [
     'NUGT', 'JNUG', 'GUSH', 'DUST', 'JDST', 'DRIP',
 ]
 
+# Bear-equity 3x names — carved out of the generic 3x ETF Overbot Fade into
+# the looser bear-only fade (2026-07-07 study: scratch/lev3x_fade_class_study.py
+# + lev3x_fade_bear_sizing_rule.py). Universes must stay disjoint so the two
+# fades can never fire the same ticker on the same day.
+LEV3X_BEAR_EQ = [
+    'SPXS', 'SQQQ', 'SDOW', 'TZA',
+    'SOXS', 'FAZ', 'TECS', 'LABD', 'ERY', 'DRV', 'WEBS', 'YANG', 'EDZ',
+]
+
 # All CSV tickers from sznl_ranks.csv (~1062 tickers)
 import os as _os, pandas as _pd
 _csv_path = _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), 'sznl_ranks.csv')
@@ -781,7 +790,7 @@ _STRATEGY_BOOK_RAW = [
         "setup": {
             "type": "MeanReversion",
             "timeframe": "Overnight",
-            "thesis": "Overbought fade on 3x leveraged ETFs that are NOT medium/long-term leaders — pure multi-horizon overbought fade (no volume or range requirement)",
+            "thesis": "Overbought fade on 3x leveraged ETFs that are NOT medium/long-term leaders — pure multi-horizon overbought fade (no volume or range requirement). Bear-equity names carved out to the looser 3x Bear ETF Overbot Fade (2026-07-07) — universes disjoint to prevent same-day cross-fire.",
             "key_filters": [
                 "2D rank > 85th %ile",
                 "5D rank > 85th %ile",
@@ -797,8 +806,8 @@ _STRATEGY_BOOK_RAW = [
             "target_logic": "None (time exit only)",
             "notes": None
         },
-        "description": "Backtest: 2000-01-01 to present. Universe: 3x Leveraged (All) — 42 tickers.",
-        "universe_tickers": LEV3X_ALL,
+        "description": "Backtest: 2000-01-01 to present. Universe: 3x Leveraged minus bear-equity names (29 tickers; bear-equity carved out to 3x Bear ETF Overbot Fade 2026-07-07). Stats below are pre-carve-out (42-ticker) — re-run to refresh.",
+        "universe_tickers": [t for t in LEV3X_ALL if t not in LEV3X_BEAR_EQ],
         "settings": {
             "trade_direction": "Short",
             "entry_type": "Limit (Open +/- 0.5 ATR)",
@@ -917,6 +926,157 @@ _STRATEGY_BOOK_RAW = [
             "use_take_profit": False
         },
         "stats": {"grade": "A (Excellent)", "win_rate": "79.6%", "expectancy": "0.87r", "profit_factor": "7.58"}
+    },
+    {
+        "id": "2d > 80%ile+5d > 80%ile+10d > 80%ile+21d > 80%ile+126d < 65%ile+252d < 65%ile, Entry: Limit (Open +/- 0.5 ATR), 2d hold",
+        "name": "3x Bear ETF Overbot Fade",
+        "setup": {
+            "type": "MeanReversion",
+            "timeframe": "Overnight",
+            "thesis": "Looser overbought fade restricted to bear-equity 3x ETFs (carved out of the generic 3x fade 2026-07-07). Fading an overbought inverse ETF is a long-market dip-buy plus 3x vol-drag harvest, so it runs FAMILY4-style fragility bands and a same-day signal de-rate (multiple inverse names lighting up together = violent selloff, degraded per-trade edge). The 126/252d < 65 leader exclusion is LOAD-BEARING: it is what keeps this from shorting sustained bear markets (dropping it collapsed avgR +0.66 -> +0.28 with -14R/-16R years in 2020/2022) — do not relax it. Evidence: scratch/lev3x_fade_class_study.py, lev3x_fade_bear_episodes.py, lev3x_fade_bear_sizing_rule.py.",
+            "key_filters": [
+                "2D rank > 80th %ile",
+                "5D rank > 80th %ile",
+                "10D rank > 80th %ile",
+                "21D rank > 80th %ile",
+                "126D rank < 65th %ile",
+                "252D rank < 65th %ile"
+            ]
+        },
+        "exit_summary": {
+            "primary_exit": "2-day time stop",
+            "stop_logic": "None (time exit only)",
+            "target_logic": "None (time exit only)",
+            "notes": "Same execution as the parent 3x fade; only the entry thresholds (85->80, 21d consec 3->1), universe, and sizing overlays differ."
+        },
+        "description": "Backtest: 2003-01-01 to present (signals all land 2020+, one-regime sample — hence reduced bps). Universe: 13 bear-equity 3x ETFs. WR 66.7% / Exp 0.66r / PF 2.80, ~9 tr/yr, episode t +3.5.",
+        "universe_tickers": LEV3X_BEAR_EQ,
+        "settings": {
+            "trade_direction": "Short",
+            "entry_type": "Limit (Open +/- 0.5 ATR)",
+            "max_one_pos": True,
+            "allow_same_day_reentry": False,
+            "entry_conf_bps": 0,
+            "perf_filters": [
+                {'window': 2, 'logic': '>', 'thresh': 80.0, 'thresh_max': 100.0, 'consecutive': 1},
+                {'window': 5, 'logic': '>', 'thresh': 80.0, 'thresh_max': 100.0, 'consecutive': 1},
+                {'window': 10, 'logic': '>', 'thresh': 80.0, 'thresh_max': 100.0, 'consecutive': 1},
+                {'window': 21, 'logic': '>', 'thresh': 80.0, 'thresh_max': 100.0, 'consecutive': 1},
+                {'window': 126, 'logic': '<', 'thresh': 65.0, 'thresh_max': 100.0, 'consecutive': 1},
+                {'window': 252, 'logic': '<', 'thresh': 65.0, 'thresh_max': 100.0, 'consecutive': 1}
+            ],
+            "perf_first_instance": False,
+            "perf_lookback": 21,
+            "ma_consec_filters": [],
+            "use_sznl": False,
+            "sznl_logic": "<",
+            "sznl_thresh": 15.0,
+            "sznl_first_instance": False,
+            "sznl_lookback": 21,
+            "use_market_sznl": False,
+            "market_sznl_logic": "<",
+            "market_sznl_thresh": 15.0,
+            "market_ticker": "^GSPC",
+            "use_52w": False,
+            "52w_type": "New 52w High",
+            "52w_first_instance": False,
+            "52w_lookback": 21,
+            "52w_lag": 0,
+            "exclude_52w_high": False,
+            "use_ath": False,
+            "ath_type": "Today is ATH",
+            "use_recent_ath": False,
+            "recent_ath_invert": False,
+            "ath_lookback_days": 21,
+            "use_recent_52w": False,
+            "recent_52w_invert": False,
+            "recent_52w_lookback": 21,
+            "use_recent_52w_low": False,
+            "recent_52w_low_invert": False,
+            "recent_52w_low_lookback": 21,
+            "breakout_mode": "None",
+            "require_close_gt_open": False,
+            "use_range_filter": False,
+            "range_min": 50,
+            "range_max": 100,
+            "use_atr_ret_filter": False,
+            "atr_ret_min": 0.0,
+            "atr_ret_max": 1.0,
+            "use_range_atr_filter": False,
+            "range_atr_logic": ">",
+            "range_atr_min": 1.0,
+            "range_atr_max": 3.0,
+            "price_action_filters": [],
+            "use_ma_dist_filter": False,
+            "dist_ma_type": "SMA 10",
+            "dist_logic": "Greater Than (>)",
+            "dist_min": 0.0,
+            "dist_max": 2.0,
+            "use_weekly_ma_pullback": False,
+            "wma_type": "EMA",
+            "wma_period": 8,
+            "wma_min_ext_pct": 30.0,
+            "wma_lookback_months": 6,
+            "wma_touch_logic": "Low <= MA",
+            "vol_gt_prev": False,
+            "use_vol": False,
+            "vol_thresh": 1.2,
+            "use_vol_rank": False,
+            "vol_rank_logic": "<",
+            "vol_rank_thresh": 50.0,
+            "use_acc_count_filter": False,
+            "acc_count_window": 21,
+            "acc_count_logic": "=",
+            "acc_count_thresh": 0,
+            "use_dist_count_filter": False,
+            "dist_count_window": 21,
+            "dist_count_logic": ">",
+            "dist_count_thresh": 3,
+            "use_gap_filter": False,
+            "gap_lookback": 21,
+            "gap_logic": ">",
+            "gap_thresh": 3,
+            "trend_filter": "None",
+            "use_vix_filter": False,
+            "vix_min": 0.0,
+            "vix_max": 20.0,
+            "min_price": 10.0,
+            "min_vol": 100000,
+            "min_age": 0.25,
+            "max_age": 100.0,
+            "min_atr_pct": 0.2,
+            "max_atr_pct": 10.0,
+            "use_dow_filter": False,
+            "allowed_days": [0, 1, 2, 3, 4],
+            "allowed_cycles": [1, 2, 3, 0],
+            "use_ref_ticker_filter": False,
+            "ref_ticker": "IWM",
+            "ref_filters": [],
+            "use_t1_open_filter": False,
+            "t1_open_filters": [],
+            "use_xsec_filter": False,
+            "xsec_filters": [],
+            "atr_sznl_filters": []
+        },
+        "execution": {
+            "risk_bps": 25,
+            "risk_per_trade": "[EDIT: calculated from account size]",
+            "slippage_bps": 2,
+            "stop_atr": 1.0,
+            "tgt_atr": 8.0,
+            "hold_days": 2,
+            "use_stop_loss": False,
+            "use_take_profit": False,
+            # Dip-buy-adjacent: fading overbought inverse ETFs = buying market
+            # selloffs, so it inherits the FAMILY4 fragility throttle.
+            "frag_risk_bands": [[50, 999, 0.25]],
+            # Same-day de-rate: each staged signal scaled by
+            # max(floor, 1 - derate x (n_signals_today - 1)). Count is ex-ante
+            # (staged signals, not fills). See same_day_derate_mult().
+            "same_day_signal_derate": 0.10,
+            "same_day_derate_floor": 0.30
+        },
+        "stats": {"grade": "B (Pilot)", "win_rate": "66.7%", "expectancy": "0.66r", "profit_factor": "2.80"}
     },
     {
         "id": "2d < 25%ile, Entry: Limit Order -0.25 ATR (Persistent), 2d hold",
@@ -1561,6 +1721,24 @@ def get_strategy_by_name(name, account_value=None):
 def list_strategies():
     """List all strategy names and their risk in bps."""
     return [(s["name"], s["execution"]["risk_bps"]) for s in _STRATEGY_BOOK_RAW]
+
+
+def same_day_derate_mult(execution, n_signals):
+    """Same-day signal de-rate (3x Bear ETF Overbot Fade, 2026-07-07).
+
+    When a strategy sets execution['same_day_signal_derate'] = d, every signal
+    it stages on a day with n same-strategy signals is sized at
+    max(floor, 1 - d*(n-1)), floor = execution['same_day_derate_floor']
+    (default 0.30). n counts STAGED SIGNALS (known pre-market), not fills —
+    several inverse-3x names overbought at once marks a violent selloff where
+    per-trade edge degrades (scratch/lev3x_fade_bear_sizing_rule.py). Shared
+    by daily_scan (post-pass 5c) and strat_backtester (sizing 3b4).
+    """
+    d = execution.get('same_day_signal_derate')
+    if not d or n_signals <= 1:
+        return 1.0
+    floor = float(execution.get('same_day_derate_floor', 0.30))
+    return max(floor, 1.0 - float(d) * (n_signals - 1))
 
 
 # ============================================

@@ -212,7 +212,8 @@ effective, overflow 25 = 37.5.
 daily_scan per-signal sizing order (mirrored in strat_backtester step 3b):
 base bps (tier x GRM) -> 2b fragility band -> 2c ladder rung -> 2c2 cycle-year
 mult -> 2d earnings size override (flat REPLACE, itself GRM-scaled: OLV signals
--10..0 TD from earnings get 10 bps nominal / 15 effective) -> shares.
+-10..0 TD from earnings get 10 bps nominal / 15 effective) -> shares -> 5c
+same-day signal de-rate (post-pass; 3x Bear fade — see its section below).
 
 ## Ladder Sizing (OLV, 2026-04-22)
 
@@ -344,6 +345,43 @@ scanner-staged sizes as-is since 2026-06-11):
   behavior + engine/live parity). Replay parity vs the research cells:
   scratch/parity_check_frag_bands.py (FAMILY4 74@0.25x exact, OVS 226/230
   @0.75x exact with 4 cap-interaction deviations of 0.0004 on one day).
+
+## 3x Bear ETF Overbot Fade + Same-Day Signal De-rate (2026-07-07)
+
+The 13 bear-equity 3x names (`strategy_config.LEV3X_BEAR_EQ`) were carved out
+of the generic 3x ETF Overbot Fade (now 29 tickers) into a looser bear-only
+fade: short thresholds 85->80, 21d consec 3->1, SAME 126/252d < 65 leader
+exclusion — that filter is LOAD-BEARING (it keeps the fade from shorting
+sustained bear markets; dropping it collapsed avgR +0.66 -> +0.28 with
+-14R/-16R years in 2020/2022). Universes are disjoint by construction so the
+two fades can never fire the same ticker on the same day. 25 bps nominal
+(vs parent 40) because every signal in the loosened config lands 2020+
+(one-regime sample). Fading an overbought inverse ETF = buying a market
+selloff, so the strategy carries the FAMILY4 `frag_risk_bands` [[50,999,0.25]].
+Evidence: scratch/lev3x_fade_class_study.py + lev3x_fade_bear_episodes.py.
+
+Same-day signal de-rate — new generic sizing overlay, currently bear-fade
+only: `execution['same_day_signal_derate'] = 0.10` sizes each of the day's
+signals at `max(floor, 1 - 0.10*(n-1))` where n = that strategy's SIGNAL
+count that day (ex-ante staged count, NOT fills — only ~1/3 of signals fill,
+but high signal count itself marks the violent-selloff days where per-trade
+edge degrades). `same_day_derate_floor` = 0.30. Composes multiplicatively
+with frag bands (April 2024: 5 signals x high fragility -> 0.15x). Evidence:
+scratch/lev3x_fade_bear_sizing_rule.py (same totR, worst 2-day window
+-6.2R -> -4.5R).
+
+Aligned sites -- change together (order_staging needs nothing: takes staged
+sizes as-is):
+- `strategy_config.py` execution `same_day_signal_derate` /
+  `same_day_derate_floor` + shared formula `same_day_derate_mult()`
+- `pages/strat_backtester.py` sizing step 3b4 (counts staged candidates
+  per (strategy, day) in a pre-loop pass, post earnings-blackout)
+- `daily_scan.py` post-pass 5c (after the cross-strategy overlap clamp;
+  runs post-loop because n is only known after the strategy's ticker loop;
+  counts per (Strategy_Name, Scan_Source); rescales Shares/Risk_Amt/Notional
+  and stamps Sizing notes)
+- Guard: `tests/test_same_day_derate.py` (carve-out partition, filter
+  invariants, formula boundaries, single-carrier assertion)
 
 ## Trend Sleeve (pilot, 2026-07-02)
 

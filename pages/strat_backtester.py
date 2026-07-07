@@ -108,7 +108,7 @@ parent_dir = os.path.dirname(current_dir)
 sys.path.append(parent_dir)
 
 try:
-    from strategy_config import _STRATEGY_BOOK_RAW, ACCOUNT_VALUE, CSV_UNIVERSE, LIQUID_PLUS_COMMODITIES, SPOT_TO_TRADEABLE
+    from strategy_config import _STRATEGY_BOOK_RAW, ACCOUNT_VALUE, CSV_UNIVERSE, LIQUID_PLUS_COMMODITIES, SPOT_TO_TRADEABLE, same_day_derate_mult
 except ImportError:
     # st.error("Could not find strategy_config.py in the root directory.")
     _STRATEGY_BOOK_RAW = []
@@ -116,6 +116,8 @@ except ImportError:
     LIQUID_PLUS_COMMODITIES = []
     ACCOUNT_VALUE = 150000
     SPOT_TO_TRADEABLE = {}
+    def same_day_derate_mult(execution, n_signals):
+        return 1.0
 
 try:
     from overflow_universe import load_overflow_universe, load_overflow_universe_full
@@ -1447,6 +1449,21 @@ def process_signals_fast(candidates, signal_data, processed_dict, strategies, st
                 f"(${_ovs_p1_gate_dollars:,.0f}) — all P2 trades dropped those days"
             )
 
+    # Per-(strategy, day) signal counts for execution['same_day_signal_derate']
+    # (3x Bear fade, sizing step 3b4 below). Counted on STAGED candidates
+    # (post-blackout), not fills — live sizes at staging time when only the
+    # signal count is known. Mirrors daily_scan post-pass 5c; change together.
+    _derate_strat_idxs = {
+        i for i, s in enumerate(strategies)
+        if s.get('execution', {}).get('same_day_signal_derate')
+    }
+    _derate_sig_counts = {}
+    if _derate_strat_idxs:
+        for _c in candidates:
+            if _c[3] in _derate_strat_idxs:
+                _k = (_c[3], pd.Timestamp(_c[0]).normalize())
+                _derate_sig_counts[_k] = _derate_sig_counts.get(_k, 0) + 1
+
     # Build price matrix for all relevant tickers (forward-filled by ticker).
     all_tickers = set(c[2] for c in candidates)
     price_matrix = build_price_matrix(processed_dict, all_tickers)
@@ -1719,6 +1736,18 @@ def process_signals_fast(candidates, signal_data, processed_dict, strategies, st
         _fbm = frag_band_mult_at(execution, signal_ts)
         if _fbm != 1.0:
             base_risk *= _fbm
+
+        # --- 3b4. Same-day signal de-rate (3x Bear fade, 2026-07-07) ---
+        # execution['same_day_signal_derate']: scale by
+        # max(floor, 1 - d*(n-1)) where n = this strategy's staged candidates
+        # today (ex-ante count from the pre-loop pass above). Mirrors
+        # daily_scan post-pass 5c via strategy_config.same_day_derate_mult.
+        if execution.get('same_day_signal_derate'):
+            _n_sig = _derate_sig_counts.get(
+                (strat_idx, signal_date.normalize()), 1)
+            _sdm = same_day_derate_mult(execution, _n_sig)
+            if _sdm != 1.0:
+                base_risk *= _sdm
 
         # --- 3c. User-configured per-strategy risk multiplier (size-up dial) ---
         # Applied as the FINAL sizing step so it scales whichever rule won

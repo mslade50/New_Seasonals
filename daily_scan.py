@@ -39,6 +39,7 @@ try:
         CSV_UNIVERSE, LIQUID_PLUS_COMMODITIES,
         CROSS_STRATEGY_OVERLAP_OVERRIDES,
         GLOBAL_RISK_MULTIPLIER,
+        same_day_derate_mult,
     )
 except ImportError:
     print("[ERROR] Could not find strategy_config.py in the root directory.")
@@ -49,6 +50,9 @@ except ImportError:
     LIQUID_PLUS_COMMODITIES = []
     GLOBAL_RISK_MULTIPLIER = 1.0
     CROSS_STRATEGY_OVERLAP_OVERRIDES = []
+
+    def same_day_derate_mult(execution, n_signals):
+        return 1.0
 
 # Dynamic overflow universe (Layer C). When data/overflow_universe.parquet is
 # absent, the loaders return the caller-supplied fallback / {} so the scan
@@ -2829,6 +2833,46 @@ def run_daily_scan(scope='liquid', moc_only=False, dry_run=False):
                 _clamp_count += 1
         if _clamp_count:
             print(f"[OVERLAP CLAMP] Reduced risk on {_clamp_count} signal(s) due to cross-strategy date+tradeable collisions.")
+
+    # 5c. Same-day signal de-rate (3x Bear ETF Overbot Fade, 2026-07-07).
+    # Any strategy with execution['same_day_signal_derate'] has every one of
+    # today's signals scaled by max(floor, 1 - d*(n-1)), n = that strategy's
+    # signal count in this scan (per tier). Count is ex-ante (staged signals,
+    # not fills): several inverse-3x names overbought at once marks a violent
+    # selloff where per-trade edge degrades. Runs as a post-pass because n is
+    # only known after the strategy's ticker loop. Mirrored in
+    # strat_backtester sizing 3b4 — change together.
+    _derate_execs = {
+        s['name']: s['execution'] for s in effective_book
+        if s.get('execution', {}).get('same_day_signal_derate')
+    }
+    if _derate_execs and all_signals:
+        from collections import Counter as _Counter
+        _sig_counts = _Counter(
+            (_s.get('Strategy_Name'), _s.get('Scan_Source'))
+            for _s in all_signals
+            if _s.get('Strategy_Name') in _derate_execs
+        )
+        _derated = 0
+        for _s in all_signals:
+            _name = _s.get('Strategy_Name')
+            _exe = _derate_execs.get(_name)
+            if _exe is None:
+                continue
+            _n = _sig_counts.get((_name, _s.get('Scan_Source')), 1)
+            _mult = same_day_derate_mult(_exe, _n)
+            if _mult == 1.0:
+                continue
+            _s['Shares'] = int(round(_s.get('Shares', 0) * _mult))
+            _s['Risk_Amt'] = float(_s.get('Risk_Amt', 0.0)) * _mult
+            _s['Notional'] = float(_s.get('Notional', 0.0)) * _mult
+            _s['Sizing_Notes'] = (
+                f"{_s.get('Sizing_Notes', '')} | Same-day derate: "
+                f"{_n} signals -> {_mult:.2f}x"
+            )
+            _derated += 1
+        if _derated:
+            print(f"[SAME-DAY DERATE] Scaled {_derated} signal(s) — multiple same-strategy signals today.")
 
     # 6. Save Results
     # Dry-run: print a summary and skip ALL side effects (no Google Sheets
