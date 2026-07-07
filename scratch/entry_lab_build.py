@@ -9,14 +9,22 @@ Method (mirrors scripts/build_trade_ledger.py):
   generation), then process_signals_fast is re-run per variant over deep-copied
   STRATEGY_BOOK execution/settings dicts. The engine is never patched.
 
-Sweeps (9 process runs total: 1 baseline + 4 offsets + 3 fill windows + 1 spare
-budgeted but unused):
+Sweeps (12 process runs total: 1 baseline + 4 persistent offsets + 4 day-limit
+offsets + 3 fill windows):
   1. Persistent-limit offset — the engine parses the offset OUT OF THE
      entry_type STRING ('0.25' / '0.75' / '1 ATR' / default 0.5), so only
      {0.25, 0.5, 0.75, 1.0} ATR are representable. The requested 0.0 / 0.1 /
      0.4 / 0.6 points are dropped (see dropped_dimensions).
-  2. OLV fill_window_days in {2, 3, 5, 10} (engine-read execution config;
+  2. Day-limit (single-session "Limit (Open +/- X ATR)") offset — same
+     representable set, same string parse, covering the 7 non-persistent
+     strategies (added 2026-07-07: every strategy in the book is a limit
+     entry, so the two offset sweeps together span the whole book).
+  3. OLV fill_window_days in {2, 3, 5, 10} (engine-read execution config;
      3 = prod, reused from the baseline run).
+
+Side artifact: scratch/entry_lab_era_split.csv — per-era stats for every
+(sweep, strategy, offset) cell, for robustness reads (e.g. the 2026-07-07
+"should 52wh Breakout move to -0.25 ATR?" question). Not shipped to the site.
 
 Run:  python scratch/entry_lab_build.py   (several minutes — full-book precompute)
 """
@@ -59,8 +67,22 @@ OFFSET_STRINGS = {
     0.75: "Limit Order -0.75 ATR (Persistent)",
     1.0: "Limit Order -1 ATR (Persistent)",
 }
+DAY_OFFSET_STRINGS = {
+    0.25: "Limit (Open +/- 0.25 ATR)",
+    0.5: "Limit (Open +/- 0.5 ATR)",
+    0.75: "Limit (Open +/- 0.75 ATR)",
+    1.0: "Limit (Open +/- 1 ATR)",
+}
 FILL_WINDOW_POINTS = [2, 3, 5, 10]
 OLV_NAME = "Oversold Low Volume"
+ERA_CSV = os.path.join(_HERE, "entry_lab_era_split.csv")
+ERAS = [
+    ("2003-2009", "2003-01-01", "2009-12-31"),
+    ("2010-2014", "2010-01-01", "2014-12-31"),
+    ("2015-2019", "2015-01-01", "2019-12-31"),
+    ("2020-2022", "2020-01-01", "2022-12-31"),
+    ("2023-now", "2023-01-01", "2099-01-01"),
+]
 
 
 def _prod_offset(entry_type):
@@ -137,6 +159,31 @@ def summarize(sig, names, sig_counts):
     return rows, _book_row(sig)
 
 
+_era_rows = []
+
+
+def collect_eras(sig, names, dimension, value):
+    """Per-era stats for each strategy at this sweep point -> ERA_CSV.
+    Research side artifact; not part of the site payload."""
+    sig = _prep(sig)
+    if sig.empty:
+        return
+    dates = pd.to_datetime(sig["Date"])
+    for name in names:
+        g = sig[sig["Strategy"] == name]
+        gd = dates[g.index]
+        for era, a, b in ERAS:
+            e = g[(gd >= a) & (gd <= b)]
+            r = e["R"].dropna()
+            _era_rows.append({
+                "dimension": dimension, "strategy": name, "value": value,
+                "era": era, "n": len(e),
+                "tot_r": _round(r.sum(), 2), "avg_r": _round(r.mean(), 3),
+                "win_pct": _round((e["PnL"] > 0).mean() * 100, 1) if len(e) else None,
+                "pf": _round(_pf(r), 2),
+            })
+
+
 def main():
     t0 = time.time()
     print("=" * 70)
@@ -147,12 +194,21 @@ def main():
     persistent = [s["name"] for s in base_book
                   if "PERSISTENT" in s["settings"]["entry_type"].upper()]
     persistent = sorted(set(persistent))
+    day_limit = sorted({
+        s["name"] for s in base_book
+        if s["settings"]["entry_type"].startswith("Limit (Open")
+    })
     prod_offsets = {}
+    day_prod_offsets = {}
     for s in base_book:
         if s["name"] in persistent:
             prod_offsets.setdefault(s["name"], _prod_offset(s["settings"]["entry_type"]))
+        elif s["name"] in day_limit:
+            day_prod_offsets.setdefault(s["name"], _prod_offset(s["settings"]["entry_type"]))
     print(f"Persistent-limit strategies: {persistent}")
     print(f"Prod offsets: {prod_offsets}")
+    print(f"Day-limit strategies: {day_limit}")
+    print(f"Day-limit prod offsets: {day_prod_offsets}")
 
     all_names = sorted({s["name"] for s in base_book})
 
@@ -198,26 +254,44 @@ def main():
         print(f"  [{tag}] {len(sig)} trades in {time.time() - t:.0f}s")
         return sig
 
+    N_RUNS = 12
+
     # --- baseline (prod config) ---
-    print("\nRun 1/8: baseline (prod config)")
+    print(f"\nRun 1/{N_RUNS}: baseline (prod config)")
     sig_base = run(base_book, "baseline")
     base_all_rows, base_book_row = summarize(sig_base, all_names, sig_counts)
+    collect_eras(sig_base, all_names, "baseline", "prod")
 
     # --- sweep 1: persistent-limit offset ---
     run_i = 1
     offset_points = []
     for v in OFFSET_POINTS:
         run_i += 1
-        print(f"\nRun {run_i}/8: persistent limit offset = {v} ATR")
+        print(f"\nRun {run_i}/{N_RUNS}: persistent limit offset = {v} ATR")
         book = copy.deepcopy(base_book)
         for s in book:
             if s["name"] in persistent:
                 s["settings"]["entry_type"] = OFFSET_STRINGS[v]
         sig = run(book, f"offset {v}")
         rows, book_row = summarize(sig, persistent, sig_counts)
+        collect_eras(sig, persistent, "persistent_limit_offset_atr", v)
         offset_points.append({"value": v, "per_strategy": rows, "book": book_row})
 
-    # --- sweep 2: OLV fill window ---
+    # --- sweep 2: day-limit offset (non-persistent "Limit (Open +/- X ATR)") ---
+    day_points = []
+    for v in OFFSET_POINTS:
+        run_i += 1
+        print(f"\nRun {run_i}/{N_RUNS}: day limit offset = {v} ATR")
+        book = copy.deepcopy(base_book)
+        for s in book:
+            if s["name"] in day_limit:
+                s["settings"]["entry_type"] = DAY_OFFSET_STRINGS[v]
+        sig = run(book, f"day offset {v}")
+        rows, book_row = summarize(sig, day_limit, sig_counts)
+        collect_eras(sig, day_limit, "day_limit_offset_atr", v)
+        day_points.append({"value": v, "per_strategy": rows, "book": book_row})
+
+    # --- sweep 3: OLV fill window ---
     fw_points = []
     for v in FILL_WINDOW_POINTS:
         if v == 3:  # prod — reuse baseline
@@ -226,7 +300,7 @@ def main():
                               "reused_baseline": True})
             continue
         run_i += 1
-        print(f"\nRun {run_i}/8: OLV fill_window_days = {v}")
+        print(f"\nRun {run_i}/{N_RUNS}: OLV fill_window_days = {v}")
         book = copy.deepcopy(base_book)
         for s in book:
             if s["name"] == OLV_NAME:
@@ -256,6 +330,19 @@ def main():
                           "= fewer fills but better prices — read fill_rate with avg_r."),
             },
             {
+                "dimension": "day_limit_offset_atr",
+                "label": "Day limit offset (ATR from T+1 open, single session)",
+                "strategy_scope": day_limit,
+                "prod_values": day_prod_offsets,
+                "points": day_points,
+                "notes": ("The 7 non-persistent limit strategies moved to the same "
+                          "offset simultaneously; per-strategy rows isolate each. "
+                          "Longs bid Open - X ATR, shorts offer Open + X ATR, DAY "
+                          "orders. OVS caveat: its 2-path gap sizing keys off the "
+                          "T+1 open regardless of offset, so its rows mix entry "
+                          "and sizing effects."),
+            },
+            {
                 "dimension": "olv_fill_window_days",
                 "label": "OLV entry-order live window (trading days)",
                 "strategy_scope": [OLV_NAME],
@@ -271,7 +358,7 @@ def main():
             "Unrecognized values silently fall back to 0.5, so those points would be lies. "
             "Engine not patched per ground rules.",
             "T+1 Open vs persistent-limit entry-style flip: representable via entry_type "
-            "but out of the 8-run budget; a candidate for a follow-up run.",
+            "but out of the 12-run budget; a candidate for a follow-up run.",
         ],
         "caveats": [
             "RESEARCH ONLY — one-off local computation, not rebuilt nightly, nothing here stages orders.",
@@ -288,6 +375,11 @@ def main():
     with open(OUT_JSON, "w", encoding="utf-8") as f:
         json.dump(out, f, separators=(",", ":"), allow_nan=False)
     print(f"\nWrote {OUT_JSON} ({os.path.getsize(OUT_JSON) / 1024:.0f} KB)")
+
+    if _era_rows:
+        pd.DataFrame(_era_rows).to_csv(ERA_CSV, index=False)
+        print(f"Wrote era split -> {ERA_CSV}")
+
     print(f"Total runtime {time.time() - t0:.0f}s")
 
 
