@@ -123,7 +123,14 @@ LEV3X_ALL = [
 import os as _os, pandas as _pd
 _csv_path = _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), 'sznl_ranks.csv')
 try:
-    CSV_UNIVERSE = sorted(_pd.read_csv(_csv_path)['ticker'].unique().tolist())
+    # Futures (=F) excluded 2026-07-06: not executable through the equity
+    # order path (IBKR share orders), yfinance continuous-contract bars are
+    # roll-distorted, and their holiday-session bars break equity-calendar
+    # assumptions downstream. 14 ledger trades / -1.4R over 18y at removal.
+    CSV_UNIVERSE = sorted(
+        t for t in _pd.read_csv(_csv_path)['ticker'].unique().tolist()
+        if not str(t).endswith('=F')
+    )
 except Exception:
     CSV_UNIVERSE = LIQUID_UNIVERSE  # fallback
 
