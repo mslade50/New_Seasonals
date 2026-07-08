@@ -17,9 +17,9 @@ snapshot:
 Positions with no strategy-tagged legs fall back to "Trend Sleeve" when the
 symbol is held in trend_sleeve_state.json (R2), else "Discretionary".
 
-Scheduling: .github/workflows/execution_report.yml runs at 21:05 AND 22:05 UTC
+Scheduling: .github/workflows/execution_report.yml runs at 20:30 AND 21:30 UTC
 on weekdays; the ET-hour gate below lets exactly one of the two fire at
-5 PM ET year-round (no DST drift). --force bypasses the gate for manual runs.
+4:30 PM ET year-round (no DST drift). --force bypasses the gate for manual runs.
 
 Env:
   EXEC_BROKER_URL  broker base URL (default the deployed workers.dev URL)
@@ -323,7 +323,7 @@ def send_email(subject: str, html: str) -> bool:
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--force", action="store_true",
-                    help="skip the 5 PM ET hour gate")
+                    help="skip the 4 PM ET hour gate")
     ap.add_argument("--html-out", default=None,
                     help="also write the rendered HTML to this path")
     ap.add_argument("--no-send", action="store_true",
@@ -331,8 +331,8 @@ def main() -> int:
     args = ap.parse_args()
 
     now = et_now()
-    if not args.force and not args.no_send and now.hour != 17:
-        print(f"ET hour is {now.hour}, not 17 — DST twin cron, exiting.")
+    if not args.force and not args.no_send and now.hour != 16:
+        print(f"ET hour is {now.hour}, not 16 — DST twin cron, exiting.")
         return 0
 
     base_url = os.environ.get("EXEC_BROKER_URL", DEFAULT_BROKER_URL)
