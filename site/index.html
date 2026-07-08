@@ -40,8 +40,9 @@
 
   <h2>Equity &amp; Drawdown
     <span id="sizingSeg" style="margin-left:10px; vertical-align:middle"></span>
-    <span class="note" id="basisNote" style="display:none">direction / ticker filter or fragility
-      sizing active — curve uses realized PnL booked at exit (vol metrics approximate)</span></h2>
+    <span class="note" id="basisNote" style="display:none">direction / ticker filter, fragility
+      sizing, or gate-blocked trades active — curve uses realized PnL booked at exit (vol metrics
+      approximate)</span></h2>
   <p class="cap" id="eqCaption"></p>
   <div class="card">
     <div class="chart" id="eqChart"></div>
@@ -169,6 +170,22 @@
       </div>
     </div>
     <p class="cap" id="srCaption"></p>
+  </div>
+
+  <h2 id="gatelab">Sector-gate history — with vs without <span class="cap" style="display:inline">(counterfactual rerun; realized at exit, flat $750k, native sizing)</span></h2>
+  <div id="glSection">
+    <div class="kpis" id="glKpis"></div>
+    <div class="grid2">
+      <div>
+        <h3 class="cap">Cumulative realized PnL, gate on vs gate off</h3>
+        <div class="card"><div class="chart" id="glCurve"></div></div>
+      </div>
+      <div>
+        <h3 class="cap">Gate-blocked trades (would-have-been outcomes)</h3>
+        <div id="glTable"></div>
+      </div>
+    </div>
+    <p class="cap" id="glCaption"></p>
   </div>
 
   <footer>Private analytics site. Data regenerated nightly from the persistent backtest ledger.</footer>

@@ -161,6 +161,60 @@ def summarize(sig, names, sig_counts):
 
 _era_rows = []
 
+# --- realized-at-exit daily PnL maps for the site's equity-curve what-if ---
+# book_base: whole-book baseline; base: per strategy; variants: dimension ->
+# value-key -> strategy. Value keys use %g so JSON round-trips match
+# JavaScript String(v) ("1", not "1.0").
+_curve_maps = {"book_base": {}, "base": {}, "variants": {}}
+
+
+def _vkey(v):
+    return "%g" % v
+
+
+def _exit_pnl_map(sig, name=None):
+    d = sig if name is None else sig[sig["Strategy"] == name]
+    if d.empty or "Exit Date" not in d.columns:
+        return {}
+    d = d.dropna(subset=["Exit Date"])
+    if d.empty:
+        return {}
+    g = d.groupby(pd.to_datetime(d["Exit Date"]).dt.strftime("%Y-%m-%d"))["PnL"].sum()
+    return {k: float(v) for k, v in g.items()}
+
+
+def collect_curves_base(sig, names):
+    _curve_maps["book_base"] = _exit_pnl_map(sig)
+    for name in names:
+        _curve_maps["base"][name] = _exit_pnl_map(sig, name)
+
+
+def collect_curves_variant(sig, names, dimension, value):
+    slot = _curve_maps["variants"].setdefault(dimension, {}).setdefault(_vkey(value), {})
+    for name in names:
+        slot[name] = _exit_pnl_map(sig, name)
+
+
+def build_curves_payload():
+    keys = set(_curve_maps["book_base"])
+    for m in _curve_maps["base"].values():
+        keys |= set(m)
+    for vals in _curve_maps["variants"].values():
+        for pts in vals.values():
+            for m in pts.values():
+                keys |= set(m)
+    dates = sorted(keys)
+    dense = lambda m: [int(round(m.get(d, 0.0))) for d in dates]
+    return {
+        "basis": "flat_750k_realized_at_exit",
+        "dates": dates,
+        "book_base": dense(_curve_maps["book_base"]),
+        "strategy_base": {n: dense(m) for n, m in _curve_maps["base"].items()},
+        "variants": {dim: {val: {n: dense(m) for n, m in pts.items()}
+                           for val, pts in vals.items()}
+                     for dim, vals in _curve_maps["variants"].items()},
+    }
+
 
 def collect_eras(sig, names, dimension, value):
     """Per-era stats for each strategy at this sweep point -> ERA_CSV.
@@ -261,6 +315,7 @@ def main():
     sig_base = run(base_book, "baseline")
     base_all_rows, base_book_row = summarize(sig_base, all_names, sig_counts)
     collect_eras(sig_base, all_names, "baseline", "prod")
+    collect_curves_base(sig_base, all_names)
 
     # --- sweep 1: persistent-limit offset ---
     run_i = 1
@@ -275,6 +330,7 @@ def main():
         sig = run(book, f"offset {v}")
         rows, book_row = summarize(sig, persistent, sig_counts)
         collect_eras(sig, persistent, "persistent_limit_offset_atr", v)
+        collect_curves_variant(sig, persistent, "persistent_limit_offset_atr", v)
         offset_points.append({"value": v, "per_strategy": rows, "book": book_row})
 
     # --- sweep 2: day-limit offset (non-persistent "Limit (Open +/- X ATR)") ---
@@ -289,6 +345,7 @@ def main():
         sig = run(book, f"day offset {v}")
         rows, book_row = summarize(sig, day_limit, sig_counts)
         collect_eras(sig, day_limit, "day_limit_offset_atr", v)
+        collect_curves_variant(sig, day_limit, "day_limit_offset_atr", v)
         day_points.append({"value": v, "per_strategy": rows, "book": book_row})
 
     # --- sweep 3: OLV fill window ---
@@ -296,6 +353,7 @@ def main():
     for v in FILL_WINDOW_POINTS:
         if v == 3:  # prod — reuse baseline
             rows, book_row = summarize(sig_base, [OLV_NAME], sig_counts)
+            collect_curves_variant(sig_base, [OLV_NAME], "olv_fill_window_days", v)
             fw_points.append({"value": v, "per_strategy": rows, "book": book_row,
                               "reused_baseline": True})
             continue
@@ -307,6 +365,7 @@ def main():
                 s["execution"]["fill_window_days"] = int(v)
         sig = run(book, f"olv fw {v}")
         rows, book_row = summarize(sig, [OLV_NAME], sig_counts)
+        collect_curves_variant(sig, [OLV_NAME], "olv_fill_window_days", v)
         fw_points.append({"value": v, "per_strategy": rows, "book": book_row})
 
     out = {
@@ -368,7 +427,9 @@ def main():
             "Flat $750k sizing throughout; R stats are sizing-invariant.",
             "In-sample parameter sweep — the prod values were themselves chosen on this history. Beating prod in a cell here is a candidate for study, not evidence.",
             "The offset sweep moves all 6 persistent strategies together; book totals at each point include cross-strategy interactions (caps, MTM equity, exposure).",
+            "Equity-curve what-if: book-with-variant = baseline book - strategy baseline + strategy variant, additive on the flat basis and realized at exit. Variant trades come from a run where the WHOLE sweep scope moved together, so cross-strategy cap interactions are approximated (second order).",
         ],
+        "curves": build_curves_payload(),
     }
 
     os.makedirs(os.path.dirname(OUT_JSON), exist_ok=True)

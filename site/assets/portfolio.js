@@ -32,6 +32,9 @@ const S = {
   drawdowns: null,        // drawdowns.json (full-book flat episodes)
   ddaUW: null,            // cached full-book underwater curve (from S.sd)
   sectorRisk: null,       // sector_risk.json (exposure timeline + gate telemetry)
+  gateLab: null,          // gate_lab.json (sector-gate counterfactual)
+  gateBlockedRows: [],    // blocked trades as trade-log-shaped rows (GateBlocked=true)
+  showBlocked: false,     // merge gate-blocked trades into the filtered analytics
   // fragility sizing adjuster (off by default = today's exact-curve behavior).
   // step:  mult = boost below thr, floor at/above thr.
   // ramp:  live-style — boost at 0 -> 1.0 at thr, then linear down to floor at 100
@@ -129,7 +132,7 @@ async function init() {
       fetchJSON("data/meta.json"), fetchJSON("data/trades.json")]);
     S.meta = meta;
     S.trades = rowsFromColumnar(trades);
-    const [sd, pos, exp, corr, frag, sf, dda, sr] = await Promise.all([
+    const [sd, pos, exp, corr, frag, sf, dda, sr, gl] = await Promise.all([
       meta.payloads.strategy_daily ? fetchJSONOrNull("data/strategy_daily.json") : null,
       meta.payloads.positions ? fetchJSONOrNull("data/positions.json") : null,
       meta.payloads.exposure ? fetchJSONOrNull("data/exposure.json") : null,
@@ -138,10 +141,20 @@ async function init() {
       meta.payloads.stopfills ? fetchJSONOrNull("data/stopfills.json") : null,
       meta.payloads.drawdowns ? fetchJSONOrNull("data/drawdowns.json") : null,
       meta.payloads.sector_risk ? fetchJSONOrNull("data/sector_risk.json") : null,
+      meta.payloads.gate_lab ? fetchJSONOrNull("data/gate_lab.json") : null,
     ]);
     S.sd = sd; S.positions = pos; S.exposure = exp; S.corr = corr; S.fragility = frag;
-    S.stopfills = sf; S.drawdowns = dda; S.sectorRisk = sr;
+    S.stopfills = sf; S.drawdowns = dda; S.sectorRisk = sr; S.gateLab = gl;
     if (sf && sf.trades) S.sfRows = rowsFromColumnar(sf.trades);
+    if (gl && gl.strategies) {
+      for (const st of gl.strategies) {
+        if (!st.blocked_trades) continue;
+        for (const r of rowsFromColumnar(st.blocked_trades)) {
+          r.GateBlocked = true;
+          S.gateBlockedRows.push(r);
+        }
+      }
+    }
     if (sd) {
       S.dateIdx = sd.dates;
       sd.dates.forEach((d, i) => S.dateToI.set(d, i));
@@ -267,12 +280,31 @@ function buildFilterBar() {
   });
   el.appendChild(tInp);
 
+  // gate-blocked counterfactual toggle (only when gate_lab.json shipped)
+  let gateCb = null;
+  if (S.gateBlockedRows.length) {
+    const gLbl = document.createElement("label");
+    gLbl.style.cssText = "display:inline-flex;align-items:center;gap:5px;cursor:pointer";
+    gLbl.title = "Counterfactual: include the trades the sector-loss gate blocked " +
+      "(outcomes from a no-gate engine rerun). Equity curve drops to the " +
+      "realized-at-exit basis while on. Off = the book as traded.";
+    gateCb = document.createElement("input");
+    gateCb.type = "checkbox";
+    gateCb.addEventListener("change", () => { S.showBlocked = gateCb.checked; apply(); });
+    gLbl.appendChild(gateCb);
+    gLbl.appendChild(document.createTextNode(
+      ` All trades (+${S.gateBlockedRows.length} gate-blocked)`));
+    el.appendChild(gLbl);
+  }
+
   // reset
   const rb = document.createElement("button");
   rb.className = "btn ghost"; rb.textContent = "Reset";
   rb.addEventListener("click", () => {
     S.f = { strategies: new Set(names), tier: "All", dir: "All", preset: "All", from: null, to: null, tickerQ: "" };
     S.rangeTouched = false;
+    S.showBlocked = false;
+    if (gateCb) gateCb.checked = false;
     boxes.forEach(b => b.checked = true); syncStratBtn();
     fromInp.value = ""; toInp.value = ""; tInp.value = "";
     el.querySelectorAll(".seg").forEach(seg => {
@@ -551,7 +583,9 @@ function tickerTokens() {
 function filteredTrades(ignoreDates) {
   const toks = tickerTokens();
   const { strategies, tier, dir, from, to } = S.f;
-  return S.trades.filter(t => {
+  const src = S.showBlocked && S.gateBlockedRows.length
+    ? S.trades.concat(S.gateBlockedRows) : S.trades;
+  return src.filter(t => {
     if (!strategies.has(t.Strategy)) return false;
     if (tier !== "All" && t.Tier !== tier) return false;
     if (dir !== "All" && t.Direction !== dir) return false;
@@ -566,9 +600,10 @@ function filteredTrades(ignoreDates) {
 }
 
 function curveExact() {
-  // per-trade fragility multipliers can't be applied to the per-strategy
-  // aggregated daily series -> fall back to the realized step curve
-  return S.sd && S.f.dir === "All" && !tickerTokens() && !fragActive();
+  // per-trade fragility multipliers and gate-blocked counterfactual rows
+  // can't be applied to the per-strategy aggregated daily series -> fall
+  // back to the realized step curve
+  return S.sd && S.f.dir === "All" && !tickerTokens() && !fragActive() && !S.showBlocked;
 }
 
 /* daily pnl array (risk multipliers + leverage applied) for current filters */
@@ -1084,7 +1119,10 @@ function renderTradeLog(tr) {
     { key: "Exit_Date", label: "Exit", align: "l" },
     { key: "Strategy", label: "Strategy", align: "l" },
     { key: "Tier", label: "Tier", align: "l" },
-    { key: "Ticker", label: "Ticker", align: "l" },
+    { key: "Ticker", label: "Ticker", align: "l",
+      fmt: (v, r) => r.GateBlocked
+        ? `${v || ""} <span class="badge warn" title="Sector-loss gate blocked this signal live — outcome is counterfactual">GATE</span>`
+        : (v || "") },
     { key: "Direction", label: "Dir", align: "l",
       fmt: v => `<span class="badge ${v === "Short" ? "dirS" : "dirL"}">${v || ""}</span>` },
     { key: "Entry_Price", label: "Entry $", fmt: v => fmt.num(v, 2) },
@@ -1265,6 +1303,94 @@ function renderStatic() {
 
   renderDrawdownAnatomy();
   renderSectorRisk();
+  renderGateLab();
+}
+
+/* ---------- sector-gate history: with vs without (gate_lab.json) ---------- */
+function renderGateLab() {
+  const section = document.getElementById("glSection");
+  const gl = S.gateLab;
+  if (!gl || !gl.strategies || !gl.strategies.length) {
+    section.innerHTML = '<p class="cap">No gate counterfactual payload in this build ' +
+      "(the ledger build writes data/backtest_trades_nogate.parquet; rerun it to populate).</p>";
+    return;
+  }
+
+  // KPIs: per gated strategy (OLV today). Impact = baseline − nogate:
+  // positive means the gate ADDED that much by blocking.
+  const cards = [];
+  for (const st of gl.strategies) {
+    const s = st.summary || {};
+    const b = s.blocked || {}, base = s.baseline || {}, ng = s.nogate || {};
+    const impR = (base.tot_r != null && ng.tot_r != null) ? base.tot_r - ng.tot_r : null;
+    const imp$ = (base.pnl_flat != null && ng.pnl_flat != null) ? base.pnl_flat - ng.pnl_flat : null;
+    const pfx = gl.strategies.length > 1 ? st.strategy + " · " : "";
+    cards.push(
+      kpiCard(pfx + "Blocked trades", b.n ?? 0,
+              null, `gate: ${st.window_td}td / ${fmt.num(st.max_realized_r, 1)}R`),
+      kpiCard(pfx + "Blocked R", b.tot_r == null ? "-" : fmt.signed(b.tot_r, 1), clsSign(b.tot_r),
+              b.avg_r == null ? "" : `avg ${fmt.signed(b.avg_r, 3)}R · win ${fmt.pctRaw(b.win_pct, 0)}`),
+      kpiCard(pfx + "Gate impact (R)", impR == null ? "-" : fmt.signed(impR, 1), clsSign(impR),
+              "baseline − no-gate; + = gate helped"),
+      kpiCard(pfx + "Gate impact ($)", imp$ == null ? "-" : fmt.money(imp$), clsSign(imp$),
+              "flat $750k, realized"),
+    );
+    if (st.n_gone) {
+      cards.push(kpiCard(pfx + "Displaced", st.n_gone, "neu",
+        "baseline trades absent in the no-gate run (cap/ladder interaction)"));
+    }
+  }
+  document.getElementById("glKpis").innerHTML = cards.join("");
+
+  // cumulative realized PnL curves, gate on (solid) vs off (dashed)
+  const traces = [];
+  gl.strategies.forEach((st, i) => {
+    const c = st.curve;
+    if (!c || !c.dates || !c.dates.length) return;
+    const cum = arr => { let s = 0; return arr.map(v => +(s += v).toFixed(0)); };
+    const color = PALETTE[i % PALETTE.length];
+    traces.push(
+      { x: c.dates, y: cum(c.base_pnl), mode: "lines", name: `${st.strategy} — gate on`,
+        line: { color, width: 1.6 } },
+      { x: c.dates, y: cum(c.nogate_pnl), mode: "lines", name: `${st.strategy} — gate off`,
+        line: { color: "#ffc14d", width: 1.3, dash: "dot" } },
+    );
+  });
+  const curveEl = document.getElementById("glCurve");
+  if (traces.length) {
+    Plotly.react(curveEl, traces, plotLayout({
+      height: 340, yaxis: { tickformat: "$,.3~s" },
+    }), PLOT_CFG);
+  } else {
+    curveEl.innerHTML = '<p class="cap">No curve data in this payload.</p>';
+  }
+
+  // blocked-trade table (all gated strategies merged; Strategy column present)
+  makeTable(document.getElementById("glTable"), {
+    columns: [
+      { key: "Signal_Date", label: "Signal", align: "l" },
+      { key: "Ticker", label: "Ticker", align: "l" },
+      { key: "Tier", label: "Tier", align: "l" },
+      { key: "Direction", label: "Dir", align: "l",
+        fmt: v => `<span class="badge ${v === "Short" ? "dirS" : "dirL"}">${v || ""}</span>` },
+      { key: "Entry_Date", label: "Entry", align: "l" },
+      { key: "Exit_Date", label: "Exit", align: "l" },
+      { key: "R", label: "R", fmt: v => v == null ? "" : fmt.signed(v, 2), cls: clsSign },
+      { key: "PnL_flat", label: "PnL ($)", fmt: v => fmt.money(v), cls: clsSign },
+      { key: "Exit_Type", label: "Exit Type", align: "l",
+        fmt: (v, r) => (r.Open ? '<span class="badge warn">OPEN</span> ' : "") + (v || "") },
+    ],
+    rows: S.gateBlockedRows,
+    pageSize: 25, csvName: "gate_blocked_trades.csv",
+    defaultSort: { key: "Signal_Date", dir: -1 },
+  });
+
+  const prov = (gl.provenance || {}).nogate || {};
+  document.getElementById("glCaption").textContent =
+    (gl.note ? gl.note + " " : "") +
+    "The trade log's 'All trades' filter toggle merges these same blocked rows into every " +
+    "filtered metric above. " +
+    (prov.build_utc ? `Counterfactual vintage: built ${prov.build_utc} (${prov.source || "?"}).` : "");
 }
 
 /* ---------- stop-fill quality (filter-reactive; stopfills.json) ---------- */

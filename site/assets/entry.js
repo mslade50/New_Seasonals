@@ -37,6 +37,24 @@ async function init() {
       ${kpi("Baseline PnL $", fmt.money(bb.pnl_flat), clsSign(bb.pnl_flat))}
     </div>`;
 
+  if (d.curves && d.curves.dates && d.curves.dates.length) {
+    html += `
+      <h2>Equity-curve what-if</h2>
+      <p class="cap">Pick a sweep, a strategy, and an entry value. Left: the strategy's
+      cumulative realized PnL, baseline vs variant. Right: the WHOLE BOOK with that single
+      strategy swapped to the variant (baseline book − strategy baseline + strategy variant;
+      additive flat $750k, realized at exit). Variant trades come from a run where the whole
+      sweep scope moved together, so cross-strategy cap interactions are approximate.</p>
+      <div class="filters" id="cvControls"></div>
+      <div class="kpis" id="cvKpis"></div>
+      <div class="grid2">
+        <div class="card"><h3>Strategy — baseline vs variant</h3>
+          <div id="cvStrat" style="height:330px"></div></div>
+        <div class="card"><h3>Book — baseline vs with-variant</h3>
+          <div id="cvBook" style="height:330px"></div></div>
+      </div>`;
+  }
+
   (d.sweeps || []).forEach((sw, i) => {
     html += `
       <h2>${esc(sw.label || sw.dimension)}</h2>
@@ -58,7 +76,121 @@ async function init() {
 
   el.innerHTML = html;
 
+  if (d.curves && d.curves.dates && d.curves.dates.length) initCurveLab(d);
   (d.sweeps || []).forEach((sw, i) => renderSweep(sw, i));
+}
+
+/* ---------- equity-curve what-if ---------- */
+function initCurveLab(d) {
+  const cv = d.curves;
+  const sweeps = (d.sweeps || []).filter(sw => {
+    const dim = cv.variants[sw.dimension];
+    return dim && Object.keys(dim).length;
+  });
+  if (!sweeps.length) return;
+
+  const host = document.getElementById("cvControls");
+  const mkSel = label => {
+    const box = document.createElement("span");
+    const l = document.createElement("label");
+    l.textContent = label;
+    box.appendChild(l);
+    const sel = document.createElement("select");
+    sel.className = "btn";
+    box.appendChild(sel);
+    host.appendChild(box);
+    return sel;
+  };
+  const swSel = mkSel("Sweep"), stSel = mkSel("Strategy"), vSel = mkSel("Value");
+
+  const fill = (sel, opts, cur) => {
+    sel.innerHTML = "";
+    for (const o of opts) {
+      const el2 = document.createElement("option");
+      el2.value = o.value; el2.textContent = o.label;
+      sel.appendChild(el2);
+    }
+    if (cur != null && opts.some(o => String(o.value) === String(cur))) sel.value = cur;
+  };
+
+  const state = { si: 0, strat: null, val: null };
+
+  function syncStrats() {
+    const sw = sweeps[state.si];
+    const names = (sw.strategy_scope || []).filter(n => {
+      const dim = cv.variants[sw.dimension];
+      return Object.values(dim).some(pt => pt[n]) && cv.strategy_base[n];
+    });
+    fill(stSel, names.map(n => ({ value: n, label: n })), state.strat);
+    state.strat = stSel.value;
+    syncVals();
+  }
+  function syncVals() {
+    const sw = sweeps[state.si];
+    const vals = Object.keys(cv.variants[sw.dimension]);
+    vals.sort((a, b) => parseFloat(a) - parseFloat(b));
+    const prodV = (sw.prod_values || {})[state.strat];
+    fill(vSel, vals.map(v => ({
+      value: v,
+      label: v + (prodV != null && String(prodV) === v ? " (prod)" : ""),
+    })), state.val != null ? state.val : (prodV != null ? String(prodV) : vals[0]));
+    state.val = vSel.value;
+    render();
+  }
+  swSel.addEventListener("change", () => { state.si = +swSel.value; state.val = null; syncStrats(); });
+  stSel.addEventListener("change", () => { state.strat = stSel.value; state.val = null; syncVals(); });
+  vSel.addEventListener("change", () => { state.val = vSel.value; render(); });
+
+  fill(swSel, sweeps.map((sw, i) => ({ value: i, label: sw.label || sw.dimension })));
+  syncStrats();
+
+  function cum(arr) {
+    let s = 0;
+    return arr.map(v => (s += v));
+  }
+  function maxDD(c) {
+    let peak = -Infinity, dd = 0;
+    for (const v of c) { if (v > peak) peak = v; if (peak - v > dd) dd = peak - v; }
+    return dd;
+  }
+
+  function render() {
+    const sw = sweeps[state.si];
+    const varArr = ((cv.variants[sw.dimension] || {})[state.val] || {})[state.strat];
+    const baseArr = cv.strategy_base[state.strat];
+    if (!varArr || !baseArr) return;
+    const dates = cv.dates;
+    const sBase = cum(baseArr), sVar = cum(varArr);
+    const bBase = cum(cv.book_base);
+    const bVar = cum(cv.book_base.map((v, i) => v - baseArr[i] + varArr[i]));
+    const isProd = String((sw.prod_values || {})[state.strat]) === String(state.val);
+
+    const dEnd = sVar[sVar.length - 1] - sBase[sBase.length - 1];
+    const ddB = maxDD(bBase), ddV = maxDD(bVar);
+    document.getElementById("cvKpis").innerHTML = [
+      kpi("Variant", `${state.val}${isProd ? " (prod)" : ""}`),
+      kpi("Strategy Δ PnL (= book Δ)", fmt.money(dEnd), clsSign(dEnd)),
+      kpi("Strategy total, base → var",
+          `${fmt.money(sBase[sBase.length - 1])} → ${fmt.money(sVar[sVar.length - 1])}`),
+      kpi("Book max DD, base → var",
+          `${fmt.money(-ddB)} → ${fmt.money(-ddV)}`,
+          ddV < ddB ? "pos" : ddV > ddB ? "neg" : ""),
+    ].join("");
+
+    Plotly.react(document.getElementById("cvStrat"), [
+      { x: dates, y: sBase, mode: "lines", name: "baseline (prod)",
+        line: { color: "#4da3ff", width: 1.5 } },
+      { x: dates, y: sVar, mode: "lines", name: `variant ${state.val}`,
+        line: { color: "#ffc14d", width: 1.5 } },
+    ], plotLayout({ yaxis: { tickformat: "$,.3~s" }, margin: { t: 8 } }), PLOT_CFG);
+
+    Plotly.react(document.getElementById("cvBook"), [
+      { x: dates, y: bBase, mode: "lines", name: "book baseline",
+        line: { color: "#00d18f", width: 1.5 } },
+      { x: dates, y: bVar, mode: "lines", name: `book w/ ${state.strat} @ ${state.val}`,
+        line: { color: "#b07cff", width: 1.5 } },
+    ], plotLayout({ yaxis: { tickformat: "$,.3~s" }, margin: { t: 8 } }), PLOT_CFG);
+  }
 }
 
 function kpi(label, value, cls) {

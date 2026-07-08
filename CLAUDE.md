@@ -665,7 +665,12 @@ Cloudflare Pages project `seasonals-mslade`, locked behind Cloudflare Access
   `ideas.json` / `signals.json` (Sheets snapshot) / `risk.json` / `fragility.json`
   (rd2 fragility dial series feeding the portfolio page's interactive sizing
   adjuster — per-trade what-ifs on dial/MA/threshold/floor/boost; forces the
-  realized-at-exit curve basis while active).
+  realized-at-exit curve basis while active) / `gate_lab.json` (sector-loss-gate
+  counterfactual: blocked trades + gate-on/off realized curves, diffed from
+  `data/backtest_trades_nogate.parquet` — a no-gate engine pass
+  `build_trade_ledger.py` writes alongside the ledger; drives the portfolio
+  page's gate-history section and its "All trades (+gate-blocked)" filter
+  toggle, which also forces the realized-at-exit basis while on).
 - **Trade charts** (the `charts.html` gallery): `scripts/build_signal_charts.py`
   renders a candlestick per trade (126 td before signal -> trade -> 63 td after
   exit; white/black candles, green/red volume, Signal/Entry/Exit verticals,

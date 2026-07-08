@@ -60,6 +60,7 @@ from daily_portfolio_report import (
 )
 
 OUT_PARQUET = os.path.join(_ROOT, "data", "backtest_trades_full.parquet")
+OUT_NOGATE = os.path.join(_ROOT, "data", "backtest_trades_nogate.parquet")
 OUT_DAILY = os.path.join(_ROOT, "data", "backtest_daily_pnl.parquet")
 OUT_SUMMARY = os.path.join(_HERE, "trade_ledger_summary.csv")
 DATA_START = datetime.date(2000, 1, 1)   # history for percentile/SMA warmup
@@ -176,6 +177,69 @@ def _diff_vs_prior(new_df, prior_path):
         print(f"  (vintage diff skipped: {e})")
 
 
+def gated_strategy_names(book):
+    """Strategies carrying execution['sector_loss_gate'] (OLV today)."""
+    return sorted({s["name"] for s in book
+                   if (s.get("execution") or {}).get("sector_loss_gate")})
+
+
+def strip_sector_gate(book):
+    nb = copy.deepcopy(book)
+    for s in nb:
+        (s.get("execution") or {}).pop("sector_loss_gate", None)
+    return nb
+
+
+def shape_flat_trades(sig):
+    """process_signals_fast flat-sizing output -> ledger-style flat columns
+    (same names build_site.py reads, minus the compounded-basis pair)."""
+    df = sig.copy().reset_index(drop=True)
+    df = df.rename(columns={
+        "Date": "Signal Date",
+        "Price": "Entry Price",
+        "PnL": "PnL_flat_750k",
+        "Risk $": "Risk_flat_750k",
+    })
+    df["Shares_flat"] = df["Shares"]
+    df["Direction"] = np.where(
+        df["Action"].astype(str).str.upper().str.contains("SHORT"), "Short", "Long")
+    _sign = np.where(df["Direction"] == "Short", -1.0, 1.0)
+    df["Return_Pct"] = _sign * (df["Exit Price"] - df["Entry Price"]) / df["Entry Price"] * 100.0
+    df["R_Multiple"] = df["PnL_flat_750k"] / df["Risk_flat_750k"].replace(0, np.nan)
+    _of = set(OVERFLOW_TICKERS)
+    df["Tier"] = np.where(
+        df["Strategy"].isin(OVERFLOW_ELIGIBLE) & df["Ticker"].isin(_of),
+        "Overflow", "Liquid")
+    for c in ["Signal Date", "Entry Date", "Exit Date", "Time Stop"]:
+        if c in df.columns:
+            df[c] = pd.to_datetime(df[c])
+    return df
+
+
+def build_nogate_counterfactual(candidates, signal_data, processed, full_book,
+                                starting_equity):
+    """Counterfactual pass with execution['sector_loss_gate'] stripped from a
+    deep-copied book (flat sizing, same candidates). Written to OUT_NOGATE
+    restricted to the gated strategies; build_site.py diffs it against the
+    main ledger to surface the gate-blocked trades (gate_lab.json). NOT a
+    pure baseline+blocked union: an unblocked fill moves OLV's open-position
+    count (ladder rungs) and the 250bps/day cap, so a few kept trades can
+    resize between the runs — the with/without comparison is still coherent."""
+    gated = gated_strategy_names(full_book)
+    if not gated:
+        print("  No sector_loss_gate strategies in the book — skipping nogate pass.")
+        return
+    print(f"\n  Processing trades [no sector gate, flat sizing] for {gated} ...")
+    sig_ng = process_signals_fast(
+        candidates, signal_data, processed, strip_sector_gate(full_book),
+        starting_equity, cap_bps=250, overflow_active=True, flat_sizing=True,
+    )
+    ng = shape_flat_trades(sig_ng)
+    ng = ng[ng["Strategy"].isin(gated)].reset_index(drop=True)
+    _write_ledger_with_meta(ng, OUT_NOGATE, _provenance_meta(len(ng)))
+    print(f"    {len(ng)} nogate trades ({'/'.join(gated)}) -> {OUT_NOGATE}")
+
+
 def load_data(tickers):
     if data_provider.has_master():
         print(f"  Loading {len(tickers)} tickers from master_prices.parquet ...")
@@ -253,6 +317,13 @@ def main(upload=False):
     if sig_comp.empty:
         print("No trades executed.")
         return
+
+    # --- sector-loss-gate counterfactual (best effort, never fails the build) ---
+    try:
+        build_nogate_counterfactual(candidates, signal_data, processed,
+                                    full_book, starting_equity)
+    except Exception as e:
+        print(f"  (nogate counterfactual skipped: {e})")
 
     df = sig_comp.copy().reset_index(drop=True)
 
