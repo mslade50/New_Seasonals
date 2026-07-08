@@ -177,23 +177,18 @@ def _vkey(v):
 
 
 def _trade_tuples(sig, name=None):
-    """[(entry_date_str, exit_date_str, pnl, r, sig_key), ...] for the given
-    strategy (or the whole frame). r is None when risk is 0/NaN. sig_key is
-    'TICKER|signal-date' — the underlying SIGNAL's identity, so the client can
-    diff which signals fill under a variant but not under prod (a fill at a
-    different limit price is the same signal, not a new trade)."""
+    """[(entry_date_str, exit_date_str, pnl, r), ...] for the given strategy
+    (or the whole frame). r is None when risk is 0/NaN."""
     d = sig if name is None else sig[sig["Strategy"] == name]
     if d.empty:
         return []
     d = d.dropna(subset=["Entry Date", "Exit Date"])
     en = pd.to_datetime(d["Entry Date"]).dt.strftime("%Y-%m-%d")
     ex = pd.to_datetime(d["Exit Date"]).dt.strftime("%Y-%m-%d")
-    sk = (d["Ticker"].astype(str) + "|"
-          + pd.to_datetime(d["Date"]).dt.strftime("%Y-%m-%d"))
     pnl = d["PnL"].astype(float)
     r = (d["PnL"] / d["Risk $"].replace(0, np.nan)).astype(float)
-    return [(e, x, float(p), None if np.isnan(rr) else round(float(rr), 3), k)
-            for e, x, p, rr, k in zip(en, ex, pnl, r, sk)]
+    return [(e, x, float(p), None if np.isnan(rr) else round(float(rr), 3))
+            for e, x, p, rr in zip(en, ex, pnl, r)]
 
 
 def collect_curves_base(sig, names):
@@ -210,11 +205,8 @@ def collect_curves_variant(sig, names, dimension, value):
 
 def build_curves_payload(calendar):
     """calendar: sorted list of trading-day strings (SPY index >= BT_START).
-    Trades are encoded as [entry_idx, exit_idx, pnl_int, r, sig_id]; sig_id
-    interns the 'TICKER|signal-date' key into a global integer (ids are only
-    compared for set membership client-side, never displayed)."""
+    Trades are encoded as [entry_idx, exit_idx, pnl_int, r] into it."""
     pos = {d: i for i, d in enumerate(calendar)}
-    sig_ids = {}
 
     def idx_of(ds):
         i = pos.get(ds)
@@ -224,15 +216,11 @@ def build_curves_payload(calendar):
         return i
 
     def enc(tuples):
-        out = []
-        for e, x, p, r, k in tuples:
-            sid = sig_ids.setdefault(k, len(sig_ids))
-            out.append([idx_of(e), idx_of(x), int(round(p)), r, sid])
-        return out
+        return [[idx_of(e), idx_of(x), int(round(p)), r] for e, x, p, r in tuples]
 
     return {
         "basis": "flat_750k_realized_at_exit",
-        "format": "trades",  # [entry_idx, exit_idx, pnl, r, sig_id] into dates
+        "format": "trades",  # [entry_idx, exit_idx, pnl, r] into dates
         "dates": calendar,
         "book_base": enc(_curve_trades["book_base"] or []),
         "strategy_base": {n: enc(t) for n, t in _curve_trades["base"].items()},
@@ -460,6 +448,7 @@ def main():
             "In-sample parameter sweep — the prod values were themselves chosen on this history. Beating prod in a cell here is a candidate for study, not evidence.",
             "The offset sweep moves all 6 persistent strategies together; book totals at each point include cross-strategy interactions (caps, MTM equity, exposure).",
             "Equity-curve what-if: book-with-variant = baseline book - strategy baseline + strategy variant, additive on the flat basis and realized at exit. Variant trades come from a run where the WHOLE sweep scope moved together, so cross-strategy cap interactions are approximated (second order).",
+            "A 'new fills only' decomposition (marginal trades that fill at a shallower limit but not at prod's) was built and REMOVED (2026-07-08): those fills are favorably selected by construction — they are precisely the days that reversed before extending to the deeper limit — so their standalone Sharpe/avg R read artificially strong. Compare whole variants only; do not rebuild the marginal stream.",
         ],
         "curves": build_curves_payload(calendar),
     }
