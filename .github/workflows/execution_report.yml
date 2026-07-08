@@ -1,0 +1,41 @@
+name: Nightly Execution Report
+
+# 5 PM ET email of live primary-account positions (site Execution tab mirror).
+# Two crons cover both DST regimes; daily_execution_report.py gates on
+# ET hour == 17 so exactly one of them actually sends each day.
+
+on:
+  schedule:
+    - cron: '5 21 * * 1-5'   # 5:05 PM EDT (summer); 4:05 PM EST — gated off
+    - cron: '5 22 * * 1-5'   # 5:05 PM EST (winter); 6:05 PM EDT — gated off
+  workflow_dispatch:
+
+jobs:
+  execution_report:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install requests boto3
+
+      - name: Run execution report
+        env:
+          EXEC_BROKER_URL: ${{ secrets.EXEC_BROKER_URL || 'https://execution-broker.mckinleyslade.workers.dev' }}
+          STATUS_TOKEN: ${{ secrets.STATUS_TOKEN }}
+          EMAIL_USER: ${{ secrets.EMAIL_USER }}
+          EMAIL_PASS: ${{ secrets.EMAIL_PASS }}
+          RECIPIENTS: ${{ vars.EXECUTION_REPORT_RECIPIENTS || 'mckinleyslade@gmail.com' }}
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+        # Manual dispatches bypass the 5 PM ET hour gate.
+        run: python daily_execution_report.py ${{ github.event_name == 'workflow_dispatch' && '--force' || '' }}
