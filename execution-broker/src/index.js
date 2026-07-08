@@ -140,6 +140,35 @@ export class ExecBroker extends DurableObject {
       return Response.json({ query: (await this.ctx.storage.get("option_query")) || null, server_now: Date.now() });
     }
 
+    // --- Workbench query: term structure + chain band for the options workbench.
+    //     Small ring (not the /option single slot): expiry-change re-queries overlap
+    //     the prior poll, so each query keeps its own entry addressed by id. ---
+    if (url.pathname === "/workbench" && request.method === "POST") {
+      if (!this._authed(request, this.env.STATUS_TOKEN)) return new Response("unauthorized", { status: 401 });
+      let body;
+      try { body = await request.json(); } catch { return Response.json({ ok: false, error: "bad json" }, { status: 400 }); }
+      const ticker = String((body && body.ticker) || "").toUpperCase().trim();
+      if (!ticker) return Response.json({ ok: false, error: "ticker required" }, { status: 400 });
+      const sockets = this.ctx.getWebSockets();
+      if (!sockets.length) return Response.json({ ok: false, error: "agent offline" }, { status: 503 });
+      const id = crypto.randomUUID();
+      const q = { id, ticker, mode: body.mode || "full", expiry: body.expiry || null,
+        max_expiries: body.max_expiries || null, context: body.context || null,
+        at: Date.now(), result: null };
+      const ring = (await this.ctx.storage.get("workbench_queries")) || [];
+      ring.unshift(q);
+      await this.ctx.storage.put("workbench_queries", ring.slice(0, 8));
+      this._newestSocket(sockets).send(JSON.stringify({ type: "workbench_query", ...q }));
+      return Response.json({ ok: true, id, ticker });
+    }
+    if (url.pathname === "/workbench") {
+      if (!this._authed(request, this.env.STATUS_TOKEN)) return new Response("unauthorized", { status: 401 });
+      const ring = (await this.ctx.storage.get("workbench_queries")) || [];
+      const id = url.searchParams.get("id");
+      const query = id ? ring.find((r) => r.id === id) || null : ring[0] || null;
+      return Response.json({ query, server_now: Date.now() });
+    }
+
     // --- Futures sizing query: POST kicks off a pure read-only sizing calc on the agent ---
     if (url.pathname === "/futures_size" && request.method === "POST") {
       if (!this._authed(request, this.env.STATUS_TOKEN)) return new Response("unauthorized", { status: 401 });
@@ -216,6 +245,17 @@ export class ExecBroker extends DurableObject {
       return;
     }
 
+    // Workbench result from the agent -> attach to its ring entry by id.
+    if (msg.type === "workbench_result" && msg.id) {
+      const ring = (await this.ctx.storage.get("workbench_queries")) || [];
+      const i = ring.findIndex((r) => r.id === msg.id);
+      if (i >= 0) {
+        ring[i].result = msg.data; ring[i].result_at = Date.now();
+        await this.ctx.storage.put("workbench_queries", ring);
+      }
+      return;
+    }
+
     // Futures-sizing result from the agent -> attach to the pending query.
     if (msg.type === "futures_result" && msg.id) {
       const q = await this.ctx.storage.get("futures_size");
@@ -259,7 +299,7 @@ export class ExecBroker extends DurableObject {
   }
 }
 
-const DO_PATHS = new Set(["/agent", "/status", "/command", "/commands", "/book", "/option", "/futures_size", "/futures_front"]);
+const DO_PATHS = new Set(["/agent", "/status", "/command", "/commands", "/book", "/option", "/workbench", "/futures_size", "/futures_front"]);
 
 export default {
   async fetch(request, env) {

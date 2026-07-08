@@ -26,6 +26,10 @@ Outputs (dist/):
                                    concentration, OLV sector-loss-gate telemetry (best effort)
   - dist/data/health.json          pipeline freshness: ledger provenance, cache max-dates,
                                    fragility/exposure-state/signals staleness (best effort)
+  - dist/data/gate_lab.json        sector-loss-gate counterfactual: blocked trades + gate-on/off
+                                   realized curves per gated strategy (needs
+                                   data/backtest_trades_nogate.parquet from build_trade_ledger;
+                                   best effort)
 
 Sizing bases:
   Client-side recompute uses the FLAT $750k basis (PnL_flat_750k): per-trade
@@ -63,6 +67,7 @@ from pages.strat_backtester import (
 from signal_chart_common import chart_relpath, trade_geometry, lookup_prices
 
 LEDGER = os.path.join(_ROOT, "data", "backtest_trades_full.parquet")
+NOGATE = os.path.join(_ROOT, "data", "backtest_trades_nogate.parquet")
 DAILY = os.path.join(_ROOT, "data", "backtest_daily_pnl.parquet")
 FRAGILITY = os.path.join(_ROOT, "data", "rd2_fragility.parquet")
 IDEAS = os.path.join(_ROOT, "data", "daily_seasonal_ideas.json")
@@ -195,7 +200,7 @@ def load_master_for(df):
 
 
 # ---------------------------------------------------------------- payloads
-def open_mask(df):
+def open_mask(df, asof=None):
     """Genuinely-open trades: time stop not yet reached AND no stop/target/
     other exit has triggered (open trades are marked Exit Type == 'Time' at
     the last bar by the backtester). A trade that stopped out before its
@@ -205,10 +210,15 @@ def open_mask(df):
     saw), NOT wall-clock today: on the PM build the master-prices close pull
     has already run, so a trade whose Time Stop is today is exited (Exit Date
     == today) and must read closed. Comparing to today with >= would keep it
-    open for one evening and drop the closed row from the trade log."""
+    open for one evening and drop the closed row from the trade log.
+
+    `asof` overrides the frame-derived date — needed when df is a SUBSET of
+    the ledger (e.g. gate_lab's blocked trades) whose own max Exit Date can
+    be years stale."""
     if "Time Stop" not in df.columns:
         return pd.Series(False, index=df.index)
-    asof = pd.to_datetime(df["Exit Date"]).max() if "Exit Date" in df.columns else None
+    if asof is None and "Exit Date" in df.columns:
+        asof = pd.to_datetime(df["Exit Date"]).max()
     if asof is None or pd.isna(asof):
         asof = pd.Timestamp.today().normalize()
     m = pd.to_datetime(df["Time Stop"]) > asof
@@ -217,10 +227,10 @@ def open_mask(df):
     return m
 
 
-def build_trades_json(df):
+def build_trades_json(df, asof=None):
     # Open rows live in the Open Positions section; the trade log excludes them.
     df = df.copy()
-    df["Open_Flag"] = open_mask(df).astype(bool)
+    df["Open_Flag"] = open_mask(df, asof=asof).astype(bool)
     cols = {
         "trade_id": ("trade_id", "auto", None),
         "Strategy": ("Strategy", "str", None),
@@ -963,6 +973,114 @@ def build_sector_risk(df):
     }
 
 
+def build_gate_lab(df):
+    """Sector-loss-gate counterfactual: diff the no-gate engine pass
+    (data/backtest_trades_nogate.parquet, written by build_trade_ledger.py)
+    against the main ledger per gated strategy. Trades present only in the
+    no-gate world are the gate-BLOCKED trades — shipped with full outcomes so
+    the site can show whether the gate has been helpful, plus gate-on/off
+    realized-at-exit daily PnL/R series for the with/without curves.
+
+    Caveat baked into the payload note: the no-gate run is a coherent
+    counterfactual book, not baseline+blocked — an unblocked fill shifts OLV
+    ladder rungs and the 250bps/day cap, so a few kept trades resize between
+    runs (and, rarely, a baseline trade can be displaced: n_gone)."""
+    if not os.path.exists(NOGATE):
+        print("  gate_lab: no nogate parquet (rebuild the ledger to produce it), skipping")
+        return None
+    ng = pd.read_parquet(NOGATE)
+    for c in ["Signal Date", "Entry Date", "Exit Date", "Time Stop"]:
+        if c in ng.columns:
+            ng[c] = pd.to_datetime(ng[c])
+    en = ng["Entry Date"].values.astype("datetime64[D]")
+    ex = ng["Exit Date"].values.astype("datetime64[D]")
+    ok = ~(pd.isna(ng["Entry Date"]) | pd.isna(ng["Exit Date"]))
+    hold = np.full(len(ng), np.nan)
+    hold[ok.values] = np.busday_count(en[ok.values], ex[ok.values])
+    ng["Hold_Days"] = hold
+
+    asof = pd.to_datetime(df["Exit Date"]).max()
+
+    def key_of(d):
+        return (d["Strategy"].astype(str) + "|" + d["Tier"].astype(str) + "|"
+                + d["Ticker"].astype(str) + "|"
+                + pd.to_datetime(d["Signal Date"]).dt.strftime("%Y-%m-%d"))
+
+    def summarize(d):
+        r = d["R_Multiple"].dropna()
+        return {
+            "n": int(len(d)),
+            "tot_r": _clean(round(float(r.sum()), 2)) if len(r) else 0.0,
+            "avg_r": _clean(round(float(r.mean()), 3)) if len(r) else None,
+            "win_pct": _clean(round(float((d["PnL_flat_750k"] > 0).mean()) * 100, 1)) if len(d) else None,
+            "pnl_flat": _clean(round(float(d["PnL_flat_750k"].sum()), 0)) if len(d) else 0.0,
+        }
+
+    def daily_map(d, col):
+        g = d.dropna(subset=["Exit Date"])
+        return g.groupby(pd.to_datetime(g["Exit Date"]).dt.strftime("%Y-%m-%d"))[col].sum()
+
+    out_strats = []
+    for strat in STRATEGY_BOOK:
+        cfg = (strat.get("execution") or {}).get("sector_loss_gate")
+        if not cfg:
+            continue
+        name = strat.get("name")
+        base = df[df["Strategy"] == name].copy()
+        var = ng[ng["Strategy"] == name].copy()
+        if var.empty:
+            continue
+        bkeys = set(key_of(base))
+        blocked = var[~key_of(var).isin(bkeys)].copy()
+        gone = base[~key_of(base).isin(set(key_of(var)))]
+
+        pb, pv = daily_map(base, "PnL_flat_750k"), daily_map(var, "PnL_flat_750k")
+        rb, rv = daily_map(base, "R_Multiple"), daily_map(var, "R_Multiple")
+        dates = sorted(set(pb.index) | set(pv.index))
+        curve = {
+            "dates": dates,
+            "base_pnl": [round(float(pb.get(d, 0.0)), 2) for d in dates],
+            "nogate_pnl": [round(float(pv.get(d, 0.0)), 2) for d in dates],
+            "base_r": [round(float(rb.get(d, 0.0)), 3) for d in dates],
+            "nogate_r": [round(float(rv.get(d, 0.0)), 3) for d in dates],
+        }
+        blocked = blocked.sort_values("Signal Date")
+        out_strats.append({
+            "strategy": name,
+            "window_td": int(cfg["window_td"]),
+            "max_realized_r": float(cfg["max_realized_r"]),
+            "summary": {"baseline": summarize(base), "nogate": summarize(var),
+                        "blocked": summarize(blocked)},
+            "n_gone": int(len(gone)),
+            "curve": curve,
+            "blocked_trades": build_trades_json(blocked, asof=asof),
+        })
+    if not out_strats:
+        return None
+
+    prov_ng = {}
+    try:
+        import pyarrow.parquet as pq
+        meta = pq.read_schema(NOGATE).metadata or {}
+        get = lambda k: (meta.get(k) or b"").decode() or None
+        prov_ng = {"build_utc": get(b"ledger_build_utc"), "source": get(b"ledger_source"),
+                   "git_sha": get(b"ledger_git_sha"), "rows": get(b"ledger_rows")}
+    except Exception:
+        pass
+    n_blocked = sum(s["summary"]["blocked"]["n"] for s in out_strats)
+    print(f"  gate_lab: {n_blocked} blocked trades across {len(out_strats)} gated strategies")
+    return {
+        "basis": "flat_750k",
+        "asof": asof.strftime("%Y-%m-%d") if pd.notna(asof) else None,
+        "note": ("Counterfactual full-book rerun with sector_loss_gate stripped; blocked = trades "
+                 "that exist only in the no-gate world. Not a pure baseline+blocked union: an "
+                 "unblocked fill shifts ladder rungs / daily caps, so a few kept trades resize "
+                 "between runs. Realized-at-exit basis, flat $750k."),
+        "provenance": {"ledger": _ledger_provenance(), "nogate": prov_ng},
+        "strategies": out_strats,
+    }
+
+
 def build_health(sig, data_dir):
     """Pipeline freshness panel: per-artifact last dates + staleness flags
     judged against the expected last trading day (US federal holidays).
@@ -1110,6 +1228,152 @@ def build_health(sig, data_dir):
     }
 
 
+# ------------------------------------------------------- options workbench payloads
+IV_HISTORY = os.path.join(_ROOT, "data", "iv_history.parquet")
+IV_HISTORY_R2_KEY = "options/iv_history.parquet"
+
+
+def _yang_zhang_last(g, n):
+    """Annualized Yang-Zhang vol over the last n days of an OHLC frame (the
+    standard k = 0.34/(1.34 + (n+1)/(n-1)); drift-independent, gap-robust)."""
+    if len(g) < n + 2:
+        return None
+    o, h, l, c = np.log(g["Open"]), np.log(g["High"]), np.log(g["Low"]), np.log(g["Close"])
+    co = (o - c.shift(1)).iloc[-n:]
+    oc = (c - o).iloc[-n:]
+    rs = ((h - c) * (h - o) + (l - c) * (l - o)).iloc[-n:]
+    k = 0.34 / (1.34 + (n + 1) / (n - 1))
+    var = co.var() + k * oc.var() + (1 - k) * rs.mean()
+    if pd.isna(var) or var <= 0:
+        return None
+    return float(np.sqrt(var * 252))
+
+
+def build_iv_context():
+    """Per-ticker IV rank / percentile / sparkline from the local-agent-maintained
+    IV history (R2 options/iv_history.parquet), plus Yang-Zhang realized vol at
+    10/21/63d from master_prices. Absent cache -> None (site badges NO IV HISTORY)."""
+    cache_io.download_to_local(IV_HISTORY_R2_KEY, IV_HISTORY)
+    if not os.path.exists(IV_HISTORY):
+        print("  iv_context: no iv_history.parquet (local agent hasn't seeded it yet)")
+        return None
+    iv = pd.read_parquet(IV_HISTORY)
+    iv["date"] = pd.to_datetime(iv["date"])
+    iv["ticker"] = iv["ticker"].astype(str).str.upper()
+    iv = iv.dropna(subset=["iv30"]).sort_values("date")
+    tickers = sorted(iv["ticker"].unique())
+    px = data_provider.get_history(tickers, start=str(pd.Timestamp.today().normalize()
+                                                      - pd.Timedelta(days=200))[:10])
+    out = {}
+    for t, g in iv.groupby("ticker"):
+        s = g.set_index("date")["iv30"].astype(float)
+        win = s.iloc[-252:]
+        if len(win) < 20:
+            continue
+        now = float(win.iloc[-1])
+        lo, hi = float(win.min()), float(win.max())
+        rank = round((now - lo) / (hi - lo) * 100, 1) if hi > lo else None
+        pctile = round(float((win < now).mean()) * 100, 1)
+        weekly = win.resample("W").last().dropna().iloc[-52:]
+        rec = {"iv": round(now, 4), "rank": rank, "pctile": pctile,
+               "last": win.index[-1].strftime("%Y-%m-%d"),
+               "spark": [round(float(v), 4) for v in weekly.values]}
+        pg = px.get(t)
+        if pg is not None and len(pg):
+            for n in (10, 21, 63):
+                rv = _yang_zhang_last(pg, n)
+                rec[f"rv{n}"] = round(rv, 4) if rv else None
+        out[t] = rec
+    print(f"  iv_context: {len(out)} tickers "
+          f"(iv history {iv['date'].min().date()} -> {iv['date'].max().date()})")
+    return out or None
+
+
+def build_strategy_stats(df):
+    """Per-strategy stats for the options workbench: the edge side of the
+    edge-vs-priced comparator (terminal move AT EXIT, never MFE) plus the
+    outcome mix that weights the shootout's EV column."""
+    closed = df[df["R_Multiple"].notna()].copy()
+    long_mask = closed["Direction"].astype(str) != "Short"
+    sign = np.where(long_mask, 1.0, -1.0)
+    entry = closed["Entry Price"].astype(float)
+    exitp = closed["Exit Price"].astype(float)
+    closed["move_pct"] = sign * (exitp - entry) / entry
+    atr = closed["ATR"].astype(float).replace(0, np.nan)
+    closed["move_atr"] = sign * (exitp - entry) / atr
+    bins = [-np.inf, -1.0, -0.5, 0.0, 0.5, 1.0, 2.0, np.inf]
+    labels = ["<-1R", "-1..-0.5R", "-0.5..0R", "0..0.5R", "0.5..1R", "1..2R", ">2R"]
+    out = {}
+    for strat, g in closed.groupby("Strategy"):
+        r = g["R_Multiple"].astype(float)
+        losers = g[r <= 0]
+        exit_types = losers["Exit Type"].astype(str)
+        hist = pd.cut(r, bins=bins, labels=labels).value_counts().reindex(labels).fillna(0)
+        out[str(strat)] = {
+            "n": int(len(g)),
+            "win_rate": round(float((r > 0).mean()), 4),
+            "avg_r": round(float(r.mean()), 4),
+            "median_hold": _clean(g["Hold_Days"].median()),
+            "terminal_move": {
+                "mean_pct": _clean(g["move_pct"].mean()),
+                "median_pct": _clean(g["move_pct"].median()),
+                "mean_atr": _clean(g["move_atr"].mean()),
+                "median_atr": _clean(g["move_atr"].median()),
+                "win_mean_pct": _clean(g.loc[r > 0, "move_pct"].mean()),
+                "loss_mean_pct": _clean(g.loc[r <= 0, "move_pct"].mean()),
+            },
+            "loser_mix": {
+                "n": int(len(losers)),
+                "stop_share": round(float(exit_types.eq("Stop").mean()), 4) if len(losers) else None,
+                "time_share": round(float(exit_types.eq("Time").mean()), 4) if len(losers) else None,
+                "avg_loser_move_pct": _clean(losers["move_pct"].mean()),
+            },
+            "outcome_hist": {"labels": labels, "counts": [int(v) for v in hist.values]},
+        }
+    print(f"  strategy_stats: {len(out)} strategies")
+    return out
+
+
+def build_earnings_next():
+    """Next earnings date per ticker (>= today) + the explicit no-data universe
+    list. Options are long premium into binaries: NO DATA must render as an
+    amber warning, never silence (fail-closed display, unlike the stock book)."""
+    ec = pd.read_parquet(EARNINGS, columns=["ticker", "date"])
+    ec["ticker"] = ec["ticker"].astype(str).str.upper().str.strip()
+    ec["date"] = pd.to_datetime(ec["date"], errors="coerce")
+    ec = ec.dropna(subset=["ticker", "date"])
+    today = pd.Timestamp.today().normalize()
+    fwd = ec[ec["date"] >= today].groupby("ticker")["date"].min()
+    covered = set(ec["ticker"].unique())
+    try:
+        from strategy_config import LIQUID_PLUS_COMMODITIES
+        universe = {str(t).upper() for t in LIQUID_PLUS_COMMODITIES}
+    except Exception:
+        universe = set()
+    no_data = sorted(universe - covered)
+    out = {t: d.strftime("%Y-%m-%d") for t, d in fwd.items()}
+    out["_no_data"] = no_data
+    print(f"  earnings_next: {len(fwd)} tickers with forward dates, "
+          f"{len(no_data)} universe tickers with NO earnings data")
+    return out
+
+
+def upload_universe():
+    """Publish the liquid universe to R2 (universe/liquid.json) so the local
+    IV-history job knows its ticker list without importing repo code."""
+    try:
+        from strategy_config import LIQUID_PLUS_COMMODITIES
+        path = os.path.join(_ROOT, "data", "universe_liquid.json")
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump({"tickers": sorted({str(t).upper() for t in LIQUID_PLUS_COMMODITIES}),
+                       "updated": datetime.datetime.now(datetime.timezone.utc)
+                       .strftime("%Y-%m-%d %H:%M UTC")}, f)
+        if cache_io.upload_from_local(path, "universe/liquid.json"):
+            print("  universe: uploaded universe/liquid.json to R2")
+    except Exception as e:
+        print(f"  universe: upload skipped ({e})")
+
+
 def fetch_signals():
     """Latest staged orders from Google Sheets (Order_Staging + Overflow)."""
     try:
@@ -1199,7 +1463,8 @@ def main():
              "correlation": False, "charts": False, "ideas": False, "signals": False,
              "risk": False, "strat_notes": True, "fragility": False,
              "stopfills": False, "drawdowns": False, "sector_risk": False,
-             "health": False}
+             "gate_lab": False, "health": False,
+             "iv_context": False, "strategy_stats": False, "earnings_next": False}
     if args.no_mtm:
         # dev iteration: keep flags true for payloads already present in dist
         for k, fn in [("strategy_daily", "strategy_daily.json"), ("positions", "positions.json"),
@@ -1253,6 +1518,13 @@ def main():
     # ledger-only payloads (no price map needed) — all best effort
     best_effort("stopfills", build_stopfills, df)
     best_effort("sector_risk", build_sector_risk, df)
+    best_effort("gate_lab", build_gate_lab, df)
+
+    # options-workbench payloads — all best effort
+    best_effort("iv_context", build_iv_context)
+    best_effort("strategy_stats", build_strategy_stats, df)
+    best_effort("earnings_next", build_earnings_next)
+    upload_universe()
 
     fragility = build_fragility()
     if fragility:
