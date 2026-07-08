@@ -188,7 +188,21 @@ function renderPositions() {
   const rows = pos.map((p) => {
     const long = (p.position || 0) > 0;
     const pct = pnlPct(p);
-    const sym = p.sec_type === "FUT" && p.expiry ? `${esc(p.symbol)} <span class="cap" style="display:inline">${esc(p.expiry)}</span>` : esc(p.symbol);
+    let sym = esc(p.symbol);
+    if (p.sec_type === "OPT" && p.strike != null) {
+      // e.g. XOM 08/14 105C — from the book's expiry_full/strike/right fields
+      const ef = String(p.expiry_full || p.expiry || "");
+      const d = ef.length >= 8 ? `${ef.slice(4, 6)}/${ef.slice(6, 8)}` : esc(ef);
+      sym = `${esc(p.symbol)} <span class="cap" style="display:inline">${d} ${fmt.num(p.strike, p.strike % 1 ? 1 : 0)}${esc(p.right || "")}</span>`;
+    } else if (p.sec_type === "FUT" && p.expiry) {
+      sym = `${esc(p.symbol)} <span class="cap" style="display:inline">${esc(p.expiry)}</span>`;
+    }
+    // OPT rows: no Flatten/Trim — a symbol-scoped MKT close would tear one leg
+    // out of a spread. Close via a closing combo ticket (later phase) or TWS.
+    const actions = p.sec_type === "OPT"
+      ? '<span class="cap">combo — close via TWS</span>'
+      : `<button class="btn xs" onclick='execFlatten(${posJson(p)},1)'>Flatten</button>
+        <button class="btn xs ghost" onclick='execFlatten(${posJson(p)},0.5)'>Trim&frac12;</button>`;
     return `<tr>
       <td class="l" style="font-weight:600">${sym}</td>
       <td class="${long ? "pos" : "neg"}" style="font-weight:600">${fmt.num(p.position, 0)}</td>
@@ -197,10 +211,7 @@ function renderPositions() {
       <td>${p.market_value != null ? fmt.money(p.market_value) : "&mdash;"}</td>
       <td class="${clsSign(p.unrealized_pnl)}" style="font-weight:600">${p.unrealized_pnl != null ? fmt.money(p.unrealized_pnl) : "&mdash;"}</td>
       <td class="${clsSign(pct)}">${pct != null ? fmt.pct(pct, 1) : "&mdash;"}</td>
-      <td class="l" style="white-space:nowrap">
-        <button class="btn xs" onclick='execFlatten(${posJson(p)},1)'>Flatten</button>
-        <button class="btn xs ghost" onclick='execFlatten(${posJson(p)},0.5)'>Trim&frac12;</button>
-      </td></tr>`;
+      <td class="l" style="white-space:nowrap">${actions}</td></tr>`;
   }).join("");
   return head + `<div class="tblwrap"><table class="tbl"><thead><tr>
     <th class="l">Symbol</th><th>Pos</th><th>Avg</th><th>Last</th><th>Mkt Val</th><th>uP&amp;L $</th><th>uP&amp;L %</th><th class="l">Actions</th>

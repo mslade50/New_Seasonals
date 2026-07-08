@@ -166,6 +166,7 @@ function signalCard(r) {
       ${dirBadge}
       ${tier ? `<span class="badge ${tier === "Overflow" ? "warn" : "conv"}">${tier}</span>` : ""}
       <span class="chan">${strat}</span>
+      <a class="btn xs ghost" style="margin-left:auto" href="${expressHref(r, base, stopPx, tgtPx, isShort, entry)}">Express &rarr; options</a>
     </div>
     <div class="entryline">${entry}
       <span class="muted">| signal close ${money(sigClose)} | ATR ${atr ? atr.toFixed(2) : "?"}</span></div>
@@ -177,6 +178,30 @@ function signalCard(r) {
     ${critHtml}
     ${stratContextHtml(strat)}
   </div>`;
+}
+
+/* Express-in-options handoff: pre-fill the Options Workbench from this staged
+   row. Levels are the SAME derivations the card renders (limit/signal-close
+   base ± ATR mults); the entry condition rides along as display text so the
+   combo isn't submitted before the stock-side trigger. */
+function expressHref(r, base, stopPx, tgtPx, isShort, entryTxt) {
+  const cond = `${entryTxt.replace(/<[^>]*>/g, "")}${num(r.Fill_Window_Days) ? `, live T+1..T+${num(r.Fill_Window_Days)}` : ""}`;
+  const q = new URLSearchParams();
+  const put = (k, v) => { if (v != null && v !== "" && !(typeof v === "number" && !isFinite(v))) q.set(k, v); };
+  put("ticker", r.Symbol || r.Ticker);
+  put("dir", isShort ? "Short" : "Long");
+  put("entry", base || null);
+  put("stop", stopPx);
+  put("target", tgtPx);
+  put("atr", num(r.Frozen_ATR) || null);
+  put("risk", num(r.Risk_Amt) || null);
+  put("hold", num(r.Hold_Days) || null);
+  put("texit", String(r.Time_Exit_Date || "").slice(0, 10) || null);
+  put("fw", num(r.Fill_Window_Days) || null);
+  put("strategy", r.Strategy_Ref || r.Strategy);
+  put("sig", String(r.Scan_Date || "").slice(0, 10) || null);
+  put("cond", cond);
+  return "options.html?" + q.toString();
 }
 
 /* "Strategy context" block — joined from strat_notes.json (trailing-percentile
