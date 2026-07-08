@@ -304,11 +304,27 @@ function initCurveLab(d) {
     const aBV = combine(aBB, aSB, aSV);
     const mSB = metrics(aSB), mSV = metrics(aSV), mBB = metrics(aBB), mBV = metrics(aBV);
 
+    // signal-level diff: trades whose underlying SIGNAL (t[4]) fills only in
+    // one world. A signal filling at a different price under the variant is
+    // the same signal, not a new trade — the sig_id diff excludes it.
+    const baseSig = new Set(baseTr.map(t => t[4]));
+    const varSig = new Set(varTr.map(t => t[4]));
+    const newTr = varTr.filter(t => !baseSig.has(t[4]));
+    const lostTr = baseTr.filter(t => !varSig.has(t[4]));
+    const aNew = agg(newTr, w0, w1);
+    const aLost = agg(lostTr, w0, w1);
+
     Plotly.react(document.getElementById("cvStrat"), [
       { x: dates, y: cumArr(aSB), mode: "lines", name: "prod",
         line: { color: "#4da3ff", width: 1.5 } },
       { x: dates, y: cumArr(aSV), mode: "lines", name: `variant ${state.val}`,
         line: { color: "#ffc14d", width: 1.5 } },
+      { x: dates, y: cumArr(aNew), mode: "lines",
+        name: `new trades only (${aNew.n}, ${fmt.money(aNew.totPnl)})`,
+        line: { color: "#3ddbd9", width: 1.3, dash: "dot" } },
+      { x: dates, y: cumArr(aLost), mode: "lines", visible: "legendonly",
+        name: `removed vs prod (${aLost.n}, ${fmt.money(aLost.totPnl)})`,
+        line: { color: "#ff5d5d", width: 1.3, dash: "dot" } },
     ], plotLayout({ yaxis: { tickformat: "$,.3~s" }, margin: { t: 8 } }), PLOT_CFG);
 
     Plotly.react(document.getElementById("cvBook"), [
@@ -349,7 +365,11 @@ function initCurveLab(d) {
     t += "</tbody></table></div>";
     t += `<p class="cap">Window: ${dates[0]} → ${dates[dates.length - 1]} (${dates.length}
       trading days). Trades counted by exit date inside the window; open spans clipped to it
-      for time-in-market. Ann vol / Max DD deltas are colored green when LOWER.</p>`;
+      for time-in-market. Ann vol / Max DD deltas are colored green when LOWER.
+      Signal diff in this window: ${aNew.n} new fills under the variant
+      (${fmt.money(aNew.totPnl)}), ${aLost.n} prod fills removed (${fmt.money(aLost.totPnl)})
+      — the dotted teal trace charts the new fills; the removed-fills trace is in the
+      legend (click to show).</p>`;
     document.getElementById("cvStats").innerHTML = t;
   }
 }
