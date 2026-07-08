@@ -106,6 +106,12 @@ jobs:
         env:
           GCP_JSON: ${{ secrets.GCP_JSON }}
           OVERFLOW_UNIVERSE_ACTIVE: "0"
+          # R2 needed here too: build_site pulls options/iv_history.parquet
+          # (iv_context payload) and publishes universe/liquid.json
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
         run: python scripts/build_site.py
 
       - name: Deploy to Cloudflare Pages
