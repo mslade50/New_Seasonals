@@ -161,58 +161,72 @@ def summarize(sig, names, sig_counts):
 
 _era_rows = []
 
-# --- realized-at-exit daily PnL maps for the site's equity-curve what-if ---
-# book_base: whole-book baseline; base: per strategy; variants: dimension ->
-# value-key -> strategy. Value keys use %g so JSON round-trips match
-# JavaScript String(v) ("1", not "1.0").
-_curve_maps = {"book_base": {}, "base": {}, "variants": {}}
+# --- per-trade records for the site's equity-curve what-if ---
+# Each trade is [entry_idx, exit_idx, pnl_int, r] with indices into a shared
+# trading-day calendar (SPY), emitted at payload time. book_base: whole-book
+# baseline; base: per strategy; variants: dimension -> value-key -> strategy.
+# Value keys use %g so JSON round-trips match JavaScript String(v) ("1", not
+# "1.0"). Per-trade (not daily-aggregated) so the client can derive equity
+# curves, Sharpe/Sortino, time-in-market, win rate etc. for ANY date window,
+# including book-with-variant swaps: every component is additive.
+_curve_trades = {"book_base": None, "base": {}, "variants": {}}
 
 
 def _vkey(v):
     return "%g" % v
 
 
-def _exit_pnl_map(sig, name=None):
+def _trade_tuples(sig, name=None):
+    """[(entry_date_str, exit_date_str, pnl, r), ...] for the given strategy
+    (or the whole frame). r is None when risk is 0/NaN."""
     d = sig if name is None else sig[sig["Strategy"] == name]
-    if d.empty or "Exit Date" not in d.columns:
-        return {}
-    d = d.dropna(subset=["Exit Date"])
     if d.empty:
-        return {}
-    g = d.groupby(pd.to_datetime(d["Exit Date"]).dt.strftime("%Y-%m-%d"))["PnL"].sum()
-    return {k: float(v) for k, v in g.items()}
+        return []
+    d = d.dropna(subset=["Entry Date", "Exit Date"])
+    en = pd.to_datetime(d["Entry Date"]).dt.strftime("%Y-%m-%d")
+    ex = pd.to_datetime(d["Exit Date"]).dt.strftime("%Y-%m-%d")
+    pnl = d["PnL"].astype(float)
+    r = (d["PnL"] / d["Risk $"].replace(0, np.nan)).astype(float)
+    return [(e, x, float(p), None if np.isnan(rr) else round(float(rr), 3))
+            for e, x, p, rr in zip(en, ex, pnl, r)]
 
 
 def collect_curves_base(sig, names):
-    _curve_maps["book_base"] = _exit_pnl_map(sig)
+    _curve_trades["book_base"] = _trade_tuples(sig)
     for name in names:
-        _curve_maps["base"][name] = _exit_pnl_map(sig, name)
+        _curve_trades["base"][name] = _trade_tuples(sig, name)
 
 
 def collect_curves_variant(sig, names, dimension, value):
-    slot = _curve_maps["variants"].setdefault(dimension, {}).setdefault(_vkey(value), {})
+    slot = _curve_trades["variants"].setdefault(dimension, {}).setdefault(_vkey(value), {})
     for name in names:
-        slot[name] = _exit_pnl_map(sig, name)
+        slot[name] = _trade_tuples(sig, name)
 
 
-def build_curves_payload():
-    keys = set(_curve_maps["book_base"])
-    for m in _curve_maps["base"].values():
-        keys |= set(m)
-    for vals in _curve_maps["variants"].values():
-        for pts in vals.values():
-            for m in pts.values():
-                keys |= set(m)
-    dates = sorted(keys)
-    dense = lambda m: [int(round(m.get(d, 0.0))) for d in dates]
+def build_curves_payload(calendar):
+    """calendar: sorted list of trading-day strings (SPY index >= BT_START).
+    Trades are encoded as [entry_idx, exit_idx, pnl_int, r] into it."""
+    pos = {d: i for i, d in enumerate(calendar)}
+
+    def idx_of(ds):
+        i = pos.get(ds)
+        if i is None:  # defensive: date off the SPY calendar -> insertion point
+            i = int(np.searchsorted(np.array(calendar), ds))
+            i = min(i, len(calendar) - 1)
+        return i
+
+    def enc(tuples):
+        return [[idx_of(e), idx_of(x), int(round(p)), r] for e, x, p, r in tuples]
+
     return {
         "basis": "flat_750k_realized_at_exit",
-        "dates": dates,
-        "book_base": dense(_curve_maps["book_base"]),
-        "strategy_base": {n: dense(m) for n, m in _curve_maps["base"].items()},
-        "variants": {dim: {val: {n: dense(m) for n, m in pts.items()}
+        "format": "trades",  # [entry_idx, exit_idx, pnl, r] into dates
+        "dates": calendar,
+        "book_base": enc(_curve_trades["book_base"] or []),
+        "strategy_base": {n: enc(t) for n, t in _curve_trades["base"].items()},
+        "variants": {dim: {val: {n: enc(t) for n, t in pts.items()}
                            for val, pts in vals.items()}
-                     for dim, vals in _curve_maps["variants"].items()},
+                     for dim, vals in _curve_trades["variants"].items()},
     }
 
 
@@ -368,6 +382,12 @@ def main():
         collect_curves_variant(sig, [OLV_NAME], "olv_fill_window_days", v)
         fw_points.append({"value": v, "per_strategy": rows, "book": book_row})
 
+    # shared trading-day calendar for the per-trade curve encoding
+    spy_df = md.get("SPY")
+    cal_idx = pd.to_datetime(spy_df.index).normalize()
+    calendar = sorted({d.strftime("%Y-%m-%d") for d in cal_idx
+                       if d >= pd.Timestamp(BT_START)})
+
     out = {
         "computed_asof": str(datetime.date.today()),
         "bt_start": str(BT_START),
@@ -429,7 +449,7 @@ def main():
             "The offset sweep moves all 6 persistent strategies together; book totals at each point include cross-strategy interactions (caps, MTM equity, exposure).",
             "Equity-curve what-if: book-with-variant = baseline book - strategy baseline + strategy variant, additive on the flat basis and realized at exit. Variant trades come from a run where the WHOLE sweep scope moved together, so cross-strategy cap interactions are approximated (second order).",
         ],
-        "curves": build_curves_payload(),
+        "curves": build_curves_payload(calendar),
     }
 
     os.makedirs(os.path.dirname(OUT_JSON), exist_ok=True)
