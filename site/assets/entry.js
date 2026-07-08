@@ -304,15 +304,21 @@ function initCurveLab(d) {
     const aBV = combine(aBB, aSB, aSV);
     const mSB = metrics(aSB), mSV = metrics(aSV), mBB = metrics(aBB), mBV = metrics(aBV);
 
-    // signal-level diff: trades whose underlying SIGNAL (t[4]) fills only in
-    // one world. A signal filling at a different price under the variant is
-    // the same signal, not a new trade — the sig_id diff excludes it.
+    // signal-level decomposition: variant − prod = new − removed + repricing.
+    // A signal (t[4]) that fills in BOTH worlds is a COMMON fill — same trade,
+    // different limit price, so its PnL shifts ("repricing"). Only signals
+    // absent from prod are NEW; only signals absent from the variant are
+    // REMOVED. Membership is full-history so a window never reclassifies.
     const baseSig = new Set(baseTr.map(t => t[4]));
     const varSig = new Set(varTr.map(t => t[4]));
     const newTr = varTr.filter(t => !baseSig.has(t[4]));
     const lostTr = baseTr.filter(t => !varSig.has(t[4]));
     const aNew = agg(newTr, w0, w1);
     const aLost = agg(lostTr, w0, w1);
+    const aCV = agg(varTr.filter(t => baseSig.has(t[4])), w0, w1);
+    const aCB = agg(baseTr.filter(t => varSig.has(t[4])), w0, w1);
+    const rep = aCV.totPnl - aCB.totPnl;
+    const repDaily = { pnlByDay: aCV.pnlByDay.map((v, i) => v - aCB.pnlByDay[i]) };
 
     Plotly.react(document.getElementById("cvStrat"), [
       { x: dates, y: cumArr(aSB), mode: "lines", name: "prod",
@@ -320,11 +326,14 @@ function initCurveLab(d) {
       { x: dates, y: cumArr(aSV), mode: "lines", name: `variant ${state.val}`,
         line: { color: "#ffc14d", width: 1.5 } },
       { x: dates, y: cumArr(aNew), mode: "lines",
-        name: `new trades only (${aNew.n}, ${fmt.money(aNew.totPnl)})`,
+        name: `new fills only (${aNew.n}, ${fmt.money(aNew.totPnl)})`,
         line: { color: "#3ddbd9", width: 1.3, dash: "dot" } },
       { x: dates, y: cumArr(aLost), mode: "lines", visible: "legendonly",
-        name: `removed vs prod (${aLost.n}, ${fmt.money(aLost.totPnl)})`,
+        name: `removed fills (${aLost.n}, ${fmt.money(aLost.totPnl)})`,
         line: { color: "#ff5d5d", width: 1.3, dash: "dot" } },
+      { x: dates, y: cumArr(repDaily), mode: "lines", visible: "legendonly",
+        name: `repricing of common fills (Δ ${fmt.money(rep)})`,
+        line: { color: "#8a93a6", width: 1.3, dash: "dash" } },
     ], plotLayout({ yaxis: { tickformat: "$,.3~s" }, margin: { t: 8 } }), PLOT_CFG);
 
     Plotly.react(document.getElementById("cvBook"), [
@@ -351,13 +360,19 @@ function initCurveLab(d) {
       ["Max DD (flat $)", "maxDD", v => fmt.money(-v), money0, true],
       ["Time in market", "tim", v => fmt.pct(v, 1), v => fmt.pct(v, 1), false],
     ];
+    // standalone columns for the fills that exist in only one world
+    const extra = [];
+    if (aNew.n) extra.push(["New fills", metrics(aNew)]);
+    if (aLost.n) extra.push(["Removed fills", metrics(aLost)]);
     let t = `<div class="tblwrap"><table class="tbl"><thead><tr>
-      <th class="l">Metric</th><th>Strategy prod</th><th>Strategy @ ${esc(vLabel)}</th>
-      <th>Book prod</th><th>Book @ ${esc(vLabel)}</th></tr></thead><tbody>`;
+      <th class="l">Metric</th><th>Strategy prod</th><th>Strategy @ ${esc(vLabel)}</th>` +
+      extra.map(([h]) => `<th>${esc(h)}</th>`).join("") +
+      `<th>Book prod</th><th>Book @ ${esc(vLabel)}</th></tr></thead><tbody>`;
     for (const [label, key, f, df, inv] of rows) {
       t += `<tr><td class="l">${esc(label)}</td>` +
         `<td>${mSB[key] == null ? "—" : f(mSB[key])}</td>` +
         statCell(mSV[key], mSB[key], f, df, inv) +
+        extra.map(([, m]) => `<td>${m[key] == null ? "—" : f(m[key])}</td>`).join("") +
         `<td>${mBB[key] == null ? "—" : f(mBB[key])}</td>` +
         statCell(mBV[key], mBB[key], f, df, inv) +
         `</tr>`;
@@ -366,10 +381,12 @@ function initCurveLab(d) {
     t += `<p class="cap">Window: ${dates[0]} → ${dates[dates.length - 1]} (${dates.length}
       trading days). Trades counted by exit date inside the window; open spans clipped to it
       for time-in-market. Ann vol / Max DD deltas are colored green when LOWER.
-      Signal diff in this window: ${aNew.n} new fills under the variant
-      (${fmt.money(aNew.totPnl)}), ${aLost.n} prod fills removed (${fmt.money(aLost.totPnl)})
-      — the dotted teal trace charts the new fills; the removed-fills trace is in the
-      legend (click to show).</p>`;
+      Decomposition (this window): variant − prod = ${fmt.money(aSV.totPnl - aSB.totPnl)} =
+      new fills ${fmt.money(aNew.totPnl)} − removed fills ${fmt.money(aLost.totPnl)} +
+      repricing of common fills ${fmt.money(rep)}. The same signal filling at a different
+      limit price is a COMMON fill (repricing), not a new trade — that's why the new-fills
+      curve alone need not track the variant-minus-prod gap. New/Removed columns are the
+      standalone economics of those fills; the repricing trace is in the chart legend.</p>`;
     document.getElementById("cvStats").innerHTML = t;
   }
 }
