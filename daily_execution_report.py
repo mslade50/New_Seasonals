@@ -33,7 +33,7 @@ import json
 import os
 import smtplib
 import sys
-from datetime import datetime, timezone
+from datetime import datetime
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from pathlib import Path
@@ -215,7 +215,7 @@ def _pnl_color(v):
 
 
 def build_html(rows: list[dict], opt_excluded: list[str], nlv,
-               as_of: datetime | None, stale: bool, now: datetime) -> str:
+               now: datetime) -> str:
     td = "padding:6px 10px;border-bottom:1px solid #e3e3e3;font-size:13px;"
     tdr = td + "text-align:right;white-space:nowrap;"
     th = ("padding:6px 10px;border-bottom:2px solid #444;font-size:12px;"
@@ -260,16 +260,6 @@ def build_html(rows: list[dict], opt_excluded: list[str], nlv,
         "</tr>"
     )
 
-    as_of_s = as_of.strftime("%Y-%m-%d %I:%M %p ET") if as_of else "unknown"
-    stale_banner = ""
-    if stale:
-        stale_banner = (
-            "<p style='background:#fdecea;color:#b02a1e;padding:8px 12px;"
-            "border-radius:4px;font-size:13px'><b>Stale book:</b> the broker's "
-            f"last snapshot is from {as_of_s} — the local agent may not have "
-            "been running today. Prices/PnL below reflect that snapshot.</p>"
-        )
-
     opt_note = ""
     if opt_excluded:
         opt_note = (
@@ -279,19 +269,17 @@ def build_html(rows: list[dict], opt_excluded: list[str], nlv,
 
     return f"""
 <div style="font-family:Segoe UI,Arial,sans-serif;max-width:1000px">
-  <h2 style="margin-bottom:2px">Execution Report &mdash; Primary Account</h2>
+  <h2 style="margin-bottom:2px">Position Sheet &mdash; Primary Account</h2>
   <p style="color:#555;margin-top:2px;font-size:13px">
-    {now.strftime('%A %Y-%m-%d %I:%M %p ET')} &nbsp;|&nbsp;
-    NLV: <b>{_fmt_money(nlv)}</b> &nbsp;|&nbsp;
-    {len(rows)} position(s) &nbsp;|&nbsp; book as of {as_of_s}
+    {now.strftime('%A %Y-%m-%d')} &nbsp;|&nbsp;
+    NLV: <b>{_fmt_money(nlv)}</b> &nbsp;|&nbsp; {len(rows)} position(s)
   </p>
-  {stale_banner}
   <table style="border-collapse:collapse;width:100%">
     <tr>
       <th style="{th}">Symbol</th><th style="{th}">Strategy</th>
       <th style="{thr}">Qty</th><th style="{thr}">Avg</th>
       <th style="{thr}">Last</th><th style="{thr}">Mkt Val</th>
-      <th style="{thr}">uPnL $</th><th style="{thr}">uPnL %</th>
+      <th style="{thr}">PnL $</th><th style="{thr}">PnL %</th>
       <th style="{thr}">Target</th><th style="{thr}">Stop</th>
       <th style="{thr}">Time Stop</th><th style="{thr}">Staged</th>
     </tr>
@@ -370,24 +358,16 @@ def main() -> int:
                    f"</p><pre>{e}</pre>")
         return 1
 
-    as_of = None
-    if book.get("at"):
-        as_of = datetime.fromtimestamp(book["at"] / 1000, tz=timezone.utc).astimezone(ET)
-    stale = as_of is None or as_of.date() != now.date()
-
     trend_syms = load_trend_symbols()
     rows, opt_excluded = build_rows(primary, trend_syms)
-    html = build_html(rows, opt_excluded, primary.get("nlv"), as_of, stale, now)
+    html = build_html(rows, opt_excluded, primary.get("nlv"), now)
 
     if args.html_out:
         Path(args.html_out).write_text(html, encoding="utf-8")
         print(f"HTML written to {args.html_out}")
 
-    tot_pnl = sum(r["upnl"] for r in rows if isinstance(r["upnl"], (int, float)))
-    subject = (f"Execution Report — {subject_date} — {len(rows)} positions, "
-               f"uPnL {'+' if tot_pnl >= 0 else ''}{tot_pnl:,.0f}")
     if not args.no_send:
-        send_email(subject, html)
+        send_email("Position Sheet", html)
     return 0
 
 
