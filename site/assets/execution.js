@@ -24,6 +24,74 @@ let pollTimer = null;
 let FUT_SPECS = {};   // symbol/alias -> {exchange,multiplier,min_tick,...}; drives the FUT readout
 const frontState = { id: null, timer: null, manual: false };   // FUT contract-month auto-resolve
 
+/* Deep-link prefill from the Seasonal tab (execution.html?stage=1&sym=&side=&win=&atr=&px=):
+   fills the entry-bracket ticket per the manual-seasonal conventions —
+   stop 1.0 / 1.3 / 1.6 ATR for a 5 / 10 / 21 td window, target 2:1, time stop
+   at the window end (weekends skipped; holidays are NOT — nudge the date if it
+   lands on one), qty = 30 bps of the SELECTED account's NLV once the book
+   loads. Everything lands in editable fields — nothing is sent. */
+const STAGE_MULTS = { 5: 1.0, 10: 1.3, 21: 1.6 };
+const STAGE_RISK_BPS = 30;
+const stage = (() => {
+  const q = new URLSearchParams(location.search);
+  if (q.get("stage") !== "1") return null;
+  const sym = String(q.get("sym") || "").toUpperCase().trim();
+  const side = q.get("side") === "SELL" ? "SELL" : "BUY";
+  const win = parseInt(q.get("win") || "", 10);
+  const atr = parseFloat(q.get("atr") || "");
+  const px = parseFloat(q.get("px") || "");
+  const mult = STAGE_MULTS[win];
+  if (!sym || !mult || !(atr > 0) || !(px > 0)) return null;
+  return { sym, side, win, atr, px, mult, qtyPending: true };
+})();
+
+function addTradingDays(from, n) {
+  const d = new Date(from);
+  let left = n;
+  while (left > 0) {
+    d.setDate(d.getDate() + 1);
+    const wd = d.getDay();
+    if (wd !== 0 && wd !== 6) left--;
+  }
+  return d.toLocaleDateString("en-CA");
+}
+
+function applyStagePrefill() {
+  if (!stage) return;
+  const sgn = stage.side === "BUY" ? 1 : -1;
+  const dist = stage.mult * stage.atr;
+  const setv = (id, v) => {
+    const e = document.getElementById(id);
+    if (e) e.value = String(v);
+    ticketDraft[id] = String(v);
+  };
+  document.getElementById("cmdType").value = "entry_bracket";
+  syncFields();
+  const act = document.getElementById("f_action");
+  if (act) act.value = stage.side;
+  setv("f_symbol", stage.sym);
+  setv("f_entry", stage.px.toFixed(2));
+  setv("f_stop", (stage.px - sgn * dist).toFixed(2));
+  setv("f_target", (stage.px + sgn * 2 * dist).toFixed(2));
+  setv("f_timestop", addTradingDays(new Date(), stage.win));
+  updateReadout();
+  const msg = document.getElementById("cmdMsg");
+  if (msg) msg.textContent = `prefilled from Seasonal — ${stage.win}d window, ${stage.mult} ATR stop, 2:1 target; qty fills from the ${state.account} NLV`;
+}
+
+function fillStageQty() {
+  if (!stage || !stage.qtyPending) return;
+  const ab = acctBook();
+  if (!ab || ab.nlv == null) return;
+  stage.qtyPending = false;
+  const q = document.getElementById("f_qty");
+  if (q && !q.value) {
+    const n = Math.floor((ab.nlv * STAGE_RISK_BPS / 10000) / (stage.mult * stage.atr));
+    if (n > 0) { q.value = String(n); ticketDraft.f_qty = String(n); }
+  }
+  updateReadout();
+}
+
 async function initExecution() {
   renderNav("execution.html");
   const el = document.getElementById("content");
@@ -40,6 +108,7 @@ async function initExecution() {
     if (e) e.addEventListener("keydown", (ev) => { if (ev.key === "Enter") sizeFutures(); });
   });
   syncFields();
+  applyStagePrefill();               // seasonal deep link: prefill the bracket ticket
   await poll();
   pollTimer = setInterval(poll, 4000);
 }
@@ -118,6 +187,7 @@ async function poll() {
   state.commands = (c && c.commands) || [];
   setAsof(state.status.online ? "execution online" : state.status.configured ? "execution offline" : "broker not configured");
   renderPanels();
+  fillStageQty();                    // seasonal deep link: qty needs the book's NLV
 }
 
 function renderPanels() {

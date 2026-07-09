@@ -1081,6 +1081,52 @@ def build_gate_lab(df):
     }
 
 
+def build_sizer():
+    """ticker -> last close + Wilder ATR(14) for the Seasonal tab's manual
+    trade sizer / execution-ticket prefill. ADJUSTED basis (master_prices):
+    these are sizing hints and prefill suggestions the user edits before
+    sending, not frozen order levels — the dividend-basis rule for stored
+    levels does not bind here."""
+    cutoff = pd.Timestamp.today().normalize() - pd.Timedelta(days=150)
+    try:
+        mp = pd.read_parquet(MASTER_PRICES,
+                             columns=["ticker", "date", "High", "Low", "Close"],
+                             filters=[("date", ">=", cutoff)])
+    except Exception:
+        mp = pd.read_parquet(MASTER_PRICES,
+                             columns=["ticker", "date", "High", "Low", "Close"])
+    mp["date"] = pd.to_datetime(mp["date"])
+    mp = mp[mp["date"] >= cutoff].sort_values(["ticker", "date"])
+    out = {}
+    asof = None
+    for tkr, g in mp.groupby("ticker"):
+        if len(g) < 20:
+            continue
+        h = g["High"].to_numpy(float)
+        l = g["Low"].to_numpy(float)
+        c = g["Close"].to_numpy(float)
+        pc = np.roll(c, 1)
+        pc[0] = c[0]
+        tr = np.maximum(h - l, np.maximum(np.abs(h - pc), np.abs(l - pc)))
+        atr = float(np.nanmean(tr[1:15]))
+        for x in tr[15:]:
+            if np.isfinite(x):
+                atr = (atr * 13.0 + float(x)) / 14.0
+        px = float(c[-1])
+        if not (np.isfinite(atr) and np.isfinite(px)) or atr <= 0 or px <= 0:
+            continue
+        out[str(tkr).upper()] = {"close": round(px, 4), "atr": round(atr, 4)}
+        d = g["date"].iloc[-1]
+        if asof is None or d > asof:
+            asof = d
+    if not out:
+        return None
+    print(f"  sizer: {len(out)} tickers (asof {asof.date()})")
+    return {"asof": asof.strftime("%Y-%m-%d"),
+            "basis": "adjusted master_prices; ATR = Wilder ATR(14)",
+            "tickers": out}
+
+
 def build_health(sig, data_dir):
     """Pipeline freshness panel: per-artifact last dates + staleness flags
     judged against the expected last trading day (US federal holidays).
@@ -1463,7 +1509,7 @@ def main():
              "correlation": False, "charts": False, "ideas": False, "signals": False,
              "risk": False, "strat_notes": True, "fragility": False,
              "stopfills": False, "drawdowns": False, "sector_risk": False,
-             "gate_lab": False, "health": False,
+             "gate_lab": False, "sizer": False, "health": False,
              "iv_context": False, "strategy_stats": False, "earnings_next": False}
     if args.no_mtm:
         # dev iteration: keep flags true for payloads already present in dist
@@ -1519,6 +1565,7 @@ def main():
     best_effort("stopfills", build_stopfills, df)
     best_effort("sector_risk", build_sector_risk, df)
     best_effort("gate_lab", build_gate_lab, df)
+    best_effort("sizer", build_sizer)
 
     # options-workbench payloads — all best effort
     best_effort("iv_context", build_iv_context)
