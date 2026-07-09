@@ -104,12 +104,13 @@ function sizeLine(ticker, win) {
   }
   return `${days}d @ ${RISK_BPS} bps: ${bits.join(" · ")}`;
 }
-function stageUrl(ticker, direction, win) {
+function stageUrl(ticker, direction, win, entryPx) {
   const rec = sizerRec(ticker);
   if (!rec) return null;
+  const px = entryPx > 0 ? entryPx : rec.close;
   const side = String(direction || "").toLowerCase() === "short" ? "SELL" : "BUY";
   return `execution.html?stage=1&sym=${encodeURIComponent(String(ticker).toUpperCase())}` +
-         `&side=${side}&win=${win[0]}&atr=${rec.atr}&px=${rec.close}`;
+         `&side=${side}&win=${win[0]}&atr=${rec.atr}&px=${px}`;
 }
 
 /* ---------- free-form sizer card ---------- */
@@ -128,6 +129,7 @@ function sizerCard() {
       by window · target ${TGT_RR}:1 · prices asof ${esc(asof || "?")}</span></div>
     <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:6px">
       <label class="cap">Ticker</label><input id="sz_tkr" placeholder="SMH" style="width:80px;text-transform:uppercase">
+      <label class="cap">Entry</label><input id="sz_entry" placeholder="last" style="width:80px" title="Optional — defaults to the last close; stop/target/stage anchor to what's here">
       <label class="cap">Window</label><span class="seg" id="sz_win">
         ${WINDOWS.map(([d], i) => `<button ${i === 1 ? 'class="on"' : ""} data-d="${d}">${d}d</button>`).join("")}</span>
       <label class="cap">Direction</label><span class="seg" id="sz_dir">
@@ -151,11 +153,17 @@ function wireSizer() {
       render();
     }));
   };
+  const entryEl = document.getElementById("sz_entry");
+  const entryVal = () => {
+    const v = Number(String(entryEl.value).trim());
+    return isFinite(v) && v > 0 ? v : null;
+  };
   segWire("sz_win", b => { state.win = WINDOWS.find(w => w[0] === +b.dataset.d) || WINDOWS[1]; });
   segWire("sz_dir", b => { state.dir = b.dataset.v; });
   tkr.addEventListener("input", render);
+  entryEl.addEventListener("input", render);
   document.getElementById("sz_stage").addEventListener("click", () => {
-    const url = stageUrl(tkr.value, state.dir, state.win);
+    const url = stageUrl(tkr.value, state.dir, state.win, entryVal());
     if (url) window.location.href = url;
   });
 
@@ -176,13 +184,17 @@ function wireSizer() {
       btn.disabled = true;
       return;
     }
+    entryEl.placeholder = fmt.num(rec.close, 2);   // "last" becomes the actual number once known
     const [days, mult] = state.win;
     const dist = mult * rec.atr;
     const long = state.dir !== "short";
-    const stop = long ? rec.close - dist : rec.close + dist;
-    const tgt = long ? rec.close + TGT_RR * dist : rec.close - TGT_RR * dist;
+    const custom = entryVal();
+    const px = custom != null ? custom : rec.close;
+    const stop = long ? px - dist : px + dist;
+    const tgt = long ? px + TGT_RR * dist : px - TGT_RR * dist;
     const rows = [
-      `last <b>${fmt.num(rec.close, 2)}</b> · ATR <b>${fmt.num(rec.atr, 2)}</b> · ` +
+      `entry <b>${fmt.num(px, 2)}</b> ${custom != null ? `(custom · last ${fmt.num(rec.close, 2)})` : "(last)"} · ` +
+      `ATR <b>${fmt.num(rec.atr, 2)}</b> · ` +
       `stop <b>${fmt.num(stop, 2)}</b> (${mult.toFixed(1)} ATR) · target <b>${fmt.num(tgt, 2)}</b> (${TGT_RR}:1) · ` +
       `time stop <b>${days}td</b>`,
     ];
