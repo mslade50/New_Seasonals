@@ -58,7 +58,7 @@ function shell() {
 
     <div class="card" style="max-width:760px;margin-top:18px">
       <div style="font:700 14px inherit;margin-bottom:4px">New order</div>
-      <p class="cap" style="margin:0 0 10px">Bracket: entry limit + stop + target, plus an optional <b>time stop</b> (closes at market 15:59 ET on that date) and <b>entry expiry</b> (the entry order is DAY unless you set a date &mdash; then GTD to that date's close). Submits per the mode banner above &mdash; live when armed.</p>
+      <p class="cap" style="margin:0 0 10px">Bracket: entry limit + stop + target, plus an optional <b>time stop</b> (closes at market 15:59 ET on that date) and <b>entry expiry</b> (the entry order is DAY unless you set a date &mdash; then GTD to that date's close). Flatten: close by <b>shares</b> or fraction, <b>MKT</b> or a resting <b>LMT</b> (check Outside RTH for pre/post-market); a partial close auto-resizes the remaining stop/target to the leftover shares. Submits per the mode banner above &mdash; live when armed.</p>
       <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:8px">
         <label class="cap">Type</label>
         <select id="cmdType">
@@ -202,7 +202,8 @@ function renderPositions() {
     const actions = p.sec_type === "OPT"
       ? '<span class="cap">combo — close via TWS</span>'
       : `<button class="btn xs" onclick='execFlatten(${posJson(p)},1)'>Flatten</button>
-        <button class="btn xs ghost" onclick='execFlatten(${posJson(p)},0.5)'>Trim&frac12;</button>`;
+        <button class="btn xs ghost" onclick='execFlatten(${posJson(p)},0.5)'>Trim&frac12;</button>
+        <button class="btn xs ghost" onclick='execSellTicket(${posJson(p)})' title="Prefill the close ticket: shares / LMT / outside RTH">Close&hellip;</button>`;
     return `<tr>
       <td class="l" style="font-weight:600">${sym}</td>
       <td class="${long ? "pos" : "neg"}" style="font-weight:600">${fmt.num(p.position, 0)}</td>
@@ -519,6 +520,23 @@ function execCancel(permId, orderId, symbol) {
 window.execFlatten = execFlatten;
 window.execCancel = execCancel;
 
+/* "Close…" on a position row: prefill the flatten ticket (shares / LMT /
+   outside RTH live there) instead of sending anything. */
+function execSellTicket(pos) {
+  const t = document.getElementById("cmdType");
+  if (!t) return;
+  t.value = "flatten";
+  syncFields();                      // rebuilds fields (snapshots the old ticket first)
+  const s = document.getElementById("f_symbol");
+  if (s) s.value = pos.symbol;
+  ticketDraft.f_symbol = pos.symbol; // survive later cmdType toggles
+  updateReadout();
+  const q = document.getElementById("fl_qty");
+  if (q) q.focus();
+  t.scrollIntoView({ behavior: "smooth", block: "center" });
+}
+window.execSellTicket = execSellTicket;
+
 /* ---------- inline order modify ---------- */
 function findBookOrder(key) {
   const ab = acctBook();
@@ -573,7 +591,8 @@ window.execModifySave = execModifySave;
 // bracketWarnings blocks empty qty/entry/stop). ticketDraft carries the last user entry
 // across cmdType toggles so switching Type and back doesn't wipe a typed ticket.
 const ticketDraft = {};
-const TICKET_FIELDS = ["f_note", "f_symbol", "f_qty", "f_entry", "f_stop", "f_target", "f_expiry", "f_timestop"];
+const TICKET_FIELDS = ["f_note", "f_symbol", "f_qty", "f_entry", "f_stop", "f_target", "f_expiry", "f_timestop",
+                       "fl_qty", "fl_limit"];
 function snapshotTicket() {
   TICKET_FIELDS.forEach((id) => { const e = document.getElementById(id); if (e) ticketDraft[id] = e.value; });
 }
@@ -588,8 +607,27 @@ function syncFields() {
   if (t === "echo") {
     f.innerHTML = `<label class="cap">Note</label>${inp("f_note", "ping from site", 200)}`;
   } else if (t === "flatten") {
+    // Close ticket: shares (takes precedence) or fraction; MKT (RTH, fill-gated)
+    // or LMT (resting close — required for outside-RTH). A partial close
+    // auto-resizes the working stop/target to the remainder (agent-side).
     f.innerHTML = `<label class="cap">Symbol</label>${inp("f_symbol", "USO", 90)}
-      <label class="cap">Fraction</label><select id="f_frac"><option value="1">100%</option><option value="0.5">50%</option></select>`;
+      <label class="cap">Shares</label>${inp("fl_qty", "blank = fraction", 110)}
+      <label class="cap">or Fraction</label><select id="f_frac"><option value="1">100%</option><option value="0.5">50%</option></select>
+      <label class="cap">Type</label><select id="fl_type"><option value="MKT">MKT</option><option value="LMT">LMT</option></select>
+      <label class="cap">Limit</label>${inp("fl_limit", "", 80)}
+      <label class="cap"><input type="checkbox" id="fl_rth" style="vertical-align:-2px"> Outside RTH</label>
+      <label class="cap">TIF</label><select id="fl_tif"><option value="DAY">DAY</option><option value="GTC">GTC</option></select>`;
+    const rth = document.getElementById("fl_rth");
+    if (rth) rth.addEventListener("change", () => {
+      // outside-RTH is LMT-only at IBKR — flip the type so the ticket can't lie
+      if (rth.checked) document.getElementById("fl_type").value = "LMT";
+      updateReadout();
+    });
+    const typ = document.getElementById("fl_type");
+    if (typ) typ.addEventListener("change", () => {
+      if (typ.value !== "LMT") { const r = document.getElementById("fl_rth"); if (r) r.checked = false; }
+      updateReadout();
+    });
   } else {
     f.innerHTML = `<label class="cap">Instr</label><select id="f_sectype"><option value="STK">Stock</option><option value="FUT">Future</option></select>
       <label class="cap">Symbol</label>${inp("f_symbol", "USO", 80)}
@@ -674,6 +712,29 @@ function bracketWarnings() {
   if (ts && ex && ex > ts) warns.push("entry expiry is after the time stop");
   return warns;
 }
+// Hard gate for the flatten ticket (mirrors the agent's checks; [] = sendable).
+function flattenWarnings() {
+  const sym = String(val("f_symbol") || "").toUpperCase().trim();
+  const warns = [];
+  if (!sym) warns.push("symbol required");
+  const ab = acctBook();
+  const pos = ((ab && ab.positions) || []).find((p) => String(p.symbol).toUpperCase() === sym && p.position);
+  const held = pos ? Math.abs(pos.position) : null;
+  const qn = numOrNull("fl_qty");
+  if (qn != null) {
+    if (!(qn > 0) || qn !== Math.round(qn)) warns.push("shares must be a whole number > 0");
+    else if (held != null && qn > held) warns.push(`shares ${qn} exceeds held ${held}`);
+  }
+  const typ = val("fl_type") || "MKT";
+  const rth = document.getElementById("fl_rth") && document.getElementById("fl_rth").checked;
+  if (typ === "LMT") {
+    const lim = numOrNull("fl_limit");
+    if (!(lim > 0)) warns.push("LMT close needs a limit price");
+  }
+  if (rth && typ !== "LMT") warns.push("outside-RTH close must be LMT");
+  return warns;
+}
+
 function updateReadout() {
   const t = document.getElementById("cmdType").value;
   const el = document.getElementById("ticketReadout");
@@ -703,12 +764,25 @@ function updateReadout() {
     parts.push(`Entry <b>${ex ? "GTD " + ex : "DAY"}</b>`);
     el.innerHTML = `<span style="color:#9aa3b2">${parts.join(" &nbsp;·&nbsp; ")}</span>`;
   } else if (t === "flatten") {
+    const warns = flattenWarnings();
+    if (warns.length) { el.innerHTML = `<span style="color:#ff6b6b">${warns.map(esc).join(" &middot; ")}</span>`; return; }
     const sym = String(val("f_symbol") || "").toUpperCase();
     const ab = acctBook();
-    const pos = ((ab && ab.positions) || []).find((p) => String(p.symbol).toUpperCase() === sym);
-    el.innerHTML = pos
-      ? `<span style="color:#9aa3b2">Current position: <b>${fmt.num(pos.position, 0)}</b> ${esc(sym)} (${state.account})</span>`
-      : `<span style="color:#ffc14d">No ${esc(sym || "?")} position in ${state.account}</span>`;
+    const pos = ((ab && ab.positions) || []).find((p) => String(p.symbol).toUpperCase() === sym && p.position);
+    if (!pos) { el.innerHTML = `<span style="color:#ffc14d">No ${esc(sym || "?")} position in ${state.account}</span>`; return; }
+    const held = Math.abs(pos.position);
+    const qn = numOrNull("fl_qty");
+    const n = qn != null ? qn : Math.round(held * Number(val("f_frac") || 1));
+    const rem = held - n;
+    const close = pos.position > 0 ? "SELL" : "BUY";
+    const typ = val("fl_type") || "MKT";
+    const parts = [`Position <b>${fmt.num(pos.position, 0)}</b> ${esc(sym)}`,
+                   `Close <b>${close} ${n}</b> ${typ === "LMT" ? `LMT @ <b>${numOrNull("fl_limit")}</b>` : "MKT"}`];
+    if (document.getElementById("fl_rth") && document.getElementById("fl_rth").checked) parts.push(`<b style="color:#ffc14d">outside RTH</b>`);
+    parts.push(`TIF <b>${val("fl_tif") || "DAY"}</b>`);
+    if (rem > 0) parts.push(`working stop/target resize to <b>${rem}</b>`);
+    else if (typ === "LMT") parts.push(`<b style="color:#ffc14d">all exits cancelled — unprotected while the close rests</b>`);
+    el.innerHTML = `<span style="color:#9aa3b2">${parts.join(" &nbsp;·&nbsp; ")}</span>`;
   } else {
     el.innerHTML = "";
   }
@@ -721,7 +795,16 @@ function numOrNull(id) {
 }
 function ticketPayload(t) {
   if (t === "echo") return { note: val("f_note") };
-  if (t === "flatten") return { symbol: val("f_symbol"), fraction: Number(val("f_frac")), order_type: "MKT" };
+  if (t === "flatten") {
+    const qn = numOrNull("fl_qty");
+    const typ = val("fl_type") || "MKT";
+    const p = { symbol: val("f_symbol"), order_type: typ,
+                tif: val("fl_tif") || "DAY",
+                outside_rth: !!(document.getElementById("fl_rth") && document.getElementById("fl_rth").checked) };
+    if (qn != null) p.qty = qn; else p.fraction = Number(val("f_frac"));
+    if (typ === "LMT") p.limit = numOrNull("fl_limit");
+    return p;
+  }
   const sec_type = val("f_sectype") || "STK";
   const fut_expiry = sec_type === "FUT" ? String(val("f_futexp") || "").replace(/\D/g, "") : null;
   return { symbol: val("f_symbol"), sec_type, fut_expiry, action: val("f_action"), quantity: numOrNull("f_qty"),
@@ -736,11 +819,17 @@ function sendTicket() {
     const warns = bracketWarnings();   // hard block: never submit while any warning is up
     if (warns.length) { if (msg) msg.textContent = "BLOCKED: " + warns.join("; "); return; }
   }
+  if (t === "flatten") {
+    const warns = flattenWarnings();
+    if (warns.length) { if (msg) msg.textContent = "BLOCKED: " + warns.join("; "); return; }
+  }
   if (t !== "echo") {
     const inst = p.sec_type === "FUT" ? `${p.symbol} FUT ${p.fut_expiry}` : p.symbol;
     const summary = t === "entry_bracket"
       ? `${p.action} ${p.quantity} ${inst} @ ${p.entry} [${p.expiry ? "GTD " + p.expiry : "DAY"}] (stop ${p.stop}, ${p.target == null ? "NO TARGET" : "target " + p.target}${p.time_stop ? ", time " + p.time_stop : ""})`
-      : `flatten ${Math.round((p.fraction || 1) * 100)}% of ${p.symbol}`;
+      : `close ${p.qty != null ? p.qty + " sh" : Math.round((p.fraction || 1) * 100) + "%"} of ${p.symbol} via ${p.order_type}` +
+        `${p.order_type === "LMT" ? " @ " + p.limit : ""}${p.outside_rth ? " OUTSIDE RTH" : ""} (${p.tif})` +
+        `${p.qty != null || p.fraction < 1 ? " — remaining exits auto-resize" : ""}`;
     if (!confirm(`${actionLead(t === "entry_bracket" ? "place" : "flatten")} ${summary} on ${state.account}?`)) return;
   }
   sendCommand(t, p, "cmdMsg");

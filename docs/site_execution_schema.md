@@ -46,13 +46,20 @@ Validation (mirrors `validate_config`): BUY → `stop < entry < target`; SELL in
 Agent **detects the live position** (side/qty), slices stop + time-stop per rung,
 one OCA group per rung. `targets` allocations: all-fractional (0,1) or all-absolute.
 
-### `flatten`  (quick close — Positions-row button)
+### `flatten`  (quick close — Positions-row button or the Close ticket)
 ```json
-{ "symbol":"USO","sec_type":"STK","fut_expiry":null,
-  "fraction":1.0,            // or "qty": N for a subset
+{ "symbol":"USO","sec_type":"STK","expiry":null,
+  "fraction":1.0,            // or "qty": N (whole shares; REJECTED above held, never clamped)
   "order_type":"MKT|LMT","limit":null,"tif":"DAY|GTC",
-  "cancel_existing_exits":true }
+  "outside_rth":false }
 ```
+Semantics (2026-07-09): MKT is fill-gated (non-fill = FAILURE, exits restored at
+full size). LMT is a RESTING close — success = working; `outside_rth:true`
+requires LMT (IBKR ignores MKT outside RTH). A partial close (qty or fraction < 1)
+captures the working exit legs before cancelling and re-attaches them sized to
+`held − close_qty`, so a resting LMT plus the resized exits never exceed the held
+quantity. A FULL LMT close cancels all exits and rests unprotected until it fills
+(the preview + result say so).
 
 ### `cancel`
 ```json
