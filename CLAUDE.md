@@ -383,6 +383,49 @@ sizes as-is):
 - Guard: `tests/test_same_day_derate.py` (carve-out partition, filter
   invariants, formula boundaries, single-carrier assertion)
 
+## 3x Leader Gap Fade (pilot, 2026-07-10)
+
+Capitulation fade on 3x ETFs whose UNDERLYING is spiking on fear. Universe =
+`LEV3X_ALL` minus `LEV3X_BULL_EQ` (21 names: 13 bear-eq + TMF/TMV + 6 cmdty).
+Filters: 2/5/10/21d rank > 80 (consec 1) AND 252d rank > 95 — the leader is
+REQUIRED, the inverse of the other two 3x fades' <65 exclusion, so same-day
+same-ticker cross-fire with them is impossible by construction (a ticker
+cannot be <65 and >95 at once). Tape gate: T+1 open > close + 0.25 ATR,
+resolved LIVE by order_staging's generic `T1_Open_Filters` gate (fail-closed;
+scanner only stamps the JSON spec — it cannot see tomorrow's open). Entry:
+Limit (Open + 0.75 ATR), OVS convention. 2-day time exit, NO STOP: stops
+1.0-2.0 ATR (day-1 and day-2 armed) all destroyed the edge — adverse
+excursion > 1 ATR is the normal path before the reversal (non-bull +23.7R ->
+-39.8R at 1.0 ATR). The demanding entry IS the risk control (worst no-stop
+trade -2.95R). Bull-eq exclusion is STRUCTURAL: every selectivity layer makes
+bull-eq worse (strictest cell 0-for-7, avgR -1.28; losses span five bull
+regimes 2018-2026) — do not re-add.
+
+Sizing: 25 bps nominal (x GRM). Deliberately EXEMPT from frag_risk_bands and
+same_day_signal_derate — the edge lives on exactly the high-fragility
+multi-signal days those overlays would cut (Sept 2022, Apr 2025). Tail risk
+is bounded instead by the per-strategy daily cap: engine `cap_bps` default
+250 + an order_staging `PER_STRAT_DAILY_CAP_DOLLARS` override at 250 bps
+(the live book default is 200 bps — the override keeps live identical to the
+ledger; a 7-signal day at 37.5 eff = 262.5 bps trims ~5%). Validation
+(2026-07-10): 31 trades / 15 episodes 2011-2025, avgR +0.80, PF 2.82,
+episode-clustered t = 2.17, LOYO floor 1.55, drop-best-episode +9.4R @
+t = 1.79, bootstrap P(<=0) = 2.1%. Pilot conviction — consider 40 bps only
+after clean out-of-sample quarters.
+
+Aligned sites — change together:
+- `strategy_config.py` — the entry + `LEV3X_BULL_EQ` (source of truth)
+- `pages/strat_backtester.py` / `daily_scan.py` — nothing bespoke; flows
+  through generic paths (perf filters, T1_Open_Filters stamp, 0.75 ATR
+  limit parse, max_one_pos, per-strategy daily cap)
+- `order_staging.py` (OneDrive) — generic T1 gate enforces the gap at the
+  IBKR T+1 open; `PER_STRAT_DAILY_CAP_DOLLARS['3x Leader Gap Fade']` = 250
+  bps override
+- Guard: `tests/test_lev3x_leader_gap_fade.py`. Studies:
+  `scratch/lev3x_fade_leader_*.py` (expansion, stops, entries, ovs_entry,
+  class_split, bulleq_clusters, bulleq_strict, validation, capcheck,
+  book_parity)
+
 ## Trend Sleeve (pilot, 2026-07-02)
 
 `trend_sleeve.py` + `.github/workflows/trend_sleeve.yml`: monthly 12-ETF

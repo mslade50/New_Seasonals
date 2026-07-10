@@ -128,6 +128,18 @@ LEV3X_BEAR_EQ = [
     'SOXS', 'FAZ', 'TECS', 'LABD', 'ERY', 'DRV', 'WEBS', 'YANG', 'EDZ',
 ]
 
+# Equity-BULL 3x names (broad + sector; excludes bonds and the commodity
+# bull names NUGT/JNUG/GUSH). Excluded from the 3x Leader Gap Fade: shorting
+# an overbought 252d-LEADER bull ETF fades momentum leadership and loses
+# pervasively — every selectivity layer makes it worse (strictest cell
+# 0-for-7, avgR -1.28; losses span 2018/2020/2021/2023/2024/2026). Evidence:
+# scratch/lev3x_fade_leader_bulleq_clusters.py + _bulleq_strict.py.
+LEV3X_BULL_EQ = [
+    'SPXL', 'TQQQ', 'UDOW', 'TNA', 'MIDU',
+    'SOXL', 'FAS', 'TECL', 'LABU', 'CURE', 'ERX', 'DPST',
+    'DRN', 'NAIL', 'RETL', 'WEBL', 'DFEN', 'YINN', 'BRZU', 'EDC', 'MEXX',
+]
+
 # All CSV tickers from sznl_ranks.csv (~1062 tickers)
 import os as _os, pandas as _pd
 _csv_path = _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), 'sznl_ranks.csv')
@@ -1077,6 +1089,157 @@ _STRATEGY_BOOK_RAW = [
             "same_day_derate_floor": 0.30
         },
         "stats": {"grade": "B (Pilot)", "win_rate": "66.7%", "expectancy": "0.66r", "profit_factor": "2.80"}
+    },
+    {
+        "id": "2d > 80%ile+5d > 80%ile+10d > 80%ile+21d > 80%ile+252d > 95%ile+T1 gap up 0.25 ATR, Entry: Limit (Open +/- 0.75 ATR), 2d hold",
+        "name": "3x Leader Gap Fade",
+        "setup": {
+            "type": "MeanReversion",
+            "timeframe": "Overnight",
+            "thesis": "Capitulation fade on 3x ETFs whose UNDERLYING is spiking on fear: 252d rank > 95 (leader REQUIRED — the inverse of the other fades' <65 exclusion, so no same-day cross-fire is possible on shared tickers by construction), short-horizon overbought, AND still gapping up 0.25 ATR at the T+1 open. The demanding entry (gap gate + 0.75 ATR limit above the open) IS the risk control: it replaces both the stop (tested 1.0-2.0 ATR, all destroyed the edge — adverse excursion > 1 ATR is the normal path before the reversal; worst no-stop trade -2.95R) and the fragility throttle (deliberately EXEMPT from frag_risk_bands: the edge lives on exactly the high-fragility days the FAMILY4 throttle would quarter). Universe = LEV3X_ALL minus LEV3X_BULL_EQ (13 bear-eq + TMF/TMV + 6 cmdty; bull-eq excluded structurally, see LEV3X_BULL_EQ comment). Tail risk is bounded by the engine/order_staging per-strategy 2.5% daily aggregate cap (would have trimmed only 2022-09-22 and 2025-04-04, ~5% each). Evidence: scratch/lev3x_fade_leader_{expansion,stops,entries,ovs_entry,class_split,validation}.py.",
+            "key_filters": [
+                "2D rank > 80th %ile",
+                "5D rank > 80th %ile",
+                "10D rank > 80th %ile",
+                "21D rank > 80th %ile",
+                "252D rank > 95th %ile (leader required)",
+                "T+1 open > close + 0.25 ATR (gap gate, resolved at open)"
+            ]
+        },
+        "exit_summary": {
+            "primary_exit": "2-day time stop",
+            "stop_logic": "None (time exit only — stops tested and rejected, see thesis)",
+            "target_logic": "None (time exit only)",
+            "notes": "Gap gate + 0.75 ATR limit resolve live at the T+1 open in order_staging (OVS-style), not at scan time."
+        },
+        "description": "Backtest: 2003-01-01 to present (first signal 2011). 31 trades / 15 episodes, ~2.3 tr/yr. Validation 2026-07-10: episode-clustered t=2.17, LOYO floor 1.55, drop-best-episode leaves +9.4R at t=1.79, bootstrap P(<=0)=2.1%. Sized one tier below conviction (25 bps, bear-fade parity): multi-regime sample offsets the lower t vs the bear fade's one-regime 2020+ sample.",
+        "universe_tickers": [t for t in LEV3X_ALL if t not in LEV3X_BULL_EQ],
+        "settings": {
+            "trade_direction": "Short",
+            "entry_type": "Limit (Open +/- 0.75 ATR)",
+            "max_one_pos": True,
+            "allow_same_day_reentry": False,
+            "entry_conf_bps": 0,
+            "perf_filters": [
+                {'window': 2, 'logic': '>', 'thresh': 80.0, 'thresh_max': 100.0, 'consecutive': 1},
+                {'window': 5, 'logic': '>', 'thresh': 80.0, 'thresh_max': 100.0, 'consecutive': 1},
+                {'window': 10, 'logic': '>', 'thresh': 80.0, 'thresh_max': 100.0, 'consecutive': 1},
+                {'window': 21, 'logic': '>', 'thresh': 80.0, 'thresh_max': 100.0, 'consecutive': 1},
+                {'window': 252, 'logic': '>', 'thresh': 95.0, 'thresh_max': 100.0, 'consecutive': 1}
+            ],
+            "perf_first_instance": False,
+            "perf_lookback": 21,
+            "ma_consec_filters": [],
+            "use_sznl": False,
+            "sznl_logic": "<",
+            "sznl_thresh": 15.0,
+            "sznl_first_instance": False,
+            "sznl_lookback": 21,
+            "use_market_sznl": False,
+            "market_sznl_logic": "<",
+            "market_sznl_thresh": 15.0,
+            "market_ticker": "^GSPC",
+            "use_52w": False,
+            "52w_type": "New 52w High",
+            "52w_first_instance": False,
+            "52w_lookback": 21,
+            "52w_lag": 0,
+            "exclude_52w_high": False,
+            "use_ath": False,
+            "ath_type": "Today is ATH",
+            "use_recent_ath": False,
+            "recent_ath_invert": False,
+            "ath_lookback_days": 21,
+            "use_recent_52w": False,
+            "recent_52w_invert": False,
+            "recent_52w_lookback": 21,
+            "use_recent_52w_low": False,
+            "recent_52w_low_invert": False,
+            "recent_52w_low_lookback": 21,
+            "breakout_mode": "None",
+            "require_close_gt_open": False,
+            "use_range_filter": False,
+            "range_min": 50,
+            "range_max": 100,
+            "use_atr_ret_filter": False,
+            "atr_ret_min": 0.0,
+            "atr_ret_max": 1.0,
+            "use_range_atr_filter": False,
+            "range_atr_logic": ">",
+            "range_atr_min": 1.0,
+            "range_atr_max": 3.0,
+            "price_action_filters": [],
+            "use_ma_dist_filter": False,
+            "dist_ma_type": "SMA 10",
+            "dist_logic": "Greater Than (>)",
+            "dist_min": 0.0,
+            "dist_max": 2.0,
+            "use_weekly_ma_pullback": False,
+            "wma_type": "EMA",
+            "wma_period": 8,
+            "wma_min_ext_pct": 30.0,
+            "wma_lookback_months": 6,
+            "wma_touch_logic": "Low <= MA",
+            "vol_gt_prev": False,
+            "use_vol": False,
+            "vol_thresh": 1.2,
+            "use_vol_rank": False,
+            "vol_rank_logic": "<",
+            "vol_rank_thresh": 50.0,
+            "use_acc_count_filter": False,
+            "acc_count_window": 21,
+            "acc_count_logic": "=",
+            "acc_count_thresh": 0,
+            "use_dist_count_filter": False,
+            "dist_count_window": 21,
+            "dist_count_logic": ">",
+            "dist_count_thresh": 3,
+            "use_gap_filter": False,
+            "gap_lookback": 21,
+            "gap_logic": ">",
+            "gap_thresh": 3,
+            "trend_filter": "None",
+            "use_vix_filter": False,
+            "vix_min": 0.0,
+            "vix_max": 20.0,
+            "min_price": 10.0,
+            "min_vol": 100000,
+            "min_age": 0.25,
+            "max_age": 100.0,
+            "min_atr_pct": 0.2,
+            "max_atr_pct": 10.0,
+            "use_dow_filter": False,
+            "allowed_days": [0, 1, 2, 3, 4],
+            "allowed_cycles": [1, 2, 3, 0],
+            "use_ref_ticker_filter": False,
+            "ref_ticker": "IWM",
+            "ref_filters": [],
+            "use_t1_open_filter": True,
+            "t1_open_filters": [
+                {'reference': 'Close', 'atr_offset': 0.25, 'logic': '>'}
+            ],
+            "use_xsec_filter": False,
+            "xsec_filters": [],
+            "atr_sznl_filters": []
+        },
+        "execution": {
+            "risk_bps": 25,
+            "risk_per_trade": "[EDIT: calculated from account size]",
+            "slippage_bps": 2,
+            "stop_atr": 1.0,
+            "tgt_atr": 8.0,
+            "hold_days": 2,
+            "use_stop_loss": False,
+            "use_take_profit": False
+            # Deliberately NO frag_risk_bands and NO same_day_signal_derate
+            # (decided 2026-07-10): the gap gate + 0.75 ATR limit already
+            # select for the high-fragility capitulation days those overlays
+            # would throttle, and the generic per-strategy 2.5% daily cap
+            # (engine post-loop cap_bps=250 default + order_staging's live
+            # 2.5% cap) bounds the many-signal days. Do not add them without
+            # re-running scratch/lev3x_fade_leader_validation.py.
+        },
+        "stats": {"grade": "B (Pilot)", "win_rate": "54.8%", "expectancy": "0.80r", "profit_factor": "2.82"}
     },
     {
         "id": "2d < 25%ile, Entry: Limit Order -0.25 ATR (Persistent), 2d hold",
