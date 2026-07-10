@@ -1,13 +1,15 @@
 name: Nightly Execution Report
 
 # 4:30 PM ET email of live primary-account positions (site Execution tab mirror).
-# Two crons cover both DST regimes; daily_execution_report.py gates on
-# ET hour == 16 so exactly one of them actually sends each day.
+# Two crons cover both DST regimes; daily_execution_report.py picks the sender
+# by which cron fired (GHA_SCHEDULE) + the date's DST regime, so exactly one
+# sends each day even when GHA's cron queue starts the run an hour+ late.
+# Cron strings must match EDT_CRON / EST_CRON in daily_execution_report.py.
 
 on:
   schedule:
-    - cron: '30 20 * * 1-5'  # 4:30 PM EDT (summer); 3:30 PM EST — gated off
-    - cron: '30 21 * * 1-5'  # 4:30 PM EST (winter); 5:30 PM EDT — gated off
+    - cron: '30 20 * * 1-5'  # sends while EDT (summer); gated off in EST
+    - cron: '30 21 * * 1-5'  # sends while EST (winter); gated off in EDT
   workflow_dispatch:
 
 jobs:
@@ -37,5 +39,6 @@ jobs:
           R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
           R2_BUCKET: ${{ secrets.R2_BUCKET }}
-        # Manual dispatches bypass the 5 PM ET hour gate.
+          GHA_SCHEDULE: ${{ github.event.schedule }}
+        # Manual dispatches bypass the DST-twin gate.
         run: python daily_execution_report.py ${{ github.event_name == 'workflow_dispatch' && '--force' || '' }}

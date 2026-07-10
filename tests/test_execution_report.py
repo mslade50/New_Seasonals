@@ -9,7 +9,11 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 
 from daily_execution_report import (
+    EDT_CRON,
+    EST_CRON,
+    ET,
     build_rows,
+    cron_should_send,
     enrich_position,
     parse_ib_date,
     parse_ref,
@@ -31,6 +35,20 @@ def _leg(symbol, action, order_type, ref=None, lmt=None, aux=None,
         "order_type": order_type, "lmt": lmt, "aux": aux, "tif": tif,
         "good_after": good_after, "status": status, "order_ref": ref,
     }
+
+
+def test_cron_gate_dst_regime():
+    from datetime import datetime
+    july = datetime(2026, 7, 9, 17, 56, tzinfo=ET)   # EDT, lagged past 4 PM
+    jan = datetime(2026, 1, 9, 18, 5, tzinfo=ET)     # EST, lagged past 4 PM
+    # The regime decides, not the clock — a lagged run still sends.
+    assert cron_should_send(EDT_CRON, july) is True
+    assert cron_should_send(EST_CRON, july) is False
+    assert cron_should_send(EDT_CRON, jan) is False
+    assert cron_should_send(EST_CRON, jan) is True
+    # Unknown cron fails open (send) so a workflow edit can't silently
+    # drop the email.
+    assert cron_should_send("0 12 * * 1-5", july) is True
 
 
 def test_parse_ref():

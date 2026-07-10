@@ -18,8 +18,13 @@ Positions with no strategy-tagged legs fall back to "Trend Sleeve" when the
 symbol is held in trend_sleeve_state.json (R2), else "Discretionary".
 
 Scheduling: .github/workflows/execution_report.yml runs at 20:30 AND 21:30 UTC
-on weekdays; the ET-hour gate below lets exactly one of the two fire at
-4:30 PM ET year-round (no DST drift). --force bypasses the gate for manual runs.
+on weekdays; exactly one of the two sends at ~4:30 PM ET year-round. The gate
+decides by WHICH cron fired (GHA_SCHEDULE env = github.event.schedule) and
+whether the date is in daylight time — not by the actual clock, because GHA's
+shared cron queue can start runs 60-90 min late (both 2026-07-08 and -09 runs
+arrived past 5 PM ET and the old hour==16 gate dropped the email). Without
+GHA_SCHEDULE (local runs) the legacy hour==16 gate applies. --force bypasses
+the gate for manual runs.
 
 Env:
   EXEC_BROKER_URL  broker base URL (default the deployed workers.dev URL)
@@ -53,6 +58,24 @@ DEAD_ORDER_STATUSES = {"Cancelled", "ApiCancelled", "Filled", "Inactive"}
 
 def et_now() -> datetime:
     return datetime.now(tz=ET)
+
+
+# Must match the cron strings in .github/workflows/execution_report.yml.
+EDT_CRON = "30 20 * * 1-5"  # 4:30 PM ET while daylight time
+EST_CRON = "30 21 * * 1-5"  # 4:30 PM ET while standard time
+
+
+def cron_should_send(cron: str, now: datetime) -> bool:
+    in_dst = bool(now.dst())
+    if cron == EDT_CRON:
+        return in_dst
+    if cron == EST_CRON:
+        return not in_dst
+    # Unrecognized cron (workflow edited without updating the constants):
+    # send rather than silently drop — a duplicate email is visible, a
+    # missing one is not.
+    print(f"WARNING: unrecognized cron {cron!r} — sending anyway.")
+    return True
 
 
 def fetch_book(base_url: str, token: str) -> dict | None:
@@ -331,9 +354,16 @@ def main() -> int:
     args = ap.parse_args()
 
     now = et_now()
-    if not args.force and not args.no_send and now.hour != 16:
-        print(f"ET hour is {now.hour}, not 16 — DST twin cron, exiting.")
-        return 0
+    if not args.force and not args.no_send:
+        cron = os.environ.get("GHA_SCHEDULE", "")
+        if cron:
+            if not cron_should_send(cron, now):
+                print(f"Cron {cron!r} is the DST twin for this date "
+                      f"(dst={bool(now.dst())}) — exiting.")
+                return 0
+        elif now.hour != 16:
+            print(f"ET hour is {now.hour}, not 16 — DST twin cron, exiting.")
+            return 0
 
     base_url = os.environ.get("EXEC_BROKER_URL", DEFAULT_BROKER_URL)
     token = os.environ.get("STATUS_TOKEN", "")
