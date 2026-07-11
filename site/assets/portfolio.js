@@ -38,6 +38,11 @@ const S = {
   extLab: null,           // ext_lab.json (OVS hold-extension counterfactual)
   extById: new Map(),     // trade_id -> rebooked row (OvsExt=true)
   showOvsExt: false,      // swap rebooked OVS exits into the filtered analytics
+  mtmDates: null,         // trade_mtm.json calendar (B-days, payload-local)
+  mtmDateToI: new Map(),  // date -> index into mtmDates
+  mtmMain: new Map(),     // trade_id -> [startIdx, pnlVector] (flat $750k)
+  mtmExt: new Map(),      // trade_id -> vector for the rebooked T+5 exit
+  mtmGate: new Map(),     // Strategy|Tier|Ticker|SignalDate -> vector (blocked rows)
   // fragility sizing adjuster (off by default = today's exact-curve behavior).
   // step:  mult = boost below thr, floor at/above thr.
   // ramp:  live-style — boost at 0 -> 1.0 at thr, then linear down to floor at 100
@@ -135,7 +140,7 @@ async function init() {
       fetchJSON("data/meta.json"), fetchJSON("data/trades.json")]);
     S.meta = meta;
     S.trades = rowsFromColumnar(trades);
-    const [sd, pos, exp, corr, frag, sf, dda, sr, gl, xl] = await Promise.all([
+    const [sd, pos, exp, corr, frag, sf, dda, sr, gl, xl, tmm] = await Promise.all([
       meta.payloads.strategy_daily ? fetchJSONOrNull("data/strategy_daily.json") : null,
       meta.payloads.positions ? fetchJSONOrNull("data/positions.json") : null,
       meta.payloads.exposure ? fetchJSONOrNull("data/exposure.json") : null,
@@ -146,6 +151,7 @@ async function init() {
       meta.payloads.sector_risk ? fetchJSONOrNull("data/sector_risk.json") : null,
       meta.payloads.gate_lab ? fetchJSONOrNull("data/gate_lab.json") : null,
       meta.payloads.ext_lab ? fetchJSONOrNull("data/ext_lab.json") : null,
+      meta.payloads.trade_mtm ? fetchJSONOrNull("data/trade_mtm.json") : null,
     ]);
     S.sd = sd; S.positions = pos; S.exposure = exp; S.corr = corr; S.fragility = frag;
     S.stopfills = sf; S.drawdowns = dda; S.sectorRisk = sr; S.gateLab = gl; S.extLab = xl;
@@ -164,6 +170,17 @@ async function init() {
         r.OvsExt = true;
         S.extById.set(r.trade_id, r);
       }
+    }
+    if (tmm && tmm.main && tmm.dates) {
+      S.mtmDates = tmm.dates;
+      tmm.dates.forEach((d, i) => S.mtmDateToI.set(d, i));
+      const g = tmm.main;
+      for (let i = 0; i < g.trade_id.length; i++)
+        S.mtmMain.set(g.trade_id[i], [g.start[i], g.pnl[i]]);
+      if (tmm.ext) for (let i = 0; i < tmm.ext.trade_id.length; i++)
+        S.mtmExt.set(tmm.ext.trade_id[i], [tmm.ext.start[i], tmm.ext.pnl[i]]);
+      if (tmm.gate) for (let i = 0; i < tmm.gate.key.length; i++)
+        S.mtmGate.set(tmm.gate.key[i], [tmm.gate.start[i], tmm.gate.pnl[i]]);
     }
     if (sd) {
       S.dateIdx = sd.dates;
@@ -296,8 +313,10 @@ function buildFilterBar() {
     const gLbl = document.createElement("label");
     gLbl.style.cssText = "display:inline-flex;align-items:center;gap:5px;cursor:pointer";
     gLbl.title = "Counterfactual: include the trades the sector-loss gate blocked " +
-      "(outcomes from a no-gate engine rerun). Equity curve drops to the " +
-      "realized-at-exit basis while on. Off = the book as traded.";
+      "(outcomes from a no-gate engine rerun). " +
+      (S.mtmDates ? "Curve stays on the exact per-trade MTM basis. "
+                  : "Equity curve drops to the realized-at-exit basis while on. ") +
+      "Off = the book as traded.";
     gateCb = document.createElement("input");
     gateCb.type = "checkbox";
     gateCb.addEventListener("change", () => { S.showBlocked = gateCb.checked; apply(); });
@@ -314,7 +333,9 @@ function buildFilterBar() {
     xLbl.style.cssText = "display:inline-flex;align-items:center;gap:5px;cursor:pointer";
     xLbl.title = "Counterfactual: OVS trades losing at the T+2 time exit hold to T+5 " +
       "(2-ATR target stays live). Swaps the rebooked exits into every filtered metric. " +
-      "Equity curve drops to the realized-at-exit basis while on. Off = the book as traded.";
+      (S.mtmDates ? "Curve stays on the exact per-trade MTM basis. "
+                  : "Equity curve drops to the realized-at-exit basis while on. ") +
+      "Off = the book as traded.";
     extCb = document.createElement("input");
     extCb.type = "checkbox";
     extCb.addEventListener("change", () => { S.showOvsExt = extCb.checked; apply(); });
@@ -667,7 +688,39 @@ function dailySeries(trades, ignoreDates) {
     }
     return { dates: S.dateIdx.slice(i0, i1 + 1), pnl: Array.from(pnl), exact: true };
   }
-  // fallback: realized PnL on exit dates
+  // per-trade MTM vector path (trade_mtm.json): exact daily MTM for ANY
+  // per-trade selection — direction/ticker filters, gate + extension
+  // toggles, fragility multipliers. Marks are clipped to the filter window,
+  // matching the aggregated exact path's semantics.
+  if (S.mtmDates) {
+    let i0 = 0, i1 = S.mtmDates.length - 1;
+    if (!ignoreDates && S.f.from) i0 = lowerBound(S.mtmDates, S.f.from);
+    if (!ignoreDates && S.f.to) i1 = upperBound(S.mtmDates, S.f.to) - 1;
+    if (i1 < i0) return { dates: [], pnl: [], exact: true };
+    const pnl = new Float64Array(i1 - i0 + 1);
+    for (const t of trades) {
+      const m = tradeMult(t);
+      if (m === 0) continue;
+      const rec = t.OvsExt ? S.mtmExt.get(t.trade_id)
+        : t.GateBlocked ? S.mtmGate.get(`${t.Strategy}|${t.Tier}|${t.Ticker}|${t.Signal_Date}`)
+        : S.mtmMain.get(t.trade_id);
+      if (rec) {
+        const [s, v] = rec;
+        for (let k = 0; k < v.length; k++) {
+          const j = s + k;
+          if (j < i0) continue;
+          if (j > i1) break;
+          pnl[j - i0] += v[k] * m;
+        }
+      } else if (t.Exit_Date && t.PnL_flat != null) {
+        // no vector shipped for this row — book realized PnL at exit
+        const j = S.mtmDateToI.get(t.Exit_Date);
+        if (j != null && j >= i0 && j <= i1) pnl[j - i0] += t.PnL_flat * m;
+      }
+    }
+    return { dates: S.mtmDates.slice(i0, i1 + 1), pnl: Array.from(pnl), exact: true };
+  }
+  // last-resort fallback (no trade_mtm payload): realized PnL on exit dates
   const map = new Map();
   for (const t of trades) {
     const d = t.Exit_Date;

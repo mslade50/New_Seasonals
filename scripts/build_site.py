@@ -1176,6 +1176,122 @@ def build_ext_lab(df):
     }
 
 
+def build_trade_mtm(df, md):
+    """Per-trade daily MTM PnL vectors (flat $750k basis) so the client can
+    build EXACT MTM curves for any per-trade filter combination (direction,
+    ticker, gate toggle, extension toggle, fragility multipliers) instead of
+    the realized-at-exit fallback. Mirrors get_daily_mtm_series conventions
+    exactly (B-calendar, ffilled closes, exit-day reconcile so every vector
+    sums to the trade's booked PnL; missing prices -> whole PnL on exit day).
+    ~21k marks book-wide, so the payload is small. Includes vectors for the
+    gate-blocked counterfactual rows (keyed Strategy|Tier|Ticker|SignalDate —
+    they carry no trade_id) and the OVS-extension rebooked rows (by trade_id)."""
+    frames = {}
+    main = df.copy()
+    frames["main"] = main
+
+    if os.path.exists(OVSEXT):
+        ext = pd.read_parquet(OVSEXT)
+        for c in ["Signal Date", "Entry Date", "Exit Date"]:
+            ext[c] = pd.to_datetime(ext[c])
+        frames["ext"] = ext
+    if os.path.exists(NOGATE):
+        ng = pd.read_parquet(NOGATE)
+        for c in ["Signal Date", "Entry Date", "Exit Date"]:
+            ng[c] = pd.to_datetime(ng[c])
+        key_of = lambda d: (d["Strategy"].astype(str) + "|" + d["Tier"].astype(str)
+                            + "|" + d["Ticker"].astype(str) + "|"
+                            + pd.to_datetime(d["Signal Date"]).dt.strftime("%Y-%m-%d"))
+        blocked = ng[~key_of(ng).isin(set(key_of(main)))].copy()
+        if not blocked.empty:
+            blocked["_key"] = key_of(blocked)
+            frames["gate"] = blocked
+
+    lo = min(pd.to_datetime(f["Entry Date"]).min() for f in frames.values())
+    hi = max(max(pd.to_datetime(f["Exit Date"]).max() for f in frames.values()),
+             pd.Timestamp.today())
+    all_dates = pd.date_range(start=lo, end=hi, freq="B")
+    date_to_i = {d: i for i, d in enumerate(all_dates)}
+
+    tickers = set()
+    for f in frames.values():
+        tickers.update(f["Ticker"].astype(str))
+    price_cache = {}
+    for ticker in tickers:
+        t_df = md.get(ticker.replace(".", "-"))
+        if t_df is None or t_df.empty:
+            continue
+        tmp = t_df.copy()
+        if isinstance(tmp.columns, pd.MultiIndex):
+            tmp.columns = [c[0] if isinstance(c, tuple) else c for c in tmp.columns]
+        tmp.columns = [str(c).capitalize() for c in tmp.columns]
+        price_cache[ticker] = tmp["Close"].reindex(all_dates, method="ffill").values
+
+    def vectors(f):
+        starts, vecs = [], []
+        tk = f["Ticker"].astype(str).values
+        act = (f["Action"].astype(str).values if "Action" in f.columns
+               else np.where(f["Direction"].values == "Short", "SELL SHORT", "BUY"))
+        sh = pd.to_numeric(f["Shares_flat"], errors="coerce").fillna(0.0).values
+        en = pd.to_datetime(f["Entry Date"]).values
+        ex = pd.to_datetime(f["Exit Date"]).values
+        ep = pd.to_numeric(f["Entry Price"], errors="coerce").values
+        pnl = pd.to_numeric(f["PnL_flat_750k"], errors="coerce").fillna(0.0).values
+        for i in range(len(f)):
+            e0 = pd.Timestamp(en[i]) if not pd.isna(en[i]) else None
+            e1 = pd.Timestamp(ex[i]) if not pd.isna(ex[i]) else None
+            sgn = -1.0 if "SHORT" in act[i].upper() else 1.0
+            closes = price_cache.get(tk[i])
+            if e0 is None or e1 is None or closes is None:
+                # no calendar span or no prices: whole PnL on the exit (or entry) day
+                d = e1 if e1 is not None else e0
+                j = date_to_i.get(pd.Timestamp(d).normalize())
+                if j is None:
+                    starts.append(None); vecs.append(None); continue
+                starts.append(j); vecs.append([round(float(pnl[i]), 2)])
+                continue
+            i0 = int(np.searchsorted(all_dates.values, np.datetime64(e0)))
+            i1 = int(np.searchsorted(all_dates.values, np.datetime64(e1), side="right")) - 1
+            if i1 < i0:
+                i0 = i1 = max(i0, 0)
+            marks = closes[i0:i1 + 1]
+            v = np.zeros(i1 - i0 + 1)
+            if len(marks) and not np.isnan(marks[0]):
+                v[0] = sgn * (marks[0] - ep[i]) * sh[i]
+            if len(marks) > 1:
+                d = np.diff(marks)
+                d = np.where(np.isnan(d), 0.0, d)
+                v[1:] = sgn * d * sh[i]
+            # reconcile last mark to the booked PnL (gap-aware fills, slippage)
+            v[-1] += float(pnl[i]) - v.sum()
+            starts.append(i0)
+            vecs.append([round(float(x), 2) for x in v])
+        return starts, vecs
+
+    out = {"dates": [d.strftime("%Y-%m-%d") for d in all_dates], "basis": "flat_750k"}
+    s, v = vectors(main)
+    keep = [i for i in range(len(main)) if v[i] is not None]
+    out["main"] = {"trade_id": [int(main["trade_id"].iloc[i]) for i in keep],
+                   "start": [s[i] for i in keep], "pnl": [v[i] for i in keep]}
+    if "ext" in frames:
+        f = frames["ext"]
+        s, v = vectors(f)
+        keep = [i for i in range(len(f)) if v[i] is not None]
+        out["ext"] = {"trade_id": [int(f["trade_id"].iloc[i]) for i in keep],
+                      "start": [s[i] for i in keep], "pnl": [v[i] for i in keep]}
+    if "gate" in frames:
+        f = frames["gate"]
+        s, v = vectors(f)
+        keep = [i for i in range(len(f)) if v[i] is not None]
+        out["gate"] = {"key": [f["_key"].iloc[i] for i in keep],
+                       "start": [s[i] for i in keep], "pnl": [v[i] for i in keep]}
+    n_marks = sum(len(x) for x in out["main"]["pnl"])
+    print(f"  trade_mtm: {len(out['main']['trade_id'])} trades / {n_marks} marks"
+          f"{' + ext ' + str(len(out.get('ext', {}).get('trade_id', []))) if 'ext' in out else ''}"
+          f"{' + gate ' + str(len(out.get('gate', {}).get('key', []))) if 'gate' in out else ''}")
+    return out
+
+
 def build_sizer():
     """ticker -> last close + Wilder ATR(14) for the Seasonal tab's manual
     trade sizer / execution-ticket prefill. ADJUSTED basis (master_prices):
@@ -1604,13 +1720,15 @@ def main():
              "correlation": False, "charts": False, "ideas": False, "signals": False,
              "risk": False, "strat_notes": True, "fragility": False,
              "stopfills": False, "drawdowns": False, "sector_risk": False,
-             "gate_lab": False, "ext_lab": False, "sizer": False, "health": False,
+             "gate_lab": False, "ext_lab": False, "trade_mtm": False,
+             "sizer": False, "health": False,
              "iv_context": False, "strategy_stats": False, "earnings_next": False}
     if args.no_mtm:
         # dev iteration: keep flags true for payloads already present in dist
         for k, fn in [("strategy_daily", "strategy_daily.json"), ("positions", "positions.json"),
                       ("exposure", "exposure.json"), ("correlation", "correlation.json"),
-                      ("charts", "charts.json"), ("drawdowns", "drawdowns.json")]:
+                      ("charts", "charts.json"), ("drawdowns", "drawdowns.json"),
+                      ("trade_mtm", "trade_mtm.json")]:
             flags[k] = os.path.exists(os.path.join(data_dir, fn))
 
     def best_effort(flag, fn, *fn_args, **fn_kwargs):
@@ -1655,6 +1773,7 @@ def main():
             flags["charts"] = True
 
         best_effort("drawdowns", build_drawdowns, df, sd, load_sector_map())
+        best_effort("trade_mtm", build_trade_mtm, df, md)
 
     # ledger-only payloads (no price map needed) — all best effort
     best_effort("stopfills", build_stopfills, df)

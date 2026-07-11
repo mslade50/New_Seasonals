@@ -766,10 +766,18 @@ Cloudflare Pages project `seasonals-mslade`, locked behind Cloudflare Access
   effort). Full backfill: `python scripts/build_signal_charts.py --all --upload`.
 - **Sizing-basis rule**: client-side filtering recomputes everything on the
   flat $750k basis because per-trade dollars are additive. Strategy/tier/date
-  filters get exact daily MTM curves (sum of per-strategy series);
-  direction/ticker filters fall back to realized-PnL-at-exit step curves and
-  the UI shows a badge. The compounded curve is shipped read-only — it cannot
-  be decomposed per-filter (sizing depended on whole-book equity).
+  filters get exact daily MTM curves (sum of per-strategy series); every
+  OTHER selection (direction/ticker filters, gate + extension toggles,
+  fragility multipliers) sums per-trade daily MTM vectors from
+  `trade_mtm.json` (built by `build_trade_mtm` — ~21k marks book-wide,
+  ~300 KB; mirrors `get_daily_mtm_series` conventions, each vector
+  reconciles to the trade's booked PnL; includes vectors for gate-blocked
+  rows keyed `Strategy|Tier|Ticker|SignalDate` and ext-rebooked rows by
+  trade_id), so Sharpe/CAGR/vol stay on one basis everywhere. The
+  realized-at-exit step curve survives only as a last-resort fallback when
+  the payload is absent (old builds); the UI badges it. The compounded curve
+  is shipped read-only — it cannot be decomposed per-filter (sizing depended
+  on whole-book equity).
 - **Local dev**: `python scripts/build_site.py --no-signals` then
   `python -m http.server 8123 --directory dist`. `--no-mtm` skips the slow
   payloads when iterating on frontend only.
