@@ -2955,31 +2955,33 @@ def main():
                 "Per-signal-date, per-strategy cap on total risk, in bps of "
                 "MTM equity. Each strategy independently constrained — OVS, "
                 "OLV, 52wh, etc. each get their own bucket. Default 250 bps "
-                "mirrors order_staging.MAX_DAILY_RISK_PCT (2.5%) but scoped "
-                "per strategy rather than pooled. Set to 0 to disable."
+                "mirrors order_staging.PER_STRAT_DAILY_CAP_BPS (aligned "
+                "2026-07-10). Set to 0 to disable."
             ),
         )
         max_long_risk_bps_input = st.number_input(
             "Pooled long daily risk cap (bps, 0 = off)",
             min_value=0, max_value=2000,
-            value=0, step=25,
+            value=500, step=25,
             help=(
                 "Caps TOTAL long-side STAGED risk across ALL strategies "
                 "per signal date, in bps of MTM equity. Mirrors live: "
                 "scale is computed from staged (pre-fill) risk so unfilled "
                 "limits consume their share of the budget. Stacks on top "
-                "of the per-strategy backstop. Set to 0 to disable. "
-                "Example: 400 = combined long staged risk ≤ 4% of equity / day."
+                "of the per-strategy backstop. Default 500 mirrors "
+                "order_staging.MAX_DAILY_RISK_PCT_LONG (5%) — prod since "
+                "2026-07-10 (ledger + portfolio report pass the same). "
+                "Set to 0 to disable."
             ),
         )
         max_short_risk_bps_input = st.number_input(
             "Pooled short daily risk cap (bps, 0 = off)",
             min_value=0, max_value=2000,
-            value=0, step=25,
+            value=250, step=25,
             help=(
                 "Same as the long pooled cap, but for short-side staged risk. "
-                "Set to 0 to disable. Example: 300 = combined short staged "
-                "risk ≤ 3% of equity / day."
+                "Default 250 mirrors order_staging.MAX_DAILY_RISK_PCT_SHORT "
+                "(2.5%) — prod since 2026-07-10. Set to 0 to disable."
             ),
         )
         st.markdown("**🪜 Portfolio Net-Exposure Caps**")

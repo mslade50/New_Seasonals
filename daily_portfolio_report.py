@@ -304,12 +304,17 @@ def run_12month_backtest(starting_equity=None):
     # path-1 (40 bps decisive 0.25 ATR gap), path-2 (8 bps mild gap, 1%
     # aggregate cap pro-rata), skip (no gap). Same scheme for liquid and
     # overflow universes. Earnings blackout (±10 TD) drops candidates inside
-    # the window. cap_bps=250 mirrors strat_backtester's per-strategy daily
-    # cap — same as order_staging.MAX_DAILY_RISK_PCT.
+    # the window. cap_bps=250 mirrors order_staging.PER_STRAT_DAILY_CAP_BPS
+    # (aligned 2026-07-10; live was 200 vs the modeled 250 before that).
+    # max_long/short_risk_bps model order_staging's pooled direction caps
+    # (MAX_DAILY_RISK_PCT_LONG 5% / _SHORT 2.5%) — change all sites together
+    # (build_trade_ledger.py passes the same values).
     sig_df = process_signals_fast(
         candidates, signal_data, processed_dict, full_book, starting_equity,
         cap_bps=250,
         overflow_active=True,
+        max_long_risk_bps=500,
+        max_short_risk_bps=250,
     )
     
     if sig_df.empty:

@@ -215,6 +215,35 @@ mult -> 2d earnings size override (flat REPLACE, itself GRM-scaled: OLV signals
 -10..0 TD from earnings get 10 bps nominal / 15 effective) -> shares -> 5c
 same-day signal de-rate (post-pass; 3x Bear fade — see its section below).
 
+## Daily Risk Caps (aligned 2026-07-10)
+
+Two stacked pro-rata caps on STAGED (pre-fill) risk, applied after all
+per-signal sizing. All values are EFFECTIVE (not GRM-scaled):
+- **Per-strategy: 250 bps/day.** Each strategy's staged risk per signal date
+  independently capped; rows scale by cap/total. Live:
+  `order_staging.PER_STRAT_DAILY_CAP_BPS` (was 200 from inception —
+  raised to 250 on 2026-07-10 to close a silent live-vs-ledger divergence:
+  the engine always modeled 250, so live trimmed 200-250 bps days up to
+  20% while the ledger booked full size; the drift came from the engine
+  default being anchored to the POOLED 2.5% cap, not the per-strategy
+  one). Engine: `process_signals_fast(cap_bps=...)`, default 250.
+  `PER_STRAT_DAILY_CAP_DOLLARS` in order_staging holds per-strategy dollar
+  overrides (currently empty).
+- **Pooled per-direction: long 500 bps, short 250 bps/day.** Total staged
+  risk across ALL strategies per side, per signal date. Live:
+  `order_staging.MAX_DAILY_RISK_PCT_LONG` (5.0) / `_SHORT` (2.5), applied
+  post-open after the per-strategy cap. Engine: `max_long_risk_bps` /
+  `max_short_risk_bps` — passed by `scripts/build_trade_ledger.py`
+  (POOLED_LONG/SHORT_CAP_BPS) and `daily_portfolio_report.py` since
+  2026-07-10 (before that the ledger did NOT model the pooled caps, so
+  cross-strategy short cluster days ran optimistic vs live). The
+  strat_backtester UI defaults now mirror prod (250/500/250).
+
+Aligned sites — change together: `order_staging.py` (OneDrive) constants,
+`scripts/build_trade_ledger.py` POOLED_*_CAP_BPS, `daily_portfolio_report.py`
+call site, `pages/strat_backtester.py` UI defaults + `cap_bps` fallback (250)
+in `process_signals_fast`.
+
 ## Ladder Sizing (OLV, 2026-04-22)
 
 `execution['ladder_multipliers'] = [0.85, 1.00, 1.15]` (OLV only; OVS had it
@@ -404,10 +433,9 @@ regimes 2018-2026) — do not re-add.
 Sizing: 25 bps nominal (x GRM). Deliberately EXEMPT from frag_risk_bands and
 same_day_signal_derate — the edge lives on exactly the high-fragility
 multi-signal days those overlays would cut (Sept 2022, Apr 2025). Tail risk
-is bounded instead by the per-strategy daily cap: engine `cap_bps` default
-250 + an order_staging `PER_STRAT_DAILY_CAP_DOLLARS` override at 250 bps
-(the live book default is 200 bps — the override keeps live identical to the
-ledger; a 7-signal day at 37.5 eff = 262.5 bps trims ~5%). Validation
+is bounded instead by the per-strategy 250 bps daily cap (engine + live
+aligned book-wide 2026-07-10 — see "Daily Risk Caps"; a 7-signal day at
+37.5 eff = 262.5 bps trims ~5%). Validation
 (2026-07-10): 31 trades / 15 episodes 2011-2025, avgR +0.80, PF 2.82,
 episode-clustered t = 2.17, LOYO floor 1.55, drop-best-episode +9.4R @
 t = 1.79, bootstrap P(<=0) = 2.1%. Pilot conviction — consider 40 bps only
@@ -419,8 +447,9 @@ Aligned sites — change together:
   through generic paths (perf filters, T1_Open_Filters stamp, 0.75 ATR
   limit parse, max_one_pos, per-strategy daily cap)
 - `order_staging.py` (OneDrive) — generic T1 gate enforces the gap at the
-  IBKR T+1 open; `PER_STRAT_DAILY_CAP_DOLLARS['3x Leader Gap Fade']` = 250
-  bps override
+  IBKR T+1 open; per-strategy cap via the book-wide 250 bps default (a
+  strategy-specific override existed for a few hours on 2026-07-10 and was
+  removed when the book default aligned at 250)
 - Guard: `tests/test_lev3x_leader_gap_fade.py`. Studies:
   `scratch/lev3x_fade_leader_*.py` (expansion, stops, entries, ovs_entry,
   class_split, bulleq_clusters, bulleq_strict, validation, capcheck,

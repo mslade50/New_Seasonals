@@ -67,6 +67,14 @@ DATA_START = datetime.date(2000, 1, 1)   # history for percentile/SMA warmup
 BT_START = datetime.date(2003, 1, 1)     # first eligible signal date
 DIFF_WINDOW_TD = 15                      # vintage-diff lookback (business days)
 
+# Pooled per-direction daily risk caps (bps of equity, staged basis) — model
+# order_staging's MAX_DAILY_RISK_PCT_LONG (5.0%) / _SHORT (2.5%) so the
+# ledger trims the same cross-strategy cluster days live does (added
+# 2026-07-10; before this the ledger only modeled the per-strategy 250).
+# Change together with order_staging.py.
+POOLED_LONG_CAP_BPS = 500
+POOLED_SHORT_CAP_BPS = 250
+
 
 def _provenance_meta(n_rows):
     """Build metadata embedded in the parquet schema. daily_scan prints this
@@ -233,6 +241,8 @@ def build_nogate_counterfactual(candidates, signal_data, processed, full_book,
     sig_ng = process_signals_fast(
         candidates, signal_data, processed, strip_sector_gate(full_book),
         starting_equity, cap_bps=250, overflow_active=True, flat_sizing=True,
+        max_long_risk_bps=POOLED_LONG_CAP_BPS,
+        max_short_risk_bps=POOLED_SHORT_CAP_BPS,
     )
     ng = shape_flat_trades(sig_ng)
     ng = ng[ng["Strategy"].isin(gated)].reset_index(drop=True)
@@ -305,12 +315,16 @@ def main(upload=False):
     sig_comp = process_signals_fast(
         candidates, signal_data, processed, full_book, starting_equity,
         cap_bps=250, overflow_active=True,
+        max_long_risk_bps=POOLED_LONG_CAP_BPS,
+        max_short_risk_bps=POOLED_SHORT_CAP_BPS,
     )
     print(f"    {len(sig_comp)} trades")
     print("  Processing trades [flat $750k sizing] ...")
     sig_flat = process_signals_fast(
         candidates, signal_data, processed, full_book, starting_equity,
         cap_bps=250, overflow_active=True, flat_sizing=True,
+        max_long_risk_bps=POOLED_LONG_CAP_BPS,
+        max_short_risk_bps=POOLED_SHORT_CAP_BPS,
     )
     print(f"    {len(sig_flat)} trades")
 
