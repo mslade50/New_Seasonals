@@ -148,9 +148,21 @@ try:
     # order path (IBKR share orders), yfinance continuous-contract bars are
     # roll-distorted, and their holiday-session bars break equity-calendar
     # assumptions downstream. 14 ledger trades / -1.4R over 18y at removal.
+    # Crypto pairs (-USD) excluded 2026-07-11 for the same reasons: no equity
+    # order path, and 7-day/week bars book weekend fills the live book can't
+    # take (ledger had BTC exits on a Sat/Sun). 19 ledger trades / -3.0R
+    # (OVS 15 / -6.8R, OLV 4 / +3.8R) at removal.
+    # Caret indices (^) excluded 2026-07-11 unless they carry a
+    # SPOT_TO_TRADEABLE alias (^GSPC/^NDX -> SPY/QQQ): the other 18 (foreign
+    # indices, ^RUT/^DJI/^IXIC, ^VIX, ^TNX-style yield levels) stage as raw
+    # index symbols no broker can fill, and foreign/yield series break the
+    # US-equity calendar assumptions. They reached the book only via the
+    # overflow tier (^GSPC/^NDX sit in LIQUID and are subtracted there).
+    # 25 ledger trades / -0.25R, all Overflow, at removal.
     CSV_UNIVERSE = sorted(
         t for t in _pd.read_csv(_csv_path)['ticker'].unique().tolist()
-        if not str(t).endswith('=F')
+        if not str(t).endswith('=F') and not str(t).endswith('-USD')
+        and (not str(t).startswith('^') or t in SPOT_TO_TRADEABLE)
     )
 except Exception:
     CSV_UNIVERSE = LIQUID_UNIVERSE  # fallback
