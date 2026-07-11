@@ -321,20 +321,21 @@ leave-one-year-out stable, damage concentrated in P1 decisive-gap entries
 0.75x, not the full-conviction 0.4x. Validated by LOYO, NOT by re-running
 the backtest with the rule on (in-sample rules flatter themselves).
 
-Four aligned sites -- change together:
+Three aligned sites -- change together:
 - `strategy_config.py` OVS execution `cycle_risk_mults: {2: 0.75}` (source of truth)
 - `pages/strat_backtester.py` sizing step 3b2 (generic: any strategy with the field)
 - `daily_scan.py` sizing step 2c2 (stamps the mult into Sizing notes)
-- `order_staging.py` `OVS_CYCLE_MULTS` -- needed because the live OVS P1
-  resize to a FIXED dollar target (OVS_PATH1_RISK_DOLLARS) clobbers the
-  scanner's Risk_Amt, so the tilt must be applied to the target itself.
+(order_staging needs nothing since 2026-06-11: the OVS P1 fixed-dollar
+target and its `OVS_CYCLE_MULTS` were removed -- P1 takes the scanner's
+staged size as-is, so the tilt flows through like every other overlay.)
 
-NOTE a live-vs-backtest divergence found during this work: order_staging
-RETIRED the OVS mild-gap Path 2 (P1-only, fixed $3,000 target; mild gaps
-dropped), while the backtest/ledger still models the 2-path scheme
-(P2 = 407 trades, +0.20 avgR, +82R/24y). Engine has `ovs_p1_only` parameter
-if the ledger should be aligned to live instead. Unresolved -- decide
-whether to re-enable P2 live or flip the backtest to P1-only.
+The live-vs-backtest divergence found during this work (P1-only live with a
+fixed $3,000 target, mild gaps dropped) was RESOLVED 2026-06-11:
+order_staging trades both paths again, P1 at scanner qty x1.0 and P2 at
+scanner qty x (Path2_Bps / Path1_Bps) from the row stamps plus the P2
+aggregate daily cap, matching the 2-path scheme the ledger models
+(P2 = 407 trades, +0.20 avgR, +82R/24y). The engine's `ovs_p1_only`
+parameter remains for counterfactuals.
 
 ## Fragility Risk Bands (2026-07-02)
 
@@ -743,7 +744,14 @@ Cloudflare Pages project `seasonals-mslade`, locked behind Cloudflare Access
   `data/backtest_trades_nogate.parquet` — a no-gate engine pass
   `build_trade_ledger.py` writes alongside the ledger; drives the portfolio
   page's gate-history section and its "All trades (+gate-blocked)" filter
-  toggle, which also forces the realized-at-exit basis while on).
+  toggle, which also forces the realized-at-exit basis while on) /
+  `ext_lab.json` (OVS hold-extension counterfactual — what-if lab, NOT a live
+  rule: losing T+2 time exits rebooked to T+5 with the 2-ATR target live, a
+  post-pass `build_trade_ledger.py` writes to
+  `data/backtest_trades_ovsext.parquet`; drives the portfolio page's
+  hold-extension section and its "OVS losers to T+5" filter toggle, which
+  swaps the rebooked exits in by trade_id and forces the realized-at-exit
+  basis while on. Evidence: scratch/ovs_hold_extension_*.py).
 - **Trade charts** (the `charts.html` gallery): `scripts/build_signal_charts.py`
   renders a candlestick per trade (126 td before signal -> trade -> 63 td after
   exit; white/black candles, green/red volume, Signal/Entry/Exit verticals,

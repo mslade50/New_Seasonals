@@ -61,6 +61,7 @@ from daily_portfolio_report import (
 
 OUT_PARQUET = os.path.join(_ROOT, "data", "backtest_trades_full.parquet")
 OUT_NOGATE = os.path.join(_ROOT, "data", "backtest_trades_nogate.parquet")
+OUT_OVSEXT = os.path.join(_ROOT, "data", "backtest_trades_ovsext.parquet")
 OUT_DAILY = os.path.join(_ROOT, "data", "backtest_daily_pnl.parquet")
 OUT_SUMMARY = os.path.join(_HERE, "trade_ledger_summary.csv")
 DATA_START = datetime.date(2000, 1, 1)   # history for percentile/SMA warmup
@@ -250,6 +251,83 @@ def build_nogate_counterfactual(candidates, signal_data, processed, full_book,
     print(f"    {len(ng)} nogate trades ({'/'.join(gated)}) -> {OUT_NOGATE}")
 
 
+def _norm_ohlc(frame, ticker):
+    """Normalize a price frame to capitalized single-level OHLC columns
+    (yfinance MultiIndex rule — see CLAUDE.md)."""
+    f = frame
+    if isinstance(f.columns, pd.MultiIndex):
+        try:
+            f = f.xs(ticker, level="Ticker", axis=1)
+        except Exception:
+            f = f.copy()
+            f.columns = f.columns.get_level_values(0)
+    f = f.copy()
+    f.columns = [str(c).capitalize() for c in f.columns]
+    return f
+
+
+def build_ovsext_counterfactual(df, md):
+    """OVS hold-extension counterfactual (what-if lab, 2026-07-11): a trade
+    still LOSING at its T+2 time exit holds 3 more sessions (to T+5) with the
+    2-ATR target live; exit at target if touched, else the T+5 close. Pure
+    post-pass on the finished ledger — no engine rerun. Exact for OVS because
+    nothing downstream keys off its exits (max_one_pos=False, no ladder, no
+    sector gate, caps are staged-risk based). Writes ONLY the rebooked rows to
+    OUT_OVSEXT; build_site.py diffs them against the main ledger (ext_lab.json)
+    and the site swaps them in behind a toggle. NOT a live rule.
+    Study: scratch/ovs_hold_extension_*.py (evidence + Sharpe/DD tradeoff)."""
+    strat_name = "Overbot Vol Spike"
+    extra_days = 3
+    mask = (
+        (df["Strategy"] == strat_name)
+        & (df["Exit Type"] == "Time")
+        & (df["R_Multiple"] < 0)
+        & df["Exit Date"].notna()
+    )
+    if not mask.any():
+        print("  No losing OVS time exits — skipping ovsext pass.")
+        return
+    rows = []
+    n_censored = 0
+    for idx, row in df[mask].iterrows():
+        frame = md.get(row["Ticker"])
+        if frame is None or frame.empty:
+            n_censored += 1
+            continue
+        f = _norm_ohlc(frame, row["Ticker"])
+        if row["Exit Date"] not in f.index:
+            n_censored += 1
+            continue
+        pos = f.index.get_loc(row["Exit Date"])
+        ext = f.iloc[pos + 1 : pos + 1 + extra_days]
+        if len(ext) < extra_days:
+            n_censored += 1  # too recent to have a full T+5 window
+            continue
+        tgt = row["Entry Price"] - row["tgt_atr"] * row["ATR"]
+        new_date, new_price, new_type = ext.index[-1], ext["Close"].iloc[-1], "Time5"
+        for d, day in ext.iterrows():
+            if day["Low"] <= tgt:
+                new_date, new_price, new_type = d, tgt, "Target"
+                break
+        delta_r = (row["Exit Price"] - new_price) / row["ATR"]  # OVS is short
+        new = row.copy()
+        new["Exit Date"] = new_date
+        new["Exit Price"] = new_price
+        new["Exit Type"] = new_type
+        new["R_Multiple"] = row["R_Multiple"] + delta_r
+        new["Return_Pct"] = (row["Entry Price"] - new_price) / row["Entry Price"] * 100.0
+        new["PnL_flat_750k"] = row["PnL_flat_750k"] + delta_r * row["Risk_flat_750k"]
+        new["PnL_compounded"] = row["PnL_compounded"] + delta_r * row["Risk_compounded"]
+        rows.append(new)
+    if not rows:
+        print("  ovsext pass: nothing rebookable — skipping.")
+        return
+    out = pd.DataFrame(rows)
+    _write_ledger_with_meta(out, OUT_OVSEXT, _provenance_meta(len(out)))
+    print(f"  ovsext pass: {len(out)} losing T+2 exits rebooked to T+5 "
+          f"({n_censored} censored) -> {OUT_OVSEXT}")
+
+
 def load_data(tickers):
     if data_provider.has_master():
         print(f"  Loading {len(tickers)} tickers from master_prices.parquet ...")
@@ -428,6 +506,12 @@ def main(upload=False):
 
     _write_ledger_with_meta(df, OUT_PARQUET, _provenance_meta(len(df)))
     print(f"\n  Wrote {len(df)} trades -> {OUT_PARQUET}")
+
+    # --- OVS hold-extension counterfactual (best effort, never fails the build) ---
+    try:
+        build_ovsext_counterfactual(df, md)
+    except Exception as e:
+        print(f"  (ovsext counterfactual skipped: {e})")
 
     # Mirror the ledger to R2 so daily_scan's sector_loss_gate (which reads
     # recent closed trades at scan time) sees exits through yesterday in the

@@ -35,6 +35,9 @@ const S = {
   gateLab: null,          // gate_lab.json (sector-gate counterfactual)
   gateBlockedRows: [],    // blocked trades as trade-log-shaped rows (GateBlocked=true)
   showBlocked: false,     // merge gate-blocked trades into the filtered analytics
+  extLab: null,           // ext_lab.json (OVS hold-extension counterfactual)
+  extById: new Map(),     // trade_id -> rebooked row (OvsExt=true)
+  showOvsExt: false,      // swap rebooked OVS exits into the filtered analytics
   // fragility sizing adjuster (off by default = today's exact-curve behavior).
   // step:  mult = boost below thr, floor at/above thr.
   // ramp:  live-style — boost at 0 -> 1.0 at thr, then linear down to floor at 100
@@ -132,7 +135,7 @@ async function init() {
       fetchJSON("data/meta.json"), fetchJSON("data/trades.json")]);
     S.meta = meta;
     S.trades = rowsFromColumnar(trades);
-    const [sd, pos, exp, corr, frag, sf, dda, sr, gl] = await Promise.all([
+    const [sd, pos, exp, corr, frag, sf, dda, sr, gl, xl] = await Promise.all([
       meta.payloads.strategy_daily ? fetchJSONOrNull("data/strategy_daily.json") : null,
       meta.payloads.positions ? fetchJSONOrNull("data/positions.json") : null,
       meta.payloads.exposure ? fetchJSONOrNull("data/exposure.json") : null,
@@ -142,9 +145,10 @@ async function init() {
       meta.payloads.drawdowns ? fetchJSONOrNull("data/drawdowns.json") : null,
       meta.payloads.sector_risk ? fetchJSONOrNull("data/sector_risk.json") : null,
       meta.payloads.gate_lab ? fetchJSONOrNull("data/gate_lab.json") : null,
+      meta.payloads.ext_lab ? fetchJSONOrNull("data/ext_lab.json") : null,
     ]);
     S.sd = sd; S.positions = pos; S.exposure = exp; S.corr = corr; S.fragility = frag;
-    S.stopfills = sf; S.drawdowns = dda; S.sectorRisk = sr; S.gateLab = gl;
+    S.stopfills = sf; S.drawdowns = dda; S.sectorRisk = sr; S.gateLab = gl; S.extLab = xl;
     if (sf && sf.trades) S.sfRows = rowsFromColumnar(sf.trades);
     if (gl && gl.strategies) {
       for (const st of gl.strategies) {
@@ -153,6 +157,12 @@ async function init() {
           r.GateBlocked = true;
           S.gateBlockedRows.push(r);
         }
+      }
+    }
+    if (xl && xl.modified_trades) {
+      for (const r of rowsFromColumnar(xl.modified_trades)) {
+        r.OvsExt = true;
+        S.extById.set(r.trade_id, r);
       }
     }
     if (sd) {
@@ -297,6 +307,23 @@ function buildFilterBar() {
     el.appendChild(gLbl);
   }
 
+  // OVS hold-extension counterfactual toggle (only when ext_lab.json shipped)
+  let extCb = null;
+  if (S.extById.size) {
+    const xLbl = document.createElement("label");
+    xLbl.style.cssText = "display:inline-flex;align-items:center;gap:5px;cursor:pointer";
+    xLbl.title = "Counterfactual: OVS trades losing at the T+2 time exit hold to T+5 " +
+      "(2-ATR target stays live). Swaps the rebooked exits into every filtered metric. " +
+      "Equity curve drops to the realized-at-exit basis while on. Off = the book as traded.";
+    extCb = document.createElement("input");
+    extCb.type = "checkbox";
+    extCb.addEventListener("change", () => { S.showOvsExt = extCb.checked; apply(); });
+    xLbl.appendChild(extCb);
+    xLbl.appendChild(document.createTextNode(
+      ` OVS losers to T+5 (${S.extById.size} rebooked)`));
+    el.appendChild(xLbl);
+  }
+
   // reset
   const rb = document.createElement("button");
   rb.className = "btn ghost"; rb.textContent = "Reset";
@@ -305,6 +332,8 @@ function buildFilterBar() {
     S.rangeTouched = false;
     S.showBlocked = false;
     if (gateCb) gateCb.checked = false;
+    S.showOvsExt = false;
+    if (extCb) extCb.checked = false;
     boxes.forEach(b => b.checked = true); syncStratBtn();
     fromInp.value = ""; toInp.value = ""; tInp.value = "";
     el.querySelectorAll(".seg").forEach(seg => {
@@ -583,8 +612,11 @@ function tickerTokens() {
 function filteredTrades(ignoreDates) {
   const toks = tickerTokens();
   const { strategies, tier, dir, from, to } = S.f;
-  const src = S.showBlocked && S.gateBlockedRows.length
+  let src = S.showBlocked && S.gateBlockedRows.length
     ? S.trades.concat(S.gateBlockedRows) : S.trades;
+  if (S.showOvsExt && S.extById.size) {
+    src = src.map(t => S.extById.get(t.trade_id) || t);
+  }
   return src.filter(t => {
     if (!strategies.has(t.Strategy)) return false;
     if (tier !== "All" && t.Tier !== tier) return false;
@@ -600,10 +632,11 @@ function filteredTrades(ignoreDates) {
 }
 
 function curveExact() {
-  // per-trade fragility multipliers and gate-blocked counterfactual rows
-  // can't be applied to the per-strategy aggregated daily series -> fall
-  // back to the realized step curve
-  return S.sd && S.f.dir === "All" && !tickerTokens() && !fragActive() && !S.showBlocked;
+  // per-trade fragility multipliers, gate-blocked counterfactual rows, and
+  // rebooked OVS-extension exits can't be applied to the per-strategy
+  // aggregated daily series -> fall back to the realized step curve
+  return S.sd && S.f.dir === "All" && !tickerTokens() && !fragActive()
+    && !S.showBlocked && !S.showOvsExt;
 }
 
 /* daily pnl array (risk multipliers + leverage applied) for current filters */
@@ -1120,9 +1153,11 @@ function renderTradeLog(tr) {
     { key: "Strategy", label: "Strategy", align: "l" },
     { key: "Tier", label: "Tier", align: "l" },
     { key: "Ticker", label: "Ticker", align: "l",
-      fmt: (v, r) => r.GateBlocked
-        ? `${v || ""} <span class="badge warn" title="Sector-loss gate blocked this signal live — outcome is counterfactual">GATE</span>`
-        : (v || "") },
+      fmt: (v, r) => {
+        if (r.GateBlocked) return `${v || ""} <span class="badge warn" title="Sector-loss gate blocked this signal live — outcome is counterfactual">GATE</span>`;
+        if (r.OvsExt) return `${v || ""} <span class="badge warn" title="Losing T+2 exit rebooked to T+5 — outcome is counterfactual">T+5</span>`;
+        return v || "";
+      } },
     { key: "Direction", label: "Dir", align: "l",
       fmt: v => `<span class="badge ${v === "Short" ? "dirS" : "dirL"}">${v || ""}</span>` },
     { key: "Entry_Price", label: "Entry $", fmt: v => fmt.num(v, 2) },
@@ -1304,6 +1339,7 @@ function renderStatic() {
   renderDrawdownAnatomy();
   renderSectorRisk();
   renderGateLab();
+  renderExtLab();
 }
 
 /* ---------- sector-gate history: with vs without (gate_lab.json) ---------- */
@@ -1389,6 +1425,76 @@ function renderGateLab() {
   document.getElementById("glCaption").textContent =
     (gl.note ? gl.note + " " : "") +
     "The trade log's 'All trades' filter toggle merges these same blocked rows into every " +
+    "filtered metric above. " +
+    (prov.build_utc ? `Counterfactual vintage: built ${prov.build_utc} (${prov.source || "?"}).` : "");
+}
+
+/* ---------- OVS hold-extension lab: with vs without (ext_lab.json) ---------- */
+function renderExtLab() {
+  const section = document.getElementById("xlSection");
+  const xl = S.extLab;
+  if (!xl || !xl.curve || !S.extById.size) {
+    section.innerHTML = '<p class="cap">No hold-extension counterfactual payload in this build ' +
+      "(the ledger build writes data/backtest_trades_ovsext.parquet; rerun it to populate).</p>";
+    return;
+  }
+
+  // KPIs — impact = extended − baseline: positive means holding losers to
+  // T+5 would have ADDED that much (opposite sign convention to the gate,
+  // where the counterfactual is the rule turned OFF).
+  const s = xl.summary || {};
+  const base = s.baseline || {}, extd = s.extended || {};
+  const mb = s.modified_before || {}, ma = s.modified_after || {};
+  const impR = (extd.tot_r != null && base.tot_r != null) ? extd.tot_r - base.tot_r : null;
+  const imp$ = (extd.pnl_flat != null && base.pnl_flat != null) ? extd.pnl_flat - base.pnl_flat : null;
+  document.getElementById("xlKpis").innerHTML = [
+    kpiCard("Rebooked trades", mb.n ?? 0, null,
+            `losing T+2 time exits · ${xl.n_hit_target ?? 0} hit target by T+5`),
+    kpiCard("Rebooked R", mb.tot_r == null || ma.tot_r == null ? "-"
+            : `${fmt.signed(mb.tot_r, 1)} → ${fmt.signed(ma.tot_r, 1)}`, clsSign(ma.tot_r),
+            ma.win_pct == null ? "" : `win ${fmt.pctRaw(mb.win_pct, 0)} → ${fmt.pctRaw(ma.win_pct, 0)}`),
+    kpiCard("Extension impact (R)", impR == null ? "-" : fmt.signed(impR, 1), clsSign(impR),
+            "extended − baseline; + = holding helped"),
+    kpiCard("Extension impact ($)", imp$ == null ? "-" : fmt.money(imp$), clsSign(imp$),
+            "flat $750k, realized"),
+  ].join("");
+
+  // cumulative realized PnL, current exit (solid) vs extended (dashed)
+  const c = xl.curve;
+  const curveEl = document.getElementById("xlCurve");
+  if (c.dates && c.dates.length) {
+    const cum = arr => { let t = 0; return arr.map(v => +(t += v).toFixed(0)); };
+    Plotly.react(curveEl, [
+      { x: c.dates, y: cum(c.base_pnl), mode: "lines", name: `${xl.strategy} — current exit`,
+        line: { color: PALETTE[0], width: 1.6 } },
+      { x: c.dates, y: cum(c.ext_pnl), mode: "lines", name: `${xl.strategy} — losers to T+5`,
+        line: { color: "#ffc14d", width: 1.3, dash: "dot" } },
+    ], plotLayout({ height: 340, yaxis: { tickformat: "$,.3~s" } }), PLOT_CFG);
+  } else {
+    curveEl.innerHTML = '<p class="cap">No curve data in this payload.</p>';
+  }
+
+  // rebooked-trade table (would-have-been T+5 outcomes)
+  makeTable(document.getElementById("xlTable"), {
+    columns: [
+      { key: "Signal_Date", label: "Signal", align: "l" },
+      { key: "Ticker", label: "Ticker", align: "l" },
+      { key: "Tier", label: "Tier", align: "l" },
+      { key: "Entry_Date", label: "Entry", align: "l" },
+      { key: "Exit_Date", label: "New Exit", align: "l" },
+      { key: "R", label: "R @T+5", fmt: v => v == null ? "" : fmt.signed(v, 2), cls: clsSign },
+      { key: "PnL_flat", label: "PnL ($)", fmt: v => fmt.money(v), cls: clsSign },
+      { key: "Exit_Type", label: "Exit Type", align: "l" },
+    ],
+    rows: [...S.extById.values()],
+    pageSize: 25, csvName: "ovs_ext_rebooked_trades.csv",
+    defaultSort: { key: "Signal_Date", dir: -1 },
+  });
+
+  const prov = (xl.provenance || {}).ovsext || {};
+  document.getElementById("xlCaption").textContent =
+    (xl.rule ? "Rule: " + xl.rule + " " : "") + (xl.note ? xl.note + " " : "") +
+    "The filter bar's 'OVS losers to T+5' toggle swaps these same rebooked exits into every " +
     "filtered metric above. " +
     (prov.build_utc ? `Counterfactual vintage: built ${prov.build_utc} (${prov.source || "?"}).` : "");
 }

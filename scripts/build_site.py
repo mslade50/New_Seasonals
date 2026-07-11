@@ -30,6 +30,10 @@ Outputs (dist/):
                                    realized curves per gated strategy (needs
                                    data/backtest_trades_nogate.parquet from build_trade_ledger;
                                    best effort)
+  - dist/data/ext_lab.json         OVS hold-extension counterfactual: losing T+2 exits rebooked
+                                   to T+5 + with/without realized curves (needs
+                                   data/backtest_trades_ovsext.parquet from build_trade_ledger;
+                                   best effort)
 
 Sizing bases:
   Client-side recompute uses the FLAT $750k basis (PnL_flat_750k): per-trade
@@ -68,6 +72,7 @@ from signal_chart_common import chart_relpath, trade_geometry, lookup_prices
 
 LEDGER = os.path.join(_ROOT, "data", "backtest_trades_full.parquet")
 NOGATE = os.path.join(_ROOT, "data", "backtest_trades_nogate.parquet")
+OVSEXT = os.path.join(_ROOT, "data", "backtest_trades_ovsext.parquet")
 DAILY = os.path.join(_ROOT, "data", "backtest_daily_pnl.parquet")
 FRAGILITY = os.path.join(_ROOT, "data", "rd2_fragility.parquet")
 IDEAS = os.path.join(_ROOT, "data", "daily_seasonal_ideas.json")
@@ -1081,6 +1086,96 @@ def build_gate_lab(df):
     }
 
 
+def build_ext_lab(df):
+    """OVS hold-extension counterfactual (what-if lab): swap-in exits from
+    data/backtest_trades_ovsext.parquet (written by build_trade_ledger.py —
+    losing T+2 time exits rebooked to T+5, target live). Ships the modified
+    rows keyed by trade_id so the portfolio page can swap them into the
+    filtered analytics behind a toggle (realized-at-exit basis while on,
+    same convention as the gate toggle), plus strategy-level with/without
+    realized curves and summary stats. NOT a live rule — a lab."""
+    if not os.path.exists(OVSEXT):
+        print("  ext_lab: no ovsext parquet (rebuild the ledger to produce it), skipping")
+        return None
+    ext = pd.read_parquet(OVSEXT)
+    for c in ["Signal Date", "Entry Date", "Exit Date", "Time Stop"]:
+        if c in ext.columns:
+            ext[c] = pd.to_datetime(ext[c])
+    en = ext["Entry Date"].values.astype("datetime64[D]")
+    ex = ext["Exit Date"].values.astype("datetime64[D]")
+    ok = ~(pd.isna(ext["Entry Date"]) | pd.isna(ext["Exit Date"]))
+    hold = np.full(len(ext), np.nan)
+    hold[ok.values] = np.busday_count(en[ok.values], ex[ok.values])
+    ext["Hold_Days"] = hold
+
+    strat_name = "Overbot Vol Spike"
+    base = df[df["Strategy"] == strat_name].copy()
+    if base.empty or ext.empty:
+        return None
+    ext_ids = set(ext["trade_id"].tolist())
+    # whole-strategy "with extension" view = base rows with modified swapped in
+    swapped = pd.concat(
+        [base[~base["trade_id"].isin(ext_ids)], ext], ignore_index=True)
+
+    asof = pd.to_datetime(df["Exit Date"]).max()
+
+    def summarize(d):
+        r = d["R_Multiple"].dropna()
+        return {
+            "n": int(len(d)),
+            "tot_r": _clean(round(float(r.sum()), 2)) if len(r) else 0.0,
+            "avg_r": _clean(round(float(r.mean()), 3)) if len(r) else None,
+            "win_pct": _clean(round(float((d["PnL_flat_750k"] > 0).mean()) * 100, 1)) if len(d) else None,
+            "pnl_flat": _clean(round(float(d["PnL_flat_750k"].sum()), 0)) if len(d) else 0.0,
+        }
+
+    def daily_map(d, col):
+        g = d.dropna(subset=["Exit Date"])
+        return g.groupby(pd.to_datetime(g["Exit Date"]).dt.strftime("%Y-%m-%d"))[col].sum()
+
+    pb, pv = daily_map(base, "PnL_flat_750k"), daily_map(swapped, "PnL_flat_750k")
+    rb, rv = daily_map(base, "R_Multiple"), daily_map(swapped, "R_Multiple")
+    dates = sorted(set(pb.index) | set(pv.index))
+    curve = {
+        "dates": dates,
+        "base_pnl": [round(float(pb.get(d, 0.0)), 2) for d in dates],
+        "ext_pnl": [round(float(pv.get(d, 0.0)), 2) for d in dates],
+        "base_r": [round(float(rb.get(d, 0.0)), 3) for d in dates],
+        "ext_r": [round(float(rv.get(d, 0.0)), 3) for d in dates],
+    }
+
+    base_mod = base[base["trade_id"].isin(ext_ids)]
+    hit_target = int((ext["Exit Type"] == "Target").sum())
+
+    prov_ext = {}
+    try:
+        import pyarrow.parquet as pq
+        meta = pq.read_schema(OVSEXT).metadata or {}
+        get = lambda k: (meta.get(k) or b"").decode() or None
+        prov_ext = {"build_utc": get(b"ledger_build_utc"), "source": get(b"ledger_source"),
+                    "git_sha": get(b"ledger_git_sha"), "rows": get(b"ledger_rows")}
+    except Exception:
+        pass
+
+    print(f"  ext_lab: {len(ext)} OVS losing T+2 exits rebooked to T+5 "
+          f"({hit_target} hit target during extension)")
+    return {
+        "basis": "flat_750k",
+        "asof": asof.strftime("%Y-%m-%d") if pd.notna(asof) else None,
+        "strategy": strat_name,
+        "rule": "Losing at the T+2 time exit -> hold to T+5, 2-ATR target stays live, no stop.",
+        "note": ("What-if lab, not a live rule. Post-pass rebooking on the main ledger "
+                 "(exact for OVS: no ladder/gate/position-cap interactions). Modified rows "
+                 "swap in by trade_id; realized-at-exit basis, flat $750k."),
+        "summary": {"baseline": summarize(base), "extended": summarize(swapped),
+                    "modified_before": summarize(base_mod), "modified_after": summarize(ext)},
+        "n_hit_target": hit_target,
+        "curve": curve,
+        "modified_trades": build_trades_json(ext.sort_values("Signal Date"), asof=asof),
+        "provenance": {"ledger": _ledger_provenance(), "ovsext": prov_ext},
+    }
+
+
 def build_sizer():
     """ticker -> last close + Wilder ATR(14) for the Seasonal tab's manual
     trade sizer / execution-ticket prefill. ADJUSTED basis (master_prices):
@@ -1509,7 +1604,7 @@ def main():
              "correlation": False, "charts": False, "ideas": False, "signals": False,
              "risk": False, "strat_notes": True, "fragility": False,
              "stopfills": False, "drawdowns": False, "sector_risk": False,
-             "gate_lab": False, "sizer": False, "health": False,
+             "gate_lab": False, "ext_lab": False, "sizer": False, "health": False,
              "iv_context": False, "strategy_stats": False, "earnings_next": False}
     if args.no_mtm:
         # dev iteration: keep flags true for payloads already present in dist
@@ -1565,6 +1660,7 @@ def main():
     best_effort("stopfills", build_stopfills, df)
     best_effort("sector_risk", build_sector_risk, df)
     best_effort("gate_lab", build_gate_lab, df)
+    best_effort("ext_lab", build_ext_lab, df)
     best_effort("sizer", build_sizer)
 
     # options-workbench payloads — all best effort
