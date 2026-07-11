@@ -674,8 +674,22 @@ function dailySeries(trades, ignoreDates) {
     if (!d || t.PnL_flat == null) continue;
     map.set(d, (map.get(d) || 0) + t.PnL_flat * tradeMult(t));
   }
-  const dates = [...map.keys()].sort();
-  return { dates, pnl: dates.map(d => map.get(d)), exact: false };
+  const exitDates = [...map.keys()].sort();
+  // Densify onto the trading calendar: day-count metrics (Sharpe, CAGR,
+  // vol, years) must see the flat days between exits, or a sparse subset
+  // (single strategy, counterfactual toggle) inflates them by the density
+  // ratio. Pad from the window start / to the window end when set, so the
+  // basis matches the exact path; never clip realized PnL (a trade entered
+  // in-window can exit past S.f.to).
+  if (S.dateIdx && S.dateIdx.length && exitDates.length) {
+    let lo = exitDates[0], hi = exitDates[exitDates.length - 1];
+    if (!ignoreDates && S.f.from && S.f.from < lo) lo = S.f.from;
+    if (!ignoreDates && S.f.to && S.f.to > hi) hi = S.f.to;
+    const cal = S.dateIdx.slice(lowerBound(S.dateIdx, lo), upperBound(S.dateIdx, hi));
+    const dates = [...new Set([...cal, ...exitDates])].sort();
+    return { dates, pnl: dates.map(d => map.get(d) || 0), exact: false };
+  }
+  return { dates: exitDates, pnl: exitDates.map(d => map.get(d)), exact: false };
 }
 
 function lowerBound(arr, x) {
