@@ -139,7 +139,7 @@ function shell() {
       </div>
       <div id="cmdFields" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:8px"></div>
       <div id="ticketReadout" style="font:12px inherit;margin:0 0 10px;min-height:16px"></div>
-      <button class="btn" id="cmdSend">Send order</button>
+      <button class="btn" id="cmdSend" data-mutation disabled>Send order</button>
       <span id="cmdMsg" class="cap" style="margin-left:10px"></span>
     </div>
 
@@ -198,22 +198,43 @@ function renderPanels() {
   if (!orderEdit.key) set("orders", renderOrders());
   set("closers", renderClosers());
   set("activity", renderActivity());
+  syncMutationControls();
 }
 function set(id, html) { const el = document.getElementById(id); if (el) el.innerHTML = html; }
 
 /* ---------- mode banner (live vs dry-run vs unknown) ---------- */
 const BOOK_STALE_MS = 90000;   // ~2 agent book-push cycles; older than this the reported mode is stale
-function bookFresh() {
-  return !!(state.book && state.book.at && (Date.now() - state.book.at) <= BOOK_STALE_MS);
+function bookFresh(book = state.book, now = Date.now()) {
+  return !!(book && book.at && (now - book.at) <= BOOK_STALE_MS);
 }
 // Tri-state: "live" | "dry-run" | "unknown". Dry-run is only believed when a FRESH book
 // explicitly reports it while the agent is online; a null/stale book or an offline agent
 // means UNKNOWN, which is treated as live everywhere (fail dangerous, never fail open).
-function execMode() {
-  if (state.book && state.book.mode === "live") return "live";
-  const online = !!(state.status && state.status.online);
-  if (online && bookFresh() && state.book.mode === "dry-run") return "dry-run";
+function deriveExecMode(book, status, now = Date.now()) {
+  if (book && book.mode === "live") return "live";
+  const online = !!(status && status.online);
+  if (online && bookFresh(book, now) && book.mode === "dry-run") return "dry-run";
   return "unknown";
+}
+function execMode() { return deriveExecMode(state.book, state.status); }
+const MUTATING_COMMANDS = new Set(["entry_bracket", "flatten", "cancel", "modify"]);
+function mutationBlocked(type) {
+  return execMode() === "unknown" && (!type || MUTATING_COMMANDS.has(type));
+}
+function syncMutationControls() {
+  const blocked = execMode() === "unknown";
+  document.querySelectorAll("[data-mutation]").forEach((control) => {
+    control.disabled = blocked;
+    control.setAttribute("aria-disabled", String(blocked));
+    if (blocked) control.title = "Disabled until the agent is online and a fresh book confirms execution mode";
+    else if (control.title && control.title.startsWith("Disabled until")) control.removeAttribute("title");
+  });
+}
+function rejectUnknownMutation(msgId) {
+  if (execMode() !== "unknown") return false;
+  const msg = msgId ? document.getElementById(msgId) : null;
+  if (msg) msg.textContent = "BLOCKED: execution mode unknown — reconnect the agent and wait for a fresh book";
+  return true;
 }
 function renderModeBanner() {
   const mode = execMode();
@@ -223,7 +244,8 @@ function renderModeBanner() {
   }
   if (mode === "unknown") {
     return `<div class="card" style="border-color:#a8852f;background:rgba(255,193,77,.10);padding:9px 14px;font:700 13px inherit;color:#ffc14d">
-      &#9888;&#65039; MODE UNKNOWN &mdash; assume LIVE. No fresh book confirms dry-run (book missing/stale or agent offline); treat every action as if it transmits to IBKR.</div>`;
+      &#9888;&#65039; MODE UNKNOWN &mdash; assume LIVE. No fresh book confirms dry-run (book missing/stale or agent offline).
+      Mutating controls are disabled until the agent is online and publishes a fresh book confirming execution mode.</div>`;
   }
   return `<div class="card" style="border-color:#2c8f63;background:rgba(61,219,143,.08);padding:9px 14px;font:700 13px inherit;color:#3ddb8f">
     &#9679; DRY-RUN MODE &mdash; actions are validated and previewed, but <u>nothing is transmitted</u> to IBKR.</div>`;
@@ -271,8 +293,8 @@ function renderPositions() {
     // out of a spread. Close via a closing combo ticket (later phase) or TWS.
     const actions = p.sec_type === "OPT"
       ? '<span class="cap">combo — close via TWS</span>'
-      : `<button class="btn xs" onclick='execFlatten(${posJson(p)},1)'>Flatten</button>
-        <button class="btn xs ghost" onclick='execFlatten(${posJson(p)},0.5)'>Trim&frac12;</button>
+      : `<button class="btn xs" data-mutation onclick='execFlatten(${posJson(p)},1)'>Flatten</button>
+        <button class="btn xs ghost" data-mutation onclick='execFlatten(${posJson(p)},0.5)'>Trim&frac12;</button>
         <button class="btn xs ghost" onclick='execSellTicket(${posJson(p)})' title="Prefill the close ticket: shares / LMT / outside RTH">Close&hellip;</button>`;
     return `<tr>
       <td class="l" style="font-weight:600">${sym}</td>
@@ -318,7 +340,7 @@ function orderRow(o) {
     <td class="l" style="color:#8c95a2">${fmtOrderTime(o.good_after) || "&mdash;"}</td>
     <td class="l" style="color:#8c95a2">${fmtOrderTime(o.good_till) || "&mdash;"}</td>
     <td class="l" style="color:#8c95a2">${esc(o.status || "")}</td>
-    <td class="l" style="white-space:nowrap">${canModify ? `<button class="btn xs ghost" onclick='execModifyStart("${orderKey(o)}")'>Modify</button> ` : ""}<button class="btn xs ghost" onclick='execCancel(${o.perm_id || 0},${o.order_id || 0},"${esc(o.symbol)}")'>Cancel</button></td>
+    <td class="l" style="white-space:nowrap">${canModify ? `<button class="btn xs ghost" data-mutation onclick='execModifyStart("${orderKey(o)}")'>Modify</button> ` : ""}<button class="btn xs ghost" data-mutation onclick='execCancel(${o.perm_id || 0},${o.order_id || 0},"${esc(o.symbol)}")'>Cancel</button></td>
   </tr>`;
 }
 // Inline edit row: qty always; limit price on *LMT orders; stop trigger on STP*.
@@ -343,7 +365,7 @@ function orderEditRow(o) {
     <td class="l" style="color:#8c95a2">${fmtOrderTime(o.good_till) || "&mdash;"}</td>
     <td class="l" style="color:#8c95a2">${esc(o.status || "")}</td>
     <td class="l" style="white-space:nowrap">
-      <button class="btn xs" onclick='execModifySave(${o.perm_id || 0},${o.order_id || 0},"${esc(o.symbol)}")'>Save</button>
+      <button class="btn xs" data-mutation onclick='execModifySave(${o.perm_id || 0},${o.order_id || 0},"${esc(o.symbol)}")'>Save</button>
       <button class="btn xs ghost" onclick='execModifyAbort()'>&times;</button></td>
   </tr>`;
 }
@@ -563,11 +585,13 @@ function actionLead(verb) {
 }
 
 function execFlatten(pos, fraction) {
+  if (rejectUnknownMutation()) return;
   const pct = fraction === 1 ? "100%" : "50%";
   if (!confirm(`${actionLead("flatten")} ${pct} of ${pos.symbol} (${state.account})? Cancels its working orders first.`)) return;
   sendCommand("flatten", { symbol: pos.symbol, sec_type: pos.sec_type, expiry: pos.expiry, fraction, order_type: "MKT" });
 }
 function execCancel(permId, orderId, symbol) {
+  if (rejectUnknownMutation()) return;
   if (permId || orderId) {
     // A real order/perm id in hand: cancel EXACTLY this order. The agent matches on
     // perm_id and falls through to order_id, so a nonzero order_id alone is enough — a
@@ -613,6 +637,7 @@ function findBookOrder(key) {
   return ((ab && ab.orders) || []).find((o) => orderKey(o) === key) || null;
 }
 function execModifyStart(key) {
+  if (rejectUnknownMutation()) return;
   const o = findBookOrder(key);
   if (!o) return;
   orderEdit.key = key;
@@ -629,6 +654,7 @@ function execModifyAbort() {
 // "leave alone", so an untouched stop trigger is never re-quoted from a possibly
 // stale book value.
 function execModifySave(permId, orderId, symbol) {
+  if (rejectUnknownMutation()) return;
   const orig = orderEdit.orig || {};
   const read = (id) => {
     const e = document.getElementById(id);
@@ -885,6 +911,7 @@ function sendTicket() {
   const t = document.getElementById("cmdType").value;
   const p = ticketPayload(t);
   const msg = document.getElementById("cmdMsg");
+  if (mutationBlocked(t) && rejectUnknownMutation("cmdMsg")) return;
   if (t === "entry_bracket") {
     const warns = bracketWarnings();   // hard block: never submit while any warning is up
     if (warns.length) { if (msg) msg.textContent = "BLOCKED: " + warns.join("; "); return; }
@@ -919,6 +946,7 @@ function commandId(type, account, payload) {
   return idemState.id;
 }
 async function sendCommand(type, payload, msgId) {
+  if (mutationBlocked(type) && rejectUnknownMutation(msgId)) return;
   const msg = msgId ? document.getElementById(msgId) : null;
   if (msg) msg.textContent = "sending...";
   const id = commandId(type, state.account, payload);
