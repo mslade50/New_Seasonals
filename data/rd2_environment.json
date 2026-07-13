@@ -1,20 +1,20 @@
 {
-  "date": "2026-07-10",
+  "date": "2026-07-13",
   "price_ctx": {
-    "price": 754.9500122070312,
-    "ret_12m": 0.2197038596226888,
-    "extension_200d": 0.09239792449409845,
-    "drawdown": -0.0035218435911847923,
-    "sma_200": 691.0943304443359,
+    "price": 749.1699829101562,
+    "ret_12m": 0.21463553366762933,
+    "extension_200d": 0.08331789493223662,
+    "drawdown": -0.011151054591395315,
+    "sma_200": 691.5513778686524,
     "high_52w": 757.6182250976562,
     "regime_label": "Extended uptrend, stretched above trend",
-    "days_since_5pct": 67,
-    "days_since_10pct": 303
+    "days_since_5pct": 68,
+    "days_since_10pct": 304
   },
   "h_scores": {
-    "5d": 13.972150335297254,
-    "21d": 23.27916717359246,
-    "63d": 40.583167341675235
+    "5d": 18.293928113075037,
+    "21d": 28.811184654514328,
+    "63d": 45.93489529396562
   },
   "signals": {
     "Distribution Dominance": {
@@ -25,32 +25,32 @@
     "VIX Range Compression": {
       "on": false,
       "detail": "",
-      "summary": "21d range: 50th pctile (fires below 15th) \u2014 VIX at 15.0"
+      "summary": "21d range: 20th pctile (fires below 15th) \u2014 VIX at 17.2"
     },
     "Defensive Leadership": {
-      "on": false,
-      "detail": "",
-      "summary": "50d spread: -17pp (fires < -10) | 200d spread: +1pp (fires < 0)"
+      "on": true,
+      "detail": "Risk-off stocks leading: 50d spread -22pp, 200d spread -1pp. SPY within 2% of 52w high \u2014 defensive rotation while index holds.",
+      "summary": "50d spread: -22pp (fires < -10) | 200d spread: -1pp (fires < 0)"
     },
     "Pre-FOMC Rally": {
       "on": false,
       "detail": "",
-      "summary": "Next FOMC: Jul 29 (19d away) \u2014 5d return: 72th pctile (outside window)"
+      "summary": "Next FOMC: Jul 29 (16d away) \u2014 5d return: 34th pctile (outside window)"
     },
     "Low Absorption Ratio": {
       "on": false,
       "detail": "",
-      "summary": "AR: 0.464 (45th pctile, fires below 10th) \u2014 near high: yes"
+      "summary": "AR: 0.472 (48th pctile, fires below 10th) \u2014 near high: yes"
     },
     "Seasonal Rank Divergence": {
       "on": false,
       "detail": "",
-      "summary": "Spread: -4.5pp (fires above 10) \u2014 near high: yes"
+      "summary": "Spread: -3.0pp (fires above 10) \u2014 near high: yes"
     },
     "Dispersion": {
       "on": false,
       "detail": "",
-      "summary": "Composite pctile: 67th (fires above 85th) \u2014 component RV: 36.3% | SPY RV: 15.7%"
+      "summary": "Composite pctile: 72th (fires above 85th) \u2014 component RV: 35.7% | SPY RV: 14.8%"
     }
   }
 }
