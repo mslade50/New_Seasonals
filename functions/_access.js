@@ -11,19 +11,17 @@
  * Cf-Access-Jwt-Assertion header Access injects on every authenticated
  * request: RS256 signature against the team's published signing keys
  * (WebCrypto, no npm deps), aud must contain ACCESS_AUD, exp must be in the
- * future. Verification failures fail CLOSED (401) when enforcement is on.
+ * future. Verification failures fail CLOSED (401).
  *
- * Enforcement is opt-in: when ACCESS_TEAM_DOMAIN and ACCESS_AUD are BOTH set
- * on the Pages project, a missing/invalid JWT gets a 401. When either is
- * unset, requests pass through with a one-time console.warn so the site keeps
- * working before the values are configured.
+ * Configuration is mandatory: when ACCESS_TEAM_DOMAIN or ACCESS_AUD is unset,
+ * exec endpoints fail CLOSED with 503. This prevents an Access-wall
+ * misconfiguration from silently disabling the in-code identity check.
  *
  * Pages env vars (Settings -> Environment variables):
  *   ACCESS_TEAM_DOMAIN  e.g. myteam.cloudflareaccess.com
  *   ACCESS_AUD          the Access application's Audience (AUD) tag
  */
 
-let _warned = false;
 let _certs = { domain: null, keys: null, fetchedAt: 0 };   // module-scope cache (per isolate)
 const CERTS_TTL_MS = 6 * 60 * 60 * 1000;                   // refetch at most every 6h (+ on kid miss)
 
@@ -83,21 +81,19 @@ async function verifyJwt(token, domain, aud) {
 }
 
 /* Gate an exec endpoint on the caller's Access identity.
- * Returns null when the request may proceed, or a 401 JSON Response when not.
- * Enforced only when ACCESS_TEAM_DOMAIN + ACCESS_AUD are both set. */
+ * Returns null when the request may proceed, a 503 when verification is not
+ * configured, or a 401 when the caller's JWT is missing/invalid. */
 export async function requireAccess(request, env) {
+  const headers = { "Content-Type": "application/json", "Cache-Control": "no-store" };
   const domain = String(env.ACCESS_TEAM_DOMAIN || "")
     .replace(/^https?:\/\//, "").replace(/\/.*$/, "").trim();
   const aud = env.ACCESS_AUD || "";
   if (!domain || !aud) {
-    if (!_warned) {
-      console.warn("exec endpoints: ACCESS_TEAM_DOMAIN/ACCESS_AUD not set — "
-        + "Access JWT verification is OFF (relying on the Access wall alone)");
-      _warned = true;
-    }
-    return null;
+    return new Response(JSON.stringify({
+      ok: false,
+      error: "Access JWT verification is not configured",
+    }), { status: 503, headers });
   }
-  const headers = { "Content-Type": "application/json", "Cache-Control": "no-store" };
   const token = request.headers.get("Cf-Access-Jwt-Assertion");
   if (!token) {
     return new Response(JSON.stringify({ ok: false, error: "missing Access JWT" }), { status: 401, headers });
