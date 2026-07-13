@@ -29,11 +29,13 @@
       <b>Leverage alone moves vol / CAGR / drawdown / MAR / dollars but NOT Sharpe, Sortino or PF
       — risk-adjusted ratios are scale-invariant (mean and vol scale together). Those only move
       when the per-strategy dials change the mix.</b>
-      Fragility sizing scales each trade by the risk-dial score on its signal date (Step: boost
-      below threshold, floor at/above; Ramp: live-style linear — 63d / MA 10 / thr 25 / floor 0.10 /
-      boost 1.25 reproduces the live schedule). Because it is per-trade, the equity curve drops to
-      the realized-at-exit basis while active. OVS is exempt, matching live; pre-2016 trades have no
-      score and keep native size.</p>
+      The fragility adjuster is a research counterfactual: Step and Ramp apply the selected threshold,
+      floor, and optional boost to all non-OVS trades. It does not reproduce production policy.
+      Production uses per-strategy <code>frag_risk_bands</code>: only Weak Close Decent Sznls, SPY QQQ
+      MonFri Reversion, Monday Dip, and Indices Oversold Bounce scale to 0.25x at a 10d-MA 63d score
+      of 50 or higher; there is no low-fragility boost, and OVS plus the rest of the book stay at 1.0x.
+      What-if curves use per-trade MTM when available (realized-at-exit only as an old-payload fallback);
+      trades before the fragility history begins keep native size.</p>
   </details>
 
   <div class="kpis" id="kpis"><div class="spin">Loading ledger...</div></div>

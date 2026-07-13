@@ -43,14 +43,14 @@ const S = {
   mtmMain: new Map(),     // trade_id -> [startIdx, pnlVector] (flat $750k)
   mtmExt: new Map(),      // trade_id -> vector for the rebooked T+5 exit
   mtmGate: new Map(),     // Strategy|Tier|Ticker|SignalDate -> vector (blocked rows)
-  // fragility sizing adjuster (off by default = today's exact-curve behavior).
+  // Research-only fragility counterfactual (off by default = today's exact-curve behavior).
   // step:  mult = boost below thr, floor at/above thr.
-  // ramp:  live-style — boost at 0 -> 1.0 at thr, then linear down to floor at 100
-  //        (dial 63d / ma 10 / thr 25 / floor 0.10 / boost 1.25 = the live ramp).
+  // ramp:  boost at 0 -> 1.0 at thr, then linear down to floor at 100.
+  // This generic non-OVS lab does NOT reproduce production frag_risk_bands.
   frag: { dial: "off", ma: 10, thr: 50, floor: 0.5, boost: 1.0, shape: "step" },
 };
 const MID_EXEMPT = new Set(["Overbot Vol Spike"]);
-const FRAG_EXEMPT = MID_EXEMPT;   // live frag mult applies to non-OVS orders only
+const FRAG_EXEMPT = MID_EXEMPT;   // research lab convention: leave OVS at native size
 
 function isMidYearStr(d) { return d ? (parseInt(d.slice(0, 4), 10) % 4) === 2 : false; }
 
@@ -463,7 +463,7 @@ function buildRiskPanel() {
   if (S.fragility) {
     fragRow.className = "levrow";
     fragRow.innerHTML = `
-      <label title="Sizes each trade by the risk-dial fragility score on its signal date (10d-MA basis lives in daily_scan). OVS exempt, matching live. Trades before ${S.fragility.dates[0]} keep native size (no score data).">Fragility sizing</label>
+      <label title="Research counterfactual applied to every non-OVS trade; it is not production parity. Live policy only scales the FAMILY4 dip-buy strategies to 0.25x when the 10d-MA 63d score is at least 50, with no boost; all other strategies stay at 1.0x. Trades before ${S.fragility.dates[0]} keep native size.">Fragility what-if</label>
       <span class="seg" id="fragDialSeg"></span>
       <span class="seg" id="fragShapeSeg"></span>
       <label>MA</label>
