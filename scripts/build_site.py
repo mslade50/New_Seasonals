@@ -34,6 +34,8 @@ Outputs (dist/):
                                    to T+5 + with/without realized curves (needs
                                    data/backtest_trades_ovsext.parquet from build_trade_ledger;
                                    best effort)
+  - dist/data/seasonality/         read-only, per-ticker close + simple ATR inputs for the
+                                   private-site User Input / presidential-cycle lab
 
 Sizing bases:
   Client-side recompute uses the FLAT $750k basis (PnL_flat_750k): per-trade
@@ -69,6 +71,7 @@ from pages.strat_backtester import (
     build_strategy_correlation_matrix,
 )
 from signal_chart_common import chart_relpath, trade_geometry, lookup_prices
+from scripts.seasonality_site_data import export_seasonality_snapshot
 
 LEDGER = os.path.join(_ROOT, "data", "backtest_trades_full.parquet")
 NOGATE = os.path.join(_ROOT, "data", "backtest_trades_nogate.parquet")
@@ -1722,7 +1725,8 @@ def main():
              "stopfills": False, "drawdowns": False, "sector_risk": False,
              "gate_lab": False, "ext_lab": False, "trade_mtm": False,
              "sizer": False, "health": False,
-             "iv_context": False, "strategy_stats": False, "earnings_next": False}
+             "iv_context": False, "strategy_stats": False, "earnings_next": False,
+             "seasonality": False}
     if args.no_mtm:
         # dev iteration: keep flags true for payloads already present in dist
         for k, fn in [("strategy_daily", "strategy_daily.json"), ("positions", "positions.json"),
@@ -1787,6 +1791,17 @@ def main():
     best_effort("strategy_stats", build_strategy_stats, df)
     best_effort("earnings_next", build_earnings_next)
     upload_universe()
+
+    # Static User Input data.  This exporter is deliberately local-only and
+    # read-only with respect to master_prices; it imports no R2/network code.
+    try:
+        seasonality = export_seasonality_snapshot(
+            MASTER_PRICES, os.path.join(data_dir, "seasonality"), min_year=2000)
+        flags["seasonality"] = True
+        print(f"  seasonality: {seasonality['ticker_count']:,} tickers, "
+              f"{seasonality['row_count']:,} rows")
+    except Exception as e:
+        print(f"  seasonality: FAILED ({e}) — continuing without it")
 
     fragility = build_fragility()
     if fragility:

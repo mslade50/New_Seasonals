@@ -4,19 +4,37 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex, nofollow">
-<title>Seasonal Signals — Seasonals</title>
+<title>Seasonal — Seasonals</title>
 <link rel="stylesheet" href="assets/style.css">
+<script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
 <script src="assets/common.js"></script>
+<script src="assets/seasonality.js"></script>
 <script src="assets/seasonal.js"></script>
 </head>
 <body data-page="seasonal">
 <header class="topbar" id="topbar"></header>
 <div class="wrap">
-  <h1>Seasonal Signals</h1>
-  <p class="sub" id="subtitle">Seasonal trade ideas across all channels (single-stock + macro, including
-    non-tradeable index/futures/FX), display-only. Only setups whose expected ATR seasonal path bottoms
-    (long) / peaks (short) on the <b>next session</b> are surfaced. No orders are staged from here.</p>
-  <div id="content"><div class="spin">Loading...</div></div>
+  <div class="page-tabs" role="tablist" aria-label="Seasonal tools">
+    <button class="on" id="seasonal-tab-signals" role="tab" aria-selected="true"
+      aria-controls="seasonal-panel-signals" data-seasonal-view="signals">Signals &amp; Sizer</button>
+    <button id="seasonal-tab-lab" role="tab" aria-selected="false"
+      aria-controls="seasonal-panel-lab" data-seasonal-view="lab">Seasonality Lab</button>
+  </div>
+
+  <section id="seasonal-panel-signals" role="tabpanel" aria-labelledby="seasonal-tab-signals">
+    <h1>Seasonal Signals</h1>
+    <p class="sub" id="subtitle">Seasonal trade ideas across all channels (single-stock + macro, including
+      non-tradeable index/futures/FX), display-only. Only setups whose expected ATR seasonal path bottoms
+      (long) / peaks (short) on the <b>next session</b> are surfaced. No orders are staged from here.</p>
+    <div id="content"><div class="spin">Loading...</div></div>
+  </section>
+
+  <section id="seasonal-panel-lab" role="tabpanel" aria-labelledby="seasonal-tab-lab" hidden>
+    <h1>Presidential Cycle Seasonality</h1>
+    <p class="sub">The Streamlit User Input analysis, calculated in your browser from a read-only
+      post-2000 price snapshot. Running an analysis never calls yfinance and cannot write to the price cache.</p>
+    <div id="seasonality-lab"><div class="spin">Loading seasonality inputs...</div></div>
+  </section>
   <footer>Order staging / IBKR submission stays local; this is a read-only view.</footer>
 </div>
 </body>
