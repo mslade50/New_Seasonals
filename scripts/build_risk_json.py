@@ -24,6 +24,46 @@ sys.path.insert(0, _ROOT)
 OUT = os.path.join(_ROOT, "data", "site_risk.json")
 
 
+# Metric metadata for the private-site signal charts.  The series themselves
+# stay owned by risk_dashboard_v2; this map only describes how to serialize
+# and display the values that compute_all_signals() already returns.
+SIGNAL_METRICS = {
+    "Distribution Dominance": {
+        "key": "da_ratio", "label": "D/A ratio", "unit": "ratio", "decimals": 2,
+        "thresholds": [
+            {"value": 3.75, "label": "Fire", "operator": ">"},
+            {"value": 6.0, "label": "Elevated", "operator": ">"},
+        ],
+    },
+    "VIX Range Compression": {
+        "key": "compression_pctile", "label": "21d range percentile",
+        "unit": "percentile", "decimals": 1,
+        "thresholds": [{"value": 15.0, "label": "Fire", "operator": "<"}],
+    },
+    "Defensive Leadership": {
+        "key": "spread", "label": "50d risk-on minus risk-off spread",
+        "unit": "pp", "decimals": 1,
+        "thresholds": [{"value": -10.0, "label": "Fire", "operator": "<"}],
+    },
+    "Pre-FOMC Rally": None,
+    "Low Absorption Ratio": {
+        "key": "ar_pctile", "label": "Absorption Ratio percentile",
+        "unit": "percentile", "decimals": 1,
+        "thresholds": [{"value": 10.0, "label": "Fire", "operator": "<"}],
+    },
+    "Seasonal Rank Divergence": {
+        "key": "spread", "label": "Risk-off minus risk-on seasonal spread",
+        "unit": "pp", "decimals": 1,
+        "thresholds": [{"value": 10.0, "label": "Fire", "operator": ">"}],
+    },
+    "Dispersion": {
+        "key": "composite_pctile", "label": "Composite dispersion percentile",
+        "unit": "percentile", "decimals": 1,
+        "thresholds": [{"value": 85.0, "label": "Fire", "operator": ">"}],
+    },
+}
+
+
 def _clean(v):
     import numpy as np
     import pandas as pd
@@ -43,6 +83,82 @@ def _clean(v):
     if isinstance(v, (list, tuple)):
         return [_clean(x) for x in v]
     return str(v)
+
+
+def _aligned_values(series, dates, decimals):
+    """Align a numeric Series to the payload's shared dates and JSON-clean it."""
+    import pandas as pd
+
+    if series is None or not hasattr(series, "reindex"):
+        return [None] * len(dates)
+    try:
+        aligned = series.reindex(dates)
+        return [
+            None if pd.isna(v) else round(float(v), decimals)
+            for v in aligned.to_numpy()
+        ]
+    except (KeyError, TypeError, ValueError):
+        return [None] * len(dates)
+
+
+def _latest_value(series, decimals):
+    """Return the metric's own latest observation, independent of chart dates."""
+    import pandas as pd
+
+    if series is None or not hasattr(series, "dropna"):
+        return None
+    try:
+        available = series.dropna()
+        return None if available.empty else round(float(available.iloc[-1]), decimals)
+    except (IndexError, TypeError, ValueError):
+        return None
+
+
+def _build_signal_detail(signals_ordered, dates, signal_periods_fn):
+    """Serialize signal periods and metric values on one shared date index.
+
+    Kept separate from ``main`` so the payload contract can be verified without
+    invoking the heavy ten-year market-data refresh.
+    """
+    detail = {}
+    for name, sig_raw in signals_ordered.items():
+        sig = sig_raw or {}
+        periods = []
+        try:
+            periods = [
+                [_clean(start), _clean(end)]
+                for start, end in signal_periods_fn(sig.get("signal_history"))
+            ]
+        except Exception:
+            # One malformed optional history must not suppress the whole risk
+            # payload; the builder's production contract is best-effort.
+            periods = []
+
+        config = SIGNAL_METRICS.get(name)
+        metric = None
+        current_value = None
+        if config is not None:
+            source_series = sig.get(config["key"])
+            values = _aligned_values(source_series, dates, config["decimals"])
+            current_value = _latest_value(source_series, config["decimals"])
+            metric = {
+                "key": config["key"],
+                "label": config["label"],
+                "unit": config["unit"],
+                "decimals": config["decimals"],
+                "thresholds": _clean(config["thresholds"]),
+                "values": values,
+            }
+
+        detail[name] = {
+            "periods": periods,
+            "metric": metric,
+            "current": {
+                "value": current_value,
+                "summary": _clean(sig.get("summary")),
+            },
+        }
+    return detail
 
 
 def _hedge_recommendation(regime: str, protection_percentile) -> tuple:
@@ -296,6 +412,7 @@ def main():
             build_forward_returns_data,
             _status_badge,
         )
+        from pages.risk_dashboard_v2 import _signal_periods
 
         print("risk: downloading data ...")
         spy_df, closes, sp500_closes = download_data()
@@ -322,6 +439,7 @@ def main():
             fwd = _clean(fwd_raw)
 
         spy_close = computed["spy_close"].dropna()
+        shared_dates = spy_close.index
         payload = {
             "built_at": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d %H:%M UTC"),
             "asof": spy_close.index[-1].strftime("%Y-%m-%d"),
@@ -333,21 +451,21 @@ def main():
             "signals": signals,
             "n_active": sum(1 for s in signals if s["on"]),
             "forward_returns": fwd,
+            "dates": [d.strftime("%Y-%m-%d") for d in shared_dates],
         }
-        # 1y of SPY closes + fragility series for a small context chart
-        tail = spy_close.tail(252)
+        # Full history uses one shared date array.  The browser opens on the
+        # latest year and can autorange to all history on double-click.
         payload["spy_series"] = {
-            "dates": [d.strftime("%Y-%m-%d") for d in tail.index],
-            "close": [round(float(v), 2) for v in tail.values],
+            "close": [round(float(v), 2) for v in spy_close.values],
         }
         frag_df = computed.get("frag_df")
         if frag_df is not None and not frag_df.empty:
-            ft = frag_df.rolling(5, min_periods=1).mean().tail(252)
+            ft = frag_df.rolling(5, min_periods=1).mean()
             payload["fragility_series"] = {
-                "dates": [d.strftime("%Y-%m-%d") for d in ft.index],
-                **{c: [_clean(round(float(v), 1)) if v == v else None for v in ft[c].values]
-                   for c in ft.columns},
+                **{c: _aligned_values(ft[c], shared_dates, 1) for c in ft.columns},
             }
+        payload["signal_detail"] = _build_signal_detail(
+            computed["signals_ordered"], shared_dates, _signal_periods)
 
         # hedge block is best-effort inside the best-effort script: a failure
         # here must not cost the rest of the risk payload

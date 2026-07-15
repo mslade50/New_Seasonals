@@ -148,6 +148,10 @@ table.tbl tbody tr:hover { background: #161c29; }
 .idea .tkr { font-weight: 700; font-size: 15px; }
 .idea .chan { color: var(--faint); font-size: 11px; text-transform: uppercase; letter-spacing: .5px; }
 .idea .headline { margin: 6px 0; color: var(--text); }
+.signal-current { margin-left: auto; color: var(--text); font-size: 16px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.signal-summary { color: var(--muted); font-size: 12px; margin-top: 5px; }
+.signal-chart { margin-top: 10px; min-height: 270px; }
+.risk-overlay-card { margin-bottom: 14px; }
 .kv { display: grid; grid-template-columns: 140px 1fr; gap: 3px 12px; font-size: 12.5px; margin-top: 8px; }
 .kv .k { color: var(--faint); }
 .kv .v { color: var(--text); font-variant-numeric: tabular-nums; }
