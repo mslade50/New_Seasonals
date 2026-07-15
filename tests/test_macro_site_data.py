@@ -74,9 +74,13 @@ def test_export_macro_snapshot(tmp_path: Path):
     assert payload["sznl_available"] is True
     last_fixture_day = pd.bdate_range("2023-01-02", periods=520)[-1]
     assert payload["asof"] == last_fixture_day.strftime("%Y-%m-%d")
-    assert len(payload["rows"]) == len(set(SECTOR_ETFS))
+    # caret tickers without price history are dropped; everything else stays
+    expected = {t for t in set(SECTOR_ETFS) if not t.startswith("^")} | {"^VIX"}
+    assert {row["ticker"] for row in payload["rows"]} == expected
 
     by_ticker = {row["ticker"]: row for row in payload["rows"]}
+    assert "^GSPC" not in by_ticker  # caret, no prices in fixture -> dropped
+    assert "^VIX" in by_ticker       # caret with prices survives
     gld = by_ticker["GLD"]
     assert gld["name"] == TICKER_INFO["GLD"][0]
     assert gld["price"] == pytest.approx(150.0 + 519 * 0.1)

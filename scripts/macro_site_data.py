@@ -116,6 +116,12 @@ def export_macro_snapshot(
                  .sort_values("date")
                  .drop_duplicates("date", keep="last")
                  .tail(LOOKBACK_SESSIONS))
+        # Index tickers master_prices doesn't carry (^DJT, ^SOX, intl carets)
+        # would render as dash-only rows with no chart — drop them. Non-caret
+        # ETFs stay as table-only rows: their absence is a cache gap to fix,
+        # not a ticker yfinance can't serve.
+        if ticker.startswith("^") and group.empty:
+            continue
         if not group.empty:
             close = group.set_index("date")["Close"]
             row.update(extension_ranks(close))
