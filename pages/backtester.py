@@ -355,6 +355,49 @@ def build_xsec_rank_matrices(data_dict, windows=[5, 10, 21]):
         result[w] = mat.rank(axis=1, pct=True) * 100.0
     return result
 
+def _metric_series(df, key, window=63):
+    """Return one ticker's raw metric, or None when required data is missing."""
+    close = df['Close']
+    if key == 'mom_12_1':
+        return close.shift(21) / close.shift(252) - 1
+    if key == 'adr20':
+        if 'High' not in df.columns or 'Low' not in df.columns: return None
+        return (df['High'] / df['Low']).rolling(20).mean() - 1
+    ret = close.pct_change()
+    if key == 'sigma_mad':
+        return ret.rolling(window).std() / ret.abs().rolling(window).mean()
+    if key == 'autocorr':
+        return ret.rolling(window).corr(ret.shift(1))
+    if key == 'dvol_roc':
+        if 'Volume' not in df.columns: return None
+        dv = close * df['Volume']
+        return dv.rolling(20).mean().pct_change(21)
+    if key == 'rvol_roc':
+        return ret.rolling(20).std().pct_change(21)
+    return None
+
+def build_xsec_metric_matrices(data_dict, metric_specs):
+    """Cross-sectional 0-100 ranks of raw metric values on each date.
+
+    Unlike build_xsec_rank_matrices, this deliberately applies no temporal
+    pre-rank: these screens compare each ticker's absolute metric value with
+    its loaded-universe peers.
+    """
+    result = {}
+    for spec in metric_specs:
+        key, window = spec['metric'], spec.get('window', 63)
+        cols = {}
+        for ticker, df in data_dict.items():
+            if 'Close' not in df.columns or len(df) < 50:
+                continue
+            s = _metric_series(df, key, window)
+            if s is not None:
+                cols[ticker] = s
+        if cols:
+            mat = pd.DataFrame(cols)
+            result[key] = mat.rank(axis=1, pct=True) * 100.0
+    return result
+
 def build_mtm_curves(trades_df, data_dict, starting_equity, risk_bps, mode='flat'):
     """Build daily MTM equity curves with intraday H/L envelopes.
 
@@ -1023,6 +1066,16 @@ def _generate_key_filters(params):
             else:
                 filters.append(f"XSec {xf['window']}D rank {xf['logic']} {xf['thresh']:.0f}th %ile{consec_str}")
 
+    if params.get('use_xmetric_filter') and params.get('xmetric_filters'):
+        for xf in params['xmetric_filters']:
+            consec_str = f" ({xf['consecutive']}d consecutive)" if xf.get('consecutive', 1) > 1 else ""
+            if xf['logic'] == 'Between':
+                filters.append(f"XMetric {xf['metric']} between {xf['thresh']:.0f}-{xf.get('thresh_max', 100):.0f}th %ile{consec_str}")
+            elif xf['logic'] == 'Not Between':
+                filters.append(f"XMetric {xf['metric']} NOT between {xf['thresh']:.0f}-{xf.get('thresh_max', 100):.0f}th %ile{consec_str}")
+            else:
+                filters.append(f"XMetric {xf['metric']} {xf['logic']} {xf['thresh']:.0f}th %ile{consec_str}")
+
     if params.get('use_weekly_ma_pullback'):
         filters.append(f"First touch of Weekly {params['wma_type']}{params['wma_period']} after {params['wma_min_ext_pct']:.0f}%+ extension (lookback {params['wma_lookback_months']}mo, {params['wma_touch_logic']})")
 
@@ -1167,6 +1220,9 @@ def build_strategy_dict(params, tickers_to_run, pf, sqn, win_rate, expectancy_r)
     if params.get('use_xsec_filter') and params.get('xsec_filters'):
         xsec_str = "+".join([f"XSec {f['window']}d {f['logic']} {f['thresh']:.0f}%ile" for f in params['xsec_filters']])
         id_parts.append(xsec_str)
+    if params.get('use_xmetric_filter') and params.get('xmetric_filters'):
+        xmetric_str = "+".join([f"XMet {f['metric']}{f['logic']}{f['thresh']:.0f}" for f in params['xmetric_filters']])
+        id_parts.append(xmetric_str)
     if params.get('use_t1_open_filter') and params.get('t1_open_filters'):
         for f in params['t1_open_filters']:
             t1_str = f"T+1 Open {f['logic']} {f['reference']}"
@@ -1276,6 +1332,8 @@ def build_strategy_dict(params, tickers_to_run, pf, sqn, win_rate, expectancy_r)
             "use_t1_open_filter": params.get('use_t1_open_filter', False), "t1_open_filters": params.get('t1_open_filters', []),
             # Cross-sectional rank
             "use_xsec_filter": params.get('use_xsec_filter', False), "xsec_filters": params.get('xsec_filters', []),
+            # Cross-sectional raw metrics
+            "use_xmetric_filter": params.get('use_xmetric_filter', False), "xmetric_filters": params.get('xmetric_filters', []),
             # ATR seasonal ranks
             "atr_sznl_filters": params.get('atr_sznl_filters', [])
         },
@@ -1301,7 +1359,7 @@ def build_strategy_dict(params, tickers_to_run, pf, sqn, win_rate, expectancy_r)
     }
     return strategy
     
-def run_engine(universe_dict, params, sznl_map, market_series=None, vix_series=None, market_sznl_series=None, ref_ticker_ranks=None, xsec_rank_matrices=None, atr_sznl_map=None, fragility_df=None, market_sma_not_declining_series=None):
+def run_engine(universe_dict, params, sznl_map, market_series=None, vix_series=None, market_sznl_series=None, ref_ticker_ranks=None, xsec_rank_matrices=None, atr_sznl_map=None, fragility_df=None, market_sma_not_declining_series=None, xsec_metric_matrices=None):
     all_potential_trades = []
     total = len(universe_dict)
     bt_start_ts = pd.to_datetime(params['backtest_start_date'])
@@ -1397,6 +1455,10 @@ def run_engine(universe_dict, params, sznl_map, market_series=None, vix_series=N
     use_xsec_filter = params.get('use_xsec_filter', False)
     xsec_filters = params.get('xsec_filters', [])
 
+    # Cross-Sectional Metric Filter params
+    use_xmetric_filter = params.get('use_xmetric_filter', False)
+    xmetric_filters = params.get('xmetric_filters', [])
+
     for i, (ticker, df_raw) in enumerate(universe_dict.items()):
         status_text.text(f"Scanning signals for {ticker}...")
         progress_bar.progress((i+1)/total)
@@ -1432,6 +1494,11 @@ def run_engine(universe_dict, params, sznl_map, market_series=None, vix_series=N
                 for col in ATR_SZNL_COLS:
                     if col in atr_ranks.columns:
                         df[col] = atr_ranks[col].reindex(df_dates).values
+
+            if xsec_metric_matrices:
+                for mkey, mat in xsec_metric_matrices.items():
+                    if ticker in mat.columns:
+                        df[f'xmetric_{mkey}'] = mat[ticker].reindex(df.index)
             
             # --- SIGNAL GENERATION ---
             conditions = []
@@ -1742,6 +1809,22 @@ def run_engine(universe_dict, params, sznl_map, market_series=None, vix_series=N
                         else: continue
                         if xf.get('consecutive', 1) > 1: c_f = c_f.rolling(xf['consecutive']).sum() == xf['consecutive']
                         conditions.append(c_f)
+
+            # --- CROSS-SECTIONAL METRIC FILTER ---
+            if use_xmetric_filter and xmetric_filters:
+                for xf in xmetric_filters:
+                    col = f"xmetric_{xf['metric']}"
+                    if col in df.columns:
+                        if xf['logic'] == '<': c_f = (df[col] < xf['thresh'])
+                        elif xf['logic'] == '>': c_f = (df[col] > xf['thresh'])
+                        elif xf['logic'] == 'Between': c_f = (df[col] >= xf['thresh']) & (df[col] <= xf.get('thresh_max', 100.0))
+                        elif xf['logic'] == 'Not Between': c_f = (df[col] < xf['thresh']) | (df[col] > xf.get('thresh_max', 100.0))
+                        else: continue
+                        if xf.get('consecutive', 1) > 1: c_f = c_f.rolling(xf['consecutive']).sum() == xf['consecutive']
+                        conditions.append(c_f)
+                    else:
+                        # Missing required bars (for example Volume) blocks this ticker.
+                        conditions.append(pd.Series(False, index=df.index))
 
             # --- OR FILTER GROUPS (at least one condition in each group must be true) ---
             for group in params.get('or_filter_groups', []):
@@ -3403,6 +3486,51 @@ def main():
             if xsec_252d_logic in ("Between", "Not Between"): xsec_252d_max = st.number_input("Max %ile", 0.0, 100.0, 99.0, key="xsec_t252d_max")
             xsec_252d_consec = st.number_input("Consec Days", 1, 10, 1, key="xsec_c252d", disabled=not (use_xsec_filter and use_xsec_252d))
             if use_xsec_252d: xsec_filters.append({'window': 252, 'logic': xsec_252d_logic, 'thresh': xsec_252d_thresh, 'thresh_max': xsec_252d_max, 'consecutive': xsec_252d_consec})
+
+    xmetric_filters = []
+    with st.expander("Cross-Sectional Metric Filters", expanded=False):
+        st.markdown(
+            "**Ranks each RAW metric against every other ticker in the loaded universe on each date.** "
+            "Ranks refresh daily (the source scans used monthly). 10th decile = >90; 1st decile = <10. "
+            "Meaningful only on broad universes."
+        )
+        use_xmetric_filter = st.checkbox("Enable Cross-Sectional Metric Filters", value=False, key="use_xmetric_filter")
+        _xmetric_defs = [
+            ('mom_12_1', '12-1 Momentum (9th decile = 80-90)', 'Between', 80.0, 90.0, False),
+            ('adr20', 'ADR20% (10th decile = >90)', '>', 90.0, 100.0, False),
+            ('sigma_mad', 'Sigma/MAD (1st decile = <10)', '<', 10.0, 100.0, True),
+            ('autocorr', 'Return Autocorrelation (10th decile = >90)', '>', 90.0, 100.0, True),
+            ('dvol_roc', 'Relative Dollar Volume ROC (10th decile = >90)', '>', 90.0, 100.0, False),
+            ('rvol_roc', 'Realized Vol ROC (10th decile = >90)', '>', 90.0, 100.0, False),
+        ]
+        for _key, _label, _default_logic, _default_thresh, _default_max, _has_window in _xmetric_defs:
+            _c_label, _c_use, _c_logic, _c_thresh, _c_max, _c_consec, _c_window = st.columns([2.8, 1.0, 1.25, 1.15, 1.15, 1.0, 1.0])
+            with _c_label:
+                st.markdown(f"**{_label}**")
+            with _c_use:
+                _use = st.checkbox("Enable", key=f"use_xmet_{_key}", value=False, disabled=not use_xmetric_filter)
+            with _c_logic:
+                _logic_options = [">", "<", "Between", "Not Between"]
+                _logic = st.selectbox("Logic", _logic_options, index=_logic_options.index(_default_logic), key=f"xmet_l_{_key}", disabled=not (use_xmetric_filter and _use))
+            with _c_thresh:
+                _thresh_label = "Min %ile" if _logic in ("Between", "Not Between") else "Threshold"
+                _thresh = st.number_input(_thresh_label, 0.0, 100.0, _default_thresh, key=f"xmet_t_{_key}", disabled=not (use_xmetric_filter and _use))
+            with _c_max:
+                _thresh_max = 100.0
+                if _logic in ("Between", "Not Between"):
+                    _thresh_max = st.number_input("Max %ile", 0.0, 100.0, _default_max, key=f"xmet_tmax_{_key}", disabled=not (use_xmetric_filter and _use))
+                else:
+                    st.caption("Max %ile —")
+            with _c_consec:
+                _consec = st.number_input("Consec Days", 1, 10, 1, key=f"xmet_c_{_key}", disabled=not (use_xmetric_filter and _use))
+            with _c_window:
+                _window = st.number_input("Window", 21, 504, 63, key=f"xmet_w_{_key}", disabled=not (use_xmetric_filter and _use)) if _has_window else 63
+                if not _has_window: st.caption("Window fixed")
+            if _use:
+                xmetric_filters.append({
+                    'metric': _key, 'window': _window, 'logic': _logic,
+                    'thresh': _thresh, 'thresh_max': _thresh_max, 'consecutive': _consec
+                })
     ma_consec_filters = []
     with st.expander("Consecutive Closes vs SMA", expanded=False):
         c_ma1, c_ma2, c_ma3 = st.columns(3)
@@ -3821,6 +3949,7 @@ def main():
             'use_recent_ath': use_recent_ath, 'recent_ath_invert': recent_ath_invert, 'ath_lookback_days': ath_lookback_days,
             'use_ref_ticker_filter': use_ref_ticker_filter, 'ref_ticker': ref_ticker_input, 'ref_filters': ref_filters,
             'use_xsec_filter': use_xsec_filter, 'xsec_filters': xsec_filters,
+            'use_xmetric_filter': use_xmetric_filter, 'xmetric_filters': xmetric_filters,
             'atr_sznl_filters': atr_sznl_filters,
             'dial_filters': dial_filters
         }
@@ -3845,6 +3974,8 @@ def main():
             # the preset turns the filter on but the UI checkbox is off).
             use_xsec_filter = bool(params.get('use_xsec_filter'))
             xsec_filters = params.get('xsec_filters', []) or []
+            use_xmetric_filter = bool(params.get('use_xmetric_filter'))
+            xmetric_filters = params.get('xmetric_filters', []) or []
             atr_sznl_filters = params.get('atr_sznl_filters', []) or []
 
         # Build cross-sectional rank matrices if enabled
@@ -3854,6 +3985,13 @@ def main():
             st.info(f"Computing cross-sectional ranks ({len(data_dict)} tickers, windows: {xsec_windows})...")
             xsec_rank_matrices = build_xsec_rank_matrices(data_dict, xsec_windows)
             st.success(f"Cross-sectional ranks computed.")
+
+        xsec_metric_matrices = None
+        if use_xmetric_filter and xmetric_filters:
+            _metric_keys = [f['metric'] for f in xmetric_filters]
+            st.info(f"Computing cross-sectional metric ranks ({len(data_dict)} tickers, {_metric_keys})...")
+            xsec_metric_matrices = build_xsec_metric_matrices(data_dict, xmetric_filters)
+            st.success("Cross-sectional metric ranks computed.")
 
         atr_sznl_map = load_atr_seasonal_map() if atr_sznl_filters else None
         if atr_sznl_filters and not atr_sznl_map:
@@ -3931,7 +4069,7 @@ def main():
                 )
             params['grades_map'] = grades_map
 
-        trades_df, rejected_df, total_signals = run_engine(data_dict, params, sznl_map, market_series, vix_series, market_sznl_series, ref_ticker_ranks, xsec_rank_matrices, atr_sznl_map, fragility_df=fragility_df, market_sma_not_declining_series=market_sma_not_declining_series)
+        trades_df, rejected_df, total_signals = run_engine(data_dict, params, sznl_map, market_series, vix_series, market_sznl_series, ref_ticker_ranks, xsec_rank_matrices, atr_sznl_map, fragility_df=fragility_df, market_sma_not_declining_series=market_sma_not_declining_series, xsec_metric_matrices=xsec_metric_matrices)
         if trades_df.empty: st.warning("No executed signals.")
         if not trades_df.empty:
             trades_df = trades_df.sort_values("ExitDate")
