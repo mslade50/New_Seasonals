@@ -36,6 +36,8 @@ Outputs (dist/):
                                    best effort)
   - dist/data/seasonality/         read-only, per-ticker close + simple ATR inputs for the
                                    private-site User Input / presidential-cycle lab
+  - dist/data/seasonality/macro.json  Macro Seasonality table (MA-extension pctile ranks +
+                                   ATR seasonal ranks as-of today; charts reuse the bins above)
 
 Sizing bases:
   Client-side recompute uses the FLAT $750k basis (PnL_flat_750k): per-trade
@@ -72,6 +74,7 @@ from pages.strat_backtester import (
 )
 from signal_chart_common import chart_relpath, trade_geometry, lookup_prices
 from scripts.seasonality_site_data import export_seasonality_snapshot
+from scripts.macro_site_data import export_macro_snapshot
 
 LEDGER = os.path.join(_ROOT, "data", "backtest_trades_full.parquet")
 NOGATE = os.path.join(_ROOT, "data", "backtest_trades_nogate.parquet")
@@ -1726,7 +1729,7 @@ def main():
              "gate_lab": False, "ext_lab": False, "trade_mtm": False,
              "sizer": False, "health": False,
              "iv_context": False, "strategy_stats": False, "earnings_next": False,
-             "seasonality": False}
+             "seasonality": False, "macro_sznl": False}
     if args.no_mtm:
         # dev iteration: keep flags true for payloads already present in dist
         for k, fn in [("strategy_daily", "strategy_daily.json"), ("positions", "positions.json"),
@@ -1802,6 +1805,18 @@ def main():
               f"{seasonality['row_count']:,} rows")
     except Exception as e:
         print(f"  seasonality: FAILED ({e}) — continuing without it")
+
+    # Macro Seasonality table payload (same read-only stance as above).
+    try:
+        macro = export_macro_snapshot(
+            MASTER_PRICES, os.path.join(_ROOT, "atr_seasonal_ranks.parquet"),
+            os.path.join(data_dir, "seasonality", "macro.json"))
+        flags["macro_sznl"] = True
+        with_prices = sum(1 for r in macro["rows"] if r.get("price") is not None)
+        print(f"  macro seasonality: {len(macro['rows'])} tickers "
+              f"({with_prices} with prices, sznl_available={macro['sznl_available']})")
+    except Exception as e:
+        print(f"  macro seasonality: FAILED ({e}) — continuing without it")
 
     fragility = build_fragility()
     if fragility:

@@ -317,3 +317,16 @@ footer { color: var(--faint); font-size: 11px; margin-top: 40px; border-top: 1px
   .seasonality-control-grid { grid-template-columns: 1fr; }
   .seasonality-control-grid .range-control { grid-column: span 1; }
 }
+
+/* ---------- Macro seasonality tab ---------- */
+.macro-tbl td.hi-red { background: rgba(255, 77, 79, .16); color: #ff9c9c; font-weight: 650; }
+.macro-tbl td.hi-green { background: rgba(63, 185, 80, .16); color: #7ee787; font-weight: 650; }
+.macro-row { cursor: pointer; }
+.macro-row:hover td { background: rgba(77, 163, 255, .07); }
+.macro-chart-grid {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 8px;
+}
+.macro-chart { min-height: 400px; }
+@media (max-width: 1000px) {
+  .macro-chart-grid { grid-template-columns: 1fr; }
+}

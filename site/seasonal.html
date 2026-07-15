@@ -9,6 +9,7 @@
 <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
 <script src="assets/common.js"></script>
 <script src="assets/seasonality.js"></script>
+<script src="assets/macro_seasonal.js"></script>
 <script src="assets/seasonal.js"></script>
 </head>
 <body data-page="seasonal">
@@ -19,6 +20,8 @@
       aria-controls="seasonal-panel-signals" data-seasonal-view="signals">Signals &amp; Sizer</button>
     <button id="seasonal-tab-lab" role="tab" aria-selected="false"
       aria-controls="seasonal-panel-lab" data-seasonal-view="lab">Seasonality Lab</button>
+    <button id="seasonal-tab-macro" role="tab" aria-selected="false"
+      aria-controls="seasonal-panel-macro" data-seasonal-view="macro">Macro</button>
   </div>
 
   <section id="seasonal-panel-signals" role="tabpanel" aria-labelledby="seasonal-tab-signals">
@@ -34,6 +37,15 @@
     <p class="sub">The Streamlit User Input analysis, calculated in your browser from a read-only
       post-2000 price snapshot. Running an analysis never calls yfinance and cannot write to the price cache.</p>
     <div id="seasonality-lab"><div class="spin">Loading seasonality inputs...</div></div>
+  </section>
+
+  <section id="seasonal-panel-macro" role="tabpanel" aria-labelledby="seasonal-tab-macro" hidden>
+    <h1>Macro Seasonality</h1>
+    <p class="sub">MA-extension percentile ranks and ATR seasonal ranks for the macro universe
+      (indices, FX, futures, crypto, bonds, vol), with per-ticker seasonal charts below. Table sorts
+      by the largest |Sznl − 50| across the 5/10/21/63d windows. Charts compute in your browser
+      from the read-only post-2000 price snapshot.</p>
+    <div id="macro-seasonality"><div class="spin">Loading macro payload...</div></div>
   </section>
   <footer>Order staging / IBKR submission stays local; this is a read-only view.</footer>
 </div>

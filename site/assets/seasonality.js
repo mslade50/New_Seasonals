@@ -424,26 +424,26 @@ function defaultCycle() {
 }
 
 function setSeasonalView(view) {
-  const lab = view === "lab";
-  const signalsPanel = document.getElementById("seasonal-panel-signals");
-  const labPanel = document.getElementById("seasonal-panel-lab");
-  if (!signalsPanel || !labPanel) return;
-  signalsPanel.hidden = lab;
-  labPanel.hidden = !lab;
-  document.querySelectorAll("[data-seasonal-view]").forEach(button => {
+  const buttons = Array.from(document.querySelectorAll("[data-seasonal-view]"));
+  if (!buttons.some(button => button.dataset.seasonalView === view)) view = "signals";
+  for (const button of buttons) {
     const active = button.dataset.seasonalView === view;
     button.classList.toggle("on", active);
     button.setAttribute("aria-selected", active ? "true" : "false");
-  });
-  if (window.history && window.history.replaceState) {
-    window.history.replaceState(null, "", lab ? "#lab" : window.location.pathname + window.location.search);
+    const panel = document.getElementById(`seasonal-panel-${button.dataset.seasonalView}`);
+    if (panel) panel.hidden = !active;
   }
+  if (window.history && window.history.replaceState) {
+    window.history.replaceState(null, "", view === "signals"
+      ? window.location.pathname + window.location.search : `#${view}`);
+  }
+  document.dispatchEvent(new CustomEvent("seasonal-view", { detail: { view } }));
 }
 
 async function initSeasonalityLab() {
   document.querySelectorAll("[data-seasonal-view]").forEach(button =>
     button.addEventListener("click", () => setSeasonalView(button.dataset.seasonalView)));
-  if (window.location.hash === "#lab") setSeasonalView("lab");
+  if (/^#(lab|macro)$/.test(window.location.hash)) setSeasonalView(window.location.hash.slice(1));
 
   const root = document.getElementById("seasonality-lab");
   if (!root) return;
