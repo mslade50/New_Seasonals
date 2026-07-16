@@ -1611,6 +1611,11 @@ def save_staging_orders(signals_list, strategy_book, sheet_name='Order_Staging',
             # — and this field travels with the row so order_staging can tell the
             # tiers apart after it concatenates both tabs.
             "Scan_Source": str(row.get('Scan_Source', 'Liquid')),
+            # NAV the scanner sized against. order_staging asserts this equals
+            # its own hardcoded ACCOUNT_VALUE at load and ABORTS on mismatch —
+            # the two constants live in different files and have drifted before
+            # (the 200-vs-250 cap class). Change them together (2026-07-16).
+            "Account_Value": float(ACCOUNT_VALUE),
             # Live filter readings at signal time (desc, value) — same data the
             # scan email shows. Display-only: the private site's signal cards
             # render "why it fired"; order_staging ignores the column.
