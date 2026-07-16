@@ -8,12 +8,17 @@ Base allocation: 25% of ACCOUNT_VALUE split 50% VOO / 50% QQQ
 Two rule layers stacked multiplicatively (final_weight =
 base_weight × global_mult × ticker_mult):
 
-GLOBAL rules (apply to ALL tickers, fragility-driven, "ALL ×" semantics).
-Zero precedence over boost — if a zero-rule fires, it wins:
+GLOBAL rules (apply to ALL tickers, fragility-driven, "ALL ×" semantics):
     1. ALL × 0.00 when Raw 21D fragility > 50
-    2. ALL × 1.25 when Raw 21D < 5 AND Raw 63D < 5
     3. ALL × 0.00 when 10d-MA 63D fragility > 50
     else 1.00
+(Rule 2, a 1.25x boost when both raw dials < 5, was REMOVED 2026-07-16: it
+mirrored the per-trade low-fragility boost killed unanimously in the
+2026-07-02 research and had no evidence of its own. Rule numbering is kept
+so state-json history and the backtester presets stay readable. Rule 1's
+raw-21d kill has a pre-registered replay pending — do not remove or loosen
+it before that replay runs; see
+scratch/ultracode_research/exposure_leg_replay_prereg_2026-07-16.md.)
 
 PER-TICKER rules (zero out a single ticker's weight independently):
     4. ticker × 0.00 when self 2D rank > 85 AND self 5D rank > 85
@@ -60,10 +65,19 @@ STATE_PATH = os.path.join('data', 'exposure_state.json')
 # ---------------------------------------------------------------------------
 # DIAL / RULE EVALUATION
 # ---------------------------------------------------------------------------
+# Max age of the newest dial reading before the leg refuses to act on it.
+# Mirrors daily_scan.FRAG_STALE_TD (same series, same producer, same failure
+# mode): tolerates a long weekend + one missed risk_report run.
+DIAL_STALE_TD = 3
+
+
 def _read_dial_readings(frag_path: str) -> Optional[Dict[str, float]]:
     """Return today's dial readings: raw 21d, raw 63d, 10d-MA 63d.
 
-    Returns None if the parquet is missing or unreadable.
+    Returns None if the parquet is missing, unreadable, or STALE (newest row
+    older than DIAL_STALE_TD trading days — a stale reading means the
+    producer is broken, and acting on a regime that may no longer hold is
+    worse than skipping the leg; None fail-safes to leg-not-computed).
     """
     if not os.path.exists(frag_path):
         return None
@@ -76,6 +90,21 @@ def _read_dial_readings(frag_path: str) -> Optional[Dict[str, float]]:
     if '21d' not in df.columns or '63d' not in df.columns:
         return None
     df = df.sort_index()
+    try:
+        import numpy as np
+        last_dt = pd.Timestamp(df.index[-1]).normalize()
+        try:
+            last_dt = last_dt.tz_localize(None)
+        except (TypeError, AttributeError):
+            pass
+        age_td = int(np.busday_count(last_dt.date(),
+                                     pd.Timestamp.today().normalize().date()))
+        if age_td > DIAL_STALE_TD:
+            print(f"exposure_leg: STALE dial reading ({last_dt.date()}, "
+                  f"{age_td} td old > {DIAL_STALE_TD}) — leg skipped")
+            return None
+    except Exception:
+        return None
     raw_21d = float(df['21d'].dropna().iloc[-1])
     raw_63d = float(df['63d'].dropna().iloc[-1])
     ma10_63d = float(df['63d'].dropna().rolling(10, min_periods=1).mean().iloc[-1])
@@ -88,9 +117,9 @@ def _read_dial_readings(frag_path: str) -> Optional[Dict[str, float]]:
 
 
 def _apply_global_rules(readings: Dict[str, float]) -> Dict:
-    """Fragility-driven multiplier applied to all tickers. Zero wins over boost."""
+    """Fragility-driven multiplier applied to all tickers (kill rules only;
+    the Rule-2 boost was removed 2026-07-16)."""
     raw_21d = readings['raw_21d']
-    raw_63d = readings['raw_63d']
     ma10_63d = readings['ma10_63d']
 
     if raw_21d > 50:
@@ -99,9 +128,6 @@ def _apply_global_rules(readings: Dict[str, float]) -> Dict:
     if ma10_63d > 50:
         return {'mult': 0.0, 'active_rule': 'Rule 3',
                 'reason': f'10d-MA 63D fragility {ma10_63d:.1f} > 50'}
-    if raw_21d < 5 and raw_63d < 5:
-        return {'mult': 1.25, 'active_rule': 'Rule 2',
-                'reason': f'Raw 21D {raw_21d:.1f} < 5 AND Raw 63D {raw_63d:.1f} < 5'}
     return {'mult': 1.0, 'active_rule': None,
             'reason': 'No global rule active — base allocation'}
 
@@ -301,6 +327,7 @@ def compute_exposure_leg_backtest(
     prices_dict,
     starting_equity: float,
     frag_path: str = FRAGILITY_PATH,
+    boost_mult: float = 1.0,
 ):
     """Daily $ P&L series for the exposure leg over [start_date, end_date].
 
@@ -352,7 +379,9 @@ def compute_exposure_leg_backtest(
         frag.index = frag.index.tz_localize(None)
     frag.index = frag.index.normalize()
 
-    # Global multiplier time series
+    # Global multiplier time series. boost_mult defaults to 1.0 (the Rule-2
+    # 1.25x boost was removed from live 2026-07-16); pass boost_mult=1.25 to
+    # reproduce the pre-removal stack in counterfactual replays.
     raw_21d = frag['21d']
     raw_63d = frag['63d']
     ma10_63d = raw_63d.rolling(10, min_periods=1).mean()
@@ -360,7 +389,7 @@ def compute_exposure_leg_backtest(
     rule3_active = ma10_63d > 50
     rule2_active = (raw_21d < 5) & (raw_63d < 5)
     global_mult = pd.Series(1.0, index=frag.index)
-    global_mult[rule2_active] = 1.25
+    global_mult[rule2_active] = float(boost_mult)
     global_mult[rule1_active | rule3_active] = 0.0
 
     # Per-ticker price + indicator + multiplier
