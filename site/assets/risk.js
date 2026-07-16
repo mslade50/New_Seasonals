@@ -38,8 +38,15 @@ async function init() {
   // 3. price context strip (replaces the old raw kv dump)
   html += contextStripHtml(d);
 
-  // 3b. nuggets — deterministic payload interpretation (shared with ideas page)
-  if (Array.isArray(d.nuggets) && d.nuggets.length) html += nuggetsHtml(d.nuggets);
+  // 3b. Trade Console — the one decisive block (configuration-conditional,
+  // display-only). Replaces the nuggets zone; nuggets render only as a
+  // fallback for older payloads (the payload key stays — ideas.js reads it).
+  const tc = d.trade_console;
+  if (tc && tc.state) {
+    html += tradeConsoleHtml(tc);
+  } else if (Array.isArray(d.nuggets) && d.nuggets.length) {
+    html += nuggetsHtml(d.nuggets);
+  }
 
   // 4. signals: overlay chart + accordion (charts lazy-render on expand)
   const signalDetail = d.signal_detail && typeof d.signal_detail === "object"
@@ -251,6 +258,36 @@ function contextStripHtml(d) {
   if (ctx.days_since_10pct != null) bits.push(`${ctx.days_since_10pct}d since 10% drawdown`);
   if (!bits.length) return "";
   return `<div class="card context-strip">${bits.map(b => `<span>${b}</span>`).join('<span class="sep">·</span>')}</div>`;
+}
+
+function tradeConsoleHtml(tc) {
+  if (tc.state === "silent") {
+    return `<div class="card trade-console tc-silent">
+      <div class="head"><span class="tkr">Trade Console</span>
+        <span class="badge warn">WITHHELD</span></div>
+      <div class="cap">${esc(tc.reason || "inputs unavailable")}</div></div>`;
+  }
+  const badgeCls = tc.class_id === "NONE" ? "off"
+    : (tc.headline || "").startsWith("ELEVATED") ? "on" : "warn";
+  const degraded = tc.state === "degraded";
+  // asof-drift guard: a skipped deploy fossilizes "fired N sessions ago"
+  const asofMs = Date.parse(`${String(tc.asof || "").slice(0, 10)}T00:00:00Z`);
+  const staleDays = Number.isFinite(asofMs)
+    ? Math.floor((Date.now() - asofMs) / 86400000) : 0;
+  const staleBadge = staleDays > 4
+    ? `<span class="badge warn">AS OF ${esc(tc.asof)}</span>` : "";
+  return `<div class="card trade-console">
+    <div class="head"><span class="tkr">Trade Console</span>
+      <span class="badge ${badgeCls}">${esc(tc.headline || "")}</span>
+      ${degraded ? '<span class="badge warn">DEGRADED</span>' : ""}${staleBadge}</div>
+    ${degraded && tc.reason ? `<div class="cap">${esc(tc.reason)}</div>` : ""}
+    <div class="tc-fired">${esc(tc.fired_line || "")}</div>
+    ${tc.dist_line ? `<p class="tc-dist">${esc(tc.dist_line)}</p>` : ""}
+    ${tc.structure_line ? `<p class="tc-structure">${esc(tc.structure_line)}</p>` : ""}
+    ${tc.extra_line ? `<p class="tc-dist">${esc(tc.extra_line)}</p>` : ""}
+    <div class="tc-action">${esc(tc.action_line || "")}</div>
+    <div class="tc-foot">${(tc.caveats || []).map(esc).join(" · ")}</div>
+  </div>`;
 }
 
 function nuggetsHtml(nuggets) {

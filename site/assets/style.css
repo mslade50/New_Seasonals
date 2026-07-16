@@ -159,6 +159,14 @@ table.tbl tbody tr:hover { background: #161c29; }
 .cap-inline { color: var(--faint); font-size: 12px; }
 .context-strip { display: flex; flex-wrap: wrap; gap: 4px 10px; font-size: 12.5px; color: var(--muted); margin-bottom: 12px; }
 .context-strip .sep { color: var(--faint); }
+.trade-console { border: 1px solid rgba(77,163,255,.35); margin-bottom: 14px; }
+.trade-console .badge { max-width: 100%; }
+.tc-fired { color: var(--text); font-size: 13.5px; margin-top: 8px; }
+.tc-dist { color: var(--muted); font-size: 12.5px; line-height: 1.55; margin: 8px 0 0; }
+.tc-structure { color: var(--muted); font-size: 12.5px; line-height: 1.55; margin: 8px 0 0; font-variant-numeric: tabular-nums; }
+.tc-action { color: var(--text); font-weight: 700; font-size: 13.5px; margin-top: 10px; }
+.tc-foot { color: var(--faint); font-size: 10.5px; line-height: 1.6; margin-top: 10px; border-top: 1px solid rgba(128,128,128,.15); padding-top: 6px; }
+.tc-silent .cap { margin-top: 6px; }
 .nugget-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 10px; margin-bottom: 4px; }
 .nugget-line { margin: 6px 0 0; font-size: 12.5px; line-height: 1.5; color: var(--text); }
 details.signal-acc > summary { cursor: pointer; list-style: none; display: flex; align-items: center; gap: 8px; }

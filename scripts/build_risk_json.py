@@ -439,6 +439,286 @@ def build_nuggets(p):
     return out
 
 
+# ---------------------------------------------------------------------------
+# Trade Console (spec: scratch/ultracode_research/RISK_TRADE_CONSOLE_2026-07-16.md)
+# Every rendered figure is formatted here from data/trade_console_stats.json —
+# zero hand-typed numbers, zero client-side composition. Display-only.
+# ---------------------------------------------------------------------------
+TC_STATS_PATH = os.path.join(_ROOT, "data", "trade_console_stats.json")
+TC_STATS_MAX_AGE_DAYS = 180
+TC_INPUT_STALE_TD = 3
+
+TC_HEADLINES = {
+    "BEAR_2PLUS": "ELEVATED LEFT TAIL — MULTIPLE SIGNALS",
+    "DL_TAIL": "ELEVATED LEFT TAIL",
+    "AR_DRAWDOWN": "ELEVATED DRAWDOWN ODDS",
+    "SRD_TAIL": "TAIL READ",
+    "DA_SOFT": "SOFT PATCH",
+    "VRC_CONTEXT": "CONTEXT ONLY",
+    "NONE": "NO READABLE EDGE",
+}
+TC_FULL_NAMES = {
+    "DA": "Distribution Dominance", "VRC": "VIX Range Compression",
+    "DL": "Defensive Leadership", "AR": "Low Absorption Ratio",
+    "SRD": "Seasonal Rank Divergence", "DISP": "Dispersion",
+    "FOMC": "Pre-FOMC Rally",
+}
+
+
+def _tc_pct(v, dec=1, signed=True):
+    if v is None:
+        return "n/a"
+    s = f"{v:+.{dec}f}%" if signed else f"{v:.{dec}f}%"
+    return s
+
+
+def _tc_prob(v):
+    return "n/a" if v is None else f"{v * 100:.0f}%"
+
+
+def _tc_ci(ci, unit="%"):
+    if not ci or len(ci) != 2:
+        return ""
+    if unit == "%":
+        return f" [{ci[0]:+.1f}%, {ci[1]:+.1f}%]"
+    return f" [{ci[0] * 100:+.0f}%, {ci[1] * 100:+.0f}%]"
+
+
+def _tc_fired_line(fired, ctx_bits):
+    parts = []
+    for name, rec in fired:
+        if rec == 0:
+            parts.append(f"{name} is active")
+        else:
+            s = "session" if rec == 1 else "sessions"
+            parts.append(f"{name} fired {rec} {s} ago (now off)")
+    line = "; ".join(parts) if parts else "No bearish signals active or recent"
+    if ctx_bits:
+        line += ". " + "; ".join(ctx_bits) + "."
+    else:
+        line += "."
+    return line
+
+
+def _tc_dist_line(cls, base):
+    yrs = cls.get("episode_years") or []
+    span = f"{yrs[0]}–{str(yrs[-1])[2:]}" if yrs else "n/a"
+    bits = [
+        f"In {cls['n_episodes']} prior episodes ({span}): "
+        f"median 3-month return {_tc_pct(cls.get('fwd63_median_pct'))} "
+        f"(baseline {_tc_pct(base.get('fwd63_median_pct'))}), "
+        f"mean {_tc_pct(cls.get('fwd63_mean_pct'))}"
+        f"{_tc_ci(cls.get('fwd63_mean_ci_pct'))} vs {_tc_pct(base.get('fwd63_mean_pct'))}"
+    ]
+    if cls.get("fwd63_p10_pct") is not None:
+        bits.append(f"10th percentile {_tc_pct(cls['fwd63_p10_pct'])} "
+                    f"vs {_tc_pct(base.get('fwd63_p10_pct'))}")
+    if cls.get("p_dd10_63td") is not None:
+        bits.append(f"{_tc_prob(cls['p_dd10_63td'])} saw a >=10% drawdown "
+                    f"vs {_tc_prob(base.get('p_dd10_63td'))} baseline")
+    if cls.get("fwd63_drop_best_mean_pct") is not None:
+        bits.append(f"mean excl. best episode {_tc_pct(cls['fwd63_drop_best_mean_pct'])}")
+    t = cls.get("episode_t_vs_baseline")
+    if t is not None:
+        bits.append(f"episode-level t {t:+.1f} vs baseline")
+    return "; ".join(bits) + "."
+
+
+def _tc_structure_line(cls):
+    ev = cls.get("structures") or {}
+    if not ev.get("n_priced"):
+        return None, False
+    sp = ev.get("spread_ret_on_cost") or {}
+    tl = ev.get("tail_ret_on_cost") or {}
+    sp_ci = sp.get("ci5_95")
+    tl_ci = tl.get("ci5_95")
+    flip_spread = bool(sp_ci and sp_ci[0] is not None and sp_ci[0] > 0)
+    flip_tail = bool(tl_ci and tl_ci[0] is not None and tl_ci[0] > 0)
+    n = ev["n_priced"]
+    if flip_spread or flip_tail:
+        which = ("a 3m 30Δ/10Δ put spread" if flip_spread
+                 else "3m ~10Δ tail puts")
+        stat = sp if flip_spread else tl
+        line = (f"STRUCTURE CHECK (MODEL-PRICED, held to expiry): historically "
+                f"+EV for {which} in this class — mean "
+                f"{stat['mean'] * 100:+.0f}% of cost{_tc_ci(stat.get('ci5_95'), 'raw')}, "
+                f"{n} priced episodes. Model prices, no real chains.")
+        return line, True
+    tail_txt = (f"expired worthless {n - ev.get('tail_hits', 0)} of {n}"
+                if ev.get("tail_hits", 0) == 0 else
+                f"EV {tl.get('mean', 0) * 100:+.0f}% of premium"
+                f"{_tc_ci(tl_ci, 'raw')}, paid off {ev.get('tail_hits')} of {n}")
+    line = (f"STRUCTURE CHECK (MODEL-PRICED, held to expiry): 3m 30Δ/10Δ SPY put "
+            f"spread ≈ {ev.get('spread_cost_pct_notional_mean', 0):.1f}% of notional, "
+            f"EV {sp.get('mean', 0) * 100:+.0f}% of debit{_tc_ci(sp_ci, 'raw')}, "
+            f"paid off {ev.get('spread_hits', 0)} of {n}. Tail puts: {tail_txt}. "
+            f"Perfect exits would lift the spread to "
+            f"{ev.get('spread_oracle_mean', 0) * 100:+.0f}% — "
+            f"neither structure has cleared cost at model prices in this class "
+            f"this decade.")
+    return line, False
+
+
+def _tc_action_line(class_id, cls, base, low_sample):
+    if class_id == "NONE":
+        return "Historical read: nothing to do."
+    if class_id == "VRC_CONTEXT":
+        return ("Historical read: near-term drag only; 3-month tails sit at "
+                "or below baseline. No action.")
+    if low_sample:
+        return ("Historical read: sample too thin for a verdict — descriptive "
+                "only.")
+    p10c, p10b = cls.get("p_dd10_63td"), base.get("p_dd10_63td")
+    if p10c is not None and p10b and p10c >= 1.5 * p10b:
+        return ("Historical read: fat left tail, normal median — smaller size, "
+                "not premium purchase.")
+    if class_id == "SRD_TAIL":
+        return "Historical read: tail-percentile context only. No action."
+    return "Historical read: no trade."
+
+
+def _render_trade_console(stats, row, fired, asof, spy_stale_td):
+    """Pure renderer — testable without IO. Returns the trade_console dict."""
+    from scripts.build_trade_console_stats import (
+        CLASS_PRECEDENCE, MIN_READABLE, classify_row)
+
+    if spy_stale_td > TC_INPUT_STALE_TD:
+        return {"asof": asof, "state": "silent",
+                "reason": (f"inputs stale ({spy_stale_td} trading days since "
+                           f"last SPY close in the pipeline) — console withheld"),
+                "class_set_version": stats.get("class_set_version")}
+
+    degraded_reason = None
+    try:
+        import datetime as _dt
+        built = _dt.datetime.strptime(stats["built_utc"][:10], "%Y-%m-%d")
+        age_days = (_dt.datetime.utcnow() - built).days
+        if age_days > TC_STATS_MAX_AGE_DAYS:
+            degraded_reason = (f"evidence file is {age_days} days old "
+                               f"(> {TC_STATS_MAX_AGE_DAYS}) — structure block "
+                               f"withheld pending deliberate regeneration")
+    except Exception:
+        degraded_reason = "evidence file vintage unreadable"
+
+    class_id = classify_row(row)
+    base = stats.get("baseline") or {}
+    cls = (stats.get("classes") or {}).get(class_id) or {}
+    n_ep = cls.get("n_episodes", 0)
+
+    if class_id != "NONE" and n_ep < MIN_READABLE:
+        class_id, cls = "NONE", (stats.get("classes") or {}).get("NONE") or {}
+        n_ep = cls.get("n_episodes", 0)
+
+    low_sample = (MIN_READABLE <= n_ep < 20) or \
+        ((cls.get("max_year_share") or 0) > 0.40)
+
+    ctx_bits = []
+    if bool(row.get("near_52w_high")):
+        ctx_bits.append("SPY within 2% of a 52-week high")
+    if bool(row.get("above_200d")):
+        ctx_bits.append("above the 200-day")
+    fired_line = _tc_fired_line(fired, ctx_bits)
+
+    headline = TC_HEADLINES.get(class_id, "NO READABLE EDGE")
+    if low_sample and class_id != "NONE":
+        headline += " (LOW SAMPLE)"
+
+    dist_line = _tc_dist_line(cls, base) if cls else None
+    structure_line, flip = (None, False)
+    if not degraded_reason and class_id not in ("VRC_CONTEXT",):
+        structure_line, flip = _tc_structure_line(cls)
+    action_line = _tc_action_line(class_id, cls, base, low_sample)
+
+    extra = None
+    if class_id == "NONE" and bool(row.get("any_DISP")):
+        n_disp = stats.get("dispersion_episodes")
+        extra = (f"Dispersion fired — only {n_disp} prior episodes, too few "
+                 f"to condition on.")
+
+    caveats = [
+        f"N={n_ep} episodes; one decade of history containing three real "
+        f"drawdowns (2018Q4, 2020, 2022).",
+        "No class is statistically distinct after a multiple-comparisons "
+        "correction — these are conditional distributions, not proven edges.",
+        "Signal histories recomputed from today's code (lookahead PIT cannot "
+        "cure).",
+        "Option EV is BS + static skew + 5%/side haircut — no real option "
+        "chains; MODEL-PRICED throughout.",
+        "Display-only — nothing here feeds sizing or staging.",
+        f"Stats vintage {stats.get('built_utc')}, class set "
+        f"{stats.get('class_set_version', '?').split(' ')[0]}.",
+    ]
+
+    return {
+        "asof": asof,
+        "state": "degraded" if degraded_reason else "ok",
+        **({"reason": degraded_reason} if degraded_reason else {}),
+        "class_id": class_id,
+        "class_set_version": stats.get("class_set_version"),
+        "flip_gate_passed": bool(flip),
+        "headline": headline,
+        "fired_line": fired_line,
+        "dist_line": dist_line,
+        **({"structure_line": structure_line} if structure_line else {}),
+        "action_line": action_line,
+        **({"extra_line": extra} if extra else {}),
+        "caveats": caveats,
+        "n_ep": int(n_ep),
+        "stats_built": stats.get("built_utc"),
+        "stats_sha": stats.get("fingerprint"),
+    }
+
+
+def build_trade_console(computed):
+    """Classify today against the frozen class set and render the console.
+    Returns None (key omitted) only on hard failure; degraded/silent states
+    are RENDERED with their reason."""
+    import numpy as np
+    import pandas as pd
+    from scripts.build_trade_console_stats import (
+        ABBR, build_config_frame, class_fingerprint)
+
+    if not os.path.exists(TC_STATS_PATH):
+        print("risk: trade_console skipped (no stats file)")
+        return None
+    with open(TC_STATS_PATH, encoding="utf-8") as f:
+        stats = json.load(f)
+
+    signals_ordered = computed["signals_ordered"]
+    spy_close = computed["spy_close"].dropna()
+
+    if class_fingerprint(signals_ordered.keys()) != stats.get("fingerprint"):
+        return {"asof": spy_close.index[-1].strftime("%Y-%m-%d"),
+                "state": "degraded",
+                "reason": ("signal taxonomy changed since the evidence file "
+                           "was built — regenerate "
+                           "scripts/build_trade_console_stats.py"),
+                "class_set_version": stats.get("class_set_version"),
+                "stats_built": stats.get("built_utc"),
+                "stats_sha": stats.get("fingerprint")}
+
+    frame = build_config_frame(signals_ordered, spy_close)
+    row = frame.iloc[-1]
+    asof = frame.index[-1].strftime("%Y-%m-%d")
+    spy_stale_td = int(np.busday_count(frame.index[-1].date(),
+                                       pd.Timestamp.today().normalize().date()))
+
+    fired = []
+    for name, abbr in ABBR.items():
+        if abbr == "FOMC":
+            continue
+        if bool(row[f"any_{abbr}"]):
+            on_col = frame[f"on_{abbr}"]
+            if bool(row[f"on_{abbr}"]):
+                rec = 0
+            else:
+                trues = np.flatnonzero(on_col.to_numpy())
+                rec = len(frame) - 1 - int(trues[-1]) if len(trues) else 0
+            fired.append((name, rec))
+
+    return _render_trade_console(stats, row, fired, asof, spy_stale_td)
+
+
 def main():
     try:
         from daily_risk_report import (
@@ -520,6 +800,15 @@ def main():
                 payload["vol_kpi"] = vol_kpi
         except Exception:
             print("risk: vol_kpi FAILED (continuing without it)")
+            traceback.print_exc()
+        try:
+            tc = build_trade_console(computed)
+            if tc:
+                payload["trade_console"] = tc
+                print(f"risk: trade_console ok (class {tc.get('class_id')}, "
+                      f"state {tc.get('state')}, n_ep {tc.get('n_ep')})")
+        except Exception:
+            print("risk: trade_console FAILED (continuing without it)")
             traceback.print_exc()
 
         payload["nuggets"] = build_nuggets(payload)
