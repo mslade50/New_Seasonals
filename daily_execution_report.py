@@ -88,8 +88,8 @@ def fetch_book(base_url: str, token: str) -> dict | None:
     return r.json().get("book")
 
 
-def load_trend_symbols() -> set[str]:
-    """Symbols the trend sleeve currently holds (R2 state, best effort)."""
+def load_trend_state() -> dict:
+    """Full trend-sleeve state dict from R2 (best effort, {} when unavailable)."""
     try:
         from cache_io import download_to_local, is_configured
         if is_configured():
@@ -98,14 +98,61 @@ def load_trend_symbols() -> set[str]:
     except Exception as e:  # noqa: BLE001
         print(f"NOTE: trend state R2 pull skipped ({e})")
     try:
-        state = json.loads(TREND_STATE_LOCAL.read_text())
-        return {
-            str(t).upper()
-            for t, v in (state.get("positions") or {}).items()
-            if int(v.get("shares", 0)) > 0
-        }
+        return json.loads(TREND_STATE_LOCAL.read_text())
     except Exception:  # noqa: BLE001
-        return set()
+        return {}
+
+
+def load_trend_symbols(state: dict | None = None) -> set[str]:
+    """Symbols the trend sleeve currently holds (R2 state, best effort)."""
+    if state is None:
+        state = load_trend_state()
+    return {
+        str(t).upper()
+        for t, v in (state.get("positions") or {}).items()
+        if int(v.get("shares", 0)) > 0
+    }
+
+
+def reconcile_trend(state: dict, positions: list[dict]) -> list[str]:
+    """Trend state target shares vs the live book (2026-07-16).
+
+    The month-end run computes DELTAS against this state — if staged orders
+    were never executed (or doubled), every future rebalance is wrong and
+    nothing surfaced it. Compares each state symbol's shares to the live STK
+    position. Skipped until the state's Execute_On (the first session after
+    'generated') has passed, so a freshly staged rebalance never false-alarms.
+    Returns human-readable mismatch strings; empty = reconciled or skipped.
+    """
+    targets = {
+        str(t).upper(): int(v.get("shares", 0))
+        for t, v in (state.get("positions") or {}).items()
+        if int(v.get("shares", 0)) > 0
+    }
+    if not targets:
+        return []
+    gen = str(state.get("generated", "")).split(" ")[0]
+    if gen:
+        try:
+            from trading_calendar import TRADING_DAY
+            import pandas as pd
+            execute_on = (pd.Timestamp(gen) + TRADING_DAY).normalize()
+            if pd.Timestamp(et_now().date()) < execute_on:
+                print(f"NOTE: trend reconciliation skipped — state generated {gen}, "
+                      f"Execute_On {execute_on.date()} not reached")
+                return []
+        except Exception as e:  # noqa: BLE001
+            print(f"NOTE: trend reconciliation date gate failed ({e}) — checking anyway")
+    live = {}
+    for p in positions:
+        if p.get("sec_type") == "STK":
+            live[str(p.get("symbol", "")).upper()] = int(p.get("position") or 0)
+    issues = []
+    for sym, want in sorted(targets.items()):
+        got = live.get(sym, 0)
+        if got != want:
+            issues.append(f"{sym}: state says {want:,} sh, live book has {got:,}")
+    return issues
 
 
 def parse_ref(ref: str | None) -> tuple[str | None, str | None]:
@@ -238,7 +285,7 @@ def _pnl_color(v):
 
 
 def build_html(rows: list[dict], opt_excluded: list[str], nlv,
-               now: datetime) -> str:
+               now: datetime, trend_warnings: list[str] | None = None) -> str:
     td = "padding:6px 10px;border-bottom:1px solid #e3e3e3;font-size:13px;"
     tdr = td + "text-align:right;white-space:nowrap;"
     th = ("padding:6px 10px;border-bottom:2px solid #444;font-size:12px;"
@@ -297,6 +344,12 @@ def build_html(rows: list[dict], opt_excluded: list[str], nlv,
     {now.strftime('%A %Y-%m-%d')} &nbsp;|&nbsp;
     NLV: <b>{_fmt_money(nlv)}</b> &nbsp;|&nbsp; {len(rows)} position(s)
   </p>
+  {('<div style="background:#fdecea;border:1px solid #b02a1e;border-radius:4px;'
+    'padding:8px 12px;margin:8px 0"><b style="color:#b02a1e">TREND SLEEVE '
+    'MISMATCH</b> — state targets vs live book diverge; next month-end '
+    'rebalance deltas will be WRONG until reconciled (fix positions or clear '
+    'the state):<br>'
+    + '<br>'.join(trend_warnings) + '</div>') if trend_warnings else ''}
   <table style="border-collapse:collapse;width:100%">
     <tr>
       <th style="{th}">Symbol</th><th style="{th}">Strategy</th>
@@ -388,9 +441,16 @@ def main() -> int:
                    f"</p><pre>{e}</pre>")
         return 1
 
-    trend_syms = load_trend_symbols()
+    trend_state = load_trend_state()
+    trend_syms = load_trend_symbols(trend_state)
+    trend_warnings = reconcile_trend(trend_state, primary.get("positions") or [])
+    if trend_warnings:
+        print("TREND RECONCILIATION MISMATCH:")
+        for w in trend_warnings:
+            print(f"  {w}")
     rows, opt_excluded = build_rows(primary, trend_syms)
-    html = build_html(rows, opt_excluded, primary.get("nlv"), now)
+    html = build_html(rows, opt_excluded, primary.get("nlv"), now,
+                      trend_warnings=trend_warnings)
 
     if args.html_out:
         Path(args.html_out).write_text(html, encoding="utf-8")
