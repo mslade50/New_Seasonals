@@ -14,6 +14,12 @@ from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 
 from indicators import calculate_indicators, get_sznl_val_series
+from filters import (
+    ETF_ATR_EXEMPT,
+    FRAG_STALE_TD,
+    check_signal_live,
+    get_fragility_df_cached as _get_fragility_df_cached,
+)
 from earnings_filter import load_earnings_dates_map, in_blackout, signed_offset
 from exposure_leg import compute_exposure_targets, save_state
 
@@ -650,7 +656,7 @@ def load_seasonal_map(csv_path="sznl_ranks.csv"):
 # 2. CALCULATION ENGINE
 # -----------------------------------------------------------------------------
 
-ETF_ATR_EXEMPT = {'SPY', 'QQQ', 'IWM', 'DIA'}
+# ETF_ATR_EXEMPT moved to filters.py (2026-07-16)
 
 # Trading-day staleness bound for the fragility cache (data/rd2_fragility.parquet).
 # The producer (risk_report.yml → daily_risk_report.py) writes it every weekday
@@ -658,7 +664,7 @@ ETF_ATR_EXEMPT = {'SPY', 'QQQ', 'IWM', 'DIA'}
 # broken / missed runs, so we must NOT trade through it. Sizing falls back to
 # 1.0x and the dial-filter gate fails closed. Tolerates a long weekend + one
 # missed run without over-triggering.
-FRAG_STALE_TD = 3
+# FRAG_STALE_TD moved to filters.py (2026-07-16)
 
 # Fragility risk bands (2026-07-02) — replaced the retired book-wide ramp
 # (1.25x boost -> 0.10x floor; the boost had no edge case and the rest of the
@@ -786,28 +792,7 @@ def sector_gate_blocked(strat_name, execution, t_clean, asof):
     return False, ''
 
 
-_FRAG_DF_CACHE = {}  # key='loaded' → DataFrame or None
-def _get_fragility_df_cached():
-    """Load data/rd2_fragility.parquet once per process. Returns None if missing."""
-    if 'loaded' in _FRAG_DF_CACHE:
-        return _FRAG_DF_CACHE['loaded']
-    try:
-        import os as _os
-        here = _os.path.dirname(_os.path.abspath(__file__))
-        path = _os.path.join(here, 'data', 'rd2_fragility.parquet')
-        df = pd.read_parquet(path) if _os.path.exists(path) else None
-        if df is not None:
-            df.index = pd.to_datetime(df.index).normalize()
-            try:
-                df.index = df.index.tz_localize(None)
-            except (TypeError, AttributeError):
-                pass
-            df = df.sort_index()
-    except Exception:
-        df = None
-    _FRAG_DF_CACHE['loaded'] = df
-    return df
-
+# fragility cache moved to filters.py (2026-07-16)
 
 def memoized_indicators(memo, key, src_df, sznl_map, t_key, market_series,
                         vix_series, ref_ranks, xsec_rank_matrices, atr_sznl_map):
@@ -838,421 +823,16 @@ def memoized_indicators(memo, key, src_df, sznl_map, t_key, market_series,
 
 
 def check_signal(df, params, sznl_map, ticker=None):
-    last_row = df.iloc[-1]
-    
-    # 0. Day of Week Filter
-    if params.get('use_dow_filter', False):
-        allowed = params.get('allowed_days', [])
-        current_day = last_row.name.dayofweek
-        if current_day not in allowed: return False
+    """Delegates to filters.check_signal_live — the single filter
+    implementation shared with the engine (consolidated 2026-07-16; the
+    ~420-line body that lived here is now filters.py). Live mode:
+    dial_filters FAIL CLOSED on missing/stale fragility data, and the T+1
+    gates are stripped (the scan stamps their specs; order_staging enforces
+    them at the real T+1 open). Guards:
+    tests/test_filters_consolidation.py; ship-time proof
+    scratch/verify_filters_consolidation.py."""
+    return check_signal_live(df, params, sznl_map=sznl_map, ticker=ticker)
 
-    # 0b. Cycle Year Filter
-    if 'allowed_cycles' in params:
-        allowed_cycles = params['allowed_cycles']
-        if allowed_cycles and len(allowed_cycles) < 4:
-            current_year = last_row.name.year
-            cycle_rem = current_year % 4
-            if cycle_rem not in allowed_cycles: return False
-
-    # 0c. Month Filter
-    if params.get('use_month_filter', False):
-        allowed_months = params.get('allowed_months', list(range(1, 13)))
-        if last_row.name.month not in allowed_months:
-            return False
-
-    # 1. Liquidity Gates
-    if last_row['Close'] < params.get('min_price', 0): return False
-    if last_row['vol_ma'] < params.get('min_vol', 0): return False
-    if last_row['age_years'] < params.get('min_age', 0): return False
-    if last_row['age_years'] > params.get('max_age', 100): return False
-
-    if 'ATR_Pct' in df.columns:
-        current_atr_pct = last_row['ATR_Pct']
-        atr_exempt = ticker and ticker.upper() in ETF_ATR_EXEMPT
-        if not atr_exempt and current_atr_pct < params.get('min_atr_pct', 0.0): return False
-        if current_atr_pct > params.get('max_atr_pct', 1000.0): return False
-
-    if params.get('use_today_return', False):
-        today_ret = last_row.get('today_return_atr', 0)
-        if pd.isna(today_ret): return False
-        ret_min = params.get('return_min', -100)
-        ret_max = params.get('return_max', 100)
-        if not (today_ret >= ret_min and today_ret <= ret_max): return False
-
-    if params.get('use_atr_ret_filter', False):
-        today_ret = last_row.get('today_return_atr', 0)
-        if pd.isna(today_ret): return False
-        if not (today_ret >= params.get('atr_ret_min', -100) and today_ret <= params.get('atr_ret_max', 100)): return False
-
-    # 2. Trend Filter (Global) - ALL OPTIONS
-    trend_opt = params.get('trend_filter', 'None')
-    if trend_opt == "Price > 200 SMA":
-        if not (last_row['Close'] > last_row['SMA200']): return False
-    elif trend_opt == "Price > Rising 200 SMA":
-        prev_row = df.iloc[-2]
-        if not ((last_row['Close'] > last_row['SMA200']) and (last_row['SMA200'] > prev_row['SMA200'])): return False
-    elif trend_opt == "Not Below Declining 200 SMA":
-        prev_row = df.iloc[-2]
-        # REJECT if price is below AND the 200 SMA is falling
-        is_below_declining = (last_row['Close'] < last_row['SMA200']) and (last_row['SMA200'] < prev_row['SMA200'])
-        if is_below_declining: return False
-    elif trend_opt == "Price < 200 SMA":
-        if not (last_row['Close'] < last_row['SMA200']): return False
-    elif trend_opt == "Price < Falling 200 SMA":
-        prev_row = df.iloc[-2]
-        if not ((last_row['Close'] < last_row['SMA200']) and (last_row['SMA200'] < prev_row['SMA200'])): return False
-    elif "Market" in trend_opt or "SPY" in trend_opt:
-        if 'Market_Above_SMA200' in df.columns:
-            is_above = last_row['Market_Above_SMA200']
-            if ">" in trend_opt and not is_above: return False
-            if "<" in trend_opt and is_above: return False
-
-    # 2b. MA Consecutive Filters
-    if 'ma_consec_filters' in params:
-        for maf in params['ma_consec_filters']:
-            length = maf['length']
-            col_name = f"SMA{length}"
-            if col_name not in df.columns: continue 
-            
-            if maf['logic'] == 'Above':
-                mask = df['Close'] > df[col_name]
-            elif maf['logic'] == 'Below':
-                mask = df['Close'] < df[col_name]
-            
-            consec = maf.get('consec', 1)
-            if consec > 1:
-                mask = mask.rolling(consec).sum() == consec
-            
-            if not mask.iloc[-1]: return False
-    # 2c. Range in ATR Filter
-    if params.get('use_range_atr_filter', False):
-        atr = last_row.get('ATR', 0)
-        if atr > 0:
-            range_in_atr = (last_row['High'] - last_row['Low']) / atr
-            logic = params.get('range_atr_logic', 'Between')
-            if logic == '>' and not (range_in_atr > params.get('range_atr_min', 0)): return False
-            if logic == '<' and not (range_in_atr < params.get('range_atr_max', 99)): return False
-            if logic == 'Between' and not (range_in_atr >= params.get('range_atr_min', 0) and range_in_atr <= params.get('range_atr_max', 99)): return False
-
-    # 2d. Require Green Candle
-    if params.get('require_close_gt_open', False):
-        if not (last_row['Close'] > last_row['Open']): return False
-
-    # 2e. Breakout Mode
-    bk_mode = params.get('breakout_mode', 'None')
-    if bk_mode != 'None':
-        prev_row = df.iloc[-2]
-        if bk_mode == "Close > Prev Day High":
-            if not (last_row['Close'] > prev_row['High']): return False
-        elif bk_mode == "Close < Prev Day Low":
-            if not (last_row['Close'] < prev_row['Low']): return False
-
-    # 2f. Volume > Previous Day
-    if params.get('vol_gt_prev', False):
-        prev_row = df.iloc[-2]
-        if not (last_row['Volume'] > prev_row['Volume']): return False
-            
-    # 3. Candle Range Filter
-    if params.get('use_range_filter', False):
-        rn_val = last_row['RangePct'] * 100
-        r_min = params.get('range_min', 0)
-        r_max = params.get('range_max', 100)
-        if not (rn_val >= r_min and rn_val <= r_max): return False
-
-    # 4. Perf Rank
-    _perf_filters = list(params.get('perf_filters', []))  # copy to avoid mutation
-
-    # Merge legacy single-window format if present
-    if params.get('use_perf_rank', False):
-        legacy = {
-            'window': params['perf_window'],
-            'logic': params['perf_logic'],
-            'thresh': params['perf_thresh'],
-            'consecutive': params.get('perf_consecutive', 1),
-        }
-        # Avoid duplicating if the same window+logic+thresh already exists
-        already_covered = any(
-            pf['window'] == legacy['window']
-            and pf['logic'] == legacy['logic']
-            and pf['thresh'] == legacy['thresh']
-            for pf in _perf_filters
-        )
-        if not already_covered:
-            _perf_filters.append(legacy)
-
-    if _perf_filters:
-        combined_cond = pd.Series(True, index=df.index)
-        for pf in _perf_filters:
-            col = f"rank_ret_{pf['window']}d"
-            consec = pf.get('consecutive', 1)
-
-            if pf['logic'] == '<':
-                cond_f = df[col] < pf['thresh']
-            elif pf['logic'] == 'Between':
-                cond_f = (df[col] >= pf['thresh']) & (df[col] <= pf.get('thresh_max', 100.0))
-            elif pf['logic'] == 'Not Between':
-                cond_f = (df[col] < pf['thresh']) | (df[col] > pf.get('thresh_max', 100.0))
-            else:
-                cond_f = df[col] > pf['thresh']
-
-            if consec > 1:
-                cond_f = cond_f.rolling(consec).sum() == consec
-
-            combined_cond = combined_cond & cond_f
-
-        final_perf = combined_cond
-
-        if params.get('perf_first_instance', False):
-            lookback = params.get('perf_lookback', 21)
-            prev_inst = final_perf.shift(1).rolling(lookback).sum()
-            final_perf = final_perf & (prev_inst == 0)
-
-        if not final_perf.iloc[-1]:
-            return False
-
-    # 4b. ATR seasonal rank filters (ATR-normalized per-day-of-year rank)
-    for asf in params.get('atr_sznl_filters', []):
-        col = f"atr_sznl_{asf['window']}d"
-        if col not in df.columns:
-            return False  # ranks missing for this ticker — fail closed
-        consec = asf.get('consecutive', 1)
-        logic = asf.get('logic', '>')
-        if logic == '<':
-            cond_f = df[col] < asf['thresh']
-        elif logic == '>':
-            cond_f = df[col] > asf['thresh']
-        elif logic == 'Between':
-            cond_f = (df[col] >= asf['thresh']) & (df[col] <= asf.get('thresh_max', 100.0))
-        else:
-            continue
-        if consec > 1:
-            cond_f = cond_f.rolling(consec).sum() == consec
-        if not bool(cond_f.iloc[-1]):
-            return False
-
-    # 5. Gap/Acc/Dist Filters
-    if params.get('use_gap_filter', False):
-        lookback = params.get('gap_lookback', 21)
-        col_name = f'GapCount_{lookback}' if f'GapCount_{lookback}' in df.columns else 'GapCount_21'
-        gap_val = last_row.get(col_name, 0)
-        g_logic = params.get('gap_logic', '>')
-        g_thresh = params.get('gap_thresh', 0)
-        if g_logic == ">" and not (gap_val > g_thresh): return False
-        if g_logic == "<" and not (gap_val < g_thresh): return False
-        if g_logic == "=" and not (gap_val == g_thresh): return False
-
-    if params.get('use_acc_count_filter', False):
-        window = params.get('acc_count_window', 21)
-        col_name = f'AccCount_{window}'
-        if col_name in df.columns:
-            acc_val = last_row[col_name]
-            acc_logic = params.get('acc_count_logic', '=')
-            acc_thresh = params.get('acc_count_thresh', 0)
-            if acc_logic == "=" and not (acc_val == acc_thresh): return False
-            if acc_logic == ">" and not (acc_val > acc_thresh): return False
-            if acc_logic == "<" and not (acc_val < acc_thresh): return False
-
-    if params.get('use_dist_count_filter', False):
-        window = params.get('dist_count_window', 21)
-        col_name = f'DistCount_{window}'
-        if col_name in df.columns:
-            dist_val = last_row[col_name]
-            dist_logic = params.get('dist_count_logic', '>')
-            dist_thresh = params.get('dist_count_thresh', 0)
-            if dist_logic == "=" and not (dist_val == dist_thresh): return False
-            if dist_logic == ">" and not (dist_val > dist_thresh): return False
-            if dist_logic == "<" and not (dist_val < dist_thresh): return False
-
-    # 6. Distance Filter — percent-space (matches pages/backtester.py and
-    # pages/strat_backtester.py): distance from MA expressed as a percentage
-    # of the MA, divided by ATR as a percentage of price. Differs from
-    # (Close - MA) / ATR because the MA-distance denominator is the MA, not
-    # the price.
-    if params.get('use_ma_dist_filter', False) or params.get('use_dist_filter', False):
-        ma_type = params.get('dist_ma_type', 'SMA 200')
-        ma_col_map = {"52-Week High": "High_52w", "All-Time High": "ATH_Level"}
-        ma_col = ma_col_map.get(ma_type, ma_type.replace(" ", ""))
-        if ma_col in df.columns:
-            ma_val = last_row[ma_col]
-            atr = last_row['ATR']
-            close = last_row['Close']
-            if atr > 0 and ma_val > 0 and close > 0:
-                atr_pct = atr / close
-                ma_pct = (close - ma_val) / ma_val
-                dist_units = ma_pct / atr_pct
-            else:
-                dist_units = 0
-            d_logic = params.get('dist_logic', 'Between')
-            d_min = params.get('dist_min', 0)
-            d_max = params.get('dist_max', 0)
-            if d_logic == "Greater Than (>)" and not (dist_units > d_min): return False
-            if d_logic == "Less Than (<)" and not (dist_units < d_max): return False
-            if d_logic == "Between":
-                if not (dist_units >= d_min and dist_units <= d_max): return False
-
-    # 7. Seasonality
-    if params['use_sznl']:
-        if params['sznl_logic'] == '<': raw_sznl = df['Sznl'] < params['sznl_thresh']
-        else: raw_sznl = df['Sznl'] > params['sznl_thresh']
-        
-        final_sznl = raw_sznl
-        if params.get('sznl_first_instance', False):
-            lookback = params.get('sznl_lookback', 21)
-            prev = final_sznl.shift(1).rolling(lookback).sum()
-            final_sznl = final_sznl & (prev == 0)
-        if not final_sznl.iloc[-1]: return False
-
-    if params.get('use_market_sznl', False):
-        val = last_row['Mkt_Sznl_Ref']
-        if params['market_sznl_logic'] == '<': 
-            if not (val < params['market_sznl_thresh']): return False
-        else: 
-            if not (val > params['market_sznl_thresh']): return False
-
-    # 8. 52w
-    if params['use_52w']:
-        if params['52w_type'] == 'New 52w High': cond_52 = df['is_52w_high']
-        else: cond_52 = df['is_52w_low']
-        if params.get('52w_first_instance', True):
-            lookback = params.get('52w_lookback', 21)
-            prev = cond_52.shift(1).rolling(lookback).sum()
-            cond_52 = cond_52 & (prev == 0)
-        if not cond_52.iloc[-1]: return False
-        
-    # 8b. Exclude 52w High
-    if params.get('exclude_52w_high', False):
-        if last_row['is_52w_high']: return False
-    # 8c. ATH Filter
-    if params.get('use_ath', False):
-        if params.get('ath_type') == 'Today is ATH':
-            if not last_row['is_ath']: return False
-        else:
-            if last_row['is_ath']: return False
-
-    # 8d. Trailing 52w High Filter
-    if params.get('use_recent_52w', False):
-        r52w_lookback = params.get('recent_52w_lookback', 21)
-        recent_52w = df['is_52w_high'].rolling(window=r52w_lookback, min_periods=1).max().iloc[-1]
-        if params.get('recent_52w_invert', False):
-            if bool(recent_52w): return False
-        else:
-            if not bool(recent_52w): return False
-
-    # 8e. Trailing 52w Low Filter
-    if params.get('use_recent_52w_low', False):
-        r52w_low_lookback = params.get('recent_52w_low_lookback', 21)
-        recent_52w_low = df['is_52w_low'].rolling(window=r52w_low_lookback, min_periods=1).max().iloc[-1]
-        if params.get('recent_52w_low_invert', False):
-            if bool(recent_52w_low): return False
-        else:
-            if not bool(recent_52w_low): return False
-
-    # 8f. Recent ATH Filter
-    if params.get('use_recent_ath', False):
-        ath_lookback = params.get('ath_lookback_days', 21)
-        recent_ath = df['is_ath'].rolling(window=ath_lookback, min_periods=1).max().iloc[-1]
-        if params.get('recent_ath_invert', False):
-            if bool(recent_ath): return False  # Reject if ATH was made recently
-        else:
-            if not bool(recent_ath): return False  # Reject if NO ATH recently
-    # 9. VIX Filter
-    if params.get('use_vix_filter', False):
-        vix_min = params.get('vix_min', 0)
-        vix_max = params.get('vix_max', 100)
-        vix_val = last_row.get('VIX_Value', 0)
-        if not (vix_val >= vix_min and vix_val <= vix_max): 
-            return False
-    # 9b. Reference Ticker Filter
-    if params.get('use_ref_ticker_filter', False) and params.get('ref_filters'):
-        for rf in params['ref_filters']:
-            col = f"Ref_rank_ret_{rf['window']}d"
-            val = last_row.get(col, 50.0)
-            if rf['logic'] == '<' and not (val < rf['thresh']): return False
-            if rf['logic'] == '>' and not (val > rf['thresh']): return False
-    # 9c. Cross-Sectional Rank Filter
-    if params.get('use_xsec_filter', False) and params.get('xsec_filters'):
-        for xf in params['xsec_filters']:
-            col = f"xsec_rank_ret_{xf['window']}d"
-            val = last_row.get(col, 50.0)
-            if xf['logic'] == '<' and not (val < xf['thresh']): return False
-            if xf['logic'] == '>' and not (val > xf['thresh']): return False
-            if xf['logic'] == 'Between' and not (val >= xf['thresh'] and val <= xf.get('thresh_max', 100.0)): return False
-    # 9d. OR Filter Groups (at least one condition in each group must be true)
-    for group in params.get('or_filter_groups', []):
-        any_pass = False
-        for cond in group:
-            ctype = cond.get('type', 'perf')
-            window = cond['window']
-            logic = cond['logic']
-            thresh = cond['thresh']
-            if ctype == 'perf':
-                val = last_row.get(f"rank_ret_{window}d", 50.0)
-            elif ctype == 'xsec':
-                val = last_row.get(f"xsec_rank_ret_{window}d", 50.0)
-            else:
-                continue
-            if logic == '<' and val < thresh: any_pass = True; break
-            if logic == '>' and val > thresh: any_pass = True; break
-        if not any_pass:
-            return False
-    # 10. Volume (Ratio ONLY)
-    if params['use_vol']:
-        if not (last_row['vol_ratio'] > params['vol_thresh']): return False
-
-    # Risk dial filters — gate signals by the fragility score (from Risk Dashboard).
-    # Example: {'dial': '63d', 'window': 10, 'logic': '<', 'thresh': 50.0}
-    # means "10-day rolling avg of 63d dial must be < 50 on signal date".
-    # Fails closed if the fragility parquet is missing/stale — we don't trade
-    # through an unknown regime when a filter was explicitly configured.
-    dial_filters = params.get('dial_filters', [])
-    if dial_filters:
-        frag_df = _get_fragility_df_cached()
-        if frag_df is None or frag_df.empty:
-            return False
-        signal_date = df.index[-1]
-        try:
-            signal_date = pd.Timestamp(signal_date).normalize().tz_localize(None)
-        except (TypeError, AttributeError):
-            signal_date = pd.Timestamp(signal_date).normalize()
-        # Fail closed if the fragility cache is stale relative to the signal
-        # date (producer broken / missed run) — matches the "fails closed if
-        # missing/stale" contract above, which ffill alone would silently
-        # violate by carrying a weeks-old reading forward.
-        _last_frag = pd.Timestamp(frag_df.index[-1]).normalize()
-        try:
-            if np.busday_count(_last_frag.date(), signal_date.date()) > FRAG_STALE_TD:
-                return False
-        except (ValueError, AttributeError):
-            return False
-        for df_filter in dial_filters:
-            dial_col = df_filter.get('dial')
-            if dial_col not in frag_df.columns:
-                return False
-            win = max(1, int(df_filter.get('window', 1)))
-            dial_series = frag_df[dial_col]
-            if win > 1:
-                dial_series = dial_series.rolling(win, min_periods=win).mean()
-            try:
-                val = float(dial_series.reindex([signal_date], method='ffill').iloc[0])
-            except (IndexError, KeyError):
-                return False
-            if pd.isna(val):
-                return False
-            thresh = float(df_filter.get('thresh', 0))
-            logic = df_filter.get('logic', '>')
-            if logic == '>' and not (val > thresh): return False
-            if logic == '<' and not (val < thresh): return False
-            if logic == '>=' and not (val >= thresh): return False
-            if logic == '<=' and not (val <= thresh): return False
-
-    if params.get('use_vol_rank'):
-        val = last_row['vol_ratio_10d_rank']
-        if params['vol_rank_logic'] == '<':
-            if not (val < params['vol_rank_thresh']): return False
-        else:
-            if not (val > params['vol_rank_thresh']): return False
-            
-    return True
 
 # -----------------------------------------------------------------------------
 # 3. SAVING FUNCTIONS
