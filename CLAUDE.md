@@ -270,6 +270,11 @@ per-signal sizing. All values are EFFECTIVE (not GRM-scaled):
   2026-07-10 (before that the ledger did NOT model the pooled caps, so
   cross-strategy short cluster days ran optimistic vs live). The
   strat_backtester UI defaults now mirror prod (250/500/250).
+  **Sequential since 2026-07-16**: the engine's per-strategy pass now
+  propagates its trims into the pooled denominators, matching live's
+  cap ordering — before that the pooled scale divided by PRE-trim staged
+  totals and double-trimmed single-strategy cluster days ~30%. Guard:
+  `tests/test_pooled_cap_sequential.py`.
 
 Aligned sites — change together: `order_staging.py` (OneDrive) constants,
 `scripts/build_trade_ledger.py` POOLED_*_CAP_BPS, `daily_portfolio_report.py`
@@ -337,6 +342,36 @@ Decision happens in `order_staging.py` (in `C:\Users\mckin\OneDrive\trading_ibkr
 | Open ≤ Close | **Skip** | 0 |
 
 Scanner-side stamps `Path1_Bps`, `Path2_Bps`, `Path2_Daily_Cap_Pct` columns on every OVS staging row so order_staging can compute the multiplier without importing strategy_config.
+
+### Scale-out (live 2026-06-17, engine-modeled 2026-07-16)
+Every OVS P1/P2 primary-account row is split by order_staging into two
+independent single-target brackets: **near = 40% of shares @ 1 ATR, far =
+60% @ 2 ATR** (a tranche that rounds below 1 share = no split, single
+full-size 2-ATR bracket; PA is never split). Deliberate short-book VARIANCE
+SMOOTHING, not PnL-maximizing — the 2026-07-01 audit measured scale-outs as
+-R vs full-size 2 ATR and McKinley accepted that trade-off explicitly
+(2026-07-16). The engine books two tranche rows per fill (`Tranche` column:
+near/far/'' ) with the same share split; EOD-DD days book as one row (both
+live tranches exit at the same close); entry-day targets stay uncredited on
+the near tranche (book convention). Aligned sites — change together:
+- `strategy_config.py` OVS execution `scaleout_near_frac` /
+  `scaleout_near_tgt_atr` (source of truth; NOT GRM-scaled)
+- `order_staging.py` (OneDrive) `OVS_SCALEOUT_NEAR_FRAC` /
+  `OVS_PROFIT_TAKER_ATR_MULT` + `_split_scaleout_for_primary`
+- `pages/strat_backtester.py` tranche booking in `process_signals_fast`
+- Guard: `tests/test_ovs_scaleout.py`
+
+### Same-symbol precedence + P1-budget gate history (2026-07-16)
+**ATR Extended Gap Up > OVS**: when both fire on the same symbol and the ATR
+row passed its T+1 open gate, the OVS row is dropped (both short the same
+blow-off; never double the slot). Live in order_staging since before 2026-07;
+modeled in the engine pre-pass since 2026-07-16 (engine keys on ATR-Ext
+candidates, whose mask already includes the T+1 gate — matching live's
+Quantity > 0 condition). Guard: `tests/test_ovs_scaleout.py`.
+**P1-budget gate REMOVED**: the engine-only rule "kill all P2 when the day's
+P1 risk exceeds 60% of the per-strategy cap" fired on ~170 historical ledger
+days but never existed live. Removed 2026-07-16 (decision: match live). The
+P2 aggregate daily cap is live and stays.
 
 ### Entry-day drawdown stop (EOD-DD, Friday entries only)
 The OVS execution dict carries `eod_dd_atr: 0.25` and `eod_dd_weekdays: [4]`. If a Friday-entered OVS trade is more than 0.25 ATR offside vs the entry-day fill by 15:58 ET, exit at the entry-day close. Mon-Thu entries skip the check entirely — those positions get the full hold window instead. Weekday list uses Python conventions (Mon=0..Fri=4); empty/missing = all weekdays.

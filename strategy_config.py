@@ -592,6 +592,18 @@ _STRATEGY_BOOK_RAW = [
                       "path1_bps": 40, "path2_bps": 8, "path2_daily_cap_pct": 0.75,
                       "earnings_blackout_td": 10,
                       "eod_dd_atr": 0.25, "eod_dd_weekdays": [4],
+                      # Scale-out (live 2026-06-17, engine-modeled 2026-07-16):
+                      # order_staging splits every OVS P1/P2 row into two
+                      # independent single-target brackets — near_frac of the
+                      # shares target near_tgt_atr ATR, the remainder targets
+                      # the full tgt_atr. Deliberate short-book VARIANCE
+                      # SMOOTHING, not PnL-maximizing (measured -R vs full-size
+                      # 2 ATR — accepted trade-off, McKinley 2026-07-16). MUST
+                      # match order_staging.py OVS_SCALEOUT_NEAR_FRAC /
+                      # OVS_PROFIT_TAKER_ATR_MULT (PA is never split). Engine:
+                      # strat_backtester books two tranche rows per fill.
+                      # Guard: tests/test_ovs_scaleout.py. NOT GRM-scaled.
+                      "scaleout_near_frac": 0.40, "scaleout_near_tgt_atr": 1.0,
                       # Cycle-year risk tilt (2026-06-10): midterm years (year%4==2)
                       # run OVS at 0.75x. Evidence: all 6 midterm years 2006-2026
                       # underperform (avgR +0.19 vs +0.49 baseline), leave-one-year-

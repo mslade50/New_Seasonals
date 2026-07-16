@@ -1366,22 +1366,43 @@ def process_signals_fast(candidates, signal_data, processed_dict, strategies, st
         _p1_bps = _p2_bps = _p2_mult = _p2_cap_pct = _p2_cap_dollars = 0.0
         _ovs_cyc = {}
 
-    # Per-strategy daily-cap dollars (used by the OVS P1-budget gate below).
-    # Mirrors the post-loop cap that scales each strategy independently.
-    # OVS multiplier scales the gate so the 60% threshold tracks the
-    # multiplied per-trade risk; post-loop cap scales likewise per-strategy.
-    _strat_daily_cap_bps = 250 if cap_bps is None else cap_bps
-    _strat_daily_cap_dollars = starting_equity * _strat_daily_cap_bps / 10000.0
-    _ovs_p1_gate_dollars = 0.6 * _strat_daily_cap_dollars * _ovs_mult  # P1 risk above this kills all P2
+    # (The OVS P1-budget gate — kill all P2 when the day's P1 risk exceeded
+    # 60% of the per-strategy cap — was REMOVED 2026-07-16. It was engine-only:
+    # live order_staging never had that stage, so the ledger dropped P2 trades
+    # on ~170 historical days that live would have taken. Decision: match live
+    # (McKinley, 2026-07-16). The P2 aggregate daily cap below IS live and stays.)
+
+    # STRATEGY PRECEDENCE: ATR Extended Gap Up > Overbot Vol Spike.
+    # Mirrors order_staging.py (live since before 2026-07): when both fire on
+    # the same symbol and the ATR Extended Gap Up row passed its T+1 open gate,
+    # the OVS row is dropped — both are short fades of the same blow-off and we
+    # never want to double the slot. In the engine, ATR Ext's T+1 gate is part
+    # of its candidate mask (use_t1_open_filter via NextOpen), so its candidates
+    # ARE the gate-passed set — matching live's Quantity > 0 condition, which
+    # keys on the staged (gate-passed) row, not the eventual limit fill.
+    # Runs BEFORE the OVS P2-cap pre-pass so dropped OVS rows don't inflate
+    # the P2 risk totals (same ordering as live).
+    _atr_ext_keys = set()
+    if _ovs_strat is not None and any(s.get('name') == 'ATR Extended Gap Up' for s in strategies):
+        for cand in candidates:
+            _sig_ts, _tkr, _t_clean, _strat_idx, _signal_idx = cand
+            if strategies[_strat_idx].get('name') == 'ATR Extended Gap Up':
+                _atr_ext_keys.add((pd.Timestamp(_sig_ts).normalize(), _t_clean.upper()))
 
     if _eb_windows_by_strat or _ovs_strat is not None:
         _p2_risk_by_date = {}
-        _p1_risk_by_date = {}  # OVS P1 risk dollars per signal date
         _filtered_candidates = []
         _eb_dropped_by_strat = {}  # strat_idx -> count
+        _prec_dropped = 0
         for cand in candidates:
             _sig_ts, _tkr, _t_clean, _strat_idx, _signal_idx = cand
             _s = strategies[_strat_idx]
+
+            # Precedence drop (see block above) — before blackout/P2 accounting.
+            if (_atr_ext_keys and _s.get('name') == "Overbot Vol Spike"
+                    and (pd.Timestamp(_sig_ts).normalize(), _t_clean.upper()) in _atr_ext_keys):
+                _prec_dropped += 1
+                continue
 
             # Generic earnings blackout — any strategy with earnings_blackout_td set.
             _eb_window = _eb_windows_by_strat.get(_strat_idx)
@@ -1420,35 +1441,25 @@ def process_signals_fast(candidates, signal_data, processed_dict, strategies, st
             _cyc_m = float(_ovs_cyc.get(_sd.year % 4, 1.0)) if _ovs_cyc else 1.0
             _base_risk_p1 = starting_equity * _p1_bps / 10000.0 * _ovs_mult * _cyc_m
             if _t1_open > _sc + 0.25 * _atr:
-                # P1 — track risk for the daily-cap gate, no path-2 contribution.
-                _p1_risk_by_date[_sd] = _p1_risk_by_date.get(_sd, 0.0) + _base_risk_p1
-                continue
+                continue  # P1 — no path-2 contribution (P1-budget gate removed 2026-07-16)
             # P2 — accumulate risk contribution for the pro-rata cap below.
             _p2_risk = _base_risk_p1 * _p2_mult
             _p2_risk_by_date[_sd] = _p2_risk_by_date.get(_sd, 0.0) + _p2_risk
 
         candidates = _filtered_candidates
+        if _prec_dropped:
+            print(f"   [PRECEDENCE] ATR Extended Gap Up > OVS: dropped {_prec_dropped} same-symbol OVS candidates")
         for _strat_idx, _n in _eb_dropped_by_strat.items():
             _name = strategies[_strat_idx].get('name', f'strat#{_strat_idx}')
             _w = _eb_windows_by_strat.get(_strat_idx)
             print(f"   [BLOCK] {_name} earnings blackout: dropped {_n} candidates within +/-{_w} TD of earnings")
 
-        # Resolve per-date P2 scale: kill all P2 if P1 already used >60% of the
-        # OVS daily cap; otherwise pro-rata cap at path2_daily_cap_pct.
-        _p2_killed_days = 0
+        # Resolve per-date P2 scale: pro-rata cap at path2_daily_cap_pct.
+        # (This aggregate P2 cap IS live — order_staging scales P2 rows
+        # pro-rata against Path2_Daily_Cap_Pct. The engine-only P1-budget
+        # kill that used to zero these days was removed 2026-07-16.)
         for _d, _r in _p2_risk_by_date.items():
-            _p1_today = _p1_risk_by_date.get(_d, 0.0)
-            if _p1_today > _ovs_p1_gate_dollars:
-                _ovs_p2_scale_by_date[_d] = 0.0
-                _p2_killed_days += 1
-            else:
-                _ovs_p2_scale_by_date[_d] = min(1.0, _p2_cap_dollars / _r) if _r > 0 else 1.0
-        if _p2_killed_days > 0:
-            print(
-                f"   [GATE] OVS P1-budget gate engaged on {_p2_killed_days} day(s): "
-                f"P1 risk > 60% × {_strat_daily_cap_bps} bps cap "
-                f"(${_ovs_p1_gate_dollars:,.0f}) — all P2 trades dropped those days"
-            )
+            _ovs_p2_scale_by_date[_d] = min(1.0, _p2_cap_dollars / _r) if _r > 0 else 1.0
 
     # Per-(strategy, day) signal counts for execution['same_day_signal_derate']
     # (3x Bear fade, sizing step 3b4 below). Counted on STAGED candidates
@@ -1681,7 +1692,7 @@ def process_signals_fast(candidates, signal_data, processed_dict, strategies, st
                 _p2_scale = _ovs_p2_scale_by_date.get(pd.Timestamp(signal_ts).normalize(), 1.0)
                 _ovs_size_mult = _p2_base_mult * _p2_scale
                 if _ovs_size_mult <= 0:
-                    continue  # P1-budget gate killed all P2 today
+                    continue  # degenerate P2 scale (zero cap) — nothing to stage
 
         # --- 3. Sizing (base_risk × strategy multipliers × ladder × gap_mult) ---
         # OVS uses path1_bps (40) as the nominal — path-2 downsizing is folded
@@ -2157,58 +2168,106 @@ def process_signals_fast(candidates, signal_data, processed_dict, strategies, st
                         placed_risk_by_dir_date[(signal_date, direction)] -= base_risk
 
             if shares > 0:
-                if action == "BUY":
-                    pnl = ((exit_price - entry_price) * shares).round(0)
-                else:
-                    pnl = ((entry_price - exit_price) * shares).round(0)
-
                 target_ts_idx = entry_idx + hold_days
                 if target_ts_idx < len(df):
                     time_stop_date = df.index[target_ts_idx]
                 else:
                     time_stop_date = entry_date + (TRADING_DAY * hold_days)
 
-                open_positions.append({
-                    'ticker': ticker, 't_clean': t_clean,
-                    'entry_date': entry_date, 'entry_price': entry_price,
-                    'shares': shares, 'direction': 'Long' if action == 'BUY' else 'Short',
-                    'exit_idx': exit_idx, 'exit_date': exit_date, 'strat_name': strat_name
-                })
-                # Keep intra-date exposure tracker in sync so multiple signals
-                # on the same date compete for the remaining cap budget.
-                if action == "BUY":
-                    current_long_notional += entry_price * shares
-                else:
-                    current_short_notional += entry_price * shares
-                if max_one_pos:
-                    position_last_exit[(strat_name, ticker)] = exit_date.value
-
-                # feed the sector-loss gate's closed-trade log (see gate block)
-                if execution.get('sector_loss_gate') and base_risk > 0:
-                    _gsec2 = _sector_map().get(t_clean.upper())
-                    if _gsec2 == 'UNKNOWN':
-                        _gsec2 = None
-                    if _gsec2:
-                        _gate_closed.setdefault(strat_name, []).append(
-                            (exit_date.value, _gsec2, float(pnl) / float(base_risk)))
+                # ---- OVS scale-out (live 2026-06-17; modeled 2026-07-16) ----
+                # order_staging splits every OVS P1/P2 row into two independent
+                # single-target brackets: near = scaleout_near_frac of shares
+                # with target at scaleout_near_tgt_atr ATR, far = the remainder
+                # at the full tgt_atr. Deliberate SHORT-BOOK VARIANCE SMOOTHING
+                # (McKinley, 2026-07-16), not PnL-maximizing — the ledger must
+                # book what live does. Live keeps one full-size far bracket when
+                # either tranche rounds below 1 share (PA is never split). An
+                # EOD-DD (or any entry-day) exit closes both tranches at the
+                # same price, so those days book as a single row. The near
+                # tranche follows the book convention: entry-day targets are
+                # never credited. Config lives in strategy_config OVS execution
+                # ('scaleout_near_frac' / 'scaleout_near_tgt_atr') and MUST
+                # match order_staging.py's OVS_SCALEOUT_NEAR_FRAC /
+                # OVS_PROFIT_TAKER_ATR_MULT. Guard: tests/test_ovs_scaleout.py.
+                _so_frac = float(execution.get('scaleout_near_frac', 0.0) or 0.0)
+                _tranches = None
+                if (strat_name == "Overbot Vol Spike" and _so_frac > 0
+                        and use_target and exit_type in ("Target", "Time")):
+                    _near_sh = int(round(shares * _so_frac))
+                    _far_sh = shares - _near_sh
+                    if _near_sh >= 1 and _far_sh >= 1:
+                        _near_tgt_atr = float(execution.get('scaleout_near_tgt_atr', 1.0))
+                        if direction == 'Long':
+                            _near_tgt = entry_price + atr * _near_tgt_atr
+                        else:
+                            _near_tgt = entry_price - atr * _near_tgt_atr
+                        _n_idx = max_exit_idx
+                        _n_px = df.iloc[max_exit_idx]['Close']
+                        _n_ty = 'Time'
+                        for _ci in range(entry_idx + 1, max_exit_idx + 1):
+                            _cr = df.iloc[_ci]
+                            if ((direction == 'Long' and _cr['High'] >= _near_tgt)
+                                    or (direction != 'Long' and _cr['Low'] <= _near_tgt)):
+                                _n_idx, _n_px, _n_ty = _ci, _near_tgt, 'Target'
+                                break
+                        _tranches = [
+                            ('near', _near_sh, _n_idx, df.index[_n_idx], _n_px, _n_ty),
+                            ('far', _far_sh, exit_idx, exit_date, exit_price, exit_type),
+                        ]
+                if _tranches is None:
+                    _tranches = [('', shares, exit_idx, exit_date, exit_price, exit_type)]
 
                 t1_open = entry_row['Open'] if entry_row is not None else entry_price
 
-                results.append({
-                    "Date": signal_date, "Entry Date": entry_date,
-                    "Exit Date": exit_date, "Exit Type": exit_type,
-                    "Time Stop": time_stop_date, "Strategy": strat_name,
-                    "Ticker": ticker, "Action": action,
-                    "Entry Criteria": entry_type, "Price": entry_price,
-                    "Exit Price": exit_price,
-                    "Shares": shares, "PnL": pnl, "ATR": atr,
-                    "stop_atr": stop_atr, "tgt_atr": tgt_atr,
-                    "T+1 Open": t1_open, "Signal Close": row_data['close'],
-                    "Range %": row_data['range_pct'],
-                    "Equity at Signal": current_equity,
-                    "Risk $": base_risk, "Risk bps": risk_bps,
-                    "Size_Mult": round(_size_mult, 4)
-                })
+                for _trn, _t_shares, _t_exit_idx, _t_exit_date, _t_exit_px, _t_exit_ty in _tranches:
+                    _t_risk = base_risk * _t_shares / shares
+                    if action == "BUY":
+                        pnl = ((_t_exit_px - entry_price) * _t_shares).round(0)
+                    else:
+                        pnl = ((entry_price - _t_exit_px) * _t_shares).round(0)
+
+                    open_positions.append({
+                        'ticker': ticker, 't_clean': t_clean,
+                        'entry_date': entry_date, 'entry_price': entry_price,
+                        'shares': _t_shares, 'direction': 'Long' if action == 'BUY' else 'Short',
+                        'exit_idx': _t_exit_idx, 'exit_date': _t_exit_date, 'strat_name': strat_name
+                    })
+                    # Keep intra-date exposure tracker in sync so multiple signals
+                    # on the same date compete for the remaining cap budget.
+                    if action == "BUY":
+                        current_long_notional += entry_price * _t_shares
+                    else:
+                        current_short_notional += entry_price * _t_shares
+                    if max_one_pos:
+                        # tranches iterate near -> far; far's exit is never
+                        # earlier, so the final write is the position's true end
+                        position_last_exit[(strat_name, ticker)] = _t_exit_date.value
+
+                    # feed the sector-loss gate's closed-trade log (see gate block)
+                    if execution.get('sector_loss_gate') and _t_risk > 0:
+                        _gsec2 = _sector_map().get(t_clean.upper())
+                        if _gsec2 == 'UNKNOWN':
+                            _gsec2 = None
+                        if _gsec2:
+                            _gate_closed.setdefault(strat_name, []).append(
+                                (_t_exit_date.value, _gsec2, float(pnl) / float(_t_risk)))
+
+                    results.append({
+                        "Date": signal_date, "Entry Date": entry_date,
+                        "Exit Date": _t_exit_date, "Exit Type": _t_exit_ty,
+                        "Time Stop": time_stop_date, "Strategy": strat_name,
+                        "Ticker": ticker, "Action": action,
+                        "Entry Criteria": entry_type, "Price": entry_price,
+                        "Exit Price": _t_exit_px,
+                        "Shares": _t_shares, "PnL": pnl, "ATR": atr,
+                        "stop_atr": stop_atr, "tgt_atr": tgt_atr,
+                        "T+1 Open": t1_open, "Signal Close": row_data['close'],
+                        "Range %": row_data['range_pct'],
+                        "Equity at Signal": current_equity,
+                        "Risk $": _t_risk, "Risk bps": risk_bps,
+                        "Size_Mult": round(_size_mult, 4),
+                        "Tranche": _trn
+                    })
 
     if _progress_bar is not None:
         _progress_bar.empty()
@@ -2250,11 +2309,27 @@ def process_signals_fast(candidates, signal_data, processed_dict, strategies, st
                 sig_df.loc[grp_idx, 'Shares'] = (sig_df.loc[grp_idx, 'Shares'] * scale).round().astype(int)
                 sig_df.loc[grp_idx, 'PnL']    = (sig_df.loc[grp_idx, 'PnL']    * scale).round()
                 sig_df.loc[grp_idx, 'Risk $'] = sig_df.loc[grp_idx, 'Risk $']  * scale
+                # Propagate the trim into the pooled denominators (2026-07-16).
+                # Live applies the caps SEQUENTIALLY — the pooled stage sees
+                # post-per-strategy-cap risk — but this pass used to leave
+                # placed_risk_by_dir_date at its pre-trim total, so the pooled
+                # stage below divided by a stale denominator and DOUBLE-trimmed
+                # (~30% understatement on single-strategy cluster days).
+                # Residual: a strategy with staged risk but zero fills that day
+                # never reaches this loop, so its (rare) over-cap staged risk
+                # stays untrimmed in the pooled denominator.
+                _dir_grp = 'Long' if sig_df.loc[grp_idx, 'Action'].iloc[0] == 'BUY' else 'Short'
+                placed_risk_by_dir_date[(date, _dir_grp)] = (
+                    placed_risk_by_dir_date.get((date, _dir_grp), 0.0)
+                    - (placed_total - cap_dollars)
+                )
 
     # ---- Pooled long/short daily risk cap (staging-based) ----
     # Bounds each side (long/short) across ALL strategies combined. The
     # scale factor is computed from STAGED risk (placed_risk_by_dir_date),
-    # not filled risk — mirroring how live can only budget what it stages.
+    # post per-strategy trim — live applies the caps sequentially and the
+    # per-strategy pass above propagates its trims into the denominator.
+    # Not filled risk — mirroring how live can only budget what it stages.
     # If only N% of orders fill, the scale derived from full staged risk
     # implicitly shrinks deployed risk to N% × cap. Stacks on top of the
     # per-strategy backstop above.
