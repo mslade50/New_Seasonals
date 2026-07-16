@@ -15,12 +15,7 @@ from email.mime.multipart import MIMEMultipart
 
 from indicators import calculate_indicators, get_sznl_val_series
 from earnings_filter import load_earnings_dates_map, in_blackout, signed_offset
-from exposure_leg import (
-    compute_exposure_targets,
-    load_prior_state,
-    save_state,
-    build_exposure_email_html,
-)
+from exposure_leg import compute_exposure_targets, save_state
 
 # NYSE trading-day offset (2026-07-16: was USFederalHolidayCalendar, which
 # marks Columbus/Veterans Day while NYSE trades — the morning after each,
@@ -269,43 +264,18 @@ def get_google_client():
         return None
 
 
-def send_email_summary(signals_list, error_tickers=None, frag_score=None, scope_label=None, exposure_html=None):
+def send_email_summary(signals_list, error_tickers=None, scope_label=None):
     """
     Sends an HTML email summary of the signals using Gmail SMTP.
     Card-based layout showing full signal criteria with LIVE values.
 
-    frag_score: today's 10d-MA 63d fragility reading. Sizing is per-strategy
-    (execution['frag_risk_bands']); the header line shows the score and which
-    band tilts are active so the reader sees the regime at a glance.
+    The Risk Dial header and the Exposure Leg block were removed 2026-07-16
+    (per McKinley): the dial state lives on the site risk tab's Sizing State
+    hero and the daily risk email; the exposure leg still computes and writes
+    exposure_state.json on the AM run (the site reads it), it just no longer
+    renders here. Per-signal band tilts still appear in each signal's
+    Sizing notes.
     """
-    # Build the risk-dial header line (shared across both branches)
-    if frag_score is not None:
-        if frag_score <= 25:
-            _dial_label = "Robust"
-            _dial_color = "#c8e6c9"
-        elif frag_score <= 60:
-            _dial_label = "Neutral"
-            _dial_color = "#fff59d"
-        else:
-            _dial_label = "Fragile"
-            _dial_color = "#ffcdd2"
-        # Derived from the strategy book, never hand-copied (the hardcoded
-        # version displayed the removed OVS tilt for 13 days).
-        _tilts = active_band_tilts(frag_score)
-        _tilt_txt = ", ".join(_tilts) if _tilts else "no band tilts active"
-        risk_dial_html = (
-            f'<div style="font-size: 13px; margin-top: 6px; opacity: 0.95;">'
-            f'🛡️ Risk Dial: <strong>{frag_score:.1f}</strong> '
-            f'<span style="background: {_dial_color}; color: #333; padding: 1px 6px; border-radius: 3px; font-size: 11px; margin: 0 4px;">{_dial_label}</span>'
-            f'→ <strong>{_tilt_txt}</strong>'
-            f'</div>'
-        )
-    else:
-        risk_dial_html = (
-            '<div style="font-size: 13px; margin-top: 6px; opacity: 0.7;">'
-            '🛡️ Risk Dial: n/a (fragility cache missing) — all bands 1.00x'
-            '</div>'
-        )
     sender_email = os.environ.get("EMAIL_USER")
     sender_password = os.environ.get("EMAIL_PASS")
     receiver_email = "mckinleyslade@gmail.com"
@@ -368,8 +338,6 @@ def send_email_summary(signals_list, error_tickers=None, frag_score=None, scope_
                 <div style="max-width: 700px; margin: 0 auto; background: white; padding: 30px; border-radius: 8px;">
                     <h2 style="color: #333; margin-top: 0;">Daily Strategy Scan: {date_str}</h2>
                     <p style="color: #666;">The scan completed successfully.</p>
-                    <div style="font-size: 13px; color: #555; margin: 10px 0 15px 0;">{risk_dial_html}</div>
-                    {exposure_html or ''}
                     <p style="font-size: 18px; color: #888;"><strong>Result:</strong> No signals found matching criteria today.</p>
                     {error_html}
                 </div>
@@ -617,9 +585,7 @@ def send_email_summary(signals_list, error_tickers=None, frag_score=None, scope_
                         <div style="font-size: 14px; margin-top: 8px; opacity: 0.9;">
                             {long_count} Long | {short_count} Short | ${total_risk:,.0f} Risk | {net_notional_str} Net Exposure
                         </div>
-                        {risk_dial_html}
                     </div>
-                    {exposure_html or ''}
 
                     <!-- Quick Summary -->
                     <div style="background: white; padding: 20px; border-bottom: 1px solid #ddd;">
@@ -716,29 +682,6 @@ def frag_band_mult(execution, frag_score):
         if lo <= frag_score < hi:
             return float(mult)
     return 1.0
-
-
-def active_band_tilts(frag_score, strategy_book=None):
-    """Human-readable list of band tilts active at this score, DERIVED from
-    the strategy book (the email header used to hand-copy the band table and
-    kept displaying the OVS 0.75x tilt for 13 days after the PIT gate removed
-    it — never hardcode band text again). Groups strategies by multiplier;
-    3+ names collapse to a count."""
-    if frag_score is None:
-        return []
-    book = STRATEGY_BOOK if strategy_book is None else strategy_book
-    by_mult = {}
-    for strat in book:
-        mult = frag_band_mult(strat.get('execution') or {}, frag_score)
-        if mult != 1.0:
-            by_mult.setdefault(mult, []).append(strat.get('name', '?'))
-    tilts = []
-    for mult in sorted(by_mult):
-        names = by_mult[mult]
-        label = (", ".join(names) if len(names) <= 2
-                 else f"{len(names)} strategies")
-        tilts.append(f"{label} @ {mult:.2f}x")
-    return tilts
 
 
 def _print_ledger_provenance(path, n_rows):
@@ -3139,7 +3082,9 @@ def run_daily_scan(scope='liquid', moc_only=False, dry_run=False):
 
     # Exposure leg — only on the AM bookend run (scope=all + UTC hour < 12).
     # The PM bookend at ~20:13 UTC and intraday MOC runs skip it.
-    exposure_html = None
+    # Email rendering removed 2026-07-16 (per McKinley): the state still
+    # computes and persists here — the site's Sizing State hero and the
+    # committed exposure_state.json snapshot depend on it.
     is_am_run = (scope == 'all' and not moc_only and datetime.datetime.utcnow().hour < 12)
     if is_am_run:
         try:
@@ -3147,18 +3092,15 @@ def run_daily_scan(scope='liquid', moc_only=False, dry_run=False):
                 account_value=ACCOUNT_VALUE,
                 master_dict=master_dict if 'master_dict' in dir() else None,
             )
-            prior_snap = load_prior_state()
-            exposure_html = build_exposure_email_html(today_snap, prior_snap)
             if today_snap is not None:
                 save_state(today_snap)
                 print(f"[exposure] Mult={today_snap['mult']:.2f}x rule={today_snap['active_rule']} reason={today_snap['reason']}")
             else:
                 print("[exposure] Fragility cache missing — exposure leg skipped.")
         except Exception as e:
-            print(f"[exposure] Failed to build exposure leg: {e}")
-            exposure_html = None
+            print(f"[exposure] Failed to compute exposure leg: {e}")
 
-    send_email_summary(all_signals, error_tickers=unique_errors, frag_score=frag_score, scope_label=_scope_label, exposure_html=exposure_html)
+    send_email_summary(all_signals, error_tickers=unique_errors, scope_label=_scope_label)
 
     print("--- Scan Complete ---")
 

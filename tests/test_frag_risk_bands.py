@@ -105,27 +105,6 @@ def test_engine_uses_real_cache_when_present():
     assert series.index.is_monotonic_increasing
 
 
-def test_email_tilt_text_derived_from_book():
-    """The scan-email header derives band tilts from STRATEGY_BOOK — the
-    hardcoded version kept displaying the removed OVS tilt for 13 days."""
-    from daily_scan import active_band_tilts
-
-    assert active_band_tilts(None) == []
-    # Below every band floor (incl. the dead OVS [21,44) zone): no tilts.
-    assert active_band_tilts(32.1) == []
-    assert active_band_tilts(49.9) == []
-    # At/above 50 the five carriers collapse to a count at 0.25x.
-    tilts = active_band_tilts(55.0)
-    assert tilts == ["5 strategies @ 0.25x"]
-    # Synthetic book: <=2 names are listed, groups sort by multiplier.
-    book = [
-        {"name": "A", "execution": {"frag_risk_bands": [[50, 999, 0.25]]}},
-        {"name": "B", "execution": {"frag_risk_bands": [[40, 999, 0.5]]}},
-        {"name": "C", "execution": {}},
-    ]
-    assert active_band_tilts(60.0, book) == ["A @ 0.25x", "B @ 0.50x"]
-
-
 def test_site_serializer_mirrors_strategy_config():
     """The site's sizing_state block must be generated from strategy_config,
     never hardcoded — the band table on the risk page is the same object the
