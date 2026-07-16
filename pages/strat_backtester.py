@@ -4,14 +4,15 @@ import numpy as np
 import yfinance as yf
 import datetime
 import time
-from pandas.tseries.offsets import BusinessDay, CustomBusinessDay
-from pandas.tseries.holiday import USFederalHolidayCalendar
+from pandas.tseries.offsets import BusinessDay
 
 # Holiday-aware trading-day offset for projecting time stops past the last
 # price bar. Must match daily_scan.py's TRADING_DAY: plain BusinessDay counts
 # market holidays (e.g. 2026-07-03), which shifted every open position's
 # projected Time Stop a day early and let the site book time exits early.
-TRADING_DAY = CustomBusinessDay(calendar=USFederalHolidayCalendar())
+# 2026-07-16: both now come from trading_calendar (NYSE rules — Good Friday
+# closed, Columbus/Veterans Day trading; was USFederalHolidayCalendar).
+from trading_calendar import TRADING_DAY
 import plotly.graph_objects as go
 import plotly.express as px
 import sys

@@ -21,7 +21,8 @@ indices, futures, and FX should never be silently killed by a stock-only filter.
 import os
 import numpy as np
 import pandas as pd
-from pandas.tseries.holiday import USFederalHolidayCalendar
+
+from trading_calendar import NYSE_HOLIDAYS
 
 
 _PARQUET_PATH = os.path.join(
@@ -40,10 +41,11 @@ _OVERFLOW_PARQUET_PATH = os.path.join(
     "earnings_calendar_overflow.parquet",
 )
 
-# Cached holidays_d64 used by np.busday_count — same calendar as pages/backtester.
-_HOLIDAYS_D64 = pd.DatetimeIndex(
-    USFederalHolidayCalendar().holidays(start="1990-01-01", end="2035-12-31")
-).to_numpy().astype("datetime64[D]")
+# Cached holidays_d64 used by np.busday_count — same calendar as
+# pages/backtester (both switched to NYSE rules 2026-07-16; blackout
+# trading-day offsets around Good Friday / Columbus / Veterans Day now
+# count actual sessions).
+_HOLIDAYS_D64 = pd.DatetimeIndex(NYSE_HOLIDAYS).to_numpy().astype("datetime64[D]")
 
 
 # Staleness threshold for the local parquet. The local Task Scheduler entry

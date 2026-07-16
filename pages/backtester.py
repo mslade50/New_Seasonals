@@ -1624,9 +1624,10 @@ def run_engine(universe_dict, params, sznl_map, market_series=None, vix_series=N
                 _e_dates = _e_map.get(ticker.upper()) if _e_map else None
                 _holidays = params.get('_earnings_holidays')
                 if _holidays is None:
-                    from pandas.tseries.holiday import USFederalHolidayCalendar
-                    _hcal = USFederalHolidayCalendar()
-                    _holidays = _hcal.holidays(start='1990-01-01', end='2035-01-01').to_numpy().astype('datetime64[D]')
+                    # NYSE calendar — must match earnings_filter._HOLIDAYS_D64
+                    # (both switched from USFederalHolidayCalendar 2026-07-16)
+                    from trading_calendar import NYSE_HOLIDAYS
+                    _holidays = pd.DatetimeIndex(NYSE_HOLIDAYS).to_numpy().astype('datetime64[D]')
                     params['_earnings_holidays'] = _holidays
                 _nearest = compute_signed_earnings_offsets(df.index, _e_dates, _holidays)
                 _op = params.get('earnings_logic', 'Between')

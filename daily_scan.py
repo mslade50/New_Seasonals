@@ -3,8 +3,7 @@ import numpy as np
 import yfinance as yf
 import datetime
 import gspread
-from pandas.tseries.offsets import BusinessDay, CustomBusinessDay
-from pandas.tseries.holiday import USFederalHolidayCalendar
+from pandas.tseries.offsets import BusinessDay
 import time
 import pytz
 import sys
@@ -23,8 +22,12 @@ from exposure_leg import (
     build_exposure_email_html,
 )
 
-# Define a "Trading Day" offset that skips Weekends AND US Holidays
-TRADING_DAY = CustomBusinessDay(calendar=USFederalHolidayCalendar())
+# NYSE trading-day offset (2026-07-16: was USFederalHolidayCalendar, which
+# marks Columbus/Veterans Day while NYSE trades — the morning after each,
+# Friday's already-traded signals were re-staged — and misses Good Friday).
+# order_staging.py back-computes entry expiry with an IDENTICAL calendar;
+# see trading_calendar.py + tests/test_trading_calendar.py.
+from trading_calendar import TRADING_DAY
 
 # -----------------------------------------------------------------------------
 # IMPORT STRATEGY BOOK

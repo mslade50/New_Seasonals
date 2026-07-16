@@ -33,10 +33,9 @@ import json
 import datetime
 import time
 import sys
-from pandas.tseries.offsets import CustomBusinessDay
-from pandas.tseries.holiday import USFederalHolidayCalendar
-
-TRADING_DAY = CustomBusinessDay(calendar=USFederalHolidayCalendar())
+# NYSE calendar shared with daily_scan / strat_backtester (2026-07-16 —
+# was USFederalHolidayCalendar; see trading_calendar.py for why).
+from trading_calendar import TRADING_DAY
 
 # =============================================================================
 # CONFIGURATION

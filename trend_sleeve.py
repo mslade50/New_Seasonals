@@ -35,14 +35,12 @@ import sys
 
 import numpy as np
 import pandas as pd
-from pandas.tseries.holiday import USFederalHolidayCalendar
-from pandas.tseries.offsets import CustomBusinessDay
-
 current_dir = os.path.dirname(os.path.abspath(__file__))
 sys.path.append(current_dir)
 
 from strategy_config import ACCOUNT_VALUE
 from cache_io import download_to_local, upload_from_local
+from trading_calendar import TRADING_DAY
 
 # 12-ETF universe (2026-07-02, McKinley's spec, confirmed by
 # scratch/tf_universe_study.py): USO dropped (roll-decay vehicle; its removal
@@ -79,13 +77,12 @@ def _today_et() -> pd.Timestamp:
 
 
 def is_last_trading_day(today=None) -> bool:
-    """True when the next business day (US federal holidays) starts a new
-    month. NYSE-only closures (e.g. Good Friday) can slip the rebalance one
-    session — a 1-day slip is verified immaterial vs the 0.55-Sharpe
-    full-month-delay bound."""
-    cbd = CustomBusinessDay(calendar=USFederalHolidayCalendar())
+    """True when the next NYSE session starts a new month. (2026-07-16:
+    switched from the federal calendar, which also mis-stamped Execute_On to
+    a Good Friday — order_staging never runs on a closed day, so those rows
+    would have been ignored forever and the rebalance silently missed.)"""
     today = pd.Timestamp(today) if today is not None else _today_et()
-    return (today.normalize() + cbd).month != today.normalize().month
+    return (today.normalize() + TRADING_DAY).month != today.normalize().month
 
 
 def load_closes() -> pd.DataFrame:
@@ -183,8 +180,7 @@ def build_orders(targets: pd.DataFrame, state: dict) -> pd.DataFrame:
         # schedule run-date == signal date, so this is the first session of the
         # new month; an off-schedule --force run stages for the next open.
         # Stale rows are ignored forever after.
-        cbd = CustomBusinessDay(calendar=USFederalHolidayCalendar())
-        exec_on = _today_et() + cbd
+        exec_on = _today_et() + TRADING_DAY
         out["Execute_On"] = str(exec_on.date())
     return out
 

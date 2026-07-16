@@ -114,11 +114,11 @@ def strategy_exec_map():
 
 
 def trading_day_offsets():
-    """(CustomBusinessDay, expected_last_td, prev_td) on the US federal
-    holiday calendar. Expected last trading day = today rolled back."""
-    from pandas.tseries.holiday import USFederalHolidayCalendar
-    from pandas.tseries.offsets import CustomBusinessDay
-    cbd = CustomBusinessDay(calendar=USFederalHolidayCalendar())
+    """(CustomBusinessDay, expected_last_td, prev_td) on the NYSE calendar
+    (trading_calendar.py — was US federal until 2026-07-16). Expected last
+    trading day = today rolled back."""
+    from trading_calendar import TRADING_DAY
+    cbd = TRADING_DAY
     today = pd.Timestamp.today().normalize()
     expected = cbd.rollback(today)
     prev_td = expected - cbd

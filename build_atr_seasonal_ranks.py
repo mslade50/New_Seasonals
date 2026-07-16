@@ -298,10 +298,10 @@ def generate_trading_dates(year):
         sessions = nyse.sessions_in_range(f"{year}-01-01", f"{year}-12-31")
         dates = sessions.tz_localize(None)
     except Exception:
-        # Fallback for years outside exchange_calendars range
-        from pandas.tseries.holiday import USFederalHolidayCalendar
-        bday = CustomBusinessDay(calendar=USFederalHolidayCalendar())
-        dates = pd.date_range(start=f"{year}-01-01", end=f"{year}-12-31", freq=bday)
+        # Fallback for years outside exchange_calendars range — NYSE-rule
+        # calendar (2026-07-16: was USFederalHolidayCalendar)
+        from trading_calendar import TRADING_DAY
+        dates = pd.date_range(start=f"{year}-01-01", end=f"{year}-12-31", freq=TRADING_DAY)
     day_counts = [min(i + 1, MAX_DAY_COUNT) for i in range(len(dates))]
     return pd.DataFrame({
         'Date': dates,
