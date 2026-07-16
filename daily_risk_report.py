@@ -31,7 +31,6 @@ os.environ.setdefault("STREAMLIT_SERVER_HEADLESS", "true")
 
 import plotly.graph_objects as go
 import plotly.io as pio
-from plotly.subplots import make_subplots
 
 from pages.risk_dashboard_v2 import (
     refresh_all_data,
@@ -196,29 +195,33 @@ def _write_png(fig, path, scale=2):
     pio.from_json(pio.to_json(fig)).write_image(path, scale=scale)
 
 
-def generate_dial_image(h_scores, tmp_dir):
-    """Generate combined 3-dial gauge image."""
-    if h_scores is None:
+# The one threshold that sizes live orders (frag_risk_bands, all entries at
+# [[50,999,mult]]). strategy_config is the source of truth; the value here is
+# display-only and guarded by tests/test_frag_risk_bands.py.
+THROTTLE_THRESHOLD = 50.0
+
+
+def generate_dial_image(sizing, tmp_dir):
+    """Single 63d gauge on the sizing basis (10d MA of the 63d dial from the
+    just-appended PIT parquet — never the in-memory recompute, which drifts
+    near the threshold). Replaced the 3-dial 5d/21d/63d strip 2026-07-16:
+    5d failed every sizing test, 21d is ~90% redundant with 63d. All three
+    raw scores stay in the subject line."""
+    if sizing is None or sizing.get('ma') is None:
         return None
 
-    horizons = [('5d', '5-Day'), ('21d', '21-Day'), ('63d', '63-Day')]
-    fig = make_subplots(
-        rows=1, cols=3,
-        specs=[[{"type": "indicator"}] * 3],
-        horizontal_spacing=0.05,
+    fig = build_risk_dial(sizing['ma'], title="63d dial · 10d MA (sizing basis)")
+    on = bool(sizing.get('on'))
+    fig.add_annotation(
+        text=(f"THROTTLE {'ON' if on else 'OFF'} — banded strategies at "
+              f"{'0.25x' if on else 'full size'} (threshold {THROTTLE_THRESHOLD:.0f})"),
+        xref="paper", yref="paper", x=0.5, y=-0.08, showarrow=False,
+        font=dict(size=12, color="#CC0000" if on else "#00CC00"),
     )
-
-    for i, (key, label) in enumerate(horizons):
-        score = h_scores.get(key, 0)
-        dial_fig = build_risk_dial(score, title=label)
-        # Extract the indicator trace and add to subplot
-        indicator = dial_fig.data[0]
-        fig.add_trace(indicator, row=1, col=i + 1)
-
     fig.update_layout(
-        height=200,
-        width=750,
-        margin=dict(l=10, r=10, t=40, b=10),
+        height=230,
+        width=420,
+        margin=dict(l=10, r=10, t=40, b=35),
         paper_bgcolor="#1a1a2e",
         plot_bgcolor="#1a1a2e",
         font=dict(color="#ffffff"),
@@ -251,7 +254,7 @@ def generate_overlay_image(spy_close, signals_ordered, tmp_dir):
     return path
 
 
-def find_analog_dates(frag_df, h_scores, h_scores_10d, n_matches=20, min_gap=10):
+def find_analog_dates(frag_df, h_scores, h_scores_10d, n_matches=5, min_gap=10):
     """Find the N closest historical dates by Euclidean distance on 4 fragility dims.
 
     Feature vector: [21d_raw, 21d_10d_avg, 63d_raw, 63d_10d_avg]
@@ -492,7 +495,7 @@ def _build_fwd_returns_html(fwd_returns_data, title):
     """
 
 
-def build_html_email(computed, fwd_returns_data, fwd_returns_10d=None):
+def build_html_email(computed, fwd_returns_10d=None):
     """Build the full HTML email body."""
     price_ctx = computed['price_ctx']
     signals_ordered = computed['signals_ordered']
@@ -587,8 +590,10 @@ def build_html_email(computed, fwd_returns_data, fwd_returns_10d=None):
     </div>
     """
 
-    # --- Forward Returns Tables ---
-    fwd_returns_html = _build_fwd_returns_html(fwd_returns_data, "Forward Returns at Similar Fragility (5d avg)")
+    # --- Forward Returns Table ---
+    # 10d-avg set only (the sizing basis). The 5d-avg table was cut 2026-07-16
+    # on redundancy grounds — it sits in the same validated MA plateau and the
+    # two tables nearly always agreed.
     fwd_returns_10d_html = _build_fwd_returns_html(fwd_returns_10d, "Forward Returns at Similar Fragility (10d avg)")
 
     # --- Dial scores for subject line ---
@@ -639,12 +644,10 @@ def build_html_email(computed, fwd_returns_data, fwd_returns_10d=None):
                     {price_banner_html}
                     {signal_board_html}
 
-                    <h2 style="color: #fff; margin-bottom: 10px;">Fragility Dials (5d / 21d / 63d)</h2>
+                    <h2 style="color: #fff; margin-bottom: 10px;">Sizing Dial (63d · 10d MA)</h2>
                     <div style="text-align: center;">
                         <img src="cid:risk_dials" style="max-width: 100%; border-radius: 8px;">
                     </div>
-
-                    {fwd_returns_html}
 
                     {fwd_returns_10d_html}
 
@@ -788,6 +791,18 @@ def main():
             md[b"fragility_last_date"] = str(frag_out.index.max()).encode()
             if frozen_through is not None:
                 md[b"fragility_frozen_through"] = str(frozen_through).encode()
+            # Provenance: which stats-JSON vintage weighted today's appended
+            # row (mirrors the trade ledger's provenance stamping). The frozen
+            # history predates this stamp; it applies to rows appended since.
+            try:
+                import hashlib
+                stats_path = os.path.join(current_dir, "data",
+                                          "signal_horizon_stats.json")
+                with open(stats_path, "rb") as sf:
+                    md[b"fragility_stats_sha256"] = hashlib.sha256(
+                        sf.read()).hexdigest().encode()
+            except Exception:
+                pass
             pq.write_table(table.replace_schema_metadata(md), frag_cache_path)
         except Exception:
             frag_out.to_parquet(frag_cache_path)
@@ -815,11 +830,8 @@ def main():
         json.dump(env_snapshot, f, indent=2, default=str)
     print(f"  Cached environment snapshot to {env_path}")
 
-    # 3. Forward returns
+    # 3. Forward returns (10d-avg sizing basis only; 5d-avg set cut 2026-07-16)
     print("[3/6] Computing forward returns...")
-    fwd_returns_data = build_forward_returns_data(
-        computed['frag_df'], computed['spy_close'], computed['h_scores']
-    )
     fwd_returns_10d = build_forward_returns_data(
         computed['frag_df'], computed['spy_close'], computed['h_scores_10d']
     )
@@ -827,7 +839,18 @@ def main():
     # 4. Generate images + analog PDF
     print("[4/7] Generating images...")
     tmp_dir = tempfile.mkdtemp()
-    dial_path = generate_dial_image(computed['h_scores'], tmp_dir)
+    # Dial reads back the parquet just appended above so the emailed gauge is
+    # the exact series that sizes orders (in-memory recompute drifts near 50).
+    sizing = None
+    try:
+        cache = pd.read_parquet(os.path.join(data_dir, "rd2_fragility.parquet"))
+        if '63d' in cache.columns and not cache['63d'].dropna().empty:
+            ma = cache['63d'].dropna().rolling(10, min_periods=1).mean()
+            sizing = {'ma': float(ma.iloc[-1]), 'raw': float(cache['63d'].dropna().iloc[-1]),
+                      'on': bool(ma.iloc[-1] >= THROTTLE_THRESHOLD)}
+    except Exception as e:
+        print(f"  WARNING: could not read sizing parquet for dial ({e})")
+    dial_path = generate_dial_image(sizing, tmp_dir)
     overlay_path = generate_overlay_image(
         computed['spy_close'], computed['signals_ordered'], tmp_dir
     )
@@ -851,7 +874,7 @@ def main():
 
     # 6. Build email
     print("[6/7] Building email...")
-    subject, html = build_html_email(computed, fwd_returns_data, fwd_returns_10d)
+    subject, html = build_html_email(computed, fwd_returns_10d)
 
     # 7. Send
     print("[7/7] Sending email...")

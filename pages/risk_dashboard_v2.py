@@ -1527,7 +1527,9 @@ def compute_horizon_fragility(
 
     Each signal's contribution is weighted by its backtested edge
     (how much worse than baseline forward returns are when signal active).
-    Elevated/dire tiers use their own (typically larger) weights.
+    Only the seven BASE signal edges are consumed. The stats JSON also
+    carries a "Distribution Dominance (Elevated)" entry — that field is
+    research/display reference only and does NOT feed this composite.
 
     Signals that recently turned OFF decay linearly over their horizon window,
     modulated by SPY proximity to highs. Score further scaled by calm duration
@@ -2052,79 +2054,11 @@ def chart_signal_overlay(spy_close: pd.Series, signals_ordered: dict,
     return fig
 
 
-# ---------------------------------------------------------------------------
-# FRAGILITY PERSISTENCE CONTEXT
-# ---------------------------------------------------------------------------
-
-def compute_persistence_context(frag_df: pd.DataFrame) -> dict:
-    """
-    For each horizon, compute consecutive-day streak above its threshold.
-    Returns {horizon: {'streak': int, 'score': float, 'note': str, 'color': str}}
-
-    Thresholds (from backtested persistence studies):
-      5d:  >= 50 (day 6+ has 79% hit rate for negative 5d fwd returns)
-      21d: >= 70 (day 4+ has 67% hit rate, -5.08% edge)
-      63d: >= 70 (days 1-5 strongest edge; exhausted by day 16+)
-    """
-    thresholds = {'5d': 50, '21d': 70, '63d': 70}
-    result = {}
-
-    for horizon, thresh in thresholds.items():
-        if horizon not in frag_df.columns:
-            result[horizon] = {'streak': 0, 'score': 0.0, 'note': '', 'color': '#888'}
-            continue
-
-        col = frag_df[horizon].dropna()
-        if col.empty:
-            result[horizon] = {'streak': 0, 'score': 0.0, 'note': '', 'color': '#888'}
-            continue
-
-        current_score = float(col.iloc[-1])
-
-        # Walk backwards to count consecutive days >= threshold
-        streak = 0
-        for val in col.iloc[::-1].values:
-            if val >= thresh:
-                streak += 1
-            else:
-                break
-
-        # Horizon-specific annotation rules
-        note = ''
-        color = '#888'
-
-        if streak == 0:
-            pass  # below threshold, no annotation
-        elif horizon == '5d':
-            if streak <= 5:
-                note = f"Day {streak} — no edge yet (watch for persistence)"
-                color = '#888'
-            else:
-                note = f"Day {streak} — persisting, 79% historical hit rate"
-                color = '#FF6B35'
-        elif horizon == '21d':
-            if streak <= 3:
-                note = f"Day {streak} — early signal"
-                color = '#888'
-            else:
-                note = f"Day {streak} — amplifying, 67% hit rate"
-                color = '#FF6B35'
-        elif horizon == '63d':
-            if streak <= 5:
-                note = f"Day {streak} — act now, strongest edge window"
-                color = '#FF8C00'
-            elif streak <= 15:
-                note = f"Day {streak} — edge fading"
-                color = '#FFD700'
-            else:
-                note = f"Day {streak} — signal exhausted, consider normalizing"
-                color = '#888'
-            if current_score >= 90:
-                note += " | 90+ historically -8.3% edge"
-
-        result[horizon] = {'streak': streak, 'score': current_score, 'note': note, 'color': color}
-
-    return result
+# compute_persistence_context was deleted 2026-07-16: computed on every page
+# load, rendered nowhere, and its 79%/67% hit rates were N=12-13, never
+# PIT-tested, with the 79% riding the 5d dial that failed every sizing test
+# (RISK_DIALS_2026-07-16.md A4). Do not resurrect the hit-rate claims in any
+# display without a fresh study.
 
 
 # ---------------------------------------------------------------------------
@@ -3423,7 +3357,6 @@ def _cached_compute_signals(_spy_df, _closes, _sp500_closes, cache_key):
     horizon_stats = load_horizon_stats()
     h_scores = None
     frag_df = None
-    persist = None
     if horizon_stats is not None:
         h_scores = compute_horizon_fragility(signals_ordered, regime_mult, horizon_stats, price_ctx, spy_close)
         frag_df = compute_fragility_timeseries(signals_ordered, spy_close, horizon_stats)
@@ -3432,7 +3365,6 @@ def _cached_compute_signals(_spy_df, _closes, _sp500_closes, cache_key):
         # 5d moving average for dial display (smooths day-to-day noise)
         if frag_df is not None and len(frag_df) >= 1:
             h_scores = frag_df.rolling(5, min_periods=1).mean().iloc[-1].to_dict()
-        persist = compute_persistence_context(frag_df)
 
     return {
         'signals_ordered': signals_ordered,
@@ -3442,7 +3374,6 @@ def _cached_compute_signals(_spy_df, _closes, _sp500_closes, cache_key):
         'horizon_stats': horizon_stats,
         'h_scores': h_scores,
         'frag_df': frag_df,
-        'persist': persist,
         'vix_close': vix_close,
         'spy_close': spy_close,
     }
@@ -3670,7 +3601,6 @@ def main():
     horizon_stats = computed['horizon_stats']
     h_scores = computed['h_scores']
     frag_df = computed['frag_df']
-    persist = computed['persist']
     vix_close = computed['vix_close']
     spy_close = computed['spy_close']
 
@@ -3686,7 +3616,9 @@ def main():
         st.session_state['signal_changes'] = compute_changes(current_state, prev_state)
     if stored_signal_state_date() != datetime.datetime.now().strftime('%Y-%m-%d'):
         save_current_signal_state(current_state)
-    save_signal_fire_history(signals_ordered, spy_close)
+    # save_signal_fire_history is no longer called on page load (side-effect
+    # write removed 2026-07-16); tests/backtest_put_hedge.py --generate still
+    # calls it explicitly.
 
     signal_changes = st.session_state.get('signal_changes', [])
     if signal_changes:
@@ -3707,26 +3639,36 @@ def main():
 
     if horizon_stats is not None:
 
-        # 10d moving average for context below each dial
+        # One dial: 63d + its 10d MA + throttle state (the sizing horizon).
+        # 5d failed every sizing test and 21d agrees with 63d on the decision
+        # state ~90% of days, so they are context chips, not gauges
+        # (RISK_DIALS_2026-07-16.md A5). NOTE: this page shows the in-session
+        # recompute; live sizing reads the append-only PIT parquet.
         ma10 = {}
         if frag_df is not None and len(frag_df) >= 1:
             ma10_series = frag_df.rolling(10, min_periods=1).mean().iloc[-1]
             for k in ('5d', '21d', '63d'):
                 ma10[k] = ma10_series.get(k)
 
-        dial_c1, dial_c2, dial_c3 = st.columns(3)
-        with dial_c1:
-            st.plotly_chart(build_risk_dial(h_scores['5d'], 'Short-Term (5d)'), use_container_width=True)
-            if '5d' in ma10 and ma10['5d'] is not None:
-                st.markdown(f"<div style='text-align:center;margin-top:-18px;color:gray;font-size:13px;'>10d avg: <b>{ma10['5d']:.1f}</b></div>", unsafe_allow_html=True)
-        with dial_c2:
-            st.plotly_chart(build_risk_dial(h_scores['21d'], 'Intermediate (21d)'), use_container_width=True)
-            if '21d' in ma10 and ma10['21d'] is not None:
-                st.markdown(f"<div style='text-align:center;margin-top:-18px;color:gray;font-size:13px;'>10d avg: <b>{ma10['21d']:.1f}</b></div>", unsafe_allow_html=True)
-        with dial_c3:
-            st.plotly_chart(build_risk_dial(h_scores['63d'], 'Long-Term (63d)'), use_container_width=True)
-            if '63d' in ma10 and ma10['63d'] is not None:
-                st.markdown(f"<div style='text-align:center;margin-top:-18px;color:gray;font-size:13px;'>10d avg: <b>{ma10['63d']:.1f}</b></div>", unsafe_allow_html=True)
+        dial_col, ctx_col = st.columns([2, 1])
+        with dial_col:
+            st.plotly_chart(build_risk_dial(h_scores['63d'], 'Fragility (63d)'), use_container_width=True)
+            if ma10.get('63d') is not None:
+                ma63 = ma10['63d']
+                throttle_on = ma63 >= 50
+                state_color = '#CC0000' if throttle_on else '#00CC00'
+                state_txt = 'THROTTLE ON — banded strategies 0.25x' if throttle_on else 'throttle off'
+                st.markdown(
+                    f"<div style='text-align:center;margin-top:-18px;font-size:13px;color:gray;'>"
+                    f"10d avg: <b>{ma63:.1f}</b> vs 50 &nbsp;·&nbsp; "
+                    f"<span style='color:{state_color};font-weight:700'>{state_txt}</span>"
+                    f"</div>", unsafe_allow_html=True)
+        with ctx_col:
+            st.markdown("<div style='padding-top:38px'></div>", unsafe_allow_html=True)
+            st.metric("5d (context)", f"{h_scores['5d']:.0f}",
+                      help="Failed every sizing test — display only")
+            st.metric("21d (context)", f"{h_scores['21d']:.0f}",
+                      help="~90% state-agreement with 63d — display only, no confirm semantics")
     else:
         st.warning("Horizon stats file missing — using equal-weight fallback.")
         fallback = (active_count / total_count * 80 * regime_mult) if total_count > 0 else 0
