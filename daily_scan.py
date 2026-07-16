@@ -1325,6 +1325,37 @@ def save_moc_orders(signals_list, strategy_book, sheet_name='moc_orders'):
         print(f"❌ MOC Staging Error: {e}")
 
 
+def _sheets_write_with_retry(what, fn, attempts=3, backoffs=(5, 20)):
+    """Run a Sheets mutation with retries; RAISE on final failure.
+
+    Staging tabs gate live orders — a swallowed clear/update failure either
+    leaves stale rows for order_staging to resubmit or a half-cleared tab,
+    while the workflow stays green and the email claims signals staged.
+    Raising turns the GHA run red, which is the alert channel.
+    (2026-07-16 fail-loud batch.)
+    """
+    for i in range(attempts):
+        try:
+            return fn()
+        except Exception as e:
+            if i == attempts - 1:
+                raise RuntimeError(
+                    f"Sheets write failed after {attempts} attempts — {what}: {e}"
+                ) from e
+            wait = backoffs[min(i, len(backoffs) - 1)]
+            print(f"[WARN] {what}: attempt {i + 1}/{attempts} failed ({e}); retrying in {wait}s")
+            time.sleep(wait)
+
+
+def _staging_no_client(sheet_name):
+    """No Sheets client: fatal in GHA (a green run with unwritten staging
+    tabs leaves stale rows live), warn-and-continue locally."""
+    msg = f"No Google Sheets client — cannot write staging tab '{sheet_name}'"
+    if os.environ.get('GITHUB_ACTIONS'):
+        raise RuntimeError(msg + " (failing loud in GHA)")
+    print(f"[WARN] {msg} (local run — continuing)")
+
+
 def save_staging_orders(signals_list, strategy_book, sheet_name='Order_Staging', tier_filter=None):
     """Save non-MOC orders to a Google Sheets tab.
 
@@ -1350,18 +1381,23 @@ def save_staging_orders(signals_list, strategy_book, sheet_name='Order_Staging',
     if not signals_list:
         # Even on zero-signal days we clear the tab so stale rows from a
         # prior run never linger and get re-staged by order_staging.
+        # A failed clear leaves yesterday's rows live — fail loud, never
+        # swallow (2026-07-16).
         gc = get_google_client()
-        if gc:
+        if gc is None:
+            _staging_no_client(sheet_name)
+            return
+
+        def _clear_tab():
+            sh = gc.open("Trade_Signals_Log")
             try:
-                sh = gc.open("Trade_Signals_Log")
-                try:
-                    ws = sh.worksheet(sheet_name)
-                    ws.clear()
-                    print(f"🧹 '{sheet_name}' cleared — no rows for tier_filter={tier_filter}")
-                except Exception:
-                    pass
-            except Exception as e:
-                print(f"❌ Tab clear failed for {sheet_name}: {e}")
+                ws = sh.worksheet(sheet_name)
+            except gspread.WorksheetNotFound:
+                return  # tab doesn't exist — nothing stale to clear
+            ws.clear()
+
+        _sheets_write_with_retry(f"clear '{sheet_name}' (zero-signal day)", _clear_tab)
+        print(f"🧹 '{sheet_name}' cleared — no rows for tier_filter={tier_filter}")
         return
 
     df = pd.DataFrame(signals_list)
@@ -1380,6 +1416,7 @@ def save_staging_orders(signals_list, strategy_book, sheet_name='Order_Staging',
                 trade_dir = "Short" if "SHORT" in row['Action'] else "Long"
                 staging_data.append({
                     "Scan_Date": datetime.datetime.now().strftime("%Y-%m-%d"),
+                    "Signal_Date": str(row['Date']),
                     "Symbol": row['Ticker'],
                     "SecType": "STK",
                     "Exchange": "SMART",
@@ -1582,34 +1619,50 @@ def save_staging_orders(signals_list, strategy_book, sheet_name='Order_Staging',
     # If all orders were "Signal Close", this list is empty now
     if not staging_data:
         gc = get_google_client()
-        if gc:
+        if gc is None:
+            _staging_no_client(sheet_name)
+            return
+
+        def _clear_tab_moc():
+            sh = gc.open("Trade_Signals_Log")
             try:
-                sh = gc.open("Trade_Signals_Log")
-                worksheet = sh.worksheet(sheet_name)
-                worksheet.clear()
-                print(f"🧹 '{sheet_name}' cleared (only MOC orders found).")
-            except: pass
+                ws = sh.worksheet(sheet_name)
+            except gspread.WorksheetNotFound:
+                return
+            ws.clear()
+
+        _sheets_write_with_retry(f"clear '{sheet_name}' (only MOC orders)", _clear_tab_moc)
+        print(f"🧹 '{sheet_name}' cleared (only MOC orders found).")
         return
 
     df_stage = pd.DataFrame(staging_data)
 
     gc = get_google_client()
-    if not gc: return
+    if gc is None:
+        _staging_no_client(sheet_name)
+        return
 
-    try:
+    # clear+update as one retried unit: a failure between the two calls
+    # leaves the tab empty (or half-written) — the retry re-runs both, and
+    # a final failure RAISES so the run goes red instead of the email
+    # claiming these rows were staged (2026-07-16).
+    def _write_tab():
         sh = gc.open("Trade_Signals_Log")
         try:
             worksheet = sh.worksheet(sheet_name)
-        except:
+        except gspread.WorksheetNotFound:
             worksheet = sh.add_worksheet(title=sheet_name, rows=100, cols=20)
-
         worksheet.clear()
         data_to_write = [df_stage.columns.tolist()] + df_stage.astype(str).values.tolist()
         worksheet.update(values=data_to_write)
-        print(f"🤖 Instructions Staged! ({len(df_stage)} rows)")
-        
-    except Exception as e:
-        print(f"❌ Staging Sheet Error: {e}")
+        # readback: the tab was just cleared, so anything other than exactly
+        # header + N rows means a truncated/failed write — raise into the retry
+        got = len(worksheet.get_all_values())
+        if got != len(data_to_write):
+            raise RuntimeError(f"readback mismatch: {got} rows in tab, wrote {len(data_to_write)}")
+
+    _sheets_write_with_retry(f"stage {len(df_stage)} rows to '{sheet_name}'", _write_tab)
+    print(f"🤖 Instructions Staged! ({len(df_stage)} rows)")
 
 
 def save_signals_to_gsheet(new_dataframe, sheet_name='Trade_Signals_Log'):
@@ -2275,7 +2328,34 @@ def run_daily_scan(scope='liquid', moc_only=False, dry_run=False):
 
     # Replace the master dictionary with the strictly validated version
     master_dict = validated_dict
-    print(f"✅ Data dates validated. (Processing {len(master_dict)} tickers)\n")
+
+    # FAIL-LOUD FRESHNESS GATE (2026-07-16). The trim above only removes bars
+    # NEWER than expected — it never asserts the cache actually HAS the
+    # expected bar. Two consecutive updater failures leave the whole cache one
+    # session stale, and the scan would silently re-detect the prior day's
+    # already-traded signals with fresh Scan_Dates (order_staging would then
+    # resubmit them at stale limit/ATR levels). Abort BEFORE any staging write
+    # so the GHA run goes red instead. Keyed on the freshest bar across the
+    # whole cache: if no ticker has the expected bar, the updater didn't run.
+    # Intraday manual runs are allowed one session of slack (today's bar
+    # legitimately doesn't exist until the PM updater lands it).
+    if not master_dict:
+        raise RuntimeError(
+            "Freshness gate: zero tickers survived date validation — price "
+            "cache is empty or entirely stale. Aborting before staging."
+        )
+    _freshest = max(df.index[-1].date() for df in master_dict.values())
+    _allowed = {expected_data_date}
+    if is_intraday_partial:
+        _allowed.add((pd.Timestamp(expected_data_date) - TRADING_DAY).date())
+    if _freshest not in _allowed:
+        raise RuntimeError(
+            f"Freshness gate: freshest bar in the price cache is {_freshest}, "
+            f"expected {sorted(_allowed)} — updater likely failed; aborting "
+            f"before any staging write so already-traded signals are not "
+            f"re-staged at stale levels."
+        )
+    print(f"✅ Data dates validated. (Processing {len(master_dict)} tickers, freshest bar {_freshest})\n")
     # -------------------------------------------------------------------------
 
     # 3b. Load fragility score for sizing adjustment

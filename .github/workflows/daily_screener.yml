@@ -93,24 +93,19 @@ jobs:
         run: |
           pip install pandas pyarrow numpy yfinance gspread google-auth boto3
 
-      - name: Pull caches from R2
-        # master_prices.parquet              -> overflow scope (~870 static tickers)
-        # earnings_calendar.parquet          -> OVS ±10 TD blackout (production names)
-        # overflow_universe.parquet          -> comprehensive overflow list (gate ON)
-        # earnings_calendar_overflow.parquet -> OVS blackout for the new overflow names
-        # atr_seasonal_ranks.parquet         -> atr_sznl_filters (6 strategies gate on it;
-        #                                       without it those filters match NOTHING and
-        #                                       the strategies silently never fire)
-        # backtest_trades_full.parquet       -> OLV sector_loss_gate (recent closed trades;
-        #                                       missing file = gate off with a notice, scan
-        #                                       otherwise unaffected)
+      - name: Pull caches from R2 (fail-closed for load-bearing keys)
+        # scripts/pull_scan_caches.py: REQUIRED keys (master_prices,
+        # earnings_calendar, atr_seasonal_ranks) fail this step — a broken
+        # credential or missing key used to exit 0 and run the scan degraded
+        # while the workflow stayed green. OPTIONAL keys (overflow_universe,
+        # earnings_calendar_overflow, backtest_trades_full) warn and degrade
+        # per their documented fail-open designs.
         env:
           R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
           R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
           R2_BUCKET: ${{ secrets.R2_BUCKET }}
-        run: |
-          python -c "from cache_io import download_to_local; download_to_local('master_prices.parquet', 'data/master_prices.parquet'); download_to_local('earnings_calendar.parquet', 'data/earnings_calendar.parquet'); download_to_local('overflow_universe.parquet', 'data/overflow_universe.parquet'); download_to_local('earnings_calendar_overflow.parquet', 'data/earnings_calendar_overflow.parquet'); download_to_local('atr_seasonal_ranks.parquet', 'atr_seasonal_ranks.parquet'); download_to_local('backtest_trades_full.parquet', 'data/backtest_trades_full.parquet')"
+        run: python scripts/pull_scan_caches.py
 
       - name: Run Automation Script
         env:

@@ -144,11 +144,13 @@ def main():
     print(f"  today:          {today.date()}\n")
 
     all_frames = []
+    fetched_tickers = set()
     t_start = time.time()
     for i in range(0, len(universe), CHUNK_SIZE):
         chunk = universe[i:i + CHUNK_SIZE]
         print(f"[{i+1:>5}-{min(i+CHUNK_SIZE, len(universe)):>5} / {len(universe)}] updating...", flush=True)
         result = download_chunk(chunk, fetch_start)
+        fetched_tickers.update(result.keys())
         for t, df in result.items():
             df = df.copy()
             df["ticker"] = t
@@ -168,9 +170,25 @@ def main():
             all_frames.append(df)
         time.sleep(0.3)
 
+    # FAIL-LOUD GATES (2026-07-16). This cache sizes live orders book-wide;
+    # a green run that fetched nothing (yfinance outage, network failure)
+    # used to exit 0 and leave the cache silently stale — the scan would then
+    # re-detect already-traded signals. Exit nonzero instead so the GHA
+    # failure email is the alert.
     if not all_frames:
-        print("no updates")
-        return 0
+        print("ERROR: zero rows fetched for the entire universe — yfinance "
+              "outage or network failure. Refusing to exit green.")
+        return 1
+    # Coverage floor: stale (>lookback) names legitimately return nothing,
+    # so measure against the live set only. Below 80% = degraded vintage —
+    # don't write it over the only copy.
+    live_expected = max(len(universe) - len(stale), 1)
+    coverage = len(fetched_tickers) / live_expected
+    if coverage < 0.80:
+        print(f"ERROR: only {len(fetched_tickers)}/{live_expected} live tickers "
+              f"returned data ({coverage:.0%} < 80%) — refusing to write a "
+              f"degraded cache over the master parquet.")
+        return 1
 
     new_data = pd.concat(all_frames, ignore_index=True)
     if args.exclude_today:
@@ -192,19 +210,32 @@ def main():
     combined = combined.sort_values(["ticker", "date"]).reset_index(drop=True)
 
     added = len(combined) - len(master)
+    if added < 0:
+        print(f"ERROR: merged cache SHRANK ({len(master):,} -> {len(combined):,} rows) — "
+              f"bad vintage; refusing to overwrite the master parquet.")
+        return 1
     combined.to_parquet(PATH, compression="snappy", index=False)
 
     elapsed = time.time() - t_start
     new_max = combined.groupby("ticker")["date"].max().max()
     print(f"\nDone in {elapsed:.1f}s. Added {added:,} rows. New max date: {new_max.date()}")
 
-    # Optional: push the updated parquet to Cloudflare R2 so GHA workflows
-    # can pull the same cache. No-op if R2_* env vars aren't set.
+    # Push the updated parquet to Cloudflare R2 so GHA workflows can pull the
+    # same cache. Locally a failed/unconfigured upload is a non-fatal notice;
+    # in GHA the R2 write IS the point of the run — fail loud so downstream
+    # scans don't silently pull a stale cache (2026-07-16).
+    upload_ok = False
     try:
         from cache_io import upload_from_local
-        upload_from_local(PATH, "master_prices.parquet")
+        upload_ok = bool(upload_from_local(PATH, "master_prices.parquet"))
     except Exception as e:
-        print(f"[r2 upload] non-fatal error: {e}")
+        print(f"[r2 upload] error: {e}")
+    if not upload_ok:
+        if os.environ.get("GITHUB_ACTIONS"):
+            print("ERROR: R2 upload failed in GHA — downstream scans would pull "
+                  "a stale cache while this run shows green. Failing loud.")
+            return 1
+        print("[r2 upload] skipped/failed (local run — non-fatal)")
 
     return 0
 
