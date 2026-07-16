@@ -548,18 +548,33 @@ def get_historical_mask(df, params, sznl_map, ticker_name="UNK"):
         else:
             conditions.append(mkt_sznl > params['market_sznl_thresh'])
 
-    # ATR seasonal rank filters
+    # ATR seasonal rank filters. Semantics ALIGNED with daily_scan 4b
+    # (2026-07-16): a missing rank column fails CLOSED — the scan can never
+    # stage such a signal, but the engine used to fail open and book ledger
+    # trades on rank-coverage gaps that live could never take — and the
+    # 'consecutive' key is honored (the engine used to ignore it; every
+    # current config uses 1, so that half is future-proofing). Change
+    # together with daily_scan check_signal 4b.
+    # Guard: tests/test_atr_sznl_parity.py.
     for asf in params.get('atr_sznl_filters', []):
         col = f"atr_sznl_{asf['window']}d"
-        if col in df.columns:
-            vals = df[col].values
-            logic = asf.get('logic', '>')
-            if logic == '<':
-                conditions.append(vals < asf['thresh'])
-            elif logic == '>':
-                conditions.append(vals > asf['thresh'])
-            elif logic == 'Between':
-                conditions.append((vals >= asf['thresh']) & (vals <= asf.get('thresh_max', 100.0)))
+        if col not in df.columns:
+            conditions.append(np.zeros(len(df), dtype=bool))
+            continue
+        vals = df[col].values
+        logic = asf.get('logic', '>')
+        if logic == '<':
+            cond = vals < asf['thresh']
+        elif logic == '>':
+            cond = vals > asf['thresh']
+        elif logic == 'Between':
+            cond = (vals >= asf['thresh']) & (vals <= asf.get('thresh_max', 100.0))
+        else:
+            continue
+        consec = int(asf.get('consecutive', 1) or 1)
+        if consec > 1:
+            cond = pd.Series(cond, index=df.index).rolling(consec).sum().eq(consec).values
+        conditions.append(cond)
 
     # Risk dial filters (e.g. 63d dial 10d-avg < 50). Loads rd2_fragility.parquet
     # once per process; fails closed if missing/stale or column unavailable.
