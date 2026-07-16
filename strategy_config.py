@@ -1111,20 +1111,17 @@ _STRATEGY_BOOK_RAW = [
             # (staged signals, not fills). See same_day_derate_mult().
             "same_day_signal_derate": 0.10,
             "same_day_derate_floor": 0.30,
-            # Pilot governance (2026-07-16). Criteria DRAFTED from the study
-            # notes, pending McKinley's edit — the point is that a pilot now
-            # carries explicit promote/kill terms instead of drifting into
-            # permanence. Guard: tests/test_pilot_governance.py asserts every
-            # 'B (Pilot)' strategy has this block.
+            # Pilot promotion review (2026-07-16). No kill criteria by
+            # McKinley's call ("we aren't gonna kill those") — the pilot
+            # stays regardless; the review is only about earning the
+            # size-up. Guard: tests/test_pilot_governance.py asserts every
+            # 'B (Pilot)' strategy carries this block.
             "pilot": {
                 "start": "2026-07-07",
                 "review_by": "2027-01-15 or +15 live fills, whichever first",
                 "promote_if": "live avgR > +0.3 across >=15 fills spanning >=2 "
                               "quarters incl. at least one SPY<200SMA episode "
                               "-> consider 40 bps",
-                "kill_if": "live totR <= -8R at any point, or avgR < 0 after "
-                           "15 fills (backtest avgR +0.66 on a one-regime "
-                           "2020+ sample — zero live edge = sample artifact)",
             },
         },
         "stats": {"grade": "B (Pilot)", "win_rate": "66.7%", "expectancy": "0.66r", "profit_factor": "2.80"}
@@ -1277,18 +1274,16 @@ _STRATEGY_BOOK_RAW = [
             # (engine post-loop cap_bps=250 default + order_staging's live
             # 2.5% cap) bounds the many-signal days. Do not add them without
             # re-running scratch/lev3x_fade_leader_validation.py.
-            # Pilot governance (2026-07-16). Criteria DRAFTED from the
-            # validation notes ('consider 40 bps only after clean
-            # out-of-sample quarters'; ~2 signals/yr historically, so the
-            # clock is long), pending McKinley's edit.
+            # Pilot promotion review (2026-07-16). From the validation notes
+            # ('consider 40 bps only after clean out-of-sample quarters';
+            # ~2 signals/yr historically, so the clock is long). No kill
+            # criteria by McKinley's call — the review is size-up only.
             "pilot": {
                 "start": "2026-07-10",
                 "review_by": "2027-07-10 or +6 live fills, whichever first",
                 "promote_if": "clean OOS: >=4 of first 6 live fills positive "
                               "AND live totR > 0 spanning >=2 quarters "
                               "-> consider 40 bps",
-                "kill_if": "live totR <= -6R at any point (2x the worst "
-                           "historical trade, -2.95R)",
             },
         },
         "stats": {"grade": "B (Pilot)", "win_rate": "54.8%", "expectancy": "0.80r", "profit_factor": "2.82"}

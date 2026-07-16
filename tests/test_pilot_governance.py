@@ -1,9 +1,11 @@
-"""Pilot governance (2026-07-16): a pilot strategy must carry explicit terms.
+"""Pilot promotion review (2026-07-16): a pilot strategy must carry terms.
 
 The 'B (Pilot)' grade was inert metadata — nothing consumed it, and pilot
 sizing decisions ('consider 40 bps after clean quarters') lived in prose.
-Every pilot now carries execution['pilot'] with a start date and explicit
-promote/kill criteria, so a pilot can't drift into permanence unreviewed.
+Every pilot now carries execution['pilot'] with a start date, review
+deadline, and explicit promote criteria, so the size-up review can't be
+forgotten. NO kill criteria by McKinley's call (2026-07-16, "we aren't
+gonna kill those") — pilots stay regardless; the review is size-up only.
 """
 import os
 import sys
@@ -27,7 +29,7 @@ sys.modules['streamlit'] = _NoOp()
 
 from strategy_config import STRATEGY_BOOK
 
-REQUIRED_KEYS = {"start", "review_by", "promote_if", "kill_if"}
+REQUIRED_KEYS = {"start", "review_by", "promote_if"}
 
 
 def _pilots():
