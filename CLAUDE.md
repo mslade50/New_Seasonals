@@ -588,6 +588,13 @@ Aligned sites -- change together:
   table, 1,460 tickers. Rebuild: `scripts/build_sector_map.py`.
 - Guard: `tests/test_sector_loss_gate.py`.
 
+Ledger SURVIVORSHIP CAVEAT (2026-07-16): the 23-year ledger trades only
+tickers alive in today's universe files — 21 of 22 major 2020s delistings are
+absent — which flatters long dip-buy stats and the ~870-name overflow tier
+most. Treat overflow-tier historical avgR as an upper bound until the
+dynamic-overflow work's point-in-time universe lands. Do not tune sizing off
+overflow backtest stats alone.
+
 Ledger provenance + integrity (2026-07-06, after a false TS/USO block): the
 ledger is a FULL BACKTEST REBUILD, not a fill record -- marginal limit fills
 flicker between vintages as yfinance revises recent bars, and the gate's -2.0R
