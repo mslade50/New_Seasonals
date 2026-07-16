@@ -241,6 +241,16 @@ reports, staged `Risk_Amt`/`Risk_Bps`) sees SCALED values. **All bps in this
 doc are nominal unless marked effective** — e.g. OLV liquid 35 nominal = 52.5
 effective, overflow 25 = 37.5.
 
+GRM evidence trail (2026-07-16, scratch/grm_replay_study.py — the constant
+shipped 2026-05-27 with none): full-ledger replay at GRM 1.0/1.25/1.5/1.75
+with caps FIXED at prod (250 per-strat, 500L/250S pooled, flat $750k).
+Risk-adjusted metrics are nearly scale-invariant — Sharpe 1.89/1.87/1.85/1.83,
+annPnL/maxDD ~1.66 flat, maxDD -8.9%/-10.8%/-12.6%/-14.4% NAV scaling
+slightly sub-linearly (fixed caps clip the tail). No cliff anywhere in the
+range: the setting is a clean risk-appetite dial, and 1.5 (~$157k/yr ann
+flat PnL at -12.6% worst DD) is defensible. Results:
+scratch/grm_replay_results.csv.
+
 daily_scan per-signal sizing order (mirrored in strat_backtester step 3b):
 base bps (tier x GRM) -> 2b fragility band -> 2c ladder rung -> 2c2 cycle-year
 mult -> 2d earnings size override (flat REPLACE, itself GRM-scaled: OLV signals
