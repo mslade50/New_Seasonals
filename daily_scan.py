@@ -845,6 +845,34 @@ def _get_fragility_df_cached():
     return df
 
 
+def memoized_indicators(memo, key, src_df, sznl_map, t_key, market_series,
+                        vix_series, ref_ranks, xsec_rank_matrices, atr_sznl_map):
+    """Per-run indicator memo (2026-07-16). calculate_indicators used to be
+    recomputed for every (strategy, ticker) pair — 5.9x redundant, ~14 min of
+    the pre-market critical path. Its output depends only on the ticker frame
+    plus the market-series source and ref-rank config (both folded into
+    ``key`` by the caller); sznl_map / vix / xsec / atr_sznl are global per
+    run. Sharing the returned frame across strategies is safe because
+    check_signal and the signal-build path are strictly READ-ONLY on it —
+    verified by inspection and guarded by tests/test_indicator_memo_parity.py.
+    The atr_sznl merge is folded in here so the cached frame is complete."""
+    got = memo.get(key)
+    if got is not None:
+        return got
+    got = calculate_indicators(
+        src_df.copy(), sznl_map, t_key, market_series, vix_series,
+        ref_ticker_ranks=ref_ranks, xsec_rank_matrices=xsec_rank_matrices,
+    )
+    if atr_sznl_map and t_key in atr_sznl_map:
+        _atr_ranks = atr_sznl_map[t_key]
+        _dates = got.index.normalize()
+        for _col in ATR_SZNL_COLS:
+            if _col in _atr_ranks.columns:
+                got[_col] = _atr_ranks[_col].reindex(_dates).values
+    memo[key] = got
+    return got
+
+
 def check_signal(df, params, sznl_map, ticker=None):
     last_row = df.iloc[-1]
     
@@ -2522,6 +2550,10 @@ def run_daily_scan(scope='liquid', moc_only=False, dry_run=False):
     if ladder_counts:
         print(f"📈 Ladder: {len(ladder_counts)} open ({', '.join(f'{t}/{s[:12]}={c}' for (t, s), c in list(ladder_counts.items())[:5])}{'...' if len(ladder_counts) > 5 else ''})")
 
+    # Per-ticker indicator memo shared across the strategy loop — see
+    # memoized_indicators. Keys: (ticker, market-series source, ref-config).
+    _ind_memo = {}
+
     # 5. Run Strategies
     for strat in effective_book:
         _scan_source = strat.get('_scan_source', 'Liquid')
@@ -2539,6 +2571,7 @@ def run_daily_scan(scope='liquid', moc_only=False, dry_run=False):
             market_series = temp_mkt['Close'] > temp_mkt['SMA200']
         # Prepare Reference Ticker Ranks (if needed)
         ref_ticker_ranks = None
+        _ref_memo_key = None
         ref_settings = strat['settings']
         if ref_settings.get('use_ref_ticker_filter', False) and ref_settings.get('ref_filters'):
             ref_ticker_key = ref_settings.get('ref_ticker', 'IWM').replace('.', '-')
@@ -2550,6 +2583,18 @@ def run_daily_scan(scope='liquid', moc_only=False, dry_run=False):
                     col = f'rank_ret_{rf["window"]}d'
                     if col in ref_calc.columns:
                         ref_ticker_ranks[rf['window']] = ref_calc[col]
+                if ref_ticker_ranks:
+                    _ref_memo_key = (ref_ticker_key, tuple(sorted(ref_ticker_ranks)))
+        # Indicator-memo key parts: the market series' actual source ticker
+        # (mkt_ticker when present in the cache, else the SPY fallback, else
+        # None) and the ref-rank config. Two strategies with identical parts
+        # produce byte-identical indicator frames, so they share one.
+        if master_dict.get(mkt_ticker) is not None:
+            _mkt_memo_key = mkt_ticker
+        elif master_dict.get('SPY') is not None:
+            _mkt_memo_key = 'SPY'
+        else:
+            _mkt_memo_key = None
         signals = []
         for ticker in strat['universe_tickers']:
             t_clean = ticker.replace('.', '-')
@@ -2562,15 +2607,10 @@ def run_daily_scan(scope='liquid', moc_only=False, dry_run=False):
                 continue
             
             try:
-                calc_df = calculate_indicators(df.copy(), sznl_map, t_clean, market_series, vix_series, ref_ticker_ranks=ref_ticker_ranks, xsec_rank_matrices=xsec_rank_matrices)
-
-                # Merge ATR seasonal ranks onto the ticker frame (if strategy needs them)
-                if atr_sznl_map and t_clean in atr_sznl_map:
-                    _atr_ranks = atr_sznl_map[t_clean]
-                    _dates = calc_df.index.normalize()
-                    for _col in ATR_SZNL_COLS:
-                        if _col in _atr_ranks.columns:
-                            calc_df[_col] = _atr_ranks[_col].reindex(_dates).values
+                calc_df = memoized_indicators(
+                    _ind_memo, (t_clean, _mkt_memo_key, _ref_memo_key),
+                    df, sznl_map, t_clean, market_series, vix_series,
+                    ref_ticker_ranks, xsec_rank_matrices, atr_sznl_map)
 
                 # LT Trend ST OS intraday volume relaxation: during partial-bar
                 # window (market open through 4 PM ET), today's bar volume is
@@ -2624,18 +2664,11 @@ def run_daily_scan(scope='liquid', moc_only=False, dry_run=False):
                         if sub_df is None or len(sub_df) < 250:
                             error_tickers.append((t_clean, f"Signal fired but tradeable {tradeable} unavailable"))
                             continue
-                        calc_df = calculate_indicators(
-                            sub_df.copy(), sznl_map, tradeable_clean,
-                            market_series, vix_series,
-                            ref_ticker_ranks=ref_ticker_ranks,
-                            xsec_rank_matrices=xsec_rank_matrices,
-                        )
-                        if atr_sznl_map and tradeable_clean in atr_sznl_map:
-                            _atr_ranks = atr_sznl_map[tradeable_clean]
-                            _dates = calc_df.index.normalize()
-                            for _col in ATR_SZNL_COLS:
-                                if _col in _atr_ranks.columns:
-                                    calc_df[_col] = _atr_ranks[_col].reindex(_dates).values
+                        calc_df = memoized_indicators(
+                            _ind_memo, (tradeable_clean, _mkt_memo_key, _ref_memo_key),
+                            sub_df, sznl_map, tradeable_clean, market_series,
+                            vix_series, ref_ticker_ranks, xsec_rank_matrices,
+                            atr_sznl_map)
                         print(f"   🔁 {t_clean} signal → staging as {tradeable}")
                         ticker = tradeable
                         t_clean = tradeable_clean
