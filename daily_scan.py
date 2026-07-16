@@ -697,7 +697,8 @@ FRAG_STALE_TD = 3
 # (1.25x boost -> 0.10x floor; the boost had no edge case and the rest of the
 # book shows no high-frag degradation). Per-strategy now: strategies opt in via
 # execution['frag_risk_bands'] = [[lo, hi, mult], ...] on the 10d-MA 63d score
-# (FAMILY4 dip-buyers 0.25x at >=50; OVS 0.75x in [21,44)). Aligned with
+# (FAMILY4 dip-buyers + 3x Bear Fade 0.25x at >=50; the OVS [21,44) 0.75x tilt
+# was removed 2026-07-03 after failing the PIT gate). Aligned with
 # strat_backtester sizing 3b3, which replays the same bands point-in-time —
 # unlike the old ramp, the ledger and live now agree.
 
@@ -1491,6 +1492,11 @@ def save_staging_orders(signals_list, strategy_book, sheet_name='Order_Staging',
 
         staging_data.append({
             "Scan_Date": datetime.datetime.now().strftime("%Y-%m-%d"),
+            # Signal bar's date (NOT the run date). Scan_Date restamps to the
+            # run day on every rescan — the Monday AM pass restamps a Friday
+            # signal to Monday — so any weekday-gated rule in order_staging
+            # (MonGapKill_Weekdays) must read THIS column, never Scan_Date.
+            "Signal_Date": str(row['Date']),
             "Symbol": row['Ticker'],
             "SecType": "STK",
             "Exchange": "SMART",
@@ -1541,10 +1547,13 @@ def save_staging_orders(signals_list, strategy_book, sheet_name='Order_Staging',
             ),
             # Monday-gap kill spec. The Friday post-close scan can't see Monday's
             # open, so the scanner only STAMPS the rule; order_staging.py enforces
-            # it at the IBKR T+1 session open. For a row whose Scan_Date.weekday()
+            # it at the IBKR T+1 session open. For a row whose Signal_Date.weekday()
             # is in MonGapKill_Weekdays (e.g. [4]=Friday), order_staging drops the
             # trade if the T+1 open gaps > MonGapKill_ATR * Frozen_ATR above
             # Signal_Close (MonGapKill_Dir='up'). Empty for strats that don't set it.
+            # Gate reads Signal_Date, NOT Scan_Date — Scan_Date restamps to the
+            # run day on the Monday AM rescan, which left this gate dead 2026-06-09
+            # to 2026-07-16.
             "MonGapKill_ATR": (
                 strat['settings'].get('t1_gap_kill_atr', '')
                 if strat['settings'].get('use_t1_gap_kill') else ''
@@ -2271,11 +2280,14 @@ def run_daily_scan(scope='liquid', moc_only=False, dry_run=False):
 
     # 3b. Load fragility score for sizing adjustment
     # Uses 10d MA of 63d fragility, lagged 1 day (today's score → tomorrow's trades)
+    # PIT-or-nothing: rd2_fragility.parquet is the ONLY sizing source. The old
+    # fallback to rd2_fragility_ts.parquet served a non-PIT recompute vintage
+    # (drifts up to ~7 pts, wrong smoothing basis) into live sizing whenever the
+    # PIT file was missing — removed 2026-07-16. Missing/stale PIT = 1.0x.
     FRAG_CACHE = os.path.join(current_dir, "data", "rd2_fragility.parquet")
-    FRAG_CACHE_TS = os.path.join(current_dir, "data", "rd2_fragility_ts.parquet")
     frag_score = None  # populated below if fragility cache loads AND is fresh
 
-    frag_path = FRAG_CACHE if os.path.exists(FRAG_CACHE) else (FRAG_CACHE_TS if os.path.exists(FRAG_CACHE_TS) else None)
+    frag_path = FRAG_CACHE if os.path.exists(FRAG_CACHE) else None
     if frag_path:
         try:
             frag_df = pd.read_parquet(frag_path)

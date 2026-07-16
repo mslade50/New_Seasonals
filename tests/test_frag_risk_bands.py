@@ -103,3 +103,22 @@ def test_engine_uses_real_cache_when_present():
     assert sb.frag_band_mult_at(_exec_of("Monday Dip"), "2010-06-01") == 1.0
     # the series must be the 10d-MA basis: smooth, no NaN block inside range
     assert series.index.is_monotonic_increasing
+
+
+def test_site_serializer_mirrors_strategy_config():
+    """The site's sizing_state block must be generated from strategy_config,
+    never hardcoded — the band table on the risk page is the same object the
+    scanner sizes with (RISK_DIALS_2026-07-16.md C1)."""
+    from scripts.build_risk_json import _bands_from_book, _band_mult
+
+    serialized = _bands_from_book(STRATEGY_BOOK)
+    by_name = {b["strategy"]: b["bands"] for b in serialized}
+    assert set(by_name) == FAMILY4
+    for bands in by_name.values():
+        assert bands == [[50.0, 999.0, 0.25]]
+    # multiplier semantics match the live helper at the boundaries
+    for score in (49.9, 50.0, 500.0, 999.0):
+        for b in serialized:
+            strat = next(s for s in STRATEGY_BOOK if s.get("name") == b["strategy"])
+            assert _band_mult(b["bands"], score) == frag_band_mult(
+                strat.get("execution") or {}, score)

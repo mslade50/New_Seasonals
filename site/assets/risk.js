@@ -1,4 +1,7 @@
-/* risk.js — render data/risk.json (condensed risk_dashboard_v2 summary) */
+/* risk.js — render data/risk.json (condensed risk_dashboard_v2 summary).
+   Page order: sizing state (the number that sizes live orders, PIT-sourced),
+   KPI strip, price context, nuggets, signals, SPY-vs-dial chart, forward
+   returns. Every post-2026-07-16 block is guarded so older payloads render. */
 "use strict";
 
 const RISK_SIGNAL_COLORS = {
@@ -25,36 +28,20 @@ async function init() {
 
   let html = "";
 
-  // fragility cards
-  const frag = d.fragility || {};
-  const cards = ["5d", "21d", "63d"].map(h => {
-    const v = frag[h];
-    if (v == null) return "";
-    const lbl = v < 33 ? "Robust" : v < 66 ? "Neutral" : "Fragile";
-    const cls = v < 33 ? "pos" : v < 66 ? "" : "neg";
-    return `<div class="kpi"><div class="l">Fragility ${h}</div>
-      <div class="v ${cls}">${Math.round(v)}</div><div class="s">${lbl} (0-100)</div></div>`;
-  }).join("");
-  const ctx = d.price_ctx || {};
-  html += `<div class="kpis">
-    <div class="kpi"><div class="l">SPY</div><div class="v">${fmt.num(d.spy_last, 2)}</div>
-      <div class="s">${esc(ctx.regime_label || "")}</div></div>
-    ${cards}
-    <div class="kpi"><div class="l">Active Signals</div>
-      <div class="v ${d.n_active > 0 ? "neg" : "pos"}">${d.n_active} / ${(d.signals || []).length}</div>
-      <div class="s">regime mult ${d.regime_mult != null ? Number(d.regime_mult).toFixed(2) + "x" : "-"}</div></div>
-  </div>`;
+  // 1. sizing state hero — the one number that sizes live orders
+  const sz = d.sizing_state;
+  if (sz && sz.score != null) html += sizingHeroHtml(sz);
 
-  // price context kv
-  const scalars = Object.entries(ctx).filter(([, v]) => typeof v !== "object" || v == null);
-  if (scalars.length) {
-    html += `<h2>Price context</h2><div class="card"><div class="kv">` +
-      scalars.map(([k, v]) => `<div class="k">${esc(k)}</div><div class="v">${fmtCtx(v)}</div>`).join("") +
-      `</div></div>`;
-  }
+  // 2. KPI strip: SPY, the 63d dial, context horizons, signals, vol term
+  html += kpiRowHtml(d);
 
-  // signals (the richer signal_detail block is optional so older best-effort
-  // payloads continue to render the original cards).
+  // 3. price context strip (replaces the old raw kv dump)
+  html += contextStripHtml(d);
+
+  // 3b. nuggets — deterministic payload interpretation (shared with ideas page)
+  if (Array.isArray(d.nuggets) && d.nuggets.length) html += nuggetsHtml(d.nuggets);
+
+  // 4. signals: overlay chart + accordion (charts lazy-render on expand)
   const signalDetail = d.signal_detail && typeof d.signal_detail === "object"
     ? d.signal_detail : null;
   html += `<h2>Signals</h2>`;
@@ -72,74 +59,65 @@ async function init() {
       sd.metric.values.some(v => v != null && Number.isFinite(Number(v))));
     const hasPeriods = !!(sd && Array.isArray(sd.periods) && sd.periods.length);
     const hasChart = !!(d.spy_series && sd && (hasMetric || hasPeriods));
-    html += `<div class="card idea">
-      <div class="head"><span class="tkr">${esc(s.name)}</span>
+    const headRow = `<span class="tkr">${esc(s.name)}</span>
         <span class="badge ${badgeCls}">${esc(s.badge)}</span>
-        ${currentFigure ? `<span class="signal-current">${esc(currentFigure)}</span>` : ""}</div>
-      ${s.detail ? `<div class="cap">${esc(detailText(s.detail))}</div>` : ""}
-      ${current && current.summary ? `<div class="signal-summary">${esc(current.summary)}</div>` : ""}
-      ${hasChart ? `<div class="chart signal-chart" id="signalMetricChart-${i}"></div>` : ""}
-    </div>`;
+        ${currentFigure ? `<span class="signal-current">${esc(currentFigure)}</span>` : ""}`;
+    if (hasChart) {
+      html += `<details class="card idea signal-acc" data-sig="${i}">
+        <summary class="head">${headRow}</summary>
+        ${s.detail ? `<div class="cap">${esc(detailText(s.detail))}</div>` : ""}
+        ${current && current.summary ? `<div class="signal-summary">${esc(current.summary)}</div>` : ""}
+        <div class="chart signal-chart" id="signalMetricChart-${i}"></div>
+      </details>`;
+    } else {
+      html += `<div class="card idea">
+        <div class="head">${headRow}</div>
+        ${s.detail ? `<div class="cap">${esc(detailText(s.detail))}</div>` : ""}
+        ${current && current.summary ? `<div class="signal-summary">${esc(current.summary)}</div>` : ""}
+      </div>`;
+    }
   }
 
-  // chart: SPY + fragility
+  // 5. chart: SPY + the sizing horizon (63d)
+  const fs = d.fragility_series || {};
+  const fragKey = fs["63d"] ? "63d" : fs["21d"] ? "21d" : null;
   if (d.spy_series) {
-    html += `<h2>SPY vs fragility (1y, 5d-smoothed)</h2>
+    html += `<h2>SPY vs fragility ${fragKey || ""} (1y default, 5d-smoothed)</h2>
       <div class="card"><div class="chart" id="riskChart"></div></div>`;
   }
 
-  // forward returns
+  // 6. forward returns — 63d is the sizing horizon; other horizons collapsed
   const fwd = d.forward_returns || {};
-  const horizons = Object.keys(fwd);
-  if (horizons.length) {
+  if (fwd["63d"] || fwd["21d"] || fwd["5d"]) {
     html += `<h2>Forward returns at similar fragility readings</h2>`;
-    for (const h of ["5d", "21d", "63d"]) {
-      const r = fwd[h];
-      if (!r) continue;
-      html += fwdTable(h, r);
+    if (fwd["63d"]) html += fwdTable("63d", fwd["63d"]);
+    const others = ["5d", "21d"].filter(h => fwd[h]);
+    if (others.length) {
+      html += `<details class="fwd-others"><summary class="cap">Context horizons (${others.join(", ")}) — not sizing inputs</summary>` +
+        others.map(h => fwdTable(h, fwd[h])).join("") + `</details>`;
     }
-  }
-
-  // protection cost + hedge recommendation (optional 'hedge' block)
-  const hg = d.hedge;
-  if (hg) {
-    const ratioTxt = hg.term_ratio == null ? "" :
-      ` = ${fmt.num(hg.term_ratio, 3)}${hg.term_ratio > 1 ? " (inverted)" : ""}`;
-    html += `<h2>Protection cost &amp; hedge posture</h2>
-    <div class="grid2">
-      <div class="card">
-        ${hg.pctile != null ? '<div class="chart" id="hedgeGauge"></div>' :
-          '<p class="cap">Protection-cost percentile unavailable (needs ~1y of proxy history).</p>'}
-        <div class="kv">
-          <div class="k">Proxy (VIX3M x SKEW/130)</div><div class="v">${fmt.num(hg.proxy, 2)}</div>
-          <div class="k">VIX / VIX3M</div>
-          <div class="v">${hg.vix != null ? fmt.num(hg.vix, 2) : "-"} / ${fmt.num(hg.vix3m, 2)}${esc(ratioTxt)}</div>
-          <div class="k">Regime input</div><div class="v">${esc(hg.regime || "-")} (${hg.regime_points != null ? hg.regime_points : "-"} pts)</div>
-          <div class="k">As of</div><div class="v">${esc(hg.asof || "-")}</div>
-        </div>
-      </div>
-      <div class="card">
-        <div style="font-weight:700;font-size:15px;color:${esc(hg.color || "#c7ccd6")}">${esc(hg.rec || "")}</div>
-        <p style="margin:8px 0 0;font-size:13px;line-height:1.5">${esc(hg.detail || "")}</p>
-        <p class="cap">Regime basis: ${esc(hg.regime_basis || "")}.
-          Advisory text only (legacy Layer 4C decision tree, hit rates are placeholder
-          estimates) — not an order instruction.</p>
-      </div>
-    </div>`;
-    if (hg.spark && hg.spark.dates && hg.spark.dates.length) {
-      html += `<div class="card" style="margin-top:14px">
-        <div class="cap" style="margin-top:0">Protection-cost proxy, 2y weekly, with trailing-5y percentile</div>
-        <div class="chart" id="hedgeSpark"></div></div>`;
-    }
+    html += `<p class="cap">Similar-reading history includes the pre-2026-07-02 recompute
+      vintage; the point-in-time series starts 2026-07-02.</p>`;
   }
 
   el.innerHTML = html;
 
+  if (sz && sz.spark && Array.isArray(sz.spark.dates) && sz.spark.dates.length) {
+    renderSizingSpark(sz);
+  }
+
   if (signalDetail && d.spy_series) {
     renderSignalOverlay(d, signalDetail);
-    for (const [i, s] of (d.signals || []).entries()) {
-      const sd = signalDetail[s.name];
-      if (sd) renderSignalMetricChart(d, s.name, sd, `signalMetricChart-${i}`);
+    // accordion charts lazy-render on first expand
+    for (const acc of document.querySelectorAll("details.signal-acc")) {
+      acc.addEventListener("toggle", () => {
+        if (!acc.open || acc.dataset.rendered) return;
+        const i = Number(acc.dataset.sig);
+        const s = (d.signals || [])[i];
+        const sd = s ? signalDetail[s.name] : null;
+        if (sd) renderSignalMetricChart(d, s.name, sd, `signalMetricChart-${i}`);
+        acc.dataset.rendered = "1";
+      });
     }
   }
 
@@ -151,17 +129,16 @@ async function init() {
       x: spyDates, y: d.spy_series.close, name: "SPY",
       mode: "lines", line: { color: "#4da3ff", width: 1.6 },
     }];
-    const fs = d.fragility_series;
-    if (fs && fs["21d"]) {
+    if (fragKey) {
       const fragDates = seriesDates(d, fs);
       traces.push({
-        x: fragDates, y: fs["21d"], name: "Fragility 21d", yaxis: "y2",
+        x: fragDates, y: fs[fragKey], name: `Fragility ${fragKey}`, yaxis: "y2",
         mode: "lines", line: { color: "#ffc14d", width: 1.2 },
       });
     }
     const spyRange = valuesRange(d.spy_series.close, spyDates, initialRange);
-    const fragRange = fs && fs["21d"]
-      ? valuesRange(fs["21d"], seriesDates(d, fs), initialRange) : null;
+    const fragRange = fragKey
+      ? valuesRange(fs[fragKey], seriesDates(d, fs), initialRange) : null;
     Plotly.newPlot(chartEl, traces, plotLayout({
       height: 340,
       xaxis: { range: initialRange },
@@ -171,8 +148,122 @@ async function init() {
     }), PLOT_CFG);
     enableFullHistoryReset(chartEl, ["xaxis", "yaxis", "yaxis2"]);
   }
+}
 
-  if (hg) renderHedgeCharts(hg);
+function sizingHeroHtml(sz) {
+  const on = !!sz.throttle_on;
+  const gap = sz.gap_to_threshold;
+  const gapTxt = gap == null ? "" :
+    on ? `${fmt.num(Math.abs(gap), 1)} above threshold` :
+    `${fmt.num(Math.abs(gap), 1)} below threshold ${fmt.num(sz.threshold, 0)}`;
+  const throttled = Array.isArray(sz.throttled) ? sz.throttled : [];
+  const bandCount = Array.isArray(sz.banded_strategies) ? sz.banded_strategies.length : 0;
+  const throttleLine = on && throttled.length
+    ? throttled.map(t => `<span class="badge on">${esc(t.strategy)} @ ${fmt.num(t.mult, 2)}x</span>`).join(" ")
+    : `<span class="cap-inline">all ${bandCount} banded strategies at full size</span>`;
+  const expo = sz.exposure;
+  const expoLine = expo && expo.mult != null
+    ? `Exposure leg: ${fmt.num(expo.mult, 2)}x (${expo.active_rule ? esc(String(expo.active_rule)) : "no rule active"}), as of ${esc(expo.asof || "-")}`
+    : "";
+  return `<div class="card sizing-hero">
+    <div class="head"><span class="tkr">Sizing State</span>
+      <span class="badge ${on ? "on" : "off"}">${on ? "THROTTLE ON" : "THROTTLE OFF"}</span>
+      <span class="signal-current">${fmt.num(sz.score, 1)}</span></div>
+    <div class="cap">10d MA of the 63d dial — the number that sizes live orders ·
+      ${gapTxt} · ${sz.days_in_state != null ? `${sz.days_in_state}d in state` : ""} ·
+      as of ${esc(sz.asof || "-")} (append-only PIT series)</div>
+    <div class="sizing-throttle">${throttleLine}</div>
+    ${expoLine ? `<div class="cap">${expoLine}</div>` : ""}
+    <div class="chart sizing-spark" id="sizingSpark"></div>
+  </div>`;
+}
+
+function renderSizingSpark(sz) {
+  const el = document.getElementById("sizingSpark");
+  if (!el) return;
+  const dates = sz.spark.dates;
+  const shapes = [{
+    type: "line", xref: "paper", yref: "y", x0: 0, x1: 1,
+    y0: sz.threshold, y1: sz.threshold,
+    line: { color: "rgba(255,107,53,.8)", width: 1, dash: "dash" },
+  }];
+  for (const ep of sz.episodes || []) {
+    if (!ep || !ep[0] || !ep[1]) continue;
+    shapes.push({
+      type: "rect", xref: "x", yref: "paper", layer: "below",
+      x0: ep[0], x1: ep[1], y0: 0, y1: 1,
+      line: { width: 0 }, fillcolor: "rgba(255,107,53,.16)",
+    });
+  }
+  Plotly.newPlot(el, [{
+    x: dates, y: sz.spark.ma, name: "63d 10d-MA",
+    mode: "lines", line: { color: "#ffc14d", width: 1.6 },
+  }], plotLayout({
+    height: 170,
+    margin: { l: 36, r: 12, t: 8, b: 28 },
+    shapes,
+    showlegend: false,
+    yaxis: { rangemode: "tozero" },
+  }), PLOT_CFG);
+}
+
+function kpiRowHtml(d) {
+  const frag = d.fragility || {};
+  const sz = d.sizing_state;
+  const ctx = d.price_ctx || {};
+  let cells = `<div class="kpi"><div class="l">SPY</div><div class="v">${fmt.num(d.spy_last, 2)}</div>
+      <div class="s">${esc(ctx.regime_label || "")}</div></div>`;
+  if (frag["63d"] != null) {
+    const on = sz ? !!sz.throttle_on : null;
+    const cls = on === null ? "" : on ? "neg" : "pos";
+    cells += `<div class="kpi"><div class="l">Fragility 63d</div>
+      <div class="v ${cls}">${Math.round(frag["63d"])}</div>
+      <div class="s">${sz && sz.score != null ? `10d MA ${fmt.num(sz.score, 1)} vs ${fmt.num(sz.threshold, 0)}` : "sizing horizon"}</div></div>`;
+  }
+  const chips = ["5d", "21d"].filter(h => frag[h] != null)
+    .map(h => `${h} ${Math.round(frag[h])}`).join(" · ");
+  if (chips) {
+    cells += `<div class="kpi"><div class="l">Context horizons</div>
+      <div class="v" style="font-size:15px;padding-top:6px">${chips}</div>
+      <div class="s">not sizing inputs</div></div>`;
+  }
+  cells += `<div class="kpi"><div class="l">Active Signals</div>
+      <div class="v ${d.n_active > 0 ? "neg" : "pos"}">${d.n_active} / ${(d.signals || []).length}</div>
+      <div class="s">regime mult ${d.regime_mult != null ? Number(d.regime_mult).toFixed(2) + "x" : "-"}</div></div>`;
+  const vk = d.vol_kpi;
+  if (vk && vk.vix != null) {
+    const inverted = vk.term_ratio != null && vk.term_ratio > 1;
+    cells += `<div class="kpi"><div class="l">VIX / VIX3M</div>
+      <div class="v ${inverted ? "neg" : ""}">${fmt.num(vk.vix, 1)} / ${fmt.num(vk.vix3m, 1)}</div>
+      <div class="s">ratio ${vk.term_ratio != null ? fmt.num(vk.term_ratio, 2) : "-"}${inverted ? " (inverted)" : ""}</div></div>`;
+  }
+  return `<div class="kpis">${cells}</div>`;
+}
+
+function contextStripHtml(d) {
+  const ctx = d.price_ctx || {};
+  const bits = [];
+  if (ctx.regime_label) bits.push(esc(String(ctx.regime_label)));
+  if (ctx.extension_200d != null) bits.push(`${fmt.pct(ctx.extension_200d, 1)} vs 200d`);
+  if (ctx.drawdown != null) bits.push(`${fmt.pct(ctx.drawdown, 1)} off 52w high`);
+  if (ctx.ret_12m != null) bits.push(`${fmt.pct(ctx.ret_12m, 1)} over 12m`);
+  if (ctx.days_since_5pct != null) bits.push(`${ctx.days_since_5pct}d since 5% pullback`);
+  if (ctx.days_since_10pct != null) bits.push(`${ctx.days_since_10pct}d since 10% drawdown`);
+  if (!bits.length) return "";
+  return `<div class="card context-strip">${bits.map(b => `<span>${b}</span>`).join('<span class="sep">·</span>')}</div>`;
+}
+
+function nuggetsHtml(nuggets) {
+  const toneCls = { good: "off", warn: "warn", bad: "on", info: "conv" };
+  const cards = nuggets.map(n => {
+    const lines = (n.lines || []).filter(Boolean)
+      .map(l => `<p class="nugget-line">${esc(l)}</p>`).join("");
+    return `<div class="card nugget">
+      <div class="head"><span class="tkr">${esc(n.title || "")}</span>
+        <span class="badge ${toneCls[n.tone] || ""}">${esc((n.tone || "info").toUpperCase())}</span></div>
+      ${lines}</div>`;
+  }).join("");
+  return `<h2>Read</h2><div class="nugget-grid">${cards}</div>`;
 }
 
 function seriesDates(payload, series) {
@@ -360,57 +451,9 @@ function renderSignalMetricChart(d, name, detail, id) {
   enableFullHistoryReset(el, hasMetric ? ["xaxis", "yaxis", "yaxis2"] : ["xaxis", "yaxis"]);
 }
 
-/* Layer 4B-style gauge (green/yellow/orange/red bands match the 4C decision
-   tree thresholds: <20 cheap, 20-60 fair, 60-85 expensive, >=85 very) plus
-   the 2y weekly proxy sparkline with its trailing-5y percentile. */
-function renderHedgeCharts(hg) {
-  const gaugeEl = document.getElementById("hedgeGauge");
-  if (gaugeEl && hg.pctile != null) {
-    Plotly.newPlot(gaugeEl, [{
-      type: "indicator", mode: "gauge+number", value: hg.pctile,
-      number: { suffix: "", font: { size: 30, color: "#e8eaf0" } },
-      title: { text: "Protection cost percentile (trailing 5y)",
-               font: { size: 12, color: "#c7ccd6" } },
-      gauge: {
-        axis: { range: [0, 100], tickcolor: "#2a3242",
-                tickfont: { color: "#c7ccd6", size: 10 } },
-        bar: { color: "#e8eaf0", thickness: 0.22 },
-        bgcolor: "rgba(0,0,0,0)", borderwidth: 0,
-        steps: [
-          { range: [0, 20],   color: "rgba(0,204,0,.45)" },
-          { range: [20, 60],  color: "rgba(255,215,0,.40)" },
-          { range: [60, 85],  color: "rgba(255,140,0,.45)" },
-          { range: [85, 100], color: "rgba(204,0,0,.50)" },
-        ],
-      },
-    }], plotLayout({ height: 210, margin: { l: 28, r: 28, t: 40, b: 6 } }), PLOT_CFG);
-  }
-
-  const sparkEl = document.getElementById("hedgeSpark");
-  if (sparkEl && hg.spark) {
-    const traces = [{
-      x: hg.spark.dates, y: hg.spark.proxy, name: "Proxy",
-      mode: "lines", line: { color: "#4da3ff", width: 1.6 },
-    }];
-    if ((hg.spark.pctile || []).some(v => v != null)) {
-      traces.push({
-        x: hg.spark.dates, y: hg.spark.pctile, name: "Pctile (5y)", yaxis: "y2",
-        mode: "lines", line: { color: "#ffc14d", width: 1.1, dash: "dot" },
-      });
-    }
-    Plotly.newPlot(sparkEl, traces, plotLayout({
-      height: 220,
-      yaxis: { title: { text: "VIX3M x SKEW/130", font: { size: 11 } } },
-      yaxis2: { overlaying: "y", side: "right", range: [0, 100], showgrid: false,
-                title: { text: "Pctile", font: { size: 11 } } },
-    }), PLOT_CFG);
-  }
-}
-
 function fwdTable(h, r) {
   const head = `<tr>
-    <th class="l">Window</th><th>Mean</th><th>Median</th><th>% Neg</th>
-    <th>Mean Z</th><th>Median Z</th><th>Baseline</th></tr>`;
+    <th class="l">Window</th><th>Mean</th><th>Median</th><th>% Neg</th><th>Mean Z</th></tr>`;
   let rows = "";
   for (const [w, st] of Object.entries(r.returns || {})) {
     if (!st) continue;
@@ -421,9 +464,7 @@ function fwdTable(h, r) {
       <td class="${mCls}">${fmt.pct(st.mean, 2)}</td>
       <td>${fmt.pct(st.median, 2)}</td>
       <td class="${st.pct_neg > 0.5 ? "neg" : ""}">${fmt.pct(st.pct_neg, 0)}</td>
-      <td class="${mCls}">${fmt.signed(mz, 2)}</td>
-      <td>${fmt.signed(st.median_z || 0, 2)}</td>
-      <td class="${st.uncond_mean >= 0 ? "pos" : "neg"}">${fmt.pct(st.uncond_mean, 2)}</td></tr>`;
+      <td class="${mCls}">${fmt.signed(mz, 2)}</td></tr>`;
   }
   if (!rows) return "";
   return `<div class="card" style="margin-bottom:12px">
@@ -438,10 +479,6 @@ function detailText(v) {
   if (typeof v === "object" && v != null)
     return Object.entries(v).map(([k, x]) => `${k}: ${x}`).join(" · ");
   return String(v);
-}
-function fmtCtx(v) {
-  if (typeof v === "number") return Math.abs(v) < 1 ? v.toFixed(4) : v.toFixed(2);
-  return esc(String(v));
 }
 function esc(s) {
   return String(s).replace(/[&<>"']/g, c =>
