@@ -127,60 +127,92 @@ It may optionally import `SP500_TICKERS` from `abs_return_dispersion.py` (with t
 
 Per-tier tab routing inside `save_staging_orders`: Liquid rows → `Order_Staging`, Overflow rows → `Overflow`. Both tabs are read by `order_staging.py` (which lives in `C:\Users\mckin\OneDrive\trading_ibkr\` — IBKR-bound, stays local).
 
-## Risk Dashboard V2 — Current State
+## Risk Dials / Fragility System (rewritten 2026-07-16)
 
-**Phases 1 & 2 complete** (Layers 0–4). See `notes.md` for full details.
+The old "Risk Dashboard V2 Phases 1-2 / Layers 0-4 / Executive Summary"
+description no longer matches the code. Current state:
 
-### Executive Summary — Signal-Based Three-Question Framework
-One-screen briefing at the top of the page. Three sections:
+**pages/risk_dashboard_v2.py** computes 7 fragility signals (Distribution
+Dominance [+Elevated display tier], VIX Range Compression, Defensive
+Leadership, Pre-FOMC Rally, Low Absorption Ratio, Seasonal Rank Divergence,
+Dispersion) and a 0-100 composite dial at 3 horizons (5d/21d/63d), weighted
+by diff_mean edges from `data/signal_horizon_stats.json` (reproducible via
+`scripts/build_signal_horizon_stats.py`; the JSON's "(Elevated)" entry is
+reference-only, NOT consumed by the composite). The page displays ONE dial
+(63d + 10d MA + throttle state); 5d/21d are context chips (5d failed every
+sizing test; 21d ~90% state-agreement with 63d — no "confirm" semantics
+anywhere). `daily_risk_report.py` and `weekly_market_rundown.py` import the
+page's compute functions (import surface: deleting page functions can crash
+the GHA email that appends the sizing parquet — check both before removing
+anything).
 
-**Section A: Price Context Banner** — SPY price, 12mo return, extension vs 200d SMA, drawdown from 52w high, regime label (e.g. "Healthy uptrend", "Correction underway"). Plus "What Changed" line tracking signal activations/deactivations since last session via JSON persistence (`data/risk_dashboard_signal_state.json`).
+### The fragility-portfolio contract (B6, 2026-07-16)
 
-**Section B: Three Questions + Risk Dial** (3:1 column split)
-- **Is liquidity real?** — Vol Suppression (low AR + low RV), VRP Compression (negative or <15th pctile)
-- **Is everyone on the same side?** — Breadth Divergence (SPY near high, <55% sectors above 200d), Extended Calm (compound complacency counters), Vol Compression (>60 consecutive days below expanding median RV)
-- **Are correlations stable?** — Credit-Equity Divergence (HY z >0.75 while SPX flat), Rates-Equity Vol Gap (MOVE elevated, VIX calm), Vol Uncertainty (VVIX/VIX ratio >80th pctile)
-- Each question shows CLEAR/WATCH/WARNING badge. Each signal ON/OFF with explanatory detail when active.
-- **Risk Dial** — Plotly gauge, 0-100 fragility score driven by (active signal count / total) × 80 × regime multiplier (0.6-1.8x based on price context). Labels: Robust → Neutral → Fragile.
+- **The sizing statistic** is exactly: 10d MA of the 63d column of
+  `data/rd2_fragility.parquet`, threshold 50. Nothing else sizes orders.
+- **Vintage rule**: the parquet is APPEND-ONLY point-in-time since
+  2026-07-02; earlier rows are a recompute vintage (drifted up to ~7 pts).
+  Any backtest joining the dial must state which vintage it used.
+  `rd2_fragility_ts.parquet` is a raw-basis full recompute for research/ML
+  only — NEVER a sizing fallback (daily_scan's fallback removed 2026-07-16).
+- **Staleness convention**: consumers fail OPEN to 1.0x sizing on readings
+  older than 3 trading days (`daily_scan.FRAG_STALE_TD`,
+  `exposure_leg.DIAL_STALE_TD`), and dial_filters entry gates fail CLOSED.
+- **Schema**: columns 5d/21d/63d, 5d-smoothed basis, tz-naive normalized
+  index; appends stamp `fragility_stats_sha256` (provenance of the weights
+  vintage) plus basis/generated/last-date/frozen-through metadata.
+  `tests/test_fragility_append.py` freezes the schema (new columns are
+  DROPPED on append — shadow series get their own files).
+- **Freeze policy (A2)**: five live thresholds calibrate to this series —
+  frag_risk_bands 50, exposure_leg raw-21d 50 + ma10-63d 50, dial_filters
+  30 (52wh Breakout) and 65 (St OS Sznl). Do NOT adopt a re-scored stats
+  JSON (e.g. `scratch/signal_horizon_stats_candidate.json`) into the live
+  path — it de-calibrates all five at once. Replacements go through a
+  scratch/pit_reestimate.py-style PIT re-validation, full stop.
+- **Pre-registration requirement**: any NEW dial-conditioned control needs a
+  pre-registered protocol (gates, decision rule, sensitivity) BEFORE the
+  study runs — the discipline that correctly killed the OVS tilt and the
+  book-wide throttle. Live prereg docs:
+  `scratch/ultracode_research/exposure_leg_replay_prereg_2026-07-16.md`,
+  `scratch/ultracode_research/olv_frag_band_prereg_2026-07-16.md`.
 
-**Section C: Stored Energy** (conditional — only when 2+ signals active)
-- Vol compression duration & depth, calm streak, estimated drawdown range based on extension + compression + signal count.
+### Consumers (change-impact map)
 
-Legacy point system preserved in collapsed expander for reference. Alert = +1, Alarm = +2.
-- 0 pts = Normal | 1-2 = Caution | 3-4 = Stress | 5+ = Crisis
+- `frag_risk_bands` (strategy_config -> daily_scan 2b -> strat_backtester
+  3b3): FAMILY4 + 3x Bear Fade at [[50,999,0.25]]. Guard:
+  `tests/test_frag_risk_bands.py` (includes the site serializer assertion).
+- `exposure_leg.py` (25% NAV VOO/QQQ overlay in the AM scan email): kill
+  rules raw-21d>50 and ma10-63d>50. The 1.25x boost was REMOVED 2026-07-16
+  (mirrored the unanimously-killed per-trade boost). The raw-21d kill has a
+  pre-registered replay pending — do not touch it before the replay runs.
+- `dial_filters` entry gates, the daily risk email, the site risk tab
+  (`sizing_state` reads the PIT parquet, never the deploy recompute), the
+  portfolio page fragility adjuster (`fragility.json`), ML features.
 
-### Layer 1: Volatility State
-- 1A: HAR-RV (Yang-Zhang at 1d/5d/22d)
-- 1B: VRP = (VIX/100)^2 - RV_22d^2
-- 1C: VIX Term Structure (VIX/VIX3M)
-- 1D: VVIX
+### Simple-dial shadow (A6, accumulating since 2026-07-16)
 
-### Layer 2: Equity Market Internals
-- 2A: Breadth (sector ETF proxy — % above 200d/50d SMA)
-- 2B: Absorption Ratio (PCA on 63d sector returns). **Display-only** — removed from composite scoring. Red line at 0.40. Measures % of sector variance explained by first PC; low AR (<0.4) historically precedes below-avg returns (Minsky dynamic). Backtested: AR <0.4 → 5d avg -0.40% (vs +0.29% baseline), 63d avg +0.82% (vs +3.53%), N=17 deduped episodes over 10 years.
-- 2C: Cross-sectional dispersion + avg pairwise correlation (2x2 grid)
-- 2D: Hurst exponent (DFA, **126d window**, box sizes [8,16,32,48,63]). **Smoothed**: 11d rolling median → 15d EMA. Empirical percentile bands (P20/P80 of smoothed series). Alert > 80th pctile, alarm > 95th. 5d ΔH from smoothed series is the primary signal.
-- 2E: Complacency Counters — two primary signals: days since 5% SPX drawdown + days since VIX > 28. 10% drawdown also displayed for context. Compound scoring: either > 80th pctile = alert (+1), BOTH > 80th = alarm (+2). Sawtooth charts for each counter.
+`fragility_simple.py` -> `data/rd2_fragility_simple.parquet` (own file,
+append-only, written by daily_risk_report): equal-weight 7-signal sum with
+linear 63d decay — no edge weights, no regime/calm mults, no x80, fixed FOMC
+denominator. Pre-registered threshold rule: percentile-match to the
+incumbent gate's ON rate, NO scanning. Probes showed ~0.85 correlation /
+~89% gate agreement with the incumbent, i.e. the fitted weights are mostly
+cosmetic. Changes NOTHING until a PIT re-run gates a swap (~2027 earliest).
+Guard: `tests/test_fragility_simple.py`.
 
-### Layer 3: Cross-Asset Plumbing (4-column layout)
-- 3A: Credit Spreads — LQD/HYG vs IEF price ratio z-scores (63d rolling). Alert: IG or HY z > 1.0. Alarm: both > 1.5.
-- 3B: Yield Curve — 10Y-3M spread (^TNX - ^IRX). 21d change z-score is the signal. Alert: inverted OR z < -1.5. Alarm: inverted AND z < -2.0.
-- 3C: MOVE Index — raw level with bands at 80/120/150. Alert: > 120. Alarm: > 150. Graceful fallback if ^MOVE unavailable on yfinance.
-- 3D: Dollar Dynamics — UUP 21d momentum as DXY proxy. Alert: |chg| > 3%. Alarm: |chg| > 5%.
+### Negative results / triggers (institutional memory)
 
-### Layer 4: Tail Risk & Cost of Protection (auto-expands when 2+ signals active)
-- 4A: SKEW Index — time series with 120/140 bands. Disorderly stress detection: flags when SKEW falling (>3pts in 5d) while VIX rising (>3pts in 5d).
-- 4B: Protection Cost Proxy — VIX3M × (SKEW/130), percentile-ranked over 5yr trailing window. Plotly gauge display (green/yellow/orange/red).
-- 4C: Hedge Recommendation — decision tree based on regime × protection cost percentile. Outputs: sizing guidance, collar vs puts vs exposure reduction.
-
-### Chart Defaults
-- HAR-RV and VRP charts default to last 1 year. Double-click to zoom out to full history.
-- Layer 3 charts use compact 200px height (vs 250px for Layers 1/2).
-
-### Phase 3 TODO
-- Signal event study: backtest each of the 8 signals individually to calibrate hit rates (currently placeholder estimates)
-- Historical regime backtesting
-- FRED data source for MOVE (more reliable than yfinance)
+- Book-wide throttle/taper, dial-conditioned caps: dead (PIT t=-0.23; see
+  Daily Risk Caps section). OVS tilt: dead (PIT gate 2026-07-03).
+- Put hedges, VXX proxy, 21d "fast confirm" shadow, trend-sleeve gate,
+  >1.0x hi-frag boosts, sub-50 sizing ramps: all rejected — reasoning
+  preserved in scratch/ultracode_research/RISK_DIALS_2026-07-16.md section 4.
+- 3x Bear Fade band re-exam TRIGGER: revisit at 2 new hi-frag episodes (its
+  own hi bucket is flat, t=-0.05, N_hi=17; band kept by family analogy).
+  Companion to the existing "re-examine FAMILY4 at +20 trades (~2029)".
+- OLV mild-band candidacy: see prereg doc above; PIT re-bucket is THE gate.
+- Exemptions CONFIRMED permanent pending new evidence: OVS, LT Trend ST OS,
+  St OS Sznl, 3x Overbot Fade, 52wh Breakout, Sector BO, 3x Leader Gap Fade.
 
 ## Ticker Constants
 
@@ -243,6 +275,15 @@ Aligned sites — change together: `order_staging.py` (OneDrive) constants,
 `scripts/build_trade_ledger.py` POOLED_*_CAP_BPS, `daily_portfolio_report.py`
 call site, `pages/strat_backtester.py` UI defaults + `cap_bps` fallback (250)
 in `process_signals_fast`.
+
+**Do NOT fragility-condition these caps** (negative result, codified
+2026-07-16): dial-scaled pooled or per-strategy caps are the failed
+book-wide throttle re-skinned — rest-of-book at dial >=50 shows no
+significant degradation (p=.47 clustered), the aggregate PIT t was -0.23,
+and the taper variant cost -11.4R — on the costliest possible surface (four
+aligned sites incl. one out-of-repo, scalar-to-series engine change). The
+book's only evidenced dial-sizing hook is per-strategy `frag_risk_bands`.
+Evidence: scratch/ultracode_research/RISK_DIALS_2026-07-16.md.
 
 ## Ladder Sizing (OLV, 2026-04-22)
 

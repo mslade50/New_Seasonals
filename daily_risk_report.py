@@ -110,20 +110,14 @@ def compute_all_signals(spy_df, closes, sp500_closes):
     price_ctx = compute_price_context(spy_close)
     regime_mult = compute_regime_multiplier(price_ctx)
 
-    horizon_stats = load_horizon_stats()
-    h_scores = None
-    frag_df = None
-    if horizon_stats is not None:
-        h_scores = compute_horizon_fragility(
-            signals_ordered, regime_mult, horizon_stats, price_ctx, spy_close
-        )
-        frag_df = compute_fragility_timeseries(signals_ordered, spy_close, horizon_stats)
-        # 5d moving average for dial display (matches dashboard logic, line 2694)
-        if frag_df is not None and len(frag_df) >= 1:
-            h_scores = frag_df.rolling(5, min_periods=1).mean().iloc[-1].to_dict()
-            h_scores_10d = frag_df.rolling(10, min_periods=1).mean().iloc[-1].to_dict()
-        else:
-            h_scores_10d = None
+    # Shared scoring pipeline (fragility_core, A3) — no _ts write here.
+    from fragility_core import compute_fragility_bundle
+    bundle = compute_fragility_bundle(
+        signals_ordered, regime_mult, price_ctx, spy_close)
+    horizon_stats = bundle['horizon_stats']
+    h_scores = bundle['h_scores']
+    h_scores_10d = bundle['h_scores_10d']
+    frag_df = bundle['frag_df']
 
     return {
         'signals_ordered': signals_ordered,
@@ -811,6 +805,40 @@ def main():
                   f"history frozen through {frozen_through.date()})")
         else:
             print(f"  Cached fragility timeseries ({len(frag_out)} rows; full bootstrap write)")
+
+        # Simple-dial shadow (RISK_DIALS_2026-07-16.md A6): equal-weight
+        # composite, own append-only file, same 5d-smoothed basis. Parallel
+        # history only — nothing consumes it until a PIT-gated swap decision.
+        try:
+            from fragility_simple import compute_simple_dial, SIMPLE_CACHE_NAME
+            simple_raw = compute_simple_dial(
+                computed['signals_ordered'], computed['spy_close'].dropna().index)
+            if not simple_raw.empty:
+                simple_out = simple_raw.rolling(5, min_periods=1).mean()
+                simple_out.index = pd.to_datetime(simple_out.index).normalize()
+                try:
+                    simple_out.index = simple_out.index.tz_localize(None)
+                except (TypeError, AttributeError):
+                    pass
+                simple_path = os.path.join(data_dir, SIMPLE_CACHE_NAME)
+                simple_frozen = None
+                if os.path.exists(simple_path):
+                    existing_s = pd.read_parquet(simple_path)
+                    existing_s.index = pd.to_datetime(existing_s.index).normalize()
+                    try:
+                        existing_s.index = existing_s.index.tz_localize(None)
+                    except (TypeError, AttributeError):
+                        pass
+                    simple_out, simple_frozen = merge_fragility_history(
+                        simple_out, existing_s.sort_index(),
+                        pd.Timestamp.today().normalize())
+                simple_out.to_parquet(simple_path)
+                frozen_note = (f"frozen through {simple_frozen.date()}"
+                               if simple_frozen is not None else "bootstrap write")
+                print(f"  Cached simple-dial shadow ({len(simple_out)} rows; "
+                      f"{frozen_note}; n_signals={simple_raw.attrs.get('n_signals')})")
+        except Exception as e:
+            print(f"  WARNING: simple-dial shadow failed ({e}) — continuing")
 
     # Save environment snapshot (price context + h_scores + signal summaries)
     env_snapshot = {

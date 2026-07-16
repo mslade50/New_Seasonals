@@ -145,18 +145,14 @@ def compute_all_signals(spy_df, closes, sp500_closes):
     price_ctx = compute_price_context(spy_close)
     regime_mult = compute_regime_multiplier(price_ctx)
 
-    horizon_stats = load_horizon_stats()
-    h_scores = None
-    h_scores_10d = None
-    frag_df = None
-    if horizon_stats is not None:
-        h_scores = compute_horizon_fragility(
-            signals_ordered, regime_mult, horizon_stats, price_ctx, spy_close
-        )
-        frag_df = compute_fragility_timeseries(signals_ordered, spy_close, horizon_stats)
-        if frag_df is not None and len(frag_df) >= 1:
-            h_scores = frag_df.rolling(5, min_periods=1).mean().iloc[-1].to_dict()
-            h_scores_10d = frag_df.rolling(10, min_periods=1).mean().iloc[-1].to_dict()
+    # Shared scoring pipeline (fragility_core, A3) — no _ts write here.
+    from fragility_core import compute_fragility_bundle
+    bundle = compute_fragility_bundle(
+        signals_ordered, regime_mult, price_ctx, spy_close)
+    horizon_stats = bundle['horizon_stats']
+    h_scores = bundle['h_scores']
+    h_scores_10d = bundle['h_scores_10d']
+    frag_df = bundle['frag_df']
 
     # Extension vs 200d SMA — percentile rank over full history
     ext_200d_pctile = None
