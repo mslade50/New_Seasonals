@@ -289,11 +289,9 @@ def send_email_summary(signals_list, error_tickers=None, frag_score=None, scope_
         else:
             _dial_label = "Fragile"
             _dial_color = "#ffcdd2"
-        _tilts = []
-        if frag_score >= 50:
-            _tilts.append("dip-buy family 0.25x")
-        if 21 <= frag_score < 44:
-            _tilts.append("OVS 0.75x")
+        # Derived from the strategy book, never hand-copied (the hardcoded
+        # version displayed the removed OVS tilt for 13 days).
+        _tilts = active_band_tilts(frag_score)
         _tilt_txt = ", ".join(_tilts) if _tilts else "no band tilts active"
         risk_dial_html = (
             f'<div style="font-size: 13px; margin-top: 6px; opacity: 0.95;">'
@@ -718,6 +716,29 @@ def frag_band_mult(execution, frag_score):
         if lo <= frag_score < hi:
             return float(mult)
     return 1.0
+
+
+def active_band_tilts(frag_score, strategy_book=None):
+    """Human-readable list of band tilts active at this score, DERIVED from
+    the strategy book (the email header used to hand-copy the band table and
+    kept displaying the OVS 0.75x tilt for 13 days after the PIT gate removed
+    it — never hardcode band text again). Groups strategies by multiplier;
+    3+ names collapse to a count."""
+    if frag_score is None:
+        return []
+    book = STRATEGY_BOOK if strategy_book is None else strategy_book
+    by_mult = {}
+    for strat in book:
+        mult = frag_band_mult(strat.get('execution') or {}, frag_score)
+        if mult != 1.0:
+            by_mult.setdefault(mult, []).append(strat.get('name', '?'))
+    tilts = []
+    for mult in sorted(by_mult):
+        names = by_mult[mult]
+        label = (", ".join(names) if len(names) <= 2
+                 else f"{len(names)} strategies")
+        tilts.append(f"{label} @ {mult:.2f}x")
+    return tilts
 
 
 def _print_ledger_provenance(path, n_rows):
@@ -2715,9 +2736,10 @@ def run_daily_scan(scope='liquid', moc_only=False, dry_run=False):
                     # 2b. FRAGILITY RISK BANDS (per-strategy, 2026-07-02).
                     # execution['frag_risk_bands'] = [[lo, hi, mult], ...] on
                     # the 10d-MA 63d score; strategies without the field (and
-                    # missing/stale scores) run 1.0x. FAMILY4 dip-buyers 0.25x
-                    # at >=50, OVS 0.75x in [21,44). Mirrored in
-                    # strat_backtester sizing 3b3 (point-in-time replay).
+                    # missing/stale scores) run 1.0x. Carriers: FAMILY4
+                    # dip-buyers + 3x Bear Fade, 0.25x at >=50 (the OVS tilt
+                    # was removed 2026-07-03 after failing the PIT gate).
+                    # Mirrored in strat_backtester 3b3 (point-in-time replay).
                     _fbm = frag_band_mult(strat['execution'], frag_score)
                     if _fbm != 1.0:
                         risk = risk * _fbm
