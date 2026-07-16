@@ -41,6 +41,35 @@ def _normalize_ticker_df(t_df):
     return t_df[cols].dropna(subset=["Close"])
 
 
+def detect_basis_changes(master, new_data, tol=0.02):
+    """Tickers whose re-fetched overlap bars diverge from the cached bars.
+
+    The nightly refresh only re-adjusts the trailing --max-lookback-days
+    window. A reverse split or large special dividend rescales yfinance's
+    ENTIRE adjusted history, so the merge used to leave a permanent price
+    cliff at the window boundary — silently corrupting every >window-length
+    lookback (252d rank, SMA200, 52wh) the live scan computes from the cache.
+    The 42 LEV3X names reverse-split routinely and the 3x fades gate on
+    exactly those ranks (2026-07-16).
+
+    Compares Close on (ticker, date) pairs present in BOTH frames; a median
+    relative divergence > tol marks a basis change (median so single bad
+    bars don't trigger; regular small-dividend re-adjustment sits well under
+    2%, a split is 2x+). Returns sorted ticker list.
+    """
+    m = master[["ticker", "date", "Close"]].copy()
+    n = new_data[["ticker", "date", "Close"]].copy()
+    m["date"] = pd.to_datetime(m["date"])
+    n["date"] = pd.to_datetime(n["date"])
+    j = n.merge(m, on=["ticker", "date"], suffixes=("_new", "_old"))
+    j = j[(j["Close_old"] > 0) & j["Close_new"].notna()]
+    if j.empty:
+        return []
+    j["div"] = (j["Close_new"] / j["Close_old"] - 1.0).abs()
+    med = j.groupby("ticker")["div"].median()
+    return sorted(med[med > tol].index)
+
+
 def download_chunk(tickers, start_date):
     out = {}
     try:
@@ -197,6 +226,56 @@ def main():
         before = len(new_data)
         new_data = new_data[new_data["date"] < today_eastern]
         print(f"  --exclude-today: dropped {before - len(new_data):,} rows dated >= {today_eastern.date()}")
+    # ---- Basis-change guard (2026-07-16) ----
+    # A flagged ticker gets its FULL cached history re-pulled and replaced in
+    # this same run, so the whole series lands on one adjusted basis instead
+    # of a rescaled window stitched onto stale history. Guards: a systemic
+    # flag count (>40) smells like a bad yfinance vintage, not real splits —
+    # abort rather than churn the whole cache; a re-pull that returns <90%
+    # of the ticker's cached rows keeps the old rows (partial history would
+    # be worse than a known cliff, which the next run re-flags).
+    MAX_BASIS_REPULLS = 40
+    basis_changed = detect_basis_changes(master, new_data)
+    replaced_rows_dropped = 0
+    if basis_changed:
+        if len(basis_changed) > MAX_BASIS_REPULLS:
+            print(f"ERROR: {len(basis_changed)} tickers show >2% overlap divergence "
+                  f"(cap {MAX_BASIS_REPULLS}) — systemic bad vintage suspected; "
+                  f"refusing to write. Sample: {basis_changed[:10]}")
+            return 1
+        print(f"  [BASIS] {len(basis_changed)} ticker(s) diverged >2% on overlap "
+              f"(split/special-div basis change): {basis_changed}")
+        old_counts = master[master["ticker"].isin(basis_changed)].groupby("ticker").size()
+        min_dates = master[master["ticker"].isin(basis_changed)].groupby("ticker")["date"].min()
+        repull_frames = []
+        replaced_ok = set()
+        for i in range(0, len(basis_changed), CHUNK_SIZE):
+            chunk = basis_changed[i:i + CHUNK_SIZE]
+            start = pd.to_datetime(min_dates.loc[chunk].min()).strftime("%Y-%m-%d")
+            result = download_chunk(chunk, start)
+            for t, df in result.items():
+                if len(df) < 0.9 * old_counts.get(t, 0):
+                    print(f"  [BASIS] {t}: re-pull returned {len(df)} rows vs "
+                          f"{old_counts.get(t, 0)} cached — keeping old rows (re-flags next run)")
+                    continue
+                df = df.copy()
+                df["ticker"] = t
+                df = df.reset_index().rename(columns={"index": "date", "Date": "date"})
+                repull_frames.append(df)
+                replaced_ok.add(t)
+            time.sleep(0.3)
+        if replaced_ok:
+            replaced_rows_dropped = int(master["ticker"].isin(replaced_ok).sum())
+            master = master[~master["ticker"].isin(replaced_ok)]
+            new_data = new_data[~new_data["ticker"].isin(replaced_ok)]
+            repull = pd.concat(repull_frames, ignore_index=True)
+            if args.exclude_today:
+                repull["date"] = pd.to_datetime(repull["date"])
+                repull = repull[repull["date"] < today_eastern]
+            new_data = pd.concat([new_data, repull], ignore_index=True)
+            print(f"  [BASIS] replaced full history for {sorted(replaced_ok)} "
+                  f"({replaced_rows_dropped:,} old rows swapped out)")
+
     combined = pd.concat([master, new_data], ignore_index=True)
     combined = combined.dropna(subset=["Close"])
     combined = combined.drop_duplicates(subset=["ticker", "date"], keep="last")
@@ -210,9 +289,13 @@ def main():
     combined = combined.sort_values(["ticker", "date"]).reset_index(drop=True)
 
     added = len(combined) - len(master)
-    if added < 0:
-        print(f"ERROR: merged cache SHRANK ({len(master):,} -> {len(combined):,} rows) — "
-              f"bad vintage; refusing to overwrite the master parquet.")
+    # basis re-pulls may legitimately shrink a replaced ticker slightly
+    # (delisting trims); allow up to 10% of the swapped-out rows, else abort
+    _allowed_shrink = int(0.10 * replaced_rows_dropped)
+    if added < -_allowed_shrink:
+        print(f"ERROR: merged cache SHRANK ({len(master):,} -> {len(combined):,} rows, "
+              f"allowed shrink {_allowed_shrink:,}) — bad vintage; refusing to "
+              f"overwrite the master parquet.")
         return 1
     combined.to_parquet(PATH, compression="snappy", index=False)
 
