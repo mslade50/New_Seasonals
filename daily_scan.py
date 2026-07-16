@@ -1660,6 +1660,33 @@ def save_staging_orders(signals_list, strategy_book, sheet_name='Order_Staging',
             worksheet = sh.worksheet(sheet_name)
         except gspread.WorksheetNotFound:
             worksheet = sh.add_worksheet(title=sheet_name, rows=100, cols=20)
+        # Preserve Manual_Limit pins across the clear+rewrite (2026-07-16).
+        # A price typed into the sheet used to be destroyed by ANY re-scan
+        # (including the 10:30 UTC fallback) with no trace. Pins are re-applied
+        # by (Symbol, Strategy_Ref) to signals still present this scan; a pin
+        # whose signal vanished dies with it, which is correct.
+        try:
+            _existing = worksheet.get_all_records()
+        except Exception as _pe:
+            _existing = []
+            print(f"[WARN] could not read existing tab for Manual_Limit pins: {_pe}")
+        _pins = {}
+        for _r in _existing:
+            _ml = str(_r.get('Manual_Limit', '') or '').strip()
+            if _ml and _ml.lower() not in ('nan', 'none'):
+                _pins[(str(_r.get('Symbol', '')).strip().upper(),
+                       str(_r.get('Strategy_Ref', '')).strip())] = _ml
+        if _pins and 'Manual_Limit' in df_stage.columns:
+            _applied = 0
+            for _i in df_stage.index:
+                _k = (str(df_stage.at[_i, 'Symbol']).strip().upper(),
+                      str(df_stage.at[_i, 'Strategy_Ref']).strip())
+                if _k in _pins:
+                    df_stage.at[_i, 'Manual_Limit'] = _pins[_k]
+                    _applied += 1
+            _lost = len(_pins) - _applied
+            print(f"📌 Manual_Limit pins preserved: {_applied}"
+                  + (f" ({_lost} pin(s) dropped — signal no longer present)" if _lost else ""))
         worksheet.clear()
         data_to_write = [df_stage.columns.tolist()] + df_stage.astype(str).values.tolist()
         worksheet.update(values=data_to_write)
