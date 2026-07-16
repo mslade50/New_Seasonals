@@ -98,14 +98,28 @@ def test_load_overflow_universe_fallback_when_missing(tmp_path):
     assert ou.load_overflow_universe(fallback=None, path=missing) == []
 
 
-def test_load_overflow_universe_reads_parquet(tmp_path):
+def test_load_overflow_universe_gate_off_ignores_parquet(tmp_path, monkeypatch):
+    # Activation gate OFF (default): the parquet is ignored and the caller's
+    # static fallback comes back verbatim — legacy live behavior until
+    # OVERFLOW_UNIVERSE_ACTIVE is enabled.
+    monkeypatch.delenv(ou.OVERFLOW_UNIVERSE_ACTIVE_ENV, raising=False)
+    p = str(tmp_path / "u.parquet")
+    pd.DataFrame({"ticker": ["brk.b", "aaa", "AAA"], "addv_63d": [9e6, 5e6, 5e6]}).to_parquet(p)
+    assert ou.load_overflow_universe(fallback=["ZZZ"], path=p) == ["ZZZ"]
+    # tooling path reads regardless of the gate
+    assert ou.load_overflow_universe(fallback=["ZZZ"], path=p, respect_active=False) == ["AAA", "BRK-B"]
+
+
+def test_load_overflow_universe_reads_parquet(tmp_path, monkeypatch):
+    monkeypatch.setenv(ou.OVERFLOW_UNIVERSE_ACTIVE_ENV, "1")
     p = str(tmp_path / "u.parquet")
     pd.DataFrame({"ticker": ["brk.b", "aaa", "AAA"], "addv_63d": [9e6, 5e6, 5e6]}).to_parquet(p)
     got = ou.load_overflow_universe(fallback=["ZZZ"], path=p)
     assert got == ["AAA", "BRK-B"]  # normalized, deduped, sorted; fallback ignored
 
 
-def test_load_overflow_meta(tmp_path):
+def test_load_overflow_meta(tmp_path, monkeypatch):
+    monkeypatch.setenv(ou.OVERFLOW_UNIVERSE_ACTIVE_ENV, "1")
     p = str(tmp_path / "u.parquet")
     pd.DataFrame(
         {"ticker": ["aaa"], "addv_63d": [5e6], "atr_pct_63d": [3.0], "last_close": [12.0]}
@@ -113,6 +127,9 @@ def test_load_overflow_meta(tmp_path):
     meta = ou.load_overflow_meta(path=p)
     assert meta["AAA"]["addv_63d"] == pytest.approx(5e6)
     assert ou.load_overflow_meta(path=str(tmp_path / "missing.parquet")) == {}
+    # gate OFF → metadata gates are no-ops even with a parquet present
+    monkeypatch.delenv(ou.OVERFLOW_UNIVERSE_ACTIVE_ENV, raising=False)
+    assert ou.load_overflow_meta(path=p) == {}
 
 
 def test_filter_by_addv_per_strategy():

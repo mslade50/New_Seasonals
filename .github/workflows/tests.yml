@@ -1,0 +1,40 @@
+name: Tests
+
+# Runs the pytest guard suite on every push — the tests/ directory guards
+# live-money invariants (sizing overlays, fill windows, caps, blackouts) but
+# no workflow ever executed it before 2026-07-16, so guards only fired when
+# someone remembered to run them by hand (the suite sat red for weeks).
+# Data-dependent tests skip themselves when local parquets are absent;
+# tests needing the OneDrive execution dir skip on the runner.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  pytest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          pip install pandas numpy pyarrow scipy scikit-learn joblib plotly \
+            yfinance gspread google-auth boto3 requests streamlit pytest
+
+      - name: Run test suite
+        run: python -m pytest tests/ -q
