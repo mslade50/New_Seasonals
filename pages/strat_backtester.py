@@ -3053,26 +3053,25 @@ def main():
         max_long_risk_bps_input = st.number_input(
             "Pooled long daily risk cap (bps, 0 = off)",
             min_value=0, max_value=2000,
-            value=500, step=25,
+            value=0, step=25,
             help=(
                 "Caps TOTAL long-side STAGED risk across ALL strategies "
-                "per signal date, in bps of MTM equity. Mirrors live: "
-                "scale is computed from staged (pre-fill) risk so unfilled "
-                "limits consume their share of the budget. Stacks on top "
-                "of the per-strategy backstop. Default 500 mirrors "
-                "order_staging.MAX_DAILY_RISK_PCT_LONG (5%) — prod since "
-                "2026-07-10 (ledger + portfolio report pass the same). "
-                "Set to 0 to disable."
+                "per signal date, in bps of MTM equity. OFF in prod since "
+                "2026-07-16: the 2026-07 cap-impact study showed the pooled "
+                "layer bound on the same net-positive cluster days as the "
+                "per-strategy cap and cost ~$125k/23y with identical maxDD "
+                "and worst day (scratch/cap_impact_results.csv). Kept as a "
+                "counterfactual dial — set >0 to model it."
             ),
         )
         max_short_risk_bps_input = st.number_input(
             "Pooled short daily risk cap (bps, 0 = off)",
             min_value=0, max_value=2000,
-            value=250, step=25,
+            value=0, step=25,
             help=(
                 "Same as the long pooled cap, but for short-side staged risk. "
-                "Default 250 mirrors order_staging.MAX_DAILY_RISK_PCT_SHORT "
-                "(2.5%) — prod since 2026-07-10. Set to 0 to disable."
+                "OFF in prod since 2026-07-16 (see long-cap help). "
+                "Was 250 (order_staging 2.5%) from 2026-07-10 to 2026-07-16."
             ),
         )
         st.markdown("**🪜 Portfolio Net-Exposure Caps**")

@@ -271,20 +271,21 @@ per-signal sizing. All values are EFFECTIVE (not GRM-scaled):
   one). Engine: `process_signals_fast(cap_bps=...)`, default 250.
   `PER_STRAT_DAILY_CAP_DOLLARS` in order_staging holds per-strategy dollar
   overrides (currently empty).
-- **Pooled per-direction: long 500 bps, short 250 bps/day.** Total staged
-  risk across ALL strategies per side, per signal date. Live:
-  `order_staging.MAX_DAILY_RISK_PCT_LONG` (5.0) / `_SHORT` (2.5), applied
-  post-open after the per-strategy cap. Engine: `max_long_risk_bps` /
-  `max_short_risk_bps` — passed by `scripts/build_trade_ledger.py`
-  (POOLED_LONG/SHORT_CAP_BPS) and `daily_portfolio_report.py` since
-  2026-07-10 (before that the ledger did NOT model the pooled caps, so
-  cross-strategy short cluster days ran optimistic vs live). The
-  strat_backtester UI defaults now mirror prod (250/500/250).
-  **Sequential since 2026-07-16**: the engine's per-strategy pass now
-  propagates its trims into the pooled denominators, matching live's
-  cap ordering — before that the pooled scale divided by PRE-trim staged
-  totals and double-trimmed single-strategy cluster days ~30%. Guard:
-  `tests/test_pooled_cap_sequential.py`.
+- **Pooled per-direction caps: REMOVED 2026-07-16** (in place 2026-07-10 to
+  2026-07-16 at long 500 / short 250 bps). The cap-impact study
+  (`scratch/cap_impact_study.py` + `cap_impact_results.csv`) showed the
+  pooled layer bound on the SAME net-positive cluster days as the
+  per-strategy cap and cost ~$125k/23y with IDENTICAL maxDD and worst day —
+  pure redundancy. Removed together: `order_staging` pooled stage (staged
+  side totals still printed), `build_trade_ledger` POOLED_*_CAP_BPS = None,
+  `daily_portfolio_report` call site, strat_backtester UI defaults (0 = off).
+  The engine's `max_long_risk_bps`/`max_short_risk_bps` machinery is
+  retained for counterfactuals (sequential-after-per-strategy semantics,
+  fixed 2026-07-16; guard: `tests/test_pooled_cap_sequential.py`).
+  Context: caps overall cost 25% of total return and 0.56 Sortino over 23y;
+  the per-strategy 250 is kept because it alone bounds the worst single day
+  (-$44k vs -$118k = -15.75% NAV uncapped, which by itself was the entire
+  uncapped maxDD).
 
 Aligned sites — change together: `order_staging.py` (OneDrive) constants,
 `scripts/build_trade_ledger.py` POOLED_*_CAP_BPS, `daily_portfolio_report.py`

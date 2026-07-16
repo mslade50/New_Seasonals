@@ -68,13 +68,17 @@ DATA_START = datetime.date(2000, 1, 1)   # history for percentile/SMA warmup
 BT_START = datetime.date(2003, 1, 1)     # first eligible signal date
 DIFF_WINDOW_TD = 15                      # vintage-diff lookback (business days)
 
-# Pooled per-direction daily risk caps (bps of equity, staged basis) — model
-# order_staging's MAX_DAILY_RISK_PCT_LONG (5.0%) / _SHORT (2.5%) so the
-# ledger trims the same cross-strategy cluster days live does (added
-# 2026-07-10; before this the ledger only modeled the per-strategy 250).
-# Change together with order_staging.py.
-POOLED_LONG_CAP_BPS = 500
-POOLED_SHORT_CAP_BPS = 250
+# Pooled per-direction daily risk caps: REMOVED from prod 2026-07-16
+# (McKinley). The cap-impact study (scratch/cap_impact_study.py) showed the
+# pooled layer bound on the same net-positive cluster days as the
+# per-strategy 250 and cost ~$125k/23y with IDENTICAL maxDD and worst day —
+# redundant with the per-strategy cap, which stays. None disables in the
+# engine. Change together with order_staging.py (pooled stage removed there
+# same day) + daily_portfolio_report call site + strat_backtester UI
+# defaults. Engine machinery retained for counterfactuals
+# (tests/test_pooled_cap_sequential.py still guards it).
+POOLED_LONG_CAP_BPS = None
+POOLED_SHORT_CAP_BPS = None
 
 
 def _provenance_meta(n_rows):
