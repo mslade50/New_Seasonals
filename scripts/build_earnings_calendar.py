@@ -93,11 +93,15 @@ def fetch_ticker(symbol, api_key):
                 # Dict response = error/quota payload, NOT a legit-empty ticker.
                 # Treat as a hard failure so it is not misread as 'no earnings'.
                 return None
-            if r.status_code == 429:
-                wait = 2 ** attempt
-                time.sleep(wait)
-                continue
-            # Any other non-200 (5xx, 4xx) is a fetch failure, not empty data.
+            if r.status_code == 429 or r.status_code >= 500:
+                # 429 = quota pacing, 5xx = transient FMP hiccup — both are
+                # worth retrying; dropping the ticker on first 5xx shrinks
+                # coverage for no reason (2026-07-16).
+                if attempt < MAX_RETRIES - 1:
+                    time.sleep(2 ** attempt)
+                    continue
+                return None
+            # Any other non-200 (4xx) is a fetch failure, not empty data.
             return None
         except requests.exceptions.RequestException:
             if attempt < MAX_RETRIES - 1:
@@ -203,8 +207,10 @@ def build_calendar(tickers, api_key, output_path, r2_key="earnings_calendar.parq
         time.sleep(SLEEP_BETWEEN_CALLS)
 
     if not rows:
-        print("\nNo rows pulled — aborting write.")
-        return
+        # Exit nonzero: a green no-op run leaves the R2 calendar stale and,
+        # if the prior copy is ever lost, NaN-as-True disarms the OVS
+        # blackout downstream (2026-07-16 fail-loud batch).
+        raise SystemExit("\nERROR: no rows pulled — aborting write, failing loud.")
 
     df = pd.DataFrame(rows)
     df["date"] = pd.to_datetime(df["date"], errors="coerce")
@@ -220,6 +226,20 @@ def build_calendar(tickers, api_key, output_path, r2_key="earnings_calendar.parq
     COVERAGE_DROP_TOL = 0.02
     new_tickers = df["ticker"].nunique()
     new_rows = len(df)
+    # The GHA runner starts from a clean checkout (data/ gitignored), so
+    # without this pull the gate below never had a prior copy to compare
+    # against and a shrunken build uploaded unconditionally — able to
+    # overwrite a gated local build (2026-07-16). Pull the last good copy
+    # from R2 so the gate is live in both environments.
+    if not os.path.exists(output_path):
+        try:
+            from cache_io import download_to_local
+            if download_to_local(r2_key, output_path):
+                print(f"[coverage-check] pulled prior calendar from R2 ({r2_key}) for the gate")
+            else:
+                print(f"[coverage-check] warn: no prior calendar locally or on R2 ({r2_key}) — gate has no baseline this run")
+        except Exception as _e:
+            print(f"[coverage-check] warn: R2 pull of prior calendar failed: {_e}")
     if os.path.exists(output_path):
         try:
             prev = pd.read_parquet(output_path, columns=["ticker"])
@@ -228,13 +248,16 @@ def build_calendar(tickers, api_key, output_path, r2_key="earnings_calendar.parq
             ticker_floor = prev_tickers * (1 - COVERAGE_DROP_TOL)
             row_floor = prev_rows * (1 - COVERAGE_DROP_TOL)
             if new_tickers < ticker_floor or new_rows < row_floor:
-                print(
+                # SystemExit(str) exits with code 1 — the workflow goes red
+                # instead of a green run that silently kept the stale copy.
+                raise SystemExit(
                     f"\nABORT: coverage dropped beyond {COVERAGE_DROP_TOL:.0%} tolerance — "
                     f"tickers {new_tickers} vs prev {prev_tickers}, rows {new_rows:,} vs "
                     f"prev {prev_rows:,}. Failures={len(failures)}. Keeping last good copy; "
-                    f"not writing or uploading."
+                    f"not writing or uploading. Failing loud."
                 )
-                return
+        except SystemExit:
+            raise
         except Exception as _e:
             print(f"[coverage-check] warn: could not read existing parquet: {_e}")
 
