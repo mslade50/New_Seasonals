@@ -70,6 +70,29 @@ def detect_basis_changes(master, new_data, tol=0.02):
     return sorted(med[med > tol].index)
 
 
+def novel_cliff_dates(fresh_close, cached_close, window=320, thresh=0.5):
+    """Dates where a re-pulled full-history series jumps >50% day-over-day
+    but the cached series does not — an internally broken vendor series,
+    not a basis change.
+
+    Motivating case (2026-07-17): after the SOXS 1:10 reverse split,
+    yfinance's adjusted feed carried a spurious ~15x cliff at 2026-05-26
+    (its 2026-03-05 1:20 split misdated), so a basis-change re-pull would
+    have replaced a repaired cache series with a broken one. Only dates
+    present in BOTH series are considered, so a genuine fresh crash bar the
+    cache hasn't seen yet never blocks acceptance; a genuine historical
+    crash (e.g. SOXS 2025-04-09, -56%) appears in both and matches out.
+    """
+    fr = fresh_close.sort_index().pct_change().tail(window)
+    fresh_cliffs = fr[fr.abs() > thresh]
+    if fresh_cliffs.empty:
+        return []
+    cc = cached_close.sort_index()
+    cr = cc.pct_change()
+    old_cliffs = set(cr[cr.abs() > thresh].index)
+    return [d for d in fresh_cliffs.index if d in cc.index and d not in old_cliffs]
+
+
 def download_chunk(tickers, start_date):
     out = {}
     try:
@@ -257,6 +280,14 @@ def main():
                 if len(df) < 0.9 * old_counts.get(t, 0):
                     print(f"  [BASIS] {t}: re-pull returned {len(df)} rows vs "
                           f"{old_counts.get(t, 0)} cached — keeping old rows (re-flags next run)")
+                    continue
+                cached_close = (master[master["ticker"] == t]
+                                .set_index("date")["Close"])
+                novel = novel_cliff_dates(df["Close"], cached_close)
+                if novel:
+                    print(f"  [BASIS] {t}: re-pulled series has internal >50% jump(s) at "
+                          f"{[d.date() for d in novel]} absent from cache — vendor "
+                          f"series looks broken; keeping old rows (re-flags next run)")
                     continue
                 df = df.copy()
                 df["ticker"] = t
