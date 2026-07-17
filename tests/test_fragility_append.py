@@ -83,6 +83,34 @@ def test_bootstrap_when_no_history():
     pd.testing.assert_frame_equal(merged, recomputed)
 
 
+def test_am_correction_refreshes_last_session_only():
+    """--refresh-last (2026-07-17): the AM run may refresh the PREVIOUS
+    session's row (provisional close bar), never anything older."""
+    existing = _frame(["2026-07-14", "2026-07-15", "2026-07-16"], base=10)
+    recomputed = _frame(["2026-07-14", "2026-07-15", "2026-07-16"], base=50)
+    merged, frozen_through = merge_fragility_history(
+        recomputed, existing, pd.Timestamp("2026-07-17"),
+        refresh_from=pd.Timestamp("2026-07-16"))
+    # last session refreshed from the corrected recompute
+    assert merged.loc["2026-07-16", "63d"] == recomputed.loc["2026-07-16", "63d"]
+    # older rows untouched despite the drifted recompute
+    pd.testing.assert_frame_equal(merged.loc[:"2026-07-15"],
+                                  existing.loc[:"2026-07-15"])
+    assert frozen_through == pd.Timestamp("2026-07-15")
+
+
+def test_am_correction_after_missed_pm_backfills_not_rewrites():
+    """PM run failed yesterday: the AM correction appends the missing row
+    with settled prices but must not touch the older, already-consumed row."""
+    existing = _frame(["2026-07-14", "2026-07-15"], base=10)  # no 07-16 row
+    recomputed = _frame(["2026-07-14", "2026-07-15", "2026-07-16"], base=50)
+    merged, _ = merge_fragility_history(
+        recomputed, existing, pd.Timestamp("2026-07-17"),
+        refresh_from=pd.Timestamp("2026-07-16"))
+    pd.testing.assert_frame_equal(merged.loc[:"2026-07-15"], existing)
+    assert merged.loc["2026-07-16", "5d"] == recomputed.loc["2026-07-16", "5d"]
+
+
 def test_append_keeps_existing_column_schema():
     existing = _frame(["2026-07-01"], base=10)
     recomputed = _frame(["2026-07-01", "2026-07-02"], base=20)

@@ -66,16 +66,31 @@ def load_state(path: str = SLEEVE_STATE_PATH) -> dict:
 
 
 def evaluate(spy_close: pd.Series, dial_ma10: pd.Series,
-             state: Optional[dict] = None) -> dict:
+             state: Optional[dict] = None,
+             refresh_last: bool = False) -> dict:
     """Advance the state machine over all not-yet-evaluated sessions.
 
     spy_close: adjusted SPY closes (full history for the rolling high).
     dial_ma10: 10d MA of the 63d dial (PIT parquet basis).
+    refresh_last: AM-correction mode — roll back the most recently evaluated
+    day (its dial row was appended from a possibly-provisional close bar) and
+    re-evaluate it against the corrected series. Only the LAST day can roll
+    back; anything older is a frozen part of the paper record.
     Returns the updated state dict (caller persists it).
     """
     state = state or _blank_state()
     spy_close = spy_close.dropna().sort_index()
     dial_ma10 = dial_ma10.dropna().sort_index()
+
+    if (refresh_last and state.get("rollback")
+            and state["rollback"].get("date") == state["last_evaluated"]
+            and state["last_evaluated"] is not None):
+        rb = state["rollback"]
+        state["position"] = rb["position"]
+        state["since"] = rb["since"]
+        state["consec_below_band"] = rb["consec_below_band"]
+        state["transitions"] = state["transitions"][:rb["n_transitions"]]
+        state["last_evaluated"] = rb["prev"]
 
     high = spy_close.rolling(HIGH_WINDOW, min_periods=HIGH_MIN_PERIODS).max()
     near = spy_close >= high * NEAR_BAND
@@ -87,6 +102,15 @@ def evaluate(spy_close: pd.Series, dial_ma10: pd.Series,
             and d in dial_ma10.index]
 
     for d in days:
+        if d == days[-1]:
+            state["rollback"] = {
+                "date": d.strftime("%Y-%m-%d"),
+                "prev": state["last_evaluated"],
+                "position": state["position"],
+                "since": state["since"],
+                "consec_below_band": state["consec_below_band"],
+                "n_transitions": len(state["transitions"]),
+            }
         dial = float(dial_ma10.loc[d])
         is_near = bool(near.loc[d])
         pos = state["position"]

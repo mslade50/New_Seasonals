@@ -135,16 +135,26 @@ def merge_fragility_history(
     recomputed: pd.DataFrame,
     existing: pd.DataFrame,
     run_date: pd.Timestamp,
+    refresh_from: pd.Timestamp | None = None,
 ) -> tuple[pd.DataFrame, pd.Timestamp | None]:
     """Append-only merge for the fragility cache.
 
-    Existing rows dated before run_date are FROZEN (returned unchanged, on the
-    existing column schema). Recomputed rows after the frozen edge are appended
-    — this covers today's new row, a same-day rerun refresh, and any dates a
-    broken producer missed. Returns (merged, frozen_through); frozen_through is
-    None when there was nothing to freeze (bootstrap: full recompute returned).
+    Existing rows dated before the freeze boundary are FROZEN (returned
+    unchanged, on the existing column schema). Recomputed rows after the
+    frozen edge are appended — this covers today's new row, a same-day rerun
+    refresh, and any dates a broken producer missed.
+
+    Boundary = run_date by default. The AM correction run (2026-07-17,
+    --refresh-last) passes refresh_from = the previous business day: the PM
+    run appends the last session's row from a just-closed yfinance bar that
+    can still be provisional, and the row's only live consumer (daily_scan
+    sizing, ~4:47 AM ET) reads it AFTER the 4:30 AM correction — so the last
+    session's row stays mutable until then, and older rows never do.
+    Returns (merged, frozen_through); frozen_through is None when there was
+    nothing to freeze (bootstrap: full recompute returned).
     """
-    frozen = existing[existing.index < run_date]
+    boundary = refresh_from if refresh_from is not None else run_date
+    frozen = existing[existing.index < boundary]
     if frozen.empty:
         return recomputed, None
     append = recomputed[recomputed.index > frozen.index.max()]
@@ -718,8 +728,28 @@ def send_email(subject, html_content, dial_path, overlay_path, pdf_path=None):
 # ---------------------------------------------------------------------------
 
 def main():
+    import argparse
+    parser = argparse.ArgumentParser(description="Daily risk report")
+    parser.add_argument("--data-only", action="store_true",
+                        help="refresh the data caches (fragility parquet, env "
+                             "snapshot, shadow dial, sleeve paper track) and "
+                             "exit — no images, no analogs, no email")
+    parser.add_argument("--refresh-last", action="store_true",
+                        help="AM correction mode: allow the LAST session's "
+                             "parquet row (appended last evening from a "
+                             "possibly-provisional close bar) to be refreshed "
+                             "with settled prices; older rows stay frozen")
+    args = parser.parse_args()
+
+    refresh_from = None
+    if args.refresh_last:
+        refresh_from = (pd.Timestamp.today().normalize()
+                        - pd.tseries.offsets.BDay(1))
+
     print("=" * 60)
-    print("DAILY RISK REPORT")
+    print("DAILY RISK REPORT"
+          + (" — DATA-ONLY" if args.data_only else "")
+          + (f" (refresh-last from {refresh_from.date()})" if refresh_from is not None else ""))
     print(f"  {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     print("=" * 60)
 
@@ -770,7 +800,8 @@ def main():
                     pass
                 run_date = pd.Timestamp.today().normalize()
                 frag_out, frozen_through = merge_fragility_history(
-                    frag_smoothed, existing.sort_index(), run_date)
+                    frag_smoothed, existing.sort_index(), run_date,
+                    refresh_from=refresh_from)
             except Exception as e:
                 print(f"  WARNING: unreadable fragility cache ({e}) — full rewrite")
 
@@ -831,7 +862,8 @@ def main():
                         pass
                     simple_out, simple_frozen = merge_fragility_history(
                         simple_out, existing_s.sort_index(),
-                        pd.Timestamp.today().normalize())
+                        pd.Timestamp.today().normalize(),
+                        refresh_from=refresh_from)
                 simple_out.to_parquet(simple_path)
                 frozen_note = (f"frozen through {simple_frozen.date()}"
                                if simple_frozen is not None else "bootstrap write")
@@ -853,7 +885,8 @@ def main():
                 ma = cache['63d'].dropna().rolling(10, min_periods=1).mean()
                 ma.index = pd.to_datetime(ma.index)
                 sleeve_state = sleeve_eval(
-                    computed['spy_close'].dropna(), ma, sleeve_load())
+                    computed['spy_close'].dropna(), ma, sleeve_load(),
+                    refresh_last=args.refresh_last)
                 sleeve_save(sleeve_state)
                 print(f"  {sleeve_summary(sleeve_state)}")
         except Exception as e:
@@ -876,6 +909,10 @@ def main():
     with open(env_path, 'w') as f:
         json.dump(env_snapshot, f, indent=2, default=str)
     print(f"  Cached environment snapshot to {env_path}")
+
+    if args.data_only:
+        print("\nData-only run complete (caches refreshed; no email).")
+        return
 
     # 3. Forward returns (10d-avg sizing basis only; 5d-avg set cut 2026-07-16)
     print("[3/6] Computing forward returns...")

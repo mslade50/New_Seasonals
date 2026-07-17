@@ -95,6 +95,49 @@ def test_nothing_before_inception():
                for t in st["transitions"])
 
 
+def test_refresh_last_rolls_back_provisional_day():
+    """AM correction: a transition recorded off a provisional PM bar must be
+    reversible for the LAST evaluated day only."""
+    spy, idx = _series()
+    post = idx[idx >= pd.Timestamp(INCEPTION)]
+    cut = post[10]
+
+    # PM run: provisional dial dips below entry on the last day -> ENTER
+    dial_pm = pd.Series(30.0, index=idx)
+    dial_pm.loc[cut] = 15.0
+    st = evaluate(spy.loc[:cut], dial_pm.loc[:cut])
+    assert st["position"] == "LONG"
+    assert len(st["transitions"]) == 1
+
+    # AM correction: settled prices say the dial never crossed
+    dial_am = pd.Series(30.0, index=idx)
+    st = evaluate(spy.loc[:cut], dial_am.loc[:cut], st, refresh_last=True)
+    assert st["position"] == "FLAT"
+    assert st["transitions"] == []
+    assert st["last_evaluated"] == cut.strftime("%Y-%m-%d")
+
+    # without refresh_last the record is immutable
+    st2 = evaluate(spy.loc[:cut], dial_pm.loc[:cut])
+    st2 = evaluate(spy.loc[:cut], dial_am.loc[:cut], st2, refresh_last=False)
+    assert st2["position"] == "LONG" and len(st2["transitions"]) == 1
+
+
+def test_refresh_last_cannot_touch_older_days():
+    spy, idx = _series()
+    post = idx[idx >= pd.Timestamp(INCEPTION)]
+    dial = pd.Series(15.0, index=idx)          # ENTER on day 0
+    dial.loc[post[5]:] = 26.0                  # EXIT day 5
+    cut = post[8]
+    st = evaluate(spy.loc[:cut], dial.loc[:cut])
+    n_before = len(st["transitions"])
+    # correction with a wildly different history: only day 8 re-evaluates
+    st = evaluate(spy.loc[:cut], pd.Series(10.0, index=idx).loc[:cut], st,
+                  refresh_last=True)
+    # old ENTER/EXIT survive; at most day 8 changed (re-entry on corrected dial)
+    assert [t["date"] for t in st["transitions"][:n_before]] == \
+        [post[0].strftime("%Y-%m-%d"), post[5].strftime("%Y-%m-%d")]
+
+
 def test_spec_change_restarts_track(tmp_path):
     p = tmp_path / "state.json"
     import json
