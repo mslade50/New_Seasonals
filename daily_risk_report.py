@@ -840,6 +840,25 @@ def main():
         except Exception as e:
             print(f"  WARNING: simple-dial shadow failed ({e}) — continuing")
 
+        # Dial-gated SPY sleeve paper track (prereg gate 2) — evaluates the
+        # frozen entry/exit spec against the parquet just appended. Paper
+        # only; nothing is staged. Best effort.
+        try:
+            from dial_sleeve import (evaluate as sleeve_eval,
+                                     load_state as sleeve_load,
+                                     save_state as sleeve_save,
+                                     summary_line as sleeve_summary)
+            cache = pd.read_parquet(frag_cache_path)
+            if '63d' in cache.columns:
+                ma = cache['63d'].dropna().rolling(10, min_periods=1).mean()
+                ma.index = pd.to_datetime(ma.index)
+                sleeve_state = sleeve_eval(
+                    computed['spy_close'].dropna(), ma, sleeve_load())
+                sleeve_save(sleeve_state)
+                print(f"  {sleeve_summary(sleeve_state)}")
+        except Exception as e:
+            print(f"  WARNING: sleeve paper track failed ({e}) — continuing")
+
     # Save environment snapshot (price context + h_scores + signal summaries)
     env_snapshot = {
         'date': datetime.datetime.now().strftime('%Y-%m-%d'),

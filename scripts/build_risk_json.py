@@ -290,6 +290,20 @@ def build_sizing_state():
         except Exception:
             expo = None
 
+    sleeve = None
+    sleeve_path = os.path.join(_ROOT, "data", "dial_sleeve_paper.json")
+    if os.path.exists(sleeve_path):
+        try:
+            with open(sleeve_path, encoding="utf-8") as f:
+                s = json.load(f)
+            sleeve = {"position": s.get("position"), "since": s.get("since"),
+                      "last_evaluated": s.get("last_evaluated"),
+                      "n_transitions": len(s.get("transitions") or []),
+                      "last_transition": (s.get("transitions") or [None])[-1],
+                      "spec_version": s.get("spec_version")}
+        except Exception:
+            sleeve = None
+
     return {
         "asof": ma.index[-1].strftime("%Y-%m-%d"),
         "basis": "10d MA of 63d dial, append-only PIT parquet (sizes live orders)",
@@ -308,6 +322,7 @@ def build_sizing_state():
         },
         "episodes": _run_episodes(pit_state),
         "exposure": expo,
+        "sleeve": sleeve,
     }
 
 

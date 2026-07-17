@@ -172,6 +172,10 @@ function sizingHeroHtml(sz) {
   const expoLine = expo && expo.mult != null
     ? `Exposure leg: ${fmt.num(expo.mult, 2)}x (${expo.active_rule ? esc(String(expo.active_rule)) : "no rule active"}), as of ${esc(expo.asof || "-")}`
     : "";
+  const sleeve = sz.sleeve;
+  const sleeveLine = sleeve && sleeve.position
+    ? `Clean-air SPY sleeve (paper): <span class="badge ${sleeve.position === "LONG" ? "off" : "warn"}">${esc(sleeve.position)}</span> since ${esc(sleeve.since || "-")} · ${sleeve.n_transitions} transition${sleeve.n_transitions === 1 ? "" : "s"} · enter dial&lt;20 near highs, exit dial&ge;25 or 2 closes outside band`
+    : "";
   return `<div class="card sizing-hero">
     <div class="head"><span class="tkr">Sizing State</span>
       <span class="badge ${on ? "on" : "off"}">${on ? "THROTTLE ON" : "THROTTLE OFF"}</span>
@@ -181,6 +185,7 @@ function sizingHeroHtml(sz) {
       as of ${esc(sz.asof || "-")} (append-only PIT series)</div>
     <div class="sizing-throttle">${throttleLine}</div>
     ${expoLine ? `<div class="cap">${expoLine}</div>` : ""}
+    ${sleeveLine ? `<div class="cap">${sleeveLine}</div>` : ""}
     <div class="chart sizing-spark" id="sizingSpark"></div>
   </div>`;
 }

@@ -39,6 +39,7 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add data/rd2_fragility.parquet data/rd2_environment.json
+          git add data/rd2_fragility_simple.parquet data/dial_sleeve_paper.json 2>/dev/null || true
           if git diff --cached --quiet; then
             echo "No fragility change to commit."
           else
