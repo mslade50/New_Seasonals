@@ -35,10 +35,24 @@ no hysteresis). These are the numbers to beat/match, not evidence — the
 threshold family was examined in-sample and the dial history before
 2026-07-02 is recompute vintage computed with today's signal code.
 
+## Amendment 2026-07-17 (same day, McKinley): price-exit confirmation
+
+The price exit is amended to require **2 consecutive closes** below the 95%-
+of-252d-high line (the dial exit at >=25 stays single-evaluation — its input
+is already 10d-MA-of-5d-smoothed and cannot whipsaw daily). Chosen from a
+5-variant comparison (scratch/dial_exit_variants.py: single close / 2-consec
+/ trigger-low close / trigger-low intraday stop) on SIMPLICITY — all
+variants agreed within noise (CAGR 9.0-9.3%, Sharpe 1.13-1.17), turnover
+fell ~26% (3.4 -> 2.5 round trips/yr). IN-SAMPLE SELECTION, disclosed; the
+PIT gate judges the amended package as a whole. Amended reference: CAGR
+9.3%, Sharpe 1.17 overall / 2.20 in-market, maxDD -5.6%, in-market 29%.
+
 ## Gates before any live capital
 
-1. **One-shot hysteresis run** (enter<20 / exit>=25): report vs the frozen
-   no-hysteresis reference. No re-tuning of either number afterward.
+1. **One-shot hysteresis run** — CLOSED POSITIVE 2026-07-17: dial hysteresis
+   (20/25) vs no-hysteresis reference improved CAGR +0.8pp and Sharpe +0.10
+   at unchanged turnover (scratch/dial_exit_variants.py, A vs B). The
+   reference did not depend on whipsaw luck. No re-tuning of 20/25 afterward.
 2. **PIT forward gate**: paper-track the rule on the append-only PIT segment
    only. Minimum 2 quarters AND >= 6 signal transitions before sizing
    anything. Metric: sign agreement of regime calls with forward 21d SPY
