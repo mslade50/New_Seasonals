@@ -72,7 +72,10 @@ jobs:
             # Rebase, verify the push landed, and fail the job loudly if it did not.
             pushed=false
             for attempt in 1 2 3; do
-              git pull --rebase origin main || true
+              # --autostash: the run leaves other tracked caches (e.g.
+              # rd2_spy_ohlc.parquet) dirty, which otherwise blocks the rebase
+              # and defeats this retry loop exactly when the race happens.
+              git pull --rebase --autostash origin main || true
               if git push; then pushed=true; break; fi
               echo "push attempt $attempt rejected; re-rebasing and retrying."
               sleep 5
