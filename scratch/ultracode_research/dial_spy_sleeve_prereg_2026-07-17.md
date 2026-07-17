@@ -58,11 +58,14 @@ PIT gate judges the amended package as a whole. Amended reference: CAGR
    anything. Metric: sign agreement of regime calls with forward 21d SPY
    (does flat-time actually coincide with sub-baseline tape), not CAGR
    (2 quarters of CAGR is noise).
-3. **Overlap audit vs exposure_leg**: this sleeve and the exposure leg are
-   near-duplicates (index long, dial kill). Before going live, either merge
-   the specs (the leg gains the near-high condition and the tighter
-   threshold — needs its own B2-style replay) or cap combined index
-   exposure explicitly. Running both unreconciled double-counts the theme.
+3. **Co-exposure statement — RESOLVED 2026-07-17**: the exposure leg is NOT
+   traded live (McKinley), so the audit target shifts to the trend sleeve.
+   Resolution: trend sleeve cut 0.6x -> 0.3x NAV (trend_sleeve.py, same
+   day), capping worst-case clean-air-day US index exposure at ~43% NAV
+   (25% dial-sleeve SPY + 6% each trend SPY/QQQ/IWM). Expected NAV vol:
+   trend ~2.4%/yr, dial ~1.5%/yr, combined ~3.4%/yr (monthly corr +0.37;
+   scratch/overlay_vol_estimate.py). Sleeve sizing: nominal 25% NAV
+   (proposed 2026-07-17; final sign-off when gate 2 clears).
 4. Standard disclosures on any output: recompute-vintage caveat, today's-
    code lookahead caveat, one-decade/three-drawdowns caveat.
 

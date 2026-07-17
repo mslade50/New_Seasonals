@@ -1,4 +1,4 @@
-# CLAUDE.md — Project Guide for New_Seasonals
+# AGENTS.md — Project Guide for New_Seasonals
 
 ## What This Project Is
 
@@ -16,7 +16,7 @@ A quantitative equity trading platform built on Streamlit. Three pillars:
 ├── daily_risk_report.py            # Daily risk email (fragility dials + signals + forward returns)
 ├── daily_portfolio_report.py       # Daily portfolio health report (imports from strat_backtester)
 ├── weekly_market_rundown.py        # Weekly PDF rundown (tabloid landscape, 11 chart pages)
-├── radar_weekly_summary.py         # Weekly radar digest (reads daily briefs, Claude distills best-of)
+├── radar_weekly_summary.py         # Weekly radar digest (reads daily briefs, Codex distills best-of)
 ├── verify_fills.py                 # Post-close fill verification (updates Google Sheets)
 ├── indicators.py                   # Shared indicator library
 ├── earnings_filter.py              # Shared OVS earnings blackout helpers (load parquet, compute offset)
@@ -127,92 +127,60 @@ It may optionally import `SP500_TICKERS` from `abs_return_dispersion.py` (with t
 
 Per-tier tab routing inside `save_staging_orders`: Liquid rows → `Order_Staging`, Overflow rows → `Overflow`. Both tabs are read by `order_staging.py` (which lives in `C:\Users\mckin\OneDrive\trading_ibkr\` — IBKR-bound, stays local).
 
-## Risk Dials / Fragility System (rewritten 2026-07-16)
+## Risk Dashboard V2 — Current State
 
-The old "Risk Dashboard V2 Phases 1-2 / Layers 0-4 / Executive Summary"
-description no longer matches the code. Current state:
+**Phases 1 & 2 complete** (Layers 0–4). See `notes.md` for full details.
 
-**pages/risk_dashboard_v2.py** computes 7 fragility signals (Distribution
-Dominance [+Elevated display tier], VIX Range Compression, Defensive
-Leadership, Pre-FOMC Rally, Low Absorption Ratio, Seasonal Rank Divergence,
-Dispersion) and a 0-100 composite dial at 3 horizons (5d/21d/63d), weighted
-by diff_mean edges from `data/signal_horizon_stats.json` (reproducible via
-`scripts/build_signal_horizon_stats.py`; the JSON's "(Elevated)" entry is
-reference-only, NOT consumed by the composite). The page displays ONE dial
-(63d + 10d MA + throttle state); 5d/21d are context chips (5d failed every
-sizing test; 21d ~90% state-agreement with 63d — no "confirm" semantics
-anywhere). `daily_risk_report.py` and `weekly_market_rundown.py` import the
-page's compute functions (import surface: deleting page functions can crash
-the GHA email that appends the sizing parquet — check both before removing
-anything).
+### Executive Summary — Signal-Based Three-Question Framework
+One-screen briefing at the top of the page. Three sections:
 
-### The fragility-portfolio contract (B6, 2026-07-16)
+**Section A: Price Context Banner** — SPY price, 12mo return, extension vs 200d SMA, drawdown from 52w high, regime label (e.g. "Healthy uptrend", "Correction underway"). Plus "What Changed" line tracking signal activations/deactivations since last session via JSON persistence (`data/risk_dashboard_signal_state.json`).
 
-- **The sizing statistic** is exactly: 10d MA of the 63d column of
-  `data/rd2_fragility.parquet`, threshold 50. Nothing else sizes orders.
-- **Vintage rule**: the parquet is APPEND-ONLY point-in-time since
-  2026-07-02; earlier rows are a recompute vintage (drifted up to ~7 pts).
-  Any backtest joining the dial must state which vintage it used.
-  `rd2_fragility_ts.parquet` is a raw-basis full recompute for research/ML
-  only — NEVER a sizing fallback (daily_scan's fallback removed 2026-07-16).
-- **Staleness convention**: consumers fail OPEN to 1.0x sizing on readings
-  older than 3 trading days (`daily_scan.FRAG_STALE_TD`,
-  `exposure_leg.DIAL_STALE_TD`), and dial_filters entry gates fail CLOSED.
-- **Schema**: columns 5d/21d/63d, 5d-smoothed basis, tz-naive normalized
-  index; appends stamp `fragility_stats_sha256` (provenance of the weights
-  vintage) plus basis/generated/last-date/frozen-through metadata.
-  `tests/test_fragility_append.py` freezes the schema (new columns are
-  DROPPED on append — shadow series get their own files).
-- **Freeze policy (A2)**: five live thresholds calibrate to this series —
-  frag_risk_bands 50, exposure_leg raw-21d 50 + ma10-63d 50, dial_filters
-  30 (52wh Breakout) and 65 (St OS Sznl). Do NOT adopt a re-scored stats
-  JSON (e.g. `scratch/signal_horizon_stats_candidate.json`) into the live
-  path — it de-calibrates all five at once. Replacements go through a
-  scratch/pit_reestimate.py-style PIT re-validation, full stop.
-- **Pre-registration requirement**: any NEW dial-conditioned control needs a
-  pre-registered protocol (gates, decision rule, sensitivity) BEFORE the
-  study runs — the discipline that correctly killed the OVS tilt and the
-  book-wide throttle. Live prereg docs:
-  `scratch/ultracode_research/exposure_leg_replay_prereg_2026-07-16.md`,
-  `scratch/ultracode_research/olv_frag_band_prereg_2026-07-16.md`.
+**Section B: Three Questions + Risk Dial** (3:1 column split)
+- **Is liquidity real?** — Vol Suppression (low AR + low RV), VRP Compression (negative or <15th pctile)
+- **Is everyone on the same side?** — Breadth Divergence (SPY near high, <55% sectors above 200d), Extended Calm (compound complacency counters), Vol Compression (>60 consecutive days below expanding median RV)
+- **Are correlations stable?** — Credit-Equity Divergence (HY z >0.75 while SPX flat), Rates-Equity Vol Gap (MOVE elevated, VIX calm), Vol Uncertainty (VVIX/VIX ratio >80th pctile)
+- Each question shows CLEAR/WATCH/WARNING badge. Each signal ON/OFF with explanatory detail when active.
+- **Risk Dial** — Plotly gauge, 0-100 fragility score driven by (active signal count / total) × 80 × regime multiplier (0.6-1.8x based on price context). Labels: Robust → Neutral → Fragile.
 
-### Consumers (change-impact map)
+**Section C: Stored Energy** (conditional — only when 2+ signals active)
+- Vol compression duration & depth, calm streak, estimated drawdown range based on extension + compression + signal count.
 
-- `frag_risk_bands` (strategy_config -> daily_scan 2b -> strat_backtester
-  3b3): FAMILY4 + 3x Bear Fade at [[50,999,0.25]]. Guard:
-  `tests/test_frag_risk_bands.py` (includes the site serializer assertion).
-- `exposure_leg.py` (25% NAV VOO/QQQ overlay in the AM scan email): kill
-  rules raw-21d>50 and ma10-63d>50. The 1.25x boost was REMOVED 2026-07-16
-  (mirrored the unanimously-killed per-trade boost). The raw-21d kill has a
-  pre-registered replay pending — do not touch it before the replay runs.
-- `dial_filters` entry gates, the daily risk email, the site risk tab
-  (`sizing_state` reads the PIT parquet, never the deploy recompute), the
-  portfolio page fragility adjuster (`fragility.json`), ML features.
+Legacy point system preserved in collapsed expander for reference. Alert = +1, Alarm = +2.
+- 0 pts = Normal | 1-2 = Caution | 3-4 = Stress | 5+ = Crisis
 
-### Simple-dial shadow (A6, accumulating since 2026-07-16)
+### Layer 1: Volatility State
+- 1A: HAR-RV (Yang-Zhang at 1d/5d/22d)
+- 1B: VRP = (VIX/100)^2 - RV_22d^2
+- 1C: VIX Term Structure (VIX/VIX3M)
+- 1D: VVIX
 
-`fragility_simple.py` -> `data/rd2_fragility_simple.parquet` (own file,
-append-only, written by daily_risk_report): equal-weight 7-signal sum with
-linear 63d decay — no edge weights, no regime/calm mults, no x80, fixed FOMC
-denominator. Pre-registered threshold rule: percentile-match to the
-incumbent gate's ON rate, NO scanning. Probes showed ~0.85 correlation /
-~89% gate agreement with the incumbent, i.e. the fitted weights are mostly
-cosmetic. Changes NOTHING until a PIT re-run gates a swap (~2027 earliest).
-Guard: `tests/test_fragility_simple.py`.
+### Layer 2: Equity Market Internals
+- 2A: Breadth (sector ETF proxy — % above 200d/50d SMA)
+- 2B: Absorption Ratio (PCA on 63d sector returns). **Display-only** — removed from composite scoring. Red line at 0.40. Measures % of sector variance explained by first PC; low AR (<0.4) historically precedes below-avg returns (Minsky dynamic). Backtested: AR <0.4 → 5d avg -0.40% (vs +0.29% baseline), 63d avg +0.82% (vs +3.53%), N=17 deduped episodes over 10 years.
+- 2C: Cross-sectional dispersion + avg pairwise correlation (2x2 grid)
+- 2D: Hurst exponent (DFA, **126d window**, box sizes [8,16,32,48,63]). **Smoothed**: 11d rolling median → 15d EMA. Empirical percentile bands (P20/P80 of smoothed series). Alert > 80th pctile, alarm > 95th. 5d ΔH from smoothed series is the primary signal.
+- 2E: Complacency Counters — two primary signals: days since 5% SPX drawdown + days since VIX > 28. 10% drawdown also displayed for context. Compound scoring: either > 80th pctile = alert (+1), BOTH > 80th = alarm (+2). Sawtooth charts for each counter.
 
-### Negative results / triggers (institutional memory)
+### Layer 3: Cross-Asset Plumbing (4-column layout)
+- 3A: Credit Spreads — LQD/HYG vs IEF price ratio z-scores (63d rolling). Alert: IG or HY z > 1.0. Alarm: both > 1.5.
+- 3B: Yield Curve — 10Y-3M spread (^TNX - ^IRX). 21d change z-score is the signal. Alert: inverted OR z < -1.5. Alarm: inverted AND z < -2.0.
+- 3C: MOVE Index — raw level with bands at 80/120/150. Alert: > 120. Alarm: > 150. Graceful fallback if ^MOVE unavailable on yfinance.
+- 3D: Dollar Dynamics — UUP 21d momentum as DXY proxy. Alert: |chg| > 3%. Alarm: |chg| > 5%.
 
-- Book-wide throttle/taper, dial-conditioned caps: dead (PIT t=-0.23; see
-  Daily Risk Caps section). OVS tilt: dead (PIT gate 2026-07-03).
-- Put hedges, VXX proxy, 21d "fast confirm" shadow, trend-sleeve gate,
-  >1.0x hi-frag boosts, sub-50 sizing ramps: all rejected — reasoning
-  preserved in scratch/ultracode_research/RISK_DIALS_2026-07-16.md section 4.
-- 3x Bear Fade band re-exam TRIGGER: revisit at 2 new hi-frag episodes (its
-  own hi bucket is flat, t=-0.05, N_hi=17; band kept by family analogy).
-  Companion to the existing "re-examine FAMILY4 at +20 trades (~2029)".
-- OLV mild-band candidacy: see prereg doc above; PIT re-bucket is THE gate.
-- Exemptions CONFIRMED permanent pending new evidence: OVS, LT Trend ST OS,
-  St OS Sznl, 3x Overbot Fade, 52wh Breakout, Sector BO, 3x Leader Gap Fade.
+### Layer 4: Tail Risk & Cost of Protection (auto-expands when 2+ signals active)
+- 4A: SKEW Index — time series with 120/140 bands. Disorderly stress detection: flags when SKEW falling (>3pts in 5d) while VIX rising (>3pts in 5d).
+- 4B: Protection Cost Proxy — VIX3M × (SKEW/130), percentile-ranked over 5yr trailing window. Plotly gauge display (green/yellow/orange/red).
+- 4C: Hedge Recommendation — decision tree based on regime × protection cost percentile. Outputs: sizing guidance, collar vs puts vs exposure reduction.
+
+### Chart Defaults
+- HAR-RV and VRP charts default to last 1 year. Double-click to zoom out to full history.
+- Layer 3 charts use compact 200px height (vs 250px for Layers 1/2).
+
+### Phase 3 TODO
+- Signal event study: backtest each of the 8 signals individually to calibrate hit rates (currently placeholder estimates)
+- Historical regime backtesting
+- FRED data source for MOVE (more reliable than yfinance)
 
 ## Ticker Constants
 
@@ -241,16 +209,6 @@ reports, staged `Risk_Amt`/`Risk_Bps`) sees SCALED values. **All bps in this
 doc are nominal unless marked effective** — e.g. OLV liquid 35 nominal = 52.5
 effective, overflow 25 = 37.5.
 
-GRM evidence trail (2026-07-16, scratch/grm_replay_study.py — the constant
-shipped 2026-05-27 with none): full-ledger replay at GRM 1.0/1.25/1.5/1.75
-with caps FIXED at prod (250 per-strat, 500L/250S pooled, flat $750k).
-Risk-adjusted metrics are nearly scale-invariant — Sharpe 1.89/1.87/1.85/1.83,
-annPnL/maxDD ~1.66 flat, maxDD -8.9%/-10.8%/-12.6%/-14.4% NAV scaling
-slightly sub-linearly (fixed caps clip the tail). No cliff anywhere in the
-range: the setting is a clean risk-appetite dial, and 1.5 (~$157k/yr ann
-flat PnL at -12.6% worst DD) is defensible. Results:
-scratch/grm_replay_results.csv.
-
 daily_scan per-signal sizing order (mirrored in strat_backtester step 3b):
 base bps (tier x GRM) -> 2b fragility band -> 2c ladder rung -> 2c2 cycle-year
 mult -> 2d earnings size override (flat REPLACE, itself GRM-scaled: OLV signals
@@ -271,35 +229,20 @@ per-signal sizing. All values are EFFECTIVE (not GRM-scaled):
   one). Engine: `process_signals_fast(cap_bps=...)`, default 250.
   `PER_STRAT_DAILY_CAP_DOLLARS` in order_staging holds per-strategy dollar
   overrides (currently empty).
-- **Pooled per-direction caps: REMOVED 2026-07-16** (in place 2026-07-10 to
-  2026-07-16 at long 500 / short 250 bps). The cap-impact study
-  (`scratch/cap_impact_study.py` + `cap_impact_results.csv`) showed the
-  pooled layer bound on the SAME net-positive cluster days as the
-  per-strategy cap and cost ~$125k/23y with IDENTICAL maxDD and worst day —
-  pure redundancy. Removed together: `order_staging` pooled stage (staged
-  side totals still printed), `build_trade_ledger` POOLED_*_CAP_BPS = None,
-  `daily_portfolio_report` call site, strat_backtester UI defaults (0 = off).
-  The engine's `max_long_risk_bps`/`max_short_risk_bps` machinery is
-  retained for counterfactuals (sequential-after-per-strategy semantics,
-  fixed 2026-07-16; guard: `tests/test_pooled_cap_sequential.py`).
-  Context: caps overall cost 25% of total return and 0.56 Sortino over 23y;
-  the per-strategy 250 is kept because it alone bounds the worst single day
-  (-$44k vs -$118k = -15.75% NAV uncapped, which by itself was the entire
-  uncapped maxDD).
+- **Pooled per-direction: long 500 bps, short 250 bps/day.** Total staged
+  risk across ALL strategies per side, per signal date. Live:
+  `order_staging.MAX_DAILY_RISK_PCT_LONG` (5.0) / `_SHORT` (2.5), applied
+  post-open after the per-strategy cap. Engine: `max_long_risk_bps` /
+  `max_short_risk_bps` — passed by `scripts/build_trade_ledger.py`
+  (POOLED_LONG/SHORT_CAP_BPS) and `daily_portfolio_report.py` since
+  2026-07-10 (before that the ledger did NOT model the pooled caps, so
+  cross-strategy short cluster days ran optimistic vs live). The
+  strat_backtester UI defaults now mirror prod (250/500/250).
 
 Aligned sites — change together: `order_staging.py` (OneDrive) constants,
 `scripts/build_trade_ledger.py` POOLED_*_CAP_BPS, `daily_portfolio_report.py`
 call site, `pages/strat_backtester.py` UI defaults + `cap_bps` fallback (250)
 in `process_signals_fast`.
-
-**Do NOT fragility-condition these caps** (negative result, codified
-2026-07-16): dial-scaled pooled or per-strategy caps are the failed
-book-wide throttle re-skinned — rest-of-book at dial >=50 shows no
-significant degradation (p=.47 clustered), the aggregate PIT t was -0.23,
-and the taper variant cost -11.4R — on the costliest possible surface (four
-aligned sites incl. one out-of-repo, scalar-to-series engine change). The
-book's only evidenced dial-sizing hook is per-strategy `frag_risk_bands`.
-Evidence: scratch/ultracode_research/RISK_DIALS_2026-07-16.md.
 
 ## Ladder Sizing (OLV, 2026-04-22)
 
@@ -354,36 +297,6 @@ Decision happens in `order_staging.py` (in `C:\Users\mckin\OneDrive\trading_ibkr
 
 Scanner-side stamps `Path1_Bps`, `Path2_Bps`, `Path2_Daily_Cap_Pct` columns on every OVS staging row so order_staging can compute the multiplier without importing strategy_config.
 
-### Scale-out (live 2026-06-17, engine-modeled 2026-07-16)
-Every OVS P1/P2 primary-account row is split by order_staging into two
-independent single-target brackets: **near = 40% of shares @ 1 ATR, far =
-60% @ 2 ATR** (a tranche that rounds below 1 share = no split, single
-full-size 2-ATR bracket; PA is never split). Deliberate short-book VARIANCE
-SMOOTHING, not PnL-maximizing — the 2026-07-01 audit measured scale-outs as
--R vs full-size 2 ATR and McKinley accepted that trade-off explicitly
-(2026-07-16). The engine books two tranche rows per fill (`Tranche` column:
-near/far/'' ) with the same share split; EOD-DD days book as one row (both
-live tranches exit at the same close); entry-day targets stay uncredited on
-the near tranche (book convention). Aligned sites — change together:
-- `strategy_config.py` OVS execution `scaleout_near_frac` /
-  `scaleout_near_tgt_atr` (source of truth; NOT GRM-scaled)
-- `order_staging.py` (OneDrive) `OVS_SCALEOUT_NEAR_FRAC` /
-  `OVS_PROFIT_TAKER_ATR_MULT` + `_split_scaleout_for_primary`
-- `pages/strat_backtester.py` tranche booking in `process_signals_fast`
-- Guard: `tests/test_ovs_scaleout.py`
-
-### Same-symbol precedence + P1-budget gate history (2026-07-16)
-**ATR Extended Gap Up > OVS**: when both fire on the same symbol and the ATR
-row passed its T+1 open gate, the OVS row is dropped (both short the same
-blow-off; never double the slot). Live in order_staging since before 2026-07;
-modeled in the engine pre-pass since 2026-07-16 (engine keys on ATR-Ext
-candidates, whose mask already includes the T+1 gate — matching live's
-Quantity > 0 condition). Guard: `tests/test_ovs_scaleout.py`.
-**P1-budget gate REMOVED**: the engine-only rule "kill all P2 when the day's
-P1 risk exceeds 60% of the per-strategy cap" fired on ~170 historical ledger
-days but never existed live. Removed 2026-07-16 (decision: match live). The
-P2 aggregate daily cap is live and stays.
-
 ### Entry-day drawdown stop (EOD-DD, Friday entries only)
 The OVS execution dict carries `eod_dd_atr: 0.25` and `eod_dd_weekdays: [4]`. If a Friday-entered OVS trade is more than 0.25 ATR offside vs the entry-day fill by 15:58 ET, exit at the entry-day close. Mon-Thu entries skip the check entirely — those positions get the full hold window instead. Weekday list uses Python conventions (Mon=0..Fri=4); empty/missing = all weekdays.
 
@@ -408,21 +321,20 @@ leave-one-year-out stable, damage concentrated in P1 decisive-gap entries
 0.75x, not the full-conviction 0.4x. Validated by LOYO, NOT by re-running
 the backtest with the rule on (in-sample rules flatter themselves).
 
-Three aligned sites -- change together:
+Four aligned sites -- change together:
 - `strategy_config.py` OVS execution `cycle_risk_mults: {2: 0.75}` (source of truth)
 - `pages/strat_backtester.py` sizing step 3b2 (generic: any strategy with the field)
 - `daily_scan.py` sizing step 2c2 (stamps the mult into Sizing notes)
-(order_staging needs nothing since 2026-06-11: the OVS P1 fixed-dollar
-target and its `OVS_CYCLE_MULTS` were removed -- P1 takes the scanner's
-staged size as-is, so the tilt flows through like every other overlay.)
+- `order_staging.py` `OVS_CYCLE_MULTS` -- needed because the live OVS P1
+  resize to a FIXED dollar target (OVS_PATH1_RISK_DOLLARS) clobbers the
+  scanner's Risk_Amt, so the tilt must be applied to the target itself.
 
-The live-vs-backtest divergence found during this work (P1-only live with a
-fixed $3,000 target, mild gaps dropped) was RESOLVED 2026-06-11:
-order_staging trades both paths again, P1 at scanner qty x1.0 and P2 at
-scanner qty x (Path2_Bps / Path1_Bps) from the row stamps plus the P2
-aggregate daily cap, matching the 2-path scheme the ledger models
-(P2 = 407 trades, +0.20 avgR, +82R/24y). The engine's `ovs_p1_only`
-parameter remains for counterfactuals.
+NOTE a live-vs-backtest divergence found during this work: order_staging
+RETIRED the OVS mild-gap Path 2 (P1-only, fixed $3,000 target; mild gaps
+dropped), while the backtest/ledger still models the 2-path scheme
+(P2 = 407 trades, +0.20 avgR, +82R/24y). Engine has `ovs_p1_only` parameter
+if the ledger should be aligned to live instead. Unresolved -- decide
+whether to re-enable P2 live or flip the backtest to P1-only.
 
 ## Fragility Risk Bands (2026-07-02)
 
@@ -600,13 +512,6 @@ Aligned sites -- change together:
   table, 1,460 tickers. Rebuild: `scripts/build_sector_map.py`.
 - Guard: `tests/test_sector_loss_gate.py`.
 
-Ledger SURVIVORSHIP CAVEAT (2026-07-16): the 23-year ledger trades only
-tickers alive in today's universe files — 21 of 22 major 2020s delistings are
-absent — which flatters long dip-buy stats and the ~870-name overflow tier
-most. Treat overflow-tier historical avgR as an upper bound until the
-dynamic-overflow work's point-in-time universe lands. Do not tune sizing off
-overflow backtest stats alone.
-
 Ledger provenance + integrity (2026-07-06, after a false TS/USO block): the
 ledger is a FULL BACKTEST REBUILD, not a fill record -- marginal limit fills
 flicker between vintages as yfinance revises recent bars, and the gate's -2.0R
@@ -667,7 +572,7 @@ ledger (`scripts/build_trade_ledger.py` -> site) AND `daily_portfolio_report.py`
   open precedes the intraday limit fill.
 - Scale-invariant under the dividend-adjustment rule: the stop is relative and
   `Open` is on the same adjusted basis within a run, so both scale by the same
-  factor (CLAUDE.md "Dividend-Adjustment Basis").
+  factor (AGENTS.md "Dividend-Adjustment Basis").
 
 Impact (full book, 2003-2026, flat $750k, `scratch/stop_gap_slippage_impact.py`):
 85 of 434 stop-outs (~20%) gapped through. Book TotR 605.9 -> 560.2 (-45.7R),
@@ -796,7 +701,7 @@ GitHub's shared cron scheduler had 1-3h queue delays at 8:47 UTC, pushing the AM
 **Maintenance:** if the local task or PAT breaks, the fallback cron picks up the slack the same day. If both break, the PM cron at 20:30 / 22:00 UTC still runs (independent of any of this).
 
 ### Sunday Pipeline (two-step, still partially local)
-1. **8:30 AM ET (local)**: `radar_weekly_summary.py` reads last 7 days of radar briefs from `C:\Users\mckin\projects\last30days-radar\output\briefs\`, pulls yfinance snapshots for all tickers, pipes to Claude Code subprocess with PM-style distillation framework (variant perception required, "who's on the other side" required). Output committed + pushed to `data/radar_weekly_summary.md`.
+1. **8:30 AM ET (local)**: `radar_weekly_summary.py` reads last 7 days of radar briefs from `C:\Users\mckin\projects\last30days-radar\output\briefs\`, pulls yfinance snapshots for all tickers, pipes to Codex subprocess with PM-style distillation framework (variant perception required, "who's on the other side" required). Output committed + pushed to `data/radar_weekly_summary.md`.
 2. **9:00 AM ET (Actions)**: `weekly_market_rundown.py` generates tabloid (17x11") landscape PDF with all risk charts, reads the radar digest and includes it as styled HTML email body alongside the PDF attachment.
 
 ### Daily Risk Report — Forward Returns Table
@@ -807,7 +712,7 @@ Uses `compute_similar_reading_returns()` from `risk_dashboard_v2.py`. Forward re
 - Mean column color follows Mean Z thresholds (green >= 0, yellow > -1, red <= -1)
 
 ### Radar Weekly Digest Framework
-The Claude prompt enforces heavy filtration via two required gates:
+The Codex prompt enforces heavy filtration via two required gates:
 - **Variant Perception**: Must articulate specific disagreement with market pricing. If thesis = consensus, idea is killed.
 - **Who's on the other side**: Must identify why the opportunity exists (forced selling, informed disagreement, or neglect). If can't identify, idea is killed.
 
@@ -839,14 +744,7 @@ Cloudflare Pages project `seasonals-mslade`, locked behind Cloudflare Access
   `data/backtest_trades_nogate.parquet` — a no-gate engine pass
   `build_trade_ledger.py` writes alongside the ledger; drives the portfolio
   page's gate-history section and its "All trades (+gate-blocked)" filter
-  toggle, which also forces the realized-at-exit basis while on) /
-  `ext_lab.json` (OVS hold-extension counterfactual — what-if lab, NOT a live
-  rule: losing T+2 time exits rebooked to T+5 with the 2-ATR target live, a
-  post-pass `build_trade_ledger.py` writes to
-  `data/backtest_trades_ovsext.parquet`; drives the portfolio page's
-  hold-extension section and its "OVS losers to T+5" filter toggle, which
-  swaps the rebooked exits in by trade_id and forces the realized-at-exit
-  basis while on. Evidence: scratch/ovs_hold_extension_*.py).
+  toggle, which also forces the realized-at-exit basis while on).
 - **Trade charts** (the `charts.html` gallery): `scripts/build_signal_charts.py`
   renders a candlestick per trade (126 td before signal -> trade -> 63 td after
   exit; white/black candles, green/red volume, Signal/Entry/Exit verticals,
@@ -861,18 +759,10 @@ Cloudflare Pages project `seasonals-mslade`, locked behind Cloudflare Access
   effort). Full backfill: `python scripts/build_signal_charts.py --all --upload`.
 - **Sizing-basis rule**: client-side filtering recomputes everything on the
   flat $750k basis because per-trade dollars are additive. Strategy/tier/date
-  filters get exact daily MTM curves (sum of per-strategy series); every
-  OTHER selection (direction/ticker filters, gate + extension toggles,
-  fragility multipliers) sums per-trade daily MTM vectors from
-  `trade_mtm.json` (built by `build_trade_mtm` — ~21k marks book-wide,
-  ~300 KB; mirrors `get_daily_mtm_series` conventions, each vector
-  reconciles to the trade's booked PnL; includes vectors for gate-blocked
-  rows keyed `Strategy|Tier|Ticker|SignalDate` and ext-rebooked rows by
-  trade_id), so Sharpe/CAGR/vol stay on one basis everywhere. The
-  realized-at-exit step curve survives only as a last-resort fallback when
-  the payload is absent (old builds); the UI badges it. The compounded curve
-  is shipped read-only — it cannot be decomposed per-filter (sizing depended
-  on whole-book equity).
+  filters get exact daily MTM curves (sum of per-strategy series);
+  direction/ticker filters fall back to realized-PnL-at-exit step curves and
+  the UI shows a badge. The compounded curve is shipped read-only — it cannot
+  be decomposed per-filter (sizing depended on whole-book equity).
 - **Local dev**: `python scripts/build_site.py --no-signals` then
   `python -m http.server 8123 --directory dist`. `--no-mtm` skips the slow
   payloads when iterating on frontend only.

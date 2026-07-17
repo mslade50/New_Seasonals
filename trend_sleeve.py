@@ -8,8 +8,10 @@ verification + trend_prework_gates.md + scratch/tf_universe_study.py):
     10-month SMA. Long/flat only — the short leg is dead (Sharpe 0.32).
   - Weights: inverse-vol slots over ALL eligible assets (>= 13 monthly closes),
     capped at 20%; OFF slots sit in cash.
-  - Size: TREND_NAV_FRACTION x ACCOUNT_VALUE deployed (0.5x pilot per the
-    roadmap; scale to 1.0x after 2 clean quarters).
+  - Size: TREND_NAV_FRACTION x ACCOUNT_VALUE deployed (cut 0.6 -> 0.3 on
+    2026-07-17, McKinley: caps concurrent index overlap with the dial-gated
+    SPY sleeve at ~43% NAV worst case and trims the sleeve's NAV vol
+    contribution to ~2.4%/yr; revisit scale-up after 2 clean quarters).
   - Execution: signals computed on the LAST trading day's close, staged as MOO
     (TIF=OPG) for the next session's open. Next-open slippage vs same-close
     was measured at ~0.06 Sharpe on the 12-ETF variant (gate A, PASS);
@@ -56,7 +58,7 @@ from trading_calendar import TRADING_DAY
 # exhaustion scale-down overlay (252d & 21d pctile > 95) — Sharpe flat.
 TREND_UNIVERSE = ["SPY", "QQQ", "IWM", "EFA", "EEM", "FXI", "VNQ",
                   "GLD", "SLV", "DBC", "TLT", "LQD"]
-TREND_NAV_FRACTION = 0.6     # sized to 60% of NAV (liquidity/capacity headroom)
+TREND_NAV_FRACTION = 0.3     # 30% of NAV (cut from 0.6 on 2026-07-17 — see above)
 WEIGHT_CAP = 0.20
 MIN_MONTHLY_CLOSES = 13      # eligibility (needs a valid 12-month lookback)
 VOL_FLOOR = 0.04             # ann. vol floor avoids inf inverse-vol weights
