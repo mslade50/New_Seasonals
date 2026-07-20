@@ -1,5 +1,5 @@
 {
-  "date": "2026-07-17",
+  "date": "2026-07-20",
   "price_ctx": {
     "price": 743.2899780273438,
     "ret_12m": 0.19662108105675502,
@@ -25,7 +25,7 @@
     "VIX Range Compression": {
       "on": false,
       "detail": "",
-      "summary": "21d range: 19th pctile (fires below 15th) \u2014 VIX at 18.8"
+      "summary": "21d range: 19th pctile (fires below 15th) \u2014 VIX at 18.4"
     },
     "Defensive Leadership": {
       "on": false,
@@ -40,7 +40,7 @@
     "Low Absorption Ratio": {
       "on": false,
       "detail": "",
-      "summary": "AR: 0.481 (51th pctile, fires below 10th) \u2014 near high: yes"
+      "summary": "AR: 0.472 (47th pctile, fires below 10th) \u2014 near high: yes"
     },
     "Seasonal Rank Divergence": {
       "on": false,
