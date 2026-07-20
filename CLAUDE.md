@@ -252,10 +252,13 @@ flat PnL at -12.6% worst DD) is defensible. Results:
 scratch/grm_replay_results.csv.
 
 daily_scan per-signal sizing order (mirrored in strat_backtester step 3b):
-base bps (tier x GRM) -> 2b fragility band -> 2c ladder rung -> 2c2 cycle-year
-mult -> 2d earnings size override (flat REPLACE, itself GRM-scaled: OLV signals
--10..0 TD from earnings get 10 bps nominal / 15 effective) -> shares -> 5c
-same-day signal de-rate (post-pass; 3x Bear fade — see its section below).
+base bps (tier x GRM) -> 2b fragility band -> 2c ladder rung (machinery
+retained, NO current carrier — OLV's ladder removed 2026-07-20) -> 2c2
+cycle-year mult -> 2d earnings size override (flat REPLACE, itself
+GRM-scaled: OLV signals -10..0 TD from earnings get 10 bps nominal / 15
+effective) -> shares -> ADV participation cap -> per-ticker notional cap
+(OLV, 2026-07-20) -> 5c same-day signal de-rate (post-pass; 3x Bear fade —
+see its section below).
 
 ## Daily Risk Caps (aligned 2026-07-10)
 
@@ -301,21 +304,16 @@ aligned sites incl. one out-of-repo, scalar-to-series engine change). The
 book's only evidenced dial-sizing hook is per-strategy `frag_risk_bands`.
 Evidence: scratch/ultracode_research/RISK_DIALS_2026-07-16.md.
 
-## Ladder Sizing (OLV, 2026-04-22)
+## Ladder Sizing (REMOVED 2026-07-20; was OLV-only 2026-04-22 to 2026-07-20)
 
-`execution['ladder_multipliers'] = [0.85, 1.00, 1.15]` (OLV only; OVS had it
-at launch, removed in the OVS sizing overhaul): a repeat signal on the same
-(ticker, strategy) while prior positions are still OPEN sizes at the next
-rung — rung = min(open_count, last): 0 open = 0.85x, 1 open = 1.00x,
-2+ open = 1.15x. Scales into a working cluster instead of equal-sizing every
-re-signal. Aligned sites — change together:
-- `strategy_config.py` execution `ladder_multipliers` (source of truth)
-- `daily_scan.py` sizing step 2c — open counts from the `Portfolio` Sheets tab
-  (`load_open_position_counts`; tab written nightly by daily_portfolio_report;
-  lookup failure = no overlay, everything sizes at rung 1)
-- `pages/strat_backtester.py` sizing (~line 1675) — replays generically for
-  any strategy with the field, using the in-backtest open count (drives the
-  ledger + daily_portfolio_report)
+`execution['ladder_multipliers]` has NO carrier since the OLV stop/gate
+package (2026-07-20): flat 1.0x sizing beat both ladder variants in the
+package study ($654k vs $605k [0.85,1,1] vs $627k [0.85,1,1.15] over 21y —
+the 0.85 first-rung discount was a drag across ~220 first legs). The
+GENERIC machinery survives in `daily_scan` sizing step 2c
+(`load_open_position_counts`) and `pages/strat_backtester.py` sizing — any
+future strategy can re-adopt by setting the field. Evidence:
+scratch/olv_package_sim.py.
 
 ## Cross-Strategy Overlap Clamp (2026-05-12)
 
@@ -570,35 +568,84 @@ high-fragility months (frag_risk_bands handles that hole). Scale to 1.0x of
 the fraction only after 2 clean quarters. Studies: scratch/tf_universe_study.py,
 scratch/ultracode_research/trend-following.md + trend_prework_gates.md.
 
-## OLV Sector Loss Gate (2026-07-02)
+## OLV Vol-Confirmed Stop + Notional Cap (2026-07-20)
 
-`execution['sector_loss_gate'] = {'window_td': 10, 'max_realized_r': -2.0}`
-(OLV only): skip a new signal when the strategy's realized R in the SAME
-SECTOR over the trailing 10 trading days is -2R or worse -- the sector dip is
-demonstrably trending, not bouncing. Motivated by June 2026: one oil cluster
-re-signaled ~30x lost -20.4R (worst DD in the ledger) entirely below fragility
-50, out of any dial's jurisdiction. Count caps and MTM gates were tested and
-REJECTED (sector clustering is usually OLV's WINNING mode -- a 2-cap costs
-+52R over 20y; live stops truncate unrealized pain before an MTM gate can
-see it). With the corrected sector map (2026-07-03) the gate drops 20
-net-losing trades (-5.3R, i.e. it ADDS R) over 20y and removes ~50% of a
-June-type cluster -- the drop list is precisely the oil complex.
-UNKNOWN-sector tickers PASS THROUGH in both gate sites: never pool no-sector
-names into one pseudo-sector (the 2026-07-03 live bug: USO was gated off
-unrelated UNKNOWN names' losses). Study: scratch/olv_cap_study*.py.
+Package replacing OLV's resting 1.25 ATR STP, its `sector_loss_gate`
+(live 2026-07-02 to 2026-07-20) and its `ladder_multipliers` in one change.
+Evidence chain: scratch/ultracode_research/olv_stop_condition_2026-07-17.md
++ scratch/olv_package_sim.py (package $466k -> $654k flat / 21y, win 61->70%,
+worst chain -$8.8k -> -$17.2k; every piece LOYO/episode-clustered).
 
-Aligned sites -- change together:
-- `strategy_config.py` OLV execution `sector_loss_gate` (source of truth)
-- `pages/strat_backtester.py` candidate gate (chronological loop keeps its own
-  closed-trade log; exits strictly before signal date)
-- `daily_scan.py` `sector_gate_blocked()` -- reads recent closed trades from
-  `data/backtest_trades_full.parquet` (deploy_site's ledger build now mirrors
-  it to R2; `daily_screener.yml` pulls it). Missing ledger/sector map = gate
-  off with a printed notice (fail-open overlay).
-- `data/sector_map.parquet` (committed): ticker->sector union of yfinance
-  sector_overrides + FMP symbol_master + a curated sector/commodity ETF
-  table, 1,460 tickers. Rebuild: `scripts/build_sector_map.py`.
-- Guard: `tests/test_sector_loss_gate.py`.
+**Stop (`stop_mode: 'vol_confirm_close'`, `stop_vol_mult: 1.5`)**: no
+resting STP leg. Exit MOO at the NEXT open iff a session CLOSES <=
+entry - 1.25 ATR AND its volume >= 1.5x the trailing 20d median (ex-that-
+day). Quiet closes below the level are HELD — low-volume weakness is the
+entry thesis; T+10 time exit still bounds everything. A volume-spike exit
+and a fresh OLV signal (10d vol rank < 15) are near mutually exclusive, so
+the old same-day stop+rebuy churn (39 events) is structurally gone.
+`stop_atr` 1.25 still defines the sizing risk unit. Per-leg tails widen to
+occasional -2..-3R; there is NO overnight stop (gaps evaluated at the next
+close). Live flow: daily_scan `stage_olv_vol_confirm_exits` (PM run
+evaluates today's settled close; AM run re-evaluates with corrected data,
+risk-report-correction style) -> `OLV_Exits` Sheets tab (always cleared+
+rewritten; rows carry per-leg `Time_Exit_Date` bracket keys; a STALE ticker
+bar is never re-evaluated — its previously staged exit carries forward
+instead of being wiped) -> order_staging `load_olv_exit_rows` (Execute_On
+== today only, naked-MOO SELL, primary account only; `Time_Exit_Date`
+rides the Tranche slot so same-day stacked-leg exits get distinct
+signal_refs) -> eq_order_entry position-exit path (matches the leg's
+working OCA bracket by orderRef prefix + time-leg goodAfterTime with a
+nearest-date fallback for calendar desync, clamps qty to min(staged, leg,
+held), cancels the bracket, sells MKT ~9:31 with retry; on total placement
+failure it RE-ARMS a protective time-exit clone so the position is never
+left with no working exits). Entry-day closes are NEVER confirms (day-2
+arming convention — the scan skips legs entered on the evaluation session,
+matching the engine's entry_idx+1 loop). Every layer fails SKIP/open and
+pipeline failures surface as OLV-EXIT warnings in the daily scan email —
+a missed exit falls back to the T+10 time exit, never a naked short.
+PA (execution_2) has no vol-confirm path (pa_order_entry lacks naked-MOO);
+instead the execution_2 build RE-ENABLES Use_Stop on OLV rows so PA keeps
+a CLASSIC resting 1.25 ATR stop (deliberate primary/PA divergence —
+unbounded is worse than unmodeled; calculate_bracket_prices emits
+Stop_Price on stop_mult > 0 regardless of Use_Stop to make this possible).
+
+**Notional cap (`ticker_notional_cap: {pct_nav: 0.50, exempt:
+OLV_CAP_EXEMPT_ETFS}`)**: stacked OLV legs in ONE single-stock ticker may
+not exceed 50% of NAV in entry notional; later legs scale down / skip. ETFs
+exempt. Catastrophe insurance for the no-resting-stop world (~4% of OLV PnL
+historically, every clipped leg a winner; balloon stacks are low-ATR names).
+The engine binds the cap in FRACTION-OF-SIZING-EQUITY terms (each open
+leg's notional / the equity it was sized against, `cap_equity` on
+open_positions): flat pass == live's pct_nav x fixed ACCOUNT_VALUE, and
+the compounded pass makes identical clip/skip decisions (either dollar
+basis lets the passes diverge — NaN flat rows or 76 silently dropped
+trades, both hit on 2026-07-20). KNOWN BOUND:
+the cap counts FILLED positions only; with the T+3 fill window up to THREE
+days' unfilled full-size limits are invisible, so worst-case concurrent
+notional is ~3x one leg. Engine and live share the blindness (parity
+holds); a working-order-aware check is the eventual fix.
+
+**Sector gate removal**: the 20y drop list (-5.3R at ship) flipped to +10R
+after the gate blocked the entire late-June-2026 oil recovery (OXY +2R x3,
+USO winners) having saved only part of the decline. The generic gate +
+`sector_gate_blocked` machinery survives dormant (keyed on the execution
+field); `build_trade_ledger`'s nogate pass now SKIPS with a notice and the
+site's gate_lab section quietly disappears. `data/sector_map.parquet` and
+`scripts/build_sector_map.py` remain (other consumers). Ladder removal:
+see "Ladder Sizing" above.
+
+Aligned sites — change together:
+- `strategy_config.py` OLV execution `stop_mode` / `stop_vol_mult` /
+  `ticker_notional_cap` + `OLV_CAP_EXEMPT_ETFS` (source of truth)
+- `pages/strat_backtester.py` — vol-confirm exit branch (target checked
+  BEFORE the close-confirm; no confirm on the final hold day; next-open
+  fill with stop slippage, no gap logic) + per-ticker notional cap replay
+  (open_positions state, refund semantics mirror the net-exposure cap)
+- `daily_scan.py` — Use_Stop stamped False for stop_mode strategies;
+  `load_open_position_notionals` + sizing-step cap; `stage_olv_vol_confirm_exits`
+- `order_staging.py` / `eq_order_entry.py` (OneDrive) — `load_olv_exit_rows`,
+  `Is_Position_Exit` naked-MOO path; guard: `test_olv_exits.py` (OneDrive)
+- Guard: `tests/test_olv_stop_and_cap.py` (engine + scan + config invariants)
 
 Ledger SURVIVORSHIP CAVEAT (2026-07-16): the 23-year ledger trades only
 tickers alive in today's universe files — 21 of 22 major 2020s delistings are
@@ -642,7 +689,10 @@ Aligned across both sides -- change one, change both:
 
 Related conventions: entry-day TARGETS are never credited in the backtest
 (intraday timing vs fill is ambiguous); OVS has `use_stop_loss=False` entirely
-(its day-one valve is the Friday-only EOD-DD, see section above).
+(its day-one valve is the Friday-only EOD-DD, see section above); OLV has NO
+resting stop leg at all since 2026-07-20 (vol-confirmed next-open exit — see
+"OLV Vol-Confirmed Stop + Notional Cap"; its rows stamp Use_Stop=False while
+`use_stop_loss` stays True in config for the sizing risk unit).
 
 ## Stop-Fill Convention — gap-through + slippage (book-wide, 2026-06-27)
 
@@ -840,7 +890,9 @@ Cloudflare Pages project `seasonals-mslade`, locked behind Cloudflare Access
   `data/backtest_trades_nogate.parquet` — a no-gate engine pass
   `build_trade_ledger.py` writes alongside the ledger; drives the portfolio
   page's gate-history section and its "All trades (+gate-blocked)" filter
-  toggle, which also forces the realized-at-exit basis while on) /
+  toggle, which also forces the realized-at-exit basis while on. DORMANT
+  since 2026-07-20: no strategy carries the gate, the nogate pass skips,
+  the payload stops being produced and the section auto-hides) /
   `ext_lab.json` (OVS hold-extension counterfactual — what-if lab, NOT a live
   rule: losing T+2 time exits rebooked to T+5 with the 2-ATR target live, a
   post-pass `build_trade_ledger.py` writes to
@@ -884,6 +936,11 @@ Tab layout in the `Trade_Signals_Log` workbook:
 - `Order_Staging` — Liquid-tier signals (Limits, T+1 Open, Persistent GTC). Cleared + rewritten by every `daily_scan` run with `Scan_Source='Liquid'`.
 - `Overflow` — Overflow-tier signals (same entry types, no MOC). Cleared + rewritten by `daily_scan --scope=overflow|all` with `Scan_Source='Overflow'`.
 - Both staging tabs carry a `Manual_Limit` column (emitted empty by the scanner): type a price into it to pin that signal's entry — order_staging uses it verbatim as a LMT and anchors the bracket to it, skipping the gap clamp. Rows survive only until the next scan's clear+rewrite, so manual rows/pins must be added AFTER the ~4:47 AM ET scan and BEFORE order_staging runs (e.g. the 2026-07-06 TS/USO makeup rows via `scratch/stage_makeup_ts_uso.py`). Entry expiry is back-computed from `Time_Exit_Date` − (1 + `Hold_Days` − `Fill_Window_Days`) BDays, NOT from `Scan_Date`, so a makeup row can carry its true original schedule.
+- `OLV_Exits` — vol-confirmed OLV stop exits (2026-07-20). Cleared+rewritten
+  by BOTH bookend `daily_scan` runs (`stage_olv_vol_confirm_exits`); rows are
+  per-LEG (stacked positions get one row per confirmed leg, keyed by
+  `Time_Exit_Date`). order_staging submits only rows with `Execute_On` ==
+  today as naked-MOO SELLs, primary account only.
 - `moc_orders` — MOC entries from liquid tier only (`save_moc_orders` skips overflow rows). Currently vestigial: the strategy book has no Signal Close entries, so this tab is never written. Reactivates automatically if any strategy is set to `entry_type='Signal Close'`.
 - `Seasonal` — tradeable seasonal-ideas tickets (longs + non-equity shorts). Written by `seasonal_order_staging.py` from `data/daily_seasonal_ideas.json`, `Scan_Source='Seasonal'`. Separate pipeline from the systematic book. Entry type per instrument (validated geography rule): US single stocks + US-session equity ETFs → `REL_OPEN` limit (0.25 ATR, DAY); everything that gaps overnight (intl/commodity/bond/FX ETFs, GLD/TLT) → `MOO` (market-on-open, `TIF=OPG`). Sizing: 20 bps/trade (13 bps in midterm years, `year%4==2`), 1% aggregate daily cap. order_staging must add `MOO` handling — see `docs/seasonal_order_staging_spec.md`.
 - `sznl_nostage` — NOT auto-executed. Single-stock equity shorts (sized, tagged `[eq-short]`) + non-tradeable signals (futures/index/FX/crypto, `Quantity=0`, `Order_Type=NONE`, tagged `[need-proxy]` pending the proxy-ETF promotion). order_staging does not read this tab.

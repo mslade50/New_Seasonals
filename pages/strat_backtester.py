@@ -1531,12 +1531,61 @@ def process_signals_fast(candidates, signal_data, processed_dict, strategies, st
                     if thresh <= val <= tmax: return True
             return False
 
+        # --- Vol-confirmed stop mode (OLV, 2026-07-20) ---
+        # execution['stop_mode'] == 'vol_confirm_close': NO resting/intraday
+        # stop. A session that CLOSES through the stop level on volume >=
+        # stop_vol_mult x the trailing 20d median (ex-today) confirms the
+        # thesis break -> exit MOO at the NEXT session's open (slippage
+        # only — the fill IS the open, no gap logic). Quiet closes through
+        # the level are held; the time exit still bounds the trade. Target
+        # is checked BEFORE the close-confirm each day (a resting LMT fills
+        # intraday, before any close evaluation). No confirm on the final
+        # hold day — live's TIME leg exits at that close first. Mirrored
+        # live by daily_scan's OLV_Exits staging + order_staging MOO path;
+        # change together. Evidence: scratch/olv_stop_condition_study.py.
+        _vol_confirm = (execution.get('stop_mode') == 'vol_confirm_close')
+        _vc_mult = float(execution.get('stop_vol_mult', 1.5))
+
         # Check for stop/target/signal-deact hits day by day
         if not entry_day_stopped and not eod_dd_triggered and (use_stop or use_target or use_signal_exit):
             for check_idx in range(entry_idx + 1, max_exit_idx + 1):
                 check_row = df.iloc[check_idx]
                 day_low = check_row['Low']
                 day_high = check_row['High']
+
+                if use_stop and _vol_confirm:
+                    if use_target and (
+                            (direction == 'Long' and day_high >= tgt_price)
+                            or (direction != 'Long' and day_low <= tgt_price)):
+                        exit_price = tgt_price
+                        exit_date = check_row.name
+                        exit_idx = check_idx
+                        exit_type = "Target"
+                        break
+                    _vc_breach = (check_row['Close'] <= stop_price
+                                  if direction == 'Long'
+                                  else check_row['Close'] >= stop_price)
+                    if _vc_breach and check_idx < max_exit_idx and 'Volume' in df.columns:
+                        _vc_med = df['Volume'].iloc[max(0, check_idx - 20):check_idx].median()
+                        _vc_vol = check_row.get('Volume', float('nan'))
+                        if (pd.notna(_vc_med) and _vc_med > 0
+                                and pd.notna(_vc_vol) and _vc_vol >= _vc_mult * _vc_med):
+                            exit_idx = check_idx + 1
+                            exit_date = df.index[exit_idx]
+                            _vc_open = df.iloc[exit_idx]['Open']
+                            if direction == 'Long':
+                                exit_price = _vc_open * (1 - stop_slip_bps / 1e4)
+                            else:
+                                exit_price = _vc_open * (1 + stop_slip_bps / 1e4)
+                            exit_type = "Stop"
+                            break
+                    if use_signal_exit and _signal_exit_fires(check_row):
+                        exit_price = check_row['Close']
+                        exit_date = check_row.name
+                        exit_idx = check_idx
+                        exit_type = "SignalDeact"
+                        break
+                    continue
 
                 if direction == 'Long':
                     if use_stop and day_low <= stop_price:
@@ -1622,6 +1671,48 @@ def process_signals_fast(candidates, signal_data, processed_dict, strategies, st
                         placed_risk_by_strat_date[(signal_date, strat_name)] -= base_risk
                         placed_risk_by_dir_date[(signal_date, direction)] -= base_risk
 
+            # ---- Per-ticker concurrent notional cap (OLV, 2026-07-20) ----
+            # execution['ticker_notional_cap'] = {'pct_nav': f, 'exempt': [...]}:
+            # this strategy's stacked legs in ONE ticker may not exceed
+            # f x sizing equity in entry notional; the new leg is scaled
+            # down (or skipped) to fit the remaining room. ETFs in the
+            # exempt list pass through. Open state = this strategy's
+            # positions filled on/before the signal date (mirrors live,
+            # where daily_scan counts the nightly Portfolio snapshot).
+            # Refund semantics mirror the net-exposure cap above. Guard:
+            # tests/test_olv_stop_and_cap.py.
+            _tnc = execution.get('ticker_notional_cap')
+            if shares > 0 and _tnc and entry_price and entry_price > 0:
+                _tnc_exempt = set(_tnc.get('exempt') or ())
+                if t_clean.upper() not in _tnc_exempt and str(ticker).upper() not in _tnc_exempt:
+                    # The cap binds in FRACTION-OF-SIZING-EQUITY terms: each
+                    # open leg's notional is divided by the equity IT was
+                    # sized against ('cap_equity', stamped at open). In the
+                    # flat pass every denominator is starting_equity, exactly
+                    # matching live's pct_nav x fixed ACCOUNT_VALUE; in the
+                    # compounded pass leg notionals and denominators scale
+                    # together, so both passes make the SAME clip/skip
+                    # decisions (a dollar-basis cap in either flavor lets the
+                    # passes diverge and leaves NaN flat columns — 2026-07-20).
+                    _tnc_pct = float(_tnc['pct_nav'])
+                    _tnc_open_frac = sum(
+                        (p['entry_price'] * p['shares']) / p.get('cap_equity', starting_equity)
+                        for p in open_positions
+                        if p['t_clean'] == t_clean and p['strat_name'] == strat_name
+                        and p['entry_date'] <= signal_date)
+                    _tnc_new_frac = (entry_price * shares) / equity_for_sizing
+                    if _tnc_open_frac + _tnc_new_frac > _tnc_pct:
+                        _tnc_room = max(0.0, _tnc_pct - _tnc_open_frac)
+                        _tnc_scale = _tnc_room / _tnc_new_frac
+                        _tnc_orig_risk = base_risk
+                        shares = int(shares * _tnc_scale)
+                        base_risk *= _tnc_scale
+                        placed_risk_by_strat_date[(signal_date, strat_name)] -= _tnc_orig_risk * (1.0 - _tnc_scale)
+                        placed_risk_by_dir_date[(signal_date, direction)] -= _tnc_orig_risk * (1.0 - _tnc_scale)
+                        if shares <= 0:
+                            placed_risk_by_strat_date[(signal_date, strat_name)] -= base_risk
+                            placed_risk_by_dir_date[(signal_date, direction)] -= base_risk
+
             if shares > 0:
                 target_ts_idx = entry_idx + hold_days
                 if target_ts_idx < len(df):
@@ -1685,7 +1776,10 @@ def process_signals_fast(candidates, signal_data, processed_dict, strategies, st
                         'ticker': ticker, 't_clean': t_clean,
                         'entry_date': entry_date, 'entry_price': entry_price,
                         'shares': _t_shares, 'direction': 'Long' if action == 'BUY' else 'Short',
-                        'exit_idx': _t_exit_idx, 'exit_date': _t_exit_date, 'strat_name': strat_name
+                        'exit_idx': _t_exit_idx, 'exit_date': _t_exit_date, 'strat_name': strat_name,
+                        # equity this leg was sized against — denominator for
+                        # the ticker_notional_cap's fractional bookkeeping
+                        'cap_equity': equity_for_sizing,
                     })
                     # Keep intra-date exposure tracker in sync so multiple signals
                     # on the same date compete for the remaining cap budget.

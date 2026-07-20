@@ -49,12 +49,15 @@ def test_gated_names_finds_only_gated_strategies():
     assert gated_strategy_names(_book()) == ['Oversold Low Volume']
 
 
-def test_prod_book_carries_a_gated_strategy():
-    # If the gate leaves the book entirely, the counterfactual pass silently
-    # stops producing the parquet — make that visible here instead.
+def test_prod_book_carries_no_gated_strategy():
+    # Sector loss gate removed from OLV 2026-07-20. The nogate counterfactual
+    # pass now SKIPS by design (build_nogate_counterfactual prints a notice
+    # and returns; the site's gate_lab section quietly disappears). The
+    # strip/shape machinery stays tested above in case a future strategy
+    # re-adopts the gate.
     from strategy_config import STRATEGY_BOOK
-    assert gated_strategy_names(STRATEGY_BOOK), \
-        "no strategy carries sector_loss_gate — remove the nogate pass or update this test"
+    assert gated_strategy_names(STRATEGY_BOOK) == [], \
+        "a strategy re-adopted sector_loss_gate — resurrect the nogate-pass guard test"
 
 
 def test_strip_removes_gate_without_mutating_source():

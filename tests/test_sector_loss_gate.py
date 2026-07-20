@@ -108,9 +108,12 @@ def test_fail_open_without_ledger_or_sector():
     assert not daily_scan.sector_gate_blocked('Oversold Low Volume', CFG, 'ZZZZ', '2026-06-26')[0]
 
 
-def test_config_carries_the_gate_on_olv_only():
+def test_config_carries_no_gate_anywhere():
+    # Sector loss gate REMOVED from OLV 2026-07-20 (vol-confirmed stop +
+    # notional cap package): its live drop list had flipped to +10R after
+    # blocking the late-June-2026 oil recovery. The gate MECHANISM above
+    # stays tested — it is generic and a future strategy may re-adopt it
+    # via execution['sector_loss_gate'].
     with_gate = [s['name'] for s in STRATEGY_BOOK
                  if s['execution'].get('sector_loss_gate')]
-    assert with_gate == ['Oversold Low Volume']
-    cfg = next(s for s in STRATEGY_BOOK if s['name'] == 'Oversold Low Volume')
-    assert cfg['execution']['sector_loss_gate'] == {'window_td': 10, 'max_realized_r': -2.0}
+    assert with_gate == [], f"unexpected gated strategies: {with_gate}"

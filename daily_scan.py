@@ -1093,6 +1093,13 @@ def save_staging_orders(signals_list, strategy_book, sheet_name='Order_Staging',
         # =====================================================
         use_target = execution.get('use_take_profit', False)
         use_stop = execution.get('use_stop_loss', False)
+        # Vol-confirmed stop mode (OLV, 2026-07-20): NO resting STP leg live.
+        # The stop decision is made post-close on settled bars and staged as
+        # a next-open MOO exit (stage_olv_vol_confirm_exits below), so the
+        # entry bracket must carry target + time legs only. use_stop_loss
+        # stays True in config because stop_atr still defines the risk unit.
+        if execution.get('stop_mode') == 'vol_confirm_close':
+            use_stop = False
         tgt_atr_mult = execution.get('tgt_atr', 0.0)
         stop_atr_mult = execution.get('stop_atr', 0.0)
         hold_days = execution.get('hold_days', 0)
@@ -1775,6 +1782,275 @@ def load_open_position_counts(ladder_strategy_names):
     return counts
 
 
+def load_open_position_notionals(cap_strategy_names):
+    """Build {(ticker, strategy_name): open entry notional $} from the
+    Portfolio tab, for the per-ticker concurrent notional cap (OLV,
+    2026-07-20). Notional = Shares x Price (the engine's resolved entry),
+    summed across stacked legs. Same conventions as
+    load_open_position_counts: nightly snapshot of truly-open positions,
+    fail-OPEN — any failure returns {} and the cap simply doesn't bind
+    this run (a new leg then sizes uncapped; the engine still models the
+    cap point-in-time, so drift is one leg, not systemic). KNOWN BOUND
+    (review 2026-07-20): unfilled working limits are NOT positions and
+    don't count, and OLV's T+3 fill window means up to THREE consecutive
+    days' full-size limits can be simultaneously invisible to the cap —
+    worst-case concurrent notional ~3x a single leg (~84% NAV on a very
+    low-ATR name) if all fill late in their windows. The engine shares
+    the blindness, so ledger and live agree; a working-order-aware cap
+    (eq_order_entry-side) is the eventual fix.
+    """
+    if not cap_strategy_names:
+        return {}
+
+    gc = get_google_client()
+    if not gc:
+        return {}
+
+    try:
+        sh = gc.open("Trade_Signals_Log")
+        ws = sh.worksheet("Portfolio")
+        rows = ws.get_all_values()
+    except Exception as e:
+        print(f"⚠️ Notional-cap position lookup failed (reading Portfolio tab): {e}")
+        return {}
+
+    if not rows or len(rows) < 2:
+        return {}
+
+    headers = rows[0]
+    try:
+        name_idx = headers.index("Strategy")
+        ticker_idx = headers.index("Ticker")
+        shares_idx = headers.index("Shares")
+        price_idx = headers.index("Price")
+    except ValueError:
+        print(f"⚠️ Portfolio tab missing Strategy/Ticker/Shares/Price columns (got {headers[:6]}...)")
+        return {}
+
+    target_names = set(cap_strategy_names)
+    notionals = {}
+    for r in rows[1:]:
+        if len(r) <= max(name_idx, ticker_idx, shares_idx, price_idx):
+            continue
+        strat_name = r[name_idx].strip()
+        if strat_name not in target_names:
+            continue
+        try:
+            _n = abs(float(r[shares_idx])) * float(r[price_idx])
+        except (TypeError, ValueError):
+            continue
+        key = (r[ticker_idx].strip(), strat_name)
+        notionals[key] = notionals.get(key, 0.0) + _n
+
+    return notionals
+
+
+def stage_olv_vol_confirm_exits(master_dict=None):
+    """Evaluate open OLV positions against the vol-confirmed stop and stage
+    next-open MOO exit rows to the 'OLV_Exits' Sheets tab (2026-07-20).
+
+    The rule (strategy_config OLV execution, stop_mode='vol_confirm_close'):
+    exit at the NEXT open iff the last settled session CLOSED at/below
+    entry - stop_atr*ATR AND its volume was >= stop_vol_mult x the trailing
+    20d median (ex-that-day). Quiet closes through the level are held — the
+    T+10 time-exit leg still bounds every position.
+
+    Timing: the PM bookend scan (~22:00 UTC) evaluates today's just-settled
+    close and stages Execute_On = next trading day; the AM scan (~4:47 ET,
+    cache has --exclude-today) re-evaluates the SAME session with corrected
+    data and restages Execute_On = today. order_staging reads the tab and
+    submits MOO sells only for rows with Execute_On == today, clamped to
+    the actual TWS position (belt and suspenders).
+
+    Basis note: entry Price and ATR come from the Portfolio tab, which the
+    nightly report RE-DERIVES from the current adjusted cache each evening —
+    both sides of the comparison are the same cache lineage one vintage
+    apart, so the dividend-adjustment relative-level rule holds (this is
+    NOT a frozen dollar level vs re-pulled history).
+
+    The tab is ALWAYS cleared+rewritten (even to empty) so stale exit rows
+    can never resubmit. Fail-open: any error leaves positions to their
+    time exits and never crashes the scan.
+    """
+    warnings = []
+
+    def _warn(msg):
+        warnings.append(msg)
+        print(f"[OLV-EXIT] WARNING: {msg}")
+
+    olv = next((s for s in STRATEGY_BOOK if s['name'] == 'Oversold Low Volume'), None)
+    if olv is None or olv['execution'].get('stop_mode') != 'vol_confirm_close':
+        return warnings
+
+    ex = olv['execution']
+    stop_atr = float(ex.get('stop_atr', 1.25))
+    vol_mult = float(ex.get('stop_vol_mult', 1.5))
+
+    gc = get_google_client()
+    if not gc:
+        _warn("no Google client — vol-confirm exit staging SKIPPED; open OLV "
+              "positions have only their T+10 time exits")
+        return warnings
+
+    try:
+        sh = gc.open("Trade_Signals_Log")
+        rows = sh.worksheet("Portfolio").get_all_values()
+    except Exception as e:
+        _warn(f"could not read Portfolio tab ({e}) — exit staging SKIPPED")
+        return warnings
+
+    positions = []
+    if rows and len(rows) >= 2:
+        headers = rows[0]
+        try:
+            idx = {c: headers.index(c) for c in ("Strategy", "Ticker", "Shares",
+                                                 "Price", "ATR", "Time Stop",
+                                                 "Entry Date")}
+            for r in rows[1:]:
+                if len(r) <= max(idx.values()):
+                    continue
+                if r[idx["Strategy"]].strip() != "Oversold Low Volume":
+                    continue
+                try:
+                    positions.append({
+                        "ticker": r[idx["Ticker"]].strip().upper(),
+                        "shares": int(abs(float(r[idx["Shares"]]))),
+                        "entry": float(r[idx["Price"]]),
+                        "atr": float(r[idx["ATR"]]),
+                        "entry_date": pd.to_datetime(r[idx["Entry Date"]]).normalize(),
+                        # Per-leg bracket key: stacked legs are separate OCA
+                        # brackets live, each with its own stop level and a
+                        # time-MKT leg at this date. eq_order_entry uses it
+                        # to cancel exactly the confirmed leg's bracket.
+                        "time_exit": str(pd.to_datetime(r[idx["Time Stop"]]).date()),
+                    })
+                except (TypeError, ValueError):
+                    continue
+        except ValueError as e:
+            _warn(f"Portfolio tab schema unexpected ({e}) — exit staging SKIPPED")
+            return warnings
+
+    # Previously-staged rows: carried forward for tickers we cannot re-evaluate
+    # this run (stale bar), so an AM run with one lagging feed can't wipe a
+    # valid PM-staged exit that is due today. Only rows still in the future
+    # (Execute_On >= today) are eligible to carry.
+    today_norm = pd.Timestamp.now().normalize()
+    prior_rows = {}
+    try:
+        _prev = sh.worksheet("OLV_Exits").get_all_records()
+        for _r in _prev:
+            _eo = pd.to_datetime(_r.get("Execute_On"), errors="coerce")
+            if pd.notna(_eo) and _eo.normalize() >= today_norm:
+                prior_rows[str(_r.get("Symbol", "")).strip().upper()] = _r
+    except Exception:
+        prior_rows = {}
+
+    def _frame_for(tkr):
+        df = (master_dict or {}).get(tkr)
+        if df is None:
+            try:
+                _raw = pd.read_parquet("data/master_prices.parquet",
+                                       filters=[("ticker", "==", tkr)])
+                _raw["date"] = pd.to_datetime(_raw["date"])
+                df = _raw.sort_values("date").set_index("date")
+            except Exception:
+                df = None
+        return df
+
+    frames = {p["ticker"]: _frame_for(p["ticker"]) for p in positions}
+    # Expected settled session = freshest bar across the evaluated frames
+    # (AM cache: yesterday; PM cache: today). A ticker whose last bar lags
+    # this is STALE and must not be re-evaluated off old data.
+    _dates = [f.index[-1] for f in frames.values() if f is not None and len(f)]
+    expected_session = max(_dates) if _dates else None
+
+    exit_rows = []
+    for pos in positions:
+        tkr = pos["ticker"]
+        df = frames.get(tkr)
+        if df is None or len(df) < 25 or "Volume" not in df.columns:
+            _warn(f"{tkr}: no usable price/volume history — cannot evaluate "
+                  f"vol-confirm stop (held; T+10 time exit bounds)")
+            if tkr in prior_rows:
+                exit_rows.append(prior_rows[tkr])
+                print(f"[OLV-EXIT] {tkr}: carried forward previously staged exit")
+            continue
+        if expected_session is not None and df.index[-1] != expected_session:
+            _warn(f"{tkr}: last bar {df.index[-1].date()} lags expected session "
+                  f"{expected_session.date()} — stale feed, NOT re-evaluated")
+            if tkr in prior_rows:
+                exit_rows.append(prior_rows[tkr])
+                print(f"[OLV-EXIT] {tkr}: carried forward previously staged exit")
+            continue
+        # Day-2 arming convention (book-wide, 2026-06-09): the engine's
+        # vol-confirm loop starts at entry_idx+1, so an entry-day close is
+        # NEVER a confirm. Skip legs whose entry is the evaluation session.
+        if pos["entry_date"] is not None and pos["entry_date"] >= df.index[-1].normalize():
+            print(f"[OLV-EXIT] {tkr}: entered {pos['entry_date'].date()} — stop "
+                  f"arms next session, not evaluated on the entry-day close")
+            continue
+        if pos["atr"] <= 0 or pos["entry"] <= 0:
+            continue
+        last = df.iloc[-1]
+        stop_level = pos["entry"] - stop_atr * pos["atr"]
+        if last["Close"] > stop_level:
+            continue
+        med20 = df["Volume"].iloc[-21:-1].median()
+        volx = (last["Volume"] / med20) if med20 and med20 > 0 else float("nan")
+        if pd.isna(volx):
+            # Breach with UNVERIFIABLE volume (NaN bar / degenerate median,
+            # the SOXS-feed-bug class): held by rule, but this must be loud —
+            # a corrupted feed can suppress every genuine capitulation exit.
+            _warn(f"{tkr}: closed {last['Close']:.2f} <= stop {stop_level:.2f} "
+                  f"but volume is UNVERIFIABLE (NaN/degenerate med20) — held; "
+                  f"REVIEW THE FEED")
+            continue
+        if volx < vol_mult:
+            print(f"[OLV-EXIT] {tkr}: closed {last['Close']:.2f} <= stop {stop_level:.2f} "
+                  f"but volume {volx:.2f}x med20 < {vol_mult}x — HELD (quiet breach)")
+            continue
+        confirm_date = df.index[-1]
+        execute_on = (confirm_date + TRADING_DAY).date()
+        exit_rows.append({
+            "Symbol": tkr,
+            "Action": "SELL",
+            "Quantity": pos["shares"],
+            "Strategy_Ref": "Oversold Low Volume",
+            "Confirm_Date": str(confirm_date.date()),
+            "Execute_On": str(execute_on),
+            "Time_Exit_Date": pos["time_exit"],
+            "Stop_Level": round(stop_level, 2),
+            "Confirm_Close": round(float(last["Close"]), 2),
+            "Vol_X_Med20": round(float(volx), 2),
+            "Staged_At": datetime.datetime.now().strftime("%Y-%m-%d %H:%M"),
+        })
+        print(f"[OLV-EXIT] {tkr}: CONFIRMED — closed {last['Close']:.2f} <= stop "
+              f"{stop_level:.2f} on {volx:.1f}x volume -> MOO exit {execute_on}")
+
+    cols = ["Symbol", "Action", "Quantity", "Strategy_Ref", "Confirm_Date",
+            "Execute_On", "Time_Exit_Date", "Stop_Level", "Confirm_Close",
+            "Vol_X_Med20", "Staged_At"]
+
+    def _write_exits():
+        try:
+            ws = sh.worksheet("OLV_Exits")
+        except gspread.WorksheetNotFound:
+            ws = sh.add_worksheet(title="OLV_Exits", rows=50, cols=len(cols))
+        ws.clear()
+        data = [cols] + [[str(r.get(c, "")) for c in cols] for r in exit_rows]
+        ws.update(values=data)
+
+    try:
+        _sheets_write_with_retry(
+            f"stage {len(exit_rows)} OLV vol-confirm exit(s)", _write_exits)
+        print(f"[OLV-EXIT] OLV_Exits tab written: {len(exit_rows)} exit(s), "
+              f"{len(positions)} open OLV position(s) evaluated")
+    except Exception as e:
+        _warn(f"failed to write OLV_Exits tab ({e}) — confirmed exits NOT "
+              f"staged; positions fall back to their time exits")
+    return warnings
+
+
 def run_daily_scan(scope='liquid', moc_only=False, dry_run=False):
     """Run the daily scan against `scope` (liquid|overflow|all).
 
@@ -2087,6 +2363,14 @@ def run_daily_scan(scope='liquid', moc_only=False, dry_run=False):
         else:
             print(f"⚠️ data/earnings_calendar.parquet not found — earnings blackout disabled")
 
+    # 4c2. Per-ticker notional-cap open state (OLV, 2026-07-20): open entry
+    # notional per (ticker, strategy) for strategies carrying
+    # execution['ticker_notional_cap']. Fail-open — {} means the cap simply
+    # doesn't bind this run.
+    _cap_strats = {s['name'] for s in effective_book
+                   if s['execution'].get('ticker_notional_cap')}
+    open_notionals = load_open_position_notionals(_cap_strats)
+
     # 4c. Ladder position counts — counts currently-held filled primary signals
     # per (ticker, strategy) so repeat signals size up on each successive day.
     ladder_strats = {s['name'] for s in effective_book if s['execution'].get('ladder_multipliers')}
@@ -2357,6 +2641,38 @@ def run_daily_scan(scope='liquid', moc_only=False, dry_run=False):
                                 risk = shares * dist
                                 sizing_note = (f"{sizing_note} | ADV cap "
                                                f"({ADV_PARTICIPATION_CAP:.0%} ADDV): {_orig} → {shares} sh")
+
+                    # Per-ticker concurrent notional cap (OLV, 2026-07-20):
+                    # stacked legs in ONE single-stock ticker may not exceed
+                    # pct_nav x NAV in entry notional; the new leg is scaled
+                    # down (or zeroed) to fit. ETFs pass through via the
+                    # exempt list. Open state = filled positions in the
+                    # nightly Portfolio snapshot (load_open_position_notionals,
+                    # fail-open). Mirrored point-in-time by the engine cap in
+                    # strat_backtester — change together. Guard:
+                    # tests/test_olv_stop_and_cap.py.
+                    _tnc = strat['execution'].get('ticker_notional_cap')
+                    if _tnc and shares > 0:
+                        _tnc_exempt = set(_tnc.get('exempt') or ())
+                        if t_clean.upper() not in _tnc_exempt:
+                            _tnc_cap = float(_tnc['pct_nav']) * ACCOUNT_VALUE
+                            _tnc_open = open_notionals.get((t_clean, strat['name']), 0.0)
+                            _tnc_new = shares * entry
+                            if _tnc_open + _tnc_new > _tnc_cap:
+                                _tnc_room = max(0.0, _tnc_cap - _tnc_open)
+                                _orig_sh = shares
+                                shares = int(_tnc_room / entry) if entry > 0 else 0
+                                risk = shares * dist
+                                sizing_note = (
+                                    f"{sizing_note} | Notional cap "
+                                    f"{_tnc['pct_nav']:.0%} NAV "
+                                    f"(${_tnc_open:,.0f} open): {_orig_sh} → {shares} sh")
+                                print(f"   🧢 {t_clean}: notional cap "
+                                      f"{_tnc['pct_nav']:.0%} NAV — {_orig_sh} → {shares} shares "
+                                      f"(${_tnc_open:,.0f} already open)")
+                                if shares <= 0:
+                                    print(f"   ⛔ {t_clean}: notional cap full — signal skipped")
+                                    continue
 
                     entry_mode = strat['settings'].get('entry_type', 'Signal Close')
                     hold_days = strat['execution']['hold_days']
@@ -2638,6 +2954,25 @@ def run_daily_scan(scope='liquid', moc_only=False, dry_run=False):
             save_staging_orders([], effective_book, sheet_name='Order_Staging', tier_filter='Liquid')
         if scope in ('overflow', 'all') and not moc_only:
             save_staging_orders([], effective_book, sheet_name='Overflow', tier_filter='Overflow')
+
+    # 6b. OLV vol-confirmed exit staging (2026-07-20). Runs on both bookend
+    # scans regardless of signal count: the PM run evaluates today's settled
+    # close, the AM run re-evaluates the same session with corrected data
+    # (same convention as the risk-report AM correction). Always rewrites
+    # the OLV_Exits tab so stale exits can't resubmit; fully fail-open.
+    if not moc_only:
+        try:
+            _olv_exit_warnings = stage_olv_vol_confirm_exits(
+                master_dict if 'master_dict' in dir() else None) or []
+        except Exception as e:
+            _olv_exit_warnings = [f"staging crashed ({e}) — positions fall back to time exits"]
+            print(f"[OLV-EXIT] {_olv_exit_warnings[0]}")
+        # Surface exit-pipeline problems in the daily email: the resting STP
+        # this pipeline replaced failed loudly at the broker; its replacement
+        # must never fail silently in a log nobody reads (review finding,
+        # 2026-07-20).
+        for _w in _olv_exit_warnings:
+            error_tickers.append(("OLV-EXIT", _w))
 
     # 7. Send Email Summary
     # Deduplicate error tickers (same ticker may appear across multiple strategies)

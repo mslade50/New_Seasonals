@@ -101,6 +101,18 @@ LIQUID_NO_INDEX = [t for t in LIQUID_UNIVERSE if t not in ['^GSPC', '^NDX']]
 # Liquid universe + commodity ETFs for broader coverage (198 tickers)
 LIQUID_PLUS_COMMODITIES = LIQUID_UNIVERSE + ['CEF', 'GLD', 'OIH', 'SLV', 'UNG', 'USO', 'UVXY', 'XOP']
 
+# ETFs exempt from the OLV per-ticker notional cap (2026-07-20): diversified
+# instruments where single-name gap risk doesn't apply. Union of the
+# sector/index ETF lists, the commodity add-ons, and ETFs seen in the
+# overflow tier. A future ETF missing from this list simply gets capped —
+# fail-safe in the conservative direction.
+OLV_CAP_EXEMPT_ETFS = sorted(set(
+    SECTOR_INDEX_ETFS + INDEX_ETFS + INDICES_SPOT
+    + ['CEF', 'GLD', 'OIH', 'SLV', 'UNG', 'USO', 'UVXY', 'XOP']
+    + ['DBC', 'EEM', 'EFA', 'EWZ', 'FXI', 'GDX', 'GDXJ', 'HYG', 'IEF',
+       'LQD', 'TLT']
+))
+
 # 3x Leveraged ETFs — broad + sector equities, bonds, commodities (bull + bear)
 # Must stay in sync with LEV3X_ALL in pages/backtester.py
 LEV3X_ALL = [
@@ -431,7 +443,7 @@ _STRATEGY_BOOK_RAW = [
                    'frag_risk_bands': [[50, 999, 0.25]]},
      'stats': {'grade': 'A (Excellent)', 'win_rate': '61.3%', 'expectancy': '0.28r', 'profit_factor': '1.78'}},
     {
-        "id": "21dr < 15 3 consec, 5dr < 33, 2dr < 25, 252dr 50-90, rel vol < 15, market > 200 SMA, age >= 5y, pre-earnings -> 10 bps, GTC limit close-0.25 ATR, 10d hold, 1.25 ATR stop, 2.5 ATR tgt",
+        "id": "21dr < 15 3 consec, 5dr < 33, 2dr < 25, 252dr 50-90, rel vol < 15, market > 200 SMA, age >= 5y, pre-earnings -> 10 bps, GTC limit close-0.25 ATR, 10d hold, vol-confirmed 1.25 ATR stop (next open), 2.5 ATR tgt",
         "name": "Oversold Low Volume",
         "setup": {
             "type": "MeanReversion",
@@ -449,10 +461,10 @@ _STRATEGY_BOOK_RAW = [
             ]
         },
         "exit_summary": {
-            "primary_exit": "10-day time stop OR 2.5 ATR target OR 1.25 ATR stop (whichever first)",
-            "stop_logic": "1.25 ATR below entry",
+            "primary_exit": "10-day time stop OR 2.5 ATR target OR volume-confirmed stop (whichever first)",
+            "stop_logic": "Vol-confirmed (2026-07-20): no resting stop. If a session CLOSES at/below entry - 1.25 ATR AND that day's volume >= 1.5x the trailing 20d median, exit MOO at the next open. Quiet closes below the level are held (low-volume weakness is the thesis, not its failure). stop_atr 1.25 still defines the risk unit for sizing.",
             "target_logic": "2.5 ATR above entry",
-            "notes": "Persistent limit at close - 0.25 ATR; GTC for the hold window. No cooldown — consecutive signals on same ticker allowed. Earnings handling: signals 10 TD before through earnings day get sized at 10 bps (vs. default 35 bps liquid / 25 bps overflow); commodity ETFs / indices / futures with no earnings data pass through at default sizing."
+            "notes": "Persistent limit at close - 0.25 ATR; GTC for the hold window. No cooldown — consecutive signals on same ticker allowed. No ladder (removed 2026-07-20, all legs 1.0x) and no sector loss gate (removed 2026-07-20 with the vol-confirmed stop + notional cap package). Per-ticker concurrent notional capped at 50% of NAV for single stocks (ETFs exempt). Earnings handling: signals 10 TD before through earnings day get sized at 10 bps (vs. default 35 bps liquid / 25 bps overflow); commodity ETFs / indices / futures with no earnings data pass through at default sizing."
         },
         "description": "Start: 2000-01-01. Universe: Liquid + commodities + overflow tier (CSV_UNIVERSE via OVERFLOW_ELIGIBLE). Dir: Long. Entry: limit at close-0.25 ATR (GTC). 10d hold, 2.5 ATR target, 1.25 ATR stop. Liquid 35 bps / overflow 25 bps; pre-earnings window sizes both at 10 bps.",
         "universe_tickers": LIQUID_PLUS_COMMODITIES,
@@ -505,22 +517,45 @@ _STRATEGY_BOOK_RAW = [
                       # loop, daily_scan Fill_Window_Days stamp, order_staging
                       # GTC cancel-after-N. Evidence: scratch/olv_fill_window.py.
                       "fill_window_days": 3,
-                      # Sector loss gate (2026-07-02): skip a new OLV signal
-                      # when realized OLV R in the SAME SECTOR over the trailing
-                      # 10 trading days is -2R or worse — the sector dip is
-                      # demonstrably trending, not bouncing (June 2026: one oil
-                      # cluster re-signaled ~30x lost -20.4R, the worst DD in
-                      # the ledger, entirely below fragility 50). Count caps and
-                      # MTM gates were tested and REJECTED: sector clustering is
-                      # usually OLV's winning mode (+52R of drops), and live
-                      # stops truncate unrealized pain before an MTM gate sees
-                      # it. This gate drops NET-losing trades historically
-                      # (-2.7R over 20y) while cutting ~36% of a June-type
-                      # cluster. Aligned: strat_backtester candidate gate,
-                      # daily_scan live gate (nightly ledger + sector_map).
-                      # Study: scratch/olv_cap_study*.py.
-                      "sector_loss_gate": {"window_td": 10, "max_realized_r": -2.0},
-                      "ladder_multipliers": [0.85, 1.00, 1.15],
+                      # Vol-confirmed stop (2026-07-20): replaces the resting
+                      # 1.25 ATR STP. Exit MOO at the NEXT open iff a session
+                      # CLOSES <= entry - stop_atr*ATR AND that day's volume
+                      # >= stop_vol_mult x the trailing 20d median (ex-today).
+                      # Quiet closes below the level are HELD — low-volume
+                      # weakness is the entry thesis, not its failure; the
+                      # T+10 time exit still bounds everything. Evidence
+                      # (scratch/olv_stop_condition_study.py + _nextopen_test):
+                      # intraday stop touches that recover by the close end
+                      # -0.32R avg vs -1.10R for confirmed closes; the rule
+                      # adds ~+35R/21y, cuts same-day stop+rebuy churn 39 -> ~0
+                      # (a volume-spike exit and a fresh low-volume-rank signal
+                      # are near mutually exclusive by construction), clustered
+                      # t=2.44, LOYO floor +22R. Costs: per-leg tail widens to
+                      # occasional -2..-3R; no resting stop overnight (gaps are
+                      # evaluated at the next close). stop_atr still defines
+                      # the risk unit for sizing. The sector loss gate and the
+                      # ladder_multipliers were REMOVED with this change
+                      # (2026-07-20): the gate's drop list flipped to +10R
+                      # after it blocked the entire late-June-2026 oil recovery,
+                      # and flat 1.0x sizing beat both ladder variants.
+                      # Aligned: strat_backtester exit branch, daily_scan
+                      # Use_Stop stamp + OLV_Exits staging, order_staging /
+                      # eq_order_entry MOO-exit path (OneDrive).
+                      "stop_mode": "vol_confirm_close",
+                      "stop_vol_mult": 1.5,
+                      # Per-ticker concurrent notional cap (2026-07-20):
+                      # stacked OLV legs in ONE single-stock ticker may not
+                      # exceed pct_nav of account value at entry; later legs
+                      # are scaled down / skipped to fit. ETFs (diversified
+                      # gap profile) are exempt via OLV_CAP_EXEMPT_ETFS.
+                      # Catastrophe insurance for the no-resting-stop world:
+                      # historical cost ~4% of OLV PnL (binds 8 legs in 21y,
+                      # every one a winner — the balloon stacks are low-ATR
+                      # names that mean-revert best), in exchange for bounding
+                      # the survivorship-blind single-name overnight tail at
+                      # half of NAV. Evidence: scratch/olv_notional_cap_*.py.
+                      "ticker_notional_cap": {"pct_nav": 0.50,
+                                              "exempt": OLV_CAP_EXEMPT_ETFS},
                       # Earnings size override: when signal_date sits in the
                       # offset range [min_td, max_td] (trading days relative to
                       # earnings, negative = before), reduce risk to risk_bps
