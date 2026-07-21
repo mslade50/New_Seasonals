@@ -1,20 +1,20 @@
 {
   "date": "2026-07-21",
   "price_ctx": {
-    "price": 742.0900268554688,
-    "ret_12m": 0.19556483551105153,
-    "extension_200d": 0.0695298516071241,
-    "drawdown": -0.02049607272869647,
-    "sma_200": 693.8469512939453,
+    "price": 748.280029296875,
+    "ret_12m": 0.20325586581124977,
+    "extension_200d": 0.07778845292901981,
+    "drawdown": -0.012325727512135232,
+    "sma_200": 694.2735629272461,
     "high_52w": 757.6182250976562,
     "regime_label": "Strong uptrend, moderately extended",
-    "days_since_5pct": 73,
-    "days_since_10pct": 309
+    "days_since_5pct": 74,
+    "days_since_10pct": 310
   },
   "h_scores": {
-    "5d": 15.62890413482917,
-    "21d": 32.91945557869771,
-    "63d": 46.046727846041065
+    "5d": 18.40073400836141,
+    "21d": 38.49427883762165,
+    "63d": 48.59458805981404
   },
   "signals": {
     "Distribution Dominance": {
@@ -25,32 +25,32 @@
     "VIX Range Compression": {
       "on": false,
       "detail": "",
-      "summary": "21d range: 18th pctile (fires below 15th) \u2014 VIX at 17.7"
+      "summary": "21d range: 18th pctile (fires below 15th) \u2014 VIX at 17.0"
     },
     "Defensive Leadership": {
       "on": false,
       "detail": "",
-      "summary": "50d spread: -26pp (fires < -10) | 200d spread: -1pp (fires < 0)"
+      "summary": "50d spread: -16pp (fires < -10) | 200d spread: +4pp (fires < 0)"
     },
     "Pre-FOMC Rally": {
       "on": false,
       "detail": "",
-      "summary": "Next FOMC: Jul 29 (9d away) \u2014 5d return: 24th pctile (outside window)"
+      "summary": "Next FOMC: Jul 29 (8d away) \u2014 5d return: 31th pctile (fires above 75th)"
     },
     "Low Absorption Ratio": {
       "on": false,
       "detail": "",
-      "summary": "AR: 0.492 (54th pctile, fires below 10th) \u2014 near high: no"
+      "summary": "AR: 0.492 (54th pctile, fires below 10th) \u2014 near high: yes"
     },
     "Seasonal Rank Divergence": {
-      "on": false,
-      "detail": "",
-      "summary": "Spread: +10.6pp (fires above 10) \u2014 near high: no"
+      "on": true,
+      "detail": "Seasonal rank spread at +10.8pp (risk-off minus risk-on). Defensive stocks have stronger seasonal tailwinds while SPY near 52w high \u2014 historically precedes below-average short-term returns.",
+      "summary": "Spread: +10.8pp (fires above 10) \u2014 near high: yes"
     },
     "Dispersion": {
       "on": false,
       "detail": "",
-      "summary": "Composite pctile: 87th (fires above 85th) \u2014 component RV: 35.3% | SPY RV: 12.0%"
+      "summary": "Composite pctile: 87th (fires above 85th) \u2014 component RV: 35.1% | SPY RV: 11.7%"
     }
   }
 }
