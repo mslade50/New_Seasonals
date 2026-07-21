@@ -1507,7 +1507,19 @@ _STRATEGY_BOOK_RAW = [
             "trail_anchor": "Peak High",
             # Dip-buy FAMILY4 fragility throttle — see Weak Close Decent Sznls
             # for the full evidence note.
-            "frag_risk_bands": [[50, 999, 0.25]]
+            "frag_risk_bands": [[50, 999, 0.25]],
+            # Large-gap-up size derate (2026-07-21). When the T+1 open gaps more
+            # than threshold_atr * ATR ABOVE the signal close, the dip-buy edge is
+            # roughly halved (the bounce partly played out at the open, and the
+            # limit fills at a worse price), so trade at `mult` size. This LAYERS
+            # ON TOP of the Friday-only t1_gap_kill above: a Friday signal gapping
+            # > 0.5 ATR is dropped entirely by the kill (filter, runs first); this
+            # derate then half-sizes everything the kill leaves standing that still
+            # gaps > 0.25 ATR (Mon/Tue/etc. signals + Friday 0.25-0.5 ATR gaps).
+            # Sizing overlay, not a filter — engine applies it in strat_backtester
+            # step 3b5; live it is stamped (GapDerate_*) for order_staging to apply
+            # at the IBKR open. See CLAUDE.md "Large-Gap-Up Size Derate".
+            "gap_size_derate": {"threshold_atr": 0.25, "mult": 0.5, "dir": "up"}
         },
         "stats": {"grade": "A (Excellent)", "win_rate": "62.9%", "expectancy": "0.40r", "profit_factor": "2.21"}
     },
@@ -1735,7 +1747,13 @@ _STRATEGY_BOOK_RAW = [
                    'trail_anchor': 'Peak High',
                    # Dip-buy FAMILY4 fragility throttle — see Weak Close Decent
                    # Sznls for the full evidence note.
-                   'frag_risk_bands': [[50, 999, 0.25]]},
+                   'frag_risk_bands': [[50, 999, 0.25]],
+                   # Large-gap-up size derate (2026-07-21) — half size when the
+                   # T+1 open gaps > threshold_atr * ATR above the signal close.
+                   # Same overlay as SPY QQQ MonFri Reversion; see that strat's
+                   # note + CLAUDE.md "Large-Gap-Up Size Derate". Monday Dip has
+                   # no t1_gap_kill, so this is its only gap-up size response.
+                   'gap_size_derate': {'threshold_atr': 0.25, 'mult': 0.5, 'dir': 'up'}},
      'stats': {'grade': 'A (Excellent)', 'win_rate': '64.1%', 'expectancy': '0.40r', 'profit_factor': '2.17'}},
     {'id': 'T+1 Open > Close +0.5 ATR, Entry: Limit (Open +/- 0.75 ATR), 2d hold',
      'name': 'ATR Extended Gap Up',

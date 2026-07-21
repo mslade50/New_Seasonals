@@ -1185,6 +1185,25 @@ def save_staging_orders(signals_list, strategy_book, sheet_name='Order_Staging',
                 strat['settings'].get('t1_gap_kill_dir', 'up')
                 if strat['settings'].get('use_t1_gap_kill') else ''
             ),
+            # Large-gap-up size DERATE spec (2026-07-21). Like MonGapKill this is a
+            # T+1-open rule the pre-market scan can't evaluate, so it only STAMPS
+            # the params; order_staging halves the qty at the IBKR open when the
+            # open gaps > GapDerate_ATR * Frozen_ATR past Signal_Close in
+            # GapDerate_Dir. Unlike MonGapKill (a full drop) this scales size by
+            # GapDerate_Mult and is NOT weekday-gated. Empty for strats without the
+            # execution['gap_size_derate'] field. Mirror: strat_backtester 3b5.
+            "GapDerate_ATR": (
+                execution['gap_size_derate'].get('threshold_atr', '')
+                if execution.get('gap_size_derate') else ''
+            ),
+            "GapDerate_Mult": (
+                execution['gap_size_derate'].get('mult', '')
+                if execution.get('gap_size_derate') else ''
+            ),
+            "GapDerate_Dir": (
+                execution['gap_size_derate'].get('dir', 'up')
+                if execution.get('gap_size_derate') else ''
+            ),
             # Tier this signal's universe sits in. save_staging_orders routes by
             # tier — Liquid rows → Order_Staging, Overflow rows → the Overflow tab
             # — and this field travels with the row so order_staging can tell the

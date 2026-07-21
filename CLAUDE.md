@@ -498,6 +498,48 @@ sizes as-is):
 - Guard: `tests/test_same_day_derate.py` (carve-out partition, filter
   invariants, formula boundaries, single-carrier assertion)
 
+## Large-Gap-Up Size Derate (2026-07-21)
+
+Per-strategy HALF-SIZE on a gap-up open, carried by the two liquid dip-buys
+Monday Dip and SPY QQQ MonFri Reversion via
+`execution['gap_size_derate'] = {threshold_atr: 0.25, mult: 0.5, dir: 'up'}`.
+When the T+1 session open gaps more than `threshold_atr * ATR` ABOVE the signal
+close, the dip-buy edge roughly halves (avgR ~0.45 -> ~0.23 in the ledger; the
+bounce partly plays out at the open and the `Limit(Open-0.25ATR)` entry fills at
+a worse price), so the trade is sized at `mult`. Deliberate risk-appetite
+haircut, NOT a PnL win — the gap-up bucket is still net positive; the ledger
+cost is ~-$16k (Monday Dip) / -$40k (SPY QQQ MonFri) flat over 23y, cutting
+gap-up trades' Size_Mult ~0.97 -> ~0.48 while leaving all non-gap trades
+byte-identical.
+
+Key facts:
+- **Sizing overlay, not a filter.** Composes multiplicatively with 3b3 frag
+  bands (a high-fragility gap-up day = 0.25 x 0.5 = 0.125x). Distinct from SPY
+  QQQ MonFri's `use_t1_gap_kill` (settings), a Friday-ONLY full DROP at 0.5 ATR
+  enforced in `filters.get_historical_mask`. The kill runs first (removes the
+  candidate); this derate then half-sizes whatever it leaves that still gaps
+  > 0.25 ATR (non-Friday signals + Friday 0.25-0.5 ATR gaps). Both stay
+  configured — neither replaces the other.
+- **Only knowable at the open**, so live it is STAMPED by daily_scan and
+  APPLIED by order_staging at the IBKR T+1 open (like MonGapKill / OVS 2-path);
+  the scan itself never applies it. Fails OPEN (full size) on a missing
+  open/ATR/signal-close — a haircut isn't worth dropping a valid fill.
+
+Aligned sites — change together:
+- `strategy_config.py` — execution `gap_size_derate` on both strats (source of
+  truth; NOT GRM-scaled, it's a pure multiplier).
+- `pages/strat_backtester.py` — `gap_derate_mult()` helper + sizing step 3b5
+  (engine sees `entry_row['Open']` directly, so ledger == live). Drives the
+  ledger + `daily_portfolio_report.py`.
+- `daily_scan.py` — stamps `GapDerate_ATR` / `GapDerate_Mult` / `GapDerate_Dir`
+  on every staging row (empty for strats without the field).
+- `order_staging.py` (OneDrive) — reads the stamps, halves `Quantity` +
+  sets `_GapMult` (so the daily caps see the reduced risk) + labels the row
+  `DERATE_GAP`; gated on `path_label == ''` so a killed/gated/OVS row is never
+  touched. Enforced at the live open right after the MonGap block.
+- Guard: `tests/test_gap_size_derate.py` (config carriers, helper boundaries
+  up/down, fail-open, frag-band composition, kill-coexistence).
+
 ## 3x Leader Gap Fade (pilot, 2026-07-10)
 
 Capitulation fade on 3x ETFs whose UNDERLYING is spiking on fear. Universe =

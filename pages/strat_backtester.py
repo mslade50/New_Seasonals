@@ -80,6 +80,30 @@ def frag_band_mult_at(execution, signal_ts):
     return 1.0
 
 
+def gap_derate_mult(spec, signal_close, t1_open, atr):
+    """Multiplier from execution['gap_size_derate'] given the T+1 open.
+    spec = {threshold_atr, mult, dir}: when the T+1 open gaps more than
+    threshold_atr * ATR past the signal close in `dir` ('up'/'down'), return
+    `mult`; else 1.0. Missing spec or unverifiable inputs (<=0 / NaN) -> 1.0
+    (never silently downsize on bad data). Mirrors order_staging's gap-derate
+    block and daily_scan's GapDerate_* stamps — change all three together."""
+    if not spec:
+        return 1.0
+    try:
+        thr = float(spec.get('threshold_atr', 0) or 0)
+        mult = float(spec.get('mult', 1.0))
+        _dir = str(spec.get('dir', 'up')).strip().lower()
+        sc = float(signal_close)
+        op = float(t1_open)
+        a = float(atr)
+    except (ValueError, TypeError):
+        return 1.0
+    if thr <= 0 or sc <= 0 or op <= 0 or a <= 0 or pd.isna(op):
+        return 1.0
+    gapped = (op < sc - thr * a) if _dir == 'down' else (op > sc + thr * a)
+    return mult if gapped else 1.0
+
+
 # --- Sector map for execution['sector_loss_gate'] (candidate drop in the
 # chronological loop). data/sector_map.parquet is committed: yfinance sectors
 # for the liquid names union FMP sectors from symbol_master; ETFs carry coarse
@@ -1215,6 +1239,21 @@ def process_signals_fast(candidates, signal_data, processed_dict, strategies, st
             _sdm = same_day_derate_mult(execution, _n_sig)
             if _sdm != 1.0:
                 base_risk *= _sdm
+
+        # --- 3b5. Large-gap-up size derate (2026-07-21) ---
+        # execution['gap_size_derate'] = {threshold_atr, mult, dir}: half size when
+        # the T+1 open gaps > threshold_atr*ATR past the signal close. The engine
+        # sees entry_row['Open'] directly here; live it is stamped (GapDerate_*)
+        # for order_staging to apply the SAME mult at the IBKR open, so ledger and
+        # live agree. The gap is relative (open vs close+k*ATR), so it is invariant
+        # to the dividend basis (CLAUDE.md "Dividend-Adjustment Basis"). Composes
+        # multiplicatively with 3b3 frag bands and — for SPY QQQ MonFri — runs only
+        # on signals the Friday t1_gap_kill (get_historical_mask) already spared.
+        _gsd = execution.get('gap_size_derate')
+        if _gsd and entry_row is not None:
+            _gdm = gap_derate_mult(_gsd, row_data['close'], entry_row['Open'], atr)
+            if _gdm != 1.0:
+                base_risk *= _gdm
 
         # --- 3c. User-configured per-strategy risk multiplier (size-up dial) ---
         # Applied as the FINAL sizing step so it scales whichever rule won
