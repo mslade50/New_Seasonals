@@ -1341,6 +1341,7 @@ from fragility_core import (  # noqa: F401
     _compute_decay_metadata,
     compute_horizon_fragility,
     compute_fragility_bundle,
+    load_pit_sizing_state,
 )
 
 def build_risk_dial(fragility_score: float, title: str = "") -> go.Figure:
@@ -1808,7 +1809,7 @@ def chart_fragility_timeseries(
     horizon: str,
     year_filter: str | None = None,
 ) -> go.Figure:
-    """Dual-axis chart: fragility score (area) + SPY (line) for one horizon."""
+    """Dual-axis chart of the raw recompute vintage (never a sizing input)."""
     from plotly.subplots import make_subplots
 
     h_labels = {'5d': '5-Day', '21d': '21-Day', '63d': '63-Day'}
@@ -1824,11 +1825,11 @@ def chart_fragility_timeseries(
     fig.add_trace(
         go.Scatter(
             x=common, y=frag.values,
-            name=f"{label} Fragility",
+            name=f"Raw {label} Fragility",
             fill="tozeroy",
             fillcolor="rgba(255, 140, 0, 0.15)",
             line=dict(color="rgba(255, 140, 0, 0.8)", width=1),
-            hovertemplate=f"{label} Fragility: %{{y:.1f}}<extra></extra>",
+            hovertemplate=f"Raw {label} Fragility: %{{y:.1f}}<extra></extra>",
         ),
         secondary_y=False,
     )
@@ -1855,7 +1856,11 @@ def chart_fragility_timeseries(
     )
 
     fig.update_layout(
-        title=dict(text=f"{label} Fragility Score vs SPY", font=dict(size=13)),
+        title=dict(
+            text=(f"Raw {label} Fragility vs SPY — latest-vintage recompute; "
+                  "not used for sizing"),
+            font=dict(size=13),
+        ),
         height=350,
         margin=dict(l=10, r=10, t=35, b=10),
         hovermode="x unified",
@@ -3117,6 +3122,10 @@ def _render_fragility_chart(frag_df, spy_close, year_filter):
         ['63d', '21d', '5d'],
         format_func=lambda h: h_labels[h],
     )
+    st.caption(
+        "Diagnostic series: recomputed from current data and allowed to revise history. "
+        "Live sizing uses the append-only PIT 63d dial and its 10-session average."
+    )
     st.plotly_chart(
         chart_fragility_timeseries(frag_df, spy_close, frag_horizon, year_filter),
         use_container_width=True,
@@ -3282,30 +3291,40 @@ def main():
 
     if horizon_stats is not None:
 
-        # One dial: 63d + its 10d MA + throttle state (the sizing horizon).
+        # One production dial: the exact PIT statistic consumed by live sizing.
         # 5d failed every sizing test and 21d agrees with 63d on the decision
         # state ~90% of days, so they are context chips, not gauges
-        # (RISK_DIALS_2026-07-16.md A5). NOTE: this page shows the in-session
-        # recompute; live sizing reads the append-only PIT parquet.
-        ma10 = {}
-        if frag_df is not None and len(frag_df) >= 1:
-            ma10_series = frag_df.rolling(10, min_periods=1).mean().iloc[-1]
-            for k in ('5d', '21d', '63d'):
-                ma10[k] = ma10_series.get(k)
+        # (RISK_DIALS_2026-07-16.md A5). The raw in-session recompute remains
+        # available in the diagnostic chart below, never as a throttle proxy.
+        pit_sizing = load_pit_sizing_state()
 
         dial_col, ctx_col = st.columns([2, 1])
         with dial_col:
-            st.plotly_chart(build_risk_dial(h_scores['63d'], 'Fragility (63d)'), use_container_width=True)
-            if ma10.get('63d') is not None:
-                ma63 = ma10['63d']
-                throttle_on = ma63 >= 50
-                state_color = '#CC0000' if throttle_on else '#00CC00'
-                state_txt = 'THROTTLE ON — banded strategies 0.25x' if throttle_on else 'throttle off'
+            if pit_sizing is not None:
+                score = pit_sizing['score']
+                st.plotly_chart(
+                    build_risk_dial(score, 'Sizing Fragility (63d · 10d MA · PIT)'),
+                    use_container_width=True,
+                )
+                if pit_sizing['stale']:
+                    state_color = '#FFD700'
+                    state_txt = 'STALE — live sizing falls back to 1.0x'
+                else:
+                    throttle_on = pit_sizing['throttle_on']
+                    state_color = '#CC0000' if throttle_on else '#00CC00'
+                    state_txt = ('THROTTLE ON — banded strategies 0.25x'
+                                 if throttle_on else 'throttle off')
                 st.markdown(
                     f"<div style='text-align:center;margin-top:-18px;font-size:13px;color:gray;'>"
-                    f"10d avg: <b>{ma63:.1f}</b> vs 50 &nbsp;·&nbsp; "
+                    f"PIT 10d avg: <b>{score:.1f}</b> vs {pit_sizing['threshold']:.0f} "
+                    f"&nbsp;·&nbsp; as of {pit_sizing['asof']} &nbsp;·&nbsp; "
                     f"<span style='color:{state_color};font-weight:700'>{state_txt}</span>"
                     f"</div>", unsafe_allow_html=True)
+            else:
+                st.warning(
+                    "Production fragility source unavailable — no throttle state shown. "
+                    "The raw diagnostic chart remains available below."
+                )
         with ctx_col:
             st.markdown("<div style='padding-top:38px'></div>", unsafe_allow_html=True)
             st.metric("5d (context)", f"{h_scores['5d']:.0f}",

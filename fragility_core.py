@@ -22,6 +22,7 @@ import pandas as pd
 _ROOT = os.path.dirname(os.path.abspath(__file__))
 DATA_DIR = os.path.join(_ROOT, "data")
 HORIZON_STATS_PATH = os.path.join(DATA_DIR, "signal_horizon_stats.json")
+PIT_FRAGILITY_PATH = os.path.join(DATA_DIR, "rd2_fragility.parquet")
 
 
 def load_horizon_stats() -> dict | None:
@@ -30,6 +31,68 @@ def load_horizon_stats() -> dict | None:
         return None
     with open(HORIZON_STATS_PATH, 'r') as f:
         return json.load(f)
+
+
+def load_pit_sizing_state(
+    path: str | None = None,
+    threshold: float = 50.0,
+    stale_td: int = 3,
+    asof=None,
+) -> dict | None:
+    """Read the exact fragility statistic used by live sizing.
+
+    ``rd2_fragility.parquet`` is the append-only, point-in-time record of the
+    5d-smoothed dials.  Live consumers take a 10-session mean of its ``63d``
+    column, so dashboard surfaces must do the same instead of substituting a
+    deploy-time recompute vintage.
+
+    Returns the latest score plus provenance/staleness metadata, or ``None``
+    when the PIT source is missing or unusable.  A stale score is returned for
+    display, but callers must not describe it as an active sizing decision.
+    """
+    frag_path = path or PIT_FRAGILITY_PATH
+    if not os.path.exists(frag_path):
+        return None
+    try:
+        frag = pd.read_parquet(frag_path)
+    except Exception:
+        return None
+    if "63d" not in frag.columns:
+        return None
+
+    s63 = frag["63d"].dropna().copy()
+    if s63.empty:
+        return None
+    s63.index = pd.to_datetime(s63.index)
+    try:
+        s63.index = s63.index.tz_localize(None)
+    except (TypeError, AttributeError):
+        pass
+    s63 = s63.sort_index()
+
+    ma10 = s63.rolling(10, min_periods=1).mean()
+    last_date = pd.Timestamp(s63.index[-1]).normalize()
+    reference_date = pd.Timestamp(
+        asof if asof is not None else datetime.datetime.now()
+    ).normalize()
+    try:
+        reference_date = reference_date.tz_localize(None)
+    except (TypeError, AttributeError):
+        pass
+    age_td = max(0, int(np.busday_count(last_date.date(), reference_date.date())))
+    score = float(ma10.iloc[-1])
+
+    return {
+        "score": score,
+        "dial_63d": float(s63.iloc[-1]),
+        "asof": last_date.strftime("%Y-%m-%d"),
+        "age_td": age_td,
+        "stale": age_td > int(stale_td),
+        "stale_td": int(stale_td),
+        "threshold": float(threshold),
+        "throttle_on": score >= float(threshold),
+        "basis": "10d MA of append-only PIT 63d dial (stored 5d-smoothed)",
+    }
 
 
 def _signal_edge(stats: dict, signal_key: str, horizon: str) -> float:

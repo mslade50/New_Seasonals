@@ -88,11 +88,17 @@ async function init() {
     if (s.on) html += atrSignalTableHtml(s.name, d.atr_downside);
   }
 
-  // 5. chart: SPY + the sizing horizon (63d)
+  // 5. chart: SPY + the exact PIT sizing statistic.  The recompute-vintage
+  // fragility series is retained only as a fallback for old payloads.
   const fs = d.fragility_series || {};
   const fragKey = fs["63d"] ? "63d" : fs["21d"] ? "21d" : null;
+  const sizingChart = sz && sz.spark && Array.isArray(sz.spark.dates) &&
+    Array.isArray(sz.spark.ma) && sz.spark.dates.length;
   if (d.spy_series) {
-    html += `<h2>SPY vs fragility ${fragKey || ""} (1y default, 5d-smoothed)</h2>
+    const riskBasis = sizingChart
+      ? "production sizing fragility (63d · 10d MA · append-only PIT)"
+      : `display recompute ${fragKey || ""} (legacy payload; not a sizing input)`;
+    html += `<h2>SPY vs ${riskBasis}</h2>
       <div class="card"><div class="chart" id="riskChart"></div></div>`;
   }
 
@@ -139,16 +145,27 @@ async function init() {
       x: spyDates, y: d.spy_series.close, name: "SPY",
       mode: "lines", line: { color: "#4da3ff", width: 1.6 },
     }];
-    if (fragKey) {
-      const fragDates = seriesDates(d, fs);
+    let riskDates = null;
+    let riskValues = null;
+    let riskName = null;
+    if (sizingChart) {
+      riskDates = sz.spark.dates;
+      riskValues = sz.spark.ma;
+      riskName = "Sizing fragility 63d · 10d MA · PIT";
+    } else if (fragKey) {
+      riskDates = seriesDates(d, fs);
+      riskValues = fs[fragKey];
+      riskName = `Display recompute ${fragKey}`;
+    }
+    if (riskValues) {
       traces.push({
-        x: fragDates, y: fs[fragKey], name: `Fragility ${fragKey}`, yaxis: "y2",
+        x: riskDates, y: riskValues, name: riskName, yaxis: "y2",
         mode: "lines", line: { color: "#ffc14d", width: 1.2 },
       });
     }
     const spyRange = valuesRange(d.spy_series.close, spyDates, initialRange);
-    const fragRange = fragKey
-      ? valuesRange(fs[fragKey], seriesDates(d, fs), initialRange) : null;
+    const fragRange = riskValues
+      ? valuesRange(riskValues, riskDates, initialRange) : null;
     Plotly.newPlot(chartEl, traces, plotLayout({
       height: 340,
       xaxis: { range: initialRange },
@@ -228,12 +245,16 @@ function kpiRowHtml(d) {
   const ctx = d.price_ctx || {};
   let cells = `<div class="kpi"><div class="l">SPY</div><div class="v">${fmt.num(d.spy_last, 2)}</div>
       <div class="s">${esc(ctx.regime_label || "")}</div></div>`;
-  if (frag["63d"] != null) {
-    const on = sz ? !!sz.throttle_on : null;
+  if (sz && sz.score != null) {
+    const on = !!sz.throttle_on;
     const cls = on === null ? "" : on ? "neg" : "pos";
+    cells += `<div class="kpi"><div class="l">Sizing Fragility</div>
+      <div class="v ${cls}">${fmt.num(sz.score, 1)}</div>
+      <div class="s">63d · 10d MA · PIT as of ${esc(sz.asof || "-")} · threshold ${fmt.num(sz.threshold, 0)}</div></div>`;
+  } else if (frag["63d"] != null) {
     cells += `<div class="kpi"><div class="l">Fragility 63d</div>
-      <div class="v ${cls}">${Math.round(frag["63d"])}</div>
-      <div class="s">${sz && sz.score != null ? `10d MA ${fmt.num(sz.score, 1)} vs ${fmt.num(sz.threshold, 0)}` : "sizing horizon"}</div></div>`;
+      <div class="v">${Math.round(frag["63d"])}</div>
+      <div class="s">display recompute · legacy payload · not a sizing input</div></div>`;
   }
   const chips = ["5d", "21d"].filter(h => frag[h] != null)
     .map(h => `${h} ${Math.round(frag[h])}`).join(" · ");
