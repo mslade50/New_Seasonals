@@ -3,9 +3,9 @@
   "price_ctx": {
     "price": 748.280029296875,
     "ret_12m": 0.20325586581124977,
-    "extension_200d": 0.07778845150775737,
+    "extension_200d": 0.07778845292901981,
     "drawdown": -0.012325727512135232,
-    "sma_200": 694.2735638427735,
+    "sma_200": 694.2735629272461,
     "high_52w": 757.6182250976562,
     "regime_label": "Strong uptrend, moderately extended",
     "days_since_5pct": 74,
@@ -14,7 +14,7 @@
   "h_scores": {
     "5d": 18.40073400836141,
     "21d": 38.49427883762165,
-    "63d": 48.59458805981404
+    "63d": 48.594588059814036
   },
   "signals": {
     "Distribution Dominance": {
@@ -25,7 +25,7 @@
     "VIX Range Compression": {
       "on": false,
       "detail": "",
-      "summary": "21d range: 18th pctile (fires below 15th) \u2014 VIX at 17.5"
+      "summary": "21d range: 18th pctile (fires below 15th) \u2014 VIX at 17.4"
     },
     "Defensive Leadership": {
       "on": false,
