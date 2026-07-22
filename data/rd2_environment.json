@@ -1,11 +1,11 @@
 {
-  "date": "2026-07-21",
+  "date": "2026-07-22",
   "price_ctx": {
     "price": 748.280029296875,
     "ret_12m": 0.20325586581124977,
-    "extension_200d": 0.07778845292901981,
+    "extension_200d": 0.07778845150775737,
     "drawdown": -0.012325727512135232,
-    "sma_200": 694.2735629272461,
+    "sma_200": 694.2735638427735,
     "high_52w": 757.6182250976562,
     "regime_label": "Strong uptrend, moderately extended",
     "days_since_5pct": 74,
@@ -25,7 +25,7 @@
     "VIX Range Compression": {
       "on": false,
       "detail": "",
-      "summary": "21d range: 18th pctile (fires below 15th) \u2014 VIX at 17.0"
+      "summary": "21d range: 18th pctile (fires below 15th) \u2014 VIX at 17.5"
     },
     "Defensive Leadership": {
       "on": false,
@@ -40,7 +40,7 @@
     "Low Absorption Ratio": {
       "on": false,
       "detail": "",
-      "summary": "AR: 0.492 (54th pctile, fires below 10th) \u2014 near high: yes"
+      "summary": "AR: 0.482 (51th pctile, fires below 10th) \u2014 near high: yes"
     },
     "Seasonal Rank Divergence": {
       "on": true,
