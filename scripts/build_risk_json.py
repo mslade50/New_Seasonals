@@ -326,6 +326,87 @@ def build_sizing_state():
     }
 
 
+def build_atr_downside(spy_df):
+    """Downside-distribution tables for the risk tab.
+
+    Two parts, same low-touch measure and Wilder-14 ATR throughout:
+      - ``signals`` / ``baseline``: full-history per-signal tables, read from the
+        committed ``data/atr_downside_stats.json`` (generator:
+        scripts/build_atr_downside_stats.py). Precomputed because the live risk
+        pipeline only fetches 10y, which is too thin for the rare signals.
+      - ``dial``: computed live here (it depends on today's dial value) — days
+        where the 10d MA of the 63d dial closed within +-3 of its current value.
+        The ATR helpers are imported from the generator so this table is
+        byte-for-byte comparable with the per-signal ones.
+    """
+    import numpy as np
+    import pandas as pd
+
+    stats_path = os.path.join(_ROOT, "data", "atr_downside_stats.json")
+    if not os.path.exists(stats_path):
+        print("risk: atr_downside skipped (no atr_downside_stats.json)")
+        return None
+    with open(stats_path, encoding="utf-8") as f:
+        stats = json.load(f)
+
+    out = {k: stats.get(k) for k in (
+        "measure", "atr_period", "mults", "horizons",
+        "baseline", "baseline_n", "data_from", "data_through", "signals")}
+
+    # ---- dial-conditioned table (live) ----
+    if _HERE not in sys.path:
+        sys.path.insert(0, _HERE)
+    from build_atr_downside_stats import wilder_atr, worst_low_drop, HORIZONS, MULTS
+
+    frag_path = os.path.join(_ROOT, "data", "rd2_fragility.parquet")
+    if spy_df is None or spy_df.empty or not os.path.exists(frag_path):
+        return out  # per-signal tables only
+    frag = pd.read_parquet(frag_path)
+    if "63d" not in frag.columns:
+        return out
+    frag.index = pd.to_datetime(frag.index)
+    dial_ma = frag["63d"].dropna().sort_index().rolling(10, min_periods=1).mean()
+    if dial_ma.empty:
+        return out
+    current = float(dial_ma.iloc[-1])
+    band = 3.0
+    lo, hi = current - band, current + band
+
+    idx = spy_df.index
+    L = spy_df["Low"].to_numpy(float)
+    C = spy_df["Close"].to_numpy(float)
+    atr = wilder_atr(spy_df["High"].to_numpy(float), L, C)
+    atr_valid = np.isfinite(atr) & (atr > 0)
+    n = len(idx)
+
+    band_dates = dial_ma[(dial_ma >= lo) & (dial_ma <= hi)].index
+    posi = idx.get_indexer(band_dates)
+    band_mask = np.zeros(n, bool)
+    band_mask[posi[posi >= 0]] = True
+
+    table, n_by_h = {}, {}
+    for lab, N in HORIZONS.items():
+        worst, wv = worst_low_drop(L, C, N)
+        v = wv & atr_valid & band_mask
+        dd = worst[v] / atr[v]
+        table[lab] = ({str(k): round(float(100 * np.mean(dd >= k)), 1) for k in MULTS}
+                      if v.sum() else {str(k): None for k in MULTS})
+        n_by_h[lab] = int(v.sum())
+
+    used = idx[band_mask]
+    out["dial"] = {
+        "value": round(current, 1),
+        "band": band,
+        "lo": round(lo, 1),
+        "hi": round(hi, 1),
+        "table": table,
+        "n_by_h": n_by_h,
+        "band_from": used.min().strftime("%Y-%m-%d") if len(used) else None,
+        "band_through": used.max().strftime("%Y-%m-%d") if len(used) else None,
+    }
+    return out
+
+
 def build_nuggets(p):
     """Deterministic interpretation of the risk payload -> idea-page nuggets.
 
@@ -824,6 +905,17 @@ def main():
                       f"state {tc.get('state')}, n_ep {tc.get('n_ep')})")
         except Exception:
             print("risk: trade_console FAILED (continuing without it)")
+            traceback.print_exc()
+        try:
+            atr_dn = build_atr_downside(spy_df)
+            if atr_dn:
+                payload["atr_downside"] = atr_dn
+                dial = atr_dn.get("dial") or {}
+                print(f"risk: atr_downside ok ({len(atr_dn.get('signals') or {})} signals"
+                      + (f", dial {dial['value']} band [{dial['lo']},{dial['hi']}]"
+                         if dial else ", no dial") + ")")
+        except Exception:
+            print("risk: atr_downside FAILED (continuing without it)")
             traceback.print_exc()
 
         payload["nuggets"] = build_nuggets(payload)

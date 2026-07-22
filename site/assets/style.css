@@ -152,6 +152,13 @@ table.tbl tbody tr:hover { background: #161c29; }
 .signal-summary { color: var(--muted); font-size: 12px; margin-top: 5px; }
 .signal-chart { margin-top: 10px; min-height: 270px; }
 .risk-overlay-card { margin-bottom: 14px; }
+/* ATR downside tables (signal cards + dial band) */
+.atr-card { margin-top: -8px; margin-bottom: 14px; background: var(--card2); }
+.atr-dial-card { margin-top: -8px; }
+.atr-tbl td b { font-weight: 700; font-size: 13px; }
+.atr-tbl td.neg b { color: var(--red); }
+.atr-tbl td { padding-top: 6px; padding-bottom: 6px; }
+.atr-base { display: block; color: var(--faint); font-size: 10px; font-weight: 400; margin-top: 1px; }
 .sizing-hero { border: 1px solid rgba(255,193,77,.35); margin-bottom: 14px; }
 .sizing-hero .signal-current { font-size: 26px; }
 .sizing-throttle { margin: 8px 0 2px; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }

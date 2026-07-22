@@ -99,6 +99,10 @@ jobs:
           OVERFLOW_UNIVERSE_ACTIVE: "0"
         run: python daily_seasonal_ideas.py
 
+      - name: Refresh ATR downside stats (best effort — full-history signal tables for the risk tab)
+        continue-on-error: true
+        run: python scripts/build_atr_downside_stats.py
+
       - name: Build risk summary JSON (best effort, always exits 0)
         run: python scripts/build_risk_json.py
 

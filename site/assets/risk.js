@@ -31,6 +31,7 @@ async function init() {
   // 1. sizing state hero — the one number that sizes live orders
   const sz = d.sizing_state;
   if (sz && sz.score != null) html += sizingHeroHtml(sz);
+  if (d.atr_downside) html += atrDialTableHtml(d.atr_downside);
 
   // 2. KPI strip: SPY, the 63d dial, context horizons, signals, vol term
   html += kpiRowHtml(d);
@@ -83,6 +84,8 @@ async function init() {
         ${current && current.summary ? `<div class="signal-summary">${esc(current.summary)}</div>` : ""}
       </div>`;
     }
+    // downside table under a FIRING signal (always visible, outside the accordion)
+    if (s.on) html += atrSignalTableHtml(s.name, d.atr_downside);
   }
 
   // 5. chart: SPY + the sizing horizon (63d)
@@ -514,6 +517,54 @@ function fwdTable(h, r) {
       ${r.n_episodes} episodes · band ${Math.round(r.band_low)}-${Math.round(r.band_high)}</div>
     <div class="tblwrap"><table class="tbl"><thead>${head}</thead><tbody>${rows}</tbody></table></div>
   </div>`;
+}
+
+// ---- ATR downside tables (signal cards + dial band) ----
+// Cell = P(SPY intraday low reaches >= k*ATR below the fire/anchor close within
+// the window), %. Bold = conditional; grey below = all-market baseline; the cell
+// turns red when the conditional runs >= 8pp above baseline (materially more
+// downside than a normal day).
+function atrCellsHtml(table, baseline, mults, horizons) {
+  const head = `<tr><th class="l">Window</th>` +
+    mults.map(k => `<th>&ge;${k} ATR</th>`).join("") + `</tr>`;
+  let rows = "";
+  for (const h of horizons) {
+    const row = (table && table[h]) || {};
+    const base = (baseline && baseline[h]) || {};
+    let tds = `<td class="l">${esc(h)}</td>`;
+    for (const k of mults) {
+      const v = row[String(k)];
+      const b = base[String(k)];
+      if (v == null) { tds += `<td>&mdash;</td>`; continue; }
+      const cls = (b != null && v - b >= 8) ? "neg" : "";
+      const baseHtml = (b == null) ? "" : `<span class="atr-base">${Math.round(b)}</span>`;
+      tds += `<td class="${cls}"><b>${Math.round(v)}</b>${baseHtml}</td>`;
+    }
+    rows += `<tr>${tds}</tr>`;
+  }
+  return `<div class="tblwrap"><table class="tbl atr-tbl"><thead>${head}</thead><tbody>${rows}</tbody></table></div>`;
+}
+
+function atrSignalTableHtml(name, ad) {
+  if (!ad || !ad.signals || !ad.signals[name] || !ad.signals[name].episode) return "";
+  const s = ad.signals[name];
+  const cap = `Downside after a fresh ${esc(name)} trigger &middot; ${s.n_episodes} episodes since ${esc(ad.data_from || "")} &middot; ` +
+    `bold = P(low reaches &ge;k&middot;ATR under the close in-window); <span class="atr-base" style="display:inline">grey</span> = all-market baseline`;
+  return `<div class="card atr-card">
+    <div class="cap" style="margin-top:0">${cap}</div>
+    ${atrCellsHtml(s.episode, ad.baseline, ad.mults, ad.horizons)}</div>`;
+}
+
+function atrDialTableHtml(ad) {
+  if (!ad || !ad.dial || !ad.dial.table) return "";
+  const dl = ad.dial;
+  const n10 = dl.n_by_h && dl.n_by_h["10d"] != null ? `${dl.n_by_h["10d"]} days` : "";
+  const cap = `Downside when the dial sits here &middot; dial-MA within &plusmn;${dl.band} of ${fmt.num(dl.value, 1)} ` +
+    `(band ${fmt.num(dl.lo, 1)}&ndash;${fmt.num(dl.hi, 1)})${n10 ? " &middot; " + n10 : ""}${dl.band_from ? " since " + esc(dl.band_from) : ""} &middot; ` +
+    `bold = P(low reaches &ge;k&middot;ATR under the close in-window); <span class="atr-base" style="display:inline">grey</span> = all-market baseline`;
+  return `<div class="card atr-card atr-dial-card">
+    <div class="cap" style="margin-top:0">${cap}</div>
+    ${atrCellsHtml(dl.table, ad.baseline, ad.mults, ad.horizons)}</div>`;
 }
 
 function detailText(v) {

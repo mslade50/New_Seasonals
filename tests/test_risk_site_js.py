@@ -66,3 +66,72 @@ Promise.resolve(ready()).then(() => {
         capture_output=True,
         text=True,
     )
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="Node.js is not installed")
+def test_atr_downside_tables_render():
+    """A payload carrying atr_downside renders the dial-band table under the hero
+    and a per-signal table under EACH firing signal (and none under off ones)."""
+    script = r"""
+const fs = require("fs");
+const vm = require("vm");
+const source = fs.readFileSync(__RISK_JS__, "utf8");
+const elements = new Map();
+function element(id) {
+  if (!elements.has(id)) elements.set(id, {
+    id, innerHTML: "", textContent: "", on() {}, querySelectorAll() { return []; },
+  });
+  return elements.get(id);
+}
+let ready;
+const H = ["5d", "10d", "21d", "42d", "63d"];
+const mk = o => Object.fromEntries(H.map(h => [h, {"1": o + 15, "2": o + 5, "3": o - 5, "5": o - 25}]));
+const atr = {
+  measure: "low_touch", atr_period: 14, mults: [1, 2, 3, 5], horizons: H,
+  data_from: "2001-01-02", data_through: "2026-06-02",
+  baseline: mk(45),
+  signals: { "Seasonal Rank Divergence": { n_events: 139, n_episodes: 55, episode: mk(55), day: mk(50) } },
+  dial: { value: 42.9, band: 3, lo: 39.9, hi: 45.9, table: mk(58),
+          n_by_h: Object.fromEntries(H.map(h => [h, 150])), band_from: "2017-07-25", band_through: "2026-06-02" },
+};
+const payload = {
+  asof: "2026-07-22", built_at: "2026-07-22 11:00 UTC", spy_last: 748,
+  price_ctx: {}, fragility: {"63d": 48.6}, regime_mult: 1, n_active: 1,
+  sizing_state: { score: 42.9, threshold: 50, throttle_on: false, gap_to_threshold: 7.1,
+                  days_in_state: 12, banded_strategies: [], throttled: [], spark: { dates: [], ma: [] } },
+  signals: [
+    { name: "Seasonal Rank Divergence", on: true, badge: "FIRING", detail: "risk-off leads" },
+    { name: "Dispersion", on: false, badge: "OFF", detail: "" },
+  ],
+  forward_returns: {}, atr_downside: atr,
+};
+const sandbox = {
+  console,
+  document: { addEventListener(name, fn) { if (name === "DOMContentLoaded") ready = fn; }, getElementById: element },
+  renderNav() {}, setAsof() {}, fetchJSONOrNull: async () => payload,
+  fmt: { num: (v, d) => Number(v).toFixed(d == null ? 0 : d), pct: v => String(v), signed: v => String(v) },
+  plotLayout: v => v, PLOT_CFG: {}, Plotly: { newPlot() {}, relayout() {} },
+  Date, Math, Number, String, Object, Array,
+};
+vm.createContext(sandbox);
+vm.runInContext(source, sandbox);
+Promise.resolve(ready()).then(() => {
+  const html = element("content").innerHTML;
+  const fail = m => { throw new Error(m); };
+  if (!html.includes("Downside when the dial sits here")) fail("dial table missing");
+  if (!html.includes("42.9")) fail("dial value missing");
+  if (!html.includes("fresh Seasonal Rank Divergence trigger")) fail("firing-signal table missing");
+  if (!html.includes("55 episodes")) fail("episode count missing");
+  if (!html.includes("&ge;2 ATR")) fail("ATR column header missing");
+  if (html.includes("fresh Dispersion trigger")) fail("off-signal must not get a table");
+  if ((html.split("atr-card").length - 1) !== 2) fail("expected exactly 2 atr-cards (dial + 1 firing)");
+}).catch(error => { console.error(error); process.exitCode = 1; });
+""".replace("__RISK_JS__", json.dumps(str(RISK_JS)))
+
+    subprocess.run(
+        [shutil.which("node"), "-e", script],
+        cwd=ROOT,
+        check=True,
+        capture_output=True,
+        text=True,
+    )

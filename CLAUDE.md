@@ -214,6 +214,40 @@ Guard: `tests/test_fragility_simple.py`.
 - Exemptions CONFIRMED permanent pending new evidence: OVS, LT Trend ST OS,
   St OS Sznl, 3x Overbot Fade, 52wh Breakout, Sector BO, 3x Leader Gap Fade.
 
+### Signal downside tables (site risk tab, 2026-07-22)
+
+DISPLAY-ONLY conditional-downside tables on the risk tab (`payload["atr_downside"]`);
+they size NOTHING. Measure = LOW-TOUCH: P(SPY intraday low reaches >= k*ATR BELOW
+the fire/anchor close within a horizon), Wilder-14 ATR at the fire day, multiples
+[1,2,3,5] x horizons [5,10,21,42,63], vs an all-market baseline. Two surfaces:
+- **Per-signal card** (renders under a signal ONLY when it fires): episode-first
+  (fresh-trigger, overlap-free) table. Full-history so rare signals aren't starved
+  (SRD 55 episodes vs 22 on a 10y window; Dispersion/Low-AR are low-teens TOTAL).
+- **Dial band** (under the sizing hero): days where the 10d-MA of the 63d dial
+  closed within +-3 of its CURRENT value -> same low-touch table. Computed LIVE
+  (depends on today's dial); dial history is 2016+ so this table is a decade deep.
+
+Why a committed precompute for the per-signal tables: the live risk pipeline
+(`daily_risk_report.download_data`) only fetches 10y. `scripts/build_atr_downside_stats.py`
+reconstructs the EXACT production signal masks (`compute_all_signals` compute_*
+functions) fed 25y of master_prices instead, and writes `data/atr_downside_stats.json`
+(committed seed; regenerated fresh each deploy — best-effort step in `deploy_site.yml`
+BEFORE build_risk_json, so the shipped tables track current data). The reconstruction
+is validated by DA (268~269) and SRD (139=139) matching the frozen
+`signal_horizon_stats.json` day-level counts exactly; the other signals' frozen
+counts used deduped-episode / event definitions and are NOT comparable (not a bug).
+
+Aligned sites -- change together:
+- `scripts/build_atr_downside_stats.py` (generator; ATR + low-touch helpers are the
+  single source of that math)
+- `scripts/build_risk_json.py` `build_atr_downside()` (reads the committed stats for
+  per-signal tables; computes the dial-band table live, IMPORTING the generator's
+  helpers so the two are byte-identical)
+- `site/assets/risk.js` `atrCellsHtml` / `atrSignalTableHtml` / `atrDialTableHtml`
+  + `site/assets/style.css` `.atr-card` / `.atr-tbl`
+- Guard: `tests/test_risk_site_js.py::test_atr_downside_tables_render` (dial table
+  under hero, per-signal table under firing signals only, off-signals get none).
+
 ## Ticker Constants
 
 | Variable | Location | Count | Description |
