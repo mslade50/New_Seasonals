@@ -45,3 +45,6 @@ def test_site_prefers_pit_sizing_series_over_recompute_series():
     assert 'riskValues = sz.spark.ma' in risk_js
     assert 'Sizing Fragility' in risk_js
     assert 'display recompute · legacy payload · not a sizing input' in risk_js
+    assert 'type: "bar"' in risk_js
+    assert 'yaxis: "y2"' in risk_js
+    assert 'title: { text: "Fragility 63d"' in risk_js

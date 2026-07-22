@@ -141,10 +141,7 @@ async function init() {
     const chartEl = document.getElementById("riskChart");
     const spyDates = seriesDates(d, d.spy_series);
     const initialRange = latestYearRange(spyDates, d.asof);
-    const traces = [{
-      x: spyDates, y: d.spy_series.close, name: "SPY",
-      mode: "lines", line: { color: "#4da3ff", width: 1.6 },
-    }];
+    const traces = [];
     let riskDates = null;
     let riskValues = null;
     let riskName = null;
@@ -160,18 +157,34 @@ async function init() {
     if (riskValues) {
       traces.push({
         x: riskDates, y: riskValues, name: riskName, yaxis: "y2",
-        mode: "lines", line: { color: "#ffc14d", width: 1.2 },
+        type: "bar", opacity: 0.42,
+        marker: { color: "#ffc14d", line: { color: "#d99a18", width: 0.4 } },
+        hovertemplate: "%{y:.1f}<extra>Fragility 63d</extra>",
       });
     }
+    // Draw SPY after the bars so its line stays crisp in the foreground.
+    traces.push({
+      x: spyDates, y: d.spy_series.close, name: "SPY",
+      mode: "lines", line: { color: "#4da3ff", width: 1.8 },
+    });
     const spyRange = valuesRange(d.spy_series.close, spyDates, initialRange);
-    const fragRange = riskValues
+    const fragExtent = riskValues
       ? valuesRange(riskValues, riskDates, initialRange) : null;
+    // Fragility is a level, so bars must rise from zero rather than from a
+    // tightly cropped axis that exaggerates small day-to-day changes.
+    const fragRange = fragExtent ? [0, Math.max(100, fragExtent[1])] : null;
+    const thresholdShape = riskValues ? [{
+      type: "line", xref: "paper", yref: "y2", x0: 0, x1: 1, y0: 50, y1: 50,
+      line: { color: "rgba(255,107,53,.75)", width: 1, dash: "dash" },
+    }] : [];
     Plotly.newPlot(chartEl, traces, plotLayout({
       height: 340,
       xaxis: { range: initialRange },
       yaxis: { range: spyRange, title: { text: "SPY", font: { size: 11 } } },
       yaxis2: { overlaying: "y", side: "right", range: fragRange, showgrid: false,
-                title: { text: "Fragility", font: { size: 11 } } },
+                title: { text: "Fragility 63d", font: { size: 11 } } },
+      shapes: thresholdShape,
+      bargap: 0.15,
     }), PLOT_CFG);
     enableFullHistoryReset(chartEl, ["xaxis", "yaxis", "yaxis2"]);
   }
