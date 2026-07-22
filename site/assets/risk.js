@@ -94,12 +94,16 @@ async function init() {
   const fragKey = fs["63d"] ? "63d" : fs["21d"] ? "21d" : null;
   const sizingChart = sz && sz.spark && Array.isArray(sz.spark.dates) &&
     Array.isArray(sz.spark.ma) && sz.spark.dates.length;
+  const dailyChart = sizingChart && Array.isArray(sz.spark.daily) &&
+    sz.spark.daily.length === sz.spark.dates.length;
   if (d.spy_series) {
     const riskBasis = sizingChart
       ? "production sizing fragility (63d · 10d MA · append-only PIT)"
       : `display recompute ${fragKey || ""} (legacy payload; not a sizing input)`;
     html += `<h2>SPY vs ${riskBasis}</h2>
-      <div class="card"><div class="chart" id="riskChart"></div></div>`;
+      <div class="card">
+        ${dailyChart ? '<div class="cap" style="margin-top:0">Top: SPY + 10d moving average line &middot; Bottom: each individual daily 63d dial reading</div>' : ""}
+        <div class="chart" id="riskChart"></div></div>`;
   }
 
   // 6. forward returns — 63d is the sizing horizon; other horizons collapsed
@@ -145,9 +149,15 @@ async function init() {
     let riskDates = null;
     let riskValues = null;
     let riskName = null;
+    let dailyDates = null;
+    let dailyValues = null;
     if (sizingChart) {
       riskDates = sz.spark.dates;
       riskValues = sz.spark.ma;
+      if (dailyChart) {
+        dailyDates = sz.spark.dates;
+        dailyValues = sz.spark.daily;
+      }
       riskName = "Sizing fragility 63d · 10d MA · PIT";
     } else if (fragKey) {
       riskDates = seriesDates(d, fs);
@@ -157,36 +167,65 @@ async function init() {
     if (riskValues) {
       traces.push({
         x: riskDates, y: riskValues, name: riskName, yaxis: "y2",
-        type: "bar", opacity: 0.42,
-        marker: { color: "#ffc14d", line: { color: "#d99a18", width: 0.4 } },
-        hovertemplate: "%{y:.1f}<extra>Fragility 63d</extra>",
+        mode: "lines", line: { color: "#ffc14d", width: 1.8 },
+        hovertemplate: "%{y:.1f}<extra>63d 10d MA</extra>",
       });
     }
-    // Draw SPY after the bars so its line stays crisp in the foreground.
+    // SPY and the moving average remain together in the upper panel.
     traces.push({
       x: spyDates, y: d.spy_series.close, name: "SPY",
       mode: "lines", line: { color: "#4da3ff", width: 1.8 },
     });
+    if (dailyValues) {
+      traces.push({
+        x: dailyDates, y: dailyValues, name: "Daily fragility 63d", yaxis: "y3",
+        type: "bar",
+        marker: { color: "rgba(255,193,77,.72)", line: { width: 0 } },
+        hovertemplate: "%{y:.1f}<extra>Daily 63d</extra>",
+      });
+    }
     const spyRange = valuesRange(d.spy_series.close, spyDates, initialRange);
-    const fragExtent = riskValues
+    const fragRange = riskValues
       ? valuesRange(riskValues, riskDates, initialRange) : null;
-    // Fragility is a level, so bars must rise from zero rather than from a
-    // tightly cropped axis that exaggerates small day-to-day changes.
-    const fragRange = fragExtent ? [0, Math.max(100, fragExtent[1])] : null;
-    const thresholdShape = riskValues ? [{
+    const dailyExtent = dailyValues
+      ? valuesRange(dailyValues, dailyDates, initialRange) : null;
+    const dailyRange = dailyExtent ? [0, Math.max(100, dailyExtent[1])] : null;
+    const thresholdShapes = [];
+    if (riskValues) thresholdShapes.push({
       type: "line", xref: "paper", yref: "y2", x0: 0, x1: 1, y0: 50, y1: 50,
       line: { color: "rgba(255,107,53,.75)", width: 1, dash: "dash" },
-    }] : [];
-    Plotly.newPlot(chartEl, traces, plotLayout({
-      height: 340,
-      xaxis: { range: initialRange },
-      yaxis: { range: spyRange, title: { text: "SPY", font: { size: 11 } } },
+    });
+    if (dailyValues) thresholdShapes.push({
+      type: "line", xref: "paper", yref: "y3", x0: 0, x1: 1, y0: 50, y1: 50,
+      line: { color: "rgba(255,107,53,.75)", width: 1, dash: "dash" },
+    });
+    const layout = {
+      height: dailyValues ? 510 : 340,
+      xaxis: {
+        range: initialRange,
+        anchor: dailyValues ? "y3" : "y",
+        rangebreaks: nonTradingRangebreaks(dailyDates || riskDates || spyDates),
+      },
+      yaxis: {
+        domain: dailyValues ? [0.38, 1] : [0, 1],
+        range: spyRange,
+        title: { text: "SPY", font: { size: 11 } },
+      },
       yaxis2: { overlaying: "y", side: "right", range: fragRange, showgrid: false,
-                title: { text: "Fragility 63d", font: { size: 11 } } },
-      shapes: thresholdShape,
-      bargap: 0.15,
-    }), PLOT_CFG);
-    enableFullHistoryReset(chartEl, ["xaxis", "yaxis", "yaxis2"]);
+                title: { text: "63d 10d MA", font: { size: 11 } } },
+      shapes: thresholdShapes,
+      bargap: 0,
+    };
+    if (dailyValues) {
+      layout.yaxis3 = {
+        domain: [0, 0.25], range: dailyRange,
+        title: { text: "Daily 63d", font: { size: 11 } },
+      };
+    }
+    Plotly.newPlot(chartEl, traces, plotLayout(layout), PLOT_CFG);
+    enableFullHistoryReset(chartEl, dailyValues
+      ? ["xaxis", "yaxis", "yaxis2", "yaxis3"]
+      : ["xaxis", "yaxis", "yaxis2"]);
   }
 }
 
@@ -359,6 +398,24 @@ function latestYearRange(dates, asof) {
   const start = new Date(end.getTime());
   start.setUTCFullYear(start.getUTCFullYear() - 1);
   return [start.toISOString().slice(0, 10), end.toISOString().slice(0, 10)];
+}
+
+function nonTradingRangebreaks(dates) {
+  const valid = (dates || []).filter(Boolean).map(d => String(d).slice(0, 10));
+  if (valid.length < 2) return [];
+  const present = new Set(valid);
+  const start = new Date(`${valid[0]}T00:00:00Z`);
+  const end = new Date(`${valid[valid.length - 1]}T00:00:00Z`);
+  if (!Number.isFinite(start.getTime()) || !Number.isFinite(end.getTime())) return [];
+  const missingWeekdays = [];
+  for (const day = new Date(start); day <= end; day.setUTCDate(day.getUTCDate() + 1)) {
+    const weekday = day.getUTCDay();
+    const iso = day.toISOString().slice(0, 10);
+    if (weekday !== 0 && weekday !== 6 && !present.has(iso)) missingWeekdays.push(iso);
+  }
+  const breaks = [{ bounds: ["sat", "mon"] }];
+  if (missingWeekdays.length) breaks.push({ values: missingWeekdays });
+  return breaks;
 }
 
 function valuesRange(values, dates, dateRange, extras) {

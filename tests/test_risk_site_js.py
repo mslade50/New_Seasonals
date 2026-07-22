@@ -11,6 +11,81 @@ RISK_JS = ROOT / "site" / "assets" / "risk.js"
 
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="Node.js is not installed")
+def test_risk_chart_keeps_ma_line_and_adds_gapless_daily_bar_panel():
+    script = r"""
+const fs = require("fs");
+const vm = require("vm");
+const source = fs.readFileSync(__RISK_JS__, "utf8");
+const elements = new Map();
+function element(id) {
+  if (!elements.has(id)) elements.set(id, {
+    id, innerHTML: "", textContent: "", on() {}, querySelectorAll() { return []; },
+  });
+  return elements.get(id);
+}
+let ready;
+const dates = ["2026-07-16", "2026-07-17", "2026-07-20", "2026-07-22"];
+const payload = {
+  asof: "2026-07-22", built_at: "2026-07-22 12:00 UTC", spy_last: 704,
+  price_ctx: {}, fragility: {"63d": 74}, regime_mult: 1, n_active: 0,
+  signals: [], forward_returns: {},
+  spy_series: {dates, close: [700, 701, 703, 704]},
+  sizing_state: {
+    score: 48, threshold: 50, throttle_on: false, gap_to_threshold: 2,
+    days_in_state: 3, banded_strategies: [], throttled: [],
+    spark: {dates, ma: [43, 44, 46, 48], daily: [61, 68, 72, 74]},
+  },
+};
+const plots = [];
+const sandbox = {
+  console,
+  document: {
+    addEventListener(name, fn) { if (name === "DOMContentLoaded") ready = fn; },
+    getElementById: element, querySelectorAll() { return []; },
+  },
+  renderNav() {}, setAsof() {}, fetchJSONOrNull: async () => payload,
+  fmt: {num: v => String(v), pct: v => String(v), signed: v => String(v)},
+  plotLayout: value => value, PLOT_CFG: {},
+  Plotly: {
+    newPlot(el, traces, layout) { plots.push({id: el.id, traces, layout}); },
+    relayout() {},
+  },
+  Date, Math, Number, String, Object, Array, Set,
+};
+vm.createContext(sandbox);
+vm.runInContext(source, sandbox);
+Promise.resolve(ready()).then(() => {
+  const chart = plots.find(p => p.id === "riskChart");
+  if (!chart) throw new Error("risk chart missing");
+  const ma = chart.traces.find(t => t.yaxis === "y2");
+  const daily = chart.traces.find(t => t.yaxis === "y3");
+  if (!ma || ma.mode !== "lines") throw new Error("10d MA is not an upper-panel line");
+  if (!daily || daily.type !== "bar") throw new Error("daily 63d bars are not in panel 2");
+  if (daily.y.join(",") !== "61,68,72,74") throw new Error("bars do not use daily readings");
+  if (chart.layout.yaxis.domain[0] <= chart.layout.yaxis3.domain[1]) {
+    throw new Error("chart domains overlap");
+  }
+  if (chart.layout.bargap !== 0) throw new Error("bar gap must be zero");
+  const breaks = chart.layout.xaxis.rangebreaks;
+  if (!breaks.some(b => b.bounds && b.bounds.join(",") === "sat,mon")) {
+    throw new Error("weekend range break missing");
+  }
+  if (!breaks.some(b => b.values && b.values.includes("2026-07-21"))) {
+    throw new Error("missing-session range break missing");
+  }
+}).catch(error => { console.error(error); process.exitCode = 1; });
+""".replace("__RISK_JS__", json.dumps(str(RISK_JS)))
+
+    subprocess.run(
+        [shutil.which("node"), "-e", script],
+        cwd=ROOT,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="Node.js is not installed")
 def test_old_risk_payload_still_renders_without_signal_detail():
     script = r"""
 const fs = require("fs");

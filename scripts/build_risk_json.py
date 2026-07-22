@@ -319,6 +319,10 @@ def build_sizing_state():
         "spark": {
             "dates": [d.strftime("%Y-%m-%d") for d in tail.index],
             "ma": [round(float(v), 1) for v in tail.values],
+            # One bar per stored point-in-time 63d dial reading. Keep this
+            # aligned to the MA dates so the frontend can share one x-axis.
+            "daily": [round(float(v), 1)
+                      for v in s63.reindex(tail.index).values],
         },
         "episodes": _run_episodes(pit_state),
         "exposure": expo,

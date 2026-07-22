@@ -43,8 +43,16 @@ def test_site_prefers_pit_sizing_series_over_recompute_series():
         encoding="utf-8")
 
     assert 'riskValues = sz.spark.ma' in risk_js
+    assert 'dailyValues = sz.spark.daily' in risk_js
     assert 'Sizing Fragility' in risk_js
     assert 'display recompute · legacy payload · not a sizing input' in risk_js
     assert 'type: "bar"' in risk_js
-    assert 'yaxis: "y2"' in risk_js
-    assert 'title: { text: "Fragility 63d"' in risk_js
+    assert 'name: "Daily fragility 63d", yaxis: "y3"' in risk_js
+    assert 'title: { text: "63d 10d MA"' in risk_js
+    assert 'rangebreaks: nonTradingRangebreaks' in risk_js
+    assert 'bargap: 0' in risk_js
+
+    risk_builder = (Path(__file__).resolve().parents[1] / "scripts" / "build_risk_json.py").read_text(
+        encoding="utf-8")
+    assert '"daily": [round(float(v), 1)' in risk_builder
+    assert "s63.reindex(tail.index).values" in risk_builder
