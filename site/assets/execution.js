@@ -217,17 +217,21 @@ function deriveExecMode(book, status, now = Date.now()) {
   return "unknown";
 }
 function execMode() { return deriveExecMode(state.book, state.status); }
-const MUTATING_COMMANDS = new Set(["entry_bracket", "flatten", "cancel", "modify"]);
+const MUTATING_COMMANDS = new Set([
+  "entry_bracket", "flatten", "cancel", "modify", "trim_readd", "add_to_position",
+]);
 function mutationBlocked(type) {
   return execMode() === "unknown" && (!type || MUTATING_COMMANDS.has(type));
 }
 function syncMutationControls() {
   const blocked = execMode() === "unknown";
   document.querySelectorAll("[data-mutation]").forEach((control) => {
-    control.disabled = blocked;
-    control.setAttribute("aria-disabled", String(blocked));
+    const staticBlocked = control.dataset.staticDisabled === "true";
+    control.disabled = blocked || staticBlocked;
+    control.setAttribute("aria-disabled", String(blocked || staticBlocked));
     if (blocked) control.title = "Disabled until the agent is online and a fresh book confirms execution mode";
-    else if (control.title && control.title.startsWith("Disabled until")) control.removeAttribute("title");
+    else if (staticBlocked) control.title = "Requires a visible working closing stop";
+    else if (!staticBlocked && control.title && control.title.startsWith("Disabled until")) control.removeAttribute("title");
   });
 }
 function rejectUnknownMutation(msgId) {
@@ -270,6 +274,41 @@ function pnlPct(p) {
   const cost = p.avg_cost != null && p.position ? Math.abs(p.avg_cost * p.position) : null;
   return cost && p.unrealized_pnl != null ? p.unrealized_pnl / cost : null;
 }
+const readdRows = new Map();   // account + contract -> persistent row toggle across 4s book polls
+function positionKey(p) {
+  return `${state.account}:${p.con_id || `${p.symbol}:${p.sec_type || ""}:${p.expiry || ""}`}`;
+}
+function fastActionQty(position, fraction) {
+  return Math.floor(Math.abs(Number(position) || 0) * Number(fraction) + 0.5);
+}
+function positionIdentity(p) {
+  const out = {
+    symbol: p.symbol, sec_type: p.sec_type, expiry: p.expiry || null,
+    expected_position: Number(p.position),
+  };
+  if (p.con_id) out.con_id = Number(p.con_id);
+  return out;
+}
+function trimReaddPayload(p, fraction = 0.5) {
+  return { ...positionIdentity(p), fraction, close_order_type: "MKT", readd: true, readd_tif: "DAY" };
+}
+function addPositionPayload(p, fraction) {
+  return { ...positionIdentity(p), fraction, order_type: "MKT" };
+}
+function samePositionContract(p, o) {
+  if (p.con_id && o.con_id) return Number(p.con_id) === Number(o.con_id);
+  return String(p.symbol || "").toUpperCase() === String(o.symbol || "").toUpperCase()
+    && (!p.sec_type || !o.sec_type || String(p.sec_type).toUpperCase() === String(o.sec_type).toUpperCase())
+    && (!p.expiry || !o.expiry || String(o.expiry).startsWith(String(p.expiry)));
+}
+function hasVisibleClosingStop(p) {
+  const ab = acctBook();
+  const close = Number(p.position) > 0 ? "SELL" : "BUY";
+  return ((ab && ab.orders) || []).some((o) => samePositionContract(p, o)
+    && String(o.action || "").toUpperCase() === close
+    && String(o.order_type || "").toUpperCase() === "STP"
+    && Number(o.aux) > 0);
+}
 function renderPositions() {
   const ab = acctBook();
   const head = `<div style="font:700 14px inherit;margin:0 0 6px">Positions <span class="cap" style="display:inline;font-weight:400">${ab && ab.label ? "· " + esc(ab.label) : ""}</span></div>`;
@@ -291,11 +330,21 @@ function renderPositions() {
     }
     // OPT rows: no Flatten/Trim — a symbol-scoped MKT close would tear one leg
     // out of a spread. Close via a closing combo ticket (later phase) or TWS.
+    const hasStop = hasVisibleClosingStop(p);
+    const readdOn = readdRows.get(positionKey(p)) === true;
+    const noStop = ' disabled data-static-disabled="true" title="Requires a visible working closing stop"';
     const actions = p.sec_type === "OPT"
       ? '<span class="cap">combo — close via TWS</span>'
-      : `<button class="btn xs" data-mutation onclick='execFlatten(${posJson(p)},1)'>Flatten</button>
-        <button class="btn xs ghost" data-mutation onclick='execFlatten(${posJson(p)},0.5)'>Trim&frac12;</button>
-        <button class="btn xs ghost" onclick='execSellTicket(${posJson(p)})' title="Prefill the close ticket: shares / LMT / outside RTH">Close&hellip;</button>`;
+      : p.sec_type === "STK"
+        ? `<button class="btn xs" data-mutation onclick='execFlatten(${posJson(p)},1)'>Flatten</button>
+          <button class="btn xs ghost" data-mutation${readdOn && !hasStop ? noStop : ""} onclick='execTrim(${posJson(p)})'>Trim&frac12;</button>
+          <button class="btn xs ${readdOn ? "" : "ghost"}"${hasStop ? "" : noStop} onclick='execToggleReadd(${posJson(p)})'>Re-add ${readdOn ? "on" : "off"}</button>
+          <button class="btn xs ghost" data-mutation${hasStop ? "" : noStop} onclick='execAddToPosition(${posJson(p)},0.5)'>Add&frac12;</button>
+          <button class="btn xs ghost" data-mutation${hasStop ? "" : noStop} onclick='execAddToPosition(${posJson(p)},1)'>Add 1x</button>
+          <button class="btn xs ghost" onclick='execSellTicket(${posJson(p)})' title="Prefill the close ticket: shares / LMT / outside RTH">Close&hellip;</button>`
+        : `<button class="btn xs" data-mutation onclick='execFlatten(${posJson(p)},1)'>Flatten</button>
+          <button class="btn xs ghost" data-mutation onclick='execFlatten(${posJson(p)},0.5)'>Trim&frac12;</button>
+          <button class="btn xs ghost" onclick='execSellTicket(${posJson(p)})' title="Prefill the close ticket: shares / LMT / outside RTH">Close&hellip;</button>`;
     return `<tr>
       <td class="l" style="font-weight:600">${sym}</td>
       <td class="${long ? "pos" : "neg"}" style="font-weight:600">${fmt.num(p.position, 0)}</td>
@@ -572,7 +621,10 @@ function renderClosers() {
 
 function panelNote(html) { return `<div class="card" style="padding:12px 14px"><span class="cap">${html}</span></div>`; }
 function posJson(p) {
-  return JSON.stringify({ symbol: p.symbol, sec_type: p.sec_type, expiry: p.expiry }).replace(/'/g, "&#39;");
+  return JSON.stringify({
+    symbol: p.symbol, sec_type: p.sec_type, expiry: p.expiry,
+    con_id: p.con_id || 0, position: p.position, avg_cost: p.avg_cost,
+  }).replace(/'/g, "&#39;");
 }
 
 /* ---------- row actions (live / dry-run / unknown commands) ---------- */
@@ -588,7 +640,53 @@ function execFlatten(pos, fraction) {
   if (rejectUnknownMutation()) return;
   const pct = fraction === 1 ? "100%" : "50%";
   if (!confirm(`${actionLead("flatten")} ${pct} of ${pos.symbol} (${state.account})? Cancels its working orders first.`)) return;
-  sendCommand("flatten", { symbol: pos.symbol, sec_type: pos.sec_type, expiry: pos.expiry, fraction, order_type: "MKT" });
+  sendCommand("flatten", { ...positionIdentity(pos), fraction, order_type: "MKT" });
+}
+function execToggleReadd(pos) {
+  if (!hasVisibleClosingStop(pos)) return;
+  const key = positionKey(pos);
+  readdRows.set(key, readdRows.get(key) !== true);
+  set("positions", renderPositions());
+  syncMutationControls();
+}
+function execTrim(pos) {
+  if (readdRows.get(positionKey(pos)) !== true) {
+    execFlatten(pos, 0.5);
+    return;
+  }
+  if (rejectUnknownMutation()) return;
+  if (!hasVisibleClosingStop(pos)) {
+    alert("Re-add requires a visible working closing stop. Refresh the book or manage the position in TWS.");
+    return;
+  }
+  const held = Math.abs(Number(pos.position));
+  const qty = fastActionQty(pos.position, 0.5);
+  if (!(qty > 0 && qty < held)) { alert("This position is too small for a partial trim/re-add."); return; }
+  const close = Number(pos.position) > 0 ? "SELL" : "BUY";
+  const add = Number(pos.position) > 0 ? "BUY" : "SELL";
+  const post = Number(pos.position) > 0 ? Number(pos.position) - qty : Number(pos.position) + qty;
+  const avg = Number(pos.avg_cost);
+  const summary = `${actionLead("trim + re-add")} ${close} ${qty} ${pos.symbol} MKT on ${state.account}; `
+    + `expected post-trim position ${post}. Then stage ${add} ${qty} LMT at Avg ${fmt.num(avg, 2)} (DAY) `
+    + "with the same stop, target, time-stop, and proportional OCA bracket?";
+  if (!confirm(summary)) return;
+  sendCommand("trim_readd", trimReaddPayload(pos, 0.5));
+}
+function execAddToPosition(pos, fraction) {
+  if (rejectUnknownMutation()) return;
+  if (!hasVisibleClosingStop(pos)) {
+    alert("Add requires a visible working closing stop. Refresh the book or manage the position in TWS.");
+    return;
+  }
+  const qty = fastActionQty(pos.position, fraction);
+  if (!(qty > 0)) { alert("Add quantity resolves to zero."); return; }
+  const side = Number(pos.position) > 0 ? "BUY" : "SELL";
+  const post = Number(pos.position) > 0 ? Number(pos.position) + qty : Number(pos.position) - qty;
+  const summary = `${actionLead("add")} ${side} ${qty} ${pos.symbol} MKT on ${state.account}; `
+    + `expected post-add position ${post}. Resize the same stop, target, time-stop, and proportional `
+    + `OCA bracket to ${Math.abs(post)}?`;
+  if (!confirm(summary)) return;
+  sendCommand("add_to_position", addPositionPayload(pos, fraction));
 }
 function execCancel(permId, orderId, symbol) {
   if (rejectUnknownMutation()) return;
@@ -612,6 +710,9 @@ function execCancel(permId, orderId, symbol) {
   sendCommand("cancel", { scope: "symbol", symbol });
 }
 window.execFlatten = execFlatten;
+window.execToggleReadd = execToggleReadd;
+window.execTrim = execTrim;
+window.execAddToPosition = execAddToPosition;
 window.execCancel = execCancel;
 
 /* "Close…" on a position row: prefill the flatten ticket (shares / LMT /

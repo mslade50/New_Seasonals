@@ -1,5 +1,19 @@
 # Handoff: execution-tab fast position actions
 
+## Implementation status (2026-07-22)
+
+- Execution-machine implementations are installed in `OneDrive/trading_ibkr`
+  with rollback copies in `_backup_20260722_execution_fast_actions`.
+- `book_snapshot.py` now publishes exact contract identity plus OCA/owner fields;
+  `exec_agent.py` validates and previews both new command types; and
+  `execute_order.py` contains independently gated live handlers.
+- The private-site controls and payload tests are implemented on branch
+  `codex/execution-fast-actions-local`, but the site has **not** been deployed.
+- The new command types are **not** in `LIVE_TYPES`; the agent has not been
+  restarted for them; no live or dry-run relay command has been sent.
+- Broker-free new-action tests and the existing bracket, flatten/cancel, modify,
+  option-spread, JavaScript, and full static-site build checks pass.
+
 ## Objective
 
 Add two bracket-aware fast workflows to the private site's Execution tab:
