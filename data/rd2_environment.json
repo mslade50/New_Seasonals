@@ -1,5 +1,5 @@
 {
-  "date": "2026-07-22",
+  "date": "2026-07-23",
   "price_ctx": {
     "price": 747.4099731445312,
     "ret_12m": 0.20168483258147685,
@@ -12,8 +12,8 @@
     "days_since_10pct": 311
   },
   "h_scores": {
-    "5d": 19.194175268382317,
-    "21d": 42.989915306819505,
+    "5d": 19.194175268382324,
+    "21d": 42.98991530681951,
     "63d": 50.76964585646832
   },
   "signals": {
@@ -23,9 +23,9 @@
       "summary": "D/A ratio: 1.7 (threshold: 3.75) \u2014 5D / 3A last 63d"
     },
     "VIX Range Compression": {
-      "on": false,
-      "detail": "",
-      "summary": "21d range: 18th pctile (fires below 15th) \u2014 VIX at 16.6"
+      "on": true,
+      "detail": "VIX 21d range at 12th percentile (threshold: 15th). VIX at 17.6 is compressed \u2014 eventual breakout tends to be violent.",
+      "summary": "21d range: 12th pctile (fires below 15th) \u2014 VIX at 17.6"
     },
     "Defensive Leadership": {
       "on": false,
@@ -40,7 +40,7 @@
     "Low Absorption Ratio": {
       "on": false,
       "detail": "",
-      "summary": "AR: 0.482 (51th pctile, fires below 10th) \u2014 near high: yes"
+      "summary": "AR: 0.484 (52th pctile, fires below 10th) \u2014 near high: yes"
     },
     "Seasonal Rank Divergence": {
       "on": false,
