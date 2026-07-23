@@ -127,7 +127,7 @@ function shell() {
 
     <div class="card" style="max-width:760px;margin-top:18px">
       <div style="font:700 14px inherit;margin-bottom:4px">New order</div>
-      <p class="cap" style="margin:0 0 10px">Bracket: entry limit + stop + target, plus an optional <b>time stop</b> (closes at market 15:59 ET on that date) and <b>entry expiry</b> (the entry order is DAY unless you set a date &mdash; then GTD to that date's close). Flatten: close by <b>shares</b> or fraction, <b>MKT</b> or a resting <b>LMT</b> (check Outside RTH for pre/post-market); a partial close auto-resizes the remaining stop/target to the leftover shares. Submits per the mode banner above &mdash; live when armed.</p>
+      <p class="cap" style="margin:0 0 10px">Bracket: stock, futures, or USD-pair FX entry limit + stop + target, plus an optional <b>time stop</b> (closes at market 15:59 ET on that date) and <b>entry expiry</b> (the entry order is DAY unless you set a date &mdash; then GTD to that date's close). FX quantity is in base-currency units and routes to IDEALPRO. Flatten: close by <b>shares/units</b> or fraction, <b>MKT</b> or a resting <b>LMT</b> (check Outside RTH for pre/post-market); a partial close auto-resizes the remaining stop/target. Submits per the mode banner above &mdash; live when armed.</p>
       <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:8px">
         <label class="cap">Type</label>
         <select id="cmdType">
@@ -287,6 +287,7 @@ function positionIdentity(p) {
     expected_position: Number(p.position),
   };
   if (p.con_id) out.con_id = Number(p.con_id);
+  if (p.currency) out.currency = String(p.currency).toUpperCase();
   return out;
 }
 function trimReaddPayload(p, fraction = 0.5) {
@@ -299,6 +300,7 @@ function samePositionContract(p, o) {
   if (p.con_id && o.con_id) return Number(p.con_id) === Number(o.con_id);
   return String(p.symbol || "").toUpperCase() === String(o.symbol || "").toUpperCase()
     && (!p.sec_type || !o.sec_type || String(p.sec_type).toUpperCase() === String(o.sec_type).toUpperCase())
+    && (!p.currency || !o.currency || String(p.currency).toUpperCase() === String(o.currency).toUpperCase())
     && (!p.expiry || !o.expiry || String(o.expiry).startsWith(String(p.expiry)));
 }
 function hasVisibleClosingStop(p) {
@@ -327,6 +329,8 @@ function renderPositions() {
       sym = `${esc(p.symbol)} <span class="cap" style="display:inline">${d} ${fmt.num(p.strike, p.strike % 1 ? 1 : 0)}${esc(p.right || "")}</span>`;
     } else if (p.sec_type === "FUT" && p.expiry) {
       sym = `${esc(p.symbol)} <span class="cap" style="display:inline">${esc(p.expiry)}</span>`;
+    } else if (p.sec_type === "CASH") {
+      sym = `${esc(p.symbol)}/${esc(p.currency || "USD")} <span class="cap" style="display:inline">FX</span>`;
     }
     // OPT rows: no Flatten/Trim — a symbol-scoped MKT close would tear one leg
     // out of a spread. Close via a closing combo ticket (later phase) or TWS.
@@ -345,11 +349,12 @@ function renderPositions() {
         : `<button class="btn xs" data-mutation onclick='execFlatten(${posJson(p)},1)'>Flatten</button>
           <button class="btn xs ghost" data-mutation onclick='execFlatten(${posJson(p)},0.5)'>Trim&frac12;</button>
           <button class="btn xs ghost" onclick='execSellTicket(${posJson(p)})' title="Prefill the close ticket: shares / LMT / outside RTH">Close&hellip;</button>`;
+    const priceDigits = p.sec_type === "CASH" ? 5 : 2;
     return `<tr>
       <td class="l" style="font-weight:600">${sym}</td>
       <td class="${long ? "pos" : "neg"}" style="font-weight:600">${fmt.num(p.position, 0)}</td>
-      <td>${fmt.num(p.avg_cost, 2)}</td>
-      <td>${p.market_price != null ? fmt.num(p.market_price, 2) : "&mdash;"}</td>
+      <td>${fmt.num(p.avg_cost, priceDigits)}</td>
+      <td>${p.market_price != null ? fmt.num(p.market_price, priceDigits) : "&mdash;"}</td>
       <td>${p.market_value != null ? fmt.money(p.market_value) : "&mdash;"}</td>
       <td class="${clsSign(p.unrealized_pnl)}" style="font-weight:600">${p.unrealized_pnl != null ? fmt.money(p.unrealized_pnl) : "&mdash;"}</td>
       <td class="${clsSign(pct)}">${pct != null ? fmt.pct(pct, 1) : "&mdash;"}</td>
@@ -374,17 +379,22 @@ function fmtOrderTime(s) {
   return m ? `${m[2]}/${m[3]} ${m[4]}:${m[5]}` : esc(String(s));    // MM/DD HH:MM
 }
 function orderKey(o) { return `${o.perm_id || 0}:${o.order_id || 0}`; }
+function contractDisplay(x) {
+  const sym = String((x && x.symbol) || "").toUpperCase();
+  return x && x.sec_type === "CASH" ? `${sym}/${String(x.currency || "USD").toUpperCase()}` : sym;
+}
+function orderGroupKey(x) { return contractDisplay(x); }
 function orderRow(o) {
   const buy = String(o.action).toUpperCase() === "BUY";
   const px = orderPx(o);
   if (orderEdit.key && orderEdit.key === orderKey(o) && (o.perm_id || o.order_id)) return orderEditRow(o);
   const canModify = !!(o.perm_id || o.order_id);   // no id yet: IBKR can't address the order to modify it
   return `<tr>
-    <td class="l" style="font-weight:600">${esc(o.symbol)}</td>
+    <td class="l" style="font-weight:600">${esc(contractDisplay(o))}</td>
     <td class="l ${buy ? "pos" : "neg"}" style="font-weight:600">${esc(o.action)}</td>
     <td>${fmt.num(o.qty, 0)}</td>
     <td class="l">${esc(o.order_type)}</td>
-    <td>${px != null ? fmt.num(px, 2) : "&mdash;"}</td>
+    <td>${px != null ? fmt.num(px, o.sec_type === "CASH" ? 5 : 2) : "&mdash;"}</td>
     <td class="l">${esc(o.tif || "")}</td>
     <td class="l" style="color:#8c95a2">${fmtOrderTime(o.good_after) || "&mdash;"}</td>
     <td class="l" style="color:#8c95a2">${fmtOrderTime(o.good_till) || "&mdash;"}</td>
@@ -404,7 +414,7 @@ function orderEditRow(o) {
     (hasLmt ? `<span class="cap" style="display:inline">lmt</span> <input id="me_lmt" value="${o.lmt != null ? esc(String(o.lmt)) : ""}" style="width:70px">` : "") +
     (!hasStp && !hasLmt ? "&mdash;" : "");
   return `<tr style="background:rgba(77,163,255,.08)">
-    <td class="l" style="font-weight:600">${esc(o.symbol)}</td>
+    <td class="l" style="font-weight:600">${esc(contractDisplay(o))}</td>
     <td class="l" style="font-weight:600">${esc(o.action)}</td>
     <td><input id="me_qty" value="${o.qty != null ? esc(String(o.qty)) : ""}" style="width:60px"></td>
     <td class="l">${esc(o.order_type)}</td>
@@ -434,7 +444,7 @@ function typeRank(o) {                                    // sort order within a
 }
 function orderLegPreview(o) {
   const px = orderPx(o);
-  return px != null ? `${esc(o.order_type || "")} ${fmt.num(px, 2)}` : esc(o.order_type || "");
+  return px != null ? `${esc(o.order_type || "")} ${fmt.num(px, o.sec_type === "CASH" ? 5 : 2)}` : esc(o.order_type || "");
 }
 function pnlSpan(label, v) {
   return v == null ? `${label} &mdash;` : `${label} <b class="${clsSign(v)}">${fmt.money(v)}</b>`;
@@ -462,7 +472,12 @@ function exitPnl(exits, entryPrice, sign, mult) {
 // derived from live PnL (avoids the futures averageCost-includes-multiplier ambiguity).
 // Rows the data model can't classify make the group indeterminate -> {na:true} ("n/a").
 function groupPnl(sym, legs, ab) {
-  const pos = (ab.positions || []).find((p) => String(p.symbol).toUpperCase() === sym && p.position);
+  const ref = legs[0] || {};
+  // CASH P&L settles in the quote currency; avoid labeling an approximate
+  // conversion as USD in the stock/futures best/worst calculation.
+  if (ref.sec_type === "CASH") return { best: null, worst: null, na: true };
+  const root = String(ref.symbol || "").toUpperCase();
+  const pos = (ab.positions || []).find((p) => p.position && samePositionContract(p, ref));
   const ids = new Set(legs.map((o) => o.order_id).filter(Boolean));
   const hasChild = (o) => !!o.order_id && legs.some((c) => (c.parent_id || 0) === o.order_id);
   const acc = { best: null, worst: null, na: false };
@@ -474,12 +489,12 @@ function groupPnl(sym, legs, ab) {
     const ep = orderPx(parent);
     const kids = parent.order_id ? legs.filter((c) => (c.parent_id || 0) === parent.order_id) : [];
     if (ep == null || !kids.length) { acc.na = true; return; }   // unpriced or naked entry: no defined best/worst
-    const mult = parent.sec_type === "FUT" ? ((futSpec(sym) || {}).multiplier || 1) : 1;
+    const mult = parent.sec_type === "FUT" ? ((futSpec(root) || {}).multiplier || 1) : 1;
     const sign = String(parent.action).toUpperCase() === "BUY" ? 1 : -1;
     add(exitPnl(kids, ep, sign, mult));
   };
   if (pos) {
-    const mult = pos.sec_type === "FUT" ? ((futSpec(sym) || {}).multiplier || 1) : 1;
+    const mult = pos.sec_type === "FUT" ? ((futSpec(root) || {}).multiplier || 1) : 1;
     const sign = pos.position > 0 ? 1 : -1;
     let entryPrice = null;
     if (pos.market_price != null && pos.unrealized_pnl != null) {
@@ -516,7 +531,7 @@ function ordersSection(title, list, ab) {
   if (!list.length) return h + `<div class="cap" style="color:#8c95a2;margin-bottom:6px">(none)</div>`;
   const groups = new Map();
   for (const o of list) {
-    const k = String(o.symbol).toUpperCase();
+    const k = orderGroupKey(o);
     if (!groups.has(k)) groups.set(k, []);
     groups.get(k).push(o);
   }
@@ -549,9 +564,9 @@ function renderOrders() {
   const ords = ab.orders || [];
   if (!ords.length) return head + panelNote("No working orders.");
   // Split by whether the symbol has an open position: exits-on-positions vs pending entries.
-  const posSyms = new Set((ab.positions || []).map((p) => String(p.symbol).toUpperCase()));
-  const onPos = ords.filter((o) => posSyms.has(String(o.symbol).toUpperCase()));
-  const pending = ords.filter((o) => !posSyms.has(String(o.symbol).toUpperCase()));
+  const posSyms = new Set((ab.positions || []).map(orderGroupKey));
+  const onPos = ords.filter((o) => posSyms.has(orderGroupKey(o)));
+  const pending = ords.filter((o) => !posSyms.has(orderGroupKey(o)));
   return head
     + ordersSection("On open positions (working exits)", onPos, ab)
     + ordersSection("Pending entries — not filled yet", pending, ab);
@@ -598,16 +613,20 @@ function renderClosers() {
       const buy = String(o.action).toUpperCase() === "BUY";
       const t = String(o.order_type || "").toUpperCase();
       const mult = o.sec_type === "FUT" ? ((futSpec(sym) || {}).multiplier || 1) : 1;
-      const pos = (ab.positions || []).find((p) => String(p.symbol).toUpperCase() === sym && p.position);
+      const pos = (ab.positions || []).find((p) => p.position && samePositionContract(p, o));
       // MKT/MOC legs close at the market: value off the position's last price; STP off its trigger.
       const px = t.startsWith("STP") ? (o.aux != null ? o.aux : o.lmt) : (pos && pos.market_price != null ? pos.market_price : null);
-      const val = px != null && o.qty ? o.qty * px * mult : null;
+      const val = px == null || !o.qty ? null
+        : o.sec_type === "CASH"
+          ? (String(o.currency || "USD").toUpperCase() === "USD" ? o.qty * px
+            : sym === "USD" ? o.qty : null)
+          : o.qty * px * mult;
       const conditional = (o.parent_id || 0) && ids.has(o.parent_id);   // parent entry still working
       return `<tr>
-        <td class="l" style="font-weight:600">${esc(o.symbol)}</td>
+        <td class="l" style="font-weight:600">${esc(contractDisplay(o))}</td>
         <td class="l ${buy ? "pos" : "neg"}" style="font-weight:600">${esc(o.action)}</td>
         <td>${fmt.num(o.qty, 0)}</td>
-        <td class="l">${esc(t)}${t.startsWith("STP") ? ` @ ${fmt.num(px, 2)}` : ""}</td>
+        <td class="l">${esc(t)}${t.startsWith("STP") ? ` @ ${fmt.num(px, o.sec_type === "CASH" ? 5 : 2)}` : ""}</td>
         <td class="l">${at === "MOC" ? "MOC" : at + " ET"}</td>
         <td class="l" style="color:#8c95a2">${untilFrag(at)}</td>
         <td>${val != null ? fmt.money(val) : "&mdash;"}</td>
@@ -624,6 +643,7 @@ function posJson(p) {
   return JSON.stringify({
     symbol: p.symbol, sec_type: p.sec_type, expiry: p.expiry,
     con_id: p.con_id || 0, position: p.position, avg_cost: p.avg_cost,
+    currency: p.currency || null,
   }).replace(/'/g, "&#39;");
 }
 
@@ -725,6 +745,7 @@ function execSellTicket(pos) {
   const s = document.getElementById("f_symbol");
   if (s) s.value = pos.symbol;
   ticketDraft.f_symbol = pos.symbol; // survive later cmdType toggles
+  ticketDraft.fl_position = { account: state.account, ...positionIdentity(pos) };
   updateReadout();
   const q = document.getElementById("fl_qty");
   if (q) q.focus();
@@ -789,7 +810,7 @@ window.execModifySave = execModifySave;
 // across cmdType toggles so switching Type and back doesn't wipe a typed ticket.
 const ticketDraft = {};
 const TICKET_FIELDS = ["f_note", "f_symbol", "f_qty", "f_entry", "f_stop", "f_target", "f_expiry", "f_timestop",
-                       "fl_qty", "fl_limit"];
+                       "f_currency", "fl_qty", "fl_limit"];
 function snapshotTicket() {
   TICKET_FIELDS.forEach((id) => { const e = document.getElementById(id); if (e) ticketDraft[id] = e.value; });
 }
@@ -826,7 +847,7 @@ function syncFields() {
       updateReadout();
     });
   } else {
-    f.innerHTML = `<label class="cap">Instr</label><select id="f_sectype"><option value="STK">Stock</option><option value="FUT">Future</option></select>
+    f.innerHTML = `<label class="cap">Instr</label><select id="f_sectype"><option value="STK">Stock</option><option value="FUT">Future</option><option value="CASH">FX (USD pair)</option></select>
       <label class="cap">Symbol</label>${inp("f_symbol", "USO", 80)}
       <label class="cap">Side</label><select id="f_action"><option>BUY</option><option>SELL</option></select>
       <label class="cap">Qty</label>${inp("f_qty", "692", 70)}
@@ -840,6 +861,8 @@ function syncFields() {
     if (st) st.addEventListener("change", () => {
       if (val("f_sectype") === "FUT" && !futSpec(val("f_symbol"))) {
         const s = document.getElementById("f_symbol"); if (s) s.value = "ES";   // sensible FUT default
+      } else if (val("f_sectype") === "CASH" && !/^[A-Za-z]{3}$/.test(val("f_symbol") || "")) {
+        const s = document.getElementById("f_symbol"); if (s) s.value = "NZD";
       }
       frontState.manual = false;
       renderFutRow(); updateReadout(); scheduleFrontResolve();
@@ -860,6 +883,16 @@ function futSpec(sym) { return FUT_SPECS[String(sym || "").toUpperCase().trim()]
 function renderFutRow() {
   const row = document.getElementById("f_futrow");
   if (!row) return;
+  if (val("f_sectype") === "CASH") {
+    const selected = String(ticketDraft.f_currency || "USD").toUpperCase();
+    const currencies = ["USD", "EUR", "GBP", "JPY", "CHF", "CAD", "AUD", "NZD"];
+    row.innerHTML = `<label class="cap">Quote</label><select id="f_currency">${
+      currencies.map((c) => `<option value="${c}"${c === selected ? " selected" : ""}>${c}</option>`).join("")
+    }</select><span class="cap" style="display:inline">IDEALPRO · qty is base-currency units · one leg must be USD</span>`;
+    const quote = document.getElementById("f_currency");
+    if (quote) quote.addEventListener("change", updateReadout);
+    return;
+  }
   if (val("f_sectype") !== "FUT") { row.innerHTML = ""; return; }
   row.innerHTML = `<label class="cap">Contract</label><input id="f_futexp" placeholder="auto" style="width:78px">
     <span id="f_futnote" class="cap" style="display:inline;color:#ff6b6b"></span>
@@ -879,15 +912,35 @@ function clearFutExp() {
 // Hard gate shared by the readout and sendTicket. Plain-text messages; [] = sendable.
 // Empty inputs are null (never 0): a bracket REQUIRES qty/entry/stop; target may be
 // null (= NO TARGET, entry + stop only) but 0/negative is rejected.
+function fxPairWarnings(base, quote) {
+  const b = String(base || "").toUpperCase().trim();
+  const q = String(quote || "").toUpperCase().trim();
+  const warns = [];
+  if (!/^[A-Z]{3}$/.test(b)) warns.push("FX symbol must be a 3-letter base currency");
+  if (!/^[A-Z]{3}$/.test(q) || b === q) warns.push("FX quote must be a different 3-letter currency");
+  else if (b !== "USD" && q !== "USD") warns.push("FX entry supports USD pairs only initially");
+  return warns;
+}
+
+function fxUsdMetrics(base, quote, qty, entry, stop) {
+  const b = String(base || "").toUpperCase();
+  const q = String(quote || "").toUpperCase();
+  const dist = Math.abs(Number(entry) - Number(stop));
+  if (q === "USD") return { notional: Number(qty) * Number(entry), risk: Number(qty) * dist };
+  if (b === "USD") return { notional: Number(qty), risk: Number(qty) * dist / Number(entry) };
+  return null;
+}
+
 function bracketWarnings() {
   const isFut = (val("f_sectype") === "FUT");
+  const isFx = (val("f_sectype") === "CASH");
   const sym = String(val("f_symbol") || "").toUpperCase().trim();
   const spec = isFut ? futSpec(sym) : null;
   const qty = numOrNull("f_qty"), entry = numOrNull("f_entry"), stop = numOrNull("f_stop"), target = numOrNull("f_target");
   const action = val("f_action");
   const warns = [];
   if (!sym) warns.push("symbol required");
-  if (!(qty > 0)) warns.push("qty must be a positive number");
+  if (!(qty > 0) || qty !== Math.round(qty)) warns.push("qty must be a whole number > 0");
   if (!(entry > 0)) warns.push("entry price required");
   if (!(stop > 0)) warns.push("stop price required — no bracket without a protective stop");
   if (target != null && !(target > 0)) warns.push("target must be > 0 (leave blank for NO TARGET)");
@@ -899,6 +952,7 @@ function bracketWarnings() {
   }
   if (isFut && sym && !spec) warns.push("unknown futures symbol — not in the spec table");
   if (isFut && !val("f_futexp")) warns.push("enter the contract month (e.g. 202609)");
+  if (isFx) warns.push(...fxPairWarnings(sym, val("f_currency") || "USD"));
   // Date guards: an ISO YYYY-MM-DD string compares chronologically as text. A past
   // time-stop closes the position at market the instant the entry fills; a past entry
   // expiry ships an already-dead GTD order; expiry after the time-stop is contradictory.
@@ -915,7 +969,11 @@ function flattenWarnings() {
   const warns = [];
   if (!sym) warns.push("symbol required");
   const ab = acctBook();
-  const pos = ((ab && ab.positions) || []).find((p) => String(p.symbol).toUpperCase() === sym && p.position);
+  const identity = ticketDraft.fl_position;
+  const pos = ((ab && ab.positions) || []).find((p) => p.position
+    && String(p.symbol).toUpperCase() === sym
+    && (!identity || identity.account !== state.account || !identity.con_id
+      || Number(p.con_id) === Number(identity.con_id)));
   const held = pos ? Math.abs(pos.position) : null;
   const qn = numOrNull("fl_qty");
   if (qn != null) {
@@ -938,7 +996,9 @@ function updateReadout() {
   if (!el) return;
   if (t === "entry_bracket") {
     const isFut = (val("f_sectype") === "FUT");
+    const isFx = (val("f_sectype") === "CASH");
     const sym = String(val("f_symbol") || "").toUpperCase().trim();
+    const currency = String(val("f_currency") || "USD").toUpperCase().trim();
     const spec = isFut ? futSpec(sym) : null;
     const mult = spec ? spec.multiplier : 1;
     const hint = document.getElementById("f_futhint");
@@ -949,12 +1009,14 @@ function updateReadout() {
     if (warns.length) { el.innerHTML = `<span style="color:#ff6b6b">${warns.map(esc).join(" &middot; ")}</span>`; return; }
     const qty = numOrNull("f_qty"), entry = numOrNull("f_entry"), stop = numOrNull("f_stop"), target = numOrNull("f_target");
     const dist = Math.abs(entry - stop);
+    const fxMetrics = isFx ? fxUsdMetrics(sym, currency, qty, entry, stop) : null;
     const parts = [];
     if (isFut && qty) parts.push(`<b>${qty} contract${qty === 1 ? "" : "s"}</b>`);
-    if (qty && dist) parts.push(`Risk <b>${fmt.money(qty * dist * mult)}</b>`);
+    if (isFx && qty) parts.push(`<b>${fmt.num(qty, 0)} ${esc(sym)} units</b> in ${esc(sym)}/${esc(currency)}`);
+    if (qty && dist) parts.push(`Risk <b>${fmt.money(fxMetrics ? fxMetrics.risk : qty * dist * mult)}</b>`);
     if (target == null) parts.push(`<b style="color:#ffc14d">NO TARGET</b>`);
     else if (dist) parts.push(`R:R <b>${(Math.abs(target - entry) / dist).toFixed(2)}:1</b>`);
-    if (qty && entry) parts.push(`Notional <b>${fmt.money(qty * entry * mult)}</b>`);
+    if (qty && entry) parts.push(`Notional <b>${fmt.money(fxMetrics ? fxMetrics.notional : qty * entry * mult)}</b>`);
     const ts = val("f_timestop");
     if (ts) parts.push(`Time-exit <b>${ts}</b>`);
     const ex = val("f_expiry");
@@ -965,7 +1027,11 @@ function updateReadout() {
     if (warns.length) { el.innerHTML = `<span style="color:#ff6b6b">${warns.map(esc).join(" &middot; ")}</span>`; return; }
     const sym = String(val("f_symbol") || "").toUpperCase();
     const ab = acctBook();
-    const pos = ((ab && ab.positions) || []).find((p) => String(p.symbol).toUpperCase() === sym && p.position);
+    const identity = ticketDraft.fl_position;
+    const pos = ((ab && ab.positions) || []).find((p) => p.position
+      && String(p.symbol).toUpperCase() === sym
+      && (!identity || identity.account !== state.account || !identity.con_id
+        || Number(p.con_id) === Number(identity.con_id)));
     if (!pos) { el.innerHTML = `<span style="color:#ffc14d">No ${esc(sym || "?")} position in ${state.account}</span>`; return; }
     const held = Math.abs(pos.position);
     const qn = numOrNull("fl_qty");
@@ -973,7 +1039,8 @@ function updateReadout() {
     const rem = held - n;
     const close = pos.position > 0 ? "SELL" : "BUY";
     const typ = val("fl_type") || "MKT";
-    const parts = [`Position <b>${fmt.num(pos.position, 0)}</b> ${esc(sym)}`,
+    const displaySymbol = pos.sec_type === "CASH" ? `${sym}/${pos.currency || "USD"}` : sym;
+    const parts = [`Position <b>${fmt.num(pos.position, 0)}</b> ${esc(displaySymbol)}`,
                    `Close <b>${close} ${n}</b> ${typ === "LMT" ? `LMT @ <b>${numOrNull("fl_limit")}</b>` : "MKT"}`];
     if (document.getElementById("fl_rth") && document.getElementById("fl_rth").checked) parts.push(`<b style="color:#ffc14d">outside RTH</b>`);
     parts.push(`TIF <b>${val("fl_tif") || "DAY"}</b>`);
@@ -998,13 +1065,20 @@ function ticketPayload(t) {
     const p = { symbol: val("f_symbol"), order_type: typ,
                 tif: val("fl_tif") || "DAY",
                 outside_rth: !!(document.getElementById("fl_rth") && document.getElementById("fl_rth").checked) };
+    const identity = ticketDraft.fl_position;
+    if (identity && identity.account === state.account
+        && String(identity.symbol).toUpperCase() === String(p.symbol).toUpperCase()) {
+      Object.assign(p, identity);
+      delete p.account;
+    }
     if (qn != null) p.qty = qn; else p.fraction = Number(val("f_frac"));
     if (typ === "LMT") p.limit = numOrNull("fl_limit");
     return p;
   }
   const sec_type = val("f_sectype") || "STK";
   const fut_expiry = sec_type === "FUT" ? String(val("f_futexp") || "").replace(/\D/g, "") : null;
-  return { symbol: val("f_symbol"), sec_type, fut_expiry, action: val("f_action"), quantity: numOrNull("f_qty"),
+  const currency = sec_type === "CASH" ? String(val("f_currency") || "USD").toUpperCase() : "USD";
+  return { symbol: val("f_symbol"), sec_type, currency, fut_expiry, action: val("f_action"), quantity: numOrNull("f_qty"),
     entry: numOrNull("f_entry"), stop: numOrNull("f_stop"), target: numOrNull("f_target"),
     time_stop: val("f_timestop") || null, expiry: val("f_expiry") || null };
 }
@@ -1022,10 +1096,12 @@ function sendTicket() {
     if (warns.length) { if (msg) msg.textContent = "BLOCKED: " + warns.join("; "); return; }
   }
   if (t !== "echo") {
-    const inst = p.sec_type === "FUT" ? `${p.symbol} FUT ${p.fut_expiry}` : p.symbol;
+    const inst = p.sec_type === "FUT" ? `${p.symbol} FUT ${p.fut_expiry}`
+      : p.sec_type === "CASH" ? `${p.symbol}/${p.currency} FX` : p.symbol;
+    const closeUnit = p.sec_type === "CASH" ? ` ${p.symbol} units` : " sh";
     const summary = t === "entry_bracket"
       ? `${p.action} ${p.quantity} ${inst} @ ${p.entry} [${p.expiry ? "GTD " + p.expiry : "DAY"}] (stop ${p.stop}, ${p.target == null ? "NO TARGET" : "target " + p.target}${p.time_stop ? ", time " + p.time_stop : ""})`
-      : `close ${p.qty != null ? p.qty + " sh" : Math.round((p.fraction || 1) * 100) + "%"} of ${p.symbol} via ${p.order_type}` +
+      : `close ${p.qty != null ? p.qty + closeUnit : Math.round((p.fraction || 1) * 100) + "%"} of ${p.symbol}${p.sec_type === "CASH" ? "/" + (p.currency || "USD") : ""} via ${p.order_type}` +
         `${p.order_type === "LMT" ? " @ " + p.limit : ""}${p.outside_rth ? " OUTSIDE RTH" : ""} (${p.tif})` +
         `${p.qty != null || p.fraction < 1 ? " — remaining exits auto-resize" : ""}`;
     if (!confirm(`${actionLead(t === "entry_bracket" ? "place" : "flatten")} ${summary} on ${state.account}?`)) return;
