@@ -1,56 +1,56 @@
 {
   "date": "2026-07-23",
   "price_ctx": {
-    "price": 747.4099731445312,
-    "ret_12m": 0.2016847146574532,
-    "extension_200d": 0.07588681435056799,
-    "drawdown": -0.0134741372566759,
-    "sma_200": 694.6920095825195,
+    "price": 738.1799926757812,
+    "ret_12m": 0.17683288694928745,
+    "extension_200d": 0.06203114924965791,
+    "drawdown": -0.025657028537518944,
+    "sma_200": 695.0643521118164,
     "high_52w": 757.6182250976562,
     "regime_label": "Strong uptrend, moderately extended",
-    "days_since_5pct": 75,
-    "days_since_10pct": 311
+    "days_since_5pct": 76,
+    "days_since_10pct": 312
   },
   "h_scores": {
-    "5d": 19.194175268382317,
-    "21d": 42.989915306819505,
-    "63d": 50.76964585646832
+    "5d": 17.30294892351278,
+    "21d": 42.4547853219251,
+    "63d": 51.055010149402534
   },
   "signals": {
     "Distribution Dominance": {
       "on": false,
       "detail": "",
-      "summary": "D/A ratio: 1.7 (threshold: 3.75) \u2014 5D / 3A last 63d"
+      "summary": "D/A ratio: 2.0 (threshold: 3.75) \u2014 6D / 3A last 63d"
     },
     "VIX Range Compression": {
       "on": true,
-      "detail": "VIX 21d range at 12th percentile (threshold: 15th). VIX at 17.6 is compressed \u2014 eventual breakout tends to be violent.",
-      "summary": "21d range: 12th pctile (fires below 15th) \u2014 VIX at 17.6"
+      "detail": "VIX 21d range at 12th percentile (threshold: 15th). VIX at 18.7 is compressed \u2014 eventual breakout tends to be violent.",
+      "summary": "21d range: 12th pctile (fires below 15th) \u2014 VIX at 18.7"
     },
     "Defensive Leadership": {
       "on": false,
       "detail": "",
-      "summary": "50d spread: -21pp (fires < -10) | 200d spread: +4pp (fires < 0)"
+      "summary": "50d spread: -29pp (fires < -10) | 200d spread: -1pp (fires < 0)"
     },
     "Pre-FOMC Rally": {
       "on": false,
       "detail": "",
-      "summary": "Next FOMC: Jul 29 (7d away) \u2014 5d return: 23th pctile (fires above 75th)"
+      "summary": "Next FOMC: Jul 29 (6d away) \u2014 5d return: 16th pctile (fires above 75th)"
     },
     "Low Absorption Ratio": {
       "on": false,
       "detail": "",
-      "summary": "AR: 0.484 (52th pctile, fires below 10th) \u2014 near high: yes"
+      "summary": "AR: 0.484 (52th pctile, fires below 10th) \u2014 near high: no"
     },
     "Seasonal Rank Divergence": {
       "on": false,
       "detail": "",
-      "summary": "Spread: +9.7pp (fires above 10) \u2014 near high: yes"
+      "summary": "Spread: +11.0pp (fires above 10) \u2014 near high: no"
     },
     "Dispersion": {
       "on": false,
       "detail": "",
-      "summary": "Composite pctile: 87th (fires above 85th) \u2014 component RV: 35.0% | SPY RV: 11.7%"
+      "summary": "Composite pctile: 90th (fires above 85th) \u2014 component RV: 35.1% | SPY RV: 11.4%"
     }
   }
 }
