@@ -31,7 +31,6 @@ A quantitative equity trading platform built on Streamlit. Three pillars:
 │   ├── heatmaps.py                 # Market heatmap inspector
 │   ├── correlation_heatmaps.py     # Correlation analysis
 │   ├── macro_seasonality.py        # Macro seasonality (formerly sector_trends)
-│   ├── seasonal_sigs.py            # Seasonal signals
 │   └── user_input.py               # User input page
 ├── .github/workflows/              # GitHub Actions — see "Automated Pipeline" below
 │   ├── daily_screener.yml          # 2x/day unified scan — pre-market (08:47 UTC) and post-close (22:00 UTC) bookends, both --scope=all

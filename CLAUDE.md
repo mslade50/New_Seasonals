@@ -31,7 +31,6 @@ A quantitative equity trading platform built on Streamlit. Three pillars:
 │   ├── heatmaps.py                 # Market heatmap inspector
 │   ├── correlation_heatmaps.py     # Correlation analysis
 │   ├── macro_seasonality.py        # Macro seasonality (formerly sector_trends)
-│   ├── seasonal_sigs.py            # Seasonal signals
 │   └── user_input.py               # User input page
 ├── .github/workflows/              # GitHub Actions — see "Automated Pipeline" below
 │   ├── daily_screener.yml          # 2x/day unified scan — pre-market (08:47 UTC) and post-close (22:00 UTC) bookends, both --scope=all
@@ -845,26 +844,6 @@ strategies are untouched. Aligned sites (change together):
 - Regression coverage: `tests/test_olv_fill_window.py` (backtest engine);
   the live date math is validated by the entry-expire chain (daily_scan exit-date
   build ↔ order_staging back-computation, identical `CustomBusinessDay` calendar).
-
-## Seasonal Signals Page (pages/seasonal_sigs.py, rebuilt 2026-07-23)
-
-`scripts/seasonal_screen.py` writes `seasonal_screener_results.csv` (repo
-root, committed; first line is a `# as_of=YYYY-MM-DD` comment stamp) which
-the Streamlit page renders. Replaced the retired out-of-repo Dropbox
-screener (`Sublime_Misc/seasonal_screen.py`, dead since 2026-05-13 when its
-host machine stopped running it). Refreshed by a best-effort step in
-`daily_screener.yml` (runs after the scan, commits only on change — must
-never fail the scan). Three gates, all constants at the top of the script:
-1. Blended seasonal rank (`sznl_ranks.csv`, forward-dated through year-end)
-   >= 90 (bull) / <= 10 (bear) within the next 3 trading days.
-2. Win% gate: on >= 1 forward horizon (5d/21d), day-of-year-matched win rate
-   >= 60% in BOTH all-years AND cycle-years cohorts (bears: <= 40% in both;
-   min n: 10 all / 3 cycle). Stats via `seasonal_edge.seasonal_window_returns`.
-3. Overbought/oversold: ANY of the 5d/10d/21d trailing-return percentiles
-   < 15 (bull) / > 85 (bear) — relaxed from the old ALL-three rule ("Super"
-   label = all three still). CSV stamps `Win_Horizons` + `Trigger_Windows`.
-This is a DISPLAY-ONLY discretionary surface — it stages nothing and is
-separate from both the systematic book and the seasonal-ideas pipeline.
 
 ## Cloudflare R2 Cache + GHA Migration
 

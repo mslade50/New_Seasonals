@@ -34,7 +34,6 @@ def _is_cloud():
 # Pages visible everywhere (local + deployed web app).
 PUBLIC_PAGES = [
     st.Page("pages/user_input.py", title="Seasonality", default=True),
-    st.Page("pages/seasonal_sigs.py", title="Seasonal Signals"),
     st.Page("pages/macro_seasonality.py", title="Macro Seasonality"),
     st.Page("pages/equity_seasonals.py", title="Equity Seasonals"),
     st.Page("pages/macro_trend.py", title="Macro Trend"),
