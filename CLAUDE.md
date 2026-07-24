@@ -952,6 +952,19 @@ Cloudflare Pages project `seasonals-mslade`, locked behind Cloudflare Access
   `ideas.html`, `signals.html`, `charts.html` (per-trade chart gallery),
   `risk.html` + `assets/` (vanilla JS + Plotly CDN, no build step, no
   framework). `site/_headers` sets no-store on `/data/*`.
+- **Trade Log tab** (`tradelog.html` + `assets/tradelog.js`, 2026-07-24):
+  actual IBKR executions for BOTH accounts (Primary TWS + PA Gateway).
+  `book_snapshot.py` (OneDrive) appends today's fills (`ib.reqExecutions`)
+  to each account's book push; the broker DO strips them from the stored
+  book and folds them into per-day `fills:YYYY-MM-DD` storage keys —
+  upsert by `exec_id` (commission reports lag a beat), 14d retention,
+  500/day cap (DO 128 KiB per-value limit) — served at GET `/fills` and
+  proxied by `functions/exec-fills.js`. IBKR only serves the CURRENT day's
+  executions, so the DO ring IS the history: it accumulates from ship date
+  and loses any day the agent never ran. Page aggregates per order
+  (account+perm_id+side, VWAP) with a raw-fills toggle; strategy = 3rd pipe
+  field of orderRef (same contract as `daily_execution_report.py`).
+  Guard: `tests/test_tradelog_site.py`.
 - **Payload contract** (written by `scripts/build_site.py` into `dist/data/`):
   `meta.json`, `trades.json` (columnar full ledger), `strategy_daily.json`
   (per `Strategy||Tier` daily MTM PnL on the FLAT $750k basis + book totals),

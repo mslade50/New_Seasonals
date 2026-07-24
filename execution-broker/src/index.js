@@ -15,6 +15,7 @@
  *   GET  /status    heartbeat / online state    (Bearer STATUS_TOKEN)
  *   POST /command   {signed, sig} -> push to agent  (Bearer STATUS_TOKEN)
  *   GET  /commands  recent commands + results   (Bearer STATUS_TOKEN)
+ *   GET  /fills     accumulated executions ring (Bearer STATUS_TOKEN)
  *   GET  /health    plain liveness
  *
  * Deploy standalone (NOT part of the Pages site). See README.md.
@@ -24,6 +25,8 @@ import { DurableObject } from "cloudflare:workers";
 const BROKER_NAME = "main";          // single book -> single DO instance
 const HEARTBEAT_STALE_MS = 30_000;   // online iff a heartbeat landed within this
 const CMD_CAP = 50;                  // recent-command ring size (audit trail)
+const FILLS_RETENTION_DAYS = 14;     // Trade Log trailing window
+const FILLS_DAY_CAP = 500;           // per-day row cap (keeps each value < DO 128KiB limit)
 
 export class ExecBroker extends DurableObject {
   _authed(request, token) {
@@ -118,6 +121,17 @@ export class ExecBroker extends DurableObject {
       if (!this._authed(request, this.env.STATUS_TOKEN)) return new Response("unauthorized", { status: 401 });
       const book = (await this.ctx.storage.get("book")) || null;
       return Response.json({ book, server_now: Date.now() });
+    }
+
+    // --- Accumulated executions (Trade Log tab). IBKR only serves the current
+    //     day's fills, so the ring built by _mergeFills IS the history. ---
+    if (url.pathname === "/fills") {
+      if (!this._authed(request, this.env.STATUS_TOKEN)) return new Response("unauthorized", { status: 401 });
+      const days = await this.ctx.storage.list({ prefix: "fills:" });
+      const fills = [];
+      for (const v of days.values()) fills.push(...v);
+      fills.sort((a, b) => String(b.time || "").localeCompare(String(a.time || "")));
+      return Response.json({ fills, retention_days: FILLS_RETENTION_DAYS, server_now: Date.now() });
     }
 
     // --- Option spread query: POST kicks off a read-only chain fetch on the agent ---
@@ -228,10 +242,16 @@ export class ExecBroker extends DurableObject {
       return;
     }
 
-    // Live read-only book snapshot from the agent (positions / orders / NLV).
+    // Live read-only book snapshot from the agent (positions / orders / NLV
+    // + today's fills). Fills are folded into their own per-day ring and
+    // stripped from the stored book (keeps the "book" value small).
     if (msg.type === "book") {
-      await this.ctx.storage.put("book", { ...(msg.book || {}), at: msg.at || Date.now() });
+      const book = { ...(msg.book || {}), at: msg.at || Date.now() };
+      const accounts = (book.accounts || []).map(({ fills, ...rest }) => rest);
+      await this.ctx.storage.put("book", { ...book, accounts });
       await this.ctx.storage.put("last_seen", Date.now());
+      try { await this._mergeFills(book); }
+      catch (e) { await this.ctx.storage.put("last_error", `mergeFills: ${String((e && e.message) || e)}`); }
       return;
     }
 
@@ -289,6 +309,44 @@ export class ExecBroker extends DurableObject {
     }
   }
 
+  // Fold a book push's per-account fills into per-day storage keys
+  // ("fills:YYYY-MM-DD", UTC day of the fill time). Upsert by exec_id — the
+  // agent re-pushes the same day's fills every cycle, and commission reports
+  // lag the execution by a beat, so later pushes fill in commission/PnL.
+  // Day keys older than the retention window are pruned on every merge.
+  async _mergeFills(book) {
+    const incoming = [];
+    for (const acc of (book && book.accounts) || []) {
+      for (const f of acc.fills || []) {
+        if (f && f.exec_id) incoming.push({ ...f, account_key: acc.key, account_label: acc.label });
+      }
+    }
+    if (!incoming.length) return;
+    const now = Date.now();
+    const byDay = new Map();
+    for (const f of incoming) {
+      const t = Date.parse(f.time);
+      const day = new Date(Number.isFinite(t) ? t : now).toISOString().slice(0, 10);
+      if (!byDay.has(day)) byDay.set(day, []);
+      byDay.get(day).push(f);
+    }
+    for (const [day, dayFills] of byDay) {
+      const key = `fills:${day}`;
+      const ring = (await this.ctx.storage.get(key)) || [];
+      const byId = new Map(ring.map((f) => [f.exec_id, f]));
+      for (const f of dayFills) {
+        const prev = byId.get(f.exec_id);
+        byId.set(f.exec_id, { ...(prev || {}), ...f, ingested_at: prev ? prev.ingested_at : now });
+      }
+      await this.ctx.storage.put(key, [...byId.values()].slice(0, FILLS_DAY_CAP));
+    }
+    const cutoffDay = new Date(now - FILLS_RETENTION_DAYS * 86_400_000).toISOString().slice(0, 10);
+    const days = await this.ctx.storage.list({ prefix: "fills:" });
+    for (const key of days.keys()) {
+      if (key.slice("fills:".length) < cutoffDay) await this.ctx.storage.delete(key);
+    }
+  }
+
   async webSocketClose(ws, code, reason, wasClean) {
     await this.ctx.storage.put("disconnected_at", Date.now());
     try { ws.close(code, reason); } catch (_) { /* already closing */ }
@@ -299,7 +357,7 @@ export class ExecBroker extends DurableObject {
   }
 }
 
-const DO_PATHS = new Set(["/agent", "/status", "/command", "/commands", "/book", "/option", "/workbench", "/futures_size", "/futures_front"]);
+const DO_PATHS = new Set(["/agent", "/status", "/command", "/commands", "/book", "/fills", "/option", "/workbench", "/futures_size", "/futures_front"]);
 
 export default {
   async fetch(request, env) {

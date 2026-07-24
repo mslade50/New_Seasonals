@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>Trade Log — Seasonals</title>
+<link rel="stylesheet" href="assets/style.css">
+<script src="assets/common.js"></script>
+<script src="assets/tradelog.js"></script>
+</head>
+<body data-page="tradelog">
+<header class="topbar" id="topbar"></header>
+<div class="wrap">
+  <h1>Trade Log</h1>
+  <p class="sub">Actual IBKR executions for the Primary and PA accounts, accumulated day by day from the
+    live agent's book pushes. One row per order (partial fills are rolled up into a share-weighted average
+    price); the raw per-execution rows are behind the toggle. History builds forward from the day this
+    shipped — IBKR only serves the current day's fills, so past days come from the broker's ring.</p>
+  <div id="content"><div class="spin">Loading...</div></div>
+  <footer>Fills are read-only snapshots from book_snapshot.py; the broker only accumulates. See docs/site_execution_plan.md.</footer>
+</div>
+</body>
+</html>
