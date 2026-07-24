@@ -84,7 +84,9 @@ METHODOLOGY = (
     "(strict; 'borderline' is common and expected). Conviction (A/B/C) is driven by the realized cycle + all-years "
     "counts and magnitude. Seasonal tickets (2026-07-24 gates) require an extreme window-matched seasonal rank, "
     "win rates in BOTH cohorts (all-years >= 2/3, same-cycle years >= 60%), AND price stretched against the move "
-    "on the matching window (trailing return <= 15th %ile for longs / >= 85th for shorts). Near-miss is "
+    "on the matching window (trailing return <= 15th %ile for longs / >= 85th for shorts); they surface only when "
+    "the expected cycle-path turn is within T+5, max 5 tickets per direction per day (window tightens toward T+1 "
+    "on crowded days). Near-miss is "
     "negative-filtered against the live book so it never duplicates a systematic signal. 'midterm' stats are "
     "re-derived from raw prices filtered to year%4==2, since the blended seasonal rank collapses the cycle and "
     "cannot express it."
@@ -93,6 +95,14 @@ METHODOLOGY = (
 FDR_ALPHA = 0.10
 TOPN_PER_CHANNEL = 12
 STALE_TRADING_DAYS = 5
+
+# Path-timing surface rule (McKinley 2026-07-24): a ticket's expected
+# cycle-path turn must be within T+5 (entry_offset_days <= 4); when a
+# direction has more than TIMING_DIR_CAP tickets on a day, the window
+# tightens T+4 -> T+3 -> ... -> T+1 until the cap holds (longs and shorts
+# capped independently, not cumulatively).
+TIMING_MAX_OFFSET = 4   # 0-indexed: 4 == enter by T+5
+TIMING_DIR_CAP = 5
 
 
 # -----------------------------------------------------------------------------
@@ -247,6 +257,36 @@ def apply_fdr(candidates: list[dict], alpha: float = FDR_ALPHA) -> list[dict]:
     return candidates
 
 
+def timing_filter(candidates: list[dict],
+                  max_offset: int = TIMING_MAX_OFFSET,
+                  dir_cap: int = TIMING_DIR_CAP) -> list[dict]:
+    """Surface a path-timed ticket only when its expected cycle-path turn is
+    near: entry_offset_days <= max_offset (T+5). If a direction still carries
+    more than dir_cap tickets, tighten the window one day at a time
+    (T+4 -> T+3 -> ...); at T+1, any remaining excess is cut by sort_key.
+    Longs and shorts are capped independently. Candidates without a path
+    offset (context / non-seasonal channels) pass through untouched."""
+    timed = [c for c in candidates if "entry_offset_days" in c]
+    keep: set[int] = set()
+    for direction in ("long", "short"):
+        pool = [c for c in timed if c.get("direction") == direction]
+        thr = max_offset
+        sel = [c for c in pool if c["entry_offset_days"] <= thr]
+        while len(sel) > dir_cap and thr > 0:
+            thr -= 1
+            sel = [c for c in pool if c["entry_offset_days"] <= thr]
+        if len(sel) > dir_cap:
+            sel = sorted(sel, key=lambda c: -c.get("sort_key", 0.0))[:dir_cap]
+        if len(sel) < len(pool):
+            print(f"[timing-filter] {direction}: kept {len(sel)}/{len(pool)} "
+                  f"(window tightened to T+{thr + 1})")
+        keep.update(id(c) for c in sel)
+    kept = [c for c in candidates if "entry_offset_days" not in c or id(c) in keep]
+    print(f"[timing-filter] kept {len(kept)}/{len(candidates)} "
+          f"(path turn within T+{max_offset + 1}, cap {dir_cap}/direction)")
+    return kept
+
+
 def cap_per_channel(candidates: list[dict], n: int = TOPN_PER_CHANNEL) -> list[dict]:
     by_ch: dict[str, list] = {}
     for c in candidates:
@@ -291,8 +331,9 @@ def build(asof: pd.Timestamp, grades=("A", "B")) -> tuple[str, dict]:
         kept = [c for c in candidates if c.get("conviction") in grades]
         print(f"[grade-filter] showing {'+'.join(grades)} only: {len(kept)}/{len(candidates)} kept")
         candidates = kept
-    # nadir_filter retired 2026-07-24 — the extension gate in scan_seasonal_tickets
-    # (oversold/overbought into the window) now does the surfacing work.
+    # nadir_filter retired 2026-07-24 (same-day successor: timing_filter — the
+    # extension gate screens quality, this screens nearness of the cycle-path turn).
+    candidates = timing_filter(candidates)
     candidates = cap_per_channel(candidates)
 
     n_ideas = sum(1 for c in candidates if c["direction"] != "context")
