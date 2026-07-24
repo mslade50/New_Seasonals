@@ -535,7 +535,8 @@ MEGACAP_TICKERS = [
 MACRO_TICKERS = [
     "^GSPC", "^NDX", "^IXIC", "^DJI", "^DJT", "^RUT", "^MID", "^SOX", "GLD",
     "CEF", "SLV", "BTC-USD", "ETH-USD", "UNG", "UVXY", "EURUSD=X", "JPY=X",
-    "GBPUSD=X", "AUDUSD=X", "NZDUSD=X", "CAD=X", "CHF=X", "DX-Y.NYB", "CL=F",
+    "GBPUSD=X", "AUDUSD=X", "NZDUSD=X", "CAD=X", "CHF=X", "DX-Y.NYB",
+    "USDMXN=X", "USDBRL=X", "USDZAR=X", "USDTRY=X", "CL=F",
     "NG=F", "GC=F", "HG=F", "KC=F", "PL=F", "ZC=F", "ZW=F", "CC=F", "SB=F",
     "PA=F", "ZS=F", "CT=F", "SI=F", "^FTSE", "^GDAXI", "^FCHI", "^N225", "^HSI",
     "^STI", "^AXJO", "^KS11", "^TWII", "^BSESN", "^GSPTSE", "^MXX", "^BVSP",
