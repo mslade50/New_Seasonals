@@ -120,14 +120,24 @@ def plot_seasonal_paths(ticker, cycle_label, stats_row=None):
     # --- Stats Header ---
     if stats_row is not None:
         def get_val(col): return stats_row.get(col, np.nan)
-        st.caption(f"📊 **Historical {cycle_label} Stats (from Screener)**")
-        c1, c2, c3, c4, c5, c6 = st.columns(6)
-        c1.metric("5d Avg", f"{get_val('Seas_Cyc_Avg_5d'):.2f}%")
-        c2.metric("5d Med", f"{get_val('Seas_Cyc_Med_5d'):.2f}%")
-        c3.metric("5d Win%", f"{get_val('Seas_Cyc_Win_5d'):.0f}%")
-        c4.metric("21d Avg", f"{get_val('Seas_Cyc_Avg_21d'):.2f}%")
-        c5.metric("21d Med", f"{get_val('Seas_Cyc_Med_21d'):.2f}%")
-        c6.metric("21d Win%", f"{get_val('Seas_Cyc_Win_21d'):.0f}%")
+
+        def metric_row(prefix, label):
+            st.caption(label)
+            c1, c2, c3, c4, c5, c6 = st.columns(6)
+            c1.metric("5d Avg", f"{get_val(f'{prefix}_Avg_5d'):.2f}%")
+            c2.metric("5d Med", f"{get_val(f'{prefix}_Med_5d'):.2f}%")
+            c3.metric("5d Win%", f"{get_val(f'{prefix}_Win_5d'):.0f}%")
+            c4.metric("21d Avg", f"{get_val(f'{prefix}_Avg_21d'):.2f}%")
+            c5.metric("21d Med", f"{get_val(f'{prefix}_Med_21d'):.2f}%")
+            c6.metric("21d Win%", f"{get_val(f'{prefix}_Win_21d'):.0f}%")
+
+        st.caption("📊 **Historical Window Stats (from Screener)**")
+        n_c5, n_c21 = get_val('Seas_Cyc_N_5d'), get_val('Seas_Cyc_N_21d')
+        n_a5, n_a21 = get_val('Seas_All_N_5d'), get_val('Seas_All_N_21d')
+        cyc_n = f" — n: {n_c5:.0f} (5d) / {n_c21:.0f} (21d)" if pd.notna(n_c5) else ""
+        all_n = f" — n: {n_a5:.0f} (5d) / {n_a21:.0f} (21d)" if pd.notna(n_a5) else ""
+        metric_row("Seas_Cyc", f"**Cycle ({cycle_label})**{cyc_n}")
+        metric_row("Seas_All", f"**All Years**{all_n}")
 
     st.subheader(f"📈 {ticker} Seasonal Average Path: {cycle_label}")
     
@@ -370,40 +380,63 @@ def plot_candlestick_and_mas(ticker, stats_row=None):
 # MAIN
 # -----------------------------------------------------------------------------
 
+def read_screener_results():
+    """Screener CSV + the '# as_of=YYYY-MM-DD' stamp scripts/seasonal_screen.py writes."""
+    as_of = None
+    try:
+        with open(CSV_FILE_PATH, "r", encoding="utf-8") as f:
+            first = f.readline().strip()
+        if first.startswith("# as_of="):
+            as_of = first.split("=", 1)[1]
+    except Exception:
+        pass
+    df = pd.read_csv(CSV_FILE_PATH, comment="#")
+    return df, as_of
+
+
 def seasonal_signals_page():
     st.set_page_config(layout="wide", page_title="Seasonal Signals")
     st.title("💡 Seasonal Signals")
 
     # --- NEW: Display the Rank Table at the top ---
     display_spx_rank_table()
-    st.markdown("---") 
+    st.markdown("---")
     # ----------------------------------------------
-    
+
     if not os.path.exists(CSV_FILE_PATH):
         st.error(f"File '{CSV_FILE_PATH}' not found.")
         return
 
-    df_screener = pd.read_csv(CSV_FILE_PATH)
-    st.set_page_config(layout="wide", page_title="Seasonal Signals")
-    st.title("💡 Seasonal Signals")
-    
-    if not os.path.exists(CSV_FILE_PATH):
-        st.error(f"File '{CSV_FILE_PATH}' not found.")
-        return
-
-    df_screener = pd.read_csv(CSV_FILE_PATH)
-    if df_screener.empty: return
-    
-    unique_tickers = df_screener['Ticker'].unique()
+    df_screener, as_of = read_screener_results()
     current_cycle = get_current_presidential_cycle()
-    
-    st.info(f"Loaded {len(unique_tickers)} tickers. Current Cycle: {current_cycle}")
+    as_of_label = f" (screen as of {as_of})" if as_of else ""
+
+    st.caption(
+        "Gates: blended seasonal rank ≥90 / ≤10 within 3 trading days, "
+        "win% ≥60 in BOTH cycle and all years on ≥1 horizon (bears ≤40), "
+        "and any 5/10/21d return percentile <15 (bull) / >85 (bear)."
+    )
+
+    if df_screener.empty:
+        st.success(f"No qualifying seasonal signals{as_of_label}.")
+        return
+
+    unique_tickers = df_screener['Ticker'].unique()
+    st.info(f"Loaded {len(unique_tickers)} tickers{as_of_label}. Current Cycle: {current_cycle}")
 
     for ticker in unique_tickers:
         ticker = ticker.upper()
         row = df_screener[df_screener['Ticker'] == ticker].iloc[0]
-        st.markdown(f"## {ticker} | Screened: {row.get('Type', 'N/A')} | Cycle: {current_cycle}")
-        
+        extras = []
+        if pd.notna(row.get('Seas_Score')):
+            extras.append(f"Seas rank: {row['Seas_Score']}")
+        if row.get('Win_Horizons'):
+            extras.append(f"Win gate: {row['Win_Horizons']}")
+        if row.get('Trigger_Windows'):
+            extras.append(f"OB/OS windows: {row['Trigger_Windows']}")
+        extra_str = (" | " + " | ".join(extras)) if extras else ""
+        st.markdown(f"## {ticker} | Screened: {row.get('Type', 'N/A')} | Cycle: {current_cycle}{extra_str}")
+
         try:
             with st.container(): plot_seasonal_paths(ticker, current_cycle, stats_row=row)
         except Exception as e: st.error(str(e))

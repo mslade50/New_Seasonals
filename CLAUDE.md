@@ -846,6 +846,26 @@ strategies are untouched. Aligned sites (change together):
   the live date math is validated by the entry-expire chain (daily_scan exit-date
   build ↔ order_staging back-computation, identical `CustomBusinessDay` calendar).
 
+## Seasonal Signals Page (pages/seasonal_sigs.py, rebuilt 2026-07-23)
+
+`scripts/seasonal_screen.py` writes `seasonal_screener_results.csv` (repo
+root, committed; first line is a `# as_of=YYYY-MM-DD` comment stamp) which
+the Streamlit page renders. Replaced the retired out-of-repo Dropbox
+screener (`Sublime_Misc/seasonal_screen.py`, dead since 2026-05-13 when its
+host machine stopped running it). Refreshed by a best-effort step in
+`daily_screener.yml` (runs after the scan, commits only on change — must
+never fail the scan). Three gates, all constants at the top of the script:
+1. Blended seasonal rank (`sznl_ranks.csv`, forward-dated through year-end)
+   >= 90 (bull) / <= 10 (bear) within the next 3 trading days.
+2. Win% gate: on >= 1 forward horizon (5d/21d), day-of-year-matched win rate
+   >= 60% in BOTH all-years AND cycle-years cohorts (bears: <= 40% in both;
+   min n: 10 all / 3 cycle). Stats via `seasonal_edge.seasonal_window_returns`.
+3. Overbought/oversold: ANY of the 5d/10d/21d trailing-return percentiles
+   < 15 (bull) / > 85 (bear) — relaxed from the old ALL-three rule ("Super"
+   label = all three still). CSV stamps `Win_Horizons` + `Trigger_Windows`.
+This is a DISPLAY-ONLY discretionary surface — it stages nothing and is
+separate from both the systematic book and the seasonal-ideas pipeline.
+
 ## Cloudflare R2 Cache + GHA Migration
 
 As of 2026-04-30, the nightly pipeline runs entirely in GitHub Actions. The local Task Scheduler retains the radar tasks plus (as of 2026-05-13) two AM `workflow_dispatch` triggers that bypass GitHub's congested 8-9 UTC cron-queue lag. R2 is the persistence layer that lets cloud workflows share parquet caches.

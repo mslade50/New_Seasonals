@@ -153,6 +153,30 @@ jobs:
             fi
           fi
 
+      - name: Refresh Seasonal Signals page feed (best effort)
+        # scripts/seasonal_screen.py -> seasonal_screener_results.csv, rendered
+        # by pages/seasonal_sigs.py. Replaced the retired Dropbox screener
+        # (2026-07-23). Uses the caches pulled above; commits only on change.
+        # Best effort by design: a failure here must never fail the scan run.
+        if: always()
+        continue-on-error: true
+        run: |
+          python scripts/seasonal_screen.py
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add seasonal_screener_results.csv
+          if git diff --cached --quiet; then
+            echo "No seasonal screener change to commit."
+          else
+            git commit -m "seasonal screen: $(date -u +'%Y-%m-%d %H:%M UTC')"
+            for attempt in 1 2 3; do
+              git pull --rebase origin main || true
+              if git push; then break; fi
+              echo "push attempt $attempt rejected; retrying."
+              sleep 5
+            done
+          fi
+
   deploy-site:
     # Tail of the pipeline: rebuild + deploy the private analytics site in the
     # SAME run, only after the scanner job succeeds. Replaces the old
