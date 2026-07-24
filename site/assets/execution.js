@@ -127,7 +127,7 @@ function shell() {
 
     <div class="card" style="max-width:760px;margin-top:18px">
       <div style="font:700 14px inherit;margin-bottom:4px">New order</div>
-      <p class="cap" style="margin:0 0 10px">Bracket: stock, futures, or USD-pair FX entry limit + stop + target, plus an optional <b>time stop</b> (closes at market 15:59 ET on that date) and <b>entry expiry</b> (the entry order is DAY unless you set a date &mdash; then GTD to that date's close). FX quantity is in base-currency units, routes to IDEALPRO, and has no hard notional ceiling; the required-stop risk guard remains active. Flatten: close by <b>shares/units</b> or fraction, <b>MKT</b> or a resting <b>LMT</b> (check Outside RTH for pre/post-market); a partial close auto-resizes the remaining stop/target. Submits per the mode banner above &mdash; live when armed.</p>
+      <p class="cap" style="margin:0 0 10px">Bracket: stock, futures, or USD-pair FX entry limit + stop + target, plus an optional <b>time stop</b> (closes at market 15:59 ET on that date) and <b>entry expiry</b> (the entry order is DAY unless you set a date &mdash; then GTD to that date's close). FX quantity is in base-currency units, routes to IDEALPRO, and has no hard notional ceiling; the required-stop risk guard remains active. Flatten: close by <b>shares/units</b> or fraction, <b>MKT</b> or a resting <b>LMT</b> (check Outside RTH for pre/post-market); a partial close auto-resizes the remaining exits. Add/re-add accepts either a visible price stop or scheduled market time stop. Submits per the mode banner above &mdash; live when armed.</p>
       <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:8px">
         <label class="cap">Type</label>
         <select id="cmdType">
@@ -230,7 +230,7 @@ function syncMutationControls() {
     control.disabled = blocked || staticBlocked;
     control.setAttribute("aria-disabled", String(blocked || staticBlocked));
     if (blocked) control.title = "Disabled until the agent is online and a fresh book confirms execution mode";
-    else if (staticBlocked) control.title = "Requires a visible working closing stop";
+    else if (staticBlocked) control.title = "Requires a visible price stop or scheduled time stop";
     else if (!staticBlocked && control.title && control.title.startsWith("Disabled until")) control.removeAttribute("title");
   });
 }
@@ -303,13 +303,16 @@ function samePositionContract(p, o) {
     && (!p.currency || !o.currency || String(p.currency).toUpperCase() === String(o.currency).toUpperCase())
     && (!p.expiry || !o.expiry || String(o.expiry).startsWith(String(p.expiry)));
 }
-function hasVisibleClosingStop(p) {
+function hasVisibleProtectiveExit(p) {
   const ab = acctBook();
   const close = Number(p.position) > 0 ? "SELL" : "BUY";
-  return ((ab && ab.orders) || []).some((o) => samePositionContract(p, o)
-    && String(o.action || "").toUpperCase() === close
-    && String(o.order_type || "").toUpperCase() === "STP"
-    && Number(o.aux) > 0);
+  return ((ab && ab.orders) || []).some((o) => {
+    if (!samePositionContract(p, o)
+        || String(o.action || "").toUpperCase() !== close) return false;
+    const typ = String(o.order_type || "").toUpperCase();
+    return (typ === "STP" && Number(o.aux) > 0)
+      || (typ === "MKT" && Boolean(o.good_after));
+  });
 }
 function renderPositions() {
   const ab = acctBook();
@@ -334,17 +337,17 @@ function renderPositions() {
     }
     // OPT rows: no Flatten/Trim — a symbol-scoped MKT close would tear one leg
     // out of a spread. Close via a closing combo ticket (later phase) or TWS.
-    const hasStop = hasVisibleClosingStop(p);
+    const hasProtection = hasVisibleProtectiveExit(p);
     const readdOn = readdRows.get(positionKey(p)) === true;
-    const noStop = ' disabled data-static-disabled="true" title="Requires a visible working closing stop"';
+    const noProtection = ' disabled data-static-disabled="true" title="Requires a visible price stop or scheduled time stop"';
     const actions = p.sec_type === "OPT"
       ? '<span class="cap">combo — close via TWS</span>'
       : p.sec_type === "STK"
         ? `<button class="btn xs" data-mutation onclick='execFlatten(${posJson(p)},1)'>Flatten</button>
-          <button class="btn xs ghost" data-mutation${readdOn && !hasStop ? noStop : ""} onclick='execTrim(${posJson(p)})'>Trim&frac12;</button>
-          <button class="btn xs ${readdOn ? "" : "ghost"}"${hasStop ? "" : noStop} onclick='execToggleReadd(${posJson(p)})'>Re-add ${readdOn ? "on" : "off"}</button>
-          <button class="btn xs ghost" data-mutation${hasStop ? "" : noStop} onclick='execAddToPosition(${posJson(p)},0.5)'>Add&frac12;</button>
-          <button class="btn xs ghost" data-mutation${hasStop ? "" : noStop} onclick='execAddToPosition(${posJson(p)},1)'>Add 1x</button>
+          <button class="btn xs ghost" data-mutation${readdOn && !hasProtection ? noProtection : ""} onclick='execTrim(${posJson(p)})'>Trim&frac12;</button>
+          <button class="btn xs ${readdOn ? "" : "ghost"}"${hasProtection ? "" : noProtection} onclick='execToggleReadd(${posJson(p)})'>Re-add ${readdOn ? "on" : "off"}</button>
+          <button class="btn xs ghost" data-mutation${hasProtection ? "" : noProtection} onclick='execAddToPosition(${posJson(p)},0.5)'>Add&frac12;</button>
+          <button class="btn xs ghost" data-mutation${hasProtection ? "" : noProtection} onclick='execAddToPosition(${posJson(p)},1)'>Add 1x</button>
           <button class="btn xs ghost" onclick='execSellTicket(${posJson(p)})' title="Prefill the close ticket: shares / LMT / outside RTH">Close&hellip;</button>`
         : `<button class="btn xs" data-mutation onclick='execFlatten(${posJson(p)},1)'>Flatten</button>
           <button class="btn xs ghost" data-mutation onclick='execFlatten(${posJson(p)},0.5)'>Trim&frac12;</button>
@@ -663,7 +666,7 @@ function execFlatten(pos, fraction) {
   sendCommand("flatten", { ...positionIdentity(pos), fraction, order_type: "MKT" });
 }
 function execToggleReadd(pos) {
-  if (!hasVisibleClosingStop(pos)) return;
+  if (!hasVisibleProtectiveExit(pos)) return;
   const key = positionKey(pos);
   readdRows.set(key, readdRows.get(key) !== true);
   set("positions", renderPositions());
@@ -675,8 +678,8 @@ function execTrim(pos) {
     return;
   }
   if (rejectUnknownMutation()) return;
-  if (!hasVisibleClosingStop(pos)) {
-    alert("Re-add requires a visible working closing stop. Refresh the book or manage the position in TWS.");
+  if (!hasVisibleProtectiveExit(pos)) {
+    alert("Re-add requires a visible price stop or scheduled time stop. Refresh the book or manage the position in TWS.");
     return;
   }
   const held = Math.abs(Number(pos.position));
@@ -694,8 +697,8 @@ function execTrim(pos) {
 }
 function execAddToPosition(pos, fraction) {
   if (rejectUnknownMutation()) return;
-  if (!hasVisibleClosingStop(pos)) {
-    alert("Add requires a visible working closing stop. Refresh the book or manage the position in TWS.");
+  if (!hasVisibleProtectiveExit(pos)) {
+    alert("Add requires a visible price stop or scheduled time stop. Refresh the book or manage the position in TWS.");
     return;
   }
   const qty = fastActionQty(pos.position, fraction);

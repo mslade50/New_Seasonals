@@ -141,7 +141,8 @@ direction. Preserve, per leg:
 - owning client ID and permanent order ID for cancellation/modification.
 
 Fail before changing anything if a leg type or value cannot be represented
-faithfully. Require at least one working price-stop leg for both new fast actions.
+faithfully. Require at least one working protective exit for both new fast
+actions: either a readable price-stop leg or a scheduled MKT time-stop leg.
 
 For laddered brackets, do not set every cloned leg to the full position size.
 Preserve each OCA rung's allocation ratio. Within one OCA group, all redundant
@@ -153,7 +154,7 @@ equal the position quantity. Reject ambiguous bracket topologies.
 1. Match exactly one live position by symbol, security type, and expiry/conId.
 2. Reject options initially; a symbol-scoped action can tear apart a spread.
 3. Verify `expected_position`, partial quantity, live gates, average cost, and a
-   cloneable working price-stop bracket.
+   cloneable working bracket containing a price stop or scheduled time stop.
 4. Capture the closing exit legs before cancelling anything.
 5. Cancel captured closing exits through their owning client IDs and confirm
    they are gone. Leave unrelated same-direction entry orders alone only if that
@@ -207,8 +208,9 @@ In each eligible stock-position row, add compact controls:
 - `Add 1/2`;
 - `Add 1x`.
 
-Disable re-add/add controls when no closing STP is visible. Keep the agent-side
-check authoritative because the browser book can be stale.
+Disable re-add/add controls when neither a closing STP nor a scheduled closing
+MKT time stop is visible. Keep the agent-side check authoritative because the
+browser book can be stale.
 
 Confirmations must state the exact account, side, quantity, order style, average
 cost used for re-add, expected post-action quantity, and that the bracket will be
