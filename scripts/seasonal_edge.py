@@ -835,7 +835,8 @@ def _seasonal_candidate(channel, t, px, asof, h, direction, blend, ticket, rk, b
         entry_off = 0
     ev["entry timing"] = (
         f"enter T+{entry_off + 1} (expected path {'nadir' if direction == 'long' else 'peak'} day)"
-        if entry_off > 0 else "enter T+1 (path bottoms day 1)")
+        if entry_off > 0 else
+        f"enter T+1 (path {'bottoms' if direction == 'long' else 'peaks'} day 1)")
 
     notes = None
     if blend["disagree"]:

@@ -15,8 +15,10 @@
 
 document.addEventListener("DOMContentLoaded", initSeasonal);
 
-// evidence rows intentionally hidden on the board
-const HIDE_EV = new Set(["TICKET", "binomial p (all-yrs)", "entry timing"]);
+// evidence rows intentionally hidden on the board ("entry timing" unhidden
+// 2026-07-24: with the nadir surface filter retired, the expected path
+// peak/nadir day is context the card should show, not a gate)
+const HIDE_EV = new Set(["TICKET", "binomial p (all-yrs)"]);
 
 const WINDOWS = [[5, 1.0], [10, 1.3], [21, 1.6]];   // [hold td, stop ATR mult]
 const RISK_BPS = 30;
