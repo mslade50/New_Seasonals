@@ -33,7 +33,14 @@ existing `sznl_entry.build_orders` / `sznl_exit.build_orders` / `read_book`).
   "outside_rth":false,"stop_outside_rth":null,"timestop_outside_rth":null }
 ```
 Validation (mirrors `validate_config`): BUY → `stop < entry < target`; SELL inverted;
-`time_stop < bracket_gtd`; `parent_fill_by` in the future.
+`time_stop < bracket_gtd`; `parent_fill_by` in the future. `sec_type:"CASH"`
+uses `symbol` as the base currency and `currency` as the quote currency
+(`NZD` + `USD` = `NZD/USD`), routes to IBKR IDEALPRO, and sizes in whole
+base-currency units. Initial FX support requires one leg to be USD so notional
+and stop risk can be normalized to USD. CASH/FX entries have no hard notional
+ceiling, but still require a protective stop and remain subject to the
+account-NLV risk guard. CASH entry,
+stop, and target prices are snapped to IBKR's live contract tick.
 
 ### `exit_attach`  (← sznl_exit.py)
 ```json
@@ -48,7 +55,7 @@ one OCA group per rung. `targets` allocations: all-fractional (0,1) or all-absol
 
 ### `flatten`  (quick close — Positions-row button or the Close ticket)
 ```json
-{ "symbol":"USO","sec_type":"STK","expiry":null,
+{ "symbol":"USO","sec_type":"STK","currency":"USD","con_id":123,"expiry":null,
   "fraction":1.0,            // or "qty": N (whole shares; REJECTED above held, never clamped)
   "order_type":"MKT|LMT","limit":null,"tif":"DAY|GTC",
   "outside_rth":false }
