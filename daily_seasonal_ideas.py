@@ -82,9 +82,12 @@ METHODOLOGY = (
     "for THIS calendar window - a selected, descriptive stat (post-selection optimistic), not an out-of-sample "
     "guarantee. FDR badge = Benjamini-Hochberg multiplicity control across the day's statistical candidates "
     "(strict; 'borderline' is common and expected). Conviction (A/B/C) is driven by the realized cycle + all-years "
-    "counts and magnitude. Near-miss is negative-filtered against the live book so it never duplicates a systematic "
-    "signal. 'midterm' stats are re-derived from raw prices filtered to year%4==2, since the blended seasonal rank "
-    "collapses the cycle and cannot express it."
+    "counts and magnitude. Seasonal tickets (2026-07-24 gates) require an extreme window-matched seasonal rank, "
+    "win rates in BOTH cohorts (all-years >= 2/3, same-cycle years >= 60%), AND price stretched against the move "
+    "on the matching window (trailing return <= 15th %ile for longs / >= 85th for shorts). Near-miss is "
+    "negative-filtered against the live book so it never duplicates a systematic signal. 'midterm' stats are "
+    "re-derived from raw prices filtered to year%4==2, since the blended seasonal rank collapses the cycle and "
+    "cannot express it."
 )
 
 FDR_ALPHA = 0.10
@@ -256,10 +259,17 @@ def cap_per_channel(candidates: list[dict], n: int = TOPN_PER_CHANNEL) -> list[d
 
 
 def nadir_filter(candidates: list[dict]) -> list[dict]:
-    """Surface a seasonal/cross-asset ticket only on the session BEFORE its
-    expected nadir/peak — i.e. when the ATR path bottoms on the very NEXT session
-    (entry_offset_days == 0). Candidates with no path offset (context / non-seasonal
-    channels) pass through untouched."""
+    """RETIRED 2026-07-24 (no caller): the extension gate in
+    scan_seasonal_tickets (oversold into longs / overbought into shorts on the
+    matching window) replaced path-timing surfacing — day-to-day output was
+    driven by nadir-timing quirks and felt random. entry_offset_days is still
+    stamped and displayed; backtest_seasonal_ideas keeps using it for the
+    delayed-entry mode independently of this filter.
+
+    Original behavior: surface a seasonal/cross-asset ticket only on the session
+    BEFORE its expected nadir/peak — i.e. when the ATR path bottoms on the very
+    NEXT session (entry_offset_days == 0). Candidates with no path offset
+    (context / non-seasonal channels) pass through untouched."""
     kept = [c for c in candidates
             if "entry_offset_days" not in c or c.get("entry_offset_days") == 0]
     dropped = len(candidates) - len(kept)
@@ -268,7 +278,7 @@ def nadir_filter(candidates: list[dict]) -> list[dict]:
 
 
 # -----------------------------------------------------------------------------
-def build(asof: pd.Timestamp, grades=("A",)) -> tuple[str, dict]:
+def build(asof: pd.Timestamp, grades=("A", "B")) -> tuple[str, dict]:
     regime = load_regime(asof)
     ctx = {"asof": asof, "regime": regime, "min_rr": 2.0, "universe": list(IDEA_UNIVERSE)}
     print(f"[regime] {regime.get('summary')}")
@@ -281,7 +291,8 @@ def build(asof: pd.Timestamp, grades=("A",)) -> tuple[str, dict]:
         kept = [c for c in candidates if c.get("conviction") in grades]
         print(f"[grade-filter] showing {'+'.join(grades)} only: {len(kept)}/{len(candidates)} kept")
         candidates = kept
-    candidates = nadir_filter(candidates)
+    # nadir_filter retired 2026-07-24 — the extension gate in scan_seasonal_tickets
+    # (oversold/overbought into the window) now does the surfacing work.
     candidates = cap_per_channel(candidates)
 
     n_ideas = sum(1 for c in candidates if c["direction"] != "context")
@@ -312,7 +323,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--asof", default=None, help="override as-of date (YYYY-MM-DD)")
     ap.add_argument("--stdout", action="store_true", help="print markdown to stdout instead of writing")
-    ap.add_argument("--grades", default="A", help="conviction grades to show, e.g. A / AB / ABC; 'all' for no filter")
+    ap.add_argument("--grades", default="AB", help="conviction grades to show, e.g. A / AB / ABC; 'all' for no filter")
     args = ap.parse_args()
 
     grades = None if args.grades.lower() == "all" else tuple(args.grades.upper())

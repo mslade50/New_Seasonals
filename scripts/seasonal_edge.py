@@ -589,6 +589,24 @@ def expected_atr_move(price_df, asof, forward_window, cycle_phase_filter=None,
     return float(v.mean())
 
 
+def trailing_return_pctile(price_df, window: int, asof=None) -> float | None:
+    """Percentile (0-100) of the trailing `window`-day return vs the name's own
+    full history up to `asof`. Feeds the extension gate: 'oversold/overbought
+    into the seasonal window' is judged on the SAME window the seasonal rank is
+    extreme on. Full-sample rank of the last value (the screener convention)."""
+    if price_df is None or price_df.empty:
+        return None
+    close = price_df["Close"].dropna().sort_index()
+    if asof is not None:
+        close = close[close.index <= pd.Timestamp(asof).normalize()]
+    if len(close) < window + 60:
+        return None
+    ret = close.pct_change(window).dropna()
+    if ret.empty:
+        return None
+    return float(ret.rank(pct=True).iloc[-1] * 100)
+
+
 def build_trade_ticket(price_df, asof, direction, forward_window, expected_move_atr,
                        *, min_rr: float = 2.0, min_stop_atr: float = 0.8,
                        swing_lookback: int = 20) -> dict | None:
@@ -749,7 +767,8 @@ def _grade_2x2(cyc_leg: str, all_leg: str, disagree: bool) -> str:
     return "C"
 
 
-def _seasonal_candidate(channel, t, px, asof, h, direction, blend, ticket, rk, bucket):
+def _seasonal_candidate(channel, t, px, asof, h, direction, blend, ticket, rk, bucket,
+                        ext_pct=None):
     """Build one ticketed candidate from a confirmed (direction, horizon). Sizing
     and screening are 75/25 cycle-blended; both the cycle and all-years realized
     counts are shown, and a sign-conflict between them is flagged."""
@@ -792,6 +811,9 @@ def _seasonal_candidate(channel, t, px, asof, h, direction, blend, ticket, rk, b
         "rank": f"atr_sznl_{h}d = {rk:.0f}",
         "binomial p (all-yrs)": f"{binom_p:.3f}" if np.isfinite(binom_p) else "n/a",
     }
+    if ext_pct is not None:
+        stretched = "oversold" if direction == "long" else "overbought"
+        ev["extension"] = f"{h}d return at {ext_pct:.0f}th %ile - {stretched} into the window"
     # Expected seasonal-path entry timing: the day the average prior-years path
     # bottoms (long) / peaks (short). Enter there instead of T+1. Best-effort —
     # a failure or short history just leaves the default T+1. Displayed only for
@@ -831,6 +853,8 @@ def scan_seasonal_tickets(universe, asof, channel, *, min_rr: float = 2.0,
                           horizons=(5, 10, 21), short_thr: float = 15,
                           long_thr: float = 85, min_dollar_vol: float = 5e6,
                           cycle_blend: float = 0.75, min_all_hit: float = 0.667,
+                          min_cyc_hit: float = 0.60, min_cyc_n: int = 3,
+                          ext_low: float = 15.0, ext_high: float = 85.0,
                           max_rank_age_days: int = 10) -> list:
     """Scan `universe` across `horizons`; emit swing tickets (R/R >= min_rr).
 
@@ -839,7 +863,18 @@ def scan_seasonal_tickets(universe, asof, channel, *, min_rr: float = 2.0,
     buckets. Within a bucket the horizon with the best R/R wins, ties broken
     toward the SHORTER window (so a tight tactical setup is not buried by a
     larger-but-sprawling long-horizon move). Names whose seasonal move is too
-    small to clear the R/R bar at any horizon are dropped."""
+    small to clear the R/R bar at any horizon are dropped.
+
+    2026-07-24 gate redesign (McKinley): a ticket must ALSO clear
+    - an explicit cycle-cohort win gate: >= min_cyc_hit directional hit rate
+      over >= min_cyc_n same-cycle prior years (fail-closed when the cycle
+      sample is too thin) - the all-years >= min_all_hit gate is unchanged, so
+      win rate is now demanded in BOTH cohorts, and
+    - an extension gate: the trailing `h`-day return percentile (vs the name's
+      own history) must sit <= ext_low for longs (oversold into a bullish
+      window) or >= ext_high for shorts (overbought into a bearish window).
+    The extension gate replaced the daily_seasonal_ideas nadir-timing surface
+    filter - entry timing is stamped for display but no longer gates."""
     asof = pd.Timestamp(asof).normalize()
     cs = seasonal_cross_section(asof=asof, ranks=ranks)
     # Staleness gate: seasonal_cross_section carries each ticker's last-known row
@@ -899,6 +934,25 @@ def scan_seasonal_tickets(universe, asof, channel, *, min_rr: float = 2.0,
                 _n = _s_all.get("n", 0)
                 if not _n or (_ndir / _n) < min_all_hit:
                     continue
+                # Cycle-cohort win gate (2026-07-24): the blend alone let a weak
+                # cycle ride a strong all-years sample. Demand the hit rate in
+                # the SAME-cycle years too; fail closed on a too-thin cycle.
+                _s_cyc = blend["cyc"]
+                if not blend["cyc_ok"] or _s_cyc.get("n", 0) < min_cyc_n:
+                    continue
+                _ndir_c = _s_cyc["n_down"] if direction == "short" else _s_cyc["n_up"]
+                if (_ndir_c / _s_cyc["n"]) < min_cyc_hit:
+                    continue
+                # Extension gate (2026-07-24): only surface a name stretched
+                # AGAINST the seasonal move on the matching window - oversold
+                # into a bullish window, overbought into a bearish one.
+                ext_pct = trailing_return_pctile(px, h, asof)
+                if ext_pct is None:
+                    continue
+                if direction == "long" and ext_pct > ext_low:
+                    continue
+                if direction == "short" and ext_pct < ext_high:
+                    continue
                 ea = blend["ea"]
                 if ea is None:
                     continue
@@ -909,7 +963,7 @@ def scan_seasonal_tickets(universe, asof, channel, *, min_rr: float = 2.0,
                 if ticket is None or not ticket["is_ticket"]:
                     continue  # swing tickets only
                 quals.append({"h": h, "direction": direction, "blend": blend,
-                              "ticket": ticket, "rk": rk})
+                              "ticket": ticket, "rk": rk, "ext_pct": ext_pct})
         if not quals:
             continue
 
@@ -920,7 +974,8 @@ def scan_seasonal_tickets(universe, asof, channel, *, min_rr: float = 2.0,
                 continue
             q = sorted(bucket, key=lambda x: (-x["ticket"]["rr"], x["h"]))[0]
             out.append(_seasonal_candidate(channel, t, px, asof, q["h"], q["direction"],
-                                           q["blend"], q["ticket"], q["rk"], bucket_name))
+                                           q["blend"], q["ticket"], q["rk"], bucket_name,
+                                           ext_pct=q["ext_pct"]))
     return out
 
 
