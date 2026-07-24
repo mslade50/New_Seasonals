@@ -97,6 +97,14 @@ jobs:
         continue-on-error: true
         env:
           OVERFLOW_UNIVERSE_ACTIVE: "0"
+          # R2 creds so the forward track-record ledger syncs: without them
+          # seasonal_ideas_ledger starts empty each run and never uploads, so
+          # the out-of-sample log of emitted tickets silently failed to
+          # accumulate from GHA (found 2026-07-24: "total 1" every run).
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
         run: python daily_seasonal_ideas.py
 
       - name: Refresh ATR downside stats (best effort — full-history signal tables for the risk tab)

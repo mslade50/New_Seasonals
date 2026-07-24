@@ -719,6 +719,12 @@ SWING_HORIZONS = ()
 
 _CYCLE_NAME = {0: "election", 1: "post-elec", 2: "midterm", 3: "pre-elec"}
 
+
+def _ordinal(n: int) -> str:
+    n = int(n)
+    suf = "th" if 10 <= n % 100 <= 20 else {1: "st", 2: "nd", 3: "rd"}.get(n % 10, "th")
+    return f"{n}{suf}"
+
 # Signal-quality 2x2 (magnitude x consistency). A leg is STRONG when the move is
 # BIG and the hit-rate is RELIABLE; OK when both are decent; else WEAK. The
 # magnitude bars are anchored at the 21d horizon and scaled DOWN by sqrt(time)
@@ -814,7 +820,7 @@ def _seasonal_candidate(channel, t, px, asof, h, direction, blend, ticket, rk, b
     }
     if ext_pct is not None:
         stretched = "oversold" if direction == "long" else "overbought"
-        ev["extension"] = f"{h}d return at {ext_pct:.0f}th %ile - {stretched} into the window"
+        ev["extension"] = f"{h}d return at {_ordinal(round(ext_pct))} %ile - {stretched} into the window"
     # Expected seasonal-path entry timing: the day the average prior-years path
     # bottoms (long) / peaks (short). Enter there instead of T+1. Best-effort —
     # a failure or short history just leaves the default T+1. Displayed only for
