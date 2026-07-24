@@ -37,7 +37,9 @@ Validation (mirrors `validate_config`): BUY → `stop < entry < target`; SELL in
 uses `symbol` as the base currency and `currency` as the quote currency
 (`NZD` + `USD` = `NZD/USD`), routes to IBKR IDEALPRO, and sizes in whole
 base-currency units. Initial FX support requires one leg to be USD so notional
-and stop risk can be normalized to the USD account guardrails. CASH entry,
+and stop risk can be normalized to USD. CASH/FX entries have no hard notional
+ceiling, but still require a protective stop and remain subject to the
+account-NLV risk guard. CASH entry,
 stop, and target prices are snapped to IBKR's live contract tick.
 
 ### `exit_attach`  (← sznl_exit.py)

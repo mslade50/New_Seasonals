@@ -127,7 +127,7 @@ function shell() {
 
     <div class="card" style="max-width:760px;margin-top:18px">
       <div style="font:700 14px inherit;margin-bottom:4px">New order</div>
-      <p class="cap" style="margin:0 0 10px">Bracket: stock, futures, or USD-pair FX entry limit + stop + target, plus an optional <b>time stop</b> (closes at market 15:59 ET on that date) and <b>entry expiry</b> (the entry order is DAY unless you set a date &mdash; then GTD to that date's close). FX quantity is in base-currency units and routes to IDEALPRO. Flatten: close by <b>shares/units</b> or fraction, <b>MKT</b> or a resting <b>LMT</b> (check Outside RTH for pre/post-market); a partial close auto-resizes the remaining stop/target. Submits per the mode banner above &mdash; live when armed.</p>
+      <p class="cap" style="margin:0 0 10px">Bracket: stock, futures, or USD-pair FX entry limit + stop + target, plus an optional <b>time stop</b> (closes at market 15:59 ET on that date) and <b>entry expiry</b> (the entry order is DAY unless you set a date &mdash; then GTD to that date's close). FX quantity is in base-currency units, routes to IDEALPRO, and has no hard notional ceiling; the required-stop risk guard remains active. Flatten: close by <b>shares/units</b> or fraction, <b>MKT</b> or a resting <b>LMT</b> (check Outside RTH for pre/post-market); a partial close auto-resizes the remaining stop/target. Submits per the mode banner above &mdash; live when armed.</p>
       <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:8px">
         <label class="cap">Type</label>
         <select id="cmdType">
@@ -888,7 +888,7 @@ function renderFutRow() {
     const currencies = ["USD", "EUR", "GBP", "JPY", "CHF", "CAD", "AUD", "NZD"];
     row.innerHTML = `<label class="cap">Quote</label><select id="f_currency">${
       currencies.map((c) => `<option value="${c}"${c === selected ? " selected" : ""}>${c}</option>`).join("")
-    }</select><span class="cap" style="display:inline">IDEALPRO · qty is base-currency units · one leg must be USD</span>`;
+    }</select><span class="cap" style="display:inline">IDEALPRO · qty is base-currency units · one leg must be USD · no hard notional cap · 5% NLV stop-risk guard</span>`;
     const quote = document.getElementById("f_currency");
     if (quote) quote.addEventListener("change", updateReadout);
     return;
