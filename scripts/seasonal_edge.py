@@ -338,10 +338,12 @@ def seasonal_window_returns(
     }
 
 
-def expected_seasonal_path(price_df, asof, forward_window, doy_tol=2, min_years=3):
+def expected_seasonal_path(price_df, asof, forward_window, doy_tol=2, min_years=3,
+                           cycle_phase_filter=None):
     """Average ATR-NORMALIZED per-day path (length forward_window) over the same
-    calendar window in prior years (same pick logic as seasonal_window_returns,
-    all-years). Each prior year's cumulative move is divided by that year's Wilder
+    calendar window in prior years (same pick logic as seasonal_window_returns;
+    cycle_phase_filter=asof.year%4 restricts to same-cycle years, None = all).
+    Each prior year's cumulative move is divided by that year's Wilder
     ATR at the anchor bar — identical to expected_atr_move / the atr_sznl ranks —
     so one high-volatility year can't skew where the AVERAGE path bottoms. The day
     the path BOTTOMS (long) / PEAKS (short) is the ex-ante entry-timing nadir/peak.
@@ -360,7 +362,8 @@ def expected_seasonal_path(price_df, asof, forward_window, doy_tol=2, min_years=
     if not le.any():
         return None
     target = int(doy[le][-1])
-    picks = _window_pick_positions(doy, years, target, asof.year, None, doy_tol, True)
+    picks = _window_pick_positions(doy, years, target, asof.year, cycle_phase_filter,
+                                   doy_tol, True)
     if picks.size < min_years:
         return None
     cv = close.values.astype(np.float64)
@@ -822,21 +825,29 @@ def _seasonal_candidate(channel, t, px, asof, h, direction, blend, ticket, rk, b
         stretched = "oversold" if direction == "long" else "overbought"
         ev["extension"] = f"{h}d return at {_ordinal(round(ext_pct))} %ile - {stretched} into the window"
     # Expected seasonal-path entry timing: the day the average prior-years path
-    # bottoms (long) / peaks (short). Enter there instead of T+1. Best-effort —
-    # a failure or short history just leaves the default T+1. Displayed only for
-    # now; the live order path still stages T+1 (delayed execution is a separate
-    # step). 0-indexed offset (0 = T+1 = day 1).
+    # bottoms (long) / peaks (short). CYCLE-years path when >= 3 same-cycle
+    # observations exist, all-years otherwise (McKinley 2026-07-24 — the cycle
+    # is what times the window; the basis used is labeled on the card).
+    # Best-effort — a failure or short history just leaves the default T+1.
+    # Displayed only; the live order path still stages T+1. 0-indexed offset
+    # (0 = T+1 = day 1).
     entry_off = 0
+    path_basis = "all-yrs"
     try:
-        _pth = expected_seasonal_path(px, asof, h)  # full OHLC: ATR-normalized path
+        _pth = expected_seasonal_path(px, asof, h, cycle_phase_filter=phase)
+        if _pth is not None and len(_pth):
+            path_basis = cyc_name
+        else:
+            _pth = expected_seasonal_path(px, asof, h)
         if _pth is not None and len(_pth):
             entry_off = int(np.argmin(_pth)) if direction == "long" else int(np.argmax(_pth))
     except Exception:
         entry_off = 0
     ev["entry timing"] = (
-        f"enter T+{entry_off + 1} (expected path {'nadir' if direction == 'long' else 'peak'} day)"
+        f"enter T+{entry_off + 1} (expected {path_basis} path "
+        f"{'nadir' if direction == 'long' else 'peak'} day)"
         if entry_off > 0 else
-        f"enter T+1 (path {'bottoms' if direction == 'long' else 'peaks'} day 1)")
+        f"enter T+1 ({path_basis} path {'bottoms' if direction == 'long' else 'peaks'} day 1)")
 
     notes = None
     if blend["disagree"]:
