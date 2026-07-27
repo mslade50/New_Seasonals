@@ -127,11 +127,12 @@ function shell() {
 
     <div class="card" style="max-width:760px;margin-top:18px">
       <div style="font:700 14px inherit;margin-bottom:4px">New order</div>
-      <p class="cap" style="margin:0 0 10px">Bracket: stock, futures, or USD-pair FX entry limit + stop + target, plus an optional <b>time stop</b> (closes at market 15:59 ET on that date) and <b>entry expiry</b> (the entry order is DAY unless you set a date &mdash; then GTD to that date's close). FX quantity is in base-currency units, routes to IDEALPRO, and has no hard notional ceiling; the required-stop risk guard remains active. Flatten: close by <b>shares/units</b> or fraction, <b>MKT</b> or a resting <b>LMT</b> (check Outside RTH for pre/post-market); a partial close auto-resizes the remaining exits. Add/re-add accepts either a visible price stop or scheduled market time stop. Submits per the mode banner above &mdash; live when armed.</p>
+      <p class="cap" style="margin:0 0 10px">Bracket: stock, futures, or USD-pair FX entry limit; stop, target, <b>time stop</b> (closes at market 15:59 ET on that date), and <b>entry expiry</b> (DAY unless you set a date &mdash; then GTD to that date's close) are all optional. <b>No stop = UNPROTECTED</b>: when the 2&times;ATR risk estimate exceeds 50 bps of NLV the agent bounces the order once and asks for a secondary approval (no hard cap). <b>Attach exits</b>: put a stop / target / time-stop OCA group on an open position that has nothing working (use Protect&hellip; on the row). FX quantity is in base-currency units, routes to IDEALPRO, and has no hard notional ceiling. Flatten: close by <b>shares/units</b> or fraction, <b>MKT</b> or a resting <b>LMT</b> (check Outside RTH for pre/post-market); a partial close auto-resizes the remaining exits. Add/re-add accepts either a visible price stop or scheduled market time stop. Submits per the mode banner above &mdash; live when armed.</p>
       <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:8px">
         <label class="cap">Type</label>
         <select id="cmdType">
           <option value="entry_bracket">entry bracket</option>
+          <option value="exit_attach">attach exits</option>
           <option value="flatten">flatten</option>
           <option value="echo">echo (ping)</option>
         </select>
@@ -188,6 +189,7 @@ async function poll() {
   setAsof(state.status.online ? "execution online" : state.status.configured ? "execution offline" : "broker not configured");
   renderPanels();
   fillStageQty();                    // seasonal deep link: qty needs the book's NLV
+  checkRiskAck();                    // unprotected-entry bounce -> secondary-approval prompt
 }
 
 function renderPanels() {
@@ -219,6 +221,7 @@ function deriveExecMode(book, status, now = Date.now()) {
 function execMode() { return deriveExecMode(state.book, state.status); }
 const MUTATING_COMMANDS = new Set([
   "entry_bracket", "flatten", "cancel", "modify", "trim_readd", "add_to_position",
+  "exit_attach",
 ]);
 function mutationBlocked(type) {
   return execMode() === "unknown" && (!type || MUTATING_COMMANDS.has(type));
@@ -314,6 +317,14 @@ function hasVisibleProtectiveExit(p) {
       || (typ === "MKT" && Boolean(o.good_after));
   });
 }
+// ANY working closing-direction order (incl. plain LMT targets) — attach is only
+// offered on positions with nothing working against them (the agent rejects the rest).
+function hasAnyClosingOrder(p) {
+  const ab = acctBook();
+  const close = Number(p.position) > 0 ? "SELL" : "BUY";
+  return ((ab && ab.orders) || []).some((o) =>
+    samePositionContract(p, o) && String(o.action || "").toUpperCase() === close);
+}
 function renderPositions() {
   const ab = acctBook();
   const head = `<div style="font:700 14px inherit;margin:0 0 6px">Positions <span class="cap" style="display:inline;font-weight:400">${ab && ab.label ? "· " + esc(ab.label) : ""}</span></div>`;
@@ -340,6 +351,10 @@ function renderPositions() {
     const hasProtection = hasVisibleProtectiveExit(p);
     const readdOn = readdRows.get(positionKey(p)) === true;
     const noProtection = ' disabled data-static-disabled="true" title="Requires a visible price stop or scheduled time stop"';
+    const bare = p.sec_type !== "OPT" && !hasAnyClosingOrder(p);
+    const protectBtn = bare
+      ? `<button class="btn xs ghost" style="color:#ffc14d" onclick='execProtectTicket(${posJson(p)})' title="No working exits — prefill the attach-exits ticket (stop / target / time stop)">Protect&hellip;</button>`
+      : "";
     const actions = p.sec_type === "OPT"
       ? '<span class="cap">combo — close via TWS</span>'
       : p.sec_type === "STK"
@@ -348,10 +363,10 @@ function renderPositions() {
           <button class="btn xs ${readdOn ? "" : "ghost"}"${hasProtection ? "" : noProtection} onclick='execToggleReadd(${posJson(p)})'>Re-add ${readdOn ? "on" : "off"}</button>
           <button class="btn xs ghost" data-mutation${hasProtection ? "" : noProtection} onclick='execAddToPosition(${posJson(p)},0.5)'>Add&frac12;</button>
           <button class="btn xs ghost" data-mutation${hasProtection ? "" : noProtection} onclick='execAddToPosition(${posJson(p)},1)'>Add 1x</button>
-          <button class="btn xs ghost" onclick='execSellTicket(${posJson(p)})' title="Prefill the close ticket: shares / LMT / outside RTH">Close&hellip;</button>`
+          ${protectBtn}<button class="btn xs ghost" onclick='execSellTicket(${posJson(p)})' title="Prefill the close ticket: shares / LMT / outside RTH">Close&hellip;</button>`
         : `<button class="btn xs" data-mutation onclick='execFlatten(${posJson(p)},1)'>Flatten</button>
           <button class="btn xs ghost" data-mutation onclick='execFlatten(${posJson(p)},0.5)'>Trim&frac12;</button>
-          <button class="btn xs ghost" onclick='execSellTicket(${posJson(p)})' title="Prefill the close ticket: shares / LMT / outside RTH">Close&hellip;</button>`;
+          ${protectBtn}<button class="btn xs ghost" onclick='execSellTicket(${posJson(p)})' title="Prefill the close ticket: shares / LMT / outside RTH">Close&hellip;</button>`;
     const priceDigits = p.sec_type === "CASH" ? 5 : 2;
     return `<tr>
       <td class="l" style="font-weight:600">${sym}</td>
@@ -756,6 +771,24 @@ function execSellTicket(pos) {
 }
 window.execSellTicket = execSellTicket;
 
+/* "Protect…" on a bare position row: prefill the attach-exits ticket. Sends
+   nothing — stop/target/time stop are typed and confirmed like any ticket. */
+function execProtectTicket(pos) {
+  const t = document.getElementById("cmdType");
+  if (!t) return;
+  t.value = "exit_attach";
+  syncFields();
+  const s = document.getElementById("f_symbol");
+  if (s) s.value = pos.symbol;
+  ticketDraft.f_symbol = pos.symbol;
+  ticketDraft.ea_position = { account: state.account, ...positionIdentity(pos) };
+  updateReadout();
+  const st = document.getElementById("f_stop");
+  if (st) st.focus();
+  t.scrollIntoView({ behavior: "smooth", block: "center" });
+}
+window.execProtectTicket = execProtectTicket;
+
 /* ---------- inline order modify ---------- */
 function findBookOrder(key) {
   const ab = acctBook();
@@ -849,6 +882,16 @@ function syncFields() {
       if (typ.value !== "LMT") { const r = document.getElementById("fl_rth"); if (r) r.checked = false; }
       updateReadout();
     });
+  } else if (t === "exit_attach") {
+    // Attach exits: full-held-size OCA group (any subset of stop / target /
+    // time stop) on a position with nothing working. Prefilled by Protect….
+    f.innerHTML = `<label class="cap">Symbol</label>${inp("f_symbol", "USO", 90)}
+      <label class="cap">Stop</label>${inp("f_stop", "", 80)}
+      <label class="cap">Target</label>${inp("f_target", "", 80)}
+      <label class="cap">Time stop</label><input type="date" id="f_timestop" value="${ticketDraft.f_timestop ? esc(ticketDraft.f_timestop) : ""}" style="width:140px">
+      <label class="cap"><input type="checkbox" id="ea_rth" style="vertical-align:-2px"> Outside RTH</label>`;
+    const rth = document.getElementById("ea_rth");
+    if (rth) rth.addEventListener("change", updateReadout);
   } else {
     f.innerHTML = `<label class="cap">Instr</label><select id="f_sectype"><option value="STK">Stock</option><option value="FUT">Future</option><option value="CASH">FX (USD pair)</option></select>
       <label class="cap">Symbol</label>${inp("f_symbol", "USO", 80)}
@@ -891,7 +934,7 @@ function renderFutRow() {
     const currencies = ["USD", "EUR", "GBP", "JPY", "CHF", "CAD", "AUD", "NZD"];
     row.innerHTML = `<label class="cap">Quote</label><select id="f_currency">${
       currencies.map((c) => `<option value="${c}"${c === selected ? " selected" : ""}>${c}</option>`).join("")
-    }</select><span class="cap" style="display:inline">IDEALPRO · qty is base-currency units · one leg must be USD · no hard notional cap · 5% NLV stop-risk guard</span>`;
+    }</select><span class="cap" style="display:inline">IDEALPRO · qty is base-currency units · one leg must be USD · no hard notional cap · 5% NLV stop-risk guard (stopped entries)</span>`;
     const quote = document.getElementById("f_currency");
     if (quote) quote.addEventListener("change", updateReadout);
     return;
@@ -945,13 +988,19 @@ function bracketWarnings() {
   if (!sym) warns.push("symbol required");
   if (!(qty > 0) || qty !== Math.round(qty)) warns.push("qty must be a whole number > 0");
   if (!(entry > 0)) warns.push("entry price required");
-  if (!(stop > 0)) warns.push("stop price required — no bracket without a protective stop");
+  // Stop is OPTIONAL (2026-07-27): blank = UNPROTECTED entry, surfaced in amber by
+  // the readout + confirm, and risk-gated agent-side (2×ATR vs 50 bps NLV → secondary
+  // approval). An explicit 0/negative stop is still rejected.
+  if (stop != null && !(stop > 0)) warns.push("stop must be > 0 (leave blank for NO STOP)");
   if (target != null && !(target > 0)) warns.push("target must be > 0 (leave blank for NO TARGET)");
   if (entry > 0 && stop > 0) {
     if (action === "BUY" && !(stop < entry && (target == null || entry < target)))
       warns.push(target == null ? "BUY needs stop < entry" : "BUY needs stop < entry < target");
     if (action === "SELL" && !(entry < stop && (target == null || target < entry)))
       warns.push(target == null ? "SELL needs entry < stop" : "SELL needs target < entry < stop");
+  } else if (entry > 0 && stop == null && target > 0) {
+    if (action === "BUY" && !(entry < target)) warns.push("BUY needs entry < target");
+    if (action === "SELL" && !(target < entry)) warns.push("SELL needs target < entry");
   }
   if (isFut && sym && !spec) warns.push("unknown futures symbol — not in the spec table");
   if (isFut && !val("f_futexp")) warns.push("enter the contract month (e.g. 202609)");
@@ -992,6 +1041,56 @@ function flattenWarnings() {
   if (rth && typ !== "LMT") warns.push("outside-RTH close must be LMT");
   return warns;
 }
+// The exit_attach ticket's position: symbol match, narrowed by the Protect…
+// button's stashed con_id when it belongs to this account.
+function attachPosition() {
+  const sym = String(val("f_symbol") || "").toUpperCase().trim();
+  if (!sym) return null;
+  const ab = acctBook();
+  const identity = ticketDraft.ea_position;
+  return ((ab && ab.positions) || []).find((p) => p.position
+    && String(p.symbol).toUpperCase() === sym
+    && (!identity || identity.account !== state.account || !identity.con_id
+      || Number(p.con_id) === Number(identity.con_id))) || null;
+}
+// Hard gate for the attach-exits ticket (mirrors the agent's checks; [] = sendable).
+function attachWarnings() {
+  const warns = [];
+  const sym = String(val("f_symbol") || "").toUpperCase().trim();
+  if (!sym) warns.push("symbol required");
+  const stop = numOrNull("f_stop"), target = numOrNull("f_target");
+  const ts = val("f_timestop");
+  if (stop == null && target == null && !ts) warns.push("need at least one of stop / target / time stop");
+  if (stop != null && !(stop > 0)) warns.push("stop must be > 0");
+  if (target != null && !(target > 0)) warns.push("target must be > 0");
+  const todayISO = new Date().toLocaleDateString("en-CA");
+  if (ts && ts < todayISO) warns.push("time stop date is in the past");
+  const pos = attachPosition();
+  if (sym && !pos) warns.push(`no open ${sym} position in ${state.account}`);
+  if (pos) {
+    if (pos.sec_type === "OPT") warns.push("option positions not supported");
+    const long = Number(pos.position) > 0;
+    if (stop > 0 && target > 0) {
+      if (long && !(stop < target)) warns.push("long needs stop < target");
+      if (!long && !(target < stop)) warns.push("short needs target < stop");
+    }
+    const mark = Number(pos.market_price) > 0 ? Number(pos.market_price)
+      : Number(pos.avg_cost) > 0 ? Number(pos.avg_cost) : 0;
+    if (mark > 0) {
+      if (stop > 0 && (long ? stop >= mark : stop <= mark))
+        warns.push(`stop ${stop} is on the wrong side of the market (~${mark})`);
+      if (target > 0 && (long ? target <= mark : target >= mark))
+        warns.push(`target ${target} is on the wrong side of the market (~${mark})`);
+    }
+    const close = long ? "SELL" : "BUY";
+    const mine = (((acctBook() || {}).orders) || []).filter((o) => samePositionContract(pos, o));
+    if (mine.some((o) => String(o.action || "").toUpperCase() === close))
+      warns.push("closing exit(s) already working — cancel or modify them instead");
+    else if (mine.length)
+      warns.push("same-direction entry/add order already working");
+  }
+  return warns;
+}
 
 function updateReadout() {
   const t = document.getElementById("cmdType").value;
@@ -1016,15 +1115,32 @@ function updateReadout() {
     const parts = [];
     if (isFut && qty) parts.push(`<b>${qty} contract${qty === 1 ? "" : "s"}</b>`);
     if (isFx && qty) parts.push(`<b>${fmt.num(qty, 0)} ${esc(sym)} units</b> in ${esc(sym)}/${esc(currency)}`);
-    if (qty && dist) parts.push(`Risk <b>${fmt.money(fxMetrics ? fxMetrics.risk : qty * dist * mult)}</b>`);
+    if (stop == null) parts.push(`<b style="color:#ffc14d">NO STOP — UNPROTECTED</b> <span class="cap" style="display:inline">(risk gate at execution: 2&times;ATR% &times; notional vs 50 bps NLV)</span>`);
+    else if (qty && dist) parts.push(`Risk <b>${fmt.money(fxMetrics ? fxMetrics.risk : qty * dist * mult)}</b>`);
     if (target == null) parts.push(`<b style="color:#ffc14d">NO TARGET</b>`);
-    else if (dist) parts.push(`R:R <b>${(Math.abs(target - entry) / dist).toFixed(2)}:1</b>`);
+    else if (stop != null && dist) parts.push(`R:R <b>${(Math.abs(target - entry) / dist).toFixed(2)}:1</b>`);
     if (qty && entry) parts.push(`Notional <b>${fmt.money(fxMetrics ? fxMetrics.notional : qty * entry * mult)}</b>`);
     const ts = val("f_timestop");
     if (ts) parts.push(`Time-exit <b>${ts}</b>`);
     const ex = val("f_expiry");
     parts.push(`Entry <b>${ex ? "GTD " + ex : "DAY"}</b>`);
     el.innerHTML = `<span style="color:#9aa3b2">${parts.join(" &nbsp;·&nbsp; ")}</span>`;
+  } else if (t === "exit_attach") {
+    const warns = attachWarnings();
+    if (warns.length) { el.innerHTML = `<span style="color:#ff6b6b">${warns.map(esc).join(" &middot; ")}</span>`; return; }
+    const pos = attachPosition();
+    if (!pos) { el.innerHTML = ""; return; }
+    const held = Math.abs(pos.position);
+    const long = Number(pos.position) > 0;
+    const close = long ? "SELL" : "BUY";
+    const stop = numOrNull("f_stop"), target = numOrNull("f_target");
+    const ts = val("f_timestop");
+    const parts = [`Position <b>${fmt.num(pos.position, 0)}</b> ${esc(String(pos.symbol).toUpperCase())}`];
+    if (stop != null) parts.push(`Stop <b>${close} ${fmt.num(held, 0)} STP @ ${stop}</b>`);
+    if (target != null) parts.push(`Target <b>${close} ${fmt.num(held, 0)} LMT @ ${target}</b>`);
+    if (ts) parts.push(`Time <b>MKT ${ts} 15:59 ET</b>`);
+    parts.push(`OCA group &middot; GTC`);
+    el.innerHTML = `<span style="color:#9aa3b2">${parts.join(" &nbsp;&middot;&nbsp; ")}</span>`;
   } else if (t === "flatten") {
     const warns = flattenWarnings();
     if (warns.length) { el.innerHTML = `<span style="color:#ff6b6b">${warns.map(esc).join(" &middot; ")}</span>`; return; }
@@ -1078,6 +1194,18 @@ function ticketPayload(t) {
     if (typ === "LMT") p.limit = numOrNull("fl_limit");
     return p;
   }
+  if (t === "exit_attach") {
+    const p = { symbol: val("f_symbol"), stop: numOrNull("f_stop"), target: numOrNull("f_target"),
+                time_stop: val("f_timestop") || null,
+                outside_rth: !!(document.getElementById("ea_rth") && document.getElementById("ea_rth").checked) };
+    const pos = attachPosition();
+    if (pos) {
+      const identity = positionIdentity(pos);
+      delete identity.expected_position;   // attach sizes to the LIVE held qty agent-side
+      Object.assign(p, identity);
+    }
+    return p;
+  }
   const sec_type = val("f_sectype") || "STK";
   const fut_expiry = sec_type === "FUT" ? String(val("f_futexp") || "").replace(/\D/g, "") : null;
   const currency = sec_type === "CASH" ? String(val("f_currency") || "USD").toUpperCase() : "USD";
@@ -1094,22 +1222,34 @@ function sendTicket() {
     const warns = bracketWarnings();   // hard block: never submit while any warning is up
     if (warns.length) { if (msg) msg.textContent = "BLOCKED: " + warns.join("; "); return; }
   }
+  if (t === "exit_attach") {
+    const warns = attachWarnings();
+    if (warns.length) { if (msg) msg.textContent = "BLOCKED: " + warns.join("; "); return; }
+  }
   if (t === "flatten") {
     const warns = flattenWarnings();
     if (warns.length) { if (msg) msg.textContent = "BLOCKED: " + warns.join("; "); return; }
   }
   if (t !== "echo") {
-    const inst = p.sec_type === "FUT" ? `${p.symbol} FUT ${p.fut_expiry}`
-      : p.sec_type === "CASH" ? `${p.symbol}/${p.currency} FX` : p.symbol;
+    const inst = p.sec_type === "FUT" ? `${p.symbol} FUT ${p.fut_expiry || p.expiry || ""}`.trim()
+      : p.sec_type === "CASH" ? `${p.symbol}/${p.currency || "USD"} FX` : p.symbol;
     const closeUnit = p.sec_type === "CASH" ? ` ${p.symbol} units` : " sh";
+    const stopTxt = p.stop == null ? "NO STOP — UNPROTECTED" : "stop " + p.stop;
     const summary = t === "entry_bracket"
-      ? `${p.action} ${p.quantity} ${inst} @ ${p.entry} [${p.expiry ? "GTD " + p.expiry : "DAY"}] (stop ${p.stop}, ${p.target == null ? "NO TARGET" : "target " + p.target}${p.time_stop ? ", time " + p.time_stop : ""})`
-      : `close ${p.qty != null ? p.qty + closeUnit : Math.round((p.fraction || 1) * 100) + "%"} of ${p.symbol}${p.sec_type === "CASH" ? "/" + (p.currency || "USD") : ""} via ${p.order_type}` +
-        `${p.order_type === "LMT" ? " @ " + p.limit : ""}${p.outside_rth ? " OUTSIDE RTH" : ""} (${p.tif})` +
-        `${p.qty != null || p.fraction < 1 ? " — remaining exits auto-resize" : ""}`;
-    if (!confirm(`${actionLead(t === "entry_bracket" ? "place" : "flatten")} ${summary} on ${state.account}?`)) return;
+      ? `${p.action} ${p.quantity} ${inst} @ ${p.entry} [${p.expiry ? "GTD " + p.expiry : "DAY"}] (${stopTxt}, ${p.target == null ? "NO TARGET" : "target " + p.target}${p.time_stop ? ", time " + p.time_stop : ""})`
+      : t === "exit_attach"
+        ? `attach exits to ${p.symbol} (${[p.stop != null ? "stop " + p.stop : "", p.target != null ? "target " + p.target : "", p.time_stop ? "time " + p.time_stop : ""].filter(Boolean).join(", ")}) — full held size, OCA GTC`
+        : `close ${p.qty != null ? p.qty + closeUnit : Math.round((p.fraction || 1) * 100) + "%"} of ${p.symbol}${p.sec_type === "CASH" ? "/" + (p.currency || "USD") : ""} via ${p.order_type}` +
+          `${p.order_type === "LMT" ? " @ " + p.limit : ""}${p.outside_rth ? " OUTSIDE RTH" : ""} (${p.tif})` +
+          `${p.qty != null || p.fraction < 1 ? " — remaining exits auto-resize" : ""}`;
+    const verb = t === "entry_bracket" ? "place" : t === "exit_attach" ? "attach" : "flatten";
+    if (!confirm(`${actionLead(verb)} ${summary} on ${state.account}?`)) return;
   }
-  sendCommand(t, p, "cmdMsg");
+  sendCommand(t, p, "cmdMsg").then((id) => {
+    // Unprotected entry: remember the intent so a RISK_ACK_REQUIRED bounce can
+    // re-prompt for secondary approval and resend with risk_ack.
+    if (id && t === "entry_bracket" && p.stop == null) riskAckPending.set(id, { type: t, payload: p });
+  });
 }
 
 // Idempotency: the command id is minted HERE, once per confirmed intent, and reused on a
@@ -1126,10 +1266,11 @@ function commandId(type, account, payload) {
   return idemState.id;
 }
 async function sendCommand(type, payload, msgId) {
-  if (mutationBlocked(type) && rejectUnknownMutation(msgId)) return;
+  if (mutationBlocked(type) && rejectUnknownMutation(msgId)) return null;
   const msg = msgId ? document.getElementById(msgId) : null;
   if (msg) msg.textContent = "sending...";
   const id = commandId(type, state.account, payload);
+  let sentId = null;
   try {
     const r = await fetch("/exec-command", {
       method: "POST", headers: { "Content-Type": "application/json" },
@@ -1137,12 +1278,43 @@ async function sendCommand(type, payload, msgId) {
     });
     const d = await r.json();
     const ok = r.ok && d && d.ok;
-    if (ok) { idemState.id = null; idemState.key = null; }   // confirmed success: next intent gets a fresh id
+    if (ok) { idemState.id = null; idemState.key = null; sentId = d.id || id; }   // confirmed success: next intent gets a fresh id
     if (msg) msg.textContent = ok ? `queued ${(d.id || id).slice(0, 8)}` : `error: ${(d && d.error) || ("HTTP " + r.status)}`;
   } catch (e) {
     if (msg) msg.textContent = "error: " + e;                // id kept: an unchanged resend reuses it
   }
   setTimeout(poll, 600);
+  return sentId;
+}
+
+/* ---------- unprotected-entry secondary approval (RISK_ACK) ----------
+   A stop-less entry whose 2×ATR risk estimate exceeds 50 bps of NLV is BOUNCED
+   by the executor with fill.needs_risk_ack (an approval gate, not a cap). When
+   that rejection lands in the commands feed, re-prompt with the machine's own
+   numbers and resend the identical payload + risk_ack:true on approval. */
+const riskAckPending = new Map();   // command id -> {type, payload}
+function checkRiskAck() {
+  for (const c of state.commands || []) {
+    if (!c || !c.id || !riskAckPending.has(c.id)) continue;
+    const st = String(c.state || "");
+    if (st === "rejected") {
+      const intent = riskAckPending.get(c.id);
+      riskAckPending.delete(c.id);
+      const f = (c.result && c.result.fill) || {};
+      if (!f.needs_risk_ack) continue;             // rejected for some other reason
+      const p = intent.payload;
+      const detail = f.est_bps != null
+        ? `The agent estimates risk ${fmt.money(f.est_risk)} = ${f.est_bps} bps of NLV (2×ATR basis) — above the 50 bps line.`
+        : "The agent could not compute the 2×ATR risk estimate (ATR/NLV unavailable).";
+      const approve = confirm(
+        `⚠️ SECONDARY APPROVAL — UNPROTECTED ENTRY\n\n${detail}\n\n` +
+        `Approve and resend ${p.action} ${p.quantity} ${p.symbol} @ ${p.entry} with NO STOP on ${state.account}?`);
+      if (approve) sendCommand(intent.type, { ...p, risk_ack: true }, "cmdMsg");
+      else { const m = document.getElementById("cmdMsg"); if (m) m.textContent = "unprotected entry NOT approved — nothing sent"; }
+    } else if (st && st !== "pushed" && st !== "queued" && st !== "pending") {
+      riskAckPending.delete(c.id);                 // resolved without needing an ack
+    }
+  }
 }
 
 /* ---------- futures sizing (read-only: risk -> contracts + notional) ---------- */

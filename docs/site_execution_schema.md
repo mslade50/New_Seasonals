@@ -33,7 +33,20 @@ existing `sznl_entry.build_orders` / `sznl_exit.build_orders` / `read_book`).
   "outside_rth":false,"stop_outside_rth":null,"timestop_outside_rth":null }
 ```
 Validation (mirrors `validate_config`): BUY → `stop < entry < target`; SELL inverted;
-`time_stop < bracket_gtd`; `parent_fill_by` in the future. `sec_type:"CASH"`
+`time_stop < bracket_gtd`; `parent_fill_by` in the future.
+
+**Stop optional (2026-07-27).** `stop: null` is a legal entry: the parent limit
+goes out with whatever subset of target/time legs is present (none at all =
+naked entry, parent transmits itself). Ordering checks apply only to the legs
+present. UNPROTECTED entries are risk-gated at the executor on
+`2 × ATR(14) × notional` vs the account's live NetLiquidation: above
+`RISK_ACK_BPS` (50) — or when the ATR/NLV estimate is unavailable — the command
+is BOUNCED with `RISK_ACK_REQUIRED` in the detail and
+`fill: {needs_risk_ack, est_risk, est_bps}`; the site re-prompts with the
+machine's numbers (secondary approval) and resends the identical payload plus
+`risk_ack: true`. This is a confirmation gate, deliberately NOT a hard cap.
+Stopped entries keep the agent-side 5%-NLV stop-risk guard; stop-less entries
+skip it (no stop distance) and rely on the ATR ack gate. `sec_type:"CASH"`
 uses `symbol` as the base currency and `currency` as the quote currency
 (`NZD` + `USD` = `NZD/USD`), routes to IBKR IDEALPRO, and sizes in whole
 base-currency units. Initial FX support requires one leg to be USD so notional
@@ -42,16 +55,21 @@ ceiling, but still require a protective stop and remain subject to the
 account-NLV risk guard. CASH entry,
 stop, and target prices are snapped to IBKR's live contract tick.
 
-### `exit_attach`  (← sznl_exit.py)
+### `exit_attach`  (IMPLEMENTED 2026-07-27 — single-rung; ladder rungs deferred)
 ```json
-{ "symbol":"MBT","sec_type":"FUT","exchange":"CME","currency":"USD","fut_expiry":"202605",
-  "stop":437.42,
-  "targets":[ {"price":403.2,"alloc":100}, {"price":362.35,"alloc":100} ],
-  "exit_at":"2026-07-22T16:00-04:00","time_stop_at":"2026-07-22T15:55-04:00",
-  "side_override":null,"qty_override":null,"outside_rth":false }
+{ "symbol":"AAPL","sec_type":"STK","con_id":111,"expiry":null,"currency":"USD",
+  "stop":190.0,"target":230.0,"time_stop":"2026-08-14","outside_rth":false }
 ```
-Agent **detects the live position** (side/qty), slices stop + time-stop per rung,
-one OCA group per rung. `targets` allocations: all-fractional (0,1) or all-absolute.
+Attach a standalone closing OCA group (any subset of price stop / limit target /
+scheduled 15:59 ET MKT time stop; at least one required) to an existing position,
+sized to the **full live held quantity** (agent + executor both detect side/qty —
+the site never sends a size). Rejected while ANY order is already working on that
+exact contract: closing exits → "cancel or modify instead"; same-direction
+entries → over-coverage risk once they fill. Wrong-side prices vs the live mark
+are rejected on both layers (browser book first, IBKR mark at the executor).
+OPT positions rejected. Site entry points: the "attach exits" ticket type and
+the amber `Protect…` button on any position row with nothing working against it.
+The original sznl_exit-style multi-rung `targets` ladder remains a later phase.
 
 ### `flatten`  (quick close — Positions-row button or the Close ticket)
 ```json
