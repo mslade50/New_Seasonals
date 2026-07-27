@@ -1,20 +1,20 @@
 {
   "date": "2026-07-27",
   "price_ctx": {
-    "price": NaN,
-    "ret_12m": NaN,
-    "extension_200d": NaN,
-    "drawdown": NaN,
-    "sma_200": NaN,
-    "high_52w": NaN,
-    "regime_label": "Downtrend",
-    "days_since_5pct": 77,
-    "days_since_10pct": 313
+    "price": 739.0900268554688,
+    "ret_12m": 0.1729388876538851,
+    "extension_200d": 0.062207210014579406,
+    "drawdown": -0.024455850754909192,
+    "sma_200": 695.8058840942383,
+    "high_52w": 757.6182250976562,
+    "regime_label": "Strong uptrend, moderately extended",
+    "days_since_5pct": 78,
+    "days_since_10pct": 314
   },
   "h_scores": {
-    "5d": 18.111760820090694,
-    "21d": 44.077124001761604,
-    "63d": 51.88403096777742
+    "5d": 20.07668833027812,
+    "21d": 44.47707689385406,
+    "63d": 54.04860794777221
   },
   "signals": {
     "Distribution Dominance": {
@@ -24,18 +24,18 @@
     },
     "VIX Range Compression": {
       "on": true,
-      "detail": "VIX 21d range at 12th percentile (threshold: 15th). VIX at 17.9 is compressed \u2014 eventual breakout tends to be violent.",
-      "summary": "21d range: 12th pctile (fires below 15th) \u2014 VIX at 17.9"
+      "detail": "VIX 21d range at 11th percentile (threshold: 15th). VIX at 18.7 is compressed \u2014 eventual breakout tends to be violent.",
+      "summary": "21d range: 11th pctile (fires below 15th) \u2014 VIX at 18.7"
     },
     "Defensive Leadership": {
       "on": false,
       "detail": "",
-      "summary": "50d spread: +0pp (fires < -10) | 200d spread: +1pp (fires < 0)"
+      "summary": "50d spread: -30pp (fires < -10) | 200d spread: -4pp (fires < 0)"
     },
     "Pre-FOMC Rally": {
       "on": false,
       "detail": "",
-      "summary": "Next FOMC: Jul 29 (5d away) \u2014 5d return: 28th pctile (fires above 75th)"
+      "summary": "Next FOMC: Jul 29 (2d away) \u2014 5d return: 33th pctile (fires above 75th)"
     },
     "Low Absorption Ratio": {
       "on": false,
@@ -45,12 +45,12 @@
     "Seasonal Rank Divergence": {
       "on": false,
       "detail": "",
-      "summary": "Spread: +13.0pp (fires above 10) \u2014 near high: no"
+      "summary": "Spread: +6.4pp (fires above 10) \u2014 near high: no"
     },
     "Dispersion": {
       "on": false,
       "detail": "",
-      "summary": "Composite pctile: 87th (fires above 85th) \u2014 component RV: 34.1% | SPY RV: 11.4%"
+      "summary": "Composite pctile: 90th (fires above 85th) \u2014 component RV: 35.1% | SPY RV: 11.4%"
     }
   }
 }
