@@ -666,11 +666,11 @@ risk-report-correction style) -> `OLV_Exits` Sheets tab (always cleared+
 rewritten; rows carry per-leg `Time_Exit_Date` bracket keys; a STALE ticker
 bar is never re-evaluated — its previously staged exit carries forward
 instead of being wiped) -> order_staging `load_olv_exit_rows` (Execute_On
-== today only, naked-MOO SELL, primary account only; `Time_Exit_Date`
-rides the Tranche slot so same-day stacked-leg exits get distinct
-signal_refs) -> eq_order_entry position-exit path (matches the leg's
-working OCA bracket by orderRef prefix + time-leg goodAfterTime with a
-nearest-date fallback for calendar desync, clamps qty to min(staged, leg,
+== today only, naked-MOO SELL, BOTH accounts since 2026-07-27;
+`Time_Exit_Date` rides the Tranche slot so same-day stacked-leg exits get
+distinct signal_refs) -> eq_order_entry position-exit path (matches the
+leg's working OCA bracket by orderRef prefix + time-leg goodAfterTime with
+a nearest-date fallback for calendar desync, clamps qty to min(staged, leg,
 held), cancels the bracket, sells MKT ~9:31 with retry; on total placement
 failure it RE-ARMS a protective time-exit clone so the position is never
 left with no working exits). Entry-day closes are NEVER confirms (day-2
@@ -678,11 +678,16 @@ arming convention — the scan skips legs entered on the evaluation session,
 matching the engine's entry_idx+1 loop). Every layer fails SKIP/open and
 pipeline failures surface as OLV-EXIT warnings in the daily scan email —
 a missed exit falls back to the T+10 time exit, never a naked short.
-PA (execution_2) has no vol-confirm path (pa_order_entry lacks naked-MOO);
-instead the execution_2 build RE-ENABLES Use_Stop on OLV rows so PA keeps
-a CLASSIC resting 1.25 ATR stop (deliberate primary/PA divergence —
-unbounded is worse than unmodeled; calculate_bracket_prices emits
-Stop_Price on stop_mult > 0 regardless of Use_Stop to make this possible).
+PA ALIGNED 2026-07-27 (was: resting-stop divergence 2026-07-20..27):
+`build_pa_frame` appends the same OLV_Exits rows to execution_2 UNSCALED
+(staged qty is primary-basis and deliberately ignored) and no longer
+re-enables Use_Stop; pa_order_entry carries the same position-exit
+naked-MOO path as eq_order_entry, except it sells min(leg, held) — the
+FULL matched PA leg — instead of clamping to the staged qty (a scaled
+qty could under-sell and leave residual shares with a cancelled bracket).
+PA legs entered before the alignment still have resting STPs; those
+brackets self-resolve within T+10 (the exit path cancels the whole OCA
+group, STP included, if a confirm fires first).
 
 **Notional cap (`ticker_notional_cap: {pct_nav: 0.50, exempt:
 OLV_CAP_EXEMPT_ETFS}`)**: stacked OLV legs in ONE single-stock ticker may
@@ -718,8 +723,10 @@ Aligned sites — change together:
   (open_positions state, refund semantics mirror the net-exposure cap)
 - `daily_scan.py` — Use_Stop stamped False for stop_mode strategies;
   `load_open_position_notionals` + sizing-step cap; `stage_olv_vol_confirm_exits`
-- `order_staging.py` / `eq_order_entry.py` (OneDrive) — `load_olv_exit_rows`,
-  `Is_Position_Exit` naked-MOO path; guard: `test_olv_exits.py` (OneDrive)
+- `order_staging.py` / `eq_order_entry.py` / `pa_order_entry.py` (OneDrive) —
+  `load_olv_exit_rows`, `build_pa_frame` (unscaled exit rows, no Use_Stop
+  restore), `Is_Position_Exit` naked-MOO path in BOTH entry scripts;
+  guard: `test_olv_exits.py` (OneDrive)
 - Guard: `tests/test_olv_stop_and_cap.py` (engine + scan + config invariants)
 
 Ledger SURVIVORSHIP CAVEAT (2026-07-16): the 23-year ledger trades only
@@ -1028,7 +1035,8 @@ Tab layout in the `Trade_Signals_Log` workbook:
   by BOTH bookend `daily_scan` runs (`stage_olv_vol_confirm_exits`); rows are
   per-LEG (stacked positions get one row per confirmed leg, keyed by
   `Time_Exit_Date`). order_staging submits only rows with `Execute_On` ==
-  today as naked-MOO SELLs, primary account only.
+  today as naked-MOO SELLs — both accounts since 2026-07-27 (execution_2
+  gets the rows unscaled; pa_order_entry sells the full matched PA leg).
 - `moc_orders` — MOC entries from liquid tier only (`save_moc_orders` skips overflow rows). Currently vestigial: the strategy book has no Signal Close entries, so this tab is never written. Reactivates automatically if any strategy is set to `entry_type='Signal Close'`.
 - `Seasonal` — tradeable seasonal-ideas tickets (longs + non-equity shorts). Written by `seasonal_order_staging.py` from `data/daily_seasonal_ideas.json`, `Scan_Source='Seasonal'`. Separate pipeline from the systematic book. Entry type per instrument (validated geography rule): US single stocks + US-session equity ETFs → `REL_OPEN` limit (0.25 ATR, DAY); everything that gaps overnight (intl/commodity/bond/FX ETFs, GLD/TLT) → `MOO` (market-on-open, `TIF=OPG`). Sizing: 20 bps/trade (13 bps in midterm years, `year%4==2`), 1% aggregate daily cap. order_staging must add `MOO` handling — see `docs/seasonal_order_staging_spec.md`.
 - `sznl_nostage` — NOT auto-executed. Single-stock equity shorts (sized, tagged `[eq-short]`) + non-tradeable signals (futures/index/FX/crypto, `Quantity=0`, `Order_Type=NONE`, tagged `[need-proxy]` pending the proxy-ETF promotion). order_staging does not read this tab.
