@@ -1,20 +1,20 @@
 {
-  "date": "2026-07-24",
+  "date": "2026-07-27",
   "price_ctx": {
     "price": 738.9299926757812,
     "ret_12m": 0.17763873037569344,
-    "extension_200d": 0.06255343906002908,
+    "extension_200d": 0.0625534404588739,
     "drawdown": -0.024667084030965736,
-    "sma_200": 695.4285455322265,
+    "sma_200": 695.4285446166992,
     "high_52w": 757.6182250976562,
     "regime_label": "Strong uptrend, moderately extended",
     "days_since_5pct": 77,
     "days_since_10pct": 313
   },
   "h_scores": {
-    "5d": 18.23123355825229,
-    "21d": 43.29468534833448,
-    "63d": 52.13623142829997
+    "5d": 18.231233558252292,
+    "21d": 43.2946853483345,
+    "63d": 52.13623142829998
   },
   "signals": {
     "Distribution Dominance": {
@@ -24,13 +24,13 @@
     },
     "VIX Range Compression": {
       "on": true,
-      "detail": "VIX 21d range at 12th percentile (threshold: 15th). VIX at 18.6 is compressed \u2014 eventual breakout tends to be violent.",
-      "summary": "21d range: 12th pctile (fires below 15th) \u2014 VIX at 18.6"
+      "detail": "VIX 21d range at 11th percentile (threshold: 15th). VIX at 17.7 is compressed \u2014 eventual breakout tends to be violent.",
+      "summary": "21d range: 11th pctile (fires below 15th) \u2014 VIX at 17.7"
     },
     "Defensive Leadership": {
       "on": false,
       "detail": "",
-      "summary": "50d spread: -34pp (fires < -10) | 200d spread: -7pp (fires < 0)"
+      "summary": "50d spread: -32pp (fires < -10) | 200d spread: -4pp (fires < 0)"
     },
     "Pre-FOMC Rally": {
       "on": false,
@@ -40,7 +40,7 @@
     "Low Absorption Ratio": {
       "on": false,
       "detail": "",
-      "summary": "AR: 0.402 (24th pctile, fires below 10th) \u2014 near high: no"
+      "summary": "AR: 0.409 (25th pctile, fires below 10th) \u2014 near high: no"
     },
     "Seasonal Rank Divergence": {
       "on": false,
