@@ -508,6 +508,19 @@ two fades can never fire the same ticker on the same day. 25 bps nominal
 selloff, so the strategy carries the FAMILY4 `frag_risk_bands` [[50,999,0.25]].
 Evidence: scratch/lev3x_fade_class_study.py + lev3x_fade_bear_episodes.py.
 
+Position stacking (2026-07-28): BOTH 3x Overbot Fades run `max_one_pos: False`
+— consecutive-day re-fires open additional full-size legs in the same ticker
+(observed depth <= 3). This ALIGNED THE MODEL TO LIVE: daily_scan /
+order_staging never enforced one-pos (eq_order_entry's dup guard keys on
+staged date), so live always stacked; the ledger was the side that under-
+counted (first live stack: SQQQ 2026-07-24 + 07-27 legs). Backtest impact of
+adopting stacking: generic fade +12.7R/23y (maxDD unchanged), bear fade
++10.2R with ~1.5x wider maxDD/worst-5d — accepted; marginal-leg edge is
+episode-concentrated (bear: mostly Apr 2024). Only the per-strategy 250
+bps/day cap bounds a stack (it sees same-day staged risk, NOT open legs).
+The 3x Leader Gap Fade keeps `max_one_pos: True` (guarded by its test).
+Evidence: scratch/lev3x_fade_stacking_study.py + lev3x_fade_stacking_results.csv.
+
 Same-day signal de-rate — new generic sizing overlay, currently bear-fade
 only: `execution['same_day_signal_derate'] = 0.10` sizes each of the day's
 signals at `max(floor, 1 - 0.10*(n-1))` where n = that strategy's SIGNAL

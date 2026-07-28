@@ -882,7 +882,10 @@ _STRATEGY_BOOK_RAW = [
         "settings": {
             "trade_direction": "Short",
             "entry_type": "Limit (Open +/- 0.5 ATR)",
-            "max_one_pos": True,
+            # False since 2026-07-28: consecutive-day re-fires stack (live never
+            # enforced one-pos; model aligned to live). Evidence:
+            # scratch/lev3x_fade_stacking_study.py (+12.7R/23y, depth<=3).
+            "max_one_pos": False,
             "allow_same_day_reentry": False,
             "entry_conf_bps": 0,
             "perf_filters": [
@@ -1025,7 +1028,11 @@ _STRATEGY_BOOK_RAW = [
         "settings": {
             "trade_direction": "Short",
             "entry_type": "Limit (Open +/- 0.5 ATR)",
-            "max_one_pos": True,
+            # False since 2026-07-28: consecutive-day re-fires stack (live never
+            # enforced one-pos; model aligned to live). Stacking widens this
+            # strat's DD profile ~1.5x for +10.2R — accepted. Evidence:
+            # scratch/lev3x_fade_stacking_study.py.
+            "max_one_pos": False,
             "allow_same_day_reentry": False,
             "entry_conf_bps": 0,
             "perf_filters": [
