@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>Monte Carlo — Seasonals</title>
+<link rel="stylesheet" href="assets/style.css">
+<script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
+<script src="assets/common.js"></script>
+<script src="assets/montecarlo.js"></script>
+</head>
+<body>
+<header class="topbar" id="topbar"></header>
+<div class="wrap">
+  <h1>Monte Carlo</h1>
+  <p class="sub" id="subtitle">Day / month / year outcome distributions for the current book
+    (stationary block bootstrap of the ledger's daily MTM, flat $750k basis).</p>
+  <div id="content"><div class="spin">Loading...</div></div>
+  <footer>Resamples backtest days: inherits the ledger's optimism (survivorship,
+    modeled fills, edges assumed persistent). Blocks preserve vol clustering but
+    scramble calendar seasonality. Rebuilt each deploy from the current ledger.</footer>
+</div>
+</body>
+</html>

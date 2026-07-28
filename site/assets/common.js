@@ -3,18 +3,18 @@
 
 const PAGES = [
   { href: "index.html",    label: "Portfolio" },
-  { href: "ideas.html",    label: "Ideas" },
+  { href: "seasonal.html", label: "Seasonal" },
+  { href: "execution.html", label: "Execution" },
+  { href: "risk.html",     label: "Risk" },
+  { href: "tradelog.html", label: "Trade Log" },
   { href: "signals.html",  label: "Signals" },
   { href: "orders.html",   label: "Orders" },
-  { href: "execution.html", label: "Execution" },
-  { href: "tradelog.html", label: "Trade Log" },
   { href: "options.html",  label: "Options" },
-  { href: "seasonal.html", label: "Seasonal" },
   { href: "charts.html",   label: "Charts" },
-  { href: "risk.html",     label: "Risk" },
   { href: "pipeline.html", label: "Pipeline" },
   { href: "futures.html",  label: "Futures Lab" },
   { href: "entry.html",    label: "Entry Lab" },
+  { href: "montecarlo.html", label: "Monte Carlo" },
 ];
 
 function renderNav(active) {

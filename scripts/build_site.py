@@ -7,7 +7,7 @@ This script produces every JSON payload the browser needs, so all filtering /
 metric recomputation happens client-side with no server.
 
 Outputs (dist/):
-  - dist/index.html, ideas.html, signals.html, risk.html + assets/   (copied from site/)
+  - dist/index.html, signals.html, risk.html, montecarlo.html + assets/   (copied from site/)
   - dist/data/meta.json            build info, strategy roster, payload flags
   - dist/data/trades.json          full trade ledger, columnar
   - dist/data/strategy_daily.json  per Strategy||Tier daily MTM PnL (flat $750k basis)
@@ -1597,6 +1597,127 @@ def build_strategy_stats(df):
     return out
 
 
+def build_monte_carlo(df):
+    """Monte Carlo risk profile of the current book (flat $750k basis).
+
+    Basis: the whole-book daily MTM series the ledger build wrote this run
+    (DAILY parquet, pnl_flat — reconciles to booked trade PnL). Empirical
+    daily stats plus a stationary block bootstrap (Politis-Romano, mean block
+    10 td, circular, seeded 42) for 21td / 252td horizon distributions with
+    vol clustering intact. Calendar seasonality is deliberately NOT preserved
+    (blocks scramble the calendar). Study: scratch/portfolio_monte_carlo.py."""
+    if not os.path.exists(DAILY):
+        return None
+    nav = float(ACCOUNT_VALUE)
+    dp = pd.read_parquet(DAILY)
+    dp["date"] = pd.to_datetime(dp["date"])
+    last_exit = pd.to_datetime(df["Exit Date"]).max()
+    daily = dp.set_index("date")["pnl_flat"]
+    daily = daily[(daily.index >= "2003-01-01") & (daily.index <= last_exit)]
+    if len(daily) < 1000:
+        return None
+
+    active = pd.Series(False, index=daily.index)
+    for a, b in zip(pd.to_datetime(df["Entry Date"]).values,
+                    pd.to_datetime(df["Exit Date"]).values):
+        active.loc[a:b] = True
+
+    pcts = [5, 25, 50, 75, 95]
+
+    def emp(d, act):
+        yrs = len(d) / 252.0
+        thr_rows = []
+        for dollars, label in ((7_500.0, "1.0% of $750k"),
+                               (9_300.0, "1.5% of live NAV (~$620k)"),
+                               (11_250.0, "1.5% of $750k"),
+                               (15_000.0, "2.0% of $750k"),
+                               (22_500.0, "3.0% of $750k")):
+            cnt = int((d < -dollars).sum())
+            thr_rows.append({"label": label, "dollars": dollars, "count": cnt,
+                             "per_yr": round(cnt / yrs, 2)})
+        return {
+            "n_days": int(len(d)),
+            "pct_active": round(float(act.mean()) * 100, 1),
+            "p_up_all": round(float((d > 0).mean()) * 100, 1),
+            "p_up_active": round(float((d[act] > 0).mean()) * 100, 1),
+            "p_flat": round(float((d == 0).mean()) * 100, 1),
+            "mean_day": round(float(d.mean()), 0),
+            "ann_pnl": round(float(d.mean() * 252), 0),
+            "std_day": round(float(d.std()), 0),
+            "sharpe": round(float(d.mean() / d.std() * np.sqrt(252)), 2),
+            "var95": round(float(-np.percentile(d, 5)), 0),
+            "var99": round(float(-np.percentile(d, 1)), 0),
+            "cvar99": round(float(-d[d <= np.percentile(d, 1)].mean()), 0),
+            "day_bands": {str(p): round(float(v), 0)
+                          for p, v in zip(pcts, np.percentile(d, pcts))},
+            "thresholds": thr_rows,
+            "worst_days": [{"date": i.strftime("%Y-%m-%d"), "pnl": round(float(v), 0)}
+                           for i, v in d.nsmallest(5).items()],
+        }
+
+    rng = np.random.default_rng(42)
+    vals = daily.values
+    n = len(vals)
+    p_new = 1.0 / 10  # mean block length 10 td
+
+    def sim_paths(horizon, n_sims=10_000):
+        idx = np.empty((n_sims, horizon), dtype=np.int64)
+        cur = rng.integers(0, n, n_sims)
+        for t in range(horizon):
+            idx[:, t] = cur
+            restart = rng.random(n_sims) < p_new
+            cur = np.where(restart, rng.integers(0, n, n_sims), (cur + 1) % n)
+        return vals[idx]
+
+    def horizon(paths):
+        tot = paths.sum(axis=1)
+        eq = paths.cumsum(axis=1)
+        dd = (eq - np.maximum.accumulate(eq, axis=1)).min(axis=1)
+        counts, edges = np.histogram(tot, bins=48)
+        return {
+            "bands": {str(p): round(float(v), 0)
+                      for p, v in zip(pcts, np.percentile(tot, pcts))},
+            "p_neg": round(float((tot < 0).mean()) * 100, 1),
+            "p_lt_2pct": round(float((tot < -0.02 * nav).mean()) * 100, 1),
+            "p_lt_5pct": round(float((tot < -0.05 * nav).mean()) * 100, 1),
+            "p_bad_day": round(float((paths < -11_250).any(axis=1).mean()) * 100, 1),
+            "dd_p50": round(float(np.percentile(dd, 50)), 0),
+            "dd_p95": round(float(np.percentile(dd, 5)), 0),
+            "dd_worst": round(float(dd.min()), 0),
+            "hist": {"edges": [round(float(e), 0) for e in edges],
+                     "counts": [int(c) for c in counts]},
+        }
+
+    cal_m = daily.resample("ME").sum()
+    cal_y = daily.resample("YE").sum()
+    modern = daily[daily.index >= "2020-01-01"]
+    payload = {
+        "asof": daily.index[-1].strftime("%Y-%m-%d"),
+        "date_min": daily.index[0].strftime("%Y-%m-%d"),
+        "basis_nav": nav,
+        "n_sims": 10_000,
+        "mean_block_td": 10,
+        "empirical": emp(daily, active),
+        "modern": emp(modern, active[active.index >= "2020-01-01"]),
+        "month": horizon(sim_paths(21)),
+        "year": horizon(sim_paths(252)),
+        "calendar": {
+            "months": {"n": int(len(cal_m)),
+                       "p_neg": round(float((cal_m < 0).mean()) * 100, 1),
+                       "median": round(float(cal_m.median()), 0),
+                       "worst": round(float(cal_m.min()), 0),
+                       "worst_when": cal_m.idxmin().strftime("%Y-%m")},
+            "years": {"n": int(len(cal_y)),
+                      "p_neg": round(float((cal_y < 0).mean()) * 100, 1),
+                      "median": round(float(cal_y.median()), 0),
+                      "worst": round(float(cal_y.min()), 0),
+                      "worst_when": str(cal_y.idxmin().year)},
+        },
+    }
+    print(f"  montecarlo: {len(daily)} days -> 10k sims x (21td, 252td)")
+    return payload
+
+
 def build_earnings_next():
     """Next earnings date per ticker (>= today) + the explicit no-data universe
     list. Options are long premium into binaries: NO DATA must render as an
@@ -1729,7 +1850,7 @@ def main():
              "gate_lab": False, "ext_lab": False, "trade_mtm": False,
              "sizer": False, "health": False,
              "iv_context": False, "strategy_stats": False, "earnings_next": False,
-             "seasonality": False, "macro_sznl": False}
+             "seasonality": False, "macro_sznl": False, "montecarlo": False}
     if args.no_mtm:
         # dev iteration: keep flags true for payloads already present in dist
         for k, fn in [("strategy_daily", "strategy_daily.json"), ("positions", "positions.json"),
@@ -1788,6 +1909,7 @@ def main():
     best_effort("gate_lab", build_gate_lab, df)
     best_effort("ext_lab", build_ext_lab, df)
     best_effort("sizer", build_sizer)
+    best_effort("montecarlo", build_monte_carlo, df)
 
     # options-workbench payloads — all best effort
     best_effort("iv_context", build_iv_context)

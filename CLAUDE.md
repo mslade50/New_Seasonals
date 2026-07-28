@@ -969,9 +969,21 @@ Cloudflare Pages project `seasonals-mslade`, locked behind Cloudflare Access
 `docs/private_site_setup.md`.
 
 - **Frontend** lives in `site/` (committed): `index.html` (portfolio app),
-  `ideas.html`, `signals.html`, `charts.html` (per-trade chart gallery),
-  `risk.html` + `assets/` (vanilla JS + Plotly CDN, no build step, no
-  framework). `site/_headers` sets no-store on `/data/*`.
+  `signals.html`, `charts.html` (per-trade chart gallery), `risk.html`,
+  `montecarlo.html` + `assets/` (vanilla JS + Plotly CDN, no build step, no
+  framework). `site/_headers` sets no-store on `/data/*`. Nav order
+  (2026-07-28): Portfolio, Seasonal, Execution, Risk, Trade Log, then the
+  rest, Monte Carlo last. The IDEAS TAB was REMOVED 2026-07-28 (page +
+  ideas.js deleted); `ideas.json` is still built — the signals page's
+  strategy-context block reads it.
+- **Monte Carlo tab** (`montecarlo.html` + `assets/montecarlo.js`,
+  2026-07-28): day/month/year outcome distributions for the current book —
+  empirical daily stats (P(up), loss-threshold frequencies, VaR/CVaR, worst
+  days) + stationary block bootstrap (10k sims, mean block 10td, seed 42) for
+  21td/252td bands, within-horizon maxDD and P(>=1 down day < -1.5%).
+  Payload: `build_monte_carlo()` in build_site (best effort) reads the DAILY
+  pnl_flat parquet the ledger build wrote the same run; flat $750k basis.
+  Study + methodology: scratch/portfolio_monte_carlo.py.
 - **Trade Log tab** (`tradelog.html` + `assets/tradelog.js`, 2026-07-24):
   actual IBKR executions for BOTH accounts (Primary TWS + PA Gateway).
   `book_snapshot.py` (OneDrive) appends today's fills (`ib.reqExecutions`)
