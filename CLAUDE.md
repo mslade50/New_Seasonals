@@ -983,7 +983,16 @@ Cloudflare Pages project `seasonals-mslade`, locked behind Cloudflare Access
   21td/252td bands, within-horizon maxDD and P(>=1 down day < -1.5%).
   Payload: `build_monte_carlo()` in build_site (best effort) reads the DAILY
   pnl_flat parquet the ledger build wrote the same run; flat $750k basis.
-  Study + methodology: scratch/portfolio_monte_carlo.py.
+  Also carries an INTRADAY drawdown-touch section (`build_intraday_touches`,
+  needs the price map so the call lives in the priced block; --no-mtm dev
+  builds ship the sim without it): per-day book trough from open positions'
+  Low/High vs prior close / entry price — a pessimistic bound (per-ticker
+  extremes not simultaneous; limit entries make entry days near-tight), close
+  marks reconciled to booked fills. Renders as touch-frequency table +
+  trough histogram + trough-vs-finish scatter. Drawups deliberately omitted:
+  entry-day extremes can predate the fill, favorable side unknowable from
+  daily bars. Studies: scratch/portfolio_monte_carlo.py +
+  scratch/intraday_excursion_study.py.
 - **Trade Log tab** (`tradelog.html` + `assets/tradelog.js`, 2026-07-24):
   actual IBKR executions for BOTH accounts (Primary TWS + PA Gateway).
   `book_snapshot.py` (OneDrive) appends today's fills (`ib.reqExecutions`)

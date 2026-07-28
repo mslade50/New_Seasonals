@@ -1597,7 +1597,100 @@ def build_strategy_stats(df):
     return out
 
 
-def build_monte_carlo(df):
+def build_intraday_touches(df, md, nav):
+    """Intraday drawdown-touch profile from daily OHLC of open positions.
+
+    Per day, each open position is marked at its worst print (Low for longs,
+    High for shorts) vs entry price on entry day / prior close after, summed
+    across the book. PESSIMISTIC bound: per-ticker extremes are not
+    simultaneous. Entry days are near-tight for limit entries (a long limit
+    fills at first touch; lower lows are post-fill). Close marks carry the
+    exit-day reconciliation to booked fills (get_daily_mtm_series convention).
+    Drawups are deliberately NOT computed — entry-day highs can predate the
+    fill, so the favorable side is unknowable from daily bars.
+    Study: scratch/intraday_excursion_study.py (2026-07-28)."""
+    from collections import defaultdict
+    worst = defaultdict(float)
+    closes = defaultdict(float)
+    cols = ["Ticker", "Direction", "Entry Date", "Exit Date", "Entry Price",
+            "Shares_flat", "PnL_flat_750k"]
+    for tick, direction, en, ex, entry_px, shares, pnl_flat in df[cols].values:
+        p = md.get(str(tick).replace(".", "-"))
+        if p is None or p.empty or pd.isna(shares) or not shares:
+            continue
+        g = p
+        if isinstance(g.columns, pd.MultiIndex):
+            g = g.copy()
+            g.columns = g.columns.get_level_values(0)
+        gcols = {str(c).capitalize(): c for c in g.columns}
+        days = g.loc[pd.Timestamp(en):pd.Timestamp(ex)]
+        if days.empty:
+            continue
+        sign = -1.0 if str(direction) == "Short" else 1.0
+        sh = float(shares)
+        his = days[gcols["High"]].values
+        los = days[gcols["Low"]].values
+        cls = days[gcols["Close"]].values
+        refs = np.roll(cls, 1)
+        refs[0] = float(entry_px)
+        trade_close_sum = 0.0
+        for d, hi, lo, cl, ref in zip(days.index, his, los, cls, refs):
+            if pd.isna(ref) or pd.isna(lo) or pd.isna(hi):
+                continue
+            adverse = (lo - ref) if sign > 0 else (ref - hi)
+            worst[d] += min(0.0, adverse * sh)
+            mark = (cl - ref) * sign * sh
+            closes[d] += mark
+            trade_close_sum += mark
+        if not pd.isna(pnl_flat):
+            closes[days.index[-1]] += float(pnl_flat) - trade_close_sum
+
+    day = pd.DataFrame({"worst": pd.Series(worst),
+                        "close": pd.Series(closes)}).sort_index()
+    day = day[day.index >= "2003-01-01"]
+    if len(day) < 500:
+        return None
+    cal_years = (day.index[-1] - day.index[0]).days / 365.25
+
+    rows = []
+    for pct in (1.0, 1.5, 2.0, 3.0, 4.0):
+        thr = -pct / 100 * nav
+        m = day[day["worst"] <= thr]
+        if not len(m):
+            rows.append({"pct": pct, "count": 0})
+            continue
+        rows.append({
+            "pct": pct, "count": int(len(m)),
+            "per_yr": round(len(m) / cal_years, 1),
+            "median_finish": round(float(m["close"].median()), 0),
+            "p_green": round(float((m["close"] > 0).mean()) * 100, 0),
+            "p_recovered_half": round(float((m["close"] > thr / 2).mean()) * 100, 0),
+            "p_at_or_below": round(float((m["close"] <= thr).mean()) * 100, 0),
+        })
+
+    neg = day[day["worst"] < -0.001 * nav]
+    counts, edges = np.histogram(neg["worst"] / nav * 100, bins=40)
+    sc = day[day["worst"] <= -0.01 * nav]
+    deep = day.nsmallest(5, "worst")
+    return {
+        "n_days": int(len(day)),
+        "cal_years": round(cal_years, 1),
+        "table": rows,
+        "hist": {"edges": [round(float(e), 2) for e in edges],
+                 "counts": [int(c) for c in counts]},
+        "scatter": {
+            "dates": [d.strftime("%Y-%m-%d") for d in sc.index],
+            "trough_pct": [round(float(v) / nav * 100, 2) for v in sc["worst"]],
+            "finish_pct": [round(float(v) / nav * 100, 2) for v in sc["close"]],
+        },
+        "deepest": [{"date": d.strftime("%Y-%m-%d"),
+                     "trough": round(float(r["worst"]), 0),
+                     "close": round(float(r["close"]), 0)}
+                    for d, r in deep.iterrows()],
+    }
+
+
+def build_monte_carlo(df, md=None):
     """Monte Carlo risk profile of the current book (flat $750k basis).
 
     Basis: the whole-book daily MTM series the ledger build wrote this run
@@ -1688,6 +1781,13 @@ def build_monte_carlo(df):
                      "counts": [int(c) for c in counts]},
         }
 
+    intraday = None
+    if md:
+        try:
+            intraday = build_intraday_touches(df, md, nav)
+        except Exception as e:
+            print(f"  montecarlo intraday touches: skipped ({e})")
+
     cal_m = daily.resample("ME").sum()
     cal_y = daily.resample("YE").sum()
     modern = daily[daily.index >= "2020-01-01"]
@@ -1714,7 +1814,10 @@ def build_monte_carlo(df):
                       "worst_when": str(cal_y.idxmin().year)},
         },
     }
-    print(f"  montecarlo: {len(daily)} days -> 10k sims x (21td, 252td)")
+    if intraday:
+        payload["intraday"] = intraday
+    print(f"  montecarlo: {len(daily)} days -> 10k sims x (21td, 252td)"
+          f"{' + intraday touches' if intraday else ''}")
     return payload
 
 
@@ -1902,6 +2005,7 @@ def main():
 
         best_effort("drawdowns", build_drawdowns, df, sd, load_sector_map())
         best_effort("trade_mtm", build_trade_mtm, df, md)
+        best_effort("montecarlo", build_monte_carlo, df, md)
 
     # ledger-only payloads (no price map needed) — all best effort
     best_effort("stopfills", build_stopfills, df)
@@ -1909,7 +2013,9 @@ def main():
     best_effort("gate_lab", build_gate_lab, df)
     best_effort("ext_lab", build_ext_lab, df)
     best_effort("sizer", build_sizer)
-    best_effort("montecarlo", build_monte_carlo, df)
+    if args.no_mtm:
+        # no price map in dev mode — ship the sim without the intraday section
+        best_effort("montecarlo", build_monte_carlo, df)
 
     # options-workbench payloads — all best effort
     best_effort("iv_context", build_iv_context)

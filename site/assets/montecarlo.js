@@ -89,6 +89,72 @@ function plotHist(elId, h, bands) {
   }), PLOT_CFG);
 }
 
+function intradayCard(mc) {
+  const it = mc.intraday;
+  if (!it) return "";
+  const nav = mc.basis_nav;
+  const rows = it.table.filter(r => r.count > 0).map(r =>
+    `<tr><td>-${r.pct.toFixed(1)}%</td>
+     <td style="text-align:right">${r.count}</td>
+     <td style="text-align:right">${r.per_yr}/yr</td>
+     <td style="text-align:right"><b class="${r.median_finish < 0 ? "neg" : "pos"}">${fmt.money(r.median_finish)}</b>
+       <span class="cap" style="display:inline">${pctOfNav(r.median_finish, nav)}</span></td>
+     <td style="text-align:right">${r.p_green}%</td>
+     <td style="text-align:right">${r.p_recovered_half}%</td>
+     <td style="text-align:right">${r.p_at_or_below}%</td></tr>`).join("");
+  return `<div class="card"><h2>Intraday drawdown touches</h2>
+    <p class="cap">Book marked at each open position's worst print (Low for longs, High for
+    shorts) vs prior close / entry price, summed. Pessimistic bound: per-ticker extremes are
+    not simultaneous. Limit entries make entry days near-tight (fills at first touch).
+    Finishes reconcile to booked fills. Drawups are not shown — entry-day highs can predate
+    the fill, so the favorable side is unknowable from daily bars.</p>
+    <div class="tblwrap"><table class="tbl">
+      <tr><th>Touched intraday</th><th style="text-align:right">Times (${it.cal_years}y)</th>
+        <th style="text-align:right">Freq</th><th style="text-align:right">Median finish</th>
+        <th style="text-align:right">Green</th><th style="text-align:right">Recovered &gt; half</th>
+        <th style="text-align:right">Closed at/below touch</th></tr>${rows}</table></div>
+    <p class="cap">Deepest troughs: ${it.deepest.map(d =>
+      `${d.date} <b class="neg">${fmt.money(d.trough)}</b> → <b class="${d.close < 0 ? "neg" : "pos"}">${fmt.money(d.close)}</b>`).join(" · ")}</p>
+    <div class="grid2" style="margin-top:10px">
+      <div><h2 style="font-size:13px">Trough distribution (days touching &lt; -0.1%)</h2>
+        <div class="chart" id="troughHist"></div></div>
+      <div><h2 style="font-size:13px">Trough vs finish (days touching &le; -1%)</h2>
+        <div class="chart" id="troughScatter"></div></div>
+    </div></div>`;
+}
+
+function plotIntraday(mc) {
+  const it = mc.intraday;
+  if (!it) return;
+  const h = it.hist, centers = [];
+  for (let i = 0; i < h.counts.length; i++)
+    centers.push((h.edges[i] + h.edges[i + 1]) / 2);
+  Plotly.newPlot("troughHist", [{
+    type: "bar", x: centers, y: h.counts, marker: { color: "#ff5d5d" },
+    hovertemplate: "%{x:.1f}%: %{y} days<extra></extra>",
+  }], plotLayout({
+    height: 250, bargap: 0.05, hovermode: "closest", showlegend: false,
+    xaxis: { title: { text: "intraday trough, % of basis", font: { size: 11 } } },
+    yaxis: { title: { text: "days", font: { size: 11 } }, type: "log" },
+  }), PLOT_CFG);
+
+  const s = it.scatter;
+  const lo = Math.min(...s.trough_pct) * 1.05;
+  Plotly.newPlot("troughScatter", [{
+    type: "scatter", mode: "markers", x: s.trough_pct, y: s.finish_pct,
+    text: s.dates, marker: { color: "#4da3ff", size: 5, opacity: 0.6 },
+    hovertemplate: "%{text}<br>trough %{x:.1f}% → close %{y:.1f}%<extra></extra>",
+  }, {
+    type: "scatter", mode: "lines", x: [lo, 0], y: [lo, 0], showlegend: false,
+    line: { color: "#2a3242", width: 1, dash: "dot" }, hoverinfo: "skip",
+  }], plotLayout({
+    height: 250, hovermode: "closest", showlegend: false,
+    xaxis: { title: { text: "intraday trough, %", font: { size: 11 } } },
+    yaxis: { title: { text: "close, %", font: { size: 11 } },
+             zerolinecolor: "#3a4356" },
+  }), PLOT_CFG);
+}
+
 function withinRiskCard(mc) {
   const nav = mc.basis_nav;
   const row = (label, h) =>
@@ -160,6 +226,7 @@ async function init() {
       ${histCard("Year PnL distribution", mc.year, mc.year.bands, mc.basis_nav, "histYear")}
     </div>
     <div style="margin-top:14px">${thresholdTable(mc)}</div>
+    ${mc.intraday ? `<div style="margin-top:14px">${intradayCard(mc)}</div>` : ""}
     <div style="margin-top:14px">${withinRiskCard(mc)}</div>
     <div class="grid2" style="margin-top:14px">
       ${eraCard(mc)}
@@ -167,4 +234,5 @@ async function init() {
     </div>`;
   plotHist("histMonth", mc.month, mc.month.bands);
   plotHist("histYear", mc.year, mc.year.bands);
+  plotIntraday(mc);
 }
