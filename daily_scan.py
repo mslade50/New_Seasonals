@@ -105,7 +105,7 @@ OVERFLOW_ELIGIBLE_STRATEGIES = {
 # Per-strategy bps overrides for the overflow tier. OVS uses path-1 nominal
 # (40 bps) for both universes — see strategy_config.py + order_staging.py.
 OVERFLOW_RISK_OVERRIDES = {
-    "Oversold Low Volume": 25,  # vs liquid 35
+    "Oversold Low Volume": 12,  # vs liquid 18 (both cut ~50% 2026-07-29, footprint trim)
 }
 
 # ATR-normalized seasonal ranks (built by build_atr_seasonal_ranks.py)

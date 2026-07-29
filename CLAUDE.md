@@ -116,7 +116,7 @@ It may optionally import `SP500_TICKERS` from `abs_return_dispersion.py` (with t
 
 **Strategy modules** (`strat_backtester.py`, `daily_scan.py`, `daily_portfolio_report.py`) all depend on `strategy_config.py` for `STRATEGY_BOOK` and `ACCOUNT_VALUE`.
 
-**daily_portfolio_report.py** imports backtesting logic from `strat_backtester.py`. Both must stay in sync with `daily_scan.py` for signal detection, sizing, and trade processing. `ACCOUNT_VALUE` from `strategy_config.py` is the single source of truth for portfolio sizing across all three. Runs in **GitHub Actions** (weekdays 21:30 UTC = 5:30 PM ET) — pulls `data/master_prices.parquet` and `data/earnings_calendar.parquet` from Cloudflare R2 before running. Reports cover both liquid (LIQUID_PLUS_COMMODITIES) and overflow (CSV_UNIVERSE − LIQUID_PLUS_COMMODITIES) universes — overflow-eligible strategies get a second deep-copied pass with `OVERFLOW_RISK_OVERRIDES` (only OLV 35→25 bps nominal remains; OVS uses path-1 nominal 40 bps for both tiers; all nominals scale by `GLOBAL_RISK_MULTIPLIER` — see "Sizing Conventions"). Workflow: `.github/workflows/portfolio_report.yml`.
+**daily_portfolio_report.py** imports backtesting logic from `strat_backtester.py`. Both must stay in sync with `daily_scan.py` for signal detection, sizing, and trade processing. `ACCOUNT_VALUE` from `strategy_config.py` is the single source of truth for portfolio sizing across all three. Runs in **GitHub Actions** (weekdays 21:30 UTC = 5:30 PM ET) — pulls `data/master_prices.parquet` and `data/earnings_calendar.parquet` from Cloudflare R2 before running. Reports cover both liquid (LIQUID_PLUS_COMMODITIES) and overflow (CSV_UNIVERSE − LIQUID_PLUS_COMMODITIES) universes — overflow-eligible strategies get a second deep-copied pass with `OVERFLOW_RISK_OVERRIDES` (only OLV 18→12 bps nominal remains; OVS uses path-1 nominal 40 bps for both tiers; all nominals scale by `GLOBAL_RISK_MULTIPLIER` — see "Sizing Conventions"). Workflow: `.github/workflows/portfolio_report.yml`.
 
 **daily_scan.py** is the single unified scanner (post-2026-04-30 merge with the retired `local_overflow_scan.py`). CLI flags:
 - `--scope=liquid` (default) — scans every strategy against its native universe (typically LIQUID_PLUS_COMMODITIES)
@@ -255,7 +255,7 @@ Aligned sites -- change together:
 | `LIQUID_PLUS_COMMODITIES` | `strategy_config.py` | ~190 | Liquid universe — daily_scan default scope |
 | `CSV_UNIVERSE` | `strategy_config.py` | ~1060 | Full universe (liquid + overflow tier ~870) |
 | `OVERFLOW_ELIGIBLE_STRATEGIES` | `daily_scan.py` | 6 | OVS, OLV, LT Trend ST OS, St OS Sznl, 52wh Breakout, ATR Extended Gap Up (no override — native 40 bps nominal on overflow) |
-| `OVERFLOW_RISK_OVERRIDES` | `daily_scan.py`, `daily_portfolio_report.py` | 1 | OLV: 35→25 bps nominal for overflow tier (52.5→37.5 effective) |
+| `OVERFLOW_RISK_OVERRIDES` | `daily_scan.py`, `daily_portfolio_report.py` | 1 | OLV: 18→12 bps nominal for overflow tier (27→18 effective) |
 | `GLOBAL_RISK_MULTIPLIER` | `strategy_config.py` | 1.5 | Book-wide risk scaler applied at import — see "Sizing Conventions" |
 | `SECTOR_ETFS` | `risk_dashboard_v2.py` | 11 | SPDR sector ETFs |
 | `VOL_TICKERS` | `risk_dashboard_v2.py` | 4 | SPY, ^VIX, ^VIX3M, ^VVIX |
@@ -271,8 +271,12 @@ book at import time: every execution `risk_bps`, OVS `path1_bps` / `path2_bps`
 `OVERFLOW_RISK_OVERRIDES` in daily_scan / daily_portfolio_report. The dicts in
 strategy_config SOURCE are nominal; everything downstream (scan, engines,
 reports, staged `Risk_Amt`/`Risk_Bps`) sees SCALED values. **All bps in this
-doc are nominal unless marked effective** — e.g. OLV liquid 35 nominal = 52.5
-effective, overflow 25 = 37.5.
+doc are nominal unless marked effective** — e.g. OLV liquid 18 nominal = 27
+effective, overflow 12 = 18. (OLV was cut ~50% across all three carriers on
+2026-07-29 — liquid 35→18, overflow 25→12, earnings override 10→5 — a
+risk-appetite footprint trim: its avg open notional had doubled vs the
+2018-2020 norm on 5x signal frequency and it carried 49% of 2026's intraday
+trough dollars. Not an edge call.)
 
 GRM evidence trail (2026-07-16, scratch/grm_replay_study.py — the constant
 shipped 2026-05-27 with none): full-ledger replay at GRM 1.0/1.25/1.5/1.75
@@ -288,7 +292,7 @@ daily_scan per-signal sizing order (mirrored in strat_backtester step 3b):
 base bps (tier x GRM) -> 2b fragility band -> 2c ladder rung (machinery
 retained, NO current carrier — OLV's ladder removed 2026-07-20) -> 2c2
 cycle-year mult -> 2d earnings size override (flat REPLACE, itself
-GRM-scaled: OLV signals -10..0 TD from earnings get 10 bps nominal / 15
+GRM-scaled: OLV signals -10..0 TD from earnings get 5 bps nominal / 7.5
 effective) -> shares -> ADV participation cap -> per-ticker notional cap
 (OLV, 2026-07-20) -> 5c same-day signal de-rate (post-pass; 3x Bear fade —
 see its section below).

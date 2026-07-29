@@ -403,7 +403,7 @@ def test_live_config_invariants():
     for etf in ('USO', 'GDX', 'SLV', 'DBC', 'EWZ', 'KRE', 'ITA', 'OIH', 'CEF', 'GLD'):
         assert etf in cap['exempt'], f"{etf} missing from cap exemption"
     # risk_bps IS GRM-scaled at import
-    assert ex['risk_bps'] == 35 * GLOBAL_RISK_MULTIPLIER
+    assert ex['risk_bps'] == 18 * GLOBAL_RISK_MULTIPLIER
     # no other strategy carries a ladder or sector gate anymore
     for s in STRATEGY_BOOK:
         assert not s['execution'].get('ladder_multipliers')
