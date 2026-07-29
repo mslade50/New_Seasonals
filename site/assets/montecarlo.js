@@ -89,6 +89,96 @@ function plotHist(elId, h, bands) {
   }), PLOT_CFG);
 }
 
+/* ---------- daily PnL actuals (windowed, portfolio-page style) ---------- */
+
+const DAILY_PRESETS = ["All", "10Y", "5Y", "3Y", "1Y", "YTD"];
+
+function dailyCard(mc) {
+  if (!mc.daily_series) return "";
+  return `<div class="card"><h2>Daily PnL (actual)</h2>
+    <div class="tbl-controls"><label>Range</label><span class="seg" id="dailyRangeSeg"></span>
+      <span class="info" id="dailyStats"></span></div>
+    <div class="chart" id="dailyChart" style="height:300px"></div>
+    <p class="cap">One dot per trading day (flat $750k basis). Amber diamonds mark the day's
+    intraday trough — the book marked at each open position's worst print vs prior close /
+    entry price (pessimistic bound, see the intraday section below). Max drawdown in the
+    stats line is on cumulative closed PnL within the window.</p></div>`;
+}
+
+function windowStart(preset, lastDate) {
+  if (preset === "All") return null;
+  if (preset === "YTD") return lastDate.slice(0, 4) + "-01-01";
+  const d = new Date(lastDate + "T00:00:00Z");
+  d.setUTCFullYear(d.getUTCFullYear() - parseInt(preset));
+  return d.toISOString().slice(0, 10);
+}
+
+function plotDaily(mc, preset) {
+  const ds = mc.daily_series;
+  const troughs = {};
+  const its = mc.intraday && mc.intraday.series;
+  if (its) for (let i = 0; i < its.dates.length; i++)
+    if (its.trough[i] < 0) troughs[its.dates[i]] = its.trough[i];
+
+  const from = windowStart(preset, ds.dates[ds.dates.length - 1]);
+  const dates = [], pnl = [], tDates = [], tVals = [];
+  for (let i = 0; i < ds.dates.length; i++) {
+    if (from && ds.dates[i] < from) continue;
+    dates.push(ds.dates[i]);
+    pnl.push(ds.pnl[i]);
+    const t = troughs[ds.dates[i]];
+    if (t !== undefined) { tDates.push(ds.dates[i]); tVals.push(t); }
+  }
+
+  let cum = 0, peak = 0, maxDD = 0, up = 0, nz = 0, worst = 0, worstDate = "";
+  for (let i = 0; i < pnl.length; i++) {
+    cum += pnl[i];
+    if (cum > peak) peak = cum;
+    if (cum - peak < maxDD) maxDD = cum - peak;
+    if (pnl[i] !== 0) { nz++; if (pnl[i] > 0) up++; }
+    if (pnl[i] < worst) { worst = pnl[i]; worstDate = dates[i]; }
+  }
+  const deepest = tVals.length ? Math.min(...tVals) : null;
+  document.getElementById("dailyStats").innerHTML =
+    `${dates.length} td · total <b class="${cum < 0 ? "neg" : "pos"}">${fmt.money(cum)}</b>` +
+    ` · P(up|active) ${nz ? Math.round(100 * up / nz) : 0}%` +
+    ` · worst day <b class="neg">${fmt.money(worst)}</b> (${worstDate})` +
+    ` · maxDD <b class="neg">${fmt.money(maxDD)}</b>` +
+    (deepest != null ? ` · deepest touch <b class="neg">${fmt.money(deepest)}</b>` : "");
+
+  const traces = [{
+    type: "scatter", mode: "markers", name: "day PnL (close)", x: dates, y: pnl,
+    marker: { color: pnl.map(v => v < 0 ? "#ff5d5d" : "#4da3ff"), size: 4, opacity: 0.75 },
+    hovertemplate: "%{x}<br>close %{y:$,.0f}<extra></extra>",
+  }];
+  if (tDates.length) traces.push({
+    type: "scatter", mode: "markers", name: "intraday trough", x: tDates, y: tVals,
+    marker: { color: "#ffc14d", size: 5, symbol: "diamond-open", opacity: 0.7 },
+    hovertemplate: "%{x}<br>trough %{y:$,.0f}<extra></extra>",
+  });
+  Plotly.newPlot("dailyChart", traces, plotLayout({
+    height: 300, hovermode: "x unified",
+    yaxis: { tickformat: "$,.0s", zerolinecolor: "#3a4356" },
+  }), PLOT_CFG);
+}
+
+function wireDaily(mc) {
+  if (!mc.daily_series) return;
+  const seg = document.getElementById("dailyRangeSeg");
+  DAILY_PRESETS.forEach(p => {
+    const b = document.createElement("button");
+    b.textContent = p;
+    if (p === "1Y") b.classList.add("on");
+    b.addEventListener("click", () => {
+      seg.querySelectorAll("button").forEach(x => x.classList.remove("on"));
+      b.classList.add("on");
+      plotDaily(mc, p);
+    });
+    seg.appendChild(b);
+  });
+  plotDaily(mc, "1Y");
+}
+
 function intradayCard(mc) {
   const it = mc.intraday;
   if (!it) return "";
@@ -220,6 +310,7 @@ async function init() {
       ${kpi("Daily VaR99", fmt.money(-e.var99), `CVaR99 ${fmt.money(-e.cvar99)}`)}
       ${kpi("P(year negative)", mc.year.p_neg + "%", "simulated")}
     </div>
+    ${dailyCard(mc)}
     ${bandsTable(mc)}
     <div class="grid2" style="margin-top:14px">
       ${histCard("Month PnL distribution", mc.month, mc.month.bands, mc.basis_nav, "histMonth")}
@@ -232,6 +323,7 @@ async function init() {
       ${eraCard(mc)}
       ${calendarCard(mc)}
     </div>`;
+  wireDaily(mc);
   plotHist("histMonth", mc.month, mc.month.bands);
   plotHist("histYear", mc.year, mc.year.bands);
   plotIntraday(mc);

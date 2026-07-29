@@ -1687,6 +1687,12 @@ def build_intraday_touches(df, md, nav):
                      "trough": round(float(r["worst"]), 0),
                      "close": round(float(r["close"]), 0)}
                     for d, r in deep.iterrows()],
+        # full per-day trough series for the daily PnL chart (days with any
+        # open position; 0 = never underwater intraday that day)
+        "series": {
+            "dates": [d.strftime("%Y-%m-%d") for d in day.index],
+            "trough": [round(float(v), 0) for v in day["worst"]],
+        },
     }
 
 
@@ -1797,6 +1803,12 @@ def build_monte_carlo(df, md=None):
         "basis_nav": nav,
         "n_sims": 10_000,
         "mean_block_td": 10,
+        # full daily PnL history for the actuals chart (window filter is
+        # client-side, portfolio-page style)
+        "daily_series": {
+            "dates": [d.strftime("%Y-%m-%d") for d in daily.index],
+            "pnl": [round(float(v), 0) for v in daily.values],
+        },
         "empirical": emp(daily, active),
         "modern": emp(modern, active[active.index >= "2020-01-01"]),
         "month": horizon(sim_paths(21)),
