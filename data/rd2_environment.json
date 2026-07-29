@@ -2,10 +2,10 @@
   "date": "2026-07-29",
   "price_ctx": {
     "price": 740.8599853515625,
-    "ret_12m": 0.17604308697491766,
-    "extension_200d": 0.06419057164510766,
+    "ret_12m": 0.17604320091864745,
+    "extension_200d": 0.06419056884610064,
     "drawdown": -0.02211963650152904,
-    "sma_200": 696.1722882080078,
+    "sma_200": 696.1722900390625,
     "high_52w": 757.6182250976562,
     "regime_label": "Strong uptrend, moderately extended",
     "days_since_5pct": 79,
@@ -30,7 +30,7 @@
     "Defensive Leadership": {
       "on": false,
       "detail": "",
-      "summary": "50d spread: -31pp (fires < -10) | 200d spread: -4pp (fires < 0)"
+      "summary": "50d spread: -32pp (fires < -10) | 200d spread: -4pp (fires < 0)"
     },
     "Pre-FOMC Rally": {
       "on": false,
