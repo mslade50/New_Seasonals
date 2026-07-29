@@ -64,8 +64,9 @@ function renderMacroSeasonality(root, payload) {
   const chartCards = payload.rows.map((row, i) => {
     if (!row.file) return "";
     const label = row.name ? `${row.ticker} — ${row.name}` : row.ticker;
+    const titleLabel = row.chart_label || label;
     return `<div class="card seasonality-chart-card macro-chart-card" id="macro-chart-${i}"
-      data-file="${labEsc(row.file)}" data-ticker="${labEsc(row.ticker)}" data-label="${labEsc(label)}">
+      data-file="${labEsc(row.file)}" data-ticker="${labEsc(row.ticker)}" data-label="${labEsc(titleLabel)}">
       <div class="chart macro-chart"><div class="spin">…</div></div></div>`;
   }).join("");
 
@@ -73,7 +74,9 @@ function renderMacroSeasonality(root, payload) {
     <div class="cap" style="margin:4px 2px 8px">Prices through ${labEsc(payload.asof || "?")} ·
       seasonal ranks as-of ${labEsc(payload.sznl_asof || "?")} · returns rank vs their trailing 2y
       distribution (red = extended, green = washed out) · Sznl above 85 = seasonally strong window
-      (green), below 15 = weak (red). Click a row to jump to its chart.</div>
+      (green), below 15 = weak (red). Click a row to jump to its chart.<br>
+      Chart titles show the preferred IBKR expression when it differs: FUT labels are roots
+      (select the active expiry), ETF labels are proxies, and FX labels are IDEALPRO spot.</div>
     <div class="card"><div class="tblwrap"><table class="tbl macro-tbl"><thead>${head}</thead>
       <tbody>${body}</tbody></table></div></div>
     <h2 style="display:flex;align-items:center;gap:16px;flex-wrap:wrap">Seasonal charts

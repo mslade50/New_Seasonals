@@ -26,7 +26,7 @@ _HERE = os.path.dirname(os.path.abspath(__file__))
 _ROOT = os.path.dirname(_HERE)
 sys.path.insert(0, _ROOT)
 
-from macro_universe import SECTOR_ETFS, TICKER_INFO
+from macro_universe import SECTOR_ETFS, TICKER_INFO, get_ticker_label
 from scripts.seasonality_site_data import _ticker_id
 
 MA_WINDOWS = (5, 20, 50, 200)
@@ -110,6 +110,7 @@ def export_macro_snapshot(
         info = TICKER_INFO.get(ticker, ("", ""))
         row: dict = {"ticker": ticker, "name": info[0], "ibkr": info[1],
                      "price": None}
+        row["chart_label"] = get_ticker_label(ticker)
         for window in MA_WINDOWS:
             row[f"r{window}"] = None
         group = (prices[prices["ticker"] == ticker]

@@ -6,7 +6,13 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from macro_universe import SECTOR_ETFS, TICKER_INFO
+from macro_universe import (
+    IBKR_EQUIVALENTS,
+    SECTOR_ETFS,
+    TICKER_INFO,
+    get_ibkr_label,
+    get_ticker_label,
+)
 from scripts.macro_site_data import (
     export_macro_snapshot,
     extension_ranks,
@@ -21,6 +27,34 @@ def test_percentile_rank_matches_page_definition():
     assert percentile_rank(s, 4.0) == pytest.approx(100.0)
     assert percentile_rank(s, 0.5) == pytest.approx(0.0)
     assert percentile_rank(pd.Series(dtype=float), 1.0) is None
+
+
+def test_ibkr_equivalents_cover_macro_universe_and_format_titles():
+    assert set(IBKR_EQUIVALENTS) == set(SECTOR_ETFS)
+
+    assert get_ibkr_label("^GSPC") == "ES FUT"
+    assert get_ticker_label("^GSPC").endswith("IBKR: ES FUT")
+    assert get_ticker_label("^GDAXI").endswith("IBKR: DAX (FDAX) FUT")
+    assert get_ticker_label("^VIX").endswith("IBKR: VIX (VX) FUT")
+    assert get_ticker_label("EURUSD=X").endswith("IBKR: EUR.USD FX")
+    assert get_ticker_label("GLD").endswith("IBKR: GC FUT")
+
+    # Directly tradeable names do not repeat themselves in the title.
+    assert "IBKR:" not in get_ticker_label("CEF")
+    assert "IBKR:" not in get_ticker_label("TLT")
+
+    # Index/commodity research series prefer futures unless explicitly proxied.
+    index_or_commodity = {
+        ticker for ticker in SECTOR_ETFS
+        if ticker.startswith("^") or ticker.endswith("=F")
+        or ticker in {"GLD", "SLV", "UNG"}
+    }
+    allowed_proxy_etfs = {"^IXIC", "^DJT", "^SOX", "^BSESN", "^MXX"}
+    for ticker in index_or_commodity - allowed_proxy_etfs:
+        assert IBKR_EQUIVALENTS[ticker].sec_type == "FUT"
+    for ticker in allowed_proxy_etfs:
+        equivalent = IBKR_EQUIVALENTS[ticker]
+        assert equivalent.sec_type == "STK" and equivalent.proxy
 
 
 def test_extension_ranks_against_pandas():
@@ -87,6 +121,8 @@ def test_export_macro_snapshot(tmp_path: Path):
     assert gld["file"] and gld["file"].endswith(".bin")
     # asof lookup takes the last row <= asof (2026-07-13), never the forward 99s
     assert gld["s5"] == pytest.approx(85.0)
+    assert gld["ibkr"] == "GC FUT"
+    assert gld["chart_label"].endswith("IBKR: GC FUT")
     assert by_ticker["AGG"]["s5"] == pytest.approx(20.0)
     # AGG has ranks but no prices: table-only row
     agg = by_ticker["AGG"]
