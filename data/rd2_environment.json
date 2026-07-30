@@ -12,8 +12,8 @@
     "days_since_10pct": 316
   },
   "h_scores": {
-    "5d": 14.666903299151732,
-    "21d": 36.11229649320529,
+    "5d": 14.66690329915173,
+    "21d": 36.1122964932053,
     "63d": 50.70854307092778
   },
   "signals": {
@@ -25,7 +25,7 @@
     "VIX Range Compression": {
       "on": false,
       "detail": "",
-      "summary": "21d range: 33th pctile (fires below 15th) \u2014 VIX at 19.8"
+      "summary": "21d range: 33th pctile (fires below 15th) \u2014 VIX at 19.5"
     },
     "Defensive Leadership": {
       "on": false,
