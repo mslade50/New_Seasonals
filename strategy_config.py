@@ -448,7 +448,7 @@ _STRATEGY_BOOK_RAW = [
         "setup": {
             "type": "MeanReversion",
             "timeframe": "Position",
-            "thesis": "Buying oversold names during low-volume selloffs in uptrenders (252d 50-90), gated to a market uptrend regime (SPY > 200 SMA) and minimum 5y of trading history. Persistent limit at close - 0.25 ATR lets overflow signals (post-close scan) still get filled overnight or intraday. Pre-earnings signals (signal_date in [-10, 0] TD relative to earnings) are still allowed but sized at 5 bps instead of the default 18 bps to dampen binary-event risk.",
+            "thesis": "Buying oversold names during low-volume selloffs in uptrenders (252d 50-90), gated to a market uptrend regime (SPY > 200 SMA) and minimum 5y of trading history. Persistent limit at close - 0.25 ATR lets overflow signals (post-close scan) still get filled overnight or intraday. Pre-earnings signals (signal_date in [-10, 0] TD relative to earnings) are still allowed but sized at 10 bps instead of the default 35 bps to dampen binary-event risk. First entry in a ticker sizes at 0.5x (ladder [0.5,1,1], 2026-07-29); stacked adds at full size.",
             "key_filters": [
                 "21D rank < 15th %ile for 3 consecutive days (persistent oversold)",
                 "5D rank < 33rd %ile (recent weakness)",
@@ -457,16 +457,16 @@ _STRATEGY_BOOK_RAW = [
                 "10D volume rank < 15th %ile (low volume = lack of conviction selling)",
                 "Market (SPY) > 200 SMA (uptrend regime)",
                 "Min 5 years of price history (mature liquid name)",
-                "Pre-earnings (-10..0 TD) signals: sized 5 bps instead of default"
+                "Pre-earnings (-10..0 TD) signals: sized 10 bps instead of default"
             ]
         },
         "exit_summary": {
             "primary_exit": "10-day time stop OR 2.5 ATR target OR volume-confirmed stop (whichever first)",
             "stop_logic": "Vol-confirmed (2026-07-20): no resting stop. If a session CLOSES at/below entry - 1.25 ATR AND that day's volume >= 1.5x the trailing 20d median, exit MOO at the next open. Quiet closes below the level are held (low-volume weakness is the thesis, not its failure). stop_atr 1.25 still defines the risk unit for sizing.",
             "target_logic": "2.5 ATR above entry",
-            "notes": "Persistent limit at close - 0.25 ATR; GTC for the hold window. No cooldown — consecutive signals on same ticker allowed. No ladder (removed 2026-07-20, all legs 1.0x) and no sector loss gate (removed 2026-07-20 with the vol-confirmed stop + notional cap package). Per-ticker concurrent notional capped at 50% of NAV for single stocks (ETFs exempt). Earnings handling: signals 10 TD before through earnings day get sized at 5 bps (vs. default 18 bps liquid / 12 bps overflow); commodity ETFs / indices / futures with no earnings data pass through at default sizing. Sizes cut ~50% book-wide for this strategy 2026-07-29 (footprint trim)."
+            "notes": "Persistent limit at close - 0.25 ATR; GTC for the hold window. No cooldown — consecutive signals on same ticker allowed. No ladder (removed 2026-07-20, all legs 1.0x) and no sector loss gate (removed 2026-07-20 with the vol-confirmed stop + notional cap package). Per-ticker concurrent notional capped at 50% of NAV for single stocks (ETFs exempt). Earnings handling: signals 10 TD before through earnings day get sized at 10 bps (vs. default 35 bps liquid / 25 bps overflow); commodity ETFs / indices / futures with no earnings data pass through at default sizing. First-entry half-size ladder [0.5,1,1] since 2026-07-29 (footprint trim on the weakest leg; adds stay full size)."
         },
-        "description": "Start: 2000-01-01. Universe: Liquid + commodities + overflow tier (CSV_UNIVERSE via OVERFLOW_ELIGIBLE). Dir: Long. Entry: limit at close-0.25 ATR (GTC). 10d hold, 2.5 ATR target, 1.25 ATR stop. Liquid 18 bps / overflow 12 bps (cut ~50% 2026-07-29); pre-earnings window sizes both at 5 bps.",
+        "description": "Start: 2000-01-01. Universe: Liquid + commodities + overflow tier (CSV_UNIVERSE via OVERFLOW_ELIGIBLE). Dir: Long. Entry: limit at close-0.25 ATR (GTC). 10d hold, 2.5 ATR target, 1.25 ATR stop. Liquid 35 bps / overflow 25 bps; first entry in a ticker 0.5x (ladder [0.5,1,1], 2026-07-29), adds full size; pre-earnings window sizes at 10 bps flat.",
         "universe_tickers": LIQUID_PLUS_COMMODITIES,
         "settings": {
             "trade_direction": "Long",
@@ -505,16 +505,24 @@ _STRATEGY_BOOK_RAW = [
             "use_recent_52w_low": False, "recent_52w_low_invert": True, "recent_52w_low_lookback": 10,
             "dial_filters": []
         },
-        # Size cut 35->18 nominal (2026-07-29, McKinley): ~50% footprint trim.
-        # OLV's avg open notional ran $365k/day in 2026 vs the $160-180k
-        # 2018-2020 norm (signal rate ~5x historical via overflow tier +
-        # stacking + busier tape), and it carried 49% of the book's intraday
-        # trough dollars in 2026. Risk-appetite call on the footprint, NOT an
-        # edge call (TIM Sharpe 2.36, hi-vol entries still strong). Moved
-        # together: overflow override 25->12 (daily_scan +
-        # daily_portfolio_report OVERFLOW_RISK_OVERRIDES), earnings override
-        # 10->5 below. Study trail: session 2026-07-29 (trough attribution).
-        "execution": {"risk_bps": 18, "slippage_bps": 2, "stop_atr": 1.25, "tgt_atr": 2.5, "hold_days": 10, "use_stop_loss": True, "use_take_profit": True,
+        # First-entry half-size (2026-07-29, McKinley): ladder [0.5, 1, 1] —
+        # the FIRST leg in a (ticker) chain sizes at 0.5x base, stacked adds
+        # at full size. Replaces the flat 35->18 cut shipped earlier the same
+        # day (base restored to 35): a footprint trim aimed at the weakest
+        # leg instead of all legs. Leg-order stats (2016+, dial-era): leg-1
+        # avgR +0.56-0.82 across dial bands vs leg-3+ +1.1-1.4 — initial
+        # entries are OLV's weakest legs everywhere, deep adds its strongest.
+        # Context: OLV's avg open notional ran $365k/day in 2026 vs the
+        # $160-180k 2018-2020 norm and carried 49% of the book's 2026
+        # intraday trough dollars. Risk-appetite call, NOT an edge call
+        # (leg-1 is still positive; this costs expectancy by design). First
+        # legs are ~63% of trades -> footprint ~0.69x of original. NOTE this
+        # is the INVERSE of the old [0.85,1,1] ladder removed 2026-07-20 (a
+        # first-rung discount measured as a drag) — deeper cut, deliberate.
+        # Earnings override still flat-REPLACES after the ladder (pre-earnings
+        # signals get 10 bps regardless of leg — documented composition).
+        "execution": {"risk_bps": 35, "slippage_bps": 2, "stop_atr": 1.25, "tgt_atr": 2.5, "hold_days": 10, "use_stop_loss": True, "use_take_profit": True,
+                      "ladder_multipliers": [0.5, 1.0, 1.0],
                       # Entry-order live window (2026-06-24): the persistent
                       # close-0.25 ATR limit is cancelled if unfilled after 3
                       # trading days (T+1..T+3), NOT the full 10-day hold. 89% of
@@ -571,7 +579,7 @@ _STRATEGY_BOOK_RAW = [
                       # instead of using the strategy's default. NaN offsets
                       # (commodity ETFs / indices / futures with no earnings
                       # data) bypass the override — they keep default sizing.
-                      "earnings_size_override": {"min_td": -10, "max_td": 0, "risk_bps": 5}},
+                      "earnings_size_override": {"min_td": -10, "max_td": 0, "risk_bps": 10}},
         "stats": {"grade": "A (Excellent)", "win_rate": "69.0%", "expectancy": "0.48r", "profit_factor": "2.82"}
     },
     {

@@ -100,7 +100,7 @@ OVERFLOW_ELIGIBLE = {
     "ATR Extended Gap Up",  # added 2026-06-09; native 60 bps on overflow (no override)
 }
 OVERFLOW_RISK_OVERRIDES = {
-    "Oversold Low Volume": 12,      # vs liquid 18 bps (both cut ~50% 2026-07-29)
+    "Oversold Low Volume": 25,      # vs liquid 35 bps (first-leg 0.5x ladder on both tiers)
     # OVS uses the same path-1 nominal (40 bps) for both liquid and overflow
     # universes — sizing is governed by the 2-path gap-tier in
     # order_staging.py (path-1 40 bps decisive / path-2 8 bps mild + 1%

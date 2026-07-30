@@ -396,15 +396,19 @@ def test_live_config_invariants():
     assert ex.get('stop_vol_mult') == 1.5
     assert ex.get('use_stop_loss') is True          # stop_atr still sizes risk
     assert ex.get('stop_atr') == 1.25
-    assert 'ladder_multipliers' not in ex, "ladder removed 2026-07-20"
+    # First-entry half-size ladder (2026-07-29): leg 1 at 0.5x, adds full.
+    # Ladder mults are NOT GRM-scaled (pure multiplier on the scaled base).
+    assert ex.get('ladder_multipliers') == [0.5, 1.0, 1.0], \
+        "OLV first-leg half-size ladder (2026-07-29)"
     assert 'sector_loss_gate' not in ex, "sector gate removed 2026-07-20"
     cap = ex.get('ticker_notional_cap')
     assert cap and cap['pct_nav'] == 0.50, "cap must NOT be GRM-scaled"
     for etf in ('USO', 'GDX', 'SLV', 'DBC', 'EWZ', 'KRE', 'ITA', 'OIH', 'CEF', 'GLD'):
         assert etf in cap['exempt'], f"{etf} missing from cap exemption"
     # risk_bps IS GRM-scaled at import
-    assert ex['risk_bps'] == 18 * GLOBAL_RISK_MULTIPLIER
-    # no other strategy carries a ladder or sector gate anymore
+    assert ex['risk_bps'] == 35 * GLOBAL_RISK_MULTIPLIER
+    # OLV is the ladder's ONLY carrier; nobody carries a sector gate
     for s in STRATEGY_BOOK:
-        assert not s['execution'].get('ladder_multipliers')
+        if s['name'] != 'Oversold Low Volume':
+            assert not s['execution'].get('ladder_multipliers')
         assert not s['execution'].get('sector_loss_gate')
