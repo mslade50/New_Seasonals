@@ -875,7 +875,12 @@ _STRATEGY_BOOK_RAW = [
             "tgt_atr": 1.5,
             "hold_days": 5,
             "use_stop_loss": False,
-            "use_take_profit": True
+            "use_take_profit": True,
+            # Imminent-earnings derate (2026-07-30): the no-stop 5d hold can
+            # straddle the print. Ledger -5..-1 TD cell: N=9, avgR -0.50, all
+            # tail losers (AAP -5.96R, LYV -3.05R) vs +0.32 outside. Small-N
+            # risk-appetite haircut (~15% of normal), NOT a fitted edge rule.
+            "earnings_size_override": {"min_td": -5, "max_td": -1, "risk_bps": 6}
         },
         "stats": {"grade": "A (Excellent)", "win_rate": "64.5%", "expectancy": "0.45r", "profit_factor": "2.17"}
     },

@@ -267,7 +267,7 @@ Aligned sites -- change together:
 
 `strategy_config.GLOBAL_RISK_MULTIPLIER` (currently **1.5**) scales the whole
 book at import time: every execution `risk_bps`, OVS `path1_bps` / `path2_bps`
-/ `path2_daily_cap_pct`, the OLV `earnings_size_override.risk_bps`, and the
+/ `path2_daily_cap_pct`, every `earnings_size_override.risk_bps`, and the
 `OVERFLOW_RISK_OVERRIDES` in daily_scan / daily_portfolio_report. The dicts in
 strategy_config SOURCE are nominal; everything downstream (scan, engines,
 reports, staged `Risk_Amt`/`Risk_Bps`) sees SCALED values. **All bps in this
@@ -290,8 +290,12 @@ daily_scan per-signal sizing order (mirrored in strat_backtester step 3b):
 base bps (tier x GRM) -> 2b fragility band -> 2c ladder rung (machinery
 carrier: OLV [0.5,1,1] first-leg half-size since 2026-07-29) -> 2c2
 cycle-year mult -> 2d earnings size override (flat REPLACE, itself
-GRM-scaled: OLV signals -10..0 TD from earnings get 10 bps nominal / 15
-effective) -> shares -> ADV participation cap -> per-ticker notional cap
+GRM-scaled; two carriers: OLV -10..0 TD -> 10 bps nominal / 15 effective;
+St OS Sznl -5..-1 TD -> 6 bps nominal / 9 effective, added 2026-07-30 —
+the no-stop 5d hold straddling an imminent print held every ledger tail
+loser [-5..-1 cell N=9 avgR -0.50 vs +0.32 outside]; small-N appetite
+haircut, guard tests/test_earnings_size_override.py, evidence
+scratch/stos_earnings_proximity.py) -> shares -> ADV participation cap -> per-ticker notional cap
 (OLV, 2026-07-20) -> 5c same-day signal de-rate (post-pass; 3x Bear fade —
 see its section below).
 
