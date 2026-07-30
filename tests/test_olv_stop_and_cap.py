@@ -14,8 +14,12 @@ the ladder, and the sector loss gate:
 5. A confirm on the final hold day is moot — the TIME exit at that close wins.
 6. ticker_notional_cap: stacked same-ticker legs are clipped/skipped to keep
    entry notional under pct_nav x sizing equity; exempt tickers pass through.
-7. Live config invariants: stop_mode present, no ladder / sector gate, cap
-   NOT GRM-scaled, exempt list covers the traded ETFs.
+7. Live config invariants: stop_mode present, no open-count ladder / sector
+   gate, cap NOT GRM-scaled, exempt list covers the traded ETFs.
+8. Signal-recency ladder (2026-07-30): rung = prior signal days in the
+   trailing window_td sessions (fill-independent), mults [0.5, 0.7, 1.0];
+   window expiry resets to rung 1; the earnings size override composes with
+   the recency mult instead of clobbering it.
 """
 import os
 import sys
@@ -182,6 +186,97 @@ def test_notional_cap_clips_and_skips_stacked_legs():
     sh = sorted(sig_df['Shares'].tolist(), reverse=True)
     assert sh[0] == 140
     assert sh[1] == 61
+
+
+def _recency_strategy(**exec_over):
+    # risk_bps 40 (not the prod 35) keeps 0.7x off a float floor boundary:
+    # 0.7 x $350 = 244.999… floors to 97/98 depending on equity drift, while
+    # 0.7 x $400 = 280.000…6 floors stably (the prod scan rounds the same
+    # way — the test just avoids asserting on the knife edge).
+    exec_over.setdefault('risk_bps', 40)
+    return _olv_strategy(
+        signal_recency_ladder={'window_td': 21, 'mults': [0.5, 0.7, 1.0]},
+        **exec_over)
+
+
+def test_recency_ladder_grades_consecutive_signals():
+    # Signals at idx 0/1/2 -> priors 0/1/2 -> mults 0.5/0.7/1.0.
+    # Base: 40 bps of 100k = $400 risk / 2.5 dist = 160 shares.
+    dates, df = _frame(n=20)
+    df.loc[dates[2], 'Low'] = 99.0
+    df.loc[dates[3], 'Low'] = 99.0
+    sig_df = _run(df, _recency_strategy(), extra_candidates=[1, 2])
+    assert sorted(sig_df['Shares'].tolist()) == [80, 112, 160]
+
+
+def test_recency_ladder_counts_signals_not_fills():
+    # The idx-0 signal NEVER fills (no low touches 99.5 in its T+1..T+3
+    # window, days 1-3), but it still counts: the idx-1 signal — filled on
+    # day 4, inside ITS window — grades to 0.7x. The open-count ladder
+    # would have sized it at 0.5x (nothing open).
+    dates, df = _frame(n=20)
+    df.loc[dates[1], 'Low'] = 100.0    # undo the default fill day
+    df.loc[dates[4], 'Low'] = 99.0     # fills idx-1 only (idx-0 expired T+3)
+    sig_df = _run(df, _recency_strategy(), extra_candidates=[1])
+    assert len(sig_df) == 1
+    assert sig_df.iloc[0]['Shares'] == 112   # 0.7x, not 0.5x
+
+
+def test_recency_ladder_window_expiry_resets_to_first_rung():
+    # Second signal 30 sessions later: outside the 21td window -> 0.5x again.
+    # Third signal 20 sessions after the second: inside -> 0.7x.
+    dates, df = _frame(n=60)
+    df.loc[dates[31], 'Low'] = 99.0
+    df.loc[dates[51], 'Low'] = 99.0
+    sig_df = _run(df, _recency_strategy(), extra_candidates=[30, 50])
+    by_sig = sig_df.sort_values('Date')['Shares'].tolist()
+    assert by_sig == [80, 80, 112]
+
+
+def test_earnings_override_composes_with_recency_mult(monkeypatch):
+    # Pre-earnings override (10 bps) x first-iteration recency (0.5x):
+    # $100 x 0.5 = $50 risk -> 20 shares. The old flat replace booked 40.
+    import strat_backtester as sb
+    dates, df = _frame()
+    monkeypatch.setattr(
+        sb, 'load_earnings_dates_map',
+        lambda: {'TEST': np.array(['2024-01-05'], dtype='datetime64[D]')})
+    strat = _recency_strategy(
+        earnings_size_override={'min_td': -10, 'max_td': 0, 'risk_bps': 10})
+    sig_df = _run(df, strat)
+    assert len(sig_df) == 1
+    assert sig_df.iloc[0]['Shares'] == 20
+
+
+def test_earnings_override_alone_still_flat_replaces(monkeypatch):
+    # No recency ladder on the strategy -> override behaves exactly as before
+    # (St OS Sznl path): 10 bps flat = $100 -> 40 shares.
+    import strat_backtester as sb
+    dates, df = _frame()
+    monkeypatch.setattr(
+        sb, 'load_earnings_dates_map',
+        lambda: {'TEST': np.array(['2024-01-05'], dtype='datetime64[D]')})
+    strat = _olv_strategy(
+        earnings_size_override={'min_td': -10, 'max_td': 0, 'risk_bps': 10})
+    sig_df = _run(df, strat)
+    assert sig_df.iloc[0]['Shares'] == 40
+
+
+def test_recency_prior_from_mask_window_semantics():
+    # daily_scan's counting helper: trailing window EXCLUDES the last bar
+    # (today's own signal) and counts exactly window_td sessions before it.
+    from filters import recency_prior_from_mask
+    idx = pd.date_range('2024-01-02', periods=30, freq='B')
+    mask = pd.Series(False, index=idx)
+    mask.iloc[-1] = True                 # today — never counted
+    assert recency_prior_from_mask(mask, 21) == 0
+    mask.iloc[-2] = True                 # yesterday — in window
+    assert recency_prior_from_mask(mask, 21) == 1
+    mask.iloc[-22] = True                # exactly window_td back — in window
+    assert recency_prior_from_mask(mask, 21) == 2
+    assert recency_prior_from_mask(mask, 20) == 1   # -22 falls out at 20td
+    short = pd.Series([True, True], index=idx[:2])  # mask shorter than window
+    assert recency_prior_from_mask(short, 21) == 1
 
 
 def test_notional_cap_exempt_ticker_passes_through():
@@ -396,10 +491,15 @@ def test_live_config_invariants():
     assert ex.get('stop_vol_mult') == 1.5
     assert ex.get('use_stop_loss') is True          # stop_atr still sizes risk
     assert ex.get('stop_atr') == 1.25
-    # First-entry half-size ladder (2026-07-29): leg 1 at 0.5x, adds full.
-    # Ladder mults are NOT GRM-scaled (pure multiplier on the scaled base).
-    assert ex.get('ladder_multipliers') == [0.5, 1.0, 1.0], \
-        "OLV first-leg half-size ladder (2026-07-29)"
+    # Signal-recency ladder (2026-07-30): rung = prior signal days in the
+    # trailing 21 sessions — 0 prior 0.5x, 1 prior 0.7x, 2+ full. Replaced
+    # the one-day-old open-count ladder [0.5, 1, 1]. Mults are NOT
+    # GRM-scaled (pure multiplier on the scaled base).
+    assert ex.get('signal_recency_ladder') == \
+        {'window_td': 21, 'mults': [0.5, 0.7, 1.0]}, \
+        "OLV signal-recency ladder (2026-07-30)"
+    assert 'ladder_multipliers' not in ex, \
+        "open-count ladder replaced by signal_recency_ladder 2026-07-30"
     assert 'sector_loss_gate' not in ex, "sector gate removed 2026-07-20"
     cap = ex.get('ticker_notional_cap')
     assert cap and cap['pct_nav'] == 0.50, "cap must NOT be GRM-scaled"
@@ -407,8 +507,10 @@ def test_live_config_invariants():
         assert etf in cap['exempt'], f"{etf} missing from cap exemption"
     # risk_bps IS GRM-scaled at import
     assert ex['risk_bps'] == 35 * GLOBAL_RISK_MULTIPLIER
-    # OLV is the ladder's ONLY carrier; nobody carries a sector gate
+    # OLV is the recency ladder's ONLY carrier; the open-count ladder is
+    # carrier-less (dormant machinery); nobody carries a sector gate
     for s in STRATEGY_BOOK:
         if s['name'] != 'Oversold Low Volume':
-            assert not s['execution'].get('ladder_multipliers')
+            assert not s['execution'].get('signal_recency_ladder')
+        assert not s['execution'].get('ladder_multipliers')
         assert not s['execution'].get('sector_loss_gate')

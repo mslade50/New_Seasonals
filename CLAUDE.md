@@ -272,9 +272,10 @@ book at import time: every execution `risk_bps`, OVS `path1_bps` / `path2_bps`
 strategy_config SOURCE are nominal; everything downstream (scan, engines,
 reports, staged `Risk_Amt`/`Risk_Bps`) sees SCALED values. **All bps in this
 doc are nominal unless marked effective** — e.g. OLV liquid 35 nominal = 52.5
-effective, overflow 25 = 37.5. (OLV first legs additionally size at 0.5x via
-the ladder — see "Ladder Sizing"; a flat 35→18 cut shipped and was replaced
-by the ladder form the same day, 2026-07-29.)
+effective, overflow 25 = 37.5. (OLV additionally sizes by signal recency —
+first iteration in a trailing 21td window 0.5x, second 0.7x — see "Ladder
+Sizing"; a flat 35→18 cut shipped and was replaced by a ladder form the same
+day, 2026-07-29, re-based to signal recency 2026-07-30.)
 
 GRM evidence trail (2026-07-16, scratch/grm_replay_study.py — the constant
 shipped 2026-05-27 with none): full-ledger replay at GRM 1.0/1.25/1.5/1.75
@@ -287,9 +288,11 @@ flat PnL at -12.6% worst DD) is defensible. Results:
 scratch/grm_replay_results.csv.
 
 daily_scan per-signal sizing order (mirrored in strat_backtester step 3b):
-base bps (tier x GRM) -> 2b fragility band -> 2c ladder rung (machinery
-carrier: OLV [0.5,1,1] first-leg half-size since 2026-07-29) -> 2c2
-cycle-year mult -> 2d earnings size override (flat REPLACE, itself
+base bps (tier x GRM) -> 2b fragility band -> 2c signal-recency ladder rung
+(carrier: OLV {window_td: 21, mults: [0.5, 0.7, 1.0]} since 2026-07-30; the
+old open-position-count ladder machinery survives dormant, carrier-less) ->
+2c2 cycle-year mult -> 2d earnings size override (REPLACES the base but
+COMPOSES with the 2c recency mult since 2026-07-30, itself
 GRM-scaled; two carriers: OLV -10..0 TD -> 10 bps nominal / 15 effective;
 St OS Sznl -5..-1 TD -> 6 bps nominal / 9 effective, added 2026-07-30 —
 the no-stop 5d hold straddling an imminent print held every ledger tail
@@ -343,26 +346,53 @@ aligned sites incl. one out-of-repo, scalar-to-series engine change). The
 book's only evidenced dial-sizing hook is per-strategy `frag_risk_bands`.
 Evidence: scratch/ultracode_research/RISK_DIALS_2026-07-16.md.
 
-## Ladder Sizing (RE-ADOPTED by OLV 2026-07-29 as a first-leg risk trim)
+## Ladder Sizing (OLV signal-recency form, 2026-07-30)
 
-`execution['ladder_multipliers']` has ONE carrier: OLV at **[0.5, 1, 1]**
-(2026-07-29) — the FIRST leg in a ticker chain sizes at 0.5x base, stacked
-adds at full size. This is a deliberate risk-appetite footprint trim aimed
-at OLV's weakest leg (leg-1 avgR +0.56-0.82 across dial bands vs +1.1-1.4
-for leg-3+; OLV's open notional had doubled vs the 2018-2020 norm and
-carried 49% of 2026's intraday trough dollars), NOT a PnL-positive rule —
-it costs expectancy by design. It replaced a same-day flat 35->18 bps cut
-(shipped and reverted 2026-07-29; base restored to 35/25/10).
+`execution['signal_recency_ladder']` has ONE carrier: OLV at
+**{window_td: 21, mults: [0.5, 0.7, 1.0]}** — the rung is the count of that
+ticker's OLV SIGNAL days (shared filter mask, fill-independent) in the
+trailing 21 sessions before the signal day: 0 prior -> 0.5x, 1 prior ->
+0.7x, 2+ -> full. The earnings size override COMPOSES with this mult (it
+replaces the BASE bps only — a first-iteration pre-earnings signal is
+10 x 0.5 bps nominal); every other overlay is still clobbered by the
+override. A deliberate risk-appetite footprint trim aimed at OLV's weakest
+legs (leg-1 avgR +0.56-0.82 across dial bands vs +1.1-1.4 for leg-3+;
+OLV's open notional had doubled vs the 2018-2020 norm and carried 49% of
+2026's intraday trough dollars), NOT a PnL-positive rule — it costs
+expectancy by design.
+
+It replaced the ONE-DAY-OLD open-position-count ladder [0.5, 1, 1]
+(2026-07-29, itself the replacement for a same-day flat 35->18 cut). Why
+the re-base: the open-count form reset to 0.5x whenever a chain had fully
+exited (even a day later), was blind to still-unfilled working limits (a
+day-2 signal before day-1's limit filled ALSO got 0.5x), and jumped
+straight to full size on the second leg. Signal-recency counting fixes all
+three and grades the second iteration at 0.7x.
+
+Implementation — aligned sites (change together):
+- `strategy_config.py` OLV execution `signal_recency_ladder` (source of
+  truth; mults NOT GRM-scaled)
+- `daily_scan.py` sizing step 2c: recomputes the fired ticker's mask
+  (`filters.live_signal_mask`) and counts the trailing window
+  (`filters.recency_prior_from_mask` — last bar excluded); mult carried
+  into step 2d's earnings override
+- `pages/strat_backtester.py`: candidate-recency pre-pass counts prior
+  candidate df-positions per (strategy, ticker) from the RAW candidate list
+  (candidates ARE mask days, so engine == scan; known bound: pre-cutoff
+  signals invisible for the first window of a run) + `_recency_mult` in the
+  earnings override
+- order_staging needs nothing (takes scanner-staged sizes as-is)
+- Guard: `tests/test_olv_stop_and_cap.py` (config invariants, consecutive
+  grading, fill-independence, window expiry, override composition)
 
 History: the ORIGINAL ladder (OLV-only 2026-04-22 to 2026-07-20, removed in
 the stop/gate package) was the OPPOSITE bet — a mild 0.85 first-rung
 discount graded UP — and flat 1.0x beat it ($654k vs $605k [0.85,1,1] vs
 $627k [0.85,1,1.15] / 21y; evidence scratch/olv_package_sim.py). Do not
-confuse the two: today's [0.5,1,1] is an appetite cut that accepts that
-drag. The generic machinery lives in `daily_scan` sizing step 2c
-(`load_open_position_counts`) and `pages/strat_backtester.py` sizing
-(engine replays rungs point-in-time, so ledger == live). Guard:
-`tests/test_olv_stop_and_cap.py` (single-carrier + exact mults).
+confuse the two: today's recency ladder is an appetite cut that accepts
+that drag. The old open-position-count machinery
+(`execution['ladder_multipliers']`, `daily_scan.load_open_position_counts`,
+the engine's open-count rung) survives dormant with NO carriers.
 
 ## Cross-Strategy Overlap Clamp (2026-05-12)
 

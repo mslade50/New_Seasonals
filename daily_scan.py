@@ -19,6 +19,8 @@ from filters import (
     FRAG_STALE_TD,
     check_signal_live,
     get_fragility_df_cached as _get_fragility_df_cached,
+    live_signal_mask,
+    recency_prior_from_mask,
 )
 from earnings_filter import load_earnings_dates_map, in_blackout, signed_offset
 from exposure_leg import compute_exposure_targets, save_state
@@ -105,7 +107,7 @@ OVERFLOW_ELIGIBLE_STRATEGIES = {
 # Per-strategy bps overrides for the overflow tier. OVS uses path-1 nominal
 # (40 bps) for both universes — see strategy_config.py + order_staging.py.
 OVERFLOW_RISK_OVERRIDES = {
-    "Oversold Low Volume": 25,  # vs liquid 35 (first-leg 0.5x ladder applies on both tiers)
+    "Oversold Low Volume": 25,  # vs liquid 35 (signal-recency ladder applies on both tiers)
 }
 
 # ATR-normalized seasonal ranks (built by build_atr_seasonal_ranks.py)
@@ -2571,8 +2573,32 @@ def run_daily_scan(scope='liquid', moc_only=False, dry_run=False):
                         risk = risk * _fbm
                         sizing_note += f" | Frag band ({frag_score:.0f}): {_fbm:.2f}x"
 
-                    # 2c. LADDER SIZING — scale up on repeat signals for the same
-                    # (ticker, strategy) while prior positions are still held.
+                    # 2c. SIGNAL-RECENCY LADDER (OLV, 2026-07-30) — rung =
+                    # count of this ticker's SIGNAL days (shared mask,
+                    # fill-independent) in the trailing window_td sessions
+                    # before today. Replaced the open-position-count ladder
+                    # for OLV: no reset on chain exit inside the window, no
+                    # blindness to still-unfilled working limits. The mult is
+                    # carried into 2d — the earnings override composes with
+                    # it instead of clobbering it. Mirrored in
+                    # strat_backtester's candidate-recency pre-pass.
+                    _recency_mult = 1.0
+                    _srl = strat['execution'].get('signal_recency_ladder')
+                    if _srl:
+                        _srl_mask = live_signal_mask(calc_df, _eff_settings,
+                                                     sznl_map, ticker=t_clean)
+                        _prior = recency_prior_from_mask(
+                            _srl_mask, _srl.get('window_td', 21))
+                        _srl_mults = _srl['mults']
+                        _rung = min(_prior, len(_srl_mults) - 1)
+                        _recency_mult = float(_srl_mults[_rung])
+                        risk = risk * _recency_mult
+                        sizing_note += (f" | Recency rung {_rung + 1} "
+                                        f"({_recency_mult:.2f}x, {_prior} prior "
+                                        f"signal(s)/{_srl.get('window_td', 21)}td)")
+
+                    # 2c-old. LADDER SIZING (open-position count) — dormant
+                    # machinery, no carriers since the OLV swap above.
                     ladder_mults = strat['execution'].get('ladder_multipliers')
                     if ladder_mults:
                         open_count = ladder_counts.get((t_clean, strat['name']), 0)
@@ -2593,12 +2619,14 @@ def run_daily_scan(scope='liquid', moc_only=False, dry_run=False):
                             risk = risk * _cm
                             sizing_note += f" | Cycle yr%4={last_row.name.year % 4}: {_cm:.2f}x"
 
-                    # 2d. EARNINGS SIZE OVERRIDE — flat-replace risk with the
-                    # configured bps when signal_date sits in the offset range.
-                    # Used by OLV: pre-earnings (-10..0 TD) -> 10 bps regardless
-                    # of liquid/overflow tier or any prior multiplier (frag,
-                    # ladder, etc.). NaN offsets (commodity ETFs / indices /
-                    # futures with no earnings data) bypass the override.
+                    # 2d. EARNINGS SIZE OVERRIDE — replace the BASE risk with
+                    # the configured bps when signal_date sits in the offset
+                    # range, then re-apply the signal-recency mult (2026-07-30:
+                    # composes with 2c instead of clobbering it — a
+                    # first-iteration pre-earnings OLV signal is 10 x 0.5 bps).
+                    # Every OTHER multiplier (frag, tier) is still clobbered.
+                    # NaN offsets (commodity ETFs / indices / futures with no
+                    # earnings data) bypass the override.
                     _eo = strat['execution'].get('earnings_size_override')
                     if _eo and earnings_map:
                         _e_arr = earnings_map.get(t_clean.upper())
@@ -2606,8 +2634,10 @@ def run_daily_scan(scope='liquid', moc_only=False, dry_run=False):
                         if pd.notna(_off) and _eo['min_td'] <= _off <= _eo['max_td']:
                             _ovr_bps = _eo['risk_bps']
                             _prior_note = sizing_note
-                            risk = ACCOUNT_VALUE * _ovr_bps / 10000
-                            sizing_note = f"Pre-earnings override: {_ovr_bps} bps (offset {int(_off):+d} TD; default was {_prior_note})"
+                            risk = ACCOUNT_VALUE * _ovr_bps / 10000 * _recency_mult
+                            sizing_note = (f"Pre-earnings override: {_ovr_bps} bps"
+                                           + (f" x {_recency_mult:.2f} recency" if _recency_mult != 1.0 else "")
+                                           + f" (offset {int(_off):+d} TD; default was {_prior_note})")
 
                     # 3. Calculate Prices & Shares
                     entry = last_row['Close']

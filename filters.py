@@ -714,13 +714,25 @@ def evaluate_filter_mask(df, params, sznl_map=None, ticker_name="UNK", mode="bac
 _LIVE_STRIP_KEYS = ('use_t1_open_filter', 'use_t1_gap_kill')
 
 
-def check_signal_live(df, params, sznl_map=None, ticker=None):
-    """daily_scan's signal check: the shared mask's last row, live mode,
-    with the T+1 gates stripped (stamped for order_staging instead)."""
+def live_signal_mask(df, params, sznl_map=None, ticker=None):
+    """The full live-mode signal mask (T+1 gates stripped). check_signal_live
+    is its last row; the signal-recency ladder counts its trailing window."""
     if any(params.get(k) for k in _LIVE_STRIP_KEYS):
         params = dict(params)
         for k in _LIVE_STRIP_KEYS:
             params[k] = False
-    mask = evaluate_filter_mask(df, params, sznl_map=sznl_map,
+    return evaluate_filter_mask(df, params, sznl_map=sznl_map,
                                 ticker_name=(ticker or 'UNK'), mode='live')
-    return bool(mask.iloc[-1])
+
+
+def recency_prior_from_mask(mask, window_td):
+    """Signal days in the trailing window_td sessions BEFORE the last bar
+    (the last bar itself — today's signal — is excluded)."""
+    return int(mask.iloc[-(int(window_td) + 1):-1].sum())
+
+
+def check_signal_live(df, params, sznl_map=None, ticker=None):
+    """daily_scan's signal check: the shared mask's last row, live mode,
+    with the T+1 gates stripped (stamped for order_staging instead)."""
+    return bool(live_signal_mask(df, params, sznl_map=sznl_map,
+                                 ticker=ticker).iloc[-1])

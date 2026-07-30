@@ -512,24 +512,28 @@ _STRATEGY_BOOK_RAW = [
             "use_recent_52w_low": False, "recent_52w_low_invert": True, "recent_52w_low_lookback": 10,
             "dial_filters": []
         },
-        # First-entry half-size (2026-07-29, McKinley): ladder [0.5, 1, 1] —
-        # the FIRST leg in a (ticker) chain sizes at 0.5x base, stacked adds
-        # at full size. Replaces the flat 35->18 cut shipped earlier the same
-        # day (base restored to 35): a footprint trim aimed at the weakest
-        # leg instead of all legs. Leg-order stats (2016+, dial-era): leg-1
-        # avgR +0.56-0.82 across dial bands vs leg-3+ +1.1-1.4 — initial
-        # entries are OLV's weakest legs everywhere, deep adds its strongest.
-        # Context: OLV's avg open notional ran $365k/day in 2026 vs the
-        # $160-180k 2018-2020 norm and carried 49% of the book's 2026
-        # intraday trough dollars. Risk-appetite call, NOT an edge call
-        # (leg-1 is still positive; this costs expectancy by design). First
-        # legs are ~63% of trades -> footprint ~0.69x of original. NOTE this
-        # is the INVERSE of the old [0.85,1,1] ladder removed 2026-07-20 (a
-        # first-rung discount measured as a drag) — deeper cut, deliberate.
-        # Earnings override still flat-REPLACES after the ladder (pre-earnings
-        # signals get 10 bps regardless of leg — documented composition).
+        # Signal-recency ladder (2026-07-30, McKinley): rung = count of this
+        # ticker's OLV SIGNALS (mask days, fill-independent) in the trailing
+        # window_td sessions before the signal day. 0 prior -> 0.5x, 1 prior
+        # -> 0.7x, 2+ -> 1.0x. Replaced the one-day-old open-position-count
+        # ladder [0.5, 1, 1] (2026-07-29): same first-iteration half-size
+        # intent, but (a) a re-signal within 21td of a closed chain no longer
+        # resets to 0.5x, (b) a signal fired while yesterday's limit is still
+        # unfilled counts it (the open-count ladder was blind to working
+        # orders, like the notional cap), (c) second leg grades 0.7x instead
+        # of jumping straight to full. Leg-order stats (2016+, dial-era):
+        # leg-1 avgR +0.56-0.82 vs leg-3+ +1.1-1.4 — initial entries are
+        # OLV's weakest legs, deep adds its strongest. Context: OLV open
+        # notional ran $365k/day in 2026 vs the $160-180k 2018-2020 norm and
+        # carried 49% of the book's 2026 intraday trough dollars.
+        # Risk-appetite call, NOT an edge call (leg-1 is still positive; this
+        # costs expectancy by design). NOTE the INVERSE old [0.85,1,1] ladder
+        # (removed 2026-07-20) measured a first-rung discount as a drag —
+        # this deeper cut is deliberate. The earnings override COMPOSES with
+        # this mult since 2026-07-30 (override replaces the base, recency
+        # mult still applies): pre-earnings first-iteration = 10 x 0.5 bps.
         "execution": {"risk_bps": 35, "slippage_bps": 2, "stop_atr": 1.25, "tgt_atr": 2.5, "hold_days": 10, "use_stop_loss": True, "use_take_profit": True,
-                      "ladder_multipliers": [0.5, 1.0, 1.0],
+                      "signal_recency_ladder": {"window_td": 21, "mults": [0.5, 0.7, 1.0]},
                       # Entry-order live window (2026-06-24): the persistent
                       # close-0.25 ATR limit is cancelled if unfilled after 3
                       # trading days (T+1..T+3), NOT the full 10-day hold. 89% of
@@ -586,6 +590,9 @@ _STRATEGY_BOOK_RAW = [
                       # instead of using the strategy's default. NaN offsets
                       # (commodity ETFs / indices / futures with no earnings
                       # data) bypass the override — they keep default sizing.
+                      # Since 2026-07-30 the override COMPOSES with the
+                      # signal_recency_ladder mult (it replaces the BASE bps
+                      # only): first-iteration pre-earnings = 10 x 0.5 bps.
                       "earnings_size_override": {"min_td": -10, "max_td": 0, "risk_bps": 10}},
         "stats": {"grade": "A (Excellent)", "win_rate": "69.0%", "expectancy": "0.48r", "profit_factor": "2.82"}
     },

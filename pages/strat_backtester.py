@@ -861,6 +861,33 @@ def process_signals_fast(candidates, signal_data, processed_dict, strategies, st
     # keys on the staged (gate-passed) row, not the eventual limit fill.
     # Runs BEFORE the OVS P2-cap pre-pass so dropped OVS rows don't inflate
     # the P2 risk totals (same ordering as live).
+    # --- Signal-recency ladder pre-pass (OLV, 2026-07-30) ---
+    # execution['signal_recency_ladder'] = {'window_td': N, 'mults': [...]}:
+    # rung = count of this (strategy, ticker)'s SIGNAL days in the trailing N
+    # sessions before the signal day — candidates ARE the mask days, so
+    # counting candidate df-positions is fill-independent and matches
+    # daily_scan's trailing-mask count (recency_prior_from_mask). Counted
+    # from the RAW candidate list (before the blackout/precedence pre-pass
+    # below) so a dropped candidate still counts as a signal, same as live.
+    # Known bound: signals before the backtest cutoff are invisible, so the
+    # first window_td sessions of a run can under-count priors (immaterial
+    # on the 2003+ ledger).
+    _recency_prior = {}
+    _srl_strat_idx = {i for i, s in enumerate(strategies)
+                      if s.get('execution', {}).get('signal_recency_ladder')}
+    if _srl_strat_idx:
+        _srl_positions = {}
+        for _sig_ts, _tkr, _t_clean, _strat_idx, _signal_idx in candidates:
+            if _strat_idx in _srl_strat_idx:
+                _srl_positions.setdefault((_strat_idx, _t_clean), []).append(_signal_idx)
+        for (_si, _tc), _poss in _srl_positions.items():
+            _win = int(strategies[_si]['execution']['signal_recency_ladder'].get('window_td', 21))
+            _poss.sort()
+            for _k, _p in enumerate(_poss):
+                # priors = signals at df positions [p - win, p - 1]
+                _lo = np.searchsorted(_poss, _p - _win, side='left')
+                _recency_prior[(_si, _tc, _p)] = _k - _lo
+
     _atr_ext_keys = set()
     if _ovs_strat is not None and any(s.get('name') == 'ATR Extended Gap Up' for s in strategies):
         for cand in candidates:
@@ -1187,6 +1214,18 @@ def process_signals_fast(candidates, signal_data, processed_dict, strategies, st
                 base_risk *= 1.5
             elif sznl_val >= 33:
                 base_risk *= 0.66 if sznl_val < 50 else 1.0
+        # Signal-recency ladder (OLV, 2026-07-30): rung from the pre-pass
+        # count of prior signal days in the trailing window. Mirrors
+        # daily_scan sizing 2c; the mult is kept so 3b composes with it.
+        _recency_mult = 1.0
+        _srl = execution.get('signal_recency_ladder')
+        if _srl:
+            _prior = _recency_prior.get((strat_idx, t_clean, signal_idx), 0)
+            _srl_mults = _srl['mults']
+            _recency_mult = float(_srl_mults[min(_prior, len(_srl_mults) - 1)])
+            base_risk *= _recency_mult
+        # Open-position-count ladder — dormant machinery, no carriers since
+        # the OLV recency swap (2026-07-30).
         ladder_mults = execution.get('ladder_multipliers')
         if ladder_mults:
             open_count = sum(
@@ -1199,15 +1238,18 @@ def process_signals_fast(candidates, signal_data, processed_dict, strategies, st
             base_risk *= _ovs_size_mult
 
         # --- 3b. Earnings size override (e.g. OLV pre-earnings -> 10 bps) ---
-        # Replaces base_risk entirely (clobbers prior multipliers) when the
-        # signal's offset to nearest earnings sits inside the configured range.
-        # NaN offsets (commodity ETFs / indices / futures) bypass.
+        # Replaces the BASE risk (clobbers prior multipliers) when the
+        # signal's offset to nearest earnings sits inside the configured
+        # range — EXCEPT the signal-recency mult, which composes (2026-07-30:
+        # first-iteration pre-earnings OLV = 10 x 0.5 bps). Mirrors
+        # daily_scan sizing 2d. NaN offsets (commodity ETFs / indices /
+        # futures) bypass.
         _eo = execution.get('earnings_size_override')
         if _eo and _earnings_map:
             _e_arr = _earnings_map.get(t_clean.upper())
             _off = signed_offset(pd.Timestamp(signal_ts), _e_arr)
             if pd.notna(_off) and _eo['min_td'] <= _off <= _eo['max_td']:
-                base_risk = starting_equity * float(_eo['risk_bps']) / 10000.0
+                base_risk = starting_equity * float(_eo['risk_bps']) / 10000.0 * _recency_mult
 
         # --- 3b2. Cycle-year risk multiplier (e.g. OVS midterm 0.75x) ---
         # execution['cycle_risk_mults'] = {year%4: mult}; 0=Election,
