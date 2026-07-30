@@ -210,3 +210,84 @@ Promise.resolve(ready()).then(() => {
         capture_output=True,
         text=True,
     )
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="Node.js is not installed")
+def test_full_history_spark_clips_hero_and_ships_full_main_chart():
+    script = r"""
+const fs = require("fs");
+const vm = require("vm");
+const source = fs.readFileSync(__RISK_JS__, "utf8");
+const elements = new Map();
+function element(id) {
+  if (!elements.has(id)) elements.set(id, {
+    id, innerHTML: "", textContent: "", on() {}, querySelectorAll() { return []; },
+  });
+  return elements.get(id);
+}
+let ready;
+// ~2y of weekday dates ending 2026-07-28
+const dates = [];
+let dt = new Date("2024-08-01T00:00:00Z");
+const end = new Date("2026-07-28T00:00:00Z");
+while (dt <= end) {
+  const wd = dt.getUTCDay();
+  if (wd !== 0 && wd !== 6) dates.push(dt.toISOString().slice(0, 10));
+  dt = new Date(dt.getTime() + 86400e3);
+}
+const vals = dates.map((_, i) => 40 + (i % 20));
+const payload = {
+  asof: dates[dates.length - 1], built_at: "2026-07-28 12:00 UTC", spy_last: 700,
+  price_ctx: {}, fragility: {"63d": 55}, regime_mult: 1, n_active: 0,
+  signals: [], forward_returns: {},
+  spy_series: {dates, close: vals.map(v => 600 + v)},
+  sizing_state: {
+    score: 49, threshold: 50, throttle_on: false, gap_to_threshold: 1,
+    days_in_state: 3, banded_strategies: [], throttled: [],
+    spark: {dates, ma: vals, daily: vals},
+  },
+};
+const plots = [];
+const sandbox = {
+  console,
+  document: {
+    addEventListener(name, fn) { if (name === "DOMContentLoaded") ready = fn; },
+    getElementById: element, querySelectorAll() { return []; },
+  },
+  renderNav() {}, setAsof() {}, fetchJSONOrNull: async () => payload,
+  fmt: {num: v => String(v), pct: v => String(v), signed: v => String(v)},
+  plotLayout: value => value, PLOT_CFG: {},
+  Plotly: {
+    newPlot(el, traces, layout) { plots.push({id: el.id, traces, layout}); },
+    relayout() {},
+  },
+  Date, Math, Number, String, Object, Array, Set, parseInt,
+};
+vm.createContext(sandbox);
+vm.runInContext(source, sandbox);
+Promise.resolve(ready()).then(() => {
+  const main = plots.find(p => p.id === "riskChart");
+  if (!main) throw new Error("main chart missing");
+  const ma = main.traces.find(t => t.yaxis === "y2");
+  if (!ma || ma.x.length !== dates.length) {
+    throw new Error("main chart must plot the FULL dial history");
+  }
+  const spark = plots.find(p => p.id === "sizingSpark");
+  if (!spark) throw new Error("hero spark missing");
+  if (spark.traces[0].x.length !== 252) {
+    throw new Error("hero spark must clip to trailing 252 sessions, got " +
+                    spark.traces[0].x.length);
+  }
+  if (!element("content").innerHTML.includes("dialRangeSeg")) {
+    throw new Error("range control markup missing");
+  }
+}).catch(error => { console.error(error); process.exitCode = 1; });
+""".replace("__RISK_JS__", json.dumps(str(RISK_JS)))
+
+    subprocess.run(
+        [shutil.which("node"), "-e", script],
+        cwd=ROOT,
+        check=True,
+        capture_output=True,
+        text=True,
+    )

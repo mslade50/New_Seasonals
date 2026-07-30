@@ -276,7 +276,11 @@ def build_sizing_state():
             break
         days_in_state += 1
 
-    tail = ma.tail(252)
+    # Full dial history (2016+). The frontend defaults its chart window to
+    # trailing 1y and offers range presets; the hero spark slices the last
+    # 252 sessions client-side. (Was ma.tail(252) until 2026-07-29.)
+    # Pre-2026-07-02 rows are the frozen recompute vintage, not PIT.
+    tail = ma
     pit_state = state[state.index >= pd.Timestamp(PIT_START)]
 
     expo = None

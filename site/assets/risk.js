@@ -103,6 +103,8 @@ async function init() {
     html += `<h2>SPY vs ${riskBasis}</h2>
       <div class="card">
         ${dailyChart ? '<div class="cap" style="margin-top:0">Top: SPY + 10d moving average line &middot; Bottom: each individual daily 63d dial reading</div>' : ""}
+        <div class="tbl-controls"><label>Range</label><span class="seg" id="dialRangeSeg"></span>
+          <span class="info cap-inline">dial history 2016+ &middot; pre-2026-07 rows are the recompute vintage, not PIT</span></div>
         <div class="chart" id="riskChart"></div></div>`;
   }
 
@@ -226,6 +228,45 @@ async function init() {
     enableFullHistoryReset(chartEl, dailyValues
       ? ["xaxis", "yaxis", "yaxis2", "yaxis3"]
       : ["xaxis", "yaxis", "yaxis2"]);
+
+    // Range presets (default 1Y) — portfolio-page style. The payload ships
+    // full dial history (2016+); presets just re-window the axes.
+    const seg = document.getElementById("dialRangeSeg");
+    if (seg && typeof seg.querySelectorAll === "function") {
+      const allDates = (dailyDates || riskDates || spyDates || []).filter(Boolean);
+      const lastDate = String((d.asof || allDates[allDates.length - 1] || "")).slice(0, 10);
+      const applyRange = preset => {
+        let from = null;
+        if (preset === "YTD") from = lastDate.slice(0, 4) + "-01-01";
+        else if (preset !== "All") {
+          const dt = new Date(`${lastDate}T00:00:00Z`);
+          dt.setUTCFullYear(dt.getUTCFullYear() - parseInt(preset, 10));
+          from = dt.toISOString().slice(0, 10);
+        }
+        const xr = [from || allDates[0] || lastDate, lastDate];
+        const upd = { "xaxis.range": xr };
+        const sr = valuesRange(d.spy_series.close, spyDates, xr);
+        if (sr) upd["yaxis.range"] = sr;
+        if (riskValues) {
+          const fr = valuesRange(riskValues, riskDates, xr);
+          if (fr) upd["yaxis2.range"] = fr;
+        }
+        if (dailyValues) {
+          const de = valuesRange(dailyValues, dailyDates, xr);
+          if (de) upd["yaxis3.range"] = [0, Math.max(100, de[1])];
+        }
+        Plotly.relayout(chartEl, upd);
+      };
+      seg.innerHTML = ["All", "5Y", "3Y", "1Y", "YTD"].map(p =>
+        `<button${p === "1Y" ? ' class="on"' : ""}>${p}</button>`).join("");
+      for (const b of seg.querySelectorAll("button")) {
+        b.addEventListener("click", () => {
+          for (const x of seg.querySelectorAll("button")) x.classList.remove("on");
+          b.classList.add("on");
+          applyRange(b.textContent);
+        });
+      }
+    }
   }
 }
 
@@ -265,7 +306,10 @@ function sizingHeroHtml(sz) {
 function renderSizingSpark(sz) {
   const el = document.getElementById("sizingSpark");
   if (!el) return;
-  const dates = sz.spark.dates;
+  // Payload now carries full dial history; the hero spark stays trailing-1y.
+  const cut = Math.max(0, sz.spark.dates.length - 252);
+  const dates = sz.spark.dates.slice(cut);
+  const sparkMa = sz.spark.ma.slice(cut);
   const shapes = [{
     type: "line", xref: "paper", yref: "y", x0: 0, x1: 1,
     y0: sz.threshold, y1: sz.threshold,
@@ -280,7 +324,7 @@ function renderSizingSpark(sz) {
     });
   }
   Plotly.newPlot(el, [{
-    x: dates, y: sz.spark.ma, name: "63d 10d-MA",
+    x: dates, y: sparkMa, name: "63d 10d-MA",
     mode: "lines", line: { color: "#ffc14d", width: 1.6 },
   }], plotLayout({
     height: 170,
