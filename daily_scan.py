@@ -1879,9 +1879,20 @@ def stage_olv_vol_confirm_exits(master_dict=None):
     Timing: the PM bookend scan (~22:00 UTC) evaluates today's just-settled
     close and stages Execute_On = next trading day; the AM scan (~4:47 ET,
     cache has --exclude-today) re-evaluates the SAME session with corrected
-    data and restages Execute_On = today. order_staging reads the tab and
-    submits MOO sells only for rows with Execute_On == today, clamped to
-    the actual TWS position (belt and suspenders).
+    data and restages Execute_On = today. The local pre-market runner
+    olv_exit_moo.py (OneDrive trading_ibkr, Task Scheduler weekdays 9:10 AM
+    ET) reads the tab and places true TIF=OPG MOO sells on BOTH accounts for
+    rows with Execute_On == today, clamped to the actual held position
+    (belt and suspenders). Before 2026-07-30 these rows rode the 9:31
+    order_staging chain, which runs AFTER the open — never a real MOO.
+
+    Per-leg contract: the Portfolio tab carries ONE ROW PER OPEN LEG
+    (engine trades), so stacked positions are evaluated independently —
+    each leg against its own entry, ATR and stop level. Every leg prints an
+    explicit verdict line (CONFIRMED / no breach / quiet breach / entry-day
+    / stale / unusable) so a silently-skipped leg is impossible to miss in
+    the scan log, and staged exits + carry-forwards are keyed per
+    (ticker, Time_Exit_Date) — never collapsed per symbol.
 
     Basis note: entry Price and ATR come from the Portfolio tab, which the
     nightly report RE-DERIVES from the current adjusted cache each evening —
@@ -1951,10 +1962,25 @@ def stage_olv_vol_confirm_exits(master_dict=None):
             _warn(f"Portfolio tab schema unexpected ({e}) — exit staging SKIPPED")
             return warnings
 
-    # Previously-staged rows: carried forward for tickers we cannot re-evaluate
-    # this run (stale bar), so an AM run with one lagging feed can't wipe a
-    # valid PM-staged exit that is due today. Only rows still in the future
-    # (Execute_On >= today) are eligible to carry.
+    # Stacked-leg sanity: legs are identified downstream by
+    # (Symbol, Time_Exit_Date) — the bracket key olv_exit_moo.py matches on.
+    # Two open legs sharing both cannot be told apart; surface it loudly.
+    _leg_key_counts = {}
+    for _p in positions:
+        _k = (_p["ticker"], _p["time_exit"])
+        _leg_key_counts[_k] = _leg_key_counts.get(_k, 0) + 1
+    for (_sym, _tx), _n in _leg_key_counts.items():
+        if _n > 1:
+            _warn(f"{_sym}: {_n} open legs share Time_Exit_Date {_tx} — "
+                  f"downstream bracket matching cannot distinguish them; "
+                  f"verify exits manually if either confirms")
+
+    # Previously-staged rows: carried forward PER LEG for tickers we cannot
+    # re-evaluate this run (stale bar), so an AM run with one lagging feed
+    # can't wipe a valid PM-staged exit that is due today. Keyed by
+    # (Symbol, Time_Exit_Date) — a symbol-level key would collapse stacked
+    # legs and silently drop all but one of their staged exits. Only rows
+    # still in the future (Execute_On >= today) are eligible to carry.
     today_norm = pd.Timestamp.now().normalize()
     prior_rows = {}
     try:
@@ -1962,9 +1988,19 @@ def stage_olv_vol_confirm_exits(master_dict=None):
         for _r in _prev:
             _eo = pd.to_datetime(_r.get("Execute_On"), errors="coerce")
             if pd.notna(_eo) and _eo.normalize() >= today_norm:
-                prior_rows[str(_r.get("Symbol", "")).strip().upper()] = _r
+                _pk = (str(_r.get("Symbol", "")).strip().upper(),
+                       str(_r.get("Time_Exit_Date", "")).strip())
+                prior_rows[_pk] = _r
     except Exception:
         prior_rows = {}
+
+    def _carry_forward(pos, leg_label):
+        """Re-stage the leg's own previously staged exit row, if any."""
+        _pk = (pos["ticker"], str(pos["time_exit"]).strip())
+        row = prior_rows.pop(_pk, None)
+        if row is not None:
+            exit_rows.append(row)
+            print(f"[OLV-EXIT] {leg_label}: carried forward previously staged exit")
 
     def _frame_for(tkr):
         df = (master_dict or {}).get(tkr)
@@ -1988,33 +2024,38 @@ def stage_olv_vol_confirm_exits(master_dict=None):
     exit_rows = []
     for pos in positions:
         tkr = pos["ticker"]
+        _ed = pos["entry_date"].date() if pos["entry_date"] is not None else "?"
+        # Per-leg label: every verdict line names the exact leg (entry date +
+        # time-exit bracket key), so stacked positions are auditable leg by
+        # leg in the scan log — a silent skip is impossible.
+        leg = f"{tkr} leg[entry {_ed}, texit {pos['time_exit']}]"
         df = frames.get(tkr)
         if df is None or len(df) < 25 or "Volume" not in df.columns:
-            _warn(f"{tkr}: no usable price/volume history — cannot evaluate "
+            _warn(f"{leg}: no usable price/volume history — cannot evaluate "
                   f"vol-confirm stop (held; T+10 time exit bounds)")
-            if tkr in prior_rows:
-                exit_rows.append(prior_rows[tkr])
-                print(f"[OLV-EXIT] {tkr}: carried forward previously staged exit")
+            _carry_forward(pos, leg)
             continue
         if expected_session is not None and df.index[-1] != expected_session:
-            _warn(f"{tkr}: last bar {df.index[-1].date()} lags expected session "
+            _warn(f"{leg}: last bar {df.index[-1].date()} lags expected session "
                   f"{expected_session.date()} — stale feed, NOT re-evaluated")
-            if tkr in prior_rows:
-                exit_rows.append(prior_rows[tkr])
-                print(f"[OLV-EXIT] {tkr}: carried forward previously staged exit")
+            _carry_forward(pos, leg)
             continue
         # Day-2 arming convention (book-wide, 2026-06-09): the engine's
         # vol-confirm loop starts at entry_idx+1, so an entry-day close is
         # NEVER a confirm. Skip legs whose entry is the evaluation session.
         if pos["entry_date"] is not None and pos["entry_date"] >= df.index[-1].normalize():
-            print(f"[OLV-EXIT] {tkr}: entered {pos['entry_date'].date()} — stop "
-                  f"arms next session, not evaluated on the entry-day close")
+            print(f"[OLV-EXIT] {leg}: stop arms next session, not evaluated "
+                  f"on the entry-day close")
             continue
         if pos["atr"] <= 0 or pos["entry"] <= 0:
+            _warn(f"{leg}: degenerate entry/ATR ({pos['entry']}/{pos['atr']}) — "
+                  f"cannot compute stop level (held; T+10 time exit bounds)")
             continue
         last = df.iloc[-1]
         stop_level = pos["entry"] - stop_atr * pos["atr"]
         if last["Close"] > stop_level:
+            print(f"[OLV-EXIT] {leg}: close {last['Close']:.2f} > stop "
+                  f"{stop_level:.2f} — no breach, held")
             continue
         med20 = df["Volume"].iloc[-21:-1].median()
         volx = (last["Volume"] / med20) if med20 and med20 > 0 else float("nan")
@@ -2022,12 +2063,12 @@ def stage_olv_vol_confirm_exits(master_dict=None):
             # Breach with UNVERIFIABLE volume (NaN bar / degenerate median,
             # the SOXS-feed-bug class): held by rule, but this must be loud —
             # a corrupted feed can suppress every genuine capitulation exit.
-            _warn(f"{tkr}: closed {last['Close']:.2f} <= stop {stop_level:.2f} "
+            _warn(f"{leg}: closed {last['Close']:.2f} <= stop {stop_level:.2f} "
                   f"but volume is UNVERIFIABLE (NaN/degenerate med20) — held; "
                   f"REVIEW THE FEED")
             continue
         if volx < vol_mult:
-            print(f"[OLV-EXIT] {tkr}: closed {last['Close']:.2f} <= stop {stop_level:.2f} "
+            print(f"[OLV-EXIT] {leg}: closed {last['Close']:.2f} <= stop {stop_level:.2f} "
                   f"but volume {volx:.2f}x med20 < {vol_mult}x — HELD (quiet breach)")
             continue
         confirm_date = df.index[-1]
@@ -2040,17 +2081,18 @@ def stage_olv_vol_confirm_exits(master_dict=None):
             "Confirm_Date": str(confirm_date.date()),
             "Execute_On": str(execute_on),
             "Time_Exit_Date": pos["time_exit"],
+            "Entry_Date": str(_ed),
             "Stop_Level": round(stop_level, 2),
             "Confirm_Close": round(float(last["Close"]), 2),
             "Vol_X_Med20": round(float(volx), 2),
             "Staged_At": datetime.datetime.now().strftime("%Y-%m-%d %H:%M"),
         })
-        print(f"[OLV-EXIT] {tkr}: CONFIRMED — closed {last['Close']:.2f} <= stop "
+        print(f"[OLV-EXIT] {leg}: CONFIRMED — closed {last['Close']:.2f} <= stop "
               f"{stop_level:.2f} on {volx:.1f}x volume -> MOO exit {execute_on}")
 
     cols = ["Symbol", "Action", "Quantity", "Strategy_Ref", "Confirm_Date",
-            "Execute_On", "Time_Exit_Date", "Stop_Level", "Confirm_Close",
-            "Vol_X_Med20", "Staged_At"]
+            "Execute_On", "Time_Exit_Date", "Entry_Date", "Stop_Level",
+            "Confirm_Close", "Vol_X_Med20", "Staged_At"]
 
     def _write_exits():
         try:
@@ -2064,8 +2106,13 @@ def stage_olv_vol_confirm_exits(master_dict=None):
     try:
         _sheets_write_with_retry(
             f"stage {len(exit_rows)} OLV vol-confirm exit(s)", _write_exits)
+        _per = {}
+        for _p in positions:
+            _per[_p["ticker"]] = _per.get(_p["ticker"], 0) + 1
+        _breakdown = ", ".join(f"{t}x{n}" if n > 1 else t
+                               for t, n in sorted(_per.items())) or "none"
         print(f"[OLV-EXIT] OLV_Exits tab written: {len(exit_rows)} exit(s), "
-              f"{len(positions)} open OLV position(s) evaluated")
+              f"{len(positions)} open OLV leg(s) evaluated ({_breakdown})")
     except Exception as e:
         _warn(f"failed to write OLV_Exits tab ({e}) — confirmed exits NOT "
               f"staged; positions fall back to their time exits")

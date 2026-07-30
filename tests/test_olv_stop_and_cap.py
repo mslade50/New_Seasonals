@@ -423,6 +423,86 @@ def test_stage_olv_exits_skips_entry_day_close(monkeypatch):
     assert len(exits_ws.written) == 1, "entry-day confirms must be held (day-2 arming)"
 
 
+def test_stage_olv_exits_stacked_legs_evaluated_independently(monkeypatch):
+    # Two open legs in ONE ticker, different entries -> different stop
+    # levels. The same session close confirms the higher-entry leg only;
+    # the staged exit must carry THAT leg's Time_Exit_Date and quantity.
+    import daily_scan
+
+    rows = [
+        ["Strategy", "Ticker", "Shares", "Price", "ATR", "Time Stop", "Entry Date"],
+        ["Oversold Low Volume", "AAA", "100", "100.0", "2.0", "2026-07-28", "2026-06-20"],  # stop 97.5
+        ["Oversold Low Volume", "AAA", "80", "95.0", "2.0", "2026-07-30", "2026-06-23"],    # stop 92.5
+    ]
+    exits_ws = _FakeWS([])
+    sheet = _FakeSheet({"Portfolio": _FakeWS(rows), "OLV_Exits": exits_ws})
+    monkeypatch.setattr(daily_scan, "get_google_client", lambda: _FakeGC(sheet))
+    master = {"AAA": _px_frame(close_last=97.0, vol_last=2_000_000.0)}
+    daily_scan.stage_olv_vol_confirm_exits(master)
+
+    header, *out = exits_ws.written
+    assert len(out) == 1, "only the breached leg may stage an exit"
+    row = dict(zip(header, out[0]))
+    assert row["Symbol"] == "AAA"
+    assert row["Quantity"] == "100"
+    assert row["Time_Exit_Date"] == "2026-07-28", \
+        "the staged exit must key the CONFIRMED leg's bracket, not the other leg's"
+
+
+def test_stage_olv_exits_stale_ticker_carries_all_legs(monkeypatch):
+    # Carry-forward is PER LEG: a stale symbol with TWO previously staged
+    # exits (stacked legs) must re-stage both, not collapse to one.
+    import daily_scan
+
+    future = str((pd.Timestamp.now() + pd.Timedelta(days=1)).date())
+
+    def _prior(texit, qty):
+        return {"Symbol": "BBB", "Action": "SELL", "Quantity": qty,
+                "Strategy_Ref": "Oversold Low Volume", "Confirm_Date": "2026-07-17",
+                "Execute_On": future, "Time_Exit_Date": texit,
+                "Stop_Level": 97.5, "Confirm_Close": 97.0, "Vol_X_Med20": 2.0,
+                "Staged_At": "x"}
+
+    class _PriorWS(_FakeWS):
+        def get_all_records(self):
+            return [_prior("2026-07-29", 50), _prior("2026-08-03", 30)]
+
+    rows = [
+        ["Strategy", "Ticker", "Shares", "Price", "ATR", "Time Stop", "Entry Date"],
+        ["Oversold Low Volume", "AAA", "100", "100.0", "2.0", "2026-07-28", "2026-06-20"],
+        ["Oversold Low Volume", "BBB", "50", "100.0", "2.0", "2026-07-29", "2026-06-20"],
+        ["Oversold Low Volume", "BBB", "30", "100.0", "2.0", "2026-08-03", "2026-06-24"],
+    ]
+    exits_ws = _PriorWS([])
+    sheet = _FakeSheet({"Portfolio": _FakeWS(rows), "OLV_Exits": exits_ws})
+    monkeypatch.setattr(daily_scan, "get_google_client", lambda: _FakeGC(sheet))
+    fresh = _px_frame(100.0, 1_000_000.0)              # AAA: fresh, no breach
+    stale = _px_frame(97.0, 2_000_000.0).iloc[:-1]     # BBB: one bar behind
+    daily_scan.stage_olv_vol_confirm_exits({"AAA": fresh, "BBB": stale})
+    header, *out = exits_ws.written
+    assert len(out) == 2, "both stacked legs' staged exits must carry forward"
+    carried = {dict(zip(header, r))["Time_Exit_Date"] for r in out}
+    assert carried == {"2026-07-29", "2026-08-03"}
+
+
+def test_stage_olv_exits_warns_on_ambiguous_leg_keys(monkeypatch):
+    # Two open legs sharing (Symbol, Time_Exit_Date) cannot be told apart by
+    # downstream bracket matching — the scan must warn (email surface).
+    import daily_scan
+
+    rows = [
+        ["Strategy", "Ticker", "Shares", "Price", "ATR", "Time Stop", "Entry Date"],
+        ["Oversold Low Volume", "AAA", "100", "100.0", "2.0", "2026-07-28", "2026-06-20"],
+        ["Oversold Low Volume", "AAA", "80", "99.0", "2.0", "2026-07-28", "2026-06-20"],
+    ]
+    exits_ws = _FakeWS([])
+    sheet = _FakeSheet({"Portfolio": _FakeWS(rows), "OLV_Exits": exits_ws})
+    monkeypatch.setattr(daily_scan, "get_google_client", lambda: _FakeGC(sheet))
+    warnings = daily_scan.stage_olv_vol_confirm_exits(
+        {"AAA": _px_frame(100.0, 1_000_000.0)})
+    assert any("share Time_Exit_Date" in w for w in warnings)
+
+
 def test_stage_olv_exits_stale_ticker_carries_prior_row(monkeypatch):
     # A ticker whose last bar lags the freshest session is NOT re-evaluated,
     # and its previously staged exit (Execute_On >= today) survives the

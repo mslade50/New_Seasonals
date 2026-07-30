@@ -719,34 +719,41 @@ and a fresh OLV signal (10d vol rank < 15) are near mutually exclusive, so
 the old same-day stop+rebuy churn (39 events) is structurally gone.
 `stop_atr` 1.25 still defines the sizing risk unit. Per-leg tails widen to
 occasional -2..-3R; there is NO overnight stop (gaps evaluated at the next
-close). Live flow: daily_scan `stage_olv_vol_confirm_exits` (PM run
-evaluates today's settled close; AM run re-evaluates with corrected data,
-risk-report-correction style) -> `OLV_Exits` Sheets tab (always cleared+
-rewritten; rows carry per-leg `Time_Exit_Date` bracket keys; a STALE ticker
-bar is never re-evaluated — its previously staged exit carries forward
-instead of being wiped) -> order_staging `load_olv_exit_rows` (Execute_On
-== today only, naked-MOO SELL, BOTH accounts since 2026-07-27;
-`Time_Exit_Date` rides the Tranche slot so same-day stacked-leg exits get
-distinct signal_refs) -> eq_order_entry position-exit path (matches the
-leg's working OCA bracket by orderRef prefix + time-leg goodAfterTime with
-a nearest-date fallback for calendar desync, clamps qty to min(staged, leg,
-held), cancels the bracket, sells MKT ~9:31 with retry; on total placement
-failure it RE-ARMS a protective time-exit clone so the position is never
-left with no working exits). Entry-day closes are NEVER confirms (day-2
-arming convention — the scan skips legs entered on the evaluation session,
-matching the engine's entry_idx+1 loop). Every layer fails SKIP/open and
-pipeline failures surface as OLV-EXIT warnings in the daily scan email —
-a missed exit falls back to the T+10 time exit, never a naked short.
-PA ALIGNED 2026-07-27 (was: resting-stop divergence 2026-07-20..27):
-`build_pa_frame` appends the same OLV_Exits rows to execution_2 UNSCALED
-(staged qty is primary-basis and deliberately ignored) and no longer
-re-enables Use_Stop; pa_order_entry carries the same position-exit
-naked-MOO path as eq_order_entry, except it sells min(leg, held) — the
-FULL matched PA leg — instead of clamping to the staged qty (a scaled
-qty could under-sell and leave residual shares with a cancelled bracket).
-PA legs entered before the alignment still have resting STPs; those
-brackets self-resolve within T+10 (the exit path cancels the whole OCA
-group, STP included, if a confirm fires first).
+close). Live flow (2026-07-30 — TRUE pre-market MOO): daily_scan
+`stage_olv_vol_confirm_exits` (PM run evaluates today's settled close; AM
+run re-evaluates with corrected data, risk-report-correction style; EVERY
+open leg prints an explicit per-leg verdict line — CONFIRMED / no breach /
+quiet breach / entry-day / stale — so stacked positions are auditable leg
+by leg, and legs sharing (ticker, Time_Exit_Date) raise a warning because
+downstream bracket matching can't distinguish them) -> `OLV_Exits` Sheets
+tab (always cleared+rewritten; ONE ROW PER CONFIRMED LEG with
+`Time_Exit_Date` bracket key + `Entry_Date` audit column; a STALE ticker
+bar is never re-evaluated — its previously staged exits carry forward
+PER LEG, keyed (Symbol, Time_Exit_Date)) -> `olv_exit_moo.py` (OneDrive
+trading_ibkr; standalone Task Scheduler task 'IBKR OLV Pre-Market Exits',
+weekdays 9:10 AM ET) reads the tab directly (Execute_On == today only) and
+places SELL MKT **TIF=OPG** on BOTH accounts — a genuine market-on-open in
+the opening auction, submitted before the 9:28 cutoff (past 9:25 it falls
+back to MKT DAY, loudly). Same safety layers as the old path: matches the
+leg's working OCA bracket by orderRef prefix + time-leg goodAfterTime
+(nearest-date fallback for calendar desync), primary clamps qty to
+min(staged, leg, held) while the PA sells min(leg, held) — the FULL
+matched PA leg (staged qty is primary-basis and deliberately ignored),
+cancels the bracket before selling, RE-ARMS a protective time-exit clone
+on total placement failure, and journals placed exits
+(olv_exit_placed.json) so re-runs are idempotent. It REUSES clientIds
+99/98 on purpose — TWS binds persisted brackets to the placing clientId,
+and it runs clear of the 9:31 chain. History: 2026-07-20..30 these rows
+rode order_staging -> eq/pa_order_entry as "MOO" MKT DAY orders placed
+~9:31+ — AFTER the open, never a real MOO (order_staging needs the live
+open for the OVS gap check, so it can't run earlier). That staging path
+was REMOVED 2026-07-30; the Is_Position_Exit handlers in eq/pa_order_entry
+remain as dormant safety nets for hand-staged rows. Entry-day closes are
+NEVER confirms (day-2 arming convention — the scan skips legs entered on
+the evaluation session, matching the engine's entry_idx+1 loop). Every
+layer fails SKIP/open and pipeline failures surface as OLV-EXIT warnings
+in the daily scan email — a missed exit falls back to the T+10 time exit,
+never a naked short.
 
 **Notional cap (`ticker_notional_cap: {pct_nav: 0.50, exempt:
 OLV_CAP_EXEMPT_ETFS}`)**: stacked OLV legs in ONE single-stock ticker may
@@ -782,9 +789,10 @@ Aligned sites — change together:
   (open_positions state, refund semantics mirror the net-exposure cap)
 - `daily_scan.py` — Use_Stop stamped False for stop_mode strategies;
   `load_open_position_notionals` + sizing-step cap; `stage_olv_vol_confirm_exits`
-- `order_staging.py` / `eq_order_entry.py` / `pa_order_entry.py` (OneDrive) —
-  `load_olv_exit_rows`, `build_pa_frame` (unscaled exit rows, no Use_Stop
-  restore), `Is_Position_Exit` naked-MOO path in BOTH entry scripts;
+- `olv_exit_moo.py` (OneDrive) — pre-market TIF=OPG exit runner for BOTH
+  accounts + `run_olv_exit_moo.bat` / `register_olv_exit_task.ps1`
+  (Task Scheduler 'IBKR OLV Pre-Market Exits', weekdays 9:10 AM ET);
+  eq/pa_order_entry keep dormant `Is_Position_Exit` handlers;
   guard: `test_olv_exits.py` (OneDrive)
 - Guard: `tests/test_olv_stop_and_cap.py` (engine + scan + config invariants)
 
@@ -961,6 +969,7 @@ trigger chain, out-of-repo file map): `docs/site_runbook.html`. |
 | `Trigger Update Master Prices (GHA workflow_dispatch)` | Enabled | Weekdays 4:17 AM ET — fires `update_master_prices.yml` via the GitHub REST API to bypass shared-cron queue lag at 8-9 UTC. See "AM Trigger Architecture" below. |
 | `Trigger Daily Screener (GHA workflow_dispatch)` | Enabled | Weekdays 4:47 AM ET, 30 min after the parquet trigger — fires `daily_screener.yml` via the GitHub REST API. Same mechanism. |
 | `Trigger Risk Report AM Correction (GHA workflow_dispatch)` | Enabled | Weekdays 4:30 AM ET — fires `risk_report.yml` with `mode=data_only` so the fragility row daily_scan sizes off (~4:47 AM) reflects settled prices, not the provisional 5:15 PM bar. Scripts: `C:\Scripts\trigger_risk_report.ps1` + `_task.xml`. |
+| `IBKR OLV Pre-Market Exits` | Enabled | Weekdays 9:10 AM ET — `run_olv_exit_moo.bat` -> `olv_exit_moo.py` (OneDrive trading_ibkr): reads the `OLV_Exits` tab and places TRUE market-on-open (TIF=OPG) SELLs for confirmed OLV stop legs on BOTH accounts before the 9:28 auction cutoff. Registered 2026-07-30 via `register_olv_exit_task.ps1`; must clear the 9:31 order chain (shares clientIds 99/98). |
 | `RadarMorningBriefing` | Enabled | Lives in separate `last30days-radar` project — not yet migrated. |
 | `RadarWeeklySummary` | Enabled | Sundays 8:30 AM ET — depends on radar briefs from above. Not yet migrated. |
 | `DailyPortfolioReport` | Disabled | Replaced by `portfolio_report.yml`. Re-enable as fallback if GHA breaks. |
@@ -1114,9 +1123,12 @@ Tab layout in the `Trade_Signals_Log` workbook:
 - `OLV_Exits` — vol-confirmed OLV stop exits (2026-07-20). Cleared+rewritten
   by BOTH bookend `daily_scan` runs (`stage_olv_vol_confirm_exits`); rows are
   per-LEG (stacked positions get one row per confirmed leg, keyed by
-  `Time_Exit_Date`). order_staging submits only rows with `Execute_On` ==
-  today as naked-MOO SELLs — both accounts since 2026-07-27 (execution_2
-  gets the rows unscaled; pa_order_entry sells the full matched PA leg).
+  `Time_Exit_Date`, with an `Entry_Date` audit column since 2026-07-30).
+  Consumed by `olv_exit_moo.py` (OneDrive trading_ibkr) — the standalone
+  pre-market task (weekdays 9:10 AM ET) that places rows with `Execute_On`
+  == today as TRUE market-on-open SELLs (TIF=OPG, both accounts; PA sells
+  the full matched PA leg). order_staging stopped consuming this tab
+  2026-07-30 — its 9:31 post-open run could never deliver a real MOO.
 - `moc_orders` — MOC entries from liquid tier only (`save_moc_orders` skips overflow rows). Currently vestigial: the strategy book has no Signal Close entries, so this tab is never written. Reactivates automatically if any strategy is set to `entry_type='Signal Close'`.
 - `Seasonal` — tradeable seasonal-ideas tickets (longs + non-equity shorts). Written by `seasonal_order_staging.py` from `data/daily_seasonal_ideas.json`, `Scan_Source='Seasonal'`. Separate pipeline from the systematic book. Entry type per instrument (validated geography rule): US single stocks + US-session equity ETFs → `REL_OPEN` limit (0.25 ATR, DAY); everything that gaps overnight (intl/commodity/bond/FX ETFs, GLD/TLT) → `MOO` (market-on-open, `TIF=OPG`). Sizing: 20 bps/trade (13 bps in midterm years, `year%4==2`), 1% aggregate daily cap. order_staging must add `MOO` handling — see `docs/seasonal_order_staging_spec.md`.
 - `sznl_nostage` — NOT auto-executed. Single-stock equity shorts (sized, tagged `[eq-short]`) + non-tradeable signals (futures/index/FX/crypto, `Quantity=0`, `Order_Type=NONE`, tagged `[need-proxy]` pending the proxy-ETF promotion). order_staging does not read this tab.
