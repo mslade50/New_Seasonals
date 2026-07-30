@@ -171,9 +171,16 @@ try:
     # US-equity calendar assumptions. They reached the book only via the
     # overflow tier (^GSPC/^NDX sit in LIQUID and are subtracted there).
     # 25 ledger trades / -0.25R, all Overflow, at removal.
+    # Corporate-action exclusions: names whose price action is pinned by a
+    # deal, so rank-based signals on them are artifacts, not edges.
+    # CBZ excluded 2026-07-29 (merger announced that day — the pop is
+    # deal-arb, and fading/buying an arb-pinned name never mean-reverts).
+    # 0 ledger trades at removal. Overflow tier only. Re-add if a deal breaks.
+    UNIVERSE_CORP_ACTION_EXCLUSIONS = {'CBZ'}
     CSV_UNIVERSE = sorted(
         t for t in _pd.read_csv(_csv_path)['ticker'].unique().tolist()
-        if not str(t).endswith('=F') and not str(t).endswith('-USD')
+        if t not in UNIVERSE_CORP_ACTION_EXCLUSIONS
+        and not str(t).endswith('=F') and not str(t).endswith('-USD')
         and (not str(t).startswith('^') or t in SPOT_TO_TRADEABLE)
     )
 except Exception:
