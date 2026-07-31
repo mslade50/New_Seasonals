@@ -63,6 +63,19 @@ const markerRows = [
 ];
 assert.strictEqual(m.markerDayFor(markerRows, 2024, new Date(2024, 6, 14), null), 2);
 assert.strictEqual(m.markerDayFor(markerRows, 2024, new Date(2024, 6, 14), 151), 151);
+assert.strictEqual(m.markerMonthDayFor(markerRows, 2024, new Date(2024, 6, 14), null), "07-14");
+assert.strictEqual(m.markerMonthDayFor(markerRows, 2024, new Date(2024, 6, 14), 2), "07-15");
+
+const calendarPath = [
+  { day: 146, value: 1, date: "2021-07-30" },
+  { day: 147, value: 2, date: "2021-08-02" },
+];
+assert.strictEqual(m.closestCalendarPoint(calendarPath, "07-31").date, "2021-07-30");
+const tiedCalendarPath = [
+  { day: 127, value: 1, date: "2024-07-03" },
+  { day: 128, value: 2, date: "2024-07-05" },
+];
+assert.strictEqual(m.closestCalendarPoint(tiedCalendarPath, "07-04").date, "2024-07-05");
 
 const snapshotRows = [];
 for (const year of [2020, 2021]) {

@@ -266,6 +266,30 @@ function markerDayFor(rows, year, now, fastForwardDay) {
   return (found || context[context.length - 1]).day;
 }
 
+function markerMonthDayFor(rows, year, now, fastForwardDay) {
+  const today = `${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+  if (fastForwardDay == null) return today;
+  const context = rows.filter(row => row.year === year && row.date);
+  if (!context.length) return today;
+  const targetDay = Math.max(1, Math.min(253, Number(fastForwardDay)));
+  const marker = context.reduce((best, row) =>
+    Math.abs(row.day - targetDay) < Math.abs(best.day - targetDay) ? row : best);
+  return marker.date.slice(5);
+}
+
+function closestCalendarPoint(path, monthDay) {
+  const dated = path.filter(point => /^\d{4}-\d{2}-\d{2}$/.test(point.date || ""));
+  if (!dated.length || !/^\d{2}-\d{2}$/.test(monthDay || "")) return null;
+  const year = dated[0].date.slice(0, 4);
+  const target = Date.parse(`${year}-${monthDay}T00:00:00Z`);
+  if (!Number.isFinite(target)) return null;
+  return dated.reduce((best, point) => {
+    const distance = Math.abs(Date.parse(`${point.date}T00:00:00Z`) - target);
+    const bestDistance = Math.abs(Date.parse(`${best.date}T00:00:00Z`) - target);
+    return distance < bestDistance || (distance === bestDistance && point.date > best.date) ? point : best;
+  });
+}
+
 function buildDateMap(rows, year) {
   const out = new Map();
   const context = rows.filter(row => row.year === year);
@@ -374,6 +398,7 @@ function analyzeSeasonality(rows, options) {
   const referenceRows = rows.filter(row => row.year === referenceYear);
   const markerYear = options.timeTravel ? referenceYear : currentYear;
   const markerDay = markerDayFor(rows, markerYear, now, options.fastForwardDay);
+  const markerMonthDay = markerMonthDayFor(rows, markerYear, now, options.fastForwardDay);
   const rankCurrent = calculateSeasonalRank(rows, options.cycle, currentYear, halfLife);
   const rankAll = options.overlayAll ? calculateSeasonalRank(rows, "All Years", currentYear, halfLife) : new Map();
   const rankHistorical = options.timeTravel
@@ -402,7 +427,7 @@ function analyzeSeasonality(rows, options) {
   const last = rows[rows.length - 1];
   const lastAtrRow = rows.slice().reverse().find(row => isFiniteNumber(row.atr));
   return {
-    currentYear, cutoffYear, referenceYear, markerYear, markerDay,
+    currentYear, cutoffYear, referenceYear, markerYear, markerDay, markerMonthDay,
     currentPrice: last ? last.close : null,
     currentAtr: lastAtrRow ? lastAtrRow.atr : null,
     currentAtrPct: lastAtrRow ? lastAtrRow.atr / lastAtrRow.close * 100 : null,
@@ -653,6 +678,8 @@ function renderMainSeasonalityChart(ticker, options, analysis) {
 
 function renderCycleChart(options, analysis) {
   const traces = [];
+  const tradingMarkers = { x: [], y: [], colors: [], customdata: [] };
+  const calendarMarkers = { x: [], y: [], colors: [], customdata: [] };
   for (let i = 0; i < analysis.yearPaths.length; i++) {
     const item = analysis.yearPaths[i];
     const current = item.year === analysis.currentYear;
@@ -664,9 +691,17 @@ function renderCycleChart(options, analysis) {
     if (analysis.markerDay != null && item.path.length) {
       const marker = item.path.reduce((best, point) =>
         Math.abs(point.day - analysis.markerDay) < Math.abs(best.day - analysis.markerDay) ? point : best);
-      traces.push({ x: [marker.day], y: [marker.value], type: "scatter", mode: "markers", showlegend: false,
-        marker: { color, size: 8, line: { color: "#fff", width: 1 } },
-        hovertemplate: `<b>${item.year} — anchor equivalent</b><br>Day: %{x}<br>Cum ATR: %{y:.2f}<extra></extra>` });
+      tradingMarkers.x.push(marker.day);
+      tradingMarkers.y.push(marker.value);
+      tradingMarkers.colors.push(color);
+      tradingMarkers.customdata.push([item.year, marker.date]);
+    }
+    const calendarMarker = closestCalendarPoint(item.path, analysis.markerMonthDay);
+    if (calendarMarker) {
+      calendarMarkers.x.push(calendarMarker.day);
+      calendarMarkers.y.push(calendarMarker.value);
+      calendarMarkers.colors.push(color);
+      calendarMarkers.customdata.push([item.year, calendarMarker.date, analysis.markerMonthDay]);
     }
   }
   if (analysis.paths.atrCycle.length) traces.push({
@@ -675,6 +710,24 @@ function renderCycleChart(options, analysis) {
     line: { color: "#fff", width: 2.5, dash: "dot" },
     hovertemplate: "Day: %{x}<br>Avg Cum ATR: %{y:.2f}<extra></extra>",
   });
+  if (tradingMarkers.x.length) traces.push({
+    x: tradingMarkers.x, y: tradingMarkers.y, customdata: tradingMarkers.customdata,
+    type: "scatter", mode: "markers", name: `Trading day ${analysis.markerDay}`,
+    marker: { color: tradingMarkers.colors, size: 5, symbol: "circle", line: { color: "#fff", width: 0.75 } },
+    hovertemplate: "<b>%{customdata[0]} — same trading day</b><br>Date: %{customdata[1]}" +
+      "<br>Day: %{x}<br>Cum ATR: %{y:.2f}<extra></extra>",
+  });
+  if (calendarMarkers.x.length) {
+    const calendarLabel = new Date(`2000-${analysis.markerMonthDay}T00:00:00Z`).toLocaleString("en-US",
+      { month: "short", day: "numeric", timeZone: "UTC" });
+    traces.push({
+      x: calendarMarkers.x, y: calendarMarkers.y, customdata: calendarMarkers.customdata,
+      type: "scatter", mode: "markers", name: `Calendar date · ${calendarLabel}`, visible: "legendonly",
+      marker: { color: calendarMarkers.colors, size: 8, symbol: "triangle-up", line: { color: "#fff", width: 0.75 } },
+      hovertemplate: "<b>%{customdata[0]} — calendar-date match</b><br>Nearest session: %{customdata[1]}" +
+        "<br>Target: %{customdata[2]}<br>Day: %{x}<br>Cum ATR: %{y:.2f}<extra></extra>",
+    });
+  }
   Plotly.newPlot("sl-cycle-chart", traces, plotLayout({
     height: 470, margin: { l: 58, r: 18, t: 24, b: 58 },
     xaxis: { title: "Trading day of year", gridcolor: "#1c2230" },
@@ -738,6 +791,8 @@ globalThis.SeasonalityMath = {
   calculateSeasonalPath,
   calculateSeasonalRank,
   markerDayFor,
+  markerMonthDayFor,
+  closestCalendarPoint,
   forwardSnapshots,
   calculateStats,
   pathSimilarity,
