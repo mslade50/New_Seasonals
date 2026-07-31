@@ -36,7 +36,9 @@ FAMILY4 = {"Weak Close Decent Sznls", "SPY QQQ MonFri Reversion",
            "Monday Dip", "Indices Oversold Bounce",
            # Dip-buy-adjacent (fades overbought inverse ETFs = buys market
            # selloffs) — carries the same bands since 2026-07-07.
-           "3x Bear ETF Overbot Fade"}
+           "3x Bear ETF Overbot Fade",
+           # Monthly-scale dip-buy — band by family analogy since 2026-07-31.
+           "Monthly Weak Close"}
 FAMILY_BANDS = [[50, 999, 0.25]]
 
 

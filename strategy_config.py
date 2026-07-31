@@ -1956,6 +1956,123 @@ _STRATEGY_BOOK_RAW = [
                    'trail_atr': 2.0,
                    'trail_anchor': 'Peak High'},
      'stats': {'grade': 'A (Excellent)', 'win_rate': '65.2%', 'expectancy': '0.80r', 'profit_factor': '3.25'}},
+    {
+        "id": "month close in lower 15% of monthly range on month-end day, Price > 200 SMA, Entry: Limit Order -0.25 ATR (Persistent, 2d window), 5d hold, 2 ATR tgt, no stop",
+        "name": "Monthly Weak Close",
+        "setup": {
+            "type": "MeanReversion",
+            "timeframe": "Position",
+            "thesis": "A month that closes in the bottom 15% of its own high-low range while the uptrend is intact (close > 200d SMA, ~10-month MA equivalent) marks a capitulative month-end in a bull regime; the mean reversion plays out over the following weeks. The trend gate is load-bearing: unfiltered, QQQ 2000-2001 and Aug-2022 style signals ride the next bear leg down (worst -17.9%); gated, the 26y sample has one losing fill. The persistent limit (close - 0.25 ATR, live T+1..T+2) fills ~half the signals but historically captured ~90% of the close-entry total PnL with materially better per-fill stats — the missed half bounces immediately and never looks back.",
+            "key_filters": [
+                "Month's close in lower 15% of the month's high-low range",
+                "Signal fires only on the month's last trading day",
+                "Price > 200 SMA (uptrend regime, ~= the 10-month MA gate)"
+            ]
+        },
+        "exit_summary": {
+            "primary_exit": "2.0 ATR target or 5-day time stop",
+            "stop_logic": "None (time exit bounds everything; stop_atr 1.0 defines the sizing risk unit only)",
+            "target_logic": "2.0 ATR above entry",
+            "notes": "Persistent limit at signal close - 0.25 ATR, cancelled if unfilled after 2 trading days (fill_window_days). ~1.1 signals/yr at the gated rate; SPY+QQQ same-month signals are near-duplicates (cluster stats treat them as one obs)."
+        },
+        "description": "Backtest: 2000-01-01 to present (scratch/monthly_weak_close_mr*.py, 2026-07-31). Gated close-entry cell: N=30, 77% win, avg +1.55%, worst -1.74%, clustered t=4.08; limit-entry cell N=15, 15-for-15, avg +2.79%, t=8.58 (same population, half the fills). LOYO avg range [+4.02,+4.50] on the h21 research variant; cluster bootstrap P(<=0)=0.0000. Pilot at 30 bps (manual-seasonal parity).",
+        "universe_tickers": ['SPY', 'QQQ'],
+        "settings": {
+            "trade_direction": "Long",
+            "entry_type": "Limit Order -0.25 ATR (Persistent)",
+            "max_one_pos": True,
+            "allow_same_day_reentry": False,
+            "entry_conf_bps": 0,
+            "perf_filters": [],
+            "perf_first_instance": False,
+            "perf_lookback": 21,
+            "ma_consec_filters": [],
+            "use_month_range_pos": True,
+            "month_range_pos_max": 0.15,
+            "use_sznl": False,
+            "sznl_logic": "<",
+            "sznl_thresh": 15.0,
+            "sznl_first_instance": False,
+            "sznl_lookback": 21,
+            "use_market_sznl": False,
+            "market_sznl_logic": "<",
+            "market_sznl_thresh": 15.0,
+            "market_ticker": "SPY",
+            "use_52w": False,
+            "52w_type": "New 52w High",
+            "52w_first_instance": False,
+            "52w_lookback": 21,
+            "52w_lag": 0,
+            "exclude_52w_high": False,
+            "breakout_mode": "None",
+            "use_range_filter": False,
+            "range_min": 0,
+            "range_max": 100,
+            "use_dow_filter": False,
+            "allowed_days": [0, 1, 2, 3, 4],
+            "use_vix_filter": False,
+            "vix_min": 0.0,
+            "vix_max": 20.0,
+            "use_vol": False,
+            "vol_thresh": 1.5,
+            "use_vol_rank": False,
+            "vol_rank_logic": "<",
+            "vol_rank_thresh": 50.0,
+            "trend_filter": "Price > 200 SMA",
+            "min_price": 10.0,
+            "min_vol": 100000,
+            "min_age": 1.0,
+            "max_age": 100.0,
+            "min_atr_pct": 0.0,
+            "max_atr_pct": 100.0,
+            "use_ma_dist_filter": False,
+            "dist_ma_type": "SMA 10",
+            "dist_logic": "Greater Than (>)",
+            "dist_min": 0.0,
+            "dist_max": 2.0,
+            "use_gap_filter": False,
+            "gap_lookback": 21,
+            "gap_logic": ">",
+            "gap_thresh": 3,
+            "use_acc_count_filter": False,
+            "acc_count_window": 21,
+            "acc_count_logic": ">",
+            "acc_count_thresh": 3,
+            "use_dist_count_filter": False,
+            "dist_count_window": 21,
+            "dist_count_logic": ">",
+            "dist_count_thresh": 3,
+            "use_recent_52w_low": False,
+            "recent_52w_low_invert": True,
+            "recent_52w_low_lookback": 10,
+            "dial_filters": []
+        },
+        "execution": {
+            "risk_bps": 30,
+            "slippage_bps": 2,
+            "stop_atr": 1.0,
+            "tgt_atr": 2.0,
+            "hold_days": 5,
+            "use_stop_loss": False,
+            "use_take_profit": True,
+            # Entry-order live window: the persistent limit is cancelled if
+            # unfilled after 2 trading days (the researched GTC-2d spec).
+            "fill_window_days": 2,
+            # FAMILY4 band by analogy (2026-07-31, McKinley's call): this is
+            # the same dip-buy exposure at monthly scale, and the one gated
+            # loser (SPY 2020-01-31 into COVID) is exactly the high-dial-
+            # above-trend case the band exists for. Same convention as the
+            # 3x Bear Fade's band (family analogy, no own-sample fit).
+            "frag_risk_bands": [[50, 999, 0.25]],
+            "pilot": {
+                "start": "2026-07-31",
+                "review_by": "2028-07-31 or +4 live fills, whichever first",
+                "promote_if": "clean OOS fills consistent with the 15-for-15 "
+                              "limit-entry cell -> consider 40 bps",
+            },
+        },
+        "stats": {"grade": "B (Pilot)", "win_rate": "100% (limit cell, N=15)", "expectancy": "+2.79%/fill", "profit_factor": "inf (no losing fills in sample)"}
+    },
 ]
 
 

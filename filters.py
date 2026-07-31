@@ -203,6 +203,36 @@ def evaluate_filter_mask(df, params, sznl_map=None, ticker_name="UNK", mode="bac
         allowed_months = params.get('allowed_months', list(range(1, 13)))
         conditions.append(np.isin(df.index.month, allowed_months))
 
+    # Monthly weak-close range filter (2026-07-31, Monthly Weak Close MR):
+    # passes ONLY on the month's last trading day, and only when the month's
+    # close sits at/below `month_range_pos_max` of the month's high-low
+    # range. Month-end detection: a row whose successor rolls the month; the
+    # FINAL row (the live scan's "today") consults the US-business-day
+    # calendar instead, so both the month-end PM scan and the next-morning
+    # AM scan grade the just-closed month. Degenerate (high==low) or NaN
+    # ranges reject. Note the month aggregates are cumulative, which equals
+    # the full-month range exactly on the rows this filter can pass.
+    if params.get('use_month_range_pos', False):
+        thresh = params.get('month_range_pos_max', 0.15)
+        per = df.index.to_period('M')
+        mhi = df['High'].groupby(per).cummax().values
+        mlo = df['Low'].groupby(per).cummin().values
+        rng = mhi - mlo
+        with np.errstate(divide='ignore', invalid='ignore'):
+            pos = (df['Close'].values - mlo) / rng
+        is_last = np.zeros(n, dtype=bool)
+        if n > 1:
+            pv = np.asarray(per)
+            is_last[:-1] = pv[1:] != pv[:-1]
+        if n:
+            from pandas.tseries.holiday import USFederalHolidayCalendar
+            from pandas.tseries.offsets import CustomBusinessDay
+            nxt = df.index[-1] + CustomBusinessDay(1, calendar=USFederalHolidayCalendar())
+            is_last[-1] = nxt.month != df.index[-1].month
+        with np.errstate(invalid='ignore'):
+            ok = (rng > 0) & (pos <= thresh)
+        conditions.append(is_last & np.where(np.isnan(pos), False, ok))
+
     # Gap filter — falls back GapCount_{lb} -> GapCount_21 -> zeros
     if params.get('use_gap_filter', False):
         lookback = params.get('gap_lookback', 21)

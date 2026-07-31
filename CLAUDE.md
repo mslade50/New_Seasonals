@@ -178,7 +178,7 @@ anything).
 ### Consumers (change-impact map)
 
 - `frag_risk_bands` (strategy_config -> daily_scan 2b -> strat_backtester
-  3b3): FAMILY4 + 3x Bear Fade at [[50,999,0.25]]. Guard:
+  3b3): FAMILY4 + 3x Bear Fade + Monthly Weak Close at [[50,999,0.25]]. Guard:
   `tests/test_frag_risk_bands.py` (includes the site serializer assertion).
 - `exposure_leg.py` (25% NAV VOO/QQQ overlay in the AM scan email): kill
   rules raw-21d>50 and ma10-63d>50. The 1.25x boost was REMOVED 2026-07-16
@@ -509,8 +509,9 @@ Per-strategy fragility sizing via `execution['frag_risk_bands']` =
 REPLACED the retired book-wide ramp (1.25x boost -> 0.10x floor): the boost had
 no edge case, and only specific pockets degrade at high fragility. Current
 bands: the dip-buy FAMILY4 (Weak Close Decent Sznls, SPY QQQ MonFri Reversion,
-Monday Dip, Indices Oversold Bounce) run `[[50, 999, 0.25]]`; the rest of the
-book (including OVS) is 1.0x at all scores. Unlike the old ramp, the ENGINE
+Monday Dip, Indices Oversold Bounce) run `[[50, 999, 0.25]]`, as do the
+family-analogy carriers 3x Bear ETF Overbot Fade (2026-07-07) and Monthly Weak
+Close (2026-07-31); the rest of the book (including OVS) is 1.0x at all scores. Unlike the old ramp, the ENGINE
 REPLAYS the bands point-in-time, so ledger and live agree (finding #26 closed
 for this scheme). Evidence: scratch/ultracode_research/PORTFOLIO_RESEARCH_2026-07-02.md.
 
@@ -674,6 +675,37 @@ Aligned sites — change together:
   `scratch/lev3x_fade_leader_*.py` (expansion, stops, entries, ovs_entry,
   class_split, bulleq_clusters, bulleq_strict, validation, capcheck,
   book_parity)
+
+## Monthly Weak Close (pilot, 2026-07-31)
+
+Monthly-scale dip-buy on SPY+QQQ: a month that CLOSES in the bottom 15% of
+its own high-low range (signal fires only on the month's last trading day)
+while the ticker is above its 200d SMA (~= the 10-month MA trend gate; the
+gate is LOAD-BEARING — ungated, 2000-01/2022-style signals ride the next
+bear leg, worst -17.9%). Entry: persistent limit at signal close - 0.25 ATR,
+live T+1..T+2 (`fill_window_days: 2`); fills ~half the signals but captured
+~90% of close-entry total PnL with better per-fill stats (the missed half
+bounces immediately). 5d hold, 2 ATR target, NO stop (`stop_atr` 1.0 is the
+sizing risk unit only). 30 bps nominal, FAMILY4 frag band [[50,999,0.25]] by
+family analogy. ~1.1 signals/yr; SPY+QQQ same-month signals are
+near-duplicates. Validation (gated cell, 2003+): close-entry N=30 avgR
++1.55%, clustered t=4.08; limit cell N=15, 15-for-15, avg +2.79%/fill;
+h21 research variant LOYO floor t=3.76, cluster bootstrap P(<=0)=0.0000.
+Longer holds carry more per-trade edge (h21 +3.0%/trade) but ~half the
+in-market Sharpe (2.6 vs 4.7 filtered); the 5d/target form was chosen for
+slot efficiency.
+
+Implementation — all generic paths, nothing bespoke:
+- `filters.py` `use_month_range_pos` / `month_range_pos_max` (month-end
+  detection: next-row month roll, final row via US-bday calendar so the
+  month-end PM scan AND the next-AM scan both grade it)
+- `strategy_config.py` "Monthly Weak Close" (source of truth)
+- daily_scan / strat_backtester: shared mask + generic persistent-limit,
+  fill-window, frag-band, no-stop paths; order_staging needs nothing
+- Guard: `tests/test_monthly_weak_close.py` (filter semantics + config
+  invariants); engine parity: scratch/monthly_weak_close_engine_parity.py
+  (30/30 signal dates, 15/15 fills, exit types identical vs research cell).
+  Evidence: scratch/monthly_weak_close_mr*.py.
 
 ## Trend Sleeve (pilot, 2026-07-02)
 
