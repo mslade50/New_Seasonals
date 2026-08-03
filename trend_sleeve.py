@@ -2,8 +2,8 @@
 
 Spec (validated: scratch/ultracode_research/trend-following.md + adversarial
 verification + trend_prework_gates.md + scratch/tf_universe_study.py):
-  - Universe: 13 liquid ETFs — equities/RE/intl core + GLD/SLV/DBC/UUP +
-    TLT/LQD, no USO (see TREND_UNIVERSE note below for the full evidence).
+  - Universe: 12 liquid ETFs — equities/RE/intl core + GLD/SLV/DBC +
+    TLT/LQD, no USO/UUP (see TREND_UNIVERSE note below for the evidence).
   - Signal (month-end adjusted closes): combo = 12-1 momentum > 0 AND close >
     10-month SMA. Long/flat only — the short leg is dead (Sharpe 0.32).
   - Weights: inverse-vol slots over ALL eligible assets (>= 13 monthly closes),
@@ -16,18 +16,22 @@ verification + trend_prework_gates.md + scratch/tf_universe_study.py):
     (TIF=OPG) for the next session's open. Next-open slippage vs same-close
     was measured at ~0.06 Sharpe on the 12-ETF variant (gate A, PASS);
     expect roughly Sharpe ~0.8, CAGR ~5.5%, maxDD ~-6.5%, corr to book ~+0.12
-    for this universe on the next-open basis. This sleeve is BALLAST — it
-    loses ~-0.4%/mo in high-fragility months; the frag hole is handled by
-    frag_risk_bands, not this.
+    for this universe on the next-open basis.
+  - Month-entry fragility gate: hold the entire sleeve in cash when the latest
+    valid month-end 10d MA of the 63d risk dial is > 50. Missing/stale dial
+    data also blocks exposure (fail-closed). Production 12-ETF next-open test:
+    -0.50%/mo above 50 vs +0.71% otherwise, 2016-08..2026-06 (N=19/98).
 
 Runs weekdays post-close via .github/workflows/trend_sleeve.yml; exits
 immediately unless today is the month's last trading day (--force overrides).
 Rebalance orders are written to the 'Trend' Sheets tab; state (held shares)
 persists in trend_sleeve_state.json on R2. --dry-run prints without writing.
 
-NOTE: order_staging.py does not read the Trend tab yet — same MOO handling the
-Seasonal pipeline needs (docs/seasonal_order_staging_spec.md). Until that
-lands, the tab is a staged order list for manual/scripted entry.
+When activated, execution is handled by the local pre-market ``trend_moo.py``
+runner at 09:12 ET. It reads only rows whose Execute_On is today and places
+true MKT+OPG orders before the opening auction. An atomic enable marker makes
+the 09:31 order_staging chain ignore Trend rows, preventing MKT/DAY duplicates;
+until activation, the legacy path remains intact.
 """
 import argparse
 import datetime
@@ -65,10 +69,13 @@ VOL_FLOOR = 0.04             # ann. vol floor avoids inf inverse-vol weights
 REBALANCE_BAND = 0.01        # skip deltas under 1% of sleeve NAV unless a flip
 
 MASTER_PRICES = os.path.join(current_dir, "data", "master_prices.parquet")
+FRAGILITY_PATH = os.path.join(current_dir, "data", "rd2_fragility.parquet")
 STATE_LOCAL = os.path.join(current_dir, "data", "trend_sleeve_state.json")
 STATE_R2_KEY = "trend_sleeve_state.json"
 SHEET_NAME = "Trade_Signals_Log"
 TAB_NAME = "Trend"
+TREND_FRAG_THRESHOLD = 50.0
+TREND_FRAG_STALE_TD = 3
 
 
 def _today_et() -> pd.Timestamp:
@@ -98,7 +105,90 @@ def load_closes() -> pd.DataFrame:
     return closes.sort_index()
 
 
-def compute_targets(closes: pd.DataFrame) -> pd.DataFrame:
+def read_trend_fragility_gate(fragility_path=FRAGILITY_PATH, asof=None) -> dict:
+    """Return the month-entry Trend exposure gate.
+
+    The sizing basis is the book's live series:
+    ``rd2_fragility.parquet['63d'].rolling(10).mean()``. The latest reading
+    on or before *asof* is used. Missing, malformed, or stale data fails closed
+    to cash because enabling a new risk sleeve from an unknown regime is the
+    less reversible failure mode.
+    """
+    asof_ts = pd.Timestamp(asof if asof is not None else _today_et()).normalize()
+    try:
+        asof_ts = asof_ts.tz_localize(None)
+    except (TypeError, AttributeError):
+        pass
+
+    def blocked(reason, score=None, score_asof=None):
+        return {
+            "active": True,
+            "valid": False,
+            "score": score,
+            "asof": str(score_asof.date()) if score_asof is not None else None,
+            "threshold": TREND_FRAG_THRESHOLD,
+            "reason": reason,
+        }
+
+    if not os.path.exists(fragility_path):
+        return blocked(f"fragility file missing: {fragility_path}")
+    try:
+        frag = pd.read_parquet(fragility_path)
+    except Exception as exc:
+        return blocked(f"fragility file unreadable: {exc}")
+    if frag is None or frag.empty or "63d" not in frag.columns:
+        return blocked("fragility file empty or missing 63d column")
+
+    series = frag["63d"].dropna().copy()
+    series.index = pd.to_datetime(series.index).normalize()
+    try:
+        series.index = series.index.tz_localize(None)
+    except (TypeError, AttributeError):
+        pass
+    series = series[series.index <= asof_ts].sort_index()
+    if series.empty:
+        return blocked(f"no fragility reading on or before {asof_ts.date()}")
+
+    score_asof = pd.Timestamp(series.index[-1]).normalize()
+    age_td = int(np.busday_count(score_asof.date(), asof_ts.date()))
+    if age_td > TREND_FRAG_STALE_TD:
+        return blocked(
+            f"fragility reading stale: {score_asof.date()} is {age_td} trading "
+            f"days old (max {TREND_FRAG_STALE_TD})",
+            score_asof=score_asof,
+        )
+
+    score = float(series.rolling(10, min_periods=1).mean().iloc[-1])
+    active = score > TREND_FRAG_THRESHOLD
+    return {
+        "active": active,
+        "valid": True,
+        "score": score,
+        "asof": str(score_asof.date()),
+        "threshold": TREND_FRAG_THRESHOLD,
+        "reason": (
+            f"10d-MA 63d fragility {score:.2f} > {TREND_FRAG_THRESHOLD:.0f}"
+            if active else
+            f"10d-MA 63d fragility {score:.2f} <= {TREND_FRAG_THRESHOLD:.0f}"
+        ),
+    }
+
+
+def apply_trend_fragility_gate(targets: pd.DataFrame, gate: dict) -> pd.DataFrame:
+    """Stamp the gate and zero all target weights while it is active."""
+    out = targets.copy()
+    score = gate.get("score")
+    out["Fragility_MA10_63d"] = round(float(score), 4) if score is not None else np.nan
+    out["Fragility_Gate"] = "CASH" if gate.get("active", True) else "OPEN"
+    out["Fragility_Gate_AsOf"] = gate.get("asof") or "UNAVAILABLE"
+    out["Fragility_Gate_Reason"] = str(gate.get("reason", "unknown"))
+    if gate.get("active", True):
+        out["Weight"] = 0.0
+    return out
+
+
+def compute_targets(closes: pd.DataFrame, fragility_path=FRAGILITY_PATH,
+                    use_fragility_gate: bool = True) -> pd.DataFrame:
     """One row per universe ticker: signal state, weight, close. The last
     daily bar is treated as the current month-end close (the workflow only
     runs this on the month's last trading day)."""
@@ -133,6 +223,10 @@ def compute_targets(closes: pd.DataFrame) -> pd.DataFrame:
     # label with the actual signal bar, not the calendar month-end label
     # (resample('ME') stamps the in-progress month as the 31st)
     df["Asof"] = str(closes.index.max().date())
+    if use_fragility_gate:
+        gate = read_trend_fragility_gate(
+            fragility_path=fragility_path, asof=closes.index.max())
+        df = apply_trend_fragility_gate(df, gate)
     return df
 
 
@@ -177,11 +271,11 @@ def build_orders(targets: pd.DataFrame, state: dict) -> pd.DataFrame:
         })
     out = pd.DataFrame(orders)
     if not out.empty:
-        # order_staging.py only submits Trend rows on their execution day: the
-        # next session after this run (post-close). On the normal month-end
-        # schedule run-date == signal date, so this is the first session of the
-        # new month; an off-schedule --force run stages for the next open.
-        # Stale rows are ignored forever after.
+        # trend_moo.py only submits Trend rows on their execution day: the next
+        # session after this post-close run. On the normal month-end schedule
+        # run-date == signal date, so this is the first session of the new
+        # month; an off-schedule --force run stages for the next open. Stale
+        # rows are ignored forever after.
         exec_on = _today_et() + TRADING_DAY
         out["Execute_On"] = str(exec_on.date())
     return out
@@ -203,6 +297,16 @@ def save_state(targets: pd.DataFrame, dry_run: bool):
         "universe": TREND_UNIVERSE,
         "positions": positions,
     }
+    if "Fragility_Gate" in targets.columns:
+        first = targets.iloc[0]
+        score = first.get("Fragility_MA10_63d")
+        state["fragility_gate"] = {
+            "state": first.get("Fragility_Gate"),
+            "score": None if pd.isna(score) else float(score),
+            "asof": first.get("Fragility_Gate_AsOf"),
+            "reason": first.get("Fragility_Gate_Reason"),
+            "threshold": TREND_FRAG_THRESHOLD,
+        }
     if dry_run:
         print("\n[dry-run] state not saved")
         return
@@ -308,6 +412,11 @@ def main():
         sys.exit(1)
 
     targets = compute_targets(closes)
+    if "Fragility_Gate" in targets.columns:
+        first = targets.iloc[0]
+        print(f"Trend fragility gate: {first['Fragility_Gate']} — "
+              f"{first['Fragility_Gate_Reason']} "
+              f"(as of {first['Fragility_Gate_AsOf']})")
     print(f"Trend sleeve targets (asof {targets['Asof'].iloc[0]}, "
           f"{TREND_NAV_FRACTION:.1f}x of ${ACCOUNT_VALUE:,.0f}):")
     print(targets.to_string(index=False))
