@@ -1,20 +1,20 @@
 {
   "date": "2026-08-03",
   "price_ctx": {
-    "price": 747.030029296875,
-    "ret_12m": 0.1949553761637286,
-    "extension_200d": 0.07115095546225181,
-    "drawdown": -0.013975635023057209,
-    "sma_200": 697.4087316894531,
-    "high_52w": 757.6182250976562,
-    "regime_label": "Strong uptrend, moderately extended",
-    "days_since_5pct": 82,
-    "days_since_10pct": 318
+    "price": 757.6699829101562,
+    "ret_12m": 0.232170809250563,
+    "extension_200d": 0.0856221782725286,
+    "drawdown": 0.0,
+    "sma_200": 697.9131396484376,
+    "high_52w": 757.6699829101562,
+    "regime_label": "Extended uptrend, stretched above trend",
+    "days_since_5pct": 83,
+    "days_since_10pct": 319
   },
   "h_scores": {
-    "5d": 17.65994807085827,
-    "21d": 39.198043939282734,
-    "63d": 52.82838135865627
+    "5d": 22.937131566637948,
+    "21d": 45.11892934353476,
+    "63d": 56.03995799724915
   },
   "signals": {
     "Distribution Dominance": {
@@ -25,17 +25,17 @@
     "VIX Range Compression": {
       "on": false,
       "detail": "",
-      "summary": "21d range: 33th pctile (fires below 15th) \u2014 VIX at 16.1"
+      "summary": "21d range: 33th pctile (fires below 15th) \u2014 VIX at 15.9"
     },
     "Defensive Leadership": {
       "on": true,
-      "detail": "Risk-off stocks leading: 50d spread -22pp, 200d spread -2pp. SPY within 2% of 52w high \u2014 defensive rotation while index holds.",
-      "summary": "50d spread: -22pp (fires < -10) | 200d spread: -2pp (fires < 0)"
+      "detail": "DIRE: Risk-off leading on BOTH timeframes while SPY within 1% of 52w high. 50d spread: -16pp | 200d spread: -0pp. Institutional rotation to safety at all-time highs \u2014 consider 3-month put / put-spread.",
+      "summary": "50d spread: -16pp (fires < -10) | 200d spread: -0pp (fires < 0) \u2014 DIRE: within 1% of highs"
     },
     "Pre-FOMC Rally": {
       "on": false,
       "detail": "",
-      "summary": "Next FOMC: Sep 16 (47d away) \u2014 5d return: 66th pctile (outside window)"
+      "summary": "Next FOMC: Sep 16 (44d away) \u2014 5d return: 88th pctile (outside window)"
     },
     "Low Absorption Ratio": {
       "on": false,
@@ -45,12 +45,12 @@
     "Seasonal Rank Divergence": {
       "on": false,
       "detail": "",
-      "summary": "Spread: +5.9pp (fires above 10) \u2014 near high: yes"
+      "summary": "Spread: +4.5pp (fires above 10) \u2014 near high: yes"
     },
     "Dispersion": {
-      "on": true,
-      "detail": "Dispersion composite at 87th percentile (threshold: 85th). Avg component RV: 36.8% vs SPY RV: 12.4% \u2014 high cross-sectional vol with low index vol = correlation suppression. Stored tension tends to release violently.",
-      "summary": "Composite pctile: 87th (fires above 85th) \u2014 component RV: 36.8% | SPY RV: 12.4%"
+      "on": false,
+      "detail": "",
+      "summary": "Composite pctile: 81th (fires above 85th) \u2014 component RV: 36.4% | SPY RV: 13.3%"
     }
   }
 }
