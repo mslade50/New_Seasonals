@@ -743,6 +743,10 @@ def build_pdf(computed, charts, dial_path, tmp_dir):
 # 8. EMAIL
 # ---------------------------------------------------------------------------
 
+# Radar digest retired 2026-08-04 — the generating agent was disabled at the
+# 2026-07-13 cutover and this file went stale without anything noticing, so the
+# email shipped a 2026-07-12 digest for three weeks. The path is retained only
+# so the PDF-only fallback below stays the deliberate, permanent behavior.
 RADAR_SUMMARY_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "radar_weekly_summary.md")
 
 

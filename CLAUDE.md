@@ -16,7 +16,6 @@ A quantitative equity trading platform built on Streamlit. Three pillars:
 ├── daily_risk_report.py            # Daily risk email (fragility dials + signals + forward returns)
 ├── daily_portfolio_report.py       # Daily portfolio health report (imports from strat_backtester)
 ├── weekly_market_rundown.py        # Weekly PDF rundown (tabloid landscape, 11 chart pages)
-├── radar_weekly_summary.py         # Weekly radar digest (reads daily briefs, Claude distills best-of)
 ├── verify_fills.py                 # Post-close fill verification (updates Google Sheets)
 ├── indicators.py                   # Shared indicator library
 ├── earnings_filter.py              # Shared OVS earnings blackout helpers (load parquet, compute offset)
@@ -1028,9 +1027,10 @@ GitHub's shared cron scheduler had 1-3h queue delays at 8:47 UTC, pushing the AM
 
 **Maintenance:** if the local task or PAT breaks, the fallback cron picks up the slack the same day. If both break, the PM cron at 20:30 / 22:00 UTC still runs (independent of any of this).
 
-### Sunday Pipeline (two-step, still partially local)
-1. **8:30 AM ET (local)**: `radar_weekly_summary.py` reads last 7 days of radar briefs from `C:\Users\mckin\projects\last30days-radar\output\briefs\`, pulls yfinance snapshots for all tickers, pipes to Claude Code subprocess with PM-style distillation framework (variant perception required, "who's on the other side" required). Output committed + pushed to `data/radar_weekly_summary.md`.
-2. **9:00 AM ET (Actions)**: `weekly_market_rundown.py` generates tabloid (17x11") landscape PDF with all risk charts, reads the radar digest and includes it as styled HTML email body alongside the PDF attachment.
+### Sunday Pipeline (single step as of 2026-08-04)
+1. **9:00 AM ET (Actions)**: `weekly_market_rundown.py` generates tabloid (17x11") landscape PDF with all risk charts and emails it as an attachment.
+
+**Radar digest retired 2026-08-04.** `radar_weekly_summary.py` and `data/radar_weekly_summary.md` are deleted. The generating agent (`trig_015YZLdjj3LxvyY25fnq1zch` in radar-briefings) was disabled at the 2026-07-13 cutover, but the rundown kept reading the file it no longer refreshed — so the Sunday email shipped a digest frozen at 2026-07-12 for three weeks while the workflow reported green. `_build_email_body()` already degrades to a PDF-only email when the file is absent, which is now the permanent path.
 
 ### Daily Risk Report — Forward Returns Table
 Uses `compute_similar_reading_returns()` from `risk_dashboard_v2.py`. Forward returns at similar fragility readings include:
