@@ -1956,6 +1956,10 @@ def compute_similar_reading_returns(
 
     return {
         'n_episodes': len(episode_dates),
+        # Downstream risk views use these exact declustered anchors so their
+        # path statistics describe the same sample as this table rather than
+        # unrelated market drawdown episodes.
+        'episode_dates': list(episode_dates),
         'band_low': band_low,
         'band_high': band_high,
         'current_score': current_score,

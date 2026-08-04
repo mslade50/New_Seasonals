@@ -122,15 +122,15 @@ async function init() {
       vintage; the point-in-time series starts 2026-07-02.</p>`;
   }
 
-  // 7. Deliberately last on the page for now: historical SPY drawdown
-  // episodes and the VIX close-to-intraday-peak move inside each one.
-  if (d.drawdown_iv && Array.isArray(d.drawdown_iv.episodes)) {
+  // 7. Deliberately last on the page for now: ATR drawdown paths from the
+  // exact anchor dates in the primary 63d similar-fragility sample above.
+  if (d.drawdown_iv && d.drawdown_iv.rows_by_horizon) {
     html += drawdownIvHtml(d.drawdown_iv);
   }
 
   el.innerHTML = html;
 
-  if (d.drawdown_iv && Array.isArray(d.drawdown_iv.episodes)) {
+  if (d.drawdown_iv && d.drawdown_iv.rows_by_horizon) {
     initDrawdownIvTable(d.drawdown_iv);
   }
 
@@ -664,10 +664,11 @@ function fwdTable(h, r) {
   </div>`;
 }
 
-function drawdownIvRowsHtml(di, threshold) {
-  const rows = (di.episodes || []).filter(e => Number(e.max_drawdown) <= -threshold);
+function drawdownIvRowsHtml(di, horizon, threshold) {
+  const rows = ((di.rows_by_horizon || {})[horizon] || [])
+    .filter(e => Number(e.max_drawdown_atr) >= threshold);
   if (!rows.length) {
-    return `<tr><td class="l" colspan="9"><span class="cap">No drawdown episodes reached ${fmt.pct(threshold, 0)} in this sample.</span></td></tr>`;
+    return `<tr><td class="l" colspan="8"><span class="cap">No similar-reading paths reached ${fmt.num(threshold, 0)} ATR within ${esc(horizon)}.</span></td></tr>`;
   }
   return rows.map(e => {
     const ivPath = e.iv_start_close != null && e.iv_peak != null
@@ -676,11 +677,10 @@ function drawdownIvRowsHtml(di, threshold) {
       ? `${fmt.signed(e.iv_change_points, 1)} pts${e.iv_change_pct != null ? `<br><span class="cap">${fmt.signed(e.iv_change_pct * 100, 0)}%</span>` : ""}`
       : "&mdash;";
     return `<tr>
-      <td class="l"><b>${esc(e.peak_date || "")}</b><br><span class="cap">SPY ${fmt.num(e.peak_spy, 2)}</span></td>
-      <td class="l"><b>${esc(e.trough_date || "")}</b><br><span class="cap">SPY ${fmt.num(e.trough_spy, 2)}</span></td>
-      <td class="l">${e.recovery_date ? esc(e.recovery_date) : '<span class="badge warn">OPEN</span>'}</td>
-      <td class="neg"><b>${fmt.pct(e.max_drawdown, 1)}</b></td>
-      <td>${e.days_to_trough != null ? e.days_to_trough : "&mdash;"}</td>
+      <td class="l"><b>${esc(e.anchor_date || "")}</b><br><span class="cap">SPY close ${fmt.num(e.anchor_spy_close, 2)} &middot; ATR ${fmt.num(e.anchor_atr, 2)}</span></td>
+      <td class="l"><b>${esc(e.worst_low_date || "")}</b><br><span class="cap">SPY low ${fmt.num(e.worst_spy_low, 2)}</span></td>
+      <td class="neg"><b>${fmt.num(e.max_drawdown_atr, 2)} ATR</b><br><span class="cap">${fmt.pct(e.max_drawdown_pct, 1)}</span></td>
+      <td>${e.sessions_to_low != null ? e.sessions_to_low : "&mdash;"}</td>
       <td>${ivPath}</td>
       <td><b>${e.iv_peak != null ? fmt.num(e.iv_peak, 1) : "&mdash;"}</b></td>
       <td class="l">${esc(e.iv_peak_date || "&mdash;")}</td>
@@ -689,39 +689,58 @@ function drawdownIvRowsHtml(di, threshold) {
   }).join("");
 }
 
-function drawdownIvHtml(di) {
-  const thresholds = (di.thresholds || [0.05, 0.10, 0.15, 0.20, 0.25, 0.30]).map(Number);
-  const selected = Number(di.default_threshold || 0.10);
-  const options = thresholds.map(t => {
-    const n = di.counts && di.counts[String(t)] != null
-      ? di.counts[String(t)]
-      : (di.episodes || []).filter(e => Number(e.max_drawdown) <= -t).length;
-    return `<option value="${t}"${Math.abs(t - selected) < 1e-9 ? " selected" : ""}>&ge;${Math.round(t * 100)}% (${n} episode${n === 1 ? "" : "s"})</option>`;
+function drawdownIvThresholdOptions(di, horizon, selected) {
+  const counts = (di.counts && di.counts[horizon]) || {};
+  return (di.thresholds || [1, 2, 3, 5]).map(Number).map(t => {
+    const n = counts[String(t)] == null ? 0 : counts[String(t)];
+    return `<option value="${t}"${Math.abs(t - selected) < 1e-9 ? " selected" : ""}>&ge;${fmt.num(t, 0)} ATR (${n} path${n === 1 ? "" : "s"})</option>`;
   }).join("");
-  return `<h2>Peak IV during SPY drawdowns</h2>
+}
+
+function drawdownIvHtml(di) {
+  const horizons = di.horizons || Object.keys(di.rows_by_horizon || {});
+  const selectedHorizon = horizons.includes(di.default_horizon) ? di.default_horizon : horizons[0];
+  const selectedThreshold = Number(di.default_threshold || 2);
+  const horizonOptions = horizons.map(h => {
+    const n = (di.eligible_by_horizon || {})[h];
+    const suffix = n == null ? "" : ` (${n} complete)`;
+    return `<option value="${esc(h)}"${h === selectedHorizon ? " selected" : ""}>${esc(h)}${suffix}</option>`;
+  }).join("");
+  const thresholdOptions = drawdownIvThresholdOptions(di, selectedHorizon, selectedThreshold);
+  return `<h2>Peak IV after similar risk readings</h2>
     <div class="card risk-dd-iv">
       <div class="tbl-controls">
-        <label for="ddIvThreshold">Minimum max drawdown</label>
-        <select id="ddIvThreshold">${options}</select>
-        <span class="info">${esc(di.sample_from || "?")} to ${esc(di.sample_through || "?")} &middot; non-overlapping peak-to-recovery episodes</span>
+        <label for="ddIvHorizon">Forward window</label>
+        <select id="ddIvHorizon">${horizonOptions}</select>
+        <label for="ddIvThreshold">Minimum downside</label>
+        <select id="ddIvThreshold">${thresholdOptions}</select>
       </div>
-      <div class="cap">Drawdown uses SPY closing peaks and troughs. Start IV is the VIX close on the SPY peak date; peak IV is the maximum ${esc(di.iv_basis || "VIX reading")} observed through the SPY trough.</div>
+      <div class="cap">Same ${di.n_episodes == null ? "" : di.n_episodes + " declustered "}historical anchors as the 63d similar-fragility table above: current score ${fmt.num(di.current_score, 1)}, band ${fmt.num(di.band_low, 1)}&ndash;${fmt.num(di.band_high, 1)}. A row appears only when that analog reached the selected ATR downside inside the selected window.</div>
       <div class="tblwrap"><table class="tbl"><thead><tr>
-        <th class="l">SPY peak close</th><th class="l">SPY trough close</th><th class="l">Recovered</th>
-        <th>Max DD</th><th>Sessions</th><th>VIX close &rarr; peak</th><th>Peak IV</th><th class="l">Peak IV date</th><th>IV change</th>
-      </tr></thead><tbody id="ddIvRows">${drawdownIvRowsHtml(di, selected)}</tbody></table></div>
-      <div class="cap">A deeper episode also qualifies at every lower threshold. Peak IV is descriptive of the realized drawdown path, not a forecast.</div>
+        <th class="l">Similar-reading close</th><th class="l">Worst SPY low</th><th>Max DD</th>
+        <th>Sessions</th><th>VIX close &rarr; peak</th><th>Peak IV</th><th class="l">Peak IV date</th><th>IV change</th>
+      </tr></thead><tbody id="ddIvRows">${drawdownIvRowsHtml(di, selectedHorizon, selectedThreshold)}</tbody></table></div>
+      <div class="cap">Max DD = (analog-date SPY close &minus; lowest subsequent intraday SPY low in-window) / analog-date Wilder ATR(${di.atr_period || 14}). VIX change runs from the analog-date close to the maximum ${esc(di.iv_basis || "VIX reading")} through the worst-low date. Peak IV is descriptive, not a forecast.</div>
     </div>`;
 }
 
 function initDrawdownIvTable(di) {
+  const horizonSelect = document.getElementById("ddIvHorizon");
   const select = document.getElementById("ddIvThreshold");
   const body = document.getElementById("ddIvRows");
-  if (!select || !body || typeof select.addEventListener !== "function") return;
-  select.addEventListener("change", () => {
+  if (!horizonSelect || !select || !body || typeof select.addEventListener !== "function") return;
+  const renderRows = () => {
+    const horizon = horizonSelect.value || di.default_horizon || "63d";
     const threshold = Number(select.value);
-    body.innerHTML = drawdownIvRowsHtml(di, Number.isFinite(threshold) ? threshold : 0.10);
+    body.innerHTML = drawdownIvRowsHtml(di, horizon, Number.isFinite(threshold) ? threshold : 2);
+  };
+  horizonSelect.addEventListener("change", () => {
+    const selected = Number(di.default_threshold || 2);
+    select.innerHTML = drawdownIvThresholdOptions(di, horizonSelect.value, selected);
+    select.value = String(selected);
+    renderRows();
   });
+  select.addEventListener("change", renderRows);
 }
 
 // ---- ATR downside tables (signal cards + dial band) ----

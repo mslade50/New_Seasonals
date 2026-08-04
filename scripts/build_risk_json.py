@@ -219,30 +219,51 @@ def load_vix_high():
     return out[~out.index.duplicated(keep="last")].astype(float)
 
 
-def build_drawdown_iv_episodes(spy_close, vix_close, vix_high=None,
-                               min_threshold=0.05):
-    """Peak-to-trough SPY drawdowns with VIX behavior during each episode.
+def build_similar_reading_drawdown_iv(
+    spy_df,
+    vix_close,
+    similar_result,
+    vix_high=None,
+    horizons=None,
+    thresholds=None,
+):
+    """ATR downside paths for the exact 63d similar-reading sample.
 
-    An episode starts at a SPY closing high and ends when that close is
-    recovered. ``max_drawdown`` and the trough use SPY closes. ``iv_start`` is
-    the VIX close on the SPY peak date; ``iv_peak`` is the highest intraday VIX
-    high observed from that peak through the SPY trough. If the OHLC cache is
-    unavailable, the VIX close series is used for both.
+    Each anchor is one of ``compute_similar_reading_returns``' declustered
+    ``episode_dates``.  For every forward window the drawdown is the existing
+    risk-tab low-touch measure::
+
+        max(Close_anchor - Low_{anchor+1..anchor+N}, 0) / WilderATR14_anchor
+
+    VIX begins at the anchor-date close and peaks on an intraday-high basis
+    from the next session through the date of that window's worst SPY low.
+    This deliberately is not a market-wide peak-to-recovery correction sample.
     """
+    import numpy as np
     import pandas as pd
+    from scripts.build_atr_downside_stats import (
+        ATR_N, HORIZONS, MULTS, wilder_atr,
+    )
 
-    spy = pd.Series(spy_close).dropna().astype(float).sort_index()
-    vclose = pd.Series(vix_close).dropna().astype(float).sort_index()
-    if spy.empty or vclose.empty:
+    if similar_result is None or not similar_result.get("episode_dates"):
         return None
+    required = {"High", "Low", "Close"}
+    if spy_df is None or spy_df.empty or not required.issubset(spy_df.columns):
+        return None
+
+    spy = spy_df.loc[:, ["High", "Low", "Close"]].dropna().copy().sort_index()
     spy.index = pd.to_datetime(spy.index)
-    vclose.index = pd.to_datetime(vclose.index)
     if spy.index.tz is not None:
         spy.index = spy.index.tz_localize(None)
+    spy = spy[~spy.index.duplicated(keep="last")]
+
+    vclose = pd.Series(vix_close).dropna().astype(float).sort_index()
+    vclose.index = pd.to_datetime(vclose.index)
     if vclose.index.tz is not None:
         vclose.index = vclose.index.tz_localize(None)
-    spy = spy[~spy.index.duplicated(keep="last")]
     vclose = vclose[~vclose.index.duplicated(keep="last")]
+    if vclose.empty:
+        return None
 
     using_high = vix_high is not None and len(vix_high)
     vhigh = pd.Series(vix_high if using_high else vclose).dropna().astype(float).sort_index()
@@ -251,70 +272,92 @@ def build_drawdown_iv_episodes(spy_close, vix_close, vix_high=None,
         vhigh.index = vhigh.index.tz_localize(None)
     vhigh = vhigh[~vhigh.index.duplicated(keep="last")]
 
-    # A short forward fill covers the occasional one-session calendar mismatch
-    # without carrying a stale VIX close through a real data gap.
-    aligned_close = vclose.reindex(spy.index).ffill(limit=1)
-    aligned_high = vhigh.reindex(spy.index).combine_first(aligned_close)
-    values = spy.to_numpy()
-    dates = spy.index
-    episodes = []
-    peak_i = 0
-    i = 1
-    while i < len(spy):
-        if values[i] >= values[peak_i]:
-            peak_i = i
-            i += 1
-            continue
+    # Match the rest of the risk tab exactly: adjusted SPY OHLC and Wilder-14
+    # ATR fixed on the analog date. A one-session VIX fill only bridges a
+    # calendar mismatch; it never bridges a real multi-day data gap.
+    idx = spy.index
+    H = spy["High"].to_numpy(float)
+    L = spy["Low"].to_numpy(float)
+    C = spy["Close"].to_numpy(float)
+    atr = wilder_atr(H, L, C)
+    aligned_close = vclose.reindex(idx).ffill(limit=1)
+    aligned_high = vhigh.reindex(idx).combine_first(aligned_close)
 
-        # Stay inside one standard underwater episode until the prior closing
-        # peak is recovered. Partial rallies do not create duplicate samples.
-        trough_i = i
-        j = i
-        while j < len(spy) and values[j] < values[peak_i]:
-            if values[j] < values[trough_i]:
-                trough_i = j
-            j += 1
-        max_dd = values[trough_i] / values[peak_i] - 1.0
-        if max_dd <= -abs(float(min_threshold)):
-            iv_window = aligned_high.iloc[peak_i:trough_i + 1].dropna()
-            iv_start = aligned_close.iloc[peak_i]
+    horizon_map = dict(horizons or HORIZONS)
+    atr_thresholds = [float(x) for x in (thresholds or MULTS)]
+    anchor_dates = pd.to_datetime(similar_result["episode_dates"])
+    anchor_positions = idx.get_indexer(anchor_dates)
+    rows_by_horizon = {lab: [] for lab in horizon_map}
+    eligible_by_horizon = {lab: 0 for lab in horizon_map}
+
+    for anchor_date, pos in zip(anchor_dates, anchor_positions):
+        if pos < 0 or not np.isfinite(atr[pos]) or atr[pos] <= 0:
+            continue
+        anchor_close = float(C[pos])
+        iv_start_raw = aligned_close.iloc[pos]
+        iv_start = float(iv_start_raw) if pd.notna(iv_start_raw) else None
+
+        for label, n_sessions in horizon_map.items():
+            end = pos + int(n_sessions)
+            if end >= len(spy):
+                continue
+            eligible_by_horizon[label] += 1
+            future_lows = L[pos + 1:end + 1]
+            low_offset = int(np.nanargmin(future_lows))
+            low_pos = pos + 1 + low_offset
+            worst_low = float(L[low_pos])
+            dd_points = max(anchor_close - worst_low, 0.0)
+            dd_atr = dd_points / float(atr[pos])
+            dd_pct = worst_low / anchor_close - 1.0
+
+            iv_window = aligned_high.iloc[pos + 1:low_pos + 1].dropna()
             iv_peak = float(iv_window.max()) if not iv_window.empty else None
             iv_peak_date = iv_window.idxmax() if not iv_window.empty else None
-            start_val = float(iv_start) if pd.notna(iv_start) else None
-            delta = iv_peak - start_val if iv_peak is not None and start_val else None
-            episodes.append({
-                "peak_date": dates[peak_i].strftime("%Y-%m-%d"),
-                "trough_date": dates[trough_i].strftime("%Y-%m-%d"),
-                "recovery_date": dates[j].strftime("%Y-%m-%d") if j < len(spy) else None,
-                "peak_spy": round(float(values[peak_i]), 2),
-                "trough_spy": round(float(values[trough_i]), 2),
-                "max_drawdown": round(float(max_dd), 5),
-                "days_to_trough": int(trough_i - peak_i),
-                "iv_start_close": round(start_val, 2) if start_val is not None else None,
+            delta = (iv_peak - iv_start
+                     if iv_peak is not None and iv_start is not None else None)
+            rows_by_horizon[label].append({
+                "anchor_date": pd.Timestamp(anchor_date).strftime("%Y-%m-%d"),
+                "anchor_spy_close": round(anchor_close, 2),
+                "anchor_atr": round(float(atr[pos]), 3),
+                "worst_low_date": idx[low_pos].strftime("%Y-%m-%d"),
+                "worst_spy_low": round(worst_low, 2),
+                "max_drawdown_atr": round(float(dd_atr), 3),
+                "max_drawdown_pct": round(float(dd_pct), 5),
+                "sessions_to_low": int(low_pos - pos),
+                "iv_start_close": round(iv_start, 2) if iv_start is not None else None,
                 "iv_peak": round(iv_peak, 2) if iv_peak is not None else None,
-                "iv_peak_date": iv_peak_date.strftime("%Y-%m-%d") if iv_peak_date is not None else None,
+                "iv_peak_date": (iv_peak_date.strftime("%Y-%m-%d")
+                                 if iv_peak_date is not None else None),
                 "iv_change_points": round(delta, 2) if delta is not None else None,
-                "iv_change_pct": round(delta / start_val, 5) if delta is not None and start_val else None,
+                "iv_change_pct": (round(delta / iv_start, 5)
+                                  if delta is not None and iv_start else None),
             })
 
-        if j >= len(spy):
-            break
-        peak_i = j
-        i = j + 1
-
-    thresholds = [0.05, 0.10, 0.15, 0.20, 0.25, 0.30]
-    episodes.sort(key=lambda x: x["peak_date"], reverse=True)
+    for rows in rows_by_horizon.values():
+        rows.sort(key=lambda row: row["anchor_date"], reverse=True)
+    counts = {
+        label: {f"{t:g}": sum(row["max_drawdown_atr"] >= t for row in rows)
+                for t in atr_thresholds}
+        for label, rows in rows_by_horizon.items()
+    }
     return {
-        "sample_from": dates[0].strftime("%Y-%m-%d"),
-        "sample_through": dates[-1].strftime("%Y-%m-%d"),
-        "price_basis": "SPY adjusted closing peak-to-trough drawdown",
+        "sample_basis": "exact declustered anchors from the 63d similar-fragility table",
+        "score_horizon": "63d",
+        "current_score": round(float(similar_result["current_score"]), 1),
+        "band_low": round(float(similar_result["band_low"]), 1),
+        "band_high": round(float(similar_result["band_high"]), 1),
+        "n_episodes": int(similar_result["n_episodes"]),
+        "atr_period": int(ATR_N),
+        "measure": ("max(anchor close - subsequent intraday low, 0) / "
+                    "anchor-date Wilder ATR(14)"),
         "iv_basis": "VIX intraday high" if using_high else "VIX daily close (high unavailable)",
-        "baseline_basis": "VIX close on the SPY peak date",
-        "default_threshold": 0.10,
-        "thresholds": thresholds,
-        "counts": {str(t): sum(e["max_drawdown"] <= -t for e in episodes)
-                   for t in thresholds},
-        "episodes": episodes,
+        "horizons": list(horizon_map.keys()),
+        "eligible_by_horizon": eligible_by_horizon,
+        "thresholds": atr_thresholds,
+        "default_horizon": "63d" if "63d" in horizon_map else list(horizon_map)[-1],
+        "default_threshold": 2.0,
+        "counts": counts,
+        "rows_by_horizon": rows_by_horizon,
     }
 
 
@@ -970,6 +1013,7 @@ def main():
                 "detail": _clean((sig or {}).get("detail")),
             })
 
+        fwd_raw = {}
         fwd = {}
         if computed.get("frag_df") is not None and computed.get("h_scores"):
             fwd_raw = build_forward_returns_data(
@@ -1027,12 +1071,14 @@ def main():
         try:
             vix_close = (closes["^VIX"].dropna()
                          if "^VIX" in closes.columns else None)
-            dd_iv = build_drawdown_iv_episodes(
-                spy_close, vix_close, load_vix_high()) if vix_close is not None else None
+            similar_63d = (fwd_raw or {}).get("63d")
+            dd_iv = build_similar_reading_drawdown_iv(
+                spy_df, vix_close, similar_63d, load_vix_high()
+            ) if vix_close is not None and similar_63d is not None else None
             if dd_iv:
                 payload["drawdown_iv"] = dd_iv
-                print(f"risk: drawdown_iv ok ({len(dd_iv['episodes'])} episodes, "
-                      f"{dd_iv['sample_from']} -> {dd_iv['sample_through']})")
+                print(f"risk: drawdown_iv ok ({dd_iv['n_episodes']} exact 63d analogs, "
+                      f"{len(dd_iv['rows_by_horizon'].get('63d', []))} complete 63d paths)")
         except Exception:
             print("risk: drawdown_iv FAILED (continuing without it)")
             traceback.print_exc()
