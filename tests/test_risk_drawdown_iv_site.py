@@ -19,8 +19,11 @@ const source = fs.readFileSync(__RISK_JS__, "utf8");
 const elements = new Map();
 function element(id) {
   if (!elements.has(id)) elements.set(id, {
-    id, innerHTML: "", textContent: "", value: "0.1",
-    addEventListener() {}, querySelectorAll() { return []; },
+    id, innerHTML: "", textContent: "",
+    value: id === "ddIvHorizon" ? "63d" : id === "ddIvThreshold" ? "2" : "0.1",
+    listeners: {},
+    addEventListener(name, fn) { this.listeners[name] = fn; },
+    querySelectorAll() { return []; },
   });
   return elements.get(id);
 }
@@ -32,6 +35,13 @@ const episode = {
   iv_start_close: 15, iv_peak: 52, iv_peak_date: "2025-04-08",
   iv_change_points: 37, iv_change_pct: 2.4667,
 };
+const episode2 = {
+  anchor_date: "2022-01-03", worst_low_date: "2022-01-24",
+  anchor_spy_close: 478, anchor_atr: 6, worst_spy_low: 454,
+  max_drawdown_atr: 4, max_drawdown_pct: -0.0502, sessions_to_low: 14,
+  iv_start_close: 16, iv_peak: 29, iv_peak_date: "2022-01-24",
+  iv_change_points: 13, iv_change_pct: 0.8125,
+};
 const payload = {
   asof: "2026-08-03", built_at: "2026-08-03 22:00 UTC", spy_last: 700,
   price_ctx: {}, fragility: {}, regime_mult: 1, n_active: 0, signals: [],
@@ -41,8 +51,8 @@ const payload = {
     n_episodes: 2, atr_period: 14, iv_basis: "VIX intraday high",
     default_horizon: "63d", default_threshold: 2,
     horizons: ["5d", "63d"], eligible_by_horizon: {"5d": 2, "63d": 1},
-    thresholds: [1, 2, 3, 5], counts: {"5d": {"1": 1}, "63d": {"1": 1, "2": 1, "3": 1, "5": 1}},
-    rows_by_horizon: {"5d": [episode], "63d": [episode]}},
+    thresholds: [1, 2, 3, 5], counts: {"5d": {"1": 1}, "63d": {"1": 2, "2": 2, "3": 2, "5": 1}},
+    rows_by_horizon: {"5d": [episode], "63d": [episode, episode2]}},
 };
 const sandbox = {
   console,
@@ -72,7 +82,14 @@ Promise.resolve(ready()).then(() => {
   if (!html.includes("VIX close &rarr; peak")) throw new Error("close-to-peak column missing");
   if (!html.includes("52.0")) throw new Error("peak IV missing");
   if (!html.includes("+37.0 pts")) throw new Error("IV change missing");
-  if (!html.includes("&ge;2 ATR (1 path)")) throw new Error("threshold selector missing");
+  if (!html.includes("&ge;2 ATR (2 paths)")) throw new Error("threshold selector missing");
+  const initialSummary = element("ddIvSummary").innerHTML;
+  if (!initialSummary.includes("IV change") || !initialSummary.includes("ATR drawdown")) throw new Error("summary boxes missing");
+  if (!initialSummary.includes("+25.0 pts") || !initialSummary.includes("5.00 ATR")) throw new Error("average/median summaries wrong");
+  element("ddIvThreshold").value = "5";
+  element("ddIvThreshold").listeners.change();
+  const filteredSummary = element("ddIvSummary").innerHTML;
+  if (!filteredSummary.includes("+37.0 pts") || !filteredSummary.includes("6.00 ATR")) throw new Error("summaries did not update with filters");
 }).catch(error => { console.error(error); process.exitCode = 1; });
 """.replace("__RISK_JS__", json.dumps(str(RISK_JS)))
 

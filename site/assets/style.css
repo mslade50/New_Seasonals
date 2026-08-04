@@ -225,6 +225,15 @@ table.tbl tbody tr:hover { background: #161c29; }
 .atr-base { display: block; color: var(--faint); font-size: 10px; font-weight: 400; margin-top: 1px; }
 .risk-dd-iv { margin-bottom: 4px; border-color: rgba(77,163,255,.28); }
 .risk-dd-iv .tbl td { vertical-align: top; }
+.risk-dd-summary { display: grid; grid-template-columns: repeat(2, minmax(220px, 1fr)); gap: 10px; margin: 10px 0; }
+.risk-dd-stat { background: var(--card2); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; }
+.risk-dd-stat-head { display: flex; justify-content: space-between; gap: 8px; color: var(--muted); font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .35px; }
+.risk-dd-stat-head span:last-child { color: var(--faint); font-weight: 500; text-transform: none; letter-spacing: 0; }
+.risk-dd-stat-values { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-top: 7px; }
+.risk-dd-stat-values div { display: flex; flex-direction: column; gap: 2px; }
+.risk-dd-stat-values span { color: var(--faint); font-size: 10px; }
+.risk-dd-stat-values b { color: var(--text); font-size: 18px; font-variant-numeric: tabular-nums; }
+@media (max-width: 650px) { .risk-dd-summary { grid-template-columns: 1fr; } }
 .sizing-hero { border: 1px solid rgba(255,193,77,.35); margin-bottom: 14px; }
 .sizing-hero .signal-current { font-size: 26px; }
 .sizing-throttle { margin: 8px 0 2px; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }

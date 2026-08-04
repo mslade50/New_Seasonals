@@ -664,9 +664,49 @@ function fwdTable(h, r) {
   </div>`;
 }
 
-function drawdownIvRowsHtml(di, horizon, threshold) {
-  const rows = ((di.rows_by_horizon || {})[horizon] || [])
+function drawdownIvFilteredRows(di, horizon, threshold) {
+  return ((di.rows_by_horizon || {})[horizon] || [])
     .filter(e => Number(e.max_drawdown_atr) >= threshold);
+}
+
+function numericSummary(values) {
+  const nums = (values || []).map(Number).filter(Number.isFinite).sort((a, b) => a - b);
+  if (!nums.length) return { n: 0, mean: null, median: null };
+  const mid = Math.floor(nums.length / 2);
+  const median = nums.length % 2 ? nums[mid] : (nums[mid - 1] + nums[mid]) / 2;
+  return {
+    n: nums.length,
+    mean: nums.reduce((total, value) => total + value, 0) / nums.length,
+    median,
+  };
+}
+
+function drawdownIvSummaryHtml(di, horizon, threshold) {
+  const rows = drawdownIvFilteredRows(di, horizon, threshold);
+  const iv = numericSummary(rows.map(row => row.iv_change_points));
+  const atr = numericSummary(rows.map(row => row.max_drawdown_atr));
+  const ivMean = iv.mean == null ? "&mdash;" : `${fmt.signed(iv.mean, 1)} pts`;
+  const ivMedian = iv.median == null ? "&mdash;" : `${fmt.signed(iv.median, 1)} pts`;
+  const atrMean = atr.mean == null ? "&mdash;" : `${fmt.num(atr.mean, 2)} ATR`;
+  const atrMedian = atr.median == null ? "&mdash;" : `${fmt.num(atr.median, 2)} ATR`;
+  return `<div class="risk-dd-stat">
+      <div class="risk-dd-stat-head"><span>IV change</span><span>${iv.n} path${iv.n === 1 ? "" : "s"}</span></div>
+      <div class="risk-dd-stat-values">
+        <div><span>Average</span><b>${ivMean}</b></div>
+        <div><span>Median</span><b>${ivMedian}</b></div>
+      </div>
+    </div>
+    <div class="risk-dd-stat">
+      <div class="risk-dd-stat-head"><span>ATR drawdown</span><span>${atr.n} path${atr.n === 1 ? "" : "s"}</span></div>
+      <div class="risk-dd-stat-values">
+        <div><span>Average</span><b>${atrMean}</b></div>
+        <div><span>Median</span><b>${atrMedian}</b></div>
+      </div>
+    </div>`;
+}
+
+function drawdownIvRowsHtml(di, horizon, threshold) {
+  const rows = drawdownIvFilteredRows(di, horizon, threshold);
   if (!rows.length) {
     return `<tr><td class="l" colspan="8"><span class="cap">No similar-reading paths reached ${fmt.num(threshold, 0)} ATR within ${esc(horizon)}.</span></td></tr>`;
   }
@@ -715,6 +755,7 @@ function drawdownIvHtml(di) {
         <label for="ddIvThreshold">Minimum downside</label>
         <select id="ddIvThreshold">${thresholdOptions}</select>
       </div>
+      <div class="risk-dd-summary" id="ddIvSummary">${drawdownIvSummaryHtml(di, selectedHorizon, selectedThreshold)}</div>
       <div class="cap">Same ${di.n_episodes == null ? "" : di.n_episodes + " declustered "}historical anchors as the 63d similar-fragility table above: current score ${fmt.num(di.current_score, 1)}, band ${fmt.num(di.band_low, 1)}&ndash;${fmt.num(di.band_high, 1)}. A row appears only when that analog reached the selected ATR downside inside the selected window.</div>
       <div class="tblwrap"><table class="tbl"><thead><tr>
         <th class="l">Similar-reading close</th><th class="l">Worst SPY low</th><th>Max DD</th>
@@ -727,12 +768,15 @@ function drawdownIvHtml(di) {
 function initDrawdownIvTable(di) {
   const horizonSelect = document.getElementById("ddIvHorizon");
   const select = document.getElementById("ddIvThreshold");
+  const summary = document.getElementById("ddIvSummary");
   const body = document.getElementById("ddIvRows");
-  if (!horizonSelect || !select || !body || typeof select.addEventListener !== "function") return;
+  if (!horizonSelect || !select || !summary || !body || typeof select.addEventListener !== "function") return;
   const renderRows = () => {
     const horizon = horizonSelect.value || di.default_horizon || "63d";
     const threshold = Number(select.value);
-    body.innerHTML = drawdownIvRowsHtml(di, horizon, Number.isFinite(threshold) ? threshold : 2);
+    const selectedThreshold = Number.isFinite(threshold) ? threshold : 2;
+    summary.innerHTML = drawdownIvSummaryHtml(di, horizon, selectedThreshold);
+    body.innerHTML = drawdownIvRowsHtml(di, horizon, selectedThreshold);
   };
   horizonSelect.addEventListener("change", () => {
     const selected = Number(di.default_threshold || 2);
@@ -741,6 +785,7 @@ function initDrawdownIvTable(di) {
     renderRows();
   });
   select.addEventListener("change", renderRows);
+  renderRows();
 }
 
 // ---- ATR downside tables (signal cards + dial band) ----
