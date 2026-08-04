@@ -122,7 +122,17 @@ async function init() {
       vintage; the point-in-time series starts 2026-07-02.</p>`;
   }
 
+  // 7. Deliberately last on the page for now: historical SPY drawdown
+  // episodes and the VIX close-to-intraday-peak move inside each one.
+  if (d.drawdown_iv && Array.isArray(d.drawdown_iv.episodes)) {
+    html += drawdownIvHtml(d.drawdown_iv);
+  }
+
   el.innerHTML = html;
+
+  if (d.drawdown_iv && Array.isArray(d.drawdown_iv.episodes)) {
+    initDrawdownIvTable(d.drawdown_iv);
+  }
 
   if (sz && sz.spark && Array.isArray(sz.spark.dates) && sz.spark.dates.length) {
     renderSizingSpark(sz);
@@ -652,6 +662,66 @@ function fwdTable(h, r) {
       ${r.n_episodes} episodes · band ${Math.round(r.band_low)}-${Math.round(r.band_high)}</div>
     <div class="tblwrap"><table class="tbl"><thead>${head}</thead><tbody>${rows}</tbody></table></div>
   </div>`;
+}
+
+function drawdownIvRowsHtml(di, threshold) {
+  const rows = (di.episodes || []).filter(e => Number(e.max_drawdown) <= -threshold);
+  if (!rows.length) {
+    return `<tr><td class="l" colspan="9"><span class="cap">No drawdown episodes reached ${fmt.pct(threshold, 0)} in this sample.</span></td></tr>`;
+  }
+  return rows.map(e => {
+    const ivPath = e.iv_start_close != null && e.iv_peak != null
+      ? `${fmt.num(e.iv_start_close, 1)} &rarr; <b>${fmt.num(e.iv_peak, 1)}</b>` : "&mdash;";
+    const ivDelta = e.iv_change_points != null
+      ? `${fmt.signed(e.iv_change_points, 1)} pts${e.iv_change_pct != null ? `<br><span class="cap">${fmt.signed(e.iv_change_pct * 100, 0)}%</span>` : ""}`
+      : "&mdash;";
+    return `<tr>
+      <td class="l"><b>${esc(e.peak_date || "")}</b><br><span class="cap">SPY ${fmt.num(e.peak_spy, 2)}</span></td>
+      <td class="l"><b>${esc(e.trough_date || "")}</b><br><span class="cap">SPY ${fmt.num(e.trough_spy, 2)}</span></td>
+      <td class="l">${e.recovery_date ? esc(e.recovery_date) : '<span class="badge warn">OPEN</span>'}</td>
+      <td class="neg"><b>${fmt.pct(e.max_drawdown, 1)}</b></td>
+      <td>${e.days_to_trough != null ? e.days_to_trough : "&mdash;"}</td>
+      <td>${ivPath}</td>
+      <td><b>${e.iv_peak != null ? fmt.num(e.iv_peak, 1) : "&mdash;"}</b></td>
+      <td class="l">${esc(e.iv_peak_date || "&mdash;")}</td>
+      <td class="${e.iv_change_points > 0 ? "neg" : ""}">${ivDelta}</td>
+    </tr>`;
+  }).join("");
+}
+
+function drawdownIvHtml(di) {
+  const thresholds = (di.thresholds || [0.05, 0.10, 0.15, 0.20, 0.25, 0.30]).map(Number);
+  const selected = Number(di.default_threshold || 0.10);
+  const options = thresholds.map(t => {
+    const n = di.counts && di.counts[String(t)] != null
+      ? di.counts[String(t)]
+      : (di.episodes || []).filter(e => Number(e.max_drawdown) <= -t).length;
+    return `<option value="${t}"${Math.abs(t - selected) < 1e-9 ? " selected" : ""}>&ge;${Math.round(t * 100)}% (${n} episode${n === 1 ? "" : "s"})</option>`;
+  }).join("");
+  return `<h2>Peak IV during SPY drawdowns</h2>
+    <div class="card risk-dd-iv">
+      <div class="tbl-controls">
+        <label for="ddIvThreshold">Minimum max drawdown</label>
+        <select id="ddIvThreshold">${options}</select>
+        <span class="info">${esc(di.sample_from || "?")} to ${esc(di.sample_through || "?")} &middot; non-overlapping peak-to-recovery episodes</span>
+      </div>
+      <div class="cap">Drawdown uses SPY closing peaks and troughs. Start IV is the VIX close on the SPY peak date; peak IV is the maximum ${esc(di.iv_basis || "VIX reading")} observed through the SPY trough.</div>
+      <div class="tblwrap"><table class="tbl"><thead><tr>
+        <th class="l">SPY peak close</th><th class="l">SPY trough close</th><th class="l">Recovered</th>
+        <th>Max DD</th><th>Sessions</th><th>VIX close &rarr; peak</th><th>Peak IV</th><th class="l">Peak IV date</th><th>IV change</th>
+      </tr></thead><tbody id="ddIvRows">${drawdownIvRowsHtml(di, selected)}</tbody></table></div>
+      <div class="cap">A deeper episode also qualifies at every lower threshold. Peak IV is descriptive of the realized drawdown path, not a forecast.</div>
+    </div>`;
+}
+
+function initDrawdownIvTable(di) {
+  const select = document.getElementById("ddIvThreshold");
+  const body = document.getElementById("ddIvRows");
+  if (!select || !body || typeof select.addEventListener !== "function") return;
+  select.addEventListener("change", () => {
+    const threshold = Number(select.value);
+    body.innerHTML = drawdownIvRowsHtml(di, Number.isFinite(threshold) ? threshold : 0.10);
+  });
 }
 
 // ---- ATR downside tables (signal cards + dial band) ----

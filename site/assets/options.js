@@ -22,11 +22,18 @@ document.addEventListener("DOMContentLoaded", initOptions);
 const COMM = 0.65;                    // $/contract per leg per side
 const state = {
   params: {},                          // prefill from the query string
-  ivCtx: null, stats: null, earn: null, signals: null,
+  ivCtx: null, market: null, stats: null, earn: null, signals: null,
   wb: null,                            // latest workbench result
   wbId: null, wbTimer: null,
   structures: [],                      // shootout rows (assembled client-side)
   selStructure: null,
+  manual: { view: "bullish", horizon: 10, risk: 1500, target: null, adverse: null, fraction: 1.0 },
+  forecast: {
+    active: false, event: "touch", target: null, probability: 0.50,
+    cutoff: defaultForecastDate(), touchIvShift: 8, noTouchSpot: null,
+    noTouchIvShift: -3, objective: "ev_risk",
+  },
+  pricing: { ivShiftPts: -3, rate: 0.04, divYield: 0 },
   account: "primary",
   book: null, status: null, commands: [],
   pollTimer: null,
@@ -36,18 +43,31 @@ const state = {
 async function initOptions() {
   renderNav("options.html");
   state.params = parseParams();
-  const [iv, stats, earn, sig] = await Promise.all([
+  state.manual.view = isShort() ? "bearish" : "bullish";
+  state.manual.horizon = state.params.hold || 10;
+  state.manual.risk = state.params.risk || 1500;
+  state.manual.fraction = hasSignal() ? 0.5 : 1.0;
+  const [iv, market, stats, earn, sig] = await Promise.all([
     fetchJSONOrNull("data/iv_context.json"),
+    fetchJSONOrNull("data/options_market.json"),
     fetchJSONOrNull("data/strategy_stats.json"),
     fetchJSONOrNull("data/earnings_next.json"),
     fetchJSONOrNull("data/signals.json"),
   ]);
-  state.ivCtx = iv; state.stats = stats; state.earn = earn; state.signals = sig;
+  state.ivCtx = iv; state.market = market; state.stats = stats; state.earn = earn; state.signals = sig;
   document.getElementById("content").innerHTML = shell();
   document.getElementById("wbGo").addEventListener("click", () => loadTicker());
   document.getElementById("wbTicker").addEventListener("keydown", (e) => { if (e.key === "Enter") loadTicker(); });
+  document.getElementById("wbView").addEventListener("change", (e) => {
+    state.manual.view = e.target.value;
+    state.params.dir = e.target.value === "bearish" || e.target.value === "hedge" ? "Short" : "Long";
+    if (!hasSignal()) { state.manual.target = null; state.manual.adverse = null; }
+    if (state.wb) renderAll();
+  });
+  ["wbHorizon", "wbRisk"].forEach((id) => document.getElementById(id).addEventListener("change", syncToolbar));
   document.querySelectorAll("[data-acct]").forEach((b) =>
     b.addEventListener("click", () => setAccount(b.dataset.acct)));
+  renderMarketOverview();
   await pollExec();
   state.pollTimer = setInterval(pollExec, 8000);
   if (state.params.ticker) {
@@ -72,24 +92,59 @@ function parseParams() {
 
 function hasSignal() { const p = state.params; return !!(p.entry && p.stop && p.risk); }
 function isShort() { return String(state.params.dir).toUpperCase().includes("SHORT"); }
+function currentView() {
+  const e = document.getElementById("wbView");
+  return (e && e.value) || state.manual.view || (isShort() ? "bearish" : "bullish");
+}
+function tradeHorizon() {
+  const e = document.getElementById("wbHorizon");
+  const v = e ? Number(e.value) : state.manual.horizon;
+  return isFinite(v) && v > 0 ? Math.round(v) : (state.params.hold || 10);
+}
+function tradeRisk() {
+  const e = document.getElementById("wbRisk");
+  const v = e ? Number(e.value) : state.manual.risk;
+  return isFinite(v) && v > 0 ? v : 0;
+}
+function syncToolbar() {
+  state.manual.horizon = tradeHorizon();
+  state.manual.risk = tradeRisk();
+  if (state.wb) {
+    renderThesis(); renderComparator(); buildStructures(); renderForecastLab(); renderShootout();
+    renderScenarioLab(); renderSizing(); renderTicket();
+  }
+}
 
 function shell() {
   const p = state.params;
+  const view = isShort() ? "bearish" : "bullish";
   return `
     <div id="modeBanner"></div>
-    <div class="card" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;padding:10px 14px;margin-bottom:12px">
-      <input id="wbTicker" placeholder="ticker" style="width:110px;text-transform:uppercase">
-      <button class="btn" id="wbGo">Load workbench</button>
+    <div id="marketOverview"></div>
+    <div class="card opt-toolbar">
+      <label><span>Ticker</span><input id="wbTicker" placeholder="SPY" style="text-transform:uppercase"></label>
+      <label><span>View</span><select id="wbView">
+        <option value="bullish"${view === "bullish" ? " selected" : ""}>Bullish</option>
+        <option value="bearish"${view === "bearish" ? " selected" : ""}>Bearish</option>
+        <option value="big_move">Big move</option><option value="range">Range / short vol</option>
+        <option value="hedge">Portfolio hedge</option></select></label>
+      <label><span>Horizon (td)</span><input id="wbHorizon" type="number" min="1" max="63" value="${p.hold || 10}"${hasSignal() ? " disabled" : ""}></label>
+      <label><span>Risk budget</span><input id="wbRisk" type="number" min="1" step="100" value="${p.risk || 1500}"${hasSignal() ? " disabled" : ""}></label>
+      <button class="btn" id="wbGo">Analyze chain</button>
       <span class="exec-tabs"><button class="btn" data-acct="primary">Primary</button>
         <button class="btn ghost" data-acct="pa">PA</button></span>
       <span id="wbMsg" class="cap"></span>
       <span id="connDot" class="cap" style="margin-left:auto"></span>
     </div>
     ${signalContextHtml(p)}
+    <div id="thesis"></div>
+    <div id="forecastLab"></div>
     <div id="ivStrip"></div>
+    <div id="volDashboard"></div>
     <div id="expiryRow"></div>
     <div id="emCompare"></div>
     <div id="shootout"></div>
+    <div id="scenarioLab"></div>
     <div id="sizing"></div>
     <div id="ticket"></div>
     <div id="activity" style="margin-top:18px"></div>`;
@@ -127,10 +182,176 @@ function stagedStockRow(ticker) {
   return null;
 }
 
+/* ---------------- market weather + manual thesis ---------------- */
+function renderMarketOverview() {
+  const el = document.getElementById("marketOverview");
+  const m = state.market;
+  if (!el || !m || !m.n) { if (el) el.innerHTML = ""; return; }
+  const median = Number(m.median_iv_pctile);
+  const asofMs = m.asof ? new Date(m.asof + "T00:00:00").getTime() : NaN;
+  const ageDays = isFinite(asofMs) ? Math.floor((Date.now() - asofMs) / 86400000) : null;
+  const stale = ageDays != null && ageDays > 5;
+  const label = stale ? "Vol weather is stale" : median < 35 ? "Broad vol is cheap" : median > 65 ? "Broad vol is rich" : "Broad vol is mixed";
+  const tone = stale ? "#ffc14d" : median < 35 ? "#3ddb8f" : median > 65 ? "#ff6b6b" : "#ffc14d";
+  const list = (rows) => (rows || []).slice(0, 6).map((r) =>
+    `<div class="opt-rank-row"><b>${esc(r.ticker)}</b><span>p${fmt.num(r.pctile, 0)} · IV−RV ${fmt.signed(r.iv_rv_points, 1)}</span></div>`).join("");
+  el.innerHTML = `<div class="opt-weather">
+    <div class="card hero">
+      <div><div class="cap">Cross-sectional vol weather · ${m.n} names</div>
+        <div class="opt-hero-value" style="color:${tone}">${label}</div>
+        <div class="opt-meter"><i style="margin-left:${Math.max(0, Math.min(100, median))}%"></i></div></div>
+      <div class="cap">${stale ? `<b style="color:#ffc14d">${ageDays}d old — refresh the IV recorder before trading from these ranks.</b><br>` : ""}Median IV percentile <b>${fmt.num(median, 0)}</b> · median IV/RV premium
+        <b>${fmt.pct(m.median_vrp, 0)}</b> · ${fmt.pct(m.cheap_share, 0)} cheap / ${fmt.pct(m.rich_share, 0)} rich
+        <span style="float:right">as of ${esc(m.asof || "?")}</span></div>
+    </div>
+    <div class="card"><div style="font-weight:700;color:#3ddb8f">Cheapest vol</div>
+      <div class="opt-rank-list">${list(m.cheap)}</div></div>
+    <div class="card"><div style="font-weight:700;color:#ff6b6b">Richest vol</div>
+      <div class="opt-rank-list">${list(m.rich)}</div></div>
+  </div>`;
+}
+
+function thesisDefaults() {
+  const wb = state.wb;
+  if (!wb) return { target: null, adverse: null };
+  if (hasSignal()) return { target: state.params.target, adverse: state.params.stop };
+  const spot = wb.spot;
+  const iv = chainAtmIv() || ((state.ivCtx && state.ivCtx[wb.ticker] || {}).iv) || 0.30;
+  const em = spot * iv * Math.sqrt(Math.max(1, tradeHorizon()) / 252);
+  const view = currentView();
+  if (view === "bearish" || view === "hedge") return { target: spot - em, adverse: spot + em * 0.5 };
+  if (view === "range") return { target: spot, adverse: spot + em };
+  return { target: spot + em, adverse: view === "big_move" ? spot : spot - em * 0.5 };
+}
+
+function scenarioSpots() {
+  const d = thesisDefaults();
+  return {
+    entry: hasSignal() ? state.params.entry : (state.wb && state.wb.spot),
+    target: hasSignal() ? state.params.target : (state.manual.target || d.target),
+    adverse: hasSignal() ? state.params.stop : (state.manual.adverse || d.adverse),
+  };
+}
+
+function renderThesis() {
+  const el = document.getElementById("thesis");
+  if (!el || !state.wb || hasSignal()) { if (el) el.innerHTML = ""; return; }
+  const d = thesisDefaults();
+  if (state.manual.target == null) state.manual.target = round2(d.target);
+  if (state.manual.adverse == null) state.manual.adverse = round2(d.adverse);
+  el.innerHTML = `<div class="card" style="margin-bottom:12px">
+    <div style="font:700 14px inherit;margin-bottom:7px">Manual thesis
+      <span class="cap" style="display:inline;font-weight:400">· used for horizon P&amp;L, ranking, and sizing—not an order condition</span></div>
+    <div class="opt-thesis">
+      <label><span>Underlying now</span><input value="${fmt.num(state.wb.spot, 2)}" disabled></label>
+      <label><span>Thesis price</span><input id="th_target" type="number" min="0.01" step="0.01" value="${fmt.num(state.manual.target, 2)}"></label>
+      <label><span>Adverse price</span><input id="th_adverse" type="number" min="0.01" step="0.01" value="${fmt.num(state.manual.adverse, 2)}"></label>
+      <div class="cap">Defaults use the selected chain&rsquo;s 1σ move over ${tradeHorizon()} trading days. Override them to match your actual thesis.</div>
+    </div></div>`;
+  ["th_target", "th_adverse"].forEach((id) => document.getElementById(id).addEventListener("change", () => {
+    state.manual.target = Number(document.getElementById("th_target").value) || d.target;
+    state.manual.adverse = Number(document.getElementById("th_adverse").value) || d.adverse;
+    buildStructures(); renderForecastLab(); renderShootout(); renderScenarioLab(); renderSizing(); renderTicket();
+  }));
+}
+
+function selectedTermMetrics(wb) {
+  const exps = (wb && wb.expiries || []).filter((e) => e.atm_iv != null).slice().sort((a, b) => a.dte - b.dte);
+  if (exps.length < 2) return { front: exps[0] || null, back: null, slopePts: null, shape: "unknown" };
+  const front = exps[0];
+  const back = exps.reduce((best, e) => Math.abs(e.dte - 60) < Math.abs(best.dte - 60) ? e : best, exps[exps.length - 1]);
+  if (front === back) return { front, back: null, slopePts: null, shape: "unknown" };
+  const slopePts = (back.atm_iv - front.atm_iv) * 100;
+  return { front, back, slopePts, shape: slopePts > 2 ? "contango" : slopePts < -2 ? "backwardation" : "flat" };
+}
+
+function assessVolRegime(metrics) {
+  const scores = [];
+  if (metrics.pctile != null) scores.push(Number(metrics.pctile));
+  if (metrics.vrp != null) scores.push(Math.max(0, Math.min(100, 50 + 100 * Number(metrics.vrp))));
+  const score = scores.length ? scores.reduce((a, b) => a + b, 0) / scores.length : null;
+  const label = score == null ? "UNRANKED" : score < 35 ? "CHEAP" : score > 65 ? "RICH" : "FAIR";
+  const tone = label === "CHEAP" ? "#3ddb8f" : label === "RICH" ? "#ff6b6b" : label === "FAIR" ? "#ffc14d" : "#9aa3b2";
+  return { score, label, tone, confidence: scores.length === 2 ? "high" : scores.length ? "medium" : "low" };
+}
+
+function shapeGuidance(view, metrics) {
+  const regime = assessVolRegime(metrics).label;
+  const richPutSkew = metrics.rr25Pts != null && metrics.rr25Pts > 3;
+  const frontRich = metrics.termShape === "backwardation";
+  if (view === "big_move") {
+    if (regime === "CHEAP" && !frontRich) return { shape: "Long straddle or strangle", why: "Convexity is inexpensive and the front end is not carrying a stress premium.", avoid: "Avoid selling the move simply because the straddle looks large in dollars." };
+    return { shape: "Calendar or wait", why: "Outright gamma is not cheap; isolate a tenor dislocation instead of paying the whole surface.", avoid: "Avoid naked long premium without a move estimate above the market&rsquo;s." };
+  }
+  if (view === "range") {
+    if (regime === "RICH") return { shape: "Defined-risk credit spread / iron condor", why: "The market is paying a premium to own movement; keep tails capped and sell only liquid wings.", avoid: "Avoid undefined-risk short options." };
+    return { shape: "Wait or use stock", why: "Cheap volatility is poor inventory to sell for a range thesis.", avoid: "Avoid forcing a short-vol trade when the premium is not there." };
+  }
+  if (view === "hedge" || view === "bearish") {
+    if (regime === "CHEAP" && !richPutSkew) return { shape: "Long put", why: "Both outright vol and the downside wing are reasonably priced, so keep the convexity.", avoid: "Avoid capping the hedge too early unless the budget requires it." };
+    if (regime === "RICH" || richPutSkew) return { shape: "Put spread or bear call spread", why: "Sell an expensive wing to subsidize delta; use the credit spread only when the directional thesis can tolerate assignment risk.", avoid: "Avoid a naked put whose vega bill can swamp a correct direction call." };
+    return { shape: "Put spread", why: "Vol is middling; a defined payout keeps the trade tied to the price target.", avoid: "Avoid paying for far-tail convexity you do not need." };
+  }
+  if (regime === "CHEAP") return { shape: "Long call or wide call spread", why: "Outright delta and convexity are inexpensive; keep more upside if the thesis allows it.", avoid: "Avoid selling a rich-looking strike without checking the full surface." };
+  if (regime === "RICH" || frontRich) return { shape: "Call spread or bull put spread", why: "Sell expensive vol to fund the directional exposure and define the loss.", avoid: "Avoid a naked call whose theta/vega drag can erase a correct stock view." };
+  return { shape: "Target-anchored call spread", why: "Fair vol makes the stock target—not the vol level—the cleanest short-strike anchor.", avoid: "Avoid extra tenor or width that the thesis does not use." };
+}
+
+function volMetrics() {
+  const wb = state.wb;
+  const rec = wb && state.ivCtx && state.ivCtx[wb.ticker];
+  const term = selectedTermMetrics(wb);
+  const iv = (rec && rec.iv) || chainAtmIv();
+  const rv21 = rec && rec.rv21;
+  const recMs = rec && rec.last ? new Date(rec.last + "T00:00:00").getTime() : NaN;
+  return {
+    iv, rv21, pctile: rec && rec.pctile,
+    vrp: iv != null && rv21 ? iv / rv21 - 1 : null,
+    rr25Pts: wb && wb.chain && wb.chain.rr25 != null ? wb.chain.rr25 * 100 : null,
+    termSlopePts: term.slopePts, termShape: term.shape, term,
+    historyAgeDays: isFinite(recMs) ? Math.floor((Date.now() - recMs) / 86400000) : null,
+  };
+}
+
+function renderVolDashboard() {
+  const el = document.getElementById("volDashboard");
+  if (!el || !state.wb) { if (el) el.innerHTML = ""; return; }
+  const m = volMetrics();
+  const reg = assessVolRegime(m);
+  const guide = shapeGuidance(currentView(), m);
+  const stale = m.historyAgeDays != null && m.historyAgeDays > 5;
+  const pctTxt = m.pctile != null ? `p${fmt.num(m.pctile, 0)} vs its 1y range` : "history unavailable";
+  const vrpTxt = m.vrp != null ? `${fmt.pct(m.vrp, 0)} vs RV21` : "RV comparison unavailable";
+  const termTxt = m.termSlopePts != null ? `${fmt.signed(m.termSlopePts, 1)} vol pts` : "not enough expiries";
+  const skewTxt = m.rr25Pts != null ? `${fmt.signed(m.rr25Pts, 1)} vol pts` : "not quoted";
+  el.innerHTML = `<div class="card" style="margin-bottom:12px">
+    <div style="display:flex;justify-content:space-between;gap:12px;align-items:start;flex-wrap:wrap">
+      <div><div class="cap">Volatility compass</div><div class="opt-hero-value" style="color:${reg.tone}">${reg.label} VOL</div></div>
+      <div class="cap" style="max-width:540px;text-align:right">Cheap/rich is relative, not a forecast. The score blends the name&rsquo;s own IV percentile with IV versus recent realized volatility; curve and skew choose the shape.</div>
+    </div>
+    ${stale ? `<div class="opt-risk-warn">IV rank and IV/RV history are ${m.historyAgeDays} days old. The live curve and skew are current, but do not treat the cheap/rich label as current until the recorder catches up.</div>` : ""}
+    <div class="opt-compass">
+      <div class="tile"><div class="eyebrow">Level</div><div class="reading">${m.iv != null ? fmt.pctRaw(m.iv * 100, 1) : "—"}</div><div class="detail">${pctTxt}</div></div>
+      <div class="tile"><div class="eyebrow">Vol risk premium</div><div class="reading">${m.vrp != null ? fmt.pct(m.vrp, 0) : "—"}</div><div class="detail">${vrpTxt}; positive means options charge more than RV21</div></div>
+      <div class="tile"><div class="eyebrow">Term shape</div><div class="reading">${esc(String(m.termShape || "unknown").toUpperCase())}</div><div class="detail">${termTxt} · back minus front IV</div></div>
+      <div class="tile"><div class="eyebrow">25Δ put skew</div><div class="reading">${m.rr25Pts != null ? fmt.signed(m.rr25Pts, 1) : "—"}</div><div class="detail">${skewTxt}; positive means downside puts are richer</div></div>
+    </div>
+    <div class="opt-playbook">
+      <div class="callout"><div class="cap">Best-fit shape for ${esc(currentView().replace("_", " "))}</div>
+        <div class="shape">${guide.shape}</div><div>${guide.why}</div></div>
+      <div><div class="cap">What this means</div><div style="margin-top:3px">${guide.avoid}</div>
+        <div class="cap" style="margin-top:8px">Confidence: ${reg.confidence}. Term/skew readings are descriptive until enough self-recorded history exists for their own percentiles.</div></div>
+    </div></div>`;
+}
+
 /* ---------------- workbench query ---------------- */
 async function loadTicker(expiry) {
   const ticker = (document.getElementById("wbTicker").value || "").toUpperCase().trim();
   if (!ticker) return;
+  if (!expiry && (!state.wb || state.wb.ticker !== ticker)) {
+    state.manual.target = null;
+    state.manual.adverse = null;
+  }
   const msg = document.getElementById("wbMsg");
   msg.textContent = expiry ? "re-quoting expiry…" : "fetching chain + term structure… (~15-20s)";
   clearTimeout(state.wbTimer);
@@ -139,7 +360,15 @@ async function loadTicker(expiry) {
     ticker,
     mode: expiry ? "chain" : "full",
     expiry: expiry || null,
-    context: hasSignal() && ticker === p.ticker ? {
+    max_expiries: state.forecast.active ? 32 : 8,
+    context: state.forecast.active ? {
+      direction: state.forecast.target < ((state.wb || {}).spot || Infinity) ? "Short" : "Long",
+      target: state.forecast.target,
+      hold_days: bdaysUntil(state.forecast.cutoff),
+      time_exit_date: state.forecast.cutoff,
+      forecast_event: state.forecast.event,
+      forecast_probability: state.forecast.probability,
+    } : hasSignal() && ticker === p.ticker ? {
       direction: p.dir, entry: p.entry, stop: p.stop, target: p.target,
       atr: p.atr, hold_days: p.hold, time_exit_date: p.texit,
     } : null,
@@ -182,11 +411,15 @@ async function pollWb(n, expiryOnly) {
 }
 
 function renderAll() {
+  renderThesis();
   renderIvStrip();
+  renderVolDashboard();
   renderExpiries();
   renderComparator();
   buildStructures();
+  renderForecastLab();
   renderShootout();
+  renderScenarioLab();
   renderSizing();
   renderTicket();
 }
@@ -211,6 +444,9 @@ function renderIvStrip() {
     return;
   }
   const [tone, label] = ivRegime(rec.pctile);
+  const recMs = rec.last ? new Date(rec.last + "T00:00:00").getTime() : NaN;
+  const ageDays = isFinite(recMs) ? Math.floor((Date.now() - recMs) / 86400000) : null;
+  const stale = ageDays != null && ageDays > 5;
   const rvTiles = [10, 21, 63].map((n) => {
     const rv = rec[`rv${n}`];
     if (rv == null) return "";
@@ -223,6 +459,7 @@ function renderIvStrip() {
       <span style="font:700 15px inherit">IV30 ${fmt.pctRaw(rec.iv * 100, 1)}</span>
       <span>rank <b>${rec.rank != null ? fmt.num(rec.rank, 0) : "—"}</b> · pctile <b>${fmt.num(rec.pctile, 0)}</b></span>
       <span style="color:${tone};font-weight:700">${label}</span>
+      ${stale ? `<span class="badge warn">STALE ${ageDays}D</span>` : ""}
       <span class="cap" style="display:inline;margin-left:auto">as of ${esc(rec.last)}</span>
     </div>
     <div style="display:flex;gap:20px;align-items:center;margin-top:8px;flex-wrap:wrap">
@@ -289,8 +526,22 @@ function renderExpiries() {
 
 /* ---------------- edge-vs-priced comparator ---------------- */
 function holdCalDays() {
-  const h = state.params.hold;
+  const h = tradeHorizon();
   return h ? Math.round(h * 365 / 252) : null;
+}
+function defaultForecastDate() {
+  const now = new Date();
+  let year = now.getFullYear();
+  let d = new Date(year, 9, 30, 12, 0, 0);
+  if (d <= now) d = new Date(++year, 9, 30, 12, 0, 0);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+function calDaysUntil(iso) {
+  if (!iso) return null;
+  const now = new Date(); now.setHours(0, 0, 0, 0);
+  const end = new Date(iso + "T00:00:00");
+  if (isNaN(end)) return null;
+  return Math.max(0, Math.round((end - now) / 86400000));
 }
 function chainAtmIv() {
   const wb = state.wb;
@@ -367,22 +618,37 @@ function legPrice(row, side, kind) {   // kind: "mid" | "nat"
   if (kind === "mid") return row.mid;
   return side === "BUY" ? row.ask : row.bid;   // natural: pay the ask, hit the bid
 }
-function spreadFrom(name, longRow, shortRow, right, note) {
-  if (!longRow || (shortRow && longRow.strike === shortRow.strike)) return null;
-  const legs = [{ side: "BUY", row: longRow }];
-  if (shortRow) legs.push({ side: "SELL", row: shortRow });
-  let mid = 0, nat = 0, delta = 0, ok = true;
+function structureFrom(name, legs, note, meta = {}) {
+  if (!legs || !legs.length || legs.length > 4 || legs.some((l) => !l.row)) return null;
+  let signedMid = 0, signedNat = 0, delta = 0, gamma = 0, theta = 0, vega = 0, ok = true;
   for (const l of legs) {
     const m = legPrice(l.row, l.side, "mid"), n = legPrice(l.row, l.side, "nat");
     if (m == null) ok = false;
     const s = l.side === "BUY" ? 1 : -1;
-    mid += s * (m || 0);
-    nat += s * (n != null ? n : (m || 0));
+    signedMid += s * (m || 0);
+    signedNat += s * (n != null ? n : (m || 0));
     if (l.row.delta != null) delta += s * l.row.delta;
+    if (l.row.gamma != null) gamma += s * l.row.gamma;
+    if (l.row.theta != null) theta += s * l.row.theta;
+    if (l.row.vega != null) vega += s * l.row.vega;
   }
+  const credit = !!meta.credit;
+  const mid = credit ? -signedMid : signedMid;
+  const nat = credit ? -signedNat : signedNat;
   if (!ok || mid <= 0) return null;
-  return { name, right, legs, mid: round2(mid), nat: round2(nat), delta: round2(delta, 3),
-           width: shortRow ? Math.abs(longRow.strike - shortRow.strike) : null, note: note || "", tradeable: true };
+  return { name, legs, mid: round2(mid), nat: round2(nat), delta: round2(delta, 3),
+           gamma: round2(gamma, 4), theta: round2(theta, 3), vega: round2(vega, 3),
+           width: meta.width == null ? null : meta.width, credit, category: meta.category || "directional",
+           note: note || "", tradeable: legs.every((l) => l.row.con_id) };
+}
+function spreadFrom(name, longRow, shortRow, right, note) {
+  if (!longRow || (shortRow && longRow.strike === shortRow.strike)) return null;
+  const legs = [{ side: "BUY", row: longRow }];
+  if (shortRow) legs.push({ side: "SELL", row: shortRow });
+  return structureFrom(name, legs, note, {
+    width: shortRow ? Math.abs(longRow.strike - shortRow.strike) : null,
+    category: shortRow ? "debit_vertical" : "single",
+  });
 }
 function round2(v, d = 2) { return v == null ? null : Math.round(v * 10 ** d) / 10 ** d; }
 
@@ -390,44 +656,61 @@ function buildStructures() {
   const wb = state.wb, p = state.params;
   state.structures = [];
   if (!wb || !wb.chain) return;
-  const short = isShort();
+  const view = currentView();
+  const short = view === "bearish" || view === "hedge";
   const right = short ? "P" : "C";
   const rows = chainRows(right);
   if (!rows.length) return;
   const spot = wb.spot;
-  const entryPx = p.entry || spot, tgtPx = p.target;
+  const scen = scenarioSpots();
+  const entryPx = scen.entry || spot, tgtPx = scen.target;
 
   // Directional helpers: for calls the short strike sits ABOVE the long; for puts below.
-  const anchorLong = hasSignal() ? byStrike(rows, entryPx) : byDelta(rows, 0.40);
-  const anchorShort = tgtPx ? byStrike(rows, tgtPx) : byDelta(rows, 0.20);
+  const anchorLong = hasSignal() ? byStrike(rows, entryPx) : byDelta(rows, 0.45);
+  const anchorShort = tgtPx ? byStrike(rows, tgtPx) : byDelta(rows, 0.25);
   const atmLong = byStrike(rows, spot);
-  const d40 = byDelta(rows, 0.40), d20 = byDelta(rows, 0.20);
+  const d50 = byDelta(rows, 0.50), d40 = byDelta(rows, 0.40), d25 = byDelta(rows, 0.25);
 
   const add = (s) => { if (s && !state.structures.some((x) => sameLegs(x, s))) state.structures.push(s); };
-  add(spreadFrom("Target-anchored vertical", anchorLong, anchorShort, right,
-    tgtPx ? "short strike at the stock target" : "long ~entry / short ~20Δ"));
-  add(spreadFrom("ATM vertical", atmLong, anchorShort, right, "long ATM"));
-  add(spreadFrom("40Δ/20Δ vertical", d40, d20, right, "the O1 preset"));
-  const single = spreadFrom(`Long ${right === "C" ? "call" : "put"} ~40Δ`, d40, null, right, "unlimited upside, full theta");
-  add(single);
 
-  // Credit vertical on the OPPOSITE side (sell the move NOT happening): analytics
-  // only in phase 1 (ticket is debit-only). Screen: credit >= 25% of width.
-  const oppRows = chainRows(short ? "C" : "P");
-  const s30 = byDelta(oppRows, 0.30), l15 = byDelta(oppRows, 0.15);
-  if (s30 && l15 && s30.strike !== l15.strike && s30.mid != null && l15.mid != null) {
-    const credit = round2(s30.mid - l15.mid);
-    const width = Math.abs(s30.strike - l15.strike);
-    if (credit > 0 && credit >= 0.25 * width) {
-      state.structures.push({
-        name: `Credit ${short ? "call" : "put"} spread 30Δ/15Δ`, right: short ? "C" : "P",
-        legs: [{ side: "SELL", row: s30 }, { side: "BUY", row: l15 }],
-        mid: credit, nat: round2((s30.bid ?? s30.mid) - (l15.ask ?? l15.mid)),
-        delta: round2(-(s30.delta || 0) + (l15.delta || 0), 3),
-        width, credit: true, note: `collect ${credit} on ${width} width — not tradeable from this ticket yet`,
-        tradeable: false,
-      });
+  const creditVertical = (creditRight, label) => {
+    const cr = chainRows(creditRight), short30 = byDelta(cr, 0.30), long15 = byDelta(cr, 0.15);
+    if (!short30 || !long15 || short30.strike === long15.strike) return null;
+    const width = Math.abs(short30.strike - long15.strike);
+    return structureFrom(label, [{ side: "SELL", row: short30 }, { side: "BUY", row: long15 }],
+      "defined-risk premium sale · short ~30Δ / long ~15Δ", { credit: true, width, category: "credit_vertical" });
+  };
+
+  if (view === "big_move") {
+    const callAtm = byStrike(chainRows("C"), spot), putAtm = byStrike(chainRows("P"), spot);
+    add(structureFrom("Long ATM straddle", [{ side: "BUY", row: callAtm }, { side: "BUY", row: putAtm }],
+      "own both tails; highest theta bill", { category: "straddle" }));
+    const call25 = byDelta(chainRows("C"), 0.25), put25 = byDelta(chainRows("P"), 0.25);
+    add(structureFrom("Long 25Δ strangle", [{ side: "BUY", row: call25 }, { side: "BUY", row: put25 }],
+      "cheaper convexity; needs a larger move", { category: "strangle" }));
+  } else if (view === "range") {
+    const puts = chainRows("P"), calls = chainRows("C");
+    const p30 = byDelta(puts, 0.30), p15 = byDelta(puts, 0.15);
+    const c30 = byDelta(calls, 0.30), c15 = byDelta(calls, 0.15);
+    if (p30 && p15 && c30 && c15) {
+      const width = Math.max(Math.abs(p30.strike - p15.strike), Math.abs(c30.strike - c15.strike));
+      add(structureFrom("Iron condor 30Δ/15Δ", [
+        { side: "BUY", row: p15 }, { side: "SELL", row: p30 },
+        { side: "SELL", row: c30 }, { side: "BUY", row: c15 },
+      ], "defined tails; short the inside wings", { credit: true, width, category: "iron_condor" }));
     }
+    add(creditVertical("P", "Bull put spread 30Δ/15Δ"));
+    add(creditVertical("C", "Bear call spread 30Δ/15Δ"));
+  } else if (view === "hedge") {
+    add(spreadFrom("Hedge put spread 40Δ/25Δ", d40, d25, right, "budgeted downside protection"));
+    add(spreadFrom("Long put ~40Δ", d40, null, right, "uncapped crash convexity, full theta"));
+  } else {
+    add(spreadFrom("Target-anchored vertical", anchorLong, anchorShort, right,
+      tgtPx ? "short strike nearest the thesis target" : "long near entry / short ~25Δ"));
+    add(spreadFrom("50Δ/25Δ vertical", d50 || atmLong, d25, right, "balanced delta and premium"));
+    add(spreadFrom(`Long ${right === "C" ? "call" : "put"} ~40Δ`, d40, null, right,
+      "uncapped convexity, full theta and vega"));
+    add(creditVertical(short ? "C" : "P", short ? "Bear call spread 30Δ/15Δ" : "Bull put spread 30Δ/15Δ"));
   }
   if (!state.structures.some((s) => s.tradeable)) return;
   if (!state.selStructure || !state.structures.some((s) => s.name === state.selStructure)) {
@@ -442,9 +725,9 @@ function sameLegs(a, b) {
 /* ---------------- exit-date scenario pricing (BSM approximation) ---------------- */
 function scenarioInputs() {
   return {
-    r: numInput("sh_rate", 0.04),
-    q: numInput("sh_divy", 0),
-    ivShift: numInput("sh_ivshift", -3) / 100,
+    r: numInput("sh_rate", state.pricing.rate),
+    q: numInput("sh_divy", state.pricing.divYield),
+    ivShift: numInput("sh_ivshift", state.pricing.ivShiftPts) / 100,
   };
 }
 function numInput(id, dflt) {
@@ -455,13 +738,18 @@ function numInput(id, dflt) {
 }
 function valueAtExit(struct, spotAtExit, inp) {
   // sum of leg values at the planned exit date; T from each leg's expiry
-  const exitBd = state.params.hold || 0;
+  const exitBd = tradeHorizon();
   const exitCal = Math.round(exitBd * 365 / 252);
+  return valueAtFuture(struct, spotAtExit, exitCal, inp);
+}
+function valueAtFuture(struct, spotAtExit, calendarDaysFromNow, inp) {
+  // Reprice a structure on a specified future date. This is still a constant-
+  // shift BSM approximation; the forecast lab makes that smile assumption explicit.
   let val = 0;
   for (const l of struct.legs) {
-    // all phase-1 legs share the chain expiry; per-leg DTE comes with calendars later
+    // All current legs share the selected chain expiry.
     const dte = ((state.wb || {}).chain || {}).dte || 0;
-    const T = Math.max(0, (dte - exitCal) / 365);
+    const T = Math.max(0, (dte - calendarDaysFromNow) / 365);
     const sigma = Math.max(0.01, (l.row.iv != null ? l.row.iv : chainAtmIv() || 0.3) + inp.ivShift);
     const v = BSM.price(spotAtExit, l.row.strike, T, sigma, inp.r, inp.q, l.row.right);
     val += (l.side === "BUY" ? 1 : -1) * (v || 0);
@@ -469,25 +757,165 @@ function valueAtExit(struct, spotAtExit, inp) {
   return val;
 }
 function scenarioPnl(struct) {
-  // per-spread $ P&L at the planned exit for target / stop / flat + EV weights
+  // per-structure $ P&L at the planned horizon for thesis / adverse / flat.
   const p = state.params;
-  if (!hasSignal() || !p.target) return null;
+  const scen = scenarioSpots();
+  if (!scen.target || !scen.adverse || !scen.entry) return null;
   const inp = scenarioInputs();
   const stats = p.strategy && state.stats && state.stats[p.strategy];
-  const short = isShort();
+  const short = currentView() === "bearish" || currentView() === "hedge";
   const cost = struct.credit ? -struct.mid : struct.mid;
   const pnlAt = (spot) => (valueAtExit(struct, spot, inp) - cost) * 100;
   const out = {
-    target: pnlAt(p.target),
-    stop: pnlAt(p.stop),
-    flat: pnlAt(p.entry),
+    target: pnlAt(scen.target),
+    stop: pnlAt(scen.adverse),
+    flat: pnlAt(scen.entry),
   };
-  if (stats) {
+  if (stats && hasSignal()) {
     const lm = (stats.loser_mix || {}).avg_loser_move_pct;
     const loserSpot = lm != null ? p.entry * (1 + (short ? -1 : 1) * lm) : p.stop;
     out.ev = stats.win_rate * out.target + (1 - stats.win_rate) * pnlAt(loserSpot);
   }
   return out;
+}
+
+/* ---------------- forecast-to-trade lab ---------------- */
+function forecastPnlAt(struct, spot, calendarDays, ivShiftPts, executable = true) {
+  const inp = scenarioInputs();
+  const opening = executable && struct.nat != null ? struct.nat : struct.mid;
+  const openingValue = struct.credit ? -opening : opening;
+  const value = valueAtFuture(struct, spot, calendarDays, {
+    r: inp.r, q: inp.q, ivShift: ivShiftPts / 100,
+  });
+  return (value - openingValue) * 100 - commRT(struct);
+}
+
+function forecastScore(metrics, objective) {
+  if (!metrics) return -Infinity;
+  if (objective === "touch_payout") return metrics.touchPnl / Math.max(metrics.risk, 1);
+  if (objective === "lowest_cost") return -metrics.risk;
+  if (objective === "robust_touch") return metrics.touchWorst / Math.max(metrics.risk, 1);
+  return metrics.ev / Math.max(metrics.risk, 1);
+}
+
+function forecastMetrics(struct, qty, cfg) {
+  const cutoffDays = calDaysUntil(cfg.cutoff);
+  if (!cutoffDays && cutoffDays !== 0) return null;
+  const p = Math.max(0, Math.min(1, Number(cfg.probability)));
+  const touchFractions = cfg.event === "touch" ? [0.25, 0.55, 0.85] : [1];
+  const touchWeights = cfg.event === "touch" ? [0.25, 0.50, 0.25] : [1];
+  const touchPnls = touchFractions.map((f) =>
+    forecastPnlAt(struct, cfg.target, Math.max(1, Math.round(cutoffDays * f)), cfg.touchIvShift) * qty);
+  const touchPnl = touchPnls.reduce((sum, x, i) => sum + x * touchWeights[i], 0);
+  const noTouchPnl = forecastPnlAt(struct, cfg.noTouchSpot, cutoffDays, cfg.noTouchIvShift) * qty;
+  const risk = riskPerUnit(struct) * qty;
+  const ev = p * touchPnl + (1 - p) * noTouchPnl;
+  return {
+    touchPnl, touchWorst: Math.min(...touchPnls), touchBest: Math.max(...touchPnls),
+    noTouchPnl, ev, risk, evRisk: risk > 0 ? ev / risk : null,
+  };
+}
+
+function syncForecastInputs() {
+  const f = state.forecast;
+  f.event = document.getElementById("fc_event").value;
+  f.target = numInput("fc_target", f.target);
+  f.probability = Math.max(0, Math.min(1, numInput("fc_prob", f.probability * 100) / 100));
+  f.cutoff = document.getElementById("fc_cutoff").value || f.cutoff;
+  f.touchIvShift = numInput("fc_touch_iv", f.touchIvShift);
+  f.noTouchSpot = numInput("fc_no_touch", f.noTouchSpot);
+  f.noTouchIvShift = numInput("fc_no_touch_iv", f.noTouchIvShift);
+  f.objective = document.getElementById("fc_objective").value;
+}
+
+function renderForecastLab() {
+  const el = document.getElementById("forecastLab");
+  const wb = state.wb;
+  if (!el || !wb) { if (el) el.innerHTML = ""; return; }
+  const f = state.forecast;
+  if (f.target == null) f.target = round2(wb.spot * 0.95);
+  if (f.noTouchSpot == null) f.noTouchSpot = wb.spot;
+  const cutoffCompact = String(f.cutoff || "").replace(/-/g, "");
+  const expiry = ((wb.chain || {}).expiry || "");
+  const covers = !!expiry && expiry >= cutoffCompact;
+  const activeRows = f.active && covers ? state.structures.map((s) => {
+    const qty = contractsFor(s, sizeAlloc());
+    const metrics = qty > 0 ? forecastMetrics(s, qty, f) : null;
+    return { s, qty, metrics, score: forecastScore(metrics, f.objective) };
+  }).filter((x) => x.metrics && isFinite(x.score)).sort((a, b) => b.score - a.score) : [];
+
+  const objectiveLabel = {
+    ev_risk: "expected P&L per dollar at risk",
+    touch_payout: "payout if the forecast hits",
+    robust_touch: "late/early-touch robustness",
+    lowest_cost: "lowest defined risk",
+  }[f.objective] || "selected objective";
+  const ranking = activeRows.length ? `<div class="opt-forecast-result">
+    <div class="callout"><div class="cap">Top expression under these assumptions</div>
+      <div class="shape">${esc(activeRows[0].s.name)}</div>
+      <div>Ranks first on ${esc(objectiveLabel)} using executable-side entry marks and round-trip commissions.</div></div>
+    <div class="tblwrap"><table class="tbl"><thead><tr><th>#</th><th class="l">Structure</th><th>Lots</th>
+      <th>Defined risk</th><th>Touch P&amp;L</th><th>No-touch P&amp;L</th><th>Expected P&amp;L</th><th>EV / risk</th><th>Spread tax</th><th></th></tr></thead>
+      <tbody>${activeRows.map((x, i) => `<tr${i === 0 ? ' style="background:#4da3ff14"' : ""}><td>${i + 1}</td>
+        <td class="l"><b>${esc(x.s.name)}</b><br><span class="cap">${x.s.legs.map((l) => `${l.side[0]} ${l.row.strike}${l.row.right}`).join(" / ")}</span></td>
+        <td>${x.qty}</td><td>${fmt.money(x.metrics.risk)}</td>
+        <td class="${clsSign(x.metrics.touchPnl)}">${fmt.money(x.metrics.touchPnl)}<br><span class="cap">${fmt.money(x.metrics.touchWorst)} to ${fmt.money(x.metrics.touchBest)}</span></td>
+        <td class="${clsSign(x.metrics.noTouchPnl)}">${fmt.money(x.metrics.noTouchPnl)}</td>
+        <td class="${clsSign(x.metrics.ev)}"><b>${fmt.money(x.metrics.ev)}</b></td>
+        <td class="${clsSign(x.metrics.evRisk)}">${fmt.pct(x.metrics.evRisk, 1)}</td><td>${taxLight(spreadTax(x.s))}</td>
+        <td><button class="btn xs ghost" data-fc-struct="${esc(x.s.name)}">use</button></td></tr>`).join("")}</tbody></table></div>
+    <div class="cap" style="margin-top:8px">Touch P&amp;L is the weighted result of early (25%), middle (55%), and late (85%) touch dates; the smaller line shows the range. This is a scenario score, not a statistical option-pricing model.</div>
+  </div>` : "";
+
+  const coverWarning = f.active && !covers ? `<div class="opt-risk-warn">The selected ${esc(expiry || "?")} expiry ends before ${esc(f.cutoff)}. Click <b>Load forecast expiry</b> to request a chain that remains alive through the forecast window.</div>` : "";
+  el.innerHTML = `<div class="card opt-forecast" style="margin-bottom:12px">
+    <div style="display:flex;justify-content:space-between;gap:12px;align-items:start;flex-wrap:wrap">
+      <div><div class="cap">Forecast lab</div><div style="font:700 17px inherit">Turn a probabilistic path view into a ranked structure</div></div>
+      <div class="cap" style="max-width:560px;text-align:right">A touch forecast is incomplete without timing, vol-at-touch, and a no-touch outcome. Those assumptions stay visible and editable.</div>
+    </div>
+    <div class="opt-forecast-grid">
+      <label><span>Event</span><select id="fc_event"><option value="touch"${f.event === "touch" ? " selected" : ""}>Touches level by date</option><option value="terminal"${f.event === "terminal" ? " selected" : ""}>At level on date</option></select></label>
+      <label><span>Level</span><input id="fc_target" type="number" step="0.01" value="${f.target}"></label>
+      <label><span>Probability</span><div class="opt-input-suffix"><input id="fc_prob" type="number" min="0" max="100" step="1" value="${round2(f.probability * 100, 0)}"><i>%</i></div></label>
+      <label><span>By date</span><input id="fc_cutoff" type="date" value="${esc(f.cutoff)}"></label>
+      <label><span>IV change if hit</span><div class="opt-input-suffix"><input id="fc_touch_iv" type="number" step="1" value="${f.touchIvShift}"><i>pts</i></div></label>
+      <label><span>No-touch spot at date</span><input id="fc_no_touch" type="number" step="0.01" value="${f.noTouchSpot}"></label>
+      <label><span>No-touch IV change</span><div class="opt-input-suffix"><input id="fc_no_touch_iv" type="number" step="1" value="${f.noTouchIvShift}"><i>pts</i></div></label>
+      <label><span>Optimize for</span><select id="fc_objective">
+        <option value="ev_risk"${f.objective === "ev_risk" ? " selected" : ""}>Expected P&amp;L / risk</option>
+        <option value="touch_payout"${f.objective === "touch_payout" ? " selected" : ""}>Payout if hit</option>
+        <option value="robust_touch"${f.objective === "robust_touch" ? " selected" : ""}>Robust across touch timing</option>
+        <option value="lowest_cost"${f.objective === "lowest_cost" ? " selected" : ""}>Lowest defined risk</option></select></label>
+    </div>
+    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:10px">
+      <button class="btn" id="fc_apply">${covers ? "Run forecast ranking" : "Load forecast expiry"}</button>
+      ${f.active ? '<span class="badge ok">FORECAST ACTIVE</span>' : '<span class="cap">Nothing changes until you run it.</span>'}
+      <span class="cap">Risk budget ${fmt.money(tradeRisk())} &middot; current complex ${esc(wb.ticker)} &middot; selected expiry ${esc(expiry || "?")}</span>
+    </div>
+    ${coverWarning}${ranking}
+  </div>`;
+
+  document.getElementById("fc_apply").addEventListener("click", () => {
+    syncForecastInputs();
+    f.active = true;
+    const bearish = f.target < wb.spot;
+    state.manual.view = bearish ? "bearish" : "bullish";
+    state.params.dir = bearish ? "Short" : "Long";
+    const viewEl = document.getElementById("wbView");
+    if (viewEl) viewEl.value = state.manual.view;
+    state.manual.target = f.target;
+    state.manual.adverse = f.noTouchSpot;
+    const h = bdaysUntil(f.cutoff);
+    const hEl = document.getElementById("wbHorizon");
+    if (hEl && !hEl.disabled && h > 0) { hEl.value = h; state.manual.horizon = h; }
+    const selectedExpiry = ((state.wb || {}).chain || {}).expiry || "";
+    if (selectedExpiry < String(f.cutoff).replace(/-/g, "")) loadTicker();
+    else renderAll();
+  });
+  el.querySelectorAll("[data-fc-struct]").forEach((b) => b.addEventListener("click", () => {
+    state.selStructure = b.dataset.fcStruct;
+    renderForecastLab(); renderShootout(); renderScenarioLab(); renderSizing(); renderTicket();
+  }));
 }
 
 /* ---------------- shootout ---------------- */
@@ -497,7 +925,7 @@ function commRT(struct) {
 }
 function spreadTax(struct) {
   if (struct.mid == null || struct.nat == null || struct.mid <= 0) return null;
-  return (struct.nat - struct.mid) / struct.mid;
+  return (struct.credit ? struct.mid - struct.nat : struct.nat - struct.mid) / struct.mid;
 }
 function taxLight(t) {
   if (t == null) return "—";
@@ -506,11 +934,34 @@ function taxLight(t) {
   return `<span style="color:${c};font-weight:700">&#9679;</span> ${pct.toFixed(1)}%`;
 }
 function breakevenPct(struct) {
-  if (struct.credit || !struct.legs.length) return null;
-  const long = struct.legs[0].row;
-  const be = long.right === "C" ? long.strike + struct.mid : long.strike - struct.mid;
+  if (!struct.legs.length || struct.category === "straddle" || struct.category === "strangle" || struct.category === "iron_condor") return null;
+  const anchor = struct.credit
+    ? struct.legs.find((l) => l.side === "SELL")
+    : struct.legs.find((l) => l.side === "BUY");
+  if (!anchor) return null;
+  const be = anchor.row.right === "C"
+    ? anchor.row.strike + (struct.credit ? struct.mid : struct.mid)
+    : anchor.row.strike - (struct.credit ? struct.mid : struct.mid);
   const spot = state.wb.spot;
-  return (long.right === "C" ? be - spot : spot - be) / spot;
+  return (anchor.row.right === "C" ? be - spot : spot - be) / spot;
+}
+
+function riskPerUnit(struct) {
+  if (!struct) return null;
+  const premiumRisk = struct.credit ? ((struct.width || 0) - struct.mid) * 100 : struct.mid * 100;
+  return premiumRisk > 0 ? premiumRisk + commRT(struct) : null;
+}
+
+function maxProfitLoss(struct) {
+  if (!struct) return { maxProfit: null, maxLoss: null };
+  if (struct.credit) return {
+    maxProfit: struct.mid * 100 - commRT(struct),
+    maxLoss: struct.width != null ? (struct.width - struct.mid) * 100 + commRT(struct) : null,
+  };
+  return {
+    maxProfit: struct.width != null ? (struct.width - struct.mid) * 100 - commRT(struct) : null,
+    maxLoss: struct.mid * 100 + commRT(struct),
+  };
 }
 
 function renderShootout() {
@@ -538,11 +989,10 @@ function renderShootout() {
     baselineHtml = `<tr style="border-top:2px solid #2a3242">
       <td class="l"><b>Stock with stop</b> <span class="cap" style="display:inline">(baseline)</span></td>
       <td class="l">${sh} sh @ ${fmt.num(p.entry, 2)}</td>
-      <td>—</td><td>—</td>
-      <td>${fmt.num(sh, 0)}</td><td>—</td><td>0%</td>
+      <td>—</td><td>—</td><td>${fmt.num(sh, 0)}</td><td>—</td><td>—</td><td>0%</td>
       <td class="pos">${fmt.money(pnlT)}</td>
       <td class="neg">${fmt.money(-riskAlloc)}</td>
-      <td>~$1</td>
+      <td>$0</td><td>${fmt.money(pnlT)} / ${fmt.money(-riskAlloc)}</td>
       <td>${ev != null ? `<b class="${clsSign(ev)}">${fmt.money(ev)}</b>` : "—"}</td>
       <td>—</td><td></td></tr>`;
   }
@@ -550,9 +1000,8 @@ function renderShootout() {
   const rows = state.structures.map((s) => {
     const sc = scenarioPnl(s);
     const be = breakevenPct(s);
-    const maxP = s.width != null ? (s.credit ? s.mid : s.width - s.mid) * 100 : null;
-    const maxL = s.credit ? (s.width - s.mid) * 100 : s.mid * 100;
-    const premPerDelta = !s.credit && s.delta ? s.mid / Math.abs(s.delta) : null;
+    const qty = Math.max(1, contractsFor(s, sizeAlloc()));
+    const ml = maxProfitLoss(s);
     const legsTxt = s.legs.map((l) => `${l.side[0]} ${l.row.strike}${l.row.right}${l.row.delta != null ? ` (${Math.abs(l.row.delta).toFixed(2)}Δ)` : ""}`).join(" / ");
     const sel = s.name === state.selStructure;
     return `<tr${sel ? ' style="background:#4da3ff14"' : ""}>
@@ -560,13 +1009,15 @@ function renderShootout() {
       <td class="l">${esc(legsTxt)}</td>
       <td>${fmt.num(s.mid, 2)}${s.credit ? " cr" : ""}</td>
       <td>${s.nat != null ? fmt.num(s.nat, 2) : "—"}</td>
-      <td>${s.delta != null ? fmt.num(s.delta * 100, 0) : "—"}</td>
-      <td>${premPerDelta != null ? fmt.num(premPerDelta, 2) : "—"}</td>
+      <td>${s.delta != null ? fmt.num(s.delta * 100 * qty, 0) : "—"}</td>
+      <td>${s.theta != null ? fmt.money(s.theta * 100 * qty) : "—"}</td>
+      <td>${s.vega != null ? fmt.money(s.vega * 100 * qty) : "—"}</td>
       <td>${be != null ? fmt.pctRaw(be * 100, 1) : "—"}</td>
-      <td class="${sc ? clsSign(sc.target) : ""}">${sc ? fmt.money(sc.target) : "—"}</td>
-      <td class="${sc ? clsSign(sc.stop) : ""}">${sc ? fmt.money(sc.stop) : "—"}</td>
-      <td>${fmt.money(commRT(s))}</td>
-      <td>${sc && sc.ev != null ? `<b class="${clsSign(sc.ev)}">${fmt.money(sc.ev)}</b>` : "—"}</td>
+      <td class="${sc ? clsSign(sc.target) : ""}">${sc ? fmt.money(sc.target * qty) : "—"}</td>
+      <td class="${sc ? clsSign(sc.stop) : ""}">${sc ? fmt.money(sc.stop * qty) : "—"}</td>
+      <td class="${sc ? clsSign(sc.flat) : ""}">${sc ? fmt.money(sc.flat * qty) : "—"}</td>
+      <td>${ml.maxProfit != null ? fmt.money(ml.maxProfit * qty) : "uncapped"} / ${ml.maxLoss != null ? fmt.money(-ml.maxLoss * qty) : "—"}</td>
+      <td>${sc && sc.ev != null ? `<b class="${clsSign(sc.ev)}">${fmt.money(sc.ev * qty)}</b>` : "—"}</td>
       <td>${taxLight(spreadTax(s))}</td>
       <td class="l">${s.tradeable ? `<button class="btn xs${sel ? "" : " ghost"}" data-struct="${esc(s.name)}">${sel ? "selected" : "select"}</button>` : '<span class="cap">n/a</span>'}</td>
     </tr>`;
@@ -575,17 +1026,19 @@ function renderShootout() {
   // verdict: best EV among rows that have one, vs stock baseline
   let verdict = "";
   if (hasSignal() && p.target && stats) {
-    const evs = state.structures.map((s) => ({ s, sc: scenarioPnl(s) })).filter((x) => x.sc && x.sc.ev != null);
+    const evs = state.structures.map((s) => ({ s, sc: scenarioPnl(s), qty: contractsFor(s, sizeAlloc()) }))
+      .filter((x) => x.qty > 0 && x.sc && x.sc.ev != null);
     const riskAlloc = sizeAlloc();
     const dist = Math.abs(p.entry - p.stop);
     const sh = dist > 0 ? Math.floor(riskAlloc / dist) : 0;
     const stockEv = stats.win_rate * sh * Math.abs(p.target - p.entry) +
       (1 - stats.win_rate) * -(riskAlloc * 0.8);
     if (evs.length) {
-      const best = evs.reduce((a, b) => (b.sc.ev > a.sc.ev ? b : a));
-      verdict = best.sc.ev > stockEv
-        ? `<div style="margin-top:8px"><b style="color:#3ddb8f">Verdict:</b> <b>${esc(best.s.name)}</b> wins on EV (${fmt.money(best.sc.ev)} vs stock ${fmt.money(stockEv)}) — per-spread, at the planned exit.</div>`
-        : `<div style="margin-top:8px"><b style="color:#ffc14d">Verdict: USE STOCK</b> — no structure beats the stock baseline after costs (${fmt.money(stockEv)} vs best ${fmt.money(best.sc.ev)}).</div>`;
+      const best = evs.reduce((a, b) => (b.sc.ev * b.qty > a.sc.ev * a.qty ? b : a));
+      const bestEv = best.sc.ev * best.qty;
+      verdict = bestEv > stockEv
+        ? `<div style="margin-top:8px"><b style="color:#3ddb8f">Verdict:</b> <b>${esc(best.s.name)}</b> wins on modeled EV (${fmt.money(bestEv)} vs stock ${fmt.money(stockEv)}) at the same risk budget.</div>`
+        : `<div style="margin-top:8px"><b style="color:#ffc14d">Verdict: USE STOCK</b> — no structure beats the stock baseline after costs (${fmt.money(stockEv)} vs best ${fmt.money(bestEv)}).</div>`;
     }
   }
 
@@ -596,56 +1049,118 @@ function renderShootout() {
       ${delayed ? ' · <b style="color:#ffc14d">DELAYED MARKS — do not anchor limits off these</b>' : ""}</span></div>
     <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin:4px 0 8px">
       <label class="cap">Exit-date repricing (BSM approx):</label>
-      <label class="cap">IV shift</label><input id="sh_ivshift" value="-3" style="width:50px"> <span class="cap">pts</span>
-      <label class="cap">rate</label><input id="sh_rate" value="0.04" style="width:56px">
-      <label class="cap">div yield</label><input id="sh_divy" value="0" style="width:50px">
-      <span class="cap">P&amp;L columns are per spread at the ${state.params.hold || "?"} td exit, not expiry.</span>
+      <label class="cap">IV shift</label><input id="sh_ivshift" value="${state.pricing.ivShiftPts}" style="width:50px"> <span class="cap">pts</span>
+      <label class="cap">rate</label><input id="sh_rate" value="${state.pricing.rate}" style="width:56px">
+      <label class="cap">div yield</label><input id="sh_divy" value="${state.pricing.divYield}" style="width:50px">
+      <span class="cap">P&amp;L is sized to the risk budget at the ${tradeHorizon()} td horizon, not expiry.</span>
     </div>
     <div class="tblwrap"><table class="tbl"><thead><tr>
       <th class="l">Structure</th><th class="l">Legs</th><th>Mid</th><th>Nat</th><th>&Delta; sh-eq</th>
-      <th>$/&Delta;</th><th>BE move</th><th>P&amp;L @tgt</th><th>P&amp;L @stop</th><th>Comm RT</th>
-      <th>EV</th><th>Spread tax</th><th class="l"></th>
+      <th>&Theta;/day</th><th>Vega/pt</th><th>BE move</th><th>P&amp;L thesis</th><th>P&amp;L adverse</th>
+      <th>P&amp;L flat</th><th>Max P / L</th><th>EV</th><th>Spread tax</th><th class="l"></th>
     </tr></thead><tbody>${rows}${baselineHtml}</tbody></table></div>
     ${verdict}</div>`;
   el.querySelectorAll("[data-struct]").forEach((b) =>
-    b.addEventListener("click", () => { state.selStructure = b.dataset.struct; renderShootout(); renderSizing(); renderTicket(); }));
+    b.addEventListener("click", () => { state.selStructure = b.dataset.struct; renderShootout(); renderScenarioLab(); renderSizing(); renderTicket(); }));
   ["sh_ivshift", "sh_rate", "sh_divy"].forEach((id) => {
     const e = document.getElementById(id);
-    if (e) e.addEventListener("change", () => { renderShootout(); renderSizing(); renderTicket(); });
+    if (e) e.addEventListener("change", () => {
+      state.pricing.ivShiftPts = numInput("sh_ivshift", -3);
+      state.pricing.rate = numInput("sh_rate", 0.04);
+      state.pricing.divYield = numInput("sh_divy", 0);
+      renderForecastLab(); renderShootout(); renderScenarioLab(); renderSizing(); renderTicket();
+    });
   });
+}
+
+/* ---------------- selected-structure scenario lab ---------------- */
+function structurePnlAt(struct, spot, ivShiftPts) {
+  const base = scenarioInputs();
+  const value = valueAtExit(struct, spot, { r: base.r, q: base.q, ivShift: ivShiftPts / 100 });
+  const openingValue = struct.credit ? -struct.mid : struct.mid;
+  return (value - openingValue) * 100;
+}
+
+function renderScenarioLab() {
+  const el = document.getElementById("scenarioLab");
+  const s = selStruct(), wb = state.wb;
+  if (!el || !s || !wb) { if (el) el.innerHTML = ""; return; }
+  const qty = Math.max(1, contractsFor(s, sizeAlloc()));
+  const iv = chainAtmIv() || 0.30;
+  const span = wb.spot * iv * Math.sqrt(Math.max(1, tradeHorizon()) / 252) * 2.25;
+  const lo = Math.max(0.01, wb.spot - span), hi = wb.spot + span;
+  const xs = Array.from({ length: 51 }, (_, i) => lo + (hi - lo) * i / 50);
+  const baseShift = state.pricing.ivShiftPts;
+  const quoteHtml = s.legs.map((l) => {
+    const mid = l.row.mid || 0;
+    const width = l.row.bid != null && l.row.ask != null ? l.row.ask - l.row.bid : null;
+    const wide = width != null && (width > 0.15 || (mid > 0 && width / mid > 0.10));
+    return `<div class="opt-quote"><div class="qleg">${l.side} ${l.row.strike}${l.row.right}</div>
+      <div class="qpx">${fmt.num(l.row.bid, 2)} / ${fmt.num(l.row.ask, 2)} · mid ${fmt.num(l.row.mid, 2)}</div>
+      <div class="qpx">Δ ${fmt.num(l.row.delta, 2)} · IV ${l.row.iv != null ? fmt.pctRaw(l.row.iv * 100, 1) : "—"}
+        ${wide ? ' · <b style="color:#ffc14d">WIDE</b>' : ""}</div></div>`;
+  }).join("");
+  const wideLegs = s.legs.filter((l) => l.row.bid != null && l.row.ask != null &&
+    ((l.row.ask - l.row.bid) > 0.15 || (l.row.mid > 0 && (l.row.ask - l.row.bid) / l.row.mid > 0.10))).length;
+  el.innerHTML = `<div class="card" style="margin-bottom:12px">
+    <div style="font:700 14px inherit">Scenario lab — ${esc(s.name)}
+      <span class="cap" style="display:inline;font-weight:400">· ${qty} lot${qty === 1 ? "" : "s"} · ${tradeHorizon()} td horizon · BSM approximation</span></div>
+    <div class="opt-quote-grid">${quoteHtml}</div>
+    ${wideLegs ? `<div class="opt-risk-warn">${wideLegs} leg${wideLegs === 1 ? " is" : "s are"} wider than $0.15 or 10% of mid. Treat the modeled edge as untradeable until the market tightens.</div>` : ""}
+    <div id="optScenarioChart" class="opt-scenario-chart"></div>
+    <div class="cap">The lines move only spot and IV; they do not model path, early exercise, dividends beyond the flat yield input, or a changing smile.</div>
+  </div>`;
+  if (!window.Plotly) return;
+  const traces = [
+    { shift: baseShift - 5, name: `IV ${fmt.signed(baseShift - 5, 0)} pts`, color: "#4da3ff88", dash: "dot" },
+    { shift: baseShift, name: `IV ${fmt.signed(baseShift, 0)} pts`, color: "#f2f5f9", dash: "solid" },
+    { shift: baseShift + 5, name: `IV ${fmt.signed(baseShift + 5, 0)} pts`, color: "#ff8c66aa", dash: "dot" },
+  ].map((z) => ({ x: xs, y: xs.map((x) => structurePnlAt(s, x, z.shift) * qty), type: "scatter", mode: "lines",
+    name: z.name, line: { color: z.color, width: z.dash === "solid" ? 2.4 : 1.5, dash: z.dash } }));
+  const scen = scenarioSpots();
+  Plotly.newPlot("optScenarioChart", traces, plotLayout({
+    height: 265, margin: { l: 55, r: 18, t: 16, b: 40 }, hovermode: "x unified",
+    xaxis: { title: "Underlying at horizon", gridcolor: "#1c2230" },
+    yaxis: { title: "P&L ($)", gridcolor: "#1c2230", zerolinecolor: "#657080" },
+    shapes: [
+      { type: "line", x0: wb.spot, x1: wb.spot, y0: 0, y1: 1, yref: "paper", line: { color: "#667080", dash: "dot" } },
+      ...(scen.target ? [{ type: "line", x0: scen.target, x1: scen.target, y0: 0, y1: 1, yref: "paper", line: { color: "#3ddb8f55", dash: "dot" } }] : []),
+      ...(scen.adverse ? [{ type: "line", x0: scen.adverse, x1: scen.adverse, y0: 0, y1: 1, yref: "paper", line: { color: "#ff6b6b55", dash: "dot" } }] : []),
+    ],
+  }), PLOT_CFG);
 }
 
 /* ---------------- sizing ---------------- */
 function selStruct() { return state.structures.find((s) => s.name === state.selStructure) || null; }
-function sizeFraction() { return numInput("sz_frac", 0.5); }
-function sizeAlloc() { return (state.params.risk || 0) * sizeFraction(); }
+function sizeFraction() { return numInput("sz_frac", state.manual.fraction); }
+function sizeAlloc() { return tradeRisk() * sizeFraction(); }
 function contractsFor(struct, alloc) {
-  const per = struct.mid * 100 + commRT(struct);
+  const per = riskPerUnit(struct);
   return per > 0 ? Math.floor(alloc / per) : 0;
 }
 function renderSizing() {
   const el = document.getElementById("sizing");
   const s = selStruct();
-  if (!s || !hasSignal()) { el.innerHTML = ""; return; }
+  if (!s || !tradeRisk()) { el.innerHTML = ""; return; }
   const alloc = sizeAlloc();
   const n = contractsFor(s, alloc);
-  const per = s.mid * 100 + commRT(s);
+  const per = riskPerUnit(s);
   const eff = n * per;
   const effUp = (n + 1) * per;
   const warnings = [];
-  if (n < 1) warnings.push(`target risk ${fmt.money(alloc)} is below one spread's cost (${fmt.money(per)}) — no viable size`);
+  if (n < 1) warnings.push(`target risk ${fmt.money(alloc)} is below one structure's max-loss basis (${fmt.money(per)}) — no viable size`);
   const quantErr = alloc > 0 ? (alloc - eff) / alloc : 0;
   el.innerHTML = `<div class="card" style="margin-bottom:12px">
-    <div style="font:700 14px inherit;margin-bottom:6px">Sizing — debit at risk
-      <span class="cap" style="display:inline;font-weight:400">· contracts = &lfloor;fraction &middot; Risk_Amt / (debit&times;100 + comm)&rfloor;</span></div>
+    <div style="font:700 14px inherit;margin-bottom:6px">Sizing — defined max loss
+      <span class="cap" style="display:inline;font-weight:400">· debit for long premium; width minus credit for credit structures; round-trip commission included</span></div>
     <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-bottom:8px">
-      <label class="cap">Fraction of stock Risk_Amt</label>
-      <input id="sz_frac" value="0.5" style="width:56px">
-      <span class="cap">(options run ALONGSIDE a smaller stock position — 0.5 default)</span>
+      <label class="cap">${hasSignal() ? "Fraction of stock Risk_Amt" : "Fraction of manual budget"}</label>
+      <input id="sz_frac" value="${state.manual.fraction}" style="width:56px">
+      <span class="cap">${hasSignal() ? "(options may run alongside stock — combined delta still matters)" : "(1.0 uses the full manual risk budget)"}</span>
     </div>
     <div class="kv">
-      <div class="k">Risk allocation</div><div class="v">${fmt.money(alloc)} <span class="cap" style="display:inline">of ${fmt.money(state.params.risk)} staged</span></div>
-      <div class="k">Contracts</div><div class="v"><b style="font-size:15px">${n}</b> &times; ${esc(s.name)} @ ${fmt.num(s.mid, 2)}</div>
+      <div class="k">Risk allocation</div><div class="v">${fmt.money(alloc)} <span class="cap" style="display:inline">of ${fmt.money(tradeRisk())}</span></div>
+      <div class="k">Contracts</div><div class="v"><b style="font-size:15px">${n}</b> &times; ${esc(s.name)} @ ${fmt.num(s.mid, 2)} ${s.credit ? "credit" : "debit"}</div>
       <div class="k">Effective risk</div><div class="v">${fmt.money(eff)} <span class="cap" style="display:inline">(${fmt.pctRaw(quantErr * 100, 1)} under target; ${n + 1} lots = ${fmt.money(effUp)})</span></div>
       <div class="k">Net delta</div><div class="v">${s.delta != null ? fmt.num(s.delta * 100 * n, 0) + " share-equivalents" : "—"}
         ${stagedStockRow(state.params.ticker) ? ' <b style="color:#ffc14d">+ the staged stock position</b>' : ""}</div>
@@ -653,38 +1168,47 @@ function renderSizing() {
     ${warnings.length ? `<div style="color:#ff6b6b;margin-top:8px">${warnings.map(esc).join("<br>")}</div>` : ""}
   </div>`;
   const fr = document.getElementById("sz_frac");
-  if (fr) fr.addEventListener("change", () => { renderSizing(); renderTicket(); });
+  if (fr) fr.addEventListener("change", () => {
+    state.manual.fraction = Math.max(0, Number(fr.value) || (hasSignal() ? 0.5 : 1));
+    renderForecastLab(); renderShootout(); renderScenarioLab(); renderSizing(); renderTicket();
+  });
 }
 
 /* ---------------- ticket ---------------- */
-function snapLimit(v) { return Math.round(Math.floor((v + 1e-9) / 0.05) * 5) / 100; }
+function snapNetLimit(v, action, tick = 0.05) {
+  const n = Number(v) / tick;
+  const snapped = String(action).toUpperCase() === "SELL" ? Math.ceil(n - 1e-9) : Math.floor(n + 1e-9);
+  return Math.round(snapped * tick * 100) / 100;
+}
 function renderTicket() {
   const el = document.getElementById("ticket");
   const s = selStruct();
   const wb = state.wb;
   if (!s || !s.tradeable || !wb) { el.innerHTML = ""; return; }
-  const n = hasSignal() ? contractsFor(s, sizeAlloc()) : 1;
-  const dfltLimit = snapLimit(Math.max(0.05, s.mid - 0.01)).toFixed(2);
+  const n = contractsFor(s, sizeAlloc());
+  const action = s.credit ? "SELL" : "BUY";
+  const dfltLimit = snapNetLimit(Math.max(0.05, s.mid + (s.credit ? 0.01 : -0.01)), action).toFixed(2);
+  const ticketKind = s.legs.length === 1 ? "Single-option ticket" : s.credit ? "Defined-risk credit ticket" : "Combo ticket";
   const legLines = s.legs.map((l) =>
     `${l.side} ${l.row.strike}${l.row.right} ${wb.chain.expiry} (conId ${l.row.con_id || "?"})`).join("<br>");
-  el.innerHTML = `<div class="card" style="max-width:760px;margin-bottom:12px">
-    <div style="font:700 14px inherit;margin-bottom:4px">Combo ticket — ${esc(s.name)}</div>
-    <p class="cap" style="margin:0 0 8px">One native BAG limit order (SMART, atomic — never legs you in). Submits per the
-      mode banner: <b>option_spread is unarmed</b>, so this dry-runs until you add it to LIVE_TYPES.</p>
+  el.innerHTML = `<div class="card" style="max-width:860px;margin-bottom:12px">
+    <div style="font:700 14px inherit;margin-bottom:4px">${ticketKind} — ${esc(s.name)}</div>
+    <p class="cap" style="margin:0 0 8px">${s.legs.length === 1 ? "One SMART-routed option limit order." : "One native SMART BAG limit order (atomic — never legs you in)."}
+      The execution agent independently re-validates contract identity, quantity, price, and max-risk caps.</p>
     <div class="exec-legs" style="margin-bottom:8px">${legLines}</div>
     ${state.params.cond ? `<div class="openconds" style="margin-bottom:8px"><div class="oc-h">Entry condition — check before sending</div>
       <div class="oc-line">${esc(state.params.cond)}</div></div>` : ""}
     <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:8px">
       <label class="cap">Qty</label><input id="tk_qty" value="${n > 0 ? n : ""}" style="width:60px">
-      <label class="cap">Net limit</label><input id="tk_limit" value="${dfltLimit}" style="width:76px">
-      <span class="cap">(mid ${fmt.num(s.mid, 2)} / natural ${s.nat != null ? fmt.num(s.nat, 2) : "?"}; 0.05 grid, BUY snaps down)</span>
+      <label class="cap">${s.credit ? "Credit limit" : "Debit limit"}</label><input id="tk_limit" value="${dfltLimit}" style="width:76px">
+      <span class="cap">(mid ${fmt.num(s.mid, 2)} / natural ${s.nat != null ? fmt.num(s.nat, 2) : "?"}; 0.05 grid, ${action} snaps ${s.credit ? "up" : "down"} toward your favor)</span>
       <label class="cap">TIF</label><select id="tk_tif"><option>DAY</option><option>GTC</option></select>
       <span class="cap">Account: <b>${esc(state.account)}</b></span>
     </div>
-    <button class="btn" id="tk_send">Send combo</button>
+    <button class="btn" id="tk_send">${execMode() === "dry-run" ? "Preview / dry-run" : `Send ${s.legs.length === 1 ? "option" : "spread"}`}</button>
     <span id="tk_msg" class="cap" style="margin-left:10px"></span>
   </div>`;
-  document.getElementById("tk_send").addEventListener("click", sendSpread);
+  document.getElementById("tk_send").addEventListener("click", sendOptionOrder);
 }
 
 function execMode() {
@@ -709,7 +1233,16 @@ function commandId(type, account, payload) {
   return idemState.id;
 }
 
-function sendSpread() {
+function canonicalPayloadLegs(struct, expiry, action) {
+  return struct.legs.map((l) => ({
+    // A SELL parent inverts the canonical BUY combo. The UI keeps the desired
+    // trade sides; the BAG definition flips them for a credit parent order.
+    side: action === "SELL" ? (l.side === "BUY" ? "SELL" : "BUY") : l.side,
+    right: l.row.right, expiry, strike: l.row.strike, ratio: 1, con_id: l.row.con_id || null,
+  }));
+}
+
+function sendOptionOrder() {
   const s = selStruct();
   const wb = state.wb, p = state.params;
   const msg = document.getElementById("tk_msg");
@@ -718,25 +1251,28 @@ function sendSpread() {
   const limit = Number(document.getElementById("tk_limit").value);
   if (!(qty > 0)) { msg.textContent = "BLOCKED: qty must be a positive integer"; return; }
   if (!(limit > 0)) { msg.textContent = "BLOCKED: limit must be > 0"; return; }
-  if (s.width != null && limit >= s.width) { msg.textContent = `BLOCKED: net debit ${limit} >= width ${s.width}`; return; }
-  const snapped = snapLimit(limit);
+  if (s.width != null && limit >= s.width) { msg.textContent = `BLOCKED: net ${s.credit ? "credit" : "debit"} ${limit} >= width ${s.width}`; return; }
+  const action = s.credit ? "SELL" : "BUY";
+  const snapped = snapNetLimit(limit, action);
+  const riskPremium = s.credit ? s.width - snapped : snapped;
+  if (!(riskPremium > 0)) { msg.textContent = "BLOCKED: defined max risk must be > 0"; return; }
   const payload = {
     symbol: wb.ticker,
-    action: "BUY",
+    action,
     quantity: qty,
     limit: snapped,
     tif: document.getElementById("tk_tif").value || "DAY",
     structure: s.name.toLowerCase().replace(/[^a-z0-9]+/g, "_"),
-    debit_risk: snapped,               // debit-at-risk basis = what the order can pay
-    legs: s.legs.map((l) => ({
-      side: l.side, right: l.row.right, expiry: wb.chain.expiry,
-      strike: l.row.strike, ratio: 1, con_id: l.row.con_id || null,
-    })),
+    debit_risk: riskPremium,            // backward-compatible max-risk premium basis
+    risk_per_unit: riskPremium,
+    credit: !!s.credit,
+    legs: canonicalPayloadLegs(s, wb.chain.expiry, action),
     strategy: p.strategy || null, signal_date: p.sig || null,
     entry_condition: p.cond || null,
   };
-  const legsTxt = payload.legs.map((l) => `${l.side[0]}${l.strike}${l.right}`).join("/");
-  if (!confirm(`${actionLead("place")} BUY ${qty}x ${wb.ticker} ${wb.chain.expiry} [${legsTxt}] LMT ${payload.limit} net on ${state.account}?`)) return;
+  const legsTxt = s.legs.map((l) => `${l.side[0]}${l.row.strike}${l.row.right}`).join("/");
+  const riskDollars = riskPremium * 100 * qty + commRT(s) * qty;
+  if (!confirm(`${actionLead("place")} ${action} ${qty}x ${wb.ticker} ${wb.chain.expiry} [${legsTxt}] LMT ${payload.limit} ${s.credit ? "credit" : "debit"} on ${state.account}?\n\nDefined max risk: about ${fmt.money(riskDollars)}.`)) return;
   sendCommand("option_spread", payload, "tk_msg");
 }
 
@@ -787,13 +1323,13 @@ function renderModeBanner() {
   const mode = execMode();
   if (mode === "live") {
     el.innerHTML = `<div class="card" style="border-color:#a8852f;background:rgba(255,193,77,.10);padding:9px 14px;font:700 13px inherit;color:#ffc14d">
-      &#9888;&#65039; LIVE ARMED — a combo sent here transmits to IBKR if option_spread is in LIVE_TYPES.</div>`;
+      &#9888;&#65039; LIVE ARMED — an options order sent here transmits to IBKR if option_spread is in LIVE_TYPES.</div>`;
   } else if (mode === "unknown") {
     el.innerHTML = `<div class="card" style="border-color:#a8852f;background:rgba(255,193,77,.10);padding:9px 14px;font:700 13px inherit;color:#ffc14d">
       &#9888;&#65039; MODE UNKNOWN — assume LIVE. No fresh book confirms dry-run.</div>`;
   } else {
     el.innerHTML = `<div class="card" style="border-color:#2c8f63;background:rgba(61,219,143,.08);padding:9px 14px;font:700 13px inherit;color:#3ddb8f">
-      &#9679; DRY-RUN MODE — combos are validated + previewed, nothing transmits.</div>`;
+      &#9679; DRY-RUN MODE — options orders are validated + previewed, nothing transmits.</div>`;
   }
 }
 function stateBadge(st) {
@@ -820,7 +1356,7 @@ function renderActivity() {
     return `<tr style="vertical-align:top"><td class="l" style="color:#8c95a2">${esc(t)}</td>
       <td class="l">${esc(c.account || "")}</td><td class="l">${stateBadge(c.state)}</td><td class="l">${cell}</td></tr>`;
   }).join("");
-  el.innerHTML = `<div style="font:700 14px inherit;margin-bottom:6px">Option-spread activity</div>
+  el.innerHTML = `<div style="font:700 14px inherit;margin-bottom:6px">Options activity</div>
     <div class="tblwrap"><table class="tbl"><thead><tr>
     <th class="l">time</th><th class="l">acct</th><th class="l">state</th><th class="l">result / preview</th>
     </tr></thead><tbody>${rows}</tbody></table></div>`;

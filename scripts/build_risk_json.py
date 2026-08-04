@@ -22,6 +22,7 @@ _ROOT = os.path.dirname(_HERE)
 sys.path.insert(0, _ROOT)
 
 OUT = os.path.join(_ROOT, "data", "site_risk.json")
+MASTER_PRICES = os.path.join(_ROOT, "data", "master_prices.parquet")
 
 
 # Metric metadata for the private-site signal charts.  The series themselves
@@ -196,6 +197,124 @@ def build_vol_kpi():
         "vix3m": round(vix3m, 2),
         "term_ratio": round(vix / vix3m, 3),
         "asof": pd.Timestamp(vix_dt).strftime("%Y-%m-%d"),
+    }
+
+
+def load_vix_high():
+    """Daily VIX highs from the master-price cache, if available."""
+    import pandas as pd
+
+    if not os.path.exists(MASTER_PRICES):
+        return None
+    px = pd.read_parquet(
+        MASTER_PRICES,
+        columns=["ticker", "date", "High"],
+        filters=[("ticker", "==", "^VIX")],
+    )
+    if px.empty:
+        return None
+    px["date"] = pd.to_datetime(px["date"])
+    out = px.dropna(subset=["High"]).sort_values("date").set_index("date")["High"]
+    out.index = out.index.tz_localize(None) if out.index.tz is not None else out.index
+    return out[~out.index.duplicated(keep="last")].astype(float)
+
+
+def build_drawdown_iv_episodes(spy_close, vix_close, vix_high=None,
+                               min_threshold=0.05):
+    """Peak-to-trough SPY drawdowns with VIX behavior during each episode.
+
+    An episode starts at a SPY closing high and ends when that close is
+    recovered. ``max_drawdown`` and the trough use SPY closes. ``iv_start`` is
+    the VIX close on the SPY peak date; ``iv_peak`` is the highest intraday VIX
+    high observed from that peak through the SPY trough. If the OHLC cache is
+    unavailable, the VIX close series is used for both.
+    """
+    import pandas as pd
+
+    spy = pd.Series(spy_close).dropna().astype(float).sort_index()
+    vclose = pd.Series(vix_close).dropna().astype(float).sort_index()
+    if spy.empty or vclose.empty:
+        return None
+    spy.index = pd.to_datetime(spy.index)
+    vclose.index = pd.to_datetime(vclose.index)
+    if spy.index.tz is not None:
+        spy.index = spy.index.tz_localize(None)
+    if vclose.index.tz is not None:
+        vclose.index = vclose.index.tz_localize(None)
+    spy = spy[~spy.index.duplicated(keep="last")]
+    vclose = vclose[~vclose.index.duplicated(keep="last")]
+
+    using_high = vix_high is not None and len(vix_high)
+    vhigh = pd.Series(vix_high if using_high else vclose).dropna().astype(float).sort_index()
+    vhigh.index = pd.to_datetime(vhigh.index)
+    if vhigh.index.tz is not None:
+        vhigh.index = vhigh.index.tz_localize(None)
+    vhigh = vhigh[~vhigh.index.duplicated(keep="last")]
+
+    # A short forward fill covers the occasional one-session calendar mismatch
+    # without carrying a stale VIX close through a real data gap.
+    aligned_close = vclose.reindex(spy.index).ffill(limit=1)
+    aligned_high = vhigh.reindex(spy.index).combine_first(aligned_close)
+    values = spy.to_numpy()
+    dates = spy.index
+    episodes = []
+    peak_i = 0
+    i = 1
+    while i < len(spy):
+        if values[i] >= values[peak_i]:
+            peak_i = i
+            i += 1
+            continue
+
+        # Stay inside one standard underwater episode until the prior closing
+        # peak is recovered. Partial rallies do not create duplicate samples.
+        trough_i = i
+        j = i
+        while j < len(spy) and values[j] < values[peak_i]:
+            if values[j] < values[trough_i]:
+                trough_i = j
+            j += 1
+        max_dd = values[trough_i] / values[peak_i] - 1.0
+        if max_dd <= -abs(float(min_threshold)):
+            iv_window = aligned_high.iloc[peak_i:trough_i + 1].dropna()
+            iv_start = aligned_close.iloc[peak_i]
+            iv_peak = float(iv_window.max()) if not iv_window.empty else None
+            iv_peak_date = iv_window.idxmax() if not iv_window.empty else None
+            start_val = float(iv_start) if pd.notna(iv_start) else None
+            delta = iv_peak - start_val if iv_peak is not None and start_val else None
+            episodes.append({
+                "peak_date": dates[peak_i].strftime("%Y-%m-%d"),
+                "trough_date": dates[trough_i].strftime("%Y-%m-%d"),
+                "recovery_date": dates[j].strftime("%Y-%m-%d") if j < len(spy) else None,
+                "peak_spy": round(float(values[peak_i]), 2),
+                "trough_spy": round(float(values[trough_i]), 2),
+                "max_drawdown": round(float(max_dd), 5),
+                "days_to_trough": int(trough_i - peak_i),
+                "iv_start_close": round(start_val, 2) if start_val is not None else None,
+                "iv_peak": round(iv_peak, 2) if iv_peak is not None else None,
+                "iv_peak_date": iv_peak_date.strftime("%Y-%m-%d") if iv_peak_date is not None else None,
+                "iv_change_points": round(delta, 2) if delta is not None else None,
+                "iv_change_pct": round(delta / start_val, 5) if delta is not None and start_val else None,
+            })
+
+        if j >= len(spy):
+            break
+        peak_i = j
+        i = j + 1
+
+    thresholds = [0.05, 0.10, 0.15, 0.20, 0.25, 0.30]
+    episodes.sort(key=lambda x: x["peak_date"], reverse=True)
+    return {
+        "sample_from": dates[0].strftime("%Y-%m-%d"),
+        "sample_through": dates[-1].strftime("%Y-%m-%d"),
+        "price_basis": "SPY adjusted closing peak-to-trough drawdown",
+        "iv_basis": "VIX intraday high" if using_high else "VIX daily close (high unavailable)",
+        "baseline_basis": "VIX close on the SPY peak date",
+        "default_threshold": 0.10,
+        "thresholds": thresholds,
+        "counts": {str(t): sum(e["max_drawdown"] <= -t for e in episodes)
+                   for t in thresholds},
+        "episodes": episodes,
     }
 
 
@@ -904,6 +1023,18 @@ def main():
                 payload["vol_kpi"] = vol_kpi
         except Exception:
             print("risk: vol_kpi FAILED (continuing without it)")
+            traceback.print_exc()
+        try:
+            vix_close = (closes["^VIX"].dropna()
+                         if "^VIX" in closes.columns else None)
+            dd_iv = build_drawdown_iv_episodes(
+                spy_close, vix_close, load_vix_high()) if vix_close is not None else None
+            if dd_iv:
+                payload["drawdown_iv"] = dd_iv
+                print(f"risk: drawdown_iv ok ({len(dd_iv['episodes'])} episodes, "
+                      f"{dd_iv['sample_from']} -> {dd_iv['sample_through']})")
+        except Exception:
+            print("risk: drawdown_iv FAILED (continuing without it)")
             traceback.print_exc()
         try:
             tc = build_trade_console(computed)

@@ -1552,6 +1552,57 @@ def build_iv_context():
     return out or None
 
 
+def build_options_market(iv_context):
+    """Cross-sectional volatility weather for the options landing view.
+
+    This deliberately uses only comparable 30d-IV and 21d Yang-Zhang RV
+    observations.  It is a context panel, not a signal generator: percentile
+    says where a name sits versus itself, while VRP says how much implied vol
+    is charging versus its recent realized path.
+    """
+    if not iv_context:
+        return None
+    rows = []
+    for ticker, rec in iv_context.items():
+        iv = rec.get("iv")
+        rv = rec.get("rv21")
+        pctile = rec.get("pctile")
+        if iv is None or rv is None or pctile is None or rv <= 0:
+            continue
+        vrp = iv / rv - 1.0
+        # Blend a within-name level percentile with a bounded IV/RV premium.
+        # The blend is only used to rank the tails shown in the weather card;
+        # both raw inputs remain visible to avoid false precision.
+        vrp_score = max(0.0, min(100.0, 50.0 + 100.0 * vrp))
+        score = 0.6 * float(pctile) + 0.4 * vrp_score
+        rows.append({
+            "ticker": ticker,
+            "iv": round(float(iv), 4),
+            "rv21": round(float(rv), 4),
+            "pctile": round(float(pctile), 1),
+            "vrp": round(float(vrp), 4),
+            "iv_rv_points": round((float(iv) - float(rv)) * 100.0, 2),
+            "score": round(score, 1),
+            "last": rec.get("last"),
+        })
+    if not rows:
+        return None
+    frame = pd.DataFrame(rows)
+    rich = sorted(rows, key=lambda r: (-r["score"], r["ticker"]))[:8]
+    cheap = sorted(rows, key=lambda r: (r["score"], r["ticker"]))[:8]
+    dates = [r["last"] for r in rows if r.get("last")]
+    return {
+        "asof": max(dates) if dates else None,
+        "n": int(len(rows)),
+        "median_iv_pctile": round(float(frame["pctile"].median()), 1),
+        "median_vrp": round(float(frame["vrp"].median()), 4),
+        "cheap_share": round(float((frame["score"] < 35).mean()), 4),
+        "rich_share": round(float((frame["score"] > 65).mean()), 4),
+        "rich": rich,
+        "cheap": cheap,
+    }
+
+
 def build_strategy_stats(df):
     """Per-strategy stats for the options workbench: the edge side of the
     edge-vs-priced comparator (terminal move AT EXIT, never MFE) plus the
@@ -1964,7 +2015,8 @@ def main():
              "stopfills": False, "drawdowns": False, "sector_risk": False,
              "gate_lab": False, "ext_lab": False, "trade_mtm": False,
              "sizer": False, "health": False,
-             "iv_context": False, "strategy_stats": False, "earnings_next": False,
+             "iv_context": False, "options_market": False,
+             "strategy_stats": False, "earnings_next": False,
              "seasonality": False, "macro_sznl": False, "montecarlo": False}
     if args.no_mtm:
         # dev iteration: keep flags true for payloads already present in dist
@@ -1988,6 +2040,7 @@ def main():
         if obj is not None:
             write_json(obj, os.path.join(data_dir, f"{flag}.json"))
             flags[flag] = True
+        return obj
 
     if not args.no_mtm:
         md = load_master_for(df)
@@ -2030,7 +2083,8 @@ def main():
         best_effort("montecarlo", build_monte_carlo, df)
 
     # options-workbench payloads — all best effort
-    best_effort("iv_context", build_iv_context)
+    iv_context = best_effort("iv_context", build_iv_context)
+    best_effort("options_market", build_options_market, iv_context)
     best_effort("strategy_stats", build_strategy_stats, df)
     best_effort("earnings_next", build_earnings_next)
     upload_universe()

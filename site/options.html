@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex, nofollow">
-<title>Options Workbench — Seasonals</title>
+<title>Options Lab — Seasonals</title>
 <link rel="stylesheet" href="assets/style.css">
 <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
 <script src="assets/common.js"></script>
@@ -14,13 +14,13 @@
 <body data-page="options">
 <header class="topbar" id="topbar"></header>
 <div class="wrap">
-  <h1>Options Workbench</h1>
-  <p class="sub" id="subtitle">Signal-to-structure pipeline: IV context &rarr; expiry &rarr; edge vs priced &rarr;
-    structure shootout at equal risk &rarr; debit-at-risk sizing &rarr; one BAG combo ticket. Open via a Signals-page
-    <b>Express</b> button to inherit entry/stop/target/risk. Chain data is live from IBKR (agent 5 AM&ndash;9 PM ET);
-    exit-date P&amp;L is a client-side BSM approximation.</p>
+  <h1>Options Lab</h1>
+  <p class="sub" id="subtitle">Start with the volatility question, then choose the trade shape. The lab separates
+    level, realized-vol premium, term structure, and skew before comparing structures at your horizon and risk budget.
+    Open via a Signals-page <b>Express</b> button to inherit the strategy&rsquo;s entry, stop, target, hold, and risk;
+    or use manual mode to price an idea from scratch. Live chains come from IBKR and scenario values are BSM estimates.</p>
   <div id="content"><div class="spin">Loading...</div></div>
-  <footer>option_spread ships dry-run — arm it in exec_agent.env (arm_live.bat) to transmit.</footer>
+  <footer>Options orders inherit the execution agent&rsquo;s fail-closed mode and require a final confirmation.</footer>
 </div>
 </body>
 </html>
