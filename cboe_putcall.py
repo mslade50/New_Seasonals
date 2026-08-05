@@ -16,12 +16,14 @@ from __future__ import annotations
 
 import os
 import re
+import sys
 import time
 import datetime as dt
 import urllib.request
 import urllib.error
 from typing import Iterable
 
+import numpy as np
 import pandas as pd
 
 _DATA_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data")
@@ -52,6 +54,33 @@ _FIELD_MAP = {
 _PAIR_RE = re.compile(r'\\"name\\":\\"([^"\\]+)\\",\\"value\\":\\"([^"\\]+)\\"')
 
 
+def _parse_body(body: str) -> dict[str, float]:
+    """Extract the mapped ratio fields from the page HTML. Empty dict if the
+    page has no parseable fields (weekend, holiday, future date — or a CBOE
+    markup change, which the workflow's freshness assertion turns loud)."""
+    row: dict[str, float] = {}
+    for m in _PAIR_RE.finditer(body):
+        label = m.group(1).strip().upper()
+        if label in _FIELD_MAP:
+            try:
+                row[_FIELD_MAP[label]] = float(m.group(2))
+            except ValueError:
+                continue
+    return row
+
+
+def freshness_age_bdays(df: pd.DataFrame, asof: dt.date | None = None) -> int | None:
+    """Business-day age of the newest cached row (None on an empty cache).
+    Naive bday count — a single market holiday inflates the age by 1, so
+    thresholds should tolerate age 2 (normal steady state is 1: the daily
+    page for D populates after the 21:30 UTC run, so each run captures D-1)."""
+    if df.empty:
+        return None
+    if asof is None:
+        asof = dt.date.today()
+    return int(np.busday_count(df.index.max().date(), asof))
+
+
 def _fetch_day(date: dt.date, retries: int = 2, timeout: float = 12.0) -> dict | None:
     """
     Pull one date's snapshot. Returns dict of short_column -> float, or None if
@@ -65,14 +94,7 @@ def _fetch_day(date: dt.date, retries: int = 2, timeout: float = 12.0) -> dict |
             req = urllib.request.Request(url, headers=_HEADERS)
             with urllib.request.urlopen(req, timeout=timeout) as r:
                 body = r.read().decode("utf-8", errors="ignore")
-            row: dict[str, float] = {}
-            for m in _PAIR_RE.finditer(body):
-                label = m.group(1).strip().upper()
-                if label in _FIELD_MAP:
-                    try:
-                        row[_FIELD_MAP[label]] = float(m.group(2))
-                    except ValueError:
-                        continue
+            row = _parse_body(body)
             return row if row else None
         except urllib.error.HTTPError as e:
             last_err = e
@@ -175,6 +197,9 @@ if __name__ == "__main__":
     ap.add_argument("--end", default=None)
     ap.add_argument("--max-days", type=int, default=None)
     ap.add_argument("--sleep", type=float, default=0.4)
+    ap.add_argument("--assert-fresh-bd", type=int, default=None,
+                    help="exit 1 if the newest cached row is older than this "
+                         "many business days after the backfill")
     args = ap.parse_args()
 
     def _p(done, total, d):
@@ -185,3 +210,12 @@ if __name__ == "__main__":
     print(f"Cache: {len(df)} rows, columns={list(df.columns)}")
     if not df.empty:
         print(df.tail(5))
+    if args.assert_fresh_bd is not None:
+        age = freshness_age_bdays(df)
+        if age is None or age > args.assert_fresh_bd:
+            print(f"[cboe_putcall] STALE: newest row is "
+                  f"{'missing' if age is None else f'{age} bdays old'} "
+                  f"(threshold {args.assert_fresh_bd}) — scrape or parser "
+                  f"is likely broken.")
+            sys.exit(1)
+        print(f"[cboe_putcall] freshness OK ({age} bdays)")

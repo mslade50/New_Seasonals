@@ -6,6 +6,13 @@ name: Update CBOE Put/Call Cache
 #
 # The backfill in cboe_putcall.py is incremental — it only fetches dates not
 # already in the cache, so steady-state cost is ~1 request per weekday.
+#
+# --assert-fresh-bd 2 fails the run loudly when the newest row is more than
+# 2 business days old (steady state is 1: CBOE's daily page for D populates
+# after this 21:30 UTC run, so each run captures D-1; a single market holiday
+# adds 1). Without it a CBOE markup change is a silent green no-op forever
+# (the radar-digest failure class). A red run loses nothing: fetched-but-
+# uncommitted rows are refetched next run.
 
 concurrency:
   group: ${{ github.workflow }}
@@ -37,7 +44,7 @@ jobs:
         run: pip install pandas pyarrow
 
       - name: Backfill missing days
-        run: python -m cboe_putcall --start 2024-01-01
+        run: python -m cboe_putcall --start 2024-01-01 --assert-fresh-bd 2
 
       - name: Commit + push updated parquet
         run: |
