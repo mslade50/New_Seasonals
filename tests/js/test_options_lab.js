@@ -33,6 +33,29 @@ assert.match(context.shapeGuidance("bullish", {
   pctile: 90, vrp: 0.35, termShape: "backwardation", rr25Pts: 5,
 }).shape, /spread/i);
 
+const cmCurve = [
+  { dte: 20, atm_iv: 0.20 },
+  { dte: 40, atm_iv: 0.24 },
+  { dte: 100, atm_iv: 0.27 },
+];
+const cm30 = context.constantMaturityIv(cmCurve, 30);
+const expectedCm30 = Math.sqrt(((0.20 ** 2 * 20) + 0.5 * ((0.24 ** 2 * 40) - (0.20 ** 2 * 20))) / 30);
+assert.ok(Math.abs(cm30 - expectedCm30) < 1e-12);
+assert.strictEqual(context.constantMaturityIv(cmCurve, 10), null); // no silent extrapolation
+assert.ok(context.forwardVol(0.20, 20, 0.24, 40) > 0.24);
+vm.runInNewContext(`state.wb = {
+  spot: 100,
+  expiries: [{date: "2026-09-18", dte: 45, atm_iv: 0.20}],
+  chain: {expiry: "2026-09-18", strikes: [
+    {right: "P", delta: -0.25, iv: 0.24, strike: 95},
+    {right: "C", delta: 0.25, iv: 0.21, strike: 105}
+  ]}
+};`, context);
+const skew = vm.runInNewContext("surfaceSkewMetrics(state.wb)", context);
+assert.ok(Math.abs(skew.putNormPct - 20) < 1e-10);
+assert.ok(Math.abs(skew.callNormPct - 5) < 1e-10);
+assert.ok(Math.abs(skew.rr25Pts - 3) < 1e-10);
+
 assert.strictEqual(context.snapNetLimit(1.53, "BUY"), 1.50);
 assert.strictEqual(context.snapNetLimit(1.53, "SELL"), 1.55);
 
@@ -71,4 +94,4 @@ assert.strictEqual(
 );
 assert.ok(forecast.touchWorst <= forecast.touchBest);
 
-console.log("PASS options lab regime, guidance, pricing, defined-risk sizing, credit orientation, and forecast scoring");
+console.log("PASS options lab regime, term/forward math, guidance, pricing, defined-risk sizing, credit orientation, and forecast scoring");

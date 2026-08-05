@@ -23,6 +23,7 @@ const COMM = 0.65;                    // $/contract per leg per side
 const state = {
   params: {},                          // prefill from the query string
   ivCtx: null, market: null, stats: null, earn: null, signals: null,
+  marketGroup: "All ETFs",
   wb: null,                            // latest workbench result
   wbId: null, wbTimer: null,
   structures: [],                      // shootout rows (assembled client-side)
@@ -141,6 +142,7 @@ function shell() {
     <div id="forecastLab"></div>
     <div id="ivStrip"></div>
     <div id="volDashboard"></div>
+    <div id="termLab"></div>
     <div id="expiryRow"></div>
     <div id="emCompare"></div>
     <div id="shootout"></div>
@@ -187,28 +189,107 @@ function renderMarketOverview() {
   const el = document.getElementById("marketOverview");
   const m = state.market;
   if (!el || !m || !m.n) { if (el) el.innerHTML = ""; return; }
-  const median = Number(m.median_iv_pctile);
+  const allRows = m.etfs || [];
+  const rows = state.marketGroup === "All ETFs" ? allRows : allRows.filter((r) => r.group === state.marketGroup);
+  const medianOf = (values) => {
+    const clean = values.filter((x) => x != null && isFinite(Number(x))).map(Number).sort((a, b) => a - b);
+    if (!clean.length) return null;
+    const mid = Math.floor(clean.length / 2);
+    return clean.length % 2 ? clean[mid] : (clean[mid - 1] + clean[mid]) / 2;
+  };
+  const median = medianOf(rows.map((r) => r.pctile));
+  const medianVrp = medianOf(rows.map((r) => r.vrp));
   const asofMs = m.asof ? new Date(m.asof + "T00:00:00").getTime() : NaN;
   const ageDays = isFinite(asofMs) ? Math.floor((Date.now() - asofMs) / 86400000) : null;
   const stale = ageDays != null && ageDays > 5;
-  const label = stale ? "Vol weather is stale" : median < 35 ? "Broad vol is cheap" : median > 65 ? "Broad vol is rich" : "Broad vol is mixed";
-  const tone = stale ? "#ffc14d" : median < 35 ? "#3ddb8f" : median > 65 ? "#ff6b6b" : "#ffc14d";
-  const list = (rows) => (rows || []).slice(0, 6).map((r) =>
-    `<div class="opt-rank-row"><b>${esc(r.ticker)}</b><span>p${fmt.num(r.pctile, 0)} · IV−RV ${fmt.signed(r.iv_rv_points, 1)}</span></div>`).join("");
-  el.innerHTML = `<div class="opt-weather">
-    <div class="card hero">
-      <div><div class="cap">Cross-sectional vol weather · ${m.n} names</div>
+  const label = stale ? "ETF volatility map is stale" : median == null ? "No volatility history in this sleeve" : median < 35 ? "ETF vol is broadly low" : median > 65 ? "ETF vol is broadly elevated" : "ETF vol is mixed";
+  const tone = stale || median == null ? "#ffc14d" : median < 35 ? "#3ddb8f" : median > 65 ? "#ff6b6b" : "#ffc14d";
+  const groups = ["All ETFs", ...(m.groups || []).map((g) => g.name)];
+  const groupTabs = groups.map((g) => `<button class="btn xs ${g === state.marketGroup ? "" : "ghost"}" data-opt-group="${esc(g)}">${esc(g)}</button>`).join("");
+  const medRv = medianOf(rows.map((r) => r.rv_pctile));
+  const disp = m.dispersion || {};
+  const corrNow = disp.sector_corr_21d;
+  const laneMeta = {
+    "Own convexity": ["#3ddb8f", "Low IV, low RV and little premium. Long gamma/vega candidates."],
+    "Harvest premium": ["#ff6b6b", "High IV/RV premium. Defined-risk option-sale candidates."],
+    "Calendar watch": ["#4da3ff", "Low IV but rich versus RV. Confirm a flat live curve before buying the calendar."],
+    "Front-stress watch": ["#ffc14d", "High IV and RV with little premium. Confirm backwardation before fading stress."],
+  };
+  const lanesHtml = Object.entries(laneMeta).map(([name, meta]) => {
+    const picks = rows.slice()
+      .sort((a, b) => Number((b.fits || {})[name] || 0) - Number((a.fits || {})[name] || 0))
+      .slice(0, 4)
+      .map((r) => ({...r, score: (r.fits || {})[name] || 0}));
+    return `<div class="opt-lane" style="border-top-color:${meta[0]}"><div class="opt-lane-head">${esc(name)}</div>
+      <div class="cap">${meta[1]}</div>
+      <div class="opt-lane-picks">${picks.length ? picks.map((r) => `<button class="opt-ticker-link" data-opt-ticker="${r.ticker}"><b>${r.ticker}</b><span>${fmt.num(r.score, 0)}</span></button>`).join("") : '<span class="cap">No covered names in this sleeve.</span>'}</div></div>`;
+  }).join("");
+  const tableRows = rows.slice().sort((a, b) => (b.setup_score || 0) - (a.setup_score || 0)).map((r) => `<tr>
+    <td><button class="opt-ticker-link compact" data-opt-ticker="${r.ticker}"><b>${r.ticker}</b></button></td>
+    <td>${esc(r.group || "")}</td><td>${fmt.pctRaw((r.iv || 0) * 100, 1)}</td>
+    <td>p${fmt.num(r.pctile, 0)}</td><td>${fmt.pctRaw((r.rv21 || 0) * 100, 1)}</td>
+    <td>${r.rv_pctile != null ? "p" + fmt.num(r.rv_pctile, 0) : "—"}</td>
+    <td class="${r.vrp > 0 ? "neg" : "pos"}">${fmt.pct(r.vrp, 0)}</td>
+    <td>${r.iv_change_1d != null ? fmt.signed(r.iv_change_1d * 100, 1) : "—"}</td>
+    <td><span class="opt-setup-pill">${esc(r.setup || "unranked")}</span></td></tr>`).join("");
+  el.innerHTML = `<section class="opt-market-shell">
+    <div class="card opt-market-hero">
+      <div><div class="cap">ETF / index volatility cockpit · ${rows.length} covered in this view</div>
         <div class="opt-hero-value" style="color:${tone}">${label}</div>
         <div class="opt-meter"><i style="margin-left:${Math.max(0, Math.min(100, median))}%"></i></div></div>
-      <div class="cap">${stale ? `<b style="color:#ffc14d">${ageDays}d old — refresh the IV recorder before trading from these ranks.</b><br>` : ""}Median IV percentile <b>${fmt.num(median, 0)}</b> · median IV/RV premium
-        <b>${fmt.pct(m.median_vrp, 0)}</b> · ${fmt.pct(m.cheap_share, 0)} cheap / ${fmt.pct(m.rich_share, 0)} rich
-        <span style="float:right">as of ${esc(m.asof || "?")}</span></div>
+      <div class="opt-market-kpis">
+        <div><span>IV percentile</span><b>${fmt.num(median, 0)}</b></div>
+        <div><span>Median VRP</span><b>${medianVrp != null ? fmt.pct(medianVrp, 0) : "—"}</b></div>
+        <div><span>RV percentile</span><b>${medRv != null ? fmt.num(medRv, 0) : "—"}</b></div>
+        <div><span>Sector corr 21d</span><b>${corrNow != null ? fmt.num(corrNow, 2) : "—"}</b></div>
+      </div>
+      <div class="cap">${stale ? `<b style="color:#ffc14d">${ageDays}d old — do not trade from the ranks.</b> · ` : ""}As of ${esc(m.asof || "?")}. IV = IBKR 30d underlying IV; RV = 21d Yang–Zhang. Scanner scores are cross-sectional screens, not signals.</div>
     </div>
-    <div class="card"><div style="font-weight:700;color:#3ddb8f">Cheapest vol</div>
-      <div class="opt-rank-list">${list(m.cheap)}</div></div>
-    <div class="card"><div style="font-weight:700;color:#ff6b6b">Richest vol</div>
-      <div class="opt-rank-list">${list(m.rich)}</div></div>
-  </div>`;
+    <div class="opt-group-tabs">${groupTabs}</div>
+    <div class="opt-market-grid">
+      <div class="card"><div class="opt-section-head"><div><b>Cross-asset volatility map</b><div class="cap">RV percentile → x · IV/RV premium → y · color = own-history IV percentile</div></div></div><div id="optMarketScatter" class="opt-market-chart"></div></div>
+      <div class="card opt-dispersion-card"><div class="opt-section-head"><div><b>Index / sector dispersion monitor</b><div class="cap">A pricing lens, deliberately not labeled implied correlation</div></div></div>
+        <div class="opt-dispersion-read"><div><span>Sector IV minus SPY</span><b>${disp.iv_spread_points != null ? fmt.signed(disp.iv_spread_points, 1) + " pts" : "—"}</b></div>
+          <div><span>Sector RV minus SPY</span><b>${disp.rv_spread_points != null ? fmt.signed(disp.rv_spread_points, 1) + " pts" : "—"}</b></div>
+          <div><span>Avg sector corr</span><b>${corrNow != null ? fmt.num(corrNow, 2) : "—"}</b></div></div>
+        <p class="cap">${esc(disp.basis || "Needs SPY plus sector ETF coverage.")}</p>
+        <div class="opt-dispersion-note">Wide sector/index vol spreads plus low realized correlation favor a dispersion lens. A correlation rebound is the central risk.</div></div>
+    </div>
+    <div class="opt-lanes">${lanesHtml}</div>
+    <details class="card opt-etf-tape"><summary><b>ETF volatility tape</b> <span class="cap">· all four static dimensions · click a ticker for the live curve and skew</span></summary>
+      <div class="table-wrap"><table><thead><tr><th>Ticker</th><th>Sleeve</th><th>IV30</th><th>IV pct</th><th>RV21</th><th>RV pct</th><th>VRP</th><th>ΔIV 1d</th><th>Nearest screen</th></tr></thead><tbody>${tableRows}</tbody></table></div>
+    </details>
+  </section>`;
+  el.querySelectorAll("[data-opt-group]").forEach((b) => b.addEventListener("click", () => {
+    state.marketGroup = b.dataset.optGroup; renderMarketOverview();
+  }));
+  el.querySelectorAll("[data-opt-ticker]").forEach((b) => b.addEventListener("click", () => {
+    const input = document.getElementById("wbTicker"); if (input) input.value = b.dataset.optTicker; loadTicker();
+  }));
+  renderMarketScatter(rows);
+}
+
+function renderMarketScatter(rows) {
+  const el = document.getElementById("optMarketScatter");
+  if (!el || !window.Plotly || !rows.length) return;
+  const compact = window.innerWidth < 650;
+  const data = [{
+    type: "scatter", mode: compact ? "markers" : "markers+text",
+    x: rows.map((r) => r.rv_pctile), y: rows.map((r) => (r.vrp || 0) * 100),
+    text: rows.map((r) => r.ticker), textposition: "top center",
+    customdata: rows.map((r) => [r.group, r.iv * 100, r.pctile, r.rv21 * 100, r.setup]),
+    hovertemplate: "<b>%{text}</b> · %{customdata[0]}<br>IV %{customdata[1]:.1f}% (p%{customdata[2]:.0f})<br>RV21 %{customdata[3]:.1f}% · VRP %{y:.0f}%<br>%{customdata[4]}<extra></extra>",
+    marker: { size: rows.map((r) => 8 + Math.max(0, Math.min(100, r.pctile || 0)) / 12),
+      color: rows.map((r) => r.pctile), colorscale: [[0, "#3ddb8f"], [.5, "#ffc14d"], [1, "#ff6b6b"]],
+      cmin: 0, cmax: 100, showscale: true, colorbar: { title: "IV pct", thickness: 9 }, line: { color: "#0b0f17", width: 1 } },
+  }];
+  const layout = plotLayout({ height: compact ? 300 : 330, margin: { l: 50, r: compact ? 38 : 55, t: 15, b: 45 }, showlegend: false,
+    xaxis: { title: "Realized-vol percentile", range: [-5, 105], gridcolor: "#202838", zeroline: false },
+    yaxis: { title: "IV / RV premium", ticksuffix: "%", gridcolor: "#202838", zerolinecolor: "#6f7888" },
+    shapes: [{ type: "line", x0: 50, x1: 50, y0: 0, y1: 1, yref: "paper", line: { color: "#303a4c", dash: "dot" } },
+             { type: "line", x0: 0, x1: 1, xref: "paper", y0: 0, y1: 0, line: { color: "#6f7888", dash: "dot" } }],
+  });
+  Plotly.newPlot(el, data, layout, PLOT_CFG);
 }
 
 function thesisDefaults() {
@@ -255,14 +336,51 @@ function renderThesis() {
   }));
 }
 
+function constantMaturityIv(expiries, targetDte) {
+  const exps = (expiries || []).filter((e) => e.atm_iv > 0 && e.dte > 0).slice().sort((a, b) => a.dte - b.dte);
+  if (!exps.length) return null;
+  const exact = exps.find((e) => e.dte === targetDte);
+  if (exact) return exact.atm_iv;
+  const lo = exps.filter((e) => e.dte < targetDte).pop();
+  const hi = exps.find((e) => e.dte > targetDte);
+  if (!lo || !hi) return null; // do not disguise extrapolation as constant maturity
+  const totalLo = lo.atm_iv ** 2 * lo.dte;
+  const totalHi = hi.atm_iv ** 2 * hi.dte;
+  const w = (targetDte - lo.dte) / (hi.dte - lo.dte);
+  const total = totalLo + w * (totalHi - totalLo);
+  return total > 0 ? Math.sqrt(total / targetDte) : null;
+}
+
+function forwardVol(iv1, dte1, iv2, dte2) {
+  if (!(iv1 > 0 && iv2 > 0 && dte2 > dte1)) return null;
+  const variance = (iv2 ** 2 * dte2 - iv1 ** 2 * dte1) / (dte2 - dte1);
+  return variance > 0 ? Math.sqrt(variance) : null;
+}
+
+function surfaceSkewMetrics(wb) {
+  const rows = (((wb || {}).chain || {}).strikes || []);
+  const puts = rows.filter((r) => r.right === "P"), calls = rows.filter((r) => r.right === "C");
+  const p25 = byDelta(puts, 0.25), c25 = byDelta(calls, 0.25);
+  const atm = chainAtmIv();
+  const p = p25 && p25.iv, c = c25 && c25.iv;
+  return {
+    put25: p || null, call25: c || null,
+    putNormPct: p && atm ? (p / atm - 1) * 100 : null,
+    callNormPct: c && atm ? (c / atm - 1) * 100 : null,
+    rr25Pts: p && c ? (p - c) * 100 : ((((wb || {}).chain || {}).rr25 || 0) * 100 || null),
+  };
+}
+
 function selectedTermMetrics(wb) {
   const exps = (wb && wb.expiries || []).filter((e) => e.atm_iv != null).slice().sort((a, b) => a.dte - b.dte);
-  if (exps.length < 2) return { front: exps[0] || null, back: null, slopePts: null, shape: "unknown" };
-  const front = exps[0];
-  const back = exps.reduce((best, e) => Math.abs(e.dte - 60) < Math.abs(best.dte - 60) ? e : best, exps[exps.length - 1]);
-  if (front === back) return { front, back: null, slopePts: null, shape: "unknown" };
-  const slopePts = (back.atm_iv - front.atm_iv) * 100;
-  return { front, back, slopePts, shape: slopePts > 2 ? "contango" : slopePts < -2 ? "backwardation" : "flat" };
+  const iv10 = constantMaturityIv(exps, 10), iv30 = constantMaturityIv(exps, 30);
+  const iv60 = constantMaturityIv(exps, 60), iv90 = constantMaturityIv(exps, 90);
+  const iv180 = constantMaturityIv(exps, 180);
+  const ratio = iv30 && iv90 ? iv30 / iv90 : null;
+  const slopePts = iv30 && iv90 ? (iv90 - iv30) * 100 : null;
+  const fwd30_90 = forwardVol(iv30, 30, iv90, 90);
+  const shape = ratio == null ? "unknown" : ratio > 1.05 ? "backwardation" : ratio < 0.95 ? "contango" : "flat";
+  return { iv10, iv30, iv60, iv90, iv180, ratio, slopePts, fwd30_90, shape, expiries: exps };
 }
 
 function assessVolRegime(metrics) {
@@ -277,7 +395,7 @@ function assessVolRegime(metrics) {
 
 function shapeGuidance(view, metrics) {
   const regime = assessVolRegime(metrics).label;
-  const richPutSkew = metrics.rr25Pts != null && metrics.rr25Pts > 3;
+  const richPutSkew = metrics.putSkewPct != null ? metrics.putSkewPct > 12 : metrics.rr25Pts != null && metrics.rr25Pts > 3;
   const frontRich = metrics.termShape === "backwardation";
   if (view === "big_move") {
     if (regime === "CHEAP" && !frontRich) return { shape: "Long straddle or strangle", why: "Convexity is inexpensive and the front end is not carrying a stress premium.", avoid: "Avoid selling the move simply because the straddle looks large in dollars." };
@@ -301,13 +419,14 @@ function volMetrics() {
   const wb = state.wb;
   const rec = wb && state.ivCtx && state.ivCtx[wb.ticker];
   const term = selectedTermMetrics(wb);
-  const iv = (rec && rec.iv) || chainAtmIv();
+  const skew = surfaceSkewMetrics(wb);
+  const iv = term.iv30 || chainAtmIv() || (rec && rec.iv);
   const rv21 = rec && rec.rv21;
   const recMs = rec && rec.last ? new Date(rec.last + "T00:00:00").getTime() : NaN;
   return {
-    iv, rv21, pctile: rec && rec.pctile,
+    iv, rv21, pctile: rec && rec.pctile, rvPctile: rec && rec.rv21_pctile,
     vrp: iv != null && rv21 ? iv / rv21 - 1 : null,
-    rr25Pts: wb && wb.chain && wb.chain.rr25 != null ? wb.chain.rr25 * 100 : null,
+    rr25Pts: skew.rr25Pts, putSkewPct: skew.putNormPct, callSkewPct: skew.callNormPct,
     termSlopePts: term.slopePts, termShape: term.shape, term,
     historyAgeDays: isFinite(recMs) ? Math.floor((Date.now() - recMs) / 86400000) : null,
   };
@@ -322,19 +441,22 @@ function renderVolDashboard() {
   const stale = m.historyAgeDays != null && m.historyAgeDays > 5;
   const pctTxt = m.pctile != null ? `p${fmt.num(m.pctile, 0)} vs its 1y range` : "history unavailable";
   const vrpTxt = m.vrp != null ? `${fmt.pct(m.vrp, 0)} vs RV21` : "RV comparison unavailable";
-  const termTxt = m.termSlopePts != null ? `${fmt.signed(m.termSlopePts, 1)} vol pts` : "not enough expiries";
-  const skewTxt = m.rr25Pts != null ? `${fmt.signed(m.rr25Pts, 1)} vol pts` : "not quoted";
+  const termTxt = m.term.ratio != null ? `30d / 90d ${fmt.num(m.term.ratio, 2)}${m.term.fwd30_90 != null ? ` · 30→90 fwd ${fmt.pctRaw(m.term.fwd30_90 * 100, 1)}` : ""}` : "need expiries around 30d and 90d";
+  const putSkewTxt = m.putSkewPct != null ? `${fmt.signed(m.putSkewPct, 1)}% vs ATM IV` : "not quoted";
+  const callSkewTxt = m.callSkewPct != null ? `${fmt.signed(m.callSkewPct, 1)}% vs ATM IV` : "not quoted";
   el.innerHTML = `<div class="card" style="margin-bottom:12px">
     <div style="display:flex;justify-content:space-between;gap:12px;align-items:start;flex-wrap:wrap">
       <div><div class="cap">Volatility compass</div><div class="opt-hero-value" style="color:${reg.tone}">${reg.label} VOL</div></div>
-      <div class="cap" style="max-width:540px;text-align:right">Cheap/rich is relative, not a forecast. The score blends the name&rsquo;s own IV percentile with IV versus recent realized volatility; curve and skew choose the shape.</div>
+      <div class="cap" style="max-width:560px;text-align:right">The funnel is level → realized → premium → curve → skew. Cheap/rich starts the investigation; it does not finish it.</div>
     </div>
     ${stale ? `<div class="opt-risk-warn">IV rank and IV/RV history are ${m.historyAgeDays} days old. The live curve and skew are current, but do not treat the cheap/rich label as current until the recorder catches up.</div>` : ""}
-    <div class="opt-compass">
-      <div class="tile"><div class="eyebrow">Level</div><div class="reading">${m.iv != null ? fmt.pctRaw(m.iv * 100, 1) : "—"}</div><div class="detail">${pctTxt}</div></div>
-      <div class="tile"><div class="eyebrow">Vol risk premium</div><div class="reading">${m.vrp != null ? fmt.pct(m.vrp, 0) : "—"}</div><div class="detail">${vrpTxt}; positive means options charge more than RV21</div></div>
-      <div class="tile"><div class="eyebrow">Term shape</div><div class="reading">${esc(String(m.termShape || "unknown").toUpperCase())}</div><div class="detail">${termTxt} · back minus front IV</div></div>
-      <div class="tile"><div class="eyebrow">25Δ put skew</div><div class="reading">${m.rr25Pts != null ? fmt.signed(m.rr25Pts, 1) : "—"}</div><div class="detail">${skewTxt}; positive means downside puts are richer</div></div>
+    <div class="opt-compass six">
+      <div class="tile"><div class="eyebrow">30d implied</div><div class="reading">${m.iv != null ? fmt.pctRaw(m.iv * 100, 1) : "—"}</div><div class="detail">${pctTxt}</div></div>
+      <div class="tile"><div class="eyebrow">21d realized</div><div class="reading">${m.rv21 != null ? fmt.pctRaw(m.rv21 * 100, 1) : "—"}</div><div class="detail">${m.rvPctile != null ? `p${fmt.num(m.rvPctile, 0)} vs ~3y history` : "history unavailable"}</div></div>
+      <div class="tile"><div class="eyebrow">Vol risk premium</div><div class="reading">${m.vrp != null ? fmt.pct(m.vrp, 0) : "—"}</div><div class="detail">${vrpTxt}; IV30 / RV21 − 1</div></div>
+      <div class="tile"><div class="eyebrow">Term shape</div><div class="reading">${esc(String(m.termShape || "unknown").toUpperCase())}</div><div class="detail">${termTxt}</div></div>
+      <div class="tile"><div class="eyebrow">25Δ put skew</div><div class="reading">${m.putSkewPct != null ? fmt.signed(m.putSkewPct, 1) + "%" : "—"}</div><div class="detail">${putSkewTxt}; normalized to ATM</div></div>
+      <div class="tile"><div class="eyebrow">25Δ call skew</div><div class="reading">${m.callSkewPct != null ? fmt.signed(m.callSkewPct, 1) + "%" : "—"}</div><div class="detail">${callSkewTxt}; risk reversal ${m.rr25Pts != null ? fmt.signed(m.rr25Pts, 1) + " pts" : "—"}</div></div>
     </div>
     <div class="opt-playbook">
       <div class="callout"><div class="cap">Best-fit shape for ${esc(currentView().replace("_", " "))}</div>
@@ -360,7 +482,8 @@ async function loadTicker(expiry) {
     ticker,
     mode: expiry ? "chain" : "full",
     expiry: expiry || null,
-    max_expiries: state.forecast.active ? 32 : 8,
+    // Enough tenors to bracket 30d/60d/90d on weekly-heavy ETF chains.
+    max_expiries: state.forecast.active ? 32 : 20,
     context: state.forecast.active ? {
       direction: state.forecast.target < ((state.wb || {}).spot || Infinity) ? "Short" : "Long",
       target: state.forecast.target,
@@ -414,6 +537,7 @@ function renderAll() {
   renderThesis();
   renderIvStrip();
   renderVolDashboard();
+  renderTermLab();
   renderExpiries();
   renderComparator();
   buildStructures();
@@ -470,6 +594,77 @@ function renderIvStrip() {
     Plotly.newPlot("ivSpark", [{ y: rec.spark, mode: "lines", line: { color: "#4da3ff", width: 1.5 } }],
       plotLayout({ margin: { l: 2, r: 2, t: 2, b: 2 }, xaxis: { visible: false }, yaxis: { visible: false },
                    height: 52, showlegend: false, hovermode: false }), PLOT_CFG);
+  }
+}
+
+/* ---------------- term structure + realized-vol cone ---------------- */
+function representativeExpiries(expiries) {
+  const exps = (expiries || []).filter((e) => e.atm_iv > 0 && e.dte > 0).slice().sort((a, b) => a.dte - b.dte);
+  const picked = [];
+  for (const target of [7, 14, 30, 60, 90, 180]) {
+    if (!exps.length) break;
+    const hit = exps.reduce((best, e) => Math.abs(e.dte - target) < Math.abs(best.dte - target) ? e : best, exps[0]);
+    if (!picked.includes(hit)) picked.push(hit);
+  }
+  return picked.sort((a, b) => a.dte - b.dte);
+}
+
+function forwardMatrixHtml(expiries) {
+  const exps = representativeExpiries(expiries);
+  if (exps.length < 2) return '<span class="cap">Not enough quoted expiries.</span>';
+  const head = exps.map((e) => `<th>${e.dte}d</th>`).join("");
+  const rows = exps.map((from, i) => `<tr><th>${from.dte}d</th>${exps.map((to, j) => {
+    if (j <= i) return `<td class="muted">${j === i ? "—" : ""}</td>`;
+    const fwd = forwardVol(from.atm_iv, from.dte, to.atm_iv, to.dte);
+    return `<td>${fwd ? fmt.pctRaw(fwd * 100, 1) : "—"}</td>`;
+  }).join("")}</tr>`).join("");
+  return `<div class="table-wrap"><table class="opt-forward-table"><thead><tr><th>from → to</th>${head}</tr></thead><tbody>${rows}</tbody></table></div>`;
+}
+
+function renderTermLab() {
+  const el = document.getElementById("termLab"), wb = state.wb;
+  if (!el || !wb) { if (el) el.innerHTML = ""; return; }
+  const exps = (wb.expiries || []).filter((e) => e.atm_iv > 0 && e.dte > 0).slice().sort((a, b) => a.dte - b.dte);
+  if (exps.length < 2) { el.innerHTML = ""; return; }
+  const term = selectedTermMetrics(wb);
+  const rec = state.ivCtx && state.ivCtx[wb.ticker];
+  const cmRows = [[10, term.iv10], [30, term.iv30], [60, term.iv60], [90, term.iv90], [180, term.iv180]]
+    .filter((x) => x[1] != null).map((x) => `<span><b>${x[0]}d</b> ${fmt.pctRaw(x[1] * 100, 1)}</span>`).join("");
+  el.innerHTML = `<div class="card opt-term-lab">
+    <div class="opt-section-head"><div><b>Curve, forwards & realized cone</b><div class="cap">Live chain snapshot · total-variance interpolation · no extrapolation</div></div>
+      <div class="opt-cm-strip">${cmRows}</div></div>
+    <div class="opt-term-grid"><div><div id="optTermCurve" class="opt-term-chart"></div></div><div><div id="optVolCone" class="opt-term-chart"></div></div></div>
+    <details class="opt-forward-details"><summary><b>Forward-vol matrix</b> <span class="cap">· volatility implied only between each pair of expiries</span></summary>${forwardMatrixHtml(exps)}</details>
+  </div>`;
+  if (!window.Plotly) return;
+  const sel = wb.chain && wb.chain.expiry;
+  Plotly.newPlot("optTermCurve", [{
+    x: exps.map((e) => e.dte), y: exps.map((e) => e.atm_iv * 100), type: "scatter", mode: "lines+markers",
+    text: exps.map((e) => e.date), hovertemplate: "%{text}<br>%{x} DTE · %{y:.1f}% IV<extra></extra>",
+    marker: { size: exps.map((e) => e.date === sel ? 10 : 6), color: exps.map((e) => e.date === sel ? "#ffc14d" : "#4da3ff") },
+    line: { color: "#4da3ff", width: 2 },
+  }], plotLayout({ height: 285, margin: { l: 48, r: 15, t: 25, b: 42 }, title: { text: "ATM implied-volatility term structure", font: { size: 12 } },
+    xaxis: { title: "Days to expiry", gridcolor: "#202838" }, yaxis: { title: "IV", ticksuffix: "%", gridcolor: "#202838" }, showlegend: false }), PLOT_CFG);
+
+  const cone = rec && rec.cone || {};
+  const horizons = Object.keys(cone).map(Number).sort((a, b) => a - b);
+  if (horizons.length) {
+    const ys = (key) => horizons.map((h) => (cone[String(h)][key] || 0) * 100);
+    const cm = horizons.map((h) => constantMaturityIv(exps, h));
+    const traces = [
+      { x: horizons, y: ys("p10"), mode: "lines", line: { width: 0 }, hoverinfo: "skip", showlegend: false },
+      { x: horizons, y: ys("p90"), mode: "lines", fill: "tonexty", fillcolor: "rgba(77,163,255,.10)", line: { width: 0 }, name: "P10–P90" },
+      { x: horizons, y: ys("p25"), mode: "lines", line: { width: 0 }, hoverinfo: "skip", showlegend: false },
+      { x: horizons, y: ys("p75"), mode: "lines", fill: "tonexty", fillcolor: "rgba(77,163,255,.22)", line: { width: 0 }, name: "P25–P75" },
+      { x: horizons, y: ys("p50"), mode: "lines+markers", line: { color: "#9aa3b2", dash: "dot" }, name: "Median RV" },
+      { x: horizons, y: ys("current"), mode: "lines+markers", line: { color: "#3ddb8f" }, name: "Current RV" },
+    ];
+    if (cm.some((v) => v != null)) traces.push({ x: horizons, y: cm.map((v) => v == null ? null : v * 100), mode: "lines+markers", line: { color: "#ffc14d", width: 2 }, name: "Live IV" });
+    Plotly.newPlot("optVolCone", traces, plotLayout({ height: 285, margin: { l: 48, r: 15, t: 25, b: 42 }, title: { text: "IV over the realized-vol cone", font: { size: 12 } },
+      xaxis: { title: "Horizon (trading days)", gridcolor: "#202838" }, yaxis: { title: "Annualized vol", ticksuffix: "%", gridcolor: "#202838" },
+      legend: { orientation: "h", y: -0.28, font: { size: 9 } } }), PLOT_CFG);
+  } else {
+    document.getElementById("optVolCone").innerHTML = '<div class="cap" style="padding:30px">Realized-vol cone unavailable for this ticker.</div>';
   }
 }
 

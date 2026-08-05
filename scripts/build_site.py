@@ -1495,6 +1495,22 @@ def build_health(sig, data_dir):
 IV_HISTORY = os.path.join(_ROOT, "data", "iv_history.parquet")
 IV_HISTORY_R2_KEY = "options/iv_history.parquet"
 
+# The Options page is intentionally ETF/index-first.  These groups are the
+# default cross-asset opportunity set and also extend the nightly underlying-IV
+# recorder beyond the directional strategy universe.  Index exposure uses the
+# liquid ETF proxies because the local recorder requests Stock contracts.
+OPTIONS_ETF_GROUPS = {
+    "Index": ["SPY", "QQQ", "IWM", "DIA"],
+    "US sectors": ["XLB", "XLC", "XLE", "XLF", "XLI", "XLK", "XLP", "XLRE", "XLU", "XLV", "XLY"],
+    "Industry": ["SMH", "XBI", "IBB", "IHI", "ITA", "ITB", "KRE", "OIH", "XHB", "XME", "XOP", "XRT"],
+    "Macro": ["TLT", "HYG", "LQD", "UUP", "GLD", "SLV", "USO", "UNG", "EEM", "EFA", "EWJ"],
+    "Real estate": ["IYR", "VNQ"],
+    "Alternative": ["IBIT"],
+}
+OPTIONS_MACRO_ETFS = tuple(dict.fromkeys(
+    ticker for tickers in OPTIONS_ETF_GROUPS.values() for ticker in tickers
+))
+
 
 def _yang_zhang_last(g, n):
     """Annualized Yang-Zhang vol over the last n days of an OHLC frame (the
@@ -1512,6 +1528,46 @@ def _yang_zhang_last(g, n):
     return float(np.sqrt(var * 252))
 
 
+def _yang_zhang_series(g, n):
+    """Vectorized rolling Yang-Zhang volatility for cone/percentile context."""
+    if len(g) < n + 2:
+        return pd.Series(dtype=float)
+    o, h, l, c = np.log(g["Open"]), np.log(g["High"]), np.log(g["Low"]), np.log(g["Close"])
+    co = o - c.shift(1)
+    oc = c - o
+    rs = (h - c) * (h - o) + (l - c) * (l - o)
+    k = 0.34 / (1.34 + (n + 1) / (n - 1))
+    var = co.rolling(n).var() + k * oc.rolling(n).var() + (1 - k) * rs.rolling(n).mean()
+    return np.sqrt(var.where(var > 0) * 252).dropna()
+
+
+def _pctile(values, current):
+    values = pd.Series(values).replace([np.inf, -np.inf], np.nan).dropna()
+    if current is None or pd.isna(current) or values.empty:
+        return None
+    return round(float((values < float(current)).mean()) * 100.0, 1)
+
+
+def _rolling_cone(g, windows=(10, 21, 63), history=756):
+    """Realized-vol distribution by horizon over roughly three years."""
+    out = {}
+    for n in windows:
+        s = _yang_zhang_series(g, n).iloc[-history:]
+        if len(s) < 20:
+            continue
+        q = s.quantile([.10, .25, .50, .75, .90])
+        out[str(n)] = {
+            "p10": round(float(q.loc[.10]), 4),
+            "p25": round(float(q.loc[.25]), 4),
+            "p50": round(float(q.loc[.50]), 4),
+            "p75": round(float(q.loc[.75]), 4),
+            "p90": round(float(q.loc[.90]), 4),
+            "current": round(float(s.iloc[-1]), 4),
+            "n": int(len(s)),
+        }
+    return out
+
+
 def build_iv_context():
     """Per-ticker IV rank / percentile / sparkline from the local-agent-maintained
     IV history (R2 options/iv_history.parquet), plus Yang-Zhang realized vol at
@@ -1525,8 +1581,10 @@ def build_iv_context():
     iv["ticker"] = iv["ticker"].astype(str).str.upper()
     iv = iv.dropna(subset=["iv30"]).sort_values("date")
     tickers = sorted(iv["ticker"].unique())
+    # Three years supports a useful realized-vol cone while remaining tiny
+    # relative to the full master cache.
     px = data_provider.get_history(tickers, start=str(pd.Timestamp.today().normalize()
-                                                      - pd.Timedelta(days=200))[:10])
+                                                      - pd.Timedelta(days=1200))[:10])
     out = {}
     for t, g in iv.groupby("ticker"):
         s = g.set_index("date")["iv30"].astype(float)
@@ -1540,12 +1598,28 @@ def build_iv_context():
         weekly = win.resample("W").last().dropna().iloc[-52:]
         rec = {"iv": round(now, 4), "rank": rank, "pctile": pctile,
                "last": win.index[-1].strftime("%Y-%m-%d"),
-               "spark": [round(float(v), 4) for v in weekly.values]}
+               "spark": [round(float(v), 4) for v in weekly.values],
+               "iv_change_1d": round(float(win.iloc[-1] - win.iloc[-2]), 4) if len(win) >= 2 else None,
+               "iv_change_5d": round(float(win.iloc[-1] - win.iloc[-6]), 4) if len(win) >= 6 else None}
         pg = px.get(t)
         if pg is not None and len(pg):
+            cone = _rolling_cone(pg)
             for n in (10, 21, 63):
-                rv = _yang_zhang_last(pg, n)
+                rv = (cone.get(str(n)) or {}).get("current")
+                if rv is None:
+                    rv = _yang_zhang_last(pg, n)
                 rec[f"rv{n}"] = round(rv, 4) if rv else None
+            rec["rv21_pctile"] = _pctile(_yang_zhang_series(pg, 21).iloc[-756:], rec.get("rv21"))
+            rec["cone"] = cone
+
+            # Spot/vol coupling is descriptive: correlation of daily return to
+            # the change in IBKR's 30d underlying IV over the latest 63 joins.
+            aligned = pd.concat([
+                pg["Close"].pct_change().rename("ret"),
+                s.diff().rename("div"),
+            ], axis=1, join="inner").dropna().iloc[-63:]
+            if len(aligned) >= 20:
+                rec["spot_vol_corr_63"] = round(float(aligned["ret"].corr(aligned["div"])), 3)
         out[t] = rec
     print(f"  iv_context: {len(out)} tickers "
           f"(iv history {iv['date'].min().date()} -> {iv['date'].max().date()})")
@@ -1562,8 +1636,12 @@ def build_options_market(iv_context):
     """
     if not iv_context:
         return None
+    group_for = {ticker: group for group, tickers in OPTIONS_ETF_GROUPS.items() for ticker in tickers}
     rows = []
-    for ticker, rec in iv_context.items():
+    for ticker in OPTIONS_MACRO_ETFS:
+        rec = iv_context.get(ticker)
+        if not rec:
+            continue
         iv = rec.get("iv")
         rv = rec.get("rv21")
         pctile = rec.get("pctile")
@@ -1584,10 +1662,95 @@ def build_options_market(iv_context):
             "iv_rv_points": round((float(iv) - float(rv)) * 100.0, 2),
             "score": round(score, 1),
             "last": rec.get("last"),
+            "group": group_for.get(ticker, "Other"),
+            "rv10": rec.get("rv10"),
+            "rv63": rec.get("rv63"),
+            "rv_pctile": rec.get("rv21_pctile"),
+            "iv_change_1d": rec.get("iv_change_1d"),
+            "iv_change_5d": rec.get("iv_change_5d"),
+            "spot_vol_corr_63": rec.get("spot_vol_corr_63"),
         })
     if not rows:
         return None
     frame = pd.DataFrame(rows)
+
+    # Daily cross-sectional rankings adapt the scanner to the current regime,
+    # mirroring the top-of-funnel idea without claiming an absolute signal.
+    frame["iv_xs_pct"] = frame["pctile"].rank(pct=True) * 100.0
+    frame["vrp_xs_pct"] = frame["vrp"].rank(pct=True) * 100.0
+    frame["rv_xs_pct"] = frame["rv_pctile"].rank(pct=True) * 100.0
+
+    targets = {
+        "Own convexity": (10.0, 10.0, 10.0),
+        "Harvest premium": (85.0, 90.0, 85.0),
+        "Calendar watch": (20.0, 90.0, 35.0),
+        "Front-stress watch": (90.0, 10.0, 90.0),
+    }
+    frame["setup"] = None
+    frame["setup_score"] = 0.0
+    frame["fits"] = pd.Series([None] * len(frame), dtype=object)
+    for idx, row in frame.iterrows():
+        point = np.array([row["iv_xs_pct"], row["vrp_xs_pct"], row["rv_xs_pct"]], dtype=float)
+        fits = {}
+        for name, target in targets.items():
+            if np.isnan(point).any():
+                fits[name] = 0.0
+                continue
+            dist = float(np.sqrt(np.mean((point - np.array(target)) ** 2)))
+            fits[name] = round(max(0.0, 100.0 - dist), 1)
+        best = max(fits, key=fits.get)
+        frame.at[idx, "setup"] = best
+        frame.at[idx, "setup_score"] = fits[best]
+        frame.at[idx, "fits"] = fits
+
+    for col in ("iv_xs_pct", "vrp_xs_pct", "rv_xs_pct"):
+        frame[col] = frame[col].round(1)
+    rows = frame.replace({np.nan: None}).to_dict("records")
+    by_ticker = {r["ticker"]: r for r in rows}
+
+    lanes = {}
+    for name in targets:
+        ranked = sorted(rows, key=lambda r: -float((r.get("fits") or {}).get(name, 0)))
+        lanes[name] = [{
+            "ticker": r["ticker"], "score": (r.get("fits") or {}).get(name, 0),
+            "iv_pctile": r.get("pctile"), "rv_pctile": r.get("rv_pctile"),
+            "vrp": r.get("vrp"), "group": r.get("group"),
+        } for r in ranked[:20]]
+
+    # Honest sector-dispersion lens: compare SPY with the sector ETF ensemble
+    # and pair it with realized sector correlation.  This is not labeled as
+    # implied correlation because sector weights and option surfaces differ.
+    sector_names = [t for t in OPTIONS_ETF_GROUPS["US sectors"] if t in by_ticker]
+    spy = by_ticker.get("SPY")
+    dispersion = None
+    if spy and len(sector_names) >= 6:
+        sector_rows = [by_ticker[t] for t in sector_names]
+        sec_iv = float(np.median([r["iv"] for r in sector_rows]))
+        sec_rv = float(np.median([r["rv21"] for r in sector_rows]))
+        prices = data_provider.get_history(sector_names, start=str(
+            pd.Timestamp.today().normalize() - pd.Timedelta(days=180))[:10])
+        closes = pd.concat({t: g["Close"] for t, g in prices.items()}, axis=1).dropna(how="all")
+        rets = closes.pct_change()
+        def avg_corr(n):
+            corr = rets.iloc[-n:].corr()
+            if corr.empty:
+                return None
+            vals = corr.values[np.triu_indices(len(corr), 1)]
+            vals = vals[np.isfinite(vals)]
+            return round(float(vals.mean()), 3) if len(vals) else None
+        dispersion = {
+            "sector_count": len(sector_rows),
+            "sector_median_iv": round(sec_iv, 4),
+            "spy_iv": spy["iv"],
+            "iv_spread_points": round((sec_iv - spy["iv"]) * 100.0, 2),
+            "sector_median_rv21": round(sec_rv, 4),
+            "spy_rv21": spy["rv21"],
+            "rv_spread_points": round((sec_rv - spy["rv21"]) * 100.0, 2),
+            "sector_corr_21d": avg_corr(21),
+            "sector_corr_63d": avg_corr(63),
+            "basis": "SPY versus median sector-ETF volatility; realized correlation is equal-weight across covered sectors",
+        }
+
     rich = sorted(rows, key=lambda r: (-r["score"], r["ticker"]))[:8]
     cheap = sorted(rows, key=lambda r: (r["score"], r["ticker"]))[:8]
     dates = [r["last"] for r in rows if r.get("last")]
@@ -1600,6 +1763,16 @@ def build_options_market(iv_context):
         "rich_share": round(float((frame["score"] > 65).mean()), 4),
         "rich": rich,
         "cheap": cheap,
+        "groups": [{"name": group, "tickers": tickers} for group, tickers in OPTIONS_ETF_GROUPS.items()],
+        "etfs": sorted(rows, key=lambda r: (r["group"], r["ticker"])),
+        "lanes": lanes,
+        "dispersion": dispersion,
+        "methodology": {
+            "iv": "IBKR 30d underlying implied-volatility history; within-name percentile uses the latest 252 observations",
+            "rv": "21d annualized Yang-Zhang volatility; percentile uses roughly three years of rolling observations",
+            "vrp": "IV30 / RV21 - 1",
+            "scanner": "Daily percentile ranks within the covered ETF universe. Term structure is intentionally a live confirmation step.",
+        },
     }
 
 
@@ -1909,13 +2082,14 @@ def build_earnings_next():
 
 
 def upload_universe():
-    """Publish the liquid universe to R2 (universe/liquid.json) so the local
-    IV-history job knows its ticker list without importing repo code."""
+    """Publish the strategy + macro-ETF universe for the local IV recorder."""
     try:
         from strategy_config import LIQUID_PLUS_COMMODITIES
         path = os.path.join(_ROOT, "data", "universe_liquid.json")
+        universe = ({str(t).upper() for t in LIQUID_PLUS_COMMODITIES}
+                    | set(OPTIONS_MACRO_ETFS))
         with open(path, "w", encoding="utf-8") as f:
-            json.dump({"tickers": sorted({str(t).upper() for t in LIQUID_PLUS_COMMODITIES}),
+            json.dump({"tickers": sorted(universe),
                        "updated": datetime.datetime.now(datetime.timezone.utc)
                        .strftime("%Y-%m-%d %H:%M UTC")}, f)
         if cache_io.upload_from_local(path, "universe/liquid.json"):
