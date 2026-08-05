@@ -66,6 +66,14 @@ sys.path.insert(0, _ROOT)
 
 import data_provider
 import cache_io
+from options_surface import (
+    OPTIONS_ETF_GROUPS,
+    OPTIONS_MACRO_ETFS,
+    SURFACE_HISTORY_R2_KEY,
+    basket_vol,
+    implied_correlation,
+    percentile_rank,
+)
 from strategy_config import ACCOUNT_VALUE, STRATEGY_BOOK
 from pages.strat_backtester import (
     get_daily_mtm_series,
@@ -1494,22 +1502,7 @@ def build_health(sig, data_dir):
 # ------------------------------------------------------- options workbench payloads
 IV_HISTORY = os.path.join(_ROOT, "data", "iv_history.parquet")
 IV_HISTORY_R2_KEY = "options/iv_history.parquet"
-
-# The Options page is intentionally ETF/index-first.  These groups are the
-# default cross-asset opportunity set and also extend the nightly underlying-IV
-# recorder beyond the directional strategy universe.  Index exposure uses the
-# liquid ETF proxies because the local recorder requests Stock contracts.
-OPTIONS_ETF_GROUPS = {
-    "Index": ["SPY", "QQQ", "IWM", "DIA"],
-    "US sectors": ["XLB", "XLC", "XLE", "XLF", "XLI", "XLK", "XLP", "XLRE", "XLU", "XLV", "XLY"],
-    "Industry": ["SMH", "XBI", "IBB", "IHI", "ITA", "ITB", "KRE", "OIH", "XHB", "XME", "XOP", "XRT"],
-    "Macro": ["TLT", "HYG", "LQD", "UUP", "GLD", "SLV", "USO", "UNG", "EEM", "EFA", "EWJ"],
-    "Real estate": ["IYR", "VNQ"],
-    "Alternative": ["IBIT"],
-}
-OPTIONS_MACRO_ETFS = tuple(dict.fromkeys(
-    ticker for tickers in OPTIONS_ETF_GROUPS.values() for ticker in tickers
-))
+OPTION_SURFACE_HISTORY = os.path.join(_ROOT, "data", "option_surface_history.parquet")
 
 
 def _yang_zhang_last(g, n):
@@ -1548,7 +1541,7 @@ def _pctile(values, current):
     return round(float((values < float(current)).mean()) * 100.0, 1)
 
 
-def _rolling_cone(g, windows=(10, 21, 63), history=756):
+def _rolling_cone(g, windows=(10, 21, 30, 63), history=756):
     """Realized-vol distribution by horizon over roughly three years."""
     out = {}
     for n in windows:
@@ -1566,6 +1559,53 @@ def _rolling_cone(g, windows=(10, 21, 63), history=756):
             "n": int(len(s)),
         }
     return out
+
+
+def build_option_surface_context():
+    """Latest nightly surface plus honest history-dependent percentiles.
+
+    One snapshot is enough for current CMIV, curve, skew, and positioning.
+    Percentiles stay None until at least 20 observations exist; the browser
+    renders that as COLLECTING HISTORY rather than inventing a neutral rank.
+    """
+    cache_io.download_to_local(SURFACE_HISTORY_R2_KEY, OPTION_SURFACE_HISTORY)
+    if not os.path.exists(OPTION_SURFACE_HISTORY):
+        print("  option_surface: no nightly surface history yet")
+        return None
+    frame = pd.read_parquet(OPTION_SURFACE_HISTORY)
+    required = {"date", "ticker"}
+    if frame.empty or not required.issubset(frame.columns):
+        print("  option_surface: cache is empty or missing date/ticker")
+        return None
+    frame["date"] = pd.to_datetime(frame["date"])
+    frame["ticker"] = frame["ticker"].astype(str).str.upper()
+    frame = frame.sort_values(["ticker", "date"])
+    fields = [
+        "spot", "cmiv10", "cmiv20", "cmiv30", "cmiv60", "cmiv90", "cmiv180", "cmiv365",
+        "term_30_90", "term_30_60", "fwd30_90", "rr25", "rr10", "put25_norm", "call25_norm",
+        "total_oi", "call_oi", "put_oi", "put_call_oi", "gamma_abs_1pct",
+        "call_minus_put_gamma_proxy", "max_oi_strike", "max_gamma_strike", "top_gamma_strikes",
+        "term_quote_count", "chain_expiry_count", "chain_contract_count", "oi_coverage",
+        "gamma_coverage", "market_data_type", "pulled_at",
+    ]
+    percentile_fields = ("cmiv30", "term_30_90", "rr25", "rr10", "put25_norm", "call25_norm",
+                         "total_oi", "gamma_abs_1pct", "put_call_oi")
+    out = {}
+    for ticker, group in frame.groupby("ticker"):
+        latest = group.iloc[-1]
+        rec = {field: _clean(latest.get(field)) for field in fields if field in frame.columns}
+        rec["last"] = latest["date"].strftime("%Y-%m-%d")
+        rec["history_n"] = int(group["date"].nunique())
+        for field in percentile_fields:
+            if field not in group.columns:
+                continue
+            current = rec.get(field)
+            pct = percentile_rank(group[field].tolist(), current, min_obs=20)
+            rec[f"{field}_pctile"] = round(float(pct), 1) if pct is not None else None
+        out[ticker] = rec
+    print(f"  option_surface: {len(out)} tickers, {frame['date'].nunique()} dates "
+          f"({frame['date'].min().date()} -> {frame['date'].max().date()})")
+    return out or None
 
 
 def build_iv_context():
@@ -1604,12 +1644,13 @@ def build_iv_context():
         pg = px.get(t)
         if pg is not None and len(pg):
             cone = _rolling_cone(pg)
-            for n in (10, 21, 63):
+            for n in (10, 21, 30, 63):
                 rv = (cone.get(str(n)) or {}).get("current")
                 if rv is None:
                     rv = _yang_zhang_last(pg, n)
                 rec[f"rv{n}"] = round(rv, 4) if rv else None
             rec["rv21_pctile"] = _pctile(_yang_zhang_series(pg, 21).iloc[-756:], rec.get("rv21"))
+            rec["rv30_pctile"] = _pctile(_yang_zhang_series(pg, 30).iloc[-756:], rec.get("rv30"))
             rec["cone"] = cone
 
             # Spot/vol coupling is descriptive: correlation of daily return to
@@ -1626,152 +1667,183 @@ def build_iv_context():
     return out or None
 
 
-def build_options_market(iv_context):
-    """Cross-sectional volatility weather for the options landing view.
+def build_options_market(iv_context, surface_context=None):
+    """Four-dimensional ETF volatility candidate screen.
 
-    This deliberately uses only comparable 30d-IV and 21d Yang-Zhang RV
-    observations.  It is a context panel, not a signal generator: percentile
-    says where a name sits versus itself, while VRP says how much implied vol
-    is charging versus its recent realized path.
+    IV level, log VRP, realized-vol percentile, and 30d/90d curve steepness
+    are ranked cross-sectionally. Missing curve snapshots reduce coverage and
+    score rather than being silently imputed. The output is research triage,
+    never a recommendation.
     """
-    if not iv_context:
+    if not iv_context and not surface_context:
         return None
+    iv_context = iv_context or {}
+    surface_context = surface_context or {}
     group_for = {ticker: group for group, tickers in OPTIONS_ETF_GROUPS.items() for ticker in tickers}
     rows = []
     for ticker in OPTIONS_MACRO_ETFS:
-        rec = iv_context.get(ticker)
-        if not rec:
+        hist, surface = iv_context.get(ticker) or {}, surface_context.get(ticker) or {}
+        iv = surface.get("cmiv30") or hist.get("iv")
+        rv = hist.get("rv30") or hist.get("rv21")
+        pctile = surface.get("cmiv30_pctile")
+        if pctile is None:
+            pctile = hist.get("pctile")
+        rv_pctile = hist.get("rv30_pctile")
+        if rv_pctile is None:
+            rv_pctile = hist.get("rv21_pctile")
+        if iv is None or rv is None or pctile is None or float(rv) <= 0:
             continue
-        iv = rec.get("iv")
-        rv = rec.get("rv21")
-        pctile = rec.get("pctile")
-        if iv is None or rv is None or pctile is None or rv <= 0:
-            continue
-        vrp = iv / rv - 1.0
-        # Blend a within-name level percentile with a bounded IV/RV premium.
-        # The blend is only used to rank the tails shown in the weather card;
-        # both raw inputs remain visible to avoid false precision.
-        vrp_score = max(0.0, min(100.0, 50.0 + 100.0 * vrp))
-        score = 0.6 * float(pctile) + 0.4 * vrp_score
+        iv, rv = float(iv), float(rv)
+        vrp_ratio = iv / rv - 1.0
+        vrp_log = 100.0 * math.log(iv / rv)
+        last = max([d for d in (hist.get("last"), surface.get("last")) if d], default=None)
+        score = 0.6 * float(pctile) + 0.4 * max(0.0, min(100.0, 50.0 + vrp_log))
         rows.append({
-            "ticker": ticker,
-            "iv": round(float(iv), 4),
-            "rv21": round(float(rv), 4),
-            "pctile": round(float(pctile), 1),
-            "vrp": round(float(vrp), 4),
-            "iv_rv_points": round((float(iv) - float(rv)) * 100.0, 2),
-            "score": round(score, 1),
-            "last": rec.get("last"),
-            "group": group_for.get(ticker, "Other"),
-            "rv10": rec.get("rv10"),
-            "rv63": rec.get("rv63"),
-            "rv_pctile": rec.get("rv21_pctile"),
-            "iv_change_1d": rec.get("iv_change_1d"),
-            "iv_change_5d": rec.get("iv_change_5d"),
-            "spot_vol_corr_63": rec.get("spot_vol_corr_63"),
+            "ticker": ticker, "group": group_for.get(ticker, "Other"), "last": last,
+            "iv": round(iv, 4), "rv30": round(rv, 4), "rv21": hist.get("rv21"),
+            "pctile": round(float(pctile), 1), "rv_pctile": rv_pctile,
+            "vrp": round(vrp_ratio, 4), "vrp_log": round(vrp_log, 2),
+            "iv_rv_points": round((iv - rv) * 100.0, 2), "score": round(score, 1),
+            "rv10": hist.get("rv10"), "rv63": hist.get("rv63"),
+            "iv_change_1d": hist.get("iv_change_1d"), "iv_change_5d": hist.get("iv_change_5d"),
+            "spot_vol_corr_63": hist.get("spot_vol_corr_63"),
+            "steepness": surface.get("term_30_90"), "term_pctile": surface.get("term_30_90_pctile"),
+            "fwd30_90": surface.get("fwd30_90"), "cmiv60": surface.get("cmiv60"),
+            "cmiv90": surface.get("cmiv90"), "cmiv180": surface.get("cmiv180"),
+            "rr25": surface.get("rr25"), "rr25_pctile": surface.get("rr25_pctile"),
+            "rr10": surface.get("rr10"), "put25_norm": surface.get("put25_norm"),
+            "call25_norm": surface.get("call25_norm"), "skew_history_n": surface.get("history_n", 0),
+            "total_oi": surface.get("total_oi"), "put_call_oi": surface.get("put_call_oi"),
+            "gamma_abs_1pct": surface.get("gamma_abs_1pct"),
+            "gamma_proxy": surface.get("call_minus_put_gamma_proxy"),
+            "max_oi_strike": surface.get("max_oi_strike"), "max_gamma_strike": surface.get("max_gamma_strike"),
+            "top_gamma_strikes": surface.get("top_gamma_strikes"), "oi_coverage": surface.get("oi_coverage"),
+            "surface_last": surface.get("last"), "surface_history_n": surface.get("history_n", 0),
         })
     if not rows:
         return None
     frame = pd.DataFrame(rows)
-
-    # Daily cross-sectional rankings adapt the scanner to the current regime,
-    # mirroring the top-of-funnel idea without claiming an absolute signal.
     frame["iv_xs_pct"] = frame["pctile"].rank(pct=True) * 100.0
-    frame["vrp_xs_pct"] = frame["vrp"].rank(pct=True) * 100.0
+    frame["vrp_xs_pct"] = frame["vrp_log"].rank(pct=True) * 100.0
     frame["rv_xs_pct"] = frame["rv_pctile"].rank(pct=True) * 100.0
+    frame["steepness_xs_pct"] = (frame["steepness"].rank(pct=True) * 100.0
+                                  if frame["steepness"].notna().sum() >= 5 else np.nan)
 
     targets = {
-        "Own convexity": (10.0, 10.0, 10.0),
-        "Harvest premium": (85.0, 90.0, 85.0),
-        "Calendar watch": (20.0, 90.0, 35.0),
-        "Front-stress watch": (90.0, 10.0, 90.0),
+        "Buy gamma / vega": (10.0, 10.0, 10.0, 50.0),
+        "Sell vega": (85.0, 90.0, 85.0, 50.0),
+        "Long calendar": (20.0, 90.0, 20.0, 50.0),
+        "Short calendar": (90.0, 10.0, 90.0, 90.0),
     }
+    dim_names = ("iv_xs_pct", "vrp_xs_pct", "rv_xs_pct", "steepness_xs_pct")
     frame["setup"] = None
     frame["setup_score"] = 0.0
     frame["fits"] = pd.Series([None] * len(frame), dtype=object)
+    frame["coverage_dims"] = 0
     for idx, row in frame.iterrows():
-        point = np.array([row["iv_xs_pct"], row["vrp_xs_pct"], row["rv_xs_pct"]], dtype=float)
+        point = np.array([row[name] for name in dim_names], dtype=float)
+        available = np.isfinite(point)
+        coverage = int(available.sum())
         fits = {}
         for name, target in targets.items():
-            if np.isnan(point).any():
+            if coverage < 3:
                 fits[name] = 0.0
                 continue
-            dist = float(np.sqrt(np.mean((point - np.array(target)) ** 2)))
-            fits[name] = round(max(0.0, 100.0 - dist), 1)
+            dist = float(np.sqrt(np.mean((point[available] - np.array(target)[available]) ** 2)))
+            raw = max(0.0, 100.0 - dist)
+            fits[name] = round(raw * coverage / 4.0, 1)
         best = max(fits, key=fits.get)
         frame.at[idx, "setup"] = best
         frame.at[idx, "setup_score"] = fits[best]
         frame.at[idx, "fits"] = fits
+        frame.at[idx, "coverage_dims"] = coverage
 
-    for col in ("iv_xs_pct", "vrp_xs_pct", "rv_xs_pct"):
+    for col in dim_names:
         frame[col] = frame[col].round(1)
     rows = frame.replace({np.nan: None}).to_dict("records")
-    by_ticker = {r["ticker"]: r for r in rows}
+    by_ticker = {row["ticker"]: row for row in rows}
+    for row in rows:
+        if row["coverage_dims"] < 4:
+            row["first_rejection"] = ("Fewer than five cross-sectional curve snapshots; score is provisional (3/4 dimensions)."
+                                      if row.get("steepness") is not None else
+                                      "No nightly term snapshot; score is provisional (3/4 dimensions).")
+        elif row["setup"] == "Long calendar" and abs(float(row.get("steepness") or 0)) > 0.05:
+            row["first_rejection"] = "Curve is not flat enough; the calendar thesis needs a cleaner tenor dislocation."
+        elif row["setup"] == "Sell vega" and float(row.get("vrp_log") or 0) <= 0:
+            row["first_rejection"] = "No positive volatility risk premium to harvest."
+        elif row["setup"] == "Buy gamma / vega" and float(row.get("vrp_log") or 0) > 0:
+            row["first_rejection"] = "Implied volatility still carries a premium to realized volatility."
+        else:
+            row["first_rejection"] = "Live bid/ask, catalyst timing, and executable structure still need confirmation."
 
     lanes = {}
     for name in targets:
-        ranked = sorted(rows, key=lambda r: -float((r.get("fits") or {}).get(name, 0)))
+        ranked = sorted(rows, key=lambda row: -float((row.get("fits") or {}).get(name, 0)))
         lanes[name] = [{
-            "ticker": r["ticker"], "score": (r.get("fits") or {}).get(name, 0),
-            "iv_pctile": r.get("pctile"), "rv_pctile": r.get("rv_pctile"),
-            "vrp": r.get("vrp"), "group": r.get("group"),
-        } for r in ranked[:20]]
+            "ticker": row["ticker"], "score": (row.get("fits") or {}).get(name, 0),
+            "coverage_dims": row.get("coverage_dims"), "iv_pctile": row.get("pctile"),
+            "rv_pctile": row.get("rv_pctile"), "vrp_log": row.get("vrp_log"),
+            "steepness_pctile": row.get("steepness_xs_pct"), "group": row.get("group"),
+            "first_rejection": row.get("first_rejection"),
+        } for row in ranked[:20]]
 
-    # Honest sector-dispersion lens: compare SPY with the sector ETF ensemble
-    # and pair it with realized sector correlation.  This is not labeled as
-    # implied correlation because sector weights and option surfaces differ.
-    sector_names = [t for t in OPTIONS_ETF_GROUPS["US sectors"] if t in by_ticker]
+    sector_names = [ticker for ticker in OPTIONS_ETF_GROUPS["US sectors"] if ticker in by_ticker]
     spy = by_ticker.get("SPY")
     dispersion = None
     if spy and len(sector_names) >= 6:
-        sector_rows = [by_ticker[t] for t in sector_names]
-        sec_iv = float(np.median([r["iv"] for r in sector_rows]))
-        sec_rv = float(np.median([r["rv21"] for r in sector_rows]))
+        sector_rows = [by_ticker[ticker] for ticker in sector_names]
+        sector_ivs = [float(row["iv"]) for row in sector_rows if row.get("iv")]
+        sector_rvs = [float(row["rv30"]) for row in sector_rows if row.get("rv30")]
+        sec_iv, sec_rv = float(np.median(sector_ivs)), float(np.median(sector_rvs))
         prices = data_provider.get_history(sector_names, start=str(
             pd.Timestamp.today().normalize() - pd.Timedelta(days=180))[:10])
-        closes = pd.concat({t: g["Close"] for t, g in prices.items()}, axis=1).dropna(how="all")
+        closes = pd.concat({ticker: group["Close"] for ticker, group in prices.items()}, axis=1).dropna(how="all")
         rets = closes.pct_change()
+
         def avg_corr(n):
             corr = rets.iloc[-n:].corr()
             if corr.empty:
                 return None
-            vals = corr.values[np.triu_indices(len(corr), 1)]
-            vals = vals[np.isfinite(vals)]
-            return round(float(vals.mean()), 3) if len(vals) else None
+            values = corr.values[np.triu_indices(len(corr), 1)]
+            values = values[np.isfinite(values)]
+            return round(float(values.mean()), 3) if len(values) else None
+
+        implied_rho = implied_correlation(spy["iv"], sector_ivs)
         dispersion = {
-            "sector_count": len(sector_rows),
-            "sector_median_iv": round(sec_iv, 4),
-            "spy_iv": spy["iv"],
-            "iv_spread_points": round((sec_iv - spy["iv"]) * 100.0, 2),
-            "sector_median_rv21": round(sec_rv, 4),
-            "spy_rv21": spy["rv21"],
-            "rv_spread_points": round((sec_rv - spy["rv21"]) * 100.0, 2),
-            "sector_corr_21d": avg_corr(21),
-            "sector_corr_63d": avg_corr(63),
-            "basis": "SPY versus median sector-ETF volatility; realized correlation is equal-weight across covered sectors",
+            "sector_count": len(sector_rows), "sector_median_iv": round(sec_iv, 4),
+            "spy_iv": spy["iv"], "iv_spread_points": round((sec_iv - spy["iv"]) * 100.0, 2),
+            "sector_median_rv30": round(sec_rv, 4), "spy_rv30": spy["rv30"],
+            "rv_spread_points": round((sec_rv - spy["rv30"]) * 100.0, 2),
+            "sector_corr_21d": avg_corr(21), "sector_corr_63d": avg_corr(63),
+            "implied_corr_proxy": round(float(implied_rho), 3) if implied_rho is not None else None,
+            "corr_shocks": [{"rho": rho, "basket_iv": round(float(basket_vol(sector_ivs, rho)), 4)}
+                             for rho in (0.2, 0.4, 0.6, 0.8)],
+            "basis": "Equal-weight sector-ETF variance proxy versus SPY; not constituent-weighted SPX implied correlation.",
         }
 
-    rich = sorted(rows, key=lambda r: (-r["score"], r["ticker"]))[:8]
-    cheap = sorted(rows, key=lambda r: (r["score"], r["ticker"]))[:8]
-    dates = [r["last"] for r in rows if r.get("last")]
+    rich = sorted(rows, key=lambda row: (-row["score"], row["ticker"]))[:8]
+    cheap = sorted(rows, key=lambda row: (row["score"], row["ticker"]))[:8]
+    dates = [row["last"] for row in rows if row.get("last")]
+    surface_dates = [row["surface_last"] for row in rows if row.get("surface_last")]
     return {
-        "asof": max(dates) if dates else None,
-        "n": int(len(rows)),
+        "asof": max(dates) if dates else None, "surface_asof": max(surface_dates) if surface_dates else None,
+        "n": int(len(rows)), "surface_n": sum(1 for row in rows if row.get("surface_last")),
+        "full_4d_n": sum(1 for row in rows if row.get("coverage_dims") == 4),
         "median_iv_pctile": round(float(frame["pctile"].median()), 1),
         "median_vrp": round(float(frame["vrp"].median()), 4),
+        "median_vrp_log": round(float(frame["vrp_log"].median()), 2),
         "cheap_share": round(float((frame["score"] < 35).mean()), 4),
         "rich_share": round(float((frame["score"] > 65).mean()), 4),
-        "rich": rich,
-        "cheap": cheap,
+        "rich": rich, "cheap": cheap,
         "groups": [{"name": group, "tickers": tickers} for group, tickers in OPTIONS_ETF_GROUPS.items()],
-        "etfs": sorted(rows, key=lambda r: (r["group"], r["ticker"])),
-        "lanes": lanes,
-        "dispersion": dispersion,
+        "etfs": sorted(rows, key=lambda row: (row["group"], row["ticker"])),
+        "lanes": lanes, "dispersion": dispersion,
         "methodology": {
-            "iv": "IBKR 30d underlying implied-volatility history; within-name percentile uses the latest 252 observations",
-            "rv": "21d annualized Yang-Zhang volatility; percentile uses roughly three years of rolling observations",
-            "vrp": "IV30 / RV21 - 1",
-            "scanner": "Daily percentile ranks within the covered ETF universe. Term structure is intentionally a live confirmation step.",
+            "iv": "IBKR 30d constant-maturity IV when recorded; underlying 30d IV history is the fallback",
+            "rv": "30d annualized Yang-Zhang realized volatility; percentiles use roughly three years",
+            "vrp": "100 * ln(IV30 / RV30)",
+            "steepness": "IV30 / IV90 - 1; daily cross-sectional percentile",
+            "scanner": "RMS distance to four target archetypes. Missing curve data reduces coverage and score; candidates are not recommendations.",
         },
     }
 
@@ -2189,7 +2261,7 @@ def main():
              "stopfills": False, "drawdowns": False, "sector_risk": False,
              "gate_lab": False, "ext_lab": False, "trade_mtm": False,
              "sizer": False, "health": False,
-             "iv_context": False, "options_market": False,
+             "iv_context": False, "option_surface": False, "options_market": False,
              "strategy_stats": False, "earnings_next": False,
              "seasonality": False, "macro_sznl": False, "montecarlo": False}
     if args.no_mtm:
@@ -2258,7 +2330,8 @@ def main():
 
     # options-workbench payloads — all best effort
     iv_context = best_effort("iv_context", build_iv_context)
-    best_effort("options_market", build_options_market, iv_context)
+    option_surface = best_effort("option_surface", build_option_surface_context)
+    best_effort("options_market", build_options_market, iv_context, option_surface)
     best_effort("strategy_stats", build_strategy_stats, df)
     best_effort("earnings_next", build_earnings_next)
     upload_universe()

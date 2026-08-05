@@ -94,4 +94,24 @@ assert.strictEqual(
 );
 assert.ok(forecast.touchWorst <= forecast.touchBest);
 
-console.log("PASS options lab regime, term/forward math, guidance, pricing, defined-risk sizing, credit orientation, and forecast scoring");
+const frontChain = { expiry: "20260918", dte: 44, strikes: [
+  { strike: 100, right: "C", con_id: 11, bid: 2.40, ask: 2.60, mid: 2.50,
+    delta: 0.50, gamma: 0.02, theta: -0.08, vega: 0.10, iv: 0.20, oi: 100 },
+] };
+const backChain = { expiry: "20261016", dte: 72, strikes: [
+  { strike: 100, right: "C", con_id: 12, bid: 3.90, ask: 4.10, mid: 4.00,
+    delta: 0.52, gamma: 0.015, theta: -0.06, vega: 0.15, iv: 0.22, oi: 150 },
+] };
+const calendar = context.calendarStructureFrom(frontChain, backChain, "C", 100);
+assert.ok(calendar);
+assert.strictEqual(calendar.category, "calendar");
+assert.strictEqual(calendar.mid, 1.50);
+assert.deepStrictEqual(
+  JSON.parse(JSON.stringify(context.canonicalPayloadLegs(calendar, "20260918", "BUY").map((leg) => leg.expiry))),
+  ["20260918", "20261016"],
+);
+const position = context.positioningMetrics({ spot: 100, chain: frontChain }, null);
+assert.strictEqual(position.totalOi, 100);
+assert.strictEqual(position.maxGammaStrike, 100);
+
+console.log("PASS options lab regime, term/forward math, skew/positioning, calendar construction, pricing, sizing, credit orientation, and forecast scoring");
