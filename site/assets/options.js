@@ -23,6 +23,7 @@ const COMM = 0.65;                    // $/contract per leg per side
 const state = {
   params: {},                          // prefill from the query string
   ivCtx: null, market: null, stats: null, earn: null, signals: null,
+  seasonalTheses: null, risk: null,
   section: "moontower", marketTicker: null,
   marketGroup: "All ETFs",
   wb: null,                            // latest workbench result
@@ -30,6 +31,7 @@ const state = {
   structures: [],                      // shootout rows (assembled client-side)
   selStructure: null,
   manual: { view: "bullish", horizon: 10, risk: 1500, target: null, adverse: null, fraction: 1.0 },
+  house: { source: "seasonal", appliedSource: null, appliedHorizon: null },
   forecast: {
     active: false, event: "touch", target: null, probability: 0.50,
     cutoff: defaultForecastDate(), touchIvShift: 8, noTouchSpot: null,
@@ -51,14 +53,17 @@ async function initOptions() {
   state.manual.horizon = state.params.hold || 10;
   state.manual.risk = state.params.risk || 1500;
   state.manual.fraction = hasSignal() ? 0.5 : 1.0;
-  const [iv, market, stats, earn, sig] = await Promise.all([
+  const [iv, market, stats, earn, sig, seasonalTheses, risk] = await Promise.all([
     fetchJSONOrNull("data/iv_context.json"),
     fetchJSONOrNull("data/options_market.json"),
     fetchJSONOrNull("data/strategy_stats.json"),
     fetchJSONOrNull("data/earnings_next.json"),
     fetchJSONOrNull("data/signals.json"),
+    fetchJSONOrNull("data/seasonality/theses.json"),
+    fetchJSONOrNull("data/risk.json"),
   ]);
   state.ivCtx = iv; state.market = market; state.stats = stats; state.earn = earn; state.signals = sig;
+  state.seasonalTheses = seasonalTheses; state.risk = risk;
   document.getElementById("content").innerHTML = shell();
   document.querySelectorAll("[data-opt-section]").forEach((button) =>
     button.addEventListener("click", () => switchOptionsSection(button.dataset.optSection)));
@@ -132,7 +137,7 @@ function syncToolbar() {
   state.manual.horizon = tradeHorizon();
   state.manual.risk = tradeRisk();
   if (state.wb) {
-    renderThesis(); renderComparator(); buildStructures(); renderForecastLab(); renderShootout();
+    renderHouseThesis(); renderThesis(); renderComparator(); buildStructures(); renderForecastLab(); renderShootout();
     renderScenarioLab(); renderSizing(); renderTicket();
   }
 }
@@ -172,6 +177,7 @@ function shell() {
     <section id="ideasSection" role="tabpanel" hidden>
       <div id="ideaBridge"></div>
       ${signalContextHtml(p)}
+      <div id="houseThesis"></div>
       <div id="thesis"></div>
       <div id="forecastLab"></div>
       <div id="calendarBuilder"></div>
@@ -442,10 +448,12 @@ function renderThesis() {
   const el = document.getElementById("thesis");
   if (!el || !state.wb || hasSignal()) { if (el) el.innerHTML = ""; return; }
   const d = thesisDefaults();
+  const appliedLabel = state.house.appliedSource === "risk" ? "SPY risk-dial thesis"
+    : state.house.appliedSource === "seasonal" ? "Seasonal thesis" : "Manual thesis";
   if (state.manual.target == null) state.manual.target = round2(d.target);
   if (state.manual.adverse == null) state.manual.adverse = round2(d.adverse);
   el.innerHTML = `<div class="card" style="margin-bottom:12px">
-    <div style="font:700 14px inherit;margin-bottom:7px">Manual thesis
+    <div style="font:700 14px inherit;margin-bottom:7px">${appliedLabel}
       <span class="cap" style="display:inline;font-weight:400">· used for horizon P&amp;L, ranking, and sizing—not an order condition</span></div>
     <div class="opt-thesis">
       <label><span>Underlying now</span><input value="${fmt.num(state.wb.spot, 2)}" disabled></label>
@@ -597,6 +605,9 @@ async function loadTicker(expiry) {
   if (!expiry && (!state.wb || state.wb.ticker !== ticker)) {
     state.manual.target = null;
     state.manual.adverse = null;
+    state.house.appliedSource = null;
+    state.house.appliedHorizon = null;
+    state.house.source = "seasonal";
     state.calendar = { front: null, back: null, frontChain: null, backChain: null, loading: false, error: null };
   }
   const msg = document.getElementById("wbMsg");
@@ -660,6 +671,7 @@ async function pollWb(n, expiryOnly) {
 
 function renderAll() {
   renderTradeIdeaBridge();
+  renderHouseThesis();
   renderThesis();
   renderIvStrip();
   renderVolDashboard();
@@ -729,7 +741,10 @@ function renderTradeIdeaBridge() {
   const el = document.getElementById("ideaBridge"), wb = state.wb;
   if (!el || !wb) { if (el) el.innerHTML = ""; return; }
   const candidate = ((state.market || {}).etfs || []).find((row) => row.ticker === wb.ticker);
-  const source = hasSignal() ? `${state.params.strategy || "strategy"} signal` : "manual thesis";
+  const houseLabel = state.house.appliedSource === "risk"
+    ? "SPY risk-dial distribution"
+    : state.house.appliedSource === "seasonal" ? "weighted seasonal distribution" : null;
+  const source = houseLabel || (hasSignal() ? `${state.params.strategy || "strategy"} signal` : "manual thesis");
   const candidateHtml = candidate ? `<div><span>Screen provenance</span><b>${esc(candidate.setup)} · ${fmt.num(candidate.setup_score, 0)} · ${candidate.coverage_dims}/4 dimensions</b></div>` :
     '<div><span>Screen provenance</span><b>Outside the ranked ETF cockpit</b></div>';
   el.innerHTML = `<div class="card opt-idea-bridge"><div class="opt-section-head"><div><b>How this trade idea is formed</b><div class="cap">Thesis supplies direction, prices, timing, probability, and risk; the chain supplies only feasible structures and executable costs.</div></div></div>
@@ -737,7 +752,191 @@ function renderTradeIdeaBridge() {
       <div><span>Available set</span><b>${(wb.chain && wb.chain.strikes || []).length} quoted contracts · ${(wb.expiries || []).length} expiries</b></div>
       <div><span>Ranking engine</span><b>Scenario P&amp;L, executable marks, spread tax, Greeks, and defined risk</b></div></div>
     ${candidate ? `<div class="opt-evidence-bar"><b>First rejection:</b> ${esc(candidate.first_rejection || "Live liquidity and catalyst timing still need confirmation.")}</div>` : ""}
-    <div class="cap">The screen never invents a bullish/bearish thesis or probability. Forecast probability remains your input; BSM is a scenario repricer, not a prediction model.</div></div>`;
+    <div class="cap">The volatility screen never invents direction. A selected house distribution can pre-fill an editable candidate thesis; BSM remains a scenario repricer, not a prediction model.</div></div>`;
+}
+
+function futureBusinessDate(days) {
+  const d = new Date(); d.setHours(12, 0, 0, 0);
+  let left = Math.max(0, Math.round(Number(days) || 0));
+  while (left > 0) {
+    d.setDate(d.getDate() + 1);
+    if (d.getDay() > 0 && d.getDay() < 6) left--;
+  }
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+function nearestHorizon(keys, requested) {
+  const values = (keys || []).map(Number).filter((value) => isFinite(value) && value > 0);
+  if (!values.length) return null;
+  return values.reduce((best, value) => Math.abs(value - requested) < Math.abs(best - requested) ? value : best, values[0]);
+}
+
+function shrinkHouseProbability(raw, n, strength = 4) {
+  const sample = Math.max(0, Number(n) || 0);
+  const p = Math.max(0, Math.min(1, Number(raw)));
+  return (p * sample + 0.5 * strength) / (sample + strength);
+}
+
+function seasonalHouseThesis(ticker, requestedHorizon) {
+  const payload = state.seasonalTheses || {};
+  const record = (payload.tickers || {})[String(ticker || "").toUpperCase()];
+  if (!record || !record.horizons) return null;
+  const horizon = nearestHorizon(Object.keys(record.horizons), requestedHorizon);
+  const dist = record.horizons[String(horizon)] || {};
+  if (!dist.eligible) return {
+    sourceKey: "seasonal", sourceLabel: "Seasonal distribution", horizon,
+    eligible: false, asof: record.asof, firstRejection: dist.first_rejection || "Insufficient seasonal history.",
+    nSame: dist.n_same_cycle || 0, nOther: dist.n_other_cycle || 0,
+  };
+  const pUp = Number(dist.p_up);
+  const direction = pUp >= 0.5 ? "bullish" : "bearish";
+  const side = direction === "bullish" ? dist.bull : dist.bear;
+  const spot = Number((state.wb || {}).spot);
+  const targetReturn = Number(side && side.target_return);
+  const noTouchReturn = Number(side && side.no_touch_return);
+  const adverseReturn = direction === "bullish" ? Number(dist.q10) : Number(dist.q90);
+  const probability = Number(side && side.touch_probability);
+  return {
+    sourceKey: "seasonal", sourceLabel: "Seasonal distribution", eligible: true,
+    horizon, asof: record.asof, direction, pUp,
+    probability: isFinite(probability) ? probability : Number(side.terminal_probability),
+    terminalProbability: Number(side.terminal_probability), event: "touch",
+    targetReturn, noTouchReturn, adverseReturn,
+    target: spot * (1 + targetReturn),
+    noTouchSpot: spot * (1 + noTouchReturn),
+    adverse: spot * (1 + adverseReturn),
+    q10: Number(dist.q10), q25: Number(dist.q25), median: Number(dist.median),
+    q75: Number(dist.q75), q90: Number(dist.q90), mean: Number(dist.mean_return),
+    forecastRv: dist.forecast_rv == null ? null : Number(dist.forecast_rv),
+    effectiveN: Number(dist.effective_n), nSame: dist.n_same_cycle, nOther: dist.n_other_cycle,
+    confidence: dist.confidence || "low", firstRejection: dist.first_rejection,
+    methodology: "70% same presidential-cycle years + 30% other-cycle years; disjoint cohorts; 20-year recency half-life.",
+  };
+}
+
+function riskHouseThesis(requestedHorizon) {
+  const risk = state.risk || {};
+  const all = risk.forward_returns || {};
+  const scoreKey = requestedHorizon <= 7 ? "5d" : requestedHorizon <= 31 ? "21d" : "63d";
+  const block = all[scoreKey];
+  if (!block || !block.returns) return null;
+  const horizon = nearestHorizon(Object.keys(block.returns).filter((key) => block.returns[key]), requestedHorizon);
+  const dist = block.returns[String(horizon)] || block.returns[horizon];
+  if (!dist) return null;
+  const n = Number(dist.n || block.n_episodes || 0);
+  const rawPUp = dist.p_up != null ? Number(dist.p_up) : 1 - Number(dist.pct_neg);
+  const pUp = shrinkHouseProbability(rawPUp, n);
+  const direction = pUp >= 0.5 ? "bullish" : "bearish";
+  const targetReturn = direction === "bullish"
+    ? Number(dist.up_median != null ? dist.up_median : dist.q75 != null ? dist.q75 : dist.median)
+    : Number(dist.down_median != null ? dist.down_median : dist.q25 != null ? dist.q25 : dist.median);
+  const noTouchReturn = direction === "bullish"
+    ? Number(dist.down_median != null ? dist.down_median : dist.q25 != null ? dist.q25 : 0)
+    : Number(dist.up_median != null ? dist.up_median : dist.q75 != null ? dist.q75 : 0);
+  const adverseReturn = direction === "bullish"
+    ? Number(dist.q10 != null ? dist.q10 : dist.worst)
+    : Number(dist.q90 != null ? dist.q90 : dist.best);
+  const spot = Number((state.wb || {}).spot);
+  return {
+    sourceKey: "risk", sourceLabel: "SPY risk-dial distribution", eligible: n >= 5,
+    horizon, scoreKey, asof: risk.asof, direction, pUp,
+    probability: direction === "bullish" ? pUp : 1 - pUp,
+    terminalProbability: direction === "bullish" ? pUp : 1 - pUp,
+    event: "terminal", targetReturn, noTouchReturn, adverseReturn,
+    target: spot * (1 + targetReturn), noTouchSpot: spot * (1 + noTouchReturn),
+    adverse: spot * (1 + adverseReturn),
+    q10: Number(dist.q10 != null ? dist.q10 : dist.worst),
+    q25: Number(dist.q25 != null ? dist.q25 : dist.median), median: Number(dist.median),
+    q75: Number(dist.q75 != null ? dist.q75 : dist.median),
+    q90: Number(dist.q90 != null ? dist.q90 : dist.best), mean: Number(dist.mean),
+    effectiveN: n, nSame: null, nOther: null,
+    confidence: n >= 20 ? "moderate" : "low",
+    firstRejection: n >= 5
+      ? "Fragility analogues are declustered historical episodes, not a causal forecast; current catalysts can dominate."
+      : "Fewer than five complete similar-fragility episodes.",
+    methodology: `${scoreKey} risk-dial analogues, independently sampled; no seasonal data is included.`,
+  };
+}
+
+function availableThesisSources(ticker) {
+  const symbol = String(ticker || "").toUpperCase();
+  const out = [];
+  if (seasonalHouseThesis(symbol, tradeHorizon())) out.push("seasonal");
+  if (symbol === "SPY" && riskHouseThesis(tradeHorizon())) out.push("risk");
+  return out;
+}
+
+function activeHouseThesis() {
+  const wb = state.wb;
+  if (!wb) return null;
+  if (state.house.source === "risk" && wb.ticker === "SPY") return riskHouseThesis(tradeHorizon());
+  return seasonalHouseThesis(wb.ticker, tradeHorizon());
+}
+
+function applyHouseThesis(thesis) {
+  if (!thesis || !thesis.eligible || !isFinite(thesis.target) || !isFinite(thesis.probability)) return;
+  state.house.appliedSource = thesis.sourceKey;
+  state.house.appliedHorizon = thesis.horizon;
+  state.manual.view = thesis.direction;
+  state.params.dir = thesis.direction === "bearish" ? "Short" : "Long";
+  state.manual.target = thesis.target;
+  state.manual.adverse = thesis.adverse;
+  const view = document.getElementById("wbView"); if (view) view.value = thesis.direction;
+  const horizon = document.getElementById("wbHorizon");
+  if (horizon && !horizon.disabled) { horizon.value = thesis.horizon; state.manual.horizon = thesis.horizon; }
+  state.forecast.active = false;
+  state.forecast.event = thesis.event;
+  state.forecast.target = round2(thesis.target);
+  state.forecast.probability = Math.max(0, Math.min(1, thesis.probability));
+  state.forecast.cutoff = futureBusinessDate(thesis.horizon);
+  state.forecast.noTouchSpot = round2(thesis.noTouchSpot);
+  renderAll();
+}
+
+function renderHouseThesis() {
+  const el = document.getElementById("houseThesis"), wb = state.wb;
+  if (!el || !wb) { if (el) el.innerHTML = ""; return; }
+  const isSpy = wb.ticker === "SPY";
+  if (!isSpy && state.house.source === "risk") state.house.source = "seasonal";
+  const seasonal = seasonalHouseThesis(wb.ticker, tradeHorizon());
+  const risk = isSpy ? riskHouseThesis(tradeHorizon()) : null;
+  if (state.house.source === "seasonal" && !seasonal && risk) state.house.source = "risk";
+  if (state.house.source === "risk" && !risk && seasonal) state.house.source = "seasonal";
+  const tabs = [
+    `<button class="btn xs ${state.house.source === "seasonal" ? "" : "ghost"}" data-house-source="seasonal"${seasonal ? "" : " disabled"}>Seasonal</button>`,
+    isSpy ? `<button class="btn xs ${state.house.source === "risk" ? "" : "ghost"}" data-house-source="risk"${risk ? "" : " disabled"}>Risk dial</button>` : "",
+  ].join("");
+  const thesis = activeHouseThesis();
+  if (!thesis) {
+    el.innerHTML = `<div class="card opt-house-thesis"><div class="opt-section-head"><div><b>House forward distribution</b><div class="cap">No compatible ${isSpy ? "seasonal or risk-dial" : "seasonal"} history is available for this ticker.</div></div><div>${tabs}</div></div></div>`;
+    return;
+  }
+  if (!thesis.eligible) {
+    el.innerHTML = `<div class="card opt-house-thesis"><div class="opt-section-head"><div><b>${esc(thesis.sourceLabel)}</b><div class="cap">${thesis.horizon || "?"} trading-day candidate prior</div></div><div>${tabs}</div></div>
+      <div class="opt-risk-warn">${esc(thesis.firstRejection)}</div><div class="cap">Same-cycle observations ${thesis.nSame || 0} · other-cycle observations ${thesis.nOther || 0}. Manual thesis remains available below.</div></div>`;
+  } else {
+    const sideProbability = thesis.probability;
+    const applied = state.house.appliedSource === thesis.sourceKey && state.house.appliedHorizon === thesis.horizon;
+    el.innerHTML = `<div class="card opt-house-thesis"><div class="opt-section-head"><div><div class="cap">House forward distribution · candidate prior</div><b>${esc(thesis.sourceLabel)}</b> <span class="badge ${thesis.confidence === "moderate" ? "ok" : "warn"}">${esc(String(thesis.confidence).toUpperCase())} CONFIDENCE</span></div><div class="opt-house-tabs">${tabs}</div></div>
+      ${isSpy ? '<div class="opt-source-independence">SPY sources are independent. Selecting Risk dial does not adjust or blend the seasonal distribution.</div>' : ""}
+      <div class="opt-house-kpis">
+        <div><span>Bias</span><b class="${thesis.direction === "bullish" ? "pos" : "neg"}">${esc(thesis.direction.toUpperCase())}</b><small>${thesis.horizon} trading days</small></div>
+        <div><span>Probability up</span><b>${fmt.pct(thesis.pUp, 1)}</b><small>${thesis.sourceKey === "seasonal" ? "shrunk weighted frequency" : thesis.scoreKey + " analogue sample"}</small></div>
+        <div><span>${thesis.event === "touch" ? "Target-touch odds" : "Representative-side odds"}</span><b>${fmt.pct(sideProbability, 1)}</b><small>target ${fmt.money(thesis.target)}</small></div>
+        <div><span>Median / mean</span><b>${fmt.pct(thesis.median, 1)} / ${fmt.pct(thesis.mean, 1)}</b><small>${thesis.effectiveN ? `effective n ${fmt.num(thesis.effectiveN, 1)}` : ""}</small></div>
+      </div>
+      <div class="opt-distribution-band"><span>p10 ${fmt.pct(thesis.q10, 1)}</span><span>p25 ${fmt.pct(thesis.q25, 1)}</span><b>p50 ${fmt.pct(thesis.median, 1)}</b><span>p75 ${fmt.pct(thesis.q75, 1)}</span><span>p90 ${fmt.pct(thesis.q90, 1)}</span></div>
+      <div class="opt-house-grid"><div><span>Representative target</span><b>${fmt.money(thesis.target)} (${fmt.pct(thesis.targetReturn, 1)})</b></div><div><span>Adverse tail</span><b>${fmt.money(thesis.adverse)} (${fmt.pct(thesis.adverseReturn, 1)})</b></div>
+        <div><span>As of</span><b>${esc(thesis.asof || "?")}</b></div><div><span>Method</span><b>${esc(thesis.methodology)}</b></div></div>
+      <div class="opt-evidence-bar"><b>First rejection:</b> ${esc(thesis.firstRejection || "Current catalyst and live option pricing still need confirmation.")}</div>
+      <div class="opt-house-actions"><button class="btn" id="house_apply">Apply to Forecast Lab</button>${applied ? '<span class="badge ok">APPLIED · STILL EDITABLE</span>' : '<span class="cap">Preview only until applied. This does not place or stage an order.</span>'}</div></div>`;
+  }
+  el.querySelectorAll("[data-house-source]").forEach((button) => button.addEventListener("click", () => {
+    state.house.source = button.dataset.houseSource;
+    renderHouseThesis();
+  }));
+  const apply = document.getElementById("house_apply");
+  if (apply) apply.addEventListener("click", () => applyHouseThesis(activeHouseThesis()));
 }
 
 /* ---------------- term structure + realized-vol cone ---------------- */

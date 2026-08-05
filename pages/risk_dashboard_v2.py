@@ -2003,6 +2003,17 @@ def compute_similar_reading_returns(
                 'mean': sig_fwd.mean(),
                 'median': sig_fwd.median(),
                 'pct_neg': (sig_fwd < 0).mean(),
+                # Distribution fields are consumed by the Options page's
+                # independent "Risk dial" thesis source.  They describe the
+                # exact same declustered analogue sample as the legacy table;
+                # no seasonal information is blended into them.
+                'p_up': (sig_fwd > 0).mean(),
+                'q10': sig_fwd.quantile(0.10),
+                'q25': sig_fwd.quantile(0.25),
+                'q75': sig_fwd.quantile(0.75),
+                'q90': sig_fwd.quantile(0.90),
+                'up_median': sig_fwd[sig_fwd > 0].median() if (sig_fwd > 0).any() else None,
+                'down_median': sig_fwd[sig_fwd < 0].median() if (sig_fwd < 0).any() else None,
                 'worst': sig_fwd.min(),
                 'best': sig_fwd.max(),
                 'uncond_mean': uncond_mean,

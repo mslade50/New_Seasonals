@@ -5,7 +5,11 @@ from pathlib import Path
 
 import pandas as pd
 
-from scripts.seasonality_site_data import export_seasonality_snapshot, prepare_ticker_frame
+from scripts.seasonality_site_data import (
+    build_weighted_seasonal_distribution,
+    export_seasonality_snapshot,
+    prepare_ticker_frame,
+)
 
 
 def _fixture_prices() -> pd.DataFrame:
@@ -56,6 +60,9 @@ def test_export_is_read_only_and_writes_compact_per_ticker_payloads(tmp_path: Pa
     assert manifest["atr"] == {"window": 14, "method": "simple rolling mean of true range"}
 
     disk_manifest = json.loads((output / "manifest.json").read_text(encoding="utf-8"))
+    thesis_payload = json.loads((output / "theses.json").read_text(encoding="utf-8"))
+    assert thesis_payload["methodology"]["same_cycle_weight"] == 0.7
+    assert thesis_payload["methodology"]["other_cycle_weight"] == 0.3
     assert disk_manifest["tickers"]["SPY"]["start"] == "2000-01-03"
     assert disk_manifest["tickers"]["SPY"]["n"] == 18
 
@@ -75,3 +82,43 @@ def test_export_is_read_only_and_writes_compact_per_ticker_payloads(tmp_path: Pa
     index_id = disk_manifest["tickers"]["^GSPC"]["id"]
     assert "/" not in index_id and "\\" not in index_id
     assert (output / "t" / f"{index_id}.bin").is_file()
+
+
+def test_weighted_distribution_uses_disjoint_70_30_cohorts():
+    rows = []
+    # 2026 is a midterm year.  Same-cycle windows finish +10%; every other
+    # cycle finishes -10%.  With no recency decay, a disjoint 70/30 mixture
+    # must therefore have a +4% weighted mean and exactly 70% raw up mass.
+    for year in range(2000, 2027):
+        dates = pd.bdate_range(f"{year}-01-03", periods=10 if year == 2026 else 30)
+        same_cycle = year % 4 == 2026 % 4
+        for i, date in enumerate(dates):
+            if year == 2026 or i <= 9:
+                close = 100.0
+            elif i <= 14:
+                end = 110.0 if same_cycle else 90.0
+                close = 100.0 + (end - 100.0) * (i - 9) / 5.0
+            else:
+                close = 110.0 if same_cycle else 90.0
+            rows.append({
+                "date": date,
+                "High": close + 0.5,
+                "Low": close - 0.5,
+                "Close": close,
+                "ATR": 2.0,
+            })
+    prepared = pd.DataFrame(rows)
+    result = build_weighted_seasonal_distribution(
+        prepared, asof=prepared[prepared["date"].dt.year == 2026]["date"].max(),
+        horizons=(5,), half_life=0)
+    dist = result["horizons"]["5"]
+
+    assert dist["eligible"] is True
+    assert dist["n_same_cycle"] == 6
+    assert dist["n_other_cycle"] == 20
+    assert dist["same_cycle_weight"] == 0.7
+    assert dist["other_cycle_weight"] == 0.3
+    assert dist["p_up_raw"] == 0.7
+    assert abs(dist["mean_return"] - 0.04) < 1e-9
+    # The auto-thesis probability is deliberately shrunk toward 50%.
+    assert 0.5 < dist["p_up"] < dist["p_up_raw"]

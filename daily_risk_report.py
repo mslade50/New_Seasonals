@@ -179,9 +179,12 @@ def build_forward_returns_data(frag_df, spy_close, h_scores):
 
     results = {}
     for horizon in ['5d', '21d', '63d']:
-        score = h_scores.get(horizon, 0)
-        if score == 0:
+        if horizon not in h_scores or h_scores.get(horizon) is None:
             continue
+        # Zero is a real (robust) risk-dial reading, not missing data.  The
+        # Options page can use its own historical analogue distribution as an
+        # independent SPY thesis source, so retain it here.
+        score = h_scores[horizon]
         frag_series = frag_df[horizon].dropna()
         if frag_series.empty:
             continue

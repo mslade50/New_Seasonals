@@ -114,4 +114,47 @@ const position = context.positioningMetrics({ spot: 100, chain: frontChain }, nu
 assert.strictEqual(position.totalOi, 100);
 assert.strictEqual(position.maxGammaStrike, 100);
 
-console.log("PASS options lab regime, term/forward math, skew/positioning, calendar construction, pricing, sizing, credit orientation, and forecast scoring");
+vm.runInNewContext(`
+state.wb = {ticker: "SPY", spot: 100, chain: {strikes: []}, expiries: []};
+state.manual.horizon = 10;
+state.seasonalTheses = {tickers: {
+  SPY: {asof: "2026-08-04", horizons: {"10": {
+    eligible: true, n_same_cycle: 6, n_other_cycle: 20, effective_n: 9.5,
+    confidence: "moderate", p_up: 0.62, mean_return: 0.012, median: 0.01,
+    q10: -0.03, q25: -0.01, q75: 0.025, q90: 0.04, forecast_rv: 0.17,
+    bull: {target_return: 0.022, terminal_probability: 0.62, touch_probability: 0.71, no_touch_return: -0.006},
+    bear: {target_return: -0.018, terminal_probability: 0.38, touch_probability: 0.45, no_touch_return: 0.009},
+    first_rejection: "Current catalysts can dominate."
+  }}},
+  QQQ: {asof: "2026-08-04", horizons: {"10": {
+    eligible: true, n_same_cycle: 6, n_other_cycle: 20, effective_n: 9,
+    confidence: "moderate", p_up: 0.58, mean_return: 0.01, median: 0.008,
+    q10: -0.04, q25: -0.015, q75: 0.03, q90: 0.05, forecast_rv: 0.22,
+    bull: {target_return: 0.025, terminal_probability: 0.58, touch_probability: 0.67, no_touch_return: -0.01},
+    bear: {target_return: -0.022, terminal_probability: 0.42, touch_probability: 0.48, no_touch_return: 0.01},
+    first_rejection: "Current catalysts can dominate."
+  }}}
+}};
+state.risk = {asof: "2026-08-04", forward_returns: {"21d": {
+  n_episodes: 10, returns: {"10": {n: 10, p_up: 0.30, pct_neg: 0.70,
+    mean: -0.012, median: -0.008, q10: -0.06, q25: -0.03, q75: 0.012, q90: 0.025,
+    up_median: 0.015, down_median: -0.025, worst: -0.08, best: 0.04}}
+}}};
+`, context);
+const seasonalThesis = context.seasonalHouseThesis("SPY", 10);
+assert.strictEqual(seasonalThesis.sourceKey, "seasonal");
+assert.strictEqual(seasonalThesis.event, "touch");
+assert.strictEqual(seasonalThesis.direction, "bullish");
+assert.strictEqual(seasonalThesis.target, 102.2);
+assert.strictEqual(seasonalThesis.probability, 0.71);
+
+const riskThesis = context.riskHouseThesis(10);
+assert.strictEqual(riskThesis.sourceKey, "risk");
+assert.strictEqual(riskThesis.event, "terminal");
+assert.strictEqual(riskThesis.direction, "bearish");
+assert.ok(riskThesis.methodology.includes("no seasonal data"));
+assert.ok(riskThesis.target < 100);
+assert.deepStrictEqual(JSON.parse(JSON.stringify(context.availableThesisSources("SPY"))), ["seasonal", "risk"]);
+assert.deepStrictEqual(JSON.parse(JSON.stringify(context.availableThesisSources("QQQ"))), ["seasonal"]);
+
+console.log("PASS options lab regime, term/forward math, skew/positioning, independent house theses, calendar construction, pricing, sizing, credit orientation, and forecast scoring");
