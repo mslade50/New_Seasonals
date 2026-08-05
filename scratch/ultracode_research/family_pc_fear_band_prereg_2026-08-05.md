@@ -74,12 +74,21 @@ re-partitioned, not a different sample.
    2026, plus any accrued under gate 2) must leave the fear-ON hi-frag
    cell positive. If one episode carries the sign, the candidacy dies.
 4. **Live PIT availability + staleness convention decided BEFORE the
-   study.** CBOE publishes the ratio end-of-day; the AM scan (~4:47 ET)
-   sizes next-day entries — verify the nightly workflow's row for the
-   signal date is present when daily_scan runs, define the stale/missing
-   rule as **fail-CLOSED to the incumbent 0.25x** (never fail-open to
-   full size), and add the composition order (2b band before/after the
-   fear check) to tests/test_frag_risk_bands.py first.
+   study.** MEASURED 2026-08-05: the 21:30 UTC nightly scrape does NOT
+   capture same-day — commit vintages show each run captures only D-1
+   (CBOE's daily page for D populates sometime after ~22:30 UTC; a
+   ~11:30 ET D+1 scrape does get D). So at the AM scan (~4:47 ET) the
+   committed parquet ends at D-1 relative to a signal-date-D close.
+   Consequence: the fear state MUST be pre-specified as **computed on
+   data through D-1** (lag-1). The 10d MA + 252d percentile makes the
+   one-day difference tiny, and gate 1's study must use the same lag-1
+   stamping so live == studied. (Optional later upgrade: an AM capture
+   run à la the risk-report correction, only if an overnight test shows
+   the page populated by ~4:15 ET; NOT a gate.) Stale/missing rule:
+   **fail-CLOSED to the incumbent 0.25x** (never fail-open to full
+   size) when the newest row is older than 3 trading days. Add the
+   composition order (2b band before/after the fear check) to
+   tests/test_frag_risk_bands.py first.
 5. **Parity + aligned sites.** Engine (strat_backtester 3b3
    frag_band_mult_at) and scan (daily_scan 2b frag_band_mult) must move
    together with a parity script per scratch/parity_check_frag_bands.py;
