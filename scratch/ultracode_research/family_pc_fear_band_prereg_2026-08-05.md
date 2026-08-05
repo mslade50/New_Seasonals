@@ -1,0 +1,107 @@
+# Pre-registration: P/C-fear exemption to the FAMILY4 frag band
+
+Registered 2026-08-05, BEFORE the decisive study has run. Source: the
+equity put/call deep-backfill session (scratch/putcall_dial_study.py,
+putcall_5d_trade_sim.py, family_dipbuy_putcall_study.py,
+family_dial_pc_interaction.py / family_dial_pc_ttest.py). No config
+change ships until every gate below clears and the result is signed off.
+
+## The candidate
+
+The dip-buy family band carriers (FAMILY4: Weak Close Decent Sznls,
+SPY QQQ MonFri Reversion, Monday Dip, Indices Oversold Bounce; plus
+3x Bear ETF Overbot Fade and Monthly Weak Close) currently run
+`frag_risk_bands = [[50, 999, 0.25]]`. Candidate: on signal dates where
+the **equity P/C fear state is ON** — trailing-252d percentile of the
+10d MA of the CBOE equity put/call ratio (data/cboe_putcall.parquet,
+self-maintained nightly) **> 85 as of the signal-date close** — the
+band multiplier reverts to **1.0x**. All other dial>=50 days keep 0.25x.
+The ONLY pre-named alternative multiplier is 0.5x (if evidence lands
+mid); no other value may be adopted.
+
+Mechanism claim being tested: dial>=50 with complacent/neutral
+positioning = falling knife (sellers remain); dial>=50 with washed-out
+positioning = capitulation, which is the dip a mean-reversion entry
+wants. The 2x2 that motivated this (research-recompute dial, 10d MA,
+2016-06 -> 2026-05, 495 family trades):
+
+|                | dial<50            | dial>=50               |
+|----------------|--------------------|------------------------|
+| no fear        | +0.59R, 73% (312)  | **-0.34R, 33% (70)**   |
+| fear pct>85    | +0.79R, 78% (94)   | **+0.75R, 89% (19)**   |
+
+The blended dial>=50 cell (-0.105R) reproduces the frag-band study's
+hi-frag family figure exactly, so this is the band's own evidence base
+re-partitioned, not a different sample.
+
+## Why suspicion is warranted (stated up front, against the candidate)
+
+- The fear-ON hi-frag cell is **19 trades / 11 signal dates / 3
+  episodes** (2021, 2022, 2026). Three market moments.
+- This split was found POST-HOC while exploring — the entire motivating
+  sample is peeked. Date-clustered Welch t = 1.21 (p=.25); only the
+  rank-based Mann-Whitney approaches significance (p=.057), and that is
+  carried by the 89% win rate on 19 trades.
+- The dial used was the RESEARCH RECOMPUTE (rd2_fragility_ts, my own
+  10d MA), not the PIT vintage the band was validated on.
+- The candidate would RAISE hi-frag exposure — structurally the same
+  shape as the throttle-exemptions and >1.0x boosts this book has
+  killed repeatedly. The 0.25x band survived its PIT gate at t=-1.96;
+  weakening it re-litigates a validated live control on 19 trades.
+- The mechanism story is satisfying, which is a reason for MORE
+  suspicion, not less (the sector_loss_gate had a good story too).
+
+## Gates (ALL must pass; failing any closes the candidacy negative)
+
+1. **PIT re-bucket is THE evidentiary gate.** Re-bucket every family
+   trade on the PIT-reweighted dial series (scratch/pit_reestimate.py
+   machinery, vintage Y-1 weights scoring year Y), crossed with the P/C
+   fear state (itself PIT-clean by construction: trailing-window
+   percentile of as-published data). Required: (a) the no-fear hi-frag
+   deficit survives PIT at clustered <= -1.5 sigma (the band's own case
+   must still hold where the candidate keeps it); (b) the fear-ON
+   hi-frag cell is >= +0.3R date-clustered under PIT vintages;
+   (c) sensitivity shown at fear thresholds 80/85/90 x dial 45/50/55 —
+   the result must not live on one knife-edge cell.
+2. **Out-of-sample accumulation cures the peek.** At least **2 NEW
+   hi-frag fear-ON episodes** (signal dates after 2026-08-05, on the
+   live PIT dial parquet) must accrue with the split holding
+   directionally (fear-ON episode avgR > 0 and > the contemporaneous
+   no-fear hi-frag avgR) before anything ships. This naturally folds
+   into the existing "re-examine FAMILY4 at +20 hi-frag trades (~2029)"
+   trigger — same review, one more cut.
+3. **Episode LOYO.** Dropping any single episode-year (2021, 2022,
+   2026, plus any accrued under gate 2) must leave the fear-ON hi-frag
+   cell positive. If one episode carries the sign, the candidacy dies.
+4. **Live PIT availability + staleness convention decided BEFORE the
+   study.** CBOE publishes the ratio end-of-day; the AM scan (~4:47 ET)
+   sizes next-day entries — verify the nightly workflow's row for the
+   signal date is present when daily_scan runs, define the stale/missing
+   rule as **fail-CLOSED to the incumbent 0.25x** (never fail-open to
+   full size), and add the composition order (2b band before/after the
+   fear check) to tests/test_frag_risk_bands.py first.
+5. **Parity + aligned sites.** Engine (strat_backtester 3b3
+   frag_band_mult_at) and scan (daily_scan 2b frag_band_mult) must move
+   together with a parity script per scratch/parity_check_frag_bands.py;
+   the site fragility adjuster's single-band assumption (fragility.json
+   / portfolio.js) budgeted into scope or explicitly excluded in the
+   ship note.
+
+## Explicitly out of scope
+
+- Any multiplier beyond the pre-named 1.0x primary / 0.5x fallback.
+- Extending the fear condition to OLV or any non-family strategy.
+- Using the P/C fear state as a standalone signal, dial input, boost,
+  or short anywhere (all graded and rejected this session: dial add,
+  complacency shorts, standalone 5d long — see
+  scratch/putcall_*_study.py outputs).
+- Any re-weighting of the fragility composite itself (freeze policy A2).
+
+## Status
+
+- [ ] Gate 4 availability check + staleness rule + composition test
+- [ ] Gate 1 PIT re-bucket run
+- [ ] Gate 2 episode accumulation (earliest realistic read: 2+ new
+      hi-frag fear-ON episodes — years, plausibly)
+- [ ] Gate 3 LOYO on the combined sample
+- [ ] Sign-off / negative close recorded here and in CLAUDE.md
