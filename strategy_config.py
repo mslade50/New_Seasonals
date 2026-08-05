@@ -113,6 +113,22 @@ OLV_CAP_EXEMPT_ETFS = sorted(set(
        'LQD', 'TLT']
 ))
 
+# Fear-conditioned fragility band tables (2026-08-05, McKinley's chosen form —
+# shipped ahead of the prereg gates as an explicit appetite decision, recorded
+# in scratch/ultracode_research/family_pc_fear_band_prereg_2026-08-05.md).
+# Carried by the 6 frag_risk_bands strategies via execution['pc_fear_bands'];
+# the fear state (pc_fear.py: lag-1 trailing-252d pctile of the 10d-MA CBOE
+# equity put/call > 85) SELECTS which band table applies to the 10d-MA 63d
+# dial score. Stale/missing P/C (> 3 bd) fails CLOSED to the strategy's plain
+# frag_risk_bands — the incumbent 0.25x book. Multiplier set is closed per the
+# prereg: {1.25, 1.0, 0.25 (stale incumbent), 0.0}. NOT GRM-scaled (pure
+# multipliers). Evidence + caveats (19-trade fear-ON hi-frag cell, appetite
+# legs B/C): the prereg doc.
+PC_FEAR_BANDS = {
+    'on':  [[0, 50, 1.25], [50, 999, 1.0]],
+    'off': [[0, 50, 1.0],  [50, 999, 0.0]],
+}
+
 # 3x Leveraged ETFs — broad + sector equities, bonds, commodities (bull + bear)
 # Must stay in sync with LEV3X_ALL in pages/backtester.py
 LEV3X_ALL = [
@@ -447,7 +463,9 @@ _STRATEGY_BOOK_RAW = [
                    # boost -> 0.10x floor). Aligned sites: daily_scan sizing 2b,
                    # strat_backtester sizing 3b3. Evidence:
                    # scratch/ultracode_research/PORTFOLIO_RESEARCH_2026-07-02.md
-                   'frag_risk_bands': [[50, 999, 0.25]]},
+                   'frag_risk_bands': [[50, 999, 0.25]],
+                   # P/C-fear table selection (2026-08-05) — see PC_FEAR_BANDS.
+                   'pc_fear_bands': PC_FEAR_BANDS},
      'stats': {'grade': 'A (Excellent)', 'win_rate': '61.3%', 'expectancy': '0.28r', 'profit_factor': '1.78'}},
     {
         "id": "21dr < 15 3 consec, 5dr < 33, 2dr < 25, 252dr 50-90, rel vol < 15, market > 200 SMA, age >= 5y, pre-earnings -> 10 bps, GTC limit close-0.25 ATR, 10d hold, vol-confirmed 1.25 ATR stop (next open), 2.5 ATR tgt",
@@ -1184,6 +1202,7 @@ _STRATEGY_BOOK_RAW = [
             # Dip-buy-adjacent: fading overbought inverse ETFs = buying market
             # selloffs, so it inherits the FAMILY4 fragility throttle.
             "frag_risk_bands": [[50, 999, 0.25]],
+            "pc_fear_bands": PC_FEAR_BANDS,
             # Same-day de-rate: each staged signal scaled by
             # max(floor, 1 - derate x (n_signals_today - 1)). Count is ex-ante
             # (staged signals, not fills). See same_day_derate_mult().
@@ -1451,7 +1470,8 @@ _STRATEGY_BOOK_RAW = [
             "use_take_profit": True,
             # Dip-buy FAMILY4 fragility throttle — see Weak Close Decent Sznls
             # for the full evidence note.
-            "frag_risk_bands": [[50, 999, 0.25]]
+            "frag_risk_bands": [[50, 999, 0.25]],
+            "pc_fear_bands": PC_FEAR_BANDS
         },
         "stats": {"grade": "A (Excellent)", "win_rate": "64.6%", "expectancy": "0.34r", "profit_factor": "1.90"}
     },
@@ -1551,6 +1571,7 @@ _STRATEGY_BOOK_RAW = [
             # Dip-buy FAMILY4 fragility throttle — see Weak Close Decent Sznls
             # for the full evidence note.
             "frag_risk_bands": [[50, 999, 0.25]],
+            "pc_fear_bands": PC_FEAR_BANDS,
             # Large-gap-up size derate (2026-07-21). When the T+1 open gaps more
             # than threshold_atr * ATR ABOVE the signal close, the dip-buy edge is
             # roughly halved (the bounce partly played out at the open, and the
@@ -1791,6 +1812,7 @@ _STRATEGY_BOOK_RAW = [
                    # Dip-buy FAMILY4 fragility throttle — see Weak Close Decent
                    # Sznls for the full evidence note.
                    'frag_risk_bands': [[50, 999, 0.25]],
+                   'pc_fear_bands': PC_FEAR_BANDS,
                    # Large-gap-up size derate (2026-07-21) — half size when the
                    # T+1 open gaps > threshold_atr * ATR above the signal close.
                    # Same overlay as SPY QQQ MonFri Reversion; see that strat's
@@ -2064,6 +2086,7 @@ _STRATEGY_BOOK_RAW = [
             # above-trend case the band exists for. Same convention as the
             # 3x Bear Fade's band (family analogy, no own-sample fit).
             "frag_risk_bands": [[50, 999, 0.25]],
+            "pc_fear_bands": PC_FEAR_BANDS,
             "pilot": {
                 "start": "2026-07-31",
                 "review_by": "2028-07-31 or +4 live fills, whichever first",

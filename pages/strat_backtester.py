@@ -23,6 +23,7 @@ from indicators import calculate_indicators, get_sznl_val_series
 from filters import evaluate_filter_mask
 from earnings_filter import load_earnings_dates_map, in_blackout, signed_offset
 from exposure_leg import compute_exposure_leg_backtest, EXPOSURE_TICKERS, BASE_WEIGHTS
+import pc_fear
 
 _DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data")
 
@@ -57,12 +58,25 @@ def _frag_score_series():
     return series
 
 
-def frag_band_mult_at(execution, signal_ts):
-    """Multiplier from execution['frag_risk_bands'] at a signal timestamp.
-    Bands are [lo, hi, mult], first match wins (lo <= score < hi); 1.0 when the
-    strategy has no bands or no score exists for that date. Mirrors
-    daily_scan.frag_band_mult — change together."""
-    bands = execution.get('frag_risk_bands') if execution else None
+def frag_band_mult_at(execution, signal_ts, pc_fear_enabled=True):
+    """Multiplier from the strategy's fragility band table at a signal
+    timestamp. Bands are [lo, hi, mult], first match wins (lo <= score < hi);
+    1.0 when the strategy has no bands or no DIAL score exists for that date.
+
+    P/C fear-conditioned table selection (2026-08-05): pc_fear_bands carriers
+    replay the fear state point-in-time (lag-1: newest cboe_putcall row dated
+    <= signal - 1 bday, stale > 3 bd -> incumbent frag_risk_bands). Signals
+    before the P/C series starts (2007-11) resolve stale -> incumbent table,
+    so pre-P/C history reproduces the pre-2026-08-05 ledger exactly.
+    pc_fear_enabled=False forces the incumbent table everywhere — the
+    build_trade_ledger pcfear shadow pass uses it for leg-C evidence accrual.
+    Mirrors daily_scan.frag_band_mult — change together."""
+    if not execution:
+        return 1.0
+    state = 'stale'
+    if pc_fear_enabled and execution.get('pc_fear_bands'):
+        state = pc_fear.fear_state_asof(signal_ts)['state']
+    bands = pc_fear.select_bands(execution, state)
     if not bands:
         return 1.0
     series = _frag_score_series()
@@ -74,10 +88,7 @@ def frag_band_mult_at(execution, signal_ts):
     score = series.loc[ts]
     if pd.isna(score):
         return 1.0
-    for lo, hi, mult in bands:
-        if lo <= score < hi:
-            return float(mult)
-    return 1.0
+    return pc_fear.band_mult(bands, float(score))
 
 
 def gap_derate_mult(spec, signal_close, t1_open, atr):
@@ -783,7 +794,7 @@ def _stop_fill_price(direction, stop_price, day_open,
     return fill * (1.0 + bps / 1e4), gapped         # short covers higher
 
 
-def process_signals_fast(candidates, signal_data, processed_dict, strategies, starting_equity, cap_bps=None, flat_sizing=False, overflow_active=False, ovs_p1_only=False, risk_multipliers=None, max_net_long_pct=None, max_net_short_pct=None, max_long_risk_bps=None, max_short_risk_bps=None, stop_gap_fill=True, stop_slip_bps=STOP_SLIP_BPS, stop_gap_slip_bps=STOP_GAP_SLIP_BPS):
+def process_signals_fast(candidates, signal_data, processed_dict, strategies, starting_equity, cap_bps=None, flat_sizing=False, overflow_active=False, ovs_p1_only=False, risk_multipliers=None, max_net_long_pct=None, max_net_short_pct=None, max_long_risk_bps=None, max_short_risk_bps=None, stop_gap_fill=True, stop_slip_bps=STOP_SLIP_BPS, stop_gap_slip_bps=STOP_GAP_SLIP_BPS, pc_fear_enabled=True):
     """
     Process candidates chronologically with dynamic sizing based on REAL-TIME MTM equity.
 
@@ -1261,12 +1272,16 @@ def process_signals_fast(candidates, signal_data, processed_dict, strategies, st
             if _cm != 1.0:
                 base_risk *= _cm
 
-        # --- 3b3. Fragility risk bands (2026-07-02) ---
-        # execution['frag_risk_bands'] = [[lo, hi, mult]] on the 10d-MA 63d
-        # dial, replayed point-in-time by signal date (no score -> 1.0x, incl.
-        # every pre-2016 signal). Mirrors daily_scan sizing 2b — the ledger and
-        # live sizing agree on this rule, unlike the retired book-wide ramp.
-        _fbm = frag_band_mult_at(execution, signal_ts)
+        # --- 3b3. Fragility risk bands (2026-07-02; P/C fear tables
+        # 2026-08-05) --- band table selected by the lag-1 P/C fear state for
+        # pc_fear_bands carriers (fear OFF above dial 50 -> 0.0x, trade drops
+        # at the shares floor below; the build_trade_ledger pcfear shadow pass
+        # re-runs with pc_fear_enabled=False so zeroed trades stay measured).
+        # Replayed point-in-time by signal date (no dial score -> 1.0x, incl.
+        # every pre-2016 signal; pre-2007-11 P/C -> incumbent table). Mirrors
+        # daily_scan sizing 2b — ledger and live sizing agree on this rule.
+        _fbm = frag_band_mult_at(execution, signal_ts,
+                                 pc_fear_enabled=pc_fear_enabled)
         if _fbm != 1.0:
             base_risk *= _fbm
 

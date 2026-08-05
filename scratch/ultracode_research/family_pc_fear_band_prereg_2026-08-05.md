@@ -148,15 +148,38 @@ Per-leg evidentiary status and gates:
 Pre-named multiplier set is now closed: {1.25, 1.0, 0.25 (stale
 incumbent), 0.0}. Nothing else may be adopted under this registration.
 
+## Revision 3 (2026-08-05, same day): SHIPPED ahead of gates
+
+McKinley elected to ship the FULL three-leg rule live immediately
+("yea do it ... a note in the signal cards for which it has a say now"),
+overriding the gate-before-ship sequencing as an explicit appetite
+decision. Recorded, not endorsed-by-evidence: the motivating cell remains
+19 trades / 11 dates / 3 episodes, post-hoc. What this revision changes:
+
+- Gates 1-3 convert from SHIP gates to the **post-ship review protocol** —
+  same analyses, same thresholds, run when their inputs exist. A FAILED
+  gate at review time is a presumptive ROLLBACK of the failing leg (the
+  rule reverts to the incumbent 0.25x table), not a shrug.
+- Gate 4 is CLOSED: lag-1 state + 3-bd fail-closed staleness + parity are
+  implemented and tested (pc_fear.py; tests/test_pc_fear_bands.py,
+  tests/test_frag_risk_bands.py state-matched parity).
+- Leg-C shadow tracking is BUILT and mandatory to keep:
+  build_trade_ledger.build_pcfear_shadow ->
+  data/backtest_trades_pcfear_shadow.parquet (pc_fear_enabled=False pass).
+  Removing it orphans the review protocol.
+- Live surfaces: daily_scan 2b + 3b2, scan-email liveness footnote +
+  per-signal Sizing notes; engine 3b3 replays lag-1 PIT so ledger == live.
+
 ## Status
 
-- [ ] Gate 4 availability check + staleness rule + composition test
-      (rev-2 table semantics + fail-closed fallback in
-      tests/test_frag_risk_bands.py)
-- [ ] Gate 1 PIT re-bucket run (adds leg B non-inferiority + leg C 1a)
-- [ ] Gate 2 episode accumulation for legs A+B (earliest realistic
-      read: 2+ new hi-frag fear-ON episodes — years, plausibly)
-- [ ] Gate 3 LOYO on the combined sample
-- [ ] Leg C early-ship decision (McKinley's explicit word; requires
-      shadow tracking built first)
-- [ ] Sign-off / negative close recorded here and in CLAUDE.md
+- [x] Gate 4 availability check + staleness rule + composition test
+      (2026-08-05: measured T+1 capture; lag-1 + fail-closed shipped
+      with tests)
+- [x] Leg C shadow tracking built (build_pcfear_shadow)
+- [x] SHIPPED (rev 3, 2026-08-05) — all three legs live per McKinley
+- [ ] Post-ship review, part 1: PIT re-bucket (gate 1 incl. leg B
+      non-inferiority + leg C 1a) — runnable now, not yet run
+- [ ] Post-ship review, part 2: 2+ new OOS hi-frag fear-ON episodes
+      (gate 2) + LOYO on combined sample (gate 3) — folds into the
+      FAMILY4 "+20 hi-frag trades (~2029)" re-exam
+- [ ] Review outcome recorded here and in CLAUDE.md (rollback on fail)

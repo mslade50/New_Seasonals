@@ -81,6 +81,12 @@ def test_bandless_strategy_untouched_at_any_score():
 
 
 def test_engine_replay_matches_live_helper():
+    # Since the P/C fear tables (2026-08-05), parity means engine and live
+    # agree GIVEN THE SAME fear state. pc_fear_enabled=False forces the
+    # engine to the incumbent table, matching the live helper's no-pc_state
+    # (stale, fail-closed) path; the state-matched leg feeds both sides the
+    # same real PIT state.
+    import pc_fear
     dates = pd.date_range("2026-01-05", periods=6, freq="D")
     scores = pd.Series([10.0, 30.0, 45.0, 52.0, 60.0, 40.0], index=dates)
     sb._FRAG_SCORE_CACHE["series"] = scores
@@ -88,8 +94,13 @@ def test_engine_replay_matches_live_helper():
         for name in ("Monday Dip", "Overbot Vol Spike", "Oversold Low Volume"):
             ex = _exec_of(name)
             for ts, sc in scores.items():
-                assert sb.frag_band_mult_at(ex, ts) == frag_band_mult(ex, sc), \
-                    f"{name} diverges at score {sc}"
+                assert (sb.frag_band_mult_at(ex, ts, pc_fear_enabled=False)
+                        == frag_band_mult(ex, sc)), \
+                    f"{name} diverges at score {sc} (incumbent leg)"
+                state = pc_fear.fear_state_asof(ts)
+                assert (sb.frag_band_mult_at(ex, ts)
+                        == frag_band_mult(ex, sc, pc_state=state)), \
+                    f"{name} diverges at score {sc} (state-matched leg)"
         # date with no score (pre-series) -> 1.0 even for banded strategies
         assert sb.frag_band_mult_at(_exec_of("Monday Dip"), "2010-06-01") == 1.0
     finally:

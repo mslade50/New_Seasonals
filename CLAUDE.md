@@ -540,6 +540,50 @@ scanner-staged sizes as-is since 2026-06-11):
   scratch/parity_check_frag_bands.py (FAMILY4 74@0.25x exact, OVS 226/230
   @0.75x exact with 4 cap-interaction deviations of 0.0004 on one day).
 
+## P/C Fear-Conditioned Family Bands (2026-08-05)
+
+The 6 `frag_risk_bands` carriers (FAMILY4 + 3x Bear Fade + Monthly Weak
+Close) select their band TABLE by the equity put/call FEAR STATE — trailing
+252d percentile of the 10d-MA CBOE equity P/C (`data/cboe_putcall.parquet`,
+2006-11+, nightly `update_cboe_putcall.yml` with `--assert-fresh-bd 2`
+fail-loud), **lag-1 by construction** (the state for signal date D uses the
+newest row dated <= D-1 bday; measured: the 21:30 UTC scrape only ever has
+D-1). `strategy_config.PC_FEAR_BANDS` (NOT GRM-scaled):
+- fear ON (pctile > 85):  `[[0,50,1.25],[50,999,1.0]]` — boost in calm tape,
+  FULL size in the dial>=50 zone (washed-out positioning = capitulation)
+- fear OFF: `[[0,50,1.0],[50,999,0.0]]` — dial>=50 without washout is
+  ZEROED (staged at 0 shares, visible in email/tabs, never ordered)
+- P/C stale (> 3 bd, `pc_fear.STALE_BD`) / missing / pre-2007-11: fail
+  CLOSED to the strategy's plain `frag_risk_bands` (incumbent 0.25x book)
+Stale-DIAL semantics unchanged (fail-open 1.0x, book-wide convention).
+
+SHIPPED AHEAD OF THE PREREG GATES as an explicit McKinley appetite decision
+(2026-08-05) — the evidence base is 19 fear-ON hi-frag trades / 3 episodes;
+the prereg's gates (PIT re-bucket, 2 new OOS episodes, LOYO) now run as the
+POST-SHIP REVIEW: scratch/ultracode_research/
+family_pc_fear_band_prereg_2026-08-05.md. Multiplier set is CLOSED:
+{1.25, 1.0, 0.25, 0.0}. **Leg-C shadow tracking is mandatory**:
+`build_trade_ledger.build_pcfear_shadow` re-runs the engine with
+`pc_fear_enabled=False` -> `data/backtest_trades_pcfear_shadow.parquet` so
+the zeroed cell keeps accruing evidence for the "+20 hi-frag family trades"
+re-exam.
+
+Aligned sites — change together (order_staging needs nothing: takes staged
+sizes as-is; a 0-share row stages as a non-order):
+- `pc_fear.py` — state definition + table selection + note formatting
+  (source of the math); `strategy_config.PC_FEAR_BANDS` (source of truth)
+- `daily_scan.py` — 3b2 state load + console line, sizing 2b table
+  selection + per-signal Sizing notes ("P/C 71%ile (fear OFF) + dial 55 ->
+  0.00x — ZEROED"), P/C liveness footnote in EVERY scan email
+- `pages/strat_backtester.py` — 3b3 `frag_band_mult_at` PIT lag-1 replay +
+  `process_signals_fast(pc_fear_enabled=)`
+- `scripts/build_trade_ledger.py` — pcfear shadow pass (best effort)
+- Guards: `tests/test_pc_fear_bands.py`, `tests/test_frag_risk_bands.py`
+  (state-matched parity), `tests/test_cboe_putcall.py` (feed freshness)
+- KNOWN GAP: the site risk tab's sizing_state block still serializes the
+  incumbent `frag_risk_bands` only (stale-state view) — fear-conditioned
+  display not yet built.
+
 ## 3x Bear ETF Overbot Fade + Same-Day Signal De-rate (2026-07-07)
 
 The 13 bear-equity 3x names (`strategy_config.LEV3X_BEAR_EQ`) were carved out

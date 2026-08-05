@@ -62,6 +62,7 @@ from daily_portfolio_report import (
 OUT_PARQUET = os.path.join(_ROOT, "data", "backtest_trades_full.parquet")
 OUT_NOGATE = os.path.join(_ROOT, "data", "backtest_trades_nogate.parquet")
 OUT_OVSEXT = os.path.join(_ROOT, "data", "backtest_trades_ovsext.parquet")
+OUT_PCSHADOW = os.path.join(_ROOT, "data", "backtest_trades_pcfear_shadow.parquet")
 OUT_DAILY = os.path.join(_ROOT, "data", "backtest_daily_pnl.parquet")
 OUT_SUMMARY = os.path.join(_HERE, "trade_ledger_summary.csv")
 DATA_START = datetime.date(2000, 1, 1)   # history for percentile/SMA warmup
@@ -255,6 +256,35 @@ def build_nogate_counterfactual(candidates, signal_data, processed, full_book,
     print(f"    {len(ng)} nogate trades ({'/'.join(gated)}) -> {OUT_NOGATE}")
 
 
+def build_pcfear_shadow(candidates, signal_data, processed, full_book,
+                        starting_equity):
+    """P/C-fear counterfactual pass (2026-08-05, mandatory per the prereg's
+    leg-C shadow-tracking requirement): the fear-conditioned band tables
+    ZERO family trades at dial>=50 without P/C washout, which would freeze
+    that cell's evidence at n=70 forever. This pass re-runs the engine with
+    pc_fear_enabled=False (incumbent 0.25x tables everywhere) and writes the
+    family strategies' trades to OUT_PCSHADOW — the would-have-been record
+    the "+20 hi-frag family trades" re-exam reads. Same flat-sizing caveats
+    as the nogate pass."""
+    fam = sorted({s["name"] for s in full_book
+                  if s.get("execution", {}).get("pc_fear_bands")})
+    if not fam:
+        print("  No pc_fear_bands strategies in the book — skipping pcfear shadow pass.")
+        return
+    print(f"\n  Processing trades [pc_fear disabled, flat sizing] for {fam} ...")
+    sig_sh = process_signals_fast(
+        candidates, signal_data, processed, full_book,
+        starting_equity, cap_bps=250, overflow_active=True, flat_sizing=True,
+        max_long_risk_bps=POOLED_LONG_CAP_BPS,
+        max_short_risk_bps=POOLED_SHORT_CAP_BPS,
+        pc_fear_enabled=False,
+    )
+    sh = shape_flat_trades(sig_sh)
+    sh = sh[sh["Strategy"].isin(fam)].reset_index(drop=True)
+    _write_ledger_with_meta(sh, OUT_PCSHADOW, _provenance_meta(len(sh)))
+    print(f"    {len(sh)} pcfear-shadow trades -> {OUT_PCSHADOW}")
+
+
 def _norm_ohlc(frame, ticker):
     """Normalize a price frame to capitalized single-level OHLC columns
     (yfinance MultiIndex rule — see CLAUDE.md)."""
@@ -420,6 +450,13 @@ def main(upload=False):
                                     full_book, starting_equity)
     except Exception as e:
         print(f"  (nogate counterfactual skipped: {e})")
+
+    # --- P/C-fear shadow pass (best effort; leg-C evidence accrual) ---
+    try:
+        build_pcfear_shadow(candidates, signal_data, processed,
+                            full_book, starting_equity)
+    except Exception as e:
+        print(f"  (pcfear shadow pass skipped: {e})")
 
     df = sig_comp.copy().reset_index(drop=True)
 

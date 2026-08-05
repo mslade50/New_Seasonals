@@ -24,6 +24,7 @@ from filters import (
 )
 from earnings_filter import load_earnings_dates_map, in_blackout, signed_offset
 from exposure_leg import compute_exposure_targets, save_state
+import pc_fear
 
 # NYSE trading-day offset (2026-07-16: was USFederalHolidayCalendar, which
 # marks Columbus/Veterans Day while NYSE trades — the morning after each,
@@ -272,7 +273,8 @@ def get_google_client():
         return None
 
 
-def send_email_summary(signals_list, error_tickers=None, scope_label=None):
+def send_email_summary(signals_list, error_tickers=None, scope_label=None,
+                       pc_state=None):
     """
     Sends an HTML email summary of the signals using Gmail SMTP.
     Card-based layout showing full signal criteria with LIVE values.
@@ -337,6 +339,26 @@ def send_email_summary(signals_list, error_tickers=None, scope_label=None):
         </div>
         """
 
+    # P/C fear-state liveness footnote (2026-08-05): always rendered so a
+    # stale feed is visible in every scan email, not just when a family
+    # signal happens to fire.
+    pc_html = ""
+    if pc_state:
+        if pc_state.get('state') == 'stale':
+            _pc_txt = (f"🚨 P/C data STALE (last {pc_state.get('data_date')}, "
+                       f"{pc_state.get('age_bd')} bd old) — family fragility "
+                       f"bands failing closed to incumbent 0.25x tables")
+            _pc_color = "#c62828"
+        else:
+            _pc_txt = (f"🧭 P/C fear state: {pc_state['pct']:.0f}%ile 10d-MA "
+                       f"equity put/call (data through {pc_state['data_date']}, "
+                       f"{pc_state['age_bd']} bd old) — fear "
+                       f"{pc_state['state'].upper()}; family bands "
+                       f"{'1.25x <50 / 1.0x >=50' if pc_state['state'] == 'on' else '1.0x <50 / ZERO >=50'}")
+            _pc_color = "#666"
+        pc_html = (f'<div style="margin-top: 12px; font-size: 12px; '
+                   f'color: {_pc_color};">{_pc_txt}</div>')
+
     _scope_suffix = f" — {scope_label}" if scope_label else ""
     if not email_signals:
         subject = f"📉 Scan Result: NO SIGNALS ({date_str}){_scope_suffix}"
@@ -347,6 +369,7 @@ def send_email_summary(signals_list, error_tickers=None, scope_label=None):
                     <h2 style="color: #333; margin-top: 0;">Daily Strategy Scan: {date_str}</h2>
                     <p style="color: #666;">The scan completed successfully.</p>
                     <p style="font-size: 18px; color: #888;"><strong>Result:</strong> No signals found matching criteria today.</p>
+                    {pc_html}
                     {error_html}
                 </div>
             </body>
@@ -607,6 +630,9 @@ def send_email_summary(signals_list, error_tickers=None, scope_label=None):
                         {all_cards_html}
                     </div>
                     
+                    <!-- P/C fear-state liveness -->
+                    {pc_html}
+
                     <!-- Error Tickers -->
                     {error_html}
 
@@ -678,18 +704,23 @@ def load_seasonal_map(csv_path="sznl_ranks.csv"):
 # unlike the old ramp, the ledger and live now agree.
 
 
-def frag_band_mult(execution, frag_score):
-    """Sizing multiplier from execution['frag_risk_bands'] for a 10d-MA 63d
-    fragility score. 1.0 when the strategy has no bands, the score is
-    None/stale, or no band matches. Bands are [lo, hi, mult], first match wins,
-    mult applies when lo <= score < hi."""
-    bands = execution.get('frag_risk_bands') if execution else None
-    if not bands or frag_score is None:
+def frag_band_mult(execution, frag_score, pc_state=None):
+    """Sizing multiplier from the strategy's fragility band table for a
+    10d-MA 63d fragility score. Bands are [lo, hi, mult], first match wins,
+    mult applies when lo <= score < hi. 1.0 when the strategy has no bands,
+    the DIAL score is None/stale, or no band matches (the stale-dial fail-open
+    convention is unchanged book-wide).
+
+    P/C fear-conditioned table selection (2026-08-05): strategies carrying
+    execution['pc_fear_bands'] select their table by pc_state['state']
+    ('on'/'off' from pc_fear.fear_state_asof); stale/absent P/C state fails
+    CLOSED to the plain frag_risk_bands (the incumbent 0.25x book). Mirrored
+    in strat_backtester 3b3 (frag_band_mult_at) — change together."""
+    if not execution:
         return 1.0
-    for lo, hi, mult in bands:
-        if lo <= frag_score < hi:
-            return float(mult)
-    return 1.0
+    bands = pc_fear.select_bands(
+        execution, pc_state['state'] if pc_state else 'stale')
+    return pc_fear.band_mult(bands, frag_score)
 
 
 def _print_ledger_provenance(path, n_rows):
@@ -2357,6 +2388,23 @@ def run_daily_scan(scope='liquid', moc_only=False, dry_run=False):
     else:
         print("⚠️ No fragility cache found — using 1.0x sizing")
 
+    # 3b2. P/C FEAR STATE (2026-08-05) — selects the family band TABLE in
+    # sizing 2b (pc_fear_bands carriers). Lag-1 by construction: the state
+    # for the scanned bar date uses the newest cboe_putcall.parquet row dated
+    # <= bar - 1 bday (the nightly scrape only ever has D-1 — measured
+    # 2026-08-05). Stale (> 3 bd) fails CLOSED to the incumbent
+    # frag_risk_bands table. Mirrored point-in-time in strat_backtester 3b3.
+    pc_state = pc_fear.fear_state_asof(expected_data_date)
+    if pc_state['state'] == 'stale':
+        print(f"🚨 P/C FEAR STATE STALE (data {pc_state['data_date']}, "
+              f"age {pc_state['age_bd']} bd) — family bands fail closed to "
+              f"incumbent frag_risk_bands")
+    else:
+        print(f"🧭 P/C fear state: {pc_state['pct']:.0f}%ile "
+              f"(10d-MA equity P/C, data through {pc_state['data_date']}, "
+              f"{pc_state['age_bd']} bd old) — fear "
+              f"{pc_state['state'].upper()}")
+
     # 4. Prepare VIX Series (for strategies with VIX filter)
     vix_df = master_dict.get('^VIX')
     vix_series = None
@@ -2608,15 +2656,27 @@ def run_daily_scan(scope='liquid', moc_only=False, dry_run=False):
                     # path-1 nominal; order_staging downsizes path-2 rows.
                     # ---------------------------------------------------------
 
-                    # 2b. FRAGILITY RISK BANDS (per-strategy, 2026-07-02).
-                    # execution['frag_risk_bands'] = [[lo, hi, mult], ...] on
-                    # the 10d-MA 63d score; strategies without the field (and
-                    # missing/stale scores) run 1.0x. Carriers: FAMILY4
-                    # dip-buyers + 3x Bear Fade, 0.25x at >=50 (the OVS tilt
-                    # was removed 2026-07-03 after failing the PIT gate).
+                    # 2b. FRAGILITY RISK BANDS (per-strategy, 2026-07-02;
+                    # P/C-fear table selection 2026-08-05). Strategies with
+                    # execution['pc_fear_bands'] pick their band table by the
+                    # fear state (3b2 above): ON -> 1.25x below dial 50 / 1.0x
+                    # above; OFF -> 1.0x below / 0.0x above (signal stages at
+                    # 0 shares — visible in email + tabs, never ordered);
+                    # stale P/C -> incumbent frag_risk_bands. Strategies
+                    # without the field keep plain frag_risk_bands; missing/
+                    # stale DIAL scores still run 1.0x (fail-open, unchanged).
                     # Mirrored in strat_backtester 3b3 (point-in-time replay).
-                    _fbm = frag_band_mult(strat['execution'], frag_score)
-                    if _fbm != 1.0:
+                    _fbm = frag_band_mult(strat['execution'], frag_score,
+                                          pc_state=pc_state)
+                    if strat['execution'].get('pc_fear_bands'):
+                        risk = risk * _fbm
+                        sizing_note += " | " + pc_fear.sizing_note(
+                            pc_state, frag_score, _fbm)
+                        if _fbm == 0.0:
+                            sizing_note += " — ZEROED (hi-frag, no P/C washout)"
+                            print(f"   🚫 {t_clean} {strat['name']}: zeroed "
+                                  f"(dial {frag_score:.0f} >= 50, P/C fear OFF)")
+                    elif _fbm != 1.0:
                         risk = risk * _fbm
                         sizing_note += f" | Frag band ({frag_score:.0f}): {_fbm:.2f}x"
 
@@ -3111,7 +3171,8 @@ def run_daily_scan(scope='liquid', moc_only=False, dry_run=False):
         except Exception as e:
             print(f"[exposure] Failed to compute exposure leg: {e}")
 
-    send_email_summary(all_signals, error_tickers=unique_errors, scope_label=_scope_label)
+    send_email_summary(all_signals, error_tickers=unique_errors,
+                       scope_label=_scope_label, pc_state=pc_state)
 
     print("--- Scan Complete ---")
 
