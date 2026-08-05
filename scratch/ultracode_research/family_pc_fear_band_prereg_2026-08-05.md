@@ -106,11 +106,57 @@ re-partitioned, not a different sample.
   scratch/putcall_*_study.py outputs).
 - Any re-weighting of the fragility composite itself (freeze policy A2).
 
+## Revision 2 (2026-08-05, same day): McKinley's three-leg form
+
+McKinley reviewed the 2x2 and chose the fuller rule, accepting the
+appetite framing for the two legs the evidence does not independently
+carry. The candidate becomes a FEAR-SELECTED BAND TABLE — same 2b/3b3
+slot as today's band, so composition semantics with every other overlay
+are byte-identical to the current machinery:
+
+- fear ON  (lag-1 pct252 > 85):        `[[0, 50, 1.25], [50, 999, 1.0]]`
+- fear OFF:                            `[[0, 50, 1.0],  [50, 999, 0.0]]`
+- fear STALE/missing (> 3 td):         `[[0, 50, 1.0],  [50, 999, 0.25]]`
+  (exactly today's behavior everywhere — the unambiguous fail-closed
+  state; a dead P/C feed reproduces the incumbent book).
+
+Per-leg evidentiary status and gates:
+
+- **Leg A — dial>=50 & fear -> 1.0x** (the original candidate,
+  exposure-raising): gates 1-3 unchanged, including gate 2's two new
+  out-of-sample episodes.
+- **Leg B — dial<50 & fear -> 1.25x boost** (APPETITE: weakest cell,
+  +0.20R n.s.; three prior >1.0x boosts were killed in this book —
+  stated, accepted). Gates: PIT non-inferiority (fear-ON dial<50 cell
+  must not be WORSE than no-fear by more than 0.1R clustered), and it
+  ships only together with leg A (never a standalone boost). Subject to
+  gate 2 like leg A (it raises exposure). Multiplier is frozen at 1.25;
+  any creep is a new prereg.
+- **Leg C — dial>=50 & no fear -> 0x** (APPETITE tightening of a
+  defense; may ship AHEAD of gates on McKinley's word alone, like the
+  OLV ladder / gap derate appetite cuts, since it only reduces
+  exposure). Hard requirements even so: (a) gate 1a — the no-fear
+  deficit must survive the PIT re-bucket before the cell is judged
+  permanent; (b) **shadow tracking is mandatory**: the engine books the
+  zeroed trades into a counterfactual pass (build_trade_ledger nogate /
+  gate_lab pattern) and daily_scan notes zeroed signals in the scan
+  email, so the "+20 hi-frag trades" re-exam trigger keeps accruing
+  evidence — without this the cell freezes at n=70 forever and the rule
+  can never be falsified; (c) the staleness fallback above (0.25x, NOT
+  0x) so a feed outage in a crash week cannot silently zero the family.
+
+Pre-named multiplier set is now closed: {1.25, 1.0, 0.25 (stale
+incumbent), 0.0}. Nothing else may be adopted under this registration.
+
 ## Status
 
 - [ ] Gate 4 availability check + staleness rule + composition test
-- [ ] Gate 1 PIT re-bucket run
-- [ ] Gate 2 episode accumulation (earliest realistic read: 2+ new
-      hi-frag fear-ON episodes — years, plausibly)
+      (rev-2 table semantics + fail-closed fallback in
+      tests/test_frag_risk_bands.py)
+- [ ] Gate 1 PIT re-bucket run (adds leg B non-inferiority + leg C 1a)
+- [ ] Gate 2 episode accumulation for legs A+B (earliest realistic
+      read: 2+ new hi-frag fear-ON episodes — years, plausibly)
 - [ ] Gate 3 LOYO on the combined sample
+- [ ] Leg C early-ship decision (McKinley's explicit word; requires
+      shadow tracking built first)
 - [ ] Sign-off / negative close recorded here and in CLAUDE.md
