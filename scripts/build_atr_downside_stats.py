@@ -128,7 +128,7 @@ def compute_signal_masks(spy_df, closes, sp500_closes):
         compute_da_signal, compute_vix_range_compression,
         compute_defensive_leadership, compute_fomc_signal,
         compute_low_ar_signal, compute_seasonal_divergence_signal,
-        compute_dispersion_signal,
+        compute_dispersion_signal, compute_pc_complacency_signal,
     )
     spy_close = spy_df["Close"]
     sector_cols = [c for c in SECTOR_ETFS if c in closes.columns]
@@ -143,6 +143,9 @@ def compute_signal_masks(spy_df, closes, sp500_closes):
         "Low Absorption Ratio": compute_low_ar_signal(sector_returns, spy_close),
         "Seasonal Rank Divergence": compute_seasonal_divergence_signal(spy_close),
         "Dispersion": compute_dispersion_signal(sp500_closes, spy_df, spy_close),
+        # 5d-only dial contributor (2026-08-05) — downside card renders on
+        # the site whenever it fires, like every other signal.
+        "Equity P/C Complacency": compute_pc_complacency_signal(spy_close),
     }
 
 

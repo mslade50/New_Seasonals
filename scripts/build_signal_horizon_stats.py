@@ -82,6 +82,17 @@ PARAMS = {
     "Low Absorption Ratio": "AR pctile < 10, SPY near 52w high",
     "Seasonal Rank Divergence": "risk-off minus risk-on seasonal spread > +10pp",
     "Dispersion": "composite dispersion pctile > 85",
+    "Equity P/C Complacency": ("10d-MA CBOE equity put/call, trailing-252d "
+                               "pctile < 10 (complacency tail)"),
+}
+
+# Horizons a signal is ALLOWED to carry in the JSON. The Equity P/C
+# Complacency signal is 5d-only BY DESIGN (2026-08-05): its 63d dial
+# candidacy was rejected (day-level edge is overlap inflation, episode t
+# wrong-signed — scratch/putcall_dial_study.py), so a regeneration must
+# never hand it 21d/63d edges and silently change the sizing column.
+HORIZON_RESTRICT = {
+    "Equity P/C Complacency": {"5d"},
 }
 
 
@@ -181,6 +192,10 @@ def main() -> None:
     for name, hist in histories.items():
         block = signal_block(name, hist, spy_close)
         if block:
+            allowed = HORIZON_RESTRICT.get(name)
+            if allowed:
+                block["horizons"] = {h: v for h, v in block["horizons"].items()
+                                     if h in allowed}
             blocks[name] = block
         else:
             print(f"  {name}: no usable history, skipped")

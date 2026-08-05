@@ -62,6 +62,11 @@ SIGNAL_METRICS = {
         "unit": "percentile", "decimals": 1,
         "thresholds": [{"value": 85.0, "label": "Fire", "operator": ">"}],
     },
+    "Equity P/C Complacency": {
+        "key": "pc_pctile", "label": "10d-MA equity P/C percentile (252d)",
+        "unit": "percentile", "decimals": 1,
+        "thresholds": [{"value": 10.0, "label": "Fire", "operator": "<"}],
+    },
 }
 
 
@@ -952,6 +957,12 @@ def build_trade_console(computed):
 
     signals_ordered = computed["signals_ordered"]
     spy_close = computed["spy_close"].dropna()
+
+    # The trade-console evidence file was built on the ABBR taxonomy (the 7
+    # base signals). Signals added to the composite later (Equity P/C
+    # Complacency, 2026-08-05) are filtered out here so the fingerprint gate
+    # checks the taxonomy the evidence actually covers instead of degrading.
+    signals_ordered = {k: v for k, v in signals_ordered.items() if k in ABBR}
 
     if class_fingerprint(signals_ordered.keys()) != stats.get("fingerprint"):
         return {"asof": spy_close.index[-1].strftime("%Y-%m-%d"),

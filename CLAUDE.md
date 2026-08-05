@@ -130,11 +130,12 @@ Per-tier tab routing inside `save_staging_orders`: Liquid rows → `Order_Stagin
 The old "Risk Dashboard V2 Phases 1-2 / Layers 0-4 / Executive Summary"
 description no longer matches the code. Current state:
 
-**pages/risk_dashboard_v2.py** computes 7 fragility signals (Distribution
+**pages/risk_dashboard_v2.py** computes 8 fragility signals (Distribution
 Dominance [+Elevated display tier], VIX Range Compression, Defensive
 Leadership, Pre-FOMC Rally, Low Absorption Ratio, Seasonal Rank Divergence,
-Dispersion) and a 0-100 composite dial at 3 horizons (5d/21d/63d), weighted
-by diff_mean edges from `data/signal_horizon_stats.json` (reproducible via
+Dispersion, and — since 2026-08-05 — Equity P/C Complacency) and a 0-100
+composite dial at 3 horizons (5d/21d/63d), weighted by diff_mean edges from
+`data/signal_horizon_stats.json` (reproducible via
 `scripts/build_signal_horizon_stats.py`; the JSON's "(Elevated)" entry is
 reference-only, NOT consumed by the composite). The page displays ONE dial
 (63d + 10d MA + throttle state); 5d/21d are context chips (5d failed every
@@ -143,6 +144,27 @@ anywhere). `daily_risk_report.py` and `weekly_market_rundown.py` import the
 page's compute functions (import surface: deleting page functions can crash
 the GHA email that appends the sizing parquet — check both before removing
 anything).
+
+**Equity P/C Complacency is a 5d-HORIZON-ONLY contributor** (like Pre-FOMC
+in spirit, but a persistent signal, so it sits in the STATIC denominator):
+10d-MA CBOE equity put/call trailing-252d pctile < 10
+(`compute_pc_complacency_signal`, reads `data/cboe_putcall.parquet` via
+`pc_fear.py`). Its stats JSON entry carries NO 21d/63d horizons and
+`scripts/build_signal_horizon_stats.py HORIZON_RESTRICT` keeps regens that
+way, so the sizing 63d column and the exposure-leg 21d input are unchanged —
+only the display-only 5d column gets a new definitional vintage from
+2026-08-05 (63d dial candidacy was REJECTED: day-level edge is overlap
+inflation, episode t wrong-signed — scratch/putcall_dial_study.py). It is
+EXCLUDED from the pre-registered simple-dial shadow (daily_risk_report
+filters to `fragility_simple.SIMPLE_SIGNALS`, the registered 7) and from the
+trade-console evidence fingerprint (build_risk_json filters to ABBR).
+Present in all three compute_all_signals copies (page, daily_risk_report,
+weekly_market_rundown) + build_atr_downside_stats. Guard:
+`tests/test_pc_dial_signal.py` (21d/63d byte-invariance, 5d-only stats,
+shadow pinning). Site note: the Pre-FOMC Rally card renders WITHOUT a
+per-signal chart since 2026-08-05 (risk.js NO_CHART_SIGNALS — calendar
+signal, chart earned its space poorly); its windows still shade the shared
+overlay chart.
 
 ### The fragility-portfolio contract (B6, 2026-07-16)
 

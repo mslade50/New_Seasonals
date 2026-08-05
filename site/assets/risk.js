@@ -12,7 +12,14 @@ const RISK_SIGNAL_COLORS = {
   "Low Absorption Ratio": "#9b59b6",
   "Seasonal Rank Divergence": "#1abc9c",
   "Dispersion": "#f39c12",
+  "Equity P/C Complacency": "#8e44ad",
 };
+
+// Signals rendered as a flat card with NO per-signal chart accordion.
+// Pre-FOMC fires ~8x/yr on a fixed calendar — the SPY-with-shaded-windows
+// chart earned its space poorly (removed 2026-08-05 per McKinley). Its
+// periods still shade the shared signal-overlay chart above the cards.
+const NO_CHART_SIGNALS = new Set(["Pre-FOMC Rally"]);
 
 document.addEventListener("DOMContentLoaded", init);
 
@@ -66,7 +73,8 @@ async function init() {
     const hasMetric = !!(sd && sd.metric && Array.isArray(sd.metric.values) &&
       sd.metric.values.some(v => v != null && Number.isFinite(Number(v))));
     const hasPeriods = !!(sd && Array.isArray(sd.periods) && sd.periods.length);
-    const hasChart = !!(d.spy_series && sd && (hasMetric || hasPeriods));
+    const hasChart = !NO_CHART_SIGNALS.has(s.name) &&
+      !!(d.spy_series && sd && (hasMetric || hasPeriods));
     const headRow = `<span class="tkr">${esc(s.name)}</span>
         <span class="badge ${badgeCls}">${esc(s.badge)}</span>
         ${currentFigure ? `<span class="signal-current">${esc(currentFigure)}</span>` : ""}`;

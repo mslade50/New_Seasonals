@@ -43,6 +43,7 @@ from pages.risk_dashboard_v2 import (
     compute_low_ar_signal,
     compute_seasonal_divergence_signal,
     compute_dispersion_signal,
+    compute_pc_complacency_signal,
     compute_price_context,
     compute_regime_multiplier,
     load_horizon_stats,
@@ -131,6 +132,7 @@ def compute_all_signals(spy_df, closes, sp500_closes):
     ar = compute_low_ar_signal(sector_returns, spy_close)
     srd = compute_seasonal_divergence_signal(spy_close)
     disp = compute_dispersion_signal(sp500_closes, spy_df, spy_close)
+    pcc = compute_pc_complacency_signal(spy_close)
 
     signals_ordered = {
         'Distribution Dominance': da,
@@ -140,6 +142,9 @@ def compute_all_signals(spy_df, closes, sp500_closes):
         'Low Absorption Ratio': ar,
         'Seasonal Rank Divergence': srd,
         'Dispersion': disp,
+        # 5d-only contributor (2026-08-05) — kept in every compute_all_signals
+        # copy so the 5d dial matches the risk report's exactly.
+        'Equity P/C Complacency': pcc,
     }
 
     price_ctx = compute_price_context(spy_close)

@@ -42,6 +42,7 @@ from pages.risk_dashboard_v2 import (
     compute_low_ar_signal,
     compute_seasonal_divergence_signal,
     compute_dispersion_signal,
+    compute_pc_complacency_signal,
     compute_price_context,
     compute_regime_multiplier,
     load_horizon_stats,
@@ -96,6 +97,7 @@ def compute_all_signals(spy_df, closes, sp500_closes):
     ar = compute_low_ar_signal(sector_returns, spy_close)
     srd = compute_seasonal_divergence_signal(spy_close)
     disp = compute_dispersion_signal(sp500_closes, spy_df, spy_close)
+    pcc = compute_pc_complacency_signal(spy_close)
 
     signals_ordered = {
         'Distribution Dominance': da,
@@ -105,6 +107,10 @@ def compute_all_signals(spy_df, closes, sp500_closes):
         'Low Absorption Ratio': ar,
         'Seasonal Rank Divergence': srd,
         'Dispersion': disp,
+        # 5d-horizon-only contributor (2026-08-05); stats entry has no
+        # 21d/63d edges so the PIT parquet's sizing 63d column is unchanged.
+        # Excluded from the simple-dial shadow (pre-registered 7-signal spec).
+        'Equity P/C Complacency': pcc,
     }
 
     price_ctx = compute_price_context(spy_close)
@@ -841,9 +847,15 @@ def main():
         # composite, own append-only file, same 5d-smoothed basis. Parallel
         # history only — nothing consumes it until a PIT-gated swap decision.
         try:
-            from fragility_simple import compute_simple_dial, SIMPLE_CACHE_NAME
+            from fragility_simple import (compute_simple_dial,
+                                          SIMPLE_CACHE_NAME, SIMPLE_SIGNALS)
+            # Pin to the registered 7-signal spec: composite additions after
+            # 2026-07-16 (Equity P/C Complacency) must not leak into the
+            # pre-registered shadow.
+            _simple_inputs = {n: computed['signals_ordered'].get(n, {})
+                              for n in SIMPLE_SIGNALS}
             simple_raw = compute_simple_dial(
-                computed['signals_ordered'], computed['spy_close'].dropna().index)
+                _simple_inputs, computed['spy_close'].dropna().index)
             if not simple_raw.empty:
                 simple_out = simple_raw.rolling(5, min_periods=1).mean()
                 simple_out.index = pd.to_datetime(simple_out.index).normalize()

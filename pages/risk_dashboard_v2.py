@@ -899,6 +899,64 @@ def compute_seasonal_divergence_signal(spy_close: pd.Series) -> dict:
     }
 
 
+def compute_pc_complacency_signal(spy_close: pd.Series) -> dict:
+    """
+    Equity P/C Complacency signal (2026-08-05).
+    Trailing-252d percentile of the 10d-MA CBOE equity put/call ratio below
+    10 — positioning complacency. 5d-horizon-ONLY contributor by design (its
+    stats JSON entry carries no 21d/63d horizons, so _signal_edge weights it
+    0 there and the sizing 63d column is unaffected; the 63d candidacy was
+    rejected — see scratch/ultracode_research/family_pc_fear_band_prereg
+    _2026-08-05.md context). Reads data/cboe_putcall.parquet via pc_fear
+    (numpy/pandas only — standalone-safe for this page).
+    """
+    empty = {
+        'on': False, 'detail': '', 'summary': 'CBOE put/call cache unavailable',
+        'signal_history': pd.Series(dtype=bool),
+        'pc_pctile': pd.Series(dtype=float),
+    }
+    try:
+        import pc_fear
+        pct = pc_fear.pct_series()
+    except Exception:
+        return empty
+    if pct is None or pct.dropna().empty or spy_close.dropna().empty:
+        return empty
+    pct = pct.dropna()
+
+    fire_threshold = 10.0
+    signal = ((pct < fire_threshold).reindex(spy_close.index)
+              .fillna(False).infer_objects(copy=False).astype(bool))
+
+    latest_dt = pct.index[-1]
+    latest = float(pct.iloc[-1])
+    try:
+        age_bd = int(np.busday_count(latest_dt.date(),
+                                     spy_close.dropna().index[-1].date()))
+    except (ValueError, AttributeError):
+        age_bd = 99
+    fresh = 0 <= age_bd <= 3
+    signal_on = bool(fresh and latest < fire_threshold)
+
+    detail = (f"10d-MA equity P/C 252d pctile: {latest:.0f} "
+              f"(fires < {fire_threshold:.0f})")
+    if not fresh:
+        detail += f" — STALE ({age_bd} bd old)"
+    summary = (
+        f"Equity P/C at the {latest:.0f}th pctile of its trailing year "
+        f"(data {latest_dt.strftime('%Y-%m-%d')}) — "
+        f"{'complacent positioning' if signal_on else 'no complacency'}"
+    )
+
+    return {
+        'on': signal_on,
+        'detail': detail,
+        'summary': summary,
+        'pc_pctile': pct,
+        'signal_history': signal,
+    }
+
+
 def compute_dispersion_signal(sp500_closes: pd.DataFrame,
                                spy_df: pd.DataFrame,
                                spy_close: pd.Series) -> dict:
@@ -1673,6 +1731,7 @@ SIGNAL_COLORS = {
     'VIX Range Compression': '#e67e22',
     'Defensive Leadership': '#2ecc71',
     'Pre-FOMC Rally': '#3498db',
+    'Equity P/C Complacency': '#8e44ad',
     'Low Absorption Ratio': '#9b59b6',
     'Seasonal Rank Divergence': '#1abc9c',
     'Dispersion': '#f39c12',
@@ -2996,6 +3055,7 @@ def _cached_compute_signals(_spy_df, _closes, _sp500_closes, cache_key):
     ar = compute_low_ar_signal(sector_returns, spy_close)
     srd = compute_seasonal_divergence_signal(spy_close)
     disp = compute_dispersion_signal(_sp500_closes, _spy_df, spy_close)
+    pcc = compute_pc_complacency_signal(spy_close)
 
     signals_ordered = {
         'Distribution Dominance': da,
@@ -3005,6 +3065,10 @@ def _cached_compute_signals(_spy_df, _closes, _sp500_closes, cache_key):
         'Low Absorption Ratio': ar,
         'Seasonal Rank Divergence': srd,
         'Dispersion': disp,
+        # 5d-horizon-only contributor (2026-08-05) — its stats entry carries
+        # no 21d/63d edges, so the sizing 63d column is untouched. NOT in the
+        # simple-dial shadow (pre-registered 7-signal spec, fragility_simple).
+        'Equity P/C Complacency': pcc,
     }
     signals_bool = {name: sig['on'] for name, sig in signals_ordered.items()}
 

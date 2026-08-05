@@ -29,6 +29,20 @@ import pandas as pd
 DECAY_TD = 63
 SIMPLE_CACHE_NAME = "rd2_fragility_simple.parquet"
 
+# The pre-registered spec is a SEVEN-signal sum — frozen at registration
+# (2026-07-16). Signals added to the incumbent composite later (e.g. Equity
+# P/C Complacency, 2026-08-05) must NOT leak into the shadow: the comparison
+# is only meaningful if the shadow's inputs stay what was registered.
+SIMPLE_SIGNALS = (
+    "Distribution Dominance",
+    "VIX Range Compression",
+    "Defensive Leadership",
+    "Pre-FOMC Rally",
+    "Low Absorption Ratio",
+    "Seasonal Rank Divergence",
+    "Dispersion",
+)
+
 
 def _decayed_weight(history: pd.Series, index: pd.Index) -> pd.Series:
     """1.0 while ON, linear decay to 0 over DECAY_TD sessions after OFF."""
@@ -49,6 +63,10 @@ def compute_simple_dial(signals_ordered: dict, index: pd.Index) -> pd.DataFrame:
     history are EXCLUDED from the denominator (a missing series is a data
     problem, not evidence of calm) — the count used is stamped by the caller.
     """
+    # Generic over whatever dict it is handed (tests exercise synthetic
+    # signal sets). The PRODUCTION caller (daily_risk_report) must pass a
+    # dict filtered to SIMPLE_SIGNALS — the registered 7 — so later
+    # composite additions never leak into the shadow.
     weights = []
     for sig in signals_ordered.values():
         history = (sig or {}).get("signal_history")

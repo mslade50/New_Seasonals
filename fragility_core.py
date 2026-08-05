@@ -311,6 +311,12 @@ def compute_horizon_fragility(
     ar = signals_ordered.get('Low Absorption Ratio', {})
     srd = signals_ordered.get('Seasonal Rank Divergence', {})
     disp = signals_ordered.get('Dispersion', {})
+    # Equity P/C Complacency (2026-08-05): 5d-horizon-only by design — its
+    # stats entry carries no 21d/63d horizons, so _signal_edge returns 0
+    # there and the 21d/63d composites (incl. the sizing column) are
+    # untouched. Persistent signal (~15% of days) -> STATIC denominator
+    # member, unlike the calendar-sparse FOMC.
+    pcc = signals_ordered.get('Equity P/C Complacency', {})
 
     # SPY distance from highs (positive = below high)
     dd = price_ctx.get('drawdown')
@@ -349,6 +355,10 @@ def compute_horizon_fragility(
         if disp_w > 0:
             active_weight += _signal_edge(stats, 'Dispersion', h) * disp_w
 
+        pcc_w = _signal_decay_weight(pcc, h, spy_pct_from_high)
+        if pcc_w > 0:
+            active_weight += _signal_edge(stats, 'Equity P/C Complacency', h) * pcc_w
+
         # Dynamic max_weight: FOMC is calendar-dependent — only include its
         # edge in the denominator when it's contributing (ON or decaying).
         # Otherwise its large 5d edge (47% of total) prevents the dial from
@@ -360,6 +370,7 @@ def compute_horizon_fragility(
             + _signal_edge(stats, 'Low Absorption Ratio', h)
             + _signal_edge(stats, 'Seasonal Rank Divergence', h)
             + _signal_edge(stats, 'Dispersion', h)
+            + _signal_edge(stats, 'Equity P/C Complacency', h)
         )
         if fomc_w > 0:
             max_weight += _signal_edge(stats, 'Pre-FOMC Rally', h)
