@@ -254,7 +254,12 @@ def _esc(text) -> str:
 
 def _order_line(row: dict) -> str:
     side = "BUY" if row["Action"] == "BUY" else "SHORT"
-    bits = [f"{side} {row['Quantity']:,} {row['Ticker']}"]
+    # A futures row is hand-entered, so the card has to carry the exact
+    # contract (spec section 7). Naming the ticker alone is not an order.
+    instrument = row["Ticker"]
+    if str(row.get("Sec_Type", "")).upper() == "FUT" and row.get("Contract"):
+        instrument = f"{row['Contract']}"
+    bits = [f"{side} {row['Quantity']:,} {instrument}"]
     if row["Order_Type"] == "LMT":
         if row["Limit_Price"] != "":
             bits.append(f"LMT {row['Limit_Price']:.2f}")

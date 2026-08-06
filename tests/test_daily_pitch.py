@@ -218,6 +218,15 @@ def test_email_flags_manual_rows(payload, prices):
     assert "futures leg" in html
 
 
+def test_email_prints_the_futures_contract(payload, prices):
+    # Spec section 7: a futures row is hand-entered, so the card must carry
+    # the exact contract. Naming the ticker alone is not an order.
+    ideas, _ = dp.prepare(payload, ASOF, prices, [])
+    contract = payload["ideas"][2]["legs"][0]["contract"]
+    html = dp.render_email(payload, ideas, ASOF, {}, None)
+    assert dp._esc(contract) in html
+
+
 def test_email_surfaces_state_warnings(payload, prices):
     ideas, _ = dp.prepare(payload, ASOF, prices, [])
     state = {"warnings": ["tape: freshest bar is two sessions old"],
