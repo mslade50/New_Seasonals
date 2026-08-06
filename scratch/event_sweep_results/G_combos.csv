@@ -1,0 +1,12 @@
+combo,cut,mean_bps,t,N,hit
+G1 fomc pre,runup>80,33.4,1.07,37,0.649
+G1 fomc pre,runup<20,-11.3,-0.25,39,0.564
+G1 fomc pre,mid,36.4,2.2,128,0.586
+G1 fomc post,runup>80,-7.6,-0.22,37,0.486
+G1 fomc post,runup<20,-4.9,-0.12,39,0.513
+G1 fomc post,mid,6.3,0.41,128,0.594
+G2 santa,fomc_day>0,47.4,1.16,15,0.6
+G2 santa,fomc_day<0,47.8,0.76,11,0.727
+G2 santa,all,47.6,1.37,26,0.654
+G3 TOM,with NFP,31.0,1.26,103,0.631
+G3 TOM,no NFP,24.1,1.86,215,0.544

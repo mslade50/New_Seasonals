@@ -1,0 +1,17 @@
+cut,leg,mean_bps,t,N,hit
+all months,expiry_wk,11.6,0.83,319,0.567
+quad,expiry_wk,-0.1,-0.0,106,0.585
+month=3,expiry_wk,24.5,0.32,27,0.593
+month=6,expiry_wk,-21.1,-0.54,27,0.593
+month=9,expiry_wk,-15.3,-0.25,26,0.538
+month=12,expiry_wk,11.3,0.27,26,0.615
+Sep+midterm,expiry_wk,-83.7,-0.61,6,0.667
+non-quad months,expiry_wk,17.5,1.11,213,0.559
+all months,post_wk,18.2,1.46,319,0.539
+quad,post_wk,0.5,0.02,106,0.387
+month=3,post_wk,49.2,0.8,27,0.37
+month=6,post_wk,-32.3,-0.83,27,0.259
+month=9,post_wk,-89.9,-1.85,26,0.269
+month=12,post_wk,74.2,2.36,26,0.654
+Sep+midterm,post_wk,-109.9,-1.23,6,0.167
+non-quad months,post_wk,27.1,1.87,213,0.615
