@@ -135,3 +135,28 @@ def test_event_dates_unique_sorted():
     for ev in EVENT_TYPES:
         d = event_dates(ev)
         assert d.is_monotonic_increasing and d.is_unique
+
+
+def _page_fomc_dates(fname: str) -> set:
+    src = (Path(__file__).resolve().parent.parent / "pages" / fname).read_text(
+        encoding="utf-8", errors="ignore")
+    block = src.split("FOMC_DATES = pd.to_datetime([", 1)[1].split("])", 1)[0]
+    import re
+    return {pd.Timestamp(d) for d in re.findall(r"\d{4}-\d{2}-\d{2}", block)}
+
+
+@pytest.mark.parametrize("fname", ["risk_dashboard_v2.py",
+                                   "signal_backtester.py"])
+def test_page_fomc_dates_match_calendar(cal, fname):
+    """The hardcoded page lists (2015+) must agree with macro_events:
+    scheduled decisions plus the two 2020 emergency cuts they include."""
+    page = _page_fomc_dates(fname)
+    lo = min(page)
+    ours = set(cal[(cal["event"] == "fomc_decision")
+                   & (cal["date"] >= lo)
+                   & (cal["date"] <= max(page))]["date"])
+    ours |= {pd.Timestamp("2020-03-03"), pd.Timestamp("2020-03-15")}
+    assert page == ours, (f"{fname}: only-in-page="
+                          f"{sorted(d.date() for d in page - ours)} "
+                          f"only-in-calendar="
+                          f"{sorted(d.date() for d in ours - page)}")
