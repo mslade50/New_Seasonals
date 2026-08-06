@@ -78,6 +78,47 @@ const single = context.structureFrom("long put", [{ side: "BUY", row: shortPut }
 assert.strictEqual(single.mid, 2.00);
 assert.strictEqual(context.riskPerUnit(single), 201.30);
 
+vm.runInNewContext(`
+state.params = {};
+state.manual.view = "bearish";
+state.manual.target = 744;
+state.forecast.active = true;
+state.forecast.target = 744;
+state.selStructure = null;
+state.wb = {ticker: "SPY", spot: 756, chain: {expiry: "20260814", dte: 8, strikes: [
+  {strike: 742, right: "P", con_id: 742, bid: 0.35, ask: 0.45, mid: 0.40, delta: -0.08, iv: 0.24},
+  {strike: 744, right: "P", con_id: 744, bid: 0.55, ask: 0.65, mid: 0.60, delta: -0.12, iv: 0.235},
+  {strike: 746, right: "P", con_id: 746, bid: 0.90, ask: 1.10, mid: 1.00, delta: -0.18, iv: 0.23},
+  {strike: 748, right: "P", con_id: 748, bid: 1.30, ask: 1.50, mid: 1.40, delta: -0.25, iv: 0.225},
+  {strike: 750, right: "P", con_id: 750, bid: 1.90, ask: 2.10, mid: 2.00, delta: -0.32, iv: 0.22},
+  {strike: 752, right: "P", con_id: 752, bid: 2.60, ask: 2.80, mid: 2.70, delta: -0.38, iv: 0.215},
+  {strike: 754, right: "P", con_id: 754, bid: 3.40, ask: 3.60, mid: 3.50, delta: -0.44, iv: 0.21},
+  {strike: 756, right: "P", con_id: 756, bid: 4.30, ask: 4.50, mid: 4.40, delta: -0.50, iv: 0.205}
+]}};
+buildStructures();
+`, context);
+const forecastStructures = JSON.parse(vm.runInNewContext(`JSON.stringify(state.structures.map((s) => ({
+  name: s.name, strikes: s.legs.map((l) => l.row.strike)
+})))`, context));
+assert.deepStrictEqual(
+  forecastStructures.find((s) => s.name === "Target-zone tight vertical").strikes,
+  [746, 744],
+);
+assert.deepStrictEqual(
+  forecastStructures.find((s) => s.name === "Target-zone balanced vertical").strikes,
+  [750, 744],
+);
+assert.deepStrictEqual(
+  forecastStructures.find((s) => s.name === "Spot-to-target vertical").strikes,
+  [756, 744],
+);
+assert.deepStrictEqual(
+  JSON.parse(JSON.stringify(context.targetVerticalRows([
+    {strike: 100}, {strike: 102}, {strike: 104}, {strike: 106}, {strike: 108}, {strike: 110},
+  ], 100, 110, "C", 0.25))),
+  {longRow: {strike: 108}, shortRow: {strike: 110}},
+);
+
 const cutoff = new Date();
 cutoff.setDate(cutoff.getDate() + 30);
 const cutoffIso = `${cutoff.getFullYear()}-${String(cutoff.getMonth() + 1).padStart(2, "0")}-${String(cutoff.getDate()).padStart(2, "0")}`;
@@ -157,4 +198,4 @@ assert.ok(riskThesis.target < 100);
 assert.deepStrictEqual(JSON.parse(JSON.stringify(context.availableThesisSources("SPY"))), ["seasonal", "risk"]);
 assert.deepStrictEqual(JSON.parse(JSON.stringify(context.availableThesisSources("QQQ"))), ["seasonal"]);
 
-console.log("PASS options lab regime, term/forward math, skew/positioning, independent house theses, calendar construction, pricing, sizing, credit orientation, and forecast scoring");
+console.log("PASS options lab regime, term/forward math, skew/positioning, target-aware forecast structures, independent house theses, calendar construction, pricing, sizing, credit orientation, and forecast scoring");

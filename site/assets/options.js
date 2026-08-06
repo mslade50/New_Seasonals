@@ -35,7 +35,7 @@ const state = {
   forecast: {
     active: false, event: "touch", target: null, probability: 0.50,
     cutoff: defaultForecastDate(), touchIvShift: 8, noTouchSpot: null,
-    noTouchIvShift: -3, objective: "ev_risk",
+    noTouchIvShift: -3, objective: "ev_risk", selectTop: false,
   },
   pricing: { ivShiftPts: -3, rate: 0.04, divYield: 0 },
   calendar: { front: null, back: null, frontChain: null, backChain: null, loading: false, error: null },
@@ -1293,6 +1293,28 @@ function byStrike(rows, px) {
   }
   return best;
 }
+function localStrikeStep(rows, px) {
+  const strikes = [...new Set(rows.map((r) => Number(r.strike)).filter((x) => isFinite(x)))].sort((a, b) => a - b);
+  if (strikes.length < 2) return null;
+  let idx = 0;
+  for (let i = 1; i < strikes.length; i++) {
+    if (Math.abs(strikes[i] - px) < Math.abs(strikes[idx] - px)) idx = i;
+  }
+  const gaps = [];
+  if (idx > 0) gaps.push(strikes[idx] - strikes[idx - 1]);
+  if (idx < strikes.length - 1) gaps.push(strikes[idx + 1] - strikes[idx]);
+  return gaps.filter((x) => x > 0).sort((a, b) => a - b)[0] || null;
+}
+function targetVerticalRows(rows, spot, target, right, moveFraction) {
+  const shortRow = byStrike(rows, target);
+  if (!shortRow || !isFinite(spot) || !isFinite(target)) return null;
+  const step = localStrikeStep(rows, shortRow.strike) || 0;
+  const width = Math.max(step, Math.abs(spot - target) * moveFraction);
+  const longPx = shortRow.strike + (right === "P" ? width : -width);
+  const validLongs = rows.filter((r) => right === "P" ? r.strike > shortRow.strike : r.strike < shortRow.strike);
+  const longRow = byStrike(validLongs, longPx);
+  return longRow ? { longRow, shortRow } : null;
+}
 function legPrice(row, side, kind) {   // kind: "mid" | "nat"
   if (kind === "mid") return row.mid;
   return side === "BUY" ? row.ask : row.bid;   // natural: pay the ask, hit the bid
@@ -1322,6 +1344,8 @@ function structureFrom(name, legs, note, meta = {}) {
 }
 function spreadFrom(name, longRow, shortRow, right, note) {
   if (!longRow || (shortRow && longRow.strike === shortRow.strike)) return null;
+  if (shortRow && right === "P" && longRow.strike <= shortRow.strike) return null;
+  if (shortRow && right === "C" && longRow.strike >= shortRow.strike) return null;
   const legs = [{ side: "BUY", row: longRow }];
   if (shortRow) legs.push({ side: "SELL", row: shortRow });
   return structureFrom(name, legs, note, {
@@ -1384,9 +1408,21 @@ function buildStructures() {
     add(spreadFrom("Hedge put spread 40Δ/25Δ", d40, d25, right, "budgeted downside protection"));
     add(spreadFrom("Long put ~40Δ", d40, null, right, "uncapped crash convexity, full theta"));
   } else {
-    add(spreadFrom("Target-anchored vertical", anchorLong, anchorShort, right,
-      tgtPx ? "short strike nearest the thesis target" : "long near entry / short ~25Δ"));
-    add(spreadFrom("50Δ/25Δ vertical", d50 || atmLong, d25, right, "balanced delta and premium"));
+    if (state.forecast.active && tgtPx) {
+      const tight = targetVerticalRows(rows, spot, tgtPx, right, 0.25);
+      const balanced = targetVerticalRows(rows, spot, tgtPx, right, 0.50);
+      add(tight && spreadFrom("Target-zone tight vertical", tight.longRow, tight.shortRow, right,
+        "both strikes near the forecast level; long strike sits 25% of the forecast move back toward spot"));
+      add(balanced && spreadFrom("Target-zone balanced vertical", balanced.longRow, balanced.shortRow, right,
+        "short strike nearest the target; long strike sits halfway back toward spot"));
+      add(spreadFrom("Spot-to-target vertical", atmLong, anchorShort, right,
+        "full-move reference: long near spot, short strike nearest the forecast target"));
+    } else {
+      add(spreadFrom("Target-anchored vertical", anchorLong, anchorShort, right,
+        tgtPx ? "short strike nearest the thesis target" : "long near entry / short ~25Δ"));
+    }
+    add(spreadFrom("50Δ/25Δ reference vertical", d50 || atmLong, d25, right,
+      "delta-based baseline for comparison; forecast ranking can choose a tighter target-zone spread"));
     add(spreadFrom(`Long ${right === "C" ? "call" : "put"} ~40Δ`, d40, null, right,
       "uncapped convexity, full theta and vega"));
     add(creditVertical(short ? "C" : "P", short ? "Bear call spread 30Δ/15Δ" : "Bull put spread 30Δ/15Δ"));
@@ -1525,6 +1561,10 @@ function renderForecastLab() {
     const metrics = qty > 0 ? forecastMetrics(s, qty, f) : null;
     return { s, qty, metrics, score: forecastScore(metrics, f.objective) };
   }).filter((x) => x.metrics && isFinite(x.score)).sort((a, b) => b.score - a.score) : [];
+  if (activeRows.length && f.selectTop) {
+    state.selStructure = activeRows[0].s.name;
+    f.selectTop = false;
+  }
 
   const objectiveLabel = {
     ev_risk: "expected P&L per dollar at risk",
@@ -1580,6 +1620,7 @@ function renderForecastLab() {
   document.getElementById("fc_apply").addEventListener("click", () => {
     syncForecastInputs();
     f.active = true;
+    f.selectTop = true;
     const bearish = f.target < wb.spot;
     state.manual.view = bearish ? "bearish" : "bullish";
     state.params.dir = bearish ? "Short" : "Long";
