@@ -44,7 +44,8 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 from pandas.tseries.holiday import (AbstractHolidayCalendar, GoodFriday,
-                                    USFederalHolidayCalendar)
+                                    Holiday, USFederalHolidayCalendar,
+                                    sunday_to_monday)
 from pandas.tseries.offsets import CustomBusinessDay
 
 current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -75,15 +76,26 @@ EVENT_SLEEVE = {
                               "nav_frac": 0.15, "z10_skip_below": -1.0},
     "T4_DEC_POSTOPEX_LONG": {"ticker": "IWM", "side": "LONG",
                              "nav_frac": 0.25},
+    # V trades (2026-08-06 addendum): defined-risk short vol = LONG SVXY
+    # (-0.5x ETP), loss bounded at the position.
+    "V2_NOVDEC_VOL": {"ticker": "SVXY", "side": "LONG", "nav_frac": 0.05},
+    "V4_POSTOPEX_VOL": {"ticker": "SVXY", "side": "LONG", "nav_frac": 0.10},
 }
 FOMC_ENTRY_TD_BEFORE = 4   # entry MOC 4 sessions before the decision
+V4_EXIT_TD_AFTER = 3       # V4 exits MOC 3 sessions after opex
 
 
 class NYSEHolidayCalendar(AbstractHolidayCalendar):
     """US federal holidays minus Columbus/Veterans (NYSE trades both),
-    plus Good Friday."""
-    rules = [r for r in USFederalHolidayCalendar.rules
-             if r.name not in ("Columbus Day", "Veterans Day")] + [GoodFriday]
+    plus Good Friday. New Year's uses sunday_to_monday: when Jan 1 falls
+    on a Saturday NYSE does NOT close the preceding Dec 31 (the federal
+    nearest-weekday rule wrongly kills that session, e.g. 2027-12-31)."""
+    rules = ([r for r in USFederalHolidayCalendar.rules
+              if r.name not in ("Columbus Day", "Veterans Day",
+                                "New Year's Day")]
+             + [GoodFriday,
+                Holiday("New Year's Day", month=1, day=1,
+                        observance=sunday_to_monday)])
 
 
 NYSE_BDAY = CustomBusinessDay(calendar=NYSEHolidayCalendar())
@@ -100,6 +112,15 @@ def sessions_before(d: pd.Timestamp, n: int) -> pd.Timestamp:
 def last_session_of_month(year: int, month: int) -> pd.Timestamp:
     eom = pd.Timestamp(year, month, 1) + pd.offsets.MonthEnd(0)
     return eom if is_session(eom) else (eom - NYSE_BDAY).normalize()
+
+
+def first_session_of_month(year: int, month: int) -> pd.Timestamp:
+    som = pd.Timestamp(year, month, 1)
+    return som if is_session(som) else (som + NYSE_BDAY).normalize()
+
+
+def sessions_after(d: pd.Timestamp, n: int) -> pd.Timestamp:
+    return (d + n * NYSE_BDAY).normalize()
 
 
 def load_ticker(tkr: str) -> pd.DataFrame:
@@ -235,6 +256,33 @@ def compute_actions(today: pd.Timestamp, px: dict[str, pd.DataFrame],
         stage_entry("T4_DEC_POSTOPEX_LONG", cfg4, "Dec opex, long to year-end",
                     last_session_of_month(today.year, 12), "MOC")
 
+    # ---- V2: Nov-Dec short-vol seasonal (ex-midterm) ----------------------
+    cfgv2 = EVENT_SLEEVE["V2_NOVDEC_VOL"]
+    if today == first_session_of_month(today.year, 11):
+        if today.year % 4 == 2:
+            log.append("V2: first November session but midterm year — no "
+                       "trade (both losing Nov-Dec years were midterms)")
+        else:
+            stage_entry("V2_NOVDEC_VOL", cfgv2,
+                        "Nov-Dec short-vol seasonal (long SVXY)",
+                        last_session_of_month(today.year, 12), "MOC")
+
+    # ---- V4: post-opex vol crush (every opex except September; stands
+    # down while V2 already holds the short-vol position in Nov/Dec) -------
+    cfgv4 = EVENT_SLEEVE["V4_POSTOPEX_VOL"]
+    if today in set(opex):
+        if today.month == 9:
+            log.append("V4: September opex — SKIP by spec (Sep inverts the "
+                       "post-quad vol crush; that stress is T3's trade)")
+        elif "V2_NOVDEC_VOL" in positions:
+            log.append("V4: opex day but V2 already holds the Nov-Dec "
+                       "short-vol position — SKIP (no doubling)")
+        else:
+            stage_entry("V4_POSTOPEX_VOL", cfgv4,
+                        f"post-opex vol crush, exit +{V4_EXIT_TD_AFTER} "
+                        f"sessions (long SVXY)",
+                        sessions_after(today, V4_EXIT_TD_AFTER), "MOC")
+
     return rows, log
 
 
@@ -273,6 +321,16 @@ CARD_EXPLAINERS = {
         "Long IWM 25% NAV from Dec opex close to year-end.",
         "+85 bps/window, t 2.3, 65% hit since 2000; small-cap year-end "
         "rotation (QQQ does not confirm)."),
+    "V2_NOVDEC_VOL": (
+        "Long SVXY 5% NAV, first November session to year-end, non-midterm "
+        "years only.",
+        "+11.1% avg, 10 of 11 non-midterm years up; both losing years "
+        "(2014, 2018) were midterms."),
+    "V4_POSTOPEX_VOL": (
+        "Long SVXY 10% NAV, opex close to 3 sessions after, every month "
+        "except September; stands down while V2 holds.",
+        "+108 bps/window, t 3.6, since 2011 (2021+ t 3.8); September "
+        "inverts the crush and is skipped."),
 }
 
 
@@ -333,8 +391,21 @@ def sleeve_status_cards(today: pd.Timestamp | None = None) -> list[dict]:
                 elif trade == "T3_SEP_POSTQUAD_SHORT":
                     nxt = [d for d in opex if d >= today and d.month == 9]
                     entry, dec = (nxt[0], None) if nxt else (None, None)
-                else:
+                elif trade == "T4_DEC_POSTOPEX_LONG":
                     nxt = [d for d in opex if d >= today and d.month == 12]
+                    entry, dec = (nxt[0], None) if nxt else (None, None)
+                elif trade == "V2_NOVDEC_VOL":
+                    entry, dec = None, None
+                    for y in range(today.year, today.year + 5):
+                        if y % 4 == 2:
+                            continue
+                        c = first_session_of_month(y, 11)
+                        if c >= today:
+                            entry = c
+                            break
+                else:  # V4: next opex that is not Sep and not V2 territory
+                    nxt = [d for d in opex if d >= today and d.month != 9
+                           and not (d.month in (11, 12) and d.year % 4 != 2)]
                     entry, dec = (nxt[0], None) if nxt else (None, None)
                 if entry is None:
                     card["status"] = "IDLE — no window in calendar range"

@@ -27,7 +27,8 @@ def synth_px(last_date: str, rank21: float = 30.0,
 
 def px_for(day: str, **kw) -> dict:
     prior = (pd.Timestamp(day) - es.NYSE_BDAY).normalize()
-    return {t: synth_px(str(prior.date()), **kw) for t in ("SPY", "IWM")}
+    return {t: synth_px(str(prior.date()), **kw)
+            for t in ("SPY", "IWM", "SVXY")}
 
 
 def run(day: str, state=None, **kw):
@@ -44,7 +45,12 @@ def test_prereg_config_frozen():
     assert s["T3_SEP_POSTQUAD_SHORT"]["z10_skip_below"] == -1.0
     assert s["T4_DEC_POSTOPEX_LONG"] == {"ticker": "IWM", "side": "LONG",
                                          "nav_frac": 0.25}
+    assert s["V2_NOVDEC_VOL"] == {"ticker": "SVXY", "side": "LONG",
+                                  "nav_frac": 0.05}
+    assert s["V4_POSTOPEX_VOL"] == {"ticker": "SVXY", "side": "LONG",
+                                    "nav_frac": 0.10}
     assert es.FOMC_ENTRY_TD_BEFORE == 4
+    assert es.V4_EXIT_TD_AFTER == 3
 
 
 def test_nyse_calendar():
@@ -144,6 +150,50 @@ def test_missed_exit_self_heals():
     assert len(rows) == 1 and rows[0]["Action"] == "BUY_TO_COVER"
     assert "LATE" in rows[0]["Note"]
     assert not state["positions"]
+
+
+def test_v4_normal_opex_entry_and_exit():
+    # August 2026 opex = Fri Aug 21; +3 sessions -> Wed Aug 26.
+    rows, _, state = run("2026-08-21")
+    assert len(rows) == 1 and rows[0]["Trade"] == "V4_POSTOPEX_VOL"
+    assert rows[0]["Ticker"] == "SVXY" and rows[0]["Action"] == "BUY"
+    assert state["positions"]["V4_POSTOPEX_VOL"]["exit_on"] == "2026-08-26"
+    rows2, _ = es.compute_actions(
+        pd.Timestamp("2026-08-26"), px_for("2026-08-26"), state)
+    assert len(rows2) == 1 and rows2[0]["Action"] == "SELL"
+    assert rows2[0]["Order_Type"] == "MOC"
+
+
+def test_v4_skips_september_opex():
+    rows, log, _ = run("2026-09-18", z10=0.5)
+    assert all(r["Trade"] != "V4_POSTOPEX_VOL" for r in rows)
+    assert any("V4: September opex" in l for l in log)
+
+
+def test_v4_stands_down_while_v2_open():
+    state = {"positions": {"V2_NOVDEC_VOL": {
+        "shares": 100, "entry_date": "2027-11-01", "ref_close": 50.0,
+        "exit_on": "2027-12-31", "exit_order_type": "MOC"}}}
+    # Nov 2027 opex = Fri Nov 19.
+    rows, log, state = run("2027-11-19", state=state)
+    assert rows == []
+    assert any("V2 already holds" in l for l in log)
+
+
+def test_v2_entry_nonmidterm_and_midterm_skip():
+    rows, _, state = run("2027-11-01")
+    assert len(rows) == 1 and rows[0]["Trade"] == "V2_NOVDEC_VOL"
+    assert state["positions"]["V2_NOVDEC_VOL"]["exit_on"] == "2027-12-31"
+    rows2, log2, _ = run("2026-11-02")   # first Nov session of midterm 2026
+    assert all(r["Trade"] != "V2_NOVDEC_VOL" for r in rows2)
+    assert any("midterm year" in l for l in log2)
+
+
+def test_dec_opex_midterm_stages_t4_and_v4():
+    # 2026 is midterm: V2 idle, so Dec opex stages BOTH T4 and V4.
+    rows, _, _ = run("2026-12-18")
+    trades = {r["Trade"] for r in rows}
+    assert trades == {"T4_DEC_POSTOPEX_LONG", "V4_POSTOPEX_VOL"}
 
 
 def test_state_records_exit_schedule():

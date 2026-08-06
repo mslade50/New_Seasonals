@@ -813,13 +813,19 @@ no stops, no dial conditioning by design:
 - **T3 SEP_POSTQUAD_SHORT** — short IWM 15%, Sep opex MOC -> Sep last
   session MOC; SKIPPED when IWM z10 (lag-1) < -1 (washouts bounce).
 - **T4 DEC_POSTOPEX_LONG** — long IWM 25%, Dec opex MOC -> year-end MOC.
+- **V2 NOVDEC_VOL** — long SVXY 5% (defined-risk short vol), first Nov
+  session MOC -> year-end MOC, NON-midterm years only (both losing
+  Nov-Dec years were midterms).
+- **V4 POSTOPEX_VOL** — long SVXY 10%, every opex MOC -> +3 sessions MOC,
+  EXCEPT September (crush inverts — T3's territory) and except while V2
+  holds (no Nov/Dec doubling in non-midterm years).
 
 Flow: `event_sleeve.py` runs in the daily_screener AM job (AM bookend only,
 best-effort step) -> clears+rewrites the `Event` Sheets tab + state json
 (`data/event_sleeve_state.json`, R2 round-trip) -> `event_moo.py` (OneDrive
 trading_ibkr, Task Scheduler 'IBKR Event Sleeve Auction Orders' weekdays
 9:05 AM ET, clientId 147, gated by `event_moo_enabled.flag`) validates the
-due basket fail-closed (universe {SPY, IWM}, max 2 rows, $250k notional
+due basket fail-closed (universe {SPY, IWM, SVXY}, max 3 rows, $350k notional
 cap, OPG cutoff 9:25 / MOC cutoff 15:30) and places MKT+OPG / MKT+MOC
 parent-only orders on the PRIMARY account (no exit legs — exits are
 sleeve-scheduled). orderRef strategy field = trade id (execution-report

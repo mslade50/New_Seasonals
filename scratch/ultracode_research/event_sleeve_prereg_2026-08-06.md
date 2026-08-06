@@ -88,6 +88,43 @@ Shared conventions
   review at N+5.
 - First live window: Dec 18 2026 -> Dec 31 2026.
 
+## V2 NOVDEC_VOL — long SVXY, first November session to year-end (added
+## 2026-08-06 PM, McKinley approved)
+
+- Window: buy MOC on the first November session, sell MOC on the year's
+  last session. NON-MIDTERM YEARS ONLY: midterm Novembers went 1-of-3
+  with both sample losers (2014 -5.4%, 2018 -13.4%); non-midterm 10 of
+  11 up, +11.1% avg on the -0.5x basis. Same ex-midterm doctrine as T1.
+- Instrument: SVXY (-0.5x VIX futures ETP) — short vol with loss bounded
+  at the position. No stop; the bound IS the stop.
+- Sizing: 5% NAV notional (2018-style repeat ~ -65 bps NAV; that year is
+  now excluded by the midterm filter, kept as the sizing yardstick).
+- Kill / review: kill on 2 consecutive losing windows or cumulative
+  -1.5% NAV; review at N+5 non-midterm windows (~2032).
+- First live window: Nov 1 2027 (2026 is midterm).
+- Evidence: scratch/svxy_defined_risk_study.py + uvxy_event_study.py
+  (UVXY short side t 4.5).
+
+## V4 POSTOPEX_VOL — long SVXY, opex close to +3 sessions, ex-September
+## (added 2026-08-06 PM, McKinley approved)
+
+- Window: buy MOC on every monthly opex day, sell MOC 3 sessions later.
+  TWO exclusions, both structural: September (the crush INVERTS: -65
+  bps, 21% hit — that stress is T3's equity-short trade), and any opex
+  while V2 already holds the Nov-Dec position (no doubling; in midterm
+  years V2 is idle so V4 trades Nov/Dec normally).
+- Evidence (synthetic -0.5x validated 0.9967 vs real): +108 bps/window
+  t 3.55 N 164 full sample; +71 t 2.2 in the real -0.5x era (2018+);
+  +134 t 3.75 hit 72% since 2021-06. ~11 windows/yr.
+- Sizing: 10% NAV notional. Worst window (Aug 2015 -21.5%) ~ -2.2% NAV;
+  worst year (2018, -20.6% cumulative) ~ -2.1% NAV.
+- Kill / review: pause on cumulative -2.5% NAV; review after 22 windows
+  (~2 years).
+- First live window: Aug 21 2026 -> exit Aug 26 2026.
+- Evidence: scratch/svxy_postevent_grid.py. FOMC/NFP/VIX-expiry post-
+  event cells and post-CPI (faded after 2018) were tested and REJECTED
+  in the same grid — do not add them later without a fresh prereg.
+
 ## Interactions and overlap audit
 
 - T2 and T3 cannot overlap: the Sep FOMC decision precedes Sep opex every
