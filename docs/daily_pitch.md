@@ -116,6 +116,32 @@ Exit legs go up as one OCA group. The stop carries `goodAfterTime` = the next
 session open, the book-wide day-2 arming convention, and the grader replays it
 the same way.
 
+## Model and effort
+
+Pinned in `scripts/run_daily_pitch.bat`, not inherited:
+
+```
+set "PITCH_MODEL=opus"
+set "PITCH_EFFORT=xhigh"
+```
+
+Without those flags the morning run would take whatever
+`~/.claude/settings.json` said at the time, so changing models in an
+interactive session one afternoon would quietly change every following
+morning's pitch with nothing in the email to show it. The log line
+`[agent: model opus, effort xhigh]` records what actually ran.
+
+Opus at xhigh is the right tier here: stage C writes and interprets real
+empirical checks, and the spec is explicit that the falsification stage must
+not be truncated to save tokens. Subagents inherit the session's model and
+effort, so the verifier fan-out runs at the same tier as the composer, which
+is the point of the fan-out.
+
+A full run is 8 to 12 candidates, 2 to 3 verifier agents each writing and
+running a check script, a red-team pass, and composition. That is a heavy
+morning by design. If cost ever needs cutting, cut the candidate count in the
+skill, not the model tier and not the falsification stage.
+
 ## Conventions worth knowing before you change anything
 
 - **ATR is Wilder-14 here.** The systematic book uses a simple 14-day mean of

@@ -866,6 +866,12 @@ three) -> `daily_pitch.py` publishes -> McKinley types Y -> `pitch_moo.py`
 limits). NOTHING places without an exact `Y`, and the runner is
 activation-flag gated (`pitch_moo_enabled.flag`).
 
+Model/effort are PINNED in `run_daily_pitch.bat` (`--model opus --effort
+xhigh`), not inherited from settings: an interactive `/model` change would
+otherwise silently re-tier every following morning. Subagents inherit them,
+so stage C's verifiers run at the composer's tier. Cut candidate count
+before cutting tier or the falsification stage.
+
 Hard requirements enforced in code, not prose (`pitch_grammar.py`):
 - **exactly 3 ideas**, at most **one grade C**, every idea carries a **time
   stop**, entry/exit come only from the closed vocabularies (MOO | MOC |
