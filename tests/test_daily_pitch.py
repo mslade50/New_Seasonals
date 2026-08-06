@@ -305,3 +305,65 @@ def test_smtp_failure_is_loud_and_returns_false(monkeypatch, capsys):
     monkeypatch.setattr(smtplib, "SMTP", lambda *a, **k: Boom())
     assert dp.send_email("s", "<p>x</p>") is False
     assert "EMAIL SEND FAILED" in capsys.readouterr().out
+
+
+# ---------------------------------------------------------------------------
+# model stamping (so the scoreboard can rank models on realized outcomes)
+# ---------------------------------------------------------------------------
+def test_run_identity_reads_the_batch_file_env(monkeypatch):
+    monkeypatch.setenv("PITCH_MODEL", "opus")
+    monkeypatch.setenv("PITCH_EFFORT", "xhigh")
+    assert dp.run_identity() == ("opus", "xhigh")
+
+
+def test_explicit_flags_beat_the_env(monkeypatch):
+    monkeypatch.setenv("PITCH_MODEL", "opus")
+    monkeypatch.setenv("PITCH_EFFORT", "xhigh")
+    assert dp.run_identity("fable", "high") == ("fable", "high")
+
+
+def test_unset_env_records_unknown_not_a_guessed_default(monkeypatch):
+    # A wrong stamp is worse than an absent one: the scoreboard splits on it.
+    monkeypatch.delenv("PITCH_MODEL", raising=False)
+    monkeypatch.delenv("PITCH_EFFORT", raising=False)
+    assert dp.run_identity() == ("unknown", "unknown")
+
+
+def test_every_journal_record_carries_the_stamp(payload, prices, monkeypatch):
+    monkeypatch.setenv("PITCH_MODEL", "fable")
+    monkeypatch.setenv("PITCH_EFFORT", "high")
+    ideas, _ = dp.prepare(payload, ASOF, prices, [])
+    records = dp.journal_records(payload, ideas, ASOF)
+    assert records, "no records produced"
+    for record in records:          # ideas AND kills
+        assert record["model"] == "fable"
+        assert record["effort"] == "high"
+
+
+def test_scoreboard_splits_by_model():
+    from scripts.grade_pitch_journal import build_scoreboard
+
+    def idea(date, model, r):
+        return {"idea_id": f"{date}-1", "date": date, "grade": "B",
+                "novelty_axis": "inversion", "model": model, "approve": "",
+                "outcome": {"status": "closed", "r_multiple": r, "pnl": r * 100}}
+
+    ideas = [idea("2026-08-03", "opus", 1.0), idea("2026-08-04", "opus", 2.0),
+             idea("2026-08-05", "fable", -1.0), idea("2026-08-06", "fable", 0.0)]
+    roll = build_scoreboard(ideas, pd.Timestamp("2026-08-06"))["rolling_60d"]
+    assert roll["by_model"]["opus"]["avg_r"] == pytest.approx(1.5)
+    assert roll["by_model"]["fable"]["avg_r"] == pytest.approx(-0.5)
+    assert roll["by_model"]["opus"]["graded"] == 2
+
+
+def test_email_shows_the_model_split_only_once_there_are_two(payload, prices):
+    ideas, _ = dp.prepare(payload, ASOF, prices, [])
+    one = {"rolling_60d": {"n": 3, "graded": 3, "avg_r": 0.4, "hit_rate": 66.0,
+                           "by_grade": {}, "approved_vs_declined": None,
+                           "by_model": {"opus": {"graded": 3, "avg_r": 0.4,
+                                                 "hit_rate": 66.0}}}}
+    assert "By model:" not in dp.render_email(payload, ideas, ASOF, one, None)
+    two = json.loads(json.dumps(one))
+    two["rolling_60d"]["by_model"]["fable"] = {"graded": 2, "avg_r": -0.2,
+                                               "hit_rate": 50.0}
+    assert "By model:" in dp.render_email(payload, ideas, ASOF, two, None)

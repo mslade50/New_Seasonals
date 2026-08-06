@@ -385,9 +385,17 @@ def render_scoreboard(scoreboard: dict) -> str:
         gap_line = (f" &nbsp;|&nbsp; approved {gap['approved_avg_r']:+.2f}R "
                     f"(n {gap['approved_n']}) vs declined "
                     f"{gap['declined_avg_r']:+.2f}R (n {gap['declined_n']})")
+    by_model = ""
+    models = {k: v for k, v in (roll.get("by_model") or {}).items()
+              if v.get("avg_r") is not None}
+    if len(models) > 1:
+        by_model = ("<br><b>By model:</b> " + " &nbsp;|&nbsp; ".join(
+            f"{m}: {v['graded']} graded, avg {v['avg_r']:+.2f}R, "
+            f"{v['hit_rate']:.0f}% hit"
+            for m, v in sorted(models.items())))
     return (f"<p style='color:#555;font-size:12px'><b>Scoreboard, rolling 60 "
             f"days:</b> {roll['n']} pitched, {roll['graded']} graded, avg "
-            f"{roll['avg_r']:+.2f}R. {by_grade}{gap_line}</p>")
+            f"{roll['avg_r']:+.2f}R. {by_grade}{gap_line}{by_model}</p>")
 
 
 def render_email(payload: dict, ideas: list[dict], asof: pd.Timestamp,
@@ -518,10 +526,28 @@ def send_email(subject: str, html: str) -> bool:
 
 
 # ---------------------------------------------------------------------------
-def journal_records(payload: dict, ideas: list[dict],
-                    asof: pd.Timestamp) -> list[dict]:
+def run_identity(model: str | None = None,
+                 effort: str | None = None) -> tuple[str, str]:
+    """Which model and effort produced this pitch.
+
+    run_daily_pitch.bat exports PITCH_MODEL / PITCH_EFFORT before invoking the
+    agent, and this process is a descendant of it, so the stamp is the tier
+    that was actually requested rather than something the agent self-reports.
+    A manual run with neither set records 'unknown' rather than guessing a
+    default, because a wrong stamp is worse than an absent one: the scoreboard
+    splits on this field.
+    """
+    return (model or os.environ.get("PITCH_MODEL") or "unknown",
+            effort or os.environ.get("PITCH_EFFORT") or "unknown")
+
+
+def journal_records(payload: dict, ideas: list[dict], asof: pd.Timestamp,
+                    model: str | None = None,
+                    effort: str | None = None) -> list[dict]:
     date = str(asof.date())
+    model, effort = run_identity(model, effort)
     records = [{
+        "model": model, "effort": effort,
         "kind": "idea", "date": date, "idea_id": idea["idea_id"],
         "rank": idea["rank"], "fingerprint": idea["fingerprint"],
         "title": idea["title"], "grade": str(idea["grade"]).upper(),
@@ -535,7 +561,8 @@ def journal_records(payload: dict, ideas: list[dict],
         "changed_since": idea.get("changed_since", ""),
         "place_pass": idea["orders"][0]["Place_Pass"],
     } for idea in ideas]
-    records += [{"kind": "killed", "date": date,
+    records += [{"kind": "killed", "date": date, "model": model,
+                 "effort": effort,
                  "title": k.get("title", ""), "reason": k.get("reason", ""),
                  "novelty_axis": k.get("novelty_axis")}
                 for k in (payload.get("killed") or [])]
@@ -552,6 +579,10 @@ def main() -> int:
                     help="render but never email, write the tab, or journal")
     ap.add_argument("--no-send", action="store_true", help="skip the email only")
     ap.add_argument("--html-out", default=None)
+    ap.add_argument("--model", default=None,
+                    help="model stamp; defaults to $PITCH_MODEL")
+    ap.add_argument("--effort", default=None,
+                    help="effort stamp; defaults to $PITCH_EFFORT")
     ap.add_argument("--journal", default=str(pitch_journal.JOURNAL_PATH),
                     help="journal path; a non-default path never touches R2")
     args = ap.parse_args()
@@ -567,7 +598,9 @@ def main() -> int:
     records = pitch_journal.load(journal_path)
     ideas, rows = prepare(payload, asof, load_prices(), records)
 
-    print(f"Daily Pitch {asof.date()} - {len(ideas)} ideas, {len(rows)} order rows")
+    _model, _effort = run_identity(args.model, args.effort)
+    print(f"Daily Pitch {asof.date()} - {len(ideas)} ideas, "
+          f"{len(rows)} order rows [model {_model}, effort {_effort}]")
     for idea in ideas:
         placement = idea["orders"][0]["Place_Pass"]
         print(f"  #{idea['rank']} [{idea['grade']}] {idea['title']} "
@@ -620,7 +653,8 @@ def main() -> int:
             return 1
 
     written = pitch_journal.append(
-        approvals + journal_records(payload, ideas, asof), journal_path)
+        approvals + journal_records(payload, ideas, asof, args.model,
+                                    args.effort), journal_path)
     print(f"Journaled {written} record(s) -> {journal_path.name}")
     return 0
 

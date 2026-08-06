@@ -911,6 +911,14 @@ Conventions that differ from the book on purpose:
   the scoreboard measures the filter): a bar touching both stop and target
   books the stop, gapped stops fill at the open plus 13 bps, stops arm day 2.
 
+Every idea and kill record is STAMPED with the `model`/`effort` that
+produced it (from `PITCH_MODEL`/`PITCH_EFFORT`, exported by
+run_daily_pitch.bat; a manual run with neither set records `unknown`
+rather than guessing). `grade_pitch_journal` splits the scoreboard by
+model, and the email footer prints the split once two models have
+graded ideas. This is how the opus-vs-fable question gets settled on
+realized R instead of on one adjudicated disagreement.
+
 Journal (`pitch_journal.py` -> `data/pitch_journal.jsonl`, R2 mirror) is
 APPEND-ONLY with four record kinds (idea / killed / approval / outcome);
 `fold_ideas` merges them. Approvals have exactly one capture window: the next

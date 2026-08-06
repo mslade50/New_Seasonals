@@ -253,12 +253,16 @@ def build_scoreboard(ideas: list[dict], today: pd.Timestamp) -> dict:
     rolling = _bucket(window)
     rolling["by_grade"] = _split(window, lambda i: i.get("grade", "?"))
     rolling["by_axis"] = _split(window, lambda i: i.get("novelty_axis", "?"))
+    # Which model wrote the idea. The bake-off could not rank two models
+    # off one adjudicated disagreement; this can, off realized outcomes.
+    rolling["by_model"] = _split(window, lambda i: i.get("model") or "unknown")
     rolling["approved_vs_declined"] = gap
     rolling["window_td"] = SCOREBOARD_WINDOW_TD
     rolling["since"] = cutoff
 
     lifetime = _bucket(ideas)
     lifetime["by_grade"] = _split(ideas, lambda i: i.get("grade", "?"))
+    lifetime["by_model"] = _split(ideas, lambda i: i.get("model") or "unknown")
     return {"generated": dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             "asof": str(today.date()),
             "rolling_60d": rolling, "lifetime": lifetime}
