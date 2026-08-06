@@ -570,10 +570,16 @@ scanner-staged sizes as-is since 2026-06-11):
 The 6 `frag_risk_bands` carriers (FAMILY4 + 3x Bear Fade + Monthly Weak
 Close) select their band TABLE by the equity put/call FEAR STATE — trailing
 252d percentile of the 10d-MA CBOE equity P/C (`data/cboe_putcall.parquet`,
-2006-11+, nightly `update_cboe_putcall.yml` with `--assert-fresh-bd 2`
-fail-loud), **lag-1 by construction** (the state for signal date D uses the
-newest row dated <= D-1 bday; measured: the 21:30 UTC scrape only ever has
-D-1). `strategy_config.PC_FEAR_BANDS` (NOT GRM-scaled):
+2006-11+, `update_cboe_putcall.yml` with `--assert-fresh-bd 2` fail-loud),
+**lag-1 by construction** (the state for signal date D uses the newest row
+dated <= D-1 bday; measured: the 21:30 UTC scrape only ever has D-1).
+The job runs TWICE a day since 2026-08-06 — a 4:10 AM ET local dispatch that
+collects the prior session once CBOE publishes overnight, plus the original
+21:30 UTC backstop. **Live band selection is byte-unchanged by the AM run**
+(pc_fear selects by DATA date, and the AM scan already got exactly the row
+lag-1 wants); what it fixes is later consumers, above all the 7 AM Daily
+Pitch, which used to see a reading two business days behind the session it
+was trading. `strategy_config.PC_FEAR_BANDS` (NOT GRM-scaled):
 - fear ON (pctile > 85):  `[[0,50,1.25],[50,999,1.0]]` — boost in calm tape,
   FULL size in the dial>=50 zone (washed-out positioning = capitulation)
 - fear OFF: `[[0,50,1.0],[50,999,0.0]]` — dial>=50 without washout is
@@ -1192,6 +1198,7 @@ trigger chain, out-of-repo file map): `docs/site_runbook.html`. |
 | `EarningsCalendarRefresh` | Enabled | Belt-and-suspenders for the GHA equivalent. Both write to R2. |
 | `Trigger Update Master Prices (GHA workflow_dispatch)` | Enabled | Weekdays 4:17 AM ET — fires `update_master_prices.yml` via the GitHub REST API to bypass shared-cron queue lag at 8-9 UTC. See "AM Trigger Architecture" below. |
 | `Trigger Daily Screener (GHA workflow_dispatch)` | Enabled | Weekdays 4:47 AM ET, 30 min after the parquet trigger — fires `daily_screener.yml` via the GitHub REST API. Same mechanism. |
+| `Trigger CBOE Put/Call (GHA workflow_dispatch)` | NOT REGISTERED (inert) | Weekdays 4:10 AM ET, FIRST in the pre-market chain — fires `update_cboe_putcall.yml` so the put/call cache holds the prior session before the risk correction, scan and pitch read it. The 21:30 UTC run fires before CBOE publishes and can only ever collect D-1. Scripts: `C:\Scripts	rigger_cboe_putcall.ps1` + `register_cboe_putcall_trigger.ps1`. |
 | `Trigger Risk Report AM Correction (GHA workflow_dispatch)` | Enabled | Weekdays 4:30 AM ET — fires `risk_report.yml` with `mode=data_only` so the fragility row daily_scan sizes off (~4:47 AM) reflects settled prices, not the provisional 5:15 PM bar. Scripts: `C:\Scripts\trigger_risk_report.ps1` + `_task.xml`. |
 | `IBKR OLV Pre-Market Exits` | Enabled | Weekdays 9:10 AM ET — `run_olv_exit_moo.bat` -> `olv_exit_moo.py` (OneDrive trading_ibkr): reads the `OLV_Exits` tab and places TRUE market-on-open (TIF=OPG) SELLs for confirmed OLV stop legs on BOTH accounts before the 9:28 auction cutoff. Registered 2026-07-30 via `register_olv_exit_task.ps1`; must clear the 9:31 order chain (shares clientIds 99/98). |
 | `Daily Pitch (agent)` | NOT REGISTERED (inert) | Weekdays 7:00 AM ET — `scripts\run_daily_pitch.bat`: grade, assemble state, run `/daily-pitch` headless, verify delivery. Writes files and sends the pitch email; places no orders. Register with `scripts\register_daily_pitch_task.ps1` after eyeballing several manual runs. |
@@ -1209,13 +1216,14 @@ Order staging (`C:\Users\mckin\OneDrive\trading_ibkr\order_staging.py`) is a man
 GitHub's shared cron scheduler had 1-3h queue delays at 8:47 UTC, pushing the AM scan past pre-market staging deadlines. Fix: fire the AM runs from this machine via the GitHub REST API (`workflow_dispatch`), which has near-zero queue lag.
 
 **Daily flow (weekdays):**
+- **4:10 AM ET** local task -> POST `.../update_cboe_putcall.yml/dispatches` -> collects the prior session's put/call, which the 21:30 UTC run cannot see (CBOE publishes after it)
 - **4:17 AM ET** local task → POST `…/update_master_prices.yml/dispatches` → GHA queues immediately, runs ~5 min
 - **4:47 AM ET** local task → POST `…/daily_screener.yml/dispatches` → GHA queues immediately, runs ~7-10 min
 
 **Fallback** (machine off / network outage): both workflows keep an early GHA cron (parquet 9:30 UTC, screener 10:30 UTC). Each workflow's first job (`check`) queries the GitHub API for today's `workflow_dispatch` runs and short-circuits if a successful one already exists; otherwise the main job runs. The fallback cron is subject to GHA's queue lag but still beats market open by ~3h in the worst case.
 
 **Local artifacts:**
-- Trigger scripts: `C:\Scripts\trigger_update_master_prices.ps1`, `C:\Scripts\trigger_daily_screener.ps1`
+- Trigger scripts: `C:\Scripts\trigger_update_master_prices.ps1`, `C:\Scripts\trigger_daily_screener.ps1`, `C:\Scripts\trigger_cboe_putcall.ps1` (+ `register_cboe_putcall_trigger.ps1`)
 - Task XMLs: `C:\Scripts\*_task.xml` (S4U principal, WakeToRun, no AC required, restart-on-failure 5min × 3)
 - Logs: `C:\Scripts\logs\trigger_*.log` (one line per dispatch attempt)
 - PAT: `HKCU\Environment\GH_PAT_NEW_SEASONALS` (fine-grained, scoped to `mslade50/New_Seasonals`, permissions: Actions/Workflows/Contents — read+write, Metadata read). Rotate annually.
