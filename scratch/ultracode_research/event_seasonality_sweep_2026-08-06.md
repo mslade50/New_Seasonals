@@ -220,6 +220,49 @@ before wiring):
   Bigger absolute capture (+827 avg), worst year -13%, includes V1's
   window (run one, not both).
 
+## Addendum 4 (same day): post-event SVXY entries, the full grid
+
+McKinley's follow-up: even ex-midterm, is there nothing buying SVXY at
+the FOMC open, or after NFP/CPI/opex/VIX expiration? Study:
+`scratch/svxy_postevent_grid.py` — entries {event-day open, event-day
+close, +1 close} x exits {+1..+5} on the -0.5x basis, all six event
+types, 2011+. ~120 cells, so lone |t|>=2 cells are noise; only coherent
+event blocks count.
+
+Per event:
+
+- **FOMC: no.** Through-the-announcement from the open: +22/+26 bps,
+  t 1.1. Post-decision short vol is mildly NEGATIVE for 1-2 sessions
+  (vol rebounds after the pre-announcement crush). The only FOMC vol
+  premium is pre-announcement, already rejected as a T1 leg (corr 0.78).
+- **NFP: no.** Nothing above t 1.4 anywhere.
+- **VIX expiration: no.** Flat everywhere.
+- **CPI: was real, has faded.** Post-CPI open -> +2: full-sample +98
+  t 3.3, but 2011-2017 +177 t 3.4 vs 2018+ +39 t 1.3 and 2021+ +25
+  t 0.8. The crush got priced; watch-list only.
+- **OPEX: yes — the real finding.** Long SVXY opex close -> close+3:
+  +95 bps t 3.3 pooled. September INVERTS it (-65 bps, hit 21% — the
+  same post-Sep-quad stress T3 shorts equities into), and excluding
+  September:
+  - full sample: **+108 bps/window, t 3.55, N 164, hit 63%**
+  - 2018+ (real -0.5x era): +71, t 2.2
+  - 2021-06+: +134, t 3.75, hit 72%
+  Positive every year 2015+ except 2018 (-2059 bps/yr) and 2020 (-660);
+  worst single window -21.5% (Aug 2015). ~11 windows/yr, ~3 sessions
+  each. Mechanism-consistent: the expiry unclips dealer gamma and the
+  new-cycle premium sells off in the following sessions, except in
+  September where seasonal stress dominates.
+
+Candidate spec:
+
+- **V4 POSTOPEX_VOL_CRUSH** — long SVXY 10% NAV, opex close (MOC) ->
+  3rd session after (MOC), skip September. Worst window at 10% NAV ~
+  -2.2% NAV (Aug 2015); 2018-style year ~ -2.1% NAV cumulative.
+  Overlaps: 18 of 178 windows contain a FOMC decision (accepted); the
+  Nov/Dec windows sit inside V2's Nov-Dec seasonal — if BOTH V2 and V4
+  trade, the Nov/Dec V4 windows should be skipped (V2 already holds
+  short vol there) or the doubling explicitly accepted.
+
 ## Suggested gates before anything ships
 
 1. Pre-registered protocol (decision rule, entry/exit, sizing, kill
