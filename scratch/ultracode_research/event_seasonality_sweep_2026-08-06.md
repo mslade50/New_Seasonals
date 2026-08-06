@@ -184,6 +184,42 @@ staging exists. If a small cash short is ever run despite this, the
 Nov-Dec window at <= 2% NAV notional with a hard 50% buy-stop is the only
 cell with the stats to justify it.
 
+## Addendum 3 (same day): defined-risk short vol via LONG SVXY
+
+McKinley's challenge: short vol is not the same trade as long stocks —
+you can be short vol, have stocks fall, and still win. Study:
+`scratch/svxy_defined_risk_study.py`. Instrument: LONG SVXY (-0.5x VIX
+futures ETP) = short vol with loss bounded at the position (no naked-short
+tail). Synthetic (-1/3 x UVXY) matches real SVXY at 0.9967 daily corr in
+the -0.5x era; spliced series 2011-10+.
+
+Windows (long SVXY):
+
+- pre-FOMC ex-midterm: +122 bps/window, t 2.3, hit 67%, worst -1394
+- Nov 1 -> Dec 31: +827 bps, t 2.8, hit 71%, worst -13% (2018)
+- Dec opex -> year-end: +201 bps, t 2.6, hit 80%, worst -381
+
+The diversification test (pre-FOMC windows, N=118): window-PnL correlation
+with SPY is +0.78. In the 44 SPY-down windows, short vol was positive in
+10 (23%) and averaged -302 bps. So AT THE 4-DAY FOMC HORIZON the "win
+while stocks fall" path is real but the minority — short vol is mostly
+the same trade as T1 there, and blending SVXY into T1 raises the mean but
+worsens the worst-case faster than it helps (75/25 blend: +70 bps but
+worst -619 vs -361 pure SPY, t slightly lower). REJECTED as a T1 leg.
+
+Where the carry logic genuinely works is the LONGER calm-season windows,
+where roll yield has time to compound independent of the tape's direction:
+the Nov-Dec and Dec-opex windows above hold at 71-80% hit with bounded
+worst cases. Candidate specs (need McKinley's pick + a prereg entry
+before wiring):
+
+- **V1 DEC_VOL_CRUSH** — long SVXY 10% NAV, Dec opex MOC -> year-end MOC.
+  Same dates/machinery as T4 (state-driven exit, event_moo places it);
+  SVXY would need adding to the Event universe + master_prices backfill.
+- **V2 NOVDEC_VOL_HARVEST** — long SVXY 5-10% NAV, Nov 1 -> Dec 31.
+  Bigger absolute capture (+827 avg), worst year -13%, includes V1's
+  window (run one, not both).
+
 ## Suggested gates before anything ships
 
 1. Pre-registered protocol (decision rule, entry/exit, sizing, kill
