@@ -248,3 +248,60 @@ def test_email_escapes_prose(payload, prices):
     ideas, _ = dp.prepare(payload, ASOF, prices, [])
     html = dp.render_email(payload, ideas, ASOF, {}, None)
     assert "&lt;b&gt;doubled&lt;/b&gt;" in html
+
+
+# ---------------------------------------------------------------------------
+# SMTP credential resolution
+# ---------------------------------------------------------------------------
+def test_env_wins_over_dotenv(monkeypatch):
+    monkeypatch.setenv("EMAIL_USER", "env@example.com")
+    monkeypatch.setenv("EMAIL_PASS", "envpass")
+    assert dp.smtp_credentials() == ("env@example.com", "envpass")
+
+
+def test_dotenv_is_the_fallback_for_the_local_scheduled_run(monkeypatch, tmp_path):
+    # Task Scheduler carries neither var, so without this the 7 AM run would
+    # silently deliver nothing while every other step reported success.
+    monkeypatch.delenv("EMAIL_USER", raising=False)
+    monkeypatch.delenv("EMAIL_PASS", raising=False)
+    envfile = tmp_path / ".env"
+    envfile.write_text('EMAIL_USER="a@b.com"\nEMAIL_PASS=secret\n', encoding="utf-8")
+    monkeypatch.setattr(dp, "ROOT", tmp_path)
+    assert dp.smtp_credentials() == ("a@b.com", "secret")
+
+
+def test_dotenv_parsing_handles_quotes_comments_and_junk(tmp_path):
+    envfile = tmp_path / ".env"
+    envfile.write_text('A="one"\n# comment\nB=two\nJUNK\n\nC=\n',
+                       encoding="utf-8")
+    assert dp.dotenv_values(envfile) == {"A": "one", "B": "two", "C": ""}
+
+
+def test_missing_credentials_report_non_delivery(monkeypatch, capsys):
+    monkeypatch.delenv("EMAIL_USER", raising=False)
+    monkeypatch.delenv("EMAIL_PASS", raising=False)
+    monkeypatch.setattr(dp, "dotenv_values", lambda path=None: {})
+    assert dp.send_email("s", "<p>x</p>") is False
+    assert "NOT DELIVERED" in capsys.readouterr().out
+
+
+def test_smtp_failure_is_loud_and_returns_false(monkeypatch, capsys):
+    import smtplib
+    monkeypatch.setattr(dp, "smtp_credentials", lambda: ("a@b.com", "pw"))
+
+    class Boom:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+        def starttls(self):
+            pass
+
+        def login(self, *a):
+            raise smtplib.SMTPAuthenticationError(535, b"BadCredentials")
+
+    monkeypatch.setattr(smtplib, "SMTP", lambda *a, **k: Boom())
+    assert dp.send_email("s", "<p>x</p>") is False
+    assert "EMAIL SEND FAILED" in capsys.readouterr().out

@@ -456,23 +456,63 @@ def render_email(payload: dict, ideas: list[dict], asof: pd.Timestamp,
 </div>"""
 
 
+def dotenv_values(path: Path | None = None) -> dict[str, str]:
+    """KEY=value pairs from the repo .env, or {} when it is absent.
+
+    The GHA reports get EMAIL_USER / EMAIL_PASS from repo secrets, but the
+    pitch runs locally off Task Scheduler, whose environment carries neither.
+    Without this the 7 AM run would print "skipping email send" and deliver
+    nothing while every other step reported success. Environment wins; the
+    file is only a fallback.
+    """
+    path = path or (ROOT / ".env")
+    values: dict[str, str] = {}
+    if not path.exists():
+        return values
+    for line in path.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        values[key.strip()] = value.strip().strip('"').strip("'")
+    return values
+
+
+def smtp_credentials() -> tuple[str | None, str | None]:
+    env = os.environ
+    sender, password = env.get("EMAIL_USER"), env.get("EMAIL_PASS")
+    if sender and password:
+        return sender, password
+    fallback = dotenv_values()
+    return (sender or fallback.get("EMAIL_USER"),
+            password or fallback.get("EMAIL_PASS"))
+
+
 def send_email(subject: str, html: str) -> bool:
-    sender = os.environ.get("EMAIL_USER")
-    password = os.environ.get("EMAIL_PASS")
+    sender, password = smtp_credentials()
     recipients = [a.strip() for a in os.environ.get(
         "PITCH_RECIPIENTS", DEFAULT_RECIPIENTS).split(",") if a.strip()]
     if not sender or not password:
-        print("EMAIL_USER/EMAIL_PASS not set - skipping email send.")
+        print("EMAIL_USER/EMAIL_PASS not set in the environment or .env - "
+              "skipping email send. THE PITCH WAS NOT DELIVERED.")
         return False
     msg = MIMEMultipart("alternative")
     msg["Subject"] = subject
     msg["From"] = sender
     msg["To"] = ", ".join(recipients)
     msg.attach(MIMEText(html, "html"))
-    with smtplib.SMTP("smtp.gmail.com", 587) as server:
-        server.starttls()
-        server.login(sender, password)
-        server.sendmail(sender, recipients, msg.as_string())
+    try:
+        with smtplib.SMTP("smtp.gmail.com", 587) as server:
+            server.starttls()
+            server.login(sender, password)
+            server.sendmail(sender, recipients, msg.as_string())
+    except smtplib.SMTPException as exc:
+        # A rejected app password looks identical to a healthy run from the
+        # outside: the tab still gets written and the journal still records a
+        # delivery. Say it loudly instead.
+        print(f"EMAIL SEND FAILED ({exc}) - THE PITCH WAS NOT DELIVERED. "
+              f"The Pitch tab and journal below still reflect the run.")
+        return False
     print(f"Email sent to {', '.join(recipients)}")
     return True
 

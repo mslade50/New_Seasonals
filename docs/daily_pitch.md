@@ -167,6 +167,7 @@ skill, not the model tier and not the falsification stage.
 | no email, task shows failure | `check_pitch_delivered.py` found fewer than three idea records for today | read `scripts/logs/daily_pitch_last_run.log`; the run does not retry, and a missed morning delivers nothing rather than stale ideas late |
 | `PITCH VALIDATION FAILED` | the agent's ideas json broke the grammar | fix the idea, never the grammar |
 | state warnings box in the email | a stale price cache, a missing dial, unreadable Sheets | treat the affected ideas' evidence as suspect; the header says which |
+| email never arrives, run otherwise green | SMTP creds missing or the Gmail app password was revoked | `send_email` now says `NOT DELIVERED` or `EMAIL SEND FAILED` in the log rather than returning quietly. Creds resolve from the environment first, then the repo `.env`. Rotate the app password at myaccount.google.com and update BOTH `.env` and the GHA `EMAIL_PASS` secret |
 | runner logs `activation marker absent` | the flag file is missing | expected when disarmed; recreate the flag to arm |
 | runner logs `MISSED_OPG_CUTOFF` | the 9:05 task ran late, past 9:25 | nothing placed by design, there is no MKT/DAY fallback |
 | runner logs `NO_SESSION_OPEN` | IBKR returned no printed open, or a stale session bar | nothing placed; place by hand if still wanted |
