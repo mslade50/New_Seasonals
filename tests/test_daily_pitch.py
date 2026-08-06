@@ -1,0 +1,241 @@
+"""Guards for daily_pitch.py — the publisher and its approval loop.
+
+Covers the parts a broken morning would show up in: validation refusing to
+publish, the Pitch tab schema the IBKR runner reads, the approval capture that
+has exactly one window to run in, the email carrying every hard-requirement
+field, and the journal records the scoreboard is built from.
+"""
+import copy
+import json
+import sys
+from pathlib import Path
+
+import pandas as pd
+import pytest
+
+ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT))
+
+import daily_pitch as dp  # noqa: E402
+import pitch_journal as pj  # noqa: E402
+import pitch_grammar as pg  # noqa: E402
+
+FIXTURE = ROOT / "tests" / "fixtures" / "pitch_ideas_fixture.json"
+ASOF = pd.Timestamp("2026-08-06")
+
+
+def synth_prices(tickers, close=100.0, atr_pct=2.0, periods=400):
+    idx = pd.bdate_range(end="2026-08-05", periods=periods)
+    band = close * atr_pct / 100.0
+    return pd.concat([pd.DataFrame({
+        "ticker": t, "date": idx, "Open": close, "High": close + band / 2,
+        "Low": close - band / 2, "Close": close, "Volume": 1e6})
+        for t in tickers])
+
+
+@pytest.fixture()
+def payload():
+    return json.loads(FIXTURE.read_text(encoding="utf-8"))
+
+
+@pytest.fixture()
+def prices(payload):
+    tickers = dp.leg_tickers(payload)
+    # The dollar index sits on a 1,000x contract multiplier, so it needs a
+    # realistic (small) ATR or a 20 bps idea sizes below one contract.
+    equity = [t for t in tickers if t != "DX-Y.NYB"]
+    frames = [synth_prices(equity)]
+    if "DX-Y.NYB" in tickers:
+        frames.append(synth_prices(["DX-Y.NYB"], close=100.0, atr_pct=0.4))
+    return pd.concat(frames)
+
+
+class FakeWorksheet:
+    def __init__(self, records):
+        self.records = records
+        self.cleared = False
+        self.written = None
+
+    def get_all_records(self):
+        return self.records
+
+    def clear(self):
+        self.cleared = True
+
+    def update(self, values):
+        self.written = values
+
+
+class FakeSheet:
+    def __init__(self, records=None):
+        self.ws = FakeWorksheet(records or [])
+
+    def worksheet(self, name):
+        assert name == dp.TAB_NAME
+        return self.ws
+
+
+# ---------------------------------------------------------------------------
+def test_prepare_returns_orders_for_every_leg(payload, prices):
+    ideas, rows = dp.prepare(payload, ASOF, prices, [])
+    assert [i["rank"] for i in ideas] == [1, 2, 3]
+    assert len(rows) == 4
+    assert {r["Idea_Id"] for r in rows} == {"2026-08-06-1", "2026-08-06-2",
+                                            "2026-08-06-3"}
+    assert all(r["Scan_Source"] == "Pitch" for r in rows)
+    assert all(r["Approve"] == "" for r in rows)
+
+
+def test_prepare_refuses_to_publish_a_broken_payload(payload, prices):
+    payload["ideas"][0]["exit"].pop("time_td")
+    with pytest.raises(SystemExit) as excinfo:
+        dp.prepare(payload, ASOF, prices, [])
+    assert excinfo.value.code == 2
+
+
+def test_prepare_enforces_the_repetition_rule(payload, prices):
+    fp = pg.fingerprint(payload["ideas"][0])
+    journal = [{"kind": "idea", "date": "2026-08-04", "fingerprint": fp,
+                "idea_id": "2026-08-04-1", "rank": 1}]
+    with pytest.raises(SystemExit):
+        dp.prepare(payload, ASOF, prices, journal)
+
+
+def test_tab_columns_cover_every_order_field(payload, prices):
+    _, rows = dp.prepare(payload, ASOF, prices, [])
+    missing = sorted(set(dp.TAB_COLUMNS) - set(rows[0]))
+    assert missing == [], f"tab asks for fields the grammar does not emit: {missing}"
+    # The runner keys on these; losing one silently disarms the approval loop.
+    for required in ("Idea_Id", "Approve", "Place_Pass", "Manual_Only",
+                     "Execute_On", "Time_Exit_Date", "Risk_Amt", "ATR"):
+        assert required in dp.TAB_COLUMNS
+
+
+def test_write_tab_clears_then_writes_header_and_rows(payload, prices):
+    _, rows = dp.prepare(payload, ASOF, prices, [])
+    sheet = FakeSheet()
+    dp.write_tab(sheet, rows)
+    assert sheet.ws.cleared
+    assert sheet.ws.written[0] == dp.TAB_COLUMNS
+    assert len(sheet.ws.written) == len(rows) + 1
+
+
+def test_capture_approvals_reads_the_prior_day_only():
+    sheet = FakeSheet([
+        {"Idea_Id": "2026-08-05-1", "Approve": "y", "Execute_On": "2026-08-05"},
+        {"Idea_Id": "2026-08-05-1", "Approve": "y", "Execute_On": "2026-08-05"},
+        {"Idea_Id": "2026-08-05-2", "Approve": "", "Execute_On": "2026-08-05"},
+        {"Idea_Id": "2026-08-06-1", "Approve": "Y", "Execute_On": "2026-08-06"},
+    ])
+    records = dp.capture_approvals(sheet, ASOF)
+    by_id = {r["idea_id"]: r for r in records}
+    assert set(by_id) == {"2026-08-05-1", "2026-08-05-2"}
+    assert by_id["2026-08-05-1"]["approve"] == "Y"
+    assert by_id["2026-08-05-2"]["approve"] == ""
+    assert all(r["kind"] == "approval" for r in records)
+
+
+def test_capture_approvals_flags_disagreeing_legs():
+    sheet = FakeSheet([
+        {"Idea_Id": "2026-08-05-1", "Approve": "Y", "Execute_On": "2026-08-05"},
+        {"Idea_Id": "2026-08-05-1", "Approve": "N", "Execute_On": "2026-08-05"},
+    ])
+    record = dp.capture_approvals(sheet, ASOF)[0]
+    assert record["approve"].startswith("CONFLICT:")
+
+
+def test_journal_records_carry_the_full_spec(payload, prices):
+    ideas, _ = dp.prepare(payload, ASOF, prices, [])
+    records = dp.journal_records(payload, ideas, ASOF)
+    kinds = [r["kind"] for r in records]
+    assert kinds == ["idea", "idea", "idea", "killed", "killed"]
+    first = records[0]
+    for field in ("fingerprint", "grade", "spec", "orders", "thesis",
+                  "evidence", "survived", "what_kills_it", "overlap"):
+        assert first[field], f"journal record is missing {field}"
+    assert set(first["spec"]) == {"legs", "entry", "exit", "sizing"}
+
+
+def test_journal_round_trip_folds_approvals_and_outcomes(tmp_path, payload,
+                                                         prices):
+    path = tmp_path / "journal.jsonl"
+    ideas, _ = dp.prepare(payload, ASOF, prices, [])
+    pj.append(dp.journal_records(payload, ideas, ASOF), path)
+    pj.append([{"kind": "approval", "idea_id": "2026-08-06-1",
+                "date": "2026-08-06", "approve": "Y"},
+               {"kind": "outcome", "idea_id": "2026-08-06-1",
+                "date": "2026-08-06", "outcome": {"r_multiple": 1.4}}], path)
+    folded = {i["idea_id"]: i for i in pj.fold_ideas(pj.load(path, pull=False))}
+    assert pj.approved(folded["2026-08-06-1"])
+    assert not pj.approved(folded["2026-08-06-2"])
+    assert folded["2026-08-06-1"]["outcome"]["r_multiple"] == 1.4
+
+
+def test_a_custom_journal_path_never_touches_r2(tmp_path, monkeypatch):
+    calls = []
+    monkeypatch.setattr(pj, "sync_up", lambda p=None: calls.append(p))
+    pj.append([{"kind": "killed", "date": "2026-08-06", "title": "t",
+                "reason": "r"}], tmp_path / "x.jsonl")
+    assert calls == [] or calls == [tmp_path / "x.jsonl"]
+    # And the real guard: sync_up itself refuses a non-default path.
+    monkeypatch.undo()
+    pj.sync_up(tmp_path / "x.jsonl")
+
+
+def test_unknown_journal_kind_is_rejected(tmp_path):
+    with pytest.raises(ValueError):
+        pj.append([{"kind": "musings", "date": "2026-08-06"}],
+                  tmp_path / "j.jsonl")
+
+
+# ---------------------------------------------------------------------------
+# email
+# ---------------------------------------------------------------------------
+def test_email_carries_every_hard_requirement_field(payload, prices):
+    ideas, _ = dp.prepare(payload, ASOF, prices, [])
+    html = dp.render_email(payload, ideas, ASOF, {}, None)
+    for label in ("ENTRY", "EXIT", "SIZE", "ORDER", "THESIS", "EVIDENCE",
+                  "SURVIVED", "WHAT KILLS IT", "OVERLAP"):
+        assert label in html, f"card is missing the {label} block"
+    for idea in ideas:
+        assert idea["title"] in html
+    assert "GRADE B" in html and "GRADE C" in html
+
+
+def test_email_lists_killed_finalists_and_grade_meanings(payload, prices):
+    ideas, _ = dp.prepare(payload, ASOF, prices, [])
+    html = dp.render_email(payload, ideas, ASOF, {}, None)
+    for killed in payload["killed"]:
+        assert killed["title"] in html
+        assert killed["reason"] in html
+    assert "context, not statistics" in html
+
+
+def test_email_flags_manual_rows(payload, prices):
+    ideas, _ = dp.prepare(payload, ASOF, prices, [])
+    html = dp.render_email(payload, ideas, ASOF, {}, None)
+    assert "Manual only." in html
+    assert "futures leg" in html
+
+
+def test_email_surfaces_state_warnings(payload, prices):
+    ideas, _ = dp.prepare(payload, ASOF, prices, [])
+    state = {"warnings": ["tape: freshest bar is two sessions old"],
+             "risk": {}, "tape": {}, "book": {}}
+    html = dp.render_email(payload, ideas, ASOF, {}, state)
+    assert "STATE WARNINGS" in html
+    assert "two sessions old" in html
+
+
+def test_email_scoreboard_degrades_before_any_grading(payload, prices):
+    ideas, _ = dp.prepare(payload, ASOF, prices, [])
+    assert "no graded history yet" in dp.render_email(payload, ideas, ASOF,
+                                                      {}, None)
+
+
+def test_email_escapes_prose(payload, prices):
+    payload = copy.deepcopy(payload)
+    payload["ideas"][0]["thesis"] = "risk <b>doubled</b> & then some"
+    ideas, _ = dp.prepare(payload, ASOF, prices, [])
+    html = dp.render_email(payload, ideas, ASOF, {}, None)
+    assert "&lt;b&gt;doubled&lt;/b&gt;" in html

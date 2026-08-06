@@ -1,0 +1,91 @@
+{
+ "_fixture": "TEST FIXTURE ONLY. Not a pitch, not advice. Numbers are invented to exercise pitch_grammar/daily_pitch rendering, sizing and journal paths.",
+ "asof": "2026-08-06",
+ "generated": "2026-08-06 07:31:00",
+ "ideas": [
+  {
+   "title": "Long GLD against short SLV into the August payroll print",
+   "grade": "B",
+   "novelty_axis": "relative_value",
+   "horizon_td": 5,
+   "legs": [
+    {"ticker": "GLD", "side": "LONG", "weight": 1.0},
+    {"ticker": "SLV", "side": "SHORT", "weight": 1.0}
+   ],
+   "entry": {"type": "MOC"},
+   "exit": {"time_td": 5, "time_order": "MOC"},
+   "sizing": {"mode": "risk_bps", "risk_bps": 30, "stop_atr_for_sizing": 1.0},
+   "thesis": "Fixture thesis. The metals pair splits on payroll days because silver carries the industrial beta and gold carries the rates beta, and the market prices them as one trade.",
+   "evidence": {
+    "summary": "Fixture numbers: GLD minus SLV over the five sessions after an August payroll print.",
+    "n": 22,
+    "t_stat": 2.1,
+    "window": "2004-2025",
+    "control": "the same five-day window on all non-payroll weeks",
+    "era_note": "present pre and post 2018, weaker in 2013-2015",
+    "table": [["cohort", "N", "avg", "hit"], ["August NFP", "22", "+0.9%", "68%"], ["all weeks", "1100", "+0.1%", "51%"]],
+    "script": "scratch/pitch_checks/2026-08-06/fixture_gld_slv.py"
+   },
+   "survived": "Fixture: the effect could have been a gold-only move, but the silver leg carries half the spread on its own.",
+   "what_kills_it": "Fixture: a dollar breakout that lifts both metals together.",
+   "overlap": "None. The book holds no metals position and no seasonal ticket in either name."
+  },
+  {
+   "title": "Utilities pullback buy while the sector rank stays extended",
+   "grade": "B",
+   "novelty_axis": "interaction_cell",
+   "horizon_td": 5,
+   "legs": [{"ticker": "XLU", "side": "LONG", "weight": 1.0}],
+   "entry": {"type": "LIMIT", "anchor": "CLOSE", "atr_mult": -0.25, "fill_window_td": 2},
+   "exit": {"time_td": 5, "time_order": "MOC", "target_atr": 2.0, "stop_atr": 1.25},
+   "sizing": {"mode": "risk_bps", "risk_bps": 30},
+   "thesis": "Fixture thesis. A one-day flush in a sector whose 63-day rank is still top quartile is a rotation pause, not a trend break.",
+   "evidence": {
+    "summary": "Fixture numbers: XLU one-day drops of more than one ATR while rank63 is above 75.",
+    "n": 41,
+    "t_stat": 2.4,
+    "window": "2003-2026",
+    "control": "all XLU one-day drops of the same size regardless of rank",
+    "era_note": "stable across eras, best 2016-2020",
+    "script": "scratch/pitch_checks/2026-08-06/fixture_xlu_pullback.py"
+   },
+   "survived": "Fixture: the cell survives dropping the two best episodes.",
+   "what_kills_it": "Fixture: a rates spike that breaks the sector's rank.",
+   "overlap": "Partial. Weak Close Decent Sznls can fire on XLU, though not on this filter."
+  },
+  {
+   "title": "Dollar futures long into the post-payroll drift",
+   "grade": "C",
+   "novelty_axis": "instrument_translation",
+   "horizon_td": 4,
+   "legs": [
+    {"ticker": "DX", "side": "LONG", "weight": 1.0, "sec_type": "FUT",
+     "contract": "DX Sep 2026 (ICE, USD index)", "proxy_ticker": "DX-Y.NYB",
+     "multiplier": 1000}
+   ],
+   "entry": {"type": "MOO"},
+   "exit": {"time_td": 4, "time_order": "MOC"},
+   "sizing": {"mode": "risk_bps", "risk_bps": 20, "stop_atr_for_sizing": 1.0},
+   "thesis": "Fixture thesis. The dollar drifts up for a few sessions after an August payroll print in this cycle year, and the ETF wrapper cannot pay for the move.",
+   "evidence": {
+    "summary": "Fixture numbers: DX index four-day drift after August payrolls in midterm years.",
+    "n": 6,
+    "window": "2002-2026 midterm Augusts",
+    "control": "all four-day DX windows in August",
+    "era_note": "six observations, one cycle cell, context only",
+    "script": "scratch/pitch_checks/2026-08-06/fixture_dx_drift.py"
+   },
+   "survived": "Fixture: it holds when the weakest observation is dropped, but N is too small to lean on.",
+   "what_kills_it": "Fixture: a soft print that sends the dollar down on day one.",
+   "overlap": "None."
+  }
+ ],
+ "killed": [
+  {"title": "Fixture: short EWZ after the September opex",
+   "reason": "era check, the edge died in 2019",
+   "novelty_axis": "event_fingerprint"},
+  {"title": "Fixture: long UVXY into the FOMC",
+   "reason": "collides with the negative registry (VXX/UVXY proxies, roll decay)",
+   "novelty_axis": "inversion"}
+ ]
+}

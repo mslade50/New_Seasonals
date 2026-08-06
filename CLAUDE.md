@@ -16,6 +16,9 @@ A quantitative equity trading platform built on Streamlit. Three pillars:
 ├── daily_risk_report.py            # Daily risk email (fragility dials + signals + forward returns)
 ├── daily_portfolio_report.py       # Daily portfolio health report (imports from strat_backtester)
 ├── weekly_market_rundown.py        # Weekly PDF rundown (tabloid landscape, 11 chart pages)
+├── daily_pitch.py                  # Daily Pitch publisher (email + Pitch tab + journal) — see "Daily Pitch"
+├── pitch_grammar.py                # Daily Pitch idea contract (vocabularies, sizing, order derivation)
+├── pitch_journal.py                # Daily Pitch append-only journal (idea/killed/approval/outcome)
 ├── verify_fills.py                 # Post-close fill verification (updates Google Sheets)
 ├── indicators.py                   # Shared indicator library
 ├── earnings_filter.py              # Shared OVS earnings blackout helpers (load parquet, compute offset)
@@ -843,6 +846,80 @@ Aligned sites — change together:
 - `.github/workflows/daily_screener.yml` AM-gated step
 - Guards: `tests/test_event_sleeve.py` (repo), `test_event_moo.py` (OneDrive)
 
+## Daily Pitch (2026-08-06)
+
+Three novel trade ideas per trading morning, delivered as an email plus a
+`Pitch` Sheets tab with a Y/N approval column. DELIBERATELY NOT SYSTEMATIC —
+the strategy book is that layer, and an earlier "card library the code
+activates" design was rejected. Every idea is a one-off judgement call,
+invented from repo context and empirically falsified before delivery. Spec:
+`daily_pitch_agent_spec_2026-08-06.html`; runbook: `docs/daily_pitch.md`.
+
+Flow: 7:00 AM `scripts/run_daily_pitch.bat` -> grade yesterday
+(`scripts/grade_pitch_journal.py`) -> assemble state
+(`scripts/build_pitch_state.py` -> `data/pitch_state.json` +
+`data/pitch_tape.json`) -> `claude -p "/daily-pitch"` (the skill runs stages
+B-D: ideate 8-12 candidates across >= 4 novelty axes, fan out adversarial
+verifiers that write real checks into `scratch/pitch_checks/<date>/`, compose
+three) -> `daily_pitch.py` publishes -> McKinley types Y -> `pitch_moo.py`
+(OneDrive, clientId 148) places at 9:05 (auction) and 9:32 (open-anchored
+limits). NOTHING places without an exact `Y`, and the runner is
+activation-flag gated (`pitch_moo_enabled.flag`).
+
+Hard requirements enforced in code, not prose (`pitch_grammar.py`):
+- **exactly 3 ideas**, at most **one grade C**, every idea carries a **time
+  stop**, entry/exit come only from the closed vocabularies (MOO | MOC |
+  LIMIT(anchor, k ATR); time_td + optional target/stop ATR).
+- **fresh evidence** (summary, N, control, era note, and the path of the
+  check script written that morning) plus a **`survived`** line naming one
+  consideration that could have killed the idea and did not.
+- **repetition control**: an idea whose structural fingerprint (legs + sides
+  + entry type + horizon bucket) was pitched inside 10 td needs an explicit
+  `changed_since`.
+- grade/N coherence (A needs N>=50, B N>=15, C N<15).
+
+Conventions that differ from the book on purpose:
+- **ATR is Wilder-14** (spec section 4), matching
+  `scripts/build_atr_downside_stats.wilder_atr`. The systematic book's ATR is
+  a simple 14d mean of TR and sizes every scanner limit/stop. A pitch level is
+  never a scanner level; do NOT converge them, and nothing in the book may
+  import `pitch_grammar`.
+- **Sanity bounds are ATR risk, never notional** (60 bps/idea, 150 bps/day,
+  $15k in the runner's approved basket) per the book-wide no-notional-caps
+  rule. The runner adds an ATR-percent-of-price band because a corrupted ATR
+  inflates quantity while Risk_Amt still looks small.
+- **Auto-placement follows the fill-price question**: only a CLOSE-anchored
+  limit has a knowable fill price at 9:05, so only it gets a full bracket in
+  the auction pass. MOO/MOC place with a time exit only; adding a price
+  stop/target to them, or any futures leg, marks the row `Manual_Only`.
+  OPEN-anchored limits route to the 9:32 pass, which fetches the true session
+  open (order_staging's 1-min-bar method incl. its stale-session guard).
+  Nothing ever fabricates a stop off a reference close.
+- **The grader is pessimistic and grades DECLINED ideas too** (that is how
+  the scoreboard measures the filter): a bar touching both stop and target
+  books the stop, gapped stops fill at the open plus 13 bps, stops arm day 2.
+
+Journal (`pitch_journal.py` -> `data/pitch_journal.jsonl`, R2 mirror) is
+APPEND-ONLY with four record kinds (idea / killed / approval / outcome);
+`fold_ideas` merges them. Approvals have exactly one capture window: the next
+morning's run reads the Approve cells BEFORE clearing the tab. A non-default
+`--journal` path never touches R2, so tests and dev runs cannot pollute the
+evidence trail. `data/pitch_negative_registry.md` is committed and GROWS: each
+stage-C kill with a reusable lesson is appended the same morning.
+
+Aligned sites — change together:
+- `pitch_grammar.py` (the contract: vocabularies, validation, sizing, order
+  derivation, placement routing) + `pitch_journal.py`
+- `daily_pitch.py` (publisher: TAB_COLUMNS is the runner's schema)
+- `.claude/skills/daily-pitch/SKILL.md` (stages B-D; the .gitignore carries a
+  `!.claude/skills/` negation so this file is committed)
+- `scripts/build_pitch_state.py`, `scripts/build_pitch_research_index.py`,
+  `scripts/grade_pitch_journal.py`, `scripts/check_pitch_delivered.py`
+- `pitch_moo.py` + `run_pitch_moo.bat` + `register_pitch_moo_task.ps1`
+  (OneDrive trading_ibkr)
+- Guards: `tests/test_pitch_grammar.py`, `tests/test_daily_pitch.py`,
+  `tests/test_pitch_grader.py`, `test_pitch_moo.py` (OneDrive)
+
 ## OLV Vol-Confirmed Stop + Notional Cap (2026-07-20)
 
 Package replacing OLV's resting 1.25 ATR STP, its `sector_loss_gate`
@@ -1111,6 +1188,8 @@ trigger chain, out-of-repo file map): `docs/site_runbook.html`. |
 | `Trigger Daily Screener (GHA workflow_dispatch)` | Enabled | Weekdays 4:47 AM ET, 30 min after the parquet trigger — fires `daily_screener.yml` via the GitHub REST API. Same mechanism. |
 | `Trigger Risk Report AM Correction (GHA workflow_dispatch)` | Enabled | Weekdays 4:30 AM ET — fires `risk_report.yml` with `mode=data_only` so the fragility row daily_scan sizes off (~4:47 AM) reflects settled prices, not the provisional 5:15 PM bar. Scripts: `C:\Scripts\trigger_risk_report.ps1` + `_task.xml`. |
 | `IBKR OLV Pre-Market Exits` | Enabled | Weekdays 9:10 AM ET — `run_olv_exit_moo.bat` -> `olv_exit_moo.py` (OneDrive trading_ibkr): reads the `OLV_Exits` tab and places TRUE market-on-open (TIF=OPG) SELLs for confirmed OLV stop legs on BOTH accounts before the 9:28 auction cutoff. Registered 2026-07-30 via `register_olv_exit_task.ps1`; must clear the 9:31 order chain (shares clientIds 99/98). |
+| `Daily Pitch (agent)` | NOT REGISTERED (inert) | Weekdays 7:00 AM ET — `scripts\run_daily_pitch.bat`: grade, assemble state, run `/daily-pitch` headless, verify delivery. Writes files and sends the pitch email; places no orders. Register with `scripts\register_daily_pitch_task.ps1` after eyeballing several manual runs. |
+| `IBKR Daily Pitch Approvals (auction)` / `(open)` | NOT REGISTERED (inert) | Weekdays 9:05 and 9:32 AM ET — `pitch_moo.py` places `Pitch` rows marked `Y`. Live money: registration script also writes `pitch_moo_enabled.flag`; delete the flag to disarm without unregistering. |
 | `RadarMorningBriefing` | Enabled | Lives in separate `last30days-radar` project — not yet migrated. |
 | `RadarWeeklySummary` | Enabled | Sundays 8:30 AM ET — depends on radar briefs from above. Not yet migrated. |
 | `DailyPortfolioReport` | Disabled | Replaced by `portfolio_report.yml`. Re-enable as fallback if GHA breaks. |
@@ -1274,6 +1353,14 @@ Tab layout in the `Trade_Signals_Log` workbook:
 - `moc_orders` — MOC entries from liquid tier only (`save_moc_orders` skips overflow rows). Currently vestigial: the strategy book has no Signal Close entries, so this tab is never written. Reactivates automatically if any strategy is set to `entry_type='Signal Close'`.
 - `Seasonal` — tradeable seasonal-ideas tickets (longs + non-equity shorts). Written by `seasonal_order_staging.py` from `data/daily_seasonal_ideas.json`, `Scan_Source='Seasonal'`. Separate pipeline from the systematic book. Entry type per instrument (validated geography rule): US single stocks + US-session equity ETFs → `REL_OPEN` limit (0.25 ATR, DAY); everything that gaps overnight (intl/commodity/bond/FX ETFs, GLD/TLT) → `MOO` (market-on-open, `TIF=OPG`). Sizing: 20 bps/trade (13 bps in midterm years, `year%4==2`), 1% aggregate daily cap. order_staging must add `MOO` handling — see `docs/seasonal_order_staging_spec.md`.
 - `sznl_nostage` — NOT auto-executed. Single-stock equity shorts (sized, tagged `[eq-short]`) + non-tradeable signals (futures/index/FX/crypto, `Quantity=0`, `Order_Type=NONE`, tagged `[need-proxy]` pending the proxy-ETF promotion). order_staging does not read this tab.
+- `Pitch` — the Daily Pitch approval tab (2026-08-06). One row per LEG of the
+  morning's three ideas, written by `daily_pitch.py` (clear+rewrite), with an
+  empty `Approve` column. Typing exactly `Y` on EVERY leg of an idea is what
+  authorizes `pitch_moo.py` (OneDrive) to place it at 9:05 / 9:32; blank, `N`
+  and anything ambiguous place nothing, and a partly-approved multi-leg idea
+  refuses the whole basket. `Manual_Only` rows are never auto-placed. The
+  next morning's run reads the Approve cells into the journal BEFORE clearing
+  the tab, which is the only window they can be captured in.
 - `Trade_Signals_Log` (sheet1) — append-only signal history.
 - `Portfolio` — open-positions snapshot from `daily_portfolio_report.py`.
 - `execution`, `execution_2` — order_staging.py output for primary + small-account execution.

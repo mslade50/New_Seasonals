@@ -1,0 +1,315 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Daily Pitch Agent — Build Specification (2026-08-06)</title>
+<style>
+  body { font-family: Georgia, 'Times New Roman', serif; max-width: 880px;
+         margin: 40px auto; padding: 0 24px; color: #1a1a1a; line-height: 1.55; }
+  h1 { font-size: 26px; border-bottom: 3px solid #1a1a1a; padding-bottom: 8px; }
+  h2 { font-size: 20px; margin-top: 36px; border-bottom: 1px solid #ccc; padding-bottom: 4px; }
+  h3 { font-size: 16px; margin-top: 24px; }
+  code, pre { font-family: Consolas, monospace; background: #f4f4f2; font-size: 13px; }
+  code { padding: 1px 5px; border-radius: 3px; }
+  pre { padding: 14px 16px; border-radius: 6px; overflow-x: auto; border: 1px solid #ddd; }
+  table { border-collapse: collapse; width: 100%; font-size: 14px; margin: 12px 0; }
+  th, td { border: 1px solid #ccc; padding: 6px 10px; text-align: left; vertical-align: top; }
+  th { background: #f0efec; }
+  .rule { background: #fdf6e3; border-left: 4px solid #b58900; padding: 10px 14px; margin: 14px 0; }
+  .warn { background: #fdf0ef; border-left: 4px solid #c0392b; padding: 10px 14px; margin: 14px 0; }
+  .ok   { background: #eef6ee; border-left: 4px solid #27722a; padding: 10px 14px; margin: 14px 0; }
+  .meta { color: #666; font-size: 13px; }
+</style>
+</head>
+<body>
+
+<h1>Daily Pitch Agent — Build Specification</h1>
+<p class="meta">Written 2026-08-06 for handoff to a build agent. Author: Claude session with McKinley.
+Repo: New_Seasonals. Companion conventions referenced throughout: CLAUDE.md, the memory directory,
+scratch/ultracode_research/. Status of this doc: approved DIRECTION from McKinley; implementation
+details inside are the writing session's recommendations and the build agent may improve on them,
+except where a block is marked as a hard requirement.</p>
+
+<h2>1. What McKinley asked for, verbatim intent</h2>
+<p>A once-per-day, <strong>non-interactive</strong> delivery of <strong>exactly three</strong> trade ideas
+that combine <strong>novelty</strong> with the full knowledge of this repo: the strategy book, all research
+in scratch/ultracode_research/, the macro event calendar, seasonality machinery, earnings data, the
+risk-dial state, and 25 years of prices. He will read the three ideas, decide yes or no per idea, and
+place orders. Nothing else. His words that define the product:</p>
+<ul>
+  <li>"I want to be able to ping you, any time" evolved to: a finished daily delivery, no conversation.</li>
+  <li>"I want creativity and logic combined." Novel constructions, then empirically interrogated before delivery.</li>
+  <li>"You shouldn't just rip off my own trades because what is the point of that?"</li>
+  <li>"False positives are fine. I will filter the ideas myself."</li>
+  <li>Ideas must ALWAYS have a defined entry and a defined exit (grammar in section 4).</li>
+  <li>"If that means you need to spin up multiple agents to verify or pushback on the ideas, that is
+      fine but I want the ideas polished and finished by the time they make it to me."</li>
+</ul>
+
+<div class="warn"><strong>Explicit non-goals.</strong>
+(1) NOT a systematic activation engine. An earlier design (pre-registered "card library" that code
+activates) was proposed and McKinley rejected it: "I don't want this at all. I don't want it to be
+systematic. We have already solved that." The strategy book already IS the systematic layer.
+(2) NOT interactive. No follow-up dialogue is assumed or required for the ideas to be complete.
+(3) NOT a site tab. The site's Ideas tab was deliberately removed 2026-07-28 (see memory
+seasonal-signals-screener and the CLAUDE.md site section); do not resurrect it.
+(4) NO order is ever placed without an explicit per-idea approval (section 7).</div>
+
+<h2>2. Product definition</h2>
+<table>
+<tr><th>Property</th><th>Spec</th></tr>
+<tr><td>Cadence</td><td>Every trading day, delivered by ~7:45 AM ET (after the ~4:47 AM scan chain has
+refreshed every input; before McKinley's pre-market order window). A missed run delivers nothing; do
+not deliver stale ideas late in the session.</td></tr>
+<tr><td>Count</td><td>Exactly 3 ideas. Never more. If conviction is thin, still 3, with honest grades
+(section 5); never pad with filler dressed as conviction.</td></tr>
+<tr><td>Default horizon</td><td>1 to 10 trading days (the "what is the best risk/reward for my capital
+tomorrow / next 5 days" question). Each idea states its own horizon explicitly.</td></tr>
+<tr><td>Instruments</td><td>Anything McKinley can trade: US equities and ETFs, futures (DX, ES-family,
+treasuries, metals; see memory futures-fx-tradeable — never reject an idea for lacking an ETF wrapper).
+No options for v1 (no options execution infra).</td></tr>
+<tr><td>Delivery</td><td>Standalone HTML email, "Daily Pitch" (section 6), plus a machine-readable
+Sheets tab for the approval loop (section 7).</td></tr>
+<tr><td>Sizing default</td><td>Manual-trade conventions (memory manual-seasonal-trade-conventions):
+30 bps of NAV risk per idea, stop distance by horizon (1.0 ATR for ~5d, 1.3 for ~10d), unless the idea
+is an index/carry construction better expressed in %-NAV notional; then say so explicitly.</td></tr>
+</table>
+
+<h2>3. The core loop: invent, then falsify, then polish</h2>
+<p>This is the heart of the product and the reason it is an agent pipeline rather than a script.
+The proven prototype is the 2026-08-06 session itself (see
+scratch/ultracode_research/event_seasonality_sweep_2026-08-06.md and its four addenda): novel
+constructions like the gold-vs-silver divergence around August NFP, the DX-futures dollar fade, the
+SVXY-instead-of-short-UVXY expression, and the September inversion of the post-opex vol crush were
+each invented from repo context and then confirmed or killed with a five-minute empirical check
+against the repo's own data. The pipeline industrializes exactly that loop.</p>
+
+<h3>Stage A — State assembly (deterministic, build this as code)</h3>
+<p>A script (suggested: <code>scripts/build_pitch_state.py</code>) that emits ONE json with everything
+the ideation stage needs. All inputs already exist in machine-readable form:</p>
+<table>
+<tr><th>Input</th><th>Source</th></tr>
+<tr><td>Calendar, next 15 td</td><td><code>data/macro_events.csv</code> via <code>macro_calendar.py</code>
+(FOMC, CPI/NFP/PPI, opex, quad, vix_expiry, Jackson Hole, elections) + days-to-event offsets</td></tr>
+<tr><td>Tape metrics</td><td><code>data/master_prices.parquet</code>: for a defined universe (SPY QQQ IWM
+DIA TLT GLD SLV USO UUP DX-Y.NYB ^VIX UVXY SVXY sector ETFs + LIQUID_PLUS_COMMODITIES leaders): trailing
+5/21d return percentile ranks (252d), z10 vs vol21, distance from 52w high/low, realized vol</td></tr>
+<tr><td>Risk state</td><td>fragility dial (10d-MA 63d from <code>data/rd2_fragility.parquet</code>),
+P/C fear state (<code>pc_fear.py</code>), dispersion, and which fragility signals are currently firing
+(<code>data/atr_downside_stats.json</code> + risk pipeline outputs)</td></tr>
+<tr><td>Book state</td><td>current staged signals (Order_Staging/Overflow tabs or the scan email JSON),
+open event-sleeve positions (<code>data/event_sleeve_state.json</code>), exposure snapshot
+(<code>data/exposure_state.json</code>), live positions via the broker DO <code>/book</code> endpoint
+(same source the execution report uses)</td></tr>
+<tr><td>Earnings in window</td><td><code>data/earnings_calendar.parquet</code>: which liquid names print
+inside the horizon, with each name's blackout status</td></tr>
+<tr><td>Seasonality</td><td>active seasonal-board tickets (<code>data/daily_seasonal_ideas.json</code>),
+month/cycle-year position (year%4, month, day-of-month), the sznl rank files</td></tr>
+<tr><td>Research memory</td><td>a generated index of scratch/ultracode_research/*.md titles + the
+NEGATIVE-results registry (section 5) so ideation can cite and avoid</td></tr>
+</table>
+
+<h3>Stage B — Ideation (main agent, wide net)</h3>
+<p>Generate 8 to 12 raw candidates. Force breadth through named novelty axes; every batch must draw
+from at least four different axes:</p>
+<ol>
+  <li><strong>Instrument translation:</strong> a known effect expressed through a better vehicle
+      (the SVXY and DX precedents).</li>
+  <li><strong>Interaction cells:</strong> event x seasonal x cycle-year x tape-state combinations no
+      study has opened (the repo's studies are the periodic table; the compounds are mostly unexplored).</li>
+  <li><strong>Relative value:</strong> long X vs short Y where research only ever examined the legs
+      alone (gold vs silver into August NFP was born this way).</li>
+  <li><strong>Inversion hunting:</strong> conditions under which a documented edge flips sign
+      (September flipping the post-opex vol crush; midterm years flipping the pre-FOMC drift).</li>
+  <li><strong>Historical analogues:</strong> nearest-neighbor tapes to today (return/vol/breadth
+      profile) and what worked in the following week, with honest N.</li>
+  <li><strong>Flow mechanics:</strong> dealer gamma around expiries, futures roll, month-end
+      rebalancing, index adds, buyback windows as thesis engines.</li>
+  <li><strong>Event fingerprints:</strong> the cross-asset tables (like the midterm-August-NFP
+      fingerprint) applied to whatever the calendar serves up in the horizon.</li>
+</ol>
+<div class="rule"><strong>Anti-rip-off rule (hard requirement).</strong> An idea that is materially a
+STRATEGY_BOOK trade, an event-sleeve trade, or a seasonal-sheet ticket is dead on arrival unless it
+adds a genuine twist (different instrument, different leg structure, opposite side, meaningfully
+different window), and the write-up must name the overlap. The scanner already trades the book;
+repeating it has zero value to McKinley.</div>
+
+<h3>Stage C — Falsification fan-out (subagents, adversarial)</h3>
+<p>Each surviving candidate is handed to a checking agent whose brief is to KILL it. Checks are fast
+empirical interrogations, not backtests:</p>
+<ul>
+  <li>Does the claimed pattern exist in the data at all? Run the 5-minute study (window returns around
+      the anchor, proper controls like the all-events baseline and the unconditional drift of the
+      instrument; the sweep scripts in scratch/ are the pattern to imitate).</li>
+  <li>What is N, the worst window, and the era stability (did it die after 2018)?</li>
+  <li>Does it collide with the NEGATIVE-results registry (section 5)?</li>
+  <li>Does the book already hold correlated exposure, and does the idea survive that overlap disclosed?</li>
+  <li>Cost sanity: spread/carry of the vehicle vs the edge magnitude (the UUP lesson: 6 bps of edge
+      cannot pay ETF drag; the same effect in DX futures was fine).</li>
+  <li>Tomorrow-specific tail risk: is a known vol-event inside the window (the last three August NFPs
+      spiked VIX +7%, +26%, +22%)?</li>
+</ul>
+<p>Recommended shape: 2-3 verifier agents in parallel, each owning 3-4 ideas, writing small throwaway
+scripts under scratch/pitch_checks/ (dated subfolder). A final red-team pass reviews the survivors
+together and may kill more. Ideas killed at this stage are logged with reasons (section 8), not shown
+to McKinley. The Workflow tool (or plain parallel subagents) is the natural harness; the build agent
+may choose the mechanism, but the CONTRACT is a hard requirement: <strong>every delivered idea must
+include falsification evidence computed fresh that morning, and at least one named consideration that
+could have killed it but did not.</strong></p>
+
+<h3>Stage D — Compose and polish (main agent)</h3>
+<p>Select the best three by risk/reward over the stated horizon, graded honestly (section 5), written
+in the fixed template (section 4), in McKinley's prose taste: no AI tells, no em dashes, no hedging
+filler (memory writing-style-no-ai-tells). Each idea ends with an exact, copyable order specification.</p>
+
+<h2>4. The idea grammar (hard requirement)</h2>
+<p>Every idea, every day, fits this template. Entries and exits come only from these vocabularies:</p>
+<pre>
+ENTRY:  MOO | MOC | limit at OPEN +/- k*ATR | limit at CLOSE +/- k*ATR
+        (k stated; ATR = 14d Wilder on the traded instrument; limit ideas state
+         a fill window, e.g. "good for tomorrow only")
+EXIT:   time stop (N trading days, exit MOC/MOO) | target +k*ATR | stop -k*ATR |
+        event-anchored date (e.g. "exit at the close before the FOMC decision")
+        At least a time stop is ALWAYS present; stop/target optional per idea.
+</pre>
+<p>Card layout per idea:</p>
+<pre>
+#1  [GRADE B]  Long GLD / short SLV into Friday's NFP        horizon: 5 td
+    ENTRY: paired MOC today, dollar-neutral legs
+    EXIT:  time stop 5 td (MOC), no price stop (spread trade, sized to risk)
+    SIZE:  30 bps NAV risk (spread ATR basis)
+    THESIS: 3-5 sentences. Variant perception (what the market prices vs what
+            the evidence says) and who is on the other side / why it exists.
+    EVIDENCE: the fresh numbers with N, the control, the era note. One table max.
+    WHAT KILLS IT: the intraweek observation that would invalidate the thesis.
+    OVERLAP: what the book/sleeve already holds that correlates, if anything.
+</pre>
+
+<h2>5. Honesty machinery (hard requirements)</h2>
+<h3>Evidence grades, printed on every idea</h3>
+<table>
+<tr><th>Grade</th><th>Meaning</th></tr>
+<tr><td>A</td><td>Effect with N &gt;= 50, |t| &gt;= 2.5, holds across eras, verified fresh today.</td></tr>
+<tr><td>B</td><td>Real pattern, moderate sample (N 15-50) or single-era, verified fresh today.</td></tr>
+<tr><td>C</td><td>Context-grade: small-N fingerprint or analogue reasoning (N &lt; 15). At most ONE
+grade-C idea per day, and its label must say "context, not statistics".</td></tr>
+</table>
+<h3>The negative-results registry</h3>
+<p>Build one flat file (suggested <code>data/pitch_negative_registry.md</code>) seeded from the repo's
+recorded dead ends, and REQUIRE stage C to check candidates against it. Seed contents: dial-conditioned
+caps/throttles, put hedges and VXX proxies, naked UVXY shorts at size, post-CPI vol crush (dead after
+2018), post-NFP/post-FOMC/VIX-expiry vol cells, SVXY as a T1 leg, UUP as a dollar vehicle, famous
+calendar factor cells arbitraged post-2013, marginal-fill decompositions (memory
+no-marginal-fill-decompositions), notional-denominated caps (memory no-notional-caps), Heston-Sadka
+on liquid names, sub-50 sizing ramps, 21d "fast confirm". Each entry cites its study. The registry
+grows: every pitch-pipeline kill with a reusable lesson gets appended.</p>
+<h3>Repetition control</h3>
+<p>An idea pitched and declined is not re-pitched within 10 trading days unless its activating
+conditions have materially changed, and the write-up must then say what changed. The journal
+(section 8) enforces this.</p>
+
+<h2>6. Delivery: the email</h2>
+<p>Standalone HTML email, subject <code>Daily Pitch — YYYY-MM-DD — 3 ideas</code>, sent via the same
+SMTP creds/env the risk report uses (EMAIL_USER/EMAIL_PASS pattern). Layout: the three cards from
+section 4, then a compact footer: one line per killed finalist ("killed: short EWZ post-opex — fails
+era check, edge died 2019"), the current scoreboard line (section 8), and the standard disclaimers of
+grade meanings. Plain HTML matching the house email style (the scan email's card aesthetic). No
+links requiring interaction; the email IS the product.</p>
+
+<h2>7. The y/n approval loop</h2>
+<p>McKinley wants to approve and place orders with minimal friction, without the pipeline ever placing
+anything autonomously. Recommended mechanism, reusing house plumbing:</p>
+<ol>
+  <li>The pipeline writes a <code>Pitch</code> tab in the Trade_Signals_Log workbook alongside the
+      email: one row per idea with the full order spec (Ticker/Contract, Action, Entry_Type,
+      Entry_Offset_ATR, Quantity, Stop_ATR, Target_ATR, Time_Exit_Date, Horizon, Grade) plus an empty
+      <code>Approve</code> column. Rows carry Execute_On = today and expire at the next run
+      (clear+rewrite, same convention as every other staging tab).</li>
+  <li>McKinley types Y in the Approve cell for the ideas he wants (from phone or desktop; Sheets is
+      already his approval surface for Manual_Limit pins).</li>
+  <li>A small pre-market runner (pattern: <code>event_moo.py</code> — fail-closed validation, activation
+      flag, placement journal, clientId of its own) reads Approve == Y rows at ~9:00 and stages/places
+      equity+ETF orders through the existing machinery. Blank or anything other than Y places nothing.
+      Futures rows are NOT auto-placed in v1 (the futures gateway is designed but not shipped, see
+      EXECUTION_GATEWAY_FUTURES_DESIGN.md); the email prints the exact contract spec for manual entry
+      and the tab row is marked Manual_Only.</li>
+</ol>
+<div class="warn">Hard requirement: the approval default is NO. A pipeline failure, a malformed row, a
+stale Execute_On, or an ambiguous Approve value must all place nothing, loudly. Follow the
+trend_moo/event_moo validation conventions exactly (schema check across the whole basket before any
+broker contact, notional cap, row cap, dedup journal, OPG/MOC cutoffs).</div>
+
+<h2>8. The pitch journal and scoreboard</h2>
+<p>Because "false positives are fine" only stays fine if they are counted. Hard requirement.</p>
+<ul>
+  <li><strong>Journal:</strong> append-only file (suggested <code>data/pitch_journal.parquet</code> or
+      JSONL): date, all pitched ideas (full spec + grade + thesis hash), all killed finalists with
+      reasons, McKinley's Approve values once known, and later the outcome.</li>
+  <li><strong>Outcome grading:</strong> a nightly job replays each pitched idea's DEFINED entry/exit
+      against master_prices exactly as specced (this is why the grammar is mandatory) and books the
+      hypothetical R and PnL, filled-or-not for limit entries. Both approved and declined ideas get
+      graded, so the scoreboard also measures McKinley's filter.</li>
+  <li><strong>Scoreboard:</strong> one footer line in the daily email (rolling 60d: pitched N, hit rate
+      by grade, avg R, approved-vs-declined performance gap) and a monthly section with the same by
+      idea-class. If the creative layer is not earning its keep, this is where it shows, and the
+      product should be killed or retuned on that evidence like any other strategy.</li>
+</ul>
+
+<h2>9. Runtime and scheduling</h2>
+<p>Recommendation: a scheduled headless Claude Code run on McKinley's machine (Task Scheduler,
+weekdays ~7:00 AM ET, after the 4:47 scan chain, before the 9:00 approval runner), in this repo, with
+a purpose-built skill (e.g. <code>/daily-pitch</code>) containing the stage A-D process. Rationale:
+full repo + data access, the memory directory, the existing SMTP/Sheets creds, and the same machine
+already runs four scheduled trading tasks. Alternative if local reliability is a concern: a scheduled
+cloud agent, but it must then solve R2/Sheets/master_prices access (the daily_screener GHA pattern
+shows how). Token budget note: stages B-D with 3-4 subagent verifications is a heavy run; budget
+accordingly and do not silently truncate the falsification stage to save tokens; fewer, better-checked
+ideas beat unchecked ones (but the delivery is still always three).</p>
+
+<h2>10. Build plan</h2>
+<table>
+<tr><th>Phase</th><th>Deliverable</th><th>Notes</th></tr>
+<tr><td>1</td><td><code>scripts/build_pitch_state.py</code> + negative registry seed + research index
+generator</td><td>Pure code, testable. State json contract documented in-file.</td></tr>
+<tr><td>2</td><td>The <code>/daily-pitch</code> skill (stages B-D as process instructions) + email
+composer + Pitch tab writer + journal writer</td><td>First runs manual, McKinley eyeballs several
+days of output BEFORE any scheduling (house convention: eyeball first outputs).</td></tr>
+<tr><td>3</td><td>Task Scheduler registration + the approval runner (<code>pitch_moo.py</code> or an
+order_staging extension) behind an activation flag</td><td>Same inert-until-operator-runs-it pattern
+as register_event_moo_task.ps1. Note: the permission classifier blocks agent sessions from registering
+scheduled tasks; hand McKinley the one-line command (the ! prefix precedent, 2026-08-06).</td></tr>
+<tr><td>4</td><td>Outcome grader + scoreboard in the email footer</td><td>Closes the loop; after 60d
+review whether the product survives its own scoreboard.</td></tr>
+</table>
+
+<h2>11. Open questions for McKinley (answer before phase 3)</h2>
+<ol>
+  <li>Delivery time: is ~7:45 AM ET right, or earlier?</li>
+  <li>Approval channel: Sheets Y/N as specced, or would a reply-to-email keyword be preferred
+      (heavier build, needs an inbox poller)?</li>
+  <li>May ideas reference/adjust EXISTING open positions ("cover half the IWM short before CPI") or
+      strictly new trades? (Spec assumes strictly new for v1.)</li>
+  <li>Universe bounds for single stocks: liquid-universe only, or full CSV_UNIVERSE?</li>
+  <li>Is one grade-C idea per day the right cap, or should high-conviction days be allowed to run
+      all-B-or-better and quiet days all-C with labels?</li>
+</ol>
+
+<h2>12. What good looks like (calibration examples from 2026-08-06)</h2>
+<p>These four, produced and verified in one session, are the quality bar and the house style for
+theses; the build agent should read the underlying studies:</p>
+<ul>
+  <li>Long SVXY post-opex ex-September (novel instrument + inversion finding; became sleeve trade V4).</li>
+  <li>Gold over silver into the August NFP (relative-value form of an event fingerprint; grade C,
+      correctly labeled as context).</li>
+  <li>DX futures long on post-NFP dollar weakness in midterm Augusts (instrument translation after
+      UUP failed the cost check; grade C with a clean activation condition).</li>
+  <li>The rejected pitches matter equally: SVXY as a pre-FOMC leg (correlation 0.78 to the equity
+      expression, killed), post-CPI vol crush (era check killed it). The pipeline must be as willing
+      to kill as to pitch.</li>
+</ul>
+
+<p class="meta">End of spec. Questions about intent should go to McKinley; questions about repo
+conventions are answered by CLAUDE.md, the memory directory, and the cited studies.</p>
+
+</body>
+</html>

@@ -1,0 +1,161 @@
+# Daily Pitch — runbook
+
+Three novel trade ideas every trading morning, invented from this repo's
+knowledge, interrogated against its data before delivery, approved one at a
+time by typing Y in a spreadsheet.
+
+Spec of record: `daily_pitch_agent_spec_2026-08-06.html` (repo root).
+Process instructions for the agent: `.claude/skills/daily-pitch/SKILL.md`.
+
+## The morning, end to end
+
+| time (ET) | what runs | where |
+|---|---|---|
+| 4:17 / 4:30 / 4:47 | the existing chain refreshes prices, the risk dial and the scan | GHA + local triggers |
+| 7:00 | `scripts/run_daily_pitch.bat` | this machine, Task Scheduler |
+| 7:00 | grade yesterday's ideas, rebuild the scoreboard | `scripts/grade_pitch_journal.py` |
+| 7:01 | assemble state | `scripts/build_pitch_state.py` |
+| 7:02 to ~7:40 | invent, falsify, compose, publish | `claude -p "/daily-pitch"` |
+| ~7:45 | email lands, `Pitch` tab rewritten | `daily_pitch.py` |
+| any time before 9:05 | McKinley types Y next to the ideas he wants | Sheets |
+| 9:05 | approved MOO / MOC / close-limit rows placed | `pitch_moo.py --pass auction` |
+| 9:32 | approved open-anchored limits priced and placed | `pitch_moo.py --pass open` |
+| next morning | yesterday's Approve cells captured before the tab is rewritten | `daily_pitch.py` |
+
+## Files
+
+| file | role |
+|---|---|
+| `pitch_grammar.py` | the contract: entry and exit vocabularies, validation, Wilder-14 ATR, sizing, order derivation, fingerprints |
+| `pitch_journal.py` | append-only journal (idea / killed / approval / outcome), R2 mirror |
+| `scripts/build_pitch_state.py` | Stage A state assembly to `data/pitch_state.json` + `data/pitch_tape.json` |
+| `scripts/build_pitch_research_index.py` | research-doc index + parsed negative registry |
+| `data/pitch_negative_registry.md` | dead ends the pipeline must not re-pitch (committed, grows) |
+| `.claude/skills/daily-pitch/SKILL.md` | stages B to D: ideation axes, falsification contract, prose rules, schema |
+| `daily_pitch.py` | publisher: validate, capture approvals, email, `Pitch` tab, journal |
+| `scripts/grade_pitch_journal.py` | replay every pitched idea, approved or not, write the scoreboard |
+| `scripts/check_pitch_delivered.py` | non-zero exit when a morning delivered nothing |
+| `pitch_moo.py` (OneDrive `trading_ibkr`) | the approval runner |
+| `tests/test_pitch_grammar.py`, `tests/test_daily_pitch.py`, `tests/test_pitch_grader.py`, `test_pitch_moo.py` (OneDrive) | guards |
+
+## Manual run
+
+```bash
+python scripts/build_pitch_state.py            # add --no-book to skip Sheets and broker
+claude                                          # then: /daily-pitch
+```
+
+Or drive the publisher directly once `data/pitch_ideas.json` exists:
+
+```bash
+python daily_pitch.py --ideas data/pitch_ideas.json --validate-only
+python daily_pitch.py --ideas data/pitch_ideas.json --dry-run --html-out preview.html
+python daily_pitch.py --ideas data/pitch_ideas.json
+```
+
+`--journal PATH` writes somewhere other than the real journal, and a
+non-default path never touches R2. Use it for anything experimental: the
+journal is the product's evidence trail and fixture rows in it corrupt the
+scoreboard.
+
+## Arming the automation
+
+Both scheduled pieces are inert until the operator registers them. House
+convention applies: eyeball several days of manual output first.
+
+```powershell
+# the 7:00 AM agent run (writes files and sends email; places no orders)
+powershell -ExecutionPolicy Bypass -File "C:\Users\McKinley Slade\dev\New_Seasonals\scripts\register_daily_pitch_task.ps1"
+
+# the 9:05 and 9:32 approval runners (live money)
+powershell -ExecutionPolicy Bypass -File "C:\Users\McKinley Slade\OneDrive\trading_ibkr\register_pitch_moo_task.ps1"
+```
+
+To disarm order placement without unregistering anything, delete
+`OneDrive\trading_ibkr\pitch_moo_enabled.flag`. The runner then validates,
+reports, and refuses to contact the broker.
+
+Dry check of a morning's approved basket, no broker contact:
+
+```
+python pitch_moo.py --check
+python pitch_moo.py --pass open --check
+```
+
+## The approval loop
+
+`daily_pitch.py` writes one `Pitch` row per LEG with an empty `Approve`
+column. Type `Y` to take an idea.
+
+- Only an exact `Y` is a yes. Blank, `N`, `yes`, `maybe` and anything else
+  place nothing. Non-Y answers are printed so a typo is visible.
+- **Approve every leg of an idea or none.** A partly approved multi-leg idea
+  raises and the whole basket is refused; a half-built spread is worse than
+  no trade.
+- Rows marked `Manual_Only` are never placed. Futures legs are manual in v1,
+  as is any MOO/MOC idea carrying a price stop or target (the fill price is
+  not knowable at 9:05, and nothing here fabricates a stop off a reference
+  close). The email prints those specs for hand entry.
+- The tab is cleared and rewritten every morning. Answers must go in before
+  the next run, which is also the only window in which the pipeline can read
+  them back into the journal.
+
+## Placement routing
+
+Entry shape decides which pass can place an idea, and the grammar computes it:
+
+| entry | pass | legs attached |
+|---|---|---|
+| `LIMIT` anchored to `CLOSE` | auction (9:05) | target, stop, time exit |
+| `MOO` / `MOC` with a time exit only | auction (9:05) | time exit |
+| `MOO` / `MOC` with a price stop or target | manual | none |
+| `LIMIT` anchored to `OPEN` | open (9:32) | target, stop, time exit |
+| any futures leg | manual | none |
+
+Exit legs go up as one OCA group. The stop carries `goodAfterTime` = the next
+session open, the book-wide day-2 arming convention, and the grader replays it
+the same way.
+
+## Conventions worth knowing before you change anything
+
+- **ATR is Wilder-14 here.** The systematic book uses a simple 14-day mean of
+  true range for every limit, stop and size. A pitch level is never a scanner
+  level, and the two must not be mixed. `pitch_grammar.wilder_atr` matches
+  `scripts/build_atr_downside_stats.wilder_atr` exactly.
+- **Sanity bounds are ATR risk, not notional** (60 bps per idea, 150 bps for
+  the day, 15k of risk in the runner's approved basket). Notional-denominated
+  caps are rejected book wide. The runner adds an ATR-percent-of-price band
+  because a corrupted ATR is the one input that inflates quantity while the
+  risk figure still looks small.
+- **The grader is pessimistic on purpose.** A bar touching both stop and
+  target books the stop; a gapped stop fills at the open plus 13 bps.
+- **Declined ideas are graded too.** The approved-versus-declined line in the
+  email footer measures the filter, not just the pipeline.
+- **Repetition control**: an idea whose structural fingerprint was pitched
+  inside 10 trading days needs a `changed_since` sentence or it is refused.
+
+## Failure modes
+
+| symptom | what happened | what to do |
+|---|---|---|
+| no email, task shows failure | `check_pitch_delivered.py` found fewer than three idea records for today | read `scripts/logs/daily_pitch_last_run.log`; the run does not retry, and a missed morning delivers nothing rather than stale ideas late |
+| `PITCH VALIDATION FAILED` | the agent's ideas json broke the grammar | fix the idea, never the grammar |
+| state warnings box in the email | a stale price cache, a missing dial, unreadable Sheets | treat the affected ideas' evidence as suspect; the header says which |
+| runner logs `activation marker absent` | the flag file is missing | expected when disarmed; recreate the flag to arm |
+| runner logs `MISSED_OPG_CUTOFF` | the 9:05 task ran late, past 9:25 | nothing placed by design, there is no MKT/DAY fallback |
+| runner logs `NO_SESSION_OPEN` | IBKR returned no printed open, or a stale session bar | nothing placed; place by hand if still wanted |
+| scoreboard empty | nothing has reached its time exit yet | expected for the first week |
+
+## Open questions for McKinley
+
+The spec left five, and the build took the spec's own defaults for all of
+them. Each is a one-line change:
+
+1. Delivery at ~7:45 AM ET, from a 7:00 AM run. Earlier is possible; the
+   binding constraint is the 4:47 scan chain finishing.
+2. Approval by Sheets `Y`, not by email reply (a reply keyword needs an inbox
+   poller, which is a much larger build).
+3. Ideas propose new trades only; none of them adjust an existing position.
+4. Single stocks come from the liquid universe by way of the state file's tape
+   table; the full CSV universe is not surfaced.
+5. One grade-C idea per day is the cap, enforced in `pitch_grammar`.
