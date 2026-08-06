@@ -99,6 +99,43 @@ modest; grade as a book-adjacent seasonal ticket rather than a strategy.
   (-47 bps, t -1.37). The tradeable form is already captured by staying out
   of midterm FOMC windows (Survivor 1's exclusion), not by shorting.
 
+## Addendum (same day): opex as a turning point after outsized moves
+
+Question from McKinley: does opex mark reversal turning points after big
+moves INTO expiry? Study: `scratch/opex_reversal_study.py`. Pre-window
+return td -5..0 and -10..0 into the opex close, z-scored by trailing 21d
+realized vol (measured before the window), bucketed, forward windows
++1..+5 / +1..+10 / to month-end. SPY/QQQ/IWM, 2000+, ~318 opex.
+
+**Downside: yes, strongly.** Outsized selloffs into opex bounce after:
+
+- SPY z10 < -1.5 (N=19): fwd5 +213 bps t 3.1, to month-end +263 t 3.1,
+  hit 74-79%
+- Quad-only, same cut (N=7): +388 / +469 / +422 (2018-12, 2020-03,
+  2022-06 in the list, but 2022-12 and 2024-12 failed)
+- QQQ confirms hard: quad z10 < -1 (N=15) fwd5 +282 t 4.2, hit 93%
+- IWM confirms (z5 < -1.5: fwd5 +211 t 2.9; quad +387 t 2.6)
+- Failures on record: 2018-10 (-395 fwd5), 2019-05, 2022-12, 2024-12,
+  2026-03. Roughly one in four keeps falling.
+
+**Upside: no.** Big rallies into opex do not reverse. SPY big-up buckets
+are flat (t 0 to -1.1); QQQ big-up actually CONTINUES (+72/+96 bps,
+t 1.6-1.7); IWM monthly extreme-up continues (+279 fwd10, t 2.3). The only
+whiff of upside fade is SPY quad z10 > +1.5 at N=9 (-75 fwd5, t -1.8),
+too small to trade. The asymmetry is the finding: expiry releases a
+downside pin, it does not cap strength.
+
+**Refinement of Survivor 2:** the Sep/Jun post-quad drag lives in the MILD
+bucket (calm tape into expiry: SPY quad mild fwd5 -42 t -1.6, QQQ -65
+t -2.2). When the tape already sold off hard into quad expiry the drag
+inverts to a bounce. Any Sep post-quad de-rate should carry a washout
+exception (skip the de-rate when z10 into opex < -1).
+
+Overlap note: the washout-bounce cell is close kin to the existing dip-buy
+family (Indices Oversold Bounce et al). The marginal content is the timing
+anchor (expiry release), so the natural form is a sizing boost or entry
+timing on dip-buys landing in the week after opex, not a new strategy.
+
 ## Suggested gates before anything ships
 
 1. Pre-registered protocol (decision rule, entry/exit, sizing, kill
