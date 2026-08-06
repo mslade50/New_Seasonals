@@ -136,6 +136,54 @@ family (Indices Oversold Bounce et al). The marginal content is the timing
 anchor (expiry release), so the natural form is a sizing boost or entry
 timing on dip-buys landing in the week after opex, not a new strategy.
 
+## Addendum 2 (same day): UVXY / vol around the same events + seasonality
+
+Study: `scratch/uvxy_event_study.py`. UVXY 2011-10+ (adjusted; structural
+decay -37.5 bps/day, t -3.1 — THE hurdle for long vol and THE harvest for
+short vol), ^VIX 2000+ for the clean seasonal shape. `vix_expiry` added to
+the macro calendar (computed, 30 cal days before next month's SPX opex).
+
+Event findings (all vs the -150 bps/4d decay baseline):
+
+- **Pre-FOMC vol crush is real and mirrors T1**: UVXY td-1 -133 (t -2.4),
+  td0 -153 (t -2.2); the -3..0 window shorts for +352 bps ex-midterm
+  (t 2.3, 72% of windows). In MIDTERM years the crush disappears (-59,
+  n.s.) — same regime split as the equity drift.
+- **Dec opex -> year-end vol crush mirrors T4**: short side +693 bps,
+  t 3.3, 87% hit (15 windows).
+- CPI-day crush exists (td0 -106, t -2.0) but is thin after decay.
+- VIX-expiry roll pressure shows at td-2 (-143, t -2.2); not tradeable
+  alone. The big VIX +309 day after NFP is the Friday->Monday quotation
+  effect (VIX weekend decay), NOT tradeable — UVXY shows nothing there.
+- **Sep post-quad long UVXY (T3 companion)**: +562 bps mean, 64% hit, but
+  t 1.4 with -2459/-1657 tails — noisy; T3's IWM short is the better
+  vehicle.
+
+Seasonality:
+
+- Monthly decay concentrates in **July (-94 bps/day, t -3.1) and November
+  (-100, t -2.6)**; August is the only positive UVXY month while VIX
+  builds +52/+60 bps/day through Aug-Sep.
+- Naive long-vol-for-the-fall (Aug 1 -> Oct 15) LOSES: -836 bps avg, 43%
+  hit — decay eats the seasonal VIX rise. The exception is MIDTERM years:
+  +2653 bps, 3-for-3 (2014/2018/2022). N=3, curiosity only, but aligned
+  with every other midterm risk finding.
+- **Short UVXY Nov 1 -> Dec 31: +2625 bps avg on the short side, t 4.5,
+  80% hit (12 of 15).** Mostly decay harvest timed at the calmest
+  seasonal window (Nov is the only month VIX FALLS on average).
+
+Verdict / tails: the tradeable vol expressions largely DUPLICATE the
+equity sleeve (pre-FOMC crush ~ T1, Dec crush ~ T4) with far worse tails:
+worst single pre-FOMC short window -45% of shorted notional (2011-11),
+and Nov-Dec windows see intra-window UVXY run-ups of +54% to +84% in a
+third of years (2018: +84%, window closed -36%). NAKED UVXY SHORTS ARE
+NOT RECOMMENDED at book size; the defined-risk implementation (UVXY put
+spreads / VIX call spreads for the midterm long-vol pocket) is an options
+venture outside current execution infra. PARKED: revisit if/when options
+staging exists. If a small cash short is ever run despite this, the
+Nov-Dec window at <= 2% NAV notional with a hard 50% buy-stop is the only
+cell with the stats to justify it.
+
 ## Suggested gates before anything ships
 
 1. Pre-registered protocol (decision rule, entry/exit, sizing, kill

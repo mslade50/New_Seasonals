@@ -33,7 +33,7 @@ CSV_PATH = Path(__file__).resolve().parent / "data" / "macro_events.csv"
 
 EVENT_TYPES = [
     "fomc_decision", "fomc_intermeeting", "fomc_minutes", "cpi", "nfp",
-    "ppi", "jackson_hole", "opex", "quad_witching", "election",
+    "ppi", "jackson_hole", "opex", "quad_witching", "vix_expiry", "election",
 ]
 
 

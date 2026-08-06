@@ -320,6 +320,17 @@ def third_friday(year: int, month: int) -> date:
     return d + timedelta(days=14)
 
 
+def vix_expiry(year: int, month: int) -> date:
+    """VIX futures/options expiration for the given month: 30 calendar days
+    before the FOLLOWING month's SPX opex (normally a Wednesday; shifts
+    with a Good-Friday-moved opex)."""
+    ny, nm = (year + 1, 1) if month == 12 else (year, month + 1)
+    exp = third_friday(ny, nm)
+    if exp == easter(ny) - timedelta(days=2):  # Good Friday opex -> Thursday
+        exp -= timedelta(days=1)
+    return exp - timedelta(days=30)
+
+
 def computed_rows(y0: int = 2000, y1: int = 2027) -> list[dict]:
     rows = []
     for y in range(y0, y1 + 1):
@@ -338,6 +349,11 @@ def computed_rows(y0: int = 2000, y1: int = 2027) -> list[dict]:
                 rows.append({"date": d, "event": "quad_witching",
                              "detail": "quad witching", "ref_period": "",
                              "time_et": "16:00", "source": "computed"})
+            rows.append({"date": vix_expiry(y, mo), "event": "vix_expiry",
+                         "detail": "VIX futures/options expiration (SOQ at "
+                                   "the open)",
+                         "ref_period": "", "time_et": "09:30",
+                         "source": "computed"})
         if y % 2 == 0:  # first Tuesday after first Monday in November
             d = date(y, 11, 1)
             d += timedelta(days=(0 - d.weekday()) % 7)  # first Monday
