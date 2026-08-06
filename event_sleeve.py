@@ -43,10 +43,6 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
-from pandas.tseries.holiday import (AbstractHolidayCalendar, GoodFriday,
-                                    Holiday, USFederalHolidayCalendar,
-                                    sunday_to_monday)
-from pandas.tseries.offsets import CustomBusinessDay
 
 current_dir = os.path.dirname(os.path.abspath(__file__))
 sys.path.append(current_dir)
@@ -54,6 +50,7 @@ sys.path.append(current_dir)
 from cache_io import download_to_local, upload_from_local  # noqa: E402
 from macro_calendar import event_dates  # noqa: E402
 from strategy_config import ACCOUNT_VALUE  # noqa: E402
+from trading_calendar import TRADING_DAY  # noqa: E402
 
 SHEET_NAME = "Trade_Signals_Log"
 TAB_NAME = "Event"
@@ -85,20 +82,10 @@ FOMC_ENTRY_TD_BEFORE = 4   # entry MOC 4 sessions before the decision
 V4_EXIT_TD_AFTER = 3       # V4 exits MOC 3 sessions after opex
 
 
-class NYSEHolidayCalendar(AbstractHolidayCalendar):
-    """US federal holidays minus Columbus/Veterans (NYSE trades both),
-    plus Good Friday. New Year's uses sunday_to_monday: when Jan 1 falls
-    on a Saturday NYSE does NOT close the preceding Dec 31 (the federal
-    nearest-weekday rule wrongly kills that session, e.g. 2027-12-31)."""
-    rules = ([r for r in USFederalHolidayCalendar.rules
-              if r.name not in ("Columbus Day", "Veterans Day",
-                                "New Year's Day")]
-             + [GoodFriday,
-                Holiday("New Year's Day", month=1, day=1,
-                        observance=sunday_to_monday)])
-
-
-NYSE_BDAY = CustomBusinessDay(calendar=NYSEHolidayCalendar())
+# Shared NYSE calendar (trading_calendar.py): Columbus/Veterans open,
+# Good Friday closed, Saturday New Year's NOT observed on the prior
+# Dec 31, Juneteenth from 2022, plus the ad-hoc closure list.
+NYSE_BDAY = TRADING_DAY
 
 
 def is_session(d: pd.Timestamp) -> bool:
