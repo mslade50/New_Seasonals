@@ -58,6 +58,8 @@ SHEET_NAME = "Trade_Signals_Log"
 TAB_NAME = "Event"
 STATE_PATH = Path(current_dir) / "data" / "event_sleeve_state.json"
 STATE_R2_KEY = "event_sleeve_state.json"
+ACTIONS_PATH = Path(current_dir) / "data" / "event_sleeve_last_actions.json"
+ACTIONS_R2_KEY = "event_sleeve_last_actions.json"
 PRICES_PATH = Path(current_dir) / "data" / "master_prices.parquet"
 
 # Staging must finish before the OPG cutoff chain (event_moo submits at
@@ -236,6 +238,118 @@ def compute_actions(today: pd.Timestamp, px: dict[str, pd.DataFrame],
     return rows, log
 
 
+def write_actions_json(rows: list[dict], log: list[str], state: dict,
+                       today: pd.Timestamp, dry_run: bool) -> None:
+    """Snapshot of what this run staged/skipped, for the scan-email cards."""
+    if dry_run:
+        print("[dry-run] actions json not written")
+        return
+    payload = {"asof": str(today.date()), "rows": rows, "log": log,
+               "positions": state.get("positions", {}),
+               "generated": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
+    ACTIONS_PATH.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    upload_from_local(str(ACTIONS_PATH), ACTIONS_R2_KEY)
+
+
+# Static explainers for the scan-email cards (one line of rule, one of
+# evidence — prereg event_sleeve_prereg_2026-08-06.md is the source).
+CARD_EXPLAINERS = {
+    "T1_FOMC_DRIFT": (
+        "Long SPY 25% NAV, MOC 4 sessions before a non-midterm FOMC "
+        "decision, exit at the decision-day open.",
+        "+38 bps/window, t 2.5, 67% hit since 2000 (Lucca-Moench drift; "
+        "midterm years invert and are skipped)."),
+    "T2_FOMC_MIDTERM_SHORT": (
+        "Short SPY 10% NAV into a midterm-year FOMC decision, same window, "
+        "ONLY when SPY 21d rank (lag-1) < 50.",
+        "+63 bps/window lag-1 basis; overbought tapes flip the edge and "
+        "are excluded. Pilot conviction."),
+    "T3_SEP_POSTQUAD_SHORT": (
+        "Short IWM 15% NAV from Sep opex close to month-end, skipped if "
+        "IWM z10 (lag-1) < -1 (washouts bounce).",
+        "+185 bps/window, t 2.3, 67% hit since 2000; post-quad drag is a "
+        "calm-tape effect."),
+    "T4_DEC_POSTOPEX_LONG": (
+        "Long IWM 25% NAV from Dec opex close to year-end.",
+        "+85 bps/window, t 2.3, 65% hit since 2000; small-cap year-end "
+        "rotation (QQQ does not confirm)."),
+}
+
+
+def sleeve_status_cards(today: pd.Timestamp | None = None) -> list[dict]:
+    """Best-effort per-trade status for the scan email. Never raises."""
+    today = (today or pd.Timestamp.now(tz="America/New_York")
+             .tz_localize(None)).normalize()
+    cards: list[dict] = []
+    try:
+        if not ACTIONS_PATH.exists():
+            download_to_local(ACTIONS_R2_KEY, str(ACTIONS_PATH))
+        actions = (json.loads(ACTIONS_PATH.read_text(encoding="utf-8"))
+                   if ACTIONS_PATH.exists() else {})
+        state = load_state()
+        positions = state.get("positions", {})
+        fresh = actions.get("asof") == str(today.date())
+        staged = {r["Trade"]: r for r in actions.get("rows", [])} if fresh else {}
+        logs = actions.get("log", []) if fresh else []
+
+        fomc = event_dates("fomc_decision")
+        opex = event_dates("opex")
+
+        def next_fomc_entry(midterm: bool):
+            for d in fomc[fomc >= today]:
+                if (d.year % 4 == 2) == midterm:
+                    entry = sessions_before(d, FOMC_ENTRY_TD_BEFORE)
+                    if entry >= today:
+                        return entry, d
+            return None, None
+
+        for trade, cfg in EVENT_SLEEVE.items():
+            rule, evidence = CARD_EXPLAINERS[trade]
+            card = {"trade": trade, "ticker": cfg["ticker"],
+                    "rule": rule, "evidence": evidence}
+            skip_line = next((l for l in logs
+                              if l.startswith(trade.split("_")[0] + ":")), "")
+            if trade in staged:
+                r = staged[trade]
+                card["status"] = (f"STAGED TODAY — {r['Action']} "
+                                  f"{r['Quantity']} {r['Ticker']} "
+                                  f"{r['Order_Type']} ({r['Note']})")
+                card["kind"] = "staged"
+            elif trade in positions:
+                pos = positions[trade]
+                card["status"] = (f"OPEN — {pos['shares']} {cfg['ticker']} "
+                                  f"since {pos['entry_date']}, exit "
+                                  f"{pos.get('exit_order_type', 'MOC')} "
+                                  f"{pos.get('exit_on', '?')}")
+                card["kind"] = "open"
+            elif skip_line and ("no trade" in skip_line or "SKIP" in skip_line):
+                card["status"] = f"SKIPPED TODAY — {skip_line.split(': ', 1)[-1]}"
+                card["kind"] = "skipped"
+            else:
+                if trade == "T1_FOMC_DRIFT":
+                    entry, dec = next_fomc_entry(midterm=False)
+                elif trade == "T2_FOMC_MIDTERM_SHORT":
+                    entry, dec = next_fomc_entry(midterm=True)
+                elif trade == "T3_SEP_POSTQUAD_SHORT":
+                    nxt = [d for d in opex if d >= today and d.month == 9]
+                    entry, dec = (nxt[0], None) if nxt else (None, None)
+                else:
+                    nxt = [d for d in opex if d >= today and d.month == 12]
+                    entry, dec = (nxt[0], None) if nxt else (None, None)
+                if entry is None:
+                    card["status"] = "IDLE — no window in calendar range"
+                else:
+                    extra = f" (FOMC {dec.date()})" if dec is not None else ""
+                    card["status"] = f"ARMED — next entry {entry.date()}{extra}"
+                card["kind"] = "armed"
+            cards.append(card)
+    except Exception as e:
+        return [{"trade": "event_sleeve", "ticker": "", "rule": "",
+                 "evidence": "", "kind": "error",
+                 "status": f"status unavailable ({e})"}]
+    return cards
+
+
 def write_sheet(rows: list[dict], dry_run: bool) -> None:
     if dry_run:
         print("[dry-run] Event tab not written")
@@ -303,6 +417,7 @@ def main() -> None:
         print(pd.DataFrame(rows).to_string(index=False))
     write_sheet(rows, args.dry_run)
     save_state(state, args.dry_run)
+    write_actions_json(rows, log, state, today, args.dry_run)
 
 
 if __name__ == "__main__":

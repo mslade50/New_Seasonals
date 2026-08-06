@@ -359,6 +359,39 @@ def send_email_summary(signals_list, error_tickers=None, scope_label=None,
         pc_html = (f'<div style="margin-top: 12px; font-size: 12px; '
                    f'color: {_pc_color};">{_pc_txt}</div>')
 
+    # Event-sleeve mini cards (2026-08-06): one card per calendar trade
+    # (T1-T4) showing today's staged/skipped action, open positions with
+    # their scheduled exits, or the next armed window. Best effort — the
+    # email must never fail on sleeve status.
+    event_html = ""
+    try:
+        from event_sleeve import sleeve_status_cards
+        _kind_color = {"staged": "#1565c0", "open": "#2e7d32",
+                       "skipped": "#8d6e63", "armed": "#888",
+                       "error": "#c62828"}
+        _cards = []
+        for _c in sleeve_status_cards():
+            _col = _kind_color.get(_c["kind"], "#888")
+            _name = _c["trade"].replace("_", " ").title().replace("Fomc", "FOMC")
+            _cards.append(
+                f'<div style="border: 1px solid #eee; border-left: 3px solid '
+                f'{_col}; border-radius: 4px; padding: 8px 10px; margin-top: 6px;">'
+                f'<div style="font-size: 12px; color: #333;"><strong>{_name}'
+                f'</strong> <span style="color: {_col};">{_c["status"]}</span></div>'
+                f'<div style="font-size: 11px; color: #888; margin-top: 2px;">'
+                f'{_c["rule"]} {_c["evidence"]}</div></div>')
+        if _cards:
+            event_html = (
+                '<div style="margin-top: 16px;">'
+                '<div style="font-size: 12px; color: #666;">📅 '
+                '<strong>Event sleeve</strong> (calendar trades — '
+                'event_moo.py places at 9:05 AM)</div>'
+                + "".join(_cards) + "</div>")
+    except Exception as _e:
+        event_html = (f'<div style="margin-top: 12px; font-size: 11px; '
+                      f'color: #c62828;">Event sleeve status unavailable: '
+                      f'{_e}</div>')
+
     _scope_suffix = f" — {scope_label}" if scope_label else ""
     if not email_signals:
         subject = f"📉 Scan Result: NO SIGNALS ({date_str}){_scope_suffix}"
@@ -370,6 +403,7 @@ def send_email_summary(signals_list, error_tickers=None, scope_label=None,
                     <p style="color: #666;">The scan completed successfully.</p>
                     <p style="font-size: 18px; color: #888;"><strong>Result:</strong> No signals found matching criteria today.</p>
                     {pc_html}
+                    {event_html}
                     {error_html}
                 </div>
             </body>
@@ -632,6 +666,7 @@ def send_email_summary(signals_list, error_tickers=None, scope_label=None,
                     
                     <!-- P/C fear-state liveness -->
                     {pc_html}
+                    {event_html}
 
                     <!-- Error Tickers -->
                     {error_html}

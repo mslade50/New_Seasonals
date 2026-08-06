@@ -107,6 +107,25 @@ jobs:
           R2_BUCKET: ${{ secrets.R2_BUCKET }}
         run: python scripts/pull_scan_caches.py
 
+      - name: Stage event sleeve (AM bookend only)
+        # BEFORE the scan: the scan email's event-sleeve cards read the
+        # actions json this step writes, and event staging must not depend
+        # on scan success (isolation both ways — this step is best-effort
+        # for the scan, and a scan crash can no longer skip event staging).
+        # AM runs only: the PM bookend must not restage rows for a day that
+        # already traded; event_sleeve.py refuses past 9:00 ET as a second
+        # guard. A missed EXIT self-heals on the next AM run (state-driven
+        # exits); a missed ENTRY is a skipped trade.
+        if: github.event_name == 'workflow_dispatch' || github.event.schedule == '30 10 * * 1-5'
+        continue-on-error: true
+        env:
+          GCP_JSON: ${{ secrets.GCP_JSON }}
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+        run: python event_sleeve.py
+
       - name: Run Automation Script
         env:
           GCP_JSON: ${{ secrets.GCP_JSON }}
@@ -122,24 +141,6 @@ jobs:
           # creds above stay wired, so re-enabling is a one-character change).
           OVERFLOW_UNIVERSE_ACTIVE: "0"
         run: python daily_scan.py --scope=all
-
-      - name: Stage event sleeve (AM bookend only)
-        # Writes the Event tab + state (R2) for the pre-market event_moo.py
-        # runner (OneDrive trading_ibkr, 9:05 AM ET). AM runs only: the PM
-        # bookend must not restage rows for a day that already traded, and
-        # event_sleeve.py itself refuses to stage past 9:00 ET as a second
-        # guard. Best effort: a failure here must not block the scan email
-        # or the site deploy — a missed EXIT self-heals on the next AM run
-        # (state-driven exits), and a missed ENTRY is a skipped trade.
-        if: github.event_name == 'workflow_dispatch' || github.event.schedule == '30 10 * * 1-5'
-        continue-on-error: true
-        env:
-          GCP_JSON: ${{ secrets.GCP_JSON }}
-          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
-          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
-          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-          R2_BUCKET: ${{ secrets.R2_BUCKET }}
-        run: python event_sleeve.py
 
       - name: Commit exposure state (AM bookend only)
         # Only the AM bookend writes data/exposure_state.json (PM bookend
