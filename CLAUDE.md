@@ -799,6 +799,44 @@ high-fragility months (frag_risk_bands handles that hole). Scale to 1.0x of
 the fraction only after 2 clean quarters. Studies: scratch/tf_universe_study.py,
 scratch/ultracode_research/trend-following.md + trend_prework_gates.md.
 
+## Event Sleeve (2026-08-06)
+
+Four calendar-anchored index trades from `data/macro_events.csv`, prereg
+frozen BEFORE go-live: scratch/ultracode_research/event_sleeve_prereg_2026-08-06.md
+(evidence chain + kill rules there). Sizes are %NAV notional, NOT GRM-scaled,
+no stops, no dial conditioning by design:
+- **T1 FOMC_DRIFT** — long SPY 25% NAV, MOC 4 sessions before a scheduled
+  FOMC decision -> MOO decision-day open. Non-midterm years only.
+- **T2 FOMC_MIDTERM_SHORT** — short SPY 10%, same window, midterm years,
+  ONLY when SPY 21d-return rank (252d, lag-1) < 50 — overbought tapes
+  invert the edge and are excluded.
+- **T3 SEP_POSTQUAD_SHORT** — short IWM 15%, Sep opex MOC -> Sep last
+  session MOC; SKIPPED when IWM z10 (lag-1) < -1 (washouts bounce).
+- **T4 DEC_POSTOPEX_LONG** — long IWM 25%, Dec opex MOC -> year-end MOC.
+
+Flow: `event_sleeve.py` runs in the daily_screener AM job (AM bookend only,
+best-effort step) -> clears+rewrites the `Event` Sheets tab + state json
+(`data/event_sleeve_state.json`, R2 round-trip) -> `event_moo.py` (OneDrive
+trading_ibkr, Task Scheduler 'IBKR Event Sleeve Auction Orders' weekdays
+9:05 AM ET, clientId 147, gated by `event_moo_enabled.flag`) validates the
+due basket fail-closed (universe {SPY, IWM}, max 2 rows, $250k notional
+cap, OPG cutoff 9:25 / MOC cutoff 15:30) and places MKT+OPG / MKT+MOC
+parent-only orders on the PRIMARY account (no exit legs — exits are
+sleeve-scheduled). orderRef strategy field = trade id (execution-report
+attribution). EXITS ARE STATE-DRIVEN, not calendar-driven: each entry
+records `exit_on` + exit order type; any AM run at/past that date stages
+the exit, so a failed run delays an exit by a session instead of dropping
+it. Known bound (trend-sleeve convention): state marks positions open at
+STAGING time — if a staged order never executed, clear it from the state
+json.
+
+Aligned sites — change together:
+- `event_sleeve.py` `EVENT_SLEEVE` dict (source of truth: tickers, sides,
+  %NAV, rank/z thresholds) + `FOMC_ENTRY_TD_BEFORE`
+- `event_moo.py` (OneDrive) `EVENT_UNIVERSE` / `EVENT_TRADES` / caps
+- `.github/workflows/daily_screener.yml` AM-gated step
+- Guards: `tests/test_event_sleeve.py` (repo), `test_event_moo.py` (OneDrive)
+
 ## OLV Vol-Confirmed Stop + Notional Cap (2026-07-20)
 
 Package replacing OLV's resting 1.25 ATR STP, its `sector_loss_gate`

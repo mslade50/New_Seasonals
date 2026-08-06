@@ -10,15 +10,27 @@ Four trades, frozen in scratch/ultracode_research/event_sleeve_prereg_2026-08-06
                          skip when IWM z10 (lag-1) < -1 (washout bounce)
   T4 DEC_POSTOPEX_LONG   long IWM,  MOC Dec opex -> MOC year last session
 
-Run pre-market (after the 4:17 AM parquet update, before order_staging):
-    python event_sleeve.py [--dry-run] [--asof YYYY-MM-DD]
+Runs pre-market in the daily_screener AM job (after the R2 cache pull,
+before order staging); local manual runs work the same way:
+    python event_sleeve.py [--dry-run] [--asof YYYY-MM-DD] [--force]
 
 Each run recomputes today's actions from the macro calendar and writes the
-`Event` Sheets tab (clear + rewrite; empty when no action today). Held
-positions persist in data/event_sleeve_state.json so exits size correctly
-and re-runs are idempotent. All filters use the prior session's close
-(master_prices pre-market has yesterday's bar at newest) — lag-1 by
-construction, matching the prereg.
+`Event` Sheets tab (clear + rewrite; empty when no action today). The tab
+is consumed by the pre-market runner event_moo.py (OneDrive trading_ibkr),
+which places the auction orders on the primary account.
+
+State (open positions + their scheduled exits) lives in
+data/event_sleeve_state.json and round-trips through R2 so GHA runs share
+it. EXITS COME FROM STATE, not the calendar: each entry records exit_on +
+exit order type, and any run with today >= exit_on stages the exit — a
+failed morning run delays an exit by a session instead of dropping it.
+All filters use the prior session's close (master_prices pre-market has
+yesterday's bar at newest) — lag-1 by construction, matching the prereg.
+
+Known bound (trend-sleeve convention): state marks a position open at
+STAGING time. If the staged order was never executed (runner off, order
+rejected), clear the position from the state json or the sleeve will
+stage a phantom exit later.
 """
 from __future__ import annotations
 
@@ -38,13 +50,19 @@ from pandas.tseries.offsets import CustomBusinessDay
 current_dir = os.path.dirname(os.path.abspath(__file__))
 sys.path.append(current_dir)
 
+from cache_io import download_to_local, upload_from_local  # noqa: E402
 from macro_calendar import event_dates  # noqa: E402
 from strategy_config import ACCOUNT_VALUE  # noqa: E402
 
 SHEET_NAME = "Trade_Signals_Log"
 TAB_NAME = "Event"
 STATE_PATH = Path(current_dir) / "data" / "event_sleeve_state.json"
+STATE_R2_KEY = "event_sleeve_state.json"
 PRICES_PATH = Path(current_dir) / "data" / "master_prices.parquet"
+
+# Staging must finish before the OPG cutoff chain (event_moo submits at
+# 9:05, hard OPG cutoff 9:25). Past this time a live run refuses to stage.
+STAGING_CUTOFF_ET = datetime.time(9, 0)
 
 # Source of truth for the sleeve (prereg 2026-08-06). %NAV notional, no GRM.
 EVENT_SLEEVE = {
@@ -95,6 +113,8 @@ def load_ticker(tkr: str) -> pd.DataFrame:
 
 
 def load_state() -> dict:
+    if not STATE_PATH.exists():
+        download_to_local(STATE_R2_KEY, str(STATE_PATH))
     if STATE_PATH.exists():
         return json.loads(STATE_PATH.read_text(encoding="utf-8"))
     return {"positions": {}}
@@ -106,7 +126,8 @@ def save_state(state: dict, dry_run: bool) -> None:
         return
     state["generated"] = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     STATE_PATH.write_text(json.dumps(state, indent=2), encoding="utf-8")
-    print(f"State saved -> {STATE_PATH}")
+    upload_from_local(str(STATE_PATH), STATE_R2_KEY)
+    print(f"State saved -> {STATE_PATH} + R2")
 
 
 def _row(trade: str, cfg: dict, action: str, qty: int, ref_close: float,
@@ -122,7 +143,7 @@ def _row(trade: str, cfg: dict, action: str, qty: int, ref_close: float,
 def compute_actions(today: pd.Timestamp, px: dict[str, pd.DataFrame],
                     state: dict) -> tuple[list[dict], list[str]]:
     """Rows to stage for TODAY (pre-market view: px has data through the
-    prior session). Returns (rows, log lines)."""
+    prior session). Returns (rows, log lines). Mutates state."""
     rows: list[dict] = []
     log: list[str] = []
     today = today.normalize()
@@ -135,36 +156,40 @@ def compute_actions(today: pd.Timestamp, px: dict[str, pd.DataFrame],
             raise RuntimeError(f"no price history before {today.date()} for {tkr}")
         return prior.iloc[-1]
 
-    def shares_for(cfg: dict, ref_close: float) -> int:
-        return int(cfg["nav_frac"] * ACCOUNT_VALUE / ref_close)
-
-    def stage_entry(trade: str, cfg: dict, order_type: str, note: str) -> None:
+    def stage_entry(trade: str, cfg: dict, note: str,
+                    exit_on: pd.Timestamp, exit_order_type: str) -> None:
         if trade in positions:
             log.append(f"{trade}: already open, entry skipped (idempotent)")
             return
         ref = float(latest(cfg["ticker"])["Close"])
-        qty = shares_for(cfg, ref)
+        qty = int(cfg["nav_frac"] * ACCOUNT_VALUE / ref)
         action = "BUY" if cfg["side"] == "LONG" else "SELL_SHORT"
-        rows.append(_row(trade, cfg, action, qty, ref, today, order_type, note))
+        rows.append(_row(trade, cfg, action, qty, ref, today, "MOC", note))
         positions[trade] = {"shares": qty, "entry_date": str(today.date()),
-                            "ref_close": ref}
+                            "ref_close": ref, "exit_on": str(exit_on.date()),
+                            "exit_order_type": exit_order_type}
         log.append(f"{trade}: ENTRY staged {action} {qty} {cfg['ticker']} "
-                   f"{order_type} — {note}")
+                   f"MOC — {note} (exit {exit_order_type} {exit_on.date()})")
 
-    def stage_exit(trade: str, cfg: dict, order_type: str, note: str) -> None:
-        pos = positions.get(trade)
-        if not pos:
-            log.append(f"{trade}: exit day but no open position — nothing staged")
-            return
+    # ---- exits first, FROM STATE: any open position at/past its exit date.
+    # A failed morning run therefore delays an exit by a session instead of
+    # dropping it (the calendar day itself is never load-bearing).
+    for trade, pos in sorted(positions.items()):
+        exit_on = pd.Timestamp(pos["exit_on"])
+        if today < exit_on:
+            continue
+        cfg = EVENT_SLEEVE[trade]
+        ot = pos.get("exit_order_type", "MOC")
+        late = "" if today == exit_on else f" (LATE — scheduled {exit_on.date()})"
         ref = float(latest(cfg["ticker"])["Close"])
         action = "SELL" if cfg["side"] == "LONG" else "BUY_TO_COVER"
         rows.append(_row(trade, cfg, action, int(pos["shares"]), ref, today,
-                         order_type, note))
+                         ot, f"scheduled exit{late}"))
         positions.pop(trade)
         log.append(f"{trade}: EXIT staged {action} {pos['shares']} "
-                   f"{cfg['ticker']} {order_type} — {note}")
+                   f"{cfg['ticker']} {ot}{late}")
 
-    # ---- T1 / T2: FOMC windows -------------------------------------------
+    # ---- T1 / T2: FOMC entry window ---------------------------------------
     fomc = event_dates("fomc_decision")
     upcoming = fomc[fomc >= today]
     if len(upcoming):
@@ -173,26 +198,20 @@ def compute_actions(today: pd.Timestamp, px: dict[str, pd.DataFrame],
         if today == sessions_before(dec, FOMC_ENTRY_TD_BEFORE):
             if not midterm:
                 stage_entry("T1_FOMC_DRIFT", EVENT_SLEEVE["T1_FOMC_DRIFT"],
-                            "MOC", f"FOMC {dec.date()} in 4 sessions")
+                            f"FOMC {dec.date()} in 4 sessions", dec, "MOO")
             else:
                 cfg = EVENT_SLEEVE["T2_FOMC_MIDTERM_SHORT"]
                 rank = float(latest(cfg["ticker"])["rank21"])
                 if rank < cfg["rank21_max"]:
-                    stage_entry("T2_FOMC_MIDTERM_SHORT", cfg, "MOC",
+                    stage_entry("T2_FOMC_MIDTERM_SHORT", cfg,
                                 f"midterm FOMC {dec.date()}, rank21 "
-                                f"{rank:.0f} < {cfg['rank21_max']}")
+                                f"{rank:.0f} < {cfg['rank21_max']}", dec, "MOO")
                 else:
                     log.append(f"T2: midterm FOMC {dec.date()} but rank21 "
                                f"{rank:.0f} >= {cfg['rank21_max']} — no trade "
                                f"(overbought tapes excluded)")
-        if today == dec:
-            stage_exit("T1_FOMC_DRIFT", EVENT_SLEEVE["T1_FOMC_DRIFT"], "MOO",
-                       f"decision day {dec.date()} — exit at the open")
-            stage_exit("T2_FOMC_MIDTERM_SHORT",
-                       EVENT_SLEEVE["T2_FOMC_MIDTERM_SHORT"], "MOO",
-                       f"decision day {dec.date()} — cover at the open")
 
-    # ---- T3: September post-quad short -----------------------------------
+    # ---- T3: September post-quad entry ------------------------------------
     opex = event_dates("opex")
     cfg3 = EVENT_SLEEVE["T3_SEP_POSTQUAD_SHORT"]
     sep_opex = [d for d in opex if d.month == 9 and d.year == today.year]
@@ -203,21 +222,16 @@ def compute_actions(today: pd.Timestamp, px: dict[str, pd.DataFrame],
                        f"{cfg3['z10_skip_below']} — washout, SKIP (bounce "
                        f"regime, see prereg)")
         else:
-            stage_entry("T3_SEP_POSTQUAD_SHORT", cfg3, "MOC",
-                        f"Sep opex, z10 {z:+.2f}, short to month-end")
-    if today == last_session_of_month(today.year, 9):
-        stage_exit("T3_SEP_POSTQUAD_SHORT", cfg3, "MOC",
-                   "September last session — cover")
+            stage_entry("T3_SEP_POSTQUAD_SHORT", cfg3,
+                        f"Sep opex, z10 {z:+.2f}, short to month-end",
+                        last_session_of_month(today.year, 9), "MOC")
 
-    # ---- T4: December post-opex long -------------------------------------
+    # ---- T4: December post-opex entry -------------------------------------
     cfg4 = EVENT_SLEEVE["T4_DEC_POSTOPEX_LONG"]
     dec_opex = [d for d in opex if d.month == 12 and d.year == today.year]
     if dec_opex and today == dec_opex[0]:
-        stage_entry("T4_DEC_POSTOPEX_LONG", cfg4, "MOC",
-                    "Dec opex, long to year-end")
-    if today == last_session_of_month(today.year, 12):
-        stage_exit("T4_DEC_POSTOPEX_LONG", cfg4, "MOC",
-                   "year last session — exit")
+        stage_entry("T4_DEC_POSTOPEX_LONG", cfg4, "Dec opex, long to year-end",
+                    last_session_of_month(today.year, 12), "MOC")
 
     return rows, log
 
@@ -258,11 +272,21 @@ def main() -> None:
                     help="print actions, write nothing")
     ap.add_argument("--asof", default=None,
                     help="override 'today' (YYYY-MM-DD) for testing")
+    ap.add_argument("--force", action="store_true",
+                    help="bypass the pre-market staging cutoff")
     args = ap.parse_args()
 
-    today = (pd.Timestamp(args.asof) if args.asof
-             else pd.Timestamp.now(tz="America/New_York").tz_localize(None))
-    today = today.normalize()
+    now_et = pd.Timestamp.now(tz="America/New_York").tz_localize(None)
+    if args.asof:
+        today = pd.Timestamp(args.asof).normalize()
+    else:
+        today = now_et.normalize()
+        if now_et.time() >= STAGING_CUTOFF_ET and not args.force:
+            print(f"[CRITICAL] {now_et:%H:%M} ET is past the "
+                  f"{STAGING_CUTOFF_ET:%H:%M} staging cutoff — staging "
+                  f"NOTHING (--force overrides). The Event tab was not "
+                  f"touched; a missed exit self-heals tomorrow.")
+            sys.exit(1)
     if not is_session(today):
         print(f"{today.date()} is not a session — nothing to do")
         return

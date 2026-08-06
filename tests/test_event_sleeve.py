@@ -134,3 +134,24 @@ def test_quantity_sizing():
 def test_no_action_random_day():
     rows, _, _ = run("2026-08-07")
     assert rows == []
+
+
+def test_missed_exit_self_heals():
+    # T3 covered nothing on Sep 30 (runner down); Oct 2 run stages it LATE.
+    _, _, state = run("2026-09-18", z10=0.5)
+    rows, log = es.compute_actions(
+        pd.Timestamp("2026-10-02"), px_for("2026-10-02"), state)
+    assert len(rows) == 1 and rows[0]["Action"] == "BUY_TO_COVER"
+    assert "LATE" in rows[0]["Note"]
+    assert not state["positions"]
+
+
+def test_state_records_exit_schedule():
+    _, _, state = run("2026-09-18", z10=0.5)
+    pos = state["positions"]["T3_SEP_POSTQUAD_SHORT"]
+    assert pos["exit_on"] == "2026-09-30"
+    assert pos["exit_order_type"] == "MOC"
+    _, _, state2 = run("2026-09-10", rank21=30)
+    pos2 = state2["positions"]["T2_FOMC_MIDTERM_SHORT"]
+    assert pos2["exit_on"] == "2026-09-16"
+    assert pos2["exit_order_type"] == "MOO"
