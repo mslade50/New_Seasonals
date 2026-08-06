@@ -133,11 +133,34 @@ function anyMultActive() {
 
 document.addEventListener("DOMContentLoaded", init);
 
+function portfolioFreshnessError(meta, health, positions) {
+  const artifacts = (health && health.artifacts) || {};
+  const flags = (meta && meta.payloads) || {};
+  if (!health) return "Portfolio freshness record is missing";
+  const buildGap = Math.abs(Date.parse(health.built_at) - Date.parse(meta.built_at));
+  if (flags.health !== true || !Number.isFinite(buildGap) || buildGap > 300000)
+    return "Portfolio freshness record does not match this build";
+  if (!artifacts.ledger || artifacts.ledger.status !== "fresh")
+    return "Portfolio ledger is stale or missing";
+  if (!artifacts.master_prices || artifacts.master_prices.status !== "fresh")
+    return "Portfolio market-price cache is stale or missing";
+  for (const name of ["strategy_daily", "positions", "exposure", "trade_mtm"])
+    if (flags[name] !== true) return `Portfolio payload ${name} is unavailable`;
+  if (!positions) return "Open-position payload is missing";
+  if (health.prev_td && (!positions.asof || positions.asof < health.prev_td))
+    return `Open positions are stale (${positions.asof || "unknown"})`;
+  const expired = (positions.positions || []).filter(
+    row => row.Days_To_Time_Stop != null && Number(row.Days_To_Time_Stop) < 0);
+  if (expired.length) return `${expired.length} open position(s) are past their time stop`;
+  return null;
+}
+
 async function init() {
   renderNav("index.html");
   try {
-    const [meta, trades] = await Promise.all([
-      fetchJSON("data/meta.json"), fetchJSON("data/trades.json")]);
+    const [meta, trades, health] = await Promise.all([
+      fetchJSON("data/meta.json"), fetchJSON("data/trades.json"),
+      fetchJSONOrNull("data/health.json")]);
     S.meta = meta;
     S.trades = rowsFromColumnar(trades);
     const [sd, pos, exp, corr, frag, sf, dda, sr, gl, xl, tmm] = await Promise.all([
@@ -155,6 +178,8 @@ async function init() {
     ]);
     S.sd = sd; S.positions = pos; S.exposure = exp; S.corr = corr; S.fragility = frag;
     S.stopfills = sf; S.drawdowns = dda; S.sectorRisk = sr; S.gateLab = gl; S.extLab = xl;
+    const freshnessError = portfolioFreshnessError(meta, health, pos);
+    if (freshnessError) throw new Error(`${freshnessError}; deployment was blocked for safety`);
     if (sf && sf.trades) S.sfRows = rowsFromColumnar(sf.trades);
     if (gl && gl.strategies) {
       for (const st of gl.strategies) {

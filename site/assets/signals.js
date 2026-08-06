@@ -34,17 +34,34 @@ function buildStratContext(notes, ideas) {
   return m;
 }
 
+function signalFreshnessError(siteMeta, health, data) {
+  const flags = (siteMeta && siteMeta.payloads) || {};
+  const artifact = health && health.artifacts && health.artifacts.signals;
+  const buildGap = health && Math.abs(Date.parse(health.built_at) - Date.parse(siteMeta && siteMeta.built_at));
+  if (!health || flags.health !== true || !Number.isFinite(buildGap) || buildGap > 300000)
+    return "Staged-signal freshness record does not match this build";
+  if (flags.signals !== true) return "Current staged signals are unavailable";
+  if (!artifact || artifact.status !== "fresh") return "Staged signals are stale or missing";
+  if (!data || data.unavailable || !data.fetched_at) return "Staged signals are unavailable";
+  return null;
+}
+
 async function init() {
   renderNav("signals.html");
   const el = document.getElementById("content");
-  const [data, notes, ideas] = await Promise.all([
+  const [siteMeta, health, data, notes, rawIdeas] = await Promise.all([
+    fetchJSONOrNull("data/meta.json"),
+    fetchJSONOrNull("data/health.json"),
     fetchJSONOrNull("data/signals.json"),
     fetchJSONOrNull("data/strat_notes.json"),
     fetchJSONOrNull("data/ideas.json"),
   ]);
+  const ideas = siteMeta && siteMeta.payloads && siteMeta.payloads.ideas ? rawIdeas : null;
   S_CTX = buildStratContext(notes, ideas);
-  if (!data) {
-    el.innerHTML = '<p class="cap">No signals payload in this build (Sheets fetch skipped or failed).</p>';
+  const freshnessError = signalFreshnessError(siteMeta, health, data);
+  if (freshnessError) {
+    setAsof("data blocked");
+    el.innerHTML = `<div class="err">${esc(freshnessError)}. The site will not show an older staged-order snapshot.</div>`;
     return;
   }
   setAsof(`fetched ${data.fetched_at}`);

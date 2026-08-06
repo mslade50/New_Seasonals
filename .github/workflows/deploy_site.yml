@@ -93,8 +93,7 @@ jobs:
             python scripts/build_signal_charts.py --all --upload --skip-existing
           fi
 
-      - name: Build daily seasonal ideas (best effort)
-        continue-on-error: true
+      - name: Build daily seasonal ideas (required freshness input)
         env:
           OVERFLOW_UNIVERSE_ACTIVE: "0"
           # R2 creds so the forward track-record ledger syncs: without them
@@ -125,6 +124,9 @@ jobs:
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
           R2_BUCKET: ${{ secrets.R2_BUCKET }}
         run: python scripts/build_site.py
+
+      - name: Refuse stale or incomplete site data
+        run: python scripts/validate_site_freshness.py --out dist
 
       - name: Deploy to Cloudflare Pages
         uses: cloudflare/wrangler-action@v3

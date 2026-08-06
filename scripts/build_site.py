@@ -48,6 +48,7 @@ Sizing bases:
 
 Usage:
   python scripts/build_site.py [--out dist] [--no-signals] [--no-mtm]
+                               [--allow-stale-data]
 """
 import argparse
 import datetime
@@ -131,6 +132,27 @@ def trading_day_offsets():
     expected = cbd.rollback(today)
     prev_td = expected - cbd
     return cbd, expected, prev_td
+
+
+def payload_asof(payload):
+    """Return a normalized as-of timestamp from a generated JSON payload."""
+    if not isinstance(payload, dict):
+        return None
+    raw = (payload.get("meta") or {}).get("asof") or payload.get("asof")
+    try:
+        value = pd.Timestamp(raw).normalize()
+        return None if pd.isna(value) else value
+    except Exception:
+        return None
+
+
+def payload_freshness(payload):
+    """(status, asof) against the previous completed trading session."""
+    _cbd, _expected, prev_td = trading_day_offsets()
+    asof = payload_asof(payload)
+    if asof is None:
+        return "missing", None
+    return ("fresh" if asof >= prev_td else "stale"), asof
 
 
 # ---------------------------------------------------------------- json helpers
@@ -879,6 +901,46 @@ def _ledger_provenance():
         return {"build_utc": None, "source": None, "git_sha": None, "rows": None}
 
 
+def source_freshness_errors():
+    """Fatal source-data problems for a production-capable site build.
+
+    The site builder intentionally consumes generated caches; it does not
+    rebuild them.  Fail closed when the ledger or equity price cache was not
+    refreshed for the current deployment cycle.  Local exploratory builds can
+    opt out explicitly with --allow-stale-data.
+    """
+    errors = []
+    _cbd, _expected, prev_td = trading_day_offsets()
+
+    prov = _ledger_provenance()
+    built_raw = prov.get("build_utc")
+    if not built_raw:
+        errors.append("ledger has no build provenance")
+    else:
+        try:
+            built = pd.Timestamp(built_raw)
+            if built.tzinfo is not None:
+                built = built.tz_convert("UTC").tz_localize(None)
+            now = pd.Timestamp.now(tz="UTC").tz_localize(None)
+            age_hours = (now - built).total_seconds() / 3600.0
+            if age_hours < -1 or age_hours >= 48:
+                errors.append(f"ledger is {age_hours:.1f} hours old")
+        except Exception:
+            errors.append(f"ledger build timestamp is invalid: {built_raw!r}")
+
+    try:
+        mp = pd.read_parquet(MASTER_PRICES, columns=["ticker", "date"])
+        spy = pd.to_datetime(mp.loc[mp["ticker"] == "SPY", "date"], errors="coerce").max()
+        if pd.isna(spy):
+            errors.append("master price cache has no SPY date")
+        elif pd.Timestamp(spy).normalize() < prev_td:
+            errors.append(
+                f"SPY price cache ends {pd.Timestamp(spy).date()}, before {prev_td.date()}")
+    except Exception as exc:
+        errors.append(f"master price cache is unreadable: {exc}")
+    return errors
+
+
 def build_sector_risk(df):
     """Weekly gross exposure by sector + current open-position concentration +
     sector-loss-gate telemetry for every strategy carrying
@@ -1352,7 +1414,7 @@ def build_sizer():
             "tickers": out}
 
 
-def build_health(sig, data_dir):
+def build_health(sig, data_dir, ideas=None):
     """Pipeline freshness panel: per-artifact last dates + staleness flags
     judged against the expected last trading day (US federal holidays).
     status: fresh (>= previous trading day) | stale | missing."""
@@ -1469,14 +1531,11 @@ def build_health(sig, data_dir):
         arts["exposure_state"] = {"asof": None, "age_td": None, "status": "missing"}
 
     # signals.json — this run's fetch, else the previous build's copy
-    sig_src = "this_build"
-    if sig is None:
-        sig_src = "previous_build"
-        try:
-            with open(os.path.join(data_dir, "signals.json"), encoding="utf-8") as f:
-                sig = json.load(f)
-        except Exception:
-            sig = None
+    idea_status, idea_asof = payload_freshness(ideas)
+    arts["ideas"] = {"asof": _clean(idea_asof), "status": idea_status}
+
+    # Signals must come from this build's Sheets fetch.  An older file in dist
+    # is historical output, not a fallback source for current staged orders.
     if sig is None:
         arts["signals"] = {"fetched_at": None, "tabs_failed": [], "status": "missing"}
     else:
@@ -1486,7 +1545,7 @@ def build_health(sig, data_dir):
         fdate = str(fetched)[:10] if fetched else None
         arts["signals"] = {
             "fetched_at": fetched,
-            "source": sig_src,
+            "source": "this_build",
             "tabs_failed": failed,
             "status": "missing" if fdate is None else
                       ("stale" if status_for(fdate) == "stale" or failed else "fresh")}
@@ -2211,6 +2270,11 @@ def main():
     ap.add_argument("--no-signals", action="store_true", help="skip Google Sheets fetch")
     ap.add_argument("--no-mtm", action="store_true",
                     help="skip per-strategy MTM/exposure/correlation (fast dev iteration)")
+    ap.add_argument(
+        "--allow-stale-data",
+        action="store_true",
+        help="development only: allow a build from stale ledger/price caches",
+    )
     args = ap.parse_args()
     out_dir = args.out
     data_dir = os.path.join(out_dir, "data")
@@ -2218,6 +2282,18 @@ def main():
     print("=" * 70)
     print("BUILD SITE -> " + out_dir)
     print("=" * 70)
+
+    freshness_errors = source_freshness_errors()
+    if freshness_errors and not args.allow_stale_data:
+        print("FATAL: refusing to build a deployable site from stale source data:")
+        for err in freshness_errors:
+            print(f"  - {err}")
+        print("Rebuild the ledger and price cache, or use --allow-stale-data for local development only.")
+        sys.exit(2)
+    if freshness_errors:
+        print("WARNING: stale-data override enabled:")
+        for err in freshness_errors:
+            print(f"  - {err}")
 
     # 1. static assets
     if not os.path.isdir(SITE_SRC):
@@ -2367,10 +2443,32 @@ def main():
               f"dials: {', '.join(fragility['dials'])})")
 
     # 3. companion payloads
+    # A checked-in/local ideas snapshot is never a production fallback.  Ship
+    # an explicit empty tombstone when it is missing or stale so an older
+    # dist/data/ideas.json cannot survive an incremental build and masquerade
+    # as today's signal board.
+    ideas = None
     if os.path.exists(IDEAS):
-        shutil.copy2(IDEAS, os.path.join(data_dir, "ideas.json"))
+        try:
+            with open(IDEAS, encoding="utf-8") as f:
+                ideas = json.load(f)
+        except Exception as exc:
+            print(f"  ideas: unreadable ({exc})")
+    idea_status, idea_asof = payload_freshness(ideas)
+    if idea_status == "fresh":
+        write_json(ideas, os.path.join(data_dir, "ideas.json"))
         flags["ideas"] = True
-        print("  copied ideas.json")
+        print(f"  ideas: current as of {idea_asof.date()}")
+    else:
+        write_json({
+            "meta": {
+                "asof": _clean(idea_asof),
+                "unavailable": True,
+                "reason": f"seasonal ideas payload is {idea_status}",
+            },
+            "candidates": [],
+        }, os.path.join(data_dir, "ideas.json"))
+        print(f"  ideas: {idea_status}; shipped an empty tombstone")
     if os.path.exists(RISK):
         shutil.copy2(RISK, os.path.join(data_dir, "risk.json"))
         flags["risk"] = True
@@ -2381,9 +2479,16 @@ def main():
         if sig is not None:
             write_json(sig, os.path.join(data_dir, "signals.json"))
             flags["signals"] = True
+    if sig is None:
+        write_json({
+            "fetched_at": None,
+            "unavailable": True,
+            "tabs": {"Order_Staging": None, "Overflow": None},
+            "errors": {"build": "current Sheets fetch was skipped or failed"},
+        }, os.path.join(data_dir, "signals.json"))
 
     # pipeline health strip (after the signals fetch so it can report on it)
-    best_effort("health", build_health, sig, data_dir)
+    best_effort("health", build_health, sig, data_dir, ideas)
 
     # 4. meta
     strat_counts = (df.groupby(["Strategy", "Tier"]).size()

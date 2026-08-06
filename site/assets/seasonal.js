@@ -31,11 +31,28 @@ function esc(s) {
     ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 }
 
+function seasonalFreshnessError(siteMeta, health, data) {
+  const flags = (siteMeta && siteMeta.payloads) || {};
+  const artifact = health && health.artifacts && health.artifacts.ideas;
+  const meta = (data && data.meta) || {};
+  const buildGap = health && Math.abs(Date.parse(health.built_at) - Date.parse(siteMeta && siteMeta.built_at));
+  if (!health || flags.health !== true || !Number.isFinite(buildGap) || buildGap > 300000)
+    return "Seasonal freshness record does not match this build";
+  if (flags.ideas !== true) return "Current Seasonal ideas are unavailable";
+  if (!artifact || artifact.status !== "fresh") return "Seasonal ideas are stale or missing";
+  if (!data || meta.unavailable) return "Seasonal ideas are unavailable";
+  if (health.prev_td && (!meta.asof || meta.asof < health.prev_td))
+    return `Seasonal ideas are stale (${meta.asof || "unknown"})`;
+  return null;
+}
+
 async function initSeasonal() {
   renderNav("seasonal.html");
   const el = document.getElementById("content");
-  const [data, sizer, book] = await Promise.all([
+  const [siteMeta, data, health, sizer, book] = await Promise.all([
+    fetchJSONOrNull("data/meta.json"),
     fetchJSONOrNull("data/ideas.json"),
+    fetchJSONOrNull("data/health.json"),
     fetchJSONOrNull("data/sizer.json"),
     fetchJSONOrNull("/exec-book"),
   ]);
@@ -45,8 +62,10 @@ async function initSeasonal() {
   for (const a of accs) if (a.nlv != null) nlvs[a.key] = a.nlv;
   SZ.nlvs = Object.keys(nlvs).length ? nlvs : null;
 
-  if (!data) {
-    el.innerHTML = '<p class="cap">No ideas payload in this build.</p>';
+  const freshnessError = seasonalFreshnessError(siteMeta, health, data);
+  if (freshnessError) {
+    setAsof("data blocked");
+    el.innerHTML = `<div class="err">${esc(freshnessError)}. The site will not show an older signal board.</div>`;
     return;
   }
   const meta = data.meta || {};
