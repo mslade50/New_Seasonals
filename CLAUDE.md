@@ -861,7 +861,7 @@ activates" design was rejected. Every idea is a one-off judgement call,
 invented from repo context and empirically falsified before delivery. Spec:
 `daily_pitch_agent_spec_2026-08-06.html`; runbook: `docs/daily_pitch.md`.
 
-Flow: 7:00 AM `scripts/run_daily_pitch.bat` -> grade yesterday
+Flow: 5:10 AM `scripts/run_daily_pitch.bat` -> grade yesterday
 (`scripts/grade_pitch_journal.py`) -> assemble state
 (`scripts/build_pitch_state.py` -> `data/pitch_state.json` +
 `data/pitch_tape.json`) -> `claude -p "/daily-pitch"` (the skill runs stages
@@ -1201,7 +1201,7 @@ trigger chain, out-of-repo file map): `docs/site_runbook.html`. |
 | `Trigger CBOE Put-Call (GHA workflow_dispatch)` | Enabled (Interactive logon) | Weekdays 4:10 AM ET, FIRST in the pre-market chain — fires `update_cboe_putcall.yml` so the put/call cache holds the prior session before the risk correction, scan and pitch read it. The 21:30 UTC run fires before CBOE publishes and can only ever collect D-1. Scripts: `C:\Scripts	rigger_cboe_putcall.ps1` + `register_cboe_putcall_trigger.ps1`. NOTE: no `/` in the task name — Task Scheduler treats it as a folder separator. Registered Interactive (like the risk-correction trigger) because S4U needs an elevated shell; fires whenever the machine is on and logged in, locked included. |
 | `Trigger Risk Report AM Correction (GHA workflow_dispatch)` | Enabled | Weekdays 4:30 AM ET — fires `risk_report.yml` with `mode=data_only` so the fragility row daily_scan sizes off (~4:47 AM) reflects settled prices, not the provisional 5:15 PM bar. Scripts: `C:\Scripts\trigger_risk_report.ps1` + `_task.xml`. |
 | `IBKR OLV Pre-Market Exits` | Enabled | Weekdays 9:10 AM ET — `run_olv_exit_moo.bat` -> `olv_exit_moo.py` (OneDrive trading_ibkr): reads the `OLV_Exits` tab and places TRUE market-on-open (TIF=OPG) SELLs for confirmed OLV stop legs on BOTH accounts before the 9:28 auction cutoff. Registered 2026-07-30 via `register_olv_exit_task.ps1`; must clear the 9:31 order chain (shares clientIds 99/98). |
-| `Daily Pitch (agent)` | NOT REGISTERED (inert) | Weekdays 7:00 AM ET — `scripts\run_daily_pitch.bat`: grade, assemble state, run `/daily-pitch` headless, verify delivery. Writes files and sends the pitch email; places no orders. Register with `scripts\register_daily_pitch_task.ps1` after eyeballing several manual runs. |
+| `Daily Pitch (agent)` | Enabled (Interactive logon) | Weekdays 5:10 AM ET — `scripts\run_daily_pitch.bat`: grade, assemble state, run `/daily-pitch` headless, verify delivery. Writes files and sends the pitch email; places no orders. Register with `scripts\register_daily_pitch_task.ps1` after eyeballing several manual runs. |
 | `IBKR Daily Pitch Approvals (auction)` / `(open)` | NOT REGISTERED (inert) | Weekdays 9:05 and 9:32 AM ET — `pitch_moo.py` places `Pitch` rows marked `Y`. Live money: registration script also writes `pitch_moo_enabled.flag`; delete the flag to disarm without unregistering. |
 | `RadarMorningBriefing` | Enabled | Lives in separate `last30days-radar` project — not yet migrated. |
 | `RadarWeeklySummary` | Enabled | Sundays 8:30 AM ET — depends on radar briefs from above. Not yet migrated. |

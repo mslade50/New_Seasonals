@@ -10,8 +10,11 @@ REM   3. hand the state to the /daily-pitch skill, which invents, falsifies,
 REM      composes and publishes
 REM   4. verify something was actually delivered, so a quiet failure is loud
 REM
-REM Scheduled weekdays 7:00 AM ET: after the ~4:47 AM scan chain has refreshed
-REM every input, and well before the 9:05 approval runner.
+REM Scheduled weekdays 5:10 AM ET. NOT 5:00: the 4:47 scan takes 13-16 min
+REM (measured over five AM runs), so it lands 5:00-5:04 and a 5:00 start would
+REM race the Order_Staging/Overflow tabs and exposure_state.json that the
+REM mandatory `overlap` field is written from. 5:10 clears it with margin and
+REM still delivers ~6:20, well before the 9:05 approval runner.
 REM
 REM NOTE ON PERMISSIONS: the agent step runs unattended, so it uses
 REM --permission-mode bypassPermissions. That session can write files in this
@@ -31,6 +34,11 @@ REM verifier fan-out runs at the same tier as the composer.
 set "PITCH_MODEL=opus"
 set "PITCH_EFFORT=xhigh"
 
+REM Absolute path: a Task Scheduler session does not necessarily
+REM inherit the interactive PATH. Falls back to PATH if absent.
+set "CLAUDE_EXE=%USERPROFILE%\.local\bin\claude.exe"
+if not exist "%CLAUDE_EXE%" set "CLAUDE_EXE=claude"
+
 set "DIR=%~dp0"
 if "%DIR:~-1%"=="\" set "DIR=%DIR:~0,-1%"
 for %%I in ("%DIR%\..") do set "REPO=%%~fI"
@@ -40,6 +48,26 @@ if not exist "%REPO%\scripts\logs" mkdir "%REPO%\scripts\logs"
 cd /d "%REPO%"
 
 echo ===== RUN START %DATE% %TIME% ===== > "%LOG%"
+
+REM ---- 0. Refresh the inputs. Without this the pitch reasons about whatever
+REM happens to be on disk. The AM chain publishes to two different places:
+REM   committed to main  - rd2_fragility, rd2_environment, exposure_state,
+REM                        cboe_putcall (risk_report.yml + daily_screener.yml
+REM                        + update_cboe_putcall.yml all push back)
+REM   R2                 - master_prices, earnings_calendar
+REM `git restore --worktree` takes just those paths from origin without
+REM touching the branch or the (very dirty) working tree, so this never
+REM rebases and never stages anything.
+git fetch origin main --quiet >> "%LOG%" 2>&1
+git restore --source=origin/main --worktree -- data/rd2_fragility.parquet data/rd2_environment.json data/exposure_state.json data/cboe_putcall.parquet >> "%LOG%" 2>&1
+echo [git restore of committed state exit code: %ERRORLEVEL%] >> "%LOG%"
+
+REM Best effort by design: a stale price cache surfaces as a freshness WARNING
+REM in pitch_state.json, which daily_pitch renders in a red box at the top of
+REM the email. Aborting here would trade a visible warning for a silent
+REM no-delivery.
+python "%REPO%\scripts\pull_scan_caches.py" >> "%LOG%" 2>&1
+echo [pull_scan_caches exit code: %ERRORLEVEL%] >> "%LOG%"
 
 python "%REPO%\scripts\grade_pitch_journal.py" >> "%LOG%" 2>&1
 echo [grade_pitch_journal exit code: %ERRORLEVEL%] >> "%LOG%"
@@ -52,7 +80,7 @@ if errorlevel 1 (
 )
 
 echo [agent: model %PITCH_MODEL%, effort %PITCH_EFFORT%] >> "%LOG%"
-call claude -p "/daily-pitch" --model %PITCH_MODEL% --effort %PITCH_EFFORT% --permission-mode bypassPermissions >> "%LOG%" 2>&1
+call "%CLAUDE_EXE%" -p "/daily-pitch" --model %PITCH_MODEL% --effort %PITCH_EFFORT% --permission-mode bypassPermissions >> "%LOG%" 2>&1
 echo [claude exit code: %ERRORLEVEL%] >> "%LOG%"
 
 python "%REPO%\scripts\check_pitch_delivered.py" >> "%LOG%" 2>&1
