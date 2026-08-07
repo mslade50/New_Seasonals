@@ -1,5 +1,5 @@
 /* Pages Function — futures front-month resolve proxy (behind Access).
- *   POST /exec-futures-front {symbol}  -> kicks off a read-only reqContractDetails on the agent, returns {id}
+ *   POST /exec-futures-front {symbol, exchange?} -> live IBKR contract discovery + front month
  *   GET  /exec-futures-front           -> returns the latest {query:{id,symbol,result}}
  * Keeps the broker URL + token server-side. READ-ONLY — no order is placed. */
 import { requireAccess } from "./_access.js";
@@ -17,7 +17,7 @@ export async function onRequestPost({ request, env }) {
     const r = await fetch(`${base(env)}/futures_front`, {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${env.STATUS_TOKEN}` },
-      body: JSON.stringify({ symbol: body.symbol }),
+      body: JSON.stringify({ symbol: body.symbol, exchange: body.exchange || null }),
     });
     return new Response(JSON.stringify(await r.json().catch(() => ({}))), { status: r.status, headers: H });
   } catch (e) {

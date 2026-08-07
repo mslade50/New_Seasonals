@@ -1917,7 +1917,7 @@ function renderTicket() {
   el.innerHTML = `<div class="card" style="max-width:860px;margin-bottom:12px">
     <div style="font:700 14px inherit;margin-bottom:4px">${ticketKind} — ${esc(s.name)}</div>
     <p class="cap" style="margin:0 0 8px">${s.legs.length === 1 ? "One SMART-routed option limit order." : "One native SMART BAG limit order (atomic — never legs you in)."}
-      The execution agent independently re-validates contract identity, quantity, price, and max-risk caps.</p>
+      The execution agent independently re-validates contract identity, quantity, price, and defined max loss. Primary has no hard quantity or risk cap; PA options remain disabled.</p>
     <div class="exec-legs" style="margin-bottom:8px">${legLines}</div>
     ${state.params.cond ? `<div class="openconds" style="margin-bottom:8px"><div class="oc-h">Entry condition — check before sending</div>
       <div class="oc-line">${esc(state.params.cond)}</div></div>` : ""}
@@ -1970,6 +1970,7 @@ function sendOptionOrder() {
   const wb = state.wb, p = state.params;
   const msg = document.getElementById("tk_msg");
   if (!s || !wb) return;
+  if (state.account !== "primary") { msg.textContent = "BLOCKED: options execution remains disabled for PA"; return; }
   const qty = Math.floor(Number(document.getElementById("tk_qty").value));
   const limit = Number(document.getElementById("tk_limit").value);
   if (!(qty > 0)) { msg.textContent = "BLOCKED: qty must be a positive integer"; return; }
@@ -1997,6 +1998,15 @@ function sendOptionOrder() {
   const expiryLabel = [...new Set(s.legs.map((l) => l.row.expiry || wb.chain.expiry))].join("/");
   const riskDollars = riskPremium * 100 * qty + commRT(s) * qty;
   if (!confirm(`${actionLead("place")} ${action} ${qty}x ${wb.ticker} ${expiryLabel} [${legsTxt}] LMT ${payload.limit} ${s.credit ? "credit" : "debit"} on ${state.account}?\n\nDefined max risk: about ${fmt.money(riskDollars)}.`)) return;
+  const accountRow = (((state.book || {}).accounts) || []).find((a) => a.key === state.account);
+  const nlv = Number(accountRow && accountRow.nlv);
+  if (!(nlv > 0)) {
+    if (!confirm(`SECONDARY RISK APPROVAL\n\nThis Primary options order is uncapped and current NLV is unavailable. Defined max loss is about ${fmt.money(riskDollars)}. Really continue?`)) return;
+    payload.risk_ack = true;
+  } else if (riskDollars > nlv * 0.05) {
+    if (!confirm(`SECONDARY RISK APPROVAL\n\nThis Primary options order has defined max loss of about ${fmt.money(riskDollars)}, or ${(riskDollars / nlv * 100).toFixed(1)}% of NLV. There is no hard size cap. Really continue?`)) return;
+    payload.risk_ack = true;
+  }
   sendCommand("option_spread", payload, "tk_msg");
 }
 
