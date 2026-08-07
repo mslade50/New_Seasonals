@@ -1,381 +1,1034 @@
 {
-"MES":{
-"exchange":"CME",
-"multiplier":5.0,
-"min_tick":0.25,
-"tick_value":1.25,
-"tier":"micro"
-},
-"ES":{
-"exchange":"CME",
-"multiplier":50.0,
-"min_tick":0.25,
-"tick_value":12.5,
-"tier":"mini"
-},
-"MNQ":{
-"exchange":"CME",
-"multiplier":2.0,
-"min_tick":0.25,
-"tick_value":0.5,
-"tier":"micro"
-},
-"NQ":{
-"exchange":"CME",
-"multiplier":20.0,
-"min_tick":0.25,
-"tick_value":5.0,
-"tier":"mini"
-},
-"M2K":{
-"exchange":"CME",
-"multiplier":5.0,
-"min_tick":0.1,
-"tick_value":0.5,
-"tier":"micro"
-},
-"RTY":{
-"exchange":"CME",
-"multiplier":50.0,
-"min_tick":0.1,
-"tick_value":5.0,
-"tier":"mini"
-},
-"MYM":{
-"exchange":"CBOT",
-"multiplier":0.5,
-"min_tick":1.0,
-"tick_value":0.5,
-"tier":"micro"
-},
-"YM":{
-"exchange":"CBOT",
-"multiplier":5.0,
-"min_tick":1.0,
-"tick_value":5.0,
-"tier":"mini"
-},
-"MGC":{
-"exchange":"COMEX",
-"multiplier":10.0,
-"min_tick":0.1,
-"tick_value":1.0,
-"tier":"micro"
-},
-"QO":{
-"exchange":"COMEX",
-"multiplier":50.0,
-"min_tick":0.25,
-"tick_value":12.5,
-"tier":"mini"
-},
-"GC":{
-"exchange":"COMEX",
-"multiplier":100.0,
-"min_tick":0.1,
-"tick_value":10.0,
-"tier":"full"
-},
-"QI":{
-"exchange":"COMEX",
-"multiplier":2500.0,
-"min_tick":0.0125,
-"tick_value":31.25,
-"tier":"mini"
-},
-"SI":{
-"exchange":"COMEX",
-"multiplier":5000.0,
-"min_tick":0.005,
-"tick_value":25.0,
-"trading_class":"SI",
-"tier":"full"
-},
-"MHG":{
-"exchange":"COMEX",
-"multiplier":2500.0,
-"min_tick":0.0005,
-"tick_value":1.25,
-"tier":"micro"
-},
-"HG":{
-"exchange":"COMEX",
-"multiplier":25000.0,
-"min_tick":0.0005,
-"tick_value":12.5,
-"tier":"full"
-},
-"PL":{
-"exchange":"NYMEX",
-"multiplier":50.0,
-"min_tick":0.1,
-"tick_value":5.0,
-"tier":"full"
-},
-"PA":{
-"exchange":"NYMEX",
-"multiplier":100.0,
-"min_tick":0.5,
-"tick_value":50.0,
-"tier":"full"
-},
-"MCL":{
-"exchange":"NYMEX",
-"multiplier":100.0,
-"min_tick":0.01,
-"tick_value":1.0,
-"tier":"micro"
-},
-"QM":{
-"exchange":"NYMEX",
-"multiplier":500.0,
-"min_tick":0.025,
-"tick_value":12.5,
-"tier":"mini"
-},
-"CL":{
-"exchange":"NYMEX",
-"multiplier":1000.0,
-"min_tick":0.01,
-"tick_value":10.0,
-"tier":"full"
-},
-"NG":{
-"exchange":"NYMEX",
-"multiplier":10000.0,
-"min_tick":0.001,
-"tick_value":10.0,
-"tier":"full"
-},
-"QG":{
-"exchange":"NYMEX",
-"multiplier":2500.0,
-"min_tick":0.005,
-"tick_value":12.5,
-"tier":"mini"
-},
-"RB":{
-"exchange":"NYMEX",
-"multiplier":42000.0,
-"min_tick":0.0001,
-"tick_value":4.2,
-"tier":"full"
-},
-"HO":{
-"exchange":"NYMEX",
-"multiplier":42000.0,
-"min_tick":0.0001,
-"tick_value":4.2,
-"tier":"full"
-},
-"M6E":{
-"exchange":"CME",
-"multiplier":12500.0,
-"min_tick":0.0001,
-"tick_value":1.25,
-"tier":"micro"
-},
-"EUR":{
-"exchange":"CME",
-"multiplier":125000.0,
-"min_tick":5e-05,
-"tick_value":6.25,
-"tier":"full"
-},
-"6E":{
-"exchange":"CME",
-"multiplier":125000.0,
-"min_tick":5e-05,
-"tick_value":6.25,
-"tier":"full"
-},
-"M6A":{
-"exchange":"CME",
-"multiplier":10000.0,
-"min_tick":0.0001,
-"tick_value":1.0,
-"tier":"micro"
-},
-"AUD":{
-"exchange":"CME",
-"multiplier":100000.0,
-"min_tick":5e-05,
-"tick_value":5.0,
-"tier":"full"
-},
-"6A":{
-"exchange":"CME",
-"multiplier":100000.0,
-"min_tick":5e-05,
-"tick_value":5.0,
-"tier":"full"
-},
-"GBP":{
-"exchange":"CME",
-"multiplier":62500.0,
-"min_tick":0.0001,
-"tick_value":6.25,
-"tier":"full"
-},
-"6B":{
-"exchange":"CME",
-"multiplier":62500.0,
-"min_tick":0.0001,
-"tick_value":6.25,
-"tier":"full"
-},
-"JPY":{
-"exchange":"CME",
-"multiplier":12500000.0,
-"min_tick":5e-07,
-"tick_value":6.25,
-"tier":"full"
-},
-"6J":{
-"exchange":"CME",
-"multiplier":12500000.0,
-"min_tick":5e-07,
-"tick_value":6.25,
-"tier":"full"
-},
-"CAD":{
-"exchange":"CME",
-"multiplier":100000.0,
-"min_tick":5e-05,
-"tick_value":5.0,
-"tier":"full"
-},
-"6C":{
-"exchange":"CME",
-"multiplier":100000.0,
-"min_tick":5e-05,
-"tick_value":5.0,
-"tier":"full"
-},
-"CHF":{
-"exchange":"CME",
-"multiplier":125000.0,
-"min_tick":5e-05,
-"tick_value":6.25,
-"tier":"full"
-},
-"6S":{
-"exchange":"CME",
-"multiplier":125000.0,
-"min_tick":5e-05,
-"tick_value":6.25,
-"tier":"full"
-},
-"ZT":{
-"exchange":"CBOT",
-"multiplier":2000.0,
-"min_tick":0.00390625,
-"tick_value":7.8125,
-"tier":"full"
-},
-"ZF":{
-"exchange":"CBOT",
-"multiplier":1000.0,
-"min_tick":0.0078125,
-"tick_value":7.8125,
-"tier":"full"
-},
-"ZN":{
-"exchange":"CBOT",
-"multiplier":1000.0,
-"min_tick":0.015625,
-"tick_value":15.625,
-"tier":"full"
-},
-"ZB":{
-"exchange":"CBOT",
-"multiplier":1000.0,
-"min_tick":0.03125,
-"tick_value":31.25,
-"tier":"full"
-},
-"UB":{
-"exchange":"CBOT",
-"multiplier":1000.0,
-"min_tick":0.03125,
-"tick_value":31.25,
-"tier":"full"
-},
-"ZC":{
-"exchange":"CBOT",
-"multiplier":5000.0,
-"min_tick":0.0025,
-"tick_value":12.5,
-"tier":"full"
-},
-"ZS":{
-"exchange":"CBOT",
-"multiplier":5000.0,
-"min_tick":0.0025,
-"tick_value":12.5,
-"tier":"full"
-},
-"ZW":{
-"exchange":"CBOT",
-"multiplier":5000.0,
-"min_tick":0.0025,
-"tick_value":12.5,
-"tier":"full"
-},
-"ZL":{
-"exchange":"CBOT",
-"multiplier":60000.0,
-"min_tick":0.0001,
-"tick_value":6.0,
-"tier":"full"
-},
-"ZM":{
-"exchange":"CBOT",
-"multiplier":100.0,
-"min_tick":0.1,
-"tick_value":10.0,
-"tier":"full"
-},
-"MBT":{
-"exchange":"CME",
-"multiplier":0.1,
-"min_tick":5.0,
-"tick_value":0.5,
-"tier":"micro"
-},
-"BRR":{
-"exchange":"CME",
-"multiplier":5.0,
-"min_tick":5.0,
-"tick_value":25.0,
-"tier":"full"
-},
-"BTC":{
-"exchange":"CME",
-"multiplier":5.0,
-"min_tick":5.0,
-"tick_value":25.0,
-"tier":"full"
-},
-"MET":{
-"exchange":"CME",
-"multiplier":0.1,
-"min_tick":0.5,
-"tick_value":0.05,
-"tier":"micro"
-},
-"ETHUSDRR":{
-"exchange":"CME",
-"multiplier":50.0,
-"min_tick":0.5,
-"tick_value":25.0,
-"tier":"full"
-},
-"ETH":{
-"exchange":"CME",
-"multiplier":50.0,
-"min_tick":0.5,
-"tick_value":25.0,
-"tier":"full"
-}
+    "MES":  {
+                "symbol":  "MES",
+                "ib_symbol":  "MES",
+                "trading_class":  "MES",
+                "exchange":  "CME",
+                "multiplier":  5,
+                "min_tick":  0.25,
+                "tick_value":  1.25,
+                "tier":  "micro",
+                "asset_class":  "Equity Index",
+                "long_name":  "Micro E-Mini S\u0026P 500 Stock Price Index"
+            },
+    "ES":  {
+               "symbol":  "ES",
+               "ib_symbol":  "ES",
+               "trading_class":  "ES",
+               "exchange":  "CME",
+               "multiplier":  50,
+               "min_tick":  0.25,
+               "tick_value":  12.5,
+               "tier":  "mini",
+               "asset_class":  "Equity Index",
+               "long_name":  "E-mini S\u0026P 500"
+           },
+    "MNQ":  {
+                "symbol":  "MNQ",
+                "ib_symbol":  "MNQ",
+                "trading_class":  "MNQ",
+                "exchange":  "CME",
+                "multiplier":  2,
+                "min_tick":  0.25,
+                "tick_value":  0.5,
+                "tier":  "micro",
+                "asset_class":  "Equity Index",
+                "long_name":  "Micro E-Mini Nasdaq-100 Index"
+            },
+    "NQ":  {
+               "symbol":  "NQ",
+               "ib_symbol":  "NQ",
+               "trading_class":  "NQ",
+               "exchange":  "CME",
+               "multiplier":  20,
+               "min_tick":  0.25,
+               "tick_value":  5,
+               "tier":  "mini",
+               "asset_class":  "Equity Index",
+               "long_name":  "E-mini NASDAQ 100 "
+           },
+    "M2K":  {
+                "symbol":  "M2K",
+                "ib_symbol":  "M2K",
+                "trading_class":  "M2K",
+                "exchange":  "CME",
+                "multiplier":  5,
+                "min_tick":  0.1,
+                "tick_value":  0.5,
+                "tier":  "micro",
+                "asset_class":  "Equity Index",
+                "long_name":  "Micro E-Mini Russell 2000 Index"
+            },
+    "RTY":  {
+                "symbol":  "RTY",
+                "ib_symbol":  "RTY",
+                "trading_class":  "RTY",
+                "exchange":  "CME",
+                "multiplier":  50,
+                "min_tick":  0.1,
+                "tick_value":  5,
+                "tier":  "mini",
+                "asset_class":  "Equity Index",
+                "long_name":  "E-mini Russell 2000 Index"
+            },
+    "MYM":  {
+                "symbol":  "MYM",
+                "ib_symbol":  "MYM",
+                "trading_class":  "MYM",
+                "exchange":  "CBOT",
+                "multiplier":  0.5,
+                "min_tick":  1,
+                "tick_value":  0.5,
+                "tier":  "micro",
+                "asset_class":  "Equity Index",
+                "long_name":  "Micro E-Mini Dow Jones Industrial Average Index"
+            },
+    "YM":  {
+               "symbol":  "YM",
+               "ib_symbol":  "YM",
+               "trading_class":  "YM",
+               "exchange":  "CBOT",
+               "multiplier":  5,
+               "min_tick":  1,
+               "tick_value":  5,
+               "tier":  "mini",
+               "asset_class":  "Equity Index",
+               "long_name":  "E-mini Dow Jones Industrial Average"
+           },
+    "MMC":  {
+                "symbol":  "MMC",
+                "ib_symbol":  "MMC",
+                "trading_class":  "MMC",
+                "exchange":  "CME",
+                "multiplier":  10,
+                "min_tick":  0.05,
+                "tick_value":  0.5,
+                "tier":  "micro",
+                "asset_class":  "Equity Index",
+                "long_name":  "Micro E-mini S\u0026P MidCap 400 Futures"
+            },
+    "EMD":  {
+                "symbol":  "EMD",
+                "ib_symbol":  "EMD",
+                "trading_class":  "EMD",
+                "exchange":  "CME",
+                "multiplier":  100,
+                "min_tick":  0.1,
+                "tick_value":  10,
+                "tier":  "mini",
+                "asset_class":  "Equity Index",
+                "long_name":  "E-mini S\u0026P Midcap 400 Futures"
+            },
+    "MNK":  {
+                "symbol":  "MNK",
+                "ib_symbol":  "MNK",
+                "trading_class":  "MNK",
+                "exchange":  "CME",
+                "multiplier":  0.5,
+                "min_tick":  5,
+                "tick_value":  2.5,
+                "tier":  "micro",
+                "asset_class":  "Equity Index",
+                "long_name":  "Micro Dollar Denominated Nikkei 225"
+            },
+    "MGC":  {
+                "symbol":  "MGC",
+                "ib_symbol":  "MGC",
+                "trading_class":  "MGC",
+                "exchange":  "COMEX",
+                "multiplier":  10,
+                "min_tick":  0.1,
+                "tick_value":  1,
+                "tier":  "micro",
+                "asset_class":  "Metals",
+                "long_name":  "E-Micro Gold "
+            },
+    "QO":  {
+               "symbol":  "QO",
+               "ib_symbol":  "QO",
+               "trading_class":  "QO",
+               "exchange":  "COMEX",
+               "multiplier":  50,
+               "min_tick":  0.25,
+               "tick_value":  12.5,
+               "tier":  "mini",
+               "asset_class":  "Metals",
+               "long_name":  "COMEX MINY Gold"
+           },
+    "GC":  {
+               "symbol":  "GC",
+               "ib_symbol":  "GC",
+               "trading_class":  "GC",
+               "exchange":  "COMEX",
+               "multiplier":  100,
+               "min_tick":  0.1,
+               "tick_value":  10,
+               "tier":  "full",
+               "asset_class":  "Metals",
+               "long_name":  "Gold"
+           },
+    "QI":  {
+               "symbol":  "QI",
+               "ib_symbol":  "QI",
+               "trading_class":  "QI",
+               "exchange":  "COMEX",
+               "multiplier":  2500,
+               "min_tick":  0.0125,
+               "tick_value":  31.25,
+               "tier":  "mini",
+               "asset_class":  "Metals",
+               "long_name":  "COMEX MINY Silver"
+           },
+    "SI":  {
+               "symbol":  "SI",
+               "ib_symbol":  "SI",
+               "trading_class":  "SI",
+               "exchange":  "COMEX",
+               "multiplier":  5000,
+               "min_tick":  0.005,
+               "tick_value":  25,
+               "tier":  "full",
+               "asset_class":  "Metals",
+               "long_name":  "Silver Index"
+           },
+    "SIL":  {
+                "symbol":  "SIL",
+                "ib_symbol":  "SI",
+                "trading_class":  "SIL",
+                "exchange":  "COMEX",
+                "multiplier":  1000,
+                "min_tick":  0.005,
+                "tick_value":  5,
+                "tier":  "micro",
+                "asset_class":  "Metals",
+                "long_name":  "Silver Index"
+            },
+    "MHG":  {
+                "symbol":  "MHG",
+                "ib_symbol":  "MHG",
+                "trading_class":  "MHG",
+                "exchange":  "COMEX",
+                "multiplier":  2500,
+                "min_tick":  0.0005,
+                "tick_value":  1.25,
+                "tier":  "micro",
+                "asset_class":  "Metals",
+                "long_name":  "Micro Copper"
+            },
+    "HG":  {
+               "symbol":  "HG",
+               "ib_symbol":  "HG",
+               "trading_class":  "HG",
+               "exchange":  "COMEX",
+               "multiplier":  25000,
+               "min_tick":  0.0005,
+               "tick_value":  12.5,
+               "tier":  "full",
+               "asset_class":  "Metals",
+               "long_name":  "Copper Index"
+           },
+    "ALI":  {
+                "symbol":  "ALI",
+                "ib_symbol":  "ALI",
+                "trading_class":  "ALI",
+                "exchange":  "COMEX",
+                "multiplier":  25,
+                "min_tick":  0.25,
+                "tick_value":  6.25,
+                "tier":  "full",
+                "asset_class":  "Metals",
+                "long_name":  "Aluminum Index"
+            },
+    "PL":  {
+               "symbol":  "PL",
+               "ib_symbol":  "PL",
+               "trading_class":  "PL",
+               "exchange":  "NYMEX",
+               "multiplier":  50,
+               "min_tick":  0.1,
+               "tick_value":  5,
+               "tier":  "full",
+               "asset_class":  "Metals",
+               "long_name":  "Platinum Index"
+           },
+    "PA":  {
+               "symbol":  "PA",
+               "ib_symbol":  "PA",
+               "trading_class":  "PA",
+               "exchange":  "NYMEX",
+               "multiplier":  100,
+               "min_tick":  0.5,
+               "tick_value":  50,
+               "tier":  "full",
+               "asset_class":  "Metals",
+               "long_name":  "Palladium Index"
+           },
+    "MCL":  {
+                "symbol":  "MCL",
+                "ib_symbol":  "MCL",
+                "trading_class":  "MCL",
+                "exchange":  "NYMEX",
+                "multiplier":  100,
+                "min_tick":  0.01,
+                "tick_value":  1,
+                "tier":  "micro",
+                "asset_class":  "Energy",
+                "long_name":  "Micro WTI Crude Oil"
+            },
+    "QM":  {
+               "symbol":  "QM",
+               "ib_symbol":  "QM",
+               "trading_class":  "QM",
+               "exchange":  "NYMEX",
+               "multiplier":  500,
+               "min_tick":  0.025,
+               "tick_value":  12.5,
+               "tier":  "mini",
+               "asset_class":  "Energy",
+               "long_name":  "NYMEX MINY Light Sweet Crude Oil"
+           },
+    "CL":  {
+               "symbol":  "CL",
+               "ib_symbol":  "CL",
+               "trading_class":  "CL",
+               "exchange":  "NYMEX",
+               "multiplier":  1000,
+               "min_tick":  0.01,
+               "tick_value":  10,
+               "tier":  "full",
+               "asset_class":  "Energy",
+               "long_name":  "Light Sweet Crude Oil"
+           },
+    "NG":  {
+               "symbol":  "NG",
+               "ib_symbol":  "NG",
+               "trading_class":  "NG",
+               "exchange":  "NYMEX",
+               "multiplier":  10000,
+               "min_tick":  0.001,
+               "tick_value":  10,
+               "tier":  "full",
+               "asset_class":  "Energy",
+               "long_name":  "Henry Hub Natural Gas"
+           },
+    "QG":  {
+               "symbol":  "QG",
+               "ib_symbol":  "QG",
+               "trading_class":  "QG",
+               "exchange":  "NYMEX",
+               "multiplier":  2500,
+               "min_tick":  0.005,
+               "tick_value":  12.5,
+               "tier":  "mini",
+               "asset_class":  "Energy",
+               "long_name":  "NYMEX MINY Natural Gas Index"
+           },
+    "RB":  {
+               "symbol":  "RB",
+               "ib_symbol":  "RB",
+               "trading_class":  "RB",
+               "exchange":  "NYMEX",
+               "multiplier":  42000,
+               "min_tick":  0.0001,
+               "tick_value":  4.2,
+               "tier":  "full",
+               "asset_class":  "Energy",
+               "long_name":  "NYMEX RBOB Gasoline Index"
+           },
+    "HO":  {
+               "symbol":  "HO",
+               "ib_symbol":  "HO",
+               "trading_class":  "HO",
+               "exchange":  "NYMEX",
+               "multiplier":  42000,
+               "min_tick":  0.0001,
+               "tick_value":  4.2,
+               "tier":  "full",
+               "asset_class":  "Energy",
+               "long_name":  "Heating Oil"
+           },
+    "BZ":  {
+               "symbol":  "BZ",
+               "ib_symbol":  "BZ",
+               "trading_class":  "BZ",
+               "exchange":  "NYMEX",
+               "multiplier":  1000,
+               "min_tick":  0.01,
+               "tick_value":  10,
+               "tier":  "full",
+               "asset_class":  "Energy",
+               "long_name":  "Brent Crude Oil - Last Day"
+           },
+    "M6E":  {
+                "symbol":  "M6E",
+                "ib_symbol":  "M6E",
+                "trading_class":  "M6E",
+                "exchange":  "CME",
+                "multiplier":  12500,
+                "min_tick":  0.0001,
+                "tick_value":  1.25,
+                "tier":  "micro",
+                "asset_class":  "FX",
+                "long_name":  "European Monetary Union Euro"
+            },
+    "6E":  {
+               "symbol":  "6E",
+               "ib_symbol":  "EUR",
+               "trading_class":  "6E",
+               "exchange":  "CME",
+               "multiplier":  125000,
+               "min_tick":  5E-05,
+               "tick_value":  6.25,
+               "tier":  "full",
+               "asset_class":  "FX",
+               "long_name":  "European Monetary Union Euro"
+           },
+    "M6A":  {
+                "symbol":  "M6A",
+                "ib_symbol":  "M6A",
+                "trading_class":  "M6A",
+                "exchange":  "CME",
+                "multiplier":  10000,
+                "min_tick":  0.0001,
+                "tick_value":  1,
+                "tier":  "micro",
+                "asset_class":  "FX",
+                "long_name":  "Australian dollar"
+            },
+    "6A":  {
+               "symbol":  "6A",
+               "ib_symbol":  "AUD",
+               "trading_class":  "6A",
+               "exchange":  "CME",
+               "multiplier":  100000,
+               "min_tick":  5E-05,
+               "tick_value":  5,
+               "tier":  "full",
+               "asset_class":  "FX",
+               "long_name":  "Australian dollar"
+           },
+    "M6B":  {
+                "symbol":  "M6B",
+                "ib_symbol":  "M6B",
+                "trading_class":  "M6B",
+                "exchange":  "CME",
+                "multiplier":  6250,
+                "min_tick":  0.0001,
+                "tick_value":  0.625,
+                "tier":  "micro",
+                "asset_class":  "FX",
+                "long_name":  "British pound"
+            },
+    "6B":  {
+               "symbol":  "6B",
+               "ib_symbol":  "GBP",
+               "trading_class":  "6B",
+               "exchange":  "CME",
+               "multiplier":  62500,
+               "min_tick":  0.0001,
+               "tick_value":  6.25,
+               "tier":  "full",
+               "asset_class":  "FX",
+               "long_name":  "British pound"
+           },
+    "MJY":  {
+                "symbol":  "MJY",
+                "ib_symbol":  "MJY",
+                "trading_class":  "MJY",
+                "exchange":  "CME",
+                "multiplier":  1250000,
+                "min_tick":  1E-06,
+                "tick_value":  1.25,
+                "tier":  "micro",
+                "asset_class":  "FX",
+                "long_name":  "MJY.USD Forex"
+            },
+    "6J":  {
+               "symbol":  "6J",
+               "ib_symbol":  "JPY",
+               "trading_class":  "6J",
+               "exchange":  "CME",
+               "multiplier":  12500000,
+               "min_tick":  5E-07,
+               "tick_value":  6.25,
+               "tier":  "full",
+               "asset_class":  "FX",
+               "long_name":  "JPY.USD Forex"
+           },
+    "MCD":  {
+                "symbol":  "MCD",
+                "ib_symbol":  "MCD",
+                "trading_class":  "MCD",
+                "exchange":  "CME",
+                "multiplier":  10000,
+                "min_tick":  0.0001,
+                "tick_value":  1,
+                "tier":  "micro",
+                "asset_class":  "FX",
+                "long_name":  "MCD.USD Forex"
+            },
+    "6C":  {
+               "symbol":  "6C",
+               "ib_symbol":  "CAD",
+               "trading_class":  "6C",
+               "exchange":  "CME",
+               "multiplier":  100000,
+               "min_tick":  5E-05,
+               "tick_value":  5,
+               "tier":  "full",
+               "asset_class":  "FX",
+               "long_name":  "CAD.USD Forex"
+           },
+    "MSF":  {
+                "symbol":  "MSF",
+                "ib_symbol":  "MSF",
+                "trading_class":  "MSF",
+                "exchange":  "CME",
+                "multiplier":  12500,
+                "min_tick":  0.0001,
+                "tick_value":  1.25,
+                "tier":  "micro",
+                "asset_class":  "FX",
+                "long_name":  "Swiss franc"
+            },
+    "6S":  {
+               "symbol":  "6S",
+               "ib_symbol":  "CHF",
+               "trading_class":  "6S",
+               "exchange":  "CME",
+               "multiplier":  125000,
+               "min_tick":  5E-05,
+               "tick_value":  6.25,
+               "tier":  "full",
+               "asset_class":  "FX",
+               "long_name":  "Swiss franc"
+           },
+    "MIR":  {
+                "symbol":  "MIR",
+                "ib_symbol":  "MIR",
+                "trading_class":  "MIR",
+                "exchange":  "CME",
+                "multiplier":  1000000,
+                "min_tick":  1E-06,
+                "tick_value":  1,
+                "tier":  "micro",
+                "asset_class":  "FX",
+                "long_name":  "MIR.USD Forex"
+            },
+    "E7":  {
+               "symbol":  "E7",
+               "ib_symbol":  "E7",
+               "trading_class":  "E7",
+               "exchange":  "CME",
+               "multiplier":  62500,
+               "min_tick":  0.0001,
+               "tick_value":  6.25,
+               "tier":  "mini",
+               "asset_class":  "FX",
+               "long_name":  "European Monetary Union Euro"
+           },
+    "J7":  {
+               "symbol":  "J7",
+               "ib_symbol":  "J7",
+               "trading_class":  "J7",
+               "exchange":  "CME",
+               "multiplier":  6250000,
+               "min_tick":  1E-06,
+               "tick_value":  6.25,
+               "tier":  "mini",
+               "asset_class":  "FX",
+               "long_name":  "J7.USD Forex"
+           },
+    "ZT":  {
+               "symbol":  "ZT",
+               "ib_symbol":  "ZT",
+               "trading_class":  "ZT",
+               "exchange":  "CBOT",
+               "multiplier":  2000,
+               "min_tick":  0.00390625,
+               "tick_value":  7.8125,
+               "tier":  "full",
+               "asset_class":  "Rates",
+               "long_name":  "2 Year US Treasury Note"
+           },
+    "ZF":  {
+               "symbol":  "ZF",
+               "ib_symbol":  "ZF",
+               "trading_class":  "ZF",
+               "exchange":  "CBOT",
+               "multiplier":  1000,
+               "min_tick":  0.0078125,
+               "tick_value":  7.8125,
+               "tier":  "full",
+               "asset_class":  "Rates",
+               "long_name":  "5 Year US Treasury Note"
+           },
+    "ZN":  {
+               "symbol":  "ZN",
+               "ib_symbol":  "ZN",
+               "trading_class":  "ZN",
+               "exchange":  "CBOT",
+               "multiplier":  1000,
+               "min_tick":  0.015625,
+               "tick_value":  15.625,
+               "tier":  "full",
+               "asset_class":  "Rates",
+               "long_name":  "10 Year US Treasury Note"
+           },
+    "ZB":  {
+               "symbol":  "ZB",
+               "ib_symbol":  "ZB",
+               "trading_class":  "ZB",
+               "exchange":  "CBOT",
+               "multiplier":  1000,
+               "min_tick":  0.03125,
+               "tick_value":  31.25,
+               "tier":  "full",
+               "asset_class":  "Rates",
+               "long_name":  "US Treasury Bond"
+           },
+    "UB":  {
+               "symbol":  "UB",
+               "ib_symbol":  "UB",
+               "trading_class":  "UB",
+               "exchange":  "CBOT",
+               "multiplier":  1000,
+               "min_tick":  0.03125,
+               "tick_value":  31.25,
+               "tier":  "full",
+               "asset_class":  "Rates",
+               "long_name":  "Ultra Treasury Bond"
+           },
+    "MTN":  {
+                "symbol":  "MTN",
+                "ib_symbol":  "MTN",
+                "trading_class":  "MTN",
+                "exchange":  "CBOT",
+                "multiplier":  100,
+                "min_tick":  0.015625,
+                "tick_value":  1.5625,
+                "tier":  "micro",
+                "asset_class":  "Rates",
+                "long_name":  "Micro Ultra 10-Year U.S Treasury Note"
+            },
+    "MWN":  {
+                "symbol":  "MWN",
+                "ib_symbol":  "MWN",
+                "trading_class":  "MWN",
+                "exchange":  "CBOT",
+                "multiplier":  100,
+                "min_tick":  0.03125,
+                "tick_value":  3.125,
+                "tier":  "micro",
+                "asset_class":  "Rates",
+                "long_name":  "Micro Ultra US Treasury Bond"
+            },
+    "2YY":  {
+                "symbol":  "2YY",
+                "ib_symbol":  "2YY",
+                "trading_class":  "2YY",
+                "exchange":  "CBOT",
+                "multiplier":  1000,
+                "min_tick":  0.001,
+                "tick_value":  1,
+                "tier":  "micro",
+                "asset_class":  "Rates",
+                "long_name":  "2 Year Micro Treasury Yield"
+            },
+    "5YY":  {
+                "symbol":  "5YY",
+                "ib_symbol":  "5YY",
+                "trading_class":  "5YY",
+                "exchange":  "CBOT",
+                "multiplier":  1000,
+                "min_tick":  0.001,
+                "tick_value":  1,
+                "tier":  "micro",
+                "asset_class":  "Rates",
+                "long_name":  "5 Year Micro Treasury Yield"
+            },
+    "10Y":  {
+                "symbol":  "10Y",
+                "ib_symbol":  "10Y",
+                "trading_class":  "10Y",
+                "exchange":  "CBOT",
+                "multiplier":  1000,
+                "min_tick":  0.001,
+                "tick_value":  1,
+                "tier":  "micro",
+                "asset_class":  "Rates",
+                "long_name":  "10 Year Micro Treasury Yield"
+            },
+    "30Y":  {
+                "symbol":  "30Y",
+                "ib_symbol":  "30Y",
+                "trading_class":  "30Y",
+                "exchange":  "CBOT",
+                "multiplier":  1000,
+                "min_tick":  0.001,
+                "tick_value":  1,
+                "tier":  "micro",
+                "asset_class":  "Rates",
+                "long_name":  "30 Year Micro Treasury Yield"
+            },
+    "ZQ":  {
+               "symbol":  "ZQ",
+               "ib_symbol":  "ZQ",
+               "trading_class":  "ZQ",
+               "exchange":  "CBOT",
+               "multiplier":  4167,
+               "min_tick":  0.0025,
+               "tick_value":  10.4175,
+               "tier":  "full",
+               "asset_class":  "Rates",
+               "long_name":  "30 Day Fed Funds"
+           },
+    "ZC":  {
+               "symbol":  "ZC",
+               "ib_symbol":  "ZC",
+               "trading_class":  "ZC",
+               "exchange":  "CBOT",
+               "multiplier":  5000,
+               "min_tick":  0.0025,
+               "tick_value":  12.5,
+               "tier":  "full",
+               "asset_class":  "Agriculture",
+               "long_name":  "Corn Futures"
+           },
+    "ZS":  {
+               "symbol":  "ZS",
+               "ib_symbol":  "ZS",
+               "trading_class":  "ZS",
+               "exchange":  "CBOT",
+               "multiplier":  5000,
+               "min_tick":  0.0025,
+               "tick_value":  12.5,
+               "tier":  "full",
+               "asset_class":  "Agriculture",
+               "long_name":  "Soybean Futures"
+           },
+    "ZW":  {
+               "symbol":  "ZW",
+               "ib_symbol":  "ZW",
+               "trading_class":  "ZW",
+               "exchange":  "CBOT",
+               "multiplier":  5000,
+               "min_tick":  0.0025,
+               "tick_value":  12.5,
+               "tier":  "full",
+               "asset_class":  "Agriculture",
+               "long_name":  "Wheat Futures"
+           },
+    "ZL":  {
+               "symbol":  "ZL",
+               "ib_symbol":  "ZL",
+               "trading_class":  "ZL",
+               "exchange":  "CBOT",
+               "multiplier":  60000,
+               "min_tick":  0.0001,
+               "tick_value":  6,
+               "tier":  "full",
+               "asset_class":  "Agriculture",
+               "long_name":  "Soybean Oil Futures"
+           },
+    "ZM":  {
+               "symbol":  "ZM",
+               "ib_symbol":  "ZM",
+               "trading_class":  "ZM",
+               "exchange":  "CBOT",
+               "multiplier":  100,
+               "min_tick":  0.1,
+               "tick_value":  10,
+               "tier":  "full",
+               "asset_class":  "Agriculture",
+               "long_name":  "Soybean Meal Futures"
+           },
+    "XC":  {
+               "symbol":  "XC",
+               "ib_symbol":  "YC",
+               "trading_class":  "XC",
+               "exchange":  "CBOT",
+               "multiplier":  1000,
+               "min_tick":  0.00125,
+               "tick_value":  1.25,
+               "tier":  "mini",
+               "asset_class":  "Agriculture",
+               "long_name":  "Mini Sized Corn Futures"
+           },
+    "XK":  {
+               "symbol":  "XK",
+               "ib_symbol":  "YK",
+               "trading_class":  "XK",
+               "exchange":  "CBOT",
+               "multiplier":  1000,
+               "min_tick":  0.00125,
+               "tick_value":  1.25,
+               "tier":  "mini",
+               "asset_class":  "Agriculture",
+               "long_name":  "Mini Sized Soybean Futures"
+           },
+    "XW":  {
+               "symbol":  "XW",
+               "ib_symbol":  "YW",
+               "trading_class":  "XW",
+               "exchange":  "CBOT",
+               "multiplier":  1000,
+               "min_tick":  0.00125,
+               "tick_value":  1.25,
+               "tier":  "mini",
+               "asset_class":  "Agriculture",
+               "long_name":  "Mini Sized Wheat Futures"
+           },
+    "MZC":  {
+                "symbol":  "MZC",
+                "ib_symbol":  "MZC",
+                "trading_class":  "MZC",
+                "exchange":  "CBOT",
+                "multiplier":  500,
+                "min_tick":  0.005,
+                "tick_value":  2.5,
+                "tier":  "micro",
+                "asset_class":  "Agriculture",
+                "long_name":  "Micro Corn Futures"
+            },
+    "MZS":  {
+                "symbol":  "MZS",
+                "ib_symbol":  "MZS",
+                "trading_class":  "MZS",
+                "exchange":  "CBOT",
+                "multiplier":  500,
+                "min_tick":  0.005,
+                "tick_value":  2.5,
+                "tier":  "micro",
+                "asset_class":  "Agriculture",
+                "long_name":  "Micro Soybean Futures"
+            },
+    "MZW":  {
+                "symbol":  "MZW",
+                "ib_symbol":  "MZW",
+                "trading_class":  "MZW",
+                "exchange":  "CBOT",
+                "multiplier":  500,
+                "min_tick":  0.005,
+                "tick_value":  2.5,
+                "tier":  "micro",
+                "asset_class":  "Agriculture",
+                "long_name":  "Micro Wheat Futures"
+            },
+    "MZL":  {
+                "symbol":  "MZL",
+                "ib_symbol":  "MZL",
+                "trading_class":  "MZL",
+                "exchange":  "CBOT",
+                "multiplier":  6000,
+                "min_tick":  0.0002,
+                "tick_value":  1.2,
+                "tier":  "micro",
+                "asset_class":  "Agriculture",
+                "long_name":  "Micro Soybean Oil Futures"
+            },
+    "MZM":  {
+                "symbol":  "MZM",
+                "ib_symbol":  "MZM",
+                "trading_class":  "MZM",
+                "exchange":  "CBOT",
+                "multiplier":  10,
+                "min_tick":  0.2,
+                "tick_value":  2,
+                "tier":  "micro",
+                "asset_class":  "Agriculture",
+                "long_name":  "Micro Soybean Meal Futures"
+            },
+    "LE":  {
+               "symbol":  "LE",
+               "ib_symbol":  "LE",
+               "trading_class":  "LE",
+               "exchange":  "CME",
+               "multiplier":  40000,
+               "min_tick":  0.00025,
+               "tick_value":  10,
+               "tier":  "full",
+               "asset_class":  "Livestock",
+               "long_name":  "Live Cattle"
+           },
+    "GF":  {
+               "symbol":  "GF",
+               "ib_symbol":  "GF",
+               "trading_class":  "GF",
+               "exchange":  "CME",
+               "multiplier":  50000,
+               "min_tick":  0.00025,
+               "tick_value":  12.5,
+               "tier":  "full",
+               "asset_class":  "Livestock",
+               "long_name":  "Feeder Cattle"
+           },
+    "HE":  {
+               "symbol":  "HE",
+               "ib_symbol":  "HE",
+               "trading_class":  "HE",
+               "exchange":  "CME",
+               "multiplier":  40000,
+               "min_tick":  0.00025,
+               "tick_value":  10,
+               "tier":  "full",
+               "asset_class":  "Livestock",
+               "long_name":  "Lean Hogs"
+           },
+    "MBT":  {
+                "symbol":  "MBT",
+                "ib_symbol":  "MBT",
+                "trading_class":  "MBT",
+                "exchange":  "CME",
+                "multiplier":  0.1,
+                "min_tick":  5,
+                "tick_value":  0.5,
+                "tier":  "micro",
+                "asset_class":  "Crypto",
+                "long_name":  "Micro Bitcoin"
+            },
+    "BTC":  {
+                "symbol":  "BTC",
+                "ib_symbol":  "BRR",
+                "trading_class":  "BTC",
+                "exchange":  "CME",
+                "multiplier":  5,
+                "min_tick":  5,
+                "tick_value":  25,
+                "tier":  "full",
+                "asset_class":  "Crypto",
+                "long_name":  "CME CF Bitcoin Reference Rate"
+            },
+    "MET":  {
+                "symbol":  "MET",
+                "ib_symbol":  "MET",
+                "trading_class":  "MET",
+                "exchange":  "CME",
+                "multiplier":  0.1,
+                "min_tick":  0.5,
+                "tick_value":  0.05,
+                "tier":  "micro",
+                "asset_class":  "Crypto",
+                "long_name":  "Micro Ether"
+            },
+    "ETH":  {
+                "symbol":  "ETH",
+                "ib_symbol":  "ETHUSDRR",
+                "trading_class":  "ETH",
+                "exchange":  "CME",
+                "multiplier":  50,
+                "min_tick":  0.5,
+                "tick_value":  25,
+                "tier":  "full",
+                "asset_class":  "Crypto",
+                "long_name":  "CME CF Ether-Dollar Reference Rate"
+            },
+    "SOL":  {
+                "symbol":  "SOL",
+                "ib_symbol":  "SOL",
+                "trading_class":  "SOL",
+                "exchange":  "CME",
+                "multiplier":  500,
+                "min_tick":  0.05,
+                "tick_value":  25,
+                "tier":  "full",
+                "asset_class":  "Crypto",
+                "long_name":  "CME CF Solana  Dollar Reference Rate"
+            },
+    "MSL":  {
+                "symbol":  "MSL",
+                "ib_symbol":  "MSL",
+                "trading_class":  "MSL",
+                "exchange":  "CME",
+                "multiplier":  25,
+                "min_tick":  0.05,
+                "tick_value":  1.25,
+                "tier":  "micro",
+                "asset_class":  "Crypto",
+                "long_name":  "Micro Solana"
+            },
+    "XRP":  {
+                "symbol":  "XRP",
+                "ib_symbol":  "XRP",
+                "trading_class":  "XRP",
+                "exchange":  "CME",
+                "multiplier":  50000,
+                "min_tick":  0.0005,
+                "tick_value":  25,
+                "tier":  "full",
+                "asset_class":  "Crypto",
+                "long_name":  "CME CF XRP-Dollar Reference Rate-New York Variant"
+            },
+    "MXP":  {
+                "symbol":  "MXP",
+                "ib_symbol":  "MXP",
+                "trading_class":  "MXP",
+                "exchange":  "CME",
+                "multiplier":  2500,
+                "min_tick":  0.0005,
+                "tick_value":  1.25,
+                "tier":  "micro",
+                "asset_class":  "Crypto",
+                "long_name":  "Micro XRP"
+            },
+    "MLN":  {
+                "symbol":  "MLN",
+                "ib_symbol":  "MLN",
+                "trading_class":  "MLN",
+                "exchange":  "CME",
+                "multiplier":  250,
+                "min_tick":  0.005,
+                "tick_value":  1.25,
+                "tier":  "micro",
+                "asset_class":  "Crypto",
+                "long_name":  "Micro Chainlink"
+            },
+    "MXL":  {
+                "symbol":  "MXL",
+                "ib_symbol":  "MXL",
+                "trading_class":  "MXL",
+                "exchange":  "CME",
+                "multiplier":  12500,
+                "min_tick":  0.0001,
+                "tick_value":  1.25,
+                "tier":  "micro",
+                "asset_class":  "Crypto",
+                "long_name":  "Micro Lumens"
+            },
+    "QBTC":  {
+                 "symbol":  "QBTC",
+                 "ib_symbol":  "QBTC",
+                 "trading_class":  "QBTC",
+                 "exchange":  "CME",
+                 "multiplier":  0.01,
+                 "min_tick":  0.1,
+                 "tick_value":  0.001,
+                 "tier":  "micro",
+                 "asset_class":  "Crypto",
+                 "long_name":  "Spot-Quoted Bitcoin"
+             },
+    "QETH":  {
+                 "symbol":  "QETH",
+                 "ib_symbol":  "QETH",
+                 "trading_class":  "QETH",
+                 "exchange":  "CME",
+                 "multiplier":  0.2,
+                 "min_tick":  0.1,
+                 "tick_value":  0.02,
+                 "tier":  "micro",
+                 "asset_class":  "Crypto",
+                 "long_name":  "Spot-Quoted Ether Future"
+             },
+    "BFF":  {
+                "symbol":  "BFF",
+                "ib_symbol":  "BFF",
+                "trading_class":  "BFF",
+                "exchange":  "CME",
+                "multiplier":  0.02,
+                "min_tick":  5,
+                "tick_value":  0.1,
+                "tier":  "micro",
+                "asset_class":  "Crypto",
+                "long_name":  "CME CF Bitcoin Reference Rate New York  - BFF Futures"
+            }
 }

@@ -22,7 +22,7 @@ document.addEventListener("DOMContentLoaded", initExecution);
 const state = { account: "primary", book: null, status: null };
 let pollTimer = null;
 let FUT_SPECS = {};   // symbol/alias -> {exchange,multiplier,min_tick,...}; drives the FUT readout
-const frontState = { id: null, timer: null, manual: false };   // FUT contract-month auto-resolve
+const frontState = { id: null, timer: null, manual: false };   // FUT live-contract discovery + front month
 
 /* Deep-link prefill from the Seasonal tab (execution.html?stage=1&sym=&side=&win=&atr=&px=):
    fills the entry-bracket ticket per the manual-seasonal conventions —
@@ -127,7 +127,7 @@ function shell() {
 
     <div class="card" style="max-width:760px;margin-top:18px">
       <div style="font:700 14px inherit;margin-bottom:4px">New order</div>
-      <p class="cap" style="margin:0 0 10px">Bracket: stock, futures, or USD-pair FX entry limit; stop, target, <b>time stop</b> (closes at market 15:59 ET on that date), and <b>entry expiry</b> (DAY unless you set a date &mdash; then GTD to that date's close) are all optional. <b>No stop = UNPROTECTED</b>: when the 2&times;ATR risk estimate exceeds 50 bps of NLV the agent bounces the order once and asks for a secondary approval (no hard cap). <b>Attach exits</b>: put a stop / target / time-stop OCA group on an open position that has nothing working (use Protect&hellip; on the row). FX quantity is in base-currency units, routes to IDEALPRO, and has no hard notional ceiling. Flatten: close by <b>shares/units</b> or fraction, <b>MKT</b> or a resting <b>LMT</b> (check Outside RTH for pre/post-market); a partial close auto-resizes the remaining exits. Add/re-add accepts either a visible price stop or scheduled market time stop. Submits per the mode banner above &mdash; live when armed.</p>
+      <p class="cap" style="margin:0 0 10px">Bracket: stock, futures, or USD-pair FX entry limit; stop, target, <b>time stop</b> (closes at market 15:59 ET on that date), and <b>entry expiry</b> are optional. <b>Primary futures are uncapped</b>: IBKR buying power and exchange limits are the hard constraints; large stopped risk and unprotected entries require a secondary approval. PA keeps its $30k futures ceiling. <b>Attach exits</b> adds a stop / target / time-stop OCA group. Submits per the mode banner above &mdash; live when armed.</p>
       <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:8px">
         <label class="cap">Type</label>
         <select id="cmdType">
@@ -846,7 +846,7 @@ window.execModifySave = execModifySave;
 // across cmdType toggles so switching Type and back doesn't wipe a typed ticket.
 const ticketDraft = {};
 const TICKET_FIELDS = ["f_note", "f_symbol", "f_qty", "f_entry", "f_stop", "f_target", "f_expiry", "f_timestop",
-                       "f_currency", "fl_qty", "fl_limit"];
+                       "f_currency", "f_futexch", "fl_qty", "fl_limit"];
 function snapshotTicket() {
   TICKET_FIELDS.forEach((id) => { const e = document.getElementById(id); if (e) ticketDraft[id] = e.value; });
 }
@@ -917,6 +917,7 @@ function syncFields() {
     if (sym) sym.addEventListener("input", () => {
       frontState.manual = false;
       clearFutExp();                 // a previous symbol's month must NEVER survive a symbol change
+      syncFutExchange();
       scheduleFrontResolve();
       updateReadout();
     });
@@ -926,6 +927,15 @@ function syncFields() {
 }
 
 function futSpec(sym) { return FUT_SPECS[String(sym || "").toUpperCase().trim()] || null; }
+function selectedFutExchange() {
+  const spec = futSpec(val("f_symbol"));
+  return String(val("f_futexch") || (spec && spec.exchange) || "").toUpperCase();
+}
+function syncFutExchange() {
+  const el = document.getElementById("f_futexch");
+  const spec = futSpec(val("f_symbol"));
+  if (el && spec && spec.exchange) el.value = spec.exchange;
+}
 function renderFutRow() {
   const row = document.getElementById("f_futrow");
   if (!row) return;
@@ -940,9 +950,20 @@ function renderFutRow() {
     return;
   }
   if (val("f_sectype") !== "FUT") { row.innerHTML = ""; return; }
-  row.innerHTML = `<label class="cap">Contract</label><input id="f_futexp" placeholder="auto" style="width:78px">
+  const spec = futSpec(val("f_symbol"));
+  const selected = String(ticketDraft.f_futexch || (spec && spec.exchange) || "").toUpperCase();
+  const exchanges = ["", "CME", "CBOT", "NYMEX", "COMEX"];
+  row.innerHTML = `<label class="cap">Venue</label><select id="f_futexch">${exchanges.map((x) =>
+      `<option value="${x}"${x === selected ? " selected" : ""}>${x || "choose"}</option>`).join("")}</select>
+    <label class="cap">Contract</label><input id="f_futexp" placeholder="auto" style="width:78px">
     <span id="f_futnote" class="cap" style="display:inline;color:#ff6b6b"></span>
     <span id="f_futhint" class="cap" style="display:inline"></span>`;
+  const venue = document.getElementById("f_futexch");
+  if (venue) venue.addEventListener("change", () => {
+    ticketDraft.f_futexch = venue.value;
+    frontState.manual = false;
+    clearFutExp(); scheduleFrontResolve(); updateReadout();
+  });
   const exp = document.getElementById("f_futexp");
   if (exp) exp.addEventListener("input", () => { frontState.manual = true; setFutNote(""); });   // stop auto-fill once typed
 }
@@ -1002,7 +1023,8 @@ function bracketWarnings() {
     if (action === "BUY" && !(entry < target)) warns.push("BUY needs entry < target");
     if (action === "SELL" && !(target < entry)) warns.push("SELL needs target < entry");
   }
-  if (isFut && sym && !spec) warns.push("unknown futures symbol — not in the spec table");
+  if (isFut && !selectedFutExchange()) warns.push("choose CME, CBOT, NYMEX, or COMEX");
+  if (isFut && sym && !spec) warns.push("futures contract is not resolved by IBKR yet");
   if (isFut && !val("f_futexp")) warns.push("enter the contract month (e.g. 202609)");
   if (isFx) warns.push(...fxPairWarnings(sym, val("f_currency") || "USD"));
   // Date guards: an ISO YYYY-MM-DD string compares chronologically as text. A past
@@ -1106,7 +1128,7 @@ function updateReadout() {
     const hint = document.getElementById("f_futhint");
     if (hint) hint.innerHTML = spec
       ? `${esc(spec.exchange)} · mult ${spec.multiplier} · tick ${spec.min_tick}`
-      : (sym ? `<span style="color:#ff6b6b">not in spec table</span>` : "");
+      : (sym ? `<span style="color:#ffc14d">waiting for live IBKR contract details</span>` : "");
     const warns = bracketWarnings();
     if (warns.length) { el.innerHTML = `<span style="color:#ff6b6b">${warns.map(esc).join(" &middot; ")}</span>`; return; }
     const qty = numOrNull("f_qty"), entry = numOrNull("f_entry"), stop = numOrNull("f_stop"), target = numOrNull("f_target");
@@ -1209,7 +1231,14 @@ function ticketPayload(t) {
   const sec_type = val("f_sectype") || "STK";
   const fut_expiry = sec_type === "FUT" ? String(val("f_futexp") || "").replace(/\D/g, "") : null;
   const currency = sec_type === "CASH" ? String(val("f_currency") || "USD").toUpperCase() : "USD";
-  return { symbol: val("f_symbol"), sec_type, currency, fut_expiry, action: val("f_action"), quantity: numOrNull("f_qty"),
+  const spec = sec_type === "FUT" ? futSpec(val("f_symbol")) : null;
+  return { symbol: val("f_symbol"), sec_type, currency, fut_expiry,
+    exchange: sec_type === "FUT" ? selectedFutExchange() : null,
+    fut_ib_symbol: spec ? (spec.ib_symbol || spec.symbol || val("f_symbol")) : null,
+    fut_trading_class: spec ? (spec.trading_class || val("f_symbol")) : null,
+    fut_multiplier: spec ? spec.multiplier : null,
+    fut_min_tick: spec ? spec.min_tick : null,
+    action: val("f_action"), quantity: numOrNull("f_qty"),
     entry: numOrNull("f_entry"), stop: numOrNull("f_stop"), target: numOrNull("f_target"),
     time_stop: val("f_timestop") || null, expiry: val("f_expiry") || null };
 }
@@ -1245,10 +1274,25 @@ function sendTicket() {
     const verb = t === "entry_bracket" ? "place" : t === "exit_attach" ? "attach" : "flatten";
     if (!confirm(`${actionLead(verb)} ${summary} on ${state.account}?`)) return;
   }
+  if (t === "entry_bracket" && p.sec_type === "FUT" && state.account === "primary" && p.stop != null) {
+    const ab = acctBook();
+    const nlv = Number(ab && ab.nlv);
+    const risk = Number(p.quantity) * Math.abs(Number(p.entry) - Number(p.stop)) * Number(p.fut_multiplier || 0);
+    if (!(nlv > 0)) {
+      if (!confirm(`SECONDARY RISK APPROVAL\n\nThis Primary futures order is uncapped and current NLV is unavailable. Defined stop risk is about ${fmt.money(risk)}. Really continue?`)) return;
+      p.risk_ack = true;
+    } else if (risk > nlv * 0.05) {
+      if (!confirm(`SECONDARY RISK APPROVAL\n\nThis Primary futures order has defined stop risk of about ${fmt.money(risk)}, or ${(risk / nlv * 100).toFixed(1)}% of NLV. There is no hard size cap. Really continue?`)) return;
+      p.risk_ack = true;
+    }
+  }
   sendCommand(t, p, "cmdMsg").then((id) => {
     // Unprotected entry: remember the intent so a RISK_ACK_REQUIRED bounce can
     // re-prompt for secondary approval and resend with risk_ack.
-    if (id && t === "entry_bracket" && p.stop == null) riskAckPending.set(id, { type: t, payload: p });
+    if (id && t === "entry_bracket" && (p.stop == null ||
+        (p.sec_type === "FUT" && state.account === "primary" && !p.risk_ack))) {
+      riskAckPending.set(id, { type: t, payload: p });
+    }
   });
 }
 
@@ -1303,14 +1347,15 @@ function checkRiskAck() {
       const f = (c.result && c.result.fill) || {};
       if (!f.needs_risk_ack) continue;             // rejected for some other reason
       const p = intent.payload;
+      const basis = p.stop == null ? "2xATR basis" : "defined stop basis";
       const detail = f.est_bps != null
-        ? `The agent estimates risk ${fmt.money(f.est_risk)} = ${f.est_bps} bps of NLV (2×ATR basis) — above the 50 bps line.`
-        : "The agent could not compute the 2×ATR risk estimate (ATR/NLV unavailable).";
+        ? `The agent estimates risk ${fmt.money(f.est_risk)} = ${f.est_bps} bps of NLV (${basis}).`
+        : `The agent could not compare risk with NLV (${basis}; NLV unavailable).`;
       const approve = confirm(
-        `⚠️ SECONDARY APPROVAL — UNPROTECTED ENTRY\n\n${detail}\n\n` +
-        `Approve and resend ${p.action} ${p.quantity} ${p.symbol} @ ${p.entry} with NO STOP on ${state.account}?`);
+        `⚠️ SECONDARY RISK APPROVAL\n\n${detail}\n\n` +
+        `Approve and resend ${p.action} ${p.quantity} ${p.symbol} @ ${p.entry}${p.stop == null ? " with NO STOP" : ` with stop ${p.stop}`} on ${state.account}?`);
       if (approve) sendCommand(intent.type, { ...p, risk_ack: true }, "cmdMsg");
-      else { const m = document.getElementById("cmdMsg"); if (m) m.textContent = "unprotected entry NOT approved — nothing sent"; }
+      else { const m = document.getElementById("cmdMsg"); if (m) m.textContent = "secondary risk approval declined — nothing sent"; }
     } else if (st && st !== "pushed" && st !== "queued" && st !== "pending") {
       riskAckPending.delete(c.id);                 // resolved without needing an ack
     }
@@ -1381,15 +1426,16 @@ function scheduleFrontResolve() {
 }
 async function resolveFront() {
   const symbol = String(val("f_symbol") || "").toUpperCase().trim();
+  const exchange = selectedFutExchange();
   const exp = document.getElementById("f_futexp");
-  if (!symbol || !futSpec(symbol)) {                  // unknown symbol: the readout already warns
-    if (exp) exp.placeholder = "auto";
+  if (!symbol || !exchange) {
+    if (exp) exp.placeholder = exchange ? "auto" : "choose venue";
     return;
   }
   try {
     const r = await fetch("/exec-futures-front", {
       method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ symbol }),
+      body: JSON.stringify({ symbol, exchange }),
     });
     const d = await r.json();
     if (!d.ok) { frontResolveFailed(); return; }
@@ -1411,7 +1457,10 @@ async function pollFront(n) {
   if (q && q.id === frontState.id && q.result) {
     const res = q.result;
     const cur = String(val("f_symbol") || "").toUpperCase().trim();
-    if (exp && res.expiry && !res.error && !frontState.manual && cur === res.symbol) {
+    const curExchange = selectedFutExchange();
+    if (exp && res.expiry && res.multiplier > 0 && res.min_tick > 0 && !res.error
+        && !frontState.manual && cur === res.symbol && curExchange === res.exchange) {
+      FUT_SPECS[cur] = { ...res, symbol: cur, ib_symbol: res.ib_symbol || cur };
       exp.value = res.expiry; exp.placeholder = "auto"; setFutNote(""); updateReadout();
     } else if (!frontState.manual) { frontResolveFailed(); }
     return;

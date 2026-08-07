@@ -213,12 +213,16 @@ export class ExecBroker extends DurableObject {
       try { body = await request.json(); } catch { return Response.json({ ok: false, error: "bad json" }, { status: 400 }); }
       const symbol = String((body && body.symbol) || "").toUpperCase().trim();
       if (!symbol) return Response.json({ ok: false, error: "symbol required" }, { status: 400 });
+      const exchange = String((body && body.exchange) || "").toUpperCase().trim();
+      if (exchange && !["CME", "CBOT", "NYMEX", "COMEX"].includes(exchange)) {
+        return Response.json({ ok: false, error: "exchange must be CME, CBOT, NYMEX, or COMEX" }, { status: 400 });
+      }
       const sockets = this.ctx.getWebSockets();
       if (!sockets.length) return Response.json({ ok: false, error: "agent offline" }, { status: 503 });
       const id = crypto.randomUUID();
-      await this.ctx.storage.put("futures_front", { id, symbol, at: Date.now(), result: null });
-      for (const s of sockets) s.send(JSON.stringify({ type: "futures_front", id, symbol }));
-      return Response.json({ ok: true, id, symbol });
+      await this.ctx.storage.put("futures_front", { id, symbol, exchange: exchange || null, at: Date.now(), result: null });
+      for (const s of sockets) s.send(JSON.stringify({ type: "futures_front", id, symbol, exchange: exchange || null }));
+      return Response.json({ ok: true, id, symbol, exchange: exchange || null });
     }
     if (url.pathname === "/futures_front") {
       if (!this._authed(request, this.env.STATUS_TOKEN)) return new Response("unauthorized", { status: 401 });
