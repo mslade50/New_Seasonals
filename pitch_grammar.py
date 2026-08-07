@@ -106,6 +106,22 @@ STAND_DOWN_MAX_CLOSEST = 3
 STAND_DOWN_MIN_ASSET_CLASSES = 4
 SURFACE_MAP_NAME = "00_surface_map.md"
 
+# --- directed ideas (2026-08-07) -------------------------------------------
+# An idea McKinley asked for by name, rather than one the composer invented.
+# The exactly-three rule exists to stop the AGENT hedging down to one safe
+# idea; it was never meant to block the human filter from adding one. A
+# directed publish may carry 1..IDEA_COUNT ideas.
+#
+# `directed_by` is NOT a relaxation of anything else: evidence, survived,
+# time stop, grade/N coherence and the risk bounds all still apply. What it
+# buys is attribution. grade_pitch_journal splits on it, so an idea McKinley
+# directed never lands in the model's column of the scoreboard, which is the
+# measurement that decides whether this product survives. Marking a
+# composer-invented idea as directed is a lie in the evidence trail, the same
+# class as a false `survived` line, and the grammar cannot stop it. It can
+# only make it visible.
+DIRECTED_FIELD = "directed_by"
+
 
 class PitchGrammarError(ValueError):
     """A pitch payload violated the grammar; publish nothing."""
@@ -547,6 +563,14 @@ def is_stand_down(payload) -> bool:
     return isinstance(payload, dict) and bool(payload.get("stand_down"))
 
 
+def directed_ideas(payload) -> list[dict]:
+    """Ideas carrying a non-empty `directed_by`, i.e. asked for by name."""
+    if not isinstance(payload, dict):
+        return []
+    return [i for i in (payload.get("ideas") or [])
+            if isinstance(i, dict) and str(i.get(DIRECTED_FIELD, "")).strip()]
+
+
 def validate_stand_down(payload) -> list[str]:
     """A morning that ships nothing still has to prove it looked.
 
@@ -661,7 +685,11 @@ def validate_payload(payload, recent_fingerprints: dict[str, str] | None = None
     ideas = payload.get("ideas")
     if not isinstance(ideas, list):
         return errors + ["payload.ideas must be a list"]
-    if len(ideas) != IDEA_COUNT:
+    if directed_ideas(payload):
+        if not 1 <= len(ideas) <= IDEA_COUNT:
+            errors.append(f"a directed publish carries 1 to {IDEA_COUNT} "
+                          f"ideas, got {len(ideas)}")
+    elif len(ideas) != IDEA_COUNT:
         errors.append(f"exactly {IDEA_COUNT} ideas required, got {len(ideas)} "
                       f"— thin conviction still ships three, graded honestly")
 

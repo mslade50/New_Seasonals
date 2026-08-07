@@ -85,3 +85,37 @@ def test_yesterdays_stand_down_does_not_count_for_today(tmp_path):
         {"kind": "stand_down", "date": "2026-08-06"}])
     result = run_check(journal)
     assert result.returncode == 1
+
+
+def directed(rank: int, date: str = ASOF) -> dict:
+    return {**idea(rank, date), "directed_by": "mckinley"}
+
+
+def test_stand_down_amended_by_a_directed_idea_is_delivery(tmp_path):
+    """2026-08-07's real sequence: the sweep stood down, McKinley overruled a
+    kill, and that one idea shipped."""
+    journal = write_journal(tmp_path / "j.jsonl", [
+        {"kind": "stand_down", "date": ASOF, "candidates_considered": 33},
+        {"kind": "killed", "date": ASOF, "title": "k", "reason": "r"},
+        directed(1),
+    ])
+    result = run_check(journal)
+    assert result.returncode == 0
+    assert "amended by 1 directed idea" in result.stdout
+
+
+def test_undirected_ideas_beside_a_stand_down_still_fail(tmp_path):
+    journal = write_journal(tmp_path / "j.jsonl", [
+        {"kind": "stand_down", "date": ASOF},
+        idea(1),
+    ])
+    assert run_check(journal).returncode == 1
+
+
+def test_a_mixed_batch_beside_a_stand_down_fails(tmp_path):
+    """One directed and one not is a half-published run, not an amendment."""
+    journal = write_journal(tmp_path / "j.jsonl", [
+        {"kind": "stand_down", "date": ASOF},
+        directed(1), idea(2),
+    ])
+    assert run_check(journal).returncode == 1

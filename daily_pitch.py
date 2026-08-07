@@ -703,6 +703,9 @@ def journal_records(payload: dict, ideas: list[dict], asof: pd.Timestamp,
         "survived": idea.get("survived"),
         "what_kills_it": idea["what_kills_it"], "overlap": idea["overlap"],
         "changed_since": idea.get("changed_since", ""),
+        # Attribution, not decoration: the scoreboard must never credit or
+        # blame the model for an idea McKinley asked for by name.
+        "directed_by": idea.get("directed_by", ""),
         "place_pass": idea["orders"][0]["Place_Pass"],
     } for idea in ideas]
     records += killed_records(payload, asof, model, effort)

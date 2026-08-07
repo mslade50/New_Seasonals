@@ -450,3 +450,54 @@ def test_checks_without_a_map_are_a_sweep_without_a_survey(stand_down):
     errors = pg.validate_payload(stand_down)
     assert any("no .py checks" in e for e in errors)
     assert any(pg.SURFACE_MAP_NAME in e for e in errors)
+
+
+# --- directed ideas --------------------------------------------------------
+# The exactly-three rule stops the AGENT hedging down to one safe idea. It was
+# never meant to block McKinley adding one he asked for, which is what happened
+# on 2026-08-07 after he overruled a kill.
+def test_directed_field_frozen():
+    assert pg.DIRECTED_FIELD == "directed_by"
+
+
+def test_a_directed_publish_may_carry_one_idea(payload):
+    payload["ideas"] = payload["ideas"][:1]
+    payload["ideas"][0]["directed_by"] = "mckinley"
+    assert pg.validate_payload(payload) == []
+
+
+def test_a_directed_publish_still_caps_at_three(payload):
+    payload["ideas"] = payload["ideas"] + [copy.deepcopy(payload["ideas"][0])]
+    for i in payload["ideas"]:
+        i["directed_by"] = "mckinley"
+    assert any("1 to 3 ideas" in e for e in pg.validate_payload(payload))
+
+
+def test_an_undirected_single_idea_still_fails(payload):
+    payload["ideas"] = payload["ideas"][:1]
+    assert any("exactly 3 ideas" in e for e in pg.validate_payload(payload))
+
+
+def test_a_blank_directed_by_does_not_unlock_the_count(payload):
+    payload["ideas"] = payload["ideas"][:1]
+    payload["ideas"][0]["directed_by"] = "   "
+    assert any("exactly 3 ideas" in e for e in pg.validate_payload(payload))
+
+
+def test_directed_does_not_relax_any_other_rule(payload):
+    """The count is the ONLY thing directed_by changes."""
+    payload["ideas"] = payload["ideas"][:1]
+    payload["ideas"][0]["directed_by"] = "mckinley"
+    for field in ("survived", "what_kills_it", "overlap"):
+        broken = copy.deepcopy(payload)
+        broken["ideas"][0].pop(field, None)
+        assert pg.validate_payload(broken), f"directed idea passed without {field}"
+    broken = copy.deepcopy(payload)
+    broken["ideas"][0]["exit"].pop("time_td")
+    assert pg.validate_payload(broken), "directed idea passed without a time stop"
+
+
+def test_directed_ideas_helper_finds_them(payload):
+    assert pg.directed_ideas(payload) == []
+    payload["ideas"][1]["directed_by"] = "mckinley"
+    assert len(pg.directed_ideas(payload)) == 1

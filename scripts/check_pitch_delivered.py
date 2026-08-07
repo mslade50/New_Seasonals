@@ -48,6 +48,16 @@ def main() -> int:
               f"({killed} kill record(s)). Nothing shipped, by verdict.")
         return 0
 
+    # A stand-down later amended by a DIRECTED idea is a legitimate sequence:
+    # the sweep found nothing, McKinley overruled a specific kill, and that
+    # idea shipped. Mixed model-composed ideas alongside a stand-down remain a
+    # half-published run and still fail.
+    if stand_down and ideas and all(str(r.get("directed_by", "")).strip()
+                                    for r in ideas):
+        print(f"OK: stand-down for {args.asof} amended by {len(ideas)} "
+              f"directed idea(s).")
+        return 0
+
     print(f"FAILED: {len(ideas)} idea record(s) journaled for {args.asof}, "
           f"expected {IDEA_COUNT} or a stand-down. The pitch did not deliver.")
     return 1
