@@ -367,3 +367,57 @@ def test_email_shows_the_model_split_only_once_there_are_two(payload, prices):
     two["rolling_60d"]["by_model"]["fable"] = {"graded": 2, "avg_r": -0.2,
                                                "hit_rate": 50.0}
     assert "By model:" in dp.render_email(payload, ideas, ASOF, two, None)
+
+
+# ---------------------------------------------------------------------------
+# pipeline liveness line (2026-08-06 Actions outage: crons silently skipped)
+# ---------------------------------------------------------------------------
+GREEN_PIPELINE = {"available": True, "checked": 7, "green": 7, "missing": [],
+                  "stale": [], "ok": True, "prices_bar": "2026-08-06",
+                  "dial_asof": "2026-08-06", "pc_date": "2026-08-05",
+                  "pc_age_bd": 1}
+
+
+def test_pipeline_line_confirms_a_clean_night():
+    line = dp.render_pipeline_line(GREEN_PIPELINE)
+    assert "7/7 overnight jobs ran" in line
+    assert "all current" in line
+    assert "#0a7a2f" in line          # green
+    assert "MISSING" not in line
+
+
+def test_pipeline_line_names_jobs_that_never_ran():
+    p = dict(GREEN_PIPELINE, green=5, ok=False,
+             missing=[{"job": "risk dial", "last_success": "2026-08-05"},
+                      {"job": "fills", "last_success": "2026-08-05"}])
+    line = dp.render_pipeline_line(p)
+    assert "5/7 overnight jobs ran" in line
+    assert "MISSING: risk dial, fills" in line
+    assert "#b02a1e" in line          # red
+
+
+def test_pipeline_line_flags_stale_caches():
+    p = dict(GREEN_PIPELINE, ok=False, stale=["prices 2026-08-04"])
+    line = dp.render_pipeline_line(p)
+    assert "STALE: prices 2026-08-04" in line
+    assert "#b02a1e" in line
+
+
+def test_pipeline_line_says_so_when_it_could_not_check():
+    p = dict(GREEN_PIPELINE, available=False, ok=False,
+             error="GH_PAT_NEW_SEASONALS not set")
+    line = dp.render_pipeline_line(p)
+    assert "check unavailable" in line
+    assert "GH_PAT_NEW_SEASONALS not set" in line
+
+
+def test_pipeline_line_absent_state_renders_nothing():
+    assert dp.render_pipeline_line(None) == ""
+
+
+def test_email_carries_the_pipeline_line(payload, prices):
+    ideas, _ = dp.prepare(payload, ASOF, prices, [])
+    state = {"pipeline": GREEN_PIPELINE, "risk": {}, "tape": {}, "book": {},
+             "warnings": []}
+    html = dp.render_email(payload, ideas, ASOF, {}, state)
+    assert "Pipeline:" in html and "7/7 overnight jobs ran" in html

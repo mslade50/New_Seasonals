@@ -142,6 +142,30 @@ running a check script, a red-team pass, and composition. That is a heavy
 morning by design. If cost ever needs cutting, cut the candidate count in the
 skill, not the model tier and not the falsification stage.
 
+## The pipeline line
+
+Every pitch email carries one line near the top:
+
+```
+Pipeline: 7/7 overnight jobs ran | prices 2026-08-06 | dial 2026-08-06 | P/C 2026-08-05 (1 bd) - all current
+```
+
+Green when every tracked workflow has a successful run dated on or after the
+previous trading session AND no cache is behind that session; red, naming what
+is missing or stale, otherwise.
+
+It exists because of the 2026-08-06 GitHub Actions incident, which skipped an
+entire evening of crons. A job that runs and FAILS is already loud. A job that
+never STARTS leaves no trace at all, and missed crons are never backfilled, so
+the whole PM chain went missing with nothing to show for it. The rule (last
+success on or after the prior session) covers both the pre-market dispatches
+and the prior evening's crons, and does not false-alarm on Mondays the way a
+flat 24-hour window would.
+
+Green days print too, deliberately: silence would otherwise be ambiguous
+between "all good" and "the check itself broke". Needs `GH_PAT_NEW_SEASONALS`;
+without it the line says the check was unavailable rather than implying health.
+
 ## Conventions worth knowing before you change anything
 
 - **ATR is Wilder-14 here.** The systematic book uses a simple 14-day mean of

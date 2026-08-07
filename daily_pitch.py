@@ -398,6 +398,43 @@ def render_scoreboard(scoreboard: dict) -> str:
             f"{roll['avg_r']:+.2f}R. {by_grade}{gap_line}{by_model}</p>")
 
 
+def render_pipeline_line(pipeline: dict | None) -> str:
+    """One line: did the overnight chain run, and are the caches current?
+
+    Added after the 2026-08-06 Actions incident. A job that runs and fails is
+    already loud; a job that never STARTS leaves no trace at all, which is how
+    an entire evening of crons went missing unnoticed. Green days are printed
+    too, because silence would otherwise be ambiguous between "all good" and
+    "the check itself is broken".
+    """
+    if not pipeline:
+        return ""
+    bits = []
+    if pipeline.get("available"):
+        bits.append(f"{pipeline['green']}/{pipeline['checked']} overnight jobs ran")
+        if pipeline.get("missing"):
+            names = ", ".join(m["job"] for m in pipeline["missing"])
+            bits.append(f"<b>MISSING: {_esc(names)}</b>")
+    else:
+        bits.append("overnight run check unavailable "
+                    f"({_esc(pipeline.get('error', 'unknown'))})")
+    bits.append(f"prices {_esc(pipeline.get('prices_bar') or 'n/a')}")
+    bits.append(f"dial {_esc(pipeline.get('dial_asof') or 'n/a')}")
+    age = pipeline.get("pc_age_bd")
+    bits.append(f"P/C {_esc(pipeline.get('pc_date') or 'n/a')}"
+                + (f" ({age} bd)" if age is not None else ""))
+    stale = pipeline.get("stale") or []
+    if pipeline.get("ok"):
+        verdict = "all current"
+    elif stale:
+        verdict = "<b>STALE: " + _esc(", ".join(stale)) + "</b>"
+    else:
+        verdict = "check the warnings above"
+    color = "#0a7a2f" if pipeline.get("ok") else "#b02a1e"
+    return (f"<p style='color:{color};font-size:12px;margin:4px 0'>"
+            f"Pipeline: {' &nbsp;|&nbsp; '.join(bits)} &mdash; {verdict}</p>")
+
+
 def render_email(payload: dict, ideas: list[dict], asof: pd.Timestamp,
                  scoreboard: dict, state: dict | None) -> str:
     state = state or {}
@@ -449,6 +486,7 @@ def render_email(payload: dict, ideas: list[dict], asof: pd.Timestamp,
     this morning. Nothing here is a book signal; the scanner trades those
     separately. Approve by typing Y in the Pitch tab.</p>
   {context}
+  {render_pipeline_line(state.get('pipeline'))}
   {warn_html}
   {cards}
   {killed_html}

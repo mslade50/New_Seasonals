@@ -18,6 +18,8 @@ Blocks in the payload:
     seasonality   the seasonal board's own view plus month/cycle position
     research      research-doc index and the negative-results registry
     history       what the pitch pipeline itself has pitched recently
+    pipeline      did the overnight chain actually run, and are the
+                  caches current (one line in the email)
 
 Every block except `tape` is best effort: a missing input adds a line to
 `warnings` and leaves the block partial, because a morning with no broker
@@ -71,6 +73,23 @@ HEADLINE_TICKERS = [
 EARNINGS_HORIZON_TD = 10
 CALENDAR_LOOKAHEAD_TD = 15
 CALENDAR_LOOKBACK_TD = 5
+
+# Overnight jobs the pitch depends on, checked so the email can say in one
+# line whether the chain actually ran. Added after the 2026-08-06 GitHub
+# Actions incident, when every PM cron was silently skipped: scheduled runs
+# are what GitHub sheds under load and missed crons are never backfilled, so
+# a job that never STARTS leaves no failure notification behind. A job that
+# runs and fails is already loud; this covers the silent half.
+GH_REPO = "mslade50/New_Seasonals"
+TRACKED_WORKFLOWS = [
+    ("update_cboe_putcall.yml", "put/call"),
+    ("update_master_prices.yml", "prices"),
+    ("risk_report.yml", "risk dial"),
+    ("daily_screener.yml", "scan"),
+    ("verify_fills.yml", "fills"),
+    ("portfolio_report.yml", "portfolio"),
+    ("build_earnings_calendar.yml", "earnings"),
+]
 
 
 # ---------------------------------------------------------------------------
@@ -385,6 +404,73 @@ def build_seasonality(today: pd.Timestamp, warnings: list[str]) -> dict:
     return out
 
 
+def _latest_success(workflow: str, token: str) -> str | None:
+    """UTC date of the newest successful run, or None."""
+    import requests
+    url = (f"https://api.github.com/repos/{GH_REPO}/actions/workflows/"
+           f"{workflow}/runs")
+    resp = requests.get(url, params={"status": "success", "per_page": 1},
+                        headers={"Authorization": f"Bearer {token}",
+                                 "Accept": "application/vnd.github+json",
+                                 "X-GitHub-Api-Version": "2022-11-28"},
+                        timeout=15)
+    resp.raise_for_status()
+    runs = resp.json().get("workflow_runs") or []
+    return runs[0]["created_at"][:10] if runs else None
+
+
+def build_pipeline(today: pd.Timestamp, tape: dict, risk: dict,
+                   warnings: list[str], fetch=None) -> dict:
+    """Did the overnight chain run, and are the caches current?
+
+    A workflow counts as green when its newest SUCCESSFUL run is dated on or
+    after the previous trading session. That one rule covers both the
+    pre-market dispatches (which run today) and the prior evening's crons
+    (which run on the previous session's date), and it does not false-alarm
+    on Monday mornings the way a flat 24-hour window would.
+    """
+    prev_session = (today - TRADING_DAY).normalize()
+    out: dict = {"since": str(prev_session.date()), "checked": 0, "green": 0,
+                 "missing": [], "available": False, "stale": []}
+
+    token = os.environ.get("GH_PAT_NEW_SEASONALS", "")
+    fetch = fetch or (lambda wf: _latest_success(wf, token))
+    if token or fetch is not _latest_success:
+        try:
+            for workflow, label in TRACKED_WORKFLOWS:
+                last = fetch(workflow)
+                out["checked"] += 1
+                if last and last >= str(prev_session.date()):
+                    out["green"] += 1
+                else:
+                    out["missing"].append({"job": label, "last_success": last})
+            out["available"] = True
+        except Exception as exc:  # noqa: BLE001
+            warnings.append(f"pipeline: run check unavailable ({exc})")
+            out["error"] = str(exc)
+    else:
+        out["error"] = "GH_PAT_NEW_SEASONALS not set"
+        warnings.append("pipeline: no GitHub token, overnight run check skipped")
+
+    # Cache freshness, from what the rest of the state already measured.
+    freshest = tape.get("freshest_bar")
+    out["prices_bar"] = freshest
+    if freshest and freshest < str(prev_session.date()):
+        out["stale"].append(f"prices {freshest}")
+    frag = risk.get("fragility") or {}
+    out["dial_asof"] = frag.get("as_of")
+    if frag.get("as_of") and frag["as_of"] < str(prev_session.date()):
+        out["stale"].append(f"dial {frag['as_of']}")
+    pc = risk.get("pc_fear") or {}
+    out["pc_date"], out["pc_age_bd"] = pc.get("data_date"), pc.get("age_bd")
+    if pc.get("state") == "stale":
+        out["stale"].append("P/C stale")
+
+    out["ok"] = bool(out["available"] and not out["missing"]
+                     and not out["stale"])
+    return out
+
+
 def build_history(today: pd.Timestamp, warnings: list[str]) -> dict:
     try:
         records = pitch_journal.load()
@@ -426,6 +512,7 @@ def build_state(asof: str | None = None, offline: bool = False) -> dict:
     prices = pd.read_parquet(PRICES_PATH)
 
     tape = build_tape(prices, today, warnings)
+    risk = build_risk(today, warnings)
     expected = str((today - TRADING_DAY).normalize().date())
     if tape["freshest_bar"] < expected:
         warnings.append(f"tape: freshest bar {tape['freshest_bar']} is older "
@@ -449,13 +536,14 @@ def build_state(asof: str | None = None, offline: bool = False) -> dict:
         },
         "calendar": build_calendar(today),
         "tape": tape,
-        "risk": build_risk(today, warnings),
+        "risk": risk,
         "book": build_book(today, warnings, offline=offline),
         "earnings": build_earnings(today, warnings),
         "seasonality": build_seasonality(today, warnings),
         "research": build_research_index(),
         "history": build_history(today, warnings),
         "scoreboard": scoreboard,
+        "pipeline": build_pipeline(today, tape, risk, warnings),
         "warnings": warnings,
     }
 
