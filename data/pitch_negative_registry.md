@@ -66,3 +66,80 @@ the same morning it happens, by the `/daily-pitch` skill.
 - **OLV ladder graded UP by open-position count** — the original mild first-rung discount graded up lost to flat 1.0x ($605k vs $654k over 21 years). Today's recency ladder is an appetite cut that accepts that drag, not a PnL claim. (scratch/olv_package_sim.py)
 - **sector-ETF and international single-name expansion of the trend sleeve** — equity slots crowd out the diversifiers and 2008/2022 flip negative. (scratch/tf_universe_study.py)
 - **trend-sleeve exhaustion scale-down overlay** — Sharpe flat. (trend-following.md)
+- **laggard-snapback continuation (SMH/QQQ form)** — long the deep 63d laggard that is snapping back does not continue; at h=5 the pair is flat (episode N=57, +0.27%, t=0.80) and the trigger over-selects bear tape by +29pp vs base rate, so it is a regime bet, not a relative-value edge. (scratch/pitch_checks/2026-08-07/c10_smh_qqq_laggard.py, r1_smh_qqq_inversion.py)
+- **sector-vs-index pairs on a crowding or leadership trigger** — the trigger selects tape that BOTH legs share, so the spread is the difference of two near-identical drifts. XLV +0.377 vs SPY +0.412 at h=10; XLF +0.002 vs SPY +1.029 on the opex-anchored cell. Price the legs before the spread. (scratch/pitch_checks/2026-08-07/d7_xlv_crowded.py, d8b_opex_control.py)
+- **fragility dial as a DIRECTIONAL signal (level or rate of change)** — the registry already killed the dial as a sizing rule; a directional read is the strictly stronger claim and fails at a lower bar. Dial ma10(63d) spiking from below 30 to above 50 at a 52w high gives 5 episodes, edge over buy-and-hold +0.26pp, and drop-best puts it below the control. The plain dial level is negative for SPY, so the "spike from calm" conditioning inverts the base relationship on 5 observations. (scratch/pitch_checks/2026-08-07/d1_dial_spike_calm_surface.py)
+
+## Method traps (2026-08-07, from a 28-candidate sweep that killed all 28)
+
+- **lag-0 forward returns on a MOC idea** — `fwd_ret` from the signal close measures a session you cannot trade, because the order enters at the NEXT close. Correcting SMH/QQQ from lag 0 to lag 1 took h=5 from t=2.30 to t=1.39; the entire nominal significance lived in the untradeable session. Every check must state its entry-lag convention. (scratch/pitch_checks/2026-08-07/r1_smh_qqq_inversion.py)
+- **day-level t-stats on overlapping triggers** — declustering flipped UNG h=10 from +1.02% to -0.64% and GDX h=10 from +4.41% to -2.80%, and took an XLU/XLP pair from t=1.87 to t=0.12. The episode-level number is the only real one. (scratch/pitch_checks/2026-08-07/c7_natgas_floor.py, c8b_decluster_robustness.py, c2_xlu_xlp_spread.py)
+- **conditional cells that underperform their own instrument's drift** — the decisive control is never zero, it is what the instrument does unconditionally over the same horizon and window. GLD pre-CPI (+0.040%) loses to GLD's own h=2 drift (+0.092%); AAPL's laggard cell has NEGATIVE excess at every headline threshold; a 10 td August-opex long underperforms a random 10 td SPY long. (scratch/pitch_checks/2026-08-07/d5_gold_pre_cpi.py, e2_aapl_laggard.py, d2_nfp_to_opex_run.py)
+- **mid-cluster entry is not a fresh trigger** — a trigger 3-4 sessions into a run has different forward statistics from the episode-level mean that was measured. Conditioning the "low vol at the high" cell on today's actual cluster depth flipped its sign outright. Compute cluster depth before quoting an episode statistic as today's expectation. (scratch/pitch_checks/2026-08-07/e7_midcluster_check.py)
+- **post-hoc sign flips recovered from a kill report** — a result found while hunting its opposite carries sign x era x horizon multiple comparisons before any threshold grid. The TLT-short inversion was nominally t=2.18 but Sidak over the implicit looks gives p~0.47, and both surviving inversions died on re-examination. Take the third idea from a candidate designed forward, not recovered from a corpse. (scratch/pitch_checks/2026-08-07/r1_smh_qqq_inversion.py, r2_tlt_short_inversion.py)
+- **an era cut that isolates one macro episode** — "2018+" sounded like an era split and was actually a fence around 2021-2022: the TLT-at-the-floor short is 8 of 12 episodes in those two years, ex-2022 t=0.69, ex-2021-22 t=0.16, and pre-2018 the same trigger LOST. Check the episode year histogram before believing an era split. (scratch/pitch_checks/2026-08-07/r2_tlt_short_inversion.py)
+- **rank gates in a quiet tape buy a fraction of the historical force** — the TLT trigger's ^TNX 63d rank >= 85 bought +31 bps of yield thrust today, the 3.8th percentile of the 26-episode distribution, against +47 to +129 bps for every winning episode. A percentile gate is not a magnitude gate; check the level the rank corresponds to today. (scratch/pitch_checks/2026-08-07/r4_inv2_regime_probe.py)
+- **checking edge before checking N** — the "dollar into CPI" conditional cell (DX rank21 < 20 inside rank63 > 90) has occurred ZERO times in 318 CPI events since 2000. When the described state is rare, count occurrences first. (scratch/pitch_checks/2026-08-07/d6_dollar_pre_cpi.py)
+
+## Calendar and event cells swept and empty (2026-08-07)
+
+- **post-NFP equity DIRECTION** — distinct from the already-dead post-NFP vol cell, separately swept and empty. NFP close to next CPI is +0.129% (N=309) against an all-days control of +0.221% and an all-macro-event control of +0.146%; the sign flips between the 3 td and 5 td horizons; the overbought-NFP conditioner (rank5 >= 90) is NEGATIVE at -0.400%. (scratch/pitch_checks/2026-08-07/c9_nfp_into_cpi.py)
+- **the run into August opex** — +0.342% over 26 non-overlapping years vs SPY's +0.374% unconditional h=10 drift, i.e. worse than a random 10 day long. August is not special (all-months +0.162%) and the whole effect lives in 2000-2004 (2010+ is -0.514%). (scratch/pitch_checks/2026-08-07/d2_nfp_to_opex_run.py)
+- **VIX-expiry-week drift** — the raw cell (+0.175%, N=319) is mid-month position plus noise: within-month paired excess is +0.065% (t=0.67) and 2018+ paired excess is negative. The stated mechanism is falsified inside its own window, since the settle day itself is the worst day (-0.102%) and all the return lands before it. It is genuinely NOT the pre-opex week, and it still has no edge. (scratch/pitch_checks/2026-08-07/d4_vix_expiry_week.py, d4b_vix_week_vs_monthpos.py)
+- **pre-expiry short-vol carry (long SVXY into VIX expiry)** — distinct from the event sleeve's V4 post-opex window (7.5% calendar overlap, so not a re-skin) and dead on its own numbers: the gate-matched control eats it (+0.46pp excess at the live horizon), 2018+ is +0.19% at t=0.18 on the -0.5x instrument, the mean is unstable to one session of horizon, and one gated 8 td window in 22 loses double digits (worst -24.8% post-2018). (scratch/pitch_checks/2026-08-07/c12_svxy_pre_expiry.py, c12b_gate_tail_and_concentration.py)
+- **midterm mid-August seasonality** — N=6, carried entirely by 2002 (+8.68%); drop-two-best is negative. The midterm restriction anti-works at 21 td (SPY midterm +0.361% vs non-midterm +0.531%; IWM +0.269% vs +1.455%), so the seasonal board's midterm de-risk prior does not localize here. (scratch/pitch_checks/2026-08-07/d3_midterm_mid_august.py)
+- **pre-event windows on the event's "own" instrument** — GLD into CPI underperforms GLD's unconditional drift at k=1..4, and conditioning on gold already rallying selects the crash tail (2013-04 -13.07%, 2020-08 -5.70%). The only cell with a pulse is the opposite one, gold ON the print day. DX into CPI is -3.5 bps, which pays neither the 1.5 bp futures nor the 6 bp UUP round trip. (scratch/pitch_checks/2026-08-07/d5_gold_pre_cpi.py, d6_dollar_pre_cpi.py)
+- **weekend-risk discount at a stretched high (Friday to Monday)** — a pre-2013 fossil, exactly as the "famous calendar cells" entry predicts. Full-sample short is +0.115% (N=34) but 2013+ is -0.010% and 2018+ -0.007%, i.e. 0.0x cost. The weekday placebo is decisive: Tue/Wed/Thu entries on the same price cell are significantly POSITIVE (t=2.8/3.1/2.4) and Friday is not even the most extreme weekday. (scratch/pitch_checks/2026-08-07/e4_friday_weekend_high.py, e5_e4_fossil_test.py)
+
+## Instruments and cost (2026-08-07 additions)
+
+- **UNG long at a 52w low** — UNG's structural bleed is -0.90%/10 td and -28.65%/yr (buy-and-hold -99.85% over 19.3 years). The conditional cell is NEGATIVE in absolute terms (h=10 episodes -0.644%) and its apparent day-level edge was pure overlap inflation. Any relative edge is ~0.25pp inside a ~0.90%/10td drag, so it is unharvestable with an outright long. Worse than the USO roll-decay entry by roughly an order of magnitude. (scratch/pitch_checks/2026-08-07/c7_natgas_floor.py)
+
+## Cross-asset event cells (2026-08-07 PM sweep, the first survey-then-select run)
+
+The AM run's blind spot was that every calendar-anchored check ran on SPY. The
+surface map opened the missing intersection and these are its results. The
+headline lesson is that the cell was worth opening and still not tradeable, so
+"we never looked" and "there was nothing there" are genuinely different
+failures and only the first one is fixable by process.
+
+- **NFP reaction with the long end at its 52w floor is a REAL cell, and it is a
+  non-midterm cell.** TLT long from the NFP close to +3td, gated on TLT within
+  3% of its 52w low: +0.543% vs +0.050% own drift, N=25, 76% hit, bootstrap
+  P(mean<=0)=0.021, 27x cost. It passes every robustness test that killed other
+  ideas: declustering IMPROVES it (t 1.92 -> 2.06), both eras are positive
+  (pre-2018 t=2.12, 2018+ t=1.13), all nine LOYO t-stats are positive with a
+  floor of 1.46, and dropping the two biggest years IMPROVES it to +0.926% at
+  t=2.72. Then the cycle-year split ends it: midterm +0.071% (N=12, 58% hit,
+  t=0.17) vs non-midterm +0.978% (N=13, 92% hit, t=2.72). Re-check this cell in
+  a non-midterm year; it is parked, not dead.
+  (scratch/pitch_checks/2026-08-07/n1_nfp_rates_floor.py, n2_redteam_and_open_cells.py)
+- **The midterm split held across three independent instruments, which is what
+  makes it a conditioner rather than noise.** Bonds go to zero, utilities go
+  wrong-signed (-0.538%, 33% hit), and the dollar goes wrong-signed in BOTH
+  vehicles (UUP -0.141% at 37.5% hit, DX -0.184% at 41.7%) while their
+  non-midterm cells run t=4.85 and t=4.91. A conditioner that flips sign
+  coherently across rates, rate-proxy equity and FX is structural. One that
+  only shows up in a single instrument is usually a subsample.
+  (scratch/pitch_checks/2026-08-07/n4_dollar_leg_final.py)
+- **A rescuing sub-cell with N=1 is not a rescue.** The CPI-inside-the-hold
+  split looked like it saved today (+1.614%, N=5, 100% hit, t=2.94), and today
+  does have CPI inside the hold. Crossing it with the cycle year showed the
+  midterm-and-CPI-inside cell has occurred exactly ONCE in twenty years, on
+  2022-05-06, at the most violent point of the hiking cycle, and that single
+  observation is also the best value in the entire midterm bucket. Always cross
+  the rescuing conditioner with the killing one before believing the rescue.
+  (scratch/pitch_checks/2026-08-07/n3_midterm_kill_confirm.py)
+- **Count occurrences of a JOINT state before designing the trade.** The credit
+  duration divergence was the most visually striking thing in the tape (HYG
+  0.11% off its 52w high while LQD sat 0.98% off its 52w low). The joint state
+  has occurred on 2 NFP days in 24 years. Unmeasurable is a kill, not a pass,
+  and it is the second time in one day this trap fired (the AM run's dollar
+  pre-CPI cell had N=0).
+- **Utilities are now dead in all four expressions** and should not be
+  re-opened without a new mechanism: outright washout (-0.123% vs +0.207%
+  drift, and the SPY-near-high gate that fires today HURTS, +0.605% ungated vs
+  -0.123% gated), the XLP pair (t 1.87 -> 0.12 declustered), the SPY spread
+  (-0.311%, P(mean<=0)=0.774), and the rates channel (midterm-negative). A
+  sector being the loudest thing in the cross-section is a reason to look, not
+  evidence of an edge.
