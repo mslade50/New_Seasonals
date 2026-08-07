@@ -721,6 +721,14 @@ def load_seasonal_map(csv_path="sznl_ranks.csv"):
 
 # ETF_ATR_EXEMPT moved to filters.py (2026-07-16)
 
+# Share of the price cache allowed to be stale before the scan aborts rather
+# than quietly scanning a fraction of the book. Normal attrition (a rename, a
+# delisting) is a handful of names out of ~1100, well under 1%. Anything past
+# this bound means the updater half-failed, and a partial scan that reports
+# green is worse than a red run: it would stage a subset and clear the tabs of
+# everything it never evaluated.
+STALE_TICKER_ABORT_FRAC = 0.05
+
 # Trading-day staleness bound for the fragility cache (data/rd2_fragility.parquet).
 # The producer (risk_report.yml → daily_risk_report.py) writes it every weekday
 # post-close; a value older than this many trading days means the producer is
@@ -2325,23 +2333,68 @@ def run_daily_scan(scope='liquid', moc_only=False, dry_run=False):
         except Exception as e:
             print(f"⚠️ Could not read Overflow tab for OVS size match: {e}")
 
+    _stale_floor = expected_data_date
+    if is_intraday_partial:
+        _stale_floor = (pd.Timestamp(expected_data_date) - TRADING_DAY).date()
+
     validated_dict = {}
+    _stale_drop = {}
     for ticker, df in master_dict.items():
         if df is None or df.empty:
             continue
-            
+
         # Check the date of the last row
         last_row_date = df.index[-1].date()
-        
+
         # If the last row is newer than allowed (e.g. today's date during a morning run), trim it
         if last_row_date > expected_data_date:
             df = df.iloc[:-1]
-            
+
         # If dataframe is empty after trimming, skip it
         if df.empty:
             continue
-            
+
+        # PER-TICKER STALENESS DROP (2026-08-07). The trim above only removes
+        # bars NEWER than expected; nothing ever dropped a ticker whose newest
+        # bar was OLD. A delisted or renamed symbol therefore kept scoring on
+        # frozen bars, and a dead ticker does not go quiet, it goes WRONG: BK's
+        # five most recent bars spanned three weeks after it became BNY, so it
+        # ranked as the hottest 5-day name in the entire tape.
+        #
+        # This is the forward-signalling block, and it is deliberately the ONLY
+        # one. The universe still CONTAINS these names so the backtest can
+        # trade them over the period they were genuinely alive; excluding them
+        # from the universe instead would erase that history and deepen the
+        # survivorship bias the ledger already carries.
+        # The floor mirrors the whole-cache freshness gate's `_allowed` set
+        # below: inside the intraday partial window today's bar legitimately
+        # does not exist yet (update_master_prices lands it post-close), so the
+        # prior session is the newest a ticker can be. Using expected_data_date
+        # directly here flagged 97.7% of the cache on a 9:40 AM run.
+        last_row_date = df.index[-1].date()
+        if last_row_date < _stale_floor:
+            _stale_drop[ticker] = last_row_date
+            continue
+
         validated_dict[ticker] = df
+
+    if _stale_drop:
+        # Loud, never silent. A handful is normal attrition (renames,
+        # delistings); a flood means the updater half-failed and the scan would
+        # otherwise under-fire on a fraction of the book while reporting green.
+        _frac = len(_stale_drop) / max(1, len(master_dict))
+        _sample = sorted(_stale_drop.items(), key=lambda kv: kv[1])[:10]
+        _msg = (f"{len(_stale_drop)} ticker(s) dropped as stale vs "
+                f"{_stale_floor} (oldest first): "
+                + ", ".join(f"{t}@{d}" for t, d in _sample))
+        if _frac > STALE_TICKER_ABORT_FRAC:
+            raise RuntimeError(
+                f"Staleness gate: {_frac:.1%} of the cache is stale, over the "
+                f"{STALE_TICKER_ABORT_FRAC:.0%} bound — the updater likely "
+                f"half-failed. Aborting before any staging write rather than "
+                f"scanning a fraction of the book. {_msg}"
+            )
+        print(f"🗑️ {_msg}")
 
     # Replace the master dictionary with the strictly validated version
     master_dict = validated_dict

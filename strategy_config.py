@@ -193,31 +193,40 @@ try:
     # deal-arb, and fading/buying an arb-pinned name never mean-reverts).
     # 0 ledger trades at removal. Overflow tier only. Re-add if a deal breaks.
     UNIVERSE_CORP_ACTION_EXCLUSIONS = {'CBZ'}
-    # Delisted / acquired names, excluded 2026-08-07 after a cache audit found
-    # 14 symbols that had silently stopped updating (scripts/
-    # diagnose_stale_tickers.py). A dead symbol does not go quiet, it goes
-    # WRONG: its stale bars keep feeding rank and z-score maths, so its
-    # "5-day return" quietly becomes a three-week return. BK ranked as the
-    # HOTTEST 5-day name in the entire 217-name pitch tape that way before it
-    # was found to be a rename (BK -> BNY). These ten have no live successor
-    # in FMP's symbol-change feed and yfinance serves them no recent bar.
+    # Known-dead names, catalogued 2026-08-07 by scripts/diagnose_stale_tickers
+    # after a cache audit found 14 symbols that had silently stopped updating.
+    # No live successor in FMP's symbol-change feed and no recent yfinance bar.
     #
-    # Their PRICE HISTORY DELIBERATELY STAYS in master_prices. Dropping it
-    # would deepen the survivorship bias CLAUDE.md already flags on the
-    # 23-year ledger (21 of 22 major 2020s delistings are absent, which
-    # flatters long dip-buy stats). Excluding them here removes them from the
-    # FORWARD universe only, which is the correct asymmetry: never scan them
-    # again, never pretend they were absent from the past.
-    # All overflow-tier. Re-check if any relists.
-    # THS additionally had NO rows in master_prices at all and no successor.
+    # THIS SET IS DOCUMENTATION AND TELEMETRY, NOT A UNIVERSE FILTER.
+    # It was briefly used to filter CSV_UNIVERSE and that was wrong: the
+    # universe feeds the BACKTEST as well as the live scan, so excluding these
+    # names deleted 25 historical trades on companies that were genuinely
+    # tradeable at the time, deepening the very survivorship bias CLAUDE.md
+    # flags on the 23-year ledger.
+    #
+    # Forward signalling is blocked where it belongs, in daily_scan's
+    # per-ticker staleness drop: a symbol whose newest bar predates the
+    # expected session is dropped from THAT RUN. That is general (it catches
+    # the next delisting with nobody maintaining a list), it is date-aware
+    # (the name still trades in history, up to its last real bar), and it is
+    # loud. Keep this set current anyway: verify_universe_access reports on it
+    # and it explains why those tickers linger in the cache.
+    # All overflow-tier.
     UNIVERSE_DELISTED = {
         'TGNA', 'SEE', 'CTRA', 'CUK', 'CSGS', 'CTLP', 'GDEN', 'SEM', 'RSX',
         'THS',
     }
+    # THS is the one case where excluding from the universe IS right: it has
+    # ZERO rows in master_prices, so there is no history to preserve and
+    # nothing for the staleness drop to catch (a ticker with no data never
+    # enters the scan's dict at all). Keeping it in the universe would just
+    # leave a permanent no-data entry that every consumer has to skip.
+    # Anything here must have no usable price history, ever.
+    UNIVERSE_NO_DATA = {'THS'}
     CSV_UNIVERSE = sorted(
         t for t in _pd.read_csv(_csv_path)['ticker'].unique().tolist()
         if t not in UNIVERSE_CORP_ACTION_EXCLUSIONS
-        and t not in UNIVERSE_DELISTED
+        and t not in UNIVERSE_NO_DATA
         and not str(t).endswith('=F') and not str(t).endswith('-USD')
         and (not str(t).startswith('^') or t in SPOT_TO_TRADEABLE)
     )

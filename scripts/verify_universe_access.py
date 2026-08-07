@@ -46,18 +46,27 @@ def main() -> int:
         "CSV_UNIVERSE": set(sc.CSV_UNIVERSE),
         "overflow tier": set(sc.CSV_UNIVERSE) - set(sc.LIQUID_PLUS_COMMODITIES),
     }
+    # Known-dead names are EXPECTED to be stale and expected to remain in the
+    # universe: they stay so the backtest can trade them over the period they
+    # were genuinely alive, and daily_scan's per-ticker staleness drop is what
+    # keeps them out of forward signalling. Flagging them here would train the
+    # reader to ignore this report.
+    known_dead = set(getattr(sc, "UNIVERSE_DELISTED", set()))
+
     problems = 0
     for name, tickers in universes.items():
         missing = sorted(t for t in tickers if t not in last.index)
-        stale = sorted(t for t in tickers
-                       if t in last.index and last[t] < cut)
+        stale_all = [t for t in tickers if t in last.index and last[t] < cut]
+        stale = sorted(t for t in stale_all if t not in known_dead)
+        expected = sorted(t for t in stale_all if t in known_dead)
         status = "OK" if not missing and not stale else "PROBLEM"
         print(f"{status:<8} {name:<24} n={len(tickers):<5} "
-              f"missing={len(missing)} stale={len(stale)}")
+              f"missing={len(missing)} stale={len(stale)} "
+              f"(+{len(expected)} known-dead, scan-guarded)")
         if missing:
             print(f"           missing: {missing[:12]}")
         if stale:
-            print(f"           stale  : "
+            print(f"           UNEXPECTED stale: "
                   f"{[(t, str(last[t].date())) for t in stale[:12]]}")
         problems += len(missing) + len(stale)
 
@@ -113,14 +122,17 @@ def main() -> int:
 
     # --- nothing excluded is still reachable -------------------------------
     print()
-    dead = getattr(sc, "UNIVERSE_DELISTED", set())
     corp = getattr(sc, "UNIVERSE_CORP_ACTION_EXCLUSIONS", set())
-    for label, s in (("UNIVERSE_DELISTED", dead),
-                     ("UNIVERSE_CORP_ACTION_EXCLUSIONS", corp)):
-        leaked = sorted(s & universes["CSV_UNIVERSE"])
-        print(f"{'OK' if not leaked else 'PROBLEM':<8} {label:<24} "
-              f"{len(s)} excluded, {len(leaked)} leaked into CSV_UNIVERSE")
-        problems += len(leaked)
+    leaked = sorted(corp & universes["CSV_UNIVERSE"])
+    print(f"{'OK' if not leaked else 'PROBLEM':<8} "
+          f"{'CORP_ACTION_EXCLUSIONS':<24} {len(corp)} excluded, "
+          f"{len(leaked)} leaked into CSV_UNIVERSE")
+    problems += len(leaked)
+    # UNIVERSE_DELISTED is documentation, not a filter. These names SHOULD be
+    # in the universe (for backtest history) and SHOULD be stale.
+    print(f"{'OK':<8} {'UNIVERSE_DELISTED':<24} {len(known_dead)} catalogued, "
+          f"{len(known_dead & universes['CSV_UNIVERSE'])} retained for backtest "
+          f"history (blocked live by daily_scan's staleness drop)")
 
     print(f"\n{'ALL CLEAR' if not problems else f'{problems} PROBLEM(S)'}")
     return 0 if not problems else 1
