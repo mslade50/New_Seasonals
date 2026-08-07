@@ -2,17 +2,17 @@
   "date": "2026-08-07",
   "price_ctx": {
     "price": 768.5599975585938,
-    "ret_12m": 0.22803479121797343,
-    "extension_200d": 0.09858269224659466,
+    "ret_12m": 0.22803467145472056,
+    "extension_200d": 0.0985826936842642,
     "drawdown": -0.003591224858201403,
-    "sma_200": 699.5923046875,
+    "sma_200": 699.5923037719726,
     "high_52w": 771.3300170898438,
     "regime_label": "Extended uptrend, stretched above trend",
     "days_since_5pct": 86,
     "days_since_10pct": 322
   },
   "h_scores": {
-    "5d": 30.492256730088393,
+    "5d": 30.4922567300884,
     "21d": 69.72195905000338,
     "63d": 76.0231571595995
   },
@@ -25,7 +25,7 @@
     "VIX Range Compression": {
       "on": false,
       "detail": "",
-      "summary": "21d range: 33th pctile (fires below 15th) \u2014 VIX at 15.1"
+      "summary": "21d range: 33th pctile (fires below 15th) \u2014 VIX at 15.2"
     },
     "Defensive Leadership": {
       "on": false,
@@ -39,8 +39,8 @@
     },
     "Low Absorption Ratio": {
       "on": true,
-      "detail": "Absorption Ratio at 0.341 (5th percentile) \u2014 below 10th threshold. Sectors moving independently while SPY near 52w high \u2014 vol suppression through diversification. Historically precedes below-average forward returns.",
-      "summary": "AR: 0.341 (5th pctile, fires below 10th) \u2014 near high: yes"
+      "detail": "Absorption Ratio at 0.359 (10th percentile) \u2014 below 10th threshold. Sectors moving independently while SPY near 52w high \u2014 vol suppression through diversification. Historically precedes below-average forward returns.",
+      "summary": "AR: 0.359 (10th pctile, fires below 10th) \u2014 near high: yes"
     },
     "Seasonal Rank Divergence": {
       "on": false,
@@ -55,7 +55,7 @@
     "Equity P/C Complacency": {
       "on": false,
       "detail": "10d-MA equity P/C 252d pctile: 69 (fires < 10)",
-      "summary": "Equity P/C at the 69th pctile of its trailing year (data 2026-08-05) \u2014 no complacency"
+      "summary": "Equity P/C at the 69th pctile of its trailing year (data 2026-08-06) \u2014 no complacency"
     }
   }
 }
