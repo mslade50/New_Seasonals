@@ -3,7 +3,12 @@
 The headless pitch run is a long agent session, and an agent that gives up
 politely still exits 0. Task Scheduler would then show green on a morning with
 no email. This checks the only durable evidence of delivery: three idea
-records dated today in the journal.
+records dated today in the journal, or one stand_down record.
+
+A stand-down counts as delivery because it IS a delivered verdict: the email
+goes out, the tab is cleared, and the journal records what was swept. What
+this check still catches is the failure it was written for, an agent that
+finished without publishing anything at all.
 
     python scripts/check_pitch_delivered.py [--asof YYYY-MM-DD]
 """
@@ -24,15 +29,27 @@ from pitch_grammar import IDEA_COUNT  # noqa: E402
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--asof", default=str(dt.date.today()))
+    ap.add_argument("--journal", default=str(pitch_journal.JOURNAL_PATH),
+                    help="journal path; matches daily_pitch.py's flag so a "
+                         "test or dev run never reads the shared trail")
     args = ap.parse_args()
 
-    ideas = [r for r in pitch_journal.load(pull=False)
-             if r.get("kind") == "idea" and str(r.get("date")) == args.asof]
+    today = [r for r in pitch_journal.load(Path(args.journal), pull=False)
+             if str(r.get("date")) == args.asof]
+    ideas = [r for r in today if r.get("kind") == "idea"]
     if len(ideas) == IDEA_COUNT:
         print(f"OK: {IDEA_COUNT} ideas journaled for {args.asof}")
         return 0
+
+    stand_down = [r for r in today if r.get("kind") == "stand_down"]
+    if stand_down and not ideas:
+        killed = sum(1 for r in today if r.get("kind") == "killed")
+        print(f"OK: stand-down journaled for {args.asof} "
+              f"({killed} kill record(s)). Nothing shipped, by verdict.")
+        return 0
+
     print(f"FAILED: {len(ideas)} idea record(s) journaled for {args.asof}, "
-          f"expected {IDEA_COUNT}. The pitch did not deliver.")
+          f"expected {IDEA_COUNT} or a stand-down. The pitch did not deliver.")
     return 1
 
 

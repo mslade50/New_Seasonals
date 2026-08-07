@@ -890,6 +890,25 @@ Hard requirements enforced in code, not prose (`pitch_grammar.py`):
   `changed_since`.
 - grade/N coherence (A needs N>=50, B N>=15, C N<15).
 
+**Stand-down (2026-08-07)**: a morning where nothing survives ships a NO
+TRADES email, an EMPTY Pitch tab and a `stand_down` journal record instead of
+three ideas. Added the day the first all-kill run (24 candidates, 50 check
+scripts) had nowhere to put its verdict: the publisher offered three ideas or
+a `PitchGrammarError`, so a real result was indistinguishable from a crashed
+task and the journal recorded NOTHING (kills are journaled by the publisher,
+which never ran). The path is deliberately MORE expensive than shipping so it
+never becomes the way out of a hard morning — `validate_stand_down` enforces
+>= 8 candidates over >= 4 distinct novelty axes, >= 6 named kills with
+reasons, a >= 120-char verdict, a `checks_dir` that exists and holds real
+`.py` files, and 1-3 near-misses each carrying **the number it turned on**.
+`check_pitch_delivered` accepts a stand-down as delivery but still fails on
+ideas AND a stand-down (a half-published run). Aligned sites:
+`pitch_grammar.validate_stand_down` + floors, `daily_pitch.render_stand_down`
+/ `publish_stand_down` / `stand_down_records`, `pitch_journal.KINDS`,
+`check_pitch_delivered --journal`, SKILL.md "When nothing survives". Guards:
+`tests/test_pitch_grammar.py`, `tests/test_daily_pitch.py`,
+`tests/test_pitch_delivery_check.py`.
+
 Conventions that differ from the book on purpose:
 - **ATR is Wilder-14** (spec section 4), matching
   `scripts/build_atr_downside_stats.wilder_atr`. The systematic book's ATR is

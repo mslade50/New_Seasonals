@@ -48,11 +48,15 @@ import pitch_journal
 from pitch_grammar import (
     IDEA_COUNT,
     REPEAT_BLOCK_TD,
+    STAND_DOWN_MIN_AXES,
+    STAND_DOWN_MIN_CANDIDATES,
+    STAND_DOWN_MIN_KILLED,
     build_orders,
     check_risk_budget,
     entry_label,
     exit_label,
     fingerprint,
+    is_stand_down,
     load_prices,
     price_context,
     validate_payload,
@@ -239,8 +243,13 @@ def write_tab(sheet, rows: list[dict]) -> None:
         worksheet = sheet.add_worksheet(title=TAB_NAME, rows=60,
                                         cols=len(TAB_COLUMNS))
     worksheet.clear()
-    frame = pd.DataFrame(rows)[TAB_COLUMNS]
-    worksheet.update([TAB_COLUMNS] + frame.astype(str).values.tolist())
+    # rows == [] is the stand-down case: header only, nothing approvable.
+    # Building the frame from an empty list would KeyError on the column
+    # selection, and leaving the tab as-is would leave yesterday's orders
+    # live on a morning that pitched nothing.
+    body = (pd.DataFrame(rows)[TAB_COLUMNS].astype(str).values.tolist()
+            if rows else [])
+    worksheet.update([TAB_COLUMNS] + body)
     print(f"Wrote {len(rows)} row(s) -> '{TAB_NAME}' tab")
 
 
@@ -502,6 +511,101 @@ def render_email(payload: dict, ideas: list[dict], asof: pd.Timestamp,
 </div>"""
 
 
+def render_stand_down(payload: dict, asof: pd.Timestamp, scoreboard: dict,
+                      state: dict | None) -> str:
+    """The email for a morning that shipped nothing.
+
+    It leads with the near-misses and the number each one turned on, because
+    that is the part McKinley can argue with. A bare 'no trades today' is
+    indistinguishable from a broken task, which is exactly the hole this
+    closes.
+    """
+    state = state or {}
+    block = payload.get("stand_down") or {}
+
+    closest = "".join(
+        f"<div style='border-left:3px solid #8a6d00;padding:6px 12px;"
+        f"margin:10px 0;background:#fffdf5'>"
+        f"<div style='font-weight:600'>{_esc(near.get('title', ''))}</div>"
+        f"<div style='font-size:13px;color:#444;margin-top:3px'>"
+        f"<b>Decisive number:</b> {_esc(near.get('decisive', ''))}</div>"
+        f"<div style='font-size:13px;color:#444;margin-top:3px'>"
+        f"<b>Why it died:</b> {_esc(near.get('why_died', ''))}</div>"
+        + (f"<div style='font-size:12px;color:#777;margin-top:3px'>"
+           f"{_esc(near.get('script', ''))}</div>"
+           if near.get("script") else "")
+        + "</div>"
+        for near in (block.get("closest") or []))
+
+    killed = payload.get("killed") or []
+    killed_html = ""
+    if killed:
+        lines = "<br>".join(
+            f"<b>{_esc(k.get('title', ''))}</b> &mdash; {_esc(k.get('reason', ''))}"
+            for k in killed)
+        killed_html = (
+            f"<p style='color:#555;font-size:12px;margin-top:16px'>"
+            f"<b>Everything killed today ({len(killed)}):</b><br>{lines}</p>")
+
+    axes = ", ".join(_esc(str(a)) for a in (block.get("axes") or []))
+    context = ""
+    if state:
+        risk = state.get("risk", {})
+        frag = risk.get("fragility", {})
+        pc = risk.get("pc_fear", {})
+        signals = ", ".join(risk.get("signals_on") or []) or "none"
+        pct = pc.get("pctile")
+        pc_pct = f" ({pct:.0f}%ile)" if isinstance(pct, (int, float)) else ""
+        context = (
+            f"<p style='color:#555;font-size:12px'>"
+            f"Dial (10d MA 63d): <b>{frag.get('ma10_63d', 'n/a')}</b> as of "
+            f"{frag.get('as_of', 'n/a')} &nbsp;|&nbsp; P/C fear: "
+            f"<b>{pc.get('state', 'n/a')}</b>{pc_pct}"
+            f" &nbsp;|&nbsp; fragility signals on: {signals}"
+            f" &nbsp;|&nbsp; freshest bar "
+            f"{state.get('tape', {}).get('freshest_bar', 'n/a')}</p>")
+
+    warnings = (state or {}).get("warnings") or []
+    warn_html = ""
+    if warnings:
+        warn_html = (
+            "<div style='background:#fdecea;border:1px solid #b02a1e;"
+            "border-radius:4px;padding:8px 12px;margin:10px 0;font-size:12px'>"
+            "<b style='color:#b02a1e'>STATE WARNINGS</b><br>"
+            + "<br>".join(_esc(w) for w in warnings) + "</div>")
+
+    return f"""
+<div style="font-family:Segoe UI,Arial,sans-serif;max-width:920px;color:#1a1a1a">
+  <h2 style="margin-bottom:2px">Daily Pitch &mdash; {asof.strftime('%A %Y-%m-%d')}
+    &mdash; <span style="color:#b02a1e">NO TRADES</span></h2>
+  <p style="color:#555;margin-top:2px;font-size:13px">
+    {block.get('candidates_considered', 0)} candidates across
+    {len(block.get('axes') or [])} novelty axes, all killed in falsification.
+    The Pitch tab is empty and there is nothing to approve. This is a verdict,
+    not a failed run.</p>
+  {context}
+  {render_pipeline_line(state.get('pipeline'))}
+  {warn_html}
+  <div style="background:#f6f6f4;border-radius:4px;padding:10px 14px;
+              margin:12px 0;font-size:13px;line-height:1.5">
+    {_esc(block.get('reason', ''))}
+  </div>
+  <h3 style="margin-bottom:2px;font-size:15px">Closest to shipping</h3>
+  {closest}
+  <p style="color:#777;font-size:12px">Axes swept: {axes}<br>
+     Checks written this morning: {_esc(block.get('checks_dir', ''))}</p>
+  {killed_html}
+  {render_scoreboard(scoreboard)}
+  <p style="color:#888;font-size:11px;margin-top:14px">
+    A stand-down has to clear a higher bar than shipping does: at least
+    {STAND_DOWN_MIN_CANDIDATES} candidates over {STAND_DOWN_MIN_AXES} axes,
+    {STAND_DOWN_MIN_KILLED} named kills, and every near-miss written down with
+    the number it turned on. If that ever looks like an easy out, the floors
+    are in pitch_grammar.py.
+  </p>
+</div>"""
+
+
 def dotenv_values(path: Path | None = None) -> dict[str, str]:
     """KEY=value pairs from the repo .env, or {} when it is absent.
 
@@ -599,12 +703,127 @@ def journal_records(payload: dict, ideas: list[dict], asof: pd.Timestamp,
         "changed_since": idea.get("changed_since", ""),
         "place_pass": idea["orders"][0]["Place_Pass"],
     } for idea in ideas]
-    records += [{"kind": "killed", "date": date, "model": model,
-                 "effort": effort,
-                 "title": k.get("title", ""), "reason": k.get("reason", ""),
-                 "novelty_axis": k.get("novelty_axis")}
-                for k in (payload.get("killed") or [])]
+    records += killed_records(payload, asof, model, effort)
     return records
+
+
+def killed_records(payload: dict, asof: pd.Timestamp, model: str,
+                   effort: str) -> list[dict]:
+    return [{"kind": "killed", "date": str(asof.date()), "model": model,
+             "effort": effort,
+             "title": k.get("title", ""), "reason": k.get("reason", ""),
+             "novelty_axis": k.get("novelty_axis")}
+            for k in (payload.get("killed") or [])]
+
+
+def stand_down_records(payload: dict, asof: pd.Timestamp,
+                       model: str | None = None,
+                       effort: str | None = None) -> list[dict]:
+    """One stand_down record plus a killed record per named kill.
+
+    The kills are journaled here for the same reason they are on a shipping
+    day: the negative registry holds the reusable lesson, but the journal is
+    what the scoreboard and the model split read. An all-kill morning used to
+    write neither.
+    """
+    model, effort = run_identity(model, effort)
+    block = payload.get("stand_down") or {}
+    return [{
+        "kind": "stand_down", "date": str(asof.date()),
+        "model": model, "effort": effort,
+        "reason": block.get("reason", ""),
+        "candidates_considered": block.get("candidates_considered"),
+        "axes": block.get("axes") or [],
+        "checks_dir": block.get("checks_dir", ""),
+        "closest": block.get("closest") or [],
+        "killed_n": len(payload.get("killed") or []),
+    }] + killed_records(payload, asof, model, effort)
+
+
+def load_context(asof: pd.Timestamp) -> tuple[dict, dict | None]:
+    """The scoreboard and this morning's state, shared by both publish paths."""
+    scoreboard = {}
+    if SCOREBOARD_PATH.exists():
+        scoreboard = json.loads(SCOREBOARD_PATH.read_text(encoding="utf-8"))
+    state = None
+    if STATE_PATH.exists():
+        state = json.loads(STATE_PATH.read_text(encoding="utf-8"))
+        if state.get("asof") != str(asof.date()):
+            print(f"WARNING: pitch_state.json is dated {state.get('asof')}, "
+                  f"not {asof.date()} - the context header may be stale")
+    return scoreboard, state
+
+
+def publish_stand_down(payload: dict, asof: pd.Timestamp, journal_path: Path,
+                       args) -> int:
+    """Ship the verdict that nothing shipped.
+
+    Same shape as the normal path with one difference that matters: the Pitch
+    tab is cleared to a header row. Leaving yesterday's rows up on a
+    no-trade morning would leave live, approvable orders on the sheet for
+    ideas nobody pitched today.
+    """
+    errors = validate_payload(payload)
+    if errors:
+        print(f"STAND-DOWN VALIDATION FAILED ({len(errors)} problem(s)) - "
+              f"nothing published:")
+        for line in errors:
+            print(f"  - {line}")
+        return 2
+
+    block = payload["stand_down"]
+    model, effort = run_identity(args.model, args.effort)
+    print(f"Daily Pitch {asof.date()} - STAND-DOWN, nothing shipped "
+          f"[model {model}, effort {effort}]")
+    print(f"  {block['candidates_considered']} candidates over "
+          f"{len(block['axes'])} axes, {len(payload.get('killed') or [])} "
+          f"named kills")
+    for near in block["closest"]:
+        print(f"  closest: {near['title']} - {near['decisive']}")
+    if args.validate_only:
+        print("Validation only - nothing published.")
+        return 0
+
+    scoreboard, state = load_context(asof)
+    html = render_stand_down(payload, asof, scoreboard, state)
+    if args.html_out:
+        Path(args.html_out).write_text(html, encoding="utf-8")
+        print(f"HTML written to {args.html_out}")
+    if args.dry_run:
+        print("[dry-run] no email, no Sheets write, no journal append")
+        return 0
+
+    approvals: list[dict] = []
+    sheet = None
+    try:
+        sheet = open_sheet()
+        approvals = capture_approvals(sheet, asof)
+        if approvals:
+            answered = sum(1 for a in approvals if a["approve"])
+            print(f"Captured {len(approvals)} prior approval row(s), "
+                  f"{answered} answered")
+    except Exception as exc:  # noqa: BLE001
+        print(f"WARNING: Sheets unavailable ({exc}) - approvals not captured "
+              f"and the Pitch tab will not be cleared")
+
+    if not args.no_send:
+        send_email(f"Daily Pitch - {asof.date()} - NO TRADES "
+                   f"({len(payload.get('killed') or [])} killed)", html)
+
+    if sheet is not None:
+        try:
+            write_tab(sheet, [])
+            print("Pitch tab cleared - nothing to approve today")
+        except Exception as exc:  # noqa: BLE001
+            print(f"ERROR: Pitch tab clear failed ({exc}) - yesterday's rows "
+                  f"may still be approvable")
+            return 1
+
+    written = pitch_journal.append(
+        approvals + stand_down_records(payload, asof, args.model, args.effort),
+        journal_path)
+    print(f"Journaled {written} record(s) -> {journal_path.name}")
+    return 0
 
 
 def main() -> int:
@@ -634,6 +853,10 @@ def main() -> int:
 
     journal_path = Path(args.journal)
     records = pitch_journal.load(journal_path)
+
+    if is_stand_down(payload):
+        return publish_stand_down(payload, asof, journal_path, args)
+
     ideas, rows = prepare(payload, asof, load_prices(), records)
 
     _model, _effort = run_identity(args.model, args.effort)
@@ -647,16 +870,7 @@ def main() -> int:
         print("Validation only - nothing published.")
         return 0
 
-    scoreboard = {}
-    if SCOREBOARD_PATH.exists():
-        scoreboard = json.loads(SCOREBOARD_PATH.read_text(encoding="utf-8"))
-    state = None
-    if STATE_PATH.exists():
-        state = json.loads(STATE_PATH.read_text(encoding="utf-8"))
-        if state.get("asof") != str(asof.date()):
-            print(f"WARNING: pitch_state.json is dated {state.get('asof')}, "
-                  f"not {asof.date()} - the context header may be stale")
-
+    scoreboard, state = load_context(asof)
     html = render_email(payload, ideas, asof, scoreboard, state)
     if args.html_out:
         Path(args.html_out).write_text(html, encoding="utf-8")

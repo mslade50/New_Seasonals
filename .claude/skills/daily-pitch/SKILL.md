@@ -110,6 +110,44 @@ reusable, append it to `data/pitch_negative_registry.md` the same morning.
 Do not quietly shrink this stage to save tokens. Fewer, better-checked ideas
 beat unchecked ones, and the delivery is still always three.
 
+### When nothing survives
+
+Some mornings everything dies. That is a real result and it ships as a
+stand-down: an email titled NO TRADES that leads with the near-misses, an
+empty Pitch tab, and a `stand_down` record in the journal. Never write false
+`survived` lines to reach three, and never publish nothing at all, which is
+indistinguishable from a broken scheduled task.
+
+A stand-down costs MORE work than shipping, on purpose. The publisher enforces
+all of it: at least 8 candidates over at least 4 distinct novelty axes, at
+least 6 named kills with reasons, a reason of at least 120 characters, a
+`checks_dir` that exists and holds real `.py` checks, and 1 to 3 near-misses
+each carrying the **number it turned on**. If you are standing down because
+the sweep was thin, the answer is to go back to stage B, not to fill in this
+block.
+
+```json
+{
+  "asof": "YYYY-MM-DD",
+  "ideas": [],
+  "stand_down": {
+    "reason": "what the morning looked like and why none of it survived",
+    "candidates_considered": 24,
+    "axes": ["relative_value", "event_window", "vol_structure", "seasonal"],
+    "checks_dir": "scratch/pitch_checks/YYYY-MM-DD",
+    "closest": [
+      {"title": "Short TLT at the 52w low",
+       "decisive": "excess +1.263% over TLT's own 2018+ downtrend, Welch t=2.10",
+       "why_died": "8 of 12 episodes are 2021-22; ex-2022 t=0.69, and today's +31bp yield thrust is the 3.8th percentile of the winning episodes",
+       "script": "scratch/pitch_checks/YYYY-MM-DD/r2_tlt_short_inversion.py"}
+    ]
+  },
+  "killed": [{"title": "...", "reason": "...", "novelty_axis": "..."}]
+}
+```
+
+Publish it the same way; `--validate-only` checks the floors first.
+
 ## Stage D. Compose
 
 Pick the best three by risk and reward over their stated horizons. Grade them

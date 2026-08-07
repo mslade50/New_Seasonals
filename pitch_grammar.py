@@ -85,6 +85,21 @@ SIZING_STOP_ATR_BY_HORIZON = ((5, 1.0), (10, 1.3), (10**6, 1.6))
 MAX_IDEA_RISK_BPS = 60.0
 MAX_DAILY_RISK_BPS = 150.0
 
+# --- stand-down (a morning that ships nothing) -----------------------------
+# The 2026-08-07 run killed 24 candidates and two recovered inversions, then
+# had nowhere to put that result: the publisher offered three ideas or a
+# PitchGrammarError, so a real all-kill verdict was indistinguishable from a
+# broken scheduled task. A stand-down is now a first-class outcome, but a
+# DELIBERATELY EXPENSIVE one. These floors exist so standing down is never the
+# cheap way out of a hard morning: it must cost more work than shipping, and
+# it must leave a legible record of what was examined and how close it came.
+STAND_DOWN_MIN_CANDIDATES = 8   # stage B's own floor; fewer means the sweep
+                                # was truncated, not that the day was empty
+STAND_DOWN_MIN_AXES = 4         # stage B's novelty-axis floor
+STAND_DOWN_MIN_KILLED = 6       # named kills, not a summary count
+STAND_DOWN_MIN_REASON = 120     # characters; a one-liner is not a verdict
+STAND_DOWN_MAX_CLOSEST = 3
+
 
 class PitchGrammarError(ValueError):
     """A pitch payload violated the grammar; publish nothing."""
@@ -522,6 +537,94 @@ def validate_idea(idea, where: str) -> list[str]:
     return errors
 
 
+def is_stand_down(payload) -> bool:
+    return isinstance(payload, dict) and bool(payload.get("stand_down"))
+
+
+def validate_stand_down(payload) -> list[str]:
+    """A morning that ships nothing still has to prove it looked.
+
+    Nothing here is about a trade, so none of the idea grammar applies. What is
+    checked instead is that the sweep actually happened at stage B's own scale,
+    that the kills are named rather than counted, and that the near-misses are
+    written down with the number that killed them. That last part is the point
+    of the whole record: 'no trades today' is not information, and 'the TLT
+    short was t=2.10 but 8 of 12 episodes are 2021-22' is.
+    """
+    errors: list[str] = []
+    block = payload.get("stand_down")
+    if not isinstance(block, dict):
+        return ["payload.stand_down must be a JSON object"]
+
+    ideas = payload.get("ideas") or []
+    if ideas:
+        errors.append(f"stand_down carries {len(ideas)} idea(s) — a stand-down "
+                      f"ships nothing; drop them or drop the stand_down block")
+
+    reason = str(block.get("reason", "")).strip()
+    if len(reason) < STAND_DOWN_MIN_REASON:
+        errors.append(f"stand_down.reason is {len(reason)} chars, under the "
+                      f"{STAND_DOWN_MIN_REASON}-char floor — say what the "
+                      f"morning looked like and why none of it survived")
+
+    considered = block.get("candidates_considered")
+    if not isinstance(considered, int) or considered < STAND_DOWN_MIN_CANDIDATES:
+        errors.append(f"stand_down.candidates_considered must be an int >= "
+                      f"{STAND_DOWN_MIN_CANDIDATES} (stage B's own floor), "
+                      f"got {considered!r}")
+
+    axes = block.get("axes")
+    if not isinstance(axes, list) or len({str(a).strip().lower()
+                                          for a in axes if str(a).strip()}
+                                         ) < STAND_DOWN_MIN_AXES:
+        errors.append(f"stand_down.axes needs >= {STAND_DOWN_MIN_AXES} distinct "
+                      f"novelty axes — an empty morning on one axis is a thin "
+                      f"sweep, not an empty market")
+
+    checks = str(block.get("checks_dir", "")).strip()
+    if not checks:
+        errors.append("stand_down.checks_dir is required — the scripts written "
+                      "this morning are the evidence that the sweep was real")
+    else:
+        path = Path(checks)
+        if not path.is_absolute():
+            path = ROOT / path
+        if not path.is_dir():
+            errors.append(f"stand_down.checks_dir {checks} does not exist")
+        elif not any(path.glob("*.py")):
+            errors.append(f"stand_down.checks_dir {checks} holds no .py checks")
+
+    killed = payload.get("killed") or []
+    if not isinstance(killed, list) or len(killed) < STAND_DOWN_MIN_KILLED:
+        errors.append(f"a stand-down needs >= {STAND_DOWN_MIN_KILLED} named "
+                      f"entries in payload.killed, got "
+                      f"{len(killed) if isinstance(killed, list) else 0}")
+    else:
+        for i, kill in enumerate(killed, 1):
+            if not isinstance(kill, dict):
+                errors.append(f"killed {i} must be an object")
+                continue
+            for field in ("title", "reason"):
+                if not str(kill.get(field, "")).strip():
+                    errors.append(f"killed {i}: {field} is required")
+
+    closest = block.get("closest")
+    if not isinstance(closest, list) or not 1 <= len(closest) <= STAND_DOWN_MAX_CLOSEST:
+        errors.append(f"stand_down.closest needs 1 to {STAND_DOWN_MAX_CLOSEST} "
+                      f"near-misses — which ones came closest, and on what "
+                      f"number, is the useful half of this email")
+    else:
+        for i, near in enumerate(closest, 1):
+            if not isinstance(near, dict):
+                errors.append(f"closest {i} must be an object")
+                continue
+            for field in ("title", "decisive", "why_died"):
+                if not str(near.get(field, "")).strip():
+                    errors.append(f"closest {i}: {field} is required "
+                                  f"(decisive = the number it turned on)")
+    return errors
+
+
 def validate_payload(payload, recent_fingerprints: dict[str, str] | None = None
                      ) -> list[str]:
     """Whole-day validation. `recent_fingerprints` maps fingerprint -> the
@@ -531,6 +634,8 @@ def validate_payload(payload, recent_fingerprints: dict[str, str] | None = None
         return ["payload must be a JSON object"]
     if not str(payload.get("asof", "")).strip():
         errors.append("payload.asof (YYYY-MM-DD) is required")
+    if is_stand_down(payload):
+        return errors + validate_stand_down(payload)
     ideas = payload.get("ideas")
     if not isinstance(ideas, list):
         return errors + ["payload.ideas must be a list"]

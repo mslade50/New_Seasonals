@@ -284,3 +284,117 @@ def test_exit_dates_use_the_nyse_calendar(idea):
     row = pg.build_orders(idea, ctx, "2026-08-06", "t-1")[0]
     assert row["Time_Exit_Date"] == "2026-08-13"    # 5 sessions after Thu 8/6
     assert pg.time_exit_date("2026-07-01", 4) == pd.Timestamp("2026-07-08")
+
+
+# ---------------------------------------------------------------------------
+# stand-down: the morning that ships nothing
+#
+# 2026-08-07 killed 24 candidates and had nowhere to put the verdict, so a real
+# all-kill result looked exactly like a crashed task. These guard the shape of
+# the replacement AND its cost: standing down must stay harder than shipping,
+# or it quietly becomes the way out of every hard morning.
+# ---------------------------------------------------------------------------
+@pytest.fixture()
+def stand_down(tmp_path):
+    checks = tmp_path / "checks"
+    checks.mkdir()
+    (checks / "c1_probe.py").write_text("# a real check\n", encoding="utf-8")
+    return {
+        "asof": "2026-08-07",
+        "ideas": [],
+        "stand_down": {
+            "reason": "x" * pg.STAND_DOWN_MIN_REASON,
+            "candidates_considered": 24,
+            "axes": ["relative_value", "inversion", "event_fingerprint",
+                     "flow_mechanics"],
+            "checks_dir": str(checks),
+            "closest": [{"title": "Short TLT at the 52w low",
+                         "decisive": "excess +1.263%, Welch t=2.10",
+                         "why_died": "8 of 12 episodes are 2021-22"}],
+        },
+        "killed": [{"title": f"k{i}", "reason": "died",
+                    "novelty_axis": "inversion"}
+                   for i in range(pg.STAND_DOWN_MIN_KILLED)],
+    }
+
+
+def test_stand_down_floors_frozen():
+    assert pg.STAND_DOWN_MIN_CANDIDATES == 8
+    assert pg.STAND_DOWN_MIN_AXES == 4
+    assert pg.STAND_DOWN_MIN_KILLED == 6
+    assert pg.STAND_DOWN_MIN_REASON == 120
+
+
+def test_valid_stand_down_passes(stand_down):
+    assert pg.is_stand_down(stand_down)
+    assert pg.validate_payload(stand_down) == []
+
+
+def test_stand_down_does_not_need_three_ideas(stand_down):
+    assert not any("exactly 3" in e for e in pg.validate_payload(stand_down))
+
+
+def test_stand_down_cannot_also_ship_ideas(payload, stand_down):
+    stand_down["ideas"] = payload["ideas"]
+    assert any("ships nothing" in e for e in pg.validate_payload(stand_down))
+
+
+def test_thin_sweep_cannot_stand_down(stand_down):
+    stand_down["stand_down"]["candidates_considered"] = 3
+    assert any("candidates_considered" in e
+               for e in pg.validate_payload(stand_down))
+
+
+def test_single_axis_sweep_cannot_stand_down(stand_down):
+    stand_down["stand_down"]["axes"] = ["relative_value"]
+    assert any("axes" in e for e in pg.validate_payload(stand_down))
+
+
+def test_duplicate_axes_do_not_count(stand_down):
+    stand_down["stand_down"]["axes"] = ["inversion", "Inversion", " inversion",
+                                        "inversion"]
+    assert any("axes" in e for e in pg.validate_payload(stand_down))
+
+
+def test_stand_down_needs_named_kills(stand_down):
+    stand_down["killed"] = stand_down["killed"][:2]
+    assert any("payload.killed" in e for e in pg.validate_payload(stand_down))
+
+
+def test_stand_down_kills_need_a_reason(stand_down):
+    stand_down["killed"][0]["reason"] = ""
+    assert any("reason is required" in e
+               for e in pg.validate_payload(stand_down))
+
+
+def test_one_line_reason_is_not_a_verdict(stand_down):
+    stand_down["stand_down"]["reason"] = "nothing worked today"
+    assert any("reason" in e for e in pg.validate_payload(stand_down))
+
+
+def test_stand_down_needs_checks_on_disk(stand_down, tmp_path):
+    stand_down["stand_down"]["checks_dir"] = str(tmp_path / "nope")
+    assert any("does not exist" in e for e in pg.validate_payload(stand_down))
+
+
+def test_empty_checks_dir_is_not_evidence(stand_down, tmp_path):
+    empty = tmp_path / "empty"
+    empty.mkdir()
+    stand_down["stand_down"]["checks_dir"] = str(empty)
+    assert any("no .py checks" in e for e in pg.validate_payload(stand_down))
+
+
+def test_near_misses_are_required(stand_down):
+    stand_down["stand_down"]["closest"] = []
+    assert any("closest" in e for e in pg.validate_payload(stand_down))
+
+
+@pytest.mark.parametrize("field", ["title", "decisive", "why_died"])
+def test_near_miss_needs_the_number_it_turned_on(stand_down, field):
+    stand_down["stand_down"]["closest"][0][field] = ""
+    assert any(field in e for e in pg.validate_payload(stand_down))
+
+
+def test_stand_down_asof_still_required(stand_down):
+    stand_down["asof"] = ""
+    assert any("asof" in e for e in pg.validate_payload(stand_down))

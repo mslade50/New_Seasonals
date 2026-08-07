@@ -13,6 +13,13 @@ Record kinds:
     approval  McKinley's Approve cell, captured off the Pitch tab the
               morning AFTER (the tab is cleared and rewritten daily)
     outcome   the hypothetical replay booked by scripts/grade_pitch_journal.py
+    stand_down  a morning that shipped nothing, with the sweep's size, the
+              axes covered and the near-misses. One per stand-down day, and
+              the record check_pitch_delivered accepts in place of three
+              ideas. Before this kind existed an all-kill morning wrote
+              NOTHING to the journal (kills are journaled by the publisher,
+              which never ran), so the day's work was invisible to the
+              scoreboard and to the model split.
 
 `fold_ideas` merges the later approval/outcome records onto their idea, which
 is what every consumer actually wants. Later records win, so a re-grade
@@ -28,7 +35,7 @@ ROOT = Path(__file__).resolve().parent
 JOURNAL_PATH = ROOT / "data" / "pitch_journal.jsonl"
 JOURNAL_R2_KEY = "pitch_journal.jsonl"
 
-KINDS = {"idea", "killed", "approval", "outcome"}
+KINDS = {"idea", "killed", "approval", "outcome", "stand_down"}
 
 
 def sync_down(path: Path = JOURNAL_PATH) -> None:

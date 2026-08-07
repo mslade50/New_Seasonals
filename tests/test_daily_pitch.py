@@ -421,3 +421,168 @@ def test_email_carries_the_pipeline_line(payload, prices):
              "warnings": []}
     html = dp.render_email(payload, ideas, ASOF, {}, state)
     assert "Pipeline:" in html and "7/7 overnight jobs ran" in html
+
+
+# ---------------------------------------------------------------------------
+# stand-down publishing
+#
+# The delivered artifacts on a no-trade morning: an email that says why, a
+# CLEARED Pitch tab, and journal records. Before this existed the run wrote
+# none of the three and Task Scheduler just showed a red exit code.
+# ---------------------------------------------------------------------------
+@pytest.fixture()
+def stand_down(tmp_path):
+    checks = tmp_path / "checks"
+    checks.mkdir()
+    (checks / "c1_probe.py").write_text("# check\n", encoding="utf-8")
+    return {
+        "asof": "2026-08-07",
+        "ideas": [],
+        "stand_down": {
+            "reason": "Twenty-four candidates over seven axes. " + "x" * 100,
+            "candidates_considered": 24,
+            "axes": ["relative_value", "inversion", "event_fingerprint",
+                     "flow_mechanics"],
+            "checks_dir": str(checks),
+            "closest": [{
+                "title": "Short TLT at the 52w low",
+                "decisive": "excess +1.263% over trend, Welch t=2.10",
+                "why_died": "8 of 12 episodes are 2021-22, ex-2022 t=0.69",
+                "script": "scratch/pitch_checks/2026-08-07/r2_tlt.py"}],
+        },
+        "killed": [{"title": f"kill {i}", "reason": f"reason {i}",
+                    "novelty_axis": "inversion"} for i in range(6)],
+    }
+
+
+class Args:
+    def __init__(self, **kw):
+        self.model = kw.get("model")
+        self.effort = kw.get("effort")
+        self.validate_only = kw.get("validate_only", False)
+        self.dry_run = kw.get("dry_run", False)
+        self.no_send = kw.get("no_send", True)
+        self.html_out = kw.get("html_out")
+
+
+SD_ASOF = pd.Timestamp("2026-08-07")
+
+
+def test_stand_down_email_leads_with_the_near_miss(stand_down):
+    html = dp.render_stand_down(stand_down, SD_ASOF, {}, None)
+    assert "NO TRADES" in html
+    assert "Short TLT at the 52w low" in html
+    assert "Welch t=2.10" in html
+    assert "ex-2022 t=0.69" in html
+    assert "24 candidates" in html
+
+
+def test_stand_down_email_lists_every_kill(stand_down):
+    html = dp.render_stand_down(stand_down, SD_ASOF, {}, None)
+    for i in range(6):
+        assert f"kill {i}" in html
+        assert f"reason {i}" in html
+
+
+def test_stand_down_email_escapes_prose(stand_down):
+    stand_down["stand_down"]["closest"][0]["why_died"] = "<script>x</script>"
+    html = dp.render_stand_down(stand_down, SD_ASOF, {}, None)
+    assert "<script>x</script>" not in html
+    assert "&lt;script&gt;" in html
+
+
+def test_stand_down_email_keeps_the_pipeline_and_warning_lines(stand_down):
+    state = {"warnings": ["tape: 1 ticker stale"],
+             "pipeline": {"available": True, "green": 5, "checked": 5,
+                          "ok": True, "prices_bar": "2026-08-06"},
+             "risk": {"fragility": {"ma10_63d": 57.2, "as_of": "2026-08-06"},
+                      "pc_fear": {"state": "off", "pctile": 71.0},
+                      "signals_on": ["Low Absorption Ratio"]},
+             "tape": {"freshest_bar": "2026-08-06"}}
+    html = dp.render_stand_down(stand_down, SD_ASOF, {}, state)
+    assert "tape: 1 ticker stale" in html
+    assert "5/5 overnight jobs ran" in html
+    assert "57.2" in html
+
+
+def test_write_tab_with_no_rows_clears_to_a_header(payload, prices):
+    sheet = FakeSheet(records=[{"Idea_Id": "2026-08-06-1", "Approve": "Y"}])
+    dp.write_tab(sheet, [])
+    assert sheet.ws.cleared
+    assert sheet.ws.written == [dp.TAB_COLUMNS]
+
+
+def test_stand_down_journals_the_verdict_and_every_kill(stand_down):
+    records = dp.stand_down_records(stand_down, SD_ASOF, "opus", "xhigh")
+    verdicts = [r for r in records if r["kind"] == "stand_down"]
+    kills = [r for r in records if r["kind"] == "killed"]
+    assert len(verdicts) == 1
+    assert len(kills) == 6
+    assert verdicts[0]["candidates_considered"] == 24
+    assert verdicts[0]["killed_n"] == 6
+    assert verdicts[0]["closest"][0]["decisive"].startswith("excess +1.263%")
+    assert all(r["date"] == "2026-08-07" for r in records)
+
+
+def test_stand_down_records_carry_the_model_stamp(stand_down, monkeypatch):
+    monkeypatch.setenv("PITCH_MODEL", "fable")
+    monkeypatch.setenv("PITCH_EFFORT", "high")
+    records = dp.stand_down_records(stand_down, SD_ASOF)
+    assert all(r["model"] == "fable" and r["effort"] == "high"
+               for r in records)
+
+
+def test_stand_down_kinds_are_journalable(tmp_path, stand_down):
+    path = tmp_path / "j.jsonl"
+    records = dp.stand_down_records(stand_down, SD_ASOF, "opus", "xhigh")
+    assert pj.append(records, path, push=False) == len(records)
+    assert len(pj.load(path, pull=False)) == len(records)
+
+
+def test_publish_stand_down_clears_the_tab_and_journals(stand_down, tmp_path,
+                                                        monkeypatch):
+    sheet = FakeSheet(records=[{"Idea_Id": "2026-08-06-1", "Approve": "Y",
+                                "Leg": 1, "Ticker": "GLD"}])
+    monkeypatch.setattr(dp, "open_sheet", lambda *a, **k: sheet)
+    sent = {}
+    monkeypatch.setattr(dp, "send_email",
+                        lambda subject, html: sent.update(subject=subject))
+    journal = tmp_path / "j.jsonl"
+
+    rc = dp.publish_stand_down(stand_down, SD_ASOF, journal,
+                               Args(no_send=False))
+
+    assert rc == 0
+    assert sheet.ws.written == [dp.TAB_COLUMNS], "tab must be left empty"
+    assert "NO TRADES" in sent["subject"]
+    kinds = [r["kind"] for r in pj.load(journal, pull=False)]
+    assert kinds.count("stand_down") == 1
+    assert kinds.count("killed") == 6
+    assert kinds.count("approval") == 1, "yesterday's approval still captured"
+
+
+def test_publish_stand_down_refuses_a_thin_sweep(stand_down, tmp_path,
+                                                 monkeypatch, capsys):
+    monkeypatch.setattr(dp, "open_sheet",
+                        lambda *a, **k: pytest.fail("must not touch Sheets"))
+    stand_down["stand_down"]["candidates_considered"] = 2
+    journal = tmp_path / "j.jsonl"
+
+    rc = dp.publish_stand_down(stand_down, SD_ASOF, journal, Args())
+
+    assert rc == 2
+    assert "STAND-DOWN VALIDATION FAILED" in capsys.readouterr().out
+    assert not journal.exists()
+
+
+def test_publish_stand_down_dry_run_writes_nothing(stand_down, tmp_path,
+                                                   monkeypatch):
+    monkeypatch.setattr(dp, "open_sheet",
+                        lambda *a, **k: pytest.fail("must not touch Sheets"))
+    journal = tmp_path / "j.jsonl"
+    out = tmp_path / "preview.html"
+    rc = dp.publish_stand_down(stand_down, SD_ASOF, journal,
+                               Args(dry_run=True, html_out=str(out)))
+    assert rc == 0
+    assert "NO TRADES" in out.read_text(encoding="utf-8")
+    assert not journal.exists()
