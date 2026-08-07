@@ -176,7 +176,7 @@ overlay chart.
 - **Vintage rule**: the parquet is APPEND-ONLY point-in-time since
   2026-07-02; earlier rows are a recompute vintage (drifted up to ~7 pts).
   Any backtest joining the dial must state which vintage it used.
-  `rd2_fragility_ts.parquet` is a raw-basis full recompute for research/ML
+  `rd2_fragility_ts.parquet` is a raw-basis full recompute for research
   only — NEVER a sizing fallback (daily_scan's fallback removed 2026-07-16).
 - **Staleness convention**: consumers fail OPEN to 1.0x sizing on readings
   older than 3 trading days (`daily_scan.FRAG_STALE_TD`,
@@ -210,7 +210,7 @@ overlay chart.
   pre-registered replay pending — do not touch it before the replay runs.
 - `dial_filters` entry gates, the daily risk email, the site risk tab
   (`sizing_state` reads the PIT parquet, never the deploy recompute), the
-  portfolio page fragility adjuster (`fragility.json`), ML features.
+  portfolio page fragility adjuster (`fragility.json`).
 
 ### Simple-dial shadow (A6, accumulating since 2026-07-16)
 
@@ -225,6 +225,25 @@ Guard: `tests/test_fragility_simple.py`.
 
 ### Negative results / triggers (institutional memory)
 
+- **ML meta-labeling layer: DELETED 2026-08-07, and do not rebuild it on
+  P(win).** The `ml/` package scored every staged signal with a calibrated
+  win probability and mapped it to advisory SKIP/TRIM/FULL sizing. Two full
+  walk-forward evaluations both said NO SHIP for the SAME reason, which is a
+  structural fact about this book rather than a modelling failure: the model
+  genuinely predicts wins (realized win rate climbs 44.7% -> 70.3% across
+  calibrated p-deciles, Brier beats base rate) but mean R is FLAT across those
+  deciles, because low win probability here comes with bigger winners. The
+  bucket it wanted to SKIP averaged +0.60R at a 51% win rate; 8-ATR-target
+  breakouts are the extreme case. Adding 8 features orthogonal to the entry
+  rules (put/call, NAAIM, analyst-grade momentum, earnings distance) changed
+  nothing: uplift -0.015R, bootstrap CI containing zero, 7/15 positive years.
+  **Win rate and expectancy are decoupled in this book by design**, so any
+  future proposal to improve results by being more selective has to clear
+  that bar first. Ran advisory-only from 2026-06-10 with nothing consuming
+  the output. The one line NOT closed by this was risk-targeted rather than
+  expectancy-targeted (P(MAE >= 1R), AUC 0.606, calibrated). Code, tests,
+  workflow, plan doc and the R2 model artifact are all gone; recover from git
+  history at 45ee31c~ if ever needed.
 - Book-wide throttle/taper, dial-conditioned caps: dead (PIT t=-0.23; see
   Daily Risk Caps section). OVS tilt: dead (PIT gate 2026-07-03).
 - Put hedges, VXX proxy, 21d "fast confirm" shadow, trend-sleeve gate,
