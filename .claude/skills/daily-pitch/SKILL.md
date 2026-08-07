@@ -184,6 +184,46 @@ computed fresh this morning and **at least one named consideration that could
 have killed it and did not** (the `survived` field). An idea with no such line
 is not finished.
 
+### Small N is not a kill. Read this before reaching for a correction.
+
+Markets produce small samples by construction. A monthly event has twelve
+observations a year, a cycle-year cell has one every four, and by the time any
+of them reaches N=50 the regime that produced it is usually gone. A rule that
+demands large N does not find safer trades, it finds older ones.
+
+So: **an idea with a plausible mechanism and N<15 is a grade C, which is
+exactly what grade C is for.** Ship it, grade it honestly, size it at the
+default and let the scoreboard settle it. Do not kill it for being small.
+
+**Multiplicity corrections price the cost of a SEARCH, so they only apply to
+cells the search found.** If you built a grid and reported its best occupant,
+correct for the grid. If the idea arrived with a mechanism attached, from
+McKinley, from the research docs, or from a stated prior, it was
+pre-specified and there is no search to charge it for. Applying a family-wise
+correction to somebody else's pre-registered hypothesis is a category error,
+and it happened on 2026-08-07: a DX cell McKinley asked about by name was
+scored against a 47-cell grid the checker had built itself, and killed at a
+family-wise p of 0.904 when the pre-specified p was 0.011.
+
+What still kills a small-N idea, because these are about the idea rather than
+about the sample size:
+
+- **no mechanism.** "This cell is green" with no story about who is on the
+  other side is a data artifact whatever its N.
+- **a filter that does not filter.** If a gate removes one observation from
+  six, nothing may be attributed to that gate. Say what the trade actually
+  keys on.
+- **definition fragility.** If the result exists under one definition of the
+  trigger and vanishes under a reasonable neighbour, the definition is the
+  finding.
+- **sign instability across eras**, or a mechanism that is falsified inside
+  its own window.
+- **cost.** A small edge is still an edge; an edge under its own round trip
+  is not.
+
+Report N plainly and let the grade carry it. "False positives are fine, he
+filters" is the product, and a filter with nothing to filter is not one.
+
 Ideas killed here are journaled with their reasons and appear as one line each
 in the email footer. They are not shown as ideas. If a kill teaches something
 reusable, append it to `data/pitch_negative_registry.md` the same morning.

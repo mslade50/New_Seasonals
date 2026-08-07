@@ -144,42 +144,40 @@ failures and only the first one is fixable by process.
   sector being the loudest thing in the cross-section is a reason to look, not
   evidence of an edge.
 
-## Month x cycle-year cells and the family-wise p-value (2026-08-07, McKinley's DX question)
+## Small N, mechanism, and when a multiplicity correction applies (2026-08-07)
 
-Asked directly: long DX at the NFP close when DX closes weak, in August,
-in midterm years. Never checked in that form (the earlier dollar work gated on
-TLT at its 52w floor and treated midterm as a split), so it was measured from
-scratch. The result is the best available demonstration of why a narrowed cell
-needs its selection cost priced in.
+McKinley asked directly whether long DX at a weak NFP close had been checked in
+August midterm years. It had not, so it was measured. The check then killed it
+on a family-wise p-value, and McKinley overruled that, correctly. **This entry
+is the corrected version. Do not re-apply the reasoning it replaces.**
 
-- **The naive and family-wise p-values differed by two orders of magnitude on
-  the SAME cell.** August x midterm x weak close, long DX, h=5: N=5, mean
-  +1.424%, 100% hit, t=2.893. Naive P(a random N=5 draw is this good) = 0.011,
-  which reads as significant. But the cell was SELECTED from a 12-month x
-  4-cycle-year grid, and a permutation test that reshuffles returns across the
-  47 populated cells 20,000 times and records the best cell each time gives
-  **P(best cell by chance >= +1.424%) = 0.904**. The median best-cell-by-luck is
-  +1.943%, HIGHER than what was observed. The cell is not merely unremarkable,
-  it is below the median of what pure noise produces at that grid size. Any
-  month x cycle-year narrowing must be priced this way before it is believed.
+- **A multiplicity correction prices the cost of a SEARCH. It only applies to
+  cells the search found.** The DX cell was pre-specified by McKinley before any
+  code ran. The checker then built a 47-cell month x cycle-year grid of its own
+  and scored his hypothesis against the best-of-47 null, reporting a family-wise
+  p of 0.904 against a pre-specified p of 0.011. That is a category error: his
+  idea was charged the search cost of the checker's scan. Correct for a grid you
+  built. Never correct for a grid the other person never searched.
   (scratch/pitch_checks/2026-08-07/n6_dx_cell_vs_luck.py)
-- **A 100% hit rate on N=5 is not evidence.** Two of the 47 cells cleared 100%
-  with N>=5 by construction, and the top cell by mean (June x midterm) has N=1.
-  Report the grid, not the winner.
-- **A gate that removes one observation is not a gate.** The weak-close filter
-  cut the August-midterm set from 6 to 5, so essentially all of the apparent
-  effect was the August-midterm cell itself, not the weak close. Definition
-  sensitivity confirmed it: the result survives only the two loosest weak-close
-  definitions (down on the day, close below open) and collapses to N=2 under
-  bottom-third-of-range. When a filter changes N by one, attribute nothing to it.
+- **Small N is not a kill; it is a grade.** Markets produce small samples by
+  construction, a cycle-year cell yields one observation every four years, and a
+  rule demanding N=50 selects for stale regimes rather than safe ones. An idea
+  with a plausible mechanism and N<15 is a grade C. Ship it, grade it honestly,
+  let the scoreboard decide. The product's own premise is that false positives
+  are acceptable because McKinley filters.
+- **What still stands from that check, because none of it is about sample
+  size.** The weak-close gate removed one observation of six, so the trade keys
+  on August-midterm and not on the weak close, and the write-up must say so. The
+  result holds under "down on the day" and "close below open" but collapses to
+  N=2 under bottom-third-of-range, so the trigger definition is load-bearing and
+  should be stated as chosen rather than discovered. Those are facts about the
+  idea's construction and they survive the overrule.
+- **The broad cell underneath, for reference rather than as a replacement.**
+  Long DX after ANY weak NFP close, h=5: N=160, +0.1826%, 54.4% hit, t=1.964,
+  bootstrap P(mean<=0)=0.0248, edge +0.1525pp over the all-NFP control, 12.2x
+  the 1.5 bp futures round trip. Era-decayed: pre-2018 +0.2282% at t=1.89,
+  2018+ +0.0931% at t=0.66. NOTE the contrast with the same day's
+  TLT-floor-gated dollar work, where midterm was wrong-signed while here midterm
+  is slightly better (+0.221% vs +0.169%). Different trigger, different
+  conditioner behaviour, neither transfers to the other.
   (scratch/pitch_checks/2026-08-07/n5_dx_weak_close_august_midterm.py)
-- **The broad effect underneath is real and era-decayed, which is the honest
-  version of the same idea.** Long DX after ANY weak NFP close, h=5: N=160,
-  +0.1826%, 54.4% hit, t=1.964, bootstrap P(mean<=0)=0.0248, edge +0.1525pp
-  over the all-NFP control and +0.177pp over DX's unconditional drift, 12.2x
-  the 1.5 bp futures round trip. Then pre-2018 is +0.2282% at t=1.89 and 2018+
-  is +0.0931% at t=0.66. The modern-era cell is roughly 6x cost with no
-  significance. NOTE the contrast with the same day's TLT-floor-gated dollar
-  work: there midterm was wrong-signed, here midterm is slightly BETTER
-  (+0.221% vs +0.169%). Different trigger, different conditioner behaviour, so
-  neither result transfers to the other.
