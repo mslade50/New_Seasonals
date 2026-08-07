@@ -24,6 +24,14 @@ sys.path.insert(0, _ROOT)
 OUT = os.path.join(_ROOT, "data", "site_risk.json")
 MASTER_PRICES = os.path.join(_ROOT, "data", "master_prices.parquet")
 
+# Adjusted OHLC shipped for the private risk page's bottom candlestick
+# explorer.  Keeping this menu intentionally compact avoids turning the
+# condensed risk payload into a full market-data endpoint.
+PRICE_EXPLORER_TICKERS = [
+    "SPY", "QQQ", "IWM", "DIA", "UVXY", "VXX",
+    "TLT", "GLD", "SLV", "USO", "HYG", "LQD",
+]
+
 
 # Metric metadata for the private-site signal charts.  The series themselves
 # stay owned by risk_dashboard_v2; this map only describes how to serialize
@@ -743,6 +751,66 @@ def _tc_pct(v, dec=1, signed=True):
     return s
 
 
+def build_price_explorer(spy_df, shared_dates, master_path=MASTER_PRICES):
+    """Serialize adjusted OHLC for the private site's match explorer.
+
+    All assets share the risk payload's SPY session calendar.  The exact
+    similar-fragility match dates live in ``forward_returns``; this block only
+    changes the price series drawn underneath those fixed vertical overlays.
+    """
+    import pandas as pd
+
+    dates = pd.DatetimeIndex(pd.to_datetime(shared_dates))
+    if dates.tz is not None:
+        dates = dates.tz_localize(None)
+    if dates.empty:
+        return None
+
+    columns = ["Open", "High", "Low", "Close"]
+    frames = {}
+    if spy_df is not None and all(column in spy_df.columns for column in columns):
+        spy = spy_df[columns].copy()
+        spy.index = pd.to_datetime(spy.index)
+        if spy.index.tz is not None:
+            spy.index = spy.index.tz_localize(None)
+        frames["SPY"] = spy[~spy.index.duplicated(keep="last")].sort_index()
+
+    other_tickers = [ticker for ticker in PRICE_EXPLORER_TICKERS if ticker != "SPY"]
+    if os.path.exists(master_path):
+        cached = pd.read_parquet(
+            master_path,
+            columns=["ticker", "date", *columns],
+            filters=[
+                ("ticker", "in", other_tickers),
+                ("date", ">=", dates.min()),
+            ],
+        )
+        if not cached.empty:
+            cached["date"] = pd.to_datetime(cached["date"])
+            for ticker, group in cached.groupby("ticker", sort=False):
+                frame = group.set_index("date")[columns]
+                frames[str(ticker)] = frame[
+                    ~frame.index.duplicated(keep="last")
+                ].sort_index()
+
+    series = {}
+    for ticker in PRICE_EXPLORER_TICKERS:
+        frame = frames.get(ticker)
+        if frame is None or frame.empty:
+            continue
+        aligned_close = frame["Close"].reindex(dates)
+        if aligned_close.notna().sum() < 20:
+            continue
+        series[ticker] = {
+            column.lower(): _aligned_values(frame[column], dates, 4)
+            for column in columns
+        }
+
+    if not series:
+        return None
+    return {"assets": list(series), "series": series}
+
+
 def _tc_prob(v):
     return "n/a" if v is None else f"{v * 100:.0f}%"
 
@@ -1051,6 +1119,17 @@ def main():
         payload["spy_series"] = {
             "close": [round(float(v), 2) for v in spy_close.values],
         }
+        try:
+            price_explorer = build_price_explorer(spy_df, shared_dates)
+            if price_explorer:
+                payload["price_explorer"] = price_explorer
+                print(
+                    "risk: price_explorer ok "
+                    f"({len(price_explorer['assets'])} assets)"
+                )
+        except Exception:
+            print("risk: price_explorer FAILED (continuing without it)")
+            traceback.print_exc()
         frag_df = computed.get("frag_df")
         if frag_df is not None and not frag_df.empty:
             ft = frag_df.rolling(5, min_periods=1).mean()

@@ -1,7 +1,8 @@
 /* risk.js — render data/risk.json (condensed risk_dashboard_v2 summary).
    Page order: sizing state (the number that sizes live orders, PIT-sourced),
    KPI strip, price context, nuggets, signals, SPY-vs-dial chart, forward
-   returns. Every post-2026-07-16 block is guarded so older payloads render. */
+   returns, drawdown paths, and the candlestick match explorer. Every
+   post-2026-07-16 block is guarded so older payloads render. */
 "use strict";
 
 const RISK_SIGNAL_COLORS = {
@@ -136,10 +137,21 @@ async function init() {
     html += drawdownIvHtml(d.drawdown_iv);
   }
 
+  // 8. Literal page bottom: candlesticks with the exact declustered match
+  // dates from the similar-fragility study. Changing the asset never changes
+  // the selected horizon's vertical overlays.
+  if (matchExplorerAvailable(d)) {
+    html += matchExplorerHtml(d);
+  }
+
   el.innerHTML = html;
 
   if (d.drawdown_iv && d.drawdown_iv.rows_by_horizon) {
     initDrawdownIvTable(d.drawdown_iv);
+  }
+
+  if (matchExplorerAvailable(d)) {
+    initMatchExplorer(d);
   }
 
   if (sz && sz.spark && Array.isArray(sz.spark.dates) && sz.spark.dates.length) {
@@ -670,6 +682,173 @@ function fwdTable(h, r) {
       ${r.n_episodes} episodes · band ${Math.round(r.band_low)}-${Math.round(r.band_high)}</div>
     <div class="tblwrap"><table class="tbl"><thead>${head}</thead><tbody>${rows}</tbody></table></div>
   </div>`;
+}
+
+function matchExplorerAvailable(d) {
+  const px = d && d.price_explorer;
+  const fwd = (d && d.forward_returns) || {};
+  const hasMatches = ["63d", "21d", "5d"].some(h =>
+    fwd[h] && Array.isArray(fwd[h].episode_dates) && fwd[h].episode_dates.length);
+  return !!(px && Array.isArray(px.assets) && px.assets.length &&
+    px.series && typeof px.series === "object" && hasMatches);
+}
+
+function matchExplorerHtml(d) {
+  const px = d.price_explorer;
+  const fwd = d.forward_returns || {};
+  const horizons = ["63d", "21d", "5d"].filter(h =>
+    fwd[h] && Array.isArray(fwd[h].episode_dates) && fwd[h].episode_dates.length);
+  const horizonLabels = {
+    "63d": "Long (63d)", "21d": "Intermediate (21d)", "5d": "Short (5d)",
+  };
+  const horizonOptions = horizons.map((h, i) =>
+    `<option value="${h}"${i === 0 ? " selected" : ""}>${horizonLabels[h]}</option>`).join("");
+  const assetOptions = px.assets.filter(ticker => px.series[ticker]).map(ticker =>
+    `<option value="${esc(ticker)}"${ticker === "SPY" ? " selected" : ""}>${esc(ticker)}</option>`).join("");
+  return `<h2>Similar-fragility match explorer</h2>
+    <div class="card risk-match-card">
+      <div class="tbl-controls risk-match-controls">
+        <label for="matchHorizon">Match set</label>
+        <select id="matchHorizon">${horizonOptions}</select>
+        <label for="matchAsset">Candlestick asset</label>
+        <select id="matchAsset">${assetOptions}</select>
+        <span class="info cap-inline" id="matchCoverage"></span>
+      </div>
+      <div class="cap risk-match-caption" id="matchCaption"></div>
+      <div class="chart risk-match-chart" id="matchPriceChart"></div>
+      <div class="cap">Red lines are the exact declustered band matches and stay fixed when the asset changes. Use the chart toolbar, drag, or scroll to zoom; double-click to reset.</div>
+    </div>`;
+}
+
+function candlestickYRange(lows, highs, dates, dateRange) {
+  const loRange = valuesRange(lows, dates, dateRange);
+  const hiRange = valuesRange(highs, dates, dateRange);
+  if (!loRange || !hiRange) return null;
+  return [loRange[0], hiRange[1]];
+}
+
+function bindMatchExplorerZoom(el) {
+  if (!el || el._matchZoomBound || typeof el.on !== "function") return;
+  el._matchZoomBound = true;
+  el.on("plotly_relayout", update => {
+    if (!el._matchSeries || el._matchYRelayout) return;
+    let range = update && update["xaxis.range"];
+    if (!range && update && update["xaxis.range[0]"] && update["xaxis.range[1]"]) {
+      range = [update["xaxis.range[0]"], update["xaxis.range[1]"]];
+    }
+    if (!range || range.length !== 2) return;
+    const s = el._matchSeries;
+    const yRange = candlestickYRange(s.low, s.high, s.dates, range);
+    if (!yRange) return;
+    el._matchYRelayout = true;
+    Promise.resolve(Plotly.relayout(el, { "yaxis.range": yRange }))
+      .finally(() => { el._matchYRelayout = false; });
+  });
+}
+
+function renderMatchExplorer(d) {
+  const chartEl = document.getElementById("matchPriceChart");
+  const horizonEl = document.getElementById("matchHorizon");
+  const assetEl = document.getElementById("matchAsset");
+  const coverageEl = document.getElementById("matchCoverage");
+  const captionEl = document.getElementById("matchCaption");
+  if (!chartEl || !horizonEl || !assetEl) return;
+
+  const horizon = horizonEl.value || "63d";
+  const ticker = assetEl.value || "SPY";
+  const study = (d.forward_returns || {})[horizon];
+  const px = d.price_explorer || {};
+  const series = (px.series || {})[ticker];
+  if (!study || !series) return;
+
+  const dates = seriesDates(d, series);
+  const matches = (study.episode_dates || []).map(value => String(value).slice(0, 10));
+  const firstDate = dates.find(Boolean);
+  const lastDate = dates.slice().reverse().find(Boolean);
+  const visibleMatches = matches.filter(date =>
+    firstDate && lastDate && date >= firstDate && date <= lastDate);
+  const dateIndex = new Map(dates.map((date, i) => [String(date).slice(0, 10), i]));
+  const markerDates = [];
+  const markerHighs = [];
+  for (const date of visibleMatches) {
+    const i = dateIndex.get(date);
+    const high = i == null ? null : Number(series.high[i]);
+    if (i != null && series.high[i] != null && Number.isFinite(high)) {
+      markerDates.push(date);
+      markerHighs.push(high);
+    }
+  }
+
+  const traces = [{
+    type: "candlestick", x: dates,
+    open: series.open, high: series.high, low: series.low, close: series.close,
+    name: ticker,
+    increasing: { line: { color: "#00d18f", width: 1 }, fillcolor: "#00d18f" },
+    decreasing: { line: { color: "#ff5d5d", width: 1 }, fillcolor: "#ff5d5d" },
+  }];
+  if (markerDates.length) traces.push({
+    type: "scatter", mode: "markers", x: markerDates, y: markerHighs,
+    name: `${horizon} matches`,
+    marker: { symbol: "triangle-down", size: 8, color: "#ff5d5d" },
+    customdata: markerDates,
+    hovertemplate: "Match %{customdata}<extra></extra>",
+  });
+
+  const shapes = visibleMatches.map(date => ({
+    type: "line", xref: "x", yref: "paper", layer: "above",
+    x0: date, x1: date, y0: 0, y1: 1,
+    line: { color: "rgba(255,93,93,.78)", width: 1 },
+  }));
+  const fullRange = firstDate && lastDate ? [firstDate, lastDate] : null;
+  const yRange = candlestickYRange(series.low, series.high, dates, fullRange);
+  const layout = plotLayout({
+    height: 560,
+    margin: { l: 58, r: 20, t: 46, b: 42 },
+    dragmode: "zoom",
+    uirevision: `risk-match-${ticker}-${horizon}`,
+    shapes,
+    xaxis: {
+      type: "date", range: fullRange,
+      rangebreaks: nonTradingRangebreaks(dates),
+      rangeslider: { visible: false },
+      rangeselector: {
+        x: 0, y: 1.08,
+        buttons: [
+          { count: 1, label: "1m", step: "month", stepmode: "backward" },
+          { count: 3, label: "3m", step: "month", stepmode: "backward" },
+          { count: 6, label: "6m", step: "month", stepmode: "backward" },
+          { count: 1, label: "1y", step: "year", stepmode: "backward" },
+          { step: "all", label: "All" },
+        ],
+      },
+    },
+    yaxis: { range: yRange, title: { text: ticker, font: { size: 11 } } },
+    legend: { orientation: "h", y: 1.12, x: 1, xanchor: "right", font: { size: 9 } },
+  });
+  chartEl._matchSeries = { dates, low: series.low, high: series.high };
+  const config = {
+    responsive: true, displayModeBar: true, displaylogo: false, scrollZoom: true,
+    modeBarButtonsToRemove: ["select2d", "lasso2d"],
+  };
+  if (typeof Plotly.react === "function") Plotly.react(chartEl, traces, layout, config);
+  else Plotly.newPlot(chartEl, traces, layout, config);
+  bindMatchExplorerZoom(chartEl);
+
+  if (coverageEl) coverageEl.textContent = visibleMatches.length === matches.length
+    ? `${matches.length} matches`
+    : `${visibleMatches.length} of ${matches.length} matches in ${ticker} history`;
+  if (captionEl) captionEl.innerHTML = `${horizon.toUpperCase()} fragility ${Math.round(study.current_score)} &middot; ` +
+    `band ${Math.round(study.band_low)}&ndash;${Math.round(study.band_high)} &middot; ` +
+    `${matches.length} declustered episodes`;
+}
+
+function initMatchExplorer(d) {
+  const horizonEl = document.getElementById("matchHorizon");
+  const assetEl = document.getElementById("matchAsset");
+  if (!horizonEl || !assetEl || typeof horizonEl.addEventListener !== "function") return;
+  horizonEl.addEventListener("change", () => renderMatchExplorer(d));
+  assetEl.addEventListener("change", () => renderMatchExplorer(d));
+  renderMatchExplorer(d);
 }
 
 function drawdownIvFilteredRows(di, horizon, threshold) {
