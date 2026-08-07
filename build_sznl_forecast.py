@@ -17,10 +17,14 @@ from pandas.tseries.offsets import CustomBusinessDay
 import sys
 import os
 
-# Import SECTOR_ETFS from the macro seasonality page (formerly sector_trends)
 current_dir = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(current_dir, "pages"))
-from macro_seasonality import SECTOR_ETFS
+
+# SECTOR_ETFS lives on a Streamlit page, so importing it at module scope drags
+# streamlit into anything that wants the rank maths. scripts/build_sznl_ranks
+# imports calculate_forecast_profile from here precisely so there is ONE
+# definition of a seasonal rank in this repo; that import must not require a
+# UI framework. Deferred into main(), which is the only place it is used.
 
 # --- CONFIGURATION ---
 DB_PATH = os.path.join(current_dir, "data", "sznl_forecast.db")
@@ -129,6 +133,7 @@ def process_ticker(ticker):
 
 
 def main():
+    from macro_seasonality import SECTOR_ETFS
     tickers = sorted(set(SECTOR_ETFS))
     print(f"Building {FORECAST_YEAR} seasonal forecast for {len(tickers)} tickers...\n")
 
