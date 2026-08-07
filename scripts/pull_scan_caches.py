@@ -37,6 +37,13 @@ OPTIONAL = [
     # OLV sector_loss_gate ledger — missing = gate off with a notice
     # (fail-open overlay by design)
     ("backtest_trades_full.parquet", "data/backtest_trades_full.parquet"),
+    # Sleeve state. Both sleeves run in GHA and round-trip these through R2,
+    # so a local run never has them on disk. Only build_pitch_state reads
+    # them, and without them the Daily Pitch cannot see sleeve positions when
+    # writing an idea's `overlap` field, which is a hard requirement. Pulling
+    # them turns a standing warning into real book context.
+    ("event_sleeve_state.json", "data/event_sleeve_state.json"),
+    ("trend_sleeve_state.json", "data/trend_sleeve_state.json"),
 ]
 
 
