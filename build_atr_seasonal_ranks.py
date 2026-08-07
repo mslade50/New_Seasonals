@@ -34,7 +34,7 @@ from pandas.tseries.offsets import CustomBusinessDay
 current_dir = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, current_dir)
 
-from strategy_config import CSV_UNIVERSE
+from strategy_config import CSV_UNIVERSE, LIQUID_PLUS_COMMODITIES
 
 # --- Config ---
 CACHE_DIR = os.path.join(current_dir, "data")
@@ -482,7 +482,13 @@ if __name__ == "__main__":
     if args.tickers:
         tickers = args.tickers
     else:
-        tickers = list(CSV_UNIVERSE)
+        # CSV_UNIVERSE alone is NOT the set of names the book gates on.
+        # It comes from sznl_ranks.csv, which lacks 18 LIQUID names, so those
+        # never got ranks built. Six strategies gate on this file and their
+        # scan-side filters FAIL CLOSED, meaning PSA, REGN, SNA, SPG and TMO
+        # could never fire them — silently, for as long as that was true.
+        # Union with LIQUID so the builder covers everything that can gate.
+        tickers = sorted(set(CSV_UNIVERSE) | set(LIQUID_PLUS_COMMODITIES))
         if args.with_symbol_master:
             import os as _os
             import pandas as _pd
