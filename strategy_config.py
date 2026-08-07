@@ -84,7 +84,7 @@ LIQUID_UNIVERSE = [
     'HRL', 'HSY', 'HUM', 'IBB', 'IBM', 'IHI', 'INTC', 'IP', 'ITA', 'ITB',
     'ITW', 'IWM', 'IYR', 'JNJ', 'JPM', 'KEY', 'KMB', 'KO', 'KR',
     'KRE', 'LEG', 'LIN', 'LLY', 'LMT', 'LOW', 'LUV', 'MAS', 'MCD', 'MDT',
-    'MET', 'META', 'MMC', 'MMM', 'MO', 'MRK', 'MS', 'MSFT', 'MU', 'NEE',
+    'MET', 'META', 'MRSH', 'MMM', 'MO', 'MRK', 'MS', 'MSFT', 'MU', 'NEE',
     'NEM', 'NKE', 'NOC', 'NSC', 'NUE', 'NVDA', 'ORCL', 'OXY', 'PAYX', 'PCG',
     'PEG', 'PEP', 'PFE', 'PG', 'PGR', 'PH', 'PNW', 'PPG', 'PPL', 'PSA',
     'QCOM', 'QQQ', 'REGN', 'RF', 'RHI', 'ROK', 'ROST', 'RTX', 'SBUX', 'SCHW',
@@ -193,9 +193,31 @@ try:
     # deal-arb, and fading/buying an arb-pinned name never mean-reverts).
     # 0 ledger trades at removal. Overflow tier only. Re-add if a deal breaks.
     UNIVERSE_CORP_ACTION_EXCLUSIONS = {'CBZ'}
+    # Delisted / acquired names, excluded 2026-08-07 after a cache audit found
+    # 14 symbols that had silently stopped updating (scripts/
+    # diagnose_stale_tickers.py). A dead symbol does not go quiet, it goes
+    # WRONG: its stale bars keep feeding rank and z-score maths, so its
+    # "5-day return" quietly becomes a three-week return. BK ranked as the
+    # HOTTEST 5-day name in the entire 217-name pitch tape that way before it
+    # was found to be a rename (BK -> BNY). These ten have no live successor
+    # in FMP's symbol-change feed and yfinance serves them no recent bar.
+    #
+    # Their PRICE HISTORY DELIBERATELY STAYS in master_prices. Dropping it
+    # would deepen the survivorship bias CLAUDE.md already flags on the
+    # 23-year ledger (21 of 22 major 2020s delistings are absent, which
+    # flatters long dip-buy stats). Excluding them here removes them from the
+    # FORWARD universe only, which is the correct asymmetry: never scan them
+    # again, never pretend they were absent from the past.
+    # All overflow-tier. Re-check if any relists.
+    # THS additionally had NO rows in master_prices at all and no successor.
+    UNIVERSE_DELISTED = {
+        'TGNA', 'SEE', 'CTRA', 'CUK', 'CSGS', 'CTLP', 'GDEN', 'SEM', 'RSX',
+        'THS',
+    }
     CSV_UNIVERSE = sorted(
         t for t in _pd.read_csv(_csv_path)['ticker'].unique().tolist()
         if t not in UNIVERSE_CORP_ACTION_EXCLUSIONS
+        and t not in UNIVERSE_DELISTED
         and not str(t).endswith('=F') and not str(t).endswith('-USD')
         and (not str(t).startswith('^') or t in SPOT_TO_TRADEABLE)
     )

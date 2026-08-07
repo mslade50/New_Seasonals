@@ -35,10 +35,21 @@ sys.path.insert(0, str(ROOT))
 
 PARQUET = ROOT / "data" / "master_prices.parquet"
 R2_KEY = "master_prices.parquet"
-# The overlap ratio must be near-constant. A real rename is the same price
-# series on a different adjustment vintage; anything else is a different
-# instrument and must not be spliced in.
-MAX_RATIO_STD = 1e-4
+# Same-instrument test. The question is IDENTITY, not continuity: this does a
+# full replace, so there is no join to be smooth across. Two records of one
+# instrument agree on the overwhelming majority of bars up to one adjustment
+# factor, and disagree on none of them by much.
+#
+# An early version gated on the ratio's standard deviation over the whole
+# overlap and rejected two genuine renames. ASGN/EFOR agree to 1.00000 in
+# every year from 2018 on and differ only on a few 2010 bars. IAC/PPLI agree
+# exactly in 2010, 2018, 2022 and 2026 but differ by a constant 0.82034 across
+# 2024-25. Four eras matching to five decimals is not coincidence; that window
+# is a STALE ADJUSTMENT in our stored copy, which is a reason to replace the
+# series rather than a reason to refuse. A single noisy sub-window must not
+# outvote thousands of exact matches, so the test is now a robust fraction.
+RATIO_BAND = 1e-3          # a bar "agrees" within 0.1% of the median ratio
+MIN_AGREE_FRAC = 0.90      # and at least this share of bars must agree
 COLS = ["ticker", "date", "Open", "High", "Low", "Close", "Volume"]
 
 
@@ -61,39 +72,66 @@ def main() -> int:
     ap.add_argument("--write", action="store_true")
     ap.add_argument("--upload", action="store_true",
                     help="overwrite the R2 key; live orders read it")
+    ap.add_argument("--allow-missing", action="store_true",
+                    help="insert the successor even when the old symbol has "
+                         "no rows in the cache (no identity proof possible)")
     ap.add_argument("--force", action="store_true",
                     help="splice even if the overlap ratio is not constant")
     args = ap.parse_args()
 
     df = pd.read_parquet(PARQUET)
     old = df[df.ticker == args.old]
-    if old.empty:
-        raise SystemExit(f"{args.old} is not in {PARQUET.name}")
+    if old.empty and not args.allow_missing:
+        raise SystemExit(f"{args.old} is not in {PARQUET.name}. If the symbol "
+                         f"fell out of the cache entirely, pass "
+                         f"--allow-missing to insert the successor's history "
+                         f"(no same-instrument proof is possible).")
     if (df.ticker == args.new).any():
         raise SystemExit(f"{args.new} already present; refusing to merge")
 
-    print(f"{args.old}: {len(old)} bars, "
-          f"{old.date.min().date()} -> {old.date.max().date()}")
+    if old.empty:
+        # update_master_prices takes its universe FROM the parquet, so a symbol
+        # that fails to download once falls out and never returns. MMC did
+        # exactly that: a LIQUID-tier name with zero cached rows, silently
+        # skipped by every scan since. There is no stored series to prove
+        # identity against, so FMP's successor mapping is the only evidence.
+        print(f"{args.old}: ABSENT from the cache entirely")
+    else:
+        print(f"{args.old}: {len(old)} bars, "
+              f"{old.date.min().date()} -> {old.date.max().date()}")
     new = fetch(args.new)
     print(f"{args.new}: {len(new)} bars, "
           f"{new.date.min().date()} -> {new.date.max().date()}")
 
     # --- same-instrument proof --------------------------------------------
-    j = (old.set_index("date")[["Close"]]
-         .join(new.set_index("date")[["Close"]], how="inner",
-               lsuffix="_old", rsuffix="_new").dropna())
-    if len(j) < 100:
-        raise SystemExit(f"only {len(j)} overlapping bars; refusing to splice")
-    ratio = j.Close_new / j.Close_old
-    print(f"overlap {len(j)} bars | ratio mean {ratio.mean():.6f} "
-          f"std {ratio.std():.2e} (adjustment factor)")
-    if ratio.std() > MAX_RATIO_STD and not args.force:
-        raise SystemExit(
-            f"ratio std {ratio.std():.2e} exceeds {MAX_RATIO_STD:.0e}: these "
-            f"are not the same series on two vintages. Refusing without --force.")
-
-    gained = int((new.date > old.date.max()).sum())
-    print(f"bars recovered past {old.date.max().date()}: {gained}")
+    if old.empty:
+        print("  NOTE: no overlap to test. Inserting on FMP's mapping alone; "
+              "eyeball the first scan that trades it.")
+    else:
+        j = (old.set_index("date")[["Close"]]
+             .join(new.set_index("date")[["Close"]], how="inner",
+                   lsuffix="_old", rsuffix="_new").dropna())
+        if len(j) < 100:
+            raise SystemExit(f"only {len(j)} overlapping bars; refusing to splice")
+        ratio = j.Close_new / j.Close_old
+        med = ratio.median()
+        agree = ((ratio / med - 1.0).abs() < RATIO_BAND)
+        frac = float(agree.mean())
+        print(f"overlap {len(j)} bars | median ratio {med:.6f} | "
+              f"{100 * frac:.1f}% of bars agree within {RATIO_BAND:.1%}")
+        if frac < MIN_AGREE_FRAC and not args.force:
+            raise SystemExit(
+                f"only {100 * frac:.1f}% of overlapping bars agree (floor "
+                f"{100 * MIN_AGREE_FRAC:.0f}%): this does not look like one "
+                f"instrument under two symbols. Refusing without --force.")
+        if frac < 1.0:
+            bad = j[~agree]
+            yrs = sorted({d.year for d in bad.index})
+            print(f"  NOTE: {len(bad)} bar(s) disagree, years {yrs}. The "
+                  f"replace puts every bar on the new symbol's current "
+                  f"adjustment basis, fixing a stale stored window.")
+        gained = int((new.date > old.date.max()).sum())
+        print(f"bars recovered past {old.date.max().date()}: {gained}")
 
     # --- rebuild ----------------------------------------------------------
     rest = df[df.ticker != args.old]
