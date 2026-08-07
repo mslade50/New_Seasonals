@@ -99,6 +99,12 @@ STAND_DOWN_MIN_AXES = 4         # stage B's novelty-axis floor
 STAND_DOWN_MIN_KILLED = 6       # named kills, not a summary count
 STAND_DOWN_MIN_REASON = 120     # characters; a one-liner is not a verdict
 STAND_DOWN_MAX_CLOSEST = 3
+# Coverage, added 2026-08-07. Axis variety is not coverage: the run that
+# prompted all of this hit seven novelty axes and still ran every
+# calendar-anchored check on SPY. "Nothing worth trading today" is a claim
+# about the whole surface, so it has to show the surface was walked.
+STAND_DOWN_MIN_ASSET_CLASSES = 4
+SURFACE_MAP_NAME = "00_surface_map.md"
 
 
 class PitchGrammarError(ValueError):
@@ -581,6 +587,15 @@ def validate_stand_down(payload) -> list[str]:
                       f"novelty axes — an empty morning on one axis is a thin "
                       f"sweep, not an empty market")
 
+    classes = block.get("asset_classes")
+    if not isinstance(classes, list) or len({str(a).strip().lower()
+                                             for a in classes if str(a).strip()}
+                                            ) < STAND_DOWN_MIN_ASSET_CLASSES:
+        errors.append(f"stand_down.asset_classes needs >= "
+                      f"{STAND_DOWN_MIN_ASSET_CLASSES} distinct classes from "
+                      f"the stage B1 table — axis variety is not coverage, and "
+                      f"an all-equity sweep cannot conclude the market is empty")
+
     checks = str(block.get("checks_dir", "")).strip()
     if not checks:
         errors.append("stand_down.checks_dir is required — the scripts written "
@@ -591,8 +606,15 @@ def validate_stand_down(payload) -> list[str]:
             path = ROOT / path
         if not path.is_dir():
             errors.append(f"stand_down.checks_dir {checks} does not exist")
-        elif not any(path.glob("*.py")):
-            errors.append(f"stand_down.checks_dir {checks} holds no .py checks")
+        else:
+            if not any(path.glob("*.py")):
+                errors.append(f"stand_down.checks_dir {checks} holds no .py "
+                              f"checks")
+            if not (path / SURFACE_MAP_NAME).is_file():
+                errors.append(f"stand_down.checks_dir {checks} has no "
+                              f"{SURFACE_MAP_NAME} — stage B1's surface map is "
+                              f"what shows the whole grid was walked before "
+                              f"concluding it was empty")
 
     killed = payload.get("killed") or []
     if not isinstance(killed, list) or len(killed) < STAND_DOWN_MIN_KILLED:

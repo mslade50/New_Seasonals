@@ -435,6 +435,7 @@ def stand_down(tmp_path):
     checks = tmp_path / "checks"
     checks.mkdir()
     (checks / "c1_probe.py").write_text("# check\n", encoding="utf-8")
+    (checks / pg.SURFACE_MAP_NAME).write_text("# surface\n", encoding="utf-8")
     return {
         "asof": "2026-08-07",
         "ideas": [],
@@ -443,6 +444,7 @@ def stand_down(tmp_path):
             "candidates_considered": 24,
             "axes": ["relative_value", "inversion", "event_fingerprint",
                      "flow_mechanics"],
+            "asset_classes": ["us_large", "rates", "gold_miners", "energy"],
             "checks_dir": str(checks),
             "closest": [{
                 "title": "Short TLT at the 52w low",

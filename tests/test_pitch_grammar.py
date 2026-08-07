@@ -299,6 +299,7 @@ def stand_down(tmp_path):
     checks = tmp_path / "checks"
     checks.mkdir()
     (checks / "c1_probe.py").write_text("# a real check\n", encoding="utf-8")
+    (checks / pg.SURFACE_MAP_NAME).write_text("# surface\n", encoding="utf-8")
     return {
         "asof": "2026-08-07",
         "ideas": [],
@@ -307,6 +308,7 @@ def stand_down(tmp_path):
             "candidates_considered": 24,
             "axes": ["relative_value", "inversion", "event_fingerprint",
                      "flow_mechanics"],
+            "asset_classes": ["us_large", "rates", "gold_miners", "energy"],
             "checks_dir": str(checks),
             "closest": [{"title": "Short TLT at the 52w low",
                          "decisive": "excess +1.263%, Welch t=2.10",
@@ -398,3 +400,53 @@ def test_near_miss_needs_the_number_it_turned_on(stand_down, field):
 def test_stand_down_asof_still_required(stand_down):
     stand_down["asof"] = ""
     assert any("asof" in e for e in pg.validate_payload(stand_down))
+
+
+# --- coverage: axis variety is not asset coverage --------------------------
+# 2026-08-07 hit seven novelty axes and still ran every calendar-anchored
+# check on SPY. These two floors are the difference between "I thought about
+# it several ways" and "I looked at the whole surface".
+def test_coverage_floors_frozen():
+    assert pg.STAND_DOWN_MIN_ASSET_CLASSES == 4
+    assert pg.SURFACE_MAP_NAME == "00_surface_map.md"
+
+
+def test_an_all_equity_sweep_cannot_declare_the_market_empty(stand_down):
+    stand_down["stand_down"]["asset_classes"] = ["us_large"]
+    assert any("asset_classes" in e for e in pg.validate_payload(stand_down))
+
+
+def test_missing_asset_classes_is_an_error_not_a_default(stand_down):
+    stand_down["stand_down"].pop("asset_classes")
+    assert any("asset_classes" in e for e in pg.validate_payload(stand_down))
+
+
+def test_duplicate_asset_classes_do_not_count(stand_down):
+    stand_down["stand_down"]["asset_classes"] = ["rates", "Rates", " rates",
+                                                 "RATES"]
+    assert any("asset_classes" in e for e in pg.validate_payload(stand_down))
+
+
+def test_many_axes_do_not_substitute_for_coverage(stand_down):
+    stand_down["stand_down"]["axes"] = sorted(pg.NOVELTY_AXES)   # all seven
+    stand_down["stand_down"]["asset_classes"] = ["us_large", "us_small"]
+    errors = pg.validate_payload(stand_down)
+    assert not any("axes" in e and "asset" not in e for e in errors)
+    assert any("asset_classes" in e for e in errors)
+
+
+def test_stand_down_needs_the_surface_map(stand_down, tmp_path):
+    checks = Path(stand_down["stand_down"]["checks_dir"])
+    (checks / pg.SURFACE_MAP_NAME).unlink()
+    assert any(pg.SURFACE_MAP_NAME in e for e in pg.validate_payload(stand_down))
+
+
+def test_checks_without_a_map_are_a_sweep_without_a_survey(stand_down):
+    """Both diagnoses fire independently, so a run that wrote neither sees
+    both lines rather than only the first."""
+    checks = Path(stand_down["stand_down"]["checks_dir"])
+    (checks / pg.SURFACE_MAP_NAME).unlink()
+    (checks / "c1_probe.py").unlink()
+    errors = pg.validate_payload(stand_down)
+    assert any("no .py checks" in e for e in errors)
+    assert any(pg.SURFACE_MAP_NAME in e for e in errors)

@@ -40,7 +40,12 @@ python scripts/build_pitch_state.py
 Writes `data/pitch_state.json` (calendar, risk dials, book state, earnings,
 seasonality, research index, your own recent pitch history) and
 `data/pitch_tape.json` (per-ticker return ranks, z10, ATR, 52w and 200d
-distances for ~215 names). Read the state file whole. Look up the tape file.
+distances for ~215 names). Read the state file whole.
+
+Read the tape file whole as well, and SORT it. Do not look up the handful of
+tickers you already have a thought about; that turns a 217-name cross-asset
+picture into whatever you walked in with. Everything McKinley trades is in
+there, rates and metals and energy and FX included.
 
 **Check `warnings` first.** A stale price cache or a missing dial changes what
 you can honestly claim. If the freshest bar is not the prior session, say so in
@@ -50,10 +55,65 @@ every affected idea's evidence and consider standing down to lower grades.
 days. An idea matching one of those needs a `changed_since` sentence saying
 what materially changed, or it must be dropped.
 
-## Stage B. Ideation (wide net, 8 to 12 candidates)
+## Stage B. Survey the whole surface, then select from it
 
-Generate 8 to 12 raw candidates drawing on **at least four** of these axes.
-Name the axis on every candidate; the journal tracks which axes actually earn.
+This stage failed on 2026-08-07 and the failure is worth stating, because the
+old wording looked fine and was not. It said "generate 8 to 12 candidates
+drawing on at least four axes". That is a menu, and a menu is satisfied by
+whatever comes to mind first. The `event_fingerprint` axis got its tick from
+one SPY idea, the floor passed, and nothing ever asked which assets had been
+looked at. It was an August NFP in a midterm year, the spec names the
+midterm-August-NFP cross-asset table as its own example of that very axis, and
+every calendar-anchored check that morning ran on SPY. Nothing was missing
+from the data. TLT, GLD, UUP, DX-Y.NYB and ^TNX were all sitting in the tape.
+
+So the stage is now two halves and the first one is not optional. Map the
+surface, then pick from the map. Never generate from recall.
+
+### B1. Map the surface before generating a single candidate
+
+Write `scratch/pitch_checks/<YYYY-MM-DD>/00_surface_map.md` FIRST. It
+enumerates today's whole opportunity surface and gives every cell a verdict.
+The dismissals matter as much as the picks: a cell you do not examine has to
+be visibly dismissed with a reason, never silently absent. If the map is
+missing, the morning is not surveyed and nothing may publish.
+
+Three enumerations, each exhaustive.
+
+**1. Every live calendar event, crossed with every asset class.** Take every
+entry in `calendar.events`, the whole window and not just the next one, and
+cross it with all of these:
+
+| class | proxies |
+|---|---|
+| US large | SPY, QQQ, ^GSPC, ^NDX |
+| US small and breadth | IWM |
+| rates | TLT, IEF, ^TNX |
+| credit | HYG, LQD |
+| gold and miners | GLD, GDX |
+| other metals | SLV |
+| energy | USO, UNG, DBC |
+| dollar and FX | UUP, DX-Y.NYB |
+| international | EFA, EEM, FXI |
+| volatility | ^VIX, ^VIX3M, ^MOVE, SVXY |
+
+Six events by ten classes is sixty cells. You are not checking sixty things.
+You are deciding in writing which of the sixty deserve a check and why the
+rest do not. "NFP x rates: not examined" is a legal line only when the next
+words say why.
+
+**2. Every tape extreme, by class.** Sort the whole tape. What sits at a 52w
+edge, what is rank-extreme at 5/21/63d, what is furthest from its 200d, what
+carries the widest z10. Name the outliers in every class, not only the classes
+you already had an idea about.
+
+**3. Every live seasonal and cycle cell**, from `seasonality` plus the
+cycle-year state. Midterm is a conditioner on everything above rather than an
+idea of its own.
+
+### B2. Select 8 to 12 candidates from the map
+
+Name the novelty axis on each; the journal tracks which axes actually earn.
 
 | axis | what it means |
 |---|---|
@@ -69,6 +129,27 @@ Default horizon is 1 to 10 trading days. Instruments are anything McKinley can
 trade: US equities and ETFs, and futures (DX, ES family, treasuries, metals).
 Never reject an idea for lacking an ETF wrapper; futures are fine and the card
 prints the contract for manual entry. No options in v1.
+
+**Coverage requirements. These are requirements, not targets.**
+
+- Candidates must touch **at least four distinct asset classes** from the B1
+  table. A morning of five equity ideas is a failed survey no matter how good
+  the five ideas are.
+- **Every event inside its window appears in the map with a verdict.** The
+  event you skip is the one McKinley asks about, and he will be right.
+- **At least one candidate anchored on a calendar event, and at least one on a
+  price state.** These are different search modes. On 2026-08-07 every
+  calendar-anchored check was SPY and every cross-asset check was anchored on
+  a chart level (bond floor, silver catch-up, GDX drawdown, natgas at a 52w
+  low). Neither mode was missing. They were never crossed, which is where the
+  NFP-times-rates cell lived.
+- Four axes remains the floor, but axis variety no longer substitutes for
+  coverage. Both are checked.
+
+Coverage is about where you LOOK, not about what you ship. Standing down after
+a genuinely comprehensive survey is a fine morning. Shipping three good equity
+ideas without having opened rates, metals or FX is not, and it is invisible in
+the output unless the map says so.
 
 Before spending a check on a candidate, run it against
 `data/pitch_negative_registry.md` (also inlined in the state file under
@@ -120,11 +201,15 @@ indistinguishable from a broken scheduled task.
 
 A stand-down costs MORE work than shipping, on purpose. The publisher enforces
 all of it: at least 8 candidates over at least 4 distinct novelty axes, at
-least 6 named kills with reasons, a reason of at least 120 characters, a
-`checks_dir` that exists and holds real `.py` checks, and 1 to 3 near-misses
-each carrying the **number it turned on**. If you are standing down because
-the sweep was thin, the answer is to go back to stage B, not to fill in this
-block.
+least 4 distinct asset classes, at least 6 named kills with reasons, a reason
+of at least 120 characters, a `checks_dir` holding both real `.py` checks and
+the `00_surface_map.md` from stage B1, and 1 to 3 near-misses each carrying
+the **number it turned on**. If you are standing down because the sweep was
+thin, the answer is to go back to stage B, not to fill in this block.
+
+"Nothing worth trading today" is a claim about the whole surface, so it is the
+one verdict that has to prove it surveyed the whole surface. List the classes
+you covered in `asset_classes`.
 
 ```json
 {
@@ -133,7 +218,8 @@ block.
   "stand_down": {
     "reason": "what the morning looked like and why none of it survived",
     "candidates_considered": 24,
-    "axes": ["relative_value", "event_window", "vol_structure", "seasonal"],
+    "axes": ["relative_value", "inversion", "event_fingerprint", "flow_mechanics"],
+    "asset_classes": ["us_large", "rates", "gold_miners", "energy", "dollar_fx"],
     "checks_dir": "scratch/pitch_checks/YYYY-MM-DD",
     "closest": [
       {"title": "Short TLT at the 52w low",

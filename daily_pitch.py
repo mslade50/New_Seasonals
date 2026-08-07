@@ -548,6 +548,7 @@ def render_stand_down(payload: dict, asof: pd.Timestamp, scoreboard: dict,
             f"<b>Everything killed today ({len(killed)}):</b><br>{lines}</p>")
 
     axes = ", ".join(_esc(str(a)) for a in (block.get("axes") or []))
+    classes = ", ".join(_esc(str(c)) for c in (block.get("asset_classes") or []))
     context = ""
     if state:
         risk = state.get("risk", {})
@@ -592,7 +593,8 @@ def render_stand_down(payload: dict, asof: pd.Timestamp, scoreboard: dict,
   </div>
   <h3 style="margin-bottom:2px;font-size:15px">Closest to shipping</h3>
   {closest}
-  <p style="color:#777;font-size:12px">Axes swept: {axes}<br>
+  <p style="color:#777;font-size:12px">Asset classes covered: {classes}<br>
+     Axes swept: {axes}<br>
      Checks written this morning: {_esc(block.get('checks_dir', ''))}</p>
   {killed_html}
   {render_scoreboard(scoreboard)}
@@ -734,6 +736,7 @@ def stand_down_records(payload: dict, asof: pd.Timestamp,
         "reason": block.get("reason", ""),
         "candidates_considered": block.get("candidates_considered"),
         "axes": block.get("axes") or [],
+        "asset_classes": block.get("asset_classes") or [],
         "checks_dir": block.get("checks_dir", ""),
         "closest": block.get("closest") or [],
         "killed_n": len(payload.get("killed") or []),

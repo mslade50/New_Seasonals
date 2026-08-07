@@ -898,9 +898,30 @@ a `PitchGrammarError`, so a real result was indistinguishable from a crashed
 task and the journal recorded NOTHING (kills are journaled by the publisher,
 which never ran). The path is deliberately MORE expensive than shipping so it
 never becomes the way out of a hard morning — `validate_stand_down` enforces
->= 8 candidates over >= 4 distinct novelty axes, >= 6 named kills with
-reasons, a >= 120-char verdict, a `checks_dir` that exists and holds real
-`.py` files, and 1-3 near-misses each carrying **the number it turned on**.
+>= 8 candidates over >= 4 distinct novelty axes, >= 4 distinct ASSET CLASSES,
+>= 6 named kills with reasons, a >= 120-char verdict, a `checks_dir` holding
+real `.py` files AND stage B1's `00_surface_map.md`, and 1-3 near-misses each
+carrying **the number it turned on**.
+
+**Coverage vs axis variety (2026-08-07, the same incident)**: that run hit
+seven novelty axes and still ran EVERY calendar-anchored check on SPY, on an
+August NFP in a midterm year, with the spec's own `event_fingerprint` example
+being the midterm-August-NFP cross-asset table. Nothing was missing from the
+data (the 217-name tape carries TLT/GLD/UUP/DX-Y.NYB/^TNX). The cause was
+stage B's wording: "generate 8-12 candidates DRAWING ON at least four axes"
+is a menu, one SPY idea ticked `event_fingerprint`, and no rule ever asked
+which ASSETS had been examined. Its cross-asset work was all PRICE-STATE
+anchored (bond floor, silver catch-up, GDX drawdown, natgas 52w low) and the
+two search modes were never crossed. Fix is in SKILL.md stage B, rewritten
+from "ideation" to **survey-then-select**: B1 writes
+`scratch/pitch_checks/<date>/00_surface_map.md` enumerating every live
+calendar event x 10 asset classes, every tape extreme by class, and every
+live seasonal cell, giving each cell a verdict (dismissals must be reasoned,
+never silently absent); B2 selects candidates from that map and must touch
+>= 4 asset classes with >= 1 event-anchored and >= 1 price-state-anchored
+candidate. Deliberately NOT solved by precomputing a grid into the state file
+— McKinley's call, 2026-08-07: passing more data constrains the lens, the
+lens itself had to widen.
 `check_pitch_delivered` accepts a stand-down as delivery but still fails on
 ideas AND a stand-down (a half-published run). Aligned sites:
 `pitch_grammar.validate_stand_down` + floors, `daily_pitch.render_stand_down`
