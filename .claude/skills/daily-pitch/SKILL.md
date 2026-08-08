@@ -55,6 +55,62 @@ every affected idea's evidence and consider standing down to lower grades.
 days. An idea matching one of those needs a `changed_since` sentence saying
 what materially changed, or it must be dropped.
 
+## The lab and the data map
+
+### pitch_lab is the substrate. Do not rebuild it.
+
+Every check script starts from `pitch_lab.py` at the repo root:
+
+```python
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parents[3]))  # repo root
+from pitch_lab import *  # noqa
+```
+
+It holds the whole falsification toolkit, tested by `tests/test_pitch_lab.py`:
+price loading (`load_prices`, `close_panel`), event alignment (`load_events`,
+`event_in_window`), the lag-aware forward returns (`fwd_lag`, `vehicle_ret`;
+lag=1 is the real MOC-tomorrow order), declustering and controls
+(`declusters`, `local_control`), `summarize` / `era_split` /
+`bootstrap_p_le0` / `sign_test` / `cluster_note`, the whole round-1 kill
+battery in one call (`battery`), and the development helpers (`horizon_scan`,
+`episode_paths`). Conventions are in its docstring: returns are FRACTIONS in
+and PERCENT out of `summarize`, ATR is Wilder-14, controls are own-drift,
+all-days, and local +/-126td.
+
+Do not re-derive any of this in the day folder. On 2026-08-07 the morning
+rebuilt all of it ad hoc (`_common.py` / `_engine.py` / `_study.py`) and still
+had to leave itself a warning comment about a units double-scaling bug; those
+helpers were promoted into `pitch_lab` afterwards so kill statistics stay
+identical across mornings. Day-local helpers are for genuinely novel machinery
+only, and anything reusable gets promoted into `pitch_lab` (with a test) the
+same morning.
+
+### What a check may reach
+
+The state and tape files are a summary, never the boundary. The repo holds:
+
+| data | access | span | notes |
+|---|---|---|---|
+| daily OHLCV, ~2000 names | `pitch_lab.load_prices` (`data/master_prices.parquet`) | 1999+ | adjusted basis; SOXS is broken upstream before 2026-05-26 |
+| intraday 15-min bars | `intraday_data.get_intraday(ticker)` | 2003+ | ~197 liquid names, ET stamps; splits an event reaction into overnight vs intraday, or shows where in the session an edge accrues; no caret tickers |
+| macro event calendar | `pitch_lab.load_events` (`data/macro_events.csv`) | 2000-2027 | nfp, cpi, ppi, fomc_decision, fomc_minutes, opex, quad_witching, vix_expiry, jackson_hole, election |
+| earnings calendar | `data/earnings_calendar.parquet` | 946 tickers | includes forward dates |
+| CBOE put/call ratios | `data/cboe_putcall.parquet` | 2006-11+ | total / index / equity / etp / spx / oex; conventions in `pc_fear.py` |
+| 30d implied vol by ticker | `data/iv_history.parquet` | 2024-07+ | two years: today's state, not testable history |
+| vol term structure + chain | `data/option_surface_history.parquet`, `data/option_positioning_history.parquet` | accruing since 2026-08-05 | positioning context for flow ideas; useless for backtests so far |
+| French factors, monthly | `data/factor_returns_monthly.parquet` | 1926+ | MktRF SMB HML RMW CMA Mom RF |
+| the book's own ledger | `data/backtest_trades_full.parquet` | 23y | overlap checks and "what would the scanner do here"; overflow-tier stats carry a survivorship caveat |
+| fragility dial history | `data/rd2_fragility.parquet` | 2016+ | point-in-time append-only since 2026-07-02; earlier rows are a recompute vintage, state which you used |
+| sector map | `data/sector_map.parquet` | ~1460 names | |
+
+Honesty rule for `flow_mechanics`: the only positioning data in the repo is
+the accruing option_* files plus the expiry calendar. A flow idea whose
+falsification needs data the repo lacks (dealer gamma history, futures roll
+positioning) must say so in the check and grade accordingly. A mechanism that
+cannot be measured has not been verified.
+
 ## Stage B. Survey the whole surface, then select from it
 
 This stage failed on 2026-08-07 and the failure is worth stating, because the
@@ -111,6 +167,15 @@ you already had an idea about.
 cycle-year state. Midterm is a conditioner on everything above rather than an
 idea of its own.
 
+**4. Every active watchlist entry.** `watchlist` in the state carries
+near-misses parked by earlier mornings, each with the number it turned on.
+Every active entry gets its own verdict line: trigger moved, CHECK, citing
+today's value; trigger unchanged, PASS, still citing today's value so the
+map shows it was looked at; listed under `expired`, prune it when the file is
+rewritten after publish. A watch that fires is the cheapest deep dive of the
+morning, because its check script already exists and only needs re-running on
+today's tape.
+
 ### B2. Select 8 to 12 candidates from the map
 
 Name the novelty axis on each; the journal tracks which axes actually earn.
@@ -156,20 +221,50 @@ Before spending a check on a candidate, run it against
 `research.negative_registry`). A collision does not automatically kill the
 idea, but the write-up must explain what is different.
 
+The axis table is also a feedback loop, not just a menu: once `scoreboard`
+in the state carries graded ideas, read the per-axis and per-grade splits
+before selecting. An axis that has bled across a meaningful number of graded
+ideas needs a better-than-usual reason to get another slot; one that earns
+deserves extra looks. Note the read in the surface map. While the graded
+count is still a handful, say that instead and move on.
+
 ## Stage C. Falsification (adversarial, the point of the whole thing)
 
 Hand the surviving candidates to checking agents whose brief is to **kill**
 them. Two to three agents in parallel, three or four candidates each, plus a
 final red-team pass over the survivors together. Each check is a fast empirical
-interrogation, not a backtest, and it writes a throwaway script under
+interrogation, not a backtest, and it writes a script under
 `scratch/pitch_checks/<YYYY-MM-DD>/`.
 
-Every check answers all of these:
+### The checker brief (what each agent gets, and returns)
+
+Checker quality must not depend on how the handoff happens to be phrased, so
+every checking agent's prompt contains all of this:
+
+- the candidate block from the surface map, verbatim, with its novelty axis
+  and the cell it came from
+- the path to `00_surface_map.md` and to the day's checks directory
+- the negative-registry entries adjacent to the idea (not the whole file)
+- the `pitch_lab` import boilerplate from "The lab" above, plus the one-line
+  conventions reminder: entry is lag=1 MOC-tomorrow, fractions in / percent
+  out, `battery()` is round 1
+- the standing brief: your job is to kill this; a survivor is a failure to
+  kill, not a success to celebrate
+
+Each checker returns, per candidate: a verdict (KILL / SURVIVES /
+NEAR-MISS), the two or three decisive numbers, the script paths it wrote,
+and, for every NEAR-MISS, **the number it turned on**, because that line
+feeds the watchlist. A kill also names WHICH substantive kill it is (the
+list below); "weak" is not a verdict.
+
+### Round 1. Every check answers all of these
+
+`pitch_lab.battery()` covers 1, 2, 5 and 6 in one call; the checker's work
+is choosing the mask, the legs and the controls honestly, then interpreting.
 
 1. Does the claimed pattern exist in the data at all? Measure the window return
    around the anchor against a real control: the all-events baseline and the
-   instrument's own unconditional drift over the same horizon. The sweep
-   scripts in `scratch/` are the pattern to imitate.
+   instrument's own unconditional drift over the same horizon.
 2. What is N, what is the worst window, and is it era-stable (did it die after
    2018)?
 3. Does it collide with the negative-results registry?
@@ -178,6 +273,63 @@ Every check answers all of these:
 5. Cost sanity: spread, carry and roll of the vehicle against the size of the
    edge. Six basis points of edge cannot pay an ETF's drag.
 6. Tomorrow-specific tail risk: is a known volatility event inside the window?
+
+### Round 2 is mandatory for anything that survives round 1
+
+No candidate reaches compose on one green script. The 2026-08-07 kills that
+mattered all came from second-round probes: declustering flipped GDX from
++4.41% to -2.80%, a gate-matched control killed the SVXY carry, and the
+b-suffix scripts did the work the headline scripts could not. So round 2 is
+part of the definition of checked, not extra credit. For each round-1
+survivor, probe (same script with a `b`/`c` suffix, or a section in the
+original):
+
+1. **Decluster + concentration**: episode-level stats and
+   `cluster_note`: how much of the total sits in the top 2 windows or one
+   year?
+2. **Definition neighbours**: nudge the trigger (threshold, lookback,
+   ranking window) to the nearest reasonable alternatives. If the result
+   only exists under one definition, the definition is the finding.
+3. **Era and regime split**: pre/post 2018 at minimum, plus whatever regime
+   the mechanism implies (cycle year, rate regime, vol regime).
+4. **Gate attribution**: run the idea WITHOUT its gate. If the gate does not
+   move the result, nothing may be attributed to the gate, and the write-up
+   must say what the trade actually keys on.
+
+### Round 3. Develop the survivors before composing
+
+A survivor is a pattern; a pitch is a trade. Every candidate that will be
+composed gets one development script (`_dev` suffix) answering four
+questions, and the composed idea must match its answers rather than the form
+the candidate was first imagined in:
+
+1. **Horizon**: `pitch_lab.horizon_scan` across 1 to 10 td. `horizon_td` and
+   `time_td` come FROM this table. If the edge lives at h=3 and decays by
+   h=5, pitching h=5 ships a worse trade for a rounder number.
+2. **Entry form**: MOC against a close-anchored LIMIT at a sensible k ATR,
+   compared as WHOLE variants (fill rate plus conditional stats; never a
+   marginal-fill decomposition, registry rule). Choose knowing the placement
+   consequence: a close-anchored LIMIT auto-places with its bracket, MOO and
+   MOC place with a time exit only.
+3. **Exits**: if a target or stop is attached, show the sensitivity around
+   the chosen level; if none, one line on why time-only fits the mechanism.
+4. **Loser paths**: `pitch_lab.episode_paths` on the losing episodes.
+   `what_kills_it` quotes a number from this ("losers averaged -0.8% by day
+   2 and never bounced; a close below X by then says the thesis is wrong"),
+   never a generic risk.
+
+### The red-team pass (survivors together, after development)
+
+One final agent over the whole surviving set, before compose:
+
+- **Basket correlation**: are the three (or five) survivors secretly one
+  macro bet? Compute the correlation of their leg returns over the hold
+  window; if two ideas are one trade, say so and either merge or drop one.
+- **Book overlap**: against `book` state and the ledger, what does McKinley
+  already hold that moves with each idea?
+- **Cost recheck** at the developed entry form, not the round-1 assumption.
+- For each survivor, write the strongest single argument against it. If that
+  argument would convince you, it is a kill, not a footnote.
 
 **Hard requirement.** Every delivered idea carries falsification evidence
 computed fresh this morning and **at least one named consideration that could
@@ -191,9 +343,24 @@ observations a year, a cycle-year cell has one every four, and by the time any
 of them reaches N=50 the regime that produced it is usually gone. A rule that
 demands large N does not find safer trades, it finds older ones.
 
-So: **an idea with a plausible mechanism and N<15 is a grade C, which is
-exactly what grade C is for.** Ship it, grade it honestly, size it at the
-default and let the scoreboard settle it. Do not kill it for being small.
+The doctrine, and it is a rule rather than a mood:
+
+- **A clean or near-clean record with a large per-event edge and a mechanism
+  is evidence in itself.** 6-0 is p=0.016 under a fair coin. Quote the record
+  and its exact `pitch_lab.sign_test` p alongside the per-event edge, and
+  ship it at the grade its N earns. If the stated edge is large and the
+  reason it shows up makes logical sense, that IS the case for the trade.
+- **No idea needs a t-stat to ship.** At N<15 a t-stat is mostly noise
+  anyway; its absence, or its being under 2, is never a kill and never a
+  demotion. The publisher does not require `t_stat`; leave it null and let
+  the sign test and the edge carry the evidence line.
+- **"Insufficient N", "not statistically significant" and "t below 2" are
+  illegal kill reasons standing alone.** Every small-N kill must name one of
+  the substantive kills below and quote its number. A checker that kills on
+  sample size alone has not done the check.
+- **An idea with a plausible mechanism and N<15 is a grade C, which is
+  exactly what grade C is for.** Ship it, grade it honestly, size it at the
+  default and let the scoreboard settle it. Do not kill it for being small.
 
 **Multiplicity corrections price the cost of a SEARCH, so they only apply to
 cells the search found.** If you built a grid and reported its best occupant,
@@ -251,6 +418,11 @@ thin, the answer is to go back to stage B, not to fill in this block.
 one verdict that has to prove it surveyed the whole surface. List the classes
 you covered in `asset_classes`.
 
+Near-misses do not evaporate with the morning: every `closest` entry also
+goes onto the watchlist with the number it turned on (see "After
+publishing"), so the run that finds the trigger has moved starts from a
+finished check instead of a blank page.
+
 ```json
 {
   "asof": "YYYY-MM-DD",
@@ -284,6 +456,11 @@ honestly:
 | A | N >= 50, abs(t) >= 2.5, holds across eras, verified fresh today |
 | B | real pattern, N 15 to 50 or single era, verified fresh today |
 | C | context, not statistics: N < 15 fingerprint or analogue reasoning. **At most one per day** |
+
+A grade-C evidence line quotes the record and its exact sign-test p ("6-0,
+sign p 0.016") plus the per-event edge; `t_stat` may be null. A strong small
+sample competes for the C slot on edge size and mechanism quality, and it is
+allowed to win the morning.
 
 Write `data/pitch_ideas.json` in the schema below, then publish. The publisher
 enforces the grammar, so a schema mistake fails loudly instead of shipping.
@@ -383,9 +560,17 @@ Fix validation errors by fixing the idea, never by loosening the grammar.
 ## After publishing
 
 1. Append any reusable kill to `data/pitch_negative_registry.md`.
-2. Leave the check scripts in `scratch/pitch_checks/<date>/`; the evidence
-   field points at them and they are the audit trail.
-3. Grading of prior days runs on its own:
+2. Update `data/pitch_watchlist.json`: append today's near-misses (NEAR-MISS
+   verdicts from stage C and any stand-down `closest` entries) with title,
+   cell, **the trigger number**, script path, source and an expiry (default
+   15 td out; a calendar-dated trigger may park to its date, like the TLT
+   floor cell parked to the first non-midterm NFP). Remove entries that
+   expired or whose trigger fired today. The state builder folds this file
+   into tomorrow's state, and stage B1 owes every active entry a verdict.
+3. Leave the check scripts in `scratch/pitch_checks/<date>/`; the evidence
+   field points at them and they are the audit trail. Promote any genuinely
+   reusable helper into `pitch_lab.py` with a test.
+4. Grading of prior days runs on its own:
 
 ```bash
 python scripts/grade_pitch_journal.py

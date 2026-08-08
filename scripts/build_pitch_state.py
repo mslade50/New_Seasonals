@@ -18,6 +18,8 @@ Blocks in the payload:
     seasonality   the seasonal board's own view plus month/cycle position
     research      research-doc index and the negative-results registry
     history       what the pitch pipeline itself has pitched recently
+    watchlist     parked near-misses from earlier mornings, each with the
+                  number that turns it on (data/pitch_watchlist.json)
     pipeline      did the overnight chain actually run, and are the
                   caches current (one line in the email)
 
@@ -43,6 +45,7 @@ sys.path.insert(0, str(ROOT))
 
 import pitch_journal  # noqa: E402
 from macro_calendar import EVENT_TYPES, load_macro_events  # noqa: E402
+from pitch_lab import load_watchlist  # noqa: E402
 from pitch_grammar import REPEAT_BLOCK_TD, wilder_atr  # noqa: E402
 from strategy_config import (  # noqa: E402
     ACCOUNT_VALUE,
@@ -498,6 +501,26 @@ def build_history(today: pd.Timestamp, warnings: list[str]) -> dict:
             "lifetime_pitched": len(ideas)}
 
 
+def build_watchlist(today: pd.Timestamp, warnings: list[str]) -> dict:
+    """Parked near-misses from earlier mornings, each carrying the number
+    that turns it on. Stage B1 owes every ACTIVE entry a verdict in the
+    surface map (trigger moved -> CHECK, unchanged -> PASS with today's
+    value); EXPIRED entries are listed once so the after-publish step prunes
+    them from the file."""
+    try:
+        wl = load_watchlist()
+    except Exception as exc:  # noqa: BLE001
+        warnings.append(f"watchlist: unreadable ({exc})")
+        return {"path": "data/pitch_watchlist.json", "entries": [],
+                "expired": []}
+    active, expired = [], []
+    for e in wl.get("entries", []):
+        exp = str(e.get("expires", "") or "")
+        (expired if exp and exp < str(today.date()) else active).append(e)
+    return {"path": "data/pitch_watchlist.json", "entries": active,
+            "expired": expired}
+
+
 # ---------------------------------------------------------------------------
 def build_state(asof: str | None = None, offline: bool = False) -> dict:
     today = (pd.Timestamp(asof) if asof
@@ -542,6 +565,7 @@ def build_state(asof: str | None = None, offline: bool = False) -> dict:
         "seasonality": build_seasonality(today, warnings),
         "research": build_research_index(),
         "history": build_history(today, warnings),
+        "watchlist": build_watchlist(today, warnings),
         "scoreboard": scoreboard,
         "pipeline": build_pipeline(today, tape, risk, warnings),
         "warnings": warnings,
@@ -594,6 +618,9 @@ def main() -> int:
               f"{state['research']['negative_registry_count']} dead ends")
         print(f"  history     {len(state['history']['recent_fingerprints'])} "
               f"fingerprints inside the repetition window")
+        wl = state["watchlist"]
+        print(f"  watchlist   {len(wl['entries'])} active, "
+              f"{len(wl['expired'])} expired (prune after publish)")
         for line in state["warnings"]:
             print(f"  WARNING: {line}")
     return 0

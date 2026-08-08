@@ -28,6 +28,8 @@ Process instructions for the agent: `.claude/skills/daily-pitch/SKILL.md`.
 |---|---|
 | `pitch_grammar.py` | the contract: entry and exit vocabularies, validation, Wilder-14 ATR, sizing, order derivation, fingerprints |
 | `pitch_journal.py` | append-only journal (idea / killed / approval / outcome), R2 mirror |
+| `pitch_lab.py` | shared research library every check script imports: price/event loading, lag-aware forward returns, declustering, controls, kill battery, sign test, horizon scan, loser paths, watchlist I/O (added 2026-08-08; consolidates the helpers the 08-07 run built ad hoc) |
+| `data/pitch_watchlist.json` | parked near-misses, each with the number that turns it on; folded into the state, verdict owed in every B1 surface map, maintained after publish |
 | `scripts/build_pitch_state.py` | Stage A state assembly to `data/pitch_state.json` + `data/pitch_tape.json` |
 | `scripts/build_pitch_research_index.py` | research-doc index + parsed negative registry |
 | `data/pitch_negative_registry.md` | dead ends the pipeline must not re-pitch (committed, grows) |
@@ -36,7 +38,7 @@ Process instructions for the agent: `.claude/skills/daily-pitch/SKILL.md`.
 | `scripts/grade_pitch_journal.py` | replay every pitched idea, approved or not, write the scoreboard |
 | `scripts/check_pitch_delivered.py` | non-zero exit when a morning delivered nothing |
 | `pitch_moo.py` (OneDrive `trading_ibkr`) | the approval runner |
-| `tests/test_pitch_grammar.py`, `tests/test_daily_pitch.py`, `tests/test_pitch_grader.py`, `test_pitch_moo.py` (OneDrive) | guards |
+| `tests/test_pitch_grammar.py`, `tests/test_daily_pitch.py`, `tests/test_pitch_grader.py`, `tests/test_pitch_lab.py`, `test_pitch_moo.py` (OneDrive) | guards |
 
 ## Manual run
 

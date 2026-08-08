@@ -989,6 +989,13 @@ stage-C kill with a reusable lesson is appended the same morning.
 Aligned sites — change together:
 - `pitch_grammar.py` (the contract: vocabularies, validation, sizing, order
   derivation, placement routing) + `pitch_journal.py`
+- `pitch_lab.py` (shared check library, 2026-08-08: price/event loading,
+  lag-1 forward returns, declustering, controls, kill battery,
+  `sign_test` — the N<15 statistic, t-stats never required — horizon scan,
+  loser paths, watchlist I/O; consolidates the 08-07 ad hoc helpers; the
+  book must never import it) + `data/pitch_watchlist.json` (parked
+  near-misses with the number that turns them on; folded into the state,
+  verdict owed in every B1 surface map, pruned after publish)
 - `daily_pitch.py` (publisher: TAB_COLUMNS is the runner's schema)
 - `.claude/skills/daily-pitch/SKILL.md` (stages B-D; the .gitignore carries a
   `!.claude/skills/` negation so this file is committed)
@@ -997,7 +1004,8 @@ Aligned sites — change together:
 - `pitch_moo.py` + `run_pitch_moo.bat` + `register_pitch_moo_task.ps1`
   (OneDrive trading_ibkr)
 - Guards: `tests/test_pitch_grammar.py`, `tests/test_daily_pitch.py`,
-  `tests/test_pitch_grader.py`, `test_pitch_moo.py` (OneDrive)
+  `tests/test_pitch_grader.py`, `tests/test_pitch_lab.py`,
+  `test_pitch_moo.py` (OneDrive)
 
 ## OLV Vol-Confirmed Stop + Notional Cap (2026-07-20)
 
