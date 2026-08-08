@@ -13,7 +13,8 @@ Blocks in the payload:
     calendar      macro events inside the horizon with signed td distance
     tape          per-ticker return ranks, z10, ATR, 52w and 200d distances
     risk          fragility dial, P/C fear state, firing signals, exposure leg
-    book          staged scanner signals, sleeve state, live broker positions
+    book          staged scanner signals and sleeve state (live broker
+                  positions deliberately excluded per McKinley 2026-08-08)
     earnings      liquid names printing inside the horizon
     seasonality   the seasonal board's own view plus month/cycle position
     research      research-doc index and the negative-results registry
@@ -345,26 +346,11 @@ def build_book(today: pd.Timestamp, warnings: list[str],
         except Exception as exc:  # noqa: BLE001
             warnings.append(f"book: {path} unavailable ({exc})")
 
-    if not offline:
-        try:
-            from daily_execution_report import DEFAULT_BROKER_URL, fetch_book
-            token = os.environ.get("STATUS_TOKEN", "")
-            if not token:
-                raise RuntimeError("STATUS_TOKEN not set")
-            book = fetch_book(os.environ.get("EXEC_BROKER_URL",
-                                             DEFAULT_BROKER_URL), token)
-            primary = next((a for a in (book or {}).get("accounts", [])
-                            if a.get("key") == "primary"), {})
-            out["live_positions"] = [
-                {"symbol": p.get("symbol"), "sec_type": p.get("sec_type"),
-                 "qty": p.get("position"), "avg_cost": p.get("avg_cost"),
-                 "mkt_value": p.get("market_value"),
-                 "unrealized_pnl": p.get("unrealized_pnl")}
-                for p in (primary.get("positions") or [])
-            ]
-            out["nlv"] = primary.get("nlv")
-        except Exception as exc:  # noqa: BLE001
-            warnings.append(f"book: live positions unavailable ({exc})")
+    # LIVE BROKER POSITIONS ARE DELIBERATELY EXCLUDED (McKinley, 2026-08-08):
+    # the pitch must not know his holdings. Overlap in stage C is judged
+    # against the SYSTEMATIC layers only - staged signals, sleeve state and
+    # the ledger - all of which are repo-derived. Do not re-add a broker read
+    # here.
     return out
 
 
@@ -611,7 +597,7 @@ def main() -> int:
         print(f"  calendar    {len(state['calendar']['events'])} events in "
               f"[-{CALENDAR_LOOKBACK_TD}, +{CALENDAR_LOOKAHEAD_TD}] td")
         print(f"  book        {len(state['book'].get('staged_signals', []))} "
-              f"staged, {len(state['book'].get('live_positions', []))} live")
+              f"staged (live positions excluded by design)")
         print(f"  earnings    {state['earnings'].get('count', 0)} liquid prints "
               f"in {EARNINGS_HORIZON_TD} td")
         print(f"  research    {state['research']['doc_count']} docs, "

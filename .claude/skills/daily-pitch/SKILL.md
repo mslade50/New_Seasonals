@@ -325,8 +325,10 @@ One final agent over the whole surviving set, before compose:
 - **Basket correlation**: are the three (or five) survivors secretly one
   macro bet? Compute the correlation of their leg returns over the hold
   window; if two ideas are one trade, say so and either merge or drop one.
-- **Book overlap**: against `book` state and the ledger, what does McKinley
-  already hold that moves with each idea?
+- **Book overlap**: against the SYSTEMATIC layers only, which is all the
+  state carries: staged scanner signals, sleeve state and the ledger. Live
+  broker positions are deliberately absent from the pitch state and stay
+  that way; McKinley applies his own holdings when he reads the ideas.
 - **Cost recheck** at the developed entry form, not the round-1 assumption.
 - For each survivor, write the strongest single argument against it. If that
   argument would convince you, it is a kill, not a footnote.
