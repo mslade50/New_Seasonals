@@ -61,7 +61,9 @@ jobs:
             download_to_local('earnings_calendar.parquet', 'data/earnings_calendar.parquet'); \
             download_to_local('atr_seasonal_ranks.parquet', 'atr_seasonal_ranks.parquet'); \
             download_to_local('overflow_universe.parquet', 'data/overflow_universe.parquet'); \
-            download_to_local('earnings_calendar_overflow.parquet', 'data/earnings_calendar_overflow.parquet')"
+            download_to_local('earnings_calendar_overflow.parquet', 'data/earnings_calendar_overflow.parquet'); \
+            download_to_local('fundamental/current/daily_report_latest.json', 'data/fundamental/current/daily_report_latest.json'); \
+            download_to_local('fundamental/current/company_maps_latest.json', 'data/fundamental/current/company_maps_latest.json')"
 
       - name: Build full-history trade ledger
         # R2 env needed: build_trade_ledger mirrors the ledger to R2 for

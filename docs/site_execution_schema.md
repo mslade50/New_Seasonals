@@ -15,7 +15,7 @@ existing `sznl_entry.build_orders` / `sznl_exit.build_orders` / `read_book`).
 
 ```json
 { "id": "uuid",                       // idempotency key — agent dedups
-  "type": "entry_bracket | exit_attach | flatten | cancel | modify",
+  "type": "entry_bracket | exit_attach | close_only | flatten | cancel | modify",
   "account": "primary | pa",          // routes to TWS 7496 / PA Gateway 4001
   "dry_run": true,                    // agent validates + logs, transmits nothing
   "created_at": "iso", "expires_at": "iso",   // agent refuses if expired
@@ -71,7 +71,7 @@ OPT positions rejected. Site entry points: the "attach exits" ticket type and
 the amber `Protect…` button on any position row with nothing working against it.
 The original sznl_exit-style multi-rung `targets` ladder remains a later phase.
 
-### `flatten`  (quick close — Positions-row button or the Close ticket)
+### `flatten`  (quick Flatten/Trim buttons — cancel/resize exit orders)
 ```json
 { "symbol":"USO","sec_type":"STK","currency":"USD","con_id":123,"expiry":null,
   "fraction":1.0,            // or "qty": N (whole shares; REJECTED above held, never clamped)
@@ -85,6 +85,21 @@ captures the working exit legs before cancelling and re-attaches them sized to
 `held − close_qty`, so a resting LMT plus the resized exits never exceed the held
 quantity. A FULL LMT close cancels all exits and rests unprotected until it fills
 (the preview + result say so).
+
+### `close_only`  (Close… ticket — working orders are never touched)
+```json
+{ "symbol":"USO","sec_type":"STK","currency":"USD","con_id":123,"expiry":null,
+  "action":"SELL",             // must be opposite the live position
+  "fraction":0.4,               // or "qty": N; resolved qty cannot exceed held
+  "order_type":"MKT|LMT","limit":null,"tif":"DAY|GTC",
+  "outside_rth":false }
+```
+Closes the requested shares/units or arbitrary percentage without reading,
+cancelling, resizing, or replacing any working order. The command is rejected
+if its action would add to the live position or if its resolved quantity exceeds
+the live holding. The executor re-reads both immediately before transmission.
+Existing exits may therefore over-cover the remainder until manually modified;
+the site confirmation and execution result state that explicitly.
 
 ### `cancel`
 ```json

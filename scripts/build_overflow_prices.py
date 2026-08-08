@@ -29,6 +29,7 @@ import sys
 import time
 
 import pandas as pd
+import yfinance as yf
 
 _THIS_DIR = os.path.dirname(os.path.abspath(__file__))
 _PARENT = os.path.dirname(_THIS_DIR)
@@ -99,6 +100,8 @@ def main() -> None:
                     help="Re-fetch this many days back for tickers already staged (catches splits).")
     ap.add_argument("--exclude-today", action="store_true",
                     help="Drop bars dated today (Eastern) - for pre-market refreshes.")
+    ap.add_argument("--no-upload", action="store_true",
+                    help="Refresh the local staging cache without uploading it to R2.")
     args = ap.parse_args()
 
     load_env()              # make R2 creds available to cache_io
@@ -138,6 +141,11 @@ def main() -> None:
         return
 
     # yfinance fetch helpers from the production builder (no side effects on import).
+    # Keep yfinance's SQLite cookie/timezone cache beside the generated data.
+    # This works in restricted runners where the default user cache is read-only.
+    yf_cache = os.path.join(_PARENT, "data", "yfinance_cache")
+    os.makedirs(yf_cache, exist_ok=True)
+    yf.set_tz_cache_location(yf_cache)
     from build_master_prices import download_chunk
 
     frames = []
@@ -191,11 +199,14 @@ def main() -> None:
     combined.to_parquet(OVERFLOW_PRICES_PATH, index=False)
     print(f"\nWrote {OVERFLOW_PRICES_PATH}: {combined['ticker'].nunique():,} tickers, {len(combined):,} rows")
 
-    try:
-        from cache_io import upload_from_local
-        upload_from_local(OVERFLOW_PRICES_PATH, OVERFLOW_PRICES_R2_KEY)
-    except Exception as e:  # noqa: BLE001
-        print(f"[r2 upload] non-fatal error: {e}")
+    if args.no_upload:
+        print("[r2 upload] skipped (--no-upload)")
+    else:
+        try:
+            from cache_io import upload_from_local
+            upload_from_local(OVERFLOW_PRICES_PATH, OVERFLOW_PRICES_R2_KEY)
+        except Exception as e:  # noqa: BLE001
+            print(f"[r2 upload] non-fatal error: {e}")
 
 
 if __name__ == "__main__":

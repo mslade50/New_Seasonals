@@ -5,7 +5,7 @@
      - Positions panel  (live read-only book from the agent) + row actions
      - Open Orders panel (live working orders) + Cancel
      - Scheduled closing orders (legs that fire at today's close)
-     - New Order ticket: entry bracket (+ optional time stop) / flatten / echo
+     - New Order ticket: entry bracket (+ optional time stop) / close-only / flatten / echo
      - Activity: recent commands + results
 
    Commands execute LIVE when the agent is armed (mode banner amber) and DRY-RUN
@@ -127,12 +127,13 @@ function shell() {
 
     <div class="card" style="max-width:760px;margin-top:18px">
       <div style="font:700 14px inherit;margin-bottom:4px">New order</div>
-      <p class="cap" style="margin:0 0 10px">Bracket: stock, futures, or USD-pair FX entry limit; stop, target, <b>time stop</b> (closes at market 15:59 ET on that date), and <b>entry expiry</b> are optional. <b>Primary futures are uncapped</b>: IBKR buying power and exchange limits are the hard constraints; large stopped risk and unprotected entries require a secondary approval. PA keeps its $30k futures ceiling. <b>Attach exits</b> adds a stop / target / time-stop OCA group. Submits per the mode banner above &mdash; live when armed.</p>
+      <p class="cap" style="margin:0 0 10px">Bracket: stock, futures, or USD-pair FX entry limit; stop, target, <b>time stop</b> (closes at market 15:59 ET on that date), and <b>entry expiry</b> are optional. <b>Primary futures are uncapped</b>: IBKR buying power and exchange limits are the hard constraints; large stopped risk and unprotected entries require a secondary approval. PA keeps its $30k futures ceiling. <b>Attach exits</b> adds a stop / target / time-stop OCA group. <b>Close only</b> leaves working orders untouched; <b>Flatten</b> cancels them before closing. Submits per the mode banner above &mdash; live when armed.</p>
       <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:8px">
         <label class="cap">Type</label>
         <select id="cmdType">
           <option value="entry_bracket">entry bracket</option>
           <option value="exit_attach">attach exits</option>
+          <option value="close_only">close only (leave orders)</option>
           <option value="flatten">flatten</option>
           <option value="echo">echo (ping)</option>
         </select>
@@ -220,7 +221,7 @@ function deriveExecMode(book, status, now = Date.now()) {
 }
 function execMode() { return deriveExecMode(state.book, state.status); }
 const MUTATING_COMMANDS = new Set([
-  "entry_bracket", "flatten", "cancel", "modify", "trim_readd", "add_to_position",
+  "entry_bracket", "close_only", "flatten", "cancel", "modify", "trim_readd", "add_to_position",
   "exit_attach",
 ]);
 function mutationBlocked(type) {
@@ -753,12 +754,12 @@ window.execTrim = execTrim;
 window.execAddToPosition = execAddToPosition;
 window.execCancel = execCancel;
 
-/* "Close…" on a position row: prefill the flatten ticket (shares / LMT /
-   outside RTH live there) instead of sending anything. */
+/* "Close…" on a position row: prefill the close-only ticket (shares / percent /
+   LMT / outside RTH live there) instead of sending anything. */
 function execSellTicket(pos) {
   const t = document.getElementById("cmdType");
   if (!t) return;
-  t.value = "flatten";
+  t.value = "close_only";
   syncFields();                      // rebuilds fields (snapshots the old ticket first)
   const s = document.getElementById("f_symbol");
   if (s) s.value = pos.symbol;
@@ -846,7 +847,7 @@ window.execModifySave = execModifySave;
 // across cmdType toggles so switching Type and back doesn't wipe a typed ticket.
 const ticketDraft = {};
 const TICKET_FIELDS = ["f_note", "f_symbol", "f_qty", "f_entry", "f_stop", "f_target", "f_expiry", "f_timestop",
-                       "f_currency", "f_futexch", "fl_qty", "fl_limit"];
+                       "f_currency", "f_futexch", "fl_qty", "fl_pct", "fl_limit"];
 function snapshotTicket() {
   TICKET_FIELDS.forEach((id) => { const e = document.getElementById(id); if (e) ticketDraft[id] = e.value; });
 }
@@ -860,17 +861,19 @@ function syncFields() {
   const f = document.getElementById("cmdFields");
   if (t === "echo") {
     f.innerHTML = `<label class="cap">Note</label>${inp("f_note", "ping from site", 200)}`;
-  } else if (t === "flatten") {
-    // Close ticket: shares (takes precedence) or fraction; MKT (RTH, fill-gated)
-    // or LMT (resting close — required for outside-RTH). A partial close
-    // auto-resizes the working stop/target to the remainder (agent-side).
+  } else if (t === "flatten" || t === "close_only") {
+    // Close ticket: shares (takes precedence) or any percentage; MKT (RTH,
+    // fill-gated) or LMT (resting close — required for outside-RTH). close_only
+    // deliberately leaves every working order untouched.
     f.innerHTML = `<label class="cap">Symbol</label>${inp("f_symbol", "USO", 90)}
-      <label class="cap">Shares</label>${inp("fl_qty", "blank = fraction", 110)}
-      <label class="cap">or Fraction</label><select id="f_frac"><option value="1">100%</option><option value="0.5">50%</option></select>
+      <label class="cap">Shares</label>${inp("fl_qty", "blank = percent", 110)}
+      <label class="cap">or Percent</label>${inp("fl_pct", "100", 65)}
       <label class="cap">Type</label><select id="fl_type"><option value="MKT">MKT</option><option value="LMT">LMT</option></select>
       <label class="cap">Limit</label>${inp("fl_limit", "", 80)}
       <label class="cap"><input type="checkbox" id="fl_rth" style="vertical-align:-2px"> Outside RTH</label>
       <label class="cap">TIF</label><select id="fl_tif"><option value="DAY">DAY</option><option value="GTC">GTC</option></select>`;
+    const pct = document.getElementById("fl_pct");
+    if (pct && ticketDraft.fl_pct == null) pct.value = "100";
     const rth = document.getElementById("fl_rth");
     if (rth) rth.addEventListener("change", () => {
       // outside-RTH is LMT-only at IBKR — flip the type so the ticket can't lie
@@ -1037,7 +1040,7 @@ function bracketWarnings() {
   if (ts && ex && ex > ts) warns.push("entry expiry is after the time stop");
   return warns;
 }
-// Hard gate for the flatten ticket (mirrors the agent's checks; [] = sendable).
+// Hard gate for the close/flatten ticket (mirrors the agent's checks; [] = sendable).
 function flattenWarnings() {
   const sym = String(val("f_symbol") || "").toUpperCase().trim();
   const warns = [];
@@ -1053,6 +1056,9 @@ function flattenWarnings() {
   if (qn != null) {
     if (!(qn > 0) || qn !== Math.round(qn)) warns.push("shares must be a whole number > 0");
     else if (held != null && qn > held) warns.push(`shares ${qn} exceeds held ${held}`);
+  } else {
+    const pct = numOrNull("fl_pct");
+    if (!(pct > 0 && pct <= 100)) warns.push("percent must be above 0 and no more than 100");
   }
   const typ = val("fl_type") || "MKT";
   const rth = document.getElementById("fl_rth") && document.getElementById("fl_rth").checked;
@@ -1163,7 +1169,7 @@ function updateReadout() {
     if (ts) parts.push(`Time <b>MKT ${ts} 15:59 ET</b>`);
     parts.push(`OCA group &middot; GTC`);
     el.innerHTML = `<span style="color:#9aa3b2">${parts.join(" &nbsp;&middot;&nbsp; ")}</span>`;
-  } else if (t === "flatten") {
+  } else if (t === "flatten" || t === "close_only") {
     const warns = flattenWarnings();
     if (warns.length) { el.innerHTML = `<span style="color:#ff6b6b">${warns.map(esc).join(" &middot; ")}</span>`; return; }
     const sym = String(val("f_symbol") || "").toUpperCase();
@@ -1176,7 +1182,8 @@ function updateReadout() {
     if (!pos) { el.innerHTML = `<span style="color:#ffc14d">No ${esc(sym || "?")} position in ${state.account}</span>`; return; }
     const held = Math.abs(pos.position);
     const qn = numOrNull("fl_qty");
-    const n = qn != null ? qn : Math.round(held * Number(val("f_frac") || 1));
+    const pct = numOrNull("fl_pct");
+    const n = qn != null ? qn : Math.round(held * Number(pct || 100) / 100);
     const rem = held - n;
     const close = pos.position > 0 ? "SELL" : "BUY";
     const typ = val("fl_type") || "MKT";
@@ -1185,7 +1192,9 @@ function updateReadout() {
                    `Close <b>${close} ${n}</b> ${typ === "LMT" ? `LMT @ <b>${numOrNull("fl_limit")}</b>` : "MKT"}`];
     if (document.getElementById("fl_rth") && document.getElementById("fl_rth").checked) parts.push(`<b style="color:#ffc14d">outside RTH</b>`);
     parts.push(`TIF <b>${val("fl_tif") || "DAY"}</b>`);
-    if (rem > 0) parts.push(`working stop/target resize to <b>${rem}</b>`);
+    if (t === "close_only") {
+      parts.push(`<b style="color:#ffc14d">all working orders remain unchanged</b>`);
+    } else if (rem > 0) parts.push(`working stop/target resize to <b>${rem}</b>`);
     else if (typ === "LMT") parts.push(`<b style="color:#ffc14d">all exits cancelled — unprotected while the close rests</b>`);
     el.innerHTML = `<span style="color:#9aa3b2">${parts.join(" &nbsp;·&nbsp; ")}</span>`;
   } else {
@@ -1200,7 +1209,7 @@ function numOrNull(id) {
 }
 function ticketPayload(t) {
   if (t === "echo") return { note: val("f_note") };
-  if (t === "flatten") {
+  if (t === "flatten" || t === "close_only") {
     const qn = numOrNull("fl_qty");
     const typ = val("fl_type") || "MKT";
     const p = { symbol: val("f_symbol"), order_type: typ,
@@ -1212,7 +1221,14 @@ function ticketPayload(t) {
       Object.assign(p, identity);
       delete p.account;
     }
-    if (qn != null) p.qty = qn; else p.fraction = Number(val("f_frac"));
+    if (t === "close_only") {
+      const ab = acctBook();
+      const pos = ((ab && ab.positions) || []).find((x) => x.position
+        && String(x.symbol).toUpperCase() === String(p.symbol).toUpperCase()
+        && (!p.con_id || !x.con_id || Number(x.con_id) === Number(p.con_id)));
+      if (pos) p.action = Number(pos.position) > 0 ? "SELL" : "BUY";
+    }
+    if (qn != null) p.qty = qn; else p.fraction = Number(numOrNull("fl_pct")) / 100;
     if (typ === "LMT") p.limit = numOrNull("fl_limit");
     return p;
   }
@@ -1255,7 +1271,7 @@ function sendTicket() {
     const warns = attachWarnings();
     if (warns.length) { if (msg) msg.textContent = "BLOCKED: " + warns.join("; "); return; }
   }
-  if (t === "flatten") {
+  if (t === "flatten" || t === "close_only") {
     const warns = flattenWarnings();
     if (warns.length) { if (msg) msg.textContent = "BLOCKED: " + warns.join("; "); return; }
   }
@@ -1270,8 +1286,8 @@ function sendTicket() {
         ? `attach exits to ${p.symbol} (${[p.stop != null ? "stop " + p.stop : "", p.target != null ? "target " + p.target : "", p.time_stop ? "time " + p.time_stop : ""].filter(Boolean).join(", ")}) — full held size, OCA GTC`
         : `close ${p.qty != null ? p.qty + closeUnit : Math.round((p.fraction || 1) * 100) + "%"} of ${p.symbol}${p.sec_type === "CASH" ? "/" + (p.currency || "USD") : ""} via ${p.order_type}` +
           `${p.order_type === "LMT" ? " @ " + p.limit : ""}${p.outside_rth ? " OUTSIDE RTH" : ""} (${p.tif})` +
-          `${p.qty != null || p.fraction < 1 ? " — remaining exits auto-resize" : ""}`;
-    const verb = t === "entry_bracket" ? "place" : t === "exit_attach" ? "attach" : "flatten";
+          `${t === "close_only" ? " — ALL WORKING ORDERS STAY UNCHANGED" : p.qty != null || p.fraction < 1 ? " — remaining exits auto-resize" : ""}`;
+    const verb = t === "entry_bracket" ? "place" : t === "exit_attach" ? "attach" : t === "close_only" ? "close only" : "flatten";
     if (!confirm(`${actionLead(verb)} ${summary} on ${state.account}?`)) return;
   }
   if (t === "entry_bracket" && p.sec_type === "FUT" && state.account === "primary" && p.stop != null) {

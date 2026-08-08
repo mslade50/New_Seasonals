@@ -38,6 +38,20 @@ assert.deepStrictEqual(add, {
   expected_position: 100, fraction: 1, order_type: "MKT",
 });
 
+context.document.getElementById = () => null;
+vm.runInContext(`
+  state.account = "primary";
+  state.book = { accounts: [{ key: "primary", positions: [${JSON.stringify(position)}], orders: [] }] };
+  ticketDraft.fl_position = { account: "primary", ...positionIdentity(${JSON.stringify(position)}) };
+  val = (id) => ({ f_symbol: "SMH", fl_qty: "", fl_pct: "40", fl_type: "MKT", fl_tif: "DAY" })[id];
+`, context);
+const closeOnly = JSON.parse(vm.runInContext(`JSON.stringify(ticketPayload("close_only"))`, context));
+assert.deepStrictEqual(closeOnly, {
+  symbol: "SMH", order_type: "MKT", tif: "DAY", outside_rth: false,
+  sec_type: "STK", expiry: null, expected_position: 100, con_id: 12345,
+  fraction: 0.4, action: "SELL",
+});
+
 vm.runInContext(`state.book = { accounts: [{ key: "primary", orders: [{
   symbol: "SMH", sec_type: "STK", con_id: 12345, action: "SELL",
   order_type: "MKT", qty: 100, good_after: "20260731 15:59:00 US/Eastern"
@@ -52,5 +66,6 @@ assert.strictEqual(vm.runInContext(`hasVisibleProtectiveExit(${JSON.stringify(po
 assert.strictEqual(vm.runInContext("fastActionQty(101, 0.5)", context), 51);
 assert.strictEqual(vm.runInContext("mutationBlocked('trim_readd')", context), true);
 assert.strictEqual(vm.runInContext("mutationBlocked('add_to_position')", context), true);
+assert.strictEqual(vm.runInContext("mutationBlocked('close_only')", context), true);
 
-console.log("PASS execution fast-action payloads, rounding, and unknown-mode block");
+console.log("PASS execution fast-action payloads, close-only gate, rounding, and unknown-mode block");

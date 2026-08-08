@@ -1,0 +1,119 @@
+name: Rebuild Overflow Universe (weekly)
+
+# Dynamic overflow universe pipeline (Layers A → B → C). See
+# docs/dynamic_overflow_universe_plan.md.
+#
+#   A  build_symbol_master.py        FMP screener  -> data/symbol_master.parquet (R2)
+#   B  update_master_prices.py       backfill new names into master_prices (R2)
+#      build_atr_seasonal_ranks.py   seasonal ranks for new names (git-tracked)
+#      build_earnings_calendar.py    earnings coverage for new names (R2)
+#   C  build_overflow_universe.py    screen master_prices -> overflow_universe (R2)
+#
+# IMPORTANT: this is workflow_dispatch-ONLY until the one-time bootstrap is
+# validated (rollout §12). The bootstrap that backfills ~2-4k tickers x ~20y of
+# master_prices is heavy + yfinance/GHA-throttle-prone (R-F4) and should be run
+# LOCALLY first. After that, the weekly steady-state only backfills the handful
+# of newly-screened names, which is light. Enable a Sunday cron here only once
+# the bootstrap + a dry-run validation pass have been reviewed.
+
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+on:
+  workflow_dispatch:
+  # Intended steady-state cron (DISABLED until validated):
+  # schedule:
+  #   - cron: '0 13 * * 0'   # Sundays 13:00 UTC (~9 AM ET), before weekly_rundown
+
+jobs:
+  rebuild:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+
+      - name: Install dependencies
+        run: pip install pandas pyarrow numpy yfinance requests boto3
+
+      - name: Pull existing caches from R2
+        # master_prices (read-only seed) + symbol_master + the isolated overflow
+        # staging price cache (so the price backfill is incremental).
+        env:
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+        run: |
+          python -c "from cache_io import download_to_local; download_to_local('master_prices.parquet', 'data/master_prices.parquet'); download_to_local('symbol_master.parquet', 'data/symbol_master.parquet'); download_to_local('overflow_prices.parquet', 'data/overflow_prices.parquet')"
+
+      - name: A. Build symbol master (FMP screener)
+        env:
+          FMP_API_KEY: ${{ secrets.FMP_API_KEY }}
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+        run: python scripts/build_symbol_master.py
+
+      - name: B1. Backfill new tickers into the ISOLATED staging cache
+        # Writes overflow_prices.parquet only — production master_prices is never
+        # touched. NOTE: the heavy first-time ~2k-ticker x 20y backfill should be
+        # run LOCALLY (yfinance throttles GHA); this step is for the light weekly
+        # steady-state once the cache is seeded.
+        env:
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+        run: python scripts/build_overflow_prices.py --exclude-today
+
+      - name: B2. Seasonal ranks for the expanded universe (incremental -> R2)
+        # Only computes names not already in the parquet, merges, and uploads to
+        # R2 (key: atr_seasonal_ranks.parquet) — the daily scan reads it from R2,
+        # so this is no longer committed to git (avoids the 100 MB git limit).
+        # Pull the current ranks from R2 first so --only-missing diffs correctly.
+        env:
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+        run: |
+          python -c "from cache_io import download_to_local; download_to_local('atr_seasonal_ranks.parquet', 'atr_seasonal_ranks.parquet')"
+          python build_atr_seasonal_ranks.py --with-symbol-master --only-missing --full --upload
+
+      - name: B3. Earnings coverage for the expanded universe
+        # --overflow-staging writes data/earnings_calendar_overflow.parquet (R2 key
+        # earnings_calendar_overflow.parquet) — the file daily_scan actually unions
+        # in for overflow OVS blackout. --with-symbol-master instead rewrote the
+        # PRODUCTION earnings_calendar.parquet, which the weekday CSV_UNIVERSE-only
+        # rebuild wipes every evening, so overflow earnings coverage went stale and
+        # the OVS blackout stopped protecting overflow names.
+        env:
+          FMP_API_KEY: ${{ secrets.FMP_API_KEY }}
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+        run: python scripts/build_earnings_calendar.py --overflow-staging
+
+      - name: C. Build overflow universe (screen master_prices)
+        env:
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+        run: python scripts/build_overflow_universe.py
+
+      # Note: atr_seasonal_ranks.parquet is now distributed via R2 (uploaded in
+      # step B2), NOT committed to git — the full-universe file exceeds GitHub's
+      # 100 MB limit. The daily scan + portfolio workflows pull it from R2.

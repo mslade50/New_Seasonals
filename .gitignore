@@ -10,6 +10,7 @@ data/fragility_vs_spy.html
 data/overflow_price_cache.parquet
 data/master_prices.parquet
 data/earnings_calendar.parquet
+data/macro_release_history.parquet
 data/backtest_closes.parquet
 data/backtest_sig_df.parquet
 data/backtest_trades_full.parquet

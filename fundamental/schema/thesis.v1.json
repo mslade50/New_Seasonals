@@ -1,0 +1,50 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "fundamental.thesis.v1",
+  "title": "Append-only fundamental thesis",
+  "type": "object",
+  "required": [
+    "thesis_id", "ticker", "created_at", "company_thesis_status",
+    "security_thesis_readiness", "position_action", "pillars",
+    "valuation", "evidence_ledger", "decision_log"
+  ],
+  "properties": {
+    "thesis_id": {"type": "string", "minLength": 8},
+    "ticker": {"type": "string", "minLength": 1},
+    "created_at": {"type": "string", "format": "date-time"},
+    "company_thesis_status": {
+      "enum": ["strengthening", "intact", "watch", "impaired", "broken", "changed", "untested", "retired"]
+    },
+    "security_thesis_readiness": {
+      "enum": ["ready", "conditional", "re-underwrite", "not decision-grade"]
+    },
+    "position_action": {
+      "enum": ["add", "press", "hold", "trim", "exit", "wait for proof", "re-underwrite", "watchlist", "pass"]
+    },
+    "pillars": {
+      "type": "array", "minItems": 3, "maxItems": 5,
+      "items": {
+        "type": "object",
+        "required": ["pillar_id", "claim", "baseline", "confirm_threshold", "warning_threshold", "break_threshold", "source", "next_test"],
+        "properties": {
+          "pillar_id": {"type": "string"},
+          "claim": {"type": "string"},
+          "baseline": {},
+          "confirm_threshold": {},
+          "warning_threshold": {},
+          "break_threshold": {},
+          "source": {"type": "string"},
+          "next_test": {"type": "string"}
+        }
+      }
+    },
+    "valuation": {
+      "type": "object",
+      "required": ["price_as_of", "bear", "base", "bull", "reverse_dcf", "expected_return_horizon_years"]
+    },
+    "evidence_ledger": {"type": "array"},
+    "decision_log": {"type": "array"}
+  },
+  "additionalProperties": true
+}
+

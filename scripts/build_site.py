@@ -18,6 +18,8 @@ Outputs (dist/):
   - dist/data/ideas.json           copy of data/daily_seasonal_ideas.json (if present)
   - dist/data/signals.json         latest Order_Staging + Overflow rows from Sheets (if creds)
   - dist/data/risk.json            copy of data/site_risk.json (if present; see build_risk_json.py)
+  - dist/data/fundamentals.json    narrow fundamental inbox: quick reviews,
+                                   active research, lenses, and audit counts
   - dist/data/stopfills.json       stop-fill quality: gap-through classification of every
                                    Stop exit + per-strategy slippage stats (best effort)
   - dist/data/drawdowns.json       top book drawdown episodes on the flat $750k curve with
@@ -84,6 +86,7 @@ from pages.strat_backtester import (
 from signal_chart_common import chart_relpath, trade_geometry, lookup_prices
 from scripts.seasonality_site_data import export_seasonality_snapshot
 from scripts.macro_site_data import export_macro_snapshot
+from fundamental.site_payload import build_fundamental_site_payload
 
 LEDGER = os.path.join(_ROOT, "data", "backtest_trades_full.parquet")
 NOGATE = os.path.join(_ROOT, "data", "backtest_trades_nogate.parquet")
@@ -92,6 +95,10 @@ DAILY = os.path.join(_ROOT, "data", "backtest_daily_pnl.parquet")
 FRAGILITY = os.path.join(_ROOT, "data", "rd2_fragility.parquet")
 IDEAS = os.path.join(_ROOT, "data", "daily_seasonal_ideas.json")
 RISK = os.path.join(_ROOT, "data", "site_risk.json")
+FUNDAMENTAL_DAILY = os.path.join(
+    _ROOT, "data", "fundamental", "current", "daily_report_latest.json")
+FUNDAMENTAL_MAPS = os.path.join(
+    _ROOT, "data", "fundamental", "current", "company_maps_latest.json")
 SECTOR_MAP = os.path.join(_ROOT, "data", "sector_map.parquet")
 MASTER_PRICES = os.path.join(_ROOT, "data", "master_prices.parquet")
 EARNINGS = os.path.join(_ROOT, "data", "earnings_calendar.parquet")
@@ -2339,7 +2346,8 @@ def main():
              "sizer": False, "health": False,
              "iv_context": False, "option_surface": False, "options_market": False,
              "strategy_stats": False, "earnings_next": False,
-             "seasonality": False, "macro_sznl": False, "montecarlo": False}
+             "seasonality": False, "macro_sznl": False, "montecarlo": False,
+             "fundamentals": False}
     if args.no_mtm:
         # dev iteration: keep flags true for payloads already present in dist
         for k, fn in [("strategy_daily", "strategy_daily.json"), ("positions", "positions.json"),
@@ -2400,6 +2408,12 @@ def main():
     best_effort("gate_lab", build_gate_lab, df)
     best_effort("ext_lab", build_ext_lab, df)
     best_effort("sizer", build_sizer)
+    best_effort(
+        "fundamentals",
+        build_fundamental_site_payload,
+        FUNDAMENTAL_DAILY,
+        FUNDAMENTAL_MAPS,
+    )
     if args.no_mtm:
         # no price map in dev mode — ship the sim without the intraday section
         best_effort("montecarlo", build_monte_carlo, df)

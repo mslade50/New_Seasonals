@@ -472,11 +472,16 @@ executed, clear the state or the next rebalance is wrong). The workflow runs
 weekdays 21:35 UTC (AFTER update_master_prices' 21:10 PM cron — the script
 hard-fails if today's close is missing) and no-ops except on the last trading
 day; `Execute_On` (next ET trading day after the run) gates submission.
-FULLY AUTOMATED end-to-end: order_staging.py (`load_trend_rows`) reads the
-tab on Execute_On morning and emits naked-MOO rows (appended AFTER risk caps,
-excluded from PA/execution_2); eq_order_entry.py places them as MKT/OPG
-parent-only (Exit_Condition_Time='NONE' -> no exit legs — positions unwind
-via future rebalance SELL rows). Ballast ONLY — it loses ~-0.4%/mo in
+FULLY AUTOMATED end-to-end: local `trend_moo.py` runs at 9:12 AM ET, reads
+the `Trend` tab only on `Execute_On`, validates the whole basket, and places
+true MKT/OPG parent-only orders on the primary account (no exit legs —
+positions unwind via future rebalance SELL rows). It fails closed after the
+9:25 OPG safety cutoff and shares eq_order_entry's placement journal for
+same-day dedup. Registration creates `trend_moo_enabled.flag` only after the
+task succeeds; that marker makes the 9:31 `order_staging.py` chain exclude
+Trend rows, preventing pseudo-MOO MKT/DAY duplicates. Without the marker the
+legacy path remains active, so a pending cutover cannot silently skip trades.
+Ballast ONLY — it loses ~-0.4%/mo in
 high-fragility months (frag_risk_bands handles that hole). Scale to 1.0x of
 the fraction only after 2 clean quarters. Studies: scratch/tf_universe_study.py,
 scratch/ultracode_research/trend-following.md + trend_prework_gates.md.

@@ -1,0 +1,75 @@
+name: Fundamental Sleeve Research (Manual)
+
+# Phase one is manual and research-only.  Do not add a schedule or live-order
+# step until the shadow-operation and sleeve-attribution gates are approved.
+on:
+  workflow_dispatch:
+    inputs:
+      batch_size:
+        description: Sector/size-balanced companies to statement-enrich this run
+        required: true
+        default: '75'
+      sec_limit:
+        description: Maximum companies in the batch to tie to SEC companyfacts
+        required: true
+        default: '10'
+
+concurrency:
+  group: fundamental-sleeve-research
+  cancel-in-progress: false
+
+jobs:
+  build-research-queue:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+      - name: Install bounded dependencies
+        run: pip install pandas pyarrow numpy requests python-dotenv boto3 yfinance
+      - name: Pull symbol and adjusted-price inputs
+        env:
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+        run: python scripts/pull_fundamental_inputs.py
+      - name: Refresh isolated research price cache
+        run: python scripts/build_overflow_prices.py --no-upload --exclude-today
+      - name: Build broad research universe
+        env:
+          FMP_API_KEY: ${{ secrets.FMP_API_KEY }}
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+        run: python scripts/build_fundamental_universe.py --upload
+      - name: Snapshot FMP and SEC sources
+        env:
+          FMP_API_KEY: ${{ secrets.FMP_API_KEY }}
+          FUNDAMENTAL_SEC_USER_AGENT: ${{ secrets.FUNDAMENTAL_SEC_USER_AGENT }}
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+        run: >-
+          python scripts/update_fundamentals.py
+          --balanced-batch ${{ inputs.batch_size }}
+          --bundle-depth screen
+          --with-sec --sec-limit ${{ inputs.sec_limit }} --upload
+      - name: Build research-only report
+        env:
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+        run: python scripts/build_fundamental_report.py --upload
+      - name: Upload report artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: fundamental-sleeve-research
+          path: |
+            reports/fundamental/fundamental_daily.html
+            reports/fundamental/company_maps.html
+            reports/fundamental/tearsheets/*.html

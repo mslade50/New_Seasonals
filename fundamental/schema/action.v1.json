@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "fundamental.action.v1",
+  "title": "Fundamental sleeve proposed action",
+  "type": "object",
+  "required": [
+    "action_id", "thesis_id", "ticker", "created_at", "action",
+    "current_weight_pct", "proposed_weight_pct", "reason", "binding_constraint",
+    "source_freshness", "approval_status", "dry_run_required"
+  ],
+  "properties": {
+    "action_id": {"type": "string", "minLength": 8},
+    "thesis_id": {"type": "string", "minLength": 8},
+    "ticker": {"type": "string"},
+    "created_at": {"type": "string", "format": "date-time"},
+    "action": {"enum": ["add", "trim", "exit", "freeze", "re-underwrite", "hold"]},
+    "current_weight_pct": {"type": "number", "minimum": 0},
+    "proposed_weight_pct": {"type": "number", "minimum": 0, "maximum": 4.5},
+    "reason": {"type": "string"},
+    "binding_constraint": {"type": "string"},
+    "source_freshness": {"type": "string"},
+    "approval_status": {"enum": ["draft", "snoozed", "rejected", "approved_for_preview", "approved_live"]},
+    "dry_run_required": {"const": true}
+  },
+  "additionalProperties": false
+}
+

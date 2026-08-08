@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "fundamental.candidate.v1",
+  "title": "Fundamental research candidate",
+  "type": "object",
+  "required": [
+    "ticker", "as_of", "research_priority", "research_score",
+    "actionability", "variant_wedge", "why_now", "first_rejection",
+    "what_makes_investable", "what_kills_it", "next_workflow",
+    "implementation_readiness", "source_posture"
+  ],
+  "properties": {
+    "ticker": {"type": "string", "minLength": 1},
+    "as_of": {"type": "string", "format": "date"},
+    "research_priority": {
+      "enum": [
+        "A - immediate research candidate",
+        "B - watchlist / needs trigger",
+        "C - screen flag only",
+        "Reject"
+      ]
+    },
+    "research_score": {"type": ["number", "null"], "minimum": 0, "maximum": 100},
+    "actionability": {"const": "Research priority only — not approved for capital"},
+    "variant_wedge": {"type": "string"},
+    "why_now": {"type": "string"},
+    "first_rejection": {"type": "string"},
+    "what_makes_investable": {"type": "string"},
+    "what_kills_it": {"type": "string"},
+    "next_workflow": {"type": "string"},
+    "implementation_readiness": {"type": "string", "pattern": "^Not implementation-ready"},
+    "source_posture": {"type": "string"}
+  },
+  "additionalProperties": true
+}
+

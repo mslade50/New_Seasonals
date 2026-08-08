@@ -99,4 +99,7 @@ Actions -> **Deploy Private Site** -> Run workflow. Takes ~10-15 min
 - **Payload sizes**: trades 0.6 MB, strategy_daily 0.7 MB raw — Cloudflare
   gzips on the wire. `site/_headers` sets `Cache-Control: no-store` on
   `/data/*` so you always see the latest build.
-- The site is read-only by construction: order staging / IBKR stays local.
+- The site remains read-only for portfolios, allocations, order staging, and
+  IBKR. The sole write route is `/fundamental-state`, which stores reversible
+  `DEEPEN`, `WATCH`, or `PASS` research-priority choices in R2 after verifying
+  the caller's Cloudflare Access identity. It cannot create a trade action.

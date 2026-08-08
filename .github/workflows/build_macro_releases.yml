@@ -1,0 +1,52 @@
+name: Build Macro Release History
+
+# Captures U.S. economic actuals, consensus estimates, prior values, and
+# release timestamps from FMP.  The normalized cache is stored in R2 for
+# event studies; rows with released actuals are immutable once captured.
+
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
+on:
+  schedule:
+    # 22:15 UTC = 6:15 PM ET during daylight time.  Same-day releases have
+    # settled, while the cache is ready before the next morning's research.
+    - cron: '15 22 * * 1-5'
+  workflow_dispatch:
+    inputs:
+      full:
+        description: 'Refetch the full FMP history from 2013'
+        required: false
+        default: false
+        type: boolean
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+
+      - name: Install dependencies
+        run: pip install pandas pyarrow requests boto3 python-dotenv
+
+      - name: Build + upload macro release history
+        env:
+          FMP_API_KEY: ${{ secrets.FMP_API_KEY }}
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+          FULL_REFRESH: ${{ inputs.full || 'false' }}
+        shell: bash
+        run: |
+          args=()
+          if [[ "$FULL_REFRESH" == "true" ]]; then args+=(--full); fi
+          python scripts/build_macro_releases.py "${args[@]}"
+

@@ -40,7 +40,19 @@ a:hover { text-decoration: underline; }
 .topbar .asof { margin-left: auto; color: var(--faint); font-size: 12px; white-space: nowrap; }
 
 .wrap { max-width: 1480px; margin: 0 auto; padding: 18px 22px 60px; }
-@media (max-width: 700px) { .wrap { padding: 12px 12px 60px; } .topbar { padding: 8px 12px; } }
+@media (max-width: 700px) {
+  .wrap { padding: 12px 12px 60px; }
+  .topbar {
+    display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 8px 12px;
+    width: 100%; padding: 8px 12px; overflow: hidden;
+  }
+  .topbar .asof { min-width: 0; overflow: hidden; text-align: right; text-overflow: ellipsis; }
+  .topbar nav {
+    grid-column: 1 / -1; flex-wrap: nowrap; gap: 3px; overflow-x: auto;
+    padding-bottom: 2px; scrollbar-width: thin;
+  }
+  .topbar nav a { flex: 0 0 auto; }
+}
 
 h1 { font-size: 20px; margin: 10px 0 2px; }
 h2 { font-size: 16px; margin: 26px 0 10px; padding-bottom: 6px; border-bottom: 1px solid var(--border); }
@@ -535,4 +547,143 @@ footer { color: var(--faint); font-size: 11px; margin-top: 40px; border-top: 1px
 .macro-chart { min-height: 400px; }
 @media (max-width: 1000px) {
   .macro-chart-grid { grid-template-columns: 1fr; }
+}
+
+/* ---------- Fundamentals: narrow research inbox ---------- */
+.fundamental-wrap { max-width: 1120px; padding-top: 26px; }
+.fund-hero {
+  display: grid; grid-template-columns: minmax(0, 1fr) 260px; gap: 28px;
+  align-items: stretch; padding: 24px; border: 1px solid var(--border);
+  border-left: 4px solid var(--green); border-radius: 12px; background: var(--card);
+}
+.fund-hero.needs-review { border-left-color: var(--amber); }
+.fund-eyebrow, .fund-micro-label {
+  color: var(--faint); font-size: 10.5px; font-weight: 700;
+  letter-spacing: .65px; text-transform: uppercase;
+}
+.fund-hero h1 { margin: 7px 0 7px; font-size: 28px; letter-spacing: -.35px; }
+.fund-hero p { max-width: 720px; margin: 0; color: var(--muted); line-height: 1.55; font-size: 14px; }
+.fund-safety {
+  margin-top: 15px; padding-top: 12px; border-top: 1px solid var(--border);
+  color: var(--faint); font-size: 11.5px; line-height: 1.45;
+}
+.fund-cap-card {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 8px; align-content: center;
+  padding: 15px; border: 1px solid var(--border); border-radius: 10px; background: var(--card2);
+}
+.fund-cap-card > div { min-width: 0; }
+.fund-cap-card strong { display: block; font-size: 19px; letter-spacing: -.25px; }
+.fund-cap-card span { display: block; margin-top: 3px; color: var(--muted); font-size: 11px; }
+.fund-cap-card small { grid-column: 1 / -1; margin-top: 5px; color: var(--faint); }
+.fund-section { margin-top: 26px; }
+.fund-section-head { display: flex; justify-content: space-between; gap: 12px; align-items: end; margin-bottom: 10px; }
+.fund-section-head h2 { margin: 0; padding: 0; border: 0; font-size: 17px; }
+.fund-section-head p { margin: 3px 0 0; color: var(--muted); font-size: 12px; }
+.fund-review-list { display: grid; gap: 12px; }
+.fund-review-card, .fund-active-card {
+  padding: 17px 18px; border: 1px solid var(--border); border-radius: 10px; background: var(--card);
+}
+.fund-review-card { border-top: 2px solid rgba(255,193,77,.7); }
+.fund-card-top { display: flex; justify-content: space-between; align-items: start; gap: 12px; }
+.fund-ticker-line { display: flex; gap: 9px; align-items: baseline; }
+.fund-ticker-line strong { font-size: 17px; letter-spacing: .2px; }
+.fund-ticker-line span { color: var(--muted); font-size: 12px; }
+.fund-tags { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 7px; }
+.fund-tag, .fund-state {
+  display: inline-block; padding: 2px 7px; border: 1px solid var(--border);
+  border-radius: 999px; color: var(--muted); font-size: 10px; line-height: 1.4;
+}
+.fund-tag.trend-green { color: var(--green); border-color: rgba(0,209,143,.3); }
+.fund-tag.trend-red { color: var(--red); border-color: rgba(255,93,93,.3); }
+.fund-tag.trend-amber { color: var(--amber); border-color: rgba(255,193,77,.3); }
+.fund-state { white-space: nowrap; font-weight: 650; }
+.fund-state.deepen { color: var(--accent); border-color: rgba(77,163,255,.4); }
+.fund-state.watch { color: var(--amber); border-color: rgba(255,193,77,.35); }
+.fund-state.pass { color: var(--faint); }
+.fund-verdict, .fund-active-card > p { margin: 13px 0; line-height: 1.55; color: var(--text); }
+.fund-thesis-grid {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 0 22px;
+  padding: 2px 0; border-top: 1px solid var(--border);
+}
+.fund-thesis-grid > div { padding: 12px 0; border-bottom: 1px solid var(--border); }
+.fund-thesis-grid span, .fund-next span {
+  display: block; margin-bottom: 4px; color: var(--faint); font-size: 10px;
+  font-weight: 700; letter-spacing: .45px; text-transform: uppercase;
+}
+.fund-thesis-grid p { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.5; }
+.fund-decision-row {
+  display: flex; justify-content: space-between; gap: 18px; align-items: center; margin-top: 14px;
+}
+.fund-decision-row p { margin: 4px 0 0; color: var(--muted); font-size: 12px; }
+.fund-actions { display: inline-flex; gap: 5px; flex-wrap: wrap; }
+.fund-action {
+  border: 1px solid var(--border); border-radius: 7px; padding: 6px 10px;
+  background: transparent; color: var(--muted); font: 600 11px inherit; cursor: pointer;
+}
+.fund-action:hover { color: var(--text); border-color: var(--accent); }
+.fund-action.selected { color: var(--text); background: #1c2433; border-color: var(--accent); }
+.fund-action:disabled { opacity: .45; cursor: wait; }
+.fund-inline-details { margin-top: 12px; color: var(--muted); font-size: 11px; }
+.fund-inline-details summary, .fund-drawer summary { cursor: pointer; }
+.fund-source-list { margin: 8px 0 0; padding-left: 18px; line-height: 1.7; }
+.fund-active-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+.fund-active-card { display: flex; flex-direction: column; min-width: 0; }
+.fund-active-card > p { color: var(--muted); font-size: 12px; }
+.fund-next {
+  margin-top: auto; padding: 10px; border-radius: 7px; background: var(--card2);
+  color: var(--muted); font-size: 11.5px; line-height: 1.45;
+}
+.fund-active-card .fund-actions { margin-top: 12px; }
+.fund-drawers { display: grid; gap: 7px; margin-top: 24px; }
+.fund-drawer { padding: 11px 13px; border: 1px solid var(--border); border-radius: 8px; background: var(--card2); }
+.fund-drawer summary { color: var(--muted); font-size: 12px; font-weight: 600; }
+.fund-drawer summary span { color: var(--faint); font-weight: 400; }
+.fund-lens-grid, .fund-audit-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-top: 12px; }
+.fund-lens-grid { grid-template-columns: repeat(3, 1fr); }
+.fund-lens-grid div, .fund-audit-grid div {
+  padding: 9px 10px; border: 1px solid var(--border); border-radius: 7px; background: var(--card);
+}
+.fund-lens-grid strong, .fund-audit-grid strong { display: block; font-size: 16px; }
+.fund-lens-grid span, .fund-audit-grid span { color: var(--faint); font-size: 10.5px; }
+.fund-suppressed { display: grid; gap: 7px; margin-top: 10px; }
+.fund-suppressed > div { display: flex; justify-content: space-between; align-items: center; gap: 10px; color: var(--muted); }
+.fund-suppressed strong { color: var(--text); margin-right: 5px; }
+.fund-pass-drawer[open] { padding-bottom: 14px; }
+.fund-pass-list { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 18px; margin-top: 10px; }
+.fund-pass-row { min-width: 0; padding: 8px 0; border-top: 1px solid var(--border); }
+.fund-pass-head { display: flex; justify-content: space-between; gap: 10px; align-items: baseline; }
+.fund-pass-head strong { font-size: 11.5px; }
+.fund-pass-head span { color: var(--muted); font-size: 10.5px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.fund-pass-meter { height: 4px; margin: 7px 0 6px; overflow: hidden; border-radius: 999px; background: #1b2230; }
+.fund-pass-meter i { display: block; height: 100%; border-radius: inherit; background: #53657e; }
+.fund-pass-row p { margin: 0; color: var(--faint); font-size: 10.5px; line-height: 1.45; }
+.fund-trend-overlay {
+  display: grid; grid-template-columns: auto 1fr; gap: 3px 12px; align-items: baseline;
+  margin-top: 12px; padding: 10px 11px; border: 1px solid var(--border); border-radius: 7px; background: var(--card);
+}
+.fund-trend-overlay strong { font-size: 11.5px; }
+.fund-trend-overlay span { color: var(--muted); font-size: 11px; }
+.fund-trend-overlay small { grid-column: 1 / -1; color: var(--faint); font-size: 10px; }
+.fund-sync { min-height: 18px; margin: 10px 2px 0; color: var(--faint); font-size: 10.5px; text-align: right; }
+
+@media (max-width: 900px) {
+  .fund-hero { grid-template-columns: 1fr; }
+  .fund-cap-card { max-width: 360px; }
+  .fund-active-grid { grid-template-columns: 1fr; }
+}
+@media (max-width: 650px) {
+  .fundamental-wrap { padding-top: 14px; }
+  .fund-hero { padding: 18px; gap: 18px; }
+  .fund-hero h1 { font-size: 24px; }
+  .fund-thesis-grid { grid-template-columns: 1fr; }
+  .fund-decision-row { align-items: stretch; flex-direction: column; }
+  .fund-actions { display: grid; grid-template-columns: repeat(3, 1fr); width: 100%; }
+  .fund-action { min-height: 34px; }
+  .fund-card-top { flex-direction: column; }
+  .fund-lens-grid, .fund-audit-grid, .fund-pass-list { grid-template-columns: 1fr 1fr; }
+}
+@media (max-width: 500px) {
+  .fund-pass-list { grid-template-columns: 1fr; }
+  .fund-trend-overlay { grid-template-columns: 1fr; }
+  .fund-trend-overlay small { grid-column: 1; }
 }

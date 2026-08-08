@@ -163,3 +163,40 @@ stage_olv_vol_confirm_exits -> OLV_Exits tab), order_staging/eq_order_entry
 (load_olv_exit_rows + Is_Position_Exit naked-MOO exit path, primary account
 only). Guards: tests/test_olv_stop_and_cap.py, OneDrive test_olv_exits.py.
 CLAUDE.md section: "OLV Vol-Confirmed Stop + Notional Cap (2026-07-20)".
+
+## Part 4 (2026-07-29): OR-composite volume confirm — REJECTED
+
+Question (McKinley): widen the volume leg to "day vol >= 1.5x med20 OR
+trailing 3d avg vol (incl. confirm day) >= 1.5x med20"? Intended target:
+grinding declines on persistently elevated but never-spiking volume (the
+2026 trending clusters). Pre-registered before running: adopt only if diff
+totR >= 0 vs nxo_15, or costs <= 5R while materially improving BOTH the
+worst same-ticker chain $ and the 2026 tail. Threshold fixed 1.5x, no
+scanning. Script: `scratch/olv_stop_or3d_test.py`; trades
+`scratch/olv_stopvar_nxo_15_or3d.parquet`.
+
+| variant | totR | avgR | win | PF | worstR | stops | $PnL |
+|---|---|---|---|---|---|---|---|
+| nxo_15 (shipped) | 243.4 | 0.702 | 71% | 2.84 | -2.94 | 63 | $623.6k |
+| nxo_15_or3d | 242.9 | 0.700 | 70% | 2.83 | -2.94 | 66 | $622.7k |
+| nxo_eod (no vol) | 220.7 | 0.636 | 68% | 2.52 | -4.02 | 95 | $543.1k |
+
+- The avg3 leg fired only 4 extra confirms in 21y (66 vs 63 stops).
+  Structural reason: a decline heavy enough to push the 3d AVERAGE to 1.5x
+  med20 almost always contains a single day >= 1.5x, which already
+  confirms. The target population ("grinding elevated volume, no spike
+  day") barely exists.
+- The 4 changed trades net -0.6R (1 better, 3 worse; cluster t = -0.33).
+  2026 — the motivating tail — got WORSE (-1.06R). Only 2020 gained
+  (+1.0R). LOYO diff min -1.6R.
+- Zero tail benefit: worst trade identical (-2.94R), p5 identical, worst
+  same-ticker chain byte-identical (ORCL -$17.2k, untouched).
+
+Fails both prereg branches -> rejected. Corollary evidence: the +22.7R gap
+to nxo_eod re-confirms the single-day spike condition carries the volume
+filter's entire value on this vintage.
+
+Vintage note: baseline totR here (243.4) sits above Part 2's 224.8 because
+entries are frozen from the CURRENT post-package ledger (2026-07-21 build,
+348 trades, no gate/ladder) on the current cache; the comparison is
+internal to the run, so the verdict is unaffected.

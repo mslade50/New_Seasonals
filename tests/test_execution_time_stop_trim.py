@@ -303,3 +303,157 @@ def test_partial_close_cancels_and_resizes_time_stop_only(executor, capsys):
     assert resized.goodAfterTime == scheduled.goodAfterTime
     assert resized.tif == "GTC"
     assert resized.outsideRth is True
+
+
+@pytest.mark.parametrize(
+    ("starting_position", "requested_action", "expected_position"),
+    [(25, "SELL", 15), (-25, "BUY", -15)],
+)
+def test_close_only_uses_closing_side_and_never_touches_orders(
+        executor, capsys, starting_position, requested_action,
+        expected_position):
+    contract = SimpleNamespace(
+        symbol="AAPL", secType="STK", conId=12345, exchange="",
+        currency="USD", lastTradeDateOrContractMonth="",
+    )
+    position = SimpleNamespace(
+        contract=contract, position=starting_position, account="DU_TEST",
+    )
+
+    class FakeIB:
+        def __init__(self):
+            self.placed = []
+
+        def positions(self):
+            return [position] if position.position else []
+
+        def qualifyContracts(self, *_contracts):
+            return None
+
+        def reqAllOpenOrders(self):
+            raise AssertionError("close_only must not inspect working orders")
+
+        def openTrades(self):
+            raise AssertionError("close_only must not inspect working orders")
+
+        def cancelOrder(self, _order):
+            raise AssertionError("close_only must not cancel working orders")
+
+        def sleep(self, _seconds):
+            return None
+
+        def placeOrder(self, placed_contract, order):
+            self.placed.append((placed_contract, order))
+            if order.action == "SELL":
+                position.position -= int(order.totalQuantity)
+            else:
+                position.position += int(order.totalQuantity)
+            return SimpleNamespace(
+                order=order,
+                orderStatus=SimpleNamespace(
+                    status="Filled", filled=order.totalQuantity,
+                    avgFillPrice=100.0,
+                ),
+            )
+
+    ib = FakeIB()
+    result = executor._do_close_only(ib, {
+        "symbol": "AAPL", "sec_type": "STK", "con_id": 12345,
+        "qty": 10, "action": requested_action, "order_type": "MKT",
+    })
+    payload = capsys.readouterr().out
+
+    assert result == 0
+    assert '"state": "executed"' in payload
+    assert '"working_orders_untouched": true' in payload
+    assert len(ib.placed) == 1
+    assert ib.placed[0][1].action == requested_action
+    assert int(ib.placed[0][1].totalQuantity) == 10
+    assert position.position == expected_position
+
+
+def test_close_only_rejects_add_side_and_oversize(executor, capsys):
+    contract = SimpleNamespace(
+        symbol="AAPL", secType="STK", conId=12345, exchange="",
+        currency="USD", lastTradeDateOrContractMonth="",
+    )
+    position = SimpleNamespace(
+        contract=contract, position=25, account="DU_TEST",
+    )
+
+    class FakeIB:
+        def __init__(self):
+            self.placed = []
+
+        def positions(self):
+            return [position]
+
+        def qualifyContracts(self, *_contracts):
+            return None
+
+        def placeOrder(self, contract, order):
+            self.placed.append((contract, order))
+            raise AssertionError("rejected close must not place an order")
+
+    ib = FakeIB()
+    executor._do_close_only(ib, {
+        "symbol": "AAPL", "sec_type": "STK", "con_id": 12345,
+        "qty": 10, "action": "BUY", "order_type": "MKT",
+    })
+    wrong_side = capsys.readouterr().out
+    executor._do_close_only(ib, {
+        "symbol": "AAPL", "sec_type": "STK", "con_id": 12345,
+        "qty": 26, "action": "SELL", "order_type": "MKT",
+    })
+    oversize = capsys.readouterr().out
+
+    assert "would add to the live position" in wrong_side
+    assert "exceeds held 25" in oversize
+    assert ib.placed == []
+
+
+def test_agent_close_only_ignores_misaligned_working_orders(agent, monkeypatch):
+    position = {
+        "symbol": "AAPL", "sec_type": "STK", "con_id": 12345,
+        "position": 25, "avg_cost": 100.0, "market_price": 101.0,
+    }
+    monkeypatch.setitem(agent._BOOK, "book", {
+        "accounts": [{
+            "key": "primary", "nlv": 750_000, "positions": [position],
+            "orders": [
+                {"symbol": "AAPL", "sec_type": "STK", "con_id": 12345,
+                 "action": "SELL", "order_type": "MKT", "qty": 10,
+                 "good_after": "20260801 15:59:00 US/Eastern"},
+                {"symbol": "AAPL", "sec_type": "STK", "con_id": 12345,
+                 "action": "SELL", "order_type": "MKT", "qty": 15,
+                 "good_after": "20260802 15:59:00 US/Eastern"},
+                {"symbol": "AAPL", "sec_type": "STK", "con_id": 12345,
+                 "action": "BUY", "order_type": "LMT", "qty": 10,
+                 "lmt": 95.0},
+            ],
+        }],
+    })
+    base = {
+        "type": "close_only", "account": "primary",
+        "payload": {
+            "symbol": "AAPL", "sec_type": "STK", "con_id": 12345,
+            "qty": 10, "action": "SELL", "order_type": "MKT",
+        },
+    }
+
+    ok, reasons = agent._validate(base)
+    preview = agent._preview(base)
+    wrong_ok, wrong_reasons = agent._validate({
+        **base, "payload": {**base["payload"], "action": "BUY"},
+    })
+    large_ok, large_reasons = agent._validate({
+        **base, "payload": {**base["payload"], "qty": 26},
+    })
+
+    assert ok, reasons
+    assert preview["legs"][-1] == "LEAVE ALL WORKING ORDERS UNCHANGED"
+    assert "working orders unchanged" in preview["summary"]
+    assert not wrong_ok
+    assert any("would add" in reason for reason in wrong_reasons)
+    assert not large_ok
+    assert any("exceeds held 25" in reason for reason in large_reasons)
