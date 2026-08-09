@@ -132,7 +132,8 @@ Write `scratch/pitch_checks/<YYYY-MM-DD>/00_surface_map.md` FIRST. It
 enumerates today's whole opportunity surface and gives every cell a verdict.
 The dismissals matter as much as the picks: a cell you do not examine has to
 be visibly dismissed with a reason, never silently absent. If the map is
-missing, the morning is not surveyed and nothing may publish.
+missing, the morning is not surveyed and nothing may publish. That is enforced
+on disk since 2026-08-08, on the ideas path as well as the stand-down path.
 
 Three enumerations, each exhaustive.
 
@@ -301,7 +302,13 @@ original):
 A survivor is a pattern; a pitch is a trade. Every candidate that will be
 composed gets one development script (`_dev` suffix) answering four
 questions, and the composed idea must match its answers rather than the form
-the candidate was first imagined in:
+the candidate was first imagined in.
+
+**Its path goes in `evidence.dev_script` and the publisher requires it** for
+every composed idea, so round 3 is structural rather than something the prose
+can claim. One file may serve as both `script` and `dev_script` when it
+carries the development section itself. A directed idea may omit it, since
+McKinley asked for the trade in a stated form and the shaping work is done.
 
 1. **Horizon**: `pitch_lab.horizon_scan` across 1 to 10 td. `horizon_td` and
    `time_td` come FROM this table. If the edge lives at h=3 and decays by
@@ -505,7 +512,8 @@ House style, and McKinley reads every word:
       "evidence": {"summary": "...", "n": 22, "t_stat": 2.1,
                    "window": "2004-2025", "control": "...", "era_note": "...",
                    "table": [["cohort","N","avg","hit"], ["...","...","...","..."]],
-                   "script": "scratch/pitch_checks/2026-08-06/gld_slv_nfp.py"},
+                   "script": "scratch/pitch_checks/2026-08-06/gld_slv_nfp.py",
+                   "dev_script": "scratch/pitch_checks/2026-08-06/gld_slv_nfp_dev.py"},
       "survived": "the consideration that could have killed it and did not",
       "what_kills_it": "...",
       "overlap": "what the book or sleeves already hold that correlates, or None",
@@ -558,6 +566,30 @@ appends to `data/pitch_journal.jsonl`. Iterate on `--validate-only` until it is
 silent. `--dry-run --html-out preview.html` renders without sending.
 
 Fix validation errors by fixing the idea, never by loosening the grammar.
+
+### The publish gates read the disk, not the payload
+
+Since 2026-08-08 an ideas publish has to prove the morning happened. Three
+things are checked against `scratch/pitch_checks/<asof>/` and `--validate-only`
+enforces every one of them exactly like a real publish:
+
+- the day folder exists and holds `00_surface_map.md` plus at least one `.py`
+  check. No surface map means stage B1 was skipped, the morning is not
+  surveyed, and nothing publishes.
+- every `evidence.script` and `evidence.dev_script` resolves to a file that
+  exists INSIDE that folder. A path into yesterday's folder fails as stale,
+  which is the machine-checkable half of "computed fresh this morning".
+- every composed idea carries `dev_script` (round 3 above).
+
+A directed-only publish skips the first check and none of the others: the
+survey rule constrains the agent, not McKinley, but a directed idea still
+needs its own check written today.
+
+The kill reasons are linted too. A reason that reads as sample size and
+nothing else ("insufficient N", "not significant", "t below 2") prints a
+`KILL-LINT:` line and is tagged in the email footer, per the doctrine above.
+It is a warning and never blocks a publish, so treat it as a prompt to name
+the substantive kill you actually found rather than an error to route around.
 
 ## After publishing
 

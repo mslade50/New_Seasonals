@@ -8,13 +8,14 @@ produces a loud failure instead of three plausible-looking cards.
 
     python daily_pitch.py --ideas data/pitch_ideas.json [--dry-run]
                           [--no-send] [--html-out out.html] [--asof DATE]
-                          [--validate-only]
+                          [--validate-only] [--checks-root DIR]
 
 What one run does, in order:
   1. read the agent's ideas json and the price cache;
   2. validate the whole payload against pitch_grammar (exactly three ideas,
-     one grade-C cap, a time stop on every idea, fresh evidence, the
-     repetition rule against the journal);
+     one grade-C cap, a time stop on every idea, evidence that exists on disk
+     under today's checks folder, the survey that produced it, the repetition
+     rule against the journal);
   3. derive per-leg order specs (sizes, limits, exit dates);
   4. capture yesterday's Approve cells off the Pitch tab BEFORE it is
      overwritten, and journal them;
@@ -56,7 +57,9 @@ from pitch_grammar import (
     entry_label,
     exit_label,
     fingerprint,
+    is_sample_size_only_kill,
     is_stand_down,
+    lint_kill_reasons,
     load_prices,
     price_context,
     validate_payload,
@@ -108,13 +111,15 @@ def leg_tickers(payload: dict) -> list[str]:
 
 
 def prepare(payload: dict, asof: pd.Timestamp, prices: pd.DataFrame,
-            journal_records: list[dict]) -> tuple[list[dict], list[dict]]:
+            journal_records: list[dict],
+            checks_root: str | Path | None = None
+            ) -> tuple[list[dict], list[dict]]:
     """Validate the payload and derive its order rows. Raises SystemExit with
     every error at once, because a half-valid pitch is not publishable and
     fixing one error at a time wastes a morning."""
     since = str((asof - REPEAT_BLOCK_TD * TRADING_DAY).normalize().date())
     recent = pitch_journal.recent_fingerprints(journal_records, since)
-    errors = validate_payload(payload, recent)
+    errors = validate_payload(payload, recent, checks_root)
 
     contexts: dict[str, dict] = {}
     if not errors:
@@ -288,6 +293,29 @@ def _order_line(row: dict) -> str:
     return ", ".join(bits)
 
 
+def print_kill_lint(payload: dict) -> list[str]:
+    """Say it on stdout, on every run mode, before anything is published.
+
+    The lint never blocks: the match is a heuristic over prose and a false
+    positive must not cost a morning. It runs on ideas publishes and
+    stand-downs alike, since a stand-down is where sample-size kills would
+    pile up unnoticed.
+    """
+    warnings = lint_kill_reasons(payload.get("killed") or [])
+    for line in warnings:
+        print(f"KILL-LINT: {line}")
+    return warnings
+
+
+def _kill_lint_tag(kill: dict) -> str:
+    """A visible mark on a flagged kill, so a doctrine violation is in front of
+    McKinley the same morning rather than only in the log."""
+    if not is_sample_size_only_kill(kill.get("reason")):
+        return ""
+    return (" <span style='color:#b02a1e;font-weight:600'>"
+            "[killed on sample size alone]</span>")
+
+
 def _evidence_table(table) -> str:
     if not isinstance(table, list) or not table:
         return ""
@@ -369,6 +397,8 @@ def render_card(idea: dict) -> str:
     {_evidence_table(ev.get('table'))}
     <div style="color:#999;font-size:11px">checked this morning:
       {_esc(ev.get('script', ''))}</div>
+    {f'''<div style="color:#999;font-size:11px">developed in:
+      {_esc(ev.get('dev_script'))}</div>''' if ev.get('dev_script') else ''}
   </div>
   <div style="{field}"><span style="{tag}">SURVIVED</span>
     &nbsp;{_esc(idea.get('survived', ''))}</div>
@@ -453,7 +483,8 @@ def render_email(payload: dict, ideas: list[dict], asof: pd.Timestamp,
     killed_html = ""
     if killed:
         lines = "<br>".join(
-            f"killed: {_esc(k.get('title', ''))} &mdash; {_esc(k.get('reason', ''))}"
+            f"killed: {_esc(k.get('title', ''))} &mdash; "
+            f"{_esc(k.get('reason', ''))}{_kill_lint_tag(k)}"
             for k in killed)
         killed_html = (f"<p style='color:#777;font-size:12px'>"
                        f"<b>Finalists killed in falsification:</b><br>{lines}</p>")
@@ -541,7 +572,8 @@ def render_stand_down(payload: dict, asof: pd.Timestamp, scoreboard: dict,
     killed_html = ""
     if killed:
         lines = "<br>".join(
-            f"<b>{_esc(k.get('title', ''))}</b> &mdash; {_esc(k.get('reason', ''))}"
+            f"<b>{_esc(k.get('title', ''))}</b> &mdash; "
+            f"{_esc(k.get('reason', ''))}{_kill_lint_tag(k)}"
             for k in killed)
         killed_html = (
             f"<p style='color:#555;font-size:12px;margin-top:16px'>"
@@ -848,6 +880,9 @@ def main() -> int:
                     help="effort stamp; defaults to $PITCH_EFFORT")
     ap.add_argument("--journal", default=str(pitch_journal.JOURNAL_PATH),
                     help="journal path; a non-default path never touches R2")
+    ap.add_argument("--checks-root", default=None,
+                    help="where the day's check scripts live; defaults to "
+                         "scratch/pitch_checks (dev and fixture runs only)")
     args = ap.parse_args()
 
     payload = load_ideas(Path(args.ideas))
@@ -859,11 +894,13 @@ def main() -> int:
 
     journal_path = Path(args.journal)
     records = pitch_journal.load(journal_path)
+    print_kill_lint(payload)
 
     if is_stand_down(payload):
         return publish_stand_down(payload, asof, journal_path, args)
 
-    ideas, rows = prepare(payload, asof, load_prices(), records)
+    ideas, rows = prepare(payload, asof, load_prices(), records,
+                          args.checks_root)
 
     _model, _effort = run_identity(args.model, args.effort)
     print(f"Daily Pitch {asof.date()} - {len(ideas)} ideas, "

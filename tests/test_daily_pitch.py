@@ -34,8 +34,13 @@ def synth_prices(tickers, close=100.0, atr_pct=2.0, periods=400):
 
 
 @pytest.fixture()
-def payload():
-    return json.loads(FIXTURE.read_text(encoding="utf-8"))
+def payload(survey):
+    """The fixture payload plus the surveyed morning the publisher now
+    demands: conftest's `survey` writes the day folder and repoints every
+    evidence path into it."""
+    loaded = json.loads(FIXTURE.read_text(encoding="utf-8"))
+    survey(loaded)
+    return loaded
 
 
 @pytest.fixture()
@@ -91,6 +96,26 @@ def test_prepare_refuses_to_publish_a_broken_payload(payload, prices):
     with pytest.raises(SystemExit) as excinfo:
         dp.prepare(payload, ASOF, prices, [])
     assert excinfo.value.code == 2
+
+
+def test_prepare_refuses_ideas_with_no_survey_behind_them(payload, prices,
+                                                          checks_root, capsys):
+    """The publish gate that closed the lazy path: three plausible ideas and
+    no morning on disk stop at validation, exactly like a malformed payload."""
+    (checks_root / payload["asof"] / pg.SURFACE_MAP_NAME).unlink()
+    with pytest.raises(SystemExit) as excinfo:
+        dp.prepare(payload, ASOF, prices, [])
+    assert excinfo.value.code == 2
+    assert pg.SURFACE_MAP_NAME in capsys.readouterr().out
+
+
+def test_prepare_takes_an_injected_checks_root(payload, prices, checks_root,
+                                               tmp_path, monkeypatch):
+    monkeypatch.setattr(pg, "CHECKS_ROOT", tmp_path / "nowhere")
+    with pytest.raises(SystemExit):
+        dp.prepare(payload, ASOF, prices, [])
+    ideas, _ = dp.prepare(payload, ASOF, prices, [], checks_root)
+    assert len(ideas) == 3
 
 
 def test_prepare_enforces_the_repetition_rule(payload, prices):
@@ -154,6 +179,9 @@ def test_journal_records_carry_the_full_spec(payload, prices):
                   "evidence", "survived", "what_kills_it", "overlap"):
         assert first[field], f"journal record is missing {field}"
     assert set(first["spec"]) == {"legs", "entry", "exit", "sizing"}
+    # The record carries the whole evidence dict, so dev_script reaches the
+    # grader and the audit trail with no plumbing of its own.
+    assert first["evidence"]["dev_script"]
 
 
 def test_journal_round_trip_folds_approvals_and_outcomes(tmp_path, payload,
@@ -225,6 +253,40 @@ def test_email_prints_the_futures_contract(payload, prices):
     contract = payload["ideas"][2]["legs"][0]["contract"]
     html = dp.render_email(payload, ideas, ASOF, {}, None)
     assert dp._esc(contract) in html
+
+
+def test_email_prints_both_evidence_scripts(payload, prices):
+    ideas, _ = dp.prepare(payload, ASOF, prices, [])
+    html = dp.render_email(payload, ideas, ASOF, {}, None)
+    for idea in ideas:
+        assert dp._esc(idea["evidence"]["script"]) in html
+        assert dp._esc(idea["evidence"]["dev_script"]) in html
+    assert "developed in:" in html
+
+
+def test_email_tags_a_kill_made_on_sample_size_alone(payload, prices):
+    payload["killed"][0]["reason"] = "N=6, insufficient sample"
+    ideas, _ = dp.prepare(payload, ASOF, prices, [])
+    html = dp.render_email(payload, ideas, ASOF, {}, None)
+    assert "killed on sample size alone" in html
+    # And only on the offending line: the other kill names an era check.
+    assert html.count("killed on sample size alone") == 1
+
+
+def test_stand_down_email_tags_sample_size_kills(stand_down):
+    stand_down["killed"][0]["reason"] = "t=1.4, not significant"
+    html = dp.render_stand_down(stand_down, SD_ASOF, {}, None)
+    assert "killed on sample size alone" in html
+
+
+def test_kill_lint_prints_but_never_blocks(payload, prices, capsys):
+    payload["killed"][0]["reason"] = "N=6, insufficient sample"
+    warnings = dp.print_kill_lint(payload)
+    assert len(warnings) == 1
+    assert "KILL-LINT:" in capsys.readouterr().out
+    # The publish itself is untouched: a heuristic must not cost a morning.
+    ideas, rows = dp.prepare(payload, ASOF, prices, [])
+    assert len(ideas) == 3
 
 
 def test_email_surfaces_state_warnings(payload, prices):

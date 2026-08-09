@@ -102,6 +102,35 @@ column. Type `Y` to take an idea.
   the next run, which is also the only window in which the pipeline can read
   them back into the journal.
 
+## Publish gates (2026-08-08)
+
+The publisher used to enforce proof-of-work asymmetrically. A stand-down had
+to show its sweep on disk; a morning that shipped three ideas showed nothing,
+because validation never touched the filesystem and `evidence.script` was
+accepted as any non-empty string. Three recall-generated ideas with no survey
+behind them was therefore the one unguarded path through the whole pipeline,
+and it is exactly the lazy failure mode. Now an ideas publish also checks
+`scratch/pitch_checks/<asof>/`: the folder exists, holds `00_surface_map.md`
+and at least one `.py` check, and every `evidence.script` and
+`evidence.dev_script` resolves to a file inside it. A path into yesterday's
+folder fails as stale, which is the machine-checkable half of "computed fresh
+this morning". `dev_script` is new and required for every composed idea, so
+stage C round 3 (horizon scan, entry form, exits, loser paths) leaves a
+script rather than a claim.
+
+A directed-only publish skips the surface-map check and nothing else. Survey
+enforcement exists to constrain the agent, and McKinley directing one idea ad
+hoc should not cost a full morning sweep; that idea still needs its own check
+written today. `--validate-only` binds exactly like a real publish, since
+iterating on validate-only is precisely when these should bite.
+`--checks-root DIR` points the whole check at a fixture folder for dev runs.
+
+Kill reasons are linted separately. A reason that reads as sample size and
+nothing else prints `KILL-LINT: ...` and is tagged in the email's killed
+footer, because "insufficient N" and "t below 2" are illegal standalone kills
+under the small-N doctrine. The lint never blocks a publish: the match is a
+heuristic over prose and a false positive must not cost a morning.
+
 ## Placement routing
 
 Entry shape decides which pass can place an idea, and the grammar computes it:

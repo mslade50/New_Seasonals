@@ -904,6 +904,29 @@ Hard requirements enforced in code, not prose (`pitch_grammar.py`):
 - **fresh evidence** (summary, N, control, era note, and the path of the
   check script written that morning) plus a **`survived`** line naming one
   consideration that could have killed the idea and did not.
+- **the survey has to be on disk** (2026-08-08, `validate_survey_evidence`):
+  an ideas publish fails unless `scratch/pitch_checks/<asof>/` exists, holds
+  `00_surface_map.md` and >= 1 `.py`, and every `evidence.script` /
+  `evidence.dev_script` resolves INSIDE that folder (resolved-path
+  containment, so `..` and Windows case cannot escape). A path into
+  yesterday's folder fails as stale, which is the machine-checkable half of
+  "computed fresh this morning". `dev_script` is required for every COMPOSED
+  idea, making stage C round 3 structural. A DIRECTED-only publish is exempt
+  from the folder/map check and from nothing else: the survey rule constrains
+  the agent, not the human filter, but a directed idea still needs its own
+  check written today. Closes the asymmetry where a stand-down had to prove
+  it looked and three shipped ideas proved nothing, which made "three
+  recall-generated ideas, no survey" the only unguarded path. `--checks-root`
+  injects a fixture folder; `--validate-only` binds exactly like a real
+  publish.
+- **illegal-kill lint** (`lint_kill_reasons`, WARN ONLY): a kill reason that
+  reads as sample size alone ("insufficient N", "not significant", "t below
+  2") prints `KILL-LINT:` on every run mode and is tagged in the email's
+  killed footer, on ideas publishes and stand-downs alike. Never blocks: the
+  match is a heuristic over prose and a false positive must not cost a
+  morning. Patterns are frozen constants (`KILL_SAMPLE_ONLY_PATTERNS`,
+  `KILL_SUBSTANTIVE_MARKERS`); a substantive marker in the same reason
+  suppresses the flag.
 - **repetition control**: an idea whose structural fingerprint (legs + sides
   + entry type + horizon bucket) was pitched inside 10 td needs an explicit
   `changed_since`.
@@ -1005,7 +1028,9 @@ Aligned sites — change together:
   (OneDrive trading_ibkr)
 - Guards: `tests/test_pitch_grammar.py`, `tests/test_daily_pitch.py`,
   `tests/test_pitch_grader.py`, `tests/test_pitch_lab.py`,
-  `test_pitch_moo.py` (OneDrive)
+  `test_pitch_moo.py` (OneDrive); `tests/conftest.py` holds the shared
+  `survey` / `checks_root` fixtures both pitch modules build payloads from,
+  so neither reads the repo's real scratch state
 
 ## OLV Vol-Confirmed Stop + Notional Cap (2026-07-20)
 

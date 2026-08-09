@@ -24,7 +24,8 @@
     "control": "the same five-day window on all non-payroll weeks",
     "era_note": "present pre and post 2018, weaker in 2013-2015",
     "table": [["cohort", "N", "avg", "hit"], ["August NFP", "22", "+0.9%", "68%"], ["all weeks", "1100", "+0.1%", "51%"]],
-    "script": "scratch/pitch_checks/2026-08-06/fixture_gld_slv.py"
+    "script": "scratch/pitch_checks/2026-08-06/fixture_gld_slv.py",
+    "dev_script": "scratch/pitch_checks/2026-08-06/fixture_gld_slv_dev.py"
    },
    "survived": "Fixture: the effect could have been a gold-only move, but the silver leg carries half the spread on its own.",
    "what_kills_it": "Fixture: a dollar breakout that lifts both metals together.",
@@ -47,7 +48,8 @@
     "window": "2003-2026",
     "control": "all XLU one-day drops of the same size regardless of rank",
     "era_note": "stable across eras, best 2016-2020",
-    "script": "scratch/pitch_checks/2026-08-06/fixture_xlu_pullback.py"
+    "script": "scratch/pitch_checks/2026-08-06/fixture_xlu_pullback.py",
+    "dev_script": "scratch/pitch_checks/2026-08-06/fixture_xlu_pullback_dev.py"
    },
    "survived": "Fixture: the cell survives dropping the two best episodes.",
    "what_kills_it": "Fixture: a rates spike that breaks the sector's rank.",
@@ -73,7 +75,8 @@
     "window": "2002-2026 midterm Augusts",
     "control": "all four-day DX windows in August",
     "era_note": "six observations, one cycle cell, context only",
-    "script": "scratch/pitch_checks/2026-08-06/fixture_dx_drift.py"
+    "script": "scratch/pitch_checks/2026-08-06/fixture_dx_drift.py",
+    "dev_script": "scratch/pitch_checks/2026-08-06/fixture_dx_drift_dev.py"
    },
    "survived": "Fixture: it holds when the weakest observation is dropped, but N is too small to lean on.",
    "what_kills_it": "Fixture: a soft print that sends the dollar down on day one.",

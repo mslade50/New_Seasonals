@@ -6,6 +6,7 @@ if somebody loosens the grammar instead of fixing an idea.
 """
 import copy
 import json
+import shutil
 import sys
 from pathlib import Path
 
@@ -22,8 +23,12 @@ FIXTURE = ROOT / "tests" / "fixtures" / "pitch_ideas_fixture.json"
 
 
 @pytest.fixture()
-def payload():
-    return json.loads(FIXTURE.read_text(encoding="utf-8"))
+def payload(survey):
+    """The fixture payload plus the surveyed morning behind it (conftest's
+    `survey` writes the day folder and repoints every evidence path at it)."""
+    loaded = json.loads(FIXTURE.read_text(encoding="utf-8"))
+    survey(loaded)
+    return loaded
 
 
 @pytest.fixture()
@@ -101,7 +106,8 @@ def test_entry_vocabulary_is_closed(idea, entry):
 
 
 def test_evidence_and_survived_are_required(idea):
-    for field in ("summary", "script", "n", "control", "era_note"):
+    for field in ("summary", "script", "dev_script", "n", "control",
+                  "era_note"):
         broken = copy.deepcopy(idea)
         broken["evidence"].pop(field)
         assert pg.validate_idea(broken, "x"), f"missing evidence.{field} passed"
@@ -501,3 +507,235 @@ def test_directed_ideas_helper_finds_them(payload):
     assert pg.directed_ideas(payload) == []
     payload["ideas"][1]["directed_by"] = "mckinley"
     assert len(pg.directed_ideas(payload)) == 1
+
+
+# ---------------------------------------------------------------------------
+# survey evidence: the ideas path must prove the morning happened
+#
+# The stand-down path always had to prove it looked. The ideas path proved
+# nothing, which made "three recall-generated ideas with no survey" the one
+# unguarded route through the publisher, and it is precisely the lazy failure
+# mode. These check the disk, so they are the only rules in this file a
+# convincing-sounding payload cannot satisfy on its own.
+# ---------------------------------------------------------------------------
+def test_a_surveyed_morning_publishes(payload, checks_root):
+    day = checks_root / payload["asof"]
+    assert (day / pg.SURFACE_MAP_NAME).is_file()
+    assert pg.validate_payload(payload) == []
+
+
+def test_ideas_without_a_day_folder_do_not_publish(payload, checks_root):
+    shutil.rmtree(checks_root / payload["asof"])
+    errors = pg.validate_payload(payload)
+    assert any("checks directory" in e and "does not exist" in e
+               for e in errors)
+
+
+def test_ideas_without_a_surface_map_do_not_publish(payload, checks_root):
+    (checks_root / payload["asof"] / pg.SURFACE_MAP_NAME).unlink()
+    errors = pg.validate_payload(payload)
+    assert any(pg.SURFACE_MAP_NAME in e for e in errors)
+    assert not any("checks directory" in e for e in errors)
+
+
+def test_a_map_with_no_checks_is_not_a_survey(payload, checks_root):
+    day = checks_root / payload["asof"]
+    for script in day.glob("*.py"):
+        script.unlink()
+    assert any("no .py checks" in e for e in pg.validate_payload(payload))
+
+
+def test_a_directed_only_publish_needs_no_surface_map(payload, checks_root):
+    """Survey enforcement exists to constrain the agent, not the human filter:
+    an idea McKinley asked for by name must not cost a full morning sweep."""
+    (checks_root / payload["asof"] / pg.SURFACE_MAP_NAME).unlink()
+    payload["ideas"] = payload["ideas"][:1]
+    payload["ideas"][0]["directed_by"] = "mckinley"
+    assert pg.validate_payload(payload) == []
+
+
+def test_a_mixed_publish_still_requires_the_survey(payload, checks_root):
+    (checks_root / payload["asof"] / pg.SURFACE_MAP_NAME).unlink()
+    payload["ideas"][0]["directed_by"] = "mckinley"
+    assert any(pg.SURFACE_MAP_NAME in e for e in pg.validate_payload(payload))
+
+
+def test_a_directed_idea_still_needs_a_check_written_today(payload,
+                                                           checks_root):
+    """Change 1's exemption covers the sweep, never the evidence."""
+    payload["ideas"] = payload["ideas"][:1]
+    payload["ideas"][0]["directed_by"] = "mckinley"
+    Path(payload["ideas"][0]["evidence"]["script"]).unlink()
+    errors = pg.validate_payload(payload)
+    assert any("does not exist on disk" in e for e in errors)
+    assert not any(pg.SURFACE_MAP_NAME in e for e in errors)
+
+
+def test_an_evidence_script_that_does_not_exist_fails(payload, checks_root):
+    missing = checks_root / payload["asof"] / "never_written.py"
+    payload["ideas"][0]["evidence"]["script"] = str(missing)
+    assert any("never_written.py" in e and "does not exist on disk" in e
+               for e in pg.validate_payload(payload))
+
+
+def test_yesterdays_script_is_not_this_mornings_evidence(payload, checks_root):
+    yesterday = checks_root / "2026-08-05"
+    yesterday.mkdir()
+    stale = yesterday / "r2_tlt.py"
+    stale.write_text("# yesterday\n", encoding="utf-8")
+    payload["ideas"][0]["evidence"]["script"] = str(stale)
+    assert any("fresh" in e for e in pg.validate_payload(payload))
+
+
+def test_a_script_in_a_subdirectory_of_the_day_folder_is_fine(payload,
+                                                              checks_root):
+    nested = checks_root / payload["asof"] / "round2"
+    nested.mkdir()
+    script = nested / "r2_probe.py"
+    script.write_text("# decluster\n", encoding="utf-8")
+    payload["ideas"][0]["evidence"]["script"] = str(script)
+    assert pg.validate_payload(payload) == []
+
+
+def test_a_dot_dot_path_cannot_escape_the_day_folder(payload, checks_root):
+    outside = checks_root / "elsewhere.py"
+    outside.write_text("# not today\n", encoding="utf-8")
+    payload["ideas"][0]["evidence"]["script"] = str(
+        checks_root / payload["asof"] / ".." / "elsewhere.py")
+    assert any("fresh" in e for e in pg.validate_payload(payload))
+
+
+def test_a_relative_evidence_path_resolves_against_the_repo_root():
+    assert (pg._script_path("scratch/pitch_checks/2026-08-06/x.py")
+            == pg.ROOT / "scratch" / "pitch_checks" / "2026-08-06" / "x.py")
+
+
+def test_an_injected_checks_root_beats_the_default(payload, checks_root,
+                                                   tmp_path):
+    """The parameter is what dev runs and tests point at a fixture folder."""
+    assert pg.validate_payload(payload, None, tmp_path / "nowhere") != []
+    assert pg.validate_payload(payload, None, checks_root) == []
+
+
+# --- change 4: round 3 leaves a script, not a promise -----------------------
+def test_a_composed_idea_needs_its_development_script(payload):
+    payload["ideas"][0]["evidence"].pop("dev_script")
+    assert any("round 3" in e for e in pg.validate_payload(payload))
+
+
+def test_a_directed_idea_may_omit_the_development_script(payload):
+    payload["ideas"] = payload["ideas"][:1]
+    payload["ideas"][0]["directed_by"] = "mckinley"
+    payload["ideas"][0]["evidence"].pop("dev_script")
+    assert pg.validate_payload(payload) == []
+
+
+def test_a_stale_development_script_fails_the_same_way(payload, checks_root):
+    yesterday = checks_root / "2026-08-05"
+    yesterday.mkdir()
+    stale = yesterday / "old_dev.py"
+    stale.write_text("# yesterday\n", encoding="utf-8")
+    payload["ideas"][0]["evidence"]["dev_script"] = str(stale)
+    assert any("fresh" in e for e in pg.validate_payload(payload))
+
+
+def test_one_script_may_serve_as_both(payload):
+    """Content is not enforced; a single file that carries the development
+    section is allowed to be named twice."""
+    ev = payload["ideas"][0]["evidence"]
+    ev["dev_script"] = ev["script"]
+    assert pg.validate_payload(payload) == []
+
+
+# ---------------------------------------------------------------------------
+# illegal-kill lint (warn only)
+#
+# Small N is a grade, never a kill (SKILL.md stage C). Nothing enforced that
+# until now, and nothing enforces it hard even now: the match is a heuristic
+# over prose, so it warns and the morning still ships.
+# ---------------------------------------------------------------------------
+def test_kill_lint_patterns_frozen():
+    assert pg.KILL_SAMPLE_ONLY_PATTERNS == (
+        r"insufficient (n|sample)",
+        r"\bsample (size )?(is )?(too )?small",
+        r"\bsmall sample",
+        r"\bsample of (only )?\d+",
+        r"\blow n\b",
+        r"\bn (is )?too (small|low)",
+        r"\btoo few\b",
+        r"\bunderpowered\b",
+        r"not enough (data|obs|event|episode|sample|histor)",
+        r"only \d+ (obs|episode|event|sample)",
+        r"not (statistically )?significant",
+        r"(fails?|short of|does not reach|doesn't reach) .{0,20}"
+        r"(significan|confidence)",
+        r"t[- ]?stat(istic)?\w*.{0,20}(below|under|<) ?2",
+        r"\bt ?< ?2",
+    )
+    assert pg.KILL_SUBSTANTIVE_MARKERS == (
+        r"mechanism", r"\bgate", r"filter", r"definition", r"fragil", r"\bera",
+        r"sign (flip|instab)", r"\bcost", r"cluster", r"concentrat", r"regime",
+        r"\bdrift", r"artifact",
+    )
+
+
+@pytest.mark.parametrize("reason", [
+    "N=6, insufficient sample",
+    "t=1.4, not significant",
+    "only 7 episodes, sample too small to lean on",
+    "N is too low for this to be tradeable",
+    "t-stat 1.6, below 2",
+    # Paraphrases the first draft of the pattern list missed. Probed
+    # 2026-08-08; these are the same three illegal reasons in other words.
+    "N=4, too few observations to trade",
+    "sample of 5 is not enough",
+    "underpowered at N=8",
+    "fails at 95% confidence",
+    "not enough history to say anything",
+])
+def test_sample_size_only_kills_are_flagged(reason):
+    assert pg.is_sample_size_only_kill(reason)
+
+
+@pytest.mark.parametrize("reason", [
+    "N=6 but the gate removes one observation from six, nothing attributable "
+    "to the gate",
+    "definition fragility: exists at rank>80, gone at rank>75",
+    "N=9 and not significant, but the real problem is that 7 of 9 sit in "
+    "2021-22, a cluster rather than an effect",
+    "the edge is 6 bp against a 12 bp round trip, cost eats it",
+    "era check, the edge died in 2019",
+    # Too few episodes IS the doctrine violation, but naming the concentration
+    # alongside it is the substantive kill the doctrine asks for.
+    "too few episodes outside 2022, and the 2022 ones are one cluster",
+])
+def test_substantive_kills_are_not_flagged(reason):
+    assert not pg.is_sample_size_only_kill(reason)
+
+
+@pytest.mark.parametrize("reason", [
+    "n=11, p=0.31",
+    "t=1.1",
+    "the effect is not robust",
+])
+def test_a_bare_statistic_is_reporting_not_a_flagged_kill(reason):
+    """Quoting a number is not the same as killing on it, and the doctrine
+    asks for N and its sign-test p to be reported plainly. Flagging every
+    p-value would train the reader to ignore the lint."""
+    assert not pg.is_sample_size_only_kill(reason)
+
+
+def test_lint_names_the_candidate_and_the_doctrine():
+    warnings = pg.lint_kill_reasons([
+        {"title": "Silver catch-up", "reason": "N=6, insufficient sample"},
+        {"title": "GDX drawdown", "reason": "declustering flipped the sign"},
+    ])
+    assert len(warnings) == 1
+    assert "Silver catch-up" in warnings[0]
+    assert "stage C" in warnings[0]
+
+
+def test_lint_survives_junk_and_never_raises():
+    assert pg.lint_kill_reasons([]) == []
+    assert pg.lint_kill_reasons(None) == []
+    assert pg.lint_kill_reasons([None, {}, {"reason": "N too small"}])

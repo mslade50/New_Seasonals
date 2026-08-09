@@ -39,6 +39,7 @@ from __future__ import annotations
 
 import hashlib
 import math
+import re
 from pathlib import Path
 
 import numpy as np
@@ -49,6 +50,9 @@ from trading_calendar import TRADING_DAY
 
 ROOT = Path(__file__).resolve().parent
 PRICES_PATH = ROOT / "data" / "master_prices.parquet"
+# Where a morning's check scripts live, one folder per date. Injectable
+# everywhere it is read so tests never depend on the repo's real scratch state.
+CHECKS_ROOT = ROOT / "scratch" / "pitch_checks"
 
 # --- grammar vocabularies (spec section 4) ---------------------------------
 ENTRY_TYPES = {"MOO", "MOC", "LIMIT"}
@@ -121,6 +125,47 @@ SURFACE_MAP_NAME = "00_surface_map.md"
 # class as a false `survived` line, and the grammar cannot stop it. It can
 # only make it visible.
 DIRECTED_FIELD = "directed_by"
+
+# --- illegal-kill lint (2026-08-08) ----------------------------------------
+# SKILL.md stage C makes "insufficient N", "not statistically significant" and
+# "t below 2" illegal as STANDALONE kill reasons: markets produce small samples
+# by construction, and a rule that demands large N finds older trades rather
+# than safer ones. Nothing enforced that, so this lint reads the morning's kill
+# reasons and says so. It is WARN-ONLY on purpose. The match is a heuristic
+# over prose, and a false positive must never be the thing that stops a
+# morning from publishing.
+#
+# Recall matters more than precision here, since the suppressor below is what
+# keeps the noise down: probing the list against plausible checker phrasings
+# (2026-08-08) found the first draft caught "insufficient sample" and missed
+# "too few observations", "underpowered" and "fails at 95% confidence", which
+# are the same three illegal reasons in other words. Paraphrases of exactly
+# those three belong here; a bare p-value or t-value does NOT, because quoting
+# one is reporting rather than killing.
+KILL_SAMPLE_ONLY_PATTERNS = (
+    r"insufficient (n|sample)",
+    r"\bsample (size )?(is )?(too )?small",
+    r"\bsmall sample",
+    r"\bsample of (only )?\d+",
+    r"\blow n\b",
+    r"\bn (is )?too (small|low)",
+    r"\btoo few\b",
+    r"\bunderpowered\b",
+    r"not enough (data|obs|event|episode|sample|histor)",
+    r"only \d+ (obs|episode|event|sample)",
+    r"not (statistically )?significant",
+    r"(fails?|short of|does not reach|doesn't reach) .{0,20}"
+    r"(significan|confidence)",
+    r"t[- ]?stat(istic)?\w*.{0,20}(below|under|<) ?2",
+    r"\bt ?< ?2",
+)
+# Any of these in the same reason means a substantive kill was named alongside
+# the sample-size language, which is exactly what the doctrine asks for.
+KILL_SUBSTANTIVE_MARKERS = (
+    r"mechanism", r"\bgate", r"filter", r"definition", r"fragil", r"\bera",
+    r"sign (flip|instab)", r"\bcost", r"cluster", r"concentrat", r"regime",
+    r"\bdrift", r"artifact",
+)
 
 
 class PitchGrammarError(ValueError):
@@ -510,6 +555,17 @@ def _validate_evidence(idea: dict, where: str, errors: list[str]) -> None:
     if not str(ev.get("script", "")).strip():
         errors.append(f"{where}: evidence.script must name the check written "
                       f"this morning (scratch/pitch_checks/<date>/...)")
+    # Stage C round 3 develops a survivor into a trade (horizon scan, entry
+    # form, exit sensitivity, loser paths) and the composed idea must match
+    # that script's answers. Prose alone could not tell whether round 3 ran.
+    # A directed idea is exempt: McKinley asked for the trade in a stated
+    # form, so the shaping work round 3 does is already done.
+    if not str(idea.get(DIRECTED_FIELD, "")).strip() and \
+            not str(ev.get("dev_script", "")).strip():
+        errors.append(f"{where}: evidence.dev_script is required for a "
+                      f"composed idea. Stage C round 3 (horizon scan, entry "
+                      f"form, exits, loser paths) writes one development "
+                      f"script per idea, and the pitched form comes from it")
     n = ev.get("n")
     if not isinstance(n, int) or n < 1:
         errors.append(f"{where}: evidence.n (sample size) is required")
@@ -671,10 +727,130 @@ def validate_stand_down(payload) -> list[str]:
     return errors
 
 
-def validate_payload(payload, recent_fingerprints: dict[str, str] | None = None
-                     ) -> list[str]:
+def _script_path(value: str) -> Path:
+    """A path from an evidence field. Relative paths resolve against the repo
+    root, the same convention validate_stand_down uses for checks_dir."""
+    path = Path(str(value).strip())
+    return path if path.is_absolute() else ROOT / path
+
+
+def _is_within(path: Path, directory: Path) -> bool:
+    """Containment on resolved paths, not string prefixes, so `..` segments and
+    Windows case differences cannot slip a stale path past the freshness rule."""
+    try:
+        path.resolve().relative_to(directory)
+    except (ValueError, OSError):
+        return False
+    return True
+
+
+def validate_survey_evidence(payload, checks_root: str | Path | None = None
+                             ) -> list[str]:
+    """The ideas path has to prove on disk that the morning was surveyed.
+
+    A stand-down already proves it: validate_stand_down walks its checks_dir
+    and refuses a sweep with no scripts or no surface map. A morning that
+    shipped three ideas proved nothing, because the rest of the grammar never
+    touches the filesystem and evidence.script was accepted as any non-empty
+    string. That made the lazy failure mode (three recall-generated ideas, no
+    survey) the one unguarded path through the publisher.
+
+    Two things are checked here, both against the day folder for payload.asof:
+
+      1. the folder exists, holds stage B1's surface map, and holds at least
+         one real check script;
+      2. every evidence.script and evidence.dev_script resolves to a file
+         INSIDE that folder, which is the machine-checkable proxy for the
+         "computed fresh this morning" hard requirement.
+
+    A directed-only publish is exempt from 1 and NOT from 2. Survey
+    enforcement exists to constrain the agent rather than the human filter, so
+    McKinley directing one idea ad hoc must not require a full morning sweep;
+    that idea still needs its own check script written today, which is cheap.
+    """
+    errors: list[str] = []
+    if not isinstance(payload, dict) or is_stand_down(payload):
+        return errors
+    asof = str(payload.get("asof", "")).strip()
+    if not asof:
+        return errors                 # validate_payload already reported it
+    ideas = [i for i in (payload.get("ideas") or []) if isinstance(i, dict)]
+    day_dir = Path(checks_root) if checks_root else CHECKS_ROOT
+    day_dir = day_dir / asof
+
+    directed = directed_ideas(payload)
+    if not (ideas and len(directed) == len(ideas)):
+        if not day_dir.is_dir():
+            errors.append(
+                f"the day's checks directory {day_dir} does not exist, so "
+                f"ideas were published without a survey. Stage B1 writes "
+                f"{SURFACE_MAP_NAME} there before a single candidate is "
+                f"generated, and the morning is not surveyed until it does")
+        else:
+            if not (day_dir / SURFACE_MAP_NAME).is_file():
+                errors.append(
+                    f"ideas were published without a surface map: {day_dir} "
+                    f"has no {SURFACE_MAP_NAME}, so stage B1 was skipped or "
+                    f"its map was never written; the morning is not surveyed "
+                    f"and nothing may publish")
+            if not any(day_dir.rglob("*.py")):
+                errors.append(
+                    f"{day_dir} holds no .py checks. Ideas cannot have been "
+                    f"falsified this morning by an empty directory")
+
+    for i, idea in enumerate(ideas, 1):
+        ev = idea.get("evidence")
+        if not isinstance(ev, dict):
+            continue                  # validate_idea already reported it
+        for field in ("script", "dev_script"):
+            raw = str(ev.get(field, "")).strip()
+            if not raw:
+                continue              # presence is _validate_evidence's job
+            path = _script_path(raw)
+            if not path.is_file():
+                errors.append(
+                    f"idea {i}: evidence.{field} {raw} does not exist on "
+                    f"disk. The path must name a check actually written this "
+                    f"morning")
+            elif not _is_within(path, day_dir.resolve()):
+                errors.append(
+                    f"idea {i}: evidence.{field} {raw} sits outside "
+                    f"{day_dir}. Evidence must be fresh this morning, and a "
+                    f"path into another day's folder is yesterday's work "
+                    f"re-served")
+    return errors
+
+
+def is_sample_size_only_kill(reason) -> bool:
+    """Was this kill reason sample size and nothing else? See the doctrine in
+    SKILL.md stage C: small N is a grade, never a kill."""
+    text = str(reason or "").lower()
+    if not any(re.search(p, text) for p in KILL_SAMPLE_ONLY_PATTERNS):
+        return False
+    return not any(re.search(m, text) for m in KILL_SUBSTANTIVE_MARKERS)
+
+
+def lint_kill_reasons(killed: list[dict]) -> list[str]:
+    """Warnings, never errors. A flagged kill still publishes; the point is
+    that a doctrine violation reaches McKinley the same morning instead of
+    dissolving into the journal."""
+    warnings: list[str] = []
+    for kill in killed or []:
+        if not isinstance(kill, dict):
+            continue
+        if is_sample_size_only_kill(kill.get("reason")):
+            title = str(kill.get("title", "")).strip() or "an unnamed candidate"
+            warnings.append(
+                f"'{title}' was killed on sample size alone; the doctrine "
+                f"requires a substantive kill (see SKILL.md stage C)")
+    return warnings
+
+
+def validate_payload(payload, recent_fingerprints: dict[str, str] | None = None,
+                     checks_root: str | Path | None = None) -> list[str]:
     """Whole-day validation. `recent_fingerprints` maps fingerprint -> the
-    date it was last pitched, for the 10-td repetition rule (spec section 5)."""
+    date it was last pitched, for the 10-td repetition rule (spec section 5).
+    `checks_root` overrides where the day's check scripts are looked for."""
     errors: list[str] = []
     if not isinstance(payload, dict):
         return ["payload must be a JSON object"]
@@ -720,6 +896,8 @@ def validate_payload(payload, recent_fingerprints: dict[str, str] | None = None
                 f"idea {i} was pitched on {prior}, inside the "
                 f"{REPEAT_BLOCK_TD}-td repetition window — either drop it or "
                 f"state what materially changed in 'changed_since'")
+
+    errors.extend(validate_survey_evidence(payload, checks_root))
     return errors
 
 
