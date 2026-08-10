@@ -1060,6 +1060,50 @@ Aligned sites — change together:
   `survey` / `checks_root` fixtures both pitch modules build payloads from,
   so neither reads the repo's real scratch state
 
+## Daily Posts (the pseudonymous X account, 2026-08-10)
+
+Third agent product: 3-6 daily X post drafts for the anon account, written
+to a review queue. NOTHING auto-posts - McKinley posts by hand and marks
+the queue, and the next run ingests the marks. Strategy evidence:
+`research/fintwit_pillars_2026-08-10.md`; operating manual (voice,
+disclosure, opsec, cadence, kill criteria): `content/playbook.md`; persona:
+`content/persona.md`; pre-sanitized launch material: `content/backlog/`.
+
+Hard rules enforced in code (`posts_grammar.py`, the product's contract):
+- **Ideas specific, book vague**: standalone idea posts carry ticker +
+  entry structure + horizon (closed vocabularies, pitch-style: MOO | MOC |
+  LIMIT(anchor, k ATR), time_td, frozen Wilder-14 ATR + ref_close);
+  `journal` (book-texture) posts may never name a ticker. Overflow-tier
+  names are banned in EVERY post type - the one place an audience could
+  move our fills, and the cleanest regulatory line.
+- **No dollar sizes anywhere** (R and percentages only; prices are fine).
+  Identity strings are linted (hard list blocks, soft list warns - Scott
+  Bessent and McKinley tariffs are real collisions).
+- Idea posts need evidence (summary + N), a digit in the text, and a
+  repetition check (structural fingerprint inside 10 td needs
+  `changed_since` - posted drafts only; the audience never saw the rest).
+
+Flow: `scripts/build_posts_state.py` (ingests yesterday's queue marks into
+the journal FIRST - the Pitch-tab one-window convention - then assembles
+`data/posts_state.json`: tape through tonight's close via build_pitch_state
+builders, calendar, risk, recent context-journal nuggets, pitch activity,
+scoreboard, repetition state) -> `/daily-posts` skill drafts
+`content/queue/<date>.md` (human, `Posted:` marks) + `.json`
+(authoritative) -> `scripts/lint_posts.py --journal-drafts` (hard findings
+block; journals every draft so unposted ideas are graded too) ->
+`scripts/posts_scoreboard.py` (replay IMPORTS grade_pitch_journal.replay_leg
+so post grading can never drift from pitch grading; posted vs unposted
+split measures the filter; `--format-post` emits the weekly accountability
+numbers). Journal: `posts_journal.py` -> `data/posts_journal.jsonl`
+(append-only, R2 mirror, kinds draft/posted/outcome). Queue is gitignored
+(publishing product); journal + scoreboard committed (evidence trail).
+
+Boundaries: the book never imports posts machinery; posts machinery reads
+the book's data one-way (context-engine precedent). Nothing here touches
+the X API by design - the research was explicit that a new pseudonymous
+account + API posting is the riskiest fingerprint, and the human filter is
+part of the product. Guard: `tests/test_daily_posts.py`.
+
 ## Market Context brief (2026-08-09)
 
 Second agent product in this repo, and the one that is NOT a pitch. One Slack

@@ -90,3 +90,25 @@ data/pitch_tape.json
 data/pitch_research_index.json
 data/pitch_ideas.json
 scripts/logs/
+
+# Market Context generated inputs (rebuilt every evening by
+# build_context_state.py) and the briefs themselves. The BRIEFS are local-only
+# by decision (McKinley 2026-08-09): they are a Slack product, not a repo
+# artifact. The JOURNAL and the novelty FLAG STATE are committed on purpose -
+# the journal is the audit trail of what was claimed, and the flag state is
+# what stops tomorrow's brief from repeating tonight's.
+data/context_state.json
+data/context_cells.json
+data/context_tape.json
+data/context_briefs/
+# scratch/context_checks/ is NOT ignored: the journal's drill_script field
+# points into it, so those scripts are the audit trail, exactly as
+# scratch/pitch_checks/ is for the Daily Pitch.
+
+# Daily Posts (the pseudonymous X account) generated inputs and the daily
+# draft queue. The QUEUE is local-only like the context briefs: drafts are a
+# publishing product, and unposted ideas are material we may still use. The
+# JOURNAL and SCOREBOARD are committed on purpose - same evidence-trail rule
+# as the pitch.
+data/posts_state.json
+content/queue/
