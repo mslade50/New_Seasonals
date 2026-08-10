@@ -1,0 +1,21 @@
+1. FRESHNESS
+   trigger fires today: True
+   consecutive trigger sessions ending today: 2
+   first day of this cluster: 2026-08-06 (today is day 2 of it)
+   would today be counted as an EPISODE by the same declustering rule used for every stat above? NO -- it is a follow-on day
+
+   FIRST days of clusters (N=36): short-spread +0.862%
+   FOLLOW-ON days      (N=22): short-spread -0.224%  <- the population today belongs to
+   follow-on record 13-9, sign p 0.262
+
+2. CURRENT-YEAR DEPENDENCE (short cell, h=5 episodes)
+   all              +0.862%  N=36
+   ex-2026          +0.642%  N=34  20-14  sign p 0.196  boot P<=0 0.111
+   ex-2015          +0.681%  N=35  21-14  sign p 0.155  boot P<=0 0.089
+   ex-2026 AND 2015 +0.443%  N=33  19-14  sign p 0.243  boot P<=0 0.199
+   -> vs SPY-gate-only control +0.408%: the ex-2026/2015 cell BEATS the control by +0.035pp
+
+3. LOSER PATHS on the short cell (what an invalidation looks like)
+   14/36 episodes finish negative; mean finish -2.18%, worst -8.15% (2021-11-03)
+   of the losers, 12/14 were already red at day 1; mean day-1 mark of the losers -0.78%
+   of the WINNERS, 6/22 were red at day 1 -- so a day-1 stop would cut winners too

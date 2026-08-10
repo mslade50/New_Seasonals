@@ -1,0 +1,58 @@
+clusters 101  (Aug 26, span 2000-08-14 .. 2025-08-19)
+
+==============================================================================
+1. ANCHOR PLACEBO -- slide the anchor, keep the window identical
+   (a real earnings-cluster effect dies when the anchor is fake)
+==============================================================================
+    shift  basket %   record   signp    XLY %    SPY %
+      -25    +0.554   18-8     0.038   +0.920   +0.503
+      -20    +0.267   14-12    0.423   +0.024   +0.190
+      -15    +0.509   16-10    0.163   +0.085   -0.054
+      -10    +0.311   15-11    0.279   +0.215   +0.213
+       -5    -0.098   15-11    0.279   -0.420   -0.241
+       +0    +0.698   14-12    0.423   +0.556   +0.604  <== REAL
+       +5    +1.273   18-8     0.038   -0.128   -0.165
+      +10    +0.479   14-12    0.423   +0.651   +0.522
+      +15    +0.750   18-8     0.038   +0.600   +0.052
+      +20    -0.293   16-10    0.163   +0.258   +0.040
+      +25    -0.039   12-14    0.721   -0.171   -0.290
+
+  placebo anchors (10 fakes): basket mean +0.371%  sd 0.455  range [-0.293, +1.273]
+  REAL anchor +0.698% sits at percentile 80 of its own placebos -> z = +0.72
+  XLY: REAL +0.556% vs placebo mean +0.203% (sd 0.416) -> z = +0.85
+
+==============================================================================
+2. SEASON MULTIPLICITY -- August is 1 of 4 and the pool is negative
+==============================================================================
+  Feb: basket +0.023% (N=24, 13-11, sign p 0.419)  minus SPY +0.186%
+  May: basket -0.005% (N=25, 10-15, sign p 0.885)  minus SPY +0.142%
+  Aug: basket +0.698% (N=26, 14-12, sign p 0.423)  minus SPY +0.093%
+  Nov: basket -0.872% (N=26, 13-13, sign p 0.577)  minus SPY +0.002%
+  POOLED across all four clusters: -0.041% (N=101, 50-51, sign p 0.579, boot P<=0 0.545)
+  -> if the mechanism is 'drift into a predictable retail earnings
+     cluster', it must appear in Feb/May/Nov too. It does not.
+
+==============================================================================
+3. DECOMPOSITION -- what is the August window actually paying?
+==============================================================================
+  basket = 1.03 x SPY + alpha;  alpha = +0.074% over the 4-session window
+  residual (beta-hedged) +0.074%  N=26  13-13  sign p 0.577  boot P<=0 0.407
+  hedged cost: 7 legs x 3 bps = 21 bps vs edge 7.4 bps -> 0.35x
+
+==============================================================================
+4. THE AUGUST-SEASONALITY CONTROL, stated once more, cleanly
+==============================================================================
+  ALL August 4-session windows, retail basket: +0.681% (N=578)
+  Cluster-anchored August window:              +0.698% (N=26)
+  EDGE OF THE CLUSTER ANCHOR OVER PLAIN AUGUST: +0.017pp
+  cost of the 6-name basket: 18 bps round trip -> 0.10x cost
+
+==============================================================================
+5. TODAY'S STATE vs THE HISTORICAL SIGNAL-DAY DISTRIBUTION
+==============================================================================
+  historical signal-day XLY z10: min -4.06  median -0.16  max +1.31 (in 2022)
+  TODAY XLY z10 = +2.82  -> ABOVE EVERY HISTORICAL ANALOGUE
+  historical signal-day basket z10: max +1.74; TODAY +1.09
+    nearest analogue 2022: XLY z10 +1.31 -> basket +5.84%, XLY +5.33%
+    nearest analogue 2012: XLY z10 +0.70 -> basket -0.87%, XLY -0.60%
+    nearest analogue 2009: XLY z10 +0.67 -> basket -0.44%, XLY -1.45%

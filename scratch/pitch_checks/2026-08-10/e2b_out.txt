@@ -1,0 +1,49 @@
+====================================================================================================
+A. nfp x SPY OVERNIGHT -- is it the FRIDAY overnight, and has it been arbitraged away?
+====================================================================================================
+  NFP session weekday distribution: {0: 7, 1: 2, 2: 2, 3: 12, 4: 296}  (4 = Friday)
+  NFP overnight      N=319  +7.51 bps  hit 62.1%  sign p 0.0000
+  CTRL all overnights          +2.97 bps  -> excess +4.54 bps
+  CTRL FRIDAY overnights only  +1.61 bps (N=1045) -> DOW-MATCHED excess +5.90 bps = 5.9x a 1 bp SPY round trip
+  CTRL first-week FRIDAYS ex-NFP +0.80 bps (N=75) -> excess +6.71 bps
+
+  decay profile (excess over the FRIDAY control), 5-year blocks:
+    2000-2004: N= 60   +10.02 bps  excess   +8.41  hit  46.7%
+    2005-2009: N= 60   +14.16 bps  excess  +12.55  hit  71.7%
+    2010-2014: N= 60    +7.42 bps  excess   +5.81  hit  66.7%
+    2015-2019: N= 60    +4.41 bps  excess   +2.80  hit  63.3%
+    2020-2024: N= 60    +4.07 bps  excess   +2.46  hit  61.7%
+    2025-2029: N= 19    -0.54 bps  excess   -2.15  hit  63.2%
+
+  concentration: top2 episodes ['2020-03-06', '2000-12-08'] = -0.53pp of +23.95pp total (-2%); best yrs {2000: 10.7, 2021: 4.5}
+  MIDTERM +0.37 bps (N=81) excess -1.24  |  non-midterm +9.94 (N=238)
+  NEXT NFP: 2026-09-04 -- not today's trade under any form.
+
+====================================================================================================
+B. cpi x GDX OVERNIGHT vs THE MORNING'S SURVIVOR (long GDX MOC 2026-08-10 -> MOC 2026-08-17)
+====================================================================================================
+ survivor_anchor_K   N  overnight_bps  survivor_h5_pct  corr(overnight, survivor)  overnight_inside_survivor_window  overnight_share_of_survivor
+                 2 240           29.1            0.309                      0.173                              True                        0.944
+                 3 240           29.1            0.126                      0.169                              True                        2.316
+
+  The CPI print is 2 sessions after the survivor's entry close, so the CPI-day
+  overnight is not merely correlated with the survivor -- it is a STRICT SUBSET of
+  the survivor's own exposure: same ticker, same direction, inside the same hold.
+  It cannot be pitched as a second, uncorrelated idea.
+
+====================================================================================================
+C. fomc x SPY OVERNIGHT -- already book property?
+====================================================================================================
+  FOMC-day overnight (MOC decision-1 -> MOO decision) N=212 +16.03 bps, hit 67.0%, sign p 0.0000
+  The event sleeve's LIVE T1 FOMC_DRIFT is: long SPY 25% NAV, MOC 4 sessions before
+  the decision -> MOO the decision-day open.  That trade CONTAINS this overnight.
+ entry_sessions_before   N  MOC->MOO_bps  hit  sign_p
+                     1 212          16.0 67.0  0.0000
+                     2 212          24.3 60.8  0.0010
+                     3 212          27.2 59.9  0.0024
+                     4 212          23.7 63.2  0.0001
+
+  MIDTERM years +5.80 bps (N=53)  |  non-midterm +19.44 bps (N=159)
+  2026 is a midterm year, which is exactly why the event sleeve's T2 INVERTS T1 to a
+  SHORT in midterm years.  Next FOMC decision is not today in any case.
+  concentration: top2 episodes ['2008-12-16', '2011-03-15'] = +2.05pp of +33.98pp total (6%); best yrs {2008: 5.3, 2020: 5.1}

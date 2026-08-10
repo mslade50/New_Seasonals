@@ -1,0 +1,135 @@
+========================================================================================
+0. WHAT THE GATE ACTUALLY BUYS TODAY (a rank is not a magnitude)
+========================================================================================
+  XLU z10            -2.22
+  ^TNX rank5d        15.9
+  ^TNX 5d change     -8.5 bps
+  within the rank5d<20 cell (n=1294): median -14.5 bps, 10th pctile -26.7 bps
+  TODAY'S -8.5 bps sits at the 90.3th percentile of that cell -> the gate fires on the SHALLOWEST end of what it claims
+  SPY dist from 52w high 0.00% (the gate Friday showed HURTS)
+
+  state counts: XLU z10<=-2 269 days | ^TNX rank5d<20 1294 | d5<0 3439 | d5<=-15bps 648
+  fires today: wash True  rank True   sign True  hard False
+
+=== LONG XLU  h=3  (own drift all-days +0.114%) ===
+                                              label   n  mean_pct  median_pct    hit     t  worst_pct  best_pct  sd_pct  edge_pp  sign_p  boot
+    W  washout only (z10<=-2)  [FRIDAY'S DEAD CELL]  62     0.163       0.696 59.677 0.350    -15.088    10.518   3.666    0.049   0.081 0.356
+        W + yields fell (rank5d<20)  [TODAY'S GATE]  25     0.459       1.476 56.000 0.468    -12.111    10.518   4.907    0.346   0.345 0.319
+                           W + yields fell (d5 < 0)  37     0.364       0.779 62.162 0.573    -12.111    10.518   3.863    0.250   0.094 0.278
+                W + yields fell HARD (d5 <= -15bps)  19     1.150       1.986 63.158 0.826    -12.111    13.149   6.068    1.037   0.180 0.199
+       W + yields ROSE (d5 > 0)  [the inverse gate]  45     0.407       0.635 60.000 0.933     -9.324     8.600   2.929    0.294   0.116 0.172
+           yields fell only (rank5d<20), no washout 328     0.133       0.383 58.232 1.163    -10.367    13.315   2.073    0.019   0.002 0.118
+W + yields fell + SPY within 1% of 52w high (today)   2     0.340       0.340 50.000 0.171     -1.648     2.327   2.811    0.226   0.750   NaN
+
+=== LONG XLU  h=5  (own drift all-days +0.188%) ===
+                                              label   n  mean_pct  median_pct    hit      t  worst_pct  best_pct  sd_pct  edge_pp  sign_p  boot
+    W  washout only (z10<=-2)  [FRIDAY'S DEAD CELL]  62     0.192       0.683 61.290  0.376    -17.080    10.609   4.019    0.004   0.049 0.338
+        W + yields fell (rank5d<20)  [TODAY'S GATE]  25     0.116       1.702 64.000  0.105    -17.080     7.929   5.563   -0.072   0.115 0.438
+                           W + yields fell (d5 < 0)  37    -0.229       0.673 54.054 -0.294    -17.080     7.929   4.738   -0.417   0.371 0.605
+                W + yields fell HARD (d5 <= -15bps)  19     0.586       1.898 73.684  0.511    -14.359     7.929   4.996    0.398   0.032 0.287
+       W + yields ROSE (d5 > 0)  [the inverse gate]  45     0.440       0.626 62.222  0.780    -11.229    10.609   3.784    0.252   0.068 0.215
+           yields fell only (rank5d<20), no washout 328     0.217       0.475 58.537  1.440    -19.801    14.918   2.726    0.029   0.001 0.077
+W + yields fell + SPY within 1% of 52w high (today)   2     0.464       0.464 50.000  0.214     -1.705     2.633   3.068    0.276   0.750   NaN
+
+=== LONG XLU  h=10  (own drift all-days +0.376%) ===
+                                              label   n  mean_pct  median_pct    hit      t  worst_pct  best_pct  sd_pct  edge_pp  sign_p  boot
+    W  washout only (z10<=-2)  [FRIDAY'S DEAD CELL]  62     0.297       0.844 62.903  0.494    -15.530    13.193   4.731   -0.079   0.028 0.311
+        W + yields fell (rank5d<20)  [TODAY'S GATE]  25     0.562       2.239 60.000  0.439    -15.530    12.107   6.408    0.187   0.212 0.328
+                           W + yields fell (d5 < 0)  37    -0.346       1.064 56.757 -0.378    -15.530     7.169   5.568   -0.721   0.256 0.641
+                W + yields fell HARD (d5 <= -15bps)  19     1.195       2.432 68.421  0.686    -15.530    13.835   7.597    0.820   0.084 0.243
+       W + yields ROSE (d5 > 0)  [the inverse gate]  45     1.008       0.658 66.667  1.180    -19.461    14.752   5.730    0.633   0.018 0.120
+           yields fell only (rank5d<20), no washout 328     0.655       0.774 62.805  3.548    -14.664    17.066   3.345    0.280   0.000 0.000
+W + yields fell + SPY within 1% of 52w high (today)   2     0.237       0.237 50.000  0.067     -3.315     3.789   5.023   -0.139   0.750   NaN
+
+=== LONG XLU / SHORT SPY  h=3  (own drift all-days -0.003%) ===
+                                              label   n  mean_pct  median_pct    hit      t  worst_pct  best_pct  sd_pct  edge_pp  sign_p  boot
+    W  washout only (z10<=-2)  [FRIDAY'S DEAD CELL]  62     0.134       0.282 58.065  0.413     -8.533     6.585   2.549    0.137   0.126 0.337
+        W + yields fell (rank5d<20)  [TODAY'S GATE]  25     0.214       0.260 56.000  0.308     -8.533     6.585   3.484    0.218   0.345 0.370
+                           W + yields fell (d5 < 0)  37     0.110       0.242 54.054  0.244     -8.533     6.585   2.738    0.113   0.371 0.403
+                W + yields fell HARD (d5 <= -15bps)  19     1.075       1.028 63.158  1.261     -6.174     8.084   3.718    1.079   0.180 0.097
+       W + yields ROSE (d5 > 0)  [the inverse gate]  45     0.470       0.533 64.444  1.528     -3.893     4.418   2.064    0.474   0.036 0.061
+           yields fell only (rank5d<20), no washout 328     0.094       0.077 52.134  0.941     -8.387     5.331   1.804    0.097   0.236 0.177
+W + yields fell + SPY within 1% of 52w high (today)   2    -1.175      -1.175 50.000 -0.533     -3.378     1.028   3.116   -1.171   0.750   NaN
+
+=== LONG XLU / SHORT SPY  h=5  (own drift all-days -0.004%) ===
+                                              label   n  mean_pct  median_pct    hit      t  worst_pct  best_pct  sd_pct  edge_pp  sign_p  boot
+    W  washout only (z10<=-2)  [FRIDAY'S DEAD CELL]  62    -0.043       0.306 53.226 -0.120     -9.844     7.524   2.838   -0.039   0.352 0.549
+        W + yields fell (rank5d<20)  [TODAY'S GATE]  25    -0.388       0.310 56.000 -0.504     -9.844     7.524   3.843   -0.384   0.345 0.690
+                           W + yields fell (d5 < 0)  37    -0.388      -0.607 45.946 -0.780     -9.844     7.524   3.028   -0.384   0.744 0.786
+                W + yields fell HARD (d5 <= -15bps)  19     0.525       0.617 57.895  0.548     -8.505     9.728   4.178    0.529   0.324 0.292
+       W + yields ROSE (d5 > 0)  [the inverse gate]  45     0.344       0.686 57.778  0.817     -4.888     6.449   2.829    0.348   0.186 0.199
+           yields fell only (rank5d<20), no washout 328    -0.025      -0.066 48.476 -0.197     -8.595     8.340   2.329   -0.021   0.728 0.580
+W + yields fell + SPY within 1% of 52w high (today)   2    -0.892      -0.892 50.000 -0.301     -3.852     2.068   4.186   -0.888   0.750   NaN
+
+=== LONG XLU / SHORT SPY  h=10  (own drift all-days +0.001%) ===
+                                              label   n  mean_pct  median_pct    hit      t  worst_pct  best_pct  sd_pct  edge_pp  sign_p  boot
+    W  washout only (z10<=-2)  [FRIDAY'S DEAD CELL]  62    -0.048       0.023 51.613 -0.124     -8.120     7.764   3.045   -0.049   0.450 0.552
+        W + yields fell (rank5d<20)  [TODAY'S GATE]  25    -0.040       0.127 52.000 -0.053     -8.120     7.764   3.852   -0.041   0.500 0.528
+                           W + yields fell (d5 < 0)  37    -0.175       0.366 51.351 -0.286     -8.291     7.764   3.733   -0.176   0.500 0.616
+                W + yields fell HARD (d5 <= -15bps)  19     0.905       2.086 63.158  0.826     -8.406    11.284   4.775    0.904   0.180 0.193
+       W + yields ROSE (d5 > 0)  [the inverse gate]  45     0.327       0.077 53.333  0.613     -6.037    11.424   3.576    0.326   0.383 0.272
+           yields fell only (rank5d<20), no washout 328     0.008       0.002 50.305  0.048    -11.062    14.439   3.172    0.008   0.478 0.487
+W + yields fell + SPY within 1% of 52w high (today)   2    -2.517      -2.517 50.000 -0.521     -7.348     2.315   6.833   -2.517   0.750   NaN
+
+========================================================================================
+GATE ATTRIBUTION SUMMARY: ungated vs gated, long XLU, every horizon
+========================================================================================
+h= 1  ctrl +0.039%  |  ungated N= 62 +0.139%  |  +rank gate N= 25 +0.153%  |  +sign gate N= 37 +0.153%  |  +hard gate N= 19 +1.223%  |  +INVERSE (yields rose) N= 45 +0.981%
+h= 2  ctrl +0.076%  |  ungated N= 62 +0.180%  |  +rank gate N= 25 +0.694%  |  +sign gate N= 37 +0.204%  |  +hard gate N= 19 +1.127%  |  +INVERSE (yields rose) N= 45 +0.681%
+h= 3  ctrl +0.114%  |  ungated N= 62 +0.163%  |  +rank gate N= 25 +0.459%  |  +sign gate N= 37 +0.364%  |  +hard gate N= 19 +1.150%  |  +INVERSE (yields rose) N= 45 +0.407%
+h= 5  ctrl +0.188%  |  ungated N= 62 +0.192%  |  +rank gate N= 25 +0.116%  |  +sign gate N= 37 -0.229%  |  +hard gate N= 19 +0.586%  |  +INVERSE (yields rose) N= 45 +0.440%
+h=10  ctrl +0.376%  |  ungated N= 62 +0.297%  |  +rank gate N= 25 +0.562%  |  +sign gate N= 37 -0.346%  |  +hard gate N= 19 +1.195%  |  +INVERSE (yields rose) N= 45 +1.008%
+h=21  ctrl +0.789%  |  ungated N= 51 +0.946%  |  +rank gate N= 21 +1.703%  |  +sign gate N= 32 +1.065%  |  +hard gate N= 16 +1.247%  |  +INVERSE (yields rose) N= 38 +1.438%
+
+========================================================================================
+DETAIL: the exact cell the pitch would ship (gated, h=5)
+========================================================================================
+
+##### XLU long, z10<=-2 AND ^TNX rank5d<20  (h=5 td, entry lag=1) #####
+legs=[('XLU', 1.0)]  trigger span 2002-07-11 .. 2022-10-03
+
+=== 1. conditional vs controls ===
+                           label    n  mean_pct  median_pct    hit      t  worst_pct  best_pct  sd_pct
+           COND day-level (N=68)   68    -0.248       1.341 61.765 -0.293    -19.445    21.606   7.001
+            COND episodes (N=25)   25     0.116       1.702 64.000  0.105    -17.080     7.929   5.563
+     CTRL-a own drift, same span 5088     0.215       0.347 57.488  6.066    -19.801    28.511   2.528
+   CTRL-b all days, full history 6677     0.188       0.326 56.418  6.094    -19.801    28.511   2.521
+CTRL-c local +/-126td ex-trigger 3586     0.148       0.325 56.302  3.329    -19.801    28.511   2.656
+  COND day-level, lag=0 (no-lag)   68     0.424       2.117 64.706  0.481    -19.801    21.606   7.260
+  episode-vs-control diff = -0.099%  welch t = -0.09   bootstrap P(mean<=0) = 0.438   record 16-9, sign p = 0.1148
+  concentration: top2 episodes ['2020-03-12', '2002-07-11'] = -27.92pp of +2.91pp total (-960%); best yrs {2011: 8.0, 2010: 7.9}
+
+=== 2+3. episode era split (pre-2018 / 2018+) ===
+   label  n  mean_pct  median_pct  hit      t  worst_pct  best_pct  sd_pct
+pre-2018 20     0.837       1.750 70.0  0.934    -10.843     6.560   4.008
+   2018+  5    -2.768      -0.498 40.0 -0.630    -17.080     7.929   9.817
+
+===   day-level era split (for contrast) ===
+   label  n  mean_pct  median_pct    hit     t  worst_pct  best_pct  sd_pct
+pre-2018 50     1.332       1.750 72.000  1.55    -18.636    21.606   6.075
+   2018+ 18    -4.637      -3.315 33.333 -2.56    -19.445     7.929   7.686
+  worst episode window: -17.08%  on 2020-03-12   |  worst day-level: -19.45%
+  episode dates: 2002-07-11, 2002-07-25, 2002-09-24, 2002-10-09, 2004-12-09, 2005-08-16, 2005-10-21, 2007-07-26, 2008-01-18, 2008-09-17, 2008-10-03, 2009-03-05, 2010-05-24, 2010-07-01, 2011-08-04, 2011-10-04, 2011-11-22, 2012-11-05, 2014-08-06, 2017-12-29, 2018-12-24, 2020-02-27, 2020-03-12, 2022-06-22, 2022-10-03
+
+=== 4. threshold sensitivity (episode level) ===
+                       label  n  mean_pct  median_pct    hit      t  worst_pct  best_pct  sd_pct  n_days
+ z10<=-1.5 + gate (episodes) 45     0.781       1.362 64.444  1.255    -11.827     8.338   4.175     111
+ z10<=-2.5 + gate (episodes) 14    -1.731      -0.547 35.714 -0.972    -17.080     7.929   6.664      38
+z10<=-2 + rank<10 (episodes) 19     0.926       1.799 73.684  0.878    -14.359     7.929   4.597      48
+z10<=-2 + rank<30 (episodes) 28     0.961       1.747 64.286  0.749    -17.080    21.606   6.782      81
+
+5. cost: 1 leg(s) x ~3.0 bps round trip = 3.0 bps. episode mean 0.116% = 11.6 bps -> 3.9x cost (need >=5x)
+
+=== 6. cpi-in-hold split (episodes) ===
+              label  n  mean_pct  median_pct    hit      t  worst_pct  best_pct  sd_pct
+cpi IN window (N=2)  2    -4.105      -4.105 50.000 -0.609    -10.843     2.633   9.529
+     cpi OUT (N=23) 23     0.483       1.702 65.217  0.439    -17.080     7.929   5.279
+
+========================================================================================
+MIDTERM SPLIT on the gated cell, h=5
+========================================================================================
+           label  n  mean_pct  median_pct    hit      t  worst_pct  best_pct  sd_pct
+    midterm N=10 10     0.350       1.877 60.000  0.197    -10.843     6.560   5.602
+non-midterm N=15 15    -0.039       1.065 66.667 -0.027    -17.080     7.929   5.728
+top3 episodes ['2020-03-12', '2002-07-11', '2020-02-27'] = -19.99pp of +2.91pp total (-688%); best yrs {2011: 8.0, 2010: 7.9}
+episodes: 2002-07-11 -10.8%, 2002-07-25 +6.6%, 2002-09-24 +2.1%, 2002-10-09 -0.4%, 2004-12-09 +2.6%, 2005-08-16 +2.0%, 2005-10-21 +1.0%, 2007-07-26 +1.1%, 2008-01-18 +0.7%, 2008-09-17 +1.8%, 2008-10-03 -5.5%, 2009-03-05 +1.9%, 2010-05-24 +1.7%, 2010-07-01 +6.2%, 2011-08-04 -0.6%, 2011-10-04 +3.0%, 2011-11-22 +5.6%, 2012-11-05 -3.3%, 2014-08-06 +2.9%, 2017-12-29 -1.7%, 2018-12-24 -0.5%, 2020-02-27 +7.9%, 2020-03-12 -17.1%, 2022-06-22 +3.4%, 2022-10-03 -7.6%

@@ -1,0 +1,171 @@
+today: 2026-08-07 SKEW=132.57 lvlpct=1.2 r21=5.6 | SPY dist52wh=+0.000% | VIX=14.90 lvlpct=8.5 | P/C pct=68.7
+
+trigger days: SPY-near-high 1692, SKEW bottom-decile 757, BOTH 76
+CLUSTER DEPTH TODAY: consecutive BOTH-sessions = 4; consecutive SPY-near-high sessions = 5  (mid-cluster entry is not a fresh trigger)
+
+##### LONG SPY | SKEW bottom-decile LEVEL + SPY within 0.5% of 52wh, h=5  (h=5 td, entry lag=1) #####
+legs=[('SPY', 1.0)]  trigger span 2004-11-08 .. 2026-05-27
+
+=== 1. conditional vs controls ===
+                           label    n  mean_pct  median_pct    hit     t  worst_pct  best_pct  sd_pct
+           COND day-level (N=72)   72     0.188       0.265 62.500 1.143     -5.462     3.127   1.397
+            COND episodes (N=35)   35     0.410       0.376 68.571 2.079     -2.275     3.127   1.166
+     CTRL-a own drift, same span 5358     0.240       0.404 59.985 7.316    -19.793    19.404   2.400
+   CTRL-b all days, full history 6610     0.194       0.363 58.139 6.379    -19.793    19.404   2.472
+CTRL-c local +/-126td ex-trigger 2605     0.296       0.386 61.344 9.119    -11.074     6.601   1.656
+  COND day-level, lag=0 (no-lag)   72     0.334       0.287 55.556 2.483     -3.884     2.268   1.142
+  episode-vs-control diff = +0.170%  welch t = +0.85   bootstrap P(mean<=0) = 0.019   record 24-11, sign p = 0.0205
+  concentration: top2 episodes ['2026-04-28', '2018-01-12'] = +5.41pp of +14.35pp total (38%); best yrs {2026: 5.5, 2006: 4.3}
+
+=== 2+3. episode era split (pre-2018 / 2018+) ===
+   label  n  mean_pct  median_pct    hit     t  worst_pct  best_pct  sd_pct
+pre-2018 29     0.207       0.261 65.517 1.051     -2.275     1.579   1.063
+   2018+  6     1.389       1.176 83.333 2.741     -0.540     3.127   1.241
+
+===   day-level era split (for contrast) ===
+   label  n  mean_pct  median_pct    hit     t  worst_pct  best_pct  sd_pct
+pre-2018 55     0.161       0.238 61.818 1.104     -2.919     2.278   1.081
+   2018+ 17     0.276       0.504 64.706 0.525     -5.462     3.127   2.170
+  worst episode window: -2.28%  on 2014-12-02   |  worst day-level: -5.46%
+  episode dates: 2004-11-08, 2004-11-15, 2004-11-23, 2004-12-01, 2004-12-08, 2005-11-25, 2006-01-03, 2006-03-14, 2006-10-05, 2006-10-18, 2006-10-25, 2006-11-10, 2010-11-04, 2012-08-08, 2013-07-15, 2013-07-22, 2013-08-01, 2013-09-18, 2014-12-02, 2015-04-15, 2015-04-24, 2015-05-04, 2015-05-11, 2015-05-21, 2015-06-18, 2016-11-15, 2016-12-08, 2016-12-23, 2017-11-28, 2018-01-05, 2018-01-12, 2018-01-22, 2026-04-28, 2026-05-05, 2026-05-22
+
+=== 4. threshold sensitivity (episode level) ===
+                                   label   n  mean_pct  median_pct    hit     t  worst_pct  best_pct  sd_pct  n_days
+                 SKEW lvl <=5 (episodes)  22     0.517       0.741 68.182 2.066     -2.275     2.282   1.174      45
+                SKEW lvl <=20 (episodes)  58     0.090       0.173 56.897 0.640     -2.760     2.282   1.071     135
+                SKEW lvl <=30 (episodes)  83     0.137       0.277 56.627 1.020     -4.084     2.965   1.223     226
+               near-high 0.1% (episodes)  24     0.188       0.231 58.333 0.952     -2.053     2.282   0.970      46
+               near-high 2.0% (episodes)  69     0.175       0.277 56.522 0.888     -5.715     4.945   1.638     162
+      SKEW r21<=10 (nbr defn) (episodes)  52     0.181       0.230 55.769 1.063     -3.172     2.733   1.228      97
+NO skew gate (SPY high alone) (episodes) 446     0.108       0.193 57.175 1.642    -11.161     3.333   1.393    1687
+    NO high gate (SKEW alone) (episodes) 245     0.445       0.544 59.184 2.250    -11.001    10.365   3.096     753
+
+5. cost: 1 leg(s) x ~2.0 bps round trip = 2.0 bps. episode mean 0.410% = 41.0 bps -> 20.5x cost (need >=5x)
+
+=== 6. cpi-in-hold split (episodes) ===
+              label  n  mean_pct  median_pct    hit     t  worst_pct  best_pct  sd_pct
+cpi IN window (N=9)  9     0.732       0.981 88.889 3.905     -0.063     1.385   0.563
+     cpi OUT (N=26) 26     0.298       0.269 61.538 1.167     -2.275     3.127   1.303
+
+##### LONG SPY | SKEW bottom-decile LEVEL + SPY within 0.5% of 52wh, h=10  (h=10 td, entry lag=1) #####
+legs=[('SPY', 1.0)]  trigger span 2004-11-08 .. 2026-05-27
+
+=== 1. conditional vs controls ===
+                           label    n  mean_pct  median_pct    hit      t  worst_pct  best_pct  sd_pct
+           COND day-level (N=72)   72    -0.220       0.398 62.500 -0.749     -9.023     4.319   2.496
+            COND episodes (N=27)   27    -0.094       0.318 62.963 -0.231     -5.514     4.319   2.117
+     CTRL-a own drift, same span 5358     0.473       0.797 63.830 10.664    -26.769    21.581   3.244
+   CTRL-b all days, full history 6605     0.379       0.703 61.226  9.230    -26.769    21.581   3.336
+CTRL-c local +/-126td ex-trigger 2600     0.596       0.720 65.077 14.029    -11.065     9.888   2.167
+  COND day-level, lag=0 (no-lag)   72    -0.201       0.384 63.889 -0.714     -9.023     3.788   2.386
+  episode-vs-control diff = -0.567%  welch t = -1.38   bootstrap P(mean<=0) = 0.591   record 17-10, sign p = 0.1239
+  concentration: top2 episodes ['2018-01-22', '2026-04-28'] = -1.20pp of -2.55pp total (47%); best yrs {2004: 3.8, 2006: 2.8}
+
+=== 2+3. episode era split (pre-2018 / 2018+) ===
+   label  n  mean_pct  median_pct    hit      t  worst_pct  best_pct  sd_pct
+pre-2018 23    -0.129       0.318 65.217 -0.401     -2.995     1.977   1.543
+   2018+  4     0.105       0.808 50.000  0.046     -5.514     4.319   4.617
+
+===   day-level era split (for contrast) ===
+   label  n  mean_pct  median_pct    hit      t  worst_pct  best_pct  sd_pct
+pre-2018 55     0.133       0.392 65.455  0.728     -3.542     2.421   1.355
+   2018+ 17    -1.363       1.011 52.941 -1.269     -9.023     4.319   4.431
+  worst episode window: -5.51%  on 2018-01-22   |  worst day-level: -9.02%
+  episode dates: 2004-11-08, 2004-11-23, 2004-12-08, 2005-11-25, 2006-01-03, 2006-03-14, 2006-10-05, 2006-10-23, 2006-11-10, 2010-11-04, 2012-08-08, 2013-07-15, 2013-08-01, 2013-09-18, 2014-12-02, 2015-04-15, 2015-05-04, 2015-05-21, 2015-06-18, 2016-11-15, 2016-12-08, 2016-12-23, 2017-11-28, 2018-01-05, 2018-01-22, 2026-04-28, 2026-05-22
+
+5. cost: 1 leg(s) x ~2.0 bps round trip = 2.0 bps. episode mean -0.094% = -9.4 bps -> -4.7x cost (need >=5x)
+
+=== 6. cpi-in-hold split (episodes) ===
+               label  n  mean_pct  median_pct    hit      t  worst_pct  best_pct  sd_pct
+cpi IN window (N=16) 16     0.437       0.549 68.750  0.872     -2.995     4.319   2.006
+      cpi OUT (N=11) 11    -0.867       0.174 54.545 -1.355     -5.514     1.977   2.123
+
+==============================================================================
+SCAN (multiplicity applies): horizon 1..21
+==============================================================================
+
+=== SKEW-crush x SPY-high, long SPY ===
+label  n  mean_pct  median_pct    hit      t  worst_pct  best_pct  sd_pct  ctl_all_days_pct  edge_pct
+  h=1 74     0.112       0.089 62.162  1.806     -1.150     1.158   0.533             0.040     0.071
+  h=2 53     0.197       0.286 66.038  2.221     -1.159     1.386   0.646             0.079     0.118
+  h=3 43     0.185       0.129 60.465  1.425     -1.633     1.634   0.853             0.118     0.067
+  h=5 35     0.410       0.376 68.571  2.079     -2.275     3.127   1.166             0.194     0.216
+  h=7 29     0.155       0.541 58.621  0.513     -3.716     3.659   1.631             0.268    -0.113
+ h=10 27    -0.094       0.318 62.963 -0.231     -5.514     4.319   2.117             0.379    -0.473
+ h=15 22     0.872       0.757 72.727  2.490     -2.901     4.170   1.644             0.567     0.305
+ h=21 20     0.749       0.856 75.000  1.346     -5.947     6.310   2.489             0.796    -0.047
+
+==============================================================================
+THE DECISIVE CONTROL: is this the equity P/C complacency cell?
+==============================================================================
+P/C coverage: 4647 of 6616 sessions (2007-11-15 ..)
+corr(SKEW lvl pctile, P/C pctile) over common days = -0.355
+
+overlap on SPY-near-high days (P/C era only):
+  SKEW-low & P/C-low : 23
+  SKEW-low, P/C not  : 21
+  P/C-low, SKEW not  : 354
+  TODAY: SKEW lvlpct 1.2, P/C pct 68.7  -> today's cell is SKEW-only
+
+=== P/C decomposition, h=5, episodes ===
+                                           label    n  mean_pct  median_pct    hit      t  worst_pct  best_pct  sd_pct
+          SKEW-low & P/C-low (epi N=10, days 23)   10     0.548       0.525 50.000  1.186     -1.298     3.127   1.460
+       SKEW-low, P/C NOT low (epi N=14, days 17)   14     0.088       0.318 71.429  0.293     -2.275     1.453   1.124
+     P/C-low, SKEW NOT low (epi N=101, days 354)  101    -0.097       0.119 52.475 -0.527    -11.705     2.909   1.841
+SPY-high, P/C era, neither (epi N=273, days 956)  273     0.223       0.355 61.172  2.965     -4.548     3.333   1.246
+                          CTRL all days, P/C era 4641     0.250       0.433 60.224  6.756    -19.793    19.404   2.516
+
+=== P/C decomposition, h=10, episodes ===
+                                           label    n  mean_pct  median_pct    hit      t  worst_pct  best_pct  sd_pct
+           SKEW-low & P/C-low (epi N=7, days 23)    7    -0.163       0.234 57.143 -0.125     -5.514     4.319   3.431
+       SKEW-low, P/C NOT low (epi N=12, days 17)   12    -0.657      -0.436 50.000 -1.275     -3.335     1.977   1.783
+      P/C-low, SKEW NOT low (epi N=64, days 354)   64    -0.018       0.441 62.500 -0.062    -11.828     3.788   2.317
+SPY-high, P/C era, neither (epi N=167, days 956)  167     0.551       0.679 67.066  4.104     -5.663     4.999   1.736
+                          CTRL all days, P/C era 4636     0.490       0.816 63.762  9.805    -26.769    21.581   3.405
+
+==============================================================================
+MIDTERM SPLIT (2026 is midterm)
+==============================================================================
+
+=== h=5 ===
+                      label    n  mean_pct  median_pct    hit     t  worst_pct  best_pct  sd_pct
+    midterm episodes (N=14)   14     0.591       1.176 71.429 1.371     -2.275     3.127   1.612
+non-midterm episodes (N=21)   21     0.289       0.261 66.667 1.732     -1.298     1.453   0.765
+      CTRL all days midterm 1637     0.038       0.189 54.062 0.605    -11.716    13.746   2.519
+  CTRL all days non-midterm 4973     0.245       0.401 59.481 7.052    -19.793    19.404   2.454
+  midterm episode dates: 2006-01-03, 2006-03-14, 2006-10-05, 2006-10-18, 2006-10-25, 2006-11-10, 2010-11-04, 2014-12-02, 2018-01-05, 2018-01-12, 2018-01-22, 2026-04-28, 2026-05-05, 2026-05-22
+
+=== h=10 ===
+                      label    n  mean_pct  median_pct    hit      t  worst_pct  best_pct  sd_pct
+    midterm episodes (N=11)   11    -0.151       0.318 54.545 -0.178     -5.514     4.319   2.814
+non-midterm episodes (N=16)   16    -0.055       0.300 68.750 -0.140     -2.995     1.977   1.578
+      CTRL all days midterm 1632     0.080       0.501 56.740  0.948    -16.370    15.493   3.410
+  CTRL all days non-midterm 4973     0.477       0.761 62.699 10.174    -26.769    21.581   3.306
+  midterm episode dates: 2006-01-03, 2006-03-14, 2006-10-05, 2006-10-23, 2006-11-10, 2010-11-04, 2014-12-02, 2018-01-05, 2018-01-22, 2026-04-28, 2026-05-22
+
+==============================================================================
+WEEKDAY PLACEBO (registry: the weekend-risk-at-a-high cell is a fossil)
+==============================================================================
+
+=== day-level by anchor weekday, h=5 ===
+                 label  n  mean_pct  median_pct    hit      t  worst_pct  best_pct  sd_pct
+anchor Mon (days N=12) 12     0.221       0.377 58.333  0.575     -2.919     2.278   1.330
+anchor Tue (days N=16) 16     0.608       0.592 81.250  1.935     -2.275     3.127   1.256
+anchor Wed (days N=14) 14     0.364       0.353 57.143  1.271     -1.441     2.268   1.073
+anchor Thu (days N=17) 17    -0.313      -0.063 47.059 -0.926     -3.884     1.779   1.393
+anchor Fri (days N=13) 13     0.107       0.269 69.231  0.207     -5.462     2.282   1.867
+
+EPISODE YEAR HISTOGRAM (h=5):
+      count   sum  mean
+2004      5  3.39  0.68
+2005      1  0.28  0.28
+2006      6  4.27  0.71
+2010      1 -2.05 -2.05
+2012      1  0.98  0.98
+2013      4 -1.62 -0.40
+2014      1 -2.28 -2.28
+2015      6  1.47  0.24
+2016      3  1.37  0.46
+2017      1  0.20  0.20
+2018      3  2.86  0.95
+2026      3  5.48  1.83

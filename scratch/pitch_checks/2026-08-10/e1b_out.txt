@@ -1,0 +1,60 @@
+
+================================================================================================
+TLT: entry tdom 6, h=5.  REAL vs FAKE refunding labels
+================================================================================================
+                            label  N  mean_pct  other_months_pct  EXCESS_bps  hit     t
+REAL refunding  (Feb May Aug Nov) 96    0.1156           -0.0200        13.6 57.3  0.55
+FAKE label A    (Mar Jun Sep Dec) 96   -0.0698            0.0727       -14.2 54.2 -0.37
+FAKE label B    (Jan Apr Jul Oct) 96    0.0298            0.0229         0.7 50.0  0.16
+
+  per-MONTH breakdown of the tdom-6 h=5 entry (TLT), all 12 months:
+ month  refunding  N  mean_pct  hit     t
+     1      False 24    0.8248 70.8  2.62
+     2       True 24   -0.5813 33.3 -1.75
+     3      False 24   -0.4330 45.8 -0.88
+     4      False 24    0.0968 41.7  0.26
+     5       True 24    0.4269 62.5  1.29
+     6      False 24    0.4583 75.0  1.45
+     7      False 24   -0.2537 50.0 -0.80
+     8       True 24    0.4420 62.5  0.92
+     9      False 24   -0.3887 45.8 -1.45
+    10      False 24   -0.5487 37.5 -1.34
+    11       True 24    0.1747 70.8  0.35
+    12      False 24    0.0842 50.0  0.22
+  refunding months ranked: [(8, 0.442), (5, 0.4269), (11, 0.1747), (2, -0.5813)]
+  -> drop the single best refunding month (8): remaining three average +0.0068% vs non-refunding -0.0200%
+
+  *** AUGUST ONLY (the month today's trade is in): N=24 +0.4420%  hit 62.5%  sign p 0.1537  worst -3.27%
+      August by era: pre-2018 +0.6147% (N=16)  |  2018+ +0.0966% (N=8)
+      August midterm years +1.4722% (N=6)  |  non-midterm +0.0986% (N=18)
+      concentration: top2 episodes ['2010-08-09', '2019-08-08'] = +10.11pp of +10.61pp total (95%); best yrs {2010: 5.1, 2019: 5.0}
+
+================================================================================================
+IEF: entry tdom 6, h=5.  REAL vs FAKE refunding labels
+================================================================================================
+                            label  N  mean_pct  other_months_pct  EXCESS_bps  hit     t
+REAL refunding  (Feb May Aug Nov) 96    0.1438            0.0281        11.6 55.2  1.40
+FAKE label A    (Mar Jun Sep Dec) 96   -0.0072            0.1036       -11.1 54.2 -0.07
+FAKE label B    (Jan Apr Jul Oct) 96    0.0635            0.0683        -0.5 55.2  0.72
+
+  per-MONTH breakdown of the tdom-6 h=5 entry (IEF), all 12 months:
+ month  refunding  N  mean_pct  hit     t
+     1      False 24    0.3944 70.8  2.84
+     2       True 24   -0.1098 29.2 -0.57
+     3      False 24   -0.0642 54.2 -0.23
+     4      False 24    0.1680 50.0  1.00
+     5       True 24    0.2045 58.3  1.33
+     6      False 24    0.1435 66.7  0.79
+     7      False 24    0.0295 54.2  0.18
+     8       True 24    0.2984 66.7  1.46
+     9      False 24   -0.1154 41.7 -0.86
+    10      False 24   -0.3380 45.8 -1.62
+    11       True 24    0.1820 66.7  0.69
+    12      False 24    0.0074 54.2  0.04
+  refunding months ranked: [(8, 0.2984), (5, 0.2045), (11, 0.182), (2, -0.1098)]
+  -> drop the single best refunding month (8): remaining three average +0.0922% vs non-refunding +0.0281%
+
+  *** AUGUST ONLY (the month today's trade is in): N=24 +0.2984%  hit 66.7%  sign p 0.0758  worst -1.57%
+      August by era: pre-2018 +0.3877% (N=16)  |  2018+ +0.1197% (N=8)
+      August midterm years +0.6974% (N=6)  |  non-midterm +0.1654% (N=18)
+      concentration: top2 episodes ['2009-08-10', '2010-08-09'] = +4.19pp of +7.16pp total (59%); best yrs {2009: 2.2, 2010: 2.0}

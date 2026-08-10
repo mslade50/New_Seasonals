@@ -1,0 +1,77 @@
+================================================================================================
+1. TLT's OWN h=3 return by TRADING-day-of-month  (no event anywhere)
+================================================================================================
+ tdom   N  mean_pct  hit     t
+    1 290    -0.150 47.2 -1.59
+    2 290    -0.202 43.1 -2.19
+    3 288    -0.083 44.1 -0.90
+    4 288    -0.175 48.3 -2.19
+    5 288    -0.090 47.2 -0.97
+    6 288    -0.037 50.0 -0.42
+    7 288     0.055 53.5  0.61
+    8 288     0.082 53.8  0.96
+    9 288     0.136 54.5  1.62
+   10 288     0.090 57.3  1.10
+   11 288     0.132 56.9  1.34
+   12 288     0.112 55.6  1.22
+   13 288     0.198 53.8  2.14
+   14 288     0.215 55.9  2.58
+   15 288     0.093 54.9  1.21
+   16 288     0.147 56.6  1.86
+   17 288     0.121 55.6  1.45
+   18 288     0.200 53.1  2.56
+   19 288     0.115 56.2  1.30
+   20 253     0.122 49.4  1.24
+   21 193     0.072 49.7  0.64
+   22  92     0.021 46.7  0.10
+
+  all-days ctrl +0.0518%
+  CPI ENTRY (print-2) trading-day-of-month: min 5 median 9 max 20  mode [6]
+  -> CPI entries land where TLT's own drift is at its strongest.
+
+================================================================================================
+2. THREE CONTROLS for the k=2 h=3 CPI cell
+================================================================================================
+                                                                             control    N  mean_pct  hit    t
+                                             *** THE CELL: CPI entries (print-2) ***  286    0.1476 54.9 1.48
+                                                           C1 all days, full history 6042    0.0518 52.2 2.68
+                                          C2 calendar dom [8,16], CPI window removed  992    0.0457 52.8 1.01
+C3 same trading-dom [5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 20], CPI win removed 2581    0.0782 52.7 2.70
+                                            C4 per-entry EXCESS over own tdom bucket  286    0.0671 49.7 0.67
+
+  C4 detail: excess over the calendar-matched control = +0.0671pp,  record 142-144, sign p 0.5704, bootstrap P(mean<=0) 0.251
+  t on the excess: +0.67
+  TLT round trip ~2.5 bps -> excess = 6.7 bps = 2.7x cost
+  MIDTERM excess +0.0488pp (N=72)  |  non-midterm +0.0733pp (N=214)
+  pre-2018 excess +0.0580pp (N=184)  |  2018+ +0.0837pp (N=102)
+  ex-2008 excess +0.0143pp
+
+================================================================================================
+3. THE PLACEBO TABLE IS THE CALENDAR TABLE
+   each macro anchor's k=2 h=3 TLT return next to the tdom-matched
+   control for the days that anchor happens to sit on
+================================================================================================
+       anchor   N  entry_dom_med  entry_tdom_med  cell_pct  tdom_ctrl_pct  EXCESS_pp
+          nfp 285              4               3    -0.089         -0.018     -0.072
+          cpi 286             13               9     0.148          0.096      0.051
+          ppi 285             11               8     0.165          0.083      0.082
+fomc_decision 191             18              12     0.356          0.054      0.301
+         opex 288             16              11     0.080          0.125     -0.045
+   vix_expiry 287             16              11     0.131          0.127      0.004
+
+  If EXCESS collapses toward zero for every anchor while cell_pct
+  tracks the calendar position, the 'event fingerprint' is a month-shape.
+
+================================================================================================
+4. THE PRINT SESSION ITSELF, 2018+  (the PPI checker's era-stable cell)
+================================================================================================
+  cpi print session all       N=286 +0.0572%  hit  54.5%  sign p 0.0696  (ctrl daily +0.0177%)
+  cpi print session pre-2018  N=184 +0.1031%  hit  55.4%  sign p 0.0806  (ctrl daily +0.0177%)
+  cpi print session 2018+     N=102 -0.0255%  hit  52.9%  sign p 0.3104  (ctrl daily +0.0177%)
+  cpi print session 2023+     N= 42 -0.2154%  hit  42.9%  sign p 0.8600  (ctrl daily +0.0177%)
+
+  ppi print session all       N=285 +0.1156%  hit  57.2%  sign p 0.0088  (ctrl daily +0.0177%)
+  ppi print session pre-2018  N=183 +0.1058%  hit  57.9%  sign p 0.0191  (ctrl daily +0.0177%)
+  ppi print session 2018+     N=102 +0.1332%  hit  55.9%  sign p 0.1380  (ctrl daily +0.0177%)
+  ppi print session 2023+     N= 42 +0.3121%  hit  59.5%  sign p 0.1400  (ctrl daily +0.0177%)
+

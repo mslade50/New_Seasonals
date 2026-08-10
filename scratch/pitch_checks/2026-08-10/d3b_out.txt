@@ -1,0 +1,88 @@
+TODAY: EWZ 5d = -3.57%   rank5d 10.7
+
+==============================================================================
+A. MONOTONICITY -- does the short's edge grow with the depth of the
+   decoupling?  Today's reading is EWZ 5d = -3.57%.
+==============================================================================
+  EWZ 5d in [-9900.0%,  -3.0%): SHORT-spread -0.117%  (N_epi=10, 7-3, sign p 0.172)  median +0.586%
+  EWZ 5d in [  -3.0%,  -2.0%): SHORT-spread +0.342%  (N_epi=6, 3-3, sign p 0.656)  median +0.455%
+  EWZ 5d in [  -2.0%,  -1.0%): SHORT-spread -0.359%  (N_epi=9, 4-5, sign p 0.746)  median -0.483%
+  EWZ 5d in [  -1.0%,   0.0%): SHORT-spread +1.237%  (N_epi=22, 14-8, sign p 0.143)  median +1.676%
+
+  CUMULATIVE from the deep tail inward (the honest read of 'today'):
+  EWZ 5d <  -3.5%: SHORT-spread -0.232%  (N_epi=9, 6-3, sign p 0.254, boot P<=0 0.553)
+  EWZ 5d <  -3.0%: SHORT-spread -0.117%  (N_epi=10, 7-3, sign p 0.172, boot P<=0 0.525)
+  EWZ 5d <  -2.5%: SHORT-spread -0.455%  (N_epi=12, 7-5, sign p 0.387, boot P<=0 0.691)
+  EWZ 5d <  -2.0%: SHORT-spread +0.158%  (N_epi=13, 8-5, sign p 0.291, boot P<=0 0.401)
+  EWZ 5d <  -1.5%: SHORT-spread +0.034%  (N_epi=17, 10-7, sign p 0.315, boot P<=0 0.491)
+  EWZ 5d <  -1.0%: SHORT-spread -0.009%  (N_epi=20, 11-9, sign p 0.412, boot P<=0 0.503)
+  EWZ 5d <  -0.5%: SHORT-spread +0.701%  (N_epi=31, 19-12, sign p 0.141, boot P<=0 0.107)
+  EWZ 5d <   0.0%: SHORT-spread +0.862%  (N_epi=36, 22-14, sign p 0.121, boot P<=0 0.056)
+
+  SAME on rank5d (today = 10.7):
+  EWZ rank5d <  10: SHORT-spread +0.379%  (N_epi=6, 5-1, sign p 0.109)  dates ['2013-07-09', '2016-11-10', '2017-05-24', '2017-11-30', '2021-10-21', '2026-05-14']
+  EWZ rank5d <  15: SHORT-spread +0.379%  (N_epi=6, 5-1, sign p 0.109)  dates ['2013-07-09', '2016-11-10', '2017-05-24', '2017-11-30', '2021-10-21', '2026-05-14']
+  EWZ rank5d <  20: SHORT-spread +0.672%  (N_epi=11, 8-3, sign p 0.113)  dates ['2013-07-09', '2016-11-10', '2017-05-24', '2017-11-30', '2020-02-10', '2020-08-05', '2021-01-25', '2021-10-21', '2024-05-15', '2024-06-18', '2026-05-14']
+  EWZ rank5d <  30: SHORT-spread -0.007%  (N_epi=13, 8-5, sign p 0.291)  dates ['2011-02-07', '2013-07-09', '2016-05-27', '2016-11-10', '2017-05-24', '2017-11-30', '2020-02-10', '2020-08-05', '2021-01-25', '2021-10-19', '2024-05-15', '2024-06-17', '2026-05-14']
+  EWZ rank5d <  50: SHORT-spread +0.780%  (N_epi=44, 28-16, sign p 0.048)  dates ['2004-11-08', '2005-07-11', '2009-11-13', '2010-04-15', '2010-04-23', '2011-02-04', '2011-04-28', '2012-03-15', '2012-05-01', '2013-05-17', '2013-07-09', '2013-12-20', '2014-02-18', '2014-04-21', '2014-05-28', '2015-07-17', '2016-05-25', '2016-11-10', '2016-12-13', '2017-04-25', '2017-05-24', '2017-11-30', '2020-02-07', '2020-08-05', '2020-08-26', '2021-01-11', '2021-01-25', '2021-02-04', '2021-03-10', '2021-04-01', '2021-10-19', '2021-11-03', '2021-12-27', '2023-06-30', '2024-01-23', '2024-03-22', '2024-05-09', '2024-06-06', '2024-06-17', '2024-10-14', '2024-11-12', '2025-08-14', '2026-04-17', '2026-05-08']
+
+==============================================================================
+B. CONCENTRATION on the headline short cell (EWZ 5d<0, h=5)
+==============================================================================
+  headline SHORT +0.862%  N=36  22-14  sign p 0.1215  boot P<=0 0.056
+  drop-best-1: +0.681%  (dropped ['2015-07-17'] = [7.19])
+  drop-best-2: +0.552%  (dropped ['2015-07-17', '2021-01-11'] = [7.19, 5.06])
+  drop-best-3: +0.421%  (dropped ['2015-07-17', '2021-01-11', '2026-05-08'] = [7.19, 5.06, 4.88])
+
+  by year (pp, short side): {2010: 1.6799999475479126, 2011: 2.4000000953674316, 2012: 4.769999980926514, 2013: -3.6600000858306885, 2014: 2.9000000953674316, 2015: 7.190000057220459, 2016: -2.359999895095825, 2017: -1.2300000190734863, 2020: -1.5800000429153442, 2021: 2.990000009536743, 2023: 3.140000104904175, 2024: 6.75, 2025: -1.159999966621399, 2026: 9.199999809265137}
+  top-2 years {2026: 9.199999809265137, 2015: 7.190000057220459} = 53% of the +31.03pp total
+
+=== era 2013 (short) ===
+   label  n  mean_pct  median_pct    hit     t  worst_pct  best_pct  sd_pct
+pre-2013  5     1.769       2.127 80.000 2.640     -0.731     3.126   1.498
+   2013+ 31     0.716       0.684 58.065 1.178     -8.155     7.195   3.383
+
+=== era 2018 (short) ===
+   label  n  mean_pct  median_pct    hit     t  worst_pct  best_pct  sd_pct
+pre-2018 17     0.688       0.684 58.824 1.037     -4.278     7.195   2.733
+   2018+ 19     1.018       1.824 63.158 1.224     -8.155     5.055   3.625
+
+=== era 2021 (short) ===
+   label  n  mean_pct  median_pct   hit     t  worst_pct  best_pct  sd_pct
+pre-2021 20     0.506       0.566 55.00 0.727     -6.196     7.195   3.109
+   2021+ 16     1.307       1.930 68.75 1.564     -8.155     5.055   3.343
+
+  MIDTERM (2026 is one): +2.298% (N=6)   non-midterm +0.575% (N=30)
+
+  DAY-vs-EPISODE stability, pre-2018 only (round 1 flagged a flip):
+    day-level pre-2018 -0.706% (N=24)   episode pre-2018 +0.688% (N=17)   <- signs DISAGREE
+
+==============================================================================
+C. IS THE SHORT JUST HARVESTING EWZ's STRUCTURAL UNDERPERFORMANCE?
+==============================================================================
+  unconditional SHORT-spread, full history -0.056%
+  unconditional SHORT-spread, trigger span +0.192%
+  SPY-gate-only episodes            +0.408% (N=113)
+  headline trigger episodes         +0.862% (N=36)
+  -> EWZ leg adds +0.454pp over the SPY gate alone; the SPY gate itself adds +0.216pp over doing nothing.
+  CAGR-equivalent of the unconditional drift: EWZ/SPY total ratio 8.45x vs 12.83x over 23.3y
+
+  COST including borrow (short EWZ):
+    borrow 0.5%/yr -> 1.2 bps over 6 sessions; total 8.2 bps vs edge 86.2 bps = 10.5x
+    borrow 1.5%/yr -> 3.6 bps over 6 sessions; total 10.6 bps vs edge 86.2 bps = 8.2x
+    borrow 3.0%/yr -> 7.1 bps over 6 sessions; total 14.1 bps vs edge 86.2 bps = 6.1x
+
+==============================================================================
+D. THE CELL THAT ACTUALLY DESCRIBES TODAY
+==============================================================================
+  EWZ 5d < -3.5% (today -3.57%) under the SPY gate:
+    SHORT-spread -0.232%  N=9  6-3  sign p 0.254
+    LONG-spread  +0.232%  <- the sign the headline cell says is wrong
+    episodes: [('2013-07-09', -4.28), ('2016-05-27', -7.73), ('2016-11-10', 0.68), ('2017-05-24', 1.05), ('2017-11-30', 0.45), ('2020-08-05', 4.77), ('2021-01-25', -1.4), ('2021-10-21', 3.88), ('2026-05-14', 0.49)]
+
+  SHALLOW bucket, EWZ 5d in [-2%, 0):  SHORT-spread +0.821%  N=29  17-12  sign p 0.2291
+  DEEP bucket,    EWZ 5d < -2%:        SHORT-spread +0.158%  N=13  8-5  sign p 0.2905
+
+  SPREAD BETWEEN THE TWO BUCKETS: +0.663pp in favour of the SHALLOW cell.
+  A trigger whose edge lives entirely in its weakest readings and
+  inverts at today's reading is not a trigger, it is a definition.

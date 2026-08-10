@@ -1,0 +1,106 @@
+========================================================================================
+0. DOES THE CONDITIONER FIRE TODAY?  (a rank is not a level)
+========================================================================================
+  ^MOVE level                 72.03
+  ^MOVE LEVEL pctile 252d     45.6  -> bottom-decile floor? NO
+  ^MOVE 5d-return rank        7.5  -> bottom decile? YES
+  ^MOVE dist from 52w high    -37.4%
+  TLT  dist from 52w low      1.03%
+
+  Of the 5849 sessions with a 252d history, how often does a 5d-rank<10 coincide with a LEVEL pctile<10?
+    5d-rank<10: 593   level<10: 1237   BOTH: 182  -> P(level floor | 5d crush) = 30.7%
+  So 'crushed this week' and 'at a floor' are different states, and today is the FIRST, not the second.
+  A1 MOVE level pctile<10 (a real floor): 1237 days (21.1%)  fires today: False
+  A2 MOVE 5d-rank<10 (TODAY'S state): 593 days (10.1%)  fires today: True
+  A3 MOVE <=-30% from 52w high: 2897 days (49.4%)  fires today: True
+  B  TLT within 3% of 52w low: 553 days (9.4%)  fires today: True
+
+========================================================================================
+1. LEG SEPARATION, long TLT, h=3, entry lag=1 (MOC before the print)
+========================================================================================
+
+=== TLT long, h=3: which leg does the work? (all-days ctrl +0.049%) ===
+                                     label   n  mean_pct  median_pct    hit      t  worst_pct  best_pct  sd_pct  edge_pp  sign_p  boot  mid_mean  mid_n
+          CPI anchor alone (no state gate) 283     0.193       0.324 59.717  2.006     -5.274     7.462   1.617    0.143   0.001 0.021     0.162     69
+            A2 MOVE-crush alone (no event) 202    -0.052       0.000 50.000 -0.521     -3.842     5.328   1.431   -0.102   0.528 0.702    -0.060     48
+              B TLT-floor alone (no event)  79     0.210       0.104 55.696  1.077     -3.418     5.487   1.730    0.160   0.184 0.143     0.443     39
+                         A2 + B (no event)  20     0.393       0.460 60.000  0.956     -2.623     5.328   1.836    0.343   0.252 0.166     0.194     10
+CPI + A2 (today's stated cell, MOVE crush)  38     0.253       0.227 55.263  0.860     -4.669     4.883   1.814    0.204   0.314 0.188     1.413      8
+        CPI + A1 (the LEVEL floor version)  63     0.156       0.336 61.905  0.922     -3.148     3.187   1.345    0.107   0.038 0.171     0.553     14
+                                   CPI + B  25    -0.109       0.512 56.000 -0.264     -4.953     4.883   2.075   -0.159   0.345 0.599     0.005     12
+CPI + A2 + B (the full stated interaction)   2     2.077       2.077 50.000  0.740     -0.730     4.883   3.969    2.027   0.750   NaN     4.883      1
+                              CPI + A1 + B   1    -0.584      -0.584  0.000    NaN     -0.584    -0.584     NaN   -0.634   1.000   NaN       NaN      0
+
+Same table for h=1 and h=5:
+
+=== h=1 (ctrl +0.017%) ===
+                                     label   n  mean_pct  median_pct     hit      t  worst_pct  best_pct  sd_pct  edge_pp
+          CPI anchor alone (no state gate) 283     0.066       0.131  54.417  1.121     -3.680     3.847   0.990    0.049
+            A2 MOVE-crush alone (no event) 202    -0.093      -0.011  48.515 -1.380     -5.641     3.115   0.962   -0.110
+              B TLT-floor alone (no event)  80     0.020       0.034  52.500  0.192     -2.335     2.911   0.939    0.004
+                         A2 + B (no event)  20    -0.166      -0.025  45.000 -0.639     -3.409     1.581   1.164   -0.183
+CPI + A2 (today's stated cell, MOVE crush)  38     0.363       0.373  71.053  1.994     -1.828     3.847   1.122    0.346
+        CPI + A1 (the LEVEL floor version)  63     0.099       0.167  57.143  1.010     -2.179     1.888   0.779    0.083
+                                   CPI + B  25     0.259       0.233  64.000  1.038     -2.713     3.847   1.246    0.242
+CPI + A2 + B (the full stated interaction)   2     2.094       2.094 100.000  1.195      0.342     3.847   2.479    2.078
+                              CPI + A1 + B   1    -0.701      -0.701   0.000    NaN     -0.701    -0.701     NaN   -0.717
+
+=== h=5 (ctrl +0.081%) ===
+                                     label   n  mean_pct  median_pct     hit      t  worst_pct  best_pct  sd_pct  edge_pp
+          CPI anchor alone (no state gate) 283     0.217       0.258  58.304  1.893     -7.236     7.715   1.930    0.136
+            A2 MOVE-crush alone (no event) 202     0.060       0.124  54.950  0.471     -6.345     6.491   1.815   -0.021
+              B TLT-floor alone (no event)  79     0.159       0.317  58.228  0.675     -4.610     6.379   2.092    0.078
+                         A2 + B (no event)  20     0.755       0.915  70.000  1.537     -4.296     6.379   2.195    0.673
+CPI + A2 (today's stated cell, MOVE crush)  38     0.379       0.526  63.158  1.012     -7.236     6.046   2.306    0.297
+        CPI + A1 (the LEVEL floor version)  63     0.172       0.365  58.730  0.821     -4.261     5.078   1.666    0.091
+                                   CPI + B  25    -0.122       0.456  56.000 -0.245     -4.487     6.046   2.492   -0.203
+CPI + A2 + B (the full stated interaction)   2     3.517       3.517 100.000  1.391      0.988     6.046   3.576    3.436
+                              CPI + A1 + B   1     0.456       0.456 100.000    NaN      0.456     0.456     NaN    0.374
+
+========================================================================================
+2. DETAIL on the full stated interaction (CPI + MOVE crush + TLT floor)
+========================================================================================
+
+##### TLT long into CPI, MOVE crushed, TLT at 52w floor  (h=3 td, entry lag=1) #####
+legs=[('TLT', 1.0)]  trigger span 2013-07-12 .. 2022-11-08
+
+=== 1. conditional vs controls ===
+                           label    n  mean_pct  median_pct     hit      t  worst_pct  best_pct  sd_pct
+            COND day-level (N=2)    2     2.077       2.077  50.000  0.740     -0.730     4.883   3.969
+             COND episodes (N=2)    2     2.077       2.077  50.000  0.740     -0.730     4.883   3.969
+     CTRL-a own drift, same span 2294     0.027       0.074  51.526  0.856     -9.536    14.998   1.525
+   CTRL-b all days, full history 5865     0.049       0.081  52.174  2.497     -9.536    14.998   1.517
+CTRL-c local +/-126td ex-trigger  504    -0.128      -0.139  47.222 -1.670     -5.238     5.487   1.715
+  COND day-level, lag=0 (no-lag)    2     2.305       2.305 100.000  1.849      1.058     3.552   1.764
+  episode-vs-control diff = +2.050%  welch t = +0.73   bootstrap P(mean<=0) = nan   record 1-1, sign p = 0.7500
+  concentration: top2 episodes ['2022-11-08', '2013-07-12'] = +4.15pp of +4.15pp total (100%); best yrs {2022: 4.9, 2013: -0.7}
+
+=== 2+3. episode era split (pre-2018 / 2018+) ===
+   label  n  mean_pct  median_pct   hit   t  worst_pct  best_pct  sd_pct
+pre-2018  1    -0.730      -0.730   0.0 NaN     -0.730    -0.730     NaN
+   2018+  1     4.883       4.883 100.0 NaN      4.883     4.883     NaN
+
+===   day-level era split (for contrast) ===
+   label  n  mean_pct  median_pct   hit   t  worst_pct  best_pct  sd_pct
+pre-2018  1    -0.730      -0.730   0.0 NaN     -0.730    -0.730     NaN
+   2018+  1     4.883       4.883 100.0 NaN      4.883     4.883     NaN
+  worst episode window: -0.73%  on 2013-07-12   |  worst day-level: -0.73%
+  episode dates: 2013-07-12, 2022-11-08
+
+5. cost: 1 leg(s) x ~2.0 bps round trip = 2.0 bps. episode mean 2.077% = 207.7 bps -> 103.8x cost (need >=5x)
+
+=== 6. ppi-in-hold split (episodes) ===
+              label  n  mean_pct  median_pct   hit   t  worst_pct  best_pct  sd_pct
+ppi IN window (N=1)  1     4.883       4.883 100.0 NaN      4.883     4.883     NaN
+      ppi OUT (N=1)  1    -0.730      -0.730   0.0 NaN     -0.730    -0.730     NaN
+
+========================================================================================
+3. COUNT-FIRST: HYG at its 52w high AND LQD near its 52w low, at CPI
+========================================================================================
+TODAY: HYG 0.00% from 52w high, LQD 1.16% above 52w low
+  HYG within 0.0% of high & LQD within 2% of low: state days 5, AT a CPI anchor 0, episodes 0  dates []
+  HYG within 0.5% of high & LQD within 3% of low: state days 88, AT a CPI anchor 4, episodes 4  dates ['2018-07-10', '2018-08-08', '2018-09-11', '2026-08-06']
+  HYG within 1.0% of high & LQD within 5% of low: state days 310, AT a CPI anchor 15, episodes 15
+  HYG within 2.0% of high & LQD within 10% of low: state days 1773, AT a CPI anchor 81, episodes 81
+
+  VERDICT RULE (given up front): under ~8 episodes this is unmeasurable, not merely small.

@@ -1,0 +1,265 @@
+panel span 2003-05-01 .. 2026-08-07  n=5855
+
+TODAY (2026-08-07 close):
+  EWZ  ret5d  -3.57%   dist52wh  -14.51%   rank5d  10.7  rank63  11.1
+  EEM  ret5d  +2.42%   dist52wh   -7.82%   rank5d  74.6  rank63   1.6
+  SPY  ret5d  +3.51%   dist52wh   +0.00%   rank5d  94.8  rank63  52.0
+  EFA  ret5d  +2.81%   dist52wh   +0.00%   rank5d  90.9  rank63  73.8
+
+PIT beta EWZ~SPY today 0.98  (median over history 1.26, 10-90 pct 0.66-1.90)
+PIT beta EEM~SPY today 1.47  (median 1.16)
+
+GATE COUNTS (day level)
+  SPY gate alone (52wh within 1.0% AND 5d >= +2%): 318
+  + EWZ 5d < 0  (TREATMENT):                       60   share of parent 0.189
+  + EEM 5d < 0:                                    24   share of parent 0.075
+  + EEM rank63 < 10 (the '63d laggard' form):       17
+  CLUSTER DEPTH TODAY TREATMENT EWZ: 2 consecutive sessions (fires today: True)
+  CLUSTER DEPTH TODAY SPY gate: 5 consecutive sessions (fires today: True)
+  REGIME SELECTION TREATMENT EWZ: bear tape (SPY<200d) on 0.0% of trigger days vs base rate 18.9% -> -18.9pp
+  REGIME SELECTION SPY gate parent: bear tape (SPY<200d) on 0.0% of trigger days vs base rate 18.9% -> -18.9pp
+
+##### LONG EWZ outright | EWZ 5d<0 while SPY within 1% of 52wh and +2%/5d  (h=5 td, entry lag=1) #####
+legs=[('EWZ', 1.0)]  trigger span 2010-04-15 .. 2026-05-14
+
+=== 1. conditional vs controls ===
+                           label    n  mean_pct  median_pct    hit      t  worst_pct  best_pct  sd_pct
+           COND day-level (N=58)   58    -0.207      -0.054 43.103 -0.417     -9.923    12.215   3.785
+            COND episodes (N=36)   36    -0.710      -0.305 41.667 -1.236     -9.923     7.482   3.448
+     CTRL-a own drift, same span 4046     0.097       0.092 50.667  1.397    -32.515    24.888   4.402
+   CTRL-b all days, full history 5849     0.301       0.370 53.377  4.782    -34.222    33.805   4.812
+CTRL-c local +/-126td ex-trigger 3703     0.070       0.065 50.365  0.974    -32.515    24.888   4.367
+  COND day-level, lag=0 (no-lag)   58    -0.573      -0.330 41.379 -1.279     -9.581     8.608   3.415
+  episode-vs-control diff = -0.807%  welch t = -1.39   bootstrap P(mean<=0) = 0.892   record 15-21, sign p = 0.8785
+  concentration: top2 episodes ['2015-07-17', '2021-11-03'] = -2.44pp of -25.57pp total (10%); best yrs {2013: 6.1, 2016: 3.8}
+
+=== 2+3. episode era split (pre-2018 / 2018+) ===
+   label  n  mean_pct  median_pct    hit      t  worst_pct  best_pct  sd_pct
+pre-2018 17    -0.547       0.212 52.941 -0.597     -9.923     5.949   3.778
+   2018+ 19    -0.856      -1.481 31.579 -1.158     -4.966     7.482   3.222
+
+===   day-level era split (for contrast) ===
+   label  n  mean_pct  median_pct    hit      t  worst_pct  best_pct  sd_pct
+pre-2018 24     1.043       0.433 62.500  1.104     -9.923    12.215   4.628
+   2018+ 34    -1.090      -1.200 29.412 -2.263     -6.145     7.482   2.807
+  worst episode window: -9.92%  on 2015-07-17   |  worst day-level: -9.92%
+  episode dates: 2010-04-15, 2011-02-04, 2011-04-28, 2012-03-15, 2012-05-01, 2013-05-17, 2013-07-09, 2013-12-20, 2014-02-18, 2014-04-21, 2014-05-28, 2015-07-17, 2016-05-25, 2016-11-10, 2017-04-25, 2017-05-24, 2017-11-30, 2020-02-07, 2020-08-05, 2020-08-26, 2021-01-11, 2021-01-25, 2021-02-04, 2021-10-19, 2021-11-03, 2021-12-27, 2023-06-30, 2024-01-23, 2024-05-15, 2024-06-06, 2024-06-17, 2024-10-14, 2024-11-11, 2025-08-14, 2026-04-17, 2026-05-08
+
+=== 4. threshold sensitivity (episode level) ===
+                                        label   n  mean_pct  median_pct    hit      t  worst_pct  best_pct  sd_pct  n_days
+                     SPY high 0.5% (episodes)  32    -0.643      -0.305 37.500 -1.126     -9.923     7.482   3.228      49
+                     SPY high 2.0% (episodes)  42    -0.440      -0.041 47.619 -0.903     -9.923     7.482   3.155      68
+                   SPY thrust >=1% (episodes) 125    -0.480      -0.294 44.800 -1.588     -9.923     8.300   3.376     275
+                   SPY thrust >=3% (episodes)   9    -0.574      -1.481 44.444 -0.642     -3.414     5.352   2.682      15
+                   EWZ rank5d < 15 (episodes)   6     0.663       0.113 50.000  0.579     -2.527     5.949   2.806       7
+                      EWZ 5d < -2% (episodes)  13     0.386       0.277 53.846  0.555     -4.026     5.949   2.507      21
+            EWZ 5d < -3.5% (today) (episodes)   9     1.042       0.277 55.556  0.797     -4.026     8.608   3.925      12
+GATE ATTR: SPY gate only (CONTROL) (episodes) 137    -0.029      -0.051 48.175 -0.110     -9.620     7.482   3.058     313
+        no SPY high, EWZ 5d<0 only (episodes) 744     0.358       0.311 53.226  1.960    -23.265    26.861   4.982    2709
+
+5. cost: 1 leg(s) x ~5.0 bps round trip = 5.0 bps. episode mean -0.710% = -71.0 bps -> -14.2x cost (need >=5x)
+
+=== 6. cpi+ppi-in-hold split (episodes) ===
+                   label  n  mean_pct  median_pct  hit      t  worst_pct  best_pct  sd_pct
+cpi+ppi IN window (N=12) 12    -0.038      -0.138 50.0 -0.035     -4.966     7.482   3.762
+      cpi+ppi OUT (N=24) 24    -1.046      -0.557 37.5 -1.548     -9.923     5.352   3.312
+
+##### LONG EWZ / SHORT SPY equal-dollar | EWZ 5d<0 while SPY within 1% of 52wh and +2%/5d  (h=5 td, entry lag=1) #####
+legs=[('EWZ', 1.0), ('SPY', -1.0)]  trigger span 2010-04-15 .. 2026-05-14
+
+=== 1. conditional vs controls ===
+                           label    n  mean_pct  median_pct    hit      t  worst_pct  best_pct  sd_pct
+           COND day-level (N=58)   58    -0.450      -0.644 39.655 -0.965     -7.195    11.216   3.552
+            COND episodes (N=36)   36    -0.862      -0.903 38.889 -1.619     -7.195     8.155   3.194
+     CTRL-a own drift, same span 4046    -0.189      -0.269 46.391 -3.271    -16.791    22.150   3.667
+   CTRL-b all days, full history 5849     0.056       0.035 50.402  1.138    -18.313    22.150   3.791
+CTRL-c local +/-126td ex-trigger 3703    -0.251      -0.357 45.531 -4.318    -15.408    22.150   3.539
+  COND day-level, lag=0 (no-lag)   58    -0.745      -0.544 44.828 -1.759     -7.598     7.732   3.224
+  episode-vs-control diff = -0.673%  welch t = -1.26   bootstrap P(mean<=0) = 0.944   record 14-22, sign p = 0.9338
+  concentration: top2 episodes ['2021-11-03', '2015-07-17'] = +0.96pp of -31.03pp total (-3%); best yrs {2013: 3.7, 2016: 2.4}
+
+=== 2+3. episode era split (pre-2018 / 2018+) ===
+   label  n  mean_pct  median_pct    hit      t  worst_pct  best_pct  sd_pct
+pre-2018 17    -0.688      -0.684 41.176 -1.037     -7.195     4.278   2.733
+   2018+ 19    -1.018      -1.824 36.842 -1.224     -5.055     8.155   3.625
+
+===   day-level era split (for contrast) ===
+   label  n  mean_pct  median_pct    hit      t  worst_pct  best_pct  sd_pct
+pre-2018 24     0.706       0.149 54.167  0.897     -7.195    11.216   3.855
+   2018+ 34    -1.266      -1.745 29.412 -2.362     -5.543     8.155   3.126
+  worst episode window: -7.19%  on 2015-07-17   |  worst day-level: -7.19%
+  episode dates: 2010-04-15, 2011-02-04, 2011-04-28, 2012-03-15, 2012-05-01, 2013-05-17, 2013-07-09, 2013-12-20, 2014-02-18, 2014-04-21, 2014-05-28, 2015-07-17, 2016-05-25, 2016-11-10, 2017-04-25, 2017-05-24, 2017-11-30, 2020-02-07, 2020-08-05, 2020-08-26, 2021-01-11, 2021-01-25, 2021-02-04, 2021-10-19, 2021-11-03, 2021-12-27, 2023-06-30, 2024-01-23, 2024-05-15, 2024-06-06, 2024-06-17, 2024-10-14, 2024-11-11, 2025-08-14, 2026-04-17, 2026-05-08
+
+5. cost: 2 leg(s) x ~3.5 bps round trip = 7.0 bps. episode mean -0.862% = -86.2 bps -> -12.3x cost (need >=5x)
+
+=== 6. cpi+ppi-in-hold split (episodes) ===
+                   label  n  mean_pct  median_pct    hit      t  worst_pct  best_pct  sd_pct
+cpi+ppi IN window (N=12) 12    -0.825      -1.184 33.333 -0.728     -5.055     8.155   3.925
+      cpi+ppi OUT (N=24) 24    -0.880      -0.903 41.667 -1.510     -7.195     6.196   2.855
+
+==============================================================================
+BETA-NEUTRAL SPREAD (leg sizing = PIT 252d beta at the signal date)
+==============================================================================
+h= 1  BETA-NEUTRAL trig -0.191% (N=58)  SPYgate-ctrl +0.038% (N=270)  uncond-same-span -0.047%  || EQ-DOLLAR trig -0.156%  ctrl +0.036%  || avg PIT beta at trigger 1.22
+h= 2  BETA-NEUTRAL trig -0.521% (N=42)  SPYgate-ctrl -0.096% (N=181)  uncond-same-span -0.098%  || EQ-DOLLAR trig -0.468%  ctrl -0.083%  || avg PIT beta at trigger 1.22
+h= 3  BETA-NEUTRAL trig -0.410% (N=40)  SPYgate-ctrl -0.069% (N=141)  uncond-same-span -0.146%  || EQ-DOLLAR trig -0.378%  ctrl -0.082%  || avg PIT beta at trigger 1.23
+h= 5  BETA-NEUTRAL trig -0.960% (N=36)  SPYgate-ctrl -0.448% (N=113)  uncond-same-span -0.243%  || EQ-DOLLAR trig -0.862%  ctrl -0.408%  || avg PIT beta at trigger 1.21
+h=10  BETA-NEUTRAL trig -1.888% (N=34)  SPYgate-ctrl -0.838% (N=99)  uncond-same-span -0.478%  || EQ-DOLLAR trig -1.971%  ctrl -0.871%  || avg PIT beta at trigger 1.21
+h=21  BETA-NEUTRAL trig -3.761% (N=31)  SPYgate-ctrl -2.912% (N=74)  uncond-same-span -0.967%  || EQ-DOLLAR trig -3.791%  ctrl -2.895%  || avg PIT beta at trigger 1.20
+
+==============================================================================
+HEAD TO HEAD: EWZ-decoupling minus SPY-gate control, SAME SPAN, episodes
+(this is the number that decides it -- does the EWZ leg filter?)
+==============================================================================
+
+-- long EWZ
+  h= 1  TRIG -0.044% (N=58, 28-30, signp 0.653)  SPYGATE +0.073% (N=270)  ADD -0.116pp welch t -0.45  | uncond +0.021%
+  h= 3  TRIG -0.368% (N=40, 16-24, signp 0.923)  SPYGATE +0.012% (N=141)  ADD -0.380pp welch t -0.79  | uncond +0.057%
+  h= 5  TRIG -0.710% (N=36, 15-21, signp 0.879)  SPYGATE -0.132% (N=113)  ADD -0.578pp welch t -0.90  | uncond +0.095%
+  h=10  TRIG -1.939% (N=34, 13-21, signp 0.939)  SPYGATE -0.616% (N=99)  ADD -1.323pp welch t -1.37  | uncond +0.189%
+  h=21  TRIG -3.853% (N=31, 13-18, signp 0.859)  SPYGATE -2.176% (N=74)  ADD -1.676pp welch t -0.87  | uncond +0.440%
+
+-- EWZ-SPY eq$
+  h= 1  TRIG -0.156% (N=58, 30-28, signp 0.448)  SPYGATE +0.036% (N=270)  ADD -0.192pp welch t -0.79  | uncond -0.038%
+  h= 3  TRIG -0.378% (N=40, 17-23, signp 0.866)  SPYGATE -0.082% (N=141)  ADD -0.296pp welch t -0.68  | uncond -0.116%
+  h= 5  TRIG -0.862% (N=36, 14-22, signp 0.934)  SPYGATE -0.408% (N=113)  ADD -0.454pp welch t -0.76  | uncond -0.192%
+  h=10  TRIG -1.971% (N=34, 11-23, signp 0.988)  SPYGATE -0.871% (N=99)  ADD -1.099pp welch t -1.27  | uncond -0.377%
+  h=21  TRIG -3.791% (N=31, 10-21, signp 0.985)  SPYGATE -2.895% (N=74)  ADD -0.896pp welch t -0.53  | uncond -0.758%
+
+-- long EEM
+  h= 1  TRIG +0.177% (N=24, 12-12, signp 0.581)  SPYGATE -0.008% (N=256)  ADD +0.185pp welch t +0.61  | uncond +0.025%
+  h= 3  TRIG +0.205% (N=18, 10-8, signp 0.407)  SPYGATE -0.077% (N=134)  ADD +0.282pp welch t +0.57  | uncond +0.072%
+  h= 5  TRIG +0.412% (N=18, 10-8, signp 0.407)  SPYGATE +0.073% (N=106)  ADD +0.339pp welch t +0.58  | uncond +0.121%
+  h=10  TRIG -0.329% (N=18, 10-8, signp 0.407)  SPYGATE -0.220% (N=93)  ADD -0.109pp welch t -0.14  | uncond +0.232%
+  h=21  TRIG -1.345% (N=18, 8-10, signp 0.760)  SPYGATE -0.637% (N=70)  ADD -0.708pp welch t -0.57  | uncond +0.493%
+
+-- long SPY (what the gate alone buys)
+  h= 1  TRIG +0.113% (N=58, 36-22, signp 0.043)  SPYGATE +0.037% (N=270)  ADD +0.076pp welch t +0.90  | uncond +0.058%
+  h= 3  TRIG +0.009% (N=40, 23-17, signp 0.215)  SPYGATE +0.093% (N=141)  ADD -0.084pp welch t -0.42  | uncond +0.173%
+  h= 5  TRIG +0.152% (N=36, 21-15, signp 0.203)  SPYGATE +0.276% (N=113)  ADD -0.124pp welch t -0.54  | uncond +0.287%
+  h=10  TRIG +0.032% (N=34, 21-13, signp 0.115)  SPYGATE +0.256% (N=99)  ADD -0.224pp welch t -0.52  | uncond +0.566%
+  h=21  TRIG -0.061% (N=31, 21-10, signp 0.035)  SPYGATE +0.718% (N=74)  ADD -0.780pp welch t -0.79  | uncond +1.198%
+
+==============================================================================
+NEIGHBOUR TICKER: EEM 5d<0 under the same SPY gate  (do NOT conflate)
+==============================================================================
+
+##### LONG EEM | EEM 5d<0 while SPY within 1% of 52wh and +2%/5d  (h=5 td, entry lag=1) #####
+legs=[('EEM', 1.0)]  trigger span 2011-04-28 .. 2024-11-12
+
+=== 1. conditional vs controls ===
+                           label    n  mean_pct  median_pct    hit      t  worst_pct  best_pct  sd_pct
+           COND day-level (N=24)   24     0.325       0.167 58.333  0.764     -3.500     6.237   2.082
+            COND episodes (N=18)   18     0.412       0.280 55.556  0.753     -3.500     6.237   2.321
+     CTRL-a own drift, same span 3409     0.063       0.157 52.655  1.307    -17.720    13.588   2.822
+   CTRL-b all days, full history 5849     0.241       0.374 55.292  5.440    -26.082    30.570   3.382
+CTRL-c local +/-126td ex-trigger 2779     0.178       0.223 53.940  3.490    -17.539    13.588   2.691
+  COND day-level, lag=0 (no-lag)   24    -0.075      -0.211 41.667 -0.144     -4.276     6.237   2.557
+  episode-vs-control diff = +0.349%  welch t = +0.64   bootstrap P(mean<=0) = 0.223   record 10-8, sign p = 0.4073
+  concentration: top2 episodes ['2013-07-09', '2011-04-28'] = +2.74pp of +7.42pp total (37%); best yrs {2013: 6.3, 2021: 4.0}
+
+=== 2+3. episode era split (pre-2018 / 2018+) ===
+   label  n  mean_pct  median_pct    hit     t  worst_pct  best_pct  sd_pct
+pre-2018  9     0.169      -0.022 44.444 0.178      -3.50     6.237   2.850
+   2018+  9     0.655       0.797 66.667 1.101      -2.82     3.408   1.785
+
+===   day-level era split (for contrast) ===
+   label  n  mean_pct  median_pct  hit    t  worst_pct  best_pct  sd_pct
+pre-2018 14     0.107       0.027 50.0 0.17      -3.50     6.237   2.363
+   2018+ 10     0.629       0.741 70.0 1.18      -2.82     3.408   1.685
+  worst episode window: -3.50%  on 2011-04-28   |  worst day-level: -3.50%
+  episode dates: 2011-04-28, 2013-01-08, 2013-05-17, 2013-07-09, 2013-12-20, 2014-04-21, 2014-11-05, 2016-11-09, 2017-11-30, 2019-07-05, 2020-09-02, 2021-03-10, 2021-04-09, 2021-07-26, 2021-11-03, 2023-07-19, 2024-10-14, 2024-11-11
+
+5. cost: 1 leg(s) x ~3.0 bps round trip = 3.0 bps. episode mean 0.412% = 41.2 bps -> 13.7x cost (need >=5x)
+
+=== 6. cpi+ppi-in-hold split (episodes) ===
+                  label  n  mean_pct  median_pct    hit     t  worst_pct  best_pct  sd_pct
+cpi+ppi IN window (N=9)  9     0.588      -0.022 44.444 0.686      -2.82     6.237   2.572
+      cpi+ppi OUT (N=9)  9     0.236       0.342 66.667 0.324      -3.50     3.408   2.182
+
+==============================================================================
+SCAN (multiplicity applies to this table): h=1..21
+==============================================================================
+
+=== EWZ decoupler, long EWZ ===
+label  n  mean_pct  median_pct    hit      t  worst_pct  best_pct  sd_pct  ctl_all_days_pct  edge_pct
+  h=1 58    -0.044      -0.085 48.276 -0.184     -4.807     4.641   1.807             0.063    -0.107
+  h=2 42    -0.390      -0.036 47.619 -1.141     -4.870     3.931   2.217             0.123    -0.513
+  h=3 40    -0.368      -0.846 40.000 -0.842     -6.166     5.644   2.766             0.183    -0.551
+  h=5 36    -0.710      -0.305 41.667 -1.236     -9.923     7.482   3.448             0.301    -1.011
+  h=7 36    -1.029      -0.551 38.889 -1.564     -7.959     5.432   3.948             0.416    -1.445
+ h=10 34    -1.939      -1.165 38.235 -2.312    -11.955     6.671   4.890             0.585    -2.524
+ h=15 33    -3.124      -2.519 33.333 -2.826    -15.072     7.650   6.350             0.888    -4.012
+ h=21 31    -3.853      -3.063 41.935 -2.305    -30.961    12.368   9.306             1.252    -5.104
+
+=== EWZ decoupler, eq$ spread ===
+label  n  mean_pct  median_pct    hit      t  worst_pct  best_pct  sd_pct  ctl_all_days_pct  edge_pct
+  h=1 58    -0.156       0.026 51.724 -0.694     -5.068     3.995   1.718             0.013    -0.169
+  h=2 42    -0.468      -0.401 45.238 -1.455     -5.270     3.421   2.087             0.024    -0.493
+  h=3 40    -0.378      -0.365 42.500 -0.957     -5.157     5.130   2.496             0.035    -0.413
+  h=5 36    -0.862      -0.903 38.889 -1.619     -7.195     8.155   3.194             0.056    -0.918
+  h=7 36    -1.400      -1.626 33.333 -2.187     -9.044     7.085   3.843             0.077    -1.477
+ h=10 34    -1.971      -1.444 32.353 -2.615     -8.638     6.028   4.393             0.104    -2.075
+ h=15 33    -3.038      -3.869 33.333 -2.751    -12.599    12.918   6.344             0.167    -3.204
+ h=21 31    -3.791      -5.118 32.258 -2.522    -16.628    21.937   8.370             0.245    -4.036
+
+==============================================================================
+ERA / MIDTERM / CONCENTRATION  (h=5 episodes, long EWZ)
+==============================================================================
+
+=== era 2018 ===
+   label  n  mean_pct  median_pct    hit      t  worst_pct  best_pct  sd_pct
+pre-2018 17    -0.547       0.212 52.941 -0.597     -9.923     5.949   3.778
+   2018+ 19    -0.856      -1.481 31.579 -1.158     -4.966     7.482   3.222
+
+=== era 2013 ===
+   label  n  mean_pct  median_pct    hit      t  worst_pct  best_pct  sd_pct
+pre-2013  5    -2.210      -2.590 40.000 -1.502     -5.903     1.837   3.291
+   2013+ 31    -0.468      -0.057 41.935 -0.753     -9.923     7.482   3.463
+
+=== midterm split ===
+                    label    n  mean_pct  median_pct    hit      t  worst_pct  best_pct  sd_pct
+            MIDTERM (N=6)    6    -1.484      -1.189 50.000 -1.433     -4.966     1.483   2.537
+       non-midterm (N=30)   30    -0.555      -0.305 40.000 -0.841     -9.923     7.482   3.618
+    CTRL all days midterm 1401     0.230       0.332 52.891  1.908    -14.249    16.078   4.508
+CTRL all days non-midterm 4448     0.323       0.387 53.530  4.397    -34.222    33.805   4.904
+
+year histogram (episodes, h=5, pp):
+      count   sum  mean
+2010      1  0.37  0.37
+2011      2 -2.92 -1.46
+2012      2 -8.49 -4.25
+2013      3  6.14  2.05
+2014      3 -0.89 -0.30
+2015      1 -9.92 -9.92
+2016      2  3.77  1.88
+2017      3  2.66  0.89
+2020      3  2.09  0.70
+2021      6 -1.14 -0.19
+2023      1 -3.44 -3.44
+2024      6 -6.85 -1.14
+2025      1  1.45  1.45
+2026      2 -8.38 -4.19
+
+top3 episodes ['2015-07-17', '2021-11-03', '2013-07-09'] = +3.51pp of -25.57pp total (-14%); best yrs {2013: 6.1, 2016: 3.8}
+
+WORST 5 EPISODES (long EWZ, h=5) -- name the idiosyncratic tail:
+  2015-07-17  -9.92%
+  2012-05-01  -5.90%
+  2026-05-08  -4.97%
+  2011-04-28  -4.76%
+  2020-08-05  -4.03%
+BEST 5 EPISODES:
+  2021-11-03  +7.48%
+  2013-07-09  +5.95%
+  2020-08-26  +5.35%
+  2016-05-25  +3.49%
+  2017-04-25  +2.77%
+
+WORST 5 EPISODES (eq$ EWZ-SPY spread, h=5):
+  2015-07-17  -7.19%
+  2021-01-11  -5.06%
+  2026-05-08  -4.88%
+  2020-08-05  -4.77%
+  2026-04-17  -4.32%
+top3 episodes ['2021-11-03', '2015-07-17', '2020-08-26'] = +7.16pp of -31.03pp total (-23%); best yrs {2013: 3.7, 2016: 2.4}

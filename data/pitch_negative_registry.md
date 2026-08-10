@@ -181,3 +181,125 @@ is the corrected version. Do not re-apply the reasoning it replaces.**
   is slightly better (+0.221% vs +0.169%). Different trigger, different
   conditioner behaviour, neither transfers to the other.
   (scratch/pitch_checks/2026-08-07/n5_dx_weak_close_august_midterm.py)
+
+## Method traps (2026-08-10, from a 17-candidate sweep that killed 16)
+
+- **A rates event cell measured against an all-days control is invalid.** TLT's
+  own unconditional h=3 return swings from -0.202% at trading-day-of-month 2
+  (t -2.19) to +0.215% at tdom 14 (t +2.58) with no event anywhere. CPI entries
+  land at median tdom 9, in the good half, so the all-days control flatters them
+  by construction: "long TLT into CPI" reads +0.178% raw and +6.7 bps against a
+  tdom-matched control, at a 49.7% hit, +1.4 bps ex-2008. The whole
+  "CPI/PPI/FOMC work on duration, NFP inverts" pattern is that calendar profile
+  read back with event labels on it, because NFP sits at tdom 3 where TLT's own
+  drift is negative. Build the tdom control first; it is reusable.
+  (scratch/pitch_checks/2026-08-10/d5b_tdom_control.py, d5_cpi_tlt_parent.py)
+- **A number quoted out of a kill report inherits that report's controls.** The
+  CPI-TLT parent was published as +0.193% at sign p 0.001 inside a gate
+  attribution whose author never questioned the all-days control, because the
+  parent was not what he was grading. Re-derive a borrowed number from scratch
+  before promoting it to a candidate, including the k the calendar can actually
+  execute: the quoted cell was k=1 and the executable one was k=2, which pays
+  30 bps less and starts by buying a session worth -2.6 bps.
+- **Beta-neutralize a pair before crediting the spread.** Equal-dollar GDX minus
+  GLD on a 5d thrust trigger pays +0.786% over 41 episodes; at the measured
+  beta of 1.78 the same episodes pay -0.000% (t -0.00). Both legs are positive
+  on trigger days. Report the regression beta, not just the correlation.
+  (scratch/pitch_checks/2026-08-10/c6_gdx_gld_thrust.py)
+- **Cluster depth is not a one-way objection.** The 2026-08-07 registry entry
+  says a mid-cluster entry is not a fresh trigger, and that killed the crushed-
+  skew cell outright (depth 4, which was that day's state, pays -1.459% at
+  1-for-9 against +0.401% at depth 1). But the GDX pre-CPI cell runs the other
+  way: depth > 2 pays +1.601% at a 76% hit against +0.296% for depth <= 2, and
+  the trigger population's own median depth is 3. Measure the depth bucket and
+  quote it; do not assume staleness in either direction.
+- **A nested subset that reverses its parent's sign is a partition of noise.**
+  DX "pullback inside an uptrend" pays -0.233% at z10 <= -1.25, -0.234% at
+  <= -1.50, then +0.665% at <= -1.75. The last is a subset of the second, so the
+  9 episodes between the cuts must average about -1.18%. Today's reading sitting
+  inside the only positive slice is how a threshold-mined artifact presents.
+  (scratch/pitch_checks/2026-08-10/c11_dx_pullback_uptrend.py)
+- **The 14:00 ET placebo for any overnight/intraday decomposition.** The premise
+  that an 08:30 release resolves in the opening auction predicts a large
+  overnight premium on CPI/PPI/NFP and none on FOMC. The largest overnight
+  premium in the whole study is SPY on FOMC day (+13.5 bps tdom-matched, hit
+  64.2%, sign p 0.0000), and FOMC prints at 14:00. Dispersion agrees: 08:30
+  prints raise overnight sd by 0-17% while the 14:00 print raises INTRADAY sd by
+  up to 48% and lowers overnight sd. The overnight premium is a session-of-day
+  effect, not an event effect.
+  (scratch/pitch_checks/2026-08-10/e2b_placebo_teardown.py)
+
+## Calendar and event cells swept and empty (2026-08-10)
+
+- **PPI on equities.** First sweep of PPI in this repo (323 events, 2000+; the
+  2026-08-06 event sweep never covered it). SPY on PPI day is -0.009% over 317
+  episodes against SPY's own +0.039% same-span drift. The back-to-back
+  CPI-then-PPI pair, one session apart, is +0.002% on N=55; the reverse ordering
+  is -0.071% on N=133. Ordering carries no information.
+  (scratch/pitch_checks/2026-08-10/c1_ppi_spy.py)
+- **PPI on the curve is real but exactly one session wide.** The print session
+  itself pays +0.115% (N=286, sign p 0.0105, +0.082pp tdom-matched, 2013+ only);
+  every pre-print session is dead 2018+. Parked to the watchlist because it arms
+  only on the eve of a release. A 52w-floor gate on it does nothing (+0.115% to
+  +0.117% at a tenth the sample). (c2e_era_decider.py)
+- **The quarterly Treasury refunding concession.** Mechanism falsified inside
+  its own window: the predicted concession days (tdom 4-8) are where refunding
+  months are MOST positive (+1.42 bps/day, 5 of 5 days), the cumulative
+  difference grows monotonically to +0.741pp by tdom 16 with no kink at the
+  auctions, and anchoring on the actual auction window inverts it to -0.249pp.
+  February, a refunding month, is the worst of all twelve months at this entry
+  and January, not one, is the best. The label does no work, and the tdom-6
+  excess decays +41.6 bps pre-2009 to -7.7 bps 2018+, exactly as the 2008-09
+  move to monthly 3y/10y/30y auctions predicts.
+  (scratch/pitch_checks/2026-08-10/e1_refunding_concession.py, e1b)
+- **The August big-box retail earnings cluster.** Cluster-anchored 4-session
+  window +0.698% (N=26) against +0.681% for ALL August 4-session windows on the
+  same equal-weight basket: the earnings anchor is worth 1.7 bps against 18 bps
+  of cost. Ten sliding placebo anchors average +0.371% and two beat the real one
+  with better records. Pooled across all 101 clusters since 2000 it is -0.041%.
+  No era decay, which is the interesting part: it dies on the control, not on
+  arbitrage. (scratch/pitch_checks/2026-08-10/d2_retail_cluster.py, d2b)
+
+## Price-state cells swept and empty (2026-08-10)
+
+- **Adding confirming legs to a momentum state does not create a state.**
+  Synchronized 52w highs across SPY, EFA and HYG add +0.036pp over
+  SPY-at-a-52w-high at h=10 and are NEGATIVE at h=2, 3 and 5; the triple
+  underperforms unconditional SPY at every horizon 1 to 21. P(triple | SPY at
+  high) is 0.319, so it is barely even a subset.
+  (scratch/pitch_checks/2026-08-10/c9_sync_52w_high.py)
+- **^SKEW bottom-decile at a 52w SPY high.** Reads +0.410% at sign p 0.0205
+  (h=5, 35 episodes) and dies three ways: depth-4 entries pay -1.459%, the
+  P/C-unconfirmed half (the live state) pays +0.088% against a +0.250% drift,
+  and dropping Jan-2018 plus Apr/May-2026 leaves 1.3 bps. Complacency needs the
+  two complacency measures to agree; SKEW alone is not a signal, and its h=5
+  sign is UP, contradicting the no-put-wall mechanism it was built on.
+  (c8_skew_crush_high.py, c8b_skew_teardown.py)
+- **Silver thrust from deep inside a drawdown.** The drawdown conditioner
+  inverts: deep-dd pays +1.378% at h=10 against +1.780% for the same thrust near
+  a 52w high. Nudging the thrust from 8% to 10% flips h=5 to -4.229%.
+  Distance-from-high is a U-shaped noise carve, not a conditioner.
+  (c7_slv_drawdown_thrust.py)
+- **A single market decoupling from a global risk-on thrust (EWZ form).** The
+  short side's edge lives in its SHALLOWEST bucket (5d drop under 1% pays
+  +1.237%) and reverses at the deep readings that make it interesting (5d below
+  -3.5% pays -0.232%). Two years are 53% of the total; ex-2015 and ex-2026 it is
+  3.5 bps against 8-14 bps of cost. The gate also sits in bear tape 0.0% of the
+  time against an 18.9% base rate, the mirror of the SMH/QQQ over-selection.
+  (d3_ewz_decoupler.py, d3b, d3c)
+- **Energy's 5d washout into a CPI print.** The CPI anchor SUBTRACTS: XLE
+  washout alone +0.464% at h=3, with the pre-CPI window -0.441%. All five energy
+  instruments show negative edge against their own drift on the same days, and
+  the XLE-minus-SPY form is -0.537% with the SPY leg positive, i.e. a
+  short-energy bet rather than a snapback. (c5_energy_cpi_washout.py)
+- **Bond vol at a floor as a conditioner, and the difference between a level and
+  a return rank.** ^MOVE's 5-day return rank being bottom-decile does NOT mean
+  its level is at a floor: the two coincide 30.7% of the time, and on
+  2026-08-07 the return rank was 7.5 while the level sat at the 45.6th
+  percentile. State which one the mechanism needs. (c3_movefloor_cpi.py)
+- **Credit-quality divergence at joint 52w extremes (HYG high / LQD low).** Not
+  a sample-size kill: at h=5 the LQD leg's residual against IEF is +0.000pp, so
+  there is no credit-specific component at the tradeable horizon and the pair is
+  a duration trade with a credit label. Separately the joint state has 4
+  episodes since 2007, three in one 2018 summer. Parked with an arm condition.
+  (d1_hyg_lqd_unanchored.py)
