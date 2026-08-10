@@ -1,11 +1,11 @@
 {
-  "date": "2026-08-07",
+  "date": "2026-08-10",
   "price_ctx": {
     "price": 773.260009765625,
-    "ret_12m": 0.23658033604600126,
-    "extension_200d": 0.10445254351152378,
+    "ret_12m": 0.2365804567437655,
+    "extension_200d": 0.10445253966021228,
     "drawdown": 0.0,
-    "sma_200": 700.1296835327148,
+    "sma_200": 700.1296859741211,
     "high_52w": 773.260009765625,
     "regime_label": "Extended uptrend, stretched above trend",
     "days_since_5pct": 87,
@@ -25,7 +25,7 @@
     "VIX Range Compression": {
       "on": false,
       "detail": "",
-      "summary": "21d range: 35th pctile (fires below 15th) \u2014 VIX at 14.9"
+      "summary": "21d range: 35th pctile (fires below 15th) \u2014 VIX at 15.4"
     },
     "Defensive Leadership": {
       "on": false,
@@ -39,8 +39,8 @@
     },
     "Low Absorption Ratio": {
       "on": true,
-      "detail": "Absorption Ratio at 0.359 (10th percentile) \u2014 below 10th threshold. Sectors moving independently while SPY near 52w high \u2014 vol suppression through diversification. Historically precedes below-average forward returns.",
-      "summary": "AR: 0.359 (10th pctile, fires below 10th) \u2014 near high: yes"
+      "detail": "Absorption Ratio at 0.348 (7th percentile) \u2014 below 10th threshold. Sectors moving independently while SPY near 52w high \u2014 vol suppression through diversification. Historically precedes below-average forward returns.",
+      "summary": "AR: 0.348 (7th pctile, fires below 10th) \u2014 near high: yes"
     },
     "Seasonal Rank Divergence": {
       "on": false,
@@ -50,12 +50,12 @@
     "Dispersion": {
       "on": false,
       "detail": "",
-      "summary": "Composite pctile: 79th (fires above 85th) \u2014 component RV: 37.3% | SPY RV: 14.1%"
+      "summary": "Composite pctile: 78th (fires above 85th) \u2014 component RV: 37.5% | SPY RV: 14.1%"
     },
     "Equity P/C Complacency": {
       "on": false,
-      "detail": "10d-MA equity P/C 252d pctile: 69 (fires < 10)",
-      "summary": "Equity P/C at the 69th pctile of its trailing year (data 2026-08-06) \u2014 no complacency"
+      "detail": "10d-MA equity P/C 252d pctile: 51 (fires < 10)",
+      "summary": "Equity P/C at the 51th pctile of its trailing year (data 2026-08-07) \u2014 no complacency"
     }
   }
 }
