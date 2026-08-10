@@ -22,11 +22,18 @@ that one is the product.
 - **Not a content mill.** A thin day ships 3 posts, not 6 padded ones. A
   post with no number, no story, and no point does not go in the queue.
 
-## Stage A. State
+## Stage A. Grade, then state
 
 ```bash
+python scripts/posts_scoreboard.py
 python scripts/build_posts_state.py
 ```
+
+The grader runs FIRST so any idea whose window closed since the last run
+is booked before tonight's drafting - posted and unposted ideas alike (the
+unposted bucket is how the scoreboard measures the filter). Mention any
+newly graded outcomes in your summary; a resolved idea is often the next
+day's best material ("Tuesday's idea closed +0.8R at the time stop").
 
 Read `data/posts_state.json` WHOLE. This also ingests yesterday's queue
 marks (what McKinley actually posted) into the posts journal - check
