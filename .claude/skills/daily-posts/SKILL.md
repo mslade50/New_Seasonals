@@ -133,6 +133,15 @@ Thread parts separated by a `---` line inside the block. McKinley flips
 `Posted: no` to `yes` or pastes the post URL; tomorrow's Stage A captures
 that, so never overwrite a queue file after he may have marked it.
 
+**Same-day rerun** (a midday queue already exists for today): read the
+existing md FIRST. Carry every existing draft block forward VERBATIM into
+both new files - text, id, and its `Posted:` line exactly as found, marked
+or not (Stage A only ingests dates before today, so a mark you drop here
+is lost forever). New drafts append after them with ids continuing the
+numbering. If a carried draft's material is now stale (an event passed, a
+number moved), append a replacement as a NEW draft and note it; never
+silently rewrite the old block.
+
 Then lint and journal:
 
 ```bash

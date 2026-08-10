@@ -1,0 +1,30 @@
+{
+  "_comment": "Scoped permission allowlist for the unattended 8 PM Daily Posts run (claude -p, headless). Covers ONLY what the /daily-posts skill needs: the grader, the state builder, the check scripts it writes under scratch/posts_checks/, the lint, the delivery check, and file read/write. No web tools (every claim is computed from local history), no git, no Slack, no broker. The deny list hard-blocks secret files: a scoped session that writes files is still an exfiltration path if credentials ever reach it. Grep deliberately absent (dumps file contents, cannot be path-scoped).",
+  "permissions": {
+    "allow": [
+      "Skill",
+      "Bash(python scripts/posts_scoreboard.py:*)",
+      "Bash(python scripts/build_posts_state.py:*)",
+      "Bash(python scripts/lint_posts.py:*)",
+      "Bash(python scripts/check_posts_delivered.py:*)",
+      "Bash(python scratch/posts_checks/:*)",
+      "Read",
+      "Write",
+      "Edit",
+      "Glob",
+      "TodoWrite"
+    ],
+    "deny": [
+      "Read(**/.env)",
+      "Read(**/.env.*)",
+      "Read(**/credentials.json)",
+      "Read(**/token.json)",
+      "Read(**/*.pem)",
+      "Read(**/*.key)",
+      "Edit(**/.env)",
+      "Edit(**/.env.*)",
+      "WebSearch",
+      "WebFetch"
+    ]
+  }
+}
