@@ -88,8 +88,14 @@ explicit request, not from the daily grind.
 **Journal posts**: direction and thesis shape only. No tickers, no levels,
 no sizes. The lint enforces the ticker ban; you enforce the spirit.
 
-**Every post**: playbook voice (dry practitioner by default), no em
-dashes, no hedging filler, under 280 chars unless deliberately `long`.
+**Every post**: playbook voice (wry storyteller; the playbook's "Voice" +
+"Human-first rules" sections are the prose spec, reread them every run).
+Under 280 chars unless deliberately `long`, and 280 is a cap, not a
+target. Before writing the files, reread the drafts as one feed and
+enforce the queue-level rules yourself, because the lint cannot: at most
+one aphorism closer, no two posts sharing a skeleton, at least one short
+casual post, slack words left in. The failure mode is four perfectly
+compressed posts that each pass alone and read as a machine together.
 
 **Reply ammunition**: the cold-start strategy is reply-first (playbook,
 "Distribution"). When the day's material is rich, include 1-2 EXTRA stat

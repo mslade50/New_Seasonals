@@ -52,6 +52,19 @@ SOFT_IDENTITY = ["mckinley", "scott", "denali", "new seasonals"]
 # Dollar SIZES, not prices: $1,500 / $15k / $2.3M. A "$224 level" is fine.
 DOLLAR_SIZE = re.compile(r"\$\s?\d{1,3}(?:,\d{3})+|\$\s?\d+(?:\.\d+)?\s?[kKmM]\b")
 
+# --- prose lint (soft, never blocks) --------------------------------------
+# The machine-checkable slice of the playbook's human-first rules (the
+# AI-tell ban list, 2026-08-10). Warn only, the KILL-LINT convention:
+# heuristics over prose, and a false positive must not cost a queue. The
+# structural tells (aphorism closers, repeated skeletons) only show at
+# queue level and stay the drafter's job.
+AI_TELL_PATTERNS = [
+    (re.compile("—"), "em dash"),
+    (re.compile(r"(?:\bnot\b|n['’]t)\s+[^.!?;]{1,40}[,;]\s*"
+                r"(?:it|its|it['’]s|that|they)\b", re.I),
+     "contrast pivot (not X, it's Y)"),
+]
+
 CASHTAG = re.compile(r"\$([A-Za-z]{1,5})\b")
 BARE_TOKEN = re.compile(r"\b[A-Z]{2,5}\b")
 # Universe tickers that are also ordinary uppercase words; bare-token scans
@@ -205,6 +218,10 @@ def validate_queue(payload: dict,
         if DOLLAR_SIZE.search(whole):
             hard.append(f"{tag}: dollar size in text; ATR and R only, "
                         f"prices are fine")
+
+        for pat, label in AI_TELL_PATTERNS:
+            if pat.search(whole):
+                soft.append(f"{tag}: {label}; playbook human-first rules")
 
         named_overflow = _tickers_in(whole, overflow)
         if named_overflow:

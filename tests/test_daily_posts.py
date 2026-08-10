@@ -63,6 +63,16 @@ class TestGrammar:
         assert hard == []
         assert any("scott" in s for s in soft)
 
+    def test_ai_tells_warn_not_block(self):
+        hard, soft = validate_queue(_queue(_stat(
+            "it does not detect crashes, it detects the calm. 314 prints")))
+        assert hard == []
+        assert any("contrast pivot" in s for s in soft)
+        hard, soft = validate_queue(_queue(_stat(
+            "CPI tomorrow — 314 prints, 56% green")))
+        assert hard == []
+        assert any("em dash" in s for s in soft)
+
     def test_journal_post_may_not_name_tickers(self):
         hard, _ = validate_queue(_queue(
             {"id": "j1", "type": "journal",

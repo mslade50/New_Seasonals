@@ -31,20 +31,59 @@ layers; judge each by its own metric.
 
 ## Voice
 
-Default: **dry practitioner**. Numbers first, understated, lets the
-receipts talk. Dark humor about losses is on-brand; excitement about
-winners is not.
+**Wry storyteller** [M, 2026-08-10, replacing the launch-day "dry
+practitioner" default after the first queue review]: a real trader telling
+you what he found. First person, numbers first, comfortable spending a
+sentence on setup before the stat, humor slightly overt and mostly at our
+own expense. Dark humor about losses is on-brand; excitement about winners
+is not. The calibration example (chosen by McKinley from three renderings
+of the same stat):
+
+> looked at what CPI days do. 314 prints: 56% green, median +0.13%, about
+> 2x a normal day. sounds great until you check the mean, +0.03%, dead on
+> baseline. the difference is one ugly left tail, worst print -6.4%. you
+> collect a little edge and once in a while it collects you back.
+
+The one-line test for every draft: would a reader assume a person typed
+this between other things? If a post reads like it was distilled from
+something longer, it was, and it needs loosening.
 
 - Teacher mode for system/war-story threads: warmer, "here's what we got
   wrong," never lecturing.
 - Sharp mode sparingly and only at IDEAS, never at named small accounts:
   overfit backtests, deleted calls, guru culture, PnL screenshots. Punch
   sideways or up. One sharp post a week is plenty.
-- House prose rules (same as every product in this repo): no em dashes, no
-  "it's not X, it's Y", no hedging filler, no AI cadence. Lowercase-casual
-  is fine on X; keep punctuation real.
 - First person singular. "We" refers to me and the machine, and that duet
   is part of the brand; never imply a team of humans.
+
+### Human-first rules (the AI-tell ban list) [M, 2026-08-10]
+
+The tells are structural as much as lexical, and most only show at queue
+level, so the drafter checks these by rereading the whole queue as a feed
+before shipping. The lint soft-warns the machine-checkable slice
+(`posts_grammar.AI_TELL_PATTERNS`); everything else is on the writer.
+
+1. **At most one minted aphorism per queue.** "the file is the product",
+   "era-fragile means noise until proven otherwise": one of those a day
+   reads as a voice, four in one queue reads as a machine. Most posts
+   should just stop after the last thing worth saying, even mid-thought.
+2. **No contrast-pivot constructions in any wording.** "it's not X, it's
+   Y", "doesn't X, it Ys", "less about X than Y". Rewording the same
+   pivot ("it does not detect crashes, it detects the calm") does not
+   make it human. Say the true half and drop the mirrored half.
+3. **No em dashes.** Commas, parentheses, or a new sentence.
+4. **No balanced triads** ("extended, unhedged, and complacent") unless
+   the third item earns its slot. Two items, or four, read more human.
+5. **Slack words are allowed and good.** "went and pulled", "for what
+   it's worth", "anyway". A post where every word is load-bearing reads
+   machine-compressed. 280 chars is the cap, not the target.
+6. **Vary the shapes across the queue.** Some posts lead with the take,
+   some with the number; most queues should include one plain one-or-two
+   liner. If two posts share a skeleton (setup, stat, read, kicker),
+   redraft one of them.
+7. **Numbers stay exact, the frame stays loose.** "roughly 2x", "a bit
+   over half" around a precise stat is the human register; never blur the
+   stat itself.
 
 ## The content mix
 
