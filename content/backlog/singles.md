@@ -58,7 +58,7 @@ broken pipeline look identical from the outside. Silence has to be
 distinguishable from failure, and proof of work is the only way.
 
 ### S5. We shipped a rule we know loses money
-Status: unposted
+Status: queued 2026-08-10 (x20260810-11)
 
 Three rules in our book are documented as expectancy-NEGATIVE on the full
 backtest: a first-signal size discount, a gap-up half-sizing, and a

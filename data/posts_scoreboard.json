@@ -1,0 +1,60 @@
+{
+ "generated": "2026-08-10 15:40:56",
+ "asof": "2026-08-10",
+ "rolling_60d": {
+  "n": 0,
+  "graded": 0,
+  "avg_r": null,
+  "median_r": null,
+  "hit_rate": null,
+  "total_r": null,
+  "no_fill": 0,
+  "posted": {
+   "n": 0,
+   "graded": 0,
+   "avg_r": null,
+   "median_r": null,
+   "hit_rate": null,
+   "total_r": null,
+   "no_fill": 0
+  },
+  "unposted": {
+   "n": 0,
+   "graded": 0,
+   "avg_r": null,
+   "median_r": null,
+   "hit_rate": null,
+   "total_r": null,
+   "no_fill": 0
+  },
+  "window_td": 60,
+  "since": "2026-05-13"
+ },
+ "lifetime": {
+  "n": 0,
+  "graded": 0,
+  "avg_r": null,
+  "median_r": null,
+  "hit_rate": null,
+  "total_r": null,
+  "no_fill": 0,
+  "posted": {
+   "n": 0,
+   "graded": 0,
+   "avg_r": null,
+   "median_r": null,
+   "hit_rate": null,
+   "total_r": null,
+   "no_fill": 0
+  },
+  "unposted": {
+   "n": 0,
+   "graded": 0,
+   "avg_r": null,
+   "median_r": null,
+   "hit_rate": null,
+   "total_r": null,
+   "no_fill": 0
+  }
+ }
+}
