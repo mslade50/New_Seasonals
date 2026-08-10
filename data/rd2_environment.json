@@ -1,20 +1,20 @@
 {
   "date": "2026-08-10",
   "price_ctx": {
-    "price": 773.260009765625,
-    "ret_12m": 0.2365804567437655,
-    "extension_200d": 0.10445253966021228,
-    "drawdown": 0.0,
-    "sma_200": 700.1296859741211,
+    "price": 773.030029296875,
+    "ret_12m": 0.22664782335870926,
+    "extension_200d": 0.10327897783828965,
+    "drawdown": -0.00029741673673222557,
+    "sma_200": 700.6659646606445,
     "high_52w": 773.260009765625,
     "regime_label": "Extended uptrend, stretched above trend",
-    "days_since_5pct": 87,
-    "days_since_10pct": 323
+    "days_since_5pct": 88,
+    "days_since_10pct": 324
   },
   "h_scores": {
-    "5d": 25.566360295065728,
-    "21d": 73.33321825585953,
-    "63d": 82.52424900418825
+    "5d": 22.513026961732386,
+    "21d": 75.44759408304542,
+    "63d": 88.57452985599484
   },
   "signals": {
     "Distribution Dominance": {
@@ -25,17 +25,17 @@
     "VIX Range Compression": {
       "on": false,
       "detail": "",
-      "summary": "21d range: 35th pctile (fires below 15th) \u2014 VIX at 15.4"
+      "summary": "21d range: 35th pctile (fires below 15th) \u2014 VIX at 15.5"
     },
     "Defensive Leadership": {
       "on": false,
       "detail": "",
-      "summary": "50d spread: -5pp (fires < -10) | 200d spread: +8pp (fires < 0)"
+      "summary": "50d spread: -3pp (fires < -10) | 200d spread: +8pp (fires < 0)"
     },
     "Pre-FOMC Rally": {
       "on": false,
       "detail": "",
-      "summary": "Next FOMC: Sep 16 (40d away) \u2014 5d return: 93th pctile (outside window)"
+      "summary": "Next FOMC: Sep 16 (37d away) \u2014 5d return: 83th pctile (outside window)"
     },
     "Low Absorption Ratio": {
       "on": true,
@@ -45,12 +45,12 @@
     "Seasonal Rank Divergence": {
       "on": false,
       "detail": "",
-      "summary": "Spread: +9.2pp (fires above 10) \u2014 near high: yes"
+      "summary": "Spread: +8.3pp (fires above 10) \u2014 near high: yes"
     },
     "Dispersion": {
       "on": false,
       "detail": "",
-      "summary": "Composite pctile: 78th (fires above 85th) \u2014 component RV: 37.5% | SPY RV: 14.1%"
+      "summary": "Composite pctile: 80th (fires above 85th) \u2014 component RV: 37.8% | SPY RV: 14.0%"
     },
     "Equity P/C Complacency": {
       "on": false,
