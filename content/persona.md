@@ -4,41 +4,46 @@ Handle candidates, bio, and the launch profile. Check availability on X
 AND Substack (reserve both even while X-only) before falling in love with
 any of these; do it from the fresh browser profile, not a logged-in one.
 
-## Handle candidates
+## Handle: CHOSEN — Sign Test (McKinley, 2026-08-10)
+
+**Sign Test — @signtest / @thesigntest** (fallbacks if taken: @sign_test,
+@thesigntest_, @signtestcapital is BANNED by the avoid list).
+The small-N doctrine as identity: markets produce small samples, grade
+them honestly. Quant insiders get it instantly; others learn it from the
+pinned thread, whose closer already writes itself: "I can't prove I'm
+good. I can prove I'm counted."
+
+## Runner-up candidates (kept for reference)
 
 Ranked. The test applied: memorable, says "falsification shop" not "guru",
 survives being said out loud, and gives the flagship content somewhere to
 live.
 
-1. **The Kill File — @thekillfile** (recommended)
+1. **The Kill File — @thekillfile**
    The negative-results registry is the most differentiated thing we own,
    and this names the account after it. "Into the kill file" becomes the
    recurring bit; a weekly "this week's kills" series is pre-named. Dry,
-   slightly menacing, zero guru energy.
+   slightly menacing, zero guru energy. (The series name still works under
+   Sign Test; keep it.)
 
-2. **Sign Test — @signtest / @thesigntest**
-   The small-N doctrine as identity: markets produce small samples, grade
-   them honestly. Quant insiders get it instantly; others learn it from
-   the pinned thread. Cleanest "statistics practitioner" signal.
-
-3. **Lag One — @lag_one**
+2. **Lag One — @lag_one**
    The convention that separates real backtests from fake ones (you trade
    the close AFTER the signal). An in-joke that doubles as a filter: the
    people who get it are the audience.
 
-4. **Pessimistic R — @pessimistic_r**
+3. **Pessimistic R — @pessimistic_r**
    Names the grading convention. Reads as a person ("R" as a character).
    Slightly awkward said aloud.
 
-5. **Declustered — @declustered**
+4. **Declustered — @declustered**
    The method-trap flag as a name. Unique, brandable, mildly obscure.
 
-6. **Stop Gapped — @stopgapped**
+5. **Stop Gapped — @stopgapped**
    From the stop-fill convention story (gaps through the stop fill at the
    open). Traders feel this one physically. Riskier: reads pessimistic
    about the account itself.
 
-7. **Null Results — @nullresults**
+6. **Null Results — @nullresults**
    The science-culture nod. Broadest appeal outside pure trading; weakest
    trading-specific signal.
 
