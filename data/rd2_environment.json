@@ -3,16 +3,16 @@
   "price_ctx": {
     "price": 773.260009765625,
     "ret_12m": 0.2365804567437655,
-    "extension_200d": 0.10445254351152378,
+    "extension_200d": 0.10445253966021228,
     "drawdown": 0.0,
-    "sma_200": 700.1296835327148,
+    "sma_200": 700.1296859741211,
     "high_52w": 773.260009765625,
     "regime_label": "Extended uptrend, stretched above trend",
     "days_since_5pct": 87,
     "days_since_10pct": 323
   },
   "h_scores": {
-    "5d": 25.566360295065717,
+    "5d": 25.566360295065728,
     "21d": 73.33321825585953,
     "63d": 82.52424900418825
   },
@@ -25,7 +25,7 @@
     "VIX Range Compression": {
       "on": false,
       "detail": "",
-      "summary": "21d range: 35th pctile (fires below 15th) \u2014 VIX at 15.5"
+      "summary": "21d range: 35th pctile (fires below 15th) \u2014 VIX at 15.4"
     },
     "Defensive Leadership": {
       "on": false,
