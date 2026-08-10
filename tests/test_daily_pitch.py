@@ -639,6 +639,98 @@ def test_publish_stand_down_refuses_a_thin_sweep(stand_down, tmp_path,
     assert not journal.exists()
 
 
+# --- short slate -----------------------------------------------------------
+# The 2026-08-10 run had one survivor and no legal way to ship it. One or two
+# ideas now publish with a block accounting for the empty slots.
+@pytest.fixture()
+def short_payload(payload):
+    payload["ideas"] = payload["ideas"][:1]
+    payload["short_slate"] = {
+        "reason": "Sixteen of seventeen candidates died in falsification. " * 3,
+        "candidates_considered": 17,
+        "axes": ["relative_value", "inversion", "event_fingerprint",
+                 "flow_mechanics"],
+        "asset_classes": ["us_large", "rates", "gold_miners", "energy"],
+        "closest": [{"title": "Long TLT across the PPI print",
+                     "decisive": "+0.082pp tdom-matched, sign p 0.0105",
+                     "why_died": "2013+ only, and the earlier half flips sign",
+                     "script": "scratch/pitch_checks/x/c2_ppi_tlt.py"}],
+    }
+    payload["killed"] = [{"title": f"kill {i}", "reason": f"reason {i}",
+                          "novelty_axis": "inversion"} for i in range(4)]
+    return payload
+
+
+def test_a_single_idea_prepares_and_sizes(short_payload, prices):
+    ideas, rows = dp.prepare(short_payload, ASOF, prices, [])
+    assert [i["rank"] for i in ideas] == [1]
+    assert rows and all(r["Idea_Id"] == "2026-08-06-1" for r in rows)
+
+
+def test_short_slate_email_accounts_for_the_empty_slots(short_payload, prices):
+    ideas, _ = dp.prepare(short_payload, ASOF, prices, [])
+    html = dp.render_email(short_payload, ideas, ASOF, {}, None)
+    assert "1 idea," in html, "header must not claim three"
+    assert "2 slots left empty" in html
+    assert "Long TLT across the PPI print" in html
+    assert "sign p 0.0105" in html, "the near-miss keeps its number"
+
+
+def test_a_full_slate_prints_no_short_slate_block(payload, prices):
+    ideas, _ = dp.prepare(payload, ASOF, prices, [])
+    html = dp.render_email(payload, ideas, ASOF, {}, None)
+    assert "slots left empty" not in html
+    assert "3 ideas," in html
+
+
+def test_short_slate_journals_the_empty_slot_record(short_payload, prices):
+    ideas, _ = dp.prepare(short_payload, ASOF, prices, [])
+    records = dp.journal_records(short_payload, ideas, ASOF, "opus", "xhigh")
+    slates = [r for r in records if r["kind"] == "short_slate"]
+    assert len(slates) == 1
+    assert slates[0]["ideas_shipped"] == 1
+    assert slates[0]["slots_empty"] == 2
+    assert slates[0]["killed_n"] == 4
+    assert [r["kind"] for r in records].count("idea") == 1
+
+
+def test_a_full_slate_journals_no_short_slate_record(payload, prices):
+    ideas, _ = dp.prepare(payload, ASOF, prices, [])
+    records = dp.journal_records(payload, ideas, ASOF, "opus", "xhigh")
+    assert not [r for r in records if r["kind"] == "short_slate"]
+
+
+def test_short_slate_records_are_journalable(tmp_path, short_payload, prices):
+    ideas, _ = dp.prepare(short_payload, ASOF, prices, [])
+    records = dp.journal_records(short_payload, ideas, ASOF, "opus", "xhigh")
+    assert pj.append(records, tmp_path / "j.jsonl", push=False) == len(records)
+
+
+def test_prepare_refuses_a_short_slate_with_no_accounting(short_payload,
+                                                          prices, capsys):
+    short_payload.pop("short_slate")
+    with pytest.raises(SystemExit):
+        dp.prepare(short_payload, ASOF, prices, [])
+    assert "short_slate is required" in capsys.readouterr().out
+
+
+def test_scoreboard_survives_a_pitched_but_ungraded_history(payload, prices):
+    """Found live 2026-08-10: 1 pitched / 0 graded leaves every stat null, and
+    formatting those nulls took down the whole email."""
+    ungraded = {"rolling_60d": {"n": 1, "graded": 0, "avg_r": None,
+                                "hit_rate": None,
+                                "by_grade": {"C": {"n": 1, "graded": 0,
+                                                   "avg_r": None,
+                                                   "hit_rate": None}},
+                                "by_model": {"opus": {"n": 1, "graded": 0,
+                                                      "avg_r": None,
+                                                      "hit_rate": None}},
+                                "approved_vs_declined": None}}
+    ideas, _ = dp.prepare(payload, ASOF, prices, [])
+    html = dp.render_email(payload, ideas, ASOF, ungraded, None)
+    assert "1 pitched, 0 graded, avg n/a" in html
+
+
 def test_publish_stand_down_dry_run_writes_nothing(stand_down, tmp_path,
                                                    monkeypatch):
     monkeypatch.setattr(dp, "open_sheet",

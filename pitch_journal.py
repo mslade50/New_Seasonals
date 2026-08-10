@@ -20,6 +20,10 @@ Record kinds:
               NOTHING to the journal (kills are journaled by the publisher,
               which never ran), so the day's work was invisible to the
               scoreboard and to the model split.
+    short_slate  a morning that shipped ONE or TWO ideas, with the same sweep
+              record a stand-down carries. It sits beside the idea records
+              rather than replacing them, so the scoreboard still grades the
+              ideas and the journal still explains the empty slots.
 
 `fold_ideas` merges the later approval/outcome records onto their idea, which
 is what every consumer actually wants. Later records win, so a re-grade
@@ -35,7 +39,7 @@ ROOT = Path(__file__).resolve().parent
 JOURNAL_PATH = ROOT / "data" / "pitch_journal.jsonl"
 JOURNAL_R2_KEY = "pitch_journal.jsonl"
 
-KINDS = {"idea", "killed", "approval", "outcome", "stand_down"}
+KINDS = {"idea", "killed", "approval", "outcome", "stand_down", "short_slate"}
 
 
 def sync_down(path: Path = JOURNAL_PATH) -> None:

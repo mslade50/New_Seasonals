@@ -898,9 +898,23 @@ so stage C's verifiers run at the composer's tier. Cut candidate count
 before cutting tier or the falsification stage.
 
 Hard requirements enforced in code, not prose (`pitch_grammar.py`):
-- **exactly 3 ideas**, at most **one grade C**, every idea carries a **time
-  stop**, entry/exit come only from the closed vocabularies (MOO | MOC |
-  LIMIT(anchor, k ATR); time_td + optional target/stop ATR).
+- **1 to 3 ideas** (3 is the full slate), at most **one grade C**, every idea
+  carries a **time stop**, entry/exit come only from the closed vocabularies
+  (MOO | MOC | LIMIT(anchor, k ATR); time_td + optional target/stop ATR).
+- **short slate** (2026-08-10): a COMPOSER publish under 3 ideas must carry a
+  `short_slate` block accounting for the empty slots — 2 named kills per empty
+  slot (`SHORT_SLATE_KILLS_PER_EMPTY_SLOT`, so the stand-down's 6 is the same
+  line at 3 empties), plus the stand-down's own sweep floors (>= 8 candidates,
+  >= 4 axes, >= 4 asset classes, >= 120-char reason, 1-3 near-misses each
+  carrying the number it turned on). Nothing else relaxes: every shipped idea
+  still needs evidence, `dev_script`, `survived` and the survey on disk. An
+  ALL-directed publish is exempt (the count rule constrains the agent, not the
+  human filter); one directed idea beside one composed one is not. Journaled
+  as a `short_slate` record beside the idea records, and printed in the email
+  under the cards. Added the day a run with 17 candidates and ONE survivor had
+  no legal way to ship it: the publisher took 3 or a stand-down, both were
+  false, the agent stopped to ask a headless prompt, and the morning delivered
+  nothing. McKinley: "if there is one idea we want to see the idea."
 - **fresh evidence** (summary, N, control, era note, and the path of the
   check script written that morning) plus a **`survived`** line naming one
   consideration that could have killed the idea and did not.
@@ -964,13 +978,23 @@ never silently absent); B2 selects candidates from that map and must touch
 candidate. Deliberately NOT solved by precomputing a grid into the state file
 — McKinley's call, 2026-08-07: passing more data constrains the lens, the
 lens itself had to widen.
-`check_pitch_delivered` accepts a stand-down as delivery but still fails on
-ideas AND a stand-down (a half-published run). Aligned sites:
-`pitch_grammar.validate_stand_down` + floors, `daily_pitch.render_stand_down`
-/ `publish_stand_down` / `stand_down_records`, `pitch_journal.KINDS`,
-`check_pitch_delivered --journal`, SKILL.md "When nothing survives". Guards:
-`tests/test_pitch_grammar.py`, `tests/test_daily_pitch.py`,
-`tests/test_pitch_delivery_check.py`.
+`check_pitch_delivered` accepts 1-3 ideas OR a stand-down as delivery, and
+checks the stand-down cases FIRST so the short-slate floor can never launder a
+half-published run (ideas AND a stand-down) into a pass; the one legal mixture
+stays a stand-down amended by ALL-directed ideas. Aligned sites:
+`pitch_grammar.validate_stand_down` / `validate_short_slate` /
+`short_slate_required` + the shared `_validate_sweep_scale` /
+`_validate_named_kills` / `_validate_closest` floors,
+`daily_pitch.render_stand_down` / `render_short_slate` / `publish_stand_down`
+/ `stand_down_records` / `short_slate_records`, `pitch_journal.KINDS`,
+`check_pitch_delivered --journal`, SKILL.md "When one or two survive" +
+"When nothing survives". Guards: `tests/test_pitch_grammar.py`,
+`tests/test_daily_pitch.py`, `tests/test_pitch_delivery_check.py`.
+
+`render_scoreboard` formats every stat through `_fmt_r` / `_fmt_pct` because
+the scoreboard is null until something is GRADED. Pitched-but-ungraded is the
+normal early state and formatting those nulls raised TypeError on the whole
+email — a second, independent reason 2026-08-10 could not have shipped.
 
 Conventions that differ from the book on purpose:
 - **ATR is Wilder-14** (spec section 4), matching
@@ -1014,7 +1038,11 @@ Aligned sites — change together:
   derivation, placement routing) + `pitch_journal.py`
 - `pitch_lab.py` (shared check library, 2026-08-08: price/event loading,
   lag-1 forward returns, declustering, controls, kill battery,
-  `sign_test` — the N<15 statistic, t-stats never required — horizon scan,
+  `sign_test` — the N<15 statistic, t-stats never required; its p=0.5 path
+  moved to exact Fraction arithmetic 2026-08-09 because the float form raised
+  OverflowError above a few hundred n, which fires whenever a check script
+  measures a CONTROL cell next to the small conditional one, values for every
+  n that already worked unchanged — horizon scan,
   loser paths, watchlist I/O; consolidates the 08-07 ad hoc helpers; the
   book must never import it) + `data/pitch_watchlist.json` (parked
   near-misses with the number that turns them on; folded into the state,
@@ -1031,6 +1059,112 @@ Aligned sites — change together:
   `test_pitch_moo.py` (OneDrive); `tests/conftest.py` holds the shared
   `survey` / `checks_root` fixtures both pitch modules build payloads from,
   so neither reads the repo's real scratch state
+
+## Market Context brief (2026-08-09)
+
+Second agent product in this repo, and the one that is NOT a pitch. One Slack
+post per evening (Sun-Thu 18:30 ET, same webhook and channel as the denali
+report card): 4 to 8 statistical nuggets about the session tomorrow and the
+one that just closed. Spec of record:
+`market_context_skill_design_2026-08-09.md`.
+
+What keeps it separate from everything else here:
+
+- **No trades and no advice.** Advisory verbs are lint-blocked at publish
+  (`send_context_slack.py`, hard tier). The Daily Pitch is where an idea with
+  legs belongs.
+- **Position-blind.** It never reads the denali book, D1, HedgeFacts or
+  `data.json`. That is what lets it say things the report card cannot.
+- **No web.** Every claim is computed from local history, which is why the
+  unattended run gets a scoped allowlist
+  (`scripts/context_headless_settings.json`) rather than the pitch's
+  `bypassPermissions`.
+- **Module boundary**: nothing in the systematic book imports these modules,
+  and they never write `data/pitch_*`. The dependency runs one way — the
+  context engine reuses `build_pitch_state.build_calendar` / `_metrics_for`
+  and `pitch_lab`, never the reverse.
+
+The convention the whole product hangs on: **every cell anchors on today's
+analogue, so h=1 is tomorrow.** An event on the next session anchors on the
+session BEFORE it, which makes h=1 the event session's own move; a price
+state anchors on the session it printed. Forward returns are lag=0
+close-to-close, deliberately unlike the pitch's lag=1, because this is
+context rather than an entry.
+
+Three dates per run and only one names files: the RUN date (today) names the
+cell-map folder, the brief and the delivery check; `meta.asof_session` is the
+tape just read; `meta.next_session` is what the title previews. A Sunday run
+has all three different.
+
+Freshness is a hard gate. If the freshest core bar is older than the asof
+session the ENTIRE price lane is suppressed and the brief ships the scheduled
+lane with a stale banner. The runner pulls master_prices from R2 first
+(`scripts/pull_context_prices.py`) and, on a still-stale bar, retries once
+after 10 minutes (`--require-fresh` exits 2, state still written).
+
+That retry is NOT for the cron-timing hazard the spec cites: it read CLAUDE.md
+when the PM price cron was documented as 20:30 UTC, and the workflow had
+already moved to 21:10 UTC (17:10 ET EDT / 16:10 ET EST), which clears 18:30
+in both. What can still leave a stale bar at 18:30 is the PM job not having
+run: GitHub sheds scheduled workflows under load and never backfills a missed
+cron, the same silent-skip class the pitch state's `build_pipeline` check
+exists for. Ten minutes buys one window for a late run; a genuine miss
+degrades to the scheduled lane, which is the correct outcome.
+
+The engine reads `data/master_prices.parquet` DIRECTLY rather than through
+`data_provider.get_history()`, so `data_provider._refresh_from_r2_if_needed`
+never fires for it. That is deliberate: its 18-hour mtime threshold is
+exactly wrong for an evening run. A copy pulled at 08:00 is 10 hours old at
+18:30, counts as fresh, and holds yesterday's close.
+
+Aligned sites — change together:
+- `scripts/build_context_state.py`: `CONTEXT_UNIVERSE`, `EVENT_LANE_SUBJECTS`,
+  `PRICE_TRIGGERS` and the event sweep <-> the trigger inventory table in
+  `.claude/skills/market-context/SKILL.md`. A trigger added to one and not the
+  other is invisible to the cell map, which is the stage that decides what
+  publishes.
+- the brief markdown skeleton in SKILL.md <-> `ITEM_HEAD` / `LANE_SECTIONS` in
+  `scripts/send_context_slack.py`. The `1. **Title** [tag]` head is a parser
+  contract, not a style choice.
+- the sidecar `.json` schema in SKILL.md <-> `advance_flag_state` +
+  `append_journal` (they read `fingerprint` and `mean_pct` out of it).
+- `data/context_flag_state.json` is advanced by the SENDER after a successful
+  post, never by the engine: the engine runs before anything is chosen, and
+  advancing on a run that never posted would block tomorrow from saying
+  something it never said.
+- `z10` is defined in the engine to match `build_pitch_state._metrics_for`
+  (10d return over 21d vol scaled to 10d), NOT `pitch_lab.zscore`, whose
+  docstring claims the same definition but computes something else. The tape
+  block in the payload comes from `_metrics_for`, so the trigger has to agree
+  with it. Pinned in `tests/test_context_engine.py`.
+- **any two-sided price trigger MUST carry a `side_fn`** and a `{side}`
+  placeholder in its cell name, enforced by
+  `test_two_sided_triggers_declare_a_side`. Pooling the tails produces a
+  number that describes neither state and then tags it. Found live on the
+  first manual run: `P5:rank5_extreme` on ^NDX scored +0.24% at t=2.53 pooled,
+  earned a `solid` tag and passed BH, while the whole effect was the bottom
+  tail rebounding (+0.51%, t=3.21) and the top side that was actually live sat
+  at -0.02% with a 50.0% hit since 2018.
+- two dedup helpers that look interchangeable and are not:
+  `_first_in_calendar_days` is a NOVELTY filter (the state must have been
+  absent, so a four-month grind to new highs is one piece of news) and
+  `_first_in_sessions` is a DECLUSTERING filter (pitch_lab's rule, right for
+  a regime cross).
+- Runtime: `scripts/pull_context_prices.py`, `scripts/run_market_context.bat`,
+  `scripts/register_market_context_task.ps1` (inert until an operator runs
+  it), `scripts/context_headless_settings.json`,
+  `scripts/check_context_delivered.py`.
+- Guards: `tests/test_context_engine.py` (anchor convention, units, tags,
+  trigger masks, novelty), `tests/test_context_sender.py` (parser, the three
+  publish gates, block assembly, flag state, journal).
+
+Committed vs local: the JOURNAL (`data/context_journal.jsonl`), the flag state
+and the drill scripts under `scratch/context_checks/` are committed — they are
+the audit trail the journal's `drill_script` field points at. The BRIEFS
+(`data/context_briefs/`) and the three generated payloads are gitignored by
+decision (McKinley 2026-08-09): the brief is a Slack product, not a repo
+artifact. No claims scoreboard exists and none is planned; nothing replays the
+journal.
 
 ## OLV Vol-Confirmed Stop + Notional Cap (2026-07-20)
 
@@ -1257,7 +1391,7 @@ As of 2026-04-30, the nightly pipeline runs entirely in GitHub Actions. The loca
 - `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET=seasonals-cache`
 
 ### Bucket contents (key-value)
-- `master_prices.parquet` — full ~2000 ticker × 25-yr OHLCV (~50-200 MB). Read by `daily_scan` (ALL scopes — **cache-first for every ticker**, incl. the liquid + 3x-ETF universes; yfinance is only a fallback for names the cache lacks, e.g. carets/delisted) and `daily_portfolio_report.py`. As of 2026-06-11 the 42 LEV3X names (DUST/JDST/TQQQ/…) were backfilled in so the liquid scan no longer depends on a live pre-market yfinance pull (that pull returned a stale bar on 2026-06-11 and silently zeroed the liquid tier). Written by `update_master_prices.yml` twice on weekdays (AM via local workflow_dispatch ~4:17 AM ET + PM via 20:30 UTC cron); its universe = whatever tickers already exist in the parquet, so backfilled names are auto-maintained. Pre-market runs pass `--exclude-today` so yfinance placeholder bars never enter the cache.
+- `master_prices.parquet` — full ~2000 ticker × 25-yr OHLCV (~50-200 MB). Read by `daily_scan` (ALL scopes — **cache-first for every ticker**, incl. the liquid + 3x-ETF universes; yfinance is only a fallback for names the cache lacks, e.g. carets/delisted) and `daily_portfolio_report.py`. As of 2026-06-11 the 42 LEV3X names (DUST/JDST/TQQQ/…) were backfilled in so the liquid scan no longer depends on a live pre-market yfinance pull (that pull returned a stale bar on 2026-06-11 and silently zeroed the liquid tier). Written by `update_master_prices.yml` twice on weekdays (AM via local workflow_dispatch ~4:17 AM ET + PM via 21:10 UTC cron = 17:10 ET EDT / 16:10 ET EST, post-close year-round; it was 20:30 UTC until the EST slot landed 15:30 ET, i.e. BEFORE the close, and appended yfinance's in-progress bar as the canonical daily close); its universe = whatever tickers already exist in the parquet, so backfilled names are auto-maintained. Pre-market runs pass `--exclude-today` so yfinance placeholder bars never enter the cache.
 - `earnings_calendar.parquet` — FMP-backfilled (117k rows, 946 tickers). Read by `daily_scan` (any scope, OVS filter) and `daily_portfolio_report.py`. Written by `build_earnings_calendar.yml` weekdays at 21:30 UTC + the local belt-and-suspenders entry at the same slot.
 - `intraday/15min/{TICKER}.parquet` + `intraday/15min/_meta.parquet` — 15min OHLCV cache. Historical depth backfilled from FMP (2003-present), ongoing maintenance via yfinance (60d rolling, no API key). Target universe is `LIQUID_PLUS_COMMODITIES` (~197 tickers, ~3 MB each, ~600 MB total). Read by `intraday_data.py` (lazy R2 refresh on stale local copies, 18h staleness window) which feeds Day Trade Limit modes in `pages/backtester.py`. Written by `update_intraday_prices.yml` weekdays at 20:45 UTC. Caret tickers (^GSPC, ^NDX) excluded — FMP doesn't serve them. Full architecture in `docs/intraday_data_plan.md`.
 
@@ -1279,7 +1413,7 @@ All five trading-day workflows now run in GHA. Order staging stays local (IBKR-b
 |---|---|---|
 | `daily_screener.yml` | Weekdays 2x: AM via local workflow_dispatch at 4:47 AM ET (fallback GHA cron at 10:30 UTC, auto-skipped if dispatch succeeded today) + PM cron at 22:00 UTC | Unified scan, both runs `--scope=all` (full liquid + overflow, ~7-10 min). AM run also writes `data/exposure_state.json` and commits it back to main. Intraday MOC slots were retired when the strategy book lost its last Signal Close entry; restore them if MOC strategies are added back. |
 | `build_earnings_calendar.yml` | Weekdays 21:30 UTC (5:30 PM ET) | FMP `/stable/earnings` pull → writes `data/earnings_calendar.parquet` → uploads to R2. Local `EarningsCalendarRefresh` Task Scheduler entry mirrors this for redundancy (last write wins). |
-| `update_master_prices.yml` | Weekdays 2x: AM via local workflow_dispatch at 4:17 AM ET (fallback GHA cron at 9:30 UTC, auto-skipped if dispatch succeeded today) + PM cron at 20:30 UTC (4:30 PM ET) | Pulls `master_prices.parquet` from R2, fetches today's bars from yfinance for ~2000 tickers, appends, dedupes, writes back to R2. PM cron pulls today's close; every other trigger (AM dispatch, AM fallback cron, manual dispatch) passes `--exclude-today`. |
+| `update_master_prices.yml` | Weekdays 2x: AM via local workflow_dispatch at 4:17 AM ET (fallback GHA cron at 9:30 UTC, auto-skipped if dispatch succeeded today) + PM cron at 21:10 UTC (17:10 ET EDT / 16:10 ET EST — post-close in BOTH, which 20:30 UTC was not) | Pulls `master_prices.parquet` from R2, fetches today's bars from yfinance for ~2000 tickers, appends, dedupes, writes back to R2. PM cron pulls today's close; every other trigger (AM dispatch, AM fallback cron, manual dispatch) passes `--exclude-today`. |
 | `update_intraday_prices.yml` | Weekdays 20:45 UTC (4:45 PM ET) | Pulls per-ticker 15min parquets + meta from R2, runs `scripts/update_intraday_yfinance.py --upload` — fetches recent bars from yfinance for every ticker in meta, converts UTC→ET, appends, dedupes, writes back. yfinance has 60d rolling intraday history so this must run at least every ~50 days to avoid gaps; weekday cadence is fine in practice. |
 | `portfolio_report.yml` | Weekdays 21:30 UTC (5:30 PM ET) | Pulls master_prices + earnings caches from R2, runs `daily_portfolio_report.py`, sends HTML email + writes Portfolio Sheets tab. |
 | `bootstrap_caches.yml` | workflow_dispatch only | One-shot: builds `master_prices.parquet` from scratch via yfinance (~10-15 min for ~2000 tickers, 25-yr history) and uploads to R2. Used to seed the bucket (already run during Phase 2 setup). |

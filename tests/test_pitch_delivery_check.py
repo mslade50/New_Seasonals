@@ -1,13 +1,15 @@
 """Guards for scripts/check_pitch_delivered.py.
 
 This is the only thing standing between a quiet agent failure and a green
-Task Scheduler entry on a morning with no email, so its two accepting cases
-(three ideas, or a stand-down) and its rejecting case all get a test.
+Task Scheduler entry on a morning with no email, so its accepting cases (one
+to three ideas, or a stand-down) and its rejecting cases all get a test.
 """
 import json
 import subprocess
 import sys
 from pathlib import Path
+
+import pytest
 
 ROOT = Path(__file__).resolve().parent.parent
 SCRIPT = ROOT / "scripts" / "check_pitch_delivered.py"
@@ -56,10 +58,15 @@ def test_empty_journal_is_not_delivery(tmp_path):
     assert "did not deliver" in result.stdout
 
 
-def test_two_ideas_is_not_delivery(tmp_path):
-    journal = write_journal(tmp_path / "j.jsonl", [idea(1), idea(2)])
+@pytest.mark.parametrize("n", [1, 2])
+def test_a_short_slate_is_delivery(tmp_path, n):
+    """Since 2026-08-10 a morning with one survivor ships it. The grammar makes
+    that expensive; this check only asks whether anything was delivered."""
+    journal = write_journal(tmp_path / f"j{n}.jsonl",
+                            [idea(i) for i in range(1, n + 1)])
     result = run_check(journal)
-    assert result.returncode == 1
+    assert result.returncode == 0
+    assert "short slate" in result.stdout
 
 
 def test_a_partial_run_cannot_hide_behind_a_stand_down(tmp_path):

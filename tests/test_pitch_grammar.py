@@ -70,9 +70,16 @@ def test_fixture_payload_is_valid(payload):
     assert pg.validate_payload(payload) == []
 
 
-def test_exactly_three_ideas(payload):
+def test_a_short_slate_needs_its_block(payload):
+    """Shipping two is allowed since 2026-08-10; shipping two silently is not."""
     payload["ideas"] = payload["ideas"][:2]
-    assert any("exactly 3 ideas" in e for e in pg.validate_payload(payload))
+    assert any("short_slate is required" in e
+               for e in pg.validate_payload(payload))
+
+
+def test_an_empty_slate_is_a_stand_down_not_a_publish(payload):
+    payload["ideas"] = []
+    assert any("1 to 3 ideas" in e for e in pg.validate_payload(payload))
 
 
 def test_one_grade_c_cap(payload):
@@ -479,15 +486,18 @@ def test_a_directed_publish_still_caps_at_three(payload):
     assert any("1 to 3 ideas" in e for e in pg.validate_payload(payload))
 
 
-def test_an_undirected_single_idea_still_fails(payload):
+def test_an_undirected_single_idea_owes_a_short_slate(payload):
+    """Directed skips the accounting; the composer never does."""
     payload["ideas"] = payload["ideas"][:1]
-    assert any("exactly 3 ideas" in e for e in pg.validate_payload(payload))
+    assert any("short_slate is required" in e
+               for e in pg.validate_payload(payload))
 
 
-def test_a_blank_directed_by_does_not_unlock_the_count(payload):
+def test_a_blank_directed_by_does_not_skip_the_accounting(payload):
     payload["ideas"] = payload["ideas"][:1]
     payload["ideas"][0]["directed_by"] = "   "
-    assert any("exactly 3 ideas" in e for e in pg.validate_payload(payload))
+    assert any("short_slate is required" in e
+               for e in pg.validate_payload(payload))
 
 
 def test_directed_does_not_relax_any_other_rule(payload):
@@ -507,6 +517,131 @@ def test_directed_ideas_helper_finds_them(payload):
     assert pg.directed_ideas(payload) == []
     payload["ideas"][1]["directed_by"] = "mckinley"
     assert len(pg.directed_ideas(payload)) == 1
+
+
+# --- short slate -----------------------------------------------------------
+# 2026-08-10: 17 candidates, 16 killed, one survivor. The publisher took three
+# or a stand-down, both of which were false, so the run shipped nothing at all.
+# One or two ideas now publish, and the empty slots are paid for at the same
+# rate a stand-down pays.
+@pytest.fixture()
+def short_slate(payload):
+    """The fixture payload cut to one idea, with the accounting attached."""
+    payload["ideas"] = payload["ideas"][:1]
+    payload["short_slate"] = {
+        "reason": "x" * pg.STAND_DOWN_MIN_REASON,
+        "candidates_considered": 17,
+        "axes": ["relative_value", "inversion", "event_fingerprint",
+                 "flow_mechanics"],
+        "asset_classes": ["us_large", "rates", "gold_miners", "energy"],
+        "closest": [{"title": "Long TLT across the PPI print",
+                     "decisive": "+0.082pp tdom-matched, sign p 0.0105",
+                     "why_died": "2013+ only; the pre-2013 half is the "
+                                 "opposite sign"}],
+    }
+    payload["killed"] = [{"title": f"kill {i}", "reason": f"reason {i}",
+                          "novelty_axis": "inversion"}
+                         for i in range(pg.short_slate_min_kills(1))]
+    return payload
+
+
+def test_short_slate_floors_frozen():
+    assert pg.MIN_IDEA_COUNT == 1
+    assert pg.SHORT_SLATE_KILLS_PER_EMPTY_SLOT == 2
+    # The stand-down floor is this same line at three empty slots, not a
+    # separate number that could drift away from it.
+    assert pg.short_slate_min_kills(0) == pg.STAND_DOWN_MIN_KILLED
+    assert pg.short_slate_min_kills(1) == 4
+    assert pg.short_slate_min_kills(2) == 2
+    assert pg.short_slate_min_kills(3) == 0
+
+
+def test_a_single_idea_with_its_accounting_publishes(short_slate):
+    assert pg.validate_payload(short_slate) == []
+
+
+def test_two_ideas_owe_fewer_kills_than_one(short_slate):
+    """The burden is per EMPTY slot, so a two-idea morning is cheaper."""
+    second = copy.deepcopy(short_slate["ideas"][0])
+    for leg in second["legs"]:                              # new fingerprint
+        leg["side"] = "SHORT" if leg["side"] == "LONG" else "LONG"
+    short_slate["ideas"].append(second)
+    short_slate["killed"] = short_slate["killed"][:2]
+    assert pg.validate_payload(short_slate) == []
+
+
+def test_a_full_slate_needs_no_block(payload):
+    assert not pg.short_slate_required(payload)
+    assert pg.validate_payload(payload) == []
+
+
+def test_a_thin_sweep_cannot_ship_one_idea(short_slate):
+    short_slate["short_slate"]["candidates_considered"] = 3
+    assert any("candidates_considered" in e
+               for e in pg.validate_payload(short_slate))
+
+
+def test_an_all_equity_sweep_cannot_leave_slots_empty(short_slate):
+    short_slate["short_slate"]["asset_classes"] = ["us_large"]
+    assert any("asset_classes" in e for e in pg.validate_payload(short_slate))
+
+
+def test_empty_slots_need_named_kills(short_slate):
+    short_slate["killed"] = short_slate["killed"][:1]
+    errors = pg.validate_payload(short_slate)
+    assert any("payload.killed" in e and "short slate" in e for e in errors)
+
+
+def test_a_short_slate_needs_a_near_miss(short_slate):
+    short_slate["short_slate"]["closest"] = []
+    assert any("closest" in e for e in pg.validate_payload(short_slate))
+
+
+def test_a_near_miss_carries_the_number_it_turned_on(short_slate):
+    short_slate["short_slate"]["closest"][0]["decisive"] = ""
+    assert any("decisive" in e for e in pg.validate_payload(short_slate))
+
+
+def test_a_one_line_reason_does_not_account_for_two_dead_slots(short_slate):
+    short_slate["short_slate"]["reason"] = "nothing else survived"
+    assert any("short_slate.reason" in e
+               for e in pg.validate_payload(short_slate))
+
+
+def test_a_short_slate_relaxes_nothing_about_the_idea(short_slate):
+    """The count is the ONLY thing that moved. Every idea rule still applies."""
+    for field in ("survived", "what_kills_it", "overlap"):
+        broken = copy.deepcopy(short_slate)
+        broken["ideas"][0].pop(field, None)
+        assert pg.validate_payload(broken), f"short slate passed without {field}"
+    broken = copy.deepcopy(short_slate)
+    broken["ideas"][0]["evidence"].pop("dev_script")
+    assert pg.validate_payload(broken), "short slate passed without dev_script"
+
+
+def test_a_short_slate_still_proves_its_survey_on_disk(short_slate, checks_root):
+    """The empty-slot accounting does not buy an exemption from stage B1."""
+    (checks_root / short_slate["asof"] / pg.SURFACE_MAP_NAME).unlink()
+    assert any(pg.SURFACE_MAP_NAME in e
+               for e in pg.validate_payload(short_slate))
+
+
+def test_a_directed_idea_beside_a_composed_one_still_owes_the_block(payload):
+    """Two ideas, one of them McKinley's, still leaves the composer a slot to
+    account for. Only an ALL-directed publish is exempt."""
+    payload["ideas"] = payload["ideas"][:2]
+    payload["ideas"][0]["directed_by"] = "mckinley"
+    assert pg.short_slate_required(payload)
+    assert any("short_slate is required" in e
+               for e in pg.validate_payload(payload))
+
+
+def test_an_all_directed_publish_skips_the_block(payload):
+    payload["ideas"] = payload["ideas"][:2]
+    for idea in payload["ideas"]:
+        idea["directed_by"] = "mckinley"
+    assert not pg.short_slate_required(payload)
+    assert pg.validate_payload(payload) == []
 
 
 # ---------------------------------------------------------------------------

@@ -12,10 +12,11 @@ produces a loud failure instead of three plausible-looking cards.
 
 What one run does, in order:
   1. read the agent's ideas json and the price cache;
-  2. validate the whole payload against pitch_grammar (exactly three ideas,
-     one grade-C cap, a time stop on every idea, evidence that exists on disk
-     under today's checks folder, the survey that produced it, the repetition
-     rule against the journal);
+  2. validate the whole payload against pitch_grammar (one to three ideas,
+     with a short slate accounting for its empty slots; one grade-C cap; a
+     time stop on every idea; evidence that exists on disk under today's
+     checks folder; the survey that produced it; the repetition rule against
+     the journal);
   3. derive per-leg order specs (sizes, limits, exit dates);
   4. capture yesterday's Approve cells off the Pitch tab BEFORE it is
      overwritten, and journal them;
@@ -49,6 +50,7 @@ import pitch_journal
 from pitch_grammar import (
     IDEA_COUNT,
     REPEAT_BLOCK_TD,
+    SHORT_SLATE_KILLS_PER_EMPTY_SLOT,
     STAND_DOWN_MIN_AXES,
     STAND_DOWN_MIN_CANDIDATES,
     STAND_DOWN_MIN_KILLED,
@@ -409,6 +411,19 @@ def render_card(idea: dict) -> str:
 </div>"""
 
 
+def _fmt_r(value) -> str:
+    """Every scoreboard stat is null until something is GRADED, and the pitch
+    is a young product: ideas pitched and nothing yet at its time exit is the
+    normal early state, not a missing file. Formatting a null crashed the whole
+    email (found 2026-08-10 with 1 pitched / 0 graded), which would have taken
+    down a morning that had ideas to send."""
+    return f"{value:+.2f}R" if isinstance(value, (int, float)) else "n/a"
+
+
+def _fmt_pct(value) -> str:
+    return f"{value:.0f}%" if isinstance(value, (int, float)) else "n/a"
+
+
 def render_scoreboard(scoreboard: dict) -> str:
     if not scoreboard or not scoreboard.get("rolling_60d"):
         return ("<p style='color:#888;font-size:12px'>Scoreboard: no graded "
@@ -416,25 +431,28 @@ def render_scoreboard(scoreboard: dict) -> str:
                 "ideas reach their time exits.</p>")
     roll = scoreboard["rolling_60d"]
     by_grade = " &nbsp;|&nbsp; ".join(
-        f"{g}: {v['n']} ideas, {v['hit_rate']:.0f}% hit, avg {v['avg_r']:+.2f}R"
+        f"{g}: {v.get('n', 0)} ideas, {_fmt_pct(v.get('hit_rate'))} hit, "
+        f"avg {_fmt_r(v.get('avg_r'))}"
         for g, v in sorted((roll.get("by_grade") or {}).items()))
     gap = roll.get("approved_vs_declined")
     gap_line = ""
     if gap:
-        gap_line = (f" &nbsp;|&nbsp; approved {gap['approved_avg_r']:+.2f}R "
-                    f"(n {gap['approved_n']}) vs declined "
-                    f"{gap['declined_avg_r']:+.2f}R (n {gap['declined_n']})")
+        gap_line = (f" &nbsp;|&nbsp; approved {_fmt_r(gap.get('approved_avg_r'))} "
+                    f"(n {gap.get('approved_n', 0)}) vs declined "
+                    f"{_fmt_r(gap.get('declined_avg_r'))} "
+                    f"(n {gap.get('declined_n', 0)})")
     by_model = ""
     models = {k: v for k, v in (roll.get("by_model") or {}).items()
               if v.get("avg_r") is not None}
     if len(models) > 1:
         by_model = ("<br><b>By model:</b> " + " &nbsp;|&nbsp; ".join(
-            f"{m}: {v['graded']} graded, avg {v['avg_r']:+.2f}R, "
-            f"{v['hit_rate']:.0f}% hit"
+            f"{m}: {v.get('graded', 0)} graded, avg {_fmt_r(v.get('avg_r'))}, "
+            f"{_fmt_pct(v.get('hit_rate'))} hit"
             for m, v in sorted(models.items())))
     return (f"<p style='color:#555;font-size:12px'><b>Scoreboard, rolling 60 "
-            f"days:</b> {roll['n']} pitched, {roll['graded']} graded, avg "
-            f"{roll['avg_r']:+.2f}R. {by_grade}{gap_line}{by_model}</p>")
+            f"days:</b> {roll.get('n', 0)} pitched, {roll.get('graded', 0)} "
+            f"graded, avg {_fmt_r(roll.get('avg_r'))}. "
+            f"{by_grade}{gap_line}{by_model}</p>")
 
 
 def render_pipeline_line(pipeline: dict | None) -> str:
@@ -472,6 +490,59 @@ def render_pipeline_line(pipeline: dict | None) -> str:
     color = "#0a7a2f" if pipeline.get("ok") else "#b02a1e"
     return (f"<p style='color:{color};font-size:12px;margin:4px 0'>"
             f"Pipeline: {' &nbsp;|&nbsp; '.join(bits)} &mdash; {verdict}</p>")
+
+
+def _near_miss_cards(block: dict) -> str:
+    """The `closest` entries, one card each. Shared by the stand-down email and
+    the short-slate note: a near-miss reads the same either way, and the number
+    it turned on is the part McKinley can argue with."""
+    return "".join(
+        f"<div style='border-left:3px solid #8a6d00;padding:6px 12px;"
+        f"margin:10px 0;background:#fffdf5'>"
+        f"<div style='font-weight:600'>{_esc(near.get('title', ''))}</div>"
+        f"<div style='font-size:13px;color:#444;margin-top:3px'>"
+        f"<b>Decisive number:</b> {_esc(near.get('decisive', ''))}</div>"
+        f"<div style='font-size:13px;color:#444;margin-top:3px'>"
+        f"<b>Why it died:</b> {_esc(near.get('why_died', ''))}</div>"
+        + (f"<div style='font-size:12px;color:#777;margin-top:3px'>"
+           f"{_esc(near.get('script', ''))}</div>"
+           if near.get("script") else "")
+        + "</div>"
+        for near in (block.get("closest") or []))
+
+
+def render_short_slate(payload: dict, ideas: list[dict]) -> str:
+    """Why today is one or two cards instead of three.
+
+    Printed under the ideas rather than above them: the ideas are the product,
+    and this is the accounting for the slots they did not fill. Without it a
+    short morning is indistinguishable from a lazy one, which is the objection
+    the exactly-three rule used to answer by refusing to publish at all.
+    """
+    block = payload.get("short_slate")
+    if not isinstance(block, dict):
+        return ""
+    empty = IDEA_COUNT - len(ideas)
+    classes = ", ".join(_esc(str(c)) for c in (block.get("asset_classes") or []))
+    axes = ", ".join(_esc(str(a)) for a in (block.get("axes") or []))
+    return f"""
+  <div style="border:1px solid #d9d4c4;border-radius:4px;padding:10px 14px;
+              margin:16px 0;background:#faf9f5">
+    <div style="font-weight:600;font-size:14px">
+      {len(ideas)} idea{'' if len(ideas) == 1 else 's'} today,
+      {empty} slot{'' if empty == 1 else 's'} left empty</div>
+    <p style="font-size:13px;color:#333;line-height:1.5;margin:8px 0">
+      {_esc(block.get('reason', ''))}</p>
+    <p style="color:#777;font-size:12px;margin:4px 0">
+      {block.get('candidates_considered', 0)} candidates swept, asset classes:
+      {classes}<br>Axes: {axes}</p>
+    {_near_miss_cards(block)}
+    <p style="color:#888;font-size:11px;margin:6px 0 0">
+      Padding to {IDEA_COUNT} would mean writing survived lines that are not
+      true. An empty slot costs {SHORT_SLATE_KILLS_PER_EMPTY_SLOT} named kills
+      and a near-miss with its number, which is why this block exists rather
+      than a third card.</p>
+  </div>"""
 
 
 def render_email(payload: dict, ideas: list[dict], asof: pd.Timestamp,
@@ -522,13 +593,15 @@ def render_email(payload: dict, ideas: list[dict], asof: pd.Timestamp,
 <div style="font-family:Segoe UI,Arial,sans-serif;max-width:920px;color:#1a1a1a">
   <h2 style="margin-bottom:2px">Daily Pitch &mdash; {asof.strftime('%A %Y-%m-%d')}</h2>
   <p style="color:#555;margin-top:2px;font-size:13px">
-    Three ideas, invented from repo context and interrogated against the data
-    this morning. Nothing here is a book signal; the scanner trades those
-    separately. Approve by typing Y in the Pitch tab.</p>
+    {len(ideas)} idea{'' if len(ideas) == 1 else 's'}, invented from repo
+    context and interrogated against the data this morning. Nothing here is a
+    book signal; the scanner trades those separately. Approve by typing Y in
+    the Pitch tab.</p>
   {context}
   {render_pipeline_line(state.get('pipeline'))}
   {warn_html}
   {cards}
+  {render_short_slate(payload, ideas)}
   {killed_html}
   {render_scoreboard(scoreboard)}
   <p style="color:#888;font-size:11px;margin-top:14px">
@@ -553,20 +626,7 @@ def render_stand_down(payload: dict, asof: pd.Timestamp, scoreboard: dict,
     """
     state = state or {}
     block = payload.get("stand_down") or {}
-
-    closest = "".join(
-        f"<div style='border-left:3px solid #8a6d00;padding:6px 12px;"
-        f"margin:10px 0;background:#fffdf5'>"
-        f"<div style='font-weight:600'>{_esc(near.get('title', ''))}</div>"
-        f"<div style='font-size:13px;color:#444;margin-top:3px'>"
-        f"<b>Decisive number:</b> {_esc(near.get('decisive', ''))}</div>"
-        f"<div style='font-size:13px;color:#444;margin-top:3px'>"
-        f"<b>Why it died:</b> {_esc(near.get('why_died', ''))}</div>"
-        + (f"<div style='font-size:12px;color:#777;margin-top:3px'>"
-           f"{_esc(near.get('script', ''))}</div>"
-           if near.get("script") else "")
-        + "</div>"
-        for near in (block.get("closest") or []))
+    closest = _near_miss_cards(block)
 
     killed = payload.get("killed") or []
     killed_html = ""
@@ -740,8 +800,35 @@ def journal_records(payload: dict, ideas: list[dict], asof: pd.Timestamp,
         "directed_by": idea.get("directed_by", ""),
         "place_pass": idea["orders"][0]["Place_Pass"],
     } for idea in ideas]
+    records += short_slate_records(payload, asof, model, effort)
     records += killed_records(payload, asof, model, effort)
     return records
+
+
+def short_slate_records(payload: dict, asof: pd.Timestamp, model: str,
+                        effort: str) -> list[dict]:
+    """The empty-slot record for a one or two idea morning.
+
+    Same shape as the stand-down verdict and for the same reason: the ideas
+    that shipped are graded by the scoreboard, and this is the only place the
+    ones that did not exist at all are written down.
+    """
+    block = payload.get("short_slate")
+    if not isinstance(block, dict):
+        return []
+    ideas = [i for i in (payload.get("ideas") or []) if isinstance(i, dict)]
+    return [{
+        "kind": "short_slate", "date": str(asof.date()),
+        "model": model, "effort": effort,
+        "ideas_shipped": len(ideas),
+        "slots_empty": IDEA_COUNT - len(ideas),
+        "reason": block.get("reason", ""),
+        "candidates_considered": block.get("candidates_considered"),
+        "axes": block.get("axes") or [],
+        "asset_classes": block.get("asset_classes") or [],
+        "closest": block.get("closest") or [],
+        "killed_n": len(payload.get("killed") or []),
+    }]
 
 
 def killed_records(payload: dict, asof: pd.Timestamp, model: str,
@@ -903,12 +990,21 @@ def main() -> int:
                           args.checks_root)
 
     _model, _effort = run_identity(args.model, args.effort)
-    print(f"Daily Pitch {asof.date()} - {len(ideas)} ideas, "
+    print(f"Daily Pitch {asof.date()} - {len(ideas)} "
+          f"idea{'' if len(ideas) == 1 else 's'}, "
           f"{len(rows)} order rows [model {_model}, effort {_effort}]")
     for idea in ideas:
         placement = idea["orders"][0]["Place_Pass"]
         print(f"  #{idea['rank']} [{idea['grade']}] {idea['title']} "
               f"({idea['horizon_td']} td, {placement})")
+    if len(ideas) < IDEA_COUNT:
+        block = payload.get("short_slate") or {}
+        print(f"  SHORT SLATE: {IDEA_COUNT - len(ideas)} slot(s) empty, "
+              f"{block.get('candidates_considered', 0)} candidates swept, "
+              f"{len(payload.get('killed') or [])} named kills")
+        for near in block.get("closest") or []:
+            print(f"  closest: {near.get('title', '')} - "
+                  f"{near.get('decisive', '')}")
     if args.validate_only:
         print("Validation only - nothing published.")
         return 0
@@ -937,7 +1033,8 @@ def main() -> int:
               f"and the Pitch tab will not be rewritten")
 
     if not args.no_send:
-        send_email(f"Daily Pitch - {asof.date()} - {IDEA_COUNT} ideas", html)
+        send_email(f"Daily Pitch - {asof.date()} - {len(ideas)} "
+                   f"idea{'' if len(ideas) == 1 else 's'}", html)
 
     if sheet is not None:
         try:

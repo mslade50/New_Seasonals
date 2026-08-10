@@ -1,14 +1,19 @@
 ---
 name: daily-pitch
-description: Produce the Daily Pitch - exactly three novel, falsified trade ideas for today, delivered as an email and a Sheets approval tab. Use when running the morning pitch (scheduled ~7:00 AM ET or on request), or when McKinley asks for pitch ideas, a trade suggestion run, or a rerun of today's pitch.
+description: Produce the Daily Pitch - up to three novel, falsified trade ideas for today, delivered as an email and a Sheets approval tab. Use when running the morning pitch (scheduled ~7:00 AM ET or on request), or when McKinley asks for pitch ideas, a trade suggestion run, or a rerun of today's pitch.
 ---
 
 # Daily Pitch
 
-Deliver **exactly three** trade ideas, invented from this repo's knowledge and
+Deliver **up to three** trade ideas, invented from this repo's knowledge and
 interrogated against its data before they reach McKinley. He reads them, says
 yes or no per idea, and places orders. There is no conversation: the ideas must
 be finished when they arrive.
+
+Three is the full slate and the target. One or two ship when that is what
+survived, with the empty slots accounted for; a morning where nothing survives
+ships a stand-down. What never happens is padding to three, and what never
+happens is publishing nothing.
 
 Spec of record: `daily_pitch_agent_spec_2026-08-06.html` (repo root). Read it
 if anything here is ambiguous. Sections 4, 5, 7 and 8 are hard requirements.
@@ -405,7 +410,53 @@ in the email footer. They are not shown as ideas. If a kill teaches something
 reusable, append it to `data/pitch_negative_registry.md` the same morning.
 
 Do not quietly shrink this stage to save tokens. Fewer, better-checked ideas
-beat unchecked ones, and the delivery is still always three.
+beat unchecked ones.
+
+### When one or two survive
+
+Ship them. This is the normal outcome of a hard morning and it needs no
+permission: never stop to ask which of three, two or zero to publish, because a
+headless run has nobody to answer and the morning is lost. That is exactly what
+happened on 2026-08-10, when 17 candidates left one survivor and the run
+delivered nothing at all.
+
+The empty slots are paid for in a `short_slate` block, priced the same as a
+stand-down: **two named kills per empty slot** (so one idea owes 4 kills, two
+ideas owe 2), at least 8 candidates over at least 4 novelty axes and 4 asset
+classes, a reason of at least 120 characters saying what the rest of the
+morning looked like, and 1 to 3 near-misses each carrying **the number it
+turned on**. Nothing else relaxes. Every surviving idea still needs its
+evidence, its `dev_script`, its `survived` line and its time stop, and stage
+B1's surface map still has to be on disk.
+
+Two things this is not. It is not a way to stop early: if you are shipping one
+because the sweep was thin, go back to stage B, since a thin sweep cannot fill
+the block anyway. And it is not a reason to grade generously to reach three,
+which was the failure the exactly-three rule was written against and is still
+the worse mistake.
+
+```json
+{
+  "asof": "YYYY-MM-DD",
+  "ideas": [ ... one or two, full idea schema ... ],
+  "short_slate": {
+    "reason": "what the rest of the morning looked like and why it came back empty",
+    "candidates_considered": 17,
+    "axes": ["relative_value", "inversion", "event_fingerprint", "flow_mechanics"],
+    "asset_classes": ["us_large", "rates", "gold_miners", "energy"],
+    "closest": [
+      {"title": "Long TLT across the PPI print",
+       "decisive": "+0.082pp tdom-matched, sign p 0.0105",
+       "why_died": "2013+ only, and the pre-2013 half is the opposite sign",
+       "script": "scratch/pitch_checks/YYYY-MM-DD/c2_ppi_tlt.py"}
+    ]
+  },
+  "killed": [{"title": "...", "reason": "...", "novelty_axis": "..."}]
+}
+```
+
+The `closest` entries go onto the watchlist afterwards exactly as a
+stand-down's do.
 
 ### When nothing survives
 
@@ -457,8 +508,8 @@ Publish it the same way; `--validate-only` checks the floors first.
 
 ## Stage D. Compose
 
-Pick the best three by risk and reward over their stated horizons. Grade them
-honestly:
+Pick the best three by risk and reward over their stated horizons, or however
+many of three actually survived stage C. Grade them honestly:
 
 | grade | meaning |
 |---|---|
@@ -585,6 +636,10 @@ A directed-only publish skips the first check and none of the others: the
 survey rule constrains the agent, not McKinley, but a directed idea still
 needs its own check written today.
 
+A publish carrying fewer than three composer ideas also has to carry its
+`short_slate` block, and `--validate-only` says so by name. A directed-only
+publish is exempt from that too, for the same reason.
+
 The kill reasons are linted too. A reason that reads as sample size and
 nothing else ("insufficient N", "not significant", "t below 2") prints a
 `KILL-LINT:` line and is tagged in the email footer, per the doctrine above.
@@ -595,7 +650,8 @@ the substantive kill you actually found rather than an error to route around.
 
 1. Append any reusable kill to `data/pitch_negative_registry.md`.
 2. Update `data/pitch_watchlist.json`: append today's near-misses (NEAR-MISS
-   verdicts from stage C and any stand-down `closest` entries) with title,
+   verdicts from stage C and any `closest` entries from a short slate or a
+   stand-down) with title,
    cell, **the trigger number**, script path, source and an expiry (default
    15 td out; a calendar-dated trigger may park to its date, like the TLT
    floor cell parked to the first non-midterm NFP). Remove entries that

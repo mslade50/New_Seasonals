@@ -70,7 +70,8 @@ NOVELTY_AXES = {
 }
 
 # --- product rules (spec sections 2 and 5) ---------------------------------
-IDEA_COUNT = 3            # exactly three, every day, never padded
+IDEA_COUNT = 3            # the full slate; never padded to reach it, and a
+                          # short one pays for its empty slots (short_slate)
 MAX_GRADE_C = 1           # at most one context-grade idea per day
 REPEAT_BLOCK_TD = 10      # a declined idea is not re-pitched inside 10 td
 MAX_HORIZON_TD = 63       # sanity bound; the product's question is 1-10 td
@@ -109,6 +110,27 @@ STAND_DOWN_MAX_CLOSEST = 3
 # about the whole surface, so it has to show the surface was walked.
 STAND_DOWN_MIN_ASSET_CLASSES = 4
 SURFACE_MAP_NAME = "00_surface_map.md"
+
+# --- short slate (2026-08-10) ----------------------------------------------
+# A morning that produces ONE good idea and two dead ones had nowhere to go:
+# the publisher took exactly three or a stand-down, and on such a morning both
+# are false. The 2026-08-10 run hit it — 17 candidates, 16 killed, one
+# survivor — and the agent stopped to ask which lie to tell rather than
+# publishing, so a headless task delivered nothing at all. McKinley's call the
+# same day: if there is one idea, we want to see the idea.
+#
+# A composer publish may now carry MIN_IDEA_COUNT..IDEA_COUNT ideas, and every
+# empty slot is paid for in the currency a stand-down pays in. The
+# exactly-three rule was never about the number three. It was about stopping
+# the agent hedging down to one safe idea after thin work, and that is answered
+# by making a SHORT slate prove its sweep, not by refusing the result. The
+# sweep floors above are shared verbatim: what has to be shown does not depend
+# on whether the morning produced one idea or none.
+MIN_IDEA_COUNT = 1
+# Two named kills per empty slot. At three empty slots this is exactly
+# STAND_DOWN_MIN_KILLED, so the stand-down floor is this line's endpoint rather
+# than an unrelated number.
+SHORT_SLATE_KILLS_PER_EMPTY_SLOT = 2
 
 # --- directed ideas (2026-08-07) -------------------------------------------
 # An idea McKinley asked for by name, rather than one the composer invented.
@@ -627,15 +649,89 @@ def directed_ideas(payload) -> list[dict]:
             if isinstance(i, dict) and str(i.get(DIRECTED_FIELD, "")).strip()]
 
 
+def _validate_sweep_scale(block: dict, where: str, why: str,
+                          errors: list[str]) -> None:
+    """The floors that prove a sweep happened at stage B's own scale.
+
+    Shared by the stand-down and the short slate. Both are claims about the
+    part of the surface that came back empty, and a claim about the surface has
+    to show the surface was walked.
+    """
+    reason = str(block.get("reason", "")).strip()
+    if len(reason) < STAND_DOWN_MIN_REASON:
+        errors.append(f"{where}.reason is {len(reason)} chars, under the "
+                      f"{STAND_DOWN_MIN_REASON}-char floor — say what the "
+                      f"morning looked like and {why}")
+
+    considered = block.get("candidates_considered")
+    if not isinstance(considered, int) or considered < STAND_DOWN_MIN_CANDIDATES:
+        errors.append(f"{where}.candidates_considered must be an int >= "
+                      f"{STAND_DOWN_MIN_CANDIDATES} (stage B's own floor), "
+                      f"got {considered!r}")
+
+    axes = block.get("axes")
+    if not isinstance(axes, list) or len({str(a).strip().lower()
+                                          for a in axes if str(a).strip()}
+                                         ) < STAND_DOWN_MIN_AXES:
+        errors.append(f"{where}.axes needs >= {STAND_DOWN_MIN_AXES} distinct "
+                      f"novelty axes — an empty morning on one axis is a thin "
+                      f"sweep, not an empty market")
+
+    classes = block.get("asset_classes")
+    if not isinstance(classes, list) or len({str(a).strip().lower()
+                                             for a in classes if str(a).strip()}
+                                            ) < STAND_DOWN_MIN_ASSET_CLASSES:
+        errors.append(f"{where}.asset_classes needs >= "
+                      f"{STAND_DOWN_MIN_ASSET_CLASSES} distinct classes from "
+                      f"the stage B1 table — axis variety is not coverage, and "
+                      f"an all-equity sweep cannot conclude the market is empty")
+
+
+def _validate_named_kills(payload, minimum: int, where: str,
+                          errors: list[str]) -> None:
+    """Kills named rather than counted. A number is not a record of a morning."""
+    killed = payload.get("killed") or []
+    if not isinstance(killed, list) or len(killed) < minimum:
+        errors.append(f"a {where} needs >= {minimum} named entries in "
+                      f"payload.killed, got "
+                      f"{len(killed) if isinstance(killed, list) else 0}")
+        return
+    for i, kill in enumerate(killed, 1):
+        if not isinstance(kill, dict):
+            errors.append(f"killed {i} must be an object")
+            continue
+        for field in ("title", "reason"):
+            if not str(kill.get(field, "")).strip():
+                errors.append(f"killed {i}: {field} is required")
+
+
+def _validate_closest(block: dict, where: str, errors: list[str]) -> None:
+    """The near-misses and the number each one turned on. This is the useful
+    half of the record: 'no trade there' is not information, and 'the TLT short
+    was t=2.10 but 8 of 12 episodes are 2021-22' is."""
+    closest = block.get("closest")
+    if not isinstance(closest, list) or not 1 <= len(closest) <= STAND_DOWN_MAX_CLOSEST:
+        errors.append(f"{where}.closest needs 1 to {STAND_DOWN_MAX_CLOSEST} "
+                      f"near-misses — which ones came closest, and on what "
+                      f"number, is the useful half of this email")
+        return
+    for i, near in enumerate(closest, 1):
+        if not isinstance(near, dict):
+            errors.append(f"closest {i} must be an object")
+            continue
+        for field in ("title", "decisive", "why_died"):
+            if not str(near.get(field, "")).strip():
+                errors.append(f"closest {i}: {field} is required "
+                              f"(decisive = the number it turned on)")
+
+
 def validate_stand_down(payload) -> list[str]:
     """A morning that ships nothing still has to prove it looked.
 
     Nothing here is about a trade, so none of the idea grammar applies. What is
     checked instead is that the sweep actually happened at stage B's own scale,
     that the kills are named rather than counted, and that the near-misses are
-    written down with the number that killed them. That last part is the point
-    of the whole record: 'no trades today' is not information, and 'the TLT
-    short was t=2.10 but 8 of 12 episodes are 2021-22' is.
+    written down with the number that killed them.
     """
     errors: list[str] = []
     block = payload.get("stand_down")
@@ -645,36 +741,11 @@ def validate_stand_down(payload) -> list[str]:
     ideas = payload.get("ideas") or []
     if ideas:
         errors.append(f"stand_down carries {len(ideas)} idea(s) — a stand-down "
-                      f"ships nothing; drop them or drop the stand_down block")
+                      f"ships nothing; drop them, or keep them and describe "
+                      f"the empty slots in short_slate instead")
 
-    reason = str(block.get("reason", "")).strip()
-    if len(reason) < STAND_DOWN_MIN_REASON:
-        errors.append(f"stand_down.reason is {len(reason)} chars, under the "
-                      f"{STAND_DOWN_MIN_REASON}-char floor — say what the "
-                      f"morning looked like and why none of it survived")
-
-    considered = block.get("candidates_considered")
-    if not isinstance(considered, int) or considered < STAND_DOWN_MIN_CANDIDATES:
-        errors.append(f"stand_down.candidates_considered must be an int >= "
-                      f"{STAND_DOWN_MIN_CANDIDATES} (stage B's own floor), "
-                      f"got {considered!r}")
-
-    axes = block.get("axes")
-    if not isinstance(axes, list) or len({str(a).strip().lower()
-                                          for a in axes if str(a).strip()}
-                                         ) < STAND_DOWN_MIN_AXES:
-        errors.append(f"stand_down.axes needs >= {STAND_DOWN_MIN_AXES} distinct "
-                      f"novelty axes — an empty morning on one axis is a thin "
-                      f"sweep, not an empty market")
-
-    classes = block.get("asset_classes")
-    if not isinstance(classes, list) or len({str(a).strip().lower()
-                                             for a in classes if str(a).strip()}
-                                            ) < STAND_DOWN_MIN_ASSET_CLASSES:
-        errors.append(f"stand_down.asset_classes needs >= "
-                      f"{STAND_DOWN_MIN_ASSET_CLASSES} distinct classes from "
-                      f"the stage B1 table — axis variety is not coverage, and "
-                      f"an all-equity sweep cannot conclude the market is empty")
+    _validate_sweep_scale(block, "stand_down", "why none of it survived",
+                          errors)
 
     checks = str(block.get("checks_dir", "")).strip()
     if not checks:
@@ -696,34 +767,59 @@ def validate_stand_down(payload) -> list[str]:
                               f"what shows the whole grid was walked before "
                               f"concluding it was empty")
 
-    killed = payload.get("killed") or []
-    if not isinstance(killed, list) or len(killed) < STAND_DOWN_MIN_KILLED:
-        errors.append(f"a stand-down needs >= {STAND_DOWN_MIN_KILLED} named "
-                      f"entries in payload.killed, got "
-                      f"{len(killed) if isinstance(killed, list) else 0}")
-    else:
-        for i, kill in enumerate(killed, 1):
-            if not isinstance(kill, dict):
-                errors.append(f"killed {i} must be an object")
-                continue
-            for field in ("title", "reason"):
-                if not str(kill.get(field, "")).strip():
-                    errors.append(f"killed {i}: {field} is required")
+    _validate_named_kills(payload, STAND_DOWN_MIN_KILLED, "stand-down", errors)
+    _validate_closest(block, "stand_down", errors)
+    return errors
 
-    closest = block.get("closest")
-    if not isinstance(closest, list) or not 1 <= len(closest) <= STAND_DOWN_MAX_CLOSEST:
-        errors.append(f"stand_down.closest needs 1 to {STAND_DOWN_MAX_CLOSEST} "
-                      f"near-misses — which ones came closest, and on what "
-                      f"number, is the useful half of this email")
-    else:
-        for i, near in enumerate(closest, 1):
-            if not isinstance(near, dict):
-                errors.append(f"closest {i} must be an object")
-                continue
-            for field in ("title", "decisive", "why_died"):
-                if not str(near.get(field, "")).strip():
-                    errors.append(f"closest {i}: {field} is required "
-                                  f"(decisive = the number it turned on)")
+
+def short_slate_min_kills(n_ideas: int) -> int:
+    """Named kills owed by a slate of `n_ideas`. Two per empty slot."""
+    return SHORT_SLATE_KILLS_PER_EMPTY_SLOT * max(0, IDEA_COUNT - n_ideas)
+
+
+def short_slate_required(payload) -> bool:
+    """Does this publish owe a `short_slate` block?
+
+    Yes when the COMPOSER shipped fewer than a full slate. A directed-only
+    publish is exempt for the same reason it is exempt from the survey folder
+    check: the count rule exists to constrain the agent, and McKinley asking
+    for one idea by name is not the agent hedging.
+    """
+    if not isinstance(payload, dict) or is_stand_down(payload):
+        return False
+    ideas = [i for i in (payload.get("ideas") or []) if isinstance(i, dict)]
+    if not ideas or len(ideas) >= IDEA_COUNT:
+        return False
+    return len(directed_ideas(payload)) != len(ideas)
+
+
+def validate_short_slate(payload) -> list[str]:
+    """One or two ideas ship, and the empty slots are accounted for.
+
+    The danger this replaces the exactly-three rule with is the obvious one:
+    a thin morning that quits early and calls its one safe idea a verdict. So
+    the burden lands on the empty slots rather than the full ones. The sweep
+    has to have run at stage B's scale, the slots have to be filled with named
+    kills at two per slot, and the near-misses have to carry the number they
+    turned on. A morning that did the work has all of this already; a morning
+    that did not cannot manufacture it, which is the whole design.
+    """
+    ideas = [i for i in (payload.get("ideas") or []) if isinstance(i, dict)]
+    empty = IDEA_COUNT - len(ideas)
+    block = payload.get("short_slate")
+    if not isinstance(block, dict):
+        return [f"{len(ideas)} idea(s) where the full slate is {IDEA_COUNT}, "
+                f"so payload.short_slate is required: name the sweep, the "
+                f"kills and the near-misses that left {empty} slot(s) empty. "
+                f"Padding to {IDEA_COUNT} with ideas you do not believe is "
+                f"the one thing this must never become"]
+
+    errors: list[str] = []
+    _validate_sweep_scale(block, "short_slate",
+                          f"why {empty} slot(s) came back empty", errors)
+    _validate_named_kills(payload, short_slate_min_kills(len(ideas)),
+                          "short slate", errors)
+    _validate_closest(block, "short_slate", errors)
     return errors
 
 
@@ -861,13 +957,12 @@ def validate_payload(payload, recent_fingerprints: dict[str, str] | None = None,
     ideas = payload.get("ideas")
     if not isinstance(ideas, list):
         return errors + ["payload.ideas must be a list"]
-    if directed_ideas(payload):
-        if not 1 <= len(ideas) <= IDEA_COUNT:
-            errors.append(f"a directed publish carries 1 to {IDEA_COUNT} "
-                          f"ideas, got {len(ideas)}")
-    elif len(ideas) != IDEA_COUNT:
-        errors.append(f"exactly {IDEA_COUNT} ideas required, got {len(ideas)} "
-                      f"— thin conviction still ships three, graded honestly")
+    if not MIN_IDEA_COUNT <= len(ideas) <= IDEA_COUNT:
+        errors.append(f"a publish carries {MIN_IDEA_COUNT} to {IDEA_COUNT} "
+                      f"ideas, got {len(ideas)} — a morning with none of them "
+                      f"is a stand-down, which has its own block")
+    if short_slate_required(payload):
+        errors.extend(validate_short_slate(payload))
 
     for i, idea in enumerate(ideas, 1):
         errors.extend(validate_idea(idea, f"idea {i}"))
@@ -917,7 +1012,7 @@ def check_risk_budget(rows: list[dict], account_value: float = ACCOUNT_VALUE
     total = sum(by_idea.values())
     day_cap = account_value * MAX_DAILY_RISK_BPS / 1e4
     if total > day_cap:
-        errors.append(f"the day's three ideas carry ${total:,.0f} of ATR risk, "
-                      f"over the {MAX_DAILY_RISK_BPS:g} bps "
+        errors.append(f"the day's {len(by_idea)} idea(s) carry ${total:,.0f} "
+                      f"of ATR risk, over the {MAX_DAILY_RISK_BPS:g} bps "
                       f"(${day_cap:,.0f}) bound")
     return errors
