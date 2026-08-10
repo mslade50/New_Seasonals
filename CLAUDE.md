@@ -1195,12 +1195,30 @@ Aligned sites — change together:
   `_first_in_sessions` is a DECLUSTERING filter (pitch_lab's rule, right for
   a regime cross).
 - Runtime: `scripts/pull_context_prices.py`, `scripts/run_market_context.bat`,
-  `scripts/register_market_context_task.ps1` (inert until an operator runs
-  it), `scripts/context_headless_settings.json`,
+  `scripts/register_market_context_task.ps1`,
+  `scripts/context_headless_settings.json`,
   `scripts/check_context_delivered.py`.
 - Guards: `tests/test_context_engine.py` (anchor convention, units, tags,
   trigger masks, novelty), `tests/test_context_sender.py` (parser, the three
   publish gates, block assembly, flag state, journal).
+
+**LIVE since 2026-08-10.** Scheduled task `Market Context Brief`, Sun-Thu
+18:30 ET, Interactive/Limited, PT1H, no auto-restart. Registered after ONE
+manual shakeout evening (2026-08-09) rather than the several the house rule
+asks for, at McKinley's call. The agent stage is the unproven part;
+`check_context_delivered.py` is what makes a bad night loud instead of
+silent. Read `scripts/logs/market_context_<date>.log` for the first week.
+
+The scoped allowlist's folder-prefix form,
+`Bash(python scratch/context_checks/:*)`, was VERIFIED in a real headless run
+on 2026-08-10 and matches. The spec's fallback to `bypassPermissions` is not
+needed and should not be adopted. Drill scripts must be invoked as
+`python scratch/context_checks/<date>/<name>.py` from the repo root; an
+absolute or quoted path does not match the prefix.
+
+Delivery is SLACK ONLY (reaffirmed 2026-08-10). A one-off HTML email renderer
+exists for reading a brief outside Slack; it is deliberately not in `scripts/`
+and nothing schedules it.
 
 Committed vs local: the JOURNAL (`data/context_journal.jsonl`), the flag state
 and the drill scripts under `scratch/context_checks/` are committed — they are

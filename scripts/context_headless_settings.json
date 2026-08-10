@@ -1,0 +1,29 @@
+{
+  "_comment": "Scoped permission allowlist for the unattended evening Market Context run (claude -p, headless). Covers ONLY what the /market-context skill needs: the sweep, the drill scripts it writes under scratch/context_checks/, the Slack sender, and file read/write. NO blanket bypass and NO web tools: this product computes every claim from local history (spec section 2), which is what makes the scoped allowlist strictly better than the daily pitch's bypassPermissions. The deny list still hard-blocks secret files, because a scoped session that can write files and post to Slack is an exfiltration path if anything ever does reach it. Grep is deliberately absent: it dumps file contents and cannot be path-scoped.",
+  "permissions": {
+    "allow": [
+      "Skill",
+      "Bash(python scripts/build_context_state.py:*)",
+      "Bash(python scripts/send_context_slack.py:*)",
+      "Bash(python scripts/check_context_delivered.py:*)",
+      "Bash(python scratch/context_checks/:*)",
+      "Read",
+      "Write",
+      "Edit",
+      "Glob",
+      "TodoWrite"
+    ],
+    "deny": [
+      "Read(**/.env)",
+      "Read(**/.env.*)",
+      "Read(**/credentials.json)",
+      "Read(**/token.json)",
+      "Read(**/*.pem)",
+      "Read(**/*.key)",
+      "Edit(**/.env)",
+      "Edit(**/.env.*)",
+      "WebSearch",
+      "WebFetch"
+    ]
+  }
+}

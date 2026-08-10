@@ -32,6 +32,7 @@ from __future__ import annotations
 
 import json
 import sys
+from fractions import Fraction
 from math import comb
 from pathlib import Path
 
@@ -224,9 +225,23 @@ def sign_test(wins: int, n: int, p: float = 0.5) -> float:
     """One-sided exact binomial: P(>= wins successes in n) under win-prob p.
     THE small-sample statistic. 6-0 -> 0.0156, 8-1 -> 0.0195, 10-2 -> 0.0193.
     A clean record with a large per-event edge and a mechanism needs no
-    t-stat; quote this instead."""
+    t-stat; quote this instead.
+
+    The p=0.5 path is exact rational arithmetic. The obvious float form,
+    ``sum(comb(n, k) * p**k * (1-p)**(n-k))``, raises OverflowError once n is
+    a few hundred, because comb(n, k) becomes a Python int too large to
+    convert to float before the tiny probability can scale it back down. That
+    is a crash rather than a wrong answer, and it fires exactly when a check
+    script measures a CONTROL cell (all Mondays, all days) alongside the small
+    conditional cell this function exists for. Values for every n that already
+    worked are unchanged.
+    """
     if n <= 0 or wins < 0 or wins > n:
         return np.nan
+    if p == 0.5:
+        # Fraction keeps the big ints exact and rounds once, at the end.
+        return float(Fraction(sum(comb(n, k) for k in range(wins, n + 1)),
+                              1 << n))
     return float(sum(comb(n, k) * p**k * (1 - p)**(n - k)
                      for k in range(wins, n + 1)))
 
