@@ -8,7 +8,7 @@ posting. Dollar figures deliberately absent: R and percentages only.
 ## Discipline / negative results
 
 ### S1. The kill file
-Status: unposted
+Status: queued 2026-08-10 (x20260810-4)
 
 Our research pipeline keeps an append-only file of every idea it killed,
 with the reason. 305 lines and growing. The pipeline is banned from

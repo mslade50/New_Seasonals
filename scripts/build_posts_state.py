@@ -192,7 +192,11 @@ def build_state(asof: str | None, queue_dir: Path,
     ingested = ingest_queue_marks(queue_dir, journal_path, today, warnings)
 
     prices = load_prices()
-    last_bar = pd.Timestamp(prices["date"].max()).normalize()
+    # Freshness keys on SPY, not the global max: crypto/FX rows carry
+    # weekend-stamped bars (BTC-USD, JPY=X) that make the global max read
+    # "Sunday" while every equity is still on Friday's close.
+    spy = prices.loc[prices["ticker"] == "SPY", "date"]
+    last_bar = pd.Timestamp((spy if len(spy) else prices["date"]).max()).normalize()
     # Evening product: fresh means tonight's close is in the cache. A run on
     # a non-session day (Sunday) is fresh if the last session's bar is there.
     last_session = today if len(pd.date_range(today, today, freq=TRADING_DAY)) \
