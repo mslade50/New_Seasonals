@@ -71,6 +71,13 @@ REM ---- 4. did it deliver
 python "%REPO%\scripts\check_posts_delivered.py" >> "%LOG%" 2>&1
 set RC=%ERRORLEVEL%
 echo [delivery check exit code: %RC%] >> "%LOG%"
+
+REM ---- 5. mirror the queue to email (best effort - the queue FILE is the
+REM delivery; a bounced email must not fail the run)
+if %RC% EQU 0 (
+    python "%REPO%\scripts\send_posts_email.py" >> "%LOG%" 2>&1
+    echo [queue email exit code: !ERRORLEVEL!] >> "%LOG%"
+)
 echo ===== RUN END %DATE% %TIME% ===== >> "%LOG%"
 copy /y "%LOG%" "%DATEDLOG%" >nul
 endlocal & exit /b %RC%
