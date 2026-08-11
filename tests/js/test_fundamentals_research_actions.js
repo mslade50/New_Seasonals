@@ -9,6 +9,19 @@ const source = fs.readFileSync(
   path.join(__dirname, "..", "..", "site", "assets", "fundamentals.js"),
   "utf8",
 );
+const commonSource = fs.readFileSync(
+  path.join(__dirname, "..", "..", "site", "assets", "common.js"),
+  "utf8",
+);
+
+const navContext = { console, document: { getElementById() { return null; } } };
+vm.createContext(navContext);
+vm.runInContext(commonSource, navContext, { filename: "common.js" });
+const trailingPages = JSON.parse(vm.runInContext("JSON.stringify(PAGES.slice(-2))", navContext));
+assert.deepStrictEqual(trailingPages, [
+  { href: "montecarlo.html", label: "Monte Carlo" },
+  { href: "fundamentals.html", label: "Fundamentals" },
+]);
 
 const storage = new Map();
 const context = {
