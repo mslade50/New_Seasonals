@@ -3,16 +3,16 @@
   "price_ctx": {
     "price": 773.030029296875,
     "ret_12m": 0.22664782335870926,
-    "extension_200d": 0.1032789763966866,
+    "extension_200d": 0.10327897976042677,
     "drawdown": -0.00029741673673222557,
-    "sma_200": 700.6659655761719,
+    "sma_200": 700.6659634399414,
     "high_52w": 773.260009765625,
     "regime_label": "Extended uptrend, stretched above trend",
     "days_since_5pct": 88,
     "days_since_10pct": 324
   },
   "h_scores": {
-    "5d": 22.513026961732386,
+    "5d": 22.513026961732383,
     "21d": 75.4475940830454,
     "63d": 88.57452985599485
   },
@@ -30,7 +30,7 @@
     "Defensive Leadership": {
       "on": false,
       "detail": "",
-      "summary": "50d spread: -3pp (fires < -10) | 200d spread: +8pp (fires < 0)"
+      "summary": "50d spread: -3pp (fires < -10) | 200d spread: +7pp (fires < 0)"
     },
     "Pre-FOMC Rally": {
       "on": false,
