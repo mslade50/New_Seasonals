@@ -4,14 +4,19 @@ Handle candidates, bio, and the launch profile. Check availability on X
 AND Substack (reserve both even while X-only) before falling in love with
 any of these; do it from the fresh browser profile, not a logged-in one.
 
-## Handle: CHOSEN — Sign Test (McKinley, 2026-08-10)
+## Handle: REGISTERED — @equities_stuff (McKinley, 2026-08-10)
 
-**Sign Test — @signtest / @thesigntest** (fallbacks if taken: @sign_test,
-@thesigntest_, @signtestcapital is BANNED by the avoid list).
-The small-N doctrine as identity: markets produce small samples, grade
-them honestly. Quant insiders get it instantly; others learn it from the
-pinned thread, whose closer already writes itself: "I can't prove I'm
-good. I can prove I'm counted."
+The whole Sign Test family (@signtest, @thesigntest, @sign_test,
+@thesigntest_) was taken; McKinley registered **@equities_stuff**.
+Deliberately generic, which is fine: the @ is an address, the brand
+lives in the display name and the content.
+
+**Display name stays "Sign Test"** — X handles and display names are
+separate, and the display name is what renders next to every post. The
+small-N doctrine as identity survives intact: markets produce small
+samples, grade them honestly. Quant insiders get it instantly; others
+learn it from the pinned thread, whose closer already writes itself:
+"I can't prove I'm good. I can prove I'm counted."
 
 ## Runner-up candidates (kept for reference)
 
