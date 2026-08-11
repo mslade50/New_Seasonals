@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1500" height="500" viewBox="0 0 1500 500" role="img" aria-labelledby="title desc">
+  <title id="title">Sign Test plus and minus tally banner</title>
+  <desc id="desc">A sparse field of geometric plus and minus tallies on a dark ground.</desc>
+  <rect width="1500" height="500" fill="#111416"/>
+  <g stroke="#F3F0E8" stroke-width="12" stroke-linecap="square" opacity="0.20">
+    <path d="M126 154h42M147 133v42 M236 154h42 M346 154h42M367 133v42 M456 154h42 M566 154h42 M676 154h42M697 133v42 M786 154h42 M896 154h42 M1006 154h42M1027 133v42 M1116 154h42 M1226 154h42 M1336 154h42M1357 133v42"/>
+    <path d="M126 250h42 M236 250h42M257 229v42 M346 250h42 M456 250h42 M566 250h42M587 229v42 M676 250h42 M786 250h42M807 229v42 M896 250h42 M1006 250h42 M1116 250h42M1137 229v42 M1226 250h42 M1336 250h42"/>
+    <path d="M126 346h42M147 325v42 M236 346h42 M346 346h42 M456 346h42M477 325v42 M566 346h42 M676 346h42 M786 346h42M807 325v42 M896 346h42 M1006 346h42 M1116 346h42 M1226 346h42M1247 325v42 M1336 346h42"/>
+  </g>
+  <g stroke="#6E9DB5" stroke-width="12" stroke-linecap="square">
+    <path d="M126 250h42 M566 250h42M587 229v42 M1006 250h42 M1336 250h42"/>
+  </g>
+</svg>
+
