@@ -1,5 +1,11 @@
 # AGENTS.md — Project Guide for New_Seasonals
 
+## Mandatory Private-Site Build Skill
+
+- For every private-site build, rebuild, publish, deployment, hosting, live-site repair, stale-tab investigation, or production verification task, use `-private-site` from `.agents/skills/build-private-site/SKILL.md` before taking action.
+- Production private-site builds are cloud-only: run `.github/workflows/deploy_site.yml` in GitHub Actions, where authoritative inputs are downloaded from Cloudflare R2 and `scripts/validate_site_freshness.py` gates deployment.
+- Never build or deploy the production private site from local `data/` or `dist/`, and never use local generated artifacts as evidence of production freshness.
+
 ## What This Project Is
 
 A quantitative equity trading platform built on Streamlit. Three pillars:
