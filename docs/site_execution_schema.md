@@ -26,7 +26,7 @@ existing `sznl_entry.build_orders` / `sznl_exit.build_orders` / `read_book`).
 ### `entry_bracket`  (← sznl_entry.py)
 ```json
 { "symbol":"USO","sec_type":"STK|FUT|CASH","exchange":"SMART","currency":"USD","fut_expiry":"202608",
-  "action":"BUY|SELL","quantity":692,"entry":104.80,"stop":103.29,"target":123.21,
+  "action":"BUY|SELL","quantity":692,"entry_type":"LMT|MKT|MOC","entry":104.80,"stop":103.29,"target":123.21,
   "use_target":true,"use_time_stop":true,"stop_tif":"GTC|GTD",
   "parent_fill_by":"2026-06-26T15:00-04:00",
   "exit_at":"2026-07-09T16:00-04:00","time_stop_at":"2026-07-09T15:00-04:00",
@@ -35,7 +35,14 @@ existing `sznl_entry.build_orders` / `sznl_exit.build_orders` / `read_book`).
 Validation (mirrors `validate_config`): BUY → `stop < entry < target`; SELL inverted;
 `time_stop < bracket_gtd`; `parent_fill_by` in the future.
 
-**Stop optional (2026-07-27).** `stop: null` is a legal entry: the parent limit
+`entry` is the executable limit for `LMT`. For `MKT` and `MOC`, it is a required
+risk/reference price used for notional, stop-distance, and confirmation math; it
+is not sent to IBKR as price protection. `MOC` is initially stock-only. Entry
+expiry applies only to `LMT`; `MKT` and `MOC` are DAY orders. The executor builds
+true IBKR parent types (`LMT`, `MKT`, or `MOC`) and attaches the same optional
+stop/target/time-exit children.
+
+**Stop optional (2026-07-27).** `stop: null` is a legal entry: the parent order
 goes out with whatever subset of target/time legs is present (none at all =
 naked entry, parent transmits itself). Ordering checks apply only to the legs
 present. UNPROTECTED entries are risk-gated at the executor on

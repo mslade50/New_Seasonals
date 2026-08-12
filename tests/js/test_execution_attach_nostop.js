@@ -47,13 +47,40 @@ const runJSON = (code) => JSON.parse(run(`JSON.stringify(${code})`));
 run(`state.book = { accounts: [{ key: "primary", positions: [], orders: [] }] }`);
 setFields({
   f_sectype: "STK", f_symbol: "USO", f_action: "BUY", f_qty: "10",
-  f_entry: "50", f_stop: "", f_target: "", f_timestop: "", f_expiry: "",
+  f_entry_type: "LMT", f_entry: "50", f_stop: "", f_target: "", f_timestop: "", f_expiry: "",
 });
 assert.deepStrictEqual(runJSON("bracketWarnings()"), [],
   "blank stop must not block the entry ticket");
 const noStop = runJSON(`ticketPayload("entry_bracket")`);
 assert.strictEqual(noStop.stop, null, "blank stop serializes as null");
 assert.strictEqual(noStop.target, null);
+assert.strictEqual(noStop.entry_type, "LMT");
+
+// MKT/MOC carry a required risk reference, but never a limit-entry expiry.
+setFields({ f_sectype: "STK", f_symbol: "USO", f_action: "BUY", f_qty: "10",
+  f_entry_type: "MKT", f_entry: "50", f_stop: "48", f_target: "55",
+  f_timestop: "", f_expiry: "" });
+assert.deepStrictEqual(runJSON("bracketWarnings()"), []);
+const marketEntry = runJSON(`ticketPayload("entry_bracket")`);
+assert.strictEqual(marketEntry.entry_type, "MKT");
+assert.strictEqual(marketEntry.entry, 50);
+assert.strictEqual(marketEntry.expiry, null);
+
+setFields({ f_sectype: "STK", f_symbol: "USO", f_action: "BUY", f_qty: "10",
+  f_entry_type: "MOC", f_entry: "50", f_stop: "48", f_target: "55",
+  f_timestop: "", f_expiry: "" });
+assert.deepStrictEqual(runJSON("bracketWarnings()"), []);
+assert.strictEqual(runJSON(`ticketPayload("entry_bracket")`).entry_type, "MOC");
+
+setFields({ f_sectype: "FUT", f_symbol: "ES", f_action: "BUY", f_qty: "1",
+  f_entry_type: "MOC", f_entry: "5000", f_stop: "4990", f_target: "5020",
+  f_timestop: "", f_expiry: "", f_futexp: "202609", f_futexch: "CME" });
+assert.ok(runJSON("bracketWarnings()").some((w) => w.includes("MOC entry supports stocks only")));
+
+setFields({ f_sectype: "STK", f_symbol: "USO", f_action: "BUY", f_qty: "10",
+  f_entry_type: "MKT", f_entry: "", f_stop: "", f_target: "",
+  f_timestop: "", f_expiry: "" });
+assert.ok(runJSON("bracketWarnings()").some((w) => w.includes("reference price required")));
 
 // explicit bad stop still blocks
 setFields({ f_sectype: "STK", f_symbol: "USO", f_action: "BUY", f_qty: "10",

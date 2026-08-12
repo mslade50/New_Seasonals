@@ -1,0 +1,4 @@
+interface:
+  display_name: "Humanize Stat Tweets"
+  short_description: "Turn exact market stats into human tweets"
+  default_prompt: "Use $humanize-stat-tweets to rewrite these exact market statistics as a natural, ready-to-post tweet."

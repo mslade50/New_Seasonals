@@ -127,7 +127,7 @@ function shell() {
 
     <div class="card" style="max-width:760px;margin-top:18px">
       <div style="font:700 14px inherit;margin-bottom:4px">New order</div>
-      <p class="cap" style="margin:0 0 10px">Bracket: stock, futures, or USD-pair FX entry limit; stop, target, <b>time stop</b> (closes at market 15:59 ET on that date), and <b>entry expiry</b> are optional. <b>Primary futures are uncapped</b>: IBKR buying power and exchange limits are the hard constraints; large stopped risk and unprotected entries require a secondary approval. PA keeps its $30k futures ceiling. <b>Attach exits</b> adds a stop / target / time-stop OCA group. <b>Close only</b> leaves working orders untouched; <b>Flatten</b> cancels them before closing. Submits per the mode banner above &mdash; live when armed.</p>
+      <p class="cap" style="margin:0 0 10px">Bracket: stock, futures, or USD-pair FX entry as <b>limit</b> or <b>market</b>; stock entries also support <b>market-on-close</b>. Market and MOC tickets use the typed price only as a risk/reference estimate&mdash;it is not price protection. Stop, target, <b>time stop</b> (closes at market 15:59 ET on that date), and limit-entry expiry are optional. <b>Primary futures are uncapped</b>: IBKR buying power and exchange limits are the hard constraints; large stopped risk and unprotected entries require a secondary approval. PA keeps its $30k futures ceiling. <b>Attach exits</b> adds a stop / target / time-stop OCA group. <b>Close only</b> leaves working orders untouched; <b>Flatten</b> cancels them before closing. Submits per the mode banner above &mdash; live when armed.</p>
       <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:8px">
         <label class="cap">Type</label>
         <select id="cmdType">
@@ -846,7 +846,7 @@ window.execModifySave = execModifySave;
 // bracketWarnings blocks empty qty/entry/stop). ticketDraft carries the last user entry
 // across cmdType toggles so switching Type and back doesn't wipe a typed ticket.
 const ticketDraft = {};
-const TICKET_FIELDS = ["f_note", "f_symbol", "f_qty", "f_entry", "f_stop", "f_target", "f_expiry", "f_timestop",
+const TICKET_FIELDS = ["f_note", "f_symbol", "f_qty", "f_entry_type", "f_entry", "f_stop", "f_target", "f_expiry", "f_timestop",
                        "f_currency", "f_futexch", "fl_qty", "fl_pct", "fl_limit"];
 function snapshotTicket() {
   TICKET_FIELDS.forEach((id) => { const e = document.getElementById(id); if (e) ticketDraft[id] = e.value; });
@@ -896,15 +896,21 @@ function syncFields() {
     const rth = document.getElementById("ea_rth");
     if (rth) rth.addEventListener("change", updateReadout);
   } else {
+    const entryType = String(ticketDraft.f_entry_type || "LMT").toUpperCase();
     f.innerHTML = `<label class="cap">Instr</label><select id="f_sectype"><option value="STK">Stock</option><option value="FUT">Future</option><option value="CASH">FX (USD pair)</option></select>
       <label class="cap">Symbol</label>${inp("f_symbol", "USO", 80)}
       <label class="cap">Side</label><select id="f_action"><option>BUY</option><option>SELL</option></select>
       <label class="cap">Qty</label>${inp("f_qty", "692", 70)}
-      <label class="cap">Entry</label>${inp("f_entry", "104.80", 80)}
+      <label class="cap">Entry type</label><select id="f_entry_type">
+        <option value="LMT"${entryType === "LMT" ? " selected" : ""}>Limit (LMT)</option>
+        <option value="MKT"${entryType === "MKT" ? " selected" : ""}>Market (MKT)</option>
+        <option value="MOC"${entryType === "MOC" ? " selected" : ""}>Market-on-close (MOC)</option>
+      </select>
+      <label class="cap" id="f_entry_label">Entry</label>${inp("f_entry", "104.80", 80)}
       <label class="cap">Stop</label>${inp("f_stop", "103.29", 80)}
       <label class="cap">Target</label>${inp("f_target", "123.21", 80)}
       <span id="f_futrow"></span>
-      <label class="cap">Entry exp</label><input type="date" id="f_expiry" value="${ticketDraft.f_expiry ? esc(ticketDraft.f_expiry) : ""}" style="width:140px">
+      <span id="f_expiry_wrap"><label class="cap">Entry exp</label><input type="date" id="f_expiry" value="${ticketDraft.f_expiry ? esc(ticketDraft.f_expiry) : ""}" style="width:140px"></span>
       <label class="cap">Time stop</label><input type="date" id="f_timestop" value="${ticketDraft.f_timestop ? esc(ticketDraft.f_timestop) : ""}" style="width:140px">`;
     const st = document.getElementById("f_sectype");
     if (st) st.addEventListener("change", () => {
@@ -924,9 +930,28 @@ function syncFields() {
       scheduleFrontResolve();
       updateReadout();
     });
+    const entrySel = document.getElementById("f_entry_type");
+    if (entrySel) entrySel.addEventListener("change", () => {
+      ticketDraft.f_entry_type = entrySel.value;
+      syncEntryTypeFields();
+      updateReadout();
+    });
     renderFutRow();
+    syncEntryTypeFields();
   }
   updateReadout();
+}
+
+function entryType() {
+  return String(val("f_entry_type") || ticketDraft.f_entry_type || "LMT").toUpperCase();
+}
+
+function syncEntryTypeFields() {
+  const typ = entryType();
+  const label = document.getElementById("f_entry_label");
+  if (label) label.textContent = typ === "LMT" ? "Limit" : "Ref price";
+  const wrap = document.getElementById("f_expiry_wrap");
+  if (wrap) wrap.style.display = typ === "LMT" ? "contents" : "none";
 }
 
 function futSpec(sym) { return FUT_SPECS[String(sym || "").toUpperCase().trim()] || null; }
@@ -1004,14 +1029,17 @@ function fxUsdMetrics(base, quote, qty, entry, stop) {
 function bracketWarnings() {
   const isFut = (val("f_sectype") === "FUT");
   const isFx = (val("f_sectype") === "CASH");
+  const orderType = entryType();
   const sym = String(val("f_symbol") || "").toUpperCase().trim();
   const spec = isFut ? futSpec(sym) : null;
   const qty = numOrNull("f_qty"), entry = numOrNull("f_entry"), stop = numOrNull("f_stop"), target = numOrNull("f_target");
   const action = val("f_action");
   const warns = [];
+  if (!["LMT", "MKT", "MOC"].includes(orderType)) warns.push("entry type must be LMT, MKT, or MOC");
+  if (orderType === "MOC" && (isFut || isFx)) warns.push("MOC entry supports stocks only");
   if (!sym) warns.push("symbol required");
   if (!(qty > 0) || qty !== Math.round(qty)) warns.push("qty must be a whole number > 0");
-  if (!(entry > 0)) warns.push("entry price required");
+  if (!(entry > 0)) warns.push(orderType === "LMT" ? "limit price required" : "reference price required");
   // Stop is OPTIONAL (2026-07-27): blank = UNPROTECTED entry, surfaced in amber by
   // the readout + confirm, and risk-gated agent-side (2×ATR vs 50 bps NLV → secondary
   // approval). An explicit 0/negative stop is still rejected.
@@ -1034,7 +1062,7 @@ function bracketWarnings() {
   // time-stop closes the position at market the instant the entry fills; a past entry
   // expiry ships an already-dead GTD order; expiry after the time-stop is contradictory.
   const todayISO = new Date().toLocaleDateString("en-CA");
-  const ts = val("f_timestop"), ex = val("f_expiry");
+  const ts = val("f_timestop"), ex = orderType === "LMT" ? val("f_expiry") : null;
   if (ts && ts < todayISO) warns.push("time stop date is in the past");
   if (ex && ex < todayISO) warns.push("entry expiry date is in the past");
   if (ts && ex && ex > ts) warns.push("entry expiry is after the time stop");
@@ -1138,9 +1166,13 @@ function updateReadout() {
     const warns = bracketWarnings();
     if (warns.length) { el.innerHTML = `<span style="color:#ff6b6b">${warns.map(esc).join(" &middot; ")}</span>`; return; }
     const qty = numOrNull("f_qty"), entry = numOrNull("f_entry"), stop = numOrNull("f_stop"), target = numOrNull("f_target");
+    const orderType = entryType();
     const dist = Math.abs(entry - stop);
     const fxMetrics = isFx ? fxUsdMetrics(sym, currency, qty, entry, stop) : null;
     const parts = [];
+    if (orderType === "LMT") parts.push(`Entry <b>LMT @ ${entry}</b>`);
+    else if (orderType === "MKT") parts.push(`Entry <b>MKT</b> <span class="cap" style="display:inline">(risk ref ${entry}; no price protection)</span>`);
+    else parts.push(`Entry <b>MOC</b> <span class="cap" style="display:inline">(close auction; risk ref ${entry})</span>`);
     if (isFut && qty) parts.push(`<b>${qty} contract${qty === 1 ? "" : "s"}</b>`);
     if (isFx && qty) parts.push(`<b>${fmt.num(qty, 0)} ${esc(sym)} units</b> in ${esc(sym)}/${esc(currency)}`);
     if (stop == null) parts.push(`<b style="color:#ffc14d">NO STOP — UNPROTECTED</b> <span class="cap" style="display:inline">(risk gate at execution: 2&times;ATR% &times; notional vs 50 bps NLV)</span>`);
@@ -1150,8 +1182,8 @@ function updateReadout() {
     if (qty && entry) parts.push(`Notional <b>${fmt.money(fxMetrics ? fxMetrics.notional : qty * entry * mult)}</b>`);
     const ts = val("f_timestop");
     if (ts) parts.push(`Time-exit <b>${ts}</b>`);
-    const ex = val("f_expiry");
-    parts.push(`Entry <b>${ex ? "GTD " + ex : "DAY"}</b>`);
+    const ex = orderType === "LMT" ? val("f_expiry") : null;
+    parts.push(`TIF <b>${ex ? "GTD " + ex : "DAY"}</b>`);
     el.innerHTML = `<span style="color:#9aa3b2">${parts.join(" &nbsp;·&nbsp; ")}</span>`;
   } else if (t === "exit_attach") {
     const warns = attachWarnings();
@@ -1245,6 +1277,7 @@ function ticketPayload(t) {
     return p;
   }
   const sec_type = val("f_sectype") || "STK";
+  const entry_type = entryType();
   const fut_expiry = sec_type === "FUT" ? String(val("f_futexp") || "").replace(/\D/g, "") : null;
   const currency = sec_type === "CASH" ? String(val("f_currency") || "USD").toUpperCase() : "USD";
   const spec = sec_type === "FUT" ? futSpec(val("f_symbol")) : null;
@@ -1254,9 +1287,10 @@ function ticketPayload(t) {
     fut_trading_class: spec ? (spec.trading_class || val("f_symbol")) : null,
     fut_multiplier: spec ? spec.multiplier : null,
     fut_min_tick: spec ? spec.min_tick : null,
-    action: val("f_action"), quantity: numOrNull("f_qty"),
+    action: val("f_action"), quantity: numOrNull("f_qty"), entry_type,
     entry: numOrNull("f_entry"), stop: numOrNull("f_stop"), target: numOrNull("f_target"),
-    time_stop: val("f_timestop") || null, expiry: val("f_expiry") || null };
+    time_stop: val("f_timestop") || null,
+    expiry: entry_type === "LMT" ? (val("f_expiry") || null) : null };
 }
 function sendTicket() {
   const t = document.getElementById("cmdType").value;
@@ -1280,8 +1314,10 @@ function sendTicket() {
       : p.sec_type === "CASH" ? `${p.symbol}/${p.currency || "USD"} FX` : p.symbol;
     const closeUnit = p.sec_type === "CASH" ? ` ${p.symbol} units` : " sh";
     const stopTxt = p.stop == null ? "NO STOP — UNPROTECTED" : "stop " + p.stop;
+    const entryDesc = p.entry_type === "LMT" ? `LMT @ ${p.entry}`
+      : `${p.entry_type} (risk ref ${p.entry}; no price protection)`;
     const summary = t === "entry_bracket"
-      ? `${p.action} ${p.quantity} ${inst} @ ${p.entry} [${p.expiry ? "GTD " + p.expiry : "DAY"}] (${stopTxt}, ${p.target == null ? "NO TARGET" : "target " + p.target}${p.time_stop ? ", time " + p.time_stop : ""})`
+      ? `${p.action} ${p.quantity} ${inst} ${entryDesc} [${p.expiry ? "GTD " + p.expiry : "DAY"}] (${stopTxt}, ${p.target == null ? "NO TARGET" : "target " + p.target}${p.time_stop ? ", time " + p.time_stop : ""})`
       : t === "exit_attach"
         ? `attach exits to ${p.symbol} (${[p.stop != null ? "stop " + p.stop : "", p.target != null ? "target " + p.target : "", p.time_stop ? "time " + p.time_stop : ""].filter(Boolean).join(", ")}) — full held size, OCA GTC`
         : `close ${p.qty != null ? p.qty + closeUnit : Math.round((p.fraction || 1) * 100) + "%"} of ${p.symbol}${p.sec_type === "CASH" ? "/" + (p.currency || "USD") : ""} via ${p.order_type}` +

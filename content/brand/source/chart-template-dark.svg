@@ -1,0 +1,51 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="900" viewBox="0 0 1600 900" role="img" aria-labelledby="title desc">
+  <title id="title">Sign Test neutral chart template, dark</title>
+  <desc id="desc">A dark-mode horizontal bar chart with title, subtitle, source, sample size, and account mark.</desc>
+  <style>
+    .mono{font-family:ui-monospace,SFMono-Regular,Consolas,"Liberation Mono",monospace;font-variant-numeric:tabular-nums}
+    .ink{fill:#F3F0E8}.muted{fill:#9B9A94}.accent{fill:#6E9DB5}.positive{fill:#5F9B76}.negative{fill:#C2665E}
+  </style>
+  <rect width="1600" height="900" fill="#111416"/>
+  <rect x="96" y="76" width="1408" height="4" fill="#6E9DB5"/>
+  <text x="96" y="128" class="mono accent" font-size="22" font-weight="700" letter-spacing="3">SIGN TEST / PUBLIC NOTE 001</text>
+  <text x="96" y="222" class="mono ink" font-size="56" font-weight="700">MEDIAN MOVE AFTER SIGNAL</text>
+  <text x="96" y="270" class="mono muted" font-size="24">illustrative layout · replace the title, values, N and source before posting</text>
+
+  <g class="mono" font-size="22">
+    <line x1="540" y1="344" x2="540" y2="704" stroke="#343A3E" stroke-width="2"/>
+    <line x1="260" y1="704" x2="1420" y2="704" stroke="#343A3E" stroke-width="2"/>
+    <g stroke="#272C30" stroke-width="2">
+      <line x1="260" y1="402" x2="1420" y2="402"/>
+      <line x1="260" y1="482" x2="1420" y2="482"/>
+      <line x1="260" y1="562" x2="1420" y2="562"/>
+      <line x1="260" y1="642" x2="1420" y2="642"/>
+    </g>
+    <g class="muted" text-anchor="end">
+      <text x="220" y="417">1 session</text>
+      <text x="220" y="497">3 sessions</text>
+      <text x="220" y="577">5 sessions</text>
+      <text x="220" y="657">10 sessions</text>
+    </g>
+    <rect x="540" y="382" width="300" height="36" rx="3" class="positive"/>
+    <rect x="340" y="462" width="200" height="36" rx="3" class="negative"/>
+    <rect x="540" y="542" width="520" height="36" rx="3" class="positive"/>
+    <rect x="540" y="622" width="150" height="36" rx="3" class="positive"/>
+    <g class="ink" font-weight="700">
+      <text x="858" y="409">+0.12%</text>
+      <text x="320" y="489" text-anchor="end">−0.08%</text>
+      <text x="1078" y="569">+0.21%</text>
+      <text x="708" y="649">+0.06%</text>
+    </g>
+    <g class="muted" text-anchor="middle" font-size="18">
+      <text x="340" y="738">−0.08%</text>
+      <text x="540" y="738">0</text>
+      <text x="790" y="738">+0.10%</text>
+      <text x="1040" y="738">+0.20%</text>
+    </g>
+  </g>
+
+  <line x1="96" y1="796" x2="1504" y2="796" stroke="#343A3E" stroke-width="2"/>
+  <text x="96" y="844" class="mono muted" font-size="19">N=123 · source: public data · as of YYYY-MM-DD</text>
+  <text x="1504" y="844" class="mono ink" font-size="19" font-weight="700" text-anchor="end">@equities_stuff</text>
+</svg>
+

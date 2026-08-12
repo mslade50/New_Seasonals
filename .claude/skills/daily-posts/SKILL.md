@@ -97,6 +97,14 @@ one aphorism closer, no two posts sharing a skeleton, at least one short
 casual post, slack words left in. The failure mode is four perfectly
 compressed posts that each pass alone and read as a machine together.
 
+**Humanize every statistical draft**: apply the sibling
+humanize-stat-tweets skill to each stat, idea, scoreboard, and reply-ammo
+draft before Stage D. Read ../humanize-stat-tweets/SKILL.md and use its
+fact-lock -> one-tension -> fidelity-pass workflow. Numbers, signs,
+denominators, horizons, comparisons, and caveats are immutable; the prose
+around them should sound like a trader went and checked something, found one
+interesting wrinkle, and typed it without polishing every sentence to death.
+
 **Reply ammunition**: the cold-start strategy is reply-first (playbook,
 "Distribution"). When the day's material is rich, include 1-2 EXTRA stat
 drafts flagged `"source": "reply_ammo"` - numbers McKinley can drop into

@@ -201,6 +201,28 @@ def test_build_bracket_with_stop_unchanged(executor):
     assert children[-1].transmit is True and parent.transmit is False
 
 
+def test_build_bracket_entry_parent_types(executor):
+    for entry_type, expected in (("LMT", "LMT"), ("MKT", "MKT"), ("MOC", "MOC")):
+        parent, children = executor.build_bracket(
+            "BUY", 10, 50.0, 48.0, 60.0, None, _next_id_gen(),
+            entry_type=entry_type)
+        assert parent.orderType == expected
+        assert parent.tif == "DAY"
+        assert [c.orderType for c in children] == ["LMT", "STP"]
+
+
+def test_agent_entry_parent_type_validation(agent, book):
+    base = {"symbol": "AAPL", "sec_type": "STK", "action": "BUY",
+            "quantity": 10, "entry": 200, "stop": 190, "target": 220}
+    for entry_type in ("LMT", "MKT", "MOC"):
+        ok, reasons = agent._validate(_cmd(
+            "entry_bracket", {**base, "entry_type": entry_type}))
+        assert ok, reasons
+    ok, reasons = agent._validate(_cmd(
+        "entry_bracket", {**base, "entry_type": "MOC", "sec_type": "FUT"}))
+    assert not ok and any("MOC entry supports stocks only" in r for r in reasons)
+
+
 # ---------------- executor: risk_ack gate pieces ----------------
 
 def _fake_bars(n=30, base=100.0, rng=2.0):

@@ -5,6 +5,14 @@ Companion reading if you want depth: `content/persona.md` (identity),
 `content/playbook.md` (voice, opsec, disclosure). Everything binding is
 restated here; you should not need either file to start.
 
+## Execution status — first pass complete 2026-08-11
+
+Editable SVG masters, exact-size PNG exports, a compact usage guide, and the
+repeatable export script now live in `content/brand/`. The first pass covers
+the avatar, banner, dark/light chart templates, and weekly scoreboard. It uses
+the gap-through mark as the avatar motif and plus/minus tallies as the wider
+system. The public identity remains fully separate from every internal tool.
+
 ## What the account is
 
 A pseudonymous systematic trader posting dated, gradeable trade ideas and
