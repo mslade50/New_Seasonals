@@ -1,0 +1,4 @@
+interface:
+  display_name: "Build Private Site"
+  short_description: "Cloud-only private-site builds from R2"
+  default_prompt: "Use $build-private-site to rebuild and deploy the private site from Cloudflare R2 through GitHub Actions."
