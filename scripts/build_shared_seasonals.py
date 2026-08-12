@@ -1,6 +1,7 @@
-"""Build the isolated, read-only teammate seasonality site.
+"""Build the isolated, read-only teammate analytics site.
 
-Only the Seasonality Lab shell and its adjusted price snapshot are emitted.
+Only the approved Seasonality and Heatmap shells plus their adjusted price
+snapshot are emitted.
 The portfolio, execution, order, signal, and research payloads from the main
 private site are intentionally outside this builder's allow-list.
 """
@@ -27,13 +28,16 @@ DEFAULT_OUTPUT = ROOT / "dist-shared"
 
 STATIC_FILES = {
     SHARED_SOURCE / "index.html": Path("index.html"),
+    SHARED_SOURCE / "heatmaps.html": Path("heatmaps.html"),
+    SHARED_SOURCE / "correlations.html": Path("correlations.html"),
     SHARED_SOURCE / "_headers": Path("_headers"),
     ASSET_SOURCE / "common.js": Path("assets/common.js"),
     ASSET_SOURCE / "seasonality.js": Path("assets/seasonality.js"),
+    ASSET_SOURCE / "heatmaps.js": Path("assets/heatmaps.js"),
     ASSET_SOURCE / "style.css": Path("assets/style.css"),
 }
-ALLOWED_ROOT_FILES = {"index.html", "_headers"}
-ALLOWED_ASSETS = {"common.js", "seasonality.js", "style.css"}
+ALLOWED_ROOT_FILES = {"index.html", "heatmaps.html", "correlations.html", "_headers"}
+ALLOWED_ASSETS = {"common.js", "seasonality.js", "heatmaps.js", "style.css"}
 
 
 def _copy_static(output: Path, cache_bust: str) -> None:
@@ -44,20 +48,23 @@ def _copy_static(output: Path, cache_bust: str) -> None:
         destination.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(source, destination)
 
-    index_path = output / "index.html"
-    html = index_path.read_text(encoding="utf-8")
-    html = re.sub(
-        r'(assets/[\w.-]+\.(?:js|css))(?:\?v=\d+)?',
-        rf"\1?v={cache_bust}",
-        html,
-    )
-    index_path.write_text(html, encoding="utf-8")
+    for html_path in output.glob("*.html"):
+        html = html_path.read_text(encoding="utf-8")
+        html = re.sub(
+            r'(assets/[\w.-]+\.(?:js|css))(?:\?v=\d+)?',
+            rf"\1?v={cache_bust}",
+            html,
+        )
+        html_path.write_text(html, encoding="utf-8")
 
 
 def validate_shared_output(output: Path) -> None:
     """Fail closed if anything outside the explicit share boundary is present."""
     if not (output / "index.html").is_file():
         raise ValueError("shared site is missing index.html")
+    for page in ("heatmaps.html", "correlations.html"):
+        if not (output / page).is_file():
+            raise ValueError(f"shared site is missing {page}")
     if not (output / "data/seasonality/manifest.json").is_file():
         raise ValueError("shared site is missing the seasonality manifest")
 

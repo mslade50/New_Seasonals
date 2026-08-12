@@ -68,16 +68,18 @@ def test_export_is_read_only_and_writes_compact_per_ticker_payloads(tmp_path: Pa
 
     spy_id = disk_manifest["tickers"]["SPY"]["id"]
     binary = (output / "t" / f"{spy_id}.bin").read_bytes()
-    assert binary[:4] == b"SLB1"
+    assert binary[:4] == b"SLB2"
     count = struct.unpack_from("<I", binary, 4)[0]
     assert count == 18
     days = struct.unpack_from(f"<{count}i", binary, 8)
     closes = struct.unpack_from(f"<{count}f", binary, 8 + count * 4)
     atrs = struct.unpack_from(f"<{count}f", binary, 8 + count * 8)
+    volumes = struct.unpack_from(f"<{count}f", binary, 8 + count * 12)
     assert days[0] == (pd.Timestamp("2000-01-03") - pd.Timestamp("1970-01-01")).days
     assert closes[0] == 100.0
     assert all(pd.isna(value) for value in atrs[:13])
     assert atrs[13] == 2.0
+    assert volumes[0] == 1_000_000
 
     index_id = disk_manifest["tickers"]["^GSPC"]["id"]
     assert "/" not in index_id and "\\" not in index_id

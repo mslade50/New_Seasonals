@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>Market Heatmaps — Denali</title>
+<link rel="stylesheet" href="assets/style.css">
+<script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
+<script src="assets/common.js"></script>
+<script src="assets/seasonality.js"></script>
+<script src="assets/heatmaps.js"></script>
+</head>
+<body data-page="shared-heatmaps">
+<header class="topbar">
+  <div class="brand">Denali <span>/</span> Analytics</div>
+  <nav><a href="index.html">Seasonality</a><a href="heatmaps.html" class="active">Heatmaps</a><a href="correlations.html">Correlation Heatmaps</a></nav>
+  <div class="asof">Private teammate view</div>
+</header>
+<main class="wrap">
+  <h1>Market Heatmap Inspector</h1>
+  <p class="sub">Explore how two point-in-time market states have related to a ticker's subsequent adjusted-price return. Cells with inadequate history remain blank.</p>
+  <div id="heatmap-app"><div class="spin">Loading heatmap inputs…</div></div>
+  <footer>Denali Asset Management · Internal analytical tool · Read-only</footer>
+</main>
+</body>
+</html>

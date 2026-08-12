@@ -539,11 +539,30 @@ footer { color: var(--faint); font-size: 11px; margin-top: 40px; border-top: 1px
 .seasonality-model-note { display: flex; gap: 10px; align-items: baseline; margin-bottom: 12px; }
 .seasonality-model-note b { color: var(--accent); white-space: nowrap; }
 .seasonality-model-note span { color: var(--muted); font-size: 12px; }
+.hm-method-note { display: flex; gap: 10px; align-items: baseline; margin: 12px 0; }
+.hm-method-note b { color: var(--accent); white-space: nowrap; }
+.hm-method-note span { color: var(--muted); font-size: 12px; }
+.hm-controls { margin-bottom: 8px; }
+.hm-control-grid { display: grid; grid-template-columns: repeat(4, minmax(150px, 1fr)); gap: 12px; align-items: end; }
+.hm-control-grid label { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
+.hm-control-grid label > span { color: var(--muted); font-size: 11.5px; }
+.hm-control-grid input, .hm-control-grid select {
+  width: 100%; background: var(--card2); color: var(--text); border: 1px solid var(--border);
+  border-radius: 7px; padding: 7px 9px; min-height: 34px; font-size: 12.5px; outline: none;
+}
+.hm-control-grid input:focus, .hm-control-grid select:focus { border-color: var(--accent); }
+.hm-control-grid .btn.primary { min-height: 36px; background: rgba(77,163,255,.15); border-color: rgba(77,163,255,.5); color: #dbeeff; font-weight: 700; }
+.hm-ticker-field label { display: flex; }
+.hm-chart-card { margin-top: 12px; padding: 10px; overflow: hidden; }
+.hm-chart-card h2 { margin: 2px 4px 4px; }
+.hm-main-chart { min-height: 610px; }
+.hm-corr-chart { min-height: 390px; }
 .strong { font-weight: 750; }
 
 @media (max-width: 1180px) {
   .seasonality-control-grid { grid-template-columns: repeat(3, minmax(150px, 1fr)); }
   .seasonality-distribution-grid { grid-template-columns: 1fr; }
+  .hm-control-grid { grid-template-columns: repeat(2, minmax(150px, 1fr)); }
 }
 @media (max-width: 700px) {
   .page-tabs { display: flex; }
@@ -552,6 +571,9 @@ footer { color: var(--faint); font-size: 11px; margin-top: 40px; border-top: 1px
   .seasonality-control-grid .range-control { grid-column: span 2; }
   .seasonality-main-chart { min-height: 520px; }
   .seasonality-model-note { align-items: flex-start; flex-direction: column; gap: 4px; }
+  .hm-method-note { align-items: flex-start; flex-direction: column; gap: 4px; }
+  .hm-control-grid { grid-template-columns: 1fr; }
+  .hm-main-chart { min-height: 520px; }
 }
 @media (max-width: 460px) {
   .seasonality-control-grid { grid-template-columns: 1fr; }

@@ -33,6 +33,11 @@ def test_builder_emits_only_share_allow_list(tmp_path: Path):
     assert manifest["ticker_count"] == 2
     assert (output / "index.html").is_file()
     assert (output / "assets/seasonality.js").is_file()
+    assert (output / "assets/heatmaps.js").is_file()
+    assert (output / "heatmaps.html").is_file()
+    assert (output / "correlations.html").is_file()
+    assert "heatmaps.js?v=" in (output / "heatmaps.html").read_text(encoding="utf-8")
+    assert "heatmaps.js?v=" in (output / "correlations.html").read_text(encoding="utf-8")
     assert (output / "data/seasonality/manifest.json").is_file()
     html = (output / "index.html").read_text(encoding="utf-8")
     assert "Forward Distributions" in html

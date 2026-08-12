@@ -50,6 +50,7 @@ function normalizeSeasonalityPayload(payload) {
       date: compactDate(payload.d[i]),
       close,
       atr: Number.isFinite(atrValue) && atrValue > 0 ? atrValue : null,
+      volume: Array.isArray(payload.v) && Number.isFinite(Number(payload.v[i])) ? Number(payload.v[i]) : null,
     });
   }
   rows.sort((a, b) => a.date.localeCompare(b.date));
@@ -58,24 +59,28 @@ function normalizeSeasonalityPayload(payload) {
 
 function decodeSeasonalityBuffer(buffer) {
   const view = new DataView(buffer);
-  if (view.byteLength < 8 || String.fromCharCode(...new Uint8Array(buffer, 0, 4)) !== "SLB1") {
+  const magic = view.byteLength < 4 ? "" : String.fromCharCode(...new Uint8Array(buffer, 0, 4));
+  if (view.byteLength < 8 || !["SLB1", "SLB2"].includes(magic)) {
     throw new Error("Malformed seasonality binary payload");
   }
   const count = view.getUint32(4, true);
-  const expected = 8 + count * 12;
+  const expected = 8 + count * (magic === "SLB2" ? 16 : 12);
   if (view.byteLength !== expected) throw new Error("Seasonality binary payload has an invalid length");
   const dayOffset = 8;
   const closeOffset = dayOffset + count * 4;
   const atrOffset = closeOffset + count * 4;
+  const volumeOffset = atrOffset + count * 4;
   const rows = new Array(count);
   for (let i = 0; i < count; i++) {
     const epochDay = view.getInt32(dayOffset + i * 4, true);
     const close = view.getFloat32(closeOffset + i * 4, true);
     const atr = view.getFloat32(atrOffset + i * 4, true);
+    const volume = magic === "SLB2" ? view.getFloat32(volumeOffset + i * 4, true) : null;
     rows[i] = {
       date: new Date(epochDay * 86400000).toISOString().slice(0, 10),
       close,
       atr: Number.isFinite(atr) && atr > 0 ? atr : null,
+      volume: Number.isFinite(volume) && volume >= 0 ? volume : null,
     };
   }
   return rows;

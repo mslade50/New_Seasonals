@@ -7,6 +7,7 @@ on:
       - 'shared_site/**'
       - 'site/assets/common.js'
       - 'site/assets/seasonality.js'
+      - 'site/assets/heatmaps.js'
       - 'site/assets/style.css'
       - 'scripts/build_shared_seasonals.py'
       - 'scripts/configure_shared_access.py'

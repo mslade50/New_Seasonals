@@ -40,6 +40,20 @@ const decoded = m.decodeSeasonalityBuffer(binary);
 assert.strictEqual(decoded[0].date, "2024-01-02");
 assert.strictEqual(decoded[0].atr, null);
 assert.strictEqual(decoded[2].close, 102);
+assert.strictEqual(decoded[2].volume, null);
+
+const binaryV2 = new ArrayBuffer(8 + 2 * 16);
+const binaryV2View = new DataView(binaryV2);
+for (const [i, char] of Array.from("SLB2").entries()) binaryV2View.setUint8(i, char.charCodeAt(0));
+binaryV2View.setUint32(4, 2, true);
+for (let i = 0; i < 2; i++) {
+  binaryV2View.setInt32(8 + i * 4, 19724 + i, true);
+  binaryV2View.setFloat32(8 + 8 + i * 4, 100 + i, true);
+  binaryV2View.setFloat32(8 + 16 + i * 4, 2, true);
+  binaryV2View.setFloat32(8 + 24 + i * 4, 1_000_000 + i, true);
+}
+const decodedV2 = m.decodeSeasonalityBuffer(binaryV2);
+assert.strictEqual(decodedV2[0].volume, 1_000_000);
 
 assert.strictEqual(m.recencyWeight(2004, 2024, 20), 0.5);
 assert.strictEqual(m.weightedMean([1, 3], [1, 1]), 2);

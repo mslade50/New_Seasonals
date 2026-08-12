@@ -19,7 +19,7 @@ import numpy as np
 import pandas as pd
 
 
-REQUIRED_COLUMNS = ("ticker", "date", "High", "Low", "Close")
+REQUIRED_COLUMNS = ("ticker", "date", "High", "Low", "Close", "Volume")
 THESIS_HORIZONS = (5, 10, 21)
 THESIS_SAME_CYCLE_WEIGHT = 0.70
 THESIS_RECENCY_HALF_LIFE = 20.0
@@ -39,24 +39,26 @@ def _write_json(payload: object, path: Path) -> None:
 
 
 def _write_binary(frame: pd.DataFrame, path: Path) -> None:
-    """Write SLB1: magic + count + int32 dates + float32 close + float32 ATR.
+    """Write SLB2: dates, adjusted close, ATR, and volume in columnar form.
 
     Dates are days since 1970-01-01 and all arrays are little-endian.  The
-    columnar 12-bytes/session representation is less than half the uncompressed
-    JSON size while retaining the source parquet's practical precision.
+    The 16-bytes/session representation retains the source parquet's practical
+    precision and adds volume for the browser-side heatmap inspector.
     """
     path.parent.mkdir(parents=True, exist_ok=True)
     days = ((frame["date"].values.astype("datetime64[D]") - np.datetime64("1970-01-01"))
             .astype("<i4"))
     closes = frame["Close"].to_numpy(dtype="<f4", copy=True)
     atrs = frame["ATR"].to_numpy(dtype="<f4", copy=True)
+    volumes = frame["Volume"].to_numpy(dtype="<f4", copy=True)
     count = np.asarray([len(frame)], dtype="<u4")
     with path.open("wb") as handle:
-        handle.write(b"SLB1")
+        handle.write(b"SLB2")
         handle.write(count.tobytes())
         handle.write(days.tobytes())
         handle.write(closes.tobytes())
         handle.write(atrs.tobytes())
+        handle.write(volumes.tobytes())
 
 
 def prepare_ticker_frame(frame: pd.DataFrame, atr_window: int = 14) -> pd.DataFrame:
@@ -65,9 +67,9 @@ def prepare_ticker_frame(frame: pd.DataFrame, atr_window: int = 14) -> pd.DataFr
     That page uses a simple 14-session rolling mean of true range.  This is
     intentionally different from the Wilder ATR used by the trade sizer.
     """
-    out = frame.loc[:, ["date", "High", "Low", "Close"]].copy()
+    out = frame.loc[:, ["date", "High", "Low", "Close", "Volume"]].copy()
     out["date"] = pd.to_datetime(out["date"], errors="coerce")
-    for column in ("High", "Low", "Close"):
+    for column in ("High", "Low", "Close", "Volume"):
         out[column] = pd.to_numeric(out[column], errors="coerce")
     out = (out.dropna(subset=["date", "High", "Low", "Close"])
            .sort_values("date")
@@ -75,6 +77,7 @@ def prepare_ticker_frame(frame: pd.DataFrame, atr_window: int = 14) -> pd.DataFr
            .reset_index(drop=True))
     if out.empty:
         return out
+    out["Volume"] = out["Volume"].fillna(0.0).clip(lower=0.0)
 
     previous_close = out["Close"].shift(1)
     upper = pd.concat([out["High"], previous_close], axis=1).max(axis=1)
@@ -371,7 +374,7 @@ def export_seasonality_snapshot(
         "asof": global_asof.strftime("%Y-%m-%d") if global_asof is not None else None,
         "history_floor": f"{int(min_year):04d}-01-01",
         "price_basis": "adjusted OHLCV from master_prices.parquet",
-        "encoding": "SLB1 columnar little-endian: int32 epoch-day, float32 close, float32 ATR",
+        "encoding": "SLB2 columnar little-endian: int32 epoch-day, float32 close, float32 ATR, float32 volume",
         "atr": {
             "window": int(atr_window),
             "method": "simple rolling mean of true range",
@@ -382,7 +385,7 @@ def export_seasonality_snapshot(
         "tickers": ticker_meta,
     }
     theses = {
-        "version": 1,
+        "version": 2,
         "asof": global_asof.strftime("%Y-%m-%d") if global_asof is not None else None,
         "methodology": {
             "cohorts": "70% same presidential-cycle years + 30% other-cycle years; disjoint cohorts",
