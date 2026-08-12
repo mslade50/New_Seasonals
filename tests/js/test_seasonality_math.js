@@ -95,6 +95,14 @@ assert.strictEqual(stats.n, 2);
 assert.strictEqual(stats.mean5, 2.5);
 assert.strictEqual(stats.positive5, 100);
 
+const noCrossYear = m.forwardSnapshots([
+  { year: 2025, day: 1, date: "2025-12-30", close: 100, atr: 2, dailyPct: 0.01 },
+  { year: 2025, day: 2, date: "2025-12-31", close: 101, atr: 2, dailyPct: 0.01 },
+  { year: 2026, day: 1, date: "2026-01-02", close: 110, atr: 2, dailyPct: 0.09 },
+], 1, 2026);
+assert.strictEqual(noCrossYear.length, 1);
+assert.strictEqual(noCrossYear[0].ret5, null);
+
 const rankRows = [];
 for (const year of [2020, 2021, 2022, 2023]) {
   for (let day = 1; day <= 35; day++) {

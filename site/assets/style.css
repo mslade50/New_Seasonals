@@ -519,10 +519,18 @@ footer { color: var(--faint); font-size: 11px; margin-top: 40px; border-top: 1px
 .seasonality-stats thead tr:first-child th { text-align: center; border-left: 1px solid var(--border); }
 .seasonality-stats thead tr:first-child th:first-child,
 .seasonality-stats thead tr:first-child th:nth-child(2) { border-left: 0; }
+.seasonality-result-tabs { margin: 18px 0 14px; }
+.seasonality-distribution-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.seasonality-distribution-grid h2 { margin: 2px 0; }
+.seasonality-distribution-chart { min-height: 310px; }
+.seasonality-model-note { display: flex; gap: 10px; align-items: baseline; margin-bottom: 12px; }
+.seasonality-model-note b { color: var(--accent); white-space: nowrap; }
+.seasonality-model-note span { color: var(--muted); font-size: 12px; }
 .strong { font-weight: 750; }
 
 @media (max-width: 1180px) {
   .seasonality-control-grid { grid-template-columns: repeat(3, minmax(150px, 1fr)); }
+  .seasonality-distribution-grid { grid-template-columns: 1fr; }
 }
 @media (max-width: 700px) {
   .page-tabs { display: flex; }
@@ -530,6 +538,7 @@ footer { color: var(--faint); font-size: 11px; margin-top: 40px; border-top: 1px
   .seasonality-control-grid { grid-template-columns: 1fr 1fr; }
   .seasonality-control-grid .range-control { grid-column: span 2; }
   .seasonality-main-chart { min-height: 520px; }
+  .seasonality-model-note { align-items: flex-start; flex-direction: column; gap: 4px; }
 }
 @media (max-width: 460px) {
   .seasonality-control-grid { grid-template-columns: 1fr; }

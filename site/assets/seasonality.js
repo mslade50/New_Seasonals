@@ -206,7 +206,7 @@ function rankProfileFor(rows, rowSelector, cutoffYear, halfLife, maxDay) {
       const row = rows[i];
       if (!rowSelector(row)) continue;
       const future = rows[i + horizon];
-      if (!future || !isFiniteNumber(row.close) || !isFiniteNumber(future.close)) continue;
+      if (!future || future.year !== row.year || !isFiniteNumber(row.close) || !isFiniteNumber(future.close)) continue;
       const value = Math.log(future.close / row.close);
       const weight = recencyWeight(row.year, cutoffYear, halfLife);
       const agg = grouped.get(row.day) || { numerator: 0, denominator: 0 };
@@ -329,10 +329,11 @@ function forwardSnapshots(rows, markerDay, cutoffYear) {
     if (row.day !== markerDay || row.year >= cutoffYear || !isFiniteNumber(row.atr) || row.atr <= 0) continue;
     const record = { year: row.year, entryDate: row.date, entry: row.close };
     for (const horizon of SEASONAL_HORIZONS) {
-      const future = rows[i + horizon];
+      const candidate = rows[i + horizon];
+      const future = candidate && candidate.year === row.year ? candidate : null;
       record[`date${horizon}`] = future ? future.date : "";
       record[`ret${horizon}`] = future ? (future.close - row.close) / row.atr : null;
-      const daily = rows.slice(i + 1, i + horizon + 1).map(item => item.dailyPct);
+      const daily = future ? rows.slice(i + 1, i + horizon + 1).map(item => item.dailyPct) : [];
       const std = daily.length === horizon ? sampleStd(daily) : null;
       record[`rv${horizon}`] = std == null ? null : std * Math.sqrt(252) * 100;
     }
@@ -436,6 +437,8 @@ function analyzeSeasonality(rows, options) {
     dateMap: buildDateMap(rows, markerYear),
     statsAll: calculateStats(snapshots, cutoffYear, halfLife),
     statsCycle: calculateStats(cycleSnapshots, cutoffYear, halfLife),
+    snapshotsAll: snapshots.slice().sort((a, b) => b.year - a.year),
+    snapshotsCycle: cycleSnapshots.slice().sort((a, b) => b.year - a.year),
     snapshots: cycleSnapshots.slice().sort((a, b) => b.year - a.year),
     yearPaths,
     similarity: pathSimilarity(yearPaths, currentYear, markerDay),
@@ -489,11 +492,15 @@ async function initSeasonalityLab() {
 
 function seasonalityControls(manifest, tickers, referenceMin, currentYear) {
   const options = tickers.map(ticker => `<option value="${labEsc(ticker)}"></option>`).join("");
+  const quickOptions = tickers.map(ticker =>
+    `<option value="${labEsc(ticker)}">${labEsc(ticker)}</option>`).join("");
   const cycle = defaultCycle();
   return `<div class="seasonality-controls card">
     <div class="seasonality-control-grid">
       <label><span>Ticker</span><input id="sl-ticker" list="sl-tickers" value="SPY" autocomplete="off"
         spellcheck="false" aria-describedby="sl-ticker-help"><datalist id="sl-tickers">${options}</datalist></label>
+      <label><span>Quick ticker</span><select id="sl-quick-ticker" aria-label="Choose a ticker to prefill">
+        <option value="">Select to prefill…</option>${quickOptions}</select></label>
       <label><span>Cycle type</span><select id="sl-cycle">
         ${["All Years", "Election", "Pre-Election", "Post-Election", "Midterm"].map(value =>
           `<option${value === cycle ? " selected" : ""}>${value}</option>`).join("")}
@@ -522,6 +529,11 @@ function wireSeasonalityControls(root, manifest, cache) {
   byId("sl-time").addEventListener("change", event => { byId("sl-reference").disabled = !event.target.checked; });
   byId("sl-fast").addEventListener("change", event => { byId("sl-day").disabled = !event.target.checked; });
   byId("sl-half").addEventListener("input", event => { byId("sl-half-value").textContent = event.target.value; });
+  byId("sl-quick-ticker").addEventListener("change", event => {
+    if (!event.target.value) return;
+    byId("sl-ticker").value = event.target.value;
+    byId("sl-run").click();
+  });
   byId("sl-ticker").addEventListener("keydown", event => {
     if (event.key === "Enter") { event.preventDefault(); byId("sl-run").click(); }
   });
@@ -572,7 +584,9 @@ function wireSeasonalityControls(root, manifest, cache) {
 
 function renderSeasonalityResults(root, ticker, options, analysis) {
   const cycleLabel = options.cycle === "All Years" ? "All Years" : `${options.cycle} Cycle`;
-  root.innerHTML = `<div class="kpis seasonality-kpis">
+  const paths = `<div class="card seasonality-model-note"><b>Model sample: pre-${analysis.cutoffYear}</b>
+      <span>${analysis.currentYear} is shown only as a separately labeled realized YTD overlay; it is not blended into the model path.</span></div>
+    <div class="kpis seasonality-kpis">
       ${labKpi("Last close", analysis.currentPrice == null ? "—" : `$${analysis.currentPrice.toFixed(2)}`, analysis.lastDate || "")}
       ${labKpi("ATR (14)", analysis.currentAtr == null ? "—" : `$${analysis.currentAtr.toFixed(2)}`,
         analysis.currentAtrPct == null ? "" : `${analysis.currentAtrPct.toFixed(2)}% of price`)}
@@ -590,12 +604,79 @@ function renderSeasonalityResults(root, ticker, options, analysis) {
     <h2>Cycle-year analogs <span class="cap" style="display:inline">actual dates &amp; forward ATR performance</span></h2>
     <div class="card">${analogTable(options, analysis)}</div>`;
 
+  const distributions = `<div class="card seasonality-model-note"><b>Historical model only</b>
+      <span>These distributions use completed observations before ${analysis.cutoffYear}; ${analysis.currentYear} prices are excluded.</span></div>
+    <div class="seasonality-distribution-grid">${SEASONAL_HORIZONS.map(horizon =>
+      `<div class="card seasonality-chart-card"><h2>${horizon}-session forward return</h2>
+        <div class="cap">ATR units at the selected trading-day anchor</div>
+        <div id="sl-dist-${horizon}" class="chart seasonality-distribution-chart"></div></div>`).join("")}</div>
+    <div class="card">${statsTable(options, analysis)}</div>
+    <p class="cap">Histograms show raw completed analog observations; the summary table applies the selected recency half-life.</p>`;
+
+  const sharedTabs = document.body.dataset.page === "shared-seasonality";
+  root.innerHTML = sharedTabs ? `<div class="page-tabs seasonality-result-tabs" role="tablist" aria-label="Seasonality results">
+      <button class="on" data-sl-result-view="paths" role="tab" aria-selected="true">Seasonal paths</button>
+      <button data-sl-result-view="distributions" role="tab" aria-selected="false">Distributions</button>
+    </div>
+    <section id="sl-result-paths" role="tabpanel">${paths}</section>
+    <section id="sl-result-distributions" role="tabpanel" hidden>${distributions}</section>` : paths;
+
   if (typeof Plotly === "undefined") {
     root.querySelector("#sl-main-chart").innerHTML = '<div class="fetchfail">Plotly did not load, so charts are unavailable.</div>';
     return;
   }
   renderMainSeasonalityChart(ticker, options, analysis);
   if (options.cycle !== "All Years") renderCycleChart(options, analysis);
+  if (sharedTabs) {
+    renderDistributionCharts(options, analysis);
+    root.querySelectorAll("[data-sl-result-view]").forEach(button => button.addEventListener("click", () => {
+      const view = button.dataset.slResultView;
+      root.querySelectorAll("[data-sl-result-view]").forEach(candidate => {
+        const active = candidate === button;
+        candidate.classList.toggle("on", active);
+        candidate.setAttribute("aria-selected", active ? "true" : "false");
+      });
+      root.querySelector("#sl-result-paths").hidden = view !== "paths";
+      root.querySelector("#sl-result-distributions").hidden = view !== "distributions";
+      if (view === "distributions") {
+        SEASONAL_HORIZONS.forEach(horizon => Plotly.Plots.resize(`sl-dist-${horizon}`));
+      }
+    }));
+  }
+}
+
+function renderDistributionCharts(options, analysis) {
+  const sameCycle = analysis.snapshotsCycle;
+  const otherCycle = analysis.snapshotsAll.filter(row => !isCycleYear(row.year, options.cycle));
+  for (const horizon of SEASONAL_HORIZONS) {
+    const traces = options.cycle === "All Years"
+      ? [distributionTrace(analysis.snapshotsAll, horizon, "All history", "#4da3ff")]
+      : [
+        distributionTrace(sameCycle, horizon, `${options.cycle} years`, "#ff8c00"),
+        distributionTrace(otherCycle, horizon, "Other cycle years", "#4da3ff"),
+      ];
+    Plotly.newPlot(`sl-dist-${horizon}`, traces.filter(trace => trace.x.length), plotLayout({
+      height: 310,
+      margin: { l: 48, r: 12, t: 28, b: 42 },
+      barmode: "overlay",
+      bargap: 0.08,
+      xaxis: { title: "Forward return (ATR)", gridcolor: "#1c2230", zeroline: true, zerolinecolor: "#c7ccd6" },
+      yaxis: { title: "Share of observations", tickformat: ".0%", gridcolor: "#1c2230" },
+      legend: { orientation: "h", y: 1.12, x: 0, xanchor: "left" },
+    }), PLOT_CFG);
+  }
+}
+
+function distributionTrace(records, horizon, name, color) {
+  return {
+    x: records.map(row => row[`ret${horizon}`]).filter(isFiniteNumber),
+    type: "histogram",
+    histnorm: "probability",
+    name,
+    opacity: 0.68,
+    marker: { color, line: { color: "#0f131c", width: 0.5 } },
+    hovertemplate: `Return: %{x:.2f} ATR<br>Share: %{y:.1%}<extra>${labEsc(name)}</extra>`,
+  };
 }
 
 function labKpi(label, value, sub) {

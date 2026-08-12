@@ -34,6 +34,9 @@ def test_builder_emits_only_share_allow_list(tmp_path: Path):
     assert (output / "index.html").is_file()
     assert (output / "assets/seasonality.js").is_file()
     assert (output / "data/seasonality/manifest.json").is_file()
+    html = (output / "index.html").read_text(encoding="utf-8")
+    assert "Forward Distributions" in html
+    assert "exclude the current" in html
     assert not (output / "data/trades.json").exists()
     assert not (output / "execution.html").exists()
     validate_shared_output(output)
