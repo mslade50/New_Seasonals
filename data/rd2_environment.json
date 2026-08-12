@@ -2,19 +2,19 @@
   "date": "2026-08-12",
   "price_ctx": {
     "price": 770.5599975585938,
-    "ret_12m": 0.22515098400405087,
-    "extension_200d": 0.09890485561822682,
+    "ret_12m": 0.22515110289611573,
+    "extension_200d": 0.09890485418344785,
     "drawdown": -0.003491726163169395,
-    "sma_200": 701.2072006225586,
+    "sma_200": 701.2072015380859,
     "high_52w": 773.260009765625,
     "regime_label": "Extended uptrend, stretched above trend",
     "days_since_5pct": 89,
     "days_since_10pct": 325
   },
   "h_scores": {
-    "5d": 8.895249183954608,
-    "21d": 66.53472022554163,
-    "63d": 90.35363728305126
+    "5d": 26.5647017642832,
+    "21d": 78.98233140323495,
+    "63d": 95.54597298519828
   },
   "signals": {
     "Distribution Dominance": {
@@ -25,12 +25,12 @@
     "VIX Range Compression": {
       "on": false,
       "detail": "",
-      "summary": "21d range: 35th pctile (fires below 15th) \u2014 VIX at 15.3"
+      "summary": "21d range: 35th pctile (fires below 15th) \u2014 VIX at 15.4"
     },
     "Defensive Leadership": {
-      "on": true,
-      "detail": "DIRE: Risk-off leading on BOTH timeframes while SPY within 1% of 52w high. 50d spread: -10pp | 200d spread: -2pp. Institutional rotation to safety at all-time highs \u2014 consider 3-month put / put-spread.",
-      "summary": "50d spread: -10pp (fires < -10) | 200d spread: -2pp (fires < 0) \u2014 DIRE: within 1% of highs"
+      "on": false,
+      "detail": "",
+      "summary": "50d spread: +1pp (fires < -10) | 200d spread: +8pp (fires < 0)"
     },
     "Pre-FOMC Rally": {
       "on": false,
@@ -38,9 +38,9 @@
       "summary": "Next FOMC: Sep 16 (36d away) \u2014 5d return: 38th pctile (outside window)"
     },
     "Low Absorption Ratio": {
-      "on": false,
-      "detail": "",
-      "summary": "AR: 0.381 (13th pctile, fires below 10th) \u2014 near high: yes"
+      "on": true,
+      "detail": "Absorption Ratio at 0.313 (2th percentile) \u2014 below 10th threshold. Sectors moving independently while SPY near 52w high \u2014 vol suppression through diversification. Historically precedes below-average forward returns.",
+      "summary": "AR: 0.313 (2th pctile, fires below 10th) \u2014 near high: yes"
     },
     "Seasonal Rank Divergence": {
       "on": false,
@@ -50,7 +50,7 @@
     "Dispersion": {
       "on": false,
       "detail": "",
-      "summary": "Composite pctile: 81th (fires above 85th) \u2014 component RV: 37.4% | SPY RV: 13.8%"
+      "summary": "Composite pctile: 81th (fires above 85th) \u2014 component RV: 37.5% | SPY RV: 13.8%"
     },
     "Equity P/C Complacency": {
       "on": false,
