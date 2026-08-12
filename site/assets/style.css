@@ -491,6 +491,19 @@ footer { color: var(--faint); font-size: 11px; margin-top: 40px; border-top: 1px
 }
 .seasonality-control-grid label { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
 .seasonality-control-grid label > span { color: var(--muted); font-size: 11.5px; }
+.seasonality-ticker-combobox { position: relative; min-width: 0; }
+.seasonality-ticker-options {
+  position: absolute; z-index: 30; top: calc(100% + 5px); left: 0; right: 0;
+  max-height: 250px; overflow-y: auto; padding: 4px; background: #151b27;
+  border: 1px solid var(--border); border-radius: 7px; box-shadow: 0 12px 28px rgba(0,0,0,.42);
+}
+.seasonality-ticker-options[hidden] { display: none; }
+.seasonality-ticker-options button {
+  display: block; width: 100%; padding: 7px 9px; border: 0; border-radius: 5px;
+  background: transparent; color: var(--text); text-align: left; cursor: pointer; font: 600 12.5px inherit;
+}
+.seasonality-ticker-options button:hover,
+.seasonality-ticker-options button.on { background: rgba(77,163,255,.16); color: #dbeeff; }
 .seasonality-control-grid input:not([type="checkbox"]):not([type="range"]),
 .seasonality-control-grid select {
   width: 100%; background: var(--card2); color: var(--text); border: 1px solid var(--border);

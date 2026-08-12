@@ -491,16 +491,15 @@ async function initSeasonalityLab() {
 }
 
 function seasonalityControls(manifest, tickers, referenceMin, currentYear) {
-  const options = tickers.map(ticker => `<option value="${labEsc(ticker)}"></option>`).join("");
-  const quickOptions = tickers.map(ticker =>
-    `<option value="${labEsc(ticker)}">${labEsc(ticker)}</option>`).join("");
   const cycle = defaultCycle();
   return `<div class="seasonality-controls card">
     <div class="seasonality-control-grid">
-      <label><span>Ticker</span><input id="sl-ticker" list="sl-tickers" value="SPY" autocomplete="off"
-        spellcheck="false" aria-describedby="sl-ticker-help"><datalist id="sl-tickers">${options}</datalist></label>
-      <label><span>Quick ticker</span><select id="sl-quick-ticker" aria-label="Choose a ticker to prefill">
-        <option value="">Select to prefill…</option>${quickOptions}</select></label>
+      <div class="seasonality-ticker-combobox">
+        <label><span>Ticker</span><input id="sl-ticker" value="SPY" autocomplete="off" spellcheck="false"
+          role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="sl-ticker-options"
+          aria-describedby="sl-ticker-help"></label>
+        <div id="sl-ticker-options" class="seasonality-ticker-options" role="listbox" hidden></div>
+      </div>
       <label><span>Cycle type</span><select id="sl-cycle">
         ${["All Years", "Election", "Pre-Election", "Post-Election", "Midterm"].map(value =>
           `<option${value === cycle ? " selected" : ""}>${value}</option>`).join("")}
@@ -526,16 +525,84 @@ function seasonalityControls(manifest, tickers, referenceMin, currentYear) {
 
 function wireSeasonalityControls(root, manifest, cache) {
   const byId = id => root.querySelector(`#${id}`);
+  const tickerInput = byId("sl-ticker");
+  const tickerOptions = byId("sl-ticker-options");
+  const tickers = Object.keys(manifest.tickers).sort();
+  let activeTickerIndex = -1;
+
+  function closeTickerOptions() {
+    tickerOptions.hidden = true;
+    tickerOptions.innerHTML = "";
+    tickerInput.setAttribute("aria-expanded", "false");
+    activeTickerIndex = -1;
+  }
+
+  function chooseTicker(ticker) {
+    tickerInput.value = ticker;
+    closeTickerOptions();
+    tickerInput.focus();
+  }
+
+  function showTickerOptions() {
+    const query = tickerInput.value.trim().toUpperCase();
+    if (!query) {
+      closeTickerOptions();
+      return;
+    }
+    const prefix = tickers.filter(ticker => ticker.startsWith(query));
+    const contains = prefix.length >= 12 ? [] : tickers.filter(ticker =>
+      !ticker.startsWith(query) && ticker.includes(query));
+    const matches = prefix.concat(contains).slice(0, 12);
+    if (!matches.length || (matches.length === 1 && matches[0] === query)) {
+      closeTickerOptions();
+      return;
+    }
+    tickerOptions.innerHTML = matches.map(ticker =>
+      `<button type="button" role="option" data-ticker="${labEsc(ticker)}" aria-selected="false">${labEsc(ticker)}</button>`
+    ).join("");
+    tickerOptions.hidden = false;
+    tickerInput.setAttribute("aria-expanded", "true");
+    activeTickerIndex = -1;
+    tickerOptions.querySelectorAll("button").forEach(button => {
+      button.addEventListener("mousedown", event => event.preventDefault());
+      button.addEventListener("click", () => chooseTicker(button.dataset.ticker));
+    });
+  }
+
+  function moveTickerSelection(direction) {
+    const buttons = Array.from(tickerOptions.querySelectorAll("button"));
+    if (!buttons.length) return;
+    activeTickerIndex = (activeTickerIndex + direction + buttons.length) % buttons.length;
+    buttons.forEach((button, index) => {
+      const active = index === activeTickerIndex;
+      button.classList.toggle("on", active);
+      button.setAttribute("aria-selected", active ? "true" : "false");
+    });
+    buttons[activeTickerIndex].scrollIntoView({ block: "nearest" });
+  }
+
   byId("sl-time").addEventListener("change", event => { byId("sl-reference").disabled = !event.target.checked; });
   byId("sl-fast").addEventListener("change", event => { byId("sl-day").disabled = !event.target.checked; });
   byId("sl-half").addEventListener("input", event => { byId("sl-half-value").textContent = event.target.value; });
-  byId("sl-quick-ticker").addEventListener("change", event => {
-    if (!event.target.value) return;
-    byId("sl-ticker").value = event.target.value;
-    byId("sl-run").click();
+  tickerInput.addEventListener("input", () => {
+    tickerInput.value = tickerInput.value.toUpperCase();
+    showTickerOptions();
   });
-  byId("sl-ticker").addEventListener("keydown", event => {
-    if (event.key === "Enter") { event.preventDefault(); byId("sl-run").click(); }
+  tickerInput.addEventListener("focus", showTickerOptions);
+  tickerInput.addEventListener("blur", () => window.setTimeout(closeTickerOptions, 100));
+  tickerInput.addEventListener("keydown", event => {
+    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+      event.preventDefault();
+      if (tickerOptions.hidden) showTickerOptions();
+      moveTickerSelection(event.key === "ArrowDown" ? 1 : -1);
+    } else if (event.key === "Enter") {
+      event.preventDefault();
+      const selected = tickerOptions.querySelector("button.on");
+      if (selected) chooseTicker(selected.dataset.ticker);
+      else byId("sl-run").click();
+    } else if (event.key === "Escape") {
+      closeTickerOptions();
+    }
   });
   byId("sl-run").addEventListener("click", async () => {
     const ticker = byId("sl-ticker").value.trim().toUpperCase();

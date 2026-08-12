@@ -37,6 +37,9 @@ def test_builder_emits_only_share_allow_list(tmp_path: Path):
     html = (output / "index.html").read_text(encoding="utf-8")
     assert "Forward Distributions" in html
     assert "exclude the current" in html
+    js = (output / "assets/seasonality.js").read_text(encoding="utf-8")
+    assert "sl-ticker-options" in js
+    assert "sl-quick-ticker" not in js
     assert not (output / "data/trades.json").exists()
     assert not (output / "execution.html").exists()
     validate_shared_output(output)
