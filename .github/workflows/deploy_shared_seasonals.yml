@@ -1,0 +1,60 @@
+name: Deploy Shared Seasonality Site
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'shared_site/**'
+      - 'site/assets/common.js'
+      - 'site/assets/seasonality.js'
+      - 'site/assets/style.css'
+      - 'scripts/build_shared_seasonals.py'
+      - 'scripts/configure_shared_access.py'
+      - '.github/workflows/deploy_shared_seasonals.yml'
+  workflow_call:
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-shared-seasonality-site
+  cancel-in-progress: false
+
+jobs:
+  build-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Pull adjusted master-price snapshot
+        env:
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+        run: python -c "from cache_io import download_to_local; download_to_local('master_prices.parquet', 'data/master_prices.parquet')"
+
+      - name: Build isolated shared site
+        run: python scripts/build_shared_seasonals.py
+
+      - name: Verify production and preview Access policies
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: python scripts/configure_shared_access.py
+
+      - name: Deploy to Cloudflare Pages
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: pages deploy . --cwd=dist-shared --project-name=denali-seasonality --branch=main

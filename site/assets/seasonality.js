@@ -475,7 +475,7 @@ async function initSeasonalityLab() {
   const manifest = await fetchJSONOrNull("data/seasonality/manifest.json");
   if (!manifest || !manifest.tickers) {
     root.innerHTML = '<div class="fetchfail">Seasonality inputs are not present in this build. ' +
-      "The signals and sizer remain available; rebuild the site locally with the master-price snapshot to enable this lab.</div>";
+      "Try again after the next data refresh.</div>";
     return;
   }
   const tickers = Object.keys(manifest.tickers).sort();

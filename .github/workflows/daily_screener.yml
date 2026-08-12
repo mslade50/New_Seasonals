@@ -181,3 +181,11 @@ jobs:
     needs: run-scanner
     uses: ./.github/workflows/deploy_site.yml
     secrets: inherit
+
+  deploy-shared-seasonals:
+    # Rebuild the teammate-safe Seasonality site from the same fresh price
+    # snapshot. The dedicated builder has a strict output allow-list and never
+    # packages portfolio, order, execution, or research data.
+    needs: run-scanner
+    uses: ./.github/workflows/deploy_shared_seasonals.yml
+    secrets: inherit
