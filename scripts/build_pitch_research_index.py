@@ -26,8 +26,21 @@ RESEARCH_DIR = ROOT / "scratch" / "ultracode_research"
 REGISTRY_PATH = ROOT / "data" / "pitch_negative_registry.md"
 DEFAULT_OUT = ROOT / "data" / "pitch_research_index.json"
 
-# Registry entries are "- **slug** — text (cite)" bullets under ## sections.
-_BULLET = re.compile(r"^\s*[-*]\s+\*\*(?P<key>[^*]+)\*\*\s*[—:-]\s*(?P<body>.+)$")
+# Registry entries are bold-key bullets under ## sections, in two styles the
+# file has used over time:
+#   - **slug** — text (cite)                     one line, up to 2026-08-07
+#   - **A whole sentence.**                      key alone, body on the next
+#     body continues here, indented              lines, from 2026-08-10
+# Only the first style was matched until 2026-08-13, so four mornings of
+# entries (08-10, 08-11, 08-12 and the day this was found) parsed to nothing
+# and never reached the state file's inlined copy that stage B reads. Each
+# bullet is now COLLAPSED to one line before matching, because a bold key that
+# wraps across two source lines is common in the newer style and would
+# otherwise leave the `**` span unclosed on the line the regex sees.
+_BULLET_START = re.compile(r"^\s*[-*]\s+\*\*")
+_BULLET = re.compile(r"^\s*[-*]\s+\*\*(?P<key>[^*]+)\*\*(?P<rest>.*)$")
+_BULLET_SEP = re.compile(r"^\s*[—:-]\s*")
+_CONTINUATION = re.compile(r"^\s+\S")
 
 
 def _title_and_lede(path: Path) -> tuple[str, str]:
@@ -70,17 +83,37 @@ def parse_registry(path: Path = REGISTRY_PATH) -> list[dict]:
     """Flat list of dead ends from the negative-results registry."""
     if not path.exists():
         return []
-    entries, section = [], ""
+    entries: list[dict] = []
+    section = ""
+    block: list[str] = []
+
+    def flush() -> None:
+        nonlocal block
+        if block:
+            match = _BULLET.match(" ".join(block))
+            if match:
+                entries.append({
+                    "section": section,
+                    "key": match.group("key").strip().rstrip(".").strip(),
+                    "why_dead": _BULLET_SEP.sub("", match.group("rest")).strip(),
+                })
+        block = []
+
     for raw in path.read_text(encoding="utf-8", errors="replace").splitlines():
         line = raw.rstrip()
         if line.startswith("##"):
+            flush()
             section = line.lstrip("#").strip()
             continue
-        match = _BULLET.match(line)
-        if match:
-            entries.append({"section": section,
-                            "key": match.group("key").strip(),
-                            "why_dead": match.group("body").strip()})
+        if _BULLET_START.match(line):
+            flush()
+            block = [line.strip()]
+            continue
+        if block and _CONTINUATION.match(line):
+            block.append(line.strip())
+            continue
+        flush()
+    flush()
     return entries
 
 

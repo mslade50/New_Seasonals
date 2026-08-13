@@ -1,0 +1,467 @@
+JH anchors: 26 2000-08-10 .. 2025-08-07
+weekdays: [2, 3]
+midterm anchors N=6: [2002, 2006, 2010, 2014, 2018, 2022]
+
+==============================================================================
+
+##### C4a  LONG TLT into JH  (h=10 td, entry lag=1) #####
+legs=[('TLT', 1.0)]  trigger span 2002-08-15 .. 2025-08-07
+
+=== 1. conditional vs controls ===
+                           label    n  mean_pct  median_pct    hit     t  worst_pct  best_pct  sd_pct
+           COND day-level (N=24)   24     1.162       1.297 70.833 2.866     -2.769     5.033   1.987
+            COND episodes (N=24)   24     1.162       1.297 70.833 2.866     -2.769     5.033   1.987
+     CTRL-a own drift, same span 5764     0.168       0.197 53.400 4.848    -10.630    15.886   2.633
+   CTRL-b all days, full history 6018     0.163       0.180 53.057 4.870    -10.630    15.886   2.603
+CTRL-c local +/-126td ex-trigger 5868     0.172       0.193 53.374 5.022    -10.630    15.886   2.619
+  COND day-level, lag=0 (no-lag)   24     1.296       1.513 75.000 2.696     -3.660     7.315   2.355
+  episode-vs-control diff = +0.994%  welch t = +2.44   bootstrap P(mean<=0) = 0.001   record 17-7, sign p = 0.0320
+  concentration: top2 episodes ['2012-08-16', '2019-08-08'] = +9.25pp of +27.89pp total (33%); best yrs {2012: 5.0, 2019: 4.2}
+
+=== 2+3. episode era split (pre-2018 / 2018+) ===
+   label  n  mean_pct  median_pct   hit     t  worst_pct  best_pct  sd_pct
+pre-2018 16     1.448       1.772 81.25 2.912     -2.769     5.033   1.989
+   2018+  8     0.590       0.228 50.00 0.842     -1.670     4.220   1.982
+
+===   day-level era split (for contrast) ===
+   label  n  mean_pct  median_pct   hit     t  worst_pct  best_pct  sd_pct
+pre-2018 16     1.448       1.772 81.25 2.912     -2.769     5.033   1.989
+   2018+  8     0.590       0.228 50.00 0.842     -1.670     4.220   1.982
+  worst episode window: -2.77%  on 2013-08-08   |  worst day-level: -2.77%
+  episode dates: 2002-08-15, 2003-08-14, 2004-08-12, 2005-08-11, 2006-08-10, 2007-08-16, 2008-08-07, 2009-08-06, 2010-08-12, 2011-08-11, 2012-08-16, 2013-08-08, 2014-08-07, 2015-08-13, 2016-08-11, 2017-08-10, 2018-08-09, 2019-08-08, 2020-08-12, 2021-08-12, 2022-08-11, 2023-08-10, 2024-08-08, 2025-08-07
+
+5. cost: 1 leg(s) x ~2.0 bps round trip = 2.0 bps. episode mean 1.162% = 116.2 bps -> 58.1x cost (need >=5x)
+
+=== 6. cpi+ppi+nfp-in-hold split (episodes) ===
+                       label  n  mean_pct  median_pct    hit     t  worst_pct  best_pct  sd_pct
+cpi+ppi+nfp IN window (N=14) 14     1.200       1.388 71.429 2.198     -2.769     4.220   2.042
+      cpi+ppi+nfp OUT (N=10) 10     1.109       1.027 70.000 1.742     -1.670     5.033   2.014
+
+=== MANDATORY cycle-year split :: C4a  LONG TLT into JH ===
+             label  n  mean_pct  median_pct    hit     t  worst_pct  best_pct  sd_pct
+     ALL JH (N=24) 24     1.162       1.297 70.833 2.866     -2.769     5.033   1.987
+     MIDTERM (N=6)  6     1.495       1.954 83.333 2.199     -1.670     2.992   1.665
+NON-midterm (N=18) 18     1.051       0.939 66.667 2.109     -2.769     5.033   2.115
+  all  record 17-7  sign p=0.0320  mean +1.162%
+  mid  record 5-1  sign p=0.1094  mean +1.495%
+  non  record 12-6  sign p=0.1189  mean +1.051%
+
+  per-event:
+ year     anchor  ret_pct   mid
+ 2002 2002-08-15     2.37  True
+ 2003 2003-08-14     2.01 False
+ 2004 2004-08-12     0.21 False
+ 2005 2005-08-11     1.24 False
+ 2006 2006-08-10     2.39  True
+ 2007 2007-08-16     2.41 False
+ 2008 2008-08-07     1.17 False
+ 2009 2009-08-06     3.62 False
+ 2010 2010-08-12     2.99  True
+ 2011 2011-08-11     2.77 False
+ 2012 2012-08-16     5.03 False
+ 2013 2013-08-08    -2.77 False
+ 2014 2014-08-07     1.53  True
+ 2015 2015-08-13    -1.29 False
+ 2016 2016-08-11    -1.23 False
+ 2017 2017-08-10     0.70 False
+ 2018 2018-08-09     1.35  True
+ 2019 2019-08-08     4.22 False
+ 2020 2020-08-12    -1.57 False
+ 2021 2021-08-12     0.61 False
+ 2022 2022-08-11    -1.67  True
+ 2023 2023-08-10    -0.16 False
+ 2024 2024-08-08     2.21 False
+ 2025 2025-08-07    -0.27 False
+  drop best  -> mean +0.994%
+  drop best2 -> mean +0.847%
+  drop worst -> mean +1.333%
+  MIDTERM drop best -> +1.195% ; drop best2 -> +0.897%
+  h= 5: all N=24 +1.015% | mid N=6 +1.041%
+  h= 9: all N=24 +1.048% | mid N=6 +1.618%
+  h=10: all N=24 +1.162% | mid N=6 +1.495%
+
+==============================================================================
+
+##### C4a' LONG IEF into JH  (h=10 td, entry lag=1) #####
+legs=[('IEF', 1.0)]  trigger span 2002-08-15 .. 2025-08-07
+
+=== 1. conditional vs controls ===
+                           label    n  mean_pct  median_pct    hit     t  worst_pct  best_pct  sd_pct
+           COND day-level (N=24)   24     0.416       0.416 70.833 2.027     -1.939     2.127   1.005
+            COND episodes (N=24)   24     0.416       0.416 70.833 2.027     -1.939     2.127   1.005
+     CTRL-a own drift, same span 5764     0.144       0.154 55.465 8.486     -5.121     6.589   1.287
+   CTRL-b all days, full history 6018     0.140       0.146 55.334 8.555     -5.121     6.589   1.272
+CTRL-c local +/-126td ex-trigger 5868     0.146       0.154 55.539 8.747     -5.121     6.589   1.280
+  COND day-level, lag=0 (no-lag)   24     0.459       0.624 75.000 2.209     -2.420     2.478   1.017
+  episode-vs-control diff = +0.272%  welch t = +1.32   bootstrap P(mean<=0) = 0.020   record 17-7, sign p = 0.0320
+  concentration: top2 episodes ['2012-08-16', '2009-08-06'] = +4.24pp of +9.98pp total (42%); best yrs {2012: 2.1, 2009: 2.1}
+
+=== 2+3. episode era split (pre-2018 / 2018+) ===
+   label  n  mean_pct  median_pct   hit     t  worst_pct  best_pct  sd_pct
+pre-2018 16     0.547       0.488 81.25 2.134     -1.939     2.127   1.025
+   2018+  8     0.154       0.170 50.00 0.447     -1.630     1.471   0.976
+
+===   day-level era split (for contrast) ===
+   label  n  mean_pct  median_pct   hit     t  worst_pct  best_pct  sd_pct
+pre-2018 16     0.547       0.488 81.25 2.134     -1.939     2.127   1.025
+   2018+  8     0.154       0.170 50.00 0.447     -1.630     1.471   0.976
+  worst episode window: -1.94%  on 2013-08-08   |  worst day-level: -1.94%
+  episode dates: 2002-08-15, 2003-08-14, 2004-08-12, 2005-08-11, 2006-08-10, 2007-08-16, 2008-08-07, 2009-08-06, 2010-08-12, 2011-08-11, 2012-08-16, 2013-08-08, 2014-08-07, 2015-08-13, 2016-08-11, 2017-08-10, 2018-08-09, 2019-08-08, 2020-08-12, 2021-08-12, 2022-08-11, 2023-08-10, 2024-08-08, 2025-08-07
+
+5. cost: 1 leg(s) x ~2.0 bps round trip = 2.0 bps. episode mean 0.416% = 41.6 bps -> 20.8x cost (need >=5x)
+
+=== 6. cpi+ppi+nfp-in-hold split (episodes) ===
+                       label  n  mean_pct  median_pct    hit     t  worst_pct  best_pct  sd_pct
+cpi+ppi+nfp IN window (N=14) 14     0.443       0.482 78.571 1.672     -1.939     2.111   0.992
+      cpi+ppi+nfp OUT (N=10) 10     0.378       0.332 60.000 1.110     -1.630     2.127   1.076
+
+=== MANDATORY cycle-year split :: C4a' LONG IEF into JH ===
+             label  n  mean_pct  median_pct    hit     t  worst_pct  best_pct  sd_pct
+     ALL JH (N=24) 24     0.416       0.416 70.833 2.027     -1.939     2.127   1.005
+     MIDTERM (N=6)  6     0.308       0.374 66.667 0.681     -1.630     1.463   1.110
+NON-midterm (N=18) 18     0.452       0.416 72.222 1.917     -1.939     2.127   1.000
+  all  record 17-7  sign p=0.0320  mean +0.416%
+  mid  record 4-2  sign p=0.3438  mean +0.308%
+  non  record 13-5  sign p=0.0481  mean +0.452%
+
+  per-event:
+ year     anchor  ret_pct   mid
+ 2002 2002-08-15     1.46  True
+ 2003 2003-08-14     0.42 False
+ 2004 2004-08-12     0.16 False
+ 2005 2005-08-11     0.64 False
+ 2006 2006-08-10     1.27  True
+ 2007 2007-08-16     1.34 False
+ 2008 2008-08-07     0.55 False
+ 2009 2009-08-06     2.11 False
+ 2010 2010-08-12     0.00  True
+ 2011 2011-08-11     0.68 False
+ 2012 2012-08-16     2.13 False
+ 2013 2013-08-08    -1.94 False
+ 2014 2014-08-07     0.24  True
+ 2015 2015-08-13     0.26 False
+ 2016 2016-08-11    -0.83 False
+ 2017 2017-08-10     0.24 False
+ 2018 2018-08-09     0.51  True
+ 2019 2019-08-08     1.47 False
+ 2020 2020-08-12    -0.16 False
+ 2021 2021-08-12    -0.07 False
+ 2022 2022-08-11    -1.63  True
+ 2023 2023-08-10    -0.47 False
+ 2024 2024-08-08     1.17 False
+ 2025 2025-08-07     0.41 False
+  drop best  -> mean +0.342%
+  drop best2 -> mean +0.261%
+  drop worst -> mean +0.518%
+  MIDTERM drop best -> +0.077% ; drop best2 -> -0.221%
+  h= 5: all N=24 +0.370% | mid N=6 +0.270%
+  h= 9: all N=24 +0.409% | mid N=6 +0.460%
+  h=10: all N=24 +0.416% | mid N=6 +0.308%
+
+==============================================================================
+
+##### C4b  LONG GLD into JH  (h=10 td, entry lag=1) #####
+legs=[('GLD', 1.0)]  trigger span 2005-08-11 .. 2025-08-07
+
+=== 1. conditional vs controls ===
+                           label    n  mean_pct  median_pct    hit      t  worst_pct  best_pct  sd_pct
+           COND day-level (N=21)   21     0.577      -0.041 47.619  0.959     -3.968     6.338   2.758
+            COND episodes (N=21)   21     0.577      -0.041 47.619  0.959     -3.968     6.338   2.758
+     CTRL-a own drift, same span 5024     0.444       0.335 55.454  9.159    -21.413    18.295   3.439
+   CTRL-b all days, full history 5445     0.459       0.378 55.794  9.659    -21.413    18.295   3.509
+CTRL-c local +/-126td ex-trigger 5244     0.510       0.412 56.293 10.630    -21.413    18.295   3.473
+  COND day-level, lag=0 (no-lag)   21    -0.034       0.065 52.381 -0.069     -4.402     4.690   2.294
+  episode-vs-control diff = +0.133%  welch t = +0.22   bootstrap P(mean<=0) = 0.162   record 10-11, sign p = 0.6682
+  concentration: top2 episodes ['2013-08-08', '2012-08-16'] = +11.12pp of +12.12pp total (92%); best yrs {2013: 6.3, 2012: 4.8}
+
+=== 2+3. episode era split (pre-2018 / 2018+) ===
+   label  n  mean_pct  median_pct    hit     t  worst_pct  best_pct  sd_pct
+pre-2018 13     0.806      -0.041 46.154 0.939     -3.968     6.338   3.094
+   2018+  8     0.206      -0.225 50.000 0.258     -3.640     3.322   2.253
+
+===   day-level era split (for contrast) ===
+   label  n  mean_pct  median_pct    hit     t  worst_pct  best_pct  sd_pct
+pre-2018 13     0.806      -0.041 46.154 0.939     -3.968     6.338   3.094
+   2018+  8     0.206      -0.225 50.000 0.258     -3.640     3.322   2.253
+  worst episode window: -3.97%  on 2008-08-07   |  worst day-level: -3.97%
+  episode dates: 2005-08-11, 2006-08-10, 2007-08-16, 2008-08-07, 2009-08-06, 2010-08-12, 2011-08-11, 2012-08-16, 2013-08-08, 2014-08-07, 2015-08-13, 2016-08-11, 2017-08-10, 2018-08-09, 2019-08-08, 2020-08-12, 2021-08-12, 2022-08-11, 2023-08-10, 2024-08-08, 2025-08-07
+
+5. cost: 1 leg(s) x ~2.0 bps round trip = 2.0 bps. episode mean 0.577% = 57.7 bps -> 28.9x cost (need >=5x)
+
+=== 6. cpi+ppi+nfp-in-hold split (episodes) ===
+                       label  n  mean_pct  median_pct    hit     t  worst_pct  best_pct  sd_pct
+cpi+ppi+nfp IN window (N=13) 13     0.615      -0.107 46.154 0.747     -3.968     6.338   2.972
+       cpi+ppi+nfp OUT (N=8)  8     0.515      -0.015 50.000 0.567     -3.640     4.786   2.568
+
+=== MANDATORY cycle-year split :: C4b  LONG GLD into JH ===
+             label  n  mean_pct  median_pct    hit      t  worst_pct  best_pct  sd_pct
+     ALL JH (N=21) 21     0.577      -0.041 47.619  0.959     -3.968     6.338   2.758
+     MIDTERM (N=5)  5    -1.213      -1.499 20.000 -1.291     -3.640     1.912   2.101
+NON-midterm (N=16) 16     1.137       0.871 56.250  1.653     -3.968     6.338   2.750
+  all  record 10-11  sign p=0.6682  mean +0.577%
+  mid  record 1-4  sign p=0.9688  mean -1.213%
+  non  record 9-7  sign p=0.4018  mean +1.137%
+
+  per-event:
+ year     anchor  ret_pct   mid
+ 2005 2005-08-11    -1.98 False
+ 2006 2006-08-10    -1.50  True
+ 2007 2007-08-16     2.32 False
+ 2008 2008-08-07    -3.97 False
+ 2009 2009-08-06    -0.11 False
+ 2010 2010-08-12     1.91  True
+ 2011 2011-08-11     4.41 False
+ 2012 2012-08-16     4.79 False
+ 2013 2013-08-08     6.34 False
+ 2014 2014-08-07    -2.38  True
+ 2015 2015-08-13     1.73 False
+ 2016 2016-08-11    -1.06 False
+ 2017 2017-08-10    -0.04 False
+ 2018 2018-08-09    -0.46  True
+ 2019 2019-08-08     2.06 False
+ 2020 2020-08-12    -1.14 False
+ 2021 2021-08-12     2.28 False
+ 2022 2022-08-11    -3.64  True
+ 2023 2023-08-10     0.01 False
+ 2024 2024-08-08     3.32 False
+ 2025 2025-08-07    -0.79 False
+  drop best  -> mean +0.289%
+  drop best2 -> mean +0.052%
+  drop worst -> mean +0.804%
+  MIDTERM drop best -> -1.995% ; drop best2 -> -2.505%
+  h= 5: all N=21 +0.130% | mid N=5 -1.498%
+  h= 9: all N=21 -0.103% | mid N=5 -1.382%
+  h=10: all N=21 +0.577% | mid N=5 -1.213%
+
+==============================================================================
+
+##### C4c  LONG DX index into JH  (h=10 td, entry lag=1) #####
+legs=[('DX-Y.NYB', 1.0)]  trigger span 2000-08-10 .. 2025-08-07
+
+=== 1. conditional vs controls ===
+                           label    n  mean_pct  median_pct    hit      t  worst_pct  best_pct  sd_pct
+           COND day-level (N=26)   26     0.090       0.045 50.000  0.388     -2.346     3.001   1.183
+            COND episodes (N=26)   26     0.090       0.045 50.000  0.388     -2.346     3.001   1.183
+     CTRL-a own drift, same span 6309    -0.009      -0.014 49.564 -0.453     -9.330     7.998   1.534
+   CTRL-b all days, full history 6711     0.009       0.011 50.276  0.487     -9.330     7.998   1.522
+CTRL-c local +/-126td ex-trigger 6506     0.001       0.000 49.985  0.078     -9.330     7.998   1.531
+  COND day-level, lag=0 (no-lag)   26     0.268       0.229 61.538  1.244     -1.647     3.216   1.101
+  episode-vs-control diff = +0.099%  welch t = +0.42   bootstrap P(mean<=0) = 0.360   record 13-13, sign p = 0.5775
+  concentration: top2 episodes ['2022-08-11', '2024-08-08'] = +0.65pp of +2.34pp total (28%); best yrs {2022: 3.0, 2004: 2.1}
+
+=== 2+3. episode era split (pre-2018 / 2018+) ===
+   label  n  mean_pct  median_pct  hit     t  worst_pct  best_pct  sd_pct
+pre-2018 18     0.124       0.045 50.0 0.524     -1.634     2.127   1.000
+   2018+  8     0.015      -0.100 50.0 0.027     -2.346     3.001   1.601
+
+===   day-level era split (for contrast) ===
+   label  n  mean_pct  median_pct  hit     t  worst_pct  best_pct  sd_pct
+pre-2018 18     0.124       0.045 50.0 0.524     -1.634     2.127   1.000
+   2018+  8     0.015      -0.100 50.0 0.027     -2.346     3.001   1.601
+  worst episode window: -2.35%  on 2024-08-08   |  worst day-level: -2.35%
+  episode dates: 2000-08-10, 2001-08-16, 2002-08-15, 2003-08-14, 2004-08-12, 2005-08-11, 2006-08-10, 2007-08-16, 2008-08-07, 2009-08-06, 2010-08-12, 2011-08-11, 2012-08-16, 2013-08-08, 2014-08-07, 2015-08-13, 2016-08-11, 2017-08-10, 2018-08-09, 2019-08-08, 2020-08-12, 2021-08-12, 2022-08-11, 2023-08-10, 2024-08-08, 2025-08-07
+
+5. cost: 1 leg(s) x ~2.0 bps round trip = 2.0 bps. episode mean 0.090% = 9.0 bps -> 4.5x cost (need >=5x)
+
+=== 6. cpi+ppi+nfp-in-hold split (episodes) ===
+                       label  n  mean_pct  median_pct    hit     t  worst_pct  best_pct  sd_pct
+cpi+ppi+nfp IN window (N=15) 15     0.014      -0.036 46.667 0.050     -2.346     2.127   1.107
+      cpi+ppi+nfp OUT (N=11) 11     0.194       0.184 54.545 0.484     -1.634     3.001   1.329
+
+=== MANDATORY cycle-year split :: C4c  LONG DX index into JH ===
+             label  n  mean_pct  median_pct  hit      t  worst_pct  best_pct  sd_pct
+     ALL JH (N=26) 26     0.090       0.045 50.0  0.388     -2.346     3.001   1.183
+     MIDTERM (N=6)  6     0.493       0.104 50.0  0.830     -1.256     3.001   1.454
+NON-midterm (N=20) 20    -0.031      -0.015 50.0 -0.124     -2.346     2.127   1.104
+  all  record 13-13  sign p=0.5775  mean +0.090%
+  mid  record 3-3  sign p=0.6562  mean +0.493%
+  non  record 10-10  sign p=0.5881  mean -0.031%
+
+  per-event:
+ year     anchor  ret_pct   mid
+ 2000 2000-08-10     0.13 False
+ 2001 2001-08-16     0.38 False
+ 2002 2002-08-15     0.24  True
+ 2003 2003-08-14     1.50 False
+ 2004 2004-08-12     2.13 False
+ 2005 2005-08-11     1.01 False
+ 2006 2006-08-10    -0.16  True
+ 2007 2007-08-16    -0.79 False
+ 2008 2008-08-07     1.27 False
+ 2009 2009-08-06    -1.18 False
+ 2010 2010-08-12    -0.04  True
+ 2011 2011-08-11    -1.07 False
+ 2012 2012-08-16    -1.63 False
+ 2013 2013-08-08     0.26 False
+ 2014 2014-08-07     1.17  True
+ 2015 2015-08-13    -0.48 False
+ 2016 2016-08-11    -0.16 False
+ 2017 2017-08-10    -0.35 False
+ 2018 2018-08-09    -1.26  True
+ 2019 2019-08-08     0.15 False
+ 2020 2020-08-12    -0.35 False
+ 2021 2021-08-12     0.18 False
+ 2022 2022-08-11     3.00  True
+ 2023 2023-08-10     1.21 False
+ 2024 2024-08-08    -2.35 False
+ 2025 2025-08-07    -0.47 False
+  drop best  -> mean -0.026%
+  drop best2 -> mean -0.116%
+  drop worst -> mean +0.188%
+  MIDTERM drop best -> -0.009% ; drop best2 -> -0.303%
+  h= 5: all N=26 +0.164% | mid N=6 +0.495%
+  h= 9: all N=26 +0.153% | mid N=6 +0.422%
+  h=10: all N=26 +0.090% | mid N=6 +0.493%
+
+==============================================================================
+
+##### C4c- SHORT DX index into JH  (h=10 td, entry lag=1) #####
+legs=[('DX-Y.NYB', -1.0)]  trigger span 2000-08-10 .. 2025-08-07
+
+=== 1. conditional vs controls ===
+                           label    n  mean_pct  median_pct    hit      t  worst_pct  best_pct  sd_pct
+           COND day-level (N=26)   26    -0.090      -0.045 50.000 -0.388     -3.001     2.346   1.183
+            COND episodes (N=26)   26    -0.090      -0.045 50.000 -0.388     -3.001     2.346   1.183
+     CTRL-a own drift, same span 6309     0.009       0.014 50.119  0.453     -7.998     9.330   1.534
+   CTRL-b all days, full history 6711    -0.009      -0.011 49.426 -0.487     -7.998     9.330   1.522
+CTRL-c local +/-126td ex-trigger 6506    -0.001       0.000 49.708 -0.078     -7.998     9.330   1.531
+  COND day-level, lag=0 (no-lag)   26    -0.268      -0.229 38.462 -1.244     -3.216     1.647   1.101
+  episode-vs-control diff = -0.099%  welch t = -0.42   bootstrap P(mean<=0) = 0.640   record 13-13, sign p = 0.5775
+  concentration: top2 episodes ['2022-08-11', '2024-08-08'] = -0.65pp of -2.34pp total (28%); best yrs {2024: 2.3, 2012: 1.6}
+
+=== 2+3. episode era split (pre-2018 / 2018+) ===
+   label  n  mean_pct  median_pct  hit      t  worst_pct  best_pct  sd_pct
+pre-2018 18    -0.124      -0.045 50.0 -0.524     -2.127     1.634   1.000
+   2018+  8    -0.015       0.100 50.0 -0.027     -3.001     2.346   1.601
+
+===   day-level era split (for contrast) ===
+   label  n  mean_pct  median_pct  hit      t  worst_pct  best_pct  sd_pct
+pre-2018 18    -0.124      -0.045 50.0 -0.524     -2.127     1.634   1.000
+   2018+  8    -0.015       0.100 50.0 -0.027     -3.001     2.346   1.601
+  worst episode window: -3.00%  on 2022-08-11   |  worst day-level: -3.00%
+  episode dates: 2000-08-10, 2001-08-16, 2002-08-15, 2003-08-14, 2004-08-12, 2005-08-11, 2006-08-10, 2007-08-16, 2008-08-07, 2009-08-06, 2010-08-12, 2011-08-11, 2012-08-16, 2013-08-08, 2014-08-07, 2015-08-13, 2016-08-11, 2017-08-10, 2018-08-09, 2019-08-08, 2020-08-12, 2021-08-12, 2022-08-11, 2023-08-10, 2024-08-08, 2025-08-07
+
+5. cost: 1 leg(s) x ~2.0 bps round trip = 2.0 bps. episode mean -0.090% = -9.0 bps -> -4.5x cost (need >=5x)
+
+=== 6. cpi+ppi+nfp-in-hold split (episodes) ===
+                       label  n  mean_pct  median_pct    hit      t  worst_pct  best_pct  sd_pct
+cpi+ppi+nfp IN window (N=15) 15    -0.014       0.036 53.333 -0.050     -2.127     2.346   1.107
+      cpi+ppi+nfp OUT (N=11) 11    -0.194      -0.184 45.455 -0.484     -3.001     1.634   1.329
+
+=== MANDATORY cycle-year split :: C4c- SHORT DX index into JH ===
+             label  n  mean_pct  median_pct  hit      t  worst_pct  best_pct  sd_pct
+     ALL JH (N=26) 26    -0.090      -0.045 50.0 -0.388     -3.001     2.346   1.183
+     MIDTERM (N=6)  6    -0.493      -0.104 50.0 -0.830     -3.001     1.256   1.454
+NON-midterm (N=20) 20     0.031       0.015 50.0  0.124     -2.127     2.346   1.104
+  all  record 13-13  sign p=0.5775  mean -0.090%
+  mid  record 3-3  sign p=0.6562  mean -0.493%
+  non  record 10-10  sign p=0.5881  mean +0.031%
+
+  per-event:
+ year     anchor  ret_pct   mid
+ 2000 2000-08-10    -0.13 False
+ 2001 2001-08-16    -0.38 False
+ 2002 2002-08-15    -0.24  True
+ 2003 2003-08-14    -1.50 False
+ 2004 2004-08-12    -2.13 False
+ 2005 2005-08-11    -1.01 False
+ 2006 2006-08-10     0.16  True
+ 2007 2007-08-16     0.79 False
+ 2008 2008-08-07    -1.27 False
+ 2009 2009-08-06     1.18 False
+ 2010 2010-08-12     0.04  True
+ 2011 2011-08-11     1.07 False
+ 2012 2012-08-16     1.63 False
+ 2013 2013-08-08    -0.26 False
+ 2014 2014-08-07    -1.17  True
+ 2015 2015-08-13     0.48 False
+ 2016 2016-08-11     0.16 False
+ 2017 2017-08-10     0.35 False
+ 2018 2018-08-09     1.26  True
+ 2019 2019-08-08    -0.15 False
+ 2020 2020-08-12     0.35 False
+ 2021 2021-08-12    -0.18 False
+ 2022 2022-08-11    -3.00  True
+ 2023 2023-08-10    -1.21 False
+ 2024 2024-08-08     2.35 False
+ 2025 2025-08-07     0.47 False
+  drop best  -> mean -0.188%
+  drop best2 -> mean -0.264%
+  drop worst -> mean +0.026%
+  MIDTERM drop best -> -0.842% ; drop best2 -> -1.094%
+  h= 5: all N=26 -0.164% | mid N=6 -0.495%
+  h= 9: all N=26 -0.153% | mid N=6 -0.422%
+  h=10: all N=26 -0.090% | mid N=6 -0.493%
+
+==============================================================================
+
+##### C4c'' LONG UUP into JH  (h=10 td, entry lag=1) #####
+legs=[('UUP', 1.0)]  trigger span 2007-08-16 .. 2025-08-07
+
+=== 1. conditional vs controls ===
+                           label    n  mean_pct  median_pct    hit      t  worst_pct  best_pct  sd_pct
+           COND day-level (N=19)   19    -0.131      -0.357 36.842 -0.470     -2.135     3.115   1.220
+            COND episodes (N=19)   19    -0.131      -0.357 36.842 -0.470     -2.135     3.115   1.220
+     CTRL-a own drift, same span 4520     0.070       0.077 51.527  3.044     -9.285     8.664   1.548
+   CTRL-b all days, full history 4879     0.075       0.080 51.937  3.469     -9.285     8.664   1.515
+CTRL-c local +/-126td ex-trigger 4734     0.069       0.077 51.669  3.130     -9.285     8.664   1.526
+  COND day-level, lag=0 (no-lag)   19     0.206       0.080 57.895  0.812     -1.399     3.127   1.105
+  episode-vs-control diff = -0.201%  welch t = -0.72   bootstrap P(mean<=0) = 0.694   record 7-12, sign p = 0.9165
+  concentration: top2 episodes ['2022-08-11', '2024-08-08'] = +0.98pp of -2.50pp total (-39%); best yrs {2022: 3.1, 2023: 1.5}
+
+=== 2+3. episode era split (pre-2018 / 2018+) ===
+   label  n  mean_pct  median_pct    hit      t  worst_pct  best_pct  sd_pct
+pre-2018 11    -0.322      -0.498 27.273 -1.210     -1.675     1.106   0.883
+   2018+  8     0.131      -0.118 50.000  0.231     -2.135     3.115   1.605
+
+===   day-level era split (for contrast) ===
+   label  n  mean_pct  median_pct    hit      t  worst_pct  best_pct  sd_pct
+pre-2018 11    -0.322      -0.498 27.273 -1.210     -1.675     1.106   0.883
+   2018+  8     0.131      -0.118 50.000  0.231     -2.135     3.115   1.605
+  worst episode window: -2.14%  on 2024-08-08   |  worst day-level: -2.14%
+  episode dates: 2007-08-16, 2008-08-07, 2009-08-06, 2010-08-12, 2011-08-11, 2012-08-16, 2013-08-08, 2014-08-07, 2015-08-13, 2016-08-11, 2017-08-10, 2018-08-09, 2019-08-08, 2020-08-12, 2021-08-12, 2022-08-11, 2023-08-10, 2024-08-08, 2025-08-07
+
+5. cost: 1 leg(s) x ~2.0 bps round trip = 2.0 bps. episode mean -0.131% = -13.1 bps -> -6.6x cost (need >=5x)
+
+=== 6. cpi+ppi+nfp-in-hold split (episodes) ===
+                       label  n  mean_pct  median_pct    hit      t  worst_pct  best_pct  sd_pct
+cpi+ppi+nfp IN window (N=11) 11    -0.280      -0.283 36.364 -0.956     -2.135     1.106   0.972
+       cpi+ppi+nfp OUT (N=8)  8     0.073      -0.427 37.500  0.134     -1.675     3.115   1.547
+
+=== MANDATORY cycle-year split :: C4c'' LONG UUP into JH ===
+             label  n  mean_pct  median_pct    hit      t  worst_pct  best_pct  sd_pct
+     ALL JH (N=19) 19    -0.131      -0.357 36.842 -0.470     -2.135     3.115   1.220
+     MIDTERM (N=4)  4     0.739       0.470 50.000  0.811     -1.099     3.115   1.824
+NON-midterm (N=15) 15    -0.364      -0.365 33.333 -1.463     -2.135     1.540   0.962
+  all  record 7-12  sign p=0.9165  mean -0.131%
+  mid  record 2-2  sign p=0.6875  mean +0.739%
+  non  record 5-10  sign p=0.9408  mean -0.364%
+
+  per-event:
+ year     anchor  ret_pct   mid
+ 2007 2007-08-16    -0.56 False
+ 2008 2008-08-07     1.10 False
+ 2009 2009-08-06    -1.06 False
+ 2010 2010-08-12    -0.17  True
+ 2011 2011-08-11    -1.23 False
+ 2012 2012-08-16    -1.68 False
+ 2013 2013-08-08     0.27 False
+ 2014 2014-08-07     1.11  True
+ 2015 2015-08-13    -0.55 False
+ 2016 2016-08-11    -0.28 False
+ 2017 2017-08-10    -0.50 False
+ 2018 2018-08-09    -1.10  True
+ 2019 2019-08-08     0.23 False
+ 2020 2020-08-12    -0.36 False
+ 2021 2021-08-12     0.12 False
+ 2022 2022-08-11     3.12  True
+ 2023 2023-08-10     1.54 False
+ 2024 2024-08-08    -2.14 False
+ 2025 2025-08-07    -0.36 False
+  drop best  -> mean -0.312%
+  drop best2 -> mean -0.421%
+  drop worst -> mean -0.020%
+  MIDTERM drop best -> -0.053% ; drop best2 -> -0.632%
+  h= 5: all N=19 -0.010% | mid N=4 +0.583%
+  h= 9: all N=19 +0.025% | mid N=4 +0.660%
+  h=10: all N=19 -0.131% | mid N=4 +0.739%
