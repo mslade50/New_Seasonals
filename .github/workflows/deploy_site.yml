@@ -55,15 +55,9 @@ jobs:
           R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
           R2_BUCKET: ${{ secrets.R2_BUCKET }}
-        run: |
-          python -c "from cache_io import download_to_local; \
-            download_to_local('master_prices.parquet', 'data/master_prices.parquet'); \
-            download_to_local('earnings_calendar.parquet', 'data/earnings_calendar.parquet'); \
-            download_to_local('atr_seasonal_ranks.parquet', 'atr_seasonal_ranks.parquet'); \
-            download_to_local('overflow_universe.parquet', 'data/overflow_universe.parquet'); \
-            download_to_local('earnings_calendar_overflow.parquet', 'data/earnings_calendar_overflow.parquet'); \
-            download_to_local('fundamental/current/daily_report_latest.json', 'data/fundamental/current/daily_report_latest.json'); \
-            download_to_local('fundamental/current/company_maps_latest.json', 'data/fundamental/current/company_maps_latest.json')"
+        # Fail-closed on load-bearing keys: a silently failed pull used to
+        # build a degraded ledger that --upload then wrote over the prod key.
+        run: python scripts/pull_scan_caches.py --set site
 
       - name: Build full-history trade ledger
         # R2 env needed: build_trade_ledger mirrors the ledger to R2 for

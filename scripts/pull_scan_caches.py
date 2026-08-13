@@ -46,19 +46,51 @@ OPTIONAL = [
     ("trend_sleeve_state.json", "data/trend_sleeve_state.json"),
 ]
 
+SITE_REQUIRED = REQUIRED + [
+    # The Fundamentals tab cannot render without both research inputs. Keep
+    # these fail-closed so Cloudflare never receives an HTML shell whose data
+    # request falls through to an HTML response at fundamentals.json.
+    ("fundamental/current/daily_report_latest.json", "data/fundamental/current/daily_report_latest.json"),
+    ("fundamental/current/company_maps_latest.json", "data/fundamental/current/company_maps_latest.json"),
+]
+
+# Other GHA consumers of the same fail-closed semantics (2026-08-12: their
+# inline `python -c` pulls discarded return values — a failed pull built a
+# degraded ledger/report while the workflow stayed green; deploy_site then
+# uploaded that ledger over the prod R2 key).
+SETS: dict[str, tuple[list, list]] = {
+    "scan": (REQUIRED, OPTIONAL),
+    "site": (
+        SITE_REQUIRED,
+        [("overflow_universe.parquet", "data/overflow_universe.parquet"),
+         ("earnings_calendar_overflow.parquet", "data/earnings_calendar_overflow.parquet")],
+    ),
+    "report": (
+        REQUIRED,
+        [("overflow_universe.parquet", "data/overflow_universe.parquet"),
+         ("earnings_calendar_overflow.parquet", "data/earnings_calendar_overflow.parquet")],
+    ),
+}
+
 
 def main() -> int:
+    import argparse
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--set", choices=sorted(SETS), default="scan")
+    args = ap.parse_args()
+    required, optional = SETS[args.set]
+
     failed: list[str] = []
-    for key, dest in REQUIRED:
+    for key, dest in required:
         if not download_to_local(key, dest):
             failed.append(key)
-    for key, dest in OPTIONAL:
+    for key, dest in optional:
         if not download_to_local(key, dest):
-            print(f"[warn] optional cache not pulled: {key} — scan degrades "
-                  f"per its documented fail-open design")
+            print(f"[warn] optional cache not pulled: {key} — consumer "
+                  f"degrades per its documented fail-open design")
     if failed:
         print(f"ERROR: required cache pull(s) failed: {', '.join(failed)} — "
-              f"failing loud so the scan never runs on missing load-bearing "
+              f"failing loud so the job never runs on missing load-bearing "
               f"inputs while the workflow shows green.")
         return 1
     print("All required caches pulled.")

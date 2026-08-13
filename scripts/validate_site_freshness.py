@@ -49,6 +49,7 @@ def validate_site(out_dir: str) -> list[str]:
     positions = _read_json(os.path.join(data_dir, "positions.json"))
     ideas = _read_json(os.path.join(data_dir, "ideas.json"))
     signals = _read_json(os.path.join(data_dir, "signals.json"))
+    fundamentals = _read_json(os.path.join(data_dir, "fundamentals.json"))
     problems: list[str] = []
 
     if meta is None:
@@ -108,6 +109,19 @@ def validate_site(out_dir: str) -> list[str]:
         problems.append(f"staged-signals health is {signal_health.get('status') or 'missing'}")
     if (signals or {}).get("unavailable"):
         problems.append("staged-signals payload is an unavailable tombstone")
+
+    if flags.get("fundamentals") is not True:
+        problems.append("current Fundamentals payload is unavailable")
+    if fundamentals is None:
+        problems.append("data/fundamentals.json is missing or unreadable")
+    else:
+        fundamental_asof = fundamentals.get("as_of")
+        if prev_td and (not fundamental_asof or str(fundamental_asof) < str(prev_td)):
+            problems.append(
+                f"Fundamentals as-of {fundamental_asof or 'missing'} is before {prev_td}"
+            )
+        if fundamentals.get("live_actions_enabled") is not False:
+            problems.append("Fundamentals payload does not explicitly disable live actions")
 
     for rel in ("trades.json", "strategy_daily.json", "exposure.json", "trade_mtm.json"):
         if not os.path.isfile(os.path.join(data_dir, rel)):

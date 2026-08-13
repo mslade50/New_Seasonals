@@ -30,6 +30,10 @@ function renderNav(active) {
 async function fetchJSON(path) {
   const r = await fetch(path, { cache: "no-store" });
   if (!r.ok) throw new Error(`${path}: HTTP ${r.status}`);
+  const contentType = (r.headers.get("content-type") || "").toLowerCase();
+  if (!contentType.includes("application/json")) {
+    throw new Error(`${path}: expected JSON but received ${contentType || "an unknown content type"}. Refresh or sign in again.`);
+  }
   return r.json();
 }
 
