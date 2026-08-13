@@ -56,7 +56,7 @@ assert.strictEqual(noStop.stop, null, "blank stop serializes as null");
 assert.strictEqual(noStop.target, null);
 assert.strictEqual(noStop.entry_type, "LMT");
 
-// MKT/MOC carry a required risk reference, but never a limit-entry expiry.
+// MKT/MOO/MOC carry a required risk reference, but never a limit-entry expiry.
 setFields({ f_sectype: "STK", f_symbol: "USO", f_action: "BUY", f_qty: "10",
   f_entry_type: "MKT", f_entry: "50", f_stop: "48", f_target: "55",
   f_timestop: "", f_expiry: "" });
@@ -65,6 +65,15 @@ const marketEntry = runJSON(`ticketPayload("entry_bracket")`);
 assert.strictEqual(marketEntry.entry_type, "MKT");
 assert.strictEqual(marketEntry.entry, 50);
 assert.strictEqual(marketEntry.expiry, null);
+
+setFields({ f_sectype: "STK", f_symbol: "USO", f_action: "BUY", f_qty: "10",
+  f_entry_type: "MOO", f_entry: "50", f_stop: "48", f_target: "55",
+  f_timestop: "", f_expiry: "" });
+assert.deepStrictEqual(runJSON("bracketWarnings()"), []);
+const mooEntry = runJSON(`ticketPayload("entry_bracket")`);
+assert.strictEqual(mooEntry.entry_type, "MOO");
+assert.strictEqual(mooEntry.entry, 50);
+assert.strictEqual(mooEntry.expiry, null);
 
 setFields({ f_sectype: "STK", f_symbol: "USO", f_action: "BUY", f_qty: "10",
   f_entry_type: "MOC", f_entry: "50", f_stop: "48", f_target: "55",
@@ -76,6 +85,11 @@ setFields({ f_sectype: "FUT", f_symbol: "ES", f_action: "BUY", f_qty: "1",
   f_entry_type: "MOC", f_entry: "5000", f_stop: "4990", f_target: "5020",
   f_timestop: "", f_expiry: "", f_futexp: "202609", f_futexch: "CME" });
 assert.ok(runJSON("bracketWarnings()").some((w) => w.includes("MOC entry supports stocks only")));
+
+setFields({ f_sectype: "CASH", f_symbol: "EUR", f_currency: "USD", f_action: "BUY", f_qty: "1000",
+  f_entry_type: "MOO", f_entry: "1.15", f_stop: "1.14", f_target: "1.17",
+  f_timestop: "", f_expiry: "" });
+assert.ok(runJSON("bracketWarnings()").some((w) => w.includes("MOO entry does not support FX")));
 
 setFields({ f_sectype: "STK", f_symbol: "USO", f_action: "BUY", f_qty: "10",
   f_entry_type: "MKT", f_entry: "", f_stop: "", f_target: "",

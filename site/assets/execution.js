@@ -904,6 +904,7 @@ function syncFields() {
       <label class="cap">Entry type</label><select id="f_entry_type">
         <option value="LMT"${entryType === "LMT" ? " selected" : ""}>Limit (LMT)</option>
         <option value="MKT"${entryType === "MKT" ? " selected" : ""}>Market (MKT)</option>
+        <option value="MOO"${entryType === "MOO" ? " selected" : ""}>Market-on-open (MOO)</option>
         <option value="MOC"${entryType === "MOC" ? " selected" : ""}>Market-on-close (MOC)</option>
       </select>
       <label class="cap" id="f_entry_label">Entry</label>${inp("f_entry", "104.80", 80)}
@@ -1035,8 +1036,9 @@ function bracketWarnings() {
   const qty = numOrNull("f_qty"), entry = numOrNull("f_entry"), stop = numOrNull("f_stop"), target = numOrNull("f_target");
   const action = val("f_action");
   const warns = [];
-  if (!["LMT", "MKT", "MOC"].includes(orderType)) warns.push("entry type must be LMT, MKT, or MOC");
+  if (!["LMT", "MKT", "MOO", "MOC"].includes(orderType)) warns.push("entry type must be LMT, MKT, MOO, or MOC");
   if (orderType === "MOC" && (isFut || isFx)) warns.push("MOC entry supports stocks only");
+  if (orderType === "MOO" && isFx) warns.push("MOO entry does not support FX");
   if (!sym) warns.push("symbol required");
   if (!(qty > 0) || qty !== Math.round(qty)) warns.push("qty must be a whole number > 0");
   if (!(entry > 0)) warns.push(orderType === "LMT" ? "limit price required" : "reference price required");
@@ -1172,6 +1174,7 @@ function updateReadout() {
     const parts = [];
     if (orderType === "LMT") parts.push(`Entry <b>LMT @ ${entry}</b>`);
     else if (orderType === "MKT") parts.push(`Entry <b>MKT</b> <span class="cap" style="display:inline">(risk ref ${entry}; no price protection)</span>`);
+    else if (orderType === "MOO") parts.push(`Entry <b>MOO</b> <span class="cap" style="display:inline">(opening auction; risk ref ${entry}; no price protection)</span>`);
     else parts.push(`Entry <b>MOC</b> <span class="cap" style="display:inline">(close auction; risk ref ${entry})</span>`);
     if (isFut && qty) parts.push(`<b>${qty} contract${qty === 1 ? "" : "s"}</b>`);
     if (isFx && qty) parts.push(`<b>${fmt.num(qty, 0)} ${esc(sym)} units</b> in ${esc(sym)}/${esc(currency)}`);
@@ -1183,7 +1186,7 @@ function updateReadout() {
     const ts = val("f_timestop");
     if (ts) parts.push(`Time-exit <b>${ts}</b>`);
     const ex = orderType === "LMT" ? val("f_expiry") : null;
-    parts.push(`TIF <b>${ex ? "GTD " + ex : "DAY"}</b>`);
+    parts.push(`TIF <b>${orderType === "MOO" ? "OPG" : ex ? "GTD " + ex : "DAY"}</b>`);
     el.innerHTML = `<span style="color:#9aa3b2">${parts.join(" &nbsp;·&nbsp; ")}</span>`;
   } else if (t === "exit_attach") {
     const warns = attachWarnings();
@@ -1317,7 +1320,7 @@ function sendTicket() {
     const entryDesc = p.entry_type === "LMT" ? `LMT @ ${p.entry}`
       : `${p.entry_type} (risk ref ${p.entry}; no price protection)`;
     const summary = t === "entry_bracket"
-      ? `${p.action} ${p.quantity} ${inst} ${entryDesc} [${p.expiry ? "GTD " + p.expiry : "DAY"}] (${stopTxt}, ${p.target == null ? "NO TARGET" : "target " + p.target}${p.time_stop ? ", time " + p.time_stop : ""})`
+      ? `${p.action} ${p.quantity} ${inst} ${entryDesc} [${p.entry_type === "MOO" ? "OPG" : p.expiry ? "GTD " + p.expiry : "DAY"}] (${stopTxt}, ${p.target == null ? "NO TARGET" : "target " + p.target}${p.time_stop ? ", time " + p.time_stop : ""})`
       : t === "exit_attach"
         ? `attach exits to ${p.symbol} (${[p.stop != null ? "stop " + p.stop : "", p.target != null ? "target " + p.target : "", p.time_stop ? "time " + p.time_stop : ""].filter(Boolean).join(", ")}) — full held size, OCA GTC`
         : `close ${p.qty != null ? p.qty + closeUnit : Math.round((p.fraction || 1) * 100) + "%"} of ${p.symbol}${p.sec_type === "CASH" ? "/" + (p.currency || "USD") : ""} via ${p.order_type}` +

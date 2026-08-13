@@ -202,25 +202,30 @@ def test_build_bracket_with_stop_unchanged(executor):
 
 
 def test_build_bracket_entry_parent_types(executor):
-    for entry_type, expected in (("LMT", "LMT"), ("MKT", "MKT"), ("MOC", "MOC")):
+    for entry_type, expected, tif in (("LMT", "LMT", "DAY"), ("MKT", "MKT", "DAY"),
+                                      ("MOO", "MKT", "OPG"), ("MOC", "MOC", "DAY")):
         parent, children = executor.build_bracket(
             "BUY", 10, 50.0, 48.0, 60.0, None, _next_id_gen(),
             entry_type=entry_type)
         assert parent.orderType == expected
-        assert parent.tif == "DAY"
+        assert parent.tif == tif
         assert [c.orderType for c in children] == ["LMT", "STP"]
 
 
 def test_agent_entry_parent_type_validation(agent, book):
     base = {"symbol": "AAPL", "sec_type": "STK", "action": "BUY",
             "quantity": 10, "entry": 200, "stop": 190, "target": 220}
-    for entry_type in ("LMT", "MKT", "MOC"):
+    for entry_type in ("LMT", "MKT", "MOO", "MOC"):
         ok, reasons = agent._validate(_cmd(
             "entry_bracket", {**base, "entry_type": entry_type}))
         assert ok, reasons
     ok, reasons = agent._validate(_cmd(
         "entry_bracket", {**base, "entry_type": "MOC", "sec_type": "FUT"}))
     assert not ok and any("MOC entry supports stocks only" in r for r in reasons)
+    ok, reasons = agent._validate(_cmd(
+        "entry_bracket", {**base, "entry_type": "MOO", "sec_type": "CASH",
+                          "symbol": "EUR", "currency": "USD"}))
+    assert not ok and any("MOO entry does not support FX" in r for r in reasons)
 
 
 # ---------------- executor: risk_ack gate pieces ----------------
