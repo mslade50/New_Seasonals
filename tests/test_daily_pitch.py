@@ -609,8 +609,10 @@ def test_publish_stand_down_clears_the_tab_and_journals(stand_down, tmp_path,
                                 "Leg": 1, "Ticker": "GLD"}])
     monkeypatch.setattr(dp, "open_sheet", lambda *a, **k: sheet)
     sent = {}
+    # Returns True like a delivered send: publish now exits 1 on a failed
+    # email (failed delivery shows red even though tab+journal are written).
     monkeypatch.setattr(dp, "send_email",
-                        lambda subject, html: sent.update(subject=subject))
+                        lambda subject, html: sent.update(subject=subject) or True)
     journal = tmp_path / "j.jsonl"
 
     rc = dp.publish_stand_down(stand_down, SD_ASOF, journal,

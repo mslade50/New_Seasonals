@@ -139,4 +139,7 @@ def recent_fingerprints(records: list[dict], since: str) -> dict[str, str]:
 
 
 def approved(idea: dict) -> bool:
-    return str(idea.get("approve", "")).strip().upper() in ("Y", "YES")
+    # Matches pitch_moo's placement gate exactly (strip + upper, 'Y' only —
+    # 'YES' is ignored by the runner with an INFO line): the scoreboard's
+    # approved bucket must contain only ideas that could actually place.
+    return str(idea.get("approve", "")).strip().upper() == "Y"

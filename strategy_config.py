@@ -65,6 +65,14 @@ CROSS_STRATEGY_OVERLAP_OVERRIDES = [
     },
 ]
 
+# Per-strategy bps overrides for the overflow tier. NOMINAL — consumers scale
+# by GLOBAL_RISK_MULTIPLIER at use. Single source for daily_scan,
+# daily_portfolio_report and the engine's overflow_active path. OVS uses
+# path-1 nominal (40 bps) for both universes — see order_staging.py.
+OVERFLOW_RISK_OVERRIDES = {
+    "Oversold Low Volume": 25,  # vs liquid 35 (signal-recency ladder applies on both tiers)
+}
+
 # Sector + Index ETFs for rotation strategies (26 tickers)
 SECTOR_INDEX_ETFS = [
     'DIA', 'IBB', 'IHI', 'ITA', 'ITB', 'IWM', 'IYR', 'KRE', 'QQQ', 'SMH',
@@ -2232,6 +2240,10 @@ if GLOBAL_RISK_MULTIPLIER != 1.0:
         _eo = _exe.get('earnings_size_override')
         if _eo and 'risk_bps' in _eo:
             _eo['risk_bps'] = _eo['risk_bps'] * GLOBAL_RISK_MULTIPLIER
+    # Overlap clamp is nominal in source like every other bps value
+    for _ovr in CROSS_STRATEGY_OVERLAP_OVERRIDES:
+        _ovr['risk_bps_when_overlapping'] = (
+            _ovr['risk_bps_when_overlapping'] * GLOBAL_RISK_MULTIPLIER)
 
 # ============================================
 # DEFAULT EXPORT

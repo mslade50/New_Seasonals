@@ -48,11 +48,16 @@ jobs:
           SHOULD_RUN=true
           if [ "${{ github.event_name }}" = "schedule" ] && [ "${{ github.event.schedule }}" = "30 9 * * 1-5" ]; then
             TODAY=$(date -u +%Y-%m-%d)
+            # Only count a dispatch inside the AM pre-market window (local
+            # trigger fires 4:17 AM ET = 08:17 UTC EDT / 09:17 UTC EST).
+            # Keying on the whole UTC day let an evening manual dispatch
+            # (after 00:00 UTC the prior night) suppress this fallback —
+            # the same bug already fixed in daily_screener.yml.
             COUNT=$(gh run list \
               --workflow=update_master_prices.yml \
               --status=success \
               --event=workflow_dispatch \
-              --created="$TODAY" \
+              --created="${TODAY}T07:00Z..${TODAY}T09:30Z" \
               --repo "${{ github.repository }}" \
               --json databaseId --jq 'length')
             if [ "$COUNT" -gt 0 ]; then

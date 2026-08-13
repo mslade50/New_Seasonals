@@ -66,11 +66,17 @@ jobs:
           SHOULD_RUN=true
           if [ "${{ github.event_name }}" = "schedule" ] && [ "${{ github.event.schedule }}" = "20 9 * * 1-5" ]; then
             TODAY=$(date -u +%Y-%m-%d)
+            # Only count a dispatch inside the AM pre-market window (local
+            # trigger fires 4:10 AM ET = 08:10 UTC EDT / 09:10 UTC EST).
+            # Whole-UTC-day keying let a prior-EVENING manual dispatch —
+            # which can only ever capture D-1, CBOE hasn't published yet —
+            # suppress this fallback, leaving the 7 AM Daily Pitch on D-2
+            # put/call data. Same bug class fixed in daily_screener.yml.
             COUNT=$(gh run list \
               --workflow=update_cboe_putcall.yml \
               --status=success \
               --event=workflow_dispatch \
-              --created="$TODAY" \
+              --created="${TODAY}T07:00Z..${TODAY}T09:20Z" \
               --repo "${{ github.repository }}" \
               --json databaseId --jq 'length')
             if [ "$COUNT" -gt 0 ]; then

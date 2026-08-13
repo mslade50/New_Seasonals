@@ -587,7 +587,7 @@ def build_html_email(computed, fwd_returns_10d=None):
 
     signal_board_html = f"""
     <div style="margin-bottom: 20px;">
-        <h2 style="color: #fff; margin-bottom: 10px;">Signal Board ({active_count}/6 active)</h2>
+        <h2 style="color: #fff; margin-bottom: 10px;">Signal Board ({active_count}/{len(signals_ordered)} active)</h2>
         <table style="width: 100%; border-collapse: collapse; background: rgba(255,255,255,0.03); border-radius: 8px;">
             <thead>
                 <tr style="border-bottom: 2px solid #444;">
@@ -788,8 +788,9 @@ def main():
         # full rewrite let history drift with data revisions and code changes
         # (May-vs-July vintages differed by up to ~7 pts on the 63d dial) —
         # unacceptable for a series that sizes live orders and gets backtested.
-        # Rows dated today (same-day rerun) are refreshed; a missing/corrupt
-        # cache falls back to a full bootstrap write.
+        # Rows dated today (same-day rerun) are refreshed; only a MISSING
+        # cache falls back to a full bootstrap write — an unreadable one
+        # fails the run rather than rewriting frozen history.
         frag_smoothed = frag_df.rolling(5, min_periods=1).mean()
         frag_smoothed.index = pd.to_datetime(frag_smoothed.index).normalize()
         try:
@@ -812,7 +813,16 @@ def main():
                     frag_smoothed, existing.sort_index(), run_date,
                     refresh_from=refresh_from)
             except Exception as e:
-                print(f"  WARNING: unreadable fragility cache ({e}) — full rewrite")
+                # NEVER fall through to a full rewrite: the cache exists but
+                # can't be read (partial write, file lock, pyarrow bump), and
+                # replacing frozen PIT history with the in-memory recompute
+                # (vintages drift up to ~7 pts on the 63d dial) would feed
+                # live frag_risk_bands sizing a wrong vintage while the job
+                # reports green. Fail loud; the on-disk cache stays untouched.
+                raise RuntimeError(
+                    f"fragility cache exists but is unreadable ({e}); "
+                    f"refusing to rewrite frozen PIT history — fix or restore "
+                    f"{frag_cache_path} from git") from e
 
         try:
             import pyarrow as pa

@@ -6,7 +6,10 @@
 $ErrorActionPreference = "Stop"
 
 $env:PYTHONIOENCODING = "utf-8"
-$ProjectDir = "C:\Users\mckin\New_Seasonals"
+# Derived from the script's own location — the old hardcoded
+# C:\Users\mckin\New_Seasonals died at Set-Location on this machine, so the
+# documented belt-and-suspenders task silently never ran post-migration.
+$ProjectDir = Split-Path -Parent $PSScriptRoot
 $LogDir = Join-Path $ProjectDir "logs"
 $DateStr = Get-Date -Format "yyyy-MM-dd"
 $LogFile = Join-Path $LogDir "earnings_calendar_$DateStr.log"

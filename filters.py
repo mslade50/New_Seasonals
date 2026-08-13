@@ -225,9 +225,14 @@ def evaluate_filter_mask(df, params, sznl_map=None, ticker_name="UNK", mode="bac
             pv = np.asarray(per)
             is_last[:-1] = pv[1:] != pv[:-1]
         if n:
-            from pandas.tseries.holiday import USFederalHolidayCalendar
-            from pandas.tseries.offsets import CustomBusinessDay
-            nxt = df.index[-1] + CustomBusinessDay(1, calendar=USFederalHolidayCalendar())
+            # NYSE calendar (2026-07-16 invariant), NOT USFederalHoliday:
+            # that calendar misses Good Friday, so when the last NYSE session
+            # of March precedes a same-month Good Friday (2013/2018/2024,
+            # next 2029) the federal "next business day" stayed in March and
+            # the live month-end signal was silently skipped while the
+            # ledger's successor-roll path still booked it.
+            from trading_calendar import TRADING_DAY
+            nxt = df.index[-1] + TRADING_DAY
             is_last[-1] = nxt.month != df.index[-1].month
         with np.errstate(invalid='ignore'):
             ok = (rng > 0) & (pos <= thresh)

@@ -108,6 +108,15 @@ def replay_leg(bars: pd.DataFrame, row: dict) -> dict:
                 fill = min(limit, op[i]) if long else max(limit, op[i])
                 break
         if fill_i is None:
+            # Terminal no_fill only once the whole window has been SEEN.
+            # Grading runs with prices through yesterday, so a multi-session
+            # window (fill_window_td > 1) exhausts the available bars long
+            # before it expires; booking terminal 0R then would permanently
+            # hide a day-2/3 fill from the scoreboard (no_fill is never
+            # re-graded). Still-open windows stay "open" and re-grade daily.
+            if index[-1] < expire:
+                return {"status": "open", "ticker": row["Ticker"],
+                        "limit": round(limit, 4), "qty": qty}
             return {"status": "no_fill", "ticker": row["Ticker"],
                     "limit": round(limit, 4), "qty": qty, "pnl": 0.0}
 

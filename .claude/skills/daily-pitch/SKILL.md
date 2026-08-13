@@ -1,6 +1,6 @@
 ---
 name: daily-pitch
-description: Produce the Daily Pitch - up to three novel, falsified trade ideas for today, delivered as an email and a Sheets approval tab. Use when running the morning pitch (scheduled ~7:00 AM ET or on request), or when McKinley asks for pitch ideas, a trade suggestion run, or a rerun of today's pitch.
+description: Produce the Daily Pitch - up to three novel, falsified trade ideas for today, delivered as an email and a Sheets approval tab. Use when running the morning pitch (scheduled 5:10 AM ET or on request), or when McKinley asks for pitch ideas, a trade suggestion run, or a rerun of today's pitch.
 ---
 
 # Daily Pitch
@@ -314,6 +314,10 @@ every composed idea, so round 3 is structural rather than something the prose
 can claim. One file may serve as both `script` and `dev_script` when it
 carries the development section itself. A directed idea may omit it, since
 McKinley asked for the trade in a stated form and the shaping work is done.
+A directed idea is marked by a non-empty **`directed_by`** field on the idea
+payload (the wording of McKinley's ask) — that field is what every
+directed-idea exemption in the validator and delivery check keys on; an idea
+without it is composed, whatever the prose says.
 
 1. **Horizon**: `pitch_lab.horizon_scan` across 1 to 10 td. `horizon_td` and
    `time_td` come FROM this table. If the edge lives at h=3 and decays by
@@ -586,6 +590,10 @@ exit         time_td is ALWAYS present (1..horizon_td), time_order MOC|MOO,
 sizing.mode  risk_bps (default 30 bps of NAV) | nav_pct (index or carry
              constructions that are not naturally risk-sized; say why in the
              thesis)
+             HARD CAPS the validator enforces (exceeding them fails the
+             publish): risk_bps <= 100 per idea, ATR risk <= 60 bps per
+             idea and <= 150 bps across the day's slate, nav_pct <= 0.5,
+             at most 4 legs per idea
 legs         side LONG|SHORT; a futures leg adds sec_type "FUT", contract
              (exact string for manual entry), proxy_ticker (a master_prices
              series for levels and grading) and multiplier (point value)

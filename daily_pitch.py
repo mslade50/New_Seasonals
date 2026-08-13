@@ -750,7 +750,11 @@ def send_email(subject: str, html: str) -> bool:
             server.starttls()
             server.login(sender, password)
             server.sendmail(sender, recipients, msg.as_string())
-    except smtplib.SMTPException as exc:
+    except (smtplib.SMTPException, OSError) as exc:
+        # OSError too: smtplib.SMTP(...) raises socket-level errors
+        # (gaierror / ConnectionRefusedError / TimeoutError) on a no-network
+        # morning, and those must take this same degrade path — not crash
+        # main() before the tab rewrite and journal append.
         # A rejected app password looks identical to a healthy run from the
         # outside: the tab still gets written and the journal still records a
         # delivery. Say it loudly instead.
@@ -867,13 +871,23 @@ def stand_down_records(payload: dict, asof: pd.Timestamp,
 
 def load_context(asof: pd.Timestamp) -> tuple[dict, dict | None]:
     """The scoreboard and this morning's state, shared by both publish paths."""
+    # Best effort: these files decorate the email — a truncated scoreboard
+    # (non-atomic write by the grader minutes earlier) must not take down a
+    # publish that already holds three valid ideas.
     scoreboard = {}
     if SCOREBOARD_PATH.exists():
-        scoreboard = json.loads(SCOREBOARD_PATH.read_text(encoding="utf-8"))
+        try:
+            scoreboard = json.loads(SCOREBOARD_PATH.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError) as exc:
+            print(f"WARNING: scoreboard unreadable ({exc}) - shipping without it")
     state = None
     if STATE_PATH.exists():
-        state = json.loads(STATE_PATH.read_text(encoding="utf-8"))
-        if state.get("asof") != str(asof.date()):
+        try:
+            state = json.loads(STATE_PATH.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError) as exc:
+            print(f"WARNING: pitch_state.json unreadable ({exc}) - "
+                  f"shipping without the context header")
+        if state and state.get("asof") != str(asof.date()):
             print(f"WARNING: pitch_state.json is dated {state.get('asof')}, "
                   f"not {asof.date()} - the context header may be stale")
     return scoreboard, state
@@ -931,9 +945,16 @@ def publish_stand_down(payload: dict, asof: pd.Timestamp, journal_path: Path,
         print(f"WARNING: Sheets unavailable ({exc}) - approvals not captured "
               f"and the Pitch tab will not be cleared")
 
+    # Journal approvals immediately — same one-readable-window rationale as
+    # the ideas path above.
+    if approvals:
+        pitch_journal.append(approvals, journal_path)
+
+    email_ok = True
     if not args.no_send:
-        send_email(f"Daily Pitch - {asof.date()} - NO TRADES "
-                   f"({len(payload.get('killed') or [])} killed)", html)
+        email_ok = send_email(f"Daily Pitch - {asof.date()} - NO TRADES "
+                              f"({len(payload.get('killed') or [])} killed)",
+                              html)
 
     if sheet is not None:
         try:
@@ -945,10 +966,11 @@ def publish_stand_down(payload: dict, asof: pd.Timestamp, journal_path: Path,
             return 1
 
     written = pitch_journal.append(
-        approvals + stand_down_records(payload, asof, args.model, args.effort),
+        stand_down_records(payload, asof, args.model, args.effort),
         journal_path)
-    print(f"Journaled {written} record(s) -> {journal_path.name}")
-    return 0
+    print(f"Journaled {len(approvals) + written} record(s) "
+          f"-> {journal_path.name}")
+    return 0 if email_ok else 1  # failed email = failed delivery, show red
 
 
 def main() -> int:
@@ -1032,9 +1054,17 @@ def main() -> int:
         print(f"WARNING: Sheets unavailable ({exc}) - approvals not captured "
               f"and the Pitch tab will not be rewritten")
 
+    # Journal captured approvals IMMEDIATELY: this is the only window they
+    # are readable in, and write_tab's clear() destroys the tab copy — a
+    # failure between capture and the end-of-run append used to drop them
+    # permanently (empty tab AND no journal record).
+    if approvals:
+        pitch_journal.append(approvals, journal_path)
+
+    email_ok = True
     if not args.no_send:
-        send_email(f"Daily Pitch - {asof.date()} - {len(ideas)} "
-                   f"idea{'' if len(ideas) == 1 else 's'}", html)
+        email_ok = send_email(f"Daily Pitch - {asof.date()} - {len(ideas)} "
+                              f"idea{'' if len(ideas) == 1 else 's'}", html)
 
     if sheet is not None:
         try:
@@ -1045,10 +1075,14 @@ def main() -> int:
             return 1
 
     written = pitch_journal.append(
-        approvals + journal_records(payload, ideas, asof, args.model,
-                                    args.effort), journal_path)
-    print(f"Journaled {written} record(s) -> {journal_path.name}")
-    return 0
+        journal_records(payload, ideas, asof, args.model, args.effort),
+        journal_path)
+    print(f"Journaled {len(approvals) + written} record(s) "
+          f"-> {journal_path.name}")
+    # A failed email is a failed DELIVERY even though the tab and journal
+    # reflect the run — exit nonzero so Task Scheduler / the .bat log show
+    # red instead of a green morning with no email in the inbox.
+    return 0 if email_ok else 1
 
 
 if __name__ == "__main__":

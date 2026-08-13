@@ -423,8 +423,12 @@ def build_pipeline(today: pd.Timestamp, tape: dict, risk: dict,
                  "missing": [], "available": False, "stale": []}
 
     token = os.environ.get("GH_PAT_NEW_SEASONALS", "")
+    # Test the no-token case BEFORE defaulting fetch: the old order made the
+    # identity check always-true, so a missing PAT hit the GitHub API with an
+    # empty Bearer and reported a misleading 401 instead of the config gap.
+    use_check = bool(token) or fetch is not None
     fetch = fetch or (lambda wf: _latest_success(wf, token))
-    if token or fetch is not _latest_success:
+    if use_check:
         try:
             for workflow, label in TRACKED_WORKFLOWS:
                 last = fetch(workflow)

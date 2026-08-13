@@ -105,11 +105,9 @@ OVERFLOW_ELIGIBLE_STRATEGIES = {
     "ATR Extended Gap Up",  # added 2026-06-09; native 60 bps on overflow (no override)
 }
 
-# Per-strategy bps overrides for the overflow tier. OVS uses path-1 nominal
-# (40 bps) for both universes — see strategy_config.py + order_staging.py.
-OVERFLOW_RISK_OVERRIDES = {
-    "Oversold Low Volume": 25,  # vs liquid 35 (signal-recency ladder applies on both tiers)
-}
+# Per-strategy bps overrides for the overflow tier — single source in
+# strategy_config (nominal; scaled by GLOBAL_RISK_MULTIPLIER at use below).
+from strategy_config import OVERFLOW_RISK_OVERRIDES
 
 # ATR-normalized seasonal ranks (built by build_atr_seasonal_ranks.py)
 ATR_SZNL_PATH = os.path.join(current_dir, "atr_seasonal_ranks.parquet")
@@ -1794,7 +1792,12 @@ def download_historical_data(tickers, start_date="2000-01-01"):
                 if len(chunk) == 1:
                     ticker = chunk[0]
                     if isinstance(df.columns, pd.MultiIndex):
-                        df.columns = df.columns.get_level_values(0)
+                        # yfinance returns (Ticker, Price) even for a 1-name
+                        # list — take the level that holds the price fields,
+                        # else level 0 repeats the ticker and 'Close' vanishes
+                        lvl = next((i for i in range(df.columns.nlevels)
+                                    if 'Close' in df.columns.get_level_values(i)), 0)
+                        df.columns = df.columns.get_level_values(lvl)
                     if 'Close' in df.columns:
                         df.index = df.index.tz_localize(None)
                         data_dict[ticker] = df
@@ -3061,13 +3064,15 @@ def run_daily_scan(scope='liquid', moc_only=False, dry_run=False):
             _td = SPOT_TO_TRADEABLE.get(_tkr, _tkr)
             _date_traded_to_strats[(_s.get('Date'), _td)].add(_s.get('Strategy_Name'))
 
-        # Map strategy name -> original risk_bps so we can compute the scale.
-        _strat_bps = {s['name']: int(s['execution'].get('risk_bps', 0)) for s in effective_book}
-
         _clamp_count = 0
         for _ovr in CROSS_STRATEGY_OVERLAP_OVERRIDES:
             _pair = set(_ovr['strategies'])
             _clamp_bps = float(_ovr['risk_bps_when_overlapping'])
+            # Absolute clamp on the row's staged risk ("reduced TO clamp
+            # bps"), not a proportional rescale off the base bps — so frag /
+            # P/C multipliers already in Risk_Amt can't push a clamped row
+            # above the clamp, and rows already below it are left alone.
+            _clamp_amt = ACCOUNT_VALUE * _clamp_bps / 10000.0
             # Find collision keys: (date, traded) where >= 2 strategies in _pair fired.
             _collisions = {
                 _key for _key, _strats in _date_traded_to_strats.items()
@@ -3082,18 +3087,18 @@ def run_daily_scan(scope='liquid', moc_only=False, dry_run=False):
                 _td = SPOT_TO_TRADEABLE.get(_tkr, _tkr)
                 if (_s.get('Date'), _td) not in _collisions:
                     continue
-                _orig_bps = _strat_bps.get(_s.get('Strategy_Name'), 0)
-                if _orig_bps <= 0 or _clamp_bps >= _orig_bps:
+                _risk = float(_s.get('Risk_Amt', 0.0))
+                if _risk <= _clamp_amt:
                     continue
-                _scale = _clamp_bps / _orig_bps
+                _scale = _clamp_amt / _risk
                 _orig_shares = _s.get('Shares', 0)
                 _s['Shares'] = int(round(_orig_shares * _scale))
-                _s['Risk_Amt'] = float(_s.get('Risk_Amt', 0.0)) * _scale
+                _s['Risk_Amt'] = _risk * _scale
                 _s['Notional'] = float(_s.get('Notional', 0.0)) * _scale
                 _s['Sizing_Notes'] = (
                     f"{_s.get('Sizing_Notes', '')} | "
-                    f"Cross-strategy overlap clamp -> {int(_clamp_bps)} bps "
-                    f"({_orig_bps}->{int(_clamp_bps)}, scale {_scale:.2f})"
+                    f"Cross-strategy overlap clamp -> {_clamp_bps:.0f} bps "
+                    f"effective (scale {_scale:.2f})"
                 )
                 _clamp_count += 1
         if _clamp_count:
@@ -3255,7 +3260,8 @@ def run_daily_scan(scope='liquid', moc_only=False, dry_run=False):
                 save_state(today_snap)
                 print(f"[exposure] Mult={today_snap['mult']:.2f}x rule={today_snap['active_rule']} reason={today_snap['reason']}")
             else:
-                print("[exposure] Fragility cache missing — exposure leg skipped.")
+                print("[exposure] Fragility dial unavailable (cache missing, "
+                      "unreadable, or STALE > 3 td) — exposure leg skipped.")
         except Exception as e:
             print(f"[exposure] Failed to compute exposure leg: {e}")
 

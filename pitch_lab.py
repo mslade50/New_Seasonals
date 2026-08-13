@@ -7,8 +7,11 @@ home of the machinery the 2026-08-07 run had to invent ad hoc (_common.py /
 _engine.py / _study.py in that day's folder), promoted so the statistics that
 decide kills are identical from one morning to the next.
 
-READ-ONLY BY CONTRACT: nothing here writes to data/ or touches the live book.
-The systematic book must never import this module (same rule as
+READ-ONLY over the live book BY CONTRACT — nothing here touches book state.
+The ONE write this module performs is its own data/pitch_watchlist.json
+(save_watchlist, the documented post-publish prune); do not scope the
+morning's check scripts to a read-only sandbox on the strength of this
+docstring. The systematic book must never import this module (same rule as
 pitch_grammar): a pitch statistic is never a scanner statistic.
 
 Conventions every check inherits, stated once:

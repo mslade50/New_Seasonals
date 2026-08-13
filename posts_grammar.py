@@ -49,8 +49,11 @@ HARD_IDENTITY = [
 ]
 SOFT_IDENTITY = ["mckinley", "scott", "denali", "new seasonals"]
 
-# Dollar SIZES, not prices: $1,500 / $15k / $2.3M. A "$224 level" is fine.
-DOLLAR_SIZE = re.compile(r"\$\s?\d{1,3}(?:,\d{3})+|\$\s?\d+(?:\.\d+)?\s?[kKmM]\b")
+# Dollar SIZES, not prices: $1,500 / $15k / $2.3M / $15000. A "$224 level"
+# is fine; the bare form needs 4+ digits so 1-3 digit prices never match
+# (comma-less sizes like "$4500" used to sail through the hard block).
+DOLLAR_SIZE = re.compile(
+    r"\$\s?\d{1,3}(?:,\d{3})+|\$\s?\d+(?:\.\d+)?\s?[kKmM]\b|\$\s?\d{4,}\b")
 
 # --- prose lint (soft, never blocks) --------------------------------------
 # The machine-checkable slice of the playbook's human-first rules (the
@@ -271,7 +274,10 @@ def derive_order_row(draft: dict) -> dict:
     execute_on = pd.Timestamp(idea["execute_on"]).normalize()
     window_td = int(idea.get("window_td") or 1)
     expire = (execute_on + (window_td - 1) * TRADING_DAY).normalize()
-    time_exit = (execute_on + (int(idea["time_td"]) - 1) * TRADING_DAY).normalize()
+    # No -1: matches pitch_grammar.time_exit_date, so "time stop N td" holds
+    # N sessions in BOTH products (the old -1 graded posts one session short
+    # and made an MOC time_td=1 idea grade exactly 0R every time).
+    time_exit = (execute_on + int(idea["time_td"]) * TRADING_DAY).normalize()
 
     limit_price = None
     offset = None

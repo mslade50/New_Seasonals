@@ -100,6 +100,9 @@ def _read_dial_readings(frag_path: str) -> Optional[Dict[str, float]]:
         age_td = int(np.busday_count(last_dt.date(),
                                      pd.Timestamp.today().normalize().date()))
         if age_td > DIAL_STALE_TD:
+            # Deliberate SKIP (not the book's fail-open 1.0x): acting on a
+            # regime that may no longer hold is worse than skipping the leg.
+            # CLAUDE.md documents this exception.
             print(f"exposure_leg: STALE dial reading ({last_dt.date()}, "
                   f"{age_td} td old > {DIAL_STALE_TD}) — leg skipped")
             return None
@@ -471,7 +474,8 @@ def build_exposure_email_html(today: Dict, prior: Optional[Dict]) -> str:
             'border-left: 4px solid #f9a825; border-radius: 4px; font-family: Arial, sans-serif;">'
             '<div style="font-weight: bold; color: #f57f17; font-size: 14px;">Exposure Leg</div>'
             '<div style="font-size: 12px; color: #666; margin-top: 4px;">'
-            'Fragility cache missing — exposure leg not computed.</div></div>'
+            'Fragility dial unavailable (cache missing, unreadable, or stale '
+            '&gt; 3 td) — exposure leg not computed; holdings unchanged.</div></div>'
         )
 
     mult = today['mult']

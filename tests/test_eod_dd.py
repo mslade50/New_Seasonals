@@ -115,7 +115,9 @@ def run_case(label, entry_close, expected_type, start_date='2024-01-02',
         assert row['PnL'] < 0
 
 
-def main():
+# Named test_* so pytest COLLECTS it — this file was script-only until
+# 2026-08-12 and the guard CLAUDE.md cites never actually ran in CI.
+def test_eod_dd_cases():
     # Case A: EOD-DD fires (close = 103.5, dd = 0.5 ATR > 0.25)
     run_case('A: triggers', 103.5, 'EOD-DD')
     # Case B: EOD-DD does NOT fire (close = 102.6, dd = 0.05 ATR < 0.25)
@@ -132,4 +134,4 @@ def main():
 
 
 if __name__ == '__main__':
-    main()
+    test_eod_dd_cases()

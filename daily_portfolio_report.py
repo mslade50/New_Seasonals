@@ -99,13 +99,10 @@ OVERFLOW_ELIGIBLE = {
     "52wh Breakout",
     "ATR Extended Gap Up",  # added 2026-06-09; native 60 bps on overflow (no override)
 }
-OVERFLOW_RISK_OVERRIDES = {
-    "Oversold Low Volume": 25,      # vs liquid 35 bps (first-leg 0.5x ladder on both tiers)
-    # OVS uses the same path-1 nominal (40 bps) for both liquid and overflow
-    # universes — sizing is governed by the 2-path gap-tier in
-    # order_staging.py (path-1 40 bps decisive / path-2 8 bps mild + 1%
-    # aggregate cap / skip).
-}
+# Single source in strategy_config (nominal; scaled by GRM at use below).
+# OVS uses the same path-1 nominal (40 bps) for both tiers — sizing is
+# governed by the 2-path gap-tier in order_staging.py.
+from strategy_config import OVERFLOW_RISK_OVERRIDES
 
 
 def build_full_strategy_book():

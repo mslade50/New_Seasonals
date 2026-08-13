@@ -81,16 +81,29 @@ def _refresh_from_r2_if_needed(local_path, r2_key="earnings_calendar.parquet"):
 def load_earnings_dates_map(path=None):
     """Load earnings calendar parquet → {ticker: np.array of datetime64[D]}.
 
-    Returns empty dict if the parquet is missing or malformed — callers should
-    treat that as "filter off" (every ticker passes through).
+    Returns empty dict if the parquet is MISSING — callers should treat that
+    as "filter off" (every ticker passes through). A file that exists but is
+    unreadable or lost its schema RAISES instead: an empty map silently
+    disables the whole OVS ±10 TD blackout (and the earnings size overrides)
+    on a live order path, which routinely kills most of an OVS slate — a
+    one-line warning is not an acceptable trade for that.
     """
     p = path or _PARQUET_PATH
     _refresh_from_r2_if_needed(p, "earnings_calendar.parquet")
     frames = []
-    try:
-        frames.append(pd.read_parquet(p))
-    except Exception:
-        pass
+    if os.path.exists(p):
+        try:
+            main_df = pd.read_parquet(p)
+        except Exception as exc:
+            raise RuntimeError(
+                f"earnings calendar exists but is unreadable ({p}): {exc} — "
+                f"refusing to run with the earnings blackout silently OFF"
+            ) from exc
+        if "ticker" not in main_df.columns or "date" not in main_df.columns:
+            raise RuntimeError(
+                f"earnings calendar {p} lacks ticker/date columns — "
+                f"schema broke; blackout would be silently OFF")
+        frames.append(main_df)
     # When reading the default production calendar, also union the overflow
     # staging file so OVS blackout covers the dynamic overflow names (their
     # earnings are absent from production). Skipped when a caller passes an

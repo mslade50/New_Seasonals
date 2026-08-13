@@ -17,9 +17,14 @@ Method, per signal (same day-level semantics as the original file):
     episode returns against the unconditional mean.
 
 Usage:
-  python scripts/build_signal_horizon_stats.py                 # write data/
-  python scripts/build_signal_horizon_stats.py --out X.json    # candidate run
-Prints a drift table against the existing JSON either way.
+  python scripts/build_signal_horizon_stats.py             # CANDIDATE run ->
+                                                           # scratch/signal_horizon_stats_candidate.json
+  python scripts/build_signal_horizon_stats.py --out data/signal_horizon_stats.json
+                                                           # adopt into LIVE
+Prints a drift table against the existing live JSON either way. The live
+path is deliberately NOT the default: five live thresholds calibrate to the
+frozen vintage (CLAUDE.md freeze policy A2), so adopting a re-scored JSON
+must be an explicit act that has passed a PIT re-validation.
 """
 from __future__ import annotations
 
@@ -69,7 +74,9 @@ if "streamlit" not in sys.modules or not hasattr(sys.modules["streamlit"], "colu
     sys.modules["streamlit"] = _NoOpStreamlit()
 
 HORIZONS = {"5d": 5, "10d": 10, "21d": 21, "42d": 42, "63d": 63}
-OUT_DEFAULT = os.path.join(_ROOT, "data", "signal_horizon_stats.json")
+LIVE_PATH = os.path.join(_ROOT, "data", "signal_horizon_stats.json")
+# Default is a CANDIDATE file (A2 freeze policy) — pass --out LIVE_PATH to adopt.
+OUT_DEFAULT = os.path.join(_ROOT, "scratch", "signal_horizon_stats_candidate.json")
 
 # Parameter descriptions mirror the constants in pages/risk_dashboard_v2.py
 # compute_* functions as of this generator's vintage.
@@ -219,8 +226,8 @@ def main() -> None:
         "signals": blocks,
     }
 
-    if os.path.exists(OUT_DEFAULT):
-        with open(OUT_DEFAULT) as f:
+    if os.path.exists(LIVE_PATH):
+        with open(LIVE_PATH) as f:
             old = json.load(f)
         print("\n=== drift vs existing data/signal_horizon_stats.json ===")
         drift_table(old, payload)

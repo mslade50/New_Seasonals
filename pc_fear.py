@@ -53,13 +53,21 @@ def _rolling_pct_rank(s: pd.Series, window: int) -> pd.Series:
 def pct_series(cache_path: str | None = None) -> pd.Series | None:
     """Trailing-252d percentile rank of the 10d-MA equity P/C, indexed by the
     DATA date (no lag applied here). None when the cache is missing/unusable."""
-    key = cache_path or PC_CACHE_PATH
+    path = cache_path or PC_CACHE_PATH
+    # Key on the file's mtime so a long-lived process (the Streamlit page)
+    # picks up the twice-daily CBOE refresh instead of pinning the
+    # process-start vintage; one-shot consumers behave identically.
+    try:
+        mtime = os.path.getmtime(path)
+    except OSError:
+        mtime = None
+    key = (path, mtime)
     if key in _CACHE:
         return _CACHE[key]
     series = None
     try:
-        if os.path.exists(key):
-            eq = pd.read_parquet(key)["equity"].dropna().sort_index()
+        if os.path.exists(path):
+            eq = pd.read_parquet(path)["equity"].dropna().sort_index()
             eq.index = pd.to_datetime(eq.index)
             try:
                 eq.index = eq.index.tz_localize(None)
@@ -69,7 +77,10 @@ def pct_series(cache_path: str | None = None) -> pd.Series | None:
             series = _rolling_pct_rank(ma, RANK_WINDOW).dropna()
     except Exception:
         series = None
-    _CACHE[key] = series
+    if series is not None:
+        # Failed loads are NOT cached — a transient lock at first call used
+        # to pin "unavailable" for the process lifetime.
+        _CACHE[key] = series
     return series
 
 

@@ -31,7 +31,15 @@ CHUNK_SIZE = 50
 
 def _normalize_ticker_df(t_df):
     if isinstance(t_df.columns, pd.MultiIndex):
-        t_df.columns = t_df.columns.get_level_values(0)
+        # yfinance returns a (Ticker, Price) MultiIndex even for a ONE-name
+        # list (group_by='ticker'), so level 0 is the ticker repeated and
+        # blindly taking it drops the frame ("Close" missing -> None). Take
+        # whichever level actually carries the price fields. This is the
+        # branch the basis-change re-pull rides (it usually flags exactly
+        # one ticker), so failing here wrote the very cliff it guards.
+        price_lvl = next((i for i in range(t_df.columns.nlevels)
+                          if "Close" in t_df.columns.get_level_values(i)), 0)
+        t_df.columns = t_df.columns.get_level_values(price_lvl)
     if "Close" not in t_df.columns or t_df["Close"].dropna().empty:
         return None
     if t_df.index.tz is not None:
@@ -328,7 +336,12 @@ def main():
               f"allowed shrink {_allowed_shrink:,}) — bad vintage; refusing to "
               f"overwrite the master parquet.")
         return 1
-    combined.to_parquet(PATH, compression="snappy", index=False)
+    # Atomic replace: an in-place to_parquet interrupted mid-write leaves a
+    # corrupt canonical cache (a stray data/master_prices.parquet.XXXXXXXX
+    # partial confirmed interrupted transfers happen on this surface).
+    _tmp = PATH + ".tmp"
+    combined.to_parquet(_tmp, compression="snappy", index=False)
+    os.replace(_tmp, PATH)
 
     elapsed = time.time() - t_start
     new_max = combined.groupby("ticker")["date"].max().max()

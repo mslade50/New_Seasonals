@@ -115,7 +115,9 @@ def run_case(label, touch_day, fill_window_days, expect_fill):
         assert abs(sig_df.iloc[0]['Price'] - 99.5) < 1e-6
 
 
-def main():
+# Named test_* so pytest COLLECTS it — this file was script-only until
+# 2026-08-12 and the guard CLAUDE.md cites never actually ran in CI.
+def test_olv_fill_window_cases():
     # A: touch on T+4, window=3 -> order cancelled before the dip, NO trade.
     run_case('A: late touch, window=3 drops', touch_day=4,
              fill_window_days=3, expect_fill=False)
@@ -132,4 +134,4 @@ def main():
 
 
 if __name__ == '__main__':
-    main()
+    test_olv_fill_window_cases()

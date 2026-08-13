@@ -711,8 +711,7 @@ def build_nuggets(p):
         out.append({
             "title": f"Book posture: regime multiplier {rm:.2f}x",
             "tone": "good" if rm >= 0.95 else "warn" if rm >= 0.75 else "bad",
-            "lines": [f"The fragility framework's core-exposure dial (0.6-1.8x) says {posture}. "
-                      f"This is the same multiplier the AM scan writes to exposure_state.json."],
+            "lines": [f"The fragility framework's core-exposure dial (0.6-1.8x) says {posture}."],
         })
 
     return out

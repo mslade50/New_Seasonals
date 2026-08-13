@@ -145,7 +145,7 @@ parent_dir = os.path.dirname(current_dir)
 sys.path.append(parent_dir)
 
 try:
-    from strategy_config import _STRATEGY_BOOK_RAW, ACCOUNT_VALUE, CSV_UNIVERSE, LIQUID_PLUS_COMMODITIES, SPOT_TO_TRADEABLE, same_day_derate_mult
+    from strategy_config import _STRATEGY_BOOK_RAW, ACCOUNT_VALUE, CSV_UNIVERSE, LIQUID_PLUS_COMMODITIES, SPOT_TO_TRADEABLE, same_day_derate_mult, OVERFLOW_RISK_OVERRIDES, GLOBAL_RISK_MULTIPLIER
 except ImportError:
     # st.error("Could not find strategy_config.py in the root directory.")
     _STRATEGY_BOOK_RAW = []
@@ -178,12 +178,13 @@ OVERFLOW_ELIGIBLE_STRATEGIES = {
 }
 
 # Tickers in this set are sized at the strategy's configured risk_bps
-# (i.e. "liquid" / daily_scan sizing). Tickers outside this set are
-# considered overflow universe and may be sized differently per
-# strategy-specific overrides (currently OLV 35→25 bps in
-# daily_portfolio_report.OVERFLOW_RISK_OVERRIDES). OVS uses the same path-1
-# nominal (40 bps) across both universes — see the OVS pre-pass +
-# _ovs_size_mult block in process_signals_fast for the 2-path scheme.
+# (i.e. "liquid" / daily_scan sizing). With overflow_active=True, tickers
+# OUTSIDE this set take strategy_config.OVERFLOW_RISK_OVERRIDES (currently
+# OLV 35→25 bps) in sizing step 3a — idempotent for callers that already
+# pass per-tier strategy dicts (the override sets the same scaled bps the
+# overflow variant carries). OVS uses the same path-1 nominal (40 bps)
+# across both universes — see the OVS pre-pass + _ovs_size_mult block in
+# process_signals_fast for the 2-path scheme.
 _LIQUID_SET = set(LIQUID_PLUS_COMMODITIES)
 
 # -----------------------------------------------------------------------------
@@ -993,6 +994,33 @@ def process_signals_fast(candidates, signal_data, processed_dict, strategies, st
                 _k = (_c[3], pd.Timestamp(_c[0]).normalize())
                 _derate_sig_counts[_k] = _derate_sig_counts.get(_k, 0) + 1
 
+    # Cross-strategy overlap clamp (live 5b): collision keys from STAGED
+    # candidates, not fills — live clamps every staged row of the pair when
+    # both FIRE on the same date+tradeable, and order_staging honors the
+    # reduced size regardless of which limits later fill. (The old post-pass
+    # over sig_df required both legs to FILL, booking the one-fills leg at
+    # full size, and ran after the per-strategy cap — opposite of live.)
+    # Applied in sizing step 3b3c. Mirrors daily_scan 5b; change together.
+    try:
+        from strategy_config import CROSS_STRATEGY_OVERLAP_OVERRIDES as _CSOO
+    except ImportError:
+        _CSOO = []
+    _overlap_clamp = {}
+    if _CSOO:
+        _name_by_idx = {i: s.get('name') for i, s in enumerate(strategies)}
+        _fired = {}
+        for _c in candidates:
+            _nm = _name_by_idx.get(_c[3])
+            _td = SPOT_TO_TRADEABLE.get(_c[2], _c[2])
+            _fired.setdefault(
+                (pd.Timestamp(_c[0]).normalize(), _td), set()).add(_nm)
+        for _ovr in _CSOO:
+            _pair = set(_ovr['strategies'])
+            _cl = float(_ovr['risk_bps_when_overlapping'])
+            for _key, _names in _fired.items():
+                if len(_names & _pair) >= 2:
+                    _overlap_clamp[_key] = (_pair, _cl)
+
     # Build price matrix for all relevant tickers (forward-filled by ticker).
     all_tickers = set(c[2] for c in candidates)
     price_matrix = build_price_matrix(processed_dict, all_tickers)
@@ -1215,6 +1243,13 @@ def process_signals_fast(candidates, signal_data, processed_dict, strategies, st
         # OVS uses path1_bps (40) as the nominal — path-2 downsizing is folded
         # into _ovs_size_mult above. No per-universe risk_bps override.
         risk_bps = execution['risk_bps']
+        # Overflow-tier override (was a dead parameter until 2026-08-12):
+        # matches daily_scan's build_effective_strategy_book, so a UI
+        # overflow run sizes OLV at 25 nominal instead of the liquid 35.
+        if overflow_active and t_clean not in _LIQUID_SET:
+            _obps = OVERFLOW_RISK_OVERRIDES.get(strat_name)
+            if _obps is not None:
+                risk_bps = _obps * GLOBAL_RISK_MULTIPLIER
         equity_for_sizing = starting_equity if flat_sizing else current_equity
         base_risk = equity_for_sizing * risk_bps / 10000
         _nominal_risk = base_risk  # full-size baseline; Size_Mult = final / nominal (pre-cap)
@@ -1248,20 +1283,6 @@ def process_signals_fast(candidates, signal_data, processed_dict, strategies, st
         if _ovs_size_mult != 1.0:
             base_risk *= _ovs_size_mult
 
-        # --- 3b. Earnings size override (e.g. OLV pre-earnings -> 10 bps) ---
-        # Replaces the BASE risk (clobbers prior multipliers) when the
-        # signal's offset to nearest earnings sits inside the configured
-        # range — EXCEPT the signal-recency mult, which composes (2026-07-30:
-        # first-iteration pre-earnings OLV = 10 x 0.5 bps). Mirrors
-        # daily_scan sizing 2d. NaN offsets (commodity ETFs / indices /
-        # futures) bypass.
-        _eo = execution.get('earnings_size_override')
-        if _eo and _earnings_map:
-            _e_arr = _earnings_map.get(t_clean.upper())
-            _off = signed_offset(pd.Timestamp(signal_ts), _e_arr)
-            if pd.notna(_off) and _eo['min_td'] <= _off <= _eo['max_td']:
-                base_risk = starting_equity * float(_eo['risk_bps']) / 10000.0 * _recency_mult
-
         # --- 3b2. Cycle-year risk multiplier (e.g. OVS midterm 0.75x) ---
         # execution['cycle_risk_mults'] = {year%4: mult}; 0=Election,
         # 1=Post-Election, 2=Midterm, 3=Pre-Election. Applied to whatever
@@ -1284,6 +1305,36 @@ def process_signals_fast(candidates, signal_data, processed_dict, strategies, st
                                  pc_fear_enabled=pc_fear_enabled)
         if _fbm != 1.0:
             base_risk *= _fbm
+
+        # --- 3b3b. Earnings size override (e.g. OLV pre-earnings -> 10 bps)
+        # Replaces the risk outright (clobbers the frag/cycle multipliers
+        # above) when the signal's offset to nearest earnings sits inside the
+        # configured range — EXCEPT the signal-recency mult, which composes
+        # (2026-07-30: first-iteration pre-earnings OLV = 10 x 0.5 bps).
+        # Runs AFTER 3b2/3b3 to mirror daily_scan's 2b -> 2c -> 2c2 -> 2d
+        # order, where 2d discards the frag and cycle mults (the engine used
+        # to apply them on top — latent live-vs-ledger divergence the moment
+        # an override carrier gains a band or tilt). NaN offsets (commodity
+        # ETFs / indices / futures) bypass.
+        _eo = execution.get('earnings_size_override')
+        if _eo and _earnings_map:
+            _e_arr = _earnings_map.get(t_clean.upper())
+            _off = signed_offset(pd.Timestamp(signal_ts), _e_arr)
+            if pd.notna(_off) and _eo['min_td'] <= _off <= _eo['max_td']:
+                # equity_for_sizing, not starting_equity: base sizing uses
+                # current MTM equity in compounded mode, and the override
+                # must stay on the same basis (identical in flat mode).
+                base_risk = equity_for_sizing * float(_eo['risk_bps']) / 10000.0 * _recency_mult
+
+        # --- 3b3c. Cross-strategy overlap clamp (live 5b) ---
+        # Absolute clamp on this row's sized risk when both pair members
+        # fired (staged) on the same date+tradeable — see the pre-pass above.
+        if _overlap_clamp:
+            _td = SPOT_TO_TRADEABLE.get(t_clean, t_clean)
+            _oc = _overlap_clamp.get((signal_date.normalize(), _td))
+            if _oc is not None and strat_name in _oc[0]:
+                base_risk = min(base_risk,
+                                equity_for_sizing * _oc[1] / 10000.0)
 
         # --- 3b4. Same-day signal de-rate (3x Bear fade, 2026-07-07) ---
         # execution['same_day_signal_derate']: scale by
@@ -1999,44 +2050,9 @@ def process_signals_fast(candidates, signal_data, processed_dict, strategies, st
                 sig_df.loc[grp_idx, 'Risk $'] = sig_df.loc[grp_idx, 'Risk $']  * _scale
         sig_df = sig_df.drop(columns='_Dir')
 
-    # ---- Cross-Strategy Overlap Clamp ----
-    # Apply CROSS_STRATEGY_OVERLAP_OVERRIDES. For each pair defined there,
-    # scan sig_df for (Date, tradeable) collisions and scale each side's
-    # Shares/PnL/Risk $ down to the configured clamp bps. SPOT_TO_TRADEABLE
-    # is applied so spot/ETF pairs (e.g. ^GSPC + SPY) collide as expected.
-    try:
-        from strategy_config import CROSS_STRATEGY_OVERLAP_OVERRIDES as _CSOO
-    except ImportError:
-        _CSOO = []
-    if _CSOO and len(sig_df) > 0 and 'Strategy' in sig_df.columns and 'Risk bps' in sig_df.columns:
-        sig_df['_TradedAs'] = sig_df['Ticker'].map(lambda t: SPOT_TO_TRADEABLE.get(t, t))
-        for _ovr in _CSOO:
-            _pair = set(_ovr['strategies'])
-            _clamp = float(_ovr['risk_bps_when_overlapping'])
-            _hits = sig_df[sig_df['Strategy'].isin(_pair)]
-            if _hits.empty:
-                continue
-            _keys = (
-                _hits.groupby(['Date', '_TradedAs'])['Strategy']
-                .nunique().reset_index(name='_N')
-            )
-            _ov_keys = _keys[_keys['_N'] >= 2][['Date', '_TradedAs']]
-            if _ov_keys.empty:
-                continue
-            # Scale each overlapping row by clamp / original Risk bps.
-            for _, _row in _ov_keys.iterrows():
-                _mask = (
-                    (sig_df['Date'] == _row['Date']) &
-                    (sig_df['_TradedAs'] == _row['_TradedAs']) &
-                    (sig_df['Strategy'].isin(_pair))
-                )
-                _orig_bps = sig_df.loc[_mask, 'Risk bps'].astype(float)
-                _scale_per_row = (_clamp / _orig_bps).clip(upper=1.0)  # never scale UP
-                sig_df.loc[_mask, 'Shares'] = (sig_df.loc[_mask, 'Shares'] * _scale_per_row).round().astype(int)
-                sig_df.loc[_mask, 'PnL']    = (sig_df.loc[_mask, 'PnL']    * _scale_per_row).round()
-                sig_df.loc[_mask, 'Risk $'] = sig_df.loc[_mask, 'Risk $']  * _scale_per_row
-                sig_df.loc[_mask, 'Risk bps'] = np.minimum(_orig_bps, _clamp)
-        sig_df = sig_df.drop(columns='_TradedAs')
+    # (Cross-strategy overlap clamp moved to sizing step 3b3c, 2026-08-12:
+    # keyed on staged candidates and applied before the per-strategy cap,
+    # matching live order_staging.)
 
     return sig_df.sort_values(by="Exit Date")
 

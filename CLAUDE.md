@@ -46,7 +46,7 @@ A quantitative equity trading platform built on Streamlit. Three pillars:
 │   ├── deploy_site.yml             # Private-site build + Pages deploy — reusable workflow (workflow_call) invoked by daily_screener's deploy-site job, same run (2x/day)
 │   └── weekly_rundown.yml          # Sunday weekly PDF
 ├── scripts/                        # Task Scheduler PowerShell wrappers (most disabled post-Phase-2)
-│   ├── run_radar_weekly.ps1        # Sundays 8:30 AM ET — runs radar digest, commits + pushes
+│   ├── run_radar_weekly.ps1        # DEAD — invokes the deleted radar_weekly_summary.py (digest retired 2026-08-04); delete with the task
 │   ├── run_earnings_calendar.ps1   # Weekdays 5:30 PM ET — local backup of GHA build (dual writers OK)
 │   ├── build_earnings_calendar.py  # FMP earnings backfill (used by both local + GHA)
 │   ├── update_master_prices.py     # yfinance incremental update (used by both local + GHA)
@@ -178,9 +178,16 @@ overlay chart.
   Any backtest joining the dial must state which vintage it used.
   `rd2_fragility_ts.parquet` is a raw-basis full recompute for research
   only — NEVER a sizing fallback (daily_scan's fallback removed 2026-07-16).
-- **Staleness convention**: consumers fail OPEN to 1.0x sizing on readings
-  older than 3 trading days (`daily_scan.FRAG_STALE_TD`,
-  `exposure_leg.DIAL_STALE_TD`), and dial_filters entry gates fail CLOSED.
+- **Staleness convention**: daily_scan fails OPEN to 1.0x sizing on readings
+  older than 3 trading days (`daily_scan.FRAG_STALE_TD`), and dial_filters
+  entry gates fail CLOSED. EXCEPTION: exposure_leg
+  (`exposure_leg.DIAL_STALE_TD`) SKIPS the whole leg on a stale dial —
+  no targets, no orders, holdings unchanged — deliberate per its docstring
+  (acting on a regime that may no longer hold is worse than skipping);
+  doc-vs-code drift here corrected 2026-08-12. Additionally: an EXISTING but
+  unreadable fragility parquet now fails the risk report loudly instead of
+  falling back to a full frozen-history rewrite (2026-08-12) — only a
+  genuinely missing cache bootstraps.
 - **Schema**: columns 5d/21d/63d, 5d-smoothed basis, tz-naive normalized
   index; appends stamp `fragility_stats_sha256` (provenance of the weights
   vintage) plus basis/generated/last-date/frozen-through metadata.
@@ -298,7 +305,7 @@ Aligned sites -- change together:
 | `LIQUID_PLUS_COMMODITIES` | `strategy_config.py` | ~190 | Liquid universe — daily_scan default scope |
 | `CSV_UNIVERSE` | `strategy_config.py` | ~1060 | Full universe (liquid + overflow tier ~870) |
 | `OVERFLOW_ELIGIBLE_STRATEGIES` | `daily_scan.py` | 6 | OVS, OLV, LT Trend ST OS, St OS Sznl, 52wh Breakout, ATR Extended Gap Up (no override — native 40 bps nominal on overflow) |
-| `OVERFLOW_RISK_OVERRIDES` | `daily_scan.py`, `daily_portfolio_report.py` | 1 | OLV: 35→25 bps nominal for overflow tier (52.5→37.5 effective) |
+| `OVERFLOW_RISK_OVERRIDES` | `strategy_config.py` (imported by `daily_scan.py`, `daily_portfolio_report.py`, `strat_backtester.py`) | 1 | OLV: 35→25 bps nominal for overflow tier (52.5→37.5 effective); the engine applies it via `overflow_active=True` for tickers outside `LIQUID_PLUS_COMMODITIES` (wired 2026-08-12 — was a dead parameter) |
 | `GLOBAL_RISK_MULTIPLIER` | `strategy_config.py` | 1.5 | Book-wide risk scaler applied at import — see "Sizing Conventions" |
 | `SECTOR_ETFS` | `risk_dashboard_v2.py` | 11 | SPDR sector ETFs |
 | `VOL_TICKERS` | `risk_dashboard_v2.py` | 4 | SPY, ^VIX, ^VIX3M, ^VVIX |
@@ -443,8 +450,15 @@ the engine's open-count rung) survives dormant with NO carriers.
 fire on the SAME signal date and SAME tradeable ticker (compared after
 `SPOT_TO_TRADEABLE` aliasing, ^GSPC->SPY ^NDX->QQQ), each side's risk is
 clamped to `risk_bps_when_overlapping`. Currently one pair: Indices Oversold
-Bounce + SPY QQQ MonFri Reversion -> 20 bps nominal each. Applied in
-daily_scan step 5b and replayed in `pages/strat_backtester.py` (~line 2258).
+Bounce + SPY QQQ MonFri Reversion -> 20 bps nominal each (GRM-scaled at
+import since 2026-08-12 = 30 effective; it was unscaled before, making the
+clamp 20 EFFECTIVE against documented intent). It is an ABSOLUTE clamp on
+the row's staged Risk_Amt (a row already below the clamp is untouched), and
+it keys on STAGED signals — both sides firing — regardless of which limits
+later fill. Applied in daily_scan step 5b and replayed in
+`pages/strat_backtester.py` sizing step 3b3c from a candidate pre-pass
+(2026-08-12; the old post-pass clamped only FILLED pairs and ran after the
+per-strategy cap, booking the one-fills leg at full size vs live's clamp).
 
 ## OVS Strategy — Earnings Blackout + 2-Path Sizing + Friday-only EOD-DD
 
@@ -1476,14 +1490,14 @@ All five trading-day workflows now run in GHA. Order staging stays local (IBKR-b
 | `daily_screener.yml` | Weekdays 2x: AM via local workflow_dispatch at 4:47 AM ET (fallback GHA cron at 10:30 UTC, auto-skipped if dispatch succeeded today) + PM cron at 22:00 UTC | Unified scan, both runs `--scope=all` (full liquid + overflow, ~7-10 min). AM run also writes `data/exposure_state.json` and commits it back to main. Intraday MOC slots were retired when the strategy book lost its last Signal Close entry; restore them if MOC strategies are added back. |
 | `build_earnings_calendar.yml` | Weekdays 21:30 UTC (5:30 PM ET) | FMP `/stable/earnings` pull → writes `data/earnings_calendar.parquet` → uploads to R2. Local `EarningsCalendarRefresh` Task Scheduler entry mirrors this for redundancy (last write wins). |
 | `update_master_prices.yml` | Weekdays 2x: AM via local workflow_dispatch at 4:17 AM ET (fallback GHA cron at 9:30 UTC, auto-skipped if dispatch succeeded today) + PM cron at 21:10 UTC (17:10 ET EDT / 16:10 ET EST — post-close in BOTH, which 20:30 UTC was not) | Pulls `master_prices.parquet` from R2, fetches today's bars from yfinance for ~2000 tickers, appends, dedupes, writes back to R2. PM cron pulls today's close; every other trigger (AM dispatch, AM fallback cron, manual dispatch) passes `--exclude-today`. |
-| `update_intraday_prices.yml` | Weekdays 20:45 UTC (4:45 PM ET) | Pulls per-ticker 15min parquets + meta from R2, runs `scripts/update_intraday_yfinance.py --upload` — fetches recent bars from yfinance for every ticker in meta, converts UTC→ET, appends, dedupes, writes back. yfinance has 60d rolling intraday history so this must run at least every ~50 days to avoid gaps; weekday cadence is fine in practice. |
+| `update_intraday_prices.yml` | Weekdays 21:45 UTC (5:45 PM EDT / 4:45 PM EST — moved from 20:45 on 2026-08-12, which was 3:45 PM EST = pre-close in winter) | Pulls per-ticker 15min parquets + meta from R2, runs `scripts/update_intraday_yfinance.py --upload` — fetches recent bars from yfinance for every ticker in meta, converts UTC→ET, appends, dedupes, writes back. yfinance has 60d rolling intraday history so this must run at least every ~50 days to avoid gaps; weekday cadence is fine in practice. |
 | `portfolio_report.yml` | Weekdays 21:30 UTC (5:30 PM ET) | Pulls master_prices + earnings caches from R2, runs `daily_portfolio_report.py`, sends HTML email + writes Portfolio Sheets tab. |
 | `bootstrap_caches.yml` | workflow_dispatch only | One-shot: builds `master_prices.parquet` from scratch via yfinance (~10-15 min for ~2000 tickers, 25-yr history) and uploads to R2. Used to seed the bucket (already run during Phase 2 setup). |
 | `risk_report.yml` | Weekdays 2x: PM cron 21:15 UTC (5:15 PM ET, full run w/ email) + AM correction at 4:30 AM ET via local workflow_dispatch (fallback GHA cron 9:00 UTC), `--data-only --refresh-last` | Daily risk dashboard email (fragility dials + signals + forward returns). Writes `data/rd2_fragility.parquet` APPEND-ONLY (since 2026-07-02): history is frozen point-in-time, only new dates append. The PM run's newest row comes from a just-closed yfinance bar that can be provisional, so the AM correction (2026-07-17) refreshes ONLY the last session's row with settled prices before daily_scan sizes off it at ~4:47 AM — `merge_fragility_history(refresh_from=prev_bday)`; older rows never mutate. Same correction re-evaluates the dial-sleeve paper track's provisional day (dial_sleeve rollback) and the simple-dial shadow. Guards: `tests/test_fragility_append.py`, `tests/test_dial_sleeve.py`. This series sizes live orders (`frag_risk_bands`) — do not revert to full rewrites; recompute vintages drifted up to ~7 pts on the 63d dial. |
 | `verify_fills.yml` | Weekdays 21:15 UTC | Post-close fill verification — updates Trade_Signals_Log. |
-| `deploy_site.yml` | Reusable workflow (`workflow_call`), invoked by the `deploy-site` job at the tail of `daily_screener.yml` (`needs: run-scanner`) so it runs in the SAME run, right after the scan succeeds — 2x/trading day (after the ~4:47 AM ET dispatch scan and the PM bookend). Replaced the old best-effort `workflow_run` chain, which was silently not firing. A skipped (AM fallback) or failed scan skips the deploy and the prior deploy stays up. `workflow_dispatch` retained for manual rebuilds. | Builds + deploys the private analytics site to Cloudflare Pages (behind Cloudflare Access). Pipeline: R2 caches → `scripts/build_trade_ledger.py` (full-history ledger) → `scripts/build_signal_charts.py --all --upload --skip-existing` (renders only NEW per-trade charts to R2, best effort) → `daily_seasonal_ideas.py` (best effort) → `scripts/build_risk_json.py` (best effort) → `scripts/build_site.py` (JSON payloads + `site/` assets → `dist/`) → wrangler Pages deploy (config-driven via `wrangler.toml`; no positional dir, so the CHARTS R2 binding applies). Needs `CLOUDFLARE_API_TOKEN` + `CLOUDFLARE_ACCOUNT_ID` secrets. One-time setup: `docs/private_site_setup.md`. Operational runbook (failure modes, decisions log,
+| `deploy_site.yml` | Reusable workflow (`workflow_call`), invoked by the `deploy-site` job at the tail of `daily_screener.yml` (`needs: run-scanner`) so it runs in the SAME run, right after the scan succeeds — 2x/trading day (after the ~4:47 AM ET dispatch scan and the PM bookend). Replaced the old best-effort `workflow_run` chain, which was silently not firing. A skipped (AM fallback) or failed scan skips the deploy and the prior deploy stays up. `workflow_dispatch` retained for manual rebuilds. | Builds + deploys the private analytics site to Cloudflare Pages (behind Cloudflare Access). Pipeline: R2 caches → `scripts/build_trade_ledger.py` (full-history ledger) → `scripts/build_signal_charts.py --all --upload --skip-existing` (renders only NEW per-trade charts to R2, best effort) → `daily_seasonal_ideas.py` (REQUIRED — the step is fail-loud in the workflow as a freshness input; doc said best-effort until 2026-08-12) → `scripts/build_risk_json.py` (best effort) → `scripts/build_site.py` (JSON payloads + `site/` assets → `dist/`) → wrangler Pages deploy (config-driven via `wrangler.toml`; no positional dir, so the CHARTS R2 binding applies). Needs `CLOUDFLARE_API_TOKEN` + `CLOUDFLARE_ACCOUNT_ID` secrets. One-time setup: `docs/private_site_setup.md`. Operational runbook (failure modes, decisions log,
 trigger chain, out-of-repo file map): `docs/site_runbook.html`. |
-| `weekly_rundown.yml` | Sundays 14:00 UTC (9 AM ET) | Tabloid PDF with all risk charts + radar digest body. |
+| `weekly_rundown.yml` | Sundays 12:00 UTC (8 AM EDT / 7 AM EST) | Tabloid PDF with all risk charts. |
 | `trend_sleeve.yml` | Weekdays 21:35 UTC (no-ops except the month's last trading day) | Monthly trend-following ballast rebalance — writes MOO orders to the `Trend` Sheets tab + state to R2. See "Trend Sleeve" section. |
 | `execution_report.yml` | Weekdays 20:30 AND 21:30 UTC — `daily_execution_report.py` gates on WHICH cron fired (`GHA_SCHEDULE` = `github.event.schedule`) + the date's DST regime, so exactly one sends at ~4:30 PM ET year-round even when GHA cron lag starts the run an hour+ late (the old hour==16 gate silently dropped the 2026-07-08/09 emails). Cron strings must match `EDT_CRON`/`EST_CRON` in the script; unknown cron fails open (sends). | Nightly email of LIVE primary-account positions (mirrors the site Execution tab). Pulls the execution-broker DO's `/book` snapshot (Bearer `STATUS_TOKEN`; URL via `EXEC_BROKER_URL` secret, defaults to the workers.dev URL), excludes OPT rows, and enriches each position from its own working exit legs: target = closing LMT `lmt`, stop = closing STP `aux` (NA if none), time stop = closing MKT leg's `goodAfterTime` date, strategy = 3rd pipe field of any leg's `orderRef` (requires `order_ref` in `book_snapshot.py` — added 2026-07-08 in `OneDrive\trading_ibkr`). No strategy-tagged legs → "Trend Sleeve" (symbol in `trend_sleeve_state.json` on R2) else "Discretionary". Recipients: repo variable `EXECUTION_REPORT_RECIPIENTS` (comma-separated; defaults to mckinleyslade@gmail.com). Guard: `tests/test_execution_report.py`. |
 
@@ -1491,7 +1505,7 @@ trigger chain, out-of-repo file map): `docs/site_runbook.html`. |
 
 | Task | State | Notes |
 |---|---|---|
-| `EarningsCalendarRefresh` | Enabled | Belt-and-suspenders for the GHA equivalent. Both write to R2. |
+| `EarningsCalendarRefresh` | NOT ACTUALLY REGISTERED (found 2026-08-12) | Documented as belt-and-suspenders for the GHA equivalent, but no such task exists in Task Scheduler and the wrapper's hardcoded `C:\Users\mckin` path was dead post-migration (fixed to `$PSScriptRoot`-relative 2026-08-12). Re-register if the redundancy is still wanted; until then the GHA writer is the ONLY writer. |
 | `Trigger Update Master Prices (GHA workflow_dispatch)` | Enabled | Weekdays 4:17 AM ET — fires `update_master_prices.yml` via the GitHub REST API to bypass shared-cron queue lag at 8-9 UTC. See "AM Trigger Architecture" below. |
 | `Trigger Daily Screener (GHA workflow_dispatch)` | Enabled | Weekdays 4:47 AM ET, 30 min after the parquet trigger — fires `daily_screener.yml` via the GitHub REST API. Same mechanism. |
 | `Trigger CBOE Put-Call (GHA workflow_dispatch)` | Enabled (Interactive logon) | Weekdays 4:10 AM ET, FIRST in the pre-market chain — fires `update_cboe_putcall.yml` so the put/call cache holds the prior session before the risk correction, scan and pitch read it. The 21:30 UTC run fires before CBOE publishes and can only ever collect D-1. Scripts: `C:\Scripts	rigger_cboe_putcall.ps1` + `register_cboe_putcall_trigger.ps1`. NOTE: no `/` in the task name — Task Scheduler treats it as a folder separator. Registered Interactive (like the risk-correction trigger) because S4U needs an elevated shell; fires whenever the machine is on and logged in, locked included. |
@@ -1500,7 +1514,7 @@ trigger chain, out-of-repo file map): `docs/site_runbook.html`. |
 | `Daily Pitch (agent)` | Enabled (Interactive logon) | Weekdays 5:10 AM ET — `scripts\run_daily_pitch.bat`: grade, assemble state, run `/daily-pitch` headless, verify delivery. Writes files and sends the pitch email; places no orders. Register with `scripts\register_daily_pitch_task.ps1` after eyeballing several manual runs. |
 | `IBKR Daily Pitch Approvals (auction)` / `(open)` | NOT REGISTERED (inert) | Weekdays 9:05 and 9:32 AM ET — `pitch_moo.py` places `Pitch` rows marked `Y`. Live money: registration script also writes `pitch_moo_enabled.flag`; delete the flag to disarm without unregistering. |
 | `RadarMorningBriefing` | Enabled | Lives in separate `last30days-radar` project — not yet migrated. |
-| `RadarWeeklySummary` | Enabled | Sundays 8:30 AM ET — depends on radar briefs from above. Not yet migrated. |
+| `RadarWeeklySummary` | DEAD (radar digest retired 2026-08-04) | `scripts/run_radar_weekly.ps1` invokes the deleted `radar_weekly_summary.py` (and carries the dead `C:\Users\mckin` path); unregister the task and delete the wrapper when convenient. |
 | `DailyPortfolioReport` | Disabled | Replaced by `portfolio_report.yml`. Re-enable as fallback if GHA breaks. |
 | `MasterPricesUpdate` | Disabled | Replaced by `update_master_prices.yml`. |
 | `OverflowDailyScan` | Disabled | Replaced by the unified `daily_screener.yml --scope=all` post-close run. |

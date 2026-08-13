@@ -202,7 +202,8 @@ class TestReplayRow:
         assert row["Limit_Price"] == pytest.approx(224.5 - 0.5 * 4.2)
         assert row["Execute_On"] == "2026-08-11"
         assert row["Entry_Expire_Date"] == "2026-08-11"  # window_td default 1
-        assert row["Time_Exit_Date"] == "2026-08-12"     # time_td 2
+        # time_td 2 = execute_on + 2 bd (pitch convention, no -1)
+        assert row["Time_Exit_Date"] == "2026-08-13"
         assert row["Action"] == "BUY" and row["Risk_Amt"] == 100 * 4.2
 
     def test_open_anchored_leaves_level_to_replay(self):
@@ -224,7 +225,7 @@ class TestReplayRow:
         assert leg["status"] == "closed"
         assert leg["entry_price"] == pytest.approx(100.0)
         assert leg["exit_kind"] == "time_moc"
-        assert leg["exit_price"] == pytest.approx(101.5)
+        assert leg["exit_price"] == pytest.approx(102.5)  # 2 full sessions held
 
 
 class TestScoreboard:

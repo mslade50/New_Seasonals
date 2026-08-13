@@ -12,11 +12,11 @@ Process instructions for the agent: `.claude/skills/daily-pitch/SKILL.md`.
 | time (ET) | what runs | where |
 |---|---|---|
 | 4:17 / 4:30 / 4:47 | the existing chain refreshes prices, the risk dial and the scan | GHA + local triggers |
-| 7:00 | `scripts/run_daily_pitch.bat` | this machine, Task Scheduler |
-| 7:00 | grade yesterday's ideas, rebuild the scoreboard | `scripts/grade_pitch_journal.py` |
-| 7:01 | assemble state | `scripts/build_pitch_state.py` |
-| 7:02 to ~7:40 | invent, falsify, compose, publish | `claude -p "/daily-pitch"` |
-| ~7:45 | email lands, `Pitch` tab rewritten | `daily_pitch.py` |
+| 5:10 | `scripts/run_daily_pitch.bat` | this machine, Task Scheduler |
+| 5:10 | grade yesterday's ideas, rebuild the scoreboard | `scripts/grade_pitch_journal.py` |
+| 5:11 | assemble state | `scripts/build_pitch_state.py` |
+| 5:12 to ~6:00 | invent, falsify, compose, publish | `claude -p "/daily-pitch"` |
+| ~6:00 | email lands, `Pitch` tab rewritten | `daily_pitch.py` |
 | any time before 9:05 | McKinley types Y next to the ideas he wants | Sheets |
 | 9:05 | approved MOO / MOC / close-limit rows placed | `pitch_moo.py --pass auction` |
 | 9:32 | approved open-anchored limits priced and placed | `pitch_moo.py --pass open` |
@@ -66,7 +66,7 @@ Both scheduled pieces are inert until the operator registers them. House
 convention applies: eyeball several days of manual output first.
 
 ```powershell
-# the 7:00 AM agent run (writes files and sends email; places no orders)
+# the 5:10 AM agent run (writes files and sends email; places no orders)
 powershell -ExecutionPolicy Bypass -File "C:\Users\McKinley Slade\dev\New_Seasonals\scripts\register_daily_pitch_task.ps1"
 
 # the 9:05 and 9:32 approval runners (live money)
@@ -233,8 +233,9 @@ without it the line says the check was unavailable rather than implying health.
 The spec left five, and the build took the spec's own defaults for all of
 them. Each is a one-line change:
 
-1. Delivery at ~7:45 AM ET, from a 7:00 AM run. Earlier is possible; the
-   binding constraint is the 4:47 scan chain finishing.
+1. Delivery at ~6:00 AM ET, from a 5:10 AM run (the spec's original 7:00
+   slot was moved up); the binding constraint is the 4:47 scan chain
+   finishing.
 2. Approval by Sheets `Y`, not by email reply (a reply keyword needs an inbox
    poller, which is a much larger build).
 3. Ideas propose new trades only; none of them adjust an existing position.
