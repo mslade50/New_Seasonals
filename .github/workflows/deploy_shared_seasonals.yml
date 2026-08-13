@@ -58,4 +58,5 @@ jobs:
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          command: pages deploy . --cwd=dist-shared --project-name=denali-seasonality --branch=main
+          workingDirectory: dist-shared
+          command: pages deploy . --project-name=denali-seasonality --branch=main
