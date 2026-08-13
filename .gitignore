@@ -113,3 +113,6 @@ data/context_briefs/
 # as the pitch.
 data/posts_state.json
 content/queue/
+
+# Repo health check tripwire state - machine-local, advanced every run
+data/health_check_state.json

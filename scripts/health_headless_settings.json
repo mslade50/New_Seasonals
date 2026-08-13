@@ -1,0 +1,33 @@
+{
+  "_comment": "Scoped allowlist for the unattended repo health check (claude -p, headless). Read-only diagnosis: the battery script, gh/git inspection, targeted pytest, and writing the verdict report. No web, no broker, no data writes (the battery script maintains its own tripwire state internally). Deny list hard-blocks secrets, market-context convention.",
+  "permissions": {
+    "allow": [
+      "Skill",
+      "Bash(python scripts/repo_health_check.py:*)",
+      "Bash(python scripts/check_pitch_delivered.py:*)",
+      "Bash(python scripts/check_context_delivered.py:*)",
+      "Bash(python -m pytest:*)",
+      "Bash(gh run list:*)",
+      "Bash(gh run view:*)",
+      "Bash(git log:*)",
+      "Bash(git status:*)",
+      "Bash(git fetch:*)",
+      "Read",
+      "Glob",
+      "Grep",
+      "Write(scripts/logs/**)",
+      "TodoWrite"
+    ],
+    "deny": [
+      "Read(**/.env)",
+      "Read(**/.env.*)",
+      "Read(**/credentials.json)",
+      "Read(**/token.json)",
+      "Read(**/*.pem)",
+      "Read(**/*.key)",
+      "Edit",
+      "WebSearch",
+      "WebFetch"
+    ]
+  }
+}
