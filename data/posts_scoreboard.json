@@ -1,8 +1,8 @@
 {
- "generated": "2026-08-10 20:00:50",
- "asof": "2026-08-10",
+ "generated": "2026-08-12 20:00:46",
+ "asof": "2026-08-12",
  "rolling_60d": {
-  "n": 0,
+  "n": 1,
   "graded": 0,
   "avg_r": null,
   "median_r": null,
@@ -19,7 +19,7 @@
    "no_fill": 0
   },
   "unposted": {
-   "n": 0,
+   "n": 1,
    "graded": 0,
    "avg_r": null,
    "median_r": null,
@@ -28,10 +28,10 @@
    "no_fill": 0
   },
   "window_td": 60,
-  "since": "2026-05-13"
+  "since": "2026-05-15"
  },
  "lifetime": {
-  "n": 0,
+  "n": 1,
   "graded": 0,
   "avg_r": null,
   "median_r": null,
@@ -48,7 +48,7 @@
    "no_fill": 0
   },
   "unposted": {
-   "n": 0,
+   "n": 1,
    "graded": 0,
    "avg_r": null,
    "median_r": null,
