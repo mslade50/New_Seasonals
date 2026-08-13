@@ -633,6 +633,19 @@ be live on 2026-08-12. (a2_c1_gate_attribution.py)
   through futures roll. Neighbouring definitions are negative and carry -14.5% and
   -18.1% windows the winning cell excludes. (a1_c1_termspread.py,
   a1b_c1_definition_and_overlap.py, a1c_c1_intersection_cell.py)
+  CORRECTION (2026-08-13, per McKinley): the journal kill's closing claim —
+  "naked short UVXY is registry-dead, so there is no other expression to fall
+  back on" — cited the wrong direction. Short UVXY is a SHORT-vol expression
+  (UVXY is +1.5x long VIX futures) and can never be the fallback for a long-vol
+  idea; the UVXY registry entry it grabbed belongs to the short-vol side of the
+  sweep. The correct statement: the remaining long-vol vehicles are LONG
+  UVXY/VXX, and they die on the same roll mechanism, only harder — SVXY +1.82%
+  at h=5 implies the front futures basket FELL ~3.6% while spot VIX rose +5.73%,
+  so long VXX (+1x) loses ~-3.6% and long UVXY (+1.5x) ~-5.5% plus decay over
+  the same windows. No ETP delivers spot VIX; the futures curve is the only
+  tradeable surface, and at 98th-pctile contango the roll drag swamps the spot
+  rise in every direction-consistent vehicle. The kill verdict stands; the
+  stated fallback reasoning was garbled and must not be reused as precedent.
 - **The fragility dial's RATE OF CHANGE as a directional signal.** Flips sign on
   its own threshold (+0.716% at a 30-point 21d rise, +0.004% at 25, -1.132% at
   35), on its own lookback (-0.454% at 10d, -0.211% at 42d), and on its own
