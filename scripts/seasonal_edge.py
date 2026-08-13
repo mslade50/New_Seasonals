@@ -611,6 +611,31 @@ def trailing_return_pctile(price_df, window: int, asof=None) -> float | None:
     return float(ret.rank(pct=True).iloc[-1] * 100)
 
 
+def qualifying_extension(price_df, direction: str, asof=None, *,
+                          windows=(5, 10, 21), ext_low: float = 15.0,
+                          ext_high: float = 85.0) -> tuple[int, float] | None:
+    """Return the most extreme qualifying trailing-return window.
+
+    A seasonal ticket may use price stretch from ANY configured window, while
+    its rank, realized-history confirmation, expected ATR move, and conviction
+    grade remain tied to the ticket's own horizon. Longs select the lowest
+    percentile at or below ``ext_low``; shorts select the highest percentile at
+    or above ``ext_high``. ``None`` means no window cleared the gate.
+    """
+    readings = []
+    for window in windows:
+        pct = trailing_return_pctile(price_df, int(window), asof)
+        if pct is not None and np.isfinite(pct):
+            readings.append((int(window), float(pct)))
+    if direction == "long":
+        passing = [(window, pct) for window, pct in readings if pct <= ext_low]
+        return min(passing, key=lambda item: (item[1], item[0])) if passing else None
+    if direction == "short":
+        passing = [(window, pct) for window, pct in readings if pct >= ext_high]
+        return max(passing, key=lambda item: (item[1], -item[0])) if passing else None
+    return None
+
+
 def build_trade_ticket(price_df, asof, direction, forward_window, expected_move_atr,
                        *, min_rr: float = 2.0, min_stop_atr: float = 0.8,
                        swing_lookback: int = 20) -> dict | None:
@@ -778,7 +803,7 @@ def _grade_2x2(cyc_leg: str, all_leg: str, disagree: bool) -> str:
 
 
 def _seasonal_candidate(channel, t, px, asof, h, direction, blend, ticket, rk, bucket,
-                        ext_pct=None):
+                        ext_pct=None, ext_window=None):
     """Build one ticketed candidate from a confirmed (direction, horizon). Sizing
     and screening are 75/25 cycle-blended; both the cycle and all-years realized
     counts are shown, and a sign-conflict between them is flagged."""
@@ -823,7 +848,8 @@ def _seasonal_candidate(channel, t, px, asof, h, direction, blend, ticket, rk, b
     }
     if ext_pct is not None:
         stretched = "oversold" if direction == "long" else "overbought"
-        ev["extension"] = f"{h}d return at {_ordinal(round(ext_pct))} %ile - {stretched} into the window"
+        stretch_h = int(ext_window or h)
+        ev["extension"] = f"{stretch_h}d return at {_ordinal(round(ext_pct))} %ile - {stretched} into the window"
     # Expected seasonal-path entry timing: the day the average prior-years path
     # bottoms (long) / peaks (short). CYCLE-years path when >= 3 same-cycle
     # observations exist, all-years otherwise (McKinley 2026-07-24 — the cycle
@@ -874,6 +900,7 @@ def scan_seasonal_tickets(universe, asof, channel, *, min_rr: float = 2.0,
                           cycle_blend: float = 0.75, min_all_hit: float = 0.667,
                           min_cyc_hit: float = 0.60, min_cyc_n: int = 3,
                           ext_low: float = 15.0, ext_high: float = 85.0,
+                          extension_horizons=(5, 10, 21),
                           max_rank_age_days: int = 10) -> list:
     """Scan `universe` across `horizons`; emit swing tickets (R/R >= min_rr).
 
@@ -889,9 +916,11 @@ def scan_seasonal_tickets(universe, asof, channel, *, min_rr: float = 2.0,
       over >= min_cyc_n same-cycle prior years (fail-closed when the cycle
       sample is too thin) - the all-years >= min_all_hit gate is unchanged, so
       win rate is now demanded in BOTH cohorts, and
-    - an extension gate: the trailing `h`-day return percentile (vs the name's
-      own history) must sit <= ext_low for longs (oversold into a bullish
-      window) or >= ext_high for shorts (overbought into a bearish window).
+    - an extension gate: the trailing return percentile on ANY of
+      `extension_horizons` (vs the name's own history) must sit <= ext_low for
+      longs (oversold into a bullish window) or >= ext_high for shorts
+      (overbought into a bearish window). This is intentionally independent of
+      the ticket horizon; rank/history/ATR-move grading remain horizon-matched.
     The extension gate replaced the daily_seasonal_ideas nadir-timing surface
     filter - entry timing is stamped for display but no longer gates."""
     asof = pd.Timestamp(asof).normalize()
@@ -930,6 +959,7 @@ def scan_seasonal_tickets(universe, asof, channel, *, min_rr: float = 2.0,
         # collect every (direction, horizon) that clears the 75/25-blended
         # realized gate AND the R/R bar (confirmation + sizing both cycle-blended)
         quals = []
+        extension_matches = {}
         for h in horizons:
             col = f"atr_sznl_{h}d"
             if col not in cs.columns:
@@ -962,16 +992,17 @@ def scan_seasonal_tickets(universe, asof, channel, *, min_rr: float = 2.0,
                 _ndir_c = _s_cyc["n_down"] if direction == "short" else _s_cyc["n_up"]
                 if (_ndir_c / _s_cyc["n"]) < min_cyc_hit:
                     continue
-                # Extension gate (2026-07-24): only surface a name stretched
-                # AGAINST the seasonal move on the matching window - oversold
-                # into a bullish window, overbought into a bearish one.
-                ext_pct = trailing_return_pctile(px, h, asof)
-                if ext_pct is None:
+                # Extension gate (2026-08-13): price may be stretched AGAINST
+                # the seasonal move on any 5/10/21d window. The seasonal rank,
+                # history confirmation, expected ATR move, and grade still use h.
+                if direction not in extension_matches:
+                    extension_matches[direction] = qualifying_extension(
+                        px, direction, asof, windows=extension_horizons,
+                        ext_low=ext_low, ext_high=ext_high)
+                ext_match = extension_matches[direction]
+                if ext_match is None:
                     continue
-                if direction == "long" and ext_pct > ext_low:
-                    continue
-                if direction == "short" and ext_pct < ext_high:
-                    continue
+                ext_window, ext_pct = ext_match
                 ea = blend["ea"]
                 if ea is None:
                     continue
@@ -982,7 +1013,8 @@ def scan_seasonal_tickets(universe, asof, channel, *, min_rr: float = 2.0,
                 if ticket is None or not ticket["is_ticket"]:
                     continue  # swing tickets only
                 quals.append({"h": h, "direction": direction, "blend": blend,
-                              "ticket": ticket, "rk": rk, "ext_pct": ext_pct})
+                              "ticket": ticket, "rk": rk, "ext_pct": ext_pct,
+                              "ext_window": ext_window})
         if not quals:
             continue
 
@@ -994,7 +1026,7 @@ def scan_seasonal_tickets(universe, asof, channel, *, min_rr: float = 2.0,
             q = sorted(bucket, key=lambda x: (-x["ticket"]["rr"], x["h"]))[0]
             out.append(_seasonal_candidate(channel, t, px, asof, q["h"], q["direction"],
                                            q["blend"], q["ticket"], q["rk"], bucket_name,
-                                           ext_pct=q["ext_pct"]))
+                                           ext_pct=q["ext_pct"], ext_window=q["ext_window"]))
     return out
 
 

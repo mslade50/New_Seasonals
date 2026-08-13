@@ -84,7 +84,7 @@ METHODOLOGY = (
     "(strict; 'borderline' is common and expected). Conviction (A/B/C) is driven by the realized cycle + all-years "
     "counts and magnitude. Seasonal tickets (2026-07-24 gates) require an extreme window-matched seasonal rank, "
     "win rates in BOTH cohorts (all-years >= 2/3, same-cycle years >= 60%), AND price stretched against the move "
-    "on the matching window (trailing return <= 15th %ile for longs / >= 85th for shorts); they surface only when "
+    "on ANY 5d/10d/21d window (trailing return <= 15th %ile for longs / >= 85th for shorts); they surface only when "
     "the expected cycle-path turn is within T+5, max 5 tickets per direction per day (window tightens toward T+1 "
     "on crowded days). Near-miss is "
     "negative-filtered against the live book so it never duplicates a systematic signal. 'midterm' stats are "

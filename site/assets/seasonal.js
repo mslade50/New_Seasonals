@@ -76,7 +76,7 @@ async function initSeasonal() {
   // every candidate carrying a trade ticket (incl. non-tradeable macro symbols)
   const cands = (data.candidates || []).filter(c => (c.evidence || {}).TICKET);
   if (!cands.length) {
-    html += '<p class="cap">No qualifying seasonal setups today (rank + dual-cohort win% + stretch gates, cycle-path turn within T+5).</p>';
+    html += '<p class="cap">No qualifying seasonal setups today (rank + dual-cohort win% + any-window 5d/10d/21d stretch gate, cycle-path turn within T+5).</p>';
     el.innerHTML = html;
     wireSizer();
     return;
