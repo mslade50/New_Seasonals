@@ -1,20 +1,20 @@
 {
   "date": "2026-08-14",
   "price_ctx": {
-    "price": 777.8800048828125,
-    "ret_12m": 0.2195863595037324,
-    "extension_200d": 0.10766606213432772,
-    "drawdown": 0.0,
-    "sma_200": 702.2694216918945,
+    "price": 776.3400268554688,
+    "ret_12m": 0.21705884379192164,
+    "extension_200d": 0.1047123869353539,
+    "drawdown": -0.0019797115463531245,
+    "sma_200": 702.7530749511719,
     "high_52w": 777.8800048828125,
     "regime_label": "Extended uptrend, stretched above trend",
-    "days_since_5pct": 91,
-    "days_since_10pct": 327
+    "days_since_5pct": 92,
+    "days_since_10pct": 328
   },
   "h_scores": {
-    "5d": 19.564444444444447,
-    "21d": 71.58914755815722,
-    "63d": 94.94632298437533
+    "5d": 19.56444444444444,
+    "21d": 67.3193209278743,
+    "63d": 93.56482912742953
   },
   "signals": {
     "Distribution Dominance": {
@@ -25,37 +25,37 @@
     "VIX Range Compression": {
       "on": false,
       "detail": "",
-      "summary": "21d range: 38th pctile (fires below 15th) \u2014 VIX at 14.6"
+      "summary": "21d range: 44th pctile (fires below 15th) \u2014 VIX at 14.2"
     },
     "Defensive Leadership": {
       "on": false,
       "detail": "",
-      "summary": "50d spread: -2pp (fires < -10) | 200d spread: +5pp (fires < 0)"
+      "summary": "50d spread: -1pp (fires < -10) | 200d spread: +4pp (fires < 0)"
     },
     "Pre-FOMC Rally": {
       "on": false,
       "detail": "",
-      "summary": "Next FOMC: Sep 16 (34d away) \u2014 5d return: 69th pctile (outside window)"
+      "summary": "Next FOMC: Sep 16 (33d away) \u2014 5d return: 48th pctile (outside window)"
     },
     "Low Absorption Ratio": {
       "on": true,
-      "detail": "Absorption Ratio at 0.305 (1th percentile) \u2014 below 10th threshold. Sectors moving independently while SPY near 52w high \u2014 vol suppression through diversification. Historically precedes below-average forward returns.",
-      "summary": "AR: 0.305 (1th pctile, fires below 10th) \u2014 near high: yes"
+      "detail": "Absorption Ratio at 0.313 (2th percentile) \u2014 below 10th threshold. Sectors moving independently while SPY near 52w high \u2014 vol suppression through diversification. Historically precedes below-average forward returns.",
+      "summary": "AR: 0.313 (2th pctile, fires below 10th) \u2014 near high: yes"
     },
     "Seasonal Rank Divergence": {
       "on": false,
       "detail": "",
-      "summary": "Spread: +2.7pp (fires above 10) \u2014 near high: yes"
+      "summary": "Spread: +0.9pp (fires above 10) \u2014 near high: yes"
     },
     "Dispersion": {
       "on": false,
       "detail": "",
-      "summary": "Composite pctile: 78th (fires above 85th) \u2014 component RV: 37.2% | SPY RV: 13.8%"
+      "summary": "Composite pctile: 75th (fires above 85th) \u2014 component RV: 36.2% | SPY RV: 13.7%"
     },
     "Equity P/C Complacency": {
       "on": false,
-      "detail": "10d-MA equity P/C 252d pctile: 44 (fires < 10)",
-      "summary": "Equity P/C at the 44th pctile of its trailing year (data 2026-08-12) \u2014 no complacency"
+      "detail": "10d-MA equity P/C 252d pctile: 42 (fires < 10)",
+      "summary": "Equity P/C at the 42th pctile of its trailing year (data 2026-08-13) \u2014 no complacency"
     }
   }
 }
