@@ -1,20 +1,20 @@
 {
-  "date": "2026-08-13",
+  "date": "2026-08-14",
   "price_ctx": {
     "price": 777.8800048828125,
-    "ret_12m": 0.21958647620957827,
-    "extension_200d": 0.10766605972761001,
+    "ret_12m": 0.2195863595037324,
+    "extension_200d": 0.10766606213432772,
     "drawdown": 0.0,
-    "sma_200": 702.2694232177735,
+    "sma_200": 702.2694216918945,
     "high_52w": 777.8800048828125,
     "regime_label": "Extended uptrend, stretched above trend",
     "days_since_5pct": 91,
     "days_since_10pct": 327
   },
   "h_scores": {
-    "5d": 18.76533333333334,
-    "21d": 71.36424545010054,
-    "63d": 94.85503014614108
+    "5d": 19.564444444444447,
+    "21d": 71.58914755815722,
+    "63d": 94.94632298437533
   },
   "signals": {
     "Distribution Dominance": {
@@ -39,8 +39,8 @@
     },
     "Low Absorption Ratio": {
       "on": true,
-      "detail": "Absorption Ratio at 0.333 (4th percentile) \u2014 below 10th threshold. Sectors moving independently while SPY near 52w high \u2014 vol suppression through diversification. Historically precedes below-average forward returns.",
-      "summary": "AR: 0.333 (4th pctile, fires below 10th) \u2014 near high: yes"
+      "detail": "Absorption Ratio at 0.305 (1th percentile) \u2014 below 10th threshold. Sectors moving independently while SPY near 52w high \u2014 vol suppression through diversification. Historically precedes below-average forward returns.",
+      "summary": "AR: 0.305 (1th pctile, fires below 10th) \u2014 near high: yes"
     },
     "Seasonal Rank Divergence": {
       "on": false,
@@ -50,7 +50,7 @@
     "Dispersion": {
       "on": false,
       "detail": "",
-      "summary": "Composite pctile: 78th (fires above 85th) \u2014 component RV: 37.3% | SPY RV: 13.8%"
+      "summary": "Composite pctile: 78th (fires above 85th) \u2014 component RV: 37.2% | SPY RV: 13.8%"
     },
     "Equity P/C Complacency": {
       "on": false,
