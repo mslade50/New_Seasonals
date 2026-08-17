@@ -1,0 +1,233 @@
+panel 2000-06-05 .. 2026-08-14  N=6588
+
+TODAY (2026-08-14): SMH r63=1.6  QQQ r63=23.8  SMH vs200d=+27.3%  SPY below 200d=False
+trigger days (SMH r63<=5 & QQQ r63>=20): N=117  span 2002-08-01 .. 2026-08-14
+
+============================================================================================
+0. IS TODAY'S STATE INSIDE THE TRIGGER POPULATION?
+============================================================================================
+SPY below its 200d: trigger days 33.3%  vs base rate 24.2%
+SMH vs its own 200d on trigger days: mean -4.3%  median -2.3%  p90 +10.8%  max +27.9%
+  trigger days with SMH >= +15% above its 200d (today = +27.3%): 7 of 117  (6.0%)
+  trigger days with SMH >= +25% above its 200d: 5 of 117
+  those dates: 2026-07-28, 2026-08-06, 2026-08-10, 2026-08-11, 2026-08-12, 2026-08-13, 2026-08-14
+  declustered(5td): 3 episodes
+
+##### C4 LONG SMH / SHORT QQQ (equal $)  (h=5 td, entry lag=1) #####
+legs=[('SMH', 1.0), ('QQQ', -1.0)]  trigger span 2002-08-01 .. 2026-08-06
+
+=== 1. conditional vs controls ===
+                           label    n  mean_pct  median_pct    hit      t  worst_pct  best_pct  sd_pct
+          COND day-level (N=112)  112    -0.518      -0.040 50.000 -2.133     -8.005     4.589   2.572
+            COND episodes (N=29)   29    -0.202       0.127 51.724 -0.354     -8.005     4.589   3.062
+     CTRL-a own drift, same span 6042     0.073       0.049 51.142  2.622     -8.961    10.097   2.177
+   CTRL-b all days, full history 6582     0.082       0.062 51.261  2.768    -15.621    13.411   2.402
+CTRL-c local +/-126td ex-trigger 3505    -0.032      -0.014 49.700 -0.845     -8.336     9.225   2.220
+  COND day-level, lag=0 (no-lag)  112    -0.531      -0.141 47.321 -2.152     -8.005     5.977   2.613
+  episode-vs-control diff = -0.275%  welch t = -0.48   bootstrap P(mean<=0) = 0.627   record 15-14, sign p = 0.5000
+  concentration: top2 episodes ['2007-10-18', '2007-10-04'] = -14.84pp of -5.84pp total (254%); best yrs {2026: 4.6, 2018: 3.1}
+
+=== 2+3. episode era split (pre-2018 / 2018+) ===
+   label  n  mean_pct  median_pct    hit      t  worst_pct  best_pct  sd_pct
+pre-2018 23    -0.658      -0.138 43.478 -1.027     -8.005     3.689   3.072
+   2018+  6     1.548       2.114 83.333  1.504     -3.005     4.589   2.520
+
+===   day-level era split (for contrast) ===
+   label   n  mean_pct  median_pct    hit      t  worst_pct  best_pct  sd_pct
+pre-2018 101    -0.711      -0.145 46.535 -2.779     -8.005     3.912   2.569
+   2018+  11     1.247       1.657 81.818  2.184     -3.005     4.589   1.894
+  worst episode window: -8.01%  on 2007-10-18   |  worst day-level: -8.01%
+  episode dates: 2002-08-01, 2002-08-15, 2002-09-03, 2002-09-23, 2002-10-09, 2004-08-18, 2005-10-10, 2005-10-24, 2006-03-16, 2007-09-14, 2007-10-04, 2007-10-18, 2007-11-05, 2007-11-19, 2007-12-04, 2010-03-09, 2010-09-15, 2011-07-26, 2014-09-30, 2015-07-13, 2015-07-31, 2017-06-29, 2017-08-14, 2018-02-06, 2018-02-22, 2021-07-08, 2022-10-18, 2024-09-03, 2026-07-28
+
+=== 4. threshold sensitivity (episode level) ===
+                                label   n  mean_pct  median_pct    hit      t  worst_pct  best_pct  sd_pct  n_days
+       r63smh<=3 & qqq>=20 (episodes)  19    -0.079       0.464 57.895 -0.104     -8.005     4.589   3.307      71
+r63smh<=5 & qqq>=20 (BASE) (episodes)  29    -0.202       0.127 51.724 -0.354     -8.005     4.589   3.062     112
+      r63smh<=10 & qqq>=20 (episodes)  54    -0.084      -0.231 46.296 -0.268     -6.459     6.675   2.304     250
+      r63smh<=20 & qqq>=20 (episodes) 113    -0.223      -0.109 45.133 -1.040     -6.533     5.552   2.275     573
+    r63smh<=5, NO qqq gate (episodes) 103    -0.001       0.087 52.427 -0.002     -8.005     8.344   2.675     617
+       r63smh<=5 & qqq>=30 (episodes)  16    -0.387       0.295 56.250 -0.451     -8.005     3.689   3.437      53
+       r63smh<=5 & qqq>=40 (episodes)   8    -1.219       0.131 50.000 -0.825     -8.005     3.689   4.179      36
+
+5. cost: 2 leg(s) x ~2.0 bps round trip = 4.0 bps. episode mean -0.202% = -20.2 bps -> -5.0x cost (need >=5x)
+
+=== 6. opex+vix_expiry-in-hold split (episodes) ===
+                           label  n  mean_pct  median_pct    hit      t  worst_pct  best_pct  sd_pct
+opex+vix_expiry IN window (N=13) 13    -0.550      -0.202 38.462 -0.747     -4.798     3.446   2.655
+      opex+vix_expiry OUT (N=16) 16     0.081       0.922 62.500  0.095     -8.005     4.589   3.416
+
+##### C4 SHORT SMH / LONG QQQ (equal $)  (h=5 td, entry lag=1) #####
+legs=[('SMH', -1.0), ('QQQ', 1.0)]  trigger span 2002-08-01 .. 2026-08-06
+
+=== 1. conditional vs controls ===
+                           label    n  mean_pct  median_pct    hit      t  worst_pct  best_pct  sd_pct
+          COND day-level (N=112)  112     0.518       0.040 50.000  2.133     -4.589     8.005   2.572
+            COND episodes (N=29)   29     0.202      -0.127 48.276  0.354     -4.589     8.005   3.062
+     CTRL-a own drift, same span 6042    -0.073      -0.049 48.858 -2.622    -10.097     8.961   2.177
+   CTRL-b all days, full history 6582    -0.082      -0.062 48.739 -2.768    -13.411    15.621   2.402
+CTRL-c local +/-126td ex-trigger 3505     0.032       0.014 50.300  0.845     -9.225     8.336   2.220
+  COND day-level, lag=0 (no-lag)  112     0.531       0.141 52.679  2.152     -5.977     8.005   2.613
+  episode-vs-control diff = +0.275%  welch t = +0.48   bootstrap P(mean<=0) = 0.373   record 14-15, sign p = 0.6445
+  concentration: top2 episodes ['2007-10-18', '2007-10-04'] = +14.84pp of +5.84pp total (254%); best yrs {2007: 10.5, 2004: 3.3}
+
+=== 2+3. episode era split (pre-2018 / 2018+) ===
+   label  n  mean_pct  median_pct    hit      t  worst_pct  best_pct  sd_pct
+pre-2018 23     0.658       0.138 56.522  1.027     -3.689     8.005   3.072
+   2018+  6    -1.548      -2.114 16.667 -1.504     -4.589     3.005   2.520
+
+===   day-level era split (for contrast) ===
+   label   n  mean_pct  median_pct    hit      t  worst_pct  best_pct  sd_pct
+pre-2018 101     0.711       0.145 53.465  2.779     -3.912     8.005   2.569
+   2018+  11    -1.247      -1.657 18.182 -2.184     -4.589     3.005   1.894
+  worst episode window: -4.59%  on 2026-07-28   |  worst day-level: -4.59%
+  episode dates: 2002-08-01, 2002-08-15, 2002-09-03, 2002-09-23, 2002-10-09, 2004-08-18, 2005-10-10, 2005-10-24, 2006-03-16, 2007-09-14, 2007-10-04, 2007-10-18, 2007-11-05, 2007-11-19, 2007-12-04, 2010-03-09, 2010-09-15, 2011-07-26, 2014-09-30, 2015-07-13, 2015-07-31, 2017-06-29, 2017-08-14, 2018-02-06, 2018-02-22, 2021-07-08, 2022-10-18, 2024-09-03, 2026-07-28
+
+=== 4. threshold sensitivity (episode level) ===
+                                label   n  mean_pct  median_pct    hit     t  worst_pct  best_pct  sd_pct  n_days
+       r63smh<=3 & qqq>=20 (episodes)  19     0.079      -0.464 42.105 0.104     -4.589     8.005   3.307      71
+r63smh<=5 & qqq>=20 (BASE) (episodes)  29     0.202      -0.127 48.276 0.354     -4.589     8.005   3.062     112
+      r63smh<=10 & qqq>=20 (episodes)  54     0.084       0.231 53.704 0.268     -6.675     6.459   2.304     250
+      r63smh<=20 & qqq>=20 (episodes) 113     0.223       0.109 54.867 1.040     -5.552     6.533   2.275     573
+    r63smh<=5, NO qqq gate (episodes) 103     0.001      -0.087 47.573 0.002     -8.344     8.005   2.675     617
+       r63smh<=5 & qqq>=30 (episodes)  16     0.387      -0.295 43.750 0.451     -3.689     8.005   3.437      53
+       r63smh<=5 & qqq>=40 (episodes)   8     1.219      -0.131 50.000 0.825     -3.689     8.005   4.179      36
+
+5. cost: 2 leg(s) x ~2.0 bps round trip = 4.0 bps. episode mean 0.202% = 20.2 bps -> 5.0x cost (need >=5x)
+
+=== 6. opex+vix_expiry-in-hold split (episodes) ===
+                           label  n  mean_pct  median_pct    hit      t  worst_pct  best_pct  sd_pct
+opex+vix_expiry IN window (N=13) 13     0.550       0.202 61.538  0.747     -3.446     4.798   2.655
+      opex+vix_expiry OUT (N=16) 16    -0.081      -0.922 37.500 -0.095     -4.589     8.005   3.416
+
+##### C4 LONG SMH outright  (h=5 td, entry lag=1) #####
+legs=[('SMH', 1.0)]  trigger span 2002-08-01 .. 2026-08-06
+
+=== 1. conditional vs controls ===
+                           label    n  mean_pct  median_pct    hit     t  worst_pct  best_pct  sd_pct
+          COND day-level (N=112)  112     0.594       0.602 54.464 1.485     -9.980    15.163   4.234
+            COND episodes (N=29)   29     1.493       1.361 58.621 1.720     -5.488    15.163   4.673
+     CTRL-a own drift, same span 6042     0.417       0.522 56.140 7.986    -21.600    25.859   4.059
+   CTRL-b all days, full history 6582     0.307       0.473 55.135 5.444    -25.903    25.859   4.578
+CTRL-c local +/-126td ex-trigger 3505     0.163       0.305 53.723 2.303    -16.763    25.859   4.189
+  COND day-level, lag=0 (no-lag)  112     0.361       0.461 52.679 0.933     -9.980    14.318   4.098
+  episode-vs-control diff = +1.076%  welch t = +1.24   bootstrap P(mean<=0) = 0.034   record 17-12, sign p = 0.2291
+  concentration: top2 episodes ['2002-10-09', '2026-07-28'] = +28.15pp of +43.29pp total (65%); best yrs {2002: 27.8, 2026: 13.0}
+
+=== 2+3. episode era split (pre-2018 / 2018+) ===
+   label  n  mean_pct  median_pct    hit     t  worst_pct  best_pct  sd_pct
+pre-2018 23     0.948       0.792 52.174 1.039     -5.488    15.163   4.378
+   2018+  6     3.579       3.223 83.333 1.565     -3.949    12.986   5.601
+
+===   day-level era split (for contrast) ===
+   label   n  mean_pct  median_pct    hit     t  worst_pct  best_pct  sd_pct
+pre-2018 101     0.298       0.212 50.495 0.719     -9.980    15.163   4.164
+   2018+  11     3.313       3.081 90.909 2.701     -3.949    12.986   4.068
+  worst episode window: -5.49%  on 2007-10-04   |  worst day-level: -9.98%
+  episode dates: 2002-08-01, 2002-08-15, 2002-09-03, 2002-09-23, 2002-10-09, 2004-08-18, 2005-10-10, 2005-10-24, 2006-03-16, 2007-09-14, 2007-10-04, 2007-10-18, 2007-11-05, 2007-11-19, 2007-12-04, 2010-03-09, 2010-09-15, 2011-07-26, 2014-09-30, 2015-07-13, 2015-07-31, 2017-06-29, 2017-08-14, 2018-02-06, 2018-02-22, 2021-07-08, 2022-10-18, 2024-09-03, 2026-07-28
+
+=== 4. threshold sensitivity (episode level) ===
+                                label   n  mean_pct  median_pct    hit      t  worst_pct  best_pct  sd_pct  n_days
+       r63smh<=3 & qqq>=20 (episodes)  19     1.918       0.649 52.632  1.356     -5.488    15.163   6.164      71
+r63smh<=5 & qqq>=20 (BASE) (episodes)  29     1.493       1.361 58.621  1.720     -5.488    15.163   4.673     112
+      r63smh<=10 & qqq>=20 (episodes)  54     0.877       1.069 62.963  1.690    -10.278     9.223   3.813     250
+      r63smh<=20 & qqq>=20 (episodes) 113    -0.083      -0.143 48.673 -0.183    -13.979    16.414   4.846     573
+    r63smh<=5, NO qqq gate (episodes) 103     0.496       1.069 57.282  0.902    -14.964    16.889   5.588     617
+       r63smh<=5 & qqq>=30 (episodes)  16     0.707       0.350 50.000  0.536     -5.488    15.163   5.282      53
+       r63smh<=5 & qqq>=40 (episodes)   8    -2.025      -2.310 25.000 -1.882     -5.488     2.964   3.044      36
+
+5. cost: 1 leg(s) x ~2.0 bps round trip = 2.0 bps. episode mean 1.493% = 149.3 bps -> 74.6x cost (need >=5x)
+
+=== 6. opex+vix_expiry-in-hold split (episodes) ===
+                           label  n  mean_pct  median_pct    hit     t  worst_pct  best_pct  sd_pct
+opex+vix_expiry IN window (N=13) 13     1.844       1.828 53.846 1.387     -3.949    15.163   4.792
+      opex+vix_expiry OUT (N=16) 16     1.208       1.076 62.500 1.025     -5.488    12.986   4.712
+
+============================================================================================
+2. BETA-NEUTRAL RESIDUAL (the mandatory GDX/GLD check)
+============================================================================================
+full-history daily beta SMH~QQQ = 1.166   (N=6587)
+
+=== h=3 legs vs spread vs residual, episodes N=29 ===
+                             label    n  mean_pct  median_pct    hit      t  worst_pct  best_pct  sd_pct
+                       h=3 SMH leg   29     0.958       0.344 55.172  1.166     -4.272    19.274   4.424
+                       h=3 QQQ leg   29     0.909       0.771 62.069  1.475     -8.559    11.765   3.316
+                h=3 equal-$ spread   29     0.049       0.009 51.724  0.109     -5.848     7.509   2.440
+h=3 BETA-NEUTRAL resid (beta=1.19)   29    -0.127      -0.348 48.276 -0.283     -6.341     5.950   2.420
+     h=3 resid, all days (control) 6584     0.025       0.005 50.091  1.107    -15.353    12.078   1.853
+
+=== h=5 legs vs spread vs residual, episodes N=29 ===
+                             label    n  mean_pct  median_pct    hit      t  worst_pct  best_pct  sd_pct
+                       h=5 SMH leg   29     1.493       1.361 58.621  1.720     -5.488    15.163   4.673
+                       h=5 QQQ leg   29     1.694       1.542 68.966  2.739     -7.206    11.717   3.331
+                h=5 equal-$ spread   29    -0.202       0.127 51.724 -0.354     -8.005     4.589   3.062
+h=5 BETA-NEUTRAL resid (beta=1.19)   29    -0.519      -0.325 48.276 -0.906     -8.537     5.038   3.083
+     h=5 resid, all days (control) 6582     0.040       0.000 50.015  1.392    -16.434    13.215   2.321
+
+=== h=10 legs vs spread vs residual, episodes N=29 ===
+                              label    n  mean_pct  median_pct    hit      t  worst_pct  best_pct  sd_pct
+                       h=10 SMH leg   29     0.569       0.205 55.172  0.402    -12.315    19.487   7.613
+                       h=10 QQQ leg   29     1.090       1.992 62.069  1.076    -12.446    13.757   5.454
+                h=10 equal-$ spread   29    -0.521       0.174 55.172 -0.760     -7.649     6.622   3.691
+h=10 BETA-NEUTRAL resid (beta=1.17)   29    -0.708       0.098 51.724 -1.101     -8.297     5.637   3.463
+     h=10 resid, all days (control) 6577     0.078      -0.012 49.840  2.000    -14.173    18.814   3.179
+
+============================================================================================
+3. DEFINITION NEIGHBOURHOOD - is 1.6-vs-23.8 a cherry-picked pair of cuts?
+============================================================================================
+
+=== h=5 equal-$ spread and beta-neutral residual across the cut grid ===
+ smh_cut  qqq_cut  n_days  n_epi  spread_pct  resid_pct  hit  bear_frac
+       1        0     196     48      -0.225     -0.229 50.0       65.8
+       1       10      45     16      -0.797     -0.815 37.5       31.1
+       1       20      24      6      -1.221     -1.584 33.3       37.5
+       1       30      13      3      -2.444     -2.692  0.0       46.2
+       3        0     438     81       0.042     -0.129 50.6       58.9
+       3       10     124     30      -0.488     -0.705 46.7       29.8
+       3       20      75     19      -0.079     -0.453 57.9       33.3
+       3       30      35      9      -0.925     -1.218 55.6       34.3
+       5        0     622    103      -0.001     -0.094 52.4       56.3
+       5       10     201     47      -0.270     -0.454 51.1       31.3
+       5       20     117     29      -0.202     -0.519 51.7       33.3
+       5       30      53     16      -0.387     -0.592 56.2       28.3
+      10        0    1015    147      -0.380     -0.390 42.2       49.9
+      10       10     433     87       0.026     -0.022 49.4       28.9
+      10       20     256     54      -0.084     -0.264 46.3       23.4
+      10       30     127     32      -0.264     -0.451 53.1       17.3
+      15        0    1332    180      -0.196     -0.163 44.4       46.2
+      15       10     681    123      -0.043     -0.045 45.5       28.6
+      15       20     417     84      -0.038     -0.127 47.6       21.8
+      15       30     218     58      -0.058     -0.148 48.3       16.5
+      20        0    1622    208      -0.267     -0.252 43.3       44.0
+      20       10     912    153       0.007     -0.026 48.4       28.6
+      20       20     579    113      -0.223     -0.249 45.1       21.2
+      20       30     324     74      -0.084     -0.085 51.4       16.7
+
+============================================================================================
+4. ERA + REGIME (semi cycle: SMH above/below its own 200d at trigger)
+============================================================================================
+
+=== equal-$ spread, era split (episodes) ===
+   label  n  mean_pct  median_pct    hit      t  worst_pct  best_pct  sd_pct
+pre-2018 23    -0.658      -0.138 43.478 -1.027     -8.005     3.689   3.072
+   2018+  6     1.548       2.114 83.333  1.504     -3.005     4.589   2.520
+
+=== semi-cycle split ===
+                                        label  n  mean_pct  median_pct    hit      t  worst_pct  best_pct  sd_pct
+SMH ABOVE its 200d at trigger (today's state) 15    -0.570      -0.138 46.667 -0.654     -8.005     4.589   3.378
+                SMH BELOW its 200d at trigger 14     0.194       0.550 57.143  0.263     -4.798     3.689   2.753
+
+============================================================================================
+5. SEMI SINGLE-NAME BREADTH VERSION (does the finding survive the vehicle?)
+============================================================================================
+
+=== same cell, each semi single name vs QQQ, equal-$ h=5 (reference class) ===
+ticker  n_epi  spread_pct  hit
+  NVDA     23       1.393 52.2
+  AVGO     17       1.279 58.8
+  AMAT     31      -0.138 35.5
+    MU     32       0.018 43.8
+   AMD     31       0.124 45.2
+  INTC     41       0.184 56.1
+   TXN     36      -0.092 50.0
+  QCOM     26       0.331 61.5
+   ADI     25       1.119 56.0

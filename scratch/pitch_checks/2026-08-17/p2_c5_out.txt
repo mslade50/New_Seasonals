@@ -1,0 +1,222 @@
+XLE panel 2000-01-03 .. 2026-08-14  N=6694
+TODAY: rank5=100.0 rank63=59.1 off52wh=-0.33% ATR14=1.26 5d move=+4.41 = +3.49 ATR (+7.67%)
+base rate SPY below 200d = 25.4%
+RANK form: N=13 days, episodes(10td)=12, bear-tape 15.4%
+MAG form: N=52 days, episodes(10td)=26, bear-tape 7.7%
+
+##### C5 LONG XLE, rank form  (h=5 td, entry lag=1) #####
+legs=[('XLE', 1.0)]  trigger span 2001-04-26 .. 2022-05-04
+
+=== 1. conditional vs controls ===
+                           label    n  mean_pct  median_pct    hit     t  worst_pct  best_pct  sd_pct
+           COND day-level (N=12)   12     0.425       0.257 58.333 0.510     -3.484     5.920   2.886
+            COND episodes (N=11)   11     0.715       0.421 63.636 0.835     -3.484     5.920   2.838
+     CTRL-a own drift, same span 5290     0.208       0.333 54.858 3.906    -34.555    25.826   3.879
+   CTRL-b all days, full history 6688     0.238       0.375 55.158 5.099    -34.555    25.826   3.815
+CTRL-c local +/-126td ex-trigger 2052     0.481       0.563 58.187 6.478    -17.157    14.154   3.361
+  COND day-level, lag=0 (no-lag)   12     0.005       0.214 50.000 0.005     -5.631     5.168   3.423
+  episode-vs-control diff = +0.507%  welch t = +0.59   bootstrap P(mean<=0) = 0.198   record 7-4, sign p = 0.2744
+  concentration: top2 episodes ['2022-01-07', '2005-02-04'] = +10.25pp of +7.86pp total (130%); best yrs {2005: 6.8, 2022: 2.9}
+
+=== 2+3. episode era split (pre-2018 / 2018+) ===
+   label  n  mean_pct  median_pct    hit     t  worst_pct  best_pct  sd_pct
+pre-2018  9     0.549       0.421 66.667 0.741     -3.484     4.331   2.221
+   2018+  2     1.463       1.463 50.000 0.328     -2.993     5.920   6.302
+
+===   day-level era split (for contrast) ===
+   label  n  mean_pct  median_pct  hit     t  worst_pct  best_pct  sd_pct
+pre-2018 10     0.218       0.257 60.0 0.294     -3.484     4.331   2.341
+   2018+  2     1.463       1.463 50.0 0.328     -2.993     5.920   6.302
+  worst episode window: -3.48%  on 2001-04-26   |  worst day-level: -3.48%
+  episode dates: 2001-04-26, 2004-06-17, 2004-09-02, 2005-02-04, 2005-07-25, 2006-04-21, 2007-12-24, 2013-10-16, 2016-12-06, 2022-01-07, 2022-05-04
+
+=== 4. threshold sensitivity (episode level) ===
+                                          label   n  mean_pct  median_pct    hit      t  worst_pct  best_pct  sd_pct  n_days
+                     rank5>=98 ALONE (episodes)  85    -0.313       0.194 56.471 -0.735    -14.767     8.074   3.929     163
+               rank5>=98 + near-high (episodes)  26     0.327       0.599 61.538  0.619     -6.281     5.920   2.698      39
+                 rank5>=98 + 63d mid (episodes)  39     0.342       0.421 69.231  0.676     -8.981     6.176   3.156      59
+               RANK BASE (all three) (episodes)  11     0.715       0.421 63.636  0.835     -3.484     5.920   2.838      12
+                 rank5>=95 all three (episodes)  17     0.601       0.492 64.706  0.864     -3.671     5.168   2.865      28
+                 rank5>=99 all three (episodes)   5    -0.094      -0.137 40.000 -0.074     -3.484     4.331   2.851       6
+             MAG >=2.0 ATR all three (episodes)  40    -0.205       0.066 52.500 -0.478     -5.545     7.028   2.715      98
+             MAG >=2.5 ATR all three (episodes)  25    -0.064       0.099 56.000 -0.118     -5.545     5.168   2.706      51
+             MAG >=3.0 ATR all three (episodes)  16     0.028       0.201 62.500  0.044     -3.671     5.168   2.517      20
+                 MAG >=2.5 ATR ALONE (episodes) 155     0.293       0.200 57.419  1.186    -14.767     8.585   3.078     339
+near-high + 63d mid ONLY (no thrust) (episodes)  74    -0.298      -0.107 47.297 -0.936     -5.961     7.028   2.740     314
+
+5. cost: 1 leg(s) x ~3.0 bps round trip = 3.0 bps. episode mean 0.715% = 71.5 bps -> 23.8x cost (need >=5x)
+
+=== 6. opex+vix_expiry+jackson_hole-in-hold split (episodes) ===
+                                       label  n  mean_pct  median_pct   hit     t  worst_pct  best_pct  sd_pct
+opex+vix_expiry+jackson_hole IN window (N=1)  1     0.093       0.093 100.0   NaN      0.093     0.093     NaN
+     opex+vix_expiry+jackson_hole OUT (N=10) 10     0.777       0.691  60.0 0.824     -3.484     5.920   2.984
+
+##### C5 LONG XLE, magnitude form (>=2.5 ATR)  (h=5 td, entry lag=1) #####
+legs=[('XLE', 1.0)]  trigger span 2001-04-26 .. 2023-10-18
+
+=== 1. conditional vs controls ===
+                           label    n  mean_pct  median_pct    hit      t  worst_pct  best_pct  sd_pct
+           COND day-level (N=51)   51     0.147       0.302 56.863  0.445     -5.545     5.920   2.360
+            COND episodes (N=25)   25    -0.064       0.099 56.000 -0.118     -5.545     5.168   2.706
+     CTRL-a own drift, same span 5656     0.217       0.354 55.057  4.167    -34.555    25.826   3.909
+   CTRL-b all days, full history 6688     0.238       0.375 55.158  5.099    -34.555    25.826   3.815
+CTRL-c local +/-126td ex-trigger 3277     0.488       0.504 57.247  8.466    -17.157    17.110   3.297
+  COND day-level, lag=0 (no-lag)   51     0.022       0.343 54.902  0.061     -5.631     5.920   2.613
+  episode-vs-control diff = -0.281%  welch t = -0.52   bootstrap P(mean<=0) = 0.549   record 14-11, sign p = 0.3450
+  concentration: top2 episodes ['2023-10-18', '2022-01-06'] = -0.38pp of -1.60pp total (24%); best yrs {2005: 6.8, 2003: 2.9}
+
+=== 2+3. episode era split (pre-2018 / 2018+) ===
+   label  n  mean_pct  median_pct    hit      t  worst_pct  best_pct  sd_pct
+pre-2018 19     0.024       0.099 57.895  0.044     -3.671     4.331   2.406
+   2018+  6    -0.343      -0.352 50.000 -0.223     -5.545     5.168   3.767
+
+===   day-level era split (for contrast) ===
+   label  n  mean_pct  median_pct    hit     t  worst_pct  best_pct  sd_pct
+pre-2018 37     0.051       0.139 56.757 0.143     -3.671     4.331   2.145
+   2018+ 14     0.402       0.350 57.143 0.513     -5.545     5.920   2.928
+  worst episode window: -5.54%  on 2023-10-18   |  worst day-level: -5.54%
+  episode dates: 2001-04-26, 2001-05-18, 2003-12-04, 2004-06-17, 2004-09-01, 2004-09-21, 2005-02-04, 2005-07-25, 2006-04-19, 2007-12-24, 2010-01-06, 2010-04-05, 2010-04-23, 2013-01-22, 2013-05-08, 2013-10-16, 2014-04-02, 2016-09-08, 2016-12-05, 2021-05-07, 2021-06-02, 2021-06-25, 2022-01-06, 2022-05-04, 2023-10-18
+
+5. cost: 1 leg(s) x ~3.0 bps round trip = 3.0 bps. episode mean -0.064% = -6.4 bps -> -2.1x cost (need >=5x)
+
+=== 6. opex+vix_expiry-in-hold split (episodes) ===
+                          label  n  mean_pct  median_pct    hit      t  worst_pct  best_pct  sd_pct
+opex+vix_expiry IN window (N=4)  4    -2.887      -3.048 25.000 -2.475     -5.545     0.093   2.333
+     opex+vix_expiry OUT (N=21) 21     0.474       0.343 61.905  0.881     -3.671     5.168   2.465
+
+============================================================================================
+1b. HORIZON SCAN (both definitions), episode level
+============================================================================================
+
+=== RANK form, long XLE ===
+label  n  mean_pct  median_pct    hit      t  worst_pct  best_pct  sd_pct  ctl_all_days_pct  edge_pct
+  h=1 11     0.595       0.503 54.545  1.341     -1.292     3.401   1.472             0.050     0.545
+  h=2 11    -0.220       0.448 54.545 -0.314     -5.539     3.598   2.324             0.098    -0.318
+  h=3 11    -0.223       1.198 54.545 -0.247     -4.682     3.300   2.998             0.145    -0.368
+  h=5 11     0.715       0.421 63.636  0.835     -3.484     5.920   2.838             0.238     0.477
+  h=8 11     0.938       1.404 72.727  1.004     -5.835     6.058   3.100             0.374     0.564
+ h=10 11     1.439       1.118 72.727  1.267     -4.991     7.631   3.769             0.465     0.974
+
+=== MAG form, long XLE ===
+label  n  mean_pct  median_pct  hit      t  worst_pct  best_pct  sd_pct  ctl_all_days_pct  edge_pct
+  h=1 25    -0.045       0.000 48.0 -0.168     -3.070     2.981   1.332             0.050    -0.095
+  h=2 25    -0.396       0.203 56.0 -1.096     -5.539     3.081   1.807             0.098    -0.494
+  h=3 25    -0.408       0.145 52.0 -0.853     -4.682     3.300   2.393             0.145    -0.553
+  h=5 25    -0.064       0.099 56.0 -0.118     -5.545     5.168   2.706             0.238    -0.302
+  h=8 25     0.058       1.404 60.0  0.078     -9.405     6.058   3.680             0.374    -0.316
+ h=10 25     0.179       1.118 56.0  0.233     -7.337     7.631   3.852             0.465    -0.286
+
+============================================================================================
+2. GATE ATTRIBUTION - what does each gate actually add? (h=5, episodes)
+============================================================================================
+
+=== gate ladder ===
+                                gate  n_days  n_epi  mean_pct  median_pct  hit  bear_frac  sign_p
+                     rank5>=98 ALONE     165     85    -0.313       0.194 56.5       47.3   0.139
+               rank5>=98 + near-high      40     26     0.327       0.599 61.5       27.5   0.164
+                 rank5>=98 + 63d mid      61     39     0.342       0.421 69.2       37.7   0.012
+               RANK BASE (all three)      13     11     0.715       0.421 63.6       15.4   0.274
+                 rank5>=95 all three      29     17     0.601       0.492 64.7       13.8   0.166
+                 rank5>=99 all three       7      5    -0.094      -0.137 40.0       14.3   0.812
+             MAG >=2.0 ATR all three      99     40    -0.205       0.066 52.5        6.1   0.437
+             MAG >=2.5 ATR all three      52     25    -0.064       0.099 56.0        7.7   0.345
+             MAG >=3.0 ATR all three      21     16     0.028       0.201 62.5        9.5   0.227
+                 MAG >=2.5 ATR ALONE     341    155     0.293       0.200 57.4       16.1   0.038
+near-high + 63d mid ONLY (no thrust)     315     74    -0.298      -0.107 47.3        7.0   0.719
+                   UNCONDITIONAL XLE    6694   6688     0.238       0.375 55.2       25.4     NaN
+
+============================================================================================
+3. DOES THE COMPLEX CONFIRM? same cell on XOP / OIH / USO, and the XLE cell
+   measured in each vehicle
+============================================================================================
+
+=== XLE-triggered cell traded in each energy vehicle, h=5 ===
+vehicle  n_epi  mean_pct  uncond_pct  edge_pp  hit
+    XLE     11     0.715       0.238    0.477 63.6
+    XOP      5    -1.126       0.191   -1.316 60.0
+    OIH     11     0.367       0.155    0.212 54.5
+    USO      6     1.533      -0.002    1.535 66.7
+
+=== same DEFINITION applied to each name's own state (reference class) ===
+ticker  n_epi  mean_pct  uncond_pct  edge_pp  hit
+   XOP      5     2.498       0.191    2.307 80.0
+   OIH      6     0.325       0.155    0.170 66.7
+
+============================================================================================
+4. IS IT JUST TAPE? XLE minus SPY and beta-neutral residual on the cell
+============================================================================================
+
+=== h=5, episodes N=12 ===
+                         label    n  mean_pct  median_pct    hit      t  worst_pct  best_pct  sd_pct
+                       XLE leg   11     0.715       0.421 63.636  0.835     -3.484     5.920   2.838
+                       SPY leg   11    -0.456       0.508 63.636 -0.722     -5.188     1.240   2.094
+               equal-$ XLE-SPY   11     1.171       0.776 63.636  1.212     -4.724     7.858   3.204
+beta-neutral resid (beta=0.99)   11     1.167       0.778 63.636  1.211     -4.714     7.842   3.195
+      resid all days (control) 6688     0.047      -0.010 49.761  1.315    -18.237    18.700   2.934
+
+============================================================================================
+5. ROUND 2 - era, oil regime, concentration
+============================================================================================
+
+=== era split (episodes) ===
+   label  n  mean_pct  median_pct    hit     t  worst_pct  best_pct  sd_pct
+pre-2018  9     0.549       0.421 66.667 0.741     -3.484     4.331   2.221
+   2018+  2     1.463       1.463 50.000 0.328     -2.993     5.920   6.302
+
+=== oil-regime split (USO history starts 2006) ===
+                          label  n  mean_pct  median_pct     hit      t  worst_pct  best_pct  sd_pct
+  USO 63d rank >= 50 at trigger  3    -0.903      -0.137  33.333 -0.854     -2.993     0.421   1.832
+USO 63d rank < 50 (today = 8.3)  2     3.006       3.006 100.000  1.032      0.093     5.920   4.120
+
+concentration: top2 episodes ['2022-01-07', '2005-02-04'] = +10.25pp of +7.86pp total (130%); best yrs {2005: 6.8, 2022: 2.9}
+episode dates: 2001-04-26, 2004-06-17, 2004-09-02, 2005-02-04, 2005-07-25, 2006-04-21, 2007-12-24, 2013-10-16, 2016-12-06, 2022-01-07, 2022-05-04
+
+============================================================================================
+6. BOOK OVERLAP - what did the systematic book ACTUALLY do on these days?
+============================================================================================
+ledger energy trades with a signal inside [-5,+10] td of a RANK trigger: 0
+
+ledger energy trades inside [-5,+10] td of a MAGNITUDE trigger: 2
+                             n   avgR   totR
+Strategy          Direction                 
+Overbot Vol Spike Short      2  1.089  2.177
+
+ledger energy trades with a signal inside [-1,+5] td of a RANK trigger: 0
+
+ALL ledger energy trades: 105  long 31 / short 74
+            n   avgR
+Direction           
+Long       31  0.772
+Short      74  0.802
+
+STRATEGY_BOOK entries by direction (is the book structurally short a thrust?):
+  52wh Breakout                dir=Long  entry=Limit Order -0.25 ATR (Persistent)  hold=63  XLE_in_universe=True
+  Weak Close Decent Sznls      dir=Long  entry=Limit (Open +/- 0.25 ATR)  hold=2  XLE_in_universe=True
+  Oversold Low Volume          dir=Long  entry=Limit Order -0.25 ATR (Persistent)  hold=10  XLE_in_universe=True
+  Overbot Vol Spike            dir=Short  entry=Limit (Open +/- 0.75 ATR)  hold=2  XLE_in_universe=True
+  LT Trend ST OS               dir=Long  entry=Limit Order -0.25 ATR (Persistent)  hold=1  XLE_in_universe=True
+  St OS Sznl                   dir=Long  entry=Limit Order -0.25 ATR (Persistent)  hold=5  XLE_in_universe=True
+  3x ETF Overbot Fade          dir=Short  entry=Limit (Open +/- 0.5 ATR)  hold=2  XLE_in_universe=False
+  3x Bear ETF Overbot Fade     dir=Short  entry=Limit (Open +/- 0.5 ATR)  hold=2  XLE_in_universe=False
+  3x Leader Gap Fade           dir=Short  entry=Limit (Open +/- 0.75 ATR)  hold=2  XLE_in_universe=False
+  Indices Oversold Bounce      dir=Long  entry=Limit Order -0.25 ATR (Persistent)  hold=2  XLE_in_universe=False
+  SPY QQQ MonFri Reversion     dir=Long  entry=Limit (Open +/- 0.25 ATR)  hold=2  XLE_in_universe=False
+  Sector BO                    dir=Long  entry=Limit Order -0.5 ATR (Persistent)  hold=63  XLE_in_universe=True
+  Monday Dip                   dir=Long  entry=Limit (Open +/- 0.25 ATR)  hold=2  XLE_in_universe=False
+  ATR Extended Gap Up          dir=Short  entry=Limit (Open +/- 0.75 ATR)  hold=2  XLE_in_universe=True
+  Monthly Weak Close           dir=Long  entry=Limit Order -0.25 ATR (Persistent)  hold=5  XLE_in_universe=False
+
+============================================================================================
+7. IS THE THRUST CELL SEPARABLE FROM THE 2026-08-14 XLE-minus-USO 63d
+   DIVERGENCE KILL? (that kill's trigger was the divergence itself)
+============================================================================================
+TODAY's XLE-USO 63d divergence = +18.85pp  (the 08-14 kill's live number was +18.69pp; its sign-flip threshold was 18pp)
+  divergence >= 15pp: 596 days; overlap with the thrust trigger = 1 of 13 thrust days (7.7%)
+  divergence >= 18pp: 447 days; overlap with the thrust trigger = 1 of 13 thrust days (7.7%)
+  divergence >= 19pp: 406 days; overlap with the thrust trigger = 0 of 13 thrust days (0.0%)
+  divergence >= 25pp: 186 days; overlap with the thrust trigger = 0 of 13 thrust days (0.0%)
+
+=== thrust cell split by the divergence the 08-14 kill was about ===
+                                                label  n  mean_pct  median_pct    hit     t  worst_pct  best_pct  sd_pct
+thrust episodes WITH divergence>=18pp (today's state)  0       NaN         NaN    NaN   NaN        NaN       NaN     NaN
+                              thrust episodes WITHOUT 11     0.715       0.421 63.636 0.835     -3.484      5.92   2.838

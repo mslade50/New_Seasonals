@@ -1,0 +1,363 @@
+==============================================================================
+1. ARE THE TWO ANCHOR GRIDS THE SAME DAYS?
+==============================================================================
+  vix_expiry-2 N=307   opex-4 N=307   INTERSECTION N=189  (61.6% of the vix grid, 61.6% of the opex grid)
+  vix-only N=118   opex-only N=118
+  opex minus vix_expiry, in trading days, distribution: {-3: 96, -2: 14, -1: 1, 1: 8, 2: 196, 3: 4}
+  (+2 = VIX expiry Wed of opex week -> the two anchors are the SAME Monday; anything else and they are different days)
+
+1b. THE SAME horizon at both anchors, on the SHARED days vs the exclusive days -- where does the 'disagreement' live?
+
+=== 1b. ^VIX (index, NOT tradeable) h=3  (uncond drift +0.661%) ===
+      label   n  mean_pct  median_pct    hit      t  worst_pct  best_pct  sd_pct  excess_pp
+  vix-2 ALL 307     0.464      -1.193 43.648  0.629    -30.118   103.263  12.915     -0.197
+ opex-4 ALL 307    -0.673      -1.917 39.739 -0.980    -30.118   103.263  12.031     -1.334
+SHARED days 189     0.606      -0.793 45.503  0.652    -30.118   103.263  12.777     -0.055
+ vix-2 ONLY 118     0.236      -1.684 40.678  0.195    -22.802    55.347  13.184     -0.425
+opex-4 ONLY 118    -2.720      -3.873 30.508 -2.826    -27.551    56.991  10.458     -3.382
+
+=== 1b. ^VIX (index, NOT tradeable) h=5  (uncond drift +1.007%) ===
+      label   n  mean_pct  median_pct    hit      t  worst_pct  best_pct  sd_pct  excess_pp
+  vix-2 ALL 307     1.762      -0.334 49.186  1.828    -37.208   161.204  16.888      0.755
+ opex-4 ALL 307    -0.436      -2.057 42.997 -0.473    -37.208   161.204  16.136     -1.443
+SHARED days 189     1.249      -1.442 46.561  0.930    -37.208   161.204  18.465      0.242
+ vix-2 ONLY 118     2.585       0.935 53.390  2.001    -25.936    56.855  14.036      1.578
+opex-4 ONLY 118    -3.134      -3.351 37.288 -3.092    -29.903    32.389  11.010     -4.141
+
+=== 1b. SPY h=3  (uncond drift +0.117%) ===
+      label   n  mean_pct  median_pct    hit      t  worst_pct  best_pct  sd_pct  excess_pp
+  vix-2 ALL 307    -0.223       0.101 53.420 -1.895     -9.201     5.772   2.061     -0.340
+ opex-4 ALL 307    -0.155       0.111 53.420 -1.372     -8.961     4.926   1.975     -0.272
+SHARED days 189    -0.349       0.020 50.265 -2.299     -8.961     4.926   2.088     -0.466
+ vix-2 ONLY 118    -0.021       0.264 58.475 -0.111     -9.201     5.772   2.010     -0.138
+opex-4 ONLY 118     0.157       0.311 58.475  0.980     -6.650     4.777   1.741      0.040
+
+=== 1b. SPY h=5  (uncond drift +0.192%) ===
+      label   n  mean_pct  median_pct    hit      t  worst_pct  best_pct  sd_pct  excess_pp
+  vix-2 ALL 307    -0.169       0.235 54.397 -1.287    -11.716     6.899   2.306     -0.362
+ opex-4 ALL 307    -0.071       0.343 56.678 -0.533    -11.716     6.092   2.342     -0.264
+SHARED days 189    -0.356       0.215 54.497 -2.004    -11.716     5.551   2.442     -0.548
+ vix-2 ONLY 118     0.129       0.251 54.237  0.688     -6.503     6.899   2.044     -0.063
+opex-4 ONLY 118     0.385       0.554 60.169  1.988     -5.529     6.092   2.103      0.192
+
+==============================================================================
+2. THE ONLY TRADEABLE VOL LEG: SVXY, POST-BREAK ONLY (2018-03-01+)
+==============================================================================
+  opex-4 anchors with SVXY data: 77 PRE-break / 101 post-break -> the surface-map grid pooled 43% of its SVXY sample on the -1x instrument that no longer exists
+
+##### 2. long SVXY at opex-4 anchor h=3 (post-break)  (h=3 td, entry lag=1) #####
+legs=[('SVXY', 1.0)]  trigger span 2018-03-12 .. 2026-07-13
+
+=== 1. conditional vs controls ===
+                           label    n  mean_pct  median_pct    hit      t  worst_pct  best_pct  sd_pct
+          COND day-level (N=100)  100    -0.171      -0.032 48.000 -0.622     -7.965     8.804   2.742
+           COND episodes (N=100)  100    -0.171      -0.032 48.000 -0.622     -7.965     8.804   2.742
+     CTRL-a own drift, same span 2092     0.196       0.622 58.891  2.305    -33.761    16.599   3.889
+   CTRL-b all days, full history 2119     0.205       0.632 59.084  2.439    -33.761    16.599   3.874
+CTRL-c local +/-126td ex-trigger 2019     0.224       0.654 59.633  2.566    -33.761    16.599   3.922
+  COND day-level, lag=0 (no-lag)  100     0.149       0.491 60.000  0.465    -13.685     9.530   3.198
+  episode-vs-control diff = -0.367%  welch t = -1.28   bootstrap P(mean<=0) = 0.730   record 48-52, sign p = 0.6914
+  concentration: top2 episodes ['2022-03-14', '2022-01-14'] = +0.84pp of -17.06pp total (-5%); best yrs {2019: 8.3, 2025: 3.0}
+
+=== 2+3. episode era split (pre-2018 / 2018+) ===
+   label   n  mean_pct  median_pct  hit      t  worst_pct  best_pct  sd_pct
+pre-2018   0       NaN         NaN  NaN    NaN        NaN       NaN     NaN
+   2018+ 100    -0.171      -0.032 48.0 -0.622     -7.965     8.804   2.742
+
+===   day-level era split (for contrast) ===
+   label   n  mean_pct  median_pct  hit      t  worst_pct  best_pct  sd_pct
+pre-2018   0       NaN         NaN  NaN    NaN        NaN       NaN     NaN
+   2018+ 100    -0.171      -0.032 48.0 -0.622     -7.965     8.804   2.742
+  worst episode window: -7.96%  on 2022-01-14   |  worst day-level: -7.96%
+  episode dates: 2018-03-12, 2018-04-16, 2018-05-14, 2018-06-11, 2018-07-16, 2018-08-13, 2018-09-17, 2018-10-15, 2018-11-12, 2018-12-17, 2019-01-14, 2019-02-11, 2019-03-11, 2019-04-12, 2019-05-13, 2019-06-17, 2019-07-15, 2019-08-12, 2019-09-16, 2019-10-14, 2019-11-11, 2019-12-16, 2020-01-13, 2020-02-14, 2020-03-16, 2020-04-13, 2020-05-11, 2020-06-15, 2020-07-13, 2020-08-17, 2020-09-14, 2020-10-12, 2020-11-16, 2020-12-14, 2021-01-11, 2021-02-12, 2021-03-15, 2021-04-12, 2021-05-17, 2021-06-14, 2021-07-12, 2021-08-16, 2021-09-13, 2021-10-11, 2021-11-15, 2021-12-13, 2022-01-14, 2022-02-14, 2022-03-14, 2022-04-08, 2022-05-16, 2022-06-13, 2022-07-11, 2022-08-15, 2022-09-12, 2022-10-17, 2022-11-14, 2022-12-12, 2023-01-13, 2023-02-13, 2023-03-13, 2023-04-17, 2023-05-15, 2023-06-12, 2023-07-17, 2023-08-14, 2023-09-11, 2023-10-16, 2023-11-13, 2023-12-11, 2024-01-12, 2024-02-12, 2024-03-11, 2024-04-15, 2024-05-13, 2024-06-14, 2024-07-15, 2024-08-12, 2024-09-16, 2024-10-14, 2024-11-11, 2024-12-16, 2025-01-13, 2025-02-14, 2025-03-17, 2025-04-11, 2025-05-12, 2025-06-13, 2025-07-14, 2025-08-11, 2025-09-15, 2025-10-13, 2025-11-17, 2025-12-15, 2026-01-12, 2026-02-13, 2026-03-16, 2026-04-13, 2026-05-11, 2026-07-13
+
+5. cost: 1 leg(s) x ~10.0 bps round trip = 10.0 bps. episode mean -0.171% = -17.1 bps -> -1.7x cost (need >=5x)
+
+=== 6. cpi-in-hold split (episodes) ===
+               label  n  mean_pct  median_pct    hit      t  worst_pct  best_pct  sd_pct
+cpi IN window (N=13) 13     1.942       2.674 84.615  3.314     -2.438     5.277   2.113
+      cpi OUT (N=87) 87    -0.486      -0.173 42.529 -1.684     -7.965     8.804   2.694
+
+##### 2. long SVXY at opex-4 anchor h=5 (post-break)  (h=5 td, entry lag=1) #####
+legs=[('SVXY', 1.0)]  trigger span 2018-03-12 .. 2026-07-13
+
+=== 1. conditional vs controls ===
+                           label    n  mean_pct  median_pct    hit     t  worst_pct  best_pct  sd_pct
+          COND day-level (N=101)  101     0.179       0.536 56.436 0.456    -17.094     9.732   3.938
+           COND episodes (N=101)  101     0.179       0.536 56.436 0.456    -17.094     9.732   3.938
+     CTRL-a own drift, same span 2092     0.322       0.911 60.612 2.965    -33.839    24.681   4.961
+   CTRL-b all days, full history 2117     0.334       0.937 60.746 3.105    -33.839    24.681   4.944
+CTRL-c local +/-126td ex-trigger 2016     0.341       0.988 60.962 3.072    -33.839    24.681   4.990
+  COND day-level, lag=0 (no-lag)  101     0.226       0.407 57.426 0.564    -14.107    10.780   4.030
+  episode-vs-control diff = -0.143%  welch t = -0.35   bootstrap P(mean<=0) = 0.311   record 57-44, sign p = 0.1162
+  concentration: top2 episodes ['2020-02-14', '2020-04-13'] = -28.63pp of +18.04pp total (-159%); best yrs {2025: 21.3, 2024: 20.8}
+
+=== 2+3. episode era split (pre-2018 / 2018+) ===
+   label   n  mean_pct  median_pct    hit     t  worst_pct  best_pct  sd_pct
+pre-2018   0       NaN         NaN    NaN   NaN        NaN       NaN     NaN
+   2018+ 101     0.179       0.536 56.436 0.456    -17.094     9.732   3.938
+
+===   day-level era split (for contrast) ===
+   label   n  mean_pct  median_pct    hit     t  worst_pct  best_pct  sd_pct
+pre-2018   0       NaN         NaN    NaN   NaN        NaN       NaN     NaN
+   2018+ 101     0.179       0.536 56.436 0.456    -17.094     9.732   3.938
+  worst episode window: -17.09%  on 2020-02-14   |  worst day-level: -17.09%
+  episode dates: 2018-03-12, 2018-04-16, 2018-05-14, 2018-06-11, 2018-07-16, 2018-08-13, 2018-09-17, 2018-10-15, 2018-11-12, 2018-12-17, 2019-01-14, 2019-02-11, 2019-03-11, 2019-04-12, 2019-05-13, 2019-06-17, 2019-07-15, 2019-08-12, 2019-09-16, 2019-10-14, 2019-11-11, 2019-12-16, 2020-01-13, 2020-02-14, 2020-03-16, 2020-04-13, 2020-05-11, 2020-06-15, 2020-07-13, 2020-08-17, 2020-09-14, 2020-10-12, 2020-11-16, 2020-12-14, 2021-01-11, 2021-02-12, 2021-03-15, 2021-04-12, 2021-05-17, 2021-06-14, 2021-07-12, 2021-08-16, 2021-09-13, 2021-10-11, 2021-11-15, 2021-12-13, 2022-01-14, 2022-02-14, 2022-03-14, 2022-04-08, 2022-05-16, 2022-06-13, 2022-07-11, 2022-08-15, 2022-09-12, 2022-10-17, 2022-11-14, 2022-12-12, 2023-01-13, 2023-02-13, 2023-03-13, 2023-04-17, 2023-05-15, 2023-06-12, 2023-07-17, 2023-08-14, 2023-09-11, 2023-10-16, 2023-11-13, 2023-12-11, 2024-01-12, 2024-02-12, 2024-03-11, 2024-04-15, 2024-05-13, 2024-06-14, 2024-07-15, 2024-08-12, 2024-09-16, 2024-10-14, 2024-11-11, 2024-12-16, 2025-01-13, 2025-02-14, 2025-03-17, 2025-04-11, 2025-05-12, 2025-06-13, 2025-07-14, 2025-08-11, 2025-09-15, 2025-10-13, 2025-11-17, 2025-12-15, 2026-01-12, 2026-02-13, 2026-03-16, 2026-04-13, 2026-05-11, 2026-06-15, 2026-07-13
+
+5. cost: 1 leg(s) x ~10.0 bps round trip = 10.0 bps. episode mean 0.179% = 17.9 bps -> 1.8x cost (need >=5x)
+
+=== 6. cpi-in-hold split (episodes) ===
+               label  n  mean_pct  median_pct    hit      t  worst_pct  best_pct  sd_pct
+cpi IN window (N=13) 13     2.345       2.817 84.615  2.955     -4.234     5.223   2.861
+      cpi OUT (N=88) 88    -0.141       0.301 52.273 -0.333    -17.094     9.732   3.987
+
+##### 2. long SVXY at opex-4 anchor h=8 (post-break)  (h=8 td, entry lag=1) #####
+legs=[('SVXY', 1.0)]  trigger span 2018-03-12 .. 2026-07-13
+
+=== 1. conditional vs controls ===
+                           label    n  mean_pct  median_pct    hit      t  worst_pct  best_pct  sd_pct
+          COND day-level (N=101)  101    -0.008       0.896 53.465 -0.016    -24.382    12.845   5.085
+           COND episodes (N=101)  101    -0.008       0.896 53.465 -0.016    -24.382    12.845   5.085
+     CTRL-a own drift, same span 2092     0.515       1.313 62.476  3.801    -43.776    36.563   6.195
+   CTRL-b all days, full history 2114     0.523       1.314 62.488  3.895    -43.776    36.563   6.176
+CTRL-c local +/-126td ex-trigger 2013     0.550       1.325 62.941  3.962    -43.776    36.563   6.226
+  COND day-level, lag=0 (no-lag)  101     0.301       0.849 57.426  0.571    -23.438    13.192   5.291
+  episode-vs-control diff = -0.523%  welch t = -1.00   bootstrap P(mean<=0) = 0.487   record 54-47, sign p = 0.2754
+  concentration: top2 episodes ['2020-02-14', '2022-03-14'] = -11.54pp of -0.82pp total (1415%); best yrs {2025: 24.8, 2021: 18.8}
+
+=== 2+3. episode era split (pre-2018 / 2018+) ===
+   label   n  mean_pct  median_pct    hit      t  worst_pct  best_pct  sd_pct
+pre-2018   0       NaN         NaN    NaN    NaN        NaN       NaN     NaN
+   2018+ 101    -0.008       0.896 53.465 -0.016    -24.382    12.845   5.085
+
+===   day-level era split (for contrast) ===
+   label   n  mean_pct  median_pct    hit      t  worst_pct  best_pct  sd_pct
+pre-2018   0       NaN         NaN    NaN    NaN        NaN       NaN     NaN
+   2018+ 101    -0.008       0.896 53.465 -0.016    -24.382    12.845   5.085
+  worst episode window: -24.38%  on 2020-02-14   |  worst day-level: -24.38%
+  episode dates: 2018-03-12, 2018-04-16, 2018-05-14, 2018-06-11, 2018-07-16, 2018-08-13, 2018-09-17, 2018-10-15, 2018-11-12, 2018-12-17, 2019-01-14, 2019-02-11, 2019-03-11, 2019-04-12, 2019-05-13, 2019-06-17, 2019-07-15, 2019-08-12, 2019-09-16, 2019-10-14, 2019-11-11, 2019-12-16, 2020-01-13, 2020-02-14, 2020-03-16, 2020-04-13, 2020-05-11, 2020-06-15, 2020-07-13, 2020-08-17, 2020-09-14, 2020-10-12, 2020-11-16, 2020-12-14, 2021-01-11, 2021-02-12, 2021-03-15, 2021-04-12, 2021-05-17, 2021-06-14, 2021-07-12, 2021-08-16, 2021-09-13, 2021-10-11, 2021-11-15, 2021-12-13, 2022-01-14, 2022-02-14, 2022-03-14, 2022-04-08, 2022-05-16, 2022-06-13, 2022-07-11, 2022-08-15, 2022-09-12, 2022-10-17, 2022-11-14, 2022-12-12, 2023-01-13, 2023-02-13, 2023-03-13, 2023-04-17, 2023-05-15, 2023-06-12, 2023-07-17, 2023-08-14, 2023-09-11, 2023-10-16, 2023-11-13, 2023-12-11, 2024-01-12, 2024-02-12, 2024-03-11, 2024-04-15, 2024-05-13, 2024-06-14, 2024-07-15, 2024-08-12, 2024-09-16, 2024-10-14, 2024-11-11, 2024-12-16, 2025-01-13, 2025-02-14, 2025-03-17, 2025-04-11, 2025-05-12, 2025-06-13, 2025-07-14, 2025-08-11, 2025-09-15, 2025-10-13, 2025-11-17, 2025-12-15, 2026-01-12, 2026-02-13, 2026-03-16, 2026-04-13, 2026-05-11, 2026-06-15, 2026-07-13
+
+5. cost: 1 leg(s) x ~10.0 bps round trip = 10.0 bps. episode mean -0.008% = -0.8 bps -> -0.1x cost (need >=5x)
+
+=== 6. cpi-in-hold split (episodes) ===
+               label  n  mean_pct  median_pct    hit      t  worst_pct  best_pct  sd_pct
+cpi IN window (N=14) 14     1.785       3.138 64.286  1.875     -4.625     6.173   3.562
+      cpi OUT (N=87) 87    -0.297       0.149 51.724 -0.527    -24.382    12.845   5.248
+
+##### 2. long SVXY at vix_expiry-2 anchor h=3 (post-break)  (h=3 td, entry lag=1) #####
+legs=[('SVXY', 1.0)]  trigger span 2018-03-19 .. 2026-07-20
+
+=== 1. conditional vs controls ===
+                           label    n  mean_pct  median_pct    hit      t  worst_pct  best_pct  sd_pct
+          COND day-level (N=100)  100    -0.479      -0.032 49.000 -1.564     -8.500     7.676   3.061
+           COND episodes (N=100)  100    -0.479      -0.032 49.000 -1.564     -8.500     7.676   3.061
+     CTRL-a own drift, same span 2092     0.199       0.622 58.939  2.346    -33.761    16.599   3.887
+   CTRL-b all days, full history 2119     0.205       0.632 59.084  2.439    -33.761    16.599   3.874
+CTRL-c local +/-126td ex-trigger 2019     0.239       0.651 59.584  2.750    -33.761    16.599   3.908
+  COND day-level, lag=0 (no-lag)  100    -0.412      -0.170 45.000 -1.419    -13.685     6.488   2.907
+  episode-vs-control diff = -0.678%  welch t = -2.13   bootstrap P(mean<=0) = 0.943   record 49-51, sign p = 0.6178
+  concentration: top2 episodes ['2018-03-19', '2022-04-18'] = -16.92pp of -47.88pp total (35%); best yrs {2021: 6.6, 2026: -0.8}
+
+=== 2+3. episode era split (pre-2018 / 2018+) ===
+   label   n  mean_pct  median_pct  hit      t  worst_pct  best_pct  sd_pct
+pre-2018   0       NaN         NaN  NaN    NaN        NaN       NaN     NaN
+   2018+ 100    -0.479      -0.032 49.0 -1.564       -8.5     7.676   3.061
+
+===   day-level era split (for contrast) ===
+   label   n  mean_pct  median_pct  hit      t  worst_pct  best_pct  sd_pct
+pre-2018   0       NaN         NaN  NaN    NaN        NaN       NaN     NaN
+   2018+ 100    -0.479      -0.032 49.0 -1.564       -8.5     7.676   3.061
+  worst episode window: -8.50%  on 2018-03-19   |  worst day-level: -8.50%
+  episode dates: 2018-03-19, 2018-04-16, 2018-05-14, 2018-06-18, 2018-07-16, 2018-08-20, 2018-09-17, 2018-10-15, 2018-11-19, 2018-12-17, 2019-01-14, 2019-02-11, 2019-03-15, 2019-04-15, 2019-05-20, 2019-06-17, 2019-07-15, 2019-08-19, 2019-09-16, 2019-10-14, 2019-11-18, 2019-12-16, 2020-01-17, 2020-02-14, 2020-03-16, 2020-04-13, 2020-05-18, 2020-06-15, 2020-07-20, 2020-08-17, 2020-09-14, 2020-10-19, 2020-11-16, 2020-12-14, 2021-01-15, 2021-02-12, 2021-03-15, 2021-04-19, 2021-05-17, 2021-06-14, 2021-07-19, 2021-08-16, 2021-09-13, 2021-10-18, 2021-11-15, 2021-12-20, 2022-01-14, 2022-02-14, 2022-03-11, 2022-04-18, 2022-05-16, 2022-06-13, 2022-07-18, 2022-08-15, 2022-09-19, 2022-10-17, 2022-11-14, 2022-12-19, 2023-01-13, 2023-02-13, 2023-03-20, 2023-04-17, 2023-05-15, 2023-06-16, 2023-07-17, 2023-08-14, 2023-09-18, 2023-10-16, 2023-11-13, 2023-12-18, 2024-01-12, 2024-02-12, 2024-03-18, 2024-04-15, 2024-05-20, 2024-06-17, 2024-07-15, 2024-08-19, 2024-09-16, 2024-10-14, 2024-11-18, 2024-12-16, 2025-01-17, 2025-02-14, 2025-03-14, 2025-04-14, 2025-05-19, 2025-06-16, 2025-07-14, 2025-08-18, 2025-09-15, 2025-10-20, 2025-11-17, 2025-12-15, 2026-01-16, 2026-02-13, 2026-03-16, 2026-04-13, 2026-05-18, 2026-07-20
+
+5. cost: 1 leg(s) x ~10.0 bps round trip = 10.0 bps. episode mean -0.479% = -47.9 bps -> -4.8x cost (need >=5x)
+
+=== 6. cpi-in-hold split (episodes) ===
+              label  n  mean_pct  median_pct     hit      t  worst_pct  best_pct  sd_pct
+cpi IN window (N=3)  3     1.595       1.106 100.000  2.793      0.946     2.734   0.989
+     cpi OUT (N=97) 97    -0.543      -0.088  47.423 -1.735     -8.500     7.676   3.083
+
+##### 2. long SVXY at vix_expiry-2 anchor h=5 (post-break)  (h=5 td, entry lag=1) #####
+legs=[('SVXY', 1.0)]  trigger span 2018-03-19 .. 2026-07-20
+
+=== 1. conditional vs controls ===
+                           label    n  mean_pct  median_pct    hit      t  worst_pct  best_pct  sd_pct
+          COND day-level (N=101)  101    -0.253       0.576 56.436 -0.559    -17.094    10.780   4.551
+           COND episodes (N=101)  101    -0.253       0.576 56.436 -0.559    -17.094    10.780   4.551
+     CTRL-a own drift, same span 2092     0.331       0.911 60.660  3.061    -33.839    24.681   4.950
+   CTRL-b all days, full history 2117     0.334       0.937 60.746  3.105    -33.839    24.681   4.944
+CTRL-c local +/-126td ex-trigger 2016     0.363       0.961 60.962  3.285    -33.839    24.681   4.962
+  COND day-level, lag=0 (no-lag)  100    -0.373       0.000 49.000 -0.946    -14.107     8.849   3.945
+  episode-vs-control diff = -0.584%  welch t = -1.25   bootstrap P(mean<=0) = 0.704   record 57-44, sign p = 0.1162
+  concentration: top2 episodes ['2020-02-14', '2022-04-18'] = -29.69pp of -25.55pp total (116%); best yrs {2024: 18.1, 2025: 17.7}
+
+=== 2+3. episode era split (pre-2018 / 2018+) ===
+   label   n  mean_pct  median_pct    hit      t  worst_pct  best_pct  sd_pct
+pre-2018   0       NaN         NaN    NaN    NaN        NaN       NaN     NaN
+   2018+ 101    -0.253       0.576 56.436 -0.559    -17.094     10.78   4.551
+
+===   day-level era split (for contrast) ===
+   label   n  mean_pct  median_pct    hit      t  worst_pct  best_pct  sd_pct
+pre-2018   0       NaN         NaN    NaN    NaN        NaN       NaN     NaN
+   2018+ 101    -0.253       0.576 56.436 -0.559    -17.094     10.78   4.551
+  worst episode window: -17.09%  on 2020-02-14   |  worst day-level: -17.09%
+  episode dates: 2018-03-19, 2018-04-16, 2018-05-14, 2018-06-18, 2018-07-16, 2018-08-20, 2018-09-17, 2018-10-15, 2018-11-19, 2018-12-17, 2019-01-14, 2019-02-11, 2019-03-15, 2019-04-15, 2019-05-20, 2019-06-17, 2019-07-15, 2019-08-19, 2019-09-16, 2019-10-14, 2019-11-18, 2019-12-16, 2020-01-17, 2020-02-14, 2020-03-16, 2020-04-13, 2020-05-18, 2020-06-15, 2020-07-20, 2020-08-17, 2020-09-14, 2020-10-19, 2020-11-16, 2020-12-14, 2021-01-15, 2021-02-12, 2021-03-15, 2021-04-19, 2021-05-17, 2021-06-14, 2021-07-19, 2021-08-16, 2021-09-13, 2021-10-18, 2021-11-15, 2021-12-20, 2022-01-14, 2022-02-14, 2022-03-11, 2022-04-18, 2022-05-16, 2022-06-13, 2022-07-18, 2022-08-15, 2022-09-19, 2022-10-17, 2022-11-14, 2022-12-19, 2023-01-13, 2023-02-13, 2023-03-20, 2023-04-17, 2023-05-15, 2023-06-16, 2023-07-17, 2023-08-14, 2023-09-18, 2023-10-16, 2023-11-13, 2023-12-18, 2024-01-12, 2024-02-12, 2024-03-18, 2024-04-15, 2024-05-20, 2024-06-17, 2024-07-15, 2024-08-19, 2024-09-16, 2024-10-14, 2024-11-18, 2024-12-16, 2025-01-17, 2025-02-14, 2025-03-14, 2025-04-14, 2025-05-19, 2025-06-16, 2025-07-14, 2025-08-18, 2025-09-15, 2025-10-20, 2025-11-17, 2025-12-15, 2026-01-16, 2026-02-13, 2026-03-16, 2026-04-13, 2026-05-18, 2026-06-15, 2026-07-20
+
+5. cost: 1 leg(s) x ~10.0 bps round trip = 10.0 bps. episode mean -0.253% = -25.3 bps -> -2.5x cost (need >=5x)
+
+=== 6. cpi-in-hold split (episodes) ===
+              label  n  mean_pct  median_pct     hit      t  worst_pct  best_pct  sd_pct
+cpi IN window (N=3)  3     2.718       2.817 100.000  2.933      1.066     4.272   1.605
+     cpi OUT (N=98) 98    -0.344       0.510  55.102 -0.743    -17.094    10.780   4.585
+
+##### 2. long SVXY at vix_expiry-2 anchor h=8 (post-break)  (h=8 td, entry lag=1) #####
+legs=[('SVXY', 1.0)]  trigger span 2018-03-19 .. 2026-07-20
+
+=== 1. conditional vs controls ===
+                           label    n  mean_pct  median_pct    hit      t  worst_pct  best_pct  sd_pct
+          COND day-level (N=101)  101    -0.115       1.509 55.446 -0.201    -24.382    13.192   5.768
+           COND episodes (N=101)  101    -0.115       1.509 55.446 -0.201    -24.382    13.192   5.768
+     CTRL-a own drift, same span 2092     0.533       1.313 62.524  3.944    -43.776    36.563   6.177
+   CTRL-b all days, full history 2114     0.523       1.314 62.488  3.895    -43.776    36.563   6.176
+CTRL-c local +/-126td ex-trigger 2013     0.555       1.313 62.842  4.021    -43.776    36.563   6.195
+  COND day-level, lag=0 (no-lag)  101    -0.099       0.740 56.436 -0.183    -23.438    11.052   5.421
+  episode-vs-control diff = -0.648%  welch t = -1.10   bootstrap P(mean<=0) = 0.575   record 56-45, sign p = 0.1599
+  concentration: top2 episodes ['2020-02-14', '2022-04-18'] = -39.00pp of -11.63pp total (335%); best yrs {2025: 24.8, 2021: 14.6}
+
+=== 2+3. episode era split (pre-2018 / 2018+) ===
+   label   n  mean_pct  median_pct    hit      t  worst_pct  best_pct  sd_pct
+pre-2018   0       NaN         NaN    NaN    NaN        NaN       NaN     NaN
+   2018+ 101    -0.115       1.509 55.446 -0.201    -24.382    13.192   5.768
+
+===   day-level era split (for contrast) ===
+   label   n  mean_pct  median_pct    hit      t  worst_pct  best_pct  sd_pct
+pre-2018   0       NaN         NaN    NaN    NaN        NaN       NaN     NaN
+   2018+ 101    -0.115       1.509 55.446 -0.201    -24.382    13.192   5.768
+  worst episode window: -24.38%  on 2020-02-14   |  worst day-level: -24.38%
+  episode dates: 2018-03-19, 2018-04-16, 2018-05-14, 2018-06-18, 2018-07-16, 2018-08-20, 2018-09-17, 2018-10-15, 2018-11-19, 2018-12-17, 2019-01-14, 2019-02-11, 2019-03-15, 2019-04-15, 2019-05-20, 2019-06-17, 2019-07-15, 2019-08-19, 2019-09-16, 2019-10-14, 2019-11-18, 2019-12-16, 2020-01-17, 2020-02-14, 2020-03-16, 2020-04-13, 2020-05-18, 2020-06-15, 2020-07-20, 2020-08-17, 2020-09-14, 2020-10-19, 2020-11-16, 2020-12-14, 2021-01-15, 2021-02-12, 2021-03-15, 2021-04-19, 2021-05-17, 2021-06-14, 2021-07-19, 2021-08-16, 2021-09-13, 2021-10-18, 2021-11-15, 2021-12-20, 2022-01-14, 2022-02-14, 2022-03-11, 2022-04-18, 2022-05-16, 2022-06-13, 2022-07-18, 2022-08-15, 2022-09-19, 2022-10-17, 2022-11-14, 2022-12-19, 2023-01-13, 2023-02-13, 2023-03-20, 2023-04-17, 2023-05-15, 2023-06-16, 2023-07-17, 2023-08-14, 2023-09-18, 2023-10-16, 2023-11-13, 2023-12-18, 2024-01-12, 2024-02-12, 2024-03-18, 2024-04-15, 2024-05-20, 2024-06-17, 2024-07-15, 2024-08-19, 2024-09-16, 2024-10-14, 2024-11-18, 2024-12-16, 2025-01-17, 2025-02-14, 2025-03-14, 2025-04-14, 2025-05-19, 2025-06-16, 2025-07-14, 2025-08-18, 2025-09-15, 2025-10-20, 2025-11-17, 2025-12-15, 2026-01-16, 2026-02-13, 2026-03-16, 2026-04-13, 2026-05-18, 2026-06-15, 2026-07-20
+
+5. cost: 1 leg(s) x ~10.0 bps round trip = 10.0 bps. episode mean -0.115% = -11.5 bps -> -1.2x cost (need >=5x)
+
+=== 6. cpi-in-hold split (episodes) ===
+              label  n  mean_pct  median_pct    hit      t  worst_pct  best_pct  sd_pct
+cpi IN window (N=3)  3     2.728       3.139 66.667  1.798     -0.080     5.126   2.628
+     cpi OUT (N=98) 98    -0.202       1.426 55.102 -0.344    -24.382    13.192   5.823
+
+##### 2. long SVXY at SHARED anchor h=3 (post-break)  (h=3 td, entry lag=1) #####
+legs=[('SVXY', 1.0)]  trigger span 2018-04-16 .. 2026-04-13
+
+=== 1. conditional vs controls ===
+                           label    n  mean_pct  median_pct    hit      t  worst_pct  best_pct  sd_pct
+           COND day-level (N=58)   58    -0.740      -0.210 41.379 -2.069     -7.965     3.477   2.724
+            COND episodes (N=58)   58    -0.740      -0.210 41.379 -2.069     -7.965     3.477   2.724
+     CTRL-a own drift, same span 2009     0.185       0.632 58.785  2.110    -33.761    16.599   3.931
+   CTRL-b all days, full history 2119     0.205       0.632 59.084  2.439    -33.761    16.599   3.874
+CTRL-c local +/-126td ex-trigger 2061     0.232       0.651 59.583  2.700    -33.761    16.599   3.899
+  COND day-level, lag=0 (no-lag)   58    -0.565       0.041 50.000 -1.440    -13.685     4.668   2.985
+  episode-vs-control diff = -0.925%  welch t = -2.51   bootstrap P(mean<=0) = 0.984   record 24-34, sign p = 0.9260
+  concentration: top2 episodes ['2022-01-14', '2026-03-16'] = -13.98pp of -42.92pp total (33%); best yrs {2025: 2.3, 2019: 2.0}
+
+=== 2+3. episode era split (pre-2018 / 2018+) ===
+   label  n  mean_pct  median_pct    hit      t  worst_pct  best_pct  sd_pct
+pre-2018  0       NaN         NaN    NaN    NaN        NaN       NaN     NaN
+   2018+ 58     -0.74       -0.21 41.379 -2.069     -7.965     3.477   2.724
+
+===   day-level era split (for contrast) ===
+   label  n  mean_pct  median_pct    hit      t  worst_pct  best_pct  sd_pct
+pre-2018  0       NaN         NaN    NaN    NaN        NaN       NaN     NaN
+   2018+ 58     -0.74       -0.21 41.379 -2.069     -7.965     3.477   2.724
+  worst episode window: -7.96%  on 2022-01-14   |  worst day-level: -7.96%
+  episode dates: 2018-04-16, 2018-05-14, 2018-07-16, 2018-09-17, 2018-10-15, 2018-12-17, 2019-01-14, 2019-02-11, 2019-06-17, 2019-07-15, 2019-09-16, 2019-10-14, 2019-12-16, 2020-02-14, 2020-03-16, 2020-04-13, 2020-06-15, 2020-08-17, 2020-09-14, 2020-11-16, 2020-12-14, 2021-02-12, 2021-03-15, 2021-05-17, 2021-06-14, 2021-08-16, 2021-09-13, 2021-11-15, 2022-01-14, 2022-02-14, 2022-05-16, 2022-06-13, 2022-08-15, 2022-10-17, 2022-11-14, 2023-01-13, 2023-02-13, 2023-04-17, 2023-05-15, 2023-07-17, 2023-08-14, 2023-10-16, 2023-11-13, 2024-01-12, 2024-02-12, 2024-04-15, 2024-07-15, 2024-09-16, 2024-10-14, 2024-12-16, 2025-02-14, 2025-07-14, 2025-09-15, 2025-11-17, 2025-12-15, 2026-02-13, 2026-03-16, 2026-04-13
+
+5. cost: 1 leg(s) x ~10.0 bps round trip = 10.0 bps. episode mean -0.740% = -74.0 bps -> -7.4x cost (need >=5x)
+
+=== 6. cpi-in-hold split (episodes) ===
+              label  n  mean_pct  median_pct     hit      t  worst_pct  best_pct  sd_pct
+cpi IN window (N=2)  2     1.840       1.840 100.000  2.058      0.946     2.734   1.265
+     cpi OUT (N=56) 56    -0.832      -0.253  39.286 -2.287     -7.965     3.477   2.722
+
+##### 2. long SVXY at SHARED anchor h=5 (post-break)  (h=5 td, entry lag=1) #####
+legs=[('SVXY', 1.0)]  trigger span 2018-04-16 .. 2026-06-15
+
+=== 1. conditional vs controls ===
+                           label    n  mean_pct  median_pct    hit      t  worst_pct  best_pct  sd_pct
+           COND day-level (N=59)   59    -0.485       0.390 52.542 -0.846    -17.094     8.411   4.404
+            COND episodes (N=59)   59    -0.485       0.390 52.542 -0.846    -17.094     8.411   4.404
+     CTRL-a own drift, same span 2051     0.325       0.937 60.653  2.963    -33.839    24.681   4.970
+   CTRL-b all days, full history 2117     0.334       0.937 60.746  3.105    -33.839    24.681   4.944
+CTRL-c local +/-126td ex-trigger 2058     0.357       0.971 60.982  3.267    -33.839    24.681   4.958
+  COND day-level, lag=0 (no-lag)   59    -0.565       0.028 50.847 -1.145    -14.107     7.156   3.791
+  episode-vs-control diff = -0.810%  welch t = -1.39   bootstrap P(mean<=0) = 0.807   record 31-28, sign p = 0.3974
+  concentration: top2 episodes ['2020-02-14', '2020-04-13'] = -28.63pp of -28.62pp total (100%); best yrs {2024: 13.8, 2025: 7.5}
+
+=== 2+3. episode era split (pre-2018 / 2018+) ===
+   label  n  mean_pct  median_pct    hit      t  worst_pct  best_pct  sd_pct
+pre-2018  0       NaN         NaN    NaN    NaN        NaN       NaN     NaN
+   2018+ 59    -0.485        0.39 52.542 -0.846    -17.094     8.411   4.404
+
+===   day-level era split (for contrast) ===
+   label  n  mean_pct  median_pct    hit      t  worst_pct  best_pct  sd_pct
+pre-2018  0       NaN         NaN    NaN    NaN        NaN       NaN     NaN
+   2018+ 59    -0.485        0.39 52.542 -0.846    -17.094     8.411   4.404
+  worst episode window: -17.09%  on 2020-02-14   |  worst day-level: -17.09%
+  episode dates: 2018-04-16, 2018-05-14, 2018-07-16, 2018-09-17, 2018-10-15, 2018-12-17, 2019-01-14, 2019-02-11, 2019-06-17, 2019-07-15, 2019-09-16, 2019-10-14, 2019-12-16, 2020-02-14, 2020-03-16, 2020-04-13, 2020-06-15, 2020-08-17, 2020-09-14, 2020-11-16, 2020-12-14, 2021-02-12, 2021-03-15, 2021-05-17, 2021-06-14, 2021-08-16, 2021-09-13, 2021-11-15, 2022-01-14, 2022-02-14, 2022-05-16, 2022-06-13, 2022-08-15, 2022-10-17, 2022-11-14, 2023-01-13, 2023-02-13, 2023-04-17, 2023-05-15, 2023-07-17, 2023-08-14, 2023-10-16, 2023-11-13, 2024-01-12, 2024-02-12, 2024-04-15, 2024-07-15, 2024-09-16, 2024-10-14, 2024-12-16, 2025-02-14, 2025-07-14, 2025-09-15, 2025-11-17, 2025-12-15, 2026-02-13, 2026-03-16, 2026-04-13, 2026-06-15
+
+5. cost: 1 leg(s) x ~10.0 bps round trip = 10.0 bps. episode mean -0.485% = -48.5 bps -> -4.9x cost (need >=5x)
+
+=== 6. cpi-in-hold split (episodes) ===
+              label  n  mean_pct  median_pct     hit      t  worst_pct  best_pct  sd_pct
+cpi IN window (N=2)  2     3.544       3.544 100.000  4.872      2.817     4.272   1.029
+     cpi OUT (N=57) 57    -0.626       0.360  50.877 -1.072    -17.094     8.411   4.413
+
+##### 2. long SVXY at SHARED anchor h=8 (post-break)  (h=8 td, entry lag=1) #####
+legs=[('SVXY', 1.0)]  trigger span 2018-04-16 .. 2026-06-15
+
+=== 1. conditional vs controls ===
+                           label    n  mean_pct  median_pct    hit      t  worst_pct  best_pct  sd_pct
+           COND day-level (N=59)   59    -0.304       1.068 50.847 -0.416    -24.382     8.110   5.612
+            COND episodes (N=59)   59    -0.304       1.068 50.847 -0.416    -24.382     8.110   5.612
+     CTRL-a own drift, same span 2051     0.521       1.314 62.506  3.803    -43.776    36.563   6.210
+   CTRL-b all days, full history 2114     0.523       1.314 62.488  3.895    -43.776    36.563   6.176
+CTRL-c local +/-126td ex-trigger 2055     0.547       1.314 62.822  4.005    -43.776    36.563   6.191
+  COND day-level, lag=0 (no-lag)   59    -0.405       0.509 54.237 -0.545    -23.438    11.052   5.714
+  episode-vs-control diff = -0.825%  welch t = -1.11   bootstrap P(mean<=0) = 0.653   record 30-29, sign p = 0.5000
+  concentration: top2 episodes ['2020-02-14', '2018-10-15'] = -35.45pp of -17.94pp total (198%); best yrs {2025: 15.2, 2021: 11.9}
+
+=== 2+3. episode era split (pre-2018 / 2018+) ===
+   label  n  mean_pct  median_pct    hit      t  worst_pct  best_pct  sd_pct
+pre-2018  0       NaN         NaN    NaN    NaN        NaN       NaN     NaN
+   2018+ 59    -0.304       1.068 50.847 -0.416    -24.382      8.11   5.612
+
+===   day-level era split (for contrast) ===
+   label  n  mean_pct  median_pct    hit      t  worst_pct  best_pct  sd_pct
+pre-2018  0       NaN         NaN    NaN    NaN        NaN       NaN     NaN
+   2018+ 59    -0.304       1.068 50.847 -0.416    -24.382      8.11   5.612
+  worst episode window: -24.38%  on 2020-02-14   |  worst day-level: -24.38%
+  episode dates: 2018-04-16, 2018-05-14, 2018-07-16, 2018-09-17, 2018-10-15, 2018-12-17, 2019-01-14, 2019-02-11, 2019-06-17, 2019-07-15, 2019-09-16, 2019-10-14, 2019-12-16, 2020-02-14, 2020-03-16, 2020-04-13, 2020-06-15, 2020-08-17, 2020-09-14, 2020-11-16, 2020-12-14, 2021-02-12, 2021-03-15, 2021-05-17, 2021-06-14, 2021-08-16, 2021-09-13, 2021-11-15, 2022-01-14, 2022-02-14, 2022-05-16, 2022-06-13, 2022-08-15, 2022-10-17, 2022-11-14, 2023-01-13, 2023-02-13, 2023-04-17, 2023-05-15, 2023-07-17, 2023-08-14, 2023-10-16, 2023-11-13, 2024-01-12, 2024-02-12, 2024-04-15, 2024-07-15, 2024-09-16, 2024-10-14, 2024-12-16, 2025-02-14, 2025-07-14, 2025-09-15, 2025-11-17, 2025-12-15, 2026-02-13, 2026-03-16, 2026-04-13, 2026-06-15
+
+5. cost: 1 leg(s) x ~10.0 bps round trip = 10.0 bps. episode mean -0.304% = -30.4 bps -> -3.0x cost (need >=5x)
+
+=== 6. cpi-in-hold split (episodes) ===
+              label  n  mean_pct  median_pct     hit      t  worst_pct  best_pct  sd_pct
+cpi IN window (N=2)  2     4.133       4.133 100.000  4.159      3.139     5.126   1.405
+     cpi OUT (N=57) 57    -0.460      -0.422  49.123 -0.615    -24.382     8.110   5.645
+
+==============================================================================
+3. BOOK OVERLAP -- V4_POSTOPEX_VOL is the SAME TRADE, one week later
+==============================================================================
+  V4 spec (event_sleeve.EVENT_SLEEVE): long SVXY, nav_frac 0.10,
+  entry MOC on opex, exit MOC opex+3 td, every month except September.
+  C8's opex-4 long-SVXY cell enters MOC on the Tuesday of opex week and
+  at h>=4 is still holding on opex Friday, i.e. it ENTERS V4's position
+  early and doubles it.
+  h=3: 92% of opex-4 anchors hold into a V4 window, mean 0.92 of 3 sessions shared
+  h=5: 92% of opex-4 anchors hold into a V4 window, mean 2.76 of 5 sessions shared
+  h=8: 92% of opex-4 anchors hold into a V4 window, mean 3.67 of 8 sessions shared
+
+==============================================================================
+4. MULTIPLICITY CHARGE (the brief: C8 came out of a grid, so charge it)
+==============================================================================
+  02_event_surface.py scanned ~234 (ticker x anchor x horizon) cells.
+  At alpha=0.05 that expects ~12 nominally significant
+  cells under a pure null. The SVXY opex-4 h=5 cell was READ OUT of that
+  grid, so it needs to clear a family-wise bar, not a nominal one.

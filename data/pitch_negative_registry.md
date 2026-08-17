@@ -690,3 +690,267 @@ be live on 2026-08-12. (a2_c1_gate_attribution.py)
   The book confines that family to leveraged names by design, and this is the
   measurement showing the confinement is load-bearing rather than incidental.
   (c6_ihi_thrust.py)
+
+## Method traps (2026-08-14, from an 11-candidate sweep that killed all 11)
+
+- **A LEVEL percentile is still a rank trap when the window is a trailing year
+  and the series has secular drift.** The 2026-08-10 entry said quote the LEVEL,
+  not the return rank. This morning did exactly that and got trapped one layer
+  down: ^SKEW at 134.37 is the **2.0th percentile of its trailing 252 days** and
+  the **77.1st percentile of full history**, because SKEW's median has drifted
+  from 114.04 (2000-04) to 143.11 (2026). Every historical trigger day sat at
+  109.7-119.5. The premise "crash protection is being dumped" was false in
+  absolute terms the whole time: tail insurance was priced ABOVE its 2018+
+  median. On any series with a secular level drift, quote the level against full
+  history AND the modern era, never against a trailing year alone.
+  (a1_c1_skew_bottom_pole.py, a1b_c1_kill_confirm.py)
+- **The alphabetical-selection placebo, a cheap and brutal test of any "pick the
+  k names that did X" rule.** The insurance short's 14-name basket paid +1.055%
+  at h=10 on 9-3, but the tradeable four-name forms gave **+0.905% for the four
+  most washed against +1.568% for the four ALPHABETICALLY first**. A selection
+  rule that ignores the signal entirely beat the one that uses it, so nothing
+  could be attributed to which names broke. Run this whenever a basket idea has
+  to be cut down to the grammar's 4-leg cap; it also catches the case where a
+  research basket works and no tradeable subset does, which is a kill on
+  tradeability. (b2c_short_reference_class.py)
+- **An "intact trend" gate on a breadth washout is an INVERTER, not a filter.**
+  Insurance breadth alone: **+0.917%** at h=5 over 233 episodes (t 2.589). Add
+  the intact-63d-uptrend gate: **-0.789%** on 5-8. The split inside the parent is
+  +0.885% not-intact against -0.789% intact, so the pitched interaction was
+  precisely the losing half of a cell that only works without it. Gate
+  attribution catches this in one run and it is the first thing to try on any
+  "washout inside an uptrend" construction. (b2b_insurance_round2.py)
+- **An instrument that changed leverage mid-sample is two instruments.** SVXY
+  went -1x to -0.5x on **2018-02-28**: pre-break daily sd 4.60%, VIX beta -0.477,
+  worst day **-88.41%**; post-break 2.41%, -0.256, -21.43%. Five of six episodes
+  in the candidate cell sat on the security that no longer exists. Check the
+  vehicle's own regime history before pooling a sample across it, the same way
+  an era split is checked. (a2_c1b_svxy_translation.py)
+- **A nearest-neighbour analogue whose answer moves with K is a construction,
+  not a finding.** h=5 ran -0.224%, 0.000%, +0.150%, -0.227% across
+  K=20/40/80/150 and h=3 flipped from -0.387% (K=20) to +0.224% (K=80). Dropping
+  one feature from the distance metric changed 95% of the neighbour set. Scan K
+  and the feature set BEFORE reading any forward number, and charge the cell for
+  the grid: 24 cells scanned, exactly one clearing against 1.2 expected by
+  chance. (a3_c7_nearest_neighbour.py)
+- **An earnings anchor owes the same placebo ladder as a macro anchor, and the
+  first one tested failed it.** The pre-print washout's true anchor ranked **3rd
+  of 15** offsets (shift -13 at +0.396% and shift -4 at +0.381% both beat the
+  real +0.331%), the whole ladder sitting in a +0.121% to +0.396% band, so true
+  minus placebo mean was +0.084pp. Stripping the print left the same washout gate
+  earning +0.200% on the same names. The earnings lane is not exempt from the
+  ladder just because the event is company-specific. The ladder is now 7-for-7.
+  (c3e_liquid_ladder.py, c3c_preprint_round2.py)
+
+## Cells swept and empty (2026-08-14)
+
+- **A cell that beats every control except the local one, and is LIVE today, so
+  it will be re-found.** Long SPY with VIX's LEVEL in its bottom decile while SPY
+  is within 0.5% of its 52w high, h=10: 88 episodes, **+0.637%, t 4.09, 67-21,
+  sign p 0.0000**, era-stable (2018-2025 +0.939% at t 3.19), 31.9x cost. It dies
+  on CTRL-c: the local +/-126td neighbourhood ex-trigger pays **+0.634%**, an
+  edge of **+0.003pp**. It is 100% "these days live in a good regime", which is
+  exactly what CTRL-c exists to catch, and it is the single best illustration in
+  the registry of why the local control is not optional. Midterm h=5 is +0.027%
+  (13 episodes) against non-midterm +0.181%. (a4_gateoff_byproduct.py)
+- **The bottom pole of the skew distribution, in both directions.** Long SPY: the
+  skew leg ALONE pays +0.217% (79 episodes) against a +0.382% unconditional, i.e.
+  worse than doing nothing, and adding it to a VIX-plus-near-high cell discards 83
+  of 88 episodes to add +0.31pp. Strict/core definitions flip sign (-0.876% on
+  0-for-3 against +0.230%), and there are **zero episodes 2018-2025** at every
+  definition. Long SVXY: gated h=5 is **-1.328%** against +0.208% gate-off, the
+  sign flips by horizon (-0.130% / -1.328% / +3.990% at h=3/5/10), and h=10's top
+  two episodes are 103% of the total. The skew SPIKE cell stays parked on the
+  watchlist; the bottom pole is now dead in both vehicles.
+  (a1_c1_skew_bottom_pole.py, a2_c1b_svxy_translation.py)
+- **The insurance industry, in four expressions.** Long the basket (-0.789%,
+  5-8, and the gate inverts, above), the basket against XLF (both legs lose:
+  basket -0.789%, XLF -1.072%, so the +0.282% spread is a difference of two
+  losses on 3-10 with top-2 episodes at 203% of total, and 1.1x cost), the single
+  strongest name (h=5 -1.128% on 3-10, bootstrap P(mean<=0) 0.993), and the short
+  (alphabetical placebo, above). The reference class closes it: the identical
+  short on **10 industry groups** gives Cochran Q 6.49 on 9 df (p 0.690,
+  I-squared 0.0%), a common excess of +0.819pp, and insurance ranking **2 of 10**.
+  Any industry washing out inside an intact 63d trend does roughly the same
+  thing; the insurance label carries nothing. (b2_insurance_breadth.py,
+  b2b_insurance_round2.py, b2c_short_reference_class.py)
+- **Producers against the barrel on a 63-day divergence, all three readings.**
+  Every threshold at or below 17pp is negative (15pp: -0.289% on 12-12) and the
+  sign flips at 18pp, against a live +18.69pp spread, so the cell was 0.7pp of
+  luck away from being dead by inspection. The cells that pay have NEGATIVE
+  medians (19pp: +2.37% mean, -0.26% median, **79% of the total in two April-2020
+  episodes**). Era reverses (pre-2018 +1.363% on 11-4 against 2018+ -3.043% on
+  1-8) and trigger days sit below SPY's 200d on **41.7% against a 20.3% base
+  rate**, the same bear-tape over-selection that killed the FXI pair. Two
+  by-products worth keeping: **USO's roll decay is NOT shortable at pitch
+  horizons** (unconditional h=5 mean -0.003% with a POSITIVE median of +0.251%,
+  so the -76.7% lifetime total return is variance drag rather than a harvestable
+  drift, and a 5-day short starts 10 bps down), and a 63d relative-performance
+  spread is a bear-tape selector by construction.
+  (b5_xle_uso_divergence.py, b5b_xle_uso_round2.py)
+- **The pre-print washout, i.e. the whole "buy the name that sold off into its
+  own print" lane on liquid names.** Anchor ladder above; additionally the print
+  premium is 15.3 bps = **1.5x** a 10 bps single-name round trip, and the two
+  names the idea was about are negative in their own cell (TJX -0.543% over 13
+  qualifying events, ROST -0.425%). The retail x August cell (N=38, +1.613%, sign
+  p 0.0168) is a **$5-15 penny-bucket artifact** on a survivorship-biased panel
+  (that bucket +0.729% against $40-100 at +0.207%) and does not replicate on
+  liquid names (+0.167%, t 0.37); it is also priced out at ~70 searched cells.
+  What survives is the null: a generic 5-day-washout reversal on liquid names
+  (k=5/h=3, +0.534%, t 4.17, 2018+ +0.709%), which is the book's own dip-buy
+  family and must not be re-dressed as a pitch.
+  (c3_preprint_washout.py, c3c_preprint_round2.py, c3d_liquid_depth.py)
+- **SMH into the NVDA print.** The mechanism is falsified inside its own window:
+  by print MONTH, the August print that is live pays **-0.322%** against SMH's
+  unconditional h=7 of +0.424% (edge -0.746pp), and 2020+ August prints are
+  -1.339%. The laggard gate does not filter (rank63 <25 gives +1.125%, BELOW both
+  gate-off +1.353% and the middle bucket +1.566%, on 12-12), and the anchor
+  ladder is a plateau with the true anchor 6th of 13. The headline all-prints
+  +1.353% is carried by November (+2.959%) and pre-2013 (+2.250% against
+  2013-2019 +0.273%). (c4_nvda_print_runup.py, c4b_august_print.py)
+- **The pre-opex WEEK entered on the Friday before**, which is the definition the
+  2026-08-07 "run into August opex" kill did NOT measure. Also dead, and worse
+  than doing nothing: +0.119% (N=319) against SPY's +0.192% all-days and +0.185%
+  all-Fridays, hit rate 56.7% against 58.1%, anchor **14th of 21** offsets,
+  2018+ -0.033%, top-2 episodes -25.82pp of a +37.98pp total, August subset
+  +0.062% over 26 years. The opex window is now examined from the NFP close over
+  10 td, from the Friday before over 5 td, and as VIX-expiry week, and is empty
+  in all three. (c6_preopex_week.py, c6b_aug_midterm.py)
+- **Bond vol compressed into a macro-quiet window, long duration.** Killed on the
+  premise, which is the 2026-08-10 MOVE trap firing a second time: ^MOVE's LEVEL
+  is at the **33.1st percentile** and 24.1% ABOVE its 52w low, only the 5d return
+  rank (15.5) is low, and the two states overlap on 32.5% of days. As stated
+  (level pctile <=10) the cell returns -0.100% over 200 episodes. The macro
+  vacuum leg again does not filter (+0.074% vacuum against +0.094% print-inside),
+  and TLT unconditional pays +0.455% at these trading days of month and +0.430%
+  in August, so being long TLT on any mid-month August day beats the cell.
+  (c8_bondvol_vacuum.py)
+
+## Cells swept and empty (2026-08-17)
+
+- **The bare August TLT month-position seasonal, i.e. the effect that killed the
+  Jackson Hole anchor, tested as the trade itself.** It is real on the full
+  sample and it is a BOND-BULL FOSSIL. At matched tdom 4-12, h=10 lag-1: all
+  history +0.990% at 17 of 24 years (sign p 0.0320), ranking 2 of 12 months.
+  By era: 2002-2012 **+1.989% at 10 of 11 years**, 2013-2017 +0.398%, 2018-2020
+  +0.723%, **2021-2025 -0.455% at 2 of 5**, and 2018-2025 **-0.013% at 4 of 8**.
+  The regime split names the mechanism and falsifies it live: the window pays
+  +1.409% when yields are falling against +0.496% when rising, while
+  unconditional TLT is regime-FLAT (+0.167 / +0.160) — so the seasonal is a
+  proxy for the secular bull, not a calendar effect. August is also the only one
+  of the three good duration months dead post-2018 (Nov +2.093%, Jun +1.208%).
+  The IEF-neutral residual at beta 1.914 is +0.254% full but +0.024% for 2018+,
+  so the TLT-specific component died with it. Do not re-open on a fresh event
+  label; the anchor was already shown to be decoration (2026-08-13) and this
+  closes the underlying cell. (a1_c1_tlt_lateaug.py, a1b, a1c,
+  r1_verify_august_and_november.py)
+- **NOVEMBER is the same cell alive**, kept as a watchlist park rather than a
+  kill: +1.590% over 24 years at 20-4 (sign p 0.00077), rank 1 of 12,
+  **2018-2025 +2.093% at 8 for 8** and 2021-2025 +2.325% at 5 for 5, Bonferroni
+  0.0093 after charging the full 12-month scan, IEF-neutral residual +0.358% for
+  2018+. Recorded here because the August kill above is only interpretable
+  beside it: the month-of-year table is the control, and it says the duration
+  seasonal migrated rather than vanished. (r1_verify_august_and_november.py)
+- **The IG-complex 52w-low rung as a gate on the August window.** A filter that
+  does not filter and then subtracts: the tight three-way rung crossed with the
+  August window leaves **2 qualifying days of 241**. Loosened to TLT alone within
+  1% of its 52w low there IS precedent, unlike the JH sample, and the gate moves
+  the parent the WRONG way, -0.233pp at h=10 (6 days, 2 years) and -0.744pp at
+  h=5. Also raises the bar on watchlist entry W6: its own freshness leg fails at
+  depth 5, and pooled depth>1 entries pay **-0.629% at a 37.3% hit over N=59**.
+  (a2_c1b_ig_rung_depth.py)
+- **SPY at a 52w high while TLT sits at a 52w low, both directions.** The short
+  side at h=5 is 9-2 (sign p 0.0327) and is the only pulse in the cross-asset
+  conditioner lane, but top-2 episodes (2018-10-03, 2021-02-24) are **96% of the
+  +7.75pp total**, the sign INVERTS one horizon earlier at h=3 (-0.242% on 3-7),
+  the threshold grid decays monotonically as the TLT rung loosens (+1.157 /
+  +0.775 / +0.345 / +0.031), and de-concentrated it is +3.9 bps against a 3 bp
+  round trip. The two legs are near-independent (corr 0.176), so this is a
+  coincidence cell rather than a confirmed state. Yields-up as a conditioner on
+  SPY-near-high separately does nothing: TNX 21d rank >= 70 moves the parent
+  -0.059pp at h=5 and the threshold ladder is a flat plateau.
+  (a4_c12_yields_up_spy_high.py, a4b, a4c)
+- **A 5-day complex-wide energy thrust into a 52w high, long.** The RANK form's
+  +0.715% is an intersection artifact — thrust alone is -0.313% (85 episodes),
+  near-high without thrust -0.298% — clearing its local control by only
+  +0.234pp, and tightening to rank >= 99 (today printed 100.0) flips it to
+  -0.094%. The honest MAGNITUDE form is negative at **every horizon 1-10**
+  (today is +3.49 ATR; the >= 2.5 ATR cell pays -0.064% at h=5 over 25
+  episodes). Two structural notes worth more than the kill: today's joint state
+  has **no precedent** (0 of 11 thrust episodes ever carried an XLE-USO 63d
+  divergence >= 18pp against today's +18.85pp), and **the "inversion" framing was
+  false** — STRATEGY_BOOK carries two LONG 52w-high breakout strategies with XLE
+  in universe (52wh Breakout, Sector BO), so long XLE at a 52w high is a book
+  construction at a different horizon, not the opposite of the book's reflex.
+  Check which side the book is actually on before claiming an inversion.
+  (p2_c5_energy_thrust_high.py, p2b_c5_round2_state_and_book.py)
+- **SMH against QQQ on a 63d-rank extreme, and the "today is not in the sample"
+  test that killed it.** The spread is beta for the third time: both legs
+  positive at h=5 (SMH +1.493%, QQQ +1.694%), equal-dollar -0.202%,
+  beta-neutral residual **-0.519%** at the measured 1.19, negative in 23 of 24
+  cells of the cut grid, and tightening to today's 1.6 rank DEEPENS it to
+  -1.584%. The reusable method: historical trigger days averaged SMH **-4.3%
+  against its 200d while today sits +27.3% above it**, and only 7 of 117 trigger
+  days ever sat above +15%, all seven inside the live cluster. Check whether the
+  live state is inside the historical support before reading any conditional
+  mean. (p1_c4_smh_qqq_rank63.py)
+- **EWZ against EEM, closing the country-decoupling family for the third
+  country.** Wrong-signed at today's own depth (z10 <= -1.68): outright -1.787%,
+  beta-neutral residual **-0.806%** at beta 1.13 over 21 episodes, and the depth
+  grid is monotone the WRONG way (-0.825% at -1.25 through -3.001% at -2.0). The
+  gate costs rather than filters (+0.085% ungated against -0.804% gated). The
+  premise was also false on inspection: **EEM's own 63d rank is 2.8, LOWER than
+  EWZ's 12.7**, so "one market sold while the complex is firm" was a 5-day
+  statement dressed as a regime. Verify both legs' state, not just the one the
+  story is about. (p3_c6_ewz_eem_family.py)
+- **The VIX/VIX3M ratio at its 1st percentile, re-confirmed as a lagging
+  marker.** The placebo offset ladder reproduces the 2026-08-13 finding almost
+  exactly: offset -10 pays **+5.433% at an 85% hit** and -8 pays +4.407% at 95%
+  against the true anchor's +1.672% at 75%, true anchor **12 of 16**. The fade
+  direction is decisively wrong-signed (long UVXY -2.792% on 8-20, sign p
+  0.9937). Today's SVXY trailing-21d is +4.59% against the +9.16% trigger median
+  — a milder marker, not a different state, so the cell is the same one.
+  (v1_c3_termstructure.py, v1b, v1c, v1d)
+- **The VIX-expiry and opex anchors are ONE anchor, not two.** They share 189 of
+  307 days; opex minus vix_expiry is +2 td in 196 months but **-3 td in 96**,
+  where "vix_expiry-2" is actually the session AFTER opex, and the exclusive days
+  carry the entire apparent disagreement (^VIX h5 excess +1.578pp vs -4.141pp).
+  Any grid crossing both is double-counting one calendar fact. The vehicle leg
+  separately inverts once the 2018-02-28 SVXY break is respected (the grid had
+  pooled 77 of 178 observations on the -1x instrument): post-break long SVXY is
+  negative against its local control at every anchor and horizon, worst -0.740%
+  on 24-34. And 92% of opex-4 anchors hold into a live V4_POSTOPEX_VOL window.
+  (v2_c8_expiry_pair.py)
+- **IWM at a 52w high into opex week.** The opex gate is an INVERTER: the state
+  with opex pays -0.250% at h=10 against +0.373% for the same state without it.
+  The IWM/SPY pair at h=4 has top-2 episodes at **103% of total**, a LOYO floor
+  of +0.004% and a window placebo ranking 4 of 15. Two method notes: today's
+  signal bar sat at **opex-5, not opex-4** (the live cell pays +0.049% at 0.61x
+  cost), so check where the SIGNAL bar sits rather than where today sits; and
+  `searchsorted` on an event date past the end of the price index silently mints
+  a fake anchor, which is the 2026-08-11 trap firing in reverse. The
+  flow_mechanics half is **unfalsifiable in this repo** — option_surface_history
+  holds 1 row and option_positioning_history 90, all dated 2026-08-05.
+  (v3_c9_iwm_high_opex.py, v3b, v3c)
+- **XRT washed out into the big-box cluster, and the intact-trend inverter
+  replicating outside insurance.** XRT's 5d washout alone pays +0.290% at h=5;
+  adding the intact-63d gate — **the state live today** (5d rank 18.7, 63d rank
+  85.7) — takes it to **-0.443%**, while the broken-trend half pays +0.483%.
+  Same sign at h=3 and h=10. The anchor placebo ladder is now **8 for 8**: across
+  90 big-box clusters since 2006 the true anchor ranks **17 of 19** offsets, true
+  minus placebo -0.333pp. The tradeable 3-name basket clears the alphabetical
+  placebo (+0.118pp) but pays 0.7-1.3x its 15 bp round trip and is negative
+  inside the live state. (e1_c7_xrt_retail_cluster.py, e1b)
+- **GDX's maximal 21d thrust, closed by the reference class.** The identical rule
+  on 15 names gives a cross-name excess of +0.025pp with observed sd 0.665pp
+  against a sampling SE of 0.686pp — **dispersion ratio 0.97**, so the entire
+  spread is noise; GDX ranks 2 of 15 and permutation gives **P(max >= GDX's
+  +1.171pp) = 0.582**, a below-median draw from the null. The parent's edge lives
+  only in the [20,26)% band and today's +26.01% sits in the losing half (h=5
+  -0.858% on 2-8); magnitude-only h=10 runs +0.535% / **-2.224%** / +1.982% at
+  the >=20 / >=26 / >=30 cuts, the same threshold instability that killed the
+  silver version. The drawdown conditioner inverts exactly as on SLV (worth
+  -2.5pp at h=5 against the near-high cell), and the h=10 headline is **97% two
+  episodes**, leaving +0.039%. Rank-trap check PASSED for once (+26.01% is the
+  98.2nd pctile of full-history 21d moves), so the kill is real rather than
+  definitional. (e2_c10_gdx_thrust.py, e2b, e2c, e2d)

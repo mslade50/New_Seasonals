@@ -1,0 +1,116 @@
+{
+ "generated": "2026-08-17 05:36:14",
+ "asof": "2026-08-17",
+ "rolling_60d": {
+  "n": 4,
+  "graded": 3,
+  "fill_rate": 75.0,
+  "avg_r": 0.361,
+  "median_r": 0.146,
+  "hit_rate": 100.0,
+  "total_pnl": 1443.1,
+  "by_grade": {
+   "B": {
+    "n": 3,
+    "graded": 2,
+    "fill_rate": 66.7,
+    "avg_r": 0.468,
+    "median_r": 0.468,
+    "hit_rate": 100.0,
+    "total_pnl": 1163.1
+   },
+   "C": {
+    "n": 1,
+    "graded": 1,
+    "fill_rate": 100.0,
+    "avg_r": 0.146,
+    "median_r": 0.146,
+    "hit_rate": 100.0,
+    "total_pnl": 280.0
+   }
+  },
+  "by_axis": {
+   "event_fingerprint": {
+    "n": 2,
+    "graded": 1,
+    "fill_rate": 50.0,
+    "avg_r": 0.837,
+    "median_r": 0.837,
+    "hit_rate": 100.0,
+    "total_pnl": 941.27
+   },
+   "interaction_cell": {
+    "n": 1,
+    "graded": 1,
+    "fill_rate": 100.0,
+    "avg_r": 0.146,
+    "median_r": 0.146,
+    "hit_rate": 100.0,
+    "total_pnl": 280.0
+   },
+   "relative_value": {
+    "n": 1,
+    "graded": 1,
+    "fill_rate": 100.0,
+    "avg_r": 0.099,
+    "median_r": 0.099,
+    "hit_rate": 100.0,
+    "total_pnl": 221.83
+   }
+  },
+  "by_model": {
+   "opus": {
+    "n": 4,
+    "graded": 3,
+    "fill_rate": 75.0,
+    "avg_r": 0.361,
+    "median_r": 0.146,
+    "hit_rate": 100.0,
+    "total_pnl": 1443.1
+   }
+  },
+  "approved_vs_declined": null,
+  "window_td": 60,
+  "since": "2026-05-20"
+ },
+ "lifetime": {
+  "n": 4,
+  "graded": 3,
+  "fill_rate": 75.0,
+  "avg_r": 0.361,
+  "median_r": 0.146,
+  "hit_rate": 100.0,
+  "total_pnl": 1443.1,
+  "by_grade": {
+   "B": {
+    "n": 3,
+    "graded": 2,
+    "fill_rate": 66.7,
+    "avg_r": 0.468,
+    "median_r": 0.468,
+    "hit_rate": 100.0,
+    "total_pnl": 1163.1
+   },
+   "C": {
+    "n": 1,
+    "graded": 1,
+    "fill_rate": 100.0,
+    "avg_r": 0.146,
+    "median_r": 0.146,
+    "hit_rate": 100.0,
+    "total_pnl": 280.0
+   }
+  },
+  "by_model": {
+   "opus": {
+    "n": 4,
+    "graded": 3,
+    "fill_rate": 75.0,
+    "avg_r": 0.361,
+    "median_r": 0.146,
+    "hit_rate": 100.0,
+    "total_pnl": 1443.1
+   }
+  }
+ }
+}
