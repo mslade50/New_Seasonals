@@ -3,18 +3,18 @@
   "price_ctx": {
     "price": 776.3400268554688,
     "ret_12m": 0.21705884379192164,
-    "extension_200d": 0.1047123869353539,
+    "extension_200d": 0.10471238453670595,
     "drawdown": -0.0019797115463531245,
-    "sma_200": 702.7530749511719,
+    "sma_200": 702.7530764770507,
     "high_52w": 777.8800048828125,
     "regime_label": "Extended uptrend, stretched above trend",
     "days_since_5pct": 92,
     "days_since_10pct": 328
   },
   "h_scores": {
-    "5d": 19.564444444444444,
-    "21d": 68.86313244676838,
-    "63d": 94.07236873714618
+    "5d": 19.56444444444444,
+    "21d": 67.3193209278743,
+    "63d": 93.56482912742953
   },
   "signals": {
     "Distribution Dominance": {
@@ -30,7 +30,7 @@
     "Defensive Leadership": {
       "on": false,
       "detail": "",
-      "summary": "50d spread: -2pp (fires < -10) | 200d spread: +3pp (fires < 0)"
+      "summary": "50d spread: -1pp (fires < -10) | 200d spread: +3pp (fires < 0)"
     },
     "Pre-FOMC Rally": {
       "on": false,
@@ -39,8 +39,8 @@
     },
     "Low Absorption Ratio": {
       "on": true,
-      "detail": "Absorption Ratio at 0.321 (3th percentile) \u2014 below 10th threshold. Sectors moving independently while SPY near 52w high \u2014 vol suppression through diversification. Historically precedes below-average forward returns.",
-      "summary": "AR: 0.321 (3th pctile, fires below 10th) \u2014 near high: yes"
+      "detail": "Absorption Ratio at 0.311 (2th percentile) \u2014 below 10th threshold. Sectors moving independently while SPY near 52w high \u2014 vol suppression through diversification. Historically precedes below-average forward returns.",
+      "summary": "AR: 0.311 (2th pctile, fires below 10th) \u2014 near high: yes"
     },
     "Seasonal Rank Divergence": {
       "on": false,
