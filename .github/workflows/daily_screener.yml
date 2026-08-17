@@ -18,6 +18,7 @@ concurrency:
   cancel-in-progress: false
 
 permissions:
+  actions: read
   contents: write
 
 on:
@@ -30,8 +31,8 @@ on:
     # AM fallback: 10:30 UTC (6:30 AM EDT / 5:30 AM EST). Only runs if the
     # local workflow_dispatch at 4:47 AM ET didn't fire today (machine off,
     # network outage, etc.). The `check` job below queries this workflow's
-    # recent runs and skips if a successful workflow_dispatch already
-    # happened today UTC.
+    # recent runs and skips if a workflow_dispatch's scanner job already
+    # succeeded today UTC, even when a later deploy job failed.
     - cron: '30 10 * * 1-5'
 
   # Pre-market full scan (4:47 AM ET weekdays) is fired via workflow_dispatch
@@ -60,18 +61,30 @@ jobs:
             # UTC day let an evening manual dispatch (after 00:00 UTC = 8 PM EDT /
             # 7 PM EST the prior night) suppress this fallback, so no pre-market
             # scan ran and order_staging read the stale prior-evening tabs.
-            COUNT=$(gh run list \
+            # Check the scanner job itself rather than the overall run. The scan
+            # can succeed while a downstream site deploy fails; treating that as
+            # a missed scan causes the fallback to stage and email everything twice.
+            DISPATCH_RUN_IDS=$(gh run list \
               --workflow=daily_screener.yml \
-              --status=success \
               --event=workflow_dispatch \
               --created="${TODAY}T07:00Z..${TODAY}T10:30Z" \
               --repo "${{ github.repository }}" \
-              --json databaseId --jq 'length')
-            if [ "$COUNT" -gt 0 ]; then
-              echo "::notice::Local AM dispatch already succeeded today ($COUNT run). Skipping fallback."
+              --limit=20 \
+              --json databaseId --jq '.[].databaseId')
+            SUCCESSFUL_SCANNER_RUNS=0
+            for RUN_ID in $DISPATCH_RUN_IDS; do
+              SCANNER_OK=$(gh api \
+                "repos/${{ github.repository }}/actions/runs/${RUN_ID}/jobs?per_page=100" \
+                --jq '[.jobs[] | select(.name == "run-scanner" and .conclusion == "success")] | length')
+              if [ "$SCANNER_OK" -gt 0 ]; then
+                SUCCESSFUL_SCANNER_RUNS=$((SUCCESSFUL_SCANNER_RUNS + 1))
+              fi
+            done
+            if [ "$SUCCESSFUL_SCANNER_RUNS" -gt 0 ]; then
+              echo "::notice::Local AM scanner already succeeded today ($SUCCESSFUL_SCANNER_RUNS run). Skipping fallback."
               SHOULD_RUN=false
             else
-              echo "::notice::No successful AM dispatch found. Running fallback."
+              echo "::notice::No successful AM scanner job found. Running fallback."
             fi
           fi
           echo "should_run=$SHOULD_RUN" >> "$GITHUB_OUTPUT"
