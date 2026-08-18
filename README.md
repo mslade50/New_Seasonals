@@ -65,6 +65,7 @@ The system is designed as a unidirectional pipeline moving from **Research** $\t
 ## 🛠️ Developer Notes (Maintenance)
 * **Google Sheets Connection:** The `daily_scan.py` script requires valid `gspread` credentials. If orders fail to appear, check the JSON key expiration.
 * **Streamlit Structure:** This is a multi-page app. The `pages/` directory must remain flat. Do not create sub-folders inside `pages/` as it breaks the sidebar navigation.
+* **Workspace Hygiene:** Use one Git worktree per task, put disposable output in `artifacts/`, and run the baseline checker described in [Workspace Hygiene](docs/workspace_hygiene.md).
 * **Documentation:** Detailed logic for complex modules can be found in the `docs/` directory:
     * [Backtester Logic](docs/backtesting_logic.md)
     * [Scanner & Config Logic](docs/screener_criteria.md)

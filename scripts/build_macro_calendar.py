@@ -15,7 +15,7 @@ Event types produced:
 - quad_witching      Mar/Jun/Sep/Dec opex
 - election           US general election days (even years)
 
-Sources are cached raw pages in scratch/macro_calendar_raw/ (see
+Sources are cached raw pages in artifacts/macro_calendar_raw/ (see
 scripts/fetch_macro_calendar_raw.py). Federal Reserve pages are fetched
 directly; BLS pages come via the Wayback Machine (bls.gov blocks bots).
 
@@ -35,7 +35,8 @@ import pandas as pd
 from dateutil.easter import easter
 
 ROOT = Path(__file__).resolve().parent.parent
-CACHE = ROOT / "scratch" / "macro_calendar_raw"
+CACHE = ROOT / "artifacts" / "macro_calendar_raw"
+LEGACY_CACHE = ROOT / "scratch" / "macro_calendar_raw"
 OUT = ROOT / "data" / "macro_events.csv"
 
 MONTHS = {m: i + 1 for i, m in enumerate(
@@ -53,7 +54,12 @@ BLS_RELEASES = {
 
 
 def _read(name: str) -> str:
-    return (CACHE / name).read_text(encoding="utf-8", errors="ignore")
+    path = CACHE / name
+    if not path.exists():
+        # Preserve rebuild compatibility with caches created before the
+        # workspace-hygiene migration. New downloads always use artifacts/.
+        path = LEGACY_CACHE / name
+    return path.read_text(encoding="utf-8", errors="ignore")
 
 
 # ---------------------------------------------------------------------------

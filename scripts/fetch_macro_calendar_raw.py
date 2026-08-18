@@ -6,7 +6,7 @@ Sources:
 - bls.gov: /schedule/{year}/home.htm per-year release schedules, fetched
   through the Wayback Machine because bls.gov 403s non-browser clients.
 
-Everything lands in scratch/macro_calendar_raw/ and is never refetched if
+Everything lands in artifacts/macro_calendar_raw/ and is never refetched if
 the file already exists (delete a file to force a refresh).
 """
 from __future__ import annotations
@@ -18,7 +18,7 @@ from pathlib import Path
 import requests
 
 ROOT = Path(__file__).resolve().parent.parent
-CACHE = ROOT / "scratch" / "macro_calendar_raw"
+CACHE = ROOT / "artifacts" / "macro_calendar_raw"
 
 UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
       "(KHTML, like Gecko) Chrome/126.0 Safari/537.36")

@@ -59,3 +59,5 @@ inside `build_deck_html.py` — the same numbers as `strategy_config.py`'s
 - Figures are rendered from the HTML so the two formats stay visually identical.
 - `figs/` (html + png) are build intermediates kept so the PPTX can be rebuilt
   without re-screenshotting.
+- Generated specs, figures, HTML, PDF, and PowerPoint files are intentionally
+  ignored by Git; only the builders and documentation are versioned.
