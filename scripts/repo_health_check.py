@@ -31,6 +31,8 @@ import argparse
 import datetime as dt
 import hashlib
 import json
+import os
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -74,12 +76,42 @@ def prev_weekday(d: dt.date) -> dt.date:
 
 
 # ---------------------------------------------------------------- 1. GHA
+def _github_repository() -> str | None:
+    """Return OWNER/REPO without relying on gh's implicit git discovery."""
+    from_env = os.environ.get("GITHUB_REPOSITORY", "").strip()
+    if from_env:
+        return from_env
+    try:
+        out = subprocess.run(
+            [
+                "git",
+                "-c",
+                f"safe.directory={ROOT.as_posix()}",
+                "remote",
+                "get-url",
+                "origin",
+            ],
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        return None
+    match = re.search(r"github\.com[/:]([^/]+)/([^/]+?)(?:\.git)?$", out.stdout.strip())
+    return f"{match.group(1)}/{match.group(2)}" if match else None
+
+
 def check_gha() -> None:
+    repository = _github_repository()
+    if not repository:
+        report("WARN", "gha", "could not determine GitHub OWNER/REPO")
+        return
     for wf, max_bd in CRITICAL_WORKFLOWS.items():
         try:
             out = subprocess.run(
                 ["gh", "run", "list", f"--workflow={wf}", "--limit", "1",
-                 "--json", "conclusion,status,updatedAt"],
+                 "--json", "conclusion,status,updatedAt", "--repo", repository],
                 cwd=ROOT, capture_output=True, text=True, timeout=60)
         except (FileNotFoundError, subprocess.TimeoutExpired) as exc:
             report("WARN", f"gha:{wf}", f"gh CLI unavailable ({exc})")
