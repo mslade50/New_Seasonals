@@ -1,0 +1,175 @@
+=== 0. TRIGGER SANITY (must match 01_live_state_recon.txt) ===
+  last bar          : 2026-08-17
+  XLU pct_rank(5)   : 88.1   (recon r5 88.1)
+  XLU pct_rank(21)  : 29.4   (recon r21 29.4)
+  TLT above 52w low : 0.00%  (recon 0.00%)
+  IEF above 52w low : 0.73%  (recon 0.73%)
+  SPY off 52w high  : -0.67% (recon -0.67%)
+
+trigger counts (days): XLU-strength 867  TLT-at-low 198  JOINT 30
+  joint span 2006-04-20 .. 2026-08-17
+  joint years: {2006: 6, 2013: 2, 2016: 3, 2018: 6, 2021: 4, 2022: 7, 2025: 1, 2026: 1}
+  fires today: True
+
+=== 1. OVERLAP with the dead utilities corpses (day level) ===
+  washout z10<=-2 (2026-08-07 C1)        N= 237  overlap with joint = 0 (0.0% of joint days)
+  washout z10<=-2 & SPY nr high          N=  53  overlap with joint = 0 (0.0% of joint days)
+  rank21<=5 washout (2026-08-12)         N= 315  overlap with joint = 1 (3.3% of joint days)
+  any XLU weakness rank5<=15             N= 851  overlap with joint = 0 (0.0% of joint days)
+
+=== 2. GATE ATTRIBUTION: short XLU, episodes only, h=1..10 ===
+
+-- XLU-strength ALONE  (N days 867)
+label   n  mean_pct  median_pct    hit      t  worst_pct  best_pct  sd_pct  ctl_all_days_pct  edge_pct
+  h=1 866     0.046      -0.035 47.806  1.216     -4.382     6.640   1.123            -0.039     0.085
+  h=2 559     0.061      -0.051 47.585  0.944     -4.748     7.268   1.525            -0.076     0.137
+  h=3 442     0.065      -0.025 48.416  0.788     -7.124     7.593   1.745            -0.114     0.180
+  h=5 337    -0.011      -0.203 44.214 -0.084     -6.856    19.169   2.409            -0.188     0.177
+ h=10 261     0.028      -0.224 47.126  0.132     -9.542    23.234   3.390            -0.373     0.400
+
+-- TLT-at-low ALONE  (N days 198)
+label   n  mean_pct  median_pct    hit      t  worst_pct  best_pct  sd_pct  ctl_all_days_pct  edge_pct
+  h=1 196     0.019      -0.136 46.429  0.203     -2.984     4.650   1.320            -0.039     0.058
+  h=2 117     0.047      -0.130 44.444  0.269     -3.958     5.328   1.892            -0.076     0.123
+  h=3  91     0.070      -0.135 46.154  0.300     -4.428     6.552   2.227            -0.114     0.184
+  h=5  62    -0.033      -0.281 40.323 -0.088     -4.916    11.700   2.937            -0.188     0.155
+ h=10  37    -0.150      -1.362 37.838 -0.228     -6.600    11.087   4.014            -0.373     0.223
+
+-- JOINT (divergence)  (N days 30)
+label  n  mean_pct  median_pct    hit      t  worst_pct  best_pct  sd_pct  ctl_all_days_pct  edge_pct
+  h=1 29    -0.111      -0.312 41.379 -0.494     -2.256     2.827   1.214            -0.039    -0.073
+  h=2 21    -0.295      -0.322 42.857 -0.823     -2.703     2.376   1.641            -0.076    -0.218
+  h=3 17    -0.191       0.240 52.941 -0.445     -4.762     2.486   1.765            -0.114    -0.076
+  h=5 15    -0.697      -0.445 33.333 -1.302     -5.550     3.761   2.074            -0.188    -0.509
+ h=10 13    -0.918      -1.364 38.462 -1.008     -7.272     6.635   3.284            -0.373    -0.546
+
+=== CTRL: unconditional short XLU over the joint span ===
+                           label    n  mean_pct  median_pct    hit      t  worst_pct  best_pct  sd_pct
+ short-XLU drift h=1, joint span 5111    -0.041      -0.095 45.294 -2.461    -12.793    11.358   1.189
+ short-XLU drift h=2, joint span 5110    -0.080      -0.135 45.010 -3.603    -13.577    14.614   1.597
+ short-XLU drift h=3, joint span 5109    -0.120      -0.207 43.707 -4.449    -23.258    17.716   1.935
+ short-XLU drift h=5, joint span 5107    -0.199      -0.347 42.491 -5.862    -28.511    19.801   2.429
+short-XLU drift h=10, joint span 5102    -0.394      -0.601 40.631 -8.510    -24.171    28.744   3.308
+
+##### C10 short XLU joint, h=3  (h=3 td, entry lag=1) #####
+legs=[('XLU', -1.0)]  trigger span 2006-04-20 .. 2025-05-21
+
+=== 1. conditional vs controls ===
+                           label    n  mean_pct  median_pct    hit      t  worst_pct  best_pct  sd_pct
+           COND day-level (N=29)   29    -0.001       0.240 58.621 -0.003     -4.762     2.486   1.665
+            COND episodes (N=17)   17    -0.191       0.240 52.941 -0.445     -4.762     2.486   1.765
+     CTRL-a own drift, same span 4803    -0.120      -0.214 43.369 -4.257    -23.258    17.716   1.957
+   CTRL-b all days, full history 6691    -0.114      -0.208 43.835 -4.669    -23.258    17.716   1.999
+CTRL-c local +/-126td ex-trigger 1943    -0.166      -0.220 43.747 -4.505     -5.400     7.720   1.627
+  COND day-level, lag=0 (no-lag)   29     0.225       0.240 65.517  0.655     -3.587     4.314   1.850
+  episode-vs-control diff = -0.070%  welch t = -0.16   bootstrap P(mean<=0) = 0.653   record 9-8, sign p = 0.5000
+  concentration: top2 episodes ['2022-10-19', '2018-10-03'] = -7.56pp of -3.24pp total (233%); best yrs {2006: 2.2, 2021: 0.5}
+
+=== 2+3. episode era split (pre-2018 / 2018+) ===
+   label  n  mean_pct  median_pct    hit      t  worst_pct  best_pct  sd_pct
+pre-2018  6     0.459       0.807 66.667  0.903     -1.402     1.639   1.244
+   2018+ 11    -0.545      -0.277 45.455 -0.924     -4.762     2.486   1.955
+
+===   day-level era split (for contrast) ===
+   label  n  mean_pct  median_pct    hit      t  worst_pct  best_pct  sd_pct
+pre-2018 11     0.179       0.351 63.636  0.459     -2.316     1.639   1.297
+   2018+ 18    -0.111       0.240 55.556 -0.250     -4.762     2.486   1.883
+  worst episode window: -4.76%  on 2022-10-19   |  worst day-level: -4.76%
+  episode dates: 2006-04-20, 2006-05-03, 2006-05-08, 2013-06-18, 2013-07-10, 2016-12-09, 2018-10-03, 2018-10-08, 2018-10-19, 2018-11-07, 2021-03-11, 2021-03-16, 2022-03-25, 2022-04-06, 2022-09-08, 2022-10-19, 2025-05-21
+
+=== 4. threshold sensitivity (episode level) ===
+                         label  n  mean_pct  median_pct    hit      t  worst_pct  best_pct  sd_pct  n_days
+  xlu>=80 & tlt<=1% (episodes) 20    -0.391      -0.394 45.000 -1.061     -4.762     2.486   1.648      37
+  xlu>=85 & tlt<=1% (episodes) 17    -0.191       0.240 52.941 -0.445     -4.762     2.486   1.765      29
+  xlu>=90 & tlt<=1% (episodes) 11     0.393       0.652 72.727  1.089     -1.652     2.486   1.198      21
+  xlu>=95 & tlt<=1% (episodes)  6     0.103       0.417 50.000  0.136     -2.316     2.486   1.850       8
+xlu>=85 & tlt<=0.5% (episodes) 13    -0.257      -0.511 46.154 -0.446     -4.762     2.486   2.082      17
+  xlu>=85 & tlt<=2% (episodes) 28    -0.176      -0.057 50.000 -0.496     -4.762     2.486   1.881      51
+  xlu>=85 & tlt<=3% (episodes) 45    -0.161      -0.277 46.667 -0.605     -4.762     2.944   1.789      80
+  xlu>=85 & tlt<=5% (episodes) 83     0.046       0.118 51.807  0.251     -4.762     3.045   1.663     169
+
+5. cost: 1 leg(s) x ~10 bps round trip = 10 bps. episode mean -0.191% = -19.1 bps -> -1.9x cost (need >=5x)
+
+=== 6. cpi-in-hold split (episodes) ===
+              label  n  mean_pct  median_pct    hit      t  worst_pct  best_pct  sd_pct
+cpi IN window (N=5)  5     0.603       0.652 80.000  0.970     -1.402     2.486   1.391
+     cpi OUT (N=12) 12    -0.521      -0.394 41.667 -0.976     -4.762     1.639   1.850
+
+##### C10 short XLU joint, h=5  (h=5 td, entry lag=1) #####
+legs=[('XLU', -1.0)]  trigger span 2006-04-20 .. 2025-05-21
+
+=== 1. conditional vs controls ===
+                           label    n  mean_pct  median_pct    hit      t  worst_pct  best_pct  sd_pct
+           COND day-level (N=29)   29    -0.218      -0.224 44.828 -0.635     -5.550     3.761   1.848
+            COND episodes (N=15)   15    -0.697      -0.445 33.333 -1.302     -5.550     3.761   2.074
+     CTRL-a own drift, same span 4803    -0.199      -0.348 42.307 -5.624    -28.511    19.801   2.458
+   CTRL-b all days, full history 6689    -0.188      -0.324 43.026 -6.103    -28.511    19.801   2.519
+CTRL-c local +/-126td ex-trigger 1943    -0.270      -0.354 42.666 -5.760     -8.103    11.700   2.068
+  COND day-level, lag=0 (no-lag)   29     0.207       0.399 58.621  0.582     -3.737     3.395   1.917
+  episode-vs-control diff = -0.497%  welch t = -0.93   bootstrap P(mean<=0) = 0.915   record 5-10, sign p = 0.9408
+  concentration: top2 episodes ['2022-10-19', '2022-09-08'] = -1.79pp of -10.45pp total (17%); best yrs {2021: 0.3, 2018: -0.2}
+
+=== 2+3. episode era split (pre-2018 / 2018+) ===
+   label  n  mean_pct  median_pct  hit      t  worst_pct  best_pct  sd_pct
+pre-2018  5    -1.012      -0.921  0.0 -2.867     -2.233    -0.224   0.789
+   2018+ 10    -0.539      -0.088 50.0 -0.678     -5.550     3.761   2.516
+
+===   day-level era split (for contrast) ===
+   label  n  mean_pct  median_pct    hit      t  worst_pct  best_pct  sd_pct
+pre-2018 11    -0.424      -0.445 27.273 -1.055     -2.233     1.617   1.333
+   2018+ 18    -0.092       0.260 55.556 -0.183     -5.550     3.761   2.129
+  worst episode window: -5.55%  on 2022-10-19   |  worst day-level: -5.55%
+  episode dates: 2006-04-20, 2006-05-03, 2013-06-18, 2013-07-10, 2016-12-09, 2018-10-03, 2018-10-10, 2018-10-19, 2018-11-07, 2021-03-11, 2022-03-25, 2022-04-06, 2022-09-08, 2022-10-19, 2025-05-21
+
+=== 4. threshold sensitivity (episode level) ===
+                         label  n  mean_pct  median_pct    hit      t  worst_pct  best_pct  sd_pct  n_days
+  xlu>=80 & tlt<=1% (episodes) 17    -0.968      -0.921 29.412 -1.729      -5.55     3.761   2.308      37
+  xlu>=85 & tlt<=1% (episodes) 15    -0.697      -0.445 33.333 -1.302      -5.55     3.761   2.074      29
+  xlu>=90 & tlt<=1% (episodes) 11     0.225       0.184 54.545  0.447      -2.28     3.761   1.670      21
+  xlu>=95 & tlt<=1% (episodes)  6    -0.069       0.599 66.667 -0.100      -2.28     1.617   1.678       8
+xlu>=85 & tlt<=0.5% (episodes) 12    -0.710      -0.402 33.333 -1.128      -5.55     2.196   2.181      17
+  xlu>=85 & tlt<=2% (episodes) 24    -0.504      -0.334 41.667 -1.278      -5.55     3.010   1.932      51
+  xlu>=85 & tlt<=3% (episodes) 38    -0.470      -0.334 44.737 -1.580      -5.55     3.010   1.833      80
+  xlu>=85 & tlt<=5% (episodes) 62    -0.349      -0.655 41.935 -1.523      -5.55     4.278   1.804     169
+
+5. cost: 1 leg(s) x ~10 bps round trip = 10 bps. episode mean -0.697% = -69.7 bps -> -7.0x cost (need >=5x)
+
+=== 6. cpi-in-hold split (episodes) ===
+              label  n  mean_pct  median_pct    hit      t  worst_pct  best_pct  sd_pct
+cpi IN window (N=6)  6     0.346       0.218 50.000  0.399     -2.233     3.761   2.123
+      cpi OUT (N=9)  9    -1.392      -0.921 22.222 -2.281     -5.550     0.336   1.831
+
+=== 6. DIRECTION CHECK on the same joint episodes ===
+
+=== direction at h=3 (episodes, min_gap=3) ===
+                                            label    n  mean_pct  median_pct    hit      t  worst_pct  best_pct  sd_pct
+                                    h=3 short XLU   17    -0.191       0.240 52.941 -0.445     -4.762     2.486   1.765
+                                     h=3 long TLT   17    -0.072       0.221 52.941 -0.228     -2.908     1.788   1.308
+                                     h=3 long IEF   17    -0.028      -0.010 47.059 -0.148     -1.747     1.345   0.790
+               h=3 short XLU vs short SPY (resid)   17    -1.066      -1.354 35.294 -2.958     -3.520     1.052   1.486
+               h=3 short XLU vs short XLP (resid)   17    -0.102      -0.047 47.059 -0.332     -2.070     2.870   1.268
+h=3 long TLT vs long XLU (the divergence closing)   17    -0.263       0.127 58.824 -0.630     -4.541     3.075   1.721
+                           h=3 short XLU ALL DAYS 6691    -0.114      -0.208 43.835 -4.669    -23.258    17.716   1.999
+                            h=3 long TLT ALL DAYS 6048     0.051       0.078 52.133  2.652     -9.536    14.998   1.504
+
+=== direction at h=5 (episodes, min_gap=5) ===
+                                            label    n  mean_pct  median_pct    hit      t  worst_pct  best_pct  sd_pct
+                                    h=5 short XLU   15    -0.697      -0.445 33.333 -1.302     -5.550     3.761   2.074
+                                     h=5 long TLT   15    -0.081       0.289 53.333 -0.162     -4.538     2.730   1.933
+                                     h=5 long IEF   15     0.120       0.125 53.333  0.438     -1.467     2.583   1.058
+               h=5 short XLU vs short SPY (resid)   15    -1.656      -1.316 13.333 -3.938     -6.326     0.196   1.629
+               h=5 short XLU vs short XLP (resid)   15    -0.216      -0.054 46.667 -0.644     -2.977     1.527   1.298
+h=5 long TLT vs long XLU (the divergence closing)   15    -0.778      -0.661 26.667 -1.471     -4.069     2.710   2.048
+                           h=5 short XLU ALL DAYS 6689    -0.188      -0.324 43.026 -6.103    -28.511    19.801   2.519
+                            h=5 long TLT ALL DAYS 6046     0.084       0.121 52.961  3.459     -7.781    12.601   1.883
+
+=== direction at h=10 (episodes, min_gap=10) ===
+                                             label    n  mean_pct  median_pct    hit      t  worst_pct  best_pct  sd_pct
+                                    h=10 short XLU   13    -0.918      -1.364 38.462 -1.008     -7.272     6.635   3.284
+                                     h=10 long TLT   13    -0.328      -0.053 46.154 -0.616     -4.956     2.338   1.919
+                                     h=10 long IEF   13    -0.297       0.115 53.846 -0.857     -2.879     1.533   1.249
+               h=10 short XLU vs short SPY (resid)   13    -2.592      -1.931 15.385 -3.540     -7.139     1.392   2.641
+               h=10 short XLU vs short XLP (resid)   13    -0.268      -0.243 30.769 -0.592     -2.645     3.390   1.634
+h=10 long TLT vs long XLU (the divergence closing)   13    -1.246      -1.357 30.769 -1.229     -8.588     4.225   3.657
+                           h=10 short XLU ALL DAYS 6684    -0.373      -0.602 40.829 -8.868    -24.171    28.744   3.437
+                            h=10 long TLT ALL DAYS 6041     0.165       0.184 53.137  4.941    -10.630    15.886   2.601

@@ -1,0 +1,39 @@
+laggards firing today: 4  (median across all dates 9, 90th pct 45)
+dates with <=6 laggards firing: 2321
+
+=== 1. name-episode slices, h=5 ===
+                            label     n  mean_pct  median_pct    hit      t  worst_pct  best_pct  sd_pct
+        ALL trigger name-days RAW 28741     0.525       0.557 56.122 14.737    -88.286   121.905   6.042
+     ALL trigger name-days EXCESS 28741     0.104       0.028 50.451  3.833    -83.288   107.927   4.594
+          name ABOVE own 200d RAW  8825     0.257       0.381 55.025  6.357    -32.136    26.887   3.799
+       name ABOVE own 200d EXCESS  8825     0.015       0.011 50.176  0.452    -24.794    25.990   3.100
+          name BELOW own 200d RAW 21573     0.609       0.656 56.701 13.468    -88.286   121.905   6.645
+       name BELOW own 200d EXCESS 21573     0.139       0.042 50.540  4.078    -83.288   107.927   5.008
+               SPY above 200d RAW 15958     0.177       0.285 53.891  5.594    -51.574    91.316   3.987
+            SPY above 200d EXCESS 15958     0.008      -0.017 49.718  0.288    -32.339    89.282   3.302
+   LIVE: name>200d & SPY>200d RAW  7194     0.220       0.298 54.393  5.353    -26.446    26.887   3.481
+LIVE: name>200d & SPY>200d EXCESS  7194     0.018       0.011 50.209  0.519    -24.794    25.990   2.890
+
+LIVE-shaped dates (SPY>200d, 1-6 laggards, >=1 above its 200d): 1221
+
+=== 2. live-shaped date-episodes N=398 ===
+                             label   n  mean_pct  median_pct    hit      t  worst_pct  best_pct  sd_pct
+   LIVE basket signal-selected RAW 398     0.105       0.169 53.518  0.661    -13.345    13.095   3.179
+      LIVE basket alphabetical RAW 398     0.416       0.386 56.533  2.456    -10.708    15.351   3.380
+LIVE basket signal-selected EXCESS 398    -0.040      -0.092 46.985 -0.256    -12.496    14.548   3.085
+   LIVE basket alphabetical EXCESS 398     0.271       0.031 50.503  1.753     -9.574    14.799   3.087
+  selection premium (raw): -0.311pp
+  excess record 187-211, sign p=0.8949, bootstrap P(mean<=0)=0.595
+  concentration: top2 episodes ['2011-07-08', '2016-05-13'] = +2.05pp of -15.76pp total (-13%); best yrs {2011: 21.5, 2022: 11.1}
+
+===   era split (live-shaped excess) ===
+   label   n  mean_pct  median_pct    hit      t  worst_pct  best_pct  sd_pct
+pre-2018 263     0.123      -0.060 47.909  0.676    -12.496    14.548   2.952
+   2018+ 135    -0.356      -0.245 45.185 -1.248    -11.267    10.325   3.317
+
+=== 3. horizon scan, live-shaped basket EXCESS ===
+  h=1 live-shaped excess: N=1221 mean -0.022% hit 49.6% t=-0.57
+  h=2 live-shaped excess: N=748 mean -0.085% hit 48.5% t=-1.23
+  h=3 live-shaped excess: N=563 mean -0.022% hit 51.3% t=-0.22
+  h=5 live-shaped excess: N=398 mean -0.040% hit 47.0% t=-0.26
+  h=10 live-shaped excess: N=250 mean -0.287% hit 48.0% t=-0.98

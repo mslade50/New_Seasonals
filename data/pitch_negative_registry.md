@@ -954,3 +954,186 @@ be live on 2026-08-12. (a2_c1_gate_attribution.py)
   episodes**, leaving +0.039%. Rank-trap check PASSED for once (+26.01% is the
   98.2nd pctile of full-history 21d moves), so the kill is real rather than
   definitional. (e2_c10_gdx_thrust.py, e2b, e2c, e2d)
+
+## Method traps (2026-08-18, from a 12-candidate sweep that killed all 12)
+
+- **The loud state is usually the poisoning conditioner, not the edge. Four
+  independent cells died this way in one morning**, which is enough to call it a
+  pattern rather than four coincidences. The thing that made each candidate
+  interesting was the thing that killed it: the bond-vol spike cell works only
+  when TLT is NOT at its 52w low, and TLT is at its low today (spike-and-at-low
+  N=22, **-1.152% at h=10, t=-2.06**, against spike-and-not-at-low +0.166%); the
+  fresh 52w low SUBTRACTS 0.27-0.36pp from the deep-drawdown state it sits
+  inside; the extension fade inverts exactly at the live magnitude (>=50% above
+  the 200d pays **-0.290% at h=3 and -0.976% at h=10** to the short, against a
+  pooled cell that is merely flat); and the utilities-versus-duration divergence
+  is worse than either of its two legs alone. The generalisation for future
+  mornings: when a tape extreme is what put a candidate on the map, the FIRST
+  round-2 probe should be the cell's behaviour AT that extreme, not its pooled
+  mean. Selecting on an extreme and then quoting the population mean is the
+  error, and it is subtler than the mid-cluster-entry trap because nothing about
+  the sample looks wrong.
+- **The distance-from-the-extreme GRADIENT, which generalises the "is today
+  inside historical support" test from a binary to a slope.** Support checks so
+  far have asked whether today's reading falls inside the trigger population
+  (2026-08-17 SMH, 2026-08-13 TLT). Better: regress the forward return WITHIN
+  the trigger set on how far the instrument sits from the extreme, and read the
+  fitted value at today's reading. On the month-end TLT cell the slope is
+  **+0.126pp per 1% off the 52w low (t=+2.18) while the unconditional gradient
+  runs the OTHER way (-0.009, t=-2.55)**, so the effect is specific to the cell;
+  the bucket ladder is monotone (within 0.5% of the low: -0.581% on 6; >3% off:
+  **+1.129% at a 72.5% hit, t=3.29** on 40), and today sits at the **0.0
+  percentile** of the trigger population's distance distribution. That is a kill
+  built on the 40-day complement at t=3.29, not on the 6-day bucket, which is
+  what makes it a substantive kill rather than a small-N one. Cheap, and it says
+  something a binary in-or-out test cannot: how much of the historical mean
+  today's reading is entitled to.
+- **Price the search on the grid the checker ACTUALLY walked, then let the cell
+  die on something else anyway.** The month-end TLT residual was recovered from
+  the corpse of the divergence cell, so the 2026-08-07 anti-rescue rule applied.
+  Charged for the 2,415-cell grid (3 horizons x 13 exit offsets x 13 gate rungs x
+  5 vehicles, n>=15) under a rotation permutation that preserves calendar and
+  autocorrelation, it ranks **59th by t** with **P(grid max t >= 2.82) = 0.90**.
+  Worth recording that the familywise number alone was NOT decisive enough to
+  ship a kill on: the grid's best occupant sits at familywise p=0.060, which is
+  suggestive rather than clean. The adjudication only became decisive on the
+  live-state gradient above. Two lessons: charge the search, and do not let the
+  multiplicity number be the whole verdict in either direction.
+- **A cell can pass every robustness test in the book and still be untradeable
+  today.** The gated month-end TLT cell PASSED the bond-bull fossil test (all 59
+  triggers are in the rising-yield half by construction; the live-side splits pay
+  +0.791% and +0.944%), the month-of-year control (triggers spread across all 12
+  months, month-demeaned +0.738% at t=2.49, ex-August +0.682%), the era split
+  (pre-2018 +0.893 / 2018+ +0.799 / 2021+ +0.504, decay without a sign flip),
+  concentration (top-2 episodes = **-1% of total**), and LOYO (+0.658%). It is
+  the first cell in this registry to clear the fossil test that killed the August
+  TLT seasonal. It still does not trade, because of where TLT sits today. File
+  the passes as well as the failures: the ungated parent is parked, not buried.
+
+## Cells swept and empty (2026-08-18)
+
+- **A one-day spike in bond volatility, on rates AND on equities.** Distinct from
+  the two existing ^MOVE entries, which are both about MOVE at a FLOOR. The spike
+  (+8.70%, 96.7th pctile of daily moves since 2002; note the LEVEL was only the
+  43.2nd pctile of full history, so quote both) adds **+0.094pp at h=5 over the
+  all-days control** (158 episodes +0.175% against 5,869 days +0.080%, Welch
+  t=+0.56) and the exhaustion mechanism is falsified by its own horizon profile
+  (+0.026 / +0.032 / -0.050 / +0.095 / -0.111pp at h=1/2/3/5/10 — non-monotone
+  with negative neighbours around the one positive cell). The equity leg is the
+  cleaner kill: forward ^VIX after a MOVE spike runs BELOW its all-day baseline at
+  every horizon (-0.32 to -1.22pp), so rate vol is followed by CALMER equity vol,
+  which falsifies "rate vol leads equity vol" inside its own window; short SPY
+  pays -0.413% at h=5 on 65-93 against an all-days short control of -0.249%.
+  (a2_c2_move_spike_rates.py, a3_c3_move_spike_equity.py)
+- **A volatility pop on a session where spot barely moved ("fear without
+  damage").** The no-damage leg is an INVERTER, not a filter, which is the
+  2026-08-14 insurance finding replicating on a vol construction: the joint cell
+  loses to all three of its gates at every horizon past h=1 (h=5: joint +0.006%
+  against small-down-days-alone +0.150%, VIX-pops-alone +0.282%, local +/-126td
+  +0.207%) and its edge against all days is negative at h=2 through h=10. The
+  plain VIX pop is the only thing with content and the spot condition removes it.
+  The 12-cell threshold grid splits 5-7 then 7-5 by sign, so both opposite trades
+  the cell could support are equally unsupported. The three-condition variant
+  that adds calm tape is parked (see the watchlist) and is dead as an INCREMENT:
+  +0.874% at h=10 looks strong only against zero, and against calm-tape-alone
+  (+0.479%, 300 episodes) the Welch t of the difference is +1.09.
+  (b4_c4_vix_pop_no_damage.py, b4b, b4c)
+- **Miner-versus-metal ratio reversion after a maximal thrust.** A different
+  object from the 2026-08-17 GDX outright kill, and it dies harder: the
+  beta-weighted short-GDX/long-GLD trade is wrong-signed at ALL TEN horizons in
+  all three vehicle forms, **-0.576% at h=5 over 51 episodes against the same
+  vehicle's +0.154% all-days control** (edge -0.730pp, bootstrap P(mean<=0)
+  0.913). Conditional on a maximal miner-over-metal thrust the miner keeps
+  outperforming, so the operating-leverage overshoot story is falsified by its
+  own sign. Beta-neutralisation is NOT what breaks it (equal-dollar -0.909% and
+  outright -1.153% are worse). The momentum mirror is separately dead on
+  definition fragility (the 90th-pctile neighbour flips the sign to +0.340%) and
+  cost (ex-2008 19.8 bps against a 10.2 bps two-leg round trip = 1.9x). Method
+  note: the map's "97.9th percentile" was a FULL-HISTORY percentile, i.e.
+  lookahead; the PIT trailing-252d rank is the tradeable statistic.
+  (b5_c5_gdx_gld_ratio.py)
+- **Jackson Hole on US large caps, completing the sweep to five asset classes.**
+  The anchor is now examined on rates, gold, FX, small caps and large caps, and
+  is empty in all five. The ladder is 9-for-9: across 26 anchors the true offset
+  ranks **8 of 16 at h=10 and 12 of 16 at h=5**, a plateau with no spike anywhere
+  from -10 to +5. The unconditional August window beats the event outright
+  (tdom 6-16 all years **+0.234% over 286 starts** against the anchor's +0.102%
+  over 26), reproducing the 2026-08-13 rates finding on a different asset.
+  Midterm years invert it to **-1.485% at h=10** on the same split that killed the
+  IWM version, with 2002 and 2022 the two worst anchors overall. Treat the JH
+  anchor as closed. (b9_c9_jh_us_large.py)
+- **International leadership into a joint 52w high, which closes the OTHER
+  direction of the country family.** Every prior member (EWZ twice, FXI, SMH/QQQ)
+  was one market BREAKING inside an intact thrust; this is sustained leadership,
+  and it fails on leg attribution instead of on sign. At the horizon where the
+  beta-neutral residual peaks (+0.202% at h=5, 53 episodes) the EFA leg beats its
+  own base by **+0.013pp** while the SPY leg contributes **-0.202pp**, so 94% of
+  the spread is a short-SPY bet; at h=3 the attribution flips, so the two adjacent
+  horizons disagree about which leg carries it. Tape over-selection lands for the
+  fourth time: SPY is above its 200d on **96.7% of trigger days against a 75.9%
+  base rate**, and the trade is net short that tape. EWJ's era pattern REVERSES
+  EFA's, so two near-identical constructions have opposite era signs.
+  (c6_intl_leadership_pair.py)
+- **Fading parabolic extension above the 200-day, and the magnitude inversion
+  that makes the book's leverage confinement load-bearing.** Across 197 liquid
+  names as a reference class (4,701 declustered episodes) the short loses at every
+  horizon past h=3, and it gets WORSE the more parabolic the name: at >=50% above
+  the 200d it pays **-0.290% at h=3 and -0.976% at h=10** to the short. Only
+  **47.4% of 192 names** have a positive short mean at h=5, so the single-name
+  framing was drawing from a population where the trade does not exist. This is
+  the second measurement (after 2026-08-13's IHI) showing that the book confining
+  its overbought fades to LEVERAGED names is load-bearing rather than incidental:
+  ATR Extended Gap Up caps extension at 50% above the 50d and needs a gap trigger,
+  and both fades exclude leaders by design. Survivorship runs the other way for a
+  short and cannot explain it, since both cells carry the identical bias.
+  (c7_extension_xsec.py)
+- **Capitulation at a fresh 52-week low far below the 200-day.** Gate attribution
+  reverses the thesis: the fresh-low condition, which IS the claimed mechanism,
+  SUBTRACTS **-0.266 / -0.280 / -0.363pp at h=3/5/10** from names equally far
+  below their 200d that are NOT at a new low (2,260 episodes against 4,065).
+  Everything positive comes from the drawdown state and the capitulation trigger
+  takes away from it. Modern era is significantly negative (**h=5 2018+ -1.006%,
+  t=-2.74**, against +0.568% pre-2018). The 4-name cut fails the alphabetical
+  placebo (never separating by more than noise, both sides with negative medians
+  and 44-45% hit rates). Useful by-product, since it was checked explicitly: this
+  state is OUTSIDE every book dip-buy rather than a re-dress of one — trigger rows
+  have a median 252d perf rank of **0.4**, only 4.29% clear the >=50 floor and
+  **0.00%** are above the 200d, so the book's yearly-uptrend gates exclude it by
+  construction. (c8_new52wlow_below200_xsec.py, c8b)
+- **Utilities, seventh expression, and the first one that was genuinely new.**
+  Short XLU on utility STRENGTH while duration prints a 52w low. Day overlap with
+  the six dead expressions was computed rather than asserted (0 of 30 joint days
+  for the z10 washout, 1 of 30 for the rank21 form), so this died on its own
+  numbers. The joint state is worse than both singles at every horizon: edge over
+  unconditional short-XLU drift is +0.177pp for XLU-strength alone, +0.155pp for
+  TLT-at-low alone, **-0.509pp joint**. The resolution runs opposite to the
+  thesis, with XLU beating SPY by **+1.656% over the next 5 sessions at an 86.7%
+  long-side hit rate**. Do NOT take the inverted long: it is a post-hoc sign flip
+  recovered from a kill report AND the shape of the already-dead long-XLU-vs-SPY
+  expression. (d1_c10_xlu_strength_tlt_low.py)
+- **The 63-day-rank laggard cross-section.** The alphabetical placebo is now
+  3-for-3 as a killer: the four deepest laggards pay **+0.017% excess at h=5
+  against +0.102% for the four alphabetically-first** qualifiers, and in the
+  live shape (SPY above its 200d, few names firing) **+0.105% against +0.416%**,
+  a selection premium of -0.311pp. The live slice — all firing names above their
+  own 200d — is +0.018% excess at a **50.2% hit** over 7,194 name-episodes. It is
+  also the book's dip-buy family at a longer lookback, with 35.8% of laggard
+  name-days satisfying an OLV-style gate against a 13.6% base rate (2.6x
+  enrichment). The 2026-08-13 denominator-roll warning generalises: the t-63
+  roll-off dominates the day's own move on **37.3%** of trigger days, and 25.8% of
+  trigger names are ABOVE their 200d, which today's slate was 4-for-4.
+  (d2_c11_laggard_xsec.py, d2b)
+- **Month-end rebalance flow sized by the stock/bond divergence.** The divergence
+  gate adds **+0.04pp** to the ungated month-end TLT cell (+0.586% on 31 anchors
+  against +0.540% on 288), Spearman between divergence size and forward return is
+  **+0.049**, and the bucket ladder is non-monotone, so the "sized by the
+  divergence" mechanism has no dose response. The SPY half is a WRONG-SIGNED
+  conditioner (short-SPY leg -0.223% on the SPY-strength half against +0.665% on
+  the TLT-weakness half), so a story about two-sided rebalancing flow was one
+  instrument being oversold. The UNGATED month-end anchor underneath it is real
+  and is parked (+0.540% at t=3.88 over 288 anchors, month-demeaned +0.391% at
+  t=2.85, exit-offset ladder monotone from +0.540% at the month-end close to
+  -0.229% ten sessions past it). Also a calendar correction worth keeping: from
+  the 2026-08-18 entry close to the 2026-08-31 month-end close is **9** sessions,
+  not 8, and the encoding matters — the headline halves between h=8 and h=9.
+  (a1_c1_monthend_divergence.py, a1b through a1h, r1, r2, r3)

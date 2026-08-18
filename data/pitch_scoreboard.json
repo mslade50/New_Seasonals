@@ -1,23 +1,23 @@
 {
- "generated": "2026-08-17 05:36:14",
- "asof": "2026-08-17",
+ "generated": "2026-08-18 05:48:11",
+ "asof": "2026-08-18",
  "rolling_60d": {
   "n": 4,
-  "graded": 3,
-  "fill_rate": 75.0,
-  "avg_r": 0.361,
-  "median_r": 0.146,
+  "graded": 4,
+  "fill_rate": 100.0,
+  "avg_r": 0.372,
+  "median_r": 0.276,
   "hit_rate": 100.0,
-  "total_pnl": 1443.1,
+  "total_pnl": 2357.3,
   "by_grade": {
    "B": {
     "n": 3,
-    "graded": 2,
-    "fill_rate": 66.7,
-    "avg_r": 0.468,
-    "median_r": 0.468,
+    "graded": 3,
+    "fill_rate": 100.0,
+    "avg_r": 0.448,
+    "median_r": 0.407,
     "hit_rate": 100.0,
-    "total_pnl": 1163.1
+    "total_pnl": 2077.3
    },
    "C": {
     "n": 1,
@@ -32,12 +32,12 @@
   "by_axis": {
    "event_fingerprint": {
     "n": 2,
-    "graded": 1,
-    "fill_rate": 50.0,
-    "avg_r": 0.837,
-    "median_r": 0.837,
+    "graded": 2,
+    "fill_rate": 100.0,
+    "avg_r": 0.622,
+    "median_r": 0.622,
     "hit_rate": 100.0,
-    "total_pnl": 941.27
+    "total_pnl": 1855.47
    },
    "interaction_cell": {
     "n": 1,
@@ -61,35 +61,35 @@
   "by_model": {
    "opus": {
     "n": 4,
-    "graded": 3,
-    "fill_rate": 75.0,
-    "avg_r": 0.361,
-    "median_r": 0.146,
+    "graded": 4,
+    "fill_rate": 100.0,
+    "avg_r": 0.372,
+    "median_r": 0.276,
     "hit_rate": 100.0,
-    "total_pnl": 1443.1
+    "total_pnl": 2357.3
    }
   },
   "approved_vs_declined": null,
   "window_td": 60,
-  "since": "2026-05-20"
+  "since": "2026-05-21"
  },
  "lifetime": {
   "n": 4,
-  "graded": 3,
-  "fill_rate": 75.0,
-  "avg_r": 0.361,
-  "median_r": 0.146,
+  "graded": 4,
+  "fill_rate": 100.0,
+  "avg_r": 0.372,
+  "median_r": 0.276,
   "hit_rate": 100.0,
-  "total_pnl": 1443.1,
+  "total_pnl": 2357.3,
   "by_grade": {
    "B": {
     "n": 3,
-    "graded": 2,
-    "fill_rate": 66.7,
-    "avg_r": 0.468,
-    "median_r": 0.468,
+    "graded": 3,
+    "fill_rate": 100.0,
+    "avg_r": 0.448,
+    "median_r": 0.407,
     "hit_rate": 100.0,
-    "total_pnl": 1163.1
+    "total_pnl": 2077.3
    },
    "C": {
     "n": 1,
@@ -104,12 +104,12 @@
   "by_model": {
    "opus": {
     "n": 4,
-    "graded": 3,
-    "fill_rate": 75.0,
-    "avg_r": 0.361,
-    "median_r": 0.146,
+    "graded": 4,
+    "fill_rate": 100.0,
+    "avg_r": 0.372,
+    "median_r": 0.276,
     "hit_rate": 100.0,
-    "total_pnl": 1443.1
+    "total_pnl": 2357.3
    }
   }
  }

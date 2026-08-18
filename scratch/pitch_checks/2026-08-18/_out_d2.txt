@@ -1,0 +1,89 @@
+universe requested: 197 (SOXS excluded)
+universe loaded   : 197
+
+=== 0. TODAY'S rank63 (must match 01_live_state_recon / tape sort) ===
+  deepest 12: CSCO 0.4, GOOG 2.0, INTC 4.0, CAT 4.8, HAL 5.2, GLW 5.2, WMB 5.6, WMT 5.6, MO 5.6, USO 6.3, TSN 6.3, ADI 6.7
+  CSCO: 0.4  (recon 0.4)
+  SMH: 8.3  (recon 8.3)
+  USO: 6.3  (recon 6.3)
+  ADI: 6.7  (recon 6.7)
+
+trigger name-days total: 105799
+fires today (4): ['CAT', 'CSCO', 'GOOG', 'INTC']
+
+=== 1. DENOMINATOR ROLL (IHI lesson) + trend artifact ===
+  N trigger name-days with both components: 105799
+  mean |today's move|      = 1.985%
+  mean |roll-off contrib|  = 1.126%
+  roll-off dominates today's move on 37.3% of trigger days
+  trigger names ABOVE their own 200d SMA: 25.8% (today's SMH warning generalised)
+  today's firing names above 200d: {'CAT': True, 'CSCO': True, 'GOOG': True, 'INTC': True}
+
+=== 2. REGIME OVER-SELECTION (the SMH/QQQ kill statistic) ===
+  SPY below 200d on 48.3% of trigger NAME-days
+  SPY below 200d on 26.5% of trigger DATES
+  base rate over the same span: 25.7%
+  today: SPY below 200d = False
+
+=== 3. FORWARD RETURNS, lag=1 ===
+
+=== 3a. name-episode level (raw and excess) ===
+                           label      n  mean_pct  median_pct    hit      t  worst_pct  best_pct  sd_pct  ctrl_own_drift_pct
+ h=1 laggard RAW (name-episodes) 105785     0.133       0.112 52.527 13.841    -60.791   102.358   3.118               0.056
+  h=1 laggard EXCESS vs universe 105785     0.037       0.012 50.428  5.272    -56.681    98.216   2.273                 NaN
+ h=2 laggard RAW (name-episodes)  58943     0.238       0.253 54.288 13.831    -69.110   143.434   4.180               0.111
+  h=2 laggard EXCESS vs universe  58943     0.064       0.027 50.683  4.833    -66.269   137.088   3.192                 NaN
+ h=3 laggard RAW (name-episodes)  42643     0.338       0.368 55.242 13.772    -72.800   173.864   5.065               0.165
+  h=3 laggard EXCESS vs universe  42643     0.080       0.034 50.768  4.250    -70.643   166.467   3.886                 NaN
+ h=5 laggard RAW (name-episodes)  28741     0.525       0.557 56.122 14.737    -88.286   121.905   6.042               0.272
+  h=5 laggard EXCESS vs universe  28741     0.104       0.028 50.451  3.833    -83.288   107.927   4.594                 NaN
+h=10 laggard RAW (name-episodes)  17502     0.847       1.034 58.330 14.410    -81.086   198.095   7.774               0.532
+ h=10 laggard EXCESS vs universe  17502     0.132       0.045 50.514  2.849    -77.864   170.946   6.144                 NaN
+
+=== 3b. basket / date-episode level ===
+                          label    n  mean_pct  median_pct    hit      t  worst_pct  best_pct  sd_pct
+ h=1 BASKET raw (date-episodes) 6009     0.087       0.103 53.753  3.873    -21.957    23.346   1.733
+  h=1 BASKET excess vs universe 6009     0.031       0.016 51.190  1.927    -16.232    22.666   1.239
+ h=2 BASKET raw (date-episodes) 3037     0.155       0.166 54.560  3.600    -24.168    20.855   2.370
+  h=2 BASKET excess vs universe 3037     0.049       0.025 51.696  1.565    -19.607    20.242   1.723
+ h=3 BASKET raw (date-episodes) 2040     0.197       0.224 55.000  3.238    -15.500    20.624   2.754
+  h=3 BASKET excess vs universe 2040     0.036       0.053 52.304  0.848    -14.666    17.657   1.915
+ h=5 BASKET raw (date-episodes) 1232     0.363       0.423 56.088  3.507    -18.607    26.139   3.636
+  h=5 BASKET excess vs universe 1232     0.114       0.076 52.435  1.528    -20.274    24.226   2.607
+h=10 BASKET raw (date-episodes)  621     0.443       0.767 58.776  2.446    -20.597    21.171   4.511
+ h=10 BASKET excess vs universe  621    -0.084       0.096 52.174 -0.611    -25.759    13.856   3.417
+  CTRL all name-days h=1: mean +0.056%  N=1283678
+  CTRL all name-days h=2: mean +0.111%  N=1283481
+  CTRL all name-days h=3: mean +0.165%  N=1283284
+  CTRL all name-days h=5: mean +0.272%  N=1282890
+  CTRL all name-days h=10: mean +0.532%  N=1281905
+
+=== 4. ERA SPLIT, h=5 name-episode EXCESS ===
+   label     n  mean_pct  median_pct    hit     t  worst_pct  best_pct  sd_pct
+pre-2018 18397     0.103       0.006 50.063 2.989    -83.288   107.927   4.687
+   2018+ 10344     0.105       0.074 51.141 2.413    -61.246    96.540   4.425
+  by year (mean excess %, N):
+  2000:-2.61(2)  2001:+0.49(720)  2002:+0.48(1229)  2003:+0.06(236)  2004:+0.02(1185)  2005:+0.02(1059)  2006:+0.03(977)  2007:-0.03(1263)  2008:+0.07(2843)  2009:+1.07(209)  2010:+0.10(1425)  2011:+0.10(1356)  2012:-0.05(612)  2013:-0.02(650)  2014:-0.06(1315)  2015:+0.09(1641)  2016:+0.01(1065)  2017:+0.27(610)  2018:+0.10(2129)  2019:+0.44(496)  2020:-0.23(1361)  2021:+0.27(1083)  2022:+0.05(1834)  2023:+0.11(772)  2024:+0.28(737)  2025:+0.30(1237)  2026:-0.09(695)
+
+  basket-episode excess h=5:
+            label    n  mean_pct  median_pct    hit     t  worst_pct  best_pct  sd_pct
+basket excess h=5 1232     0.114       0.076 52.435 1.528    -20.274    24.226   2.607
+  record 646-586, sign p=0.0464, bootstrap P(mean<=0)=0.070
+  concentration: top2 episodes ['2009-11-09', '2022-12-28'] = +3.95pp of +139.85pp total (3%); best yrs {2002: 71.9, 2009: 43.0}
+
+=== 5. OVERLAP with the book's own dip-buy gates ===
+  OLV-style (r2<25 & r5<33)     : 37853 of 105799 laggard name-days (35.8%) also satisfy it; gate base rate 13.6%
+  St OS-style (r2<15)           : 32330 of 105799 laggard name-days (30.6%) also satisfy it; gate base rate 11.1%
+  generic 5d washout (r5<10)    : 29573 of 105799 laggard name-days (28.0%) also satisfy it; gate base rate 7.1%
+
+=== 6. ALPHABETICAL PLACEBO, h=5, 4-name baskets ===
+
+=== date-episodes N=1049 (dates with >=4 laggards) ===
+                         label    n  mean_pct  median_pct    hit     t  worst_pct  best_pct  sd_pct
+signal-selected 4 deepest, RAW 1049     0.282       0.392 56.149 2.440    -26.277    24.365   3.745
+   alphabetically-first 4, RAW 1049     0.367       0.446 57.197 3.588    -15.929    18.315   3.312
+     signal-selected 4, EXCESS 1049     0.017      -0.052 49.094 0.216    -14.740    18.305   2.513
+alphabetically-first 4, EXCESS 1049     0.102       0.066 52.622 1.536    -10.427    10.749   2.140
+  selection premium (raw): -0.085pp
+
+SURVIVORSHIP CAVEAT: master_prices holds only names alive in today's universe files, which biases any long-the-laggard result UPWARD.
