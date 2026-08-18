@@ -117,7 +117,13 @@ function recCard(rec, recsDate, ageDays) {
       <div><span class="cap">Size</span> ${num(z.shares) == null ? "-" : z.shares} sh${caps}</div>
       <div><span class="cap">Window</span> ${esc(tm.valid_from || "?")} &rarr; ${esc(tm.valid_through || "?")}</div>
       <div><span class="cap">Time exit</span> ${esc(tm.time_exit_date || "-")}</div>
+      <div><span class="cap">Planned off</span> ${px(rec.frozen_close)}${
+        ageDays ? ` <span class="cap" style="display:inline">close, ${ageDays}d ago</span>` : ""}</div>
     </div>
+    ${ageDays >= 1 ? `<p class="cap">Levels are frozen at that close and the tape has moved since.
+      A resting buy limit below the market is harmless, but a breakout trigger the stock has already
+      cleared fires on submission and fills anywhere up to the cap. Check the current price before
+      staging a plan from earlier in the week.</p>` : ""}
     <div class="radar-ticket">${esc(rec.ticket || "")}</div>
     ${e.gap_rule ? `<p class="cap">Engine note: ${esc(e.gap_rule)}. A native IBKR stop-limit does
       NOT die on that gap &mdash; the trigger fires and a resting limit stays at the cap, fillable on a
