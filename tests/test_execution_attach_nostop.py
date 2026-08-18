@@ -74,11 +74,14 @@ def test_agent_still_rejects_bad_stop_and_ordering(agent, book):
         "symbol": "USO", "sec_type": "STK", "action": "BUY",
         "quantity": 10, "entry": 50, "stop": 55}))
     assert not ok and any("stop < entry" in r for r in reasons)
-    # no stop but a wrong-side target is still rejected
+    # no stop but a wrong-side target is still rejected. The reason reads
+    # "worst fill < target" since the STP_LMT work (2026-08-18) -- for every
+    # single-price entry type the worst fill IS the entry, so this is the same
+    # rule, reworded.
     ok, reasons = agent._validate(_cmd("entry_bracket", {
         "symbol": "USO", "sec_type": "STK", "action": "BUY",
         "quantity": 10, "entry": 50, "stop": None, "target": 45}))
-    assert not ok and any("entry < target" in r for r in reasons)
+    assert not ok and any("worst fill < target" in r for r in reasons)
 
 
 def test_agent_nlv_risk_gate_only_with_stop(agent, book):

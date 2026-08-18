@@ -127,7 +127,7 @@ function shell() {
 
     <div class="card" style="max-width:760px;margin-top:18px">
       <div style="font:700 14px inherit;margin-bottom:4px">New order</div>
-      <p class="cap" style="margin:0 0 10px">Bracket: stock, futures, or USD-pair FX entry as <b>limit</b> or <b>market</b>; stock entries also support <b>market-on-close</b>. <b>Scheduled option buy</b> waits until the specified ET time, then resolves the live chain, chooses the nearest target-delta call or put, sizes from the current ask, and submits a SMART market order. Its premium budget is approximate because the market fill can slip. Stop, target, <b>time stop</b> (closes at market 15:59 ET on that date), and limit-entry expiry are optional. <b>Primary futures are uncapped</b>: IBKR buying power and exchange limits are the hard constraints; large stopped risk and unprotected entries require a secondary approval. PA keeps its $30k futures ceiling. <b>Attach exits</b> adds a stop / target / time-stop OCA group. <b>Close only</b> leaves working orders untouched; <b>Flatten</b> cancels them before closing. Submits per the mode banner above &mdash; live when armed.</p>
+      <p class="cap" style="margin:0 0 10px">Bracket: stock, futures, or USD-pair FX entry as <b>limit</b> or <b>market</b>; stock entries also support <b>market-on-close</b> and <b>stop-limit</b> (a breakout trigger plus the worst fill you will take &mdash; risk, R:R and notional are all shown and gated at that cap, not the trigger). <b>Scheduled option buy</b> waits until the specified ET time, then resolves the live chain, chooses the nearest target-delta call or put, sizes from the current ask, and submits a SMART market order. Its premium budget is approximate because the market fill can slip. Stop, target, <b>time stop</b> (closes at market 15:59 ET on that date), and limit-entry expiry are optional. <b>Primary futures are uncapped</b>: IBKR buying power and exchange limits are the hard constraints; large stopped risk and unprotected entries require a secondary approval. PA keeps its $30k futures ceiling. <b>Attach exits</b> adds a stop / target / time-stop OCA group. <b>Close only</b> leaves working orders untouched; <b>Flatten</b> cancels them before closing. Submits per the mode banner above &mdash; live when armed.</p>
       <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:8px">
         <label class="cap">Type</label>
         <select id="cmdType">
@@ -847,7 +847,7 @@ window.execModifySave = execModifySave;
 // bracketWarnings blocks empty qty/entry/stop). ticketDraft carries the last user entry
 // across cmdType toggles so switching Type and back doesn't wipe a typed ticket.
 const ticketDraft = {};
-const TICKET_FIELDS = ["f_note", "f_symbol", "f_qty", "f_entry_type", "f_entry", "f_stop", "f_target", "f_expiry", "f_timestop",
+const TICKET_FIELDS = ["f_note", "f_symbol", "f_qty", "f_entry_type", "f_entry", "f_entry_cap", "f_stop", "f_target", "f_expiry", "f_timestop",
                        "f_currency", "f_futexch", "fl_qty", "fl_pct", "fl_limit", "so_symbol", "so_right",
                        "so_delta", "so_budget", "so_date", "so_time", "so_expiry_mode", "so_min_dte", "so_expiry"];
 function snapshotTicket() {
@@ -924,11 +924,13 @@ function syncFields() {
       <label class="cap">Qty</label>${inp("f_qty", "692", 70)}
       <label class="cap">Entry type</label><select id="f_entry_type">
         <option value="LMT"${entryType === "LMT" ? " selected" : ""}>Limit (LMT)</option>
+        <option value="STP_LMT"${entryType === "STP_LMT" ? " selected" : ""}>Stop-limit (STP LMT)</option>
         <option value="MKT"${entryType === "MKT" ? " selected" : ""}>Market (MKT)</option>
         <option value="MOO"${entryType === "MOO" ? " selected" : ""}>Market-on-open (MOO)</option>
         <option value="MOC"${entryType === "MOC" ? " selected" : ""}>Market-on-close (MOC)</option>
       </select>
       <label class="cap" id="f_entry_label">Entry</label>${inp("f_entry", "104.80", 80)}
+      <span id="f_entry_cap_wrap"><label class="cap">Limit cap</label>${inp("f_entry_cap", "", 80)}</span>
       <label class="cap">Stop</label>${inp("f_stop", "103.29", 80)}
       <label class="cap">Target</label>${inp("f_target", "123.21", 80)}
       <span id="f_futrow"></span>
@@ -978,10 +980,15 @@ function entryType() {
 
 function syncEntryTypeFields() {
   const typ = entryType();
+  // STP LMT splits the entry into two prices: the trigger (f_entry) and the
+  // limit cap (f_entry_cap), which is the WORST fill the order can take and so
+  // the number every risk figure is computed against.
   const label = document.getElementById("f_entry_label");
-  if (label) label.textContent = typ === "LMT" ? "Limit" : "Ref price";
+  if (label) label.textContent = typ === "LMT" ? "Limit" : typ === "STP_LMT" ? "Trigger" : "Ref price";
+  const cap = document.getElementById("f_entry_cap_wrap");
+  if (cap) cap.style.display = typ === "STP_LMT" ? "contents" : "none";
   const wrap = document.getElementById("f_expiry_wrap");
-  if (wrap) wrap.style.display = typ === "LMT" ? "contents" : "none";
+  if (wrap) wrap.style.display = (typ === "LMT" || typ === "STP_LMT") ? "contents" : "none";
 }
 
 function futSpec(sym) { return FUT_SPECS[String(sym || "").toUpperCase().trim()] || null; }
@@ -1063,27 +1070,38 @@ function bracketWarnings() {
   const sym = String(val("f_symbol") || "").toUpperCase().trim();
   const spec = isFut ? futSpec(sym) : null;
   const qty = numOrNull("f_qty"), entry = numOrNull("f_entry"), stop = numOrNull("f_stop"), target = numOrNull("f_target");
+  const cap = orderType === "STP_LMT" ? numOrNull("f_entry_cap") : null;
+  // A stop-limit fills anywhere between trigger and cap, so `worst` (the cap) is
+  // what the ordering rules and the readout's risk numbers must use.
+  const worst = cap != null ? cap : entry;
   const action = val("f_action");
   const warns = [];
-  if (!["LMT", "MKT", "MOO", "MOC"].includes(orderType)) warns.push("entry type must be LMT, MKT, MOO, or MOC");
+  if (!["LMT", "STP_LMT", "MKT", "MOO", "MOC"].includes(orderType)) warns.push("entry type must be LMT, STP_LMT, MKT, MOO, or MOC");
   if (orderType === "MOC" && (isFut || isFx)) warns.push("MOC entry supports stocks only");
   if (orderType === "MOO" && isFx) warns.push("MOO entry does not support FX");
+  if (orderType === "STP_LMT" && (isFut || isFx)) warns.push("STP_LMT entry supports stocks only");
   if (!sym) warns.push("symbol required");
   if (!(qty > 0) || qty !== Math.round(qty)) warns.push("qty must be a whole number > 0");
-  if (!(entry > 0)) warns.push(orderType === "LMT" ? "limit price required" : "reference price required");
+  if (!(entry > 0)) warns.push(orderType === "LMT" ? "limit price required"
+    : orderType === "STP_LMT" ? "stop trigger required" : "reference price required");
+  if (orderType === "STP_LMT" && !(cap > 0)) warns.push("limit cap required (the worst fill you will take)");
+  if (cap > 0 && entry > 0) {
+    if (action === "BUY" && !(entry < cap)) warns.push("BUY STP_LMT needs trigger < cap");
+    if (action === "SELL" && !(cap < entry)) warns.push("SELL STP_LMT needs cap < trigger");
+  }
   // Stop is OPTIONAL (2026-07-27): blank = UNPROTECTED entry, surfaced in amber by
   // the readout + confirm, and risk-gated agent-side (2×ATR vs 50 bps NLV → secondary
   // approval). An explicit 0/negative stop is still rejected.
   if (stop != null && !(stop > 0)) warns.push("stop must be > 0 (leave blank for NO STOP)");
   if (target != null && !(target > 0)) warns.push("target must be > 0 (leave blank for NO TARGET)");
   if (entry > 0 && stop > 0) {
-    if (action === "BUY" && !(stop < entry && (target == null || entry < target)))
-      warns.push(target == null ? "BUY needs stop < entry" : "BUY needs stop < entry < target");
-    if (action === "SELL" && !(entry < stop && (target == null || target < entry)))
-      warns.push(target == null ? "SELL needs entry < stop" : "SELL needs target < entry < stop");
+    if (action === "BUY" && !(stop < entry && (target == null || worst < target)))
+      warns.push(target == null ? "BUY needs stop < entry" : "BUY needs stop < entry and worst fill < target");
+    if (action === "SELL" && !(entry < stop && (target == null || target < worst)))
+      warns.push(target == null ? "SELL needs entry < stop" : "SELL needs entry < stop and target < worst fill");
   } else if (entry > 0 && stop == null && target > 0) {
-    if (action === "BUY" && !(entry < target)) warns.push("BUY needs entry < target");
-    if (action === "SELL" && !(target < entry)) warns.push("SELL needs target < entry");
+    if (action === "BUY" && !(worst < target)) warns.push("BUY needs worst fill < target");
+    if (action === "SELL" && !(target < worst)) warns.push("SELL needs target < worst fill");
   }
   if (isFut && !selectedFutExchange()) warns.push("choose CME, CBOT, NYMEX, or COMEX");
   if (isFut && sym && !spec) warns.push("futures contract is not resolved by IBKR yet");
@@ -1093,7 +1111,7 @@ function bracketWarnings() {
   // time-stop closes the position at market the instant the entry fills; a past entry
   // expiry ships an already-dead GTD order; expiry after the time-stop is contradictory.
   const todayISO = new Date().toLocaleDateString("en-CA");
-  const ts = val("f_timestop"), ex = orderType === "LMT" ? val("f_expiry") : null;
+  const ts = val("f_timestop"), ex = (orderType === "LMT" || orderType === "STP_LMT") ? val("f_expiry") : null;
   if (ts && ts < todayISO) warns.push("time stop date is in the past");
   if (ex && ex < todayISO) warns.push("entry expiry date is in the past");
   if (ts && ex && ex > ts) warns.push("entry expiry is after the time stop");
@@ -1235,10 +1253,15 @@ function updateReadout() {
     if (warns.length) { el.innerHTML = `<span style="color:#ff6b6b">${warns.map(esc).join(" &middot; ")}</span>`; return; }
     const qty = numOrNull("f_qty"), entry = numOrNull("f_entry"), stop = numOrNull("f_stop"), target = numOrNull("f_target");
     const orderType = entryType();
-    const dist = Math.abs(entry - stop);
-    const fxMetrics = isFx ? fxUsdMetrics(sym, currency, qty, entry, stop) : null;
+    // Risk, R:R and notional read the WORST acceptable fill (the cap on a
+    // stop-limit) so the readout shows the same numbers the agent gates on.
+    const cap = orderType === "STP_LMT" ? numOrNull("f_entry_cap") : null;
+    const worst = cap != null ? cap : entry;
+    const dist = Math.abs(worst - stop);
+    const fxMetrics = isFx ? fxUsdMetrics(sym, currency, qty, worst, stop) : null;
     const parts = [];
     if (orderType === "LMT") parts.push(`Entry <b>LMT @ ${entry}</b>`);
+    else if (orderType === "STP_LMT") parts.push(`Entry <b>STP LMT trigger ${entry}</b> <span class="cap" style="display:inline">(fills up to ${cap}; risk shown at that worst fill)</span>`);
     else if (orderType === "MKT") parts.push(`Entry <b>MKT</b> <span class="cap" style="display:inline">(risk ref ${entry}; no price protection)</span>`);
     else if (orderType === "MOO") parts.push(`Entry <b>MOO</b> <span class="cap" style="display:inline">(opening auction; risk ref ${entry}; no price protection)</span>`);
     else parts.push(`Entry <b>MOC</b> <span class="cap" style="display:inline">(close auction; risk ref ${entry})</span>`);
@@ -1247,11 +1270,11 @@ function updateReadout() {
     if (stop == null) parts.push(`<b style="color:#ffc14d">NO STOP — UNPROTECTED</b> <span class="cap" style="display:inline">(risk gate at execution: 2&times;ATR% &times; notional vs 50 bps NLV)</span>`);
     else if (qty && dist) parts.push(`Risk <b>${fmt.money(fxMetrics ? fxMetrics.risk : qty * dist * mult)}</b>`);
     if (target == null) parts.push(`<b style="color:#ffc14d">NO TARGET</b>`);
-    else if (stop != null && dist) parts.push(`R:R <b>${(Math.abs(target - entry) / dist).toFixed(2)}:1</b>`);
-    if (qty && entry) parts.push(`Notional <b>${fmt.money(fxMetrics ? fxMetrics.notional : qty * entry * mult)}</b>`);
+    else if (stop != null && dist) parts.push(`R:R <b>${(Math.abs(target - worst) / dist).toFixed(2)}:1</b>`);
+    if (qty && worst) parts.push(`Notional <b>${fmt.money(fxMetrics ? fxMetrics.notional : qty * worst * mult)}</b>`);
     const ts = val("f_timestop");
     if (ts) parts.push(`Time-exit <b>${ts}</b>`);
-    const ex = orderType === "LMT" ? val("f_expiry") : null;
+    const ex = (orderType === "LMT" || orderType === "STP_LMT") ? val("f_expiry") : null;
     parts.push(`TIF <b>${orderType === "MOO" ? "OPG" : ex ? "GTD " + ex : "DAY"}</b>`);
     el.innerHTML = `<span style="color:#9aa3b2">${parts.join(" &nbsp;·&nbsp; ")}</span>`;
   } else if (t === "exit_attach") {
@@ -1371,8 +1394,9 @@ function ticketPayload(t) {
     fut_min_tick: spec ? spec.min_tick : null,
     action: val("f_action"), quantity: numOrNull("f_qty"), entry_type,
     entry: numOrNull("f_entry"), stop: numOrNull("f_stop"), target: numOrNull("f_target"),
+    entry_cap: entry_type === "STP_LMT" ? numOrNull("f_entry_cap") : null,
     time_stop: val("f_timestop") || null,
-    expiry: entry_type === "LMT" ? (val("f_expiry") || null) : null };
+    expiry: (entry_type === "LMT" || entry_type === "STP_LMT") ? (val("f_expiry") || null) : null };
 }
 function sendTicket() {
   const t = document.getElementById("cmdType").value;
@@ -1414,6 +1438,7 @@ function sendTicket() {
     const closeUnit = p.sec_type === "CASH" ? ` ${p.symbol} units` : " sh";
     const stopTxt = p.stop == null ? "NO STOP — UNPROTECTED" : "stop " + p.stop;
     const entryDesc = p.entry_type === "LMT" ? `LMT @ ${p.entry}`
+      : p.entry_type === "STP_LMT" ? `STP LMT trigger ${p.entry}, worst fill ${p.entry_cap}`
       : `${p.entry_type} (risk ref ${p.entry}; no price protection)`;
     const summary = t === "entry_bracket"
       ? `${p.action} ${p.quantity} ${inst} ${entryDesc} [${p.entry_type === "MOO" ? "OPG" : p.expiry ? "GTD " + p.expiry : "DAY"}] (${stopTxt}, ${p.target == null ? "NO TARGET" : "target " + p.target}${p.time_stop ? ", time " + p.time_stop : ""})`

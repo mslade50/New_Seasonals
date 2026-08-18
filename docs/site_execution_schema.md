@@ -26,21 +26,43 @@ existing `sznl_entry.build_orders` / `sznl_exit.build_orders` / `read_book`).
 ### `entry_bracket`  (← sznl_entry.py)
 ```json
 { "symbol":"USO","sec_type":"STK|FUT|CASH","exchange":"SMART","currency":"USD","fut_expiry":"202608",
-  "action":"BUY|SELL","quantity":692,"entry_type":"LMT|MKT|MOO|MOC","entry":104.80,"stop":103.29,"target":123.21,
+  "action":"BUY|SELL","quantity":692,"entry_type":"LMT|STP_LMT|MKT|MOO|MOC","entry":104.80,"entry_cap":null,"stop":103.29,"target":123.21,
   "use_target":true,"use_time_stop":true,"stop_tif":"GTC|GTD",
   "parent_fill_by":"2026-06-26T15:00-04:00",
   "exit_at":"2026-07-09T16:00-04:00","time_stop_at":"2026-07-09T15:00-04:00",
   "outside_rth":false,"stop_outside_rth":null,"timestop_outside_rth":null }
 ```
-Validation (mirrors `validate_config`): BUY → `stop < entry < target`; SELL inverted;
-`time_stop < bracket_gtd`; `parent_fill_by` in the future.
+Validation (mirrors `validate_config`): BUY → `stop < entry` and
+`worst fill < target`; SELL inverted; `time_stop < bracket_gtd`;
+`parent_fill_by` in the future.
 
 `entry` is the executable limit for `LMT`. For `MKT` and `MOC`, it is a required
 risk/reference price used for notional, stop-distance, and confirmation math; it
 is not sent to IBKR as price protection. `MOC` is initially stock-only. Entry
-expiry applies only to `LMT`; `MKT` and `MOC` are DAY orders. The executor builds
-true IBKR parent types (`LMT`, `MKT`, or `MOC`) and attaches the same optional
-stop/target/time-exit children.
+expiry applies to `LMT` and `STP_LMT`; `MKT` and `MOC` are DAY orders. The
+executor builds true IBKR parent types (`LMT`, `STP LMT`, `MKT`, or `MOC`) and
+attaches the same optional stop/target/time-exit children.
+
+**`STP_LMT` — stop-limit entry (2026-08-18).** `entry` is the STOP TRIGGER and
+`entry_cap` is the limit, so the parent goes out as IBKR `STP LMT` with
+`auxPrice = entry` and `lmtPrice = entry_cap`. BUY needs `entry < entry_cap`,
+SELL needs `entry_cap < entry`; `entry_cap` is required for this type and
+rejected for every other. Stock-only initially (like `MOC`) — the FUT/CASH
+tick-snap paths do not snap the cap, so relaxing that gate means snapping it in
+both blocks.
+
+The cap is the **worst acceptable fill**, and that is the number every gate
+reads: notional, the per-account notional cap, stop-distance risk, the R:R
+preview, and the `target` ordering check all use `entry_cap` rather than the
+trigger. Sizing off the trigger would undercount both — on a 383.12 / 400.17
+trigger-cap pair against a 355.84 stop, per-share risk is $44.33 at the cap
+versus $27.28 at the trigger, a 62% understatement.
+
+A native `STP LMT` does **not** die on a runaway gap. If the session opens above
+the cap the trigger fires immediately and leaves a resting buy limit at the cap,
+which fills on any pullback to it. Callers wanting "dead for the day if the open
+gaps past the cap" must check the open before sending, the same way the OVS
+2-path gate and `T1_Open_Filters` do.
 
 **Stop optional (2026-07-27).** `stop: null` is a legal entry: the parent order
 goes out with whatever subset of target/time legs is present (none at all =
