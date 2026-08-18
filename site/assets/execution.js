@@ -208,8 +208,21 @@ function set(id, html) { const el = document.getElementById(id); if (el) el.inne
 
 /* ---------- mode banner (live vs dry-run vs unknown) ---------- */
 const BOOK_STALE_MS = 90000;   // ~2 agent book-push cycles; older than this the reported mode is stale
+function epochMs(value) {
+  const n = Number(value);
+  if (!Number.isFinite(n) || n <= 0) return null;
+  // The local agent historically emitted Python time.time() seconds, while
+  // the broker's own fallback uses Date.now() milliseconds. Accept both so
+  // display age and the fail-safe execution-mode freshness check agree.
+  return n < 1e12 ? n * 1000 : n;
+}
+function bookAgeMs(book = state.book, now = Date.now()) {
+  const at = epochMs(book && book.at);
+  return at == null ? null : Math.max(0, now - at);
+}
 function bookFresh(book = state.book, now = Date.now()) {
-  return !!(book && book.at && (now - book.at) <= BOOK_STALE_MS);
+  const age = bookAgeMs(book, now);
+  return age != null && age <= BOOK_STALE_MS;
 }
 // Tri-state: "live" | "dry-run" | "unknown". Dry-run is only believed when a FRESH book
 // explicitly reports it while the agent is online; a null/stale book or an offline agent
@@ -268,7 +281,8 @@ function renderConnBar() {
   const label = !s.configured ? "Broker not configured" : s.online ? "Execution online" : "Execution offline";
   const ab = acctBook();
   const nlv = ab && ab.nlv != null ? `NLV ${fmt.money(ab.nlv)}` : "";
-  const age = state.book && state.book.at ? `· book ${Math.max(0, Math.round((Date.now() - state.book.at) / 1000))}s ago` : "";
+  const ageMs = bookAgeMs();
+  const age = ageMs != null ? `· book ${Math.round(ageMs / 1000)}s ago` : "";
   return `<div class="card" style="display:flex;align-items:center;gap:12px;padding:10px 14px">
     <span style="font:700 15px inherit;display:flex;align-items:center;gap:8px">${dot(tone)} ${label}</span>
     <span class="cap" style="margin-left:auto">${nlv} ${age}</span></div>`;
