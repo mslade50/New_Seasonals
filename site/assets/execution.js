@@ -1120,9 +1120,11 @@ function bracketWarnings() {
   }
   // orderRef tag: a pipe or space would corrupt the downstream field split
   // that the execution report and Trade Log parse strategy out of.
+  // Spaces are legal — the scan pipeline's own tags read "Oversold Low Volume".
+  // Only the pipe breaks the field split the report and Trade Log parse.
   const strat = (val("f_strategy") || "").trim();
-  if (strat && !/^[A-Za-z0-9_.-]{1,32}$/.test(strat))
-    warns.push("strategy tag: letters, digits, _ . and - only, max 32 chars");
+  if (strat && !/^[A-Za-z0-9 _.-]{1,32}$/.test(strat))
+    warns.push("strategy tag: letters, digits, spaces, _ . and - only, max 32 chars");
   if (isFut && !selectedFutExchange()) warns.push("choose CME, CBOT, NYMEX, or COMEX");
   if (isFut && sym && !spec) warns.push("futures contract is not resolved by IBKR yet");
   if (isFut && !val("f_futexp")) warns.push("enter the contract month (e.g. 202609)");
