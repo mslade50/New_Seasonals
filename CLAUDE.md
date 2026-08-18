@@ -46,7 +46,9 @@ A quantitative equity trading platform built on Streamlit. Three pillars:
 │   ├── deploy_site.yml             # Private-site build + Pages deploy — reusable workflow (workflow_call) invoked by daily_screener's deploy-site job, same run (2x/day)
 │   └── weekly_rundown.yml          # Sunday weekly PDF
 ├── scripts/                        # Task Scheduler PowerShell wrappers (most disabled post-Phase-2)
-│   ├── run_radar_weekly.ps1        # DEAD — invokes the deleted radar_weekly_summary.py (digest retired 2026-08-04); delete with the task
+│   ├── upload_radar_recs.py        # Momentum radar recs -> R2 (local; the radar repo is private and CI has no cross-repo token)
+│   ├── run_radar_sync.bat          # Mondays 8:50 AM ET — publish recs + reconcile trail stops (see Momentum Radar)
+│   ├── register_radar_sync_task.ps1 # one-shot registration for the above
 │   ├── run_earnings_calendar.ps1   # Weekdays 5:30 PM ET — local backup of GHA build (dual writers OK)
 │   ├── build_earnings_calendar.py  # FMP earnings backfill (used by both local + GHA)
 │   ├── update_master_prices.py     # yfinance incremental update (used by both local + GHA)
@@ -60,7 +62,8 @@ A quantitative equity trading platform built on Streamlit. Three pillars:
 │   ├── refresh_view.py             # Local one-command ledger + HTML refresh
 │   └── (DISABLED locally: run_overflow_scan.ps1, run_daily_portfolio_report.ps1, run_master_prices_update.ps1)
 ├── site/                           # Private-site frontend (static HTML/CSS/JS, committed)
-├── functions/                      # Cloudflare Pages Functions — chartimg/[[path]].js streams chart PNGs from R2
+├── functions/                      # Cloudflare Pages Functions — chartimg/[[path]].js streams chart PNGs from R2,
+│                                   #   radar-recs.js serves the momentum radar's weekly plans from R2
 ├── wrangler.toml                   # Pages config: pages_build_output_dir=dist + CHARTS R2 binding (TOML — action's wrangler 3.90.0 ignores .jsonc)
 ├── dist/                           # Site build output — gitignored, deployed to Cloudflare Pages
 ├── charts/                         # Per-trade chart PNGs — gitignored; R2 (charts/ prefix) is the source of truth
@@ -1514,7 +1517,7 @@ trigger chain, out-of-repo file map): `docs/site_runbook.html`. |
 | `Daily Pitch (agent)` | Enabled (Interactive logon) | Weekdays 5:10 AM ET — `scripts\run_daily_pitch.bat`: grade, assemble state, run `/daily-pitch` headless, verify delivery. Writes files and sends the pitch email; places no orders. Register with `scripts\register_daily_pitch_task.ps1` after eyeballing several manual runs. |
 | `IBKR Daily Pitch Approvals (auction)` / `(open)` | NOT REGISTERED (inert) | Weekdays 9:05 and 9:32 AM ET — `pitch_moo.py` places `Pitch` rows marked `Y`. Live money: registration script also writes `pitch_moo_enabled.flag`; delete the flag to disarm without unregistering. |
 | `RadarMorningBriefing` | Enabled | Lives in separate `last30days-radar` project — not yet migrated. |
-| `RadarWeeklySummary` | DEAD (radar digest retired 2026-08-04) | `scripts/run_radar_weekly.ps1` invokes the deleted `radar_weekly_summary.py` (and carries the dead `C:\Users\mckin` path); unregister the task and delete the wrapper when convenient. |
+| `Radar Weekly Sync` | Registered by `scripts/register_radar_sync_task.ps1`; PREVIEW until armed | Mondays 8:50 AM ET — `scripts\run_radar_sync.bat`: publish the momentum radar's recs to R2, then reconcile live trail stops. Transmits only when `radar_trail_enabled.flag` exists in OneDrive/trading_ibkr. See Momentum Radar. |
 | `DailyPortfolioReport` | Disabled | Replaced by `portfolio_report.yml`. Re-enable as fallback if GHA breaks. |
 | `MasterPricesUpdate` | Disabled | Replaced by `update_master_prices.yml`. |
 | `OverflowDailyScan` | Disabled | Replaced by the unified `daily_screener.yml --scope=all` post-close run. |
@@ -1543,7 +1546,7 @@ GitHub's shared cron scheduler had 1-3h queue delays at 8:47 UTC, pushing the AM
 ### Sunday Pipeline (single step as of 2026-08-04)
 1. **9:00 AM ET (Actions)**: `weekly_market_rundown.py` generates tabloid (17x11") landscape PDF with all risk charts and emails it as an attachment.
 
-**Radar digest retired 2026-08-04.** `radar_weekly_summary.py` and `data/radar_weekly_summary.md` are deleted. The generating agent (`trig_015YZLdjj3LxvyY25fnq1zch` in radar-briefings) was disabled at the 2026-07-13 cutover, but the rundown kept reading the file it no longer refreshed — so the Sunday email shipped a digest frozen at 2026-07-12 for three weeks while the workflow reported green. `_build_email_body()` already degrades to a PDF-only email when the file is absent, which is now the permanent path.
+**Radar digest retired 2026-08-04, path removed 2026-08-18.** `radar_weekly_summary.py` and `data/radar_weekly_summary.md` were deleted in the retirement; the generating agent (`trig_015YZLdjj3LxvyY25fnq1zch` in radar-briefings) was disabled at the 2026-07-13 cutover. The rundown kept reading the file it no longer refreshed, so the Sunday email shipped a digest frozen at 2026-07-12 for three weeks while the workflow reported green. The whole body path is now GONE from `weekly_market_rundown.py` (`RADAR_SUMMARY_PATH`, `_build_email_body()`, the call site, and the `markdown` / `MIMEText` imports it alone needed): the email is PDF-only by construction rather than by fallback. `scripts/run_radar_weekly.ps1` and `scripts/setup_radar_weekly_task.ps1` are deleted; `RadarWeeklySummary` was never actually registered in Task Scheduler. The cloud routine stays disabled and can only be deleted from https://claude.ai/code/routines.
 
 ### Daily Risk Report — Forward Returns Table
 Uses `compute_similar_reading_returns()` from `risk_dashboard_v2.py`. Forward returns at similar fragility readings include:
@@ -1572,10 +1575,15 @@ Cloudflare Pages project `seasonals-mslade`, locked behind Cloudflare Access
   `signals.html`, `charts.html` (per-trade chart gallery), `risk.html`,
   `montecarlo.html` + `assets/` (vanilla JS + Plotly CDN, no build step, no
   framework). `site/_headers` sets no-store on `/data/*`. Nav order
-  (2026-07-28): Portfolio, Seasonal, Execution, Risk, Trade Log, then the
-  rest, Monte Carlo last. The IDEAS TAB was REMOVED 2026-07-28 (page +
+  (2026-08-18): Portfolio, Seasonal, Execution, **Radar**, Risk, Trade Log,
+  then the rest, Monte Carlo last. The IDEAS TAB was REMOVED 2026-07-28 (page +
   ideas.js deleted); `ideas.json` is still built — the signals page's
   strategy-context block reads it.
+- **Radar tab** (`radar.html` + `assets/radar.js`, 2026-08-18): the momentum
+  radar's weekly plans, served LIVE from R2 by `functions/radar-recs.js` rather
+  than baked into `dist/` (the radar runs on a weekend cadence independent of
+  the 2x-daily deploy, same reasoning as `morning-orders.js`). Stage prefills
+  the Execution ticket. Full section: "Momentum Radar — staging + trail".
 - **Monte Carlo tab** (`montecarlo.html` + `assets/montecarlo.js`,
   2026-07-28): day/month/year outcome distributions for the current book —
   empirical daily stats (P(up), loss-threshold frequencies, VaR/CVaR, worst
@@ -1658,6 +1666,110 @@ Cloudflare Pages project `seasonals-mslade`, locked behind Cloudflare Access
 - **Local dev**: `python scripts/build_site.py --no-signals` then
   `python -m http.server 8123 --directory dist`. `--no-mtm` skips the slow
   payloads when iterating on frontend only.
+
+## Momentum Radar — staging + trail (2026-08-18)
+
+Fourth agent product, and the only one that places orders. The radar itself is
+NOT in this repo: it lives in `mslade50/radar-briefings` (a weekend GHA screen
+plus an 11:00 UTC Claude cloud routine, `momentum-radar-weekly` /
+`trig_0189pHRnCARusEDPN4PwGijH`). Its `scripts/book_update.py` mints plans and
+steps trails into `data/recs/<sunday>.json`. **That engine is the source of
+truth for every number.** Its own rendering rule ("R-A verbatim") applies on
+this side too: nothing here recomputes, rounds, or infers a price, share count,
+or date. A field this repo cannot express is a REFUSAL, never a derivation.
+
+### The chain
+```
+radar clone -> scripts/upload_radar_recs.py -> R2 radar_recs.json
+            -> functions/radar-recs.js (/radar-recs) -> site/radar.html
+            -> Stage -> execution.html?stage=radar&... -> entry_bracket
+            -> broker -> agent -> execute_order.py -> IBKR
+```
+Weekly upkeep: `scripts/run_radar_sync.bat` (Mondays 8:50 AM ET).
+
+**Transport is LOCAL, not CI.** radar-briefings is private and this repo's
+Actions have no cross-repo token, while the trading box has both the clone and
+the R2 creds. Mirror image of `scripts/export_radar_pack.py`, which feeds the
+radar in the other direction. Consequence: the tab goes stale if the box is
+off, so the payload carries `date`/`age_days`, the tab banners a vintage over
+10 days, and staging is blocked past that.
+
+The payload copies a FIELD WHITELIST (`REC_FIELDS` / `POSITION_FIELDS`) so a new
+engine field cannot reach the browser unreviewed.
+
+### PRIMARY ONLY, and the sizing is NOT your NLV
+The engine sizes against its own **$250,000 book** (`account_value` in the recs),
+which is unrelated to either live account (primary NLV ~$632k, PA ~$66k as of
+2026-08-18). A plan's stated 36 bps is 36 bps OF THAT $250k — about 14 bps of
+live primary. The site stages the engine's share count unchanged, which is
+exactly what the radar email has always shown; it does NOT rescale to the live
+account, and it must not start doing so silently. The Radar tab states the
+basis on every render.
+
+Radar plans are a **primary-account sleeve**: `radar.js` pins `acct=primary`
+into the stage link and `applyRadarPrefill` switches the tab to it, because one
+plan's notional (BNY: $28.5k) nearly fills PA's entire $30k live cap.
+`radar_trail_sync.py` defaults to the same account.
+
+### Execution-bridge features this required
+- **`STP_LMT` entry type** — the breakout plans are BUY_STOP_LIMIT. `entry` is
+  the trigger, `entry_cap` the limit. The CAP is the worst acceptable fill and
+  every gate reads it. See "Scale-out" + `docs/site_execution_schema.md`.
+- **orderRef strategy tag** — `entry_bracket` gained `strategy` / `ref_date`,
+  stamping `SYMBOL|ACTION|Strategy|Date` on the parent AND every child. Site
+  orders were untagged before this and read as "Discretionary" everywhere.
+  It is what lets the trail job find its own stops.
+- **`scaleout: {frac, target}`** — two independent brackets (near takes T1,
+  far runs behind the stop and time exit). Never one parent with a partial-size
+  child; see the schema doc for the broker bug that forbids it.
+
+### The trail is NOT ours to compute
+`step_trails()` in the radar engine already does the chandelier (peak weekly
+close - 2.5 ATR on the post-T1 remainder), the breakeven at entry + 2R, and the
+never-lower rule, folding the result into `open_positions[].current_stop`
+before the recs are written. `radar_trail_sync.py` (OneDrive/trading_ibkr) is
+transport and reconciliation only: read that number, move the matching live STP
+legs to it.
+
+It routes through the broker (`/command` -> agent -> `_do_modify`) rather than
+connecting to IBKR directly, because `_do_modify` already re-places an order AS
+its owning clientId — IBKR only lets the placing client modify — and every
+change then lands in the broker log and the site Activity panel.
+
+Refusals, each independent of the radar's own logic:
+- never lowers a stop, compared against the LIVE aux, not the engine's belief
+- only touches legs whose orderRef strategy matches (`Momentum_Radar`). The
+  primary account also runs the systematic book across ~1060 names; a
+  symbol-only match would eventually move an OLV or OVS stop. Verified against
+  the real book, which carries untagged STPs and a tagged OLV pair.
+- scale-out aware: a near/far pair is trailed together and their quantities
+  must SUM to `shares_remaining`; two stops sharing a tranche are refused as an
+  unexplained duplicate
+- an unfilled `STP LMT` entry parent is never mistaken for the protective STP
+- dry-run by default; `--apply` plus `radar_trail_enabled.flag` to transmit
+
+**`radar_trail_sync.py` does NOT git-pull.** It reads whatever the clone holds,
+so it must run AFTER `upload_radar_recs.py` (which pulls). That ordering is the
+entire reason `run_radar_sync.bat` exists — run standalone on a week-old clone
+it would apply last week's stops, and because it never lowers, that
+under-raises silently instead of failing.
+
+### Known-open
+- A native `STP LMT` does NOT die on a runaway gap, so the engine's `gap_rule`
+  ("dead for the day if open > cap") is NOT enforced. The tab prints the rule
+  and the caveat; honoring it literally needs an open-check at staging time
+  (the OVS 2-path / `T1_Open_Filters` precedent).
+- The engine tracks T1 fills from BARS, not from actual fills, so its
+  `scaled` flag can diverge from the live book.
+
+Aligned sites — change together:
+- `scripts/upload_radar_recs.py` (whitelist + R2 key) <-> `functions/radar-recs.js`
+- `site/assets/radar.js` `RADAR_STRATEGY` <-> `radar_trail_sync.py` RADAR_STRATEGY
+  (a mismatch is a stop that never moves; pinned by a test)
+- `radar.js` stage-link params <-> `execution.js` `radarStage` parser
+- Guards: `tests/js/test_radar_tab.js` (blockers + verbatim round-trip),
+  `tests/test_radar_transport.py`, `test_radar_trail_sync.py` +
+  `test_stop_limit_entry.py` (OneDrive)
 
 ## Google Sheets Integration
 

@@ -15,6 +15,10 @@
 
 const RADAR_ENDPOINT = "/radar-recs";
 const RADAR_STRATEGY = "Momentum_Radar";   // must match radar_trail_sync.py --strategy
+// PRIMARY only. The engine sizes off its own $250k book, unrelated to either
+// live account, and one plan's notional can approach PA's entire live cap.
+// radar_trail_sync.py defaults to the same account.
+const RADAR_ACCOUNT = "primary";
 // The engine's entry vocabulary -> the execution ticket's entry_type.
 const ORDER_TYPE_MAP = { BUY_STOP_LIMIT: "STP_LMT", BUY_LIMIT: "LMT", SELL_LIMIT: "LMT" };
 
@@ -45,6 +49,7 @@ function stageHref(rec, recsDate) {
     stage: "radar", sym: String(rec.ticker || "").toUpperCase(), side: sideOf(rec),
     type: type || "", entry: entry == null ? "" : String(entry),
     strat: RADAR_STRATEGY, refdate: recsDate || "",
+    acct: RADAR_ACCOUNT,
   });
   if (num(e.limit_cap) != null) q.set("cap", String(e.limit_cap));
   if (num(s.price) != null) q.set("stop", String(s.price));
@@ -149,8 +154,13 @@ function render(payload) {
   const recs = payload.new_recs || [];
   const positions = payload.open_positions || [];
   const c = payload.counts || {};
+  const av = num(payload.account_value);
   el.innerHTML = `
     <p class="cap">${bits.join(" &nbsp;&middot;&nbsp; ")}</p>
+    ${av ? `<p class="cap">Share counts are the engine's own, sized against its
+      <b>$${av.toLocaleString()}</b> book &mdash; a self-contained basis, not your live NLV. Staging one
+      unchanged puts the engine's stated bps of <i>that</i> number at risk, not of the account. Stages to
+      <b>primary</b> only.</p>` : ""}
     ${banners.join("")}
     <h2>New recommendations (${recs.length})</h2>
     ${recs.length ? recs.map((r) => recCard(r, payload.date, age)).join("")

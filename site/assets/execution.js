@@ -76,6 +76,7 @@ const radarStage = (() => {
     cap: n("cap"), stop: n("stop"), target: n("target"), qty: n("qty"),
     exp: q.get("exp") || "", ts: q.get("ts") || "",
     soFrac: n("sofrac"), soTarget: n("sotarget"),
+    acct: q.get("acct") === "primary" ? "primary" : null,
     strat: String(q.get("strat") || "").trim(), refdate: q.get("refdate") || "",
   };
 })();
@@ -107,6 +108,11 @@ function applyRadarPrefill() {
   if (r.strat) setv("f_strategy", r.strat);
   if (r.soFrac != null) setv("f_so_frac", r.soFrac);
   if (r.soTarget != null) setv("f_so_target", r.soTarget);
+  // Radar plans are a PRIMARY-account sleeve. They are sized off the radar's own
+  // $250k book, which is unrelated to PA's NLV, and a single plan's notional can
+  // approach PA's whole live cap. Pin the account rather than inherit whichever
+  // tab happened to be selected. radar_trail_sync.py defaults to primary to match.
+  if (r.acct === "primary" && state.account !== "primary") setAccount("primary");
   updateReadout();
   const msg = document.getElementById("cmdMsg");
   if (msg) msg.textContent = `prefilled from Radar — levels and size copied verbatim from the ` +

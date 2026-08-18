@@ -103,6 +103,9 @@ assert.strictEqual(staged.exp, "2026-08-28");
 assert.strictEqual(staged.ts, "2026-11-13");
 assert.strictEqual(staged.strat, "Momentum_Radar");
 assert.strictEqual(staged.refdate, "2026-08-16");
+// Radar plans are a PRIMARY sleeve: one plan's notional can approach PA's whole
+// live cap, so the account is pinned rather than inherited from the tab.
+assert.strictEqual(staged.acct, "primary");
 
 // A limit plan carries no cap, and the entry comes from `limit` not `trigger`.
 const bnyExec = loadExecution(stageHref(BNY, "2026-08-16").slice("execution.html".length));
