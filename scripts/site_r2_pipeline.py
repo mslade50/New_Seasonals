@@ -59,11 +59,13 @@ CANONICAL_INPUTS: tuple[R2Input, ...] = (
         "fundamental_daily",
         "fundamental/current/daily_report_latest.json",
         "data/fundamental/current/daily_report_latest.json",
+        False,
     ),
     R2Input(
         "fundamental_maps",
         "fundamental/current/company_maps_latest.json",
         "data/fundamental/current/company_maps_latest.json",
+        False,
     ),
     R2Input("overflow_universe", "overflow_universe.parquet", "data/overflow_universe.parquet", False),
     R2Input(

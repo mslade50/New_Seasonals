@@ -95,7 +95,7 @@ def test_stale_ideas_or_missing_current_signals_block_deploy(tmp_path):
     assert any("current staged-signals payload is unavailable" in problem for problem in problems)
 
 
-def test_missing_or_stale_fundamentals_block_deploy(tmp_path):
+def test_missing_or_stale_fundamentals_do_not_block_deploy(tmp_path):
     data = _site(tmp_path)
     meta = json.loads((data / "meta.json").read_text(encoding="utf-8"))
     meta["payloads"]["fundamentals"] = False
@@ -106,19 +106,19 @@ def test_missing_or_stale_fundamentals_block_deploy(tmp_path):
         "live_actions_enabled": False,
     })
 
-    problems = validate_site(str(tmp_path))
-    assert any("current Fundamentals payload is unavailable" in problem for problem in problems)
-    assert any("Fundamentals as-of 2026-08-01 is before 2026-08-05" in problem for problem in problems)
+    assert validate_site(str(tmp_path)) == []
+
+    (data / "fundamentals.json").rename(data / "fundamentals.disabled.json")
+    assert validate_site(str(tmp_path)) == []
 
 
-def test_fundamentals_must_explicitly_disable_live_actions(tmp_path):
+def test_fundamentals_contents_do_not_participate_in_deploy_gate(tmp_path):
     data = _site(tmp_path)
     payload = json.loads((data / "fundamentals.json").read_text(encoding="utf-8"))
     payload["live_actions_enabled"] = True
     _write(data / "fundamentals.json", payload)
 
-    problems = validate_site(str(tmp_path))
-    assert any("does not explicitly disable live actions" in problem for problem in problems)
+    assert validate_site(str(tmp_path)) == []
 
 
 def test_production_gate_requires_matching_r2_provenance(tmp_path):

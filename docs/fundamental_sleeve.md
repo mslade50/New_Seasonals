@@ -137,6 +137,12 @@ back to browser storage. The daily research workflow pulls that state when it
 is available. These controls never allocate capital, stage orders, modify a
 portfolio, send messages, or connect to a broker.
 
+Fundamental research is also deliberately outside the private-site production
+gate. Its R2 inputs and rendered payload are best effort: missing or stale
+research makes only the Fundamentals tab unavailable or old, and never blocks
+a Portfolio, Seasonal, Risk, or Execution deployment. The core site freshness
+and R2-provenance checks remain mandatory for their own inputs.
+
 ## Founder-led and circle-of-competence offshoot
 
 `reports/fundamental/company_maps.html` maintains two separate research maps:
