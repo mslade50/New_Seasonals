@@ -101,10 +101,12 @@ setFields({ f_sectype: "STK", f_symbol: "USO", f_action: "BUY", f_qty: "10",
   f_entry: "50", f_stop: "0", f_target: "", f_timestop: "", f_expiry: "" });
 assert.ok(runJSON("bracketWarnings()").some((w) => w.includes("stop must be > 0")));
 
-// no stop + wrong-side target is still caught client-side
+// no stop + wrong-side target is still caught client-side. Reads "worst fill"
+// since the STP_LMT work (2026-08-18): for every single-price entry type the
+// worst fill IS the entry, so this is the same rule, reworded.
 setFields({ f_sectype: "STK", f_symbol: "USO", f_action: "BUY", f_qty: "10",
   f_entry: "50", f_stop: "", f_target: "45", f_timestop: "", f_expiry: "" });
-assert.ok(runJSON("bracketWarnings()").some((w) => w.includes("BUY needs entry < target")));
+assert.ok(runJSON("bracketWarnings()").some((w) => w.includes("BUY needs worst fill < target")));
 
 // stopped entries keep the full ordering gate (regression)
 setFields({ f_sectype: "STK", f_symbol: "USO", f_action: "BUY", f_qty: "10",
