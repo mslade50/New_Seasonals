@@ -48,7 +48,9 @@ def _priority_class(priority: str) -> str:
 
 def _short_status(priority: str) -> str:
     if priority.startswith("A"):
-        return "QUICK REVIEW"
+        # A screen can prioritize diligence, but only a completed underwrite
+        # may create a reader-facing QUICK REVIEW.
+        return "PRIORITY SCREEN"
     if priority.startswith("B"):
         return "KEEP DIGGING"
     if priority.startswith("C"):

@@ -76,6 +76,18 @@ def _load_current_or_snapshots(
     return load_latest_snapshot_parts(kind, as_of, requested)
 
 
+def _research_eligible_symbols(symbols: pd.DataFrame) -> pd.DataFrame:
+    """Keep the report aligned to today's eligible universe.
+
+    Current fundamental views are cumulative by design, so they can retain
+    issuers that later leave the research universe.  The daily ranking should
+    not silently keep scoring those stale members.
+    """
+    if "research_eligible" not in symbols.columns:
+        return symbols.copy()
+    return symbols[symbols["research_eligible"].eq(True)].copy()
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Build research-only fundamental candidate report.")
     parser.add_argument("--as-of", default=str(date.today()), help="Price/report cutoff date.")
@@ -99,14 +111,23 @@ def main() -> None:
         raise SystemExit("symbol_master.parquet and master_prices.parquet are required")
 
     requested = [str(t).upper() for t in args.tickers] if args.tickers else None
+    symbols = pd.read_parquet(BROAD_UNIVERSE) if BROAD_UNIVERSE.exists() else pd.read_parquet(SYMBOL_MASTER)
+    symbols = _research_eligible_symbols(symbols)
+    if requested:
+        symbols = symbols[symbols["ticker"].astype(str).str.upper().isin(requested)]
+    eligible_tickers = set(symbols["ticker"].astype(str).str.upper())
     fmp_snapshot = _load_current_or_snapshots("fmp", as_of, requested)
+    fmp_snapshot = fmp_snapshot[
+        fmp_snapshot["ticker"].astype(str).str.upper().isin(eligible_tickers)
+    ].reset_index(drop=True)
     sec_snapshot = _load_current_or_snapshots("sec", as_of, requested)
+    if not sec_snapshot.empty:
+        sec_snapshot = sec_snapshot[
+            sec_snapshot["ticker"].astype(str).str.upper().isin(eligible_tickers)
+        ].reset_index(drop=True)
     if fmp_snapshot.empty:
         raise SystemExit(f"FMP snapshot is empty for {snapshot_date}")
 
-    symbols = pd.read_parquet(BROAD_UNIVERSE) if BROAD_UNIVERSE.exists() else pd.read_parquet(SYMBOL_MASTER)
-    if requested:
-        symbols = symbols[symbols["ticker"].astype(str).str.upper().isin(requested)]
     tickers = sorted(fmp_snapshot["ticker"].astype(str).str.upper().unique())
     # Read only the fields and tickers needed for this queue; SPY supplies the
     # benchmark-relative 12-1 trend calculation.  The overflow cache materially
@@ -148,6 +169,7 @@ def main() -> None:
             "Historical universe and prices remain survivorship-biased until delisted-security coverage is added.",
             "Historical analyst-estimate snapshots begin with this project; prior consensus cannot be reconstructed safely.",
             "Every advanced name still needs a filed-fact tie-out, reverse DCF, thesis pillars, and bear/base/bull cases.",
+            "Specialist lanes remain baseline-only until dedicated financials capital/credit/book-value, REIT AFFO/NAV/maturities, and biotech pipeline/rNPV/runway scorecards are implemented.",
             "Live sleeve attribution and technical/fundamental ticker-overlap controls are not implemented.",
         ],
         "sources": [
@@ -223,6 +245,13 @@ def main() -> None:
             (report_path, "fundamental/reports/fundamental_daily.html"),
             (company_maps_path, "fundamental/reports/company_maps.html"),
         ]
+        if Path(args.underwrite_decisions).exists():
+            uploads.append(
+                (
+                    Path(args.underwrite_decisions),
+                    "fundamental/current/underwrite_decisions_latest.json",
+                )
+            )
         uploads.extend(
             (output_path.parent / link, f"fundamental/reports/{link}")
             for link in tearsheet_links.values()

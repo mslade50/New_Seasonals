@@ -30,6 +30,7 @@ from fundamental.universe import (
     select_balanced_enrichment_batch,
     summarize_universe,
 )
+from scripts.build_fundamental_report import _research_eligible_symbols
 
 
 def test_policy_is_research_only_and_limits_are_coherent():
@@ -41,6 +42,15 @@ def test_policy_is_research_only_and_limits_are_coherent():
     assert BROAD_UNIVERSE_POLICY.min_market_cap < 2_000_000_000
     assert BROAD_UNIVERSE_POLICY.default_enrichment_batch <= BROAD_UNIVERSE_POLICY.max_enrichment_batch
     assert policy_payload()["policy_version"] == "fundamental-sleeve.v1"
+
+
+def test_daily_report_excludes_companies_that_left_current_universe():
+    symbols = pd.DataFrame({
+        "ticker": ["KEEP", "DROP", "UNKNOWN"],
+        "research_eligible": [True, False, None],
+    })
+    kept = _research_eligible_symbols(symbols)
+    assert kept["ticker"].tolist() == ["KEEP"]
 
 
 def test_point_in_time_selector_fails_closed_on_unaccepted_rows():
@@ -293,6 +303,8 @@ def test_screen_rank_alone_never_creates_user_quick_review(tmp_path):
     text = path.read_text(encoding="utf-8")
     assert "Nothing needs your attention today" in text
     assert "<h2>Quick review</h2>" not in text
+    assert "QUICK REVIEW" not in text
+    assert "PRIORITY SCREEN" in text
     assert '"quick_review_count": 0' in text.replace("&quot;", '"')
 
 

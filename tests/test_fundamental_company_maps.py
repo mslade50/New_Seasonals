@@ -17,13 +17,15 @@ def test_reference_lists_are_broad_unique_and_research_only():
     excluded_tickers = {row["ticker"] for row in circle["excluded"]}
     assert len(founder_tickers) >= 50
     assert len(circle_tickers) >= 25
-    assert {"NVDA", "META", "NET", "SHOP", "RDDT"}.issubset(founder_tickers)
+    assert {"NVDA", "META", "NET", "SHOP", "CPNG"}.issubset(founder_tickers)
+    assert {"PCOR", "RDDT"}.isdisjoint(founder_tickers)
     assert {"COST", "CMG", "DUOL", "ABNB", "NFLX", "DASH"}.issubset(circle_tickers)
     assert {"CME", "IBKR", "NET", "MSFT", "GOOGL", "SNOW"}.issubset(excluded_tickers)
     assert not circle_tickers & excluded_tickers
-    assert {"ABNB", "DASH", "DUOL", "RDDT", "RBLX", "ROKU", "YELP"}.issubset(
+    assert {"ABNB", "DASH", "DUOL", "RBLX", "ROKU", "YELP"}.issubset(
         founder_tickers & circle_tickers
     )
+    assert "RDDT" in circle_tickers
 
 
 def test_current_ceo_mismatch_holds_founder_record_for_recheck():

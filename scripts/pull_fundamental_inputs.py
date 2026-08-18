@@ -30,6 +30,13 @@ OPTIONAL = {
     "fundamental/current/sec_latest.parquet": (
         ROOT / "data" / "fundamental" / "current" / "sec_latest.parquet"
     ),
+    "fundamental/current/underwrite_decisions_latest.json": (
+        ROOT
+        / "data"
+        / "fundamental"
+        / "current"
+        / "underwrite_decisions_latest.json"
+    ),
     "fundamental/site_state.json": (
         ROOT / "data" / "fundamental" / "current" / "site_state_latest.json"
     ),
