@@ -5,7 +5,7 @@
      - Positions panel  (live read-only book from the agent) + row actions
      - Open Orders panel (live working orders) + Cancel
      - Scheduled closing orders (legs that fire at today's close)
-     - New Order ticket: entry bracket (+ optional time stop) / close-only / flatten / echo
+     - New Order ticket: entry bracket / scheduled option buy / close-only / flatten / echo
      - Activity: recent commands + results
 
    Commands execute LIVE when the agent is armed (mode banner amber) and DRY-RUN
@@ -127,11 +127,12 @@ function shell() {
 
     <div class="card" style="max-width:760px;margin-top:18px">
       <div style="font:700 14px inherit;margin-bottom:4px">New order</div>
-      <p class="cap" style="margin:0 0 10px">Bracket: stock, futures, or USD-pair FX entry as <b>limit</b> or <b>market</b>; stock entries also support <b>market-on-close</b>. Market and MOC tickets use the typed price only as a risk/reference estimate&mdash;it is not price protection. Stop, target, <b>time stop</b> (closes at market 15:59 ET on that date), and limit-entry expiry are optional. <b>Primary futures are uncapped</b>: IBKR buying power and exchange limits are the hard constraints; large stopped risk and unprotected entries require a secondary approval. PA keeps its $30k futures ceiling. <b>Attach exits</b> adds a stop / target / time-stop OCA group. <b>Close only</b> leaves working orders untouched; <b>Flatten</b> cancels them before closing. Submits per the mode banner above &mdash; live when armed.</p>
+      <p class="cap" style="margin:0 0 10px">Bracket: stock, futures, or USD-pair FX entry as <b>limit</b> or <b>market</b>; stock entries also support <b>market-on-close</b>. <b>Scheduled option buy</b> waits until the specified ET time, then resolves the live chain, chooses the nearest target-delta call or put, sizes from the current ask, and submits a SMART market order. Its premium budget is approximate because the market fill can slip. Stop, target, <b>time stop</b> (closes at market 15:59 ET on that date), and limit-entry expiry are optional. <b>Primary futures are uncapped</b>: IBKR buying power and exchange limits are the hard constraints; large stopped risk and unprotected entries require a secondary approval. PA keeps its $30k futures ceiling. <b>Attach exits</b> adds a stop / target / time-stop OCA group. <b>Close only</b> leaves working orders untouched; <b>Flatten</b> cancels them before closing. Submits per the mode banner above &mdash; live when armed.</p>
       <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:8px">
         <label class="cap">Type</label>
         <select id="cmdType">
           <option value="entry_bracket">entry bracket</option>
+          <option value="scheduled_option">scheduled option buy</option>
           <option value="exit_attach">attach exits</option>
           <option value="close_only">close only (leave orders)</option>
           <option value="flatten">flatten</option>
@@ -222,7 +223,7 @@ function deriveExecMode(book, status, now = Date.now()) {
 function execMode() { return deriveExecMode(state.book, state.status); }
 const MUTATING_COMMANDS = new Set([
   "entry_bracket", "close_only", "flatten", "cancel", "modify", "trim_readd", "add_to_position",
-  "exit_attach",
+  "exit_attach", "scheduled_option", "scheduled_option_cancel",
 ]);
 function mutationBlocked(type) {
   return execMode() === "unknown" && (!type || MUTATING_COMMANDS.has(type));
@@ -847,7 +848,8 @@ window.execModifySave = execModifySave;
 // across cmdType toggles so switching Type and back doesn't wipe a typed ticket.
 const ticketDraft = {};
 const TICKET_FIELDS = ["f_note", "f_symbol", "f_qty", "f_entry_type", "f_entry", "f_stop", "f_target", "f_expiry", "f_timestop",
-                       "f_currency", "f_futexch", "fl_qty", "fl_pct", "fl_limit"];
+                       "f_currency", "f_futexch", "fl_qty", "fl_pct", "fl_limit", "so_symbol", "so_right",
+                       "so_delta", "so_budget", "so_date", "so_time", "so_expiry_mode", "so_min_dte", "so_expiry"];
 function snapshotTicket() {
   TICKET_FIELDS.forEach((id) => { const e = document.getElementById(id); if (e) ticketDraft[id] = e.value; });
 }
@@ -861,6 +863,25 @@ function syncFields() {
   const f = document.getElementById("cmdFields");
   if (t === "echo") {
     f.innerHTML = `<label class="cap">Note</label>${inp("f_note", "ping from site", 200)}`;
+  } else if (t === "scheduled_option") {
+    const right = String(ticketDraft.so_right || "P").toUpperCase();
+    const mode = ticketDraft.so_expiry_mode || "min_dte";
+    f.innerHTML = `<label class="cap">Underlying</label>${inp("so_symbol", "SPY", 80)}
+      <label class="cap">Right</label><select id="so_right"><option value="P"${right === "P" ? " selected" : ""}>Put</option><option value="C"${right === "C" ? " selected" : ""}>Call</option></select>
+      <label class="cap">Abs delta</label><input id="so_delta" value="${esc(ticketDraft.so_delta != null ? ticketDraft.so_delta : "0.15")}" style="width:68px">
+      <label class="cap">Premium $</label><input id="so_budget" value="${esc(ticketDraft.so_budget != null ? ticketDraft.so_budget : "1000")}" style="width:82px">
+      <label class="cap">Execute (ET)</label><input type="date" id="so_date" value="${esc(ticketDraft.so_date || "")}" style="width:140px">
+      <input type="time" id="so_time" value="${esc(ticketDraft.so_time || "15:45")}" style="width:108px">
+      <label class="cap">Expiry rule</label><select id="so_expiry_mode"><option value="min_dte"${mode === "min_dte" ? " selected" : ""}>minimum DTE</option><option value="specific"${mode === "specific" ? " selected" : ""}>specific expiry</option></select>
+      <span id="so_min_dte_wrap"><label class="cap">Days</label><input id="so_min_dte" value="${esc(ticketDraft.so_min_dte != null ? ticketDraft.so_min_dte : "30")}" style="width:58px"></span>
+      <span id="so_expiry_wrap"><label class="cap">Expiry</label><input type="date" id="so_expiry" value="${esc(ticketDraft.so_expiry || "")}" style="width:140px"></span>`;
+    const expiryMode = document.getElementById("so_expiry_mode");
+    if (expiryMode) expiryMode.addEventListener("change", () => {
+      ticketDraft.so_expiry_mode = expiryMode.value;
+      syncScheduledExpiryFields();
+      updateReadout();
+    });
+    syncScheduledExpiryFields();
   } else if (t === "flatten" || t === "close_only") {
     // Close ticket: shares (takes precedence) or any percentage; MKT (RTH,
     // fill-gated) or LMT (resting close — required for outside-RTH). close_only
@@ -941,6 +962,14 @@ function syncFields() {
     syncEntryTypeFields();
   }
   updateReadout();
+}
+
+function syncScheduledExpiryFields() {
+  const mode = val("so_expiry_mode") || ticketDraft.so_expiry_mode || "min_dte";
+  const dte = document.getElementById("so_min_dte_wrap");
+  const exact = document.getElementById("so_expiry_wrap");
+  if (dte) dte.style.display = mode === "min_dte" ? "contents" : "none";
+  if (exact) exact.style.display = mode === "specific" ? "contents" : "none";
 }
 
 function entryType() {
@@ -1150,11 +1179,48 @@ function attachWarnings() {
   return warns;
 }
 
+function scheduledOptionWarnings() {
+  const warns = [];
+  const sym = String(val("so_symbol") || "").toUpperCase().trim();
+  const right = String(val("so_right") || "").toUpperCase();
+  const delta = numOrNull("so_delta"), budget = numOrNull("so_budget");
+  const date = val("so_date"), time = val("so_time");
+  const mode = val("so_expiry_mode") || "min_dte";
+  if (state.account !== "primary") warns.push("scheduled options are enabled for Primary only");
+  if (!/^[A-Z][A-Z0-9.]{0,9}$/.test(sym)) warns.push("enter a valid stock or ETF underlying");
+  if (!['P', 'C'].includes(right)) warns.push("choose put or call");
+  if (!(delta >= 0.01 && delta <= 0.50)) warns.push("absolute delta must be between 0.01 and 0.50");
+  if (!(budget > 0)) warns.push("premium budget must be > 0");
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date || "")) warns.push("execution date required");
+  if (!/^\d{2}:\d{2}$/.test(time || "")) warns.push("execution time required");
+  if (date && time) {
+    const when = new Date(`${date}T${time}:00`);
+    if (!Number.isFinite(when.getTime()) || when.getTime() <= Date.now()) warns.push("execution time must be in the future");
+  }
+  if (mode === "min_dte") {
+    const dte = numOrNull("so_min_dte");
+    if (!(dte >= 0 && dte <= 730) || dte !== Math.round(dte)) warns.push("minimum DTE must be a whole number from 0 to 730");
+  } else if (mode === "specific") {
+    const expiry = val("so_expiry");
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(expiry || "")) warns.push("specific expiry required");
+    else if (date && expiry < date) warns.push("specific expiry cannot precede the execution date");
+  } else warns.push("choose an expiry rule");
+  return warns;
+}
+
 function updateReadout() {
   const t = document.getElementById("cmdType").value;
   const el = document.getElementById("ticketReadout");
   if (!el) return;
-  if (t === "entry_bracket") {
+  if (t === "scheduled_option") {
+    const warns = scheduledOptionWarnings();
+    if (warns.length) { el.innerHTML = `<span style="color:#ff6b6b">${warns.map(esc).join(" &middot; ")}</span>`; return; }
+    const right = val("so_right") === "C" ? "call" : "put";
+    const expiry = val("so_expiry_mode") === "specific"
+      ? `expiry <b>${esc(val("so_expiry"))}</b>`
+      : `first listed expiry with at least <b>${esc(val("so_min_dte"))} DTE</b>`;
+    el.innerHTML = `<span style="color:#9aa3b2">At <b>${esc(val("so_date"))} ${esc(val("so_time"))} ET</b>, resolve ${esc(String(val("so_symbol")).toUpperCase())} ${right} nearest <b>${esc(val("so_delta"))} absolute delta</b>, ${expiry}, size from the live ask toward approximately <b>${fmt.money(numOrNull("so_budget"))}</b>, then send <b>MKT DAY</b>. <b style="color:#ffc14d">The fill can exceed the premium target.</b> Contract resolution expires after 5 minutes.</span>`;
+  } else if (t === "entry_bracket") {
     const isFut = (val("f_sectype") === "FUT");
     const isFx = (val("f_sectype") === "CASH");
     const sym = String(val("f_symbol") || "").toUpperCase().trim();
@@ -1244,6 +1310,19 @@ function numOrNull(id) {
 }
 function ticketPayload(t) {
   if (t === "echo") return { note: val("f_note") };
+  if (t === "scheduled_option") {
+    const mode = val("so_expiry_mode") || "min_dte";
+    return {
+      symbol: String(val("so_symbol") || "").toUpperCase().trim(),
+      right: String(val("so_right") || "P").toUpperCase(),
+      target_delta: numOrNull("so_delta"), delta_tolerance: 0.03,
+      premium_budget: numOrNull("so_budget"), order_type: "MKT", tif: "DAY",
+      execute_date: val("so_date"), execute_time: val("so_time"), timezone: "America/New_York",
+      grace_minutes: 5, expiry_mode: mode,
+      min_dte: mode === "min_dte" ? numOrNull("so_min_dte") : null,
+      expiry: mode === "specific" ? val("so_expiry") : null,
+    };
+  }
   if (t === "flatten" || t === "close_only") {
     const qn = numOrNull("fl_qty");
     const typ = val("fl_type") || "MKT";
@@ -1304,6 +1383,10 @@ function sendTicket() {
     const warns = bracketWarnings();   // hard block: never submit while any warning is up
     if (warns.length) { if (msg) msg.textContent = "BLOCKED: " + warns.join("; "); return; }
   }
+  if (t === "scheduled_option") {
+    const warns = scheduledOptionWarnings();
+    if (warns.length) { if (msg) msg.textContent = "BLOCKED: " + warns.join("; "); return; }
+  }
   if (t === "exit_attach") {
     const warns = attachWarnings();
     if (warns.length) { if (msg) msg.textContent = "BLOCKED: " + warns.join("; "); return; }
@@ -1312,7 +1395,20 @@ function sendTicket() {
     const warns = flattenWarnings();
     if (warns.length) { if (msg) msg.textContent = "BLOCKED: " + warns.join("; "); return; }
   }
-  if (t !== "echo") {
+  if (t === "scheduled_option") {
+    const expiry = p.expiry_mode === "specific" ? `expiry ${p.expiry}` : `minimum ${p.min_dte} DTE`;
+    const right = p.right === "C" ? "call" : "put";
+    if (!confirm(`${actionLead("schedule")} at ${p.execute_date} ${p.execute_time} ET, BUY approximately ${fmt.money(p.premium_budget)} of the ${p.symbol} ${right} nearest ${p.target_delta} absolute delta (${expiry}) via SMART MKT DAY on ${state.account}?\n\nThe quantity will be sized from the live ask at execution, but a market fill can exceed the premium target. The instruction expires after five minutes if it cannot run.`)) return;
+    const ab = acctBook();
+    const nlv = Number(ab && ab.nlv);
+    if (!(nlv > 0)) {
+      if (!confirm(`SECONDARY RISK APPROVAL\n\nCurrent NLV is unavailable. The scheduled option premium target is ${fmt.money(p.premium_budget)} and the eventual market fill can be higher. Really schedule it?`)) return;
+      p.risk_ack = true;
+    } else if (p.premium_budget > nlv * 0.05) {
+      if (!confirm(`SECONDARY RISK APPROVAL\n\nThe scheduled option premium target is ${fmt.money(p.premium_budget)}, or ${(p.premium_budget / nlv * 100).toFixed(1)}% of NLV, and the eventual market fill can be higher. Really schedule it?`)) return;
+      p.risk_ack = true;
+    }
+  } else if (t !== "echo") {
     const inst = p.sec_type === "FUT" ? `${p.symbol} FUT ${p.fut_expiry || p.expiry || ""}`.trim()
       : p.sec_type === "CASH" ? `${p.symbol}/${p.currency || "USD"} FX` : p.symbol;
     const closeUnit = p.sec_type === "CASH" ? ` ${p.symbol} units` : " sh";
@@ -1527,6 +1623,9 @@ async function pollFront(n) {
 function stateBadge(state) {
   const map = { dry_run: ["#3ddb8f", "DRY-RUN OK"], rejected: ["#ff6b6b", "REJECTED"],
                 executed: ["#ffc14d", "EXECUTED"], duplicate: ["#9aa3b2", "duplicate"],
+                scheduled: ["#4da3ff", "SCHEDULED"], executing: ["#ffc14d", "EXECUTING"],
+                cancelled: ["#9aa3b2", "CANCELLED"], expired: ["#ff6b6b", "EXPIRED"],
+                unknown: ["#ff6b6b", "VERIFY IN TWS"],
                 pushed: ["#9aa3b2", "pushed"], error: ["#ffc14d", "ERROR"] };
   const [c, t] = map[state] || ["#9aa3b2", state || ""];
   return `<span style="color:${c};font-weight:600">${esc(t)}</span>`;
@@ -1544,8 +1643,18 @@ function resultCell(c) {
     const f = res.fill;
     html += `<div class="exec-legs" style="color:#ffc14d">filled ${esc(String(f.filled ?? "?"))} @ ${esc(String(f.avg_fill ?? "—"))} · #${esc(String(f.order_id ?? ""))} (${esc(String(f.status ?? ""))})</div>`;
   }
+  if (c.type === "scheduled_option" && c.state === "scheduled") {
+    html += `<div style="margin-top:6px"><button class="btn ghost" data-mutation onclick="cancelScheduledOption('${esc(c.id)}')">Cancel schedule</button></div>`;
+  }
   return html;
 }
+
+function cancelScheduledOption(scheduleId) {
+  if (!scheduleId || rejectUnknownMutation("cmdMsg")) return;
+  if (!confirm(`${actionLead("cancel")} scheduled option instruction ${scheduleId.slice(0, 8)} on ${state.account}?`)) return;
+  sendCommand("scheduled_option_cancel", { schedule_id: scheduleId }, "cmdMsg");
+}
+window.cancelScheduledOption = cancelScheduledOption;
 function clockTime(ms) {
   if (!ms) return "";
   try { return new Date(ms).toLocaleTimeString("en-US", { hour12: false }); } catch (e) { return ""; }

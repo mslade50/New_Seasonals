@@ -15,7 +15,7 @@ existing `sznl_entry.build_orders` / `sznl_exit.build_orders` / `read_book`).
 
 ```json
 { "id": "uuid",                       // idempotency key — agent dedups
-  "type": "entry_bracket | exit_attach | close_only | flatten | cancel | modify",
+  "type": "entry_bracket | scheduled_option | scheduled_option_cancel | exit_attach | close_only | flatten | cancel | modify",
   "account": "primary | pa",          // routes to TWS 7496 / PA Gateway 4001
   "dry_run": true,                    // agent validates + logs, transmits nothing
   "created_at": "iso", "expires_at": "iso",   // agent refuses if expired
@@ -61,6 +61,39 @@ and stop risk can be normalized to USD. CASH/FX entries have no hard notional
 ceiling, but still require a protective stop and remain subject to the
 account-NLV risk guard. CASH entry,
 stop, and target prices are snapped to IBKR's live contract tick.
+
+### `scheduled_option` (target-delta market buy resolved at trigger time)
+```json
+{ "symbol":"SPY", "right":"P", "target_delta":0.15,
+  "delta_tolerance":0.03, "premium_budget":1000,
+  "order_type":"MKT", "tif":"DAY",
+  "execute_date":"2026-08-21", "execute_time":"15:45",
+  "timezone":"America/New_York", "grace_minutes":5,
+  "expiry_mode":"min_dte", "min_dte":30, "expiry":null }
+```
+`expiry_mode:"specific"` instead carries an exact ISO `expiry`. The command is
+delivered and signature-validated immediately, then persisted on the local
+trading machine. At the trigger the agent requires live underlying and option
+quotes, resolves the exact listed expiration, chooses the same-right contract
+nearest the absolute target delta inside `delta_tolerance`, and sizes whole
+contracts as `floor(premium_budget / (live_ask * 100))`. It then submits one
+SMART `MKT DAY` buy. The budget is an ask-based target, not a hard fill cap;
+market slippage can make realized premium larger.
+
+The instruction expires without transmission after its grace window. Frozen or
+delayed data, missing Greeks/ask/conId, an unavailable specific expiration, no
+expiration at or beyond minimum DTE, a delta miss outside tolerance, or a budget
+below one ask-priced contract all reject fail-closed. The persisted state is set
+to `executing` before the transmit subprocess starts; a process or connection
+loss from that point becomes `unknown` and is never automatically retried.
+
+### `scheduled_option_cancel`
+```json
+{ "schedule_id":"original-scheduled-option-command-uuid" }
+```
+Cancels only a still-pending locally persisted instruction. The original command
+record is updated to `cancelled`; an already executing or terminal instruction
+cannot be cancelled through this command.
 
 ### `exit_attach`  (IMPLEMENTED 2026-07-27 — single-rung; ladder rungs deferred)
 ```json

@@ -25,6 +25,7 @@ import { DurableObject } from "cloudflare:workers";
 const BROKER_NAME = "main";          // single book -> single DO instance
 const HEARTBEAT_STALE_MS = 30_000;   // online iff a heartbeat landed within this
 const CMD_CAP = 50;                  // recent-command ring size (audit trail)
+const SCHEDULED_CMD_CAP = 100;       // long-lived option schedules survive recent-ring churn
 const FILLS_RETENTION_DAYS = 14;     // Trade Log trailing window
 const FILLS_DAY_CAP = 500;           // per-day row cap (keeps each value < DO 128KiB limit)
 
@@ -92,7 +93,8 @@ export class ExecBroker extends DurableObject {
       // (retry after a client-side timeout/error) — do NOT push it to the agent
       // again; return the existing record so the client can display it.
       const recent = (await this.ctx.storage.get("recent_commands")) || [];
-      const existing = recent.find((r) => r.id === cmd.id);
+      const scheduled = (await this.ctx.storage.get("scheduled_commands")) || [];
+      const existing = recent.find((r) => r.id === cmd.id) || scheduled.find((r) => r.id === cmd.id);
       if (existing) {
         return Response.json({ ok: true, deduped: true, id: cmd.id, state: existing.state, command: existing });
       }
@@ -105,6 +107,10 @@ export class ExecBroker extends DurableObject {
       if (sockets.length > 1) record.sockets_at_delivery = sockets.length;
       recent.unshift(record);
       await this.ctx.storage.put("recent_commands", recent.slice(0, CMD_CAP));
+      if (cmd.type === "scheduled_option") {
+        scheduled.unshift({ ...record });
+        await this.ctx.storage.put("scheduled_commands", scheduled.slice(0, SCHEDULED_CMD_CAP));
+      }
       this._newestSocket(sockets).send(JSON.stringify({ type: "command", signed, sig }));
       return Response.json({ ok: true, id: cmd.id, state: "pushed" });
     }
@@ -113,7 +119,11 @@ export class ExecBroker extends DurableObject {
     if (url.pathname === "/commands") {
       if (!this._authed(request, this.env.STATUS_TOKEN)) return new Response("unauthorized", { status: 401 });
       const recent = (await this.ctx.storage.get("recent_commands")) || [];
-      return Response.json({ commands: recent, server_now: Date.now() });
+      const scheduled = (await this.ctx.storage.get("scheduled_commands")) || [];
+      const ids = new Set(recent.map((r) => r.id));
+      const commands = recent.concat(scheduled.filter((r) => !ids.has(r.id)))
+        .sort((a, b) => Number(b.created_at || 0) - Number(a.created_at || 0));
+      return Response.json({ commands, server_now: Date.now() });
     }
 
     // --- Live book (positions / orders / NLV) the site polls ---
@@ -309,6 +319,14 @@ export class ExecBroker extends DurableObject {
         recent[i].result = { ok: msg.ok, detail: msg.detail, validation: msg.validation,
                              preview: msg.preview, fill: msg.fill, at: msg.at };
         await this.ctx.storage.put("recent_commands", recent);
+      }
+      const scheduled = (await this.ctx.storage.get("scheduled_commands")) || [];
+      const si = scheduled.findIndex((r) => r.id === msg.id);
+      if (si >= 0) {
+        scheduled[si].state = msg.state || "done";
+        scheduled[si].result = { ok: msg.ok, detail: msg.detail, validation: msg.validation,
+                                 preview: msg.preview, fill: msg.fill, at: msg.at };
+        await this.ctx.storage.put("scheduled_commands", scheduled);
       }
     }
   }
