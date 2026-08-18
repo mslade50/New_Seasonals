@@ -56,6 +56,60 @@ function addTradingDays(from, n) {
   return d.toLocaleDateString("en-CA");
 }
 
+/* Deep-link prefill from the Radar tab (execution.html?stage=radar&...).
+   Unlike the Seasonal link above, which passes an ATR and lets this file DERIVE
+   stop/target from the manual-seasonal convention, the radar's book engine has
+   already decided every level. So these params are explicit and are copied in
+   verbatim — deriving anything here would be a second opinion competing with
+   the engine's. Everything lands in editable fields; nothing is sent. */
+const radarStage = (() => {
+  const q = new URLSearchParams(location.search);
+  if (q.get("stage") !== "radar") return null;
+  const sym = String(q.get("sym") || "").toUpperCase().trim();
+  const entry = parseFloat(q.get("entry") || "");
+  if (!sym || !(entry > 0)) return null;
+  const n = (k) => { const v = parseFloat(q.get(k) || ""); return v > 0 ? v : null; };
+  return {
+    sym, entry,
+    side: q.get("side") === "SELL" ? "SELL" : "BUY",
+    type: String(q.get("type") || "LMT").toUpperCase(),
+    cap: n("cap"), stop: n("stop"), target: n("target"), qty: n("qty"),
+    exp: q.get("exp") || "", ts: q.get("ts") || "",
+    strat: String(q.get("strat") || "").trim(), refdate: q.get("refdate") || "",
+  };
+})();
+
+function applyRadarPrefill() {
+  if (!radarStage) return;
+  const r = radarStage;
+  const setv = (id, v) => {
+    const e = document.getElementById(id);
+    if (e) e.value = String(v);
+    ticketDraft[id] = String(v);
+  };
+  document.getElementById("cmdType").value = "entry_bracket";
+  ticketDraft.f_entry_type = r.type;
+  syncFields();
+  const act = document.getElementById("f_action");
+  if (act) act.value = r.side;
+  const sel = document.getElementById("f_entry_type");
+  if (sel) sel.value = r.type;
+  syncEntryTypeFields();
+  setv("f_symbol", r.sym);
+  setv("f_entry", r.entry);
+  if (r.cap != null) setv("f_entry_cap", r.cap);
+  if (r.stop != null) setv("f_stop", r.stop);
+  if (r.target != null) setv("f_target", r.target);
+  if (r.qty != null) setv("f_qty", r.qty);
+  if (r.exp) setv("f_expiry", r.exp);
+  if (r.ts) setv("f_timestop", r.ts);
+  if (r.strat) setv("f_strategy", r.strat);
+  updateReadout();
+  const msg = document.getElementById("cmdMsg");
+  if (msg) msg.textContent = `prefilled from Radar — levels and size copied verbatim from the ` +
+    `book engine's plan${r.refdate ? ` (${r.refdate})` : ""}; review and send`;
+}
+
 function applyStagePrefill() {
   if (!stage) return;
   const sgn = stage.side === "BUY" ? 1 : -1;
@@ -109,6 +163,7 @@ async function initExecution() {
   });
   syncFields();
   applyStagePrefill();               // seasonal deep link: prefill the bracket ticket
+  applyRadarPrefill();               // radar deep link: verbatim levels from the book engine
   await poll();
   pollTimer = setInterval(poll, 4000);
 }

@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>Radar — Seasonals</title>
+<link rel="stylesheet" href="assets/style.css">
+<script src="assets/common.js"></script>
+<script src="assets/radar.js"></script>
+</head>
+<body data-page="radar">
+<header class="topbar" id="topbar"></header>
+<div class="wrap">
+  <h1>Momentum Radar</h1>
+  <p class="sub" id="subtitle">This week's plans from the momentum radar, published weekly by the
+    radar-briefings book engine. Every price, share count and date is copied verbatim from that engine
+    &mdash; nothing on this page is recomputed. <b>Stage</b> prefills the Execution ticket with the plan's
+    exact levels; it places nothing, and the order still goes through the Execution tab's own confirm and
+    the agent's gates. Open positions show the trail stop the engine stepped to; applying those to the live
+    book is <code>radar_trail_sync.py</code>, not this page.</p>
+  <div id="content"><div class="spin">Loading...</div></div>
+  <footer>Source: radar-briefings <code>data/recs/</code> via R2. Plans expire &mdash; check the fill window before staging.</footer>
+</div>
+</body>
+</html>
