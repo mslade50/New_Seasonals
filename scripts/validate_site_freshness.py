@@ -42,7 +42,7 @@ def _same_build(left: Any, right: Any) -> bool:
         return False
 
 
-def validate_site(out_dir: str) -> list[str]:
+def validate_site(out_dir: str, *, require_r2_provenance: bool = False) -> list[str]:
     data_dir = os.path.join(out_dir, "data")
     meta = _read_json(os.path.join(data_dir, "meta.json"))
     health = _read_json(os.path.join(data_dir, "health.json"))
@@ -50,12 +50,27 @@ def validate_site(out_dir: str) -> list[str]:
     ideas = _read_json(os.path.join(data_dir, "ideas.json"))
     signals = _read_json(os.path.join(data_dir, "signals.json"))
     fundamentals = _read_json(os.path.join(data_dir, "fundamentals.json"))
+    provenance = _read_json(os.path.join(data_dir, "provenance.json"))
     problems: list[str] = []
 
     if meta is None:
         return ["data/meta.json is missing or unreadable"]
     if health is None:
         return ["data/health.json is missing or unreadable"]
+
+    if require_r2_provenance:
+        meta_provenance = meta.get("data_provenance") or {}
+        if meta_provenance.get("mode") != "r2-only":
+            problems.append("meta.json does not certify an R2-only build")
+        if provenance is None or provenance.get("mode") != "r2-only":
+            problems.append("data/provenance.json is missing or not R2-only")
+        elif (
+            str(provenance.get("run_id")) != str(meta_provenance.get("run_id"))
+            or provenance.get("source_sha") != meta_provenance.get("source_sha")
+        ):
+            problems.append("meta.json and provenance.json identify different builds")
+        elif not provenance.get("entries"):
+            problems.append("R2 provenance contains no materialized inputs")
 
     flags = meta.get("payloads") or {}
     artifacts = health.get("artifacts") or {}
@@ -132,8 +147,16 @@ def validate_site(out_dir: str) -> list[str]:
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--out", default="dist", help="assembled site directory")
+    parser.add_argument(
+        "--require-r2-provenance",
+        action="store_true",
+        help="block any artifact not assembled from the R2-only cloud boundary",
+    )
     args = parser.parse_args()
-    problems = validate_site(os.path.abspath(args.out))
+    problems = validate_site(
+        os.path.abspath(args.out),
+        require_r2_provenance=args.require_r2_provenance,
+    )
     if problems:
         print("SITE DEPLOY BLOCKED: freshness validation failed")
         for problem in problems:

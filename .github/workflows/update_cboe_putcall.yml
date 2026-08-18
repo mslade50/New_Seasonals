@@ -103,10 +103,18 @@ jobs:
           python-version: '3.10'
 
       - name: Install dependencies
-        run: pip install pandas pyarrow
+        run: pip install pandas pyarrow boto3 python-dotenv
 
       - name: Backfill missing days
         run: python -m cboe_putcall --start 2024-01-01 --assert-fresh-bd 2
+
+      - name: Publish private-site put/call input to R2
+        env:
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+        run: python scripts/site_r2_pipeline.py publish-group --group cboe
 
       - name: Commit + push updated parquet
         run: |

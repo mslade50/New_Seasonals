@@ -1,9 +1,14 @@
 name: Deploy Private Site
 
-# Builds the static private analytics site (full-history trade ledger ->
-# client-side analytics app) and deploys it to Cloudflare Pages, behind
-# Cloudflare Access. See docs/private_site_setup.md for the one-time
-# Cloudflare configuration.
+# R2-only production pipeline for the private analytics site. The repository
+# checkout is source code only: both build workspaces are staged without
+# data/, dist/, charts/, local credentials, or generated artifacts.
+#
+# generator: R2 canonical inputs -> ledger / ideas / risk -> immutable R2 bundle
+# assembler: R2 canonical inputs + that exact R2 bundle -> dist/ -> Pages
+#
+# Cloudflare's independent Git deployments are disabled and verified below, so
+# this workflow is the sole production path.
 #
 # Trigger: invoked as a REUSABLE WORKFLOW (workflow_call) from a dependent
 # `deploy-site` job at the tail of daily_screener.yml (needs: run-scanner),
@@ -35,9 +40,15 @@ on:
 jobs:
   build-deploy:
     runs-on: ubuntu-latest
+    env:
+      PRIVATE_SITE_CLOUD_BUILD: "1"
+      GENERATOR_ROOT: generator
+      ASSEMBLER_ROOT: assembler
     steps:
       - name: Checkout repo
         uses: actions/checkout@v4
+        with:
+          path: source
 
       - name: Set up Python
         uses: actions/setup-python@v4
@@ -47,19 +58,28 @@ jobs:
       - name: Install dependencies
         run: |
           pip install --upgrade pip
-          pip install -r requirements.txt
+          pip install -r source/requirements.txt
 
-      - name: Pull caches from R2
+      - name: Refuse Cloudflare Git auto-deploy bypass
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: python source/scripts/cloudflare_pages_guard.py check
+
+      - name: Stage data-free generator workspace
+        run: python source/scripts/stage_private_site_cloud_build.py --source source --dest "$GENERATOR_ROOT"
+
+      - name: Pull generator inputs from R2 (fail closed)
+        working-directory: generator
         env:
           R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
           R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
           R2_BUCKET: ${{ secrets.R2_BUCKET }}
-        # Fail-closed on load-bearing keys: a silently failed pull used to
-        # build a degraded ledger that --upload then wrote over the prod key.
-        run: python scripts/pull_scan_caches.py --set site
+        run: python scripts/site_r2_pipeline.py pull --phase generator --root .
 
       - name: Build full-history trade ledger
+        working-directory: generator
         # R2 env needed: build_trade_ledger mirrors the ledger to R2 for
         # daily_scan's sector_loss_gate (without it the upload silently
         # no-ops and the gate reads a stale ledger). --upload is required:
@@ -75,6 +95,7 @@ jobs:
         run: python scripts/build_trade_ledger.py --upload
 
       - name: Render signal charts -> R2 (incremental, or full on dispatch flag; best effort)
+        working-directory: generator
         continue-on-error: true
         env:
           R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
@@ -90,6 +111,7 @@ jobs:
           fi
 
       - name: Build daily seasonal ideas (required freshness input)
+        working-directory: generator
         env:
           OVERFLOW_UNIVERSE_ACTIVE: "0"
           # R2 creds so the forward track-record ledger syncs: without them
@@ -103,34 +125,54 @@ jobs:
         run: python daily_seasonal_ideas.py
 
       - name: Refresh ATR downside stats (best effort — full-history signal tables for the risk tab)
-        continue-on-error: true
+        working-directory: generator
         run: python scripts/build_atr_downside_stats.py
 
-      - name: Build risk summary JSON (best effort, always exits 0)
+      - name: Build risk summary JSON (required R2 bundle input)
+        working-directory: generator
         run: python scripts/build_risk_json.py
 
-      - name: Build site
+      - name: Publish immutable generated bundle to R2
+        working-directory: generator
         env:
-          GCP_JSON: ${{ secrets.GCP_JSON }}
-          OVERFLOW_UNIVERSE_ACTIVE: "0"
-          # R2 needed here too: build_site pulls options/iv_history.parquet
-          # (iv_context payload) and publishes universe/liquid.json
           R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
           R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
           R2_BUCKET: ${{ secrets.R2_BUCKET }}
-        run: python scripts/build_site.py
+        run: python scripts/site_r2_pipeline.py publish-generated --root . --run-id "${{ github.run_id }}-${{ github.run_attempt }}"
 
-      - name: Refuse stale or incomplete site data
-        run: python scripts/validate_site_freshness.py --out dist
+      - name: Stage data-free assembler workspace
+        run: python source/scripts/stage_private_site_cloud_build.py --source source --dest "$ASSEMBLER_ROOT"
+
+      - name: Pull exact deployment inputs back from R2
+        working-directory: assembler
+        env:
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+        run: python scripts/site_r2_pipeline.py pull --phase assembler --root . --run-id "${{ github.run_id }}-${{ github.run_attempt }}"
+
+      - name: Build site from R2-provenanced inputs
+        working-directory: assembler
+        env:
+          GCP_JSON: ${{ secrets.GCP_JSON }}
+          OVERFLOW_UNIVERSE_ACTIVE: "0"
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+        run: python scripts/build_site.py --production
+
+      - name: Refuse stale, incomplete, or unprovenanced site data
+        working-directory: assembler
+        run: python scripts/validate_site_freshness.py --out dist --require-r2-provenance
 
       - name: Deploy to Cloudflare Pages
         uses: cloudflare/wrangler-action@v3
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          # No positional dir: wrangler.toml sets pages_build_output_dir=dist
-          # and binds the CHARTS R2 bucket for functions/chartimg/[[path]].js.
-          # (wrangler.toml, not .jsonc: the action's wrangler 3.90.0 only reads
-          #  pages_build_output_dir from .toml.)
+          workingDirectory: assembler
+          # The Pages config exists only in the isolated assembler workspace.
           command: pages deploy --project-name=seasonals-mslade --branch=main

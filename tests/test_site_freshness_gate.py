@@ -119,3 +119,26 @@ def test_fundamentals_must_explicitly_disable_live_actions(tmp_path):
 
     problems = validate_site(str(tmp_path))
     assert any("does not explicitly disable live actions" in problem for problem in problems)
+
+
+def test_production_gate_requires_matching_r2_provenance(tmp_path):
+    data = _site(tmp_path)
+    meta = json.loads((data / "meta.json").read_text(encoding="utf-8"))
+    meta["data_provenance"] = {
+        "mode": "r2-only",
+        "run_id": "123",
+        "source_sha": "abc",
+    }
+    _write(data / "meta.json", meta)
+    _write(data / "provenance.json", {
+        "mode": "r2-only",
+        "run_id": "123",
+        "source_sha": "abc",
+        "entries": [{"name": "master_prices"}],
+    })
+    assert validate_site(str(tmp_path), require_r2_provenance=True) == []
+
+    meta["data_provenance"]["run_id"] = "other"
+    _write(data / "meta.json", meta)
+    problems = validate_site(str(tmp_path), require_r2_provenance=True)
+    assert any("identify different builds" in problem for problem in problems)

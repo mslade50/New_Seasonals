@@ -1,0 +1,37 @@
+name: Lock + Seed Private Site R2 Sources
+
+# One-time/bootstrap repair workflow. It disables Cloudflare's independent Git
+# builds, then publishes the small canonical inputs that are intentionally
+# maintained in Git until their normal producer workflows take over.
+
+on:
+  workflow_dispatch:
+
+jobs:
+  lock-seed:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+
+      - name: Install dependencies
+        run: pip install boto3 python-dotenv
+
+      - name: Disable Cloudflare Git production and preview deployments
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: python scripts/cloudflare_pages_guard.py disable
+
+      - name: Seed canonical private-site inputs in R2
+        env:
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+        run: python scripts/site_r2_pipeline.py publish-group --group bootstrap

@@ -82,20 +82,29 @@ Actions -> **Deploy Private Site** -> Run workflow. Takes ~10-15 min
 
 ## Architecture notes
 
-- **Build pipeline** (all in the workflow): R2 caches ->
-  `scripts/build_trade_ledger.py` (full-history ledger) ->
-  `daily_seasonal_ideas.py` (best effort) -> `scripts/build_risk_json.py`
-  (best effort) -> `scripts/build_site.py` (JSON payloads + static assets ->
-  `dist/`) -> wrangler deploy.
+- **R2-only production boundary**: `deploy_site.yml` stages tracked source code
+  into a clean generator workspace while excluding `data/`, `dist/`, charts,
+  reports, local credentials, and the repository Wrangler config. The
+  generator downloads every file-backed input from R2 and publishes its
+  outputs under an immutable `site/builds/<run-id>-<attempt>/` prefix. A
+  second clean assembler downloads that exact R2 bundle, verifies every
+  SHA-256 digest, rejects any extra file, builds `dist/`, and passes the R2
+  provenance/freshness gate before Wrangler can run.
+- **Single deploy path**: Cloudflare Git production and preview deployments
+  are disabled by `seed_site_r2.yml`; every official deployment rechecks that
+  setting and fails closed if it changes. The repository `wrangler.toml` is
+  deliberately non-deployable. The real Pages config exists only inside the
+  isolated GitHub Actions assembler.
 - **Client-side recompute**: the browser gets the full trade ledger
   (`trades.json`) plus per-strategy daily MTM series on the flat $750k basis
   (`strategy_daily.json`). Strategy/tier/date filters recompute equity, Sharpe,
   drawdown, heatmaps, tables exactly; direction/ticker filters fall back to
   realized-PnL-at-exit curves (badge appears).
-- **Local dev**: `python scripts/build_site.py --no-signals` then
+- **Local dev (never a production input)**: `python scripts/build_site.py --no-signals` then
   `python -m http.server 8123 --directory dist` and open
   `http://localhost:8123`. `--no-mtm` skips the slow payloads when iterating
-  on frontend only (pair with a previously built `dist/data/`).
+  on frontend only (pair with a previously built `dist/data/`). The local
+  tree has no deployable Pages output configuration.
 - **Payload sizes**: trades 0.6 MB, strategy_daily 0.7 MB raw — Cloudflare
   gzips on the wire. `site/_headers` sets `Cache-Control: no-store` on
   `/data/*` so you always see the latest build.

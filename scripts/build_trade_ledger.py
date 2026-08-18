@@ -115,7 +115,9 @@ def _write_ledger_with_meta(df, path, meta):
 def _prior_vintage_path():
     """Previous ledger vintage for the churn diff: the local file if present
     (about to be overwritten), else a best-effort R2 pull (GHA deploy job
-    starts from a clean checkout)."""
+    starts from a clean checkout). The temporary prior is left in the
+    ephemeral cloud workspace; production code never performs cleanup or
+    deletion as part of a build."""
     if os.path.exists(OUT_PARQUET):
         return OUT_PARQUET
     try:
@@ -539,11 +541,6 @@ def main(upload=False):
     prior = _prior_vintage_path()
     if prior:
         _diff_vs_prior(df, prior)
-        if prior.endswith(".prior"):
-            try:
-                os.remove(prior)
-            except OSError:
-                pass
 
     _write_ledger_with_meta(df, OUT_PARQUET, _provenance_meta(len(df)))
     print(f"\n  Wrote {len(df)} trades -> {OUT_PARQUET}")
@@ -562,9 +559,10 @@ def main(upload=False):
     if upload:
         try:
             from cache_io import upload_from_local
-            upload_from_local(OUT_PARQUET, "backtest_trades_full.parquet")
+            if not upload_from_local(OUT_PARQUET, "backtest_trades_full.parquet"):
+                raise RuntimeError("R2 ledger upload returned false")
         except Exception as e:
-            print(f"  (R2 mirror skipped: {e})")
+            raise RuntimeError(f"R2 ledger upload failed: {e}") from e
     else:
         print("  (R2 mirror skipped: run with --upload to overwrite the prod ledger key)")
 

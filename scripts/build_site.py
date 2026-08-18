@@ -54,6 +54,7 @@ Usage:
 """
 import argparse
 import datetime
+import hashlib
 import json
 import math
 import os
@@ -86,6 +87,7 @@ from pages.strat_backtester import (
 from signal_chart_common import chart_relpath, trade_geometry, lookup_prices
 from scripts.seasonality_site_data import export_seasonality_snapshot
 from scripts.macro_site_data import export_macro_snapshot
+from scripts.site_r2_pipeline import CANONICAL_INPUTS, GENERATED_INPUTS, PROVENANCE_PATH
 from fundamental.site_payload import build_fundamental_site_payload
 
 LEDGER = os.path.join(_ROOT, "data", "backtest_trades_full.parquet")
@@ -184,6 +186,83 @@ def write_json(obj, path):
     with open(path, "w", encoding="utf-8") as f:
         json.dump(obj, f, separators=(",", ":"), ensure_ascii=False)
     print(f"  wrote {os.path.relpath(path, _ROOT)}  ({os.path.getsize(path)/1024:.0f} KB)")
+
+
+def _file_sha256(path):
+    digest = hashlib.sha256()
+    with open(path, "rb") as handle:
+        for block in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(block)
+    return digest.hexdigest()
+
+
+def load_production_provenance():
+    """Validate the R2-only assembler boundary before reading any site data."""
+    if os.environ.get("GITHUB_ACTIONS", "").lower() != "true":
+        raise RuntimeError("production site assembly is GitHub-Actions-only")
+    if os.environ.get("PRIVATE_SITE_CLOUD_BUILD") != "1":
+        raise RuntimeError("PRIVATE_SITE_CLOUD_BUILD=1 is required")
+    marker = os.path.join(_ROOT, ".private-site-cloud-stage.json")
+    if not os.path.isfile(marker):
+        raise RuntimeError("isolated cloud-stage marker is missing")
+
+    path = os.path.join(_ROOT, PROVENANCE_PATH)
+    try:
+        with open(path, encoding="utf-8") as handle:
+            provenance = json.load(handle)
+    except Exception as exc:
+        raise RuntimeError(f"R2 provenance is missing or unreadable: {exc}") from exc
+    if provenance.get("mode") != "r2-only" or provenance.get("phase") != "assembler":
+        raise RuntimeError("R2 provenance is not an assembler manifest")
+    expected_run = os.environ.get("GITHUB_RUN_ID")
+    run_attempt = os.environ.get("GITHUB_RUN_ATTEMPT")
+    if expected_run and run_attempt:
+        expected_run = f"{expected_run}-{run_attempt}"
+    if expected_run and str(provenance.get("run_id")) != str(expected_run):
+        raise RuntimeError("R2 provenance belongs to a different GitHub run")
+    expected_sha = os.environ.get("GITHUB_SHA")
+    if expected_sha and provenance.get("source_sha") != expected_sha:
+        raise RuntimeError("R2 provenance source SHA does not match the checked-out workflow SHA")
+
+    entries = provenance.get("entries") or []
+    by_name = {entry.get("name"): entry for entry in entries}
+    required_names = {
+        item.name for item in CANONICAL_INPUTS if item.required
+    } | {item.name for item in GENERATED_INPUTS}
+    missing = sorted(required_names - set(by_name))
+    if missing:
+        raise RuntimeError(f"R2 provenance is missing required inputs: {', '.join(missing)}")
+
+    allowed_files = {
+        os.path.normcase(os.path.abspath(os.path.join(_ROOT, entry["path"])))
+        for entry in entries
+    }
+    allowed_files.update({
+        os.path.normcase(os.path.abspath(path)),
+        os.path.normcase(os.path.abspath(os.path.join(_ROOT, "data", ".site-generated-bundle.json"))),
+    })
+    for entry in entries:
+        local = os.path.abspath(os.path.join(_ROOT, entry["path"]))
+        if os.path.commonpath([_ROOT, local]) != os.path.abspath(_ROOT):
+            raise RuntimeError(f"R2 provenance path escapes the build root: {entry['path']}")
+        if not os.path.isfile(local):
+            raise RuntimeError(f"R2-provenanced input is missing: {entry['path']}")
+        if _file_sha256(local) != entry.get("sha256"):
+            raise RuntimeError(f"R2-provenanced input digest changed: {entry['path']}")
+
+    # The assembler starts data-empty and materializes only the R2 manifest.
+    # Reject any extra file so a future workflow edit cannot reintroduce a
+    # checked-in or cached data fallback without tripping production.
+    data_root = os.path.join(_ROOT, "data")
+    for current, _dirs, files in os.walk(data_root):
+        for name in files:
+            candidate = os.path.normcase(os.path.abspath(os.path.join(current, name)))
+            if candidate not in allowed_files:
+                raise RuntimeError(
+                    "unprovenanced file exists at the production boundary: "
+                    + os.path.relpath(candidate, _ROOT)
+                )
+    return provenance
 
 
 def col_list(series, kind="auto", nd=4):
@@ -1634,7 +1713,10 @@ def build_option_surface_context():
     Percentiles stay None until at least 20 observations exist; the browser
     renders that as COLLECTING HISTORY rather than inventing a neutral rank.
     """
-    cache_io.download_to_local(SURFACE_HISTORY_R2_KEY, OPTION_SURFACE_HISTORY)
+    # Production assembly already pulled and digest-verified this object in a
+    # data-empty workspace. Do not mutate it after the provenance gate.
+    if os.environ.get("PRIVATE_SITE_CLOUD_BUILD") != "1":
+        cache_io.download_to_local(SURFACE_HISTORY_R2_KEY, OPTION_SURFACE_HISTORY)
     if not os.path.exists(OPTION_SURFACE_HISTORY):
         print("  option_surface: no nightly surface history yet")
         return None
@@ -1678,7 +1760,8 @@ def build_iv_context():
     """Per-ticker IV rank / percentile / sparkline from the local-agent-maintained
     IV history (R2 options/iv_history.parquet), plus Yang-Zhang realized vol at
     10/21/63d from master_prices. Absent cache -> None (site badges NO IV HISTORY)."""
-    cache_io.download_to_local(IV_HISTORY_R2_KEY, IV_HISTORY)
+    if os.environ.get("PRIVATE_SITE_CLOUD_BUILD") != "1":
+        cache_io.download_to_local(IV_HISTORY_R2_KEY, IV_HISTORY)
     if not os.path.exists(IV_HISTORY):
         print("  iv_context: no iv_history.parquet (local agent hasn't seeded it yet)")
         return None
@@ -2282,9 +2365,28 @@ def main():
         action="store_true",
         help="development only: allow a build from stale ledger/price caches",
     )
+    ap.add_argument(
+        "--production",
+        action="store_true",
+        help="require an isolated GitHub Actions assembler populated only from R2",
+    )
     args = ap.parse_args()
     out_dir = args.out
     data_dir = os.path.join(out_dir, "data")
+
+    provenance = None
+    if args.production:
+        if args.allow_stale_data or args.no_mtm or args.no_signals:
+            print("FATAL: production builds cannot use development bypass flags")
+            sys.exit(2)
+        try:
+            provenance = load_production_provenance()
+        except Exception as exc:
+            print(f"FATAL: production R2 provenance check failed: {exc}")
+            sys.exit(2)
+        if os.path.exists(out_dir):
+            print("FATAL: production output already exists; refusing an incremental build")
+            sys.exit(2)
 
     print("=" * 70)
     print("BUILD SITE -> " + out_dir)
@@ -2518,6 +2620,27 @@ def main():
         "strategies": strat_counts,
         "payloads": flags,
     }
+    if provenance is not None:
+        public_provenance = {
+            "mode": provenance.get("mode"),
+            "phase": provenance.get("phase"),
+            "run_id": provenance.get("run_id"),
+            "source_sha": provenance.get("source_sha"),
+            "materialized_at": provenance.get("materialized_at"),
+            "entries": [
+                {k: entry.get(k) for k in (
+                    "name", "key", "path", "sha256", "etag", "last_modified", "size"
+                )}
+                for entry in provenance.get("entries") or []
+            ],
+        }
+        write_json(public_provenance, os.path.join(data_dir, "provenance.json"))
+        meta["data_provenance"] = {
+            "mode": "r2-only",
+            "run_id": provenance.get("run_id"),
+            "source_sha": provenance.get("source_sha"),
+            "input_count": len(provenance.get("entries") or []),
+        }
     write_json(meta, os.path.join(data_dir, "meta.json"))
     print("Done.")
 
