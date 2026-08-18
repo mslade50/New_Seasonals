@@ -228,7 +228,7 @@ def load_production_provenance():
     by_name = {entry.get("name"): entry for entry in entries}
     required_names = {
         item.name for item in CANONICAL_INPUTS if item.required
-    } | {item.name for item in GENERATED_INPUTS}
+    } | {item.name for item in GENERATED_INPUTS if item.required}
     missing = sorted(required_names - set(by_name))
     if missing:
         raise RuntimeError(f"R2 provenance is missing required inputs: {', '.join(missing)}")

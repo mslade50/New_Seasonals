@@ -84,7 +84,16 @@ CANONICAL_INPUTS: tuple[R2Input, ...] = (
 GENERATED_INPUTS: tuple[R2Input, ...] = (
     R2Input("ledger", "backtest_trades_full.parquet", "data/backtest_trades_full.parquet"),
     R2Input("ledger_daily", "backtest_daily_pnl.parquet", "data/backtest_daily_pnl.parquet"),
-    R2Input("ledger_nogate", "backtest_trades_nogate.parquet", "data/backtest_trades_nogate.parquet"),
+    # Optional while no strategy carries ``sector_loss_gate``.  The ledger
+    # builder intentionally omits this counterfactual in that state and the
+    # site hides the retired gate-lab panel.  If a gate is reintroduced, the
+    # generated file is still published and provenance-checked normally.
+    R2Input(
+        "ledger_nogate",
+        "backtest_trades_nogate.parquet",
+        "data/backtest_trades_nogate.parquet",
+        False,
+    ),
     R2Input("ledger_ovsext", "backtest_trades_ovsext.parquet", "data/backtest_trades_ovsext.parquet"),
     R2Input("seasonal_ideas", "daily_seasonal_ideas.json", "data/daily_seasonal_ideas.json"),
     R2Input("site_risk", "site_risk.json", "data/site_risk.json"),
@@ -210,7 +219,10 @@ def publish_generated(root: Path, run_id: str) -> dict:
     for item in GENERATED_INPUTS:
         path = root / item.path
         if not path.is_file():
-            raise RuntimeError(f"required generated site input missing: {item.path}")
+            if item.required:
+                raise RuntimeError(f"required generated site input missing: {item.path}")
+            print(f"[site-r2] optional generated input absent: {item.path}")
+            continue
         key = f"{prefix}/{item.key}"
         if not cache_io.upload_from_local(str(path), key):
             raise RuntimeError(f"failed to publish generated site input: {key}")
@@ -249,12 +261,19 @@ def pull_assembler(root: Path, run_id: str) -> dict:
     for item in GENERATED_INPUTS:
         expected = by_name.get(item.name)
         if not expected:
-            raise RuntimeError(f"generated bundle manifest missing {item.name}")
+            if item.required:
+                raise RuntimeError(f"generated bundle manifest missing {item.name}")
+            print(f"[site-r2] optional generated input absent from bundle: {item.name}")
+            continue
         expected_key = f"{prefix}/{item.key}"
         if expected.get("key") != expected_key:
             raise RuntimeError(f"generated bundle key mismatch for {item.name}")
         rec = _download(root, item, key=expected_key)
-        if rec is None or rec["sha256"] != expected.get("sha256"):
+        if rec is None:
+            if item.required:
+                raise RuntimeError(f"generated bundle object unavailable for {item.name}")
+            continue
+        if rec["sha256"] != expected.get("sha256"):
             raise RuntimeError(f"generated bundle digest mismatch for {item.name}")
         entries.append(rec)
     return _write_provenance(root, phase="assembler", run_id=str(run_id), marker=marker, entries=entries)

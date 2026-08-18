@@ -81,6 +81,39 @@ def test_two_workspace_round_trip_is_r2_only(tmp_path, monkeypatch):
         assert (assembler / item.path).read_bytes() == f"generated:{item.name}".encode()
 
 
+def test_optional_generated_input_can_be_absent_from_bundle(tmp_path, monkeypatch):
+    monkeypatch.setenv("GITHUB_ACTIONS", "true")
+    monkeypatch.setenv("PRIVATE_SITE_CLOUD_BUILD", "1")
+    canonical = {
+        item.key: f"canonical:{item.name}".encode()
+        for item in pipeline.CANONICAL_INPUTS
+        if item.required
+    }
+    store = _fake_r2(monkeypatch, canonical)
+
+    generator = tmp_path / "generator"
+    _stage(generator)
+    pipeline.pull_generator(generator)
+    for item in pipeline.GENERATED_INPUTS:
+        if item.required:
+            path = generator / item.path
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(f"generated:{item.name}".encode())
+
+    bundle = pipeline.publish_generated(generator, "optional-123")
+    assert {entry["name"] for entry in bundle["entries"]} == {
+        item.name for item in pipeline.GENERATED_INPUTS if item.required
+    }
+
+    assembler = tmp_path / "assembler"
+    _stage(assembler)
+    provenance = pipeline.pull_assembler(assembler, "optional-123")
+    names = {entry["name"] for entry in provenance["entries"]}
+    assert names >= {item.name for item in pipeline.GENERATED_INPUTS if item.required}
+    assert "ledger_nogate" not in names
+    assert not (assembler / "data/backtest_trades_nogate.parquet").exists()
+
+
 def test_pull_requires_data_empty_marked_github_workspace(tmp_path, monkeypatch):
     root = tmp_path / "stage"
     _stage(root)
