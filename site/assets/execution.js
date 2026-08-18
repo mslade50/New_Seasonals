@@ -861,7 +861,7 @@ window.execModifySave = execModifySave;
 // bracketWarnings blocks empty qty/entry/stop). ticketDraft carries the last user entry
 // across cmdType toggles so switching Type and back doesn't wipe a typed ticket.
 const ticketDraft = {};
-const TICKET_FIELDS = ["f_note", "f_symbol", "f_qty", "f_entry_type", "f_entry", "f_entry_cap", "f_stop", "f_target", "f_expiry", "f_timestop",
+const TICKET_FIELDS = ["f_note", "f_symbol", "f_qty", "f_entry_type", "f_entry", "f_entry_cap", "f_stop", "f_target", "f_expiry", "f_timestop", "f_strategy",
                        "f_currency", "f_futexch", "fl_qty", "fl_pct", "fl_limit", "so_symbol", "so_right",
                        "so_delta", "so_budget", "so_date", "so_time", "so_expiry_mode", "so_min_dte", "so_expiry"];
 function snapshotTicket() {
@@ -949,7 +949,8 @@ function syncFields() {
       <label class="cap">Target</label>${inp("f_target", "123.21", 80)}
       <span id="f_futrow"></span>
       <span id="f_expiry_wrap"><label class="cap">Entry exp</label><input type="date" id="f_expiry" value="${ticketDraft.f_expiry ? esc(ticketDraft.f_expiry) : ""}" style="width:140px"></span>
-      <label class="cap">Time stop</label><input type="date" id="f_timestop" value="${ticketDraft.f_timestop ? esc(ticketDraft.f_timestop) : ""}" style="width:140px">`;
+      <label class="cap">Time stop</label><input type="date" id="f_timestop" value="${ticketDraft.f_timestop ? esc(ticketDraft.f_timestop) : ""}" style="width:140px">
+      <label class="cap">Strategy</label>${inp("f_strategy", "blank = Discretionary", 150)}`;
     const st = document.getElementById("f_sectype");
     if (st) st.addEventListener("change", () => {
       if (val("f_sectype") === "FUT" && !futSpec(val("f_symbol"))) {
@@ -1117,6 +1118,11 @@ function bracketWarnings() {
     if (action === "BUY" && !(worst < target)) warns.push("BUY needs worst fill < target");
     if (action === "SELL" && !(target < worst)) warns.push("SELL needs target < worst fill");
   }
+  // orderRef tag: a pipe or space would corrupt the downstream field split
+  // that the execution report and Trade Log parse strategy out of.
+  const strat = (val("f_strategy") || "").trim();
+  if (strat && !/^[A-Za-z0-9_.-]{1,32}$/.test(strat))
+    warns.push("strategy tag: letters, digits, _ . and - only, max 32 chars");
   if (isFut && !selectedFutExchange()) warns.push("choose CME, CBOT, NYMEX, or COMEX");
   if (isFut && sym && !spec) warns.push("futures contract is not resolved by IBKR yet");
   if (isFut && !val("f_futexp")) warns.push("enter the contract month (e.g. 202609)");
@@ -1409,6 +1415,7 @@ function ticketPayload(t) {
     action: val("f_action"), quantity: numOrNull("f_qty"), entry_type,
     entry: numOrNull("f_entry"), stop: numOrNull("f_stop"), target: numOrNull("f_target"),
     entry_cap: entry_type === "STP_LMT" ? numOrNull("f_entry_cap") : null,
+    strategy: (val("f_strategy") || "").trim() || null,
     time_stop: val("f_timestop") || null,
     expiry: (entry_type === "LMT" || entry_type === "STP_LMT") ? (val("f_expiry") || null) : null };
 }
