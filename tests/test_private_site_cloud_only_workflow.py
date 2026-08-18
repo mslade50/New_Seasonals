@@ -31,3 +31,17 @@ def test_cloudflare_git_bypass_is_locked_and_checked():
     seed = (ROOT / ".github/workflows/seed_site_r2.yml").read_text(encoding="utf-8")
     assert "cloudflare_pages_guard.py check" in deploy
     assert "cloudflare_pages_guard.py disable" in seed
+
+
+def test_master_price_workflow_supports_explicit_cloud_backfills():
+    workflow = (ROOT / ".github/workflows/update_master_prices.yml").read_text(
+        encoding="utf-8")
+    assert "add_tickers:" in workflow
+    assert "backfill_start:" in workflow
+    assert 'args+=(--add-tickers "${tickers[@]}"' in workflow
+
+
+def test_bootstrap_master_universe_includes_table_only_macro_gaps():
+    from scripts.build_master_prices import INDICES_AND_ETFS
+
+    assert {"AGG", "TIP"} <= set(INDICES_AND_ETFS)

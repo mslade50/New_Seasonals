@@ -40,6 +40,15 @@ EXCLUDED_FILES = {
     "wrangler.toml",
 }
 
+# These are versioned configuration/reference files that historically lived
+# under ``data/`` even though they are source inputs, not runtime caches.  The
+# cloud stage keeps the runtime ``data/`` boundary absolute, but promotes the
+# tracked files to a source-only namespace so production computations can use
+# them without inheriting any local data directory.
+SOURCE_REFERENCE_REMAPS = {
+    "data/sp500_risk_classification.csv": "reference/sp500_risk_classification.csv",
+}
+
 
 def _normalise_tracked_path(value: str) -> str:
     path = PurePosixPath(value.replace("\\", "/"))
@@ -111,6 +120,16 @@ def stage_source(
     excluded: list[str] = []
     for raw in tracked:
         rel = _normalise_tracked_path(raw)
+        remapped = SOURCE_REFERENCE_REMAPS.get(rel)
+        if remapped is not None:
+            src = src_root / Path(rel)
+            if not src.is_file():
+                continue
+            dst = dst_root / Path(remapped)
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(src, dst)
+            copied.append(remapped)
+            continue
         if is_runtime_path(rel):
             excluded.append(rel)
             continue

@@ -60,7 +60,18 @@ CACHE_SPY_OHLC = os.path.join(DATA_DIR, "rd2_spy_ohlc.parquet")
 CACHE_CLOSES   = os.path.join(DATA_DIR, "rd2_closes.parquet")
 CACHE_SP500    = os.path.join(DATA_DIR, "rd2_sp500_closes.parquet")
 
-RISK_CLASSIFICATION_PATH = os.path.join(DATA_DIR, "sp500_risk_classification.csv")
+RISK_CLASSIFICATION_REFERENCE = os.path.join(
+    parent_dir, "reference", "sp500_risk_classification.csv")
+RISK_CLASSIFICATION_LEGACY = os.path.join(
+    DATA_DIR, "sp500_risk_classification.csv")
+# Cloud-only private-site builds promote this versioned reference file out of
+# the excluded runtime data/ tree.  The legacy path keeps local Streamlit and
+# older workflows compatible until the repository layout is migrated fully.
+RISK_CLASSIFICATION_PATH = (
+    RISK_CLASSIFICATION_REFERENCE
+    if os.path.exists(RISK_CLASSIFICATION_REFERENCE)
+    else RISK_CLASSIFICATION_LEGACY
+)
 HORIZON_STATS_PATH = os.path.join(DATA_DIR, "signal_horizon_stats.json")
 SIGNAL_FIRE_HISTORY_PATH = os.path.join(DATA_DIR, "signal_fire_history.parquet")
 SEASONAL_RANKS_PRIMARY = os.path.join(parent_dir, "sznl_ranks.csv")

@@ -32,6 +32,84 @@ PRICE_EXPLORER_TICKERS = [
     "TLT", "GLD", "SLV", "USO", "HYG", "LQD",
 ]
 
+# Keep the cloud builder independent from Streamlit imports. This mirrors the
+# lightweight input constants in pages/risk_dashboard_v2.py; the page itself
+# remains standalone, while production can load authoritative R2 data without
+# initializing Streamlit just to discover ticker names.
+RISK_SIGNAL_TICKERS = [
+    "SPY", "^VIX", "^VIX3M", "^VVIX",
+    "XLB", "XLC", "XLE", "XLF", "XLI", "XLK",
+    "XLP", "XLRE", "XLU", "XLV", "XLY",
+    "LQD", "HYG", "IEF", "^MOVE",
+]
+
+
+def load_risk_data_from_master(master_path=MASTER_PRICES, lookback_years=10):
+    """Build the risk engine's input frames from authoritative R2 prices.
+
+    ``master_path`` is materialized from Cloudflare R2 before this script runs
+    in production.  Keeping the site risk payload on that same vintage avoids
+    a second Yahoo download returning an older last bar than Portfolio,
+    Seasonal, and the production sizing series.
+    """
+    import pandas as pd
+
+    required = ["ticker", "date", "Open", "High", "Low", "Close", "Volume"]
+    if not os.path.isfile(master_path):
+        raise FileNotFoundError(f"authoritative master prices missing: {master_path}")
+
+    from abs_return_dispersion import SP500_TICKERS
+
+    prices = pd.read_parquet(master_path, columns=required)
+    if prices.empty:
+        raise RuntimeError("authoritative master prices are empty")
+
+    prices["ticker"] = prices["ticker"].astype(str).str.upper().str.strip()
+    prices["date"] = pd.to_datetime(prices["date"], errors="coerce")
+    if prices["date"].dt.tz is not None:
+        prices["date"] = prices["date"].dt.tz_localize(None)
+    prices = prices.dropna(subset=["date", "ticker", "Close"])
+    spy_rows = prices[prices["ticker"] == "SPY"]
+    if spy_rows.empty:
+        raise RuntimeError("authoritative master prices contain no SPY rows")
+
+    asof = pd.Timestamp(spy_rows["date"].max()).tz_localize(None)
+    cutoff = asof - pd.DateOffset(years=int(lookback_years))
+    prices = prices[prices["date"] >= cutoff]
+
+    spy_df = (prices[prices["ticker"] == "SPY"]
+              .sort_values("date")
+              .drop_duplicates("date", keep="last")
+              .set_index("date")[["Open", "High", "Low", "Close", "Volume"]]
+              .dropna(subset=["Open", "High", "Low", "Close"]))
+    if spy_df.empty or pd.Timestamp(spy_df.index.max()).tz_localize(None) != asof:
+        raise RuntimeError("authoritative SPY OHLC is incomplete at the cache as-of")
+
+    signal_tickers = {str(t).upper().strip() for t in RISK_SIGNAL_TICKERS}
+    signal_rows = prices[prices["ticker"].isin(signal_tickers)]
+    closes = (signal_rows.pivot_table(
+        index="date", columns="ticker", values="Close", aggfunc="last")
+        .sort_index())
+    if "SPY" not in closes.columns or closes["SPY"].dropna().empty:
+        raise RuntimeError("risk signal close matrix contains no SPY history")
+
+    sp500_tickers = {str(t).upper().strip().replace(".", "-")
+                     for t in SP500_TICKERS if str(t).strip()}
+    sp500_rows = prices[prices["ticker"].isin(sp500_tickers)]
+    sp500_closes = (sp500_rows.pivot_table(
+        index="date", columns="ticker", values="Close", aggfunc="last")
+        .sort_index())
+    if sp500_closes.shape[1] < 50:
+        raise RuntimeError(
+            f"risk S&P 500 matrix has only {sp500_closes.shape[1]} tickers")
+
+    print(
+        "risk: authoritative R2 master inputs "
+        f"{spy_df.index.min().date()} -> {spy_df.index.max().date()} "
+        f"({len(spy_df)} SPY sessions, {sp500_closes.shape[1]} S&P tickers)"
+    )
+    return spy_df, closes, sp500_closes
+
 
 # Metric metadata for the private-site signal charts.  The series themselves
 # stay owned by risk_dashboard_v2; this map only describes how to serialize
@@ -1066,15 +1144,14 @@ def build_trade_console(computed):
 def main():
     try:
         from daily_risk_report import (
-            download_data,
             compute_all_signals,
             build_forward_returns_data,
             _status_badge,
         )
         from pages.risk_dashboard_v2 import _signal_periods
 
-        print("risk: downloading data ...")
-        spy_df, closes, sp500_closes = download_data()
+        print("risk: loading authoritative R2 prices ...")
+        spy_df, closes, sp500_closes = load_risk_data_from_master()
         print("risk: computing signals ...")
         computed = compute_all_signals(spy_df, closes, sp500_closes)
 

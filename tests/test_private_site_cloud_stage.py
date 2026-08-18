@@ -14,6 +14,7 @@ def test_stage_copies_tracked_code_but_never_runtime_data(tmp_path):
         "site/index.html": "<h1>site</h1>",
         "functions/chart.js": "export default {}",
         "data/local.json": "LOCAL",
+        "data/sp500_risk_classification.csv": "ticker,beta_2y,label\nSPY,1.0,neutral\n",
         "dist/data/meta.json": "LOCAL DIST",
         "scratch/probe.py": "LOCAL SCRATCH",
         "credentials.json": "SECRET",
@@ -34,6 +35,9 @@ def test_stage_copies_tracked_code_but_never_runtime_data(tmp_path):
 
     assert (dest / "app.py").is_file()
     assert (dest / "site/index.html").is_file()
+    assert (dest / "reference/sp500_risk_classification.csv").read_text(
+        encoding="utf-8"
+    ).startswith("ticker,beta_2y,label")
     assert not (dest / "data").exists()
     assert not (dest / "dist").exists()
     assert not (dest / "scratch").exists()

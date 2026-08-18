@@ -18,6 +18,9 @@ def _site(tmp_path: Path):
         "trade_mtm": True,
         "ideas": True,
         "signals": True,
+        "risk": True,
+        "seasonality": True,
+        "macro_sznl": True,
         "fundamentals": True,
         "health": True,
     }
@@ -43,6 +46,28 @@ def _site(tmp_path: Path):
     _write(data / "signals.json", {
         "fetched_at": "2026-08-06 12:00 UTC",
         "tabs": {"Order_Staging": [], "Overflow": []},
+    })
+    _write(data / "risk.json", {
+        "built_at": "2026-08-06 12:00 UTC",
+        "asof": "2026-08-05",
+        "sizing_state": {"asof": "2026-08-05"},
+        "signal_detail": {
+            "Defensive Leadership": {"current": {"value": -1.2}},
+            "Seasonal Rank Divergence": {"current": {"value": 2.4}},
+        },
+        "trade_console": {"state": "ok"},
+    })
+    _write(data / "seasonality" / "manifest.json", {
+        "asof": "2026-08-05",
+        "tickers": {"SPY": {"file": "t/U1BZ.bin"}},
+    })
+    (data / "seasonality" / "t").mkdir(parents=True, exist_ok=True)
+    (data / "seasonality" / "t" / "U1BZ.bin").write_bytes(b"SLB2")
+    _write(data / "seasonality" / "theses.json", {"asof": "2026-08-05"})
+    _write(data / "seasonality" / "macro.json", {
+        "asof": "2026-08-05",
+        "sznl_available": True,
+        "rows": [{"ticker": "SPY", "price": 100.0}],
     })
     _write(data / "fundamentals.json", {
         "as_of": "2026-08-05",
@@ -93,6 +118,35 @@ def test_stale_ideas_or_missing_current_signals_block_deploy(tmp_path):
     problems = validate_site(str(tmp_path))
     assert any("Seasonal ideas health is stale" in problem for problem in problems)
     assert any("current staged-signals payload is unavailable" in problem for problem in problems)
+
+
+def test_stale_or_degraded_risk_payload_blocks_deploy(tmp_path):
+    data = _site(tmp_path)
+    risk = json.loads((data / "risk.json").read_text(encoding="utf-8"))
+    risk["asof"] = "2026-08-01"
+    risk["signal_detail"]["Defensive Leadership"]["current"]["value"] = None
+    risk.pop("trade_console")
+    _write(data / "risk.json", risk)
+
+    problems = validate_site(str(tmp_path))
+    assert any("Risk payload as-of 2026-08-01" in problem for problem in problems)
+    assert any("Defensive Leadership" in problem for problem in problems)
+    assert any("trade console is unavailable" in problem for problem in problems)
+
+
+def test_incomplete_seasonality_payloads_block_deploy(tmp_path):
+    data = _site(tmp_path)
+    macro = json.loads((data / "seasonality/macro.json").read_text(encoding="utf-8"))
+    macro["sznl_available"] = False
+    macro["rows"].append({"ticker": "TIP", "price": None})
+    _write(data / "seasonality/macro.json", macro)
+    (data / "seasonality/t/U1BZ.bin").rename(
+        data / "seasonality/t/U1BZ.missing")
+
+    problems = validate_site(str(tmp_path))
+    assert any("Seasonality Lab is missing 1 ticker payload" in problem for problem in problems)
+    assert any("Macro seasonal ranks are unavailable" in problem for problem in problems)
+    assert any("Macro Seasonality is missing prices" in problem for problem in problems)
 
 
 def test_missing_or_stale_fundamentals_do_not_block_deploy(tmp_path):

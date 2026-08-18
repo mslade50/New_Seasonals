@@ -32,7 +32,7 @@ MAX_RETRIES = 2
 # Kept here so the master parquet covers everything any page might need.
 INDICES_AND_ETFS = [
     "SPY", "^VIX", "^VIX3M", "^VVIX", "^GSPC", "^TNX", "^IRX", "^MOVE", "^SKEW",
-    "UUP", "LQD", "HYG", "IEF",
+    "UUP", "LQD", "HYG", "IEF", "AGG", "TIP",
     "XLB", "XLC", "XLE", "XLF", "XLI", "XLK", "XLP", "XLU", "XLV", "XLY", "XLRE",
     "IBB", "IHI", "ITA", "ITB", "IYR", "KRE", "OIH", "SMH", "VNQ",
     "QQQ", "IWM", "DIA", "EFA", "EEM", "GLD", "SLV", "USO", "TLT",

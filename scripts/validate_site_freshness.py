@@ -49,6 +49,10 @@ def validate_site(out_dir: str, *, require_r2_provenance: bool = False) -> list[
     positions = _read_json(os.path.join(data_dir, "positions.json"))
     ideas = _read_json(os.path.join(data_dir, "ideas.json"))
     signals = _read_json(os.path.join(data_dir, "signals.json"))
+    risk = _read_json(os.path.join(data_dir, "risk.json"))
+    seasonality_dir = os.path.join(data_dir, "seasonality")
+    seasonality = _read_json(os.path.join(seasonality_dir, "manifest.json"))
+    macro_seasonality = _read_json(os.path.join(seasonality_dir, "macro.json"))
     provenance = _read_json(os.path.join(data_dir, "provenance.json"))
     problems: list[str] = []
 
@@ -123,6 +127,67 @@ def validate_site(out_dir: str, *, require_r2_provenance: bool = False) -> list[
         problems.append(f"staged-signals health is {signal_health.get('status') or 'missing'}")
     if (signals or {}).get("unavailable"):
         problems.append("staged-signals payload is an unavailable tombstone")
+
+    if flags.get("risk") is not True or risk is None:
+        problems.append("current Risk payload is unavailable")
+    else:
+        if not _same_build(meta.get("built_at"), risk.get("built_at")):
+            problems.append("meta.json and risk.json are from different builds")
+        risk_asof = risk.get("asof")
+        if prev_td and (not risk_asof or str(risk_asof) < str(prev_td)):
+            problems.append(f"Risk payload as-of {risk_asof or 'missing'} is before {prev_td}")
+        sizing_asof = (risk.get("sizing_state") or {}).get("asof")
+        if prev_td and (not sizing_asof or str(sizing_asof) < str(prev_td)):
+            problems.append(
+                f"Risk sizing state as-of {sizing_asof or 'missing'} is before {prev_td}")
+        detail = risk.get("signal_detail") or {}
+        for name in ("Defensive Leadership", "Seasonal Rank Divergence"):
+            current = (detail.get(name) or {}).get("current") or {}
+            if current.get("value") is None:
+                problems.append(f"Risk signal {name!r} has no current metric value")
+        if not isinstance(risk.get("trade_console"), dict):
+            problems.append("Risk trade console is unavailable")
+
+    if flags.get("seasonality") is not True or seasonality is None:
+        problems.append("Seasonality Lab payload is unavailable")
+    else:
+        seasonality_asof = seasonality.get("asof")
+        if prev_td and (
+            not seasonality_asof or str(seasonality_asof) < str(prev_td)
+        ):
+            problems.append(
+                f"Seasonality Lab as-of {seasonality_asof or 'missing'} is before {prev_td}")
+        if not os.path.isfile(os.path.join(seasonality_dir, "theses.json")):
+            problems.append("Seasonality Lab theses payload is missing")
+        missing_bins = []
+        for ticker, ticker_meta in (seasonality.get("tickers") or {}).items():
+            rel = str((ticker_meta or {}).get("file") or "")
+            if not rel or not os.path.isfile(os.path.join(seasonality_dir, rel)):
+                missing_bins.append(str(ticker))
+        if missing_bins:
+            problems.append(
+                f"Seasonality Lab is missing {len(missing_bins)} ticker payload(s) "
+                f"({', '.join(missing_bins[:5])})")
+
+    if flags.get("macro_sznl") is not True or macro_seasonality is None:
+        problems.append("Macro Seasonality payload is unavailable")
+    else:
+        macro_asof = macro_seasonality.get("asof")
+        if prev_td and (not macro_asof or str(macro_asof) < str(prev_td)):
+            problems.append(
+                f"Macro Seasonality as-of {macro_asof or 'missing'} is before {prev_td}")
+        if macro_seasonality.get("sznl_available") is not True:
+            problems.append("Macro seasonal ranks are unavailable")
+        missing_prices = [
+            str(row.get("ticker") or "?")
+            for row in (macro_seasonality.get("rows") or [])
+            if not str(row.get("ticker") or "").startswith("^")
+            and row.get("price") is None
+        ]
+        if missing_prices:
+            problems.append(
+                f"Macro Seasonality is missing prices for {len(missing_prices)} "
+                f"ticker(s) ({', '.join(missing_prices[:5])})")
 
     for rel in ("trades.json", "strategy_daily.json", "exposure.json", "trade_mtm.json"):
         if not os.path.isfile(os.path.join(data_dir, rel)):
