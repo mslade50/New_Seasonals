@@ -6,6 +6,15 @@
 - Production private-site builds are cloud-only: run `.github/workflows/deploy_site.yml` in GitHub Actions, where authoritative inputs are downloaded from Cloudflare R2 and `scripts/validate_site_freshness.py` gates deployment.
 - Never build or deploy the production private site from local `data/` or `dist/`, and never use local generated artifacts as evidence of production freshness.
 
+## Mandatory Workspace Hygiene
+
+- Concurrent tasks must use separate Git worktrees and branches. Create one with `scripts/new_task_worktree.ps1`; never let two agents share a working directory.
+- Before changing a long-lived or already-dirty worktree, run `python scripts/workspace_hygiene.py start --force`. At handoff, run `check` with every intended source path declared via `--allow`.
+- Put disposable downloads, logs, screenshots, browser profiles, temporary datasets, and rendered reports under the ignored `artifacts/` root. Use `python scripts/workspace_hygiene.py artifact-dir <category>` to create a category.
+- `scratch/` is a research evidence area. New Python and Markdown files there remain visible to Git; do not use it as the default destination for machine-generated output.
+- Files under `fundamental/reference/` and explicitly tracked files under `data/` are versioned evidence. Refresh into `artifacts/` first and promote them only through an explicit reviewed change.
+- Never delete, reset, or blanket-ignore existing dirty files as cleanup without reviewing ownership and obtaining the required approval.
+
 ## What This Project Is
 
 A quantitative equity trading platform built on Streamlit. Three pillars:
