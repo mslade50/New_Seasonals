@@ -75,6 +75,7 @@ const radarStage = (() => {
     type: String(q.get("type") || "LMT").toUpperCase(),
     cap: n("cap"), stop: n("stop"), target: n("target"), qty: n("qty"),
     exp: q.get("exp") || "", ts: q.get("ts") || "",
+    soFrac: n("sofrac"), soTarget: n("sotarget"),
     strat: String(q.get("strat") || "").trim(), refdate: q.get("refdate") || "",
   };
 })();
@@ -104,6 +105,8 @@ function applyRadarPrefill() {
   if (r.exp) setv("f_expiry", r.exp);
   if (r.ts) setv("f_timestop", r.ts);
   if (r.strat) setv("f_strategy", r.strat);
+  if (r.soFrac != null) setv("f_so_frac", r.soFrac);
+  if (r.soTarget != null) setv("f_so_target", r.soTarget);
   updateReadout();
   const msg = document.getElementById("cmdMsg");
   if (msg) msg.textContent = `prefilled from Radar — levels and size copied verbatim from the ` +
@@ -916,7 +919,7 @@ window.execModifySave = execModifySave;
 // bracketWarnings blocks empty qty/entry/stop). ticketDraft carries the last user entry
 // across cmdType toggles so switching Type and back doesn't wipe a typed ticket.
 const ticketDraft = {};
-const TICKET_FIELDS = ["f_note", "f_symbol", "f_qty", "f_entry_type", "f_entry", "f_entry_cap", "f_stop", "f_target", "f_expiry", "f_timestop", "f_strategy",
+const TICKET_FIELDS = ["f_note", "f_symbol", "f_qty", "f_entry_type", "f_entry", "f_entry_cap", "f_stop", "f_target", "f_expiry", "f_timestop", "f_strategy", "f_so_frac", "f_so_target",
                        "f_currency", "f_futexch", "fl_qty", "fl_pct", "fl_limit", "so_symbol", "so_right",
                        "so_delta", "so_budget", "so_date", "so_time", "so_expiry_mode", "so_min_dte", "so_expiry"];
 function snapshotTicket() {
@@ -1005,7 +1008,9 @@ function syncFields() {
       <span id="f_futrow"></span>
       <span id="f_expiry_wrap"><label class="cap">Entry exp</label><input type="date" id="f_expiry" value="${ticketDraft.f_expiry ? esc(ticketDraft.f_expiry) : ""}" style="width:140px"></span>
       <label class="cap">Time stop</label><input type="date" id="f_timestop" value="${ticketDraft.f_timestop ? esc(ticketDraft.f_timestop) : ""}" style="width:140px">
-      <label class="cap">Strategy</label>${inp("f_strategy", "blank = Discretionary", 150)}`;
+      <label class="cap">Strategy</label>${inp("f_strategy", "blank = Discretionary", 150)}
+      <label class="cap">Scale-out</label>${inp("f_so_frac", "frac e.g. .3333", 110)}
+      ${inp("f_so_target", "near target", 90)}`;
     const st = document.getElementById("f_sectype");
     if (st) st.addEventListener("change", () => {
       if (val("f_sectype") === "FUT" && !futSpec(val("f_symbol"))) {
@@ -1180,6 +1185,14 @@ function bracketWarnings() {
   const strat = (val("f_strategy") || "").trim();
   if (strat && !/^[A-Za-z0-9 _.-]{1,32}$/.test(strat))
     warns.push("strategy tag: letters, digits, spaces, _ . and - only, max 32 chars");
+  const soFrac = numOrNull("f_so_frac"), soTgt = numOrNull("f_so_target");
+  if (soFrac != null || soTgt != null) {
+    if (!(soFrac > 0 && soFrac < 1)) warns.push("scale-out fraction must be between 0 and 1");
+    if (!(soTgt > 0)) warns.push("scale-out needs a near target");
+    else if (action === "BUY" && !(worst < soTgt)) warns.push("BUY scale-out needs worst fill < near target");
+    else if (action === "SELL" && !(soTgt < worst)) warns.push("SELL scale-out needs near target < worst fill");
+    if (isFut || isFx) warns.push("scale-out is stock-only");
+  }
   if (isFut && !selectedFutExchange()) warns.push("choose CME, CBOT, NYMEX, or COMEX");
   if (isFut && sym && !spec) warns.push("futures contract is not resolved by IBKR yet");
   if (isFut && !val("f_futexp")) warns.push("enter the contract month (e.g. 202609)");
@@ -1349,6 +1362,13 @@ function updateReadout() {
     if (target == null) parts.push(`<b style="color:#ffc14d">NO TARGET</b>`);
     else if (stop != null && dist) parts.push(`R:R <b>${(Math.abs(target - worst) / dist).toFixed(2)}:1</b>`);
     if (qty && worst) parts.push(`Notional <b>${fmt.money(fxMetrics ? fxMetrics.notional : qty * worst * mult)}</b>`);
+    const soF = numOrNull("f_so_frac"), soT = numOrNull("f_so_target");
+    if (soF > 0 && soT > 0 && qty > 0) {
+      const near = Math.round(qty * soF), far = qty - near;
+      parts.push(near >= 1 && far >= 1
+        ? `Scale-out <b>${near} @ ${soT}</b> + <b>${far}</b> runner <span class="cap" style="display:inline">(two brackets)</span>`
+        : `<b style="color:#ffc14d">Scale-out ignored</b> <span class="cap" style="display:inline">(a tranche rounds below 1 share)</span>`);
+    }
     const ts = val("f_timestop");
     if (ts) parts.push(`Time-exit <b>${ts}</b>`);
     const ex = (orderType === "LMT" || orderType === "STP_LMT") ? val("f_expiry") : null;
@@ -1473,6 +1493,10 @@ function ticketPayload(t) {
     entry: numOrNull("f_entry"), stop: numOrNull("f_stop"), target: numOrNull("f_target"),
     entry_cap: entry_type === "STP_LMT" ? numOrNull("f_entry_cap") : null,
     strategy: (val("f_strategy") || "").trim() || null,
+    // Two independent brackets when set: near = frac of qty targeting the near
+    // price, far = the remainder taking `target` (which may be null).
+    scaleout: (numOrNull("f_so_frac") != null || numOrNull("f_so_target") != null)
+      ? { frac: numOrNull("f_so_frac"), target: numOrNull("f_so_target") } : null,
     time_stop: val("f_timestop") || null,
     expiry: (entry_type === "LMT" || entry_type === "STP_LMT") ? (val("f_expiry") || null) : null };
 }

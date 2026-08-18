@@ -48,7 +48,15 @@ function stageHref(rec, recsDate) {
   });
   if (num(e.limit_cap) != null) q.set("cap", String(e.limit_cap));
   if (num(s.price) != null) q.set("stop", String(s.price));
-  if (num(t.t1) != null) q.set("target", String(t.t1));
+  // T1 is the NEAR leg's target and it takes t1_frac of the shares; the runner
+  // carries NO target and rides the weekly trail to its time exit. So `target`
+  // (the far leg) is deliberately left unset.
+  if (num(t.t1) != null && num(t.t1_frac) != null) {
+    q.set("sotarget", String(t.t1));
+    q.set("sofrac", String(t.t1_frac));
+  } else if (num(t.t1) != null) {
+    q.set("target", String(t.t1));      // no scale-out fraction: one full-size target
+  }
   if (num(z.shares) != null) q.set("qty", String(z.shares));
   if (tm.valid_through) q.set("exp", String(tm.valid_through));
   if (tm.time_exit_date) q.set("ts", String(tm.time_exit_date));

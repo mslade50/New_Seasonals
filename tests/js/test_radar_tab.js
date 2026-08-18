@@ -93,7 +93,11 @@ assert.strictEqual(staged.type, "STP_LMT");
 assert.strictEqual(staged.entry, 383.12);
 assert.strictEqual(staged.cap, 400.17);
 assert.strictEqual(staged.stop, 355.84);
-assert.strictEqual(staged.target, 437.68);
+// T1 rides the NEAR leg, so it arrives as the scale-out target, and the runner
+// deliberately carries no target of its own.
+assert.strictEqual(staged.target, null);
+assert.strictEqual(staged.soTarget, 437.68);
+assert.ok(Math.abs(staged.soFrac - 0.3333) < 1e-9);
 assert.strictEqual(staged.qty, 33);
 assert.strictEqual(staged.exp, "2026-08-28");
 assert.strictEqual(staged.ts, "2026-11-13");
@@ -111,5 +115,12 @@ assert.strictEqual(bnyStaged.cap, null);
 const seasonal = loadExecution("?stage=1&sym=USO&side=BUY&win=10&atr=2&px=50");
 assert.strictEqual(JSON.parse(vm.runInContext("JSON.stringify(radarStage)", seasonal)), null);
 assert.strictEqual(JSON.parse(vm.runInContext("JSON.stringify(stage)", exec)), null);
+
+// A plan with a T1 but no fraction falls back to one full-size target.
+const noFrac = { ...AMG, targets: { t1: 437.68 } };
+const nf = loadExecution(stageHref(noFrac, "2026-08-16").slice("execution.html".length));
+const nfStaged = JSON.parse(vm.runInContext("JSON.stringify(radarStage)", nf));
+assert.strictEqual(nfStaged.target, 437.68);
+assert.strictEqual(nfStaged.soTarget, null);
 
 console.log("PASS radar tab: entry mapping, stage blockers, and the verbatim stage round-trip");

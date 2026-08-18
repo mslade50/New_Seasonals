@@ -64,6 +64,27 @@ which fills on any pullback to it. Callers wanting "dead for the day if the open
 gaps past the cap" must check the open before sending, the same way the OVS
 2-path gate and `T1_Open_Filters` do.
 
+**Scale-out (2026-08-18).** `scaleout: {"frac": 0.3333, "target": 437.68}`
+splits the order into TWO independent single-target brackets whose share counts
+sum to `quantity`:
+
+- **near** = `round(quantity * frac)` shares, target = `scaleout.target`
+- **far**  = the remainder, target = the payload's own `target` (may be `null`,
+  i.e. a runner with only a stop and a time exit)
+
+Never one parent with a partial-size target child: the broker forces such a
+child back up to the parent quantity, which is the bug
+`order_staging._split_scaleout_for_primary` was written to sidestep for the OVS
+scale-out. Same convention here, including that a tranche rounding below one
+share is **no split at all** rather than an error.
+
+Legs are tagged with the tranche as the orderRef's 5th field
+(`SYMBOL|ACTION|Strategy|Date|near`), matching `eq_order_entry.signal_ref`.
+That is how `radar_trail_sync.py` recognises one plan's two protective stops
+and trails both together; two same-tranche stops are refused as an unexplained
+duplicate. The near target is gated against the worst fill exactly like
+`target`.
+
 **Stop optional (2026-07-27).** `stop: null` is a legal entry: the parent order
 goes out with whatever subset of target/time legs is present (none at all =
 naked entry, parent transmits itself). Ordering checks apply only to the legs
