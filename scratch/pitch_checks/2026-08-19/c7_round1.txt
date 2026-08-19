@@ -1,0 +1,193 @@
+GLD panel starts 2004-11-18  trigger days 306
+
+##### C7 LONG GLD h=3  (h=3 td, entry lag=1) #####
+legs=[('GLD', 1.0)]  trigger span 2006-01-26 .. 2026-08-10
+
+=== 1. conditional vs controls ===
+                           label    n  mean_pct  median_pct    hit     t  worst_pct  best_pct  sd_pct
+          COND day-level (N=305)  305     0.239       0.179 54.754 2.131     -7.603     5.981   1.957
+            COND episodes (N=47)   47     0.570       0.576 63.830 2.065     -3.166     5.297   1.893
+     CTRL-a own drift, same span 5162     0.134       0.144 53.603 4.851    -13.634    13.117   1.984
+   CTRL-b all days, full history 5460     0.140       0.148 53.755 5.271    -13.634    13.117   1.960
+CTRL-c local +/-126td ex-trigger 4192     0.127       0.163 53.841 4.064    -13.634    11.971   2.017
+  COND day-level, lag=0 (no-lag)  305     0.202       0.078 51.475 1.823     -7.603     6.058   1.934
+  episode-vs-control diff = +0.436%  welch t = +1.57   bootstrap P(mean<=0) = 0.014   record 30-17, sign p = 0.0395
+  concentration: top2 episodes ['2011-10-21', '2026-07-30'] = +10.17pp of +26.80pp total (38%); best yrs {2020: 7.6, 2006: 5.6}
+
+=== 2+3. episode era split (pre-2018 / 2018+) ===
+   label  n  mean_pct  median_pct    hit     t  worst_pct  best_pct  sd_pct
+pre-2018 31     0.438       0.576 64.516 1.492     -2.663     5.297   1.635
+   2018+ 16     0.826       0.511 62.500 1.404     -3.166     4.872   2.352
+
+===   day-level era split (for contrast) ===
+   label   n  mean_pct  median_pct    hit     t  worst_pct  best_pct  sd_pct
+pre-2018 183     0.247       0.195 55.738 1.658     -7.603     5.702   2.014
+   2018+ 122     0.227       0.104 53.279 1.334     -4.458     5.981   1.877
+  worst episode window: -3.17%  on 2025-12-23   |  worst day-level: -7.60%
+  episode dates: 2006-01-26, 2006-03-21, 2006-04-20, 2007-09-20, 2008-02-28, 2009-04-06, 2009-05-08, 2009-06-11, 2009-08-05, 2010-07-29, 2010-09-23, 2011-01-21, 2011-10-21, 2012-02-07, 2012-06-29, 2012-08-06, 2012-09-05, 2012-10-04, 2012-12-12, 2013-06-10, 2013-08-01, 2015-02-24, 2015-04-23, 2015-05-22, 2015-06-23, 2015-09-10, 2016-03-17, 2016-05-02, 2016-08-17, 2017-05-15, 2017-07-14, 2018-01-11, 2018-09-11, 2019-10-21, 2019-12-16, 2020-05-01, 2020-06-02, 2020-08-11, 2020-10-23, 2020-11-27, 2020-12-30, 2022-01-11, 2025-03-27, 2025-05-01, 2025-12-23, 2026-04-29, 2026-07-30
+
+=== 4. threshold sensitivity (episode level) ===
+                           label   n  mean_pct  median_pct    hit      t  worst_pct  best_pct  sd_pct  n_days
+     TNX>=55 / DX<=20 (episodes)  53     0.431       0.195 56.604  1.677     -3.166     5.297   1.869     364
+     TNX>=75 / DX<=20 (episodes)  34     0.499       0.217 55.882  1.556     -3.166     5.297   1.870     219
+     TNX>=65 / DX<=10 (episodes)  29     1.000       0.995 72.414  3.280     -2.198     4.832   1.642     161
+     TNX>=65 / DX<=30 (episodes)  61     0.339       0.367 62.295  1.012    -13.634     5.297   2.619     455
+       TNX gate ALONE (episodes) 144     0.324       0.182 53.472  2.008     -6.360     5.704   1.935    1781
+        DX gate ALONE (episodes) 108     0.039       0.011 50.000  0.220     -5.340     5.297   1.859    1025
+ DX<=20 & TNX FALLING (episodes)  82    -0.030       0.045 52.439 -0.160     -5.340     4.270   1.714     595
+TNX>=65 & DX rank>=50 (episodes) 105    -0.043      -0.144 44.762 -0.226     -4.755     5.704   1.951    1063
+
+5. cost: 1 leg(s) x ~2.0 bps round trip = 2.0 bps. episode mean 0.570% = 57.0 bps -> 28.5x cost (need >=5x)
+
+=== 6. fomc_decision+cpi+nfp-in-hold split (episodes) ===
+                                 label  n  mean_pct  median_pct    hit     t  worst_pct  best_pct  sd_pct
+fomc_decision+cpi+nfp IN window (N=14) 14     0.370       0.127 57.143 0.793     -1.913     4.286   1.745
+      fomc_decision+cpi+nfp OUT (N=33) 33     0.655       0.712 66.667 1.909     -3.166     5.297   1.972
+
+##### C7 LONG GLD h=5  (h=5 td, entry lag=1) #####
+legs=[('GLD', 1.0)]  trigger span 2006-01-26 .. 2026-08-10
+
+=== 1. conditional vs controls ===
+                           label    n  mean_pct  median_pct    hit     t  worst_pct  best_pct  sd_pct
+          COND day-level (N=305)  305     0.343       0.396 56.721 2.321     -9.426     8.294   2.579
+            COND episodes (N=47)   47     0.586       0.036 53.191 1.825     -3.314     7.248   2.201
+     CTRL-a own drift, same span 5162     0.223       0.288 55.114 6.271    -13.924    15.144   2.552
+   CTRL-b all days, full history 5458     0.233       0.302 55.332 6.809    -13.924    15.144   2.526
+CTRL-c local +/-126td ex-trigger 4190     0.213       0.329 55.609 5.330    -13.924    11.529   2.591
+  COND day-level, lag=0 (no-lag)  305     0.348       0.401 57.377 2.402     -9.426     7.248   2.532
+  episode-vs-control diff = +0.363%  welch t = +1.12   bootstrap P(mean<=0) = 0.028   record 25-22, sign p = 0.3854
+  concentration: top2 episodes ['2026-07-30', '2020-11-27'] = +12.18pp of +27.53pp total (44%); best yrs {2026: 9.1, 2006: 8.8}
+
+=== 2+3. episode era split (pre-2018 / 2018+) ===
+   label  n  mean_pct  median_pct    hit     t  worst_pct  best_pct  sd_pct
+pre-2018 31     0.424       0.027 51.613 1.232     -2.823     4.237   1.916
+   2018+ 16     0.900       0.284 56.250 1.327     -3.314     7.248   2.712
+
+===   day-level era split (for contrast) ===
+   label   n  mean_pct  median_pct    hit     t  worst_pct  best_pct  sd_pct
+pre-2018 183     0.448       0.668 58.470 2.208     -9.426     8.033   2.746
+   2018+ 122     0.184       0.139 54.098 0.882     -5.660     8.294   2.308
+  worst episode window: -3.31%  on 2025-12-23   |  worst day-level: -9.43%
+  episode dates: 2006-01-26, 2006-03-21, 2006-04-20, 2007-09-20, 2008-02-28, 2009-04-06, 2009-05-08, 2009-06-11, 2009-08-05, 2010-07-29, 2010-09-23, 2011-01-21, 2011-10-21, 2012-02-07, 2012-06-29, 2012-08-06, 2012-09-05, 2012-10-04, 2012-12-12, 2013-06-10, 2013-08-01, 2015-02-24, 2015-04-23, 2015-05-22, 2015-06-23, 2015-09-10, 2016-03-17, 2016-05-02, 2016-08-17, 2017-05-15, 2017-07-14, 2018-01-11, 2018-09-11, 2019-10-21, 2019-12-16, 2020-05-01, 2020-06-02, 2020-08-11, 2020-10-23, 2020-11-27, 2020-12-30, 2022-01-11, 2025-03-27, 2025-05-01, 2025-12-23, 2026-04-29, 2026-07-30
+
+=== 4. threshold sensitivity (episode level) ===
+                           label   n  mean_pct  median_pct    hit     t  worst_pct  best_pct  sd_pct  n_days
+     TNX>=55 / DX<=20 (episodes)  53     0.527       0.027 50.943 1.743     -3.314     7.248   2.201     363
+     TNX>=75 / DX<=20 (episodes)  34     0.661       0.266 64.706 1.849     -3.314     7.248   2.084     219
+     TNX>=65 / DX<=10 (episodes)  29     1.123       0.725 72.414 2.466     -2.726     8.294   2.453     161
+     TNX>=65 / DX<=30 (episodes)  61     0.264       0.483 55.738 0.868     -8.207     7.248   2.379     454
+       TNX gate ALONE (episodes) 143     0.373       0.411 54.545 1.746    -10.299     6.069   2.553    1780
+        DX gate ALONE (episodes) 108     0.102      -0.206 45.370 0.404     -9.057     7.678   2.616    1024
+ DX<=20 & TNX FALLING (episodes)  82     0.003       0.084 51.220 0.011     -9.057     7.678   2.442     595
+TNX>=65 & DX rank>=50 (episodes) 105     0.029      -0.219 45.714 0.115    -10.299     5.890   2.595    1063
+
+5. cost: 1 leg(s) x ~2.0 bps round trip = 2.0 bps. episode mean 0.586% = 58.6 bps -> 29.3x cost (need >=5x)
+
+=== 6. fomc_decision+cpi+nfp-in-hold split (episodes) ===
+                                 label  n  mean_pct  median_pct    hit     t  worst_pct  best_pct  sd_pct
+fomc_decision+cpi+nfp IN window (N=25) 25     0.774      -0.094 48.000 1.533     -2.823     7.248   2.525
+      fomc_decision+cpi+nfp OUT (N=22) 22     0.372       0.439 59.091 0.970     -3.314     3.925   1.798
+
+##### C7 LONG GDX h=5  (h=5 td, entry lag=1) #####
+legs=[('GDX', 1.0)]  trigger span 2007-09-20 .. 2026-08-10
+
+=== 1. conditional vs controls ===
+                           label    n  mean_pct  median_pct    hit      t  worst_pct  best_pct  sd_pct
+          COND day-level (N=280)  280     0.017       0.355 51.429  0.055    -16.183    21.309   5.080
+            COND episodes (N=44)   44     0.891       0.769 56.818  1.105    -11.187    21.309   5.346
+     CTRL-a own drift, same span 4748     0.252       0.191 51.285  3.052    -35.396    45.989   5.686
+   CTRL-b all days, full history 5083     0.260       0.230 51.584  3.290    -35.396    45.989   5.627
+CTRL-c local +/-126td ex-trigger 3888     0.257       0.227 51.775  2.762    -35.396    45.989   5.798
+  COND day-level, lag=0 (no-lag)  280    -0.108      -0.107 49.643 -0.355    -16.183    21.309   5.114
+  episode-vs-control diff = +0.639%  welch t = +0.79   bootstrap P(mean<=0) = 0.128   record 25-19, sign p = 0.2257
+  concentration: top2 episodes ['2026-07-30', '2016-08-17'] = +10.12pp of +39.20pp total (26%); best yrs {2026: 25.2, 2020: 17.2}
+
+=== 2+3. episode era split (pre-2018 / 2018+) ===
+   label  n  mean_pct  median_pct    hit      t  worst_pct  best_pct  sd_pct
+pre-2018 28    -0.365      -0.482 46.429 -0.445    -11.187     9.614   4.338
+   2018+ 16     3.088       3.029 75.000  1.954     -8.536    21.309   6.322
+
+===   day-level era split (for contrast) ===
+   label   n  mean_pct  median_pct    hit      t  worst_pct  best_pct  sd_pct
+pre-2018 158     0.047       0.529 54.430  0.115    -16.183    11.687   5.073
+   2018+ 122    -0.022      -0.488 47.541 -0.048     -8.571    21.309   5.110
+  worst episode window: -11.19%  on 2016-08-17   |  worst day-level: -16.18%
+  episode dates: 2007-09-20, 2008-02-28, 2009-04-06, 2009-05-08, 2009-06-11, 2009-08-05, 2010-07-29, 2010-09-23, 2011-01-21, 2011-10-21, 2012-02-07, 2012-06-29, 2012-08-06, 2012-09-05, 2012-10-04, 2012-12-12, 2013-06-10, 2013-08-01, 2015-02-24, 2015-04-23, 2015-05-22, 2015-06-23, 2015-09-10, 2016-03-17, 2016-05-02, 2016-08-17, 2017-05-15, 2017-07-14, 2018-01-11, 2018-09-11, 2019-10-21, 2019-12-16, 2020-05-01, 2020-06-02, 2020-08-11, 2020-10-23, 2020-11-27, 2020-12-30, 2022-01-11, 2025-03-27, 2025-05-01, 2025-12-23, 2026-04-29, 2026-07-30
+
+=== 4. threshold sensitivity (episode level) ===
+                           label   n  mean_pct  median_pct    hit      t  worst_pct  best_pct  sd_pct  n_days
+     TNX>=55 / DX<=20 (episodes)  50     0.969       0.769 56.000  1.353    -11.187    21.309   5.061     331
+     TNX>=75 / DX<=20 (episodes)  33     1.145       0.364 57.576  1.260     -5.882    21.309   5.221     204
+     TNX>=65 / DX<=10 (episodes)  27     0.959       1.312 62.963  0.942    -11.187    18.988   5.292     147
+     TNX>=65 / DX<=30 (episodes)  58     0.116       0.456 51.724  0.160    -12.001    21.309   5.544     423
+       TNX gate ALONE (episodes) 139     0.359       0.731 53.237  0.781    -18.923    18.015   5.414    1722
+        DX gate ALONE (episodes) 104    -0.079       0.027 50.962 -0.132    -35.396    21.309   6.137     974
+ DX<=20 & TNX FALLING (episodes)  80    -0.039      -0.082 50.000 -0.053    -35.396    13.746   6.511     583
+TNX>=65 & DX rank>=50 (episodes) 103    -0.108      -0.385 45.631 -0.193    -18.923    18.015   5.697    1050
+
+5. cost: 1 leg(s) x ~5.0 bps round trip = 5.0 bps. episode mean 0.891% = 89.1 bps -> 17.8x cost (need >=5x)
+
+=== 6. fomc_decision+cpi+nfp-in-hold split (episodes) ===
+                                 label  n  mean_pct  median_pct    hit      t  worst_pct  best_pct  sd_pct
+fomc_decision+cpi+nfp IN window (N=23) 23     1.909       0.917 60.870  1.515     -8.536    21.309   6.043
+      fomc_decision+cpi+nfp OUT (N=21) 21    -0.224       0.318 52.381 -0.237    -11.187     6.271   4.335
+
+
+=== C7 GATE ATTRIBUTION (episodes, min_gap=21) ===
+
+=== gold forward by gate cell ===
+                                      label   n  mean_pct  median_pct    hit      t  worst_pct  best_pct  sd_pct
+          h=1 JOINT (TNX up+rank65, DX<=20)  47     0.457       0.057 59.574  2.764     -2.453     2.987   1.134
+                         h=1 TNX gate alone 144     0.158       0.049 52.083  1.788     -2.380     3.382   1.057
+  h=1 TNX gate & DX rank>20 (joint removed) 134     0.043       0.086 51.493  0.451     -3.471     3.382   1.099
+                          h=1 DX gate alone 108     0.120       0.039 51.852  1.177     -3.473     3.675   1.059
+ h=1 DX gate & NOT TNX gate (joint removed)  90    -0.064      -0.023 46.667 -0.624     -3.473     2.382   0.969
+                           h=1 neither gate 207     0.034       0.052 52.657  0.461     -5.472     3.640   1.070
+          h=3 JOINT (TNX up+rank65, DX<=20)  47     0.570       0.576 63.830  2.065     -3.166     5.297   1.893
+                         h=3 TNX gate alone 144     0.324       0.182 53.472  2.008     -6.360     5.704   1.935
+  h=3 TNX gate & DX rank>20 (joint removed) 134     0.216       0.101 52.239  1.199     -6.360     5.704   2.082
+                          h=3 DX gate alone 108     0.039       0.011 50.000  0.220     -5.340     5.297   1.859
+ h=3 DX gate & NOT TNX gate (joint removed)  90    -0.124      -0.035 48.889 -0.703     -5.340     4.270   1.675
+                           h=3 neither gate 207     0.113       0.108 54.106  0.883     -4.981     8.064   1.838
+          h=5 JOINT (TNX up+rank65, DX<=20)  47     0.586       0.036 53.191  1.825     -3.314     7.248   2.201
+                         h=5 TNX gate alone 143     0.373       0.411 54.545  1.746    -10.299     6.069   2.553
+  h=5 TNX gate & DX rank>20 (joint removed) 133     0.386       0.591 53.383  1.625    -10.299     7.741   2.737
+                          h=5 DX gate alone 108     0.102      -0.206 45.370  0.404     -9.057     7.678   2.616
+ h=5 DX gate & NOT TNX gate (joint removed)  89    -0.011      -0.035 49.438 -0.043     -9.057     7.678   2.455
+                           h=5 neither gate 207     0.081       0.072 52.174  0.478     -8.668     9.524   2.440
+         h=10 JOINT (TNX up+rank65, DX<=20)  47     1.048       0.838 61.702  2.115     -7.340     8.670   3.397
+                        h=10 TNX gate alone 143     0.438       0.362 53.846  1.373    -10.012    16.425   3.811
+ h=10 TNX gate & DX rank>20 (joint removed) 133     0.446       0.055 51.880  1.330    -10.012    16.425   3.867
+                         h=10 DX gate alone 108     0.299       0.232 52.778  0.847    -11.070    10.696   3.665
+h=10 DX gate & NOT TNX gate (joint removed)  89     0.032       0.287 52.809  0.085    -11.070     8.811   3.580
+                          h=10 neither gate 207     0.336       0.259 54.106  1.199    -14.188    13.921   4.031
+
+=== C7 SELECTION CHECK: gold's OWN state on trigger days ===
+GLD rank21 on trigger days: median 67.1, mean 62.5 (all days median 50.8); today 77.0
+GLD 21d ret on trigger days: median +2.58%; today +8.42%
+
+=== h=5 forward by gold's PRIOR 21d return (episodes) ===
+              label  n  mean_pct  median_pct    hit      t  worst_pct  best_pct  sd_pct
+        GLD 21d < 0 14     0.977       0.456 57.143  1.658     -2.823     4.932   2.205
+               0-4% 15     1.025       0.533 66.667  1.696     -2.231     7.248   2.340
+               4-8% 14    -0.313      -0.409 28.571 -0.640     -2.815     3.894   1.831
+>=8% (TODAY +8.42%)  4     0.715       1.591 75.000  0.517     -3.314     2.990   2.765
+
+=== h=5 forward by gold's PRIOR rank21 (episodes) ===
+             label  n  mean_pct  median_pct    hit      t  worst_pct  best_pct  sd_pct
+    GLD rank21 <50 18     0.970       1.071 61.111  1.933     -2.823     4.932   2.129
+             50-75 14     0.646      -0.034 50.000  1.025     -1.896     7.248   2.360
+75-90 (TODAY 77.0)  9    -0.221      -0.574 33.333 -0.292     -2.815     3.894   2.267
+              >=90  6     0.502       0.980 66.667  0.564     -3.314     2.990   2.177
+
+=== h=5 forward by YIELD-RISE magnitude (episodes) ===
+                              label  n  mean_pct  median_pct    hit     t  worst_pct  best_pct  sd_pct
+TNX 21d chg <=0.10pt (TODAY +0.108) 25     0.414       0.027 52.000 0.946     -2.823     4.932   2.190
+                        0.10-0.25pt 13     0.782      -0.244 46.154 1.063     -3.314     7.248   2.653
+                            >0.25pt  9     0.779       0.483 66.667 1.416     -0.930     3.925   1.650
+
+=== h=5 forward by DOLLAR-FALL magnitude (episodes) ===
+              label  n  mean_pct  median_pct   hit      t  worst_pct  best_pct  sd_pct
+       DX 21d <=-4%  2     1.455       1.455 100.0  2.512      0.876     2.035   0.819
+          -4 to -2% 20    -0.174      -0.269  35.0 -0.393     -3.314     3.925   1.984
+>-2% (TODAY -1.33%) 25     1.124       0.483  64.0  2.443     -2.823     7.248   2.301

@@ -1,0 +1,26 @@
+ledger rows 4739 cols ['trade_id', 'Strategy', 'Tier', 'Ticker', 'Direction', 'Signal Date', 'Entry Date', 'Exit Date', 'Exit Type', 'Time Stop', 'Entry Price', 'Exit Price', 'Signal Close', 'T+1 Open']
+
+book trades on liquid names: 1949 ; on a C8 trigger day: 73 (3.75%)
+base rate of C8 trigger name-days: 1.58%  -> enrichment 2.38x
+
+by strategy:
+Strategy
+Overbot Vol Spike          72
+Weak Close Decent Sznls     1
+
+strategy_config strategies requiring a 52w HIGH (distinct by construction):
+  - 52wh Breakout
+  - Weak Close Decent Sznls
+  - Oversold Low Volume
+  - Overbot Vol Spike
+  - LT Trend ST OS
+  - St OS Sznl
+  - 3x ETF Overbot Fade
+  - 3x Bear ETF Overbot Fade
+  - 3x Leader Gap Fade
+  - Indices Oversold Bounce
+  - SPY QQQ MonFri Reversion
+  - Sector BO
+  - Monday Dip
+  - ATR Extended Gap Up
+  - Monthly Weak Close

@@ -90,16 +90,53 @@ def load_events(kinds: list[str] | None = None) -> pd.DataFrame:
 # ---------------------------------------------------------------------------
 # state / signal transforms (match pitch_state definitions exactly)
 # ---------------------------------------------------------------------------
+def rolling_on_valid(s: pd.Series, fn) -> pd.Series:
+    """Apply a rolling statistic to the series' VALID observations, then
+    reindex back to the original index. Pass the statistic, not the window::
+
+        hi = rolling_on_valid(px["XLE"], lambda x: x.rolling(252).max())
+
+    ``close_panel`` returns a UNION calendar, so any ticker whose exchange
+    calendar differs (CL=F trades some equity holidays) leaves NaN rows in
+    every OTHER column. pandas honours ``min_periods`` over the raw index, so
+    a single foreign-calendar hole blanks every window containing it. Measured
+    2026-08-19 on a three-ticker panel: **8 NaN rows blanked 1,237 of 6,704
+    rolling-252 maxima and cut XLE's 52-week-high day count from 420 to 343**,
+    which reported "not at a 52-week high" on a session that closed exactly at
+    one. Any rolling window over a panel column needs this.
+    """
+    valid = s.dropna()
+    return fn(valid).reindex(s.index)
+
+
+def _valid_pct_change(s: pd.Series, n: int) -> pd.Series:
+    """n-VALID-session return, reindexed to the caller's index.
+
+    Not ``s.pct_change(n)``: that defaults to ``fill_method="pad"``, which on a
+    union-calendar column forward-fills the hole into a synthetic zero-return
+    session and shifts every window that spans it. Measured 2026-08-19, the pad
+    form moved ``pct_rank`` by up to **29.4 percentile points** against the
+    valid-session form on rows where both were defined, which is more than
+    enough to flip a rank gate.
+    """
+    valid = s.dropna()
+    return (valid / valid.shift(n) - 1.0).reindex(s.index)
+
+
 def zscore(s: pd.Series, n: int = 10) -> pd.Series:
     """z10 as pitch_state defines it: n-day return over its trailing-year sd."""
-    r = s.pct_change(n)
-    return (r - r.rolling(252).mean()) / r.rolling(252).std()
+    r = _valid_pct_change(s, n)
+    return rolling_on_valid(
+        r, lambda x: (x - x.rolling(252).mean()) / x.rolling(252).std())
 
 
 def pct_rank(s: pd.Series, n: int, lookback: int = 252) -> pd.Series:
-    """Trailing-`lookback` percentile rank of the n-day return (0-100)."""
-    r = s.pct_change(n)
-    return r.rolling(lookback).rank(pct=True) * 100.0
+    """Trailing-`lookback` percentile rank of the n-day return (0-100).
+
+    Computed on valid sessions only — see ``rolling_on_valid``."""
+    r = _valid_pct_change(s, n)
+    return rolling_on_valid(
+        r, lambda x: x.rolling(lookback).rank(pct=True) * 100.0)
 
 
 # ---------------------------------------------------------------------------

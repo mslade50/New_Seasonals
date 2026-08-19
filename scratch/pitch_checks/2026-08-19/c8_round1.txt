@@ -1,0 +1,61 @@
+panel 1999-01-04 -> 2026-08-18 names 197
+total name-days qualifying: 19274  days with >=1 qualifier: 3677
+live slate 2026-08-18 : ['ABT', 'ADBE', 'CAG', 'CPB', 'CRM', 'GIS', 'IP']
+  live rk63/dd: {'ABT': (97.6, -16.2), 'ADBE': (96.0, -28.4), 'CAG': (96.0, -20.5), 'CPB': (98.8, -29.7), 'CRM': (96.4, -26.0), 'GIS': (98.8, -22.2), 'IP': (98.4, -16.5)}
+
+0a. denominator roll: |t-63 roll-off| > |today's own move| on 61.8% of 19274 trigger name-days
+    63d return on trigger days: median +21.9%, 10th pct +8.7%; today's slate: {'ABT': 29.1, 'ADBE': 2.9, 'CAG': 13.8, 'CPB': 14.3, 'CRM': 9.6, 'GIS': 15.8, 'IP': 35.2}
+0b. SPY above its 200d on 72.8% of trigger days vs base rate 71.6%
+
+=== 1. ALPHABETICAL PLACEBO, h=5 excess vs SPY, day-level baskets (N days=3671) ===
+                       label    n  mean_pct  median_pct    hit      t  worst_pct  best_pct  sd_pct
+     deepest-4 (signal-most) 3671    -0.365      -0.328 45.955 -2.662    -49.546   144.441   8.309
+              highest-rank-4 3671    -0.381      -0.316 45.819 -2.834    -49.546   144.441   8.152
+   alphabetical-4 (IGNORANT) 3671    -0.411      -0.316 45.710 -3.055    -49.546   144.441   8.146
+all qualifiers, equal weight 3671    -0.398      -0.294 46.064 -2.989    -49.546   144.441   8.072
+   deepest minus alphabetical = +0.046pp   highest-rank minus alphabetical = +0.029pp
+
+2. pooled name-level episodes (min_gap 21td): 2320
+
+=== 2. pooled excess vs SPY, h=5 ===
+                             label       n  mean_pct  median_pct    hit      t  worst_pct  best_pct  sd_pct
+            COND episodes (N=2320)    2320    -0.080      -0.075 48.621 -0.684    -54.504     66.52   5.629
+   CTRL-a all name-days, same span 1227787     0.052       0.000 49.630 15.446    -82.539    365.90   3.756
+CTRL-b all name-days, full history 1282414     0.075       0.000 49.788 21.520    -82.539    365.90   3.926
+  CTRL-c local +/-126td ex-trigger  300962    -0.008      -0.102 48.159 -0.780    -82.539    365.90   5.365
+   episode-vs-all-days edge = -0.155pp
+   top3 episodes ['2018-01-30', '2024-08-02', '2002-05-08'] = -30.18pp of -185.38pp total (16%); best yrs {2003: 137.0, 2022: 132.2}
+
+3. GATE ATTRIBUTION (name-episodes, h=5, excess vs SPY)
+
+=== gate cells ===
+                       label     n  mean_pct  median_pct    hit      t  worst_pct  best_pct  sd_pct
+   JOINT rk63>=95 & dd<=-15%  2320    -0.080      -0.075 48.621 -0.684    -54.504    66.520   5.629
+              rk63>=95 ALONE 10205    -0.020      -0.039 48.682 -0.521    -54.504    66.520   3.801
+rk63>=95 & dd>-15% (shallow)  8399     0.006      -0.047 48.422  0.166    -27.769   127.999   3.393
+              dd<=-15% ALONE 21398     0.132       0.059 50.865  3.850    -67.962   114.432   5.011
+          dd<=-15% & rk63<95 20477     0.116       0.061 50.784  3.434    -54.543    70.837   4.851
+
+4. CROSS-NAME HETEROGENEITY
+  names with >=5 episodes: 182
+  positive-mean share: 56.6%
+       n  mean_pct  sd_pct
+name                      
+AAPL   9     3.048   3.358
+SLV    8     2.971   6.201
+FCX   17     2.547   5.673
+GLW   16     2.499  11.514
+USO   14     2.379   5.523
+ADP    9     2.348   3.773
+GILD   7     2.335   3.333
+EXC   12     2.165   4.116
+  ...
+       n  mean_pct  sd_pct
+name                      
+AMZN  14    -3.256   8.049
+CPB   10    -3.757   4.291
+AIG   20    -3.803   7.575
+RF    21    -4.180   7.888
+UVXY  33    -4.730  24.063
+  Cochran Q = 204.6 on df=181 (pooled mean -0.030%)
+  permutation P(max name mean >= observed 3.048%) = 1.000

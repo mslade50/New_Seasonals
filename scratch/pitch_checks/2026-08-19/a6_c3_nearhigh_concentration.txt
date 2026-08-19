@@ -1,0 +1,36 @@
+C3 near-high cell n_days=30  fires today True
+
+h= 3  N=27  mean +0.346%  base +0.117%  excess +0.229pp  rec 15-12  sign p=0.3506
+   top2 episodes ['2026-06-09', '2026-07-28'] = +7.92pp of +9.33pp total (85%); best yrs {2026: 8.3, 2021: 1.6}
+   drop-best excess +0.086pp   drop-2 excess -0.061pp
+   ex-2026 mean +0.056%  excess -0.061pp  N=18  rec 9-9
+   by year: 2003:n=2 +0.29, 2006:n=1 +0.74, 2013:n=1 -0.34, 2016:n=1 +0.63, 2017:n=1 +0.17, 2021:n=2 +0.81, 2023:n=1 +0.74, 2024:n=5 -0.01, 2025:n=4 -0.77, 2026:n=9 +0.93
+   NB base hit rate for SPY at h=3 is 57.7%, so the honest null is p=0.577: sign p=0.6642
+
+h= 5  N=24  mean +0.590%  base +0.192%  excess +0.398pp  rec 15-9  sign p=0.1537
+   top2 episodes ['2026-07-28', '2021-12-16'] = +9.31pp of +14.16pp total (66%); best yrs {2026: 6.1, 2021: 3.6}
+   drop-best excess +0.183pp   drop-2 excess +0.028pp
+   ex-2026 mean +0.474%  excess +0.282pp  N=17  rec 11-6
+   by year: 2003:n=2 +0.55, 2006:n=1 +1.50, 2013:n=1 -0.54, 2016:n=1 +0.95, 2017:n=1 +1.02, 2021:n=2 +1.81, 2023:n=1 +1.05, 2024:n=4 +0.27, 2025:n=4 -0.43, 2026:n=7 +0.87
+   NB base hit rate for SPY at h=5 is 58.1%, so the honest null is p=0.581: sign p=0.4148
+
+h=10  N=22  mean +0.536%  base +0.378%  excess +0.158pp  rec 15-7  sign p=0.0669
+   top2 episodes ['2021-12-16', '2024-06-24'] = +6.91pp of +11.79pp total (59%); best yrs {2021: 4.9, 2024: 3.8}
+   drop-best excess -0.001pp   drop-2 excess -0.134pp
+   ex-2026 mean +0.606%  excess +0.228pp  N=16  rec 11-5
+   by year: 2003:n=2 +0.23, 2006:n=1 -0.69, 2013:n=1 +0.71, 2016:n=1 +2.12, 2017:n=1 +0.46, 2021:n=2 +2.44, 2023:n=1 -1.19, 2024:n=4 +0.95, 2025:n=3 -0.28, 2026:n=6 +0.35
+   NB base hit rate for SPY at h=10 is 61.0%, so the honest null is p=0.610: sign p=0.3242
+
+
+########## EVENT WINDOW FOR A TRADE PUT ON TOMORROW ##########
+      date        event                                           detail  ref_period time_et             source
+2026-08-19   vix_expiry VIX futures/options expiration (SOQ at the open)         NaN   09:30           computed
+2026-08-21         opex                       monthly options expiration         NaN   16:00           computed
+2026-08-28 jackson_hole           Jackson Hole symposium Aug 27-29, 2026        2026   10:00       manual:kcfed
+2026-09-04          nfp                                      NFP release August 2026   08:30 bls:current:empsit
+
+sessions from an entry at the 2026-08-20 close:
+  opex 2026-08-21 = +1 session;  NVDA print 2026-08-26 = +4 sessions;
+  so ANY h>=4 hold from tomorrow carries the NVDA print uncompensated,
+  and every long-tech candidate here (C2 at h>=5, C5 at any horizon)
+  is short that gamma by construction.

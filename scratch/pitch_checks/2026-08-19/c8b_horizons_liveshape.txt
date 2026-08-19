@@ -1,0 +1,52 @@
+C:\Users\McKinley Slade\dev\New_Seasonals\scratch\pitch_checks\2026-08-19\c8b_horizons_liveshape.py:83: FutureWarning: Downcasting object dtype arrays on .fillna, .ffill, .bfill is deprecated and will change in a future version. Call result.infer_objects(copy=False) instead. To opt-in to the future behavior, set `pd.set_option('future.no_silent_downcasting', True)`
+  mask = (spy_above.fillna(False).values[:, None]
+=== horizon sweep: pooled name-episodes, excess vs SPY ===
+
+=== joint vs the drawdown gate alone ===
+              label     n  mean_pct  median_pct    hit      t  worst_pct  best_pct  sd_pct  ctl_all_pct  edge_pp
+          h=1 JOINT  2323    -0.076      -0.069 47.826 -1.254    -29.301    29.118   2.905        0.015   -0.091
+ h=1 dd<=-15% ALONE 21409     0.038       0.000 49.820  2.375    -38.059    47.341   2.325        0.015    0.022
+          h=2 JOINT  2323    -0.132      -0.048 48.773 -1.617    -31.363    38.189   3.936        0.031   -0.163
+ h=2 dd<=-15% ALONE 21405     0.079       0.000 49.886  3.587    -50.755    46.856   3.224        0.031    0.049
+          h=3 JOINT  2322    -0.160      -0.102 48.191 -1.620    -41.451   104.383   4.769        0.045   -0.206
+ h=3 dd<=-15% ALONE 21405     0.092       0.039 50.666  3.416    -59.448    79.247   3.962        0.045    0.047
+          h=5 JOINT  2320    -0.080      -0.075 48.621 -0.684    -54.504    66.520   5.629        0.075   -0.155
+ h=5 dd<=-15% ALONE 21398     0.132       0.059 50.865  3.850    -67.962   114.432   5.011        0.075    0.057
+         h=10 JOINT  2318    -0.176      -0.271 47.627 -1.023    -73.032   188.731   8.297        0.144   -0.320
+h=10 dd<=-15% ALONE 21386     0.263       0.144 51.309  5.365    -84.130   247.900   7.164        0.144    0.119
+         h=21 JOINT  2312    -0.282      -0.529 46.280 -1.133    -63.888   255.379  11.945        0.300   -0.581
+h=21 dd<=-15% ALONE 21344     0.470       0.180 51.092  6.946    -77.555   255.379   9.896        0.300    0.171
+
+=== alphabetical placebo at every horizon (day baskets, K=4) ===
+  h=1: deepest minus alphabetical = +0.001pp
+  h=3: deepest minus alphabetical = +0.014pp
+  h=5: deepest minus alphabetical = +0.046pp
+  h=10: deepest minus alphabetical = +0.148pp
+
+=== placebo ladder ===
+              label    n  mean_pct  median_pct    hit      t  worst_pct  best_pct  sd_pct
+      h=1 deepest-4 3675    -0.135      -0.085 47.347 -2.162    -42.123    53.402   3.793
+ h=1 ALPHABETICAL-4 3675    -0.136      -0.085 47.374 -2.217    -42.123    53.402   3.721
+ h=1 all qualifiers 3675    -0.139      -0.069 47.810 -2.292    -42.123    53.402   3.682
+      h=3 deepest-4 3673    -0.324      -0.236 46.284 -3.188    -38.428   109.208   6.153
+ h=3 ALPHABETICAL-4 3673    -0.338      -0.239 45.576 -3.405    -38.428   109.208   6.019
+ h=3 all qualifiers 3673    -0.330      -0.214 46.148 -3.366    -38.428   109.208   5.946
+      h=5 deepest-4 3671    -0.365      -0.328 45.955 -2.662    -49.546   144.441   8.309
+ h=5 ALPHABETICAL-4 3671    -0.411      -0.316 45.710 -3.055    -49.546   144.441   8.146
+ h=5 all qualifiers 3671    -0.398      -0.294 46.064 -2.989    -49.546   144.441   8.072
+     h=10 deepest-4 3666    -0.511      -0.504 45.117 -2.031    -55.288   399.116  15.232
+h=10 ALPHABETICAL-4 3666    -0.659      -0.625 44.244 -2.652    -55.288   399.116  15.042
+h=10 all qualifiers 3666    -0.625      -0.532 44.735 -2.525    -55.288   399.116  14.990
+
+=== LIVE SHAPE: SPY above 200d, <=10 names firing, name above its own 200d ===
+  h= 3 live-shape episodes N=596 mean -0.082% hit 50.3% edge vs all days -0.127pp
+  h= 5 live-shape episodes N=596 mean +0.172% hit 48.2% edge vs all days +0.098pp
+  h=10 live-shape episodes N=595 mean -0.068% hit 48.1% edge vs all days -0.212pp
+  today's slate above own 200d: {'ABT': True, 'ADBE': False, 'CAG': False, 'CPB': False, 'CRM': False, 'GIS': False, 'IP': True}
+  names firing today: 7 (historical median on trigger days 2)
+
+=== STAPLES/FOOD subset (today's slate class) ===
+  staples names in universe: 17
+  h= 3 staples episodes N=149 mean -0.083% hit 49.0% sign p=0.628
+  h= 5 staples episodes N=148 mean -0.938% hit 39.2% sign p=0.997
+  h=10 staples episodes N=148 mean -1.038% hit 37.8% sign p=0.999

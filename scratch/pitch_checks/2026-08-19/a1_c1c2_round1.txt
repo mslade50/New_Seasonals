@@ -1,0 +1,218 @@
+live spread 2026-08-18: +4.074pp
+full-sample pctile: 99.27  (N=6695)
+trailing-252 pctile today: 78.6
+  trail252 pctile>=99        n_days=  76
+  trail252 pctile>=97.5      n_days= 191
+  trail252 pctile>=95        n_days= 331
+  abs >= 3.0pp               n_days= 122
+  abs >= 3.5pp               n_days=  73
+  abs >= 4.07pp (today)      n_days=  49
+
+##### C1 CELL: XLV-XLK after trailing-252 pctile>=99 one-day gap  (h=1 td, entry lag=1) #####
+legs=[('XLV', 1.0), ('XLK', -1.0)]  trigger span 2002-08-20 .. 2026-06-09
+
+=== 1. conditional vs controls ===
+                           label    n  mean_pct  median_pct    hit      t  worst_pct  best_pct  sd_pct
+           COND day-level (N=76)   76    -0.203      -0.243 39.474 -1.415     -3.734     4.335   1.251
+            COND episodes (N=76)   76    -0.203      -0.243 39.474 -1.415     -3.734     4.335   1.251
+     CTRL-a own drift, same span 5989    -0.027      -0.042 47.888 -1.964     -9.079     7.274   1.083
+   CTRL-b all days, full history 6694    -0.009      -0.032 48.551 -0.559     -9.079     9.384   1.267
+CTRL-c local +/-126td ex-trigger 5792    -0.021      -0.040 47.980 -1.394     -9.079     9.384   1.145
+  COND day-level, lag=0 (no-lag)   76     0.083       0.009 50.000  0.570     -4.576     3.099   1.265
+  episode-vs-control diff = -0.176%  welch t = -1.22   bootstrap P(mean<=0) = 0.924   record 30-46, sign p = 0.9748
+  concentration: top2 episodes ['2008-10-22', '2002-10-31'] = +0.60pp of -15.44pp total (-4%); best yrs {2018: 3.2, 2008: 1.3}
+
+=== 2+3. episode era split (pre-2018 / 2018+) ===
+   label  n  mean_pct  median_pct    hit      t  worst_pct  best_pct  sd_pct
+pre-2018 50    -0.128      -0.181 40.000 -0.779     -3.734     4.335   1.160
+   2018+ 26    -0.348      -0.441 38.462 -1.247     -2.914     3.109   1.423
+
+===   day-level era split (for contrast) ===
+   label  n  mean_pct  median_pct    hit      t  worst_pct  best_pct  sd_pct
+pre-2018 50    -0.128      -0.181 40.000 -0.779     -3.734     4.335   1.160
+   2018+ 26    -0.348      -0.441 38.462 -1.247     -2.914     3.109   1.423
+  worst episode window: -3.73%  on 2002-10-31   |  worst day-level: -3.73%
+  episode dates: 2002-08-20, 2002-10-31, 2002-12-10, 2002-12-11, 2002-12-26, 2003-09-09, 2004-03-03, 2004-10-13, 2005-05-13, 2005-11-14, 2005-11-28, 2005-12-29, 2006-01-24, 2006-02-10, 2006-03-24, 2006-09-26, 2006-11-07, 2007-09-11, 2007-11-19, 2008-03-26, 2008-07-23, 2008-10-22, 2008-11-05, 2008-12-10, 2010-07-29, 2010-09-13, 2011-02-07, 2011-06-08, 2011-09-07, 2011-10-19, 2011-11-22, 2011-12-14, 2011-12-16, 2012-02-03, 2012-02-09, 2012-02-16, 2012-02-24, 2013-05-22, 2014-01-22, 2014-01-30, 2014-05-23, 2014-06-09, 2015-07-22, 2015-10-22, 2015-10-27, 2016-09-07, 2016-10-13, 2017-07-19, 2017-08-18, 2017-08-30, 2018-03-26, 2018-05-09, 2018-12-18, 2019-05-13, 2019-06-21, 2019-11-08, 2020-02-28, 2020-09-17, 2021-02-17, 2021-10-14, 2021-12-30, 2022-03-04, 2022-04-13, 2022-06-30, 2022-08-08, 2022-09-01, 2022-11-03, 2024-01-19, 2024-05-14, 2025-04-09, 2025-05-01, 2025-05-23, 2025-07-02, 2026-04-30, 2026-06-05, 2026-06-09
+
+=== 4. threshold sensitivity (episode level) ===
+                           label   n  mean_pct  median_pct    hit      t  worst_pct  best_pct  sd_pct  n_days
+  trail252 pctile>=99 (episodes)  76    -0.203      -0.243 39.474 -1.415     -3.734     4.335   1.251      76
+trail252 pctile>=97.5 (episodes) 191     0.005      -0.047 47.644  0.061     -3.734     5.342   1.207     191
+  trail252 pctile>=95 (episodes) 331    -0.043      -0.096 45.921 -0.646     -3.734     5.342   1.214     331
+         abs >= 3.0pp (episodes) 121    -0.303      -0.459 44.628 -1.290     -8.070     9.384   2.588     121
+         abs >= 3.5pp (episodes)  72    -0.502      -0.756 44.444 -1.565     -8.070     6.426   2.724      72
+abs >= 4.07pp (today) (episodes)  48    -0.790      -0.764 43.750 -1.932     -8.070     5.141   2.834      48
+
+5. cost: 2 leg(s) x ~2.0 bps round trip = 4.0 bps. episode mean -0.203% = -20.3 bps -> -5.1x cost (need >=5x)
+
+=== 6. cpi+fomc-in-hold split (episodes) ===
+                   label  n  mean_pct  median_pct    hit      t  worst_pct  best_pct  sd_pct
+cpi+fomc IN window (N=3)  3    -0.942      -0.611  0.000 -2.690     -1.642    -0.572   0.606
+     cpi+fomc OUT (N=73) 73    -0.173      -0.153 41.096 -1.168     -3.734     4.335   1.264
+
+##### C1 CELL: XLV-XLK after trailing-252 pctile>=99 one-day gap  (h=3 td, entry lag=1) #####
+legs=[('XLV', 1.0), ('XLK', -1.0)]  trigger span 2002-08-20 .. 2026-06-09
+
+=== 1. conditional vs controls ===
+                           label    n  mean_pct  median_pct    hit      t  worst_pct  best_pct  sd_pct
+           COND day-level (N=76)   76    -0.472      -0.380 39.474 -2.176     -8.557     3.577   1.890
+            COND episodes (N=73)   73    -0.370      -0.369 39.726 -1.908     -4.933     3.577   1.659
+     CTRL-a own drift, same span 5989    -0.082      -0.095 47.587 -3.416    -10.543    13.551   1.863
+   CTRL-b all days, full history 6692    -0.025      -0.079 48.147 -0.942    -12.702    14.097   2.146
+CTRL-c local +/-126td ex-trigger 5790    -0.061      -0.096 47.513 -2.376    -10.543    14.097   1.967
+  COND day-level, lag=0 (no-lag)   76    -0.062      -0.305 46.053 -0.305     -4.316     3.306   1.768
+  episode-vs-control diff = -0.288%  welch t = -1.47   bootstrap P(mean<=0) = 0.976   record 29-44, sign p = 0.9698
+  concentration: top2 episodes ['2008-10-22', '2026-04-30'] = -9.81pp of -27.03pp total (36%); best yrs {2018: 4.4, 2015: 4.3}
+
+=== 2+3. episode era split (pre-2018 / 2018+) ===
+   label  n  mean_pct  median_pct    hit      t  worst_pct  best_pct  sd_pct
+pre-2018 48    -0.376      -0.404 35.417 -1.767     -4.933     3.448   1.473
+   2018+ 25    -0.360      -0.328 48.000 -0.899     -4.876     3.577   2.001
+
+===   day-level era split (for contrast) ===
+   label  n  mean_pct  median_pct    hit      t  worst_pct  best_pct  sd_pct
+pre-2018 50    -0.366      -0.404 36.000 -1.763     -4.933     3.448   1.468
+   2018+ 26    -0.675      -0.337 46.154 -1.358     -8.557     3.577   2.535
+  worst episode window: -4.93%  on 2008-10-22   |  worst day-level: -8.56%
+  episode dates: 2002-08-20, 2002-10-31, 2002-12-10, 2002-12-26, 2003-09-09, 2004-03-03, 2004-10-13, 2005-05-13, 2005-11-14, 2005-11-28, 2005-12-29, 2006-01-24, 2006-02-10, 2006-03-24, 2006-09-26, 2006-11-07, 2007-09-11, 2007-11-19, 2008-03-26, 2008-07-23, 2008-10-22, 2008-11-05, 2008-12-10, 2010-07-29, 2010-09-13, 2011-02-07, 2011-06-08, 2011-09-07, 2011-10-19, 2011-11-22, 2011-12-14, 2012-02-03, 2012-02-09, 2012-02-16, 2012-02-24, 2013-05-22, 2014-01-22, 2014-01-30, 2014-05-23, 2014-06-09, 2015-07-22, 2015-10-22, 2015-10-27, 2016-09-07, 2016-10-13, 2017-07-19, 2017-08-18, 2017-08-30, 2018-03-26, 2018-05-09, 2018-12-18, 2019-05-13, 2019-06-21, 2019-11-08, 2020-02-28, 2020-09-17, 2021-02-17, 2021-10-14, 2021-12-30, 2022-03-04, 2022-04-13, 2022-06-30, 2022-08-08, 2022-09-01, 2022-11-03, 2024-01-19, 2024-05-14, 2025-04-09, 2025-05-01, 2025-05-23, 2025-07-02, 2026-04-30, 2026-06-05
+
+=== 4. threshold sensitivity (episode level) ===
+                           label   n  mean_pct  median_pct    hit      t  worst_pct  best_pct  sd_pct  n_days
+  trail252 pctile>=99 (episodes)  73    -0.370      -0.369 39.726 -1.908     -4.933     3.577   1.659      76
+trail252 pctile>=97.5 (episodes) 178    -0.054      -0.055 48.315 -0.372     -4.933     9.027   1.944     191
+  trail252 pctile>=95 (episodes) 294    -0.045      -0.041 48.980 -0.379     -5.306     9.027   2.054     331
+         abs >= 3.0pp (episodes) 108    -0.457      -0.299 45.370 -1.283    -12.702    12.332   3.699     121
+         abs >= 3.5pp (episodes)  66    -0.336       0.118 51.515 -0.693    -12.702    12.332   3.942      72
+abs >= 4.07pp (today) (episodes)  45    -0.356       0.213 55.556 -0.545    -12.702    12.332   4.379      48
+
+5. cost: 2 leg(s) x ~2.0 bps round trip = 4.0 bps. episode mean -0.370% = -37.0 bps -> -9.3x cost (need >=5x)
+
+=== 6. cpi+fomc-in-hold split (episodes) ===
+                    label  n  mean_pct  median_pct    hit      t  worst_pct  best_pct  sd_pct
+cpi+fomc IN window (N=11) 11    -1.054      -1.325 18.182 -2.776     -2.645     1.470   1.259
+      cpi+fomc OUT (N=62) 62    -0.249      -0.331 43.548 -1.154     -4.933     3.577   1.699
+
+##### C1 CELL: XLV-XLK after trailing-252 pctile>=99 one-day gap  (h=5 td, entry lag=1) #####
+legs=[('XLV', 1.0), ('XLK', -1.0)]  trigger span 2002-08-20 .. 2026-06-09
+
+=== 1. conditional vs controls ===
+                           label    n  mean_pct  median_pct    hit      t  worst_pct  best_pct  sd_pct
+           COND day-level (N=76)   76    -0.494      -0.094 44.737 -1.616     -9.583     7.107   2.668
+            COND episodes (N=71)   71    -0.455      -0.107 43.662 -1.446     -9.583     7.107   2.653
+     CTRL-a own drift, same span 5989    -0.137      -0.159 46.485 -4.441    -13.357    14.379   2.394
+   CTRL-b all days, full history 6690    -0.041      -0.117 47.638 -1.238    -13.357    19.299   2.736
+CTRL-c local +/-126td ex-trigger 5788    -0.105      -0.158 46.579 -3.148    -13.357    19.299   2.538
+  COND day-level, lag=0 (no-lag)   76    -0.204       0.162 55.263 -0.765     -7.259     4.574   2.329
+  episode-vs-control diff = -0.318%  welch t = -1.00   bootstrap P(mean<=0) = 0.925   record 31-40, sign p = 0.8825
+  concentration: top2 episodes ['2026-04-30', '2022-11-03'] = -17.85pp of -32.33pp total (55%); best yrs {2002: 6.0, 2018: 4.6}
+
+=== 2+3. episode era split (pre-2018 / 2018+) ===
+   label  n  mean_pct  median_pct    hit      t  worst_pct  best_pct  sd_pct
+pre-2018 46    -0.263      -0.110 41.304 -0.857     -4.244     5.675   2.081
+   2018+ 25    -0.809      -0.075 48.000 -1.158     -9.583     7.107   3.494
+
+===   day-level era split (for contrast) ===
+   label  n  mean_pct  median_pct    hit      t  worst_pct  best_pct  sd_pct
+pre-2018 50    -0.215      -0.094 44.000 -0.758     -4.244     5.675   2.007
+   2018+ 26    -1.032      -0.427 46.154 -1.459     -9.583     7.107   3.606
+  worst episode window: -9.58%  on 2026-04-30   |  worst day-level: -9.58%
+  episode dates: 2002-08-20, 2002-10-31, 2002-12-10, 2002-12-26, 2003-09-09, 2004-03-03, 2004-10-13, 2005-05-13, 2005-11-14, 2005-11-28, 2005-12-29, 2006-01-24, 2006-02-10, 2006-03-24, 2006-09-26, 2006-11-07, 2007-09-11, 2007-11-19, 2008-03-26, 2008-07-23, 2008-10-22, 2008-11-05, 2008-12-10, 2010-07-29, 2010-09-13, 2011-02-07, 2011-06-08, 2011-09-07, 2011-10-19, 2011-11-22, 2011-12-14, 2012-02-03, 2012-02-16, 2012-02-24, 2013-05-22, 2014-01-22, 2014-01-30, 2014-05-23, 2014-06-09, 2015-07-22, 2015-10-22, 2016-09-07, 2016-10-13, 2017-07-19, 2017-08-18, 2017-08-30, 2018-03-26, 2018-05-09, 2018-12-18, 2019-05-13, 2019-06-21, 2019-11-08, 2020-02-28, 2020-09-17, 2021-02-17, 2021-10-14, 2021-12-30, 2022-03-04, 2022-04-13, 2022-06-30, 2022-08-08, 2022-09-01, 2022-11-03, 2024-01-19, 2024-05-14, 2025-04-09, 2025-05-01, 2025-05-23, 2025-07-02, 2026-04-30, 2026-06-05
+
+=== 4. threshold sensitivity (episode level) ===
+                           label   n  mean_pct  median_pct    hit      t  worst_pct  best_pct  sd_pct  n_days
+  trail252 pctile>=99 (episodes)  71    -0.455      -0.107 43.662 -1.446     -9.583     7.107   2.653      76
+trail252 pctile>=97.5 (episodes) 162    -0.168      -0.141 44.444 -0.854     -9.583     9.253   2.510     191
+  trail252 pctile>=95 (episodes) 264    -0.160      -0.179 45.833 -0.997     -9.583     9.253   2.614     331
+         abs >= 3.0pp (episodes)  93     0.204      -0.000 49.462  0.418    -12.862    13.109   4.706     121
+         abs >= 3.5pp (episodes)  57    -0.462      -0.992 45.614 -0.738    -12.862    10.665   4.729      72
+abs >= 4.07pp (today) (episodes)  39    -0.177       0.457 51.282 -0.219    -12.862    10.665   5.050      48
+
+5. cost: 2 leg(s) x ~2.0 bps round trip = 4.0 bps. episode mean -0.455% = -45.5 bps -> -11.4x cost (need >=5x)
+
+=== 6. cpi+fomc-in-hold split (episodes) ===
+                    label  n  mean_pct  median_pct    hit      t  worst_pct  best_pct  sd_pct
+cpi+fomc IN window (N=18) 18    -1.241      -0.705 38.889 -1.893     -8.269     3.739   2.782
+      cpi+fomc OUT (N=53) 53    -0.188      -0.075 45.283 -0.531     -9.583     7.107   2.580
+
+##### C1 CELL: XLV-XLK after trailing-252 pctile>=99 one-day gap  (h=10 td, entry lag=1) #####
+legs=[('XLV', 1.0), ('XLK', -1.0)]  trigger span 2002-08-20 .. 2026-06-09
+
+=== 1. conditional vs controls ===
+                           label    n  mean_pct  median_pct    hit      t  worst_pct  best_pct  sd_pct
+           COND day-level (N=76)   76    -0.624      -0.600 39.474 -1.691    -12.366     9.236   3.219
+            COND episodes (N=67)   67    -0.703      -0.763 35.821 -1.699    -12.366     9.236   3.387
+     CTRL-a own drift, same span 5989    -0.276      -0.323 44.932 -6.459    -19.836    12.542   3.309
+   CTRL-b all days, full history 6685    -0.083      -0.234 46.702 -1.793    -26.122    24.040   3.766
+CTRL-c local +/-126td ex-trigger 5783    -0.209      -0.310 45.288 -4.526    -19.836    24.040   3.507
+  COND day-level, lag=0 (no-lag)   76    -0.718      -0.226 44.737 -1.682    -14.567     7.316   3.723
+  episode-vs-control diff = -0.427%  welch t = -1.03   bootstrap P(mean<=0) = 0.954   record 24-43, sign p = 0.9930
+  concentration: top2 episodes ['2025-05-01', '2002-08-20'] = -3.13pp of -47.10pp total (7%); best yrs {2008: 11.5, 2021: 3.6}
+
+=== 2+3. episode era split (pre-2018 / 2018+) ===
+   label  n  mean_pct  median_pct    hit      t  worst_pct  best_pct  sd_pct
+pre-2018 42    -0.366      -0.698 33.333 -0.842     -4.331     9.236   2.814
+   2018+ 25    -1.270      -1.038 40.000 -1.518    -12.366     6.670   4.182
+
+===   day-level era split (for contrast) ===
+   label  n  mean_pct  median_pct    hit     t  worst_pct  best_pct  sd_pct
+pre-2018 50    -0.267      -0.556 40.000 -0.72     -4.331     9.236   2.625
+   2018+ 26    -1.312      -1.054 38.462 -1.63    -12.366     6.670   4.103
+  worst episode window: -12.37%  on 2025-05-01   |  worst day-level: -12.37%
+  episode dates: 2002-08-20, 2002-10-31, 2002-12-10, 2002-12-26, 2003-09-09, 2004-03-03, 2004-10-13, 2005-05-13, 2005-11-14, 2005-12-29, 2006-01-24, 2006-02-10, 2006-03-24, 2006-09-26, 2006-11-07, 2007-09-11, 2007-11-19, 2008-03-26, 2008-07-23, 2008-10-22, 2008-11-05, 2008-12-10, 2010-07-29, 2010-09-13, 2011-02-07, 2011-06-08, 2011-09-07, 2011-10-19, 2011-11-22, 2011-12-14, 2012-02-03, 2012-02-24, 2013-05-22, 2014-01-22, 2014-05-23, 2014-06-09, 2015-07-22, 2015-10-22, 2016-09-07, 2016-10-13, 2017-07-19, 2017-08-18, 2018-03-26, 2018-05-09, 2018-12-18, 2019-05-13, 2019-06-21, 2019-11-08, 2020-02-28, 2020-09-17, 2021-02-17, 2021-10-14, 2021-12-30, 2022-03-04, 2022-04-13, 2022-06-30, 2022-08-08, 2022-09-01, 2022-11-03, 2024-01-19, 2024-05-14, 2025-04-09, 2025-05-01, 2025-05-23, 2025-07-02, 2026-04-30, 2026-06-05
+
+=== 4. threshold sensitivity (episode level) ===
+                           label   n  mean_pct  median_pct    hit      t  worst_pct  best_pct  sd_pct  n_days
+  trail252 pctile>=99 (episodes)  67    -0.703      -0.763 35.821 -1.699    -12.366     9.236   3.387      76
+trail252 pctile>=97.5 (episodes) 135    -0.325      -0.529 42.222 -1.105    -12.366    11.745   3.420     191
+  trail252 pctile>=95 (episodes) 212    -0.296      -0.471 43.868 -1.192    -13.003    11.745   3.609     331
+         abs >= 3.0pp (episodes)  76    -0.403      -1.130 42.105 -0.573    -26.122    15.231   6.136     121
+         abs >= 3.5pp (episodes)  48    -1.132      -0.867 41.667 -1.157    -26.122    15.231   6.778      72
+abs >= 4.07pp (today) (episodes)  31    -0.416      -0.254 48.387 -0.405    -12.257    15.231   5.715      48
+
+5. cost: 2 leg(s) x ~2.0 bps round trip = 4.0 bps. episode mean -0.703% = -70.3 bps -> -17.6x cost (need >=5x)
+
+=== 6. cpi+fomc-in-hold split (episodes) ===
+                    label  n  mean_pct  median_pct    hit      t  worst_pct  best_pct  sd_pct
+cpi+fomc IN window (N=34) 34    -1.066      -0.904 35.294 -1.584    -12.366     6.670   3.923
+      cpi+fomc OUT (N=33) 33    -0.330      -0.633 36.364 -0.691     -4.912     9.236   2.740
+
+
+########## PER-LEG ATTRIBUTION (episodes) ##########
+ h  n_epi  XLV_cond  XLV_base  XLV_exc  XLK_cond  XLK_base  XLK_exc  SPY_cond  SPY_base  SPY_exc  spread_cond  spread_base  exc_check
+ 1     76    -0.139     0.038   -0.177     0.064     0.047    0.017    -0.042     0.040   -0.082       -0.203       -0.009     -0.194
+ 2     75     0.100     0.076    0.024     0.253     0.093    0.160     0.143     0.078    0.064       -0.153       -0.017     -0.136
+ 3     73     0.276     0.113    0.163     0.646     0.138    0.508     0.400     0.117    0.283       -0.370       -0.025     -0.345
+ 5     71     0.539     0.186    0.353     0.994     0.227    0.767     0.792     0.192    0.599       -0.455       -0.041     -0.414
+10     67    -0.071     0.364   -0.435     0.632     0.446    0.186     0.162     0.378   -0.216       -0.703       -0.083     -0.621
+
+Read: if XLV_exc ~ 0 and the whole 'spread' is -XLK_exc, this is a short-tech bet wearing a pair-trade costume.
+
+
+########## BETA-NEUTRAL vs EQUAL-DOLLAR ##########
+live trailing-252 beta(XLV on XLK) = -0.056  median hist 0.484
+
+=== beta-neutral check h=3 ===
+                    label    n  mean_pct  median_pct    hit      t  worst_pct  best_pct  sd_pct
+         h=3 equal-dollar   73    -0.370      -0.369 39.726 -1.908     -4.933     3.577   1.659
+h=3 equal-dollar ALL DAYS 6692    -0.025      -0.079 48.147 -0.942    -12.702    14.097   2.146
+         h=3 beta-neutral   73     0.016       0.100 50.685  0.110     -2.553     2.972   1.210
+h=3 beta-neutral ALL DAYS 6440     0.031       0.034 51.180  1.751    -11.413    12.458   1.399
+
+=== beta-neutral check h=5 ===
+                    label    n  mean_pct  median_pct    hit      t  worst_pct  best_pct  sd_pct
+         h=5 equal-dollar   71    -0.455      -0.107 43.662 -1.446     -9.583     7.107   2.653
+h=5 equal-dollar ALL DAYS 6690    -0.041      -0.117 47.638 -1.238    -13.357    19.299   2.736
+         h=5 beta-neutral   71     0.081       0.048 56.338  0.397     -4.317     3.892   1.708
+h=5 beta-neutral ALL DAYS 6438     0.051       0.033 51.072  2.267    -13.121    15.023   1.795
+
+=== beta-neutral check h=10 ===
+                     label    n  mean_pct  median_pct    hit      t  worst_pct  best_pct  sd_pct
+         h=10 equal-dollar   67    -0.703      -0.763 35.821 -1.699    -12.366     9.236   3.387
+h=10 equal-dollar ALL DAYS 6685    -0.083      -0.234 46.702 -1.793    -26.122    24.040   3.766
+         h=10 beta-neutral   67    -0.265      -0.220 47.761 -0.983     -5.661     4.306   2.203
+h=10 beta-neutral ALL DAYS 6433     0.097       0.050 50.878  3.131    -14.770    18.597   2.479
+
+
+########## TAPE OVER-SELECTION ##########
+trigger days above SPY 200d: 63.2%  (N=76)   base rate 71.6%
+live: SPY above 200d = True

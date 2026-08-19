@@ -1,0 +1,183 @@
+subclass n_days=23  FIRES TODAY: True
+live: gap +4.07pp  dist52wh -1.34%  SPY ATR%% 0.94%
+
+
+########## 1. PER-LEG ATTRIBUTION INSIDE THE SUBCLASS ##########
+C2 = long XLK, short XLV.  columns are the C2 SIDE of each leg.
+ h  n_epi  LONG_XLK_cond  LONG_XLK_exc  SHORT_XLV_cond  SHORT_XLV_exc  SPY_cond  C2_total
+ 1     22          0.282         0.235           0.177          0.215     0.076     0.458
+ 2     21          0.463         0.370           0.250          0.326     0.174     0.713
+ 3     21          0.591         0.453           0.298          0.411     0.317     0.889
+ 5     19          0.799         0.572          -0.050          0.136     0.329     0.749
+10     17          1.147         0.701          -0.270          0.094     0.399     0.877
+
+share of C2 carried by the LONG XLK leg:
+  h= 1:   61.6%   short-XLV leg contributes +0.177pp (help)
+  h= 2:   64.9%   short-XLV leg contributes +0.250pp (help)
+  h= 3:   66.5%   short-XLV leg contributes +0.298pp (help)
+  h= 5:  106.7%   short-XLV leg contributes -0.050pp (DRAG)
+  h=10:  130.8%   short-XLV leg contributes -0.270pp (DRAG)
+
+
+########## 2. THE IGNORANT RULE ##########
+long XLK alone after a big XLK down day in the SAME calm/near-high tape,
+no healthcare condition at all.  matched on XLK's own move.
+  XLK 1d on subclass days: mean -2.37% median -2.24%  75th -1.64%   (today -2.47%)
+  ignorant n_days=88  (ex-subclass 71)
+
+=== h=1 ignorant-rule placebo ===
+                                                 label    n  mean_pct  median_pct    hit      t  worst_pct  best_pct  sd_pct
+                              C2 pair, subclass (N=22)   22     0.458       0.429 59.091  0.970     -3.109     7.135   2.217
+                             long XLK ALONE, same days   22     0.282       0.122 54.545  0.645     -2.494     5.499   2.049
+  IGNORANT long XLK, calm+down XLK, NO rotation (N=71)   71    -0.066       0.095 53.521 -0.442     -3.199     2.558   1.260
+                                          XLK all days 6694     0.047       0.107 53.929  2.350    -13.814    16.102   1.632
+                                      C2 pair all days 6694     0.009       0.032 51.434  0.559     -9.384     9.079   1.267
+
+=== h=2 ignorant-rule placebo ===
+                                                 label    n  mean_pct  median_pct    hit     t  worst_pct  best_pct  sd_pct
+                              C2 pair, subclass (N=21)   21     0.713       0.452 52.381 1.331     -2.678     7.491   2.455
+                             long XLK ALONE, same days   21     0.463       0.215 52.381 0.899     -2.586     5.692   2.359
+  IGNORANT long XLK, calm+down XLK, NO rotation (N=71)   71     0.036       0.292 57.746 0.195     -4.915     2.713   1.576
+                                          XLK all days 6693     0.093       0.206 54.804 3.407    -14.023    17.267   2.223
+                                      C2 pair all days 6693     0.017       0.055 51.815 0.768    -11.818    11.866   1.775
+
+=== h=3 ignorant-rule placebo ===
+                                                 label    n  mean_pct  median_pct    hit      t  worst_pct  best_pct  sd_pct
+                              C2 pair, subclass (N=21)   21     0.889       0.337 57.143  1.159     -5.569     9.292   3.513
+                             long XLK ALONE, same days   21     0.591       0.149 52.381  0.880     -4.038     8.583   3.078
+  IGNORANT long XLK, calm+down XLK, NO rotation (N=67)   67    -0.164       0.188 52.239 -0.566     -8.004     4.216   2.374
+                                          XLK all days 6692     0.138       0.313 56.336  4.249    -13.490    17.181   2.657
+                                      C2 pair all days 6692     0.025       0.079 51.853  0.942    -14.097    12.702   2.146
+
+=== h=5 ignorant-rule placebo ===
+                                                 label    n  mean_pct  median_pct    hit     t  worst_pct  best_pct  sd_pct
+                              C2 pair, subclass (N=19)   19     0.749       1.013 63.158 0.836     -5.312    12.862   3.907
+                             long XLK ALONE, same days   19     0.799       1.028 73.684 1.012     -5.530    11.611   3.441
+  IGNORANT long XLK, calm+down XLK, NO rotation (N=64)   64     0.321      -0.028 48.438 0.964     -5.546     6.863   2.666
+                                          XLK all days 6690     0.227       0.434 57.175 5.558    -18.266    18.050   3.347
+                                      C2 pair all days 6690     0.041       0.117 52.362 1.238    -19.299    13.357   2.736
+
+=== h=10 ignorant-rule placebo ===
+                                                 label    n  mean_pct  median_pct    hit     t  worst_pct  best_pct  sd_pct
+                              C2 pair, subclass (N=17)   17     0.877       1.824 64.706 0.752     -9.364     8.195   4.807
+                             long XLK ALONE, same days   17     1.147       1.927 64.706 1.205     -7.494     6.699   3.926
+  IGNORANT long XLK, calm+down XLK, NO rotation (N=59)   59     0.204       0.909 64.407 0.351    -13.815    13.679   4.460
+                                          XLK all days 6685     0.446       0.814 58.863 7.982    -23.558    37.020   4.572
+                                      C2 pair all days 6685     0.083       0.234 53.298 1.793    -24.040    26.122   3.766
+
+
+########## 3a. BETA-NEUTRAL SUBCLASS ##########
+live PIT beta(XLV~XLK) -0.056   subclass mean 0.231   hist median 0.484
+
+=== C2 beta-neutral h=1  (beta(XLK~XLV) live -0.160) ===
+                       label    n  mean_pct  median_pct    hit     t  worst_pct  best_pct  sd_pct
+        h=1 C2 eq-$ subclass   22     0.458       0.429 59.091 0.970     -3.109     7.135   2.217
+        h=1 C2 eq-$ all days 6442     0.014       0.032 51.490 0.925     -9.384     9.079   1.201
+h=1 C2 beta-neutral subclass   22     0.360       0.216 54.545 0.870     -2.462     5.350   1.943
+h=1 C2 beta-neutral all days 6442     0.021       0.044 52.018 1.407     -9.622    10.863   1.177
+
+=== C2 beta-neutral h=3  (beta(XLK~XLV) live -0.160) ===
+                       label    n  mean_pct  median_pct    hit     t  worst_pct  best_pct  sd_pct
+        h=3 C2 eq-$ subclass   21     0.889       0.337 57.143 1.159     -5.569     9.292   3.513
+        h=3 C2 eq-$ all days 6440     0.041       0.081 51.972 1.603    -14.097    12.702   2.063
+h=3 C2 beta-neutral subclass   21     0.674       0.260 57.143 0.997     -4.799     8.580   3.097
+h=3 C2 beta-neutral all days 6440     0.060       0.115 53.261 2.384    -14.563    12.613   2.029
+
+=== C2 beta-neutral h=5  (beta(XLK~XLV) live -0.160) ===
+                       label    n  mean_pct  median_pct    hit     t  worst_pct  best_pct  sd_pct
+        h=5 C2 eq-$ subclass   19     0.749       1.013 63.158 0.836     -5.312    12.862   3.907
+        h=5 C2 eq-$ all days 6438     0.068       0.124 52.610 2.075    -19.299    13.357   2.645
+h=5 C2 beta-neutral subclass   19     0.859       1.177 78.947 1.077     -5.396    11.497   3.478
+h=5 C2 beta-neutral all days 6438     0.100       0.166 53.464 3.068    -19.935    13.519   2.604
+
+=== C2 beta-neutral h=10  (beta(XLK~XLV) live -0.160) ===
+                        label    n  mean_pct  median_pct    hit     t  worst_pct  best_pct  sd_pct
+        h=10 C2 eq-$ subclass   17     0.877       1.824 64.706 0.752     -9.364     8.195   4.807
+        h=10 C2 eq-$ all days 6433     0.133       0.254 53.754 2.929    -24.040    26.122   3.638
+h=10 C2 beta-neutral subclass   17     1.144       1.816 70.588 1.103     -8.060     6.891   4.279
+h=10 C2 beta-neutral all days 6433     0.191       0.356 54.733 4.249    -24.997    25.076   3.602
+
+
+########## 3b. CONCENTRATION / YEAR / MIDTERM ##########
+
+h=3  N=21  mean +0.889%  record 12-9  sign p=0.3318
+  top2 episodes ['2026-07-28', '2026-06-09'] = +17.85pp of +18.66pp total (96%); best yrs {2026: 27.0, 2016: 1.7}
+  by year: 2003:n=1 mean-1.66, 2006:n=1 mean+1.38, 2013:n=1 mean+0.34, 2016:n=1 mean+1.69, 2017:n=1 mean-0.80, 2023:n=1 mean+0.29, 2024:n=4 mean-1.33, 2025:n=4 mean-1.08, 2026:n=7 mean+3.86
+
+=== h=3 midterm split ===
+                        label  n  mean_pct  median_pct    hit      t  worst_pct  best_pct  sd_pct
+midterm years (N=8)  <-- 2026  8     3.553       3.534 75.000  2.504     -1.931     9.292   4.013
+           non-midterm (N=13) 13    -0.751      -0.661 46.154 -1.440     -5.569     1.695   1.880
+
+=== h=3 era split ===
+   label  n  mean_pct  median_pct   hit     t  worst_pct  best_pct  sd_pct
+pre-2018  5     0.191       0.337 60.00 0.301     -1.659     1.695   1.423
+   2018+ 16     1.106       0.361 56.25 1.117     -5.569     9.292   3.963
+
+h=5  N=19  mean +0.749%  record 12-7  sign p=0.1796
+  top2 episodes ['2026-07-28', '2025-11-04'] = +7.55pp of +14.24pp total (53%); best yrs {2026: 18.7, 2016: 3.3}
+  by year: 2003:n=1 mean+0.15, 2006:n=1 mean+1.13, 2013:n=1 mean+0.11, 2016:n=1 mean+3.29, 2017:n=1 mean-0.71, 2023:n=1 mean+1.80, 2024:n=3 mean-0.53, 2025:n=4 mean-2.16, 2026:n=6 mean+3.12
+
+=== h=5 midterm split ===
+                        label  n  mean_pct  median_pct    hit      t  worst_pct  best_pct  sd_pct
+midterm years (N=7)  <-- 2026  7     2.833       1.890 71.429  1.631     -0.754    12.862   4.595
+           non-midterm (N=12) 12    -0.466       0.127 58.333 -0.535     -5.312     3.290   3.015
+
+=== h=5 era split ===
+   label  n  mean_pct  median_pct    hit     t  worst_pct  best_pct  sd_pct
+pre-2018  5     0.793       0.146 80.000 1.151     -0.710     3.290   1.540
+   2018+ 14     0.734       1.406 57.143 0.608     -5.312    12.862   4.517
+
+
+########## 4. HORIZON SCAN + LOSING EPISODE PATHS ##########
+
+=== C2 pair, subclass ===
+label  n  mean_pct  median_pct    hit     t  worst_pct  best_pct  sd_pct  ctl_all_days_pct  edge_pct
+  h=1 22     0.458       0.429 59.091 0.970     -3.109     7.135   2.217             0.009     0.450
+  h=2 21     0.713       0.452 52.381 1.331     -2.678     7.491   2.455             0.017     0.696
+  h=3 21     0.889       0.337 57.143 1.159     -5.569     9.292   3.513             0.025     0.864
+  h=5 19     0.749       1.013 63.158 0.836     -5.312    12.862   3.907             0.041     0.708
+  h=7 18     1.237       1.316 72.222 1.151     -6.588    13.184   4.561             0.058     1.179
+ h=10 17     0.877       1.824 64.706 0.752     -9.364     8.195   4.807             0.083     0.794
+
+=== long XLK alone, subclass ===
+label  n  mean_pct  median_pct    hit     t  worst_pct  best_pct  sd_pct  ctl_all_days_pct  edge_pct
+  h=1 22     0.282       0.122 54.545 0.645     -2.494     5.499   2.049             0.047     0.235
+  h=2 21     0.463       0.215 52.381 0.899     -2.586     5.692   2.359             0.093     0.370
+  h=3 21     0.591       0.149 52.381 0.880     -4.038     8.583   3.078             0.138     0.453
+  h=5 19     0.799       1.028 73.684 1.012     -5.530    11.611   3.441             0.227     0.572
+  h=7 18     1.587       1.133 77.778 1.916     -3.678    12.847   3.513             0.316     1.271
+ h=10 17     1.147       1.927 64.706 1.205     -7.494     6.699   3.926             0.446     0.701
+
+C2 subclass episode paths (cum %, day 1..5):
+               1     2     3      4      5
+2003-11-13 -1.06 -1.69 -1.66  -1.87   0.15
+2006-04-28  0.46  1.34  1.38   0.96   1.13
+2013-07-19 -0.06  0.77  0.34  -0.03   0.11
+2016-11-09  1.80  0.58  1.69   3.04   3.29
+2017-06-09  0.51 -0.45 -0.80  -1.14  -0.71
+2023-07-20  0.40  1.59  0.29   0.74   1.80
+2024-01-02 -1.23 -1.17  0.43   0.61   1.01
+2024-06-24  0.24  0.45  0.48   1.80   2.66
+2024-07-11  0.53 -1.23 -5.57  -3.25  -5.26
+2025-01-27 -0.23 -1.19 -1.45  -3.17  -1.49
+2025-11-04 -2.20 -2.68 -0.96  -4.15  -5.31
+2025-11-11 -2.44 -1.32 -2.76  -4.92  -4.09
+2025-12-12  1.48 -0.57  0.87   2.36   2.25
+2026-02-04  2.20  4.74  4.79   4.50   1.89
+2026-02-27 -0.33  1.15  3.37   2.07   2.85
+2026-05-12  1.55  0.76 -0.73  -2.46  -0.12
+2026-06-04  2.39 -0.76 -1.93   0.91   1.97
+2026-07-16  1.21  3.48  3.70   1.41  -0.75
+2026-07-28  7.14  7.49  9.29  14.70  12.86
+
+LOSING episodes (7 of 19):
+               1     2     3     4     5
+2017-06-09  0.51 -0.45 -0.80 -1.14 -0.71
+2024-07-11  0.53 -1.23 -5.57 -3.25 -5.26
+2025-01-27 -0.23 -1.19 -1.45 -3.17 -1.49
+2025-11-04 -2.20 -2.68 -0.96 -4.15 -5.31
+2025-11-11 -2.44 -1.32 -2.76 -4.92 -4.09
+2026-05-12  1.55  0.76 -0.73 -2.46 -0.12
+2026-07-16  1.21  3.48  3.70  1.41 -0.75
+  by day 2 the median loser is already -1.19%

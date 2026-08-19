@@ -1,0 +1,54 @@
+
+h= 1  N=22
+  full          mean +0.458%  rec 13-9  vs pair base +0.009%
+  drop best 1   mean +0.141%  (dropped +7.14% on 2026-07-28)
+  drop best 2   mean +0.002%
+  ex-2026       mean -0.277%  N=14  rec 7-7  sign p=0.6047
+  2026 only     mean +1.745%  N=8
+  cost check (4 bps): full 11.5x  dropbest 3.5x  drop2 0.0x
+
+h= 2  N=21
+  full          mean +0.713%  rec 11-10  vs pair base +0.017%
+  drop best 1   mean +0.374%  (dropped +7.49% on 2026-07-28)
+  drop best 2   mean +0.144%
+  ex-2026       mean -0.420%  N=14  rec 5-9  sign p=0.9102
+  2026 only     mean +2.979%  N=7
+  cost check (4 bps): full 17.8x  dropbest 9.3x  drop2 3.6x
+
+h= 3  N=21
+  full          mean +0.889%  rec 12-9  vs pair base +0.025%
+  drop best 1   mean +0.468%  (dropped +9.29% on 2026-07-28)
+  drop best 2   mean +0.043%
+  ex-2026       mean -0.599%  N=14  rec 7-7  sign p=0.6047
+  2026 only     mean +3.863%  N=7
+  cost check (4 bps): full 22.2x  dropbest 11.7x  drop2 1.1x
+
+h= 5  N=19
+  full          mean +0.749%  rec 12-7  vs pair base +0.041%
+  drop best 1   mean +0.076%  (dropped +12.86% on 2026-07-28)
+  drop best 2   mean -0.113%
+  ex-2026       mean -0.343%  N=13  rec 8-5  sign p=0.2905
+  2026 only     mean +3.117%  N=6
+  cost check (4 bps): full 18.7x  dropbest 1.9x  drop2 -2.8x
+
+h= 7  N=18
+  full          mean +1.237%  rec 13-5  vs pair base +0.058%
+  drop best 1   mean +0.534%  (dropped +13.18% on 2026-07-28)
+  drop best 2   mean +0.260%
+  ex-2026       mean +0.564%  N=12  rec 9-3  sign p=0.0730
+  2026 only     mean +2.584%  N=6
+  cost check (4 bps): full 30.9x  dropbest 13.4x  drop2 6.5x
+
+h=10  N=17
+  full          mean +0.877%  rec 11-6  vs pair base +0.083%
+  drop best 1   mean +0.420%  (dropped +8.19% on 2026-06-04)
+  drop best 2   mean +0.052%
+  ex-2026       mean -0.154%  N=12  rec 7-5  sign p=0.3872
+  2026 only     mean +3.351%  N=5
+  cost check (4 bps): full 21.9x  dropbest 10.5x  drop2 1.3x
+
+
+########## TURN-ON ARITHMETIC (h=3, the best-looking horizon) ##########
+today N=21, record 12-9, drop-best mean +0.468%
+cell fires ~7x/yr in the current regime (7 subclass episodes in 2026 alone).
+  +3 new episodes, 3 winners -> N=24 rec 15-9 drop-best +0.512%  <-- first combination that clears

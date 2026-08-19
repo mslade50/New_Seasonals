@@ -170,3 +170,66 @@ def test_read_only_contract():
     for banned in ("strategy_config", "daily_scan", "strat_backtester",
                    "order_staging"):
         assert banned not in src, f"pitch_lab imports book module {banned}"
+
+
+# --- union-calendar hazard (found 2026-08-19) -------------------------------
+# close_panel returns a UNION calendar, so a ticker on a different exchange
+# calendar (CL=F trades some equity holidays) leaves NaN rows in every other
+# column. Two distinct failures came out of that on a live check: a raw
+# rolling(252).max() blanked 1,237 of 6,704 windows and cut XLE's 52-week-high
+# day count from 420 to 343, and pct_change's default pad fill shifted pct_rank
+# by up to 29.4 percentile points. Both are silent. These freeze the fix.
+
+@pytest.fixture()
+def holed(dates):
+    """A clean series and the same series with foreign-calendar holes."""
+    rng = np.random.default_rng(11)
+    s = pd.Series(100 * np.exp(np.cumsum(rng.normal(0, 0.01, len(dates)))),
+                  index=dates)
+    holes = dates[[37, 120, 121, 300]]
+    union = s.copy()
+    union.loc[holes] = np.nan
+    return s.drop(holes), union
+
+
+def test_rolling_on_valid_survives_calendar_holes(holed):
+    clean, union = holed
+    raw = union.rolling(60).max()
+    fixed = pl.rolling_on_valid(union, lambda x: x.rolling(60).max())
+    # the raw form loses whole windows; the fixed form loses only the holes
+    assert raw.notna().sum() < fixed.notna().sum()
+    # only the 59-day warmup is lost, not whole windows around each hole
+    assert fixed.notna().sum() == len(clean) - 59
+    # and it agrees with computing on the hole-free series directly
+    want = clean.rolling(60).max()
+    got = fixed.reindex(clean.index)
+    pd.testing.assert_series_equal(got, want, check_names=False)
+
+
+def test_pct_rank_is_calendar_invariant(holed):
+    """The same sessions must rank identically whether or not the caller's
+    index carries another instrument's trading days."""
+    clean, union = holed
+    a = pl.pct_rank(clean, 21).dropna()
+    b = pl.pct_rank(union, 21).reindex(clean.index).dropna()
+    assert len(a) > 100
+    pd.testing.assert_series_equal(a, b, check_names=False)
+
+
+def test_zscore_is_calendar_invariant(holed):
+    clean, union = holed
+    a = pl.zscore(clean).dropna()
+    b = pl.zscore(union).reindex(clean.index).dropna()
+    assert len(a) > 100
+    pd.testing.assert_series_equal(a, b, check_names=False)
+
+
+def test_pct_rank_does_not_pad_across_holes(holed):
+    """A hole must not become a synthetic zero-return session. With a 1-day
+    lookback the session after a hole has no defined return at all."""
+    clean, union = holed
+    r = pl.pct_rank(union, 1)
+    hole = union.index[union.isna()][0]
+    nxt = union.index[union.index.get_loc(hole) + 1]
+    assert pd.isna(r.loc[hole])
+    assert pd.isna(r.loc[nxt])

@@ -1,0 +1,26 @@
+=== (a) MATCHED-EPISODE VEHICLE TEST (short dollar, h=5) ===
+  matched episodes N=44 (UUP starts 2007-03-01)
+                    label  n  mean_pct  median_pct    hit     t  worst_pct  best_pct  sd_pct
+     short DXY SPOT index 44     0.131       0.106 52.273 0.877     -1.868     2.245   0.991
+short UUP (carry-bearing) 44     0.118       0.181 52.273 0.787     -1.954     2.247   0.992
+  spot MINUS carry-bearing vehicle = +0.013pp (1.3 bps), t=0.55, vehicle agrees on sign in 95.5% of episodes
+  -> the spot index carries NO interest differential; a short DX futures position pays it. Quoting the spot number overstates the tradeable edge by the gap above.
+  all-days control: short DXY spot -0.0234% vs short UUP -0.0378% (structural gap 1.4 bps / 5td)
+
+=== (b) era x rate-regime intersection (short DXY spot, h=5) ===
+                   label  n  mean_pct  median_pct    hit      t  worst_pct  best_pct  sd_pct   bps  sign_p
+rising yields & pre-2013  7     0.552       0.012 57.143  1.247     -0.638     2.203   1.171  55.2   0.500
+   rising yields & 2013+ 10     0.460       0.585 80.000  2.419     -0.779     1.209   0.601  46.0   0.055
+   rising yields & 2018+  6     0.186       0.232 66.667  0.743     -0.779     0.980   0.615  18.6   0.344
+  falling yields & 2013+ 18    -0.159      -0.395 33.333 -0.639     -1.868     1.671   1.053 -15.9   0.952
+  episode dates in 'rising yields & 2013+': 2013-06-10, 2013-08-01, 2017-05-15, 2017-07-14, 2018-01-11, 2018-09-11, 2022-01-11, 2025-03-27, 2026-04-29, 2026-07-30
+
+=== (c) the LIVE cell: DX rank<=15 (today 14.3) AND TNX 21d level change <=+0.15pt (today +0.108) ===
+                        label  n  mean_pct  median_pct    hit     t  worst_pct  best_pct  sd_pct  bps  sign_p
+LIVE cell, short DXY spot h=5 34     0.259       0.282 61.765 1.516      -1.82      1.99   0.998 25.9   0.115
+  episodes: 2002-05-13, 2003-01-10, 2004-10-21, 2006-01-26, 2007-09-20, 2008-03-06, 2009-04-06, 2010-07-29, 2010-09-23, 2012-02-07, 2012-06-29, 2012-08-06, 2012-09-06, 2012-12-14, 2015-02-25, 2015-04-28, 2015-06-18, 2015-09-10, 2016-03-17, 2016-08-17, 2017-05-15, 2017-07-17, 2018-01-12, 2018-09-14, 2019-10-21, 2019-12-16, 2020-05-20, 2020-06-19, 2020-08-11, 2020-12-01, 2025-03-27, 2025-05-01, 2026-04-30, 2026-08-05
+
+=== (d) SEARCH CHARGE, rotation permutation (preserves calendar + autocorrelation) ===
+  grid cells walked: 168 masks x 3 horizons = 504
+  pitched cell t=1.73 ranks 34 of 492 live cells (max in grid 3.04)
+  rotation permutation (300 draws, h=5 grid of 168): P(grid max t >= 1.73) = 0.810 ; median grid max t = 2.29

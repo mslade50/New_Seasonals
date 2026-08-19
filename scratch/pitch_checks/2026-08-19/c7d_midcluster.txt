@@ -1,0 +1,48 @@
+=== (a) MID-CLUSTER: the joint trigger has been ON for 1 consecutive sessions (today included) ===
+
+=== gold forward by position in the trigger run, h=1 (day-level, overlapping) ===
+                                   label   n  mean_pct  median_pct    hit      t  worst_pct  best_pct  sd_pct  sign_p
+h=1 day 1 of the run (the episode entry)  90     0.349       0.045 55.556  2.659     -5.217     3.675   1.246   0.171
+                            h=1 days 2-5 120     0.011       0.063 52.500  0.122     -3.157     3.254   0.990   0.324
+               h=1 days 6-15 (TODAY = 1)  80     0.101       0.125 55.000  0.670     -5.353     3.383   1.343   0.217
+                             h=1 day 16+  15    -0.367      -0.160 33.333 -1.304     -2.619     1.928   1.090   0.941
+
+=== gold forward by position in the trigger run, h=3 (day-level, overlapping) ===
+                                   label   n  mean_pct  median_pct  hit      t  worst_pct  best_pct  sd_pct  sign_p
+h=3 day 1 of the run (the episode entry)  90     0.543       0.559 60.0  2.888     -4.176     5.297   1.784   0.036
+                            h=3 days 2-5 120     0.077       0.059 52.5  0.467     -7.603     5.981   1.818   0.324
+               h=3 days 6-15 (TODAY = 1)  80     0.308       0.474 55.0  1.175     -6.447     5.702   2.343   0.217
+                             h=3 day 16+  15    -0.664      -0.900 40.0 -1.765     -2.750     2.773   1.458   0.849
+
+=== gold forward by position in the trigger run, h=5 (day-level, overlapping) ===
+                                   label   n  mean_pct  median_pct    hit      t  worst_pct  best_pct  sd_pct  sign_p
+h=5 day 1 of the run (the episode entry)  90     0.730       0.725 64.444  3.145     -7.790     7.248   2.201   0.004
+                            h=5 days 2-5 120     0.189       0.110 55.833  0.782     -7.582     8.294   2.642   0.118
+               h=5 days 6-15 (TODAY = 1)  80     0.311       0.530 53.750  0.950     -9.426     7.179   2.929   0.288
+                             h=5 day 16+  15    -0.577      -1.374 33.333 -1.148     -2.629     2.757   1.946   0.941
+
+=== (b) the gold-strength sub-cell answers differently depending on WHEN you decluster ===
+  h=3  A: decluster-then-split  N=15 mean +0.050% hit 53.3%   |   B: gate-then-decluster N=24 mean +0.677% hit 66.7%   (gap +0.626pp)
+  h=5  A: decluster-then-split  N=15 mean +0.068% hit 46.7%   |   B: gate-then-decluster N=24 mean +0.654% hit 58.3%   (gap +0.586pp)
+
+=== (c) gold's real live state, and the cell restricted to it ===
+  TODAY: GLD 398.55, 200d 412.74 (BELOW), 63d rank 30.6, -19.6% off the 252d high, 21d rank 77.0
+                                            label  n  mean_pct  median_pct  hit      t  worst_pct  best_pct  sd_pct  sign_p  edge_pp
+h=1 joint & GLD<200d & rank21>=75 (TODAY'S STATE)  4    -0.044      -0.247 25.0 -0.143     -0.522     0.841   0.609   0.938    -0.09
+                                            label  n  mean_pct  median_pct  hit     t  worst_pct  best_pct  sd_pct  sign_p  edge_pp
+h=3 joint & GLD<200d & rank21>=75 (TODAY'S STATE)  4     0.045       0.546 75.0 0.075     -1.749     0.837   1.204   0.312   -0.095
+   episodes: 2012-08-21, 2013-08-01, 2015-04-29, 2018-09-14
+                                            label  n  mean_pct  median_pct  hit     t  worst_pct  best_pct  sd_pct  sign_p  edge_pp
+h=5 joint & GLD<200d & rank21>=75 (TODAY'S STATE)  4     0.065      -0.006 50.0 0.566     -0.123     0.396   0.229   0.688   -0.168
+                                             label  n  mean_pct  median_pct  hit     t  worst_pct  best_pct  sd_pct  sign_p  edge_pp
+h=10 joint & GLD<200d & rank21>=75 (TODAY'S STATE)  4     2.497        2.99 75.0 2.029     -0.915     4.922   2.461   0.312    2.034
+
+=== (d) the map's 'gold is hot' is a 21d read; the 63d rank is 30.6 ===
+                          label  n  mean_pct  median_pct    hit     t  worst_pct  best_pct  sd_pct  sign_p
+             h=3 63d rank >= 60 24     0.186      -0.103 50.000 0.466     -3.166     4.286   1.958   0.581
+h=3 63d rank 30-60 (TODAY 30.6) 20     0.330       0.420 60.000 1.343     -2.267     2.265   1.099   0.252
+              h=3 63d rank < 30 19     0.356      -0.012 47.368 0.675     -2.864     5.297   2.298   0.676
+                          label  n  mean_pct  median_pct    hit     t  worst_pct  best_pct  sd_pct  sign_p
+             h=5 63d rank >= 60 24     0.231       0.187 54.167 0.571     -3.314     4.237   1.978   0.419
+h=5 63d rank 30-60 (TODAY 30.6) 20     0.827       0.812 65.000 2.066     -2.823     3.775   1.790   0.132
+              h=5 63d rank < 30 19     0.719       0.027 52.632 1.228     -2.815     7.248   2.554   0.500

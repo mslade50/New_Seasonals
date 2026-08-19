@@ -1,6 +1,6 @@
 {
- "generated": "2026-08-18 05:48:11",
- "asof": "2026-08-18",
+ "generated": "2026-08-19 05:10:49",
+ "asof": "2026-08-19",
  "rolling_60d": {
   "n": 4,
   "graded": 4,
@@ -71,7 +71,7 @@
   },
   "approved_vs_declined": null,
   "window_td": 60,
-  "since": "2026-05-21"
+  "since": "2026-05-22"
  },
  "lifetime": {
   "n": 4,

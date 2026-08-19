@@ -1137,3 +1137,178 @@ be live on 2026-08-12. (a2_c1_gate_attribution.py)
   the 2026-08-18 entry close to the 2026-08-31 month-end close is **9** sessions,
   not 8, and the encoding matters — the headline halves between h=8 and h=9.
   (a1_c1_monthend_divergence.py, a1b through a1h, r1, r2, r3)
+
+## Method traps (2026-08-19, from a 10-candidate sweep that killed all 10)
+
+- **The gate that IS the mechanism subtracts from the plain state underneath
+  it. FOUR cells died this way in one morning, which is the second consecutive
+  morning the pattern has repeated** (2026-08-18 called it "the loud state is
+  usually the poisoning conditioner"; this is the same thing stated as a gate
+  rather than as an extreme). The tally: the crude-at-a-63-day-floor gate takes
+  XLE at a fresh 52-week high from **+0.606% to -1.465%**, and every threshold
+  from 5 to 25 subtracts; the 63-day-rank momentum-turn gate takes a deep
+  drawdown from **+0.470% at h=21 (t=6.95) to -0.282%**; the index-near-a-high
+  gate takes a megacap washout down by **-0.306pp**; and the two gates defining
+  the semis-break cell move its number by **0.004pp** (+0.227% gate-off against
+  +0.231% gate-on). The generalisation is now strong enough to be a first move
+  rather than a round-2 probe: **run the cell gate-off BEFORE running it
+  gate-on.** If the parent is positive and the gate is negative, the candidate
+  is the parent minus a subtraction, and no story about the gate is admissible.
+- **Run the near-neighbour lookback ladder, not the far one.** Both macro cells
+  were maximal at exactly the pitched 21 sessions with every SHORTER neighbour
+  wrong-signed, and the near neighbours are where it showed: gold h=1 pays
+  10d **-0.059** / 13d **-0.178** / 15d **-0.044** / 18d **-0.134** / **21d
+  +0.457** / 25d +0.182 / 30d +0.252; the dollar h=5 pays 10d **-0.182** / 13d
+  **-0.080** / 15d **-0.079** / 18d **-0.013** / **21d +0.234** / 25d +0.168.
+  A 10/42/63 ladder would have shown decay and passed both. The 15-to-18-session
+  sign flip on the gold cell is the same rule stated two defensible ways, with
+  the wrong-signed side better populated (N=52 against 47).
+- **A magnitude story owes a dose response, and both of today's macro cells had
+  one running backwards.** The thesis in each was the SIZE of an unconfirmed
+  repricing, so the mechanism's own dial is testable directly: gold pays
+  **+0.432 / +0.384 / +0.225%** at yield-rise floors of +0.05 / +0.10 / +0.20pt,
+  i.e. LESS as the thing that is supposed to drive it gets bigger. That is a
+  falsification inside the window, not a power problem, and it is cheaper to run
+  than any robustness test.
+- **A rank gate buys an unknown magnitude, so quote the level the rank bought.**
+  Today's yield rank of 68.7 buys **+0.108pt** of 21-session yield thrust, the
+  **32.3rd percentile of the trigger distribution** - the rank sounds like a
+  strong state and the level is a weak one. Same trap on the other tail: ADBE's
+  63-day rank of 96.0 buys a 63-day return of **+2.9%** against a trigger-set
+  median of +21.9%. Pair every rank gate with a magnitude floor before believing
+  the state is what its name says.
+- **The denominator-roll warning is WORSE on the high tail than the low one.**
+  The t-63 roll-off dominates the day's own move on **61.8% of 19,274** trigger
+  name-days on the 63-day-rank-HIGH cross-section, against 37.3% measured on the
+  rank-LOW version on 2026-08-18. A 63-day rank is not a 63-day move on either
+  tail, and it is least a move where it looks most like a breakout.
+- **A full-sample percentile is lookahead and it can be the whole candidate.**
+  This morning's headline state, the one-day XLV-minus-XLK gap, is the **99.3rd
+  percentile of 6,729 sessions since 2000 and the 97.2nd of the trailing year**,
+  and the point-in-time rank does not clear the >=99 threshold the cell was built
+  on. Separately, `pitch_lab.pct_rank` computes the trailing rank of an n-day
+  PERCENT CHANGE, so calling it on a spread series that crosses zero is
+  meaningless; a first-pass C1 built that way returned a consistently negative
+  cell that the corrected version reversed at h=3. The reversal is itself the
+  finding: the cell's sign is a function of how "99th percentile" is defined.
+- **`close_panel` returns a UNION calendar, and `rolling(...).max()` silently
+  poisons every window containing a foreign-calendar NaN.** CL=F trades some
+  equity holidays, so the XLE column carried NaN rows and a 252-day rolling max
+  returned NaN for any window touching one - it reported "XLE is not at a
+  52-week high" on the session XLE closed exactly at one, and cut the
+  52-week-high day count from **419 to 342**. Compute rolling statistics on the
+  `.dropna()` series and reindex back. `pitch_lab.rolling_on_valid` now does
+  this; the `pct_rank` callers were already safe by accident.
+
+## Cells swept and empty (2026-08-19)
+
+- **The maximal one-day sector rotation, in all four expressions.** A 4.07pp
+  one-day XLV-minus-XLK gap is the largest fresh state on the tape and it is
+  empty in every direction. CONTINUATION (long XLV / short XLK) dies on leg
+  attribution: at its one positive horizon the long leg's excess over its own
+  drift is **+0.007pp** against the short leg's **-0.387pp**, so the pair is a
+  short-tech bet and 76% of that is short-beta, with the sign flipping
+  -/+/-/- across h=1/3/5/10. SNAP-BACK (long XLK / short XLV) is the positive
+  sign of the cell and dies on concentration: in the subclass matching today's
+  calm near-high tape the **top 2 episodes are 96% of the h=3 total and both
+  are 2026 prints**, ex-2026 is 7-7 at -0.599% and negative at 5 of 6 horizons,
+  the by-year table runs -1.33 (2024) / -1.08 (2025) / +3.86 (2026), and the
+  apparent midterm conditioner is that same cluster relabelled at 7 of 8
+  episodes. Beta-neutralising collapses h=1 from +1.187% to +0.180%. The INDEX
+  read dies on reference class: the pooled +0.498% at h=5 is a drawdown bounce
+  whose trigger days sit a median **5.96% below the 52-week high** against
+  today's 1.34%, and the near-high subclass excess is +0.016pp. Two things
+  worth keeping: the naked long XLK BEATS the pair at h=5 and h=7, so if
+  anything ever survives here it is not a pair trade; and the rotation trigger
+  did beat an ignorant "any big tech-down day in calm near-high tape" placebo
+  (-0.066 / +0.036 / -0.164 / +0.321 at h=1/2/3/5), which is the one test it
+  passed. Parked on the watchlist with an arithmetic turn-on.
+  (a1b_c1c2_fixed.py, a2_c3_round1.py, a4_round2_livedef.py,
+  a5_c2_subclass_dev.py, a5b_c2_dropbest.py, a6_c3_nearhigh_concentration.py)
+- **A megacap-growth complex breaking hard while the index holds.** The
+  candidate is its two gates and they are worth **0.004pp**: break-only, with
+  no index-holds and no falls-less-than-half condition, pays **+0.227% at h=5
+  against the three-condition cell's +0.231%**. The best cell in the whole grid
+  carries a Welch t of **+0.33** and inverts by era (pre-2018 -0.162%, 2018+
+  +0.805%), and the holds gate is a dial that produces any answer asked of it
+  (-1.0% gives +0.228% at h=3, -2.5% gives -0.059%). (a3_c5_round1.py)
+- **Short the semis complex into the August NVDA print, i.e. the inverted sign
+  of the 2026-08-14 long kill. The anti-rescue rule holds, and this is what it
+  looks like when it is enforced rather than asserted.** Three independent
+  kills. The placebo offset ladder puts the true anchor **14 of 16** at -0.134%
+  against a ladder mean of +1.083% (best is k=+4 at +2.963%), so the print is
+  decoration on late-August month position and the ladder is now **10-for-10**
+  in this registry. The all-months version of the identical gated state pays
+  the OPPOSITE sign over 25 episodes (**short -2.483%, t=-1.75, 7-18, sign p
+  0.9927**), which says the 14-observation August slice is the anomaly and the
+  08-14 long sign was right. And the gated cell's last instance is
+  **2017-08-02**, so the 2020+ era in which NVDA drives the complex - the
+  mechanism's own precondition - contributes **zero** observations. Minimum
+  search family is 4 print months x 2 eras x 2 signs = 16, Bonferroni 0.003125,
+  which no achievable record at N<=7 reaches. Replication note: the ungated
+  August long reproduces at -0.030% here against the -0.322% quoted on 08-14,
+  so the whole August-NVDA family is sensitive to the entry-lead definition.
+  (b1_c4_semis_short.py, b1b_c4_placebo_ladder.py)
+- **Long energy at a fresh 52-week high with crude at a 63-day floor, the
+  outright form of the spread killed on 2026-08-14.** The gate is an inverter:
+  plain XLE at a fresh 52-week high pays +0.606% over 70 episodes (only
+  +0.135pp over the all-days baseline, so the momentum state is thin to begin
+  with) and adding the crude floor takes it to **-1.465%**, with thresholds 5
+  through 25 subtracting **-5.691 / -2.190 / -2.071 / -1.782 / -1.540pp**. The
+  only bucket with a signature is crude **LEADING** at +1.551% and sign p 0.006,
+  the opposite state. Across 19 energy vehicles the gate adds for **2**, and
+  peer worst-episode windows run to -30.09%. Vehicle correction that matters
+  book-wide: **CL=F and USO agree on a "63-day rank <= 15" gate on 95.7% of
+  4,805 shared days and today sits in the disagreeing 4.3%** - CL=F reads 21.8
+  against USO's 6.0, and the gap is USO roll decay, which is exactly what the
+  barrel-at-a-floor state is supposed to mean. Read the front month before
+  believing an ETF's 63-day rank. (b2_c9_xle_high_crude_floor.py, b2b)
+- **A megacap at a 21-day return rank <= 5 while the index holds within 2% of
+  its 52-week high.** The alphabetical placebo is now **5-for-5**: on the same
+  868 trigger dates the four most-washed names pay **+0.122% market-relative at
+  h=10 against +0.342% for the four alphabetically-first** with no rank
+  condition, at a relative hit rate of 48.4%. The conditional name underperforms
+  its own drift by -0.216pp, the index-near-a-high gate subtracts -0.306pp
+  (rank<=5 while SPY is NOT near a high pays +0.774%), and the washout gradient
+  is backwards across eight buckets with the deepest the weakest (+0.416%
+  against +0.559% for the shallowest). Useful by-product: the state's historical
+  population is low-beta defensives (MRK 27, TJX 26, MO 25, VZ 24, PG 23), not
+  leaders breaking, so the cell does not contain the thing the thesis describes.
+  (b3_c10_megacap_washout.py)
+- **The rates-versus-dollar divergence, on the dollar and on gold. The first
+  cross-asset macro cell in this registry to PASS the bond-bull fossil test and
+  still die.** Both are magnitude stories with backwards dose responses (see
+  method traps) sitting on a 21-session knife edge, and both are search-priced:
+  rotation permutation over the 168-mask grid actually walked gives **P(grid max
+  t >= 1.73) = 0.810** for the dollar and **P(grid max t >= 2.06) = 0.937** for
+  gold. Three passes worth filing so the cell is parked rather than buried: the
+  secular rising-yield half, which is today's, pays **+0.498% at a 70.6% hit**
+  against +0.119% falling, so this is not a fossil; gate attribution is clean
+  both ways on the gold cell at h=1 and h=3 (joint +0.570 against TNX-alone
+  +0.216 and DX-alone -0.124); and day-1-of-run entries, which is today, pay
+  +0.543% (t=2.89) against +0.077% for days 2-5 and -0.664% at day 16+, so the
+  mid-cluster trap does not apply. **UUP-versus-DXY-spot is a COST problem and
+  not a signal problem**: matched episodes differ by 1.3 bps (t=0.55) with 95.5%
+  sign agreement and an all-days structural gap of 1.4 bps per 5td, so the
+  standing "UUP is dead" entry stands on drag alone and must not also claim the
+  vehicles disagree about the effect. Premise correction the map owed: "gold is
+  hot" was a 21-day read - GLD's 63-day rank is 30.6, it closed BELOW its 200d
+  and it is -19.6% off its 252-day high, i.e. a bounce inside a drawdown.
+  (c6_round1.py, c6b, c6c, c6e_lookback_fullpanel.py, c7_round1.py, c7b, c7c,
+  c7d_midcluster.py, c7f_h1_and_reopen.py, c67e_lookback_fine.py)
+- **The base-breakout cross-section: a 63-day rank >= 95 while still 15% or more
+  below the 52-week high.** Distinct from the 2026-08-18 laggard kill (that was
+  rank LOW) and it dies on the mirror-image defect. Deep drawdown ALONE is
+  positive at every horizon (+0.038 / +0.079 / +0.092 / +0.132 / +0.263 /
+  **+0.470% at h=21, t=6.95**); adding the momentum-turn gate makes it negative
+  at every one (**-0.076 / -0.132 / -0.160 / -0.080 / -0.176 / -0.282%**).
+  Everything positive belongs to the drawdown and the signal removes it. The
+  alphabetical placebo separates by +0.001 to +0.148pp with BOTH sides negative
+  (h=5: deepest-4 -0.365%, alphabetical-4 -0.411%, all qualifiers -0.398% at
+  t=-2.99), reference-class permutation gives **P(max name mean >= observed) =
+  1.000** across 182 names, and today's live staples/food slate is the worst cut
+  available at **-0.938% excess at h=5 over 148 episodes, 39.2% hit, sign p
+  0.997**. Book-overlap by-product: the book touches this state at 2.38x
+  enrichment and **72 of those 73 trades are Overbot Vol Spike, a SHORT** -
+  where the book meets a deep-drawdown name thrusting, it fades it.
+  (c8_round1.py, c8b_horizons_liveshape.py, c8c_book_overlap.py)
