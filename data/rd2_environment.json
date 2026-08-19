@@ -3,17 +3,17 @@
   "price_ctx": {
     "price": 767.4500122070312,
     "ret_12m": 0.2062080392374679,
-    "extension_200d": 0.09068885919592651,
+    "extension_200d": 0.09068886250723596,
     "drawdown": -0.013408228274684242,
-    "sma_200": 703.6378942871094,
+    "sma_200": 703.6378921508789,
     "high_52w": 777.8800048828125,
     "regime_label": "Extended uptrend, stretched above trend",
     "days_since_5pct": 94,
     "days_since_10pct": 330
   },
   "h_scores": {
-    "5d": 19.330222222222222,
-    "21d": 41.594489845197714,
+    "5d": 19.330222222222226,
+    "21d": 41.59448984519772,
     "63d": 82.25454075426418
   },
   "signals": {
@@ -25,7 +25,7 @@
     "VIX Range Compression": {
       "on": false,
       "detail": "",
-      "summary": "21d range: 43th pctile (fires below 15th) \u2014 VIX at 15.8"
+      "summary": "21d range: 44th pctile (fires below 15th) \u2014 VIX at 15.9"
     },
     "Defensive Leadership": {
       "on": false,
@@ -39,8 +39,8 @@
     },
     "Low Absorption Ratio": {
       "on": true,
-      "detail": "Absorption Ratio at 0.346 (7th percentile) \u2014 below 10th threshold. Sectors moving independently while SPY near 52w high \u2014 vol suppression through diversification. Historically precedes below-average forward returns.",
-      "summary": "AR: 0.346 (7th pctile, fires below 10th) \u2014 near high: yes"
+      "detail": "Absorption Ratio at 0.322 (3th percentile) \u2014 below 10th threshold. Sectors moving independently while SPY near 52w high \u2014 vol suppression through diversification. Historically precedes below-average forward returns.",
+      "summary": "AR: 0.322 (3th pctile, fires below 10th) \u2014 near high: yes"
     },
     "Seasonal Rank Divergence": {
       "on": false,
@@ -50,7 +50,7 @@
     "Dispersion": {
       "on": false,
       "detail": "",
-      "summary": "Composite pctile: 77th (fires above 85th) \u2014 component RV: 36.5% | SPY RV: 13.5%"
+      "summary": "Composite pctile: 77th (fires above 85th) \u2014 component RV: 36.4% | SPY RV: 13.5%"
     },
     "Equity P/C Complacency": {
       "on": false,
