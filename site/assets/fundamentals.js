@@ -224,15 +224,21 @@ function lensesHTML(lenses) {
 function auditHTML(audit) {
   const a = audit || {};
   const sources = (a.sources || []).filter(source => source && source.label);
+  const routes = Object.entries((a.research_funnel && a.research_funnel.routes) || {});
+  const stateHealth = a.state_health || {};
   return `<details class="fund-drawer"><summary>Research audit</summary>
     <div class="fund-audit-grid">
       <div><span>Discovered</span><strong>${Number(a.discovered || 0).toLocaleString()}</strong></div>
       <div><span>Eligible</span><strong>${Number(a.research_eligible || 0).toLocaleString()}</strong></div>
-      <div><span>Fundamentals covered</span><strong>${Number(a.fundamental_covered || 0).toLocaleString()}</strong></div>
-      <div><span>SEC tied out</span><strong>${Number(a.sec_covered || 0).toLocaleString()}</strong></div>
+      <div><span>Baseline-ready</span><strong>${Number(a.baseline_ready || a.fundamental_covered || 0).toLocaleString()}</strong></div>
+      <div><span>Deep-ready</span><strong>${Number(a.deep_ready || 0).toLocaleString()}</strong></div>
+      <div><span>Decision-ready</span><strong>${Number(a.decision_ready || 0).toLocaleString()}</strong></div>
+      <div><span>SEC packages</span><strong>${Number(a.sec_covered || 0).toLocaleString()}</strong></div>
     </div>
     ${sources.length ? `<p class="cap">Source vintages: ${sources.map(source => `${esc(source.label)} (${esc(source.as_of || "undated")})`).join(" · ")}</p>` : ""}
-    <p class="cap">The full candidate queue stays out of this page by design.</p>
+    ${routes.length ? `<p class="cap">Research routes: ${routes.map(([name, count]) => `${esc(name.replaceAll("_", " ").toLowerCase())} ${Number(count || 0).toLocaleString()}`).join(" / ")}</p>` : ""}
+    <p class="cap">State: controls ${esc(stateHealth.controls || "MISSING")} · triggers ${esc(stateHealth.triggers || "MISSING")} · evidence ${esc(stateHealth.evidence || "MISSING")} · portfolio ${esc(stateHealth.portfolio || "MISSING")}</p>
+    <p class="cap">SEC package presence is not a line-by-line filed-fact tie-out. The full candidate queue stays out of this page by design.</p>
   </details>`;
 }
 
@@ -257,9 +263,9 @@ function render(payload, state, mode, message) {
         <div class="fund-safety">Research controls only. Your clicks change what gets researched next; they never allocate capital or create orders.</div>
       </div>
       <div class="fund-cap-card" aria-label="Fundamental sleeve limits">
-        <div><strong>${esc(portfolio.position_count ?? 0)} / ${esc(portfolio.max_positions ?? 10)}</strong><span>positions</span></div>
-        <div><strong>${esc(portfolio.capital_allocated_pct ?? 0)}% / ${esc(portfolio.capital_cap_pct ?? 30)}%</strong><span>capital</span></div>
-        <small>Allocation stays manual</small>
+        <div><strong>${portfolio.position_count == null ? "—" : esc(portfolio.position_count)} / ${esc(portfolio.max_positions ?? 10)}</strong><span>positions</span></div>
+        <div><strong>${portfolio.capital_allocated_pct == null ? "—" : `${esc(portfolio.capital_allocated_pct)}%`} / ${esc(portfolio.capital_cap_pct ?? 30)}%</strong><span>capital</span></div>
+        <small>${esc(portfolio.tracking_posture || "Allocation stays manual")}</small>
       </div>
     </section>
 

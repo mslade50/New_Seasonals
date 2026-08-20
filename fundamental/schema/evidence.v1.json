@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "fundamental.evidence.v1",
+  "title": "Append-only fundamental claim and evidence ledger projection",
+  "type": "object",
+  "required": ["schema_version", "updated_at", "evidence"],
+  "properties": {
+    "schema_version": {"const": "fundamental-evidence.v1"},
+    "updated_at": {"type": "string", "format": "date-time"},
+    "evidence": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "evidence_id", "ticker", "claim_id", "claim", "direction",
+          "materiality", "observed_at", "source_id"
+        ],
+        "properties": {
+          "evidence_id": {"type": "string", "minLength": 3},
+          "ticker": {"type": "string", "minLength": 1},
+          "claim_id": {"type": "string", "minLength": 3},
+          "claim": {"type": "string", "minLength": 8},
+          "direction": {"enum": ["CONFIRM", "DISCONFIRM", "NEUTRAL"]},
+          "materiality": {"enum": ["CONTEXT", "MODEL_RELEVANT", "THESIS_CHANGING", "DECISION_CHANGING"]},
+          "observed_at": {"type": "string", "format": "date-time"},
+          "source_id": {"type": "string", "minLength": 1},
+          "contradiction_group": {"type": ["string", "null"]},
+          "new_since_last_run": {"type": "boolean"}
+        },
+        "additionalProperties": true
+      }
+    }
+  },
+  "additionalProperties": true
+}

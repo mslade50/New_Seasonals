@@ -1,0 +1,4 @@
+interface:
+  display_name: "Run Fundamental Sleeve"
+  short_description: "Operate the research-only equity sleeve"
+  default_prompt: "Use $run-fundamental-sleeve to run the daily fundamental-equity research process and surface only decision-ready reviews."

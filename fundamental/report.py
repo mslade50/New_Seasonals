@@ -10,6 +10,7 @@ from typing import Any
 import pandas as pd
 
 from .config import POLICY_VERSION
+from .underwrite import is_surfaceable_quick_review
 
 
 def _esc(value: Any) -> str:
@@ -37,23 +38,23 @@ def _num(value: Any, digits: int = 1) -> str:
 
 
 def _priority_class(priority: str) -> str:
-    if priority.startswith("A"):
+    if priority.startswith("A") or priority == "HYPOTHESIS_TEST":
         return "look"
-    if priority.startswith("B"):
+    if priority.startswith("B") or priority == "WATCH_FOR_CHANGE":
         return "watch"
-    if priority.startswith("C"):
+    if priority.startswith("C") or priority in {"BACKGROUND", "SPECIALIST_MODEL", "EVIDENCE_GAP"}:
         return "background"
     return "pass"
 
 
 def _short_status(priority: str) -> str:
-    if priority.startswith("A"):
+    if priority.startswith("A") or priority == "HYPOTHESIS_TEST":
         # A screen can prioritize diligence, but only a completed underwrite
         # may create a reader-facing QUICK REVIEW.
-        return "PRIORITY SCREEN"
-    if priority.startswith("B"):
+        return "HYPOTHESIS TEST"
+    if priority.startswith("B") or priority == "WATCH_FOR_CHANGE":
         return "KEEP DIGGING"
-    if priority.startswith("C"):
+    if priority.startswith("C") or priority in {"BACKGROUND", "SPECIALIST_MODEL", "EVIDENCE_GAP"}:
         return "BACKGROUND"
     return "PASS"
 
@@ -103,6 +104,7 @@ def render_candidate_report(
     quick_records = [
         record for record in underwrite_decisions
         if str(record.get("decision") or "").upper() == "QUICK_REVIEW"
+        and is_surfaceable_quick_review(record, decision_as_of=health.get("as_of"))
     ][:3]
     active_records = [
         record for record in underwrite_decisions
@@ -110,12 +112,16 @@ def render_candidate_report(
     ][:3]
     a_count = len(quick_records)
     b_count = len(active_records)
-    sec_loaded = int(candidates["source_posture"].str.startswith("Research-grade").sum()) if total else 0
+    sec_loaded = int(candidates["source_posture"].str.startswith("SEC package").sum()) if total else 0
     universe = health.get("universe") or {}
     discovered = int(universe.get("discovered", total))
     research_eligible = int(universe.get("research_eligible", total))
     fundamental_covered = int(universe.get("fundamental_covered", total))
     specialist_queue = int(universe.get("specialist_queue", 0))
+    coverage_depth = health.get("coverage_depth") or {}
+    baseline_ready = int(coverage_depth.get("baseline_ready", fundamental_covered))
+    deep_ready = int(coverage_depth.get("deep_ready", 0))
+    decision_ready = int(coverage_depth.get("decision_ready", a_count))
 
     if a_count:
         headline = f"{a_count} idea{'s' if a_count != 1 else ''} worth a quick check"
@@ -154,7 +160,7 @@ def render_candidate_report(
           <div class="one-line">{_esc(record.get('verdict'))}</div>
           <div class="decision-grid">
             <div><span>Why it may be mispriced</span><p>{_esc(record.get('mispricing'))}</p></div>
-            <div><span>What to review</span><p>{_esc(record.get('review_request') or record.get('next_review'))}</p></div>
+            <div><span>What to review</span><p>{_esc(record.get('review_request') or record.get('next_review_summary') or record.get('next_review'))}</p></div>
           </div>
           {link}
         </article>""")
@@ -171,7 +177,8 @@ def render_candidate_report(
             if ticker in tearsheet_links else ""
         )
         active_items.append(
-            f"<li><b>{_esc(ticker)}</b> — {_esc(record.get('verdict'))}{link}</li>"
+            f"<li><b>{_esc(ticker)}</b> — {_esc(record.get('verdict'))} "
+            f"<span class='muted'>{_esc(record.get('next_review_summary') or record.get('next_review'))}</span>{link}</li>"
         )
     active_details = (
         f'<details class="research-progress"><summary>Research in progress — optional ({len(active_items)})</summary>'
@@ -184,10 +191,31 @@ def render_candidate_report(
         ticker = str(row.get("ticker") or "").upper()
         table_rows.append(f"""
         <tr><td><b>{_esc(ticker)}</b><small>{_esc(row.get('company_name'))}</small></td>
-        <td>{_short_status(str(row.get('research_priority') or ''))}</td>
-        <td class="num">{_num(row.get('research_score'))}</td>
+        <td>{_short_status(str(row.get('research_route') or row.get('research_priority') or ''))}</td>
+        <td>{_esc(row.get('candidate_archetype'))}</td>
+        <td class="num">{_num(row.get('axis_business_quality'))}</td>
+        <td class="num">{_num(row.get('axis_valuation_support'))}</td>
+        <td class="num">{_num(row.get('axis_fundamental_change'))}</td>
         <td>{_esc(row.get('trend_state'))}</td><td>{_esc(row.get('sector'))}</td>
-        <td>{_esc(row.get('first_rejection'))}</td></tr>""")
+        <td>{_esc(row.get('primary_gate_reason') or row.get('first_rejection'))}</td></tr>""")
+
+    research_funnel = health.get("research_funnel") or {}
+    route_rows = "".join(
+        f"<tr><td>{_esc(str(name).replace('_', ' ').title())}</td><td class='num'>{int(count):,}</td></tr>"
+        for name, count in (research_funnel.get("routes") or {}).items()
+    )
+    gate_rows = "".join(
+        f"<tr><td>{_esc(str(name).replace('_', ' ').title())}</td><td class='num'>{int(count):,}</td></tr>"
+        for name, count in (research_funnel.get("primary_gates") or {}).items()
+    )
+    freshness = health.get("freshness") or {}
+    freshness_rows = "".join(
+        f"<tr><td>{_esc(str(name).replace('_', ' ').title())}</td>"
+        f"<td>{_esc(values.get('oldest_as_of'))}</td><td>{_esc(values.get('newest_as_of'))}</td>"
+        f"<td class='num'>{int(values.get('missing') or 0):,}</td>"
+        f"<td class='num'>{int(values.get('stale') or 0):,}</td></tr>"
+        for name, values in freshness.items() if isinstance(values, dict)
+    )
 
     source_rows = "".join(
         f"<tr><td>{_esc(x.get('source'))}</td><td>{_esc(x.get('as_of'))}</td>"
@@ -203,6 +231,19 @@ def render_candidate_report(
         for name, count in (universe.get("by_lane") or {}).items()
     )
     gaps = "".join(f"<li>{_esc(item)}</li>" for item in health.get("gaps", []))
+    event_health = health.get("research_event_state") or {}
+    control_health = health.get("research_control_state") or {}
+    portfolio_health = health.get("portfolio_context") or {}
+    state_rows = "".join([
+        f"<tr><td>Research controls</td><td>{_esc(control_health.get('status', 'MISSING'))}</td>"
+        f"<td>{int(control_health.get('action_count') or 0):,} active override(s)</td></tr>",
+        f"<tr><td>Trigger ledger</td><td>{_esc((event_health.get('trigger_ledger') or {}).get('file_status', 'MISSING'))}</td>"
+        f"<td>{int((event_health.get('trigger_ledger') or {}).get('fired') or 0):,} fired</td></tr>",
+        f"<tr><td>Evidence ledger</td><td>{_esc((event_health.get('evidence_ledger') or {}).get('file_status', 'MISSING'))}</td>"
+        f"<td>{int((event_health.get('evidence_ledger') or {}).get('material_rows') or 0):,} material change(s)</td></tr>",
+        f"<tr><td>Portfolio context</td><td>{_esc(portfolio_health.get('status', 'MISSING'))}</td>"
+        f"<td>{'conditional fit only' if not portfolio_health.get('available') else 'read-only snapshot loaded'}</td></tr>",
+    ])
 
     payload = {
         "policy_version": POLICY_VERSION,
@@ -227,7 +268,7 @@ main{{max-width:1050px;margin:auto;padding:36px 28px}}.eyebrow{{color:var(--mute
 .one-line{{font-size:16px;font-weight:700;margin:12px 0;border-top:1px solid var(--line);padding-top:12px}}.decision-grid{{display:grid;grid-template-columns:1fr 1fr;gap:18px}}.decision-grid span{{display:block;color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.5px;font-weight:750}}.decision-grid p{{margin-top:4px}}.deep-link{{display:inline-block;margin-top:10px;color:var(--blue);text-decoration:none;font-weight:750}}.deep-link:hover{{text-decoration:underline}}.empty{{padding:18px;background:var(--panel);border-radius:12px;color:var(--muted)}}
 .workflow{{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}}.workflow div{{background:var(--panel2);border-left:4px solid var(--blue);border-radius:8px;padding:13px}}.workflow b{{display:block;margin-bottom:3px}}
 .map-link{{display:flex;justify-content:space-between;align-items:center;gap:16px;margin-top:14px;padding:14px 16px;background:var(--panel);border:1px solid var(--line);border-radius:10px;color:var(--blue);text-decoration:none;font-weight:800}}.map-link span{{display:block;color:var(--muted);font-weight:400;font-size:13px}}.map-link:hover{{border-color:#4b6f99}}
-details{{margin-top:28px;background:rgba(18,27,46,.72);border:1px solid var(--line);border-radius:12px;padding:14px 17px}}summary{{cursor:pointer;font-weight:800;color:#c9d7e9}}.diag{{padding-top:10px}}.diag-grid{{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin:10px 0}}.diag-grid div{{background:var(--panel2);padding:10px;border-radius:7px}}.diag-grid b{{display:block;font-size:19px}}
+details{{margin-top:28px;background:rgba(18,27,46,.72);border:1px solid var(--line);border-radius:12px;padding:14px 17px}}summary{{cursor:pointer;font-weight:800;color:#c9d7e9}}.diag{{padding-top:10px}}.diag-grid{{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin:10px 0}}.diag-grid div{{background:var(--panel2);padding:10px;border-radius:7px}}.diag-grid b{{display:block;font-size:19px}}
 .two{{display:grid;grid-template-columns:1fr 1fr;gap:12px}}.panel{{background:var(--panel);padding:14px;border-radius:9px;overflow:auto}}table{{border-collapse:collapse;width:100%;min-width:760px}}table.compact{{min-width:0}}th{{text-align:left;font-size:10px;text-transform:uppercase;color:var(--muted);letter-spacing:.4px;padding:8px;border-bottom:1px solid var(--line)}}td{{padding:9px 8px;border-bottom:1px solid #22304a;vertical-align:top}}td.num{{text-align:right}}td small{{display:block}}ul{{padding-left:19px}}footer{{color:var(--muted);font-size:12px;margin-top:28px}}
 @media(max-width:760px){{main{{padding:24px 16px}}h1{{font-size:31px}}.decision-grid,.workflow,.diag-grid,.two{{grid-template-columns:1fr}}.idea-top{{display:block}}.status{{display:inline-block;margin-top:8px}}}}
 </style></head><body><main>
@@ -245,9 +286,13 @@ details{{margin-top:28px;background:rgba(18,27,46,.72);border:1px solid var(--li
 
 <details><summary>Research engine diagnostics — optional</summary><div class="diag">
 <p class="muted">The broad universe stays here for audit and debugging. It is not your daily reading list.</p>
-<section class="diag-grid"><div><b>{discovered:,}</b>discovered</div><div><b>{research_eligible:,}</b>eligible</div><div><b>{fundamental_covered:,}</b>covered</div><div><b>{sec_loaded:,}</b>SEC packages</div></section>
+<section class="diag-grid"><div><b>{discovered:,}</b>discovered</div><div><b>{research_eligible:,}</b>eligible</div><div><b>{baseline_ready:,}</b>baseline-ready</div><div><b>{deep_ready:,}</b>deep-ready</div><div><b>{decision_ready:,}</b>decision-ready</div><div><b>{sec_loaded:,}</b>SEC packages</div></section>
 <section class="two"><div class="panel"><b>By size</b><table class="compact"><tbody>{size_rows}</tbody></table></div><div class="panel"><b>By research lane</b><table class="compact"><tbody>{lane_rows}</tbody></table><small>{specialist_queue:,} require specialist scorecards.</small></div></section>
-<h2>Full candidate table</h2><div class="panel"><table><thead><tr><th>Company</th><th>Status</th><th>Score</th><th>Trend</th><th>Sector</th><th>First rejection</th></tr></thead><tbody>{''.join(table_rows)}</tbody></table></div>
+<h2>Operating state</h2><div class="panel"><table class="compact"><tbody>{state_rows}</tbody></table><small>Missing state reduces automation; it never means no events, no holdings, or permission to act.</small></div>
+<h2>Research funnel</h2><p class="muted">Routes and primary gates are mutually exclusive. They explain where the universe went; they are not buy signals.</p>
+<section class="two"><div class="panel"><b>By route</b><table class="compact"><tbody>{route_rows}</tbody></table></div><div class="panel"><b>Primary gate</b><table class="compact"><tbody>{gate_rows}</tbody></table></div></section>
+<h2>Per-security source freshness</h2><div class="panel"><table class="compact"><thead><tr><th>Source</th><th>Oldest</th><th>Newest</th><th>Missing</th><th>Stale</th></tr></thead><tbody>{freshness_rows}</tbody></table><small>SEC package presence is not a filed-fact reconciliation.</small></div>
+<h2>Full candidate table</h2><div class="panel"><table><thead><tr><th>Company</th><th>Route</th><th>Candidate archetype</th><th>Quality</th><th>Valuation</th><th>Change</th><th>Trend</th><th>Sector</th><th>Primary gate</th></tr></thead><tbody>{''.join(table_rows)}</tbody></table></div>
 <h2>Evidence gaps</h2><div class="panel"><ul>{gaps}</ul></div>
 <h2>Source register</h2><div class="panel"><table><thead><tr><th>Source</th><th>As of</th><th>Posture</th><th>Use</th></tr></thead><tbody>{source_rows}</tbody></table></div>
 </div></details>

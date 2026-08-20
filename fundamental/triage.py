@@ -8,6 +8,7 @@ import numpy as np
 import pandas as pd
 
 from .config import LOWER_IS_BETTER, SCORE_WEIGHTS, UNIVERSE_POLICY
+from .research_process import apply_research_routes
 from .schemas import validate_candidate_frame
 
 
@@ -53,14 +54,21 @@ def _rank_metric(frame: pd.DataFrame, metric: str, lower_is_better: bool) -> pd.
 
 
 def _trend_state(row: pd.Series) -> str:
-    needed = (row.get("above_sma200"), row.get("sma200_slope_20d"), row.get("return_12_1"), row.get("relative_return_12_1"))
+    needed = (
+        row.get("price"),
+        row.get("sma200"),
+        row.get("sma200_slope_20d"),
+        row.get("return_12_1"),
+        row.get("relative_return_12_1"),
+    )
     if any(pd.isna(x) for x in needed):
         return "UNKNOWN"
-    if bool(needed[0]) and needed[1] > 0 and needed[2] > 0 and needed[3] >= 0:
+    distance = float(needed[0]) / float(needed[1]) - 1.0 if float(needed[1]) else np.nan
+    if distance > 0 and needed[2] > 0 and needed[3] > 0 and needed[4] >= 0:
         return "GREEN"
-    if bool(needed[0]) or (needed[2] > 0 and needed[1] >= 0):
-        return "AMBER"
-    return "RED"
+    if distance < -0.05 and needed[2] < 0 and needed[4] < 0:
+        return "RED"
+    return "AMBER"
 
 
 def _first_rejection(row: pd.Series) -> str:
@@ -187,7 +195,7 @@ def score_candidates(
     frame["research_priority"] = frame.apply(priority, axis=1)
     frame["source_posture"] = np.where(
         pd.to_numeric(frame.get("sec_rows", 0), errors="coerce").fillna(0) > 0,
-        "Research-grade source set; security thesis still incomplete",
+        "SEC package present; reported facts are not yet line-by-line reconciled",
         "Preliminary provider-standardized data; SEC tie-out pending",
     )
     frame["actionability"] = "Research priority only — not approved for capital"
@@ -227,5 +235,6 @@ def score_candidates(
     frame["_priority_order"] = frame["research_priority"].map(order)
     frame = frame.sort_values(["_priority_order", "research_score"], ascending=[True, False])
     frame = frame.drop(columns="_priority_order").reset_index(drop=True)
+    frame = apply_research_routes(frame)
     validate_candidate_frame(frame)
     return frame
