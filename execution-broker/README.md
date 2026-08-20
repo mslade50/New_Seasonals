@@ -74,6 +74,6 @@ Dry-run previews require no live arming. For a watched live test, set matching
 `docs/site_execution_golive.md`. Turning either server switch off blocks new
 live commands.
 
-Risk-increasing live commands remain rejected in both Pages and broker policy
+Live commands that can increase or uncover exposure remain rejected in both Pages and broker policy
 even if those allowlists are changed. They require an atomic aggregate-risk
 reservation before arming can be implemented safely.

@@ -5,7 +5,7 @@
 
 export const HEARTBEAT_STALE_MS = 30_000;
 export const BOOK_STALE_MS = 90_000;
-export const COMMAND_POLICY_VERSION = "2026-08-20.2";
+export const COMMAND_POLICY_VERSION = "2026-08-20.3";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const COMMAND_TYPES = new Set([
@@ -101,12 +101,12 @@ export function validateBrokerCommand(cmd, {
     }
     if ([
       "entry_bracket", "scheduled_option", "option_spread",
-      "add_to_position", "trim_readd",
+      "add_to_position", "trim_readd", "close_only", "cancel", "modify",
     ].includes(cmd.type)) {
       return fail(
         403,
-        "risk-increasing live commands are disabled until the broker provides "
-          + "an atomic aggregate risk reservation",
+        "live commands that can increase or uncover exposure are disabled until "
+          + "the broker provides atomic aggregate risk reservation and protective-order validation",
       );
     }
     if (cmd.type === "cancel" && cmd.payload.scope === "symbol"

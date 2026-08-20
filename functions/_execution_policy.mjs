@@ -6,7 +6,7 @@
  */
 
 export const BOOK_STALE_MS = 90_000;
-export const POLICY_VERSION = "2026-08-20.2";
+export const POLICY_VERSION = "2026-08-20.3";
 
 export const COMMAND_TYPES = Object.freeze([
   "echo", "entry_bracket", "close_only", "flatten", "cancel", "modify",
@@ -553,12 +553,12 @@ export function validateCommandRequest(body, { env = {}, status = {}, book = nul
     if (riskError) return fail(403, riskError);
     if ([
       "entry_bracket", "scheduled_option", "option_spread",
-      "add_to_position", "trim_readd",
+      "add_to_position", "trim_readd", "close_only", "cancel", "modify",
     ].includes(body.type)) {
       return fail(
         403,
-        "risk-increasing live commands are disabled until the broker provides "
-          + "an atomic aggregate risk reservation",
+        "live commands that can increase or uncover exposure are disabled until "
+          + "the broker provides atomic aggregate risk reservation and protective-order validation",
       );
     }
   }

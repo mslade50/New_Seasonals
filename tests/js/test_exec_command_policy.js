@@ -161,7 +161,8 @@ const { pathToFileURL } = require("url");
       fraction: 0.5, order_type: "MKT", tif: "DAY", outside_rth: false,
     },
   }, { env: liveEnv });
-  assert.strictEqual(result.ok, true);
+  assert.strictEqual(result.ok, false);
+  assert.match(result.error, /protective-order validation/i);
 
   const mutationEnv = {
     ...liveEnv,
@@ -204,7 +205,8 @@ const { pathToFileURL } = require("url");
     ...modifyPrice,
     payload: { symbol: "SPY", perm_id: 901, order_id: 91, new_qty: 50 },
   }, { env: mutationEnv });
-  assert.strictEqual(result.ok, true);
+  assert.strictEqual(result.ok, false);
+  assert.match(result.error, /protective-order validation/i);
 
   // The fast row-action flatten omits tif/outside_rth and defaults agent-side.
   result = check({
@@ -227,6 +229,16 @@ const { pathToFileURL } = require("url");
   }, { env: liveEnv });
   assert.strictEqual(result.ok, false);
   assert.match(result.error, /symbol-wide cancel is disabled/i);
+
+  result = check({
+    id,
+    type: "cancel",
+    account: "primary",
+    dry_run: false,
+    payload: { scope: "order", symbol: "SPY", perm_id: 901, order_id: 91 },
+  }, { env: liveEnv });
+  assert.strictEqual(result.ok, false);
+  assert.match(result.error, /protective-order validation/i);
 
   const option = {
     id,
