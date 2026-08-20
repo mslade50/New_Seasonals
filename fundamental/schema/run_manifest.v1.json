@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "fundamental.run-manifest.v1",
+  "title": "Fundamental sleeve research run manifest",
+  "type": "object",
+  "required": [
+    "schema_version", "run_id", "as_of", "started_at", "completed_at",
+    "completion_status", "completion_scope", "investment_readiness",
+    "versions", "source_freeze", "coverage",
+    "decision_states", "qa", "research_only", "publishing_performed",
+    "live_actions_enabled"
+  ],
+  "properties": {
+    "schema_version": {"const": "fundamental-run-manifest.v1"},
+    "run_id": {"type": "string", "minLength": 8},
+    "as_of": {"type": "string", "format": "date"},
+    "started_at": {"type": "string", "format": "date-time"},
+    "completed_at": {"type": "string", "format": "date-time"},
+    "completion_status": {"enum": ["BUILT_AWAITING_VISUAL_QA", "COMPLETE", "FAILED"]},
+    "completion_scope": {"const": "OPERATIONAL_RUN_ONLY"},
+    "investment_readiness": {"enum": ["NO_DECISION_READY", "DECISION_READY_PRESENT"]},
+    "versions": {"type": "object"},
+    "source_freeze": {"type": "object"},
+    "coverage": {"type": "object"},
+    "decision_states": {"type": "object"},
+    "qa": {"type": "object"},
+    "research_only": {"const": true},
+    "publishing_performed": {"const": false},
+    "live_actions_enabled": {"const": false}
+  },
+  "additionalProperties": true
+}

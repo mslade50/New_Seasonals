@@ -1,0 +1,195 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "fundamental.underwrite.v2",
+  "title": "Decision-gated fundamental security underwrite",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "underwrite_id",
+    "ticker",
+    "as_of",
+    "decision",
+    "business_model_lane",
+    "idea_archetype",
+    "company_thesis_status",
+    "security_readiness",
+    "verdict",
+    "price_snapshot",
+    "variant_hypothesis",
+    "expectations",
+    "operating_model",
+    "valuation",
+    "realization",
+    "downside",
+    "proof_triggers",
+    "kill_conditions",
+    "red_team",
+    "evidence_ledger",
+    "sources",
+    "missing_evidence",
+    "next_review",
+    "review_request",
+    "live_actions_enabled"
+  ],
+  "properties": {
+    "schema_version": {"const": "fundamental-underwrite.v2"},
+    "underwrite_id": {"type": "string", "minLength": 8},
+    "ticker": {"type": "string", "minLength": 1},
+    "as_of": {"type": "string", "format": "date"},
+    "decision": {
+      "enum": ["QUICK_REVIEW", "WAIT_FOR_PROOF", "WAIT_FOR_EVENT", "PASS"]
+    },
+    "business_model_lane": {"type": "string", "minLength": 3},
+    "idea_archetype": {"type": "string", "minLength": 3},
+    "company_thesis_status": {
+      "enum": ["UNTESTED", "STRENGTHENING", "INTACT", "WATCH", "IMPAIRED", "BROKEN"]
+    },
+    "security_readiness": {
+      "enum": ["NOT_DECISION_GRADE", "WAIT_FOR_PROOF", "WAIT_FOR_PRICE", "REVIEW_READY", "REUNDERWRITE"]
+    },
+    "verdict": {"type": "string", "minLength": 12},
+    "price_snapshot": {
+      "type": "object",
+      "required": ["price", "currency", "as_of", "diluted_shares", "net_debt", "enterprise_value", "source_ids"],
+      "properties": {
+        "price": {"type": "number", "exclusiveMinimum": 0},
+        "currency": {"type": "string", "minLength": 3},
+        "as_of": {"type": "string", "format": "date"},
+        "diluted_shares": {"type": "number", "exclusiveMinimum": 0},
+        "net_debt": {"type": "number"},
+        "enterprise_value": {"type": "number"},
+        "source_ids": {"type": "array", "minItems": 1, "items": {"type": "string"}}
+      },
+      "additionalProperties": true
+    },
+    "variant_hypothesis": {
+      "type": "object",
+      "required": ["market_view", "variant_view", "why_market_wrong", "causal_chain", "time_horizon"],
+      "properties": {
+        "market_view": {"type": "string", "minLength": 12},
+        "variant_view": {"type": "string", "minLength": 12},
+        "why_market_wrong": {"type": "string", "minLength": 12},
+        "causal_chain": {"type": "array", "minItems": 2, "items": {"type": "string", "minLength": 5}},
+        "time_horizon": {"type": "string", "minLength": 3}
+      },
+      "additionalProperties": true
+    },
+    "expectations": {
+      "type": "object",
+      "required": ["implied_case", "guidance_bridge", "consensus_bridge", "estimate_status"],
+      "properties": {
+        "implied_case": {"type": "string", "minLength": 12},
+        "guidance_bridge": {"type": "string", "minLength": 8},
+        "consensus_bridge": {"type": "string", "minLength": 8},
+        "estimate_status": {"enum": ["CURRENT", "STALE", "UNAVAILABLE_EXPLAINED"]},
+        "estimate_snapshot_as_of": {"type": ["string", "null"], "format": "date"}
+      },
+      "additionalProperties": true
+    },
+    "operating_model": {
+      "type": "object",
+      "required": ["drivers"],
+      "properties": {
+        "drivers": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 5,
+          "items": {
+            "type": "object",
+            "required": ["name", "baseline", "thesis_case", "unit", "source_ids"]
+          }
+        }
+      },
+      "additionalProperties": true
+    },
+    "valuation": {
+      "type": "object",
+      "required": [
+        "primary_method", "secondary_method", "currency", "bear", "base", "bull",
+        "horizon_years", "reverse_expectations", "source_ids"
+      ],
+      "properties": {
+        "primary_method": {"type": "string"},
+        "secondary_method": {"type": "string"},
+        "currency": {"type": "string", "minLength": 3},
+        "bear": {"type": "number"},
+        "base": {"type": "number"},
+        "bull": {"type": "number"},
+        "horizon_years": {"type": "number", "exclusiveMinimum": 0},
+        "reverse_expectations": {"type": "string", "minLength": 12},
+        "source_ids": {"type": "array", "minItems": 1, "items": {"type": "string"}}
+      },
+      "additionalProperties": true
+    },
+    "realization": {
+      "type": "object",
+      "required": ["revision_signal", "observable_catalyst", "trend_state"],
+      "properties": {
+        "revision_signal": {"enum": ["POSITIVE", "REVERSING", "NEUTRAL", "NEGATIVE", "UNAVAILABLE"]},
+        "observable_catalyst": {"type": "boolean"},
+        "trend_state": {"enum": ["GREEN", "AMBER", "RED", "UNKNOWN"]}
+      },
+      "additionalProperties": true
+    },
+    "downside": {
+      "type": "object",
+      "required": ["mechanism", "financing_and_dilution", "bear_case"],
+      "properties": {
+        "mechanism": {"type": "string", "minLength": 12},
+        "financing_and_dilution": {"type": "string", "minLength": 8},
+        "bear_case": {"type": "string", "minLength": 8}
+      },
+      "additionalProperties": true
+    },
+    "proof_triggers": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["trigger_id", "metric", "comparator", "threshold", "expected_by", "source_ids"]
+      }
+    },
+    "kill_conditions": {
+      "type": "array",
+      "minItems": 2,
+      "items": {
+        "type": "object",
+        "required": ["condition_id", "metric", "comparator", "threshold", "consequence", "source_ids"]
+      }
+    },
+    "red_team": {
+      "type": "object",
+      "required": ["strongest_case", "evidence_ids", "unresolved_conflicts"]
+    },
+    "evidence_ledger": {
+      "type": "array",
+      "minItems": 3,
+      "items": {
+        "type": "object",
+        "required": ["evidence_id", "claim", "direction", "source_id", "materiality"]
+      }
+    },
+    "sources": {
+      "type": "array",
+      "minItems": 3,
+      "items": {
+        "type": "object",
+        "required": ["source_id", "label", "url", "source_type", "as_of", "primary", "use"]
+      }
+    },
+    "missing_evidence": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["item", "materiality", "blocker"]
+      }
+    },
+    "next_review": {
+      "type": "object",
+      "required": ["reason", "date_or_trigger"]
+    },
+    "review_request": {"type": "string", "minLength": 8},
+    "live_actions_enabled": {"const": false}
+  },
+  "additionalProperties": true
+}

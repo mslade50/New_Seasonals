@@ -6,6 +6,12 @@
 - Production private-site builds are cloud-only: run `.github/workflows/deploy_site.yml` in GitHub Actions, where authoritative inputs are downloaded from Cloudflare R2 and `scripts/validate_site_freshness.py` gates deployment.
 - Never build or deploy the production private site from local `data/` or `dist/`, and never use local generated artifacts as evidence of production freshness.
 
+## Mandatory Fundamental-Sleeve Skill
+
+- For every scheduled or ad hoc fundamental-equity sleeve run, coverage audit, candidate triage, company underwrite, research-state change, QUICK REVIEW decision, or change to the fundamental workflow, use `$run-fundamental-sleeve` from `.agents/skills/run-fundamental-sleeve/SKILL.md` before substantive work.
+- Invoke the Public Equity Investing router as directed by that skill. A broad screen may allocate research effort only; it must never create a recommendation or reader-facing review.
+- Keep the sleeve research-only. Never infer authority to allocate capital, stage or place an order, change broker or portfolio state, send a message, upload, publish, or deploy.
+
 ## Mandatory Workspace Hygiene
 
 - Concurrent tasks must use separate Git worktrees and branches. Create one with `scripts/new_task_worktree.ps1`; never let two agents share a working directory.

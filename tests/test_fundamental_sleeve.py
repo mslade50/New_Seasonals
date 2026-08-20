@@ -41,7 +41,7 @@ def test_policy_is_research_only_and_limits_are_coherent():
     assert SLEEVE_POLICY.live_actions_enabled is False
     assert BROAD_UNIVERSE_POLICY.min_market_cap < 2_000_000_000
     assert BROAD_UNIVERSE_POLICY.default_enrichment_batch <= BROAD_UNIVERSE_POLICY.max_enrichment_batch
-    assert policy_payload()["policy_version"] == "fundamental-sleeve.v1"
+    assert policy_payload()["policy_version"] == "fundamental-sleeve.v2"
 
 
 def test_daily_report_excludes_companies_that_left_current_universe():
@@ -177,7 +177,8 @@ def test_triage_advances_research_but_never_marks_a_trade_ready():
     assert top["research_score"] >= 80
     assert "not approved for capital" in top["actionability"].lower()
     assert candidates["implementation_readiness"].str.startswith("Not implementation-ready").all()
-    assert candidates["variant_wedge"].str.startswith("Unproven").all()
+    assert candidates["variant_wedge"].str.startswith("UNTESTED").all()
+    assert candidates["screen_can_surface_review"].eq(False).all()
 
 
 def test_specialist_sector_is_covered_without_a_misleading_general_score():
@@ -189,7 +190,7 @@ def test_specialist_sector_is_covered_without_a_misleading_general_score():
     assert row["research_lane"] == "financials_specialist"
     assert pd.isna(row["research_score"])
     assert row["hard_exclusion_reason"] == ""
-    assert "Baseline covered" in row["first_rejection"]
+    assert "Baseline is current" in row["first_rejection"]
     assert "capital and credit" in row["next_workflow"]
 
 
@@ -304,21 +305,14 @@ def test_screen_rank_alone_never_creates_user_quick_review(tmp_path):
     assert "Nothing needs your attention today" in text
     assert "<h2>Quick review</h2>" not in text
     assert "QUICK REVIEW" not in text
-    assert "PRIORITY SCREEN" in text
+    assert "HYPOTHESIS TEST" in text
     assert '"quick_review_count": 0' in text.replace("&quot;", '"')
 
 
-def test_completed_underwrite_controls_reader_facing_decision(tmp_path):
+def test_completed_underwrite_controls_reader_facing_decision(tmp_path, v2_underwrite_factory):
     candidates = score_candidates(_metric_universe(), _green_trends(), as_of="2026-08-04")
     ticker = str(candidates.iloc[0]["ticker"])
-    decisions = [{
-        "ticker": ticker,
-        "decision": "QUICK_REVIEW",
-        "as_of": "2026-08-04",
-        "verdict": "A completed underwrite found a defined expectations gap.",
-        "mispricing": "The market discounts a recoverable operating issue.",
-        "next_review": "Check the source-backed valuation and falsifier.",
-    }]
+    decisions = [v2_underwrite_factory(ticker=ticker, as_of="2026-08-04")]
     links = build_underwrite_pack(decisions, candidates, tmp_path / "underwrites")
     path = render_candidate_report(
         candidates,

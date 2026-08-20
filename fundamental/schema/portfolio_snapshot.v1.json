@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "fundamental.portfolio-snapshot.v1",
+  "title": "Manual read-only portfolio context",
+  "type": "object",
+  "required": ["schema_version", "as_of", "nav", "currency", "holdings", "source", "read_only"],
+  "properties": {
+    "schema_version": {"const": "fundamental-portfolio-snapshot.v1"},
+    "as_of": {"type": "string", "format": "date-time"},
+    "nav": {"type": "number", "exclusiveMinimum": 0},
+    "currency": {"type": "string", "minLength": 3},
+    "source": {"type": "string", "minLength": 3},
+    "read_only": {"const": true},
+    "holdings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["ticker", "weight_pct"],
+        "properties": {
+          "ticker": {"type": "string", "minLength": 1},
+          "weight_pct": {"type": "number", "minimum": 0},
+          "sleeve": {"type": ["string", "null"]}
+        },
+        "additionalProperties": true
+      }
+    }
+  },
+  "additionalProperties": true
+}

@@ -53,3 +53,128 @@ def survey(checks_root):
         return day
 
     return _survey
+
+
+@pytest.fixture()
+def v2_underwrite_factory():
+    """Build a fully decision-gated synthetic fundamental underwrite."""
+
+    def _build(ticker="AAA", decision="QUICK_REVIEW", as_of="2026-08-05"):
+        readiness = "REVIEW_READY" if decision == "QUICK_REVIEW" else "WAIT_FOR_PROOF"
+        return {
+            "schema_version": "fundamental-underwrite.v2",
+            "underwrite_id": f"uw-{ticker.lower()}-20260805",
+            "ticker": ticker,
+            "as_of": as_of,
+            "decision": decision,
+            "business_model_lane": "general_operating_company",
+            "idea_archetype": "quality_compounder",
+            "company_thesis_status": "INTACT",
+            "security_readiness": readiness,
+            "verdict": "A completed underwrite found a defined expectations gap.",
+            "price_snapshot": {
+                "price": 10.0,
+                "currency": "USD",
+                "as_of": as_of,
+                "diluted_shares": 100.0,
+                "net_debt": 0.0,
+                "enterprise_value": 1000.0,
+                "source_ids": ["price"],
+            },
+            "variant_hypothesis": {
+                "market_view": "The market expects the current margin pressure to persist.",
+                "variant_view": "The market discounts a recoverable operating issue.",
+                "why_market_wrong": "Temporary launch costs obscure improving customer economics.",
+                "causal_chain": [
+                    "Retention improves as the product cohort matures.",
+                    "Higher retention lifts contribution margin and owner earnings.",
+                ],
+                "time_horizon": "Two years",
+            },
+            "expectations": {
+                "implied_case": "The price implies no recovery in normalized owner earnings.",
+                "guidance_bridge": "Management guidance permits a measured margin recovery.",
+                "consensus_bridge": "Current consensus assumes only modest recovery.",
+                "estimate_status": "CURRENT",
+                "estimate_snapshot_as_of": as_of,
+            },
+            "operating_model": {
+                "drivers": [
+                    {"name": "Retention", "baseline": 90, "thesis_case": 93, "unit": "%", "source_ids": ["filing"]},
+                    {"name": "FCF margin", "baseline": 12, "thesis_case": 16, "unit": "%", "source_ids": ["release"]},
+                ]
+            },
+            "valuation": {
+                "primary_method": "driver_dcf",
+                "secondary_method": "reverse_dcf",
+                "currency": "USD",
+                "bear": 8.0,
+                "base": 14.0,
+                "bull": 18.0,
+                "horizon_years": 2.0,
+                "reverse_expectations": "The quote capitalizes flat owner earnings in perpetuity.",
+                "source_ids": ["price", "filing"],
+            },
+            "realization": {
+                "revision_signal": "POSITIVE",
+                "observable_catalyst": True,
+                "trend_state": "GREEN",
+            },
+            "downside": {
+                "mechanism": "Retention fails to improve and fixed costs keep margins compressed.",
+                "financing_and_dilution": "Net cash and a stable diluted share count limit financing risk.",
+                "bear_case": "The bear case values the unchanged earnings stream at USD 8 per share.",
+            },
+            "proof_triggers": [
+                {
+                    "trigger_id": "retention-proof",
+                    "metric": "Retention",
+                    "comparator": ">=",
+                    "threshold": 92,
+                    "unit": "%",
+                    "expected_by": "2026-11-05",
+                    "source_ids": ["release"],
+                }
+            ],
+            "kill_conditions": [
+                {
+                    "condition_id": "retention-break",
+                    "metric": "Retention",
+                    "comparator": "<",
+                    "threshold": 88,
+                    "unit": "%",
+                    "consequence": "Break the operating thesis.",
+                    "source_ids": ["filing"],
+                },
+                {
+                    "condition_id": "fcf-break",
+                    "metric": "FCF margin",
+                    "comparator": "<",
+                    "threshold": 10,
+                    "unit": "%",
+                    "consequence": "Re-underwrite normalized earnings and downside.",
+                    "source_ids": ["release"],
+                },
+            ],
+            "red_team": {
+                "strongest_case": "The apparent recovery may be mix and timing rather than durable retention.",
+                "evidence_ids": ["e3"],
+                "unresolved_conflicts": [],
+            },
+            "evidence_ledger": [
+                {"evidence_id": "e1", "claim": "Current security bridge", "direction": "NEUTRAL", "source_id": "price", "materiality": "HIGH"},
+                {"evidence_id": "e2", "claim": "Reported retention baseline", "direction": "CONFIRMING", "source_id": "filing", "materiality": "HIGH"},
+                {"evidence_id": "e3", "claim": "Margin pressure remains", "direction": "DISCONFIRMING", "source_id": "release", "materiality": "HIGH"},
+            ],
+            "sources": [
+                {"source_id": "price", "label": "Market close", "url": "https://example.com/price", "source_type": "MARKET_DATA", "as_of": as_of, "primary": False, "use": "Price and enterprise-value bridge."},
+                {"source_id": "filing", "label": "SEC filing", "url": "https://www.sec.gov/example", "source_type": "SEC_FILING", "as_of": as_of, "primary": True, "use": "Reported financials and share count."},
+                {"source_id": "release", "label": "Issuer release", "url": "https://example.com/release", "source_type": "ISSUER_RELEASE", "as_of": as_of, "primary": True, "use": "Guidance, KPI, and catalyst evidence."},
+            ],
+            "missing_evidence": [],
+            "next_review": {"reason": "Test the retention proof trigger.", "date_or_trigger": "2026-11-05 results"},
+            "review_request": "Choose READY LIST, WATCH, or PASS for research tracking only.",
+            "live_actions_enabled": False,
+        }
+
+    return _build
